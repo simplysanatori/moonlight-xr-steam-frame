@@ -55,7 +55,7 @@ tools/release.sh                 # tarball + SHA256SUMS in ~/Games/MoonlightXRNa
 | M4 in-VR UI | **Owner: "the whole in-VR UI looks good"** |
 | M3 gamepad mode | Wired; **owner's gamepad-tester run pending** |
 | M5 rooms, controller models, glow, click, supersample | Merged; **owner's headset run pending** (script in `M5_REPORT.md`) |
-| Keyboard (Full TKL, Hacker's Keyboard modifiers) + Start+Select+L2+R2 chord | Merged; **untested in the headset** |
+| Keyboard (Full TKL, Hacker's Keyboard modifiers) + Start+Select+L1+R1 chord | Merged; **untested in the headset** |
 | Flat Moonlight launcher | Merged, installed as the shortcut; **untested in the headset** (Game Mode display of the flat window, switch into VR and back) |
 | M6 realtime 3D | Merged; **owner's headset run pending** (script in `M6_REPORT.md`); see section 6 |
 | M7 hands, gaze, surround, headset-off, logging, report | Partly done: logging with rollover, report sheet + bug-report.sh, surround renderer exists (5.1/7.1 KEMAR, numerically tested, not heard yet). Open: see section 5 |
@@ -64,7 +64,7 @@ tools/release.sh                 # tarball + SHA256SUMS in ~/Games/MoonlightXRNa
 Owner-confirmed behaviour to keep:
 - Pointer: One Euro smoothing (min cutoff 1 Hz, beta 0.01); no click hold (the owner asked to remove it).
 - Physical Bluetooth keyboard (EXAMPLE0 Q1 Pro) works via evdev, grabbed while focused and streaming.
-- Exit from the VR bar ends the host's session (quit); the chord Start+Select+L2+R2 and, on a physical keyboard, Moonlight's own Ctrl+Alt+Shift+Q only disconnect (the game keeps running; the flat UI shows Resume). The flat UI's tip picks between them as stock does (gamepad connected or not).
+- Exit from the VR bar ends the host's session (quit); the chord Start+Select+L1+R1 and, on a physical keyboard, Moonlight's own Ctrl+Alt+Shift+Q only disconnect (the game keeps running; the flat UI shows Resume). The flat UI's tip picks between them as stock does (gamepad connected or not).
 - Default stream 2560x1440, 90 fps, 80 Mbps HEVC (the owner says 1440p needs ~80 Mbps).
 - Settings and defaults follow Moonlight XR (upstream `PreferenceConfiguration.java`, `MidasDepthSource.java`) unless the owner chose otherwise. The owner's own choices (2026-10-10): 3D on by default, supersample Normal, sharpening Off. Native deviations still in place: gaze and hand tracking off until tested on the Frame (M7), the pointer dot, the remembered 3D switch.
 
@@ -92,7 +92,7 @@ Merged 2026-10-10 (lane/m6 499b972). The whole chain runs headless on the Frame'
 
 - **Native Arm64 Linux only.** Do not use the old Lepton/Android install (`~/Games/MoonlightXR`), `~/PrimedGun-podman` or `~/Games/GalaxyQuest` as templates or references.
 - **Models.** The session runs on Opus 5.5 at effort `high` (raise to `xhigh` only for kernel/decoder/headset-freeze debugging). Fable is for planning only (expensive). For subagents: Opus where it clearly pays (core integration in `xr/` and the session/frame loop, Vulkan synchronisation, threading, headset debugging); Sonnet for self-contained ports, asset loaders, scripts, packaging, docs. Be mindful of usage limits; if an agent stops on a limit, resume it with SendMessage after the reset instead of starting over. Never run two agents on the same files at once; give each lane its own git worktree (`git worktree add ../lanes/<name> -b lane/<name> main`) and owned directories, and merge only after rerunning its tests yourself.
-- **Flat UI = stock Moonlight.** The launcher must stay exactly like moonlight-qt 6.1.0; every difference is listed in `launcher/REPORT.md`. Use Moonlight's own wording, e.g. "Tip: Press Start+Select+L2+R2 to disconnect your session" (Moonlight calls bumpers L1/R1 and triggers L2/R2).
+- **Flat UI = stock Moonlight.** The launcher must stay exactly like moonlight-qt 6.1.0; every difference is listed in `launcher/REPORT.md`. Use Moonlight's own wording, e.g. "Tip: Press Start+Select+L1+R1 to disconnect your session" (Moonlight calls bumpers L1/R1 and triggers L2/R2).
 - **In-VR UI = Moonlight XR.** Port upstream's code and assets (`ref/gilleece`, `ref/fork` for Frame-specific features only), keep upstream names and logic, mark native changes in comments.
 - **Verify before claiming.** STATUS.md separates hardware-confirmed from headless-tested. The owner is the only one who can see the headset.
 - **Safety.** No sudo/pacman/steamos-readonly; never restart Steam or SteamVR without asking; no launches against the owner's PC without the owner (read-only serverinfo/applist is fine); `--wake` sends Wake-on-LAN and is only used when asked.
@@ -107,7 +107,7 @@ STATUS.md, docs/lanes.md, docs/BUILD_PLAN.md, and the reports it lists, plus you
 files about this project. Then:
 1. Run ./build.sh and the test suite to confirm main is green.
 2. Ask me for my headset results on the flat launcher, M3 gamepad, M5 rooms/models/glow, M6 3D,
-   the Full keyboard and the Start+Select+L2+R2 chord (or tell me which test script to run),
+   the Full keyboard and the Start+Select+L1+R1 chord (or tell me which test script to run),
    and fix what I report.
 3. Then do HANDOFF.md section 5 items 2-5: Steam Frame controller models from SteamVR's
    rendermodels (as my Mario Kart Wii fork does), M6 follow-ups, M7, M8.

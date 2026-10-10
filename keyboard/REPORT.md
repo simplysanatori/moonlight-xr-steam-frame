@@ -11,7 +11,7 @@ headset (headless tests and snapshots only).
 | `xr/core/xr_kbfull.h/.c` (new, pure) | The 87-key TKL table (label, shifted label, Windows VK, extended flag, rectangle in key units; Backspace 2, Tab 1.5, Caps 1.75, Enter 2.25, Shift 2.25/2.75, Space 6.25, inverted-T arrows, Ins/Home/PgUp and Del/End/PgDn clusters) plus a "Compact" layout key where the numpad would end. `KbFull` state machine: `kbfPress/kbfRelease/kbfTick/kbfReleaseAll`; modifier bits `KBF_LSHIFT..KBF_RWIN` (left Ctrl/Alt/Win equal the old `KB_MOD_*`), `kbfLabel` (shifted symbol under Shift, capital under Shift xor Caps), `kbfModifierByte`. |
 | `xr/core/xr_padexit.h/.c` (new, pure) | Chord detector: Start + Back + LT and RT >= 204 (80 %); fires on the completing frame; re-arms only when Start, Back are up and both triggers under 128 (50 %). |
 | `stream/vr_keyboard.c/.h` | `vrkb_hold` now handles Shift, Ctrl, Alt, Win both sides (VK A0..A5, 5B, 5C; modifier byte from `kbfModifierByte`); `vrkb_type` takes `KBF_FLAG_DOWN` / `KBF_FLAG_UP` in `mods` for one key event (so a key can be held and repeat); `heldKey` is released by `vrkb_release_all` (stream end already calls it). Compact paths are byte-for-byte as before (m4_vrkb unchanged). |
-| `ui/panel_keyboard.c`, `ui/panels.h`, `ui/ui_strings.h` | `panelFull` draws the Full keyboard in the existing key style (lit = white cap, locked = blue cap + underline + dot, Caps = lit + green dot, arrows as shapes, labels shrink to fit); Compact gets a small "Full" chip in the half-key gap right of the home row (only when `UiView.kb_chip`, which the headset sets; the 44 keys and their rectangles are untouched). New `UiView` fields `kb_layout, kb_oneshot, kb_locked, kb_caps, kb_chip`, `UI_BTN_KB_LAYOUT`, `ui_kb_layout_chip_rect`, strings "Full", "Compact", "Disconnected: Start+Select+L2+R2". |
+| `ui/panel_keyboard.c`, `ui/panels.h`, `ui/ui_strings.h` | `panelFull` draws the Full keyboard in the existing key style (lit = white cap, locked = blue cap + underline + dot, Caps = lit + green dot, arrows as shapes, labels shrink to fit); Compact gets a small "Full" chip in the half-key gap right of the home row (only when `UiView.kb_chip`, which the headset sets; the 44 keys and their rectangles are untouched). New `UiView` fields `kb_layout, kb_oneshot, kb_locked, kb_caps, kb_chip`, `UI_BTN_KB_LAYOUT`, `ui_kb_layout_chip_rect`, strings "Full", "Compact", "Disconnected: Start+Select+L1+R1". |
 | `ui/settings.c/.h` | `[vr] keyboard_layout = compact\|full` (default compact), `keyboard_hold_ms = 500` (200..1500, the long-press lock time). |
 | `xr/xr_keyboard.h/.c` (new) | The input-side glue: `xrKeyboardFillTables` (kbKeyRects/kbCodes/kbKeyCount for the layout showing; Compact's chip is a 45th hit at `KB_KEY_LAYOUT`), `xrKeyboardPress`, `xrKeyboardFrame` (trigger release, long-press lock, repeat, release-all), `xrKeyboardSync`, `xrKeyboardSetLayout` (asks `IN_SETTING = SETTING_KEYBOARD_LAYOUT (61)` to be stored). While the report sheet is up the layout showing is Compact (its fields take characters); the choice is kept. |
 | `xr/xr_input.c` | 3 small edits: `pressKey` first asks `xrKeyboardPress`; `xrUpdateInput` calls `xrKeyboardSync` after the slots are cleared; `handBack` calls `xrKeyboardFrame` before it writes `IN_KB_MODS`. `kbKeyAt` is not touched in xr_input. |
@@ -19,8 +19,8 @@ headset (headless tests and snapshots only).
 | `xr/xr_panels.c` | table fill replaced by `xrKeyboardFillTables`; `buildView` passes layout/modifier state; the keyboard redraw key includes them. |
 | `xr/xr_prefs.c` | `kbfInit`, `keyboard_layout` and the hold time in `xrApplySettings`, back in `xrSettingsFromCtx`, `SETTING_KEYBOARD_LAYOUT` case first in `xrStoreSetting`. |
 | `xr/xr_renderer.h` | `KB_MAX_KEYS` 64 to 96, `KB_KEY_LAYOUT`, ctx fields `kbLayout, kbLayoutShown, kbFull`. |
-| `xr/xr_pad_bridge.c/.h` | `xrPadBridgeSetDisconnectHook(fn, user)`; on the chord frame the host gets the pad at rest (`padOutFrame` with `padRest`) and then `fn(user)` is called once, outside the bridge lock; the pad stays at rest until the chord is let go. Log line: "gamepad: Disconnected: Start+Select+L2+R2 (disconnect your session)". `xrPadBridgeStartWithSink` for tests. |
-| `app/launcher.c/.h` | `launcher_disconnect`: from a stream, state STOPPING, toast "Disconnected: Start+Select+L2+R2", `LCMD_STOP` with `quitHost 0` (then the existing `launcher_stream_ended` brings back the PC's app list); not in a stream: nothing; file mode: same as exit. |
+| `xr/xr_pad_bridge.c/.h` | `xrPadBridgeSetDisconnectHook(fn, user)`; on the chord frame the host gets the pad at rest (`padOutFrame` with `padRest`) and then `fn(user)` is called once, outside the bridge lock; the pad stays at rest until the chord is let go. Log line: "gamepad: Disconnected: Start+Select+L1+R1 (disconnect your session)". `xrPadBridgeStartWithSink` for tests. |
+| `app/launcher.c/.h` | `launcher_disconnect`: from a stream, state STOPPING, toast "Disconnected: Start+Select+L1+R1", `LCMD_STOP` with `quitHost 0` (then the existing `launcher_stream_ended` brings back the PC's app list); not in a stream: nothing; file mode: same as exit. |
 | `xr/CMakeLists.txt`, `xr/core/CMakeLists.txt` | the new sources, `tests/keyboard`. |
 | `tests/keyboard/` (new) | see below. |
 
@@ -37,7 +37,7 @@ Keyboard: nothing. Chord: three additions.
 ```c
 #include "xr_pad_bridge.h"          // with the other includes
 
-// next to uiHook: the gamepad chord Start+Select+L2+R2 (frame thread)
+// next to uiHook: the gamepad chord Start+Select+L1+R1 (frame thread)
 static void padDisconnectHook(void* user) {
     (void)user;
     pthread_mutex_lock(&g_lock);
@@ -85,7 +85,7 @@ Snapshots: `ninja -C build-kb kb-snapshots` (also run by `ui-snapshots`) writes
 5. Ctrl then C / V (copy, paste); Win then R (Run dialog); Ctrl, Alt, Del; Ctrl+Shift+Esc (Task Manager). Try right-hand Ctrl/Alt/Win.
 6. Lock Ctrl, close the keyboard with Hide (or press empty space): on the PC Ctrl must not be stuck (click a link: no new tab).
 7. Press "Compact" (right of Enter): Compact returns. Quit and relaunch the app: it opens the layout you last used (`keyboard_layout` in config.ini).
-8. Gamepad mode (controllers as a pad): hold Start (right menu) + Back (left view) + both triggers past 80 %: the stream drops, a toast "Disconnected: Start+Select+L2+R2", the app list shows the PC with the game still running; open it again to resume. Start+Select alone, or the triggers alone, do nothing.
+8. Gamepad mode (controllers as a pad): hold Start (right menu) + Back (left view) + both bumpers (L1, R1; owner 2026-10-10, as Moonlight): the stream drops, a toast "Disconnected: Start+Select+L1+R1", the app list shows the PC with the game still running; open it again to resume. Start+Select alone, or the triggers alone, do nothing.
 
 ## Added 2026-10-10: Ctrl+Alt+Shift+Q
 Moonlight's own keyboard disconnect combo (moonlight-qt `KeyComboQuit`, any side's Ctrl, Alt and Shift with Q, matched by scancode) on a physical keyboard while it is forwarding: the Q is not sent, every held key is released on the host, then `launcher_disconnect_keys` leaves the stream with the host's session kept (exit code 11 to the flat UI), toast "Disconnected: Ctrl+Alt+Shift+Q". The headset keyboard does not take it (stock has no on-screen keyboard). Headset check: stream Desktop, hold Ctrl+Alt+Shift on the EXAMPLE0 and press Q: the stream drops, the toast shows, and the flat UI offers Resume.
