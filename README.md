@@ -42,7 +42,7 @@ Logs: `~/Games/MoonlightXRNative/moonlight.log` (the previous run is kept as `mo
 
 ## Controls (current)
 
-- Point with either controller; the trigger clicks
+- Point with the controller; the trigger clicks
 - Right controller A: right click. Left controller d-pad down: right click
 - Thumbstick: scroll
 - A Bluetooth keyboard is forwarded to the host while the app is focused and streaming

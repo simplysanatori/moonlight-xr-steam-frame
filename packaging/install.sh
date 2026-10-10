@@ -41,6 +41,7 @@ if [ -x "$HERE/app/moonlight-xr" ]; then          # unpacked release
     PAY="$HERE/app"; ASSETS="$PAY/assets"; WRAPPER="$PAY/moonlight-xr.sh"
     CLI="$PAY/mlxr-cli"; MAIN="$PAY/moonlight-xr"; HELLO=""
     SEEDDIR="$PAY"; CEFPY="$HERE/steam_cef.py"; DOCS="$HERE"
+    BUGREPORT="$PAY/bug-report.sh"; PROBE="$PAY/docs/probe/SUMMARY.md"
     [ -z "$ART" ] && [ -d "$HERE/art" ] && ART="$HERE/art"
 else                                              # source checkout
     MODE=source
@@ -48,6 +49,7 @@ else                                              # source checkout
     ASSETS="$SRC/assets"; WRAPPER="$HERE/moonlight-xr.sh"
     CLI="$BUILD/backend/mlxr-cli"; MAIN="$BUILD/moonlight-xr"; HELLO="$BUILD/hello/mlxr-hello"
     SEEDDIR="$SRC/backend"; CEFPY="$HERE/steam_cef.py"; DOCS="$SRC"
+    BUGREPORT="$SRC/tools/bug-report.sh"; PROBE="$SRC/docs/probe/SUMMARY.md"
     [ -z "$ART" ] && [ -d "$HERE/art" ] && ART="$HERE/art"
 fi
 [ -x "$MAIN" ] || { echo "no moonlight-xr binary at $MAIN (run ./build.sh first)"; exit 1; }
@@ -66,6 +68,12 @@ else
     install -m755 "$SEEDDIR/seed-from-moonlight-qt.sh" "$DEST/seed-from-moonlight-qt.sh"
     install -m644 "$SEEDDIR/seed_moonlight_qt.py" "$DEST/seed_moonlight_qt.py"
     echo "  seed-from-moonlight-qt.sh"
+    install -m755 "$BUGREPORT" "$DEST/bug-report.sh"
+    if [ -f "$PROBE" ]; then mkdir -p "$DEST/docs/probe"; install -m644 "$PROBE" "$DEST/docs/probe/SUMMARY.md"; fi
+    echo "  bug-report.sh"
+    if [ "$MODE" = release ]; then [ -f "$PAY/VERSION" ] && install -m644 "$PAY/VERSION" "$DEST/VERSION"
+    else git -C "$SRC" describe --tags --always --dirty > "$DEST/VERSION" 2>/dev/null || true; fi
+    [ -f "$DEST/VERSION" ] && echo "  VERSION ($(cat "$DEST/VERSION"))"
     # mirror assets/, so files removed from a newer release do not linger
     if command -v rsync >/dev/null; then
         rsync -a --delete "$ASSETS/" "$DEST/assets/"

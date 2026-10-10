@@ -1,0 +1,83 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # only used to attach the tarball to a release on a v* tag
+
+jobs:
+  linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0        # git describe needs the tags
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang lld cmake ninja-build pkg-config python3 \
+            glslc libvulkan-dev \
+            libavcodec-dev libavformat-dev libswscale-dev libavutil-dev \
+            libssl-dev libcurl4-openssl-dev libxml2-dev \
+            libopus-dev libpulse-dev libpipewire-0.3-dev libdrm-dev \
+            libwayland-dev libx11-dev libxcb1-dev libxxf86vm-dev libxrandr-dev \
+            libgl-dev libegl-dev libwayland-bin wayland-protocols
+
+      # LiteRT is built outside the tree by depth/tools/build-litert.sh
+      # (about 12 minutes); keep the result between runs. The key changes
+      # when the script does.
+      - name: Cache LiteRT
+        id: litert
+        uses: actions/cache@v4
+        with:
+          path: ~/Games/MoonlightXRNative/third-party-build/litert/dist
+          key: litert-${{ runner.arch }}-${{ hashFiles('depth/tools/build-litert.sh') }}
+
+      - name: Build LiteRT
+        if: steps.litert.outputs.cache-hit != 'true'
+        run: JOBS=4 ./depth/tools/build-litert.sh
+
+      - name: Build
+        run: JOBS=4 ./build.sh
+        env:
+          SKIP_AUDIT: '1'       # the ldd audit compares against SteamOS packages
+
+      # Left out of CI:
+      #   audio_pulse      needs a PulseAudio server
+      #   video_*          need /dev/video-dec0 (Qualcomm Iris) and the generated sample clips
+      #   shaders_*        need a Vulkan device (Turnip on the Frame; the runner has none)
+      # Everything else runs on the CPU: backend (fake Sunshine host on localhost),
+      # xrcore, ui, depth (LiteRT, CPU), the other audio tests, stream_evkbd.
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j2 -E '^(audio_pulse|video_|shaders_)'
+
+      - name: Release tarball
+        run: |
+          mkdir -p dist
+          OUT=dist NO_VERIFY=1 ./tools/release.sh
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moonlight-xr-native-linux-arm64
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Attach to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS

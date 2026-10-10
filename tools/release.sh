@@ -39,12 +39,14 @@ strip_to "$BUILD/backend/mlxr-cli" "$ROOT/app/mlxr-cli"
 install -m755 packaging/moonlight-xr.sh "$ROOT/app/moonlight-xr.sh"
 install -m755 backend/seed-from-moonlight-qt.sh "$ROOT/app/seed-from-moonlight-qt.sh"
 install -m644 backend/seed_moonlight_qt.py "$ROOT/app/seed_moonlight_qt.py"
+install -m755 tools/bug-report.sh "$ROOT/app/bug-report.sh"
+mkdir -p "$ROOT/app/docs/probe" && install -m644 docs/probe/SUMMARY.md "$ROOT/app/docs/probe/SUMMARY.md"
 cp -a assets "$ROOT/app/assets"
 install -m755 packaging/install.sh "$ROOT/install.sh"
 install -m644 packaging/steam_cef.py "$ROOT/steam_cef.py"
 [ -d packaging/art ] && cp -a packaging/art "$ROOT/art"
 for f in README.md LICENSE.txt CREDITS.md; do install -m644 "$f" "$ROOT/$f"; done
-echo "$VER" > "$ROOT/VERSION"
+echo "$VER" > "$ROOT/VERSION"; cp "$ROOT/VERSION" "$ROOT/app/VERSION"
 
 EPOCH="$(git log -1 --format=%ct)"
 ( cd "$TMP/stage" && tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$EPOCH" -cf - MoonlightXRNative ) \
