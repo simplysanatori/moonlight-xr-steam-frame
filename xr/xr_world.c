@@ -448,8 +448,10 @@ static void loadControllerModel(XrCtx* ctx) {
     xrWorldQueueUpload(ctx, VK_NULL_HANDLE, VK_NULL_HANDLE, NULL, m);
     ctx->model = m;
     ctx->modelReady = 1;
-    LOGEV("controller model ready: %u vertices, %u triangles, %.0f KB, %.1f ms, %s (the generic controller: "
-          "no Steam Frame model ships)", m->vertexCount, m->indexCount / 3, m->gpuBytes / 1024.0, m->loadMs,
+    // Native: which model it is, the Steam Frame's pair or the generic one
+    LOGEV("controller model ready: %s from %s: %u vertices, %u triangles, %.0f KB, %.1f ms, %s",
+          m->perHand ? "Frame per-hand controllers" : "generic controller (no Frame models found, mirrored for "
+          "the left hand)", m->source, m->vertexCount, m->indexCount / 3, m->gpuBytes / 1024.0, m->loadMs,
           ctx->modelOn ? "shown" : "off for now");
 }
 

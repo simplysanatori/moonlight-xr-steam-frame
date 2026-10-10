@@ -237,6 +237,13 @@ typedef struct MlxrModelParams {
     VkBuffer vertices;     // MLXR_MODEL_VERTEX_FLOATS floats a vertex
     VkBuffer indices;
     uint32_t indexCount;
+    // Moonlight XR Native: perHand 0 (zeroed params): one mesh drawn for both
+    // hands, indexCount of it. perHand 1: each hand its own range of the
+    // buffers (first index, index count, vertex offset in vertices).
+    int perHand;
+    uint32_t handFirstIndex[2];
+    uint32_t handIndexCount[2];
+    int32_t handVertexOffset[2];
     int eyes;
     float viewProj[2][16];
     VkRect2D eyeRect[2];
