@@ -73,6 +73,8 @@ typedef struct Input {
     int triggerDown[HANDS], altDown[HANDS];
     int active; // pointing hand
     int lastX, lastY;
+    int hit;          // the pointing ray meets the screen this frame
+    float hitU, hitV; // where, 0..1 across and down
     float scrollAccum;
 } Input;
 
@@ -252,6 +254,9 @@ static void inputUpdate(Input* in, XrSession session, XrSpace local, XrTime t, c
         (loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) &&
         (loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT))
         hit = hitScreen(loc.pose, cfg->screenDistance, cfg->screenWidth, screenH, &u, &v);
+    in->hit = hit;
+    in->hitU = u;
+    in->hitV = v;
     if (hit && videoW > 0 && hk->pointer) {
         int x = (int)(u * (videoW - 1) + 0.5f), y = (int)(v * (videoH - 1) + 0.5f);
         if (x != in->lastX || y != in->lastY) hk->pointer(hk->user, x, y, videoW, videoH);
@@ -551,6 +556,100 @@ static void videoRecord(const XrVk* vk, Video* vd, VkCommandBuffer cmd, const AV
     vd->uploads++;
 }
 
+// ------------------------------------------------------------------ pointer dot
+
+#define DOT_PX 64
+
+// A small static swapchain holding a white dot with a dark rim, filled once
+// by a buffer copy; shown as a quad on the screen where the ray lands.
+static XrSwapchain makeDot(const XrVk* vk, XrSession session, int64_t format, VkCommandBuffer cmd, VkFence fence) {
+    XrSwapchainCreateInfo ci = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
+    ci.createFlags = XR_SWAPCHAIN_CREATE_STATIC_IMAGE_BIT;
+    ci.usageFlags = XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+    ci.format = format;
+    ci.sampleCount = 1;
+    ci.width = ci.height = DOT_PX;
+    ci.faceCount = ci.arraySize = ci.mipCount = 1;
+    XrSwapchain sc = XR_NULL_HANDLE;
+    if (XR_FAILED(xrCreateSwapchain(session, &ci, &sc))) {
+        // Some runtimes refuse static images; fall back to an ordinary swapchain.
+        ci.createFlags = 0;
+        if (XR_FAILED(xrCreateSwapchain(session, &ci, &sc))) return XR_NULL_HANDLE;
+    }
+    uint32_t count = 0;
+    XrSwapchainImageVulkan2KHR imgs[8];
+    xrEnumerateSwapchainImages(sc, 0, &count, NULL);
+    if (count > 8) count = 8;
+    for (uint32_t i = 0; i < count; i++) imgs[i] = (XrSwapchainImageVulkan2KHR){XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR};
+    xrEnumerateSwapchainImages(sc, count, &count, (XrSwapchainImageBaseHeader*)imgs);
+
+    VkBuffer buf = VK_NULL_HANDLE;
+    VkDeviceMemory mem = VK_NULL_HANDLE;
+    VkBufferCreateInfo bi = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bi.size = DOT_PX * DOT_PX * 4;
+    bi.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    vkCreateBuffer(vk->device, &bi, NULL, &buf);
+    VkMemoryRequirements req;
+    vkGetBufferMemoryRequirements(vk->device, buf, &req);
+    VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    ai.allocationSize = req.size;
+    ai.memoryTypeIndex = xr_vk_memory_type(vk, req.memoryTypeBits,
+                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    vkAllocateMemory(vk->device, &ai, NULL, &mem);
+    vkBindBufferMemory(vk->device, buf, mem, 0);
+    uint8_t* px = NULL;
+    vkMapMemory(vk->device, mem, 0, VK_WHOLE_SIZE, 0, (void**)&px);
+    int bgra = format == VK_FORMAT_B8G8R8A8_SRGB;
+    for (int y = 0; y < DOT_PX; y++)
+        for (int x = 0; x < DOT_PX; x++) {
+            float dx = (x + 0.5f) / DOT_PX * 2 - 1, dy = (y + 0.5f) / DOT_PX * 2 - 1;
+            float r = sqrtf(dx * dx + dy * dy);
+            float a = fminf(fmaxf((1.0f - r) * DOT_PX * 0.5f, 0.0f), 1.0f);    // anti-aliased edge
+            float core = fminf(fmaxf((0.62f - r) * DOT_PX * 0.5f, 0.0f), 1.0f); // white inside, dark rim
+            float c = core * 1.0f + (1 - core) * 0.08f;
+            uint8_t v = (uint8_t)(c * a * 255.0f + 0.5f); // premultiplied
+            uint8_t* o = px + (y * DOT_PX + x) * 4;
+            o[0] = o[1] = o[2] = v;
+            o[3] = (uint8_t)(a * 255.0f + 0.5f);
+            (void)bgra;
+        }
+
+    for (uint32_t i = 0; i < (ci.createFlags ? 1u : count); i++) {
+        uint32_t idx;
+        XrSwapchainImageAcquireInfo aq = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+        xrAcquireSwapchainImage(sc, &aq, &idx);
+        XrSwapchainImageWaitInfo wi = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+        wi.timeout = XR_INFINITE_DURATION;
+        xrWaitSwapchainImage(sc, &wi);
+        vkWaitForFences(vk->device, 1, &fence, VK_TRUE, UINT64_MAX);
+        vkResetFences(vk->device, 1, &fence);
+        vkResetCommandBuffer(cmd, 0);
+        VkCommandBufferBeginInfo cbi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        vkBeginCommandBuffer(cmd, &cbi);
+        VkImage img = imgs[idx].image;
+        xr_vk_image_barrier(cmd, img, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                            VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        VkBufferImageCopy rg = {0, 0, 0, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {0, 0, 0}, {DOT_PX, DOT_PX, 1}};
+        vkCmdCopyBufferToImage(cmd, buf, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &rg);
+        xr_vk_image_barrier(cmd, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
+                            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        vkEndCommandBuffer(cmd);
+        VkSubmitInfo si = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        si.commandBufferCount = 1;
+        si.pCommandBuffers = &cmd;
+        vkQueueSubmit(vk->queue, 1, &si, fence);
+        vkWaitForFences(vk->device, 1, &fence, VK_TRUE, UINT64_MAX);
+        XrSwapchainImageReleaseInfo rl = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+        xrReleaseSwapchainImage(sc, &rl);
+    }
+    vkUnmapMemory(vk->device, mem);
+    vkDestroyBuffer(vk->device, buf, NULL);
+    vkFreeMemory(vk->device, mem, NULL);
+    MLOG_I("pointer dot ready (%s swapchain)", ci.createFlags ? "static" : "ordinary");
+    return sc;
+}
+
 // ------------------------------------------------------------------ run
 
 static void onSignal(int s) {
@@ -629,6 +728,7 @@ int xr_app_run(const XrAppConfig* cfg) {
     VkCommandPool pool = VK_NULL_HANDLE;
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     VkFence fence = VK_NULL_HANDLE;
+    XrSwapchain dot = XR_NULL_HANDLE;
     if (xr_vk_create(g_inst, system, NULL, 0, &vk)) goto fail;
 
     XrGraphicsBindingVulkan2KHR gb = {XR_TYPE_GRAPHICS_BINDING_VULKAN2_KHR};
@@ -670,6 +770,8 @@ int xr_app_run(const XrAppConfig* cfg) {
     VkFenceCreateInfo fci = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     VK_TRY(vkCreateFence(vk.device, &fci, NULL, &fence));
+
+    dot = makeDot(&vk, session, format, cmd, fence);
 
     PFN_xrGetDisplayRefreshRateFB getRate = NULL;
     if (haveRate) xrGetInstanceProcAddr(g_inst, "xrGetDisplayRefreshRateFB", (PFN_xrVoidFunction*)&getRate);
@@ -768,7 +870,8 @@ int xr_app_run(const XrAppConfig* cfg) {
         av_frame_free(&f);
 
         XrCompositionLayerQuad quad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
-        const XrCompositionLayerBaseHeader* layers[1];
+        XrCompositionLayerQuad dotq = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+        const XrCompositionLayerBaseHeader* layers[2];
         uint32_t nl = 0;
         if (fs.shouldRender && vd.shown) {
             quad.space = local;
@@ -779,6 +882,19 @@ int xr_app_run(const XrAppConfig* cfg) {
             quad.pose.position.z = -cfg->screenDistance;
             quad.size = (XrExtent2Df){cfg->screenWidth, screenH};
             layers[nl++] = (const XrCompositionLayerBaseHeader*)&quad;
+            if (dot && in.hit && state == XR_SESSION_STATE_FOCUSED) {
+                dotq.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                dotq.space = local;
+                dotq.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                dotq.subImage.swapchain = dot;
+                dotq.subImage.imageRect.extent = (XrExtent2Di){DOT_PX, DOT_PX};
+                dotq.pose.orientation.w = 1;
+                dotq.pose.position.x = (in.hitU - 0.5f) * cfg->screenWidth;
+                dotq.pose.position.y = (0.5f - in.hitV) * screenH;
+                dotq.pose.position.z = -cfg->screenDistance + 0.005f;
+                dotq.size = (XrExtent2Df){0.03f, 0.03f};
+                layers[nl++] = (const XrCompositionLayerBaseHeader*)&dotq;
+            }
         }
         XrFrameEndInfo fei = {XR_TYPE_FRAME_END_INFO};
         fei.displayTime = fs.predictedDisplayTime;
@@ -806,6 +922,7 @@ fail:
     if (vk.device) vkDeviceWaitIdle(vk.device);
     if (vk.device) {
         videoFreeSized(&vk, &vd);
+        if (dot) xrDestroySwapchain(dot);
         if (vd.pipe) vkDestroyPipeline(vk.device, vd.pipe, NULL);
         if (vd.layout) vkDestroyPipelineLayout(vk.device, vd.layout, NULL);
         if (vd.pool) vkDestroyDescriptorPool(vk.device, vd.pool, NULL);
