@@ -1,0 +1,40 @@
+// Moonlight XR Native: one streaming session over moonlight-common-c. GPLv3.
+#pragma once
+#include <Limelight.h>
+#include <stdint.h>
+
+#include "frame_slot.h"
+
+typedef struct StreamOptions {
+    int width, height, fps;
+    int bitrateKbps;
+    int allowHevc;          // offer HEVC 8-bit as well as H.264
+    int audioConfiguration; // AUDIO_CONFIGURATION_* (stereo for now)
+    int remote;             // STREAM_CFG_LOCAL / REMOTE / AUTO
+} StreamOptions;
+
+// Fills a STREAM_CONFIGURATION, including a fresh remote-input AES key and IV
+// (the launch request sends them to the host as rikey / rikeyid).
+void stream_make_config(const StreamOptions* opt, STREAM_CONFIGURATION* cfg);
+
+typedef struct StreamHost {
+    const char* address;
+    const char* appVersion;   // serverinfo appversion
+    const char* gfeVersion;   // may be NULL
+    const char* rtspUrl;      // from the launch/resume response, may be NULL
+    int codecModeSupport;     // serverinfo ServerCodecModeSupport
+} StreamHost;
+
+// Starts the stream; decoded video goes to `video`. audio may be NULL (no sound).
+// Returns 0 on success.
+int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* video,
+                 PAUDIO_RENDERER_CALLBACKS audio, void* audioContext);
+void stream_stop(void);
+int stream_running(void);   // 1 while connected
+int stream_failed(void);    // 1 once the connection has terminated or failed
+
+// Input from the frame loop (no-ops when not connected).
+void stream_pointer(int x, int y, int w, int h);
+void stream_button(int button, int down);
+void stream_scroll(int amount);
+void stream_stats(char* buf, int len);
