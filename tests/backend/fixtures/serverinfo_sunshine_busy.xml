@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root status_code="200"><hostname>DESKTOP-EXAMPLE</hostname><appversion>7.1.431.-1</appversion><GfeVersion>3.23.0.74</GfeVersion><uniqueid>EXAMPLE0-example-id1-F307-92C54E613C61</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>48000</ExternalPort><ExternalIP>203.0.113.7</ExternalIP><MaxLumaPixelsHEVC>0</MaxLumaPixelsHEVC><mac>00:00:00:00:00:00</mac><LocalIP>127.0.0.1</LocalIP><ServerCodecModeSupport>259</ServerCodecModeSupport><PairStatus>0</PairStatus><currentgame>881448767</currentgame><state>SUNSHINE_SERVER_BUSY</state></root>
