@@ -14,11 +14,16 @@ static const char* g_dir;
 static int g_over;
 
 static void shot(Scene* s, const char* name, const char* stats) {
+    xrPanelsStats(s->ctx, &(int){ 0 }, &(double){ 0 });
     scene_frame(s, stats);
+    int draws = 0;
+    double ms = 0.0;
+    xrPanelsStats(s->ctx, &draws, &ms);
     char path[600];
     snprintf(path, sizeof(path), "%s/%s.png", g_dir, name);
     int quads = scene_render(s, 1600, 1200, 84.0f, path);
-    printf("%-22s %2u layers (%d quads) -> %s\n", name, s->out.count, quads, path);
+    printf("%-22s %2u layers (%d quads), %d panel drawings %.1f ms avg -> %s\n", name, s->out.count, quads, draws,
+           ms, path);
     if (s->out.count > 16) g_over = 1;
 }
 
