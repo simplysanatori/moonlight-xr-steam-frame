@@ -392,6 +392,37 @@ static void testInitFailures(void) {
     ar.cleanup();
 }
 
+// No sound server: the stream still runs (silently) instead of failing the connection
+static void testNoServer(void) {
+    setenv("PULSE_SERVER", "unix:/nonexistent/mlxr-pulse-socket", 1);
+    AUDIO_RENDERER_CALLBACKS ar;
+    mlxr_opus_out_callbacks(&ar);
+    OPUS_MULTISTREAM_CONFIGURATION oc;
+    mlxr_layout_fill(2, &oc);
+    MlxrOpusOutConfig cfg;
+    mlxr_opus_out_config_default(&cfg);  // no capture hook: tries PulseAudio
+    CHECK(ar.init(AUDIO_CONFIGURATION_STEREO, &oc, &cfg, 0) == 0);
+    ar.start();
+    int err;
+    OpusMSEncoder* enc = opus_multistream_encoder_create(RATE, 2, 1, 1, oc.mapping,
+                                                         OPUS_APPLICATION_RESTRICTED_LOWDELAY, &err);
+    float in[240 * 2] = {0};
+    unsigned char pkt[400];
+    int len = opus_multistream_encode_float(enc, in, 240, pkt, sizeof pkt);
+    for (int i = 0; i < 10; i++) {
+        ar.decodeAndPlaySample((char*) pkt, len);
+    }
+    MlxrOpusOutStats st;
+    mlxr_opus_out_stats(&st);
+    CHECK(st.sinkDead == 1);
+    CHECK(st.running == 0);
+    CHECK(st.packets == 10);
+    ar.stop();
+    ar.cleanup();
+    opus_multistream_encoder_destroy(enc);
+    unsetenv("PULSE_SERVER");
+}
+
 int main(void) {
     rec.cap = 100 * 480;
     rec.tap = (float*) calloc((size_t) rec.cap * MAXCH, sizeof(float));
@@ -408,5 +439,6 @@ int main(void) {
     testTenMs();
     testRuntimeControls();
     testInitFailures();
+    testNoServer();
     return checksDone("audio_opus");
 }

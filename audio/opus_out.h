@@ -92,7 +92,7 @@ typedef struct {
     int channels;            // 2, 6 or 8
     int surroundActive;      // 1 when HRTF rendering is in use right now
     int muted;
-    int running;             // init done and sink alive
+    int running;             // init done and sink alive (0 once the PulseAudio server is gone)
     int sinkDead;            // the PulseAudio server went away
     int taps;                // HRTF taps (0 without surround)
     char kernel[8];          // "FFT" / "direct" / ""

@@ -25,6 +25,7 @@ static struct {
     MlxrSurround* surround;
     MlxrPulseOut* sink;
     int initialised;
+    int noSink;                     // PulseAudio could not be opened
     int started;
     int mutedApplied;               // audio-thread view of the mute state
 
@@ -113,6 +114,10 @@ static void snapshot(MlxrOpusOutStats* out) {
         out->sinkDead = ps.dead;
         out->running = out->running && !ps.dead;
     }
+    if (O.noSink) {
+        out->sinkDead = 1;
+        out->running = 0;
+    }
 }
 
 void mlxr_opus_out_stats(MlxrOpusOutStats* out) {
@@ -161,6 +166,7 @@ static int rendererInit(int audioConfiguration, const POPUS_MULTISTREAM_CONFIGUR
         mlxr_opus_out_configure(&def);
     }
     const MlxrOpusOutConfig* cfg = &O.cfg;
+    O.noSink = 0;
     int channels = oc->channelCount;
     if (channels != 2 && channels != 6 && channels != 8) {
         fprintf(stderr, "audio: unsupported channel count %d\n", channels);
@@ -226,9 +232,10 @@ static int rendererInit(int audioConfiguration, const POPUS_MULTISTREAM_CONFIGUR
         char msg[200] = "";
         O.sink = mlxr_pulse_out_open(&pp, msg, sizeof msg);
         if (O.sink == NULL) {
-            fprintf(stderr, "audio: PulseAudio unavailable: %s\n", msg);
-            teardown();
-            return -4;
+            // The stream plays on without sound rather than failing the whole
+            // connection; stats().sinkDead says so
+            fprintf(stderr, "audio: PulseAudio unavailable (%s), streaming without sound\n", msg);
+            O.noSink = 1;
         }
     }
     resetCounters();
