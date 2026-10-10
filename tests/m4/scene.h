@@ -14,6 +14,13 @@ typedef struct Scene {
     XrLauncherView launcher;
     UiPcItem pcs[6];
     UiAppItem apps[7];
+    // M5 (tests/m5): images other than the atlas the layers name, looked up
+    // first: a quad's swapchain (the glow, the picture) at u, v, and a
+    // projection layer's pixel x, y of the picture being composed (the room
+    // and the models, drawn from the same eye). Premultiplied; 0 falls back.
+    void* hookUser;
+    int (*quadTexel)(void* user, XrSwapchain sc, float u, float v, float out[4]);
+    int (*projTexel)(void* user, const XrCompositionLayerProjection* layer, int x, int y, float out[4]);
 } Scene;
 
 // A context as the session builds it, with settings' defaults, a CPU atlas,

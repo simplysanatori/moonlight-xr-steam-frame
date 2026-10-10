@@ -885,6 +885,10 @@ typedef struct XrCtx {
     // when nothing records), the serial its submission signals and the last
     // one the GPU has finished, and where the rooms and the model are read from
     struct MlxrPasses* passes;
+    // Native: no session to make swapchains in (the tests, the snapshot
+    // tool): the room and the models come up without their swapchains and
+    // are drawn through xrRoomRecord / xrModelRecord into the caller's images
+    int offscreen;
     VkCommandBuffer frameCmd;
     uint64_t gpuSerial;
     uint64_t gpuDone;

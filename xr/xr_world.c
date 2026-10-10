@@ -565,7 +565,7 @@ int xrWorldGlowShown(XrCtx* ctx) {
 }
 
 void xrWorldFlatGlow(XrCtx* ctx, int curved) {
-    if (curved || !xrWorldGlowShown(ctx) || ctx->glowCopied || ctx->frameCmd == VK_NULL_HANDLE) {
+    if (curved || !xrWorldGlowShown(ctx) || ctx->glowCopied || ctx->frameCmd == VK_NULL_HANDLE || ctx->offscreen) {
         return;
     }
     if (ctx->glowSwapchain == XR_NULL_HANDLE) {

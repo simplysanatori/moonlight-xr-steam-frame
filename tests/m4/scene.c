@@ -127,6 +127,21 @@ int scene_render(Scene* s, int w, int h, float hfovDeg, const char* path) {
     int drawn = 0;
     for (uint32_t li = 0; li < s->out.count; li++) {
         const XrCompositionLayerBaseHeader* base = s->out.order[li];
+        if (base->type == XR_TYPE_COMPOSITION_LAYER_PROJECTION && s->projTexel != NULL) {
+            const XrCompositionLayerProjection* pl = (const XrCompositionLayerProjection*)base;
+            int blendP = (pl->layerFlags & XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT) != 0;
+            drawn++;
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    float texel[4];
+                    if (!s->projTexel(s->hookUser, pl, x, y, texel)) continue;
+                    float* o = &acc[((size_t)y * w + x) * 3];
+                    float keep = blendP ? 1.0f - texel[3] : 0.0f;
+                    for (int k = 0; k < 3; k++) o[k] = texel[k] + o[k] * keep;
+                }
+            }
+            continue;
+        }
         if (base->type != XR_TYPE_COMPOSITION_LAYER_QUAD) {
             continue;
         }
@@ -149,7 +164,10 @@ int scene_render(Scene* s, int w, int h, float hfovDeg, const char* path) {
                 float u = l.x / q->size.width + 0.5f, v = 0.5f - l.y / q->size.height;
                 if (u < 0 || u > 1 || v < 0 || v > 1) continue;
                 float texel[4];
-                if (q->subImage.swapchain == SCENE_VIDEO_SWAPCHAIN) {
+                if (s->quadTexel != NULL && s->quadTexel(s->hookUser, q->subImage.swapchain, u, v, texel)) {
+                    // the hook's image
+                }
+                else if (q->subImage.swapchain == SCENE_VIDEO_SWAPCHAIN) {
                     videoTexel(u, v, texel);
                 }
                 else {

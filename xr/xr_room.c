@@ -475,7 +475,7 @@ static int initRoom(XrCtx* ctx) {
     if (ctx->roomReady) {
         return 1;
     }
-    if (ctx->roomFailed || ctx->session == XR_NULL_HANDLE || ctx->passes == NULL) {
+    if (ctx->roomFailed || (ctx->session == XR_NULL_HANDLE && !ctx->offscreen) || ctx->passes == NULL) {
         return 0;
     }
     ctx->roomFailed = 1;
@@ -486,11 +486,13 @@ static int initRoom(XrCtx* ctx) {
     worldEyeSize(ctx, &eyeW, &eyeH);
 
     // Side by side, the same arrangement the video swapchain uses in stereo
-    if (!createArtSwapchain(ctx, eyeW * ROOM_EYES, eyeH, "create room swapchain", &ctx->roomSwapchain,
-                            &ctx->roomImages, &ctx->roomImageViews, &ctx->roomImageCount)) {
-        return 0;
+    if (!ctx->offscreen) {
+        if (!createArtSwapchain(ctx, eyeW * ROOM_EYES, eyeH, "create room swapchain", &ctx->roomSwapchain,
+                                &ctx->roomImages, &ctx->roomImageViews, &ctx->roomImageCount)) {
+            return 0;
+        }
+        LOGEV("swapchains alive %d with the room's", ctx->swapchainsAlive);
     }
-    LOGEV("swapchains alive %d with the room's", ctx->swapchainsAlive);
     // Native: the pipeline built now rather than on the first draw
     mlxr_passes_warm(ctx->passes, MLXR_PASS_ROOM, MLXR_VIDEO_YUV420P, VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_D32_SFLOAT);
 

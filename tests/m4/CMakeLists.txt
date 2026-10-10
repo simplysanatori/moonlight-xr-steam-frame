@@ -11,7 +11,9 @@ target_include_directories(m4_scene PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${M4_INCL
 add_executable(mlxr-ui-snapshot ui_snapshot.c)
 target_link_libraries(mlxr-ui-snapshot PRIVATE m4_scene)
 mlxr_link_openxr(mlxr-ui-snapshot)
-add_custom_target(ui-snapshots COMMAND mlxr-ui-snapshot ${PROJECT_BINARY_DIR}/ui-snapshots DEPENDS mlxr-ui-snapshot)
+# M5: the rooms, the glow and the models join them (tests/m5, mlxr-world-snapshot)
+add_custom_target(ui-snapshots COMMAND mlxr-ui-snapshot ${PROJECT_BINARY_DIR}/ui-snapshots
+  COMMAND mlxr-world-snapshot ${PROJECT_BINARY_DIR}/ui-snapshots DEPENDS mlxr-ui-snapshot mlxr-world-snapshot)
 add_test(NAME m4_snapshot_budget COMMAND mlxr-ui-snapshot ${CMAKE_CURRENT_BINARY_DIR}/snapshots)
 
 foreach(t prefs hits launcher budget vrkb)
