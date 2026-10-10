@@ -1608,6 +1608,28 @@ static void hoverSource(XrCtx* ctx, InputFrame* f, int h) {
     }
 }
 
+// Native, for the tests: what one ray (in the local space, screen world
+// locked) lands on, through the same hover pass the frame uses, and where
+// (u, v on whichever plane claimed it)
+int xrHoverAt(XrCtx* ctx, XrPosef aim, float* outU, float* outV, int* outCorner) {
+    InputFrame f;
+    memset(&f, 0, sizeof(f));
+    f.roomOn = roomEffective(ctx) > 0;
+    f.height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    f.curved = !f.roomOn && effectiveCurvature(ctx) > 0.01f && ctx->cylinderSupported;
+    f.radius = ctx->screenRadius;
+    f.cornerSide = cornerSide(ctx);
+    f.screenPose = ctx->screenPose;
+    f.bar = barFrame(ctx);
+    f.aimPoses[HAND_RIGHT] = aim;
+    f.aimValid[HAND_RIGHT] = 1;
+    hoverSource(ctx, &f, HAND_RIGHT);
+    if (outU) *outU = f.hitU[HAND_RIGHT];
+    if (outV) *outV = f.hitV[HAND_RIGHT];
+    if (outCorner) *outCorner = f.corners[HAND_RIGHT];
+    return f.hovers[HAND_RIGHT];
+}
+
 // How fast the head is turning in the world, for the guard on a drag the eyes
 // started. Head locked, a still hand stays put in the room while the head
 // turns, so the world is the frame that matters either way.

@@ -377,12 +377,13 @@ static VkCommandBuffer frameBegin(XrCtx* ctx, Frame* fr) {
     if (fr->recording) {
         return fr->cmd;
     }
+    // The buffer may still be on the GPU from the frame's earlier submission
+    vkWaitForFences(ctx->vk->device, 1, &fr->fence, VK_TRUE, UINT64_MAX);
     vkResetCommandBuffer(fr->cmd, 0);
     VkCommandBufferBeginInfo cbi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     cbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(fr->cmd, &cbi);
     fr->recording = 1;
-    (void)ctx;
     return fr->cmd;
 }
 
@@ -1233,9 +1234,6 @@ int xr_app_run(const XrAppConfig* cfg) {
             videoWindow++;
             videoFrames++;
         }
-        if (!ctx->streaming && !atomic_load(&g_streaming)) {
-            ctx->videoShown = ctx->videoShown && vd.swapchain != XR_NULL_HANDLE && ctx->launcher == LAUNCHER_NONE;
-        }
 
         // ---- the layers (nativeEndFrame) and the end of the frame
         XrFrameIn fin;
@@ -1258,7 +1256,6 @@ int xr_app_run(const XrAppConfig* cfg) {
             VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
             si.commandBufferCount = 1;
             si.pCommandBuffers = &fr.cmd;
-            vkWaitForFences(vk.device, 1, &fr.fence, VK_TRUE, UINT64_MAX);
             vkResetFences(vk.device, 1, &fr.fence);
             vkQueueSubmit(vk.queue, 1, &si, fr.fence);
         }

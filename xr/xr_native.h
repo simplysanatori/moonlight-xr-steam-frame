@@ -135,6 +135,11 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out);
 void xrPictureView(XrCtx* ctx, XrPosef* pose, float* width, float* height, XrSpace* space);
 
 
+// ---- for the tests (xr_input.c) ----------------------------------------------
+// What one ray in the local space lands on through the frame's hover pass
+// (HOVER_*), and where on the plane that claimed it
+int xrHoverAt(XrCtx* ctx, XrPosef aim, float* outU, float* outV, int* outCorner);
+
 // ---- the context's defaults (xr_prefs.c) -----------------------------------
 // What upstream's nativeInit set before any setter ran
 void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps);

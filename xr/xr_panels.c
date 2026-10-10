@@ -361,6 +361,7 @@ void xrPanelsReportEvent(XrCtx* ctx, int event, const char* reportDir) {
         p->reportAddress[0] = '\0';
         p->reportFocus = REPORT_ZONE_NOTE;
         ctx->reportReady = 0;
+        p->drawn[UI_PANEL_REPORT] = 0; // drawn afresh for this opening
     }
     else if (event == REPORT_ZONE_NOTE || event == REPORT_ZONE_EMAIL) {
         p->reportFocus = event;

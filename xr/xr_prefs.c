@@ -133,8 +133,10 @@ void xrDefaultPlacement(float* distance, float* width, float* curvature) {
 }
 
 void xrPoseToSettings(const float* p, float curve, Settings* s) {
-    XrCtx* tmp = calloc(1, sizeof(XrCtx));
-    if (tmp == NULL) {
+    // screenPitch and screenRoll read the pose off a context; one kept for it
+    // (the frame loop's thread only)
+    static XrCtx* tmp;
+    if (tmp == NULL && (tmp = calloc(1, sizeof(XrCtx))) == NULL) {
         return;
     }
     tmp->screenPose.position.x = p[0];
@@ -157,7 +159,6 @@ void xrPoseToSettings(const float* p, float curve, Settings* s) {
     s->screen_rotate_deg = iround(-screenRoll(tmp) * deg);
     s->screen_curve = iround((curve >= 0.0f ? curve : 0.0f) * 100.0f);
     s->screen_width_cm = iround(p[7] * 100.0f);
-    free(tmp);
     settings_clamp(s);
 }
 

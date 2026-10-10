@@ -310,6 +310,13 @@ void setPadMode(XrCtx* ctx, int on, const char* from) {
     if (ctx->padMode == on) {
         return;
     }
+    // Native: gamepad mode is M3. Until the pad reaches the host, the switch
+    // would only take the pointer away, so it stays the pointer and says why.
+    if (on && !ctx->padButtonReady) {
+        LOGEV("controllers: gamepad mode asked for from %s, which comes in a later update", from);
+        xrPanelsNotice(ctx, "Gamepad mode comes in a later update");
+        return;
+    }
     ctx->padMode = on;
     if (on) {
         ctx->padPutAway = 1;
