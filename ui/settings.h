@@ -56,6 +56,8 @@ typedef struct Settings {
     int pointer_sleep;
     int show_ray;
     int pointer_dot;       // native: the dot where the ray lands (the host draws its own cursor)
+    int keyboard_layout;   // native: 0 compact (Moonlight XR's laser keyboard), 1 full (tenkeyless)
+    int keyboard_hold_ms;  // native: how long a modifier key is held to lock it on the full keyboard
     int controller_model;
     int head_aim;
     int head_aim_sensitivity;

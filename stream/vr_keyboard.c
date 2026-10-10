@@ -4,29 +4,32 @@
 #include <Limelight.h>
 #include <stdio.h>
 
+#include "xr_kbfull.h"
 #include "xr_shared.h"
 
 #define VK_SHIFT 0x10
-#define VK_LCONTROL 0xA2
-#define VK_LMENU 0xA4
-#define VK_LWIN 0x5B
 
 // In the order they go down, and come back up the other way
-static const int MOD_BITS[3] = { KB_MOD_CTRL, KB_MOD_ALT, KB_MOD_WIN };
-static const short MOD_KEYS[3] = { VK_LCONTROL, VK_LMENU, VK_LWIN };
+#define MOD_COUNT 8
+static const int MOD_BITS[MOD_COUNT] = { KBF_LSHIFT, KBF_LCTRL, KBF_LALT, KBF_LWIN,
+                                         KBF_RSHIFT, KBF_RCTRL, KBF_RALT, KBF_RWIN };
+static const short MOD_KEYS[MOD_COUNT] = { 0xA0, 0xA2, 0xA4, 0x5B, 0xA1, 0xA3, 0xA5, 0x5C };
 
-// The KB_MOD_ bits as moonlight-common-c's modifier byte
+// The KBF_ bits as moonlight-common-c's modifier byte
 static char modifierByte(int mods) {
     char m = 0;
-    if (mods & KB_MOD_CTRL) m |= MODIFIER_CTRL;
-    if (mods & KB_MOD_ALT) m |= MODIFIER_ALT;
-    if (mods & KB_MOD_WIN) m |= MODIFIER_META;
+    int b = kbfModifierByte(mods);
+    if (b & 0x01) m |= MODIFIER_SHIFT;
+    if (b & 0x02) m |= MODIFIER_CTRL;
+    if (b & 0x04) m |= MODIFIER_ALT;
+    if (b & 0x08) m |= MODIFIER_META;
     return m;
 }
 
 void vrkb_init(VrKeyboard* k, VrKeyboardSink sink) {
     k->sink = sink;
     k->held = 0;
+    k->heldKey = 0;
 }
 
 static void press(VrKeyboard* k, short keyCode, char modifiers) {
@@ -52,14 +55,15 @@ short vrkb_punctuation_key(int code) {
 }
 
 void vrkb_hold(VrKeyboard* k, int mods) {
-    for (int i = 0; i < 3; i++) {
+    mods &= KBF_MOD_MASK;
+    for (int i = 0; i < MOD_COUNT; i++) {
         int bit = MOD_BITS[i];
         if ((mods & bit) && !(k->held & bit)) {
             k->held |= bit;
             k->sink.key(k->sink.user, MOD_KEYS[i], KEY_ACTION_DOWN, modifierByte(k->held));
         }
     }
-    for (int i = 2; i >= 0; i--) {
+    for (int i = MOD_COUNT - 1; i >= 0; i--) {
         int bit = MOD_BITS[i];
         if (!(mods & bit) && (k->held & bit)) {
             k->held &= ~bit;
@@ -68,7 +72,13 @@ void vrkb_hold(VrKeyboard* k, int mods) {
     }
 }
 
-void vrkb_release_all(VrKeyboard* k) { vrkb_hold(k, 0); }
+void vrkb_release_all(VrKeyboard* k) {
+    if (k->heldKey != 0) {
+        k->sink.key(k->sink.user, (short)k->heldKey, KEY_ACTION_UP, modifierByte(k->held));
+        k->heldKey = 0;
+    }
+    vrkb_hold(k, 0);
+}
 
 static int encodeUtf8(int cp, char out[5]) {
     int n = 0;
@@ -95,6 +105,25 @@ static int encodeUtf8(int cp, char out[5]) {
 }
 
 void vrkb_type(VrKeyboard* k, int code, int mods) {
+    int flags = mods & (KBF_FLAG_DOWN | KBF_FLAG_UP);
+    mods &= KBF_MOD_MASK;
+    if (flags != 0 && code >= KB_CODE_VK) {
+        // The Full keyboard: one event of a key held like a real one
+        short vk = (short)(code - KB_CODE_VK);
+        if (flags & KBF_FLAG_UP) {
+            k->sink.key(k->sink.user, vk, KEY_ACTION_UP, modifierByte(mods));
+            if (k->heldKey == vk) k->heldKey = 0;
+        } else {
+            vrkb_hold(k, k->held | mods);
+            // A key repeating is another down; a different key lets the old one go
+            if (k->heldKey != 0 && k->heldKey != vk) {
+                k->sink.key(k->sink.user, (short)k->heldKey, KEY_ACTION_UP, modifierByte(mods));
+            }
+            k->sink.key(k->sink.user, vk, KEY_ACTION_DOWN, modifierByte(mods));
+            k->heldKey = vk;
+        }
+        return;
+    }
     vrkb_hold(k, k->held | mods);
     char modifiers = modifierByte(mods);
     if (code >= KB_CODE_VK) {
