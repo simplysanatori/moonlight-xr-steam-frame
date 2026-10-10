@@ -105,8 +105,8 @@ static const SettingDesc TABLE[] = {
     DE("debug", "file_log", file_log, LOG_NAMES, 1, "list_vr_file_log: off, basic (warnings and errors), verbose"),
     // display tab
     DB("display", "head_locked", head_locked, 0, "Display tab: head locked screen (checkbox_vr_head_locked)"),
-    DE("display", "sharpening", sharpening, SHARP_NAMES, 2, "Display tab: sharpen (list_vr_sharpening)"),
-    DE("display", "supersampling", supersampling, SHARP_NAMES, 0, "Display tab: supersample (list_vr_supersampling)"),
+    DE("display", "sharpening", sharpening, SHARP_NAMES, 0, "Display tab: sharpen (list_vr_sharpening; native default off, the owner's choice, upstream quality)"),
+    DE("display", "supersampling", supersampling, SHARP_NAMES, 1, "Display tab: supersample (list_vr_supersampling; native default normal, the owner's choice, upstream off; never used with the 3D on)"),
     DB("display", "stats", stats, 0, "Display tab: show performance stats"),
     DB("display", "glow", glow, 1, "Display tab: glow (checkbox_vr_ambilight)"),
     DI("display", "glow_level", glow_level, 0, 100, 50, "Display tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
@@ -114,7 +114,7 @@ static const SettingDesc TABLE[] = {
     // 3d
     DI("3d", "separation", separation, -1, COG_SEP_STEPS, -1, "seekbar_vr_separation: tenths of a percent of frame width; -1 is the depth model's own (ZipDepth 6, MiDaS 5)"),
     DI("3d", "convergence", convergence, -1, 100, -1, "seekbar_vr_convergence: percent; -1 is the depth model's own (50)"),
-    DB("3d", "stereo", stereo, 0, "native: the 3D switch (bar button, 3D tab) as it was last left; upstream started every session with it on"),
+    DB("3d", "stereo", stereo, 1, "native: the 3D switch (bar button, 3D tab) as it was last left; on to begin with, as upstream started every session"),
     // screen
     DI("screen", "distance_cm", screen_distance_cm, 20, 800, 300, "Screen tab: distance in centimetres"),
     DI("screen", "height_cm", screen_height_cm, -200, 200, 0, "Screen tab: height of the centre above eye level, centimetres"),

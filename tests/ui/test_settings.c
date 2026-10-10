@@ -63,8 +63,8 @@ static void test_defaults(void) {
     CHECK(geti(&s, "file_log") == FILE_LOG_BASIC);
     // the panel's rows
     CHECK(geti(&s, "head_locked") == 0);
-    CHECK(geti(&s, "sharpening") == 2);      // quality
-    CHECK(geti(&s, "supersampling") == 0);   // off
+    CHECK(geti(&s, "sharpening") == 0);      // native: off (upstream quality)
+    CHECK(geti(&s, "supersampling") == 1);   // native: normal (upstream off)
     CHECK(geti(&s, "stats") == 0);
     CHECK(geti(&s, "glow") == 1 && geti(&s, "glow_level") == 50 && geti(&s, "screen_light") == 1);
     CHECK(geti(&s, "separation") == -1 && settings_separation_units(&s) == 6);   // ZipDepth's own
@@ -487,8 +487,8 @@ static void test_sliders(void) {
     settings_defaults(&s);
     SessionToggles t;
     session_from_settings(&s, &t);
-    CHECK(settings_option_cell(&s, &t, COG_OPTION_SHARPEN) == 2);
-    CHECK(settings_option_cell(&s, &t, COG_OPTION_SUPERSAMPLE) == 0);
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_SHARPEN) == 0);
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_SUPERSAMPLE) == 1);
     CHECK(settings_option_cell(&s, &t, COG_OPTION_STATS) == 0);
     CHECK(settings_option_cell(&s, &t, COG_OPTION_GAMEPAD) == 0);   // every session starts as the pointer
     CHECK(settings_option_cell(&s, &t, COG_OPTION_RAY) == 2);   // native: ray with its dot
@@ -517,6 +517,7 @@ static void test_sliders(void) {
     CHECK(settings_option_cell(&s, &t, 99) == -1);
     t.pad_mode = 1;
     CHECK(settings_option_cell(&s, &t, COG_OPTION_GAMEPAD) == 1);
+    CHECK(t.stereo_on == 1);   // the 3D on by default, as upstream
     s.depth_source = 2;
     session_from_settings(&s, &t);
     CHECK(t.stereo_on == 0);

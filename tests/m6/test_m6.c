@@ -455,9 +455,9 @@ static void testSettings(void) {
     snprintf(path, sizeof(path), "%s/config.ini", assets);
     Settings s;
     settings_defaults(&s);
-    // upstream's defaults: ZipDepth, its own 0.6 %, convergence 50; the
-    // switch remembered off
-    CHECK(s.depth_source == 0 && s.separation == -1 && s.convergence == -1 && s.stereo == 0);
+    // upstream's defaults: ZipDepth, its own 0.6 %, convergence 50, the
+    // 3D on (native: remembered as it was last left)
+    CHECK(s.depth_source == 0 && s.separation == -1 && s.convergence == -1 && s.stereo == 1);
     CHECK(settings_separation_units(&s) == 6);
     s.depth_source = 1;
     CHECK(settings_separation_units(&s) == 5);
@@ -539,7 +539,7 @@ static void testSettings(void) {
     ctx = m6_ctx(&g, &FAKE, assets, &m);
     CHECK(ctx->stereoMode == DEPTH_MODE_MODEL && ctx->depthModel == MLXR_DEPTH_MIDAS_256_FP16);
     CHECK_NEAR(ctx->separationPref, 0.005, 1e-6);
-    CHECK(ctx->stereoLive == 0);
+    CHECK(ctx->stereoLive == 1);   // the 3D on by default
     m6_ctx_free(ctx);
     m.depth_source = 2;
     ctx = m6_ctx(&g, &FAKE, assets, &m);

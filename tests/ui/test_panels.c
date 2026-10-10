@@ -568,7 +568,7 @@ static void test_rows_read_settings(void) {
     ui_view_init(&va, &a);
     ui_view_init(&vb, &b);
     struct { int tab; const char* key; int value; } CASES[] = {
-        { COG_TAB_DISPLAY, "sharpening", 0 }, { COG_TAB_DISPLAY, "supersampling", 1 }, { COG_TAB_DISPLAY, "stats", 1 },
+        { COG_TAB_DISPLAY, "sharpening", 2 }, { COG_TAB_DISPLAY, "supersampling", 0 }, { COG_TAB_DISPLAY, "stats", 1 },
         { COG_TAB_DISPLAY, "head_locked", 0 }, { COG_TAB_DISPLAY, "pointer_sleep", 0 }, { COG_TAB_DISPLAY, "controller_model", 1 },
         { COG_TAB_DISPLAY, "click_sound", 0 }, { COG_TAB_DISPLAY, "glow", 0 }, { COG_TAB_DISPLAY, "screen_light", 0 },
         { COG_TAB_DISPLAY, "glow_level", 10 }, { COG_TAB_DISPLAY, "gamepad_toggle", 1 },

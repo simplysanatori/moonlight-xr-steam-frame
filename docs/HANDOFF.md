@@ -66,6 +66,7 @@ Owner-confirmed behaviour to keep:
 - Physical Bluetooth keyboard (EXAMPLE0 Q1 Pro) works via evdev, grabbed while focused and streaming.
 - Exit from the VR bar ends the host's session (quit); the chord Start+Select+L2+R2 only disconnects (the game keeps running; the flat UI shows Resume).
 - Default stream 2560x1440, 90 fps, 80 Mbps HEVC (the owner says 1440p needs ~80 Mbps).
+- Settings and defaults follow Moonlight XR (upstream `PreferenceConfiguration.java`, `MidasDepthSource.java`) unless the owner chose otherwise. The owner's own choices (2026-10-10): 3D on by default, supersample Normal, sharpening Off. Native deviations still in place: gaze and hand tracking off until tested on the Frame (M7), the pointer dot, the remembered 3D switch.
 
 ## 5. What is left (do these next, in this order unless the owner says otherwise)
 
@@ -74,7 +75,7 @@ Owner-confirmed behaviour to keep:
 3. **M6 follow-ups**: the owner's answers to the decisions in section 6, and the items not ported yet.
 4. **M7**: hand tracking with pinch click and triple-pinch lock, and eye-gaze pointing (both present natively per the probe, ported in `xr_input.c`, **off by default** on the Frame because gaze takes the pointer from the controllers; let the owner turn them on and test); headset-off: mute and pause via `XR_EXT_user_presence` and session state, resume within a minute; virtual surround: owner listening test (5.1/7.1 at the host, `virtual_surround` setting), and the open question of SteamOS's own spatializer (the renderer bypasses it by node name; `systemSpatializer` switches); Stats overlay rows.
 5. **M8**: tag `v0.1.0` when the owner is happy, `tools/release.sh`, GitHub release (private repo for now; public is the owner's call), Steam library art (none yet; the owner has used SteamGridDB art before: `~/.local/bin/steam-art`, key in `~/.config/example/key`), drop `assets/rooms/*_lo_*` (~7.5 MB, unused on the Frame) and maybe MiDaS (33 MB) if the owner agrees, CI caveat stays documented.
-6. **Small known items**: the Caps Lock light on the Full keyboard follows our own presses only; supersample is live but defaults Off pending the owner's A/B; sharpening defaults to "Quality" (upstream's default; the owner has not compared); the flat window stays visible during a stream (stock hides it; `MLXR_LAUNCHER_HIDE_WINDOW=1`); 144 fps from Moonlight settings passes through and the client skips frames above the display rate (SteamVR offers one rate, 72 or 90, and picks it); the generic controller model until item 2.
+6. **Small known items**: the Caps Lock light on the Full keyboard follows our own presses only; supersample defaults to Normal and sharpening to Off (the owner's choices, 2026-10-10; upstream has Off and Quality); the flat window stays visible during a stream (stock hides it; `MLXR_LAUNCHER_HIDE_WINDOW=1`); 144 fps from Moonlight settings passes through and the client skips frames above the display rate (SteamVR offers one rate, 72 or 90, and picks it); the generic controller model until item 2.
 
 ## 6. M6 (realtime 3D)
 
@@ -84,7 +85,7 @@ Merged 2026-10-10 (lane/m6 499b972). The whole chain runs headless on the Frame'
 - Engine: starts the first time 3D is turned on (or at session start if the saved switch is on), ZipDepth 512x288 fp16, 2 threads, 20 maps/s; on failure stays flat with a toast and greys the 3D tab. `depth_source` = `zipdepth` (default), `zipdepth-int8`, `midas` (also `shifttest`, `eyetest` patterns). Without the LiteRT build, 3D shows "not installed".
 - Numbers (headless, synthetic scene, hardware decode, 90 Hz loop): ZipDepth fp16 20.2 maps/s, model 36 ms avg, capture→display 78 ms, 1.5 cores; int8 19.8 maps/s, 14 ms, 45 ms age, 0.56 cores; MiDaS 45 ms, 82 ms age, 1.8 cores. GPU at 1080p: warp both eyes 1.9 ms, downscale + readback 0.35, upsample 0.26, offset 0.20. Frame loop p99 3.6–4.1 ms. CPU pinning did not help (unpinned default; `MLXR_DEPTH_CPUS` exists).
 - Budget: worst 3D case 16 of 16 layers, nothing dropped; at most 8 swapchains. The double-wide picture swapchain exists whenever a model is configured (~44 MB at 1440p).
-- Decisions for the owner: the 3D switch is remembered and **defaults to off** (upstream starts in 3D); is 0.6 % separation comfortable; is 78 ms depth age acceptable on motion; should int8 (45 ms, a third of the CPU) be the default.
+- Owner's decisions (2026-10-10): the 3D switch is remembered and **defaults to on** (as upstream); defaults follow Moonlight XR: ZipDepth fp16, its own 0.6 % separation, convergence 50 (int8 stays an option; upstream uses it only on Gen 1 headsets). Still open: is 78 ms depth age acceptable on motion.
 - Not ported yet: upstream's debug capture dump, the depth-scale preference, the splash's wait for the first map.
 
 ## 7. How to work (the owner's standing rules)

@@ -129,8 +129,8 @@ If a runtime offered fewer layers, M5's drop order applies: the toast first, the
 
 ## Deviations from upstream
 
-1. **The 3D switch is remembered** in config.ini (`[3d] stereo`), and is **off by default**. Upstream starts every session with stereo on. This was chosen so the desktop stays as the owner accepted it, and so a session that never turns the 3D on never loads a model.
-2. **The model starts on first use** instead of at session start.
+1. **The 3D switch is remembered** in config.ini (`[3d] stereo`). It was off by default at merge; the owner chose on (2026-10-10), as upstream starts every session, so a fresh install now starts in 3D and loads the model at session start.
+2. **The model starts on first use** when the saved switch is off; with it on (the default) it starts at session start, as upstream.
 3. **On FAILED the 3D is put away**: the stereo mode goes to off, the button is hidden, the tab is greyed with a reason, and there is a toast. Upstream kept the flat synthetic map and the splash waiting.
 4. **Maps go up in the frame loop's command buffer** (a copy per new map) instead of from the stage thread's own GL context.
 5. **"Fresh map" after switching back on** is judged by the map's submit time, so a capture queued before the 3D went off does not end the wait.
@@ -141,7 +141,7 @@ If a runtime offered fewer layers, M5's drop order applies: the toast first, the
 
 ## For the next session / the orchestrator
 
-- **Owner headset check (script below).** The main questions are comfort at 0.6 %, the 78 ms depth age on moving content, and whether int8 (45 ms age, about a third of the CPU) looks good enough to be the default.
+- **Owner headset check (script below).** Owner's answers 2026-10-10: 3D on by default; keep Moonlight XR's defaults (ZipDepth fp16 at its own 0.6 %, convergence 50; int8 stays an option, as upstream uses it only on Gen 1 headsets). Still open: the 78 ms depth age on moving content.
 - **app/main.c needs no lines.** The session hands in the engine itself (`MLXR_HAVE_DEPTH` on `mlxr_xr`). It still logs "moonlight-xr (M4) starting" if you want a version bump there.
 - **Build:** without `third-party-build/litert` the 3D stays off with "not installed", and `mlxr-m6-pipeline` and `m6_pipeline_real` are not built. `build.sh` already builds LiteRT. Installed assets already include `assets/depth` (install.sh mirrors `assets/`).
 - **`tests/m6/gen_scene.sh [dir]`** remakes the analysis clip. Then run `build/xr/tests_m6/mlxr-m6-pipeline --clip DIR/scene.mp4 --seconds 10 --out OUT --analyse [--int8|--midas] [--frame-cpus 7]`, with `MLXR_DEPTH_CPUS=...` for placement runs.
