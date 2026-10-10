@@ -23,6 +23,9 @@ typedef struct {
 
 // Wraps a caller's buffer of w*h*4 bytes. Does not clear it.
 void ui_cv_init(UiCanvas* cv, uint8_t* px, int w, int h);
+// A canvas over a w*h rectangle at (x,y) of a larger buffer that is stride_px
+// pixels wide (an atlas): drawing is clipped to the rectangle.
+void ui_cv_sub(UiCanvas* cv, uint8_t* base, int stride_px, int x, int y, int w, int h);
 void ui_cv_clear(UiCanvas* cv);            // all transparent (ignores the clip)
 void ui_cv_set_clip(UiCanvas* cv, float x0, float y0, float x1, float y1);
 void ui_cv_reset_clip(UiCanvas* cv);

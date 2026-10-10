@@ -58,6 +58,29 @@ const char* ui_panel_name(UiPanelId id) {
     return (unsigned)id < UI_PANEL_COUNT ? N[id] : "?";
 }
 
+// Shelves, widest first where it matters: A cog | report, B pc list | app list,
+// C kofi | hint, D keyboard | exit, clock, E picker, then the toast, the bar
+// strip and the button strip, one to a row
+UiRectPx ui_atlas_rect(UiPanelId id) {
+    static const UiRectPx R[UI_PANEL_COUNT] = {
+        [UI_PANEL_COG] = { 0, 0, COG_TEX_W, COG_TEX_H },
+        [UI_PANEL_REPORT] = { 768, 0, REPORT_TEX_W, REPORT_TEX_H },
+        [UI_PANEL_PC_LIST] = { 0, 640, 1024, 640 },
+        [UI_PANEL_APP_LIST] = { 1024, 640, 1024, 640 },
+        [UI_PANEL_KOFI] = { 0, 1280, KOFI_TEX_W, KOFI_TEX_H },
+        [UI_PANEL_HINT] = { 1024, 1280, HINT_TEX_W, HINT_TEX_H },
+        [UI_PANEL_KEYBOARD] = { 0, 1792, KB_TEX_W, KB_TEX_H },
+        [UI_PANEL_EXIT] = { 1120, 1792, EXIT_TEX_W, EXIT_TEX_H },
+        [UI_PANEL_CLOCK] = { 1632, 1792, COG_CLOCK_TEX_W, COG_CLOCK_TEX_H },
+        [UI_PANEL_PICKER] = { 0, 2240, PICKER_TEX_W, PICKER_TEX_H },
+        [UI_PANEL_TOAST] = { 0, 2536, TOAST_TEX_W, TOAST_TEX_H },
+        [UI_PANEL_BAR] = { 0, 2696, 1792, 128 },
+        [UI_PANEL_BUTTON_ATLAS] = { 0, 2824, BTN_ATLAS_W, BTN_ATLAS_H },
+    };
+    UiRectPx none = { 0, 0, 0, 0 };
+    return (unsigned)id < UI_PANEL_COUNT ? R[id] : none;
+}
+
 // ---- hits -----------------------------------------------------------------------------------
 
 void ui_hits_clear(UiHits* h) { h->count = 0; }

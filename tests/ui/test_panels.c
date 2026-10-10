@@ -613,6 +613,66 @@ static void test_rows_read_settings(void) {
     }
 }
 
+// The atlas: every panel has a slot of its native size, inside the atlas, none overlapping,
+// and drawing into a slot through a sub canvas is pixel-identical to drawing alone and
+// leaves every other pixel of the atlas alone
+static void test_atlas(void) {
+    for (int a = 0; a < UI_PANEL_COUNT; a++) {
+        UiRectPx ra = ui_atlas_rect((UiPanelId)a);
+        int w, h;
+        ui_panel_native_size((UiPanelId)a, &w, &h);
+        CHECK(ra.w == w && ra.h == h);
+        CHECK(ra.x >= 0 && ra.y >= 0 && ra.x + ra.w <= UI_ATLAS_W && ra.y + ra.h <= UI_ATLAS_H);
+        for (int b = a + 1; b < UI_PANEL_COUNT; b++) {
+            UiRectPx rb = ui_atlas_rect((UiPanelId)b);
+            CHECK(ra.x + ra.w <= rb.x || rb.x + rb.w <= ra.x || ra.y + ra.h <= rb.y || rb.y + rb.h <= ra.y);
+        }
+    }
+    CHECK(ui_atlas_rect(UI_PANEL_COUNT).w == 0);
+    Settings s;
+    settings_defaults(&s);
+    UiView v;
+    ui_view_init(&v, &s);
+    v.version = "1";
+    size_t bytes = (size_t)UI_ATLAS_W * UI_ATLAS_H * 4;
+    uint8_t* atlas = malloc(bytes + 2 * GUARD);
+    memset(atlas, 0xA5, bytes + 2 * GUARD);
+    uint8_t* px = atlas + GUARD;
+    memset(px, 0, bytes);
+    for (int id = 0; id < UI_PANEL_COUNT; id++) {
+        if (id == UI_PANEL_REPORT || id == UI_PANEL_TOAST || id == UI_PANEL_CLOCK || id == UI_PANEL_PC_LIST || id == UI_PANEL_APP_LIST) continue;
+        UiRectPx r = ui_atlas_rect((UiPanelId)id);
+        UiCanvas sub;
+        ui_cv_sub(&sub, px, UI_ATLAS_W, r.x, r.y, r.w, r.h);
+        static UiHits h2;
+        ui_draw_panel((UiPanelId)id, &sub, &v, &h2);
+        Guarded g;
+        draw((UiPanelId)id, &v, 1.0f, &g);
+        int same = 1;
+        for (int y = 0; y < r.h && same; y++) {
+            same = memcmp(px + ((size_t)(r.y + y) * UI_ATLAS_W + r.x) * 4, g.px + (size_t)y * r.w * 4, (size_t)r.w * 4) == 0;
+        }
+        CHECK(same);
+        CHECK(h2.count == hits.count);   // the same regions whether drawn alone or in the atlas
+        free(g.base);
+    }
+    // nothing outside the slots was touched
+    int stray = 0;
+    for (int y = 0; y < UI_ATLAS_H; y++) {
+        for (int x = 0; x < UI_ATLAS_W; x++) {
+            int inside = 0;
+            for (int id = 0; id < UI_PANEL_COUNT; id++) {
+                UiRectPx r = ui_atlas_rect((UiPanelId)id);
+                if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) { inside = 1; break; }
+            }
+            if (!inside && px[((size_t)y * UI_ATLAS_W + x) * 4 + 3] != 0) stray++;
+        }
+    }
+    CHECK(stray == 0);
+    for (int i = 0; i < GUARD; i++) CHECK(atlas[i] == 0xA5 && atlas[GUARD + bytes + i] == 0xA5);
+    free(atlas);
+}
+
 int main(void) {
     ui_panels_set_assets_dir(MLXR_ASSETS_DIR);
     test_all_panels_scales();
@@ -622,6 +682,7 @@ int main(void) {
     test_report_toast_lists();
     test_state_sweep();
     test_rows_read_settings();
+    test_atlas();
     ui_panels_shutdown();
     return checksDone(
 #ifdef UI_ASAN

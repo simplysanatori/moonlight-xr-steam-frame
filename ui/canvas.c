@@ -19,6 +19,17 @@ void ui_cv_init(UiCanvas* cv, uint8_t* px, int w, int h) {
     cv->cy1 = h;
 }
 
+void ui_cv_sub(UiCanvas* cv, uint8_t* base, int stride_px, int x, int y, int w, int h) {
+    cv->px = base + ((size_t)y * (size_t)stride_px + (size_t)x) * 4;
+    cv->w = w;
+    cv->h = h;
+    cv->stride = stride_px * 4;
+    cv->cx0 = 0;
+    cv->cy0 = 0;
+    cv->cx1 = w;
+    cv->cy1 = h;
+}
+
 void ui_cv_clear(UiCanvas* cv) {
     for (int y = 0; y < cv->h; y++) {
         memset(cv->px + (size_t)y * cv->stride, 0, (size_t)cv->w * 4);

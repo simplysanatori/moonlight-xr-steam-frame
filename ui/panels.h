@@ -44,6 +44,15 @@ typedef enum {
 void ui_panel_native_size(UiPanelId id, int* w, int* h);
 const char* ui_panel_name(UiPanelId id);
 
+// One RGBA8 atlas holding every panel at its native size, so the whole UI is
+// one swapchain (the SteamVR cap is 16 a session). A quad shows a panel
+// through its XrSwapchainSubImage.imageRect. Draw a panel into its slot with
+// ui_cv_sub (canvas.h); upload only the rectangles that changed.
+#define UI_ATLAS_W 2048
+#define UI_ATLAS_H 2960
+typedef struct { int x, y, w, h; } UiRectPx;
+UiRectPx ui_atlas_rect(UiPanelId id);
+
 // ---- hit regions --------------------------------------------------------------------------
 typedef enum {
     UI_HIT_NONE = 0,
