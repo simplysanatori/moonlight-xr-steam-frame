@@ -93,6 +93,16 @@ const UiHits* xrPanelsLauncherHits(XrCtx* ctx) {
     return ctx->panels != NULL ? &ctx->panels->launcherHits : NULL;
 }
 
+void xrPanelsStats(XrCtx* ctx, int* draws, double* ms) {
+    XrPanels* p = ctx->panels;
+    *draws = p ? p->draws : 0;
+    *ms = p && p->draws ? p->drawNs / 1e6 / p->draws : 0.0;
+    if (p) {
+        p->draws = 0;
+        p->drawNs = 0;
+    }
+}
+
 const UiView* xrPanelsLastView(XrCtx* ctx) {
     return ctx->panels != NULL ? &ctx->panels->lastView : NULL;
 }

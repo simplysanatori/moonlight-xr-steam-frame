@@ -26,6 +26,8 @@ Scene* scene_new(void) {
     ctx->videoShown = 1;
     ctx->streaming = 1;
     ctx->swapchain = SCENE_VIDEO_SWAPCHAIN;
+    // as the session sets it: the curve is drawn by the host
+    ctx->cylinderSupported = 1;
     scene_reset(s);
     return s;
 }

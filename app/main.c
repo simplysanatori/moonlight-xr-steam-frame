@@ -40,6 +40,7 @@
 #include "../xr/xr_renderer.h"
 #include "../xr/xr_session.h"
 #include "launcher.h"
+#include "panels.h"
 #include "settings.h"
 
 static FrameSlot g_slot;
@@ -626,6 +627,17 @@ int main(int argc, char** argv) {
     MLOG_I("== moonlight-xr (M4) starting; config %s: %s (%d set, %d unknown, %d unreadable)", cfgPath,
            lr == 0 ? "read" : lr == 1 ? "not there yet, defaults" : "read error", info.applied, info.unknown, info.bad);
     if (lr == 1) settings_save(&g_settings, NULL); // a file to edit, every setting commented with its default
+    {
+        char args[512] = "";
+        for (int i = 1; i < argc; i++) {
+            strncat(args, " ", sizeof(args) - strlen(args) - 1);
+            strncat(args, argv[i], sizeof(args) - strlen(args) - 1);
+        }
+        MLOG_I("args:%s (SteamAppId %s)", args[0] ? args : " none", getenv("SteamAppId") ? getenv("SteamAppId") : "none");
+    }
+    // The panels' pictures (room thumbnails, the Ko-fi code, the gear) from the
+    // installed tree when there is one, else the source tree's
+    if (access("assets/images", R_OK) == 0) ui_panels_set_assets_dir("assets");
 
     frame_slot_init(&g_slot);
     VrKeyboardSink sink = { NULL, vrkbKey, vrkbText };

@@ -831,3 +831,35 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
     out->count = layers->count;
     memcpy(out->order, layers->order, sizeof(out->order[0]) * layers->count);
 }
+
+// Native: the curved picture as mlxr_pass_panel draws it (panel.vert): the
+// surface's size and bend, and one eye's mvp, GL conventions (xr_math), with
+// the model the picture's own pose. The surface is upstream's cylinder layer
+// (axis a radius behind the picture, cylinderFit's scale when it would wrap
+// too far), so the ray's hits (screenProject, curved) land on what is drawn.
+void xrCurveShape(XrCtx* ctx, float* width, float* height, float* radius) {
+    float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
+    float fit = cylinderFit(ctx->screenWidth, ctx->screenRadius);
+    *width = ctx->screenWidth * fit;
+    *height = ctx->screenWidth * aspect * fit;
+    *radius = ctx->screenRadius;
+}
+
+void xrCurveMvp(XrFovf fov, XrPosef eye, XrPosef surface, float* mvp) {
+    float proj[16], view[16], model[16], vp[16];
+    projectionFromFov(proj, fov, 0.05f, 100.0f);
+    viewFromPose(view, eye);
+    Vec3 ex = { 1, 0, 0 }, ey = { 0, 1, 0 }, ez = { 0, 0, 1 };
+    Vec3 x = quatRotate(surface.orientation, ex);
+    Vec3 y = quatRotate(surface.orientation, ey);
+    Vec3 z = quatRotate(surface.orientation, ez);
+    model[0] = x.x;  model[1] = x.y;  model[2] = x.z;  model[3] = 0.0f;
+    model[4] = y.x;  model[5] = y.y;  model[6] = y.z;  model[7] = 0.0f;
+    model[8] = z.x;  model[9] = z.y;  model[10] = z.z; model[11] = 0.0f;
+    model[12] = surface.position.x;
+    model[13] = surface.position.y;
+    model[14] = surface.position.z;
+    model[15] = 1.0f;
+    matMul(vp, proj, view);
+    matMul(mvp, vp, model);
+}

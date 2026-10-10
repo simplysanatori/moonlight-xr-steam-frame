@@ -97,6 +97,17 @@ float cornerSide(XrCtx* ctx) {
 // The curve in force. The panel takes over from the preference the moment it
 // is touched, and hands it back when the reset button clears it.
 float effectiveCurvature(XrCtx* ctx) {
+    // Native: the launcher's list is a flat quad (its art cannot be sampled
+    // for the curved pass), so the picture's place is flat while it is up;
+    // the stored curve is xrCurveSetting's
+    if (ctx->launcher != LAUNCHER_NONE) {
+        return 0.0f;
+    }
+    return xrCurveSetting(ctx);
+}
+
+// Native: the curve the panel or the preference asks for, launcher or not
+float xrCurveSetting(XrCtx* ctx) {
     return ctx->panelCurve >= 0.0f ? ctx->panelCurve : ctx->prefCurvature;
 }
 

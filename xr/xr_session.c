@@ -111,7 +111,7 @@ typedef struct Video {
     VkSemaphore timeline;
     uint64_t value;
     // what the last draw used, so a change redraws a still picture
-    int drawnGradeOn, drawnSharpen;
+    int drawnGradeOn, drawnSharpen, drawnCurved;
     PictureGrade drawnGrade;
     uint64_t draws;
 } Video;
@@ -320,6 +320,195 @@ static VkImageView hwView(const XrVk* vk, Video* vd, MlxrPasses* passes, const m
     return v;
 }
 
+// ---- the curved picture -------------------------------------------------------------
+// SteamVR has no cylinder layers, so a curved picture is drawn by the app:
+// the warp goes into an image of the app's own (a swapchain image cannot be
+// sampled once released), and every display frame mlxr_pass_panel draws that
+// on upstream's cylinder into a projection layer for both eyes.
+
+#define CURVE_IMAGES 8
+
+typedef struct XrCurve {
+    VkImage picture;
+    VkDeviceMemory mem;
+    VkImageView view;
+    int w, h;
+    int valid;                 // a frame has been warped into it
+    VkImageLayout layout;
+    XrSwapchain swapchain;
+    uint32_t count;
+    XrSwapchainImageVulkan2KHR images[CURVE_IMAGES];
+    VkImageView views[CURVE_IMAGES];
+    int eyeW, eyeH;
+    int failed;
+    XrCompositionLayerProjection layer;
+    XrCompositionLayerProjectionView eyes[2];
+} XrCurve;
+
+static void curveFreePicture(const XrVk* vk, XrCurve* cv) {
+    if (cv->view) vkDestroyImageView(vk->device, cv->view, NULL);
+    if (cv->picture) vkDestroyImage(vk->device, cv->picture, NULL);
+    if (cv->mem) vkFreeMemory(vk->device, cv->mem, NULL);
+    cv->view = VK_NULL_HANDLE;
+    cv->picture = VK_NULL_HANDLE;
+    cv->mem = VK_NULL_HANDLE;
+    cv->w = cv->h = 0;
+    cv->valid = 0;
+}
+
+static void curveDestroy(XrCtx* ctx, XrCurve* cv) {
+    curveFreePicture(ctx->vk, cv);
+    for (uint32_t i = 0; i < cv->count; i++) vkDestroyImageView(ctx->vk->device, cv->views[i], NULL);
+    cv->count = 0;
+    if (cv->swapchain) {
+        xrDestroySwapchain(cv->swapchain);
+        ctx->swapchainsAlive--;
+    }
+    cv->swapchain = XR_NULL_HANDLE;
+}
+
+// The app's own copy of the picture, sRGB as the swapchain it stands in for
+static int curvePicture(XrCtx* ctx, XrCurve* cv, int w, int h) {
+    if (cv->picture && cv->w == w && cv->h == h) {
+        return 0;
+    }
+    const XrVk* vk = ctx->vk;
+    vkDeviceWaitIdle(vk->device);
+    curveFreePicture(vk, cv);
+    VkImageCreateInfo ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.format = VK_FORMAT_R8G8B8A8_SRGB;
+    ci.extent = (VkExtent3D){ (uint32_t)w, (uint32_t)h, 1 };
+    ci.mipLevels = 1;
+    ci.arrayLayers = 1;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    if (vkCreateImage(vk->device, &ci, NULL, &cv->picture) != VK_SUCCESS) return -1;
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(vk->device, cv->picture, &req);
+    VkMemoryAllocateInfo ai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+    ai.allocationSize = req.size;
+    ai.memoryTypeIndex = xr_vk_memory_type(vk, req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (vkAllocateMemory(vk->device, &ai, NULL, &cv->mem) != VK_SUCCESS) return -1;
+    vkBindImageMemory(vk->device, cv->picture, cv->mem, 0);
+    VkImageViewCreateInfo vi = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    vi.image = cv->picture;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = VK_FORMAT_R8G8B8A8_SRGB;
+    vi.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    if (vkCreateImageView(vk->device, &vi, NULL, &cv->view) != VK_SUCCESS) return -1;
+    cv->w = w;
+    cv->h = h;
+    cv->layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    LOGEV("curved picture: own image %dx%d", w, h);
+    return 0;
+}
+
+// The projection layer's swapchain, both eyes side by side
+static int curveSwapchain(XrCtx* ctx, XrCurve* cv, int64_t format) {
+    if (cv->swapchain) return 0;
+    if (cv->failed) return -1;
+    cv->eyeW = ctx->recommendedEyeWidth > 0 ? ctx->recommendedEyeWidth : 1728;
+    cv->eyeH = ctx->recommendedEyeHeight > 0 ? ctx->recommendedEyeHeight : 1728;
+    XrSwapchainCreateInfo ci = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
+    ci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+    ci.format = format;
+    ci.sampleCount = 1;
+    ci.width = (uint32_t)(cv->eyeW * 2);
+    ci.height = (uint32_t)cv->eyeH;
+    ci.faceCount = ci.arraySize = ci.mipCount = 1;
+    if (!checkXr(xrCreateSwapchain(ctx->session, &ci, &cv->swapchain), "create curved picture swapchain")) {
+        cv->failed = 1;
+        return -1;
+    }
+    ctx->swapchainsAlive++;
+    xrEnumerateSwapchainImages(cv->swapchain, 0, &cv->count, NULL);
+    if (cv->count > CURVE_IMAGES) cv->count = CURVE_IMAGES;
+    for (uint32_t i = 0; i < cv->count; i++) cv->images[i] = (XrSwapchainImageVulkan2KHR){ XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR };
+    xrEnumerateSwapchainImages(cv->swapchain, cv->count, &cv->count, (XrSwapchainImageBaseHeader*)cv->images);
+    for (uint32_t i = 0; i < cv->count; i++) {
+        VkImageViewCreateInfo vi = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        vi.image = cv->images[i].image;
+        vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        vi.format = (VkFormat)format;
+        vi.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        if (vkCreateImageView(ctx->vk->device, &vi, NULL, &cv->views[i]) != VK_SUCCESS) return -1;
+    }
+    LOGEV("curved picture: projection layer %dx%d (two eyes), %u images; swapchains alive %d of 16",
+          cv->eyeW * 2, cv->eyeH, cv->count, ctx->swapchainsAlive);
+    return 0;
+}
+
+// One display frame of the curved picture: both eyes drawn from where they
+// are now. Fills the layer and returns the acquired image's release duty.
+static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuffer cmd, int64_t format,
+                       XrSpace space) {
+    if (!cv->valid || curveSwapchain(ctx, cv, format) != 0) return 0;
+    XrViewLocateInfo li = { XR_TYPE_VIEW_LOCATE_INFO };
+    li.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    li.displayTime = ctx->predictedDisplayTime;
+    li.space = space;
+    XrViewState vs = { XR_TYPE_VIEW_STATE };
+    XrView views[2] = { { XR_TYPE_VIEW }, { XR_TYPE_VIEW } };
+    uint32_t n = 0;
+    if (XR_FAILED(xrLocateViews(ctx->session, &li, &vs, 2, &n, views)) || n < 2
+            || !(vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT)) {
+        return 0;
+    }
+    uint32_t idx = 0;
+    XrSwapchainImageAcquireInfo aq = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+    XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+    wi.timeout = XR_INFINITE_DURATION;
+    if (!checkXr(xrAcquireSwapchainImage(cv->swapchain, &aq, &idx), "acquire curved picture image")) return 0;
+    if (!checkXr(xrWaitSwapchainImage(cv->swapchain, &wi), "wait curved picture image")) {
+        XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+        xrReleaseSwapchainImage(cv->swapchain, &rl);
+        return 0;
+    }
+    mlxr_barrier(cmd, cv->images[idx].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    MlxrTarget tg;
+    memset(&tg, 0, sizeof(tg));
+    tg.view = cv->views[idx];
+    tg.format = (VkFormat)format;
+    tg.rect.extent = (VkExtent2D){ (uint32_t)(cv->eyeW * 2), (uint32_t)cv->eyeH };
+    tg.clear = 1; // transparent round the picture: the void or the room shows
+    MlxrPanelParams pp;
+    memset(&pp, 0, sizeof(pp));
+    pp.src = cv->view;
+    pp.eyes = 2;
+    xrCurveShape(ctx, &pp.width, &pp.height, &pp.radius);
+    pp.segments = 96;
+    pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
+    memset(&cv->layer, 0, sizeof(cv->layer));
+    memset(cv->eyes, 0, sizeof(cv->eyes));
+    for (int e = 0; e < 2; e++) {
+        xrCurveMvp(views[e].fov, views[e].pose, ctx->screenPose, pp.mvp[e]);
+        pp.eyeRect[e].offset.x = e * cv->eyeW;
+        pp.eyeRect[e].extent = (VkExtent2D){ (uint32_t)cv->eyeW, (uint32_t)cv->eyeH };
+        pp.uvRect[e][0] = 0.0f;
+        pp.uvRect[e][1] = 0.0f;
+        pp.uvRect[e][2] = 1.0f;
+        pp.uvRect[e][3] = 1.0f;
+        XrCompositionLayerProjectionView* pv = &cv->eyes[e];
+        pv->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+        pv->pose = views[e].pose;
+        pv->fov = views[e].fov;
+        pv->subImage.swapchain = cv->swapchain;
+        pv->subImage.imageRect.offset.x = e * cv->eyeW;
+        pv->subImage.imageRect.extent.width = cv->eyeW;
+        pv->subImage.imageRect.extent.height = cv->eyeH;
+    }
+    mlxr_pass_panel(passes, cmd, &tg, &pp);
+    cv->layer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+    cv->layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    cv->layer.space = space;
+    cv->layer.viewCount = 2;
+    cv->layer.views = cv->eyes;
+    return 1;
+}
+
 // The sharpen the Display tab's row asks for: off, normal, quality
 static float sharpenFor(int mode) {
     return mode == 2 ? 0.8f : (mode == 1 ? 0.4f : 0.0f);
@@ -328,15 +517,26 @@ static float sharpenFor(int mode) {
 // Records the warp of one picture into swapchain image idx: the picture grade
 // and the sharpening as the panel has them now
 static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffer cmd, uint32_t idx,
-                       const MlxrVideo* video) {
-    xr_vk_image_barrier(cmd, vd->images[idx].image, VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+                       const MlxrVideo* video, XrCurve* curve) {
     MlxrTarget tg;
     memset(&tg, 0, sizeof(tg));
-    tg.view = vd->views[idx];
-    tg.format = (VkFormat)vd->format;
-    tg.rect.extent = (VkExtent2D){ (uint32_t)vd->width, (uint32_t)vd->height };
+    if (curve != NULL) {
+        // The curved picture's own image, sampled afterwards by the panel pass
+        mlxr_barrier(cmd, curve->picture, VK_IMAGE_ASPECT_COLOR_BIT, curve->layout,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        tg.view = curve->view;
+        tg.format = VK_FORMAT_R8G8B8A8_SRGB;
+        tg.rect.extent = (VkExtent2D){ (uint32_t)curve->w, (uint32_t)curve->h };
+    }
+    else {
+        xr_vk_image_barrier(cmd, vd->images[idx].image, VK_IMAGE_LAYOUT_UNDEFINED,
+                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        tg.view = vd->views[idx];
+        tg.format = (VkFormat)vd->format;
+        tg.rect.extent = (VkExtent2D){ (uint32_t)vd->width, (uint32_t)vd->height };
+    }
     MlxrWarpParams w;
     memset(&w, 0, sizeof(w));
     w.video = *video;
@@ -352,6 +552,13 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     w.tint[0] = w.tint[1] = w.tint[2] = 1.0f;
     w.sharpen = sharpenFor(ctx->sharpenMode);
     mlxr_pass_warp(passes, cmd, &tg, &w);
+    if (curve != NULL) {
+        mlxr_barrier(cmd, curve->picture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        curve->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        curve->valid = 1;
+    }
+    vd->drawnCurved = curve != NULL;
     vd->drawnGradeOn = ctx->gradeOn;
     vd->drawnGrade = ctx->grade;
     vd->drawnSharpen = ctx->sharpenMode;
@@ -359,9 +566,32 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
 }
 
 // Whether the grade or the sharpening moved since the picture was drawn
-static int videoStale(XrCtx* ctx, const Video* vd) {
+static int videoStale(XrCtx* ctx, const Video* vd, int curved) {
     return vd->draws > 0 && (vd->drawnGradeOn != ctx->gradeOn || vd->drawnSharpen != ctx->sharpenMode
+                             || vd->drawnCurved != curved
                              || memcmp(&vd->drawnGrade, &ctx->grade, sizeof(PictureGrade)) != 0);
+}
+
+// Where a warp goes: the picture's swapchain image (acquired), or the curved
+// picture's own image. 1 when there is somewhere to draw.
+static int videoTarget(XrCtx* ctx, Video* vd, XrCurve* curve, int curved, uint32_t* idx, int* swapAcquired) {
+    *swapAcquired = 0;
+    if (curved) {
+        return curvePicture(ctx, curve, vd->width, vd->height) == 0;
+    }
+    XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+    XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+    wi.timeout = XR_INFINITE_DURATION;
+    if (!checkXr(xrAcquireSwapchainImage(vd->swapchain, &ai, idx), "acquire video image")) {
+        return 0;
+    }
+    if (!checkXr(xrWaitSwapchainImage(vd->swapchain, &wi), "wait video image")) {
+        XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+        xrReleaseSwapchainImage(vd->swapchain, &rl);
+        return 0;
+    }
+    *swapAcquired = 1;
+    return 1;
 }
 
 // ---- small swapchains made by the host ------------------------------------------
@@ -745,7 +975,7 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
     }
     Settings* s = h->cfg->settings;
     if (in[IN_POSE_DIRTY] != 0.0f) {
-        xrPoseToSettings(&in[IN_POSE], effectiveCurvature(ctx), s);
+        xrPoseToSettings(&in[IN_POSE], xrCurveSetting(ctx), s);
         saveSettings(h, "screen placement");
     }
     int pick = (int)in[IN_PICKER_PICK];
@@ -842,6 +1072,8 @@ int xr_app_run(const XrAppConfig* cfg) {
     memset(&vd, 0, sizeof(vd));
     Frame fr;
     memset(&fr, 0, sizeof(fr));
+    XrCurve curve;
+    memset(&curve, 0, sizeof(curve));
     g_frame = &fr;
     MlxrPasses* passes = NULL;
 
@@ -874,6 +1106,9 @@ int xr_app_run(const XrAppConfig* cfg) {
     startPerfLevels(ctx);
 
     ctx->ensurePassthrough = ensurePassthroughSwapchain;
+    // Native: the curve is the host's (mlxr_pass_panel into a projection
+    // layer), so the Screen tab's Curve row is live
+    ctx->cylinderSupported = 1;
     // The settings, as nativeInit's arguments and the setters handed them down
     xrApplySettings(ctx, cfg->settings);
 
@@ -1082,7 +1317,11 @@ int xr_app_run(const XrAppConfig* cfg) {
             }
         }
         uint32_t videoIdx = 0;
-        int videoAcquired = 0;
+        int videoAcquired = 0, swapAcquired = 0;
+        // Native: a curved picture goes through the app's own image and the
+        // panel pass (no cylinder layers on SteamVR)
+        int curvedNow = ctx->cylinderSupported && effectiveCurvature(ctx) > 0.01f && roomEffective(ctx) <= 0
+                && !curve.failed;
         uint64_t signal = 0;
         int hwNew = 0;
         mlxr_vframe hf;
@@ -1101,11 +1340,7 @@ int xr_app_run(const XrAppConfig* cfg) {
                     hw_video_release(hv, &hf);
                 }
                 else {
-                    XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
-                    XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
-                    wi.timeout = XR_INFINITE_DURATION;
-                    if (checkXr(xrAcquireSwapchainImage(vd.swapchain, &ai, &videoIdx), "acquire video image")
-                            && checkXr(xrWaitSwapchainImage(vd.swapchain, &wi), "wait video image")) {
+                    if (videoTarget(ctx, &vd, &curve, curvedNow, &videoIdx, &swapAcquired)) {
                         videoAcquired = 1;
                         mlxr_vkimp_cmd_acquire(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                         MlxrVideo mv;
@@ -1116,7 +1351,7 @@ int xr_app_run(const XrAppConfig* cfg) {
                         mv.height = hf.height;
                         mv.texWidth = hf.coded_width;
                         mv.texHeight = hf.coded_height;
-                        recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv);
+                        recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, curvedNow ? &curve : NULL);
                         mlxr_vkimp_cmd_release(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                         hwNew = 1;
                     }
@@ -1131,11 +1366,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         AVFrame* f = cfg->video ? frame_slot_take(cfg->video) : NULL;
         if (f && !videoAcquired && fs.shouldRender && cmd) {
             if (swPlanes(&vk, &vd, f) == 0 && videoSwapchain(ctx, &vd, f->width, f->height) == 0) {
-                XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
-                XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
-                wi.timeout = XR_INFINITE_DURATION;
-                if (checkXr(xrAcquireSwapchainImage(vd.swapchain, &ai, &videoIdx), "acquire video image")
-                        && checkXr(xrWaitSwapchainImage(vd.swapchain, &wi), "wait video image")) {
+                if (videoTarget(ctx, &vd, &curve, curvedNow, &videoIdx, &swapAcquired)) {
                     videoAcquired = 1;
                     swUpload(&vd, cmd, f);
                     MlxrVideo mv;
@@ -1147,7 +1378,7 @@ int xr_app_run(const XrAppConfig* cfg) {
                     mv.width = (uint32_t)f->width;
                     mv.height = (uint32_t)f->height;
                     mv.chroma = MLXR_CHROMA_LEFT;
-                    recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv);
+                    recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, curvedNow ? &curve : NULL);
                 }
             }
         }
@@ -1155,13 +1386,9 @@ int xr_app_run(const XrAppConfig* cfg) {
 
         // The grade or the sharpening moved on a picture standing still: the
         // frame in hand is drawn again (upstream's warpRedraw)
-        if (!videoAcquired && fs.shouldRender && cmd && vd.swapchain && videoStale(ctx, &vd)
+        if (!videoAcquired && fs.shouldRender && cmd && vd.swapchain && videoStale(ctx, &vd, curvedNow)
                 && (vd.heldValid || vd.swValid)) {
-            XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
-            XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
-            wi.timeout = XR_INFINITE_DURATION;
-            if (checkXr(xrAcquireSwapchainImage(vd.swapchain, &ai, &videoIdx), "acquire video image")
-                    && checkXr(xrWaitSwapchainImage(vd.swapchain, &wi), "wait video image")) {
+            if (videoTarget(ctx, &vd, &curve, curvedNow, &videoIdx, &swapAcquired)) {
                 videoAcquired = 1;
                 MlxrVideo mv;
                 memset(&mv, 0, sizeof(mv));
@@ -1176,7 +1403,7 @@ int xr_app_run(const XrAppConfig* cfg) {
                         mv.height = vd.held.height;
                         mv.texWidth = vd.held.coded_width;
                         mv.texHeight = vd.held.coded_height;
-                        recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv);
+                        recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, curvedNow ? &curve : NULL);
                         mlxr_vkimp_cmd_release(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                     }
                 }
@@ -1188,13 +1415,22 @@ int xr_app_run(const XrAppConfig* cfg) {
                     mv.width = (uint32_t)vd.planeW;
                     mv.height = (uint32_t)vd.planeH;
                     mv.chroma = MLXR_CHROMA_LEFT;
-                    recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv);
+                    recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, curvedNow ? &curve : NULL);
                 }
                 LOGI("picture drawn again on a still frame (grade %s, sharpen %d)", ctx->gradeOn ? "on" : "off",
                      ctx->sharpenMode);
             }
         }
 
+        // The curved picture, every display frame (the eyes move)
+        int curveAcquired = 0;
+        if (curvedNow && fs.shouldRender && cmd && ctx->launcher == LAUNCHER_NONE) {
+            XrPosef pp;
+            float pw, ph;
+            XrSpace space;
+            xrPictureView(ctx, &pp, &pw, &ph, &space);
+            curveAcquired = curveRecord(ctx, &curve, passes, cmd, vd.format, space);
+        }
         if (fr.recording) {
             vkEndCommandBuffer(fr.cmd);
             fr.recording = 0;
@@ -1226,9 +1462,15 @@ int xr_app_run(const XrAppConfig* cfg) {
             vd.heldValue = signal;
         }
         if (atlasAcquired) xrAtlasRelease(ctx);
-        if (videoAcquired) {
+        if (curveAcquired) {
             XrSwapchainImageReleaseInfo rli = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
-            checkXr(xrReleaseSwapchainImage(vd.swapchain, &rli), "release video image");
+            checkXr(xrReleaseSwapchainImage(curve.swapchain, &rli), "release curved picture image");
+        }
+        if (videoAcquired) {
+            if (swapAcquired) {
+                XrSwapchainImageReleaseInfo rli = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+                checkXr(xrReleaseSwapchainImage(vd.swapchain, &rli), "release video image");
+            }
             ctx->videoShown = 1;
             ctx->everRendered = 1;
             videoWindow++;
@@ -1244,6 +1486,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         fin.headLocked = cfg->settings->head_locked;
         fin.eyeSwap = cfg->settings->eye_swap;
         fin.passthrough = ctx->passthrough;
+        fin.curved = curveAcquired ? &curve.layer : NULL;
         XrFrameOut fout;
         memset(&fout, 0, sizeof(fout));
         if (fs.shouldRender) {
@@ -1271,9 +1514,13 @@ int xr_app_run(const XrAppConfig* cfg) {
         if (t - lastStats >= 5.0) {
             char extra[512] = "";
             if (cfg->hooks.stats) cfg->hooks.stats(cfg->hooks.user, extra, sizeof(extra));
-            LOGEV("xr: %.1f fps (display %.0f Hz), video %.1f fps drawn, %u layers, swapchains %d; %s",
+            int panelDraws = 0;
+            double panelMs = 0.0;
+            xrPanelsStats(ctx, &panelDraws, &panelMs);
+            LOGEV("xr: %.1f fps (display %.0f Hz), video %.1f fps drawn, %u layers, swapchains %d, %d panel "
+                  "drawings %.1f ms avg; %s",
                   framesWindow / (t - lastStats), xrGetDisplayRate(ctx), videoWindow / (t - lastStats), fout.count,
-                  ctx->swapchainsAlive, extra);
+                  ctx->swapchainsAlive, panelDraws, panelMs, extra);
             framesWindow = videoWindow = 0;
             lastStats = t;
         }
@@ -1292,6 +1539,7 @@ fail:
         hwDestroy(&vk, &vd);
         freeSwPlanes(&vk, &vd);
         freeVideoSwapchain(ctx, &vd);
+        curveDestroy(ctx, &curve);
         xrPanelsDestroy(ctx);
         xrAtlasDestroy(ctx);
         if (ctx->passthroughSwapchain) xrDestroySwapchain(ctx->passthroughSwapchain);

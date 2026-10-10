@@ -278,7 +278,7 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
         pose[7] = ctx->screenWidth;
         pose[8] = ctx->screenRadius;
         pose[9] = ctx->panelCurve;
-        xrPoseToSettings(pose, effectiveCurvature(ctx), s);
+        xrPoseToSettings(pose, xrCurveSetting(ctx), s);
     }
     settings_clamp(s);
 }

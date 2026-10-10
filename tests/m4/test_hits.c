@@ -268,8 +268,71 @@ static void launcherList(Scene* s) {
     CHECK(items == UI_LIST_ROWS);
 }
 
+// The curved picture: what mlxr_pass_panel draws (panel.vert's surface under
+// xrCurveShape and xrCurveMvp) is the surface the ray's hits are worked out
+// on (screenPoint/screenProject, curved), at every point
+static void curvedPicture(Scene* s) {
+    XrCtx* c = s->ctx;
+    scene_reset(s);
+    c->cylinderSupported = 1;
+    c->panelCurve = 0.6f;
+    XrVector3f p = c->screenPose.position;
+    float d = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
+    c->screenRadius = d * (1.0f + 3.0f * (1.0f - c->panelCurve));
+    float W, H, R;
+    xrCurveShape(c, &W, &H, &R);
+    float h = c->screenWidth * (float)c->videoHeight / (float)c->videoWidth;
+    XrFovf fov = { -0.8f, 0.8f, 0.8f, -0.8f };
+    XrPosef eye = { { 0, 0, 0, 1 }, { 0.03f, 0.0f, 0.0f } };
+    float mvp[16];
+    xrCurveMvp(fov, eye, c->screenPose, mvp);
+    float proj[16], view[16], vp[16];
+    projectionFromFov(proj, fov, 0.05f, 100.0f);
+    viewFromPose(view, eye);
+    matMul(vp, proj, view);
+    for (int iy = 0; iy <= 4; iy++) {
+        for (int ix = 0; ix <= 8; ix++) {
+            float u = ix / 8.0f, v = iy / 4.0f;
+            // panel.vert
+            float a = (u - 0.5f) * W / R;
+            float local[4] = { R * sinf(a), (0.5f - v) * H, R * (1.0f - cosf(a)), 1.0f };
+            float clip[4] = { 0, 0, 0, 0 };
+            for (int r = 0; r < 4; r++)
+                for (int k = 0; k < 4; k++) clip[r] += mvp[k * 4 + r] * local[k];
+            // the hit side's surface, through the plain projection
+            Vec3 P = screenPoint(u, v, c->screenPose, c->screenWidth, h, c->screenRadius, 1);
+            float wp[4] = { P.x, P.y, P.z, 1.0f }, clip2[4] = { 0, 0, 0, 0 };
+            for (int r = 0; r < 4; r++)
+                for (int k = 0; k < 4; k++) clip2[r] += vp[k * 4 + r] * wp[k];
+            CHECK_NEAR(clip[0] / clip[3], clip2[0] / clip2[3], 1e-4);
+            CHECK_NEAR(clip[1] / clip[3], clip2[1] / clip2[3], 1e-4);
+            // and the ray at it lands back on (u, v)
+            float hu = -1, hv = -1;
+            CHECK(screenProject(aimAt(EYE, P), c->screenPose, c->screenWidth, h, c->screenRadius, 1, &hu, &hv));
+            CHECK_NEAR(hu, u, 1e-3);
+            CHECK_NEAR(hv, v, 1e-3);
+        }
+    }
+    // The bar follows the curved picture, and its buttons are still hit
+    BarFrame f = barFrame(c);
+    CHECK(f.curved);
+    Vec3 local;
+    float side;
+    barSlotPlacement(BAR_SLOT_EXIT, f.width, f.height, &local, &side);
+    curveLocal(&local, f.radius, f.curved, NULL);
+    Vec3 off = quatRotate(f.pose.orientation, local);
+    Vec3 b = { f.pose.position.x + off.x, f.pose.position.y + off.y, f.pose.position.z + off.z };
+    CHECK(xrHoverAt(c, aimAt(EYE, b), NULL, NULL, NULL) == HOVER_EXITBUTTON);
+    // The launcher's list is flat whatever the curve
+    c->launcher = LAUNCHER_PCS;
+    CHECK(effectiveCurvature(c) == 0.0f && xrCurveSetting(c) > 0.5f);
+    c->launcher = LAUNCHER_NONE;
+    c->panelCurve = -1.0f;
+}
+
 int main(void) {
     Scene* s = scene_new();
+    curvedPicture(s);
     barButtons(s);
     cogRows(s);
     exitAndKeys(s);

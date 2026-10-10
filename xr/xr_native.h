@@ -14,6 +14,10 @@
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 
+// The curve the panel or the preference asks for (xr_ui.c): what is stored,
+// whether or not the launcher's flat list has the picture's place now
+float xrCurveSetting(XrCtx* ctx);
+
 // ---- rows the native client cannot act on yet (xr_prefs.c) ----------------
 // 0 when the row is live as far as the native client goes, else the reason's
 // UiStr. Display tab: supersampling (no layer settings on SteamVR, no app pass
@@ -105,6 +109,8 @@ const UiHits* xrPanelsLauncherHits(XrCtx* ctx);
 // The view the cog panel was last drawn from (tests)
 const UiView* xrPanelsLastView(XrCtx* ctx);
 
+// Panel drawings since the last call and their average cost (the stats line)
+void xrPanelsStats(XrCtx* ctx, int* draws, double* ms);
 // The report form, the toast's words and the app's own notices
 void xrPanelsReportKey(XrCtx* ctx, int code);
 void xrPanelsReportEvent(XrCtx* ctx, int event, const char* reportDir);
@@ -134,6 +140,11 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out);
 // The pose and size the picture goes up at this frame (after updatePlacement)
 void xrPictureView(XrCtx* ctx, XrPosef* pose, float* width, float* height, XrSpace* space);
 
+
+// The curved picture as mlxr_pass_panel draws it (xr_layers.c): its size and
+// bend, and one eye's mvp (GL conventions, model = the picture's pose)
+void xrCurveShape(XrCtx* ctx, float* width, float* height, float* radius);
+void xrCurveMvp(XrFovf fov, XrPosef eye, XrPosef surface, float* mvp);
 
 // ---- for the tests (xr_input.c) ----------------------------------------------
 // What one ray in the local space lands on through the frame's hover pass
