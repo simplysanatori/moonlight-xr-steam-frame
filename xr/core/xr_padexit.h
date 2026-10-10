@@ -1,5 +1,6 @@
-// The disconnect chord of gamepad mode: Start, Select (Back) and both triggers
-// held together. Plain arithmetic over the settled pad state, edge triggered:
+// The disconnect chord of gamepad mode, Moonlight's: Start, Select (Back) and
+// both bumpers (L1, R1) held together, and no other button. Plain arithmetic
+// over the settled pad state, edge triggered:
 // it fires on the frame the chord completes and not again until everything
 // has been let go. GPLv3.
 #ifndef XR_PADEXIT_H
@@ -7,10 +8,9 @@
 
 #include "xr_gamepad.h"
 
-// A trigger counts as part of the chord past 80 percent, and as let go under
-// 50 percent (a hysteresis so a wobbling trigger cannot re-arm it)
-#define PADEXIT_TRIGGER_ON 204
-#define PADEXIT_TRIGGER_OFF 128
+#define PADEXIT_BUTTONS (PAD_START | PAD_BACK | PAD_LB | PAD_RB)
+// The pad's buttons as the host gets them (the bits above are held flags)
+#define PADEXIT_BUTTON_BITS 0xFFFF
 
 typedef struct {
     // 0 until the chord has been let go after it fired

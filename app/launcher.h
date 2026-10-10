@@ -95,7 +95,7 @@ void launcher_press(Launcher* l, int kind, int a, int b);
 // host's session), or quits the app from the lists
 void launcher_exit(Launcher* l);
 // Leaves the stream but not the host's session (the gamepad chord Start+Select+
-// L2+R2, "disconnect your session"): LCMD_STOP with quitHost 0, then the app
+// L1+R1, "disconnect your session"): LCMD_STOP with quitHost 0, then the app
 // list. Outside a stream it does nothing; in file mode it behaves as exit.
 void launcher_disconnect(Launcher* l);
 // The same from a physical keyboard's Ctrl+Alt+Shift+Q (Moonlight's own

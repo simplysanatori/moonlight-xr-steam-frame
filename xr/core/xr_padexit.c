@@ -3,14 +3,13 @@
 
 void padExitReset(PadExit* e) { e->armed = 1; }
 
+// Moonlight Qt's own test (gamepad.cpp): exactly these four buttons down
 static int chordDown(const PadState* s) {
-    return (s->buttons & PAD_START) && (s->buttons & PAD_BACK)
-        && s->leftTrigger >= PADEXIT_TRIGGER_ON && s->rightTrigger >= PADEXIT_TRIGGER_ON;
+    return (s->buttons & PADEXIT_BUTTON_BITS) == PADEXIT_BUTTONS;
 }
 
 static int allLetGo(const PadState* s) {
-    return !(s->buttons & (PAD_START | PAD_BACK))
-        && s->leftTrigger < PADEXIT_TRIGGER_OFF && s->rightTrigger < PADEXIT_TRIGGER_OFF;
+    return !(s->buttons & PADEXIT_BUTTONS);
 }
 
 int padExitUpdate(PadExit* e, const PadState* s) {

@@ -675,6 +675,30 @@ void xrWorldCurvedGlow(XrCtx* ctx, const MlxrTarget* target, const XrView* views
     mlxr_pass_panel(ctx->passes, ctx->frameCmd, target, &pp);
 }
 
+void xrWorldFlatGlowInto(XrCtx* ctx, const MlxrTarget* target, const XrView* views, int eyeW, int eyeH) {
+    float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
+    MlxrPanelParams pp;
+    memset(&pp, 0, sizeof(pp));
+    pp.src = ctx->glowTexture.view;
+    pp.eyes = 2;
+    // The glow quad's size and place (addGlowLayer), flat
+    pp.width = ctx->screenWidth * GLOW_SCALE;
+    pp.height = ctx->screenWidth * aspect * GLOW_SCALE;
+    pp.radius = 0.0f;
+    pp.segments = 1;
+    pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
+    for (int e = 0; e < 2; e++) {
+        xrCurveMvp(views[e].fov, views[e].pose, ctx->screenPose, pp.mvp[e]);
+        pp.eyeRect[e].offset.x = e * eyeW;
+        pp.eyeRect[e].extent = (VkExtent2D){ (uint32_t)eyeW, (uint32_t)eyeH };
+        pp.uvRect[e][0] = 0.0f;
+        pp.uvRect[e][1] = 0.0f;
+        pp.uvRect[e][2] = 1.0f;
+        pp.uvRect[e][3] = 1.0f;
+    }
+    mlxr_pass_panel(ctx->passes, ctx->frameCmd, target, &pp);
+}
+
 // ---- the click --------------------------------------------------------------------------------
 
 void (*xrClickPlayer)(void) = NULL;

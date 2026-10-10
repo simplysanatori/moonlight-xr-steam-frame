@@ -29,8 +29,8 @@ index 1617792..eb24cf5 100644
 +    // Moonlight XR Native: the native VR client has the stream. This window stays up, idle.
 +    function vrStreamStarted()
 +    {
-+        // Stock wording and choice; the VR client's gamepad chord is Start+Select+L2+R2
-+        hintText.text = qsTr("Tip:") + " " + qsTr("Press %1 to disconnect your session").arg(SdlGamepadKeyNavigation.getConnectedGamepads() > 0 ? qsTr("Start+Select+L2+R2") : qsTr("Ctrl+Alt+Shift+Q"))
++        // Stock wording and choice; the VR client's gamepad chord is Start+Select+L1+R1
++        hintText.text = qsTr("Tip:") + " " + qsTr("Press %1 to disconnect your session").arg(SdlGamepadKeyNavigation.getConnectedGamepads() > 0 ? qsTr("Start+Select+L1+R1") : qsTr("Ctrl+Alt+Shift+Q"))
 +    }
 +
      function displayLaunchError(text)

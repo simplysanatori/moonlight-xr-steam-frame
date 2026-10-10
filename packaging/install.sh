@@ -80,6 +80,8 @@ else
     if [ -x "$LAUNCHER_BIN" ] && [ -f "$LAUNCHER_SH" ]; then
         install -m755 "$LAUNCHER_BIN" "$DEST/moonlight-xr-launcher"
         install -m755 "$LAUNCHER_SH" "$DEST/moonlight-xr-launcher.sh"; echo "  moonlight-xr-launcher (flat Moonlight UI)"
+        # It asks Steam to put its flat screen back up in the headset after a stream
+        [ -f "$CEFPY" ] && install -m644 "$CEFPY" "$DEST/steam_cef.py"
     fi
     install -m755 "$SEEDDIR/seed-from-moonlight-qt.sh" "$DEST/seed-from-moonlight-qt.sh"
     install -m644 "$SEEDDIR/seed_moonlight_qt.py" "$DEST/seed_moonlight_qt.py"

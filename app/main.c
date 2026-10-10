@@ -693,7 +693,7 @@ static void* worker(void* arg) {
     return NULL;
 }
 
-// Gamepad mode's Start+Select+L2+R2: leave the stream, the host's session stays
+// Gamepad mode's Start+Select+L1+R1: leave the stream, the host's session stays
 // (the bar's Exit ends it). Called by the pad bridge outside its lock.
 static void padDisconnectHook(void* user) {
     (void)user;

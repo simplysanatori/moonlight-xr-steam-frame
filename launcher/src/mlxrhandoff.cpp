@@ -391,6 +391,30 @@ static QString lastErrorLine(const QByteArray& tail)
     return QString();
 }
 
+// In the headset (Game Mode under SteamVR), SteamVR shows this window as the game's flat screen
+// in its dashboard, and closes the dashboard when the VR client's session starts; nothing opens
+// it again when the client exits, so the headset would show nothing. Ask Steam to put the flat
+// screen back up (Steam's own call, through its local debugging port, steam_cef.py).
+static void reopenFlatScreen()
+{
+    const QString appId = qEnvironmentVariable("SteamAppId");
+    const QString cef = QCoreApplication::applicationDirPath() + "/steam_cef.py";
+    if (qEnvironmentVariable("XDG_CURRENT_DESKTOP") != "gamescope" || appId.isEmpty() || !QFileInfo::exists(cef)) {
+        return;
+    }
+    const QString js = QString("SteamClient.OpenVR.VROverlay.ShowDashboard('valve.steam.desktopgame.%1')").arg(appId);
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.remove("LD_LIBRARY_PATH");
+    QProcess p;
+    p.setProcessEnvironment(env);
+    p.start("python3", { "-I", cef, js });
+    if (!p.waitForFinished(5000)) {
+        p.kill();
+        p.waitForFinished(1000);
+    }
+    qInfo().noquote() << "Asked Steam to show the flat screen again:" << (p.exitCode() == 0 ? "done" : "failed");
+}
+
 Result run(const Plan& plan, const std::function<void()>& onStarted, const std::function<void()>& onStreaming)
 {
     Result r;
@@ -509,13 +533,40 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
         }
     }
     log.write(QString("\n== VR client exited: code %1%2\n").arg(r.exitCode).arg(r.crashed ? " (crashed)" : "").toUtf8());
+    reopenFlatScreen();
     qInfo().noquote() << "The VR client exited with" << r.exitCode << r.message;
     return r;
 }
 
 // ---- first run: the config -------------------------------------------------------
 
+// Game Mode (gamescope) counts as a desktop for Moonlight, so the UI opens windowed at its
+// 1280x600, which gamescope letterboxes on its 16:9 screen. Once, the UI display mode is set to
+// Moonlight's own Fullscreen there; Settings changes it back as usual.
+static void fullScreenInGameMode()
+{
+    if (qEnvironmentVariable("XDG_CURRENT_DESKTOP") != "gamescope" || !QFileInfo::exists(QSettings().fileName())) {
+        return;
+    }
+    QSettings s;
+    if (s.value("mlxr/ui_fullscreen_set", false).toBool()) {
+        return;
+    }
+    s.setValue("uidisplaymode", 2); // StreamingPreferences::UI_FULLSCREEN
+    s.setValue("mlxr/ui_fullscreen_set", true);
+    s.sync();
+    qInfo() << "Game Mode: the UI display mode set to Fullscreen";
+}
+
+static void seedOnce();
+
 void seedLauncherConfig()
+{
+    seedOnce();
+    fullScreenInGameMode();
+}
+
+static void seedOnce()
 {
     if (envSet("MLXR_NO_SEED")) {
         return;

@@ -42,7 +42,7 @@ int main(void) {
     launcher_disconnect(&l);
     CHECK(l.state == LAUNCH_STOPPING);
     CHECK(drain(&l, &c) == 1 && c.kind == LCMD_STOP && c.quitHost == 0 && c.pc == 0);
-    CHECK(strstr(l.notice, "Start+Select+L2+R2") != NULL);
+    CHECK(strstr(l.notice, "Start+Select+L1+R1") != NULL);
     launcher_stream_ended(&l, 0);
     CHECK(l.state == LAUNCH_APPS);
     CHECK(drain(&l, &c) == 1 && c.kind == LCMD_FETCH_APPS);

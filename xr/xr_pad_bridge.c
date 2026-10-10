@@ -59,7 +59,7 @@ void xrPadBridgeFrame(int plugged, const PadState* s, int64_t nowNs) {
             // The chord: the host sees the pad at rest first, then the hook
             fire = g_hook;
             user = g_hookUser;
-            MLOG_I("gamepad: Disconnected: Start+Select+L2+R2 (disconnect your session)");
+            MLOG_I("gamepad: Disconnected: Start+Select+L1+R1 (disconnect your session)");
         }
         if (padExitLatched(&g_exit)) {
             padRest(&rest);

@@ -74,6 +74,10 @@ int xrWorldGlowShown(XrCtx* ctx);
 // a projection layer target (the curved picture's own; native, there being no
 // cylinder layers): one draw per eye
 void xrWorldCurvedGlow(XrCtx* ctx, const MlxrTarget* target, const XrView* views, int eyeW, int eyeH);
+// Native: the flat glow drawn the same way, into the picture's own projection
+// layer under the picture (flat in 3D): SteamVR puts quad layers over a
+// projection layer whatever their order, so the glow quad would cover it
+void xrWorldFlatGlowInto(XrCtx* ctx, const MlxrTarget* target, const XrView* views, int eyeW, int eyeH);
 
 // The room's own pass into any target (renderRoom's draw; the snapshot tool
 // draws through it too). colour in COLOR_ATTACHMENT_OPTIMAL, depth in

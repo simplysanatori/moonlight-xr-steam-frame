@@ -276,7 +276,9 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     // sharpened: being soft is the whole of the effect. Native: a curved
     // picture's glow is drawn into the curved picture's own projection layer
     // (there are no cylinder layers), so only the flat glow is a layer here.
-    if (!xrWorldGlowShown(ctx) || view->screenCurved || ctx->glowSwapchain == XR_NULL_HANDLE
+    // Native: inside the picture's projection layer when it has one (curved, or flat in 3D)
+    (void)view;
+    if (!xrWorldGlowShown(ctx) || xrPictureProjected(ctx) || ctx->glowSwapchain == XR_NULL_HANDLE
             || !ctx->glowSwapchainFilled) {
         return;
     }

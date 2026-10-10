@@ -159,7 +159,7 @@
     X(NATIVE_STREAM_FAILED, "native_stream_failed", "The stream did not start") \
     X(NATIVE_STREAM_ENDED, "native_stream_ended", "The stream ended") \
     X(NATIVE_QUITTING, "native_quitting", "Ending the session on %s") \
-    X(NATIVE_DISCONNECTED, "native_disconnected", "Disconnected: Start+Select+L2+R2") \
+    X(NATIVE_DISCONNECTED, "native_disconnected", "Disconnected: Start+Select+L1+R1") \
     X(NATIVE_DISCONNECTED_KEYS, "native_disconnected_keys", "Disconnected: Ctrl+Alt+Shift+Q")
 
 typedef enum {
