@@ -402,17 +402,26 @@ static void reopenFlatScreen()
     if (qEnvironmentVariable("XDG_CURRENT_DESKTOP") != "gamescope" || appId.isEmpty() || !QFileInfo::exists(cef)) {
         return;
     }
+    // Asked right away the dashboard opens before this window is back up and SteamVR shows
+    // nothing in it; so again once the window has been shown and drawn (StreamSegue shows it as
+    // soon as this returns)
     const QString js = QString("SteamClient.OpenVR.VROverlay.ShowDashboard('valve.steam.desktopgame.%1')").arg(appId);
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.remove("LD_LIBRARY_PATH");
-    QProcess p;
-    p.setProcessEnvironment(env);
-    p.start("python3", { "-I", cef, js });
-    if (!p.waitForFinished(5000)) {
-        p.kill();
-        p.waitForFinished(1000);
+    for (int ms : { 0, 1000, 2500 }) {
+        QTimer::singleShot(ms, qApp, [cef, js, ms]() {
+            QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+            env.remove("LD_LIBRARY_PATH");
+            QProcess* p = new QProcess(qApp);
+            p->setProcessEnvironment(env);
+            QObject::connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), p,
+                             [p, ms](int code, QProcess::ExitStatus) {
+                qInfo().noquote() << "Asked Steam to show the flat screen again after" << ms << "ms:"
+                                  << (code == 0 ? "done" : "failed") << p->readAll().trimmed();
+                p->deleteLater();
+            });
+            p->setProcessChannelMode(QProcess::MergedChannels);
+            p->start("python3", { "-I", cef, js });
+        });
     }
-    qInfo().noquote() << "Asked Steam to show the flat screen again:" << (p.exitCode() == 0 ? "done" : "failed");
 }
 
 Result run(const Plan& plan, const std::function<void()>& onStarted, const std::function<void()>& onStreaming)
