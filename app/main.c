@@ -653,7 +653,7 @@ int main(int argc, char** argv) {
     openLog();
     char cfgPath[512];
     settings_default_path(cfgPath, sizeof(cfgPath));
-    MLOG_I("== moonlight-xr (M4) starting; config %s: %s (%d set, %d unknown, %d unreadable)", cfgPath,
+    MLOG_I("== moonlight-xr starting; config %s: %s (%d set, %d unknown, %d unreadable)", cfgPath,
            lr == 0 ? "read" : lr == 1 ? "not there yet, defaults" : "read error", info.applied, info.unknown, info.bad);
     if (lr == 1) settings_save(&g_settings, NULL); // a file to edit, every setting commented with its default
     {
