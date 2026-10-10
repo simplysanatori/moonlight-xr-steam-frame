@@ -218,6 +218,19 @@ void launcher_exit(Launcher* l) {
     }
 }
 
+void launcher_disconnect(Launcher* l) {
+    if (l->state != LAUNCH_STREAMING && l->state != LAUNCH_STARTING) {
+        return;
+    }
+    if (l->fileMode) {
+        launcher_exit(l);
+        return;
+    }
+    l->state = LAUNCH_STOPPING;
+    snprintf(l->notice, sizeof(l->notice), "%s", ui_str(UIS_NATIVE_DISCONNECTED));
+    push(l, LCMD_STOP, l->pc, 0, 0, 0);
+}
+
 int launcher_take_cmd(Launcher* l, LaunchCmd* out) {
     if (l->ncmd == 0) return 0;
     *out = l->cmds[0];
