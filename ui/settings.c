@@ -210,10 +210,12 @@ const char* settings_get_str(const Settings* s, const SettingDesc* d) {
 void settings_set_str(Settings* s, const SettingDesc* d, const char* v) {
     char* dst = (char*)s + d->offset;
     size_t n = 0;
+    while (v && *v && isspace((unsigned char)*v)) v++;   // the file form cannot carry edge spaces
     for (; v && v[n] && n + 1 < d->scap; n++) {
         unsigned char c = (unsigned char)v[n];
         dst[n] = c < 0x20 ? ' ' : (char)c;   // one line, no control characters
     }
+    while (n > 0 && dst[n - 1] == ' ') n--;
     dst[n] = 0;
 }
 
@@ -240,6 +242,8 @@ void settings_clamp(Settings* s) {
             settings_set(s, d, settings_get(s, d));
         }
     }
+    // a bitrate is 0 (follow resolution and rate) or 500..150000 kbps
+    if (s->bitrate_kbps > 0 && s->bitrate_kbps < 500) s->bitrate_kbps = 500;
     // glow level moves in five percent steps
     s->glow_level = (s->glow_level + 2) / 5 * 5;
     for (int r = 0; r < ROOM_COUNT; r++) {
@@ -406,6 +410,8 @@ void settings_from_text(Settings* s, const char* text, SettingsLoadInfo* info) {
     if (!info) info = &local;
     memset(info, 0, sizeof(*info));
     char section[64] = "";
+    if (!text) return;
+    if (strncmp(text, "\xEF\xBB\xBF", 3) == 0) text += 3;   // a byte order mark from an editor
     const char* p = text;
     while (p && *p) {
         const char* eol = strchr(p, '\n');

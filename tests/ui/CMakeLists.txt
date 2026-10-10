@@ -1,9 +1,49 @@
-# Tests for the ui lane (ctest names ui_*). Built with -Werror.
+# Tests for the ui lane (ctest names ui_*), built with -Werror, plus mlxr-panel-test, which
+# renders every panel to PNGs for a person to look at (target `panels`, into build-ui/panels/).
+set(UI_TEST_COMMON_INCLUDES ${PROJECT_SOURCE_DIR}/tests/xrcore ${PROJECT_SOURCE_DIR}/ui/third_party)
 set(PANEL_OUT ${PROJECT_BINARY_DIR}/panels)
 
-# Renders every panel and tab to PNGs for a person to look at
 add_executable(mlxr-panel-test panel_render.c)
 target_link_libraries(mlxr-panel-test PRIVATE mlxr_ui m)
-target_include_directories(mlxr-panel-test PRIVATE ${PROJECT_SOURCE_DIR}/ui/third_party)
+target_include_directories(mlxr-panel-test PRIVATE ${UI_TEST_COMMON_INCLUDES})
 target_compile_definitions(mlxr-panel-test PRIVATE PANEL_RENDER_MAIN=1)
 add_custom_target(panels COMMAND mlxr-panel-test ${PANEL_OUT} DEPENDS mlxr-panel-test)
+
+foreach(t text settings panels)
+  add_executable(test_ui_${t} test_${t}.c)
+  target_link_libraries(test_ui_${t} PRIVATE mlxr_ui m)
+  target_include_directories(test_ui_${t} PRIVATE ${UI_TEST_COMMON_INCLUDES})
+  target_compile_options(test_ui_${t} PRIVATE -Werror)
+  target_compile_definitions(test_ui_${t} PRIVATE MLXR_ASSETS_DIR="${PROJECT_SOURCE_DIR}/assets")
+  add_test(NAME ui_${t} COMMAND test_ui_${t})
+endforeach()
+
+# The same suites against an AddressSanitizer + UBSan build of the ui sources: out-of-bounds
+# writes by any rasteriser fail here even where the guard bytes would not see them.
+include(CheckCCompilerFlag)
+set(CMAKE_REQUIRED_FLAGS "-fsanitize=address,undefined")
+check_c_compiler_flag("-fsanitize=address,undefined" UI_HAVE_ASAN)
+unset(CMAKE_REQUIRED_FLAGS)
+if(UI_HAVE_ASAN)
+  get_target_property(UI_SOURCES mlxr_ui SOURCES)
+  set(UI_ASAN_SRCS "")
+  foreach(s ${UI_SOURCES})
+    list(APPEND UI_ASAN_SRCS ${PROJECT_SOURCE_DIR}/ui/${s})
+  endforeach()
+  add_library(mlxr_ui_asan STATIC ${UI_ASAN_SRCS})
+  target_include_directories(mlxr_ui_asan PUBLIC ${PROJECT_SOURCE_DIR}/ui)
+  target_include_directories(mlxr_ui_asan PRIVATE ${PROJECT_SOURCE_DIR}/ui/third_party)
+  target_link_libraries(mlxr_ui_asan PUBLIC mlxr_xrcore PRIVATE m)
+  target_compile_definitions(mlxr_ui_asan PUBLIC MLXR_ASSETS_DIR="${PROJECT_SOURCE_DIR}/assets")
+  target_compile_options(mlxr_ui_asan PRIVATE -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined)
+  target_link_options(mlxr_ui_asan PUBLIC -fsanitize=address,undefined)
+  foreach(t text settings panels)
+    add_executable(test_ui_${t}_asan test_${t}.c)
+    target_link_libraries(test_ui_${t}_asan PRIVATE mlxr_ui_asan m)
+    target_include_directories(test_ui_${t}_asan PRIVATE ${UI_TEST_COMMON_INCLUDES})
+    target_compile_options(test_ui_${t}_asan PRIVATE -Werror -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined)
+    target_compile_definitions(test_ui_${t}_asan PRIVATE MLXR_ASSETS_DIR="${PROJECT_SOURCE_DIR}/assets" UI_ASAN=1)
+    add_test(NAME ui_${t}_asan COMMAND test_ui_${t}_asan)
+    set_tests_properties(ui_${t}_asan PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=1:abort_on_error=0")
+  endforeach()
+endif()
