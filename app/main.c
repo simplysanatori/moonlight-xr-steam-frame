@@ -167,7 +167,7 @@ static mlxr_server* connectHost(const mlxr_identity* id, const char* dir, mlxr_h
 }
 
 int main(int argc, char** argv) {
-    const char *file = NULL, *hostArg = NULL, *appArg = "Desktop", *modeArg = "1920x1080x60";
+    const char *file = NULL, *hostArg = NULL, *appArg = "Desktop", *modeArg = "2560x1440x90";
     double seconds = 0;
     int bitrate = 0, h264Only = 0, doWake = 0, swDecode = 0;
     for (int i = 1; i < argc; i++) {
@@ -276,7 +276,7 @@ int main(int argc, char** argv) {
     job.host = (StreamHost){si.address, si.serverInfoAppVersion, si.serverInfoGfeVersion, si.rtspSessionUrl,
                             si.serverCodecModeSupport};
     mlxr_fill_stream_config(&job.cfg, &lp);
-    if (!bitrate) bitrate = lp.width * lp.height >= 2560 * 1440 ? 40000 : 20000;
+    if (!bitrate) bitrate = lp.width * lp.height >= 2560 * 1440 ? 50000 : 20000; // 80 Mbps lost packets on Wi-Fi (M2 run)
     job.cfg.bitrate = bitrate;
     job.cfg.packetSize = 1392;
     job.cfg.streamingRemotely = STREAM_CFG_AUTO;

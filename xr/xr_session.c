@@ -82,16 +82,9 @@ typedef struct Input {
     int active; // pointing hand
     int lastX, lastY;
     float trig[HANDS];
-    // Click stabilisation: from the first touch of the trigger (or A) the host
-    // cursor is held at its last position until the aim moves past a slop
-    // radius (then it is a drag), and for a moment after release so a second
-    // click lands on the same spot (double click). Trigger pulls jolt the aim
-    // by a few pixels, which Windows otherwise reads as a tiny drag.
-    int freeze, dragging, anchorX, anchorY;
     Euro fx, fy;
     XrTime lastT;
     int lastHand;
-    double freezeUntil;
     int hit;          // the pointing ray meets the screen this frame
     float hitU, hitV; // where, 0..1 across and down
     float scrollAccum;
@@ -310,39 +303,9 @@ static void inputUpdate(Input* in, XrSession session, XrSpace local, XrTime t, c
     in->hit = hit;
     in->hitU = u;
     in->hitV = v;
-    int altAny = 0;
-    for (int k = 0; k < HANDS; k++) altAny |= getBool(session, in->alt, in->hand[k]);
-    int touching = in->trig[h] > 0.12f || in->triggerDown[h] || altAny;
     if (hit && videoW > 0 && hk->pointer) {
         int x = (int)(u * (videoW - 1) + 0.5f), y = (int)(v * (videoH - 1) + 0.5f);
-        int slop = (videoW + 95) / 192; // 10 px at 1080p (owner found 38 px too sticky)
-        double now = nowSec();
-        if (touching && !in->freeze && in->lastX >= 0) {
-            in->freeze = 1;
-            in->dragging = 0;
-            in->anchorX = in->lastX;
-            in->anchorY = in->lastY;
-        }
-        int send = 1;
-        if (in->freeze) {
-            int dx = x - in->anchorX, dy = y - in->anchorY;
-            if (dx * dx + dy * dy > slop * slop) in->dragging = 1;
-            send = in->dragging;
-            if (touching) {
-                in->freezeUntil = 0;
-            } else if (in->dragging || (in->freezeUntil > 0 && now > in->freezeUntil)) {
-                in->freeze = 0;
-                in->freezeUntil = 0;
-                send = 1;
-            } else if (in->freezeUntil == 0) {
-                in->freezeUntil = now + 0.35; // double-click window
-            }
-        }
-        if (in->freeze && !in->dragging) { // keep the dot on the held cursor
-            in->hitU = (in->anchorX + 0.5f) / (float)videoW;
-            in->hitV = (in->anchorY + 0.5f) / (float)videoH;
-        }
-        if (send && (x != in->lastX || y != in->lastY)) {
+        if (x != in->lastX || y != in->lastY) {
             hk->pointer(hk->user, x, y, videoW, videoH);
             in->lastX = x;
             in->lastY = y;
