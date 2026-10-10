@@ -135,6 +135,10 @@ int mlxr_vdec_open(const mlxr_vdec_config *cfg, mlxr_vdec **out);
 int mlxr_vdec_submit(mlxr_vdec *d, const void *au, uint32_t size, int64_t pts);
 int mlxr_vdec_receive(mlxr_vdec *d, mlxr_vframe *frame, int timeout_ms);
 int mlxr_vdec_release(mlxr_vdec *d, const mlxr_vframe *frame);
+// Layout of every CAPTURE buffer of the current generation (picture fields
+// zero, pts -1), so the importer can import them all up front instead of on
+// first sight. 0 buffers before the first SOURCE_CHANGE.
+int mlxr_vdec_get_buffers(mlxr_vdec *d, mlxr_vframe *out, uint32_t max, uint32_t *count);
 int mlxr_vdec_reset(mlxr_vdec *d);
 int mlxr_vdec_apply_format_change(mlxr_vdec *d);
 void mlxr_vdec_get_stats(mlxr_vdec *d, mlxr_vdec_stats *stats);

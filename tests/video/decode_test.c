@@ -850,6 +850,14 @@ int main(int argc, char **argv)
 		if (f.t_submit_ns)
 			push(&lat, (double)(f.t_dequeue_ns - f.t_submit_ns) / 1e6);
 
+		if (f.generation != mlxr_vkimp_generation(imp)) {
+			// New CAPTURE set: import every buffer once, now.
+			mlxr_vframe bufs[32];
+			uint32_t nb = 0;
+			mlxr_vdec_get_buffers(dec, bufs, 32, &nb);
+			if (mlxr_vkimp_import_all(imp, bufs, nb))
+				fprintf(stderr, "import_all: failures\n");
+		}
 		const mlxr_vkimp_image *img = mlxr_vkimp_get(imp, &f);
 		if (!img) {
 			import_null++;
@@ -991,7 +999,11 @@ int main(int argc, char **argv)
 	       (unsigned long long)frames, (unsigned long long)atomic_load(&fd.submitted),
 	       (unsigned long long)atomic_load(&fd.submit_errors), (unsigned long long)decode_errors);
 	double p99 = 0;
-	print_lat("decode latency submit->dequeue", &lat, 0, &p99);
+	if (lat.n)
+		printf("first frame latency (includes SOURCE_CHANGE + CAPTURE setup): %.2f ms\n", lat.v[0]);
+	print_lat("decode latency submit->dequeue, all frames", &lat, 0, NULL);
+	// Steady state: skip the start-up backlog (AUs queued before CAPTURE existed).
+	print_lat("decode latency submit->dequeue, steady (frame 30+)", &lat, lat.n > 30 ? 30 : lat.n, &p99);
 	printf("AUs in flight max %u%s\n", ds.in_flight_max,
 	       lockstep ? (lockstep_stalls ? " (lockstep STALLED)" : " (lockstep: 1 AU in -> 1 frame out)") : "");
 	printf("CAPTURE allocations %llu, CAPTURE buffers %llu, EXPBUF %llu, Vulkan imports %llu, import failures %llu\n",
@@ -1006,8 +1018,8 @@ int main(int argc, char **argv)
 
 	int fail = 0;
 #define FAIL(...) do { printf("FAIL: " __VA_ARGS__); printf("\n"); fail = 1; } while (0)
-	if (is.imports > ds.capture_buffers)
-		FAIL("import churn: %llu imports for %llu CAPTURE buffers", (unsigned long long)is.imports,
+	if (is.imports != ds.capture_buffers)
+		FAIL("import count %llu != %llu CAPTURE buffers (churn or missing imports)", (unsigned long long)is.imports,
 		     (unsigned long long)ds.capture_buffers);
 	if (is.import_failures || import_null)
 		FAIL("import failures");

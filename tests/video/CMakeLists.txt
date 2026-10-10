@@ -27,3 +27,7 @@ video_test(video_decode_hevc_1080 ${VSAMPLES}/t1080_hevc.hevc --fps 120 --expect
 video_test(video_lockstep_hevc ${VSAMPLES}/t1080_hevc.hevc --fps 0 --expect-frames 120)
 # 1080p -> 1440p -> 1080p, each segment starting with an IDR.
 video_test(video_reschange_hevc ${VSAMPLES}/reschange_hevc.hevc --fps 120 --expect-frames 180)
+# The colour check has teeth: against a hue-rotated reference it must fail.
+video_test(video_colour_check_negative ${VSAMPLES}/t1080_hevc.hevc --fps 120
+  --check-ref ${VSAMPLES}/ref_t1080_hevc_f30_hue.ppm --check-frame 30)
+set_tests_properties(video_colour_check_negative PROPERTIES WILL_FAIL TRUE)

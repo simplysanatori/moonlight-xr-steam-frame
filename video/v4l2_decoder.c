@@ -615,7 +615,8 @@ static void lookup_pts(mlxr_vdec *d, const struct timeval *tv, mlxr_vframe *f)
 	pthread_mutex_unlock(&d->pts_mtx);
 }
 
-static void fill_frame(mlxr_vdec *d, uint32_t i, const struct v4l2_buffer *b, mlxr_vframe *f)
+// Buffer layout part of a frame (no per-picture fields). cap_mtx held.
+static void fill_layout(mlxr_vdec *d, uint32_t i, mlxr_vframe *f)
 {
 	memset(f, 0, sizeof(*f));
 	cap_buf *cb = &d->cap[i];
@@ -649,6 +650,12 @@ static void fill_frame(mlxr_vdec *d, uint32_t i, const struct v4l2_buffer *b, ml
 	f->v4l2_colorspace = d->colorspace;
 	f->v4l2_ycbcr_enc = d->ycbcr_enc;
 	f->v4l2_quantization = d->quantization;
+	f->pts = -1;
+}
+
+static void fill_frame(mlxr_vdec *d, uint32_t i, const struct v4l2_buffer *b, mlxr_vframe *f)
+{
+	fill_layout(d, i, f);
 	f->sequence = b->sequence;
 	f->corrupt = (b->flags & V4L2_BUF_FLAG_ERROR) != 0;
 	lookup_pts(d, &b->timestamp, f);
@@ -763,6 +770,21 @@ int mlxr_vdec_receive(mlxr_vdec *d, mlxr_vframe *f, int timeout_ms)
 			nanosleep(&nap, NULL);
 		}
 	}
+}
+
+int mlxr_vdec_get_buffers(mlxr_vdec *d, mlxr_vframe *out, uint32_t max, uint32_t *count)
+{
+	if (!d || !out || !count)
+		return MLXR_VDEC_E_INVALID;
+	pthread_mutex_lock(&d->cap_mtx);
+	uint32_t n = d->change_ready ? 0 : d->n_cap;
+	if (n > max)
+		n = max;
+	for (uint32_t i = 0; i < n; i++)
+		fill_layout(d, i, &out[i]);
+	*count = n;
+	pthread_mutex_unlock(&d->cap_mtx);
+	return MLXR_VDEC_OK;
 }
 
 int mlxr_vdec_release(mlxr_vdec *d, const mlxr_vframe *f)

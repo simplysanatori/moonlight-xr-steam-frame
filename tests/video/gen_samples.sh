@@ -30,6 +30,8 @@ for f in t1080_h264.h264 t1080_hevc.hevc; do
 	ref=ref_${f%.*}_f30.ppm
 	[ -s "$ref" ] || $FF -i "$f" -vf "select=eq(n\,30)" -frames:v 1 "$ref"
 done
+# A hue-rotated reference: the colour check must FAIL against it.
+[ -s ref_t1080_hevc_f30_hue.ppm ] || $FF -i t1080_hevc.hevc -vf "select=eq(n\,30),hue=h=120" -frames:v 1 ref_t1080_hevc_f30_hue.ppm
 if [ "$2" = soak ] && [ ! -s t1440_hevc_80m.hevc ]; then
 	# Temporal noise forces the bitrate up to the 80 Mbps target.
 	$FF -f lavfi -i "$(src 2560x1440 10)" -vf noise=alls=12:allf=t $TAG -b:v 80M \

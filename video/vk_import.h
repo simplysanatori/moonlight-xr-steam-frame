@@ -99,6 +99,13 @@ int mlxr_vkimp_create(const mlxr_vkimp_config *cfg, mlxr_vkimp **out);
 // is not retried for that buffer, the frame should be released unused).
 const mlxr_vkimp_image *mlxr_vkimp_get(mlxr_vkimp *imp, const mlxr_vframe *frame);
 
+// Import every buffer of a CAPTURE generation up front (from
+// mlxr_vdec_get_buffers), so no import happens in the middle of the stream.
+// Buffers already imported are skipped. Returns the number of failures.
+int mlxr_vkimp_import_all(mlxr_vkimp *imp, const mlxr_vframe *buffers, uint32_t count);
+// Generation of the current imports (0 = none).
+uint32_t mlxr_vkimp_generation(mlxr_vkimp *imp);
+
 // The immutable sampler (with its YCbCr conversion) every image view is
 // compatible with. Created with the first imported frame from its colour
 // description; 'serial' changes whenever it is re-created (then rebuild the

@@ -521,6 +521,20 @@ const mlxr_vkimp_image *mlxr_vkimp_get(mlxr_vkimp *imp, const mlxr_vframe *f)
 	return &e->img;
 }
 
+int mlxr_vkimp_import_all(mlxr_vkimp *imp, const mlxr_vframe *buffers, uint32_t count)
+{
+	int fails = 0;
+	for (uint32_t i = 0; i < count; i++)
+		if (!mlxr_vkimp_get(imp, &buffers[i]))
+			fails++;
+	return fails;
+}
+
+uint32_t mlxr_vkimp_generation(mlxr_vkimp *imp)
+{
+	return imp->generation;
+}
+
 // ---------------------------------------------------------------- barriers
 
 void mlxr_vkimp_cmd_acquire(mlxr_vkimp *imp, VkCommandBuffer cmd, const mlxr_vkimp_image *img,
