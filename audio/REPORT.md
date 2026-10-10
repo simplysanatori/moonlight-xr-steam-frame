@@ -55,7 +55,7 @@ During the session (any thread, lock-free, cheap enough to call every frame):
 ### Threading
 - `init`/`start` run on the thread that called `LiStartConnection`, `stop`/`cleanup` on the one that called
   `LiStopConnection` (after the audio threads are joined). `init` blocks up to a few hundred ms (HRTF load + FFT
-  spectra ~ 60 ms, PulseAudio connect).
+  spectra ~ 40 ms for 7.1, PulseAudio connect).
 - `decodeAndPlaySample` is declared `CAPABILITY_DIRECT_SUBMIT`, so common-c calls it on its audio receive thread, one
   packet at a time (every 5 ms). It does Opus decode + convolution on that thread (0.3-0.5 ms on this device) and
   never waits for the sound server (it takes the PulseAudio mainloop lock for a few microseconds to push). `data == NULL` is a lost
@@ -103,7 +103,7 @@ PipeWire-Pulse does not take from the stream name by itself) **`Moonlight XR vir
 `Moonlight XR UI virtual sink`. `MlxrOpusOutConfig.systemSpatializer = true` (tool: `--system-spatializer`) gives the plain
 name so the system spatializes it, `streamName` overrides both. That is a workaround keyed on a Valve script's name filters and could
 change with a SteamOS update; verified here by `pw-top` (no `*.spatialize_filter_chain` node, quantum 256, latency 14 ms) and by
-a null-sink recording matching the transmitted level to 0.01 dB.
+a null-sink recording matching the transmitted level to 0.02 dB.
 
 **Decision for the owner by ear**: bypass (our HRTFs, screen-anchored by head pose) vs `--system-spatializer`
 (Valve's, anchored to the app/window in the SteamVR scene by PID: possibly nicer for stereo, wrong for our 5.1/7.1 path because it would
