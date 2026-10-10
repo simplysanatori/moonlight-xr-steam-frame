@@ -53,11 +53,11 @@ add_subdirectory(hello)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/moonlight-common-c EXCLUDE_FROM_ALL)
 
+enable_testing()
+
 # Lanes are added here by the orchestrator when their milestone starts.
 foreach(lane backend video audio ui input rooms depth shaders xr stream)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${lane}/CMakeLists.txt)
     add_subdirectory(${lane})
   endif()
 endforeach()
-
-enable_testing()
