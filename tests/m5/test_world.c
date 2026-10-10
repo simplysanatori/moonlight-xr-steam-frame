@@ -9,6 +9,10 @@
 //           (1728 x 1728 a eye), from timestamps, median of 25
 //   glow    the colour sample, the letterbox detection and the glow from a
 //           letterboxed two colour picture; the redraw on a still picture
+//   frame_models  the controller model loader: the Steam Frame's per-hand pair
+//           (written here as tiny meshes) when both parse, each hand its own
+//           range and not mirrored, else the generic controller; a corrupt
+//           pair with no generic one is a failed load, not a crash
 //   curve   the curved picture's image (UNORM since M5) gives the same bytes
 //           through the panel pass as the flat picture; the M4 _SRGB image
 //           did not
@@ -781,6 +785,171 @@ static void supersampleGroup(void) {
     free(c);
 }
 
+// ---- frame_models -----------------------------------------------------------------------
+
+// A .room (MXR3) of one painted part: one triangle in the z = 0 plane facing +z, `size` metres
+// across the grip and moved `shiftX` along x, in one colour; cut short by an index when asked to
+static void writeTriRoom(const char* path, float size, float shiftX, const float rgb[3], int truncate) {
+    FILE* f = fopen(path, "wb");
+    if (!f) return;
+    uint32_t head[5] = { 0x3352584d /* 'MXR3' */, 3, 3, 1, 0 };
+    fwrite(head, 4, 5, f);
+    uint32_t part[3] = { 0, 3, 0xffffffffu };
+    fwrite(part, 4, 3, f);
+    uint32_t channels = 0;
+    fwrite(&channels, 4, 1, f);
+    const float pos[3][2] = { { -size, -size }, { size, -size }, { 0, size } };
+    for (int i = 0; i < 3; i++) {
+        float v[11] = { pos[i][0] + shiftX, pos[i][1], 0, 0, 0, 1, 0, 0, rgb[0], rgb[1], rgb[2] };
+        fwrite(v, 4, 11, f);
+    }
+    uint32_t idx[3] = { 0, 1, 2 };
+    fwrite(idx, 4, truncate ? 2 : 3, f);
+    fclose(f);
+}
+
+static void stageAssets(const char* dir) {
+    char cmd[1600];
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models' && cp '%s/models/controller.room' '%s/models/'", dir,
+             dir, MLXR_ASSETS_DIR, dir);
+    CHECK(system(cmd) == 0);
+}
+
+static XrCtx* ctxWithAssets(const char* dir) {
+    XrCtx* c = newCtx();
+    snprintf(c->assetsDir, sizeof(c->assetsDir), "%s", dir);
+    c->modelOn = 1;
+    m5_frame(&g, c, NULL, NULL);
+    return c;
+}
+
+static void unloadWith(XrCtx* c) {
+    xrWorldDestroy(c);
+    free(c);
+}
+
+typedef struct {
+    M5Image colour, depth;
+    XrView views[2];
+    int w, h;
+} FrameShot;
+
+static void frameModelBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
+    FrameShot* s = user;
+    mlxr_barrier(cmd, s->colour.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    mlxr_barrier(cmd, s->depth.img.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    xrModelRecord(ctx, cmd, s->colour.img.view, VK_FORMAT_R8G8B8A8_SRGB, s->depth.img.view, s->w, s->h, s->views);
+}
+
+// Mean red and blue of the drawn pixels of the left eye with only `hand` shown at the grip
+static void handColour(XrCtx* c, FrameShot* s, int hand, double* red, double* blue, int* drawn, double* meanX) {
+    c->modelShown[hand] = 1;
+    c->modelShown[1 - hand] = 0;
+    c->modelGrip[hand] = (XrPosef){ { 0, 0, 0, 1 }, { 0.0f, 0.0f, -0.5f } };
+    m5_frame(&g, c, frameModelBody, s);
+    uint8_t* px = malloc((size_t)2 * s->w * s->h * 4);
+    m5_readback(&g, s->colour.img.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 2 * s->w, s->h, px);
+    double r = 0, b = 0, sx = 0;
+    int n = 0;
+    for (int y = 0; y < s->h; y++) {
+        for (int x = 0; x < s->w; x++) {
+            const uint8_t* p = px + ((size_t)y * 2 * s->w + x) * 4;
+            if (p[3] > 0) {
+                r += p[0];
+                b += p[2];
+                sx += x;
+                n++;
+            }
+        }
+    }
+    free(px);
+    *red = n ? r / n : 0;
+    *blue = n ? b / n : 0;
+    *drawn = n;
+    *meanX = n ? sx / n : 0;
+}
+
+static void frameModelsGroup(void) {
+    const char* dir = "/tmp/mlxr-frame-models-test";
+    char path[700];
+    const float red[3] = { 1, 0, 0 }, blue[3] = { 0, 0, 1 };
+
+    // Nothing but the generic controller: as before, one mesh for both hands
+    stageAssets(dir);
+    XrCtx* c = ctxWithAssets(dir);
+    CHECK(c->modelReady && c->model && !c->model->perHand);
+    CHECK(c->model->handFirstIndex[0] == 0 && c->model->handFirstIndex[1] == 0);
+    CHECK(c->model->handIndexCount[0] == c->model->indexCount && c->model->handIndexCount[1] == c->model->indexCount);
+    unloadWith(c);
+
+    // Both hands there and valid: the pair, each hand its own range, not the generic one
+    snprintf(path, sizeof(path), "%s/models/frame_controller_left.room", dir);
+    writeTriRoom(path, 0.10f, 0.15f, red, 0);
+    snprintf(path, sizeof(path), "%s/models/frame_controller_right.room", dir);
+    writeTriRoom(path, 0.10f, 0.15f, blue, 0);
+    c = ctxWithAssets(dir);
+    CHECK(c->modelReady && c->model && c->model->perHand);
+    CHECK(c->model->vertexCount == 6 && c->model->indexCount == 6);
+    CHECK(c->model->handFirstIndex[0] == 0 && c->model->handFirstIndex[1] == 3);
+    CHECK(c->model->handIndexCount[0] == 3 && c->model->handIndexCount[1] == 3);
+    CHECK(c->model->handVertexOffset[0] == 0 && c->model->handVertexOffset[1] == 3);
+    FrameShot s;
+    memset(&s, 0, sizeof(s));
+    s.w = 256;
+    s.h = 256;
+    m5_image(&g, c, &s.colour, 2 * s.w, s.h, VK_FORMAT_R8G8B8A8_SRGB,
+             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+    m5_image(&g, c, &s.depth, 2 * s.w, s.h, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+             VK_IMAGE_ASPECT_DEPTH_BIT);
+    s.views[0] = m5_view(60.0f, s.w, s.h, 0.0f);
+    s.views[1] = s.views[0];
+    for (int e = 0; e < 2; e++) c->modelViews[e] = s.views[e];
+    double r, b, xl, xr;
+    int n;
+    handColour(c, &s, HAND_LEFT, &r, &b, &n, &xl);
+    printf("  left hand: %d px, red %.0f blue %.0f, mean x %.1f of %d\n", n, r, b, xl, s.w);
+    CHECK(n > 1000 && r > 50 && b < 5);
+    handColour(c, &s, HAND_RIGHT, &r, &b, &n, &xr);
+    printf("  right hand: %d px, red %.0f blue %.0f, mean x %.1f of %d\n", n, r, b, xr, s.w);
+    CHECK(n > 1000 && b > 50 && r < 5);
+    // Not mirrored: both triangles were made 0.15 m to the right and both are drawn there (the
+    // generic left would be flipped to the left of the grip)
+    CHECK(xl > s.w / 2 + 20 && xr > s.w / 2 + 20);
+    m5_image_free(c, &s.colour);
+    m5_image_free(c, &s.depth);
+    unloadWith(c);
+
+    // One hand missing: the generic one, both hands
+    snprintf(path, sizeof(path), "%s/models/frame_controller_left.room", dir);
+    remove(path);
+    c = ctxWithAssets(dir);
+    CHECK(c->modelReady && c->model && !c->model->perHand);
+    unloadWith(c);
+
+    // One hand cut short (a file that does not parse), or not a mesh at all: the generic one
+    writeTriRoom(path, 0.10f, 0.15f, red, 1);
+    c = ctxWithAssets(dir);
+    CHECK(c->modelReady && c->model && !c->model->perHand);
+    unloadWith(c);
+    writeTriRoom(path, 0.10f, 0.15f, red, 0);
+    snprintf(path, sizeof(path), "%s/models/frame_controller_right.room", dir);
+    FILE* f = fopen(path, "wb");
+    fputs("this is not a mesh", f);
+    fclose(f);
+    c = ctxWithAssets(dir);
+    CHECK(c->modelReady && c->model && !c->model->perHand);
+    unloadWith(c);
+
+    // Corrupt pair and no generic one either: no model, and it is said so (not a crash)
+    snprintf(path, sizeof(path), "%s/models/controller.room", dir);
+    remove(path);
+    c = ctxWithAssets(dir);
+    CHECK(!c->modelReady && c->modelLoadFailed);
+    unloadWith(c);
+}
+
 int main(int argc, char** argv) {
     const char* grp = argc > 1 ? argv[1] : "all";
     int all = !strcmp(grp, "all");
@@ -793,6 +962,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(grp, "glow")) glowGroup();
     if (all || !strcmp(grp, "curve")) curveGroup();
     if (all || !strcmp(grp, "supersample")) supersampleGroup();
+    if (all || !strcmp(grp, "frame_models")) frameModelsGroup();
     m5_gpu_free(&g);
     char name[32];
     snprintf(name, sizeof(name), "m5 world %s", grp);
