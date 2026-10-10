@@ -218,7 +218,7 @@ void launcher_exit(Launcher* l) {
     }
 }
 
-void launcher_disconnect(Launcher* l) {
+static void disconnectWith(Launcher* l, UiStr notice) {
     if (l->state != LAUNCH_STREAMING && l->state != LAUNCH_STARTING) {
         return;
     }
@@ -227,8 +227,16 @@ void launcher_disconnect(Launcher* l) {
         return;
     }
     l->state = LAUNCH_STOPPING;
-    snprintf(l->notice, sizeof(l->notice), "%s", ui_str(UIS_NATIVE_DISCONNECTED));
+    snprintf(l->notice, sizeof(l->notice), "%s", ui_str(notice));
     push(l, LCMD_STOP, l->pc, 0, 0, 0);
+}
+
+void launcher_disconnect(Launcher* l) {
+    disconnectWith(l, UIS_NATIVE_DISCONNECTED);
+}
+
+void launcher_disconnect_keys(Launcher* l) {
+    disconnectWith(l, UIS_NATIVE_DISCONNECTED_KEYS);
 }
 
 int launcher_take_cmd(Launcher* l, LaunchCmd* out) {

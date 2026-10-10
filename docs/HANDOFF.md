@@ -64,7 +64,7 @@ tools/release.sh                 # tarball + SHA256SUMS in ~/Games/MoonlightXRNa
 Owner-confirmed behaviour to keep:
 - Pointer: One Euro smoothing (min cutoff 1 Hz, beta 0.01); no click hold (the owner asked to remove it).
 - Physical Bluetooth keyboard (EXAMPLE0 Q1 Pro) works via evdev, grabbed while focused and streaming.
-- Exit from the VR bar ends the host's session (quit); the chord Start+Select+L2+R2 only disconnects (the game keeps running; the flat UI shows Resume).
+- Exit from the VR bar ends the host's session (quit); the chord Start+Select+L2+R2 and, on a physical keyboard, Moonlight's own Ctrl+Alt+Shift+Q only disconnect (the game keeps running; the flat UI shows Resume). The flat UI's tip picks between them as stock does (gamepad connected or not).
 - Default stream 2560x1440, 90 fps, 80 Mbps HEVC (the owner says 1440p needs ~80 Mbps).
 - Settings and defaults follow Moonlight XR (upstream `PreferenceConfiguration.java`, `MidasDepthSource.java`) unless the owner chose otherwise. The owner's own choices (2026-10-10): 3D on by default, supersample Normal, sharpening Off. Native deviations still in place: gaze and hand tracking off until tested on the Frame (M7), the pointer dot, the remembered 3D switch.
 

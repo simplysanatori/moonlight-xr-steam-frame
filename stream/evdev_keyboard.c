@@ -85,6 +85,8 @@ static struct {
     int n;
     unsigned char held[KEY_MAX / 8 + 1];
     int mods;
+    void (*disconnect)(void*);
+    void* disconnectUser;
 } g;
 
 static int isKeyboard(int fd) {
@@ -203,6 +205,14 @@ static void* run(void* arg) {
                     g.held[k / 8] &= (unsigned char)~(1 << (k % 8));
                 }
                 if (!active || !vk) continue;
+                // moonlight-qt's KeyComboQuit, matched by scancode as its fallback
+                if (down && k == KEY_Q && (g.mods & 0x07) == 0x07 && g.disconnect) {
+                    g.held[k / 8] &= (unsigned char)~(1 << (k % 8));
+                    releaseAll();
+                    MLOG_I("keyboard: Ctrl+Alt+Shift+Q (disconnect your session)");
+                    g.disconnect(g.disconnectUser);
+                    continue;
+                }
                 g.send((short)vk, down, (char)(g.mods | (ext ? 0x10 : 0)), g.user);
             }
         }
@@ -215,8 +225,17 @@ static void* run(void* arg) {
     return NULL;
 }
 
+void evkbd_set_disconnect_hook(void (*fn)(void*), void* user) {
+    g.disconnect = fn;
+    g.disconnectUser = user;
+}
+
 int evkbd_start(EvKbdSend send, void* user) {
+    void (*hook)(void*) = g.disconnect;
+    void* hookUser = g.disconnectUser;
     memset(&g, 0, sizeof(g));
+    g.disconnect = hook;
+    g.disconnectUser = hookUser;
     g.send = send;
     g.user = user;
     return pthread_create(&g.thread, NULL, run, NULL);

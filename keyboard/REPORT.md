@@ -86,3 +86,6 @@ Snapshots: `ninja -C build-kb kb-snapshots` (also run by `ui-snapshots`) writes
 6. Lock Ctrl, close the keyboard with Hide (or press empty space): on the PC Ctrl must not be stuck (click a link: no new tab).
 7. Press "Compact" (right of Enter): Compact returns. Quit and relaunch the app: it opens the layout you last used (`keyboard_layout` in config.ini).
 8. Gamepad mode (controllers as a pad): hold Start (right menu) + Back (left view) + both triggers past 80 %: the stream drops, a toast "Disconnected: Start+Select+L2+R2", the app list shows the PC with the game still running; open it again to resume. Start+Select alone, or the triggers alone, do nothing.
+
+## Added 2026-10-10: Ctrl+Alt+Shift+Q
+Moonlight's own keyboard disconnect combo (moonlight-qt `KeyComboQuit`, any side's Ctrl, Alt and Shift with Q, matched by scancode) on a physical keyboard while it is forwarding: the Q is not sent, every held key is released on the host, then `launcher_disconnect_keys` leaves the stream with the host's session kept (exit code 11 to the flat UI), toast "Disconnected: Ctrl+Alt+Shift+Q". The headset keyboard does not take it (stock has no on-screen keyboard). Headset check: stream Desktop, hold Ctrl+Alt+Shift on the EXAMPLE0 and press Q: the stream drops, the toast shows, and the flat UI offers Resume.

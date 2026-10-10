@@ -47,6 +47,15 @@ int main(void) {
     CHECK(l.state == LAUNCH_APPS);
     CHECK(drain(&l, &c) == 1 && c.kind == LCMD_FETCH_APPS);
 
+    // A physical keyboard's Ctrl+Alt+Shift+Q: the same, with its own notice
+    launcher_init(&l);
+    startStream(&l);
+    drain(&l, &c);
+    launcher_disconnect_keys(&l);
+    CHECK(l.state == LAUNCH_STOPPING);
+    CHECK(drain(&l, &c) == 1 && c.kind == LCMD_STOP && c.quitHost == 0);
+    CHECK(strcmp(l.notice, "Disconnected: Ctrl+Alt+Shift+Q") == 0);
+
     // The bar's Exit still ends the host's session
     launcher_init(&l);
     startStream(&l);

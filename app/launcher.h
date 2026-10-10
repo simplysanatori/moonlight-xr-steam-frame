@@ -98,6 +98,9 @@ void launcher_exit(Launcher* l);
 // L2+R2, "disconnect your session"): LCMD_STOP with quitHost 0, then the app
 // list. Outside a stream it does nothing; in file mode it behaves as exit.
 void launcher_disconnect(Launcher* l);
+// The same from a physical keyboard's Ctrl+Alt+Shift+Q (Moonlight's own
+// keyboard combo), with its own notice
+void launcher_disconnect_keys(Launcher* l);
 
 // ---- what the worker and the frame loop take ----
 int launcher_take_cmd(Launcher* l, LaunchCmd* out);

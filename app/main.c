@@ -693,6 +693,17 @@ static void padDisconnectHook(void* user) {
     pthread_mutex_unlock(&g_lock);
 }
 
+// A physical keyboard's Ctrl+Alt+Shift+Q, Moonlight's own: the same, from the
+// keyboard thread
+static void keyDisconnectHook(void* user) {
+    (void)user;
+    pthread_mutex_lock(&g_lock);
+    MLOG_I("disconnect keys in %s: leaving the stream, the host's session stays", launcher_state_name(g_launch.state));
+    launcher_disconnect_keys(&g_launch);
+    pthread_cond_signal(&g_wake);
+    pthread_mutex_unlock(&g_lock);
+}
+
 // ---- main ---------------------------------------------------------------------------
 
 static void openLog(void) {
@@ -803,6 +814,7 @@ int main(int argc, char** argv) {
             g_launch.state = LAUNCH_STARTING; // the worker's autostart decides
             g_launch.ncmd = 0;
         }
+        evkbd_set_disconnect_hook(keyDisconnectHook, NULL);
         evkbd_start(sendKey, NULL);
     }
     pthread_t th;
