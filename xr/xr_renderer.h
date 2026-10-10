@@ -100,6 +100,13 @@ static inline int64_t nowNs(void) {
 // Thumbstick travel before it counts as a scroll, and how fast a full
 // deflection winds the wheel
 #define SCROLL_DEADZONE 0.30f
+// Native: while the move bar is held, a thumbstick pushed north sends the
+// screen away and south brings it closer, at up to this many metres a second
+// at full tilt, and never nearer than or further than the Screen tab allows
+#define GRAB_PUSH_DEADZONE 0.20f
+#define GRAB_PUSH_SPEED 1.5f
+#define GRAB_PUSH_NEAR_M 0.3f
+#define GRAB_PUSH_FAR_M 8.0f
 #define SCROLL_CLICKS_PER_SEC 7.5f
 
 // One euro filter on the hit point. A hand at rest still shakes, and at 3 m
@@ -809,6 +816,10 @@ typedef struct XrCtx {
     float grabPitch;
     float grabRoll;
     float grabOppX, grabOppY;
+    // Native (owner's request): metres either thumbstick has pushed the held
+    // screen away from the head (negative: brought closer), and when last
+    float grabPush;
+    int64_t grabPushNs;
     int grabRoomPercent;
     float grabRoomReach;
     int grabByGaze;

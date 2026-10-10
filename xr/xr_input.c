@@ -998,8 +998,44 @@ static Vec3 gazeDragCarry(XrCtx* ctx, DragRamp* ramp, Vec3 travel, int64_t nowNs
 // Move and resize both work off the handle the ray was over when the grip
 // closed. Gripping the picture itself does nothing, which keeps the panel from
 // being dragged by accident while pointing at something.
+// Native (owner's request): the held screen pushed away or brought closer by
+// either thumbstick, north away, south nearer, along the line from the head
+static void pushHeldScreen(XrCtx* ctx, const XrVector2f* sticks) {
+    float sy = 0.0f;
+    for (int k = 0; k < HAND_COUNT; k++) {
+        if (fabsf(sticks[k].y) > fabsf(sy)) sy = sticks[k].y;
+    }
+    int64_t now = ctx->lastInputNs;
+    float dt = ctx->grabPushNs > 0 ? (float)(now - ctx->grabPushNs) * 1e-9f : 0.0f;
+    ctx->grabPushNs = now;
+    if (dt > 0.1f) dt = 0.1f;
+    if (fabsf(sy) > GRAB_PUSH_DEADZONE) {
+        float t = (fabsf(sy) - GRAB_PUSH_DEADZONE) / (1.0f - GRAB_PUSH_DEADZONE);
+        ctx->grabPush += copysignf(t * t, sy) * GRAB_PUSH_SPEED * dt;
+    }
+    if (ctx->grabPush == 0.0f) {
+        return;
+    }
+    Vec3 d = { ctx->screenPose.position.x - ctx->headPos.x, ctx->screenPose.position.y - ctx->headPos.y,
+               ctx->screenPose.position.z - ctx->headPos.z };
+    float len = sqrtf(vecDot(d, d));
+    if (len < 0.01f) {
+        return;
+    }
+    float want = len + ctx->grabPush;
+    if (want < GRAB_PUSH_NEAR_M) want = GRAB_PUSH_NEAR_M;
+    if (want > GRAB_PUSH_FAR_M) want = GRAB_PUSH_FAR_M;
+    // What the clamp kept back is not stored up for later
+    ctx->grabPush = want - len;
+    float k = want / len;
+    ctx->screenPose.position.x = ctx->headPos.x + d.x * k;
+    ctx->screenPose.position.y = ctx->headPos.y + d.y * k;
+    ctx->screenPose.position.z = ctx->headPos.z + d.z * k;
+}
+
 static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* grab, int hand,
-                      int hover, int corner, int offPicture, float height, int curved) {
+                      int hover, int corner, int offPicture, float height, int curved,
+                      const XrVector2f* sticks) {
     for (int h = 0; h < HAND_COUNT; h++) {
         int wasDown = ctx->grabDown[h];
         ctx->grabDown[h] = grab[h] > (wasDown ? PRESS_OFF : PRESS_ON);
@@ -1079,6 +1115,8 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
 
         if (hover == HOVER_BAR) {
             ctx->grabMode = GRAB_MOVE;
+            ctx->grabPush = 0.0f;
+            ctx->grabPushNs = 0;
             // Read once here rather than every frame of the drag. grabScreen
             // is the pose these come off, and it was just set from screenPose.
             // Re-extracting each frame would let the rounding walk the tilt
@@ -1136,6 +1174,7 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
             ctx->screenPose.position.y = aims[h].position.y + moved.y;
             ctx->screenPose.position.z = aims[h].position.z + moved.z;
         }
+        pushHeldScreen(ctx, sticks);
 
         // Which way it faces does not. Inheriting the wrist tumbled the
         // picture on all three axes, so instead it keeps the tilt and roll it
@@ -3835,7 +3874,7 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     int offPicture = f.hand >= 0 && (f.hitU[f.hand] < 0.0f || f.hitU[f.hand] > 1.0f
                                      || f.hitV[f.hand] < 0.0f || f.hitV[f.hand] > 1.0f);
     applyGrab(ctx, f.aimPoses, f.aimValid, f.grab, f.hand, f.hover, ctx->hoverCorner,
-              offPicture, f.height, f.curved);
+              offPicture, f.height, f.curved, f.stick);
     f.screenPose = ctx->screenPose;
     f.height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
     f.radius = ctx->screenRadius;
