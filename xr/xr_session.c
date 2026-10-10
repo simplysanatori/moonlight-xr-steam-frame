@@ -63,6 +63,11 @@ static double nowSec(void) {
 
 // ------------------------------------------------------------------ input
 
+typedef struct {
+    int primed;
+    float x, dx;
+} Euro;
+
 enum { HAND_L, HAND_R, HANDS };
 
 typedef struct Input {
@@ -80,6 +85,9 @@ typedef struct Input {
     // click lands on the same spot (double click). Trigger pulls jolt the aim
     // by a few pixels, which Windows otherwise reads as a tiny drag.
     int freeze, dragging, anchorX, anchorY;
+    Euro fx, fy;
+    XrTime lastT;
+    int lastHand;
     double freezeUntil;
     int hit;          // the pointing ray meets the screen this frame
     float hitU, hitV; // where, 0..1 across and down
@@ -227,6 +235,27 @@ static XrVector3f rotate(XrQuaternionf q, XrVector3f v) {
                         v.z + q.w * t.z + (u.x * t.y - u.y * t.x)};
 }
 
+// One Euro filter (Casiez et al. 2012): heavy smoothing when the pointer is
+// nearly still (hand tremor), little lag when it moves fast. Pixel units.
+static float euroAlpha(float cutoffHz, float dt) {
+    float tau = 1.0f / (2.0f * 3.14159265f * cutoffHz);
+    return 1.0f / (1.0f + tau / dt);
+}
+
+static float euro(Euro* f, float x, float dt, float minCutoff, float beta) {
+    if (!f->primed || dt <= 0) {
+        f->primed = 1;
+        f->x = x;
+        f->dx = 0;
+        return x;
+    }
+    float dx = (x - f->x) / dt;
+    f->dx += euroAlpha(1.0f, dt) * (dx - f->dx);
+    float cutoff = minCutoff + beta * fabsf(f->dx);
+    f->x += euroAlpha(cutoff, dt) * (x - f->x);
+    return f->x;
+}
+
 // Screen: centred at (0, 0, -dist) in LOCAL, facing +z, width w, height hgt.
 static int hitScreen(XrPosef aim, float dist, float w, float hgt, float* u, float* v) {
     XrVector3f dir = rotate(aim.orientation, (XrVector3f){0, 0, -1});
@@ -263,6 +292,18 @@ static void inputUpdate(Input* in, XrSession session, XrSpace local, XrTime t, c
         (loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) &&
         (loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT))
         hit = hitScreen(loc.pose, cfg->screenDistance, cfg->screenWidth, screenH, &u, &v);
+    // Smooth the aim point on the screen (pixels) before anything uses it.
+    float dt = in->lastT ? (float)((t - in->lastT) * 1e-9) : 0;
+    in->lastT = t;
+    if (!hit || h != in->lastHand || videoW <= 0) {
+        in->fx.primed = in->fy.primed = 0;
+    } else {
+        float px = euro(&in->fx, u * videoW, dt, 1.0f, 0.01f);
+        float py = euro(&in->fy, v * videoH, dt, 1.0f, 0.01f);
+        u = px / videoW;
+        v = py / videoH;
+    }
+    in->lastHand = h;
     in->hit = hit;
     in->hitU = u;
     in->hitV = v;
@@ -271,7 +312,7 @@ static void inputUpdate(Input* in, XrSession session, XrSpace local, XrTime t, c
     int touching = in->trig[h] > 0.12f || in->triggerDown[h] || altAny;
     if (hit && videoW > 0 && hk->pointer) {
         int x = (int)(u * (videoW - 1) + 0.5f), y = (int)(v * (videoH - 1) + 0.5f);
-        int slop = videoW / 50; // ~38 px at 1080p, ~0.7 degrees at 2 m
+        int slop = (videoW + 95) / 192; // 10 px at 1080p (owner found 38 px too sticky)
         double now = nowSec();
         if (touching && !in->freeze && in->lastX >= 0) {
             in->freeze = 1;
