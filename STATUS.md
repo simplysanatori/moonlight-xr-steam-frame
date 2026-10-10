@@ -21,4 +21,5 @@ What is confirmed on the Steam Frame versus reasoned from code. The orchestrator
 
 ## Milestones
 - M0: **gate passed** 2026-10-10 (owner saw the triangle in the headset).
-- M1..M8: not started. Worker lanes started early per the plan are listed in `docs/lanes.md`.
+- M1: **video and mouse confirmed on hardware** 2026-10-10 11:37 (owner: "worked well"). Log: DESKTOP-EXAMPLE at 192.0.2.10 (Sunshine 7.1.431), Desktop launched, HEVC 1080p60, software decode 7–12 ms, RTT 2 ms, 0 IDR requests, 72 Hz display; frames shown follow desktop activity (27–54 fps). Owner saw the host cursor trail slightly behind the local pointer dot (expected: the dot is drawn locally at display time, the cursor comes back through encode, network, software decode and the next 72 Hz frame). **Sound not yet confirmed**: that run used the build from before the audio lane was wired in (installed 11:39). Gate closes after one run with sound.
+- M2..M8: not started. Worker lanes are listed in `docs/lanes.md`.
