@@ -388,28 +388,8 @@ void xrDrawCodeArt(uint8_t* atlas) {
 
 // ---- the environment ------------------------------------------------------------------
 
-// Which room a picker cell puts up, 0 for a cell that is not a room
-int roomStyleForCell(int cell) {
-    if (cell == ENV_CELL_HOME_THEATER) {
-        return ROOM_STYLE_THEATER;
-    }
-    if (cell == ENV_CELL_GRAND_CINEMA) {
-        return ROOM_STYLE_GRAND_CINEMA;
-    }
-    if (cell == ENV_CELL_SYNTHWAVE) {
-        return ROOM_STYLE_SYNTHWAVE;
-    }
-    return 0;
-}
-
-int roomCellForStyle(int style) {
-    for (int cell = 0; cell < ENV_CELL_COUNT; cell++) {
-        if (style > 0 && roomStyleForCell(cell) == style) {
-            return cell;
-        }
-    }
-    return -1;
-}
+// roomStyleForCell and roomCellForStyle are rooms/room_logic.c's (native:
+// the same functions, moved with the rest of the room's pure parts)
 
 // Which cell the picker is showing as chosen (nativeSetEnvironment)
 void xrSetEnvironment(XrCtx* ctx, int choice) {

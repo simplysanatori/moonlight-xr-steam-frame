@@ -20,13 +20,15 @@ float xrCurveSetting(XrCtx* ctx);
 
 // ---- rows the native client cannot act on yet (xr_prefs.c) ----------------
 // 0 when the row is live as far as the native client goes, else the reason's
-// UiStr. Display tab: supersampling (no layer settings on SteamVR, no app pass
-// yet), gamepad mode (M3), the controller model, the click sound, the glow and
-// its level, the screen light (rooms, M5). The 3D tab is dead through
+// UiStr. None on the Display tab since M5. The 3D tab is dead through
 // stereoMode (M6).
 int xrRowLater(XrCtx* ctx, int face, int row);
 // The Display tab's rows xrRowLater kills, as UiView.display_later bits
 unsigned xrDisplayLaterMask(XrCtx* ctx);
+// The picker's cell for a stored environment id (ENV_ID_*), and the
+// environment key's value for a cell (1 passthrough, 2 void, 3..5 the rooms)
+int xrCellForEnvironment(int env);
+int xrEnvironmentSetting(int cell);
 
 // ---- settings <-> context (xr_prefs.c) ---------------------------------------
 // The context's state as config.ini holds it (the Settings the panels draw
@@ -127,6 +129,10 @@ typedef struct XrFrameIn {
     int passthrough;
     // The curved picture's projection layer, when the host drew one
     const XrCompositionLayerProjection* curved;
+    // M5: the supersampled picture's swapchain and size, standing in for the
+    // picture's own, when the host drew one
+    XrSwapchain picture;
+    int pictureW, pictureH;
 } XrFrameIn;
 #define XR_FRAME_MAX_LAYERS 24
 typedef struct XrFrameOut {

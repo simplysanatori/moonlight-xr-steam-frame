@@ -133,7 +133,9 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->session.ray = raySwitchOn(ctx->raySetting, ctx->rayFlipped);
     v->session.stereo_on = ctx->stereoLive;
     v->cog_tab = ctx->cogTab;
-    v->room_env = -1;
+    // The room up, as the environment id the Room tab's rows are stored under
+    int style = roomEffective(ctx);
+    v->room_env = style >= ROOM_STYLE_FIRST && style <= ROOM_STYLE_LAST ? ENV_ID_HOME_THEATER + style - 1 : -1;
     v->curve_ok = ctx->cylinderSupported;
     v->stereo_ok = ctx->stereoMode != DEPTH_MODE_OFF;
     v->bar_show_aim = headAimCanAct(ctx);
@@ -145,7 +147,7 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->kb_locked = ctx->kbFull.locked;
     v->kb_caps = ctx->kbFull.caps;
     v->kb_chip = !ctx->reportOpen;
-    v->version = "0.4 native (M4)";
+    v->version = "0.5 native (M5)";
     v->commit = NULL;
     v->log_path = "~/Games/MoonlightXRNative/moonlight.log";
     v->display_later = xrDisplayLaterMask(ctx);
@@ -186,7 +188,7 @@ static UiHover cogHover(XrCtx* ctx) {
 typedef struct {
     Settings s;
     SessionToggles t;
-    int tab, curveOk, stereoOk, showAim;
+    int tab, curveOk, stereoOk, showAim, roomEnv;
     UiHover hover;
     unsigned later;
 } CogKey;
@@ -205,6 +207,7 @@ static void updateCog(XrCtx* ctx, XrPanels* p, const UiView* base) {
     k.curveOk = v.curve_ok;
     k.stereoOk = v.stereo_ok;
     k.showAim = v.bar_show_aim;
+    k.roomEnv = v.room_env;
     k.hover = v.hover;
     k.later = v.display_later;
     if (!keyChanged(p, UI_PANEL_COG, &k, sizeof(k))) {

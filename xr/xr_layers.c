@@ -16,21 +16,34 @@
 //   - nativeEndFrame's video draw is the host's (xr_session.c); this builds
 //     the layers it submits (xrBuildLayers);
 //   - native: the launcher's list stands in the picture's place;
-//   - the room, the glow, the controller models and the splash are not drawn
-//     (M5 and later; xr_later.c).
+//   - the room and the controller models are projection layers the host drew
+//     (xr_room.c, xr_model.c), upstream's arrangement; the glow is a quad of
+//     its own swapchain, and on a curved picture it is drawn into the curved
+//     picture's projection layer instead of a cylinder (xr_world.c);
+//   - the splash is not drawn.
 #include "xr_native.h"
+#include "xr_world.h"
 
-// What a frame carries at its fullest on the Frame: passthrough, the picture,
-// the stats, the move pill, six bar buttons (environment, cog, keyboard, exit,
-// ray, head aim), the ray and the dot, and the toast: 14 of SteamVR's 16. A
-// modal sheds the bar furniture the frame it opens, as upstream: the settings
-// panel brings its own quad, the clock strip and the cog button. The drop
-// order below is upstream's, for a frame that would still go over.
+// What a frame carries at its fullest on the Frame. The room (or passthrough's
+// layer: never both), the glow, the picture, the stats, the move pill (not in a
+// room), seven bar buttons (environment, cog, keyboard, exit, gamepad, ray,
+// head aim; head aim only outside a room), the controller models, the ray, the
+// dot and the toast: 16 of SteamVR's 16 outside a room with the screen head
+// locked, 15 in one. A modal sheds the bar furniture the frame it opens, as
+// upstream: the settings panel is one quad here (lane U draws its rings,
+// thumbs and readouts into it) with the clock strip and the cog button, so the
+// Room tab at its fullest is the room, the glow, the picture, the stats, the
+// cog button, the panel, the clock, the models, ray, dot and toast: 11. The
+// drop order below is upstream's (toast, models, hover ring, cog button,
+// clock) for a frame that would still go over; tests/m5 counts the cases.
 #define FRAME_MAX_LAYERS XR_FRAME_MAX_LAYERS
 
 typedef struct {
     XrCompositionLayerProjection passthrough;
     XrCompositionLayerProjectionView passthroughViews[ROOM_EYES];
+    XrCompositionLayerProjection room;
+    XrCompositionLayerProjectionView roomViews[ROOM_EYES];
+    XrCompositionLayerQuad glow;
     XrCompositionLayerQuad video[2];
     XrCompositionLayerQuad launcher;
     XrCompositionLayerQuad overlay;
@@ -55,6 +68,10 @@ typedef struct {
     XrCompositionLayerQuad cogClock;
     XrCompositionLayerQuad kbPanel;
     XrCompositionLayerQuad kbMark;
+    // The controller models, over the picture and the panels and under the
+    // beam
+    XrCompositionLayerProjection models;
+    XrCompositionLayerProjectionView modelViews[ROOM_EYES];
     XrCompositionLayerQuad beam;
     XrCompositionLayerQuad dot;
     XrCompositionLayerQuad toast;
@@ -168,7 +185,8 @@ static void setLayerSettings(XrCtx* ctx, FrameLayers* layers) {
         ctx->layerFlagsLogged = logged;
         LOGEV("layer flags: sharpen %d supersample %d%s", ctx->sharpenMode,
               ctx->supersampleMode, ctx->layerSettingsSupported ? ""
-                      : " (no layer settings on this runtime: sharpening in the warp pass, supersampling not yet)");
+                      : " (no layer settings on this runtime: sharpening in the warp pass, supersampling by the "
+                        "app's own pass when the picture is minified)");
     }
 }
 
@@ -218,15 +236,108 @@ static void addPassthroughLayer(XrCtx* ctx, FrameLayers* layers) {
     pushLayer(ctx, layers, layer);
 }
 
+// The 3d room, drawn per eye into the one projection layer
+static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    // The environment, when it is a room. Passthrough wants the real room
+    // instead, so the two never go up together.
+    if (view->roomOn && ctx->roomRendered && ctx->roomViewsValid && !ctx->passthrough
+            && ctx->roomSwapchain != XR_NULL_HANDLE) {
+        XrCompositionLayerProjection* room = &layers->room;
+        memset(room, 0, sizeof(*room));
+        memset(layers->roomViews, 0, sizeof(layers->roomViews));
+        room->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+        room->layerFlags = 0;
+        // World locked, even when the screen is head locked, or the room would
+        // swing about with the viewer
+        room->space = ctx->localSpace;
+        room->viewCount = ROOM_EYES;
+        room->views = layers->roomViews;
+        for (int eye = 0; eye < ROOM_EYES; eye++) {
+            XrCompositionLayerProjectionView* projView = &layers->roomViews[eye];
+            projView->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+            // The poses the image was actually drawn from, so the compositor
+            // reprojects it rather than being told a pose it does not match
+            projView->pose = ctx->roomViews[eye].pose;
+            projView->fov = ctx->roomViews[eye].fov;
+            projView->subImage.swapchain = ctx->roomSwapchain;
+            projView->subImage.imageRect.offset.x = eye * ctx->roomEyeWidth;
+            projView->subImage.imageRect.offset.y = 0;
+            projView->subImage.imageRect.extent.width = ctx->roomEyeWidth;
+            projView->subImage.imageRect.extent.height = ctx->roomEyeHeight;
+            projView->subImage.imageArrayIndex = 0;
+        }
+        pushLayer(ctx, layers, room);
+    }
+}
+
+// The ambilight glow behind the picture
+static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    // The glow, over the environment and under the picture. Deliberately not
+    // sharpened: being soft is the whole of the effect. Native: a curved
+    // picture's glow is drawn into the curved picture's own projection layer
+    // (there are no cylinder layers), so only the flat glow is a layer here.
+    if (!xrWorldGlowShown(ctx) || view->screenCurved || ctx->glowSwapchain == XR_NULL_HANDLE
+            || !ctx->glowSwapchainFilled) {
+        return;
+    }
+    // Local +z is toward the viewer, so this sits just proud of the picture.
+    // The layer order is what keeps it under the picture, not the depth.
+    Vec3 proudLocal = { 0.0f, 0.0f, GLOW_PROUD_M };
+    quadLayerRect(&layers->glow, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->glowSwapchain, 0,
+                  0, GLOW_TEX, GLOW_TEX, view->space, poseOffset(view->screenPose, proudLocal),
+                  view->screenWidth * GLOW_SCALE, view->screenHeight * GLOW_SCALE);
+    pushLayer(ctx, layers, &layers->glow);
+}
+
+// The controller models' own projection layer, alpha blended over everything
+// before it: a controller is nearer than the picture and the panels, so it is
+// drawn over them wherever the two cross. World locked, with the poses its
+// image was drawn from.
+static void addModelLayer(XrCtx* ctx, FrameLayers* layers) {
+    if (!ctx->modelsShowing || !ctx->modelRendered || ctx->passthrough || ctx->modelSwapchain == XR_NULL_HANDLE) {
+        return;
+    }
+    XrCompositionLayerProjection* models = &layers->models;
+    memset(models, 0, sizeof(*models));
+    memset(layers->modelViews, 0, sizeof(layers->modelViews));
+    models->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+    models->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    models->space = ctx->localSpace;
+    models->viewCount = ROOM_EYES;
+    models->views = layers->modelViews;
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        XrCompositionLayerProjectionView* projView = &layers->modelViews[eye];
+        projView->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+        projView->pose = ctx->modelViews[eye].pose;
+        projView->fov = ctx->modelViews[eye].fov;
+        projView->subImage.swapchain = ctx->modelSwapchain;
+        projView->subImage.imageRect.offset.x = eye * ctx->modelEyeWidth;
+        projView->subImage.imageRect.offset.y = 0;
+        projView->subImage.imageRect.extent.width = ctx->modelEyeWidth;
+        projView->subImage.imageRect.extent.height = ctx->modelEyeHeight;
+        projView->subImage.imageArrayIndex = 0;
+    }
+    pushLayer(ctx, layers, models);
+}
+
 // The picture, one layer per eye. With the 3D off (natively always, until
 // M6) the left half alone, flat, to both eyes. On a curve the host's
 // projection layer stands in for upstream's cylinder.
 static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
-                           const XrCompositionLayerProjection* curved) {
+                           const XrFrameIn* in) {
     if (view->curve > 0.01f && ctx->cylinderSupported) {
-        if (curved != NULL) {
-            pushLayer(ctx, layers, curved);
+        if (in->curved != NULL) {
+            pushLayer(ctx, layers, in->curved);
         }
+        return;
+    }
+    // M5: the supersampled picture (flat, mono), the same quad from a smaller
+    // image the app filtered
+    if (in->picture != XR_NULL_HANDLE && !view->stereo) {
+        XrCompositionLayerQuad* quad = &layers->video[0];
+        quadLayerRect(quad, NULL, 0, in->picture, 0, 0, in->pictureW, in->pictureH, view->space, view->screenPose,
+                      view->screenWidth, view->screenHeight);
+        pushLayer(ctx, layers, quad);
         return;
     }
     int viewCount = view->stereo && ctx->drawnEyes == 2 ? 2 : 1;
@@ -584,8 +695,9 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
                   UI_PANEL_KEYBOARD, view->space, ctx->kbPose, ctx->kbW, ctx->kbH);
         pushLayer(ctx, layers, &layers->kbPanel);
 
+        // The Compact keyboard's "Full" chip has its rect in the last slot
         if (ctx->outlineReady && ctx->kbHoverKey >= 0
-                && ctx->kbHoverKey < ctx->kbKeyCount) {
+                && (ctx->kbHoverKey < ctx->kbKeyCount || ctx->kbHoverKey == KB_KEY_LAYOUT)) {
             const float* r = &ctx->kbKeyRects[ctx->kbHoverKey * 4];
             // Swells while the trigger is held, which is the only press
             // feedback a quad layer can give
@@ -730,7 +842,8 @@ void xrPictureView(XrCtx* ctx, XrPosef* pose, float* width, float* height, XrSpa
 void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
     ctx->passthrough = in->passthrough;
     ctx->prefCurvature = in->curvature;
-    updateControllerModels(ctx);
+    // Native: updateControllerModels runs in the host before the models'
+    // pass draws (upstream called it here, before its own draws)
 
     FrameView view;
     view.aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
@@ -788,12 +901,14 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
     if (blendNow) {
         addPassthroughLayer(ctx, layers);
     }
+    addRoomLayer(ctx, &view, layers);
+    addGlowLayer(ctx, &view, layers);
     if (ctx->everRendered && ctx->shouldRender) {
         if (ctx->launcher != LAUNCHER_NONE) {
             addLauncherLayer(ctx, &view, layers);
         }
         else if (ctx->videoShown) {
-            addVideoLayers(ctx, &view, layers, in->curved);
+            addVideoLayers(ctx, &view, layers, in);
         }
         addOverlayLayer(ctx, &view, layers);
         addHandleLayer(ctx, &view, layers);
@@ -805,14 +920,18 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
         addHandHintLayers(ctx, &view, layers);
         addKofiLayers(ctx, &view, layers);
         addKeyboardLayers(ctx, &view, layers);
+        addModelLayer(ctx, layers);
         addPointerLayers(ctx, &view, layers);
     }
     addToastLayer(ctx, layers, frameNs);
 
     // Over the limit: upstream's order of what goes first (the toast, the
-    // hover ring, the cog button, the clock strip)
+    // controller models, the hover ring, the cog button, the clock strip)
     if (layers->count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(layers, &layers->toast);
+    }
+    if (layers->count > (uint32_t)ctx->maxLayerCount) {
+        dropLayer(layers, &layers->models);
     }
     if (layers->count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(layers, &layers->cogMark[COG_OPTION_COUNT]);

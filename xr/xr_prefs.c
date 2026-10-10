@@ -79,12 +79,33 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     }
     ctx->grade = pictureGradeFor(ctx->pictureUnits);
     ctx->gradeOn = 0;
+    // The room's own light off the picture, and each room's own rows as its
+    // table row starts them, until the preferences are handed down
     roomLevelsFromTable(ctx);
-    ctx->roomOverride = -1;
+    // Same for the room, which the picker sets and a property can force, and
+    // its scale and brightness (native: environment variables stand in for
+    // upstream's debug properties)
+    const char* room = getenv("MLXR_ROOM");
+    const char* roomScale = getenv("MLXR_ROOM_SCALE");
+    const char* roomDim = getenv("MLXR_ROOM_DIM");
+    ctx->roomOverride = room != NULL && *room ? atoi(room) : -1;
+    ctx->roomScaleOverride = roomScale != NULL && *roomScale ? (float)atof(roomScale) : -1.0f;
+    ctx->roomDimOverride = roomDim != NULL && *roomDim ? (float)atof(roomDim) : -1.0f;
+    // Roughly ten frames to cross a scene cut, which reads as the glow
+    // following the picture rather than flickering with it
+    ctx->ambiSmooth = 0.08f;
+    // The glow's colours lifted to a steady luma, with a dark edge rolled off
+    ctx->glowNorm = 1;
+    // Letterbox detection on, starting from the whole frame
+    ctx->ambiBarDetect = 1;
+    ctx->ambiCrop[0] = 0.0f;
+    ctx->ambiCrop[1] = 0.0f;
+    ctx->ambiCrop[2] = 1.0f;
+    ctx->ambiCrop[3] = 1.0f;
+    ctx->envResTier = ENV_RES_STANDARD;
     ctx->loggedChoice = -1;
-    // Native: the passthrough and void cells only; the rooms are M5 and their
-    // tiles are drawn dimmed, past the live ones
-    ctx->pickerCells = ENV_CELL_VOID + 1;
+    // Every cell of the picker: passthrough, the void and the three rooms
+    ctx->pickerCells = ENV_CELL_COUNT;
     ctx->maxLayerCount = 16;
     ctx->launcherHoverHit = -1;
     ctx->launcherPressHit = -1;
@@ -98,17 +119,11 @@ int xrRowLater(XrCtx* ctx, int face, int row) {
     if (face != COG_TAB_DISPLAY) {
         return 0;
     }
-    switch (row) {
-    case COG_OPTION_SUPERSAMPLE:   // SteamVR has no layer settings; an app side pass is later
-    case COG_OPTION_CONTROLLERS:   // the controller model
-    case COG_OPTION_CLICK_SOUND:   // the tick on a press
-    case COG_OPTION_AMBILIGHT:     // the glow
-    case COG_OPTION_ROOM_LIGHT:    // rooms, M5
-    case COG_DISPLAY_SLIDER_ROW:   // the glow's level
-        return UIS_NATIVE_LATER;
-    default:
-        return 0;
-    }
+    // Every Display row is live since M5 (supersampling is the app's own
+    // pass, SteamVR having no layer settings); the 3D tab is dead through
+    // stereoMode until M6
+    (void)row;
+    return 0;
 }
 
 unsigned xrDisplayLaterMask(XrCtx* ctx) {
@@ -191,6 +206,28 @@ void xrPoseFromSettings(const Settings* s, float* p) {
 
 // ---- config.ini -> context ------------------------------------------------------
 
+// The picker's cell for a stored environment id and back (settings.h ENV_ID_*,
+// the environment key's 1 passthrough, 2 void, 3..5 the rooms)
+int xrCellForEnvironment(int env) {
+    switch (env) {
+    case ENV_ID_PASSTHROUGH: return ENV_CELL_PASSTHROUGH;
+    case ENV_ID_HOME_THEATER: return ENV_CELL_HOME_THEATER;
+    case ENV_ID_GRAND_CINEMA: return ENV_CELL_GRAND_CINEMA;
+    case ENV_ID_SYNTHWAVE: return ENV_CELL_SYNTHWAVE;
+    default: return ENV_CELL_VOID;
+    }
+}
+
+int xrEnvironmentSetting(int cell) {
+    switch (cell) {
+    case ENV_CELL_PASSTHROUGH: return 1;
+    case ENV_CELL_HOME_THEATER: return 3;
+    case ENV_CELL_GRAND_CINEMA: return 4;
+    case ENV_CELL_SYNTHWAVE: return 5;
+    default: return 2;
+    }
+}
+
 void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->overlayVisible = s->stats;
     ctx->sharpenMode = s->sharpening;
@@ -235,9 +272,9 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     float distance, width, curvature;
     xrDefaultPlacement(&distance, &width, &curvature);
     ctx->prefCurvature = curvature;
-    // Where the picture starts: passthrough or the void (the rooms are M5)
-    int env = settings_environment_id(s);
-    int cell = env == ENV_ID_PASSTHROUGH ? ENV_CELL_PASSTHROUGH : ENV_CELL_VOID;
+    // Where the picture starts: passthrough, the void or a room
+    int cell = xrCellForEnvironment(settings_environment_id(s));
+    ctx->envResTier = s->env_res;
     xrSetEnvironment(ctx, cell);
     ctx->passthrough = cell == ENV_CELL_PASSTHROUGH;
     ctx->handsEnabled = s->hand_tracking;
@@ -316,8 +353,24 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_PICTURE_SATURATION: s->picture_saturation = value; break;
     case SETTING_RESET_PICTURE: settings_reset_picture(s); break;
     case SETTING_POINTER_DOT: s->pointer_dot = ctx != NULL ? ctx->dotOn : value >= 1; break;
+    case SETTING_ROOM_BRIGHTNESS:
+    case SETTING_ROOM_GLOW:
+    case SETTING_ROOM_LIGHT_LEVEL:
+    case SETTING_ROOM_SCREEN: {
+        // A room's own value, stored under the room showing (upstream
+        // IN_SETTING_ROOM, which the input pass fills from the same)
+        int style = ctx != NULL ? roomEffective(ctx) : 0;
+        if (style < ROOM_STYLE_FIRST || style > ROOM_STYLE_LAST) {
+            return 0;
+        }
+        RoomSettings* r = &s->room[style - ROOM_STYLE_FIRST];
+        if (setting == SETTING_ROOM_BRIGHTNESS) r->brightness = value;
+        else if (setting == SETTING_ROOM_GLOW) r->glow = value != 0;
+        else if (setting == SETTING_ROOM_LIGHT_LEVEL) r->light = value;
+        else r->screen = value;
+        break;
+    }
     default:
-        // The room rows (M5) have no room to be written under yet
         return 0;
     }
     settings_clamp(s);

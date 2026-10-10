@@ -22,12 +22,14 @@
 
 
 #include "../shaders/passes.h"
+#include "../audio/click.h"
 #include "../stream/frame_slot.h"
 #include "../stream/hw_video.h"
 #include "../video/vk_import.h"
 #include "mlxr_log.h"
 #include "xr_native.h"
 #include "xr_vk.h"
+#include "xr_world.h"
 
 static atomic_int g_quit;
 void xr_app_request_quit(void) { atomic_store(&g_quit, 1); }
@@ -327,6 +329,7 @@ static VkImageView hwView(const XrVk* vk, Video* vd, MlxrPasses* passes, const m
 // on upstream's cylinder into a projection layer for both eyes.
 
 #define CURVE_IMAGES 8
+#define CURVE_PICTURE_FORMAT VK_FORMAT_R8G8B8A8_UNORM
 
 typedef struct XrCurve {
     VkImage picture;
@@ -341,6 +344,9 @@ typedef struct XrCurve {
     VkImageView views[CURVE_IMAGES];
     int eyeW, eyeH;
     int failed;
+    // What a warp into this image counts as for videoStale: 1 the curve, 2 + 4
+    // x width the supersampled picture (M5)
+    int mode;
     XrCompositionLayerProjection layer;
     XrCompositionLayerProjectionView eyes[2];
 } XrCurve;
@@ -367,7 +373,11 @@ static void curveDestroy(XrCtx* ctx, XrCurve* cv) {
     cv->swapchain = XR_NULL_HANDLE;
 }
 
-// The app's own copy of the picture, sRGB as the swapchain it stands in for
+// The app's own copy of the picture. Native M5 fix: _UNORM holding the gamma
+// encoded bytes the warp computes (OUT_LINEAR off), since the panel pass that
+// samples it treats what it reads as gamma encoded and decodes it itself for
+// the _SRGB target; through an _SRGB view the sampler had decoded it once
+// already, and the curved picture came out darker than the flat one.
 static int curvePicture(XrCtx* ctx, XrCurve* cv, int w, int h) {
     if (cv->picture && cv->w == w && cv->h == h) {
         return 0;
@@ -377,7 +387,7 @@ static int curvePicture(XrCtx* ctx, XrCurve* cv, int w, int h) {
     curveFreePicture(vk, cv);
     VkImageCreateInfo ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = VK_FORMAT_R8G8B8A8_SRGB;
+    ci.format = CURVE_PICTURE_FORMAT;
     ci.extent = (VkExtent3D){ (uint32_t)w, (uint32_t)h, 1 };
     ci.mipLevels = 1;
     ci.arrayLayers = 1;
@@ -395,7 +405,7 @@ static int curvePicture(XrCtx* ctx, XrCurve* cv, int w, int h) {
     VkImageViewCreateInfo vi = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
     vi.image = cv->picture;
     vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    vi.format = VK_FORMAT_R8G8B8A8_SRGB;
+    vi.format = CURVE_PICTURE_FORMAT;
     vi.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
     if (vkCreateImageView(vk->device, &vi, NULL, &cv->view) != VK_SUCCESS) return -1;
     cv->w = w;
@@ -466,6 +476,7 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         xrReleaseSwapchainImage(cv->swapchain, &rl);
         return 0;
     }
+    xrGpuTimeBegin(ctx, GPU_CURVE);
     mlxr_barrier(cmd, cv->images[idx].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     MlxrTarget tg;
@@ -474,6 +485,14 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     tg.format = (VkFormat)format;
     tg.rect.extent = (VkExtent2D){ (uint32_t)(cv->eyeW * 2), (uint32_t)cv->eyeH };
     tg.clear = 1; // transparent round the picture: the void or the room shows
+    // M5: the glow round a curved picture, upstream's glow cylinder drawn
+    // into this layer under the picture (no cylinder layers on SteamVR)
+    if (xrWorldGlowShown(ctx)) {
+        xrWorldCurvedGlow(ctx, &tg, views, cv->eyeW, cv->eyeH);
+        mlxr_barrier(cmd, cv->images[idx].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        tg.clear = 0;
+    }
     MlxrPanelParams pp;
     memset(&pp, 0, sizeof(pp));
     pp.src = cv->view;
@@ -501,6 +520,7 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         pv->subImage.imageRect.extent.height = cv->eyeH;
     }
     mlxr_pass_panel(passes, cmd, &tg, &pp);
+    xrGpuTimeEnd(ctx, GPU_CURVE);
     cv->layer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
     cv->layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
     cv->layer.space = space;
@@ -525,7 +545,7 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
         mlxr_barrier(cmd, curve->picture, VK_IMAGE_ASPECT_COLOR_BIT, curve->layout,
                      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         tg.view = curve->view;
-        tg.format = VK_FORMAT_R8G8B8A8_SRGB;
+        tg.format = CURVE_PICTURE_FORMAT;
         tg.rect.extent = (VkExtent2D){ (uint32_t)curve->w, (uint32_t)curve->h };
     }
     else {
@@ -558,14 +578,15 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
         curve->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         curve->valid = 1;
     }
-    vd->drawnCurved = curve != NULL;
+    vd->drawnCurved = curve != NULL ? curve->mode : 0;
     vd->drawnGradeOn = ctx->gradeOn;
     vd->drawnGrade = ctx->grade;
     vd->drawnSharpen = ctx->sharpenMode;
     vd->draws++;
 }
 
-// Whether the grade or the sharpening moved since the picture was drawn
+// Whether the grade, the sharpening or where the picture goes (flat, curved,
+// supersampled at a size: drawnCurved's key) moved since it was drawn
 static int videoStale(XrCtx* ctx, const Video* vd, int curved) {
     return vd->draws > 0 && (vd->drawnGradeOn != ctx->gradeOn || vd->drawnSharpen != ctx->sharpenMode
                              || vd->drawnCurved != curved
@@ -592,6 +613,166 @@ static int videoTarget(XrCtx* ctx, Video* vd, XrCurve* curve, int curved, uint32
     }
     *swapAcquired = 1;
     return 1;
+}
+
+// ---- the supersampled picture (M5) ------------------------------------------------
+// Upstream asked the compositor to supersample the picture's layer (FB layer
+// settings, NORMAL or QUALITY); SteamVR has none. Natively, with the Display
+// tab's Supersample row on, the warp goes into an image of the app's own and
+// mlxr_pass_supersample draws it, filtered over each display pixel's
+// footprint, into a swapchain the size the picture covers on the display; the
+// quad layer shows that one. Only while the picture is minified by 1.3 or
+// more (tests/m5 supersample: at the default placement, 2.79, the error
+// against the ideal halves when the compositor samples bilinear from a one
+// level image). Sizes snap to 16 px and change by 15% or more, never in a drag.
+
+#define SUPER_MIN_RATIO 1.3f
+#define SUPER_IMAGES 8
+
+typedef struct XrSuper {
+    XrCurve pic;                // the warp's own image (the curve's kind)
+    XrSwapchain swapchain;
+    uint32_t count;
+    XrSwapchainImageVulkan2KHR images[SUPER_IMAGES];
+    VkImageView views[SUPER_IMAGES];
+    int w, h;                   // the swapchain's
+    int wantW, wantH;           // this frame's
+    float ratio;
+    int failed;
+    int acquired;
+    int filled;
+    int saidW;
+} XrSuper;
+
+static void superDestroySwapchain(XrCtx* ctx, XrSuper* ss) {
+    for (uint32_t i = 0; i < ss->count; i++) vkDestroyImageView(ctx->vk->device, ss->views[i], NULL);
+    ss->count = 0;
+    if (ss->swapchain) {
+        xrDestroySwapchain(ss->swapchain);
+        ctx->swapchainsAlive--;
+    }
+    ss->swapchain = XR_NULL_HANDLE;
+    ss->w = ss->h = 0;
+    ss->filled = 0;
+}
+
+static void superDestroy(XrCtx* ctx, XrSuper* ss) {
+    superDestroySwapchain(ctx, ss);
+    curveFreePicture(ctx->vk, &ss->pic);
+}
+
+// Whether the picture is supersampled this frame, and at what size
+static int superWanted(XrCtx* ctx, const Video* vd, XrSuper* ss, int curvedNow) {
+    if (ctx->supersampleMode <= 0 || curvedNow || ss->failed || ctx->launcher != LAUNCHER_NONE || !vd->swapchain
+            || ctx->stereoMode != DEPTH_MODE_OFF || ctx->recommendedEyeWidth <= 0) {
+        return 0;
+    }
+    XrPosef pose;
+    float pw, ph;
+    XrSpace space;
+    xrPictureView(ctx, &pose, &pw, &ph, &space);
+    XrViewLocateInfo li = { XR_TYPE_VIEW_LOCATE_INFO };
+    li.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    li.displayTime = ctx->predictedDisplayTime;
+    li.space = space;
+    XrViewState vs = { XR_TYPE_VIEW_STATE };
+    XrView views[2] = { { XR_TYPE_VIEW }, { XR_TYPE_VIEW } };
+    uint32_t n = 0;
+    if (XR_FAILED(xrLocateViews(ctx->session, &li, &vs, 2, &n, views)) || n < 2) {
+        return ss->filled && ss->w > 0;
+    }
+    // How many of the eye's pixels the picture covers across, from the
+    // eye's middle: its angle over the eye's pixels a radian
+    float ex = pose.position.x - views[0].pose.position.x, ey = pose.position.y - views[0].pose.position.y,
+          ez = pose.position.z - views[0].pose.position.z;
+    float d = sqrtf(ex * ex + ey * ey + ez * ez);
+    float fov = views[0].fov.angleRight - views[0].fov.angleLeft;
+    if (d < 0.05f || fov <= 0.0f) {
+        return 0;
+    }
+    float covered = 2.0f * atanf(0.5f * pw / d) * (float)ctx->recommendedEyeWidth / fov;
+    float ratio = (float)vd->width / covered;
+    ss->ratio = ratio;
+    if (ratio < SUPER_MIN_RATIO) {
+        return 0;
+    }
+    int tw = ((int)ceilf((float)vd->width / ratio) + 15) & ~15;
+    if (tw < 64) tw = 64;
+    int th = (int)lroundf((float)tw * (float)vd->height / (float)vd->width);
+    int dragging = ctx->grabMode != GRAB_NONE || ctx->cogDragSlider >= 0;
+    if (ss->swapchain && (dragging || abs(tw - ss->w) * 100 < 15 * ss->w)) {
+        tw = ss->w;
+        th = ss->h;
+    }
+    ss->wantW = tw;
+    ss->wantH = th;
+    return 1;
+}
+
+static int superSwapchain(XrCtx* ctx, XrSuper* ss, int64_t format) {
+    if (ss->swapchain && ss->w == ss->wantW && ss->h == ss->wantH) {
+        return 0;
+    }
+    superDestroySwapchain(ctx, ss);
+    XrSwapchainCreateInfo ci = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
+    ci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+    ci.format = format;
+    ci.sampleCount = 1;
+    ci.width = (uint32_t)ss->wantW;
+    ci.height = (uint32_t)ss->wantH;
+    ci.faceCount = ci.arraySize = ci.mipCount = 1;
+    if (!checkXr(xrCreateSwapchain(ctx->session, &ci, &ss->swapchain), "create supersampled picture swapchain")) {
+        ss->failed = 1;
+        return -1;
+    }
+    ctx->swapchainsAlive++;
+    xrEnumerateSwapchainImages(ss->swapchain, 0, &ss->count, NULL);
+    if (ss->count > SUPER_IMAGES) ss->count = SUPER_IMAGES;
+    for (uint32_t i = 0; i < ss->count; i++) ss->images[i] = (XrSwapchainImageVulkan2KHR){ XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR };
+    xrEnumerateSwapchainImages(ss->swapchain, ss->count, &ss->count, (XrSwapchainImageBaseHeader*)ss->images);
+    for (uint32_t i = 0; i < ss->count; i++) {
+        VkImageViewCreateInfo vi = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        vi.image = ss->images[i].image;
+        vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        vi.format = (VkFormat)format;
+        vi.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        if (vkCreateImageView(ctx->vk->device, &vi, NULL, &ss->views[i]) != VK_SUCCESS) return -1;
+    }
+    ss->w = ss->wantW;
+    ss->h = ss->wantH;
+    LOGEV("supersampled picture: %dx%d on the display for a %dx%d picture (minification %.2f); swapchains alive %d "
+          "of 16", ss->w, ss->h, ctx->videoWidth, ctx->videoHeight, ss->ratio, ctx->swapchainsAlive);
+    return 0;
+}
+
+// The picture just warped into ss->pic, filtered down into the swapchain
+static void superRecord(XrCtx* ctx, XrSuper* ss, MlxrPasses* passes, VkCommandBuffer cmd, int64_t format) {
+    if (superSwapchain(ctx, ss, format) != 0) {
+        return;
+    }
+    uint32_t idx = 0;
+    if (!xrArtAcquire(ss->swapchain, "acquire supersampled picture image", &idx)) {
+        return;
+    }
+    mlxr_barrier(cmd, ss->images[idx].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    MlxrTarget t;
+    memset(&t, 0, sizeof(t));
+    t.view = ss->views[idx];
+    t.format = (VkFormat)format;
+    t.rect.extent = (VkExtent2D){ (uint32_t)ss->w, (uint32_t)ss->h };
+    MlxrSupersampleParams sp;
+    memset(&sp, 0, sizeof(sp));
+    sp.src = ss->pic.view;
+    sp.srcRect[2] = sp.srcRect[3] = 1.0f;
+    // Normal and Quality, upstream's two levels
+    sp.taps = ctx->supersampleMode >= 2 ? 4 : 2;
+    mlxr_pass_supersample(passes, cmd, &t, &sp);
+    ss->acquired = 1;
+    if (ss->saidW != ss->w) {
+        ss->saidW = ss->w;
+        LOGI("picture supersampled to %dx%d, %d taps", ss->w, ss->h, sp.taps);
+    }
 }
 
 // ---- small swapchains made by the host ------------------------------------------
@@ -878,6 +1059,8 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
             && ncv > 0) {
         ctx->recommendedEyeWidth = (int)cv[0].recommendedImageRectWidth;
         ctx->recommendedEyeHeight = (int)cv[0].recommendedImageRectHeight;
+        ctx->maxEyeWidth = (int)cv[0].maxImageRectWidth;
+        ctx->maxEyeHeight = (int)cv[0].maxImageRectHeight;
     }
     return 1;
 }
@@ -982,8 +1165,8 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
     if (pick >= 0 && pick < ctx->pickerCells) {
         xrSetEnvironment(ctx, pick);
         ctx->passthrough = pick == ENV_CELL_PASSTHROUGH;
-        // environment: 1 passthrough, 2 void (settings.c ENV_NAMES)
-        s->environment = pick == ENV_CELL_PASSTHROUGH ? 1 : 2;
+        // environment: 1 passthrough, 2 void, 3..5 the rooms (settings.c ENV_NAMES)
+        s->environment = xrEnvironmentSetting(pick);
         s->passthrough = pick == ENV_CELL_PASSTHROUGH;
         saveSettings(h, "environment");
     }
@@ -1043,6 +1226,57 @@ static void updateTexts(Host* h, int64_t now, uint64_t frames, uint64_t videoFra
     h->statsText[n] = '\0';
 }
 
+// ---- the click (upstream XrClickSound) -------------------------------------------
+// Started off the frame loop the first time the setting is on (it talks to
+// PulseAudio as it opens); audio/click.c plays it without blocking.
+
+static atomic_int g_clickState; // 0 not started, 1 starting, 2 ready, 3 failed
+static pthread_t g_clickThread;
+
+static void* clickOpen(void* arg) {
+    (void)arg;
+    char err[160] = "";
+    if (mlxr_click_init(NULL, err, sizeof(err)) == 0) {
+        atomic_store(&g_clickState, 2);
+        MLOG_I("click sound ready");
+    }
+    else {
+        atomic_store(&g_clickState, 3);
+        MLOG_W("click sound unavailable: %s", err);
+    }
+    return NULL;
+}
+
+static void clickPlay(void) {
+    if (atomic_load(&g_clickState) == 2) {
+        mlxr_click_play(MLXR_CLICK_PRESS);
+    }
+}
+
+static void clickStart(void) {
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&g_clickState, &expected, 1)) {
+        return;
+    }
+    xrClickPlayer = clickPlay;
+    if (pthread_create(&g_clickThread, NULL, clickOpen, NULL) != 0) {
+        atomic_store(&g_clickState, 3);
+    }
+}
+
+static void clickStop(void) {
+    int state = atomic_load(&g_clickState);
+    if (state == 0) {
+        return;
+    }
+    pthread_join(g_clickThread, NULL);
+    if (atomic_load(&g_clickState) == 2) {
+        mlxr_click_shutdown();
+    }
+    atomic_store(&g_clickState, 0);
+    xrClickPlayer = NULL;
+}
+
 // ---- run -------------------------------------------------------------------------
 
 static void onSignal(int sig) {
@@ -1074,6 +1308,9 @@ int xr_app_run(const XrAppConfig* cfg) {
     memset(&fr, 0, sizeof(fr));
     XrCurve curve;
     memset(&curve, 0, sizeof(curve));
+    curve.mode = 1;
+    XrSuper ss;
+    memset(&ss, 0, sizeof(ss));
     g_frame = &fr;
     MlxrPasses* passes = NULL;
 
@@ -1158,11 +1395,16 @@ int xr_app_run(const XrAppConfig* cfg) {
     pi.device = vk.device;
     pi.nv12 = 1;
     pi.nv12Chroma = MLXR_CHROMA_LEFT;
+    // The room's atlas at a glancing angle (upstream's roomAnisotropy cap;
+    // xr_vk enables samplerAnisotropy)
+    pi.atlasAnisotropy = ROOM_ANISOTROPY_MAX;
     if (mlxr_passes_create(&pi, &passes) != 0) {
         LOGE("shader passes unavailable");
         passes = NULL;
         goto fail;
     }
+    ctx->passes = passes;
+    xrWorldFindAssets(ctx);
     {
         VkCommandBuffer cmd = frameBegin(ctx, &fr);
         mlxr_passes_prepare(passes, cmd);
@@ -1223,6 +1465,7 @@ int xr_app_run(const XrAppConfig* cfg) {
             ctx->videoShown = 0;
             AVFrame* stale = cfg->video ? frame_slot_take(cfg->video) : NULL;
             av_frame_free(&stale);
+            xrWorldVideoGone(ctx);
             LOGEV("video released (stream stopped)");
             pthread_mutex_lock(&g_reqLock);
             g_releaseDone = serial;
@@ -1249,6 +1492,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         // The last frame's GPU work is done: the atlas copy and the staging
         // buffers are free to write
         vkWaitForFences(vk.device, 1, &fr.fence, VK_TRUE, UINT64_MAX);
+        ctx->gpuDone = vd.value;
 
         // ---- input (nativeUpdateInput) and what it decided (dispatchInput)
         host.live = *cfg->settings;
@@ -1257,6 +1501,11 @@ int xr_app_run(const XrAppConfig* cfg) {
         XrUiEvents ev;
         memset(&ev, 0, sizeof(ev));
         dispatchInput(&host, &ev);
+        // M5: the click on a panel press (upstream XrRenderer.updateClickSound)
+        if (ctx->clickSoundOn) {
+            clickStart();
+        }
+        xrClickFrame(ctx, host.out);
         XrUiLauncher show;
         memset(&show, 0, sizeof(show));
         if (cfg->hooks.ui) cfg->hooks.ui(cfg->hooks.user, &ev, &show);
@@ -1289,6 +1538,11 @@ int xr_app_run(const XrAppConfig* cfg) {
             if (xrAtlasRecord(ctx, cmd, &atlasAcquired) < 0) {
                 LOGW("UI atlas upload skipped this frame");
             }
+            // M5: the room, the glow and the models record into the same
+            // buffer; everything up to vd.value has finished (the fence above)
+            ctx->frameCmd = cmd;
+            ctx->gpuSerial = vd.value + 1;
+            xrWorldFrameBegin(ctx);
         }
 
         // The hardware decoder of the stream, if one is up
@@ -1317,11 +1571,17 @@ int xr_app_run(const XrAppConfig* cfg) {
             }
         }
         uint32_t videoIdx = 0;
-        int videoAcquired = 0, swapAcquired = 0;
+        int videoAcquired = 0, swapAcquired = 0, heldSampled = 0;
         // Native: a curved picture goes through the app's own image and the
         // panel pass (no cylinder layers on SteamVR)
         int curvedNow = ctx->cylinderSupported && effectiveCurvature(ctx) > 0.01f && roomEffective(ctx) <= 0
                 && !curve.failed;
+        // M5: or supersampled, through an image of its own and the
+        // supersample pass into a swapchain the size it shows at
+        int ssNow = fs.shouldRender && superWanted(ctx, &vd, &ss, curvedNow);
+        XrCurve* own = curvedNow ? &curve : ssNow ? &ss.pic : NULL;
+        int ownKey = curvedNow ? 1 : ssNow ? 2 + ((ss.wantW << 4) | ctx->supersampleMode) : 0;
+        ss.pic.mode = ownKey;
         uint64_t signal = 0;
         int hwNew = 0;
         mlxr_vframe hf;
@@ -1340,7 +1600,7 @@ int xr_app_run(const XrAppConfig* cfg) {
                     hw_video_release(hv, &hf);
                 }
                 else {
-                    if (videoTarget(ctx, &vd, &curve, curvedNow, &videoIdx, &swapAcquired)) {
+                    if (videoTarget(ctx, &vd, own, own != NULL, &videoIdx, &swapAcquired)) {
                         videoAcquired = 1;
                         mlxr_vkimp_cmd_acquire(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                         MlxrVideo mv;
@@ -1351,7 +1611,13 @@ int xr_app_run(const XrAppConfig* cfg) {
                         mv.height = hf.height;
                         mv.texWidth = hf.coded_width;
                         mv.texHeight = hf.coded_height;
-                        recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, curvedNow ? &curve : NULL);
+                        xrGpuTimeBegin(ctx, GPU_WARP);
+                        recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, own);
+                        if (ssNow) superRecord(ctx, &ss, passes, cmd, vd.format);
+                        xrGpuTimeEnd(ctx, GPU_WARP);
+                        // M5: the colour sample, the glow, the letterbox
+                        // detection, from the same frame
+                        xrWorldVideoFrame(ctx, &mv);
                         mlxr_vkimp_cmd_release(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                         hwNew = 1;
                     }
@@ -1366,7 +1632,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         AVFrame* f = cfg->video ? frame_slot_take(cfg->video) : NULL;
         if (f && !videoAcquired && fs.shouldRender && cmd) {
             if (swPlanes(&vk, &vd, f) == 0 && videoSwapchain(ctx, &vd, f->width, f->height) == 0) {
-                if (videoTarget(ctx, &vd, &curve, curvedNow, &videoIdx, &swapAcquired)) {
+                if (videoTarget(ctx, &vd, own, own != NULL, &videoIdx, &swapAcquired)) {
                     videoAcquired = 1;
                     swUpload(&vd, cmd, f);
                     MlxrVideo mv;
@@ -1378,47 +1644,80 @@ int xr_app_run(const XrAppConfig* cfg) {
                     mv.width = (uint32_t)f->width;
                     mv.height = (uint32_t)f->height;
                     mv.chroma = MLXR_CHROMA_LEFT;
-                    recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, curvedNow ? &curve : NULL);
+                    xrGpuTimeBegin(ctx, GPU_WARP);
+                    recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, own);
+                        if (ssNow) superRecord(ctx, &ss, passes, cmd, vd.format);
+                    xrGpuTimeEnd(ctx, GPU_WARP);
+                    xrWorldVideoFrame(ctx, &mv);
                 }
             }
         }
         av_frame_free(&f);
 
         // The grade or the sharpening moved on a picture standing still: the
-        // frame in hand is drawn again (upstream's warpRedraw)
-        if (!videoAcquired && fs.shouldRender && cmd && vd.swapchain && videoStale(ctx, &vd, curvedNow)
-                && (vd.heldValid || vd.swValid)) {
-            if (videoTarget(ctx, &vd, &curve, curvedNow, &videoIdx, &swapAcquired)) {
+        // frame in hand is drawn again (upstream's warpRedraw); the glow's
+        // switch or level moved: the glow is (upstream's redrawGlow)
+        int redrawPicture = !videoAcquired && vd.swapchain && videoStale(ctx, &vd, ownKey);
+        int redrawGlowNow = !videoAcquired && ctx->ambiReady && glowStale(ctx) && ctx->videoShown;
+        if ((redrawPicture || redrawGlowNow) && fs.shouldRender && cmd && (vd.heldValid || vd.swValid)) {
+            MlxrVideo mv;
+            memset(&mv, 0, sizeof(mv));
+            const mlxr_vkimp_image* img = NULL;
+            int have = 0;
+            if (vd.heldValid) {
+                img = mlxr_vkimp_get(vd.imp, &vd.held);
+                VkImageView nv12 = img ? hwView(&vk, &vd, passes, img) : VK_NULL_HANDLE;
+                if (nv12) {
+                    mlxr_vkimp_cmd_acquire(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                    mv.kind = MLXR_VIDEO_NV12;
+                    mv.planes[0] = nv12;
+                    mv.width = vd.held.width;
+                    mv.height = vd.held.height;
+                    mv.texWidth = vd.held.coded_width;
+                    mv.texHeight = vd.held.coded_height;
+                    have = 1;
+                    heldSampled = 1;
+                }
+            }
+            else {
+                mv.kind = MLXR_VIDEO_YUV420P;
+                mv.planes[0] = vd.planes[0].view;
+                mv.planes[1] = vd.planes[1].view;
+                mv.planes[2] = vd.planes[2].view;
+                mv.width = (uint32_t)vd.planeW;
+                mv.height = (uint32_t)vd.planeH;
+                mv.chroma = MLXR_CHROMA_LEFT;
+                have = 1;
+            }
+            if (have && redrawPicture && videoTarget(ctx, &vd, own, own != NULL, &videoIdx, &swapAcquired)) {
                 videoAcquired = 1;
-                MlxrVideo mv;
-                memset(&mv, 0, sizeof(mv));
-                if (vd.heldValid) {
-                    const mlxr_vkimp_image* img = mlxr_vkimp_get(vd.imp, &vd.held);
-                    VkImageView nv12 = img ? hwView(&vk, &vd, passes, img) : VK_NULL_HANDLE;
-                    if (nv12) {
-                        mlxr_vkimp_cmd_acquire(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-                        mv.kind = MLXR_VIDEO_NV12;
-                        mv.planes[0] = nv12;
-                        mv.width = vd.held.width;
-                        mv.height = vd.held.height;
-                        mv.texWidth = vd.held.coded_width;
-                        mv.texHeight = vd.held.coded_height;
-                        recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, curvedNow ? &curve : NULL);
-                        mlxr_vkimp_cmd_release(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-                    }
-                }
-                else {
-                    mv.kind = MLXR_VIDEO_YUV420P;
-                    mv.planes[0] = vd.planes[0].view;
-                    mv.planes[1] = vd.planes[1].view;
-                    mv.planes[2] = vd.planes[2].view;
-                    mv.width = (uint32_t)vd.planeW;
-                    mv.height = (uint32_t)vd.planeH;
-                    mv.chroma = MLXR_CHROMA_LEFT;
-                    recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, curvedNow ? &curve : NULL);
-                }
+                xrGpuTimeBegin(ctx, GPU_WARP);
+                recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, own);
+                        if (ssNow) superRecord(ctx, &ss, passes, cmd, vd.format);
+                xrGpuTimeEnd(ctx, GPU_WARP);
                 LOGI("picture drawn again on a still frame (grade %s, sharpen %d)", ctx->gradeOn ? "on" : "off",
                      ctx->sharpenMode);
+            }
+            if (have && redrawGlowNow) {
+                xrWorldStillFrame(ctx, &mv);
+            }
+            if (img != NULL && have) {
+                mlxr_vkimp_cmd_release(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            }
+        }
+
+        // M5: where the controllers are this frame, before anything draws
+        // them; then the room (every display frame while one is up: SteamVR
+        // only turns a projection layer with the head between frames, so a
+        // room drawn only with new pictures would lag a moving head) and the
+        // models (every display frame, as upstream)
+        updateControllerModels(ctx);
+        if (fs.shouldRender && cmd) {
+            if (roomEffective(ctx) > 0 && !ctx->passthrough) {
+                renderRoom(ctx);
+            }
+            if (ctx->everRendered) {
+                renderControllerModels(ctx);
             }
         }
 
@@ -1431,17 +1730,25 @@ int xr_app_run(const XrAppConfig* cfg) {
             xrPictureView(ctx, &pp, &pw, &ph, &space);
             curveAcquired = curveRecord(ctx, &curve, passes, cmd, vd.format, space);
         }
+        // The flat glow's quad: its swapchain gets the newest glow
+        if (fs.shouldRender && cmd) {
+            xrWorldFlatGlow(ctx, curvedNow && ctx->launcher == LAUNCHER_NONE);
+        }
         if (fr.recording) {
             vkEndCommandBuffer(fr.cmd);
             fr.recording = 0;
             signal = ++vd.value;
+            // Uploads the room's loader recorded go first, in the same submission
+            VkCommandBuffer cmds[4];
+            int ncmd = xrWorldTakeUploads(ctx, cmds, 3);
+            cmds[ncmd++] = fr.cmd;
             VkTimelineSemaphoreSubmitInfo tsi = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
             tsi.signalSemaphoreValueCount = 1;
             tsi.pSignalSemaphoreValues = &signal;
             VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
             si.pNext = &tsi;
-            si.commandBufferCount = 1;
-            si.pCommandBuffers = &fr.cmd;
+            si.commandBufferCount = (uint32_t)ncmd;
+            si.pCommandBuffers = cmds;
             si.signalSemaphoreCount = 1;
             si.pSignalSemaphores = &vd.timeline;
             vkResetFences(vk.device, 1, &fr.fence);
@@ -1449,6 +1756,15 @@ int xr_app_run(const XrAppConfig* cfg) {
                 LOGE("vkQueueSubmit failed");
                 break;
             }
+            xrWorldSubmitted(ctx, signal);
+        }
+        ctx->frameCmd = VK_NULL_HANDLE;
+        xrWorldReleaseImages(ctx);
+        if (ss.acquired) {
+            XrSwapchainImageReleaseInfo rli = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+            checkXr(xrReleaseSwapchainImage(ss.swapchain, &rli), "release supersampled picture image");
+            ss.acquired = 0;
+            ss.filled = 1;
         }
         if (hwNew) {
             // The new frame is held for a redraw; the one it replaces goes back
@@ -1458,7 +1774,7 @@ int xr_app_run(const XrAppConfig* cfg) {
             vd.heldValid = 1;
             vd.heldValue = signal;
         }
-        else if (videoAcquired && vd.heldValid) {
+        else if ((videoAcquired || heldSampled) && vd.heldValid) {
             vd.heldValue = signal;
         }
         if (atlasAcquired) xrAtlasRelease(ctx);
@@ -1487,6 +1803,11 @@ int xr_app_run(const XrAppConfig* cfg) {
         fin.eyeSwap = cfg->settings->eye_swap;
         fin.passthrough = ctx->passthrough;
         fin.curved = curveAcquired ? &curve.layer : NULL;
+        if (ssNow && ss.filled && ss.w > 0) {
+            fin.picture = ss.swapchain;
+            fin.pictureW = ss.w;
+            fin.pictureH = ss.h;
+        }
         XrFrameOut fout;
         memset(&fout, 0, sizeof(fout));
         if (fs.shouldRender) {
@@ -1517,10 +1838,15 @@ int xr_app_run(const XrAppConfig* cfg) {
             int panelDraws = 0;
             double panelMs = 0.0;
             xrPanelsStats(ctx, &panelDraws, &panelMs);
-            LOGEV("xr: %.1f fps (display %.0f Hz), video %.1f fps drawn, %u layers, swapchains %d, %d panel "
-                  "drawings %.1f ms avg; %s",
+            char gpu[256];
+            xrGpuTimesLine(ctx, gpu, sizeof(gpu));
+            LOGEV("xr: %.1f fps (display %.0f Hz), video %.1f fps drawn, %u layers, swapchains %d of 16, %d panel "
+                  "drawings %.1f ms avg; room %d%s, glow %s, models %s%s%s; %s",
                   framesWindow / (t - lastStats), xrGetDisplayRate(ctx), videoWindow / (t - lastStats), fout.count,
-                  ctx->swapchainsAlive, panelDraws, panelMs, extra);
+                  ctx->swapchainsAlive, panelDraws, panelMs, roomEffective(ctx),
+                  roomEffective(ctx) > 0 && xrRoomResident(ctx) != roomEffective(ctx) ? " (loading)" : "",
+                  xrWorldGlowShown(ctx) ? "up" : "off", ctx->modelsShowing ? "up" : "off", gpu[0] ? "; " : "", gpu,
+                  extra);
             framesWindow = videoWindow = 0;
             lastStats = t;
         }
@@ -1536,10 +1862,12 @@ fail:
     pthread_mutex_unlock(&g_reqLock);
     if (vk.device) {
         vkDeviceWaitIdle(vk.device);
+        xrWorldDestroy(ctx);
         hwDestroy(&vk, &vd);
         freeSwPlanes(&vk, &vd);
         freeVideoSwapchain(ctx, &vd);
         curveDestroy(ctx, &curve);
+        superDestroy(ctx, &ss);
         xrPanelsDestroy(ctx);
         xrAtlasDestroy(ctx);
         if (ctx->passthroughSwapchain) xrDestroySwapchain(ctx->passthroughSwapchain);
@@ -1548,6 +1876,7 @@ fail:
         if (fr.fence) vkDestroyFence(vk.device, fr.fence, NULL);
         if (fr.pool) vkDestroyCommandPool(vk.device, fr.pool, NULL);
     }
+    clickStop();
     destroyXrInput(ctx);
     if (ctx->viewSpace) xrDestroySpace(ctx->viewSpace);
     if (ctx->localSpace) xrDestroySpace(ctx->localSpace);
