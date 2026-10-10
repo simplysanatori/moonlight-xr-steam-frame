@@ -63,9 +63,8 @@ int xrPanelsCreate(XrCtx* ctx) {
     ctx->exitButtonReady = 1;
     ctx->rayButtonReady = 1;
     ctx->aimButtonReady = 1;
-    // Native: gamepad mode is M3, so its button stays off the bar, and the 3D
-    // button only shows with a depth model (M6), as upstream leaves it out
-    // of a session without stereo
+    // The 3D button only shows with a stereo mode (a depth model or a test
+    // pattern), as upstream leaves it out of a session without stereo
     ctx->padButtonReady = 1; // M3: the pad reaches the host
     ctx->stereoButtonReady = ctx->stereoMode != DEPTH_MODE_OFF;
     ctx->kofiReady = 1;
@@ -147,11 +146,12 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->kb_locked = ctx->kbFull.locked;
     v->kb_caps = ctx->kbFull.caps;
     v->kb_chip = !ctx->reportOpen;
-    v->version = "0.5 native (M5)";
+    v->version = "0.6 native (M6)";
     v->commit = NULL;
     v->log_path = "~/Games/MoonlightXRNative/moonlight.log";
     v->display_later = xrDisplayLaterMask(ctx);
-    v->stereo_reason = ui_str(UIS_NATIVE_3D_LATER);
+    // M6: why the 3D is off (off in settings, no model, the model failed)
+    v->stereo_reason = ctx->depthReason[0] ? ctx->depthReason : ui_str(UIS_THREE_D_OFF_IN_SETTINGS);
     v->env_live_cells = ctx->pickerCells;
     v->env_selected = -1;
     v->exit_question = ctx->launcher != LAUNCHER_NONE ? ui_str(UIS_NATIVE_EXIT_APP) : NULL;

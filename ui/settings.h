@@ -69,7 +69,7 @@ typedef struct Settings {
     int hand_tracking;
     int passthrough;
     int environment;       // 0 auto (void, or passthrough when passthrough is on), 1 passthrough, 2 void, 3 theater, 4 grand cinema, 5 synthwave
-    int depth_source;      // 0 ZipDepth, 1 MiDaS, 2 off (flat), 3.. test patterns
+    int depth_source;      // 0 ZipDepth, 1 MiDaS, 2 off (flat), 3..7 test patterns, 8 ZipDepth int8 (native)
     int env_res;           // ENV_RES_LOW..ULTRA
     int doff_grace;
     int hand_hint_seen;
@@ -93,6 +93,7 @@ typedef struct Settings {
     // [3d]
     int separation;        // tenths of a percent of frame width; -1 = the depth model's own
     int convergence;       // percent; -1 = the depth model's own
+    int stereo;            // native: the 3D switch as it was last left (0 off, 1 on)
 
     // [screen] where the picture hangs (what the Screen tab moves)
     int screen_distance_cm;

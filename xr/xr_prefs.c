@@ -7,6 +7,7 @@
 #include "xr_native.h"
 #include "xr_pad_bridge.h"
 #include "xr_keyboard.h"
+#include "xr_depth.h"
 
 // ---- what nativeInit set ---------------------------------------------------
 
@@ -17,13 +18,47 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     ctx->perfLevel = PERF_LEVEL_SUSTAINED_HIGH;
     ctx->depthRateSetting = DEPTH_RATE_DEFAULT;
     depthGovernorStart(&ctx->depthGov, DEPTH_RATE_DEFAULT);
-    // Native: no depth model yet (M6), so every session is flat and the 3D
-    // switch has nothing to switch
+    // Flat until config.ini's depth_source says otherwise (xrDepthConfigure,
+    // from xrApplySettings)
     ctx->stereoMode = DEPTH_MODE_OFF;
     ctx->stereoLive = 0;
     ctx->drawnEyes = 1;
+    ctx->depthModel = -1;
+    ctx->depthTexW = 512;
+    ctx->depthTexH = 288;
     atomic_init(&ctx->depthStagedIndex, 0);
     atomic_init(&ctx->depthGaveUp, 0);
+    // 0.25 measured best on a captured frame: same 5 px edge as tighter
+    // values with a tenth of the speckle
+    ctx->upsampleSigmaR = 0.25f;
+    ctx->upsampleEnabled = 1;
+    ctx->occlusionEnabled = 1;
+    // The warp's edges: sample held inside the frame, shift faded out over
+    // the last few pixels each side, and each eye's rectangle a texel clear
+    // of the seam between them. The cubic depth read is off for its cost.
+    ctx->srcInsetOn = 1;
+    ctx->edgeFadePx = EDGE_FADE_PX;
+    ctx->depthCubic = 0;
+    // Off until it earns its place in a blind comparison on device
+    ctx->depthSharp = 0.0f;
+    ctx->separationOverride = -1.0f;
+    ctx->separationPref = 0.006f;
+    // Native: upstream's debug properties as environment variables
+    // (MLXR_SEPARATION in tenths of a percent, MLXR_DEPTH_CUBIC,
+    // MLXR_OCCLUSION, MLXR_UPSAMPLE, MLXR_EDGE_FADE in pixels)
+    const char* knob = getenv("MLXR_SEPARATION");
+    if (knob != NULL && *knob) ctx->separationOverride = (float)atof(knob) / 1000.0f;
+    knob = getenv("MLXR_DEPTH_CUBIC");
+    if (knob != NULL && *knob) ctx->depthCubic = atoi(knob) != 0;
+    knob = getenv("MLXR_OCCLUSION");
+    if (knob != NULL && *knob) ctx->occlusionEnabled = atoi(knob) != 0;
+    knob = getenv("MLXR_UPSAMPLE");
+    if (knob != NULL && *knob) ctx->upsampleEnabled = atoi(knob) != 0;
+    knob = getenv("MLXR_EDGE_FADE");
+    if (knob != NULL && *knob) {
+        int px = atoi(knob);
+        ctx->edgeFadePx = px < 0 ? 0 : (px > EDGE_FADE_MAX_PX ? EDGE_FADE_MAX_PX : px);
+    }
     ctx->sessionState = XR_SESSION_STATE_UNKNOWN;
     ctx->seamInset = 1;
     ctx->panelCurve = -1.0f;
@@ -120,8 +155,8 @@ int xrRowLater(XrCtx* ctx, int face, int row) {
         return 0;
     }
     // Every Display row is live since M5 (supersampling is the app's own
-    // pass, SteamVR having no layer settings); the 3D tab is dead through
-    // stereoMode until M6
+    // pass, SteamVR having no layer settings); the 3D tab is live with a
+    // stereo mode (cogRowLive), since M6
     (void)row;
     return 0;
 }
@@ -262,9 +297,12 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     int presets[COG_PRESET_CELLS];
     ui_presets_for(s, presets);
     xrSetDepthDefaults(ctx, settings_model_default_separation(s), 50, presets);
-    ctx->separationCurrent = separationOf(settings_separation_units(s));
+    ctx->separationPref = separationOf(settings_separation_units(s));
+    ctx->separationCurrent = ctx->separationPref;
     ctx->convergence = (float)settings_convergence_percent(s) / 100.0f;
     xrSetDepthRate(ctx, s->depth_rate);
+    // M6: the depth model or test pattern, and the 3D switch as last left
+    xrDepthConfigure(ctx, s);
     // The placement saved last time, which the first frame keeps
     float pose[POSE_VALUES];
     xrPoseFromSettings(s, pose);

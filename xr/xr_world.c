@@ -334,6 +334,11 @@ static void timesCollect(XrCtx* ctx) {
         uint64_t ticks[2 * GPU_SECTIONS];
         if (vkGetQueryPoolResults(ctx->vk->device, w->queries, 0, 2 * GPU_SECTIONS, sizeof(ticks), ticks,
                                   sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+            // M6: what upstream's warp query window held (the depth passes,
+            // the colour sample and glow, the warp) goes to the frame budget
+            // as the GPU time, the room's as its own (rateBudgetGpu/Room)
+            double pictureMs = 0.0;
+            int picture = 0;
             for (int s = 0; s < GPU_SECTIONS; s++) {
                 if (!(w->written & (1u << s)) || ticks[2 * s + 1] < ticks[2 * s]) continue;
                 double ms = (double)(ticks[2 * s + 1] - ticks[2 * s]) * w->tickNs / 1e6;
@@ -341,6 +346,16 @@ static void timesCollect(XrCtx* ctx) {
                 w->sumMs[s] += ms;
                 if (ms > w->maxMs[s]) w->maxMs[s] = ms;
                 w->samples[s]++;
+                if (s == GPU_WARP) picture = 1;
+                if (s == GPU_WARP || s == GPU_GLOW || s == GPU_DOWNSCALE || s == GPU_UPSAMPLE || s == GPU_OFFSET) {
+                    pictureMs += ms;
+                }
+                if (s == GPU_ROOM) {
+                    rateBudgetRoom(&ctx->rateBudget, (int64_t)(ms * 1e6));
+                }
+            }
+            if (picture) {
+                rateBudgetGpu(&ctx->rateBudget, (int64_t)(pictureMs * 1e6));
             }
         }
         w->written = 0;
@@ -365,8 +380,15 @@ void xrGpuTimeEnd(XrCtx* ctx, int section) {
     w->writing |= 1u << section;
 }
 
+double xrGpuTimeAvg(XrCtx* ctx, int section, int* samples) {
+    XrWorld* w = world(ctx);
+    if (samples) *samples = w->samples[section];
+    return w->samples[section] ? w->sumMs[section] / w->samples[section] : 0.0;
+}
+
 void xrGpuTimesLine(XrCtx* ctx, char* buf, int len) {
-    static const char* const NAMES[GPU_SECTIONS] = { "warp", "glow", "room", "models", "curve" };
+    static const char* const NAMES[GPU_SECTIONS] = { "warp", "glow", "room", "models", "curve", "downscale",
+                                                         "upsample", "offset" };
     XrWorld* w = world(ctx);
     int n = 0;
     buf[0] = '\0';

@@ -36,7 +36,7 @@ static const char* const ENV_NAMES[] = { "auto", "passthrough", "void", "home_th
 static const int ENV_IDS[] = { ENV_ID_NONE, ENV_ID_PASSTHROUGH, ENV_ID_VOID, ENV_ID_HOME_THEATER,
                                ENV_ID_GRAND_CINEMA, ENV_ID_SYNTHWAVE };
 static const char* const DEPTH_NAMES[] = { "zipdepth", "midas", "off", "flat", "ramp", "blob",
-                                           "eyetest", "shifttest" };
+                                           "eyetest", "shifttest", "zipdepth-int8" };
 static const char* const ENVRES_NAMES[] = { "low", "standard", "high", "ultra" };
 static const char* const LOG_NAMES[] = { "off", "basic", "verbose" };
 static const char* const KBLAYOUT_NAMES[] = { "compact", "full" };
@@ -90,7 +90,7 @@ static const SettingDesc TABLE[] = {
     DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),
     DB("vr", "passthrough", passthrough, 0, "checkbox_vr_passthrough"),
     DE("vr", "environment", environment, ENV_NAMES, 0, "list_vr_environment: auto = black void, or passthrough with passthrough on"),
-    DE("vr", "depth_source", depth_source, DEPTH_NAMES, 0, "list_vr_depth_source: Realtime 3D mode (zipdepth recommended, midas older, off streams flat)"),
+    DE("vr", "depth_source", depth_source, DEPTH_NAMES, 0, "list_vr_depth_source: Realtime 3D mode (zipdepth recommended, midas older, zipdepth-int8 lighter on the CPU, off streams flat; flat, ramp, blob, eyetest, shifttest are test patterns)"),
     DE("vr", "env_res", env_res, ENVRES_NAMES, 1, "list_vr_env_res: Environment Res"),
     DB("vr", "doff_grace", doff_grace, 1, "checkbox_vr_doff_grace: keep the stream for a minute with the headset off"),
     DB("vr", "hand_hint_seen", hand_hint_seen, 0, "the hand lock hint was put away for good"),
@@ -114,6 +114,7 @@ static const SettingDesc TABLE[] = {
     // 3d
     DI("3d", "separation", separation, -1, COG_SEP_STEPS, -1, "seekbar_vr_separation: tenths of a percent of frame width; -1 is the depth model's own (ZipDepth 6, MiDaS 5)"),
     DI("3d", "convergence", convergence, -1, 100, -1, "seekbar_vr_convergence: percent; -1 is the depth model's own (50)"),
+    DB("3d", "stereo", stereo, 0, "native: the 3D switch (bar button, 3D tab) as it was last left; upstream started every session with it on"),
     // screen
     DI("screen", "distance_cm", screen_distance_cm, 20, 800, 300, "Screen tab: distance in centimetres"),
     DI("screen", "height_cm", screen_height_cm, -200, 200, 0, "Screen tab: height of the centre above eye level, centimetres"),
@@ -701,7 +702,7 @@ void session_from_settings(const Settings* s, SessionToggles* t) {
     t->head_aim = s->head_aim;
     t->pad_mode = 0;               // every session starts with the controllers as the pointer
     t->ray = s->show_ray;
-    t->stereo_on = s->depth_source != 2;   // "off" streams flat
+    t->stereo_on = s->depth_source != 2 && s->stereo;   // "off" streams flat; native: the switch is remembered
 }
 
 int settings_option_cell(const Settings* s, const SessionToggles* t, int option) {

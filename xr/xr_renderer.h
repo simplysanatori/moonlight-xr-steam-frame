@@ -231,6 +231,19 @@ static inline int64_t nowNs(void) {
 
 #define STEREO_WAIT_NS 400000000L
 
+// Three depth textures rather than two: the frame loop advances through them
+// in a fixed rotation, so a slot about to be overwritten was last sampled a
+// full rotation ago
+#define DEPTH_TEX_COUNT 3
+
+// Generous on purpose: the stage thread has no per frame deadline, and a
+// short timeout here would only trade a hung capture for a torn one
+#define CAPTURE_FENCE_TIMEOUT_NS 500000000ull
+
+// Pixels of the frame the shift fades to nothing over at each side edge
+#define EDGE_FADE_PX 8
+#define EDGE_FADE_MAX_PX 64
+
 // Pinned headers may predate the extension, values from the OpenXR registry
 #ifndef XR_FB_composition_layer_settings
 #define XR_FB_composition_layer_settings 1
@@ -313,19 +326,62 @@ typedef struct XrCtx {
     int videoWidth;
     int videoHeight;
 
-    // Stereo (M6). stereoMode is DEPTH_MODE_OFF natively until the depth lane
-    // lands, which greys the 3D tab and leaves the bar's 3D button out
+    // Stereo test path. When stereoMode is not OFF the swapchain is double
+    // wide and each eye gets its own warped copy of the frame (native M6:
+    // DEPTH_MODE_MODEL with a depth model in assets/depth and the depth
+    // library built in, or one of upstream's test patterns; OFF greys the 3D
+    // tab and leaves the bar's 3D button out)
     int stereoMode;
+    int depthDebug;
+    // The 3D switch on the bar and the 3D tab. Native: remembered in
+    // config.ini ([3d] stereo) rather than starting on in every session
     int stereoLive;
+    // Just switched back on with a model running: still drawn flat until a
+    // map made since then lands, or STEREO_WAIT_NS has gone by
     int stereoWaiting;
     int stereoWaitIndex;
     int64_t stereoWaitNs;
+    // Draws the frame again with nothing new from the decoder, so the switch
+    // shows at once on a picture that is standing still
     int warpRedraw;
+    // How many eyes the last draw left in the swapchain, which the video
+    // layers follow: both halves, or the left one to both eyes
     int drawnEyes;
+    // The depth map's size for this session, which is the model input's
+    int depthTexW;
+    int depthTexH;
+    // Native: counts the maps uploaded into the depth textures (upstream's
+    // staged slot index; a change of it is what ends stereoWaiting)
     atomic_int depthStagedIndex;
     int barTestFramesLogged;
+    // Edge aware upsample of the depth map, quarter of the video size, and
+    // the occlusion aware offset map (native: xr_depth.c's images)
+    float depthSharp;
+    int upsampleWidth;
+    int upsampleHeight;
+    int upsampleEnabled;
+    float upsampleSigmaR;
+    int occlusionEnabled;
+    // The edge fixes, on apart from the cubic read. Pixels for the fade, 0 or
+    // 1 for the rest.
+    int srcInsetOn;
+    int edgeFadePx;
+    int depthCubic;
     int seamInset;
     float convergence;
+    float separationOverride;
+    // Native: the separation the preference holds (config.ini [3d]
+    // separation, resolved against the model), which the panel's own
+    // panelSeparation overrides while it is >= 0
+    float separationPref;
+    // Native: the depth model this session runs (depth/litert_backend.h
+    // MlxrDepthModelId), and why the 3D is off when it cannot be had
+    int depthModel;
+    int depthFailed;
+    char depthReason[96];
+    // Native: the depth model's thread, its staging and the 3D passes
+    // (xr_depth.c)
+    struct XrDepth* depth;
 
     // Ambilight (xr_ambilight.c). The frame is sampled down to a tiny colour
     // texture, which the glow behind the screen is then drawn from (native:
@@ -901,6 +957,9 @@ typedef struct XrCtx {
     VkCommandBuffer frameCmd;
     uint64_t gpuSerial;
     uint64_t gpuDone;
+    // Native M6: the timeline semaphore each frame's submission signals
+    // gpuSerial on, which the depth stage thread waits on for a readback
+    VkSemaphore gpuTimeline;
     char assetsDir[512];
     // What xr_world.c keeps: uploads in flight, rooms waiting for the GPU to
     // be done with them, the GPU timestamps

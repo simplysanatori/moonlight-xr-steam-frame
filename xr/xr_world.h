@@ -93,11 +93,15 @@ int xrRoomsRetired(XrCtx* ctx);
 void xrRoomWaitLoader(XrCtx* ctx);
 
 // ---- GPU time ----------------------------------------------------------------------------
-enum { GPU_WARP, GPU_GLOW, GPU_ROOM, GPU_MODELS, GPU_CURVE, GPU_SECTIONS };
+// M6: the depth model's capture (downscale + readback copy), the depth
+// upsample and the offset search have their own
+enum { GPU_WARP, GPU_GLOW, GPU_ROOM, GPU_MODELS, GPU_CURVE, GPU_DOWNSCALE, GPU_UPSAMPLE, GPU_OFFSET, GPU_SECTIONS };
 void xrGpuTimeBegin(XrCtx* ctx, int section);
 void xrGpuTimeEnd(XrCtx* ctx, int section);
 // The averages since the last call, for the stats line ("" when none)
 void xrGpuTimesLine(XrCtx* ctx, char* buf, int len);
+// The averages of one section since the last xrGpuTimesLine (0 when none)
+double xrGpuTimeAvg(XrCtx* ctx, int section, int* samples);
 
 // ---- the click (xr_session.c sets the player) --------------------------------------------
 // The input pass asked for a click this frame (IN_CLICK) and the setting is on

@@ -30,6 +30,7 @@
 #include "xr_native.h"
 #include "xr_vk.h"
 #include "xr_world.h"
+#include "xr_depth.h"
 
 static atomic_int g_quit;
 void xr_app_request_quit(void) { atomic_store(&g_quit, 1); }
@@ -89,7 +90,8 @@ typedef struct Plane {
 #define HW_VIEWS 32
 
 typedef struct Video {
-    int width, height;          // the swapchain's (the picture's) size
+    int width, height;          // the swapchain's size: the picture's, double wide with a stereo mode (M6)
+    int picW;                   // the picture's width
     XrSwapchain swapchain;
     uint32_t count;
     XrSwapchainImageVulkan2KHR images[VIDEO_IMAGES];
@@ -115,6 +117,9 @@ typedef struct Video {
     // what the last draw used, so a change redraws a still picture
     int drawnGradeOn, drawnSharpen, drawnCurved;
     PictureGrade drawnGrade;
+    // M6: the 3D as last drawn (eyes, separation, convergence, depth view)
+    int drawnEyes, drawnShowDepth;
+    float drawnSep, drawnConv;
     uint64_t draws;
 } Video;
 
@@ -177,9 +182,11 @@ static void freeVideoSwapchain(XrCtx* ctx, Video* vd) {
     ctx->videoShown = 0;
 }
 
-// The picture's swapchain at the picture's size
-static int videoSwapchain(XrCtx* ctx, Video* vd, int w, int h) {
-    if (vd->swapchain && vd->width == w && vd->height == h) {
+// The picture's swapchain at the picture's size, double wide with a stereo
+// mode (upstream's chainWidth: each eye's half, or the left one flat)
+static int videoSwapchain(XrCtx* ctx, Video* vd, int pw, int h) {
+    int w = xrDepthChainWidth(ctx, pw);
+    if (vd->swapchain && vd->width == w && vd->picW == pw && vd->height == h) {
         return 0;
     }
     vkDeviceWaitIdle(ctx->vk->device);
@@ -206,13 +213,15 @@ static int videoSwapchain(XrCtx* ctx, Video* vd, int w, int h) {
         if (vkCreateImageView(ctx->vk->device, &vi, NULL, &vd->views[i]) != VK_SUCCESS) return -1;
     }
     vd->width = w;
+    vd->picW = pw;
     vd->height = h;
     ctx->swapchain = vd->swapchain;
     // The picture's shape follows the stream's
-    ctx->videoWidth = w;
+    ctx->videoWidth = pw;
     ctx->videoHeight = h;
-    ctx->pointerBeta = NATIVE_POINTER_BETA_PER_PX * (float)w;
-    LOGEV("video swapchain %dx%d, %u images; swapchains alive %d of 16", w, h, vd->count, ctx->swapchainsAlive);
+    ctx->pointerBeta = NATIVE_POINTER_BETA_PER_PX * (float)pw;
+    LOGEV("video swapchain %dx%d (%s), %u images; swapchains alive %d of 16", w, h,
+          w != pw ? "double wide, stereo" : "flat", vd->count, ctx->swapchainsAlive);
     return 0;
 }
 
@@ -453,7 +462,7 @@ static int curveSwapchain(XrCtx* ctx, XrCurve* cv, int64_t format) {
 // One display frame of the curved picture: both eyes drawn from where they
 // are now. Fills the layer and returns the acquired image's release duty.
 static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuffer cmd, int64_t format,
-                       XrSpace space) {
+                       XrSpace space, int eyeSwap) {
     if (!cv->valid || curveSwapchain(ctx, cv, format) != 0) return 0;
     XrViewLocateInfo li = { XR_TYPE_VIEW_LOCATE_INFO };
     li.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -506,9 +515,22 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         xrCurveMvp(views[e].fov, views[e].pose, ctx->screenPose, pp.mvp[e]);
         pp.eyeRect[e].offset.x = e * cv->eyeW;
         pp.eyeRect[e].extent = (VkExtent2D){ (uint32_t)cv->eyeW, (uint32_t)cv->eyeH };
-        pp.uvRect[e][0] = 0.0f;
+        // M6: in 3D each eye samples its own half of the picture (upstream's
+        // cylinder layers' subImage per eye), a texel clear of the seam; flat
+        // in a double wide image, both eyes the left half
+        float pw = (float)ctx->videoWidth, iw = (float)cv->w;
+        float x0 = 0.0f, ww = pw;
+        if (cv->w > ctx->videoWidth) {
+            int half = ctx->drawnEyes == 2 ? (eyeSwap ? 1 - e : e) : 0;
+            x0 = (float)half * pw;
+            if (ctx->seamInset && pw > 2 * SEAM_INSET_TEXELS) {
+                x0 += SEAM_INSET_TEXELS;
+                ww -= 2 * SEAM_INSET_TEXELS;
+            }
+        }
+        pp.uvRect[e][0] = x0 / iw;
         pp.uvRect[e][1] = 0.0f;
-        pp.uvRect[e][2] = 1.0f;
+        pp.uvRect[e][2] = ww / iw;
         pp.uvRect[e][3] = 1.0f;
         XrCompositionLayerProjectionView* pv = &cv->eyes[e];
         pv->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
@@ -534,10 +556,16 @@ static float sharpenFor(int mode) {
     return mode == 2 ? 0.8f : (mode == 1 ? 0.4f : 0.0f);
 }
 
-// Records the warp of one picture into swapchain image idx: the picture grade
-// and the sharpening as the panel has them now
+// Records the warp of one picture into swapchain image idx (or the app's own
+// image): the picture grade and the sharpening as the panel has them now, and
+// M6's 3D (xr_depth.c: the capture for the model, the upsample, the offset
+// search, then a warp per eye into the halves of the double wide target)
 static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffer cmd, uint32_t idx,
-                       const MlxrVideo* video, XrCurve* curve) {
+                       const MlxrVideo* video, XrCurve* curve, int newFrame, uint64_t frameIndex) {
+    (void)passes;
+    XrDepthDraw dd;
+    xrDepthPicture(ctx, video, newFrame, frameIndex, nowNs(), &dd);
+    xrGpuTimeBegin(ctx, GPU_WARP);
     MlxrTarget tg;
     memset(&tg, 0, sizeof(tg));
     if (curve != NULL) {
@@ -546,7 +574,6 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
                      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         tg.view = curve->view;
         tg.format = CURVE_PICTURE_FORMAT;
-        tg.rect.extent = (VkExtent2D){ (uint32_t)curve->w, (uint32_t)curve->h };
     }
     else {
         xr_vk_image_barrier(cmd, vd->images[idx].image, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -555,15 +582,12 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
         tg.view = vd->views[idx];
         tg.format = (VkFormat)vd->format;
-        tg.rect.extent = (VkExtent2D){ (uint32_t)vd->width, (uint32_t)vd->height };
     }
+    // Eye 0's rect: the picture's size; eye 1 lands right of it
+    tg.rect.extent = (VkExtent2D){ video->width, video->height };
     MlxrWarpParams w;
     memset(&w, 0, sizeof(w));
     w.video = *video;
-    w.convergence = 0.5f;
-    w.lowResWidth = (float)(video->width / 4);
-    w.srcInset = 0.5f / (float)video->width;
-    w.edgeFade = 16.0f / (float)video->width;
     w.gradeOn = ctx->gradeOn;
     w.grade[0] = ctx->grade.offset;
     w.grade[1] = ctx->grade.contrast;
@@ -571,25 +595,37 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     w.grade[3] = ctx->grade.saturation;
     w.tint[0] = w.tint[1] = w.tint[2] = 1.0f;
     w.sharpen = sharpenFor(ctx->sharpenMode);
-    mlxr_pass_warp(passes, cmd, &tg, &w);
+    xrDepthRecordWarp(ctx, cmd, &tg, &w, &dd);
     if (curve != NULL) {
         mlxr_barrier(cmd, curve->picture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         curve->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         curve->valid = 1;
     }
+    // What the layers show from here on (upstream renderVideoFrame)
+    ctx->drawnEyes = dd.eyes;
+    ctx->warpRedraw = 0;
     vd->drawnCurved = curve != NULL ? curve->mode : 0;
     vd->drawnGradeOn = ctx->gradeOn;
     vd->drawnGrade = ctx->grade;
     vd->drawnSharpen = ctx->sharpenMode;
+    vd->drawnEyes = dd.eyes;
+    vd->drawnSep = ctx->separationCurrent;
+    vd->drawnConv = ctx->convergence;
+    vd->drawnShowDepth = dd.eye[0].showDepth;
     vd->draws++;
 }
 
 // Whether the grade, the sharpening or where the picture goes (flat, curved,
 // supersampled at a size: drawnCurved's key) moved since it was drawn
 static int videoStale(XrCtx* ctx, const Video* vd, int curved) {
+    // M6: or the 3D switched (warpRedraw, upstream), or the 3D tab's depth
+    // or convergence moved on a picture standing still
+    int stereo3d = vd->drawnEyes == 2
+            && (fabsf(vd->drawnSep - ctx->separationCurrent) > 1e-6f
+                || fabsf(vd->drawnConv - ctx->convergence) > 1e-6f);
     return vd->draws > 0 && (vd->drawnGradeOn != ctx->gradeOn || vd->drawnSharpen != ctx->sharpenMode
-                             || vd->drawnCurved != curved
+                             || vd->drawnCurved != curved || ctx->warpRedraw || stereo3d
                              || memcmp(&vd->drawnGrade, &ctx->grade, sizeof(PictureGrade)) != 0);
 }
 
@@ -598,7 +634,10 @@ static int videoStale(XrCtx* ctx, const Video* vd, int curved) {
 static int videoTarget(XrCtx* ctx, Video* vd, XrCurve* curve, int curved, uint32_t* idx, int* swapAcquired) {
     *swapAcquired = 0;
     if (curved) {
-        return curvePicture(ctx, curve, vd->width, vd->height) == 0;
+        // The curve's own image is as wide as the chain (both eyes in 3D),
+        // the supersampled picture's as the picture (never in 3D)
+        int w = curve->mode == 1 ? vd->width : vd->picW;
+        return curvePicture(ctx, curve, w, vd->height) == 0;
     }
     XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
     XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
@@ -663,8 +702,9 @@ static void superDestroy(XrCtx* ctx, XrSuper* ss) {
 
 // Whether the picture is supersampled this frame, and at what size
 static int superWanted(XrCtx* ctx, const Video* vd, XrSuper* ss, int curvedNow) {
+    // M6: not while the 3D is on (each eye has its own picture)
     if (ctx->supersampleMode <= 0 || curvedNow || ss->failed || ctx->launcher != LAUNCHER_NONE || !vd->swapchain
-            || ctx->stereoMode != DEPTH_MODE_OFF || ctx->recommendedEyeWidth <= 0) {
+            || (ctx->stereoMode != DEPTH_MODE_OFF && ctx->stereoLive) || ctx->recommendedEyeWidth <= 0) {
         return 0;
     }
     XrPosef pose;
@@ -691,14 +731,14 @@ static int superWanted(XrCtx* ctx, const Video* vd, XrSuper* ss, int curvedNow) 
         return 0;
     }
     float covered = 2.0f * atanf(0.5f * pw / d) * (float)ctx->recommendedEyeWidth / fov;
-    float ratio = (float)vd->width / covered;
+    float ratio = (float)vd->picW / covered;
     ss->ratio = ratio;
     if (ratio < SUPER_MIN_RATIO) {
         return 0;
     }
-    int tw = ((int)ceilf((float)vd->width / ratio) + 15) & ~15;
+    int tw = ((int)ceilf((float)vd->picW / ratio) + 15) & ~15;
     if (tw < 64) tw = 64;
-    int th = (int)lroundf((float)tw * (float)vd->height / (float)vd->width);
+    int th = (int)lroundf((float)tw * (float)vd->height / (float)vd->picW);
     int dragging = ctx->grabMode != GRAB_NONE || ctx->cogDragSlider >= 0;
     if (ss->swapchain && (dragging || abs(tw - ss->w) * 100 < 15 * ss->w)) {
         tw = ss->w;
@@ -1192,6 +1232,12 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
         ctx->launcherPressHit = -1;
     }
     ev->focused = ctx->sessionState == XR_SESSION_STATE_FOCUSED;
+    // M6 (native): the 3D switch is remembered, unless the model failing
+    // turned it off
+    if (ctx->stereoMode != DEPTH_MODE_OFF && !ctx->depthFailed && s->stereo != ctx->stereoLive) {
+        s->stereo = ctx->stereoLive;
+        saveSettings(h, "3d switch");
+    }
 }
 
 static void updateTexts(Host* h, int64_t now, uint64_t frames, uint64_t videoFrames) {
@@ -1224,6 +1270,13 @@ static void updateTexts(Host* h, int64_t now, uint64_t frames, uint64_t videoFra
         }
     }
     h->statsText[n] = '\0';
+    // M6: the depth model's lines (upstream's overlay: rate and target,
+    // inference, age, skips)
+    char depth[200];
+    xrDepthOverlay(ctx, depth, sizeof(depth));
+    if (depth[0] && n < (int)sizeof(h->statsText) - 2) {
+        snprintf(h->statsText + n, sizeof(h->statsText) - (size_t)n, "\n%s", depth);
+    }
 }
 
 // ---- the click (upstream XrClickSound) -------------------------------------------
@@ -1346,6 +1399,12 @@ int xr_app_run(const XrAppConfig* cfg) {
     // Native: the curve is the host's (mlxr_pass_panel into a projection
     // layer), so the Screen tab's Curve row is live
     ctx->cylinderSupported = 1;
+    // M6: the depth model's engine (when the depth library is built in) and
+    // where its model files are, both before the settings pick the 3D mode
+#ifdef MLXR_HAVE_DEPTH
+    xrDepthSetEngineOps(xrDepthRealOps());
+#endif
+    xrWorldFindAssets(ctx);
     // The settings, as nativeInit's arguments and the setters handed them down
     xrApplySettings(ctx, cfg->settings);
 
@@ -1386,6 +1445,8 @@ int xr_app_run(const XrAppConfig* cfg) {
         VkSemaphoreCreateInfo sci2 = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         sci2.pNext = &st;
         if (!VK_OK(vkCreateSemaphore(vk.device, &sci2, NULL, &vd.timeline), "timeline semaphore")) goto fail;
+        // M6: the depth stage thread waits on it for its readbacks
+        ctx->gpuTimeline = vd.timeline;
     }
 
     // The shader passes (both video kinds through the warp, as M2)
@@ -1544,6 +1605,10 @@ int xr_app_run(const XrAppConfig* cfg) {
             ctx->gpuSerial = vd.value + 1;
             xrWorldFrameBegin(ctx);
         }
+        // M6: the separation the preference holds, then the depth model's
+        // lifecycle, its rate and the newest map into a depth texture
+        ctx->separationPref = separationOf(settings_separation_units(cfg->settings));
+        xrDepthFrame(ctx);
 
         // The hardware decoder of the stream, if one is up
         HwVideo* hv = hw_video_current();
@@ -1611,8 +1676,7 @@ int xr_app_run(const XrAppConfig* cfg) {
                         mv.height = hf.height;
                         mv.texWidth = hf.coded_width;
                         mv.texHeight = hf.coded_height;
-                        xrGpuTimeBegin(ctx, GPU_WARP);
-                        recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, own);
+                        recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, own, 1, videoFrames);
                         if (ssNow) superRecord(ctx, &ss, passes, cmd, vd.format);
                         xrGpuTimeEnd(ctx, GPU_WARP);
                         // M5: the colour sample, the glow, the letterbox
@@ -1644,8 +1708,7 @@ int xr_app_run(const XrAppConfig* cfg) {
                     mv.width = (uint32_t)f->width;
                     mv.height = (uint32_t)f->height;
                     mv.chroma = MLXR_CHROMA_LEFT;
-                    xrGpuTimeBegin(ctx, GPU_WARP);
-                    recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, own);
+                    recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, own, 1, videoFrames);
                         if (ssNow) superRecord(ctx, &ss, passes, cmd, vd.format);
                     xrGpuTimeEnd(ctx, GPU_WARP);
                     xrWorldVideoFrame(ctx, &mv);
@@ -1691,12 +1754,11 @@ int xr_app_run(const XrAppConfig* cfg) {
             }
             if (have && redrawPicture && videoTarget(ctx, &vd, own, own != NULL, &videoIdx, &swapAcquired)) {
                 videoAcquired = 1;
-                xrGpuTimeBegin(ctx, GPU_WARP);
-                recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, own);
+                recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, own, 0, videoFrames);
                         if (ssNow) superRecord(ctx, &ss, passes, cmd, vd.format);
                 xrGpuTimeEnd(ctx, GPU_WARP);
-                LOGI("picture drawn again on a still frame (grade %s, sharpen %d)", ctx->gradeOn ? "on" : "off",
-                     ctx->sharpenMode);
+                LOGI("picture drawn again on a still frame (grade %s, sharpen %d, %d eyes)", ctx->gradeOn ? "on" : "off",
+                     ctx->sharpenMode, ctx->drawnEyes);
             }
             if (have && redrawGlowNow) {
                 xrWorldStillFrame(ctx, &mv);
@@ -1728,7 +1790,7 @@ int xr_app_run(const XrAppConfig* cfg) {
             float pw, ph;
             XrSpace space;
             xrPictureView(ctx, &pp, &pw, &ph, &space);
-            curveAcquired = curveRecord(ctx, &curve, passes, cmd, vd.format, space);
+            curveAcquired = curveRecord(ctx, &curve, passes, cmd, vd.format, space, cfg->settings->eye_swap);
         }
         // The flat glow's quad: its swapchain gets the newest glow
         if (fs.shouldRender && cmd) {
@@ -1757,6 +1819,7 @@ int xr_app_run(const XrAppConfig* cfg) {
                 break;
             }
             xrWorldSubmitted(ctx, signal);
+            xrDepthSubmitted(ctx, signal);
         }
         ctx->frameCmd = VK_NULL_HANDLE;
         xrWorldReleaseImages(ctx);
@@ -1838,15 +1901,17 @@ int xr_app_run(const XrAppConfig* cfg) {
             int panelDraws = 0;
             double panelMs = 0.0;
             xrPanelsStats(ctx, &panelDraws, &panelMs);
-            char gpu[256];
+            char gpu[320];
             xrGpuTimesLine(ctx, gpu, sizeof(gpu));
+            char depth[400];
+            xrDepthStatsLine(ctx, depth, sizeof(depth));
             LOGEV("xr: %.1f fps (display %.0f Hz), video %.1f fps drawn, %u layers, swapchains %d of 16, %d panel "
-                  "drawings %.1f ms avg; room %d%s, glow %s, models %s%s%s; %s",
+                  "drawings %.1f ms avg; room %d%s, glow %s, models %s%s%s%s%s; %s",
                   framesWindow / (t - lastStats), xrGetDisplayRate(ctx), videoWindow / (t - lastStats), fout.count,
                   ctx->swapchainsAlive, panelDraws, panelMs, roomEffective(ctx),
                   roomEffective(ctx) > 0 && xrRoomResident(ctx) != roomEffective(ctx) ? " (loading)" : "",
-                  xrWorldGlowShown(ctx) ? "up" : "off", ctx->modelsShowing ? "up" : "off", gpu[0] ? "; " : "", gpu,
-                  extra);
+                  xrWorldGlowShown(ctx) ? "up" : "off", ctx->modelsShowing ? "up" : "off", depth[0] ? "; " : "",
+                  depth, gpu[0] ? "; " : "", gpu, extra);
             framesWindow = videoWindow = 0;
             lastStats = t;
         }
@@ -1862,6 +1927,9 @@ fail:
     pthread_mutex_unlock(&g_reqLock);
     if (vk.device) {
         vkDeviceWaitIdle(vk.device);
+        // M6: the stage thread joined and the model stopped before anything
+        // they read goes
+        xrDepthDestroy(ctx);
         xrWorldDestroy(ctx);
         hwDestroy(&vk, &vd);
         freeSwPlanes(&vk, &vd);
