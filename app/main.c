@@ -305,6 +305,12 @@ int main(int argc, char** argv) {
     stream_stop();
     stream_close_video(); // after the renderer dropped its imports
     g_streaming = 0;
+    // Leaving the app ends the session on the host too (Moonlight's "Quit
+    // session"), so the game or desktop stream does not keep running there.
+    mlxr_error qerr = {0};
+    mlxr_status qs = mlxr_server_quit_app(srv, &qerr);
+    if (qs == MLXR_OK) MLOG_I("host session ended on %s", rec->name);
+    else MLOG_W("could not end the host session: %s (%s)", mlxr_status_name(qs), qerr.msg);
     free(rtsp);
     mlxr_apps_free(apps, nApps);
     mlxr_server_free(srv);
