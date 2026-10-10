@@ -31,6 +31,8 @@ struct Result {
     bool startFailed = false;  // the process did not start
     bool crashed = false;      // killed by a signal
     bool dryRun = false;
+    bool disconnected = false; // left with the disconnect chord: the host's app still runs (exit code 11)
+    bool ok() const { return exitCode == 0 || disconnected; }
     QString message;           // for the error dialog; empty when exitCode == 0
 };
 

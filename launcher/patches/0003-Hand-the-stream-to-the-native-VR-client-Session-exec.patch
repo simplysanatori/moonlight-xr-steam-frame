@@ -59,7 +59,7 @@ index 1617792..7472b3f 100644
          session.displayLaunchWarning.connect(displayLaunchWarning)
          session.quitStarting.connect(quitStarting)
 diff --git a/app/streaming/session.cpp b/app/streaming/session.cpp
-index 80fb921..933149b 100644
+index 80fb921..5c62602 100644
 --- a/app/streaming/session.cpp
 +++ b/app/streaming/session.cpp
 @@ -1,4 +1,5 @@
@@ -93,7 +93,7 @@ index 80fb921..933149b 100644
 +            }
 +            emit vrStreamStarted();
 +        });
-+        if (result.exitCode != 0) {
++        if (!result.ok()) {
 +            emit displayLaunchError(result.message);
 +        }
 +    }

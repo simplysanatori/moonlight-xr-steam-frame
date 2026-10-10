@@ -9,7 +9,8 @@
 //   --exit-to-caller   the stream's end (the bar's exit, SteamVR quit) ends the host's
 //                      session and then the process, instead of showing the VR app list.
 //                      Exit code 0 is normal; otherwise the last stderr line starting
-//                      "MLXR_ERROR: " is the message (codes below, EXIT_*).
+//                      "MLXR_ERROR: " is the message (codes below, EXIT_*). 11 = left with
+//                      the disconnect chord (host session kept): not an error.
 //   --packet-size N    video packet size (bytes, local network), 0/absent = 1392
 //   --audio stereo|51|71   the audio channel layout to ask the host for
 //
@@ -70,7 +71,8 @@ enum {
     EXIT_NO_HOST = 4,        // no such host in hosts.ini, or not paired here
     EXIT_NO_APP = 5,
     EXIT_LAUNCH_FAILED = 6,  // the host refused the launch/resume, or the stream would not connect
-    EXIT_STREAM_ENDED = 10   // the stream ended by itself (the host closed it, or the network dropped)
+    EXIT_STREAM_ENDED = 10,  // the stream ended by itself (the host closed it, or the network dropped)
+    EXIT_DISCONNECTED = 11   // left with the disconnect chord: not an error, the host's session still runs
 };
 static atomic_int g_exitCode;
 static char g_exitMsg[256];
@@ -644,8 +646,9 @@ static void* worker(void* arg) {
             pthread_mutex_lock(&g_lock);
             launcher_stream_ended(&g_launch, 0);
             pthread_mutex_unlock(&g_lock);
-            // The bar's exit: the host's session is ended, the caller takes over
-            if (g_args.exitToCaller) endForCaller(EXIT_OK, NULL);
+            // The bar's exit (the host's session is ended) or the disconnect chord (it stays, so the
+            // caller shows the app as running, as Moonlight does after a disconnect)
+            if (g_args.exitToCaller) endForCaller(c.quitHost ? EXIT_OK : EXIT_DISCONNECTED, NULL);
             break;
         case LCMD_WAKE:
             if (c.pc >= 0 && c.pc < (int)n->hosts.n) {

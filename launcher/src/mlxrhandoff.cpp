@@ -492,7 +492,10 @@ Result run(const Plan& plan, const std::function<void()>& onStarted)
     }
     else {
         r.exitCode = proc.exitCode();
-        if (r.exitCode != 0) {
+        if (r.exitCode == 11) {
+            r.disconnected = true; // not an error: no dialog, the app list shows the app as running
+        }
+        else if (r.exitCode != 0) {
             r.message = lastErrorLine(tail);
             if (r.message.isEmpty()) {
                 r.message = QObject::tr("The VR client stopped with code %1. See %2").arg(r.exitCode).arg(consoleLogPath());

@@ -6,6 +6,7 @@
 #pragma once
 
 #include <QCoreApplication>
+#include <unistd.h>
 #include <QDebug>
 #include <QImage>
 #include <QJSValue>
@@ -71,7 +72,13 @@ inline void install(QQmlApplicationEngine& engine)
                 }
             });
         }
-        QTimer::singleShot(last + 700, QCoreApplication::instance(), []() { QCoreApplication::quit(); });
+        // Leave at once: after QCoreApplication::quit() this app (stock too) can take minutes to exit
+        // when offscreen, which is no use to a test
+        QTimer::singleShot(last + 700, QCoreApplication::instance(), []() {
+            fflush(stdout);
+            fflush(stderr);
+            _exit(0);
+        });
     }
 }
 

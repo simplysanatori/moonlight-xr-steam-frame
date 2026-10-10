@@ -36,6 +36,8 @@ for l in s:
     if l==b'[hosts]': o.append(b'1\\apps\\size=2')
 open(p,'wb').write(b'\n'.join(o))
 PY
+# documentation addresses only: nothing here may reach a real PC
+sed -i 's/100\.68\.121\.5/198.51.100.5/; s/203\.0\.113\.7/198.51.100.7/; s/192\.168\.0\.77/198.51.100.77/' "$t/Moonlight.conf"
 cp "$t/Moonlight.conf" "$t/Moonlight.conf.orig"
 export MLXR_SEED_CONF="$t/Moonlight.conf"
 HOSTID=EXAMPLE0-example-id1-F307-92C54E613C61
@@ -87,7 +89,7 @@ cmp "$t/fakesrv/client.pem" "$MLXR_CONFIG_DIR/servercerts/$HOSTID.pem" && ok "pi
 [ "$(stat -c %a "$MLXR_CONFIG_DIR/client.key")" = 600 ] && [ "$(stat -c %a "$MLXR_CONFIG_DIR/hosts.ini")" = 600 ] && ok "private files are 0600" || fail "modes"
 h="$MLXR_CONFIG_DIR/hosts.ini"
 grep -q "^\[$HOSTID\]" "$h" && grep -q '^name = DESKTOP-EXAMPLE' "$h" && grep -q '^mac = 02:00:00:00:00:01' "$h" && grep -q '^cert = servercerts/' "$h" && ok "hosts.ini record" || { fail "hosts.ini"; cat "$h"; }
-grep -q '^address = 203.0.113.5' "$h" && grep -q 'extra_addresses = .*203.0.113.7' "$h" && ok "addresses (no loopback)" || { fail "addresses"; cat "$h"; }
+grep -q '^address = 198.51.100.5' "$h" && grep -q 'extra_addresses = .*198.51.100.7' "$h" && ok "addresses (no loopback)" || { fail "addresses"; cat "$h"; }
 "$CLI" identity 2>&1 | grep -q "saved hosts:  1" && ok "mlxr-cli reads the exported host" || fail "mlxr-cli: $("$CLI" identity 2>&1)"
 "$CLI" identity 2>&1 | grep -q "created a new client identity" && fail "identity regenerated"
 # another host already in hosts.ini is kept
@@ -130,6 +132,7 @@ case "${FAKE_MODE:-ok}" in
   ok) exit 0;;
   err) echo "some log line"; echo "MLXR_ERROR: The host is on fire" >&2; exit 6;;
   silent) exit 3;;
+  disc) exit 11;;
   crash) kill -SEGV $$;;
 esac
 FAKE
@@ -148,6 +151,8 @@ FAKE_MODE=err MLXR_NATIVE_CLIENT="$fake" selftest "DESKTOP-EXAMPLE:Desktop" >"$t
 expect "client error message reaches the dialog" "$(cat "$t/stdout")" "error=The host is on fire"
 FAKE_MODE=silent MLXR_NATIVE_CLIENT="$fake" selftest "DESKTOP-EXAMPLE:Desktop" >"$t/stdout"; rc=$?
 expect "code without a message" "$(cat "$t/stdout")" "stopped with code 3"
+FAKE_MODE=disc MLXR_NATIVE_CLIENT="$fake" selftest "DESKTOP-EXAMPLE:Desktop" >"$t/stdout"; rc=$?
+[ $rc = 0 ] && expect "disconnect chord (exit 11) is not an error" "$(cat "$t/stdout")" "error=none" || fail "exit 11 gave $rc"
 FAKE_MODE=crash MLXR_NATIVE_CLIENT="$fake" selftest "DESKTOP-EXAMPLE:Desktop" >"$t/stdout"; rc=$?
 expect "crash reported" "$(cat "$t/stdout")" "crashed"
 MLXR_LAUNCHER_DRYRUN="fail:5:no such app" selftest "DESKTOP-EXAMPLE:Desktop" >"$t/stdout"; expect "dry-run failure injection" "$(cat "$t/stdout")" "error=no such app"
@@ -158,15 +163,17 @@ selftest "laptop:1" >/dev/null 2>&1; [ $? = 21 ] && ok "unknown app is reported"
 # --- 5. the whole app starts headless, shows the seeded PCs, and leaves cleanly
 if [ -n "$SHOTS" ]; then
     mkdir -p "$SHOTS"
+    setconf mdns=false   # no discovery: the UI tests must not talk to real PCs
     MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs.png@2500" "$L" >"$t/ui.out" 2>&1; rc=$?
     [ $rc = 0 ] && ok "UI starts, loads, exits (offscreen)" || fail "UI exit $rc"
-    grep -qi "error\|TypeError\|ReferenceError" "$t/ui.out" && { fail "UI errors:"; grep -i "error" "$t/ui.out" | head; } || ok "no QML errors on start"
+    QMLERR='TypeError|ReferenceError|is not a function|is not defined|Cannot assign|Unable to assign|qrc:/[^ ]*(Error|error)'
+    grep -Eq "$QMLERR" "$t/ui.out" && { fail "QML errors:"; grep -E "$QMLERR" "$t/ui.out" | head; } || ok "no QML errors on start"
     grep -q "Screenshot.*saved" "$t/ui.out" && ok "screenshot written" || fail "no screenshot"
     # the segue with a running fake client, then the client failing: dialog
     FAKE_SLEEP=4 FAKE_MODE=err MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_DEMO="DESKTOP-EXAMPLE:Desktop" \
       MLXR_LAUNCHER_SCREENSHOT="$SHOTS/segue.png@2500,$SHOTS/after.png@7500" "$L" >"$t/ui2.out" 2>&1; rc=$?
     [ $rc = 0 ] && ok "segue demo ran (client started, failed, UI came back)" || fail "segue demo exit $rc"
-    grep -i "TypeError\|ReferenceError\|is not a function" "$t/ui2.out" && fail "segue QML errors"
+    grep -E "$QMLERR" "$t/ui2.out" && fail "segue QML errors" || ok "no QML errors in the segue"
     grep -q "The VR client exited with 6" "$t/ui2.out" && ok "client failure seen by the UI" || fail "no exit seen: $(tail -5 "$t/ui2.out")"
 fi
 echo "failures: $fails"
