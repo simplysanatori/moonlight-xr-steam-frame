@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "xr_atlas.h"
 #include "xr_roommesh.h"
@@ -554,52 +555,115 @@ void mlxr_model_unload(const MlxrGpu* gpu, MlxrModel* m) {
     destroyModel(gpu, m);
 }
 
-int mlxr_model_record(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, MlxrModel** out) {
-    double started = nowMs();
-    *out = NULL;
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/models/controller.room", assetsDir);
-    size_t size = 0;
-    unsigned char* file = readFile(path, &size);
-    RoomMeshInfo mi;
-    MlxrModel* m = NULL;
-    int rc = -1;
-    if (!file || !roomMeshParse(file, size, &mi)) {
+// One model file, read and checked: a mesh the renderer reads, drawn from its
+// vertex colours alone. NULL (the reason on stderr) otherwise.
+static unsigned char* readModelFile(const char* path, RoomMeshInfo* mi, size_t* size) {
+    unsigned char* file = readFile(path, size);
+    if (!file) {
+        return NULL;
+    }
+    if (!roomMeshParse(file, *size, mi)) {
         fprintf(stderr, "controller model %s is not a mesh the renderer reads\n", path);
-        goto done;
     }
     // Drawn in one go from its colours, so a part asking for an atlas would
     // come out wrong rather than missing (nativeUploadControllerModel)
-    if (mi.atlasCount != 0 || roomMeshPaintedParts(&mi) != (int)mi.partCount) {
-        fprintf(stderr, "controller model asks for %u atlases, it is drawn from its colours alone\n", mi.atlasCount);
+    else if (mi->atlasCount != 0 || roomMeshPaintedParts(mi) != (int)mi->partCount) {
+        fprintf(stderr, "controller model %s asks for %u atlases, it is drawn from its colours alone\n", path,
+                mi->atlasCount);
+    }
+    else {
+        return file;
+    }
+    free(file);
+    return NULL;
+}
+
+int mlxr_model_record(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, MlxrModel** out) {
+    double started = nowMs();
+    *out = NULL;
+    // Moonlight XR Native: the Steam Frame's own controllers, when
+    // tools/frame-models has made them from the local SteamVR install: both
+    // hands or neither, each in its own hand's grip space (not mirrored).
+    // Otherwise the one generic controller, mirrored for the left hand.
+    char path[2][1024];
+    unsigned char* file[2] = { NULL, NULL };
+    RoomMeshInfo mi[2];
+    size_t size = 0;
+    int count = 0;
+    int perHand = 0;
+    snprintf(path[0], sizeof(path[0]), "%s/models/frame_controller_left.room", assetsDir);
+    snprintf(path[1], sizeof(path[1]), "%s/models/frame_controller_right.room", assetsDir);
+    if (access(path[0], R_OK) == 0 && access(path[1], R_OK) == 0) {
+        file[0] = readModelFile(path[0], &mi[0], &size);
+        file[1] = file[0] ? readModelFile(path[1], &mi[1], &size) : NULL;
+        if (file[0] && file[1]) {
+            perHand = 1;
+            count = 2;
+        }
+        else {
+            fprintf(stderr, "Frame controller models are not usable, falling back to the generic controller\n");
+            free(file[0]);
+            file[0] = file[1] = NULL;
+        }
+    }
+    if (!perHand) {
+        snprintf(path[0], sizeof(path[0]), "%s/models/controller.room", assetsDir);
+        file[0] = readModelFile(path[0], &mi[0], &size);
+        count = 1;
+    }
+    MlxrModel* m = NULL;
+    int rc = -1;
+    if (!file[0]) {
         goto done;
     }
     m = calloc(1, sizeof(*m));
     if (!m) {
         goto done;
     }
-    m->vertexCount = mi.vertexCount;
-    m->indexCount = mi.indexCount;
-    m->vertexBytes = (uint64_t)mi.vertexCount * ROOM_MESH_VERTEX_FLOATS * sizeof(float);
-    m->indexBytes = (uint64_t)mi.indexCount * sizeof(uint32_t);
-    uint64_t ioff = alignUp(m->vertexBytes, 16);
+    m->perHand = perHand;
+    snprintf(m->source, sizeof(m->source), "%s/models/%s", assetsDir,
+             perHand ? "frame_controller_{left,right}.room" : "controller.room");
+    uint64_t voff[2] = { 0, 0 };
+    uint64_t ioff[2] = { 0, 0 };
+    for (int i = 0; i < count; i++) {
+        voff[i] = m->vertexBytes;
+        ioff[i] = m->indexBytes;
+        m->handVertexOffset[i] = (int32_t)m->vertexCount;
+        m->handFirstIndex[i] = m->indexCount;
+        m->handIndexCount[i] = mi[i].indexCount;
+        m->vertexCount += mi[i].vertexCount;
+        m->indexCount += mi[i].indexCount;
+        m->vertexBytes += (uint64_t)mi[i].vertexCount * ROOM_MESH_VERTEX_FLOATS * sizeof(float);
+        m->indexBytes += (uint64_t)mi[i].indexCount * sizeof(uint32_t);
+    }
+    if (!perHand) {
+        m->handVertexOffset[1] = m->handVertexOffset[0];
+        m->handFirstIndex[1] = m->handFirstIndex[0];
+        m->handIndexCount[1] = m->handIndexCount[0];
+    }
+    uint64_t indexStart = alignUp(m->vertexBytes, 16);
     void* map = NULL;
-    if (makeStaging(gpu, ioff + m->indexBytes, &m->staging, &m->stagingMemory, &map) != 0) {
+    if (makeStaging(gpu, indexStart + m->indexBytes, &m->staging, &m->stagingMemory, &map) != 0) {
         goto done;
     }
-    memcpy(map, file + mi.vertexOffset, m->vertexBytes);
-    memcpy((char*)map + ioff, file + mi.indexOffset, m->indexBytes);
+    for (int i = 0; i < count; i++) {
+        memcpy((char*)map + voff[i], file[i] + mi[i].vertexOffset,
+               (size_t)mi[i].vertexCount * ROOM_MESH_VERTEX_FLOATS * sizeof(float));
+        memcpy((char*)map + indexStart + ioff[i], file[i] + mi[i].indexOffset,
+               (size_t)mi[i].indexCount * sizeof(uint32_t));
+    }
     vkUnmapMemory(gpu->device, m->stagingMemory);
     if (makeMeshBuffers(gpu, m->vertexBytes, m->indexBytes, &m->vertices, &m->indices, &m->bufferMemory, &m->gpuBytes) != 0) {
         goto done;
     }
-    recordMeshCopy(cmd, m->staging, ioff, m->vertices, m->vertexBytes, m->indices, m->indexBytes);
+    recordMeshCopy(cmd, m->staging, indexStart, m->vertices, m->vertexBytes, m->indices, m->indexBytes);
     m->loadMs = nowMs() - started;
     *out = m;
     m = NULL;
     rc = 0;
 done:
-    free(file);
+    free(file[0]);
+    free(file[1]);
     destroyModel(gpu, m);
     return rc;
 }
@@ -633,4 +697,11 @@ void mlxr_model_fill(const MlxrModel* m, MlxrModelParams* out) {
     out->vertices = m->vertices;
     out->indices = m->indices;
     out->indexCount = m->indexCount;
+    // Moonlight XR Native: the per-hand pair, or the one mesh for both
+    out->perHand = m->perHand;
+    for (int h = 0; h < 2; h++) {
+        out->handFirstIndex[h] = m->handFirstIndex[h];
+        out->handIndexCount[h] = m->handIndexCount[h];
+        out->handVertexOffset[h] = m->handVertexOffset[h];
+    }
 }

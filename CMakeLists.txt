@@ -64,6 +64,11 @@ foreach(lane backend video audio ui input rooms depth shaders xr stream app)
   endif()
 endforeach()
 
+# The Steam Frame controller model converter's tests
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/frame-models/CMakeLists.txt)
+  add_subdirectory(tests/frame-models)
+endif()
+
 # Flat launcher tests (skip with code 77 until launcher/build.sh has run)
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/launcher/CMakeLists.txt)
   add_subdirectory(tests/launcher)

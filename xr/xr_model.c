@@ -12,8 +12,12 @@
 //   - the model is rooms/room_gpu's MlxrModel, read off the assets the first
 //     frame the switch is on (xr_world.c; upstream: Java read it and
 //     nativeUploadControllerModel took it). The Steam Frame fork ships no
-//     Frame controller model in plain asset form, so this is the generic
-//     controller (assets/models/controller.room) on the Frame as well;
+//     Frame controller model in plain asset form, so by default this is the
+//     generic controller (assets/models/controller.room), mirrored for the
+//     left hand. When tools/frame-models has made the Frame's own pair from
+//     the local SteamVR install (assets/models/frame_controller_{left,right}
+//     .room; never shipped, packaging/install.sh makes them) each hand draws
+//     its own, already in its own grip space and so not mirrored;
 //   - the draw is mlxr_pass_model into the swapchain image, recorded into the
 //     frame's command buffer, with the depth image the room's pass uses too;
 //   - the GL timer query is the host's timestamps (xr_world.c).
@@ -168,7 +172,8 @@ void xrModelRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat
     for (int h = 0; h < HAND_COUNT; h++) {
         mp.shown[h] = ctx->modelShown[h];
         if (ctx->modelShown[h]) {
-            controllerModelMatrix(ctx->modelGrip[h], h == HAND_LEFT, mp.model[h]);
+            // Native: only the generic one is mirrored; the Frame's left is its own mesh
+            controllerModelMatrix(ctx->modelGrip[h], h == HAND_LEFT && !ctx->model->perHand, mp.model[h]);
         }
     }
     mp.depth = depth;

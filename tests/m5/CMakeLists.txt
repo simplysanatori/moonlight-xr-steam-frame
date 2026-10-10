@@ -22,7 +22,7 @@ add_executable(test_m5_world test_world.c)
 target_link_libraries(test_m5_world PRIVATE m5_gpu m4_scene dl)
 target_compile_options(test_m5_world PRIVATE -Werror)
 mlxr_link_openxr(test_m5_world)
-foreach(g leaks timing glow curve supersample)
+foreach(g leaks timing glow curve supersample frame_models)
   add_test(NAME m5_world_${g} COMMAND test_m5_world ${g})
 endforeach()
 
@@ -32,3 +32,10 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/world_snapshot.c)
   mlxr_link_openxr(mlxr-world-snapshot)
   add_test(NAME m5_world_snapshot COMMAND mlxr-world-snapshot ${CMAKE_CURRENT_BINARY_DIR}/snapshots)
 endif()
+
+# The generic controller beside the Steam Frame's own (tools/frame-models) at
+# the same grips; run by hand: mlxr-model-snapshot OUTDIR FRAMEMODELSDIR
+add_executable(mlxr-model-snapshot model_snapshot.c)
+target_link_libraries(mlxr-model-snapshot PRIVATE m5_gpu m4_scene)
+target_compile_definitions(mlxr-model-snapshot PRIVATE MLXR_ASSETS_DIR="${MLXR_ASSETS_DIR}")
+mlxr_link_openxr(mlxr-model-snapshot)

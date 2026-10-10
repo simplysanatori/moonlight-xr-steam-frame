@@ -822,7 +822,12 @@ void mlxr_pass_model(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, co
             if (!m->shown[h]) continue;
             memcpy(&pc[16], m->model[h], 16 * sizeof(float));
             vkCmdPushConstants(cmd, layout, PUSH_STAGES, 0, sizeof(pc), pc);
-            vkCmdDrawIndexed(cmd, m->indexCount, 1, 0, 0, 0);
+            if (m->perHand) {
+                vkCmdDrawIndexed(cmd, m->handIndexCount[h], 1, m->handFirstIndex[h], m->handVertexOffset[h], 0);
+            }
+            else {
+                vkCmdDrawIndexed(cmd, m->indexCount, 1, 0, 0, 0);
+            }
         }
     }
     p->endRendering(cmd);

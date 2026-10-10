@@ -102,24 +102,35 @@ int mlxr_room_rescale(const MlxrGpu* gpu, MlxrRoom* room, float scale, VkCommand
 // sets the rest (ambi, eyes, viewProj, eyeRect, spillGain, dim, depth)
 void mlxr_room_fill(const MlxrRoom* room, MlxrRoomParams* out);
 
-// The controller model (assets/models/controller.room): vertices as the file
-// has them, painted from their colours
+// The controller model: vertices as the file has them, painted from their
+// colours. Moonlight XR Native: either the one generic controller
+// (assets/models/controller.room, mirrored for the left hand) or, when both
+// exist and parse, the Steam Frame's own pair that tools/frame-models makes
+// from the local SteamVR install (frame_controller_{left,right}.room, in each
+// hand's grip space, not mirrored): both meshes in the one pair of buffers.
 typedef struct MlxrModel {
     VkBuffer vertices;
     VkBuffer indices;
-    uint32_t vertexCount, indexCount;
+    uint32_t vertexCount, indexCount; // both hands' together when perHand
     uint64_t vertexBytes, indexBytes, gpuBytes;
     double loadMs;
+    int perHand;                      // 1: the Frame's pair; 0: the generic one for both
+    uint32_t handFirstIndex[2];       // per hand into the index buffer
+    uint32_t handIndexCount[2];
+    int32_t handVertexOffset[2];      // per hand, in vertices
+    char source[1100];                // what was read, for the log
     VkDeviceMemory bufferMemory;
     VkBuffer staging;
     VkDeviceMemory stagingMemory;
 } MlxrModel;
 
+// Tries the Frame pair under assetsDir/models first; a pair with a missing or
+// unreadable half is skipped (on stderr) for the generic controller.
 int mlxr_model_record(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, MlxrModel** out);
 void mlxr_model_upload_done(const MlxrGpu* gpu, MlxrModel* model);
 int mlxr_model_load(const MlxrGpu* gpu, const char* assetsDir, MlxrModel** out);
 void mlxr_model_unload(const MlxrGpu* gpu, MlxrModel* model);
-// vertices, indices, indexCount of a pass_model call
+// vertices, indices, indexCount and the per-hand ranges of a pass_model call
 void mlxr_model_fill(const MlxrModel* model, MlxrModelParams* out);
 
 // The ASTC UNORM format for a block size the atlas tool writes (4, 6 or 8),

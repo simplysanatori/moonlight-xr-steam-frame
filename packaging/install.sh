@@ -15,7 +15,14 @@
 #                  that directory exists next to this script)
 #
 # Environment: DEST (default ~/Games/MoonlightXRNative/app), NO_SHORTCUT=1,
-# BUILD (source tree only, default <repo>/build), MLXR_CONFIG_DIR.
+# BUILD (source tree only, default <repo>/build), MLXR_CONFIG_DIR,
+# MLXR_FRAME_RENDERMODELS (where SteamVR keeps the Frame controller models,
+# default /opt/steamvr/drivers/frame_controller/resources/rendermodels).
+#
+# The Steam Frame's own controller models are made here from the local SteamVR
+# install (frame-controller-models.py into DEST/assets/models) and are never
+# part of a release or of git; without SteamVR or GdkPixbuf the client keeps
+# drawing its generic controller and the install carries on.
 #
 # Runs from a source checkout (binaries from the build directory) or from an
 # unpacked release (binaries in app/ next to this script); it tells which.
@@ -39,6 +46,7 @@ done
 if [ -x "$HERE/app/moonlight-xr" ]; then          # unpacked release
     MODE=release
     PAY="$HERE/app"; ASSETS="$PAY/assets"; WRAPPER="$PAY/moonlight-xr.sh"
+    FRAMEMODELS="$HERE/frame-controller-models.py"
     CLI="$PAY/mlxr-cli"; MAIN="$PAY/moonlight-xr"; HELLO=""
     SEEDDIR="$PAY"; CEFPY="$HERE/steam_cef.py"; DOCS="$HERE"
     BUGREPORT="$PAY/bug-report.sh"; PROBE="$PAY/docs/probe/SUMMARY.md"
@@ -47,6 +55,7 @@ if [ -x "$HERE/app/moonlight-xr" ]; then          # unpacked release
 else                                              # source checkout
     MODE=source
     SRC="$(cd "$HERE/.." && pwd)"; BUILD="${BUILD:-$SRC/build}"
+    FRAMEMODELS="$SRC/tools/frame-models/frame-controller-models.py"
     ASSETS="$SRC/assets"; WRAPPER="$HERE/moonlight-xr.sh"
     CLI="$BUILD/backend/mlxr-cli"; MAIN="$BUILD/moonlight-xr"; HELLO="$BUILD/hello/mlxr-hello"
     SEEDDIR="$SRC/backend"; CEFPY="$HERE/steam_cef.py"; DOCS="$SRC"
@@ -87,11 +96,29 @@ else
     else
         rm -rf "$DEST/assets.new" && cp -a "$ASSETS" "$DEST/assets.new" && rm -rf "$DEST/assets" && mv "$DEST/assets.new" "$DEST/assets"
     fi
+    # never Frame models that came with the source tree's assets: they are made below, from SteamVR
+    rm -f "$DEST"/assets/models/frame_controller_*.room
     echo "  assets/ ($(du -sh "$DEST/assets" | cut -f1): rooms, hrtf, models, images, fonts, depth models, licences)"
     for f in LICENSE.txt CREDITS.md; do
         [ -f "$DOCS/$f" ] && install -m644 "$DOCS/$f" "$DEST/$f"
     done
     echo "  LICENSE.txt, CREDITS.md"
+fi
+
+# The Steam Frame's own controller models, converted from the SteamVR on this
+# machine (Valve's files are read here and never redistributed). Optional: any
+# failure leaves the generic controller in use and the install going.
+FM_SRC="${MLXR_FRAME_RENDERMODELS:-/opt/steamvr/drivers/frame_controller/resources/rendermodels}"
+rm -f "$DEST"/assets/models/frame_controller_*.room # remade each install, so a SteamVR that went away leaves none
+if [ ! -f "$FRAMEMODELS" ]; then
+    echo "Frame controller models: converter missing ($FRAMEMODELS), skipped (the generic controller is used)"
+elif [ ! -d "$FM_SRC" ]; then
+    echo "Frame controller models: no SteamVR controller models at $FM_SRC, skipped (the generic controller is used)"
+elif python3 -I "$FRAMEMODELS" "$DEST/assets/models" "$FM_SRC"; then
+    echo "  Frame controller models (made from the local SteamVR; the Settings switch for controller models draws them)"
+else
+    rm -f "$DEST"/assets/models/frame_controller_*.room
+    echo "Frame controller models: conversion failed (see above; GdkPixbuf for Python is needed), skipped (the generic controller is used)"
 fi
 
 # Pairing: only when asked, and never over an existing identity.
