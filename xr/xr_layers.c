@@ -320,8 +320,8 @@ static void addModelLayer(XrCtx* ctx, FrameLayers* layers) {
     pushLayer(ctx, layers, models);
 }
 
-// The picture, one layer per eye. With the 3D off (natively always, until
-// M6) the left half alone, flat, to both eyes. On a curve the host's
+// The picture, one layer per eye. With the 3D off the left half alone,
+// flat, to both eyes. On a curve the host's
 // projection layer stands in for upstream's cylinder.
 static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
                            const XrFrameIn* in) {
@@ -333,7 +333,7 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
     }
     // M5: the supersampled picture (flat, mono), the same quad from a smaller
     // image the app filtered
-    if (in->picture != XR_NULL_HANDLE && !view->stereo) {
+    if (in->picture != XR_NULL_HANDLE && ctx->drawnEyes != 2) {
         XrCompositionLayerQuad* quad = &layers->video[0];
         quadLayerRect(quad, NULL, 0, in->picture, 0, 0, in->pictureW, in->pictureH, view->space, view->screenPose,
                       view->screenWidth, view->screenHeight);

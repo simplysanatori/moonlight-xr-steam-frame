@@ -145,6 +145,9 @@
     X(NATIVE_APP_RUNNING, "native_app_running", "Running") \
     X(NATIVE_LATER, "native_later", "comes in a later update") \
     X(NATIVE_3D_LATER, "native_3d_later", "3D comes with the depth model in a later update") \
+    X(NATIVE_3D_NO_MODEL, "native_3d_no_model", "3D needs the depth model, which is not installed") \
+    X(NATIVE_3D_FAILED, "native_3d_failed", "3D is off: the depth model did not load") \
+    X(NATIVE_3D_LOADING, "native_3d_loading", "3D: loading the depth model") \
     X(NATIVE_TILE_LATER, "native_tile_later", "Later") \
     X(NATIVE_DOT, "native_dot", "Dot") \
     X(NATIVE_RAY, "native_ray", "Ray") \
