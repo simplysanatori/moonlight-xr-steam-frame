@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Sat, 10 Oct 2026 14:07:29 -0400
+Subject: [PATCH] launcher: build the hand-off sources
+
+---
+ app/app.pro | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/app/app.pro b/app/app.pro
+index 740f010..9155c4a 100644
+--- a/app/app.pro
++++ b/app/app.pro
+@@ -195,6 +195,7 @@ SOURCES += \
+     streaming/input/mouse.cpp \
+     streaming/input/reltouch.cpp \
+     streaming/session.cpp \
++    streaming/mlxrhandoff.cpp \
+     streaming/audio/audio.cpp \
+     streaming/audio/renderers/sdlaud.cpp \
+     gui/computermodel.cpp \
+@@ -230,6 +231,7 @@ HEADERS += \
+     settings/streamingpreferences.h \
+     streaming/input/input.h \
+     streaming/session.h \
++    streaming/mlxrhandoff.h \
+     streaming/audio/renderers/renderer.h \
+     streaming/audio/renderers/sdl.h \
+     gui/computermodel.h \

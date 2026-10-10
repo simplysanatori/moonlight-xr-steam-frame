@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Sat, 10 Oct 2026 14:07:37 -0400
+Subject: [PATCH] Moonlight XR Native profile, first-run import of Moonlight
+ Qt's config, self test hook
+
+---
+ app/main.cpp | 34 ++++++++++++++++++++++++++++------
+ 1 file changed, 28 insertions(+), 6 deletions(-)
+
+diff --git a/app/main.cpp b/app/main.cpp
+index 6a8f110..f85cb40 100644
+--- a/app/main.cpp
++++ b/app/main.cpp
+@@ -47,6 +47,7 @@
+ #include "streaming/session.h"
+ #include "settings/streamingpreferences.h"
+ #include "gui/sdlgamepadkeynavigation.h"
++#include "streaming/mlxrhandoff.h"
+ 
+ #if defined(Q_OS_WIN32)
+ #define IS_UNSPECIFIED_HANDLE(x) ((x) == INVALID_HANDLE_VALUE || (x) == NULL)
+@@ -300,9 +301,21 @@ int main(int argc, char *argv[])
+     // Set these here to allow us to use the default QSettings constructor.
+     // These also ensure that our cache directory is named correctly. As such,
+     // it is critical that these be called before Path::initialize().
+-    QCoreApplication::setOrganizationName("Moonlight Game Streaming Project");
+-    QCoreApplication::setOrganizationDomain("moonlight-stream.com");
+-    QCoreApplication::setApplicationName("Moonlight");
++    //
++    // Moonlight XR Native launcher: its own profile (config, cache), so the flatpak's Moonlight
++    // keeps its own. MLXR_LAUNCHER_PROFILE=Moonlight selects Moonlight Qt's native names instead.
++    {
++        const QString profile = qEnvironmentVariable("MLXR_LAUNCHER_PROFILE", "Moonlight XR Native");
++        if (profile == "Moonlight") {
++            QCoreApplication::setOrganizationName("Moonlight Game Streaming Project");
++            QCoreApplication::setApplicationName("Moonlight");
++        }
++        else {
++            QCoreApplication::setOrganizationName(profile);
++            QCoreApplication::setApplicationName(profile);
++        }
++        QCoreApplication::setOrganizationDomain("moonlight-stream.com");
++    }
+ 
+     if (QFile(QDir::currentPath() + "/portable.dat").exists()) {
+         QSettings::setDefaultFormat(QSettings::IniFormat);
+@@ -317,6 +330,9 @@ int main(int argc, char *argv[])
+         Path::initialize(false);
+     }
+ 
++    // First run only: take over Moonlight Qt's config (pairing, PCs, settings)
++    MlxrHandoff::seedLauncherConfig();
++
+     // Override the default QML cache directory with the one we chose
+     if (qEnvironmentVariableIsEmpty("QML_DISK_CACHE_PATH")) {
+         qputenv("QML_DISK_CACHE_PATH", Path::getQmlCacheDir().toUtf8());
+@@ -669,9 +685,10 @@ int main(int argc, char *argv[])
+ #endif
+ 
+     // This is necessary to show our icon correctly on Wayland
+-    app.setDesktopFileName("com.moonlight_stream.Moonlight.desktop");
+-    qputenv("SDL_VIDEO_WAYLAND_WMCLASS", "com.moonlight_stream.Moonlight");
+-    qputenv("SDL_VIDEO_X11_WMCLASS", "com.moonlight_stream.Moonlight");
++    app.setApplicationDisplayName("Moonlight XR Native");
++    app.setDesktopFileName("moonlight-xr-launcher");
++    qputenv("SDL_VIDEO_WAYLAND_WMCLASS", "moonlight-xr-launcher");
++    qputenv("SDL_VIDEO_X11_WMCLASS", "moonlight-xr-launcher");
+ 
+     // Register our C++ types for QML
+     qmlRegisterType<ComputerModel>("ComputerModel", 1, 0, "ComputerModel");
+@@ -706,6 +723,11 @@ int main(int argc, char *argv[])
+     // Create the identity manager on the main thread
+     IdentityManager::get();
+ 
++    // tests/launcher: run one hand-off without a UI (see MlxrHandoff::selfTest)
++    if (qEnvironmentVariableIsSet("MLXR_LAUNCHER_SELFTEST")) {
++        return MlxrHandoff::selfTest(qEnvironmentVariable("MLXR_LAUNCHER_SELFTEST"));
++    }
++
+     // We require the Material theme
+     QQuickStyle::setStyle("Material");
+ 
