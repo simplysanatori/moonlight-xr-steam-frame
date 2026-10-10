@@ -391,7 +391,7 @@ static QString lastErrorLine(const QByteArray& tail)
     return QString();
 }
 
-Result run(const Plan& plan, const std::function<void()>& onStarted)
+Result run(const Plan& plan, const std::function<void()>& onStarted, const std::function<void()>& onStreaming)
 {
     Result r;
     const QString cmd = commandLine(plan);
@@ -410,6 +410,7 @@ Result run(const Plan& plan, const std::function<void()>& onStarted)
             }
         }
         if (onStarted) onStarted();
+        if (onStreaming) onStreaming();
         if (dry.startsWith("fail:")) {
             const QStringList p = dry.split(':');
             r.exitCode = p.value(1, "1").toInt();
@@ -443,11 +444,16 @@ Result run(const Plan& plan, const std::function<void()>& onStarted)
     log.flush();
 
     QByteArray tail;
+    bool streaming = false;
     QObject::connect(&proc, &QProcess::readyRead, [&]() {
         const QByteArray d = proc.readAll();
         log.write(d);
         log.flush();
         tail += d;
+        if (!streaming && tail.contains("MLXR_STREAMING")) {
+            streaming = true;
+            if (onStreaming) onStreaming();
+        }
         if (tail.size() > 32768) {
             tail.remove(0, tail.size() - 16384);
         }

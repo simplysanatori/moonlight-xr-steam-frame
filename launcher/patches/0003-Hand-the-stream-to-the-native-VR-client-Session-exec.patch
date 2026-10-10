@@ -5,13 +5,13 @@ Subject: [PATCH] Hand the stream to the native VR client (Session::execVr,
  StreamSegue status)
 
 ---
- app/gui/StreamSegue.qml   | 16 ++++++++++++++++
- app/streaming/session.cpp | 40 +++++++++++++++++++++++++++++++++++++++
+ app/gui/StreamSegue.qml   | 16 +++++++++++++++
+ app/streaming/session.cpp | 43 +++++++++++++++++++++++++++++++++++++++
  app/streaming/session.h   |  6 ++++++
- 3 files changed, 62 insertions(+)
+ 3 files changed, 65 insertions(+)
 
 diff --git a/app/gui/StreamSegue.qml b/app/gui/StreamSegue.qml
-index 1617792..7472b3f 100644
+index 1617792..eb24cf5 100644
 --- a/app/gui/StreamSegue.qml
 +++ b/app/gui/StreamSegue.qml
 @@ -2,6 +2,7 @@ import QtQuick 2.0
@@ -59,7 +59,7 @@ index 1617792..7472b3f 100644
          session.displayLaunchWarning.connect(displayLaunchWarning)
          session.quitStarting.connect(quitStarting)
 diff --git a/app/streaming/session.cpp b/app/streaming/session.cpp
-index 80fb921..5c62602 100644
+index 80fb921..d73e2ae 100644
 --- a/app/streaming/session.cpp
 +++ b/app/streaming/session.cpp
 @@ -1,4 +1,5 @@
@@ -68,7 +68,7 @@ index 80fb921..5c62602 100644
  #include "settings/streamingpreferences.h"
  #include "streaming/streamutils.h"
  #include "backend/richpresencemanager.h"
-@@ -1682,8 +1683,47 @@ public:
+@@ -1682,8 +1683,50 @@ public:
      Session* m_Session;
  };
  
@@ -87,11 +87,14 @@ index 80fb921..5c62602 100644
 +    else {
 +        const MlxrHandoff::Plan plan = MlxrHandoff::makePlan(*m_Computer, m_App, *m_Preferences);
 +        const bool hideWindow = qEnvironmentVariable("MLXR_LAUNCHER_HIDE_WINDOW") == "1";
-+        const MlxrHandoff::Result result = MlxrHandoff::run(plan, [this, hideWindow]() {
-+            if (hideWindow) {
-+                emit connectionStarted(); // StreamSegue hides the window, as for the SDL stream
-+            }
++        const MlxrHandoff::Result result = MlxrHandoff::run(plan, [this]() {
 +            emit vrStreamStarted();
++        }, [this, hideWindow]() {
++            // The headset shows the picture: StreamSegue hides the window, as stock does when
++            // its stream window opens
++            if (hideWindow) {
++                emit connectionStarted();
++            }
 +        });
 +        if (!result.ok()) {
 +            emit displayLaunchError(result.message);

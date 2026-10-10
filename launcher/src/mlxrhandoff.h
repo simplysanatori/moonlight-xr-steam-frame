@@ -49,8 +49,10 @@ QString commandLine(const Plan& plan);
 
 bool exportPairing(const NvComputer& computer, QString* error);
 
-// onStarted() is called once the child runs (or at once in a dry run)
-Result run(const Plan& plan, const std::function<void()>& onStarted);
+// onStarted() is called once the child runs (or at once in a dry run); onStreaming() once the
+// client prints "MLXR_STREAMING" (the headset shows the picture; at once in a dry run)
+Result run(const Plan& plan, const std::function<void()>& onStarted,
+           const std::function<void()>& onStreaming = nullptr);
 
 // Copies Moonlight Qt's config into this launcher's on its first run (no-op later).
 // Call after the application and organization names are set, before any QSettings use.

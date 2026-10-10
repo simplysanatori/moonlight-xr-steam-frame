@@ -239,8 +239,19 @@ static void uiHook(void* user, const XrUiEvents* ev, XrUiLauncher* show) {
         xr_app_notice(g_launch.notice);
         g_launch.notice[0] = '\0';
     }
+    // Started by the flat Moonlight UI: it shows "Starting <app>..." itself and hides its
+    // window when told the headset has the picture, so nothing here shows the lists or
+    // their loading state
+    static int saidStreaming;
+    if (g_args.exitToCaller && ev->pictureShown && !saidStreaming) {
+        saidStreaming = 1;
+        MLOG_I("picture up in the headset: the flat UI hides its window");
+        printf("MLXR_STREAMING\n");
+        fflush(stdout);
+    }
     LaunchView v;
     launcher_view(&g_launch, &v);
+    if (g_args.exitToCaller) v.mode = 0;
     show->mode = v.mode;
     show->pcs = v.pcs;
     show->pcCount = v.pcCount;

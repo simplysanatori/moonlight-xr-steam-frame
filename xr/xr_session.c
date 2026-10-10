@@ -1562,6 +1562,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         XrUiEvents ev;
         memset(&ev, 0, sizeof(ev));
         dispatchInput(&host, &ev);
+        ev.pictureShown = ctx->videoShown;
         // M5: the click on a panel press (upstream XrRenderer.updateClickSound)
         if (ctx->clickSoundOn) {
             clickStart();

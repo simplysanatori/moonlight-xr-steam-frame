@@ -14,6 +14,7 @@ typedef struct XrUiEvents {
     int exitConfirmed;          // the exit prompt's Exit was pressed
     int listKind, listA, listB; // a press on the launcher's list (UI_HIT_*, 0 none)
     int focused;                // the session has input focus
+    int pictureShown;           // native: the stream's picture is on the screen
 } XrUiEvents;
 
 // What the app shows in the picture's place while no stream is up

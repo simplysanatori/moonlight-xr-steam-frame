@@ -78,7 +78,7 @@ index 30b9ed7..4a2bfab 100644
                          // This is called on init, so only reset to default bitrate when checked state changes.
                          if (StreamingPreferences.enableYUV444 != checked) {
 diff --git a/app/streaming/session.cpp b/app/streaming/session.cpp
-index 5c62602..9746d55 100644
+index d73e2ae..4a9156f 100644
 --- a/app/streaming/session.cpp
 +++ b/app/streaming/session.cpp
 @@ -375,6 +375,17 @@ void Session::getDecoderInfo(SDL_Window* window,
