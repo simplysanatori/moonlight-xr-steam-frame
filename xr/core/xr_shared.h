@@ -544,7 +544,9 @@
 #define COG_HEAD_AIM_CELLS 2
 #define COG_GAMEPAD_CELLS 2
 #define COG_POINTER_SLEEP_CELLS 2
-#define COG_RAY_CELLS 2
+// Native (M4): three cells, off / the dot alone / the ray with its dot (the
+// owner asked to be able to hide the dot); upstream has two, off and on
+#define COG_RAY_CELLS 3
 #define COG_CONTROLLERS_CELLS 2
 #define COG_CLICK_SOUND_CELLS 2
 #define COG_AMBI_CELLS    2

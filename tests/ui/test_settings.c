@@ -491,7 +491,28 @@ static void test_sliders(void) {
     CHECK(settings_option_cell(&s, &t, COG_OPTION_SUPERSAMPLE) == 0);
     CHECK(settings_option_cell(&s, &t, COG_OPTION_STATS) == 0);
     CHECK(settings_option_cell(&s, &t, COG_OPTION_GAMEPAD) == 0);   // every session starts as the pointer
-    CHECK(settings_option_cell(&s, &t, COG_OPTION_RAY) == 1);
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_RAY) == 2);   // native: ray with its dot
+    {
+        // native: the ray row's three cells, none / dot / ray
+        int ray = -1, dot = -1;
+        settings_pointer_from_cell(0, &ray, &dot);
+        CHECK(ray == 0 && dot == 0);
+        settings_pointer_from_cell(1, &ray, &dot);
+        CHECK(ray == 0 && dot == 1);
+        settings_pointer_from_cell(2, &ray, &dot);
+        CHECK(ray == 1 && dot == 1);
+        for (int c = 0; c < 3; c++) {
+            settings_pointer_from_cell(c, &ray, &dot);
+            CHECK(settings_pointer_cell(ray, dot) == c);
+        }
+        CHECK(settings_pointer_cell(1, 0) == 2);
+        t.ray = 0;
+        CHECK(settings_option_cell(&s, &t, COG_OPTION_RAY) == 1);
+        s.pointer_dot = 0;
+        CHECK(settings_option_cell(&s, &t, COG_OPTION_RAY) == 0);
+        s.pointer_dot = 1;
+        t.ray = 1;
+    }
     CHECK(settings_option_cell(&s, &t, COG_OPTION_AMBILIGHT) == 1 && settings_option_cell(&s, &t, COG_OPTION_ROOM_LIGHT) == 1);
     CHECK(settings_option_cell(&s, &t, 99) == -1);
     t.pad_mode = 1;

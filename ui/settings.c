@@ -75,6 +75,7 @@ static const SettingDesc TABLE[] = {
     DB("vr", "pointer", pointer, 1, "checkbox_vr_pointer: controllers as a mouse"),
     DB("vr", "pointer_sleep", pointer_sleep, 1, "checkbox_vr_pointer_sleep: pause the pointer when the controller is still"),
     DB("vr", "show_ray", show_ray, 1, "checkbox_vr_show_ray: show the controller ray"),
+    DB("vr", "pointer_dot", pointer_dot, 1, "native: the dot where the ray lands (the host draws its own cursor into the video, which the Moonlight protocol cannot hide)"),
     DB("vr", "controller_model", controller_model, 0, "checkbox_vr_controller_model: draw a controller in each hand"),
     DB("vr", "head_aim", head_aim, 0, "checkbox_vr_head_aim: head aims the mouse (screen head locked, outside a room)"),
     DI("vr", "head_aim_sensitivity", head_aim_sensitivity, HEAD_AIM_SENSITIVITY_MIN, HEAD_AIM_SENSITIVITY_MAX, HEAD_AIM_SENSITIVITY_DEFAULT, "seekbar_vr_head_aim_sensitivity: pixels per degree"),
@@ -708,11 +709,20 @@ int settings_option_cell(const Settings* s, const SessionToggles* t, int option)
     case COG_OPTION_HEAD_AIM: return t->head_aim;
     case COG_OPTION_GAMEPAD: return t->pad_mode;
     case COG_OPTION_POINTER_SLEEP: return s->pointer_sleep;
-    case COG_OPTION_RAY: return t->ray;
+    case COG_OPTION_RAY: return settings_pointer_cell(t->ray, s->pointer_dot);
     case COG_OPTION_CONTROLLERS: return s->controller_model;
     case COG_OPTION_CLICK_SOUND: return s->click_sound;
     case COG_OPTION_AMBILIGHT: return s->glow;
     case COG_OPTION_ROOM_LIGHT: return s->screen_light;
     default: return -1;
     }
+}
+
+int settings_pointer_cell(int ray, int dot) {
+    return ray ? 2 : (dot ? 1 : 0);
+}
+
+void settings_pointer_from_cell(int cell, int* ray, int* dot) {
+    *ray = cell >= 2;
+    *dot = cell >= 1;
 }

@@ -128,6 +128,18 @@ typedef struct {
     const char* commit;          // may be NULL
     const char* log_path;        // shown shortened; NULL means the log is off
     const char* kofi_url;        // default https://ko-fi.com/moonlightxr
+    // Native (M4): what the native client cannot act on yet. Display tab rows
+    // (bit per COG_OPTION_*, bit COG_DISPLAY_SLIDER_ROW for the glow level)
+    // drawn greyed with later_reason (NULL: "comes in a later update"); the 3D
+    // tab's reason when stereo_ok is 0 (NULL: upstream's "3D is off in
+    // settings"); picker tiles at or past env_live_cells drawn dimmed, "Later".
+    unsigned display_later;
+    const char* later_reason;
+    const char* stereo_reason;
+    int env_live_cells;
+    // The exit prompt's question (NULL: upstream's "Exit the stream?"); the
+    // native launcher asks "Quit Moonlight XR?" while no stream is up
+    const char* exit_question;
 } UiView;
 
 // Fills the view's defaults from settings (session toggles included)

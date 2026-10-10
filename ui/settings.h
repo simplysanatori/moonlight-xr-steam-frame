@@ -35,7 +35,7 @@ typedef struct {
 #define ENV_ID_SYNTHWAVE 6
 #define ROOM_COUNT 3   // the baked rooms, indexed 0 theater, 1 grand cinema, 2 synthwave
 
-typedef struct {
+typedef struct Settings {
     // [stream]
     char host[UI_STR_MAX];
     char app[UI_STR_MAX];
@@ -55,6 +55,7 @@ typedef struct {
     int pointer;           // Controllers as a mouse
     int pointer_sleep;
     int show_ray;
+    int pointer_dot;       // native: the dot where the ray lands (the host draws its own cursor)
     int controller_model;
     int head_aim;
     int head_aim_sensitivity;
@@ -194,5 +195,9 @@ typedef struct {
 } SessionToggles;
 void session_from_settings(const Settings* s, SessionToggles* t);
 int settings_option_cell(const Settings* s, const SessionToggles* t, int option);
+// Native: the Display tab's ray row, three cells: 0 neither ray nor dot, 1 the
+// dot alone, 2 the ray (with the dot). A ray without a dot shows as 2.
+int settings_pointer_cell(int ray, int dot);
+void settings_pointer_from_cell(int cell, int* ray, int* dot);
 
 #endif

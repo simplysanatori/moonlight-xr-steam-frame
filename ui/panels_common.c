@@ -294,6 +294,7 @@ void ui_view_init(UiView* v, const Settings* s) {
     v->hover.kind = UI_HIT_NONE;
     v->kb_sheet = KB_STATE_LOWER;
     v->kofi_url = "https://ko-fi.com/moonlightxr";
+    v->env_live_cells = ENV_CELL_COUNT;
 }
 
 int ui_cog_face(const UiView* v) {
@@ -337,6 +338,7 @@ int ui_cog_row_live(const UiView* v, int face, int row) {
     if (face == COG_TAB_SCREEN && row == COG_SLIDER_CURVE) return v->curve_ok;
     if (face == COG_TAB_SCREEN &&
         (row == COG_SLIDER_AIM_SENSITIVITY || row == COG_SLIDER_AIM_DEADZONE)) return head_locked;
+    if (face == COG_TAB_DISPLAY && row >= 0 && row < 32 && (v->display_later & (1u << row))) return 0;
     if (face == COG_TAB_DISPLAY && row == COG_OPTION_HEAD_AIM) return head_locked && !in_room;
     if (face == COG_TAB_3D) return v->stereo_ok;
     if (face == COG_FACE_ROOM && row == COG_ROOM_ROW_SIZE) return settings_room_resizable(v->room_env);
