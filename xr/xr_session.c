@@ -22,12 +22,14 @@
 
 
 #include "../shaders/passes.h"
+#include "../audio/click.h"
 #include "../stream/frame_slot.h"
 #include "../stream/hw_video.h"
 #include "../video/vk_import.h"
 #include "mlxr_log.h"
 #include "xr_native.h"
 #include "xr_vk.h"
+#include "xr_world.h"
 
 static atomic_int g_quit;
 void xr_app_request_quit(void) { atomic_store(&g_quit, 1); }
@@ -327,6 +329,7 @@ static VkImageView hwView(const XrVk* vk, Video* vd, MlxrPasses* passes, const m
 // on upstream's cylinder into a projection layer for both eyes.
 
 #define CURVE_IMAGES 8
+#define CURVE_PICTURE_FORMAT VK_FORMAT_R8G8B8A8_UNORM
 
 typedef struct XrCurve {
     VkImage picture;
@@ -367,7 +370,11 @@ static void curveDestroy(XrCtx* ctx, XrCurve* cv) {
     cv->swapchain = XR_NULL_HANDLE;
 }
 
-// The app's own copy of the picture, sRGB as the swapchain it stands in for
+// The app's own copy of the picture. Native M5 fix: _UNORM holding the gamma
+// encoded bytes the warp computes (OUT_LINEAR off), since the panel pass that
+// samples it treats what it reads as gamma encoded and decodes it itself for
+// the _SRGB target; through an _SRGB view the sampler had decoded it once
+// already, and the curved picture came out darker than the flat one.
 static int curvePicture(XrCtx* ctx, XrCurve* cv, int w, int h) {
     if (cv->picture && cv->w == w && cv->h == h) {
         return 0;
@@ -377,7 +384,7 @@ static int curvePicture(XrCtx* ctx, XrCurve* cv, int w, int h) {
     curveFreePicture(vk, cv);
     VkImageCreateInfo ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = VK_FORMAT_R8G8B8A8_SRGB;
+    ci.format = CURVE_PICTURE_FORMAT;
     ci.extent = (VkExtent3D){ (uint32_t)w, (uint32_t)h, 1 };
     ci.mipLevels = 1;
     ci.arrayLayers = 1;
@@ -395,7 +402,7 @@ static int curvePicture(XrCtx* ctx, XrCurve* cv, int w, int h) {
     VkImageViewCreateInfo vi = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
     vi.image = cv->picture;
     vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    vi.format = VK_FORMAT_R8G8B8A8_SRGB;
+    vi.format = CURVE_PICTURE_FORMAT;
     vi.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
     if (vkCreateImageView(vk->device, &vi, NULL, &cv->view) != VK_SUCCESS) return -1;
     cv->w = w;
@@ -466,6 +473,7 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         xrReleaseSwapchainImage(cv->swapchain, &rl);
         return 0;
     }
+    xrGpuTimeBegin(ctx, GPU_CURVE);
     mlxr_barrier(cmd, cv->images[idx].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     MlxrTarget tg;
@@ -474,6 +482,14 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     tg.format = (VkFormat)format;
     tg.rect.extent = (VkExtent2D){ (uint32_t)(cv->eyeW * 2), (uint32_t)cv->eyeH };
     tg.clear = 1; // transparent round the picture: the void or the room shows
+    // M5: the glow round a curved picture, upstream's glow cylinder drawn
+    // into this layer under the picture (no cylinder layers on SteamVR)
+    if (xrWorldGlowShown(ctx)) {
+        xrWorldCurvedGlow(ctx, &tg, views, cv->eyeW, cv->eyeH);
+        mlxr_barrier(cmd, cv->images[idx].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        tg.clear = 0;
+    }
     MlxrPanelParams pp;
     memset(&pp, 0, sizeof(pp));
     pp.src = cv->view;
@@ -501,6 +517,7 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         pv->subImage.imageRect.extent.height = cv->eyeH;
     }
     mlxr_pass_panel(passes, cmd, &tg, &pp);
+    xrGpuTimeEnd(ctx, GPU_CURVE);
     cv->layer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
     cv->layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
     cv->layer.space = space;
@@ -525,7 +542,7 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
         mlxr_barrier(cmd, curve->picture, VK_IMAGE_ASPECT_COLOR_BIT, curve->layout,
                      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         tg.view = curve->view;
-        tg.format = VK_FORMAT_R8G8B8A8_SRGB;
+        tg.format = CURVE_PICTURE_FORMAT;
         tg.rect.extent = (VkExtent2D){ (uint32_t)curve->w, (uint32_t)curve->h };
     }
     else {
@@ -878,6 +895,8 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
             && ncv > 0) {
         ctx->recommendedEyeWidth = (int)cv[0].recommendedImageRectWidth;
         ctx->recommendedEyeHeight = (int)cv[0].recommendedImageRectHeight;
+        ctx->maxEyeWidth = (int)cv[0].maxImageRectWidth;
+        ctx->maxEyeHeight = (int)cv[0].maxImageRectHeight;
     }
     return 1;
 }
@@ -982,8 +1001,8 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
     if (pick >= 0 && pick < ctx->pickerCells) {
         xrSetEnvironment(ctx, pick);
         ctx->passthrough = pick == ENV_CELL_PASSTHROUGH;
-        // environment: 1 passthrough, 2 void (settings.c ENV_NAMES)
-        s->environment = pick == ENV_CELL_PASSTHROUGH ? 1 : 2;
+        // environment: 1 passthrough, 2 void, 3..5 the rooms (settings.c ENV_NAMES)
+        s->environment = xrEnvironmentSetting(pick);
         s->passthrough = pick == ENV_CELL_PASSTHROUGH;
         saveSettings(h, "environment");
     }
@@ -1041,6 +1060,57 @@ static void updateTexts(Host* h, int64_t now, uint64_t frames, uint64_t videoFra
         }
     }
     h->statsText[n] = '\0';
+}
+
+// ---- the click (upstream XrClickSound) -------------------------------------------
+// Started off the frame loop the first time the setting is on (it talks to
+// PulseAudio as it opens); audio/click.c plays it without blocking.
+
+static atomic_int g_clickState; // 0 not started, 1 starting, 2 ready, 3 failed
+static pthread_t g_clickThread;
+
+static void* clickOpen(void* arg) {
+    (void)arg;
+    char err[160] = "";
+    if (mlxr_click_init(NULL, err, sizeof(err)) == 0) {
+        atomic_store(&g_clickState, 2);
+        MLOG_I("click sound ready");
+    }
+    else {
+        atomic_store(&g_clickState, 3);
+        MLOG_W("click sound unavailable: %s", err);
+    }
+    return NULL;
+}
+
+static void clickPlay(void) {
+    if (atomic_load(&g_clickState) == 2) {
+        mlxr_click_play(MLXR_CLICK_PRESS);
+    }
+}
+
+static void clickStart(void) {
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&g_clickState, &expected, 1)) {
+        return;
+    }
+    xrClickPlayer = clickPlay;
+    if (pthread_create(&g_clickThread, NULL, clickOpen, NULL) != 0) {
+        atomic_store(&g_clickState, 3);
+    }
+}
+
+static void clickStop(void) {
+    int state = atomic_load(&g_clickState);
+    if (state == 0) {
+        return;
+    }
+    pthread_join(g_clickThread, NULL);
+    if (atomic_load(&g_clickState) == 2) {
+        mlxr_click_shutdown();
+    }
+    atomic_store(&g_clickState, 0);
+    xrClickPlayer = NULL;
 }
 
 // ---- run -------------------------------------------------------------------------
@@ -1158,11 +1228,16 @@ int xr_app_run(const XrAppConfig* cfg) {
     pi.device = vk.device;
     pi.nv12 = 1;
     pi.nv12Chroma = MLXR_CHROMA_LEFT;
+    // The room's atlas at a glancing angle (upstream's roomAnisotropy cap;
+    // xr_vk enables samplerAnisotropy)
+    pi.atlasAnisotropy = ROOM_ANISOTROPY_MAX;
     if (mlxr_passes_create(&pi, &passes) != 0) {
         LOGE("shader passes unavailable");
         passes = NULL;
         goto fail;
     }
+    ctx->passes = passes;
+    xrWorldFindAssets(ctx);
     {
         VkCommandBuffer cmd = frameBegin(ctx, &fr);
         mlxr_passes_prepare(passes, cmd);
@@ -1223,6 +1298,7 @@ int xr_app_run(const XrAppConfig* cfg) {
             ctx->videoShown = 0;
             AVFrame* stale = cfg->video ? frame_slot_take(cfg->video) : NULL;
             av_frame_free(&stale);
+            xrWorldVideoGone(ctx);
             LOGEV("video released (stream stopped)");
             pthread_mutex_lock(&g_reqLock);
             g_releaseDone = serial;
@@ -1249,6 +1325,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         // The last frame's GPU work is done: the atlas copy and the staging
         // buffers are free to write
         vkWaitForFences(vk.device, 1, &fr.fence, VK_TRUE, UINT64_MAX);
+        ctx->gpuDone = vd.value;
 
         // ---- input (nativeUpdateInput) and what it decided (dispatchInput)
         host.live = *cfg->settings;
@@ -1257,6 +1334,11 @@ int xr_app_run(const XrAppConfig* cfg) {
         XrUiEvents ev;
         memset(&ev, 0, sizeof(ev));
         dispatchInput(&host, &ev);
+        // M5: the click on a panel press (upstream XrRenderer.updateClickSound)
+        if (ctx->clickSoundOn) {
+            clickStart();
+        }
+        xrClickFrame(ctx, host.out);
         XrUiLauncher show;
         memset(&show, 0, sizeof(show));
         if (cfg->hooks.ui) cfg->hooks.ui(cfg->hooks.user, &ev, &show);
@@ -1289,6 +1371,11 @@ int xr_app_run(const XrAppConfig* cfg) {
             if (xrAtlasRecord(ctx, cmd, &atlasAcquired) < 0) {
                 LOGW("UI atlas upload skipped this frame");
             }
+            // M5: the room, the glow and the models record into the same
+            // buffer; everything up to vd.value has finished (the fence above)
+            ctx->frameCmd = cmd;
+            ctx->gpuSerial = vd.value + 1;
+            xrWorldFrameBegin(ctx);
         }
 
         // The hardware decoder of the stream, if one is up
@@ -1317,7 +1404,7 @@ int xr_app_run(const XrAppConfig* cfg) {
             }
         }
         uint32_t videoIdx = 0;
-        int videoAcquired = 0, swapAcquired = 0;
+        int videoAcquired = 0, swapAcquired = 0, heldSampled = 0;
         // Native: a curved picture goes through the app's own image and the
         // panel pass (no cylinder layers on SteamVR)
         int curvedNow = ctx->cylinderSupported && effectiveCurvature(ctx) > 0.01f && roomEffective(ctx) <= 0
@@ -1351,7 +1438,12 @@ int xr_app_run(const XrAppConfig* cfg) {
                         mv.height = hf.height;
                         mv.texWidth = hf.coded_width;
                         mv.texHeight = hf.coded_height;
+                        xrGpuTimeBegin(ctx, GPU_WARP);
                         recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, curvedNow ? &curve : NULL);
+                        xrGpuTimeEnd(ctx, GPU_WARP);
+                        // M5: the colour sample, the glow, the letterbox
+                        // detection, from the same frame
+                        xrWorldVideoFrame(ctx, &mv);
                         mlxr_vkimp_cmd_release(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                         hwNew = 1;
                     }
@@ -1378,47 +1470,78 @@ int xr_app_run(const XrAppConfig* cfg) {
                     mv.width = (uint32_t)f->width;
                     mv.height = (uint32_t)f->height;
                     mv.chroma = MLXR_CHROMA_LEFT;
+                    xrGpuTimeBegin(ctx, GPU_WARP);
                     recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, curvedNow ? &curve : NULL);
+                    xrGpuTimeEnd(ctx, GPU_WARP);
+                    xrWorldVideoFrame(ctx, &mv);
                 }
             }
         }
         av_frame_free(&f);
 
         // The grade or the sharpening moved on a picture standing still: the
-        // frame in hand is drawn again (upstream's warpRedraw)
-        if (!videoAcquired && fs.shouldRender && cmd && vd.swapchain && videoStale(ctx, &vd, curvedNow)
-                && (vd.heldValid || vd.swValid)) {
-            if (videoTarget(ctx, &vd, &curve, curvedNow, &videoIdx, &swapAcquired)) {
+        // frame in hand is drawn again (upstream's warpRedraw); the glow's
+        // switch or level moved: the glow is (upstream's redrawGlow)
+        int redrawPicture = !videoAcquired && vd.swapchain && videoStale(ctx, &vd, curvedNow);
+        int redrawGlowNow = !videoAcquired && ctx->ambiReady && glowStale(ctx) && ctx->videoShown;
+        if ((redrawPicture || redrawGlowNow) && fs.shouldRender && cmd && (vd.heldValid || vd.swValid)) {
+            MlxrVideo mv;
+            memset(&mv, 0, sizeof(mv));
+            const mlxr_vkimp_image* img = NULL;
+            int have = 0;
+            if (vd.heldValid) {
+                img = mlxr_vkimp_get(vd.imp, &vd.held);
+                VkImageView nv12 = img ? hwView(&vk, &vd, passes, img) : VK_NULL_HANDLE;
+                if (nv12) {
+                    mlxr_vkimp_cmd_acquire(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                    mv.kind = MLXR_VIDEO_NV12;
+                    mv.planes[0] = nv12;
+                    mv.width = vd.held.width;
+                    mv.height = vd.held.height;
+                    mv.texWidth = vd.held.coded_width;
+                    mv.texHeight = vd.held.coded_height;
+                    have = 1;
+                    heldSampled = 1;
+                }
+            }
+            else {
+                mv.kind = MLXR_VIDEO_YUV420P;
+                mv.planes[0] = vd.planes[0].view;
+                mv.planes[1] = vd.planes[1].view;
+                mv.planes[2] = vd.planes[2].view;
+                mv.width = (uint32_t)vd.planeW;
+                mv.height = (uint32_t)vd.planeH;
+                mv.chroma = MLXR_CHROMA_LEFT;
+                have = 1;
+            }
+            if (have && redrawPicture && videoTarget(ctx, &vd, &curve, curvedNow, &videoIdx, &swapAcquired)) {
                 videoAcquired = 1;
-                MlxrVideo mv;
-                memset(&mv, 0, sizeof(mv));
-                if (vd.heldValid) {
-                    const mlxr_vkimp_image* img = mlxr_vkimp_get(vd.imp, &vd.held);
-                    VkImageView nv12 = img ? hwView(&vk, &vd, passes, img) : VK_NULL_HANDLE;
-                    if (nv12) {
-                        mlxr_vkimp_cmd_acquire(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-                        mv.kind = MLXR_VIDEO_NV12;
-                        mv.planes[0] = nv12;
-                        mv.width = vd.held.width;
-                        mv.height = vd.held.height;
-                        mv.texWidth = vd.held.coded_width;
-                        mv.texHeight = vd.held.coded_height;
-                        recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, curvedNow ? &curve : NULL);
-                        mlxr_vkimp_cmd_release(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-                    }
-                }
-                else {
-                    mv.kind = MLXR_VIDEO_YUV420P;
-                    mv.planes[0] = vd.planes[0].view;
-                    mv.planes[1] = vd.planes[1].view;
-                    mv.planes[2] = vd.planes[2].view;
-                    mv.width = (uint32_t)vd.planeW;
-                    mv.height = (uint32_t)vd.planeH;
-                    mv.chroma = MLXR_CHROMA_LEFT;
-                    recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, curvedNow ? &curve : NULL);
-                }
+                xrGpuTimeBegin(ctx, GPU_WARP);
+                recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv, curvedNow ? &curve : NULL);
+                xrGpuTimeEnd(ctx, GPU_WARP);
                 LOGI("picture drawn again on a still frame (grade %s, sharpen %d)", ctx->gradeOn ? "on" : "off",
                      ctx->sharpenMode);
+            }
+            if (have && redrawGlowNow) {
+                xrWorldStillFrame(ctx, &mv);
+            }
+            if (img != NULL && have) {
+                mlxr_vkimp_cmd_release(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            }
+        }
+
+        // M5: where the controllers are this frame, before anything draws
+        // them; then the room (every display frame while one is up: SteamVR
+        // only turns a projection layer with the head between frames, so a
+        // room drawn only with new pictures would lag a moving head) and the
+        // models (every display frame, as upstream)
+        updateControllerModels(ctx);
+        if (fs.shouldRender && cmd) {
+            if (roomEffective(ctx) > 0 && !ctx->passthrough) {
+                renderRoom(ctx);
+            }
+            if (ctx->everRendered) {
+                renderControllerModels(ctx);
             }
         }
 
@@ -1431,17 +1554,25 @@ int xr_app_run(const XrAppConfig* cfg) {
             xrPictureView(ctx, &pp, &pw, &ph, &space);
             curveAcquired = curveRecord(ctx, &curve, passes, cmd, vd.format, space);
         }
+        // The flat glow's quad: its swapchain gets the newest glow
+        if (fs.shouldRender && cmd) {
+            xrWorldFlatGlow(ctx, curvedNow && ctx->launcher == LAUNCHER_NONE);
+        }
         if (fr.recording) {
             vkEndCommandBuffer(fr.cmd);
             fr.recording = 0;
             signal = ++vd.value;
+            // Uploads the room's loader recorded go first, in the same submission
+            VkCommandBuffer cmds[4];
+            int ncmd = xrWorldTakeUploads(ctx, cmds, 3);
+            cmds[ncmd++] = fr.cmd;
             VkTimelineSemaphoreSubmitInfo tsi = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
             tsi.signalSemaphoreValueCount = 1;
             tsi.pSignalSemaphoreValues = &signal;
             VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
             si.pNext = &tsi;
-            si.commandBufferCount = 1;
-            si.pCommandBuffers = &fr.cmd;
+            si.commandBufferCount = (uint32_t)ncmd;
+            si.pCommandBuffers = cmds;
             si.signalSemaphoreCount = 1;
             si.pSignalSemaphores = &vd.timeline;
             vkResetFences(vk.device, 1, &fr.fence);
@@ -1449,7 +1580,10 @@ int xr_app_run(const XrAppConfig* cfg) {
                 LOGE("vkQueueSubmit failed");
                 break;
             }
+            xrWorldSubmitted(ctx, signal);
         }
+        ctx->frameCmd = VK_NULL_HANDLE;
+        xrWorldReleaseImages(ctx);
         if (hwNew) {
             // The new frame is held for a redraw; the one it replaces goes back
             // once the last submission that sampled it is done
@@ -1458,7 +1592,7 @@ int xr_app_run(const XrAppConfig* cfg) {
             vd.heldValid = 1;
             vd.heldValue = signal;
         }
-        else if (videoAcquired && vd.heldValid) {
+        else if ((videoAcquired || heldSampled) && vd.heldValid) {
             vd.heldValue = signal;
         }
         if (atlasAcquired) xrAtlasRelease(ctx);
@@ -1517,10 +1651,15 @@ int xr_app_run(const XrAppConfig* cfg) {
             int panelDraws = 0;
             double panelMs = 0.0;
             xrPanelsStats(ctx, &panelDraws, &panelMs);
-            LOGEV("xr: %.1f fps (display %.0f Hz), video %.1f fps drawn, %u layers, swapchains %d, %d panel "
-                  "drawings %.1f ms avg; %s",
+            char gpu[256];
+            xrGpuTimesLine(ctx, gpu, sizeof(gpu));
+            LOGEV("xr: %.1f fps (display %.0f Hz), video %.1f fps drawn, %u layers, swapchains %d of 16, %d panel "
+                  "drawings %.1f ms avg; room %d%s, glow %s, models %s%s%s; %s",
                   framesWindow / (t - lastStats), xrGetDisplayRate(ctx), videoWindow / (t - lastStats), fout.count,
-                  ctx->swapchainsAlive, panelDraws, panelMs, extra);
+                  ctx->swapchainsAlive, panelDraws, panelMs, roomEffective(ctx),
+                  roomEffective(ctx) > 0 && xrRoomResident(ctx) != roomEffective(ctx) ? " (loading)" : "",
+                  xrWorldGlowShown(ctx) ? "up" : "off", ctx->modelsShowing ? "up" : "off", gpu[0] ? "; " : "", gpu,
+                  extra);
             framesWindow = videoWindow = 0;
             lastStats = t;
         }
@@ -1536,6 +1675,7 @@ fail:
     pthread_mutex_unlock(&g_reqLock);
     if (vk.device) {
         vkDeviceWaitIdle(vk.device);
+        xrWorldDestroy(ctx);
         hwDestroy(&vk, &vd);
         freeSwPlanes(&vk, &vd);
         freeVideoSwapchain(ctx, &vd);
@@ -1548,6 +1688,7 @@ fail:
         if (fr.fence) vkDestroyFence(vk.device, fr.fence, NULL);
         if (fr.pool) vkDestroyCommandPool(vk.device, fr.pool, NULL);
     }
+    clickStop();
     destroyXrInput(ctx);
     if (ctx->viewSpace) xrDestroySpace(ctx->viewSpace);
     if (ctx->localSpace) xrDestroySpace(ctx->localSpace);

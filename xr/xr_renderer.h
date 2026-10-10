@@ -8,9 +8,10 @@
 // only where the ported UI and input code reads them. Field names, comments
 // and the constants below are upstream's; differences are marked "native".
 //
-// Who uses it: xr_ui.c, xr_input.c, xr_layers.c, xr_display.c (ports),
-// xr_assets.c (the UI atlas), xr_panels.c (lane U's rasterisers), xr_later.c
-// (stand ins for the rooms, the glow and the models), xr_session.c (the host).
+// Who uses it: xr_ui.c, xr_input.c, xr_layers.c, xr_display.c, xr_room.c,
+// xr_model.c, xr_ambilight.c (ports), xr_assets.c (the UI atlas), xr_panels.c
+// (lane U's rasterisers), xr_world.c (the GPU side the room, the glow and the
+// models share), xr_session.c (the host).
 #ifndef XR_RENDERER_H
 #define XR_RENDERER_H
 
@@ -47,6 +48,7 @@
 #include "xr_controller.h"
 #include "xr_headaim.h"
 #include "xr_gamepad.h"
+#include "room_logic.h"
 
 #define TAG "moonlight-xr"
 
@@ -216,7 +218,7 @@ static inline int64_t nowNs(void) {
 #define HEAD_AIM_RECENTRE_HOLD_NS 100000000LL
 #define HEAD_AIM_COUNT_NS 10000000000L
 
-// The 3d room styles (rooms are M5; xr_later.c stands in until then)
+// The 3d room styles (the same in rooms/room_logic.h)
 #define ROOM_STYLE_THEATER 1
 #define ROOM_STYLE_GRAND_CINEMA 2
 #define ROOM_STYLE_SYNTHWAVE 3
@@ -249,6 +251,29 @@ static inline int64_t nowNs(void) {
 #define LAUNCHER_NONE 0
 #define LAUNCHER_PCS 1
 #define LAUNCHER_APPS 2
+
+// Native: an image the app owns (the ambilight's samples, the glow, the
+// shared depth), with the layout it was last left in
+typedef struct XrVkImage {
+    VkImage image;
+    VkDeviceMemory memory;
+    VkImageView view;
+    VkFormat format;
+    VkImageLayout layout;
+    int width, height;
+} XrVkImage;
+
+// Letterbox and pillarbox detection (upstream xr_renderer.h)
+#define AMBI_BAR_PERIOD 30
+#define AMBI_BAR_LUMA 0.09f
+#define AMBI_BAR_MAX 10
+#define AMBI_BAR_APPLY 4
+#define AMBI_BAR_RELEASE 2
+#define AMBI_EDGE_LEFT 0
+#define AMBI_EDGE_RIGHT 1
+#define AMBI_EDGE_BOTTOM 2
+#define AMBI_EDGE_TOP 3
+#define AMBI_EDGES 4
 
 struct XrUiAtlas;   // xr_assets.c
 struct XrPanels;    // xr_panels.c
@@ -299,7 +324,49 @@ typedef struct XrCtx {
     int seamInset;
     float convergence;
 
-    // Ambilight (later): the switch and level the Display tab writes
+    // Ambilight (xr_ambilight.c). The frame is sampled down to a tiny colour
+    // texture, which the glow behind the screen is then drawn from (native:
+    // Vulkan images and mlxr_pass_ambi / _glow_edge / _glow in place of the GL
+    // programs, see XrVkImage)
+    int ambiReady;
+    int ambiFailed;
+    XrVkImage ambiTexture;
+    // Whether there is anything in that texture yet, since the first frame has
+    // nothing to smooth against
+    int ambiSeeded;
+    float ambiSmooth;
+    // Letterbox detection: the detector's own target and its readback
+    // (native: a host visible buffer in place of the pixel buffer)
+    XrVkImage ambiDetectTexture;
+    VkBuffer ambiDetectBuffer;
+    VkDeviceMemory ambiDetectMemory;
+    void* ambiDetectMap;
+    int ambiDetectPending;
+    int ambiBarDetect;
+    int ambiBarCounter;
+    int ambiBarApplied[AMBI_EDGES];
+    int ambiBarGrowTicks[AMBI_EDGES];
+    int ambiBarGrowMin[AMBI_EDGES];
+    int ambiBarShrinkTicks[AMBI_EDGES];
+    int ambiBarShrinkMax[AMBI_EDGES];
+    // x0, y0, w, h in the sample's uv space, 0 0 1 1 for the whole frame
+    float ambiCrop[4];
+    XrVkImage glowEdgeTexture;
+    int glowNorm;
+    // Native: the glow is drawn into an image of the app's own (it is sampled
+    // again by the curved picture's pass, and a swapchain image cannot be once
+    // released); the flat glow's swapchain gets a copy of it
+    XrVkImage glowTexture;
+    XrSwapchain glowSwapchain;
+    uint32_t glowImageCount;
+    XrSwapchainImageVulkan2KHR* glowImages;
+    int glowFailed;
+    int glowCopied;     // the swapchain holds the newest glow
+    int glowSwapchainFilled; // and has had one released at all
+    int glowAcquired;   // an image is acquired this frame (released after the submit)
+    int glowRendered;
+    int glowDrawnOn;
+    float glowDrawnLevel;
     int ambilightOn;
     float ambiIntensity;
     int ambiOverride;
@@ -310,14 +377,53 @@ typedef struct XrCtx {
     int gradeOn;
     PictureGrade grade;
 
-    // Which room the picker is on: 0 none (rooms are M5)
+    // Which room the picker is on: 0 none, else one of the ROOM_STYLE_ values,
+    // with a debug override (native: MLXR_ROOM in the environment)
     int roomStyle;
     int roomOverride;
+    // What the scale and brightness properties asked for, or -1 while the
+    // params the style ships with own them (native: MLXR_ROOM_SCALE/_DIM)
+    float roomScaleOverride;
+    float roomDimOverride;
     int roomLightOn;
     int roomBrightness[ROOM_STYLE_LAST + 1];
     int roomGlow[ROOM_STYLE_LAST + 1];
     int roomLightLevel[ROOM_STYLE_LAST + 1];
     int roomScreen[ROOM_STYLE_LAST + 1];
+    // Everything the room is drawn with (xr_room.c). Native: the resident
+    // room is rooms/room_gpu's MlxrRoom, loaded off the frame loop
+    // (struct XrRoomLoader), in place of the GL buffers and textures.
+    XrSwapchain roomSwapchain;
+    uint32_t roomImageCount;
+    XrSwapchainImageVulkan2KHR* roomImages;
+    VkImageView* roomImageViews;
+    struct MlxrRoom* room;
+    struct XrRoomLoader* roomLoader;
+    float roomTexMix;
+    float roomDim;
+    int roomBuiltStyle;
+    int roomWantedStyle;
+    int roomAssetsSeen;
+    float roomWantedScale;
+    int roomEyeWidth;
+    int roomEyeHeight;
+    int roomReady;
+    int roomFailed;
+    int roomRendered;
+    int roomAcquired;
+    float roomSpillGain;
+    float roomFarZ;
+    float roomClear[3];
+    XrView roomViews[ROOM_EYES];
+    int roomViewsValid;
+    int roomPlacedStyle;
+    float roomPlacedWidth;
+    int maxEyeWidth;
+    int maxEyeHeight;
+    int envResTier;
+    // Native: one depth image the room's pass and the models' share (both
+    // clear it, one after the other in the frame's command buffer)
+    XrVkImage worldDepth;
     // A transparent projection layer under everything while passthrough is on:
     // SteamVR on the Steam Frame leaves the background opaque without one
     XrSwapchain passthroughSwapchain;
@@ -586,8 +692,26 @@ typedef struct XrCtx {
     int rumbleOn;
     long rumblePulses;
     int rumbleResultSaid[HAND_COUNT];
-    // The controller model (later): the Display tab's switch
+    // The controller models (xr_model.c), at each hand's grip in a projection
+    // layer of their own (native: rooms/room_gpu's MlxrModel, mlxr_pass_model)
     int modelOn;
+    int modelReady;
+    int modelLoadFailed;
+    struct MlxrModel* model;
+    int modelPassReady;
+    int modelPassFailed;
+    XrSwapchain modelSwapchain;
+    uint32_t modelImageCount;
+    XrSwapchainImageVulkan2KHR* modelImages;
+    VkImageView* modelImageViews;
+    int modelEyeWidth;
+    int modelEyeHeight;
+    int modelShown[HAND_COUNT];
+    XrPosef modelGrip[HAND_COUNT];
+    XrView modelViews[ROOM_EYES];
+    int modelRendered;
+    int modelAcquired;
+    int modelsSaid;
     int modelsShowing;
     XrAction gripAction;
     XrSpace gripSpaces[HAND_COUNT];
@@ -756,6 +880,18 @@ typedef struct XrCtx {
     // The fork's transparent passthrough projection layer's swapchain, made by
     // the host the first time passthrough goes on (xr_session.c)
     int (*ensurePassthrough)(struct XrCtx* ctx, int size);
+    // The GPU side of the room, the glow and the models (xr_world.c): the
+    // host's shader passes, the command buffer the frame is recording (NULL
+    // when nothing records), the serial its submission signals and the last
+    // one the GPU has finished, and where the rooms and the model are read from
+    struct MlxrPasses* passes;
+    VkCommandBuffer frameCmd;
+    uint64_t gpuSerial;
+    uint64_t gpuDone;
+    char assetsDir[512];
+    // What xr_world.c keeps: uploads in flight, rooms waiting for the GPU to
+    // be done with them, the GPU timestamps
+    struct XrWorld* world;
 } XrCtx;
 
 // xr_session.c: instance, session, swapchain and lifecycle
@@ -766,16 +902,33 @@ const char* xrResultName(XrResult res);
 void xrSetFileLog(const char* path, int level);
 void xrLogFlush(void);
 
-// xr_later.c: stand ins for the rooms (M5), the glow and the controller
-// models, answering "none" the way upstream does with them switched off
+// xr_room.c: the 3d rooms
 int roomEffective(XrCtx* ctx);
 int roomResizable(int style);
 void roomLevelsFromTable(XrCtx* ctx);
 int roomScreenPercent(XrCtx* ctx, int style);
 int roomGlowOn(XrCtx* ctx, int style);
 void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded);
+void worldEyeSize(XrCtx* ctx, int* outW, int* outH);
+void prepareRoom(XrCtx* ctx);
+void renderRoom(XrCtx* ctx);
+// Native names for upstream's nativeSetRoomLevels
+void xrSetRoomLevels(XrCtx* ctx, int cell, int brightness, int glow, int light, int screen);
+
+// xr_ambilight.c: the frame's colour sample, the letterbox detection, the glow
+struct MlxrVideo;
+int initAmbilight(XrCtx* ctx);
 void ambiEffective(XrCtx* ctx, int* on, float* level);
+void runAmbiBarDetect(XrCtx* ctx, const struct MlxrVideo* video);
+void finishAmbiBarDetect(XrCtx* ctx);
+void runFrameColorSample(XrCtx* ctx, const struct MlxrVideo* video);
+void runGlowRender(XrCtx* ctx);
+int glowStale(XrCtx* ctx);
+void redrawGlow(XrCtx* ctx, const struct MlxrVideo* video);
+
+// xr_model.c: the controller models
 void updateControllerModels(XrCtx* ctx);
+void renderControllerModels(XrCtx* ctx);
 
 // xr_input.c: actions, hands, the ray and the per frame input pass
 int initXrInput(XrCtx* ctx);
