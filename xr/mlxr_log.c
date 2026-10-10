@@ -8,7 +8,7 @@
 
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 
-void mlxr_log(char level, const char* fmt, ...) {
+void mlxr_logf(char level, const char* fmt, ...) {
     static struct timespec t0;
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
