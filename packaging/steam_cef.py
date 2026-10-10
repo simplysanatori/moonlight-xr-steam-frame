@@ -96,4 +96,7 @@ def evaluate(expr):
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         sys.exit(__doc__)
-    print(json.dumps(evaluate(sys.argv[1])))
+    try:
+        print(json.dumps(evaluate(sys.argv[1])))
+    except OSError as e:   # URLError, ConnectionError and socket errors
+        sys.exit(f"cannot reach Steam's CEF port {PORT}: {e}")
