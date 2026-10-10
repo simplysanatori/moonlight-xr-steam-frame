@@ -129,6 +129,10 @@ typedef struct XrDepthInfo {
     double ageFramesAvg;
     float stageWaitMsAvg;  // timeline wait in the stage thread
     float submitMsAvg;     // mlxr_depth_submit
+    // the engine's own (MlxrDepthStats), when it is ready
+    uint64_t maps, replaced;
+    float mapsPerSecond, modelMsAvg, modelMsP95, latencyMsAvg, loadMs, warmupMs;
+    int threads;
     VkImageView depthView[DEPTH_TEX_COUNT];
     VkImage depthImage[DEPTH_TEX_COUNT];
     VkImage upsampleImage, offsetImage, downscaleImage;

@@ -1107,6 +1107,19 @@ void xrDepthGetInfo(XrCtx* ctx, XrDepthInfo* info) {
         info->depthView[i] = d->tex[i].img.view;
         info->depthImage[i] = d->tex[i].img.image;
     }
+    if (d->state == MLXR_DEPTH_READY && d->engine != NULL) {
+        MlxrDepthStats st;
+        d->ops->stats(d->engine, &st);
+        info->maps = st.maps;
+        info->replaced = st.replaced;
+        info->mapsPerSecond = st.mapsPerSecond;
+        info->modelMsAvg = st.modelMsAvg;
+        info->modelMsP95 = st.modelMsP95;
+        info->latencyMsAvg = st.latencyMsAvg;
+        info->loadMs = st.loadMs;
+        info->warmupMs = st.warmupMs;
+        info->threads = st.threads;
+    }
     info->upsampleImage = d->upsample.image;
     info->offsetImage = d->offsets.image;
     info->downscaleImage = d->downscale.image;

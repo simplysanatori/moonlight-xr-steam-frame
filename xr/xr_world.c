@@ -332,8 +332,15 @@ static void timesCollect(XrCtx* ctx) {
     }
     if (w->written) {
         uint64_t ticks[2 * GPU_SECTIONS];
-        if (vkGetQueryPoolResults(ctx->vk->device, w->queries, 0, 2 * GPU_SECTIONS, sizeof(ticks), ticks,
-                                  sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+        memset(ticks, 0, sizeof(ticks));
+        // M6 fix: a section not drawn last frame leaves its reset queries
+        // unavailable, and the call says VK_NOT_READY for the lot; the ones
+        // that were written (w->written, the GPU being past that frame) are
+        // still filled in, so they count (before, only frames that ran every
+        // section had GPU times)
+        VkResult qr = vkGetQueryPoolResults(ctx->vk->device, w->queries, 0, 2 * GPU_SECTIONS, sizeof(ticks), ticks,
+                                            sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+        if (qr == VK_SUCCESS || qr == VK_NOT_READY) {
             // M6: what upstream's warp query window held (the depth passes,
             // the colour sample and glow, the warp) goes to the frame budget
             // as the GPU time, the room's as its own (rateBudgetGpu/Room)
