@@ -87,6 +87,10 @@ typedef struct {
 	uint32_t width_hint, height_hint; // stream size if known (default 1920x1080)
 	uint32_t capture_buffers;       // CAPTURE buffers to request (default 12)
 	uint32_t output_buffers;        // OUTPUT buffers to request (default 6)
+	// CAPTURE as Q08C (Qualcomm UBWC-compressed NV12, imported with
+	// DRM_FORMAT_MOD_QCOM_COMPRESSED) instead of linear NV12. Experimental:
+	// see video/REPORT.md for what was verified.
+	bool ubwc;
 	bool verbose;                   // log format negotiation to stderr
 } mlxr_vdec_config;
 
@@ -101,7 +105,7 @@ typedef struct {
 	uint32_t width, height;             // visible picture size
 	uint32_t coded_width, coded_height; // allocated size (image extent to import)
 	uint32_t drm_format;   // DRM_FORMAT_NV12
-	uint64_t drm_modifier; // DRM_FORMAT_MOD_LINEAR
+	uint64_t drm_modifier; // DRM_FORMAT_MOD_LINEAR or DRM_FORMAT_MOD_QCOM_COMPRESSED (ubwc)
 	uint32_t num_planes;   // memory planes (2: Y, CbCr)
 	int fd[MLXR_VDEC_MAX_PLANES];         // dma-buf per plane (same fd for both in NV12)
 	uint64_t inode[MLXR_VDEC_MAX_PLANES]; // fstat() st_ino of fd, import cache key
@@ -133,6 +137,10 @@ typedef struct mlxr_vdec mlxr_vdec;
 void mlxr_vdec_config_defaults(mlxr_vdec_config *cfg);
 int mlxr_vdec_open(const mlxr_vdec_config *cfg, mlxr_vdec **out);
 int mlxr_vdec_submit(mlxr_vdec *d, const void *au, uint32_t size, int64_t pts);
+// Same, for an AU that arrives in pieces (moonlight-common-c's decode unit
+// buffer list): the pieces are copied straight into the OUTPUT buffer.
+int mlxr_vdec_submit_parts(mlxr_vdec *d, const void *const *parts, const uint32_t *sizes, uint32_t count,
+			   int64_t pts);
 int mlxr_vdec_receive(mlxr_vdec *d, mlxr_vframe *frame, int timeout_ms);
 int mlxr_vdec_release(mlxr_vdec *d, const mlxr_vframe *frame);
 // Layout of every CAPTURE buffer of the current generation (picture fields

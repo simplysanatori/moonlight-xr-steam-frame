@@ -228,8 +228,23 @@ static int free_output_index(mlxr_vdec *d)
 
 int mlxr_vdec_submit(mlxr_vdec *d, const void *au, uint32_t size, int64_t pts)
 {
-	if (!d || !au || !size)
+	return mlxr_vdec_submit_parts(d, &au, &size, 1, pts);
+}
+
+int mlxr_vdec_submit_parts(mlxr_vdec *d, const void *const *parts, const uint32_t *sizes, uint32_t count,
+			   int64_t pts)
+{
+	if (!d || !parts || !sizes || !count)
 		return MLXR_VDEC_E_INVALID;
+	uint64_t total = 0;
+	for (uint32_t i = 0; i < count; i++) {
+		if (!parts[i] && sizes[i])
+			return MLXR_VDEC_E_INVALID;
+		total += sizes[i];
+	}
+	if (!total || total > UINT32_MAX)
+		return MLXR_VDEC_E_INVALID;
+	uint32_t size = (uint32_t)total;
 	pthread_mutex_lock(&d->out_mtx);
 	int ret = MLXR_VDEC_OK;
 	if (reclaim_output(d) < 0) {
@@ -258,7 +273,11 @@ int mlxr_vdec_submit(mlxr_vdec *d, const void *au, uint32_t size, int64_t pts)
 		ret = MLXR_VDEC_E_TOO_BIG;
 		goto out;
 	}
-	memcpy(ob->map, au, size);
+	uint8_t *dst = ob->map;
+	for (uint32_t i = 0; i < count; i++) {
+		memcpy(dst, parts[i], sizes[i]);
+		dst += sizes[i];
+	}
 
 	uint64_t seq = d->next_seq++;
 	uint64_t t = now_ns();
@@ -325,6 +344,24 @@ static void free_capture_fds(mlxr_vdec *d)
 		}
 		d->cap[i].state = CAP_FREE;
 	}
+}
+
+#define ALIGN_UP(x, a) (((x) + (a) - 1) / (a) * (a))
+#define DIV_UP(x, a) (((x) + (a) - 1) / (a))
+
+// Q08C (UBWC NV12) layout, as the Iris driver sizes it
+// (iris_yuv_buffer_size_qc08c): [Y meta][Y][UV meta][UV], each 4 KiB aligned.
+// Plane offsets point at each plane's metadata, which Turnip expects first.
+static void qc08c_layout(uint32_t w, uint32_t h, uint32_t *stride, uint32_t *uv_offset, uint32_t *size)
+{
+	uint32_t y_meta = ALIGN_UP(ALIGN_UP(DIV_UP(w, 32), 64) * ALIGN_UP(DIV_UP(h, 8), 16), 4096);
+	uint32_t y_stride = ALIGN_UP(w, 128);
+	uint32_t y_plane = ALIGN_UP(y_stride * ALIGN_UP(h, 32), 4096);
+	uint32_t uv_meta = ALIGN_UP(ALIGN_UP(DIV_UP(w / 2, 16), 64) * ALIGN_UP(DIV_UP(h / 2, 8), 16), 4096);
+	uint32_t uv_plane = ALIGN_UP(y_stride * ALIGN_UP(h / 2, 32), 4096);
+	*stride = y_stride;
+	*uv_offset = y_meta + y_plane;
+	*size = ALIGN_UP(y_meta + y_plane + uv_meta + uv_plane, 4096);
 }
 
 // Read the CAPTURE format the driver settled on after SOURCE_CHANGE.
@@ -395,10 +432,11 @@ static int setup_capture(mlxr_vdec *d)
 	int r = read_capture_format(d, &f, &vw, &vh);
 	if (r)
 		return r;
-	// Ask for linear NV12 explicitly (the driver's default today, but the
-	// list also has Q08C first).
-	if (f.fmt.pix_mp.pixelformat != V4L2_PIX_FMT_NV12) {
-		f.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12;
+	// Ask for the CAPTURE format explicitly: linear NV12 (the driver's
+	// default today) or Q08C.
+	uint32_t want = d->cfg.ubwc ? V4L2_PIX_FMT_QC08C : V4L2_PIX_FMT_NV12;
+	if (f.fmt.pix_mp.pixelformat != want) {
+		f.fmt.pix_mp.pixelformat = want;
 		if (XIOCTL(d->fd, VIDIOC_S_FMT, &f) < 0)
 			return MLXR_VDEC_E_IO;
 		r = read_capture_format(d, &f, &vw, &vh);
@@ -406,8 +444,8 @@ static int setup_capture(mlxr_vdec *d)
 			return r;
 	}
 	struct v4l2_pix_format_mplane *p = &f.fmt.pix_mp;
-	if (p->pixelformat != V4L2_PIX_FMT_NV12 || p->num_planes < 1 ||
-	    p->num_planes > MLXR_VDEC_MAX_PLANES) {
+	if (p->pixelformat != want || p->num_planes < 1 || p->num_planes > MLXR_VDEC_MAX_PLANES ||
+	    (want == V4L2_PIX_FMT_QC08C && p->num_planes != 1)) {
 		char b[5];
 		vlog("unexpected CAPTURE format %s with %u planes", fourcc_str(p->pixelformat, b),
 		     p->num_planes);
@@ -428,8 +466,16 @@ static int setup_capture(mlxr_vdec *d)
 	d->quantization = p->quantization;
 	// A coded height that cannot hold the picture would make the driver DMA
 	// past the end of the buffers (SteamOS #2869): refuse it.
-	if (d->coded_w < vw || d->coded_h < vh ||
-	    (p->num_planes == 1 && d->sizeimage[0] < d->bpl[0] * d->coded_h * 3 / 2)) {
+	uint32_t need = d->bpl[0] * d->coded_h * 3 / 2;
+	if (want == V4L2_PIX_FMT_QC08C) {
+		uint32_t stride, uvo;
+		qc08c_layout(d->coded_w, d->coded_h, &stride, &uvo, &need);
+		if (stride != d->bpl[0]) {
+			vlog("Q08C stride %u differs from the expected %u", d->bpl[0], stride);
+			return MLXR_VDEC_E_FATAL;
+		}
+	}
+	if (d->coded_w < vw || d->coded_h < vh || (p->num_planes == 1 && d->sizeimage[0] < need)) {
 		vlog("CAPTURE format %ux%u bpl %u size %u too small for %ux%u", d->coded_w,
 		     d->coded_h, d->bpl[0], d->sizeimage[0], vw, vh);
 		return MLXR_VDEC_E_FATAL;
@@ -483,9 +529,9 @@ static int setup_capture(mlxr_vdec *d)
 	if ((r = stream_capture(d, true)))
 		return r;
 	if (d->cfg.verbose) {
-		vlog("CAPTURE gen %u: NV12 %ux%u (visible %ux%u) planes %u bpl %u size %u, %u buffers, "
+		vlog("CAPTURE gen %u: %s %ux%u (visible %ux%u) planes %u bpl %u size %u, %u buffers, "
 		     "colorspace %u enc %u quant %u",
-		     d->generation, d->coded_w, d->coded_h, d->vis_w, d->vis_h, d->cap_planes, d->bpl[0],
+		     d->generation, d->cfg.ubwc ? "Q08C" : "NV12", d->coded_w, d->coded_h, d->vis_w, d->vis_h, d->cap_planes, d->bpl[0],
 		     d->sizeimage[0], d->n_cap, d->colorspace, d->ycbcr_enc, d->quantization);
 	}
 	return MLXR_VDEC_OK;
@@ -629,7 +675,18 @@ static void fill_layout(mlxr_vdec *d, uint32_t i, mlxr_vframe *f)
 	f->drm_format = DRM_FORMAT_NV12;
 	f->drm_modifier = DRM_FORMAT_MOD_LINEAR;
 	f->num_planes = 2;
-	if (d->cap_planes == 1) {
+	if (d->cap_fourcc == V4L2_PIX_FMT_QC08C) {
+		uint32_t stride, uvo, size;
+		qc08c_layout(d->coded_w, d->coded_h, &stride, &uvo, &size);
+		f->drm_modifier = DRM_FORMAT_MOD_QCOM_COMPRESSED;
+		f->fd[0] = f->fd[1] = cb->fd[0];
+		f->inode[0] = f->inode[1] = cb->inode[0];
+		f->offset[0] = 0;
+		f->pitch[0] = stride;
+		f->offset[1] = uvo;
+		f->pitch[1] = stride;
+		f->object_size = cb->length[0];
+	} else if (d->cap_planes == 1) {
 		// NV12 in one buffer: CbCr follows the Y plane at bpl * coded height.
 		f->fd[0] = f->fd[1] = cb->fd[0];
 		f->inode[0] = f->inode[1] = cb->inode[0];
@@ -803,8 +860,10 @@ int mlxr_vdec_release(mlxr_vdec *d, const mlxr_vframe *f)
 		goto out;
 	}
 	d->cap[f->index].state = CAP_FREE;
-	// While draining for a change or stopped, keep it; it is queued on restart.
-	if (d->cap_streaming && !d->change_ready && !d->change_pending) {
+	// Requeue even while draining for a SOURCE_CHANGE: the driver needs a
+	// free CAPTURE buffer to return the LAST marker in. Once drained (or
+	// stopped) keep it; it is queued again on restart.
+	if (d->cap_streaming && !d->change_ready) {
 		r = queue_capture(d, f->index);
 		if (r) {
 			pthread_mutex_lock(&d->stats_mtx);

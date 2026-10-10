@@ -24,7 +24,12 @@
 //     --expect-source-changes N  fail unless N SOURCE_CHANGE events were handled
 //     --max-p99-ms X         fail if submit->dequeue p99 exceeds X ms
 //     --capture-buffers N    CAPTURE buffers to request (default 12)
+//     --trace-slow MS        print every frame slower than MS with timing details
 //     --progress S           print running stats every S seconds (default 10)
+//     --q08c                 decode to Q08C (UBWC) and import with the QCOM modifier
+//     --reset-after N        lockstep: after frame N, mlxr_vdec_reset() and restart
+//                            feeding at AU 0 (the IDR), like an IDR recovery
+//     --drop-au N            never submit AU N (simulates a lost frame)
 //     --probe-modifiers      list Turnip's DRM modifiers for NV12 and exit
 //     -v                     verbose decoder/import logs
 // Exit status 0 = all checks passed.
@@ -325,6 +330,7 @@ typedef struct {
 	VkPipeline pipe;
 	VkDescriptorPool dpool;
 	VkShaderModule shader;
+	float ts_period;     // ns per timestamp tick
 } vk_t;
 
 typedef struct {
@@ -337,6 +343,8 @@ typedef struct {
 	VkBuffer rb;
 	VkDeviceMemory rb_mem;
 	void *rb_map;
+	VkQueryPool qp;      // 2 timestamps around the conversion dispatch
+	bool qp_valid;
 	uint64_t value;      // timeline value of the last submission
 	bool readback;       // this submission copies to rb
 	int64_t pts;
@@ -429,6 +437,9 @@ static void vk_init(vk_t *vk, bool probe_only)
 					 .codeSize = sizeof(k_comp_spv),
 					 .pCode = k_comp_spv };
 	VKCHECK(vkCreateShaderModule(vk->dev, &smi, NULL, &vk->shader));
+	VkPhysicalDeviceProperties pp;
+	vkGetPhysicalDeviceProperties(vk->phys, &pp);
+	vk->ts_period = qp[vk->qf].timestampValidBits ? pp.limits.timestampPeriod : 0.0f;
 }
 
 static void destroy_pipeline(vk_t *vk)
@@ -585,10 +596,14 @@ typedef struct {
 	long expect_frames;
 	long expect_source_changes;
 	double max_p99;
+	double trace_slow;
 	uint32_t capture_buffers;
 	double progress;
 	bool verbose;
 	bool probe;
+	bool q08c;
+	long reset_after;
+	long drop_au;
 } opts_t;
 
 typedef struct {
@@ -618,6 +633,10 @@ static void *feeder_main(void *arg)
 				goto out;
 			clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, NULL);
 			const au_t *a = &f->s->aus[i];
+			if ((long)i == o->drop_au) {
+				pts++;
+				goto next;
+			}
 			int r = mlxr_vdec_submit(f->dec, f->s->data + a->off, a->size, pts++);
 			if (r < 0) {
 				// A real session would call LiRequestIdrFrame() here.
@@ -626,6 +645,7 @@ static void *feeder_main(void *arg)
 			} else {
 				atomic_fetch_add(&f->submitted, 1);
 			}
+		next:
 			next.tv_nsec += (long)period;
 			while (next.tv_nsec >= 1000000000L) {
 				next.tv_nsec -= 1000000000L;
@@ -661,7 +681,7 @@ static void usage(void)
 
 int main(int argc, char **argv)
 {
-	opts_t o = { .fps = 60, .loops = 1, .check_frame = -1, .expect_frames = -1, .expect_source_changes = -1,
+	opts_t o = { .reset_after = -1, .drop_au = -1, .fps = 60, .loops = 1, .check_frame = -1, .expect_frames = -1, .expect_source_changes = -1,
 		     .capture_buffers = 12, .progress = 10, .codec = (mlxr_codec)-1 };
 	for (int i = 1; i < argc; i++) {
 		const char *a = argv[i];
@@ -679,9 +699,13 @@ int main(int argc, char **argv)
 		else if (!strcmp(a, "--expect-frames")) o.expect_frames = atol(ARG());
 		else if (!strcmp(a, "--expect-source-changes")) o.expect_source_changes = atol(ARG());
 		else if (!strcmp(a, "--max-p99-ms")) o.max_p99 = atof(ARG());
+		else if (!strcmp(a, "--trace-slow")) o.trace_slow = atof(ARG());
 		else if (!strcmp(a, "--capture-buffers")) o.capture_buffers = (uint32_t)atoi(ARG());
 		else if (!strcmp(a, "--progress")) o.progress = atof(ARG());
 		else if (!strcmp(a, "--probe-modifiers")) o.probe = true;
+		else if (!strcmp(a, "--q08c")) o.q08c = true;
+		else if (!strcmp(a, "--reset-after")) o.reset_after = atol(ARG());
+		else if (!strcmp(a, "--drop-au")) o.drop_au = atol(ARG());
 		else if (!strcmp(a, "-v")) o.verbose = true;
 		else if (a[0] == '-') usage();
 		else o.path = a;
@@ -729,6 +753,7 @@ int main(int argc, char **argv)
 	dc.codec = o.codec;
 	dc.capture_buffers = o.capture_buffers;
 	dc.verbose = o.verbose;
+	dc.ubwc = o.q08c;
 	mlxr_vdec *dec;
 	int r = mlxr_vdec_open(&dc, &dec);
 	if (r) {
@@ -756,7 +781,12 @@ int main(int argc, char **argv)
 						    .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
 						    .commandBufferCount = 1 };
 		VKCHECK(vkAllocateCommandBuffers(vk.dev, &cai, &slots[i].cmd));
+		VkQueryPoolCreateInfo qci = { .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+					      .queryType = VK_QUERY_TYPE_TIMESTAMP,
+					      .queryCount = 2 };
+		VKCHECK(vkCreateQueryPool(vk.dev, &qci, NULL, &slots[i].qp));
 	}
+	samples_t gpu = { 0 };
 
 	feeder_t fd = { .o = &o, .s = &s, .dec = dec };
 	pthread_t feeder;
@@ -772,7 +802,9 @@ int main(int argc, char **argv)
 	bool have_held = false, check_done = false, check_ok = true;
 	mlxr_vframe held;           // the frame "on screen" (kept until replaced)
 	uint64_t held_value = 0;
+	double last_gpu_wait_ms = 0;
 	uint32_t lock_i = 0;
+	bool did_reset = false;
 	int64_t lock_pts = 0;
 	uint64_t total_target = lockstep ? (uint64_t)s.n_aus * (uint64_t)(o.loops > 0 ? o.loops : 1) : 0;
 
@@ -781,6 +813,19 @@ int main(int argc, char **argv)
 			if (fd.submitted >= total_target && frames + decode_errors >= fd.submitted)
 				break;
 			if (frames + decode_errors >= fd.submitted && fd.submitted < total_target) {
+				if (o.reset_after >= 0 && !did_reset && frames == (uint64_t)o.reset_after + 1) {
+					did_reset = true;
+					int rr = mlxr_vdec_reset(dec);
+					printf("reset after frame %ld: %s; restarting at AU 0\n", o.reset_after,
+					       mlxr_vdec_status_str(rr));
+					lock_i = 0;
+				}
+				if ((long)lock_i == o.drop_au) {
+					lock_i = (lock_i + 1) % s.n_aus;
+					lock_pts++;
+					total_target--;
+					continue;
+				}
 				const au_t *a = &s.aus[lock_i];
 				int sr = mlxr_vdec_submit(dec, s.data + a->off, a->size, lock_pts++);
 				if (sr < 0) {
@@ -846,9 +891,18 @@ int main(int argc, char **argv)
 			continue;
 		}
 		frames++;
-		t_last_frame = f.t_dequeue_ns;
 		if (f.t_submit_ns)
 			push(&lat, (double)(f.t_dequeue_ns - f.t_submit_ns) / 1e6);
+		if (o.trace_slow > 0 && f.t_submit_ns && (f.t_dequeue_ns - f.t_submit_ns) / 1e6 > o.trace_slow) {
+			mlxr_vdec_stats ts;
+			mlxr_vdec_get_stats(dec, &ts);
+			printf("slow frame %llu (pts %lld, AU %lld): %.2f ms; %.2f ms since previous dequeue; "
+			       "last GPU slot wait %.2f ms; AUs submitted %llu\n",
+			       (unsigned long long)frames - 1, (long long)f.pts, (long long)(f.pts % s.n_aus),
+			       (f.t_dequeue_ns - f.t_submit_ns) / 1e6, (f.t_dequeue_ns - t_last_frame) / 1e6,
+			       last_gpu_wait_ms, (unsigned long long)ts.aus_submitted);
+		}
+		t_last_frame = f.t_dequeue_ns;
 
 		if (f.generation != mlxr_vkimp_generation(imp)) {
 			// New CAPTURE set: import every buffer once, now.
@@ -868,7 +922,16 @@ int main(int argc, char **argv)
 		VkSampler smp = mlxr_vkimp_sampler(imp, &serial);
 		slot_t *sl = &slots[slot_i];
 		slot_i = (slot_i + 1) % SLOTS;
+		uint64_t tw = now_ns();
 		wait_value(&vk, sl->value); // slot free again
+		last_gpu_wait_ms = (now_ns() - tw) / 1e6;
+		if (sl->qp_valid && vk.ts_period > 0) {
+			uint64_t ts[2];
+			if (vkGetQueryPoolResults(vk.dev, sl->qp, 0, 2, sizeof(ts), ts, sizeof(uint64_t),
+						  VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
+				push(&gpu, (double)(ts[1] - ts[0]) * vk.ts_period / 1e6);
+			sl->qp_valid = false;
+		}
 		if (serial != vk.sampler_serial) {
 			vkQueueWaitIdle(vk.queue);
 			build_pipeline(&vk, smp, serial, slots);
@@ -898,6 +961,8 @@ int main(int argc, char **argv)
 		VkCommandBufferBeginInfo bi = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 						.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
 		VKCHECK(vkBeginCommandBuffer(cmd, &bi));
+		vkCmdResetQueryPool(cmd, sl->qp, 0, 2);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, sl->qp, 0);
 		mlxr_vkimp_cmd_acquire(imp, cmd, img, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 		VkImageMemoryBarrier ob = { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 					    .srcAccessMask = 0,
@@ -919,6 +984,8 @@ int main(int argc, char **argv)
 		vkCmdPushConstants(cmd, vk.pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 		vkCmdDispatch(cmd, (f.width + 15) / 16, (f.height + 15) / 16, 1);
 		mlxr_vkimp_cmd_release(imp, cmd, img, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, sl->qp, 1);
+		sl->qp_valid = true;
 		if (sl->readback) {
 			ob.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
 			ob.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
@@ -1004,6 +1071,7 @@ int main(int argc, char **argv)
 	print_lat("decode latency submit->dequeue, all frames", &lat, 0, NULL);
 	// Steady state: skip the start-up backlog (AUs queued before CAPTURE existed).
 	print_lat("decode latency submit->dequeue, steady (frame 30+)", &lat, lat.n > 30 ? 30 : lat.n, &p99);
+	print_lat("GPU NV12->RGBA compute pass (sampling the import)", &gpu, 0, NULL);
 	printf("AUs in flight max %u%s\n", ds.in_flight_max,
 	       lockstep ? (lockstep_stalls ? " (lockstep STALLED)" : " (lockstep: 1 AU in -> 1 frame out)") : "");
 	printf("CAPTURE allocations %llu, CAPTURE buffers %llu, EXPBUF %llu, Vulkan imports %llu, import failures %llu\n",
@@ -1044,8 +1112,11 @@ int main(int argc, char **argv)
 	vkDeviceWaitIdle(vk.dev);
 	mlxr_vkimp_destroy(imp);
 	mlxr_vdec_close(dec);
-	for (int i = 0; i < SLOTS; i++)
+	for (int i = 0; i < SLOTS; i++) {
 		slot_free_images(&vk, &slots[i]);
+		vkDestroyQueryPool(vk.dev, slots[i].qp, NULL);
+	}
+	free(gpu.v);
 	destroy_pipeline(&vk);
 	vkDestroyShaderModule(vk.dev, vk.shader, NULL);
 	vkDestroySemaphore(vk.dev, vk.timeline, NULL);

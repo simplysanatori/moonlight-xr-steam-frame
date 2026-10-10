@@ -66,6 +66,7 @@ struct mlxr_vkimp {
 	uint64_t conv_key;     // colour description the conversion was built for
 	VkFormatFeatureFlags mod_features;
 	uint32_t mod_planes;
+	uint64_t mod_modifier;
 	bool mod_checked;
 	mlxr_vkimp_stats st;
 };
@@ -224,9 +225,12 @@ static void colour_for_frame(const mlxr_vkimp *imp, const mlxr_vframe *f,
 
 static bool check_modifier(mlxr_vkimp *imp, uint64_t modifier)
 {
-	if (imp->mod_checked)
+	if (imp->mod_checked && imp->mod_modifier == modifier)
 		return imp->mod_planes != 0;
 	imp->mod_checked = true;
+	imp->mod_modifier = modifier;
+	imp->mod_planes = 0;
+	imp->mod_features = 0;
 	VkDrmFormatModifierPropertiesEXT props[64];
 	uint32_t n = query_modifiers(imp->cfg.phys, props, 64);
 	for (uint32_t i = 0; i < n; i++) {

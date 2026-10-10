@@ -1,0 +1,9 @@
+h264_v4l2m2m: 0xffff946d48d8 caps=0x60020
+  pix_fmts: (null)
+  hw_configs: count=0
+  priv opts: num_output_buffers num_capture_buffers
+hevc_v4l2m2m: 0xffff946d4518 caps=0x60020
+  pix_fmts: (null)
+  hw_configs: count=0
+  priv opts: num_output_buffers num_capture_buffers
+avcodec n7.0
