@@ -1,0 +1,19 @@
+// Moonlight XR Native - test pass: sample an imported NV12 image through its
+// immutable YCbCr sampler and write RGBA8.
+// Copyright (C) 2026 Moonlight XR Native contributors. GPLv3, see LICENSE.txt.
+#version 450
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(set = 0, binding = 0) uniform sampler2D src;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D dst;
+layout(push_constant) uniform PC {
+	vec2 uv_scale;   // visible / coded
+	ivec2 size;      // output (= visible) size
+} pc;
+void main()
+{
+	ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+	if (p.x >= pc.size.x || p.y >= pc.size.y)
+		return;
+	vec2 uv = (vec2(p) + 0.5) / vec2(pc.size) * pc.uv_scale;
+	imageStore(dst, p, vec4(texture(src, uv).rgb, 1.0));
+}
