@@ -1718,6 +1718,190 @@ static void testPanel(void) {
     vkh_image_free(&vk, &tex);
 }
 
+// ---- bench (not a ctest): GPU time of each pass at stream sizes ----------
+
+static int cmpf(const void* a, const void* b) {
+    float x = *(const float*)a, y = *(const float*)b;
+    return x < y ? -1 : x > y;
+}
+
+typedef void (*RecordFn)(VkCommandBuffer cmd, void* user);
+
+// Median GPU milliseconds of `rec` over n submissions
+static float timeIt(RecordFn rec, void* user, int n) {
+    VkQueryPoolCreateInfo qi = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+    qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    qi.queryCount = 2;
+    VkQueryPool pool;
+    vkCreateQueryPool(vk.device, &qi, NULL, &pool);
+    float ms[64];
+    if (n > 64) n = 64;
+    for (int i = 0; i < n; i++) {
+        VkCommandBuffer cmd = vkh_begin(&vk);
+        vkCmdResetQueryPool(cmd, pool, 0, 2);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, pool, 0);
+        rec(cmd, user);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, pool, 1);
+        vkh_submit(&vk);
+        uint64_t ts[2];
+        vkGetQueryPoolResults(vk.device, pool, 0, 2, sizeof(ts), ts, sizeof(uint64_t),
+                              VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+        ms[i] = (float)((ts[1] - ts[0]) * vk.props.limits.timestampPeriod / 1e6);
+    }
+    vkDestroyQueryPool(vk.device, pool, NULL);
+    qsort(ms, (size_t)n, sizeof(float), cmpf);
+    return ms[n / 2];
+}
+
+typedef struct {
+    Video* vd;
+    int nv12;
+    Target *eye, *up, *off, *ambi, *glowEdge, *glow, *small, *down;
+    VkhImage* map;
+    int occlusion, sharpen, cubic, eyes;
+} Bench;
+
+static MlxrVideo benchVideo(Bench* b) {
+    return b->nv12 ? b->vd->nv : b->vd->yuv;
+}
+
+static void recWarp(VkCommandBuffer cmd, void* u) {
+    Bench* b = u;
+    MlxrVideo v = benchVideo(b);
+    MlxrWarpParams w = warpDefaults(&v);
+    w.depth = b->up->img.view;
+    w.offsets = b->off->img.view;
+    w.dispTexels = 0.05f * (v.width / 4);
+    w.occlusion = b->occlusion;
+    w.depthCubic = b->cubic;
+    w.sharpen = b->sharpen ? 0.5f : 0.0f;
+    w.gradeOn = 1;
+    PictureGrade g;
+    gradeOf(10, 110, 90, 110, &g);
+    memcpy(w.grade, &g, sizeof(w.grade));
+    for (int e = 0; e < b->eyes; e++) {
+        w.eye = e;
+        w.disparity = b->eyes == 2 ? (e ? -0.05f : 0.05f) : 0.0f;
+        MlxrTarget t = b->eye->t;
+        t.rect = (VkRect2D){{(int32_t)(e * v.width), 0}, {v.width, v.height}};
+        mlxr_pass_warp(P, cmd, &t, &w);
+    }
+}
+
+static void recUpsample(VkCommandBuffer cmd, void* u) {
+    Bench* b = u;
+    MlxrUpsampleParams up = {benchVideo(b), b->map->view, b->map->width, b->map->height, 0.1f, 1.0f};
+    mlxr_pass_upsample(P, cmd, &b->up->t, &up);
+}
+
+static void recOffset(VkCommandBuffer cmd, void* u) {
+    Bench* b = u;
+    MlxrOffsetParams op = {b->up->img.view, 0.05f * b->up->img.width, 0.5f};
+    mlxr_pass_offset(P, cmd, &b->off->t, &op);
+}
+
+static void recDownscale(VkCommandBuffer cmd, void* u) {
+    Bench* b = u;
+    MlxrVideo v = benchVideo(b);
+    mlxr_pass_downscale(P, cmd, &b->down->t, &v);
+}
+
+static void recAmbiGlow(VkCommandBuffer cmd, void* u) {
+    Bench* b = u;
+    MlxrAmbiParams ap = {benchVideo(b), {0, 0, 1, 1}, 1, {0, 1, 1, 1}, 1.0f};
+    mlxr_pass_ambi(P, cmd, &b->ambi->t, &ap);
+    mlxr_barrier(cmd, b->ambi->img.image, VK_IMAGE_ASPECT_COLOR_BIT, COLOR_ATT, SHADER_READ);
+    MlxrGlowEdgeParams ge = {b->ambi->img.view, {GLOW_LUMA_TARGET, GLOW_LUMA_FLOOR, GLOW_LUMA_FULL},
+                             {GLOW_LIT_LO, GLOW_LIT_HI}, glowReachTexels(), glowInwardSteps()};
+    mlxr_pass_glow_edge(P, cmd, &b->glowEdge->t, &ge);
+    mlxr_barrier(cmd, b->glowEdge->img.image, VK_IMAGE_ASPECT_COLOR_BIT, COLOR_ATT, SHADER_READ);
+    MlxrGlowParams gp = {b->glowEdge->img.view, 0.7f, 1};
+    mlxr_pass_glow(P, cmd, &b->glow->t, &gp);
+    mlxr_barrier(cmd, b->ambi->img.image, VK_IMAGE_ASPECT_COLOR_BIT, SHADER_READ, COLOR_ATT);
+    mlxr_barrier(cmd, b->glowEdge->img.image, VK_IMAGE_ASPECT_COLOR_BIT, SHADER_READ, COLOR_ATT);
+}
+
+static void recSupersample(VkCommandBuffer cmd, void* u) {
+    Bench* b = u;
+    MlxrSupersampleParams sp = {b->eye->img.view, {0, 0, 0.5f, 1}, 4};
+    mlxr_pass_supersample(P, cmd, &b->small->t, &sp);
+}
+
+static void testBench(void) {
+    const uint32_t sizes[2][2] = {{1920, 1080}, {3840, 2160}};
+    for (int s = 0; s < 2; s++) {
+        uint32_t W = sizes[s][0], H = sizes[s][1];
+        Video vd;
+        if (videoMake(&vd, W, H, fillSmooth)) return;
+        Target eye, up, off, ambi, glowEdge, glow, small, down;
+        VkhImage map;
+        uint8_t* mpx = depthMap(&vd, 512, 288, depthWobble);
+        textureMake(&map, 512, 288, mpx);
+        free(mpx);
+        targetMake(&eye, 2 * W, H, SRGB);
+        targetMake(&up, W / 4, H / 4, UNORM);
+        targetMake(&off, W / 4, H / 4, UNORM);
+        targetMake(&ambi, 32, 32, UNORM);
+        targetMake(&glowEdge, 32, 32, UNORM);
+        targetMake(&glow, MLXR_GLOW_TEX, MLXR_GLOW_TEX, SRGB);
+        targetMake(&small, W * 2 / 3, H * 2 / 3, SRGB);
+        targetMake(&down, 512, 288, UNORM);
+        Target* all[] = {&eye, &up, &off, &ambi, &glowEdge, &glow, &small, &down};
+        VkCommandBuffer cmd = vkh_begin(&vk);
+        for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) vkh_layout(&vk, &all[i]->img, COLOR_ATT);
+        vkh_submit(&vk);
+        Bench b = {&vd, 0, &eye, &up, &off, &ambi, &glowEdge, &glow, &small, &down, &map, 0, 0, 0, 1};
+        // The depth chain's outputs are sampled by the warp: run it once and
+        // leave them readable
+        cmd = vkh_begin(&vk);
+        recUpsample(cmd, &b);
+        vkh_layout(&vk, &up.img, SHADER_READ);
+        recOffset(cmd, &b);
+        vkh_layout(&vk, &off.img, SHADER_READ);
+        vkh_submit(&vk);
+        // Clocks ramp up under load: a second of throwaway work first
+        b.eyes = 2, b.occlusion = 1;
+        for (int i = 0; i < 8; i++) timeIt(recWarp, &b, 21);
+        for (int nv = 0; nv < 2; nv++) {
+            if (nv && !nv12Ok) break;
+            b.nv12 = nv;
+            const char* k = nv ? "nv12" : "yuv420p";
+            b.eyes = 1, b.occlusion = 0, b.sharpen = 0, b.cubic = 0;
+            note("%ux%u %s warp mono (colour pass, graded): %.3f ms", W, H, k, timeIt(recWarp, &b, 21));
+            b.sharpen = 1;
+            note("%ux%u %s warp mono + sharpen: %.3f ms", W, H, k, timeIt(recWarp, &b, 21));
+            b.eyes = 2, b.sharpen = 0, b.occlusion = 1;
+            note("%ux%u %s warp stereo occlusion (both eyes): %.3f ms", W, H, k, timeIt(recWarp, &b, 21));
+            b.cubic = 1;
+            note("%ux%u %s warp stereo occlusion + cubic depth: %.3f ms", W, H, k, timeIt(recWarp, &b, 21));
+            b.cubic = 0;
+            // Upsample writes what the warp reads: give it its own layout
+            cmd = vkh_begin(&vk);
+            vkh_layout(&vk, &up.img, COLOR_ATT);
+            vkh_submit(&vk);
+            note("%ux%u %s upsample to %ux%u: %.3f ms", W, H, k, W / 4, H / 4, timeIt(recUpsample, &b, 21));
+            cmd = vkh_begin(&vk);
+            vkh_layout(&vk, &up.img, SHADER_READ);
+            vkh_submit(&vk);
+            note("%ux%u %s downscale to 512x288: %.3f ms", W, H, k, timeIt(recDownscale, &b, 21));
+            note("%ux%u %s ambi + glow edge + glow: %.3f ms", W, H, k, timeIt(recAmbiGlow, &b, 21));
+        }
+        cmd = vkh_begin(&vk);
+        vkh_layout(&vk, &off.img, COLOR_ATT);
+        vkh_submit(&vk);
+        note("%ux%u offset search at %ux%u: %.3f ms", W, H, W / 4, H / 4, timeIt(recOffset, &b, 21));
+        cmd = vkh_begin(&vk);
+        vkh_layout(&vk, &eye.img, SHADER_READ);
+        vkh_submit(&vk);
+        note("%ux%u supersample one eye to %ux%u, 4 taps: %.3f ms", W, H, W * 2 / 3, H * 2 / 3,
+             timeIt(recSupersample, &b, 21));
+        for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) targetFree(all[i]);
+        vkh_image_free(&vk, &map);
+        videoFree(&vd);
+    }
+    check(1, "bench ran");
+}
+
 int main(int argc, char** argv) {
     const char* group = argc > 1 ? argv[1] : "all";
     if (argc > 2) outDir = argv[2];
@@ -1757,10 +1941,12 @@ int main(int argc, char** argv) {
                  {"room", testRoom},
                  {"model", testModel},
                  {"supersample", testSupersample},
-                 {"panel", testPanel}};
+                 {"panel", testPanel},
+                 {"bench", testBench}};
     int ran = 0;
     for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
-        if (strcmp(group, "all") && strcmp(group, tests[i].name)) continue;
+        // The bench only runs when asked for by name
+        if (strcmp(group, tests[i].name) && (strcmp(group, "all") || !strcmp(tests[i].name, "bench"))) continue;
         int c0 = checks, f0 = failed;
         printf("%s\n", tests[i].name);
         tests[i].fn();
