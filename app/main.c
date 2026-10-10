@@ -276,7 +276,7 @@ int main(int argc, char** argv) {
     job.host = (StreamHost){si.address, si.serverInfoAppVersion, si.serverInfoGfeVersion, si.rtspSessionUrl,
                             si.serverCodecModeSupport};
     mlxr_fill_stream_config(&job.cfg, &lp);
-    if (!bitrate) bitrate = lp.width * lp.height >= 2560 * 1440 ? 50000 : 20000; // 80 Mbps lost packets on Wi-Fi (M2 run)
+    if (!bitrate) bitrate = lp.width * lp.height >= 2560 * 1440 ? 80000 : 20000; // owner: 1440p needs ~80 Mbps
     job.cfg.bitrate = bitrate;
     job.cfg.packetSize = 1392;
     job.cfg.streamingRemotely = STREAM_CFG_AUTO;
