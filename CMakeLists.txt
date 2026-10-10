@@ -22,6 +22,8 @@ set(PRESENTATION_BACKEND wayland CACHE STRING "" FORCE)
 add_subdirectory(third_party/OpenXR-SDK EXCLUDE_FROM_ALL)
 find_package(Vulkan REQUIRED)
 find_program(GLSLC glslc REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(AV REQUIRED IMPORTED_TARGET libavcodec libavformat libavutil libswscale)
 
 # glsl_to_c(<target> <out_var> <shader files...>): compile each shader to a
 # C initializer list (<name>.inc) in the build tree.
@@ -56,7 +58,7 @@ add_subdirectory(third_party/moonlight-common-c EXCLUDE_FROM_ALL)
 enable_testing()
 
 # Lanes are added here by the orchestrator when their milestone starts.
-foreach(lane backend video audio ui input rooms depth shaders xr stream)
+foreach(lane backend video audio ui input rooms depth shaders xr stream app)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${lane}/CMakeLists.txt)
     add_subdirectory(${lane})
   endif()
