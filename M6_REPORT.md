@@ -149,7 +149,7 @@ If a runtime offered fewer layers, M5's drop order applies: the toast first, the
 
 ## Headset test script (owner)
 
-1. Launch from Steam and start Desktop or a video. The bar now has a **3D** button (struck through: off).
+1. Launch from Steam and start Desktop or a video. The bar now has a **3D** button. Since 2026-10-10 the 3D starts on (the owner's choice); turn it off with the button, then follow step 2.
 2. Play a video with depth (a film, a game with a floor and characters). Press **3D**. Expect:
    - a "3D on" toast, and the picture flat for a moment while the model loads (well under a second)
    - then depth: near things in front of the screen, the background behind it
@@ -161,7 +161,7 @@ If a runtime offered fewer layers, M5's drop order applies: the toast first, the
    - Switch off/on: back on, the picture is flat for a few frames, then 3D.
 4. Move your head side to side: each eye should see its own picture, with no doubled edges or swimming of the frame. Look at the left and right edges of the picture: the shift fades out there, with no smeared columns.
 5. Screen tab → Curve up: still 3D, and still one picture per eye. Environment → Home Theater: 3D on the theater wall.
-6. Turn 3D off and quit. Start again: the 3D comes back off. Turn it on and quit, then start again: 3D on at start.
+6. Turn 3D off and quit. Start again: the 3D comes back off. Turn it on and quit, then start again: 3D on at start. (A fresh config starts with it on.)
 7. Optional, via config.ini `[vr] depth_source` (then restart):
    - `zipdepth-int8`: lighter (about 0.6 CPU cores, 45 ms age). Compare the look with zipdepth.
    - `midas`: the older model.
