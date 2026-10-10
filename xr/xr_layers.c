@@ -325,7 +325,9 @@ static void addModelLayer(XrCtx* ctx, FrameLayers* layers) {
 // projection layer stands in for upstream's cylinder.
 static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
                            const XrFrameIn* in) {
-    if (view->curve > 0.01f && ctx->cylinderSupported) {
+    (void)view;
+    // Native: also flat in 3D (SteamVR shows no quad seen by one eye only)
+    if (xrPictureProjected(ctx)) {
         if (in->curved != NULL) {
             pushLayer(ctx, layers, in->curved);
         }
@@ -956,8 +958,26 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
 // the model the picture's own pose. The surface is upstream's cylinder layer
 // (axis a radius behind the picture, cylinderFit's scale when it would wrap
 // too far), so the ray's hits (screenProject, curved) land on what is drawn.
+int xrPictureCurved(XrCtx* ctx) {
+    return ctx->cylinderSupported && effectiveCurvature(ctx) > 0.01f && roomEffective(ctx) <= 0;
+}
+
+int xrPictureProjected(XrCtx* ctx) {
+    if (!ctx->cylinderSupported || ctx->launcher != LAUNCHER_NONE) {
+        return 0;
+    }
+    return ctx->stereoMode != DEPTH_MODE_OFF || xrPictureCurved(ctx);
+}
+
 void xrCurveShape(XrCtx* ctx, float* width, float* height, float* radius) {
     float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
+    if (!xrPictureCurved(ctx)) {
+        // Native: flat in 3D, the quad's size on a flat surface
+        *width = ctx->screenWidth;
+        *height = ctx->screenWidth * aspect;
+        *radius = 0.0f;
+        return;
+    }
     float fit = cylinderFit(ctx->screenWidth, ctx->screenRadius);
     *width = ctx->screenWidth * fit;
     *height = ctx->screenWidth * aspect * fit;

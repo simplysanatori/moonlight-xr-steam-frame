@@ -21,6 +21,8 @@ typedef struct Scene {
     void* hookUser;
     int (*quadTexel)(void* user, XrSwapchain sc, float u, float v, float out[4]);
     int (*projTexel)(void* user, const XrCompositionLayerProjection* layer, int x, int y, float out[4]);
+    // the picture's own projection layer (curved, or flat in 3D), when a test has one
+    const XrCompositionLayerProjection* curved;
 } Scene;
 
 // A context as the session builds it, with settings' defaults, a CPU atlas,

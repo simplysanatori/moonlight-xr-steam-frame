@@ -496,7 +496,7 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     tg.clear = 1; // transparent round the picture: the void or the room shows
     // M5: the glow round a curved picture, upstream's glow cylinder drawn
     // into this layer under the picture (no cylinder layers on SteamVR)
-    if (xrWorldGlowShown(ctx)) {
+    if (xrWorldGlowShown(ctx) && xrPictureCurved(ctx)) {
         xrWorldCurvedGlow(ctx, &tg, views, cv->eyeW, cv->eyeH);
         mlxr_barrier(cmd, cv->images[idx].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -1640,8 +1640,11 @@ int xr_app_run(const XrAppConfig* cfg) {
         int videoAcquired = 0, swapAcquired = 0, heldSampled = 0;
         // Native: a curved picture goes through the app's own image and the
         // panel pass (no cylinder layers on SteamVR)
-        int curvedNow = ctx->cylinderSupported && effectiveCurvature(ctx) > 0.01f && roomEffective(ctx) <= 0
-                && !curve.failed;
+        // and, natively, the flat picture in 3D: SteamVR shows no quad layer
+        // seen by one eye only, so both eyes' halves go up in this projection
+        // layer instead of upstream's two quads
+        int curvedNow = xrPictureProjected(ctx) && !curve.failed;
+        int bentNow = curvedNow && xrPictureCurved(ctx);
         // M5: or supersampled, through an image of its own and the
         // supersample pass into a swapchain the size it shows at
         int ssNow = fs.shouldRender && superWanted(ctx, &vd, &ss, curvedNow);
@@ -1795,7 +1798,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         }
         // The flat glow's quad: its swapchain gets the newest glow
         if (fs.shouldRender && cmd) {
-            xrWorldFlatGlow(ctx, curvedNow && ctx->launcher == LAUNCHER_NONE);
+            xrWorldFlatGlow(ctx, bentNow && ctx->launcher == LAUNCHER_NONE);
         }
         if (fr.recording) {
             vkEndCommandBuffer(fr.cmd);

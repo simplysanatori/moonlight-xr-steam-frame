@@ -79,6 +79,7 @@ void scene_frame(Scene* s, const char* stats) {
     xrDefaultPlacement(&in.distance, &in.quadWidth, &in.curvature);
     in.headLocked = s->settings.head_locked;
     in.passthrough = ctx->passthrough;
+    in.curved = s->curved;
     memset(&s->out, 0, sizeof(s->out));
     xrBuildLayers(ctx, &in, &s->out);
 }

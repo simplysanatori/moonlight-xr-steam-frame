@@ -669,6 +669,20 @@ static int pictureQuads(const XrFrameOut* out) {
     return n;
 }
 
+// Native: SteamVR shows no quad seen by one eye only, so in 3D the picture is
+// the app's own projection layer (both eyes' halves), as the curved one
+static XrCompositionLayerProjection fakePicture = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
+
+static int onePictureLayer(const XrFrameOut* out) {
+    int n = 0;
+    for (uint32_t i = 0; i < out->count; i++) {
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)out->order[i];
+        if (q->type == XR_TYPE_COMPOSITION_LAYER_QUAD && q->eyeVisibility != XR_EYE_VISIBILITY_BOTH) return 0;
+        if (out->order[i] == (const XrCompositionLayerBaseHeader*)&fakePicture) n++;
+    }
+    return n == 1;
+}
+
 static void budgetFrame(Scene* s, const char* what, int* worst) {
     XrCtx* c = s->ctx;
     noticePush(&c->notices, TOAST_3D_ON, 0);
@@ -679,14 +693,17 @@ static void budgetFrame(Scene* s, const char* what, int* worst) {
     int n = (int)s->out.count;
     printf("  %-66s %2d layers, %d picture quads\n", what, n, pictureQuads(&s->out));
     CHECK(n <= 16);
-    // whatever is dropped, both eyes' pictures stay
-    CHECK(pictureQuads(&s->out) == 2);
+    // whatever is dropped, the picture stays: one projection layer, no quad
+    // for one eye only
+    CHECK(pictureQuads(&s->out) == 0 && onePictureLayer(&s->out));
     if (n > *worst) *worst = n;
 }
 
 static void testBudget(void) {
     Scene* s = scene_new();
     XrCtx* c = s->ctx;
+    s->curved = &fakePicture;
+    c->cylinderSupported = 1;
     c->alphaBlendSupported = 1;
     c->focusedFrames = 5;
     c->overlayVisible = 1;

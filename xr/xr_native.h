@@ -148,8 +148,15 @@ void xrPictureView(XrCtx* ctx, XrPosef* pose, float* width, float* height, XrSpa
 
 
 // The curved picture as mlxr_pass_panel draws it (xr_layers.c): its size and
-// bend, and one eye's mvp (GL conventions, model = the picture's pose)
+// bend (radius 0 when flat), and one eye's mvp (GL conventions, model = the
+// picture's pose)
 void xrCurveShape(XrCtx* ctx, float* width, float* height, float* radius);
+// Whether the picture is curved (outside a room) this frame
+int xrPictureCurved(XrCtx* ctx);
+// Whether the picture goes up through the app's own projection layer (the
+// curved picture's path): curved, or in 3D flat too, since SteamVR shows no
+// quad layer seen by one eye only (XR_EYE_VISIBILITY_LEFT/RIGHT)
+int xrPictureProjected(XrCtx* ctx);
 void xrCurveMvp(XrFovf fov, XrPosef eye, XrPosef surface, float* mvp);
 
 // ---- for the tests (xr_input.c) ----------------------------------------------
