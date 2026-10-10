@@ -18,6 +18,7 @@
 #include "../backend/backend.h"
 #include "../audio/opus_out.h"
 #include "../backend/backend_limelight.h"
+#include "../stream/evdev_keyboard.h"
 #include "../stream/file_source.h"
 #include "../stream/frame_slot.h"
 #include "../stream/session.h"
@@ -25,6 +26,7 @@
 #include "../xr/xr_session.h"
 
 static FrameSlot g_slot;
+static void updateKeyboard(void);
 static int g_streaming;
 
 static void statsHook(void* user, char* buf, int len) {
@@ -43,7 +45,10 @@ static void statsHook(void* user, char* buf, int len) {
 
 static void pointerHook(void* user, int x, int y, int w, int h) {
     (void)user;
-    if (g_streaming) stream_pointer(x, y, w, h);
+    if (g_streaming) {
+        stream_pointer(x, y, w, h);
+        updateKeyboard(); // picks up the moment the stream connects
+    }
 }
 
 static void buttonHook(void* user, int button, int down) {
@@ -55,6 +60,22 @@ static void buttonHook(void* user, int button, int down) {
 static void scrollHook(void* user, int amount) {
     (void)user;
     if (g_streaming) stream_scroll(amount);
+}
+
+static int g_focused;
+
+static void updateKeyboard(void) { evkbd_set_active(g_streaming && g_focused && stream_running()); }
+
+static void focusHook(void* user, int focused) {
+    (void)user;
+    g_focused = focused;
+    updateKeyboard();
+}
+
+static void sendKey(short vk, int down, char modifiers, void* user) {
+    (void)user;
+    if (stream_running())
+        LiSendKeyboardEvent((short)(0x8000 | vk), down ? KEY_ACTION_DOWN : KEY_ACTION_UP, modifiers);
 }
 
 static void backendLog(int level, const char* msg, void* ud) {
@@ -163,7 +184,7 @@ int main(int argc, char** argv) {
     cfg.screenDistance = 2.0f;
     cfg.screenWidth = 2.4f;
     cfg.seconds = seconds;
-    cfg.hooks = (XrAppHooks){NULL, pointerHook, buttonHook, scrollHook, statsHook};
+    cfg.hooks = (XrAppHooks){NULL, pointerHook, buttonHook, scrollHook, statsHook, focusHook};
 
     if (file) {
         FileSource* src = file_source_start(file, &g_slot);
@@ -261,10 +282,13 @@ int main(int argc, char** argv) {
     job.audioCfg.surround = true;
 
     g_streaming = 1;
+    evkbd_start(sendKey, NULL);
     pthread_t th;
     pthread_create(&th, NULL, streamThread, &job);
     int rc = xr_app_run(&cfg);
     MLOG_I("stopping stream");
+    evkbd_set_active(0);
+    evkbd_stop();
     pthread_join(th, NULL);
     stream_stop();
     g_streaming = 0;

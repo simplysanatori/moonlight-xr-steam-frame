@@ -15,6 +15,8 @@ typedef struct XrAppHooks {
     void (*scroll)(void* user, int amount);
     // Called once per second from the frame loop with a status line to add to the log.
     void (*stats)(void* user, char* buf, int len);
+    // Session focus changed (1 = the app has input focus in the headset).
+    void (*focus)(void* user, int focused);
 } XrAppHooks;
 
 typedef struct XrAppConfig {
