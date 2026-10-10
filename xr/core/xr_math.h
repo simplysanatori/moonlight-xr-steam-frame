@@ -1,0 +1,86 @@
+
+// Vectors, quaternions, the one euro filter and the small amount of
+// projection maths the renderer needs. Nothing in here touches GL, OpenXR
+// beyond its plain value types, or the context, so it can be built and
+// exercised on a desktop as well as on the headset.
+
+#ifndef XR_MATH_H
+#define XR_MATH_H
+
+#include <math.h>
+#include <openxr/openxr.h>
+
+// Derivative cutoff of the one euro filter, shared by both the scalar and
+// the rotation versions
+#define POINTER_D_CUTOFF 1.0f
+
+typedef struct { float x, y, z; } Vec3;
+
+// One euro filter: a low pass whose cutoff rises with speed, so a resting
+// hand is smoothed hard while a fast sweep is barely delayed
+typedef struct {
+    int valid;
+    float x;
+    float dx;
+} EuroState;
+
+// One euro on a rotation: angular speed drives the cutoff and the blend
+// is a lerp toward the new sample, which is fine at per frame angles
+typedef struct {
+    int valid;
+    XrQuaternionf q;
+    float dAngle;
+} EuroQuatState;
+
+Vec3 vecSub(Vec3 a, Vec3 b);
+Vec3 vecNorm(Vec3 v);
+Vec3 vecCross(Vec3 a, Vec3 b);
+float vecDot(Vec3 a, Vec3 b);
+
+XrQuaternionf quatConj(XrQuaternionf q);
+XrQuaternionf quatMul(XrQuaternionf a, XrQuaternionf b);
+XrQuaternionf quatNorm(XrQuaternionf q);
+XrQuaternionf axisAngleQuat(Vec3 axis, float angle);
+Vec3 quatRotate(XrQuaternionf q, Vec3 v);
+XrQuaternionf quatFromBasis(Vec3 x, Vec3 y, Vec3 z);
+
+// A pose given in some space, as seen from a frame placed in that same space:
+// the frame's own pose undone. The frame itself comes out at the origin.
+XrPosef poseInFrame(XrPosef frame, XrPosef pose);
+
+// The screen brought round to straight ahead of the origin and square to it,
+// at the same distance and height, with its tilt and roll kept
+XrPosef poseRecentred(XrPosef screen);
+
+// How far the head has turned from the way the screen faces, in radians,
+// positive to the viewer's left, in (-pi, pi]
+float yawBetween(XrQuaternionf head, XrQuaternionf screen);
+
+float euroFilter(EuroState* s, float x, float dt, float minCutoff, float beta);
+XrQuaternionf euroFilterQuat(EuroQuatState* s, XrQuaternionf q, float dt,
+                             float minCutoff, float beta);
+
+void matMul(float* out, const float* a, const float* b);
+void projectionFromFov(float* m, XrFovf fov, float nearZ, float farZ);
+void viewFromPose(float* m, XrPosef pose);
+
+// The widest a cylinder layer's central angle goes: the spec wants it under a
+// full turn, and a runtime may refuse the whole frame over one. A picture
+// asked to wrap further is drawn at this angle, smaller and in proportion.
+#define CYLINDER_MAX_ANGLE (2.0f * (float)M_PI - 0.01f)
+
+// The central angle a picture this wide gets on a cylinder of that radius,
+// and the scale it is drawn at to fit it, 1 unless it would wrap too far
+float cylinderAngle(float width, float radius);
+float cylinderFit(float width, float radius);
+
+// Where a ray lands on the screen and where a point on the screen sits in
+// space, on the flat quad and on the cylinder alike. A curved picture is the
+// one drawn, at cylinderFit's scale.
+int screenProject(XrPosef aim, XrPosef screen, float width, float height,
+                  float radius, int curved, float* outU, float* outV);
+Vec3 screenPoint(float u, float v, XrPosef screen, float width, float height,
+                 float radius, int curved);
+void curveLocal(Vec3* local, float radius, int curved, float* outYaw);
+
+#endif
