@@ -13,7 +13,7 @@ Each lane works in its own git worktree at `~/Games/MoonlightXRNative/lanes/<nam
 | S shaders | lane/shaders | shaders/, tests/shaders/ | Opus | merged 2026-10-10: 12 upstream programs + supersample/panel, 17 test groups; 4K stereo all passes ~4.5 ms GPU; not yet wired into xr_session (M2/M4) |
 | I input | lane/input | input/ | Sonnet | after the M1 context header |
 | R rooms | lane/rooms | rooms/, assets/rooms | Sonnet | after the M1 context header |
-| D depth | lane/depth | depth/ | Opus | wave 2 |
+| D depth | lane/depth | depth/, tests/depth/, assets/depth/ | Opus | started 2026-10-10 |
 | P packaging | lane/packaging | packaging/ (after M1) | Sonnet | M1 |
 
 Pure modules (no GL, Android or `xr_renderer.h`), ported by lane X: xr_atlas, xr_controller, xr_depthmap, xr_gamepad, xr_gate, xr_glow, xr_grade, xr_headaim, xr_keys, xr_layout, xr_math, xr_notice, xr_pinch, xr_rate, xr_roommesh, xr_shared.h, and xr-audio's xr_audio.
