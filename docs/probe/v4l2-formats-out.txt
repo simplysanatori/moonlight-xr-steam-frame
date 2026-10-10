@@ -1,0 +1,6 @@
+ioctl: VIDIOC_ENUM_FMT
+	Type: Video Output Multiplanar
+
+	[0]: 'H264' (H.264, compressed)
+	[1]: 'HEVC' (HEVC, compressed)
+	[2]: 'VP90' (VP9, compressed)

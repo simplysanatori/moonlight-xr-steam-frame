@@ -1,0 +1,8 @@
+ioctl: VIDIOC_ENUM_FMT
+	Type: Video Capture Multiplanar
+
+	[0]: 'Q08C' (QCOM Compressed 8-bit Format, compressed)
+	[1]: 'NV12' (Y/UV 4:2:0)
+	[2]: 'NV21' (Y/VU 4:2:0)
+	[3]: 'AB24' (32-bit RGBA 8-8-8-8)
+	[4]: 'QC24' (colorformat)

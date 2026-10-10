@@ -1,0 +1,204 @@
+# instance extensions (49)
+XR_KHR_vulkan_enable v10
+XR_KHR_vulkan_enable2 v4
+XR_KHR_opengl_enable v12
+XR_KHR_convert_timespec_time v1
+XR_KHR_opengl_es_enable v10
+XR_MNDX_egl_enable v2
+XR_KHR_binding_modification v1
+XR_KHR_composition_layer_depth v6
+XR_KHR_locate_spaces v1
+XR_KHR_visibility_mask v2
+XR_EXT_active_action_set_priority v1
+XR_EXT_dpad_binding v1
+XR_EXT_eye_gaze_interaction v2
+XR_EXT_frame_composition_report v4
+XR_EXT_hand_interaction v2
+XR_EXT_hand_tracking v4
+XR_EXT_hand_tracking_data_source v1
+XR_EXT_hand_joints_motion_range v1
+XR_EXT_hp_mixed_reality_controller v1
+XR_EXT_local_floor v1
+XR_EXT_palm_pose v3
+XR_EXT_uuid v1
+XR_EXT_user_presence v1
+XR_EXT_view_configuration_views_change v1
+XR_EXT_render_model v1
+XR_EXT_interaction_render_model v1
+XR_EXT_interaction_profile_battery_state_display v1
+XR_FB_display_refresh_rate v1
+XR_HTC_vive_cosmos_controller_interaction v1
+XR_HTC_vive_focus3_controller_interaction v2
+XR_HTC_vive_wrist_tracker_interaction v1
+XR_MND_headless v3
+XR_VALVE_analog_threshold v2
+XR_META_performance_metrics v2
+XR_VALVE_timing_utils v1
+XR_META_recommended_layer_resolution v1
+XR_FB_swapchain_update_state v3
+XR_FB_foveation v1
+XR_FB_foveation_vulkan v1
+XR_FB_foveation_configuration v1
+XR_META_foveation_eye_tracked v1
+XR_META_vulkan_swapchain_create_info v1
+XR_FB_space_warp v2
+XR_EXT_frame_synthesis v1
+XR_HTCX_vive_tracker_interaction v3
+XR_KHR_generic_controller v1
+XR_VALVE_frame_controller_interaction v1
+XR_VALVE_app_space_delta_pose v1
+XR_EXT_debug_utils v5
+# api layers: 3
+# runtime SteamVR/OpenXR 2.18.2
+# wanted extensions
+XR_KHR_vulkan_enable2                         PRESENT
+XR_KHR_vulkan_enable                          PRESENT
+XR_KHR_opengl_enable                          PRESENT
+XR_MNDX_egl_enable                            PRESENT
+XR_FB_display_refresh_rate                    PRESENT
+XR_EXT_hand_tracking                          PRESENT
+XR_EXT_hand_interaction                       PRESENT
+XR_EXT_eye_gaze_interaction                   PRESENT
+XR_EXT_user_presence                          PRESENT
+XR_VALVE_frame_controller_interaction         PRESENT
+XR_FB_passthrough                             absent
+XR_KHR_composition_layer_cylinder             absent
+XR_KHR_composition_layer_depth                PRESENT
+XR_KHR_composition_layer_color_scale_bias     absent
+XR_FB_composition_layer_settings              absent
+XR_KHR_composition_layer_equirect2            absent
+XR_KHR_visibility_mask                        PRESENT
+XR_EXT_performance_settings                   absent
+XR_KHR_convert_timespec_time                  PRESENT
+XR_EXT_debug_utils                            PRESENT
+# system
+name SteamVR/OpenXR : cv
+vendor 10462
+maxSwapchain 8192x8192
+maxLayerCount 16
+orientationTracking 1
+positionTracking 1
+supportsHandTracking 1
+supportsEyeGazeInteraction 1
+supportsUserPresence 1
+# view configurations: 2
+# blend modes (1 opaque, 2 additive, 3 alpha_blend): 1 3
+# stereo views
+eye 0 recommended 1728x1728 max 8192x8192 samples 1
+eye 1 recommended 1728x1728 max 8192x8192 samples 1
+# binding probe (each path suggested on its own)
+profile /interaction_profiles/valve/frame_controller
+  left   input/aim/pose                   ok
+  right  input/aim/pose                   ok
+  left   input/grip/pose                  ok
+  right  input/grip/pose                  ok
+  left   input/trigger/value              ok
+  right  input/trigger/value              ok
+  left   input/trigger/click              ok
+  right  input/trigger/click              ok
+  left   input/trigger/touch              ok
+  right  input/trigger/touch              ok
+  left   input/squeeze/value              ok
+  right  input/squeeze/value              ok
+  left   input/squeeze/click              ok
+  right  input/squeeze/click              ok
+  left   input/squeeze/force              XR_ERROR_PATH_UNSUPPORTED
+  right  input/squeeze/force              XR_ERROR_PATH_UNSUPPORTED
+  left   input/grip/value                 XR_ERROR_PATH_UNSUPPORTED
+  right  input/grip/value                 XR_ERROR_PATH_UNSUPPORTED
+  left   input/grip/click                 XR_ERROR_PATH_UNSUPPORTED
+  right  input/grip/click                 XR_ERROR_PATH_UNSUPPORTED
+  left   input/thumbstick                 ok
+  right  input/thumbstick                 ok
+  left   input/thumbstick/click           ok
+  right  input/thumbstick/click           ok
+  left   input/thumbstick/touch           ok
+  right  input/thumbstick/touch           ok
+  left   input/trackpad                   XR_ERROR_PATH_UNSUPPORTED
+  right  input/trackpad                   XR_ERROR_PATH_UNSUPPORTED
+  left   input/trackpad/click             XR_ERROR_PATH_UNSUPPORTED
+  right  input/trackpad/click             XR_ERROR_PATH_UNSUPPORTED
+  left   input/trackpad/touch             XR_ERROR_PATH_UNSUPPORTED
+  right  input/trackpad/touch             XR_ERROR_PATH_UNSUPPORTED
+  left   input/trackpad/force             XR_ERROR_PATH_UNSUPPORTED
+  right  input/trackpad/force             XR_ERROR_PATH_UNSUPPORTED
+  left   input/a/click                    XR_ERROR_PATH_UNSUPPORTED
+  right  input/a/click                    ok
+  left   input/a/touch                    XR_ERROR_PATH_UNSUPPORTED
+  right  input/a/touch                    ok
+  left   input/b/click                    XR_ERROR_PATH_UNSUPPORTED
+  right  input/b/click                    ok
+  left   input/b/touch                    XR_ERROR_PATH_UNSUPPORTED
+  right  input/b/touch                    ok
+  left   input/x/click                    XR_ERROR_PATH_UNSUPPORTED
+  right  input/x/click                    ok
+  left   input/x/touch                    XR_ERROR_PATH_UNSUPPORTED
+  right  input/x/touch                    ok
+  left   input/y/click                    XR_ERROR_PATH_UNSUPPORTED
+  right  input/y/click                    ok
+  left   input/y/touch                    XR_ERROR_PATH_UNSUPPORTED
+  right  input/y/touch                    ok
+  left   input/menu/click                 XR_ERROR_PATH_UNSUPPORTED
+  right  input/menu/click                 ok
+  left   input/view/click                 ok
+  right  input/view/click                 XR_ERROR_PATH_UNSUPPORTED
+  left   input/system/click               ok
+  right  input/system/click               ok
+  left   input/bumper/click               ok
+  right  input/bumper/click               ok
+  left   input/bumper/value               XR_ERROR_PATH_UNSUPPORTED
+  right  input/bumper/value               XR_ERROR_PATH_UNSUPPORTED
+  left   input/dpad_up/click              ok
+  right  input/dpad_up/click              XR_ERROR_PATH_UNSUPPORTED
+  left   input/dpad_down/click            ok
+  right  input/dpad_down/click            XR_ERROR_PATH_UNSUPPORTED
+  left   input/dpad_left/click            ok
+  right  input/dpad_left/click            XR_ERROR_PATH_UNSUPPORTED
+  left   input/dpad_right/click           ok
+  right  input/dpad_right/click           XR_ERROR_PATH_UNSUPPORTED
+  left   input/thumbrest/touch            XR_ERROR_PATH_UNSUPPORTED
+  right  input/thumbrest/touch            XR_ERROR_PATH_UNSUPPORTED
+  left   output/haptic                    ok
+  right  output/haptic                    ok
+profile /interaction_profiles/oculus/touch_controller
+  left   input/aim/pose                   ok
+  right  input/aim/pose                   ok
+  left   input/trigger/value              ok
+  right  input/trigger/value              ok
+  left   input/squeeze/value              ok
+  right  input/squeeze/value              ok
+  left   input/thumbstick                 ok
+  right  input/thumbstick                 ok
+  left   input/a/click                    XR_ERROR_PATH_UNSUPPORTED
+  right  input/a/click                    ok
+  left   input/x/click                    ok
+  right  input/x/click                    XR_ERROR_PATH_UNSUPPORTED
+  left   input/menu/click                 ok
+  right  input/menu/click                 XR_ERROR_PATH_UNSUPPORTED
+  left   output/haptic                    ok
+  right  output/haptic                    ok
+profile /interaction_profiles/khr/simple_controller
+  left   input/aim/pose                   ok
+  right  input/aim/pose                   ok
+  left   input/select/click               ok
+  right  input/select/click               ok
+  left   input/menu/click                 ok
+  right  input/menu/click                 ok
+  left   output/haptic                    ok
+  right  output/haptic                    ok
+profile /interaction_profiles/ext/eye_gaze_interaction
+  gaze_ext/pose ok
+# reference spaces (1 view, 2 local, 3 stage, 1000426000 local_floor): 1 2 3
+# swapchain formats (VkFormat)
+43 R8G8B8A8_SRGB
+50 B8G8R8A8_SRGB
+109 ?
+106 ?
+97 R16G16B16A16_SFLOAT
+64 A2B10G10R10_UNORM
+126 D32_SFLOAT
+124 D16_UNORM
+129 D24_UNORM_S8_UINT
+130 D32_SFLOAT_S8_UINT
+# display refresh rates: 90.00
+# current refresh rate: 90.00

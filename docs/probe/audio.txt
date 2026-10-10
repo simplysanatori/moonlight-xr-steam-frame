@@ -1,0 +1,36 @@
+Server String: /run/user/1000/pulse/native
+Library Protocol Version: 35
+Server Protocol Version: 35
+Is Local: yes
+Client Index: 237
+Tile Size: 65472
+User Name: steamos
+Host Name: frame
+Server Name: PulseAudio (on PipeWire 1.6.8)
+Server Version: 15.0.0
+Default Sample Specification: float32le 2ch 48000Hz
+Default Channel Map: front-left,front-right
+Default Sink: alsa_loopback_device.stereo.alsa_output.platform-sound.HiFi__Speaker__sink
+Default Source: alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source
+Cookie: cc6c:f67b
+
+	id: 0
+	permissions: r-xm-
+	type: PipeWire:Interface:Core/4
+	cookie: 3429693051
+	user-name: "steamos"
+	host-name: "frame"
+	version: "1.6.8"
+	name: "pipewire-0"
+*	properties:
+*		config.name = "pipewire.conf"
+*		application.name = "pipewire"
+*		application.process.binary = "pipewire"
+*		application.language = "en_US.UTF-8"
+*		application.process.id = "1979"
+*		application.process.user = "steamos"
+*		application.process.host = "frame"
+*		application.process.session-id = "1"
+*		link.max-buffers = "16"
+*		core.daemon = "true"
+*		core.name = "pipewire-0"

@@ -1,0 +1,20 @@
+Linux frame 6.18.0-ge66bc2ca6f8c #1 SMP PREEMPT Thu, 01 Oct 2026 06:39:30 +0000 aarch64 GNU/Linux
+NAME="SteamOS"
+PRETTY_NAME="SteamOS"
+VERSION_CODENAME=holo
+ID=steamos
+ID_LIKE=arch
+ANSI_COLOR="1;35"
+HOME_URL="https://www.steampowered.com/"
+DOCUMENTATION_URL="https://support.steampowered.com/"
+SUPPORT_URL="https://support.steampowered.com/"
+BUG_REPORT_URL="https://support.steampowered.com/"
+LOGO=steamos
+BUILD_ID=20261007.6125817
+VARIANT_ID="vr"
+VERSION_ID=0.4.5
+ldd (GNU libc) 2.39
+5
+               total        used        free      shared  buff/cache   available
+Mem:            15Gi       5.2Gi       6.9Gi       1.4Gi       4.9Gi        10Gi
+Swap:          7.6Gi          0B       7.6Gi

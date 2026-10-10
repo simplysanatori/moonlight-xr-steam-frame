@@ -1,0 +1,14 @@
+## h264_v4l2m2m 1080p60 5 s
+  Stream #0:0[0x1](und): Video: h264 (Constrained Baseline) (avc1 / 0x31637661), yuv420p(progressive), 1920x1080 [SAR 1:1 DAR 16:9], 27807 kb/s, 60 fps, 60 tbr, 15360 tbn (default)
+  Stream #0:0 -> #0:0 (h264 (h264_v4l2m2m) -> wrapped_avframe (native))
+  Stream #0:0(und): Video: wrapped_avframe, nv12(progressive), 1920x1080 [SAR 1:1 DAR 16:9], q=2-31, 200 kb/s, 60 fps, 60 tbn (default)
+frame=  300 fps=0.0 q=-0.0 Lsize=N/A time=00:00:05.00 bitrate=N/A speed=23.5x    
+bench: utime=0.019s stime=0.038s rtime=0.213s
+bench: maxrss=223372KiB
+## hevc_v4l2m2m 1440p60 3 s
+  Stream #0:0[0x1](und): Video: hevc (Main) (hev1 / 0x31766568), yuv420p(tv, progressive), 2560x1440 [SAR 1:1 DAR 16:9], 5637 kb/s, 60 fps, 60 tbr, 15360 tbn (default)
+  Stream #0:0 -> #0:0 (hevc (hevc_v4l2m2m) -> wrapped_avframe (native))
+  Stream #0:0(und): Video: wrapped_avframe, nv12(tv, progressive), 2560x1440 [SAR 1:1 DAR 16:9], q=2-31, 200 kb/s, 60 fps, 60 tbn (default)
+frame=  180 fps=0.0 q=-0.0 Lsize=N/A time=00:00:03.00 bitrate=N/A speed=14.8x    
+bench: utime=0.016s stime=0.032s rtime=0.203s
+bench: maxrss=295348KiB

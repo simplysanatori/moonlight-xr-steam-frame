@@ -1,0 +1,97 @@
+ATTENTION: default value of option vk_wsi_force_swapchain_to_current_extent overridden by environment.
+[Gamescope WSI] Application info:
+  pApplicationName: vulkaninfo
+  applicationVersion: 1
+  pEngineName: (null)
+  engineVersion: 0
+  apiVersion: 4206888
+[Gamescope WSI] Executable name: vulkaninfo
+[Gamescope WSI] Creating Gamescope surface: xid: 0x3a00000
+[Gamescope WSI] Atom of T was wrong type. Expected XCB_ATOM_CARDINAL.
+[Gamescope WSI] Made gamescope surface for xid: 0x3a00000
+[Gamescope WSI] Surface state:
+  steam app id:                  0
+  window xid:                    0x3a00000
+  wayland surface res id:        6
+  layer client flags:            0x0
+  server hdr output enabled:     false
+  hdr formats exposed to client: false
+[Gamescope WSI] Creating Gamescope surface: xid: 0x4000001
+[Gamescope WSI] Atom of T was wrong type. Expected XCB_ATOM_CARDINAL.
+[Gamescope WSI] Made gamescope surface for xid: 0x4000001
+[Gamescope WSI] Surface state:
+  steam app id:                  0
+  window xid:                    0x4000001
+  wayland surface res id:        11
+  layer client flags:            0x0
+  server hdr output enabled:     false
+  hdr formats exposed to client: false
+[Gamescope WSI] Forcing on VK_EXT_swapchain_maintenance1.
+==========
+VULKANINFO
+==========
+
+Vulkan Instance Version: 1.3.296
+
+
+Instance Extensions: count = 24
+-------------------------------
+VK_EXT_acquire_drm_display             : extension revision 1
+VK_EXT_acquire_xlib_display            : extension revision 1
+VK_EXT_debug_report                    : extension revision 10
+VK_EXT_debug_utils                     : extension revision 2
+VK_EXT_direct_mode_display             : extension revision 1
+VK_EXT_display_surface_counter         : extension revision 1
+VK_EXT_headless_surface                : extension revision 1
+VK_EXT_surface_maintenance1            : extension revision 1
+VK_EXT_swapchain_colorspace            : extension revision 5
+VK_KHR_device_group_creation           : extension revision 1
+VK_KHR_display                         : extension revision 23
+VK_KHR_external_fence_capabilities     : extension revision 1
+VK_KHR_external_memory_capabilities    : extension revision 1
+VK_KHR_external_semaphore_capabilities : extension revision 1
+VK_KHR_get_display_properties2         : extension revision 1
+VK_KHR_get_physical_device_properties2 : extension revision 2
+VK_KHR_get_surface_capabilities2       : extension revision 1
+VK_KHR_portability_enumeration         : extension revision 1
+VK_KHR_surface                         : extension revision 25
+VK_KHR_surface_protected_capabilities  : extension revision 1
+VK_KHR_wayland_surface                 : extension revision 6
+VK_KHR_xcb_surface                     : extension revision 6
+VK_KHR_xlib_surface                    : extension revision 6
+VK_LUNARG_direct_driver_loading        : extension revision 1
+
+Instance Layers: count = 16
+---------------------------
+VK_LAYER_FROG_gamescope_wsi_aarch64  Gamescope WSI (XWayland Bypass) Layer (aarch64) 1.3.221  version 1
+VK_LAYER_LUNARG_api_dump             LunarG API dump layer                           1.4.309  version 2
+VK_LAYER_LUNARG_gfxreconstruct       GFXReconstruct Capture Layer Version 1.0.5-dev  1.4.350  version 4194309
+VK_LAYER_LUNARG_monitor              Execution Monitoring Layer                      1.4.309  version 1
+VK_LAYER_LUNARG_screenshot           LunarG image capture layer                      1.4.309  version 1
+VK_LAYER_MANGOHUD_overlay_aarch64    Vulkan Hud Overlay                              1.3.0    version 1
+VK_LAYER_MESA_vram_report_limit      Limit reported VRAM                             1.4.303  version 1
+VK_LAYER_RENDERDOC_Capture           Debugging capture layer for RenderDoc           1.4.324  version 46
+VK_LAYER_VALVE_fdm_injection         FDM injection                                   1.4.303  version 1
+VK_LAYER_VALVE_rpo                   Renderpass Optimizer                            1.4.303  version 1
+VK_LAYER_VALVE_steam_fossilize_32    Steam Pipeline Caching Layer                    1.3.207  version 1
+VK_LAYER_VALVE_steam_fossilize_64    Steam Pipeline Caching Layer                    1.3.207  version 1
+VK_LAYER_VALVE_steam_fossilize_arm64 Steam Pipeline Caching Layer                    1.3.207  version 1
+VK_LAYER_VALVE_steam_overlay_32      Steam Overlay Layer                             1.3.207  version 1
+VK_LAYER_VALVE_steam_overlay_64      Steam Overlay Layer                             1.3.207  version 1
+VK_LAYER_fossilize                   Fossilize capture layer                         1.4.303  version 1
+
+Devices:
+========
+GPU0:
+	apiVersion         = 1.4.362
+	driverVersion      = 26.2.99
+	vendorID           = 0x5143
+	deviceID           = 0x43051401
+	deviceType         = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
+	deviceName         = Turnip Adreno (TM) 750
+	driverID           = DRIVER_ID_MESA_TURNIP
+	driverName         = turnip Mesa driver
+	driverInfo         = Mesa 26.3.0-devel (git-abc426bb62)
+	conformanceVersion = 1.4.0.0
+	deviceUUID         = 72935926-0b51-4406-15cd-57aae941a569
+	driverUUID         = 586b9fa4-514c-b88b-3c11-a968ef4d62e4

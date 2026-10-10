@@ -1,0 +1,23 @@
+ VF...D cllc                 Canopus Lossless Codec
+ V..... h263_v4l2m2m         V4L2 mem2mem H.263 decoder wrapper (codec h263)
+ VFS..D h264                 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10
+ V..... h264_v4l2m2m         V4L2 mem2mem H.264 decoder wrapper (codec h264)
+ V....D h264_qsv             H264 video (Intel Quick Sync Video acceleration) (codec h264)
+ V..... h264_cuvid           Nvidia CUVID H264 decoder (codec h264)
+ VFS..D hevc                 HEVC (High Efficiency Video Coding)
+ V....D hevc_qsv             HEVC video (Intel Quick Sync Video acceleration) (codec hevc)
+ V..... hevc_v4l2m2m         V4L2 mem2mem HEVC decoder wrapper (codec hevc)
+ V..... hevc_cuvid           Nvidia CUVID HEVC decoder (codec hevc)
+ V....D hq_hqa               Canopus HQ/HQA
+ VFS..D hqx                  Canopus HQX
+ V..... mpeg1_v4l2m2m        V4L2 mem2mem MPEG1 decoder wrapper (codec mpeg1video)
+ V..... mpeg2_v4l2m2m        V4L2 mem2mem MPEG2 decoder wrapper (codec mpeg2video)
+ V..... mpeg4_v4l2m2m        V4L2 mem2mem MPEG4 decoder wrapper (codec mpeg4)
+ V..... vc1_v4l2m2m          V4L2 mem2mem VC1 decoder wrapper (codec vc1)
+ V..... vp8_v4l2m2m          V4L2 mem2mem VP8 decoder wrapper (codec vp8)
+ V..... vp9_v4l2m2m          V4L2 mem2mem VP9 decoder wrapper (codec vp9)
+ A....D opus                 Opus
+ A....D libopus              libopus Opus (codec opus)
+ffmpeg version n7.0 Copyright (c) 2000-2024 the FFmpeg developers
+built with gcc 15.1.1 (GCC) 20250729
+configuration: --prefix=/usr --disable-debug --disable-static --disable-stripping --enable-amf --enable-avisynth --enable-cuda-llvm --enable-lto --enable-fontconfig --enable-frei0r --enable-gmp --enable-gnutls --enable-gpl --enable-ladspa --enable-libaom --enable-libass --enable-libbs2b --enable-libdav1d --enable-libdrm --enable-libfreetype --enable-libfribidi --enable-libgsm --enable-libharfbuzz --enable-libiec61883 --enable-libjack --enable-libjxl --enable-libmodplug --enable-libmp3lame --enable-libopencore_amrnb --enable-libopencore_amrwb --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-libplacebo --enable-libpulse --enable-librav1e --enable-librsvg --enable-librubberband --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libtheora --enable-libv4l2 --enable-libvidstab --enable-libvmaf --enable-libvorbis --enable-libvpl --enable-libvpx --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxcb --enable-libxml2 --enable-libxvid --enable-libzimg --enable-nvdec --enable-nvenc --enable-opencl --enable-opengl --enable-shared --enable-vapoursynth --enable-version3 --enable-vulkan

@@ -1,0 +1,42 @@
+/opt/steamvr/steamxr_linuxarm64.json
+{
+        "file_format_version" : "1.0.0",
+        "runtime" :
+        {
+                "name": "SteamVR",
+                "VALVE_runtime_is_steamvr" : true,
+                "library_path" : "bin/linuxarm64/vrclient.so"
+        }
+}
+audiofilter.so
+hellovr_sdl
+helloxr
+libopenvr_api.so
+libopenxr_loader.so
+libphonon.so
+libprism.so
+libpulsecommon-10.0.so
+libsteam_api.so
+openvr_api_canary
+overlay_viewer
+platforms
+proxmicmute
+qt
+start_eyetracking.sh
+systemlayer
+trackingtest
+v4l2cam
+vraudiocompositor.so
+vraudioloadermodule.so
+vrclient.so
+vrcmd
+vrcompositor
+vrcompositor-launcher
+vrcompositor-launcher.sh
+vrdashboard
+vrmonitor
+vrpathreg
+vrprismhost
+vrserver
+vrstartup
+vrurlhandler

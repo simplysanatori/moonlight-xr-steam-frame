@@ -1,0 +1,15 @@
+clang 19.1.7-1.1
+lld 19.1.7-1.1
+shaderc 2023.8-1
+vulkan-headers 1:1.4.309.0-4
+ffmpeg 2:7.0-1.1
+libdrm 2.4.134-1
+opus 1.5.2-1
+libpulse 17.0-3
+pipewire 1:1.6.8-1.2
+openssl 3.2.1-1
+curl 8.7.1-5
+v4l-utils 1.33.0-1
+deckard-mesa-linux-aarch64 26.3.0_devel+gitabc426bb-1
+freetype2 2.13.2-1
+libpng 1.6.43-1
