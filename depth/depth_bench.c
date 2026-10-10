@@ -235,7 +235,16 @@ int main(int argc, char** argv) {
     if (runs < 1) runs = 1;
     double load[3] = { 0 };
     getloadavg(load, 3);
-    printf("mlxr-depth-bench: %ld CPUs online to us, load %.2f %.2f %.2f, runs %d\n",
+    cpu_set_t mine;
+    CPU_ZERO(&mine);
+    sched_getaffinity(0, sizeof mine, &mine);
+    char cpus[64] = "";
+    for (int c = 0; c < 64 && c < CPU_SETSIZE; c++) {
+        if (CPU_ISSET(c, &mine)) {
+            snprintf(cpus + strlen(cpus), sizeof cpus - strlen(cpus), "%s%d", cpus[0] ? "," : "", c);
+        }
+    }
+    printf("mlxr-depth-bench: CPUs %s of %ld online, load %.2f %.2f %.2f, runs %d\n", cpus,
            sysconf(_SC_NPROCESSORS_ONLN), load[0], load[1], load[2], runs);
     printf("\n| model | threads | cpus | arith | maps/s | p50 ms | p95 ms | first ms | cpu/wall "
            "| load ms | +RSS MB | peak RSS MB |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n");
