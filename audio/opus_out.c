@@ -207,6 +207,8 @@ static int rendererInit(int audioConfiguration, const POPUS_MULTISTREAM_CONFIGUR
         MlxrPulseOutParams pp;
         mlxr_pulse_out_params_default(&pp);
         pp.sink = cfg->sink;
+        pp.streamName = cfg->streamName != NULL ? cfg->streamName
+                        : cfg->systemSpatializer ? "Moonlight XR" : "Moonlight XR virtual sink";
         pp.channels = 2;
         pp.rate = oc->sampleRate;
         if (cfg->tlengthMs > 0) {

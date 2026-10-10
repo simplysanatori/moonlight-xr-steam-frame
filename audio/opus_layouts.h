@@ -38,8 +38,8 @@ static inline const char* mlxr_channel_name(int channels, int c) {
                                       "LFE (subwoofer)", "BL (back left)", "BR (back right)",
                                       "SL (side left)", "SR (side right)"};
     static const char* const n6[6] = {"FL (front left)", "FR (front right)", "FC (center)",
-                                      "LFE (subwoofer)", "SL (surround left)",
-                                      "SR (surround right)"};
+                                      "LFE (subwoofer)", "BL (back, surround left)",
+                                      "BR (back, surround right)"};
     static const char* const n2[2] = {"L (left)", "R (right)"};
     if (c < 0 || c >= channels) {
         return "?";

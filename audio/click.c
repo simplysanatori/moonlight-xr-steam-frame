@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -93,6 +94,14 @@ static void* worker(void* arg) {
     return NULL;
 }
 
+static char gStreamName[96] = "Moonlight XR UI virtual sink";
+
+void mlxr_click_set_stream_name(const char* name) {
+    if (name != NULL) {
+        snprintf(gStreamName, sizeof gStreamName, "%s", name);
+    }
+}
+
 int mlxr_click_init(const char* sink, char* err, int errLen) {
     if (C.out != NULL) {
         return 0;
@@ -116,7 +125,7 @@ int mlxr_click_init(const char* sink, char* err, int errLen) {
     }
     MlxrPulseOutParams p;
     mlxr_pulse_out_params_default(&p);
-    p.streamName = "Moonlight XR UI";
+    p.streamName = gStreamName;
     p.role = "event";
     p.sink = sink;
     p.tlengthMs = 30;

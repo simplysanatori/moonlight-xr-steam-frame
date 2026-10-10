@@ -2,14 +2,16 @@
 // real decode -> (surround) -> PulseAudio path, for checking by ear.
 //
 //   mlxr-audio-test --tones stereo|51|71 [--surround] [--hrtf-dir DIR]
-//                   [--sink NAME] [--level DB] [--seconds S] [--yaw DEG]
-//                   [--dry]
+//                   [--sink NAME] [--stream-name NAME] [--system-spatializer]
+//                   [--level DB] [--seconds S] [--yaw DEG] [--dry]
 //
 // Each channel plays up to 1 s (default 0.8 s) at -20 dBFS (--level) with a
 // 0.25 s gap, and its name is printed as it starts. --surround renders 5.1/7.1
 // through the HRTF virtual surround (needs --hrtf-dir, default
 // assets/hrtf/kemar next to the source tree); without it 5.1/7.1 are
-// downmixed. --dry decodes everything but discards the output (no sound server).
+// downmixed. By default the stream bypasses SteamOS's VR spatializer (see
+// opus_out.h); --system-spatializer lets the system process it, for A/B listening.
+// --dry decodes everything but discards the output (no sound server).
 #include "opus_layouts.h"
 #include "opus_out.h"
 
@@ -39,14 +41,16 @@ static void dryCapture(const float* stereo, int frames, void* user) {}
 static void usage(void) {
     fprintf(stderr,
             "usage: mlxr-audio-test --tones stereo|51|71 [--surround] [--hrtf-dir DIR]\n"
-            "       [--sink NAME] [--level DB] [--seconds S] [--yaw DEG] [--dry]\n");
+            "       [--sink NAME] [--stream-name NAME] [--system-spatializer]\n"
+            "       [--level DB] [--seconds S] [--yaw DEG] [--dry]\n");
 }
 
 int main(int argc, char** argv) {
     int channels = 0;
-    int surround = 0, dry = 0;
+    int surround = 0, dry = 0, systemSpatializer = 0;
     double level = -20.0, seconds = 0.8, yawDeg = 0.0;
     const char* sink = NULL;
+    const char* streamName = NULL;
     const char* hrtf = MLXR_ASSETS_DIR "/hrtf/kemar";
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--tones") && i + 1 < argc) {
@@ -60,6 +64,10 @@ int main(int argc, char** argv) {
             hrtf = argv[++i];
         } else if (!strcmp(argv[i], "--sink") && i + 1 < argc) {
             sink = argv[++i];
+        } else if (!strcmp(argv[i], "--system-spatializer")) {
+            systemSpatializer = 1;
+        } else if (!strcmp(argv[i], "--stream-name") && i + 1 < argc) {
+            streamName = argv[++i];
         } else if (!strcmp(argv[i], "--level") && i + 1 < argc) {
             level = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) {
@@ -100,6 +108,8 @@ int main(int argc, char** argv) {
     cfg.hrtfDir = surround ? hrtf : NULL;
     cfg.surround = surround != 0;
     cfg.sink = sink;
+    cfg.streamName = streamName;
+    cfg.systemSpatializer = systemSpatializer != 0;
     if (dry) {
         cfg.capture = dryCapture;
     }

@@ -50,6 +50,15 @@ typedef struct {
     bool surround;
     // PulseAudio sink name; NULL = default sink.
     const char* sink;
+    // SteamOS runs every output stream through Valve's VR spatializer (WirePlumber
+    // script) while the built-in speakers are the default sink, which would process
+    // our own HRTF rendering a second time and adds ~30 ms. Streams whose node name
+    // contains both "virtual" and "sink" are exempt. false (default): use such a name,
+    // i.e. bypass it; true: plain name "Moonlight XR" (the system spatializes).
+    // See REPORT.md.
+    bool systemSpatializer;
+    // Explicit stream (PipeWire node) name; overrides the choice above. NULL = automatic.
+    const char* streamName;
     // Server buffer target / request size / start threshold / our own queue cap.
     // 0 = defaults (20 / 5 / tlength/2 / 10 ms).
     int tlengthMs, minreqMs, prebufMs, queueCapMs;

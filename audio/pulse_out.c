@@ -279,6 +279,9 @@ MlxrPulseOut* mlxr_pulse_out_open(const MlxrPulseOutParams* p, char* err, int er
                          .channels = (uint8_t) p->channels};
     pa_proplist* props = pa_proplist_new();
     pa_proplist_sets(props, PA_PROP_MEDIA_ROLE, p->role != NULL ? p->role : "game");
+    // PipeWire names the node after application.name unless told otherwise, and
+    // SteamOS's WirePlumber decides on spatialising by the node name
+    pa_proplist_sets(props, "node.name", p->streamName != NULL ? p->streamName : "Moonlight XR");
 
     pa_threaded_mainloop_lock(po->loop);
     po->stream = pa_stream_new_with_proplist(po->ctx, p->streamName != NULL ? p->streamName

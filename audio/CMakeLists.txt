@@ -3,6 +3,7 @@
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(OPUS REQUIRED IMPORTED_TARGET opus)
 pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse)
+pkg_check_modules(PULSE_SIMPLE REQUIRED IMPORTED_TARGET libpulse-simple)
 
 add_library(mlxr_audio STATIC
   hrtf.c surround.c pcmq.c pulse_out.c opus_out.c click.c)

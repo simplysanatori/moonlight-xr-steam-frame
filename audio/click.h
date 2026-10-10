@@ -20,6 +20,13 @@ typedef enum {
     MLXR_CLICK_KINDS
 } MlxrClickKind;
 
+/**
+ * Name of the click's PulseAudio stream (before init). Default "Moonlight XR UI
+ * virtual sink", which SteamOS does not run through its VR spatializer (see
+ * opus_out.h); pass "Moonlight XR UI" to let the system spatialize the click.
+ */
+void mlxr_click_set_stream_name(const char* name);
+
 /** Opens the click stream (sink NULL = default) and starts the helper. 0 on success. */
 int mlxr_click_init(const char* sink, char* err, int errLen);
 void mlxr_click_shutdown(void);
