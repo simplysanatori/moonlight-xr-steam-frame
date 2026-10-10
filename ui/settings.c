@@ -81,8 +81,8 @@ static const SettingDesc TABLE[] = {
     DI("vr", "head_aim_deadzone", head_aim_deadzone, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX, HEAD_AIM_DEADZONE_DEFAULT, "seekbar_vr_head_aim_deadzone: degrees per second"),
     DE("vr", "gamepad_toggle", gamepad_toggle, TOGGLE_NAMES, 0, "list_vr_gamepad_toggle: menu_grip, sticks, triggers_grips"),
     DB("vr", "click_sound", click_sound, 1, "checkbox_vr_click_sound"),
-    DB("vr", "gaze", gaze, 1, "checkbox_vr_gaze: look to point"),
-    DB("vr", "hand_tracking", hand_tracking, 1, "checkbox_vr_hand_tracking"),
+    DB("vr", "gaze", gaze, 0, "checkbox_vr_gaze: look to point (native default off: with it on a controller takes the pointer back only on a press)"),
+    DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),
     DB("vr", "passthrough", passthrough, 0, "checkbox_vr_passthrough"),
     DE("vr", "environment", environment, ENV_NAMES, 0, "list_vr_environment: auto = black void, or passthrough with passthrough on"),
     DE("vr", "depth_source", depth_source, DEPTH_NAMES, 0, "list_vr_depth_source: Realtime 3D mode (zipdepth recommended, midas older, off streams flat)"),
@@ -545,6 +545,9 @@ int settings_fps_value(const Settings* s) {
 
 // PreferenceConfiguration.getDefaultBitrate
 int settings_default_bitrate_kbps(int width, int height, int fps) {
+    // Owner's measurement on the Frame (main de55376): 1440p needs about 80 Mbps;
+    // Moonlight's curve gives 40-49 Mbps there, which smeared fast motion.
+    if (width == 2560 && height == 1440 && fps >= 60 && fps <= 90) return 80000;
     double frame_rate_factor = (fps <= 60 ? fps : (sqrt(fps / 60.0) * 60.0)) / 30.0;
     static const int pixel_vals[] = { 640 * 360, 854 * 480, 1280 * 720, 1920 * 1080, 2560 * 1440,
                                       3840 * 2160 };

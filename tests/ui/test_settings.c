@@ -46,7 +46,7 @@ static void test_defaults(void) {
     CHECK(geti(&s, "head_aim_deadzone") == 2);
     CHECK(geti(&s, "gamepad_toggle") == PAD_SHORTCUT_MENU_GRIP);
     CHECK(geti(&s, "click_sound") == 1);
-    CHECK(geti(&s, "gaze") == 1 && geti(&s, "hand_tracking") == 1);
+    CHECK(geti(&s, "gaze") == 0 && geti(&s, "hand_tracking") == 0);   // native defaults (M4): off on the Frame until checked
     CHECK(geti(&s, "passthrough") == 0);
     CHECK(settings_environment_id(&s) == ENV_ID_VOID);   // black void unless passthrough is on
     s.passthrough = 1;
@@ -86,7 +86,9 @@ static void test_defaults(void) {
     CHECK(settings_room_index(ENV_ID_VOID) == -1 && settings_room_index(ENV_ID_PASSTHROUGH) == -1);
     CHECK(settings_room_resizable(ENV_ID_HOME_THEATER) && !settings_room_resizable(ENV_ID_GRAND_CINEMA));
     // derived stream values: Moonlight's bitrate curve
-    CHECK(settings_bitrate_kbps(&s) == 49000);                       // 1440p90
+    CHECK(settings_bitrate_kbps(&s) == 80000);                       // 1440p90: owner's 80 Mbps (de55376)
+    CHECK(settings_default_bitrate_kbps(2560, 1440, 60) == 80000);
+    CHECK(settings_default_bitrate_kbps(2560, 1440, 120) != 80000);   // outside the owner's range: the curve
     CHECK(settings_default_bitrate_kbps(1920, 1080, 60) == 20000);
     CHECK(settings_default_bitrate_kbps(3840, 2160, 60) == 80000);
     CHECK(settings_default_bitrate_kbps(1280, 720, 30) == 5000);
@@ -341,14 +343,14 @@ static void test_tolerant(void) {
         "head_aim = true\r\n"
         "= no key\r\n"
         "[unterminated\r\n"
-        "hand_tracking = 0\r\n"
+        "hand_tracking = 1\r\n"
         "gamepad_toggle = sticks\r\n"
         "head_locked = true\r\n"             // belongs to [display], in the wrong section: still read
         "\x01\x02\x03 binary = 7\r\n";
     settings_from_text(&s, junk, &info);
     CHECK(strcmp(s.host, "192.0.2.10") == 0);
     CHECK(strcmp(s.app, "Desktop") == 0);
-    CHECK(s.head_aim == 1 && s.hand_tracking == 0 && s.gamepad_toggle == PAD_SHORTCUT_STICKS);
+    CHECK(s.head_aim == 1 && s.hand_tracking == 1 && s.gamepad_toggle == PAD_SHORTCUT_STICKS);
     CHECK(s.head_locked == 1);
     CHECK(s.pointer_sleep == 1 && s.head_aim_sensitivity == 8);   // unreadable values leave the default
     CHECK(info.unknown >= 3);
