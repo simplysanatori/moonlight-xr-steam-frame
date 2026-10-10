@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pngdiff.py A.png B.png: number of differing pixels between two 8-bit PNGs (stdlib only). GPLv3."""
+"""pngdiff.py A.png B.png [max-differing-pixels]: number of differing pixels between two 8-bit PNGs (stdlib only). GPLv3."""
 import struct, sys, zlib
 
 def load(p):
@@ -30,6 +30,7 @@ def load(p):
         out.append(bytes(line)); prev = line
     return w, h, bpp, out
 
+limit = int(sys.argv[3]) if len(sys.argv) > 3 else 0   # tolerated differing pixels (a spinner's phase)
 wa, ha, ba, A = load(sys.argv[1]); wb, hb, bb, B = load(sys.argv[2])
 if (wa, ha) != (wb, hb):
     print("size differs: %dx%d vs %dx%d" % (wa, ha, wb, hb)); sys.exit(2)
@@ -39,4 +40,4 @@ for ra, rb in zip(A, B):
         for x in range(wa):
             if ra[x*ba:x*ba+3] != rb[x*bb:x*bb+3]: diff += 1
 print("%d of %d pixels differ" % (diff, wa*ha))
-sys.exit(0 if diff == 0 else 1)
+sys.exit(0 if diff <= limit else 1)

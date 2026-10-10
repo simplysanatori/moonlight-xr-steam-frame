@@ -2,6 +2,7 @@
 // tests/launcher/build-stock.sh makes for the screenshot comparison. Header only; does nothing
 // unless the environment asks. GPLv3.
 //   MLXR_LAUNCHER_PAGE=settings | apps[:N]      pushes that page (N = the PC's index in the grid)
+//   MLXR_LAUNCHER_WINDOW=WxH                   resizes the window (to see a whole Settings page)
 //   MLXR_LAUNCHER_SCREENSHOT="/p/a.png@1500,/p/b.png@3000"   grabs the window at those times, then quits
 #pragma once
 
@@ -52,6 +53,11 @@ inline void install(QQmlApplicationEngine& engine)
     QObject* root = engine.rootObjects().value(0);
     if (!root) {
         return;
+    }
+    const QString size = qEnvironmentVariable("MLXR_LAUNCHER_WINDOW");
+    if (size.contains('x')) {
+        root->setProperty("width", size.section('x', 0, 0).toInt());
+        root->setProperty("height", size.section('x', 1, 1).toInt());
     }
     const QString page = qEnvironmentVariable("MLXR_LAUNCHER_PAGE");
     if (!page.isEmpty()) {

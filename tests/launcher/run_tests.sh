@@ -164,11 +164,18 @@ selftest "laptop:1" >/dev/null 2>&1; [ $? = 21 ] && ok "unknown app is reported"
 if [ -n "$SHOTS" ]; then
     mkdir -p "$SHOTS"
     setconf mdns=false   # no discovery: the UI tests must not talk to real PCs
-    MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs.png@2500" "$L" >"$t/ui.out" 2>&1; rc=$?
+    # with the hand-off active (a client is found): no local decoder probe, so no hardware-decoder warning
+    MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs.png@2500" "$L" >"$t/ui.out" 2>&1; rc=$?
     [ $rc = 0 ] && ok "UI starts, loads, exits (offscreen)" || fail "UI exit $rc"
     QMLERR='TypeError|ReferenceError|is not a function|is not defined|Cannot assign|Unable to assign|qrc:/[^ ]*(Error|error)'
     grep -Eq "$QMLERR" "$t/ui.out" && { fail "QML errors:"; grep -E "$QMLERR" "$t/ui.out" | head; } || ok "no QML errors on start"
     grep -q "Screenshot.*saved" "$t/ui.out" && ok "screenshot written" || fail "no screenshot"
+    grep -q "Failed to find ANY working\|Unable to find working decoder" "$t/ui.out" && fail "decoder probe ran in hand-off mode" || ok "hand-off mode: no local decoder probe"
+    MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings.png@3000" "$L" >"$t/ui3.out" 2>&1
+    grep -Eq "$QMLERR" "$t/ui3.out" && { fail "settings QML errors"; grep -E "$QMLERR" "$t/ui3.out" | head; } || ok "settings page loads in hand-off mode (no QML errors)"
+    # MLXR_HANDOFF=0: the stock probe runs again
+    MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1
+    grep -q "Unable to find working decoder\|Failed to initialize VAAPI" "$t/ui4.out" && ok "hand-off off: stock decoder probe runs" || fail "stock probe missing with MLXR_HANDOFF=0"
     # the segue with a running fake client, then the client failing: dialog
     FAKE_SLEEP=4 FAKE_MODE=err MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_DEMO="DESKTOP-EXAMPLE:Desktop" \
       MLXR_LAUNCHER_SCREENSHOT="$SHOTS/segue.png@2500,$SHOTS/after.png@7500" "$L" >"$t/ui2.out" 2>&1; rc=$?

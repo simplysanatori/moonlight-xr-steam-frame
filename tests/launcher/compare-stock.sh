@@ -1,4 +1,5 @@
 #!/bin/bash
+# (up to 1500 differing pixels are tolerated: the busy spinner on a PC tile is animated.)
 # Screenshots of the computer grid, an app grid and the settings page from stock moonlight-qt 6.1.0
 # (tests/launcher/build-stock.sh) and from the launcher (hand-off disabled paths untouched), same
 # synthetic config, offscreen; then a pixel comparison. Needs the launcher and the stock build.
@@ -36,9 +37,12 @@ shoot() { # name binary extra-env...
     done
 }
 shoot stock "$STOCK"
-shoot launcher "$L" MLXR_LAUNCHER_PROFILE=Moonlight MLXR_NO_SEED=1
+# hand-off off (MLXR_HANDOFF=0): must be pixel-identical to stock; then the hand-off mode for the eye
+shoot launcher "$L" MLXR_LAUNCHER_PROFILE=Moonlight MLXR_NO_SEED=1 MLXR_HANDOFF=0
+printf '#!/bin/sh\nexit 0\n' > "$t/client"; chmod +x "$t/client"
+shoot handoff "$L" MLXR_LAUNCHER_PROFILE=Moonlight MLXR_NO_SEED=1 MLXR_NATIVE_CLIENT="$t/client"
 rc=0
 for page in pcs settings apps; do
-    printf '%s: ' "$page"; python3 -I "$here/pngdiff.py" "$OUT/stock-$page.png" "$OUT/launcher-$page.png" || rc=1
+    printf '%s: ' "$page"; python3 -I "$here/pngdiff.py" "$OUT/stock-$page.png" "$OUT/launcher-$page.png" 1500 || rc=1
 done
 exit $rc
