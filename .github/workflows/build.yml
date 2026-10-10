@@ -3,12 +3,8 @@ name: build
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
   workflow_dispatch:
-
-permissions:
-  contents: write   # only used to attach the tarball to a release on a v* tag
 
 jobs:
   linux-arm64:
@@ -60,7 +56,11 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure -j2 -E '^(audio_pulse|video_|shaders_)'
 
-      - name: Release tarball
+      # This tarball is a build check, not a release. Ubuntu 24.04 ships
+      # FFmpeg 6.1 (libavcodec.so.60); SteamOS has 7.0 (.61), so a binary
+      # linked here will not start on the Frame. Releases are built on the
+      # Frame with tools/release.sh.
+      - name: Tarball (build check, not for the Frame)
         run: |
           mkdir -p dist
           OUT=dist NO_VERIFY=1 ./tools/release.sh
@@ -68,16 +68,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: moonlight-xr-native-linux-arm64
+          name: ci-build-ubuntu24.04-arm64-not-for-the-frame
           path: |
             dist/*.tar.gz
             dist/SHA256SUMS
           if-no-files-found: error
-
-      - name: Attach to the GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*.tar.gz
-            dist/SHA256SUMS
