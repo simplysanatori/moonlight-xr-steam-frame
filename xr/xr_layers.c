@@ -1,0 +1,833 @@
+// The end of the frame: every composition layer the session shows,
+// assembled in draw order and handed to the compositor.
+//
+// Moonlight XR Native: ported from the Steam Frame fork of Moonlight XR's
+// xr-renderer/xr_layers.c (Gilleece, GPLv3; the fork's transparent
+// passthrough projection layer kept). The order, the poses, the sizes, the
+// fades and the layer budget are upstream's. What changed:
+//   - every piece of art is a sub-rect of the one UI atlas swapchain
+//     (xr_assets.c) instead of a swapchain of its own;
+//   - the settings panel's rings, thumbs, marks and readout strip are drawn
+//     into the panel itself (lane U), so the panel is one quad plus the
+//     clock strip; the picker's, the keyboard's, the hint's and the Ko-fi
+//     sheet's rings stay upstream's outline quads;
+//   - a curved picture is the host's projection layer (mlxr_pass_panel), there
+//     being no cylinder layers on SteamVR;
+//   - nativeEndFrame's video draw is the host's (xr_session.c); this builds
+//     the layers it submits (xrBuildLayers);
+//   - native: the launcher's list stands in the picture's place;
+//   - the room, the glow, the controller models and the splash are not drawn
+//     (M5 and later; xr_later.c).
+#include "xr_native.h"
+
+// What a frame carries at its fullest on the Frame: passthrough, the picture,
+// the stats, the move pill, six bar buttons (environment, cog, keyboard, exit,
+// ray, head aim), the ray and the dot, and the toast: 14 of SteamVR's 16. A
+// modal sheds the bar furniture the frame it opens, as upstream: the settings
+// panel brings its own quad, the clock strip and the cog button. The drop
+// order below is upstream's, for a frame that would still go over.
+#define FRAME_MAX_LAYERS XR_FRAME_MAX_LAYERS
+
+typedef struct {
+    XrCompositionLayerProjection passthrough;
+    XrCompositionLayerProjectionView passthroughViews[ROOM_EYES];
+    XrCompositionLayerQuad video[2];
+    XrCompositionLayerQuad launcher;
+    XrCompositionLayerQuad overlay;
+    XrCompositionLayerQuad handle;
+    XrCompositionLayerQuad envButton;
+    XrCompositionLayerQuad cogButton;
+    XrCompositionLayerQuad kbButton;
+    XrCompositionLayerQuad exitButton;
+    XrCompositionLayerQuad stereoButton;
+    XrCompositionLayerQuad rayButton;
+    XrCompositionLayerQuad aimButton;
+    XrCompositionLayerQuad padButton;
+    XrCompositionLayerQuad exitPrompt;
+    XrCompositionLayerQuad report;
+    XrCompositionLayerQuad hint;
+    XrCompositionLayerQuad kofi;
+    XrCompositionLayerQuad picker;
+    XrCompositionLayerQuad outline[2];
+    XrCompositionLayerQuad cogPanel;
+    // The hover ring's slot (upstream: one per option row plus the hover)
+    XrCompositionLayerQuad cogMark[COG_OPTION_COUNT + 1];
+    XrCompositionLayerQuad cogClock;
+    XrCompositionLayerQuad kbPanel;
+    XrCompositionLayerQuad kbMark;
+    XrCompositionLayerQuad beam;
+    XrCompositionLayerQuad dot;
+    XrCompositionLayerQuad toast;
+    const XrCompositionLayerBaseHeader* order[FRAME_MAX_LAYERS];
+    uint32_t count;
+} FrameLayers;
+
+// Upstream kept these on nativeEndFrame's stack for as long as xrEndFrame
+// needed them; the host calls xrEndFrame after this returns, so they live here
+static FrameLayers frameLayers;
+
+// What a layer chains on as it fades. SteamVR has no colour scale bias, so
+// every fade is a cut (fadeStep's smooth is off) and nothing is chained.
+static const void* fadeNext(XrCtx* ctx, FrameLayers* layers, int slot, int sharp, float level) {
+    (void)layers;
+    (void)slot;
+    (void)sharp;
+    (void)level;
+    (void)ctx;
+    return NULL;
+}
+
+// What every layer builder reads about this frame, worked out once
+typedef struct {
+    XrSpace space;
+    XrPosef screenPose;
+    float screenWidth;
+    float screenHeight;
+    float aspect;
+    float curve;
+    int screenCurved;
+    int stereo;
+    int roomOn;
+    int headLocked;
+    int eyeSwap;
+    int barArea;
+    BarFrame bar;
+} FrameView;
+
+static void dropLayer(FrameLayers* layers, const void* layer) {
+    for (uint32_t i = 0; i < layers->count; i++) {
+        if (layers->order[i] == (const XrCompositionLayerBaseHeader*)layer) {
+            memmove(&layers->order[i], &layers->order[i + 1],
+                    (layers->count - i - 1) * sizeof(layers->order[0]));
+            layers->count--;
+            return;
+        }
+    }
+}
+
+static void pushLayer(XrCtx* ctx, FrameLayers* layers, const void* layer) {
+    if (layers->count >= FRAME_MAX_LAYERS) {
+        if (!ctx->layerDropWarned) {
+            ctx->layerDropWarned = 1;
+            LOGE("frame needs more than %d composition layers, dropping the rest",
+                 FRAME_MAX_LAYERS);
+        }
+        return;
+    }
+    layers->order[layers->count++] = (const XrCompositionLayerBaseHeader*)layer;
+}
+
+// A quad in the given space showing a texW x texH rect of one swapchain
+// image, from texX, texY
+static void quadLayerRect(XrCompositionLayerQuad* quad, const void* next,
+                          XrCompositionLayerFlags flags, XrSwapchain chain, int texX, int texY,
+                          int texW, int texH, XrSpace space, XrPosef pose, float width,
+                          float height) {
+    memset(quad, 0, sizeof(*quad));
+    quad->type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+    quad->next = next;
+    quad->layerFlags = flags;
+    quad->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+    quad->subImage.swapchain = chain;
+    quad->subImage.imageRect.offset.x = texX;
+    quad->subImage.imageRect.offset.y = texY;
+    quad->subImage.imageRect.extent.width = texW;
+    quad->subImage.imageRect.extent.height = texH;
+    quad->subImage.imageArrayIndex = 0;
+    quad->space = space;
+    quad->pose = pose;
+    quad->size.width = width;
+    quad->size.height = height;
+}
+
+// Native: a quad showing one slot of the UI atlas, premultiplied, alpha blended
+static void atlasQuad(XrCtx* ctx, XrCompositionLayerQuad* quad, const void* next, int slot,
+                      XrSpace space, XrPosef pose, float width, float height) {
+    UiRectPx r = xrAtlasRect(slot);
+    quadLayerRect(quad, next, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                  xrAtlasSwapchain(ctx), r.x, r.y, r.w, r.h, space, pose, width, height);
+}
+
+static XrPosef poseOffset(XrPosef base, Vec3 local) {
+    Vec3 offset = quatRotate(base.orientation, local);
+    XrPosef pose;
+    pose.orientation = base.orientation;
+    pose.position.x = base.position.x + offset.x;
+    pose.position.y = base.position.y + offset.y;
+    pose.position.z = base.position.z + offset.z;
+    return pose;
+}
+
+// Compositor sharpening and supersampling. SteamVR offers neither layer
+// setting, so this only says what is asked for; the sharpening is done in
+// the warp pass instead (xr_session.c).
+static void setLayerSettings(XrCtx* ctx, FrameLayers* layers) {
+    (void)layers;
+    int logged = ctx->sharpenMode * 3 + ctx->supersampleMode + 1;
+    if (logged != ctx->layerFlagsLogged) {
+        ctx->layerFlagsLogged = logged;
+        LOGEV("layer flags: sharpen %d supersample %d%s", ctx->sharpenMode,
+              ctx->supersampleMode, ctx->layerSettingsSupported ? ""
+                      : " (no layer settings on this runtime: sharpening in the warp pass, supersampling not yet)");
+    }
+}
+
+// A transparent projection layer for passthrough, filled once when it is
+// made (the fork's: SteamVR on the Steam Frame leaves the background opaque
+// without one)
+#define PASSTHROUGH_TEX 16
+static void addPassthroughLayer(XrCtx* ctx, FrameLayers* layers) {
+    if (ctx->passthroughFailed) {
+        return;
+    }
+    if (ctx->passthroughSwapchain == XR_NULL_HANDLE
+            && (ctx->ensurePassthrough == NULL || !ctx->ensurePassthrough(ctx, PASSTHROUGH_TEX))) {
+        ctx->passthroughFailed = 1;
+        return;
+    }
+
+    XrViewLocateInfo locateInfo = { XR_TYPE_VIEW_LOCATE_INFO };
+    locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    locateInfo.displayTime = ctx->predictedDisplayTime;
+    locateInfo.space = ctx->localSpace;
+    XrViewState state = { XR_TYPE_VIEW_STATE };
+    XrView views[ROOM_EYES] = { { XR_TYPE_VIEW }, { XR_TYPE_VIEW } };
+    uint32_t count = 0;
+    if (XR_FAILED(xrLocateViews(ctx->session, &locateInfo, &state, ROOM_EYES, &count, views))
+            || count < ROOM_EYES) {
+        return;
+    }
+
+    XrCompositionLayerProjection* layer = &layers->passthrough;
+    memset(layer, 0, sizeof(*layer));
+    memset(layers->passthroughViews, 0, sizeof(layers->passthroughViews));
+    layer->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+    layer->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    layer->space = ctx->localSpace;
+    layer->viewCount = ROOM_EYES;
+    layer->views = layers->passthroughViews;
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        XrCompositionLayerProjectionView* projView = &layers->passthroughViews[eye];
+        projView->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+        projView->pose = views[eye].pose;
+        projView->fov = views[eye].fov;
+        projView->subImage.swapchain = ctx->passthroughSwapchain;
+        projView->subImage.imageRect.extent.width = PASSTHROUGH_TEX;
+        projView->subImage.imageRect.extent.height = PASSTHROUGH_TEX;
+    }
+    pushLayer(ctx, layers, layer);
+}
+
+// The picture, one layer per eye. With the 3D off (natively always, until
+// M6) the left half alone, flat, to both eyes. On a curve the host's
+// projection layer stands in for upstream's cylinder.
+static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
+                           const XrCompositionLayerProjection* curved) {
+    if (view->curve > 0.01f && ctx->cylinderSupported) {
+        if (curved != NULL) {
+            pushLayer(ctx, layers, curved);
+        }
+        return;
+    }
+    int viewCount = view->stereo && ctx->drawnEyes == 2 ? 2 : 1;
+    for (int eye = 0; eye < viewCount; eye++) {
+        XrSwapchainSubImage subImage;
+        subImage.swapchain = ctx->swapchain;
+        int half = viewCount == 2 && view->eyeSwap ? (1 - eye) : eye;
+        int x = view->stereo ? half * ctx->videoWidth : 0;
+        int w = ctx->videoWidth;
+        if (view->stereo && ctx->seamInset && w > 2 * SEAM_INSET_TEXELS) {
+            x += SEAM_INSET_TEXELS;
+            w -= 2 * SEAM_INSET_TEXELS;
+        }
+        subImage.imageRect.offset.x = x;
+        subImage.imageRect.offset.y = 0;
+        subImage.imageRect.extent.width = w;
+        subImage.imageRect.extent.height = ctx->videoHeight;
+        subImage.imageArrayIndex = 0;
+
+        XrEyeVisibility visibility = viewCount == 1 ? XR_EYE_VISIBILITY_BOTH :
+                (eye == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT);
+        XrCompositionLayerQuad* quad = &layers->video[eye];
+        quadLayerRect(quad, NULL, 0, ctx->swapchain, 0, 0, ctx->videoWidth, ctx->videoHeight,
+                      view->space, view->screenPose, view->screenWidth, view->screenHeight);
+        quad->eyeVisibility = visibility;
+        quad->subImage = subImage;
+        pushLayer(ctx, layers, quad);
+    }
+}
+
+// Native: the launcher's list in the picture's place, as large as fits it
+static void addLauncherLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    if (ctx->launcher == LAUNCHER_NONE) {
+        return;
+    }
+    float pictureAspect = view->screenWidth / view->screenHeight;
+    float listAspect = ctx->launcherAspect > 0.0f ? ctx->launcherAspect : 1.6f;
+    float w = view->screenWidth, h = view->screenHeight;
+    if (listAspect < pictureAspect) {
+        w = h * listAspect;
+    }
+    else {
+        h = w / listAspect;
+    }
+    atlasQuad(ctx, &layers->launcher, NULL,
+              ctx->launcher == LAUNCHER_PCS ? UI_PANEL_PC_LIST : UI_PANEL_APP_LIST, view->space,
+              view->screenPose, w, h);
+    pushLayer(ctx, layers, &layers->launcher);
+}
+
+// The stats overlay in the corner of the picture
+static void addOverlayLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    if (ctx->overlayHasContent && ctx->overlayVisible) {
+        float overlayW = view->screenWidth * 0.30f;
+        float overlayH = overlayW * (float)ATLAS_OVERLAY_H / (float)ATLAS_OVERLAY_W;
+        float margin = view->screenWidth * 0.02f;
+        // Pinned to the top left of the screen in the screen's own frame,
+        // so it follows wherever the screen has been moved to
+        Vec3 statsLocal = { -view->screenWidth * 0.5f + overlayW * 0.5f + margin,
+                            view->screenHeight * 0.5f - overlayH * 0.5f - margin,
+                            0.01f };
+        atlasQuad(ctx, &layers->overlay, NULL, ATLAS_OVERLAY, view->space,
+                  poseOffset(view->screenPose, statsLocal), overlayW, overlayH);
+        pushLayer(ctx, layers, &layers->overlay);
+    }
+}
+
+// The move bar or the resize corner, whichever the ray is over
+static void addHandleLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    int isBar = view->barArea && !view->roomOn;
+    int isCorner = !view->barArea && ctx->hoverKind == HOVER_CORNER && cornerSide(ctx) > 0.0f;
+    if (ctx->handleArtReady && (isBar || isCorner)) {
+        Vec3 local;
+        float sizeW, sizeH;
+        float roll = 0.0f;
+
+        if (isBar) {
+            sizeW = view->bar.width * BAR_WIDTH_FRAC;
+            sizeH = view->bar.width * BAR_HEIGHT_FRAC;
+            local.x = 0.0f;
+            local.y = -(view->bar.height * 0.5f + view->bar.width * BAR_DROP_FRAC);
+        }
+        else {
+            sizeW = sizeH = cornerSide(ctx);
+            int right = ctx->hoverCorner == 1 || ctx->hoverCorner == 3;
+            int bottom = ctx->hoverCorner >= 2;
+            // Half a bracket outside the corner in both axes, so its inner
+            // tip touches the corner and none of it covers the picture
+            local.x = (right ? 0.5f : -0.5f) * (view->screenWidth + sizeW);
+            local.y = (bottom ? -0.5f : 0.5f) * (view->screenHeight + sizeH);
+            // The art is a top left bracket, so the other three are the
+            // same picture rolled about the screen normal
+            if (ctx->hoverCorner == 1) roll = -1.5707963f;
+            else if (ctx->hoverCorner == 2) roll = 1.5707963f;
+            else if (ctx->hoverCorner == 3) roll = 3.1415927f;
+        }
+        local.z = 0.005f;
+        float yaw = 0.0f;
+        curveLocal(&local, ctx->screenRadius, view->screenCurved, &yaw);
+
+        XrQuaternionf rollQ = { 0.0f, 0.0f, sinf(roll * 0.5f), cosf(roll * 0.5f) };
+        Vec3 yawAxis = { 0.0f, 1.0f, 0.0f };
+        XrQuaternionf turnQ = quatMul(axisAngleQuat(yawAxis, yaw), rollQ);
+
+        atlasQuad(ctx, &layers->handle, NULL, isBar ? ATLAS_HANDLE : ATLAS_CORNER, view->space,
+                  poseOffset(view->screenPose, local), sizeW, sizeH);
+        layers->handle.pose.orientation = quatNorm(quatMul(view->screenPose.orientation, turnQ));
+        pushLayer(ctx, layers, &layers->handle);
+    }
+}
+
+// Where the bar's row hangs, said when it moves by a centimetre or more
+static void logBarPlacement(XrCtx* ctx, const BarFrame* frame) {
+    if (ctx->grabMode != GRAB_NONE || ctx->cogDragSlider >= 0) {
+        return;
+    }
+    Vec3 edgeLocal = { 0.0f, -frame->height * 0.5f, 0.0f };
+    Vec3 barLocal = { 0.0f, -(frame->height * 0.5f + frame->width * BAR_DROP_FRAC), 0.0f };
+    XrPosef edge = poseOffset(frame->pose, edgeLocal);
+    XrPosef bar = poseOffset(frame->pose, barLocal);
+    Vec3 e = { edge.position.x, edge.position.y, edge.position.z };
+    Vec3 b = { bar.position.x, bar.position.y, bar.position.z };
+    Vec3 moved = vecSub(e, ctx->barSaidEdge);
+    if (fabsf(frame->width - ctx->barSaidWidth) < 0.01f && vecDot(moved, moved) < 1e-4f) {
+        return;
+    }
+    ctx->barSaidWidth = frame->width;
+    ctx->barSaidEdge = e;
+    LOGI("bar row: picture's bottom edge at %.2f %.2f %.2f, %.2f m off; bar at %.2f %.2f %.2f, "
+         "%.2f m off, %.2f m wide, buttons %.3f m, %s",
+         e.x, e.y, e.z, sqrtf(vecDot(e, e)), b.x, b.y, b.z, sqrtf(vecDot(b, b)),
+         frame->width * BAR_WIDTH_FRAC, frame->width * COG_BUTTON_FRAC,
+         roomEffective(ctx) > 0 ? "a room's picture at the stand in's size"
+                                : frame->curved ? "on the curved picture" : "on the picture");
+}
+
+// One of the buttons beside the move bar, in its place in the bar's row,
+// showing its face's cell of the buttons' strip (a slot of the atlas)
+static void addBarButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
+                         XrCompositionLayerQuad* quad, int cell, int slot, int hot,
+                         const void* next) {
+    const BarFrame* frame = &view->bar;
+    Vec3 local;
+    float side;
+    barSlotPlacement(slot, frame->width, frame->height, &local, &side);
+    float yaw = 0.0f;
+    curveLocal(&local, frame->radius, frame->curved, &yaw);
+    // Grows a little when the ray is on it, which is the only feedback
+    // a quad layer can give without a second texture
+    float scale = hot ? 1.18f : 1.0f;
+    int cellX, cellY;
+    buttonCellOrigin(cell, &cellX, &cellY);
+    UiRectPx strip = xrAtlasRect(UI_PANEL_BUTTON_ATLAS);
+    quadLayerRect(quad, next, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                  xrAtlasSwapchain(ctx), strip.x + cellX, strip.y + cellY, BUTTON_TEX, BUTTON_TEX,
+                  view->space, poseOffset(frame->pose, local), side * scale, side * scale);
+    if (yaw != 0.0f) {
+        Vec3 up = { 0.0f, 1.0f, 0.0f };
+        quad->pose.orientation = quatNorm(quatMul(frame->pose.orientation,
+                                                  axisAngleQuat(up, yaw)));
+    }
+    pushLayer(ctx, layers, quad);
+}
+
+static int panelButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers, int panel,
+                       int open, const void** next) {
+    float level = ctx->panelFades[panel].level;
+    *next = NULL;
+    if (view->barArea || open) {
+        return 1;
+    }
+    if (level > 0.0f) {
+        *next = fadeNext(ctx, layers, panel, 0, level);
+        return 1;
+    }
+    return 0;
+}
+
+// The environment, settings, keyboard and exit buttons beside the move bar,
+// and the switches further out
+static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    const void* next = NULL;
+    if (ctx->envButtonReady
+            && panelButton(ctx, view, layers, FADE_PICKER, ctx->pickerOpen, &next)) {
+        addBarButton(ctx, view, layers, &layers->envButton, BTN_CELL_ENV,
+                     BAR_SLOT_ENV, ctx->envButtonHot, next);
+    }
+    int kofi = ctx->kofiOpen || ctx->panelFades[FADE_KOFI].level > 0.0f;
+    if (ctx->cogButtonReady
+            && panelButton(ctx, view, layers, kofi ? FADE_KOFI : FADE_COG,
+                           ctx->cogOpen || ctx->kofiOpen, &next)) {
+        addBarButton(ctx, view, layers, &layers->cogButton, BTN_CELL_COG,
+                     BAR_SLOT_COG, ctx->cogButtonHot || ctx->cogOpen || ctx->kofiOpen, next);
+    }
+    if (ctx->kbButtonReady && view->barArea) {
+        addBarButton(ctx, view, layers, &layers->kbButton, BTN_CELL_KB,
+                     BAR_SLOT_KB, ctx->kbButtonHot, NULL);
+    }
+    if (ctx->exitButtonReady
+            && panelButton(ctx, view, layers, FADE_EXIT, ctx->exitConfirmOpen, &next)) {
+        addBarButton(ctx, view, layers, &layers->exitButton, BTN_CELL_EXIT,
+                     BAR_SLOT_EXIT, ctx->exitButtonHot || ctx->exitConfirmOpen, next);
+    }
+    if (ctx->padButtonReady && view->barArea) {
+        addBarButton(ctx, view, layers, &layers->padButton,
+                     BTN_CELL_PAD + (ctx->padMode ? 1 : 0),
+                     BAR_SLOT_PAD, ctx->padButtonHot, NULL);
+    }
+    if (ctx->aimButtonReady && view->barArea && headAimCanAct(ctx)) {
+        addBarButton(ctx, view, layers, &layers->aimButton,
+                     BTN_CELL_AIM + (headAimSwitchOn(ctx->headAimSetting,
+                                                     ctx->headAimFlipped) ? 1 : 0),
+                     BAR_SLOT_AIM, ctx->aimButtonHot, NULL);
+    }
+    if (ctx->rayButtonReady && view->barArea) {
+        addBarButton(ctx, view, layers, &layers->rayButton,
+                     BTN_CELL_RAY + (raySwitchOn(ctx->raySetting, ctx->rayFlipped) ? 1 : 0),
+                     BAR_SLOT_RAY, ctx->rayButtonHot, NULL);
+    }
+    if (ctx->stereoButtonReady && view->barArea) {
+        addBarButton(ctx, view, layers, &layers->stereoButton,
+                     BTN_CELL_STEREO + (ctx->stereoLive ? 1 : 0),
+                     BAR_SLOT_STEREO, ctx->stereoButtonHot, NULL);
+    }
+}
+
+// The prompt the exit button opens, on the pose frozen when it opened; the
+// hovered button is drawn into it (lane U), as upstream's three sheets were
+static void addExitPromptLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    float level = ctx->panelFades[FADE_EXIT].level;
+    if (level > 0.0f) {
+        atlasQuad(ctx, &layers->exitPrompt, fadeNext(ctx, layers, FADE_EXIT, 1, level),
+                  UI_PANEL_EXIT, view->space, ctx->exitPose, ctx->exitW, ctx->exitH);
+        pushLayer(ctx, layers, &layers->exitPrompt);
+    }
+}
+
+static void addReportLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    float level = ctx->panelFades[FADE_REPORT].level;
+    if (level > 0.0f && ctx->reportReady) {
+        atlasQuad(ctx, &layers->report, fadeNext(ctx, layers, FADE_REPORT, 1, level),
+                  UI_PANEL_REPORT, view->space, ctx->reportPose, ctx->reportW, ctx->reportH);
+        pushLayer(ctx, layers, &layers->report);
+    }
+}
+
+// An outline ring over part of a sheet (upstream's hover marks)
+static void addRing(XrCtx* ctx, FrameLayers* layers, XrCompositionLayerQuad* mark, XrSpace space,
+                    XrPosef sheetPose, float sheetW, float sheetH, float l, float t, float r,
+                    float b, float scaleW, float scaleH) {
+    Vec3 local;
+    local.x = ((l + r) * 0.5f - 0.5f) * sheetW;
+    local.y = (0.5f - (t + b) * 0.5f) * sheetH;
+    local.z = 0.004f;
+    atlasQuad(ctx, mark, NULL, ATLAS_OUTLINE, space, poseOffset(sheetPose, local),
+              (r - l) * sheetW * scaleW, (b - t) * sheetH * scaleH);
+    pushLayer(ctx, layers, mark);
+}
+
+static void addHandHintLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    float level = ctx->panelFades[FADE_HINT].level;
+    if (level <= 0.0f || !ctx->hintReady) {
+        return;
+    }
+    atlasQuad(ctx, &layers->hint, fadeNext(ctx, layers, FADE_HINT, 1, level), UI_PANEL_HINT,
+              view->space, ctx->hintPose, ctx->hintW, ctx->hintH);
+    pushLayer(ctx, layers, &layers->hint);
+
+    int zone = ctx->hintHoverZone;
+    if (!ctx->hintOpen || zone == HINT_ZONE_NONE || !ctx->outlineReady) {
+        return;
+    }
+    float l = zone == HINT_ZONE_OK ? HINT_OK_L : HINT_NEVER_L;
+    float r = zone == HINT_ZONE_OK ? HINT_OK_R : HINT_NEVER_R;
+    addRing(ctx, layers, &layers->cogMark[COG_OPTION_COUNT], view->space, ctx->hintPose, ctx->hintW,
+            ctx->hintH, l, HINT_BTN_T, r, HINT_BTN_B, 1.04f, 1.12f);
+}
+
+static void addKofiLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    float level = ctx->panelFades[FADE_KOFI].level;
+    if (level <= 0.0f || !ctx->kofiReady) {
+        return;
+    }
+    atlasQuad(ctx, &layers->kofi, fadeNext(ctx, layers, FADE_KOFI, 1, level), UI_PANEL_KOFI,
+              view->space, ctx->kofiPose, ctx->kofiW, ctx->kofiH);
+    pushLayer(ctx, layers, &layers->kofi);
+    if (!ctx->kofiOpen || ctx->kofiHoverZone != KOFI_ZONE_CLOSE || !ctx->outlineReady) {
+        return;
+    }
+    addRing(ctx, layers, &layers->cogMark[COG_OPTION_COUNT], view->space, ctx->kofiPose, ctx->kofiW,
+            ctx->kofiH, KOFI_CLOSE_L, KOFI_BTN_T, KOFI_CLOSE_R, KOFI_BTN_B, 1.04f, 1.12f);
+}
+
+// The environment grid and the rings on its hovered and chosen cells
+static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    float level = ctx->panelFades[FADE_PICKER].level;
+    if (level > 0.0f && ctx->pickerReady) {
+        float pickW, pickH;
+        XrPosef pickPose = pickerPose(ctx, &pickW, &pickH);
+        atlasQuad(ctx, &layers->picker, fadeNext(ctx, layers, FADE_PICKER, 1, level),
+                  UI_PANEL_PICKER, view->space, pickPose, pickW, pickH);
+        pushLayer(ctx, layers, &layers->picker);
+
+        if (ctx->outlineReady) {
+            float cellW = pickW / (float)PICKER_COLS;
+            float cellH = pickH * (float)PICKER_CELL_PX / (float)PICKER_TEX_H;
+            int marks[2] = { ctx->pickerHover, ctx->pickerChoice };
+            float scales[2] = { 1.0f, 0.84f };
+            for (int m = 0; m < 2; m++) {
+                int cell = marks[m];
+                if (cell < 0 || cell >= ctx->pickerCells) {
+                    continue;
+                }
+                int col = cell % PICKER_COLS;
+                int row = cell / PICKER_COLS;
+                float centreV = (row * PICKER_BAND_PX + PICKER_HEADER_PX
+                                 + PICKER_CELL_PX * 0.5f) / (float)PICKER_TEX_H;
+                Vec3 local;
+                local.x = ((col + 0.5f) / PICKER_COLS - 0.5f) * pickW;
+                local.y = (0.5f - centreV) * pickH;
+                local.z = 0.004f;
+                atlasQuad(ctx, &layers->outline[m], fadeNext(ctx, layers, FADE_PICKER, 0, level),
+                          ATLAS_OUTLINE, view->space, poseOffset(pickPose, local),
+                          cellW * scales[m], cellH * scales[m]);
+                pushLayer(ctx, layers, &layers->outline[m]);
+            }
+        }
+    }
+}
+
+// The settings panel at the pose it was opened with, and the clock strip
+// over its top edge. Its rings, thumbs and readouts are in the panel's art.
+static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    float level = ctx->panelFades[FADE_COG].level;
+    if (level > 0.0f) {
+        atlasQuad(ctx, &layers->cogPanel, fadeNext(ctx, layers, FADE_COG, 1, level),
+                  UI_PANEL_COG, view->space, ctx->cogPose, ctx->cogW, ctx->cogH);
+        pushLayer(ctx, layers, &layers->cogPanel);
+        if (ctx->cogClockReady) {
+            float stripW = (float)COG_CLOCK_TEX_W / (float)COG_TEX_W * ctx->cogW;
+            float stripH = (float)COG_CLOCK_TEX_H / (float)COG_TEX_H * ctx->cogH;
+            Vec3 local = { 0.0f, ctx->cogH * 0.5f + stripH * 0.75f, 0.0f };
+            atlasQuad(ctx, &layers->cogClock, fadeNext(ctx, layers, FADE_COG, 1, level),
+                      UI_PANEL_CLOCK, view->space, poseOffset(ctx->cogPose, local), stripW, stripH);
+            pushLayer(ctx, layers, &layers->cogClock);
+        }
+    }
+}
+
+// The keyboard and the ring on the key under the ray
+static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    float level = ctx->panelFades[FADE_KB].level;
+    if (level > 0.0f) {
+        atlasQuad(ctx, &layers->kbPanel, fadeNext(ctx, layers, FADE_KB, 1, level),
+                  UI_PANEL_KEYBOARD, view->space, ctx->kbPose, ctx->kbW, ctx->kbH);
+        pushLayer(ctx, layers, &layers->kbPanel);
+
+        if (ctx->outlineReady && ctx->kbHoverKey >= 0
+                && ctx->kbHoverKey < ctx->kbKeyCount) {
+            const float* r = &ctx->kbKeyRects[ctx->kbHoverKey * 4];
+            // Swells while the trigger is held, which is the only press
+            // feedback a quad layer can give
+            float grow = ctx->kbKeyDown ? 1.12f : 1.0f;
+            addRing(ctx, layers, &layers->kbMark, view->space, ctx->kbPose, ctx->kbW, ctx->kbH,
+                    r[0], r[1], r[2], r[3], grow, grow);
+        }
+    }
+}
+
+// The laser and the cursor at the end of it
+static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    int beamShown = rayDrawn(ctx->raySetting, ctx->rayFlipped, panelUp(ctx));
+    if (beamShown != ctx->rayDrawnSaid) {
+        if (ctx->rayDrawnSaid >= 0 || !beamShown) {
+            LOGI("ray %s", beamShown ? (raySwitchOn(ctx->raySetting, ctx->rayFlipped)
+                                        ? "drawn" : "drawn while a panel is up")
+                                     : "hidden, the dot stays");
+        }
+        ctx->rayDrawnSaid = beamShown;
+    }
+
+    if (ctx->beamVisible && !ctx->beamGaze && ctx->pointerArtReady) {
+        Vec3 start = { ctx->beamStart.x, ctx->beamStart.y, ctx->beamStart.z };
+        Vec3 end = { ctx->beamEnd.x, ctx->beamEnd.y, ctx->beamEnd.z };
+        Vec3 head = { ctx->headPos.x, ctx->headPos.y, ctx->headPos.z };
+        Vec3 along = vecSub(end, start);
+        float length = sqrtf(along.x * along.x + along.y * along.y + along.z * along.z);
+
+        Vec3 mid = { (start.x + end.x) * 0.5f, (start.y + end.y) * 0.5f,
+                     (start.z + end.z) * 0.5f };
+        Vec3 beamY = vecNorm(along);
+        Vec3 toHead = vecNorm(vecSub(head, mid));
+        Vec3 beamX = vecCross(beamY, toHead);
+        float sideLen = sqrtf(beamX.x * beamX.x + beamX.y * beamX.y + beamX.z * beamX.z);
+        if (sideLen < 0.15f) {
+            Vec3 up = { 0.0f, 1.0f, 0.0f };
+            beamX = vecCross(beamY, up);
+            sideLen = sqrtf(beamX.x * beamX.x + beamX.y * beamX.y + beamX.z * beamX.z);
+            if (sideLen < 0.15f) {
+                Vec3 side = { 1.0f, 0.0f, 0.0f };
+                beamX = vecCross(beamY, side);
+            }
+        }
+
+        if (length > 0.10f && beamShown) {
+            beamX = vecNorm(beamX);
+            Vec3 beamZ = vecCross(beamX, beamY);
+            XrPosef beamPose = { quatFromBasis(beamX, beamY, beamZ),
+                                 { mid.x, mid.y, mid.z } };
+            atlasQuad(ctx, &layers->beam, NULL, ATLAS_BEAM, view->space, beamPose, ctx->beamWidth,
+                      length);
+            pushLayer(ctx, layers, &layers->beam);
+        }
+
+        // Native: the dot is the owner's to hide (the host draws its own
+        // cursor into the picture); a panel up keeps it, being ours
+        if (!ctx->beamFree && (ctx->dotOn || panelUp(ctx) || ctx->launcher != LAUNCHER_NONE)) {
+            Vec3 toHead2 = vecSub(head, end);
+            float away = sqrtf(vecDot(toHead2, toHead2));
+            float dotSize = pointerDotSize(away);
+            if (fabsf(dotSize - ctx->dotSizeSaid) > 0.2f * ctx->dotSizeSaid) {
+                LOGI("cursor dot %.1f cm across at %.2f m", dotSize * 100.0f, away);
+                ctx->dotSizeSaid = dotSize;
+            }
+            Vec3 dotZ = vecNorm(toHead2);
+            Vec3 worldUp = { 0.0f, 1.0f, 0.0f };
+            Vec3 dotX = vecNorm(vecCross(worldUp, dotZ));
+            Vec3 dotY = vecCross(dotZ, dotX);
+            XrPosef dotPose = { quatFromBasis(dotX, dotY, dotZ),
+                                { end.x + dotZ.x * 0.012f, end.y + dotZ.y * 0.012f,
+                                  end.z + dotZ.z * 0.012f } };
+            atlasQuad(ctx, &layers->dot, NULL, ATLAS_DOT, view->space, dotPose, dotSize, dotSize);
+            pushLayer(ctx, layers, &layers->dot);
+        }
+    }
+}
+
+// The toast, hung off the eyes ahead and a little below where they look
+static void addToastLayer(XrCtx* ctx, FrameLayers* layers, int64_t now) {
+    int shown = ctx->toastArtReady && noticeShowing(&ctx->notices, now)
+            && ctx->toastDrawnKind == ctx->notices.current.kind
+            && ctx->toastDrawnArg == ctx->notices.current.arg;
+    fadeStep(&ctx->toastFade, shown, now, ctx->fadeNs, ctx->colorScaleSupported);
+    float level = ctx->toastFade.level;
+    if (level <= 0.0f || !ctx->toastArtReady) {
+        return;
+    }
+    XrPosef pose;
+    memset(&pose, 0, sizeof(pose));
+    pose.orientation.w = 1.0f;
+    pose.position.y = -TOAST_DROP_M;
+    pose.position.z = -TOAST_DISTANCE_M;
+    atlasQuad(ctx, &layers->toast, fadeNext(ctx, layers, FADE_SLOT_TOAST, 1, level), UI_PANEL_TOAST,
+              ctx->viewSpace, pose, TOAST_W_M, TOAST_W_M * TOAST_TEX_H / TOAST_TEX_W);
+    pushLayer(ctx, layers, &layers->toast);
+}
+
+// Steps each panel's fade toward whether it is showing
+static void stepPanelFades(XrCtx* ctx, int64_t now) {
+    static const char* const NAMES[FADE_PANELS] = {
+        "settings panel", "picker", "keyboard", "exit prompt", "report sheet", "hand lock hint",
+        "Ko-fi sheet"
+    };
+    int modal = ctx->pickerOpen || ctx->cogOpen || ctx->exitConfirmOpen || ctx->reportOpen
+            || ctx->hintOpen || ctx->kofiOpen;
+    int shown[FADE_PANELS];
+    shown[FADE_COG] = ctx->cogOpen;
+    shown[FADE_PICKER] = ctx->pickerOpen;
+    shown[FADE_KB] = ctx->kbOpen && (!modal || ctx->reportOpen);
+    shown[FADE_EXIT] = ctx->exitConfirmOpen;
+    shown[FADE_REPORT] = ctx->reportOpen;
+    shown[FADE_HINT] = ctx->hintOpen;
+    shown[FADE_KOFI] = ctx->kofiOpen;
+    ctx->panelFadingOut = 0;
+    for (int p = 0; p < FADE_PANELS; p++) {
+        Fade* fade = &ctx->panelFades[p];
+        if (modal && !shown[p]) {
+            fade->level = 0.0f;
+            fade->running = 0;
+        }
+        int landed = fadeStep(fade, shown[p], now, ctx->fadeNs, ctx->colorScaleSupported);
+        if (landed != FADE_NONE) {
+            LOGI("%s faded %s over %ld ms, %d frames", NAMES[p],
+                 landed == FADE_IN_DONE ? "in" : "out", (long)((now - fade->fromNs) / 1000000L),
+                 fade->frames);
+        }
+        if (!shown[p] && fade->level > 0.0f) {
+            ctx->panelFadingOut = 1;
+        }
+    }
+}
+
+void xrPictureView(XrCtx* ctx, XrPosef* pose, float* width, float* height, XrSpace* space) {
+    *pose = ctx->screenPose;
+    *width = ctx->screenWidth;
+    *height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    *space = (ctx->headLockedPref && roomEffective(ctx) <= 0) ? ctx->viewSpace : ctx->localSpace;
+}
+
+// nativeEndFrame without the video draw and without xrEndFrame
+void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
+    ctx->passthrough = in->passthrough;
+    ctx->prefCurvature = in->curvature;
+    updateControllerModels(ctx);
+
+    FrameView view;
+    view.aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
+    view.stereo = ctx->stereoMode != DEPTH_MODE_OFF;
+    int roomStyle = roomEffective(ctx);
+    view.roomOn = roomStyle > 0;
+    view.headLocked = in->headLocked;
+    view.eyeSwap = in->eyeSwap;
+    // A room hangs the picture on a wall, and a wall does not follow the head
+    // about however the preference is set
+    view.space = (in->headLocked && !view.roomOn) ? ctx->viewSpace : ctx->localSpace;
+
+    view.curve = effectiveCurvature(ctx);
+    int reseeded = updatePlacement(ctx, in->distance, in->quadWidth, view.curve);
+    applyRoomPlacement(ctx, roomStyle, view.aspect, reseeded);
+    if (view.roomOn) {
+        view.curve = 0.0f;
+    }
+    view.screenPose = ctx->screenPose;
+    view.screenWidth = ctx->screenWidth;
+    view.screenHeight = view.screenWidth * view.aspect;
+    view.screenCurved = view.curve > 0.01f && ctx->cylinderSupported;
+    view.bar = barFrame(ctx);
+    logBarPlacement(ctx, &view.bar);
+    int64_t frameNs = nowNs();
+    stepPanelFades(ctx, frameNs);
+    view.barArea = !ctx->pickerOpen && !ctx->cogOpen && !ctx->kbOpen
+            && !ctx->exitConfirmOpen && !ctx->reportOpen && !ctx->hintOpen && !ctx->kofiOpen
+            && !ctx->panelFadingOut
+            && (ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON
+                || ctx->hoverKind == HOVER_COGBUTTON
+                || ctx->hoverKind == HOVER_KBBUTTON
+                || ctx->hoverKind == HOVER_EXITBUTTON
+                || ctx->hoverKind == HOVER_STEREOBUTTON
+                || ctx->hoverKind == HOVER_RAYBUTTON
+                || ctx->hoverKind == HOVER_AIMBUTTON
+                || ctx->hoverKind == HOVER_PADBUTTON);
+
+    // Some runtimes only bring the cameras up on a change of blend mode seen
+    // after the session is focused, so the first focused frame goes opaque
+    int wantPassthrough = ctx->passthrough && ctx->alphaBlendSupported;
+    int blendNow = wantPassthrough && ctx->focusedFrames > 0;
+    out->blend = blendNow ? XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND : XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    if (blendNow && !ctx->passthroughBlendSaid) {
+        ctx->passthroughBlendSaid = 1;
+        LOGEV("passthrough blend enabled after %d focused frames", ctx->focusedFrames);
+    }
+    if (ctx->sessionState == XR_SESSION_STATE_FOCUSED) {
+        ctx->focusedFrames++;
+    }
+
+    FrameLayers* layers = &frameLayers;
+    layers->count = 0;
+    setLayerSettings(ctx, layers);
+    if (blendNow) {
+        addPassthroughLayer(ctx, layers);
+    }
+    if (ctx->everRendered && ctx->shouldRender) {
+        if (ctx->launcher != LAUNCHER_NONE) {
+            addLauncherLayer(ctx, &view, layers);
+        }
+        else if (ctx->videoShown) {
+            addVideoLayers(ctx, &view, layers, in->curved);
+        }
+        addOverlayLayer(ctx, &view, layers);
+        addHandleLayer(ctx, &view, layers);
+        addBarButtonLayers(ctx, &view, layers);
+        addExitPromptLayer(ctx, &view, layers);
+        addPickerLayers(ctx, &view, layers);
+        addCogLayers(ctx, &view, layers);
+        addReportLayer(ctx, &view, layers);
+        addHandHintLayers(ctx, &view, layers);
+        addKofiLayers(ctx, &view, layers);
+        addKeyboardLayers(ctx, &view, layers);
+        addPointerLayers(ctx, &view, layers);
+    }
+    addToastLayer(ctx, layers, frameNs);
+
+    // Over the limit: upstream's order of what goes first (the toast, the
+    // hover ring, the cog button, the clock strip)
+    if (layers->count > (uint32_t)ctx->maxLayerCount) {
+        dropLayer(layers, &layers->toast);
+    }
+    if (layers->count > (uint32_t)ctx->maxLayerCount) {
+        dropLayer(layers, &layers->cogMark[COG_OPTION_COUNT]);
+    }
+    if (layers->count > (uint32_t)ctx->maxLayerCount) {
+        dropLayer(layers, &layers->cogButton);
+    }
+    if (layers->count > (uint32_t)ctx->maxLayerCount) {
+        dropLayer(layers, &layers->cogClock);
+    }
+    if (layers->count >= (uint32_t)ctx->maxLayerCount && !ctx->layerLimitWarned) {
+        ctx->layerLimitWarned = 1;
+        LOGW("submitted %u composition layers against a limit of %d",
+             layers->count, ctx->maxLayerCount);
+    }
+    out->count = layers->count;
+    memcpy(out->order, layers->order, sizeof(out->order[0]) * layers->count);
+}

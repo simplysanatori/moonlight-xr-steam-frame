@@ -1,345 +1,81 @@
-// Moonlight XR Native: OpenXR session, frame loop, video quad, pointer. GPLv3.
+// Moonlight XR Native: the OpenXR session host. GPLv3.
 //
-// Notes from docs/probe/SUMMARY.md: SteamVR accepts a Vulkan 1.2 instance; one
-// refresh rate is offered and SteamVR picks it; the Frame controller profile
-// rejects some paths, so bindings are filtered per path before suggesting.
+// Upstream's xr_session.c and XrRenderer.java's frame loop, natively: one
+// instance, session and Vulkan device for the life of the app; each frame
+// polls events (the session states, a recentre, a refresh rate change), runs
+// the ported input pass (xr_input.c, xrUpdateInput), hands what it decided to
+// the app (the host mouse, the keyboard, the launcher's presses) and to
+// config.ini, redraws the panels that changed into the UI atlas, draws a new
+// video frame (the M2 hardware path: V4L2 Iris -> cached dma-buf import ->
+// mlxr_pass_warp, now with the picture grade and the sharpening; or the
+// software path through the same pass), and submits the layers xr_layers.c
+// assembles.
+//
+// Device facts this follows (docs/probe/SUMMARY.md): SteamVR takes a Vulkan
+// 1.2 instance; it offers one refresh rate and picks it; 16 swapchains a
+// session; no cylinder, FB passthrough, layer settings or colour scale layers;
+// ALPHA_BLEND is passthrough with a transparent projection layer under it.
 #include "xr_session.h"
 
 #include <libavutil/frame.h>
-#include <math.h>
 #include <signal.h>
-#include <stdatomic.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
+
 
 #include "../shaders/passes.h"
 #include "../stream/frame_slot.h"
 #include "../stream/hw_video.h"
 #include "../video/vk_import.h"
 #include "mlxr_log.h"
+#include "xr_native.h"
 #include "xr_vk.h"
-
-static const uint32_t kFullscreenVert[] =
-#include "fullscreen.vert.inc"
-    ;
-static const uint32_t kYuvFrag[] =
-#include "yuv420p.frag.inc"
-    ;
 
 static atomic_int g_quit;
 void xr_app_request_quit(void) { atomic_store(&g_quit, 1); }
 
-static XrInstance g_inst;
+#define VK_OK(call, what) ((call) == VK_SUCCESS ? 1 : (LOGE("%s failed", what), 0))
 
-static const char* xrStr(XrResult r) {
-    static char buf[XR_MAX_RESULT_STRING_SIZE];
-    if (g_inst && xrResultToString(g_inst, r, buf) == XR_SUCCESS) return buf;
-    snprintf(buf, sizeof(buf), "XrResult %d", (int)r);
-    return buf;
-}
+// ---- cross thread requests ----------------------------------------------------
 
-#define XR_TRY(call)                                                        \
-    do {                                                                    \
-        XrResult r_ = (call);                                               \
-        if (XR_FAILED(r_)) {                                                \
-            MLOG_E("%s -> %s", #call, xrStr(r_));                           \
-            goto fail;                                                      \
-        }                                                                   \
-    } while (0)
+static pthread_mutex_t g_reqLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_reqDone = PTHREAD_COND_INITIALIZER;
+static int g_running;          // a frame loop is up to take requests
+static int g_releaseAsked;     // xr_app_release_video waiting
+static unsigned g_releaseSerial, g_releaseDone;
+static atomic_int g_streaming;
+static char g_notices[4][160];
+static int g_noticeCount;
 
-#define VK_TRY(call)                                                        \
-    do {                                                                    \
-        VkResult r_ = (call);                                               \
-        if (r_ != VK_SUCCESS) {                                             \
-            MLOG_E("%s -> VkResult %d", #call, (int)r_);                    \
-            goto fail;                                                      \
-        }                                                                   \
-    } while (0)
-
-static double nowSec(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec + ts.tv_nsec * 1e-9;
-}
-
-// ------------------------------------------------------------------ input
-
-typedef struct {
-    int primed;
-    float x, dx;
-} Euro;
-
-enum { HAND_L, HAND_R, HANDS };
-
-typedef struct Input {
-    XrActionSet set;
-    XrAction aim, trigger, alt, stick;
-    XrPath hand[HANDS];
-    XrSpace aimSpace[HANDS];
-    int triggerDown[HANDS], altDown[HANDS];
-    int active; // pointing hand
-    int lastX, lastY;
-    float trig[HANDS];
-    Euro fx, fy;
-    XrTime lastT;
-    int lastHand;
-    int hit;          // the pointing ray meets the screen this frame
-    float hitU, hitV; // where, 0..1 across and down
-    float scrollAccum;
-} Input;
-
-static XrPath path(const char* s) {
-    XrPath p = XR_NULL_PATH;
-    xrStringToPath(g_inst, s, &p);
-    return p;
-}
-
-typedef struct {
-    XrAction action;
-    const char* path;
-} Bind;
-
-// Suggests the bindings a profile accepts. A whole-set failure is narrowed
-// down path by path, so one path the profile lacks does not drop the rest.
-static int suggest(const char* profile, const Bind* binds, int n) {
-    XrActionSuggestedBinding sb[32];
-    int m = 0;
-    for (int i = 0; i < n && m < 32; i++) sb[m++] = (XrActionSuggestedBinding){binds[i].action, path(binds[i].path)};
-    XrInteractionProfileSuggestedBinding s = {XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
-    s.interactionProfile = path(profile);
-    s.suggestedBindings = sb;
-    s.countSuggestedBindings = (uint32_t)m;
-    if (XR_SUCCEEDED(xrSuggestInteractionProfileBindings(g_inst, &s))) {
-        MLOG_I("bindings: %s accepted all %d", profile, m);
-        return m;
+void xr_app_notice(const char* text) {
+    pthread_mutex_lock(&g_reqLock);
+    if (g_noticeCount < 4) {
+        snprintf(g_notices[g_noticeCount++], sizeof(g_notices[0]), "%s", text);
     }
-    XrActionSuggestedBinding ok[32];
-    int k = 0;
-    for (int i = 0; i < m; i++) {
-        s.suggestedBindings = &sb[i];
-        s.countSuggestedBindings = 1;
-        if (XR_SUCCEEDED(xrSuggestInteractionProfileBindings(g_inst, &s)))
-            ok[k++] = sb[i];
-        else
-            MLOG_W("bindings: %s rejects %s", profile, binds[i].path);
+    pthread_mutex_unlock(&g_reqLock);
+}
+
+void xr_app_set_streaming(int on) { atomic_store(&g_streaming, on); }
+
+void xr_app_release_video(void) {
+    pthread_mutex_lock(&g_reqLock);
+    if (!g_running) {
+        pthread_mutex_unlock(&g_reqLock);
+        return;
     }
-    if (!k) return 0;
-    s.suggestedBindings = ok;
-    s.countSuggestedBindings = (uint32_t)k;
-    XrResult r = xrSuggestInteractionProfileBindings(g_inst, &s);
-    MLOG_I("bindings: %s accepted %d of %d (%s)", profile, k, m, xrStr(r));
-    return XR_SUCCEEDED(r) ? k : 0;
-}
-
-static XrAction makeAction(XrActionSet set, const char* name, XrActionType type, XrPath* hands) {
-    XrActionCreateInfo ci = {XR_TYPE_ACTION_CREATE_INFO};
-    snprintf(ci.actionName, sizeof(ci.actionName), "%s", name);
-    snprintf(ci.localizedActionName, sizeof(ci.localizedActionName), "%s", name);
-    ci.actionType = type;
-    ci.countSubactionPaths = HANDS;
-    ci.subactionPaths = hands;
-    XrAction a = XR_NULL_HANDLE;
-    xrCreateAction(set, &ci, &a);
-    return a;
-}
-
-static int inputCreate(Input* in, XrSession session, int frameExt) {
-    memset(in, 0, sizeof(*in));
-    in->active = HAND_R;
-    in->lastX = in->lastY = -1;
-    in->hand[HAND_L] = path("/user/hand/left");
-    in->hand[HAND_R] = path("/user/hand/right");
-    XrActionSetCreateInfo si = {XR_TYPE_ACTION_SET_CREATE_INFO};
-    strcpy(si.actionSetName, "screen");
-    strcpy(si.localizedActionSetName, "Screen");
-    if (XR_FAILED(xrCreateActionSet(g_inst, &si, &in->set))) return -1;
-    in->aim = makeAction(in->set, "aim", XR_ACTION_TYPE_POSE_INPUT, in->hand);
-    in->trigger = makeAction(in->set, "click", XR_ACTION_TYPE_FLOAT_INPUT, in->hand);
-    in->alt = makeAction(in->set, "right_click", XR_ACTION_TYPE_BOOLEAN_INPUT, in->hand);
-    in->stick = makeAction(in->set, "scroll", XR_ACTION_TYPE_VECTOR2F_INPUT, in->hand);
-
-    if (frameExt) {
-        const Bind frame[] = {
-            {in->aim, "/user/hand/left/input/aim/pose"},          {in->aim, "/user/hand/right/input/aim/pose"},
-            {in->trigger, "/user/hand/left/input/trigger/value"}, {in->trigger, "/user/hand/right/input/trigger/value"},
-            {in->alt, "/user/hand/right/input/a/click"},          {in->alt, "/user/hand/left/input/dpad_down/click"},
-            {in->stick, "/user/hand/left/input/thumbstick"},      {in->stick, "/user/hand/right/input/thumbstick"},
-        };
-        suggest("/interaction_profiles/valve/frame_controller", frame, (int)(sizeof(frame) / sizeof(frame[0])));
-    }
-    const Bind touch[] = {
-        {in->aim, "/user/hand/left/input/aim/pose"},          {in->aim, "/user/hand/right/input/aim/pose"},
-        {in->trigger, "/user/hand/left/input/trigger/value"}, {in->trigger, "/user/hand/right/input/trigger/value"},
-        {in->alt, "/user/hand/right/input/a/click"},          {in->alt, "/user/hand/left/input/x/click"},
-        {in->stick, "/user/hand/left/input/thumbstick"},      {in->stick, "/user/hand/right/input/thumbstick"},
-    };
-    suggest("/interaction_profiles/oculus/touch_controller", touch, (int)(sizeof(touch) / sizeof(touch[0])));
-    const Bind simple[] = {
-        {in->aim, "/user/hand/left/input/aim/pose"},          {in->aim, "/user/hand/right/input/aim/pose"},
-        {in->trigger, "/user/hand/left/input/select/click"},  {in->trigger, "/user/hand/right/input/select/click"},
-    };
-    suggest("/interaction_profiles/khr/simple_controller", simple, (int)(sizeof(simple) / sizeof(simple[0])));
-
-    XrSessionActionSetsAttachInfo ai = {XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO};
-    ai.countActionSets = 1;
-    ai.actionSets = &in->set;
-    if (XR_FAILED(xrAttachSessionActionSets(session, &ai))) return -1;
-    for (int h = 0; h < HANDS; h++) {
-        XrActionSpaceCreateInfo sci = {XR_TYPE_ACTION_SPACE_CREATE_INFO};
-        sci.action = in->aim;
-        sci.subactionPath = in->hand[h];
-        sci.poseInActionSpace.orientation.w = 1;
-        xrCreateActionSpace(session, &sci, &in->aimSpace[h]);
-    }
-    return 0;
-}
-
-static float getFloat(XrSession s, XrAction a, XrPath sub) {
-    XrActionStateGetInfo gi = {XR_TYPE_ACTION_STATE_GET_INFO};
-    gi.action = a;
-    gi.subactionPath = sub;
-    XrActionStateFloat st = {XR_TYPE_ACTION_STATE_FLOAT};
-    if (XR_FAILED(xrGetActionStateFloat(s, &gi, &st)) || !st.isActive) return 0;
-    return st.currentState;
-}
-
-static int getBool(XrSession s, XrAction a, XrPath sub) {
-    XrActionStateGetInfo gi = {XR_TYPE_ACTION_STATE_GET_INFO};
-    gi.action = a;
-    gi.subactionPath = sub;
-    XrActionStateBoolean st = {XR_TYPE_ACTION_STATE_BOOLEAN};
-    if (XR_FAILED(xrGetActionStateBoolean(s, &gi, &st)) || !st.isActive) return 0;
-    return st.currentState;
-}
-
-static XrVector2f getVec2(XrSession s, XrAction a, XrPath sub) {
-    XrActionStateGetInfo gi = {XR_TYPE_ACTION_STATE_GET_INFO};
-    gi.action = a;
-    gi.subactionPath = sub;
-    XrActionStateVector2f st = {XR_TYPE_ACTION_STATE_VECTOR2F};
-    if (XR_FAILED(xrGetActionStateVector2f(s, &gi, &st)) || !st.isActive) return (XrVector2f){0, 0};
-    return st.currentState;
-}
-
-static XrVector3f rotate(XrQuaternionf q, XrVector3f v) {
-    // v' = v + 2w(q x v) + 2 q x (q x v)
-    XrVector3f u = {q.x, q.y, q.z};
-    XrVector3f t = {2 * (u.y * v.z - u.z * v.y), 2 * (u.z * v.x - u.x * v.z), 2 * (u.x * v.y - u.y * v.x)};
-    return (XrVector3f){v.x + q.w * t.x + (u.y * t.z - u.z * t.y), v.y + q.w * t.y + (u.z * t.x - u.x * t.z),
-                        v.z + q.w * t.z + (u.x * t.y - u.y * t.x)};
-}
-
-// One Euro filter (Casiez et al. 2012): heavy smoothing when the pointer is
-// nearly still (hand tremor), little lag when it moves fast. Pixel units.
-static float euroAlpha(float cutoffHz, float dt) {
-    float tau = 1.0f / (2.0f * 3.14159265f * cutoffHz);
-    return 1.0f / (1.0f + tau / dt);
-}
-
-static float euro(Euro* f, float x, float dt, float minCutoff, float beta) {
-    if (!f->primed || dt <= 0) {
-        f->primed = 1;
-        f->x = x;
-        f->dx = 0;
-        return x;
-    }
-    float dx = (x - f->x) / dt;
-    f->dx += euroAlpha(1.0f, dt) * (dx - f->dx);
-    float cutoff = minCutoff + beta * fabsf(f->dx);
-    f->x += euroAlpha(cutoff, dt) * (x - f->x);
-    return f->x;
-}
-
-// Screen: centred at (0, 0, -dist) in LOCAL, facing +z, width w, height hgt.
-static int hitScreen(XrPosef aim, float dist, float w, float hgt, float* u, float* v) {
-    XrVector3f dir = rotate(aim.orientation, (XrVector3f){0, 0, -1});
-    if (dir.z > -1e-4f) return 0;
-    float t = (-dist - aim.position.z) / dir.z;
-    if (t <= 0) return 0;
-    float x = aim.position.x + dir.x * t, y = aim.position.y + dir.y * t;
-    *u = x / w + 0.5f;
-    *v = 0.5f - y / hgt;
-    return *u >= 0 && *u <= 1 && *v >= 0 && *v <= 1;
-}
-
-static void inputUpdate(Input* in, XrSession session, XrSpace local, XrTime t, const XrAppConfig* cfg, int videoW,
-                        int videoH, float screenH) {
-    XrActiveActionSet as = {in->set, XR_NULL_PATH};
-    XrActionsSyncInfo sync = {XR_TYPE_ACTIONS_SYNC_INFO};
-    sync.countActiveActionSets = 1;
-    sync.activeActionSets = &as;
-    if (XR_FAILED(xrSyncActions(session, &sync))) return;
-    const XrAppHooks* hk = &cfg->hooks;
-
-    for (int h = 0; h < HANDS; h++) {
-        float tv = getFloat(session, in->trigger, in->hand[h]);
-        in->trig[h] = tv;
-        int down = in->triggerDown[h] ? tv > 0.4f : tv > 0.6f;
-        if (down && !in->triggerDown[h]) in->active = h; // the hand that clicks points
-        in->triggerDown[h] = down;
-    }
-    int h = in->active;
-    XrSpaceLocation loc = {XR_TYPE_SPACE_LOCATION};
-    int hit = 0;
-    float u = 0, v = 0;
-    if (in->aimSpace[h] && XR_SUCCEEDED(xrLocateSpace(in->aimSpace[h], local, t, &loc)) &&
-        (loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) &&
-        (loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT))
-        hit = hitScreen(loc.pose, cfg->screenDistance, cfg->screenWidth, screenH, &u, &v);
-    // Smooth the aim point on the screen (pixels) before anything uses it.
-    float dt = in->lastT ? (float)((t - in->lastT) * 1e-9) : 0;
-    in->lastT = t;
-    if (!hit || h != in->lastHand || videoW <= 0) {
-        in->fx.primed = in->fy.primed = 0;
-    } else {
-        float px = euro(&in->fx, u * videoW, dt, 1.0f, 0.01f);
-        float py = euro(&in->fy, v * videoH, dt, 1.0f, 0.01f);
-        u = px / videoW;
-        v = py / videoH;
-    }
-    in->lastHand = h;
-    in->hit = hit;
-    in->hitU = u;
-    in->hitV = v;
-    if (hit && videoW > 0 && hk->pointer) {
-        int x = (int)(u * (videoW - 1) + 0.5f), y = (int)(v * (videoH - 1) + 0.5f);
-        if (x != in->lastX || y != in->lastY) {
-            hk->pointer(hk->user, x, y, videoW, videoH);
-            in->lastX = x;
-            in->lastY = y;
+    unsigned mine = ++g_releaseSerial;
+    g_releaseAsked = 1;
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += 5;
+    while (g_running && g_releaseDone < mine) {
+        if (pthread_cond_timedwait(&g_reqDone, &g_reqLock, &deadline) != 0) {
+            MLOG_W("video release: the frame loop did not answer in 5 s");
+            break;
         }
     }
-    // Buttons follow the pointing hand; a press only starts on the screen.
-    static int leftHeld;
-    int td = in->triggerDown[h];
-    if (td && !leftHeld && hit) {
-        leftHeld = 1;
-        if (hk->button) hk->button(hk->user, 1, 1);
-    } else if (!td && leftHeld) {
-        leftHeld = 0;
-        if (hk->button) hk->button(hk->user, 1, 0);
-    }
-    for (int k = 0; k < HANDS; k++) {
-        int a = getBool(session, in->alt, in->hand[k]);
-        if (a != in->altDown[k] && hk->button && (hit || !a)) hk->button(hk->user, 3, a);
-        in->altDown[k] = a;
-    }
-    XrVector2f st = getVec2(session, in->stick, in->hand[h]);
-    if (fabsf(st.y) > 0.3f && hk->scroll) {
-        in->scrollAccum += st.y * 10.0f; // ~7 notches a second at full tilt
-        int amt = (int)in->scrollAccum;
-        if (amt) {
-            hk->scroll(hk->user, amt);
-            in->scrollAccum -= (float)amt;
-        }
-    } else {
-        in->scrollAccum = 0;
-    }
+    pthread_mutex_unlock(&g_reqLock);
 }
 
-// ------------------------------------------------------------------ video quad
+// ---- the picture (M1/M2 video path) -------------------------------------------
 
 typedef struct Plane {
     VkImage image;
@@ -347,32 +83,44 @@ typedef struct Plane {
     VkImageView view;
 } Plane;
 
+#define VIDEO_IMAGES 8
+#define HW_VIEWS 32
+
 typedef struct Video {
-    int width, height;
+    int width, height;          // the swapchain's (the picture's) size
     XrSwapchain swapchain;
     uint32_t count;
-    XrSwapchainImageVulkan2KHR images[8];
-    VkImageView views[8];
+    XrSwapchainImageVulkan2KHR images[VIDEO_IMAGES];
+    VkImageView views[VIDEO_IMAGES];
+    int64_t format;
+    // software frames: three planes and their staging
     Plane planes[3];
+    int planeW, planeH;
     VkBuffer staging;
     VkDeviceMemory stagingMem;
     void* stagingPtr;
     VkDeviceSize stagingSize;
-    VkSampler sampler;
-    VkDescriptorSetLayout dsl;
-    VkDescriptorPool pool;
-    VkDescriptorSet set;
-    VkPipelineLayout layout;
-    VkPipeline pipe;
-    int shown; // a frame has been released at least once
-    uint64_t uploads;
+    int swValid;                // the planes hold a frame (a redraw can use them)
+    // hardware frames
+    HwVideo* src;
+    mlxr_vkimp* imp;
+    struct { uint32_t gen, index; VkImageView view; } hwViews[HW_VIEWS];
+    mlxr_vframe held;           // the newest frame, kept for a redraw
+    int heldValid;
+    uint64_t heldValue;         // the timeline value of the last submission that sampled it
+    VkSemaphore timeline;
+    uint64_t value;
+    // what the last draw used, so a change redraws a still picture
+    int drawnGradeOn, drawnSharpen;
+    PictureGrade drawnGrade;
+    uint64_t draws;
 } Video;
 
 static int makePlane(const XrVk* vk, Plane* p, int w, int h) {
-    VkImageCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    VkImageCreateInfo ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     ci.imageType = VK_IMAGE_TYPE_2D;
     ci.format = VK_FORMAT_R8_UNORM;
-    ci.extent = (VkExtent3D){(uint32_t)w, (uint32_t)h, 1};
+    ci.extent = (VkExtent3D){ (uint32_t)w, (uint32_t)h, 1 };
     ci.mipLevels = 1;
     ci.arrayLayers = 1;
     ci.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -381,16 +129,16 @@ static int makePlane(const XrVk* vk, Plane* p, int w, int h) {
     if (vkCreateImage(vk->device, &ci, NULL, &p->image) != VK_SUCCESS) return -1;
     VkMemoryRequirements req;
     vkGetImageMemoryRequirements(vk->device, p->image, &req);
-    VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    VkMemoryAllocateInfo ai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
     ai.allocationSize = req.size;
     ai.memoryTypeIndex = xr_vk_memory_type(vk, req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     if (vkAllocateMemory(vk->device, &ai, NULL, &p->mem) != VK_SUCCESS) return -1;
     vkBindImageMemory(vk->device, p->image, p->mem, 0);
-    VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    VkImageViewCreateInfo vi = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
     vi.image = p->image;
     vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
     vi.format = VK_FORMAT_R8_UNORM;
-    vi.subresourceRange = (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vi.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
     return vkCreateImageView(vk->device, &vi, NULL, &p->view) == VK_SUCCESS ? 0 : -1;
 }
 
@@ -401,86 +149,7 @@ static void freePlane(const XrVk* vk, Plane* p) {
     memset(p, 0, sizeof(*p));
 }
 
-static int videoPipeline(const XrVk* vk, Video* vd, VkFormat format) {
-    VkSamplerCreateInfo sci = {VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-    sci.magFilter = sci.minFilter = VK_FILTER_LINEAR;
-    sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    if (vkCreateSampler(vk->device, &sci, NULL, &vd->sampler) != VK_SUCCESS) return -1;
-    VkDescriptorSetLayoutBinding b[3];
-    for (int i = 0; i < 3; i++)
-        b[i] = (VkDescriptorSetLayoutBinding){(uint32_t)i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
-                                              VK_SHADER_STAGE_FRAGMENT_BIT, NULL};
-    VkDescriptorSetLayoutCreateInfo dli = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dli.bindingCount = 3;
-    dli.pBindings = b;
-    if (vkCreateDescriptorSetLayout(vk->device, &dli, NULL, &vd->dsl) != VK_SUCCESS) return -1;
-    VkDescriptorPoolSize ps = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3};
-    VkDescriptorPoolCreateInfo dpi = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    dpi.maxSets = 1;
-    dpi.poolSizeCount = 1;
-    dpi.pPoolSizes = &ps;
-    if (vkCreateDescriptorPool(vk->device, &dpi, NULL, &vd->pool) != VK_SUCCESS) return -1;
-    VkDescriptorSetAllocateInfo dai = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    dai.descriptorPool = vd->pool;
-    dai.descriptorSetCount = 1;
-    dai.pSetLayouts = &vd->dsl;
-    if (vkAllocateDescriptorSets(vk->device, &dai, &vd->set) != VK_SUCCESS) return -1;
-    VkPipelineLayoutCreateInfo lci = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    lci.setLayoutCount = 1;
-    lci.pSetLayouts = &vd->dsl;
-    if (vkCreatePipelineLayout(vk->device, &lci, NULL, &vd->layout) != VK_SUCCESS) return -1;
-
-    VkShaderModule vs = xr_vk_shader(vk, kFullscreenVert, sizeof(kFullscreenVert));
-    VkShaderModule fs = xr_vk_shader(vk, kYuvFrag, sizeof(kYuvFrag));
-    VkPipelineShaderStageCreateInfo st[2] = {
-        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, NULL, 0, VK_SHADER_STAGE_VERTEX_BIT, vs, "main", NULL},
-        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, NULL, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main", NULL},
-    };
-    VkPipelineVertexInputStateCreateInfo vi = {VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    VkPipelineInputAssemblyStateCreateInfo ia = {VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    VkPipelineViewportStateCreateInfo vp = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-    vp.viewportCount = vp.scissorCount = 1;
-    VkPipelineRasterizationStateCreateInfo rs = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-    rs.cullMode = VK_CULL_MODE_NONE;
-    rs.lineWidth = 1;
-    VkPipelineMultisampleStateCreateInfo ms = {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-    VkPipelineColorBlendAttachmentState cba = {0};
-    cba.colorWriteMask = 0xf;
-    VkPipelineColorBlendStateCreateInfo cb = {VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    cb.attachmentCount = 1;
-    cb.pAttachments = &cba;
-    VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo ds = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-    ds.dynamicStateCount = 2;
-    ds.pDynamicStates = dyn;
-    VkPipelineRenderingCreateInfoKHR rci = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
-    rci.colorAttachmentCount = 1;
-    rci.pColorAttachmentFormats = &format;
-    VkGraphicsPipelineCreateInfo gp = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-    gp.pNext = &rci;
-    gp.stageCount = 2;
-    gp.pStages = st;
-    gp.pVertexInputState = &vi;
-    gp.pInputAssemblyState = &ia;
-    gp.pViewportState = &vp;
-    gp.pRasterizationState = &rs;
-    gp.pMultisampleState = &ms;
-    gp.pColorBlendState = &cb;
-    gp.pDynamicState = &ds;
-    gp.layout = vd->layout;
-    VkResult r = vkCreateGraphicsPipelines(vk->device, VK_NULL_HANDLE, 1, &gp, NULL, &vd->pipe);
-    vkDestroyShaderModule(vk->device, vs, NULL);
-    vkDestroyShaderModule(vk->device, fs, NULL);
-    return r == VK_SUCCESS ? 0 : -1;
-}
-
-static void videoFreeSized(const XrVk* vk, Video* vd) {
-    for (uint32_t i = 0; i < vd->count; i++) vkDestroyImageView(vk->device, vd->views[i], NULL);
-    vd->count = 0;
-    if (vd->swapchain) xrDestroySwapchain(vd->swapchain);
-    vd->swapchain = XR_NULL_HANDLE;
+static void freeSwPlanes(const XrVk* vk, Video* vd) {
     for (int i = 0; i < 3; i++) freePlane(vk, &vd->planes[i]);
     if (vd->staging) {
         vkUnmapMemory(vk->device, vd->stagingMem);
@@ -490,281 +159,663 @@ static void videoFreeSized(const XrVk* vk, Video* vd) {
     vd->staging = VK_NULL_HANDLE;
     vd->stagingMem = VK_NULL_HANDLE;
     vd->stagingSize = 0;
-    vd->shown = 0;
+    vd->planeW = vd->planeH = 0;
+    vd->swValid = 0;
 }
 
-static int videoResize(const XrVk* vk, XrSession session, Video* vd, int64_t format, int w, int h, const AVFrame* f) {
-    vkDeviceWaitIdle(vk->device);
-    videoFreeSized(vk, vd);
-    vd->width = w;
-    vd->height = h;
-    XrSwapchainCreateInfo ci = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
+static void freeVideoSwapchain(XrCtx* ctx, Video* vd) {
+    for (uint32_t i = 0; i < vd->count; i++) vkDestroyImageView(ctx->vk->device, vd->views[i], NULL);
+    vd->count = 0;
+    if (vd->swapchain) {
+        xrDestroySwapchain(vd->swapchain);
+        ctx->swapchainsAlive--;
+    }
+    vd->swapchain = XR_NULL_HANDLE;
+    ctx->swapchain = XR_NULL_HANDLE;
+    ctx->videoShown = 0;
+}
+
+// The picture's swapchain at the picture's size
+static int videoSwapchain(XrCtx* ctx, Video* vd, int w, int h) {
+    if (vd->swapchain && vd->width == w && vd->height == h) {
+        return 0;
+    }
+    vkDeviceWaitIdle(ctx->vk->device);
+    freeVideoSwapchain(ctx, vd);
+    XrSwapchainCreateInfo ci = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
     ci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
-    ci.format = format;
+    ci.format = vd->format;
     ci.sampleCount = 1;
     ci.width = (uint32_t)w;
     ci.height = (uint32_t)h;
     ci.faceCount = ci.arraySize = ci.mipCount = 1;
-    if (XR_FAILED(xrCreateSwapchain(session, &ci, &vd->swapchain))) return -1;
+    if (!checkXr(xrCreateSwapchain(ctx->session, &ci, &vd->swapchain), "create video swapchain")) return -1;
+    ctx->swapchainsAlive++;
     xrEnumerateSwapchainImages(vd->swapchain, 0, &vd->count, NULL);
-    if (vd->count > 8) vd->count = 8;
-    for (uint32_t i = 0; i < vd->count; i++) vd->images[i] = (XrSwapchainImageVulkan2KHR){XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR};
+    if (vd->count > VIDEO_IMAGES) vd->count = VIDEO_IMAGES;
+    for (uint32_t i = 0; i < vd->count; i++) vd->images[i] = (XrSwapchainImageVulkan2KHR){ XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR };
     xrEnumerateSwapchainImages(vd->swapchain, vd->count, &vd->count, (XrSwapchainImageBaseHeader*)vd->images);
     for (uint32_t i = 0; i < vd->count; i++) {
-        VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        VkImageViewCreateInfo vi = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
         vi.image = vd->images[i].image;
         vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        vi.format = (VkFormat)format;
-        vi.subresourceRange = (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        if (vkCreateImageView(vk->device, &vi, NULL, &vd->views[i]) != VK_SUCCESS) return -1;
+        vi.format = (VkFormat)vd->format;
+        vi.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        if (vkCreateImageView(ctx->vk->device, &vi, NULL, &vd->views[i]) != VK_SUCCESS) return -1;
     }
-    if (!f) { // hardware frames are sampled straight from their imports
-        MLOG_I("video quad %dx%d, %u swapchain images (hardware decode)", w, h, vd->count);
+    vd->width = w;
+    vd->height = h;
+    ctx->swapchain = vd->swapchain;
+    // The picture's shape follows the stream's
+    ctx->videoWidth = w;
+    ctx->videoHeight = h;
+    ctx->pointerBeta = NATIVE_POINTER_BETA_PER_PX * (float)w;
+    LOGEV("video swapchain %dx%d, %u images; swapchains alive %d of 16", w, h, vd->count, ctx->swapchainsAlive);
+    return 0;
+}
+
+static int swPlanes(const XrVk* vk, Video* vd, const AVFrame* f) {
+    if (vd->staging && vd->planeW == f->width && vd->planeH == f->height) {
         return 0;
     }
+    vkDeviceWaitIdle(vk->device);
+    freeSwPlanes(vk, vd);
     int cw = (f->width + 1) / 2, ch = (f->height + 1) / 2;
-    if (makePlane(vk, &vd->planes[0], f->width, f->height) || makePlane(vk, &vd->planes[1], cw, ch) ||
-        makePlane(vk, &vd->planes[2], cw, ch))
+    if (makePlane(vk, &vd->planes[0], f->width, f->height) || makePlane(vk, &vd->planes[1], cw, ch)
+            || makePlane(vk, &vd->planes[2], cw, ch)) {
         return -1;
-    vd->stagingSize = (VkDeviceSize)f->linesize[0] * f->height + (VkDeviceSize)f->linesize[1] * ch +
-                      (VkDeviceSize)f->linesize[2] * ch + 256;
-    VkBufferCreateInfo bi = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    }
+    vd->stagingSize = (VkDeviceSize)f->linesize[0] * f->height + (VkDeviceSize)f->linesize[1] * ch
+            + (VkDeviceSize)f->linesize[2] * ch + 1024;
+    VkBufferCreateInfo bi = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bi.size = vd->stagingSize;
     bi.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     if (vkCreateBuffer(vk->device, &bi, NULL, &vd->staging) != VK_SUCCESS) return -1;
     VkMemoryRequirements req;
     vkGetBufferMemoryRequirements(vk->device, vd->staging, &req);
-    VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    VkMemoryAllocateInfo ai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
     ai.allocationSize = req.size;
     ai.memoryTypeIndex = xr_vk_memory_type(vk, req.memoryTypeBits,
                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     if (vkAllocateMemory(vk->device, &ai, NULL, &vd->stagingMem) != VK_SUCCESS) return -1;
     vkBindBufferMemory(vk->device, vd->staging, vd->stagingMem, 0);
     vkMapMemory(vk->device, vd->stagingMem, 0, VK_WHOLE_SIZE, 0, &vd->stagingPtr);
-
-    VkDescriptorImageInfo ii[3];
-    VkWriteDescriptorSet wr[3];
-    for (int i = 0; i < 3; i++) {
-        ii[i] = (VkDescriptorImageInfo){vd->sampler, vd->planes[i].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        wr[i] = (VkWriteDescriptorSet){VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        wr[i].dstSet = vd->set;
-        wr[i].dstBinding = (uint32_t)i;
-        wr[i].descriptorCount = 1;
-        wr[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        wr[i].pImageInfo = &ii[i];
-    }
-    vkUpdateDescriptorSets(vk->device, 3, wr, 0, NULL);
-    MLOG_I("video quad %dx%d, %u swapchain images", f->width, f->height, vd->count);
+    vd->planeW = f->width;
+    vd->planeH = f->height;
+    MLOG_I("software video planes %dx%d", f->width, f->height);
     return 0;
 }
 
-// Records upload + conversion of `f` into swapchain image `idx`.
-static void videoRecord(const XrVk* vk, Video* vd, VkCommandBuffer cmd, const AVFrame* f, uint32_t idx) {
+// Copies a software frame into the planes (recorded into cmd)
+static void swUpload(Video* vd, VkCommandBuffer cmd, const AVFrame* f) {
     int ch = (f->height + 1) / 2, cw = (f->width + 1) / 2;
-    int hs[3] = {f->height, ch, ch}, ws[3] = {f->width, cw, cw};
+    int hs[3] = { f->height, ch, ch }, ws[3] = { f->width, cw, cw };
     VkDeviceSize off = 0;
-    VkBufferImageCopy regions[3];
     for (int p = 0; p < 3; p++) {
         size_t bytes = (size_t)f->linesize[p] * hs[p];
         memcpy((uint8_t*)vd->stagingPtr + off, f->data[p], bytes);
-        regions[p] = (VkBufferImageCopy){off, (uint32_t)f->linesize[p], 0, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                                         {0, 0, 0}, {(uint32_t)ws[p], (uint32_t)hs[p], 1}};
+        VkBufferImageCopy region = { off, (uint32_t)f->linesize[p], 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+                                     { 0, 0, 0 }, { (uint32_t)ws[p], (uint32_t)hs[p], 1 } };
+        VkImageLayout from = vd->swValid ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+        mlxr_barrier(cmd, vd->planes[p].image, VK_IMAGE_ASPECT_COLOR_BIT, from, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vkCmdCopyBufferToImage(cmd, vd->staging, vd->planes[p].image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        mlxr_barrier(cmd, vd->planes[p].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         off += (bytes + 255) & ~(VkDeviceSize)255;
     }
-    for (int p = 0; p < 3; p++) {
-        xr_vk_image_barrier(cmd, vd->planes[p].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                            0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                            VK_PIPELINE_STAGE_TRANSFER_BIT);
-        vkCmdCopyBufferToImage(cmd, vd->staging, vd->planes[p].image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                               &regions[p]);
-        xr_vk_image_barrier(cmd, vd->planes[p].image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
-                            VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-    }
-    VkImage img = vd->images[idx].image;
-    xr_vk_image_barrier(cmd, img, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0,
-                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-    VkRenderingAttachmentInfoKHR att = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR};
-    att.imageView = vd->views[idx];
-    att.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    att.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    VkRenderingInfoKHR ri = {VK_STRUCTURE_TYPE_RENDERING_INFO_KHR};
-    ri.renderArea.extent = (VkExtent2D){(uint32_t)vd->width, (uint32_t)vd->height};
-    ri.layerCount = 1;
-    ri.colorAttachmentCount = 1;
-    ri.pColorAttachments = &att;
-    vk->cmdBeginRendering(cmd, &ri);
-    VkViewport vp = {0, 0, (float)vd->width, (float)vd->height, 0, 1};
-    VkRect2D sc = {{0, 0}, {(uint32_t)vd->width, (uint32_t)vd->height}};
-    vkCmdSetViewport(cmd, 0, 1, &vp);
-    vkCmdSetScissor(cmd, 0, 1, &sc);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vd->pipe);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vd->layout, 0, 1, &vd->set, 0, NULL);
-    vkCmdDraw(cmd, 3, 1, 0, 0);
-    vk->cmdEndRendering(cmd);
-    vd->uploads++;
+    vd->swValid = 1;
 }
 
-// ------------------------------------------------------------------ hardware video (M2)
-
-#define HW_VIEWS 32
-
-typedef struct HwRender {
-    HwVideo* src;           // the decoder the imports belong to
-    mlxr_vkimp* imp;
-    MlxrPasses* passes;
-    VkSemaphore timeline;
-    uint64_t value;         // last signalled timeline value
-    struct { uint32_t gen, index; VkImageView view; } views[HW_VIEWS];
-    uint64_t rendered;
-} HwRender;
-
-static void hwReleaseCb(void* user, const mlxr_vframe* f) { hw_video_release((HwVideo*)user, f); }
-
-static void hwDropViews(const XrVk* vk, HwRender* hr) {
+static void hwDropViews(const XrVk* vk, Video* vd) {
     for (int i = 0; i < HW_VIEWS; i++)
-        if (hr->views[i].view) vkDestroyImageView(vk->device, hr->views[i].view, NULL);
-    memset(hr->views, 0, sizeof(hr->views));
+        if (vd->hwViews[i].view) vkDestroyImageView(vk->device, vd->hwViews[i].view, NULL);
+    memset(vd->hwViews, 0, sizeof(vd->hwViews));
+}
+
+// Gives the held frame back once the GPU is done with its last sampling
+static void hwLetGoHeld(Video* vd) {
+    if (vd->heldValid && vd->imp) {
+        mlxr_vkimp_frame_done_timeline(vd->imp, &vd->held, vd->timeline, vd->heldValue);
+    }
+    vd->heldValid = 0;
 }
 
 // Drops every import (GPU idle first). The frames go back to the decoder.
-static void hwDropImports(const XrVk* vk, HwRender* hr) {
-    if (!hr->imp) return;
+static void hwDropImports(const XrVk* vk, Video* vd) {
+    if (!vd->imp) return;
     vkDeviceWaitIdle(vk->device);
-    mlxr_vkimp_drain(hr->imp, 1000000000ull);
-    hwDropViews(vk, hr);
-    mlxr_vkimp_reset(hr->imp);
+    hwLetGoHeld(vd);
+    mlxr_vkimp_drain(vd->imp, 1000000000ull);
+    hwDropViews(vk, vd);
+    mlxr_vkimp_reset(vd->imp);
 }
 
-static void hwDestroy(const XrVk* vk, HwRender* hr) {
-    if (hr->imp) {
-        hwDropImports(vk, hr);
-        mlxr_vkimp_destroy(hr->imp);
-        hr->imp = NULL;
+static void hwDestroy(const XrVk* vk, Video* vd) {
+    if (vd->imp) {
+        hwDropImports(vk, vd);
+        mlxr_vkimp_destroy(vd->imp);
+        vd->imp = NULL;
     }
-    hr->src = NULL;
+    vd->src = NULL;
 }
 
-static VkImageView hwView(const XrVk* vk, HwRender* hr, const mlxr_vkimp_image* img) {
+static void hwReleaseCb(void* user, const mlxr_vframe* f) { hw_video_release((HwVideo*)user, f); }
+
+static VkImageView hwView(const XrVk* vk, Video* vd, MlxrPasses* passes, const mlxr_vkimp_image* img) {
     int slot = -1;
     for (int i = 0; i < HW_VIEWS; i++) {
-        if (hr->views[i].view && hr->views[i].gen == img->generation && hr->views[i].index == img->index)
-            return hr->views[i].view;
-        if (!hr->views[i].view && slot < 0) slot = i;
+        if (vd->hwViews[i].view && vd->hwViews[i].gen == img->generation && vd->hwViews[i].index == img->index)
+            return vd->hwViews[i].view;
+        if (!vd->hwViews[i].view && slot < 0) slot = i;
     }
     if (slot < 0) {
-        hwDropViews(vk, hr); // more buffers than slots: start over (views only, not imports)
+        hwDropViews(vk, vd);
         slot = 0;
     }
     VkImageView v = VK_NULL_HANDLE;
-    if (mlxr_passes_nv12_view(hr->passes, img->image, &v) != VK_SUCCESS) return VK_NULL_HANDLE;
-    hr->views[slot].gen = img->generation;
-    hr->views[slot].index = img->index;
-    hr->views[slot].view = v;
+    if (mlxr_passes_nv12_view(passes, img->image, &v) != VK_SUCCESS) return VK_NULL_HANDLE;
+    vd->hwViews[slot].gen = img->generation;
+    vd->hwViews[slot].index = img->index;
+    vd->hwViews[slot].view = v;
     return v;
 }
 
-// ------------------------------------------------------------------ pointer dot
+// The sharpen the Display tab's row asks for: off, normal, quality
+static float sharpenFor(int mode) {
+    return mode == 2 ? 0.8f : (mode == 1 ? 0.4f : 0.0f);
+}
 
-#define DOT_PX 64
+// Records the warp of one picture into swapchain image idx: the picture grade
+// and the sharpening as the panel has them now
+static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffer cmd, uint32_t idx,
+                       const MlxrVideo* video) {
+    xr_vk_image_barrier(cmd, vd->images[idx].image, VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+    MlxrTarget tg;
+    memset(&tg, 0, sizeof(tg));
+    tg.view = vd->views[idx];
+    tg.format = (VkFormat)vd->format;
+    tg.rect.extent = (VkExtent2D){ (uint32_t)vd->width, (uint32_t)vd->height };
+    MlxrWarpParams w;
+    memset(&w, 0, sizeof(w));
+    w.video = *video;
+    w.convergence = 0.5f;
+    w.lowResWidth = (float)(video->width / 4);
+    w.srcInset = 0.5f / (float)video->width;
+    w.edgeFade = 16.0f / (float)video->width;
+    w.gradeOn = ctx->gradeOn;
+    w.grade[0] = ctx->grade.offset;
+    w.grade[1] = ctx->grade.contrast;
+    w.grade[2] = ctx->grade.exponent;
+    w.grade[3] = ctx->grade.saturation;
+    w.tint[0] = w.tint[1] = w.tint[2] = 1.0f;
+    w.sharpen = sharpenFor(ctx->sharpenMode);
+    mlxr_pass_warp(passes, cmd, &tg, &w);
+    vd->drawnGradeOn = ctx->gradeOn;
+    vd->drawnGrade = ctx->grade;
+    vd->drawnSharpen = ctx->sharpenMode;
+    vd->draws++;
+}
 
-// A small static swapchain holding a white dot with a dark rim, filled once
-// by a buffer copy; shown as a quad on the screen where the ray lands.
-static XrSwapchain makeDot(const XrVk* vk, XrSession session, int64_t format, VkCommandBuffer cmd, VkFence fence) {
-    XrSwapchainCreateInfo ci = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
-    ci.createFlags = XR_SWAPCHAIN_CREATE_STATIC_IMAGE_BIT;
+// Whether the grade or the sharpening moved since the picture was drawn
+static int videoStale(XrCtx* ctx, const Video* vd) {
+    return vd->draws > 0 && (vd->drawnGradeOn != ctx->gradeOn || vd->drawnSharpen != ctx->sharpenMode
+                             || memcmp(&vd->drawnGrade, &ctx->grade, sizeof(PictureGrade)) != 0);
+}
+
+// ---- small swapchains made by the host ------------------------------------------
+
+typedef struct Frame {
+    VkCommandPool pool;
+    VkCommandBuffer cmd;
+    VkFence fence;
+    int recording;
+} Frame;
+
+static VkCommandBuffer frameBegin(XrCtx* ctx, Frame* fr) {
+    if (fr->recording) {
+        return fr->cmd;
+    }
+    vkResetCommandBuffer(fr->cmd, 0);
+    VkCommandBufferBeginInfo cbi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    cbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(fr->cmd, &cbi);
+    fr->recording = 1;
+    (void)ctx;
+    return fr->cmd;
+}
+
+static Frame* g_frame; // for xrEnsurePassthroughSwapchain
+
+// The fork's transparent projection layer, filled once with zeros
+static int ensurePassthroughSwapchain(XrCtx* ctx, int size) {
+    if (ctx->passthroughSwapchain != XR_NULL_HANDLE) {
+        return 1;
+    }
+    XrSwapchainCreateInfo ci = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
     ci.usageFlags = XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
-    ci.format = format;
+    ci.format = VK_FORMAT_R8G8B8A8_SRGB;
     ci.sampleCount = 1;
-    ci.width = ci.height = DOT_PX;
+    ci.width = ci.height = (uint32_t)size;
     ci.faceCount = ci.arraySize = ci.mipCount = 1;
     XrSwapchain sc = XR_NULL_HANDLE;
-    if (XR_FAILED(xrCreateSwapchain(session, &ci, &sc))) {
-        // Some runtimes refuse static images; fall back to an ordinary swapchain.
-        ci.createFlags = 0;
-        if (XR_FAILED(xrCreateSwapchain(session, &ci, &sc))) return XR_NULL_HANDLE;
+    if (!checkXr(xrCreateSwapchain(ctx->session, &ci, &sc), "create passthrough swapchain")) {
+        return 0;
     }
+    ctx->swapchainsAlive++;
     uint32_t count = 0;
     XrSwapchainImageVulkan2KHR imgs[8];
     xrEnumerateSwapchainImages(sc, 0, &count, NULL);
     if (count > 8) count = 8;
-    for (uint32_t i = 0; i < count; i++) imgs[i] = (XrSwapchainImageVulkan2KHR){XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR};
+    for (uint32_t i = 0; i < count; i++) imgs[i] = (XrSwapchainImageVulkan2KHR){ XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR };
     xrEnumerateSwapchainImages(sc, count, &count, (XrSwapchainImageBaseHeader*)imgs);
-
-    VkBuffer buf = VK_NULL_HANDLE;
-    VkDeviceMemory mem = VK_NULL_HANDLE;
-    VkBufferCreateInfo bi = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    bi.size = DOT_PX * DOT_PX * 4;
-    bi.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    vkCreateBuffer(vk->device, &bi, NULL, &buf);
-    VkMemoryRequirements req;
-    vkGetBufferMemoryRequirements(vk->device, buf, &req);
-    VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-    ai.allocationSize = req.size;
-    ai.memoryTypeIndex = xr_vk_memory_type(vk, req.memoryTypeBits,
-                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    vkAllocateMemory(vk->device, &ai, NULL, &mem);
-    vkBindBufferMemory(vk->device, buf, mem, 0);
-    uint8_t* px = NULL;
-    vkMapMemory(vk->device, mem, 0, VK_WHOLE_SIZE, 0, (void**)&px);
-    int bgra = format == VK_FORMAT_B8G8R8A8_SRGB;
-    for (int y = 0; y < DOT_PX; y++)
-        for (int x = 0; x < DOT_PX; x++) {
-            float dx = (x + 0.5f) / DOT_PX * 2 - 1, dy = (y + 0.5f) / DOT_PX * 2 - 1;
-            float r = sqrtf(dx * dx + dy * dy);
-            float a = fminf(fmaxf((1.0f - r) * DOT_PX * 0.5f, 0.0f), 1.0f);    // anti-aliased edge
-            float core = fminf(fmaxf((0.62f - r) * DOT_PX * 0.5f, 0.0f), 1.0f); // white inside, dark rim
-            float c = core * 1.0f + (1 - core) * 0.08f;
-            uint8_t v = (uint8_t)(c * a * 255.0f + 0.5f); // premultiplied
-            uint8_t* o = px + (y * DOT_PX + x) * 4;
-            o[0] = o[1] = o[2] = v;
-            o[3] = (uint8_t)(a * 255.0f + 0.5f);
-            (void)bgra;
-        }
-
-    for (uint32_t i = 0; i < (ci.createFlags ? 1u : count); i++) {
-        uint32_t idx;
-        XrSwapchainImageAcquireInfo aq = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-        xrAcquireSwapchainImage(sc, &aq, &idx);
-        XrSwapchainImageWaitInfo wi = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    // Every image cleared to nothing, one acquire each, recorded into the
+    // frame's command buffer (submitted before the end of this frame)
+    VkCommandBuffer cmd = frameBegin(ctx, g_frame);
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t idx = 0;
+        XrSwapchainImageAcquireInfo aq = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+        if (!checkXr(xrAcquireSwapchainImage(sc, &aq, &idx), "acquire passthrough image")) break;
+        XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
         wi.timeout = XR_INFINITE_DURATION;
         xrWaitSwapchainImage(sc, &wi);
-        vkWaitForFences(vk->device, 1, &fence, VK_TRUE, UINT64_MAX);
-        vkResetFences(vk->device, 1, &fence);
-        vkResetCommandBuffer(cmd, 0);
-        VkCommandBufferBeginInfo cbi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-        vkBeginCommandBuffer(cmd, &cbi);
-        VkImage img = imgs[idx].image;
-        xr_vk_image_barrier(cmd, img, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
-                            VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-        VkBufferImageCopy rg = {0, 0, 0, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {0, 0, 0}, {DOT_PX, DOT_PX, 1}};
-        vkCmdCopyBufferToImage(cmd, buf, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &rg);
-        xr_vk_image_barrier(cmd, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
-                            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-        vkEndCommandBuffer(cmd);
-        VkSubmitInfo si = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-        si.commandBufferCount = 1;
-        si.pCommandBuffers = &cmd;
-        vkQueueSubmit(vk->queue, 1, &si, fence);
-        vkWaitForFences(vk->device, 1, &fence, VK_TRUE, UINT64_MAX);
-        XrSwapchainImageReleaseInfo rl = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+        VkImage image = imgs[idx].image;
+        mlxr_barrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkClearColorValue zero = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+        VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        vkCmdClearColorImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &range);
+        mlxr_barrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
         xrReleaseSwapchainImage(sc, &rl);
     }
-    vkUnmapMemory(vk->device, mem);
-    vkDestroyBuffer(vk->device, buf, NULL);
-    vkFreeMemory(vk->device, mem, NULL);
-    MLOG_I("pointer dot ready (%s swapchain)", ci.createFlags ? "static" : "ordinary");
-    return sc;
+    ctx->passthroughSwapchain = sc;
+    LOGEV("passthrough projection layer ready (%dx%d transparent, %u images); swapchains alive %d of 16", size,
+          size, count, ctx->swapchainsAlive);
+    return 1;
 }
 
-// ------------------------------------------------------------------ run
+// ---- events (upstream pollEvents, handleSessionStateChange) ------------------
 
-static void onSignal(int s) {
-    (void)s;
+static void runtimeEnded(XrCtx* ctx, const char* what) {
+    ctx->exitRequested = 1;
+    if (ctx->exitReason[0] == '\0') {
+        snprintf(ctx->exitReason, sizeof(ctx->exitReason), "%s", what);
+        LOGEV("frame loop ending: %s", ctx->exitReason);
+    }
+}
+
+static void handleSessionStateChange(XrCtx* ctx, XrSessionState newState, const XrAppHooks* hk) {
+    LOGEV("session state %d -> %d", ctx->sessionState, newState);
+    ctx->sessionState = newState;
+    if (hk->focus) hk->focus(hk->user, newState == XR_SESSION_STATE_FOCUSED);
+    switch (newState) {
+        case XR_SESSION_STATE_READY: {
+            XrSessionBeginInfo beginInfo = { XR_TYPE_SESSION_BEGIN_INFO };
+            beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+            if (checkXr(xrBeginSession(ctx->session, &beginInfo), "xrBeginSession")) {
+                ctx->sessionRunning = 1;
+                ctx->sessionBegins++;
+                LOGEV("session begun (%d begun, %d ended)", ctx->sessionBegins, ctx->sessionEnds);
+                displaySessionBegun(ctx);
+            }
+            break;
+        }
+        case XR_SESSION_STATE_FOCUSED:
+            if (!ctx->everFocused) {
+                LOGEV("session focused for the first time");
+            }
+            ctx->everFocused = 1;
+            displayFocused(ctx);
+            break;
+        case XR_SESSION_STATE_STOPPING:
+            checkXr(xrEndSession(ctx->session), "xrEndSession");
+            ctx->sessionRunning = 0;
+            ctx->sessionEnds++;
+            LOGEV("session ended for the runtime (%d begun, %d ended)", ctx->sessionBegins, ctx->sessionEnds);
+            break;
+        case XR_SESSION_STATE_EXITING:
+        case XR_SESSION_STATE_LOSS_PENDING:
+            ctx->sessionRunning = 0;
+            runtimeEnded(ctx, newState == XR_SESSION_STATE_EXITING ? "session exiting" : "session loss pending");
+            break;
+        default:
+            break;
+    }
+}
+
+static void pollEvents(XrCtx* ctx, const XrAppHooks* hk) {
+    XrEventDataBuffer event;
+    for (;;) {
+        event.type = XR_TYPE_EVENT_DATA_BUFFER;
+        event.next = NULL;
+        if (xrPollEvent(ctx->instance, &event) != XR_SUCCESS) {
+            break;
+        }
+        switch (event.type) {
+            case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:
+                handleSessionStateChange(ctx, ((XrEventDataSessionStateChanged*)&event)->state, hk);
+                break;
+            case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING: {
+                XrEventDataReferenceSpaceChangePending* change = (XrEventDataReferenceSpaceChangePending*)&event;
+                if (change->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL) {
+                    recentreScreen(ctx);
+                    // The head jumps in the space when the change lands, which
+                    // head aim must not read as a turn
+                    XrTime hold = ctx->predictedDisplayTime + HEAD_AIM_RECENTRE_HOLD_NS;
+                    ctx->headAimRecentring = 1;
+                    ctx->headAimRecentreAt = change->changeTime > hold ? change->changeTime : hold;
+                }
+                break;
+            }
+            case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED:
+                refreshInputSource(ctx);
+                break;
+            case XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB: {
+                XrEventDataDisplayRefreshRateChangedFB* rate = (XrEventDataDisplayRefreshRateChangedFB*)&event;
+                displayRateChanged(ctx, rate->fromDisplayRefreshRate, rate->toDisplayRefreshRate);
+                break;
+            }
+            case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
+                runtimeEnded(ctx, "instance loss pending");
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+// ---- the instance (upstream initXrInstance, Vulkan in place of GL ES) ----------
+
+static int offered(const XrExtensionProperties* exts, uint32_t n, const char* name) {
+    for (uint32_t i = 0; i < n; i++) {
+        if (!strcmp(exts[i].extensionName, name)) return 1;
+    }
+    return 0;
+}
+
+static int initInstance(XrCtx* ctx, const Settings* s) {
+    uint32_t n = 0;
+    if (XR_FAILED(xrEnumerateInstanceExtensionProperties(NULL, 0, &n, NULL))) {
+        LOGE("no OpenXR runtime reachable: is SteamVR running?");
+        return 0;
+    }
+    XrExtensionProperties* exts = calloc(n, sizeof(*exts));
+    for (uint32_t i = 0; i < n; i++) exts[i].type = XR_TYPE_EXTENSION_PROPERTIES;
+    xrEnumerateInstanceExtensionProperties(NULL, n, &n, exts);
+    if (!offered(exts, n, XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME)) {
+        LOGE("runtime lacks XR_KHR_vulkan_enable2");
+        free(exts);
+        return 0;
+    }
+    ctx->cylinderSupported = 0; // none on SteamVR; the curve is the host's (see curve below)
+    ctx->frameInteraction = offered(exts, n, "XR_VALVE_frame_controller_interaction");
+    ctx->refreshRateSupported = offered(exts, n, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
+    ctx->perfSettingsSupported = offered(exts, n, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
+    ctx->handInteraction = offered(exts, n, XR_EXT_HAND_INTERACTION_EXTENSION_NAME);
+    ctx->msftHandInteraction = offered(exts, n, XR_MSFT_HAND_INTERACTION_EXTENSION_NAME);
+    ctx->handTracking = offered(exts, n, XR_EXT_HAND_TRACKING_EXTENSION_NAME);
+    ctx->handAimOffered = offered(exts, n, XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME);
+    ctx->eyeGaze = offered(exts, n, XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME);
+    ctx->handsEnabled = s->hand_tracking;
+    if (!ctx->handsEnabled) {
+        ctx->handInteraction = 0;
+        ctx->msftHandInteraction = 0;
+        ctx->handTracking = 0;
+        ctx->handAimOffered = 0;
+        LOGI("hand tracking off by preference");
+    }
+    // Native: the gaze extension only when the setting wants it, so a runtime
+    // that would ask for eye tracking does not ask for nothing
+    if (!s->gaze) {
+        ctx->eyeGaze = 0;
+    }
+    free(exts);
+
+    const char* enabled[16];
+    uint32_t ne = 0;
+    enabled[ne++] = XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME;
+    if (ctx->frameInteraction) enabled[ne++] = "XR_VALVE_frame_controller_interaction";
+    if (ctx->refreshRateSupported) enabled[ne++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
+    if (ctx->perfSettingsSupported) enabled[ne++] = XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME;
+    if (ctx->handInteraction) enabled[ne++] = XR_EXT_HAND_INTERACTION_EXTENSION_NAME;
+    if (ctx->handTracking) enabled[ne++] = XR_EXT_HAND_TRACKING_EXTENSION_NAME;
+    ctx->handAimOffered = ctx->handAimOffered && ctx->handTracking;
+    if (ctx->handAimOffered) enabled[ne++] = XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME;
+    if (ctx->eyeGaze) enabled[ne++] = XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME;
+    if (ctx->msftHandInteraction) enabled[ne++] = XR_MSFT_HAND_INTERACTION_EXTENSION_NAME;
+
+    XrInstanceCreateInfo ici = { XR_TYPE_INSTANCE_CREATE_INFO };
+    strcpy(ici.applicationInfo.applicationName, "Moonlight XR Native");
+    strcpy(ici.applicationInfo.engineName, "mlxr");
+    ici.applicationInfo.applicationVersion = 4;
+    ici.applicationInfo.apiVersion = XR_API_VERSION_1_0;
+    ici.enabledExtensionCount = ne;
+    ici.enabledExtensionNames = enabled;
+    if (!checkXr(xrCreateInstance(&ici, &ctx->instance), "xrCreateInstance")) {
+        return 0;
+    }
+    probeDisplayExtensions(ctx);
+    XrInstanceProperties ip = { XR_TYPE_INSTANCE_PROPERTIES };
+    if (XR_SUCCEEDED(xrGetInstanceProperties(ctx->instance, &ip))) {
+        snprintf(ctx->runtimeLabel, sizeof(ctx->runtimeLabel), "%s %u.%u.%u", ip.runtimeName,
+                 (unsigned)XR_VERSION_MAJOR(ip.runtimeVersion), (unsigned)XR_VERSION_MINOR(ip.runtimeVersion),
+                 (unsigned)XR_VERSION_PATCH(ip.runtimeVersion));
+        LOGEV("runtime %s; frame controller %d, refresh rate %d, hands %d, gaze %d", ctx->runtimeLabel,
+              ctx->frameInteraction, ctx->refreshRateSupported, ctx->handTracking, ctx->eyeGaze);
+    }
+    XrSystemGetInfo sgi = { XR_TYPE_SYSTEM_GET_INFO };
+    sgi.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
+    if (!checkXr(xrGetSystem(ctx->instance, &sgi, &ctx->systemId), "xrGetSystem (no headset?)")) {
+        return 0;
+    }
+    uint32_t nm = 0;
+    XrEnvironmentBlendMode modes[8];
+    xrEnumerateEnvironmentBlendModes(ctx->instance, ctx->systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, 8,
+                                     &nm, modes);
+    for (uint32_t i = 0; i < nm; i++) {
+        if (modes[i] == XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND) ctx->alphaBlendSupported = 1;
+    }
+    LOGEV("passthrough %s", ctx->alphaBlendSupported ? "available (alpha blend)" : "not offered by this runtime");
+    ctx->maxLayerCount = XR_MIN_COMPOSITION_LAYERS_SUPPORTED;
+    XrSystemEyeGazeInteractionPropertiesEXT gazeProps = { XR_TYPE_SYSTEM_EYE_GAZE_INTERACTION_PROPERTIES_EXT };
+    XrSystemHandTrackingPropertiesEXT handProps = { XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT };
+    XrSystemProperties props = { XR_TYPE_SYSTEM_PROPERTIES };
+    if (ctx->eyeGaze) {
+        gazeProps.next = props.next;
+        props.next = &gazeProps;
+    }
+    if (ctx->handTracking) {
+        handProps.next = props.next;
+        props.next = &handProps;
+    }
+    if (XR_SUCCEEDED(xrGetSystemProperties(ctx->instance, ctx->systemId, &props))) {
+        if (props.graphicsProperties.maxLayerCount > 0
+                && (int)props.graphicsProperties.maxLayerCount < ctx->maxLayerCount) {
+            ctx->maxLayerCount = (int)props.graphicsProperties.maxLayerCount;
+        }
+        LOGEV("system %s, %d composition layers used", props.systemName, ctx->maxLayerCount);
+        if (ctx->eyeGaze && !gazeProps.supportsEyeGazeInteraction) ctx->eyeGaze = 0;
+        if (ctx->handTracking && !handProps.supportsHandTracking) ctx->handTracking = 0;
+    }
+    XrViewConfigurationView cv[2] = { { XR_TYPE_VIEW_CONFIGURATION_VIEW }, { XR_TYPE_VIEW_CONFIGURATION_VIEW } };
+    uint32_t ncv = 0;
+    if (XR_SUCCEEDED(xrEnumerateViewConfigurationViews(ctx->instance, ctx->systemId,
+                                                       XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, 2, &ncv, cv))
+            && ncv > 0) {
+        ctx->recommendedEyeWidth = (int)cv[0].recommendedImageRectWidth;
+        ctx->recommendedEyeHeight = (int)cv[0].recommendedImageRectHeight;
+    }
+    return 1;
+}
+
+// ---- the host's per frame glue (XrRenderer.dispatchInput and friends) -----------
+
+typedef struct Host {
+    XrCtx* ctx;
+    const XrAppConfig* cfg;
+    Settings live;             // config.ini as the panels should show it now
+    float out[IN_SLOTS];
+    int heldButtons;
+    int heldKbMods;
+    int lastX, lastY;
+    float distance, quadWidth, curvature; // the preference's placement
+    char statsText[512];
+    int64_t statsNs;
+    char clockText[32];
+} Host;
+
+static void saveSettings(Host* h, const char* why) {
+    Settings* s = h->cfg->settings;
+    int r = settings_save(s, h->cfg->settingsPath);
+    if (r != 0) {
+        LOGW("config.ini not saved (%s): error %d", why, r);
+    }
+    else {
+        LOGI("config.ini saved (%s)", why);
+    }
+}
+
+// The IN_ slots the input pass filled, to the app, the panels and config.ini
+static void dispatchInput(Host* h, XrUiEvents* ev) {
+    XrCtx* ctx = h->ctx;
+    const XrAppHooks* hk = &h->cfg->hooks;
+    float* in = h->out;
+    int streaming = atomic_load(&g_streaming);
+    if (streaming) {
+        if (in[IN_HIT] != 0.0f && hk->pointer) {
+            int w = ctx->videoWidth, hgt = ctx->videoHeight;
+            int x = (int)(in[IN_U] * (float)w), y = (int)(in[IN_V] * (float)hgt);
+            x = x < 0 ? 0 : (x > w - 1 ? w - 1 : x);
+            y = y < 0 ? 0 : (y > hgt - 1 ? hgt - 1 : y);
+            if (x != h->lastX || y != h->lastY) {
+                hk->pointer(hk->user, x, y, w, hgt);
+                h->lastX = x;
+                h->lastY = y;
+            }
+        }
+        int dx = (int)in[IN_MOUSE_DX], dy = (int)in[IN_MOUSE_DY];
+        if ((dx != 0 || dy != 0) && hk->mouseMove) {
+            h->lastX = h->lastY = -1;
+            hk->mouseMove(hk->user, dx, dy);
+        }
+    }
+    // A release always goes, so nothing sticks on the host
+    int buttons = (int)in[IN_BUTTONS];
+    int changed = buttons ^ h->heldButtons;
+    static const int MAP[3] = { 1, 3, 2 }; // VR_BUTTON_LEFT, RIGHT, MIDDLE -> BUTTON_*
+    for (int i = 0; i < 3; i++) {
+        int mask = 1 << i;
+        if ((changed & mask) && hk->button && (streaming || !(buttons & mask))) {
+            hk->button(hk->user, MAP[i], (buttons & mask) != 0);
+        }
+    }
+    h->heldButtons = buttons;
+    int clicks = (int)in[IN_SCROLL];
+    if (clicks != 0 && streaming && hk->scroll) {
+        hk->scroll(hk->user, clicks * 120);
+    }
+    int key = (int)in[IN_KEY];
+    if (key >= 0) {
+        if (in[IN_REPORT_ZONE] >= 0.0f) {
+            xrPanelsReportKey(ctx, key);
+        }
+        else if (hk->key) {
+            hk->key(hk->user, key, (int)in[IN_KEY_MODS]);
+        }
+    }
+    int mods = (int)in[IN_KB_MODS];
+    if (mods != h->heldKbMods) {
+        h->heldKbMods = mods;
+        if (hk->modifiers) hk->modifiers(hk->user, mods);
+    }
+    if (in[IN_EXIT] != 0.0f) {
+        ev->exitConfirmed = 1;
+    }
+    int report = (int)in[IN_REPORT];
+    if (report >= 0) {
+        xrPanelsReportEvent(ctx, report, h->cfg->reportDir);
+    }
+    int toast = (int)in[IN_TOAST];
+    if (toast >= 0) {
+        xrPanelsToast(ctx, toast, (int)in[IN_TOAST_ARG]);
+    }
+    Settings* s = h->cfg->settings;
+    if (in[IN_POSE_DIRTY] != 0.0f) {
+        xrPoseToSettings(&in[IN_POSE], effectiveCurvature(ctx), s);
+        saveSettings(h, "screen placement");
+    }
+    int pick = (int)in[IN_PICKER_PICK];
+    if (pick >= 0 && pick < ctx->pickerCells) {
+        xrSetEnvironment(ctx, pick);
+        ctx->passthrough = pick == ENV_CELL_PASSTHROUGH;
+        // environment: 1 passthrough, 2 void (settings.c ENV_NAMES)
+        s->environment = pick == ENV_CELL_PASSTHROUGH ? 1 : 2;
+        s->passthrough = pick == ENV_CELL_PASSTHROUGH;
+        saveSettings(h, "environment");
+    }
+    if (in[IN_HINT] != 0.0f) {
+        s->hand_hint_seen = 1;
+        saveSettings(h, "hand lock hint");
+    }
+    int setting = (int)in[IN_SETTING];
+    if (setting >= 0) {
+        if (xrStoreSetting(ctx, s, setting, (int)in[IN_SETTING_VALUE])) {
+            saveSettings(h, "panel");
+        }
+    }
+    // The launcher's list took a press
+    if (ctx->launcherPressHit >= 0) {
+        const UiHits* hits = xrPanelsLauncherHits(ctx);
+        if (hits != NULL && ctx->launcherPressHit < hits->count) {
+            const UiHit* hit = &hits->hit[ctx->launcherPressHit];
+            ev->listKind = hit->kind;
+            ev->listA = hit->a;
+            ev->listB = hit->b;
+        }
+        ctx->launcherPressHit = -1;
+    }
+    ev->focused = ctx->sessionState == XR_SESSION_STATE_FOCUSED;
+}
+
+static void updateTexts(Host* h, int64_t now, uint64_t frames, uint64_t videoFrames) {
+    XrCtx* ctx = h->ctx;
+    time_t t = time(NULL);
+    struct tm tm;
+    localtime_r(&t, &tm);
+    snprintf(h->clockText, sizeof(h->clockText), "%02d:%02d", tm.tm_hour, tm.tm_min);
+    if (!ctx->overlayVisible || now - h->statsNs < 1000000000LL) {
+        return;
+    }
+    static uint64_t lastFrames, lastVideo;
+    double secs = h->statsNs > 0 ? (now - h->statsNs) / 1e9 : 1.0;
+    h->statsNs = now;
+    char app[256] = "";
+    if (h->cfg->hooks.stats) h->cfg->hooks.stats(h->cfg->hooks.user, app, sizeof(app));
+    int n = snprintf(h->statsText, sizeof(h->statsText), "Display %.0f Hz, %.0f fps\nVideo %dx%d, %.0f fps\n",
+                     xrGetDisplayRate(ctx), (frames - lastFrames) / secs, ctx->videoWidth, ctx->videoHeight,
+                     (videoFrames - lastVideo) / secs);
+    lastFrames = frames;
+    lastVideo = videoFrames;
+    // The app's line, one clause a line
+    for (const char* p = app; *p && n < (int)sizeof(h->statsText) - 2; p++) {
+        if (p[0] == ';' && p[1] == ' ') {
+            h->statsText[n++] = '\n';
+            p++;
+        }
+        else {
+            h->statsText[n++] = *p;
+        }
+    }
+    h->statsText[n] = '\0';
+}
+
+// ---- run -------------------------------------------------------------------------
+
+static void onSignal(int sig) {
+    (void)sig;
     atomic_store(&g_quit, 1);
 }
 
@@ -772,426 +823,492 @@ int xr_app_run(const XrAppConfig* cfg) {
     int rc = 1;
     signal(SIGINT, onSignal);
     signal(SIGTERM, onSignal);
+    atomic_store(&g_quit, 0);
+    atomic_store(&g_streaming, cfg->startStreaming);
 
-    // ---- instance with the extensions this milestone uses
-    uint32_t n = 0;
-    if (XR_FAILED(xrEnumerateInstanceExtensionProperties(NULL, 0, &n, NULL))) {
-        MLOG_E("no OpenXR runtime reachable: is SteamVR running?");
-        return 1;
-    }
-    XrExtensionProperties* props = calloc(n, sizeof(*props));
-    for (uint32_t i = 0; i < n; i++) props[i].type = XR_TYPE_EXTENSION_PROPERTIES;
-    xrEnumerateInstanceExtensionProperties(NULL, n, &n, props);
-    int haveVk = 0, haveFrame = 0, haveRate = 0;
-    for (uint32_t i = 0; i < n; i++) {
-        if (!strcmp(props[i].extensionName, XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME)) haveVk = 1;
-        if (!strcmp(props[i].extensionName, "XR_VALVE_frame_controller_interaction")) haveFrame = 1;
-        if (!strcmp(props[i].extensionName, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME)) haveRate = 1;
-    }
-    free(props);
-    if (!haveVk) {
-        MLOG_E("runtime lacks XR_KHR_vulkan_enable2");
-        return 1;
-    }
-    const char* exts[4];
-    uint32_t ne = 0;
-    exts[ne++] = XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME;
-    if (haveFrame) exts[ne++] = "XR_VALVE_frame_controller_interaction";
-    if (haveRate) exts[ne++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
-    XrInstanceCreateInfo ici = {XR_TYPE_INSTANCE_CREATE_INFO};
-    strcpy(ici.applicationInfo.applicationName, "Moonlight XR Native");
-    strcpy(ici.applicationInfo.engineName, "mlxr");
-    ici.applicationInfo.applicationVersion = 1;
-    ici.applicationInfo.apiVersion = XR_API_VERSION_1_0;
-    ici.enabledExtensionCount = ne;
-    ici.enabledExtensionNames = exts;
-    if (XR_FAILED(xrCreateInstance(&ici, &g_inst))) {
-        MLOG_E("xrCreateInstance failed");
-        return 1;
-    }
-    XrInstanceProperties ip = {XR_TYPE_INSTANCE_PROPERTIES};
-    xrGetInstanceProperties(g_inst, &ip);
-    MLOG_I("runtime %s %u.%u.%u; frame controller ext %d, refresh ext %d", ip.runtimeName,
-           XR_VERSION_MAJOR(ip.runtimeVersion), XR_VERSION_MINOR(ip.runtimeVersion),
-           XR_VERSION_PATCH(ip.runtimeVersion), haveFrame, haveRate);
-
-    XrSystemGetInfo sgi = {XR_TYPE_SYSTEM_GET_INFO};
-    sgi.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
-    XrSystemId system = XR_NULL_SYSTEM_ID;
-    XrResult sr = xrGetSystem(g_inst, &sgi, &system);
-    if (XR_FAILED(sr)) {
-        MLOG_E("no headset: %s", xrStr(sr));
-        xrDestroyInstance(g_inst);
-        return 1;
-    }
-    // View configuration must be enumerated before a session on some runtimes.
-    XrViewConfigurationType vct[4];
-    uint32_t nv = 0;
-    xrEnumerateViewConfigurations(g_inst, system, 4, &nv, vct);
+    XrCtx* ctx = calloc(1, sizeof(XrCtx));
+    Host host;
+    memset(&host, 0, sizeof(host));
+    host.ctx = ctx;
+    host.cfg = cfg;
+    host.lastX = host.lastY = -1;
+    xrDefaultPlacement(&host.distance, &host.quadWidth, &host.curvature);
+    xrCtxDefaults(ctx, cfg->videoWidth, cfg->videoHeight, cfg->fps);
 
     XrVk vk;
-    XrSession session = XR_NULL_HANDLE;
-    XrSpace local = XR_NULL_HANDLE;
-    Input in;
+    memset(&vk, 0, sizeof(vk));
     Video vd;
     memset(&vd, 0, sizeof(vd));
-    memset(&in, 0, sizeof(in));
-    VkCommandPool pool = VK_NULL_HANDLE;
-    VkCommandBuffer cmd = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
-    XrSwapchain dot = XR_NULL_HANDLE;
-    HwRender hr;
-    memset(&hr, 0, sizeof(hr));
+    Frame fr;
+    memset(&fr, 0, sizeof(fr));
+    g_frame = &fr;
+    MlxrPasses* passes = NULL;
+
+    if (!initInstance(ctx, cfg->settings)) {
+        if (ctx->instance) xrDestroyInstance(ctx->instance);
+        free(ctx);
+        return 1;
+    }
     uint32_t nImpExt = 0;
     const char* const* impExt = mlxr_vkimp_device_extensions(&nImpExt);
-    if (xr_vk_create(g_inst, system, impExt, nImpExt, &vk)) goto fail;
+    if (xr_vk_create(ctx->instance, ctx->systemId, impExt, nImpExt, &vk)) goto fail;
+    ctx->vk = &vk;
 
-    XrGraphicsBindingVulkan2KHR gb = {XR_TYPE_GRAPHICS_BINDING_VULKAN2_KHR};
+    XrGraphicsBindingVulkan2KHR gb = { XR_TYPE_GRAPHICS_BINDING_VULKAN2_KHR };
     gb.instance = vk.instance;
     gb.physicalDevice = vk.phys;
     gb.device = vk.device;
     gb.queueFamilyIndex = vk.queueFamily;
-    XrSessionCreateInfo sci = {XR_TYPE_SESSION_CREATE_INFO};
+    XrSessionCreateInfo sci = { XR_TYPE_SESSION_CREATE_INFO };
     sci.next = &gb;
-    sci.systemId = system;
-    XR_TRY(xrCreateSession(g_inst, &sci, &session));
-    XrReferenceSpaceCreateInfo rsci = {XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
-    rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    sci.systemId = ctx->systemId;
+    if (!checkXr(xrCreateSession(ctx->instance, &sci, &ctx->session), "xrCreateSession")) goto fail;
+    XrReferenceSpaceCreateInfo rsci = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
     rsci.poseInReferenceSpace.orientation.w = 1;
-    XR_TRY(xrCreateReferenceSpace(session, &rsci, &local));
-    if (inputCreate(&in, session, haveFrame)) MLOG_W("input setup failed; pointer disabled");
+    rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    if (!checkXr(xrCreateReferenceSpace(ctx->session, &rsci, &ctx->localSpace), "create local space")) goto fail;
+    rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+    if (!checkXr(xrCreateReferenceSpace(ctx->session, &rsci, &ctx->viewSpace), "create view space")) goto fail;
+    startDisplay(ctx);
+    startPerfLevels(ctx);
 
-    int64_t formats[32];
-    uint32_t nf = 0;
-    xrEnumerateSwapchainFormats(session, 32, &nf, formats);
-    int64_t format = 0;
-    for (uint32_t i = 0; i < nf && !format; i++)
-        if (formats[i] == VK_FORMAT_R8G8B8A8_SRGB || formats[i] == VK_FORMAT_B8G8R8A8_SRGB) format = formats[i];
-    if (!format) {
-        MLOG_E("no sRGB swapchain format");
-        goto fail;
+    ctx->ensurePassthrough = ensurePassthroughSwapchain;
+    // The settings, as nativeInit's arguments and the setters handed them down
+    xrApplySettings(ctx, cfg->settings);
+
+    if (!initXrInput(ctx)) {
+        LOGW("controller input unavailable, pointer off");
+        destroyXrInput(ctx);
     }
-    if (videoPipeline(&vk, &vd, (VkFormat)format)) goto fail;
 
-    VkCommandPoolCreateInfo pci = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+    // The picture's format: sRGB, as upstream's GL_SRGB8_ALPHA8
+    {
+        int64_t formats[32];
+        uint32_t nf = 0;
+        xrEnumerateSwapchainFormats(ctx->session, 32, &nf, formats);
+        for (uint32_t i = 0; i < nf && !vd.format; i++)
+            if (formats[i] == VK_FORMAT_R8G8B8A8_SRGB || formats[i] == VK_FORMAT_B8G8R8A8_SRGB) vd.format = formats[i];
+        if (!vd.format) {
+            LOGE("no sRGB swapchain format");
+            goto fail;
+        }
+        ctx->swapchainFormat = vd.format;
+    }
+
+    VkCommandPoolCreateInfo pci = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
     pci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     pci.queueFamilyIndex = vk.queueFamily;
-    VK_TRY(vkCreateCommandPool(vk.device, &pci, NULL, &pool));
-    VkCommandBufferAllocateInfo cai = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-    cai.commandPool = pool;
+    if (!VK_OK(vkCreateCommandPool(vk.device, &pci, NULL, &fr.pool), "command pool")) goto fail;
+    VkCommandBufferAllocateInfo cai = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    cai.commandPool = fr.pool;
     cai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     cai.commandBufferCount = 1;
-    VK_TRY(vkAllocateCommandBuffers(vk.device, &cai, &cmd));
-    VkFenceCreateInfo fci = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    if (!VK_OK(vkAllocateCommandBuffers(vk.device, &cai, &fr.cmd), "command buffer")) goto fail;
+    VkFenceCreateInfo fci = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    VK_TRY(vkCreateFence(vk.device, &fci, NULL, &fence));
-
-    dot = makeDot(&vk, session, format, cmd, fence);
-
-    // Shader passes (NV12 through a YCbCr conversion for hardware frames) and
-    // the timeline semaphore the importer waits on before requeueing buffers.
+    if (!VK_OK(vkCreateFence(vk.device, &fci, NULL, &fr.fence), "fence")) goto fail;
     {
-        MlxrPassesInfo pi = {0};
-        pi.phys = vk.phys;
-        pi.device = vk.device;
-        pi.nv12 = 1;
-        pi.nv12Chroma = MLXR_CHROMA_LEFT; // H.264/HEVC default siting
-        if (mlxr_passes_create(&pi, &hr.passes) != 0) {
-            MLOG_E("shader passes unavailable; hardware decode frames cannot be shown");
-            hr.passes = NULL;
-        } else {
-            VK_TRY(vkWaitForFences(vk.device, 1, &fence, VK_TRUE, UINT64_MAX));
-            VK_TRY(vkResetFences(vk.device, 1, &fence));
-            VK_TRY(vkResetCommandBuffer(cmd, 0));
-            VkCommandBufferBeginInfo cbi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-            VK_TRY(vkBeginCommandBuffer(cmd, &cbi));
-            mlxr_passes_prepare(hr.passes, cmd);
-            VK_TRY(vkEndCommandBuffer(cmd));
-            VkSubmitInfo si = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-            si.commandBufferCount = 1;
-            si.pCommandBuffers = &cmd;
-            VK_TRY(vkQueueSubmit(vk.queue, 1, &si, fence));
-        }
-        VkSemaphoreTypeCreateInfo st = {VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+        VkSemaphoreTypeCreateInfo st = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
         st.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-        VkSemaphoreCreateInfo sci2 = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+        VkSemaphoreCreateInfo sci2 = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         sci2.pNext = &st;
-        VK_TRY(vkCreateSemaphore(vk.device, &sci2, NULL, &hr.timeline));
+        if (!VK_OK(vkCreateSemaphore(vk.device, &sci2, NULL, &vd.timeline), "timeline semaphore")) goto fail;
     }
 
-    PFN_xrGetDisplayRefreshRateFB getRate = NULL;
-    if (haveRate) xrGetInstanceProcAddr(g_inst, "xrGetDisplayRefreshRateFB", (PFN_xrVoidFunction*)&getRate);
+    // The shader passes (both video kinds through the warp, as M2)
+    MlxrPassesInfo pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.phys = vk.phys;
+    pi.device = vk.device;
+    pi.nv12 = 1;
+    pi.nv12Chroma = MLXR_CHROMA_LEFT;
+    if (mlxr_passes_create(&pi, &passes) != 0) {
+        LOGE("shader passes unavailable");
+        passes = NULL;
+        goto fail;
+    }
+    {
+        VkCommandBuffer cmd = frameBegin(ctx, &fr);
+        mlxr_passes_prepare(passes, cmd);
+        vkEndCommandBuffer(cmd);
+        fr.recording = 0;
+        VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+        si.commandBufferCount = 1;
+        si.pCommandBuffers = &cmd;
+        vkResetFences(vk.device, 1, &fr.fence);
+        vkQueueSubmit(vk.queue, 1, &si, fr.fence);
+    }
 
-    // ---- loop
-    int running = 1, sessionRunning = 0, exitRequested = 0;
-    double start = nowSec(), lastStats = start;
-    uint64_t frames = 0, framesWindow = 0, uploadsWindow = 0;
-    XrSessionState state = XR_SESSION_STATE_UNKNOWN;
-    while (running) {
-        if ((atomic_load(&g_quit) || (cfg->seconds > 0 && nowSec() - start > cfg->seconds)) && !exitRequested) {
-            exitRequested = 1;
-            if (sessionRunning) {
-                MLOG_I("requesting session exit");
-                xrRequestExitSession(session);
-            } else {
+    // The UI: one atlas swapchain and the panels drawn into it
+    if (!xrAtlasCreate(ctx) || !xrPanelsCreate(ctx)) {
+        LOGE("UI atlas unavailable");
+        goto fail;
+    }
+    LOGEV("swapchains alive %d of 16 at start (the picture's comes with its first frame, passthrough's "
+          "when it goes on)", ctx->swapchainsAlive);
+
+    pthread_mutex_lock(&g_reqLock);
+    g_running = 1;
+    pthread_mutex_unlock(&g_reqLock);
+
+    double start = nowNs() / 1e9, lastStats = start;
+    uint64_t frames = 0, framesWindow = 0, videoWindow = 0, videoFrames = 0;
+    int exitAsked = 0;
+    while (!ctx->exitRequested) {
+        if ((atomic_load(&g_quit) || (cfg->seconds > 0 && nowNs() / 1e9 - start > cfg->seconds)) && !exitAsked) {
+            exitAsked = 1;
+            if (ctx->sessionRunning) {
+                LOGEV("requesting session exit");
+                xrRequestExitSession(ctx->session);
+            }
+            else {
                 break;
             }
         }
-        XrEventDataBuffer ev = {XR_TYPE_EVENT_DATA_BUFFER};
-        while (xrPollEvent(g_inst, &ev) == XR_SUCCESS) {
-            if (ev.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
-                state = ((XrEventDataSessionStateChanged*)&ev)->state;
-                MLOG_I("session state %d", (int)state);
-                if (cfg->hooks.focus) cfg->hooks.focus(cfg->hooks.user, state == XR_SESSION_STATE_FOCUSED);
-                if (state == XR_SESSION_STATE_READY) {
-                    XrSessionBeginInfo bi = {XR_TYPE_SESSION_BEGIN_INFO};
-                    bi.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-                    XR_TRY(xrBeginSession(session, &bi));
-                    sessionRunning = 1;
-                } else if (state == XR_SESSION_STATE_STOPPING) {
-                    xrEndSession(session);
-                    sessionRunning = 0;
-                } else if (state == XR_SESSION_STATE_EXITING || state == XR_SESSION_STATE_LOSS_PENDING) {
-                    running = 0;
-                }
-            } else if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
-                running = 0;
-            } else if (ev.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) {
-                MLOG_I("recentre (reference space change)");
-            } else if (ev.type == XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB) {
-                XrEventDataDisplayRefreshRateChangedFB* r = (XrEventDataDisplayRefreshRateChangedFB*)&ev;
-                MLOG_I("display refresh rate %.2f -> %.2f Hz", r->fromDisplayRefreshRate, r->toDisplayRefreshRate);
-            }
-            ev = (XrEventDataBuffer){XR_TYPE_EVENT_DATA_BUFFER};
+        pollEvents(ctx, &cfg->hooks);
+        if (ctx->exitRequested) break;
+
+        // A stream stopped: let go of every frame and import of its decoder
+        pthread_mutex_lock(&g_reqLock);
+        int release = g_releaseAsked;
+        g_releaseAsked = 0;
+        unsigned serial = g_releaseSerial;
+        int nNotices = g_noticeCount;
+        char notices[4][160];
+        memcpy(notices, g_notices, sizeof(notices));
+        g_noticeCount = 0;
+        pthread_mutex_unlock(&g_reqLock);
+        for (int i = 0; i < nNotices; i++) xrPanelsNotice(ctx, notices[i]);
+        if (release) {
+            vkWaitForFences(vk.device, 1, &fr.fence, VK_TRUE, UINT64_MAX);
+            hwDestroy(&vk, &vd);
+            vd.swValid = 0;
+            vd.draws = 0;
+            ctx->videoShown = 0;
+            AVFrame* stale = cfg->video ? frame_slot_take(cfg->video) : NULL;
+            av_frame_free(&stale);
+            LOGEV("video released (stream stopped)");
+            pthread_mutex_lock(&g_reqLock);
+            g_releaseDone = serial;
+            pthread_cond_broadcast(&g_reqDone);
+            pthread_mutex_unlock(&g_reqLock);
         }
-        if (!running) break;
-        if (!sessionRunning) {
-            struct timespec ts = {0, 10000000};
+
+        if (!ctx->sessionRunning) {
+            struct timespec ts = { 0, 10000000 };
             nanosleep(&ts, NULL);
             continue;
         }
 
-        XrFrameState fs = {XR_TYPE_FRAME_STATE};
-        XR_TRY(xrWaitFrame(session, NULL, &fs));
-        XR_TRY(xrBeginFrame(session, NULL));
+        XrFrameState fs = { XR_TYPE_FRAME_STATE };
+        if (!checkXr(xrWaitFrame(ctx->session, NULL, &fs), "xrWaitFrame")) break;
+        if (!checkXr(xrBeginFrame(ctx->session, NULL), "xrBeginFrame")) break;
+        ctx->predictedDisplayTime = fs.predictedDisplayTime;
+        ctx->shouldRender = fs.shouldRender;
+        displayFrameBegun(ctx, &fs);
         frames++;
         framesWindow++;
+        int64_t now = nowNs();
 
-        float screenH = vd.width ? cfg->screenWidth * (float)vd.height / (float)vd.width : cfg->screenWidth * 9.0f / 16.0f;
-        if (in.set && state == XR_SESSION_STATE_FOCUSED)
-            inputUpdate(&in, session, local, fs.predictedDisplayTime, cfg, vd.width, vd.height, screenH);
+        // The last frame's GPU work is done: the atlas copy and the staging
+        // buffers are free to write
+        vkWaitForFences(vk.device, 1, &fr.fence, VK_TRUE, UINT64_MAX);
 
-        // ---- hardware frames (M2): sampled straight from the decoder's dma-bufs
+        // ---- input (nativeUpdateInput) and what it decided (dispatchInput)
+        host.live = *cfg->settings;
+        xrUpdateInput(ctx, host.distance, host.quadWidth, host.curvature, host.live.head_locked,
+                      host.live.pointer, host.live.gaze && ctx->eyeGaze, host.live.pointer_sleep, host.out);
+        XrUiEvents ev;
+        memset(&ev, 0, sizeof(ev));
+        dispatchInput(&host, &ev);
+        XrUiLauncher show;
+        memset(&show, 0, sizeof(show));
+        if (cfg->hooks.ui) cfg->hooks.ui(cfg->hooks.user, &ev, &show);
+        else if (ev.exitConfirmed) atomic_store(&g_quit, 1);
+        XrLauncherView lv;
+        memset(&lv, 0, sizeof(lv));
+        lv.mode = show.mode;
+        lv.pcs = show.pcs;
+        lv.pcCount = show.pcCount;
+        lv.pcName = show.pcName;
+        lv.apps = show.apps;
+        lv.appCount = show.appCount;
+        lv.page = show.page;
+        lv.loading = show.loading;
+        lv.failed = show.failed;
+        ctx->streaming = atomic_load(&g_streaming);
+
+        // ---- the panels' art, from what config.ini and the context say now
+        xrSettingsFromCtx(ctx, &host.live);
+        host.live.head_locked = cfg->settings->head_locked;
+        updateTexts(&host, now, frames, videoFrames);
+        xrPanelsUpdate(ctx, &host.live, &lv, host.statsText, host.clockText, now);
+        if (ctx->launcher != LAUNCHER_NONE || ctx->videoShown) ctx->everRendered = 1;
+
+        // ---- the GPU work of this frame, one submission
+        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        int atlasAcquired = 0;
+        if (fs.shouldRender) {
+            cmd = frameBegin(ctx, &fr);
+            if (xrAtlasRecord(ctx, cmd, &atlasAcquired) < 0) {
+                LOGW("UI atlas upload skipped this frame");
+            }
+        }
+
+        // The hardware decoder of the stream, if one is up
         HwVideo* hv = hw_video_current();
-        if (hv != hr.src) { // a new decoder (or none): imports of the old one go
-            hwDestroy(&vk, &hr);
-            if (hv && hr.passes) {
-                mlxr_vkimp_config ic = {0};
+        if (hv != vd.src) {
+            vkWaitForFences(vk.device, 1, &fr.fence, VK_TRUE, UINT64_MAX);
+            hwDestroy(&vk, &vd);
+            if (hv) {
+                mlxr_vkimp_config ic;
+                memset(&ic, 0, sizeof(ic));
                 ic.phys = vk.phys;
                 ic.device = vk.device;
                 ic.queue_family = vk.queueFamily;
                 ic.release = hwReleaseCb;
                 ic.release_user = hv;
                 ic.linear_filter = true;
-                if (mlxr_vkimp_create(&ic, &hr.imp) == 0) {
-                    hr.src = hv;
-                    MLOG_I("hardware video: importer ready");
-                } else {
-                    MLOG_E("hardware video: importer failed");
-                    hr.imp = NULL;
+                if (mlxr_vkimp_create(&ic, &vd.imp) == 0) {
+                    vd.src = hv;
+                    LOGEV("hardware video: importer ready");
+                }
+                else {
+                    LOGE("hardware video: importer failed");
+                    vd.imp = NULL;
+                    vd.src = hv;
                 }
             }
         }
-        if (hr.imp) {
-            mlxr_vkimp_poll(hr.imp);
+        uint32_t videoIdx = 0;
+        int videoAcquired = 0;
+        uint64_t signal = 0;
+        int hwNew = 0;
+        mlxr_vframe hf;
+        if (vd.imp) {
+            mlxr_vkimp_poll(vd.imp);
             if (hw_video_format_change_pending(hv)) {
-                MLOG_I("hardware video: resolution change, dropping imports");
-                hwDropImports(&vk, &hr);
+                LOGEV("hardware video: resolution change, dropping imports");
+                vkWaitForFences(vk.device, 1, &fr.fence, VK_TRUE, UINT64_MAX);
+                hwDropImports(&vk, &vd);
                 hw_video_format_change_done(hv);
             }
-            mlxr_vframe hf;
             if (hw_video_take(hv, &hf)) {
-                const mlxr_vkimp_image* img = fs.shouldRender ? mlxr_vkimp_get(hr.imp, &hf) : NULL;
-                VkImageView nv12 = img ? hwView(&vk, &hr, img) : VK_NULL_HANDLE;
-                if (!nv12) {
+                const mlxr_vkimp_image* img = fs.shouldRender && cmd ? mlxr_vkimp_get(vd.imp, &hf) : NULL;
+                VkImageView nv12 = img ? hwView(&vk, &vd, passes, img) : VK_NULL_HANDLE;
+                if (!nv12 || videoSwapchain(ctx, &vd, (int)hf.width, (int)hf.height) != 0) {
                     hw_video_release(hv, &hf);
-                } else {
-                    if ((int)hf.width != vd.width || (int)hf.height != vd.height) {
-                        if (videoResize(&vk, session, &vd, format, (int)hf.width, (int)hf.height, NULL)) {
-                            MLOG_E("video quad %ux%u failed", hf.width, hf.height);
-                            hw_video_release(hv, &hf);
-                            goto fail;
-                        }
-                        screenH = cfg->screenWidth * (float)vd.height / (float)vd.width;
-                    }
-                    uint32_t idx;
-                    XrSwapchainImageAcquireInfo ai = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-                    XR_TRY(xrAcquireSwapchainImage(vd.swapchain, &ai, &idx));
-                    XrSwapchainImageWaitInfo wi = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+                }
+                else {
+                    XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+                    XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
                     wi.timeout = XR_INFINITE_DURATION;
-                    XR_TRY(xrWaitSwapchainImage(vd.swapchain, &wi));
-                    VK_TRY(vkWaitForFences(vk.device, 1, &fence, VK_TRUE, UINT64_MAX));
-                    VK_TRY(vkResetFences(vk.device, 1, &fence));
-                    VK_TRY(vkResetCommandBuffer(cmd, 0));
-                    VkCommandBufferBeginInfo cbi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-                    cbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                    VK_TRY(vkBeginCommandBuffer(cmd, &cbi));
-                    mlxr_vkimp_cmd_acquire(hr.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-                    xr_vk_image_barrier(cmd, vd.images[idx].image, VK_IMAGE_LAYOUT_UNDEFINED,
-                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0,
-                                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-                    MlxrTarget tg = {0};
-                    tg.view = vd.views[idx];
-                    tg.format = (VkFormat)format;
-                    tg.rect.extent = (VkExtent2D){(uint32_t)vd.width, (uint32_t)vd.height};
-                    MlxrWarpParams w;
-                    memset(&w, 0, sizeof(w));
-                    w.video.kind = MLXR_VIDEO_NV12;
-                    w.video.planes[0] = nv12;
-                    w.video.width = hf.width;
-                    w.video.height = hf.height;
-                    w.video.texWidth = hf.coded_width;
-                    w.video.texHeight = hf.coded_height;
-                    w.convergence = 0.5f;
-                    w.lowResWidth = (float)(hf.width / 4);
-                    w.srcInset = 0.5f / (float)hf.width;
-                    w.edgeFade = 16.0f / (float)hf.width;
-                    w.grade[1] = w.grade[2] = w.grade[3] = 1.0f;
-                    w.tint[0] = w.tint[1] = w.tint[2] = 1.0f;
-                    mlxr_pass_warp(hr.passes, cmd, &tg, &w);
-                    mlxr_vkimp_cmd_release(hr.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-                    VK_TRY(vkEndCommandBuffer(cmd));
-                    uint64_t signal = ++hr.value;
-                    VkTimelineSemaphoreSubmitInfo tsi = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
-                    tsi.signalSemaphoreValueCount = 1;
-                    tsi.pSignalSemaphoreValues = &signal;
-                    VkSubmitInfo si = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-                    si.pNext = &tsi;
-                    si.commandBufferCount = 1;
-                    si.pCommandBuffers = &cmd;
-                    si.signalSemaphoreCount = 1;
-                    si.pSignalSemaphores = &hr.timeline;
-                    VK_TRY(vkQueueSubmit(vk.queue, 1, &si, fence));
-                    // The quad keeps its own copy, so this buffer is sampled once.
-                    mlxr_vkimp_frame_done_timeline(hr.imp, &hf, hr.timeline, signal);
-                    XrSwapchainImageReleaseInfo rli = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-                    XR_TRY(xrReleaseSwapchainImage(vd.swapchain, &rli));
-                    vd.shown = 1;
-                    uploadsWindow++;
-                    hr.rendered++;
+                    if (checkXr(xrAcquireSwapchainImage(vd.swapchain, &ai, &videoIdx), "acquire video image")
+                            && checkXr(xrWaitSwapchainImage(vd.swapchain, &wi), "wait video image")) {
+                        videoAcquired = 1;
+                        mlxr_vkimp_cmd_acquire(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                        MlxrVideo mv;
+                        memset(&mv, 0, sizeof(mv));
+                        mv.kind = MLXR_VIDEO_NV12;
+                        mv.planes[0] = nv12;
+                        mv.width = hf.width;
+                        mv.height = hf.height;
+                        mv.texWidth = hf.coded_width;
+                        mv.texHeight = hf.coded_height;
+                        recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv);
+                        mlxr_vkimp_cmd_release(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                        hwNew = 1;
+                    }
+                    else {
+                        hw_video_release(hv, &hf);
+                    }
                 }
             }
         }
 
+        // A software frame (the --sw-decode stream, or --file with it)
         AVFrame* f = cfg->video ? frame_slot_take(cfg->video) : NULL;
-        if (f && (f->width != vd.width || f->height != vd.height)) {
-            if (videoResize(&vk, session, &vd, format, f->width, f->height, f)) {
-                MLOG_E("video resize to %dx%d failed", f->width, f->height);
-                av_frame_free(&f);
-                goto fail;
+        if (f && !videoAcquired && fs.shouldRender && cmd) {
+            if (swPlanes(&vk, &vd, f) == 0 && videoSwapchain(ctx, &vd, f->width, f->height) == 0) {
+                XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+                XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+                wi.timeout = XR_INFINITE_DURATION;
+                if (checkXr(xrAcquireSwapchainImage(vd.swapchain, &ai, &videoIdx), "acquire video image")
+                        && checkXr(xrWaitSwapchainImage(vd.swapchain, &wi), "wait video image")) {
+                    videoAcquired = 1;
+                    swUpload(&vd, cmd, f);
+                    MlxrVideo mv;
+                    memset(&mv, 0, sizeof(mv));
+                    mv.kind = MLXR_VIDEO_YUV420P;
+                    mv.planes[0] = vd.planes[0].view;
+                    mv.planes[1] = vd.planes[1].view;
+                    mv.planes[2] = vd.planes[2].view;
+                    mv.width = (uint32_t)f->width;
+                    mv.height = (uint32_t)f->height;
+                    mv.chroma = MLXR_CHROMA_LEFT;
+                    recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv);
+                }
             }
-            screenH = cfg->screenWidth * (float)vd.height / (float)vd.width;
-        }
-        if (f && fs.shouldRender) {
-            uint32_t idx;
-            XrSwapchainImageAcquireInfo ai = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-            XR_TRY(xrAcquireSwapchainImage(vd.swapchain, &ai, &idx));
-            XrSwapchainImageWaitInfo wi = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-            wi.timeout = XR_INFINITE_DURATION;
-            XR_TRY(xrWaitSwapchainImage(vd.swapchain, &wi));
-            VK_TRY(vkWaitForFences(vk.device, 1, &fence, VK_TRUE, UINT64_MAX)); // staging is free again
-            VK_TRY(vkResetFences(vk.device, 1, &fence));
-            VK_TRY(vkResetCommandBuffer(cmd, 0));
-            VkCommandBufferBeginInfo cbi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-            cbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-            VK_TRY(vkBeginCommandBuffer(cmd, &cbi));
-            videoRecord(&vk, &vd, cmd, f, idx);
-            VK_TRY(vkEndCommandBuffer(cmd));
-            VkSubmitInfo si = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-            si.commandBufferCount = 1;
-            si.pCommandBuffers = &cmd;
-            VK_TRY(vkQueueSubmit(vk.queue, 1, &si, fence));
-            XrSwapchainImageReleaseInfo rli = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-            XR_TRY(xrReleaseSwapchainImage(vd.swapchain, &rli));
-            vd.shown = 1;
-            uploadsWindow++;
         }
         av_frame_free(&f);
 
-        XrCompositionLayerQuad quad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
-        XrCompositionLayerQuad dotq = {XR_TYPE_COMPOSITION_LAYER_QUAD};
-        const XrCompositionLayerBaseHeader* layers[2];
-        uint32_t nl = 0;
-        if (fs.shouldRender && vd.shown) {
-            quad.space = local;
-            quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-            quad.subImage.swapchain = vd.swapchain;
-            quad.subImage.imageRect.extent = (XrExtent2Di){vd.width, vd.height};
-            quad.pose.orientation.w = 1;
-            quad.pose.position.z = -cfg->screenDistance;
-            quad.size = (XrExtent2Df){cfg->screenWidth, screenH};
-            layers[nl++] = (const XrCompositionLayerBaseHeader*)&quad;
-            if (dot && in.hit && state == XR_SESSION_STATE_FOCUSED) {
-                dotq.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-                dotq.space = local;
-                dotq.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-                dotq.subImage.swapchain = dot;
-                dotq.subImage.imageRect.extent = (XrExtent2Di){DOT_PX, DOT_PX};
-                dotq.pose.orientation.w = 1;
-                dotq.pose.position.x = (in.hitU - 0.5f) * cfg->screenWidth;
-                dotq.pose.position.y = (0.5f - in.hitV) * screenH;
-                dotq.pose.position.z = -cfg->screenDistance + 0.005f;
-                dotq.size = (XrExtent2Df){0.03f, 0.03f};
-                layers[nl++] = (const XrCompositionLayerBaseHeader*)&dotq;
+        // The grade or the sharpening moved on a picture standing still: the
+        // frame in hand is drawn again (upstream's warpRedraw)
+        if (!videoAcquired && fs.shouldRender && cmd && vd.swapchain && videoStale(ctx, &vd)
+                && (vd.heldValid || vd.swValid)) {
+            XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+            XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+            wi.timeout = XR_INFINITE_DURATION;
+            if (checkXr(xrAcquireSwapchainImage(vd.swapchain, &ai, &videoIdx), "acquire video image")
+                    && checkXr(xrWaitSwapchainImage(vd.swapchain, &wi), "wait video image")) {
+                videoAcquired = 1;
+                MlxrVideo mv;
+                memset(&mv, 0, sizeof(mv));
+                if (vd.heldValid) {
+                    const mlxr_vkimp_image* img = mlxr_vkimp_get(vd.imp, &vd.held);
+                    VkImageView nv12 = img ? hwView(&vk, &vd, passes, img) : VK_NULL_HANDLE;
+                    if (nv12) {
+                        mlxr_vkimp_cmd_acquire(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                        mv.kind = MLXR_VIDEO_NV12;
+                        mv.planes[0] = nv12;
+                        mv.width = vd.held.width;
+                        mv.height = vd.held.height;
+                        mv.texWidth = vd.held.coded_width;
+                        mv.texHeight = vd.held.coded_height;
+                        recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv);
+                        mlxr_vkimp_cmd_release(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                    }
+                }
+                else {
+                    mv.kind = MLXR_VIDEO_YUV420P;
+                    mv.planes[0] = vd.planes[0].view;
+                    mv.planes[1] = vd.planes[1].view;
+                    mv.planes[2] = vd.planes[2].view;
+                    mv.width = (uint32_t)vd.planeW;
+                    mv.height = (uint32_t)vd.planeH;
+                    mv.chroma = MLXR_CHROMA_LEFT;
+                    recordWarp(ctx, &vd, passes, cmd, videoIdx, &mv);
+                }
+                LOGI("picture drawn again on a still frame (grade %s, sharpen %d)", ctx->gradeOn ? "on" : "off",
+                     ctx->sharpenMode);
             }
         }
-        XrFrameEndInfo fei = {XR_TYPE_FRAME_END_INFO};
-        fei.displayTime = fs.predictedDisplayTime;
-        fei.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-        fei.layerCount = nl;
-        fei.layers = layers;
-        XR_TRY(xrEndFrame(session, &fei));
 
-        double t = nowSec();
+        if (fr.recording) {
+            vkEndCommandBuffer(fr.cmd);
+            fr.recording = 0;
+            signal = ++vd.value;
+            VkTimelineSemaphoreSubmitInfo tsi = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+            tsi.signalSemaphoreValueCount = 1;
+            tsi.pSignalSemaphoreValues = &signal;
+            VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            si.pNext = &tsi;
+            si.commandBufferCount = 1;
+            si.pCommandBuffers = &fr.cmd;
+            si.signalSemaphoreCount = 1;
+            si.pSignalSemaphores = &vd.timeline;
+            vkResetFences(vk.device, 1, &fr.fence);
+            if (vkQueueSubmit(vk.queue, 1, &si, fr.fence) != VK_SUCCESS) {
+                LOGE("vkQueueSubmit failed");
+                break;
+            }
+        }
+        if (hwNew) {
+            // The new frame is held for a redraw; the one it replaces goes back
+            // once the last submission that sampled it is done
+            hwLetGoHeld(&vd);
+            vd.held = hf;
+            vd.heldValid = 1;
+            vd.heldValue = signal;
+        }
+        else if (videoAcquired && vd.heldValid) {
+            vd.heldValue = signal;
+        }
+        if (atlasAcquired) xrAtlasRelease(ctx);
+        if (videoAcquired) {
+            XrSwapchainImageReleaseInfo rli = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+            checkXr(xrReleaseSwapchainImage(vd.swapchain, &rli), "release video image");
+            ctx->videoShown = 1;
+            ctx->everRendered = 1;
+            videoWindow++;
+            videoFrames++;
+        }
+        if (!ctx->streaming && !atomic_load(&g_streaming)) {
+            ctx->videoShown = ctx->videoShown && vd.swapchain != XR_NULL_HANDLE && ctx->launcher == LAUNCHER_NONE;
+        }
+
+        // ---- the layers (nativeEndFrame) and the end of the frame
+        XrFrameIn fin;
+        memset(&fin, 0, sizeof(fin));
+        fin.distance = host.distance;
+        fin.quadWidth = host.quadWidth;
+        fin.curvature = host.curvature;
+        fin.headLocked = cfg->settings->head_locked;
+        fin.eyeSwap = cfg->settings->eye_swap;
+        fin.passthrough = ctx->passthrough;
+        XrFrameOut fout;
+        memset(&fout, 0, sizeof(fout));
+        if (fs.shouldRender) {
+            xrBuildLayers(ctx, &fin, &fout);
+        }
+        if (fr.recording) {
+            // xrBuildLayers made the passthrough swapchain this frame
+            vkEndCommandBuffer(fr.cmd);
+            fr.recording = 0;
+            VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            si.commandBufferCount = 1;
+            si.pCommandBuffers = &fr.cmd;
+            vkWaitForFences(vk.device, 1, &fr.fence, VK_TRUE, UINT64_MAX);
+            vkResetFences(vk.device, 1, &fr.fence);
+            vkQueueSubmit(vk.queue, 1, &si, fr.fence);
+        }
+        XrFrameEndInfo fei = { XR_TYPE_FRAME_END_INFO };
+        fei.displayTime = fs.predictedDisplayTime;
+        fei.environmentBlendMode = fs.shouldRender ? fout.blend : XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+        fei.layerCount = fout.count;
+        fei.layers = fout.order;
+        if (!checkXr(xrEndFrame(ctx->session, &fei), "xrEndFrame")) break;
+        displayFrameEnded(ctx);
+
+        double t = nowNs() / 1e9;
         if (t - lastStats >= 5.0) {
-            float rate = 0;
-            if (getRate) getRate(session, &rate);
-            char extra[256] = "";
+            char extra[512] = "";
             if (cfg->hooks.stats) cfg->hooks.stats(cfg->hooks.user, extra, sizeof(extra));
-            MLOG_I("xr: %.1f fps (display %.0f Hz), video %.1f fps shown; %s", framesWindow / (t - lastStats), rate,
-                   uploadsWindow / (t - lastStats), extra);
-            framesWindow = uploadsWindow = 0;
+            LOGEV("xr: %.1f fps (display %.0f Hz), video %.1f fps drawn, %u layers, swapchains %d; %s",
+                  framesWindow / (t - lastStats), xrGetDisplayRate(ctx), videoWindow / (t - lastStats), fout.count,
+                  ctx->swapchainsAlive, extra);
+            framesWindow = videoWindow = 0;
             lastStats = t;
         }
     }
     rc = 0;
-    MLOG_I("session ended after %llu frames", (unsigned long long)frames);
+    LOGEV("session ended after %llu frames", (unsigned long long)frames);
 
 fail:
-    if (vk.device) vkDeviceWaitIdle(vk.device);
+    pthread_mutex_lock(&g_reqLock);
+    g_running = 0;
+    g_releaseDone = g_releaseSerial;
+    pthread_cond_broadcast(&g_reqDone);
+    pthread_mutex_unlock(&g_reqLock);
     if (vk.device) {
-        hwDestroy(&vk, &hr);
-        if (hr.passes) mlxr_passes_destroy(hr.passes);
-        if (hr.timeline) vkDestroySemaphore(vk.device, hr.timeline, NULL);
-        videoFreeSized(&vk, &vd);
-        if (dot) xrDestroySwapchain(dot);
-        if (vd.pipe) vkDestroyPipeline(vk.device, vd.pipe, NULL);
-        if (vd.layout) vkDestroyPipelineLayout(vk.device, vd.layout, NULL);
-        if (vd.pool) vkDestroyDescriptorPool(vk.device, vd.pool, NULL);
-        if (vd.dsl) vkDestroyDescriptorSetLayout(vk.device, vd.dsl, NULL);
-        if (vd.sampler) vkDestroySampler(vk.device, vd.sampler, NULL);
-        if (fence) vkDestroyFence(vk.device, fence, NULL);
-        if (pool) vkDestroyCommandPool(vk.device, pool, NULL);
+        vkDeviceWaitIdle(vk.device);
+        hwDestroy(&vk, &vd);
+        freeSwPlanes(&vk, &vd);
+        freeVideoSwapchain(ctx, &vd);
+        xrPanelsDestroy(ctx);
+        xrAtlasDestroy(ctx);
+        if (ctx->passthroughSwapchain) xrDestroySwapchain(ctx->passthroughSwapchain);
+        if (passes) mlxr_passes_destroy(passes);
+        if (vd.timeline) vkDestroySemaphore(vk.device, vd.timeline, NULL);
+        if (fr.fence) vkDestroyFence(vk.device, fr.fence, NULL);
+        if (fr.pool) vkDestroyCommandPool(vk.device, fr.pool, NULL);
     }
-    for (int h = 0; h < HANDS; h++)
-        if (in.aimSpace[h]) xrDestroySpace(in.aimSpace[h]);
-    if (in.set) xrDestroyActionSet(in.set);
-    if (local) xrDestroySpace(local);
-    if (session) xrDestroySession(session);
-    xrDestroyInstance(g_inst);
-    g_inst = XR_NULL_HANDLE;
+    destroyXrInput(ctx);
+    if (ctx->viewSpace) xrDestroySpace(ctx->viewSpace);
+    if (ctx->localSpace) xrDestroySpace(ctx->localSpace);
+    if (ctx->session) xrDestroySession(ctx->session);
+    if (ctx->instance) xrDestroyInstance(ctx->instance);
     xr_vk_destroy(&vk);
+    free(ctx);
     return rc;
 }

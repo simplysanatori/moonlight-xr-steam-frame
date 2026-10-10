@@ -204,6 +204,10 @@ void stream_scroll(int amount) {
     if (atomic_load(&g_connected)) LiSendHighResScrollEvent((short)amount);
 }
 
+void stream_mouse_move(int dx, int dy) {
+    if (atomic_load(&g_connected)) LiSendMouseMoveEvent((short)dx, (short)dy);
+}
+
 void stream_stats(char* buf, int len) {
     uint32_t rtt = 0, var = 0;
     LiGetEstimatedRttInfo(&rtt, &var);
