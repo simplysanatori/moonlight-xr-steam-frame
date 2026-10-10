@@ -16,6 +16,7 @@
 #include <unistd.h>
 
 #include "../backend/backend.h"
+#include "../audio/opus_out.h"
 #include "../backend/backend_limelight.h"
 #include "../stream/file_source.h"
 #include "../stream/frame_slot.h"
@@ -28,10 +29,16 @@ static int g_streaming;
 
 static void statsHook(void* user, char* buf, int len) {
     (void)user;
-    char s[160] = "";
-    if (g_streaming) stream_stats(s, sizeof(s));
-    snprintf(buf, (size_t)len, "decoded %llu, dropped %llu, decode %.1f ms; %s", (unsigned long long)g_slot.produced,
-             (unsigned long long)g_slot.dropped, g_slot.lastDecodeMs, s);
+    char s[160] = "", a[128] = "";
+    if (g_streaming) {
+        stream_stats(s, sizeof(s));
+        MlxrOpusOutStats st;
+        mlxr_opus_out_stats(&st);
+        snprintf(a, sizeof(a), "audio %dch %.0f ms buffered, %u underruns, %u lost", st.channels, st.bufferedMs,
+                 st.underruns, st.lostPackets);
+    }
+    snprintf(buf, (size_t)len, "decoded %llu, dropped %llu, decode %.1f ms; %s; %s", (unsigned long long)g_slot.produced,
+             (unsigned long long)g_slot.dropped, g_slot.lastDecodeMs, s, a);
 }
 
 static void pointerHook(void* user, int x, int y, int w, int h) {
@@ -81,11 +88,13 @@ static void wake(const mlxr_host_record* h) {
 typedef struct StreamJob {
     StreamHost host;
     STREAM_CONFIGURATION cfg;
+    AUDIO_RENDERER_CALLBACKS audio;
+    MlxrOpusOutConfig audioCfg; // read by the audio init callback; lives as long as the job
 } StreamJob;
 
 static void* streamThread(void* arg) {
     StreamJob* j = arg;
-    if (stream_start(&j->host, &j->cfg, &g_slot, NULL, NULL) != 0) {
+    if (stream_start(&j->host, &j->cfg, &g_slot, &j->audio, &j->audioCfg) != 0) {
         MLOG_E("stream did not start");
         xr_app_request_quit();
     }
@@ -244,6 +253,12 @@ int main(int argc, char** argv) {
     job.cfg.colorSpace = COLORSPACE_REC_709;
     job.cfg.colorRange = COLOR_RANGE_LIMITED;
     job.cfg.encryptionFlags = ENCFLG_ALL;
+
+    mlxr_opus_out_callbacks(&job.audio);
+    mlxr_opus_out_config_default(&job.audioCfg);
+    // HRTFs ship in assets/ next to the binary (installed tree) or in the source tree.
+    job.audioCfg.hrtfDir = access("assets/hrtf/kemar", R_OK) == 0 ? "assets/hrtf/kemar" : MLXR_SOURCE_ASSETS "/hrtf/kemar";
+    job.audioCfg.surround = true;
 
     g_streaming = 1;
     pthread_t th;
