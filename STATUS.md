@@ -16,9 +16,9 @@ What is confirmed on the Steam Frame versus reasoned from code. The orchestrator
 | Upstream unit tests (16 suites) | confirmed | pass on the host unchanged with clang (lane X ports them) |
 | FFmpeg v4l2m2m H.264/HEVC decode | confirmed | `docs/probe/ffmpeg-v4l2m2m-test.txt`, no kernel warnings |
 | moonlight-common-c static | confirmed | builds against host OpenSSL 3.2 |
-| Two-eye triangle, launched from Steam | confirmed by log only | Steam shortcut "Moonlight XR Native" (appid 2761093165) ran `mlxr-hello` to FOCUSED, 72 fps at 72 Hz, clean exit. **Awaiting the owner's in-headset confirmation (the M0 gate).** |
+| Two-eye triangle, launched from Steam | **confirmed on hardware 2026-10-10** | Owner saw the triangle in the headset from the Steam shortcut "Moonlight XR Native" (appid 2761093165); log: FOCUSED, 72 fps at 72 Hz, clean exit. |
 | Native refresh rate | reasoned | SteamVR offers one rate and picks it (90 or 72 seen); the app follows it |
 
 ## Milestones
-- M0: built and logged; gate pending owner confirmation in the headset.
+- M0: **gate passed** 2026-10-10 (owner saw the triangle in the headset).
 - M1..M8: not started. Worker lanes started early per the plan are listed in `docs/lanes.md`.
