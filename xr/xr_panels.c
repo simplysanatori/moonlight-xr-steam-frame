@@ -21,6 +21,7 @@
 //   launcher lists     UI_PANEL_PC_LIST / UI_PANEL_APP_LIST, with the hover
 // GPLv3.
 #include "xr_native.h"
+#include "xr_keyboard.h"
 
 #include "text.h"
 
@@ -71,16 +72,7 @@ int xrPanelsCreate(XrCtx* ctx) {
     ctx->hintReady = ctx->handsEnabled;
     ctx->cogClockReady = 1;
     // The keyboard's layout, which upstream's Java handed down with the art
-    ctx->kbKeyCount = ui_kb_key_count();
-    if (ctx->kbKeyCount > KB_MAX_KEYS) {
-        ctx->kbKeyCount = KB_MAX_KEYS;
-    }
-    for (int k = 0; k < ctx->kbKeyCount; k++) {
-        ui_kb_key_rect(k, &ctx->kbKeyRects[k * 4]);
-        for (int sheet = 0; sheet < KB_STATE_COUNT; sheet++) {
-            ctx->kbCodes[sheet][k] = ui_kb_key_code(sheet, k);
-        }
-    }
+    xrKeyboardFillTables(ctx);
     return 1;
 }
 
@@ -148,6 +140,11 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->bar_show_stereo = ctx->stereoButtonReady;
     v->kb_sheet = ctx->kbState;
     v->kb_mods = ctx->kbMods;
+    v->kb_layout = xrKeyboardLayout(ctx);
+    v->kb_oneshot = ctx->kbFull.oneshot;
+    v->kb_locked = ctx->kbFull.locked;
+    v->kb_caps = ctx->kbFull.caps;
+    v->kb_chip = !ctx->reportOpen;
     v->version = "0.4 native (M4)";
     v->commit = NULL;
     v->log_path = "~/Games/MoonlightXRNative/moonlight.log";
@@ -241,7 +238,8 @@ static void updateKeyboard(XrCtx* ctx, XrPanels* p, const UiView* base) {
     if (!ctx->kbOpen) {
         return;
     }
-    int k[2] = { ctx->kbState, ctx->kbMods };
+    int k[7] = { ctx->kbState, ctx->kbMods, ctx->kbLayoutShown, ctx->kbFull.oneshot,
+                 ctx->kbFull.locked, ctx->kbFull.caps, ctx->reportOpen };
     if (!keyChanged(p, UI_PANEL_KEYBOARD, k, sizeof(k))) {
         return;
     }
