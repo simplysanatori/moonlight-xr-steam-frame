@@ -4,5 +4,8 @@
 #include "frame_slot.h"
 
 typedef struct FileSource FileSource;
-FileSource* file_source_start(const char* path, FrameSlot* out);
+// hw: decode on the Iris decoder (published through hw_video_current());
+// otherwise FFmpeg software decode into `out`.
+FileSource* file_source_start(const char* path, FrameSlot* out, int hw);
+// Call after xr_app_run returned (the hardware decoder closes here).
 void file_source_stop(FileSource* s);

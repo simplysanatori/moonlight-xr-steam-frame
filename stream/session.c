@@ -10,9 +10,12 @@
 #include <string.h>
 
 #include "../xr/mlxr_log.h"
+#include "hw_video.h"
 #include "sw_decoder.h"
 
 static FrameSlot* g_video;
+static int g_useHw = 1;
+static HwVideo* g_hw;
 static SwDecoder* g_dec;
 static uint8_t* g_au;
 static size_t g_auCap;
@@ -26,12 +29,23 @@ static int drSetup(int videoFormat, int width, int height, int redrawRate, void*
     (void)ctx;
     (void)flags;
     int hevc = (videoFormat & VIDEO_FORMAT_MASK_H265) != 0;
-    MLOG_I("video setup: %s %dx%d at %d fps", hevc ? "HEVC" : "H.264", width, height, redrawRate);
+    MLOG_I("video setup: %s %dx%d at %d fps, %s decode", hevc ? "HEVC" : "H.264", width, height, redrawRate,
+           g_useHw ? "hardware" : "software");
+    if (g_useHw) {
+        g_hw = hw_video_open(hevc ? MLXR_CODEC_HEVC : MLXR_CODEC_H264, (uint32_t)width, (uint32_t)height,
+                             LiRequestIdrFrame);
+        if (g_hw) {
+            hw_video_set_current(g_hw);
+            return 0;
+        }
+        MLOG_W("hardware decoder unavailable; falling back to software");
+    }
     g_dec = sw_decoder_open(hevc ? SWDEC_HEVC : SWDEC_H264, g_video);
     return g_dec ? 0 : -1;
 }
 
 static void drCleanup(void) {
+    hw_video_stop(g_hw); // the decoder itself closes after the renderer (stream_close_video)
     sw_decoder_close(g_dec);
     g_dec = NULL;
     free(g_au);
@@ -40,6 +54,20 @@ static void drCleanup(void) {
 }
 
 static int drSubmit(PDECODE_UNIT du) {
+    if (g_hw) {
+        const void* parts[64];
+        uint32_t sizes[64], n = 0;
+        for (PLENTRY e = du->bufferList; e && n < 64; e = e->next) {
+            parts[n] = e->data;
+            sizes[n++] = (uint32_t)e->length;
+        }
+        atomic_fetch_add(&g_units, 1);
+        if (hw_video_submit(g_hw, parts, sizes, n, (int64_t)du->presentationTimeUs) != 0) {
+            atomic_fetch_add(&g_idr, 1);
+            return DR_NEED_IDR;
+        }
+        return DR_OK;
+    }
     if ((size_t)du->fullLength + 64 > g_auCap) {
         g_auCap = (size_t)du->fullLength + 64 + 65536;
         g_au = realloc(g_au, g_auCap);
@@ -147,6 +175,14 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     return r;
 }
 
+void stream_set_hw_decode(int on) { g_useHw = on; }
+
+void stream_close_video(void) {
+    hw_video_set_current(NULL);
+    hw_video_close(g_hw);
+    g_hw = NULL;
+}
+
 void stream_stop(void) {
     LiStopConnection();
     atomic_store(&g_connected, 0);
@@ -171,7 +207,15 @@ void stream_scroll(int amount) {
 void stream_stats(char* buf, int len) {
     uint32_t rtt = 0, var = 0;
     LiGetEstimatedRttInfo(&rtt, &var);
-    snprintf(buf, (size_t)len, "units %llu, idr requests %llu, rtt %u ms, pending video %d",
+    char hw[160] = "";
+    if (g_hw) {
+        HwVideoStats h;
+        hw_video_stats(g_hw, &h);
+        snprintf(hw, sizeof(hw), "; hw decode %.1f ms (last %.1f), frames %llu, skipped %llu, errors %llu",
+                 h.avgDecodeMs, h.lastDecodeMs, (unsigned long long)h.frames, (unsigned long long)h.skipped,
+                 (unsigned long long)h.errors);
+    }
+    snprintf(buf, (size_t)len, "units %llu, idr requests %llu, rtt %u ms, pending video %d%s",
              (unsigned long long)atomic_load(&g_units), (unsigned long long)atomic_load(&g_idr), rtt,
-             LiGetPendingVideoFrames());
+             LiGetPendingVideoFrames(), hw);
 }

@@ -20,6 +20,7 @@
 #include "../backend/backend_limelight.h"
 #include "../stream/evdev_keyboard.h"
 #include "../stream/file_source.h"
+#include "../stream/hw_video.h"
 #include "../stream/frame_slot.h"
 #include "../stream/session.h"
 #include "../xr/mlxr_log.h"
@@ -28,10 +29,18 @@
 static FrameSlot g_slot;
 static void updateKeyboard(void);
 static int g_streaming;
+static int g_fileHw;
 
 static void statsHook(void* user, char* buf, int len) {
     (void)user;
     char s[160] = "", a[128] = "";
+    if (g_fileHw && hw_video_current()) {
+        HwVideoStats h;
+        hw_video_stats(hw_video_current(), &h);
+        snprintf(s, sizeof(s), "hw decode %.1f ms (last %.1f), frames %llu, taken %llu, skipped %llu, errors %llu",
+                 h.avgDecodeMs, h.lastDecodeMs, (unsigned long long)h.frames, (unsigned long long)h.taken,
+                 (unsigned long long)h.skipped, (unsigned long long)h.errors);
+    }
     if (g_streaming) {
         stream_stats(s, sizeof(s));
         MlxrOpusOutStats st;
@@ -160,7 +169,7 @@ static mlxr_server* connectHost(const mlxr_identity* id, const char* dir, mlxr_h
 int main(int argc, char** argv) {
     const char *file = NULL, *hostArg = NULL, *appArg = "Desktop", *modeArg = "1920x1080x60";
     double seconds = 0;
-    int bitrate = 0, h264Only = 0, doWake = 0;
+    int bitrate = 0, h264Only = 0, doWake = 0, swDecode = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--file") && i + 1 < argc) file = argv[++i];
         else if (!strcmp(argv[i], "--host") && i + 1 < argc) hostArg = argv[++i];
@@ -170,10 +179,11 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = atof(argv[++i]);
         else if (!strcmp(argv[i], "--h264")) h264Only = 1;
         else if (!strcmp(argv[i], "--wake")) doWake = 1;
+        else if (!strcmp(argv[i], "--sw-decode")) swDecode = 1;
         else {
             fprintf(stderr,
                     "usage: %s [--host NAME|ADDR] [--app NAME|ID] [--mode WxHxFPS] [--bitrate KBPS] [--h264] [--wake] "
-                    "[--seconds N]\n       %s --file VIDEO [--seconds N]\n",
+                    "[--sw-decode] [--seconds N]\n       %s --file VIDEO [--seconds N]\n",
                     argv[0], argv[0]);
             return 2;
         }
@@ -187,8 +197,9 @@ int main(int argc, char** argv) {
     cfg.hooks = (XrAppHooks){NULL, pointerHook, buttonHook, scrollHook, statsHook, focusHook};
 
     if (file) {
-        FileSource* src = file_source_start(file, &g_slot);
+        FileSource* src = file_source_start(file, &g_slot, !swDecode);
         if (!src) return 1;
+        g_fileHw = !swDecode;
         int rc = xr_app_run(&cfg);
         file_source_stop(src);
         frame_slot_destroy(&g_slot);
@@ -281,6 +292,7 @@ int main(int argc, char** argv) {
     job.audioCfg.hrtfDir = access("assets/hrtf/kemar", R_OK) == 0 ? "assets/hrtf/kemar" : MLXR_SOURCE_ASSETS "/hrtf/kemar";
     job.audioCfg.surround = true;
 
+    stream_set_hw_decode(!swDecode);
     g_streaming = 1;
     evkbd_start(sendKey, NULL);
     pthread_t th;
@@ -291,6 +303,7 @@ int main(int argc, char** argv) {
     evkbd_stop();
     pthread_join(th, NULL);
     stream_stop();
+    stream_close_video(); // after the renderer dropped its imports
     g_streaming = 0;
     free(rtsp);
     mlxr_apps_free(apps, nApps);
