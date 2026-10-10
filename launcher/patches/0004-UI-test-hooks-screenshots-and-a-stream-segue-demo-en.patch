@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Sat, 10 Oct 2026 14:10:44 -0400
+Subject: [PATCH] UI test hooks: screenshots and a stream segue demo
+ (environment only)
+
+---
+ app/gui/main.qml | 1 +
+ app/main.cpp     | 3 +++
+ 2 files changed, 4 insertions(+)
+
+diff --git a/app/gui/main.qml b/app/gui/main.qml
+index 508f67b..32e576e 100644
+--- a/app/gui/main.qml
++++ b/app/gui/main.qml
+@@ -81,6 +81,7 @@ ApplicationWindow {
+ 
+     StackView {
+         id: stackView
++        objectName: "stackView"
+         initialItem: initialView
+         anchors.fill: parent
+         focus: true
+diff --git a/app/main.cpp b/app/main.cpp
+index f85cb40..8d32821 100644
+--- a/app/main.cpp
++++ b/app/main.cpp
+@@ -798,6 +798,9 @@ int main(int argc, char *argv[])
+         engine.load(QUrl(QStringLiteral("qrc:/gui/main.qml")));
+         if (engine.rootObjects().isEmpty())
+             return -1;
++
++        // tests/launcher: screenshots and a segue demo from the environment (no-ops otherwise)
++        MlxrHandoff::installTestHooks(engine);
+     }
+ 
+     int err = app.exec();

@@ -4,3 +4,6 @@
 [submodule "third_party/moonlight-common-c"]
 	path = third_party/moonlight-common-c
 	url = https://github.com/moonlight-stream/moonlight-common-c
+[submodule "third_party/moonlight-qt"]
+	path = third_party/moonlight-qt
+	url = https://github.com/moonlight-stream/moonlight-qt

@@ -1,0 +1,142 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Sat, 10 Oct 2026 14:07:51 -0400
+Subject: [PATCH] Hand the stream to the native VR client (Session::execVr,
+ StreamSegue status)
+
+---
+ app/gui/StreamSegue.qml   | 16 ++++++++++++++++
+ app/streaming/session.cpp | 40 +++++++++++++++++++++++++++++++++++++++
+ app/streaming/session.h   |  6 ++++++
+ 3 files changed, 62 insertions(+)
+
+diff --git a/app/gui/StreamSegue.qml b/app/gui/StreamSegue.qml
+index 1617792..7472b3f 100644
+--- a/app/gui/StreamSegue.qml
++++ b/app/gui/StreamSegue.qml
+@@ -2,6 +2,7 @@ import QtQuick 2.0
+ import QtQuick.Controls 2.2
+ import QtQuick.Window 2.2
+ 
++import ComputerManager 1.0
+ import SdlGamepadKeyNavigation 1.0
+ import Session 1.0
+ 
+@@ -41,6 +42,13 @@ Item {
+         window.visible = false
+     }
+ 
++    // Moonlight XR Native: the native VR client has the stream. This window stays up, idle.
++    function vrStreamStarted()
++    {
++        // Stock wording; the VR client's disconnect chord is Start+Select+L2+R2
++        hintText.text = qsTr("Tip:") + " " + qsTr("Press %1 to disconnect your session").arg(qsTr("Start+Select+L2+R2"))
++    }
++
+     function displayLaunchError(text)
+     {
+         // Display the error dialog after Session::exec() returns
+@@ -79,6 +87,13 @@ Item {
+         // Enable GUI gamepad usage now
+         SdlGamepadKeyNavigation.enable()
+ 
++        // Moonlight XR Native: the window was never hidden, so polling may have idled out
++        // while the headset had the stream; refresh the PC and app list now
++        if (!window.pollingActive) {
++            ComputerManager.startPolling()
++            window.pollingActive = true
++        }
++
+         if (quitAfter) {
+             if (streamSegueErrorDialog.text) {
+                 // Quit when the error dialog is acknowledged
+@@ -131,6 +146,7 @@ Item {
+         session.stageStarting.connect(stageStarting)
+         session.stageFailed.connect(stageFailed)
+         session.connectionStarted.connect(connectionStarted)
++        session.vrStreamStarted.connect(vrStreamStarted)
+         session.displayLaunchError.connect(displayLaunchError)
+         session.displayLaunchWarning.connect(displayLaunchWarning)
+         session.quitStarting.connect(quitStarting)
+diff --git a/app/streaming/session.cpp b/app/streaming/session.cpp
+index 80fb921..5c62602 100644
+--- a/app/streaming/session.cpp
++++ b/app/streaming/session.cpp
+@@ -1,4 +1,5 @@
+ #include "session.h"
++#include "streaming/mlxrhandoff.h"
+ #include "settings/streamingpreferences.h"
+ #include "streaming/streamutils.h"
+ #include "backend/richpresencemanager.h"
+@@ -1682,8 +1683,47 @@ public:
+     Session* m_Session;
+ };
+ 
++void Session::execVr(QWindow* qtWindow)
++{
++    m_QtWindow = qtWindow;
++
++    qInfo() << "Handing the stream of" << m_App.name << "on" << m_Computer->name << "to the native VR client";
++
++    // Share the pairing (identity, PC, pinned certificate) with the VR client, then run it with
++    // this session's settings. The Qt window stays up, idle, until it exits.
++    QString error;
++    if (!MlxrHandoff::exportPairing(*m_Computer, &error)) {
++        emit displayLaunchError(error);
++    }
++    else {
++        const MlxrHandoff::Plan plan = MlxrHandoff::makePlan(*m_Computer, m_App, *m_Preferences);
++        const bool hideWindow = qEnvironmentVariable("MLXR_LAUNCHER_HIDE_WINDOW") == "1";
++        const MlxrHandoff::Result result = MlxrHandoff::run(plan, [this, hideWindow]() {
++            if (hideWindow) {
++                emit connectionStarted(); // StreamSegue hides the window, as for the SDL stream
++            }
++            emit vrStreamStarted();
++        });
++        if (!result.ok()) {
++            emit displayLaunchError(result.message);
++        }
++    }
++
++    // Tell the UI the stream is over after this call returns, as the SDL path does from its
++    // cleanup thread (the segue is torn down by these, so not from inside its own handler)
++    QMetaObject::invokeMethod(this, [this]() {
++        emit sessionFinished(0);
++        emit readyForDeletion();
++    }, Qt::QueuedConnection);
++}
++
+ void Session::exec(QWindow* qtWindow)
+ {
++    if (MlxrHandoff::enabled()) {
++        execVr(qtWindow);
++        return;
++    }
++
+     m_QtWindow = qtWindow;
+ 
+     // Use a separate thread for the streaming session on X11 or Wayland
+diff --git a/app/streaming/session.h b/app/streaming/session.h
+index 4547f1b..c1b5212 100644
+--- a/app/streaming/session.h
++++ b/app/streaming/session.h
+@@ -137,6 +137,9 @@ signals:
+ 
+     void quitStarting();
+ 
++    // Moonlight XR Native: the stream runs in the native VR client now (the segue changes its tip)
++    void vrStreamStarted();
++
+     void sessionFinished(int portTestResult);
+ 
+     // Emitted after sessionFinished() when the session is ready to be destroyed
+@@ -145,6 +148,9 @@ signals:
+ private:
+     void execInternal();
+ 
++    // Moonlight XR Native: hands the stream to the native OpenXR client (launcher/src/mlxrhandoff.cpp)
++    void execVr(QWindow* qtWindow);
++
+     bool initialize();
+ 
+     bool startConnectionAsync();

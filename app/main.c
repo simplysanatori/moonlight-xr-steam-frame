@@ -5,6 +5,15 @@
 //                [--mode WxHxFPS] [--bitrate KBPS] [--h264] [--wake] [--sw-decode] [--seconds N]
 //   moonlight-xr --file clip.mp4 [--seconds N] [--sw-decode]   local test video, no host
 //
+// Hand-off from the flat launcher (launcher/, a patched moonlight-qt) adds:
+//   --exit-to-caller   the stream's end (the bar's exit, SteamVR quit) ends the host's
+//                      session and then the process, instead of showing the VR app list.
+//                      Exit code 0 is normal; otherwise the last stderr line starting
+//                      "MLXR_ERROR: " is the message (codes below, EXIT_*). 11 = left with
+//                      the disconnect chord (host session kept): not an error.
+//   --packet-size N    video packet size (bytes, local network), 0/absent = 1392
+//   --audio stereo|51|71   the audio channel layout to ask the host for
+//
 // Hosts and the client identity live in ~/.config/moonlight-xr (pair with
 // mlxr-cli, or import Moonlight Qt's pairing with backend/seed-from-moonlight-qt.sh);
 // the settings in ~/.config/moonlight-xr/config.ini; the log in
@@ -17,6 +26,7 @@
 // rule) and comes back to the app list; quitting the app does the same first.
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <stdarg.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,6 +61,25 @@ static int g_fileHw;
 static int g_focused;
 static VrKeyboard g_vrkb;
 
+// ---- --exit-to-caller: how the process ends for the flat launcher ----
+// The exit codes are the hand-off contract (launcher/REPORT.md).
+enum {
+    EXIT_OK = 0,
+    EXIT_FAILED = 1,         // the VR session could not start, or an unclassified failure
+    EXIT_USAGE = 2,          // bad command line
+    EXIT_HOST_UNREACHABLE = 3,
+    EXIT_NO_HOST = 4,        // no such host in hosts.ini, or not paired here
+    EXIT_NO_APP = 5,
+    EXIT_LAUNCH_FAILED = 6,  // the host refused the launch/resume, or the stream would not connect
+    EXIT_STREAM_ENDED = 10,  // the stream ended by itself (the host closed it, or the network dropped)
+    EXIT_DISCONNECTED = 11   // left with the disconnect chord: not an error, the host's session still runs
+};
+static atomic_int g_exitCode;
+static char g_exitMsg[256];
+static atomic_int g_exitSet;
+static pthread_mutex_t g_exitLock = PTHREAD_MUTEX_INITIALIZER;
+static char g_lastError[256]; // the worker's latest launch failure, for the message
+
 // The launcher and the worker's wake-up, under one lock
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_wake = PTHREAD_COND_INITIALIZER;
@@ -64,8 +93,32 @@ static struct {
     const char* app;
     const char* mode;
     int bitrate, h264Only, wake, swDecode;
+    int exitToCaller, packetSize, audio; // audio: 0 stereo (default), 1 5.1, 2 7.1
     double seconds;
 } g_args;
+
+// With --exit-to-caller: remember why the process ends (the first reason wins) and
+// make the frame loop leave. The message goes to stderr at exit as "MLXR_ERROR: ...".
+static void endForCaller(int code, const char* fmt, ...) {
+    pthread_mutex_lock(&g_exitLock);
+    if (!atomic_load(&g_exitSet)) {
+        atomic_store(&g_exitSet, 1);
+        atomic_store(&g_exitCode, code);
+        if (code != EXIT_OK && fmt) {
+            va_list ap;
+            va_start(ap, fmt);
+            vsnprintf(g_exitMsg, sizeof(g_exitMsg), fmt, ap);
+            va_end(ap);
+            MLOG_E("exit to caller (%d): %s", code, g_exitMsg);
+        }
+    }
+    pthread_mutex_unlock(&g_exitLock);
+    xr_app_request_quit();
+}
+
+static void setLastError(const char* msg) {
+    snprintf(g_lastError, sizeof(g_lastError), "%s", msg ? msg : "");
+}
 
 // ---- the input the frame loop hands over -------------------------------------------
 
@@ -361,7 +414,10 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     mlxr_server* s = n->srv[pc] ? n->srv[pc] : connectHost(n, pc, NULL);
     if (!s || mlxr_server_get_info(s, true, &n->comp[pc], NULL, &err) != MLXR_OK) {
         s = connectHost(n, pc, NULL);
-        if (!s) return -1;
+        if (!s) {
+            setLastError("The host stopped answering before the stream could start");
+            return -1;
+        }
     }
     mlxr_computer* comp = &n->comp[pc];
     if (quitFirst && comp->current_game != 0 && comp->current_game != appId) {
@@ -381,12 +437,15 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     lp.width = w;
     lp.height = h;
     lp.fps = fps;
-    lp.audio_configuration = MLXR_AUDIO_STEREO;
+    lp.audio_configuration = g_args.audio == 2 ? MLXR_AUDIO_71 : g_args.audio == 1 ? MLXR_AUDIO_51 : MLXR_AUDIO_STEREO;
     lp.is_gfe = comp->is_nvidia;
     free(n->rtsp);
     n->rtsp = NULL;
     if (mlxr_server_launch_or_resume(s, comp, appId, &lp, &n->rtsp, &err) != MLXR_OK) {
         MLOG_E("launch: %s", err.msg);
+        char why[200];
+        snprintf(why, sizeof(why), "The host refused to start the stream: %s", err.msg);
+        setLastError(why);
         return -1;
     }
     MLOG_I("%s app %d on %s, rtsp %s", comp->current_game ? "resumed" : "launched", appId, n->hosts.v[pc].name,
@@ -401,6 +460,11 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     g_job.cfg.bitrate = bitrate;
     g_job.cfg.packetSize = 1392;
     g_job.cfg.streamingRemotely = STREAM_CFG_AUTO;
+    if (g_args.packetSize > 0) {
+        // Moonlight's custom packet size: it also means "treat the host as local"
+        g_job.cfg.packetSize = g_args.packetSize;
+        g_job.cfg.streamingRemotely = STREAM_CFG_LOCAL;
+    }
     int h264Only = g_args.h264Only || g_settings.codec == 3;
     g_job.cfg.supportedVideoFormats = VIDEO_FORMAT_H264 | (h264Only ? 0 : VIDEO_FORMAT_H265);
     g_job.cfg.clientRefreshRateX100 = lp.fps * 100;
@@ -419,6 +483,7 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
         stream_stop();
         xr_app_release_video();
         stream_close_video();
+        setLastError("The stream could not connect (check the host's firewall and ports)");
         return -1;
     }
     atomic_store(&g_streaming, 1);
@@ -459,13 +524,18 @@ static void autostart(Net* n) {
             pc = (int)i;
     }
     const char* override = NULL;
-    if (pc < 0 && n->hosts.n > 0) {
+    if (pc < 0 && n->hosts.n > 0 && !g_args.exitToCaller) {
         pc = 0; // an address: the first paired host, reached there
         override = g_args.host;
     }
     if (pc < 0) {
         MLOG_E("no paired host matching %s in %s/hosts.ini", g_args.host, n->dir);
         xr_app_notice("No paired host: pair with mlxr-cli");
+        if (g_args.exitToCaller) endForCaller(EXIT_NO_HOST, "No paired host matches %s", g_args.host);
+        return;
+    }
+    if (g_args.exitToCaller && !hasCert(n, pc)) {
+        endForCaller(EXIT_NO_HOST, "%s is not paired with the VR client (no server certificate)", n->hosts.v[pc].name);
         return;
     }
     if (g_args.wake) {
@@ -482,6 +552,7 @@ static void autostart(Net* n) {
         pthread_mutex_lock(&g_lock);
         launcher_pc_status(&g_launch, pc, UI_PC_OFFLINE, 1, 0);
         pthread_mutex_unlock(&g_lock);
+        if (g_args.exitToCaller) endForCaller(EXIT_HOST_UNREACHABLE, "%s is unreachable (is the PC on?)", n->hosts.v[pc].name);
         return;
     }
     LaunchApp apps[LAUNCH_MAX_APPS];
@@ -505,6 +576,10 @@ static void autostart(Net* n) {
         g_launch.state = LAUNCH_APPS;
     }
     pthread_mutex_unlock(&g_lock);
+    if (appId < 0 && g_args.exitToCaller) {
+        if (na < 0) endForCaller(EXIT_FAILED, "Could not get the app list of %s", n->hosts.v[pc].name);
+        else endForCaller(EXIT_NO_APP, "%s has no app \"%s\"", n->hosts.v[pc].name, want);
+    }
 }
 
 static void* worker(void* arg) {
@@ -538,6 +613,8 @@ static void* worker(void* arg) {
         }
         LaunchState state = g_launch.state;
         pthread_mutex_unlock(&g_lock);
+        // --exit-to-caller: a quit asked before the XR loop started is forgotten by it; ask again
+        if (g_args.exitToCaller && atomic_load(&g_exitSet)) xr_app_request_quit();
 
         int64_t now = time(NULL);
         switch (c.kind) {
@@ -560,6 +637,8 @@ static void* worker(void* arg) {
             if (ok) launcher_stream_started(&g_launch);
             else launcher_stream_failed(&g_launch, NULL);
             pthread_mutex_unlock(&g_lock);
+            if (!ok && g_args.exitToCaller)
+                endForCaller(EXIT_LAUNCH_FAILED, "%s", g_lastError[0] ? g_lastError : "The stream could not start");
             break;
         }
         case LCMD_STOP:
@@ -567,6 +646,9 @@ static void* worker(void* arg) {
             pthread_mutex_lock(&g_lock);
             launcher_stream_ended(&g_launch, 0);
             pthread_mutex_unlock(&g_lock);
+            // The bar's exit (the host's session is ended) or the disconnect chord (it stays, so the
+            // caller shows the app as running, as Moonlight does after a disconnect)
+            if (g_args.exitToCaller) endForCaller(c.quitHost ? EXIT_OK : EXIT_DISCONNECTED, NULL);
             break;
         case LCMD_WAKE:
             if (c.pc >= 0 && c.pc < (int)n->hosts.n) {
@@ -588,6 +670,8 @@ static void* worker(void* arg) {
             pthread_mutex_lock(&g_lock);
             launcher_stream_ended(&g_launch, 1);
             pthread_mutex_unlock(&g_lock);
+            if (g_args.exitToCaller)
+                endForCaller(EXIT_STREAM_ENDED, "The stream ended: the host closed the session or the connection was lost");
         }
         // The PC list keeps its online states fresh
         if (state == LAUNCH_PCS && n->haveId && now - lastRefresh >= 10) {
@@ -633,19 +717,36 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--h264")) g_args.h264Only = 1;
         else if (!strcmp(argv[i], "--wake")) g_args.wake = 1;
         else if (!strcmp(argv[i], "--sw-decode")) g_args.swDecode = 1;
+        else if (!strcmp(argv[i], "--exit-to-caller")) g_args.exitToCaller = 1;
+        else if (!strcmp(argv[i], "--packet-size") && i + 1 < argc) g_args.packetSize = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--audio") && i + 1 < argc) {
+            const char* a = argv[++i];
+            if (!strcmp(a, "stereo")) g_args.audio = 0;
+            else if (!strcmp(a, "51") || !strcmp(a, "5.1")) g_args.audio = 1;
+            else if (!strcmp(a, "71") || !strcmp(a, "7.1")) g_args.audio = 2;
+            else {
+                fprintf(stderr, "MLXR_ERROR: --audio takes stereo, 51 or 71\n");
+                return EXIT_USAGE;
+            }
+        }
         else {
             fprintf(stderr,
                     "usage: %s                      PC list and app list in the headset\n"
                     "       %s --host NAME|ADDR [--app NAME|ID] [--mode WxHxFPS] [--bitrate KBPS] [--h264] [--wake] "
                     "[--sw-decode] [--seconds N]\n"
+                    "                  [--exit-to-caller] [--packet-size BYTES] [--audio stereo|51|71]\n"
                     "       %s --file VIDEO [--sw-decode] [--seconds N]\n",
                     argv[0], argv[0], argv[0]);
-            return 2;
+            return EXIT_USAGE;
         }
     }
     if (g_args.app && !g_args.host) {
-        fprintf(stderr, "--app needs --host\n");
-        return 2;
+        fprintf(stderr, "MLXR_ERROR: --app needs --host\n");
+        return EXIT_USAGE;
+    }
+    if (g_args.exitToCaller && (!g_args.host || g_args.file)) {
+        fprintf(stderr, "MLXR_ERROR: --exit-to-caller needs --host (and no --file)\n");
+        return EXIT_USAGE;
     }
     settings_defaults(&g_settings);
     SettingsLoadInfo info;
@@ -730,6 +831,25 @@ int main(int argc, char** argv) {
     if (g_net.haveId) mlxr_identity_free(&g_net.id);
     free(g_net.dir);
     frame_slot_destroy(&g_slot);
+    if (g_args.exitToCaller) {
+        // What the flat launcher is told: 0 for a normal end (the bar's exit, SteamVR quitting),
+        // else a code and, on stderr, one "MLXR_ERROR: message" line
+        pthread_mutex_lock(&g_exitLock);
+        if (atomic_load(&g_exitSet)) {
+            rc = atomic_load(&g_exitCode);
+        }
+        else if (rc != 0) {
+            rc = EXIT_FAILED;
+            snprintf(g_exitMsg, sizeof(g_exitMsg), "%s",
+                     "The VR session could not start (is SteamVR running with the headset on? see moonlight.log)");
+        }
+        pthread_mutex_unlock(&g_exitLock);
+        MLOG_I("== moonlight-xr exits to its caller (%d%s%s)", rc, g_exitMsg[0] ? ": " : "", g_exitMsg);
+        xrLogFlush();
+        if (rc != 0 && g_exitMsg[0]) fprintf(stderr, "MLXR_ERROR: %s\n", g_exitMsg);
+        fflush(stderr);
+        return rc;
+    }
     MLOG_I("== moonlight-xr exits (%d)", rc);
     xrLogFlush();
     return rc;

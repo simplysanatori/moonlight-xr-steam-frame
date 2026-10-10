@@ -1,0 +1,101 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Sat, 10 Oct 2026 14:42:07 -0400
+Subject: [PATCH] Hand-off mode: report the VR client's decoder capabilities
+ (no false hardware-decoder warning, no HDR, no AV1, no 4:4:4)
+
+---
+ app/backend/systemproperties.cpp |  2 ++
+ app/backend/systemproperties.h   |  2 ++
+ app/gui/SettingsView.qml         |  9 ++++++++-
+ app/streaming/session.cpp        | 11 +++++++++++
+ 4 files changed, 23 insertions(+), 1 deletion(-)
+
+diff --git a/app/backend/systemproperties.cpp b/app/backend/systemproperties.cpp
+index 554f433..5b5a370 100644
+--- a/app/backend/systemproperties.cpp
++++ b/app/backend/systemproperties.cpp
+@@ -6,6 +6,7 @@
+ 
+ #include "streaming/session.h"
+ #include "streaming/streamutils.h"
++#include "streaming/mlxrhandoff.h"
+ 
+ #ifdef Q_OS_WIN32
+ #define WIN32_LEAN_AND_MEAN
+@@ -15,6 +16,7 @@
+ SystemProperties::SystemProperties()
+ {
+     versionString = QString(VERSION_STR);
++    nativeVrHandoff = MlxrHandoff::enabled();
+     hasDesktopEnvironment = WMUtils::isRunningDesktopEnvironment();
+     isRunningWayland = WMUtils::isRunningWayland();
+     isRunningXWayland = isRunningWayland && QGuiApplication::platformName() == "xcb";
+diff --git a/app/backend/systemproperties.h b/app/backend/systemproperties.h
+index dd4ec6c..5649d2b 100644
+--- a/app/backend/systemproperties.h
++++ b/app/backend/systemproperties.h
+@@ -27,6 +27,7 @@ public:
+     Q_PROPERTY(QString versionString MEMBER versionString CONSTANT)
+     Q_PROPERTY(bool supportsHdr MEMBER supportsHdr CONSTANT)
+     Q_PROPERTY(bool usesMaterial3Theme MEMBER usesMaterial3Theme CONSTANT)
++    Q_PROPERTY(bool nativeVrHandoff MEMBER nativeVrHandoff CONSTANT)
+ 
+     Q_INVOKABLE void refreshDisplays();
+     Q_INVOKABLE QRect getNativeResolution(int displayIndex);
+@@ -58,5 +59,6 @@ private:
+     QString versionString;
+     bool supportsHdr;
+     bool usesMaterial3Theme;
++    bool nativeVrHandoff; // Moonlight XR Native: streams are decoded by the VR client
+ };
+ 
+diff --git a/app/gui/SettingsView.qml b/app/gui/SettingsView.qml
+index 30b9ed7..4a2bfab 100644
+--- a/app/gui/SettingsView.qml
++++ b/app/gui/SettingsView.qml
+@@ -1536,6 +1536,11 @@ Flickable {
+                 AutoResizingComboBox {
+                     // ignore setting the index at first, and actually set it when the component is loaded
+                     Component.onCompleted: {
++                        // Moonlight XR Native: the VR client has no AV1 decoder
++                        if (SystemProperties.nativeVrHandoff) {
++                            codecListModel.remove(codecListModel.count - 1)
++                        }
++
+                         var saved_vcc = StreamingPreferences.videoCodecConfig
+ 
+                         // Default to Automatic (relevant if HDR is enabled,
+@@ -1611,7 +1616,9 @@ Flickable {
+                     text: qsTr("Enable YUV 4:4:4 (Experimental)")
+                     font.pointSize: 12
+ 
+-                    checked: StreamingPreferences.enableYUV444
++                    // Moonlight XR Native: the VR client decodes 4:2:0 only
++                    enabled: !SystemProperties.nativeVrHandoff
++                    checked: enabled && StreamingPreferences.enableYUV444
+                     onCheckedChanged: {
+                         // This is called on init, so only reset to default bitrate when checked state changes.
+                         if (StreamingPreferences.enableYUV444 != checked) {
+diff --git a/app/streaming/session.cpp b/app/streaming/session.cpp
+index 5c62602..9746d55 100644
+--- a/app/streaming/session.cpp
++++ b/app/streaming/session.cpp
+@@ -375,6 +375,17 @@ void Session::getDecoderInfo(SDL_Window* window,
+ {
+     IVideoDecoder* decoder;
+ 
++    // Moonlight XR Native: the stream is decoded by the VR client (V4L2 hardware decoder: H.264 and
++    // HEVC 8-bit; no AV1, 10-bit/HDR or 4:4:4), not by this process, so report that instead of
++    // probing the local FFmpeg/SDL decoders (no false "no hardware decoder" warning)
++    if (MlxrHandoff::enabled()) {
++        isHardwareAccelerated = true;
++        isFullScreenOnly = false;
++        isHdrSupported = false;
++        maxResolution = QSize(0, 0); // no limit, as for a decoder that reports none
++        return;
++    }
++
+     // Since AV1 support on the host side is in its infancy, let's not consider
+     // _only_ a working AV1 decoder to be acceptable and still show the warning
+     // dialog indicating lack of hardware decoding support.
