@@ -69,7 +69,7 @@ Snapshots: `ninja -C build-kb kb-snapshots` (also run by `ui-snapshots`) writes
 
 ## Deviations and limits
 
-* Compact is unchanged (44 keys, same rectangles, the four sheets, existing tests untouched); its switch is a "Full" chip in the free half-key gap beside the home row (outside the key table, so `ui_panels` key counts still hold). It has no hover ring in the Compact panel except the layout ring quad from `kbHoverKey = KB_KEY_LAYOUT` is skipped by `xr_layers.c`'s `< kbKeyCount` guard (I did not edit xr_layers.c); the click tick still plays. One line in `addKeyboardLayers` (`|| ctx->kbHoverKey == KB_KEY_LAYOUT`) adds it if wanted.
+* Compact is unchanged (44 keys, same rectangles, the four sheets, existing tests untouched); its switch is a "Full" chip in the free half-key gap beside the home row (outside the key table, so `ui_panels` key counts still hold). The chip gets no hover ring: `xr_layers.c`'s ring guard is `kbHoverKey < kbKeyCount` and I did not edit that file (the click tick still plays). One line in `addKeyboardLayers` (`|| ctx->kbHoverKey == KB_KEY_LAYOUT`) adds it if wanted.
 * Full is drawn into the same 1120x448 atlas slot (keys 59x65 px) and hangs 1.2x larger in space (`KB_FULL_SCALE`).
 * Single pointer: the existing input picks one pointing hand, so a modifier cannot be held with one hand while another presses a key; one-shot/lock is the way to chord (as Hacker's Keyboard on a phone).
 * Caps Lock light follows our presses; a host that already has Caps on will show the opposite until Caps is pressed once.
