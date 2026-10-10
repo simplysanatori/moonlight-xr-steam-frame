@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root status_code="200"><hostname>GFE-PC</hostname><appversion>7.1.431.0</appversion><GfeVersion>3.27.0.120</GfeVersion><uniqueid>0000000000000000</uniqueid><HttpsPort>47984</HttpsPort><mac>10:20:30:40:50:60</mac><LocalIP>10.0.0.5</LocalIP><PairStatus>1</PairStatus><currentgame>57</currentgame><state>MJOLNIR_STATE_SERVER_FREE</state></root>

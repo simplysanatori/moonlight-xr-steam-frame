@@ -271,8 +271,9 @@ static mlxr_status get_info_inner(mlxr_server *s, bool fast_fail, bool allow_ret
     if (st == MLXR_OK) st = mlxr_computer_parse(body, strlen(body), s->http_port, out, err);
     if (st != MLXR_OK) { free(body); return st; }
 
-    if (!s->https_port) s->https_port = out->https_port ? out->https_port : MLXR_DEFAULT_HTTPS_PORT;
-    if (s->pinned_pem && allow_retry && !out->via_https) {
+    bool learned_port = !s->https_port;
+    if (learned_port) s->https_port = out->https_port ? out->https_port : MLXR_DEFAULT_HTTPS_PORT;
+    if (s->pinned_pem && allow_retry && learned_port) {
         /* we only needed the HTTPS port: ask again over the authenticated channel */
         mlxr_computer again;
         char *raw2 = NULL;
