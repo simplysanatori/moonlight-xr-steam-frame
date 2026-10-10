@@ -343,7 +343,9 @@ static VkImageView hwView(const XrVk* vk, Video* vd, MlxrPasses* passes, const m
 typedef struct XrCurve {
     VkImage picture;
     VkDeviceMemory mem;
-    VkImageView view;
+    VkImageView view;          // every mip level: what the panel pass samples
+    VkImageView rtView;        // level 0: what the warp draws into
+    uint32_t mips;
     int w, h;
     int valid;                 // a frame has been warped into it
     VkImageLayout layout;
@@ -362,6 +364,8 @@ typedef struct XrCurve {
 
 static void curveFreePicture(const XrVk* vk, XrCurve* cv) {
     if (cv->view) vkDestroyImageView(vk->device, cv->view, NULL);
+    if (cv->rtView) vkDestroyImageView(vk->device, cv->rtView, NULL);
+    cv->rtView = VK_NULL_HANDLE;
     if (cv->picture) vkDestroyImage(vk->device, cv->picture, NULL);
     if (cv->mem) vkFreeMemory(vk->device, cv->mem, NULL);
     cv->view = VK_NULL_HANDLE;
@@ -398,11 +402,18 @@ static int curvePicture(XrCtx* ctx, XrCurve* cv, int w, int h) {
     ci.imageType = VK_IMAGE_TYPE_2D;
     ci.format = CURVE_PICTURE_FORMAT;
     ci.extent = (VkExtent3D){ (uint32_t)w, (uint32_t)h, 1 };
-    ci.mipLevels = 1;
+    // Native: a full mip chain, made after every warp (curveMips), so the
+    // panel pass shrinking a 2560 wide picture to the few hundred pixels it
+    // covers in an eye filters it rather than skipping texels (text crawled
+    // and broke up as the head moved, owner 2026-10-10)
+    uint32_t mips = 1;
+    for (int m = w > h ? w : h; m > 1; m >>= 1) mips++;
+    ci.mipLevels = mips;
     ci.arrayLayers = 1;
     ci.samples = VK_SAMPLE_COUNT_1_BIT;
     ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+             | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     if (vkCreateImage(vk->device, &ci, NULL, &cv->picture) != VK_SUCCESS) return -1;
     VkMemoryRequirements req;
     vkGetImageMemoryRequirements(vk->device, cv->picture, &req);
@@ -415,8 +426,11 @@ static int curvePicture(XrCtx* ctx, XrCurve* cv, int w, int h) {
     vi.image = cv->picture;
     vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
     vi.format = CURVE_PICTURE_FORMAT;
-    vi.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    vi.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, 0, 1 };
     if (vkCreateImageView(vk->device, &vi, NULL, &cv->view) != VK_SUCCESS) return -1;
+    vi.subresourceRange.levelCount = 1;
+    if (vkCreateImageView(vk->device, &vi, NULL, &cv->rtView) != VK_SUCCESS) return -1;
+    cv->mips = mips;
     cv->w = w;
     cv->h = h;
     cv->layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -558,6 +572,56 @@ static float sharpenFor(int mode) {
     return mode == 2 ? 0.8f : (mode == 1 ? 0.4f : 0.0f);
 }
 
+// One level's layout change, with the stages a blit chain needs
+static void mipBarrier(VkCommandBuffer cmd, VkImage image, uint32_t level, uint32_t count, VkImageLayout from,
+                       VkImageLayout to, VkAccessFlags srcAccess, VkAccessFlags dstAccess,
+                       VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+    VkImageMemoryBarrier b = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+    b.srcAccessMask = srcAccess;
+    b.dstAccessMask = dstAccess;
+    b.oldLayout = from;
+    b.newLayout = to;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = image;
+    b.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, level, count, 0, 1 };
+    vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, NULL, 0, NULL, 1, &b);
+}
+
+// Native: the curved (or 3D) picture's mip chain from the level the warp just
+// drew, each level a linear blit of the one above, all of it left for the
+// panel pass to sample. Every level is in COLOR_ATTACHMENT_OPTIMAL on entry
+// (the warp's barrier covers them all).
+static void curveMips(VkCommandBuffer cmd, XrCurve* cv) {
+    const VkPipelineStageFlags COLOR = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    const VkPipelineStageFlags XFER = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    const VkPipelineStageFlags READ = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    mipBarrier(cmd, cv->picture, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+               VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, COLOR, XFER);
+    int w = cv->w, h = cv->h;
+    for (uint32_t m = 1; m < cv->mips; m++) {
+        int nw = w > 1 ? w / 2 : 1, nh = h > 1 ? h / 2 : 1;
+        // After the warp's own layout change of every level, before this write
+        mipBarrier(cmd, cv->picture, m, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   0, VK_ACCESS_TRANSFER_WRITE_BIT, COLOR | XFER, XFER);
+        VkImageBlit blit;
+        memset(&blit, 0, sizeof(blit));
+        blit.srcSubresource = (VkImageSubresourceLayers){ VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1 };
+        blit.srcOffsets[1] = (VkOffset3D){ w, h, 1 };
+        blit.dstSubresource = (VkImageSubresourceLayers){ VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1 };
+        blit.dstOffsets[1] = (VkOffset3D){ nw, nh, 1 };
+        vkCmdBlitImage(cmd, cv->picture, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, cv->picture,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+        mipBarrier(cmd, cv->picture, m, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, XFER, XFER);
+        w = nw;
+        h = nh;
+    }
+    mipBarrier(cmd, cv->picture, 0, cv->mips, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, XFER,
+               READ);
+}
+
 // Records the warp of one picture into swapchain image idx (or the app's own
 // image): the picture grade and the sharpening as the panel has them now, and
 // M6's 3D (xr_depth.c: the capture for the model, the upsample, the offset
@@ -574,7 +638,7 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
         // The curved picture's own image, sampled afterwards by the panel pass
         mlxr_barrier(cmd, curve->picture, VK_IMAGE_ASPECT_COLOR_BIT, curve->layout,
                      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        tg.view = curve->view;
+        tg.view = curve->rtView;
         tg.format = CURVE_PICTURE_FORMAT;
     }
     else {
@@ -599,8 +663,7 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     w.sharpen = sharpenFor(ctx->sharpenMode);
     xrDepthRecordWarp(ctx, cmd, &tg, &w, &dd);
     if (curve != NULL) {
-        mlxr_barrier(cmd, curve->picture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        curveMips(cmd, curve);
         curve->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         curve->valid = 1;
     }

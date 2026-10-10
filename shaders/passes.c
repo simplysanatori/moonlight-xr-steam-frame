@@ -858,7 +858,11 @@ void mlxr_pass_panel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, co
     int segments = pp->segments < 1 ? 1 : pp->segments;
     beginRender(p, cmd, t, 0, VK_NULL_HANDLE, t->clear);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
-    pushTex(p, cmd, layout, pp->src);
+    // Native: trilinear with anisotropy (the atlas's sampler), for a source
+    // with mips (the curved or 3D picture's own image) shrunk into an eye
+    VkDescriptorImageInfo ii = imageInfo(p->atlas, pp->src ? pp->src : p->whiteView);
+    VkWriteDescriptorSet wr = imageWrite(0, &ii);
+    p->pushDescriptors(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &wr);
     int eyes = pp->eyes < 1 ? 1 : (pp->eyes > 2 ? 2 : pp->eyes);
     float pc[28];
     pc[16] = pp->width;
