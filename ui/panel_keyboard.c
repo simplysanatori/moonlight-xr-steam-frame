@@ -1,0 +1,169 @@
+// The in-world keyboard: four sheets (lower, upper, symbols, Fn) sharing one
+// set of key rectangles, a held Ctrl, Alt and Win shown lit. Layout, labels
+// and codes are XrPanels.java's KB_ tables. GPLv3.
+#include <math.h>
+#include <string.h>
+
+#include "panels_int.h"
+
+#define VK(c) (KB_CODE_VK + (c))
+#define NKEYS 44
+
+static const float ROW_WIDTHS[5][10] = {
+    { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+    { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+    { 1, 1, 1, 1, 1, 1, 1, 1, 1, 0 },
+    { 1.5f, 1, 1, 1, 1, 1, 1, 1, 1.5f, 0 },
+    { 1.5f, 1, 4, 1, 1.5f, 1, 0, 0, 0, 0 },
+};
+static const int ROW_KEYS[5] = { 10, 10, 9, 9, 6 };
+static const float ROW_INDENT[5] = { 0.0f, 0.0f, 0.5f, 0.0f, 0.0f };
+#define ROW_UNITS 10.0f
+#define PAD_U 0.012f
+#define PAD_V 0.030f
+#define GAP_U 0.005f
+#define GAP_V 0.014f
+
+// A label is the character(s) typed, or "@shift" style tokens resolved to
+// words below. NULL = blank.
+typedef struct { const char* label; int code; } Key;
+
+static const Key LOWER[NKEYS] = {
+    {"1",'1'},{"2",'2'},{"3",'3'},{"4",'4'},{"5",'5'},{"6",'6'},{"7",'7'},{"8",'8'},{"9",'9'},{"0",'0'},
+    {"q",'q'},{"w",'w'},{"e",'e'},{"r",'r'},{"t",'t'},{"y",'y'},{"u",'u'},{"i",'i'},{"o",'o'},{"p",'p'},
+    {"a",'a'},{"s",'s'},{"d",'d'},{"f",'f'},{"g",'g'},{"h",'h'},{"j",'j'},{"k",'k'},{"l",'l'},
+    {"@shift",KB_CODE_SHIFT},{"z",'z'},{"x",'x'},{"c",'c'},{"v",'v'},{"b",'b'},{"n",'n'},{"m",'m'},{"Del",8},
+    {"?123",KB_CODE_SYMBOLS},{",",','},{"@space",32},{".",'.'},{"@enter",13},{"@hide",KB_CODE_HIDE},
+};
+static const Key UPPER[NKEYS] = {
+    {"!",'!'},{"@",'@'},{"#",'#'},{"$",'$'},{"%",'%'},{"^",'^'},{"&",'&'},{"*",'*'},{"(",'('},{")",')'},
+    {"Q",'Q'},{"W",'W'},{"E",'E'},{"R",'R'},{"T",'T'},{"Y",'Y'},{"U",'U'},{"I",'I'},{"O",'O'},{"P",'P'},
+    {"A",'A'},{"S",'S'},{"D",'D'},{"F",'F'},{"G",'G'},{"H",'H'},{"J",'J'},{"K",'K'},{"L",'L'},
+    {"@shift",KB_CODE_SHIFT},{"Z",'Z'},{"X",'X'},{"C",'C'},{"V",'V'},{"B",'B'},{"N",'N'},{"M",'M'},{"Del",8},
+    {"?123",KB_CODE_SYMBOLS},{",",','},{"@space",32},{".",'.'},{"@enter",13},{"@hide",KB_CODE_HIDE},
+};
+static const Key SYMBOLS[NKEYS] = {
+    {"1",'1'},{"2",'2'},{"3",'3'},{"4",'4'},{"5",'5'},{"6",'6'},{"7",'7'},{"8",'8'},{"9",'9'},{"0",'0'},
+    {"@",'@'},{"#",'#'},{"$",'$'},{"%",'%'},{"&",'&'},{"*",'*'},{"-",'-'},{"+",'+'},{"(",'('},{")",')'},
+    {"!",'!'},{"\"",'"'},{"'",'\''},{":",':'},{";",';'},{"/",'/'},{"?",'?'},{"_",'_'},{"=",'='},
+    {"Fn",KB_CODE_FN},{"<",'<'},{">",'>'},{"[",'['},{"]",']'},{"{",'{'},{"}",'}'},{"\\",'\\'},{"Del",8},
+    {"ABC",KB_CODE_SYMBOLS},{",",','},{"@space",32},{".",'.'},{"@enter",13},{"@hide",KB_CODE_HIDE},
+};
+// Arrows are drawn as shapes (Noto Sans has no arrow glyphs): "@up" "@down" "@left" "@right"
+static const Key FN[NKEYS] = {
+    {"Esc",VK(0x1B)},{"F1",VK(0x70)},{"F2",VK(0x71)},{"F3",VK(0x72)},{"F4",VK(0x73)},{"F5",VK(0x74)},
+    {"F6",VK(0x75)},{"Ins",VK(0x2D)},{"Home",VK(0x24)},{"PgUp",VK(0x21)},
+    {"Tab",9},{"F7",VK(0x76)},{"F8",VK(0x77)},{"F9",VK(0x78)},{"F10",VK(0x79)},{"F11",VK(0x7A)},
+    {"F12",VK(0x7B)},{"Del",VK(0x2E)},{"End",VK(0x23)},{"PgDn",VK(0x22)},
+    {NULL,0},{NULL,0},{NULL,0},{NULL,0},{NULL,0},{NULL,0},{"@up",VK(0x26)},{NULL,0},{NULL,0},
+    {"?123",KB_CODE_FN},{"@ctrl",KB_CODE_CTRL},{"@win",KB_CODE_WIN},{"@alt",KB_CODE_ALT},{NULL,0},
+    {"@left",VK(0x25)},{"@down",VK(0x28)},{"@right",VK(0x27)},{"Bksp",8},
+    {"ABC",KB_CODE_SYMBOLS},{",",','},{"@space",32},{".",'.'},{"@enter",13},{"@hide",KB_CODE_HIDE},
+};
+static const Key* const SHEETS[KB_STATE_COUNT] = { LOWER, UPPER, SYMBOLS, FN };
+
+static const char* resolve(const char* l) {
+    if (!l || l[0] != '@') return l;
+    if (!strcmp(l, "@shift")) return ui_str(UIS_KEY_SHIFT);
+    if (!strcmp(l, "@space")) return ui_str(UIS_KEY_SPACE);
+    if (!strcmp(l, "@enter")) return ui_str(UIS_KEY_ENTER);
+    if (!strcmp(l, "@hide")) return ui_str(UIS_KEY_HIDE);
+    if (!strcmp(l, "@ctrl")) return ui_str(UIS_KEY_CTRL);
+    if (!strcmp(l, "@alt")) return ui_str(UIS_KEY_ALT);
+    if (!strcmp(l, "@win")) return ui_str(UIS_KEY_WIN);
+    return l;   // arrows stay as tokens
+}
+
+int ui_kb_key_count(void) { return NKEYS; }
+
+void ui_kb_key_rect(int index, float r[4]) {
+    int row = 0, k = index;
+    while (row < 5 && k >= ROW_KEYS[row]) { k -= ROW_KEYS[row]; row++; }
+    float unit = (1.0f - 2.0f * PAD_U) / ROW_UNITS;
+    float rowh = (1.0f - 2.0f * PAD_V) / 5.0f;
+    float x = ROW_INDENT[row];
+    for (int i = 0; i < k; i++) x += ROW_WIDTHS[row][i];
+    float w = ROW_WIDTHS[row][k];
+    r[0] = PAD_U + x * unit + GAP_U * 0.5f;
+    r[1] = PAD_V + (float)row * rowh + GAP_V * 0.5f;
+    r[2] = PAD_U + (x + w) * unit - GAP_U * 0.5f;
+    r[3] = PAD_V + (float)(row + 1) * rowh - GAP_V * 0.5f;
+}
+
+int ui_kb_key_code(int sheet, int i) {
+    return (unsigned)sheet < KB_STATE_COUNT && i >= 0 && i < NKEYS ? SHEETS[sheet][i].code : 0;
+}
+
+const char* ui_kb_key_label(int sheet, int i) {
+    if ((unsigned)sheet >= KB_STATE_COUNT || i < 0 || i >= NKEYS) return NULL;
+    return resolve(SHEETS[sheet][i].label);
+}
+
+static void arrow(Dc* dc, const char* token, float cx, float cy, uint32_t ink) {
+    float dx = 0, dy = 0;
+    if (!strcmp(token, "@up")) dy = -1;
+    else if (!strcmp(token, "@down")) dy = 1;
+    else if (!strcmp(token, "@left")) dx = -1;
+    else dx = 1;
+    const float L = 13.0f, H = 9.0f;   // half length, half head
+    float x0 = cx - dx * L, y0 = cy - dy * L, x1 = cx + dx * L, y1 = cy + dy * L;
+    dc_line(dc, x0, y0, x1, y1, 3.5f, ink);
+    float px = -dy, py = dx;   // perpendicular
+    float head[6] = { x1 - dx * H + px * H, y1 - dy * H + py * H, x1, y1,
+                      x1 - dx * H - px * H, y1 - dy * H - py * H };
+    dc_polyline(dc, head, 3, 3.5f, ink, 0);
+}
+
+void panel_keyboard(Dc* dc) {
+    const UiView* v = dc->v;
+    int sheet = v->kb_sheet < 0 || v->kb_sheet >= KB_STATE_COUNT ? KB_STATE_LOWER : v->kb_sheet;
+    const Key* keys = SHEETS[sheet];
+    int mods = v->kb_mods;
+
+    dc_sheet(dc, 32.0f, 0xF0141416u);
+
+    // Whether this sheet has the modifier keys, which then show what is held themselves
+    int modifier_keys = 0;
+    for (int i = 0; i < NKEYS; i++) modifier_keys |= kbModifierBit(keys[i].code) != 0;
+    char held[48] = "";
+    if (!modifier_keys) {
+        static const int BITS[3] = { KB_MOD_CTRL, KB_MOD_ALT, KB_MOD_WIN };
+        static const UiStr NAMES[3] = { UIS_KEY_CTRL, UIS_KEY_ALT, UIS_KEY_WIN };
+        for (int i = 0; i < 3; i++) {
+            if (mods & BITS[i]) {
+                if (held[0]) strncat(held, " ", sizeof held - strlen(held) - 1);
+                strncat(held, ui_str(NAMES[i]), sizeof held - strlen(held) - 1);
+            }
+        }
+    }
+
+    for (int i = 0; i < NKEYS; i++) {
+        const char* label = resolve(keys[i].label);
+        float r[4];
+        ui_kb_key_rect(i, r);
+        if (!label) continue;
+        float x0 = r[0] * dc->nw, y0 = r[1] * dc->nh, x1 = r[2] * dc->nw, y1 = r[3] * dc->nh;
+        int code = keys[i].code;
+        int lit = (mods & kbModifierBit(code)) != 0;
+        int hot = dc_hover(dc, UI_HIT_KEY, i, -1);
+        dc_fill_rrect(dc, x0, y0, x1, y1, 10.0f, lit ? 0xEEFFFFFFu : hot ? 0x44FFFFFFu : 0x28FFFFFFu);
+        dc_stroke_rrect(dc, x0, y0, x1, y1, 10.0f, 2.0f, lit ? 0xFFFFFFFFu : hot ? 0x90FFFFFFu : 0x50FFFFFFu);
+        uint32_t ink = lit ? 0xFF141416u : 0xFFFFFFFFu;
+        if (label[0] == '@') {
+            arrow(dc, label, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, ink);
+        } else {
+            // a single character is what the key types, so it gets the room
+            float size = ui_utf8_count(label, -1) == 1 ? 34.0f : 22.0f;
+            dc_text_center(dc, UI_WEIGHT_REGULAR, size, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, ink, label);
+        }
+        if (held[0] && code == 32) {
+            // the held modifiers, lit at the left end of the space bar
+            float tw = dc_text_width(dc, UI_WEIGHT_REGULAR, 20.0f, held) + 20.0f;
+            float th = (y1 - y0) - 16.0f;
+            dc_fill_rrect(dc, x0 + 8, y0 + 8, x0 + 8 + tw, y0 + 8 + th, 8.0f, 0xEEFFFFFFu);
+            dc_text_left_mid(dc, UI_WEIGHT_REGULAR, 20.0f, x0 + 18, y0 + 8 + th * 0.5f, 0xFF141416u, held);
+        }
+        // a blank is no key; every other key is a hit
+        dc_hit_uv(dc, UI_HIT_KEY, i, code, r[0], r[1], r[2], r[3], 1);
+    }
+}

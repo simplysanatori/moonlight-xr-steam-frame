@@ -1,0 +1,157 @@
+// The strings table: every word the panels draw, English only for v1, keyed
+// by the upstream resource name (app/src/main/res/values/strings.xml) so a
+// translation can be added later as a second table of the same ids. New
+// native-only strings (PC and app lists) are marked "native" in strings.c.
+// GPLv3.
+#ifndef UI_STRINGS_H
+#define UI_STRINGS_H
+
+#define UI_STRINGS(X) \
+    /* settings panel tabs and rows (vr_panel_*) */ \
+    X(TAB_SCREEN, "vr_panel_tab_screen", "Screen") \
+    X(TAB_DISPLAY, "vr_panel_tab_display", "Display") \
+    X(TAB_3D, "vr_panel_3d", "3D") \
+    X(TAB_PICTURE, "vr_panel_tab_picture", "Picture") \
+    X(TAB_ABOUT, "vr_panel_tab_about", "About") \
+    X(TAB_ROOM, "vr_panel_tab_room", "Room") \
+    X(ROW_DISTANCE, "vr_panel_distance", "Distance") \
+    X(ROW_HEIGHT, "vr_panel_height", "Height") \
+    X(ROW_TILT, "vr_panel_tilt", "Tilt") \
+    X(ROW_ROTATE, "vr_panel_rotate", "Rotate") \
+    X(ROW_CURVE, "vr_panel_curve", "Curve") \
+    X(ROW_SIZE, "vr_panel_size", "Size") \
+    X(ROW_AIM_SENSITIVITY, "vr_panel_aim_sensitivity", "Aim sensitivity") \
+    X(ROW_AIM_DEAD_ZONE, "vr_panel_aim_dead_zone", "Aim dead zone") \
+    X(NEEDS_HEAD_LOCK, "vr_panel_needs_head_lock", "needs Head locked") \
+    X(NOT_IN_ROOM, "vr_panel_not_in_room", "not in a room") \
+    X(RESET, "vr_panel_reset", "Reset") \
+    X(ROW_BRIGHTNESS, "vr_panel_brightness", "Brightness") \
+    X(ROW_GLOW, "vr_panel_glow", "Glow") \
+    X(ROW_SCREEN_LIGHT, "vr_panel_screen_light", "Screen light") \
+    X(ROW_LIGHT_LEVEL, "vr_panel_light_level", "Light level") \
+    X(OFF, "vr_panel_off", "Off") \
+    X(ON, "vr_panel_on", "On") \
+    X(FIXED_SIZE, "vr_panel_fixed_size", "This room's screen is a fixed size") \
+    X(ROW_SHARPEN, "vr_panel_sharpen", "Sharpen") \
+    X(ROW_SUPERSAMPLE, "vr_panel_supersample", "Supersample") \
+    X(ROW_STATS, "vr_panel_stats", "Stats") \
+    X(ROW_HEAD_LOCKED, "vr_panel_head_locked", "Head locked") \
+    X(ROW_HEAD_AIM, "vr_panel_head_aim", "Head aim") \
+    X(ROW_CONTROLLERS, "vr_panel_controllers", "Controllers") \
+    X(ROW_POINTER_SLEEP, "vr_panel_pointer_sleep", "Pointer sleep") \
+    X(ROW_RAY, "vr_panel_ray", "Ray") \
+    X(ROW_CONTROLLER_MODEL, "vr_panel_controller_model", "Controller model") \
+    X(ROW_CLICK_SOUND, "vr_panel_click_sound", "Click sound") \
+    X(NORMAL, "vr_panel_normal", "Normal") \
+    X(QUALITY, "vr_panel_quality", "Quality") \
+    X(POINTER, "vr_panel_pointer", "Pointer") \
+    X(GAMEPAD, "vr_panel_gamepad", "Gamepad") \
+    X(ROW_GLOW_LEVEL, "vr_panel_glow_level", "Glow level") \
+    X(SHORTCUT_MENU_GRIP, "vr_panel_shortcut_menu_grip", "Shortcut: left menu + grip") \
+    X(SHORTCUT_STICKS, "vr_panel_shortcut_sticks", "Shortcut: both thumbsticks") \
+    X(SHORTCUT_TRIGGERS_GRIPS, "vr_panel_shortcut_triggers_grips", "Shortcut: triggers + grips") \
+    X(ROW_PRESET, "vr_panel_preset", "Preset") \
+    X(COMFORT, "vr_panel_comfort", "Comfort") \
+    X(BALANCED, "vr_panel_balanced", "Balanced") \
+    X(STRONG, "vr_panel_strong", "Strong") \
+    X(ROW_DEPTH, "vr_panel_depth", "Depth") \
+    X(ROW_CONVERGENCE, "vr_panel_convergence", "Convergence") \
+    X(HARDER_ON_EYES, "vr_panel_harder_on_eyes", "harder on the eyes") \
+    X(THREE_D_OFF_IN_SETTINGS, "vr_panel_3d_off_in_settings", "3D is off in settings") \
+    X(ROW_CONTRAST, "vr_panel_contrast", "Contrast") \
+    X(ROW_GAMMA, "vr_panel_gamma", "Gamma") \
+    X(ROW_SATURATION, "vr_panel_saturation", "Saturation") \
+    X(VERSION, "vr_panel_version", "Version %s, commit %s") \
+    X(VERSION_NO_COMMIT, "vr_panel_version_no_commit", "Version %s") \
+    X(LOG_FILE, "vr_panel_log_file", "Log file: %s") \
+    X(LOG_FILE_OFF, "vr_panel_log_file_off", "Log file: off") \
+    X(REPORT_SENDS, "vr_panel_report_sends", "Sends a note with the headset, your settings and the log") \
+    X(ROOMS, "vr_panel_rooms", "Rooms") \
+    /* environments */ \
+    X(ENV_PASSTHROUGH, "vr_environment_passthrough", "Passthrough") \
+    X(ENV_VOID, "vr_environment_void", "Black void") \
+    X(ENV_HOME_THEATER, "vr_environment_home_theater", "Home Theater") \
+    X(ENV_GRAND_CINEMA, "vr_environment_grand_cinema", "Grand Cinema") \
+    X(ENV_SYNTHWAVE, "vr_environment_synthwave", "Synthwave") \
+    /* keyboard */ \
+    X(KEY_SHIFT, "vr_key_shift", "Shift") \
+    X(KEY_SPACE, "vr_key_space", "space") \
+    X(KEY_ENTER, "vr_key_enter", "Enter") \
+    X(KEY_HIDE, "vr_key_hide", "Hide") \
+    X(KEY_CTRL, "vr_key_ctrl", "Ctrl") \
+    X(KEY_ALT, "vr_key_alt", "Alt") \
+    X(KEY_WIN, "vr_key_win", "Win") \
+    /* exit prompt, hints, sheets */ \
+    X(EXIT_QUESTION, "vr_exit_question", "Exit the stream?") \
+    X(EXIT, "vr_exit", "Exit") \
+    X(CANCEL, "cancel", "Cancel") \
+    X(OK, "ok", "OK") \
+    X(HAND_HINT_TITLE, "vr_hand_hint_title", "Hand tracking is on.") \
+    X(HAND_HINT_BODY, "vr_hand_hint_body", "Pinch your thumb and index finger three times quickly to lock your hands out, so a stray pinch does not click; the same triple pinch unlocks them.") \
+    X(HAND_HINT_NEVER, "vr_hand_hint_never", "Don't show this again") \
+    X(KOFI_TITLE, "vr_kofi_title", "Support Moonlight XR on Ko-fi") \
+    X(KOFI_SCAN, "vr_kofi_scan", "Scan it with your phone.") \
+    X(KOFI_FREE, "vr_kofi_free", "Optional: Moonlight XR is free and stays free.") \
+    X(KOFI_CLOSE, "vr_kofi_close", "Close") \
+    X(REPORT_TITLE, "title_bug_report", "Report a problem") \
+    X(REPORT_NOTE_LABEL, "bug_report_message_hint", "What happened?") \
+    X(REPORT_NOTE_HINT, "vr_report_note_hint", "What were you doing when it went wrong?") \
+    X(REPORT_EMAIL_LABEL, "bug_report_email_hint", "Your email address, for a reply") \
+    X(REPORT_OPTIONAL, "vr_report_optional", "Optional") \
+    X(REPORT_EMAIL_BAD, "vr_report_email_bad", "That does not look like an email address") \
+    X(REPORT_GOES, "vr_report_sends", "Sends your message, the headset and build details, your settings and the app's log, which can include your PC's name and address on your network. Nothing is sent until you press Send.") \
+    X(REPORT_SEND, "bug_report_send_direct", "Send") \
+    /* toasts */ \
+    X(TOAST_RATE, "vr_toast_rate", "Display %d Hz") \
+    X(TOAST_HANDS_LOCKED, "vr_toast_hands_locked", "Hands locked") \
+    X(TOAST_HANDS_UNLOCKED, "vr_toast_hands_unlocked", "Hands unlocked") \
+    X(TOAST_3D_OFF, "vr_toast_3d_off", "3D off") \
+    X(TOAST_3D_ON, "vr_toast_3d_on", "3D on") \
+    X(TOAST_HEAD_AIM_ON, "vr_toast_head_aim_on", "Head aim on") \
+    X(TOAST_HEAD_AIM_ON_MORE, "vr_toast_head_aim_on_more", "Turning your head moves the mouse") \
+    X(TOAST_HEAD_AIM_OFF, "vr_toast_head_aim_off", "Head aim off") \
+    X(TOAST_GAMEPAD_MODE, "vr_toast_gamepad_mode", "Gamepad mode") \
+    X(TOAST_BACK_MENU_GRIP, "vr_toast_gamepad_back_menu_grip", "Hold the left menu button and left grip to go back to the pointer") \
+    X(TOAST_BACK_STICKS, "vr_toast_gamepad_back_sticks", "Press both thumbsticks to go back to the pointer") \
+    X(TOAST_BACK_TRIGGERS_GRIPS, "vr_toast_gamepad_back_triggers_grips", "Squeeze both triggers and both grips to go back to the pointer") \
+    X(TOAST_POINTER_MODE, "vr_toast_pointer_mode", "Pointer mode") \
+    X(BATTERY, "vr_battery", "Battery %d%%") \
+    /* PC list and app list (upstream: pcview_*, applist_*) */ \
+    X(PC_ONLINE, "pcview_menu_header_online", "Online") \
+    X(PC_OFFLINE, "pcview_menu_header_offline", "Offline") \
+    X(PC_REFRESHING, "pcview_menu_header_unknown", "Refreshing") \
+    X(PC_PAIR, "pcview_menu_pair_pc", "Pair with PC") \
+    X(PC_VIEW_APPS, "pcview_menu_app_list", "View All Apps") \
+    X(PC_ADD, "title_add_pc", "Add PC Manually") \
+    X(APP_RESUME, "applist_menu_resume", "Resume Session") \
+    X(APP_QUIT, "applist_menu_quit", "Quit Session") \
+    X(APP_LIST_TITLE, "applist_refresh_title", "App List") \
+    X(APP_REFRESHING, "applist_refresh_msg", "Refreshing apps…") \
+    X(APP_ERROR, "applist_refresh_error_msg", "Failed to get app list") \
+    X(APP_CONNECTING, "applist_connect_msg", "Connecting to PC…") \
+    /* native only: no upstream key, written for this port */ \
+    X(NATIVE_PC_LIST_TITLE, "native_pc_list_title", "Computers") \
+    X(NATIVE_PC_NOT_PAIRED, "native_pc_not_paired", "Not paired") \
+    X(NATIVE_PC_PAIRED, "native_pc_paired", "Paired") \
+    X(NATIVE_PC_RUNNING, "native_pc_running", "Running") \
+    X(NATIVE_PC_NONE, "native_pc_none", "No computers found yet. Make sure Sunshine is running on your PC.") \
+    X(NATIVE_APP_NONE, "native_app_none", "This PC has no apps.") \
+    X(NATIVE_BACK, "native_back", "Back") \
+    X(NATIVE_PAGE_UP, "native_page_up", "Previous page") \
+    X(NATIVE_PAGE_DOWN, "native_page_down", "Next page") \
+    X(NATIVE_PAGE_OF, "native_page_of", "%d / %d") \
+    X(NATIVE_APP_RUNNING, "native_app_running", "Running")
+
+typedef enum {
+#define X(id, key, en) UIS_##id,
+    UI_STRINGS(X)
+#undef X
+    UIS_COUNT
+} UiStr;
+
+// English text for an id ("" for one out of range). Never NULL.
+const char* ui_str(UiStr id);
+// The upstream resource name an id maps to
+const char* ui_str_key(UiStr id);
+
+#endif

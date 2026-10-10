@@ -1,0 +1,208 @@
+// CPU rasterisers for every panel of the headset UI. Each draws into an RGBA8
+// premultiplied buffer of the pixel size the caller picked (a UiCanvas over
+// it) and, if asked, reports the hit regions input code needs, in panel UV
+// (0..1, origin top left, the same u/v xr_layout's tests take). No OpenXR, no
+// Vulkan: the orchestrator uploads the buffers into quad swapchains.
+//
+// Sizes: every panel has a native size (ui_panel_native_size), the texture
+// size upstream draws it at. Draw at any size with that aspect ratio: pixel
+// quantities (radii, strokes, type sizes) scale with canvas width / native
+// width; positions are the fractions from xr_shared.h / xr_layout.h, so hit
+// regions do not depend on the size drawn at.
+//
+// What each panel maps to upstream is in ui/REPORT.md. GPLv3.
+#ifndef UI_PANELS_H
+#define UI_PANELS_H
+
+#include <stdint.h>
+
+#include "canvas.h"
+#include "settings.h"
+#include "text.h"
+#include "ui_strings.h"
+#include "xr_keys.h"
+#include "xr_layout.h"
+#include "xr_shared.h"
+
+typedef enum {
+    UI_PANEL_COG = 0,      // settings panel (tab chosen in UiView.cog_tab, Room tab in a room)
+    UI_PANEL_PICKER,       // environment picker
+    UI_PANEL_KEYBOARD,     // keyboard, sheet and held modifiers in UiView
+    UI_PANEL_BAR,          // the bar row under the picture, all buttons and the move pill
+    UI_PANEL_BUTTON_ATLAS, // the 12 face cells of xr_layout's BTN_ cells in one strip
+    UI_PANEL_EXIT,         // exit prompt (hover lit from UiView.hover)
+    UI_PANEL_HINT,         // hand lock hint
+    UI_PANEL_KOFI,         // Ko-fi sheet
+    UI_PANEL_REPORT,       // report sheet (see UiReport)
+    UI_PANEL_TOAST,        // notice (see ui_draw_toast)
+    UI_PANEL_CLOCK,        // time and battery strip over the settings panel
+    UI_PANEL_PC_LIST,      // native launcher: computers
+    UI_PANEL_APP_LIST,     // native launcher: apps of one computer
+    UI_PANEL_COUNT
+} UiPanelId;
+
+void ui_panel_native_size(UiPanelId id, int* w, int* h);
+const char* ui_panel_name(UiPanelId id);
+
+// ---- hit regions --------------------------------------------------------------------------
+typedef enum {
+    UI_HIT_NONE = 0,
+    UI_HIT_TAB,         // a = COG_TAB_*; the tab bar slot
+    UI_HIT_TRACK_DOWN,  // a = row (face-specific, see REPORT.md); the step-down button at the track's left end
+    UI_HIT_TRACK_RUN,   // a = row; the run between the buttons, a press jumps the thumb (cogRunPlace(u))
+    UI_HIT_TRACK_UP,    // a = row
+    UI_HIT_CELL,        // a = row, b = cell index within the row
+    UI_HIT_BUTTON,      // a = UiButton
+    UI_HIT_KEY,         // a = key index (row-major), b = key code (see xr_shared.h KB_CODE_*)
+    UI_HIT_ENV_TILE,    // a = ENV_CELL_*
+    UI_HIT_BAR_BUTTON,  // a = BAR_SLOT_*
+    UI_HIT_BAR_MOVE,    // the move pill
+    UI_HIT_LIST_ITEM,   // a = index into the whole list, b = 0
+    UI_HIT_FIELD        // report sheet: a = REPORT_ZONE_*
+} UiHitKind;
+
+typedef enum {
+    UI_BTN_RESET = 1,        // Screen, 3D and Picture tabs
+    UI_BTN_KOFI,             // About tab
+    UI_BTN_REPORT,           // About tab
+    UI_BTN_EXIT_CONFIRM,     // exit prompt (EXIT_ZONE_EXIT)
+    UI_BTN_EXIT_CANCEL,      // exit prompt (EXIT_ZONE_CANCEL)
+    UI_BTN_HINT_OK,          // hint (HINT_ZONE_OK)
+    UI_BTN_HINT_NEVER,       // hint (HINT_ZONE_NEVER)
+    UI_BTN_KOFI_CLOSE,       // Ko-fi sheet (KOFI_ZONE_CLOSE)
+    UI_BTN_REPORT_CANCEL,    // report sheet (REPORT_ZONE_CANCEL)
+    UI_BTN_REPORT_SEND,      // report sheet (REPORT_ZONE_SEND)
+    UI_BTN_LIST_ADD,         // PC list: add a PC by address
+    UI_BTN_LIST_PAGE_UP,
+    UI_BTN_LIST_PAGE_DOWN,
+    UI_BTN_LIST_BACK         // app list: back to the PC list
+} UiButton;
+
+typedef struct {
+    int kind;                 // UiHitKind
+    int a, b;
+    float u0, v0, u1, v1;     // panel UV, [u0,u1] x [v0,v1]
+    int enabled;              // 0 for a greyed row (draw dim; input should ignore it)
+} UiHit;
+
+#define UI_MAX_HITS 192
+typedef struct {
+    UiHit hit[UI_MAX_HITS];
+    int count;
+} UiHits;
+
+void ui_hits_clear(UiHits* h);
+// Index of the last hit containing (u,v), or -1 (later entries sit on top)
+int ui_hits_at(const UiHits* h, float u, float v);
+// Index of the first hit of this kind/a/b (b<0 matches any b), or -1
+int ui_hits_find(const UiHits* h, int kind, int a, int b);
+
+// ---- the view a panel is drawn from -----------------------------------------------------------
+typedef struct {
+    int kind, a, b;           // UiHit fields; kind UI_HIT_NONE means nothing hovered
+} UiHover;
+
+typedef struct {
+    const Settings* settings;
+    SessionToggles session;      // head aim / pad / ray / 3D for the session (session_from_settings)
+    int cog_tab;                 // COG_TAB_*
+    int room_env;                // ENV_ID_* of the room up (4, 5, 6), or -1 for no room
+    int curve_ok;                // 1 if the curve row can act (a layer or mesh that curves)
+    int stereo_ok;               // 1 if the 3D rows are live (a depth source is on)
+    int env_selected;            // ENV_CELL_* ringed on the picker, or -1
+    int bar_show_aim;            // head aim button on the bar (screen head locked, outside a room)
+    int bar_show_stereo;         // 3D button on the bar (3D mode not off)
+    UiHover hover;
+    int kb_sheet;                // KB_STATE_*
+    int kb_mods;                 // KB_MOD_* lit
+    const char* version;         // About tab ("0.1.0"), NULL for none
+    const char* commit;          // may be NULL
+    const char* log_path;        // shown shortened; NULL means the log is off
+    const char* kofi_url;        // default https://ko-fi.com/moonlightxr
+} UiView;
+
+// Fills the view's defaults from settings (session toggles included)
+void ui_view_init(UiView* v, const Settings* s);
+
+// Draws a panel that needs only the view. hits may be NULL. The canvas should
+// be cleared (ui_cv_clear) first; the panels paint onto transparent.
+void ui_draw_panel(UiPanelId id, UiCanvas* cv, const UiView* v, UiHits* hits);
+
+// ---- panels with their own data -------------------------------------------------------------------
+typedef struct {
+    const char* note;
+    const char* address;
+    int focus;                   // REPORT_ZONE_NOTE / _EMAIL / 0
+    int hover;                   // REPORT_ZONE_*
+    int can_send;
+    int address_wrong;
+} UiReport;
+void ui_draw_report(UiCanvas* cv, const UiReport* r, UiHits* hits);
+
+// A line, and a quieter one under it when more is not empty; a path is cut
+// from the middle when it does not fit, anything else from the end.
+void ui_draw_toast(UiCanvas* cv, const char* text, const char* more, int more_is_path);
+void ui_draw_clock(UiCanvas* cv, const char* line);
+
+typedef enum { UI_PC_OFFLINE = 0, UI_PC_ONLINE = 1, UI_PC_REFRESHING = 2 } UiPcState;
+typedef struct {
+    char name[64];
+    int state;                   // UiPcState
+    int paired;
+    int game_running;            // a session is running on it
+} UiPcItem;
+#define UI_LIST_ROWS 5
+typedef struct {
+    const UiPcItem* items;
+    int count;
+    int page;                    // 0-based page of UI_LIST_ROWS
+    int selected;                // item index with the focus ring, or -1
+    UiHover hover;
+} UiPcList;
+void ui_draw_pc_list(UiCanvas* cv, const UiPcList* l, UiHits* hits);
+
+typedef struct {
+    char name[96];
+    int running;                 // this app is the running session
+} UiAppItem;
+typedef struct {
+    const char* pc_name;         // title
+    const UiAppItem* items;
+    int count;
+    int page;
+    int selected;
+    int loading;                 // show "Refreshing apps…"
+    int failed;                  // show "Failed to get app list"
+    UiHover hover;
+} UiAppList;
+void ui_draw_app_list(UiCanvas* cv, const UiAppList* l, UiHits* hits);
+
+// ---- helpers for the orchestrator -----------------------------------------------------------------------
+// Keyboard layout, shared by every sheet: how many keys, each key's rectangle
+// in panel UV, and the code and label on a sheet (NULL label: a blank, no key).
+int ui_kb_key_count(void);
+void ui_kb_key_rect(int index, float rect[4]);
+int ui_kb_key_code(int sheet, int index);
+const char* ui_kb_key_label(int sheet, int index);   // English label or the character
+
+// The Display tab's rows, the 3D presets and so on are described by xr_shared.h's
+// COG_* tables; these answer the questions a panel needs of the settings.
+int ui_cog_face(const UiView* v);   // COG_TAB_* , or COG_FACE_ROOM when the Room tab is up
+#define COG_FACE_ROOM COG_TAB_COUNT
+// Rows of a face, whatever kind (xr_ui.c cogTabRowCount)
+int ui_cog_row_count(int face);
+// 1 for a track row, 0 for a row of cells
+int ui_cog_row_is_track(int face, int row);
+int ui_cog_row_cells(int face, int row);
+int ui_cog_row_live(const UiView* v, int face, int row);
+
+// Preset separations (units of the track) for the 3D tab, in cell order
+void ui_presets_for(const Settings* s, int presets[COG_PRESET_CELLS]);
+
+// Where assets (room thumbnails, Ko-fi QR, settings icon) are read from;
+// defaults to $MLXR_ASSETS_DIR, then the compiled-in assets directory. Frees
+// anything cached.
+void ui_panels_set_assets_dir(const char* dir);
+void ui_panels_shutdown(void);
+
+#endif
