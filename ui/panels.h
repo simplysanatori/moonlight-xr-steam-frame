@@ -84,7 +84,8 @@ typedef enum {
     UI_BTN_LIST_ADD,         // PC list: add a PC by address
     UI_BTN_LIST_PAGE_UP,
     UI_BTN_LIST_PAGE_DOWN,
-    UI_BTN_LIST_BACK         // app list: back to the PC list
+    UI_BTN_LIST_BACK,        // app list: back to the PC list
+    UI_BTN_KB_LAYOUT         // Compact keyboard: the chip that flips to the Full one (needs UiView.kb_chip)
 } UiButton;
 
 typedef struct {
@@ -124,6 +125,15 @@ typedef struct {
     UiHover hover;
     int kb_sheet;                // KB_STATE_*
     int kb_mods;                 // KB_MOD_* lit
+    // Native: the Full keyboard (xr_kbfull.h). kb_layout is KB_LAYOUT_*; the
+    // KBF_ masks are the modifiers lit for the next key and those locked;
+    // kb_caps is Caps Lock. kb_chip draws and hit-tests the Compact
+    // keyboard's "Full" chip (off by default so the Compact panel is
+    // exactly the upstream one).
+    int kb_layout;
+    int kb_oneshot, kb_locked;
+    int kb_caps;
+    int kb_chip;
     const char* version;         // About tab ("0.1.0"), NULL for none
     const char* commit;          // may be NULL
     const char* log_path;        // shown shortened; NULL means the log is off
@@ -205,6 +215,8 @@ int ui_kb_key_count(void);
 void ui_kb_key_rect(int index, float rect[4]);
 int ui_kb_key_code(int sheet, int index);
 const char* ui_kb_key_label(int sheet, int index);   // English label or the character
+// The Compact keyboard's chip (in the half key of room beside the home row)
+void ui_kb_layout_chip_rect(float rect[4]);
 
 // The Display tab's rows, the 3D presets and so on are described by xr_shared.h's
 // COG_* tables; these answer the questions a panel needs of the settings.

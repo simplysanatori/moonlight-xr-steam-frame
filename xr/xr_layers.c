@@ -685,8 +685,9 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
                   UI_PANEL_KEYBOARD, view->space, ctx->kbPose, ctx->kbW, ctx->kbH);
         pushLayer(ctx, layers, &layers->kbPanel);
 
+        // The Compact keyboard's "Full" chip has its rect in the last slot
         if (ctx->outlineReady && ctx->kbHoverKey >= 0
-                && ctx->kbHoverKey < ctx->kbKeyCount) {
+                && (ctx->kbHoverKey < ctx->kbKeyCount || ctx->kbHoverKey == KB_KEY_LAYOUT)) {
             const float* r = &ctx->kbKeyRects[ctx->kbHoverKey * 4];
             // Swells while the trigger is held, which is the only press
             // feedback a quad layer can give

@@ -45,6 +45,7 @@
 #include "xr_glow.h"
 #include "xr_grade.h"
 #include "xr_keys.h"
+#include "xr_kbfull.h"
 #include "xr_controller.h"
 #include "xr_headaim.h"
 #include "xr_gamepad.h"
@@ -176,7 +177,9 @@ static inline int64_t nowNs(void) {
 #define COG_ROLL_SNAP 0.0873f
 
 #define KB_WIDTH_FRAC 0.55f
-#define KB_MAX_KEYS 64
+#define KB_MAX_KEYS 96
+// Native: the Compact keyboard's layout chip is hit-tested as this key index, past its 44
+#define KB_KEY_LAYOUT (KB_MAX_KEYS - 1)
 
 #define EXIT_WIDTH_FRAC 0.30f
 
@@ -811,6 +814,12 @@ typedef struct XrCtx {
     int kbKeyCount;
     float kbKeyRects[KB_MAX_KEYS * 4];
     int kbCodes[KB_STATE_COUNT][KB_MAX_KEYS];
+    // Native: the Full keyboard (xr_keyboard.c). kbLayout is the choice
+    // (config.ini keyboard_layout); the tables above are for the layout
+    // shown, which is Compact while the report sheet is up.
+    int kbLayout;
+    int kbLayoutShown;
+    KbFull kbFull;
     XrPosef kbPose;
     float kbW, kbH;
 

@@ -14,14 +14,19 @@ typedef struct VrKeyboardSink {
 
 typedef struct VrKeyboard {
     VrKeyboardSink sink;
-    int held;   // KB_MOD_* the host has been told are down
+    int held;   // KBF_* modifiers (xr_kbfull.h) the host has been told are down
+    int heldKey; // a Full keyboard key sent down and not yet up (its VK), or 0
 } VrKeyboard;
 
 void vrkb_init(VrKeyboard* k, VrKeyboardSink sink);
 // A key typed on the keyboard (Unicode, or KB_CODE_VK + vk) with the
 // modifiers lit as it was pressed
 void vrkb_type(VrKeyboard* k, int code, int mods);
-// Ctrl, Alt and Win as lit on the keyboard now (KB_MOD_* bits)
+// A code of KB_CODE_VK + vk with KBF_FLAG_DOWN or KBF_FLAG_UP in mods (the Full
+// keyboard) is that one event, so a key can be held and repeat like a real one.
+// mods then are the KBF_* modifiers down with it.
+// Shift, Ctrl, Alt and Win, either side, as lit on the keyboard now (KBF_* bits,
+// which for the left Ctrl, Alt and Win are the old KB_MOD_* bits)
 void vrkb_hold(VrKeyboard* k, int mods);
 void vrkb_release_all(VrKeyboard* k);
 // The US layout's virtual key for punctuation with a key of its own, or 0

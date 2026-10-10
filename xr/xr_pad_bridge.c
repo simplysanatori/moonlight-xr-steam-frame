@@ -3,6 +3,8 @@
 
 #include <pthread.h>
 
+#include "core/xr_padexit.h"
+
 #include "../input/pad_out.h"
 #include "../input/rumble.h"
 #include "mlxr_log.h"
@@ -10,6 +12,16 @@
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static PadOut g_out;
 static int g_ready, g_flip;
+static PadExit g_exit = { 1 };
+static void (*g_hook)(void*);
+static void* g_hookUser;
+
+void xrPadBridgeSetDisconnectHook(void (*fn)(void* user), void* user) {
+    pthread_mutex_lock(&g_lock);
+    g_hook = fn;
+    g_hookUser = user;
+    pthread_mutex_unlock(&g_lock);
+}
 
 void xrPadBridgeSetFlip(int flip) {
     pthread_mutex_lock(&g_lock);
@@ -19,10 +31,15 @@ void xrPadBridgeSetFlip(int flip) {
 }
 
 void xrPadBridgeStart(void) {
-    pthread_mutex_lock(&g_lock);
     PadOutSink sink;
     padOutUseLimelight(&sink);
-    padOutInit(&g_out, &sink);
+    xrPadBridgeStartWithSink(&sink);
+}
+
+void xrPadBridgeStartWithSink(const PadOutSink* sink) {
+    pthread_mutex_lock(&g_lock);
+    padExitReset(&g_exit);
+    padOutInit(&g_out, sink);
     padOutSetFlipFace(&g_out, g_flip);
     rumbleSetController(rumbleGlobal(), 0);
     rumbleReset(rumbleGlobal());
@@ -32,9 +49,28 @@ void xrPadBridgeStart(void) {
 }
 
 void xrPadBridgeFrame(int plugged, const PadState* s, int64_t nowNs) {
+    void (*fire)(void*) = NULL;
+    void* user = NULL;
     pthread_mutex_lock(&g_lock);
-    if (g_ready) padOutFrame(&g_out, plugged, s, nowNs);
+    if (g_ready) {
+        PadState rest;
+        const PadState* send = s;
+        if (plugged && padExitUpdate(&g_exit, s)) {
+            // The chord: the host sees the pad at rest first, then the hook
+            fire = g_hook;
+            user = g_hookUser;
+            MLOG_I("gamepad: Disconnected: Start+Select+L2+R2 (disconnect your session)");
+        }
+        if (padExitLatched(&g_exit)) {
+            padRest(&rest);
+            send = &rest;
+        }
+        padOutFrame(&g_out, plugged, send, nowNs);
+    }
     pthread_mutex_unlock(&g_lock);
+    // Outside the lock: the hook takes the launcher's, and stopping the stream
+    // (under that one) comes back here for this one
+    if (fire) fire(user);
 }
 
 void xrPadBridgeStop(void) {
