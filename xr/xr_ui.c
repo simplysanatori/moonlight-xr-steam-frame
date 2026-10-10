@@ -9,6 +9,7 @@
 // client cannot act on yet are dead (xrRowLater).
 #include "xr_renderer.h"
 #include "xr_native.h"
+#include "xr_keyboard.h"
 
 // Whether the panels hang against the stand in screen rather than the
 // picture, which they do whenever a room is up. The picker, the settings
@@ -256,6 +257,10 @@ XrPosef cogPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
 XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     float frameWidth = furnitureWidth(ctx);
     float width = frameWidth * KB_WIDTH_FRAC;
+    // Native: the Full keyboard has more, smaller keys, so it hangs larger
+    if (xrKeyboardLayout(ctx) == KB_LAYOUT_FULL) {
+        width *= KB_FULL_SCALE;
+    }
     float height = width * (float)KB_TEX_H / (float)KB_TEX_W;
     *outWidth = width;
     *outHeight = height;
@@ -286,6 +291,13 @@ int kbKeyAt(XrCtx* ctx, float u, float v) {
         const float* r = &ctx->kbKeyRects[i * 4];
         if (u >= r[0] && u <= r[2] && v >= r[1] && v <= r[3]) {
             found = i;
+        }
+    }
+    // Native: the Compact keyboard's layout chip sits past the keys
+    if (found < 0 && ctx->kbCodes[ctx->kbState][KB_KEY_LAYOUT] != 0) {
+        const float* r = &ctx->kbKeyRects[KB_KEY_LAYOUT * 4];
+        if (u >= r[0] && u <= r[2] && v >= r[1] && v <= r[3]) {
+            found = KB_KEY_LAYOUT;
         }
     }
     return found;

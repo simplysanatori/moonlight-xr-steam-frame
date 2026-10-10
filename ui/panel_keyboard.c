@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "panels_int.h"
+#include "xr_kbfull.h"
 
 #define VK(c) (KB_CODE_VK + (c))
 #define NKEYS 44
@@ -90,6 +91,17 @@ void ui_kb_key_rect(int index, float r[4]) {
     r[3] = PAD_V + (float)(row + 1) * rowh - GAP_V * 0.5f;
 }
 
+// The half key of room at the right of the home row, on every sheet
+void ui_kb_layout_chip_rect(float r[4]) {
+    float key[4];
+    ui_kb_key_rect(20, key);
+    float unit = (1.0f - 2.0f * PAD_U) / ROW_UNITS;
+    r[0] = PAD_U + 9.5f * unit + GAP_U * 0.5f + 0.004f;
+    r[1] = key[1];
+    r[2] = PAD_U + 10.0f * unit - GAP_U * 0.5f;
+    r[3] = key[3];
+}
+
 int ui_kb_key_code(int sheet, int i) {
     return (unsigned)sheet < KB_STATE_COUNT && i >= 0 && i < NKEYS ? SHEETS[sheet][i].code : 0;
 }
@@ -114,8 +126,68 @@ static void arrow(Dc* dc, const char* token, float cx, float cy, uint32_t ink) {
     dc_polyline(dc, head, 3, 3.5f, ink, 0);
 }
 
+// ---- the Full keyboard ------------------------------------------------------------------
+
+static const char* fullText(const char* l) {
+    if (!strcmp(l, "@shift")) return ui_str(UIS_KEY_SHIFT);
+    if (!strcmp(l, "@space")) return ui_str(UIS_KEY_SPACE);
+    if (!strcmp(l, "@ctrl")) return ui_str(UIS_KEY_CTRL);
+    if (!strcmp(l, "@alt")) return ui_str(UIS_KEY_ALT);
+    if (!strcmp(l, "@win")) return ui_str(UIS_KEY_WIN);
+    if (!strcmp(l, "@layout")) return ui_str(UIS_NATIVE_KEY_COMPACT);
+    if (!strcmp(l, "Enter")) return ui_str(UIS_KEY_ENTER);
+    return l;
+}
+
+static void panelFull(Dc* dc) {
+    const UiView* v = dc->v;
+    int down = v->kb_oneshot | v->kb_locked;
+    dc_sheet(dc, 32.0f, 0xF0141416u);
+    for (int i = 0; i < KBF_KEY_COUNT; i++) {
+        const KbfKey* k = kbfKey(i);
+        float r[4];
+        kbfKeyRect(i, r);
+        float x0 = r[0] * dc->nw, y0 = r[1] * dc->nh, x1 = r[2] * dc->nw, y1 = r[3] * dc->nh;
+        int bit = k->kind == KBF_MOD ? k->modBit : 0;
+        int locked = bit && (v->kb_locked & bit);
+        int lit = (bit && (down & bit)) || (k->kind == KBF_CAPS && v->kb_caps);
+        int hot = dc_hover(dc, UI_HIT_KEY, i, -1);
+        uint32_t fill = locked ? 0xEE9CC9FFu : lit ? 0xEEFFFFFFu : hot ? 0x44FFFFFFu : 0x28FFFFFFu;
+        uint32_t line = locked ? 0xFFCFE4FFu : lit ? 0xFFFFFFFFu : hot ? 0x90FFFFFFu : 0x50FFFFFFu;
+        dc_fill_rrect(dc, x0, y0, x1, y1, 8.0f, fill);
+        dc_stroke_rrect(dc, x0, y0, x1, y1, 8.0f, 2.0f, line);
+        uint32_t ink = lit ? 0xFF141416u : 0xFFFFFFFFu;
+        const char* label = kbfLabel(i, down, v->kb_caps);
+        float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f;
+        if (!strcmp(label, "@up") || !strcmp(label, "@down") || !strcmp(label, "@left")
+                || !strcmp(label, "@right")) {
+            arrow(dc, label, cx, cy, ink);
+        } else {
+            const char* text = fullText(label);
+            float size = ui_utf8_count(text, -1) == 1 ? 30.0f : 20.0f;
+            // smaller before it is cut: "PgDn" and "Pause" are a key wide
+            while (size > 13.0f && dc_text_width(dc, UI_WEIGHT_REGULAR, size, text) > x1 - x0 - 8.0f) {
+                size -= 1.0f;
+            }
+            dc_text_fit_center(dc, UI_WEIGHT_REGULAR, size, cx, cy, x1 - x0 - 8.0f, ink, text);
+        }
+        if (locked) {
+            // locked: blue cap, an underline and a dot, where lit is white and plain
+            dc_line(dc, x0 + 12.0f, y1 - 9.0f, x1 - 12.0f, y1 - 9.0f, 4.0f, ink);
+            dc_fill_circle(dc, x1 - 10.0f, y0 + 10.0f, 4.0f, ink);
+        } else if (k->kind == KBF_CAPS && v->kb_caps) {
+            dc_fill_circle(dc, x1 - 10.0f, y0 + 10.0f, 5.0f, 0xFF2EB82Eu);
+        }
+        dc_hit_uv(dc, UI_HIT_KEY, i, kbfKeyCode(i), r[0], r[1], r[2], r[3], 1);
+    }
+}
+
 void panel_keyboard(Dc* dc) {
     const UiView* v = dc->v;
+    if (v->kb_layout == KB_LAYOUT_FULL) {
+        panelFull(dc);
+        return;
+    }
     int sheet = v->kb_sheet < 0 || v->kb_sheet >= KB_STATE_COUNT ? KB_STATE_LOWER : v->kb_sheet;
     const Key* keys = SHEETS[sheet];
     int mods = v->kb_mods;
@@ -165,5 +237,16 @@ void panel_keyboard(Dc* dc) {
         }
         // a blank is no key; every other key is a hit
         dc_hit_uv(dc, UI_HIT_KEY, i, code, r[0], r[1], r[2], r[3], 1);
+    }
+    if (v->kb_chip) {
+        float r[4];
+        ui_kb_layout_chip_rect(r);
+        float x0 = r[0] * dc->nw, y0 = r[1] * dc->nh, x1 = r[2] * dc->nw, y1 = r[3] * dc->nh;
+        int hot = dc_hover(dc, UI_HIT_BUTTON, UI_BTN_KB_LAYOUT, -1);
+        dc_fill_rrect(dc, x0, y0, x1, y1, 10.0f, hot ? 0x44FFFFFFu : 0x14FFFFFFu);
+        dc_stroke_rrect(dc, x0, y0, x1, y1, 10.0f, 2.0f, hot ? 0x90FFFFFFu : 0x40FFFFFFu);
+        dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 20.0f, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f,
+                           x1 - x0 - 6.0f, 0xCCFFFFFFu, ui_str(UIS_NATIVE_KEY_FULL));
+        dc_hit_uv(dc, UI_HIT_BUTTON, UI_BTN_KB_LAYOUT, 0, r[0], r[1], r[2], r[3], 1);
     }
 }
