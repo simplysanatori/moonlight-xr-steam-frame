@@ -66,7 +66,7 @@ static void test_defaults(void) {
     CHECK(geti(&s, "sharpening") == 0);      // native: off (upstream quality)
     CHECK(geti(&s, "supersampling") == 1);   // native: normal (upstream off)
     CHECK(geti(&s, "stats") == 0);
-    CHECK(geti(&s, "glow") == 1 && geti(&s, "glow_level") == 50 && geti(&s, "screen_light") == 1);
+    CHECK(geti(&s, "glow") == 0 && geti(&s, "glow_level") == 50 && geti(&s, "screen_light") == 1);
     CHECK(geti(&s, "separation") == -1 && settings_separation_units(&s) == 6);   // ZipDepth's own
     CHECK(geti(&s, "convergence") == -1 && settings_convergence_percent(&s) == 50);
     s.depth_source = 1;
@@ -513,7 +513,7 @@ static void test_sliders(void) {
         s.pointer_dot = 1;
         t.ray = 1;
     }
-    CHECK(settings_option_cell(&s, &t, COG_OPTION_AMBILIGHT) == 1 && settings_option_cell(&s, &t, COG_OPTION_ROOM_LIGHT) == 1);
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_AMBILIGHT) == 0 && settings_option_cell(&s, &t, COG_OPTION_ROOM_LIGHT) == 1);
     CHECK(settings_option_cell(&s, &t, 99) == -1);
     t.pad_mode = 1;
     CHECK(settings_option_cell(&s, &t, COG_OPTION_GAMEPAD) == 1);

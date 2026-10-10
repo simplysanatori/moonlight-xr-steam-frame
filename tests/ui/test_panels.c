@@ -570,7 +570,7 @@ static void test_rows_read_settings(void) {
     struct { int tab; const char* key; int value; } CASES[] = {
         { COG_TAB_DISPLAY, "sharpening", 2 }, { COG_TAB_DISPLAY, "supersampling", 0 }, { COG_TAB_DISPLAY, "stats", 1 },
         { COG_TAB_DISPLAY, "head_locked", 0 }, { COG_TAB_DISPLAY, "pointer_sleep", 0 }, { COG_TAB_DISPLAY, "controller_model", 1 },
-        { COG_TAB_DISPLAY, "click_sound", 0 }, { COG_TAB_DISPLAY, "glow", 0 }, { COG_TAB_DISPLAY, "screen_light", 0 },
+        { COG_TAB_DISPLAY, "click_sound", 0 }, { COG_TAB_DISPLAY, "glow", 1 }, { COG_TAB_DISPLAY, "screen_light", 0 },
         { COG_TAB_DISPLAY, "glow_level", 10 }, { COG_TAB_DISPLAY, "gamepad_toggle", 1 },
         { COG_TAB_SCREEN, "distance_cm", 100 }, { COG_TAB_SCREEN, "height_cm", 100 }, { COG_TAB_SCREEN, "tilt_deg", 20 },
         { COG_TAB_SCREEN, "rotate_deg", 30 }, { COG_TAB_SCREEN, "curve", 40 }, { COG_TAB_SCREEN, "width_cm", 600 },

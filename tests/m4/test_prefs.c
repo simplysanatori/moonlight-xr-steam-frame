@@ -25,7 +25,7 @@ static void roundTripChanged(void) {
     in.sharpening = 1;
     in.supersampling = 2;
     in.stats = 1;
-    in.glow = 0;
+    in.glow = 1;
     in.glow_level = 35;
     in.screen_light = 0;
     in.pointer_sleep = 0;
@@ -68,7 +68,7 @@ static void roundTripChanged(void) {
     settings_defaults(&back);
     back.environment = in.environment;
     xrSettingsFromCtx(ctx, &back);
-    CHECK(back.sharpening == 1 && back.supersampling == 2 && back.stats == 1 && back.glow == 0);
+    CHECK(back.sharpening == 1 && back.supersampling == 2 && back.stats == 1 && back.glow == 1);
     CHECK(back.glow_level == 35 && back.screen_light == 0 && back.pointer_sleep == 0);
     CHECK(back.controller_model == 1 && back.click_sound == 0 && back.pointer_dot == 0);
     CHECK(back.head_aim_sensitivity == in.head_aim_sensitivity && back.head_aim_deadzone == in.head_aim_deadzone);
