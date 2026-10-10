@@ -163,6 +163,10 @@ if ! APPID=$($CEF "(async()=>{
     exit 0
 fi
 echo "Steam shortcut \"$NAME\" appid $APPID"
+# Steam's game resolution for the flat window (gamescope's own default is 1280x720
+# on a 1920x1080 screen), as the owner has it for Moonlight XR
+$CEF "SteamClient.Apps.SetAppResolutionOverride($APPID,'2560x1440')" >/dev/null 2>&1 \
+    && echo "Steam game resolution: 2560x1440" || echo "Steam game resolution: not set"
 
 # SteamVR's per-app video settings for the shortcut, as the owner has them for
 # Moonlight XR: 90 Hz (the Frame's default for an app is 72), motion smoothing
