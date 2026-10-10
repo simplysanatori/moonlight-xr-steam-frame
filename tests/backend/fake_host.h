@@ -15,6 +15,8 @@ typedef struct {
     bool cancel_is_noop;        /* /cancel succeeds but does not end the game (not the owner) */
     bool zero_mac;              /* serverinfo reports mac 00:00:00:00:00:00 */
     const char *app_title_extra;/* extra app with this title (e.g. with entities) */
+    bool expired_cert;          /* server cert validity ended a year ago (pinning must still accept it)*/
+    bool wait_for_pin;          /* stage 1 blocks until fake_host_set_pin(), like Sunshine waiting for the web UI */
 } fake_opts;
 
 typedef struct fake_host fake_host;
@@ -23,6 +25,7 @@ void fake_host_stop(fake_host *h);
 uint16_t fake_host_http_port(const fake_host *h);
 uint16_t fake_host_https_port(const fake_host *h);
 const char *fake_host_cert_pem(const fake_host *h);
+void fake_host_set_pin(fake_host *h, const char *pin);
 bool fake_host_is_paired(const fake_host *h);
 int fake_host_current_game(const fake_host *h);
 /* copy of the last launch/resume query ("" if none) */

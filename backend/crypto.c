@@ -51,7 +51,7 @@ char *mlxr_spki_pin(const char *cert_pem)
     OPENSSL_free(der);
     char *e = b64(h, 32);
     if (!e) return NULL;
-    char *out = malloc(strlen(e) + 8);
+    char *out = malloc(strlen(e) + 16);
     if (out) sprintf(out, "sha256//%s", e);
     free(e);
     return out;

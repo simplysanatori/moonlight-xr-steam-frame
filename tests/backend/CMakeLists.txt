@@ -27,3 +27,11 @@ add_test(NAME backend_test_seed
           unused
           $<TARGET_FILE:mlxr-cli>)
 set_tests_properties(backend_test_seed PROPERTIES TIMEOUT 60)
+
+# mlxr-cli end to end against the fake host
+add_executable(backend_fake_host_main fake_host_main.c fake_host.c)
+target_link_libraries(backend_fake_host_main PRIVATE mlxr_backend)
+target_include_directories(backend_fake_host_main PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME backend_test_cli
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_cli.sh $<TARGET_FILE:mlxr-cli> $<TARGET_FILE:backend_fake_host_main>)
+set_tests_properties(backend_test_cli PROPERTIES TIMEOUT 60)

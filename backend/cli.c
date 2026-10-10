@@ -34,7 +34,10 @@ static void logfn(int lvl, const char *m, void *ud) { fprintf(stderr, "[mlxr %d]
 
 static int fail(const char *what, const mlxr_error *e)
 {
-    fprintf(stderr, "error: %s: %s (%s", what, e->msg, mlxr_status_name(e->code));
+    if (strncmp(e->msg, what, strlen(what)) == 0)
+        fprintf(stderr, "error: %s (%s", e->msg, mlxr_status_name(e->code));
+    else
+        fprintf(stderr, "error: %s: %s (%s", what, e->msg, mlxr_status_name(e->code));
     if (e->status) fprintf(stderr, ", %d", e->status);
     fprintf(stderr, ")\n");
     return e->code == MLXR_E_NET || e->code == MLXR_E_TIMEOUT ? 3 : 2;

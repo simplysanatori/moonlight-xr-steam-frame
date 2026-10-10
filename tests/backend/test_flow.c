@@ -227,6 +227,37 @@ static void test_pin_mismatch_and_fallback(void)
     mlxr_identity_free(&id);
 }
 
+static void test_expired_cert_still_pinned(void)
+{
+    /* Qt-style pinning ignores validity: an expired self-signed host cert that equals the pin is accepted */
+    mlxr_error e;
+    mlxr_identity id;
+    CHECK_OK(mlxr_identity_generate(&id, &e));
+    fake_opts o = {.pin = "5555", .expired_cert = true};
+    fake_host *h = fake_host_start(&o);
+    mlxr_server *s = connect_to(&id, h);
+    mlxr_computer c;
+    char *cert;
+    CHECK_OK(mlxr_server_get_info(s, false, &c, NULL, &e));
+    CHECK_OK(mlxr_pair(s, c.app_version, "5555", 10000, &cert, &e));
+    CHECK_OK(mlxr_server_get_info(s, false, &c, NULL, &e));
+    CHECK(c.via_https && c.paired);
+    /* ... while a *different* cert is refused even though this one is long expired too */
+    fake_host *h2 = fake_host_start(&o);
+    mlxr_server *s2 = connect_to(&id, h2);
+    CHECK_OK(mlxr_server_set_pinned_cert(s2, cert, &e));
+    mlxr_server_set_https_port(s2, fake_host_https_port(h2));
+    mlxr_app *apps;
+    size_t n;
+    CHECK_EQ_INT(mlxr_server_get_apps(s2, &apps, &n, &e), MLXR_E_TLS);
+    free(cert);
+    mlxr_server_free(s);
+    mlxr_server_free(s2);
+    mlxr_identity_free(&id);
+    fake_host_stop(h);
+    fake_host_stop(h2);
+}
+
 static void test_quit_not_owner_and_misc(void)
 {
     mlxr_error e;
@@ -265,6 +296,7 @@ int main(void)
     test_pairing_flow(6, false);    /* pre-gen-7: SHA-1 */
     test_pairing_failures();
     test_pin_mismatch_and_fallback();
+    test_expired_cert_still_pinned();
     test_quit_not_owner_and_misc();
     TEST_DONE();
 }

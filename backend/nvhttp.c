@@ -1,9 +1,9 @@
 /* HTTP/HTTPS requests to a GameStream-compatible host (nvhttp.cpp). GPLv3.
  *
  * HTTPS uses the client certificate and trusts exactly one server certificate:
- * the one pinned during pairing. It is installed as the sole trust anchor and,
- * on top of that, its public key is pinned, so a different cert (even one
- * chained to a public CA) is rejected. Hostname checks are off because the
+ * the one pinned during pairing (byte-for-byte match of the leaf, plus a
+ * public-key pin as a second layer), so a different cert, even one chained to a
+ * public CA, is rejected. Hostname checks are off because the
  * cert is self-signed and addressed by IP. */
 #define _GNU_SOURCE
 #include "server.h"
@@ -15,6 +15,8 @@
 #include <string.h>
 #include <curl/curl.h>
 #include <openssl/crypto.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
 
 #define FAST_FAIL_TIMEOUT_MS 2000
 #define REQUEST_TIMEOUT_MS   5000
@@ -104,6 +106,30 @@ mlxr_status mlxr_check_response(const char *body, mlxr_error *err)
 
 /* ---- transport ---- */
 
+/* Pinning: accept the handshake iff the server's leaf certificate is byte-for-byte
+ * the pinned one. This replaces OpenSSL's chain verification (like moonlight-qt,
+ * which ignores every SSL error whose certificate equals the stored server cert), so
+ * a self-signed cert with odd extensions or a skewed clock still works, while any
+ * other certificate, however well chained, is refused. */
+static int pinned_verify_cb(X509_STORE_CTX *sctx, void *arg)
+{
+    X509 *pinned = arg, *got = X509_STORE_CTX_get0_cert(sctx);
+    if (!pinned || !got) return 0;
+    unsigned char *a = NULL, *b = NULL;
+    int la = i2d_X509(pinned, &a), lb = i2d_X509(got, &b);
+    int same = la > 0 && la == lb && CRYPTO_memcmp(a, b, (size_t)la) == 0;
+    OPENSSL_free(a);
+    OPENSSL_free(b);
+    if (!same) X509_STORE_CTX_set_error(sctx, X509_V_ERR_CERT_REJECTED);
+    return same ? 1 : 0;
+}
+
+static CURLcode ssl_ctx_cb(CURL *curl, void *ssl_ctx, void *userptr)
+{
+    SSL_CTX_set_cert_verify_callback((SSL_CTX *)ssl_ctx, pinned_verify_cb, userptr);
+    return CURLE_OK;
+}
+
 struct buf {
     char *p;
     size_t n, cap;
@@ -180,6 +206,7 @@ mlxr_status mlxr_http_get(mlxr_server *s, bool https, const char *command, const
     if (!c) { free(url); return mlxr_fail(err, MLXR_E_NOMEM, 0, "curl_easy_init failed"); }
     struct buf b = {0};
     char errbuf[CURL_ERROR_SIZE] = "";
+    X509 *pinned_x509 = NULL;
 
     curl_easy_setopt(c, CURLOPT_URL, url);
     curl_easy_setopt(c, CURLOPT_ERRORBUFFER, errbuf);
@@ -203,7 +230,10 @@ mlxr_status mlxr_http_get(mlxr_server *s, bool https, const char *command, const
         curl_easy_setopt(c, CURLOPT_SSLCERT_BLOB, &cert);
         curl_easy_setopt(c, CURLOPT_SSLKEYTYPE, "PEM");
         curl_easy_setopt(c, CURLOPT_SSLKEY_BLOB, &key);
-        curl_easy_setopt(c, CURLOPT_CAINFO_BLOB, &ca);       /* sole trust anchor: the pinned cert */
+        curl_easy_setopt(c, CURLOPT_CAINFO_BLOB, &ca);       /* keeps curl from loading the system CA bundle */
+        pinned_x509 = mlxr_x509_from_pem(s->pinned_pem);
+        curl_easy_setopt(c, CURLOPT_SSL_CTX_FUNCTION, ssl_ctx_cb);
+        curl_easy_setopt(c, CURLOPT_SSL_CTX_DATA, pinned_x509);
         curl_easy_setopt(c, CURLOPT_CAPATH, NULL);
         curl_easy_setopt(c, CURLOPT_SSL_VERIFYPEER, 1L);
         curl_easy_setopt(c, CURLOPT_SSL_VERIFYHOST, 0L);     /* self-signed, addressed by IP */
@@ -216,6 +246,7 @@ mlxr_status mlxr_http_get(mlxr_server *s, bool https, const char *command, const
     long http = 0;
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &http);
     curl_easy_cleanup(c);
+    X509_free(pinned_x509);
     free(url);
 
     if (rc != CURLE_OK) {

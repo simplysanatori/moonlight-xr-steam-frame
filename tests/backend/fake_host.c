@@ -26,6 +26,8 @@ struct fake_host {
     volatile bool stop;
     SSL_CTX *ctx;
     pthread_mutex_t mu;
+    char pin_buf[16];
+    volatile int pin_ready;
 
     /* pairing state */
     char *pending_client_pem;
@@ -115,7 +117,12 @@ static char *do_pair(fake_host *h, const char *q, bool https, X509 *peer)
         free(h->pending_client_pem);
         h->pending_client_pem = calloc(1, cl + 1);
         memcpy(h->pending_client_pem, cpem, cl);
-        mlxr_pair_derive_key(h->o.gen, salt, h->o.pin, h->key);
+        if (h->o.wait_for_pin) {
+            while (!__atomic_load_n(&h->pin_ready, __ATOMIC_ACQUIRE) && !h->stop) usleep(20000);
+            mlxr_pair_derive_key(h->o.gen, salt, h->pin_buf, h->key);
+        } else {
+            mlxr_pair_derive_key(h->o.gen, salt, h->o.pin, h->key);
+        }
         free(salt); free(cpem);
         h->have_client_hash = false;
         char *hex = mlxr_hex_encode_alloc((const uint8_t *)h->ident.cert_pem, strlen(h->ident.cert_pem));
@@ -351,6 +358,21 @@ fake_host *fake_host_start(const fake_opts *o)
     if (!h->o.gen) h->o.gen = 7;
     pthread_mutex_init(&h->mu, NULL);
     if (mlxr_identity_generate(&h->ident, NULL) != MLXR_OK) { free(h); return NULL; }
+    if (h->o.expired_cert) {
+        /* re-issue the same key with a validity window in the past */
+        X509 *x = mlxr_x509_from_pem(h->ident.cert_pem);
+        EVP_PKEY *k = mlxr_pkey_from_pem(h->ident.key_pem);
+        X509_gmtime_adj(X509_getm_notBefore(x), -2L * 365 * 24 * 3600);
+        X509_gmtime_adj(X509_getm_notAfter(x), -365L * 24 * 3600);
+        X509_sign(x, k, EVP_sha256());
+        BIO *bo = BIO_new(BIO_s_mem());
+        PEM_write_bio_X509(bo, x);
+        char *pp = NULL;
+        long pl = BIO_get_mem_data(bo, &pp);
+        free(h->ident.cert_pem);
+        h->ident.cert_pem = strndup(pp, (size_t)pl);
+        BIO_free(bo); X509_free(x); EVP_PKEY_free(k);
+    }
     h->ctx = SSL_CTX_new(TLS_server_method());
     SSL_CTX_set_min_proto_version(h->ctx, TLS1_2_VERSION);
     BIO *bc = BIO_new_mem_buf(h->ident.cert_pem, -1), *bk = BIO_new_mem_buf(h->ident.key_pem, -1);
@@ -379,6 +401,12 @@ void fake_host_stop(fake_host *h)
     free(h->pending_client_pem);
     free(h->paired_client_pem);
     free(h);
+}
+
+void fake_host_set_pin(fake_host *h, const char *pin)
+{
+    snprintf(h->pin_buf, sizeof h->pin_buf, "%s", pin);
+    __atomic_store_n(&h->pin_ready, 1, __ATOMIC_RELEASE);
 }
 
 uint16_t fake_host_http_port(const fake_host *h) { return h->p_http; }
