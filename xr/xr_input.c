@@ -8,6 +8,8 @@
 // JNI entry points are plain C functions (xrUpdateInput and friends) that
 // fill the same IN_ slots for the session host to dispatch; the launcher's
 // list takes presses where the picture would (updateLauncher).
+#include "../input/rumble.h"
+#include "xr_pad_bridge.h"
 #include "xr_renderer.h"
 #include "xr_native.h"
 
@@ -3368,6 +3370,7 @@ static void settlePad(XrCtx* ctx, int plugged, int live, PadState* s, const char
         ctx->padButtonsSaid = s->buttons;
     }
     ctx->pad = *s;
+    xrPadBridgeFrame(plugged, s, nowNs()); // native: to the host (upstream: reportXrPad in Java)
 }
 
 // Nothing is read this frame, so the pad lets go of everything and the switch
@@ -3424,7 +3427,15 @@ static void updateRumble(XrCtx* ctx, int live) {
     for (int h = 0; h < HAND_COUNT; h++) {
         on[h] = live && ctx->padAttached && ctx->profileKind[h] == PROFILE_CONTROLLER;
     }
-    padRumbleStep(&ctx->rumble, on, nowNs(), action, amp);
+    // Native: the host's rumble arrives on moonlight-common-c's thread into
+    // input/rumble (upstream: XrRenderer.setRumble's lock and handshake); the
+    // pulses are upstream's padRumbleStep inside rumblePoll.
+    RumbleRequest rq[HAND_COUNT];
+    rumblePoll(rumbleGlobal(), on, nowNs(), rq);
+    for (int h = 0; h < HAND_COUNT; h++) {
+        action[h] = rq[h].action;
+        amp[h] = rq[h].amplitude;
+    }
     for (int h = 0; h < HAND_COUNT; h++) {
         if (action[h] != PAD_RUMBLE_KEEP) {
             hapticOut(ctx, h, action[h], amp[h]);
@@ -3434,6 +3445,7 @@ static void updateRumble(XrCtx* ctx, int live) {
         LOGI("rumble from the host dropped after %ld pulses: the pad is out", ctx->rumblePulses);
         ctx->rumbleOn = 0;
         padRumbleReset(&ctx->rumble);
+        rumbleReset(rumbleGlobal());
     }
 }
 

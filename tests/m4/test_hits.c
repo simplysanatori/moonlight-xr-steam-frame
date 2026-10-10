@@ -47,13 +47,13 @@ static void barButtons(Scene* s) {
             for (int from = 0; from < 2; from++) {
                 int hover = xrHoverAt(c, aimAt(from ? HAND : EYE, p), NULL, NULL, NULL);
                 int shown = SLOTS[i] == BAR_SLOT_AIM ? headLocked
-                          : (SLOTS[i] == BAR_SLOT_PAD || SLOTS[i] == BAR_SLOT_STEREO) ? 0 : 1;
+                          : SLOTS[i] == BAR_SLOT_STEREO ? 0 : 1; // pad shown since M3
                 if (shown) {
                     CHECK(hover == HOVERS[i]);
                     if (hover != HOVERS[i]) fprintf(stderr, "  slot %d head locked %d from %d: hover %d\n", SLOTS[i], headLocked, from, hover);
                 }
                 else {
-                    // Not on the bar (M3, M6): the ray falls through to the bar's halo
+                    // Not on the bar (3D until M6): the ray falls through to the bar's halo
                     CHECK(hover != HOVERS[i]);
                 }
             }

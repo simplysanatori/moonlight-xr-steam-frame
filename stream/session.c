@@ -10,6 +10,8 @@
 #include <string.h>
 
 #include "../xr/mlxr_log.h"
+#include "../input/rumble.h"
+#include "../xr/xr_pad_bridge.h"
 #include "hw_video.h"
 #include "sw_decoder.h"
 
@@ -155,6 +157,8 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     cl.connectionTerminated = clTerminated;
     cl.logMessage = clLog;
     cl.connectionStatusUpdate = clStatus;
+    cl.rumble = rumbleHostCallback;          // gamepad mode (M3)
+    cl.rumbleTriggers = rumbleTriggersCallback;
 
     DECODER_RENDERER_CALLBACKS dr;
     LiInitializeVideoCallbacks(&dr);
@@ -167,6 +171,7 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     LiInitializeAudioCallbacks(&noAudio);
     MLOG_I("starting stream to %s: %dx%d %d fps %d kbps, formats 0x%x", host->address, cfg->width, cfg->height,
            cfg->fps, cfg->bitrate, cfg->supportedVideoFormats);
+    xrPadBridgeStart();
     int r = LiStartConnection(&si, cfg, &cl, &dr, audio ? audio : &noAudio, NULL, 0, audioContext, 0);
     if (r != 0) {
         MLOG_E("LiStartConnection failed: %d (last error %d)", r, g_lastErr);
@@ -184,6 +189,7 @@ void stream_close_video(void) {
 }
 
 void stream_stop(void) {
+    xrPadBridgeStop(); // the host hears the pad unplugged before the connection goes
     LiStopConnection();
     atomic_store(&g_connected, 0);
 }

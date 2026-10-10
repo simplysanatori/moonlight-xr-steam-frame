@@ -61,6 +61,7 @@ typedef struct Settings {
     int head_aim_sensitivity;
     int head_aim_deadzone;
     int gamepad_toggle;    // PAD_SHORTCUT_* : 0 menu+grip, 1 sticks, 2 triggers+grips
+    int flip_face_buttons; // swap A/B and X/Y on gamepad mode's pad
     int click_sound;
     int gaze;
     int hand_tracking;

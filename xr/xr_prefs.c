@@ -5,6 +5,7 @@
 // directions go through ui/settings.c's Settings, which is config.ini. No
 // OpenXR calls, so the tests reach all of it. GPLv3.
 #include "xr_native.h"
+#include "xr_pad_bridge.h"
 
 // ---- what nativeInit set ---------------------------------------------------
 
@@ -96,7 +97,6 @@ int xrRowLater(XrCtx* ctx, int face, int row) {
     }
     switch (row) {
     case COG_OPTION_SUPERSAMPLE:   // SteamVR has no layer settings; an app side pass is later
-    case COG_OPTION_GAMEPAD:       // gamepad mode is M3
     case COG_OPTION_CONTROLLERS:   // the controller model
     case COG_OPTION_CLICK_SOUND:   // the tick on a press
     case COG_OPTION_AMBILIGHT:     // the glow
@@ -211,6 +211,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetHeadAim(ctx, s->head_aim, s->head_aim_sensitivity, s->head_aim_deadzone);
     // Moonlight's own stick dead zone default, the preference upstream hands down
     xrSetGamepad(ctx, s->gamepad_toggle, 7);
+    xrPadBridgeSetFlip(s->flip_face_buttons);
     int picture[PICTURE_VALUES];
     for (int row = 0; row < PICTURE_VALUES; row++) {
         picture[row] = settings_picture_value(s, row);

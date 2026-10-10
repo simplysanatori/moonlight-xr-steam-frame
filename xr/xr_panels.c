@@ -65,7 +65,7 @@ int xrPanelsCreate(XrCtx* ctx) {
     // Native: gamepad mode is M3, so its button stays off the bar, and the 3D
     // button only shows with a depth model (M6), as upstream leaves it out
     // of a session without stereo
-    ctx->padButtonReady = 0;
+    ctx->padButtonReady = 1; // M3: the pad reaches the host
     ctx->stereoButtonReady = ctx->stereoMode != DEPTH_MODE_OFF;
     ctx->kofiReady = 1;
     ctx->hintReady = ctx->handsEnabled;

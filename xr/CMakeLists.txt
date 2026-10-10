@@ -8,9 +8,9 @@ add_subdirectory(core)
 # snapshot tool reach without a headset
 add_library(mlxr_xrui STATIC
   xr_log.c xr_result.c xr_ui.c xr_input.c xr_layers.c xr_display.c xr_later.c
-  xr_assets.c xr_panels.c xr_prefs.c xr_vk.c)
+  xr_assets.c xr_panels.c xr_prefs.c xr_vk.c xr_pad_bridge.c)
 target_include_directories(mlxr_xrui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(mlxr_xrui PUBLIC openxr_loader OpenXR::headers Vulkan::Vulkan mlxr_xrcore mlxr_ui pthread m)
+target_link_libraries(mlxr_xrui PUBLIC openxr_loader OpenXR::headers Vulkan::Vulkan mlxr_xrcore mlxr_ui mlxr_input mlxr_input_core pthread m)
 
 add_library(mlxr_xr STATIC xr_session.c)
 target_include_directories(mlxr_xr PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
