@@ -54,7 +54,7 @@ Changes to the ported tests:
 
 ## Assets
 Copied from upstream app/src/main/assets into assets/ keeping layout: rooms/ (3 rooms, 6 ASTC atlases, 3 thumbs), hrtf/kemar/ (37 WAV + LICENSE.txt), models/controller.room, images/ (2 PNG), licenses/zipdepth_LICENSE.txt. No .tflite. Plus the new assets/licenses/README.md.
-Size added: 41,750,327 bytes in 55 files (rooms 41,654,849; hrtf 21,795; models 58,300; images 12,428; licenses 2,955). The ASTC atlases do not compress, so expect ~41.7 MB in .git. The two 9.6 MB grand_cinema/home_theater/synthwave `_0.atlas` x3 (4096) dominate; the `_lo_0` ones (2.4 MB each) are for XR2 Gen 1 headsets and a Frame likely does not need them (could be dropped to save ~7.5 MB if the orchestrator agrees).
+Size added: 41,750,327 bytes in 55 files (rooms 41,654,849; hrtf 21,795; models 58,300; images 12,428; licenses 2,955). The ASTC atlases do not compress, so expect ~41.7 MB in .git. The three 9.6 MB 4096-px `_0.atlas` files (one per room) dominate; the `_lo_0` ones (2.4 MB each) are for XR2 Gen 1 headsets and a Frame likely does not need them (could be dropped to save ~7.5 MB if the orchestrator agrees).
 tools/xr/ holds upstream tools/ unchanged (minus report-worker): bake_room.py, atlas_astc.py, convert_*.py, quantize_depth.py, warp_lab.py, make_controller.py, make_qr.py, measure_logo.py, check_strings.py, plus models/ and rooms/ NOTE.txt files. Not run. NOTE: their commands still refer to `app/src/main/assets/...` and `tools/...` paths; adjust when used. The room source .glb files are not in upstream either.
 
 ## Surprises
