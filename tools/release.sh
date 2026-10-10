@@ -4,7 +4,9 @@
 # Writes moonlight-xr-native-<version>-linux-arm64.tar.gz and SHA256SUMS into
 # $OUT (default ~/Games/MoonlightXRNative/releases). The tarball unpacks to
 # MoonlightXRNative/ holding install.sh, steam_cef.py, the licence files and
-# app/ (binaries, launcher, assets, the Moonlight Qt import script).
+# app/ (binaries, launcher, assets, the Moonlight Qt import script) and the
+# Frame controller model converter. The converted Steam Frame controller
+# models (Valve's) are never in the tarball: install.sh makes them on the target.
 # The version comes from `git describe`; tag a release (git tag v0.1.0) first.
 #
 # Expects a finished build (./build.sh). Unless NO_VERIFY=1 it then unpacks the
@@ -49,10 +51,15 @@ install -m644 backend/seed_moonlight_qt.py "$ROOT/app/seed_moonlight_qt.py"
 install -m755 tools/bug-report.sh "$ROOT/app/bug-report.sh"
 mkdir -p "$ROOT/app/docs/probe" && install -m644 docs/probe/SUMMARY.md "$ROOT/app/docs/probe/SUMMARY.md"
 cp -a assets "$ROOT/app/assets"
+# Valve's models, converted: made by install.sh on the owner's machine, never shipped
+rm -f "$ROOT"/app/assets/models/frame_controller_*.room
+# the converter itself is ours; install.sh runs it against the SteamVR on the target
+install -m755 tools/frame-models/frame-controller-models.py "$ROOT/frame-controller-models.py"
 install -m755 packaging/install.sh "$ROOT/install.sh"
 install -m644 packaging/steam_cef.py "$ROOT/steam_cef.py"
 [ -d packaging/art ] && cp -a packaging/art "$ROOT/art"
 for f in README.md LICENSE.txt CREDITS.md; do install -m644 "$f" "$ROOT/$f"; done
+[ -z "$(find "$ROOT" -name 'frame_controller_*' -print -quit)" ] || { echo "a Steam Frame controller model got into the release"; exit 1; }
 echo "$VER" > "$ROOT/VERSION"; cp "$ROOT/VERSION" "$ROOT/app/VERSION"
 
 EPOCH="$(git log -1 --format=%ct)"
@@ -74,7 +81,9 @@ for i in 1 2; do
     DEST="$TMP/inst/app" NO_SHORTCUT=1 MLXR_CONFIG_DIR="$TMP/cfg" "$U/install.sh" > "$TMP/install.$i.log"
 done
 tail -n 4 "$TMP/install.2.log"
-diff -r "$U/app" "$TMP/inst/app" -x LICENSE.txt -x CREDITS.md >/dev/null || { echo "installed tree differs from the tarball"; diff -rq "$U/app" "$TMP/inst/app" | head; exit 1; }
+# (install.sh makes the Frame controller models from the local SteamVR, so the install may have them and the tarball never does)
+[ -z "$(find "$U" -name 'frame_controller_*' -print -quit)" ] || { echo "the tarball holds a Steam Frame controller model"; exit 1; }
+diff -r "$U/app" "$TMP/inst/app" -x LICENSE.txt -x CREDITS.md -x 'frame_controller_*.room' >/dev/null || { echo "installed tree differs from the tarball"; diff -rq "$U/app" "$TMP/inst/app" -x 'frame_controller_*.room' | head; exit 1; }
 for f in LICENSE.txt CREDITS.md; do cmp "$U/$f" "$TMP/inst/app/$f"; done
 MLXR_CONFIG_DIR="$TMP/cfg" "$TMP/inst/app/mlxr-cli" 2>&1 | head -n 3 || true
 if command -v pacman >/dev/null; then
