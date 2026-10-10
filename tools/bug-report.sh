@@ -2,7 +2,7 @@
 # Collects what is needed to look at a problem into one zip. GPLv3.
 #   bug-report.sh
 # Writes ~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip containing:
-#   moonlight.log, moonlight.previous.log   (client key material masked)
+#   moonlight.log, moonlight.log.1, moonlight-console.log (client key material masked)
 #   config.ini                              (settings; secret-looking values masked)
 #   hosts.ini                               (names and addresses; no certificate or MAC lines)
 #   docs/probe/SUMMARY.md                   (platform probe, when found)
@@ -24,7 +24,7 @@ R="$WORK/mlxr-report-$STAMP"; mkdir -p "$R/docs/probe"
 
 # Mask hex strings that follow key-like names (AES key, riKey, PIN) in logs.
 redact() { sed -E 's/((rikey|aes[ _-]?key|remoteInputAesKey|secret|token|password)[A-Za-z]*[=: ]+)[0-9A-Fa-f]{8,}/\1<masked>/Ig'; }
-for f in moonlight.log moonlight.previous.log; do
+for f in moonlight.log moonlight.log.1 moonlight-console.log moonlight.previous.log; do
     [ -f "$LOGDIR/$f" ] && redact < "$LOGDIR/$f" > "$R/$f"
 done
 if [ -f "$CFG/config.ini" ]; then
