@@ -37,6 +37,13 @@ strip_to() {   # copy a binary without debug info when a strip tool exists
 strip_to "$BUILD/moonlight-xr" "$ROOT/app/moonlight-xr"
 strip_to "$BUILD/backend/mlxr-cli" "$ROOT/app/mlxr-cli"
 install -m755 packaging/moonlight-xr.sh "$ROOT/app/moonlight-xr.sh"
+# The flat Moonlight UI (patched moonlight-qt), when built (launcher/build.sh)
+if [ -x build-launcher/moonlight-xr-launcher ]; then
+    strip_to build-launcher/moonlight-xr-launcher "$ROOT/app/moonlight-xr-launcher"
+    install -m755 launcher/moonlight-xr-launcher.sh "$ROOT/app/moonlight-xr-launcher.sh"
+else
+    echo "warning: no build-launcher/moonlight-xr-launcher: the release opens the VR client directly"
+fi
 install -m755 backend/seed-from-moonlight-qt.sh "$ROOT/app/seed-from-moonlight-qt.sh"
 install -m644 backend/seed_moonlight_qt.py "$ROOT/app/seed_moonlight_qt.py"
 install -m755 tools/bug-report.sh "$ROOT/app/bug-report.sh"

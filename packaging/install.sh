@@ -42,6 +42,7 @@ if [ -x "$HERE/app/moonlight-xr" ]; then          # unpacked release
     CLI="$PAY/mlxr-cli"; MAIN="$PAY/moonlight-xr"; HELLO=""
     SEEDDIR="$PAY"; CEFPY="$HERE/steam_cef.py"; DOCS="$HERE"
     BUGREPORT="$PAY/bug-report.sh"; PROBE="$PAY/docs/probe/SUMMARY.md"
+    LAUNCHER_BIN="$PAY/moonlight-xr-launcher"; LAUNCHER_SH="$PAY/moonlight-xr-launcher.sh"
     [ -z "$ART" ] && [ -d "$HERE/art" ] && ART="$HERE/art"
 else                                              # source checkout
     MODE=source
@@ -50,6 +51,7 @@ else                                              # source checkout
     CLI="$BUILD/backend/mlxr-cli"; MAIN="$BUILD/moonlight-xr"; HELLO="$BUILD/hello/mlxr-hello"
     SEEDDIR="$SRC/backend"; CEFPY="$HERE/steam_cef.py"; DOCS="$SRC"
     BUGREPORT="$SRC/tools/bug-report.sh"; PROBE="$SRC/docs/probe/SUMMARY.md"
+    LAUNCHER_BIN="$SRC/build-launcher/moonlight-xr-launcher"; LAUNCHER_SH="$SRC/launcher/moonlight-xr-launcher.sh"
     [ -z "$ART" ] && [ -d "$HERE/art" ] && ART="$HERE/art"
 fi
 [ -x "$MAIN" ] || { echo "no moonlight-xr binary at $MAIN (run ./build.sh first)"; exit 1; }
@@ -64,7 +66,12 @@ else
     install -m755 "$MAIN" "$DEST/moonlight-xr";                    echo "  moonlight-xr"
     install -m755 "$CLI" "$DEST/mlxr-cli";                         echo "  mlxr-cli"
     [ -n "$HELLO" ] && [ -x "$HELLO" ] && { install -m755 "$HELLO" "$DEST/mlxr-hello"; echo "  mlxr-hello"; }
-    install -m755 "$WRAPPER" "$DEST/moonlight-xr.sh";              echo "  moonlight-xr.sh (launcher)"
+    install -m755 "$WRAPPER" "$DEST/moonlight-xr.sh";              echo "  moonlight-xr.sh (VR client wrapper)"
+    # The flat Moonlight UI (patched moonlight-qt) that hands streams to the VR client
+    if [ -x "$LAUNCHER_BIN" ] && [ -f "$LAUNCHER_SH" ]; then
+        install -m755 "$LAUNCHER_BIN" "$DEST/moonlight-xr-launcher"
+        install -m755 "$LAUNCHER_SH" "$DEST/moonlight-xr-launcher.sh"; echo "  moonlight-xr-launcher (flat Moonlight UI)"
+    fi
     install -m755 "$SEEDDIR/seed-from-moonlight-qt.sh" "$DEST/seed-from-moonlight-qt.sh"
     install -m644 "$SEEDDIR/seed_moonlight_qt.py" "$DEST/seed_moonlight_qt.py"
     echo "  seed-from-moonlight-qt.sh"
@@ -105,7 +112,13 @@ if [ "$NOSC" = 1 ]; then echo "Steam shortcut: skipped (NO_SHORTCUT)"; exit 0; f
 if [ ! -f "$CEFPY" ]; then echo "Steam shortcut: $CEFPY missing"; exit 1; fi
 
 CEF="python3 -I $CEFPY"
-EXE="\"$DEST/moonlight-xr.sh\""
+# The shortcut opens the flat Moonlight UI when it is installed (VR_ONLY=1:
+# straight into the VR client's own PC and app lists instead)
+if [ "${VR_ONLY:-0}" != 1 ] && [ -x "$DEST/moonlight-xr-launcher" ] && [ -f "$DEST/moonlight-xr-launcher.sh" ]; then
+    EXE="\"$DEST/moonlight-xr-launcher.sh\""
+else
+    EXE="\"$DEST/moonlight-xr.sh\""
+fi
 JS_NAME=$(printf '%s' "$NAME" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
 JS_EXE=$(printf '%s' "$EXE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
 JS_DIR=$(printf '%s' "\"$DEST\"" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
