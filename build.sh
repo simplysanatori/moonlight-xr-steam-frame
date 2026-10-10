@@ -39,13 +39,19 @@ BUILD="${BUILD:-build}"
 cmake -S . -B "$BUILD" -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ "${cmake_args[@]}"
 nice -n 5 ninja -C "$BUILD" -j"${JOBS:-3}" "$@"
 
+# The flat Moonlight UI (patched moonlight-qt 6.1.0): full builds only, NO_LAUNCHER=1 skips it
+if [ $# -eq 0 ] && [ "${NO_LAUNCHER:-0}" != 1 ] && [ -x launcher/build.sh ]; then
+    ./launcher/build.sh
+fi
+
 if [ "${SKIP_AUDIT:-0}" = 1 ]; then
     echo "SKIP_AUDIT=1: ldd audit skipped"
 elif ! command -v pacman >/dev/null; then
     echo "no pacman on this host: ldd audit skipped (it checks libraries against SteamOS packages)"
 else
     # With no target named, both shipped binaries must exist and pass.
-    for bin in "$BUILD/moonlight-xr" "$BUILD/backend/mlxr-cli"; do
+    for bin in "$BUILD/moonlight-xr" "$BUILD/backend/mlxr-cli" build-launcher/moonlight-xr-launcher; do
+        [ "$bin" = build-launcher/moonlight-xr-launcher ] && [ ! -x "$bin" ] && continue
         if [ -x "$bin" ]; then ./tools/ldd-audit.sh "$bin"
         elif [ $# -eq 0 ]; then echo "expected $bin after a full build"; exit 1; fi
     done

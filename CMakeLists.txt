@@ -63,3 +63,8 @@ foreach(lane backend video audio ui input rooms depth shaders xr stream app)
     add_subdirectory(${lane})
   endif()
 endforeach()
+
+# Flat launcher tests (skip with code 77 until launcher/build.sh has run)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/launcher/CMakeLists.txt)
+  add_subdirectory(tests/launcher)
+endif()

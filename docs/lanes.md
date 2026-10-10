@@ -16,7 +16,10 @@ Each lane works in its own git worktree at `~/Games/MoonlightXRNative/lanes/<nam
 | D depth | lane/depth | depth/, tests/depth/, assets/depth/ | Opus | merged 2026-10-10: LiteRT 2.21 + XNNPACK static (build-litert.sh, outside git), ZipDepth 512x288 fp16 27 maps/s on 2 threads (target 12), 7 test groups; models 51.8 MB |
 | P packaging | lane/packaging | packaging/ (not moonlight-xr.sh), .github/, README.md, CREDITS.md, tools/release.sh, tools/bug-report.sh | Sonnet | merged 2026-10-10 |
 | M4 UI | lane/m4-ui | xr/, app/, stream/, ui/ | Opus | merged 2026-10-10 |
-| L launcher | lane/launcher | launcher/, third_party/moonlight-qt (v6.1.0), app/main.c --exit-to-caller | Sonnet | started 2026-10-10: flat Moonlight UI, VR on stream start |
+| M5 | lane/m5 | xr/, rooms/ | Opus | merged 2026-10-10 |
+| K keyboard | lane/keyboard | Full keyboard, chord | Sonnet | merged 2026-10-10 |
+| M6 3D | lane/m6 | xr/, depth/ glue | Opus | running |
+| L launcher | lane/launcher | launcher/, third_party/moonlight-qt (v6.1.0), app/main.c --exit-to-caller | Sonnet | merged 2026-10-10: flat Moonlight UI, VR on stream start |
 
 Pure modules (no GL, Android or `xr_renderer.h`), ported by lane X: xr_atlas, xr_controller, xr_depthmap, xr_gamepad, xr_gate, xr_glow, xr_grade, xr_headaim, xr_keys, xr_layout, xr_math, xr_notice, xr_pinch, xr_rate, xr_roommesh, xr_shared.h, and xr-audio's xr_audio.
 Entangled with `xr_renderer.h` (`XrCtx` with GL types): xr_input, xr_ui, xr_layers, xr_display, xr_log, xr_room, xr_model, xr_ambilight; rewritten: xr_session, xr_gl, xr_shaders, xr_assets, xr_depth, xr_debug. The Vulkan `XrCtx` is orchestrator work in M1; I, R and U's panel code wait for it.
