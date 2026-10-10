@@ -67,6 +67,7 @@ struct mlxr_vkimp {
 	VkFormatFeatureFlags mod_features;
 	uint32_t mod_planes;
 	uint64_t mod_modifier;
+	uint32_t combined_descriptors;
 	bool mod_checked;
 	mlxr_vkimp_stats st;
 };
@@ -333,6 +334,11 @@ VkSampler mlxr_vkimp_sampler(mlxr_vkimp *imp, uint32_t *serial)
 	return imp->sampler;
 }
 
+uint32_t mlxr_vkimp_descriptor_count(mlxr_vkimp *imp)
+{
+	return imp->combined_descriptors ? imp->combined_descriptors : 1;
+}
+
 VkSamplerYcbcrConversion mlxr_vkimp_conversion(mlxr_vkimp *imp)
 {
 	return imp->conversion;
@@ -373,6 +379,46 @@ static int import_frame(mlxr_vkimp *imp, cache_entry *e, const mlxr_vframe *f)
 	}
 	if (ensure_conversion(imp, f))
 		return -1;
+
+	// Ask the driver whether this exact import is supported before creating
+	// anything, and how many descriptors a combined image sampler takes.
+	VkPhysicalDeviceImageDrmFormatModifierInfoEXT modinfo = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_DRM_FORMAT_MODIFIER_INFO_EXT,
+		.drmFormatModifier = f->drm_modifier,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+	};
+	VkPhysicalDeviceExternalImageFormatInfo extinfo = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO,
+		.pNext = &modinfo,
+		.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+	};
+	VkPhysicalDeviceImageFormatInfo2 fi = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2,
+		.pNext = &extinfo,
+		.format = YUV_FORMAT,
+		.type = VK_IMAGE_TYPE_2D,
+		.tiling = VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
+		.usage = VK_IMAGE_USAGE_SAMPLED_BIT,
+	};
+	VkSamplerYcbcrConversionImageFormatProperties ycp = {
+		.sType = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_IMAGE_FORMAT_PROPERTIES,
+	};
+	VkExternalImageFormatProperties extp = { .sType = VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES,
+						 .pNext = &ycp };
+	VkImageFormatProperties2 ifp = { .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2, .pNext = &extp };
+	VkResult qr = vkGetPhysicalDeviceImageFormatProperties2(imp->cfg.phys, &fi, &ifp);
+	if (qr != VK_SUCCESS) {
+		ilog("NV12 dma-buf import with modifier 0x%llx unsupported: %d", (unsigned long long)f->drm_modifier, qr);
+		return -1;
+	}
+	if (!(extp.externalMemoryProperties.externalMemoryFeatures & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT) ||
+	    f->coded_width > ifp.imageFormatProperties.maxExtent.width ||
+	    f->coded_height > ifp.imageFormatProperties.maxExtent.height) {
+		ilog("dma-buf import not importable or %ux%u exceeds %ux%u", f->coded_width, f->coded_height,
+		     ifp.imageFormatProperties.maxExtent.width, ifp.imageFormatProperties.maxExtent.height);
+		return -1;
+	}
+	imp->combined_descriptors = ycp.combinedImageSamplerDescriptorCount;
 
 	VkSubresourceLayout planes[2] = {
 		{ .offset = f->offset[0], .rowPitch = f->pitch[0] },

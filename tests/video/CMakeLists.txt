@@ -31,3 +31,8 @@ video_test(video_reschange_hevc ${VSAMPLES}/reschange_hevc.hevc --fps 120 --expe
 video_test(video_colour_check_negative ${VSAMPLES}/t1080_hevc.hevc --fps 120
   --check-ref ${VSAMPLES}/ref_t1080_hevc_f30_hue.ppm --check-frame 30)
 set_tests_properties(video_colour_check_negative PROPERTIES WILL_FAIL TRUE)
+# IDR recovery: mlxr_vdec_reset() mid-stream, then the stream again from its IDR.
+video_test(video_reset_hevc ${VSAMPLES}/t1080_hevc.hevc --fps 0 --reset-after 59 --expect-frames 120)
+# Experimental Q08C (UBWC) CAPTURE imported with DRM_FORMAT_MOD_QCOM_COMPRESSED.
+video_test(video_q08c_hevc_1080 ${VSAMPLES}/t1080_hevc.hevc --fps 120 --q08c --expect-frames 120
+  --check-ref ${VSAMPLES}/ref_t1080_hevc_f30.ppm --check-frame 30)

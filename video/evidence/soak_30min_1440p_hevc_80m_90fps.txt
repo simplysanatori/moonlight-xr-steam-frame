@@ -1,0 +1,41 @@
+build-video/tests/video/samples/t1440_hevc_80m.hevc: HEVC, 600 access units, 98.3 MB, largest AU 198547 bytes; paced
+Vulkan device: Turnip Adreno (TM) 750 (API 1.4.362)
+[    60 s] frames 5401 imports 12 window latency: n 5401  mean 5.78  p50 5.81  p95 6.33  p99 6.53  max 17.67 ms
+[   120 s] frames 10802 imports 12 window latency: n 5401  mean 5.80  p50 5.82  p95 6.35  p99 6.56  max 7.50 ms
+[   180 s] frames 16202 imports 12 window latency: n 5400  mean 5.79  p50 5.82  p95 6.34  p99 6.57  max 7.35 ms
+[   240 s] frames 21603 imports 12 window latency: n 5401  mean 5.80  p50 5.82  p95 6.37  p99 6.58  max 7.11 ms
+[   300 s] frames 27003 imports 12 window latency: n 5400  mean 5.78  p50 5.81  p95 6.34  p99 6.55  max 6.99 ms
+[   360 s] frames 32403 imports 12 window latency: n 5400  mean 5.79  p50 5.81  p95 6.35  p99 6.55  max 7.33 ms
+[   420 s] frames 37804 imports 12 window latency: n 5401  mean 5.78  p50 5.80  p95 6.33  p99 6.53  max 7.30 ms
+[   480 s] frames 43205 imports 12 window latency: n 5401  mean 5.80  p50 5.83  p95 6.37  p99 6.59  max 7.87 ms
+[   540 s] frames 48606 imports 12 window latency: n 5401  mean 5.78  p50 5.81  p95 6.33  p99 6.52  max 7.02 ms
+[   600 s] frames 54007 imports 12 window latency: n 5401  mean 5.81  p50 5.83  p95 6.36  p99 6.56  max 7.04 ms
+[   660 s] frames 59407 imports 12 window latency: n 5400  mean 5.80  p50 5.83  p95 6.34  p99 6.54  max 7.32 ms
+[   720 s] frames 64808 imports 12 window latency: n 5401  mean 5.81  p50 5.84  p95 6.36  p99 6.56  max 6.99 ms
+[   780 s] frames 70209 imports 12 window latency: n 5401  mean 5.79  p50 5.82  p95 6.34  p99 6.55  max 7.98 ms
+[   840 s] frames 75610 imports 12 window latency: n 5401  mean 5.74  p50 5.77  p95 6.28  p99 6.47  max 7.49 ms
+[   900 s] frames 81010 imports 12 window latency: n 5400  mean 5.73  p50 5.76  p95 6.27  p99 6.45  max 6.86 ms
+[   960 s] frames 86410 imports 12 window latency: n 5400  mean 5.81  p50 5.84  p95 6.36  p99 6.56  max 8.48 ms
+[  1020 s] frames 91810 imports 12 window latency: n 5400  mean 5.81  p50 5.84  p95 6.35  p99 6.53  max 6.82 ms
+[  1080 s] frames 97211 imports 12 window latency: n 5401  mean 5.79  p50 5.82  p95 6.35  p99 6.56  max 7.57 ms
+[  1140 s] frames 102611 imports 12 window latency: n 5400  mean 5.80  p50 5.83  p95 6.35  p99 6.56  max 8.03 ms
+[  1200 s] frames 108012 imports 12 window latency: n 5401  mean 5.82  p50 5.85  p95 6.36  p99 6.56  max 6.95 ms
+[  1260 s] frames 113412 imports 12 window latency: n 5400  mean 5.83  p50 5.85  p95 6.37  p99 6.59  max 7.56 ms
+[  1320 s] frames 118813 imports 12 window latency: n 5401  mean 5.84  p50 5.86  p95 6.39  p99 6.61  max 7.07 ms
+[  1380 s] frames 124214 imports 12 window latency: n 5401  mean 5.84  p50 5.86  p95 6.40  p99 6.60  max 6.95 ms
+[  1440 s] frames 129614 imports 12 window latency: n 5400  mean 5.84  p50 5.86  p95 6.39  p99 6.58  max 7.25 ms
+[  1500 s] frames 135015 imports 12 window latency: n 5401  mean 5.81  p50 5.83  p95 6.37  p99 6.60  max 7.58 ms
+[  1560 s] frames 140416 imports 12 window latency: n 5401  mean 5.82  p50 5.85  p95 6.36  p99 6.58  max 8.15 ms
+[  1620 s] frames 145817 imports 12 window latency: n 5401  mean 5.83  p50 5.86  p95 6.39  p99 6.59  max 8.81 ms
+[  1680 s] frames 151217 imports 12 window latency: n 5400  mean 5.82  p50 5.84  p95 6.37  p99 6.58  max 6.96 ms
+[  1740 s] frames 156618 imports 12 window latency: n 5401  mean 5.78  p50 5.81  p95 6.34  p99 6.53  max 7.11 ms
+---- results (1800.0 s)
+frames out 162001 of 162001 AUs submitted (0 submit errors), decode errors 0
+first frame latency (includes SOURCE_CHANGE + CAPTURE setup): 17.67 ms
+decode latency submit->dequeue, all frames: n 162001  mean 5.80  p50 5.82  p95 6.35  p99 6.56  max 17.67 ms
+decode latency submit->dequeue, steady (frame 30+): n 161971  mean 5.80  p50 5.82  p95 6.35  p99 6.56  max 8.81 ms
+AUs in flight max 2
+CAPTURE allocations 1, CAPTURE buffers 12, EXPBUF 12, Vulkan imports 12, import failures 0
+frames released to decoder 162001 (callback 162001), requeue errors 0, unimported frames 0
+source-change events 1, format changes applied 0, YCbCr conversions 1
+RESULT: PASS

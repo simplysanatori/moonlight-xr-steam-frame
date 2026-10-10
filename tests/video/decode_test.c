@@ -1080,9 +1080,10 @@ int main(int argc, char **argv)
 	printf("frames released to decoder %llu (callback %llu), requeue errors %llu, unimported frames %llu\n",
 	       (unsigned long long)is.frames_released, (unsigned long long)rc.released,
 	       (unsigned long long)ds.requeue_errors, (unsigned long long)import_null);
-	printf("source-change events %llu, format changes applied %llu, YCbCr conversions %llu\n",
+	printf("source-change events %llu, format changes applied %llu, YCbCr conversions %llu, "
+	       "descriptors per YCbCr sampler %u\n",
 	       (unsigned long long)ds.source_changes, (unsigned long long)format_changes,
-	       (unsigned long long)is.conversions);
+	       (unsigned long long)is.conversions, mlxr_vkimp_descriptor_count(imp));
 
 	int fail = 0;
 #define FAIL(...) do { printf("FAIL: " __VA_ARGS__); printf("\n"); fail = 1; } while (0)

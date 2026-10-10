@@ -112,6 +112,9 @@ uint32_t mlxr_vkimp_generation(mlxr_vkimp *imp);
 // descriptor set layout and pipeline that embed it).
 VkSampler mlxr_vkimp_sampler(mlxr_vkimp *imp, uint32_t *serial);
 VkSamplerYcbcrConversion mlxr_vkimp_conversion(mlxr_vkimp *imp);
+// Descriptors one combined image sampler of these images uses
+// (VkSamplerYcbcrConversionImageFormatProperties), for descriptor pool sizes.
+uint32_t mlxr_vkimp_descriptor_count(mlxr_vkimp *imp);
 
 // Queue-family-foreign ownership barriers around the sampling.
 void mlxr_vkimp_cmd_acquire(mlxr_vkimp *imp, VkCommandBuffer cmd, const mlxr_vkimp_image *img,
