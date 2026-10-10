@@ -18,7 +18,7 @@ Each lane works in its own git worktree at `~/Games/MoonlightXRNative/lanes/<nam
 | M4 UI | lane/m4-ui | xr/, app/, stream/, ui/ | Opus | merged 2026-10-10 |
 | M5 | lane/m5 | xr/, rooms/ | Opus | merged 2026-10-10 |
 | K keyboard | lane/keyboard | Full keyboard, chord | Sonnet | merged 2026-10-10 |
-| M6 3D | lane/m6 | xr/, depth/ glue | Opus | running |
+| M6 3D | lane/m6 | xr/, depth/ glue | Opus | merged 2026-10-10 |
 | L launcher | lane/launcher | launcher/, third_party/moonlight-qt (v6.1.0), app/main.c --exit-to-caller | Sonnet | merged 2026-10-10: flat Moonlight UI, VR on stream start |
 
 Pure modules (no GL, Android or `xr_renderer.h`), ported by lane X: xr_atlas, xr_controller, xr_depthmap, xr_gamepad, xr_gate, xr_glow, xr_grade, xr_headaim, xr_keys, xr_layout, xr_math, xr_notice, xr_pinch, xr_rate, xr_roommesh, xr_shared.h, and xr-audio's xr_audio.

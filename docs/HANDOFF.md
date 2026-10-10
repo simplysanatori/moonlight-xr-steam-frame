@@ -1,6 +1,6 @@
 # Moonlight XR Native: session hand-off
 
-Written 2026-10-10 at the end of the first build session. Paste the prompt at the bottom into a new Claude Code session on the Steam Frame to continue. Everything below is either in this repository or on the Frame at the paths given.
+Written 2026-10-10 at the end of the first build session (main at the commit that adds this file; 108 test suites green). Paste the prompt at the bottom into a new Claude Code session on the Steam Frame to continue. Everything below is either in this repository or on the Frame at the paths given.
 
 ## 1. What this project is
 
@@ -57,7 +57,7 @@ tools/release.sh                 # tarball + SHA256SUMS in ~/Games/MoonlightXRNa
 | M5 rooms, controller models, glow, click, supersample | Merged; **owner's headset run pending** (script in `M5_REPORT.md`) |
 | Keyboard (Full TKL, Hacker's Keyboard modifiers) + Start+Select+L2+R2 chord | Merged; **untested in the headset** |
 | Flat Moonlight launcher | Merged, installed as the shortcut; **untested in the headset** (Game Mode display of the flat window, switch into VR and back) |
-| M6 realtime 3D | See section 6 |
+| M6 realtime 3D | Merged; **owner's headset run pending** (script in `M6_REPORT.md`); see section 6 |
 | M7 hands, gaze, surround, headset-off, logging, report | Partly done: logging with rollover, report sheet + bug-report.sh, surround renderer exists (5.1/7.1 KEMAR, numerically tested, not heard yet). Open: see section 5 |
 | M8 packaging + release | Groundwork merged (installer, release tarball, CI, README, CREDITS). Open: see section 5 |
 
@@ -69,16 +69,23 @@ Owner-confirmed behaviour to keep:
 
 ## 5. What is left (do these next, in this order unless the owner says otherwise)
 
-1. **Get the owner's headset results** for the flat launcher, M3, M5 and the keyboard (each report has a test script) and fix what they find. Read `moonlight.log` after each run.
+1. **Get the owner's headset results** for the flat launcher, M3, M5, M6 and the keyboard (each report has a test script) and fix what they find. Read `moonlight.log` after each run.
 2. **Steam Frame controller models from the device**, the way the owner's Mario Kart Wii fork does it: SteamVR's Frame controller driver ships per-hand render models at `/opt/steamvr/drivers/frame_controller/resources/rendermodels/frame_controller_{left,right}/` (OBJ + MTL per component: body, bumper, dpad, grip_button, sticks, buttons, trigger; `*_color.png`, `*_ao.png`). The fork's converter `~/Games/Wiicompiled_VR-PLUS-steam-frame/steam-frame/frame-controller-models.py` (GitHub `simplysanatori/Wiicompiled_VR-PLUS-steam-frame`, branch `steam-frame`, commit 23d95f5) triangulates every visible component into OpenXR grip space using the model's `openxr_grip` component, bakes AO into the base colour at 1024², and simplifies with a pure-Python QEM to ~4000 triangles per hand (full-detail models cost the owner 30 fps in that game; ~4k/hand was "perfect"). Do the same here: convert at install time (or first run) into the format `rooms/room_gpu` loads for the controller model (`assets/models/controller.room` today, a generic Quest-style controller), never redistribute Valve's files (read them from the local SteamVR install only), and fall back to the generic model if the directory is missing. Optional: animate the trigger, grips, sticks and buttons from the controller's input state, as the fork does with SteamVR's component motions.
-3. **M6 follow-ups** from `M6_REPORT.md` (section 6).
+3. **M6 follow-ups**: the owner's answers to the decisions in section 6, and the items not ported yet.
 4. **M7**: hand tracking with pinch click and triple-pinch lock, and eye-gaze pointing (both present natively per the probe, ported in `xr_input.c`, **off by default** on the Frame because gaze takes the pointer from the controllers; let the owner turn them on and test); headset-off: mute and pause via `XR_EXT_user_presence` and session state, resume within a minute; virtual surround: owner listening test (5.1/7.1 at the host, `virtual_surround` setting), and the open question of SteamOS's own spatializer (the renderer bypasses it by node name; `systemSpatializer` switches); Stats overlay rows.
 5. **M8**: tag `v0.1.0` when the owner is happy, `tools/release.sh`, GitHub release (private repo for now; public is the owner's call), Steam library art (none yet; the owner has used SteamGridDB art before: `~/.local/bin/steam-art`, key in `~/.config/example/key`), drop `assets/rooms/*_lo_*` (~7.5 MB, unused on the Frame) and maybe MiDaS (33 MB) if the owner agrees, CI caveat stays documented.
 6. **Small known items**: the Caps Lock light on the Full keyboard follows our own presses only; supersample is live but defaults Off pending the owner's A/B; sharpening defaults to "Quality" (upstream's default; the owner has not compared); the flat window stays visible during a stream (stock hides it; `MLXR_LAUNCHER_HIDE_WINDOW=1`); 144 fps from Moonlight settings passes through and the client skips frames above the display rate (SteamVR offers one rate, 72 or 90, and picks it); the generic controller model until item 2.
 
 ## 6. M6 (realtime 3D)
 
-_Filled in when the M6 lane reports; see `M6_REPORT.md`._
+Merged 2026-10-10 (lane/m6 499b972). The whole chain runs headless on the Frame's GPU; nothing seen in the headset yet. Details and the owner's test script: `M6_REPORT.md`.
+
+- Pipeline (`xr/xr_depth.c`, rewrite of upstream's xr_depth.c and the 3D half of renderVideoFrame): when a capture is due, downscale to 512x288 and copy into one of 2 host-visible readback buffers keyed by a timeline value; a stage thread waits and calls `mlxr_depth_submit`; the newest map goes into the next of 3 depth textures (per-slot staging, nothing allocated per frame); then upsample, offset search and one warp per eye into a double-wide swapchain (disparity ±separation, convergence, edge fade, held source). Curve and rooms work in 3D (each eye samples its half). Mono path unchanged with 3D off.
+- Engine: starts the first time 3D is turned on (or at session start if the saved switch is on), ZipDepth 512x288 fp16, 2 threads, 20 maps/s; on failure stays flat with a toast and greys the 3D tab. `depth_source` = `zipdepth` (default), `zipdepth-int8`, `midas` (also `shifttest`, `eyetest` patterns). Without the LiteRT build, 3D shows "not installed".
+- Numbers (headless, synthetic scene, hardware decode, 90 Hz loop): ZipDepth fp16 20.2 maps/s, model 36 ms avg, capture→display 78 ms, 1.5 cores; int8 19.8 maps/s, 14 ms, 45 ms age, 0.56 cores; MiDaS 45 ms, 82 ms age, 1.8 cores. GPU at 1080p: warp both eyes 1.9 ms, downscale + readback 0.35, upsample 0.26, offset 0.20. Frame loop p99 3.6–4.1 ms. CPU pinning did not help (unpinned default; `MLXR_DEPTH_CPUS` exists).
+- Budget: worst 3D case 16 of 16 layers, nothing dropped; at most 8 swapchains. The double-wide picture swapchain exists whenever a model is configured (~44 MB at 1440p).
+- Decisions for the owner: the 3D switch is remembered and **defaults to off** (upstream starts in 3D); is 0.6 % separation comfortable; is 78 ms depth age acceptable on motion; should int8 (45 ms, a third of the CPU) be the default.
+- Not ported yet: upstream's debug capture dump, the depth-scale preference, the splash's wait for the first map.
 
 ## 7. How to work (the owner's standing rules)
 
@@ -98,7 +105,7 @@ Continue building Moonlight XR Native on this Steam Frame. Read, in order:
 STATUS.md, docs/lanes.md, docs/BUILD_PLAN.md, and the reports it lists, plus your memory
 files about this project. Then:
 1. Run ./build.sh and the test suite to confirm main is green.
-2. Ask me for my headset results on the flat launcher, M3 gamepad, M5 rooms/models/glow,
+2. Ask me for my headset results on the flat launcher, M3 gamepad, M5 rooms/models/glow, M6 3D,
    the Full keyboard and the Start+Select+L2+R2 chord (or tell me which test script to run),
    and fix what I report.
 3. Then do HANDOFF.md section 5 items 2-5: Steam Frame controller models from SteamVR's
