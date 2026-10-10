@@ -18,6 +18,10 @@ unset LD_LIBRARY_PATH
 if [ ! -e "$HOME/.config/openxr/1/active_runtime.json" ] && [ -e /opt/steamvr/steamxr_linuxarm64.json ]; then
     export XR_RUNTIME_JSON=/opt/steamvr/steamxr_linuxarm64.json
 fi
+# Hide the flat window while the VR client streams, as stock Moonlight hides it
+# when its stream window opens (SteamVR shows a visible one in front of the VR
+# picture); MLXR_LAUNCHER_HIDE_WINDOW=0 keeps it up
+export MLXR_LAUNCHER_HIDE_WINDOW="${MLXR_LAUNCHER_HIDE_WINDOW:-1}"
 # The VR client the launcher starts for a stream
 export MLXR_NATIVE_CLIENT="${MLXR_NATIVE_CLIENT:-$HERE/moonlight-xr}"
 
