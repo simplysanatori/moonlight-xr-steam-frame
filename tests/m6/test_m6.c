@@ -18,6 +18,8 @@
 //             LOADING -> READY, off stops the captures, back on resets and
 //             waits for a fresh map; FAILED (and a thread that never starts)
 //             stays flat with a toast and puts the switch away
+//   budget    the layers of the busiest frames with the 3D on (two picture
+//             quads, one an eye, and the bar's 3D button), against SteamVR's 16
 // GPLv3.
 #define _GNU_SOURCE
 #include <pthread.h>
@@ -27,6 +29,7 @@
 
 #include "check.h"
 #include "m6_gpu.h"
+#include "scene.h"
 #include "settings.h"
 #include "ui_strings.h"
 #include "xr_native.h"
@@ -650,6 +653,78 @@ static void testStates(void) {
 }
 
 
+
+// ---- budget --------------------------------------------------------------------------------
+
+#define FAKE_ROOM ((XrSwapchain)(uintptr_t)0x7001)
+#define FAKE_GLOW ((XrSwapchain)(uintptr_t)0x7002)
+#define FAKE_MODEL ((XrSwapchain)(uintptr_t)0x7003)
+
+static int pictureQuads(const XrFrameOut* out) {
+    int n = 0;
+    for (uint32_t i = 0; i < out->count; i++) {
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)out->order[i];
+        if (q->type == XR_TYPE_COMPOSITION_LAYER_QUAD && q->subImage.swapchain == SCENE_VIDEO_SWAPCHAIN) n++;
+    }
+    return n;
+}
+
+static void budgetFrame(Scene* s, const char* what, int* worst) {
+    XrCtx* c = s->ctx;
+    noticePush(&c->notices, TOAST_3D_ON, 0);
+    Notice up;
+    if (noticeAdvance(&c->notices, nowNs(), 0, &up)) xrPanelsToast(c, up.kind, up.arg);
+    c->hoverKind = HOVER_BAR;
+    scene_frame(s, "stats");
+    int n = (int)s->out.count;
+    printf("  %-66s %2d layers, %d picture quads\n", what, n, pictureQuads(&s->out));
+    CHECK(n <= 16);
+    // whatever is dropped, both eyes' pictures stay
+    CHECK(pictureQuads(&s->out) == 2);
+    if (n > *worst) *worst = n;
+}
+
+static void testBudget(void) {
+    Scene* s = scene_new();
+    XrCtx* c = s->ctx;
+    c->alphaBlendSupported = 1;
+    c->focusedFrames = 5;
+    c->overlayVisible = 1;
+    c->padButtonReady = 1;
+    c->ambilightOn = 1;
+    c->glowSwapchain = FAKE_GLOW;
+    c->glowSwapchainFilled = 1;
+    c->glowRendered = 1;
+    c->modelSwapchain = FAKE_MODEL;
+    c->modelsShowing = 1;
+    c->modelRendered = 1;
+    c->modelEyeWidth = c->modelEyeHeight = 1728;
+    for (int e = 0; e < 2; e++) c->modelViews[e].pose.orientation.w = 1.0f;
+    // 3D on and drawn: both halves, the bar's 3D button
+    c->stereoMode = DEPTH_MODE_MODEL;
+    c->stereoLive = 1;
+    c->drawnEyes = 2;
+    c->stereoButtonReady = 1;
+    Vec3 hand = { 0.2f, -0.3f, -0.3f }, at = { 0, -1.0f, -3.0f };
+    scene_ray_to(s, hand, at);
+    printf("busiest frames with the 3D on (SteamVR takes 16):\n");
+    int worst = 0;
+    s->settings.head_locked = 1;
+    c->headLockedPref = 1;
+    budgetFrame(s, "void, head locked, bar + 3D, glow, models, stats, ray, dot, toast", &worst);
+    s->settings.head_locked = 0;
+    c->headLockedPref = 0;
+    budgetFrame(s, "void, bar + 3D, glow, models, stats, ray, dot, toast", &worst);
+    c->passthrough = 1;
+    s->settings.passthrough = 1;
+    budgetFrame(s, "passthrough, bar + 3D, glow, stats, ray, dot, toast", &worst);
+    c->passthrough = 0;
+    s->settings.passthrough = 0;
+    printf("  worst %d of 16 (drop order: toast, then the models); a layer dropped: %s\n", worst,
+           c->layerDropWarned ? "yes" : "no");
+    scene_free(s);
+}
+
 int main(int argc, char** argv) {
     const char* group = argc > 1 ? argv[1] : "all";
     if (m6_gpu_init(&g, 0) != 0) {
@@ -672,6 +747,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(group, "governor")) testGovernor();
     if (all || !strcmp(group, "settings")) testSettings();
     if (all || !strcmp(group, "states")) testStates();
+    if (all || !strcmp(group, "budget")) testBudget();
     vkDeviceWaitIdle(g.vk.device);
     for (int i = 0; i < VIDEOS; i++) m5_video_free(&tmp, &videos[i]);
     m5_image_free(&tmp, &target);
