@@ -11,10 +11,12 @@ Each lane works in its own git worktree at `~/Games/MoonlightXRNative/lanes/<nam
 | A audio | lane/audio (from lane/xrcore) | audio/, tests/audio/ | Sonnet | merged 2026-10-10: 6 suites; ~15 ms own buffering (PulseAudio reports 60 ms on the speakers incl. SteamOS chain); bypasses the SteamOS spatializer by node name |
 | U ui text | lane/ui | ui/, tests/ui/, assets/fonts/ | Sonnet | merged 2026-10-10: Noto Sans text, 66 settings in config.ini, every panel + launcher lists in one 2048x2960 atlas; 6 tests incl. ASan |
 | S shaders | lane/shaders | shaders/, tests/shaders/ | Opus | merged 2026-10-10: 12 upstream programs + supersample/panel, 17 test groups; 4K stereo all passes ~4.5 ms GPU; not yet wired into xr_session (M2/M4) |
-| I input | lane/input | input/ | Sonnet | after the M1 context header |
-| R rooms | lane/rooms | rooms/, assets/rooms | Sonnet | after the M1 context header |
+| I gamepad | lane/gamepad | input/, tests/input/ | Sonnet | merged 2026-10-10 (4 tests incl. TSan); wired into xr_input by the orchestrator |
+| R rooms | lane/rooms | rooms/, tests/rooms/ | Sonnet | merged 2026-10-10 (8 tests, renders checked) |
 | D depth | lane/depth | depth/, tests/depth/, assets/depth/ | Opus | merged 2026-10-10: LiteRT 2.21 + XNNPACK static (build-litert.sh, outside git), ZipDepth 512x288 fp16 27 maps/s on 2 threads (target 12), 7 test groups; models 51.8 MB |
-| P packaging | lane/packaging | packaging/ (after M1) | Sonnet | M1 |
+| P packaging | lane/packaging | packaging/ (not moonlight-xr.sh), .github/, README.md, CREDITS.md, tools/release.sh, tools/bug-report.sh | Sonnet | merged 2026-10-10 |
+| M4 UI | lane/m4-ui | xr/, app/, stream/, ui/ | Opus | merged 2026-10-10 |
+| L launcher | lane/launcher | launcher/, third_party/moonlight-qt (v6.1.0), app/main.c --exit-to-caller | Sonnet | started 2026-10-10: flat Moonlight UI, VR on stream start |
 
 Pure modules (no GL, Android or `xr_renderer.h`), ported by lane X: xr_atlas, xr_controller, xr_depthmap, xr_gamepad, xr_gate, xr_glow, xr_grade, xr_headaim, xr_keys, xr_layout, xr_math, xr_notice, xr_pinch, xr_rate, xr_roommesh, xr_shared.h, and xr-audio's xr_audio.
 Entangled with `xr_renderer.h` (`XrCtx` with GL types): xr_input, xr_ui, xr_layers, xr_display, xr_log, xr_room, xr_model, xr_ambilight; rewritten: xr_session, xr_gl, xr_shaders, xr_assets, xr_depth, xr_debug. The Vulkan `XrCtx` is orchestrator work in M1; I, R and U's panel code wait for it.

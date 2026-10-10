@@ -46,6 +46,7 @@
 #include "../stream/session.h"
 #include "../stream/vr_keyboard.h"
 #include "../xr/mlxr_log.h"
+#include "../xr/xr_pad_bridge.h"
 #include "../xr/xr_renderer.h"
 #include "../xr/xr_session.h"
 #include "launcher.h"
@@ -174,8 +175,25 @@ static void focusHook(void* user, int focused) {
 }
 
 // The on-screen keyboard (VrKeyboard): keys and text to the host
+// Windows virtual keys that are always extended keys (E0 scan codes): the
+// arrows and navigation cluster (distinct from the numpad's VKs), right
+// Ctrl/Alt, Win, Menu, PrtSc. Hosts tell them from numpad keys by this flag.
+static int vkExtended(int vk) {
+    switch (vk) {
+    case 0x21: case 0x22: case 0x23: case 0x24: case 0x25: case 0x26: case 0x27: case 0x28: // PgUp..Down
+    case 0x2C: case 0x2D: case 0x2E:                                                         // PrtSc Ins Del
+    case 0x5B: case 0x5C: case 0x5D:                                                         // Win Win Menu
+    case 0xA3: case 0xA5:                                                                    // RCtrl RAlt
+    case 0x6F: case 0x90:                                                                    // Divide NumLock
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 static void vrkbKey(void* user, short keyCode, char action, char modifiers) {
     (void)user;
+    if (vkExtended((unsigned short)keyCode & 0xff)) modifiers |= MODIFIER_EXTENDED;
     if (stream_running()) LiSendKeyboardEvent((short)(0x8000 | (unsigned short)keyCode), action, modifiers);
 }
 
@@ -661,6 +679,17 @@ static void* worker(void* arg) {
     return NULL;
 }
 
+// Gamepad mode's Start+Select+L2+R2: leave the stream, the host's session stays
+// (the bar's Exit ends it). Called by the pad bridge outside its lock.
+static void padDisconnectHook(void* user) {
+    (void)user;
+    pthread_mutex_lock(&g_lock);
+    MLOG_I("disconnect chord in %s: leaving the stream, the host's session stays", launcher_state_name(g_launch.state));
+    launcher_disconnect(&g_launch);
+    pthread_cond_signal(&g_wake);
+    pthread_mutex_unlock(&g_lock);
+}
+
 // ---- main ---------------------------------------------------------------------------
 
 static void openLog(void) {
@@ -740,6 +769,7 @@ int main(int argc, char** argv) {
     frame_slot_init(&g_slot);
     VrKeyboardSink sink = { NULL, vrkbKey, vrkbText };
     vrkb_init(&g_vrkb, sink);
+    xrPadBridgeSetDisconnectHook(padDisconnectHook, NULL);
 
     XrAppConfig cfg;
     memset(&cfg, 0, sizeof(cfg));

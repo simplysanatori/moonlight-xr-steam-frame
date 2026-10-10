@@ -5,6 +5,8 @@
 // directions go through ui/settings.c's Settings, which is config.ini. No
 // OpenXR calls, so the tests reach all of it. GPLv3.
 #include "xr_native.h"
+#include "xr_pad_bridge.h"
+#include "xr_keyboard.h"
 
 // ---- what nativeInit set ---------------------------------------------------
 
@@ -45,6 +47,8 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     noticeInit(&ctx->notices);
     ctx->toastDrawnKind = -1;
     ctx->kbHoverKey = -1;
+    kbfInit(&ctx->kbFull);
+    ctx->kbLayoutShown = -1;
     ctx->pickerHover = -1;
     ctx->pickerPick = -1;
     // Native: the pointer's smoothing as M2 shipped it, see xr_renderer.h
@@ -96,7 +100,6 @@ int xrRowLater(XrCtx* ctx, int face, int row) {
     }
     switch (row) {
     case COG_OPTION_SUPERSAMPLE:   // SteamVR has no layer settings; an app side pass is later
-    case COG_OPTION_GAMEPAD:       // gamepad mode is M3
     case COG_OPTION_CONTROLLERS:   // the controller model
     case COG_OPTION_CLICK_SOUND:   // the tick on a press
     case COG_OPTION_AMBILIGHT:     // the glow
@@ -208,9 +211,12 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetClickSound(ctx, s->click_sound);
     xrSetShowRay(ctx, s->show_ray);
     ctx->dotOn = s->pointer_dot;
+    ctx->kbLayout = s->keyboard_layout == KB_LAYOUT_FULL ? KB_LAYOUT_FULL : KB_LAYOUT_COMPACT;
+    kbfSetHoldMs(&ctx->kbFull, s->keyboard_hold_ms);
     xrSetHeadAim(ctx, s->head_aim, s->head_aim_sensitivity, s->head_aim_deadzone);
     // Moonlight's own stick dead zone default, the preference upstream hands down
     xrSetGamepad(ctx, s->gamepad_toggle, 7);
+    xrPadBridgeSetFlip(s->flip_face_buttons);
     int picture[PICTURE_VALUES];
     for (int row = 0; row < PICTURE_VALUES; row++) {
         picture[row] = settings_picture_value(s, row);
@@ -258,6 +264,7 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->controller_model = ctx->modelOn;
     s->click_sound = ctx->clickSoundOn;
     s->pointer_dot = ctx->dotOn;
+    s->keyboard_layout = ctx->kbLayout;
     s->head_aim_sensitivity = ctx->headAimSensitivity;
     s->head_aim_deadzone = ctx->headAimDeadZone;
     for (int row = 0; row < PICTURE_VALUES; row++) {
@@ -287,6 +294,7 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
 int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     Settings before = *s;
     switch (setting) {
+    case SETTING_KEYBOARD_LAYOUT: s->keyboard_layout = value == KB_LAYOUT_FULL; break;
     case SETTING_SHARPEN: s->sharpening = value; break;
     case SETTING_SUPERSAMPLE: s->supersampling = value; break;
     case SETTING_STATS: s->stats = value != 0; break;

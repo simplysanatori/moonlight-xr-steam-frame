@@ -81,6 +81,8 @@
     X(KEY_CTRL, "vr_key_ctrl", "Ctrl") \
     X(KEY_ALT, "vr_key_alt", "Alt") \
     X(KEY_WIN, "vr_key_win", "Win") \
+    X(NATIVE_KEY_FULL, "native_key_full", "Full") \
+    X(NATIVE_KEY_COMPACT, "native_key_compact", "Compact") \
     /* exit prompt, hints, sheets */ \
     X(EXIT_QUESTION, "vr_exit_question", "Exit the stream?") \
     X(EXIT, "vr_exit", "Exit") \
@@ -153,7 +155,8 @@
     X(NATIVE_STARTING, "native_starting", "Starting %s") \
     X(NATIVE_STREAM_FAILED, "native_stream_failed", "The stream did not start") \
     X(NATIVE_STREAM_ENDED, "native_stream_ended", "The stream ended") \
-    X(NATIVE_QUITTING, "native_quitting", "Ending the session on %s")
+    X(NATIVE_QUITTING, "native_quitting", "Ending the session on %s") \
+    X(NATIVE_DISCONNECTED, "native_disconnected", "Disconnected: Start+Select+L2+R2")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

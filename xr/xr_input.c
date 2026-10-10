@@ -8,7 +8,10 @@
 // JNI entry points are plain C functions (xrUpdateInput and friends) that
 // fill the same IN_ slots for the session host to dispatch; the launcher's
 // list takes presses where the picture would (updateLauncher).
+#include "../input/rumble.h"
+#include "xr_pad_bridge.h"
 #include "xr_renderer.h"
+#include "xr_keyboard.h"
 #include "xr_native.h"
 
 // A pinch is how these headsets click. The runtime's own pinch is used
@@ -2268,6 +2271,10 @@ static void openReport(XrCtx* ctx, InputFrame* f) {
 // nothing is held, since nothing there would act on Ctrl, Alt or Win and the
 // host must not be left holding one.
 static void pressKey(XrCtx* ctx, InputFrame* f, int key, int intoReport) {
+    // Native: a Full keyboard key, or the key that flips the layout
+    if (xrKeyboardPress(ctx, f->out, key, f->hand, f->now)) {
+        return;
+    }
     int code = ctx->kbCodes[ctx->kbState][key];
     KbPress press = kbPress(ctx->kbState, intoReport ? 0 : ctx->kbMods, code);
     if (intoReport) {
@@ -3368,6 +3375,7 @@ static void settlePad(XrCtx* ctx, int plugged, int live, PadState* s, const char
         ctx->padButtonsSaid = s->buttons;
     }
     ctx->pad = *s;
+    xrPadBridgeFrame(plugged, s, nowNs()); // native: to the host (upstream: reportXrPad in Java)
 }
 
 // Nothing is read this frame, so the pad lets go of everything and the switch
@@ -3424,7 +3432,15 @@ static void updateRumble(XrCtx* ctx, int live) {
     for (int h = 0; h < HAND_COUNT; h++) {
         on[h] = live && ctx->padAttached && ctx->profileKind[h] == PROFILE_CONTROLLER;
     }
-    padRumbleStep(&ctx->rumble, on, nowNs(), action, amp);
+    // Native: the host's rumble arrives on moonlight-common-c's thread into
+    // input/rumble (upstream: XrRenderer.setRumble's lock and handshake); the
+    // pulses are upstream's padRumbleStep inside rumblePoll.
+    RumbleRequest rq[HAND_COUNT];
+    rumblePoll(rumbleGlobal(), on, nowNs(), rq);
+    for (int h = 0; h < HAND_COUNT; h++) {
+        action[h] = rq[h].action;
+        amp[h] = rq[h].amplitude;
+    }
     for (int h = 0; h < HAND_COUNT; h++) {
         if (action[h] != PAD_RUMBLE_KEEP) {
             hapticOut(ctx, h, action[h], amp[h]);
@@ -3434,6 +3450,7 @@ static void updateRumble(XrCtx* ctx, int live) {
         LOGI("rumble from the host dropped after %ld pulses: the pad is out", ctx->rumblePulses);
         ctx->rumbleOn = 0;
         padRumbleReset(&ctx->rumble);
+        rumbleReset(rumbleGlobal());
     }
 }
 
@@ -3598,6 +3615,9 @@ static void handBack(XrCtx* ctx, float* out) {
         out[IN_PAD_RX] = (float)ctx->pad.rightX;
         out[IN_PAD_RY] = (float)ctx->pad.rightY;
         out[IN_REPORT_ZONE] = ctx->reportOpen ? (float)ctx->reportHoverZone : -1.0f;
+        // Native: the Full keyboard's held key, repeat and modifiers
+        xrKeyboardFrame(ctx, out, nowNs(), ctx->inputReady
+                        && ctx->sessionState == XR_SESSION_STATE_FOCUSED);
         // However the keyboard went away, it lets go of what it held
         if (!ctx->kbOpen && ctx->kbMods != 0) {
             LOGI("keyboard modifiers %d -> 0, keyboard closed", ctx->kbMods);
@@ -3667,6 +3687,9 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     // Backspace is 8, so a zeroed slot would type one every frame
     out[IN_KEY] = -1.0f;
     out[IN_REPORT] = -1.0f;
+    if (ctx != NULL) {
+        xrKeyboardSync(ctx, out);
+    }
 
     // Anything held has to come back up when pointing stops, or the host is
     // left with a stuck button. Nothing is pointed at under the splash either:

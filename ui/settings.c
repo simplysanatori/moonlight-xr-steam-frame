@@ -39,6 +39,7 @@ static const char* const DEPTH_NAMES[] = { "zipdepth", "midas", "off", "flat", "
                                            "eyetest", "shifttest" };
 static const char* const ENVRES_NAMES[] = { "low", "standard", "high", "ultra" };
 static const char* const LOG_NAMES[] = { "off", "basic", "verbose" };
+static const char* const KBLAYOUT_NAMES[] = { "compact", "full" };
 static const char* const SHARP_NAMES[] = { "off", "normal", "quality" };
 
 #define NAMES(a) (a), (int)(sizeof(a) / sizeof((a)[0]))
@@ -76,11 +77,14 @@ static const SettingDesc TABLE[] = {
     DB("vr", "pointer_sleep", pointer_sleep, 1, "checkbox_vr_pointer_sleep: pause the pointer when the controller is still"),
     DB("vr", "show_ray", show_ray, 1, "checkbox_vr_show_ray: show the controller ray"),
     DB("vr", "pointer_dot", pointer_dot, 1, "native: the dot where the ray lands (the host draws its own cursor into the video, which the Moonlight protocol cannot hide)"),
+    DE("vr", "keyboard_layout", keyboard_layout, KBLAYOUT_NAMES, 0, "native: the headset keyboard, compact (Moonlight XR's) or full (tenkeyless); the key on each keyboard flips it"),
+    DI("vr", "keyboard_hold_ms", keyboard_hold_ms, 200, 1500, 500, "native: milliseconds a Shift, Ctrl, Alt or Win key is held on the full keyboard to lock it down (a tap lights it for the next key)"),
     DB("vr", "controller_model", controller_model, 0, "checkbox_vr_controller_model: draw a controller in each hand"),
     DB("vr", "head_aim", head_aim, 0, "checkbox_vr_head_aim: head aims the mouse (screen head locked, outside a room)"),
     DI("vr", "head_aim_sensitivity", head_aim_sensitivity, HEAD_AIM_SENSITIVITY_MIN, HEAD_AIM_SENSITIVITY_MAX, HEAD_AIM_SENSITIVITY_DEFAULT, "seekbar_vr_head_aim_sensitivity: pixels per degree"),
     DI("vr", "head_aim_deadzone", head_aim_deadzone, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX, HEAD_AIM_DEADZONE_DEFAULT, "seekbar_vr_head_aim_deadzone: degrees per second"),
     DE("vr", "gamepad_toggle", gamepad_toggle, TOGGLE_NAMES, 0, "list_vr_gamepad_toggle: menu_grip, sticks, triggers_grips"),
+    DB("vr", "flip_face_buttons", flip_face_buttons, 0, "checkbox_flip_face_buttons: swap A/B and X/Y on the gamepad"),
     DB("vr", "click_sound", click_sound, 1, "checkbox_vr_click_sound"),
     DB("vr", "gaze", gaze, 0, "checkbox_vr_gaze: look to point (native default off: with it on a controller takes the pointer back only on a press)"),
     DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),
