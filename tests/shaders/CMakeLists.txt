@@ -1,0 +1,11 @@
+# Headless Vulkan tests for mlxr_passes (no OpenXR). Each ctest entry runs
+# one group of checks and fails on any miss; PPMs land in the build tree.
+add_executable(mlxr-shader-test test_shaders.c vkh.c)
+target_link_libraries(mlxr-shader-test PRIVATE mlxr_passes mlxr_xrcore Vulkan::Vulkan m)
+target_compile_options(mlxr-shader-test PRIVATE -Werror)
+set(MLXR_SHADER_TEST_OUT ${CMAKE_CURRENT_BINARY_DIR}/out)
+file(MAKE_DIRECTORY ${MLXR_SHADER_TEST_OUT})
+foreach(t device grade nv12 srgb warp_identity warp_step sharpen upsample offset downscale ambi
+          glow_edge glow room model supersample panel)
+  add_test(NAME shaders_${t} COMMAND mlxr-shader-test ${t} ${MLXR_SHADER_TEST_OUT})
+endforeach()
