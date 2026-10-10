@@ -63,6 +63,7 @@ int xr_vk_create(XrInstance instance, XrSystemId system, const char* const* extr
     const char* exts[32];
     uint32_t n = 0;
     exts[n++] = VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME;
+    exts[n++] = VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME; // mlxr_passes binds textures as push descriptors
     for (uint32_t i = 0; i < nExtra && n < 32; i++) exts[n++] = extraDeviceExts[i];
     float prio = 1.0f;
     VkDeviceQueueCreateInfo qci = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -78,8 +79,12 @@ int xr_vk_create(XrInstance instance, XrSystemId system, const char* const* extr
     f12.pNext = &f11;
     f12.timelineSemaphore = VK_TRUE;
     f12.hostQueryReset = VK_TRUE;
+    VkPhysicalDeviceFeatures2 f2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    f2.pNext = &f12;
+    f2.features.textureCompressionASTC_LDR = VK_TRUE; // room atlases ship as ASTC
+    f2.features.samplerAnisotropy = VK_TRUE;
     VkDeviceCreateInfo dci = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-    dci.pNext = &f12;
+    dci.pNext = &f2;
     dci.queueCreateInfoCount = 1;
     dci.pQueueCreateInfos = &qci;
     dci.enabledExtensionCount = n;

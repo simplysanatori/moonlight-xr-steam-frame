@@ -10,7 +10,7 @@ Each lane works in its own git worktree at `~/Games/MoonlightXRNative/lanes/<nam
 | X xr core ports | lane/xrcore | xr/core/ (incl. xr_audio), tests/xrcore/, assets/, tools/xr/ | Sonnet | done 2026-10-10: 17/17 suites pass (16 upstream with equal check counts + Frame pad suite); 41.7 MB assets |
 | A audio | lane/audio (from lane/xrcore) | audio/, tests/audio/ | Sonnet | merged 2026-10-10: 6 suites; ~15 ms own buffering (PulseAudio reports 60 ms on the speakers incl. SteamOS chain); bypasses the SteamOS spatializer by node name |
 | U ui text | lane/ui | ui/, tests/ui/, assets/fonts/ | Sonnet | started 2026-10-10 |
-| S shaders | lane/shaders | shaders/, tests/shaders/ | Opus | started 2026-10-10 |
+| S shaders | lane/shaders | shaders/, tests/shaders/ | Opus | merged 2026-10-10: 12 upstream programs + supersample/panel, 17 test groups; 4K stereo all passes ~4.5 ms GPU; not yet wired into xr_session (M2/M4) |
 | I input | lane/input | input/ | Sonnet | after the M1 context header |
 | R rooms | lane/rooms | rooms/, assets/rooms | Sonnet | after the M1 context header |
 | D depth | lane/depth | depth/ | Opus | wave 2 |
