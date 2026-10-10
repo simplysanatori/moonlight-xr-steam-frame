@@ -185,7 +185,8 @@ static void setLayerSettings(XrCtx* ctx, FrameLayers* layers) {
         ctx->layerFlagsLogged = logged;
         LOGEV("layer flags: sharpen %d supersample %d%s", ctx->sharpenMode,
               ctx->supersampleMode, ctx->layerSettingsSupported ? ""
-                      : " (no layer settings on this runtime: sharpening in the warp pass, supersampling not yet)");
+                      : " (no layer settings on this runtime: sharpening in the warp pass, supersampling by the "
+                        "app's own pass when the picture is minified)");
     }
 }
 
@@ -323,11 +324,20 @@ static void addModelLayer(XrCtx* ctx, FrameLayers* layers) {
 // M6) the left half alone, flat, to both eyes. On a curve the host's
 // projection layer stands in for upstream's cylinder.
 static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
-                           const XrCompositionLayerProjection* curved) {
+                           const XrFrameIn* in) {
     if (view->curve > 0.01f && ctx->cylinderSupported) {
-        if (curved != NULL) {
-            pushLayer(ctx, layers, curved);
+        if (in->curved != NULL) {
+            pushLayer(ctx, layers, in->curved);
         }
+        return;
+    }
+    // M5: the supersampled picture (flat, mono), the same quad from a smaller
+    // image the app filtered
+    if (in->picture != XR_NULL_HANDLE && !view->stereo) {
+        XrCompositionLayerQuad* quad = &layers->video[0];
+        quadLayerRect(quad, NULL, 0, in->picture, 0, 0, in->pictureW, in->pictureH, view->space, view->screenPose,
+                      view->screenWidth, view->screenHeight);
+        pushLayer(ctx, layers, quad);
         return;
     }
     int viewCount = view->stereo && ctx->drawnEyes == 2 ? 2 : 1;
@@ -898,7 +908,7 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
             addLauncherLayer(ctx, &view, layers);
         }
         else if (ctx->videoShown) {
-            addVideoLayers(ctx, &view, layers, in->curved);
+            addVideoLayers(ctx, &view, layers, in);
         }
         addOverlayLayer(ctx, &view, layers);
         addHandleLayer(ctx, &view, layers);

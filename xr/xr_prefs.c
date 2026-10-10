@@ -119,12 +119,11 @@ int xrRowLater(XrCtx* ctx, int face, int row) {
     if (face != COG_TAB_DISPLAY) {
         return 0;
     }
-    switch (row) {
-    case COG_OPTION_SUPERSAMPLE:   // SteamVR has no layer settings (see M5_REPORT.md)
-        return UIS_NATIVE_LATER;
-    default:
-        return 0;
-    }
+    // Every Display row is live since M5 (supersampling is the app's own
+    // pass, SteamVR having no layer settings); the 3D tab is dead through
+    // stereoMode until M6
+    (void)row;
+    return 0;
 }
 
 unsigned xrDisplayLaterMask(XrCtx* ctx) {

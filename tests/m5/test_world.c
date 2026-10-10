@@ -623,6 +623,164 @@ static void curveGroup(void) {
     free(c);
 }
 
+
+// ---- supersample --------------------------------------------------------------------------
+// Upstream asked the compositor to supersample the picture's layer
+// (XR_FB_composition_layer_settings); SteamVR has no such setting. This
+// measures what the app side pass would bring if SteamVR samples a quad
+// layer the plain way, bilinear from a one level image (its swapchain has no
+// mips): the picture 2560x1440 at the default placement (3 m wide, 3 m away)
+// covers about 918 of the eye's pixels across (1728 over ~100 degrees), a
+// minification of 2.79. Compared against the ideal (each display pixel the
+// area average of the picture under it), at a sub pixel phase the compositor
+// does not share with the app: (A) bilinear straight from the picture, (B)
+// the supersample pass to the footprint, then bilinear 1:1.
+
+#define SS_W 2560
+#define SS_H 1440
+
+static uint32_t hashu(uint32_t x) {
+    x ^= x >> 16;
+    x *= 0x7feb352d;
+    x ^= x >> 15;
+    x *= 0x846ca68b;
+    x ^= x >> 16;
+    return x;
+}
+
+// Left: a zone plate sweeping up to the picture's Nyquist; right: desktop
+// text, 1 px strokes in 6 x 10 cells
+static float ssSource(int x, int y) {
+    if (x < SS_W / 2) {
+        float dx = x - SS_W / 4.0f, dy = y - SS_H / 2.0f;
+        float r2 = dx * dx + dy * dy;
+        return 0.5f + 0.5f * cosf((float)M_PI * r2 / (SS_H / 2.0f) * 0.5f);
+    }
+    int cx = x / 6, cy = y / 10, ix = x % 6, iy = y % 10;
+    if (ix == 5 || iy >= 8 || (cy % 3) == 2) return 0.12f;  // gaps and line spacing
+    uint32_t h = hashu((uint32_t)cx * 7919u + (uint32_t)cy * 104729u);
+    int stroke = (ix == (int)(h % 5)) || (iy == (int)((h >> 3) % 8)) || ((h >> 7) & 1 ? ix == 0 : iy == 7);
+    return stroke ? 0.92f : 0.12f;
+}
+
+static float bilinear(const float* img, int w, int h, float fx, float fy) {
+    if (fx < 0) fx = 0;
+    if (fy < 0) fy = 0;
+    if (fx > w - 1) fx = (float)(w - 1);
+    if (fy > h - 1) fy = (float)(h - 1);
+    int x0 = (int)fx, y0 = (int)fy;
+    int x1 = x0 + 1 < w ? x0 + 1 : x0, y1 = y0 + 1 < h ? y0 + 1 : y0;
+    float ax = fx - x0, ay = fy - y0;
+    return (img[y0 * w + x0] * (1 - ax) + img[y0 * w + x1] * ax) * (1 - ay)
+         + (img[y1 * w + x0] * (1 - ax) + img[y1 * w + x1] * ax) * ay;
+}
+
+static void supersampleGroup(void) {
+    XrCtx* c = newCtx();
+    const float ratio = 2.79f;
+    const int tw = (int)lroundf(SS_W / ratio), th = (int)lroundf(SS_H / ratio);
+    const float phx = 0.31f, phy = 0.17f;
+    float* src = malloc(sizeof(float) * SS_W * SS_H);
+    uint8_t* rgba = malloc((size_t)SS_W * SS_H * 4);
+    for (int y = 0; y < SS_H; y++) {
+        for (int x = 0; x < SS_W; x++) {
+            float v = ssSource(x, y);
+            uint8_t b = (uint8_t)lroundf(v * 255.0f);
+            src[y * SS_W + x] = b / 255.0f;
+            uint8_t* p = rgba + ((size_t)y * SS_W + x) * 4;
+            p[0] = p[1] = p[2] = b;
+            p[3] = 255;
+        }
+    }
+    M5Image pic, small;
+    m5_image(&g, c, &pic, SS_W, SS_H, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+             VK_IMAGE_ASPECT_COLOR_BIT);
+    m5_upload(&g, pic.img.image, SS_W, SS_H, 4, rgba);
+    m5_image(&g, c, &small, tw, th, VK_FORMAT_R8G8B8A8_UNORM,
+             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+    // The ideal display pixels
+    float* ref = malloc(sizeof(float) * tw * th);
+    for (int y = 0; y < th; y++) {
+        for (int x = 0; x < tw; x++) {
+            float cx = (x + 0.5f + phx) * ratio, cy = (y + 0.5f + phy) * ratio;
+            double sum = 0;
+            for (int j = 0; j < 12; j++) {
+                for (int i = 0; i < 12; i++) {
+                    int sx = (int)floorf(cx + ((i + 0.5f) / 12.0f - 0.5f) * ratio);
+                    int sy = (int)floorf(cy + ((j + 0.5f) / 12.0f - 0.5f) * ratio);
+                    sx = sx < 0 ? 0 : sx >= SS_W ? SS_W - 1 : sx;
+                    sy = sy < 0 ? 0 : sy >= SS_H ? SS_H - 1 : sy;
+                    sum += src[sy * SS_W + sx];
+                }
+            }
+            ref[y * tw + x] = (float)(sum / 144.0);
+        }
+    }
+    // (A) the compositor's bilinear straight from the picture
+    double errA[2] = { 0, 0 };
+    int nReg[2] = { 0, 0 };
+    for (int y = 2; y < th - 2; y++) {
+        for (int x = 2; x < tw - 2; x++) {
+            float v = bilinear(src, SS_W, SS_H, (x + 0.5f + phx) * ratio - 0.5f, (y + 0.5f + phy) * ratio - 0.5f);
+            int reg = x >= tw / 2;
+            double d = (v - ref[y * tw + x]) * 255.0;
+            errA[reg] += d * d;
+            nReg[reg]++;
+        }
+    }
+    printf("supersampling, picture 2560x1440 shown %dx%d (minification %.2f), RMS error against the ideal, 0..255:\n",
+           tw, th, ratio);
+    printf("  (A) compositor bilinear only:              zone plate %5.1f, text %5.1f\n", sqrt(errA[0] / nReg[0]),
+           sqrt(errA[1] / nReg[1]));
+    double bestB[2] = { 1e9, 1e9 };
+    uint8_t* out = malloc((size_t)tw * th * 4);
+    float* sm = malloc(sizeof(float) * tw * th);
+    int tapsList[2] = { 2, 4 };
+    for (int k = 0; k < 2; k++) {
+        VkCommandBuffer cmd = m5_begin(&g);
+        mlxr_barrier(cmd, small.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        MlxrTarget t;
+        memset(&t, 0, sizeof(t));
+        t.view = small.img.view;
+        t.format = VK_FORMAT_R8G8B8A8_UNORM;
+        t.rect.extent = (VkExtent2D){ (uint32_t)tw, (uint32_t)th };
+        MlxrSupersampleParams sp;
+        memset(&sp, 0, sizeof(sp));
+        sp.src = pic.img.view;
+        sp.srcRect[2] = sp.srcRect[3] = 1.0f;
+        sp.taps = tapsList[k];
+        mlxr_pass_supersample(g.passes, cmd, &t, &sp);
+        m5_submit(&g, cmd, NULL, 0);
+        m5_readback(&g, small.img.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, tw, th, out);
+        for (int i = 0; i < tw * th; i++) sm[i] = out[i * 4] / 255.0f;
+        double errB[2] = { 0, 0 };
+        for (int y = 2; y < th - 2; y++) {
+            for (int x = 2; x < tw - 2; x++) {
+                float v = bilinear(sm, tw, th, x + phx, y + phy);
+                int reg = x >= tw / 2;
+                double d = (v - ref[y * tw + x]) * 255.0;
+                errB[reg] += d * d;
+            }
+        }
+        printf("  (B) supersample pass, %d taps, then bilinear: zone plate %5.1f, text %5.1f\n", tapsList[k],
+               sqrt(errB[0] / nReg[0]), sqrt(errB[1] / nReg[1]));
+        for (int r = 0; r < 2; r++) {
+            if (errB[r] < bestB[r]) bestB[r] = errB[r];
+        }
+    }
+    CHECK(bestB[0] < errA[0] && bestB[1] < errA[1]);
+    free(out);
+    free(sm);
+    free(ref);
+    free(src);
+    free(rgba);
+    m5_image_free(c, &pic);
+    m5_image_free(c, &small);
+    xrWorldDestroy(c);
+    free(c);
+}
+
 int main(int argc, char** argv) {
     const char* grp = argc > 1 ? argv[1] : "all";
     int all = !strcmp(grp, "all");
@@ -634,6 +792,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(grp, "timing")) timingGroup();
     if (all || !strcmp(grp, "glow")) glowGroup();
     if (all || !strcmp(grp, "curve")) curveGroup();
+    if (all || !strcmp(grp, "supersample")) supersampleGroup();
     m5_gpu_free(&g);
     char name[32];
     snprintf(name, sizeof(name), "m5 world %s", grp);

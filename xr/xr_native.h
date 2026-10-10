@@ -20,8 +20,8 @@ float xrCurveSetting(XrCtx* ctx);
 
 // ---- rows the native client cannot act on yet (xr_prefs.c) ----------------
 // 0 when the row is live as far as the native client goes, else the reason's
-// UiStr. Display tab: supersampling (no layer settings on SteamVR; see
-// M5_REPORT.md). The 3D tab is dead through stereoMode (M6).
+// UiStr. None on the Display tab since M5. The 3D tab is dead through
+// stereoMode (M6).
 int xrRowLater(XrCtx* ctx, int face, int row);
 // The Display tab's rows xrRowLater kills, as UiView.display_later bits
 unsigned xrDisplayLaterMask(XrCtx* ctx);
@@ -129,6 +129,10 @@ typedef struct XrFrameIn {
     int passthrough;
     // The curved picture's projection layer, when the host drew one
     const XrCompositionLayerProjection* curved;
+    // M5: the supersampled picture's swapchain and size, standing in for the
+    // picture's own, when the host drew one
+    XrSwapchain picture;
+    int pictureW, pictureH;
 } XrFrameIn;
 #define XR_FRAME_MAX_LAYERS 24
 typedef struct XrFrameOut {

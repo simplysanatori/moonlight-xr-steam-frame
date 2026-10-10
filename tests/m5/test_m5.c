@@ -202,11 +202,11 @@ static void roomGroup(void) {
     CHECK(again.room[0].brightness == b && again.room[0].screen == 60);
     free(d);
 
-    // Rows the M4 build greyed are live; supersampling alone stays greyed
+    // Rows the M4 build greyed are live, supersampling included
     for (int row = 0; row <= COG_DISPLAY_SLIDER_ROW; row++) {
-        CHECK((xrRowLater(c, COG_TAB_DISPLAY, row) != 0) == (row == COG_OPTION_SUPERSAMPLE));
+        CHECK(xrRowLater(c, COG_TAB_DISPLAY, row) == 0);
     }
-    CHECK(xrDisplayLaterMask(c) == (1u << COG_OPTION_SUPERSAMPLE));
+    CHECK(xrDisplayLaterMask(c) == 0);
     // Every picker cell is live
     CHECK(c->pickerCells == ENV_CELL_COUNT);
     // The panel names the room up (UiView.room_env)
@@ -381,6 +381,27 @@ static void budgetGroup(void) {
         CHECK(curvedSeen == 1);
     }
     c->panelCurve = -1.0f;
+    // Supersampled: the picture's quad shows the host's smaller image
+    {
+        XrFrameIn in;
+        memset(&in, 0, sizeof(in));
+        xrDefaultPlacement(&in.distance, &in.quadWidth, &in.curvature);
+        in.headLocked = 1;
+        in.picture = (XrSwapchain)(uintptr_t)0x7005;
+        in.pictureW = 928;
+        in.pictureH = 522;
+        xrBuildLayers(c, &in, &s->out);
+        int seen = 0;
+        for (uint32_t i = 0; i < s->out.count; i++) {
+            const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)s->out.order[i];
+            if (q->type == XR_TYPE_COMPOSITION_LAYER_QUAD && q->subImage.swapchain == in.picture) {
+                seen++;
+                CHECK(q->subImage.imageRect.extent.width == 928 && q->subImage.imageRect.extent.height == 522);
+                CHECK_NEAR(q->size.width, c->screenWidth, 1e-6);
+            }
+        }
+        CHECK(seen == 1 && !hasSwapchain(&s->out, SCENE_VIDEO_SWAPCHAIN));
+    }
     s->settings.head_locked = 0;
     c->headLockedPref = 0;
 
@@ -444,8 +465,8 @@ static void budgetGroup(void) {
     // curved picture's layer, the room, the models, the glow (xr_session.c,
     // xr_assets.c, xr_room.c, xr_model.c, xr_world.c each count theirs in
     // swapchainsAlive and log it)
-    const char* chains[] = { "picture", "UI atlas", "passthrough", "curved picture", "room", "controller models",
-                             "glow" };
+    const char* chains[] = { "picture", "UI atlas", "passthrough", "curved picture", "supersampled picture", "room",
+                             "controller models", "glow" };
     int nChains = (int)(sizeof(chains) / sizeof(chains[0]));
     printf("  swapchains at most: %d of 16 (", nChains);
     for (int i = 0; i < nChains; i++) printf("%s%s", chains[i], i + 1 < nChains ? ", " : ")\n");
