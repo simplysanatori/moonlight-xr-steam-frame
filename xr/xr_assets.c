@@ -42,6 +42,13 @@ UiRectPx xrAtlasRect(int slot) {
 typedef struct XrUiAtlas {
     uint8_t* px;              // the CPU copy, UI_ATLAS_W x UI_ATLAS_H RGBA8
     int cpuOnly;              // headless: px is plain memory, no swapchain
+    // Native: the staging buffer the copies read, mapped. Its memory is
+    // host-visible uncached (write-combined) on Turnip, where the panels'
+    // read-modify-write blending ran about 40 times slower than in cached
+    // memory (cog 180-200 ms instead of 4-5 ms, the "panel drawings ~200 ms"
+    // of the headset logs). So the panels draw into px (plain memory) and a
+    // slot is copied in here, in one sequential write, when it is touched.
+    uint8_t* stage;
     XrSwapchain swapchain;
     uint32_t imageCount;
     XrSwapchainImageVulkan2KHR images[ATLAS_IMAGES];
@@ -59,9 +66,20 @@ uint8_t* xrAtlasPixels(XrCtx* ctx) {
 }
 
 void xrAtlasTouch(XrCtx* ctx, int slot) {
-    if (ctx->atlas != NULL && slot >= 0 && slot < ATLAS_SLOTS) {
-        ctx->atlas->version[slot]++;
+    XrUiAtlas* a = ctx->atlas;
+    if (a == NULL || slot < 0 || slot >= ATLAS_SLOTS) {
+        return;
     }
+    // The slot's rows into the staging buffer (the frame loop calls this
+    // after the last frame's fence, so no copy is reading it)
+    UiRectPx r = xrAtlasRect(slot);
+    if (a->stage != NULL && r.w > 0 && r.h > 0) {
+        for (int y = r.y; y < r.y + r.h; y++) {
+            size_t at = ((size_t)y * UI_ATLAS_W + (size_t)r.x) * 4;
+            memcpy(a->stage + at, a->px + at, (size_t)r.w * 4);
+        }
+    }
+    a->version[slot]++;
 }
 
 XrSwapchain xrAtlasSwapchain(XrCtx* ctx) {
@@ -157,9 +175,19 @@ int xrAtlasCreate(XrCtx* ctx) {
         free(a);
         return 0;
     }
-    a->px = mapped;
-    memset(a->px, 0, (size_t)UI_ATLAS_W * UI_ATLAS_H * 4);
+    a->px = calloc((size_t)UI_ATLAS_W * UI_ATLAS_H, 4);
+    if (a->px == NULL) {
+        vkUnmapMemory(vk->device, a->stagingMem);
+        vkFreeMemory(vk->device, a->stagingMem, NULL);
+        vkDestroyBuffer(vk->device, a->staging, NULL);
+        xrDestroySwapchain(a->swapchain);
+        ctx->swapchainsAlive--;
+        free(a);
+        return 0;
+    }
+    a->stage = mapped;
     xrDrawCodeArt(a->px);
+    memcpy(a->stage, a->px, (size_t)UI_ATLAS_W * UI_ATLAS_H * 4);
     ctx->atlas = a;
     ctx->pointerArtReady = 1;
     ctx->handleArtReady = 1;
@@ -174,10 +202,8 @@ void xrAtlasDestroy(XrCtx* ctx) {
     if (a == NULL) {
         return;
     }
-    if (a->cpuOnly) {
-        free(a->px);
-    }
-    else {
+    free(a->px);
+    if (!a->cpuOnly) {
         XrVk* vk = ctx->vk;
         vkUnmapMemory(vk->device, a->stagingMem);
         vkDestroyBuffer(vk->device, a->staging, NULL);
