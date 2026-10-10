@@ -9,7 +9,7 @@
 void panel_exit(Dc* dc) {
     dc_sheet(dc, 32.0f, 0xF0141416u);
     dc_text_center(dc, UI_WEIGHT_REGULAR, 34.0f, dc->nw * 0.5f, dc->nh * 0.30f, 0xFFFFFFFFu,
-                   ui_str(UIS_EXIT_QUESTION));
+                   dc->v->exit_question ? dc->v->exit_question : ui_str(UIS_EXIT_QUESTION));
     struct { float l, r; UiStr label; uint32_t colour; int btn; } B[2] = {
         { EXIT_EXIT_L, EXIT_EXIT_R, UIS_EXIT, 0xFFE05A5Au, UI_BTN_EXIT_CONFIRM },
         { EXIT_CANCEL_L, EXIT_CANCEL_R, UIS_CANCEL, 0xEEFFFFFFu, UI_BTN_EXIT_CANCEL },

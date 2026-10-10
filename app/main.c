@@ -1,39 +1,80 @@
-// Moonlight XR Native: entry point. GPLv3.
+// Moonlight XR Native: entry point and the launcher's network side. GPLv3.
 //
-//   moonlight-xr [--host NAME|ADDR] [--app NAME|ID] [--mode WxHxFPS] [--bitrate KBPS]
-//                [--h264] [--wake] [--seconds N]
-//   moonlight-xr --file clip.mp4 [--seconds N]      local test video, no host
+//   moonlight-xr                                     the PC list, then the app list, in the headset
+//   moonlight-xr --host NAME|ADDR [--app NAME|ID]    straight into that app (Desktop by default)
+//                [--mode WxHxFPS] [--bitrate KBPS] [--h264] [--wake] [--sw-decode] [--seconds N]
+//   moonlight-xr --file clip.mp4 [--seconds N] [--sw-decode]   local test video, no host
 //
 // Hosts and the client identity live in ~/.config/moonlight-xr (pair with
-// mlxr-cli, or import Moonlight Qt's pairing with backend/seed-from-moonlight-qt.sh).
+// mlxr-cli, or import Moonlight Qt's pairing with backend/seed-from-moonlight-qt.sh);
+// the settings in ~/.config/moonlight-xr/config.ini; the log in
+// ~/Games/MoonlightXRNative/moonlight.log.
+//
+// One OpenXR session for the life of the app (xr_session.c). The frame loop
+// presses the lists and the bar's exit; a worker thread here does what that
+// asks of the network (serverinfo, applist, launch, quit) and starts and
+// stops the stream. Leaving a stream ends the host's session (the owner's
+// rule) and comes back to the app list; quitting the app does the same first.
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
-#include "../backend/backend.h"
 #include "../audio/opus_out.h"
+#include "../backend/backend.h"
 #include "../backend/backend_limelight.h"
 #include "../stream/evdev_keyboard.h"
 #include "../stream/file_source.h"
-#include "../stream/hw_video.h"
 #include "../stream/frame_slot.h"
+#include "../stream/hw_video.h"
 #include "../stream/session.h"
+#include "../stream/vr_keyboard.h"
 #include "../xr/mlxr_log.h"
+#include "../xr/xr_renderer.h"
 #include "../xr/xr_session.h"
+#include "launcher.h"
+#include "panels.h"
+#include "settings.h"
 
 static FrameSlot g_slot;
-static void updateKeyboard(void);
-static int g_streaming;
+static Settings g_settings;
+static atomic_int g_streaming;
 static int g_fileHw;
+static int g_focused;
+static VrKeyboard g_vrkb;
+
+// The launcher and the worker's wake-up, under one lock
+static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_wake = PTHREAD_COND_INITIALIZER;
+static Launcher g_launch;
+static atomic_int g_workerQuit;
+
+// ---- command line choices that override config.ini for this run ----
+static struct {
+    const char* file;
+    const char* host;
+    const char* app;
+    const char* mode;
+    int bitrate, h264Only, wake, swDecode;
+    double seconds;
+} g_args;
+
+// ---- the input the frame loop hands over -------------------------------------------
+
+static void updateKeyboard(void) {
+    evkbd_set_active(atomic_load(&g_streaming) && g_focused && stream_running());
+}
 
 static void statsHook(void* user, char* buf, int len) {
     (void)user;
-    char s[160] = "", a[128] = "";
+    char s[200] = "", a[128] = "";
     if (g_fileHw && hw_video_current()) {
         HwVideoStats h;
         hw_video_stats(hw_video_current(), &h);
@@ -41,39 +82,39 @@ static void statsHook(void* user, char* buf, int len) {
                  h.avgDecodeMs, h.lastDecodeMs, (unsigned long long)h.frames, (unsigned long long)h.taken,
                  (unsigned long long)h.skipped, (unsigned long long)h.errors);
     }
-    if (g_streaming) {
+    if (atomic_load(&g_streaming) && !g_args.file) {
         stream_stats(s, sizeof(s));
         MlxrOpusOutStats st;
         mlxr_opus_out_stats(&st);
         snprintf(a, sizeof(a), "audio %dch %.0f ms buffered, %u underruns, %u lost", st.channels, st.bufferedMs,
                  st.underruns, st.lostPackets);
     }
-    snprintf(buf, (size_t)len, "decoded %llu, dropped %llu, decode %.1f ms; %s; %s", (unsigned long long)g_slot.produced,
-             (unsigned long long)g_slot.dropped, g_slot.lastDecodeMs, s, a);
+    snprintf(buf, (size_t)len, "decoded %llu, dropped %llu, decode %.1f ms; %s%s%s",
+             (unsigned long long)g_slot.produced, (unsigned long long)g_slot.dropped, g_slot.lastDecodeMs, s,
+             a[0] ? "; " : "", a);
 }
 
 static void pointerHook(void* user, int x, int y, int w, int h) {
     (void)user;
-    if (g_streaming) {
-        stream_pointer(x, y, w, h);
-        updateKeyboard(); // picks up the moment the stream connects
-    }
+    stream_pointer(x, y, w, h);
+    updateKeyboard(); // picks up the moment the stream connects
+}
+
+static void mouseMoveHook(void* user, int dx, int dy) {
+    (void)user;
+    stream_mouse_move(dx, dy);
 }
 
 static void buttonHook(void* user, int button, int down) {
     (void)user;
-    if (g_streaming) stream_button(button, down);
+    if (atomic_load(&g_streaming)) stream_button(button, down);
     else MLOG_I("button %d %s", button, down ? "down" : "up");
 }
 
 static void scrollHook(void* user, int amount) {
     (void)user;
-    if (g_streaming) stream_scroll(amount);
+    stream_scroll(amount);
 }
-
-static int g_focused;
-
-static void updateKeyboard(void) { evkbd_set_active(g_streaming && g_focused && stream_running()); }
 
 static void focusHook(void* user, int focused) {
     (void)user;
@@ -81,16 +122,87 @@ static void focusHook(void* user, int focused) {
     updateKeyboard();
 }
 
+// The on-screen keyboard (VrKeyboard): keys and text to the host
+static void vrkbKey(void* user, short keyCode, char action, char modifiers) {
+    (void)user;
+    if (stream_running()) LiSendKeyboardEvent((short)(0x8000 | (unsigned short)keyCode), action, modifiers);
+}
+
+static void vrkbText(void* user, const char* utf8) {
+    (void)user;
+    if (stream_running()) LiSendUtf8TextEvent(utf8, (unsigned)strlen(utf8));
+}
+
+static void keyHook(void* user, int code, int mods) {
+    (void)user;
+    vrkb_type(&g_vrkb, code, mods);
+}
+
+static void modifiersHook(void* user, int mods) {
+    (void)user;
+    vrkb_hold(&g_vrkb, mods);
+}
+
+// The evdev keyboard (a real keyboard in the room)
 static void sendKey(short vk, int down, char modifiers, void* user) {
     (void)user;
     if (stream_running())
         LiSendKeyboardEvent((short)(0x8000 | vk), down ? KEY_ACTION_DOWN : KEY_ACTION_UP, modifiers);
 }
 
+// Every frame: the lists' presses and the exit to the launcher, its view back
+static void uiHook(void* user, const XrUiEvents* ev, XrUiLauncher* show) {
+    (void)user;
+    pthread_mutex_lock(&g_lock);
+    int poke = 0;
+    if (ev->exitConfirmed) {
+        MLOG_I("exit confirmed in %s", launcher_state_name(g_launch.state));
+        launcher_exit(&g_launch);
+        poke = 1;
+    }
+    if (ev->listKind != 0) {
+        launcher_press(&g_launch, ev->listKind, ev->listA, ev->listB);
+        poke = 1;
+    }
+    if (g_launch.notice[0] != '\0') {
+        xr_app_notice(g_launch.notice);
+        g_launch.notice[0] = '\0';
+    }
+    LaunchView v;
+    launcher_view(&g_launch, &v);
+    show->mode = v.mode;
+    show->pcs = v.pcs;
+    show->pcCount = v.pcCount;
+    show->pcName = v.pcName;
+    show->apps = v.apps;
+    show->appCount = v.appCount;
+    show->page = v.page;
+    show->loading = v.loading;
+    show->failed = v.failed;
+    if (poke || g_launch.ncmd > 0) pthread_cond_signal(&g_wake);
+    pthread_mutex_unlock(&g_lock);
+}
+
+// ---- the network side (the worker) ------------------------------------------------
+
 static void backendLog(int level, const char* msg, void* ud) {
     (void)ud;
     if (level <= 1) mlxr_logf(level == 0 ? 'E' : 'I', "backend: %s", msg);
 }
+
+typedef struct Net {
+    char* dir;
+    mlxr_identity id;
+    int haveId;
+    mlxr_hosts hosts;
+    mlxr_server* srv[LAUNCH_MAX_PCS];
+    mlxr_computer comp[LAUNCH_MAX_PCS];
+    char address[LAUNCH_MAX_PCS][128];
+    int streamPc;
+    char* rtsp;
+} Net;
+
+static Net g_net;
 
 // Wake-on-LAN magic packet to the LAN broadcast address.
 static void wake(const mlxr_host_record* h) {
@@ -104,7 +216,7 @@ static void wake(const mlxr_host_record* h) {
     int s = socket(AF_INET, SOCK_DGRAM, 0);
     int on = 1;
     setsockopt(s, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on));
-    struct sockaddr_in a = {0};
+    struct sockaddr_in a = { 0 };
     a.sin_family = AF_INET;
     a.sin_addr.s_addr = htonl(INADDR_BROADCAST);
     for (int port = 7; port <= 9; port += 2) {
@@ -115,208 +227,480 @@ static void wake(const mlxr_host_record* h) {
     MLOG_I("wake: magic packet sent to %s", h->name);
 }
 
-typedef struct StreamJob {
-    StreamHost host;
-    STREAM_CONFIGURATION cfg;
-    AUDIO_RENDERER_CALLBACKS audio;
-    MlxrOpusOutConfig audioCfg; // read by the audio init callback; lives as long as the job
-} StreamJob;
-
-static void* streamThread(void* arg) {
-    StreamJob* j = arg;
-    if (stream_start(&j->host, &j->cfg, &g_slot, &j->audio, &j->audioCfg) != 0) {
-        MLOG_E("stream did not start");
-        xr_app_request_quit();
-    }
-    return NULL;
-}
-
-// Tries the stored address, then the extra ones; leaves the server on the first that answers.
-static mlxr_server* connectHost(const mlxr_identity* id, const char* dir, mlxr_host_record* rec, const char* override,
-                                mlxr_computer* comp, char* addrOut, size_t addrCap) {
+// Tries the stored address, then the extra ones; keeps the server on the first that answers.
+static mlxr_server* connectHost(Net* n, int i, const char* override) {
+    mlxr_host_record* rec = &n->hosts.v[i];
     char cands[8][128];
-    int n = 0;
-    if (override) snprintf(cands[n++], 128, "%s", override);
-    if (rec->address[0]) snprintf(cands[n++], 128, "%s", rec->address);
+    int nc = 0;
+    if (override) snprintf(cands[nc++], 128, "%s", override);
+    if (rec->address[0]) snprintf(cands[nc++], 128, "%s", rec->address);
     char extra[256];
     snprintf(extra, sizeof(extra), "%s", rec->extra_addresses);
-    for (char* t = strtok(extra, ","); t && n < 8; t = strtok(NULL, ",")) snprintf(cands[n++], 128, "%s", t);
+    char* save = NULL;
+    for (char* t = strtok_r(extra, ",", &save); t && nc < 8; t = strtok_r(NULL, ",", &save))
+        snprintf(cands[nc++], 128, "%s", t);
     char* pem = NULL;
-    mlxr_error err = {0};
-    if (mlxr_host_cert_load(dir, rec, &pem, &err) != MLXR_OK) {
-        MLOG_E("%s is not paired here (%s): pair with mlxr-cli pair", rec->name, err.msg);
+    mlxr_error err = { 0 };
+    if (mlxr_host_cert_load(n->dir, rec, &pem, &err) != MLXR_OK) {
+        MLOG_W("%s is not paired here (%s): pair with mlxr-cli pair", rec->name, err.msg);
         return NULL;
     }
-    for (int i = 0; i < n; i++) {
-        mlxr_server* s = mlxr_server_new(id, cands[i], rec->http_port ? rec->http_port : MLXR_DEFAULT_HTTP_PORT);
+    for (int c = 0; c < nc; c++) {
+        mlxr_server* s = mlxr_server_new(&n->id, cands[c], rec->http_port ? rec->http_port : MLXR_DEFAULT_HTTP_PORT);
         mlxr_server_set_https_port(s, rec->https_port ? rec->https_port : MLXR_DEFAULT_HTTPS_PORT);
         mlxr_server_set_pinned_cert(s, pem, &err);
-        if (mlxr_server_get_info(s, true, comp, NULL, &err) == MLXR_OK) {
-            MLOG_I("host %s answers at %s: %s, app version %s, codecs 0x%x, %s, current game %d", rec->name, cands[i],
-                   comp->state, comp->app_version, comp->server_codec_mode_support,
-                   comp->paired ? "paired" : "NOT paired", comp->current_game);
-            snprintf(addrOut, addrCap, "%s", cands[i]);
+        if (mlxr_server_get_info(s, true, &n->comp[i], NULL, &err) == MLXR_OK) {
+            MLOG_I("host %s answers at %s: %s, app version %s, codecs 0x%x, %s, current game %d", rec->name,
+                   cands[c], n->comp[i].state, n->comp[i].app_version, n->comp[i].server_codec_mode_support,
+                   n->comp[i].paired ? "paired" : "NOT paired", n->comp[i].current_game);
+            snprintf(n->address[i], sizeof(n->address[i]), "%s", cands[c]);
             free(pem);
+            if (n->srv[i]) mlxr_server_free(n->srv[i]);
+            n->srv[i] = s;
             return s;
         }
-        MLOG_W("host %s not reachable at %s: %s", rec->name, cands[i], err.msg);
+        MLOG_W("host %s not reachable at %s: %s", rec->name, cands[c], err.msg);
         mlxr_server_free(s);
     }
     free(pem);
     return NULL;
 }
 
+static int hasCert(Net* n, int i) {
+    char* pem = NULL;
+    mlxr_error err = { 0 };
+    int ok = mlxr_host_cert_load(n->dir, &n->hosts.v[i], &pem, &err) == MLXR_OK;
+    free(pem);
+    return ok;
+}
+
+static void loadHosts(Net* n) {
+    mlxr_error err = { 0 };
+    mlxr_hosts_load(n->dir, &n->hosts, &err);
+    LaunchPc pcs[LAUNCH_MAX_PCS];
+    int count = (int)n->hosts.n < LAUNCH_MAX_PCS ? (int)n->hosts.n : LAUNCH_MAX_PCS;
+    for (int i = 0; i < count; i++) {
+        memset(&pcs[i], 0, sizeof(pcs[i]));
+        snprintf(pcs[i].name, sizeof(pcs[i].name), "%s", n->hosts.v[i].name);
+        pcs[i].online = UI_PC_REFRESHING;
+        pcs[i].paired = hasCert(n, i);
+        pcs[i].canWake = n->hosts.v[i].has_mac;
+    }
+    pthread_mutex_lock(&g_lock);
+    launcher_hosts(&g_launch, pcs, count);
+    pthread_mutex_unlock(&g_lock);
+    MLOG_I("launcher: %d computers in hosts.ini", count);
+}
+
+static void refreshPcs(Net* n) {
+    int count = (int)n->hosts.n < LAUNCH_MAX_PCS ? (int)n->hosts.n : LAUNCH_MAX_PCS;
+    for (int i = 0; i < count && !atomic_load(&g_workerQuit); i++) {
+        mlxr_server* s = hasCert(n, i) ? connectHost(n, i, NULL) : NULL;
+        pthread_mutex_lock(&g_lock);
+        launcher_pc_status(&g_launch, i, s ? UI_PC_ONLINE : UI_PC_OFFLINE, hasCert(n, i) && (!s || n->comp[i].paired),
+                           s ? n->comp[i].current_game : 0);
+        pthread_mutex_unlock(&g_lock);
+    }
+}
+
+static int fetchApps(Net* n, int pc, LaunchApp* out, int cap) {
+    if (pc < 0 || pc >= (int)n->hosts.n) return -1;
+    mlxr_server* s = n->srv[pc] ? n->srv[pc] : connectHost(n, pc, NULL);
+    mlxr_app* apps = NULL;
+    size_t na = 0;
+    mlxr_error err = { 0 };
+    if (!s || mlxr_server_get_apps(s, &apps, &na, &err) != MLXR_OK) {
+        // The server may have gone stale: connect again once
+        s = connectHost(n, pc, NULL);
+        if (!s || mlxr_server_get_apps(s, &apps, &na, &err) != MLXR_OK) {
+            MLOG_W("app list of %s: %s", n->hosts.v[pc].name, err.msg);
+            return -1;
+        }
+    }
+    int count = (int)na < cap ? (int)na : cap;
+    for (int i = 0; i < count; i++) {
+        snprintf(out[i].name, sizeof(out[i].name), "%s", apps[i].name ? apps[i].name : "");
+        out[i].id = apps[i].id;
+    }
+    mlxr_apps_free(apps, na);
+    // The host's current game, for the Running pill
+    mlxr_computer c;
+    if (mlxr_server_get_info(s, true, &c, NULL, &err) == MLXR_OK) n->comp[pc] = c;
+    MLOG_I("app list of %s: %d apps, current game %d", n->hosts.v[pc].name, count, n->comp[pc].current_game);
+    return count;
+}
+
+typedef struct StreamJob {
+    STREAM_CONFIGURATION cfg;
+    AUDIO_RENDERER_CALLBACKS audio;
+    MlxrOpusOutConfig audioCfg; // read by the audio init callback; lives as long as the job
+    SERVER_INFORMATION si;
+} StreamJob;
+static StreamJob g_job;
+
+static int launchStream(Net* n, int pc, int appId, int quitFirst) {
+    mlxr_error err = { 0 };
+    mlxr_server* s = n->srv[pc] ? n->srv[pc] : connectHost(n, pc, NULL);
+    if (!s || mlxr_server_get_info(s, true, &n->comp[pc], NULL, &err) != MLXR_OK) {
+        s = connectHost(n, pc, NULL);
+        if (!s) return -1;
+    }
+    mlxr_computer* comp = &n->comp[pc];
+    if (quitFirst && comp->current_game != 0 && comp->current_game != appId) {
+        MLOG_I("ending app %d on %s before starting %d", comp->current_game, n->hosts.v[pc].name, appId);
+        mlxr_server_quit_app(s, &err);
+        mlxr_server_get_info(s, true, comp, NULL, &err);
+    }
+    mlxr_launch_params lp;
+    mlxr_launch_params_init_ll(&lp);
+    int w = 0, h = 0, fps = 0;
+    settings_resolution(&g_settings, &w, &h);
+    fps = settings_fps_value(&g_settings);
+    if (g_args.mode && mlxr_parse_mode(g_args.mode, &w, &h, &fps) != MLXR_OK) {
+        MLOG_W("bad --mode %s, using config.ini's", g_args.mode);
+        settings_resolution(&g_settings, &w, &h);
+    }
+    lp.width = w;
+    lp.height = h;
+    lp.fps = fps;
+    lp.audio_configuration = MLXR_AUDIO_STEREO;
+    lp.is_gfe = comp->is_nvidia;
+    free(n->rtsp);
+    n->rtsp = NULL;
+    if (mlxr_server_launch_or_resume(s, comp, appId, &lp, &n->rtsp, &err) != MLXR_OK) {
+        MLOG_E("launch: %s", err.msg);
+        return -1;
+    }
+    MLOG_I("%s app %d on %s, rtsp %s", comp->current_game ? "resumed" : "launched", appId, n->hosts.v[pc].name,
+           n->rtsp ? n->rtsp : "(none)");
+    memset(&g_job, 0, sizeof(g_job));
+    mlxr_fill_server_info(&g_job.si, n->address[pc], comp, n->rtsp);
+    StreamHost host = { g_job.si.address, g_job.si.serverInfoAppVersion, g_job.si.serverInfoGfeVersion,
+                        g_job.si.rtspSessionUrl, g_job.si.serverCodecModeSupport };
+    mlxr_fill_stream_config(&g_job.cfg, &lp);
+    int bitrate = g_args.bitrate > 0 ? g_args.bitrate : settings_default_bitrate_kbps(w, h, fps);
+    if (!g_args.bitrate && g_settings.bitrate_kbps > 0) bitrate = settings_bitrate_kbps(&g_settings);
+    g_job.cfg.bitrate = bitrate;
+    g_job.cfg.packetSize = 1392;
+    g_job.cfg.streamingRemotely = STREAM_CFG_AUTO;
+    int h264Only = g_args.h264Only || g_settings.codec == 3;
+    g_job.cfg.supportedVideoFormats = VIDEO_FORMAT_H264 | (h264Only ? 0 : VIDEO_FORMAT_H265);
+    g_job.cfg.clientRefreshRateX100 = lp.fps * 100;
+    g_job.cfg.colorSpace = COLORSPACE_REC_709;
+    g_job.cfg.colorRange = COLOR_RANGE_LIMITED;
+    g_job.cfg.encryptionFlags = ENCFLG_ALL;
+    mlxr_opus_out_callbacks(&g_job.audio);
+    mlxr_opus_out_config_default(&g_job.audioCfg);
+    g_job.audioCfg.hrtfDir = access("assets/hrtf/kemar", R_OK) == 0 ? "assets/hrtf/kemar"
+                                                                     : MLXR_SOURCE_ASSETS "/hrtf/kemar";
+    g_job.audioCfg.surround = g_settings.virtual_surround != 0;
+    stream_set_hw_decode(!g_args.swDecode);
+    n->streamPc = pc;
+    MLOG_I("stream: %dx%d %d fps, %d kbps, %s", w, h, fps, bitrate, h264Only ? "H.264" : "H.264/HEVC");
+    if (stream_start(&host, &g_job.cfg, &g_slot, &g_job.audio, &g_job.audioCfg) != 0) {
+        stream_stop();
+        xr_app_release_video();
+        stream_close_video();
+        return -1;
+    }
+    atomic_store(&g_streaming, 1);
+    xr_app_set_streaming(1);
+    updateKeyboard();
+    return 0;
+}
+
+// The stream down: input let go, the decoder closed after the renderer let go
+// of its frames, and the host's session ended when asked
+static void stopStream(Net* n, int quitHost) {
+    if (!atomic_load(&g_streaming)) return;
+    MLOG_I("stopping stream%s", quitHost ? " and ending the host's session" : "");
+    vrkb_release_all(&g_vrkb);
+    atomic_store(&g_streaming, 0);
+    xr_app_set_streaming(0);
+    updateKeyboard();
+    stream_stop();
+    xr_app_release_video();
+    stream_close_video();
+    int pc = n->streamPc;
+    if (quitHost && pc >= 0 && n->srv[pc]) {
+        // Leaving ends the session on the host too (Moonlight's "Quit session"),
+        // so the game or desktop stream does not keep running there
+        mlxr_error qerr = { 0 };
+        mlxr_status qs = mlxr_server_quit_app(n->srv[pc], &qerr);
+        if (qs == MLXR_OK) MLOG_I("host session ended on %s", n->hosts.v[pc].name);
+        else MLOG_W("could not end the host session: %s (%s)", mlxr_status_name(qs), qerr.msg);
+    }
+}
+
+// --host/--app: the PC and app the command line named
+static void autostart(Net* n) {
+    int pc = -1;
+    for (size_t i = 0; i < n->hosts.n && pc < 0; i++) {
+        mlxr_host_record* r = &n->hosts.v[i];
+        if (!strcasecmp(g_args.host, r->name) || !strcasecmp(g_args.host, r->uuid) || !strcmp(g_args.host, r->address))
+            pc = (int)i;
+    }
+    const char* override = NULL;
+    if (pc < 0 && n->hosts.n > 0) {
+        pc = 0; // an address: the first paired host, reached there
+        override = g_args.host;
+    }
+    if (pc < 0) {
+        MLOG_E("no paired host matching %s in %s/hosts.ini", g_args.host, n->dir);
+        xr_app_notice("No paired host: pair with mlxr-cli");
+        return;
+    }
+    if (g_args.wake) {
+        wake(&n->hosts.v[pc]);
+        sleep(1);
+    }
+    mlxr_server* s = NULL;
+    for (int attempt = 0; !s && attempt < (g_args.wake ? 12 : 1) && !atomic_load(&g_workerQuit); attempt++) {
+        if (attempt) sleep(5);
+        s = connectHost(n, pc, override);
+    }
+    if (!s) {
+        MLOG_E("host %s is unreachable (is the PC on? try --wake)", n->hosts.v[pc].name);
+        pthread_mutex_lock(&g_lock);
+        launcher_pc_status(&g_launch, pc, UI_PC_OFFLINE, 1, 0);
+        pthread_mutex_unlock(&g_lock);
+        return;
+    }
+    LaunchApp apps[LAUNCH_MAX_APPS];
+    int na = fetchApps(n, pc, apps, LAUNCH_MAX_APPS);
+    const char* want = g_args.app ? g_args.app : "Desktop";
+    char* end = NULL;
+    long asNum = strtol(want, &end, 10);
+    int appId = -1;
+    for (int i = 0; i < na && appId < 0; i++)
+        if ((end && !*end && apps[i].id == asNum) || !strcasecmp(apps[i].name, want)) appId = apps[i].id;
+    pthread_mutex_lock(&g_lock);
+    launcher_pc_status(&g_launch, pc, UI_PC_ONLINE, 1, n->comp[pc].current_game);
+    g_launch.pc = pc;
+    launcher_apps(&g_launch, pc, apps, na < 0 ? 0 : na, na >= 0);
+    if (appId >= 0) {
+        MLOG_I("app \"%s\" id %d", want, appId);
+        launcher_autostart(&g_launch, pc, appId);
+    }
+    else {
+        MLOG_E("no app \"%s\" on %s", want, n->hosts.v[pc].name);
+        g_launch.state = LAUNCH_APPS;
+    }
+    pthread_mutex_unlock(&g_lock);
+}
+
+static void* worker(void* arg) {
+    (void)arg;
+    Net* n = &g_net;
+    n->streamPc = -1;
+    if (!g_args.file) {
+        mlxr_set_log(backendLog, NULL);
+        mlxr_error err = { 0 };
+        n->dir = mlxr_config_dir(&err);
+        if (!n->dir || mlxr_identity_load_or_create(n->dir, &n->id, NULL, &err) != MLXR_OK) {
+            MLOG_E("identity: %s", err.msg);
+        }
+        else {
+            n->haveId = 1;
+            loadHosts(n);
+            if (g_args.host) autostart(n);
+        }
+    }
+    int64_t lastRefresh = 0;
+    while (!atomic_load(&g_workerQuit)) {
+        LaunchCmd c;
+        memset(&c, 0, sizeof(c));
+        pthread_mutex_lock(&g_lock);
+        if (!launcher_take_cmd(&g_launch, &c)) {
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += 1;
+            pthread_cond_timedwait(&g_wake, &g_lock, &ts);
+            if (!launcher_take_cmd(&g_launch, &c)) c.kind = LCMD_NONE;
+        }
+        LaunchState state = g_launch.state;
+        pthread_mutex_unlock(&g_lock);
+
+        int64_t now = time(NULL);
+        switch (c.kind) {
+        case LCMD_REFRESH_PCS:
+            if (n->haveId) refreshPcs(n);
+            lastRefresh = now;
+            break;
+        case LCMD_FETCH_APPS: {
+            static LaunchApp apps[LAUNCH_MAX_APPS];
+            int na = n->haveId ? fetchApps(n, c.pc, apps, LAUNCH_MAX_APPS) : -1;
+            pthread_mutex_lock(&g_lock);
+            launcher_apps(&g_launch, c.pc, apps, na < 0 ? 0 : na, na >= 0);
+            if (na >= 0) launcher_pc_status(&g_launch, c.pc, UI_PC_ONLINE, 1, n->comp[c.pc].current_game);
+            pthread_mutex_unlock(&g_lock);
+            break;
+        }
+        case LCMD_LAUNCH: {
+            int ok = n->haveId && launchStream(n, c.pc, c.appId, c.quitFirst) == 0;
+            pthread_mutex_lock(&g_lock);
+            if (ok) launcher_stream_started(&g_launch);
+            else launcher_stream_failed(&g_launch, NULL);
+            pthread_mutex_unlock(&g_lock);
+            break;
+        }
+        case LCMD_STOP:
+            stopStream(n, c.quitHost);
+            pthread_mutex_lock(&g_lock);
+            launcher_stream_ended(&g_launch, 0);
+            pthread_mutex_unlock(&g_lock);
+            break;
+        case LCMD_WAKE:
+            if (c.pc >= 0 && c.pc < (int)n->hosts.n) {
+                wake(&n->hosts.v[c.pc]);
+                sleep(3);
+                refreshPcs(n);
+            }
+            break;
+        case LCMD_EXIT:
+            stopStream(n, 1);
+            xr_app_request_quit();
+            break;
+        default:
+            break;
+        }
+        // The host ended the stream (or the network did)
+        if (state == LAUNCH_STREAMING && atomic_load(&g_streaming) && stream_failed()) {
+            stopStream(n, 0);
+            pthread_mutex_lock(&g_lock);
+            launcher_stream_ended(&g_launch, 1);
+            pthread_mutex_unlock(&g_lock);
+        }
+        // The PC list keeps its online states fresh
+        if (state == LAUNCH_PCS && n->haveId && now - lastRefresh >= 10) {
+            refreshPcs(n);
+            lastRefresh = now;
+        }
+    }
+    return NULL;
+}
+
+// ---- main ---------------------------------------------------------------------------
+
+static void openLog(void) {
+    const char* dir = getenv("MLXR_LOG_DIR");
+    char path[512];
+    if (dir && *dir) snprintf(path, sizeof(path), "%s/moonlight.log", dir);
+    else snprintf(path, sizeof(path), "%s/Games/MoonlightXRNative/moonlight.log", getenv("HOME") ? getenv("HOME") : ".");
+    // The log level is config.ini's (off, basic = warnings, errors and the
+    // session's story, verbose = everything)
+    xrSetFileLog(path, g_settings.file_log);
+}
+
 int main(int argc, char** argv) {
-    const char *file = NULL, *hostArg = NULL, *appArg = "Desktop", *modeArg = "2560x1440x90";
-    double seconds = 0;
-    int bitrate = 0, h264Only = 0, doWake = 0, swDecode = 0;
+    memset(&g_args, 0, sizeof(g_args));
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--file") && i + 1 < argc) file = argv[++i];
-        else if (!strcmp(argv[i], "--host") && i + 1 < argc) hostArg = argv[++i];
-        else if (!strcmp(argv[i], "--app") && i + 1 < argc) appArg = argv[++i];
-        else if (!strcmp(argv[i], "--mode") && i + 1 < argc) modeArg = argv[++i];
-        else if (!strcmp(argv[i], "--bitrate") && i + 1 < argc) bitrate = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = atof(argv[++i]);
-        else if (!strcmp(argv[i], "--h264")) h264Only = 1;
-        else if (!strcmp(argv[i], "--wake")) doWake = 1;
-        else if (!strcmp(argv[i], "--sw-decode")) swDecode = 1;
+        if (!strcmp(argv[i], "--file") && i + 1 < argc) g_args.file = argv[++i];
+        else if (!strcmp(argv[i], "--host") && i + 1 < argc) g_args.host = argv[++i];
+        else if (!strcmp(argv[i], "--app") && i + 1 < argc) g_args.app = argv[++i];
+        else if (!strcmp(argv[i], "--mode") && i + 1 < argc) g_args.mode = argv[++i];
+        else if (!strcmp(argv[i], "--bitrate") && i + 1 < argc) g_args.bitrate = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) g_args.seconds = atof(argv[++i]);
+        else if (!strcmp(argv[i], "--h264")) g_args.h264Only = 1;
+        else if (!strcmp(argv[i], "--wake")) g_args.wake = 1;
+        else if (!strcmp(argv[i], "--sw-decode")) g_args.swDecode = 1;
         else {
             fprintf(stderr,
-                    "usage: %s [--host NAME|ADDR] [--app NAME|ID] [--mode WxHxFPS] [--bitrate KBPS] [--h264] [--wake] "
-                    "[--sw-decode] [--seconds N]\n       %s --file VIDEO [--seconds N]\n",
-                    argv[0], argv[0]);
+                    "usage: %s                      PC list and app list in the headset\n"
+                    "       %s --host NAME|ADDR [--app NAME|ID] [--mode WxHxFPS] [--bitrate KBPS] [--h264] [--wake] "
+                    "[--sw-decode] [--seconds N]\n"
+                    "       %s --file VIDEO [--sw-decode] [--seconds N]\n",
+                    argv[0], argv[0], argv[0]);
             return 2;
         }
     }
+    if (g_args.app && !g_args.host) {
+        fprintf(stderr, "--app needs --host\n");
+        return 2;
+    }
+    settings_defaults(&g_settings);
+    SettingsLoadInfo info;
+    int lr = settings_load(&g_settings, NULL, &info);
+    openLog();
+    char cfgPath[512];
+    settings_default_path(cfgPath, sizeof(cfgPath));
+    MLOG_I("== moonlight-xr (M4) starting; config %s: %s (%d set, %d unknown, %d unreadable)", cfgPath,
+           lr == 0 ? "read" : lr == 1 ? "not there yet, defaults" : "read error", info.applied, info.unknown, info.bad);
+    if (lr == 1) settings_save(&g_settings, NULL); // a file to edit, every setting commented with its default
+    {
+        char args[512] = "";
+        for (int i = 1; i < argc; i++) {
+            strncat(args, " ", sizeof(args) - strlen(args) - 1);
+            strncat(args, argv[i], sizeof(args) - strlen(args) - 1);
+        }
+        MLOG_I("args:%s (SteamAppId %s)", args[0] ? args : " none", getenv("SteamAppId") ? getenv("SteamAppId") : "none");
+    }
+    // The panels' pictures (room thumbnails, the Ko-fi code, the gear) from the
+    // installed tree when there is one, else the source tree's
+    if (access("assets/images", R_OK) == 0) ui_panels_set_assets_dir("assets");
+
     frame_slot_init(&g_slot);
-    XrAppConfig cfg = {0};
+    VrKeyboardSink sink = { NULL, vrkbKey, vrkbText };
+    vrkb_init(&g_vrkb, sink);
+
+    XrAppConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
     cfg.video = &g_slot;
-    cfg.screenDistance = 2.0f;
-    cfg.screenWidth = 2.4f;
-    cfg.seconds = seconds;
-    cfg.hooks = (XrAppHooks){NULL, pointerHook, buttonHook, scrollHook, statsHook, focusHook};
+    cfg.settings = &g_settings;
+    cfg.seconds = g_args.seconds;
+    settings_resolution(&g_settings, &cfg.videoWidth, &cfg.videoHeight);
+    cfg.fps = settings_fps_value(&g_settings);
+    char reportDir[512];
+    snprintf(reportDir, sizeof(reportDir), "%s/Games/MoonlightXRNative/reports", getenv("HOME") ? getenv("HOME") : ".");
+    mkdir(reportDir, 0755);
+    cfg.reportDir = reportDir;
+    cfg.hooks = (XrAppHooks){ NULL, pointerHook, mouseMoveHook, buttonHook, scrollHook, keyHook, modifiersHook,
+                              statsHook, focusHook, uiHook };
 
-    if (file) {
-        FileSource* src = file_source_start(file, &g_slot, !swDecode);
+    FileSource* src = NULL;
+    if (g_args.file) {
+        launcher_init_file(&g_launch);
+        src = file_source_start(g_args.file, &g_slot, !g_args.swDecode);
         if (!src) return 1;
-        g_fileHw = !swDecode;
-        int rc = xr_app_run(&cfg);
-        file_source_stop(src);
-        frame_slot_destroy(&g_slot);
-        return rc;
+        g_fileHw = !g_args.swDecode;
+        atomic_store(&g_streaming, 1);
+        cfg.startStreaming = 1;
     }
-
-    // ---- host, app, launch
-    mlxr_set_log(backendLog, NULL);
-    mlxr_error err = {0};
-    char* dir = mlxr_config_dir(&err);
-    mlxr_identity id;
-    if (!dir || mlxr_identity_load_or_create(dir, &id, NULL, &err) != MLXR_OK) {
-        MLOG_E("identity: %s", err.msg);
-        return 1;
+    else {
+        launcher_init(&g_launch);
+        if (g_args.host) {
+            g_launch.state = LAUNCH_STARTING; // the worker's autostart decides
+            g_launch.ncmd = 0;
+        }
+        evkbd_start(sendKey, NULL);
     }
-    mlxr_hosts hosts = {0};
-    mlxr_hosts_load(dir, &hosts, &err);
-    mlxr_host_record* rec = hostArg ? mlxr_hosts_find(&hosts, hostArg) : (hosts.n ? &hosts.v[0] : NULL);
-    if (!rec) {
-        MLOG_E("no paired host%s%s in %s/hosts.ini", hostArg ? " matching " : "", hostArg ? hostArg : "", dir);
-        return 1;
-    }
-    if (doWake) {
-        wake(rec);
-        sleep(1);
-    }
-    mlxr_computer comp;
-    char address[128] = "";
-    const char* override = hostArg && strcasecmp(hostArg, rec->name) && strcasecmp(hostArg, rec->uuid) ? hostArg : NULL;
-    mlxr_server* srv = NULL;
-    for (int attempt = 0; !srv && attempt < (doWake ? 12 : 1); attempt++) {
-        if (attempt) sleep(5);
-        srv = connectHost(&id, dir, rec, override, &comp, address, sizeof(address));
-    }
-    if (!srv) {
-        MLOG_E("host %s is unreachable (is the PC on? try --wake)", rec->name);
-        return 1;
-    }
-    mlxr_app* apps = NULL;
-    size_t nApps = 0;
-    if (mlxr_server_get_apps(srv, &apps, &nApps, &err) != MLXR_OK) {
-        MLOG_E("app list: %s", err.msg);
-        return 1;
-    }
-    int appId = -1;
-    char* end = NULL;
-    long asNum = strtol(appArg, &end, 10);
-    for (size_t i = 0; i < nApps && appId < 0; i++)
-        if ((end && !*end && apps[i].id == asNum) || !strcasecmp(apps[i].name, appArg)) appId = apps[i].id;
-    if (appId < 0) {
-        MLOG_E("no app \"%s\" on %s; %zu apps available, e.g. %s", appArg, rec->name, nApps, nApps ? apps[0].name : "-");
-        return 1;
-    }
-    MLOG_I("app \"%s\" id %d", appArg, appId);
-
-    mlxr_launch_params lp;
-    mlxr_launch_params_init_ll(&lp);
-    if (mlxr_parse_mode(modeArg, &lp.width, &lp.height, &lp.fps) != MLXR_OK) {
-        MLOG_E("bad --mode %s", modeArg);
-        return 1;
-    }
-    lp.audio_configuration = MLXR_AUDIO_STEREO;
-    lp.is_gfe = comp.is_nvidia;
-    char* rtsp = NULL;
-    if (mlxr_server_launch_or_resume(srv, &comp, appId, &lp, &rtsp, &err) != MLXR_OK) {
-        MLOG_E("launch: %s", err.msg);
-        return 1;
-    }
-    MLOG_I("%s app %d, rtsp %s", comp.current_game ? "resumed" : "launched", appId, rtsp ? rtsp : "(none)");
-
-    static StreamJob job;
-    SERVER_INFORMATION si;
-    mlxr_fill_server_info(&si, address, &comp, rtsp);
-    job.host = (StreamHost){si.address, si.serverInfoAppVersion, si.serverInfoGfeVersion, si.rtspSessionUrl,
-                            si.serverCodecModeSupport};
-    mlxr_fill_stream_config(&job.cfg, &lp);
-    if (!bitrate) bitrate = lp.width * lp.height >= 2560 * 1440 ? 80000 : 20000; // owner: 1440p needs ~80 Mbps
-    job.cfg.bitrate = bitrate;
-    job.cfg.packetSize = 1392;
-    job.cfg.streamingRemotely = STREAM_CFG_AUTO;
-    job.cfg.supportedVideoFormats = VIDEO_FORMAT_H264 | (h264Only ? 0 : VIDEO_FORMAT_H265);
-    job.cfg.clientRefreshRateX100 = lp.fps * 100;
-    job.cfg.colorSpace = COLORSPACE_REC_709;
-    job.cfg.colorRange = COLOR_RANGE_LIMITED;
-    job.cfg.encryptionFlags = ENCFLG_ALL;
-
-    mlxr_opus_out_callbacks(&job.audio);
-    mlxr_opus_out_config_default(&job.audioCfg);
-    // HRTFs ship in assets/ next to the binary (installed tree) or in the source tree.
-    job.audioCfg.hrtfDir = access("assets/hrtf/kemar", R_OK) == 0 ? "assets/hrtf/kemar" : MLXR_SOURCE_ASSETS "/hrtf/kemar";
-    job.audioCfg.surround = true;
-
-    stream_set_hw_decode(!swDecode);
-    g_streaming = 1;
-    evkbd_start(sendKey, NULL);
     pthread_t th;
-    pthread_create(&th, NULL, streamThread, &job);
+    pthread_create(&th, NULL, worker, NULL);
     int rc = xr_app_run(&cfg);
-    MLOG_I("stopping stream");
-    evkbd_set_active(0);
-    evkbd_stop();
+
+    // Quitting the app ends the stream and the host's session first
+    atomic_store(&g_workerQuit, 1);
+    pthread_mutex_lock(&g_lock);
+    pthread_cond_signal(&g_wake);
+    pthread_mutex_unlock(&g_lock);
     pthread_join(th, NULL);
-    stream_stop();
-    stream_close_video(); // after the renderer dropped its imports
-    g_streaming = 0;
-    // Leaving the app ends the session on the host too (Moonlight's "Quit
-    // session"), so the game or desktop stream does not keep running there.
-    mlxr_error qerr = {0};
-    mlxr_status qs = mlxr_server_quit_app(srv, &qerr);
-    if (qs == MLXR_OK) MLOG_I("host session ended on %s", rec->name);
-    else MLOG_W("could not end the host session: %s (%s)", mlxr_status_name(qs), qerr.msg);
-    free(rtsp);
-    mlxr_apps_free(apps, nApps);
-    mlxr_server_free(srv);
-    mlxr_hosts_free(&hosts);
-    mlxr_identity_free(&id);
-    free(dir);
+    if (src) {
+        file_source_stop(src);
+        atomic_store(&g_streaming, 0);
+    }
+    else {
+        stopStream(&g_net, 1);
+        evkbd_set_active(0);
+        evkbd_stop();
+    }
+    for (int i = 0; i < LAUNCH_MAX_PCS; i++)
+        if (g_net.srv[i]) mlxr_server_free(g_net.srv[i]);
+    free(g_net.rtsp);
+    mlxr_hosts_free(&g_net.hosts);
+    if (g_net.haveId) mlxr_identity_free(&g_net.id);
+    free(g_net.dir);
     frame_slot_destroy(&g_slot);
+    MLOG_I("== moonlight-xr exits (%d)", rc);
+    xrLogFlush();
     return rc;
 }

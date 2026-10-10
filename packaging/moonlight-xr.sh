@@ -1,12 +1,15 @@
 #!/bin/bash
 # Moonlight XR Native launcher (Steam shortcut target). GPLv3.
-# Runs the app from its own directory with the host's libraries, logging to
-# ~/Games/MoonlightXRNative/moonlight.log (previous run kept as moonlight.previous.log).
+# Runs the app from its own directory with the host's libraries.
+# Logs (M4): the app writes ~/Games/MoonlightXRNative/moonlight.log itself
+# (xr/xr_log.c: appended, rolled over to moonlight.log.1 past 5 MB, level from
+# config.ini's file_log); what the libraries print on stdout/stderr (SteamVR's
+# client, the Vulkan loader) goes to moonlight-console.log, a fresh one each run.
 HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 LOGDIR="${MLXR_LOG_DIR:-$HOME/Games/MoonlightXRNative}"
 mkdir -p "$LOGDIR"
-LOG="$LOGDIR/moonlight.log"
-[ -f "$LOG" ] && mv -f "$LOG" "$LOGDIR/moonlight.previous.log"
+CONSOLE="$LOGDIR/moonlight-console.log"
+export MLXR_LOG_DIR="$LOGDIR"
 
 # Steam injects GL overrides meant for games; they break Mesa for native apps.
 unset MESA_GL_VERSION_OVERRIDE MESA_GLSL_VERSION_OVERRIDE
@@ -23,4 +26,4 @@ BIN=./moonlight-xr
 {
     echo "== $(date -Is) launching $BIN $* (SteamAppId=${SteamAppId:-none})"
     exec "$BIN" "$@"
-} >>"$LOG" 2>&1
+} >"$CONSOLE" 2>&1

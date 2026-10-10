@@ -140,7 +140,20 @@
     X(NATIVE_PAGE_UP, "native_page_up", "Previous page") \
     X(NATIVE_PAGE_DOWN, "native_page_down", "Next page") \
     X(NATIVE_PAGE_OF, "native_page_of", "%d / %d") \
-    X(NATIVE_APP_RUNNING, "native_app_running", "Running")
+    X(NATIVE_APP_RUNNING, "native_app_running", "Running") \
+    X(NATIVE_LATER, "native_later", "comes in a later update") \
+    X(NATIVE_3D_LATER, "native_3d_later", "3D comes with the depth model in a later update") \
+    X(NATIVE_TILE_LATER, "native_tile_later", "Later") \
+    X(NATIVE_DOT, "native_dot", "Dot") \
+    X(NATIVE_RAY, "native_ray", "Ray") \
+    X(NATIVE_EXIT_APP, "native_exit_app", "Quit Moonlight XR?") \
+    X(NATIVE_PAIR_LATER, "native_pair_later", "Pairing from the headset comes later: pair with mlxr-cli") \
+    X(NATIVE_NOT_PAIRED, "native_not_paired", "%s is not paired: pair it with mlxr-cli") \
+    X(NATIVE_OFFLINE_WAKE, "native_offline_wake", "%s is offline: sending Wake-on-LAN") \
+    X(NATIVE_STARTING, "native_starting", "Starting %s") \
+    X(NATIVE_STREAM_FAILED, "native_stream_failed", "The stream did not start") \
+    X(NATIVE_STREAM_ENDED, "native_stream_ended", "The stream ended") \
+    X(NATIVE_QUITTING, "native_quitting", "Ending the session on %s")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

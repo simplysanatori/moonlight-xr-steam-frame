@@ -1,5 +1,5 @@
-// Moonlight XR Native: minimal logging until xr_log.c is ported (rollover,
-// verbosity). Lines go to stdout, which the launcher redirects to
+// Moonlight XR Native: logging for the stream and app side, written through
+// xr_log.c (the ported file log, rolled over at 5 MB) to
 // ~/Games/MoonlightXRNative/moonlight.log. GPLv3.
 #pragma once
 void mlxr_logf(char level, const char* fmt, ...) __attribute__((format(printf, 2, 3)));

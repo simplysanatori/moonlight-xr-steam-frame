@@ -46,6 +46,14 @@ void panel_picker(Dc* dc) {
         while (size > 15.0f && dc_text_width(dc, UI_WEIGHT_REGULAR, size, name) > (x1 - x0) - 16.0f) size -= 1.0f;
         dc_text(dc, UI_WEIGHT_REGULAR, size, (x0 + x1) * 0.5f, y1 - 15.0f, UI_ALIGN_CENTER, 0xFFFFFFFFu, name);
 
+        if (cell >= dc->v->env_live_cells) {
+            // native: an environment that comes in a later update, dimmed
+            dc_fill_rrect(dc, x0, y0, x1, y1, radius, 0xB0000000u);
+            dc_text(dc, UI_WEIGHT_REGULAR, 17.0f, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f - 10.0f, UI_ALIGN_CENTER,
+                    0xA0FFFFFFu, ui_str(UIS_NATIVE_TILE_LATER));
+            dc_hit(dc, UI_HIT_ENV_TILE, cell, 0, left, top, left + cell_w, top + PICKER_CELL_PX, 0);
+            continue;
+        }
         if (dc->v->env_selected == cell) {
             dc_stroke_rrect(dc, x0 - 1.0f, y0 - 1.0f, x1 + 1.0f, y1 + 1.0f, radius + 1.0f, 3.5f, 0xFFFFFFFFu);
         } else if (dc_hover(dc, UI_HIT_ENV_TILE, cell, -1)) {

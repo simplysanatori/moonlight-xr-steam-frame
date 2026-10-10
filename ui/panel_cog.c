@@ -230,6 +230,8 @@ static void tab_display(Dc* dc) {
     static const UiStr OFFNQ[3] = { UIS_OFF, UIS_NORMAL, UIS_QUALITY };
     static const UiStr OFFON[2] = { UIS_OFF, UIS_ON };
     static const UiStr PADPTR[2] = { UIS_POINTER, UIS_GAMEPAD };
+    // native: the ray row has a third cell, the dot without the ray
+    static const UiStr POINTER3[3] = { UIS_OFF, UIS_NATIVE_DOT, UIS_NATIVE_RAY };
     float cell_half = COG_DISPLAY_CELL_HALF * dc->nh;
     int in_room = v->room_env >= 0 && settings_room_index(v->room_env) >= 0;
     for (int row = 0; row < COG_OPTION_COUNT; row++) {
@@ -246,7 +248,9 @@ static void tab_display(Dc* dc) {
             label(dc, ui_str(ROWS[row]), y, live);
         }
         if (!live) {
-            greyed_reason(dc, y, ui_str(in_room ? UIS_NOT_IN_ROOM : UIS_NEEDS_HEAD_LOCK));
+            int later = (v->display_later & (1u << row)) != 0;
+            greyed_reason(dc, y, later ? (v->later_reason ? v->later_reason : ui_str(UIS_NATIVE_LATER))
+                                       : ui_str(in_room ? UIS_NOT_IN_ROOM : UIS_NEEDS_HEAD_LOCK));
             // one disabled hit per cell so every row is still reported
             for (int c = 0; c < 2; c++) {
                 float rv = cogRowV(COG_TAB_DISPLAY, row), half = cogRowHalf(COG_TAB_DISPLAY);
@@ -255,12 +259,20 @@ static void tab_display(Dc* dc) {
             }
             continue;
         }
-        const UiStr* names = row <= COG_OPTION_SUPERSAMPLE ? OFFNQ : row == COG_OPTION_GAMEPAD ? PADPTR : OFFON;
+        const UiStr* names = row <= COG_OPTION_SUPERSAMPLE ? OFFNQ : row == COG_OPTION_GAMEPAD ? PADPTR
+                           : row == COG_OPTION_RAY ? POINTER3 : OFFON;
         int n = ui_cog_row_cells(COG_TAB_DISPLAY, row);
         cells(dc, COG_TAB_DISPLAY, row, names, n, y, 1, cell_half, settings_option_cell(s, &v->session, row));
     }
     // the glow level: the one track on this tab
     float y = row_y(dc, COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW);
+    if (v->display_later & (1u << COG_DISPLAY_SLIDER_ROW)) {
+        // native: the glow is not drawn yet, so its level is dead too
+        label(dc, ui_str(UIS_ROW_GLOW_LEVEL), y, 0);
+        greyed_reason(dc, y, v->later_reason ? v->later_reason : ui_str(UIS_NATIVE_LATER));
+        track_hits(dc, COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW, 0);
+        return;
+    }
     label(dc, ui_str(UIS_ROW_GLOW_LEVEL), y, 1);
     track_line(dc, y, 0x66FFFFFFu);
     chevrons(dc, y, 1, cell_half);
@@ -315,7 +327,7 @@ static void tab_3d(Dc* dc) {
     reset_button(dc);
     if (!ok) {
         dc_text(dc, UI_WEIGHT_REGULAR, 17.0f, dc->nw * 0.5f, (COG_ROW_V0 + COG_ROW3D_COUNT * COG_ROW_STEP) * dc->nh,
-                UI_ALIGN_CENTER, 0x50FFFFFFu, ui_str(UIS_THREE_D_OFF_IN_SETTINGS));
+                UI_ALIGN_CENTER, 0x50FFFFFFu, v->stereo_reason ? v->stereo_reason : ui_str(UIS_THREE_D_OFF_IN_SETTINGS));
     }
 }
 
