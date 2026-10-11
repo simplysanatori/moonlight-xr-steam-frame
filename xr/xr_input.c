@@ -3210,6 +3210,9 @@ static void beamToFurniture(XrCtx* ctx, InputFrame* f) {
     ctx->beamVisible = f->headValid;
 }
 
+// How far the trigger is pulled before the click hold starts: a touch, short of the press
+#define CLICK_TOUCH_VALUE 0.12f
+
 // Smooths the hit point, hands it to Java and ends the ray on it
 static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
     if (!hit) {
@@ -3221,6 +3224,7 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
         ctx->filterU.valid = 0;
         ctx->filterV.valid = 0;
         ctx->ptrRawValid = 0;
+        clickHoldReset(&ctx->clickHold);
     }
     ctx->lastHand = f->hand;
     ctx->lastHitNs = f->now;
@@ -3247,6 +3251,19 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
         ctx->ptrRawX = rx;
         ctx->ptrRawY = ry;
         ctx->ptrRawValid = 1;
+    }
+    // Native (lane click-hold): from the first touch of the trigger (or a
+    // click button) the host cursor stays put until the aim is MLXR_CLICK_HOLD_PX
+    // (8) host pixels away, and for 0.35 s after the release. The pull jolts
+    // the aim past Windows' 4 px click slop, which failed single and double
+    // clicks. The smoothing above stays on and the dot follows the held point.
+    {
+        int h = f->hand;
+        int touching = ctx->triggerDown[h] || ctx->triggerValue[h] > CLICK_TOUCH_VALUE
+                || (!ctx->padMode && (actionBool(ctx, ctx->rightClickAction, -1)
+                                      || actionBool(ctx, ctx->middleClickAction, -1)));
+        clickHoldStep(&ctx->clickHold, touching && !ctx->triggerSwallowed[h], u, v,
+                      ctx->videoWidth, ctx->videoHeight, ctx->clickHoldPx, f->now, &u, &v);
     }
     if (ctx->headAimActive) {
         // The head is turning the host's mouse, so a position from the ray

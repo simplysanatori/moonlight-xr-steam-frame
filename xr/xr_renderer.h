@@ -48,6 +48,7 @@
 #include "xr_kbfull.h"
 #include "xr_controller.h"
 #include "xr_headaim.h"
+#include "xr_clickhold.h"
 #include "xr_gamepad.h"
 #include "room_logic.h"
 
@@ -726,6 +727,9 @@ typedef struct XrCtx {
     EuroState filterV;
     float pointerMinCutoff;
     float pointerBeta;
+    // Native (lane click-hold): the host cursor held for a click, see xr_clickhold.h
+    ClickHold clickHold;
+    float clickHoldPx;
     int64_t lastHitNs;
     int lastHand;
     // Native (lane av-latency): how far the smoothing holds the cursor behind
