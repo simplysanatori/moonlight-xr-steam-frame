@@ -502,6 +502,39 @@ static int64_t monoSeconds(void) {
     return ts.tv_sec;
 }
 
+// Every address that answered as this PC (and serverinfo's LocalIP) goes into hosts.ini, so the
+// next choice has both paths even when the flat launcher only knew one
+static void rememberAddresses(Net* n, int i, const mlxr_net_plan* plan, const mlxr_computer* comp) {
+    mlxr_host_record* rec = &n->hosts.v[i];
+    char list[sizeof(rec->extra_addresses)];
+    snprintf(list, sizeof(list), "%s", rec->extra_addresses);
+    int changed = 0;
+    const char* add[MLXR_NET_MAX_CANDS + 1];
+    int na = 0;
+    for (int k = 0; k < plan->n; k++)
+        if (plan->c[k].ok > 0 && !plan->c[k].other_host) add[na++] = plan->c[k].address;
+    if (comp->local_ip[0]) add[na++] = comp->local_ip;
+    for (int k = 0; k < na; k++) {
+        const char* a = add[k];
+        if (!strncmp(a, "127.", 4) || !strcmp(a, rec->address)) continue;
+        char probe[sizeof(list) + 2];
+        snprintf(probe, sizeof(probe), ",%s,", list);
+        char needle[140];
+        snprintf(needle, sizeof(needle), ",%s,", a);
+        if (strstr(probe, needle)) continue;
+        if (strlen(list) + strlen(a) + 2 > sizeof(list)) continue;
+        if (list[0]) strcat(list, ",");
+        strcat(list, a);
+        changed = 1;
+        MLOG_I("network path: learned address %s of %s", a, rec->name);
+    }
+    if (changed) {
+        snprintf(rec->extra_addresses, sizeof(rec->extra_addresses), "%s", list);
+        mlxr_error err = { 0 };
+        if (mlxr_hosts_save(n->dir, &n->hosts, &err) != MLXR_OK) MLOG_W("hosts.ini not saved: %s", err.msg);
+    }
+}
+
 // Gathers every known address of the PC (hosts.ini, the one named on the command line), probes
 // them and connects to the chosen one; keeps the server on it for the whole session. If the
 // probe finds nothing it falls back to connectHost's sequential try.
@@ -517,7 +550,12 @@ static mlxr_server* connectChosen(Net* n, int i, const char* override) {
     if (!plan) return connectHost(n, i, override);
     mlxr_net_plan_init(plan, pref, source, rec->http_port, rec->uuid, n->id.unique_id);
     plan->bitrate_kbps = g_args.bitrate > 0 ? g_args.bitrate : settings_bitrate_kbps(&g_settings);
-    if (override) mlxr_net_plan_add(plan, override, 0);
+    snprintf(plan->hostname, sizeof(plan->hostname), "%s", rec->name);
+    if (rec->has_mac) {
+        memcpy(plan->mac, rec->mac, 6);
+        plan->has_mac = true;
+    }
+    if (override) mlxr_net_plan_add_src(plan, override, 0, "launcher");
     mlxr_net_plan_add_record(plan, rec->address, rec->extra_addresses);
     mlxr_server* s = NULL;
     int pick = mlxr_net_select(plan, NULL);
@@ -536,6 +574,7 @@ static mlxr_server* connectChosen(Net* n, int i, const char* override) {
                        n->comp[i].server_codec_mode_support, n->comp[i].paired ? "paired" : "NOT paired",
                        n->comp[i].current_game);
                 snprintf(n->address[i], sizeof(n->address[i]), "%s", addr);
+                rememberAddresses(n, i, plan, &n->comp[i]);
                 if (n->srv[i]) mlxr_server_free(n->srv[i]);
                 n->srv[i] = s;
                 g_choiceAt[i] = monoSeconds();

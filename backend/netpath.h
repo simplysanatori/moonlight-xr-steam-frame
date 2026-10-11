@@ -17,21 +17,23 @@
  * Choosing (auto), all candidates probed in parallel within a time budget (default 1.5 s) by
  * a serverinfo round trip over HTTP (is it the PC? how long does it take) and several TCP
  * connects to the same port, whose handshake times are the network round trips (the PC's web server
- * takes a quarter second to answer serverinfo, which would drown the difference between the links). Per candidate: failed samples, median round trip, jitter (mean absolute deviation from the
- * median) and the Wi-Fi link quality (signal dBm and tx bitrate of the station on that interface,
- * read-only from nl80211). A candidate that never answered is out. Idle round trips cannot show
- * the loss a 50-80 Mbit/s stream meets on a weak radio link, so the link counts. A link is "poor"
- * if its signal is below -70 dBm or its PHY rate is under 4x the session bitrate. Between the
- * answering candidates mlxr_net_better() decides, in this order:
- *   1. fewer failed samples win;
- *   2. a good link beats a poor one, whatever the round trips;
- *   3. else a clearly lower (median + jitter) wins; round trips are equal when both are under
- *      10 ms or within max(25%, 5 ms) of each other;
- *   4. else the better link quality (0..100), unless within 5 points;
- *   5. else the lower median, then (a full tie) the adapter, a link of its own.
- * The reason is kept in plan->reason ("chose Wi-Fi: adapter link poor (-80 dBm, 576 Mbit/s)").
- * home / adapter: the first (in address order) answering candidate on that path; if there is none,
- * the other path is tried, with a toast and a log line.
+ * takes a quarter second to answer serverinfo, which would drown the difference between the links).
+ * Per candidate: failed samples, median round trip, jitter and the Wi-Fi link (signal dBm and tx
+ * bitrate of the station on that interface, read-only from nl80211). A link is "weak" if its signal
+ * is below -70 dBm, its PHY rate is under 4x the session bitrate, or half the probes failed.
+ * The policy prefers Wi-Fi whenever it is usable: Wi-Fi is chosen unless it did not answer at all,
+ * or it is weak while the adapter is not. Within one path the candidates are ranked by
+ * mlxr_net_better() (failures, weak link, round trips tied under 10 ms or within max(25%, 5 ms),
+ * link quality, median).
+ * The reason is kept in plan->reason ("chose Wi-Fi: usable, preferred over the adapter (...)").
+ *
+ * Addresses: hosts.ini, the one named by the caller, ARP entries carrying the PC's MAC and mDNS
+ * answers on every interface (A records for <hostname>.local). Serverinfo's LocalIP is only the
+ * address the request came in on, so it cannot reveal the other path's.
+ *
+ * home / adapter: the first (in address order) answering candidate on that path. Choosing a path
+ * means that path: if nothing answers the probe is repeated for retry_ms (4 s) before the other path
+ * is tried, with a toast that names the addresses that failed and how.
  * User-visible names follow Steam's: "Wi-Fi" and "Steam Frame Wireless Adapter".
  */
 #ifndef MLXR_NETPATH_H
@@ -121,6 +123,8 @@ typedef struct {
     mlxr_net_link link;
     double link_quality;
     bool poor;                  /* signal < -70 dBm, or PHY rate < 4x the session bitrate */
+    bool onlink;                /* an interface's subnet contains it (else it goes via the default route) */
+    char source[16];            /* "hosts.ini" "launcher" "arp" "mdns" "serverinfo" */
     /* probe */
     bool probed, done;
     int sent, ok, failed;
@@ -140,13 +144,18 @@ typedef struct {
     char uniqueid[17];          /* ours, sent on the probe ("" a placeholder) */
     int budget_ms;              /* 1500 */
     int bitrate_kbps;           /* the session's, for judging the link (80000 if 0) */
+    int retry_ms;               /* home/adapter: how long the asked-for path is retried (4000) */
+    char hostname[64];          /* the PC's name, for mDNS ("" skips the name lookup) */
+    uint8_t mac[6];
+    bool has_mac;               /* the PC's MAC, for the ARP table */
     mlxr_net_cand c[MLXR_NET_MAX_CANDS];
     int n;
     /* the outcome */
     int chosen;                 /* index into c, -1 none answered */
     mlxr_net_path chosen_path;
     bool fell_back;             /* the asked-for path (home/adapter) had no answer */
-    char toast[128];            /* the in-VR toast for a fallback: "Steam Frame Wireless Adapter not reachable. Using Wi-Fi." */
+    char toast[200];            /* the in-VR toast for a fallback: "Wi-Fi not reachable (192.0.2.10: connect timed out). Using Steam Frame Wireless Adapter." */
+    char failure[160];          /* the asked-for path's failed addresses and how, "" none */
     char connected[128];        /* "Connected over Wi-Fi (5 GHz)." for the chosen path ("" none) */
     char reason[200];           /* "chose Wi-Fi: adapter link poor (-80 dBm, 576 Mbit/s)" */
     char chosen_desc[96];       /* "Wi-Fi (Home 5GHz, 5 GHz)" for the flat launcher to show */
@@ -158,8 +167,22 @@ void mlxr_net_plan_init(mlxr_net_plan *p, mlxr_net_pref pref, const char *source
                         const char *uuid, const char *uniqueid);
 /* Adds an address (deduplicated, case-insensitive); returns its index, or -1 for empty, loopback-less junk or a full table. */
 int mlxr_net_plan_add(mlxr_net_plan *p, const char *address, uint16_t port);
+/* The same, saying where the address came from (kept in the candidate, logged). */
+int mlxr_net_plan_add_src(mlxr_net_plan *p, const char *address, uint16_t port, const char *source);
 /* "a,b,c" */
 void mlxr_net_plan_add_csv(mlxr_net_plan *p, const char *csv, uint16_t port);
+/* Interface whose subnet contains the address (NULL if none or not an IPv4 literal). */
+const mlxr_netif *mlxr_net_onlink_if(const mlxr_netifs *t, const char *addr);
+/* Addresses of the PC the interfaces can see: ARP entries with its MAC (if has_mac) and mDNS
+ * answers for <hostname>.local, asked on every up interface for up to budget_ms. Returns the count
+ * written to out (cap entries of 128 bytes), with out_src[i] "arp" or "mdns". Nothing is verified:
+ * the probe checks the uuid. */
+int mlxr_net_discover(const mlxr_netifs *t, const char *hostname, const uint8_t *mac, int budget_ms,
+                      char out[][128], const char **out_src, int cap);
+/* Addresses in the A records named `want` ("<hostname>.local" lower case, "" for any) of one mDNS
+ * message, appended to out[n..] (source "mdns"); returns the new count. Exposed for the tests. */
+int mlxr_net_mdns_parse(const uint8_t *msg, size_t len, const char *want, char out[][128], const char **src, int n,
+                        int cap);
 /* The record's address and extra_addresses (hosts.ini), in that order. */
 void mlxr_net_plan_add_record(mlxr_net_plan *p, const char *address, const char *extra_addresses);
 /* Sets path, ifname of each candidate from the table. */
