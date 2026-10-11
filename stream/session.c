@@ -18,6 +18,7 @@
 #include "../input/rumble.h"
 #include "../xr/xr_pad_bridge.h"
 #include "../backend/fps_cap.h"
+#include "au_gather.h"
 #include "cadence.h"
 #include "hw_video.h"
 #include "rfi_watch.h"
@@ -29,6 +30,10 @@ static HwVideo* g_hw;
 static SwDecoder* g_dec;
 static uint8_t* g_au;
 static size_t g_auCap;
+// Native (lane au-scatter): the hardware path's parts of one decode unit,
+// kept from call to call as g_au is, and the time of the last mismatch warning
+static MlxrAuGather g_gather;
+static uint64_t g_gatherWarnUs;
 static atomic_int g_connected, g_failed;
 static atomic_uint_fast64_t g_units, g_idr;
 static int g_lastErr;
@@ -129,19 +134,37 @@ static void drCleanup(void) {
     free(g_au);
     g_au = NULL;
     g_auCap = 0;
+    mlxr_au_gather_free(&g_gather);
 }
 
 static int drSubmit(PDECODE_UNIT du) {
     noteFrameLatency(du);
     if (g_hw) {
-        const void* parts[64];
-        uint32_t sizes[64], n = 0;
-        for (PLENTRY e = du->bufferList; e && n < 64; e = e->next) {
-            parts[n] = e->data;
-            sizes[n++] = (uint32_t)e->length;
-        }
+        // Native (lane au-scatter): every entry of the decode unit. This
+        // was a fixed array of 64 entries, and common-c makes one entry per
+        // video packet (1376 bytes at packetSize 1392): any frame over about
+        // 86 KB reached the decoder cut short, which flagged the picture
+        // as an error. At 126 Mbps and 90 fps that was every frame.
+        int n = mlxr_au_gather(&g_gather, du->bufferList, du->fullLength);
         atomic_fetch_add(&g_units, 1);
-        if (hw_video_submit(g_hw, parts, sizes, n, (int64_t)du->presentationTimeUs) != 0) {
+        if (n <= 0) {
+            if (n == 0 && du->fullLength == 0) return DR_OK; // nothing to decode
+            uint64_t now = LiGetMicroseconds();
+            if (g_gatherWarnUs == 0 || now - g_gatherWarnUs >= 1000000) {
+                g_gatherWarnUs = now;
+                if (n == MLXR_AU_GATHER_NOMEM)
+                    MLOG_W("video: no memory for the %d-byte decode unit's parts: not submitted", du->fullLength);
+                else
+                    MLOG_W("video: decode unit of %d bytes has %u parts adding up to %llu bytes: not submitted",
+                           du->fullLength, g_gather.n, (unsigned long long)g_gather.total);
+            }
+            if (hw_video_refuse_au(g_hw) != 0) {
+                atomic_fetch_add(&g_idr, 1);
+                return DR_NEED_IDR;
+            }
+            return DR_OK;
+        }
+        if (hw_video_submit(g_hw, g_gather.parts, g_gather.sizes, (uint32_t)n, (int64_t)du->presentationTimeUs) != 0) {
             atomic_fetch_add(&g_idr, 1);
             return DR_NEED_IDR;
         }
@@ -387,13 +410,17 @@ void stream_mouse_move(int dx, int dy) {
 void stream_stats(char* buf, int len) {
     uint32_t rtt = 0, var = 0;
     LiGetEstimatedRttInfo(&rtt, &var);
-    char hw[160] = "";
+    char hw[256] = "";
     if (g_hw) {
         HwVideoStats h;
         hw_video_stats(g_hw, &h);
-        snprintf(hw, sizeof(hw), "; hw decode %.1f ms (last %.1f), frames %llu, skipped %llu, errors %llu",
+        // Native (lane au-scatter): the largest AU and the AUs refused
+        snprintf(hw, sizeof(hw),
+                 "; hw decode %.1f ms (last %.1f), frames %llu, skipped %llu, errors %llu, largest AU %llu bytes in %llu "
+                 "parts, %llu refused (length mismatch)",
                  h.avgDecodeMs, h.lastDecodeMs, (unsigned long long)h.frames, (unsigned long long)h.skipped,
-                 (unsigned long long)h.errors);
+                 (unsigned long long)h.errors, (unsigned long long)h.largestAuBytes,
+                 (unsigned long long)h.largestAuParts, (unsigned long long)h.refusedAus);
     }
     snprintf(buf, (size_t)len, "units %llu, idr requests %llu, rtt %u ms, pending video %d%s",
              (unsigned long long)atomic_load(&g_units), (unsigned long long)atomic_load(&g_idr), rtt,

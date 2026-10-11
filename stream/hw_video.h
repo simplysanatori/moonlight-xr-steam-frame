@@ -32,13 +32,27 @@ typedef struct HwVideoStats {
     // Native (lane perf): the latch: times the loop waited for a picture in
     // the decoder, how many got one, how long in all
     uint64_t latchWaits, latchHits, latchNsSum;
+    // Native (lane au-scatter): the largest AU handed to the decoder (bytes,
+    // and the parts common-c gave it in), and AUs the session refused because
+    // their parts did not add up to the decode unit's length
+    uint64_t largestAuBytes, largestAuParts, refusedAus;
 } HwVideoStats;
 
 // requestIdr is called (from the decode thread) on decoder errors.
+// Native (lane au-scatter): the decoder error paths (receive errors here,
+// submit errors through the session's DR_NEED_IDR) share one limit: at most
+// one IDR request per MLXR_VIDEO_IDR_MIN_MS (100 ms by default, 0: no limit).
+// Each request makes the host send a frame at once, so an unlimited request
+// per error fed a storm of frames that all failed again.
 HwVideo* hw_video_open(mlxr_codec codec, uint32_t width, uint32_t height, void (*requestIdr)(void));
 // Stream receive thread: one access unit in pieces. Returns 0, or -1 when the
-// session should answer DR_NEED_IDR.
+// session should answer DR_NEED_IDR (a decoder error and an IDR request is
+// due under the limit above).
 int hw_video_submit(HwVideo* v, const void* const* parts, const uint32_t* sizes, uint32_t n, int64_t pts);
+// Native (lane au-scatter): the session did not submit an AU (its parts did
+// not add up to its length). Counted in refusedAus; returns -1 when an IDR
+// request is due under the same limit, else 0.
+int hw_video_refuse_au(HwVideo* v);
 // Native (lane av-latency): ask for an IDR frame when the decoder flags a
 // damaged picture (used while reference frame invalidation is advertised).
 void hw_video_set_idr_on_corrupt(HwVideo* v, bool on);

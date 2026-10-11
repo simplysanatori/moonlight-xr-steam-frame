@@ -13,3 +13,7 @@ add_test(NAME stream_rfi_watch COMMAND test_rfi_watch)
 add_executable(test_cadence test_cadence.c)
 target_link_libraries(test_cadence PRIVATE mlxr_stream)
 add_test(NAME stream_cadence COMMAND test_cadence)
+# Lane au-scatter: every entry of a decode unit to the hardware decoder
+add_executable(test_au_gather test_au_gather.c)
+target_link_libraries(test_au_gather PRIVATE mlxr_stream)
+add_test(NAME stream_au_gather COMMAND test_au_gather)

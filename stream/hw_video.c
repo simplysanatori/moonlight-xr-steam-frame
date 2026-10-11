@@ -41,9 +41,31 @@ struct HwVideo {
     // (at most every 500 ms), the old behaviour, as a safety net
     bool idrOnCorrupt;
     uint64_t lastCorruptIdrNs;
+    // Native (lane au-scatter): the IDR request limit of the decoder error
+    // paths (MLXR_VIDEO_IDR_MIN_MS), shared by the decode thread and the
+    // session's submit thread
+    uint64_t idrMinNs;
+    atomic_uint_fast64_t lastErrIdrNs;
     bool formatChange; // decode thread waits until the renderer is done
     HwVideoStats st;
 };
+
+static uint64_t monoNs(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
+
+// Native (lane au-scatter): true when a decoder error may ask for an IDR
+// frame now (none asked in the last idrMinNs); the caller then asks
+static bool errorIdrDue(HwVideo* v) {
+    uint64_t now = monoNs();
+    uint64_t last = atomic_load(&v->lastErrIdrNs);
+    while (last == 0 || now - last >= v->idrMinNs) {
+        if (atomic_compare_exchange_weak(&v->lastErrIdrNs, &last, now)) return true;
+    }
+    return false;
+}
 
 static _Atomic(HwVideo*) g_current;
 HwVideo* hw_video_current(void) { return atomic_load(&g_current); }
@@ -102,9 +124,19 @@ static void* decodeThread(void* arg) {
         }
         if (r != MLXR_VDEC_OK) {
             v->st.errors++;
-            if (mlxr_vdec_needs_idr(r)) {
+            // Native (lane au-scatter): a picture the decoder flagged as an
+            // error is an AU out of the decoder too; without this the AUs in
+            // the decoder only grew and the latch waited for pictures that
+            // were never coming
+            if (r == MLXR_VDEC_E_DECODE) {
+                atomic_fetch_add(&v->decodedOut, 1);
+                pthread_mutex_lock(&v->lock);
+                pthread_cond_broadcast(&v->cond); // a latched loop stops waiting
+                pthread_mutex_unlock(&v->lock);
+            }
+            if (mlxr_vdec_needs_idr(r) && v->requestIdr && errorIdrDue(v)) {
                 v->st.idrRequests++;
-                if (v->requestIdr) v->requestIdr();
+                v->requestIdr();
             }
             if (r == MLXR_VDEC_E_FATAL) {
                 MLOG_E("video: decoder fatal error; stopping hardware decode");
@@ -172,18 +204,32 @@ HwVideo* hw_video_open(mlxr_codec codec, uint32_t width, uint32_t height, void (
     pthread_condattr_setclock(&ca, CLOCK_MONOTONIC);
     pthread_cond_init(&v->cond, &ca);
     pthread_condattr_destroy(&ca);
+    // Native (lane au-scatter): MLXR_VIDEO_IDR_MIN_MS (100 by default, 0 no limit)
+    const char* idrMin = getenv("MLXR_VIDEO_IDR_MIN_MS");
+    int idrMinMs = idrMin && *idrMin ? atoi(idrMin) : 100;
+    if (idrMinMs < 0) idrMinMs = 0;
+    v->idrMinNs = (uint64_t)idrMinMs * 1000000ull;
+    MLOG_I("video: decoder errors ask for an IDR frame at most every %d ms (MLXR_VIDEO_IDR_MIN_MS=%s)", idrMinMs,
+           idrMin ? idrMin : "unset");
     pthread_create(&v->thread, NULL, decodeThread, v);
     MLOG_I("video: hardware %s decoder open (%ux%u)", codec == MLXR_CODEC_HEVC ? "HEVC" : "H.264", width, height);
     return v;
 }
 
 int hw_video_submit(HwVideo* v, const void* const* parts, const uint32_t* sizes, uint32_t n, int64_t pts) {
+    // Native (lane au-scatter): the largest AU, for the stats line
+    uint64_t bytes = 0;
+    for (uint32_t i = 0; i < n; i++) bytes += sizes[i];
+    pthread_mutex_lock(&v->lock);
+    if (bytes > v->st.largestAuBytes) {
+        v->st.largestAuBytes = bytes;
+        v->st.largestAuParts = n;
+    }
+    pthread_mutex_unlock(&v->lock);
     int r = mlxr_vdec_submit_parts(v->dec, parts, sizes, n, pts);
     v->st.submitted++;
     if (r == MLXR_VDEC_OK) {
-        struct timespec ts;
-        clock_gettime(CLOCK_MONOTONIC, &ts);
-        atomic_store(&v->lastSubmitNs, (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec);
+        atomic_store(&v->lastSubmitNs, monoNs());
         // Native (lane perf): AUs in the decoder now, this one included
         uint64_t in = atomic_fetch_add(&v->submittedOk, 1) + 1;
         uint64_t out = atomic_load(&v->decodedOut);
@@ -197,12 +243,22 @@ int hw_video_submit(HwVideo* v, const void* const* parts, const uint32_t* sizes,
     }
     if (r != MLXR_VDEC_OK) {
         v->st.errors++;
-        if (mlxr_vdec_needs_idr(r)) {
+        // Native (lane au-scatter): DR_NEED_IDR only when a request is due
+        if (mlxr_vdec_needs_idr(r) && errorIdrDue(v)) {
             v->st.idrRequests++;
             return -1;
         }
     }
     return 0;
+}
+
+int hw_video_refuse_au(HwVideo* v) {
+    pthread_mutex_lock(&v->lock);
+    v->st.refusedAus++;
+    pthread_mutex_unlock(&v->lock);
+    if (!errorIdrDue(v)) return 0;
+    v->st.idrRequests++;
+    return -1;
 }
 
 void hw_video_set_idr_on_corrupt(HwVideo* v, bool on) { v->idrOnCorrupt = on; }
@@ -239,13 +295,17 @@ bool hw_video_take_refresh(HwVideo* v, int mode, int displayHz, uint64_t nowNs, 
     // Native (lane perf): the latch (see latchNs). Only for a picture that is
     // surely on its way: an AU queued less than 12 ms ago with no picture out
     // for it yet; a stalled decoder therefore costs nothing.
+    // Native (lane au-scatter): and only while an AU is in the decoder (an
+    // AU that ended in an error leaves no picture to wait for)
     if (v->latchNs > 0 && nowNs > 0 && v->queued == 0) {
         uint64_t sub = atomic_load(&v->lastSubmitNs);
-        if (sub > v->lastOutSubmitNs && nowNs < sub + 12000000ull) {
+        uint64_t in = atomic_load(&v->submittedOk), out = atomic_load(&v->decodedOut);
+        if (sub > v->lastOutSubmitNs && in > out && nowNs < sub + 12000000ull) {
             uint64_t deadline = nowNs + v->latchNs;
             struct timespec dl = { (time_t)(deadline / 1000000000ull), (long)(deadline % 1000000000ull) };
             v->st.latchWaits++;
-            while (v->queued == 0 && !atomic_load(&v->stop)) {
+            while (v->queued == 0 && !atomic_load(&v->stop) &&
+                   atomic_load(&v->submittedOk) > atomic_load(&v->decodedOut)) {
                 if (pthread_cond_timedwait(&v->cond, &v->lock, &dl) != 0) break;
             }
             struct timespec ts;

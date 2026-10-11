@@ -339,6 +339,7 @@ These are for testing and debugging. Most users never need them. Put them in fro
 | `MLXR_VIDEO_PRIORITY` | `nice` | `off`, `nice` or `rt` for the video threads. |
 | `MLXR_VIDEO_RFI` | 1 | 0 turns off reference frame invalidation (HEVC loss recovery). |
 | `MLXR_VIDEO_RFI_IDR_MS` | 100 | How long a recovery may take before a full frame is asked for. |
+| `MLXR_VIDEO_IDR_MIN_MS` | 100 | After a decoder error, a full frame is asked for at most this often (0: no limit). |
 | `MLXR_PACER_CUSHION` | 3 | Decoded frames held for pacing (2 or 3). |
 | `MLXR_VIDEO_LATCH_MS` | 4 | 0 to 8 ms the pacer waits for a frame in decode. |
 | `MLXR_AUDIO_JITTER` | | `lo,hi` in ms: the audio buffer's range. |

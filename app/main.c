@@ -163,13 +163,17 @@ static void updateKeyboard(void) {
 
 static void statsHook(void* user, char* buf, int len) {
     (void)user;
-    char s[200] = "", a[128] = "";
+    char s[320] = "", a[128] = "";
     if (g_fileHw && hw_video_current()) {
         HwVideoStats h;
         hw_video_stats(hw_video_current(), &h);
-        snprintf(s, sizeof(s), "hw decode %.1f ms (last %.1f), frames %llu, taken %llu, skipped %llu, errors %llu",
+        // Native (lane au-scatter): the largest AU, as the stream's line
+        snprintf(s, sizeof(s),
+                 "hw decode %.1f ms (last %.1f), frames %llu, taken %llu, skipped %llu, errors %llu, largest AU %llu "
+                 "bytes in %llu parts",
                  h.avgDecodeMs, h.lastDecodeMs, (unsigned long long)h.frames, (unsigned long long)h.taken,
-                 (unsigned long long)h.skipped, (unsigned long long)h.errors);
+                 (unsigned long long)h.skipped, (unsigned long long)h.errors, (unsigned long long)h.largestAuBytes,
+                 (unsigned long long)h.largestAuParts);
     }
     if (atomic_load(&g_streaming) && !g_args.file) {
         stream_stats(s, sizeof(s));
