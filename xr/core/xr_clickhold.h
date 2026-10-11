@@ -9,7 +9,9 @@
 
 #include <stdint.h>
 
-#define CLICK_HOLD_DEFAULT_PX 8.0f
+// Off by default: the owner tried 8 px and asked for it off (2026-10-10);
+// MLXR_CLICK_HOLD_PX=8 brings it back
+#define CLICK_HOLD_DEFAULT_PX 0.0f
 #define CLICK_HOLD_WINDOW_NS 350000000LL // after the release, for the second click
 
 typedef struct {

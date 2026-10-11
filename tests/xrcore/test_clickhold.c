@@ -127,17 +127,18 @@ static void testFirstFrameAndReset(void) {
 
 static void testEnv(void) {
     unsetenv("MLXR_CLICK_HOLD_PX");
-    CHECK_NEAR(clickHoldPixelsFromEnv(), 8.0, 1e-6);
+    CHECK_NEAR(clickHoldPixelsFromEnv(), CLICK_HOLD_DEFAULT_PX, 1e-6);
+    CHECK_NEAR(CLICK_HOLD_DEFAULT_PX, 0.0, 1e-6); // off unless asked for
     setenv("MLXR_CLICK_HOLD_PX", "0", 1);
     CHECK_NEAR(clickHoldPixelsFromEnv(), 0.0, 1e-6);
     setenv("MLXR_CLICK_HOLD_PX", "12.5", 1);
     CHECK_NEAR(clickHoldPixelsFromEnv(), 12.5, 1e-6);
     setenv("MLXR_CLICK_HOLD_PX", "-3", 1);
-    CHECK_NEAR(clickHoldPixelsFromEnv(), 8.0, 1e-6);
+    CHECK_NEAR(clickHoldPixelsFromEnv(), CLICK_HOLD_DEFAULT_PX, 1e-6);
     setenv("MLXR_CLICK_HOLD_PX", "abc", 1);
-    CHECK_NEAR(clickHoldPixelsFromEnv(), 8.0, 1e-6);
+    CHECK_NEAR(clickHoldPixelsFromEnv(), CLICK_HOLD_DEFAULT_PX, 1e-6);
     setenv("MLXR_CLICK_HOLD_PX", "", 1);
-    CHECK_NEAR(clickHoldPixelsFromEnv(), 8.0, 1e-6);
+    CHECK_NEAR(clickHoldPixelsFromEnv(), CLICK_HOLD_DEFAULT_PX, 1e-6);
     unsetenv("MLXR_CLICK_HOLD_PX");
 }
 
