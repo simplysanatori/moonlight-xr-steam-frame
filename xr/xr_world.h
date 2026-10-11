@@ -89,6 +89,9 @@ void xrModelRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat
                    int eyeW, int eyeH, const XrView* views);
 // The resident room's style (0 none) and whether a load is under way
 int xrRoomResident(XrCtx* ctx);
+// Native: frames the room was drawn on and frames it kept an older image on,
+// since the last call (the 5 s stats line)
+void xrRoomTakeCounts(int* drawn, int* stale);
 int xrRoomLoading(XrCtx* ctx);
 // Rooms freed since the start and rooms waiting on the GPU (tests)
 int xrRoomsRetired(XrCtx* ctx);

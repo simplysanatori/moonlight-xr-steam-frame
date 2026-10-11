@@ -636,6 +636,16 @@ void xrRoomRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat 
     mlxr_pass_room(ctx->passes, cmd, &t, &rp);
 }
 
+// Native: frames the room was drawn on and frames it was asked for but kept an
+// older image (eyes not located, image not acquired), for the 5 s stats line
+static int g_roomDrawn, g_roomStale;
+
+void xrRoomTakeCounts(int* drawn, int* stale) {
+    *drawn = g_roomDrawn;
+    *stale = g_roomStale;
+    g_roomDrawn = g_roomStale = 0;
+}
+
 // Draws the room into its own image, one half per eye. The layer that shows it
 // is submitted in xrBuildLayers, with the very poses drawn from here.
 void renderRoom(XrCtx* ctx) {
@@ -645,12 +655,15 @@ void renderRoom(XrCtx* ctx) {
     // A frame the eyes could not be located for keeps the image it already
     // has. The layer still goes up, with the poses that image was drawn from.
     if (!locateRoomViews(ctx)) {
+        g_roomStale++;
         return;
     }
     uint32_t index = 0;
     if (!xrArtAcquire(ctx->roomSwapchain, "acquire room image", &index)) {
+        g_roomStale++;
         return;
     }
+    g_roomDrawn++;
     VkCommandBuffer cmd = ctx->frameCmd;
     xrGpuTimeBegin(ctx, GPU_ROOM);
     mlxr_barrier(cmd, ctx->roomImages[index].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
