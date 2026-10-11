@@ -20,7 +20,10 @@
 //     (xr_room.c, xr_model.c), upstream's arrangement; the glow is a quad of
 //     its own swapchain, and on a curved picture it is drawn into the curved
 //     picture's projection layer instead of a cylinder (xr_world.c);
-//   - the splash is not drawn.
+//   - the splash is not drawn;
+//   - native (lane eye-swapchains): every projection layer's two views name a
+//     swapchain each, one per eye, rather than the two halves of one double
+//     wide image: SteamVR downsamples any texture past 3458 px each frame.
 #include "xr_native.h"
 #include "xr_world.h"
 
@@ -241,6 +244,37 @@ static void addPassthroughLayer(XrCtx* ctx, FrameLayers* layers) {
     pushLayer(ctx, layers, layer);
 }
 
+// Native (lane eye-swapchains): one view of a projection layer, the whole
+// image of that eye's own swapchain
+void xrProjectionEye(XrCompositionLayerProjectionView* out, const XrView* view, XrSwapchain chain, int eyeW,
+                     int eyeH) {
+    memset(out, 0, sizeof(*out));
+    out->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+    out->pose = view->pose;
+    out->fov = view->fov;
+    out->subImage.swapchain = chain;
+    out->subImage.imageRect.offset.x = 0;
+    out->subImage.imageRect.offset.y = 0;
+    out->subImage.imageRect.extent.width = eyeW;
+    out->subImage.imageRect.extent.height = eyeH;
+    out->subImage.imageArrayIndex = 0;
+}
+
+int xrProjectionEyesOwn(const XrCompositionLayerProjection* layer) {
+    if (layer == NULL || layer->viewCount != ROOM_EYES || layer->views == NULL) {
+        return 0;
+    }
+    const XrCompositionLayerProjectionView* v = layer->views;
+    for (int e = 0; e < ROOM_EYES; e++) {
+        const XrRect2Di* r = &v[e].subImage.imageRect;
+        if (v[e].subImage.swapchain == XR_NULL_HANDLE || r->offset.x + r->extent.width > STEAMVR_TEXTURE_MAX
+                || r->offset.y + r->extent.height > STEAMVR_TEXTURE_MAX) {
+            return 0;
+        }
+    }
+    return v[0].subImage.swapchain != v[1].subImage.swapchain;
+}
+
 // The 3d room, drawn per eye into the one projection layer
 static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // The environment, when it is a room. Passthrough wants the real room
@@ -248,10 +282,9 @@ static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     // Native: not while it is drawn into the picture's layer (one projection
     // layer a frame, xrWorldPlanLayers)
     if (view->roomOn && ctx->roomRendered && ctx->roomViewsValid && !ctx->passthrough && !ctx->roomInPicture
-            && ctx->roomSwapchain != XR_NULL_HANDLE) {
+            && ctx->roomSwapchain[0] != XR_NULL_HANDLE && ctx->roomSwapchain[1] != XR_NULL_HANDLE) {
         XrCompositionLayerProjection* room = &layers->room;
         memset(room, 0, sizeof(*room));
-        memset(layers->roomViews, 0, sizeof(layers->roomViews));
         room->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
         room->layerFlags = 0;
         // World locked, even when the screen is head locked, or the room would
@@ -260,18 +293,11 @@ static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
         room->viewCount = ROOM_EYES;
         room->views = layers->roomViews;
         for (int eye = 0; eye < ROOM_EYES; eye++) {
-            XrCompositionLayerProjectionView* projView = &layers->roomViews[eye];
-            projView->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
             // The poses the image was actually drawn from, so the compositor
-            // reprojects it rather than being told a pose it does not match
-            projView->pose = ctx->roomViews[eye].pose;
-            projView->fov = ctx->roomViews[eye].fov;
-            projView->subImage.swapchain = ctx->roomSwapchain;
-            projView->subImage.imageRect.offset.x = eye * ctx->roomEyeWidth;
-            projView->subImage.imageRect.offset.y = 0;
-            projView->subImage.imageRect.extent.width = ctx->roomEyeWidth;
-            projView->subImage.imageRect.extent.height = ctx->roomEyeHeight;
-            projView->subImage.imageArrayIndex = 0;
+            // reprojects it rather than being told a pose it does not match.
+            // Native (lane eye-swapchains): each eye its own swapchain.
+            xrProjectionEye(&layers->roomViews[eye], &ctx->roomViews[eye], ctx->roomSwapchain[eye],
+                            ctx->roomEyeWidth, ctx->roomEyeHeight);
         }
         pushLayer(ctx, layers, room);
     }
@@ -304,36 +330,32 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
 // image was drawn from.
 static void addModelLayer(XrCtx* ctx, FrameLayers* layers) {
     // Native: not while they are drawn into the picture's or the room's layer
-    if (!ctx->modelsShowing || !ctx->modelRendered || ctx->passthrough || ctx->modelSwapchain == XR_NULL_HANDLE
-            || ctx->modelsInPicture || ctx->modelsInRoom) {
+    if (!ctx->modelsShowing || !ctx->modelRendered || ctx->passthrough || ctx->modelSwapchain[0] == XR_NULL_HANDLE
+            || ctx->modelSwapchain[1] == XR_NULL_HANDLE || ctx->modelsInPicture || ctx->modelsInRoom) {
         return;
     }
     XrCompositionLayerProjection* models = &layers->models;
     memset(models, 0, sizeof(*models));
-    memset(layers->modelViews, 0, sizeof(layers->modelViews));
     models->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
     models->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
     models->space = ctx->localSpace;
     models->viewCount = ROOM_EYES;
     models->views = layers->modelViews;
     for (int eye = 0; eye < ROOM_EYES; eye++) {
-        XrCompositionLayerProjectionView* projView = &layers->modelViews[eye];
-        projView->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
-        projView->pose = ctx->modelViews[eye].pose;
-        projView->fov = ctx->modelViews[eye].fov;
-        projView->subImage.swapchain = ctx->modelSwapchain;
-        projView->subImage.imageRect.offset.x = eye * ctx->modelEyeWidth;
-        projView->subImage.imageRect.offset.y = 0;
-        projView->subImage.imageRect.extent.width = ctx->modelEyeWidth;
-        projView->subImage.imageRect.extent.height = ctx->modelEyeHeight;
-        projView->subImage.imageArrayIndex = 0;
+        // Native (lane eye-swapchains): each eye its own swapchain
+        xrProjectionEye(&layers->modelViews[eye], &ctx->modelViews[eye], ctx->modelSwapchain[eye],
+                        ctx->modelEyeWidth, ctx->modelEyeHeight);
     }
     pushLayer(ctx, layers, models);
 }
 
 // The picture, one layer per eye. With the 3D off the left half alone,
 // flat, to both eyes. On a curve the host's
-// projection layer stands in for upstream's cylinder.
+// projection layer stands in for upstream's cylinder. Native (lane
+// eye-swapchains): on SteamVR the picture in 3D is always the host's
+// projection layer (an image per eye there, no seam), so the double wide quads
+// below, with their eye swap and seam inset, are upstream's path for a runtime
+// that shows one-eye quads; the Frame never takes it.
 static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
                            const XrFrameIn* in) {
     (void)view;

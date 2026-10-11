@@ -41,12 +41,14 @@ static int initModelPass(XrCtx* ctx) {
     int eyeW;
     int eyeH;
     worldEyeSize(ctx, &eyeW, &eyeH);
-    if (!createArtSwapchain(ctx, eyeW * ROOM_EYES, eyeH, "create controller model swapchain",
-                            &ctx->modelSwapchain, &ctx->modelImages, &ctx->modelImageViews,
-                            &ctx->modelImageCount)) {
-        return 0;
+    // Native (lane eye-swapchains): a swapchain per eye, as the room's
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        if (!createArtSwapchain(ctx, eyeW, eyeH, "create controller model swapchain", &ctx->modelSwapchain[eye],
+                                &ctx->modelImages[eye], &ctx->modelImageViews[eye], &ctx->modelImageCount[eye])) {
+            return 0;
+        }
     }
-    LOGEV("swapchains alive %d with the controller models'", ctx->swapchainsAlive);
+    LOGEV("swapchains alive %d with the controller models' two (one per eye)", ctx->swapchainsAlive);
     // Native: the textured pair's own pipeline when that is what loaded
     mlxr_passes_warm(ctx->passes, ctx->model && ctx->model->textured ? MLXR_PASS_MODEL_TEX : MLXR_PASS_MODEL,
                      MLXR_VIDEO_YUV420P, VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_D32_SFLOAT);
@@ -55,7 +57,7 @@ static int initModelPass(XrCtx* ctx) {
     ctx->modelEyeHeight = eyeH;
     ctx->modelPassReady = 1;
     ctx->modelPassFailed = 0;
-    LOGEV("controller model pass ready at %dx%d per eye", eyeW, eyeH);
+    LOGEV("controller model pass ready at %dx%d per eye, a swapchain each", eyeW, eyeH);
     return 1;
 }
 
@@ -253,25 +255,19 @@ static void frameModelKnobs(float* gain, int* view) {
 
 // Both eyes, each shown model at its grip, over a clear to nothing (native:
 // the pass itself, into any target; renderControllerModels and the snapshot
-// tool both draw through it)
-static void modelRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat format, VkImageView depth,
-                        int eyeW, int eyeH, const XrView* views, int clear) {
-    MlxrTarget t;
-    memset(&t, 0, sizeof(t));
-    t.view = colour;
-    t.format = format;
-    t.rect.extent = (VkExtent2D){ (uint32_t)(eyeW * ROOM_EYES), (uint32_t)eyeH };
-    t.clear = clear;
+// tool both draw through it). Native (lane eye-swapchains): an image per eye
+// is a pass each, the depth cleared again between them; the halves of one
+// image are one pass.
+static void modelRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, const XrView* views,
+                        int clear) {
     MlxrModelParams mp;
     memset(&mp, 0, sizeof(mp));
     mlxr_model_fill(ctx->model, &mp);
-    mp.eyes = ROOM_EYES;
+    float viewProj[ROOM_EYES][16];
     for (int eye = 0; eye < ROOM_EYES; eye++) {
         // Near enough for a controller held up to the face, and nothing it
         // draws is ever far off
-        roomEyeViewProj(mp.viewProj[eye], views[eye].fov, views[eye].pose, ROOM_FAR_MIN_M);
-        mp.eyeRect[eye].offset.x = eye * eyeW;
-        mp.eyeRect[eye].extent = (VkExtent2D){ (uint32_t)eyeW, (uint32_t)eyeH };
+        roomEyeViewProj(viewProj[eye], views[eye].fov, views[eye].pose, ROOM_FAR_MIN_M);
     }
     for (int h = 0; h < HAND_COUNT; h++) {
         mp.shown[h] = ctx->modelShown[h];
@@ -292,40 +288,65 @@ static void modelRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkF
             }
         }
     }
-    mp.depth = depth;
+    mp.depth = target->depthView;
     mp.depthFormat = VK_FORMAT_D32_SFLOAT;
     mp.over = !clear;
     if (mp.textured) {
         frameModelKnobs(&mp.gain, &mp.debugView);
     }
-    mlxr_pass_model(ctx->passes, cmd, &t, &mp);
+    int shared = xrEyesShared(target);
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        MlxrTarget t = xrEyeTarget(target, eye);
+        t.clear = clear;
+        if (shared) {
+            t.rect.extent.width = (uint32_t)(target->eyeW * ROOM_EYES);
+            mp.eyes = ROOM_EYES;
+            for (int e = 0; e < ROOM_EYES; e++) {
+                memcpy(mp.viewProj[e], viewProj[e], sizeof(viewProj[e]));
+                mp.eyeRect[e].offset.x = target->x[e];
+                mp.eyeRect[e].offset.y = 0;
+                mp.eyeRect[e].extent = (VkExtent2D){ (uint32_t)target->eyeW, (uint32_t)target->eyeH };
+            }
+        }
+        else {
+            if (eye > 0 && target->depthImage != VK_NULL_HANDLE) {
+                mlxr_barrier(cmd, target->depthImage, VK_IMAGE_ASPECT_DEPTH_BIT,
+                             VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                             VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            }
+            mp.eyes = 1;
+            memcpy(mp.viewProj[0], viewProj[eye], sizeof(viewProj[eye]));
+            mp.eyeRect[0] = t.rect;
+        }
+        mlxr_pass_model(ctx->passes, cmd, &t, &mp);
+        if (shared) {
+            break;
+        }
+    }
 }
 
-void xrModelRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat format, VkImageView depth,
-                   int eyeW, int eyeH, const XrView* views) {
-    modelRecord(ctx, cmd, colour, format, depth, eyeW, eyeH, views, 1);
+void xrModelRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, const XrView* views) {
+    modelRecord(ctx, cmd, target, views, 1);
 }
 
 // Native: the models over an image another layer already drew this frame (the
 // picture's or the room's: one projection layer a frame, xrWorldPlanLayers),
 // from that layer's views and at its size. The depth is cleared for them, so
 // they go over what is there, as their own layer used to.
-void xrModelRecordOver(XrCtx* ctx, VkCommandBuffer cmd, VkImage image, VkImageView colour, VkFormat format, int eyeW,
-                       int eyeH, const XrView* views) {
+void xrModelRecordOver(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, const XrView* views) {
     if (!ctx->modelsShowing || ctx->model == NULL || cmd == VK_NULL_HANDLE) {
         return;
     }
     mlxr_passes_warm(ctx->passes, ctx->model->textured ? MLXR_PASS_MODEL_TEX : MLXR_PASS_MODEL, MLXR_VIDEO_YUV420P,
-                     format, VK_FORMAT_D32_SFLOAT);
-    VkImageView depth = xrWorldDepth(ctx, eyeW * ROOM_EYES, eyeH);
-    if (depth == VK_NULL_HANDLE) {
+                     target->format, VK_FORMAT_D32_SFLOAT);
+    XrEyeTargets t = *target;
+    if (!xrEyesWorldDepth(ctx, &t)) {
         return;
     }
-    // After the draws already in the image
-    mlxr_barrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    // After the draws already in the images
+    xrEyesBarrier(cmd, &t);
     xrGpuTimeBegin(ctx, GPU_MODELS);
-    modelRecord(ctx, cmd, colour, format, depth, eyeW, eyeH, views, 0);
+    modelRecord(ctx, cmd, &t, views, 0);
     xrGpuTimeEnd(ctx, GPU_MODELS);
     ctx->modelRendered = 1;
 }
@@ -338,20 +359,35 @@ void renderControllerModels(XrCtx* ctx) {
             || !locateModelViews(ctx)) {
         return;
     }
-    uint32_t index = 0;
-    if (!xrArtAcquire(ctx->modelSwapchain, "acquire controller model image", &index)) {
-        return;
+    // Native (lane eye-swapchains): an image of each eye's swapchain
+    uint32_t index[ROOM_EYES] = { 0, 0 };
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        if (!xrArtAcquire(ctx->modelSwapchain[eye], "acquire controller model image", &index[eye])) {
+            if (eye > 0) {
+                XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+                xrReleaseSwapchainImage(ctx->modelSwapchain[0], &rl);
+            }
+            return;
+        }
     }
     VkCommandBuffer cmd = ctx->frameCmd;
+    VkImage images[ROOM_EYES];
+    VkImageView views[ROOM_EYES];
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        images[eye] = ctx->modelImages[eye][index[eye]].image;
+        views[eye] = ctx->modelImageViews[eye][index[eye]];
+    }
+    XrEyeTargets tg = xrEyesPerImage(images, views, VK_FORMAT_R8G8B8A8_SRGB, ctx->modelEyeWidth,
+                                     ctx->modelEyeHeight);
     xrGpuTimeBegin(ctx, GPU_MODELS);
-    mlxr_barrier(cmd, ctx->modelImages[index].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    VkImageView depth = xrWorldDepth(ctx, ctx->modelEyeWidth * ROOM_EYES, ctx->modelEyeHeight);
-    if (depth != VK_NULL_HANDLE) {
-        xrModelRecord(ctx, cmd, ctx->modelImageViews[index], VK_FORMAT_R8G8B8A8_SRGB, depth, ctx->modelEyeWidth,
-                      ctx->modelEyeHeight, ctx->modelViews);
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        mlxr_barrier(cmd, images[eye], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    }
+    if (xrEyesWorldDepth(ctx, &tg)) {
+        xrModelRecord(ctx, cmd, &tg, ctx->modelViews);
     }
     xrGpuTimeEnd(ctx, GPU_MODELS);
-    ctx->modelAcquired = 1;
+    ctx->modelAcquired = (1 << ROOM_EYES) - 1;
     ctx->modelRendered = 1;
 }

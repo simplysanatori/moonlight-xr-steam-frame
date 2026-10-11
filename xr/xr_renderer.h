@@ -494,10 +494,13 @@ typedef struct XrCtx {
     // Everything the room is drawn with (xr_room.c). Native: the resident
     // room is rooms/room_gpu's MlxrRoom, loaded off the frame loop
     // (struct XrRoomLoader), in place of the GL buffers and textures.
-    XrSwapchain roomSwapchain;
-    uint32_t roomImageCount;
-    XrSwapchainImageVulkan2KHR* roomImages;
-    VkImageView* roomImageViews;
+    // Native (lane eye-swapchains): a swapchain per eye, each roomEyeWidth x
+    // roomEyeHeight (SteamVR downsamples a texture past 3458 px; both eyes
+    // side by side went past it)
+    XrSwapchain roomSwapchain[ROOM_EYES];
+    uint32_t roomImageCount[ROOM_EYES];
+    XrSwapchainImageVulkan2KHR* roomImages[ROOM_EYES];
+    VkImageView* roomImageViews[ROOM_EYES];
     struct MlxrRoom* room;
     struct XrRoomLoader* roomLoader;
     float roomTexMix;
@@ -511,7 +514,7 @@ typedef struct XrCtx {
     int roomReady;
     int roomFailed;
     int roomRendered;
-    int roomAcquired;
+    int roomAcquired;           // native: a bit per eye's swapchain
     float roomSpillGain;
     float roomFarZ;
     float roomClear[3];
@@ -827,10 +830,11 @@ typedef struct XrCtx {
     struct MlxrModel* model;
     int modelPassReady;
     int modelPassFailed;
-    XrSwapchain modelSwapchain;
-    uint32_t modelImageCount;
-    XrSwapchainImageVulkan2KHR* modelImages;
-    VkImageView* modelImageViews;
+    // Native (lane eye-swapchains): a swapchain per eye, as the room's
+    XrSwapchain modelSwapchain[ROOM_EYES];
+    uint32_t modelImageCount[ROOM_EYES];
+    XrSwapchainImageVulkan2KHR* modelImages[ROOM_EYES];
+    VkImageView* modelImageViews[ROOM_EYES];
     int modelEyeWidth;
     int modelEyeHeight;
     int modelShown[HAND_COUNT];
@@ -842,7 +846,7 @@ typedef struct XrCtx {
     float modelInput[HAND_COUNT][24];
     XrView modelViews[ROOM_EYES];
     int modelRendered;
-    int modelAcquired;
+    int modelAcquired;          // native: a bit per eye's swapchain
     int modelsSaid;
     int modelsShowing;
     XrAction gripAction;

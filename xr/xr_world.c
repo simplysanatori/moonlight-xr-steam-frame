@@ -209,6 +209,96 @@ VkImageView xrWorldDepth(XrCtx* ctx, int w, int h) {
     return d->view;
 }
 
+// ---- native (lane eye-swapchains): an image per eye ---------------------------------------
+
+XrEyeTargets xrEyesPerImage(const VkImage image[ROOM_EYES], const VkImageView view[ROOM_EYES], VkFormat format,
+                            int eyeW, int eyeH) {
+    XrEyeTargets t;
+    memset(&t, 0, sizeof(t));
+    for (int e = 0; e < ROOM_EYES; e++) {
+        t.image[e] = image[e];
+        t.view[e] = view[e];
+    }
+    t.format = format;
+    t.eyeW = eyeW;
+    t.eyeH = eyeH;
+    return t;
+}
+
+XrEyeTargets xrEyesSideBySide(VkImage image, VkImageView view, VkFormat format, int eyeW, int eyeH) {
+    XrEyeTargets t;
+    memset(&t, 0, sizeof(t));
+    for (int e = 0; e < ROOM_EYES; e++) {
+        t.image[e] = image;
+        t.view[e] = view;
+        t.x[e] = e * eyeW;
+    }
+    t.format = format;
+    t.eyeW = eyeW;
+    t.eyeH = eyeH;
+    return t;
+}
+
+int xrEyesShared(const XrEyeTargets* t) {
+    return t->view[0] == t->view[1];
+}
+
+MlxrTarget xrEyeTarget(const XrEyeTargets* t, int eye) {
+    MlxrTarget m;
+    memset(&m, 0, sizeof(m));
+    m.view = t->view[eye];
+    m.format = t->format;
+    m.rect.offset.x = t->x[eye];
+    m.rect.extent = (VkExtent2D){ (uint32_t)t->eyeW, (uint32_t)t->eyeH };
+    m.clear = t->clear;
+    return m;
+}
+
+void xrEyesBarrier(VkCommandBuffer cmd, const XrEyeTargets* t) {
+    for (int e = 0; e < ROOM_EYES; e++) {
+        if (t->image[e] != VK_NULL_HANDLE && (e == 0 || t->image[e] != t->image[0])) {
+            mlxr_barrier(cmd, t->image[e], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        }
+    }
+}
+
+int xrEyesWorldDepth(XrCtx* ctx, XrEyeTargets* t) {
+    int w = xrEyesShared(t) ? t->eyeW * ROOM_EYES : t->eyeW;
+    t->depthView = xrWorldDepth(ctx, w, t->eyeH);
+    t->depthImage = t->depthView != VK_NULL_HANDLE ? ctx->worldDepth.image : VK_NULL_HANDLE;
+    return t->depthView != VK_NULL_HANDLE;
+}
+
+void xrEyesPanel(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* t, const MlxrPanelParams* pp,
+                 const VkImageView* src) {
+    MlxrPanelParams p = *pp;
+    if (xrEyesShared(t) && (src == NULL || src[0] == src[1])) {
+        // Both halves of one image in one pass, as before
+        MlxrTarget whole = xrEyeTarget(t, 0);
+        whole.rect.extent.width = (uint32_t)(t->eyeW * ROOM_EYES);
+        p.eyes = ROOM_EYES;
+        if (src != NULL) p.src = src[0];
+        for (int e = 0; e < ROOM_EYES; e++) {
+            p.eyeRect[e].offset.x = t->x[e];
+            p.eyeRect[e].offset.y = 0;
+            p.eyeRect[e].extent = (VkExtent2D){ (uint32_t)t->eyeW, (uint32_t)t->eyeH };
+        }
+        mlxr_pass_panel(ctx->passes, cmd, &whole, &p);
+        return;
+    }
+    // An eye at a time, each into its own image (or its own half)
+    for (int e = 0; e < ROOM_EYES; e++) {
+        MlxrTarget one = xrEyeTarget(t, e);
+        p.eyes = 1;
+        p.src = src != NULL ? src[e] : pp->src;
+        memcpy(p.mvp[0], pp->mvp[e], sizeof(p.mvp[0]));
+        memcpy(p.uvRect[0], pp->uvRect[e], sizeof(p.uvRect[0]));
+        p.eyeRect[0] = one.rect;
+        mlxr_pass_panel(ctx->passes, cmd, &one, &p);
+    }
+}
+
 // ---- uploads and retirement ------------------------------------------------------------
 
 // Native, called by the room's loader hand off and the model's load
@@ -507,14 +597,17 @@ void xrWorldFrameBegin(XrCtx* ctx) {
 
 void xrWorldReleaseImages(XrCtx* ctx) {
     XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
-    if (ctx->roomAcquired) {
-        checkXr(xrReleaseSwapchainImage(ctx->roomSwapchain, &rl), "release room image");
-        ctx->roomAcquired = 0;
+    // Native (lane eye-swapchains): an image of each eye's swapchain
+    for (int e = 0; e < ROOM_EYES; e++) {
+        if (ctx->roomAcquired & (1 << e)) {
+            checkXr(xrReleaseSwapchainImage(ctx->roomSwapchain[e], &rl), "release room image");
+        }
+        if (ctx->modelAcquired & (1 << e)) {
+            checkXr(xrReleaseSwapchainImage(ctx->modelSwapchain[e], &rl), "release controller model image");
+        }
     }
-    if (ctx->modelAcquired) {
-        checkXr(xrReleaseSwapchainImage(ctx->modelSwapchain, &rl), "release controller model image");
-        ctx->modelAcquired = 0;
-    }
+    ctx->roomAcquired = 0;
+    ctx->modelAcquired = 0;
     if (ctx->glowAcquired) {
         checkXr(xrReleaseSwapchainImage(ctx->glowSwapchain, &rl), "release glow image");
         ctx->glowAcquired = 0;
@@ -538,9 +631,12 @@ void xrWorldDestroy(XrCtx* ctx) {
         ctx->model = NULL;
     }
     ctx->modelReady = 0;
-    destroyArtSwapchain(ctx, &ctx->roomSwapchain, &ctx->roomImages, &ctx->roomImageViews, &ctx->roomImageCount);
-    destroyArtSwapchain(ctx, &ctx->modelSwapchain, &ctx->modelImages, &ctx->modelImageViews,
-                        &ctx->modelImageCount);
+    for (int e = 0; e < ROOM_EYES; e++) {
+        destroyArtSwapchain(ctx, &ctx->roomSwapchain[e], &ctx->roomImages[e], &ctx->roomImageViews[e],
+                            &ctx->roomImageCount[e]);
+        destroyArtSwapchain(ctx, &ctx->modelSwapchain[e], &ctx->modelImages[e], &ctx->modelImageViews[e],
+                            &ctx->modelImageCount[e]);
+    }
     destroyArtSwapchain(ctx, &ctx->glowSwapchain, &ctx->glowImages, NULL, &ctx->glowImageCount);
     xrVkImageFree(ctx, &ctx->worldDepth);
     xrVkImageFree(ctx, &ctx->ambiTexture);
@@ -676,7 +772,7 @@ void xrWorldFlatGlow(XrCtx* ctx, int curved) {
 
 // Upstream's curved glow (addGlowLayer's cylinder): the same axis as the
 // picture, a little inside its radius, GLOW_SCALE times its angle and height
-void xrWorldCurvedGlow(XrCtx* ctx, const MlxrTarget* target, const XrView* views, int eyeW, int eyeH) {
+void xrWorldCurvedGlow(XrCtx* ctx, const XrEyeTargets* target, const XrView* views) {
     float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
     float fit = cylinderFit(ctx->screenWidth, ctx->screenRadius);
     GlowCylinder shape;
@@ -686,7 +782,6 @@ void xrWorldCurvedGlow(XrCtx* ctx, const MlxrTarget* target, const XrView* views
     MlxrPanelParams pp;
     memset(&pp, 0, sizeof(pp));
     pp.src = ctx->glowTexture.view;
-    pp.eyes = 2;
     pp.width = shape.radius * shape.centralAngle;
     pp.height = pp.width / shape.aspectRatio;
     pp.radius = shape.radius;
@@ -701,22 +796,20 @@ void xrWorldCurvedGlow(XrCtx* ctx, const MlxrTarget* target, const XrView* views
     surface.position.z += off.z;
     for (int e = 0; e < 2; e++) {
         xrCurveMvp(views[e].fov, views[e].pose, surface, pp.mvp[e]);
-        pp.eyeRect[e].offset.x = e * eyeW;
-        pp.eyeRect[e].extent = (VkExtent2D){ (uint32_t)eyeW, (uint32_t)eyeH };
         pp.uvRect[e][0] = (float)shape.rectX / GLOW_TEX;
         pp.uvRect[e][1] = 0.0f;
         pp.uvRect[e][2] = (float)shape.rectWidth / GLOW_TEX;
         pp.uvRect[e][3] = 1.0f;
     }
-    mlxr_pass_panel(ctx->passes, ctx->frameCmd, target, &pp);
+    // Native (lane eye-swapchains): each eye into its own image
+    xrEyesPanel(ctx, ctx->frameCmd, target, &pp, NULL);
 }
 
-void xrWorldFlatGlowInto(XrCtx* ctx, const MlxrTarget* target, const XrView* views, int eyeW, int eyeH) {
+void xrWorldFlatGlowInto(XrCtx* ctx, const XrEyeTargets* target, const XrView* views) {
     float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
     MlxrPanelParams pp;
     memset(&pp, 0, sizeof(pp));
     pp.src = ctx->glowTexture.view;
-    pp.eyes = 2;
     // The glow quad's size and place (addGlowLayer), flat
     pp.width = ctx->screenWidth * GLOW_SCALE;
     pp.height = ctx->screenWidth * aspect * GLOW_SCALE;
@@ -725,14 +818,12 @@ void xrWorldFlatGlowInto(XrCtx* ctx, const MlxrTarget* target, const XrView* vie
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
     for (int e = 0; e < 2; e++) {
         xrCurveMvp(views[e].fov, views[e].pose, ctx->screenPose, pp.mvp[e]);
-        pp.eyeRect[e].offset.x = e * eyeW;
-        pp.eyeRect[e].extent = (VkExtent2D){ (uint32_t)eyeW, (uint32_t)eyeH };
         pp.uvRect[e][0] = 0.0f;
         pp.uvRect[e][1] = 0.0f;
         pp.uvRect[e][2] = 1.0f;
         pp.uvRect[e][3] = 1.0f;
     }
-    mlxr_pass_panel(ctx->passes, ctx->frameCmd, target, &pp);
+    xrEyesPanel(ctx, ctx->frameCmd, target, &pp, NULL);
 }
 
 // ---- the click --------------------------------------------------------------------------------

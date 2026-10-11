@@ -16,7 +16,8 @@
 //                buffers, keyed by the frame's timeline value; the upsample
 //                and the offset search; what each eye's warp takes
 //   frame loop   xrDepthRecordWarp: one mlxr_pass_warp per eye into the
-//                halves of a double wide target
+//                halves of a double wide target; xrDepthRecordWarpEyes
+//                (native, lane eye-swapchains) into an image per eye
 //   frame loop   xrDepthSubmitted after the submission: the captures it
 //                carries go to the stage thread
 //   stage thread waits for the timeline value, mlxr_depth_submit()s the
@@ -100,6 +101,10 @@ void xrDepthPicture(XrCtx* ctx, const MlxrVideo* video, int newFrame, uint64_t f
 // common carries the video, the grade, the tint and the sharpening.
 void xrDepthRecordWarp(XrCtx* ctx, VkCommandBuffer cmd, const MlxrTarget* target, const MlxrWarpParams* common,
                        const XrDepthDraw* draw);
+// Native (lane eye-swapchains): the same with each eye's own target (eye e
+// into eyes[e], an image of its own for the curved and 3D picture)
+void xrDepthRecordWarpEyes(XrCtx* ctx, VkCommandBuffer cmd, const MlxrTarget eyes[2], const MlxrWarpParams* common,
+                           const XrDepthDraw* draw);
 
 // After the frame's submission that signalled serial on ctx->gpuTimeline:
 // the captures it recorded go to the stage thread

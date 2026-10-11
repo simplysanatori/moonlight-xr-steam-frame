@@ -172,6 +172,14 @@ int xrPictureCurved(XrCtx* ctx);
 // quad layer seen by one eye only (XR_EYE_VISIBILITY_LEFT/RIGHT)
 int xrPictureProjected(XrCtx* ctx);
 void xrCurveMvp(XrFovf fov, XrPosef eye, XrPosef surface, float* mvp);
+// Native (lane eye-swapchains): one view of a projection layer showing the
+// whole eyeW x eyeH image of that eye's own swapchain
+void xrProjectionEye(XrCompositionLayerProjectionView* out, const XrView* view, XrSwapchain chain, int eyeW,
+                     int eyeH);
+// Native (lane eye-swapchains): 1 when the layer's two views name two
+// different swapchains and neither eye's rect reaches past SteamVR's 3458
+// (STEAMVR_TEXTURE_MAX), which it would downsample every frame
+int xrProjectionEyesOwn(const XrCompositionLayerProjection* layer);
 
 // ---- for the tests (xr_input.c) ----------------------------------------------
 // What one ray in the local space lands on through the frame's hover pass

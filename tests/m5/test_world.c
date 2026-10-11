@@ -136,15 +136,40 @@ typedef struct {
     int eyeW, eyeH;
     XrView views[2];
     double meanLuma;
+    // Native (lane eye-swapchains): an image per eye (as the session's
+    // swapchains) instead of colour side by side; depth eyeW x eyeH then
+    int perEye;
+    M5Image eye[2];
 } RoomShot;
+
+// Where a shot is drawn, its images moved to COLOR_ATTACHMENT (and the depth)
+static XrEyeTargets shotTargets(RoomShot* r, VkCommandBuffer cmd) {
+    XrEyeTargets t;
+    if (r->perEye) {
+        VkImage im[2] = { r->eye[0].img.image, r->eye[1].img.image };
+        VkImageView v[2] = { r->eye[0].img.view, r->eye[1].img.view };
+        t = xrEyesPerImage(im, v, VK_FORMAT_R8G8B8A8_SRGB, r->eyeW, r->eyeH);
+    }
+    else {
+        t = xrEyesSideBySide(r->colour.img.image, r->colour.img.view, VK_FORMAT_R8G8B8A8_SRGB, r->eyeW, r->eyeH);
+    }
+    for (int e = 0; e < (r->perEye ? 2 : 1); e++) {
+        mlxr_barrier(cmd, t.image[e], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    }
+    if (r->depth.img.image != VK_NULL_HANDLE) {
+        mlxr_barrier(cmd, r->depth.img.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        t.depthImage = r->depth.img.image;
+        t.depthView = r->depth.img.view;
+    }
+    return t;
+}
 
 static void drawRoomBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
     RoomShot* r = user;
-    mlxr_barrier(cmd, r->colour.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    mlxr_barrier(cmd, r->depth.img.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    xrRoomRecord(ctx, cmd, r->colour.img.view, VK_FORMAT_R8G8B8A8_SRGB, r->depth.img.view, r->eyeW, r->eyeH, r->views);
+    XrEyeTargets t = shotTargets(r, cmd);
+    xrRoomRecord(ctx, cmd, &t, r->views);
 }
 
 // ---- leaks ------------------------------------------------------------------------------
@@ -292,12 +317,8 @@ static double timePass(XrCtx* c, Timer* t, PassFn fn, void* user) {
 
 static void modelsBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
     RoomShot* r = user;
-    mlxr_barrier(cmd, r->colour.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    mlxr_barrier(cmd, r->depth.img.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    xrModelRecord(ctx, cmd, r->colour.img.view, VK_FORMAT_R8G8B8A8_SRGB, r->depth.img.view, r->eyeW, r->eyeH,
-                  r->views);
+    XrEyeTargets t = shotTargets(r, cmd);
+    xrModelRecord(ctx, cmd, &t, r->views);
 }
 
 static M5Video video;
@@ -342,27 +363,19 @@ typedef struct {
 static void curveBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
     CurveShot* cs = user;
     RoomShot* r = cs->shot;
-    mlxr_barrier(cmd, r->colour.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    MlxrTarget tg;
-    memset(&tg, 0, sizeof(tg));
-    tg.view = r->colour.img.view;
-    tg.format = VK_FORMAT_R8G8B8A8_SRGB;
-    tg.rect.extent = (VkExtent2D){ (uint32_t)r->eyeW * 2, (uint32_t)r->eyeH };
+    XrEyeTargets tg = shotTargets(r, cmd);
     tg.clear = 1;
     // The glow then the picture, as curveRecord draws them
     ctx->screenPose.orientation.w = 1.0f;
     ctx->screenPose.position.z = -2.5f;
     ctx->screenWidth = 3.0f;
     ctx->screenRadius = 4.0f;
-    xrWorldCurvedGlow(ctx, &tg, r->views, r->eyeW, r->eyeH);
+    xrWorldCurvedGlow(ctx, &tg, r->views);
     tg.clear = 0;
-    mlxr_barrier(cmd, r->colour.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    xrEyesBarrier(cmd, &tg);
     MlxrPanelParams pp;
     memset(&pp, 0, sizeof(pp));
     pp.src = cs->src;
-    pp.eyes = 2;
     pp.width = 3.0f;
     pp.height = 3.0f * 9.0f / 16.0f;
     pp.radius = 4.0f;
@@ -370,11 +383,9 @@ static void curveBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
     for (int e = 0; e < 2; e++) {
         xrCurveMvp(r->views[e].fov, r->views[e].pose, ctx->screenPose, pp.mvp[e]);
-        pp.eyeRect[e].offset.x = e * r->eyeW;
-        pp.eyeRect[e].extent = (VkExtent2D){ (uint32_t)r->eyeW, (uint32_t)r->eyeH };
         pp.uvRect[e][2] = pp.uvRect[e][3] = 1.0f;
     }
-    mlxr_pass_panel(ctx->passes, cmd, &tg, &pp);
+    xrEyesPanel(ctx, cmd, &tg, &pp, NULL);
 }
 
 static void twoColour(float u, float v, float out[3]);
@@ -895,7 +906,10 @@ static void frameModelBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     mlxr_barrier(cmd, s->depth.img.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                  VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    xrModelRecord(ctx, cmd, s->colour.img.view, VK_FORMAT_R8G8B8A8_SRGB, s->depth.img.view, s->w, s->h, s->views);
+    XrEyeTargets t = xrEyesSideBySide(s->colour.img.image, s->colour.img.view, VK_FORMAT_R8G8B8A8_SRGB, s->w, s->h);
+    t.depthImage = s->depth.img.image;
+    t.depthView = s->depth.img.view;
+    xrModelRecord(ctx, cmd, &t, s->views);
 }
 
 // Mean red and blue of the drawn pixels of the left eye with only `hand` shown at the grip
@@ -1049,6 +1063,159 @@ static void frameModelsGroup(void) {
     unloadWith(c);
 }
 
+// ---- native (lane eye-swapchains): an image per eye ---------------------------------------
+// The session draws every projection layer into a swapchain per eye (SteamVR
+// downsamples a texture past 3458 px, and two 2160 eyes side by side are 4320).
+// Each pass drawn that way must give the very pixels the side by side draw
+// gave each half, and cost no more.
+
+static void shotMake(XrCtx* c, RoomShot* r, int w, int h, int perEye) {
+    memset(r, 0, sizeof(*r));
+    r->eyeW = w;
+    r->eyeH = h;
+    r->perEye = perEye;
+    VkImageUsageFlags u = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    if (perEye) {
+        for (int e = 0; e < 2; e++) m5_image(&g, c, &r->eye[e], w, h, VK_FORMAT_R8G8B8A8_SRGB, u, VK_IMAGE_ASPECT_COLOR_BIT);
+    }
+    else {
+        m5_image(&g, c, &r->colour, 2 * w, h, VK_FORMAT_R8G8B8A8_SRGB, u, VK_IMAGE_ASPECT_COLOR_BIT);
+    }
+    m5_image(&g, c, &r->depth, perEye ? w : 2 * w, h, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+             VK_IMAGE_ASPECT_DEPTH_BIT);
+    r->views[0] = m5_view(100.0f, w, h, -0.032f);
+    r->views[1] = m5_view(100.0f, w, h, 0.032f);
+}
+
+static void shotFree(XrCtx* c, RoomShot* r) {
+    m5_image_free(c, &r->colour);
+    m5_image_free(c, &r->eye[0]);
+    m5_image_free(c, &r->eye[1]);
+    m5_image_free(c, &r->depth);
+}
+
+static void runOnce(XrCtx* c, PassFn fn, void* user) {
+    VkCommandBuffer cmd = m5_begin(&g);
+    c->frameCmd = cmd;
+    fn(c, cmd, user);
+    c->frameCmd = VK_NULL_HANDLE;
+    m5_submit(&g, cmd, NULL, 0);
+}
+
+// Each eye of the per eye shot against its half of the side by side one: the
+// largest channel difference, the pixels drawn (alpha or colour above the
+// clear) and the largest difference between an eye and the other half
+static void compareEyes(RoomShot* side, RoomShot* per, int* maxDiff, long* drawn, int* crossDiff) {
+    int w = side->eyeW, h = side->eyeH;
+    uint8_t* a = malloc((size_t)2 * w * h * 4);
+    uint8_t* b = malloc((size_t)w * h * 4);
+    m5_readback(&g, side->colour.img.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 2 * w, h, a);
+    *maxDiff = 0;
+    *drawn = 0;
+    *crossDiff = 0;
+    for (int e = 0; e < 2; e++) {
+        m5_readback(&g, per->eye[e].img.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, w, h, b);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                const uint8_t* p = b + ((size_t)y * w + x) * 4;
+                const uint8_t* q = a + ((size_t)y * 2 * w + e * w + x) * 4;
+                const uint8_t* o = a + ((size_t)y * 2 * w + (1 - e) * w + x) * 4;
+                if (p[3] > 8 || p[0] + p[1] + p[2] > 24) (*drawn)++;
+                for (int k = 0; k < 4; k++) {
+                    int d = abs(p[k] - q[k]), od = abs(p[k] - o[k]);
+                    if (d > *maxDiff) *maxDiff = d;
+                    if (od > *crossDiff) *crossDiff = od;
+                }
+            }
+        }
+    }
+    free(a);
+    free(b);
+}
+
+static void eyeImagesGroup(void) {
+    XrCtx* c = newCtx();
+    m5_frame(&g, c, NULL, NULL);
+    m5_video(&g, c, &video, 1920, 1080, twoColour);
+    c->ambilightOn = 1;
+    c->ambiIntensity = 0.6f;
+    for (int f = 0; f < 3; f++) m5_frame(&g, c, glowBody, NULL);
+    c->ambiSeeded = 1;
+    c->roomLightOn = 1;
+    xrSetEnvironment(c, roomCellForStyle(ROOM_STYLE_THEATER));
+    untilBuilt(c, ROOM_STYLE_THEATER, NULL);
+    c->modelOn = 1;
+    m5_frame(&g, c, NULL, NULL);
+    c->modelShown[0] = c->modelShown[1] = 1;
+    Vec3 ax = { 1, 0, 0 };
+    c->modelGrip[0] = (XrPosef){ axisAngleQuat(ax, -0.5f), { -0.18f, -0.22f, -0.45f } };
+    c->modelGrip[1] = (XrPosef){ axisAngleQuat(ax, -0.5f), { 0.20f, -0.20f, -0.50f } };
+    WarpShot pic;
+    memset(&pic, 0, sizeof(pic));
+    pic.w = 1920;
+    pic.h = 1080;
+    m5_image(&g, c, &pic.target, 1920, 1080, VK_FORMAT_R8G8B8A8_UNORM,
+             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+    {
+        VkCommandBuffer cmd = m5_begin(&g);
+        c->frameCmd = cmd;
+        warpBody(c, cmd, &pic);
+        mlxr_barrier(cmd, pic.target.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        c->frameCmd = VK_NULL_HANDLE;
+        m5_submit(&g, cmd, NULL, 0);
+    }
+
+    // The same pixels, an eye at a time into its own image
+    const char* names[3] = { "room (home theater)", "controller models", "curved picture + glow" };
+    PassFn fns[3] = { drawRoomBody, modelsBody, curveBody };
+    RoomShot side, per;
+    shotMake(c, &side, 480, 432, 0);
+    shotMake(c, &per, 480, 432, 1);
+    printf("an image per eye against the halves of one image (480x432 an eye):\n");
+    for (int k = 0; k < 3; k++) {
+        CurveShot cs[2] = { { &side, pic.target.img.view }, { &per, pic.target.img.view } };
+        runOnce(c, fns[k], k == 2 ? (void*)&cs[0] : (void*)&side);
+        runOnce(c, fns[k], k == 2 ? (void*)&cs[1] : (void*)&per);
+        int maxDiff, crossDiff;
+        long drawn;
+        compareEyes(&side, &per, &maxDiff, &drawn, &crossDiff);
+        printf("  %-24s max diff %d, %ld pixels drawn, the other eye's half differs by up to %d\n", names[k],
+               maxDiff, drawn, crossDiff);
+        CHECK(maxDiff <= 2);
+        CHECK(drawn > 1000);
+        // each eye drawn from its own view, not the other's
+        CHECK(crossDiff > 16);
+    }
+    shotFree(c, &side);
+    shotFree(c, &per);
+
+    // The cost at the Frame's 2160 an eye: each eye drawn once either way
+    Timer t;
+    VkQueryPoolCreateInfo qi = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+    qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    qi.queryCount = 2;
+    vkCreateQueryPool(g.vk.device, &qi, NULL, &t.q);
+    t.tickNs = g.props.limits.timestampPeriod;
+    shotMake(c, &side, 2160, 2160, 0);
+    shotMake(c, &per, 2160, 2160, 1);
+    printf("GPU time at 2160x2160 an eye, median of 25 (side by side 4320 wide / an image per eye):\n");
+    for (int k = 0; k < 3; k++) {
+        CurveShot cs[2] = { { &side, pic.target.img.view }, { &per, pic.target.img.view } };
+        double a = timePass(c, &t, fns[k], k == 2 ? (void*)&cs[0] : (void*)&side);
+        double b = timePass(c, &t, fns[k], k == 2 ? (void*)&cs[1] : (void*)&per);
+        printf("  %-24s %.3f ms / %.3f ms\n", names[k], a, b);
+        CHECK(b <= a * 1.3 + 0.3);
+    }
+    shotFree(c, &side);
+    shotFree(c, &per);
+    vkDestroyQueryPool(g.vk.device, t.q, NULL);
+    m5_image_free(c, &pic.target);
+    m5_video_free(c, &video);
+    xrWorldDestroy(c);
+    free(c);
+}
+
 int main(int argc, char** argv) {
     const char* grp = argc > 1 ? argv[1] : "all";
     int all = !strcmp(grp, "all");
@@ -1062,6 +1229,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(grp, "curve")) curveGroup();
     if (all || !strcmp(grp, "supersample")) supersampleGroup();
     if (all || !strcmp(grp, "frame_models")) frameModelsGroup();
+    if (all || !strcmp(grp, "eye_images")) eyeImagesGroup();
     m5_gpu_free(&g);
     char name[32];
     snprintf(name, sizeof(name), "m5 world %s", grp);

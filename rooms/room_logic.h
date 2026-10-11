@@ -182,18 +182,38 @@ RoomPlacement roomPlacement(int style, float scale, float aspect, int screenPerc
 // ctx): envResTier is an ENV_RES_ value; recommended and max sizes may be 0
 void roomEyeSize(int envResTier, int recommendedW, int recommendedH, int maxW, int maxH, int* outW, int* outH);
 
-// Native: the widest side-by-side projection image SteamVR 2.18 on the Steam
-// Frame hands to its compositor as it is. Its client library downsamples any
-// scene texture past 1.6 x the panel's 2160 + 2 = 3458 pixels, every frame, in
-// a pass of its own inside our process (CDownsampleRenderer, "Setting max
-// texture dimensions to 3458x3458 before requiring downsampling" in
-// xrclient_moonlight-xr.txt). The room at standard took 2 x 1760 = 3520.
-#define ROOM_SCENE_MAX_WIDTH 3456
+// Native: the largest scene texture SteamVR 2.18 on the Steam Frame hands to
+// its compositor as it is. Its client library downsamples any texture past
+// 1.6 x the panel's 2160 + 2 = 3458 pixels, every frame, in a pass of its own
+// inside our process (CDownsampleRenderer, "Setting max texture dimensions to
+// 3458x3458 before requiring downsampling" in xrclient_moonlight-xr.txt). It
+// stayed 3458 with the per-app resolution at 2640 and at 2160.
+// Native (lane eye-swapchains): every projection layer now has a swapchain per
+// eye (the two views of a layer each name their own), so this is a limit on
+// one eye's image. Side by side, both eyes had to share it, which held the room
+// at 1728 per eye and the curved and 3D picture at about 1729.
+#define STEAMVR_TEXTURE_MAX 3458
 
-// Native: the standard tier's eye size brought inside ROOM_SCENE_MAX_WIDTH for
-// both eyes side by side, keeping its aspect. The other tiers are the owner's
-// explicit choice of more pixels and are left as they are.
-void roomEyeFitScene(int envResTier, int* eyeW, int* eyeH);
+// Native (lane eye-swapchains): one eye's size brought inside
+// STEAMVR_TEXTURE_MAX on both sides, keeping its aspect, whatever the tier.
+// Returns 1 when it had to shrink it. (Replaces roomEyeFitScene, which held
+// the standard tier's two eyes side by side inside 3456.)
+int roomEyeFitTexture(int* eyeW, int* eyeH);
+
+// Native (lane eye-swapchains): MLXR_EYE_SCALE, the size of the picture's
+// projection layer per eye as a multiple of the runtime's recommendation.
+// 1 when unset or not a number, else clamped to EYE_SCALE_MIN..EYE_SCALE_MAX.
+#define EYE_SCALE_MIN 0.5f
+#define EYE_SCALE_MAX 1.6f
+float eyeScaleParse(const char* text);
+
+// Native (lane eye-swapchains): the picture's projection layer per eye (the
+// curved picture, the picture in 3D, and the room and the models when they are
+// drawn into it): the runtime's recommendation (1728 when it gave none) times
+// scale, rounded, inside the runtime's maximum when it gave one. Not capped at
+// STEAMVR_TEXTURE_MAX: returns 1 when both sides are within it, 0 when SteamVR
+// will downsample the eye's image each frame.
+int pictureEyeSize(int recW, int recH, int maxW, int maxH, float scale, int* outW, int* outH);
 
 // The view projection for one eye, the way drawRoomEyes builds it
 // (projectionFromFov * viewFromPose, near ROOM_NEAR_M, far farZ)

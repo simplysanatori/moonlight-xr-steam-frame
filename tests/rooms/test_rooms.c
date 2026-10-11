@@ -651,20 +651,38 @@ static void testLogic(void) {
     check(ew == 2800 && eh == 2000, "ultra ignores the recommendation, within the ceiling");
     roomEyeSize(ENV_RES_STANDARD, 0, 0, 0, 0, &ew, &eh);
     check(ew == 1024 && eh == 1024, "no recommendation: 1024");
-    // native: standard brought inside SteamVR's scene width, the others not
+    // native (lane eye-swapchains): an image per eye, so each eye is held
+    // inside SteamVR's 3458 on its own, whatever the tier; the standard tier
+    // is no longer brought down to 1728 for two eyes side by side
+    check(STEAMVR_TEXTURE_MAX == 3458, "the limit is SteamVR's 1.6 x 2160 + 2");
     ew = 1760, eh = 1760;
-    roomEyeFitScene(ENV_RES_STANDARD, &ew, &eh);
-    check(ew * ROOM_EYES <= ROOM_SCENE_MAX_WIDTH && ew == 1728 && eh == 1728, "standard fits the scene width");
-    ew = 1600, eh = 1700;
-    roomEyeFitScene(ENV_RES_STANDARD, &ew, &eh);
-    check(ew == 1600 && eh == 1700, "a standard size inside it is left alone");
-    ew = 1760, eh = 1600;
-    roomEyeFitScene(ENV_RES_STANDARD, &ew, &eh);
-    check(ew == 1728 && eh == 1571, "the aspect is kept");
-    ew = 2560, eh = 2560;
-    roomEyeFitScene(ENV_RES_HIGH, &ew, &eh);
-    check(ew == 2560 && eh == 2560, "high is the owner's choice and left alone");
-    check(3458 - ROOM_SCENE_MAX_WIDTH >= 0 && 3458 - ROOM_SCENE_MAX_WIDTH < 4, "the limit is SteamVR's 1.6 x 2160 + 2");
+    check(roomEyeFitTexture(&ew, &eh) == 0 && ew == 1760 && eh == 1760, "standard at 1760 per eye is left alone");
+    ew = 2800, eh = 2800;
+    check(roomEyeFitTexture(&ew, &eh) == 0 && ew == 2800, "ultra at 2800 per eye fits");
+    ew = 4000, eh = 3000;
+    check(roomEyeFitTexture(&ew, &eh) == 1 && ew == 3458 && eh == 2594, "a wide eye is brought inside, aspect kept");
+    ew = 2000, eh = 4000;
+    check(roomEyeFitTexture(&ew, &eh) == 1 && eh == 3458 && ew == 1729, "a tall eye too");
+    // what each tier gives per eye at the Frame's 2160 recommendation
+    int tiers[4][2] = { { ENV_RES_LOW, 1080 }, { ENV_RES_STANDARD, 1760 }, { ENV_RES_HIGH, 2160 },
+                        { ENV_RES_ULTRA, 2800 } };
+    for (int i = 0; i < 4; i++) {
+        roomEyeSize(tiers[i][0], 2160, 2160, 0, 0, &ew, &eh);
+        roomEyeFitTexture(&ew, &eh);
+        check(ew == tiers[i][1] && eh == tiers[i][1] && ew <= STEAMVR_TEXTURE_MAX, "tier %d at 2160: %d per eye",
+              tiers[i][0], ew);
+    }
+    // MLXR_EYE_SCALE and the picture's eye
+    check(eyeScaleParse(NULL) == 1.0f && eyeScaleParse("") == 1.0f && eyeScaleParse("x") == 1.0f, "scale unset: 1");
+    check(eyeScaleParse("1.25") == 1.25f && eyeScaleParse("0.1") == EYE_SCALE_MIN && eyeScaleParse("9") == EYE_SCALE_MAX,
+          "scale clamped to 0.5..1.6");
+    check(pictureEyeSize(2160, 2160, 0, 0, 1.0f, &ew, &eh) == 1 && ew == 2160 && eh == 2160, "2160 per eye fits");
+    check(pictureEyeSize(2160, 2160, 0, 0, 1.6f, &ew, &eh) == 1 && ew == 3456, "1.6 x 2160 = 3456 still fits");
+    check(pictureEyeSize(3408, 3408, 0, 0, 1.6f, &ew, &eh) == 0 && ew == 5453, "past 3458 is said, not capped");
+    check(pictureEyeSize(1728, 1728, 0, 0, 1.25f, &ew, &eh) == 1 && ew == 2160, "headless 1728 x 1.25 = 2160");
+    check(pictureEyeSize(2160, 2160, 3000, 2500, 1.6f, &ew, &eh) == 1 && ew == 3000 && eh == 2500,
+          "within the runtime's maximum");
+    check(pictureEyeSize(0, 0, 0, 0, 1.0f, &ew, &eh) == 1 && ew == 1728, "no recommendation: 1728");
 
     // view projection: a point straight ahead lands in the middle
     float vp[16];
