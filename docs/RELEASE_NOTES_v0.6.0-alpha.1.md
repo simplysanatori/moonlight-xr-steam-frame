@@ -62,7 +62,7 @@ These pass the automated tests on the Frame but nobody has checked them in the h
 
 ## Reporting a problem
 
-Run `~/Games/MoonlightXRNative/app/bug-report.sh` after the problem. It writes a zip to `~/Games/MoonlightXRNative/reports` with the logs and settings. IP and MAC addresses, PC and network names, ids and keys are masked, and pairing keys are never included. Attach the zip to an issue on GitHub, with what you did and what happened.
+Run `~/Games/MoonlightXRNative/app/bug-report.sh` after the problem. It writes a zip to `~/Games/MoonlightXRNative/reports` with the app logs, your headset note, the settings you changed and a short version summary. IP and MAC addresses, host and network names, your user name and ids are masked. `hosts.ini`, pairing keys and certificates are never included. Look inside, then attach the zip to an issue on GitHub, with what you did and what happened.
 
 ## Credits
 

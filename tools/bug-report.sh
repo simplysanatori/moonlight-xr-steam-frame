@@ -1,98 +1,122 @@
 #!/bin/bash
-# Collects what is needed to look at a problem into one zip that is safe to share. GPLv3.
+# Collects the least that is needed to debug a problem into one zip, with nothing that names you. GPLv3.
 #   bug-report.sh
-# Writes ~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip containing:
-#   moonlight.log, moonlight.previous.log, moonlight-console.log,
-#   moonlight-launcher.log, vrtiming.log    (logs, masked as below)
-#   config.ini                              (settings, masked as below)
-#   headset-note.txt                        (the newest note from the in-VR "Report a problem" sheet)
-#   hosts.ini                               (saved PCs, masked; no certificate or MAC lines)
-#   docs/probe/SUMMARY.md                   (platform probe, when found)
-#   system.txt                              (version, kernel, SteamOS build id, free space)
-#   kernel.txt                              (journalctl -k, last 2 hours, decoder/GPU lines only)
-# It never includes client.key, client.pem, uniqueid or servercerts/.
+# Writes ~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip containing only:
+#   moonlight.log, moonlight.log.1, moonlight.previous.log, moonlight-console.log,
+#   moonlight-launcher.log, vrtiming.log     (the app logs, masked as below, last 20000 lines each)
+#   headset-note-1.txt ...                   (the newest notes from the in-VR "Report a problem" sheet, masked)
+#   config.ini                               (the settings you changed, numbers, on/off and fixed choices only)
+#   VERSION
+#   system.txt                               (SteamOS, SteamVR, Mesa/Turnip, kernel release, display rate)
+# It never includes hosts.ini, client.key, client.pem, uniqueid, servercerts/, the flat
+# launcher's Moonlight settings, environment dumps, or the output of ip, iw or nmcli.
 #
-# Masked in every file it bundles: IPv4 and IPv6 addresses (each address gets
-# a stable token such as <ip2:lan>, so lines about the same address can still
-# be matched up), MAC and Bluetooth addresses, host names (the saved PCs, this
-# headset, *.local names, "host <name>" in log lines), UUIDs, Moonlight unique
-# ids, Wi-Fi network names (SSIDs), serial numbers, e-mail addresses, the
-# Steam user id in paths, the home directory, PEM blocks, certificate
-# fingerprints and long hex or base64 strings (keys). Timings, counters, codec
-# and rate lines are kept. The live logs are not changed: they keep the
-# addresses so you can debug your own network.
+# Masked in every file it bundles: IPv4 and IPv6 addresses (each address gets a stable
+# token such as <ip2:lan>, so lines about the same address can still be matched up),
+# MAC addresses, host names (this headset, saved PCs, *.local names, "host <name>" in
+# log lines, host names in URLs), the user name (in paths and as a word), UUIDs, Moonlight
+# unique ids, hex ids of 16 or more digits, Steam and account ids, e-mail addresses,
+# Wi-Fi network names (SSIDs, read from the system and from the logs, including the
+# Frame's own access point), serial numbers, PEM blocks, certificate fingerprints and
+# base64 keys. Timestamps, timings, counters, codec and rate lines are kept. The live logs
+# are not changed.
 #
 # Environment: MLXR_LOG_DIR (logs, default ~/Games/MoonlightXRNative),
 # MLXR_CONFIG_DIR (default ~/.config/moonlight-xr), REPORT_DIR,
-# MLXR_LAUNCHER_CONF_DIR (the flat launcher's config, default
-# ~/.config/Moonlight XR Native).
+# MLXR_EXTRA_NAMES (more names to mask, separated by colons).
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 LOGDIR="${MLXR_LOG_DIR:-$HOME/Games/MoonlightXRNative}"
 CFG="${MLXR_CONFIG_DIR:-$HOME/.config/moonlight-xr}"
-LCFG="${MLXR_LAUNCHER_CONF_DIR:-$HOME/.config/Moonlight XR Native}"
 OUTDIR="${REPORT_DIR:-$HOME/Games/MoonlightXRNative/reports}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$OUTDIR"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
-R="$WORK/mlxr-report-$STAMP"; mkdir -p "$R/docs/probe" "$WORK/raw"
+R="$WORK/mlxr-report-$STAMP"; mkdir -p "$R" "$WORK/raw"
 
-# 1. Copy everything raw into $WORK/raw first; nothing raw goes into $R.
-for f in moonlight.log moonlight.log.1 moonlight-console.log moonlight.previous.log moonlight-launcher.log moonlight-launcher.log.1 vrtiming.log vrtiming.log.1; do
-    [ -f "$LOGDIR/$f" ] && cp "$LOGDIR/$f" "$WORK/raw/$f"
+# 1. Copy only what is needed into $WORK/raw first; nothing raw goes into $R.
+for f in moonlight.log moonlight.log.1 moonlight.previous.log moonlight-console.log moonlight-launcher.log vrtiming.log; do
+    [ -f "$LOGDIR/$f" ] && tail -n 20000 "$LOGDIR/$f" > "$WORK/raw/$f"
 done
+# settings: only what you changed, and only numbers, on/off and fixed choices
 if [ -f "$CFG/config.ini" ]; then
-    # values of key-like settings are dropped before the general masking
-    sed -E -e 's/^([[:space:]]*[^#;=]*(secret|token|passw|private|cert|pem|(^|[_. -])key[_. -])[^=]*=).*/\1<masked>/I' \
-        -e 's/^([[:space:]]*[^#;=]*(^|[_. -])key[[:space:]]*=).*/\1<masked>/I' "$CFG/config.ini" > "$WORK/raw/config.ini"
+python3 -I - "$CFG/config.ini" "$WORK/raw/config.ini" <<'PY'
+import re, sys
+src, dst = sys.argv[1:3]
+bad_words = {"key", "id", "mac", "app", "user", "pw", "ip", "dns", "url", "uri"}
+bad_parts = ("host", "addr", "uuid", "name", "path", "dir", "token", "cert", "pem", "ssid", "serial",
+             "secret", "pass", "private", "email", "mail", "login", "account", "steam", "pair", "unique", "domain", "server", "peer")
+def key_ok(k):
+    k = k.lower()
+    if any(p in k for p in bad_parts): return False
+    return not (set(re.split(r"[^a-z0-9]+", k)) & bad_words)
+def val_ok(v):
+    return bool(re.fullmatch(r"-?\d{1,9}(\.\d{1,4})?|\d{3,5}x\d{3,5}|(true|false|yes|no|on|off)|[A-Za-z][A-Za-z0-9_+-]{0,23}", v))
+out, sect, pend = [], None, None
+for line in open(src, encoding="utf-8", errors="replace"):
+    t = line.strip()
+    if not t or t[0] in "#;": continue
+    m = re.fullmatch(r"\[([A-Za-z0-9_.-]{1,24})\]", t)
+    if m: sect = "[%s]" % m.group(1); pend = True; continue
+    if "=" not in t: continue
+    k, v = (x.strip() for x in t.split("=", 1))
+    if key_ok(k) and val_ok(v):
+        if pend and sect: out.append(sect); pend = False
+        out.append("%s = %s" % (k, v))
+open(dst, "w").write("\n".join(out) + "\n")
+PY
 fi
-[ -f "$CFG/hosts.ini" ] && grep -viE '^(cert|mac)[[:space:]]*=' "$CFG/hosts.ini" > "$WORK/raw/hosts.ini"
-# the newest note saved from the headset's "Report a problem" sheet
-note="$(ls -t "$OUTDIR"/report-*.txt 2>/dev/null | head -n 1)"
-[ -n "$note" ] && cp "$note" "$WORK/raw/headset-note.txt"
+# the newest notes saved from the headset's "Report a problem" sheet
+n=0
+for note in $(ls -t "$OUTDIR"/report-*.txt 2>/dev/null | head -n 3); do
+    n=$((n+1)); head -c 20000 "$note" > "$WORK/raw/headset-note-$n.txt"
+done
+for v in "$HERE/VERSION" "$HERE/../VERSION"; do [ -f "$v" ] && { head -n 1 "$v" > "$WORK/raw/VERSION"; break; }; done
 
+# system summary: version strings only
 {
     echo "report: $(date -Is)"
-    for v in "$HERE/VERSION" "$HERE/../VERSION"; do [ -f "$v" ] && { echo "moonlight-xr-native: $(cat "$v")"; break; }; done
-    { [ -d "$HERE/../.git" ] || [ -f "$HERE/../.git" ]; } && echo "git: $(git -C "$HERE/.." describe --tags --always --dirty 2>/dev/null)"
-    echo "kernel: $(uname -srvmo)"
-    . /etc/os-release 2>/dev/null && echo "SteamOS: $PRETTY_NAME $VERSION_ID, build id ${BUILD_ID:-unknown}, variant ${VARIANT_ID:-none}"
-    echo "binary: $(ls -l "$HERE/moonlight-xr" "$HERE/../build/moonlight-xr" 2>/dev/null | head -n 1)"
-    echo "log files:"; ls -l "$LOGDIR"/moonlight*.log 2>/dev/null
-    echo "disk:"; df -h "$HOME" 2>/dev/null | tail -n 1
-    echo "xr runtime: ${XR_RUNTIME_JSON:-unset}; $(readlink -f "$HOME/.config/openxr/1/active_runtime.json" 2>/dev/null)"
-} > "$WORK/raw/system.txt"
+    [ -f "$WORK/raw/VERSION" ] && echo "moonlight-xr-native: $(cat "$WORK/raw/VERSION")"
+    ( . /etc/os-release 2>/dev/null && echo "SteamOS: ${VERSION_ID:-unknown}, build ${BUILD_ID:-unknown}" )
+    sv="$(grep -m1 -oE 'vrserver [0-9][0-9.]*' "$HOME/.local/share/Steam/logs/vrserver.txt" 2>/dev/null | cut -d' ' -f2)"
+    [ -z "$sv" ] && sv="$(grep -m1 -oE '"version" *: *"[0-9][0-9.]*"' /opt/steamvr/bin/version.json 2>/dev/null | grep -oE '[0-9][0-9.]*')"
+    echo "SteamVR: ${sv:-unknown}"
+    mv_="$(timeout 20 vulkaninfo --summary 2>/dev/null | grep -m1 'driverInfo' | sed -E 's/^[^=]*= *//')"
+    [ -z "$mv_" ] && mv_="$(grep -m1 -oE 'Mesa [0-9][0-9A-Za-z.-]*' "$LOGDIR/moonlight.log" 2>/dev/null)"
+    echo "Mesa: ${mv_:-unknown}"
+    echo "kernel: $(uname -r)"
+    hz="$(grep -h -m1 -oE 'display [0-9.]+ Hz' "$LOGDIR/moonlight.log" "$LOGDIR/moonlight.previous.log" 2>/dev/null | head -n 1 | sed 's/^display //')"
+    echo "display: ${hz:-not logged}"
+} > "$WORK/raw/system.txt" 2>&1
 
-{
-    if command -v journalctl >/dev/null; then
-        journalctl -k --since "-2h" --no-pager 2>&1 | grep -iE 'iris|msm|vidc|smmu|hangcheck|gpu fault'
-        echo "(journalctl exit: ${PIPESTATUS[0]}, matching lines: $(journalctl -k --since '-2h' --no-pager 2>/dev/null | grep -ciE 'iris|msm|vidc|smmu|hangcheck|gpu fault'))"
-    else
-        echo "journalctl not available"
-    fi
-} > "$WORK/raw/kernel.txt" 2>&1
-
-# Names to mask wherever they appear: this headset's host name, the saved PCs,
-# the PCs in the flat launcher's list, the Wi-Fi networks the headset knows.
+# Names to mask wherever they appear: this headset's host name, the user name, the
+# Wi-Fi networks the headset knows. They are read only to be masked; they are not kept.
 {
     hostname 2>/dev/null; uname -n
-    [ -f "$CFG/hosts.ini" ] && sed -nE 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*(.*)$/\1/p' "$CFG/hosts.ini"
-    for c in "$LCFG"/*.conf; do [ -f "$c" ] && sed -nE 's/^[0-9]+\\(hostname|customname)=(.*)$/\2/p' "$c"; done
-} | sort -u | grep -vixE '.{0,2}|true|false|localhost|frame|steamdeck|steamos|steamfr(a|)me' > "$WORK/names.txt"   # SteamOS default host names are kept: they are common words in the logs
+    echo "${MLXR_EXTRA_NAMES:-}" | tr ':' '\n'
+} | sort -u | grep -vixE '.{0,2}|true|false|localhost|frame|steamdeck|steamfr(a|)me' > "$WORK/names.txt"
+{ id -un 2>/dev/null; echo "${USER:-}"; } | sort -u | grep -vxE '.{0,2}' > "$WORK/users.txt"   # masked as whole words, same case only   # the SteamOS default host names are common words
 {
     command -v iw >/dev/null && iw dev 2>/dev/null | sed -nE 's/^[[:space:]]*ssid (.*)$/\1/p'
-    command -v nmcli >/dev/null && nmcli -t -f NAME connection show 2>/dev/null
+    if command -v nmcli >/dev/null; then
+        nmcli -t -f NAME connection show 2>/dev/null
+        nmcli -g SSID device wifi list 2>/dev/null | sed 's/\\:/:/g'
+        nmcli -t -f NAME,TYPE connection show 2>/dev/null | sed -nE 's/^(.*):[^:]*wireless$/\1/p' | while IFS= read -r c; do
+            nmcli -g 802-11-wireless.ssid connection show "$c" 2>/dev/null
+        done
+    fi
 } | sort -u | grep -vxE '|lo' > "$WORK/ssids.txt"
 
 # 2. Mask into $R. One pass over all files, so a token means the same thing everywhere.
-python3 -I - "$WORK/raw" "$R" "$WORK/names.txt" "$WORK/ssids.txt" "$HOME" <<'PY'
+python3 -I - "$WORK/raw" "$R" "$WORK/names.txt" "$WORK/ssids.txt" "$HOME" "$WORK/users.txt" <<'PY'
 import ipaddress, os, re, sys
-raw, out, names_p, ssids_p, home = sys.argv[1:6]
+raw, out, names_p, ssids_p, home, users_p = sys.argv[1:7]
 def lines(p):
     try: return [l.strip() for l in open(p, encoding="utf-8", errors="replace") if l.strip()]
     except OSError: return []
 names = sorted(set(lines(names_p)), key=len, reverse=True)
 ssids = sorted(set(lines(ssids_p)), key=len, reverse=True)
+users = sorted(set(lines(users_p)), key=len, reverse=True)
 tokens = {}
 def tok(kind, value, label=None):
     key = (kind, value.lower())
@@ -131,8 +155,16 @@ rules = [
     (re.compile(r"\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\b"), lambda m: tok("uuid", m.group(0))),
     (re.compile(r"(?<![0-9A-Za-z.])\d{1,3}(\.\d{1,3}){3}(?![0-9A-Za-z])"), v4),
     (re.compile(r"(?<![\w:])[0-9A-Fa-f]{0,4}(:[0-9A-Fa-f]{0,4}){2,7}(%[\w.-]+)?(?![\w:])"), v6),
-    (re.compile(r"\b[0-9A-Fa-f]{32,}\b"), lambda m: "<hex>" if re.search("[A-Fa-f]", m.group(0)) else m.group(0)),
-    (re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{16}(?![0-9A-Za-z])"), lambda m: "<id>" if re.search("[A-Fa-f]", m.group(0)) else m.group(0)),
+    (re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{32,}(?![0-9A-Za-z])"), lambda m: "<hex>" if re.search("[A-Fa-f]", m.group(0)) else m.group(0)),
+    (re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{16,31}(?![0-9A-Za-z])"), lambda m: "<id>" if re.search("[A-Fa-f]", m.group(0)) else m.group(0)),
+    (re.compile(r"\b7656119\d{10}\b"), lambda m: "<steamid>"),
+    (re.compile(r"\bSTEAM_[0-5]:[01]:\d+\b"), lambda m: "<steamid>"),
+    (re.compile(r"(\b(?:account_?id|steam_?id|persona(?:_?name)?|user_?name|login|gamertag|machine_?id|device_?id|android_id|udid)[=: ]+)\S+", re.I), lambda m: m.group(1) + "<id>"),
+    (re.compile(r"/run/user/\d+"), lambda m: "/run/user/<uid>"),
+    (re.compile(r"\b(\w+)(://)([^/\s@]*@)?(\[[0-9A-Fa-f:.%\w]+\]|[A-Za-z0-9][\w.-]*)"),
+     lambda m: m.group(0) if m.group(4).lower() in ("github.com", "api.github.com", "ko-fi.com", "localhost") or m.group(4).startswith("<") or m.group(4).startswith("[<") or m.group(1).lower() in ("file",) else
+       m.group(1) + m.group(2) + ("<user>@" if m.group(3) else "") + tok("host", m.group(4))),
+    (re.compile(r"^(?!(?:MLXR|MESA|VK|XR|OPENXR|ENABLE|LD|LIBGL|__)\w*=)[A-Z][A-Z0-9_]{2,}=.*$", re.M), lambda m: "<environment line removed>"),
     (re.compile(r"[A-Za-z0-9+/]{64,}={0,2}"), lambda m: m.group(0) if m.group(0).count("/") * 20 > len(m.group(0)) else "<base64>"),
     (re.compile(r"(uniqueid[=: ]+)\S+", re.I), lambda m: m.group(1) + "<id>"),
     (re.compile(r"(serial[\s'=:]+)'?[^\s',)]+'?", re.I), lambda m: m.group(1) + "<serial>"),
@@ -145,12 +177,14 @@ rules = [
      lambda m: m.group(1) + (m.group(2) if m.group(2).startswith("<") else tok("host", m.group(2)))),
     (re.compile(r"(session ended on )([^<\s]\S*)"), lambda m: m.group(1) + tok("host", m.group(2))),
     (re.compile(r"^(\s*name\s*=\s*)([^<\s].*)$", re.M), lambda m: m.group(1) + tok("host", m.group(2).strip())),
-    (re.compile(r"/home/(?!steamos/)[^/\s]+"), lambda m: "/home/<user>"),
+    (re.compile(r"/(?:var/)?home/[^/\s]+"), lambda m: "~"),
 ]
 def mask(text):
     if home and home != "/": text = text.replace(home, "~")
     for n in names:   # whole words only, any case
         text = re.sub(r"(?<![\w-])" + re.escape(n) + r"(?![\w-])", lambda m, n=n: tok("host", n), text, flags=re.I)
+    for u in users:   # the user name as a word, any path already became ~
+        text = re.sub(r"(?<![\w-])" + re.escape(u) + r"(?![\w-])", "<user>", text)
     for s in ssids:
         if len(s) >= 3: text = text.replace(s, "<ssid>")
     for rx, fn in rules: text = rx.sub(fn, text)
@@ -161,15 +195,10 @@ for f in sorted(os.listdir(raw)):
 PY
 [ $? = 0 ] || { echo "masking failed; nothing written"; exit 1; }
 
-for s in "$HERE/docs/probe/SUMMARY.md" "$HERE/../docs/probe/SUMMARY.md"; do
-    [ -f "$s" ] && { cp "$s" "$R/docs/probe/SUMMARY.md"; break; }
-done
-rmdir "$R/docs/probe" "$R/docs" 2>/dev/null
-
 ZIP="$OUTDIR/mlxr-report-$STAMP.zip"
 rm -f "$ZIP"
 if command -v zip >/dev/null; then
-    ( cd "$WORK" && zip -qr "$ZIP" "mlxr-report-$STAMP" )
+    ( cd "$WORK" && zip -qrD "$ZIP" "mlxr-report-$STAMP" )
 else
     python3 -I - "$WORK" "mlxr-report-$STAMP" "$ZIP" <<'PY'
 import os, sys, zipfile
@@ -184,4 +213,4 @@ fi
 [ -f "$ZIP" ] || { echo "could not write $ZIP"; exit 1; }
 echo "wrote $ZIP"
 python3 -I -c 'import sys,zipfile; [print("  ",i.filename,i.file_size) for i in zipfile.ZipFile(sys.argv[1]).infolist()]' "$ZIP"
-echo "Addresses, host names, network names and ids are masked. Have a quick look before you share it."
+echo "Look inside before you share it. Nothing was sent anywhere."

@@ -105,7 +105,18 @@ Run this after the problem happened:
 ~/Games/MoonlightXRNative/app/bug-report.sh
 ```
 
-It writes a zip to `~/Games/MoonlightXRNative/reports`. The zip holds the logs, your settings and a few system details. IP and MAC addresses, PC and network names, ids, serial numbers and keys are masked. Pairing keys and certificates are never included. Have a look inside, then attach the zip to an [issue](https://github.com/simplysanatori/moonlight-xr-native/issues). Say what you did, what you expected and what happened.
+It writes a zip to `~/Games/MoonlightXRNative/reports` and lists every file in it. The zip holds only what is needed to debug:
+
+- The app logs: `moonlight.log`, `moonlight.log.1`, `moonlight-console.log`, `moonlight-launcher.log` and `vrtiming.log`, the last 20000 lines of each.
+- Your note from the headset, if you wrote one.
+- `config.ini`, with only the settings you changed. Numbers, on and off, and fixed choices stay. Any key that looks like an address, host, id, name, path, key, token or certificate is dropped.
+- `VERSION` and `system.txt`: the SteamOS, SteamVR and Mesa (Turnip) versions, the kernel release and the display refresh rate.
+
+Everything in the zip is masked. IPv4 and IPv6 addresses, MAC addresses, host names, `.local` names, host names in URLs, your user name, UUIDs, long hex ids, Steam ids, e-mail addresses, Wi-Fi names (including the Frame's own access point), serial numbers, certificates and keys are replaced. Home folders show as `~`. Timestamps and timings stay.
+
+Left out completely: `hosts.ini`, pairing keys and certificates, the flat window's settings, the host name, environment variables and any network listing.
+
+Have a look inside before you share it. Then attach the zip to an [issue](https://github.com/simplysanatori/moonlight-xr-native/issues). Say what you did, what you expected and what happened.
 
 You can also write a note in the headset (cog, About, Report a problem). It is saved on the Frame and the next `bug-report.sh` run includes it.
 
@@ -129,4 +140,4 @@ GNU General Public License v3. See [LICENSE.txt](LICENSE.txt).
 
 ## How this was made
 
-The code and these documents were written with Claude Code (Anthropic's Claude models), running on the Frame. simplysanatori chose what to build, tested the builds in the headset and reported what they saw. Nobody from the Moonlight or Moonlight XR projects has reviewed this code. Developer notes are in [docs/dev](docs/dev/README.md).
+I wrote this with Claude Code, using Anthropic's Fable 5.1 and Opus 5.5 models, running on the Frame itself. I chose what to build, tested each build in the headset, reported what I saw and reviewed the result myself. Developer notes are in [docs/dev](docs/dev/README.md).

@@ -68,4 +68,4 @@ Every third-party component and asset is listed below. The same table is in `ass
 
 ## How this was made
 
-Written by Claude (Anthropic) models through Claude Code, at the direction of the project owner, who tested it on a Steam Frame.
+I wrote this with Claude Code, using Anthropic's Fable 5.1 and Opus 5.5 models, running on the Frame itself. I chose what to build, tested each build in the headset, reported what I saw and reviewed the result myself.

@@ -64,18 +64,19 @@ Older commits still contain the values listed above, before this scrub: the PC h
 
 The live logs (`moonlight.log`, `moonlight-launcher.log`, `moonlight-console.log`, `vrtiming.log`) keep host names and addresses, so users can debug their own network. The README says not to post them as they are.
 
-`bug-report.sh` is the thing to share. It now masks, in every file it bundles:
+`bug-report.sh` is the thing to share. It bundles only the app logs (last 20000 lines each), the newest headset notes, a filtered `config.ini` (changed settings with numeric, on/off or fixed-choice values; any key that looks like an address, host, id, name, path, key, token or certificate is dropped), `VERSION`, and `system.txt` (SteamOS, SteamVR and Mesa versions, kernel release, display rate). It masks, in every file:
 
-- IPv4 and IPv6 addresses (each gets a stable token such as `<ip1:lan>` or `<ip2:cgnat>`, so lines about one address still match up);
+- IPv4 and IPv6 addresses (each gets a stable token such as `<ip1:lan>`, so lines about one address still match up);
 - MAC and Bluetooth addresses;
-- host names: the saved PCs, the PCs in the flat window's list, the headset's own host name unless it is a SteamOS default, `*.local` names, and names in "host ..." log lines;
-- UUIDs, Moonlight unique ids, serial numbers, the Steam user id in paths, home directories, e-mail addresses;
-- Wi-Fi network names (from `iw dev`, NetworkManager and the logs), keeping the band;
-- PEM blocks, certificate fingerprints, long hex and base64 strings.
+- host names: the headset's own host name unless it is a SteamOS default, `*.local` names, host names in URLs and in "host ..." log lines;
+- the user name (in paths and as a word), home directories, `/run/user/<uid>`, e-mail addresses;
+- UUIDs, Moonlight unique ids, hex ids of 16 digits or more, Steam ids, account and machine ids, serial numbers;
+- Wi-Fi network names (from `iw`, NetworkManager and the logs, including the Frame's own access point), keeping the band;
+- PEM blocks, certificate fingerprints, base64 keys, and environment-variable dump lines.
 
-Timings, counters, rates, codec lines and version numbers stay. It never includes `client.key`, `client.pem`, `uniqueid`, `servercerts/` or the flat window's settings file (which holds the client key). `hosts.ini` goes in without its certificate and MAC lines, and masked. `system.txt` uses `uname` without the host name.
+Timestamps, timings, counters, rates, codec lines and version numbers stay. It never includes `hosts.ini`, `client.key`, `client.pem`, `uniqueid`, `servercerts/`, the flat window's settings file, kernel logs, `hostname`, or the output of `ip`, `iw` or `nmcli` (those are read only to find names to mask). It prints every file in the zip and asks the user to look inside before sharing.
 
-The in-headset "Report a problem" sheet said it would send the note and the log. It never sent anything. It now says that it saves the note on the Frame, and its button reads **Save**. `bug-report.sh` includes the newest note, masked.
+The in-headset "Report a problem" sheet said it would send the note and the log. It never sent anything. It now says that it saves the note on the Frame, and its button reads **Save**. `bug-report.sh` includes the newest notes, masked.
 
 ## Verification
 

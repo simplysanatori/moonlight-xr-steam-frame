@@ -180,7 +180,7 @@ Brightness (-50 to 50), Contrast (50 to 150 %), Gamma (0.50 to 2.00) and Saturat
 
 ### About
 
-The version, the log file, a link to support Moonlight XR on Ko-fi, and **Report a problem**. The report sheet saves your note (and an email address if you give one) on the Frame in `~/Games/MoonlightXRNative/reports`. Nothing leaves the headset. Run `bug-report.sh` to bundle it with the logs (see the [README](../README.md#reporting-a-problem)).
+The version, the log file, a link to support Moonlight XR on Ko-fi, and **Report a problem**. The report sheet saves your note (and an email address if you give one) on the Frame in `~/Games/MoonlightXRNative/reports`. Nothing leaves the headset. Run `bug-report.sh` to bundle it with the logs. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
 
 ## Controllers
 
@@ -310,7 +310,7 @@ On the Frame controllers, Start is the right menu button, Select is the left Vie
 | 3D tab greyed | The tab says why. If the depth model did not load, the log has the error. |
 | The stream did not start | The flat window shows the client's error. `moonlight-console.log` has the details. |
 
-Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use the zip from `bug-report.sh`.
+Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use the zip from `bug-report.sh`. It holds the logs, your headset note, the settings you changed and a short version summary, all masked, and nothing else. It leaves out `hosts.ini`, keys and certificates. Look inside before you share it.
 
 ## Advanced: config.ini
 
