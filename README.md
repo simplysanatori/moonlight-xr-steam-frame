@@ -71,7 +71,7 @@ On other aarch64 Linux systems with the same development packages (see `.github/
 ## Credits
 
 - Built by [simplysanatori](https://github.com/simplysanatori).
-- [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) by Sean Gilleece is the origin of every XR module here, and of the logo the icon and Steam art are made from. simplysanatori' [Steam Frame fork](https://github.com/simplysanatori/moonlight-android-xr-steam-frame) of it was the reference for how it behaves on the Frame.
+- [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) by Sean Gilleece is the origin of every XR module here, and of the logo the icon and Steam art are made from. The [Steam Frame fork](https://github.com/simplysanatori/moonlight-android-xr-steam-frame) of it was the reference for how it behaves on the Frame.
 - [Moonlight](https://github.com/moonlight-stream) by the Moonlight Game Streaming Project (Cameron Gutman, Diego Waxemberg, Aaron Neyer, Andrew Hennessy and contributors): [moonlight-android](https://github.com/moonlight-stream/moonlight-android), which Moonlight XR is built on; [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c), the streaming protocol; and [moonlight-qt](https://github.com/moonlight-stream/moonlight-qt) (GPLv3), the host client behaviour and the flat launcher.
 - [OpenXR-SDK](https://github.com/KhronosGroup/OpenXR-SDK) from Khronos (Apache 2.0): the OpenXR loader.
 - [LiteRT](https://github.com/tensorflow/tensorflow) (Apache 2.0) runs the depth models: [ZipDepth](https://github.com/fabiotosi92/ZipDepth) by Fabio Tosi (MIT) and [MiDaS](https://github.com/isl-org/MiDaS) by Intel ISL (MIT).

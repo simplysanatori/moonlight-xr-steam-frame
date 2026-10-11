@@ -214,7 +214,7 @@ int render_all_panels(const char* dir) {
     // lists
     {
         static UiPcItem pcs[7];
-        const char* names[7] = { "DESKTOP-EXAMPLE", "Living room PC", "steamdeck", "A very long computer name that will not fit in the row at all, honestly",
+        const char* names[7] = { "DESKTOP-HOME", "Living room PC", "steamdeck", "A very long computer name that will not fit in the row at all, honestly",
                                  "server", "laptop", "htpc" };
         for (int i = 0; i < 7; i++) {
             snprintf(pcs[i].name, sizeof pcs[i].name, "%s", names[i]);
@@ -239,11 +239,11 @@ int render_all_panels(const char* dir) {
         static UiAppItem apps[6];
         const char* an[6] = { "Desktop", "Steam Big Picture", "Cyberpunk 2077", "Halo: The Master Chief Collection", "Portal 2", "Low Res Screen" };
         for (int i = 0; i < 6; i++) { snprintf(apps[i].name, sizeof apps[i].name, "%s", an[i]); apps[i].running = i == 2; }
-        UiAppList a = { "DESKTOP-EXAMPLE", apps, 6, 0, 0, 0, 0, { UI_HIT_BUTTON, UI_BTN_LIST_BACK, 0 } };
+        UiAppList a = { "DESKTOP-HOME", apps, 6, 0, 0, 0, 0, { UI_HIT_BUTTON, UI_BTN_LIST_BACK, 0 } };
         ui_draw_app_list(&cv, &a, NULL);
         save(dir, "app_list", &cv, 0);
         ui_cv_clear(&cv);
-        UiAppList a2 = { "DESKTOP-EXAMPLE", apps, 0, 0, -1, 1, 0, { UI_HIT_NONE, 0, 0 } };
+        UiAppList a2 = { "DESKTOP-HOME", apps, 0, 0, -1, 1, 0, { UI_HIT_NONE, 0, 0 } };
         ui_draw_app_list(&cv, &a2, NULL);
         save(dir, "app_list_loading", &cv, 0);
         free(buf);
