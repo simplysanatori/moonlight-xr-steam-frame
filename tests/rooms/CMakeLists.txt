@@ -21,10 +21,15 @@ if(Python3_FOUND)
     COMMAND sh -c "if [ -d \"$1\" ]; then exec \"$2\" -I \"$3\" \"$4\" \"$1\"; else echo \"no SteamVR models at $1\"; exit 77; fi" sh
             /opt/steamvr/drivers/frame_controller/resources/rendermodels ${Python3_EXECUTABLE}
             ${PROJECT_SOURCE_DIR}/tools/frame-models/frame-controller-models.py ${MLXR_ROOM_TEST_FRAME})
-  set_tests_properties(rooms_frame_models_convert PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+  # The converted models are the textured test's input, and the converter
+  # rewrites them: a fixture, and the same lock as every test that reads or
+  # writes the folder (ctest -j ran them at once otherwise)
+  set_tests_properties(rooms_frame_models_convert PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300
+    FIXTURES_SETUP frame_models RESOURCE_LOCK room_test_models)
 endif()
 add_test(NAME rooms_model_textured COMMAND mlxr-room-test model_textured ${MLXR_ROOM_TEST_OUT} ${MLXR_ROOM_TEST_FRAME})
 if(Python3_FOUND)
-  set_tests_properties(rooms_model_textured PROPERTIES DEPENDS rooms_frame_models_convert)
+  set_tests_properties(rooms_model_textured PROPERTIES FIXTURES_REQUIRED frame_models)
 endif()
 add_test(NAME rooms_model_fallback COMMAND mlxr-room-test model_fallback ${MLXR_ROOM_TEST_OUT})
+set_tests_properties(rooms_model_textured rooms_model_fallback PROPERTIES RESOURCE_LOCK room_test_models)
