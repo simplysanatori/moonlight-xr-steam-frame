@@ -89,6 +89,8 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     // Native: the pointer's smoothing as M2 shipped it, see xr_renderer.h
     ctx->pointerMinCutoff = nativePointerTunable("MLXR_POINTER_MIN_CUTOFF", NATIVE_POINTER_MIN_CUTOFF);
     ctx->pointerBeta = nativePointerTunable("MLXR_POINTER_BETA", NATIVE_POINTER_BETA_PER_PX) * (float)ctx->videoWidth;
+    ctx->clickHoldPx = clickHoldPixelsFromEnv();
+    clickHoldReset(&ctx->clickHold);
     ctx->aimMinCutoff = NATIVE_AIM_MIN_CUTOFF;
     ctx->aimBeta = AIM_BETA;
     ctx->pointerWake = POINTER_WAKE_SEC;
