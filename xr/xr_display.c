@@ -26,6 +26,19 @@ static const char* hzText(float hz, char* buf, size_t size) {
     return buf;
 }
 
+// The display rate the runtime last reported, whole Hz, for the thread that
+// asks the host to start the stream (it caps the fps it requests with it).
+// 0 until the runtime has said.
+static _Atomic int g_reportedHz;
+
+int xrReportedDisplayHz(void) {
+    return atomic_load(&g_reportedHz);
+}
+
+static void reportDisplayHz(float hz) {
+    atomic_store(&g_reportedHz, hz > 0.0f ? (int)(hz + 0.5f) : 0);
+}
+
 static int sameRate(float a, float b) {
     return fabsf(a - b) <= RATE_TOLERANCE;
 }
@@ -113,6 +126,7 @@ void startDisplay(XrCtx* ctx) {
     float current = 0.0f;
     if (checkXr(ctx->pfnGetDisplayRefreshRate(ctx->session, &current), "get display refresh rate")) {
         ctx->displayRate = current;
+        reportDisplayHz(current);
     }
     char now[16];
     LOGEV("display rates offered: %s Hz, display on %s Hz, stream %d fps", line,
@@ -206,6 +220,7 @@ void displayFocused(XrCtx* ctx) {
     float current = 0.0f;
     if (XR_SUCCEEDED(ctx->pfnGetDisplayRefreshRate(ctx->session, &current)) && current > 0.0f) {
         ctx->displayRate = current;
+        reportDisplayHz(current);
     }
     if (!sameRate(ctx->displayRate, ctx->rateAsked) && ctx->rateConfirmed) {
         char hz[16], now[16];
@@ -221,6 +236,7 @@ void displayRateChanged(XrCtx* ctx, float from, float to) {
     LOGEV("display rate changed %s to %s Hz", hzText(from, fromHz, sizeof(fromHz)),
           hzText(to, toHz, sizeof(toHz)));
     ctx->displayRate = to;
+    reportDisplayHz(to);
     rateBudgetStart(&ctx->rateBudget, nowNs(), RATE_SETTLE_WINDOWS);
     // Said on the toast as well, whoever moved it, once the session's own
     // first rate has landed: the session start is no news
@@ -405,6 +421,7 @@ void displayFrameEnded(XrCtx* ctx) {
         if (XR_SUCCEEDED(ctx->pfnGetDisplayRefreshRate(ctx->session, &current))
                 && current > 0.0f) {
             ctx->displayRate = current;
+            reportDisplayHz(current);
         }
         if (!sameRate(ctx->displayRate, ctx->rateAsked) && ctx->rateMovedNs == 0) {
             ctx->rateMovedNs = now;

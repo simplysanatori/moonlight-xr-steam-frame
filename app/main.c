@@ -512,9 +512,19 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
         MLOG_W("bad --mode %s, using config.ini's", g_args.mode);
         settings_resolution(&g_settings, &w, &h);
     }
+    // Never ask the host for more than the headset shows: 90 at most, SteamVR's own rate when
+    // it is lower (72). A higher Moonlight setting or --mode is clamped, here and for the stream.
+    int displayHz = xrReportedDisplayHz();
+    int fpsCap = mlxr_fps_cap_for_display(displayHz);
+    if (fps > fpsCap) {
+        MLOG_W("requested %d fps is above the headset's %d (display %s): asking the host for %d fps",
+               fps, fpsCap, displayHz > 0 ? "reported by SteamVR" : "rate unknown", fpsCap);
+        fps = fpsCap;
+    }
     lp.width = w;
     lp.height = h;
     lp.fps = fps;
+    lp.max_fps = fpsCap;
     lp.audio_configuration = g_args.audio == 2 ? MLXR_AUDIO_71 : g_args.audio == 1 ? MLXR_AUDIO_51 : MLXR_AUDIO_STEREO;
     lp.is_gfe = comp->is_nvidia;
     free(n->rtsp);
@@ -545,7 +555,7 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     }
     int h264Only = g_args.h264Only || g_settings.codec == 3;
     g_job.cfg.supportedVideoFormats = VIDEO_FORMAT_H264 | (h264Only ? 0 : VIDEO_FORMAT_H265);
-    g_job.cfg.clientRefreshRateX100 = lp.fps * 100;
+    g_job.cfg.clientRefreshRateX100 = mlxr_launch_fps(&lp) * 100;
     g_job.cfg.colorSpace = COLORSPACE_REC_709;
     g_job.cfg.colorRange = COLOR_RANGE_LIMITED;
     g_job.cfg.encryptionFlags = ENCFLG_ALL;
@@ -869,7 +879,7 @@ int main(int argc, char** argv) {
     cfg.settings = &g_settings;
     cfg.seconds = g_args.seconds;
     settings_resolution(&g_settings, &cfg.videoWidth, &cfg.videoHeight);
-    cfg.fps = settings_fps_value(&g_settings);
+    cfg.fps = mlxr_fps_clamp(settings_fps_value(&g_settings), MLXR_FPS_CAP); // the display rate is chosen for a stream we may ask for
     char reportDir[512];
     snprintf(reportDir, sizeof(reportDir), "%s/Games/MoonlightXRNative/reports", getenv("HOME") ? getenv("HOME") : ".");
     mkdir(reportDir, 0755);

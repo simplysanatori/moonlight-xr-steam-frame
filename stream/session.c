@@ -17,6 +17,7 @@
 #include "../input/gamepads.h"
 #include "../input/rumble.h"
 #include "../xr/xr_pad_bridge.h"
+#include "../backend/fps_cap.h"
 #include "hw_video.h"
 #include "rfi_watch.h"
 #include "sw_decoder.h"
@@ -242,13 +243,13 @@ void stream_make_config(const StreamOptions* opt, STREAM_CONFIGURATION* cfg) {
     LiInitializeStreamConfiguration(cfg);
     cfg->width = opt->width;
     cfg->height = opt->height;
-    cfg->fps = opt->fps;
+    cfg->fps = mlxr_fps_clamp(opt->fps, MLXR_FPS_CAP); // never more than the headset shows
     cfg->bitrate = opt->bitrateKbps;
     cfg->packetSize = opt->remote == STREAM_CFG_REMOTE ? 1024 : 1392;
     cfg->streamingRemotely = opt->remote;
     cfg->audioConfiguration = opt->audioConfiguration ? opt->audioConfiguration : AUDIO_CONFIGURATION_STEREO;
     cfg->supportedVideoFormats = VIDEO_FORMAT_H264 | (opt->allowHevc ? VIDEO_FORMAT_H265 : 0);
-    cfg->clientRefreshRateX100 = opt->fps * 100;
+    cfg->clientRefreshRateX100 = cfg->fps * 100;
     cfg->colorSpace = COLORSPACE_REC_709;
     cfg->colorRange = COLOR_RANGE_LIMITED;
     cfg->encryptionFlags = ENCFLG_ALL; // Cortex-A has AES instructions
@@ -318,6 +319,14 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     MLOG_I("video: receive and decode threads to %s (MLXR_VIDEO_PRIORITY=%s)",
            g_videoPrio == MLXR_PRIO_OFF ? "normal priority" : g_videoPrio == MLXR_PRIO_REALTIME ? "realtime" : "nice -10",
            prioEnv ? prioEnv : "unset");
+
+    // Last guard: the SDP's maxFPS and clientRefreshRateX100 (which Apollo builds its virtual
+    // display from) never exceed the headset's 90 Hz, whatever filled the configuration
+    if (cfg->fps > MLXR_FPS_CAP) {
+        MLOG_W("stream fps %d is above the headset's %d: clamped", cfg->fps, MLXR_FPS_CAP);
+        cfg->fps = MLXR_FPS_CAP;
+    }
+    if (cfg->clientRefreshRateX100 > MLXR_FPS_CAP * 100) cfg->clientRefreshRateX100 = MLXR_FPS_CAP * 100;
 
     AUDIO_RENDERER_CALLBACKS noAudio;
     LiInitializeAudioCallbacks(&noAudio);

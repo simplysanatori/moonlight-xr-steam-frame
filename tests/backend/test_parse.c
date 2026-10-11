@@ -183,6 +183,40 @@ static void test_status_and_pair_fixtures(void)
     free(s);
 }
 
+/* The host is never told about more than the headset shows: 90 Hz at most, SteamVR's rate if lower */
+static void test_fps_cap(void)
+{
+    CHECK_EQ_INT(mlxr_fps_cap_for_display(0), 90);      /* not known yet */
+    CHECK_EQ_INT(mlxr_fps_cap_for_display(90), 90);
+    CHECK_EQ_INT(mlxr_fps_cap_for_display(72), 72);
+    CHECK_EQ_INT(mlxr_fps_cap_for_display(120), 90);
+    CHECK_EQ_INT(mlxr_fps_cap_for_display(360), 90);
+    CHECK_EQ_INT(mlxr_fps_cap_for_display(5), 90);      /* nonsense is not believed */
+    CHECK_EQ_INT(mlxr_fps_clamp(360, 90), 90);
+    CHECK_EQ_INT(mlxr_fps_clamp(144, 72), 72);
+    CHECK_EQ_INT(mlxr_fps_clamp(60, 90), 60);           /* below the cap stays */
+    CHECK_EQ_INT(mlxr_fps_clamp(360, 0), 90);           /* no cap given: the ceiling */
+    CHECK_EQ_INT(mlxr_fps_clamp(360, 1000), 90);        /* a cap cannot lift the ceiling */
+
+    mlxr_launch_params p;
+    CHECK_OK(mlxr_launch_params_init(&p));
+    CHECK_EQ_INT(p.max_fps, 90);                        /* capped by default */
+    char q[1024];
+    p.width = 2560; p.height = 1440; p.fps = 360;
+    CHECK_EQ_INT(mlxr_launch_fps(&p), 90);
+    CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
+    CHECK(strstr(q, "mode=2560x1440x90&") != NULL);     /* width x height unchanged */
+    p.fps = 144; p.max_fps = mlxr_fps_cap_for_display(72);
+    CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
+    CHECK(strstr(q, "mode=2560x1440x72&") != NULL);
+    p.fps = 60;
+    CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
+    CHECK(strstr(q, "mode=2560x1440x60&") != NULL);
+    p.fps = 360; p.max_fps = 360;                       /* not even a larger cap passes 90 */
+    CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
+    CHECK(strstr(q, "mode=2560x1440x90&") != NULL);
+}
+
 static void test_launch_query(void)
 {
     mlxr_launch_params p;
@@ -203,6 +237,7 @@ static void test_launch_query(void)
     p.hdr = true;
     p.is_gfe = true;
     p.fps = 120;
+    p.max_fps = 144;                                              /* a raised cap, to reach the GFE rule */
     CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
     CHECK(strstr(q, "mode=2560x1440x0&") != NULL);               /* GFE: fps > 60 forced to 0 */
     CHECK(strstr(q, "&hdrMode=1&clientHdrCapVersion=0&clientHdrCapSupportedFlagsInUint32=0&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1&clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0&") != NULL);
@@ -211,6 +246,8 @@ static void test_launch_query(void)
     CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
     CHECK(strstr(q, "&corever=2") != NULL && strstr(q, "corever=1") == NULL);
     CHECK_EQ_INT(mlxr_launch_query(1, &p, q, 20), MLXR_E_ARG);   /* truncation is an error */
+
+    test_fps_cap();
 
     int w, h, f;
     CHECK_OK(mlxr_parse_mode("2560x1440x90", &w, &h, &f));

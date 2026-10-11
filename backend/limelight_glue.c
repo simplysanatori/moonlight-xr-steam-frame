@@ -14,7 +14,8 @@ void mlxr_fill_stream_config(PSTREAM_CONFIGURATION cfg, const mlxr_launch_params
     LiInitializeStreamConfiguration(cfg);
     cfg->width = p->width;
     cfg->height = p->height;
-    cfg->fps = p->fps;
+    cfg->fps = mlxr_launch_fps(p);
+    cfg->clientRefreshRateX100 = cfg->fps * 100;   /* what the host builds its display from, same cap */
     cfg->audioConfiguration = p->audio_configuration ? p->audio_configuration : AUDIO_CONFIGURATION_STEREO;
     memcpy(cfg->remoteInputAesKey, p->ri_key, sizeof cfg->remoteInputAesKey);
     memcpy(cfg->remoteInputAesIv, p->ri_iv, sizeof cfg->remoteInputAesIv);

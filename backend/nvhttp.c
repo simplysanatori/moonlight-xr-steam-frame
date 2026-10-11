@@ -396,6 +396,7 @@ mlxr_status mlxr_launch_params_init(mlxr_launch_params *p)
     p->width = 1920;
     p->height = 1080;
     p->fps = 60;
+    p->max_fps = MLXR_FPS_CAP;
     p->sops = true;
     p->audio_configuration = MLXR_AUDIO_STEREO;
     if (!mlxr_random(p->ri_key, sizeof p->ri_key) || !mlxr_random(p->ri_iv, 4)) return MLXR_E_CRYPTO;
@@ -412,6 +413,11 @@ mlxr_status mlxr_parse_mode(const char *s, int *w, int *h, int *fps)
     return MLXR_OK;
 }
 
+int mlxr_launch_fps(const mlxr_launch_params *p)
+{
+    return mlxr_fps_clamp(p->fps, p->max_fps);
+}
+
 int32_t mlxr_launch_rikeyid(const mlxr_launch_params *p)
 {
     uint32_t v = (uint32_t)p->ri_iv[0] << 24 | (uint32_t)p->ri_iv[1] << 16 | (uint32_t)p->ri_iv[2] << 8 | p->ri_iv[3];
@@ -426,7 +432,8 @@ mlxr_status mlxr_launch_query(int appid, const mlxr_launch_params *p, char *out,
     int count = (ac >> 8) & 0xFF, mask = (ac >> 16) & 0xFFFF;
     int surround = (mask << 16) | count;
     /* Using an FPS value over 60 makes GFE's SOPS fall back to 720p60; Sunshine does not need the hack. */
-    int fps = (p->fps > 60 && p->is_gfe) ? 0 : p->fps;
+    int want = mlxr_launch_fps(p);
+    int fps = (want > 60 && p->is_gfe) ? 0 : want;
     int n = snprintf(out, cap,
                      "appid=%d&mode=%dx%dx%d&additionalStates=1&sops=%d&rikey=%s&rikeyid=%d%s"
                      "&localAudioPlayMode=%d&surroundAudioInfo=%d&remoteControllersBitmap=%d&gcmap=%d&gcpersist=%d%s",

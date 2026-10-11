@@ -97,6 +97,8 @@ QString commandLine(const Plan& plan)
     return parts.join(' ');
 }
 
+static const int kMaxHeadsetFps = 90;
+
 Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences& p)
 {
     Plan plan;
@@ -116,7 +118,16 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
     // The uuid is how the native client's hosts.ini names this PC (exportPairing wrote it)
     a << "--host" << uuid;
     a << "--app" << QString::number(app.id);
-    a << "--mode" << QString("%1x%2x%3").arg(p.width).arg(p.height).arg(p.fps);
+    // The headset shows 90 Hz at most (the VR client lowers it further to SteamVR's own rate).
+    // Moonlight's flat settings can say 120 or 144 (Game Mode's gamescope reports the screen's
+    // rate), which a Sunshine host would turn into a virtual display at that rate.
+    int fps = p.fps;
+    if (fps > kMaxHeadsetFps) {
+        qWarning() << "The FPS setting" << fps << "is above the headset's" << kMaxHeadsetFps
+                   << "Hz: asking for" << kMaxHeadsetFps << "fps";
+        fps = kMaxHeadsetFps;
+    }
+    a << "--mode" << QString("%1x%2x%3").arg(p.width).arg(p.height).arg(fps);
     if (p.bitrateKbps > 0) {
         a << "--bitrate" << QString::number(p.bitrateKbps);
     }
