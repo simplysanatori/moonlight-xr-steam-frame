@@ -1699,6 +1699,12 @@ int xr_app_run(const XrAppConfig* cfg) {
     // returns, how far ahead of display the poses are, and how long a decoded
     // picture takes from the decoder to photons
     int latMoves = 0, latLeadN = 0, latVidN = 0;
+    const char* pacingEnv = getenv("MLXR_VIDEO_PACING");
+    int videoPaced = !(pacingEnv && pacingEnv[0] == '0');
+    HwVideoStats pacePrev;
+    memset(&pacePrev, 0, sizeof(pacePrev));
+    LOGEV("video frame pacing %s (MLXR_VIDEO_PACING=%s)", videoPaced ? "on" : "off (newest frame)",
+          pacingEnv ? pacingEnv : "unset");
     int64_t latSendNsSum = 0, latSendNsMax = 0, latLeadNsSum = 0, latVidNsSum = 0, latVidNsMax = 0;
     int exitAsked = 0;
     while (!ctx->exitRequested) {
@@ -1884,7 +1890,9 @@ int xr_app_run(const XrAppConfig* cfg) {
                 hwDropImports(&vk, &vd);
                 hw_video_format_change_done(hv);
             }
-            if (hw_video_take(hv, &hf)) {
+            // Native (lane av-latency): paced (oldest queued frame each refresh,
+            // moonlight-qt's Pacer) unless MLXR_VIDEO_PACING=0 (newest frame)
+            if (hw_video_take_refresh(hv, videoPaced, (int)(xrGetDisplayRate(ctx) + 0.5f), &hf)) {
                 const mlxr_vkimp_image* img = fs.shouldRender && cmd ? mlxr_vkimp_get(vd.imp, &hf) : NULL;
                 VkImageView nv12 = img ? hwView(&vk, &vd, passes, img) : VK_NULL_HANDLE;
                 if (!nv12 || videoSwapchain(ctx, &vd, (int)hf.width, (int)hf.height) != 0) {
@@ -2170,18 +2178,38 @@ int xr_app_run(const XrAppConfig* cfg) {
                   (unsigned long long)framesWindow, roomDrawn, roomStale, byDevice);
             // Native (lane av-latency): what of the host cursor's delay and of the
             // audio's underruns is ours, for the next owner run
-            char appLat[512] = "";
+            char appLat[768] = "";
             if (cfg->hooks.latency) cfg->hooks.latency(cfg->hooks.user, appLat, sizeof(appLat));
+            // Native (lane av-latency): how evenly the stream's frames reached
+            // the display refreshes in this window
+            char pacing[256] = "";
+            HwVideo* hvNow = hw_video_current();
+            if (hvNow) {
+                HwVideoStats hs;
+                hw_video_stats(hvNow, &hs);
+                if (hs.refreshes < pacePrev.refreshes || hs.frames < pacePrev.frames) memset(&pacePrev, 0, sizeof(pacePrev));
+                uint64_t refr = hs.refreshes - pacePrev.refreshes;
+                snprintf(pacing, sizeof(pacing),
+                         "frames %s: %llu decoded, %llu new of %llu refreshes, %llu one-refresh repeats, %llu catch-up "
+                         "drops, %llu replaced/overflow, %.2f waiting avg; ",
+                         videoPaced ? "paced" : "newest", (unsigned long long)(hs.frames - pacePrev.frames),
+                         (unsigned long long)(hs.shown - pacePrev.shown), (unsigned long long)refr,
+                         (unsigned long long)(hs.holes - pacePrev.holes),
+                         (unsigned long long)(hs.catchUpDrops - pacePrev.catchUpDrops),
+                         (unsigned long long)(hs.skipped - pacePrev.skipped),
+                         refr ? (double)(hs.queuedSum - pacePrev.queuedSum) / (double)refr : 0.0);
+                pacePrev = hs;
+            }
             if (atomic_load(&g_streaming)) {
-                LOGEV("xr: latency: pointer %d moves (%.0f/s), sent %.1f ms after xrWaitFrame returned (max %.1f), "
+                LOGEV("xr: latency: %spointer %d moves (%.0f/s), sent %.1f ms after xrWaitFrame returned (max %.1f), "
                       "poses %.0f ms before display, smoothing lag %.0f ms (%.1f px) while moving (%d frames); "
-                      "decoder submit to photons %.0f ms avg (max %.0f) over %d frames%s%s",
-                      latMoves, latMoves / (t - lastStats), latMoves ? latSendNsSum / 1e6 / latMoves : 0.0,
+                      "decoder submit to photons %.0f ms avg (max %.0f) over %d frames",
+                      pacing, latMoves, latMoves / (t - lastStats), latMoves ? latSendNsSum / 1e6 / latMoves : 0.0,
                       latSendNsMax / 1e6, latLeadN ? latLeadNsSum / 1e6 / latLeadN : 0.0,
                       ctx->ptrLagSamples ? ctx->ptrLagMsSum / ctx->ptrLagSamples : 0.0,
                       ctx->ptrLagSamples ? ctx->ptrLagPxSum / ctx->ptrLagSamples : 0.0, ctx->ptrLagSamples,
-                      latVidN ? latVidNsSum / 1e6 / latVidN : 0.0, latVidNsMax / 1e6, latVidN, appLat[0] ? "; " : "",
-                      appLat);
+                      latVidN ? latVidNsSum / 1e6 / latVidN : 0.0, latVidNsMax / 1e6, latVidN);
+                if (appLat[0]) LOGEV("xr: latency (stream): %s", appLat);
             }
             latMoves = latLeadN = latVidN = 0;
             latSendNsSum = latSendNsMax = latLeadNsSum = latVidNsSum = latVidNsMax = 0;

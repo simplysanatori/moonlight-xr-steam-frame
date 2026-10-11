@@ -113,7 +113,14 @@ packet, as SDL's audio thread does for stock moonlight-qt (`thread_prio.c`, sd-b
 dependency). `MLXR_AUDIO_PRIORITY=rt` asks for SCHED_RR 10 instead (bounds RLIMIT_RTTIME as rtkit requires),
 `off` leaves it. Both checked against this Frame's rtkit.
 
-The log's 5 s "xr: latency:" line has, per window: cushion, underruns split late / after silence, lost, dropped
+Second owner run (23:09-23:11): underruns only in windows where Sunshine itself reported 40-180 ms average
+(240-450 ms worst) host encode times and packet gaps of 44-344 ms; windows with normal host encode (3 ms) had none.
+The receive thread waited ~10 ms per 5 s for a CPU (0.2%), nice -10 applied. Ours, fixed after it: the cap's drops
+after a burst cut to a fade-in from silence (a click each) and are now crossfaded over 5 ms (equal power), as are
+trims; gaps longer than server + 40 + 20 ms count as outages and no longer grow the cushion; the log adds the host's
+audio clock in ppm and the rate the sink takes, to tell drift from bursts.
+
+The log's 5 s "xr: latency (stream):" line has, per window: cushion, underruns split late / after silence, lost, dropped
 and trimmed ms, the longest gap between packets, and how long the receive thread waited for a CPU
 (schedstat run delay) with its CPU share: late underruns with long gaps and ~0 wait = network; long waits =
 scheduling.

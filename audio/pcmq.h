@@ -4,8 +4,10 @@
 //
 // When a push would take the queue past its cap, the OLDEST frames are
 // dropped to make room (the listener hears the newest audio and latency stays
-// bounded instead of drifting). The next pop after a drop, or a
-// mark_discontinuity() (an underrun), fades in over FADE_FRAMES so the splice does not click.
+// bounded instead of drifting). If enough stays queued, the cut is crossfaded
+// over XFADE_FRAMES (the frames due fade out into the ones after the cut);
+// otherwise, and after a mark_discontinuity() (an underrun), the next pop
+// fades in over FADE_FRAMES so the splice does not click.
 #ifndef MLXR_PCMQ_H
 #define MLXR_PCMQ_H
 
@@ -16,6 +18,9 @@ extern "C" {
 #endif
 
 #define MLXR_PCMQ_FADE_FRAMES 96  /* 2 ms at 48 kHz */
+// Splices inside audio (the cap's drops while enough stays queued, skip())
+// crossfade over this many frames instead of cutting to a fade-in from silence
+#define MLXR_PCMQ_XFADE_FRAMES 240 /* 5 ms at 48 kHz */
 
 typedef struct MlxrPcmQueue MlxrPcmQueue;
 
@@ -40,7 +45,7 @@ void mlxr_pcmq_set_capacity(MlxrPcmQueue* q, int capFrames);
 void mlxr_pcmq_clear(MlxrPcmQueue* q);
 /**
  * Removes n frames from the front (the oldest) with a crossfade over
- * MLXR_PCMQ_FADE_FRAMES across the cut, so the splice does not click. Used to
+ * MLXR_PCMQ_XFADE_FRAMES across the cut, so the splice does not click. Used to
  * bring latency back down. Returns how many were removed (fewer when the queue
  * holds less than n + the fade).
  */

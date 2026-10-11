@@ -39,7 +39,8 @@ static struct {
     _Atomic uint64_t packets, framesOut, droppedFrames;
     _Atomic uint32_t lost, decodeErrors, mutedPackets, overruns;
     _Atomic float processUs, processMaxUs;
-    _Atomic int threadId;           // common-c's audio receive thread, once seen
+    _Atomic int threadId;
+    _Atomic int64_t firstPacketNs, lastPacketNs;           // common-c's audio receive thread, once seen
     int priorityDone;               // audio thread: the raise was tried
     char threadPriority[96];        // written once by the audio thread before threadId
     MlxrOpusOutStats final;         // totals of the stream that ended
@@ -85,6 +86,8 @@ static void resetCounters(void) {
     atomic_store(&O.processUs, 0.0f);
     atomic_store(&O.processMaxUs, 0.0f);
     atomic_store(&O.threadId, 0);
+    atomic_store(&O.firstPacketNs, 0);
+    atomic_store(&O.lastPacketNs, 0);
     O.priorityDone = 0;
     O.threadPriority[0] = '\0';
 }
@@ -101,6 +104,9 @@ static void snapshot(MlxrOpusOutStats* out) {
     out->processUs = atomic_load(&O.processUs);
     out->processMaxUs = atomic_load(&O.processMaxUs);
     out->channels = O.channels;
+    out->samplesPerFrame = O.samplesPerFrame;
+    out->firstPacketNs = atomic_load(&O.firstPacketNs);
+    out->lastPacketNs = atomic_load(&O.lastPacketNs);
     out->muted = atomic_load(&O.muted);
     out->running = atomic_load(&O.running);
     if (O.surround != NULL) {
@@ -117,6 +123,8 @@ static void snapshot(MlxrOpusOutStats* out) {
         out->trimmedFrames = ps.trimmedFrames;
         out->jitterGrows = ps.jitterGrows;
         out->jitterShrinks = ps.jitterShrinks;
+        out->outages = ps.outages;
+        out->sinkFrames = ps.writtenFrames;
         out->jitterTargetMs = (float) ps.jitterTargetMs;
         out->gapMaxMs = ps.gapMaxMs;
         out->overruns += ps.overruns;
@@ -312,6 +320,13 @@ static void rendererDecode(char* data, int length) {
         return;
     }
     atomic_fetch_add(&O.packets, 1);
+    {
+        int64_t t = (int64_t) (nowUs() * 1000.0);
+        if (atomic_load(&O.firstPacketNs) == 0) {
+            atomic_store(&O.firstPacketNs, t);
+        }
+        atomic_store(&O.lastPacketNs, t);
+    }
 
     // Once, on common-c's receive thread (which runs this): above the frame
     // loop, the depth engine and the panel worker, so a busy CPU does not

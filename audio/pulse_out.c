@@ -178,7 +178,7 @@ struct MlxrPulseOut {
     int serverFrames;           // tlength granted, in frames
     int slackFrames;            // queueCapMs in frames
     _Atomic int jitTargetMs, gapMaxMs;
-    _Atomic uint32_t jitLate, jitSilence, jitGrows, jitShrinks;
+    _Atomic uint32_t jitLate, jitSilence, jitGrows, jitShrinks, jitOutages;
 };
 
 void mlxr_pulse_out_params_default(MlxrPulseOutParams* p) {
@@ -446,6 +446,7 @@ static void jitterAfterPush(MlxrPulseOut* po, int64_t now) {
     atomic_store(&po->jitSilence, po->jit.silenceUnderruns);
     atomic_store(&po->jitGrows, po->jit.grows);
     atomic_store(&po->jitShrinks, po->jit.shrinks);
+    atomic_store(&po->jitOutages, po->jit.outages);
 }
 
 int mlxr_pulse_out_write(MlxrPulseOut* po, const float* frames, int n) {
@@ -513,6 +514,7 @@ void mlxr_pulse_out_stats(MlxrPulseOut* po, MlxrPulseOutStats* out) {
         out->silenceUnderruns = atomic_load(&po->jitSilence);
         out->jitterGrows = atomic_load(&po->jitGrows);
         out->jitterShrinks = atomic_load(&po->jitShrinks);
+        out->outages = atomic_load(&po->jitOutages);
         out->gapMaxMs = atomic_load(&po->gapMaxMs);
     }
 }

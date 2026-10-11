@@ -160,7 +160,7 @@ static void latencyHook(void* user, char* buf, int len) {
     (void)user;
     buf[0] = 0;
     if (g_args.file || !atomic_load(&g_streaming)) return;
-    char v[256];
+    char v[200];
     stream_latency_line(v, sizeof(v));
     static MlxrOpusOutStats prev;
     static int64_t prevNs;
@@ -180,15 +180,26 @@ static void latencyHook(void* user, char* buf, int len) {
         saidPriority = 1;
     }
     double waitMs = (st.threadWaitNs - prev.threadWaitNs) / 1e6;
+    // The host's audio clock against ours, from every packet since the first
+    // (a steady excess shows as regular trims; host silences skew it low)
+    double hostPpm = 0.0;
+    if (st.packets > 1 && st.lastPacketNs > st.firstPacketNs + 10000000000LL && st.samplesPerFrame > 0) {
+        double sent = (double)(st.packets - 1) * st.samplesPerFrame / 48000.0;
+        hostPpm = (sent / ((st.lastPacketNs - st.firstPacketNs) / 1e9) - 1.0) * 1e6;
+    }
+    double sinkHz = secs > 0.0 ? (st.sinkFrames - prev.sinkFrames) / secs : 0.0;
     double cpuPct = secs > 0.0 ? (st.threadCpuNs - prev.threadCpuNs) / 1e7 / secs : 0.0;
     snprintf(buf, (size_t)len,
-             "%s; audio cushion %.0f ms, %.0f ms buffered, underruns +%u (%u late, %u after silence), lost +%u, "
-             "dropped %.0f ms, trimmed %.0f ms, longest packet gap %d ms, receive thread waited %.1f ms for a CPU "
-             "(%.1f%% busy), decode %.2f ms avg (max %.2f)",
+             "%s; audio cushion %.0f ms, %.0f ms buffered, underruns +%u (%u late of which %u outages, %u after "
+             "silence), lost +%u, dropped %.0f ms, trimmed %.0f ms, longest packet gap %d ms, sink took %.0f Hz, "
+             "host clock %+.0f ppm, receive thread waited %.1f ms for a CPU (%.1f%% busy), decode %.2f ms avg "
+             "(max %.2f)",
              v, st.jitterTargetMs, st.bufferedMs, st.underruns - prev.underruns,
-             st.lateUnderruns - prev.lateUnderruns, st.silenceUnderruns - prev.silenceUnderruns,
+             st.lateUnderruns - prev.lateUnderruns, st.outages - prev.outages,
+             st.silenceUnderruns - prev.silenceUnderruns,
              st.lostPackets - prev.lostPackets, (st.droppedFrames - prev.droppedFrames) / 48.0,
-             (st.trimmedFrames - prev.trimmedFrames) / 48.0, mlxr_opus_out_take_gap_max(), waitMs, cpuPct, st.processUs / 1000.0,
+             (st.trimmedFrames - prev.trimmedFrames) / 48.0, mlxr_opus_out_take_gap_max(), sinkHz, hostPpm, waitMs,
+             cpuPct, st.processUs / 1000.0,
              st.processMaxUs / 1000.0);
     prev = st;
     prevNs = now;

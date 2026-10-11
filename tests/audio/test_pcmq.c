@@ -83,14 +83,17 @@ static void testCap(void) {
     CHECK(st.pushedFrames == 2400);
     CHECK(st.droppedFrames == 1920);
     CHECK(st.overruns == 8);  // the first two packets fit
-    // What is left is the newest 10 ms, in order, and the splice fades in
+    // What is left is the newest 10 ms, in order; the cuts were crossfaded
+    // (lane av-latency) from the audio that was due, not faded in from silence
     CHECK(mlxr_pcmq_pop(q, out, 480) == 480);
     CHECK(out[2 * 479] == 2400.0f);
     CHECK(out[2 * 0 + 1] != 0.0f);
     float first = out[0];
     float unfaded = (float) (2400 - 480 + 1);
-    CHECK_NEAR(first, unfaded * (1.0f / MLXR_PCMQ_FADE_FRAMES), 1e-3);
-    CHECK_NEAR(out[2 * (MLXR_PCMQ_FADE_FRAMES + 3)], unfaded + MLXR_PCMQ_FADE_FRAMES + 3, 1e-3);
+    // A crossfade starts from the frame that was due (here the ramp's early
+    // values, carried through each cut), where a fade-in would start from 0
+    CHECK(first > 1.0f && first < unfaded);
+    CHECK_NEAR(out[2 * (MLXR_PCMQ_XFADE_FRAMES + 3)], unfaded + MLXR_PCMQ_XFADE_FRAMES + 3, 1e-3);
     // An oversized push keeps only the newest cap frames
     float big[2 * 1000];
     for (int i = 0; i < 1000; i++) {

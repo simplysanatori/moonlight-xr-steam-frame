@@ -95,6 +95,12 @@ typedef struct {
     uint64_t framesOut;      // frames delivered to the sink
     uint64_t trimmedFrames;  // excess latency spliced out after a calm spell (crossfaded)
     uint32_t jitterGrows, jitterShrinks;
+    uint32_t outages;        // late underruns too long for any cushion (the host stalled)
+    uint64_t sinkFrames;     // frames handed to the sound server
+    // host clock: packets since the first one against this machine's clock
+    int64_t firstPacketNs;   // CLOCK_MONOTONIC of the first decoded packet (0 none)
+    int64_t lastPacketNs;
+    int samplesPerFrame;
     // the audio receive thread (0 until its first packet)
     uint64_t threadCpuNs;    // CPU time it used
     uint64_t threadWaitNs;   // time it was runnable but waited for a CPU (starvation)
