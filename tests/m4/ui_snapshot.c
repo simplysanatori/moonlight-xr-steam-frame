@@ -163,7 +163,39 @@ int main(int argc, char** argv) {
 
     scene_reset(s);
     c->overlayVisible = 1;
-    shot(s, "13-stats", "Display 72 Hz, 72 fps\nVideo 2560x1440, 60 fps\ndecoded 0, dropped 0\nhw decode 3.8 ms\nrtt 2 ms\naudio 2ch 15 ms buffered");
+    // Native (owner's request): the lines as the session writes them, the
+    // app's clauses wider than the window was; every one wraps inside it
+    static const char LONG_STATS[] =
+        "Display 90 Hz, 89 fps\nVideo 2560x1440, 60 fps\ndecoded 123456, dropped 12, decode 3.1 ms\n"
+        "units 654321, idr requests 2, rtt 4 ms, pending video 1\n"
+        "hw decode 3.1 ms (last 3.2), frames 123456, skipped 12, errors 0\n"
+        "audio 2ch 40 ms buffered, 2 underruns, 0 lost (stream totals)\n"
+        "network 54 Mb/s, host encode 4.2 ms, network 1.1 ms, decode 3.1 ms, present 2.0 ms, total 10.4 ms (worst 15.8)\n"
+        "Depth 14.9/s (target 15), depth-anything-v2-small-int8\nDepth inference 41.3 ms, age 88 ms, skipped 1234";
+    shot(s, "13-stats", LONG_STATS);
+    // and carried off by a grip: brought toward the viewer, to the right, turned
+    {
+        c->headPos = (XrVector3f){ 0, 0, 0 };
+        statsPlace(c);
+        Vec3 mid = panelPoint(c->statsPose, c->statsW, c->statsH, 0.5f, 0.5f);
+        Vec3 d = vecNorm(vecSub(mid, hand()));
+        Vec3 z = { -d.x, -d.y, -d.z };
+        Vec3 up = { 0, 1, 0 };
+        Vec3 x = vecNorm(vecCross(up, z));
+        Vec3 y = vecCross(z, x);
+        XrPosef aim = { quatFromBasis(x, y, z), { hand().x, hand().y, hand().z } };
+        xrGrabStepAt(c, aim, 0, 1, 0.0f);
+        Vec3 yAxis = { 0, 1, 0 };
+        aim.orientation = quatNorm(quatMul(axisAngleQuat(yAxis, -0.5f), aim.orientation));
+        aim.position.x += 0.9f;
+        aim.position.y -= 0.35f;
+        xrGrabStepAt(c, aim, 0, 1, 0.0f);
+        for (int i = 0; i < 30; i++) xrGrabStepAt(c, aim, 0, 1, -0.5f);
+        scene_ray_to(s, hand(), c->statsPose.position.x != 0.0f ? panelPoint(c->statsPose, c->statsW, c->statsH, 0.5f, 0.5f) : mid);
+        shot(s, "13b-stats-moved", LONG_STATS);
+        xrGrabStepAt(c, aim, 0, 0, 0.0f);
+        c->statsMoved = 0;
+    }
     c->overlayVisible = 0;
 
     scene_reset(s);

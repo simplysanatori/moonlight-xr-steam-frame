@@ -401,19 +401,16 @@ static void addLauncherLayer(XrCtx* ctx, const FrameView* view, FrameLayers* lay
     pushLayer(ctx, layers, &layers->launcher);
 }
 
-// The stats overlay in the corner of the picture
+// The stats window: in the corner of the picture until a grip has moved it
+// (statsPlace). Native: it shows just the part of its slot the lines used.
 static void addOverlayLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
-    if (ctx->overlayHasContent && ctx->overlayVisible) {
-        float overlayW = view->screenWidth * 0.30f;
-        float overlayH = overlayW * (float)ATLAS_OVERLAY_H / (float)ATLAS_OVERLAY_W;
-        float margin = view->screenWidth * 0.02f;
-        // Pinned to the top left of the screen in the screen's own frame,
-        // so it follows wherever the screen has been moved to
-        Vec3 statsLocal = { -view->screenWidth * 0.5f + overlayW * 0.5f + margin,
-                            view->screenHeight * 0.5f - overlayH * 0.5f - margin,
-                            0.01f };
-        atlasQuad(ctx, &layers->overlay, NULL, ATLAS_OVERLAY, view->space,
-                  poseOffset(view->screenPose, statsLocal), overlayW, overlayH);
+    (void)view;
+    if (statsShown(ctx)) {
+        statsPlace(ctx);
+        UiRectPx r = xrAtlasRect(ATLAS_OVERLAY);
+        quadLayerRect(&layers->overlay, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                      xrAtlasSwapchain(ctx), r.x, r.y, ctx->overlayW, ctx->overlayH, view->space,
+                      ctx->statsPose, ctx->statsW, ctx->statsH);
         pushLayer(ctx, layers, &layers->overlay);
     }
 }

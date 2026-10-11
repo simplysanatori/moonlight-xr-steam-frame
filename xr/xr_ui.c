@@ -287,6 +287,45 @@ void kbPlace(XrCtx* ctx) {
     ctx->kbPose = ctx->kbMoved ? ctx->kbMovedPose : pose;
 }
 
+// Native (owner's request): the stats window. Shown when the setting is on and
+// its lines have been drawn.
+int statsShown(XrCtx* ctx) {
+    return ctx->overlayVisible && ctx->overlayHasContent && ctx->overlayW > 0 && ctx->overlayH > 0;
+}
+
+// Native (owner's request): where the stats window is now, and its size. A
+// pixel of its slot is the size it has always had (the slot's 384 px were 30%
+// of the picture), so the type reads as before. Under the picture's top left
+// corner it stays pinned to, in the picture's own frame, until a grip has
+// taken it; then it stays where it was left, with its top edge fixed as the
+// number of lines changes.
+void statsPlace(XrCtx* ctx) {
+    if (!statsShown(ctx)) {
+        return;
+    }
+    float screenH = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    float metresPerPx = ctx->screenWidth * 0.30f / 384.0f;
+    ctx->statsW = (float)ctx->overlayW * metresPerPx;
+    ctx->statsH = (float)ctx->overlayH * metresPerPx;
+    if (ctx->statsMoved) {
+        Vec3 shift = { 0.0f, -(ctx->statsH - ctx->statsMovedH) * 0.5f, 0.0f };
+        Vec3 at = quatRotate(ctx->statsMovedPose.orientation, shift);
+        ctx->statsPose = ctx->statsMovedPose;
+        ctx->statsPose.position.x += at.x;
+        ctx->statsPose.position.y += at.y;
+        ctx->statsPose.position.z += at.z;
+        return;
+    }
+    float margin = ctx->screenWidth * 0.02f;
+    Vec3 local = { -ctx->screenWidth * 0.5f + ctx->statsW * 0.5f + margin,
+                   screenH * 0.5f - ctx->statsH * 0.5f - margin, 0.01f };
+    Vec3 at = quatRotate(ctx->screenPose.orientation, local);
+    ctx->statsPose = ctx->screenPose;
+    ctx->statsPose.position.x += at.x;
+    ctx->statsPose.position.y += at.y;
+    ctx->statsPose.position.z += at.z;
+}
+
 // Native (owner's request): the keyboard's move bar. The frame it is laid
 // out in is the keyboard panel's width as a share of the screen's frame
 // (KB_WIDTH_FRAC, KB_FULL_SCALE for the Full layout) turned back, so the pill

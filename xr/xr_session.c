@@ -1309,7 +1309,7 @@ typedef struct Host {
     int lastX, lastY;
     int pointerSent;           // Native (av-latency): this frame sent the host a mouse move
     float distance, quadWidth, curvature; // the preference's placement
-    char statsText[512];
+    char statsText[1536]; // Native: was 512, which cut the last lines off once the app, perf and depth lines grew
     int64_t statsNs;
     char clockText[32];
 } Host;
@@ -1447,7 +1447,7 @@ static void updateTexts(Host* h, int64_t now, uint64_t frames, uint64_t videoFra
     static uint64_t lastFrames, lastVideo;
     double secs = h->statsNs > 0 ? (now - h->statsNs) / 1e9 : 1.0;
     h->statsNs = now;
-    char app[256] = "";
+    char app[768] = "";
     if (h->cfg->hooks.stats) h->cfg->hooks.stats(h->cfg->hooks.user, app, sizeof(app));
     int n = snprintf(h->statsText, sizeof(h->statsText), "Display %.0f Hz, %.0f fps\nVideo %dx%d, %.0f fps\n",
                      xrGetDisplayRate(ctx), (frames - lastFrames) / secs, ctx->videoWidth, ctx->videoHeight,
@@ -1467,7 +1467,7 @@ static void updateTexts(Host* h, int64_t now, uint64_t frames, uint64_t videoFra
     h->statsText[n] = '\0';
     // M6: the depth model's lines (upstream's overlay: rate and target,
     // inference, age, skips)
-    char depth[200];
+    char depth[320];
     xrDepthOverlay(ctx, depth, sizeof(depth));
     if (depth[0] && n < (int)sizeof(h->statsText) - 2) {
         snprintf(h->statsText + n, sizeof(h->statsText) - (size_t)n, "\n%s", depth);
