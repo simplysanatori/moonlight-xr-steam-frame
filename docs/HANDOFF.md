@@ -113,6 +113,13 @@ Fable is for planning (owner's rule), so this session verified, merged one finis
 
 **Push:** main after step 1 and after each merged fix; lanes `panels-perf` (now merged) and `models-tex` stay pushed.
 
+### 4c progress (same evening, Opus 5.5)
+
+- **Step 1 done (8e108d8), headless only.** Measured at -O2 in cached memory: cog 4-7 ms, keyboard ~10 ms, picker ~11 ms per drawing, too much of an 11.1 ms frame. The panels are now drawn on one worker thread (`xr/xr_panels.c`): the frame loop computes the keys, hands a job (a full copy of what the panel is drawn from) to the worker, and copies finished drawings into the atlas after a later frame's fence. Newest job per slot wins; cog, keyboard and exit go first. Launcher hits, the cog's last view and the report/toast/overlay flags change when the drawing lands. CPU-only atlases (tests, snapshots) still draw inline; `MLXR_PANELS_INLINE=1` forces inline in the session. The stats line now says "N panel drawings X ms avg (worst wait Y ms)". Test `m4_panels_async` (worker vs inline byte-identical over 13 UI states, burst, report reopen), clean under ThreadSanitizer in a separate build. 111/111 suites.
+- **Step 2 prepared (e26cd33).** `tools/vrtiming.py` reads SteamVR's compositor frame timing (GetFrameTimings/GetCumulativeStats via ctypes, read-only background app). The flat launcher's wrapper runs it for every run into `~/Games/MoonlightXRNative/vrtiming.log` (previous run `.1`, `MLXR_VRTIMING=0` disables), `bug-report.sh` collects it. Columns: compositor frames, app frames reused (presents > 1), mispresented, dropped, reprojected cpu/gpu, async and motion flags, compositor GPU ms, app frame interval, poses-to-frame-ready ms, vsyncs to photons. Code review of the room path found nothing wrong: room views come from `xrLocateViews` at the predicted display time and the layer reports the poses it was drawn with; room textures are mipmapped, trilinear, anisotropic; room at 1760x1760 per eye (env res standard). **Next:** read vrtiming.log against moonlight.log from the owner's run of `docs/HEADSET_TEST_3.md` step 2, then classify as in step 2b above.
+- Steps 3 and 4 need the owner (`docs/HEADSET_TEST_3.md` steps 3 and 4).
+- Step 5 running as an Opus agent in `lanes/models-tex` (see STATUS.md for its result).
+
 ## 5. What is left (do these next, in this order unless the owner says otherwise)
 
 1. **Get the owner's headset results** for the flat launcher, M3, M5, M6 and the keyboard (each report has a test script) and fix what they find. Read `moonlight.log` after each run.
