@@ -1,5 +1,7 @@
 # Moonlight XR Native: session hand-off
 
+**Start with [SESSION_4.md](SESSION_4.md)** (2026-10-11): the black-screen problem, the current state and the working rules. The sections below are older context.
+
 Written 2026-10-10 at the end of the first build session (main at the commit that adds this file; 108 test suites green). Paste the prompt at the bottom into a new Claude Code session on the Steam Frame to continue. Everything below is either in this repository or on the Frame at the paths given.
 
 ## 1. What this project is
