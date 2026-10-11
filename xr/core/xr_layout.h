@@ -37,6 +37,8 @@
 #define HOVER_KOFI      19
 // Native (owner's request): the keyboard's own move bar, under the keyboard
 #define HOVER_KBBAR     20
+// Native (owner's request): the stats window, where nothing else is behind it
+#define HOVER_STATS     21
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 

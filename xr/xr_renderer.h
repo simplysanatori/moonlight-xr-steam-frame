@@ -173,6 +173,8 @@ static inline float nativePointerTunable(const char* env, float def) {
 // Native (owner's request): the keyboard held by its move bar, in place and
 // turn, wherever it is taken to
 #define GRAB_KBMOVE 3
+// Native (owner's request): the stats window held by a grip, in place and turn
+#define GRAB_STATSMOVE 4
 
 // Widened along with the grid so a cell stays about the size it was at three
 // columns: five of them now
@@ -343,6 +345,19 @@ typedef struct XrCtx {
     // of the UI atlas, drawn from the session's stats line)
     int overlayHasContent;
     int overlayVisible;
+    // Native (owner's request): the stats window is movable. overlayW/H are the
+    // pixels of its slot the drawing used (xr_panels.c lays the lines out to fit);
+    // statsPose and statsW/H are where it is and how big, metres (statsPlace).
+    // Until a grip has moved it, it sits in the picture's top left corner; after,
+    // it stays where it was left (its top edge fixed as the lines change in
+    // number), until the screen's placement is reset or recentred.
+    int overlayW, overlayH;
+    XrPosef statsPose;
+    float statsW, statsH;
+    int statsMoved;
+    XrPosef statsMovedPose;
+    float statsMovedH;
+    int statsOver;   // the pointing ray is on the window (grip takes it)
 
     // 0 off, 1 normal, 2 quality: sharpening (native: the warp pass's own
     // sharpen, SteamVR has no layer settings) and supersampling (stored only)
@@ -1107,6 +1122,10 @@ void kbPlace(XrCtx* ctx);
 // pill is the picture's, at the picture's size and gap, so it hangs off the
 // panel's bottom edge by the same share of the frame as the picture's does.
 void kbBarGeometry(XrCtx* ctx, float* outWidth, float* outHeight, float* outDrop);
+// Native: whether the stats window is up, and its pose and size now (statsPose,
+// statsW, statsH): the corner of the picture until a grip has moved it
+int statsShown(XrCtx* ctx);
+void statsPlace(XrCtx* ctx);
 int kbKeyAt(XrCtx* ctx, float u, float v);
 int headAimCanAct(XrCtx* ctx);
 void setHeadAimOn(XrCtx* ctx, int on, const char* from);

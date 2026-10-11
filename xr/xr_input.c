@@ -831,6 +831,11 @@ static void readJoints(XrCtx* ctx, int hand, const FrameXform* xform, const XrPo
 // hanging under the screen when the screen's placement is reset, and a
 // keyboard that is up is put there at once
 static void resetKeyboardPlacement(XrCtx* ctx) {
+    if (ctx->statsMoved) {
+        // Native (owner's request): and the stats window to the picture's corner
+        ctx->statsMoved = 0;
+        LOGI("stats window back in the picture's corner");
+    }
     if (!ctx->kbMoved) {
         return;
     }
@@ -1073,7 +1078,7 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         if (!stillHeld || !stillThere) {
             // Persist where it ended up, not every frame of the drag. The
             // keyboard's place is the session's, not a preference.
-            if (ctx->grabMode != GRAB_KBMOVE) {
+            if (ctx->grabMode != GRAB_KBMOVE && ctx->grabMode != GRAB_STATSMOVE) {
                 ctx->poseDirty = 1;
             }
             ctx->grabMode = GRAB_NONE;
@@ -1092,10 +1097,18 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         // keyboard stands.
         int roomStyle = roomEffective(ctx);
         int kbBar = hover == HOVER_KBBAR && ctx->kbOpen;
-        if (!kbBar && roomStyle > 0 && (hover != HOVER_CORNER || !roomResizable(roomStyle))) {
+        // Native (owner's request): the stats window, anywhere on its body, by
+        // a grip. No bar and no trigger: the trigger is still the click it
+        // was. It stands where the picture does in a room too.
+        int statsGrab = !kbBar && hand >= 0 && hand < HAND_COUNT && ctx->statsOver
+                && ctx->gripEdge[hand] && statsShown(ctx) && hover != HOVER_KBPANEL
+                && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen && !ctx->reportOpen
+                && !ctx->hintOpen && !ctx->kofiOpen;
+        int winGrab = kbBar || statsGrab;
+        if (!winGrab && roomStyle > 0 && (hover != HOVER_CORNER || !roomResizable(roomStyle))) {
             return;
         }
-        if (hand < 0 || (hover != HOVER_BAR && hover != HOVER_CORNER && !kbBar)) {
+        if (hand < 0 || (hover != HOVER_BAR && hover != HOVER_CORNER && !winGrab)) {
             return;
         }
 
@@ -1116,11 +1129,11 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         int mover = hand;
         ctx->grabByGaze = hand == SRC_GAZE;
         // What is held: the picture, or the keyboard when its bar is
-        XrPosef heldPose = kbBar ? ctx->kbPose : ctx->screenPose;
-        float heldW = kbBar ? ctx->kbW : ctx->screenWidth;
-        float heldH = kbBar ? ctx->kbH : height;
-        float heldR = kbBar ? 0.0f : ctx->screenRadius;
-        int heldCurved = kbBar ? 0 : curved;
+        XrPosef heldPose = kbBar ? ctx->kbPose : statsGrab ? ctx->statsPose : ctx->screenPose;
+        float heldW = kbBar ? ctx->kbW : statsGrab ? ctx->statsW : ctx->screenWidth;
+        float heldH = kbBar ? ctx->kbH : statsGrab ? ctx->statsH : height;
+        float heldR = winGrab ? 0.0f : ctx->screenRadius;
+        int heldCurved = winGrab ? 0 : curved;
         if (ctx->grabByGaze) {
             float gu, gv;
             if (!screenProject(aims[hand], heldPose, heldW, heldH, heldR, heldCurved,
@@ -1147,6 +1160,15 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         ctx->grabHeight = heldH;
         ctx->grabRadius = heldR;
 
+        if (statsGrab) {
+            ctx->grabMode = GRAB_STATSMOVE;
+            ctx->grabPush = 0.0f;
+            ctx->grabPushNs = 0;
+            ctx->statsMoved = 1;
+            ctx->statsMovedPose = ctx->statsPose;
+            ctx->statsMovedH = ctx->statsH;
+            return;
+        }
         if (kbBar) {
             ctx->grabMode = GRAB_KBMOVE;
             ctx->grabPush = 0.0f;
@@ -1192,12 +1214,13 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
     }
 
     int h = ctx->grabHand;
-    if (ctx->grabMode == GRAB_KBMOVE) {
+    if (ctx->grabMode == GRAB_KBMOVE || ctx->grabMode == GRAB_STATSMOVE) {
+        // (The stats window is carried the same way, by a grip anywhere on it.)
         // The keyboard goes where the hand takes it, turn and all: the rigid
         // attach the picture's bar uses for where it goes, but with the
         // hand's turn carried to which way it faces too, so it can be laid
         // at an angle. The eyes can only slide it.
-        XrPosef* kb = &ctx->kbPose;
+        XrPosef* kb = ctx->grabMode == GRAB_STATSMOVE ? &ctx->statsPose : &ctx->kbPose;
         if (ctx->grabByGaze) {
             Vec3 travel = vecSub(gazeHandPos(ctx, aims, h), ctx->grabHandStart);
             Vec3 carry = gazeDragCarry(ctx, &ctx->grabRamp, travel, ctx->lastInputNs);
@@ -1219,7 +1242,13 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
             kb->orientation = quatNorm(quatMul(turn, ctx->grabScreen.orientation));
         }
         pushHeldScreen(ctx, sticks, kb);
-        ctx->kbMovedPose = *kb;
+        if (ctx->grabMode == GRAB_STATSMOVE) {
+            ctx->statsMovedPose = *kb;
+            ctx->statsMovedH = ctx->statsH;
+        }
+        else {
+            ctx->kbMovedPose = *kb;
+        }
         return;
     }
     if (ctx->grabMode == GRAB_MOVE) {
@@ -1439,6 +1468,7 @@ typedef struct {
     float hitU[SRC_COUNT];
     float hitV[SRC_COUNT];
     int hovers[SRC_COUNT];
+    int onStats[SRC_COUNT];   // native: the ray is on the stats window
     int corners[SRC_COUNT];
     int moved;
     // The same per hand, for each controller's own clock
@@ -1741,6 +1771,24 @@ static void hoverSource(XrCtx* ctx, InputFrame* f, int h) {
     else {
         roomHover(ctx, f, h);
     }
+    // Native (owner's request): the stats window, in front of whatever is
+    // behind it but not of the keyboard. A grip on it takes it (applyGrab);
+    // the trigger is still whatever the thing behind it makes of it, and
+    // where nothing is behind it the window is a hover of its own so the ray
+    // is known to be on something.
+    f->onStats[h] = 0;
+    if (statsShown(ctx) && !onKeyboard && !onKbBar) {
+        float su, sv;
+        if (screenProject(f->aimPoses[h], ctx->statsPose, ctx->statsW, ctx->statsH, 0.0f, 0, &su, &sv)
+                && su >= 0.0f && su <= 1.0f && sv >= 0.0f && sv <= 1.0f) {
+            f->onStats[h] = 1;
+            if (f->hovers[h] == HOVER_NONE) {
+                f->hovers[h] = HOVER_STATS;
+                f->hitU[h] = su;
+                f->hitV[h] = sv;
+            }
+        }
+    }
 }
 
 // Native, for the tests: what one ray (in the local space, screen world
@@ -1758,6 +1806,7 @@ int xrHoverAt(XrCtx* ctx, XrPosef aim, float* outU, float* outV, int* outCorner)
     f.bar = barFrame(ctx);
     f.aimPoses[HAND_RIGHT] = aim;
     f.aimValid[HAND_RIGHT] = 1;
+    statsPlace(ctx);
     hoverSource(ctx, &f, HAND_RIGHT);
     if (outU) *outU = f.hitU[HAND_RIGHT];
     if (outV) *outV = f.hitV[HAND_RIGHT];
@@ -1781,8 +1830,10 @@ int xrGrabStepAt(XrCtx* ctx, XrPosef aim, int trigger, int grip, float stickY) {
     f.bar = barFrame(ctx);
     f.aimPoses[HAND_RIGHT] = aim;
     f.aimValid[HAND_RIGHT] = 1;
+    statsPlace(ctx);
     hoverSource(ctx, &f, HAND_RIGHT);
     int hover = f.hovers[HAND_RIGHT];
+    ctx->statsOver = f.onStats[HAND_RIGHT];
 
     ctx->triggerEdge[HAND_RIGHT] = trigger && !ctx->triggerDown[HAND_RIGHT];
     ctx->triggerDown[HAND_RIGHT] = trigger;
@@ -3164,6 +3215,13 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
     if (f->headValid) {
         Vec3 local;
         local.z = 0.0f;
+        if (ctx->grabMode == GRAB_STATSMOVE) {
+            // The ray ends in the middle of the window it holds
+            ctx->beamStart = f->aimPoses[ctx->grabHand].position;
+            ctx->beamEnd = ctx->statsPose.position;
+            ctx->beamVisible = 1;
+            return;
+        }
         if (ctx->grabMode == GRAB_KBMOVE) {
             // The keyboard's own bar, hanging under the keyboard
             float pillW, pillH, drop;
@@ -4040,12 +4098,14 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     }
     updateHeadTurn(ctx, &f);
 
+    statsPlace(ctx);
     readSources(ctx, &f);
     gazeBridgeTrack(&ctx->gazeBridge, f.gazeAsked, f.gazeUsable, f.now);
     updateLockGesture(ctx, &f);
     applyHandLock(ctx, &f);
     updatePointerWake(ctx, &f);
     pickPointingSource(ctx, &f);
+    ctx->statsOver = f.hand >= 0 && f.hand < SRC_COUNT && f.onStats[f.hand];
     clearHotState(ctx);
     updateHintOpening(ctx, &f);
     if (ctx->pickerOpen) {

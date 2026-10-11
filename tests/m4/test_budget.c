@@ -57,6 +57,23 @@ int main(void) {
     scene_frame(s, "stats");
     printf("keyboard, its move bar lit, stats, toast, ray: %u layers (+1 passthrough)\n", s->out.count);
     CHECK(s->out.count + 1 <= 16);
+    // Native: the stats window is one layer, where the grip has left it too
+    c->kbOpen = 0;
+    c->hoverKind = HOVER_NONE;
+    scene_frame(s, "stats");
+    unsigned home = s->out.count;
+    c->statsMoved = 1;
+    c->statsMovedPose = c->statsPose;
+    c->statsMovedPose.position.x += 0.4f;
+    c->statsMovedH = c->statsH;
+    scene_frame(s, "stats");
+    printf("stats window moved, toast, ray: %u layers (+1 passthrough), %u unmoved\n", s->out.count, home);
+    CHECK(s->out.count == home && s->out.count + 1 <= 16);
+    // and with the bar's full set of buttons, as the first case
+    c->statsMoved = 0;
+    c->hoverKind = HOVER_BAR;
+    scene_frame(s, "stats");
+    CHECK(s->out.count + 1 <= 16);
     scene_free(s);
     return checksDone("m4 budget");
 }

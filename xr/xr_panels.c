@@ -54,7 +54,8 @@ typedef struct {
     UiView view;
     Settings settings;
     char stereoReason[96];
-    char text[512];   // clock line, toast line, stats lines
+    char text[1024];  // clock line, toast line, stats lines (native: room for a long stats line)
+    int outW, outH;   // native: what the stats window drew (pixels of its slot), for the quad
     char more[256];   // the toast's quieter line
     char note[512];   // report form
     char address[128];
@@ -249,6 +250,114 @@ static void jobPanel(PanelJob* j, int slot, const UiView* v) {
     }
 }
 
+// Native (owner: "it cuts off text on the right side"): the stats lines laid
+// out to fit the slot. The lines were drawn at a fixed 17 px from the left
+// and the app's lines ("hw decode ... errors", "audio ... (stream totals)")
+// are wider than the 384 px slot, so their right ends were cut. Every line
+// now wraps at the slot's width (at a space, or mid-word if one word is
+// wider than the slot), and the type steps down from 17 px only if the
+// wrapped lines would run past the slot's height. The window is as tall as
+// its lines, so the quad (xr_layers.c) shows just that much of the slot.
+#define OVERLAY_PAD 12.0f
+#define OVERLAY_MAX_LINES 96
+#define OVERLAY_MIN_SIZE 10.0f
+
+typedef struct {
+    const char* s;
+    int len;
+    int indent;   // a continuation of the line above
+} OverlayLine;
+
+static int overlayWrap(UiFont* font, float size, float maxW, const char* text, OverlayLine* out) {
+    int n = 0;
+    float indentPx = size * 0.8f;
+    const char* s = text;
+    while (*s != '\0' && n < OVERLAY_MAX_LINES) {
+        const char* e = strchr(s, '\n');
+        int len = e != NULL ? (int)(e - s) : (int)strlen(s);
+        int indent = 0;
+        while (len > 0 && n < OVERLAY_MAX_LINES) {
+            float room = maxW - (indent ? indentPx : 0.0f);
+            if (ui_text_width(font, UI_WEIGHT_REGULAR, size, s, len) <= room) {
+                out[n].s = s;
+                out[n].len = len;
+                out[n].indent = indent;
+                n++;
+                break;
+            }
+            // The longest prefix that fits, then back to the last space
+            int fit = 1;
+            for (int k = 2; k <= len; k++) {
+                if (ui_text_width(font, UI_WEIGHT_REGULAR, size, s, k) > room) {
+                    break;
+                }
+                fit = k;
+            }
+            int cut = fit;
+            for (int k = fit; k > 0; k--) {
+                if (s[k] == ' ' || s[k - 1] == ' ') {
+                    cut = s[k] == ' ' ? k : k - 1;
+                    break;
+                }
+            }
+            if (cut <= 0) {
+                cut = fit;
+            }
+            out[n].s = s;
+            out[n].len = cut;
+            out[n].indent = indent;
+            n++;
+            s += cut;
+            len -= cut;
+            while (len > 0 && *s == ' ') {
+                s++;
+                len--;
+            }
+            indent = 1;
+        }
+        s = e != NULL ? e + 1 : s + len;
+        if (e == NULL) {
+            break;
+        }
+    }
+    return n;
+}
+
+// Lays the text out and draws it; says the extent it used in j->outW/outH
+static void overlayDraw(UiCanvas* cv, UiFont* font, PanelJob* j) {
+    static OverlayLine lines[OVERLAY_MAX_LINES];
+    float maxW = (float)cv->w - 2.0f * OVERLAY_PAD;
+    float size = 17.0f;
+    int n = 0;
+    for (; size >= OVERLAY_MIN_SIZE; size -= 1.0f) {
+        n = overlayWrap(font, size, maxW, j->text, lines);
+        if ((float)n * size * 1.35f + 2.0f * OVERLAY_PAD - size * 0.35f <= (float)cv->h) {
+            break;
+        }
+    }
+    if (size < OVERLAY_MIN_SIZE) {
+        size = OVERLAY_MIN_SIZE;
+        n = overlayWrap(font, size, maxW, j->text, lines);
+    }
+    float lh = size * 1.35f;
+    int h = (int)ceilf((float)n * lh + 2.0f * OVERLAY_PAD - size * 0.35f);
+    if (h > cv->h) {
+        h = cv->h;
+    }
+    if (h < 24) {
+        h = 24;
+    }
+    ui_fill_rrect(cv, 0.0f, 0.0f, (float)cv->w, (float)h, 14.0f, 0xB0000000u);
+    float y = OVERLAY_PAD + size;
+    for (int i = 0; i < n && y < (float)h; i++) {
+        ui_text_draw(cv, font, UI_WEIGHT_REGULAR, size, OVERLAY_PAD + (lines[i].indent ? size * 0.8f : 0.0f), y,
+                     UI_ALIGN_LEFT, 0xFFFFFFFFu, lines[i].s, lines[i].len);
+        y += lh;
+    }
+    j->outW = cv->w;
+    j->outH = h;
+}
+
 // Draws the job onto a cleared canvas. 0: nothing drawn (no font)
 static int jobDraw(XrPanels* p, PanelJob* j, UiCanvas* cv, UiHits* hits) {
     jobFix(j);
@@ -275,20 +384,7 @@ static int jobDraw(XrPanels* p, PanelJob* j, UiCanvas* cv, UiHits* hits) {
                 return 0;
             }
         }
-        ui_fill_rrect(cv, 0.0f, 0.0f, (float)cv->w, (float)cv->h, 14.0f, 0xB0000000u);
-        float size = 17.0f;
-        float y = 12.0f + size;
-        const char* s = j->text;
-        while (*s != '\0' && y < cv->h - 6.0f) {
-            const char* e = strchr(s, '\n');
-            int len = e != NULL ? (int)(e - s) : (int)strlen(s);
-            ui_text_draw(cv, p->font, UI_WEIGHT_REGULAR, size, 12.0f, y, UI_ALIGN_LEFT, 0xFFFFFFFFu, s, len);
-            y += size * 1.35f;
-            s += len;
-            if (*s == '\n') {
-                s++;
-            }
-        }
+        overlayDraw(cv, p->font, j);
         break;
     }
     case JOB_PC_LIST: {
@@ -339,7 +435,11 @@ static void jobLand(XrCtx* ctx, XrPanels* p, const PanelJob* j, const UiHits* hi
         ctx->toastDrawnArg = j->toastArg;
         ctx->toastArtReady = 1;
         break;
-    case JOB_OVERLAY: ctx->overlayHasContent = 1; break;
+    case JOB_OVERLAY:
+        ctx->overlayW = j->outW;
+        ctx->overlayH = j->outH;
+        ctx->overlayHasContent = 1;
+        break;
     case JOB_PC_LIST:
     case JOB_APP_LIST:
         if (p->launcherSlot == j->slot) {

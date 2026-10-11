@@ -65,8 +65,10 @@ enum {
     ATLAS_OVERLAY,
     ATLAS_SLOTS
 };
-#define ATLAS_OVERLAY_W 384
-#define ATLAS_OVERLAY_H 256
+// Native: 416 x 400, the whole free corner under the clock strip (x 1632..2048,
+// y 1840..2240), so the longest stats line wraps rather than being cut off
+#define ATLAS_OVERLAY_W 416
+#define ATLAS_OVERLAY_H 400
 UiRectPx xrAtlasRect(int slot);
 // The CPU copy the panels draw into (RGBA8 premultiplied, UI_ATLAS_W wide)
 uint8_t* xrAtlasPixels(XrCtx* ctx);

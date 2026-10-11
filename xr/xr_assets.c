@@ -25,7 +25,7 @@ UiRectPx xrAtlasRect(int slot) {
         [ATLAS_OUTLINE - UI_PANEL_COUNT] = { 1408, 2240, OUTLINE_TEX, OUTLINE_TEX },
         [ATLAS_CORNER - UI_PANEL_COUNT] = { 1536, 2240, CORNER_TEX_W, CORNER_TEX_H },
         [ATLAS_HANDLE - UI_PANEL_COUNT] = { 1600, 2240, BAR_TEX_W, BAR_TEX_H },
-        [ATLAS_OVERLAY - UI_PANEL_COUNT] = { 1632, 1856, ATLAS_OVERLAY_W, ATLAS_OVERLAY_H },
+        [ATLAS_OVERLAY - UI_PANEL_COUNT] = { 1632, 1840, ATLAS_OVERLAY_W, ATLAS_OVERLAY_H },
     };
     if (slot >= 0 && slot < UI_PANEL_COUNT) {
         return ui_atlas_rect((UiPanelId)slot);
