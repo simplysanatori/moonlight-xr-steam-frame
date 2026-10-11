@@ -5,6 +5,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "../audio/thread_prio.h"
 #include "../xr/mlxr_log.h"
@@ -25,8 +26,16 @@ struct HwVideo {
     MlxrPacer pacer;
     int pacerHz;
     int pacerLowLatency; // Native (lane perf): the pacer's rules (mode 2)
+    int cushion;         // Native (lane perf): the pacer's lenient target
     atomic_int prioMode;  // Native (lane perf): decode thread priority wanted (MlxrPrioMode)
     atomic_uint_fast64_t submittedOk, decodedOut; // Native (lane perf): AUs in the decoder
+    // Native (lane perf): the latch. When the loop finds the queue empty while
+    // an AU went into the decoder moments ago and its picture is not out
+    // yet, it waits up to latchNs for it instead of repeating the last
+    // picture and showing this one a refresh (11 ms) late
+    uint64_t latchNs;
+    atomic_uint_fast64_t lastSubmitNs; // CLOCK_MONOTONIC, the newest AU queued
+    uint64_t lastOutSubmitNs;          // its t_submit_ns, the newest picture out (lock)
     // Native (lane av-latency): with reference frame invalidation on, a
     // picture the decoder flags as damaged asks the host for an IDR frame
     // (at most every 500 ms), the old behaviour, as a safety net
@@ -119,6 +128,8 @@ static void* decodeThread(void* arg) {
         }
         v->queue[(v->head + v->queued) % MLXR_PACER_MAX_QUEUED] = f;
         v->queued++;
+        if (f.t_submit_ns > v->lastOutSubmitNs) v->lastOutSubmitNs = f.t_submit_ns;
+        pthread_cond_broadcast(&v->cond); // a latched loop takes it now
         v->st.frames++;
         v->st.lastDecodeMs = ms;
         v->st.avgDecodeMs = v->st.frames == 1 ? ms : v->st.avgDecodeMs * 0.95 + ms * 0.05;
@@ -142,8 +153,25 @@ HwVideo* hw_video_open(mlxr_codec codec, uint32_t width, uint32_t height, void (
     v->requestIdr = requestIdr;
     mlxr_pacer_init(&v->pacer, 90);
     v->pacerHz = 90;
+    // Native (lane perf): MLXR_PACER_CUSHION (3, or 2) and MLXR_VIDEO_LATCH_MS
+    // (4 by default, 0 off)
+    const char* cushion = getenv("MLXR_PACER_CUSHION");
+    v->cushion = cushion && cushion[0] == '2' ? 2 : 3;
+    v->pacer.cushion = v->cushion;
+    const char* latch = getenv("MLXR_VIDEO_LATCH_MS");
+    double latchMs = latch && *latch ? atof(latch) : 4.0;
+    if (latchMs < 0.0) latchMs = 0.0;
+    if (latchMs > 8.0) latchMs = 8.0;
+    v->latchNs = (uint64_t)(latchMs * 1e6);
+    MLOG_I("video: pacer cushion %d frames (MLXR_PACER_CUSHION=%s), latch for a picture in the decoder %.1f ms "
+           "(MLXR_VIDEO_LATCH_MS=%s)",
+           v->cushion, cushion ? cushion : "unset", latchMs, latch ? latch : "unset");
     pthread_mutex_init(&v->lock, NULL);
-    pthread_cond_init(&v->cond, NULL);
+    pthread_condattr_t ca;
+    pthread_condattr_init(&ca);
+    pthread_condattr_setclock(&ca, CLOCK_MONOTONIC);
+    pthread_cond_init(&v->cond, &ca);
+    pthread_condattr_destroy(&ca);
     pthread_create(&v->thread, NULL, decodeThread, v);
     MLOG_I("video: hardware %s decoder open (%ux%u)", codec == MLXR_CODEC_HEVC ? "HEVC" : "H.264", width, height);
     return v;
@@ -153,6 +181,9 @@ int hw_video_submit(HwVideo* v, const void* const* parts, const uint32_t* sizes,
     int r = mlxr_vdec_submit_parts(v->dec, parts, sizes, n, pts);
     v->st.submitted++;
     if (r == MLXR_VDEC_OK) {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        atomic_store(&v->lastSubmitNs, (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec);
         // Native (lane perf): AUs in the decoder now, this one included
         uint64_t in = atomic_fetch_add(&v->submittedOk, 1) + 1;
         uint64_t out = atomic_load(&v->decodedOut);
@@ -196,6 +227,7 @@ bool hw_video_take_refresh(HwVideo* v, int mode, int displayHz, uint64_t nowNs, 
         MlxrPacer keep = v->pacer;
         if (displayHz > 0) v->pacerHz = displayHz;
         mlxr_pacer_init_mode(&v->pacer, v->pacerHz, lowLatency);
+        v->pacer.cushion = v->cushion;
         v->pacerLowLatency = lowLatency;
         v->pacer.refreshes = keep.refreshes;
         v->pacer.shown = keep.shown;
@@ -203,6 +235,26 @@ bool hw_video_take_refresh(HwVideo* v, int mode, int displayHz, uint64_t nowNs, 
         v->pacer.catchUpDrops = keep.catchUpDrops;
         v->pacer.queuedSum = keep.queuedSum;
         v->pacer.staleDrops = keep.staleDrops;
+    }
+    // Native (lane perf): the latch (see latchNs). Only for a picture that is
+    // surely on its way: an AU queued less than 12 ms ago with no picture out
+    // for it yet; a stalled decoder therefore costs nothing.
+    if (v->latchNs > 0 && nowNs > 0 && v->queued == 0) {
+        uint64_t sub = atomic_load(&v->lastSubmitNs);
+        if (sub > v->lastOutSubmitNs && nowNs < sub + 12000000ull) {
+            uint64_t deadline = nowNs + v->latchNs;
+            struct timespec dl = { (time_t)(deadline / 1000000000ull), (long)(deadline % 1000000000ull) };
+            v->st.latchWaits++;
+            while (v->queued == 0 && !atomic_load(&v->stop)) {
+                if (pthread_cond_timedwait(&v->cond, &v->lock, &dl) != 0) break;
+            }
+            struct timespec ts;
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            uint64_t after = (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+            v->st.latchNsSum += after > nowNs ? after - nowNs : 0;
+            if (v->queued > 0) v->st.latchHits++;
+            nowNs = after;
+        }
     }
     bool got;
     if (paced) {

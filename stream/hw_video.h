@@ -29,6 +29,9 @@ typedef struct HwVideoStats {
     uint64_t takenTimed;
     uint64_t decodeNsSum, decodeNsMax, waitNsSum, waitNsMax;
     uint64_t inFlightSum, inFlightSamples, inFlightMax;
+    // Native (lane perf): the latch: times the loop waited for a picture in
+    // the decoder, how many got one, how long in all
+    uint64_t latchWaits, latchHits, latchNsSum;
 } HwVideoStats;
 
 // requestIdr is called (from the decode thread) on decoder errors.
