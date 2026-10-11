@@ -1,6 +1,6 @@
 # Moonlight XR Native: Steam Frame Build Plan (LLM Handoff)
 
-Oct 10, 2026 · @simplysanatori
+Oct 10, 2026 · simplysanatori
 
 ## Mission and scope
 
