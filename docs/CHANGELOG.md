@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0-alpha.3 (October 2026)
+
+- Fixed a black picture at high bitrates. The hardware decoder was given at most 64 pieces of each frame, and a frame is one piece per received packet. Any frame over about 86 KB was cut short, and the decoder flagged the picture as corrupt. At 126 Mbps and 90 fps every frame is about 175 KB, so no picture came out. Every piece is now submitted. A frame whose pieces do not add up to its length is dropped and counted.
+- At 80 Mbps the same cut hit full frames and frames with a lot of motion. It probably caused part of the stutter seen with motion at that bitrate.
+- Requests for a full frame (IDR) after a decoder error are limited to one per 100 ms. Before, every corrupt picture asked the host for a new one, about 190 requests a second, and the host answered each by encoding a frame at once.
+- A frame that ends in a decoder error now counts as out of the decoder. Before, the frame loop waited 4 ms for a picture on every refresh for nothing.
+- The "hw decode" part of the stats line ends with the largest frame seen: "largest AU N bytes in N parts, N refused (length mismatch)".
+- New environment variable `MLXR_VIDEO_IDR_MIN_MS`: the shortest time between full-frame requests after a decoder error. 100 by default, 0 for no limit.
+- Not yet confirmed in the headset. It was tested with 133 automated test suites, a unit test with 400-packet and 200-packet frames, and a headless file run with 0 decode errors.
+
 ## 0.6.0-alpha.2 (October 2026)
 
 - bug-report.sh now collects the minimum: the app logs, your note from the headset, the version, a short system summary and a filtered copy of config.ini. Addresses, host names, user names, ids, serial numbers, Wi-Fi names, keys and certificates are masked or left out. The zip lists its files when done.

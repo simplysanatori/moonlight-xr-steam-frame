@@ -2,6 +2,19 @@
 
 Read this file first, then docs/dev/HANDOFF.md sections 2, 3 and 7 (paths, commands, rules), then docs/dev/STATUS.md from the bottom. Everything older is history.
 
+## 0. Resolved 2026-10-11 (read this first)
+
+Section 2 is solved. The hardware decode path gave the decoder at most 64 parts of each frame, and moonlight-common-c delivers one part per packet, so any frame over about 86 KB was cut short and the decoder flagged it as corrupt. At 126 Mbps and 90 fps every frame is about 175 KB, so no picture came out. Every corrupt picture also asked the host for an IDR with no limit (about 190 a second), and errored frames were never counted as out of the decoder.
+
+- Fix: commit c3f85b8 "Hardware decode: submit every part of a decode unit, limit IDR requests". All parts are submitted with a length check, IDR requests after decoder errors are limited to one per 100 ms (`MLXR_VIDEO_IDR_MIN_MS`), errored frames count as out of the decoder. The account is in docs/dev/reports/au-scatter.md.
+- RFI, the virtual display and the bitrate were suspected and are cleared.
+- Install state: built and tested on main (133 suites, headless file run with 0 errors). Not installed yet: the owner installs it (`NO_SHORTCUT=1 ./packaging/install.sh`, app not running). Not yet confirmed in the headset.
+- The four-run test matrix in section 2 is no longer needed. The owner's check is docs/dev/HEADSET_TEST_4.md.
+- v0.6.0-alpha.3 is prepared: VERSION, CHANGELOG, release notes (docs/RELEASE_NOTES_v0.6.0-alpha.3.md). The tarball and the GitHub release wait for the owner's token.
+- The stutter of 2026-10-10 was put down to the network. At 80 Mbps the cut also hit IDR and high-motion frames, so some of it was ours. Look again after the owner's run.
+
+Sections 1 to 4 below are history as of the morning of 2026-10-11.
+
 ## 1. State on 2026-10-11
 
 - The repository is public: https://github.com/simplysanatori/moonlight-xr-native, branch `main` only. Latest release: `v0.6.0-alpha.2` (pre-release). The same build is installed on the Frame (`~/Games/MoonlightXRNative/app`, `VERSION` says 0.6.0-alpha.2).
@@ -52,10 +65,12 @@ How to test without the owner: a headless run against the test clip (`build/moon
 ## 5. Prompt for the next session
 
 ```
-Continue Moonlight XR for Frame on this Steam Frame. Read ~/Games/MoonlightXRNative/src/docs/dev/SESSION_4.md,
-then HANDOFF.md sections 2, 3 and 7 and the end of STATUS.md. Plan on Fable, implement with agents
-(Sonnet for simple work, Opus 5.5 for the decoder, frame loop and headset debugging), one worktree per lane.
-First job: the black screen (SESSION_4.md section 2). Start with the owner's four-run test matrix and the
-logs from 2026-10-11 05:33 and 05:34, find the cause in the decoder path, fix it in code, and cut
-v0.6.0-alpha.3. I will paste a GitHub token when it is time to push.
+Continue Moonlight XR for Frame on this Steam Frame. Read ~/Games/MoonlightXRNative/src/docs/dev/SESSION_4.md
+(section 0 first), then HANDOFF.md sections 2, 3 and 7 and the end of STATUS.md. Plan on Fable, implement with
+agents (Sonnet for simple work, Opus 5.5 for the decoder, frame loop and headset debugging), one worktree per lane.
+The black screen is fixed in code (c3f85b8) and v0.6.0-alpha.3 is prepared. First job: read my headset result
+from docs/dev/HEADSET_TEST_4.md (I will paste the "hw decode" lines). If the picture is good, build and install
+the release, run tools/release.sh on the Frame and cut v0.6.0-alpha.3 on GitHub. If errors are still high,
+go on from the end of docs/dev/reports/au-scatter.md. Then look again at the stutter at 80 Mbps. I will paste a
+GitHub token when it is time to push.
 ```
