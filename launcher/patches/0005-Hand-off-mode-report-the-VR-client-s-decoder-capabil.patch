@@ -5,29 +5,32 @@ Subject: [PATCH] Hand-off mode: report the VR client's decoder capabilities
  (no false hardware-decoder warning, no HDR, no AV1, no 4:4:4)
 
 ---
- app/backend/systemproperties.cpp |  2 ++
+ app/backend/systemproperties.cpp |  5 +++++
  app/backend/systemproperties.h   |  2 ++
  app/gui/SettingsView.qml         |  9 ++++++++-
  app/streaming/session.cpp        | 11 +++++++++++
- 4 files changed, 23 insertions(+), 1 deletion(-)
+ 4 files changed, 26 insertions(+), 1 deletion(-)
 
 diff --git a/app/backend/systemproperties.cpp b/app/backend/systemproperties.cpp
 index 554f433..5b5a370 100644
 --- a/app/backend/systemproperties.cpp
 +++ b/app/backend/systemproperties.cpp
-@@ -6,6 +6,7 @@
+@@ -6,6 +6,8 @@
  
  #include "streaming/session.h"
  #include "streaming/streamutils.h"
 +#include "streaming/mlxrhandoff.h"
++#include "streaming/mlxrversion.h"
  
  #ifdef Q_OS_WIN32
  #define WIN32_LEAN_AND_MEAN
-@@ -15,6 +16,7 @@
+@@ -15,6 +17,9 @@
  SystemProperties::SystemProperties()
  {
      versionString = QString(VERSION_STR);
 +    nativeVrHandoff = MlxrHandoff::enabled();
++    // Moonlight XR for Frame: the Settings page footer shows our release and the Moonlight it is built on
++    if (nativeVrHandoff) versionString = QString("%1 (Moonlight %2)").arg(MLXR_VERSION, versionString);
      hasDesktopEnvironment = WMUtils::isRunningDesktopEnvironment();
      isRunningWayland = WMUtils::isRunningWayland();
      isRunningXWayland = isRunningWayland && QGuiApplication::platformName() == "xcb";

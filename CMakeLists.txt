@@ -11,6 +11,10 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
 
+# The release version (VERSION, e.g. 0.6.0-alpha.1): the in-VR About tab shows it (xr/CMakeLists.txt)
+file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/VERSION MLXR_VERSION LIMIT_COUNT 1)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/VERSION)
+
 # OpenXR loader: built static from the Khronos SDK. SteamOS's own
 # /usr/lib/libopenxr_loader.a is a 14 KB thin archive from gfxreconstruct and
 # cannot be linked, and its headers lag the runtime.

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Moonlight XR Native installer. GPLv3.
+# Moonlight XR for Frame installer. GPLv3.
 #
 # Copies the app (binaries, launcher, assets, licences, the Moonlight Qt
 # import script) into DEST and adds or updates the Steam library shortcut
@@ -94,7 +94,7 @@ else
     if [ -f "$PROBE" ]; then mkdir -p "$DEST/docs/probe"; install -m644 "$PROBE" "$DEST/docs/probe/SUMMARY.md"; fi
     echo "  bug-report.sh"
     if [ "$MODE" = release ]; then [ -f "$PAY/VERSION" ] && install -m644 "$PAY/VERSION" "$DEST/VERSION"
-    else git -C "$SRC" describe --tags --always --dirty > "$DEST/VERSION" 2>/dev/null || true; fi
+    else echo "$(head -n 1 "$SRC/VERSION" 2>/dev/null || echo dev) (source $(git -C "$SRC" describe --tags --always --dirty 2>/dev/null))" > "$DEST/VERSION"; fi
     [ -f "$DEST/VERSION" ] && echo "  VERSION ($(cat "$DEST/VERSION"))"
     # mirror assets/, so files removed from a newer release do not linger
     if command -v rsync >/dev/null; then

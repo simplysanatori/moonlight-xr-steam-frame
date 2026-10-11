@@ -38,6 +38,9 @@
 #include "text.h"
 
 #include <pthread.h>
+#ifndef MLXR_VERSION
+#define MLXR_VERSION "dev"
+#endif
 
 #define KEY_MAX 2048
 
@@ -646,7 +649,7 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->kb_locked = ctx->kbFull.locked;
     v->kb_caps = ctx->kbFull.caps;
     v->kb_chip = !ctx->reportOpen;
-    v->version = "0.6 native (M6)";
+    v->version = MLXR_VERSION;   // the top-level VERSION file, through CMake
     v->commit = NULL;
     v->log_path = "~/Games/MoonlightXRNative/moonlight.log";
     v->display_later = xrDisplayLaterMask(ctx);

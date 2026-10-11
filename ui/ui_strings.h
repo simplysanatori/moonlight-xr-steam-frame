@@ -67,7 +67,7 @@
     X(LOG_FILE_OFF, "vr_panel_log_file_off", "Log file: off") \
     X(ABOUT_BUILT_BY, "vr_panel_built_by", "Built by simplysanatori") \
     X(ABOUT_BASED_ON, "vr_panel_based_on", "Based on Moonlight XR by Sean Gilleece and Moonlight") \
-    X(REPORT_SENDS, "vr_panel_report_sends", "Sends a note with the headset, your settings and the log") \
+    X(REPORT_SENDS, "vr_panel_report_sends", "Saves a note on the headset for a bug report") \
     X(ROOMS, "vr_panel_rooms", "Rooms") \
     /* environments */ \
     X(ENV_PASSTHROUGH, "vr_environment_passthrough", "Passthrough") \
@@ -103,8 +103,8 @@
     X(REPORT_EMAIL_LABEL, "bug_report_email_hint", "Your email address, for a reply") \
     X(REPORT_OPTIONAL, "vr_report_optional", "Optional") \
     X(REPORT_EMAIL_BAD, "vr_report_email_bad", "That does not look like an email address") \
-    X(REPORT_GOES, "vr_report_sends", "Sends your message, the headset and build details, your settings and the app's log, which can include your PC's name and address on your network. Nothing is sent until you press Send.") \
-    X(REPORT_SEND, "bug_report_send_direct", "Send") \
+    X(REPORT_GOES, "vr_report_sends", "Saves your note and email in ~/Games/MoonlightXRNative/reports. Nothing leaves the headset. To share it, run bug-report.sh: it adds the logs with addresses and names masked.") \
+    X(REPORT_SEND, "bug_report_send_direct", "Save") \
     /* toasts */ \
     X(TOAST_RATE, "vr_toast_rate", "Display %d Hz") \
     X(TOAST_HANDS_LOCKED, "vr_toast_hands_locked", "Hands locked") \

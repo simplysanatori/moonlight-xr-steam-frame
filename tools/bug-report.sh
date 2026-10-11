@@ -5,6 +5,7 @@
 #   moonlight.log, moonlight.previous.log, moonlight-console.log,
 #   moonlight-launcher.log, vrtiming.log    (logs, masked as below)
 #   config.ini                              (settings, masked as below)
+#   headset-note.txt                        (the newest note from the in-VR "Report a problem" sheet)
 #   hosts.ini                               (saved PCs, masked; no certificate or MAC lines)
 #   docs/probe/SUMMARY.md                   (platform probe, when found)
 #   system.txt                              (version, kernel, SteamOS build id, free space)
@@ -46,6 +47,9 @@ if [ -f "$CFG/config.ini" ]; then
         -e 's/^([[:space:]]*[^#;=]*(^|[_. -])key[[:space:]]*=).*/\1<masked>/I' "$CFG/config.ini" > "$WORK/raw/config.ini"
 fi
 [ -f "$CFG/hosts.ini" ] && grep -viE '^(cert|mac)[[:space:]]*=' "$CFG/hosts.ini" > "$WORK/raw/hosts.ini"
+# the newest note saved from the headset's "Report a problem" sheet
+note="$(ls -t "$OUTDIR"/report-*.txt 2>/dev/null | head -n 1)"
+[ -n "$note" ] && cp "$note" "$WORK/raw/headset-note.txt"
 
 {
     echo "report: $(date -Is)"

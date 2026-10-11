@@ -29,7 +29,7 @@ SUBREV="$(git -C "$SUB" rev-parse HEAD)"
 [ "$SUBREV" = "f786e94c7b2f943e24e65d7d74deb539b827fc84" ] || echo "note: $SUB is at $SUBREV, not v6.1.0; the patches may not apply"
 
 mkdir -p "$BUILD"
-STAMP="$(cat launcher/patches/*.patch launcher/src/* launcher/qml/* assets/branding/icon-256.png | sha256sum | cut -c1-16)-$SUBREV"
+STAMP="$(cat launcher/patches/*.patch launcher/src/* launcher/qml/* assets/branding/icon-256.png VERSION | sha256sum | cut -c1-16)-$SUBREV"
 if [ "$(cat "$BUILD/.stamp" 2>/dev/null)" != "$STAMP" ]; then
     echo "== preparing $BUILD/src (moonlight-qt $SUBREV + launcher/src + patches)"
     rm -rf "$BUILD/src"
@@ -38,6 +38,8 @@ if [ "$(cat "$BUILD/.stamp" 2>/dev/null)" != "$STAMP" ]; then
     cp launcher/src/* "$BUILD/src/app/streaming/"
     cp launcher/qml/*.qml "$BUILD/src/app/gui/"   # new pages (lane artemis-settings: XrSettingsView.qml)
     cp assets/branding/icon-256.png "$BUILD/src/app/res/moonlight-xr.png"   # window icon (patch 0006)
+    # the release version for the Settings page footer (patch 0005)
+    printf '#pragma once\n#define MLXR_VERSION "%s"\n' "$(head -n 1 VERSION)" > "$BUILD/src/app/streaming/mlxrversion.h"
     for p in launcher/patches/*.patch; do
         echo "   applying $(basename "$p")"
         if ! patch -d "$BUILD/src" -p1 --no-backup-if-mismatch -s < "$p"; then

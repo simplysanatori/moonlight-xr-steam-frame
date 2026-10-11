@@ -44,3 +44,6 @@ endif()
 if(EXISTS ${PROJECT_SOURCE_DIR}/tests/m5/CMakeLists.txt)
   add_subdirectory(${PROJECT_SOURCE_DIR}/tests/m5 ${CMAKE_CURRENT_BINARY_DIR}/tests_m5)
 endif()
+
+# the About tab shows the release version (top-level VERSION)
+set_property(SOURCE xr_panels.c APPEND PROPERTY COMPILE_DEFINITIONS MLXR_VERSION="${MLXR_VERSION}")
