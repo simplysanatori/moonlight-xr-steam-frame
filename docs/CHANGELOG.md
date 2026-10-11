@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0-alpha.2 (October 2026)
+
+- bug-report.sh now collects the minimum: the app logs, your note from the headset, the version, a short system summary and a filtered copy of config.ini. Addresses, host names, user names, ids, serial numbers, Wi-Fi names, keys and certificates are masked or left out. The zip lists its files when done.
+- The README says how this was made, in my own words.
+- The hint on the Report a problem sheet is shorter.
+
 ## 0.6.0-alpha.1 (October 2026)
 
 The first public build. It is an alpha: expect rough edges, and read the [release notes](RELEASE_NOTES_v0.6.0-alpha.1.md) for what has and has not been tested.

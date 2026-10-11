@@ -1,6 +1,6 @@
 # Moonlight XR for Frame: user guide
 
-This guide covers version 0.6.0-alpha.1. For install, update and uninstall, see the [README](../README.md).
+This guide covers version 0.6.0-alpha.2. For install, update and uninstall, see the [README](../README.md).
 
 ## Contents
 
