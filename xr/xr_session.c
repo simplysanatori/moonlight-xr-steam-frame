@@ -2178,7 +2178,7 @@ int xr_app_run(const XrAppConfig* cfg) {
                   (unsigned long long)framesWindow, roomDrawn, roomStale, byDevice);
             // Native (lane av-latency): what of the host cursor's delay and of the
             // audio's underruns is ours, for the next owner run
-            char appLat[768] = "";
+            char appLat[900] = "";
             if (cfg->hooks.latency) cfg->hooks.latency(cfg->hooks.user, appLat, sizeof(appLat));
             // Native (lane av-latency): how evenly the stream's frames reached
             // the display refreshes in this window
@@ -2191,12 +2191,13 @@ int xr_app_run(const XrAppConfig* cfg) {
                 uint64_t refr = hs.refreshes - pacePrev.refreshes;
                 snprintf(pacing, sizeof(pacing),
                          "frames %s: %llu decoded, %llu new of %llu refreshes, %llu one-refresh repeats, %llu catch-up "
-                         "drops, %llu replaced/overflow, %.2f waiting avg; ",
+                         "drops, %llu replaced/overflow, %llu flagged damaged, %.2f waiting avg; ",
                          videoPaced ? "paced" : "newest", (unsigned long long)(hs.frames - pacePrev.frames),
                          (unsigned long long)(hs.shown - pacePrev.shown), (unsigned long long)refr,
                          (unsigned long long)(hs.holes - pacePrev.holes),
                          (unsigned long long)(hs.catchUpDrops - pacePrev.catchUpDrops),
                          (unsigned long long)(hs.skipped - pacePrev.skipped),
+                         (unsigned long long)(hs.corrupt - pacePrev.corrupt),
                          refr ? (double)(hs.queuedSum - pacePrev.queuedSum) / (double)refr : 0.0);
                 pacePrev = hs;
             }

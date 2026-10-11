@@ -19,6 +19,7 @@ typedef struct HwVideoStats {
     // refreshes that showed a new frame, single-refresh holes (a repeat between
     // two new frames: judder), pacer catch-up drops, frames waiting summed
     uint64_t refreshes, shown, holes, catchUpDrops, queuedSum;
+    uint64_t corrupt;    // pictures the decoder flagged V4L2_BUF_FLAG_ERROR
 } HwVideoStats;
 
 // requestIdr is called (from the decode thread) on decoder errors.
@@ -26,6 +27,9 @@ HwVideo* hw_video_open(mlxr_codec codec, uint32_t width, uint32_t height, void (
 // Stream receive thread: one access unit in pieces. Returns 0, or -1 when the
 // session should answer DR_NEED_IDR.
 int hw_video_submit(HwVideo* v, const void* const* parts, const uint32_t* sizes, uint32_t n, int64_t pts);
+// Native (lane av-latency): ask for an IDR frame when the decoder flags a
+// damaged picture (used while reference frame invalidation is advertised).
+void hw_video_set_idr_on_corrupt(HwVideo* v, bool on);
 // Frame loop: newest decoded frame, if one arrived since the last take
 // (older queued ones go back to the decoder, counted as skipped).
 bool hw_video_take(HwVideo* v, mlxr_vframe* out);

@@ -26,6 +26,7 @@ static size_t g_auCap;
 static atomic_int g_connected, g_failed;
 static atomic_uint_fast64_t g_units, g_idr;
 static int g_lastErr;
+static int g_rfi; // Native (lane av-latency): reference frame invalidation advertised for this stream
 
 // Native (lane av-latency): video latency parts per stats window, written by
 // common-c's decoder thread (drSubmit), read and reset by the log
@@ -35,6 +36,7 @@ static struct {
     double hostMsSum, hostMsMax;     // Sunshine's own capture + encode time
     double recvMsSum, recvMsMax;     // first packet to frame assembled
     double queueMsSum, queueMsMax;   // assembled to handed to our decoder
+    uint64_t netLost, idrWaitDrops, rfiWaitDrops, idrRequests; // from common-c's log lines
 } g_lat;
 
 static void noteFrameLatency(const DECODE_UNIT* du) {
@@ -63,9 +65,12 @@ void stream_latency_line(char* buf, int len) {
     double n = g_lat.frames ? (double)g_lat.frames : 1.0;
     snprintf(buf, (size_t)len,
              "host encode %.1f ms (max %.1f), frame received over %.1f ms (max %.1f), queued %.1f ms (max %.1f), "
-             "rtt %u ms (variance %u)",
+             "rtt %u ms (variance %u), frames lost on the network %llu, dropped waiting for IDR %llu / RFI %llu, "
+             "IDR requests %llu",
              g_lat.hostN ? g_lat.hostMsSum / g_lat.hostN : 0.0, g_lat.hostMsMax, g_lat.recvMsSum / n, g_lat.recvMsMax,
-             g_lat.queueMsSum / n, g_lat.queueMsMax, rtt, var);
+             g_lat.queueMsSum / n, g_lat.queueMsMax, rtt, var, (unsigned long long)g_lat.netLost,
+             (unsigned long long)g_lat.idrWaitDrops, (unsigned long long)g_lat.rfiWaitDrops,
+             (unsigned long long)g_lat.idrRequests);
     memset(&g_lat, 0, sizeof(g_lat));
     pthread_mutex_unlock(&g_latLock);
 }
@@ -82,6 +87,7 @@ static int drSetup(int videoFormat, int width, int height, int redrawRate, void*
         g_hw = hw_video_open(hevc ? MLXR_CODEC_HEVC : MLXR_CODEC_H264, (uint32_t)width, (uint32_t)height,
                              LiRequestIdrFrame);
         if (g_hw) {
+            hw_video_set_idr_on_corrupt(g_hw, g_rfi);
             hw_video_set_current(g_hw);
             return 0;
         }
@@ -159,6 +165,17 @@ static void clLog(const char* fmt, ...) {
     va_end(ap);
     size_t n = strlen(buf);
     while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) buf[--n] = 0;
+    // Native (lane av-latency): count where frames go, for the latency line
+    {
+        const char* d = strstr(buf, "Network dropped ");
+        int lost = 0;
+        pthread_mutex_lock(&g_latLock);
+        if (d && strstr(buf, " frame") && sscanf(d, "Network dropped %d frame", &lost) == 1) g_lat.netLost += (uint64_t)lost;
+        else if (strstr(buf, "Waiting for IDR frame")) g_lat.idrWaitDrops++;
+        else if (strstr(buf, "Waiting for RFI frame")) g_lat.rfiWaitDrops++;
+        else if (strstr(buf, "IDR frame request sent")) g_lat.idrRequests++;
+        pthread_mutex_unlock(&g_latLock);
+    }
     MLOG_I("common-c: %s", buf);
 }
 static void clStatus(int status) { MLOG_I("connection status: %s", status == CONN_STATUS_POOR ? "poor" : "okay"); }
@@ -213,6 +230,20 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     dr.cleanup = drCleanup;
     dr.submitDecodeUnit = drSubmit;
     dr.capabilities = 0; // decode on common-c's own decoder thread
+    // Native (lane av-latency): reference frame invalidation for HEVC on the
+    // hardware decoder. Without it every lost frame makes common-c drop all
+    // frames until a new IDR frame arrives: in the owner's 23:29 run (80 Mbps
+    // over Wi-Fi) 116 IDR requests and ~380 frames dropped waiting, on top of
+    // 241 frames lost, up to 24 fps of a 90 fps stream in bad windows. With
+    // it Sunshine re-references an older good frame and only the damaged
+    // frames go. moonlight-qt leaves it off for generic hevc_v4l2m2m, so a
+    // picture the Iris decoder flags as damaged still asks for an IDR frame
+    // (hw_video_set_idr_on_corrupt). MLXR_VIDEO_RFI=0 turns it off.
+    const char* rfiEnv = getenv("MLXR_VIDEO_RFI");
+    g_rfi = g_useHw && !(rfiEnv && rfiEnv[0] == '0');
+    if (g_rfi) dr.capabilities |= CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC;
+    MLOG_I("video: reference frame invalidation %s (MLXR_VIDEO_RFI=%s)", g_rfi ? "advertised (HEVC)" : "off",
+           rfiEnv ? rfiEnv : "unset");
 
     AUDIO_RENDERER_CALLBACKS noAudio;
     LiInitializeAudioCallbacks(&noAudio);
