@@ -4,6 +4,28 @@ The client can draw a model at each hand's grip (Settings, controller model; off
 upstream). It ships one generic Quest-style controller. On a Frame it draws the Frame's own
 controllers instead, when they have been made from the local SteamVR install.
 
+## v3: moving parts and a matte finish (lane/model-anim)
+
+- **Animation.** `xr_model.c` reads each hand's controls once a frame (trigger, grip, thumbstick x/y and
+  click, A/B/X/Y, menu/view, bumper, d-pad) from the client's own actions into `XrCtx.modelInput`
+  (read only; the pointer, pad and shortcuts are untouched). `mlxr_model_pose` (rooms/room_gpu.c) turns them
+  into per-part transforms with SteamVR's semantics: trigger and grip rotate about their pivot by
+  `value_mapping` (the pressed override blends in over the last tenth of the pull), the bumper rotates when
+  clicked, the face, menu and view buttons slide along their axis, the thumbstick tilts about its centre by
+  `joystick_rotation_x/y` (clamped to the rim) and dips by `press_translate` when clicked, the d-pad tilts and
+  dips toward the direction held. Parts at rest next to each other are one draw, so an untouched hand is still
+  one draw. The system button is reserved by the runtime and never moves.
+- **MXFM 2**: adds motion type 4 (d-pad: SteamVR's `dpad` motion, previously dropped). Version 1 files
+  still load (their d-pad stays still). Rerun `install.sh` to regenerate.
+- **Matte** (`shaders/model_tex.frag`): roughness lifted to a floor of 0.5 (Valve's map is glossy), key
+  highlight x0.7, sky edge reflection x0.25, base colour floored at linear 0.014 so the diffuse light shows
+  the shape on the near-black plastic. `MLXR_FRAME_MODEL_GAIN` still scales the colour.
+- **Looking**: `mlxr-model-pose-snapshot OUTDIR FRAMEMODELSDIR` renders each hand at rest and with the controls
+  pressed (three close views a row); `rooms_model_pose` checks the transforms in numbers (made-up and real
+  models) and renders rest vs pressed.
+- **GPU**: steady state 0.16 ms at rest (unchanged), about 0.41 ms with any part moving (the first call
+  after process start reads 0.5 to 1.5 ms: cold GPU). Both hands, 2 x 1728^2, Turnip.
+
 ## v2: textured, full detail (lane/models-tex)
 
 v1 (below, kept as a fallback) painted a ~4500-triangle decimation from vertex colours; the owner
@@ -113,9 +135,7 @@ synchronous for v1): at 2048² about 4 frames at 90 Hz from a warm page cache, m
 
 ### Left
 
-- Animating the trigger, sticks and buttons: the motions are in the file and loaded
-  (`MlxrModel.components`) and `mlxr_pass_model` already draws per-part transforms (`handParts`),
-  but nothing feeds it the input values yet.
+- (Animation: done in v3 above.)
 - Loading off the render thread, if the stall matters.
 
 ## v1: painted (still read when there is no `.model` pair)

@@ -1210,5 +1210,20 @@ uint32_t mlxr_model_pose(const MlxrModel* m, int hand, const MlxrModelInput* in,
             break;
         }
     }
-    return n;
+    // A part at rest next to another at rest, their ranges running on, is one draw: the whole hand
+    // (every part in the file's order, one range) costs one draw at rest, and only the parts that
+    // move split it (the draw count is what the pass pays for)
+    uint32_t out = 0;
+    int prevRest = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        int rest = 1;
+        for (int e = 0; e < 16 && rest; e++) rest = parts[i].transform[e] == (e % 5 == 0 ? 1.0f : 0.0f);
+        if (out > 0 && rest && prevRest && parts[out - 1].firstIndex + parts[out - 1].indexCount == parts[i].firstIndex) {
+            parts[out - 1].indexCount += parts[i].indexCount;
+            continue;
+        }
+        parts[out++] = parts[i];
+        prevRest = rest;
+    }
+    return out;
 }

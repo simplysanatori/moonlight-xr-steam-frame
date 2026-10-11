@@ -1493,6 +1493,26 @@ static int findPart(const MlxrModel* m, int h, const char* name) {
     return -1;
 }
 
+// The part among n that draws the range starting at first
+static const MlxrModelPart* partFor(const MlxrModelPart* parts, uint32_t n, uint32_t first) {
+    for (uint32_t i = 0; i < n; i++)
+        if (parts[i].firstIndex <= first && first < parts[i].firstIndex + parts[i].indexCount) return &parts[i];
+    return NULL;
+}
+
+static uint32_t lastPosed;
+static uint32_t posed(const MlxrModel* m, int h, const MlxrModelInput* in, MlxrModelPart* parts) {
+    return lastPosed = mlxr_model_pose(m, h, in, parts, MLXR_MODEL_COMPONENTS_MAX);
+}
+
+// The part of the last pose that draws component c
+static const MlxrModelPart* partAt(const MlxrModel* m, int h, int c, const MlxrModelPart* parts) {
+    uint32_t first = m->components[h][c].firstIndex;
+    for (uint32_t i = 0; i < lastPosed; i++)
+        if (parts[i].firstIndex <= first && first < parts[i].firstIndex + parts[i].indexCount) return &parts[i];
+    return &parts[0];
+}
+
 static void testModelPose(void) {
     char left[700], right[700];
     stageModels();
@@ -1526,45 +1546,45 @@ static void testModelPose(void) {
     MlxrModelInput in;
     MlxrModelPart parts[MLXR_MODEL_COMPONENTS_MAX];
     memset(&in, 0, sizeof(in));
-    check(mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX) == 2 && parts[0].firstIndex == 0 &&
-              parts[1].firstIndex == 3 && parts[0].indexCount == 3, "a part for each component, absolute ranges");
+    check(posed(m, 0, &in, parts) == 1 && parts[0].firstIndex == 0 && parts[0].indexCount == 6,
+          "at rest the whole hand is one draw (parts at rest next to each other merge), absolute ranges");
     float tip[3] = {0, 0.01f, 0}, o[3];
-    movePoint(&parts[0], tip, o);
+    movePoint(partAt(m, 0, 0, parts), tip, o);
     check(near3(o, 0, 0.01f, 0, 1e-6f), "at rest the stick does not move");
     check(mlxr_model_pose(m, 0, &in, parts, 1) == 1, "cap respected");
     check(mlxr_model_pose(m, 0, &in, NULL, 4) == 0 && mlxr_model_pose(NULL, 0, &in, parts, 4) == 0, "no parts, no model");
     float s20 = sinf(20 * D2R), c20 = cosf(20 * D2R);
     in.v[MLXR_IN_STICK_X] = 1; // right: the stick's top leans to +x
-    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
-    movePoint(&parts[0], tip, o);
+    check(posed(m, 0, &in, parts) == 2 && parts[0].indexCount == 3 && parts[1].firstIndex == 3, "a moved part splits the draw");
+    movePoint(partAt(m, 0, 0, parts), tip, o);
     check(near3(o, 0.01f * s20, 0.01f * c20, 0, 1e-6f), "stick right: tip %.5f %.5f %.5f", o[0], o[1], o[2]);
     in.v[MLXR_IN_STICK_X] = 0;
     in.v[MLXR_IN_STICK_Y] = 1; // forward: leans to -z
-    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
-    movePoint(&parts[0], tip, o);
+    posed(m, 0, &in, parts);
+    movePoint(partAt(m, 0, 0, parts), tip, o);
     check(near3(o, 0, 0.01f * c20, -0.01f * s20, 1e-6f), "stick forward: tip %.5f %.5f %.5f", o[0], o[1], o[2]);
     in.v[MLXR_IN_STICK_X] = 1;
     in.v[MLXR_IN_STICK_Y] = 1; // a corner counts as the rim: no more than the full tilt
-    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
-    movePoint(&parts[0], tip, o);
+    posed(m, 0, &in, parts);
+    movePoint(partAt(m, 0, 0, parts), tip, o);
     float tilt = acosf(o[1] / sqrtf(o[0] * o[0] + o[1] * o[1] + o[2] * o[2])) / D2R;
     check(tilt > 19.0f && tilt < 20.5f, "a diagonal at the rim tilts no more than %.1f degrees (%.2f)", 20.0f, tilt);
     memset(&in, 0, sizeof(in));
     in.v[MLXR_IN_STICK_CLICK] = 1;
-    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
-    movePoint(&parts[0], tip, o);
+    posed(m, 0, &in, parts);
+    movePoint(partAt(m, 0, 0, parts), tip, o);
     check(near3(o, 0, 0.01f - 0.001f, 0, 1e-6f), "stick click dips along the press offset");
     // The trigger: about x through the origin, a point below the pivot swings back (+z)
     float below[3] = {0, -0.02f, 0};
     memset(&in, 0, sizeof(in));
     in.v[MLXR_IN_TRIGGER] = 0.5f;
-    mlxr_model_pose(m, 1, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
-    movePoint(&parts[1], below, o);
+    posed(m, 0, &in, parts);
+    movePoint(partAt(m, 0, 1, parts), below, o);
     float a = -6.25f * D2R;
     check(near3(o, 0, -0.02f * cosf(a), -0.02f * sinf(a), 1e-6f) && o[2] > 0, "trigger half: %.5f %.5f %.5f", o[0], o[1], o[2]);
     in.v[MLXR_IN_TRIGGER] = 1;
-    mlxr_model_pose(m, 1, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
-    movePoint(&parts[1], below, o);
+    posed(m, 0, &in, parts);
+    movePoint(partAt(m, 0, 1, parts), below, o);
     a = -14.0f * D2R; // the pressed override at the end of its travel
     check(near3(o, 0, -0.02f * cosf(a), -0.02f * sinf(a), 1e-6f), "trigger full: %.5f %.5f %.5f", o[0], o[1], o[2]);
     mlxr_model_unload(&gpu, m);
@@ -1588,25 +1608,25 @@ static void testModelPose(void) {
     check(m->components[0][0].input == MLXR_IN_DPAD_UP && m->components[0][1].input == MLXR_IN_A, "d-pad and button paths");
     memset(&in, 0, sizeof(in));
     in.v[MLXR_IN_DPAD_RIGHT] = 1;
-    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
-    movePoint(&parts[0], tip, o);
+    posed(m, 0, &in, parts);
+    movePoint(partAt(m, 0, 0, parts), tip, o);
     float s7 = sinf(7 * D2R);
     check(o[0] > 0.01f * s7 * 0.99f && fabsf(o[2]) < 1e-6f && o[1] < 0.01f, "d-pad right tilts toward +x and dips: %.5f %.5f %.5f",
           o[0], o[1], o[2]);
     memset(&in, 0, sizeof(in));
     in.v[MLXR_IN_DPAD_UP] = 1;
-    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
-    movePoint(&parts[0], tip, o);
+    posed(m, 0, &in, parts);
+    movePoint(partAt(m, 0, 0, parts), tip, o);
     check(o[2] < -0.01f * s7 * 0.99f && fabsf(o[0]) < 1e-6f, "d-pad up tilts forward (-z): %.5f %.5f %.5f", o[0], o[1], o[2]);
     memset(&in, 0, sizeof(in));
     in.v[MLXR_IN_A] = 1;
     float origin[3] = {0, 0, 0};
-    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
-    movePoint(&parts[1], origin, o);
+    posed(m, 0, &in, parts);
+    movePoint(partAt(m, 0, 1, parts), origin, o);
     check(near3(o, 0, -0.0014f, 0, 1e-7f), "button A slides along its axis by its range");
     in.v[MLXR_IN_A] = 0;
-    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
-    movePoint(&parts[1], origin, o);
+    posed(m, 0, &in, parts);
+    movePoint(partAt(m, 0, 1, parts), origin, o);
     check(near3(o, 0, 0, 0, 1e-9f), "released, it is back");
     mlxr_model_unload(&gpu, m);
 
@@ -1626,7 +1646,7 @@ static void testModelPose(void) {
     if (m) {
         memset(&in, 0, sizeof(in));
         in.v[MLXR_IN_TRIGGER] = 1;
-        check(mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX) == 2, "and poses");
+        check(posed(m, 0, &in, parts) == 1 && parts[0].indexCount == 6, "and poses (no motion in it: one draw)");
         mlxr_model_unload(&gpu, m);
     }
 
@@ -1667,12 +1687,16 @@ static void testModelPose(void) {
             MlxrModelPart pr[MLXR_MODEL_COMPONENTS_MAX], pp[MLXR_MODEL_COMPONENTS_MAX];
             uint32_t n = mlxr_model_pose(m, h, &rest, pr, MLXR_MODEL_COMPONENTS_MAX);
             mlxr_model_pose(m, h, &pressed, pp, MLXR_MODEL_COMPONENTS_MAX);
-            // parts are in component order with zero-sized ones skipped: find by range
+            // merged at rest, split when moved: find each by the range it draws
+            uint32_t n2 = mlxr_model_pose(m, h, &pressed, pp, MLXR_MODEL_COMPONENTS_MAX);
+            const MlxrModelPart* a = partFor(pr, n, m->components[h][c].firstIndex);
+            const MlxrModelPart* b = partFor(pp, n2, m->components[h][c].firstIndex);
             int moved = 0;
-            for (uint32_t i = 0; i < n; i++) {
-                if (pr[i].firstIndex != m->components[h][c].firstIndex) continue;
-                for (int e = 0; e < 16; e++) if (fabsf(pr[i].transform[e] - pp[i].transform[e]) > 1e-6f) moved = 1;
-            }
+            for (int e = 0; a && b && e < 16; e++) if (fabsf(a->transform[e] - b->transform[e]) > 1e-6f) moved = 1;
+            // and the rest of the hand did not
+            int c0 = findPart(m, h, "body");
+            const MlxrModelPart* body = partFor(pp, n2, m->components[h][c0].firstIndex);
+            for (int e = 0; body && e < 16; e++) if (fabsf(body->transform[e] - (e % 5 == 0 ? 1.0f : 0.0f)) > 0) moved = 0;
             check(moved, "%s hand: %s moves when its control does", h ? "right" : "left", kMoving[k].name);
             if (kMoving[k].slot == MLXR_IN_SYSTEM) {
                 // nothing sets it in the client (reserved by the runtime): the model's button stays up
@@ -1692,8 +1716,7 @@ static void testModelPose(void) {
         MlxrModelPart pt[MLXR_MODEL_COMPONENTS_MAX];
         in.v[MLXR_IN_STICK_X] = 1;
         uint32_t n = mlxr_model_pose(m, h, &in, pt, MLXR_MODEL_COMPONENTS_MAX);
-        const MlxrModelPart* sp = NULL;
-        for (uint32_t i = 0; i < n; i++) if (pt[i].firstIndex == m->components[h][c].firstIndex) sp = &pt[i];
+        const MlxrModelPart* sp = partFor(pt, n, m->components[h][c].firstIndex);
         float o2[3] = {0};
         if (sp) movePoint(sp, top, o2);
         check(sp && o2[0] - top[0] > 0.002f && fabsf(o2[2] - top[2]) < 0.002f, "%s thumbstick right moves its top to +x (%.4f)",
@@ -1701,8 +1724,7 @@ static void testModelPose(void) {
         in.v[MLXR_IN_STICK_X] = 0;
         in.v[MLXR_IN_STICK_Y] = 1;
         n = mlxr_model_pose(m, h, &in, pt, MLXR_MODEL_COMPONENTS_MAX);
-        sp = NULL;
-        for (uint32_t i = 0; i < n; i++) if (pt[i].firstIndex == m->components[h][c].firstIndex) sp = &pt[i];
+        sp = partFor(pt, n, m->components[h][c].firstIndex);
         if (sp) movePoint(sp, top, o2);
         check(sp && o2[2] - top[2] < -0.002f, "%s thumbstick forward moves its top to -z (%.4f)", h ? "right" : "left",
               o2[2] - top[2]);

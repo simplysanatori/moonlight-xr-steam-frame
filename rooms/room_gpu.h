@@ -195,7 +195,8 @@ void mlxr_model_fill(const MlxrModel* model, MlxrModelParams* out);
 // Native: each component of a hand's model moved as SteamVR moves it for these
 // control values (trigger and grip turn about their pivot, the stick tilts about
 // its centre and dips when clicked, buttons slide, the d-pad tilts toward a
-// direction): the parts for MlxrModelParams.handParts, in the component order,
+// direction): the parts for MlxrModelParams.handParts, in the file's order (parts at rest next to
+// each other are one draw, so a hand at rest is a single range),
 // up to cap. 0 for a model with no components (the generic one), which is drawn whole.
 uint32_t mlxr_model_pose(const MlxrModel* model, int hand, const MlxrModelInput* in, MlxrModelPart* parts,
                          uint32_t cap);

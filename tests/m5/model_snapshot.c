@@ -115,7 +115,20 @@ static void render(XrCtx* ctx, Cell* cell, int hand, int view, uint8_t* rgb /* C
 }
 
 // The models pass at the Frame's recommended eye size (1728 x 1728 a eye), both hands
-static double timeModels(XrCtx* ctx) {
+// Native: pressed 0 at rest (a hand is one draw), 1 the trigger, grip and stick moved (a few draws), 2 every
+// control down (the most draws)
+static double timeModels(XrCtx* ctx, int pressed) {
+    for (int h = 0; h < 2; h++) {
+        memset(ctx->modelInput[h], 0, sizeof(ctx->modelInput[h]));
+        if (pressed == 1) {
+            ctx->modelInput[h][MLXR_IN_TRIGGER] = 1;
+            ctx->modelInput[h][MLXR_IN_STICK_X] = 0.7f;
+            ctx->modelInput[h][MLXR_IN_STICK_CLICK] = 1;
+        }
+        if (pressed == 2) {
+            for (int k = 0; k < MLXR_IN_COUNT; k++) ctx->modelInput[h][k] = 1;
+        }
+    }
     Cell cell;
     memset(&cell, 0, sizeof(cell));
     cell.w = cell.h = 1728;
@@ -234,7 +247,11 @@ int main(int argc, char** argv) {
         }
         row += 2;
         free(rgb);
-        printf("%-8s models pass, both hands, 2 x 1728x1728: %.3f ms (median of 25)\n", kind[m], timeModels(ctx));
+        printf("%-8s models pass, both hands, 2 x 1728x1728: %.3f ms (median of 25)\n", kind[m], timeModels(ctx, 0));
+        if (wantTex) {
+            printf("%-8s ... trigger, stick moved: %.3f ms; every control down: %.3f ms\n", kind[m], timeModels(ctx, 1),
+                   timeModels(ctx, 2));
+        }
         m5_image_free(ctx, &cell.colour);
         m5_image_free(ctx, &cell.depth);
         xrWorldDestroy(ctx);
