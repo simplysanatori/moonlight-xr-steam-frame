@@ -44,14 +44,19 @@ static void testPolicy(void) {
 
     // A long stall asks for more than a step; the range caps it
     mlxr_jitter_underrun(&j);
-    t += 90;
+    t += 300;
+    mlxr_jitter_packet(&j, t, 16.0f);
+    CHECK(j.targetMs == 15);  // an outage no cushion covers: no growth
+    CHECK(j.outages == 1);
+    mlxr_jitter_underrun(&j);
+    t += 70;
     mlxr_jitter_packet(&j, t, 16.0f);
     CHECK(j.targetMs == 40);
     mlxr_jitter_underrun(&j);
     t += 20;
     mlxr_jitter_packet(&j, t, 16.0f);
     CHECK(j.targetMs == 40);
-    CHECK(j.lateUnderruns == 3);
+    CHECK(j.lateUnderruns == 4);
 
     // The host going quiet (a gap past silenceMs) is not jitter
     mlxr_jitter_underrun(&j);
@@ -69,7 +74,7 @@ static void testPolicy(void) {
     CHECK(j.shrinks == 8);
 
     // The longest gap under silenceMs is kept for the log
-    CHECK(j.maxGapMs == 90);
+    CHECK(j.maxGapMs == 300);
 
     // A floor: never below min, even calm
     mlxr_jitter_init(&j, 10, 30);
@@ -141,7 +146,9 @@ static void testSkip(void) {
     CHECK(st.skippedFrames == 336);
     // Never more than leaves the fade's worth
     mlxr_pcmq_push(q, in, 100);
-    CHECK(mlxr_pcmq_skip(q, 1000) == 100 - MLXR_PCMQ_FADE_FRAMES);
+    CHECK(mlxr_pcmq_skip(q, 1000) == 0);  // 100 frames hold no 5 ms crossfade
+    mlxr_pcmq_push(q, in, 400);
+    CHECK(mlxr_pcmq_skip(q, 1000) == 500 - MLXR_PCMQ_XFADE_FRAMES);
     mlxr_pcmq_destroy(q);
 }
 

@@ -10,6 +10,7 @@ void mlxr_jitter_init(MlxrJitter* j, int minMs, int maxMs) {
     j->shrinkMs = 5;
     j->calmMs = 30000;
     j->silenceMs = 400;
+    j->outageMarginMs = 20;
     j->trimEveryMs = 1000;
     j->trimSlackMs = 4;
     j->targetMs = j->minMs;
@@ -51,7 +52,14 @@ int mlxr_jitter_packet(MlxrJitter* j, int64_t nowMs, float serverMs) {
     }
     if (j->pendingUnderrun) {
         j->pendingUnderrun = 0;
-        if (gap > 0 && gap < j->silenceMs) {
+        if (gap > 0 && gap < j->silenceMs && gap > (int) serverMs + j->maxMs + j->outageMarginMs) {
+            // Late, but by more than any cushion we allow could cover (the
+            // host stalled for a few hundred ms): growing would only add
+            // latency for the next ordinary gap
+            j->lateUnderruns++;
+            j->outages++;
+        }
+        else if (gap > 0 && gap < j->silenceMs) {
             // Late data: enough cushion to have ridden out this gap, and at
             // least one step more than before
             j->lateUnderruns++;

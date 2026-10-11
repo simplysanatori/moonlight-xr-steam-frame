@@ -37,6 +37,7 @@ typedef struct {
     int stepMs;             // least growth per late underrun
     int shrinkMs, calmMs;   // shrink by shrinkMs after calmMs without one
     int silenceMs;          // a gap at least this long is the host going quiet
+    int outageMarginMs;     // a late gap over server + maxMs + this is an outage: no growth
     int trimEveryMs;        // how often trim() looks at the queue's low point
     int trimSlackMs;        // excess the low point may carry before it is cut
 
@@ -53,6 +54,7 @@ typedef struct {
     // counters since init
     uint32_t lateUnderruns;    // the sink ran dry and the data came back late
     uint32_t silenceUnderruns; // ... because the host stopped sending
+    uint32_t outages;          // late underruns too long for any cushion (counted in lateUnderruns too)
     uint32_t grows, shrinks;
     uint64_t trimmedFrames;
     int maxGapMs;              // longest gap between packets since stats_reset_gap

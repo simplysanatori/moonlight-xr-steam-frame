@@ -1,5 +1,6 @@
 #include "pcmq.h"
 
+#include <math.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,12 +59,37 @@ static void discard(MlxrPcmQueue* q, int n) {
     q->count -= n;
 }
 
+// Lock held: drops the n oldest frames, the ones that were due fading out
+// over XFADE_FRAMES into the ones after the cut. Fewer when the queue does
+// not hold n + the crossfade. Returns how many went.
+static int crossfadeDiscard(MlxrPcmQueue* q, int n) {
+    int fade = MLXR_PCMQ_XFADE_FRAMES;
+    if (n > q->count - fade) {
+        n = q->count - fade;
+    }
+    if (n <= 0) {
+        return 0;
+    }
+    for (int f = 0; f < fade; f++) {
+        // equal power: the two sides are unrelated audio
+        float g = (f + 0.5f) / (float) fade;
+        float gin = sinf(g * 1.5707963f), gout = cosf(g * 1.5707963f);
+        float* outgoing = q->data + (size_t) ((q->head + f) % q->alloc) * q->channels;
+        float* incoming = q->data + (size_t) ((q->head + n + f) % q->alloc) * q->channels;
+        for (int c = 0; c < q->channels; c++) {
+            incoming[c] = outgoing[c] * gout + incoming[c] * gin;
+        }
+    }
+    discard(q, n);
+    return n;
+}
+
 int mlxr_pcmq_push(MlxrPcmQueue* q, const float* frames, int n) {
     if (n <= 0) {
         return 0;
     }
     pthread_mutex_lock(&q->lock);
-    int dropped = 0;
+    int dropped = 0, spliced = 0;
     if (n > q->cap) {
         // Only the newest cap frames of an oversized push can be kept
         dropped = q->count + (n - q->cap);
@@ -73,7 +99,12 @@ int mlxr_pcmq_push(MlxrPcmQueue* q, const float* frames, int n) {
         q->count = 0;
     } else if (q->count + n > q->cap) {
         dropped = q->count + n - q->cap;
-        discard(q, dropped);
+        if (crossfadeDiscard(q, dropped) == dropped) {
+            spliced = 1;
+        }
+        else {
+            discard(q, dropped);
+        }
     }
     int tail = (q->head + q->count) % q->alloc;
     int first = q->alloc - tail < n ? q->alloc - tail : n;
@@ -88,7 +119,9 @@ int mlxr_pcmq_push(MlxrPcmQueue* q, const float* frames, int n) {
     if (dropped > 0) {
         q->stats.droppedFrames += (uint64_t) dropped;
         q->stats.overruns++;
-        q->fadePending = 1;
+        if (!spliced) {
+            q->fadePending = 1;
+        }
     }
     pthread_mutex_unlock(&q->lock);
     return dropped;
@@ -139,26 +172,10 @@ void mlxr_pcmq_mark_discontinuity(MlxrPcmQueue* q) {
 
 int mlxr_pcmq_skip(MlxrPcmQueue* q, int n) {
     pthread_mutex_lock(&q->lock);
-    int fade = MLXR_PCMQ_FADE_FRAMES;
-    if (n > q->count - fade) {
-        n = q->count - fade;
+    n = crossfadeDiscard(q, n);
+    if (n > 0) {
+        q->stats.skippedFrames += (uint64_t) n;
     }
-    if (n <= 0) {
-        pthread_mutex_unlock(&q->lock);
-        return 0;
-    }
-    // The frames that will be played next (after the cut) fade in while the
-    // ones that were due (the head) fade out over the same span
-    for (int f = 0; f < fade; f++) {
-        float g = (f + 0.5f) / (float) fade;
-        float* outgoing = q->data + (size_t) ((q->head + f) % q->alloc) * q->channels;
-        float* incoming = q->data + (size_t) ((q->head + n + f) % q->alloc) * q->channels;
-        for (int c = 0; c < q->channels; c++) {
-            incoming[c] = outgoing[c] * (1.0f - g) + incoming[c] * g;
-        }
-    }
-    discard(q, n);
-    q->stats.skippedFrames += (uint64_t) n;
     pthread_mutex_unlock(&q->lock);
     return n;
 }

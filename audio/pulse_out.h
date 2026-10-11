@@ -62,6 +62,7 @@ typedef struct {
     uint32_t lateUnderruns;    // underruns where the data came back late (network or scheduling)
     uint32_t silenceUnderruns; // underruns where the host had stopped sending (not audible)
     uint32_t jitterGrows, jitterShrinks;
+    uint32_t outages;          // late underruns too long for any cushion (no growth)
     uint64_t trimmedFrames;    // excess latency spliced out (crossfaded)
     int gapMaxMs;              // longest gap between writes since the last take_gap_max
 } MlxrPulseOutStats;

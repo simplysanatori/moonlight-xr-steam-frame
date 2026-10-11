@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "../xr/mlxr_log.h"
+#include "pacer.h"
 
 struct HwVideo {
     mlxr_vdec* dec;
@@ -16,8 +17,12 @@ struct HwVideo {
     void (*requestIdr)(void);
     pthread_mutex_t lock;
     pthread_cond_t cond;
-    bool havePending;
-    mlxr_vframe pending;
+    // Native (lane av-latency): decoded frames waiting for the frame loop,
+    // oldest first (was a one-frame mailbox); the pacer picks from it
+    mlxr_vframe queue[MLXR_PACER_MAX_QUEUED];
+    int queued, head;
+    MlxrPacer pacer;
+    int pacerHz;
     bool formatChange; // decode thread waits until the renderer is done
     HwVideoStats st;
 };
@@ -25,6 +30,24 @@ struct HwVideo {
 static _Atomic(HwVideo*) g_current;
 HwVideo* hw_video_current(void) { return atomic_load(&g_current); }
 void hw_video_set_current(HwVideo* v) { atomic_store(&g_current, v); }
+
+// Lock held: the n oldest queued frames straight back to the decoder
+static void dropOldest(HwVideo* v, int n, uint64_t* count) {
+    for (int i = 0; i < n && v->queued > 0; i++) {
+        mlxr_vdec_release(v->dec, &v->queue[v->head]);
+        v->head = (v->head + 1) % MLXR_PACER_MAX_QUEUED;
+        v->queued--;
+        if (count) (*count)++;
+    }
+}
+
+// Lock held
+static void popOldest(HwVideo* v, mlxr_vframe* out) {
+    *out = v->queue[v->head];
+    v->head = (v->head + 1) % MLXR_PACER_MAX_QUEUED;
+    v->queued--;
+    v->st.taken++;
+}
 
 static void* decodeThread(void* arg) {
     HwVideo* v = arg;
@@ -35,10 +58,7 @@ static void* decodeThread(void* arg) {
         if (r == MLXR_VDEC_FORMAT_CHANGE) {
             MLOG_I("video: resolution change, waiting for the renderer to drop its imports");
             pthread_mutex_lock(&v->lock);
-            if (v->havePending) {
-                mlxr_vdec_release(v->dec, &v->pending);
-                v->havePending = false;
-            }
+            dropOldest(v, v->queued, NULL);
             v->formatChange = true;
             while (v->formatChange && !atomic_load(&v->stop)) pthread_cond_wait(&v->cond, &v->lock);
             pthread_mutex_unlock(&v->lock);
@@ -58,12 +78,11 @@ static void* decodeThread(void* arg) {
         }
         double ms = (double)(f.t_dequeue_ns - f.t_submit_ns) * 1e-6;
         pthread_mutex_lock(&v->lock);
-        if (v->havePending) { // the loop never took it: straight back to the decoder
-            mlxr_vdec_release(v->dec, &v->pending);
-            v->st.skipped++;
+        if (v->queued == MLXR_PACER_MAX_QUEUED) { // the loop fell behind: the oldest goes back
+            dropOldest(v, 1, &v->st.skipped);
         }
-        v->pending = f;
-        v->havePending = true;
+        v->queue[(v->head + v->queued) % MLXR_PACER_MAX_QUEUED] = f;
+        v->queued++;
         v->st.frames++;
         v->st.lastDecodeMs = ms;
         v->st.avgDecodeMs = v->st.frames == 1 ? ms : v->st.avgDecodeMs * 0.95 + ms * 0.05;
@@ -85,6 +104,8 @@ HwVideo* hw_video_open(mlxr_codec codec, uint32_t width, uint32_t height, void (
         return NULL;
     }
     v->requestIdr = requestIdr;
+    mlxr_pacer_init(&v->pacer, 90);
+    v->pacerHz = 90;
     pthread_mutex_init(&v->lock, NULL);
     pthread_cond_init(&v->cond, NULL);
     pthread_create(&v->thread, NULL, decodeThread, v);
@@ -107,11 +128,43 @@ int hw_video_submit(HwVideo* v, const void* const* parts, const uint32_t* sizes,
 
 bool hw_video_take(HwVideo* v, mlxr_vframe* out) {
     pthread_mutex_lock(&v->lock);
-    bool got = v->havePending;
+    bool got = v->queued > 0;
     if (got) {
-        *out = v->pending;
-        v->havePending = false;
-        v->st.taken++;
+        dropOldest(v, v->queued - 1, &v->st.skipped);
+        popOldest(v, out);
+    }
+    pthread_mutex_unlock(&v->lock);
+    return got;
+}
+
+bool hw_video_take_refresh(HwVideo* v, int paced, int displayHz, mlxr_vframe* out) {
+    pthread_mutex_lock(&v->lock);
+    if (displayHz > 0 && displayHz != v->pacerHz) {
+        MlxrPacer keep = v->pacer;
+        mlxr_pacer_init(&v->pacer, displayHz);
+        v->pacer.refreshes = keep.refreshes;
+        v->pacer.shown = keep.shown;
+        v->pacer.holes = keep.holes;
+        v->pacer.catchUpDrops = keep.catchUpDrops;
+        v->pacer.queuedSum = keep.queuedSum;
+        v->pacerHz = displayHz;
+    }
+    bool got;
+    if (paced) {
+        int drop = 0;
+        int show = mlxr_pacer_refresh(&v->pacer, v->queued, &drop);
+        dropOldest(v, drop, NULL);
+        got = show && v->queued > 0;
+        if (got) popOldest(v, out);
+    }
+    else {
+        int queued = v->queued;
+        got = queued > 0;
+        if (got) {
+            dropOldest(v, queued - 1, &v->st.skipped);
+            popOldest(v, out);
+        }
+        mlxr_pacer_note(&v->pacer, queued, got);
     }
     pthread_mutex_unlock(&v->lock);
     return got;
@@ -139,6 +192,11 @@ void hw_video_format_change_done(HwVideo* v) {
 void hw_video_stats(HwVideo* v, HwVideoStats* s) {
     pthread_mutex_lock(&v->lock);
     *s = v->st;
+    s->refreshes = v->pacer.refreshes;
+    s->shown = v->pacer.shown;
+    s->holes = v->pacer.holes;
+    s->catchUpDrops = v->pacer.catchUpDrops;
+    s->queuedSum = v->pacer.queuedSum;
     pthread_mutex_unlock(&v->lock);
 }
 
@@ -155,7 +213,7 @@ void hw_video_stop(HwVideo* v) {
 void hw_video_close(HwVideo* v) {
     if (!v) return;
     hw_video_stop(v);
-    if (v->havePending) mlxr_vdec_release(v->dec, &v->pending);
+    dropOldest(v, v->queued, NULL);
     mlxr_vdec_close(v->dec);
     pthread_mutex_destroy(&v->lock);
     pthread_cond_destroy(&v->cond);
