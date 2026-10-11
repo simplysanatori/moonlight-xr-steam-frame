@@ -788,6 +788,11 @@ typedef struct XrCtx {
     int modelEyeHeight;
     int modelShown[HAND_COUNT];
     XrPosef modelGrip[HAND_COUNT];
+    // Native: each hand's controls as the model draws them (updateControllerModels,
+    // xr_model.c): the trigger, grip, stick, buttons and d-pad moving on the Frame's models
+    // (rooms/room_gpu.h's MlxrModelInput, MLXR_IN_COUNT floats; sized here as that
+    // header is not in this one)
+    float modelInput[HAND_COUNT][24];
     XrView modelViews[ROOM_EYES];
     int modelRendered;
     int modelAcquired;

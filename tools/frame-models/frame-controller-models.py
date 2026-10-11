@@ -25,10 +25,10 @@ collapse from the previous, vertex coloured version (0 or unset: every triangle)
 MLXR_FRAME_MODEL_TEXTURE=N scales the textures to N x N (0 or unset: as shipped).
 
 The file (little endian, every field 4 bytes; rooms/room_gpu.c reads it, tests/frame-models checks it):
-  header      'MXFM', version 1, vertexCount, indexCount, componentCount, texWidth, texHeight, flags 0
+  header      'MXFM', version 2 (1: the same, without motion type 4), vertexCount, indexCount, componentCount, texWidth, texHeight, flags 0
   components  componentCount records of 208 bytes: name (32 bytes, NUL padded), input path (32
               bytes, NUL padded, '' for none), firstIndex, indexCount, motion type (0 none,
-              1 translate, 2 rotate, 3 joystick), 0, then 32 floats of motion (MOTION_* below)
+              1 translate, 2 rotate, 3 joystick, 4 d-pad), 0, then 32 floats of motion (MOTION_* below)
   vertices    vertexCount x 12 floats: position 3, normal 3, tangent 4 (w: the bitangent's sign,
               B = w * cross(N, T) runs along +v), uv 2 (v from the top row of the textures down)
   indices     indexCount uint32, into this file's vertices, triangles
@@ -54,12 +54,14 @@ RENDERMODELS = '/opt/steamvr/drivers/frame_controller/resources/rendermodels'
 TRIANGLES = int(os.environ.get('MLXR_FRAME_MODEL_TRIANGLES', '0') or 0)  # per hand; 0: all of them
 TEXTURE = int(os.environ.get('MLXR_FRAME_MODEL_TEXTURE', '0') or 0)      # 0: as shipped
 HANDS = ('left', 'right')
-VERSION = 1
+VERSION = 2   # 1: no d-pad motion (motion type 4); the client still reads it
 VERTEX_FLOATS = 12
 COMPONENT_BYTES = 208
 NAME_BYTES = 32
 MOTION_FLOATS = 32
-MOTION_TYPES = {'translate': 1, 'rotate': 2, 'joystick': 3}
+# Native: version 2 adds the d-pad (4: a joystick's frame, tilt and press, driven by its four
+# direction clicks); 'rotate' also covers a button that tilts by value_mapping[1] when clicked
+MOTION_TYPES = {'translate': 1, 'rotate': 2, 'joystick': 3, 'dpad': 4}
 # The motion floats: what each type reads (all in grip space, metres and degrees)
 MOTION_ORIGIN = 0        # 3: rotate pivot, joystick centre
 MOTION_AXIS = 3          # 3: translate direction, rotate axis (unit)
@@ -368,7 +370,7 @@ def motion_block(motion, to_grip, dir_to_grip):
         return 0, '', f
     kind = motion['type']
     path = (motion.get('component_path') or motion.get('joystick_path') or motion.get('trigger_path')
-            or motion.get('pressed_path') or '')
+            or motion.get('pressed_path') or motion.get('dpad_up_path') or '')
     rng = motion.get('value_mapping', [0.0, 0.0])
     f[MOTION_RANGE:MOTION_RANGE + 2] = [float(rng[0]), float(rng[1])]
     if 'pressed_value_override' in motion:
@@ -377,7 +379,7 @@ def motion_block(motion, to_grip, dir_to_grip):
         f[MOTION_AXIS:MOTION_AXIS + 3] = norm(dir_to_grip(motion['axis']))
     if kind == 'rotate':
         f[MOTION_ORIGIN:MOTION_ORIGIN + 3] = to_grip(motion['pivot'])
-    if kind == 'joystick':
+    if kind in ('joystick', 'dpad'):
         f[MOTION_ORIGIN:MOTION_ORIGIN + 3] = to_grip(motion['center'])
         frame = euler_xyz(motion.get('rotate_xyz', [0, 0, 0]))
         for c in range(3):  # the frame's axis c, model space, then grip space

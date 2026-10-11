@@ -967,6 +967,9 @@ typedef struct {
     int shown[2];
     int debugView;
     float gain;
+    // Native: the controls the textured models' moving parts follow (animate 1)
+    int animate;
+    MlxrModelInput input[2];
 } ModelPose;
 
 static int renderModelsAt(const MlxrModel* m, uint32_t eyeW, uint32_t eyeH, const ModelPose* pose, Frame* f);
@@ -1007,6 +1010,13 @@ static int renderModelsAt(const MlxrModel* m, uint32_t eyeW, uint32_t eyeH, cons
     controllerModelMatrix(pose->grip[1], 0, mp.model[1]);
     mp.shown[0] = pose->shown[0];
     mp.shown[1] = pose->shown[1];
+    MlxrModelPart parts[2][MLXR_MODEL_COMPONENTS_MAX];
+    if (pose->animate && m->textured) {
+        for (int h = 0; h < 2; h++) {
+            mp.handPartCount[h] = mlxr_model_pose(m, h, &pose->input[h], parts[h], MLXR_MODEL_COMPONENTS_MAX);
+            mp.handParts[h] = parts[h];
+        }
+    }
     mp.debugView = pose->debugView;
     mp.gain = pose->gain;
     mp.depth = depth.view;
@@ -1258,8 +1268,10 @@ static void testModelTextured(void) {
         d[0] = 'X';
         check(!mlxr_model_file_parse(d, n, n, &fi), "a wrong magic is refused");
         d[0] = 'M';
-        d[4] = 2;
+        d[4] = 3;
         check(!mlxr_model_file_parse(d, n, n, &fi), "another version is refused");
+        d[4] = 2;
+        check(mlxr_model_file_parse(d, n, n, &fi) && fi.version == 2, "version 2 (the d-pad's motion) is read");
         d[4] = 1;
         d[12] = 7; // 7 indices: not whole triangles
         check(!mlxr_model_file_parse(d, n, n, &fi), "indices not in whole triangles are refused");
@@ -1436,6 +1448,304 @@ static void testModelTextured(void) {
     mlxr_model_unload(&gpu, m);
 }
 
+
+// ---- Native: the moving parts. A made-up model whose two components move as
+// SteamVR's joystick/trigger, d-pad/button do, checked in numbers through
+// mlxr_model_pose; then the real models (their trigger, grip, stick, d-pad and
+// buttons each move the way a hand moves them) and a render with the parts moved.
+
+// Overwrites component c of a written MXFM: its input path, motion type and motion floats
+static void patchMotion(const char* file, int c, const char* path, uint32_t type, const float* mo, int moN) {
+    FILE* f = fopen(file, "r+b");
+    if (!f) return;
+    unsigned char rec[208];
+    long o = 32 + 208 * c;
+    fseek(f, o, SEEK_SET);
+    if (fread(rec, 1, sizeof(rec), f) != sizeof(rec)) {
+        fclose(f);
+        return;
+    }
+    memset(rec + 32, 0, 32);
+    snprintf((char*)rec + 32, 32, "%s", path);
+    memcpy(rec + 72, &type, 4);
+    memset(rec + 80, 0, 32 * 4);
+    float nan = NAN;
+    memcpy(rec + 80 + MLXR_MOTION_PRESSED * 4, &nan, 4);
+    memcpy(rec + 80, mo, (size_t)moN * 4);
+    fseek(f, o, SEEK_SET);
+    fwrite(rec, 1, sizeof(rec), f);
+    fclose(f);
+}
+
+// A part's transform applied to a point
+static void movePoint(const MlxrModelPart* p, const float in[3], float out[3]) {
+    for (int r = 0; r < 3; r++) out[r] = p->transform[r] * in[0] + p->transform[4 + r] * in[1] + p->transform[8 + r] * in[2] + p->transform[12 + r];
+}
+
+static int near3(const float a[3], float x, float y, float z, float eps) {
+    return fabsf(a[0] - x) < eps && fabsf(a[1] - y) < eps && fabsf(a[2] - z) < eps;
+}
+
+// One real hand's component, by name (NULL if absent)
+static int findPart(const MlxrModel* m, int h, const char* name) {
+    for (uint32_t c = 0; c < m->componentCount[h]; c++)
+        if (!strcmp(m->components[h][c].name, name)) return (int)c;
+    return -1;
+}
+
+static void testModelPose(void) {
+    char left[700], right[700];
+    stageModels();
+    modelPath(left, sizeof(left), "frame_controller_left.model");
+    modelPath(right, sizeof(right), "frame_controller_right.model");
+    const float D2R = 3.14159265f / 180.0f;
+
+    // Component 0 a joystick (frame = identity, centre at the origin, +-20 degrees, a 1 mm dip along -y),
+    // component 1 a trigger (about x through the origin, 0 to -12.5 degrees, -14 when fully pulled)
+    float stick[32] = {0};
+    stick[MLXR_MOTION_FRAME + 0] = 1;
+    stick[MLXR_MOTION_FRAME + 4] = 1;
+    stick[MLXR_MOTION_FRAME + 8] = 1;
+    stick[MLXR_MOTION_ROT_X] = 20, stick[MLXR_MOTION_ROT_X + 1] = -20;
+    stick[MLXR_MOTION_ROT_Y] = 20, stick[MLXR_MOTION_ROT_Y + 1] = -20;
+    stick[MLXR_MOTION_PRESS + 1] = -0.001f;
+    float trig[32] = {0};
+    trig[MLXR_MOTION_AXIS] = 1;
+    trig[MLXR_MOTION_RANGE + 1] = -12.5f;
+    trig[MLXR_MOTION_PRESSED] = -14.0f;
+    for (int h = 0; h < 2; h++) {
+        const char* path = h ? right : left;
+        writeQuadModel(path, 0.0f, 0, 2);
+        patchMotion(path, 0, "/input/thumbstick", MLXR_MOTION_JOYSTICK, stick, 32);
+        patchMotion(path, 1, "/input/trigger", MLXR_MOTION_ROTATE, trig, 32);
+    }
+    MlxrModel* m = NULL;
+    check(mlxr_model_load(&gpu, kTexDir, &m) == 0 && m && m->textured, "load the pose test model (MXFM 2)");
+    if (!m) return;
+    check(m->components[0][0].input == MLXR_IN_STICK_X && m->components[0][1].input == MLXR_IN_TRIGGER, "paths find their controls");
+    MlxrModelInput in;
+    MlxrModelPart parts[MLXR_MODEL_COMPONENTS_MAX];
+    memset(&in, 0, sizeof(in));
+    check(mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX) == 2 && parts[0].firstIndex == 0 &&
+              parts[1].firstIndex == 3 && parts[0].indexCount == 3, "a part for each component, absolute ranges");
+    float tip[3] = {0, 0.01f, 0}, o[3];
+    movePoint(&parts[0], tip, o);
+    check(near3(o, 0, 0.01f, 0, 1e-6f), "at rest the stick does not move");
+    check(mlxr_model_pose(m, 0, &in, parts, 1) == 1, "cap respected");
+    check(mlxr_model_pose(m, 0, &in, NULL, 4) == 0 && mlxr_model_pose(NULL, 0, &in, parts, 4) == 0, "no parts, no model");
+    float s20 = sinf(20 * D2R), c20 = cosf(20 * D2R);
+    in.v[MLXR_IN_STICK_X] = 1; // right: the stick's top leans to +x
+    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
+    movePoint(&parts[0], tip, o);
+    check(near3(o, 0.01f * s20, 0.01f * c20, 0, 1e-6f), "stick right: tip %.5f %.5f %.5f", o[0], o[1], o[2]);
+    in.v[MLXR_IN_STICK_X] = 0;
+    in.v[MLXR_IN_STICK_Y] = 1; // forward: leans to -z
+    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
+    movePoint(&parts[0], tip, o);
+    check(near3(o, 0, 0.01f * c20, -0.01f * s20, 1e-6f), "stick forward: tip %.5f %.5f %.5f", o[0], o[1], o[2]);
+    in.v[MLXR_IN_STICK_X] = 1;
+    in.v[MLXR_IN_STICK_Y] = 1; // a corner counts as the rim: no more than the full tilt
+    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
+    movePoint(&parts[0], tip, o);
+    float tilt = acosf(o[1] / sqrtf(o[0] * o[0] + o[1] * o[1] + o[2] * o[2])) / D2R;
+    check(tilt > 19.0f && tilt < 20.5f, "a diagonal at the rim tilts no more than %.1f degrees (%.2f)", 20.0f, tilt);
+    memset(&in, 0, sizeof(in));
+    in.v[MLXR_IN_STICK_CLICK] = 1;
+    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
+    movePoint(&parts[0], tip, o);
+    check(near3(o, 0, 0.01f - 0.001f, 0, 1e-6f), "stick click dips along the press offset");
+    // The trigger: about x through the origin, a point below the pivot swings back (+z)
+    float below[3] = {0, -0.02f, 0};
+    memset(&in, 0, sizeof(in));
+    in.v[MLXR_IN_TRIGGER] = 0.5f;
+    mlxr_model_pose(m, 1, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
+    movePoint(&parts[1], below, o);
+    float a = -6.25f * D2R;
+    check(near3(o, 0, -0.02f * cosf(a), -0.02f * sinf(a), 1e-6f) && o[2] > 0, "trigger half: %.5f %.5f %.5f", o[0], o[1], o[2]);
+    in.v[MLXR_IN_TRIGGER] = 1;
+    mlxr_model_pose(m, 1, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
+    movePoint(&parts[1], below, o);
+    a = -14.0f * D2R; // the pressed override at the end of its travel
+    check(near3(o, 0, -0.02f * cosf(a), -0.02f * sinf(a), 1e-6f), "trigger full: %.5f %.5f %.5f", o[0], o[1], o[2]);
+    mlxr_model_unload(&gpu, m);
+
+    // Component 0 a d-pad, component 1 a button sliding 1.4 mm along -y
+    float dpad[32];
+    memcpy(dpad, stick, sizeof(dpad));
+    dpad[MLXR_MOTION_ROT_X] = 7, dpad[MLXR_MOTION_ROT_X + 1] = -7;
+    dpad[MLXR_MOTION_ROT_Y] = 7, dpad[MLXR_MOTION_ROT_Y + 1] = -7;
+    float button[32] = {0};
+    button[MLXR_MOTION_AXIS + 1] = -1;
+    button[MLXR_MOTION_RANGE + 1] = 0.0014f;
+    for (int h = 0; h < 2; h++) {
+        const char* path = h ? right : left;
+        writeQuadModel(path, 0.0f, 0, 2);
+        patchMotion(path, 0, "/input/dpad_up/click", MLXR_MOTION_DPAD, dpad, 32);
+        patchMotion(path, 1, "/input/a/click", MLXR_MOTION_TRANSLATE, button, 32);
+    }
+    check(mlxr_model_load(&gpu, kTexDir, &m) == 0 && m && m->textured, "load the d-pad test model");
+    if (!m) return;
+    check(m->components[0][0].input == MLXR_IN_DPAD_UP && m->components[0][1].input == MLXR_IN_A, "d-pad and button paths");
+    memset(&in, 0, sizeof(in));
+    in.v[MLXR_IN_DPAD_RIGHT] = 1;
+    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
+    movePoint(&parts[0], tip, o);
+    float s7 = sinf(7 * D2R);
+    check(o[0] > 0.01f * s7 * 0.99f && fabsf(o[2]) < 1e-6f && o[1] < 0.01f, "d-pad right tilts toward +x and dips: %.5f %.5f %.5f",
+          o[0], o[1], o[2]);
+    memset(&in, 0, sizeof(in));
+    in.v[MLXR_IN_DPAD_UP] = 1;
+    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
+    movePoint(&parts[0], tip, o);
+    check(o[2] < -0.01f * s7 * 0.99f && fabsf(o[0]) < 1e-6f, "d-pad up tilts forward (-z): %.5f %.5f %.5f", o[0], o[1], o[2]);
+    memset(&in, 0, sizeof(in));
+    in.v[MLXR_IN_A] = 1;
+    float origin[3] = {0, 0, 0};
+    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
+    movePoint(&parts[1], origin, o);
+    check(near3(o, 0, -0.0014f, 0, 1e-7f), "button A slides along its axis by its range");
+    in.v[MLXR_IN_A] = 0;
+    mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
+    movePoint(&parts[1], origin, o);
+    check(near3(o, 0, 0, 0, 1e-9f), "released, it is back");
+    mlxr_model_unload(&gpu, m);
+
+    // An MXFM 1 file has no d-pad motion: type 4 in it is refused (the textured pair is skipped)
+    for (int h = 0; h < 2; h++) {
+        const char* path = h ? right : left;
+        writeQuadModel(path, 0.0f, 0, 1);
+        patchMotion(path, 0, "/input/dpad_up/click", MLXR_MOTION_DPAD, dpad, 32);
+    }
+    check(mlxr_model_load(&gpu, kTexDir, &m) != 0 || !m || !m->textured, "a version 1 file with a d-pad motion is refused");
+    if (m) mlxr_model_unload(&gpu, m);
+    m = NULL;
+    // ... and without one it still loads and draws, its parts all at rest
+    writeQuadModel(left, 0.0f, 0, 1);
+    writeQuadModel(right, 0.0f, 0, 1);
+    check(mlxr_model_load(&gpu, kTexDir, &m) == 0 && m && m->textured, "an MXFM 1 file still loads");
+    if (m) {
+        memset(&in, 0, sizeof(in));
+        in.v[MLXR_IN_TRIGGER] = 1;
+        check(mlxr_model_pose(m, 0, &in, parts, MLXR_MODEL_COMPONENTS_MAX) == 2, "and poses");
+        mlxr_model_unload(&gpu, m);
+    }
+
+    // The real models
+    char rl[700], rr[700];
+    if (frameModelsDir) {
+        snprintf(rl, sizeof(rl), "%s/frame_controller_left.model", frameModelsDir);
+        snprintf(rr, sizeof(rr), "%s/frame_controller_right.model", frameModelsDir);
+    }
+    if (!frameModelsDir || access(rl, R_OK) != 0 || access(rr, R_OK) != 0) {
+        note("pose         no converted Steam Frame models here (no SteamVR?): the real ones were not posed");
+        return;
+    }
+    char cmd[2400];
+    stageModels();
+    snprintf(cmd, sizeof(cmd), "cp '%s' '%s' '%s/models/'", rl, rr, kTexDir);
+    check(system(cmd) == 0, "stage the real models");
+    check(mlxr_model_load(&gpu, kTexDir, &m) == 0 && m && m->textured, "load the real pair");
+    if (!m) return;
+    static const struct { const char* name; int slot; int hands; } kMoving[] = {
+        {"trigger", MLXR_IN_TRIGGER, 3}, {"button_grip", MLXR_IN_GRIP, 3}, {"bumper", MLXR_IN_BUMPER, 3},
+        {"thumbstick", MLXR_IN_STICK_X, 3}, {"button_a", MLXR_IN_A, 2}, {"button_b", MLXR_IN_B, 2},
+        {"button_x", MLXR_IN_X, 2}, {"button_y", MLXR_IN_Y, 2}, {"button_menu", MLXR_IN_MENU, 2},
+        {"button_view", MLXR_IN_VIEW, 1}, {"dpad", MLXR_IN_DPAD_UP, 1}, {"button_system", MLXR_IN_SYSTEM, 3},
+    };
+    for (size_t k = 0; k < sizeof(kMoving) / sizeof(kMoving[0]); k++) {
+        for (int h = 0; h < 2; h++) {
+            if (!(kMoving[k].hands & (1 << h))) continue;
+            int c = findPart(m, h, kMoving[k].name);
+            check(c >= 0 && m->components[h][c].motionType != MLXR_MOTION_NONE && m->components[h][c].input >= 0,
+                  "%s hand: %s has a motion and a control", h ? "right" : "left", kMoving[k].name);
+            if (c < 0) continue;
+            MlxrModelInput rest, pressed;
+            memset(&rest, 0, sizeof(rest));
+            memset(&pressed, 0, sizeof(pressed));
+            pressed.v[kMoving[k].slot] = 1;
+            if (kMoving[k].slot == MLXR_IN_STICK_X) pressed.v[MLXR_IN_STICK_X] = 1;
+            MlxrModelPart pr[MLXR_MODEL_COMPONENTS_MAX], pp[MLXR_MODEL_COMPONENTS_MAX];
+            uint32_t n = mlxr_model_pose(m, h, &rest, pr, MLXR_MODEL_COMPONENTS_MAX);
+            mlxr_model_pose(m, h, &pressed, pp, MLXR_MODEL_COMPONENTS_MAX);
+            // parts are in component order with zero-sized ones skipped: find by range
+            int moved = 0;
+            for (uint32_t i = 0; i < n; i++) {
+                if (pr[i].firstIndex != m->components[h][c].firstIndex) continue;
+                for (int e = 0; e < 16; e++) if (fabsf(pr[i].transform[e] - pp[i].transform[e]) > 1e-6f) moved = 1;
+            }
+            check(moved, "%s hand: %s moves when its control does", h ? "right" : "left", kMoving[k].name);
+            if (kMoving[k].slot == MLXR_IN_SYSTEM) {
+                // nothing sets it in the client (reserved by the runtime): the model's button stays up
+                check(1, "(the system button moves only if a runtime gives the app its value)");
+            }
+        }
+    }
+    // Directions on the real thumbstick, in grip space: right leans to +x, forward to -z, a click sinks it
+    for (int h = 0; h < 2; h++) {
+        int c = findPart(m, h, "thumbstick");
+        if (c < 0) continue;
+        const float* mo = m->components[h][c].motion;
+        float top[3] = {mo[MLXR_MOTION_ORIGIN] + mo[MLXR_MOTION_FRAME + 3] * 0.01f,
+                        mo[MLXR_MOTION_ORIGIN + 1] + mo[MLXR_MOTION_FRAME + 4] * 0.01f,
+                        mo[MLXR_MOTION_ORIGIN + 2] + mo[MLXR_MOTION_FRAME + 5] * 0.01f};
+        memset(&in, 0, sizeof(in));
+        MlxrModelPart pt[MLXR_MODEL_COMPONENTS_MAX];
+        in.v[MLXR_IN_STICK_X] = 1;
+        uint32_t n = mlxr_model_pose(m, h, &in, pt, MLXR_MODEL_COMPONENTS_MAX);
+        const MlxrModelPart* sp = NULL;
+        for (uint32_t i = 0; i < n; i++) if (pt[i].firstIndex == m->components[h][c].firstIndex) sp = &pt[i];
+        float o2[3] = {0};
+        if (sp) movePoint(sp, top, o2);
+        check(sp && o2[0] - top[0] > 0.002f && fabsf(o2[2] - top[2]) < 0.002f, "%s thumbstick right moves its top to +x (%.4f)",
+              h ? "right" : "left", o2[0] - top[0]);
+        in.v[MLXR_IN_STICK_X] = 0;
+        in.v[MLXR_IN_STICK_Y] = 1;
+        n = mlxr_model_pose(m, h, &in, pt, MLXR_MODEL_COMPONENTS_MAX);
+        sp = NULL;
+        for (uint32_t i = 0; i < n; i++) if (pt[i].firstIndex == m->components[h][c].firstIndex) sp = &pt[i];
+        if (sp) movePoint(sp, top, o2);
+        check(sp && o2[2] - top[2] < -0.002f, "%s thumbstick forward moves its top to -z (%.4f)", h ? "right" : "left",
+              o2[2] - top[2]);
+    }
+    // Rendered with the trigger pulled, the stick tilted and every button down: the picture differs from rest
+    Frame fr, fp;
+    ModelPose rest;
+    memset(&rest, 0, sizeof(rest));
+    Vec3 up = {0, 1, 0}, ax = {1, 0, 0};
+    for (int h = 0; h < 2; h++) {
+        XrQuaternionf yaw = axisAngleQuat(up, h ? -0.6f : 0.6f);
+        rest.grip[h].orientation = quatMul(yaw, axisAngleQuat(ax, 0.6f));
+        rest.grip[h].position = (XrVector3f){h ? 0.06f : -0.06f, -0.03f, -0.16f};
+        rest.shown[h] = 1;
+    }
+    rest.animate = 1;
+    ModelPose down = rest;
+    for (int h = 0; h < 2; h++) {
+        for (int k = 0; k < MLXR_IN_COUNT; k++) down.input[h].v[k] = 1.0f;
+        down.input[h].v[MLXR_IN_STICK_X] = 0.8f;
+        down.input[h].v[MLXR_IN_STICK_Y] = -0.6f;
+    }
+    check(renderModelsAt(m, 512, 512, &rest, &fr) == 0 && renderModelsAt(m, 512, 512, &down, &fp) == 0, "render rest and pressed");
+    size_t px = (size_t)512 * 2 * 512, diff = 0, covered = 0;
+    for (size_t i = 0; i < px; i++) {
+        covered += fr.rgba[i * 4 + 3] > 0;
+        int dd = 0;
+        for (int c = 0; c < 3; c++) dd += abs((int)fr.rgba[i * 4 + c] - (int)fp.rgba[i * 4 + c]);
+        diff += dd > 12;
+    }
+    note("pose         rendered pressed vs rest: %zu pixels differ of %zu covered", diff, covered);
+    check(covered > 20000 && diff > 300 && diff < covered / 2, "pressing changes the picture a little, not the whole model");
+    uint8_t* comp = malloc(px * 4);
+    compositeOver(fr.rgba, NULL, comp, px);
+    writePng("model_pose_rest", comp, 1024, 512);
+    compositeOver(fp.rgba, NULL, comp, px);
+    writePng("model_pose_pressed", comp, 1024, 512);
+    free(comp);
+    frameFree(&fr);
+    frameFree(&fp);
+    mlxr_model_unload(&gpu, m);
+}
+
 // What loads when the files are missing or broken: the textured pair first,
 // then the painted pair, then the generic controller
 static void testModelFallback(void) {
@@ -1459,13 +1769,13 @@ static void testModelFallback(void) {
         {"one textured half, the painted pair", 1, 0, 1, 1, 1},
         {"one textured half", 0, 1, 0, 1, 0},
         {"a textured half cut short", 1, 2, 0, 1, 0},
-        {"a textured half of another version, the painted pair", 3, 1, 1, 1, 1},
+        {"a textured half of an unknown version, the painted pair", 3, 1, 1, 1, 1},
         {"a textured half cut short, nothing else", 2, 1, 0, 0, -1},
     };
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         stageModels();
-        if (cases[i].left) writeQuadModel(tl, 0.0f, cases[i].left == 2, cases[i].left == 3 ? 2 : 1);
-        if (cases[i].right) writeQuadModel(tr, 0.0f, cases[i].right == 2, cases[i].right == 3 ? 2 : 1);
+        if (cases[i].left) writeQuadModel(tl, 0.0f, cases[i].left == 2, cases[i].left == 3 ? 3 : 1);
+        if (cases[i].right) writeQuadModel(tr, 0.0f, cases[i].right == 2, cases[i].right == 3 ? 3 : 1);
         if (cases[i].painted) {
             writeTriRoom(pl);
             writeTriRoom(pr);
@@ -1537,6 +1847,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(group, "model")) { testModel(); did = 1; }
     if (all || !strcmp(group, "overlay")) { testOverlay(); did = 1; }
     if (all || !strcmp(group, "model_textured")) { testModelTextured(); did = 1; }
+    if (all || !strcmp(group, "model_pose")) { testModelPose(); did = 1; }
     if (all || !strcmp(group, "model_fallback")) { testModelFallback(); did = 1; }
     if (!did) {
         fprintf(stderr, "unknown group %s\n", group);

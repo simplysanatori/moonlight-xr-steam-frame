@@ -88,6 +88,73 @@ static int locateModelViews(XrCtx* ctx) {
     return 1;
 }
 
+// Native: one control's current value, for the model to follow. Read-only: the
+// pointer, pad and shortcuts in xr_input.c read the same actions their own way.
+static float modelActionFloat(XrCtx* ctx, XrAction action, int h) {
+    if (action == XR_NULL_HANDLE) {
+        return 0.0f;
+    }
+    XrActionStateGetInfo get = { XR_TYPE_ACTION_STATE_GET_INFO };
+    get.action = action;
+    get.subactionPath = ctx->handPaths[h];
+    XrActionStateFloat state = { XR_TYPE_ACTION_STATE_FLOAT };
+    if (XR_FAILED(xrGetActionStateFloat(ctx->session, &get, &state)) || !state.isActive) {
+        return 0.0f;
+    }
+    return state.currentState;
+}
+
+static float modelActionBool(XrCtx* ctx, XrAction action, int h) {
+    if (action == XR_NULL_HANDLE) {
+        return 0.0f;
+    }
+    XrActionStateGetInfo get = { XR_TYPE_ACTION_STATE_GET_INFO };
+    get.action = action;
+    get.subactionPath = ctx->handPaths[h];
+    XrActionStateBoolean state = { XR_TYPE_ACTION_STATE_BOOLEAN };
+    if (XR_FAILED(xrGetActionStateBoolean(ctx->session, &get, &state)) || !state.isActive) {
+        return 0.0f;
+    }
+    return state.currentState ? 1.0f : 0.0f;
+}
+
+// Native: the controls of one hand, by what the Frame's bindings (xr_input.c
+// suggestFrameBindings) put on each action: right A/B on the right/middle
+// click actions, X, Y, Menu on their pad actions; left d-pad down/right on
+// the same two clicks, up/left on the pad ones, View on the menu action.
+_Static_assert(sizeof(MlxrModelInput) <= sizeof(((XrCtx*)0)->modelInput[0]), "XrCtx.modelInput is too small");
+
+static void readModelInput(XrCtx* ctx, int h, MlxrModelInput* in) {
+    memset(in, 0, sizeof(*in));
+    in->v[MLXR_IN_TRIGGER] = modelActionFloat(ctx, ctx->triggerAction, h);
+    in->v[MLXR_IN_GRIP] = modelActionFloat(ctx, ctx->grabAction, h);
+    XrActionStateGetInfo get = { XR_TYPE_ACTION_STATE_GET_INFO };
+    get.action = ctx->scrollAction;
+    get.subactionPath = ctx->handPaths[h];
+    XrActionStateVector2f stick = { XR_TYPE_ACTION_STATE_VECTOR2F };
+    if (ctx->scrollAction != XR_NULL_HANDLE && XR_SUCCEEDED(xrGetActionStateVector2f(ctx->session, &get, &stick))
+            && stick.isActive) {
+        in->v[MLXR_IN_STICK_X] = stick.currentState.x;
+        in->v[MLXR_IN_STICK_Y] = stick.currentState.y;
+    }
+    in->v[MLXR_IN_STICK_CLICK] = modelActionBool(ctx, ctx->toggleAction, h);
+    in->v[MLXR_IN_BUMPER] = modelActionBool(ctx, ctx->padBumperAction, h);
+    if (h == HAND_RIGHT) {
+        in->v[MLXR_IN_A] = modelActionBool(ctx, ctx->rightClickAction, h);
+        in->v[MLXR_IN_B] = modelActionBool(ctx, ctx->middleClickAction, h);
+        in->v[MLXR_IN_X] = modelActionBool(ctx, ctx->padXAction, h);
+        in->v[MLXR_IN_Y] = modelActionBool(ctx, ctx->padYAction, h);
+        in->v[MLXR_IN_MENU] = modelActionBool(ctx, ctx->padStartAction, h);
+    }
+    else {
+        in->v[MLXR_IN_DPAD_DOWN] = modelActionBool(ctx, ctx->rightClickAction, h);
+        in->v[MLXR_IN_DPAD_RIGHT] = modelActionBool(ctx, ctx->middleClickAction, h);
+        in->v[MLXR_IN_DPAD_UP] = modelActionBool(ctx, ctx->padUpAction, h);
+        in->v[MLXR_IN_DPAD_LEFT] = modelActionBool(ctx, ctx->padLeftAction, h);
+        in->v[MLXR_IN_VIEW] = modelActionBool(ctx, ctx->menuAction, h);
+    }
+}
+
 // Where each hand's grip is this frame, and whether its model shows, read once
 // a frame at the time the frame is shown, the time the eyes are drawn from.
 // The input pass syncs the actions; where it returned before doing so, they
@@ -130,6 +197,11 @@ void updateControllerModels(XrCtx* ctx) {
                                         active, (unsigned)loc.locationFlags);
         if (shown[h]) {
             ctx->modelGrip[h] = loc.pose;
+            // Native: the controls the Frame's moving parts follow (the generic
+            // model has none: nothing reads them)
+            if (ctx->model && ctx->model->textured) {
+                readModelInput(ctx, h, (MlxrModelInput*)ctx->modelInput[h]);
+            }
         }
     }
 
@@ -206,6 +278,18 @@ static void modelRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkF
         if (ctx->modelShown[h]) {
             // Native: only the generic one is mirrored; the Frame's left is its own mesh
             controllerModelMatrix(ctx->modelGrip[h], h == HAND_LEFT && !ctx->model->perHand, mp.model[h]);
+        }
+    }
+    // Native: the textured Frame models' moving parts (a hand that is not shown
+    // draws nothing). Pass reads them while recording, so these live to its end.
+    MlxrModelPart parts[HAND_COUNT][MLXR_MODEL_COMPONENTS_MAX];
+    if (mp.textured && ctx->model) {
+        for (int h = 0; h < HAND_COUNT; h++) {
+            if (ctx->modelShown[h]) {
+                mp.handPartCount[h] = mlxr_model_pose(ctx->model, h, (const MlxrModelInput*)ctx->modelInput[h], parts[h],
+                                                      MLXR_MODEL_COMPONENTS_MAX);
+                mp.handParts[h] = parts[h];
+            }
         }
     }
     mp.depth = depth;

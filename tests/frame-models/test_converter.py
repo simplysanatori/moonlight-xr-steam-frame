@@ -52,7 +52,7 @@ def parse_model(path):
     d = open(path, 'rb').read()
     assert d[:4] == b'MXFM', 'magic'
     version, vc, ic, cc, tw, th, flags = struct.unpack_from('<7I', d, 4)
-    assert version == 1 and flags == 0, 'version'
+    assert version in (1, 2) and flags == 0, 'version'
     assert 0 < vc < 1 << 22 and 0 < ic <= 1 << 24 and ic % 3 == 0 and 0 < cc <= 32, 'counts'
     assert 0 < tw <= 8192 and 0 < th <= 8192, 'texture size'
     voff = 32 + cc * COMPONENT_BYTES
