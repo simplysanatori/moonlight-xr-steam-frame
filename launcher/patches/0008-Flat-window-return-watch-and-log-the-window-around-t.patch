@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Sun, 11 Oct 2026 06:38:18 -0400
+Subject: [PATCH] Flat window return: watch and log the window around the
+ hand-off, show it again in Game Mode
+
+---
+ app/streaming/session.cpp | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/app/streaming/session.cpp b/app/streaming/session.cpp
+index 4a9156f..581a25a 100644
+--- a/app/streaming/session.cpp
++++ b/app/streaming/session.cpp
+@@ -53,6 +53,7 @@
+ #include <QGuiApplication>
+ #include <QCursor>
+ #include <QWindow>
++#include <QPointer> // Moonlight XR Native (lane launcher-return)
+ #include <QScreen>
+ 
+ #define CONN_TEST_SERVER "qt.conntest.moonlight-stream.org"
+@@ -1700,6 +1701,9 @@ void Session::execVr(QWindow* qtWindow)
+ 
+     qInfo() << "Handing the stream of" << m_App.name << "on" << m_Computer->name << "to the native VR client";
+ 
++    // Moonlight XR Native (lane launcher-return): log what the flat window does from here on
++    MlxrHandoff::watchFlatWindow(qtWindow);
++
+     // Share the pairing (identity, PC, pinned certificate) with the VR client, then run it with
+     // this session's settings. The Qt window stays up, idle, until it exits.
+     QString error;
+@@ -1726,8 +1730,12 @@ void Session::execVr(QWindow* qtWindow)
+     // Tell the UI the stream is over after this call returns, as the SDL path does from its
+     // cleanup thread (the segue is torn down by these, so not from inside its own handler)
+     QMetaObject::invokeMethod(this, [this]() {
++        // Moonlight XR Native (lane launcher-return): the window outlives this session (deleted
++        // after readyForDeletion); once the stock handler has shown it, check that it comes back
++        QPointer<QWindow> window = m_QtWindow;
+         emit sessionFinished(0);
+         emit readyForDeletion();
++        MlxrHandoff::flatWindowReturn(window);
+     }, Qt::QueuedConnection);
+ }
+ 

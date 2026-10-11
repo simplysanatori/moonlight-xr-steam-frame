@@ -305,7 +305,7 @@ On the Frame controllers, Start is the right menu button, Select is the left Vie
 | Crackling sound | The stats line `audio ... underruns, ... lost` counts gaps. Lost packets are the network. On the adapter link, lower the bitrate. |
 | Which link is in use | `moonlight.log` has `network path: using Wi-Fi (...)` or the adapter, when the stream starts. The headset shows a notice when it falls back to the other link. |
 | Cannot reach the PC | `moonlight.log` has `host ... not reachable at ...` for each address tried. Check the PC is on and Sunshine or Apollo is running. |
-| The flat window does not come back after a stream | Open the app again from the Steam library. `moonlight-launcher.log` shows `Asked Steam to show the flat screen again`. |
+| The flat window does not come back after a stream | Open the app again from the Steam library. `moonlight-launcher.log` shows `Asked Steam to show the flat screen again` and the `flat window` lines (what the window did after the stream). |
 | Grey icon in the SteamVR dock | Restart Steam once after the first install. |
 | 3D tab greyed | The tab says why. If the depth model did not load, the log has the error. |
 | The stream did not start | The flat window shows the client's error. `moonlight-console.log` has the details. |

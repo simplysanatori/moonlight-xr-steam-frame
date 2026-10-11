@@ -15,6 +15,7 @@
 #include <functional>
 
 class QQmlApplicationEngine;
+class QWindow;
 class NvComputer;
 class NvApp;
 class StreamingPreferences;
@@ -55,6 +56,20 @@ bool exportPairing(const NvComputer& computer, QString* error);
 // client prints "MLXR_STREAMING" (the headset shows the picture; at once in a dry run)
 Result run(const Plan& plan, const std::function<void()>& onStarted,
            const std::function<void()>& onStreaming = nullptr);
+
+// Moonlight XR Native (lane launcher-return): the flat window around a hand-off.
+// watchFlatWindow() is called for each hand-off. The first call starts the watch: from then on
+// the window's visibility, exposure, activation, platform surface and the first frame after each
+// show are logged ("flat window ..." Qt Info lines). Later calls cancel what a previous return
+// still had pending, so it never touches the new stream.
+// flatWindowReturn() is called right after sessionFinished(), once the stock handler has shown the
+// window again. It waits until the window is exposed and has drawn a frame and logs how long that
+// took. In Game Mode (gamescope) it hides and shows the window again if that has not happened
+// after 1 s, once more 2 s later, and asks Steam for the flat screen again once the window drew.
+// On a desktop it only logs. MLXR_LAUNCHER_TEST_RETURN_MISS=N (tests): the first N checks count
+// as missed and the Game Mode steps run anywhere.
+void watchFlatWindow(QWindow* window);
+void flatWindowReturn(QWindow* window);
 
 // Copies Moonlight Qt's config into this launcher's on its first run (no-op later).
 // Call after the application and organization names are set, before any QSettings use.

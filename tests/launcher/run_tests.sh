@@ -215,9 +215,10 @@ cat >"$fake" <<'FAKE'
 echo "args: $*" >> "$FAKE_LOG"
 echo "cwd: $(pwd)" >> "$FAKE_LOG"
 echo "ld_library_path: [${LD_LIBRARY_PATH-unset}]" >> "$FAKE_LOG"
+[ "${FAKE_MODE:-}" = stream ] && echo MLXR_STREAMING
 sleep "${FAKE_SLEEP:-0.5}"
 case "${FAKE_MODE:-ok}" in
-  ok) exit 0;;
+  ok|stream) exit 0;;
   err) echo "some log line"; echo "MLXR_ERROR: The host is on fire" >&2; exit 6;;
   silent) exit 3;;
   disc) exit 11;;
@@ -295,6 +296,32 @@ if [ -n "$SHOTS" ]; then
     [ $rc = 0 ] && ok "segue demo ran (client started, failed, UI came back)" || fail "segue demo exit $rc"
     grep -E "$QMLERR" "$t/ui2.out" && fail "segue QML errors" || ok "no QML errors in the segue"
     grep -q "The VR client exited with 6" "$t/ui2.out" && ok "client failure seen by the UI" || fail "no exit seen: $(tail -5 "$t/ui2.out")"
+    # lane launcher-return: the window is hidden for the stream (MLXR_STREAMING), shown after it,
+    # and the log says when it was exposed and drawn again
+    FAKE_SLEEP=1 FAKE_MODE=stream MLXR_LAUNCHER_HIDE_WINDOW=1 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_DEMO="gaming-pc:Desktop" \
+      MLXR_LAUNCHER_SCREENSHOT="$SHOTS/returned.png@6000" "$L" >"$t/ui7.out" 2>&1; rc=$?
+    [ $rc = 0 ] && ok "return demo ran" || fail "return demo exit $rc"
+    grep -E "$QMLERR" "$t/ui7.out" && fail "return demo QML errors"
+    r="$(grep -E "flat window|VR client exited" "$t/ui7.out")"
+    echo "$r" | sed 's/^/    /'
+    expect "watch starts with the hand-off" "$r" "flat window watched from the hand-off on: visible true"
+    expect "hidden for the stream" "$r" "flat window hidden: visible false"
+    expect "shown after the stream" "$r" "flat window shown: visible true"
+    echo "$r" | grep -Eq "flat window exposed after [0-9]+ ms and drawn$" && ok "exposed and drawn after the stream" || fail "no 'exposed after' line"
+    refute "no re-show when it came back" "$r" "showing it again"
+    refute "not hidden after the stream" "$r" "hidden again"
+    order="$(echo "$r" | grep -n "flat window hidden:\|VR client exited with 0\|flat window shown:\|exposed after" | cut -d: -f2- | sed 's/ - Qt Info//' | tr '\n' '|')"
+    case "$order" in *"flat window hidden:"*"VR client exited with 0"*"flat window shown:"*"exposed after"*) ok "hide, exit, show, exposed: in that order";; *) fail "order: $order";; esac
+    # a window that does not come back (test hook: the first two checks miss): shown again twice
+    FAKE_SLEEP=1 FAKE_MODE=stream MLXR_LAUNCHER_HIDE_WINDOW=1 MLXR_LAUNCHER_TEST_RETURN_MISS=2 MLXR_NATIVE_CLIENT="$fake" \
+      MLXR_LAUNCHER_DEMO="gaming-pc:Desktop" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/returned-again.png@8000" "$L" >"$t/ui8.out" 2>&1; rc=$?
+    [ $rc = 0 ] && ok "missed-return demo ran" || fail "missed-return demo exit $rc"
+    r="$(grep -E "flat window|VR client exited" "$t/ui8.out")"
+    echo "$r" | sed 's/^/    /'
+    [ "$(echo "$r" | grep -c "flat window not exposed, showing it again")" = 2 ] && ok "shown again twice (1 s, then 2 s later)" || fail "re-show count"
+    expect "re-show hides first" "$r" "flat window hidden to show it again"
+    echo "$r" | grep -Eq "flat window exposed after [0-9]+ ms and drawn \(shown again 2 time\(s\)\)" && ok "back after the second re-show" || fail "no 'exposed after ... shown again 2' line"
+    refute "re-show is not reported as a hide after the stream" "$r" "hidden again"
 fi
 echo "failures: $fails"
 [ $fails = 0 ]

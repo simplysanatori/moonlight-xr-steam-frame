@@ -9,20 +9,24 @@
 #include "streaming/session.h"
 #include "streaming/uihooks.h"
 #include "streaming/mlxrprefs.h"
+#include "backend/computermanager.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
 #include <QJSValue>
+#include <QPlatformSurfaceEvent>
 #include <QProcess>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
+#include <QQmlEngine>
 #include <QQuickWindow>
 #include <QTimer>
 #include <QProcessEnvironment>
@@ -448,32 +452,288 @@ static QString lastErrorLine(const QByteArray& tail)
 // in its dashboard, and closes the dashboard when the VR client's session starts; nothing opens
 // it again when the client exits, so the headset would show nothing. Ask Steam to put the flat
 // screen back up (Steam's own call, through its local debugging port, steam_cef.py).
-static void reopenFlatScreen()
+static bool inGameMode()
+{
+    return qEnvironmentVariable("XDG_CURRENT_DESKTOP") == "gamescope";
+}
+
+// Moonlight XR Native (lane launcher-return): one request, logged with `when`; also used by the
+// flat window watch below once the window has drawn again
+static void askSteamForFlatScreen(const QString& when)
 {
     const QString appId = qEnvironmentVariable("SteamAppId");
     const QString cef = QCoreApplication::applicationDirPath() + "/steam_cef.py";
-    if (qEnvironmentVariable("XDG_CURRENT_DESKTOP") != "gamescope" || appId.isEmpty() || !QFileInfo::exists(cef)) {
+    if (!inGameMode() || appId.isEmpty() || !QFileInfo::exists(cef)) {
         return;
     }
+    const QString js = QString("SteamClient.OpenVR.VROverlay.ShowDashboard('valve.steam.desktopgame.%1')").arg(appId);
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.remove("LD_LIBRARY_PATH");
+    QProcess* p = new QProcess(qApp);
+    p->setProcessEnvironment(env);
+    QObject::connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), p,
+                     [p, when](int code, QProcess::ExitStatus) {
+        qInfo().noquote() << "Asked Steam to show the flat screen again" << when + ":"
+                          << (code == 0 ? "done" : "failed") << p->readAll().trimmed();
+        p->deleteLater();
+    });
+    p->setProcessChannelMode(QProcess::MergedChannels);
+    p->start("python3", { "-I", cef, js });
+}
+
+static void reopenFlatScreen()
+{
     // Asked right away the dashboard opens before this window is back up and SteamVR shows
     // nothing in it; so again once the window has been shown and drawn (StreamSegue shows it as
-    // soon as this returns)
-    const QString js = QString("SteamClient.OpenVR.VROverlay.ShowDashboard('valve.steam.desktopgame.%1')").arg(appId);
+    // soon as this returns; the flat window watch asks once more after its first frame)
     for (int ms : { 0, 1000, 2500 }) {
-        QTimer::singleShot(ms, qApp, [cef, js, ms]() {
-            QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-            env.remove("LD_LIBRARY_PATH");
-            QProcess* p = new QProcess(qApp);
-            p->setProcessEnvironment(env);
-            QObject::connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), p,
-                             [p, ms](int code, QProcess::ExitStatus) {
-                qInfo().noquote() << "Asked Steam to show the flat screen again after" << ms << "ms:"
-                                  << (code == 0 ? "done" : "failed") << p->readAll().trimmed();
-                p->deleteLater();
-            });
-            p->setProcessChannelMode(QProcess::MergedChannels);
-            p->start("python3", { "-I", cef, js });
+        QTimer::singleShot(ms, qApp, [ms]() {
+            askSteamForFlatScreen(QString("after %1 ms").arg(ms));
         });
+    }
+}
+
+// ---- Lane launcher-return: the flat window around a hand-off ------------------------
+// Owner's run 2026-10-11: after the in-VR Exit the flat window did not come back, although the
+// stock handler ran and Steam was asked three times. Nothing in the old log said whether Qt had
+// the window shown, exposed and drawn. This watch logs that, and in Game Mode shows the window
+// again when it is not back (docs/dev/reports/launcher-return.md).
+class FlatWindowWatch : public QObject
+{
+public:
+    explicit FlatWindowWatch(QWindow* window)
+        : QObject(window), m_window(window)
+    {
+        setObjectName("mlxrFlatWindowWatch");
+        m_exposed = window->isExposed();
+        window->installEventFilter(this);
+        connect(window, &QWindow::visibleChanged, this, [this](bool visible) { onVisible(visible); });
+        connect(window, &QWindow::activeChanged, this, [this]() {
+            log(m_window->isActive() ? "flat window active (has the input focus)" : "flat window inactive");
+        });
+        if (QQuickWindow* q = qobject_cast<QQuickWindow*>(window)) {
+            connect(q, &QQuickWindow::frameSwapped, this, [this]() { onFrame(); });
+            connect(q, &QQuickWindow::sceneGraphInvalidated, this, [this]() { log("flat window scene graph released"); });
+        }
+        m_tick.setInterval(100);
+        connect(&m_tick, &QTimer::timeout, this, [this]() { onTick(); });
+        log("flat window watched from the hand-off on");
+    }
+
+    // A new hand-off: whatever a previous return still had pending must not touch this stream
+    void handOff()
+    {
+        m_return++;
+        m_returning = false;
+        m_tick.stop();
+    }
+
+    void startReturn()
+    {
+        m_return++;
+        m_returnClock.start();
+        m_framesSinceReturn = 0;
+        m_attempt = 0;
+        m_testMiss = qEnvironmentVariableIntValue("MLXR_LAUNCHER_TEST_RETURN_MISS");
+        if (!m_window->isVisible()) {
+            // quitAfter (the CLI's stream command): stock quits, or shows the error dialog, without showing it
+            m_returning = false;
+            log("flat window after the stream stays hidden (stock: the launcher quits after a CLI stream)");
+            return;
+        }
+        m_returning = true;
+        log("flat window after the stream");
+        m_tickClock.start();
+        m_tick.start();
+        const int token = m_return;
+        QTimer::singleShot(1000, this, [this, token]() { deadline(token, 1); });
+        QTimer::singleShot(3000, this, [this, token]() { deadline(token, 2); });
+        QTimer::singleShot(6000, this, [this, token]() { deadline(token, 3); });
+        check();
+    }
+
+protected:
+    bool eventFilter(QObject* o, QEvent* e) override
+    {
+        if (o == m_window) {
+            if (e->type() == QEvent::Expose) {
+                // QGuiApplication has set isExposed() before it delivers the event
+                const bool exposed = m_window->isExposed();
+                if (exposed != m_exposed) {
+                    m_exposed = exposed;
+                    log(exposed ? "flat window exposed" : "flat window no longer exposed");
+                    check();
+                }
+            }
+            else if (e->type() == QEvent::PlatformSurface) {
+                const auto t = static_cast<QPlatformSurfaceEvent*>(e)->surfaceEventType();
+                log(t == QPlatformSurfaceEvent::SurfaceCreated ? "flat window platform surface created"
+                                                               : "flat window platform surface about to be destroyed");
+            }
+        }
+        return false;
+    }
+
+private:
+    QString state() const
+    {
+        QString s;
+        QDebug(&s).nospace() << "visible " << m_window->isVisible() << ", exposed " << m_window->isExposed()
+                             << ", active " << m_window->isActive() << ", " << m_window->visibility();
+        return s;
+    }
+
+    // "<what>: visible true, exposed false, active false, QWindow::FullScreen"
+    void log(const QString& what) const
+    {
+        qInfo().noquote() << what + ": " + state();
+    }
+
+    qint64 sinceReturn() const
+    {
+        return m_returnClock.isValid() ? m_returnClock.elapsed() : -1;
+    }
+
+    void onVisible(bool visible)
+    {
+        if (visible) {
+            m_shownClock.start();
+            m_framesSinceShow = 0;
+            log("flat window shown");
+        }
+        else if (m_reshowing) {
+            log("flat window hidden to show it again");
+        }
+        else if (m_returning) {
+            // Nothing in the launcher hides it after the stream; if this shows up, something did
+            log(QString("flat window hidden again %1 ms after the stream").arg(sinceReturn()));
+        }
+        else {
+            log("flat window hidden");
+        }
+    }
+
+    void onFrame()
+    {
+        if (m_framesSinceShow++ == 0 && m_shownClock.isValid()) {
+            qInfo().noquote() << QString("flat window drew its first frame %1 ms after it was shown").arg(m_shownClock.elapsed());
+        }
+        m_framesSinceReturn++;
+        check();
+    }
+
+    // Back = shown, exposed and drawn since the return (or since the last re-show)
+    void check()
+    {
+        if (!m_returning || m_testMiss > 0 || !m_window->isVisible() || !m_window->isExposed() || m_framesSinceReturn == 0) {
+            return;
+        }
+        m_returning = false;
+        qInfo().noquote() << QString("flat window exposed after %1 ms and drawn%2").arg(sinceReturn())
+                             .arg(m_attempt ? QString(" (shown again %1 time(s))").arg(m_attempt) : QString());
+        // The three timed requests may all come before the window is back up; one more now that it is
+        askSteamForFlatScreen("once the window had drawn");
+    }
+
+    void deadline(int token, int step)
+    {
+        if (token != m_return || !m_returning) {
+            return;
+        }
+        const bool testing = m_testMiss > 0;
+        if (testing) {
+            m_testMiss--;
+        }
+        if (step == 3) {
+            m_returning = false;
+            log(QString("flat window still not exposed and drawn %1 ms after the stream (%2 frames); nothing more to try")
+                    .arg(sinceReturn()).arg(m_framesSinceReturn));
+            return;
+        }
+        if (!inGameMode() && !qEnvironmentVariableIsSet("MLXR_LAUNCHER_TEST_RETURN_MISS")) {
+            // On a desktop the window manager owns this; stock does nothing more either
+            log(QString("flat window not exposed and drawn after %1 ms (%2 frames); not in Game Mode, left to the window manager")
+                    .arg(sinceReturn()).arg(m_framesSinceReturn));
+            return;
+        }
+        m_attempt++;
+        log(QString("flat window not exposed, showing it again (%1 ms after the stream, %2 frames%3)")
+                .arg(sinceReturn()).arg(m_framesSinceReturn).arg(testing ? ", test miss" : ""));
+        reshow();
+    }
+
+    void reshow()
+    {
+        m_framesSinceReturn = 0;
+        m_reshowing = true;
+        m_window->setVisible(false);
+        m_reshowing = false;
+        m_window->setVisible(true);
+        m_window->raise();
+        m_window->requestActivate();
+        // main.qml stops polling on the hide and starts it on the show only when active; the
+        // app grid must refresh either way (as patch 0003 does after the stream)
+        if (!m_window->property("pollingActive").toBool()) {
+            if (QQmlEngine* engine = qmlEngine(m_window)) {
+                if (ComputerManager* cm = engine->singletonInstance<ComputerManager*>("ComputerManager", "ComputerManager")) {
+                    cm->startPolling();
+                    m_window->setProperty("pollingActive", true);
+                }
+            }
+        }
+        check();
+    }
+
+    // A UI thread blocked (in a frame swap, say) draws nothing and runs no timers: the gap shows here
+    void onTick()
+    {
+        const qint64 gap = m_tickClock.restart();
+        if (gap > 1000) {
+            qInfo().noquote() << QString("flat window: the UI thread did not run for %1 ms (%2 ms after the stream)").arg(gap).arg(sinceReturn());
+        }
+        if (sinceReturn() > 10000) {
+            m_tick.stop();
+        }
+    }
+
+    QWindow* m_window;
+    bool m_exposed = false;
+    bool m_returning = false;
+    bool m_reshowing = false;
+    int m_return = 0;
+    int m_attempt = 0;
+    int m_testMiss = 0;
+    int m_framesSinceShow = 0;
+    int m_framesSinceReturn = 0;
+    QElapsedTimer m_shownClock;
+    QElapsedTimer m_returnClock;
+    QElapsedTimer m_tickClock;
+    QTimer m_tick;
+};
+
+static FlatWindowWatch* flatWindowWatchOf(QWindow* window)
+{
+    // (no Q_OBJECT here, so findChild<FlatWindowWatch*> is not available)
+    QObject* o = window ? window->findChild<QObject*>("mlxrFlatWindowWatch", Qt::FindDirectChildrenOnly) : nullptr;
+    return dynamic_cast<FlatWindowWatch*>(o);
+}
+
+void watchFlatWindow(QWindow* window)
+{
+    if (!window) {
+        return;
+    }
+    FlatWindowWatch* w = flatWindowWatchOf(window);
+    if (!w) {
+        w = new FlatWindowWatch(window);
+    }
+    w->handOff();
+}
+
+void flatWindowReturn(QWindow* window)
+{
+    if (FlatWindowWatch* w = flatWindowWatchOf(window)) {
+        w->startReturn();
     }
 }
 
