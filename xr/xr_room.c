@@ -27,7 +27,6 @@
 //   - the debug properties are environment variables (MLXR_ROOM,
 //     MLXR_ROOM_SCALE, MLXR_ROOM_DIM; xr_prefs.c).
 #include "xr_world.h"
-#include "xr_native.h"
 
 void xrWorldQueueUpload(XrCtx* ctx, VkCommandPool pool, VkCommandBuffer cmd, MlxrRoom* room, MlxrModel* model);
 void xrWorldRetireRoom(XrCtx* ctx, MlxrRoom* room, uint64_t lastUse);
@@ -526,85 +525,12 @@ static int initRoom(XrCtx* ctx) {
     return 1;
 }
 
-// ---- native: the room-judder A/B test ------------------------------------------------
-// Off unless MLXR_ROOM_AB=1 or the file ~/Games/MoonlightXRNative/room-ab
-// exists (so a run started from Steam can have it). While a room is up it
-// steps through ROOM_AB_MODES ways of handing the room to SteamVR, one every
-// ROOM_AB_SPAN_NS, each announced on the toast and in the log, so a single
-// headset run tells which one tracks the head:
-//   A as before; B drawn for one display period later than xrWaitFrame's
-//   predicted time and C one period earlier (both still submitted with the
-//   poses they were drawn from: if SteamVR honours the layer's poses, B and C
-//   look like A; if it reprojects from a pose of its own, one of them is
-//   steadier); D the picture's own projection layer withheld (the void has
-//   one projection layer, a room with the 3D picture two); E the room's
-//   layer alpha blended, as the void's picture layer is.
-#define ROOM_AB_MODES 5
-#define ROOM_AB_SPAN_NS 10000000000LL
-static int g_abOn = -1;
-static int g_abMode;
-static int64_t g_abSince, g_abLast;
-
-static int roomAbEnabled(void) {
-    if (g_abOn < 0) {
-        const char* e = getenv("MLXR_ROOM_AB");
-        if (e != NULL && *e) {
-            g_abOn = atoi(e) != 0;
-        }
-        else {
-            const char* home = getenv("HOME");
-            char path[512];
-            snprintf(path, sizeof(path), "%s/Games/MoonlightXRNative/room-ab", home ? home : "");
-            g_abOn = access(path, F_OK) == 0;
-        }
-        if (g_abOn) {
-            LOGEV("room A/B test on: modes A-E, %lld s each, while a room is up", ROOM_AB_SPAN_NS / 1000000000LL);
-        }
-    }
-    return g_abOn;
-}
-
-int xrRoomAbMode(void) {
-    return g_abOn > 0 ? g_abMode : ROOM_AB_AS_BEFORE;
-}
-
-static void roomAbStep(XrCtx* ctx) {
-    if (!roomAbEnabled()) {
-        return;
-    }
-    static const char* const names[ROOM_AB_MODES] = {
-        "as before", "drawn 1 frame ahead", "drawn 1 frame behind", "picture layer hidden", "room layer blended"};
-    int64_t now = nowNs();
-    // A room just put up (or back) starts again at A
-    if (g_abLast == 0 || now - g_abLast > 1000000000LL) {
-        g_abSince = 0;
-    }
-    g_abLast = now;
-    if (g_abSince != 0 && now - g_abSince < ROOM_AB_SPAN_NS) {
-        return;
-    }
-    g_abMode = g_abSince == 0 ? 0 : (g_abMode + 1) % ROOM_AB_MODES;
-    g_abSince = now;
-    char text[96];
-    snprintf(text, sizeof(text), "Room test %c: %s", 'A' + g_abMode, names[g_abMode]);
-    LOGEV("room A/B: mode %c (%s)", 'A' + g_abMode, names[g_abMode]);
-    xrPanelsNotice(ctx, text);
-}
-
 // Where both eyes are this frame. Only the room needs this, so it is only
 // asked for while a room is on.
 static int locateRoomViews(XrCtx* ctx) {
     XrViewLocateInfo locateInfo = { XR_TYPE_VIEW_LOCATE_INFO };
     locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
     locateInfo.displayTime = ctx->predictedDisplayTime;
-    // Native: the A/B test's B and C
-    int ab = xrRoomAbMode();
-    if (ab == ROOM_AB_AHEAD) {
-        locateInfo.displayTime += ctx->displayPeriodNs;
-    }
-    else if (ab == ROOM_AB_BEHIND) {
-        locateInfo.displayTime -= ctx->displayPeriodNs;
-    }
     locateInfo.space = ctx->localSpace;
 
     XrViewState state = { XR_TYPE_VIEW_STATE };
@@ -730,7 +656,6 @@ void renderRoom(XrCtx* ctx) {
     if (!ctx->roomReady || ctx->frameCmd == VK_NULL_HANDLE || ctx->ambiTexture.view == VK_NULL_HANDLE) {
         return;
     }
-    roomAbStep(ctx);
     // A frame the eyes could not be located for keeps the image it already
     // has. The layer still goes up, with the poses that image was drawn from.
     if (!locateRoomViews(ctx)) {
@@ -753,6 +678,11 @@ void renderRoom(XrCtx* ctx) {
                      ctx->roomEyeHeight, ctx->roomViews);
     }
     xrGpuTimeEnd(ctx, GPU_ROOM);
+    // Native: the models in the room's own layer rather than a second one
+    if (ctx->modelsInRoom && depth != VK_NULL_HANDLE) {
+        xrModelRecordOver(ctx, cmd, ctx->roomImages[index].image, ctx->roomImageViews[index], VK_FORMAT_R8G8B8A8_SRGB,
+                          ctx->roomEyeWidth, ctx->roomEyeHeight, ctx->roomViews);
+    }
     ctx->roomAcquired = 1;
     if (!ctx->roomRendered) {
         LOGEV("room drawn for the first time (style %d built)", ctx->roomBuiltStyle);
@@ -761,6 +691,34 @@ void renderRoom(XrCtx* ctx) {
     if (ctx->roomLoader != NULL) {
         ctx->roomLoader->lastUse = ctx->gpuSerial;
     }
+}
+
+// Native: the room drawn as the background of another projection layer's
+// image (the picture's, xrWorldPlanLayers), from that layer's views and at its
+// size, clearing it. Returns whether it drew.
+int xrRoomRecordInto(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat format, int eyeW, int eyeH,
+                     const XrView* views) {
+    if (!ctx->roomReady || cmd == VK_NULL_HANDLE || ctx->ambiTexture.view == VK_NULL_HANDLE) {
+        g_roomStale++;
+        return 0;
+    }
+    VkImageView depth = xrWorldDepth(ctx, eyeW * ROOM_EYES, eyeH);
+    if (depth == VK_NULL_HANDLE) {
+        g_roomStale++;
+        return 0;
+    }
+    xrGpuTimeBegin(ctx, GPU_ROOM);
+    xrRoomRecord(ctx, cmd, colour, format, depth, eyeW, eyeH, views);
+    xrGpuTimeEnd(ctx, GPU_ROOM);
+    g_roomDrawn++;
+    if (!ctx->roomRendered) {
+        LOGEV("room drawn for the first time (style %d built), in the picture's layer", ctx->roomBuiltStyle);
+    }
+    ctx->roomRendered = 1;
+    if (ctx->roomLoader != NULL) {
+        ctx->roomLoader->lastUse = ctx->gpuSerial;
+    }
+    return 1;
 }
 
 // One room's own values for the Room tab's rows, as its preferences keep them,

@@ -277,6 +277,10 @@ typedef struct MlxrModelParams {
     const MlxrModelPart* handParts[2];
     int debugView;              // 0 lit; 1 normals; 2 lit without the normal map; 3 base colour * AO
     float gain;                 // the base colour times this in linear light (0: 1)
+    // Native: draw over what the target holds rather than clearing it to
+    // nothing (the models in another layer's image: one projection layer a
+    // frame, xr_world.c xrWorldPlanLayers). The depth is cleared either way.
+    int over;
 } MlxrModelParams;
 void mlxr_pass_model(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrModelParams* m);
 

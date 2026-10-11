@@ -14,7 +14,7 @@ target_link_libraries(test_m5 PRIVATE m4_scene)
 target_include_directories(test_m5 PRIVATE ${M5_INCLUDES})
 target_compile_options(test_m5 PRIVATE -Werror)
 mlxr_link_openxr(test_m5)
-foreach(g room env budget click)
+foreach(g room env budget click one_layer)
   add_test(NAME m5_${g} COMMAND test_m5 ${g})
 endforeach()
 

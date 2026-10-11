@@ -543,6 +543,27 @@ static int curveSwapchain(XrCtx* ctx, XrCurve* cv, int64_t format) {
 static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuffer cmd, int64_t format,
                        XrSpace space, int eyeSwap) {
     if (!cv->valid || curveSwapchain(ctx, cv, format) != 0) return 0;
+    // Native: the room or the models drawn in here too (one projection layer a
+    // frame, xrWorldPlanLayers) are world locked, so the layer is drawn in the
+    // local space; a head locked picture is placed there from where the head
+    // is at the frame's time
+    int world = ctx->roomInPicture || ctx->modelsInPicture;
+    XrPosef picturePose = ctx->screenPose;
+    if (world && space != ctx->localSpace) {
+        XrSpaceLocation head = { XR_TYPE_SPACE_LOCATION };
+        XrSpaceLocationFlags both = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_POSITION_VALID_BIT;
+        if (XR_FAILED(xrLocateSpace(space, ctx->localSpace, ctx->predictedDisplayTime, &head))
+                || (head.locationFlags & both) != both) {
+            return 0;
+        }
+        Vec3 at = quatRotate(head.pose.orientation, (Vec3){ picturePose.position.x, picturePose.position.y,
+                                                             picturePose.position.z });
+        picturePose.orientation = quatNorm(quatMul(head.pose.orientation, picturePose.orientation));
+        picturePose.position.x = head.pose.position.x + at.x;
+        picturePose.position.y = head.pose.position.y + at.y;
+        picturePose.position.z = head.pose.position.z + at.z;
+        space = ctx->localSpace;
+    }
     XrViewLocateInfo li = { XR_TYPE_VIEW_LOCATE_INFO };
     li.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
     li.displayTime = ctx->predictedDisplayTime;
@@ -551,7 +572,8 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     XrView views[2] = { { XR_TYPE_VIEW }, { XR_TYPE_VIEW } };
     uint32_t n = 0;
     if (XR_FAILED(xrLocateViews(ctx->session, &li, &vs, 2, &n, views)) || n < 2
-            || !(vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT)) {
+            || !(vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT)
+            || (world && !(vs.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT))) {
         return 0;
     }
     uint32_t idx = 0;
@@ -573,6 +595,17 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     tg.format = (VkFormat)format;
     tg.rect.extent = (VkExtent2D){ (uint32_t)(cv->eyeW * 2), (uint32_t)cv->eyeH };
     tg.clear = 1; // transparent round the picture: the void or the room shows
+    // Native: the room first, as this layer's opaque background, and then the
+    // glow and the picture over it in the order their layers had
+    if (ctx->roomInPicture && xrRoomRecordInto(ctx, cmd, tg.view, tg.format, cv->eyeW, cv->eyeH, views)) {
+        mlxr_barrier(cmd, cv->images[idx].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        tg.clear = 0;
+    }
+    // The glow and the picture read the picture's pose off the context; a head
+    // locked one put in the local space above stands in for it while they draw
+    XrPosef heldPose = ctx->screenPose;
+    ctx->screenPose = picturePose;
     // M5: the glow round a curved picture, upstream's glow cylinder drawn
     // into this layer under the picture (no cylinder layers on SteamVR)
     if (xrWorldGlowShown(ctx)) {
@@ -624,8 +657,14 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     }
     mlxr_pass_panel(passes, cmd, &tg, &pp);
     xrGpuTimeEnd(ctx, GPU_CURVE);
+    ctx->screenPose = heldPose;
+    // Native: the models last, over the picture, as their own layer was
+    if (ctx->modelsInPicture) {
+        xrModelRecordOver(ctx, cmd, cv->images[idx].image, tg.view, tg.format, cv->eyeW, cv->eyeH, views);
+    }
     cv->layer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
-    cv->layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    // Opaque with the room behind the picture, as the room's own layer was
+    cv->layer.layerFlags = ctx->roomInPicture ? 0 : XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
     cv->layer.space = space;
     cv->layer.viewCount = 2;
     cv->layer.views = cv->eyes;
@@ -1915,11 +1954,16 @@ int xr_app_run(const XrAppConfig* cfg) {
         // room drawn only with new pictures would lag a moving head) and the
         // models (every display frame, as upstream)
         updateControllerModels(ctx);
+        // Native: one projection layer a frame; with the picture's up, the room
+        // and the models are drawn into it by curveRecord, and without it the
+        // models go into the room's (xrWorldPlanLayers)
+        xrWorldPlanLayers(ctx, curvedNow && fs.shouldRender && cmd && ctx->launcher == LAUNCHER_NONE
+                                       && ctx->videoShown);
         if (fs.shouldRender && cmd) {
-            if (roomEffective(ctx) > 0 && !ctx->passthrough) {
+            if (roomEffective(ctx) > 0 && !ctx->passthrough && !ctx->roomInPicture) {
                 renderRoom(ctx);
             }
-            if (ctx->everRendered) {
+            if (ctx->everRendered && !ctx->modelsInPicture && !ctx->modelsInRoom) {
                 renderControllerModels(ctx);
             }
         }
@@ -2006,9 +2050,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         fin.headLocked = cfg->settings->head_locked;
         fin.eyeSwap = cfg->settings->eye_swap;
         fin.passthrough = ctx->passthrough;
-        // Native: the room A/B test's D draws the picture's layer but withholds it
-        fin.curved = curveAcquired && !(roomEffective(ctx) > 0 && xrRoomAbMode() == ROOM_AB_NO_PICTURE_LAYER)
-                ? &curve.layer : NULL;
+        fin.curved = curveAcquired ? &curve.layer : NULL;
         if (ssNow && ss.filled && ss.w > 0) {
             fin.picture = ss.swapchain;
             fin.pictureW = ss.w;

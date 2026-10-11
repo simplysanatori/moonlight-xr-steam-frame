@@ -430,6 +430,29 @@ static void timingGroup(void) {
         printf("  room %-13s 2 x %dx%d, lit, ASTC atlas         %.3f ms\n", names[st], eyeW, eyeH, ms);
         CHECK(ms < 8.0);
     }
+    // Native: one projection layer a frame draws the room into the 3D
+    // picture's image, at the picture's eye size (2640 at the Frame's 90 Hz
+    // recommendation), so the room's own cost at that size
+    {
+        RoomShot big;
+        memset(&big, 0, sizeof(big));
+        big.eyeW = big.eyeH = 2640;
+        m5_image(&g, c, &big.colour, big.eyeW * 2, big.eyeH, VK_FORMAT_R8G8B8A8_SRGB,
+                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+        m5_image(&g, c, &big.depth, big.eyeW * 2, big.eyeH, VK_FORMAT_D32_SFLOAT,
+                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+        big.views[0] = m5_view(100.0f, big.eyeW, big.eyeH, -0.032f);
+        big.views[1] = m5_view(100.0f, big.eyeW, big.eyeH, 0.032f);
+        for (int st = ROOM_STYLE_FIRST; st <= ROOM_STYLE_LAST; st++) {
+            xrSetEnvironment(c, roomCellForStyle(st));
+            untilBuilt(c, st, NULL);
+            double ms = timePass(c, &t, drawRoomBody, &big);
+            printf("  room %-13s 2 x 2640x2640 (in the picture's layer) %.3f ms\n", names[st], ms);
+            CHECK(ms < 8.0);
+        }
+        m5_image_free(c, &big.colour);
+        m5_image_free(c, &big.depth);
+    }
     c->modelOn = 1;
     m5_frame(&g, c, NULL, NULL);
     c->modelShown[0] = c->modelShown[1] = 1;
