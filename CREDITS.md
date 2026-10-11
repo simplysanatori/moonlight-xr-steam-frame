@@ -1,8 +1,14 @@
 # Credits and licences
 
-Moonlight XR Native is licensed under the GNU General Public License v3 (`LICENSE.txt`).
+Moonlight XR for Frame is licensed under the GNU General Public License v3 (`LICENSE.txt`).
 
-Almost all of the XR side is Sean Gilleece's work. [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) is where the layout, comfort, depth, audio and interface modules come from; this project ports them from Java/GLES to C/Vulkan and replaces the Android parts (decoder, input, windowing). The viewing rooms and the controller model are his, shared under CC BY 4.0. The streaming protocol is [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c), and the way the client talks to Sunshine and Apollo follows [moonlight-qt](https://github.com/moonlight-stream/moonlight-qt). Thanks to the Moonlight, Sunshine and Apollo projects, Khronos, the LiteRT/TensorFlow Lite team, Fabio Tosi (ZipDepth), Intel ISL (MiDaS), and Bill Gardner and Keith Martin of the MIT Media Lab (KEMAR).
+Built by [simplysanatori](https://github.com/simplysanatori), who also made the Steam Frame fork of Moonlight XR that this client follows.
+
+It is based on [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) by Sean Gilleece (GPLv3). The layout, comfort, depth, audio and interface modules come from there; this project ports them from Java/GLES to C/Vulkan and replaces the Android parts (decoder, input, windowing). The viewing rooms and the controller model are his too (Copyright (c) 2026 Sean Gilleece / Woodford XR, CC BY 4.0), and so is the logo the app's icon and Steam art are made from.
+
+Moonlight XR is itself a fork of [Moonlight for Android](https://github.com/moonlight-stream/moonlight-android), and Moonlight is the work of the Moonlight Game Streaming Project ([moonlight-stream](https://github.com/moonlight-stream)): Cameron Gutman, Diego Waxemberg, Aaron Neyer, Andrew Hennessy and the other contributors. The streaming protocol is [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c), and the way the client talks to Sunshine and Apollo follows [moonlight-qt](https://github.com/moonlight-stream/moonlight-qt) by Cameron Gutman and contributors. The flat launcher is moonlight-qt 6.1.0 with a few patches.
+
+Thanks as well to the Sunshine and Apollo projects, Khronos, the LiteRT/TensorFlow Lite team, Fabio Tosi (ZipDepth), Intel ISL (MiDaS), and Bill Gardner and Keith Martin of the MIT Media Lab (KEMAR).
 
 Every third-party component and asset is listed below. The same table is in `assets/licenses/README.md`; the licence texts it names are in the repository and in the installed `assets/` directory.
 
@@ -11,8 +17,8 @@ Every third-party component and asset is listed below. The same table is in `ass
 | **Code that was ported or followed** | | | | |
 | Moonlight XR, Sean Gilleece | Origin of every module under `xr/`, `ui/`, `shaders/`, `audio/` and `depth/`: the layout, gate, glow, grade, pinch, head-aim, gamepad and key logic, the panels, the depth pipeline, virtual surround | GPLv3 | https://github.com/Gilleece/moonlight-android-xr | `LICENSE.txt` |
 | Moonlight XR for the Steam Frame (simplysanatori) | Patched Android build of Moonlight XR that ran on the Frame through Lepton; the reference for how it behaves there | GPLv3 | https://github.com/simplysanatori/moonlight-android-xr-steam-frame | `LICENSE.txt` |
-| moonlight-qt | `backend/` follows its HTTP, pairing and launch behaviour line by line; `seed-from-moonlight-qt.sh` reads its settings file | GPLv3 | https://github.com/moonlight-stream/moonlight-qt | `LICENSE.txt` |
-| moonlight-android | The Moonlight base that Moonlight XR is built on | GPLv3 | https://github.com/moonlight-stream/moonlight-android | `LICENSE.txt` |
+| moonlight-qt (Cameron Gutman and contributors) | The flat launcher is moonlight-qt 6.1.0 with patches (`launcher/patches/`); `backend/` follows its HTTP, pairing and launch behaviour line by line; `seed-from-moonlight-qt.sh` reads its settings file | GPLv3 | https://github.com/moonlight-stream/moonlight-qt | `LICENSE.txt` |
+| moonlight-android (Cameron Gutman, Diego Waxemberg, Aaron Neyer, Andrew Hennessy and contributors) | The Moonlight base that Moonlight XR is built on | GPLv3 | https://github.com/moonlight-stream/moonlight-android | `LICENSE.txt` |
 | Nightfall (tB0nE) | Two ideas only (a learned upsampling head for the depth model, smoothing depth over real time), implemented independently | GPLv3 (no code taken) | https://github.com/tB0nE/nightfall | |
 | **Libraries built into the binaries** | | | | |
 | moonlight-common-c | The streaming protocol (RTSP, RTP, input, control, FEC) | GPLv3 | https://github.com/moonlight-stream/moonlight-common-c | `assets/licenses/moonlight-common-c_LICENSE.txt` |
@@ -50,6 +56,7 @@ Every third-party component and asset is listed below. The same table is in `ass
 | **Art and fonts** | | | | |
 | Home Theater, Grand Cinema and Synthwave environments (`.room`, `.atlas`, `thumbs/`), Sean Gilleece / Woodford XR | Viewing rooms | CC BY 4.0 | https://github.com/Gilleece/moonlight-android-xr | `assets/licenses/CC-BY-4.0.txt` |
 | Controller model (`assets/models/controller.room`), Sean Gilleece / Woodford XR | Controller drawn in the headset | CC BY 4.0 | https://github.com/Gilleece/moonlight-android-xr | `assets/licenses/CC-BY-4.0.txt` |
+| `assets/branding/`: Moonlight XR logo (`moonlight-xr-logo-transparent.png`), Sean Gilleece; the icon and the Steam images are made from it by `tools/branding/make-art.py` | App and window icon, Steam shortcut icon and library images | GPLv3 | https://github.com/Gilleece/moonlight-android-xr | `LICENSE.txt` |
 | Noto Sans 2.013 (Regular, Medium), The Noto Project Authors | All interface text | SIL OFL 1.1 | https://github.com/notofonts/latin-greek-cyrillic | `assets/fonts/OFL.txt` |
 | `settings_icon.png`, `kofi_qr.png` | Settings button, support sheet | Upstream states no separate licence; shipped under GPLv3 | https://github.com/Gilleece/moonlight-android-xr | |
 | **Build-time tools (nothing from them ships)** | | | | |

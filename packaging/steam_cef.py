@@ -3,6 +3,7 @@
 remote-debugging port (127.0.0.1:8080), using only the standard library.
 
     steam_cef.py 'expression'          print the awaited result as JSON
+    steam_cef.py -                     the same, with the expression read from stdin
 
 Moonlight XR Native. GPLv3.
 """
@@ -97,6 +98,6 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     try:
-        print(json.dumps(evaluate(sys.argv[1])))
+        print(json.dumps(evaluate(sys.stdin.read() if sys.argv[1] == "-" else sys.argv[1])))
     except OSError as e:   # URLError, ConnectionError and socket errors
         sys.exit(f"cannot reach Steam's CEF port {PORT}: {e}")

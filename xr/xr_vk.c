@@ -24,7 +24,7 @@ int xr_vk_create(XrInstance instance, XrSystemId system, const char* const* extr
     if (XR_FAILED(xrGetVulkanGraphicsRequirements2KHR(instance, system, &req))) return -1;
 
     VkApplicationInfo app = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    app.pApplicationName = "Moonlight XR Native";
+    app.pApplicationName = "Moonlight XR for Frame";
     app.applicationVersion = 1;
     app.pEngineName = "mlxr";
     app.apiVersion = VK_API_VERSION_1_2;

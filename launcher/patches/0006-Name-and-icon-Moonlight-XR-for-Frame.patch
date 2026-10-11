@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Sat, 10 Oct 2026 22:49:37 -0400
+Subject: [PATCH] Name and icon: Moonlight XR for Frame
+
+The window title and display name read Moonlight XR for Frame, and the window icon is the
+Moonlight XR logo (res/moonlight-xr.png, copied in by launcher/build.sh from assets/branding).
+The profile, config and cache names stay Moonlight XR Native.
+---
+ app/main.cpp      | 4 ++--
+ app/resources.qrc | 1 +
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/app/main.cpp b/app/main.cpp
+index 8d32821..ca6f711 100644
+--- a/app/main.cpp
++++ b/app/main.cpp
+@@ -681,11 +681,11 @@ int main(int argc, char *argv[])
+ #ifndef Q_OS_DARWIN
+     // Set the window icon except on macOS where we want to keep the
+     // modified macOS 11 style rounded corner icon.
+-    app.setWindowIcon(QIcon(":/res/moonlight.svg"));
++    app.setWindowIcon(QIcon(":/res/moonlight-xr.png"));
+ #endif
+ 
+     // This is necessary to show our icon correctly on Wayland
+-    app.setApplicationDisplayName("Moonlight XR Native");
++    app.setApplicationDisplayName("Moonlight XR for Frame");
+     app.setDesktopFileName("moonlight-xr-launcher");
+     qputenv("SDL_VIDEO_WAYLAND_WMCLASS", "moonlight-xr-launcher");
+     qputenv("SDL_VIDEO_X11_WMCLASS", "moonlight-xr-launcher");
+diff --git a/app/resources.qrc b/app/resources.qrc
+index 493d0e9..a2e8a5d 100644
+--- a/app/resources.qrc
++++ b/app/resources.qrc
+@@ -13,6 +13,7 @@
+         <file>res/arrow_left.svg</file>
+         <file>res/question_mark.svg</file>
+         <file>res/moonlight.svg</file>
++        <file>res/moonlight-xr.png</file>
+         <file>res/update.svg</file>
+         <file>res/baseline-help_outline-24px.svg</file>
+         <file>res/baseline-error_outline-24px.svg</file>

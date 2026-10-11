@@ -1225,7 +1225,7 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
     if (g_convertTimeOffered) enabled[ne++] = "XR_KHR_convert_timespec_time";
 
     XrInstanceCreateInfo ici = { XR_TYPE_INSTANCE_CREATE_INFO };
-    strcpy(ici.applicationInfo.applicationName, "Moonlight XR Native");
+    strcpy(ici.applicationInfo.applicationName, "Moonlight XR for Frame");
     strcpy(ici.applicationInfo.engineName, "mlxr");
     ici.applicationInfo.applicationVersion = 4;
     ici.applicationInfo.apiVersion = XR_API_VERSION_1_0;

@@ -65,6 +65,8 @@
     X(VERSION_NO_COMMIT, "vr_panel_version_no_commit", "Version %s") \
     X(LOG_FILE, "vr_panel_log_file", "Log file: %s") \
     X(LOG_FILE_OFF, "vr_panel_log_file_off", "Log file: off") \
+    X(ABOUT_BUILT_BY, "vr_panel_built_by", "Built by simplysanatori") \
+    X(ABOUT_BASED_ON, "vr_panel_based_on", "Based on Moonlight XR by Sean Gilleece and Moonlight") \
     X(REPORT_SENDS, "vr_panel_report_sends", "Sends a note with the headset, your settings and the log") \
     X(ROOMS, "vr_panel_rooms", "Rooms") \
     /* environments */ \
@@ -151,7 +153,7 @@
     X(NATIVE_TILE_LATER, "native_tile_later", "Later") \
     X(NATIVE_DOT, "native_dot", "Dot") \
     X(NATIVE_RAY, "native_ray", "Ray") \
-    X(NATIVE_EXIT_APP, "native_exit_app", "Quit Moonlight XR?") \
+    X(NATIVE_EXIT_APP, "native_exit_app", "Quit Moonlight XR for Frame?") \
     X(NATIVE_PAIR_LATER, "native_pair_later", "Pairing from the headset comes later: pair with mlxr-cli") \
     X(NATIVE_NOT_PAIRED, "native_not_paired", "%s is not paired: pair it with mlxr-cli") \
     X(NATIVE_OFFLINE_WAKE, "native_offline_wake", "%s is offline: sending Wake-on-LAN") \
