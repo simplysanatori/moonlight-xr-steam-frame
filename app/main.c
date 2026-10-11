@@ -160,7 +160,7 @@ static void latencyHook(void* user, char* buf, int len) {
     (void)user;
     buf[0] = 0;
     if (g_args.file || !atomic_load(&g_streaming)) return;
-    char v[200];
+    char v[360];
     stream_latency_line(v, sizeof(v));
     static MlxrOpusOutStats prev;
     static int64_t prevNs;

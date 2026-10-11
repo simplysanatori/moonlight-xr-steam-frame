@@ -23,6 +23,11 @@ struct HwVideo {
     int queued, head;
     MlxrPacer pacer;
     int pacerHz;
+    // Native (lane av-latency): with reference frame invalidation on, a
+    // picture the decoder flags as damaged asks the host for an IDR frame
+    // (at most every 500 ms), the old behaviour, as a safety net
+    bool idrOnCorrupt;
+    uint64_t lastCorruptIdrNs;
     bool formatChange; // decode thread waits until the renderer is done
     HwVideoStats st;
 };
@@ -76,6 +81,14 @@ static void* decodeThread(void* arg) {
             }
             continue;
         }
+        if (f.corrupt) {
+            v->st.corrupt++;
+            if (v->idrOnCorrupt && v->requestIdr && f.t_dequeue_ns - v->lastCorruptIdrNs > 500000000ull) {
+                v->lastCorruptIdrNs = f.t_dequeue_ns;
+                v->st.idrRequests++;
+                v->requestIdr();
+            }
+        }
         double ms = (double)(f.t_dequeue_ns - f.t_submit_ns) * 1e-6;
         pthread_mutex_lock(&v->lock);
         if (v->queued == MLXR_PACER_MAX_QUEUED) { // the loop fell behind: the oldest goes back
@@ -125,6 +138,8 @@ int hw_video_submit(HwVideo* v, const void* const* parts, const uint32_t* sizes,
     }
     return 0;
 }
+
+void hw_video_set_idr_on_corrupt(HwVideo* v, bool on) { v->idrOnCorrupt = on; }
 
 bool hw_video_take(HwVideo* v, mlxr_vframe* out) {
     pthread_mutex_lock(&v->lock);
