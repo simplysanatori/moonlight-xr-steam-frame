@@ -82,6 +82,37 @@ The owner stopped the session at their usage limit. main is pushed; two lanes ar
 
 **Tools for headset debugging:** `env -u LD_LIBRARY_PATH python3 -I ~/mlxr-tools/vrshot.py /tmp/x` takes a SteamVR screenshot of what the owner sees (x_preview.png, x_vr.png); read it with the Read tool. `vrcmd --set-settings-int steam.app.<appid>.<key> <value>` sets SteamVR per-app settings; `python3 -I packaging/steam_cef.py "<js>"` runs Steam client JS (SteamClient.Apps.SetAppResolutionOverride etc.).
 
+## 4c. Session 3 (2026-10-10 evening, Fable, planning only): what was checked and the plan
+
+Fable is for planning (owner's rule), so this session verified, merged one finished lane and wrote this plan. Implementation is for an Opus 5.5 session at effort `high`.
+
+**Verified:** main cbacaaf builds on the host and passes 110 of 110 suites. Lane `panels-perf` (f9a7a3c, one commit, xr_assets.c + xr_native.h only) was merged into main, rebuilt, retested and installed; see the commit log. Its finding is the root cause of the menu lag: the panels were rasterised straight into the atlas staging buffer, whose memory is host-visible **uncached (write-combined)** on Turnip, so the read-modify-write blending ran about 40x slower than in cached memory (cog 180-200 ms instead of 4-5 ms). Panels now draw into plain memory and a touched slot is copied into the staging buffer in one sequential write. Expected: "N panel drawings ~200 ms avg" becomes ~5 ms. **Not headset-tested.**
+
+**Facts from the owner's last run (16:52-16:54, moonlight.log) that shape the plan:**
+- Menu open: 2-18 panel drawings per 5 s at 146-236 ms each, 431 and 418 missed refreshes per 10 s, 17-70 fps. Fully explained by the write-combined memory above.
+- Rooms, menu closed: frame 2.2-4.2 ms, 0-2 missed refreshes per 10 s, 90 fps. Yet the owner sees judder. "Missed refreshes" (xr_display.c displayFrameBegun) only counts jumps in xrWaitFrame's predictedDisplayTime, i.e. frames *our loop* was late for. It says nothing about frames the **compositor** dropped or reprojected, and SteamVR's own per-session summary in `~/.local/share/Steam/logs/vrcompositor.txt` was lost when SteamVR restarted at 20:43 (the log is per SteamVR run). Compositor evidence is the missing piece.
+- Layer sizes: curved/3D picture projection layer 5280x2640 (two eyes), UI atlas 2048x2960 with 19 slots and 3 images; up to 11 layers with the menu open.
+- Flat UI return: the retry fix 5911d12 **was** in the installed build (16:51) for the 16:52 run; `moonlight-launcher.log` shows the three ShowDashboard asks (0, 1000, 2500 ms) ran and Steam answered `null` (no error). Whether the owner saw the window is unknown (the owner listed it as untested).
+
+**Plan, in order (each step = one Opus agent or the orchestrator itself; one worktree per lane; Sonnet only where marked):**
+
+1. **Menu lag, part 2 (Opus, lane `panels-perf`, owns xr/xr_panels.c, xr/xr_assets.c, xr/xr_native.h glue in xr_session.c).** The 40x fix is merged; the remaining ~5 ms per cog redraw still runs inside the 11.1 ms frame. Move rasterisation to a worker thread: `xrPanelsUpdate` computes the per-slot keys on the frame thread (cheap, as now) and hands changed slots to one worker that draws into a per-slot back buffer; the frame thread, after the fence wait where it already calls `xrAtlasTouch`, copies finished slots into the staging buffer and bumps `version[slot]`. Keep the stats line ("panel drawings ... ms avg") measuring the worker's draw time, and add the frame thread's wait time if any. Tests: `tests/ui` panel tests + a new threaded test (TSan target as in `tests/input`). Acceptance (owner): with the cog open, 0-2 missed refreshes per 10 s at 90 Hz.
+
+2. **Room judder, diagnosis first (Opus, orchestrator-level, no lane).** Do not guess; measure the compositor:
+   a. Write `~/mlxr-tools/vrtiming.py` after `vrshot.py`'s ctypes pattern: `VR_InitInternal2(…, 3 = Background)`, `FnTable:IVRCompositor_028`, call `GetFrameTimings(Compositor_FrameTiming*, nFrames)` once a second for N seconds and print per second: m_nNumFramePresents, m_nNumMisPresented, m_nNumDroppedFrames, m_nReprojectionFlags, m_flCompositorRenderGpuMs, m_flPresentCallCpuMs, and m_flNewFrameReadyMs - m_flWaitGetPosesCalledMs. Run it (over SSH, `env -u LD_LIBRARY_PATH python3 -I`) while the owner stands in a room with the menu closed, 3D on and then 3D off. Also copy `vrcompositor.txt` straight after the run (per-session "presents/dropped/reprojected" summary). Take the `Compositor_FrameTiming` layout from the openvr.h matching SteamVR 2.18 (set `m_nSize`), and check the FnTable index of GetFrameTimings against that header before trusting the numbers.
+   b. Classify: (i) compositor drops or reprojection while our loop reports 0 missed means our frames arrive too late for SteamVR's running start: the loop submits GPU work and calls xrEndFrame straight away, and the next frame begins with `vkWaitForFences` on the previous frame; try submitting the room/model/curve work earlier in the frame (before the video import wait) or splitting the submission so the layers' images are done sooner; measure with (a) again. (ii) No drops, judder only between room and picture: a pose/time mismatch between the room's projection layer (drawn from `xrLocateViews` at `predictedDisplayTime`, pose = the drawn views, `xr_layers.c addRoomLayer`) and the picture quad SteamVR positions itself; compare room+3D on (picture also a projection layer, `curveRecord`) with room+3D off (quad) in the headset; if only the quad case judders, draw the flat picture into the picture projection layer too when a room is up (SteamVR drops one-eye quads and draws quads over projection layers regardless of order, so this also fixes ordering). (iii) Judder of the room alone, with no picture: check `xr_room.c` renders at the recommended eye size (`roomEyeWidth`/`Height`, logged) with the FOV from the same `xrLocateViews` call, and that `ctx->roomViews` are the views of *this* frame, not the previous one (`roomViewsValid` timing).
+   c. Only then fix. Record the measurements in STATUS.md.
+
+3. **Text quality (owner test, no code until results).** 6c79b4d (mip chain + trilinear/anisotropic sampling for the 3D/curved picture) is installed and untested. Owner script: Desktop at 2560x1440, (1) 3D on, default distance; (2) pull the screen closer with the held bar + stick; (3) 3D off (single quad, SteamVR samples it once); (4) supersample Quality. Say which reads best. If the quad (3) beats the projection layer, the projection layer's eye resolution (2640 wide per eye at SteamVR's 2160 setting) or its filtering is the limit: measure it: screenshot both with `vrshot.py` and compare the same text region; then try a larger picture layer (SteamVR per-app `supersampleScale` through `vrcmd`) and, for 3D, sampling the picture texture at its own resolution (no mip bias) before deciding.
+
+4. **Flat UI return (owner test; Sonnet if a fix is needed).** Owner: start a stream, leave VR with the bar's Exit or the chord, repeat once. Report whether the flat Moonlight window comes back each time. If not: `moonlight-launcher.log` has the ShowDashboard lines; next candidates are re-showing/raising the Qt window itself (`MLXR_LAUNCHER_HIDE_WINDOW` hides it for the stream) before the ShowDashboard asks, and `vrshot.py` right after exit to see what SteamVR shows.
+
+5. **Textured Frame controller models (Opus, lane `models-tex`, WIP 0974e93 does not build).** Rebase on main first. Left to do per the WIP message: loader in `rooms/room_gpu.c` for the textured format the converter now writes (every triangle, UVs, normals, textures), `xr_model.c` wiring to the new `model_tex` pass, tests in `tests/rooms`, headless render check, then the owner's look (hold angle, colour; `MLXR_FRAME_MODEL_GAIN`). Keep the ~4k-triangle vertex-coloured models as the fallback. Never redistribute Valve's files (read from `/opt/steamvr` at install).
+
+6. Then HANDOFF section 5 items 3-5 (M6 follow-ups, M7, M8) as before.
+
+**Push:** main after step 1 and after each merged fix; lanes `panels-perf` (now merged) and `models-tex` stay pushed.
+
 ## 5. What is left (do these next, in this order unless the owner says otherwise)
 
 1. **Get the owner's headset results** for the flat launcher, M3, M5, M6 and the keyboard (each report has a test script) and fix what they find. Read `moonlight.log` after each run.
@@ -116,7 +147,7 @@ Merged 2026-10-10 (lane/m6 499b972). The whole chain runs headless on the Frame'
 
 ```
 Continue building Moonlight XR Native on this Steam Frame. Read, in order:
-~/Games/MoonlightXRNative/src/docs/HANDOFF.md (state, paths, rules, what is left),
+~/Games/MoonlightXRNative/src/docs/HANDOFF.md (sections 4b and 4c first: the open problems and the plan),
 STATUS.md, docs/lanes.md, docs/BUILD_PLAN.md, and the reports it lists, plus your memory
 files about this project. Then:
 1. Run ./build.sh and the test suite to confirm main is green.

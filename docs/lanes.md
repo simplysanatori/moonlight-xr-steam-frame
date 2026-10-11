@@ -20,6 +20,8 @@ Each lane works in its own git worktree at `~/Games/MoonlightXRNative/lanes/<nam
 | K keyboard | lane/keyboard | Full keyboard, chord | Sonnet | merged 2026-10-10 |
 | M6 3D | lane/m6 | xr/, depth/ glue | Opus | merged 2026-10-10 |
 | L launcher | lane/launcher | launcher/, third_party/moonlight-qt (v6.1.0), app/main.c --exit-to-caller | Sonnet | merged 2026-10-10: flat Moonlight UI, VR on stream start |
+| panels-perf | lane/panels-perf | xr/xr_panels.c, xr/xr_assets.c (UI atlas) | Opus | first commit merged 2026-10-10 evening (panels in cached memory); part 2, drawing off the frame thread, open (HANDOFF 4c step 1) |
+| models-tex | lane/models-tex | rooms/room_gpu, shaders/model_tex, tools/frame-models | Opus | WIP 0974e93, does not build; see HANDOFF 4c step 5 |
 
 Pure modules (no GL, Android or `xr_renderer.h`), ported by lane X: xr_atlas, xr_controller, xr_depthmap, xr_gamepad, xr_gate, xr_glow, xr_grade, xr_headaim, xr_keys, xr_layout, xr_math, xr_notice, xr_pinch, xr_rate, xr_roommesh, xr_shared.h, and xr-audio's xr_audio.
 Entangled with `xr_renderer.h` (`XrCtx` with GL types): xr_input, xr_ui, xr_layers, xr_display, xr_log, xr_room, xr_model, xr_ambilight; rewritten: xr_session, xr_gl, xr_shaders, xr_assets, xr_depth, xr_debug. The Vulkan `XrCtx` is orchestrator work in M1; I, R and U's panel code wait for it.
