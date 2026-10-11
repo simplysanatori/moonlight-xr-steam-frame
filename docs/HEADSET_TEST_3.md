@@ -12,13 +12,16 @@ Every run now also writes SteamVR's own frame timing to `~/Games/MoonlightXRNati
 
 Report: does the world (room, picture) still judder while the menu is open? Does the menu itself lag behind the pointer more than before (it can now be one frame behind, which should not be visible)?
 
-## 2. Room judder (diagnosis, not a fix yet)
+## 2. Room judder (suspected cause fixed, needs confirming)
 
-1. In a room, menu closed, 3D on (the default): stand still for 10 seconds, then turn your head slowly left and right for 20 seconds.
-2. Turn 3D off from the bar and repeat.
-3. Turn the room off (void) and repeat once.
+SteamVR shrinks, every frame, any picture layer wider than 3458 pixels. At 90 Hz the room was 3520 wide, so it went through that path; the room is now capped just under it at the Standard environment resolution (High and Ultra are left as they were, for comparison). 3D on and menu closed unless said; each step about 30 seconds, turning your head slowly and stepping side to side. Note the time of each step.
 
-Report, for each of the three: judder yes or no, and whether it is the room, the picture, or both. The vrtiming.log will say whether SteamVR dropped or reprojected frames at those moments.
+1. Void (no room).
+2. Home Theater, Environment Res **Standard** (the default).
+3. Set Environment Res to **High**, quit and start again (the room's size is fixed when it is first made), then Home Theater.
+4. Back to Standard, quit and start again, 3D **off**, Home Theater.
+
+Report which steps judder. If 2 is smooth and 3 judders, the cause is confirmed and the 3D/curved picture (5280 wide, also shrunk; this may also be part of the poor text) gets the same treatment next.
 
 ## 3. Text quality (mip fix 6c79b4d)
 
