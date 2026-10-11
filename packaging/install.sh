@@ -145,7 +145,9 @@ if [ "$NOSC" = 1 ]; then echo "Steam shortcut: skipped (NO_SHORTCUT)"; exit 0; f
 if [ ! -f "$CEFPY" ]; then echo "Steam shortcut: $CEFPY missing"; exit 1; fi
 
 CEF="python3 -I $CEFPY"
-# The icon in SteamVR's dock (the VR client's SteamVR app manifest, the launcher window's icon-theme PNGs and
+# The icon in SteamVR's dock is Steam's own icon for the shortcut (the icon field in shortcuts.vdf, which
+# Steam turns into icon data when it starts; the dock asks Steam for it by appid). What this adds for the dock
+# (the VR client's SteamVR app manifest, the launcher window's icon-theme PNGs and
 # .desktop file); see dock_icon.py. Needs the shortcut's appid, which it finds in shortcuts.vdf by itself.
 dock_icon() {
     local py="$HERE/dock_icon.py"
@@ -246,7 +248,7 @@ if [ -n "$ART" ] && [ -d "$ART" ]; then
     if [ -n "$ICON" ]; then
         JS_ICON=$(printf '%s' "$ICON" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
         $CEF "(()=>{SteamClient.Apps.SetShortcutIcon($APPID,$JS_ICON); return 1})()" >/dev/null 2>&1 \
-            && echo "Steam shortcut icon: $ICON" || echo "Steam shortcut icon: not set"
+            && echo "Steam shortcut icon: $ICON (Steam loads a shortcut's icon data only at start: SteamVR's dock shows it after the next Steam restart)" || echo "Steam shortcut icon: not set"
     fi
     for spec in "portrait poster:0" "hero:1" "logo:2" "wide:3"; do
         src=$(pick ${spec%%:*})
