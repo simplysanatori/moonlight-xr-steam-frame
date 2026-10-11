@@ -84,7 +84,7 @@ The in-headset "Report a problem" sheet said it would send the note and the log.
 
 ```sh
 tools/privacy-check.sh
-tools/privacy-check.sh ~/Games/MoonlightXRNative/releases/moonlight-xr-native-0.6.0-alpha.1-linux-arm64.tar.gz
+tools/privacy-check.sh ~/Games/MoonlightXRNative/releases/moonlight-xr-steam-frame-0.6.0-alpha.1-linux-arm64.tar.gz
 tests/tools/test_bug_report.sh
 env -u LD_LIBRARY_PATH ctest --test-dir build -R tools_
 ```

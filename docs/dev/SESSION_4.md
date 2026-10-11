@@ -17,7 +17,7 @@ Sections 1 to 4 below are history as of the morning of 2026-10-11.
 
 ## 1. State on 2026-10-11
 
-- The repository is public: https://github.com/simplysanatori/moonlight-xr-native, branch `main` only. Latest release: `v0.6.0-alpha.2` (pre-release). The same build is installed on the Frame (`~/Games/MoonlightXRNative/app`, `VERSION` says 0.6.0-alpha.2).
+- The repository is public: https://github.com/simplysanatori/moonlight-xr-steam-frame, branch `main` only. Latest release: `v0.6.0-alpha.2` (pre-release). The same build is installed on the Frame (`~/Games/MoonlightXRNative/app`, `VERSION` says 0.6.0-alpha.2).
 - History was rewritten for privacy. Commit hashes in older notes are stale. Commit identity is the repo-local `simplysanatori` no-reply address. Nothing personal may enter the tree: `tools/privacy-check.sh` runs in ctest and in `tools/release.sh`, reading the owner's private patterns from `~/.config/moonlight-xr-privacy-patterns.txt` (never commit that file, never print its values).
 - The owner's PC runs Apollo (a Sunshine fork; it reports itself as Sunshine). The Frame reaches it over home Wi-Fi and over the Steam Frame Wireless Adapter. The "Network connection" setting (Automatic / Wi-Fi / Steam Frame Wireless Adapter) picks the link before each stream and logs why.
 - The Lepton route (the Android fork) is retired on this Frame; its shortcut and install were removed. The native client is the only Moonlight on the headset.

@@ -51,7 +51,7 @@ hn="$(hostname 2>/dev/null)"
 case "$hn" in ''|frame|steamdeck|steamframe|localhost) ;; *) grep -qiF -- "$hn" "$t/all.txt" && { echo "host name present: $hn"; fail=1; };; esac
 grep -qw -- "$USERNAME" "$t/all.txt" && { echo "user name present: $USERNAME"; fail=1; }
 grep -qE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' "$t/all.txt" && { echo "a MAC-like string is left"; fail=1; }
-grep -qE '\b[0-9]{1,3}(\.[0-9]{1,3}){3}\b' <(grep -v -e '^== ' -e 'GfeVersion' -e 'app version' -e '^moonlight-xr-native' "$t/all.txt") && { echo "an IPv4-like string is left"; fail=1; }
+grep -qE '\b[0-9]{1,3}(\.[0-9]{1,3}){3}\b' <(grep -v -e '^== ' -e 'GfeVersion' -e 'app version' -e '^moonlight-xr-steam-frame' "$t/all.txt") && { echo "an IPv4-like string is left"; fail=1; }
 grep -qiE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' "$t/all.txt" && { echo "a UUID is left"; fail=1; }
 # config.ini: settings values only
 cfg="$(python3 -I -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); n=[x for x in z.namelist() if x.endswith("/config.ini")][0]; print(z.read(n).decode())' "$zip")"
@@ -60,7 +60,7 @@ for k in 'bitrate_kbps = 50000' 'resolution = 2560x1440' 'codec = hevc' 'stats =
 done
 grep -qiE '^[a-z0-9_]*(host|addr|uuid|name|path|token|cert|ssid|secret)[a-z0-9_]* *=|(^|_)(id|key|mac|app)(_| *=)' <<<"$cfg" && { echo "config.ini has an identifying key"; fail=1; }
 # the system summary
-for k in 'SteamVR: 2.18.2' 'SteamOS:' 'Mesa:' "kernel: $(uname -r)" 'display: 72 Hz' 'moonlight-xr-native: '; do
+for k in 'SteamVR: 2.18.2' 'SteamOS:' 'Mesa:' "kernel: $(uname -r)" 'display: 72 Hz' 'moonlight-xr-steam-frame: '; do
     grep -qF -- "$k" "$t/all.txt" || { echo "system.txt lost: $k"; fail=1; }
 done
 # timings and the shape of the lines stay

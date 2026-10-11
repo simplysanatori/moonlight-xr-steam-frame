@@ -5,8 +5,8 @@ The build runs on the Steam Frame itself. The SteamOS image ships everything it 
 ## Get the source
 
 ```sh
-git clone --recursive https://github.com/simplysanatori/moonlight-xr-native
-cd moonlight-xr-native
+git clone --recursive https://github.com/simplysanatori/moonlight-xr-steam-frame
+cd moonlight-xr-steam-frame
 ```
 
 The submodules are the [OpenXR-SDK](https://github.com/KhronosGroup/OpenXR-SDK) (release-1.1.63), [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) and [moonlight-qt](https://github.com/moonlight-stream/moonlight-qt) (v6.1.0). The patched copy of moonlight-qt is made in `build-launcher/`; the submodule itself is never changed.
@@ -60,7 +60,7 @@ This installs from the build directory into `~/Games/MoonlightXRNative/app` and 
 BUILD=build tools/release.sh
 ```
 
-It packs `moonlight-xr-native-<version>-linux-arm64.tar.gz` and updates `SHA256SUMS` in `~/Games/MoonlightXRNative/releases` (`OUT` changes it). The version is the `VERSION` file. If the commit carries a `v*` tag, it must match.
+It packs `moonlight-xr-steam-frame-<version>-linux-arm64.tar.gz` and updates `SHA256SUMS` in `~/Games/MoonlightXRNative/releases` (`OUT` changes it). The version is the `VERSION` file. If the commit carries a `v*` tag, it must match.
 
 The script strips the binaries, copies only tracked assets, and stops if config, pairing keys, logs, the LiteRT build or a converted Steam Frame controller model would be packed. It runs `tools/privacy-check.sh` on the tarball. Then it unpacks the tarball, installs it twice into a temporary folder, compares the installed files and runs the library audit on them.
 

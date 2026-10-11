@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds the release tarball and checks it. GPLv3.
 #   tools/release.sh
-# Writes moonlight-xr-native-<version>-linux-arm64.tar.gz and SHA256SUMS into
+# Writes moonlight-xr-steam-frame-<version>-linux-arm64.tar.gz and SHA256SUMS into
 # $OUT (default ~/Games/MoonlightXRNative/releases). The tarball unpacks to
 # MoonlightXRNative/ holding install.sh, steam_cef.py, dock_icon.py, README.md, docs/ (user guide,
 # changelog, building, privacy audit), the licence files and
@@ -30,7 +30,7 @@ if TAG=$(git describe --tags --exact-match --match 'v*' HEAD 2>/dev/null) && [ "
     echo "HEAD is tagged $TAG but VERSION says $VER"; exit 1
 fi
 git diff --quiet HEAD -- || { VER="$VER-dirty"; echo "warning: working tree has uncommitted changes ($VER)"; }
-NAME="moonlight-xr-native-$VER-linux-arm64"
+NAME="moonlight-xr-steam-frame-$VER-linux-arm64"
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 ROOT="$TMP/stage/MoonlightXRNative"

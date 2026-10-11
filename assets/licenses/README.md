@@ -10,7 +10,7 @@ The room and controller notices as upstream words them: Copyright (c) 2026 Sean 
 | --- | --- | --- | --- | --- |
 | **Code that was ported or followed** | | | | |
 | Moonlight XR, Sean Gilleece | Origin of every module under `xr/`, `ui/`, `shaders/`, `audio/` and `depth/`: the layout, gate, glow, grade, pinch, head-aim, gamepad and key logic, the panels, the depth pipeline, virtual surround | GPLv3 | https://github.com/Gilleece/moonlight-android-xr | `LICENSE.txt` |
-| Moonlight XR for the Steam Frame (simplysanatori) | Patched Android build of Moonlight XR that ran on the Frame through Lepton; the reference for how it behaves there | GPLv3 | https://github.com/simplysanatori/moonlight-android-xr-steam-frame | `LICENSE.txt` |
+| Moonlight XR for the Steam Frame (simplysanatori) | Patched Android build of Moonlight XR that ran on the Frame through Lepton; the reference for how it behaves there | GPLv3 | https://github.com/simplysanatori/moonlight-xr-lepton | `LICENSE.txt` |
 | moonlight-qt (Cameron Gutman and contributors) | The flat launcher is moonlight-qt 6.1.0 with patches (`launcher/patches/`); `backend/` follows its HTTP, pairing and launch behaviour line by line; `seed-from-moonlight-qt.sh` reads its settings file | GPLv3 | https://github.com/moonlight-stream/moonlight-qt | `LICENSE.txt` |
 | moonlight-android (Cameron Gutman, Diego Waxemberg, Aaron Neyer, Andrew Hennessy and contributors) | The Moonlight base that Moonlight XR is built on | GPLv3 | https://github.com/moonlight-stream/moonlight-android | `LICENSE.txt` |
 | Nightfall (tB0nE) | Two ideas only (a learned upsampling head for the depth model, smoothing depth over real time), implemented independently | GPLv3 (no code taken) | https://github.com/tB0nE/nightfall | |

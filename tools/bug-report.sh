@@ -76,7 +76,7 @@ for v in "$HERE/VERSION" "$HERE/../VERSION"; do [ -f "$v" ] && { head -n 1 "$v" 
 # system summary: version strings only
 {
     echo "report: $(date -Is)"
-    [ -f "$WORK/raw/VERSION" ] && echo "moonlight-xr-native: $(cat "$WORK/raw/VERSION")"
+    [ -f "$WORK/raw/VERSION" ] && echo "moonlight-xr-steam-frame: $(cat "$WORK/raw/VERSION")"
     ( . /etc/os-release 2>/dev/null && echo "SteamOS: ${VERSION_ID:-unknown}, build ${BUILD_ID:-unknown}" )
     sv="$(grep -m1 -oE 'vrserver [0-9][0-9.]*' "$HOME/.local/share/Steam/logs/vrserver.txt" 2>/dev/null | cut -d' ' -f2)"
     [ -z "$sv" ] && sv="$(grep -m1 -oE '"version" *: *"[0-9][0-9.]*"' /opt/steamvr/bin/version.json 2>/dev/null | grep -oE '[0-9][0-9.]*')"

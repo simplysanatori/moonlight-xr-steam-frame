@@ -9,6 +9,7 @@
 - The "hw decode" part of the stats line ends with the largest frame seen: "largest AU N bytes in N parts, N refused (length mismatch)".
 - New environment variable `MLXR_VIDEO_IDR_MIN_MS`: the shortest time between full-frame requests after a decoder error. 100 by default, 0 for no limit.
 - Not yet confirmed in the headset. It was tested with 133 automated test suites, a unit test with 400-packet and 200-packet frames, and a headless file run with 0 decode errors.
+- The GitHub repository and the release tarball are now named moonlight-xr-steam-frame (before: moonlight-xr-native). The old repository address redirects. The Android route repository is now moonlight-xr-lepton.
 
 ## 0.6.0-alpha.2 (October 2026)
 

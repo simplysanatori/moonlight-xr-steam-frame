@@ -12,18 +12,18 @@ A fix for a black picture at high bitrates. At 126 Mbps the picture stayed black
 
 ## Download
 
-- `moonlight-xr-native-0.6.0-alpha.3-linux-arm64.tar.gz`
+- `moonlight-xr-steam-frame-0.6.0-alpha.3-linux-arm64.tar.gz`
 - `SHA256SUMS`
 
 ## Install
 
-Same as before: unpack the tarball and run `install.sh`. It replaces the installed files and keeps your settings and pairing. See the [README](https://github.com/simplysanatori/moonlight-xr-native/blob/main/README.md) for the full steps and the [user guide](https://github.com/simplysanatori/moonlight-xr-native/blob/main/docs/USER_GUIDE.md) for the controls.
+Same as before: unpack the tarball and run `install.sh`. It replaces the installed files and keeps your settings and pairing. See the [README](https://github.com/simplysanatori/moonlight-xr-steam-frame/blob/main/README.md) for the full steps and the [user guide](https://github.com/simplysanatori/moonlight-xr-steam-frame/blob/main/docs/USER_GUIDE.md) for the controls.
 
 ## Known problems
 
 The fix was tested headless and with unit tests. At the time of writing it has not yet been run in a headset. If the picture is still black at 126 Mbps, report it with the bug-report zip.
 
-Everything else is unchanged from 0.6.0-alpha.1. See its [release notes](https://github.com/simplysanatori/moonlight-xr-native/blob/main/docs/RELEASE_NOTES_v0.6.0-alpha.1.md).
+Everything else is unchanged from 0.6.0-alpha.1. See its [release notes](https://github.com/simplysanatori/moonlight-xr-steam-frame/blob/main/docs/RELEASE_NOTES_v0.6.0-alpha.1.md).
 
 ## Reporting problems
 

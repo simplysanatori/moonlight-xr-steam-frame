@@ -30,7 +30,7 @@ Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz,
 
 ## Install
 
-1. Download `moonlight-xr-native-0.6.0-alpha.3-linux-arm64.tar.gz` and `SHA256SUMS` from the [Releases](https://github.com/simplysanatori/moonlight-xr-native/releases) page. Check the download:
+1. Download `moonlight-xr-steam-frame-0.6.0-alpha.3-linux-arm64.tar.gz` and `SHA256SUMS` from the [Releases](https://github.com/simplysanatori/moonlight-xr-steam-frame/releases) page. Check the download:
 
    ```sh
    sha256sum -c --ignore-missing SHA256SUMS
@@ -39,7 +39,7 @@ Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz,
 2. Unpack it and run the installer:
 
    ```sh
-   tar xzf moonlight-xr-native-0.6.0-alpha.3-linux-arm64.tar.gz
+   tar xzf moonlight-xr-steam-frame-0.6.0-alpha.3-linux-arm64.tar.gz
    cd MoonlightXRNative
    ./install.sh
    ```
@@ -116,7 +116,7 @@ Everything in the zip is masked. IPv4 and IPv6 addresses, MAC addresses, host na
 
 Left out completely: `hosts.ini`, pairing keys and certificates, the flat window's settings, the host name, environment variables and any network listing.
 
-Have a look inside before you share it. Then attach the zip to an [issue](https://github.com/simplysanatori/moonlight-xr-native/issues). Say what you did, what you expected and what happened.
+Have a look inside before you share it. Then attach the zip to an [issue](https://github.com/simplysanatori/moonlight-xr-steam-frame/issues). Say what you did, what you expected and what happened.
 
 You can also write a note in the headset (cog, About, Report a problem). It is saved on the Frame, nothing is sent from the headset, and the next `bug-report.sh` run includes it. Open an issue on GitHub with the zip.
 

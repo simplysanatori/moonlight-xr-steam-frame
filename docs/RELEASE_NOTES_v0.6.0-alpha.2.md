@@ -15,11 +15,11 @@ A small follow-up to the first alpha. The app changes in one place, the Report a
 
 ## Install
 
-Same as before: unpack the tarball and run `install.sh`. It replaces the installed files and keeps your settings and pairing. See the [README](https://github.com/simplysanatori/moonlight-xr-native/blob/main/README.md) for the full steps and the [user guide](https://github.com/simplysanatori/moonlight-xr-native/blob/main/docs/USER_GUIDE.md) for the controls.
+Same as before: unpack the tarball and run `install.sh`. It replaces the installed files and keeps your settings and pairing. See the [README](https://github.com/simplysanatori/moonlight-xr-steam-frame/blob/main/README.md) for the full steps and the [user guide](https://github.com/simplysanatori/moonlight-xr-steam-frame/blob/main/docs/USER_GUIDE.md) for the controls.
 
 ## Known problems
 
-Unchanged from 0.6.0-alpha.1. See its [release notes](https://github.com/simplysanatori/moonlight-xr-native/blob/main/docs/RELEASE_NOTES_v0.6.0-alpha.1.md).
+Unchanged from 0.6.0-alpha.1. See its [release notes](https://github.com/simplysanatori/moonlight-xr-steam-frame/blob/main/docs/RELEASE_NOTES_v0.6.0-alpha.1.md).
 
 ## Reporting problems
 

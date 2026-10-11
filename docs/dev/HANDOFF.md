@@ -20,7 +20,7 @@ A native Linux Arm64 OpenXR game-streaming client in C for the Valve Steam Frame
 | What | Where |
 | --- | --- |
 | Main checkout (branch `main`) | `~/Games/MoonlightXRNative/src` |
-| GitHub (private) | `https://github.com/simplysanatori/moonlight-xr-native` (owner login `simplysanatori`) |
+| GitHub (private) | `https://github.com/simplysanatori/moonlight-xr-steam-frame` (owner login `simplysanatori`) |
 | Installed app (what the Steam shortcut runs) | `~/Games/MoonlightXRNative/app` |
 | Steam shortcut | "Moonlight XR for Frame", appid 2761093165, runs `app/moonlight-xr-launcher.sh` (the flat Moonlight UI). `VR_ONLY=1 ./packaging/install.sh` points it back at `app/moonlight-xr.sh` (the VR client's own in-VR PC/app lists) |
 | VR client config, pairing, hosts | `~/.config/moonlight-xr/` (`config.ini` with every setting, `client.pem/key`, `hosts.ini`, `servercerts/`); `file_log = verbose` is set for testing |

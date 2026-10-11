@@ -1,6 +1,6 @@
 # xr/core report (lane X, branch lane/xrcore)
 
-Base: Gilleece/moonlight-android-xr master 75d92f2. Fork compared: simplysanatori/moonlight-android-xr-steam-frame (branch steam-frame).
+Base: Gilleece/moonlight-android-xr master 75d92f2. Fork compared: simplysanatori/moonlight-xr-lepton (branch steam-frame).
 
 ## Modules ported (library `mlxr_xrcore`, static, C11, -Wall -Wextra)
 xr_atlas, xr_controller, xr_depthmap, xr_gamepad, xr_gate, xr_glow, xr_grade, xr_headaim, xr_keys, xr_layout, xr_math, xr_notice, xr_pinch, xr_rate, xr_roommesh (.c/.h each), xr_shared.h, and xr_audio.c/.h (from xr-audio/).
