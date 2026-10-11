@@ -114,11 +114,26 @@ static inline int64_t nowNs(void) {
 // pointer is still and rises with speed to keep fast moves from lagging.
 #define POINTER_MIN_CUTOFF 1.2f
 #define POINTER_BETA 8.0f
-// Native: the values M2 shipped and the owner accepted ("the One Euro filter
-// fixes the jitter"): 1 Hz, and 0.01 per pixel a second of stream width, so
-// POINTER_BETA_PER_PX * videoWidth in upstream's units of the picture's width
+// Native: M2 shipped 1 Hz and 0.01 per pixel a second of stream width and the
+// owner accepted it ("the One Euro filter fixes the jitter"); the beta is in
+// upstream's units as NATIVE_POINTER_BETA_PER_PX * videoWidth. Lane av-latency
+// (owner: "some delay with the cursor") raised the beta to 0.015: the minimum
+// cutoff, which is what holds a resting hand still, is unchanged; measured in a
+// simulation at 90 Hz with a 2 px hand tremor, the lag behind a moving hand
+// drops from 45/23/15/6.5 ms to 37/18/12/4.9 ms at 50/200/400/1500 px/s, and
+// the wobble while aiming slowly rises from 0.65 to 0.75 px RMS.
+// MLXR_POINTER_MIN_CUTOFF and MLXR_POINTER_BETA (per pixel) override both for
+// trying values without a rebuild.
 #define NATIVE_POINTER_MIN_CUTOFF 1.0f
-#define NATIVE_POINTER_BETA_PER_PX 0.01f
+#define NATIVE_POINTER_BETA_PER_PX 0.015f
+static inline float nativePointerTunable(const char* env, float def) {
+    const char* s = getenv(env);
+    if (s == NULL || *s == '\0') {
+        return def;
+    }
+    float v = strtof(s, NULL);
+    return v > 0.0f && v < 1000.0f ? v : def;
+}
 // A gap this long means the pointer left the screen or changed hands, and
 // filtering across it would slide the cursor in from where it used to be
 #define POINTER_RESET_NS 250000000L
@@ -713,6 +728,13 @@ typedef struct XrCtx {
     float pointerBeta;
     int64_t lastHitNs;
     int lastHand;
+    // Native (lane av-latency): how far the smoothing holds the cursor behind
+    // the hand while it moves, for the log's latency line; summed per window
+    // and taken by the session's 5 s log
+    double ptrLagMsSum, ptrLagPxSum;
+    int ptrLagSamples;
+    float ptrRawX, ptrRawY;
+    int ptrRawValid;
 
     EuroState aimFilterPos[HAND_COUNT][3];
     EuroQuatState aimFilterRot[HAND_COUNT];

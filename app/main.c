@@ -140,12 +140,55 @@ static void statsHook(void* user, char* buf, int len) {
         stream_stats(s, sizeof(s));
         MlxrOpusOutStats st;
         mlxr_opus_out_stats(&st);
-        snprintf(a, sizeof(a), "audio %dch %.0f ms buffered, %u underruns, %u lost", st.channels, st.bufferedMs,
+        snprintf(a, sizeof(a), "audio %dch %.0f ms buffered, %u underruns, %u lost (stream totals)", st.channels, st.bufferedMs,
                  st.underruns, st.lostPackets);
     }
     snprintf(buf, (size_t)len, "decoded %llu, dropped %llu, decode %.1f ms; %s%s%s",
              (unsigned long long)g_slot.produced, (unsigned long long)g_slot.dropped, g_slot.lastDecodeMs, s,
              a[0] ? "; " : "", a);
+}
+
+// Native (lane av-latency): every 5 s from the log while streaming. What the
+// host and network add to the picture (and so to the host cursor), and the
+// audio per window: underruns split by cause (late data vs the host going
+// quiet), the cushion, the longest gap between packets, and how long the
+// audio receive thread waited for a CPU (starvation) vs network gaps
+static void latencyHook(void* user, char* buf, int len) {
+    (void)user;
+    buf[0] = 0;
+    if (g_args.file || !atomic_load(&g_streaming)) return;
+    char v[256];
+    stream_latency_line(v, sizeof(v));
+    static MlxrOpusOutStats prev;
+    static int64_t prevNs;
+    static int saidPriority;
+    MlxrOpusOutStats st;
+    mlxr_opus_out_stats(&st);
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    int64_t now = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+    if (st.packets < prev.packets || st.underruns < prev.underruns || st.threadCpuNs < prev.threadCpuNs) {
+        memset(&prev, 0, sizeof(prev)); // a new stream
+        saidPriority = 0;
+    }
+    double secs = prevNs > 0 ? (now - prevNs) / 1e9 : 5.0;
+    if (!saidPriority && st.threadPriority[0]) {
+        MLOG_I("audio: receive thread %s", st.threadPriority);
+        saidPriority = 1;
+    }
+    double waitMs = (st.threadWaitNs - prev.threadWaitNs) / 1e6;
+    double cpuPct = secs > 0.0 ? (st.threadCpuNs - prev.threadCpuNs) / 1e7 / secs : 0.0;
+    snprintf(buf, (size_t)len,
+             "%s; audio cushion %.0f ms, %.0f ms buffered, underruns +%u (%u late, %u after silence), lost +%u, "
+             "dropped %.0f ms, trimmed %.0f ms, longest packet gap %d ms, receive thread waited %.1f ms for a CPU "
+             "(%.1f%% busy), decode %.2f ms avg (max %.2f)",
+             v, st.jitterTargetMs, st.bufferedMs, st.underruns - prev.underruns,
+             st.lateUnderruns - prev.lateUnderruns, st.silenceUnderruns - prev.silenceUnderruns,
+             st.lostPackets - prev.lostPackets, (st.droppedFrames - prev.droppedFrames) / 48.0,
+             (st.trimmedFrames - prev.trimmedFrames) / 48.0, mlxr_opus_out_take_gap_max(), waitMs, cpuPct, st.processUs / 1000.0,
+             st.processMaxUs / 1000.0);
+    prev = st;
+    prevNs = now;
 }
 
 static void pointerHook(void* user, int x, int y, int w, int h) {
@@ -809,6 +852,7 @@ int main(int argc, char** argv) {
     cfg.reportDir = reportDir;
     cfg.hooks = (XrAppHooks){ NULL, pointerHook, mouseMoveHook, buttonHook, scrollHook, keyHook, modifiersHook,
                               statsHook, focusHook, uiHook };
+    cfg.hooks.latency = latencyHook;
 
     FileSource* src = NULL;
     if (g_args.file) {

@@ -3220,6 +3220,7 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
     if (f->hand != ctx->lastHand || f->now - ctx->lastHitNs > POINTER_RESET_NS) {
         ctx->filterU.valid = 0;
         ctx->filterV.valid = 0;
+        ctx->ptrRawValid = 0;
     }
     ctx->lastHand = f->hand;
     ctx->lastHitNs = f->now;
@@ -3228,6 +3229,25 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
                          ctx->pointerBeta);
     float v = euroFilter(&ctx->filterV, f->hitV[f->hand], f->dt, ctx->pointerMinCutoff,
                          ctx->pointerBeta);
+    // Native (lane av-latency): the smoothing's lag behind a moving hand, in
+    // stream pixels and as time (distance over speed), for the log
+    {
+        float rx = f->hitU[f->hand] * (float)ctx->videoWidth;
+        float ry = f->hitV[f->hand] * (float)ctx->videoHeight;
+        if (ctx->ptrRawValid && f->dt > 0.0f) {
+            float speed = hypotf(rx - ctx->ptrRawX, ry - ctx->ptrRawY) / f->dt;
+            float lagPx = hypotf(rx - u * (float)ctx->videoWidth, ry - v * (float)ctx->videoHeight);
+            if (speed > 150.0f) {
+                float lagMs = 1000.0f * lagPx / speed;
+                ctx->ptrLagMsSum += lagMs < 500.0f ? lagMs : 500.0f;
+                ctx->ptrLagPxSum += lagPx;
+                ctx->ptrLagSamples++;
+            }
+        }
+        ctx->ptrRawX = rx;
+        ctx->ptrRawY = ry;
+        ctx->ptrRawValid = 1;
+    }
     if (ctx->headAimActive) {
         // The head is turning the host's mouse, so a position from the ray
         // would fight it. The ray moves the cursor by how far its point moved
