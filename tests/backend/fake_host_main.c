@@ -1,11 +1,13 @@
 /* Standalone fake host for the CLI test: prints "PORTS <http> <https>" then waits
  * for the PIN on stdin (one line) and keeps serving until stdin closes. GPLv3. */
 #include "fake_host.h"
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 
 int main(int argc, char **argv)
 {
+    signal(SIGPIPE, SIG_IGN);   /* probes may hang up before the answer */
     fake_opts o = {.wait_for_pin = true};
     for (int i = 1; i < argc; i++)
         if (!strcmp(argv[i], "--gfe")) o.gfe = true;

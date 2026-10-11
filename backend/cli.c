@@ -6,10 +6,12 @@
  *   mlxr-cli apps <host>
  *   mlxr-cli launch <host> <appid> <WxHxFPS> [--hdr]
  *   mlxr-cli quit <host>
+ *   mlxr-cli probe-paths [<host>] [--addr a,b,..] [--network auto|home|adapter] [--samples N] [--bitrate KBPS]
  * <host> is an address[:port], a saved host name or a saved host uuid.
  * Set MLXR_VERBOSE=1 for request logging (never includes secrets). */
 #define _GNU_SOURCE
 #include "backend.h"
+#include "netpath.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -361,6 +363,83 @@ static int cmd_clipboard(int argc, char **argv)
     return rc;
 }
 
+/* Read-only: serverinfo round trips to every known address of a PC, the Wi-Fi link numbers of the
+ * interfaces they go through, and the path the setting would pick. Starts no stream. */
+static int cmd_probe_paths(int argc, char **argv)
+{
+    const char *spec = NULL, *addrs = NULL, *flag = NULL;
+    int samples = 7, bitrate = 80000;
+    for (int i = 0; i < argc; i++) {
+        if (!strcmp(argv[i], "--addr") && i + 1 < argc) addrs = argv[++i];
+        else if (!strcmp(argv[i], "--network") && i + 1 < argc) flag = argv[++i];
+        else if (!strcmp(argv[i], "--samples") && i + 1 < argc) samples = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--bitrate") && i + 1 < argc) bitrate = atoi(argv[++i]);
+        else if (argv[i][0] != '-' && !spec) spec = argv[i];
+        else return fprintf(stderr, "usage: probe-paths [<host>] [--addr a,b,..] [--network auto|home|adapter] [--samples N]\n"), 1;
+    }
+    mlxr_error e;
+    struct ctx c;
+    int rc = ctx_open(&c, &e);
+    if (rc) return rc;
+    const char *source, *warn;
+    mlxr_net_pref pref = mlxr_net_pref_resolve(flag, getenv("MLXR_NETWORK"), NULL, &source, &warn);
+    if (warn) fprintf(stderr, "warning: %s\n", warn);
+    mlxr_host_record *rec = spec ? mlxr_hosts_find(&c.hosts, spec) : c.hosts.n ? &c.hosts.v[0] : NULL;
+    mlxr_net_plan plan;
+    mlxr_net_plan_init(&plan, pref, source, rec && rec->http_port ? rec->http_port : MLXR_DEFAULT_HTTP_PORT,
+                       rec ? rec->uuid : "", c.id.unique_id);
+    plan.bitrate_kbps = bitrate;
+    if (rec) mlxr_net_plan_add_record(&plan, rec->address, rec->extra_addresses);
+    else if (spec) mlxr_net_plan_add(&plan, spec, 0);
+    mlxr_net_plan_add_csv(&plan, addrs, 0);
+    if (plan.n == 0) { ctx_close(&c); return fprintf(stderr, "error: no addresses (pair a host, or pass <host> or --addr)\n"), 2; }
+
+    mlxr_netifs t;
+    mlxr_netifs_read(&t);
+    printf("interfaces (nl80211 %s):\n", t.nl80211 ? "ok" : "unavailable");
+    for (int i = 0; i < t.n; i++) {
+        const mlxr_netif *f = &t.v[i];
+        if (f->loopback) continue;
+        printf("  %-8s %u.%u.%u.%u/%d%s%s%s\n", f->name, f->addr >> 24, (f->addr >> 16) & 255, (f->addr >> 8) & 255,
+               f->addr & 255, __builtin_popcount(f->mask), f->up ? "" : " (down)", f->default_route ? " default-route" : "",
+               f->wifi ? (mlxr_netif_is_ap(&t, f) ? " wifi:AP" : " wifi:managed") : " wired");
+    }
+    int pick = -1;
+    if (plan.pref == MLXR_NET_AUTO && samples != 7) {
+        mlxr_net_plan_classify(&plan, &t);
+        mlxr_net_plan_read_links(&plan, &t);
+        mlxr_net_probe(&plan, NULL, samples, false);
+        pick = mlxr_net_choose(&plan);
+    } else {
+        pick = mlxr_net_select(&plan, &t);
+    }
+    printf("setting: %s (from %s)\n", mlxr_net_pref_name(plan.pref), plan.source);
+    for (int i = 0; i < plan.n; i++) {
+        const mlxr_net_cand *k = &plan.c[i];
+        char desc[96];
+        mlxr_net_path_describe(k->path, &k->link, desc, sizeof desc);
+        printf("candidate %s  path=%s via %s\n", k->address, desc, k->ifname[0] ? k->ifname : "?");
+        if (!k->probed) printf("  probe:   not probed\n");
+        else if (k->ok == 0) printf("  probe:   no answer, %d/%d failed (%s)\n", k->failed, k->sent, k->error);
+        else printf("  probe:   %d/%d ok, median %.1f ms, jitter %.1f ms%s; serverinfo took %.0f ms\n", k->ok, k->sent, k->median_ms,
+                    k->jitter_ms, k->failed ? " (some failed)" : "", k->info_ms);
+        if (k->probed && k->n_rtt) {
+            printf("  connect ms:");
+            for (int s = 0; s < k->n_rtt; s++) printf(" %.1f", k->rtt_ms[s]);
+            printf("\n");
+        }
+        if (k->link.valid && k->link.wifi)
+            printf("  link:    %d dBm, tx %.0f Mbit/s %s, quality %.0f/100\n", k->link.signal_dbm, k->link.tx_mbps, k->link.tx_desc,
+                   k->link_quality);
+        else if (k->link.valid) printf("  link:    wired, quality %.0f/100\n", k->link_quality);
+    }
+    if (pick >= 0) printf("choice: %s %s\n        reason: %s\n        toast: %s\n", plan.chosen_desc, plan.c[pick].address,
+                          plan.reason, plan.toast[0] ? plan.toast : plan.connected);
+    else printf("choice: none answered\n");
+    ctx_close(&c);
+    return pick >= 0 ? 0 : 3;
+}
+
 int main(int argc, char **argv)
 {
     if (getenv("MLXR_VERBOSE")) mlxr_set_log(logfn, NULL);
@@ -373,6 +452,7 @@ int main(int argc, char **argv)
                 "       mlxr-cli launch <host> <appid> <WxHxFPS> [--hdr]\n"
                 "       mlxr-cli quit <host>\n"
                 "       mlxr-cli clipboard <host> [--show]   (Apollo, while streaming)\n"
+                "       mlxr-cli probe-paths [<host>] [--addr a,b] [--network auto|home|adapter]\n"
                 "config dir: $MLXR_CONFIG_DIR or ~/.config/moonlight-xr\n");
         return 1;
     }
@@ -385,6 +465,7 @@ int main(int argc, char **argv)
     if (!strcmp(cmd, "apps")) return cmd_apps(argc, argv);
     if (!strcmp(cmd, "launch")) return cmd_launch(argc, argv);
     if (!strcmp(cmd, "quit")) return cmd_quit(argc, argv);
+    if (!strcmp(cmd, "probe-paths")) return cmd_probe_paths(argc, argv);
     if (!strcmp(cmd, "clipboard")) return cmd_clipboard(argc, argv);
     fprintf(stderr, "unknown command: %s\n", cmd);
     return 1;

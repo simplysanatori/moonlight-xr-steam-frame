@@ -14,6 +14,7 @@ mlxr_backend_test(backend_test_parse test_parse.c)
 mlxr_backend_test(backend_test_crypto test_crypto.c)
 mlxr_backend_test(backend_test_identity test_identity.c)
 mlxr_backend_test(backend_test_flow test_flow.c fake_host.c)
+mlxr_backend_test(backend_test_netpath test_netpath.c fake_host.c)
 
 if(TARGET mlxr_backend_ll)
   mlxr_backend_test(backend_test_glue test_glue.c)

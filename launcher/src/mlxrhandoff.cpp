@@ -165,6 +165,14 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
     MlxrPrefs* prefs = MlxrPrefs::get();
     a << prefs->clientArgs();
     plan.clipboardSync = prefs->clipboardSync;
+    // The network path (Auto, Wi-Fi, Steam Frame Wireless Adapter): the flat launcher's setting
+    // "networkPath", auto|home|adapter. An unknown value is left to the VR client's own config.ini.
+    {
+        const QString np = QSettings().value("networkPath", "auto").toString().trimmed().toLower();
+        if (np == "auto" || np == "home" || np == "adapter") {
+            a << "--network" << np;
+        }
+    }
     a << "--exit-to-caller";
     // Debugging and tests: extra flags for the client, e.g. "--seconds 30"
     const QString extra = qEnvironmentVariable("MLXR_LAUNCHER_EXTRA_ARGS");
@@ -349,6 +357,27 @@ bool exportPairing(const NvComputer& c, QString* error)
         return false;
     }
 
+    QList<HostRecord> all = readHosts(dir + "/hosts.ini");
+    // Keep the addresses this PC was known by before: the launcher knows only some of them at a time
+    // (mDNS finds one, the other link may be asleep), and the VR client chooses the network path
+    // (Wi-Fi or the Steam Frame Wireless Adapter) among all of them
+    for (const HostRecord& h : all) {
+        if (h.uuid.compare(uuid, Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        for (const auto& kv : h.fields) {
+            if (kv.first != "address" && kv.first != "extra_addresses") {
+                continue;
+            }
+            for (const QString& old : kv.second.split(',', Qt::SkipEmptyParts)) {
+                const QString o = old.trimmed();
+                if (!o.isEmpty() && !isLoopback(o) && !addrs.contains(o) && addrs.size() < 8) {
+                    addrs << o;
+                }
+            }
+        }
+    }
+
     HostRecord rec;
     rec.uuid = oneLine(uuid).replace(']', '_');
     rec.fields.append({ "name", oneLine(name) });
@@ -365,7 +394,6 @@ bool exportPairing(const NvComputer& c, QString* error)
     rec.fields.append({ "https_port", QString::number(httpsPort) });
     rec.fields.append({ "cert", rel });
 
-    QList<HostRecord> all = readHosts(dir + "/hosts.ini");
     bool replaced = false;
     for (HostRecord& h : all) {
         if (h.uuid.compare(rec.uuid, Qt::CaseInsensitive) == 0) {

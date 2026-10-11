@@ -34,6 +34,7 @@ static void test_defaults(void) {
     CHECK(geti(&s, "codec") == 0 && geti(&s, "audio_config") == 0);
     CHECK(geti(&s, "virtual_surround") == 0);
     CHECK(geti(&s, "auto_desktop") == 0 && geti(&s, "check_updates") == 1);
+    CHECK(geti(&s, "network_path") == 0);   // auto
     CHECK(strcmp(gets(&s, "language"), "default") == 0);
     // VR Settings table of the fork README
     CHECK(geti(&s, "vr_mode") == 1);
@@ -134,7 +135,7 @@ static const char* const README_KEYS[] = {
     // VR Debugging
     "depth_rate", "depth_debug", "eye_swap", "file_log",
     // elsewhere
-    "virtual_surround", "auto_desktop", "language", "check_updates",
+    "virtual_surround", "network_path", "auto_desktop", "language", "check_updates",
     // stream
     "host", "app", "resolution", "fps", "bitrate_kbps", "codec", "audio_config", "frame_pacing",
     // the panel: Screen, Display, 3D, Room
@@ -321,6 +322,24 @@ static void test_clamping(void) {
     settings_from_text(&e, "[stream]\ncodec = HEVC\naudio_config = 2\nresolution = 1920x1080\nvirtual_surround = Yes\ncheck_updates = off\n", NULL);
     CHECK(e.codec == 2 && e.audio_config == 2 && strcmp(SETTINGS_RESOLUTIONS[e.resolution], "1920x1080") == 0);
     CHECK(e.virtual_surround == 1 && e.check_updates == 0);
+}
+
+static void test_network_path(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    settings_from_text(&s, "[stream]\nnetwork_path = adapter\n", &info);
+    CHECK(s.network_path == 2);
+    settings_from_text(&s, "[stream]\nnetwork_path = Home\n", &info);
+    CHECK(s.network_path == 1);
+    settings_from_text(&s, "[stream]\nnetwork_path = ethernet\n", &info);   // not a value: the last good one stays
+    CHECK(s.network_path == 1 && info.bad == 1);
+    settings_defaults(&s);
+    CHECK(s.network_path == 0);
+    s.network_path = 2;
+    char* text = settings_to_text(&s);
+    CHECK(text && strstr(text, "network_path = adapter"));
+    free(text);
 }
 
 static void test_tolerant(void) {
@@ -529,6 +548,7 @@ int main(void) {
     test_round_trip();
     test_defaults_commented_out();
     test_clamping();
+    test_network_path();
     test_tolerant();
     test_files();
     test_sliders();

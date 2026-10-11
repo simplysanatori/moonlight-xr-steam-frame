@@ -29,6 +29,7 @@ const int SETTINGS_FPS_COUNT = 5;
 static const char* const FPS_NAMES[] = { "30", "60", "72", "90", "120" };
 static const char* const CODEC_NAMES[] = { "auto", "av1", "hevc", "h264" };
 static const char* const AUDIO_NAMES[] = { "stereo", "5.1", "7.1" };
+static const char* const NETWORK_NAMES[] = { "auto", "home", "adapter" };
 static const char* const PACING_NAMES[] = { "latency", "balanced", "cap-fps", "smoothness" };
 static const char* const TOGGLE_NAMES[] = { "menu_grip", "sticks", "triggers_grips" };
 static const char* const ENV_NAMES[] = { "auto", "passthrough", "void", "home_theater",
@@ -68,6 +69,7 @@ static const SettingDesc TABLE[] = {
     DE("stream", "audio_config", audio_config, AUDIO_NAMES, 0, "list_audio_config: stereo, 5.1, 7.1"),
     DB("stream", "virtual_surround", virtual_surround, 0, "checkbox_vr_virtual_surround: place 5.1 and 7.1 speakers around you in stereo"),
     DE("stream", "frame_pacing", frame_pacing, PACING_NAMES, 0, "frame_pacing"),
+    DE("stream", "network_path", network_path, NETWORK_NAMES, 0, "native: which link reaches the PC: auto (probe both), home (Wi-Fi) or adapter (Steam Frame Wireless Adapter); the --network flag and MLXR_NETWORK override it"),
     DB("stream", "auto_desktop", auto_desktop, 0, "Host: open Desktop automatically"),
     DB("stream", "check_updates", check_updates, 1, "About: check for updates once a day"),
     DS("stream", "language", language, "default", "UI language (English only for now)"),
