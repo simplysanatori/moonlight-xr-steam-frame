@@ -29,7 +29,19 @@ cd "$HERE" || exit 1
 BIN=./moonlight-xr-launcher
 [ -x "$BIN" ] || { echo "no $HERE/moonlight-xr-launcher (run launcher/install-launcher.sh)" >&2; exit 1; }
 [ -f "$LOGDIR/moonlight-launcher.log" ] && mv -f "$LOGDIR/moonlight-launcher.log" "$LOGDIR/moonlight-launcher.log.1"
+# SteamVR's own frame timing for the whole run (frames the compositor reused,
+# dropped or reprojected), a line a second into vrtiming.log, the last run's
+# kept as .1: read-only, MLXR_VRTIMING=0 turns it off
+PROBE_PID=
+if [ "${MLXR_VRTIMING:-1}" != 0 ] && [ -f "$HERE/vrtiming.py" ] && command -v python3 >/dev/null; then
+    [ -f "$LOGDIR/vrtiming.log" ] && mv -f "$LOGDIR/vrtiming.log" "$LOGDIR/vrtiming.log.1"
+    python3 -I "$HERE/vrtiming.py" 86400 "$LOGDIR/vrtiming.log" >/dev/null 2>&1 &
+    PROBE_PID=$!
+fi
 {
     echo "== $(date -Is) launching $BIN $* (SteamAppId=${SteamAppId:-none}, client $MLXR_NATIVE_CLIENT)"
-    exec "$BIN" "$@"
+    "$BIN" "$@"
 } >"$LOGDIR/moonlight-launcher.log" 2>&1
+rc=$?
+[ -n "$PROBE_PID" ] && kill "$PROBE_PID" 2>/dev/null
+exit $rc

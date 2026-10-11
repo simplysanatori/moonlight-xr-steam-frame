@@ -49,7 +49,7 @@ if [ -x "$HERE/app/moonlight-xr" ]; then          # unpacked release
     FRAMEMODELS="$HERE/frame-controller-models.py"
     CLI="$PAY/mlxr-cli"; MAIN="$PAY/moonlight-xr"; HELLO=""
     SEEDDIR="$PAY"; CEFPY="$HERE/steam_cef.py"; DOCS="$HERE"
-    BUGREPORT="$PAY/bug-report.sh"; PROBE="$PAY/docs/probe/SUMMARY.md"
+    BUGREPORT="$PAY/bug-report.sh"; PROBE="$PAY/docs/probe/SUMMARY.md"; VRTIMING="$PAY/vrtiming.py"
     LAUNCHER_BIN="$PAY/moonlight-xr-launcher"; LAUNCHER_SH="$PAY/moonlight-xr-launcher.sh"
     [ -z "$ART" ] && [ -d "$HERE/art" ] && ART="$HERE/art"
 else                                              # source checkout
@@ -59,7 +59,7 @@ else                                              # source checkout
     ASSETS="$SRC/assets"; WRAPPER="$HERE/moonlight-xr.sh"
     CLI="$BUILD/backend/mlxr-cli"; MAIN="$BUILD/moonlight-xr"; HELLO="$BUILD/hello/mlxr-hello"
     SEEDDIR="$SRC/backend"; CEFPY="$HERE/steam_cef.py"; DOCS="$SRC"
-    BUGREPORT="$SRC/tools/bug-report.sh"; PROBE="$SRC/docs/probe/SUMMARY.md"
+    BUGREPORT="$SRC/tools/bug-report.sh"; PROBE="$SRC/docs/probe/SUMMARY.md"; VRTIMING="$SRC/tools/vrtiming.py"
     LAUNCHER_BIN="$SRC/build-launcher/moonlight-xr-launcher"; LAUNCHER_SH="$SRC/launcher/moonlight-xr-launcher.sh"
     [ -z "$ART" ] && [ -d "$HERE/art" ] && ART="$HERE/art"
 fi
@@ -87,6 +87,7 @@ else
     install -m644 "$SEEDDIR/seed_moonlight_qt.py" "$DEST/seed_moonlight_qt.py"
     echo "  seed-from-moonlight-qt.sh"
     install -m755 "$BUGREPORT" "$DEST/bug-report.sh"
+    [ -f "$VRTIMING" ] && install -m755 "$VRTIMING" "$DEST/vrtiming.py" && echo "  vrtiming.py (SteamVR frame timing, logged by the launcher)"
     if [ -f "$PROBE" ]; then mkdir -p "$DEST/docs/probe"; install -m644 "$PROBE" "$DEST/docs/probe/SUMMARY.md"; fi
     echo "  bug-report.sh"
     if [ "$MODE" = release ]; then [ -f "$PAY/VERSION" ] && install -m644 "$PAY/VERSION" "$DEST/VERSION"
