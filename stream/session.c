@@ -257,6 +257,10 @@ void stream_scroll(int amount) {
     if (atomic_load(&g_connected)) LiSendHighResScrollEvent((short)amount);
 }
 
+void stream_hscroll(int amount) {
+    if (atomic_load(&g_connected)) LiSendHighResHScrollEvent((short)amount);
+}
+
 void stream_mouse_move(int dx, int dy) {
     if (atomic_load(&g_connected)) LiSendMouseMoveEvent((short)dx, (short)dy);
 }

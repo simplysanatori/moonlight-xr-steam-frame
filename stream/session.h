@@ -41,6 +41,7 @@ int stream_failed(void);    // 1 once the connection has terminated or failed
 void stream_pointer(int x, int y, int w, int h);
 void stream_button(int button, int down);
 void stream_scroll(int amount);
+void stream_hscroll(int amount); // high-res horizontal wheel, 120 per notch
 // Relative mouse motion (head aim)
 void stream_mouse_move(int dx, int dy);
 void stream_stats(char* buf, int len);

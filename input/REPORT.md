@@ -127,3 +127,29 @@ Normal gamepads connected to the Frame (Bluetooth or USB) reach the host as Moon
 5. Turn the pad off: it disappears on the PC; turn it on: it comes back.
 6. Hold Start+Select+L1+R1 on the physical pad: the VR client leaves the stream and the host's session stays (flat UI shows Resume), same as the Frame pad's chord.
 7. `moonlight.log` has one `gamepad #N arrived: ...` line per pad (name, GUID, mapping). If a pad does nothing, send that line.
+
+# Physical mice (lane/mouse, 2026-10-10)
+
+A USB or Bluetooth mouse acts as the host's mouse while the VR client is focused and streaming. Native addition; behaviour follows moonlight-qt's `app/streaming/input/mouse.cpp`.
+
+## Files
+| File | Role |
+|---|---|
+| `input/evmouse.[ch]` | library `mlxr_input_core`: evdev reader thread (hotplug scan every 2 s, `EVIOCGRAB` while active, released otherwise), forwarding through a sink, and the pointer filter |
+| `stream/session.c` | `stream_hscroll` (`LiSendHighResHScrollEvent`) next to the existing `stream_mouse_move/button/scroll` |
+| `app/main.c` | sink hooks, `evmouse_set_active` next to `evkbd_set_active` (same gate: streaming, focused, `stream_running()`; the headset UI does not block it, as with the keyboard), `pointerHook` asks `evmouse_abs_filter` first |
+| `tests/input/test_evmouse.c` | ctest `input_evmouse` (pipes as fake evdev, recording sink, fake grab) |
+
+## Behaviour
+- Device: EV_REL with REL_X and REL_Y and BTN_LEFT (touchpads and tablets are ignored; names starting "Steam" and `MLXR_MOUSE_IGNORE=<substring>` are skipped). Read-only on this Frame: the EXAMPLE0 Q1 Pro's "Mouse" interface (event7, crw-rw---- root:input, user is in `input`) qualifies, so no sudo is needed.
+- Motion: REL_X/REL_Y summed per SYN_REPORT, one `LiSendMouseMoveEvent` per packet (split above a short). `MLXR_MOUSE_SCALE=<f>` scales it, the fractional part is carried between packets. SYN_DROPPED discards the packet in flight.
+- Buttons: left, right, middle, BTN_SIDE/BTN_BACK = X1, BTN_EXTRA/BTN_FORWARD = X2 (`LiSendMouseButtonEvent`). A press made while not forwarding is never sent, and buttons the host has down are released when forwarding stops.
+- Wheel: REL_WHEEL_HI_RES and REL_HWHEEL_HI_RES (120 per notch) to `LiSendHighResScrollEvent` / `LiSendHighResHScrollEvent`; a mouse without hi-res sends REL_WHEEL/REL_HWHEEL times 120. With hi-res the legacy notch events are ignored (the kernel sends both).
+- Grab: `EVIOCGRAB` while active, as the keyboard; a failed grab is logged and the mouse is forwarded anyway. `MLXR_MOUSE=0` turns the module off.
+- Controller pointer: the ray sends absolute positions, the mouse relative ones. After any forwarded mouse activity the ray's absolute updates are dropped for 1 s, and then until the aim has moved 3% of the video width from where it was at the last mouse use ("the controller pointer is parked" / "its pointer resumes" in `moonlight.log`). `MLXR_MOUSE_PARK=0` switches this off, `MLXR_MOUSE_PARK_MS` and `MLXR_MOUSE_PARK_DIST` tune it. The pointer's smoothing and click hold are untouched; the dot in the headset still follows the controller, only the host cursor is left to the mouse.
+
+## Owner test
+1. Pair the mouse in SteamOS Bluetooth settings. Start a stream in VR as usual (`moonlight.log` says `mouse found: <name>` and `grabbed for the host`).
+2. Move, click left/right/middle (and side buttons), scroll up/down and sideways (tilt wheel): the host cursor follows, clicks and scrolls land.
+3. Pick up a controller and aim: after a second of no mouse use and a visible aim movement the host cursor goes to the ray again; moving the mouse takes it back.
+4. Take the headset UI out of focus or end the stream: the mouse is released to SteamOS. If nothing happens, send the `mouse` lines of `moonlight.log`.
