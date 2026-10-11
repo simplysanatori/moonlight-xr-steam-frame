@@ -30,6 +30,9 @@ MlxrPrioMode mlxr_prio_mode_parse(const char* s, MlxrPrioMode def);
  */
 MlxrPrioMode mlxr_thread_raise_priority(MlxrPrioMode want, char* said, int saidLen);
 
+/** Native (lane perf): the same for another thread of this process (kernel id). */
+MlxrPrioMode mlxr_thread_raise_priority_tid(int tid, MlxrPrioMode want, char* said, int saidLen);
+
 /** The calling thread's kernel id. */
 int mlxr_thread_id(void);
 

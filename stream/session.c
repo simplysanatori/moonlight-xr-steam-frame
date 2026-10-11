@@ -2,6 +2,7 @@
 // app/streaming/session.cpp. GPLv3.
 #include "session.h"
 
+#include <dirent.h>
 #include <openssl/rand.h>
 #include <pthread.h>
 #include <stdarg.h>
@@ -9,12 +10,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
+#include "../audio/thread_prio.h"
 #include "../xr/mlxr_log.h"
 #include "../input/gamepads.h"
 #include "../input/rumble.h"
 #include "../xr/xr_pad_bridge.h"
 #include "hw_video.h"
+#include "rfi_watch.h"
 #include "sw_decoder.h"
 
 static FrameSlot* g_video;
@@ -27,6 +31,11 @@ static atomic_int g_connected, g_failed;
 static atomic_uint_fast64_t g_units, g_idr;
 static int g_lastErr;
 static int g_rfi; // Native (lane av-latency): reference frame invalidation advertised for this stream
+// Native (lane perf): the RFI watchdog (rfi_watch.h), under g_latLock, and the
+// video threads' priority (MLXR_VIDEO_PRIORITY)
+static MlxrRfiWatch g_rfiWatch;
+static MlxrRfiWatch g_rfiPrev; // counters at the last latency line
+static MlxrPrioMode g_videoPrio = MLXR_PRIO_NICE;
 
 // Native (lane av-latency): video latency parts per stats window, written by
 // common-c's decoder thread (drSubmit), read and reset by the log
@@ -66,11 +75,20 @@ void stream_latency_line(char* buf, int len) {
     snprintf(buf, (size_t)len,
              "host encode %.1f ms (max %.1f), frame received over %.1f ms (max %.1f), queued %.1f ms (max %.1f), "
              "rtt %u ms (variance %u), frames lost on the network %llu, dropped waiting for IDR %llu / RFI %llu, "
-             "IDR requests %llu",
+             "IDR requests %llu; RFI waits %llu (%llu ended by the host's recovery frame), %.0f ms avg (max %llu), "
+             "IDR asked by the RFI watchdog %llu (after %d ms, MLXR_VIDEO_RFI_IDR_MS)",
              g_lat.hostN ? g_lat.hostMsSum / g_lat.hostN : 0.0, g_lat.hostMsMax, g_lat.recvMsSum / n, g_lat.recvMsMax,
              g_lat.queueMsSum / n, g_lat.queueMsMax, rtt, var, (unsigned long long)g_lat.netLost,
              (unsigned long long)g_lat.idrWaitDrops, (unsigned long long)g_lat.rfiWaitDrops,
-             (unsigned long long)g_lat.idrRequests);
+             (unsigned long long)g_lat.idrRequests, (unsigned long long)(g_rfiWatch.waits - g_rfiPrev.waits),
+             (unsigned long long)(g_rfiWatch.recovered - g_rfiPrev.recovered),
+             g_rfiWatch.closed > g_rfiPrev.closed
+                 ? (double)(g_rfiWatch.waitMsSum - g_rfiPrev.waitMsSum) / (double)(g_rfiWatch.closed - g_rfiPrev.closed)
+                 : 0.0,
+             (unsigned long long)g_rfiWatch.waitMsMax, (unsigned long long)(g_rfiWatch.idrAsked - g_rfiPrev.idrAsked),
+             g_rfiWatch.timeoutMs);
+    g_rfiPrev = g_rfiWatch;
+    g_rfiWatch.waitMsMax = 0;
     memset(&g_lat, 0, sizeof(g_lat));
     pthread_mutex_unlock(&g_latLock);
 }
@@ -88,6 +106,7 @@ static int drSetup(int videoFormat, int width, int height, int redrawRate, void*
                              LiRequestIdrFrame);
         if (g_hw) {
             hw_video_set_idr_on_corrupt(g_hw, g_rfi);
+            hw_video_set_thread_priority(g_hw, g_videoPrio);
             hw_video_set_current(g_hw);
             return 0;
         }
@@ -147,9 +166,39 @@ static void clStageFailed(int stage, int err) {
     MLOG_E("stream stage %s failed: %d", LiGetStageName(stage), err);
     g_lastErr = err;
 }
+// Native (lane perf): common-c's video receive thread (UDP, FEC) and decoder
+// thread (hands AUs to the Iris decoder) above the frame loop's helpers, the
+// panel worker and the depth engine (~1.5 of the 5 cores SteamOS gives a
+// game here, 3-7): a packet burst then is read off the socket at once and a
+// frame reaches the decoder without waiting for a CPU. As the audio receive
+// thread (MLXR_AUDIO_PRIORITY); MLXR_VIDEO_PRIORITY=off|nice|rt, nice by default.
+static void raiseVideoThreads(void) {
+    if (g_videoPrio == MLXR_PRIO_OFF) return;
+    DIR* d = opendir("/proc/self/task");
+    if (!d) return;
+    struct dirent* e;
+    while ((e = readdir(d)) != NULL) {
+        int tid = atoi(e->d_name);
+        if (tid <= 0) continue;
+        char path[64], comm[32] = "";
+        snprintf(path, sizeof(path), "/proc/self/task/%d/comm", tid);
+        FILE* f = fopen(path, "r");
+        if (!f) continue;
+        if (!fgets(comm, sizeof(comm), f)) comm[0] = 0;
+        fclose(f);
+        comm[strcspn(comm, "\n")] = 0;
+        if (strcmp(comm, "VideoRecv") != 0 && strcmp(comm, "VideoDec") != 0) continue;
+        char said[256];
+        mlxr_thread_raise_priority_tid(tid, g_videoPrio, said, sizeof(said));
+        MLOG_I("video: %s thread %s", comm, said);
+    }
+    closedir(d);
+}
+
 static void clStarted(void) {
     MLOG_I("stream connected");
     atomic_store(&g_connected, 1);
+    raiseVideoThreads();
 }
 static void clTerminated(int err) {
     MLOG_W("stream terminated: %d", err);
@@ -174,7 +223,16 @@ static void clLog(const char* fmt, ...) {
         else if (strstr(buf, "Waiting for IDR frame")) g_lat.idrWaitDrops++;
         else if (strstr(buf, "Waiting for RFI frame")) g_lat.rfiWaitDrops++;
         else if (strstr(buf, "IDR frame request sent")) g_lat.idrRequests++;
+        // Native (lane perf): an RFI wait that drags on asks for an IDR frame
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        uint64_t nowMs = (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+        int askIdr = g_rfi && mlxr_rfi_watch_line(&g_rfiWatch, buf, nowMs);
         pthread_mutex_unlock(&g_latLock);
+        if (askIdr) {
+            MLOG_I("video: RFI recovery not here after %d ms, asking for an IDR frame", g_rfiWatch.timeoutMs);
+            LiRequestIdrFrame();
+        }
     }
     MLOG_I("common-c: %s", buf);
 }
@@ -244,6 +302,22 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     if (g_rfi) dr.capabilities |= CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC;
     MLOG_I("video: reference frame invalidation %s (MLXR_VIDEO_RFI=%s)", g_rfi ? "advertised (HEVC)" : "off",
            rfiEnv ? rfiEnv : "unset");
+    // Native (lane perf): the RFI watchdog (rfi_watch.h): 100 ms and 3 dropped
+    // frames by default, an IDR request every 300 ms after that
+    const char* idrMsEnv = getenv("MLXR_VIDEO_RFI_IDR_MS");
+    int idrMs = idrMsEnv && *idrMsEnv ? atoi(idrMsEnv) : 100;
+    pthread_mutex_lock(&g_latLock);
+    mlxr_rfi_watch_init(&g_rfiWatch, idrMs < 0 ? 0 : idrMs, 3, 300);
+    g_rfiPrev = g_rfiWatch;
+    pthread_mutex_unlock(&g_latLock);
+    if (g_rfi)
+        MLOG_I("video: RFI watchdog: an IDR frame after %d ms of waiting for a recovery frame%s (MLXR_VIDEO_RFI_IDR_MS=%s)",
+               idrMs, idrMs > 0 ? "" : " (off)", idrMsEnv ? idrMsEnv : "unset");
+    const char* prioEnv = getenv("MLXR_VIDEO_PRIORITY");
+    g_videoPrio = mlxr_prio_mode_parse(prioEnv, MLXR_PRIO_NICE);
+    MLOG_I("video: receive and decode threads to %s (MLXR_VIDEO_PRIORITY=%s)",
+           g_videoPrio == MLXR_PRIO_OFF ? "normal priority" : g_videoPrio == MLXR_PRIO_REALTIME ? "realtime" : "nice -10",
+           prioEnv ? prioEnv : "unset");
 
     AUDIO_RENDERER_CALLBACKS noAudio;
     LiInitializeAudioCallbacks(&noAudio);

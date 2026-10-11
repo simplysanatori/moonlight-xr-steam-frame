@@ -168,11 +168,16 @@ static int raiseNice(Rtkit* r, int* haveRtkit, int tid, char* said, int saidLen)
 }
 
 MlxrPrioMode mlxr_thread_raise_priority(MlxrPrioMode want, char* said, int saidLen) {
+    return mlxr_thread_raise_priority_tid(mlxr_thread_id(), want, said, saidLen);
+}
+
+// Native (lane perf): any thread of this process (rtkit takes a thread id of
+// the caller's process; setpriority one of ours)
+MlxrPrioMode mlxr_thread_raise_priority_tid(int tid, MlxrPrioMode want, char* said, int saidLen) {
     if (want == MLXR_PRIO_OFF) {
         snprintf(said, (size_t) saidLen, "left at normal priority (off)");
         return MLXR_PRIO_OFF;
     }
-    int tid = mlxr_thread_id();
     Rtkit r;
     memset(&r, 0, sizeof r);
     int haveRtkit = 0;

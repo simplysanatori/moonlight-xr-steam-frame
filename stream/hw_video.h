@@ -20,6 +20,15 @@ typedef struct HwVideoStats {
     // two new frames: judder), pacer catch-up drops, frames waiting summed
     uint64_t refreshes, shown, holes, catchUpDrops, queuedSum;
     uint64_t corrupt;    // pictures the decoder flagged V4L2_BUF_FLAG_ERROR
+    // Native (lane perf): per-stage latency of the frames the loop took, summed
+    // (the log takes deltas): decode = AU queued to picture out, wait = picture
+    // out to taken by the loop (the pacer queue); frames of a burst skipped
+    // for the newest after a stall; AUs in the decoder (queued, picture not
+    // out yet) at each submit, summed and the most
+    uint64_t staleDrops;
+    uint64_t takenTimed;
+    uint64_t decodeNsSum, decodeNsMax, waitNsSum, waitNsMax;
+    uint64_t inFlightSum, inFlightSamples, inFlightMax;
 } HwVideoStats;
 
 // requestIdr is called (from the decode thread) on decoder errors.
@@ -33,11 +42,15 @@ void hw_video_set_idr_on_corrupt(HwVideo* v, bool on);
 // Frame loop: newest decoded frame, if one arrived since the last take
 // (older queued ones go back to the decoder, counted as skipped).
 bool hw_video_take(HwVideo* v, mlxr_vframe* out);
-// Native (lane av-latency): the frame loop, once per display refresh. paced:
-// the pacer's pick (pacer.h: oldest queued, catch-up drops only when the
-// queue stays long); not paced: the newest, as hw_video_take. Both keep the
-// refresh statistics in HwVideoStats.
-bool hw_video_take_refresh(HwVideo* v, int paced, int displayHz, mlxr_vframe* out);
+// Native (lane av-latency): the frame loop, once per display refresh. mode
+// (MlxrPaceMode, pacer.h) smooth or low latency: the pacer's pick (oldest
+// queued, catch-up drops only when the queue stays long); newest: the newest,
+// as hw_video_take. All keep the refresh statistics in HwVideoStats; nowNs
+// (CLOCK_MONOTONIC, 0: not timed) times the taken frame's wait in the queue.
+bool hw_video_take_refresh(HwVideo* v, int mode, int displayHz, uint64_t nowNs, mlxr_vframe* out);
+// Native (lane perf): raise the decode thread's priority (MlxrPrioMode of
+// audio/thread_prio.h) when it starts; set before frames flow
+void hw_video_set_thread_priority(HwVideo* v, int mode);
 // Frame loop: a frame that will not be handed to the GPU after all.
 void hw_video_release(HwVideo* v, const mlxr_vframe* f);
 mlxr_vdec* hw_video_decoder(HwVideo* v);
@@ -46,6 +59,8 @@ mlxr_vdec* hw_video_decoder(HwVideo* v);
 bool hw_video_format_change_pending(HwVideo* v);
 void hw_video_format_change_done(HwVideo* v);
 void hw_video_stats(HwVideo* v, HwVideoStats* s);
+// Native (lane perf): start the next window's maxima (decode, wait, AUs in the decoder)
+void hw_video_reset_max(HwVideo* v);
 // Stops the decode thread but keeps the decoder open: the renderer may still
 // hold imports whose frames go back to it. Called when the stream ends.
 void hw_video_stop(HwVideo* v);

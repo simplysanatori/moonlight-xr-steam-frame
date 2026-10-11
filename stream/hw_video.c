@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../audio/thread_prio.h"
 #include "../xr/mlxr_log.h"
 #include "pacer.h"
 
@@ -23,6 +24,9 @@ struct HwVideo {
     int queued, head;
     MlxrPacer pacer;
     int pacerHz;
+    int pacerLowLatency; // Native (lane perf): the pacer's rules (mode 2)
+    atomic_int prioMode;  // Native (lane perf): decode thread priority wanted (MlxrPrioMode)
+    atomic_uint_fast64_t submittedOk, decodedOut; // Native (lane perf): AUs in the decoder
     // Native (lane av-latency): with reference frame invalidation on, a
     // picture the decoder flags as damaged asks the host for an IDR frame
     // (at most every 500 ms), the old behaviour, as a safety net
@@ -46,17 +50,35 @@ static void dropOldest(HwVideo* v, int n, uint64_t* count) {
     }
 }
 
-// Lock held
-static void popOldest(HwVideo* v, mlxr_vframe* out) {
+// Lock held. Native (lane perf): nowNs > 0 times the frame's decode and its
+// wait in the queue
+static void popOldest(HwVideo* v, mlxr_vframe* out, uint64_t nowNs) {
     *out = v->queue[v->head];
     v->head = (v->head + 1) % MLXR_PACER_MAX_QUEUED;
     v->queued--;
     v->st.taken++;
+    if (nowNs > 0 && out->t_dequeue_ns >= out->t_submit_ns && nowNs >= out->t_dequeue_ns) {
+        uint64_t dec = out->t_dequeue_ns - out->t_submit_ns, wait = nowNs - out->t_dequeue_ns;
+        v->st.takenTimed++;
+        v->st.decodeNsSum += dec;
+        if (dec > v->st.decodeNsMax) v->st.decodeNsMax = dec;
+        v->st.waitNsSum += wait;
+        if (wait > v->st.waitNsMax) v->st.waitNsMax = wait;
+    }
 }
 
 static void* decodeThread(void* arg) {
     HwVideo* v = arg;
+    int prioDone = 0;
     while (!atomic_load(&v->stop)) {
+        // Native (lane perf): once, above the frame loop's helpers and the
+        // depth engine (MLXR_VIDEO_PRIORITY, see session.c)
+        if (!prioDone && atomic_load(&v->prioMode) != MLXR_PRIO_OFF) {
+            prioDone = 1;
+            char said[256];
+            mlxr_thread_raise_priority((MlxrPrioMode)atomic_load(&v->prioMode), said, sizeof(said));
+            MLOG_I("video: decode thread %s", said);
+        }
         mlxr_vframe f;
         int r = mlxr_vdec_receive(v->dec, &f, 50);
         if (r == MLXR_VDEC_AGAIN) continue;
@@ -90,6 +112,7 @@ static void* decodeThread(void* arg) {
             }
         }
         double ms = (double)(f.t_dequeue_ns - f.t_submit_ns) * 1e-6;
+        atomic_fetch_add(&v->decodedOut, 1);
         pthread_mutex_lock(&v->lock);
         if (v->queued == MLXR_PACER_MAX_QUEUED) { // the loop fell behind: the oldest goes back
             dropOldest(v, 1, &v->st.skipped);
@@ -129,6 +152,18 @@ HwVideo* hw_video_open(mlxr_codec codec, uint32_t width, uint32_t height, void (
 int hw_video_submit(HwVideo* v, const void* const* parts, const uint32_t* sizes, uint32_t n, int64_t pts) {
     int r = mlxr_vdec_submit_parts(v->dec, parts, sizes, n, pts);
     v->st.submitted++;
+    if (r == MLXR_VDEC_OK) {
+        // Native (lane perf): AUs in the decoder now, this one included
+        uint64_t in = atomic_fetch_add(&v->submittedOk, 1) + 1;
+        uint64_t out = atomic_load(&v->decodedOut);
+        uint64_t depth = in > out ? in - out : 0;
+        if (depth > 64) depth = 64; // an AU the decoder dropped without a picture
+        pthread_mutex_lock(&v->lock);
+        v->st.inFlightSum += depth;
+        v->st.inFlightSamples++;
+        if (depth > v->st.inFlightMax) v->st.inFlightMax = depth;
+        pthread_mutex_unlock(&v->lock);
+    }
     if (r != MLXR_VDEC_OK) {
         v->st.errors++;
         if (mlxr_vdec_needs_idr(r)) {
@@ -140,29 +175,34 @@ int hw_video_submit(HwVideo* v, const void* const* parts, const uint32_t* sizes,
 }
 
 void hw_video_set_idr_on_corrupt(HwVideo* v, bool on) { v->idrOnCorrupt = on; }
+void hw_video_set_thread_priority(HwVideo* v, int mode) { atomic_store(&v->prioMode, mode); }
 
 bool hw_video_take(HwVideo* v, mlxr_vframe* out) {
     pthread_mutex_lock(&v->lock);
     bool got = v->queued > 0;
     if (got) {
         dropOldest(v, v->queued - 1, &v->st.skipped);
-        popOldest(v, out);
+        popOldest(v, out, 0);
     }
     pthread_mutex_unlock(&v->lock);
     return got;
 }
 
-bool hw_video_take_refresh(HwVideo* v, int paced, int displayHz, mlxr_vframe* out) {
+bool hw_video_take_refresh(HwVideo* v, int mode, int displayHz, uint64_t nowNs, mlxr_vframe* out) {
     pthread_mutex_lock(&v->lock);
-    if (displayHz > 0 && displayHz != v->pacerHz) {
+    int paced = mode != MLXR_PACE_NEWEST;
+    int lowLatency = mode == MLXR_PACE_LOW_LATENCY;
+    if ((displayHz > 0 && displayHz != v->pacerHz) || lowLatency != v->pacerLowLatency) {
         MlxrPacer keep = v->pacer;
-        mlxr_pacer_init(&v->pacer, displayHz);
+        if (displayHz > 0) v->pacerHz = displayHz;
+        mlxr_pacer_init_mode(&v->pacer, v->pacerHz, lowLatency);
+        v->pacerLowLatency = lowLatency;
         v->pacer.refreshes = keep.refreshes;
         v->pacer.shown = keep.shown;
         v->pacer.holes = keep.holes;
         v->pacer.catchUpDrops = keep.catchUpDrops;
         v->pacer.queuedSum = keep.queuedSum;
-        v->pacerHz = displayHz;
+        v->pacer.staleDrops = keep.staleDrops;
     }
     bool got;
     if (paced) {
@@ -170,14 +210,14 @@ bool hw_video_take_refresh(HwVideo* v, int paced, int displayHz, mlxr_vframe* ou
         int show = mlxr_pacer_refresh(&v->pacer, v->queued, &drop);
         dropOldest(v, drop, NULL);
         got = show && v->queued > 0;
-        if (got) popOldest(v, out);
+        if (got) popOldest(v, out, nowNs);
     }
     else {
         int queued = v->queued;
         got = queued > 0;
         if (got) {
             dropOldest(v, queued - 1, &v->st.skipped);
-            popOldest(v, out);
+            popOldest(v, out, nowNs);
         }
         mlxr_pacer_note(&v->pacer, queued, got);
     }
@@ -212,6 +252,13 @@ void hw_video_stats(HwVideo* v, HwVideoStats* s) {
     s->holes = v->pacer.holes;
     s->catchUpDrops = v->pacer.catchUpDrops;
     s->queuedSum = v->pacer.queuedSum;
+    s->staleDrops = v->pacer.staleDrops;
+    pthread_mutex_unlock(&v->lock);
+}
+
+void hw_video_reset_max(HwVideo* v) {
+    pthread_mutex_lock(&v->lock);
+    v->st.decodeNsMax = v->st.waitNsMax = v->st.inFlightMax = 0;
     pthread_mutex_unlock(&v->lock);
 }
 
