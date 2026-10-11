@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight-XR-Native <noreply@example.invalid>
+Date: Sun, 11 Oct 2026 06:59:06 -0400
+Subject: [PATCH] Hand-off mode: default video bitrate is twice stock's,
+ rounded to 500 kbps, capped at the slider maximum
+
+Moonlight XR Native (lane launcher2). Used wherever stock uses getDefaultBitrate; the
+first-run seed calls the same rule (getHandoffDefaultBitrate).
+---
+ app/settings/streamingpreferences.cpp | 24 ++++++++++++++++++++++--
+ app/settings/streamingpreferences.h   |  4 ++++
+ 2 files changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/app/settings/streamingpreferences.cpp b/app/settings/streamingpreferences.cpp
+index bb34f62..3a11d77 100644
+--- a/app/settings/streamingpreferences.cpp
++++ b/app/settings/streamingpreferences.cpp
+@@ -1,5 +1,6 @@
+ #include "streamingpreferences.h"
+ #include "utils.h"
++#include "streaming/mlxrhandoff.h" // Moonlight XR Native (lane launcher2)
+ 
+ #include <QSettings>
+ #include <QTranslator>
+@@ -345,7 +346,9 @@ void StreamingPreferences::save()
+     settings.setValue(SER_KEEPAWAKE, keepAwake);
+ }
+ 
+-int StreamingPreferences::getDefaultBitrate(int width, int height, int fps, bool yuv444)
++// Moonlight XR Native (lane launcher2): the stock calculation, unchanged, but it returns
++// the figure in Mbps before stock rounds it (getDefaultBitrate rounds as before)
++static float stockDefaultBitrateMbps(int width, int height, int fps, bool yuv444)
+ {
+     // Don't scale bitrate linearly beyond 60 FPS. It's definitely not a linear
+     // bitrate increase for frame rate once we get to values that high.
+@@ -398,5 +401,22 @@ int StreamingPreferences::getDefaultBitrate(int width, int height, int fps, bool
+         resolutionFactor *= 2;
+     }
+ 
+-    return qRound(resolutionFactor * frameRateFactor) * 1000;
++    return resolutionFactor * frameRateFactor;
++}
++
++// Moonlight XR Native (lane launcher2): the hand-off mode default is twice stock's figure
++// for the same resolution and frame rate (stock's table and square-root frame-rate factor
++// included), rounded to 500 kbps and capped at the Settings slider's maximum. Used everywhere
++// stock uses it (first run, the slider's reset when resolution, frame rate or 4:4:4 change).
++int StreamingPreferences::getHandoffDefaultBitrate(int width, int height, int fps, bool yuv444)
++{
++    return MlxrHandoff::headsetDefaultBitrateKbps(stockDefaultBitrateMbps(width, height, fps, yuv444));
++}
++
++int StreamingPreferences::getDefaultBitrate(int width, int height, int fps, bool yuv444)
++{
++    if (MlxrHandoff::enabled()) {
++        return getHandoffDefaultBitrate(width, height, fps, yuv444);
++    }
++    return qRound(stockDefaultBitrateMbps(width, height, fps, yuv444)) * 1000;
+ }
+diff --git a/app/settings/streamingpreferences.h b/app/settings/streamingpreferences.h
+index 3ca216f..72d16de 100644
+--- a/app/settings/streamingpreferences.h
++++ b/app/settings/streamingpreferences.h
+@@ -14,6 +14,10 @@ public:
+     Q_INVOKABLE static int
+     getDefaultBitrate(int width, int height, int fps, bool yuv444);
+ 
++    // Moonlight XR Native (lane launcher2): the hand-off mode figure, whatever the mode
++    Q_INVOKABLE static int
++    getHandoffDefaultBitrate(int width, int height, int fps, bool yuv444);
++
+     Q_INVOKABLE void save();
+ 
+     void reload();

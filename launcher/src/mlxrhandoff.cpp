@@ -826,7 +826,7 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
     // What the Steam launch options put there for games, and what this Qt app set for itself,
     // do not belong to the VR client (packaging/moonlight-xr.sh does the same)
     for (const char* v : { "LD_LIBRARY_PATH", "MESA_GL_VERSION_OVERRIDE", "MESA_GLSL_VERSION_OVERRIDE", "QSG_RENDER_LOOP",
-                           "QML_DISK_CACHE_PATH", "SDL_VIDEODRIVER", "SDL_VIDEO_WAYLAND_WMCLASS", "SDL_VIDEO_X11_WMCLASS" }) {
+                           "QML_DISK_CACHE_PATH", "QT_SCALE_FACTOR", "SDL_VIDEODRIVER", "SDL_VIDEO_WAYLAND_WMCLASS", "SDL_VIDEO_X11_WMCLASS" }) {
         env.remove(v);
     }
     if (qEnvironmentVariableIsEmpty("MLXR_LOG_DIR")) {
@@ -961,7 +961,9 @@ static void seedOnce()
         s.setValue("width", 2560);
         s.setValue("height", 1440);
         s.setValue("fps", 90);
-        s.setValue("bitrate", 80000);
+        // Moonlight XR Native (lane launcher2): the same function as the Settings page's
+        // reset, so the first run and a later change of resolution agree (98000 for 1440p at 90)
+        s.setValue("bitrate", StreamingPreferences::getHandoffDefaultBitrate(2560, 1440, 90, false));
     };
     if (!QFileInfo::exists(src) || QFileInfo(src) == QFileInfo(dest)) {
         QSettings s;
@@ -1036,8 +1038,65 @@ static NvComputer* loadComputer(const QString& spec, NvApp* app, QString* why)
     return found;
 }
 
+// Moonlight XR Native (lane launcher2): the default bitrate rule, see the header
+int headsetDefaultBitrateKbps(double stockMbps)
+{
+    return qMin(int(qRound(2.0 * stockMbps * 1000.0 / 500.0)) * 500, kMaxDefaultBitrateKbps);
+}
+
+double gameModeScale()
+{
+    if (!inGameMode()) {
+        return 1.0;
+    }
+    double scale = 1.5;
+    bool ok = false;
+    const double asked = qEnvironmentVariable("MLXR_LAUNCHER_SCALE").trimmed().toDouble(&ok);
+    if (ok && asked == asked) { // not NaN
+        scale = asked;
+    }
+    return qBound(1.0, scale, 2.5);
+}
+
+void applyGameModeScale()
+{
+    // Hand-off mode only: with MLXR_HANDOFF=0 the launcher is stock moonlight-qt. (enabled() needs the
+    // QCoreApplication for the client path, which does not exist yet, so only the switch is checked.)
+    if (!inGameMode() || qEnvironmentVariable("MLXR_HANDOFF") == "0") {
+        return;
+    }
+    if (qEnvironmentVariableIsSet("QT_SCALE_FACTOR") && qEnvironmentVariable("MLXR_LAUNCHER_SCALE").isEmpty()) {
+        return; // the owner's own setting
+    }
+    qputenv("QT_SCALE_FACTOR", QByteArray::number(gameModeScale(), 'g', 4));
+}
+
+// "bitrate:2560x1440x90[x444]" and "scale" for tests/launcher: no UI, nothing else runs
+static int selfTestValue(const QString& spec)
+{
+    if (spec == "scale") {
+        QTextStream(stdout) << "SELFTEST: scale=" << QByteArray::number(gameModeScale(), 'g', 4)
+                            << " QT_SCALE_FACTOR=" << qEnvironmentVariable("QT_SCALE_FACTOR") << Qt::endl;
+        return 0;
+    }
+    const QStringList p = spec.mid(8).split('x');
+    if (p.size() < 3) {
+        QTextStream(stderr) << "SELFTEST: bitrate:<W>x<H>x<FPS>[x444]" << Qt::endl;
+        return 20;
+    }
+    QTextStream(stdout) << "SELFTEST: bitrate=" << StreamingPreferences::getDefaultBitrate(p[0].toInt(), p[1].toInt(), p[2].toInt(), p.size() > 3 && p[3] == "444")
+                        << " handoff=" << (enabled() ? "yes" : "no") << Qt::endl;
+    return 0;
+}
+
 int selfTest(const QString& spec)
 {
+    if (spec == "scale" || spec.startsWith("bitrate:")) {
+        const int rc = selfTestValue(spec);
+        fflush(stdout);
+        fflush(stderr);
+        _exit(rc);
+    }
     NvApp app;
     QString why;
     NvComputer* found = loadComputer(spec, &app, &why);

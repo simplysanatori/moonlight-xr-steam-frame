@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Sun, 11 Oct 2026 07:45:46 -0400
+Subject: [PATCH] Hand-off mode: the Help button opens this app's readme
+
+Moonlight XR Native (lane launcher2). Stock opens the moonlight-docs Setup-Guide; the other help links stay stock.
+---
+ app/gui/main.qml | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/app/gui/main.qml b/app/gui/main.qml
+index f96fa7e..e08011f 100644
+--- a/app/gui/main.qml
++++ b/app/gui/main.qml
+@@ -374,7 +374,11 @@ ApplicationWindow {
+                 }
+ 
+                 // TODO need to make sure browser is brought to foreground.
+-                onClicked: Qt.openUrlExternally("https://github.com/moonlight-stream/moonlight-docs/wiki/Setup-Guide");
++                // Moonlight XR Native (lane launcher2): in hand-off mode the Help button opens this app's own
++                // readme; the other help links stay stock
++                onClicked: Qt.openUrlExternally(SystemProperties.nativeVrHandoff ?
++                                                    "https://github.com/simplysanatori/moonlight-xr-steam-frame#readme" :
++                                                    "https://github.com/moonlight-stream/moonlight-docs/wiki/Setup-Guide");
+ 
+                 Keys.onDownPressed: {
+                     stackView.currentItem.forceActiveFocus(Qt.TabFocus)

@@ -78,9 +78,9 @@ echo "first run: $out"
 [ -f "$CONF" ] && ok "launcher config created at $CONF" || fail "launcher config missing"
 cmp -s "$t/Moonlight.conf" "$t/Moonlight.conf.orig" && ok "source config unmodified" || fail "source config modified"
 grep -q 'gaming-pc' "$CONF" && grep -q '6E1F0C2A' "$CONF" && ok "seeded PC list is in the launcher config" || fail "hosts not copied"
-grep -q '^width=2560' "$CONF" && grep -q '^fps=90' "$CONF" && grep -q '^bitrate=80000' "$CONF" && ok "stream settings set for the headset" || fail "VR defaults not applied"
+grep -q '^width=2560' "$CONF" && grep -q '^fps=90' "$CONF" && grep -q '^bitrate=98000' "$CONF" && ok "stream settings set for the headset" || fail "VR defaults not applied"
 grep -q '^certificate=' "$CONF" && ok "identity copied" || fail "identity not copied"
-expect "1440p90 80 Mbps, HEVC (no --h264)" "$out" "--host $HOSTID --app 881448767 --mode 2560x1440x90 --bitrate 80000 --fps match --network auto --exit-to-caller"
+expect "1440p90 98 Mbps, HEVC (no --h264)" "$out" "--host $HOSTID --app 881448767 --mode 2560x1440x90 --bitrate 98000 --fps match --network auto --exit-to-caller"
 refute "no h264 flag by default" "$out" "--h264"
 case "$out" in *moonlight-xr\ --host*) ok "program is moonlight-xr";; *) fail "program";; esac
 
@@ -208,6 +208,49 @@ expect "clipboard: the PC's clipboard comes back" "$(cat "$t/stdout")" "took 16 
 [ ! -e "$MLXR_CONFIG_DIR/clipboard-to-host.txt" ] && [ ! -e "$MLXR_CONFIG_DIR/clipboard-from-host.txt" ] && ok "clipboard files removed after the stream" || fail "clipboard files left behind"
 SECTION=mlxr setconf clipboard_sync=false
 
+# --- 3c. lane launcher2: the default bitrate (hand-off mode) and the Game Mode UI scale
+# Twice stock's getDefaultBitrate (same table, same square-root frame-rate factor), rounded to
+# 500 kbps, capped at the slider's maximum (150000). The dry-run variable makes the hand-off count
+# as active; MLXR_HANDOFF=0 gives stock's own figure.
+bitrate() { # WxHxFPS[x444] -> the default bitrate in kbps
+    MLXR_LAUNCHER_DRYRUN=1 MLXR_LAUNCHER_SELFTEST="bitrate:$1" "$L" 2>/dev/null | sed -n 's/^SELFTEST: bitrate=\([0-9]*\) .*/\1/p'
+}
+for c in 1920x1080x60:40000 1920x1080x90:49000 2560x1440x60:80000 2560x1440x72:87500 2560x1440x90:98000 \
+         3840x2160x60:150000 3840x2160x90:150000 2560x1440x90x444:150000; do
+    got="$(bitrate "${c%%:*}")"
+    [ "$got" = "${c##*:}" ] && ok "default bitrate ${c%%:*} = ${c##*:} kbps" || fail "default bitrate ${c%%:*}: wanted ${c##*:}, got [$got]"
+done
+# hand-off off: stock's figure (1440p90 rounds to 49000, 1080p60 to 20000)
+for c in 2560x1440x90:49000 1920x1080x60:20000; do
+    got="$(MLXR_HANDOFF=0 MLXR_LAUNCHER_SELFTEST="bitrate:${c%%:*}" "$L" 2>/dev/null | sed -n 's/^SELFTEST: bitrate=\([0-9]*\) .*/\1/p')"
+    [ "$got" = "${c##*:}" ] && ok "hand-off off: stock bitrate ${c%%:*} = ${c##*:} kbps" || fail "stock bitrate ${c%%:*}: wanted ${c##*:}, got [$got]"
+done
+# the first-run seed (section 1: bitrate=98000) is the same function's 1440p90 value
+[ "$(bitrate 2560x1440x90)" = 98000 ] && ok "first-run seed value matches the rule" || fail "seed and rule disagree"
+scale() { # [VAR=value ...] -> "scale=X QT_SCALE_FACTOR=Y"
+    env -u QT_SCALE_FACTOR -u MLXR_LAUNCHER_SCALE "$@" MLXR_LAUNCHER_SELFTEST=scale "$L" 2>/dev/null | sed -n 's/^SELFTEST: //p'
+}
+expect "Game Mode: scale 1.5 by default" "$(scale XDG_CURRENT_DESKTOP=gamescope)" "scale=1.5 QT_SCALE_FACTOR=1.5"
+expect "Game Mode: MLXR_LAUNCHER_SCALE=2" "$(scale XDG_CURRENT_DESKTOP=gamescope MLXR_LAUNCHER_SCALE=2)" "scale=2 QT_SCALE_FACTOR=2"
+expect "Game Mode: scale clamped to 2.5" "$(scale XDG_CURRENT_DESKTOP=gamescope MLXR_LAUNCHER_SCALE=9)" "scale=2.5 QT_SCALE_FACTOR=2.5"
+expect "Game Mode: scale clamped to 1.0" "$(scale XDG_CURRENT_DESKTOP=gamescope MLXR_LAUNCHER_SCALE=0.3)" "scale=1 QT_SCALE_FACTOR=1"
+expect "Game Mode: junk scale falls back to 1.5" "$(scale XDG_CURRENT_DESKTOP=gamescope MLXR_LAUNCHER_SCALE=big)" "scale=1.5 QT_SCALE_FACTOR=1.5"
+expect "desktop: stock, QT_SCALE_FACTOR untouched" "$(scale XDG_CURRENT_DESKTOP=KDE MLXR_LAUNCHER_SCALE=2)" "scale=1 QT_SCALE_FACTOR="
+refute "desktop: no QT_SCALE_FACTOR set" "$(scale XDG_CURRENT_DESKTOP=KDE MLXR_LAUNCHER_SCALE=2)" "QT_SCALE_FACTOR=2"
+expect "Game Mode: the owner's QT_SCALE_FACTOR is kept" "$(env XDG_CURRENT_DESKTOP=gamescope QT_SCALE_FACTOR=1.25 MLXR_LAUNCHER_SELFTEST=scale "$L" 2>/dev/null)" "QT_SCALE_FACTOR=1.25"
+
+# The Help button (patch 0011): this app's readme in hand-off mode, stock's Setup-Guide otherwise. The QML is
+# compiled into the binary, so this reads the patched main.qml that launcher/build.sh left next to it.
+mq="$(dirname "$L")/src/app/gui/main.qml"
+if [ -f "$mq" ]; then
+    grep -q 'SystemProperties.nativeVrHandoff ?' "$mq" && grep -q '"https://github.com/simplysanatori/moonlight-xr-steam-frame#readme" :' "$mq" \
+        && grep -q '"https://github.com/moonlight-stream/moonlight-docs/wiki/Setup-Guide");' "$mq" \
+        && ok "Help: readme in hand-off mode, stock Setup-Guide otherwise" || fail "Help button links"
+    [ "$(grep -c 'moonlight-docs/wiki/Fixing-Hardware-Decoding-Problems' "$mq")" = 2 ] && ok "Help: the other stock links are unchanged" || fail "other stock links changed"
+else
+    echo "skip: no $mq (Help button check)"
+fi
+
 # --- 4. a client that runs: control comes back with its result
 fake="$t/fake-client.sh"
 cat >"$fake" <<'FAKE'
@@ -322,6 +365,18 @@ if [ -n "$SHOTS" ]; then
     expect "re-show hides first" "$r" "flat window hidden to show it again"
     echo "$r" | grep -Eq "flat window exposed after [0-9]+ ms and drawn \(shown again 2 time\(s\)\)" && ok "back after the second re-show" || fail "no 'exposed after ... shown again 2' line"
     refute "re-show is not reported as a hide after the stream" "$r" "hidden again"
+    # lane launcher2: the Game Mode scale (1.5) on a 1920x1080 window. The offscreen screen is
+    # 800x800, so this uses QT_SCALE_FACTOR (what the launcher sets in Game Mode) with the window
+    # at 1920/1.5 x 1080/1.5 = 1280x720 logical and a windowed UI; the grab is in device pixels.
+    # No QML errors, and the grab is 1920x1080 (the window fills the screen at that scale).
+    setconf uidisplaymode=0
+    for pg in pcs settings; do
+        pa=""; [ $pg = settings ] && pa="MLXR_LAUNCHER_PAGE=settings"
+        env HAS_DESKTOP_ENVIRONMENT=1 QT_SCALE_FACTOR=1.5 MLXR_LAUNCHER_WINDOW=1280x720 $pa MLXR_LAUNCHER_IW_FILE=/dev/null \
+            MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/scale15-$pg.png@3500" "$L" >"$t/ui9.out" 2>&1
+        grep -Eq "$QMLERR" "$t/ui9.out" && { fail "scale 1.5 $pg: QML errors"; grep -E "$QMLERR" "$t/ui9.out" | head -3; } || ok "scale 1.5: $pg page, no QML errors"
+        grep -q "scale15-$pg.png\" QSize(1920, 1080) saved" "$t/ui9.out" && ok "scale 1.5: $pg rendered 1920x1080 from a 1280x720 logical window" || fail "scale 1.5 $pg: $(grep Screenshot "$t/ui9.out")"
+    done
 fi
 echo "failures: $fails"
 [ $fails = 0 ]

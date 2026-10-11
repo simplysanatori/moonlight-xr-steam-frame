@@ -77,7 +77,25 @@ void seedLauncherConfig();
 
 // MLXR_LAUNCHER_SELFTEST="<host name|uuid>:<app name|id>": no UI. Starts a Session for it
 // from the saved hosts and exits with the hand-off's result. For tests/launcher.
+// Also (lane launcher2): "bitrate:<W>x<H>x<FPS>[x444]" prints the default bitrate
+// StreamingPreferences::getDefaultBitrate gives, "scale" prints the Game Mode UI scale.
 int selfTest(const QString& spec);
+
+// Moonlight XR Native (lane launcher2): the default video bitrate in hand-off mode is
+// twice stock's getDefaultBitrate for the same resolution and frame rate (stock's resolution
+// table and square-root frame-rate factor included), rounded to 500 kbps and capped at the
+// Settings slider's maximum. `stockMbps` is stock's figure before it is rounded to whole Mbps.
+// 1080p60 40000, 1080p90 49000, 1440p60 80000, 1440p72 87500, 1440p90 98000, 4K 150000.
+constexpr int kMaxDefaultBitrateKbps = 150000; // the slider's maximum (stock: 150000 unless "unlock")
+int headsetDefaultBitrateKbps(double stockMbps);
+
+// Moonlight XR Native (lane launcher2): the UI scale in Game Mode (XDG_CURRENT_DESKTOP is
+// gamescope), where the flat UI is a 1920x1080 window shown on the headset's flat screen. 1.5 by
+// default, MLXR_LAUNCHER_SCALE overrides it (a number, clamped 1.0..2.5); 1.0 outside Game Mode.
+double gameModeScale();
+// Sets QT_SCALE_FACTOR from gameModeScale() in Game Mode. Call before the QGuiApplication exists.
+// An existing QT_SCALE_FACTOR is kept unless MLXR_LAUNCHER_SCALE is set.
+void applyGameModeScale();
 
 // Test hooks for the UI, called after main.qml loaded:
 //   MLXR_LAUNCHER_SCREENSHOT, MLXR_LAUNCHER_PAGE: see uihooks.h (QT_QPA_PLATFORM=offscreen
