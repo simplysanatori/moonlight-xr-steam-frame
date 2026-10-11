@@ -6,7 +6,11 @@
 // always was, and resetting the screen's placement brings a moved one back.
 // The sliders: dragging the depth or convergence track moves what the picture
 // is drawn with and what the panel is drawn from before it is let go, while
-// config.ini keeps the old value until then. GPLv3.
+// config.ini keeps the old value until then.
+// Native (lane grab-pull): the picture held by its move bar, and the keyboard
+// by its own, come nearer on a stick pulled south as fast as they go away on
+// one pushed north, a slanted pull counts in full, and a pull held at the
+// least distance is not stored up against the next push. GPLv3.
 #include "check.h"
 #include "scene.h"
 #include "xr_depth.h"
@@ -387,6 +391,153 @@ static void liveSliders(Scene* s) {
     c->panelSeparation = -1.0f;
 }
 
+// ---- the picture's move bar: push and pull (lane grab-pull) ----------------
+
+// The middle of the picture's move bar, where a grip takes it
+static Vec3 pictureBarPoint(XrCtx* c) {
+    BarFrame f = barFrame(c);
+    Vec3 local = { 0.0f, -(f.height * 0.5f + f.width * BAR_DROP_FRAC), 0.0f };
+    float yaw = 0.0f;
+    curveLocal(&local, f.radius, f.curved, &yaw);
+    Vec3 r = quatRotate(f.pose.orientation, local);
+    Vec3 p = { f.pose.position.x + r.x, f.pose.position.y + r.y, f.pose.position.z + r.z };
+    return p;
+}
+
+static float fromHead(XrPosef p) {
+    return dist(pos(p), (Vec3){ 0, 0, 0 });
+}
+
+// One second of frames at the test hook's 90 Hz with the stick held as given
+static void holdStick(XrCtx* c, XrPosef aim, float x, float y) {
+    XrVector2f stick = { x, y };
+    for (int i = 0; i < 90; i++) xrGrabStepStick(c, aim, 0, 1, stick);
+}
+
+// The owner's picture: 3 m out and 3.6 m wide, flat or wrapped round
+static void pictureAt3m(Scene* s, float curve) {
+    XrCtx* c = s->ctx;
+    scene_reset(s);
+    c->headPos = (XrVector3f){ 0, 0, 0 };
+    c->kbOpen = 0;
+    c->panelCurve = curve;
+    memset(&c->screenPose, 0, sizeof(c->screenPose));
+    c->screenPose.orientation.w = 1.0f;
+    c->screenPose.position.z = -3.0f;
+    c->screenWidth = 3.6f;
+    c->screenRadius = 3.0f * (1.0f + 3.0f * (1.0f - curve));
+    c->grabMode = GRAB_NONE;
+}
+
+static void pictureBarPushPull(Scene* s) {
+    XrCtx* c = s->ctx;
+    XrPosef keepPose = c->screenPose;
+    float keepW = c->screenWidth, keepR = c->screenRadius, keepCurve = c->panelCurve;
+    const float second = GRAB_PUSH_SPEED;   // metres one second at full tilt moves it
+
+    for (int curved = 0; curved < 2; curved++) {
+        pictureAt3m(s, curved ? 1.0f : 0.0f);
+        XrPosef aim = aimAt(HAND, pictureBarPoint(c));
+        CHECK(xrGrabStepAt(c, aim, 0, 0, 0.0f) == HOVER_BAR);
+        // The grip on the bar takes the picture, and a still hand leaves it put
+        CHECK(xrGrabStepAt(c, aim, 0, 1, 0.0f) == HOVER_BAR);
+        CHECK(c->grabMode == GRAB_MOVE);
+        xrGrabStepAt(c, aim, 0, 1, 0.0f);
+        CHECK_NEAR(fromHead(c->screenPose), 3.0, 1e-3);
+
+        // A stick inside the dead zone, either way or slanted, does nothing
+        holdStick(c, aim, 0.0f, 0.15f);
+        holdStick(c, aim, 0.0f, -0.15f);
+        holdStick(c, aim, 0.12f, -0.12f);
+        CHECK_NEAR(fromHead(c->screenPose), 3.0, 1e-4);
+        // Nor does one pushed east or west
+        holdStick(c, aim, 1.0f, 0.3f);
+        holdStick(c, aim, -1.0f, -0.3f);
+        CHECK_NEAR(fromHead(c->screenPose), 3.0, 1e-4);
+
+        // North for a second sends it away, south for a second brings it back
+        // by the same, to the millimetre
+        holdStick(c, aim, 0.0f, 1.0f);
+        float away = fromHead(c->screenPose);
+        CHECK_NEAR(away - 3.0f, second, 0.01);
+        holdStick(c, aim, 0.0f, -1.0f);
+        float back = fromHead(c->screenPose);
+        CHECK_NEAR(away - back, away - 3.0f, 1e-3);
+        CHECK_NEAR(back, 3.0, 1e-3);
+        // and on past where it started, nearer still
+        holdStick(c, aim, 0.0f, -1.0f);
+        CHECK_NEAR(fromHead(c->screenPose), 3.0f - second, 0.01);
+        holdStick(c, aim, 0.0f, 1.0f);
+        CHECK_NEAR(fromHead(c->screenPose), 3.0, 1e-3);
+
+        // A thumb drawn back toward the palm goes south on a slant and short
+        // of the rim: that is a full pull too, as fast as a full push
+        holdStick(c, aim, -0.62f, -0.62f);
+        CHECK_NEAR(3.0f - fromHead(c->screenPose), second, 0.01);
+        holdStick(c, aim, 0.0f, 0.9f);
+        CHECK_NEAR(fromHead(c->screenPose), 3.0, 1e-3);
+        // Half a tilt is slower than a full one, the same either way
+        holdStick(c, aim, 0.0f, 0.5f);
+        float half = fromHead(c->screenPose) - 3.0f;
+        CHECK(half > 0.05f && half < second * 0.5f);
+        holdStick(c, aim, 0.0f, -0.5f);
+        CHECK_NEAR(fromHead(c->screenPose), 3.0, 1e-3);
+
+        // Pulled in to the least it comes to, it stays there however long
+        // the pull is held, and a push takes it straight back out: nothing of
+        // the pull was stored up
+        for (int i = 0; i < 3; i++) holdStick(c, aim, 0.0f, -1.0f);
+        CHECK_NEAR(fromHead(c->screenPose), GRAB_PUSH_NEAR_M, 1e-3);
+        XrVector2f north = { 0.0f, 1.0f };
+        xrGrabStepStick(c, aim, 0, 1, north);
+        CHECK(fromHead(c->screenPose) > GRAB_PUSH_NEAR_M + 0.01f);
+        // and the same at the far end
+        for (int i = 0; i < 6; i++) holdStick(c, aim, 0.0f, 1.0f);
+        CHECK_NEAR(fromHead(c->screenPose), GRAB_PUSH_FAR_M, 1e-3);
+        XrVector2f south = { 0.0f, -1.0f };
+        xrGrabStepStick(c, aim, 0, 1, south);
+        CHECK(fromHead(c->screenPose) < GRAB_PUSH_FAR_M - 0.01f);
+
+        // The stick seen over the hold is kept for the line said at letting go
+        CHECK(c->grabStickLo[HAND_RIGHT] == -1.0f && c->grabStickHi[HAND_RIGHT] == 1.0f);
+        CHECK(c->grabStickLo[HAND_LEFT] == 0.0f && c->grabStickHi[HAND_LEFT] == 0.0f);
+
+        // Let go, it stays where the stick left it and is saved
+        XrPosef left = c->screenPose;
+        xrGrabStepAt(c, aim, 0, 0, 0.0f);
+        CHECK(c->grabMode == GRAB_NONE && c->poseDirty);
+        CHECK(dist(pos(c->screenPose), pos(left)) == 0.0f);
+        c->poseDirty = 0;
+    }
+
+    // The keyboard held by its bar takes the same push and pull
+    pictureAt3m(s, 0.0f);
+    c->kbOpen = 1;
+    c->kbMoved = 0;
+    kbPlace(c);
+    XrPosef aim = aimAt(HAND, pillPoint(c));
+    CHECK(xrGrabStepAt(c, aim, 0, 1, 0.0f) == HOVER_KBBAR);
+    CHECK(c->grabMode == GRAB_KBMOVE);
+    xrGrabStepAt(c, aim, 0, 1, 0.0f);
+    float start = fromHead(c->kbPose);
+    holdStick(c, aim, 0.0f, 1.0f);
+    float out = fromHead(c->kbPose) - start;
+    CHECK_NEAR(out, second, 0.01);
+    holdStick(c, aim, 0.0f, -1.0f);
+    CHECK_NEAR(fromHead(c->kbPose), start, 1e-3);
+    holdStick(c, aim, 0.3f, -0.8f);
+    CHECK_NEAR(start - fromHead(c->kbPose), second, 0.01);
+    xrGrabStepAt(c, aim, 0, 0, 0.0f);
+    CHECK(c->grabMode == GRAB_NONE);
+    c->kbOpen = 0;
+    c->kbMoved = 0;
+
+    c->screenPose = keepPose;
+    c->screenWidth = keepW;
+    c->screenRadius = keepR;
+    c->panelCurve = keepCurve;
+}
+
 int main(void) {
     Scene* s = scene_new();
     defaults(s);
@@ -394,6 +545,7 @@ int main(void) {
     resets(s);
     layers(s);
     liveSliders(s);
+    pictureBarPushPull(s);
     scene_free(s);
     return checksDone("m4 kbbar");
 }

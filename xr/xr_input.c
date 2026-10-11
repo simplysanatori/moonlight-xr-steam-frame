@@ -1031,19 +1031,45 @@ static Vec3 gazeDragCarry(XrCtx* ctx, DragRamp* ramp, Vec3 travel, int64_t nowNs
 // Native (owner's request): the held screen pushed away or brought closer by
 // either thumbstick, north away, south nearer, along the line from the head
 // (and the keyboard held by its own bar, which takes the same push)
+
+// Native (lane grab-pull): how hard one stick asks to push (up to 1) or pull
+// (down to -1). The whole tilt counts, as long as it leans north or south: a
+// thumb drawn back toward the palm goes south on a slant, and the y part alone
+// of that slant, squared, pulled at a fraction of the speed north pushed at.
+static float stickPushAmount(XrVector2f stick) {
+    float r = sqrtf(stick.x * stick.x + stick.y * stick.y);
+    if (r <= GRAB_PUSH_DEADZONE || fabsf(stick.y) < r * GRAB_PUSH_SECTOR_COS) {
+        return 0.0f;
+    }
+    float t = (r - GRAB_PUSH_DEADZONE) / (GRAB_PUSH_FULL - GRAB_PUSH_DEADZONE);
+    if (t > 1.0f) t = 1.0f;
+    return copysignf(t * t, stick.y);
+}
+
+// A hold starts with nothing pushed and no stick seen
+static void grabPushStart(XrCtx* ctx) {
+    ctx->grabPush = 0.0f;
+    ctx->grabPushNs = 0;
+    for (int h = 0; h < HAND_COUNT; h++) {
+        ctx->grabStickLo[h] = 0.0f;
+        ctx->grabStickHi[h] = 0.0f;
+    }
+}
+
 static void pushHeldScreen(XrCtx* ctx, const XrVector2f* sticks, XrPosef* held) {
-    float sy = 0.0f;
+    // The stronger of the two sticks, either way
+    float push = 0.0f;
     for (int k = 0; k < HAND_COUNT; k++) {
-        if (fabsf(sticks[k].y) > fabsf(sy)) sy = sticks[k].y;
+        float a = stickPushAmount(sticks[k]);
+        if (fabsf(a) > fabsf(push)) push = a;
+        if (sticks[k].y < ctx->grabStickLo[k]) ctx->grabStickLo[k] = sticks[k].y;
+        if (sticks[k].y > ctx->grabStickHi[k]) ctx->grabStickHi[k] = sticks[k].y;
     }
     int64_t now = ctx->lastInputNs;
     float dt = ctx->grabPushNs > 0 ? (float)(now - ctx->grabPushNs) * 1e-9f : 0.0f;
     ctx->grabPushNs = now;
     if (dt > 0.1f) dt = 0.1f;
-    if (fabsf(sy) > GRAB_PUSH_DEADZONE) {
-        float t = (fabsf(sy) - GRAB_PUSH_DEADZONE) / (1.0f - GRAB_PUSH_DEADZONE);
-        ctx->grabPush += copysignf(t * t, sy) * GRAB_PUSH_SPEED * dt;
-    }
+    ctx->grabPush += push * GRAB_PUSH_SPEED * dt;
     if (ctx->grabPush == 0.0f) {
         return;
     }
@@ -1062,6 +1088,18 @@ static void pushHeldScreen(XrCtx* ctx, const XrVector2f* sticks, XrPosef* held) 
     held->position.x = ctx->headPos.x + d.x * k;
     held->position.y = ctx->headPos.y + d.y * k;
     held->position.z = ctx->headPos.z + d.z * k;
+}
+
+// Native (lane grab-pull): what the sticks did over a hold, said once when it
+// is let go, so a headset test shows whether a pull reached us at all
+static void sayGrabPush(XrCtx* ctx, const XrPosef* held) {
+    Vec3 d = { held->position.x - ctx->headPos.x, held->position.y - ctx->headPos.y,
+               held->position.z - ctx->headPos.z };
+    LOGEV("move bar let go: %.2f m from the head, sticks pushed it %+.2f m; stick y seen "
+          "left %.2f to %.2f, right %.2f to %.2f",
+          sqrtf(vecDot(d, d)), ctx->grabPush, ctx->grabStickLo[HAND_LEFT],
+          ctx->grabStickHi[HAND_LEFT], ctx->grabStickLo[HAND_RIGHT],
+          ctx->grabStickHi[HAND_RIGHT]);
 }
 
 static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* grab, int hand,
@@ -1085,6 +1123,15 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
             // keyboard's place is the session's, not a preference.
             if (ctx->grabMode != GRAB_KBMOVE && ctx->grabMode != GRAB_STATSMOVE) {
                 ctx->poseDirty = 1;
+            }
+            if (ctx->grabMode == GRAB_MOVE) {
+                sayGrabPush(ctx, &ctx->screenPose);
+            }
+            else if (ctx->grabMode == GRAB_KBMOVE) {
+                sayGrabPush(ctx, &ctx->kbPose);
+            }
+            else if (ctx->grabMode == GRAB_STATSMOVE) {
+                sayGrabPush(ctx, &ctx->statsPose);
             }
             ctx->grabMode = GRAB_NONE;
             ctx->grabByGaze = 0;
@@ -1167,8 +1214,7 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
 
         if (statsGrab) {
             ctx->grabMode = GRAB_STATSMOVE;
-            ctx->grabPush = 0.0f;
-            ctx->grabPushNs = 0;
+            grabPushStart(ctx);
             ctx->statsMoved = 1;
             ctx->statsMovedPose = ctx->statsPose;
             ctx->statsMovedH = ctx->statsH;
@@ -1176,8 +1222,7 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         }
         if (kbBar) {
             ctx->grabMode = GRAB_KBMOVE;
-            ctx->grabPush = 0.0f;
-            ctx->grabPushNs = 0;
+            grabPushStart(ctx);
             // Once taken it stays where it is put, however the screen moves
             ctx->kbMoved = 1;
             ctx->kbMovedPose = ctx->kbPose;
@@ -1185,8 +1230,7 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         }
         if (hover == HOVER_BAR) {
             ctx->grabMode = GRAB_MOVE;
-            ctx->grabPush = 0.0f;
-            ctx->grabPushNs = 0;
+            grabPushStart(ctx);
             // Read once here rather than every frame of the drag. grabScreen
             // is the pose these come off, and it was just set from screenPose.
             // Re-extracting each frame would let the rounding walk the tilt
@@ -1824,6 +1868,11 @@ int xrHoverAt(XrCtx* ctx, XrPosef aim, float* outU, float* outV, int* outCorner)
 // (0 or 1) and the thumbstick tilted by stickY (north positive). The head is
 // where ctx->headPos says. Returns what the ray was over.
 int xrGrabStepAt(XrCtx* ctx, XrPosef aim, int trigger, int grip, float stickY) {
+    XrVector2f stick = { 0.0f, stickY };
+    return xrGrabStepStick(ctx, aim, trigger, grip, stick);
+}
+
+int xrGrabStepStick(XrCtx* ctx, XrPosef aim, int trigger, int grip, XrVector2f stick) {
     InputFrame f;
     memset(&f, 0, sizeof(f));
     f.roomOn = roomEffective(ctx) > 0;
@@ -1844,7 +1893,7 @@ int xrGrabStepAt(XrCtx* ctx, XrPosef aim, int trigger, int grip, float stickY) {
     ctx->triggerDown[HAND_RIGHT] = trigger;
     ctx->lastInputNs = (ctx->lastInputNs != 0 ? ctx->lastInputNs : 1000000000L) + 11111111L;
     f.grab[HAND_RIGHT] = (float)grip;
-    f.stick[HAND_RIGHT].y = stickY;
+    f.stick[HAND_RIGHT] = stick;
     int offPicture = f.hitU[HAND_RIGHT] < 0.0f || f.hitU[HAND_RIGHT] > 1.0f
             || f.hitV[HAND_RIGHT] < 0.0f || f.hitV[HAND_RIGHT] > 1.0f;
     applyGrab(ctx, f.aimPoses, f.aimValid, f.grab, hover == HOVER_NONE ? -1 : HAND_RIGHT,

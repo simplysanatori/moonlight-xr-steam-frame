@@ -106,6 +106,13 @@ static inline int64_t nowNs(void) {
 // screen away and south brings it closer, at up to this many metres a second
 // at full tilt, and never nearer than or further than the Screen tab allows
 #define GRAB_PUSH_DEADZONE 0.20f
+// Native (lane grab-pull): the tilt that already counts as full tilt. A stick
+// pulled back toward the palm seldom reaches the rim, so pulling ran slower
+// than pushing; the rest of the way to the rim is full speed too.
+#define GRAB_PUSH_FULL 0.85f
+// Native (lane grab-pull): how far off north or south (cosine of the angle,
+// 60 degrees) a tilt still pushes or pulls; east and west do nothing
+#define GRAB_PUSH_SECTOR_COS 0.5f
 #define GRAB_PUSH_SPEED 1.5f
 #define GRAB_PUSH_NEAR_M 0.3f
 #define GRAB_PUSH_FAR_M 8.0f
@@ -890,6 +897,10 @@ typedef struct XrCtx {
     // screen away from the head (negative: brought closer), and when last
     float grabPush;
     int64_t grabPushNs;
+    // Native (lane grab-pull): the most south and most north each stick was
+    // tilted during this hold, said when it is let go
+    float grabStickLo[HAND_COUNT];
+    float grabStickHi[HAND_COUNT];
     int grabRoomPercent;
     float grabRoomReach;
     int grabByGaze;
