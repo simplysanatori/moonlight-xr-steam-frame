@@ -80,7 +80,7 @@ cmp -s "$t/Moonlight.conf" "$t/Moonlight.conf.orig" && ok "source config unmodif
 grep -q 'DESKTOP-EXAMPLE' "$CONF" && grep -q 'EXAMPLE0' "$CONF" && ok "seeded PC list is in the launcher config" || fail "hosts not copied"
 grep -q '^width=2560' "$CONF" && grep -q '^fps=90' "$CONF" && grep -q '^bitrate=80000' "$CONF" && ok "stream settings set for the headset" || fail "VR defaults not applied"
 grep -q '^certificate=' "$CONF" && ok "identity copied" || fail "identity not copied"
-expect "1440p90 80 Mbps, HEVC (no --h264)" "$out" "--host $HOSTID --app 881448767 --mode 2560x1440x90 --bitrate 80000 --exit-to-caller"
+expect "1440p90 80 Mbps, HEVC (no --h264)" "$out" "--host $HOSTID --app 881448767 --mode 2560x1440x90 --bitrate 80000 --network auto --exit-to-caller"
 refute "no h264 flag by default" "$out" "--h264"
 case "$out" in *moonlight-xr\ --host*) ok "program is moonlight-xr";; *) fail "program";; esac
 
@@ -98,6 +98,12 @@ grep -q '^address = 198.51.100.5' "$h" && grep -q 'extra_addresses = .*198.51.10
 printf '\n[OTHER-UUID]\nname = other\naddress = 10.9.9.9\n' >> "$h"
 dry "DESKTOP-EXAMPLE:Desktop" >/dev/null
 grep -q '^\[OTHER-UUID\]' "$h" && [ "$(grep -c "^\[$HOSTID\]" "$h")" = 1 ] && ok "other hosts kept, no duplicates" || fail "hosts.ini merge"
+# an address the PC was known by (another network path) survives the next hand-off, so both paths stay candidates
+sed -i "/^\[$HOSTID\]/,/^cert/ s/^extra_addresses = .*/&,198.51.100.27/" "$h"
+grep -q 'extra_addresses = .*198.51.100.27' "$h" || fail "test setup: extra address not added"
+dry "DESKTOP-EXAMPLE:Desktop" >/dev/null
+grep -q '^address = 198.51.100.5' "$h" && grep -q 'extra_addresses = .*198.51.100.7' "$h" && grep -q 'extra_addresses = .*198.51.100.27' "$h" && ok "earlier addresses kept across hand-offs" || { fail "address merge"; cat "$h"; }
+[ "$(grep -o '198.51.100.7' "$h" | wc -l)" = 1 ] && ok "no duplicate addresses" || fail "duplicate addresses"
 
 # --- 3. the settings matrix (user changes them in Settings; here in the conf, as Settings would)
 setconf width=1920 height=1080 fps=60 bitrate=20000 videocfg=0
@@ -127,6 +133,15 @@ expect "software decode" "$out" "--sw-decode"; expect "5.1" "$out" "--audio 51";
 setconf videodec=0 audiocfg=2 packetsize=0
 out="$(dry "DESKTOP-EXAMPLE:Desktop")"; expect "7.1" "$out" "--audio 71"; refute "no packet size" "$out" "--packet-size"
 setconf audiocfg=0
+# the network path: the launcher's networkPath setting (auto, home = Wi-Fi, adapter = Steam Frame Wireless Adapter)
+out="$(dry "DESKTOP-EXAMPLE:Desktop")"; expect "network default: auto" "$out" "--network auto"
+setconf networkPath=adapter
+out="$(dry "DESKTOP-EXAMPLE:Desktop")"; expect "network adapter" "$out" "--network adapter"
+setconf networkPath=home
+out="$(dry "DESKTOP-EXAMPLE:Desktop")"; expect "network home" "$out" "--network home"
+setconf networkPath=bogus
+out="$(dry "DESKTOP-EXAMPLE:Desktop")"; refute "unknown network value: not passed" "$out" "--network"
+setconf networkPath=auto
 out="$(dry "DESKTOP-EXAMPLE:Assassin's Creed Origins")"; expect "app by name -> id" "$out" "--app 1439608285"
 out="$(MLXR_LAUNCHER_EXTRA_ARGS="--seconds 5" dry "DESKTOP-EXAMPLE:Desktop")"; expect "extra args" "$out" "--seconds 5"
 grep -q '^width=1920' "$CONF" && fail "reseeded over the user's settings" || ok "later runs do not reseed"
@@ -153,7 +168,7 @@ expect "rumble off" "$out" "--no-rumble"
 expect "dead zone" "$out" "--deadzone -5"
 expect "mouse back/forward off" "$out" "--no-mouse-nav-buttons"
 expect "clipboard sync" "$out" "--clipboard-sync"
-case "$out" in *"--clipboard-sync --exit-to-caller"*) ok "flags before --exit-to-caller";; *) fail "flag order: $out";; esac
+case "$out" in *"--clipboard-sync --network auto --exit-to-caller"*) ok "flags before --exit-to-caller";; *) fail "flag order: $out";; esac
 SECTION=mlxr setconf frame_pacing=smoothness custom_refresh_rate=144 scale_factor=100 deadzone=0 clipboard_sync=false
 out="$(dry "DESKTOP-EXAMPLE:Desktop")"
 expect "frame pacing: smoothest" "$out" "--pacing smoothness"
@@ -163,7 +178,7 @@ SECTION=mlxr setconf frame_pacing=balanced ultra_low_latency=false virtual_displ
     full_range=false rumble=true mouse_nav_buttons=true
 setconf gameopts=true hostaudio=false
 out="$(dry "DESKTOP-EXAMPLE:Desktop")"
-expect "all back to defaults" "$out" "--bitrate 80000 --exit-to-caller"
+expect "all back to defaults" "$out" "--bitrate 80000 --network auto --exit-to-caller"
 
 # Smart Clipboard Sync: the clipboard goes to the VR client in a file, what it brings back is put on the clipboard
 SECTION=mlxr setconf clipboard_sync=true
@@ -205,7 +220,7 @@ LD_LIBRARY_PATH=/steam/runtime MLXR_NATIVE_CLIENT="$fake" selftest "DESKTOP-EXAM
 cat "$t/stdout"
 [ $rc = 0 ] && ok "client exit 0 -> success" || fail "client exit 0 gave $rc"
 expect "started signal and finish" "$(cat "$t/stdout")" "started=yes finished=yes error=none"
-expect "client got the command line" "$(cat "$FAKE_LOG")" "--host $HOSTID --app 881448767 --mode 2560x1440x90 --bitrate 80000 --exit-to-caller"
+expect "client got the command line" "$(cat "$FAKE_LOG")" "--host $HOSTID --app 881448767 --mode 2560x1440x90 --bitrate 80000 --network auto --exit-to-caller"
 expect "client ran in its own directory" "$(cat "$FAKE_LOG")" "cwd: $t"
 expect "LD_LIBRARY_PATH not passed on" "$(cat "$FAKE_LOG")" "ld_library_path: [unset]"
 grep -q "launcher runs" "$MLXR_LOG_DIR/moonlight-console.log" && ok "client output goes to moonlight-console.log" || fail "console log"

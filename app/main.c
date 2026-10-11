@@ -28,6 +28,8 @@
 //   --clipboard-sync   Artemis's Smart Clipboard Sync with Apollo: once the stream is up the text
 //                      in <config dir>/clipboard-to-host.txt (the launcher wrote it) goes to the PC;
 //                      before the stream stops the PC's clipboard goes to clipboard-from-host.txt
+//   --network auto|home|adapter   which link reaches the PC (Wi-Fi or the Steam Frame Wireless
+//                      Adapter); overrides config.ini's network_path, MLXR_NETWORK overrides both
 //
 // Hosts and the client identity live in ~/.config/moonlight-xr (pair with
 // mlxr-cli, or import Moonlight Qt's pairing with backend/seed-from-moonlight-qt.sh);
@@ -55,6 +57,7 @@
 #include "../audio/opus_out.h"
 #include "../backend/backend.h"
 #include "../backend/backend_limelight.h"
+#include "../backend/netpath.h"
 #include "../stream/evdev_keyboard.h"
 #include "../input/evmouse.h"
 #include "../input/gamepads.h"
@@ -109,6 +112,7 @@ static struct {
     const char* host;
     const char* app;
     const char* mode;
+    const char* network;
     int bitrate, h264Only, wake, swDecode;
     int exitToCaller, packetSize, audio; // audio: 0 stereo (default), 1 5.1, 2 7.1
     double seconds;
@@ -118,6 +122,10 @@ static struct {
 
 // Native (lane artemis-settings): headset display rate cap for Artemis's custom refresh rate
 #define MLXR_MAX_REFRESH_X1000 90000
+// The network path (Wi-Fi or the Steam Frame Wireless Adapter) chosen for the session
+static pthread_mutex_t g_netLock = PTHREAD_MUTEX_INITIALIZER;
+static char g_netSummary[200]; // the stats line says which link carried the session
+static char g_netToast[160];   // for the toast once the stream is up
 
 // With --exit-to-caller: remember why the process ends (the first reason wins) and
 // make the frame loop leave. The message goes to stderr at exit as "MLXR_ERROR: ...".
@@ -211,12 +219,16 @@ static void latencyHook(void* user, char* buf, int len) {
     }
     double sinkHz = secs > 0.0 ? (st.sinkFrames - prev.sinkFrames) / secs : 0.0;
     double cpuPct = secs > 0.0 ? (st.threadCpuNs - prev.threadCpuNs) / 1e7 / secs : 0.0;
+    char net[200];
+    pthread_mutex_lock(&g_netLock);
+    snprintf(net, sizeof(net), "%s", g_netSummary[0] ? g_netSummary : "unknown");
+    pthread_mutex_unlock(&g_netLock);
     snprintf(buf, (size_t)len,
-             "%s; audio cushion %.0f ms, %.0f ms buffered, underruns +%u (%u late of which %u outages, %u after "
+             "net %s; %s; audio cushion %.0f ms, %.0f ms buffered, underruns +%u (%u late of which %u outages, %u after "
              "silence), lost +%u, dropped %.0f ms, trimmed %.0f ms, longest packet gap %d ms, sink took %.0f Hz, "
              "host clock %+.0f ppm, receive thread waited %.1f ms for a CPU (%.1f%% busy), decode %.2f ms avg "
              "(max %.2f)",
-             v, st.jitterTargetMs, st.bufferedMs, st.underruns - prev.underruns,
+             net, v, st.jitterTargetMs, st.bufferedMs, st.underruns - prev.underruns,
              st.lateUnderruns - prev.lateUnderruns, st.outages - prev.outages,
              st.silenceUnderruns - prev.silenceUnderruns,
              st.lostPackets - prev.lostPackets, (st.droppedFrames - prev.droppedFrames) / 48.0,
@@ -479,6 +491,71 @@ static mlxr_server* connectHost(Net* n, int i, const char* override) {
     return NULL;
 }
 
+// ---- the network path: Wi-Fi or the Steam Frame Wireless Adapter (backend/netpath.h) ----
+static int64_t g_choiceAt[LAUNCH_MAX_PCS];
+
+static int64_t monoSeconds(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec;
+}
+
+// Gathers every known address of the PC (hosts.ini, the one named on the command line), probes
+// them and connects to the chosen one; keeps the server on it for the whole session. If the
+// probe finds nothing it falls back to connectHost's sequential try.
+static mlxr_server* connectChosen(Net* n, int i, const char* override) {
+    mlxr_host_record* rec = &n->hosts.v[i];
+    static const char* const names[] = { "auto", "home", "adapter" };
+    int cfg = g_settings.network_path;
+    const char *source = NULL, *warn = NULL;
+    mlxr_net_pref pref = mlxr_net_pref_resolve(g_args.network, getenv("MLXR_NETWORK"),
+                                               cfg >= 0 && cfg < 3 ? names[cfg] : NULL, &source, &warn);
+    if (warn) MLOG_W("network: %s", warn);
+    mlxr_net_plan* plan = calloc(1, sizeof(*plan));
+    if (!plan) return connectHost(n, i, override);
+    mlxr_net_plan_init(plan, pref, source, rec->http_port, rec->uuid, n->id.unique_id);
+    plan->bitrate_kbps = g_args.bitrate > 0 ? g_args.bitrate : settings_bitrate_kbps(&g_settings);
+    if (override) mlxr_net_plan_add(plan, override, 0);
+    mlxr_net_plan_add_record(plan, rec->address, rec->extra_addresses);
+    mlxr_server* s = NULL;
+    int pick = mlxr_net_select(plan, NULL);
+    if (pick >= 0) {
+        char* pem = NULL;
+        mlxr_error err = { 0 };
+        if (mlxr_host_cert_load(n->dir, rec, &pem, &err) == MLXR_OK) {
+            const char* addr = plan->c[pick].address;
+            uint16_t port = plan->c[pick].port ? plan->c[pick].port : plan->default_port;
+            s = mlxr_server_new(&n->id, addr, port);
+            mlxr_server_set_https_port(s, rec->https_port ? rec->https_port : MLXR_DEFAULT_HTTPS_PORT);
+            mlxr_server_set_pinned_cert(s, pem, &err);
+            if (mlxr_server_get_info(s, true, &n->comp[i], NULL, &err) == MLXR_OK) {
+                MLOG_I("host %s answers at %s (network path %s): %s, app version %s, codecs 0x%x, %s, current game %d",
+                       rec->name, addr, plan->chosen_desc, n->comp[i].state, n->comp[i].app_version,
+                       n->comp[i].server_codec_mode_support, n->comp[i].paired ? "paired" : "NOT paired",
+                       n->comp[i].current_game);
+                snprintf(n->address[i], sizeof(n->address[i]), "%s", addr);
+                if (n->srv[i]) mlxr_server_free(n->srv[i]);
+                n->srv[i] = s;
+                g_choiceAt[i] = monoSeconds();
+                pthread_mutex_lock(&g_netLock);
+                snprintf(g_netSummary, sizeof(g_netSummary), "%s rtt %.1f ms", plan->summary, plan->c[pick].median_ms);
+                snprintf(g_netToast, sizeof(g_netToast), "%s", plan->fell_back ? plan->toast
+                                                                : pref == MLXR_NET_AUTO ? plan->connected : "");
+                pthread_mutex_unlock(&g_netLock);
+            }
+            else {
+                MLOG_W("host %s chosen at %s but serverinfo over HTTPS failed: %s; trying the addresses in turn", rec->name,
+                       addr, err.msg);
+                mlxr_server_free(s);
+                s = NULL;
+            }
+            free(pem);
+        }
+    }
+    free(plan);
+    return s ? s : connectHost(n, i, override);
+}
+
 static int hasCert(Net* n, int i) {
     char* pem = NULL;
     mlxr_error err = { 0 };
@@ -553,9 +630,12 @@ static StreamJob g_job;
 
 static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     mlxr_error err = { 0 };
-    mlxr_server* s = n->srv[pc] ? n->srv[pc] : connectHost(n, pc, NULL);
+    // The network path is chosen when the stream starts (and held for the stream); a choice made a
+    // moment ago, by --host's connect, stands
+    int fresh = n->srv[pc] && monoSeconds() - g_choiceAt[pc] < 30;
+    mlxr_server* s = fresh ? n->srv[pc] : connectChosen(n, pc, NULL);
     if (!s || mlxr_server_get_info(s, true, &n->comp[pc], NULL, &err) != MLXR_OK) {
-        s = connectHost(n, pc, NULL);
+        s = connectChosen(n, pc, NULL);
         if (!s) {
             setLastError("The host stopped answering before the stream could start");
             return -1;
@@ -666,6 +746,12 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     xr_app_set_streaming(1);
     updateKeyboard();
     if (g_args.clipboardSync) clipboardToHost(n, s); // Native (lane artemis-settings)
+    char toast[160];
+    pthread_mutex_lock(&g_netLock);
+    snprintf(toast, sizeof(toast), "%s", g_netToast);
+    g_netToast[0] = 0;
+    pthread_mutex_unlock(&g_netLock);
+    if (toast[0]) xr_app_notice(toast);
     return 0;
 }
 
@@ -724,7 +810,7 @@ static void autostart(Net* n) {
     mlxr_server* s = NULL;
     for (int attempt = 0; !s && attempt < (g_args.wake ? 12 : 1) && !atomic_load(&g_workerQuit); attempt++) {
         if (attempt) sleep(5);
-        s = connectHost(n, pc, override);
+        s = connectChosen(n, pc, override);
     }
     if (!s) {
         MLOG_E("host %s is unreachable (is the PC on? try --wake)", n->hosts.v[pc].name);
@@ -945,6 +1031,14 @@ int main(int argc, char** argv) {
             }
             setenv("MLXR_VIDEO_PRIORITY", v, 0);
         }
+        else if (!strcmp(argv[i], "--network") && i + 1 < argc) {
+            mlxr_net_pref np;
+            g_args.network = argv[++i];
+            if (!mlxr_net_pref_parse(g_args.network, &np)) {
+                fprintf(stderr, "MLXR_ERROR: --network takes auto, home or adapter\n");
+                return EXIT_USAGE;
+            }
+        }
         else if (!strcmp(argv[i], "--audio") && i + 1 < argc) {
             const char* a = argv[++i];
             if (!strcmp(a, "stereo")) g_args.audio = 0;
@@ -964,6 +1058,7 @@ int main(int argc, char** argv) {
                     "                  [--virtual-display] [--scale-factor PCT] [--refresh-rate HZ] [--no-sops] [--local-audio]\n"
                     "                  [--pacing latency|balanced|smoothness] [--video-priority off|nice|rt] [--full-range]\n"
                     "                  [--no-rumble] [--deadzone PCT] [--no-mouse-nav-buttons] [--clipboard-sync]\n"
+                    "                  [--network auto|home|adapter]\n"
                     "       %s --file VIDEO [--sw-decode] [--seconds N]\n",
                     argv[0], argv[0], argv[0]);
             return EXIT_USAGE;

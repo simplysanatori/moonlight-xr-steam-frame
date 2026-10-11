@@ -46,6 +46,7 @@ typedef struct Settings {
     int audio_config;      // 0 stereo, 1 5.1, 2 7.1
     int virtual_surround;  // HRTF virtual surround for headsets
     int frame_pacing;      // 0 latency, 1 balanced, 2 cap fps, 3 smoothness
+    int network_path;      // 0 auto, 1 home (Wi-Fi), 2 adapter (Steam Frame Wireless Adapter)
     int auto_desktop;      // open the host's app named Desktop without the app list
     int check_updates;
     char language[16];     // "default" or a language code (English only for now)

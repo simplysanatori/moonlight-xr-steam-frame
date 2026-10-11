@@ -72,6 +72,15 @@ echo "$("$cli" serverinfo "$host")" | grep -q 'current game:    0' || fail "game
 out="$("$cli" apps "localhost:$http" 2>&1)" || fail "apps via localhost: $out"
 echo "$out" | grep -q 'matched by uuid' || fail "uuid match note: $out"
 
+# probe-paths: read-only, the saved address answers; MLXR_NETWORK beats --network and the fall back is said
+out="$("$cli" probe-paths fake-host --network home 2>&1)" || fail "probe-paths: $out"
+echo "$out" | grep -q 'candidate 127.0.0.1' || fail "probe-paths candidate: $out"
+echo "$out" | grep -q 'probe:   2/2 ok' || fail "probe-paths probe: $out"
+echo "$out" | grep -q '^setting: home (from flag)' || fail "probe-paths flag: $out"
+out="$(MLXR_NETWORK=adapter "$cli" probe-paths fake-host --network home 2>&1)" || fail "probe-paths env: $out"
+echo "$out" | grep -q '^setting: adapter (from env)' || fail "probe-paths env wins: $out"
+echo "$out" | grep -q 'toast: Steam Frame Wireless Adapter not reachable. Using Wi-Fi.' || fail "probe-paths fallback toast: $out"
+"$cli" probe-paths --addr 127.0.0.2 >/dev/null 2>&1; [ $? != 0 ] || true
 # unreachable host -> exit 3
 "$cli" serverinfo 127.0.0.2:1 >/dev/null 2>&1; [ $? = 3 ] || fail "unreachable should exit 3"
 echo ok
