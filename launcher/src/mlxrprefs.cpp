@@ -142,6 +142,11 @@ void MlxrPrefs::save()
     m_iniFlip = flipFaceButtons;
 }
 
+int MlxrPrefs::headsetMaxFps() const
+{
+    return MlxrHandoff::kMaxHeadsetFps;
+}
+
 double MlxrPrefs::refreshRate() const
 {
     bool ok = false;

@@ -204,30 +204,46 @@ static void test_status_and_pair_fixtures(void)
     free(s);
 }
 
-/* The host is never told about more than the headset shows: 90 Hz at most, SteamVR's rate if lower */
+/* The host is never told about more than the headset shows: the rate SteamVR reports for the
+ * display (72, 90, 120 or 144), 144 at most, 90 while it is not known.
+ * Native (lane refresh): the ceiling was 90. */
 static void test_fps_cap(void)
 {
-    CHECK_EQ_INT(mlxr_fps_cap_for_display(0), 90);      /* not known yet */
+    CHECK_EQ_INT(MLXR_FPS_CAP, 144);
+    CHECK_EQ_INT(mlxr_fps_cap_for_display(0), 90);      /* not known yet: install.sh's rate */
+    CHECK_EQ_INT(mlxr_fps_cap_for_display(-1), 90);
+    CHECK_EQ_INT(mlxr_fps_cap_for_display(72), 72);     /* the cap follows the display */
     CHECK_EQ_INT(mlxr_fps_cap_for_display(90), 90);
-    CHECK_EQ_INT(mlxr_fps_cap_for_display(72), 72);
-    CHECK_EQ_INT(mlxr_fps_cap_for_display(120), 90);
-    CHECK_EQ_INT(mlxr_fps_cap_for_display(360), 90);
+    CHECK_EQ_INT(mlxr_fps_cap_for_display(120), 120);
+    CHECK_EQ_INT(mlxr_fps_cap_for_display(144), 144);
+    CHECK_EQ_INT(mlxr_fps_cap_for_display(165), 144);   /* the 144 ceiling */
+    CHECK_EQ_INT(mlxr_fps_cap_for_display(360), 144);
     CHECK_EQ_INT(mlxr_fps_cap_for_display(5), 90);      /* nonsense is not believed */
     CHECK_EQ_INT(mlxr_fps_clamp(360, 90), 90);
     CHECK_EQ_INT(mlxr_fps_clamp(144, 72), 72);
+    CHECK_EQ_INT(mlxr_fps_clamp(144, 120), 120);
+    CHECK_EQ_INT(mlxr_fps_clamp(144, 144), 144);
     CHECK_EQ_INT(mlxr_fps_clamp(60, 90), 60);           /* below the cap stays */
-    CHECK_EQ_INT(mlxr_fps_clamp(360, 0), 90);           /* no cap given: the ceiling */
-    CHECK_EQ_INT(mlxr_fps_clamp(360, 1000), 90);        /* a cap cannot lift the ceiling */
-    /* Native (lane artemis-settings): Match headset */
+    CHECK_EQ_INT(mlxr_fps_clamp(360, 0), 144);          /* no cap given: the ceiling */
+    CHECK_EQ_INT(mlxr_fps_clamp(360, 1000), 144);       /* a cap cannot lift the ceiling */
+    /* Native (lane artemis-settings): Match headset follows the rate SteamVR reports */
     CHECK_EQ_INT(mlxr_fps_for_request(60, 90, 1), 90);   /* the display's rate, whatever --mode said */
+    CHECK_EQ_INT(mlxr_fps_for_request(144, 90, 1), 90);  /* SteamVR at 90: still 90 */
     CHECK_EQ_INT(mlxr_fps_for_request(90, 72, 1), 72);   /* a 72 Hz headset */
-    CHECK_EQ_INT(mlxr_fps_for_request(90, 0, 1), 90);    /* not known yet: the ceiling */
+    CHECK_EQ_INT(mlxr_fps_for_request(90, 120, 1), 120); /* SteamVR runs the app at 120 */
+    CHECK_EQ_INT(mlxr_fps_for_request(90, 144, 1), 144);
+    CHECK_EQ_INT(mlxr_fps_for_request(144, 0, 1), 90);   /* not known yet: 90 */
     CHECK_EQ_INT(mlxr_fps_for_request(60, 72, 0), 60);   /* a fixed rate stays */
     CHECK_EQ_INT(mlxr_fps_for_request(144, 72, 0), 72);  /* ... under the cap */
+    CHECK_EQ_INT(mlxr_fps_for_request(120, 120, 0), 120);
+    CHECK_EQ_INT(mlxr_fps_for_request(144, 144, 0), 144);
+    CHECK_EQ_INT(mlxr_fps_for_request(144, 90, 0), 90);  /* refused above the display: its rate */
+    CHECK_EQ_INT(mlxr_fps_for_request(144, 120, 0), 120);
+    CHECK_EQ_INT(mlxr_fps_for_request(120, 0, 0), 90);
 
     mlxr_launch_params p;
     CHECK_OK(mlxr_launch_params_init(&p));
-    CHECK_EQ_INT(p.max_fps, 90);                        /* capped by default */
+    CHECK_EQ_INT(p.max_fps, 90);                        /* capped by default: no display known */
     char q[1024];
     p.width = 2560; p.height = 1440; p.fps = 360;
     CHECK_EQ_INT(mlxr_launch_fps(&p), 90);
@@ -236,12 +252,18 @@ static void test_fps_cap(void)
     p.fps = 144; p.max_fps = mlxr_fps_cap_for_display(72);
     CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
     CHECK(strstr(q, "mode=2560x1440x72&") != NULL);
+    p.fps = 144; p.max_fps = mlxr_fps_cap_for_display(120);
+    CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
+    CHECK(strstr(q, "mode=2560x1440x120&") != NULL);
+    p.fps = 144; p.max_fps = mlxr_fps_cap_for_display(144);
+    CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
+    CHECK(strstr(q, "mode=2560x1440x144&") != NULL);
     p.fps = 60;
     CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
     CHECK(strstr(q, "mode=2560x1440x60&") != NULL);
-    p.fps = 360; p.max_fps = 360;                       /* not even a larger cap passes 90 */
+    p.fps = 360; p.max_fps = 360;                       /* not even a larger cap passes 144 */
     CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
-    CHECK(strstr(q, "mode=2560x1440x90&") != NULL);
+    CHECK(strstr(q, "mode=2560x1440x144&") != NULL);
 }
 
 static void test_launch_query(void)

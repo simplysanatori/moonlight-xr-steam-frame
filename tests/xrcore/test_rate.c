@@ -11,6 +11,35 @@ static const float NTSC[] = { 71.93f, 89.91f, 119.88f };
 
 #define N(list) ((int)(sizeof(list) / sizeof(list[0])))
 
+// Native (lane refresh): the Steam Frame. SteamVR offers the one rate its per-app setting gives
+// the app; the display itself has these four.
+static const float FRAME_ALL[] = { 72.0f, 90.0f, 120.0f, 144.0f };
+static const float FRAME_90[] = { 90.0f };
+static const float FRAME_120[] = { 120.0f };
+static const float FRAME_144[] = { 144.0f };
+
+static void testSteamFrameRates(void) {
+    for (int m = 0; m <= 1; m++) {
+        CHECK_NEAR(rateForStream(144, FRAME_ALL, N(FRAME_ALL), m), 144, 0);
+        CHECK_NEAR(rateForStream(120, FRAME_ALL, N(FRAME_ALL), m), 120, 0);
+        CHECK_NEAR(rateForStream(144, FRAME_144, N(FRAME_144), m), 144, 0);
+        CHECK_NEAR(rateForStream(120, FRAME_120, N(FRAME_120), m), 120, 0);
+        // one rate offered: that rate, whatever the stream asks
+        CHECK_NEAR(rateForStream(144, FRAME_90, N(FRAME_90), m), 90, 0);
+        CHECK_NEAR(rateForStream(90, FRAME_144, N(FRAME_144), m), 144, 0);
+    }
+    // 60 shows each frame twice at 120, and 72 at 144
+    CHECK_NEAR(rateForStream(60, FRAME_ALL, N(FRAME_ALL), 1), 120, 0);
+    CHECK_NEAR(rateForStream(72, FRAME_ALL, N(FRAME_ALL), 1), 72, 0);
+    // with the 3D on and over budget, 144 steps to 120, and never below the 72 floor
+    CHECK_NEAR(rateChoose(144, FRAME_ALL, N(FRAME_ALL), 1, 0.0f, 7.5f), 120, 0);
+    CHECK_NEAR(rateChoose(144, FRAME_ALL, N(FRAME_ALL), 1, 120.0f, 9.0f), 90, 0);
+    CHECK_NEAR(rateChoose(144, FRAME_ALL, N(FRAME_ALL), 1, 72.0f, 20.0f), 72, 0);
+    CHECK_NEAR(rateChoose(144, FRAME_ALL, N(FRAME_ALL), 1, 0.0f, 6.5f), 144, 0);
+    // one rate offered: nothing to step down to
+    CHECK_NEAR(rateChoose(144, FRAME_144, N(FRAME_144), 1, 0.0f, 9.0f), 144, 0);
+}
+
 static void testStreamGetsItsOwnRate(void) {
     // Whether or not a multiple may be taken, the stream's own rate comes first
     for (int m = 0; m <= 1; m++) {
@@ -876,6 +905,7 @@ static void testGovernorOnAThrottle(void) {
 }
 
 int main(void) {
+    testSteamFrameRates();
     testStreamGetsItsOwnRate();
     testNoMatchTakesTheNearestAbove();
     testAWholeMultipleBeforeTheNearestAbove();

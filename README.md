@@ -63,7 +63,7 @@ Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz,
    ./install.sh
    ```
 
-   The installer copies the program to `~/Games/MoonlightXRNative/app`. It adds **Moonlight XR for Frame** to your Steam library as a non-Steam shortcut, with its artwork. It sets SteamVR's per-app settings for that shortcut (90 Hz, no motion smoothing). It also converts SteamVR's own Steam Frame controller models for the app. You can run it again at any time.
+   The installer copies the program to `~/Games/MoonlightXRNative/app`. It adds **Moonlight XR for Frame** to your Steam library as a non-Steam shortcut, with its artwork. It sets SteamVR's per-app settings for that shortcut (90 Hz, no motion smoothing; the Refresh rate in Settings can change the rate later). It also converts SteamVR's own Steam Frame controller models for the app. You can run it again at any time.
 
 3. Start **Moonlight XR for Frame** from the Steam library.
 

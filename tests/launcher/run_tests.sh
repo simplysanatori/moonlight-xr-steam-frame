@@ -13,6 +13,18 @@ unset LD_LIBRARY_PATH XDG_CONFIG_HOME XDG_CACHE_HOME MLXR_CONFIG_DIR MLXR_NATIVE
 export HOME="$t/home" QT_QPA_PLATFORM=offscreen SDL_VIDEODRIVER=dummy QT_QUICK_BACKEND=software
 export MLXR_LOG_DIR="$t/log" MLXR_CONFIG_DIR="$t/native"
 mkdir -p "$HOME" "$MLXR_LOG_DIR"
+# Lane refresh: SteamVR's per-app refresh rate is set through vrcmd. The tests never reach the real
+# one (it would change this machine's SteamVR settings): a fake records its arguments instead, and
+# no SteamAppId is inherited.
+unset SteamAppId SteamGameId
+cat >"$t/fake-vrcmd" <<'VRCMD'
+#!/bin/bash
+echo "$*" >> "$FAKE_VRCMD_LOG"
+exit "${FAKE_VRCMD_EXIT:-0}"
+VRCMD
+chmod +x "$t/fake-vrcmd"
+export MLXR_VRCMD="$t/fake-vrcmd" FAKE_VRCMD_LOG="$t/vrcmd.log"
+: > "$FAKE_VRCMD_LOG"
 fails=0
 fail() { echo "FAIL: $*" >&2; fails=$((fails+1)); }
 ok() { echo "ok: $*"; }
@@ -116,11 +128,18 @@ expect "1440p90" "$out" "--mode 2560x1440x90 --bitrate 80000"
 expect "forced H.264" "$out" "--h264"
 setconf videocfg=2
 out="$(dry "gaming-pc:Desktop")"; refute "forced HEVC: no --h264" "$out" "--h264"
-# the headset shows 90 Hz at most: a higher FPS setting (flat Moonlight, 144 or 360 Hz screens) is clamped
+# the headset shows 144 Hz at most (lane refresh; was 90): a higher FPS setting (flat Moonlight on
+# a 165 or 360 Hz screen) is clamped; the VR client caps it again at the rate SteamVR reports
+setconf width=2560 height=1440 fps=165 bitrate=80000 videocfg=0
+out="$(dry "gaming-pc:Desktop")"; echo "1440p165 setting: $out"
+expect "fps 165 clamped to 144 in the hand-off" "$out" "--mode 2560x1440x144 --bitrate 80000"
+refute "no mode above 144 fps" "$out" "1440x165 "
 setconf width=2560 height=1440 fps=144 bitrate=80000 videocfg=0
-out="$(dry "gaming-pc:Desktop")"; echo "1440p144 setting: $out"
-expect "fps 144 clamped to 90 in the hand-off" "$out" "--mode 2560x1440x90 --bitrate 80000"
-refute "no mode above 90 fps" "$out" "1440x144 "
+out="$(dry "gaming-pc:Desktop")"
+expect "144 fps setting stays 144" "$out" "--mode 2560x1440x144"
+setconf width=2560 height=1440 fps=120 bitrate=80000 videocfg=0
+out="$(dry "gaming-pc:Desktop")"
+expect "120 fps setting stays 120" "$out" "--mode 2560x1440x120"
 setconf width=2560 height=1440 fps=72 bitrate=80000 videocfg=0
 out="$(dry "gaming-pc:Desktop")"
 expect "72 fps setting stays 72" "$out" "--mode 2560x1440x72"
@@ -181,14 +200,59 @@ case "$out" in *"--clipboard-sync --network auto --exit-to-caller"*) ok "flags b
 SECTION=mlxr setconf frame_pacing=smoothness custom_refresh_rate=144 scale_factor=100 deadzone=0 clipboard_sync=false
 out="$(dry "gaming-pc:Desktop")"
 expect "frame pacing: smoothest" "$out" "--pacing smoothness"
-expect "custom refresh rate capped at the headset's 90 Hz" "$out" "--refresh-rate 90"
+expect "custom refresh rate 144 kept (lane refresh)" "$out" "--refresh-rate 144"
 refute "a custom rate replaces Match headset" "$out" "--fps match"
+SECTION=mlxr setconf custom_refresh_rate=200
+out="$(dry "gaming-pc:Desktop")"
+expect "custom refresh rate capped at the headset's 144 Hz" "$out" "--refresh-rate 144"
 refute "scale factor 100: not passed" "$out" "--scale-factor"
 SECTION=mlxr setconf frame_pacing=balanced ultra_low_latency=false virtual_display=false custom_refresh_rate= \
     full_range=false rumble=true mouse_nav_buttons=true
 setconf gameopts=true hostaudio=false
 out="$(dry "gaming-pc:Desktop")"
 expect "all back to defaults" "$out" "--bitrate 80000 --fps match --network auto --exit-to-caller"
+
+# --- 3c. lane refresh: a display rate picked on the page (72, 90, 120, 144) is also set as SteamVR's
+# per-app rate through vrcmd before the client starts; Match headset, 60/30 and a custom rate leave
+# it. A synthetic appid; the fake vrcmd from the top records the call.
+APPID=1234567890
+vr() { # SteamAppId value, spec -> the command line; the vrcmd log and stderr are left for the checks
+    : > "$FAKE_VRCMD_LOG"
+    if [ -n "$1" ]; then SteamAppId="$1" dry "$2"; else dry "$2"; fi
+}
+SECTION=mlxr setconf match_headset_fps=false custom_refresh_rate=
+for r in 144 120 90 72; do
+    setconf fps=$r
+    out="$(vr $APPID "gaming-pc:Desktop")"
+    expect "fixed $r Hz: --mode carries it" "$out" "--mode 2560x1440x$r"
+    expect "fixed $r Hz: vrcmd sets SteamVR's per-app rate" "$(cat "$FAKE_VRCMD_LOG")" \
+        "--set-settings-int steam.app.$APPID.preferredRefreshRate $r"
+    expect "fixed $r Hz: logged" "$(cat "$t/stderr")" "steam.app.$APPID.preferredRefreshRate set to $r Hz (vrcmd)"
+done
+setconf fps=60
+out="$(vr $APPID "gaming-pc:Desktop")"
+[ ! -s "$FAKE_VRCMD_LOG" ] && ok "60 fps: SteamVR's rate left alone" || fail "60 fps called vrcmd: $(cat "$FAKE_VRCMD_LOG")"
+setconf fps=120
+SECTION=mlxr setconf custom_refresh_rate=119.88
+out="$(vr $APPID "gaming-pc:Desktop")"
+[ ! -s "$FAKE_VRCMD_LOG" ] && ok "custom rate: SteamVR's rate left alone" || fail "custom rate called vrcmd"
+SECTION=mlxr setconf custom_refresh_rate= match_headset_fps=true
+out="$(vr $APPID "gaming-pc:Desktop")"
+expect "Match headset: --fps match" "$out" "--fps match"
+[ ! -s "$FAKE_VRCMD_LOG" ] && ok "Match headset: SteamVR's rate left alone" || fail "Match headset called vrcmd"
+SECTION=mlxr setconf match_headset_fps=false
+out="$(vr "" "gaming-pc:Desktop")"
+[ ! -s "$FAKE_VRCMD_LOG" ] && ok "no SteamAppId: vrcmd not called" || fail "vrcmd called without an appid"
+expect "no SteamAppId: logged" "$(cat "$t/stderr")" "120 Hz not set, the launcher was not started from its Steam shortcut"
+expect "no SteamAppId: the stream still starts" "$out" "--mode 2560x1440x120"
+out="$(FAKE_VRCMD_EXIT=3 vr $APPID "gaming-pc:Desktop")"
+expect "vrcmd failing: logged" "$(cat "$t/stderr")" "120 Hz not set, vrcmd failed (exit 3)"
+expect "vrcmd failing: the stream still starts" "$out" "--mode 2560x1440x120"
+out="$(MLXR_VRCMD="$t/no-such-vrcmd" vr $APPID "gaming-pc:Desktop")"
+expect "vrcmd missing: logged" "$(cat "$t/stderr")" "120 Hz not set, no vrcmd at"
+expect "vrcmd missing: the stream still starts" "$out" "--mode 2560x1440x120"
+SECTION=mlxr setconf match_headset_fps=true
+setconf fps=90
 
 # Smart Clipboard Sync: the clipboard goes to the VR client in a file, what it brings back is put on the clipboard
 SECTION=mlxr setconf clipboard_sync=true
@@ -215,13 +279,14 @@ SECTION=mlxr setconf clipboard_sync=false
 bitrate() { # WxHxFPS[x444] -> the default bitrate in kbps
     MLXR_LAUNCHER_DRYRUN=1 MLXR_LAUNCHER_SELFTEST="bitrate:$1" "$L" 2>/dev/null | sed -n 's/^SELFTEST: bitrate=\([0-9]*\) .*/\1/p'
 }
+# lane refresh: 1440p120 and 1440p144 from the same rule (stock's square root of the rate over 60)
 for c in 1920x1080x60:40000 1920x1080x90:49000 2560x1440x60:80000 2560x1440x72:87500 2560x1440x90:98000 \
-         3840x2160x60:150000 3840x2160x90:150000 2560x1440x90x444:150000; do
+         2560x1440x120:113000 2560x1440x144:124000 3840x2160x60:150000 3840x2160x90:150000 2560x1440x90x444:150000; do
     got="$(bitrate "${c%%:*}")"
     [ "$got" = "${c##*:}" ] && ok "default bitrate ${c%%:*} = ${c##*:} kbps" || fail "default bitrate ${c%%:*}: wanted ${c##*:}, got [$got]"
 done
 # hand-off off: stock's figure (1440p90 rounds to 49000, 1080p60 to 20000)
-for c in 2560x1440x90:49000 1920x1080x60:20000; do
+for c in 2560x1440x90:49000 1920x1080x60:20000 2560x1440x120:57000 2560x1440x144:62000; do
     got="$(MLXR_HANDOFF=0 MLXR_LAUNCHER_SELFTEST="bitrate:${c%%:*}" "$L" 2>/dev/null | sed -n 's/^SELFTEST: bitrate=\([0-9]*\) .*/\1/p')"
     [ "$got" = "${c##*:}" ] && ok "hand-off off: stock bitrate ${c%%:*} = ${c##*:} kbps" || fail "stock bitrate ${c%%:*}: wanted ${c##*:}, got [$got]"
 done

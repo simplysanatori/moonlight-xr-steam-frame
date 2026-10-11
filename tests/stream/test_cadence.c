@@ -28,6 +28,30 @@ int main(void) {
     CHECK(c.grid360 >= 190); // the 750 and 1250 tick gaps
     CHECK(c.bucket[1] >= 99 && c.bucket[3] >= 99);
 
+    // Native (lane refresh): a steady 120 fps stream (750 ticks) is on the 2.78 ms grid but on its
+    // own period too, so it is not counted; resampled 360 Hz gaps (500, 1000) still are
+    memset(&c, 0, sizeof(c));
+    mlxr_cadence_set_fps(&c, 120);
+    for (uint32_t i = 0; i < 240; i++) mlxr_cadence_add(&c, i, i * 750, (uint64_t)i * 8333);
+    CHECK(c.intervals == 239 && c.grid360 == 0 && c.bucket[1] == 239);
+    mlxr_cadence_line(&c, line, sizeof(line));
+    printf("%s\n", line);
+    CHECK(strstr(line, "host frames 120.0 fps") != NULL && strstr(line, "off the 8.3 ms one") != NULL);
+    CHECK(c.periodTicks == 750); // kept for the next window
+    rtp = 240 * 750;
+    for (uint32_t i = 0; i < 100; i++) {
+        rtp += i % 2 ? 500 : 1000;
+        mlxr_cadence_add(&c, 240 + i, rtp, 3000000 + (uint64_t)rtp * 1000 / 90);
+    }
+    CHECK(c.grid360 == 100);
+    // 144 fps (625 ticks) is off the 2.78 ms grid altogether
+    memset(&c, 0, sizeof(c));
+    mlxr_cadence_set_fps(&c, 144);
+    for (uint32_t i = 0; i < 288; i++) mlxr_cadence_add(&c, i, i * 625, (uint64_t)i * 6944);
+    CHECK(c.grid360 == 0 && c.bucket[1] == 287);
+    mlxr_cadence_line(&c, line, sizeof(line));
+    CHECK(strstr(line, "host frames 144.0 fps") != NULL && strstr(line, "off the 6.9 ms one") != NULL);
+
     // a lost frame (number skipped) is no interval; a long host pause is
     memset(&c, 0, sizeof(c));
     mlxr_cadence_add(&c, 1, 1000, 0);

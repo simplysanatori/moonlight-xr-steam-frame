@@ -188,7 +188,7 @@ void mlxr_apps_free(mlxr_app *apps, size_t n);
 
 typedef struct {
     int width, height, fps;
-    int max_fps;                /* cap on fps in the request (init: MLXR_FPS_CAP; see fps_cap.h) */
+    int max_fps;                /* cap on fps in the request (init: 90, the display not known; see fps_cap.h) */
     bool sops;                  /* let the host change its desktop resolution */
     bool local_audio;           /* play audio on the host too */
     int audio_configuration;    /* MLXR_AUDIO_* */

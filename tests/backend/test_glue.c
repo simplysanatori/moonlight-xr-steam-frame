@@ -29,7 +29,8 @@ int main(void)
     id = (int)__builtin_bswap32((uint32_t)id);
     CHECK_EQ_INT(id, mlxr_launch_rikeyid(&p));
 
-    /* a higher request leaves the glue as 90 (or the display's lower rate): fps and clientRefreshRateX100 */
+    /* a higher request leaves the glue as 90 with no display known (or the display's rate, 144 at
+     * most): fps and clientRefreshRateX100. Native (lane refresh): the ceiling was 90 */
     p.fps = 360;
     mlxr_fill_stream_config(&cfg, &p);
     CHECK_EQ_INT(cfg.fps, 90);
@@ -38,6 +39,17 @@ int main(void)
     mlxr_fill_stream_config(&cfg, &p);
     CHECK_EQ_INT(cfg.fps, 72);
     CHECK_EQ_INT(cfg.clientRefreshRateX100, 7200);
+    p.fps = 144; p.max_fps = mlxr_fps_cap_for_display(144);
+    mlxr_fill_stream_config(&cfg, &p);
+    CHECK_EQ_INT(cfg.fps, 144);
+    CHECK_EQ_INT(cfg.clientRefreshRateX100, 14400);
+    p.fps = 144; p.max_fps = mlxr_fps_cap_for_display(120);
+    mlxr_fill_stream_config(&cfg, &p);
+    CHECK_EQ_INT(cfg.fps, 120);
+    CHECK_EQ_INT(cfg.clientRefreshRateX100, 12000);
+    p.fps = 360; p.max_fps = 360;
+    mlxr_fill_stream_config(&cfg, &p);
+    CHECK_EQ_INT(cfg.fps, 144);
     CHECK_EQ_INT(cfg.width, 3200);                       /* the rest of the mode stays */
     CHECK_EQ_INT(cfg.height, 1800);
 

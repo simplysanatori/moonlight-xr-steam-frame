@@ -63,8 +63,8 @@ The page has the categories below, in this order. A greyed row shows "Not availa
 | Setting | Options | Default |
 | --- | --- | --- |
 | Video resolution | 360p, 480p, 720p, 1080p, 1440p, 4K, or a custom size | 1440p (2560x1440) |
-| Refresh rate | **Match headset**, 90 Hz, 72 Hz, 60 Hz, 30 Hz, Custom | Match headset. It uses the rate SteamVR runs the display at. The stream never goes above 90 Hz. Custom takes values such as 59.94 and needs Apollo. |
-| Video bitrate | 0.5 to 150 Mbps | Twice Moonlight's own default for the size and rate you pick: 98 Mbps at 1440p and 90 Hz, 49 Mbps at 1080p and 90 Hz, 80 Mbps at 1440p and 60 Hz. It is set again to this value whenever you change the resolution or the refresh rate, and it never goes above 150. A value you saved earlier is kept until then. See [Recommended PC settings](#recommended-pc-settings). |
+| Refresh rate | **Match headset**, 144 Hz, 120 Hz, 90 Hz, 72 Hz, 60 Hz, 30 Hz, Custom | Match headset. It uses the rate SteamVR runs the headset's display at for this app: 90 Hz unless you changed it in SteamVR's settings. Pick 72, 90, 120 or 144 Hz here to choose the headset's rate: when the stream starts, the launcher sets that rate in SteamVR's per-app video settings for this app, and the stream runs at it. 120 and 144 Hz need the stream and your PC to keep up: the PC has to render and encode that many frames a second, and the network has to carry the higher bitrate. The stream never goes above the rate the headset runs at, 144 Hz at most. If SteamVR still runs the app at its old rate, the log says so and the stream uses that rate; start the app again. Custom takes values such as 59.94 and needs Apollo. |
+| Video bitrate | 0.5 to 150 Mbps | Twice Moonlight's own default for the size and rate you pick: 98 Mbps at 1440p and 90 Hz, 113 Mbps at 1440p and 120 Hz, 124 Mbps at 1440p and 144 Hz, 49 Mbps at 1080p and 90 Hz, 80 Mbps at 1440p and 60 Hz. With Match headset it is the 90 Hz figure. It is set again to this value whenever you change the resolution or the refresh rate, and it never goes above 150. A value you saved earlier is kept until then. See [Recommended PC settings](#recommended-pc-settings). |
 | Video frame pacing | Prefer lowest latency, Balanced, Prefer smoothest video | Balanced |
 | Ultra Low Latency (experimental) | on, off | off. Runs the network and decoder threads at realtime priority. |
 | Use Virtual Display | on, off | off. Needs Apollo. Apollo makes a display that matches the stream. |
@@ -97,7 +97,7 @@ The page has the categories below, in this order. A greyed row shows "Not availa
 | --- | --- | --- |
 | Show performance stats while streaming | on, off | off. Same as Stats in the headset's Display tab. |
 | Change codec settings | Automatic (Recommended), Prefer HEVC, Prefer H.264 | Automatic. Prefer AV1 is greyed: the Frame decodes H.264 and HEVC only. |
-| Unlock all possible frame rates | greyed | The display runs at up to 90 Hz, so the stream is capped there. |
+| Unlock all possible frame rates | greyed | The stream is capped at the rate the headset runs at, 144 Hz at most. |
 | Force full range video (Experimental) | on, off | off |
 | Force software decoding | on, off | off |
 
@@ -296,8 +296,8 @@ On the Frame controllers, Start is the right menu button, Select is the left Vie
 | --- | --- |
 | Bitrate | 40 to 60 Mbps over the Steam Frame Wireless Adapter. Higher rates lost packets on that link in testing. On a strong Wi-Fi connection 80 Mbps at 1440p worked. The default is higher (98 Mbps at 1440p and 90 Hz), so lower it in Settings if you see lost packets. |
 | Codec | Automatic or HEVC. HEVC recovers from lost packets without waiting for a full new frame. |
-| Display refresh rate on the PC | 90 Hz or higher. A 60 Hz desktop gives a 60 fps stream. |
-| Apollo | Use Virtual Display with the refresh rate at 90 Hz. The virtual display then matches the stream. |
+| Display refresh rate on the PC | The stream's rate or higher (90 Hz for a 90 Hz stream, 120 or 144 Hz for those). A 60 Hz desktop gives a 60 fps stream. |
+| Apollo | Use Virtual Display. The virtual display is made at the stream's rate (90, 120 or 144 Hz), so it matches the stream. |
 | Sunshine or Apollo encoder | The fastest preset of your encoder (for NVENC, the lowest P number). |
 | FEC | Leave Sunshine's FEC Percentage at its default (20) or raise it a little on a weak link. |
 

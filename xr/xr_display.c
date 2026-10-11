@@ -131,6 +131,13 @@ void startDisplay(XrCtx* ctx) {
     char now[16];
     LOGEV("display rates offered: %s Hz, display on %s Hz, stream %d fps", line,
           hzText(current, now, sizeof(now)), ctx->streamFps);
+    // Native (lane refresh): SteamVR offers the one rate its per-app setting gives this app
+    // (preferredRefreshRate: 72, 90, 120 or 144 on the Frame), so asking cannot move it
+    if (ctx->displayRateCount == 1) {
+        LOGEV("display rate: the runtime offers only %s Hz; the headset's rate is set in SteamVR's "
+              "per-app settings (the flat Settings page sets it when a rate is picked there), and "
+              "the stream rate follows it", line);
+    }
 }
 
 // Sends one request. The runtime takes a second or two to move, and says so
@@ -182,7 +189,9 @@ static void applyRate(XrCtx* ctx, const char* why) {
     }
     if (want <= 0.0f) {
         if (ctx->rateAsked <= 0.0f) {
-            LOGEV("display rate left to the runtime, no stream frame rate (%d)", ctx->streamFps);
+            // Native (lane refresh): "Match headset" gives no rate, the stream follows the display
+            LOGEV("display rate left to the runtime, no stream frame rate (%d): the stream follows "
+                  "the display", ctx->streamFps);
         }
         return;
     }
@@ -208,6 +217,25 @@ static void applyRate(XrCtx* ctx, const char* why) {
 void displaySessionBegun(XrCtx* ctx) {
     rateBudgetStart(&ctx->rateBudget, nowNs(), RATE_SETTLE_WINDOWS);
     applyRate(ctx, "session start");
+    // Native (lane refresh): a stream rate the runtime does not offer. The launch caps the stream
+    // at the display's rate (app/main.c), so a 120 or 144 fps choice only streams at that rate
+    // once SteamVR runs the app at it.
+    if (ctx->refreshRateSupported && ctx->streamFps > 0 && ctx->refreshKnob <= 0
+            && ctx->displayRate > 0.0f
+            && rateOffered((float)ctx->streamFps, ctx->displayRates, ctx->displayRateCount) <= 0.0f) {
+        char hz[16];
+        hzText(ctx->displayRate, hz, sizeof(hz));
+        if ((float)ctx->streamFps > ctx->displayRate + RATE_TOLERANCE) {
+            LOGEV("display rate: %d Hz is not offered, the display stays on %s Hz and the stream "
+                  "is capped there; set %d Hz in SteamVR's per-app video settings for this app "
+                  "(or pick it in the flat Settings page), then start the app again",
+                  ctx->streamFps, hz, ctx->streamFps);
+        }
+        else {
+            LOGEV("display rate: %d Hz is not offered, a %d fps stream is shown on the %s Hz "
+                  "display", ctx->streamFps, ctx->streamFps, hz);
+        }
+    }
 }
 
 void displayFocused(XrCtx* ctx) {
@@ -277,6 +305,11 @@ void displayFrameBegun(XrCtx* ctx, const XrFrameState* state) {
         return;
     }
     ctx->displayPeriodNs = (int64_t)state->predictedDisplayPeriod;
+    // Native (lane refresh): without the refresh rate extension the frame loop's period is the
+    // only word on the rate, and the launch waits for one to cap the stream with
+    if (!ctx->refreshRateSupported) {
+        reportDisplayHz(1e9f / (float)ctx->displayPeriodNs);
+    }
     // A frame the loop was late for shows as the predicted time jumping by
     // more than one refresh
     if (ctx->lastDisplayTime != 0 && ctx->sessionState == XR_SESSION_STATE_FOCUSED) {

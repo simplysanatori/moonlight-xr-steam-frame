@@ -67,7 +67,8 @@ public:
     // Artemis's custom refresh rate as the VR client takes it (capped at headsetMaxFps), or 0
     double refreshRate() const;
 
-    int headsetMaxFps() const { return 90; }
+    // Native (lane refresh): 144, the Frame's fastest display rate (was 90)
+    int headsetMaxFps() const;
 
     // "Wi-Fi (<SSID>, <band>)" for the headset's managed Wi-Fi interface (not its AP interface), read
     // now from `iw dev` (read-only); plain "Wi-Fi" when unknown. MLXR_LAUNCHER_IW_FILE: a saved

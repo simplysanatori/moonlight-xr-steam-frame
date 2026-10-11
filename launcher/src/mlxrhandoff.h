@@ -27,6 +27,10 @@ struct Plan {
     QStringList arguments;
     QString workingDir;
     bool clipboardSync = false; // Artemis's Smart Clipboard Sync (Apollo): the clipboard files below
+    // Native (lane refresh): the display rate picked on the Settings page (72, 90, 120 or 144), which
+    // run() sets as SteamVR's per-app preferredRefreshRate before the client starts; 0 leaves it
+    // ("Match headset", a custom rate, 30 or 60 fps)
+    int steamVrRefreshRate = 0;
 };
 
 struct Result {
@@ -81,11 +85,26 @@ void seedLauncherConfig();
 // StreamingPreferences::getDefaultBitrate gives, "scale" prints the Game Mode UI scale.
 int selfTest(const QString& spec);
 
+// Moonlight XR Native (lane refresh): the Steam Frame's display rates. The VR client never streams
+// above the rate SteamVR runs the display at, 144 at most.
+constexpr int kMaxHeadsetFps = 144;
+// The rate SteamVR's per-app setting is set to for this frame rate choice, or 0 to leave it:
+// 72, 90, 120 and 144 are display rates; "Match headset" (match), a custom rate and 30 or 60
+// fps leave SteamVR's own rate alone.
+int steamVrRateFor(int fps, bool match, bool customRate);
+// Sets steam.app.<SteamAppId>.preferredRefreshRate to hz through vrcmd, the way
+// packaging/install.sh sets the app's rate, and logs what happened. Needs SteamAppId (the Steam
+// shortcut's appid) and a running SteamVR; vrcmd missing or failing is logged and the stream goes
+// on at the rate SteamVR reports. MLXR_VRCMD: another vrcmd (tests; no SteamVR check then). In a
+// dry run without MLXR_VRCMD nothing runs. Returns true when vrcmd set it.
+bool setSteamVrRefreshRate(int hz);
+
 // Moonlight XR Native (lane launcher2): the default video bitrate in hand-off mode is
 // twice stock's getDefaultBitrate for the same resolution and frame rate (stock's resolution
 // table and square-root frame-rate factor included), rounded to 500 kbps and capped at the
 // Settings slider's maximum. `stockMbps` is stock's figure before it is rounded to whole Mbps.
-// 1080p60 40000, 1080p90 49000, 1440p60 80000, 1440p72 87500, 1440p90 98000, 4K 150000.
+// 1080p60 40000, 1080p90 49000, 1440p60 80000, 1440p72 87500, 1440p90 98000, 4K 150000;
+// (lane refresh) 1440p120 113000, 1440p144 124000.
 constexpr int kMaxDefaultBitrateKbps = 150000; // the slider's maximum (stock: 150000 unless "unlock")
 int headsetDefaultBitrateKbps(double stockMbps);
 
