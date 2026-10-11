@@ -188,6 +188,8 @@ int xrHoverAt(XrCtx* ctx, XrPosef aim, float* outU, float* outV, int* outCorner)
 // One frame of the right hand's grab: trigger and grip 0 or 1, the thumbstick's
 // tilt north positive; returns what the ray was over
 int xrGrabStepAt(XrCtx* ctx, XrPosef aim, int trigger, int grip, float stickY);
+// Native (lane grab-pull): the same with the whole thumbstick, x east positive
+int xrGrabStepStick(XrCtx* ctx, XrPosef aim, int trigger, int grip, XrVector2f stick);
 
 // ---- the context's defaults (xr_prefs.c) -----------------------------------
 // What upstream's nativeInit set before any setter ran

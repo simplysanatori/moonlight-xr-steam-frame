@@ -231,7 +231,7 @@ The headset shows "Gamepad mode" or "Pointer mode". In gamepad mode the menus cl
 | What | How |
 | --- | --- |
 | Move the screen | Grip the move pill under the screen and move your hand. |
-| Push it away or pull it closer | While holding the pill, push the thumbstick up (farther) or down (closer). 0.3 to 8 m. |
+| Push it away or pull it closer | While holding the pill, push either thumbstick up (farther) or down (closer). A push on a slant counts, and most of the way to the rim is full speed: 1.5 m a second either way. 0.3 to 8 m. |
 | Resize | Grip a corner of the screen. In a room this sets the room's screen size. |
 | Curve | Screen tab, Curve. |
 | Recentre | Use SteamVR's recentre. The screen turns to your new forward direction and keeps its distance, size and curve. |
