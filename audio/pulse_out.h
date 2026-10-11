@@ -39,6 +39,11 @@ typedef struct {
     int prebufMs;            // start threshold (default tlengthMs / 2; 0 = start at once)
     int queueCapMs;          // frames queued here beyond the server's buffer (default 10)
     bool noFadeAfterUnderrun; // true for short one-shot sounds: do not soften the next attack
+    // Adaptive jitter cushion (jitter.h): extra audio kept in our queue on top of
+    // the server's buffer, grown when late packets run the sink dry, shrunk when
+    // the link is calm. Off by default (the UI click); the stream turns it on.
+    bool adaptive;
+    int jitterMinMs, jitterMaxMs; // cushion range (defaults 0 and 40)
 } MlxrPulseOutParams;
 
 typedef struct {
@@ -52,6 +57,13 @@ typedef struct {
     float minreqMs;
     int running;               // stream READY and the server alive
     int dead;                  // the server went away; frames are discarded
+    // adaptive cushion (0 when not adaptive)
+    int jitterTargetMs;        // cushion kept in our queue now
+    uint32_t lateUnderruns;    // underruns where the data came back late (network or scheduling)
+    uint32_t silenceUnderruns; // underruns where the host had stopped sending (not audible)
+    uint32_t jitterGrows, jitterShrinks;
+    uint64_t trimmedFrames;    // excess latency spliced out (crossfaded)
+    int gapMaxMs;              // longest gap between writes since the last take_gap_max
 } MlxrPulseOutStats;
 
 void mlxr_pulse_out_params_default(MlxrPulseOutParams* p);
@@ -66,7 +78,10 @@ int mlxr_pulse_out_write(MlxrPulseOut* po, const float* frames, int n);
 /** Pauses (and empties) the stream, or resumes it. While corked write() discards. */
 void mlxr_pulse_out_set_corked(MlxrPulseOut* po, bool corked);
 
+/** Any thread, no pulse lock. */
 void mlxr_pulse_out_stats(MlxrPulseOut* po, MlxrPulseOutStats* out);
+/** The longest gap between writes (under the silence threshold) since the last call; resets it. */
+int mlxr_pulse_out_take_gap_max(MlxrPulseOut* po);
 
 /**
  * The shared context, for the tests' helpers (loading a null sink). Returns

@@ -137,6 +137,32 @@ void mlxr_pcmq_mark_discontinuity(MlxrPcmQueue* q) {
     pthread_mutex_unlock(&q->lock);
 }
 
+int mlxr_pcmq_skip(MlxrPcmQueue* q, int n) {
+    pthread_mutex_lock(&q->lock);
+    int fade = MLXR_PCMQ_FADE_FRAMES;
+    if (n > q->count - fade) {
+        n = q->count - fade;
+    }
+    if (n <= 0) {
+        pthread_mutex_unlock(&q->lock);
+        return 0;
+    }
+    // The frames that will be played next (after the cut) fade in while the
+    // ones that were due (the head) fade out over the same span
+    for (int f = 0; f < fade; f++) {
+        float g = (f + 0.5f) / (float) fade;
+        float* outgoing = q->data + (size_t) ((q->head + f) % q->alloc) * q->channels;
+        float* incoming = q->data + (size_t) ((q->head + n + f) % q->alloc) * q->channels;
+        for (int c = 0; c < q->channels; c++) {
+            incoming[c] = outgoing[c] * (1.0f - g) + incoming[c] * g;
+        }
+    }
+    discard(q, n);
+    q->stats.skippedFrames += (uint64_t) n;
+    pthread_mutex_unlock(&q->lock);
+    return n;
+}
+
 void mlxr_pcmq_clear(MlxrPcmQueue* q) {
     pthread_mutex_lock(&q->lock);
     q->head = q->count = 0;

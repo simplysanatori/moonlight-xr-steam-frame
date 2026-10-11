@@ -87,6 +87,37 @@ is back to 14.9 ms.
   core), worst single packet 1-2.5 ms (first packet). The convolution adds no block delay (output frames come out of
   the call that took the input), only the filters' own onset of ~1 ms (32-sample EQ shift + 0.5 ms KEMAR onset).
 
+## Adaptive jitter cushion and thread priority (lane av-latency, 2026-10-10)
+
+Owner: "audio crackling when playing a video". In the 22:30 run the stream's underrun counter (a total, not
+per window) stayed at 2 for three minutes, then rose by 21-78 per 5 s from 22:34:32 to 22:35:37 while a video
+played at 40-75 fps: the same windows show "connection status: poor", rtt 24-318 ms and unrecoverable audio FEC
+blocks; 3D was off for half of it and the panel worker idle. So: late packets over the Frame's hotspot, not CPU.
+The fixed path above (16 ms in the server, our queue empty in steady state and capped at 10 ms, oldest dropped)
+runs dry on any gap over ~16-25 ms, and moonlight-common-c's FEC queue alone holds packets up to 30 ms while it
+waits for a lost one.
+
+Now (`jitter.c`, driven by `pulse_out.c` under the mainloop lock, on for the stream, off for the click):
+- a cushion kept in our queue on top of the server buffer, 0 ms to start (latency on a clean link unchanged);
+- an underrun whose data comes back within 400 ms (late, not the host going quiet) grows it to cover the gap
+  seen (at least +10 ms, at most 40 ms), and playback then waits until server buffer + cushion are queued;
+- 30 s without such an underrun takes 5 ms off; once a second the queue's low point above cushion + 4 ms is
+  spliced out with a 2 ms crossfade (`mlxr_pcmq_skip`), so latency comes back down (clock drift too);
+- bound: ours <= 16 + 40 + one quantum ~ 64 ms at worst; stock moonlight-qt allows 15 ms device + 50 ms SDL
+  queue + 30 ms common-c queue. `MLXR_AUDIO_JITTER=min,max` overrides; `fixedBuffer` turns it off.
+- Simulation in `audio_jitter` (Wi-Fi stalls of 25-60 ms every 700 ms, 60 s): fixed buffer 86 underruns,
+  cushion 4 (then 40 ms target); after 5 clean minutes back to 0 ms target, 16 ms max.
+
+common-c's audio receive thread (which decodes and writes, DIRECT_SUBMIT) asks rtkit for nice -10 on its first
+packet, as SDL's audio thread does for stock moonlight-qt (`thread_prio.c`, sd-bus through dlopen, no new link
+dependency). `MLXR_AUDIO_PRIORITY=rt` asks for SCHED_RR 10 instead (bounds RLIMIT_RTTIME as rtkit requires),
+`off` leaves it. Both checked against this Frame's rtkit.
+
+The log's 5 s "xr: latency:" line has, per window: cushion, underruns split late / after silence, lost, dropped
+and trimmed ms, the longest gap between packets, and how long the receive thread waited for a CPU
+(schedstat run delay) with its CPU share: late underruns with long gaps and ~0 wait = network; long waits =
+scheduling.
+
 ## IMPORTANT: SteamOS spatializes every output stream (found on this device)
 
 `/etc/wireplumber/scripts/spatial-node-config.lua` + `60-spatial-audio.conf` (setting
@@ -132,6 +163,7 @@ for a native OpenXR client is unknown territory.
 |---|---|---|
 | `audio_hrtf` | 199 | 37 WAVs load; 128/160/175 taps at 44.1/48 kHz; ring mirrored (az 360-a = ears swapped); EQ flattens the average spectrum 11.4 -> 2.3 dB spread; azimuth wrap; failure message |
 | `audio_surround` | 120 | impulse per virtual speaker (5.1 and 7.1): FL left ear +9.4 dB and 12 samples (0.25 ms) early, FR mirrored exactly, FC 0.0 dB / lag 0, LFE identical in both ears (0.707), BL/BR 5-9 dB with 13-18 samples, SL/SR +13.8 dB / 35 samples (0.73 ms); head turned +-90 moves FC to the right/left ear by 13.8 dB and 35 samples, 180 degrees is balanced, FL with head turned 30 degrees is centred ("held to the screen"), 360 degrees is the identity; crossfade is exactly `was*old + (1-was)*new` over the block (6e-8) and the sub-0.25 degree move does not fade; enable toggle is an exact fade between downmix and HRTF; FFT vs direct 3e-7; pose set from another thread while rendering; NaN pose ignored; bad dir/channels |
+| `audio_jitter` | 151 | cushion policy (grow on late data, not on silence, cap, calm shrink, refill), trim, crossfaded skip, Wi-Fi stall simulation old vs new, thread priority parse/off and schedstat |
 | `audio_queue` | 140 | FIFO order across wrap, drop-oldest keeps the newest, exact drop counts, oversized push, set_capacity, fade-in after splice/underrun, producer/consumer threads (no loss/dup/reorder; popped + dropped == pushed) |
 | `audio_opus` | 1854 | libopus encoder -> renderer callbacks, stereo/5.1/7.1: each Moonlight channel soloed lands on its own decoded channel within 1 dB, all others > 50 dB down (silent channels decode to exact 0); simultaneous distinct tones per channel (coupled-stream mixing check); downmix routing (left/right/center/LFE and -3 dB levels); HRTF render left-right balance sign per speaker; 10 ms packets; loss concealment; garbage packet counted; mute drops packets and unmute resumes; stats; init failures; missing HRTF dir falls back; no PulseAudio server -> silent stream |
 | `audio_pulse` | 51 | against the real PulseAudio API into a temporary null sink (loaded and unloaded by the test, recorded from its monitor, default sink verified unchanged; skipped with code 77 without a server): tone level within 0.02 dB (stereo), 0.8 dB (HRTF), latency <= 40 ms, no underruns/drops, mute gap 603 ms for 600 ms muted, 400 ms burst capped at 10 ms queue, click level -20.8 dBFS / 28 ms and non-blocking, 0 volume silent |
