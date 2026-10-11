@@ -52,6 +52,11 @@ int main(void) {
     scene_frame(s, "stats");
     printf("keyboard, stats, toast, ray: %u layers (+1 passthrough)\n", s->out.count);
     CHECK(s->out.count + 1 <= 16);
+    // Native: the keyboard's move bar is a layer of its own, lit under the ray
+    c->hoverKind = HOVER_KBBAR;
+    scene_frame(s, "stats");
+    printf("keyboard, its move bar lit, stats, toast, ray: %u layers (+1 passthrough)\n", s->out.count);
+    CHECK(s->out.count + 1 <= 16);
     scene_free(s);
     return checksDone("m4 budget");
 }

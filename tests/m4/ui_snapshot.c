@@ -107,6 +107,45 @@ int main(int argc, char** argv) {
     shot(s, "10-keyboard-fn", NULL);
     c->kbMods = 0;
 
+    // Native (owner's request): the keyboard's move bar, lit under the ray,
+    // and the keyboard carried off by it and laid at an angle
+    c->kbState = KB_STATE_LOWER;
+    c->kbHoverKey = -1;
+    c->headPos = (XrVector3f){ 0, 0, 0 };
+    {
+        float bw, bh, drop;
+        kbBarGeometry(c, &bw, &bh, &drop);
+        Vec3 pill = panelPoint(c->kbPose, c->kbW, c->kbH, 0.5f, 0.5f + drop / c->kbH);
+        scene_ray_to(s, hand(), pill);
+        c->hoverKind = HOVER_KBBAR;
+        shot(s, "10b-keyboard-bar", NULL);
+
+        // Taken by the pill, brought up and in toward the viewer on a wrist
+        // tipped back, the left a little
+        Vec3 d = vecNorm(vecSub(pill, hand()));
+        Vec3 z = { -d.x, -d.y, -d.z };
+        Vec3 up = { 0, 1, 0 };
+        Vec3 x = vecNorm(vecCross(up, z));
+        Vec3 y = vecCross(z, x);
+        XrPosef aim = { quatFromBasis(x, y, z), { hand().x, hand().y, hand().z } };
+        xrGrabStepAt(c, aim, 1, 0, 0.0f);
+        Vec3 xAxis = { 1, 0, 0 }, yAxis = { 0, 1, 0 };
+        aim.orientation = quatNorm(quatMul(axisAngleQuat(yAxis, 0.25f),
+                                           quatMul(axisAngleQuat(xAxis, 0.9f), aim.orientation)));
+        aim.position.x -= 0.15f;
+        aim.position.y += 0.10f;
+        xrGrabStepAt(c, aim, 1, 0, 0.0f);
+        for (int i = 0; i < 30; i++) xrGrabStepAt(c, aim, 1, 0, 0.6f);
+        printf("moved keyboard at %.2f %.2f %.2f\n", c->kbPose.position.x, c->kbPose.position.y, c->kbPose.position.z);
+        scene_ray_to(s, hand(), panelPoint(c->kbPose, c->kbW, c->kbH, 0.5f, 0.5f + drop / c->kbH));
+        c->hoverKind = HOVER_KBBAR;
+        shot(s, "10c-keyboard-moved", NULL);
+        xrGrabStepAt(c, aim, 0, 0, 0.0f);
+        c->hoverKind = HOVER_NONE;
+        c->kbMoved = 0;
+        kbPlace(c);
+    }
+
     scene_reset(s);
     c->exitConfirmOpen = 1;
     c->exitPose = exitPromptPose(c, &c->exitW, &c->exitH);

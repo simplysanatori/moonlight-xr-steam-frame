@@ -85,7 +85,7 @@ void xrKeyboardSync(XrCtx* ctx, float* out) {
     ctx->kbKeyDown = 0;
     xrKeyboardFillTables(ctx);
     if (ctx->kbOpen) {
-        ctx->kbPose = kbPanelPose(ctx, &ctx->kbW, &ctx->kbH);
+        kbPlace(ctx);
     }
 }
 

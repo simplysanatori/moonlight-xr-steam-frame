@@ -175,6 +175,9 @@ void xrCurveMvp(XrFovf fov, XrPosef eye, XrPosef surface, float* mvp);
 // What one ray in the local space lands on through the frame's hover pass
 // (HOVER_*), and where on the plane that claimed it
 int xrHoverAt(XrCtx* ctx, XrPosef aim, float* outU, float* outV, int* outCorner);
+// One frame of the right hand's grab: trigger and grip 0 or 1, the thumbstick's
+// tilt north positive; returns what the ray was over
+int xrGrabStepAt(XrCtx* ctx, XrPosef aim, int trigger, int grip, float stickY);
 
 // ---- the context's defaults (xr_prefs.c) -----------------------------------
 // What upstream's nativeInit set before any setter ran
