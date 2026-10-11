@@ -104,6 +104,8 @@ typedef struct XrLauncherView {
 } XrLauncherView;
 // Builds what each panel shows from the context and the live settings, and
 // redraws into the atlas the ones whose inputs changed since their last drawing
+// (native: in worker mode, lands the worker's finished drawings and hands it
+// the new ones; frame loop only, after the frame's fence)
 void xrPanelsUpdate(XrCtx* ctx, const Settings* live, const XrLauncherView* launcher,
                     const char* statsText, const char* clockText, int64_t now);
 int xrPanelsCreate(XrCtx* ctx);
@@ -115,6 +117,14 @@ const UiView* xrPanelsLastView(XrCtx* ctx);
 
 // Panel drawings since the last call and their average cost (the stats line)
 void xrPanelsStats(XrCtx* ctx, int* draws, double* ms);
+// Native: the longest wait, since the last call, from a panel's change to its
+// drawing landing in the atlas (worker mode; 0 when drawn inline)
+double xrPanelsWorstWaitMs(XrCtx* ctx);
+// Native: draw the panels on a worker thread from now on (swapchain atlas:
+// the session). Without it every drawing happens inside xrPanelsUpdate.
+int xrPanelsSetAsync(XrCtx* ctx);
+// Native: wait for the worker's drawings and land them (tests)
+void xrPanelsFlush(XrCtx* ctx);
 // The report form, the toast's words and the app's own notices
 void xrPanelsReportKey(XrCtx* ctx, int code);
 void xrPanelsReportEvent(XrCtx* ctx, int event, const char* reportDir);

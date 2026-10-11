@@ -1548,6 +1548,13 @@ int xr_app_run(const XrAppConfig* cfg) {
         LOGE("UI atlas unavailable");
         goto fail;
     }
+    // Native: the panels are drawn on a worker thread (a cog redraw is 4-7 ms,
+    // the keyboard ~10 ms: too much of a 90 Hz frame). MLXR_PANELS_INLINE=1
+    // draws them on the frame loop as before.
+    {
+        const char* inl = getenv("MLXR_PANELS_INLINE");
+        if (inl == NULL || inl[0] != '1') xrPanelsSetAsync(ctx);
+    }
     LOGEV("swapchains alive %d of 16 at start (the picture's comes with its first frame, passthrough's "
           "when it goes on)", ctx->swapchainsAlive);
 
@@ -1969,14 +1976,15 @@ int xr_app_run(const XrAppConfig* cfg) {
             int panelDraws = 0;
             double panelMs = 0.0;
             xrPanelsStats(ctx, &panelDraws, &panelMs);
+            double panelWait = xrPanelsWorstWaitMs(ctx);
             char gpu[320];
             xrGpuTimesLine(ctx, gpu, sizeof(gpu));
             char depth[400];
             xrDepthStatsLine(ctx, depth, sizeof(depth));
             LOGEV("xr: %.1f fps (display %.0f Hz), video %.1f fps drawn, %u layers, swapchains %d of 16, %d panel "
-                  "drawings %.1f ms avg; room %d%s, glow %s, models %s%s%s%s%s; %s",
+                  "drawings %.1f ms avg (worst wait %.0f ms); room %d%s, glow %s, models %s%s%s%s%s; %s",
                   framesWindow / (t - lastStats), xrGetDisplayRate(ctx), videoWindow / (t - lastStats), fout.count,
-                  ctx->swapchainsAlive, panelDraws, panelMs, roomEffective(ctx),
+                  ctx->swapchainsAlive, panelDraws, panelMs, panelWait, roomEffective(ctx),
                   roomEffective(ctx) > 0 && xrRoomResident(ctx) != roomEffective(ctx) ? " (loading)" : "",
                   xrWorldGlowShown(ctx) ? "up" : "off", ctx->modelsShowing ? "up" : "off", depth[0] ? "; " : "",
                   depth, gpu[0] ? "; " : "", gpu, extra);

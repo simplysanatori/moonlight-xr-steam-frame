@@ -2,8 +2,19 @@
 // (XrPanels.java) on a loader thread and handed the bitmaps down through the
 // nativeUpload* entry points; the frame loop showed whichever sheet the state
 // asked for. Here lane U's rasterisers draw each panel into its slot of the
-// UI atlas, on the frame loop, only when what it shows has changed (a view
-// "key" per panel compared with the one it was last drawn from).
+// UI atlas only when what it shows has changed (a view "key" per panel
+// compared with the one it was last drawn from).
+//
+// Native: the frame loop only decides what changed. With a swapchain atlas
+// (xrPanelsSetAsync) the drawing itself goes to one worker thread, as
+// upstream's loader thread did: a cog redraw takes 4-7 ms and the keyboard or
+// picker ~10 ms on the Frame's CPU, most of an 11.1 ms frame at 90 Hz, and the
+// owner saw the head-tracked world judder while the menu was open. The frame
+// loop hands the worker a job (a copy of everything the panel is drawn from),
+// the worker draws it into a buffer of its own, and the frame loop copies a
+// finished buffer into the atlas on a later frame, after that frame's fence.
+// Only the newest job of a slot is drawn. A CPU-only atlas (the tests and
+// snapshots) draws on the caller's thread, as before.
 //
 // What draws where:
 //   settings panel     UI_PANEL_COG, with the thumbs, rings, readouts and the
@@ -20,12 +31,53 @@
 //   stats              ATLAS_OVERLAY, the session's stats lines
 //   launcher lists     UI_PANEL_PC_LIST / UI_PANEL_APP_LIST, with the hover
 // GPLv3.
+#define _GNU_SOURCE // pthread_setname_np
 #include "xr_native.h"
 #include "xr_keyboard.h"
 
 #include "text.h"
 
+#include <pthread.h>
+
 #define KEY_MAX 2048
+
+// ---- a panel drawing, as the worker gets it ------------------------------------------
+
+typedef enum { JOB_PANEL, JOB_CLOCK, JOB_REPORT, JOB_TOAST, JOB_OVERLAY, JOB_PC_LIST, JOB_APP_LIST } JobKind;
+
+// Everything a panel is drawn from, by value: the worker never reads the
+// context. view.settings and view.stereo_reason are pointed at this job's own
+// copies just before it is drawn (jobFix), as the job moves about.
+typedef struct {
+    int kind;
+    int slot;
+    UiView view;
+    Settings settings;
+    char stereoReason[96];
+    char text[512];   // clock line, toast line, stats lines
+    char more[256];   // the toast's quieter line
+    char note[512];   // report form
+    char address[128];
+    int focus, hover, canSend;
+    int toastKind, toastArg;
+    UiPcItem* pcs;    // launcher lists, owned by the job
+    UiAppItem* apps;
+    int count, page, loading, failed;
+    UiHover listHover;
+    char pcName[64];
+    int64_t queuedNs;
+} PanelJob;
+
+typedef struct {
+    int w, h;          // the slot's rectangle in the atlas
+    PanelJob pending;  // the newest drawing wanted, not yet taken
+    int hasPending;
+    uint8_t* work;     // the worker's canvas (w*h RGBA8)
+    uint8_t* done;     // the last finished drawing, waiting for the frame loop
+    int hasDone;
+    PanelJob doneJob;  // what it was drawn from (lists freed)
+    UiHits doneHits;
+} SlotWork;
 
 typedef struct XrPanels {
     unsigned char key[ATLAS_SLOTS][KEY_MAX];
@@ -35,14 +87,25 @@ typedef struct XrPanels {
     int launcherSlot;
     UiView lastView;
     Settings lastSettings;
-    UiFont* font;
+    char lastStereoReason[96];
+    UiFont* font;     // the drawing thread's only
     // The report form (XrReportForm.java): the note, the address, which takes
     // the keys
     char reportNote[512];
     char reportAddress[128];
     int reportFocus;
+    // Native: the worker. lock guards slots[], busy, quit and the stats.
+    pthread_mutex_t lock;
+    pthread_cond_t wake;   // a job is waiting, or quit
+    pthread_cond_t idle;   // a job finished
+    pthread_t thread;
+    int threaded;
+    int busy;
+    int quit;
+    SlotWork slots[ATLAS_SLOTS];
     int64_t drawNs;
     int draws;
+    int64_t waitNs;   // from asking to the drawing landing in the atlas, worst of the window
 } XrPanels;
 
 int xrPanelsCreate(XrCtx* ctx) {
@@ -52,6 +115,14 @@ int xrPanelsCreate(XrCtx* ctx) {
     }
     p->launcherSlot = -1;
     p->reportFocus = REPORT_ZONE_NOTE;
+    pthread_mutex_init(&p->lock, NULL);
+    pthread_cond_init(&p->wake, NULL);
+    pthread_cond_init(&p->idle, NULL);
+    for (int s = 0; s < ATLAS_SLOTS; s++) {
+        UiRectPx r = xrAtlasRect(s);
+        p->slots[s].w = r.w > 0 ? r.w : 0;
+        p->slots[s].h = r.h > 0 ? r.h : 0;
+    }
     ctx->panels = p;
     // Ready as upstream says it once Java's art has arrived; here the art is
     // drawn the first time the panel shows
@@ -75,8 +146,36 @@ int xrPanelsCreate(XrCtx* ctx) {
     return 1;
 }
 
+static void jobFree(PanelJob* j) {
+    free(j->pcs);
+    free(j->apps);
+    j->pcs = NULL;
+    j->apps = NULL;
+}
+
 void xrPanelsDestroy(XrCtx* ctx) {
-    free(ctx->panels);
+    XrPanels* p = ctx->panels;
+    if (p == NULL) {
+        return;
+    }
+    if (p->threaded) {
+        pthread_mutex_lock(&p->lock);
+        p->quit = 1;
+        pthread_cond_broadcast(&p->wake);
+        pthread_mutex_unlock(&p->lock);
+        pthread_join(p->thread, NULL);
+    }
+    for (int s = 0; s < ATLAS_SLOTS; s++) {
+        if (p->slots[s].hasPending) {
+            jobFree(&p->slots[s].pending);
+        }
+        free(p->slots[s].work);
+        free(p->slots[s].done);
+    }
+    pthread_cond_destroy(&p->idle);
+    pthread_cond_destroy(&p->wake);
+    pthread_mutex_destroy(&p->lock);
+    free(p);
     ctx->panels = NULL;
 }
 
@@ -86,12 +185,29 @@ const UiHits* xrPanelsLauncherHits(XrCtx* ctx) {
 
 void xrPanelsStats(XrCtx* ctx, int* draws, double* ms) {
     XrPanels* p = ctx->panels;
-    *draws = p ? p->draws : 0;
-    *ms = p && p->draws ? p->drawNs / 1e6 / p->draws : 0.0;
-    if (p) {
-        p->draws = 0;
-        p->drawNs = 0;
+    *draws = 0;
+    *ms = 0.0;
+    if (p == NULL) {
+        return;
     }
+    pthread_mutex_lock(&p->lock);
+    *draws = p->draws;
+    *ms = p->draws ? p->drawNs / 1e6 / p->draws : 0.0;
+    p->draws = 0;
+    p->drawNs = 0;
+    pthread_mutex_unlock(&p->lock);
+}
+
+double xrPanelsWorstWaitMs(XrCtx* ctx) {
+    XrPanels* p = ctx->panels;
+    if (p == NULL) {
+        return 0.0;
+    }
+    pthread_mutex_lock(&p->lock);
+    double ms = p->waitNs / 1e6;
+    p->waitNs = 0;
+    pthread_mutex_unlock(&p->lock);
+    return ms;
 }
 
 const UiView* xrPanelsLastView(XrCtx* ctx) {
@@ -112,16 +228,300 @@ static int keyChanged(XrPanels* p, int slot, const void* key, int len) {
     return 1;
 }
 
-static void slotCanvas(XrCtx* ctx, int slot, UiCanvas* cv) {
-    UiRectPx r = xrAtlasRect(slot);
-    ui_cv_sub(cv, xrAtlasPixels(ctx), UI_ATLAS_W, r.x, r.y, r.w, r.h);
-    ui_cv_clear(cv);
+// ---- drawing a job (either thread) and landing it (frame loop) ------------------------
+
+static void jobFix(PanelJob* j) {
+    j->view.settings = &j->settings;
+    j->view.stereo_reason = j->stereoReason[0] ? j->stereoReason : NULL;
 }
 
-static void drawn(XrCtx* ctx, int slot, int64_t t0) {
-    xrAtlasTouch(ctx, slot);
-    ctx->panels->draws++;
-    ctx->panels->drawNs += nowNs() - t0;
+// A job for one of the panels drawn from the view alone
+static void jobPanel(PanelJob* j, int slot, const UiView* v) {
+    memset(j, 0, sizeof(*j));
+    j->kind = JOB_PANEL;
+    j->slot = slot;
+    j->view = *v;
+    if (v->settings != NULL) {
+        j->settings = *v->settings;
+    }
+    if (v->stereo_reason != NULL) {
+        snprintf(j->stereoReason, sizeof(j->stereoReason), "%s", v->stereo_reason);
+    }
+}
+
+// Draws the job onto a cleared canvas. 0: nothing drawn (no font)
+static int jobDraw(XrPanels* p, PanelJob* j, UiCanvas* cv, UiHits* hits) {
+    jobFix(j);
+    ui_hits_clear(hits);
+    switch (j->kind) {
+    case JOB_PANEL: ui_draw_panel((UiPanelId)j->slot, cv, &j->view, NULL); break;
+    case JOB_CLOCK: ui_draw_clock(cv, j->text); break;
+    case JOB_REPORT: {
+        UiReport r;
+        memset(&r, 0, sizeof(r));
+        r.note = j->note;
+        r.address = j->address;
+        r.focus = j->focus;
+        r.hover = j->hover;
+        r.can_send = j->canSend;
+        ui_draw_report(cv, &r, NULL);
+        break;
+    }
+    case JOB_TOAST: ui_draw_toast(cv, j->text, j->more, 0); break;
+    case JOB_OVERLAY: {
+        if (p->font == NULL) {
+            p->font = ui_font_default();
+            if (p->font == NULL) {
+                return 0;
+            }
+        }
+        ui_fill_rrect(cv, 0.0f, 0.0f, (float)cv->w, (float)cv->h, 14.0f, 0xB0000000u);
+        float size = 17.0f;
+        float y = 12.0f + size;
+        const char* s = j->text;
+        while (*s != '\0' && y < cv->h - 6.0f) {
+            const char* e = strchr(s, '\n');
+            int len = e != NULL ? (int)(e - s) : (int)strlen(s);
+            ui_text_draw(cv, p->font, UI_WEIGHT_REGULAR, size, 12.0f, y, UI_ALIGN_LEFT, 0xFFFFFFFFu, s, len);
+            y += size * 1.35f;
+            s += len;
+            if (*s == '\n') {
+                s++;
+            }
+        }
+        break;
+    }
+    case JOB_PC_LIST: {
+        UiPcList l;
+        memset(&l, 0, sizeof(l));
+        l.items = j->pcs;
+        l.count = j->count;
+        l.page = j->page;
+        l.selected = -1;
+        l.hover = j->listHover;
+        ui_draw_pc_list(cv, &l, hits);
+        break;
+    }
+    case JOB_APP_LIST: {
+        UiAppList l;
+        memset(&l, 0, sizeof(l));
+        l.pc_name = j->pcName;
+        l.items = j->apps;
+        l.count = j->count;
+        l.page = j->page;
+        l.selected = -1;
+        l.loading = j->loading;
+        l.failed = j->failed;
+        l.hover = j->listHover;
+        ui_draw_app_list(cv, &l, hits);
+        break;
+    }
+    default: return 0;
+    }
+    return 1;
+}
+
+// What a drawing changes besides its pixels, once it is in the atlas
+static void jobLand(XrCtx* ctx, XrPanels* p, const PanelJob* j, const UiHits* hits) {
+    switch (j->kind) {
+    case JOB_PANEL:
+        if (j->slot == UI_PANEL_COG) {
+            p->lastSettings = j->settings;
+            snprintf(p->lastStereoReason, sizeof(p->lastStereoReason), "%s", j->stereoReason);
+            p->lastView = j->view;
+            p->lastView.settings = &p->lastSettings;
+            p->lastView.stereo_reason = p->lastStereoReason[0] ? p->lastStereoReason : NULL;
+        }
+        break;
+    case JOB_REPORT: ctx->reportReady = 1; break;
+    case JOB_TOAST:
+        ctx->toastDrawnKind = j->toastKind;
+        ctx->toastDrawnArg = j->toastArg;
+        ctx->toastArtReady = 1;
+        break;
+    case JOB_OVERLAY: ctx->overlayHasContent = 1; break;
+    case JOB_PC_LIST:
+    case JOB_APP_LIST:
+        if (p->launcherSlot == j->slot) {
+            p->launcherHits = *hits;
+        }
+        break;
+    default: break;
+    }
+}
+
+// The worker: newest job of each slot, the panels the ray is on first
+static const int JOB_ORDER[] = { UI_PANEL_COG, UI_PANEL_KEYBOARD, UI_PANEL_EXIT, UI_PANEL_TOAST,
+                                 UI_PANEL_PC_LIST, UI_PANEL_APP_LIST, UI_PANEL_REPORT, UI_PANEL_PICKER,
+                                 UI_PANEL_CLOCK };
+
+static int nextJob(XrPanels* p) {
+    for (size_t i = 0; i < sizeof(JOB_ORDER) / sizeof(JOB_ORDER[0]); i++) {
+        if (p->slots[JOB_ORDER[i]].hasPending) {
+            return JOB_ORDER[i];
+        }
+    }
+    for (int s = 0; s < ATLAS_SLOTS; s++) {
+        if (p->slots[s].hasPending) {
+            return s;
+        }
+    }
+    return -1;
+}
+
+static void* panelWorker(void* arg) {
+    XrPanels* p = arg;
+    pthread_setname_np(pthread_self(), "mlxr-panels");
+    pthread_mutex_lock(&p->lock);
+    for (;;) {
+        int s;
+        while (!p->quit && (s = nextJob(p)) < 0) {
+            pthread_cond_wait(&p->wake, &p->lock);
+        }
+        if (p->quit) {
+            break;
+        }
+        SlotWork* sw = &p->slots[s];
+        PanelJob job = sw->pending;
+        sw->hasPending = 0;
+        p->busy = 1;
+        if (sw->work == NULL) {
+            sw->work = malloc((size_t)sw->w * (size_t)sw->h * 4);
+        }
+        uint8_t* work = sw->work;
+        pthread_mutex_unlock(&p->lock);
+
+        static UiHits hits; // the worker's only
+        int64_t t0 = nowNs();
+        int ok = 0;
+        if (work != NULL) {
+            UiCanvas cv;
+            ui_cv_init(&cv, work, sw->w, sw->h);
+            ui_cv_clear(&cv);
+            ok = jobDraw(p, &job, &cv, &hits);
+        }
+        int64_t t1 = nowNs();
+        jobFree(&job);
+
+        pthread_mutex_lock(&p->lock);
+        if (ok) {
+            sw->work = sw->done;
+            sw->done = work;
+            sw->doneJob = job;
+            sw->doneHits = hits;
+            sw->hasDone = 1;
+            p->draws++;
+            p->drawNs += t1 - t0;
+        }
+        p->busy = 0;
+        pthread_cond_broadcast(&p->idle);
+    }
+    pthread_mutex_unlock(&p->lock);
+    return NULL;
+}
+
+// Finished drawings into the atlas: frame loop only, after the frame's fence
+// (xrAtlasTouch copies into the staging buffer the GPU reads)
+static void collect(XrCtx* ctx, XrPanels* p) {
+    if (!p->threaded) {
+        return;
+    }
+    uint8_t* atlas = xrAtlasPixels(ctx);
+    int64_t now = nowNs();
+    pthread_mutex_lock(&p->lock);
+    for (int s = 0; s < ATLAS_SLOTS; s++) {
+        SlotWork* sw = &p->slots[s];
+        if (!sw->hasDone) {
+            continue;
+        }
+        sw->hasDone = 0;
+        UiRectPx r = xrAtlasRect(s);
+        for (int y = 0; y < sw->h; y++) {
+            memcpy(atlas + ((size_t)(r.y + y) * UI_ATLAS_W + (size_t)r.x) * 4, sw->done + (size_t)y * sw->w * 4,
+                   (size_t)sw->w * 4);
+        }
+        jobLand(ctx, p, &sw->doneJob, &sw->doneHits);
+        xrAtlasTouch(ctx, s);
+        if (now - sw->doneJob.queuedNs > p->waitNs) {
+            p->waitNs = now - sw->doneJob.queuedNs;
+        }
+    }
+    pthread_mutex_unlock(&p->lock);
+}
+
+// A drawing wanted: drawn here and now with a CPU-only atlas, else handed to
+// the worker (replacing an older one of the slot not yet taken)
+static void submit(XrCtx* ctx, XrPanels* p, PanelJob* j) {
+    int slot = j->slot;
+    j->queuedNs = nowNs();
+    if (!p->threaded) {
+        static UiHits hits;
+        UiRectPx r = xrAtlasRect(slot);
+        UiCanvas cv;
+        ui_cv_sub(&cv, xrAtlasPixels(ctx), UI_ATLAS_W, r.x, r.y, r.w, r.h);
+        ui_cv_clear(&cv);
+        int64_t t0 = nowNs();
+        int ok = jobDraw(p, j, &cv, &hits);
+        int64_t t1 = nowNs();
+        if (ok) {
+            jobLand(ctx, p, j, &hits);
+            xrAtlasTouch(ctx, slot);
+            pthread_mutex_lock(&p->lock);
+            p->draws++;
+            p->drawNs += t1 - t0;
+            pthread_mutex_unlock(&p->lock);
+        }
+        jobFree(j);
+        return;
+    }
+    pthread_mutex_lock(&p->lock);
+    SlotWork* sw = &p->slots[slot];
+    if (sw->hasPending) {
+        jobFree(&sw->pending);
+    }
+    sw->pending = *j;
+    sw->hasPending = 1;
+    pthread_cond_signal(&p->wake);
+    pthread_mutex_unlock(&p->lock);
+}
+
+// A slot's drawings not yet landed are dropped (the report sheet reopened)
+static void dropSlot(XrPanels* p, int slot) {
+    pthread_mutex_lock(&p->lock);
+    SlotWork* sw = &p->slots[slot];
+    if (sw->hasPending) {
+        jobFree(&sw->pending);
+        sw->hasPending = 0;
+    }
+    sw->hasDone = 0;
+    pthread_mutex_unlock(&p->lock);
+}
+
+int xrPanelsSetAsync(XrCtx* ctx) {
+    XrPanels* p = ctx->panels;
+    if (p == NULL || p->threaded) {
+        return p != NULL;
+    }
+    if (pthread_create(&p->thread, NULL, panelWorker, p) != 0) {
+        LOGW("panels: no worker thread, drawing on the frame loop");
+        return 0;
+    }
+    p->threaded = 1;
+    LOGI("panels: drawn on a worker thread");
+    return 1;
+}
+
+void xrPanelsFlush(XrCtx* ctx) {
+    XrPanels* p = ctx->panels;
+    if (p == NULL || !p->threaded) {
+        return;
+    }
+    pthread_mutex_lock(&p->lock);
+    while (p->busy || nextJob(p) >= 0) {
+        pthread_cond_wait(&p->idle, &p->lock);
+    }
+    pthread_mutex_unlock(&p->lock);
+    collect(ctx, p);
 }
 
 // The view a panel is drawn from: the live settings and what the context says
@@ -213,14 +613,9 @@ static void updateCog(XrCtx* ctx, XrPanels* p, const UiView* base) {
     if (!keyChanged(p, UI_PANEL_COG, &k, sizeof(k))) {
         return;
     }
-    int64_t t0 = nowNs();
-    UiCanvas cv;
-    slotCanvas(ctx, UI_PANEL_COG, &cv);
-    ui_draw_panel(UI_PANEL_COG, &cv, &v, NULL);
-    p->lastSettings = *v.settings;
-    p->lastView = v;
-    p->lastView.settings = &p->lastSettings;
-    drawn(ctx, UI_PANEL_COG, t0);
+    PanelJob j;
+    jobPanel(&j, UI_PANEL_COG, &v);
+    submit(ctx, p, &j);
 }
 
 static void updateClock(XrCtx* ctx, XrPanels* p, const char* clockText) {
@@ -230,11 +625,12 @@ static void updateClock(XrCtx* ctx, XrPanels* p, const char* clockText) {
     if (!keyChanged(p, UI_PANEL_CLOCK, clockText, (int)strlen(clockText) + 1)) {
         return;
     }
-    int64_t t0 = nowNs();
-    UiCanvas cv;
-    slotCanvas(ctx, UI_PANEL_CLOCK, &cv);
-    ui_draw_clock(&cv, clockText);
-    drawn(ctx, UI_PANEL_CLOCK, t0);
+    PanelJob j;
+    memset(&j, 0, sizeof(j));
+    j.kind = JOB_CLOCK;
+    j.slot = UI_PANEL_CLOCK;
+    snprintf(j.text, sizeof(j.text), "%s", clockText);
+    submit(ctx, p, &j);
 }
 
 static void updateKeyboard(XrCtx* ctx, XrPanels* p, const UiView* base) {
@@ -246,13 +642,11 @@ static void updateKeyboard(XrCtx* ctx, XrPanels* p, const UiView* base) {
     if (!keyChanged(p, UI_PANEL_KEYBOARD, k, sizeof(k))) {
         return;
     }
-    int64_t t0 = nowNs();
     UiView v = *base;
     v.hover.kind = UI_HIT_NONE;
-    UiCanvas cv;
-    slotCanvas(ctx, UI_PANEL_KEYBOARD, &cv);
-    ui_draw_panel(UI_PANEL_KEYBOARD, &cv, &v, NULL);
-    drawn(ctx, UI_PANEL_KEYBOARD, t0);
+    PanelJob j;
+    jobPanel(&j, UI_PANEL_KEYBOARD, &v);
+    submit(ctx, p, &j);
 }
 
 static void updateExit(XrCtx* ctx, XrPanels* p, const UiView* base) {
@@ -263,14 +657,12 @@ static void updateExit(XrCtx* ctx, XrPanels* p, const UiView* base) {
     if (!keyChanged(p, UI_PANEL_EXIT, zone, sizeof(zone))) {
         return;
     }
-    int64_t t0 = nowNs();
     UiView v = *base;
     v.hover.kind = zone[0] == EXIT_ZONE_NONE ? UI_HIT_NONE : UI_HIT_BUTTON;
     v.hover.a = zone[0] == EXIT_ZONE_EXIT ? UI_BTN_EXIT_CONFIRM : UI_BTN_EXIT_CANCEL;
-    UiCanvas cv;
-    slotCanvas(ctx, UI_PANEL_EXIT, &cv);
-    ui_draw_panel(UI_PANEL_EXIT, &cv, &v, NULL);
-    drawn(ctx, UI_PANEL_EXIT, t0);
+    PanelJob j;
+    jobPanel(&j, UI_PANEL_EXIT, &v);
+    submit(ctx, p, &j);
 }
 
 // Drawn once (and again only if what it depends on changes)
@@ -282,13 +674,11 @@ static void updateOnce(XrCtx* ctx, XrPanels* p, const UiView* base, int slot, in
     if (!keyChanged(p, slot, k, sizeof(k))) {
         return;
     }
-    int64_t t0 = nowNs();
     UiView v = *base;
     v.hover.kind = UI_HIT_NONE;
-    UiCanvas cv;
-    slotCanvas(ctx, slot, &cv);
-    ui_draw_panel((UiPanelId)slot, &cv, &v, NULL);
-    drawn(ctx, slot, t0);
+    PanelJob j;
+    jobPanel(&j, slot, &v);
+    submit(ctx, p, &j);
 }
 
 static void updateReport(XrCtx* ctx, XrPanels* p) {
@@ -310,19 +700,16 @@ static void updateReport(XrCtx* ctx, XrPanels* p) {
     if (!keyChanged(p, UI_PANEL_REPORT, &k, sizeof(k))) {
         return;
     }
-    int64_t t0 = nowNs();
-    UiReport r;
-    memset(&r, 0, sizeof(r));
-    r.note = p->reportNote;
-    r.address = p->reportAddress;
-    r.focus = p->reportFocus;
-    r.hover = ctx->reportHoverZone;
-    r.can_send = k.canSend;
-    UiCanvas cv;
-    slotCanvas(ctx, UI_PANEL_REPORT, &cv);
-    ui_draw_report(&cv, &r, NULL);
-    ctx->reportReady = 1;
-    drawn(ctx, UI_PANEL_REPORT, t0);
+    PanelJob j;
+    memset(&j, 0, sizeof(j));
+    j.kind = JOB_REPORT;
+    j.slot = UI_PANEL_REPORT;
+    memcpy(j.note, k.note, sizeof(j.note));
+    memcpy(j.address, k.address, sizeof(j.address));
+    j.focus = k.focus;
+    j.hover = k.hover;
+    j.canSend = k.canSend;
+    submit(ctx, p, &j);
 }
 
 // The report form (XrReportForm.java, cut down): a key typed while the sheet
@@ -373,6 +760,7 @@ void xrPanelsReportEvent(XrCtx* ctx, int event, const char* reportDir) {
         p->reportFocus = REPORT_ZONE_NOTE;
         ctx->reportReady = 0;
         p->drawn[UI_PANEL_REPORT] = 0; // drawn afresh for this opening
+        dropSlot(p, UI_PANEL_REPORT);  // Native: nor a drawing of the last one landing
     }
     else if (event == REPORT_ZONE_NOTE || event == REPORT_ZONE_EMAIL) {
         p->reportFocus = event;
@@ -436,21 +824,28 @@ void xrPanelsNotice(XrCtx* ctx, const char* text) {
 
 // A notice went up this frame (IN_TOAST): its words into the toast's slot
 void xrPanelsToast(XrCtx* ctx, int kind, int arg) {
-    char text[200];
+    XrPanels* p = ctx->panels;
+    if (p == NULL || xrAtlasPixels(ctx) == NULL) {
+        return;
+    }
+    PanelJob j;
+    memset(&j, 0, sizeof(j));
+    j.kind = JOB_TOAST;
+    j.slot = UI_PANEL_TOAST;
+    j.toastKind = kind;
+    j.toastArg = arg;
     const char* more = "";
     if (kind == TOAST_TEXT) {
-        snprintf(text, sizeof(text), "%s", noticeTexts[(arg % TOAST_TEXT_SLOTS + TOAST_TEXT_SLOTS) % TOAST_TEXT_SLOTS]);
+        snprintf(j.text, sizeof(j.text), "%s", noticeTexts[(arg % TOAST_TEXT_SLOTS + TOAST_TEXT_SLOTS) % TOAST_TEXT_SLOTS]);
     }
     else {
-        toastText(ctx, kind, arg, text, sizeof(text), &more);
+        toastText(ctx, kind, arg, j.text, sizeof(j.text), &more);
     }
-    UiCanvas cv;
-    slotCanvas(ctx, UI_PANEL_TOAST, &cv);
-    ui_draw_toast(&cv, text, more, 0);
-    xrAtlasTouch(ctx, UI_PANEL_TOAST);
-    ctx->toastDrawnKind = kind;
-    ctx->toastDrawnArg = arg;
-    ctx->toastArtReady = 1;
+    snprintf(j.more, sizeof(j.more), "%s", more);
+    // (xr_layers shows the toast once the art drawn is this notice's kind
+    // and argument, so the last toast's art never stands in while the worker
+    // draws this one)
+    submit(ctx, p, &j);
 }
 
 // The stats strip: a dark sheet with the session's lines (upstream's overlay
@@ -462,31 +857,12 @@ static void updateOverlay(XrCtx* ctx, XrPanels* p, const char* statsText) {
     if (!keyChanged(p, ATLAS_OVERLAY, statsText, (int)strlen(statsText) + 1)) {
         return;
     }
-    if (p->font == NULL) {
-        p->font = ui_font_default();
-        if (p->font == NULL) {
-            return;
-        }
-    }
-    int64_t t0 = nowNs();
-    UiCanvas cv;
-    slotCanvas(ctx, ATLAS_OVERLAY, &cv);
-    ui_fill_rrect(&cv, 0.0f, 0.0f, (float)cv.w, (float)cv.h, 14.0f, 0xB0000000u);
-    float size = 17.0f;
-    float y = 12.0f + size;
-    const char* s = statsText;
-    while (*s != '\0' && y < cv.h - 6.0f) {
-        const char* e = strchr(s, '\n');
-        int len = e != NULL ? (int)(e - s) : (int)strlen(s);
-        ui_text_draw(&cv, p->font, UI_WEIGHT_REGULAR, size, 12.0f, y, UI_ALIGN_LEFT, 0xFFFFFFFFu, s, len);
-        y += size * 1.35f;
-        s += len;
-        if (*s == '\n') {
-            s++;
-        }
-    }
-    ctx->overlayHasContent = 1;
-    drawn(ctx, ATLAS_OVERLAY, t0);
+    PanelJob j;
+    memset(&j, 0, sizeof(j));
+    j.kind = JOB_OVERLAY;
+    j.slot = ATLAS_OVERLAY;
+    snprintf(j.text, sizeof(j.text), "%s", statsText);
+    submit(ctx, p, &j);
 }
 
 // ---- the launcher's lists ----------------------------------------------------------
@@ -573,35 +949,40 @@ static void updateLauncher(XrCtx* ctx, XrPanels* p, const XrLauncherView* lv) {
         p->launcherSlot = slot;
         ctx->launcherHoverHit = -1;
         k.hover.kind = UI_HIT_NONE;
+        // Native: nothing to press until the new list's drawing lands
+        ui_hits_clear(&p->launcherHits);
     }
-    int64_t t0 = nowNs();
-    UiCanvas cv;
-    slotCanvas(ctx, slot, &cv);
-    ui_hits_clear(&p->launcherHits);
+    PanelJob j;
+    memset(&j, 0, sizeof(j));
+    j.kind = lv->mode == LAUNCHER_PCS ? JOB_PC_LIST : JOB_APP_LIST;
+    j.slot = slot;
+    j.page = lv->page;
+    j.loading = lv->loading;
+    j.failed = lv->failed;
+    j.listHover = k.hover;
+    j.count = k.count > 0 ? k.count : 0;
     if (lv->mode == LAUNCHER_PCS) {
-        UiPcList l;
-        memset(&l, 0, sizeof(l));
-        l.items = lv->pcs;
-        l.count = lv->pcCount;
-        l.page = lv->page;
-        l.selected = -1;
-        l.hover = k.hover;
-        ui_draw_pc_list(&cv, &l, &p->launcherHits);
+        if (j.count > 0 && lv->pcs != NULL) {
+            j.pcs = malloc(sizeof(UiPcItem) * (size_t)j.count);
+            if (j.pcs == NULL) return;
+            memcpy(j.pcs, lv->pcs, sizeof(UiPcItem) * (size_t)j.count);
+        }
+        else {
+            j.count = 0;
+        }
     }
     else {
-        UiAppList l;
-        memset(&l, 0, sizeof(l));
-        l.pc_name = lv->pcName;
-        l.items = lv->apps;
-        l.count = lv->appCount;
-        l.page = lv->page;
-        l.selected = -1;
-        l.loading = lv->loading;
-        l.failed = lv->failed;
-        l.hover = k.hover;
-        ui_draw_app_list(&cv, &l, &p->launcherHits);
+        snprintf(j.pcName, sizeof(j.pcName), "%s", k.pcName);
+        if (j.count > 0 && lv->apps != NULL) {
+            j.apps = malloc(sizeof(UiAppItem) * (size_t)j.count);
+            if (j.apps == NULL) return;
+            memcpy(j.apps, lv->apps, sizeof(UiAppItem) * (size_t)j.count);
+        }
+        else {
+            j.count = 0;
+        }
     }
-    drawn(ctx, slot, t0);
+    submit(ctx, p, &j);
 }
 
 void xrPanelsUpdate(XrCtx* ctx, const Settings* live, const XrLauncherView* launcher,
@@ -611,6 +992,8 @@ void xrPanelsUpdate(XrCtx* ctx, const Settings* live, const XrLauncherView* laun
         return;
     }
     (void)now;
+    // What the worker finished since the last frame goes up first
+    collect(ctx, p);
     UiView base;
     buildView(ctx, live, &base);
     updateOnce(ctx, p, &base, UI_PANEL_BUTTON_ATLAS, 1);
