@@ -378,6 +378,15 @@ void roomEyeSize(int tier, int recW, int recH, int maxW, int maxH, int* outW, in
     *outH = eyeH;
 }
 
+void roomEyeFitScene(int envResTier, int* eyeW, int* eyeH) {
+    int maxEye = ROOM_SCENE_MAX_WIDTH / ROOM_EYES;
+    if (envResTier != ENV_RES_STANDARD || *eyeW <= maxEye) {
+        return;
+    }
+    *eyeH = (int)(((long)*eyeH * maxEye + *eyeW / 2) / *eyeW);
+    *eyeW = maxEye;
+}
+
 void roomEyeViewProj(float* out16, XrFovf fov, XrPosef pose, float farZ) {
     float proj[16];
     float view[16];

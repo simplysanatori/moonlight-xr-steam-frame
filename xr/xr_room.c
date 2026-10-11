@@ -467,6 +467,8 @@ static int buildableRoomStyle(XrCtx* ctx, int style) {
 void worldEyeSize(XrCtx* ctx, int* outW, int* outH) {
     roomEyeSize(ctx->envResTier, ctx->recommendedEyeWidth, ctx->recommendedEyeHeight, ctx->maxEyeWidth,
                 ctx->maxEyeHeight, outW, outH);
+    // Native: inside the width SteamVR shows without downsampling it again
+    roomEyeFitScene(ctx->envResTier, outW, outH);
 }
 
 // Brings up everything the room draws with, the first frame that asks for it.
@@ -517,7 +519,9 @@ static int initRoom(XrCtx* ctx) {
                          : tier == ENV_RES_HIGH ? "high"
                          : tier == ENV_RES_ULTRA ? "ultra"
                          : "standard";
-    LOGEV("room ready at %dx%d per eye, env res %s", eyeW, eyeH, tierName);
+    LOGEV("room ready at %dx%d per eye, env res %s%s", eyeW, eyeH, tierName,
+          eyeW * ROOM_EYES > ROOM_SCENE_MAX_WIDTH ? " (wider than SteamVR's 3458, which it downsamples each frame)"
+                                                  : "");
     return 1;
 }
 

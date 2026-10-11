@@ -182,6 +182,19 @@ RoomPlacement roomPlacement(int style, float scale, float aspect, int screenPerc
 // ctx): envResTier is an ENV_RES_ value; recommended and max sizes may be 0
 void roomEyeSize(int envResTier, int recommendedW, int recommendedH, int maxW, int maxH, int* outW, int* outH);
 
+// Native: the widest side-by-side projection image SteamVR 2.18 on the Steam
+// Frame hands to its compositor as it is. Its client library downsamples any
+// scene texture past 1.6 x the panel's 2160 + 2 = 3458 pixels, every frame, in
+// a pass of its own inside our process (CDownsampleRenderer, "Setting max
+// texture dimensions to 3458x3458 before requiring downsampling" in
+// xrclient_moonlight-xr.txt). The room at standard took 2 x 1760 = 3520.
+#define ROOM_SCENE_MAX_WIDTH 3456
+
+// Native: the standard tier's eye size brought inside ROOM_SCENE_MAX_WIDTH for
+// both eyes side by side, keeping its aspect. The other tiers are the owner's
+// explicit choice of more pixels and are left as they are.
+void roomEyeFitScene(int envResTier, int* eyeW, int* eyeH);
+
 // The view projection for one eye, the way drawRoomEyes builds it
 // (projectionFromFov * viewFromPose, near ROOM_NEAR_M, far farZ)
 void roomEyeViewProj(float* out16, XrFovf fov, XrPosef pose, float farZ);

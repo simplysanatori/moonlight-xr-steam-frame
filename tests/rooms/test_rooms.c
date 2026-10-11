@@ -650,6 +650,20 @@ static void testLogic(void) {
     check(ew == 2800 && eh == 2000, "ultra ignores the recommendation, within the ceiling");
     roomEyeSize(ENV_RES_STANDARD, 0, 0, 0, 0, &ew, &eh);
     check(ew == 1024 && eh == 1024, "no recommendation: 1024");
+    // native: standard brought inside SteamVR's scene width, the others not
+    ew = 1760, eh = 1760;
+    roomEyeFitScene(ENV_RES_STANDARD, &ew, &eh);
+    check(ew * ROOM_EYES <= ROOM_SCENE_MAX_WIDTH && ew == 1728 && eh == 1728, "standard fits the scene width");
+    ew = 1600, eh = 1700;
+    roomEyeFitScene(ENV_RES_STANDARD, &ew, &eh);
+    check(ew == 1600 && eh == 1700, "a standard size inside it is left alone");
+    ew = 1760, eh = 1600;
+    roomEyeFitScene(ENV_RES_STANDARD, &ew, &eh);
+    check(ew == 1728 && eh == 1571, "the aspect is kept");
+    ew = 2560, eh = 2560;
+    roomEyeFitScene(ENV_RES_HIGH, &ew, &eh);
+    check(ew == 2560 && eh == 2560, "high is the owner's choice and left alone");
+    check(3458 - ROOM_SCENE_MAX_WIDTH >= 0 && 3458 - ROOM_SCENE_MAX_WIDTH < 4, "the limit is SteamVR's 1.6 x 2160 + 2");
 
     // view projection: a point straight ahead lands in the middle
     float vp[16];
