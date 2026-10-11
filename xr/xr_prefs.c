@@ -91,6 +91,11 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     ctx->pointerBeta = nativePointerTunable("MLXR_POINTER_BETA", NATIVE_POINTER_BETA_PER_PX) * (float)ctx->videoWidth;
     ctx->clickHoldPx = clickHoldPixelsFromEnv();
     clickHoldReset(&ctx->clickHold);
+    // Native (lane pointer-clicks)
+    ctx->pressCfg.stabilise = pressStabiliseFromEnv();
+    ctx->pressCfg.doublePx = doubleClickPxFromEnv();
+    ctx->stickRightClick = stickRightClickFromEnv();
+    pressFixReset(&ctx->pressFix);
     ctx->aimMinCutoff = NATIVE_AIM_MIN_CUTOFF;
     ctx->aimBeta = AIM_BETA;
     ctx->pointerWake = POINTER_WAKE_SEC;

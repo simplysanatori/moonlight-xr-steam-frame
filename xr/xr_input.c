@@ -3210,6 +3210,31 @@ static void beamToFurniture(XrCtx* ctx, InputFrame* f) {
     ctx->beamVisible = f->headValid;
 }
 
+// Native (lane pointer-clicks): the host buttons the controllers ask for this
+// frame, VR_BUTTON_* bits, before the pointer being on the picture is asked.
+// In pointer mode a click on either thumbstick is a right click.
+_Static_assert(VR_BUTTON_LEFT == 1 && VR_BUTTON_RIGHT == 2 && VR_BUTTON_MIDDLE == 4,
+               "pointerButtonMask returns VR_BUTTON_ bits");
+static int pointerButtonsWanted(XrCtx* ctx) {
+    PointerButtons b;
+    memset(&b, 0, sizeof(b));
+    for (int h = 0; h < HAND_COUNT; h++) {
+        b.triggerDown[h] = ctx->triggerDown[h];
+        b.triggerSwallowed[h] = ctx->triggerSwallowed[h];
+    }
+    b.padMode = ctx->padMode;
+    if (!ctx->padMode) {
+        b.rightButton = actionBool(ctx, ctx->rightClickAction, -1);
+        b.middleButton = actionBool(ctx, ctx->middleClickAction, -1);
+        b.stickRight = ctx->stickRightClick;
+        if (ctx->stickRightClick) {
+            b.stickClick[HAND_LEFT] = seenStickClick(ctx, HAND_LEFT);
+            b.stickClick[HAND_RIGHT] = seenStickClick(ctx, HAND_RIGHT);
+        }
+    }
+    return pointerButtonMask(&b);
+}
+
 // How far the trigger is pulled before the click hold starts: a touch, short of the press
 #define CLICK_TOUCH_VALUE 0.12f
 
@@ -3225,6 +3250,7 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
         ctx->filterV.valid = 0;
         ctx->ptrRawValid = 0;
         clickHoldReset(&ctx->clickHold);
+        pressFixReset(&ctx->pressFix);
     }
     ctx->lastHand = f->hand;
     ctx->lastHitNs = f->now;
@@ -3264,6 +3290,13 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
                                       || actionBool(ctx, ctx->middleClickAction, -1)));
         clickHoldStep(&ctx->clickHold, touching && !ctx->triggerSwallowed[h], u, v,
                       ctx->videoWidth, ctx->videoHeight, ctx->clickHoldPx, f->now, &u, &v);
+        // Native (lane pointer-clicks): the point a press is sent at is the aim
+        // from before the pull jolted it, and a second click of a double click
+        // goes at the first one's point; live again the moment the aim leaves
+        // a few pixels (3, or 24 for a double click), so drags are not held
+        pressFixStep(&ctx->pressFix, ctx->triggerDown[h] || ctx->triggerValue[h] > CLICK_TOUCH_VALUE,
+                     pointerButtonsWanted(ctx) != 0, u, v, ctx->videoWidth, ctx->videoHeight,
+                     ctx->pressCfg, f->now, &u, &v);
     }
     if (ctx->headAimActive) {
         // The head is turning the host's mouse, so a position from the ray
@@ -3294,21 +3327,7 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
 
 // Works out which host buttons are down, and logs each trigger transition
 static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
-    int mask = 0;
-    for (int h = 0; h < HAND_COUNT; h++) {
-        // Per hand rather than either hand, so a trigger spent on the grid or a
-        // panel is out of the count while the other one still clicks
-        if (ctx->triggerDown[h] && !ctx->triggerSwallowed[h]) {
-            mask |= VR_BUTTON_LEFT;
-        }
-    }
-    // Only a controller has these, and in gamepad mode they are the pad's
-    if (!ctx->padMode && actionBool(ctx, ctx->rightClickAction, -1)) {
-        mask |= VR_BUTTON_RIGHT;
-    }
-    if (!ctx->padMode && actionBool(ctx, ctx->middleClickAction, -1)) {
-        mask |= VR_BUTTON_MIDDLE;
-    }
+    int mask = pointerButtonsWanted(ctx);
     // A press only counts while aimed at the screen, but a release always
     // does, so walking the pointer off the edge mid drag still lets go
     ctx->buttonsDown = (ctx->buttonsDown & mask) | (hit ? mask : 0);
@@ -3357,6 +3376,12 @@ static void updateScroll(XrCtx* ctx, InputFrame* f, int hit) {
     XrVector2f stick = { 0.0f, 0.0f };
     if (!ctx->padMode && !chordHasStickClick(ctx)) {
         stick = actionVec2(ctx, ctx->scrollAction, -1);
+        // Native (lane pointer-clicks): pressing a stick in tilts it, which
+        // must not scroll the page under the right click
+        if (ctx->stickRightClick && (actionBool(ctx, ctx->toggleAction, -1))) {
+            stick.x = 0.0f;
+            stick.y = 0.0f;
+        }
     }
     int offPicture = !ctx->pointerSleepOn
             && (f->hover == HOVER_NONE || f->hover == HOVER_HALO);
@@ -3960,7 +3985,9 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     int toggle = chordHasStickClick(ctx)
             ? seenStickClick(ctx, HAND_LEFT) || seenStickClick(ctx, HAND_RIGHT)
             : actionBool(ctx, ctx->toggleAction, -1);
-    if (toggle && !ctx->togglePrev && !ctx->padMode) {
+    // Native (lane pointer-clicks): a stick click is a right click now, so it
+    // no longer switches the pointer off (MLXR_STICK_RIGHT_CLICK=0 gives that back)
+    if (toggle && !ctx->togglePrev && !ctx->padMode && !ctx->stickRightClick) {
         ctx->pointerOn = !ctx->pointerOn;
         LOGI("pointer %s", ctx->pointerOn ? "on" : "off");
     }
