@@ -74,7 +74,7 @@ Flickable {
     StackView.onActivated: {
         SdlGamepadKeyNavigation.setUiNavMode(true)
         if (SdlGamepadKeyNavigation.getConnectedGamepads() > 0) {
-            resolutionRow.forceActiveFocus(Qt.TabFocus)
+            networkRowItem.forceActiveFocus(Qt.TabFocus)
         }
     }
 
@@ -119,11 +119,22 @@ Flickable {
                       : qsTr("Custom") + " (" + StreamingPreferences.width + "x" + StreamingPreferences.height + ")"
     }
 
-    // The Frame's display: 72 or 90 Hz; the VR client caps the stream at the headset's rate
-    readonly property var frameRates: [30, 60, 72, 90]
-    function fpsText() {
-        var f = StreamingPreferences.fps
-        return frameRates.indexOf(f) >= 0 ? qsTr("%1 FPS").arg(f) : qsTr("Custom (%1 FPS)").arg(f)
+    // One rate setting: Match headset (default; the VR client asks the host for the display's rate,
+    // 90 or 72), a fixed rate (stock "fps"), or Artemis's custom rate (Apollo). Never above 90.
+    readonly property var fixedRates: [90, 72, 60, 30]
+    readonly property var rateNames: [qsTr("Match headset"), qsTr("90 Hz"), qsTr("72 Hz"), qsTr("60 Hz"), qsTr("30 Hz"), qsTr("Custom...")]
+    function rateIndex() {
+        if (MlxrPrefs.customRefreshRate !== "") return rateNames.length - 1
+        if (MlxrPrefs.matchHeadsetFps) return 0
+        var i = fixedRates.indexOf(StreamingPreferences.fps)
+        return i >= 0 ? i + 1 : -1
+    }
+    function rateText() {
+        var i = rateIndex()
+        if (i === rateNames.length - 1) return qsTr("Custom (%1 Hz)").arg(MlxrPrefs.customRefreshRate)
+        if (i === 0) return qsTr("Match headset")
+        if (i > 0) return rateNames[i]
+        return qsTr("%1 Hz (the headset caps it at %2)").arg(StreamingPreferences.fps).arg(MlxrPrefs.headsetMaxFps)
     }
 
     readonly property var pacingValues: ["latency", "balanced", "smoothness"]
@@ -440,6 +451,25 @@ Flickable {
         x: Math.round((settingsPage.width - width) / 2)
         spacing: 0
 
+        // ======== Connection (the owner's: the first thing on the page) ========
+        PrefCategory { text: qsTr("Connection") }
+
+        PrefRow {
+            id: networkRowItem
+            objectName: "networkRow"
+            title: qsTr("Network connection")
+            valueText: settingsPage.networkNames[settingsPage.networkIndex()]
+            summary: settingsPage.networkSummaries[settingsPage.networkIndex()]
+            onClicked: {
+                var e = []
+                for (var i = 0; i < settingsPage.networkNames.length; i++)
+                    e.push({ text: settingsPage.networkNames[i] + "\n" + settingsPage.networkSummaries[i], reason: "" })
+                listDialog.show(title, e, settingsPage.networkIndex(), function(i) {
+                    MlxrPrefs.networkPath = settingsPage.networkValues[i]
+                })
+            }
+        }
+
         // ======== Video Settings ========
         PrefCategory { text: qsTr("Video Settings") }
 
@@ -464,18 +494,37 @@ Flickable {
         }
 
         PrefRow {
-            title: qsTr("Video frame rate")
-            valueText: settingsPage.fpsText()
-            summary: qsTr("Increase for a smoother video stream. Decrease for better performance on lower end devices.") + " " +
-                     qsTr("The Steam Frame shows up to 90 Hz; a higher rate is capped there.")
+            objectName: "refreshRow"
+            title: qsTr("Refresh rate")
+            valueText: settingsPage.rateText()
+            summary: qsTr("How many frames per second the PC streams. Match headset uses the Steam Frame's own display rate (90 Hz, or 72 Hz when the headset runs at 72); the stream never goes above it.") +
+                     " " + qsTr("Custom takes rates such as 59.94 (Apollo).")
             onClicked: {
                 var e = []
-                for (var i = 0; i < settingsPage.frameRates.length; i++) {
-                    e.push({ text: qsTr("%1 FPS").arg(settingsPage.frameRates[i]), reason: "" })
-                }
-                listDialog.show(title, e, settingsPage.frameRates.indexOf(StreamingPreferences.fps), function(i) {
-                    StreamingPreferences.fps = settingsPage.frameRates[i]
-                    settingsPage.resetBitrate()
+                for (var i = 0; i < settingsPage.rateNames.length; i++) e.push({ text: settingsPage.rateNames[i], reason: "" })
+                listDialog.show(title, e, settingsPage.rateIndex(), function(i) {
+                    if (i === 0) {
+                        MlxrPrefs.matchHeadsetFps = true
+                        MlxrPrefs.customRefreshRate = ""
+                        StreamingPreferences.fps = MlxrPrefs.headsetMaxFps
+                        settingsPage.resetBitrate()
+                    }
+                    else if (i < settingsPage.rateNames.length - 1) {
+                        MlxrPrefs.matchHeadsetFps = false
+                        MlxrPrefs.customRefreshRate = ""
+                        StreamingPreferences.fps = settingsPage.fixedRates[i - 1]
+                        settingsPage.resetBitrate()
+                    }
+                    else {
+                        editDialog.show(qsTr("Custom refresh rate"), qsTr("Enter refresh rate manually, for example 59.94. Only supports Apollo. Capped at %1 Hz.").arg(MlxrPrefs.headsetMaxFps),
+                                        MlxrPrefs.customRefreshRate, "^\\s*\\d{2,3}(\\.\\d{1,3})?\\s*$", function(t) {
+                            var v = Math.min(Math.max(parseFloat(t), 10), MlxrPrefs.headsetMaxFps)
+                            MlxrPrefs.matchHeadsetFps = false
+                            MlxrPrefs.customRefreshRate = "" + v
+                            StreamingPreferences.fps = Math.round(v)
+                            settingsPage.resetBitrate()
+                        })
+                    }
                 })
             }
         }
@@ -555,19 +604,6 @@ Flickable {
                                        "^\\s*\\d{1,3}(\\.\\d{1,3})?\\s*$", function(t) {
                 var v = parseFloat(t)
                 if (v >= 0.5 && v <= 500) StreamingPreferences.bitrateKbps = Math.round(v * 1000)
-            })
-        }
-
-        PrefRow {
-            objectName: "refreshRow"
-            title: qsTr("Custom refresh rate")
-            valueText: MlxrPrefs.customRefreshRate !== "" ? qsTr("%1 Hz").arg(MlxrPrefs.customRefreshRate) : qsTr("Off (uses the video frame rate)")
-            summary: qsTr("Enter refresh rate manually. Only supports Apollo.") + " " +
-                     qsTr("Capped at the headset's %1 Hz; leave empty to use the video frame rate.").arg(MlxrPrefs.headsetMaxFps)
-            onClicked: editDialog.show(title, qsTr("For example: 59.94 (empty: off)"), MlxrPrefs.customRefreshRate,
-                                       "^\\s*(\\d{2,3}(\\.\\d{1,3})?)?\\s*$", function(t) {
-                var v = parseFloat(t)
-                MlxrPrefs.customRefreshRate = t === "" ? "" : "" + Math.min(Math.max(v, 10), MlxrPrefs.headsetMaxFps)
             })
         }
 
@@ -664,21 +700,6 @@ Flickable {
 
         // ======== Host Settings ========
         PrefCategory { text: qsTr("Host Settings") }
-
-        PrefRow {
-            objectName: "networkRow"
-            title: qsTr("Network connection")
-            valueText: settingsPage.networkNames[settingsPage.networkIndex()]
-            summary: settingsPage.networkSummaries[settingsPage.networkIndex()]
-            onClicked: {
-                var e = []
-                for (var i = 0; i < settingsPage.networkNames.length; i++)
-                    e.push({ text: settingsPage.networkNames[i] + "\n" + settingsPage.networkSummaries[i], reason: "" })
-                listDialog.show(title, e, settingsPage.networkIndex(), function(i) {
-                    MlxrPrefs.networkPath = settingsPage.networkValues[i]
-                })
-            }
-        }
 
         PrefSwitch {
             title: qsTr("Optimize game settings")

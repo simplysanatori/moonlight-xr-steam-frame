@@ -218,6 +218,12 @@ static void test_fps_cap(void)
     CHECK_EQ_INT(mlxr_fps_clamp(60, 90), 60);           /* below the cap stays */
     CHECK_EQ_INT(mlxr_fps_clamp(360, 0), 90);           /* no cap given: the ceiling */
     CHECK_EQ_INT(mlxr_fps_clamp(360, 1000), 90);        /* a cap cannot lift the ceiling */
+    /* Native (lane artemis-settings): Match headset */
+    CHECK_EQ_INT(mlxr_fps_for_request(60, 90, 1), 90);   /* the display's rate, whatever --mode said */
+    CHECK_EQ_INT(mlxr_fps_for_request(90, 72, 1), 72);   /* a 72 Hz headset */
+    CHECK_EQ_INT(mlxr_fps_for_request(90, 0, 1), 90);    /* not known yet: the ceiling */
+    CHECK_EQ_INT(mlxr_fps_for_request(60, 72, 0), 60);   /* a fixed rate stays */
+    CHECK_EQ_INT(mlxr_fps_for_request(144, 72, 0), 72);  /* ... under the cap */
 
     mlxr_launch_params p;
     CHECK_OK(mlxr_launch_params_init(&p));

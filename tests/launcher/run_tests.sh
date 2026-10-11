@@ -80,7 +80,7 @@ cmp -s "$t/Moonlight.conf" "$t/Moonlight.conf.orig" && ok "source config unmodif
 grep -q 'DESKTOP-EXAMPLE' "$CONF" && grep -q 'EXAMPLE0' "$CONF" && ok "seeded PC list is in the launcher config" || fail "hosts not copied"
 grep -q '^width=2560' "$CONF" && grep -q '^fps=90' "$CONF" && grep -q '^bitrate=80000' "$CONF" && ok "stream settings set for the headset" || fail "VR defaults not applied"
 grep -q '^certificate=' "$CONF" && ok "identity copied" || fail "identity not copied"
-expect "1440p90 80 Mbps, HEVC (no --h264)" "$out" "--host $HOSTID --app 881448767 --mode 2560x1440x90 --bitrate 80000 --network auto --exit-to-caller"
+expect "1440p90 80 Mbps, HEVC (no --h264)" "$out" "--host $HOSTID --app 881448767 --mode 2560x1440x90 --bitrate 80000 --fps match --network auto --exit-to-caller"
 refute "no h264 flag by default" "$out" "--h264"
 case "$out" in *moonlight-xr\ --host*) ok "program is moonlight-xr";; *) fail "program";; esac
 
@@ -148,6 +148,15 @@ grep -q '^width=1920' "$CONF" && fail "reseeded over the user's settings" || ok 
 
 # --- 3b. lane artemis-settings: the Artemis-style page's settings reach the VR client's command line
 out="$(dry "DESKTOP-EXAMPLE:Desktop")"
+expect "Refresh rate: Match headset by default" "$out" "--fps match"
+SECTION=mlxr setconf match_headset_fps=false
+setconf fps=60
+out="$(dry "DESKTOP-EXAMPLE:Desktop")"
+expect "Refresh rate 60 Hz: the number in --mode" "$out" "--mode 2560x1440x60"
+refute "Refresh rate 60 Hz: no --fps match" "$out" "--fps match"
+SECTION=mlxr setconf match_headset_fps=true
+setconf fps=90
+out="$(dry "DESKTOP-EXAMPLE:Desktop")"
 for f in --pacing --video-priority --virtual-display --scale-factor --refresh-rate --full-range --no-rumble --deadzone \
          --no-mouse-nav-buttons --clipboard-sync --no-sops --local-audio; do
     refute "defaults: no $f" "$out" "$f"
@@ -173,12 +182,13 @@ SECTION=mlxr setconf frame_pacing=smoothness custom_refresh_rate=144 scale_facto
 out="$(dry "DESKTOP-EXAMPLE:Desktop")"
 expect "frame pacing: smoothest" "$out" "--pacing smoothness"
 expect "custom refresh rate capped at the headset's 90 Hz" "$out" "--refresh-rate 90"
+refute "a custom rate replaces Match headset" "$out" "--fps match"
 refute "scale factor 100: not passed" "$out" "--scale-factor"
 SECTION=mlxr setconf frame_pacing=balanced ultra_low_latency=false virtual_display=false custom_refresh_rate= \
     full_range=false rumble=true mouse_nav_buttons=true
 setconf gameopts=true hostaudio=false
 out="$(dry "DESKTOP-EXAMPLE:Desktop")"
-expect "all back to defaults" "$out" "--bitrate 80000 --network auto --exit-to-caller"
+expect "all back to defaults" "$out" "--bitrate 80000 --fps match --network auto --exit-to-caller"
 
 # Smart Clipboard Sync: the clipboard goes to the VR client in a file, what it brings back is put on the clipboard
 SECTION=mlxr setconf clipboard_sync=true
@@ -220,7 +230,7 @@ LD_LIBRARY_PATH=/steam/runtime MLXR_NATIVE_CLIENT="$fake" selftest "DESKTOP-EXAM
 cat "$t/stdout"
 [ $rc = 0 ] && ok "client exit 0 -> success" || fail "client exit 0 gave $rc"
 expect "started signal and finish" "$(cat "$t/stdout")" "started=yes finished=yes error=none"
-expect "client got the command line" "$(cat "$FAKE_LOG")" "--host $HOSTID --app 881448767 --mode 2560x1440x90 --bitrate 80000 --network auto --exit-to-caller"
+expect "client got the command line" "$(cat "$FAKE_LOG")" "--host $HOSTID --app 881448767 --mode 2560x1440x90 --bitrate 80000 --fps match --network auto --exit-to-caller"
 expect "client ran in its own directory" "$(cat "$FAKE_LOG")" "cwd: $t"
 expect "LD_LIBRARY_PATH not passed on" "$(cat "$FAKE_LOG")" "ld_library_path: [unset]"
 grep -q "launcher runs" "$MLXR_LOG_DIR/moonlight-console.log" && ok "client output goes to moonlight-console.log" || fail "console log"

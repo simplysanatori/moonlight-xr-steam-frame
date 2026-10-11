@@ -27,4 +27,13 @@ static inline int mlxr_fps_clamp(int fps, int cap)
     return fps > cap ? cap : fps;
 }
 
+/* Native (lane artemis-settings): the fps to ask for. match (the flat page's "Match headset",
+ * --fps match): the display's own rate under the ceiling; else the requested rate, capped. */
+static inline int mlxr_fps_for_request(int requested, int display_hz, int match)
+{
+    int cap = mlxr_fps_cap_for_display(display_hz);
+    if (match || requested <= 0) return cap;
+    return requested > cap ? cap : requested;
+}
+
 #endif

@@ -64,6 +64,7 @@ void MlxrPrefs::load()
     virtualDisplay = s.value("mlxr/virtual_display", false).toBool();
     scaleFactor = qBound(20, s.value("mlxr/scale_factor", 100).toInt(), 200);
     customRefreshRate = s.value("mlxr/custom_refresh_rate", "").toString().trimmed();
+    matchHeadsetFps = s.value("mlxr/match_headset_fps", true).toBool();
     fullRange = s.value("mlxr/full_range", false).toBool();
     rumble = s.value("mlxr/rumble", true).toBool();
     deadzone = qBound(-20, s.value("mlxr/deadzone", 0).toInt(), 20);
@@ -105,6 +106,7 @@ void MlxrPrefs::save()
     s.setValue("mlxr/virtual_display", virtualDisplay);
     s.setValue("mlxr/scale_factor", qBound(20, scaleFactor, 200));
     s.setValue("mlxr/custom_refresh_rate", customRefreshRate.trimmed());
+    s.setValue("mlxr/match_headset_fps", matchHeadsetFps);
     s.setValue("mlxr/full_range", fullRange);
     s.setValue("mlxr/rumble", rumble);
     s.setValue("mlxr/deadzone", qBound(-20, deadzone, 20));
@@ -167,6 +169,9 @@ QStringList MlxrPrefs::clientArgs() const
     }
     if (const double r = refreshRate(); r > 0) {
         a << "--refresh-rate" << QString::number(r, 'f', 3).remove(QRegularExpression("\\.?0+$"));
+    }
+    else if (matchHeadsetFps) {
+        a << "--fps" << "match"; // the VR client resolves the headset's rate before the launch
     }
     if (fullRange) {
         a << "--full-range";

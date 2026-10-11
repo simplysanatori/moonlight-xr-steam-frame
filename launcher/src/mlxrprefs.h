@@ -29,6 +29,9 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(bool virtualDisplay MEMBER virtualDisplay NOTIFY changed)     // Apollo
     Q_PROPERTY(int scaleFactor MEMBER scaleFactor NOTIFY changed)            // Apollo, 20..200
     Q_PROPERTY(QString customRefreshRate MEMBER customRefreshRate NOTIFY changed) // Apollo, "" = off
+    // "Match headset" (default): the VR client asks the host for the display's rate (--fps match);
+    // off: StreamingPreferences' fps, or the custom refresh rate
+    Q_PROPERTY(bool matchHeadsetFps MEMBER matchHeadsetFps NOTIFY changed)
     Q_PROPERTY(bool fullRange MEMBER fullRange NOTIFY changed)
     Q_PROPERTY(bool rumble MEMBER rumble NOTIFY changed)
     Q_PROPERTY(int deadzone MEMBER deadzone NOTIFY changed)                  // -20..20 percent
@@ -89,6 +92,7 @@ public:
     bool virtualDisplay;
     int scaleFactor;
     QString customRefreshRate;
+    bool matchHeadsetFps;
     bool fullRange;
     bool rumble;
     int deadzone;
