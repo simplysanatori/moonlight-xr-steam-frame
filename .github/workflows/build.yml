@@ -24,7 +24,7 @@ jobs:
             glslc libvulkan-dev \
             libavcodec-dev libavformat-dev libswscale-dev libavutil-dev \
             libssl-dev libcurl4-openssl-dev libxml2-dev \
-            libopus-dev libpulse-dev libpipewire-0.3-dev libdrm-dev \
+            libopus-dev libpulse-dev libpipewire-0.3-dev libsdl2-dev libdrm-dev \
             libwayland-dev libx11-dev libxcb1-dev libxxf86vm-dev libxrandr-dev \
             libgl-dev libegl-dev libwayland-bin wayland-protocols
 
