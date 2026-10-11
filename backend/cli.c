@@ -411,7 +411,7 @@ static int cmd_adapter(int argc, char **argv)
 static int cmd_probe_paths(int argc, char **argv)
 {
     const char *spec = NULL, *addrs = NULL, *flag = NULL;
-    int samples = 7, bitrate = 80000;
+    int samples = MLXR_NET_AUTO_SAMPLES, bitrate = 80000;
     for (int i = 0; i < argc; i++) {
         if (!strcmp(argv[i], "--addr") && i + 1 < argc) addrs = argv[++i];
         else if (!strcmp(argv[i], "--network") && i + 1 < argc) flag = argv[++i];
@@ -432,6 +432,7 @@ static int cmd_probe_paths(int argc, char **argv)
     mlxr_net_plan_init(&plan, pref, source, rec && rec->http_port ? rec->http_port : MLXR_DEFAULT_HTTP_PORT,
                        rec ? rec->uuid : "", c.id.unique_id);
     plan.bitrate_kbps = bitrate;
+    if (c.dir) snprintf(plan.history_dir, sizeof plan.history_dir, "%s", c.dir);   /* Native (lane netpath-quality) */
     if (rec) {
         snprintf(plan.hostname, sizeof plan.hostname, "%s", rec->name);
         if (rec->has_mac) { memcpy(plan.mac, rec->mac, 6); plan.has_mac = true; }
@@ -452,7 +453,8 @@ static int cmd_probe_paths(int argc, char **argv)
                f->wifi ? (mlxr_netif_is_ap(&t, f) ? " wifi:AP" : " wifi:managed") : " wired");
     }
     int pick = -1;
-    if (plan.pref == MLXR_NET_AUTO && samples != 7) {
+    if (plan.pref == MLXR_NET_AUTO && samples != MLXR_NET_AUTO_SAMPLES) {
+        if (plan.history_dir[0]) mlxr_nethist_load(plan.history_dir, &plan.hist);
         mlxr_net_plan_classify(&plan, &t);
         mlxr_net_plan_read_links(&plan, &t);
         mlxr_net_probe(&plan, NULL, samples, false);
@@ -469,8 +471,14 @@ static int cmd_probe_paths(int argc, char **argv)
                k->source[0] ? k->source : "--addr", k->onlink ? "" : ", off-link");
         if (!k->probed) printf("  probe:   not probed\n");
         else if (k->ok == 0) printf("  probe:   no answer, %d/%d failed (%s)\n", k->failed, k->sent, k->error);
-        else printf("  probe:   %d/%d ok, median %.1f ms, jitter %.1f ms%s; serverinfo took %.0f ms\n", k->ok, k->sent, k->median_ms,
-                    k->jitter_ms, k->failed ? " (some failed)" : "", k->info_ms);
+        else printf("  probe:   %d/%d ok, median %.1f ms, p90 %.1f ms, jitter %.1f ms%s; serverinfo took %.0f ms\n", k->ok, k->sent,
+                    k->median_ms, k->p90_ms, k->jitter_ms, k->failed ? " (some failed)" : "", k->info_ms);
+        if (k->probed && k->ok > 0) {
+            if (k->hist_loss_pct >= 0)
+                printf("  score:   %.1f ms (history: %.1f%% lost last time, penalty %.0f ms)\n", mlxr_net_score(k), k->hist_loss_pct,
+                       k->hist_penalty_ms);
+            else printf("  score:   %.1f ms (no history)\n", mlxr_net_score(k));
+        }
         if (k->probed && k->n_rtt) {
             printf("  connect ms:");
             for (int s = 0; s < k->n_rtt; s++) printf(" %.1f", k->rtt_ms[s]);

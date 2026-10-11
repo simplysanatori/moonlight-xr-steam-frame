@@ -553,6 +553,7 @@ static mlxr_server* connectChosen(Net* n, int i, const char* override) {
     mlxr_net_plan* plan = calloc(1, sizeof(*plan));
     if (!plan) return connectHost(n, i, override);
     mlxr_net_plan_init(plan, pref, source, rec->http_port, rec->uuid, n->id.unique_id);
+    snprintf(plan->history_dir, sizeof(plan->history_dir), "%s", n->dir); // Native (lane netpath-quality)
     plan->bitrate_kbps = g_args.bitrate > 0 ? g_args.bitrate : settings_bitrate_kbps(&g_settings);
     snprintf(plan->hostname, sizeof(plan->hostname), "%s", rec->name);
     if (rec->has_mac) {
@@ -820,6 +821,11 @@ static void stopStream(Net* n, int quitHost) {
     atomic_store(&g_streaming, 0);
     xr_app_set_streaming(0);
     updateKeyboard();
+    // Native (lane netpath-quality): remember how this stream went on its network path
+    StreamNetFigures nf;
+    if (n->streamPc >= 0 && stream_network_figures(&nf))
+        mlxr_nethist_record_stream(n->dir, n->address[n->streamPc], nf.framesReceived, nf.framesLost, nf.jitterMs,
+                                   nf.rttMs, 0);
     stream_stop();
     xr_app_release_video();
     stream_close_video();

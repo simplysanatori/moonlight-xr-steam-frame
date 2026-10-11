@@ -49,3 +49,11 @@ void stream_stats(char* buf, int len);
 // network add (host encode as Sunshine reports it, time to receive a frame,
 // wait in common-c's queue) and the RTT variance; resets the window.
 void stream_latency_line(char* buf, int len);
+// Native (lane netpath-quality): the figures of the stream so far (all windows): frames received and
+// lost on the network, arrival jitter and the last RTT. Call before stream_stop. 0 when no frame was seen.
+typedef struct StreamNetFigures {
+    uint64_t framesReceived, framesLost;
+    double jitterMs;
+    uint32_t rttMs;
+} StreamNetFigures;
+int stream_network_figures(StreamNetFigures* out);
