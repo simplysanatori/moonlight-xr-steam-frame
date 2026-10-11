@@ -148,6 +148,50 @@ static void curveBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
     mlxr_pass_panel(ctx->passes, cmd, &tg, &pp);
 }
 
+// Native: one projection layer a frame (xrWorldPlanLayers). The room, the
+// flat 3D picture with its glow and the models drawn into the picture's one
+// image the way curveRecord draws them: room first (clearing), glow and
+// picture over it, models last.
+static void oneLayerBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
+    (void)user;
+    mlxr_barrier(cmd, colour.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    MlxrTarget tg;
+    memset(&tg, 0, sizeof(tg));
+    tg.view = colour.img.view;
+    tg.format = VK_FORMAT_R8G8B8A8_SRGB;
+    tg.rect.extent = (VkExtent2D){ 2 * W, H };
+    tg.clear = 1;
+    if (xrRoomRecordInto(ctx, cmd, tg.view, tg.format, W, H, views)) {
+        mlxr_barrier(cmd, colour.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        tg.clear = 0;
+    }
+    if (xrWorldGlowShown(ctx)) {
+        xrWorldFlatGlowInto(ctx, &tg, views, W, H);
+        mlxr_barrier(cmd, colour.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        tg.clear = 0;
+    }
+    MlxrPanelParams pp;
+    memset(&pp, 0, sizeof(pp));
+    pp.src = curvePic.img.view;
+    pp.eyes = 2;
+    xrCurveShape(ctx, &pp.width, &pp.height, &pp.radius);
+    pp.segments = 96;
+    pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
+    for (int e = 0; e < 2; e++) {
+        xrCurveMvp(views[e].fov, views[e].pose, ctx->screenPose, pp.mvp[e]);
+        pp.eyeRect[e].offset.x = e * W;
+        pp.eyeRect[e].extent = (VkExtent2D){ W, H };
+        pp.uvRect[e][2] = pp.uvRect[e][3] = 1.0f;
+    }
+    mlxr_pass_panel(ctx->passes, cmd, &tg, &pp);
+    xrModelRecordOver(ctx, cmd, colour.img.image, tg.view, tg.format, W, H, views);
+}
+
+static int oneLayerFailures;
+
 static uint8_t* grab(void) {
     uint8_t* px = malloc((size_t)2 * W * H * 4);
     m5_readback(&g, colour.img.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 2 * W, H, px);
@@ -279,7 +323,6 @@ int main(int argc, char** argv) {
         ctx->beamVisible = 0;
         shot(s, dir, "m5_curved_glow", &curved);
         ctx->panelCurve = -1.0f;
-        m5_image_free(ctx, &curvePic);
     }
 
     // Each room from the seat, lit by the picture, with the picture hung
@@ -314,6 +357,57 @@ int main(int argc, char** argv) {
         snprintf(name, sizeof(name), "m5_room_%s_bar", names[st]);
         shot(s, dir, name, NULL);
         ctx->hoverKind = HOVER_NONE;
+        // Native: the 3D picture and the models with the room, all in the
+        // picture's one projection layer (xrWorldPlanLayers)
+        {
+            ctx->beamVisible = 0;
+            int stereo = ctx->stereoMode;
+            ctx->stereoMode = DEPTH_MODE_MODEL;
+            ctx->modelsShowing = 1;
+            xrWorldPlanLayers(ctx, 1);
+            m5_frame(&g, ctx, oneLayerBody, NULL);
+            uint8_t* one = grab();
+            // Opaque everywhere, the room behind the picture, the models over it
+            int opaque = 1, modelsOver = 0, modelsSeen = 0, pictureSeen = 0;
+            for (int y = 0; y < H; y += 4) {
+                for (int x = 0; x < W; x += 4) {
+                    size_t i = ((size_t)y * 2 * W + x) * 4;
+                    opaque &= one[i + 3] == 255;
+                    if (im.models[i + 3] == 255) {
+                        modelsSeen++;
+                        modelsOver += abs(one[i] - im.models[i]) <= 2 && abs(one[i + 1] - im.models[i + 1]) <= 2;
+                    }
+                    pictureSeen += abs(one[i] - im.room[i]) > 24 || abs(one[i + 2] - im.room[i + 2]) > 24;
+                }
+            }
+            int ok = opaque && modelsSeen > 0 && modelsOver >= modelsSeen * 95 / 100 && pictureSeen > 200
+                    && ctx->roomInPicture && ctx->modelsInPicture;
+            printf("%-34s opaque %d, models over %d of %d, picture texels %d: %s\n", "one layer", opaque, modelsOver,
+                   modelsSeen, pictureSeen, ok ? "ok" : "FAILED");
+            oneLayerFailures += !ok;
+            free(im.curve);
+            im.curve = one;
+            XrCompositionLayerProjectionView ov[2];
+            memset(ov, 0, sizeof(ov));
+            ov[0].subImage.swapchain = ov[1].subImage.swapchain = FAKE_CURVE;
+            XrCompositionLayerProjection oneLayer;
+            memset(&oneLayer, 0, sizeof(oneLayer));
+            oneLayer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+            oneLayer.viewCount = 2;
+            oneLayer.views = ov;
+            snprintf(name, sizeof(name), "m5_room_%s_3d_models_one_layer", names[st]);
+            shot(s, dir, name, &oneLayer);
+            int projections = 0;
+            for (uint32_t i = 0; i < s->out.count; i++) {
+                projections += s->out.order[i]->type == XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+            }
+            if (projections != 1) {
+                printf("  %u projection layers, not 1: FAILED\n", projections);
+                oneLayerFailures++;
+            }
+            ctx->stereoMode = stereo;
+            xrWorldPlanLayers(ctx, 0);
+        }
         // The Room tab
         ctx->cogTab = COG_TAB_SCREEN;
         ctx->cogOpen = 1;
@@ -338,6 +432,7 @@ int main(int argc, char** argv) {
     shot(s, dir, "m5_display_tab", NULL);
     ctx->cogOpen = 0;
 
+    m5_image_free(ctx, &curvePic);
     m5_image_free(ctx, &colour);
     m5_image_free(ctx, &depth);
     m5_video_free(ctx, &video);
@@ -349,5 +444,5 @@ int main(int argc, char** argv) {
     free(im.models);
     free(im.curve);
     free(im.glow);
-    return 0;
+    return oneLayerFailures ? 1 : 0;
 }

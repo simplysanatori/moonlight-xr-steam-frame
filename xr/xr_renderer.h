@@ -485,6 +485,17 @@ typedef struct XrCtx {
     float roomClear[3];
     XrView roomViews[ROOM_EYES];
     int roomViewsValid;
+    // Native: one projection layer a frame (xr_world.c xrWorldPlanLayers).
+    // SteamVR on the Steam Frame shows only one projection layer correctly:
+    // with the room's and the 3D picture's both up the room jittered and lagged
+    // the head, and withholding the picture's layer fixed it (owner's A/B,
+    // 2026-10-10). So whatever would be a second one is drawn into the first:
+    // the room into the picture's layer, the models into the picture's or the
+    // room's, and the picture's layer is passthrough's transparent one.
+    int roomInPicture;
+    int modelsInPicture;
+    int modelsInRoom;
+    int passthroughInPicture;
     int roomPlacedStyle;
     float roomPlacedWidth;
     int maxEyeWidth;

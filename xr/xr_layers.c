@@ -198,7 +198,9 @@ static void setLayerSettings(XrCtx* ctx, FrameLayers* layers) {
 // without one)
 #define PASSTHROUGH_TEX 16
 static void addPassthroughLayer(XrCtx* ctx, FrameLayers* layers) {
-    if (ctx->passthroughFailed) {
+    // Native: the picture's own transparent projection layer stands in for it
+    // (one projection layer a frame, xrWorldPlanLayers)
+    if (ctx->passthroughFailed || ctx->passthroughInPicture) {
         return;
     }
     if (ctx->passthroughSwapchain == XR_NULL_HANDLE
@@ -243,14 +245,15 @@ static void addPassthroughLayer(XrCtx* ctx, FrameLayers* layers) {
 static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // The environment, when it is a room. Passthrough wants the real room
     // instead, so the two never go up together.
-    if (view->roomOn && ctx->roomRendered && ctx->roomViewsValid && !ctx->passthrough
+    // Native: not while it is drawn into the picture's layer (one projection
+    // layer a frame, xrWorldPlanLayers)
+    if (view->roomOn && ctx->roomRendered && ctx->roomViewsValid && !ctx->passthrough && !ctx->roomInPicture
             && ctx->roomSwapchain != XR_NULL_HANDLE) {
         XrCompositionLayerProjection* room = &layers->room;
         memset(room, 0, sizeof(*room));
         memset(layers->roomViews, 0, sizeof(layers->roomViews));
         room->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
-        // Native: the room A/B test's E blends it as the void's picture layer is
-        room->layerFlags = xrRoomAbMode() == ROOM_AB_BLENDED ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
+        room->layerFlags = 0;
         // World locked, even when the screen is head locked, or the room would
         // swing about with the viewer
         room->space = ctx->localSpace;
@@ -300,7 +303,9 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
 // drawn over them wherever the two cross. World locked, with the poses its
 // image was drawn from.
 static void addModelLayer(XrCtx* ctx, FrameLayers* layers) {
-    if (!ctx->modelsShowing || !ctx->modelRendered || ctx->passthrough || ctx->modelSwapchain == XR_NULL_HANDLE) {
+    // Native: not while they are drawn into the picture's or the room's layer
+    if (!ctx->modelsShowing || !ctx->modelRendered || ctx->passthrough || ctx->modelSwapchain == XR_NULL_HANDLE
+            || ctx->modelsInPicture || ctx->modelsInRoom) {
         return;
     }
     XrCompositionLayerProjection* models = &layers->models;

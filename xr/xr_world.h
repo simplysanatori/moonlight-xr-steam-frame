@@ -92,14 +92,18 @@ int xrRoomResident(XrCtx* ctx);
 // Native: frames the room was drawn on and frames it kept an older image on,
 // since the last call (the 5 s stats line)
 void xrRoomTakeCounts(int* drawn, int* stale);
-// Native: the room-judder A/B test's mode this frame (xr_room.c), as before
-// unless the test is on
-#define ROOM_AB_AS_BEFORE 0
-#define ROOM_AB_AHEAD 1
-#define ROOM_AB_BEHIND 2
-#define ROOM_AB_NO_PICTURE_LAYER 3
-#define ROOM_AB_BLENDED 4
-int xrRoomAbMode(void);
+// Native: one projection layer a frame (XrCtx roomInPicture and the rest).
+// pictureProjected: the picture's own projection layer goes up this frame.
+// Decided after updateControllerModels and before anything draws.
+void xrWorldPlanLayers(XrCtx* ctx, int pictureProjected);
+// The room as the background of another layer's image, clearing it, from that
+// layer's views; 1 if it drew
+int xrRoomRecordInto(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat format, int eyeW, int eyeH,
+                     const XrView* views);
+// The models over what an image already holds (the picture's or the room's),
+// from that image's views; image is the colour image, for the barrier
+void xrModelRecordOver(XrCtx* ctx, VkCommandBuffer cmd, VkImage image, VkImageView colour, VkFormat format, int eyeW,
+                       int eyeH, const XrView* views);
 int xrRoomLoading(XrCtx* ctx);
 // Rooms freed since the start and rooms waiting on the GPU (tests)
 int xrRoomsRetired(XrCtx* ctx);

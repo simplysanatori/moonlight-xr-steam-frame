@@ -512,6 +512,106 @@ static void clickGroup(void) {
     free(c);
 }
 
+// ---- one projection layer -------------------------------------------------------------
+// Native: SteamVR on the Steam Frame shows one projection layer correctly; a
+// room under the 3D picture's layer jittered and lagged the head until the
+// picture's layer was withheld (owner's A/B, 2026-10-10). xrWorldPlanLayers
+// folds whatever would be a second one into the first.
+
+static int projectionLayers(const XrFrameOut* out) {
+    int n = 0;
+    for (uint32_t i = 0; i < out->count; i++) n += out->order[i]->type == XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+    return n;
+}
+
+static void oneFrame(Scene* s, const XrCompositionLayerProjection* curved, const char* what) {
+    XrCtx* c = s->ctx;
+    s->live = s->settings;
+    xrPanelsUpdate(c, &s->live, &s->launcher, "stats", "10:42", nowNs());
+    // As the session: the plan before anything draws, from whether the
+    // picture's own layer goes up
+    xrWorldPlanLayers(c, curved != NULL);
+    XrFrameIn in;
+    memset(&in, 0, sizeof(in));
+    xrDefaultPlacement(&in.distance, &in.quadWidth, &in.curvature);
+    in.passthrough = c->passthrough;
+    in.curved = curved;
+    xrBuildLayers(c, &in, &s->out);
+    printf("  %-58s %2u layers, %d projection\n", what, s->out.count, projectionLayers(&s->out));
+    CHECK(s->out.count <= 16);
+}
+
+static void oneLayerGroup(void) {
+    Scene* s = scene_new();
+    XrCtx* c = s->ctx;
+    c->alphaBlendSupported = 1;
+    c->focusedFrames = 5;
+    c->ambilightOn = 1;
+    fakeWorld(c);
+    XrCompositionLayerProjectionView cv[2];
+    memset(cv, 0, sizeof(cv));
+    cv[0].subImage.swapchain = cv[1].subImage.swapchain = (XrSwapchain)(uintptr_t)0x7004;
+    XrCompositionLayerProjection curved;
+    memset(&curved, 0, sizeof(curved));
+    curved.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+    curved.viewCount = 2;
+    curved.views = cv;
+    printf("one projection layer a frame:\n");
+
+    // The 3D picture is its own projection layer
+    c->stereoMode = DEPTH_MODE_MODEL;
+    envStep(s, ENV_CELL_VOID);
+    CHECK(xrPictureProjected(c));
+    // Void, 3D picture, models: the models into the picture's layer
+    oneFrame(s, &curved, "void, 3D picture, models");
+    CHECK(projectionLayers(&s->out) == 1 && c->modelsInPicture && !hasSwapchain(&s->out, FAKE_MODEL));
+    CHECK(!c->roomInPicture && !c->modelsInRoom && !c->passthroughInPicture);
+    // Void, 3D picture, no models: as it was, the picture's layer alone
+    c->modelsShowing = 0;
+    oneFrame(s, &curved, "void, 3D picture");
+    CHECK(projectionLayers(&s->out) == 1 && !c->modelsInPicture);
+    c->modelsShowing = 1;
+    // Each room with the 3D picture and the models: room and models into the
+    // picture's layer, which goes up opaque from the host
+    for (int cell = ENV_CELL_HOME_THEATER; cell <= ENV_CELL_SYNTHWAVE; cell++) {
+        envStep(s, cell);
+        char what[80];
+        snprintf(what, sizeof(what), "room %d, 3D picture, models, glow", roomEffective(c));
+        oneFrame(s, &curved, what);
+        CHECK(projectionLayers(&s->out) == 1 && c->roomInPicture && c->modelsInPicture);
+        CHECK(!hasSwapchain(&s->out, FAKE_ROOM) && !hasSwapchain(&s->out, FAKE_MODEL));
+        int curvedSeen = 0;
+        for (uint32_t i = 0; i < s->out.count; i++) curvedSeen += s->out.order[i] == (void*)&curved;
+        CHECK(curvedSeen == 1);
+    }
+    // A room with the picture flat (3D off, a quad): the models into the
+    // room's layer
+    c->stereoMode = DEPTH_MODE_OFF;
+    envStep(s, ENV_CELL_HOME_THEATER);
+    CHECK(!xrPictureProjected(c));
+    oneFrame(s, NULL, "room 1, flat picture, models");
+    CHECK(projectionLayers(&s->out) == 1 && c->modelsInRoom && !c->roomInPicture);
+    CHECK(hasSwapchain(&s->out, FAKE_ROOM) && !hasSwapchain(&s->out, FAKE_MODEL));
+    // The void with the picture flat: the models' layer alone, as before
+    envStep(s, ENV_CELL_VOID);
+    oneFrame(s, NULL, "void, flat picture, models");
+    CHECK(projectionLayers(&s->out) == 1 && hasSwapchain(&s->out, FAKE_MODEL));
+    CHECK(!c->modelsInPicture && !c->modelsInRoom);
+    // Passthrough with the 3D picture: the picture's transparent layer is
+    // passthrough's (no models in passthrough)
+    c->stereoMode = DEPTH_MODE_MODEL;
+    envStep(s, ENV_CELL_PASSTHROUGH);
+    c->modelsShowing = 0;
+    oneFrame(s, &curved, "passthrough, 3D picture");
+    CHECK(c->passthroughInPicture && !c->roomInPicture && projectionLayers(&s->out) == 1);
+    // Leaving it all: each its own again
+    envStep(s, ENV_CELL_VOID);
+    c->stereoMode = DEPTH_MODE_OFF;
+    oneFrame(s, NULL, "void, flat picture");
+    CHECK(!c->roomInPicture && !c->modelsInPicture && !c->modelsInRoom && !c->passthroughInPicture);
+    scene_free(s);
+}
+
 int main(int argc, char** argv) {
     const char* g = argc > 1 ? argv[1] : "all";
     int all = !strcmp(g, "all");
@@ -519,6 +619,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(g, "env")) envGroup();
     if (all || !strcmp(g, "budget")) budgetGroup();
     if (all || !strcmp(g, "click")) clickGroup();
+    if (all || !strcmp(g, "one_layer")) oneLayerGroup();
     char name[32];
     snprintf(name, sizeof(name), "m5 %s", g);
     return checksDone(name);

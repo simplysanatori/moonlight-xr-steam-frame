@@ -459,6 +459,38 @@ static void loadControllerModel(XrCtx* ctx) {
     }
 }
 
+void xrWorldPlanLayers(XrCtx* ctx, int pictureProjected) {
+    // MLXR_ONE_PROJECTION=0 puts back a layer for each, for diagnosis only
+    static int one = -1;
+    static int ownPassthrough = -1;
+    if (one < 0) {
+        const char* e = getenv("MLXR_ONE_PROJECTION");
+        one = !(e != NULL && *e == '0');
+        // And passthrough's own transparent layer kept under the picture's
+        e = getenv("MLXR_PASSTHROUGH_OWN_LAYER");
+        ownPassthrough = e != NULL && *e == '1';
+        if (!one || ownPassthrough) {
+            LOGW("projection layers: one a frame %s, passthrough's own layer %s (environment)", one ? "on" : "off",
+                 ownPassthrough ? "kept" : "folded");
+        }
+    }
+    int room = roomEffective(ctx) > 0 && !ctx->passthrough;
+    int was = ctx->roomInPicture | (ctx->modelsInPicture << 1) | (ctx->modelsInRoom << 2)
+            | (ctx->passthroughInPicture << 3);
+    ctx->roomInPicture = one && pictureProjected && room;
+    ctx->modelsInPicture = one && pictureProjected && ctx->modelsShowing;
+    ctx->modelsInRoom = one && !pictureProjected && room && ctx->modelsShowing;
+    ctx->passthroughInPicture = one && !ownPassthrough && pictureProjected && ctx->passthrough;
+    int now = ctx->roomInPicture | (ctx->modelsInPicture << 1) | (ctx->modelsInRoom << 2)
+            | (ctx->passthroughInPicture << 3);
+    if (now != was) {
+        LOGI("one projection layer: %s%s%s%s", ctx->roomInPicture ? "room in the picture's layer; " : "",
+             ctx->modelsInPicture ? "models in the picture's layer; " : "",
+             ctx->modelsInRoom ? "models in the room's layer; " : "",
+             ctx->passthroughInPicture ? "the picture's layer is passthrough's; " : now ? "" : "each its own");
+    }
+}
+
 void xrWorldFrameBegin(XrCtx* ctx) {
     collect(ctx, 0);
     timesCollect(ctx);

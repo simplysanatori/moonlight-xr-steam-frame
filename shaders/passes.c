@@ -925,7 +925,7 @@ void mlxr_pass_model(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, co
     // Nothing but the models: the layer shows through everywhere else
     MlxrTarget clear = *t;
     memset(clear.clearColor, 0, sizeof(clear.clearColor));
-    beginRender(p, cmd, &clear, 0, m->depth, 1);
+    beginRender(p, cmd, &clear, 0, m->depth, !m->over);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
     VkDeviceSize off = 0;
     vkCmdBindVertexBuffers(cmd, 0, 1, &m->vertices, &off);

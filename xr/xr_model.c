@@ -182,14 +182,14 @@ static void frameModelKnobs(float* gain, int* view) {
 // Both eyes, each shown model at its grip, over a clear to nothing (native:
 // the pass itself, into any target; renderControllerModels and the snapshot
 // tool both draw through it)
-void xrModelRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat format, VkImageView depth,
-                   int eyeW, int eyeH, const XrView* views) {
+static void modelRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat format, VkImageView depth,
+                        int eyeW, int eyeH, const XrView* views, int clear) {
     MlxrTarget t;
     memset(&t, 0, sizeof(t));
     t.view = colour;
     t.format = format;
     t.rect.extent = (VkExtent2D){ (uint32_t)(eyeW * ROOM_EYES), (uint32_t)eyeH };
-    t.clear = 1;
+    t.clear = clear;
     MlxrModelParams mp;
     memset(&mp, 0, sizeof(mp));
     mlxr_model_fill(ctx->model, &mp);
@@ -210,10 +210,40 @@ void xrModelRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat
     }
     mp.depth = depth;
     mp.depthFormat = VK_FORMAT_D32_SFLOAT;
+    mp.over = !clear;
     if (mp.textured) {
         frameModelKnobs(&mp.gain, &mp.debugView);
     }
     mlxr_pass_model(ctx->passes, cmd, &t, &mp);
+}
+
+void xrModelRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat format, VkImageView depth,
+                   int eyeW, int eyeH, const XrView* views) {
+    modelRecord(ctx, cmd, colour, format, depth, eyeW, eyeH, views, 1);
+}
+
+// Native: the models over an image another layer already drew this frame (the
+// picture's or the room's: one projection layer a frame, xrWorldPlanLayers),
+// from that layer's views and at its size. The depth is cleared for them, so
+// they go over what is there, as their own layer used to.
+void xrModelRecordOver(XrCtx* ctx, VkCommandBuffer cmd, VkImage image, VkImageView colour, VkFormat format, int eyeW,
+                       int eyeH, const XrView* views) {
+    if (!ctx->modelsShowing || ctx->model == NULL || cmd == VK_NULL_HANDLE) {
+        return;
+    }
+    mlxr_passes_warm(ctx->passes, ctx->model->textured ? MLXR_PASS_MODEL_TEX : MLXR_PASS_MODEL, MLXR_VIDEO_YUV420P,
+                     format, VK_FORMAT_D32_SFLOAT);
+    VkImageView depth = xrWorldDepth(ctx, eyeW * ROOM_EYES, eyeH);
+    if (depth == VK_NULL_HANDLE) {
+        return;
+    }
+    // After the draws already in the image
+    mlxr_barrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    xrGpuTimeBegin(ctx, GPU_MODELS);
+    modelRecord(ctx, cmd, colour, format, depth, eyeW, eyeH, views, 0);
+    xrGpuTimeEnd(ctx, GPU_MODELS);
+    ctx->modelRendered = 1;
 }
 
 // The models' own pass, every display frame one shows, picture or not: a
