@@ -1,8 +1,10 @@
 # Developer notes
 
-These are the working notes from building the client, kept for anyone who works on the code. They were written during development and describe the state at the time. Users want the [README](../../README.md) and the [user guide](../USER_GUIDE.md).
+## Read this first
 
-The project was called Moonlight XR Native while it was built. The notes use that name.
+These are the working notes kept while the project was built, under its working name Moonlight XR Native. The notes use that name. They are history, not instructions. The current state is in [BUILDING.md](../BUILDING.md), [USER_GUIDE.md](../USER_GUIDE.md) and [CHANGELOG.md](../CHANGELOG.md). Users want the [README](../../README.md).
+
+The repository is public and the current release is v1.0.0. Commit hashes quoted in the notes predate a history rewrite and no longer resolve. Paths like `~/Games/MoonlightXRNative/...`, `lanes/` and `ref/` were on the developer's machine. They are not in the repository.
 
 ## Plans and status
 
@@ -10,10 +12,20 @@ The project was called Moonlight XR Native while it was built. The notes use tha
 | --- | --- |
 | [STATUS.md](STATUS.md) | What was confirmed in the headset and what was only tested without it, by date |
 | [HANDOFF.md](HANDOFF.md) | Session hand-off: where things are, how to build and test, open problems, working rules |
-| [BUILD_PLAN.md](BUILD_PLAN.md) | The original build plan with the platform facts and milestones M0 to M8 |
-| [ORCHESTRATION_PLAN.md](ORCHESTRATION_PLAN.md) | How the work was split into parallel lanes |
+| [SESSION_4.md](SESSION_4.md) | The hand-off at the start of the fourth session (2026-10-11): the black screen fix, the lanes that landed after it, the working rules |
+| [BUILD_PLAN.md](BUILD_PLAN.md) | The original build plan with the platform facts and milestones M0 to M8. Superseded: it describes a Distrobox/Arch container route that was never used. The build runs on the Frame's own toolchain, see [BUILDING.md](../BUILDING.md) |
+| [ORCHESTRATION_PLAN.md](ORCHESTRATION_PLAN.md) | How the work was split into parallel lanes. Superseded for the same reason |
 | [lanes.md](lanes.md) | The lanes and their state |
-| [HEADSET_TEST_3.md](HEADSET_TEST_3.md) | A headset test script from the third session |
+
+## Headset test scripts
+
+What the developer asked the owner to check in the headset after a session.
+
+| File | What it is |
+| --- | --- |
+| [HEADSET_TEST_3.md](HEADSET_TEST_3.md) | After session 3 (2026-10-10): the menu panel drawing fix and room judder |
+| [HEADSET_TEST_4.md](HEADSET_TEST_4.md) | After the black screen fix (2026-10-11) |
+| [HEADSET_TEST_5.md](HEADSET_TEST_5.md) | 2026-10-11: double click, text sharpness, pulling the picture, the flat window, network choice, the Exit button, bitrate |
 
 ## Milestone reports
 
@@ -40,5 +52,14 @@ The project was called Moonlight XR Native while it was built. The notes use tha
 | [reports/launcher.md](reports/launcher.md) | `launcher/`: the patched moonlight-qt and every difference from stock |
 | [reports/packaging.md](reports/packaging.md) | `packaging/`: installer, release, bug report |
 | [reports/frame-models.md](reports/frame-models.md) | The Steam Frame controller model converter |
+| [reports/au-scatter.md](reports/au-scatter.md) | The black picture of 2026-10-11: the decoder was given too few parts of each frame |
+| [reports/adapter-detect.md](reports/adapter-detect.md) | Detecting whether a Steam Frame Wireless Adapter is present |
+| [reports/netpath-quality.md](reports/netpath-quality.md) | Automatic network choice by latency and drops, not only link quality |
+| [reports/launcher2.md](reports/launcher2.md) | Bitrate default, larger flat UI, Help link |
+| [reports/launcher-return.md](reports/launcher-return.md) | Getting the flat window back after a stream ends |
+| [reports/double-click.md](reports/double-click.md) | Making double clicks work with the Frame controller as the mouse |
+| [reports/grab-pull.md](reports/grab-pull.md) | Pulling the held picture closer with the stick |
+| [reports/eye-swapchains.md](reports/eye-swapchains.md) | One swapchain per eye for every projection layer |
+| [reports/refresh.md](reports/refresh.md) | Refresh rates up to 144 Hz |
 
 The platform probe from the first session is in [docs/probe](../probe/SUMMARY.md).

@@ -72,4 +72,4 @@ The code builds on other aarch64 Linux systems with the same development package
 
 ## Developer notes
 
-Design notes, the build history and per-area reports are in [docs/dev](dev/README.md).
+The design notes, build history and per-area reports are in [docs/dev](dev/README.md). They are working notes kept as history, not instructions.

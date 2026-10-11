@@ -1,5 +1,7 @@
 # Session 4: start here
 
+*Working notes, kept as history. See docs/dev/README.md for how to read them.*
+
 Read this file first, then docs/dev/HANDOFF.md sections 2, 3 and 7 (paths, commands, rules), then docs/dev/STATUS.md from the bottom. Everything older is history.
 
 ## 0. Resolved 2026-10-11 (read this first)
@@ -10,7 +12,7 @@ Section 2 is solved. The hardware decode path gave the decoder at most 64 parts 
 - RFI, the virtual display and the bitrate were suspected and are cleared.
 - Install state: the fix and the later lanes are installed on the Frame. The owner has streamed with it: picture and sound work.
 - The four-run test matrix in section 2 is no longer needed. The owner's check is docs/dev/HEADSET_TEST_4.md.
-- The release is now 1.0.0, the first stable build: VERSION, CHANGELOG and docs/RELEASE_NOTES_v1.0.0.md are written. The tarball and the GitHub release wait for the owner's go and token.
+- The release is now 1.0.0, the first stable build: VERSION, CHANGELOG and docs/RELEASE_NOTES_v1.0.0.md are written. 1.0.0 has since been released as v1.0.0, the first public release.
 - The stutter of 2026-10-10 was put down to the network. At 80 Mbps the cut also hit IDR and high-motion frames, so some of it was ours. The owner now prefers 80 Mbps to 126 Mbps.
 
 ### Also landed on 2026-10-11 (second half of session 4)
@@ -31,14 +33,14 @@ Each lane has a report in docs/dev/reports/ and an entry in docs/dev/STATUS.md.
 
 1. Read the owner's results from docs/dev/HEADSET_TEST_5.md.
 2. Finish the refresh lane, merge it and install.
-3. Cut the 1.0.0 release (build the tarball on the Frame with tools/release.sh, create the GitHub release with the owner's token).
+3. Cut the 1.0.0 release (done: v1.0.0 is out; build the tarball on the Frame with tools/release.sh, create the GitHub release with the owner's token).
 4. Planned, waiting for the owner's go: the fork relationship with Gilleece/moonlight-android-xr, and a Ko-fi section on the other repositories. Do neither without the go.
 
 Sections 1 to 4 below are history as of the morning of 2026-10-11.
 
 ## 1. State on 2026-10-11
 
-- The repository is public: https://github.com/simplysanatori/moonlight-xr-steam-frame, branch `main` only. Latest release: `v0.6.0-alpha.2` (pre-release). The same build is installed on the Frame (`~/Games/MoonlightXRNative/app`, `VERSION` says 0.6.0-alpha.2).
+- The repository is public: https://github.com/simplysanatori/moonlight-xr-steam-frame, branch `main` only. On that day the newest release was the pre-release `v0.6.0-alpha.2`, installed on the Frame (`~/Games/MoonlightXRNative/app`). The current release is v1.0.0.
 - History was rewritten for privacy. Commit hashes in older notes are stale. Commit identity is the repo-local `simplysanatori` no-reply address. Nothing personal may enter the tree: `tools/privacy-check.sh` runs in ctest and in `tools/release.sh`, reading the owner's private patterns from `~/.config/moonlight-xr-privacy-patterns.txt` (never commit that file, never print its values).
 - The owner's PC runs Apollo (a Sunshine fork; it reports itself as Sunshine). The Frame reaches it over home Wi-Fi and over the Steam Frame Wireless Adapter. The "Network connection" setting (Automatic / Wi-Fi / Steam Frame Wireless Adapter) picks the link before each stream and logs why.
 - The Lepton route (the Android fork) is retired on this Frame; its shortcut and install were removed. The native client is the only Moonlight on the headset.
@@ -81,7 +83,7 @@ How to test without the owner: a headless run against the test clip (`build/moon
 - Writing: plain and factual, short sentences, no em dashes, no "it's not X, it's Y" phrasing, first person where the author speaks. The README's authorship paragraph is the owner's own wording; keep it.
 - Privacy: no names, addresses, host names, IDs, serial numbers, Wi-Fi names or tokens in commits, docs, reports or hand-off notes. Logs on the Frame may contain them; `bug-report.sh` masks them. Agents must not quote log lines that carry such values.
 - Safety: no sudo, pacman or steamos-readonly; never restart Steam or SteamVR without the owner asking (a Steam restart is `systemctl --user restart steam.service`, run in the background because the calling shell is killed with it); no streams against the owner's PC; `--wake` only when asked.
-- Releases: `tools/release.sh` builds the tarball on the Frame (the CI artefact cannot run here) and refuses anything personal; GitHub releases are pre-releases below 1.0.0, created with the API using the owner's token; release notes live in `docs/RELEASE_NOTES_<tag>.md`.
+- Releases: `tools/release.sh` builds the tarball on the Frame (the CI artefact cannot run here) and refuses anything personal; GitHub releases were pre-releases below 1.0.0, created with the API using the owner's token; release notes live in `docs/RELEASE_NOTES_<tag>.md`.
 
 ## 5. Prompt for the next session
 

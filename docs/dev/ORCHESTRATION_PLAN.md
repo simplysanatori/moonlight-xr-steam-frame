@@ -1,5 +1,7 @@
 # Moonlight XR Native on the Steam Frame: execution plan (parallel agents)
 
+*Superseded, see docs/dev/README.md.*
+
 ## Context
 
 The handoff document "Moonlight XR Native: Steam Frame Build Plan (LLM Handoff)" (Oct 10, 2026) specifies a native Linux Arm64 OpenXR client in C for the Steam Frame, with V4L2 hardware decode, Vulkan on Turnip, SteamVR as the OpenXR runtime, and feature parity with Moonlight XR. Its platform facts, hard rules, milestones M0 to M8 and acceptance gates are binding and are not repeated here. This plan adds what the document leaves open: which model and effort to run, how to split the work across parallel agents on the Frame itself, and the rules that keep parallel work from breaking the milestone gates.

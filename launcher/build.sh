@@ -2,6 +2,8 @@
 # Moonlight XR Native launcher: builds the patched moonlight-qt 6.1.0 on the host. GPLv3.
 #   launcher/build.sh            -> build-launcher/moonlight-xr-launcher
 #   JOBS=3 (default)  BUILD_DIR=build-launcher
+#   SKIP_AUDIT=1                 skip the ldd audit (it needs pacman, so it is
+#                                skipped by itself on non-SteamOS hosts)
 # The submodule third_party/moonlight-qt is never modified: its tree is copied to
 # build-launcher/src, launcher/src/* (new files) and launcher/qml/*.qml (new pages, into app/gui)
 # are copied in and launcher/patches/*.patch applied
@@ -59,4 +61,10 @@ nice -n 10 make -j"$JOBS"
 cd "$ROOT"
 install -m755 "$BUILD/obj/app/moonlight" "$BUILD/moonlight-xr-launcher"
 echo "built $BUILD/moonlight-xr-launcher"
-./tools/ldd-audit.sh "$BUILD/moonlight-xr-launcher"
+if [ "${SKIP_AUDIT:-0}" = 1 ]; then
+    echo "SKIP_AUDIT=1: ldd audit skipped"
+elif ! command -v pacman >/dev/null; then
+    echo "no pacman on this host: ldd audit skipped (it checks libraries against SteamOS packages)"
+else
+    ./tools/ldd-audit.sh "$BUILD/moonlight-xr-launcher"
+fi

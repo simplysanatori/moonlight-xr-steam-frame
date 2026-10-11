@@ -8,7 +8,7 @@
 # app/ (binaries, launcher, assets, the Moonlight Qt import script) and the
 # Frame controller model converter. The converted Steam Frame controller
 # models (Valve's) are never in the tarball: install.sh makes them on the target.
-# The version is the top-level VERSION file (e.g. 0.6.0-alpha.1, tag v0.6.0-alpha.1).
+# The version is the top-level VERSION file (e.g. 1.0.0, tag v1.0.0).
 # When HEAD carries a v* tag it must match VERSION.
 #
 # Expects a finished build (./build.sh). Unless NO_VERIFY=1 it then unpacks the

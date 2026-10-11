@@ -1,5 +1,7 @@
 # Moonlight XR Native: session hand-off
 
+*Working notes, kept as history. See docs/dev/README.md for how to read them.*
+
 **Start with [SESSION_4.md](SESSION_4.md)** (2026-10-11, section 0 first): the black screen is fixed and 1.0.0 is prepared; the file also has the current state and the working rules. The sections below are older context.
 
 Written 2026-10-10 at the end of the first build session (main at the commit that adds this file; 108 test suites green). Paste the prompt at the bottom into a new Claude Code session on the Steam Frame to continue. Everything below is either in this repository or on the Frame at the paths given.
@@ -20,7 +22,7 @@ A native Linux Arm64 OpenXR game-streaming client in C for the Valve Steam Frame
 | What | Where |
 | --- | --- |
 | Main checkout (branch `main`) | `~/Games/MoonlightXRNative/src` |
-| GitHub (private) | `https://github.com/simplysanatori/moonlight-xr-steam-frame` (owner login `simplysanatori`) |
+| GitHub (public) | `https://github.com/simplysanatori/moonlight-xr-steam-frame` (owner login `simplysanatori`) |
 | Installed app (what the Steam shortcut runs) | `~/Games/MoonlightXRNative/app` |
 | Steam shortcut | "Moonlight XR for Frame", appid 2761093165, runs `app/moonlight-xr-launcher.sh` (the flat Moonlight UI). `VR_ONLY=1 ./packaging/install.sh` points it back at `app/moonlight-xr.sh` (the VR client's own in-VR PC/app lists) |
 | VR client config, pairing, hosts | `~/.config/moonlight-xr/` (`config.ini` with every setting, `client.pem/key`, `hosts.ini`, `servercerts/`); `file_log = verbose` is set for testing |
@@ -44,7 +46,7 @@ tools/release.sh                 # tarball + SHA256SUMS in ~/Games/MoonlightXRNa
 
 - Run binaries from SSH with `env -u LD_LIBRARY_PATH` (the shell inherits Steam's runtime path).
 - Headless runs: `build/moonlight-xr --file ~/Games/MoonlightXRNative/test-1080p60.mp4 --seconds N`. SteamVR keeps sessions started from SSH in the SYNCHRONIZED state, so nothing is drawn headless; visual checks need the owner in the headset, or the offscreen snapshot targets (`ninja -C build ui-snapshots`, `kb-snapshots`).
-- Pushing: the owner pastes a GitHub token when asked. Use it for one command only: `git -c http.extraheader="Authorization: Basic $(printf 'simplysanatori:%s' <token> | base64 -w0)" push origin main`. Never store it (not in git config, memory, files). Fetching the private repo needs the same header. Advise the owner to revoke tokens after use.
+- Pushing: the owner pastes a GitHub token when asked. Use it for one command only: `git -c http.extraheader="Authorization: Basic $(printf 'simplysanatori:%s' <token> | base64 -w0)" push origin main`. Never store it (not in git config, memory, files). Advise the owner to revoke tokens after use.
 
 ## 4. State by milestone (2026-10-10)
 
@@ -127,7 +129,7 @@ Fable is for planning (owner's rule), so this session verified, merged one finis
 2. **Done 2026-10-10 (headless; see `docs/dev/reports/frame-models.md`; owner check of angle and colour pending; animation not done).** Steam Frame controller models from the device, the way another Steam Frame port by the owner does it: SteamVR's Frame controller driver ships per-hand render models at `/opt/steamvr/drivers/frame_controller/resources/rendermodels/frame_controller_{left,right}/` (OBJ + MTL per component: body, bumper, dpad, grip_button, sticks, buttons, trigger; `*_color.png`, `*_ao.png`). That converter (GitHub `simplysanatori/Wiicompiled_VR-PLUS-steam-frame`, branch `steam-frame`, commit 23d95f5) triangulates every visible component into OpenXR grip space using the model's `openxr_grip` component, bakes AO into the base colour at 1024², and simplifies with a pure-Python QEM to ~4000 triangles per hand (full-detail models cost the owner 30 fps in that game; ~4k/hand was "perfect"). Do the same here: convert at install time (or first run) into the format `rooms/room_gpu` loads for the controller model (`assets/models/controller.room` today, a generic Quest-style controller), never redistribute Valve's files (read them from the local SteamVR install only), and fall back to the generic model if the directory is missing. Optional: animate the trigger, grips, sticks and buttons from the controller's input state, as the fork does with SteamVR's component motions.
 3. **M6 follow-ups**: the owner's answers to the decisions in section 6, and the items not ported yet.
 4. **M7**: hand tracking with pinch click and triple-pinch lock, and eye-gaze pointing (both present natively per the probe, ported in `xr_input.c`, **off by default** on the Frame because gaze takes the pointer from the controllers; let the owner turn them on and test); headset-off: mute and pause via `XR_EXT_user_presence` and session state, resume within a minute; virtual surround: owner listening test (5.1/7.1 at the host, `virtual_surround` setting), and the open question of SteamOS's own spatializer (the renderer bypasses it by node name; `systemSpatializer` switches); Stats overlay rows.
-5. **M8**: tag `v0.1.0` when the owner is happy, `tools/release.sh`, GitHub release (private repo for now; public is the owner's call), Steam library art (done: `assets/branding`), drop `assets/rooms/*_lo_*` (~7.5 MB, unused on the Frame) and maybe MiDaS (33 MB) if the owner agrees, CI caveat stays documented.
+5. **M8**: tag `v0.1.0` when the owner is happy, `tools/release.sh`, GitHub release (the repository was private when this was written; it is public now), Steam library art (done: `assets/branding`), drop `assets/rooms/*_lo_*` (~7.5 MB, unused on the Frame) and maybe MiDaS (33 MB) if the owner agrees, CI caveat stays documented.
 6. **Physical gamepads (lane/gamepads, headless only):** SDL2 GameController source in `input/gamepads*.c`, same gating as the keyboard, shares controller numbers with gamepad mode, Start+Select+L1+R1 on a physical pad disconnects; see the last section of `docs/dev/reports/input.md` for design and the owner test (pair a pad over Bluetooth, stream, check buttons, rumble and the chord). Needs the owner's headset check.
 7. **Small known items**: the Caps Lock light on the Full keyboard follows our own presses only; supersample defaults to Normal and sharpening to Off (the owner's choices, 2026-10-10; upstream has Off and Quality); the flat window stays visible during a stream (stock hides it; `MLXR_LAUNCHER_HIDE_WINDOW=1`); 144 fps from Moonlight settings passes through and the client skips frames above the display rate (SteamVR offers one rate, 72 or 90, and picks it); the generic controller model until item 2.
 

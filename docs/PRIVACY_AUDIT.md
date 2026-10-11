@@ -1,6 +1,6 @@
-# Privacy audit for 0.6.0-alpha.1
+# Privacy audit for 1.0.0
 
-Done on 2026-10-11, before the repository was made public. The goal: nothing personal about the owner in the repository, in the release tarball, or in what the app writes for a tester to share.
+First done on 2026-10-11 on 0.6.0-alpha.1, before the repository was made public. The counts below are from that run; the same checks run on every release. The goal: nothing personal about the owner in the repository, in the release tarball, or in what the app writes for a tester to share.
 
 This file names categories and counts, never the values themselves.
 
@@ -84,9 +84,9 @@ The in-headset "Report a problem" sheet said it would send the note and the log.
 
 ```sh
 tools/privacy-check.sh
-tools/privacy-check.sh ~/Games/MoonlightXRNative/releases/moonlight-xr-steam-frame-0.6.0-alpha.1-linux-arm64.tar.gz
+tools/privacy-check.sh ~/Games/MoonlightXRNative/releases/moonlight-xr-steam-frame-1.0.0-linux-arm64.tar.gz
 tests/tools/test_bug_report.sh
 env -u LD_LIBRARY_PATH ctest --test-dir build -R tools_
 ```
 
-Results on the release commit: the tree check found 0, with the local list loaded. The tarball check found 0. The bug report test passed: every planted address, name, id, SSID, serial, e-mail and certificate was masked, and the planted timings and counters were kept.
+Results of the first run: the tree check found 0, with the local list loaded. The tarball check found 0. The bug report test passed: every planted address, name, id, SSID, serial, e-mail and certificate was masked, and the planted timings and counters were kept.
