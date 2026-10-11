@@ -3,6 +3,7 @@
 #include "session.h"
 
 #include <openssl/rand.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -24,6 +25,49 @@ static size_t g_auCap;
 static atomic_int g_connected, g_failed;
 static atomic_uint_fast64_t g_units, g_idr;
 static int g_lastErr;
+
+// Native (lane av-latency): video latency parts per stats window, written by
+// common-c's decoder thread (drSubmit), read and reset by the log
+static pthread_mutex_t g_latLock = PTHREAD_MUTEX_INITIALIZER;
+static struct {
+    uint64_t frames, hostN;
+    double hostMsSum, hostMsMax;     // Sunshine's own capture + encode time
+    double recvMsSum, recvMsMax;     // first packet to frame assembled
+    double queueMsSum, queueMsMax;   // assembled to handed to our decoder
+} g_lat;
+
+static void noteFrameLatency(const DECODE_UNIT* du) {
+    uint64_t now = LiGetMicroseconds();
+    double recv = du->enqueueTimeUs > du->receiveTimeUs ? (du->enqueueTimeUs - du->receiveTimeUs) / 1000.0 : 0.0;
+    double queue = now > du->enqueueTimeUs ? (now - du->enqueueTimeUs) / 1000.0 : 0.0;
+    pthread_mutex_lock(&g_latLock);
+    g_lat.frames++;
+    g_lat.recvMsSum += recv;
+    if (recv > g_lat.recvMsMax) g_lat.recvMsMax = recv;
+    g_lat.queueMsSum += queue;
+    if (queue > g_lat.queueMsMax) g_lat.queueMsMax = queue;
+    if (du->frameHostProcessingLatency > 0) {
+        double host = du->frameHostProcessingLatency / 10.0;
+        g_lat.hostN++;
+        g_lat.hostMsSum += host;
+        if (host > g_lat.hostMsMax) g_lat.hostMsMax = host;
+    }
+    pthread_mutex_unlock(&g_latLock);
+}
+
+void stream_latency_line(char* buf, int len) {
+    uint32_t rtt = 0, var = 0;
+    LiGetEstimatedRttInfo(&rtt, &var);
+    pthread_mutex_lock(&g_latLock);
+    double n = g_lat.frames ? (double)g_lat.frames : 1.0;
+    snprintf(buf, (size_t)len,
+             "host encode %.1f ms (max %.1f), frame received over %.1f ms (max %.1f), queued %.1f ms (max %.1f), "
+             "rtt %u ms (variance %u)",
+             g_lat.hostN ? g_lat.hostMsSum / g_lat.hostN : 0.0, g_lat.hostMsMax, g_lat.recvMsSum / n, g_lat.recvMsMax,
+             g_lat.queueMsSum / n, g_lat.queueMsMax, rtt, var);
+    memset(&g_lat, 0, sizeof(g_lat));
+    pthread_mutex_unlock(&g_latLock);
+}
 
 // ---- video callbacks (decoder thread of moonlight-common-c)
 
@@ -56,6 +100,7 @@ static void drCleanup(void) {
 }
 
 static int drSubmit(PDECODE_UNIT du) {
+    noteFrameLatency(du);
     if (g_hw) {
         const void* parts[64];
         uint32_t sizes[64], n = 0;

@@ -44,3 +44,7 @@ void stream_scroll(int amount);
 // Relative mouse motion (head aim)
 void stream_mouse_move(int dx, int dy);
 void stream_stats(char* buf, int len);
+// Native (lane av-latency): per-window video latency parts the host and the
+// network add (host encode as Sunshine reports it, time to receive a frame,
+// wait in common-c's queue) and the RTT variance; resets the window.
+void stream_latency_line(char* buf, int len);

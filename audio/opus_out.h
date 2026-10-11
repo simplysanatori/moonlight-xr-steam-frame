@@ -62,6 +62,15 @@ typedef struct {
     // Server buffer target / request size / start threshold / our own queue cap.
     // 0 = defaults (20 / 5 / tlength/2 / 10 ms).
     int tlengthMs, minreqMs, prebufMs, queueCapMs;
+    // Adaptive jitter cushion on top of the server buffer (jitter.h): range in ms.
+    // 0/0 = defaults (0 and 40). fixedBuffer = true turns it off (the old fixed
+    // 20 ms + 10 ms queue). Environment MLXR_AUDIO_JITTER="min,max" overrides.
+    int jitterMinMs, jitterMaxMs;
+    bool fixedBuffer;
+    // Priority of common-c's audio receive thread, which decodes and feeds the
+    // sink (thread_prio.h): "off", "nice" (default) or "rt". NULL = default;
+    // environment MLXR_AUDIO_PRIORITY overrides.
+    const char* threadPriority;
 
     // Test hooks. decodedTap sees the Opus decoder's output in Moonlight's
     // channel order (FL FR FC LFE BL BR SL SR) before any surround/downmix.
@@ -79,9 +88,16 @@ typedef struct {
     uint32_t decodeErrors;
     uint32_t mutedPackets;   // dropped while muted
     uint32_t underruns;      // sink ran dry while playing
+    uint32_t lateUnderruns;  // ... and the data came back late (network burst or scheduling)
+    uint32_t silenceUnderruns; // ... because the host stopped sending (inaudible)
     uint32_t overruns;       // pushes that had to drop old audio (queue cap)
     uint64_t droppedFrames;
     uint64_t framesOut;      // frames delivered to the sink
+    uint64_t trimmedFrames;  // excess latency spliced out after a calm spell (crossfaded)
+    uint32_t jitterGrows, jitterShrinks;
+    // the audio receive thread (0 until its first packet)
+    uint64_t threadCpuNs;    // CPU time it used
+    uint64_t threadWaitNs;   // time it was runnable but waited for a CPU (starvation)
     // levels now
     float queueMs;           // our queue
     float latencyMs;         // PulseAudio-reported stream latency (buffer + device); 0 until sampled
@@ -89,6 +105,9 @@ typedef struct {
     float tlengthMs;         // what the server granted
     float processUs;         // decode + surround per packet, running average
     float processMaxUs;
+    float jitterTargetMs;    // cushion kept in our queue now (adaptive)
+    int gapMaxMs;            // longest gap between packets since the last take_gap_max
+    char threadPriority[96]; // what the priority raise reached ("nice -10 (rtkit)", ...)
     int channels;            // 2, 6 or 8
     int surroundActive;      // 1 when HRTF rendering is in use right now
     int muted;
@@ -110,6 +129,8 @@ void mlxr_opus_out_set_pose(float yawRadians, float pitchRadians);
 void mlxr_opus_out_set_surround_enabled(bool enabled);
 void mlxr_opus_out_set_muted(bool muted);
 void mlxr_opus_out_stats(MlxrOpusOutStats* out);
+/** Longest gap between packets since the last call (resets; one caller: the 5 s log). */
+int mlxr_opus_out_take_gap_max(void);
 
 #ifdef __cplusplus
 }

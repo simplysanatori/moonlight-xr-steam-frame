@@ -6,11 +6,12 @@ pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse)
 pkg_check_modules(PULSE_SIMPLE REQUIRED IMPORTED_TARGET libpulse-simple)
 
 add_library(mlxr_audio STATIC
-  hrtf.c surround.c pcmq.c pulse_out.c opus_out.c click.c)
+  hrtf.c surround.c pcmq.c jitter.c pulse_out.c opus_out.c click.c
+  thread_prio.c)
 target_include_directories(mlxr_audio PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${PROJECT_SOURCE_DIR}/third_party/moonlight-common-c/src)
-target_link_libraries(mlxr_audio PUBLIC mlxr_xrcore PkgConfig::OPUS PkgConfig::PULSE m pthread)
+target_link_libraries(mlxr_audio PUBLIC mlxr_xrcore PkgConfig::OPUS PkgConfig::PULSE m pthread ${CMAKE_DL_LIBS})
 set_target_properties(mlxr_audio PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
 
 # Manual by-ear test: plays a tone through each channel in turn

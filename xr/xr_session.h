@@ -50,6 +50,10 @@ typedef struct XrAppHooks {
     // Every frame, on the frame loop: the presses the app acts on, and what it
     // wants shown in the picture's place. Must not block.
     void (*ui)(void* user, const XrUiEvents* ev, XrUiLauncher* show);
+    // Native (lane av-latency): every 5 s, only from the log (not the overlay),
+    // while streaming: the app's part of the "xr: latency:" line (host encode,
+    // network, audio cushion and underruns). Per-window counters reset here.
+    void (*latency)(void* user, char* buf, int len);
 } XrAppHooks;
 
 typedef struct XrAppConfig {

@@ -236,7 +236,45 @@ static void displayCells(void) {
     scene_free(s);
 }
 
+// Lane av-latency: the pointer's One Euro filter at the native settings
+// (min cutoff 1 Hz, beta 0.015 per pixel a second) lags a hand moving at
+// 400 px/s by ~12 ms at 90 Hz (0.01 per px gave ~15), and the environment
+// overrides reach the context
+static double rampLagMs(const XrCtx* ctx, float pxPerSec) {
+    EuroState f = { 0 };
+    float dt = 1.0f / 90.0f, w = (float)ctx->videoWidth;
+    for (int i = 0; i < 90; i++) euroFilter(&f, 0.3f, dt, ctx->pointerMinCutoff, ctx->pointerBeta);
+    float x = 0.3f, y = 0.3f;
+    for (int i = 0; i < 45; i++) {
+        x += pxPerSec * dt / w;
+        y = euroFilter(&f, x, dt, ctx->pointerMinCutoff, ctx->pointerBeta);
+    }
+    return 1000.0 * (x - y) * w / pxPerSec;
+}
+
+static void pointerSmoothing(void) {
+    unsetenv("MLXR_POINTER_BETA");
+    unsetenv("MLXR_POINTER_MIN_CUTOFF");
+    Scene* s = scene_new();
+    CHECK(s->ctx->pointerMinCutoff == 1.0f);
+    CHECK_NEAR(s->ctx->pointerBeta, 0.015 * s->ctx->videoWidth, 1e-3);
+    double lag400 = rampLagMs(s->ctx, 400.0f), lag1500 = rampLagMs(s->ctx, 1500.0f);
+    CHECK(lag400 > 8.0 && lag400 < 14.0);
+    CHECK(lag1500 > 2.0 && lag1500 < 6.0);
+    scene_free(s);
+    setenv("MLXR_POINTER_BETA", "0.01", 1);
+    setenv("MLXR_POINTER_MIN_CUTOFF", "1.5", 1);
+    s = scene_new();
+    CHECK_NEAR(s->ctx->pointerBeta, 0.01 * s->ctx->videoWidth, 1e-3);
+    CHECK(s->ctx->pointerMinCutoff == 1.5f);
+    CHECK(rampLagMs(s->ctx, 400.0f) > lag400);
+    scene_free(s);
+    unsetenv("MLXR_POINTER_BETA");
+    unsetenv("MLXR_POINTER_MIN_CUTOFF");
+}
+
 int main(void) {
+    pointerSmoothing();
     roundTripDefaults();
     roundTripChanged();
     poseRoundTrips();

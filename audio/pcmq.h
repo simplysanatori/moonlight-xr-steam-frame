@@ -24,6 +24,7 @@ typedef struct {
     uint64_t poppedFrames;
     uint64_t droppedFrames;   // discarded because the queue was past its cap
     uint32_t overruns;        // pushes that had to drop
+    uint64_t skippedFrames;   // removed by mlxr_pcmq_skip
 } MlxrPcmQueueStats;
 
 MlxrPcmQueue* mlxr_pcmq_create(int channels, int capFrames);
@@ -37,6 +38,13 @@ int mlxr_pcmq_frames(MlxrPcmQueue* q);
 int mlxr_pcmq_capacity(const MlxrPcmQueue* q);
 void mlxr_pcmq_set_capacity(MlxrPcmQueue* q, int capFrames);
 void mlxr_pcmq_clear(MlxrPcmQueue* q);
+/**
+ * Removes n frames from the front (the oldest) with a crossfade over
+ * MLXR_PCMQ_FADE_FRAMES across the cut, so the splice does not click. Used to
+ * bring latency back down. Returns how many were removed (fewer when the queue
+ * holds less than n + the fade).
+ */
+int mlxr_pcmq_skip(MlxrPcmQueue* q, int n);
 /** The next pop fades in (the sink ran dry, so what follows starts from silence). */
 void mlxr_pcmq_mark_discontinuity(MlxrPcmQueue* q);
 void mlxr_pcmq_stats(MlxrPcmQueue* q, MlxrPcmQueueStats* out);

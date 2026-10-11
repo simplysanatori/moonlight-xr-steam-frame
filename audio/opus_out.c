@@ -2,6 +2,7 @@
 
 #include "pulse_out.h"
 #include "surround.h"
+#include "thread_prio.h"
 
 #include <opus_multistream.h>
 
@@ -38,6 +39,9 @@ static struct {
     _Atomic uint64_t packets, framesOut, droppedFrames;
     _Atomic uint32_t lost, decodeErrors, mutedPackets, overruns;
     _Atomic float processUs, processMaxUs;
+    _Atomic int threadId;           // common-c's audio receive thread, once seen
+    int priorityDone;               // audio thread: the raise was tried
+    char threadPriority[96];        // written once by the audio thread before threadId
     MlxrOpusOutStats final;         // totals of the stream that ended
     int haveFinal;
 } O;
@@ -80,6 +84,9 @@ static void resetCounters(void) {
     atomic_store(&O.overruns, 0);
     atomic_store(&O.processUs, 0.0f);
     atomic_store(&O.processMaxUs, 0.0f);
+    atomic_store(&O.threadId, 0);
+    O.priorityDone = 0;
+    O.threadPriority[0] = '\0';
 }
 
 static void snapshot(MlxrOpusOutStats* out) {
@@ -105,6 +112,13 @@ static void snapshot(MlxrOpusOutStats* out) {
         MlxrPulseOutStats ps;
         mlxr_pulse_out_stats(O.sink, &ps);
         out->underruns = ps.underruns;
+        out->lateUnderruns = ps.lateUnderruns;
+        out->silenceUnderruns = ps.silenceUnderruns;
+        out->trimmedFrames = ps.trimmedFrames;
+        out->jitterGrows = ps.jitterGrows;
+        out->jitterShrinks = ps.jitterShrinks;
+        out->jitterTargetMs = (float) ps.jitterTargetMs;
+        out->gapMaxMs = ps.gapMaxMs;
         out->overruns += ps.overruns;
         out->droppedFrames += ps.droppedFrames;
         out->queueMs = ps.queueMs;
@@ -114,10 +128,19 @@ static void snapshot(MlxrOpusOutStats* out) {
         out->sinkDead = ps.dead;
         out->running = out->running && !ps.dead;
     }
+    int tid = atomic_load(&O.threadId);
+    if (tid > 0) {
+        snprintf(out->threadPriority, sizeof out->threadPriority, "%s", O.threadPriority);
+        mlxr_thread_schedstat(tid, &out->threadCpuNs, &out->threadWaitNs);
+    }
     if (O.noSink) {
         out->sinkDead = 1;
         out->running = 0;
     }
+}
+
+int mlxr_opus_out_take_gap_max(void) {
+    return O.initialised && O.sink != NULL ? mlxr_pulse_out_take_gap_max(O.sink) : 0;
 }
 
 void mlxr_opus_out_stats(MlxrOpusOutStats* out) {
@@ -229,6 +252,18 @@ static int rendererInit(int audioConfiguration, const POPUS_MULTISTREAM_CONFIGUR
         if (cfg->queueCapMs > 0) {
             pp.queueCapMs = cfg->queueCapMs;
         }
+        pp.adaptive = !cfg->fixedBuffer;
+        if (cfg->jitterMinMs > 0 || cfg->jitterMaxMs > 0) {
+            pp.jitterMinMs = cfg->jitterMinMs;
+            pp.jitterMaxMs = cfg->jitterMaxMs;
+        }
+        const char* env = getenv("MLXR_AUDIO_JITTER");
+        int lo, hi;
+        if (env != NULL && sscanf(env, "%d,%d", &lo, &hi) == 2 && lo >= 0 && hi >= lo && hi <= 200) {
+            pp.jitterMinMs = lo;
+            pp.jitterMaxMs = hi;
+            pp.adaptive = true;
+        }
         char msg[200] = "";
         O.sink = mlxr_pulse_out_open(&pp, msg, sizeof msg);
         if (O.sink == NULL) {
@@ -242,10 +277,12 @@ static int rendererInit(int audioConfiguration, const POPUS_MULTISTREAM_CONFIGUR
     O.haveFinal = 0;
     O.mutedApplied = 0;
     O.initialised = 1;
-    fprintf(stderr, "audio: %d channels at %d Hz, %d frames/packet, %s\n", channels, O.rate,
+    fprintf(stderr, "audio: %d channels at %d Hz, %d frames/packet, %s, %s\n", channels, O.rate,
             O.samplesPerFrame,
             channels == 2 ? "stereo passthrough"
-            : O.surround != NULL ? "virtual surround available" : "plain downmix");
+            : O.surround != NULL ? "virtual surround available" : "plain downmix",
+            cfg->fixedBuffer && getenv("MLXR_AUDIO_JITTER") == NULL ? "fixed buffer"
+                                                                 : "adaptive jitter cushion");
     return 0;
 }
 
@@ -275,6 +312,22 @@ static void rendererDecode(char* data, int length) {
         return;
     }
     atomic_fetch_add(&O.packets, 1);
+
+    // Once, on common-c's receive thread (which runs this): above the frame
+    // loop, the depth engine and the panel worker, so a busy CPU does not
+    // delay the packets that keep the sink fed. Stock moonlight-qt's audio
+    // thread (SDL's) asks rtkit the same way.
+    if (!O.priorityDone) {
+        O.priorityDone = 1;
+        const char* want = getenv("MLXR_AUDIO_PRIORITY");
+        if (want == NULL) {
+            want = O.cfg.threadPriority;
+        }
+        MlxrPrioMode m = mlxr_prio_mode_parse(want, MLXR_PRIO_NICE);
+        mlxr_thread_raise_priority(m, O.threadPriority, sizeof O.threadPriority);
+        fprintf(stderr, "audio: receive thread %s\n", O.threadPriority);
+        atomic_store(&O.threadId, mlxr_thread_id());
+    }
 
     // Mute: the audio thread alone touches the stream
     int muted = atomic_load(&O.muted);

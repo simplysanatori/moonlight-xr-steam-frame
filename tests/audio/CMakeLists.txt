@@ -1,5 +1,5 @@
 # Tests for the audio lane (ctest names audio_*), built with -Werror.
-set(AUDIO_TESTS surround hrtf pcmq opus pulse)
+set(AUDIO_TESTS surround hrtf pcmq jitter opus pulse)
 foreach(t ${AUDIO_TESTS})
   add_executable(test_audio_${t} test_${t}.c)
   target_link_libraries(test_audio_${t} PRIVATE mlxr_audio m pthread)

@@ -284,7 +284,7 @@ static int videoSwapchain(XrCtx* ctx, Video* vd, int pw, int h) {
     // The picture's shape follows the stream's
     ctx->videoWidth = pw;
     ctx->videoHeight = h;
-    ctx->pointerBeta = NATIVE_POINTER_BETA_PER_PX * (float)pw;
+    ctx->pointerBeta = nativePointerTunable("MLXR_POINTER_BETA", NATIVE_POINTER_BETA_PER_PX) * (float)pw;
     LOGEV("video swapchain %dx%d (%s), %u images; swapchains alive %d of 16", w, h,
           w != pw ? "double wide, stereo" : "flat", vd->count, ctx->swapchainsAlive);
     return 0;
@@ -1150,6 +1150,20 @@ static void pollEvents(XrCtx* ctx, const XrAppHooks* hk) {
 
 // ---- the instance (upstream initXrInstance, Vulkan in place of GL ES) ----------
 
+// Native (lane av-latency): XR_KHR_convert_timespec_time puts the runtime's
+// predicted display times on CLOCK_MONOTONIC, for the log's latency line
+// (how far ahead poses are predicted, decoder submit to photons)
+typedef XrResult(XRAPI_PTR* ConvertTimeFn)(XrInstance instance, XrTime time, struct timespec* out);
+static int g_convertTimeOffered;
+static ConvertTimeFn g_xrTimeToTimespec;
+
+// 0 when the runtime cannot say
+static int64_t xrTimeToMonoNs(XrInstance instance, XrTime t) {
+    struct timespec ts;
+    if (!g_xrTimeToTimespec || XR_FAILED(g_xrTimeToTimespec(instance, t, &ts))) return 0;
+    return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
+
 static int offered(const XrExtensionProperties* exts, uint32_t n, const char* name) {
     for (uint32_t i = 0; i < n; i++) {
         if (!strcmp(exts[i].extensionName, name)) return 1;
@@ -1180,6 +1194,7 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
     ctx->handTracking = offered(exts, n, XR_EXT_HAND_TRACKING_EXTENSION_NAME);
     ctx->handAimOffered = offered(exts, n, XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME);
     ctx->eyeGaze = offered(exts, n, XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME);
+    g_convertTimeOffered = offered(exts, n, "XR_KHR_convert_timespec_time");
     ctx->handsEnabled = s->hand_tracking;
     if (!ctx->handsEnabled) {
         ctx->handInteraction = 0;
@@ -1207,6 +1222,7 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
     if (ctx->handAimOffered) enabled[ne++] = XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME;
     if (ctx->eyeGaze) enabled[ne++] = XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME;
     if (ctx->msftHandInteraction) enabled[ne++] = XR_MSFT_HAND_INTERACTION_EXTENSION_NAME;
+    if (g_convertTimeOffered) enabled[ne++] = "XR_KHR_convert_timespec_time";
 
     XrInstanceCreateInfo ici = { XR_TYPE_INSTANCE_CREATE_INFO };
     strcpy(ici.applicationInfo.applicationName, "Moonlight XR Native");
@@ -1219,6 +1235,12 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
         return 0;
     }
     probeDisplayExtensions(ctx);
+    g_xrTimeToTimespec = NULL;
+    if (g_convertTimeOffered
+        && XR_FAILED(xrGetInstanceProcAddr(ctx->instance, "xrConvertTimeToTimespecTimeKHR",
+                                           (PFN_xrVoidFunction*)&g_xrTimeToTimespec))) {
+        g_xrTimeToTimespec = NULL;
+    }
     XrInstanceProperties ip = { XR_TYPE_INSTANCE_PROPERTIES };
     if (XR_SUCCEEDED(xrGetInstanceProperties(ctx->instance, &ip))) {
         snprintf(ctx->runtimeLabel, sizeof(ctx->runtimeLabel), "%s %u.%u.%u", ip.runtimeName,
@@ -1284,6 +1306,7 @@ typedef struct Host {
     int heldButtons;
     int heldKbMods;
     int lastX, lastY;
+    int pointerSent;           // Native (av-latency): this frame sent the host a mouse move
     float distance, quadWidth, curvature; // the preference's placement
     char statsText[512];
     int64_t statsNs;
@@ -1317,12 +1340,14 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
                 hk->pointer(hk->user, x, y, w, hgt);
                 h->lastX = x;
                 h->lastY = y;
+                h->pointerSent = 1;
             }
         }
         int dx = (int)in[IN_MOUSE_DX], dy = (int)in[IN_MOUSE_DY];
         if ((dx != 0 || dy != 0) && hk->mouseMove) {
             h->lastX = h->lastY = -1;
             hk->mouseMove(hk->user, dx, dy);
+            h->pointerSent = 1;
         }
     }
     // A release always goes, so nothing sticks on the host
@@ -1669,6 +1694,12 @@ int xr_app_run(const XrAppConfig* cfg) {
     double start = nowNs() / 1e9, lastStats = start;
     uint64_t frames = 0, framesWindow = 0, videoWindow = 0, videoFrames = 0;
     int64_t endNsSum = 0, endNsMax = 0;
+    // Native (lane av-latency): the parts of the host cursor's delay that are
+    // ours, per 5 s window: when the mouse move leaves after xrWaitFrame
+    // returns, how far ahead of display the poses are, and how long a decoded
+    // picture takes from the decoder to photons
+    int latMoves = 0, latLeadN = 0, latVidN = 0;
+    int64_t latSendNsSum = 0, latSendNsMax = 0, latLeadNsSum = 0, latVidNsSum = 0, latVidNsMax = 0;
     int exitAsked = 0;
     while (!ctx->exitRequested) {
         if ((atomic_load(&g_quit) || (cfg->seconds > 0 && nowNs() / 1e9 - start > cfg->seconds)) && !exitAsked) {
@@ -1719,6 +1750,7 @@ int xr_app_run(const XrAppConfig* cfg) {
 
         XrFrameState fs = { XR_TYPE_FRAME_STATE };
         if (!checkXr(xrWaitFrame(ctx->session, NULL, &fs), "xrWaitFrame")) break;
+        int64_t waitedNs = nowNs();
         if (!checkXr(xrBeginFrame(ctx->session, NULL), "xrBeginFrame")) break;
         ctx->predictedDisplayTime = fs.predictedDisplayTime;
         ctx->shouldRender = fs.shouldRender;
@@ -1738,7 +1770,20 @@ int xr_app_run(const XrAppConfig* cfg) {
                       host.live.pointer, host.live.gaze && ctx->eyeGaze, host.live.pointer_sleep, host.out);
         XrUiEvents ev;
         memset(&ev, 0, sizeof(ev));
+        int64_t sampledNs = nowNs();
+        host.pointerSent = 0;
         dispatchInput(&host, &ev);
+        int64_t displayMonoNs = xrTimeToMonoNs(ctx->instance, fs.predictedDisplayTime);
+        if (host.pointerSent) {
+            int64_t took = nowNs() - waitedNs;
+            latMoves++;
+            latSendNsSum += took;
+            if (took > latSendNsMax) latSendNsMax = took;
+        }
+        if (displayMonoNs > sampledNs) {
+            latLeadNsSum += displayMonoNs - sampledNs;
+            latLeadN++;
+        }
         ev.pictureShown = ctx->videoShown;
         // M5: the click on a panel press (upstream XrRenderer.updateClickSound)
         if (ctx->clickSoundOn) {
@@ -1829,6 +1874,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         ss.pic.mode = ownKey;
         uint64_t signal = 0;
         int hwNew = 0;
+        uint64_t shownSubmitNs = 0; // Native (av-latency): when the picture drawn now went to the decoder
         mlxr_vframe hf;
         if (vd.imp) {
             mlxr_vkimp_poll(vd.imp);
@@ -1864,6 +1910,7 @@ int xr_app_run(const XrAppConfig* cfg) {
                         xrWorldVideoFrame(ctx, &mv);
                         mlxr_vkimp_cmd_release(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                         hwNew = 1;
+                        shownSubmitNs = hf.t_submit_ns;
                     }
                     else {
                         hw_video_release(hv, &hf);
@@ -2039,6 +2086,14 @@ int xr_app_run(const XrAppConfig* cfg) {
             ctx->everRendered = 1;
             videoWindow++;
             videoFrames++;
+            if (shownSubmitNs > 0 && displayMonoNs > (int64_t)shownSubmitNs) {
+                int64_t v = displayMonoNs - (int64_t)shownSubmitNs;
+                if (v < 2000000000LL) {
+                    latVidNsSum += v;
+                    if (v > latVidNsMax) latVidNsMax = v;
+                    latVidN++;
+                }
+            }
         }
 
         // ---- the layers (nativeEndFrame) and the end of the frame
@@ -2113,6 +2168,25 @@ int xr_app_run(const XrAppConfig* cfg) {
                   "image on %d; GPU by device in this process: %s",
                   framesWindow ? endNsSum / 1e6 / (double)framesWindow : 0.0, endNsMax / 1e6,
                   (unsigned long long)framesWindow, roomDrawn, roomStale, byDevice);
+            // Native (lane av-latency): what of the host cursor's delay and of the
+            // audio's underruns is ours, for the next owner run
+            char appLat[512] = "";
+            if (cfg->hooks.latency) cfg->hooks.latency(cfg->hooks.user, appLat, sizeof(appLat));
+            if (atomic_load(&g_streaming)) {
+                LOGEV("xr: latency: pointer %d moves (%.0f/s), sent %.1f ms after xrWaitFrame returned (max %.1f), "
+                      "poses %.0f ms before display, smoothing lag %.0f ms (%.1f px) while moving (%d frames); "
+                      "decoder submit to photons %.0f ms avg (max %.0f) over %d frames%s%s",
+                      latMoves, latMoves / (t - lastStats), latMoves ? latSendNsSum / 1e6 / latMoves : 0.0,
+                      latSendNsMax / 1e6, latLeadN ? latLeadNsSum / 1e6 / latLeadN : 0.0,
+                      ctx->ptrLagSamples ? ctx->ptrLagMsSum / ctx->ptrLagSamples : 0.0,
+                      ctx->ptrLagSamples ? ctx->ptrLagPxSum / ctx->ptrLagSamples : 0.0, ctx->ptrLagSamples,
+                      latVidN ? latVidNsSum / 1e6 / latVidN : 0.0, latVidNsMax / 1e6, latVidN, appLat[0] ? "; " : "",
+                      appLat);
+            }
+            latMoves = latLeadN = latVidN = 0;
+            latSendNsSum = latSendNsMax = latLeadNsSum = latVidNsSum = latVidNsMax = 0;
+            ctx->ptrLagMsSum = ctx->ptrLagPxSum = 0.0;
+            ctx->ptrLagSamples = 0;
             endNsSum = endNsMax = 0;
             framesWindow = videoWindow = 0;
             lastStats = t;
