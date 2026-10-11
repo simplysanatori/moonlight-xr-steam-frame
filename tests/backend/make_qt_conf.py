@@ -39,13 +39,13 @@ def esc(data, bytearray_=True):
 lines = ["[General]", "bitrate=31000", "certificate=" + esc(rd(cert_p)), "fps=144",
          "key=" + esc(rd(key_p)), "[hosts]"]
 # host 1: paired, Tailscale-ish addresses, loopback manual address, binary MAC with a \x1b + hex-digit trap
-mac1 = bytes([0x2c, 0xf0, 0x5d, 0xda, 0x48, 0xa5])
+mac1 = bytes([0x02, 0xf0, 0x2c, 0x5d, 0xa5, 0x10])
 lines += [
     "1\\customname=false",
-    "1\\hostname=DESKTOP-EXAMPLE",
+    "1\\hostname=gaming-pc",
     "1\\ipv6address=",
     "1\\ipv6port=0",
-    "1\\localaddress=203.0.113.5",
+    "1\\localaddress=100.64.0.5",
     "1\\localport=47989",
     "1\\mac=" + esc(mac1),
     "1\\manualaddress=127.0.0.1",
@@ -54,7 +54,7 @@ lines += [
     "1\\remoteaddress=203.0.113.7",
     "1\\remoteport=47989",
     "1\\srvcert=" + esc(rd(srv_p)),
-    "1\\uuid=EXAMPLE0-example-id1-F307-92C54E613C61",
+    "1\\uuid=6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B",
     "1\\apps\\1\\id=881448767",
     "1\\apps\\1\\name=Desktop",
     "1\\apps\\2\\id=1439608285",
@@ -64,7 +64,7 @@ lines += [
 mac2 = bytes([0x1b, 0x61, 0x00, 0x7f, 0xff, 0x01])
 lines += [
     "2\\hostname=laptop-é".encode("utf-8").decode("latin-1") if False else "2\\hostname=laptop",
-    "2\\localaddress=192.0.2.10",
+    "2\\localaddress=192.168.1.77",
     "2\\localport=47990",
     "2\\mac=" + esc(mac2),
     "2\\manualaddress=",

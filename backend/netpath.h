@@ -154,13 +154,13 @@ typedef struct {
     int chosen;                 /* index into c, -1 none answered */
     mlxr_net_path chosen_path;
     bool fell_back;             /* the asked-for path (home/adapter) had no answer */
-    char toast[200];            /* the in-VR toast for a fallback: "Wi-Fi not reachable (192.0.2.10: connect timed out). Using Steam Frame Wireless Adapter." */
+    char toast[200];            /* the in-VR toast for a fallback: "Wi-Fi not reachable (192.168.1.10: connect timed out). Using Steam Frame Wireless Adapter." */
     char failure[160];          /* the asked-for path's failed addresses and how, "" none */
     char connected[128];        /* "Connected over Wi-Fi (5 GHz)." for the chosen path ("" none) */
     char reason[200];           /* "chose Wi-Fi: adapter link poor (-80 dBm, 576 Mbit/s)" */
     char chosen_desc[96];       /* "Wi-Fi (Home 5GHz, 5 GHz)" for the flat launcher to show */
     int grace_ms;               /* auto: how long the others get once a candidate answered (300) */
-    char summary[160];          /* "adapter 198.51.100.27 " for the stats line */
+    char summary[160];          /* "adapter 10.35.50.27 " for the stats line */
 } mlxr_net_plan;
 
 void mlxr_net_plan_init(mlxr_net_plan *p, mlxr_net_pref pref, const char *source, uint16_t http_port,

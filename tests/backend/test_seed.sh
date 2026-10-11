@@ -24,7 +24,7 @@ cmp "$t/qtclient/client.key" "$dest/client.key" || fail "client.key differs"
 [ "$(stat -c %a "$dest/client.key")" = 600 ] || fail "client.key mode"
 [ "$(stat -c %a "$dest")" = 700 ] || fail "dest dir mode"
 [ "$(stat -c %a "$dest/hosts.ini")" = 600 ] || fail "hosts.ini mode"
-cmp "$t/fakesrv/client.pem" "$dest/servercerts/EXAMPLE0-example-id1-F307-92C54E613C61.pem" || fail "server cert differs"
+cmp "$t/fakesrv/client.pem" "$dest/servercerts/6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B.pem" || fail "server cert differs"
 
 # the imported identity loads unchanged through the C code (no regeneration)
 before="$(MLXR_CONFIG_DIR="$t/qtclient" "$cli" identity 2>/dev/null | grep 'cert sha256')"
@@ -34,12 +34,12 @@ echo "$after" | grep -q "${before##* }" || fail "fingerprint mismatch"
 echo "$after" | grep -q "saved hosts:  2" || fail "mlxr-cli did not load 2 hosts: $after"
 
 h="$dest/hosts.ini"
-grep -q '^\[EXAMPLE0-example-id1-F307-92C54E613C61\]' "$h" || fail "host 1 missing"
-grep -q '^name = DESKTOP-EXAMPLE' "$h" || fail name
-grep -q '^address = 203.0.113.5' "$h" || fail "address (first non-loopback)"
+grep -q '^\[6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B\]' "$h" || fail "host 1 missing"
+grep -q '^name = gaming-pc' "$h" || fail name
+grep -q '^address = 100.64.0.5' "$h" || fail "address (first non-loopback)"
 grep -q '^extra_addresses = 203.0.113.7' "$h" || fail "extra addresses"
-grep -q '^mac = 02:00:00:00:00:01' "$h" || fail "mac 1 (binary bytes)"
-grep -q '^cert = servercerts/EXAMPLE0' "$h" || fail "cert path"
+grep -q '^mac = 02:f0:2c:5d:a5:10' "$h" || fail "mac 1 (binary bytes)"
+grep -q '^cert = servercerts/6E1F0C2A' "$h" || fail "cert path"
 grep -q '^\[LAPTOP-UUID-0002\]' "$h" || fail "host 2 missing"
 grep -q '^mac = 1b:61:00:7f:ff:01' "$h" || fail "mac 2 (\\x escape followed by hex digit)"
 grep -q '^http_port = 47990' "$h" || fail "port of chosen address"

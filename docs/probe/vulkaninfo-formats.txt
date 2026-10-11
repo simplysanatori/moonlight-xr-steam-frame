@@ -322,7 +322,7 @@ VkPhysicalDeviceProperties:
 	deviceID          = 0x43051401
 	deviceType        = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
 	deviceName        = Turnip Adreno (TM) 750
-	pipelineCacheUUID = 1c1e2fea-c7c0-e153-8c50-2c5c2f809e97
+	pipelineCacheUUID = <uuid>
 
 VkPhysicalDeviceLimits:
 -----------------------
@@ -684,8 +684,8 @@ VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT:
 
 VkPhysicalDeviceVulkan11Properties:
 -----------------------------------
-	deviceUUID                        = 72935926-0b51-4406-15cd-57aae941a569
-	driverUUID                        = 586b9fa4-514c-b88b-3c11-a968ef4d62e4
+	deviceUUID                        = <uuid>
+	driverUUID                        = <uuid>
 	deviceNodeMask                    = 0
 	deviceLUIDValid                   = false
 	subgroupSize                      = 128

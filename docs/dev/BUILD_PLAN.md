@@ -227,7 +227,7 @@ Hard rules:
 - OpenXR via `XR_KHR_vulkan_enable2` on SteamVR. Respect the 16-swapchain cap. Passthrough needs a transparent projection layer under the quads. End the previous frame at the start of the next, because SteamVR's xrEndFrame blocks.
 - Controllers via `/interaction_profiles/valve/frame_controller`; grips are squeeze/value; a missing binding path must not fail the whole suggestBindings call.
 - Gate every feature on an extension or capability check captured in `docs/probe/`; the app must run with any of hand tracking, eye gaze, refresh-rate control or passthrough absent.
-- Work milestone by milestone (M0–M8 in the plan). Do not start the next until I confirm the gate in the headset. Keep a `STATUS.md` with what is confirmed on hardware versus reasoned from code.
+- Work milestone by milestone (M0–M8 in the plan). Do not start the next until I confirm the gate in the headset. Keep a `docs/dev/STATUS.md` with what is confirmed on hardware versus reasoned from code.
 - Reuse Gilleece's C modules with their file names and logic; replace only the Android, GL ES, MediaCodec and Java edges. Keep his unit tests building.
 - GPLv3 throughout; carry every third-party licence into `assets/licenses/`.
 - Log to `~/Games/MoonlightXR/moonlight.log`; on any decoder error call `LiRequestIdrFrame` and log the V4L2 ioctl that failed.

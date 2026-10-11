@@ -93,5 +93,5 @@ GPU0:
 	driverName         = turnip Mesa driver
 	driverInfo         = Mesa 26.3.0-devel (git-abc426bb62)
 	conformanceVersion = 1.4.0.0
-	deviceUUID         = 72935926-0b51-4406-15cd-57aae941a569
-	driverUUID         = 586b9fa4-514c-b88b-3c11-a968ef4d62e4
+	deviceUUID         = <uuid>
+	driverUUID         = <uuid>

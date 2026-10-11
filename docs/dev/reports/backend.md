@@ -38,7 +38,7 @@ Status codes: `E_ARG E_NOMEM E_IO E_CRYPTO E_NET E_TIMEOUT E_TLS E_HTTP E_XML E_
 char *mlxr_config_dir(err);                       // $MLXR_CONFIG_DIR or ~/.config/moonlight-xr, 0700
 mlxr_identity_load_or_create(dir, &id, &created, err);   // client.pem/client.key(0600)/uniqueid
 /* one host */
-mlxr_server *s = mlxr_server_new(&id, "192.0.2.10", 47989);
+mlxr_server *s = mlxr_server_new(&id, "192.168.1.10", 47989);
 mlxr_server_set_pinned_cert(s, pem, err);  mlxr_server_set_https_port(s, 47984);  mlxr_server_set_gfe(s, is_nvidia);
 mlxr_server_get_info(s, fast_fail, &computer, &raw_xml, err);   // HTTPS-first when pinned, HTTP fallback on TLS error
 mlxr_server_get_apps(s, &apps, &n, err);          // sorted, mlxr_apps_free()
@@ -84,7 +84,7 @@ mlxr-cli launch <host> <appid> <WxHxFPS> [--hdr]     # resume if a game is alrea
 mlxr-cli quit <host>
 ```
 `<host>` = `addr[:httpport]`, `[v6]:port`, or a saved host's name/uuid. An address that is not in `hosts.ini` is probed over
-HTTP and matched to a saved host by uuid, so `apps 192.0.2.10` works even if the import recorded the Tailscale address.
+HTTP and matched to a saved host by uuid, so `apps 192.168.1.10` works even if the import recorded the Tailscale address.
 Exit codes: 0 ok, 1 usage, 2 error, 3 network/timeout, 4 not paired. `MLXR_VERBOSE=1` logs requests (never secrets).
 `launch` prints the rtsp URL and rikeyid only, never the key. `identity` creates `client.pem client.key uniqueid`
 (`hosts.ini` appears with the first saved host).
@@ -96,38 +96,38 @@ Storage (`~/.config/moonlight-xr/` or `$MLXR_CONFIG_DIR`, dir 0700): `client.pem
 ## What was tested live vs by fixture
 
 ### Live: NOT possible, the gaming PC is off
-Commands run (read-only) against `192.0.2.10` from the Frame (192.0.2.10):
+Commands run (read-only) against `192.168.1.10` from the Frame (192.168.1.20):
 ```
-$ mlxr-cli serverinfo 192.0.2.10            (MLXR_CONFIG_DIR = temp dir seeded from Moonlight Qt, see below)
-error: serverinfo: Failed to connect to 192.0.2.10 port 47989 after 3091 ms: Couldn't connect to server (network-error, 7)
-$ ping -c1 192.0.2.10      -> 100% packet loss      $ ip neigh show 192.0.2.10 -> FAILED / INCOMPLETE
+$ mlxr-cli serverinfo 192.168.1.10            (MLXR_CONFIG_DIR = temp dir seeded from Moonlight Qt, see below)
+error: serverinfo: Failed to connect to 192.168.1.10 port 47989 after 3091 ms: Couldn't connect to server (network-error, 7)
+$ ping -c1 192.168.1.10      -> 100% packet loss      $ ip neigh show 192.168.1.10 -> FAILED / INCOMPLETE
 $ bash /dev/tcp probes of 47989 47984 47990 48010 -> No route to host (no ARP answer)
 $ avahi-browse -rtp _nvstream._tcp -> nothing advertised
 ```
-The MAC `02:00:00:00:00:01` is not in the Frame's neighbour table either. So `serverinfo` (HTTP and HTTPS), `apps`
+The MAC `02:f0:2c:5d:a5:10` is not in the Frame's neighbour table either. So `serverinfo` (HTTP and HTTPS), `apps`
 against the real Sunshine/Apollo have not run. I did not send Wake-on-LAN (not asked). I did not start Tailscale.
-The imported record's `address` is `203.0.113.5` (a Tailscale IP, see below), which also needs Tailscale up.
-Retry when the PC is on: `MLXR_CONFIG_DIR=<seeded dir> mlxr-cli serverinfo 192.0.2.10` then `... apps 192.0.2.10`.
+The imported record's `address` is `100.64.0.5` (a Tailscale IP, see below), which also needs Tailscale up.
+Retry when the PC is on: `MLXR_CONFIG_DIR=<seeded dir> mlxr-cli serverinfo 192.168.1.10` then `... apps 192.168.1.10`.
 
 ### Live-adjacent: the real Moonlight Qt config, imported into a temp dir (read-only on the source)
 ```
 $ MLXR_CONFIG_DIR=<tmp> backend/seed-from-moonlight-qt.sh
-source: ~/.var/app/com.moonlight_stream.Moonlight/config/Moonlight Game Streaming Project/Moonlight.conf (19053 bytes)
+source: ~/.var/app/com.moonlight_stream.Moonlight/config/Moonlight Game Streaming Project/Moonlight.conf
 identity: Moonlight stored no unique id; one is created on first use
-identity: imported client.pem (sha256 5b424db40dd58b7a...c5ed) and client.key (1704 bytes, mode 0600)
-host #1: DESKTOP-EXAMPLE uuid=EXAMPLE0-example-id1-F307-92C54E613C61 address=203.0.113.5 extra=203.0.113.9 mac=02:00:00:00:00:01 paired(cert)=yes sha256=c274ddf66adab5f2... apps=91
+identity: imported client.pem (sha256 <fingerprint>) and client.key (1704 bytes, mode 0600)
+host #1: gaming-pc uuid=6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B address=100.64.0.5 extra=203.0.113.50 mac=02:f0:2c:5d:a5:10 paired(cert)=yes sha256=<fingerprint> apps=91
 hosts: 1 imported into <tmp>/hosts.ini
-$ mlxr-cli identity     -> loads without regenerating, cert sha256 5b424db4... (matches), saved hosts: 1
+$ mlxr-cli identity     -> loads without regenerating, cert sha256 <fingerprint> (matches), saved hosts: 1
 ```
-Findings about the real file: one host `DESKTOP-EXAMPLE`, paired (has `srvcert`), 91 cached apps, no `uniqueid` stored
+Findings about the real file: one host `gaming-pc`, paired (has `srvcert`), 91 cached apps, no `uniqueid` stored
 (Moonlight Qt here never persisted one, so a new random one is created; Sunshine identifies the client by certificate,
 so the existing pairing carries over). Qt's stored addresses were rewritten for the Tailscale setup:
-`manualaddress=127.0.0.1` (dropped as loopback), `localaddress=203.0.113.5` (Tailscale), `remoteaddress=203.0.113.9`.
-The LAN address 192.0.2.10 is not stored anywhere, hence the uuid-matching in the CLI. The temp dir (which holds a copy of the
+`manualaddress=127.0.0.1` (dropped as loopback), `localaddress=100.64.0.5` (Tailscale), `remoteaddress=203.0.113.50`.
+The LAN address 192.168.1.10 is not stored anywhere, hence the uuid-matching in the CLI. The temp dir (which holds a copy of the
 client key) was deleted after the run. To import for real: `backend/seed-from-moonlight-qt.sh` (no env), `--force` to replace an
 existing identity. Note: while exploring I printed the first 150 characters of two config lines, which included the standard
 PKCS#8 header and the first bytes of the RSA modulus (public); no private exponent material and no full key/cert was printed.
-Another file next to it, `Moonlight.conf.bak-tailscale`, was not read.
+
 
 ### By fixture / fake host (ctest, all pass, also clean under ASan+UBSan+LSan)
 `env -u LD_LIBRARY_PATH ctest --test-dir build-backend -R backend`:
@@ -166,7 +166,7 @@ ldd audit ok: build-backend/backend/mlxr-cli
 
 ## Open questions / notes for the orchestrator
 
-1. **Host address**: Qt's saved addresses are Tailscale ones; the LAN `192.0.2.10` is only in the owner's head. The CLI copes (uuid match);
+1. **Host address**: Qt's saved addresses are Tailscale ones; the LAN `192.168.1.10` is only in the owner's head. The CLI copes (uuid match);
    the app UI needs "add host by address" and should store the working address in `hosts.ini` via `mlxr_host_record_from_computer`.
 2. **PIN stage UX**: `mlxr_pair` blocks (up to `timeout_ms`, default 5 min) in the caller's thread; run it on a worker thread and show the PIN from
    `mlxr_pair_generate_pin`. Sunshine/Apollo web UI is `https://<host>:<http_port+1>/pin` (47990).

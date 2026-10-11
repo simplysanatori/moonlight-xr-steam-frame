@@ -8,7 +8,7 @@ The project and its files are still called Moonlight XR Native in places (the re
 
 ## Status
 
-Unfinished. Video, hardware decode, audio and mouse input have been tested on a Frame against a Sunshine host. The in-headset interface, gamepad input, rooms and depth are being added. [STATUS.md](STATUS.md) lists what has been confirmed on hardware and what has only been reasoned from code or tested without a headset.
+Unfinished. Video, hardware decode, audio and mouse input have been tested on a Frame against a Sunshine host. The in-headset interface, gamepad input, rooms and depth are being added. [docs/dev/STATUS.md](docs/dev/STATUS.md) lists what has been confirmed on hardware and what has only been reasoned from code or tested without a headset.
 
 ## Requirements
 
@@ -87,4 +87,4 @@ GNU General Public License v3, see [LICENSE.txt](LICENSE.txt).
 
 ## How this was made
 
-Claude (Anthropic) models wrote the code through Claude Code, at the owner's direction. The owner tested it on a Steam Frame. Anything marked as tested in `STATUS.md` was seen on hardware; the rest was not.
+Claude (Anthropic) models wrote the code through Claude Code, at the owner's direction. The owner tested it on a Steam Frame. Anything marked as tested in `docs/dev/STATUS.md` was seen on hardware; the rest was not.

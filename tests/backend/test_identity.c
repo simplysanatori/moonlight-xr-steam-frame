@@ -113,19 +113,19 @@ static void test_hosts(void)
     CHECK_EQ_INT(h.n, 0);
 
     mlxr_host_record r = {0};
-    strcpy(r.name, "DESKTOP-EXAMPLE");
-    strcpy(r.uuid, "EXAMPLE0-example-id1-F307-92C54E613C61");
-    strcpy(r.address, "192.0.2.10");
-    strcpy(r.extra_addresses, "203.0.113.5,203.0.113.7");
+    strcpy(r.name, "gaming-pc");
+    strcpy(r.uuid, "6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B");
+    strcpy(r.address, "192.168.1.10");
+    strcpy(r.extra_addresses, "100.64.0.5,203.0.113.7");
     r.has_mac = true;
-    uint8_t mac[6] = {0x2c, 0xf0, 0x5d, 0xda, 0x48, 0xa5};
+    uint8_t mac[6] = {0x02, 0xf0, 0x2c, 0x5d, 0xa5, 0x10};
     memcpy(r.mac, mac, 6);
     r.http_port = 47989;
     r.https_port = 47984;
     mlxr_identity id;
     CHECK_OK(mlxr_identity_generate(&id, &e));      /* any cert will do as a pinned cert */
     CHECK_OK(mlxr_host_cert_save(dir, &r, id.cert_pem, &e));
-    CHECK_EQ_STR(r.cert_path, "servercerts/EXAMPLE0-example-id1-F307-92C54E613C61.pem");
+    CHECK_EQ_STR(r.cert_path, "servercerts/6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B.pem");
     CHECK(mlxr_hosts_upsert(&h, &r) != NULL);
     mlxr_host_record r2 = r;
     strcpy(r2.uuid, "OTHER");
@@ -146,14 +146,14 @@ static void test_hosts(void)
 
     CHECK_OK(mlxr_hosts_load(dir, &h, &e));
     CHECK_EQ_INT(h.n, 2);
-    mlxr_host_record *f = mlxr_hosts_find(&h, "192.0.2.10");
+    mlxr_host_record *f = mlxr_hosts_find(&h, "192.168.1.10");
     CHECK(f != NULL);
-    CHECK_EQ_STR(f->name, "DESKTOP-EXAMPLE");
+    CHECK_EQ_STR(f->name, "gaming-pc");
     CHECK(f->has_mac && memcmp(f->mac, mac, 6) == 0);
     CHECK_EQ_INT(f->https_port, 47984);
-    CHECK(mlxr_hosts_find(&h, "203.0.113.5") == f);          /* extra address */
-    CHECK(mlxr_hosts_find(&h, "DESKTOP-EXAMPLE") == f);          /* name, case-insensitive */
-    CHECK(mlxr_hosts_find(&h, "EXAMPLE0-example-id1-f307-92c54e613c61") == f);
+    CHECK(mlxr_hosts_find(&h, "100.64.0.5") == f);          /* extra address */
+    CHECK(mlxr_hosts_find(&h, "GAMING-PC") == f);          /* name, case-insensitive */
+    CHECK(mlxr_hosts_find(&h, "6e1f0c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b") == f);
     CHECK(mlxr_hosts_find(&h, "10.9.9.9") == NULL);
     CHECK(mlxr_hosts_find_uuid(&h, "OTHER") != NULL);
     mlxr_host_record *o = mlxr_hosts_find_uuid(&h, "OTHER");
@@ -168,7 +168,7 @@ static void test_hosts(void)
     mlxr_host_record bad = *f;
     strcpy(bad.cert_path, "../../etc/passwd");
     CHECK_EQ_INT(mlxr_host_cert_load(dir, &bad, &pem, &e), MLXR_E_ARG);
-    snprintf(p, sizeof p, "%s/servercerts/EXAMPLE0-example-id1-F307-92C54E613C61.pem", dir);
+    snprintf(p, sizeof p, "%s/servercerts/6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B.pem", dir);
     FILE *fp = fopen(p, "w");
     fputs("junk", fp);
     fclose(fp);
@@ -176,10 +176,10 @@ static void test_hosts(void)
 
     /* upsert replaces by uuid */
     mlxr_host_record upd = *f;
-    strcpy(upd.address, "192.0.2.10");
+    strcpy(upd.address, "192.168.1.99");
     mlxr_hosts_upsert(&h, &upd);
     CHECK_EQ_INT(h.n, 2);
-    CHECK_EQ_STR(mlxr_hosts_find_uuid(&h, upd.uuid)->address, "192.0.2.10");
+    CHECK_EQ_STR(mlxr_hosts_find_uuid(&h, upd.uuid)->address, "192.168.1.99");
     mlxr_hosts_free(&h);
     mlxr_identity_free(&id);
 }

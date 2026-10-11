@@ -24,7 +24,7 @@
 // Orientation: row 0 of every image is the top of the picture, the way the
 // decoder writes it and the Vulkan compositor reads it. Upstream's GL images
 // were bottom row first, and its passes read and wrote the same memory rows
-// as these do, so no pass flips anything (see shaders/REPORT.md).
+// as these do, so no pass flips anything (see docs/dev/reports/shaders.md).
 #pragma once
 #include <stdint.h>
 #include <vulkan/vulkan.h>

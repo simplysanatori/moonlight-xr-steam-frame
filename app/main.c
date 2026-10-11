@@ -84,7 +84,7 @@ static int g_focused;
 static VrKeyboard g_vrkb;
 
 // ---- --exit-to-caller: how the process ends for the flat launcher ----
-// The exit codes are the hand-off contract (launcher/REPORT.md).
+// The exit codes are the hand-off contract (docs/dev/reports/launcher.md).
 enum {
     EXIT_OK = 0,
     EXIT_FAILED = 1,         // the VR session could not start, or an unclassified failure

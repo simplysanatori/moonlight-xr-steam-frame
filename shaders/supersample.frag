@@ -13,7 +13,7 @@
 // Output: the swapchain. Spec constant 0: OUT_LINEAR. The source holds
 // gamma encoded values (a _UNORM image written by the warp with OUT_LINEAR
 // off), so the average is taken on encoded values, as a compositor filtering
-// an _SRGB texture without decoding would; see REPORT.md.
+// an _SRGB texture without decoding would; see docs/dev/reports/shaders.md.
 layout(push_constant) uniform PC {
     vec4 srcRect;   // region of the source in uv: x0, y0, w, h (e.g. one eye)
     vec4 params;    // xy destination size in pixels, z taps per axis, w spare

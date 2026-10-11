@@ -349,7 +349,7 @@ static void test_tolerant(void) {
     const char* junk =
         "\xEF\xBB\xBF# a BOM and then a file written by hand\r\n"
         "[Stream]\r\n"
-        "HOST =  192.0.2.10  \r\n"
+        "HOST =  192.168.1.10  \r\n"
         "app=\"Desktop\"\r\n"
         "; a semicolon comment\r\n"
         "[nonsense]\r\n"
@@ -367,7 +367,7 @@ static void test_tolerant(void) {
         "head_locked = true\r\n"             // belongs to [display], in the wrong section: still read
         "\x01\x02\x03 binary = 7\r\n";
     settings_from_text(&s, junk, &info);
-    CHECK(strcmp(s.host, "192.0.2.10") == 0);
+    CHECK(strcmp(s.host, "192.168.1.10") == 0);
     CHECK(strcmp(s.app, "Desktop") == 0);
     CHECK(s.head_aim == 1 && s.hand_tracking == 1 && s.gamepad_toggle == PAD_SHORTCUT_STICKS);
     CHECK(s.head_locked == 1);

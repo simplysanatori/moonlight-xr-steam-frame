@@ -216,7 +216,7 @@ int main(int argc, char** argv) {
     // The launcher: the lists in the picture's place
     scene_reset(s);
     c->videoShown = 0;
-    const char* pcNames[3] = { "DESKTOP-EXAMPLE", "Living room PC", "Office laptop" };
+    const char* pcNames[3] = { "gaming-pc", "Living room PC", "Office laptop" };
     for (int i = 0; i < 3; i++) {
         memset(&s->pcs[i], 0, sizeof(s->pcs[i]));
         snprintf(s->pcs[i].name, sizeof(s->pcs[i].name), "%s", pcNames[i]);
@@ -239,7 +239,7 @@ int main(int argc, char** argv) {
     s->launcher.mode = LAUNCHER_APPS;
     s->launcher.apps = s->apps;
     s->launcher.appCount = 7;
-    s->launcher.pcName = "DESKTOP-EXAMPLE";
+    s->launcher.pcName = "gaming-pc";
     shot(s, "17-launcher-apps", NULL);
     c->exitConfirmOpen = 1;
     c->exitPose = exitPromptPose(c, &c->exitW, &c->exitH);

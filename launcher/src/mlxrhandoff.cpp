@@ -1,5 +1,5 @@
 // Moonlight XR Native launcher: the hand-off to the native OpenXR client. GPLv3.
-// See mlxrhandoff.h and launcher/REPORT.md.
+// See mlxrhandoff.h and docs/dev/reports/launcher.md.
 #include "mlxrhandoff.h"
 
 #include "backend/identitymanager.h"

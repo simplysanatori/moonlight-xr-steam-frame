@@ -78,3 +78,8 @@ endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/branding/CMakeLists.txt)
   add_subdirectory(tests/branding)
 endif()
+
+# bug-report.sh masking and the privacy check over the tracked files
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/CMakeLists.txt)
+  add_subdirectory(tests/tools)
+endif()

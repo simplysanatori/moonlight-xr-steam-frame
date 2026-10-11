@@ -648,7 +648,7 @@ static void videoHeader(const MlxrVideo* v, float out[8]) {
     out[3] = (float)v->height / th;
     // Three planes: a left sited chroma sample sits a quarter of a chroma
     // texel left of where a centred one would, so the read moves right by
-    // that much (see REPORT.md). Vertically both sitings are midway.
+    // that much (see docs/dev/reports/shaders.md). Vertically both sitings are midway.
     float chromaW = (float)(((uint32_t)tw + 1u) / 2u);
     out[4] = v->kind == MLXR_VIDEO_YUV420P && v->chroma == MLXR_CHROMA_LEFT ? 0.25f / chromaW : 0.0f;
     out[5] = 0.0f;

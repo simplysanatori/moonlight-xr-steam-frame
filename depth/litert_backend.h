@@ -46,7 +46,7 @@ const MlxrDepthModelSpec* mlxr_depth_model_find(const char* keyOrFile);
 
 // Flags for MlxrDepthModelOptions.flags
 // Runs the float graph in fp16 arithmetic (XNNPACK FORCE_FP16). The A720 and
-// X4 cores have fp16 vector arithmetic; see depth/REPORT.md for its cost in
+// X4 cores have fp16 vector arithmetic; see docs/dev/reports/depth.md for its cost in
 // agreement with fp32.
 #define MLXR_DEPTH_FP16 0x1
 

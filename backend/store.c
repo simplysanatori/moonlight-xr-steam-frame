@@ -1,13 +1,13 @@
 /* hosts.ini + pinned server certs under the config dir. GPLv3.
  *
- *   [EXAMPLE0-example-id1-F307-92C54E613C61]
- *   name = DESKTOP-EXAMPLE
- *   address = 192.0.2.10
- *   extra_addresses = 203.0.113.5,203.0.113.7
- *   mac = 02:00:00:00:00:01
+ *   [6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B]
+ *   name = gaming-pc
+ *   address = 192.168.1.10
+ *   extra_addresses = 100.64.0.5,203.0.113.7
+ *   mac = 02:f0:2c:5d:a5:10
  *   http_port = 47989
  *   https_port = 47984
- *   cert = servercerts/EXAMPLE0-....pem
+ *   cert = servercerts/6E1F0C2A-....pem
  */
 #define _GNU_SOURCE
 #include "internal.h"

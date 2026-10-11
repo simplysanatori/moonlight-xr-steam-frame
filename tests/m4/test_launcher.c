@@ -19,7 +19,7 @@ static int take(Launcher* l, LaunchCmdKind kind, LaunchCmd* out) {
 static void hosts(Launcher* l) {
     LaunchPc pcs[3];
     memset(pcs, 0, sizeof(pcs));
-    strcpy(pcs[0].name, "DESKTOP-EXAMPLE");
+    strcpy(pcs[0].name, "gaming-pc");
     pcs[0].paired = 1;
     pcs[0].canWake = 1;
     strcpy(pcs[1].name, "laptop");
@@ -75,7 +75,7 @@ int main(void) {
     CHECK(l.state == LAUNCH_APPS);
     apps(&l, 0);
     launcher_view(&l, &v);
-    CHECK(v.mode == 2 && !v.loading && v.appCount == 7 && strcmp(v.pcName, "DESKTOP-EXAMPLE") == 0);
+    CHECK(v.mode == 2 && !v.loading && v.appCount == 7 && strcmp(v.pcName, "gaming-pc") == 0);
     // Pages
     launcher_press(&l, UI_HIT_BUTTON, UI_BTN_LIST_PAGE_DOWN, 0);
     CHECK(l.appPage == 1);

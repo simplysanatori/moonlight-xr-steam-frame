@@ -46,11 +46,11 @@ int main(void)
     strcpy(c.app_version, "7.1.431.-1");
     c.server_codec_mode_support = SCM_H264 | SCM_HEVC | SCM_AV1_MAIN8;
     SERVER_INFORMATION si;
-    mlxr_fill_server_info(&si, "192.0.2.10", &c, "rtspenc://192.0.2.10:48010");
-    CHECK_EQ_STR(si.address, "192.0.2.10");
+    mlxr_fill_server_info(&si, "192.168.1.10", &c, "rtspenc://192.168.1.10:48010");
+    CHECK_EQ_STR(si.address, "192.168.1.10");
     CHECK_EQ_STR(si.serverInfoAppVersion, "7.1.431.-1");
     CHECK(si.serverInfoGfeVersion == NULL);             /* empty GfeVersion -> NULL */
-    CHECK_EQ_STR(si.rtspSessionUrl, "rtspenc://192.0.2.10:48010");
+    CHECK_EQ_STR(si.rtspSessionUrl, "rtspenc://192.168.1.10:48010");
     CHECK_EQ_INT(si.serverCodecModeSupport, c.server_codec_mode_support);
     strcpy(c.gfe_version, "3.23.0.74");
     mlxr_fill_server_info(&si, "h", &c, NULL);

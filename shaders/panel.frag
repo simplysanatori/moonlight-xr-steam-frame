@@ -4,7 +4,7 @@
 // texture holds premultiplied, gamma encoded RGBA as upstream's art and glow
 // swapchains do; the pipeline blends ONE, ONE_MINUS_SRC_ALPHA. Through an
 // _SRGB view the blend happens on decoded values, where the compositor
-// blending layers would also work; see REPORT.md. GPLv3.
+// blending layers would also work; see docs/dev/reports/shaders.md. GPLv3.
 //
 // Set 0: 0 u_texture (bilinear, clamp). Spec constant 0: OUT_LINEAR.
 layout(push_constant) uniform PC {

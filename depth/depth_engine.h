@@ -22,7 +22,7 @@
 // A capture submitted while another is still waiting for the model replaces
 // it (its cut resets carry over to the new one), so the model never runs on a
 // stale frame. All calls are thread safe; submit is meant for one thread.
-// Rows are top first throughout, as the Vulkan passes are (shaders/REPORT.md),
+// Rows are top first throughout, as the Vulkan passes are (docs/dev/reports/shaders.md),
 // so nothing is flipped. GPLv3.
 
 #ifndef MLXR_DEPTH_ENGINE_H

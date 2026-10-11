@@ -601,7 +601,7 @@ static void engineStart(XrCtx* ctx, XrDepth* d) {
     memset(&cfg, 0, sizeof(cfg));
     cfg.modelPath = path;
     // Upstream's CPU route: two threads, and fp16 arithmetic on these cores
-    // (depth/REPORT.md: ZipDepth 512x288 27 maps/s at 2 threads in fp16)
+    // (docs/dev/reports/depth.md: ZipDepth 512x288 27 maps/s at 2 threads in fp16)
     cfg.threads = 2;
     const char* threads = getenv("MLXR_DEPTH_THREADS");
     if (threads != NULL && atoi(threads) > 0) cfg.threads = atoi(threads);
@@ -610,7 +610,7 @@ static void engineStart(XrCtx* ctx, XrDepth* d) {
     if (fp32 != NULL && atoi(fp32) != 0) cfg.flags = 0;
     cfg.perSecond = ctx->depthGov.target;
     // Native: which CPUs the model's threads run on (MLXR_DEPTH_CPUS, e.g.
-    // "3-6" or "0x78"); unset leaves the scheduler to it (M6_REPORT.md)
+    // "3-6" or "0x78"); unset leaves the scheduler to it (docs/dev/M6_REPORT.md)
     d->cpuMask = parseCpus(getenv("MLXR_DEPTH_CPUS"));
     cfg.cpuMask = d->cpuMask;
     cfg.warmupRuns = 0;

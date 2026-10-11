@@ -5,21 +5,21 @@ Is Local: yes
 Client Index: 237
 Tile Size: 65472
 User Name: steamos
-Host Name: frame
+Host Name: <hostname>
 Server Name: PulseAudio (on PipeWire 1.6.8)
 Server Version: 15.0.0
 Default Sample Specification: float32le 2ch 48000Hz
 Default Channel Map: front-left,front-right
 Default Sink: alsa_loopback_device.stereo.alsa_output.platform-sound.HiFi__Speaker__sink
 Default Source: alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source
-Cookie: cc6c:f67b
+Cookie: <cookie>
 
 	id: 0
 	permissions: r-xm-
 	type: PipeWire:Interface:Core/4
-	cookie: 3429693051
+	cookie: <cookie>
 	user-name: "steamos"
-	host-name: "frame"
+	host-name: "<hostname>"
 	version: "1.6.8"
 	name: "pipewire-0"
 *	properties:
@@ -29,7 +29,7 @@ Cookie: cc6c:f67b
 *		application.language = "en_US.UTF-8"
 *		application.process.id = "1979"
 *		application.process.user = "steamos"
-*		application.process.host = "frame"
+*		application.process.host = "<hostname>"
 *		application.process.session-id = "1"
 *		link.max-buffers = "16"
 *		core.daemon = "true"

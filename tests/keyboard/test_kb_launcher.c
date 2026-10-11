@@ -8,7 +8,7 @@
 static void startStream(Launcher* l) {
     LaunchPc pcs[1];
     memset(pcs, 0, sizeof(pcs));
-    strcpy(pcs[0].name, "DESKTOP-EXAMPLE");
+    strcpy(pcs[0].name, "gaming-pc");
     pcs[0].paired = 1;
     launcher_hosts(l, pcs, 1);
     launcher_pc_status(l, 0, UI_PC_ONLINE, 1, 0);

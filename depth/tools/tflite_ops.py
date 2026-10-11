@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Lists the operators, tensor shapes and weight types of a .tflite model with
 # no third-party packages: a minimal FlatBuffers reader over the LiteRT
-# schema fields it needs. Used for depth/REPORT.md's graph summary.
+# schema fields it needs. Used for docs/dev/reports/depth.md's graph summary.
 #   python3 -I depth/tools/tflite_ops.py assets/depth/zipdepth_512x288_fp16.tflite
 import collections
 import struct

@@ -2,7 +2,7 @@
 // passthrough | 5.1/7.1 through the virtual surround stage or a plain
 // downmix) -> a low-latency PulseAudio stream.
 //
-// Usage (see REPORT.md for the full sequence):
+// Usage (see docs/dev/reports/audio.md for the full sequence):
 //
 //   AUDIO_RENDERER_CALLBACKS ar;
 //   mlxr_opus_out_callbacks(&ar);
@@ -55,7 +55,7 @@ typedef struct {
     // our own HRTF rendering a second time and adds ~30 ms. Streams whose node name
     // contains both "virtual" and "sink" are exempt. false (default): use such a name,
     // i.e. bypass it; true: plain name "Moonlight XR" (the system spatializes).
-    // See REPORT.md.
+    // See docs/dev/reports/audio.md.
     bool systemSpatializer;
     // Explicit stream (PipeWire node) name; overrides the choice above. NULL = automatic.
     const char* streamName;

@@ -2,7 +2,7 @@
 // and worded after Artemis (ClassicOldSong/moonlight-android, res/xml/preferences.xml): its
 // categories in its order, a title and a summary per row, lists in a dialog. Only Artemis settings
 // the Frame and the VR client honour are shown; a row that cannot work here is greyed with its
-// reason. Where each one goes: launcher/REPORT.md ("Artemis settings"). New file, copied into
+// reason. Where each one goes: docs/dev/reports/launcher.md ("Artemis settings"). New file, copied into
 // app/gui by launcher/build.sh. GPLv3.
 import QtQuick
 import QtQuick.Controls

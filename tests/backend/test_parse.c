@@ -49,10 +49,10 @@ static void test_serverinfo(void)
     mlxr_error e;
     char *s = fx("serverinfo_sunshine.xml");
     CHECK_OK(mlxr_computer_parse(s, strlen(s), 47989, &c, &e));
-    CHECK_EQ_STR(c.name, "DESKTOP-EXAMPLE");
-    CHECK_EQ_STR(c.uuid, "EXAMPLE0-example-id1-F307-92C54E613C61");
-    CHECK(c.has_mac && c.mac[0] == 0x2c && c.mac[1] == 0xf0 && c.mac[5] == 0xa5);
-    CHECK_EQ_STR(c.local_ip, "192.0.2.10");
+    CHECK_EQ_STR(c.name, "gaming-pc");
+    CHECK_EQ_STR(c.uuid, "6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B");
+    CHECK(c.has_mac && c.mac[0] == 0x02 && c.mac[1] == 0xf0 && c.mac[5] == 0x10);
+    CHECK_EQ_STR(c.local_ip, "192.168.1.10");
     CHECK_EQ_INT(c.http_port, 47989);
     CHECK_EQ_INT(c.https_port, 47984);
     CHECK_EQ_INT(c.external_port, 47989);
@@ -198,7 +198,7 @@ static void test_status_and_pair_fixtures(void)
     s = fx("launch_ok.xml");
     x = mlxr_xml_parse(s, strlen(s));
     char *u = mlxr_xml_get(x, "sessionUrl0");
-    CHECK_EQ_STR(u, "rtspenc://192.0.2.10:48010");
+    CHECK_EQ_STR(u, "rtspenc://192.168.1.10:48010");
     free(u);
     mlxr_xml_free(x);
     free(s);

@@ -254,7 +254,7 @@ static int best_on(const mlxr_net_plan *p, mlxr_net_path path)
     return best;
 }
 
-/* "192.0.2.10: connect timed out; ..." for the candidates on a path that did not answer */
+/* "192.168.1.10: connect timed out; ..." for the candidates on a path that did not answer */
 static void failures_on(const mlxr_net_plan *p, mlxr_net_path path, char *out, size_t cap)
 {
     out[0] = 0;

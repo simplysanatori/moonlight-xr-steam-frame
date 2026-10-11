@@ -141,7 +141,7 @@ A USB or Bluetooth mouse acts as the host's mouse while the VR client is focused
 | `tests/input/test_evmouse.c` | ctest `input_evmouse` (pipes as fake evdev, recording sink, fake grab) |
 
 ## Behaviour
-- Device: EV_REL with REL_X and REL_Y and BTN_LEFT (touchpads and tablets are ignored; names starting "Steam" and `MLXR_MOUSE_IGNORE=<substring>` are skipped). Read-only on this Frame: the EXAMPLE0 Q1 Pro's "Mouse" interface (event7, crw-rw---- root:input, user is in `input`) qualifies, so no sudo is needed.
+- Device: EV_REL with REL_X and REL_Y and BTN_LEFT (touchpads and tablets are ignored; names starting "Steam" and `MLXR_MOUSE_IGNORE=<substring>` are skipped). Read-only on this Frame: a Bluetooth keyboard's "Mouse" interface (event7, crw-rw---- root:input, user is in `input`) qualifies, so no sudo is needed.
 - Motion: REL_X/REL_Y summed per SYN_REPORT, one `LiSendMouseMoveEvent` per packet (split above a short). `MLXR_MOUSE_SCALE=<f>` scales it, the fractional part is carried between packets. SYN_DROPPED discards the packet in flight.
 - Buttons: left, right, middle, BTN_SIDE/BTN_BACK = X1, BTN_EXTRA/BTN_FORWARD = X2 (`LiSendMouseButtonEvent`). A press made while not forwarding is never sent, and buttons the host has down are released when forwarding stops.
 - Wheel: REL_WHEEL_HI_RES and REL_HWHEEL_HI_RES (120 per notch) to `LiSendHighResScrollEvent` / `LiSendHighResHScrollEvent`; a mouse without hi-res sends REL_WHEEL/REL_HWHEEL times 120. With hi-res the legacy notch events are ignored (the kernel sends both).

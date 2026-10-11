@@ -63,7 +63,7 @@ static void setState(Scene* s, int step) {
         s->launcher.mode = LAUNCHER_APPS;
         s->launcher.apps = s->apps;
         s->launcher.appCount = 7;
-        s->launcher.pcName = "DESKTOP-EXAMPLE";
+        s->launcher.pcName = "gaming-pc";
         break;
     case 12:
         c->reportOpen = 1;

@@ -101,8 +101,8 @@ At most 4; logged as "swapchains alive N of 16" when each is made and in the 5 s
 
 ## Headset test script (owner)
 
-1. Launch "Moonlight XR Native" from Steam with no arguments. Expect the PC list ("Computers") where the screen would be; DESKTOP-EXAMPLE shows Online, Paired.
-2. Point at DESKTOP-EXAMPLE and pull the trigger: the app list appears. Page down/up with the arrows; Back returns to the PCs; open DESKTOP-EXAMPLE again.
+1. Launch "Moonlight XR Native" from Steam with no arguments. Expect the PC list ("Computers") where the screen would be; gaming-pc shows Online, Paired.
+2. Point at gaming-pc and pull the trigger: the app list appears. Page down/up with the arrows; Back returns to the PCs; open gaming-pc again.
 3. Pick Desktop: a toast "Starting Desktop", then the desktop. Check the pointer, trigger click, double click, drag, A / d-pad-down right click, stick scroll, and the Bluetooth keyboard.
 4. Move the ray just under the picture: the bar appears (exit, environment, pill, cog, keyboard, ray). Grip or trigger the pill and drag: the screen follows the hand and stays square to you. Hover a corner and drag: it resizes about its centre.
 5. Cog: Screen tab: step Distance and Size with the chevrons, drag Tilt and Rotate (they snap level in the middle), raise Curve: the picture bends, the bar follows it, clicks still land where the dot is. Reset puts it back.

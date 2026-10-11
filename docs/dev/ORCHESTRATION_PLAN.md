@@ -26,7 +26,7 @@ The headset-gated integration stays serial: one orchestrator owns the main binar
 ~/Games/MoonlightXRNative/src/
   CMakeLists.txt            orchestrator only (superbuild; add_subdirectory per lane)
   build.sh                  creates the Distrobox if missing, installs packages, builds, runs ldd audit
-  STATUS.md                 confirmed-on-hardware vs reasoned-from-code (orchestrator keeps it)
+  docs/dev/STATUS.md                 confirmed-on-hardware vs reasoned-from-code (orchestrator keeps it)
   docs/probe/               xrinfo/probe output, v4l2-ctl, vulkaninfo, runtime JSON, os-release
   third_party/              moonlight-common-c (submodule), stb, OpenXR-SDK loader if needed
   backend/                  nvhttp.c pairing.c computer.c + mlxr-cli test tool          (lane B)
@@ -46,7 +46,7 @@ The headset-gated integration stays serial: one orchestrator owns the main binar
 
 Rules that make concurrent lanes safe on one checkout:
 
-- Each lane owns one directory and its own `CMakeLists.txt` (a static library target plus a `tests/` or a standalone test binary). Only the orchestrator edits the top-level `CMakeLists.txt`, `STATUS.md`, `stream/` and the three rewrites in `xr/`.
+- Each lane owns one directory and its own `CMakeLists.txt` (a static library target plus a `tests/` or a standalone test binary). Only the orchestrator edits the top-level `CMakeLists.txt`, `docs/dev/STATUS.md`, `stream/` and the three rewrites in `xr/`.
 - Each lane builds into its own directory, `build-<lane>/`, with `ninja -j2`, so lanes never share a build tree and the orchestrator keeps CPU for headset runs. Heavy builds (LiteRT, FFmpeg static if needed) run with SteamVR off and `nice -n 10`.
 - Each lane works on branch `lane/<name>`. The orchestrator merges a lane only when its milestone starts, after its tests pass in the container and (where relevant) on the host.
 - At most 4 worker agents run at once on the Frame (8 cores, 16 GB). The orchestrator is the fifth process.
@@ -56,7 +56,7 @@ Rules that make concurrent lanes safe on one checkout:
 
 | Lane | Model / effort | Starts | Inputs | Produces | Proven without the headset by | Merged at |
 | --- | --- | --- | --- | --- | --- | --- |
-| **O** orchestrator | Opus 5.5 / high (xhigh in M2) | M0 | handoff doc, probe | Distrobox, CMake skeleton, probe programs, two-eye Vulkan triangle, `stream/session.c`, `xr/xr_session.c`, `xr/xr_vk.c`, `xr/xr_depth.c`, every merge, `STATUS.md` | n/a (this is the headset-gated lane) | every milestone |
+| **O** orchestrator | Opus 5.5 / high (xhigh in M2) | M0 | handoff doc, probe | Distrobox, CMake skeleton, probe programs, two-eye Vulkan triangle, `stream/session.c`, `xr/xr_session.c`, `xr/xr_vk.c`, `xr/xr_depth.c`, every merge, `docs/dev/STATUS.md` | n/a (this is the headset-gated lane) | every milestone |
 | **T** toolchain | Sonnet | after Distrobox exists | handoff build section | `build.sh`, moonlight-common-c static build, FFmpeg `v4l2m2m` check, `ldd` audit script, `$ORIGIN/lib` rpath rule, glibc check | `ldd` on host shows only SteamOS libs; `ffmpeg -decoders` lists `h264_v4l2m2m`/`hevc_v4l2m2m` | M0 |
 | **V** video decode | Opus 5.5 / high | day one, parallel with M0 | parsec-on-frame, Pixel VR Player, moonlight-qt `drm.cpp`/`plvk.cpp`, SteamOS issues #2869 #2882 | `video/v4l2_decoder.c` (FFmpeg `h264_v4l2m2m`/`hevc_v4l2m2m`, DRM_PRIME; direct V4L2 fallback if FFmpeg stalls on the source-change event), `video/vk_import.c` (per-buffer cached import keyed by fd/inode, NV12 ycbcr sampler or two planes, DRM modifier, fence fd to semaphore), `decode-test` harness that decodes an elementary stream into a headless Vulkan image and writes PNGs | 30-minute loop of a 1440p HEVC file with `dmesg -w` clean, decode time under 4 ms, no per-frame import/free, resolution change mid-stream handled | M2 (also used in M1 if ready) |
 | **B** backend | Sonnet / high | day one | moonlight-qt `app/backend/` | `backend/nvhttp.c pairing.c computer.c` over libcurl + OpenSSL, client cert under `~/.config/moonlight-xr/`, `mlxr-cli pair/list/launch/quit`, `seed-from-moonlight-qt.sh` | `mlxr-cli` pairs with the user's Sunshine/Apollo host, lists apps, launches and quits one from an SSH shell | M1 |
@@ -92,7 +92,7 @@ Build in the Distrobox: `distrobox enter mlxr -- cmake -S <DIR> -B build-<NAME> 
 Hard rules from the handoff document that apply to you: <PASTE the relevant bullets: dma-buf import once and cached; source-change before STREAMON; no VP9; 16-swapchain cap; frame_controller profile with tolerant suggestBindings; gate features on docs/probe/; GPLv3 and licences; log via xr_log.c>.
 Reference code (read, port, do not reinvent): <URLs/paths>.
 Deliverable: <library target + test binary + what the test must prove>, committed on your branch with a short lane report in <DIR>/REPORT.md: what is confirmed by a test on this device, what is reasoned from code, open questions for the orchestrator.
-Do not edit the top-level CMakeLists.txt, STATUS.md, stream/, or xr/xr_session.c, xr/xr_vk.c, xr/xr_depth.c. If you need something there, write it in REPORT.md.
+Do not edit the top-level CMakeLists.txt, docs/dev/STATUS.md, stream/, or xr/xr_session.c, xr/xr_vk.c, xr/xr_depth.c. If you need something there, write it in REPORT.md.
 ```
 
 Spawn with `Agent(subagent_type: "general-purpose", model: "opus" | "sonnet", effort: "high" for opus lanes, run_in_background: true)`.
@@ -100,7 +100,7 @@ Spawn with `Agent(subagent_type: "general-purpose", model: "opus" | "sonnet", ef
 ## Verification
 
 - **Per lane:** the "proven without the headset" column is the merge requirement; the orchestrator re-runs the lane's test on the host before merging.
-- **Per milestone:** the handoff document's gate, confirmed by the user in the headset, recorded in `STATUS.md` as confirmed-on-hardware with the date and the build commit.
+- **Per milestone:** the handoff document's gate, confirmed by the user in the headset, recorded in `docs/dev/STATUS.md` as confirmed-on-hardware with the date and the build commit.
 - **Decode soak (M2):** 30 minutes HEVC 1440p90 at 80 Mbps with `dmesg -w` in a second shell; zero `msm_gem`/`iris` warnings; `perf top` shows no CPU copies.
 - **Link audit (every release build):** `ldd ./moonlight-xr` on the host with `LD_LIBRARY_PATH` unset lists only SteamOS-provided libraries plus `./lib`.
 - **Probe drift:** `docs/probe/` is re-run and diffed after any SteamOS update.

@@ -9,7 +9,7 @@
 //
 // Why direct ioctls and not FFmpeg: the host's FFmpeg 7.0 h264_v4l2m2m /
 // hevc_v4l2m2m expose no AV_PIX_FMT_DRM_PRIME and no hw_config; they hand out
-// mmap'd NV12 pointers, never a dma-buf fd (see video/REPORT.md).
+// mmap'd NV12 pointers, never a dma-buf fd (see docs/dev/reports/video.md).
 //
 // Lifecycle
 //   mlxr_vdec_open()      opens the device, sets the OUTPUT (bitstream) format,
@@ -89,7 +89,7 @@ typedef struct {
 	uint32_t output_buffers;        // OUTPUT buffers to request (default 6)
 	// CAPTURE as Q08C (Qualcomm UBWC-compressed NV12, imported with
 	// DRM_FORMAT_MOD_QCOM_COMPRESSED) instead of linear NV12. Experimental:
-	// see video/REPORT.md for what was verified.
+	// see docs/dev/reports/video.md for what was verified.
 	bool ubwc;
 	bool verbose;                   // log format negotiation to stderr
 } mlxr_vdec_config;

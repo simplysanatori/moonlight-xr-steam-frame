@@ -39,4 +39,4 @@ Start a stream, leave VR with the bar's Exit, then start another stream and leav
 
 ## 5. Controller models
 
-If the textured models are installed by then (see STATUS.md), turn controller models on (Settings, Display) and say whether the hold angle and the colour look like the real controllers.
+If the textured models are installed by then (see docs/dev/STATUS.md), turn controller models on (Settings, Display) and say whether the hold angle and the colour look like the real controllers.

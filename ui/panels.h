@@ -10,7 +10,7 @@
 // width; positions are the fractions from xr_shared.h / xr_layout.h, so hit
 // regions do not depend on the size drawn at.
 //
-// What each panel maps to upstream is in ui/REPORT.md. GPLv3.
+// What each panel maps to upstream is in docs/dev/reports/ui.md. GPLv3.
 #ifndef UI_PANELS_H
 #define UI_PANELS_H
 
@@ -57,7 +57,7 @@ UiRectPx ui_atlas_rect(UiPanelId id);
 typedef enum {
     UI_HIT_NONE = 0,
     UI_HIT_TAB,         // a = COG_TAB_*; the tab bar slot
-    UI_HIT_TRACK_DOWN,  // a = row (face-specific, see REPORT.md); the step-down button at the track's left end
+    UI_HIT_TRACK_DOWN,  // a = row (face-specific, see docs/dev/reports/ui.md); the step-down button at the track's left end
     UI_HIT_TRACK_RUN,   // a = row; the run between the buttons, a press jumps the thumb (cogRunPlace(u))
     UI_HIT_TRACK_UP,    // a = row
     UI_HIT_CELL,        // a = row, b = cell index within the row

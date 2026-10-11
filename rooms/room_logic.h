@@ -7,7 +7,7 @@
 // roomScale, roomDim, worldEyeSize, roomLevelsFromTable) the pure core is
 // here under a suffixed name (roomEffectiveStyle, roomScreenPercentOf, ...)
 // and the M5 xr_room.c keeps a one line XrCtx wrapper over it. See
-// rooms/REPORT.md for the list of what still needs the XrCtx.
+// docs/dev/reports/rooms.md for the list of what still needs the XrCtx.
 #pragma once
 #include <stddef.h>
 #include <stdint.h>

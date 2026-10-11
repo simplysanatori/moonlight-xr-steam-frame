@@ -25,7 +25,7 @@ for l in open(p,'rb').read().split(b'\n'):
     if l==b'[General]': o.append(b'mdns=false')
     if l==b'[hosts]': o.append(b'1\\apps\\size=2')
 d=b'\n'.join(o)
-for a,b in ((b'203.0.113.5',b'198.51.100.5'),(b'203.0.113.7',b'198.51.100.7'),(b'192.0.2.10',b'198.51.100.77')): d=d.replace(a,b)
+for a,b in ((b'100.64.0.5',b'198.51.100.5'),(b'203.0.113.7',b'198.51.100.7'),(b'192.168.1.77',b'198.51.100.77')): d=d.replace(a,b)
 open(p,'wb').write(d)
 PY
 shoot() { # name binary extra-env...
