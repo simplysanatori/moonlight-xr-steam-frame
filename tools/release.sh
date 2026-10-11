@@ -101,8 +101,10 @@ done
 tail -n 4 "$TMP/install.2.log"
 # (install.sh makes the Frame controller models from the local SteamVR, so the install may have them and the tarball never does)
 [ -z "$(find "$U" -name 'frame_controller_*' -print -quit)" ] || { echo "the tarball holds a Steam Frame controller model"; exit 1; }
-diff -r "$U/app" "$TMP/inst/app" -x LICENSE.txt -x CREDITS.md -x 'frame_controller_*' >/dev/null || { echo "installed tree differs from the tarball"; diff -rq "$U/app" "$TMP/inst/app" -x 'frame_controller_*' | head; exit 1; }
+diff -r "$U/app" "$TMP/inst/app" -x LICENSE.txt -x CREDITS.md -x steam_cef.py -x 'frame_controller_*' >/dev/null || { echo "installed tree differs from the tarball"; diff -rq "$U/app" "$TMP/inst/app" -x 'frame_controller_*' | head; exit 1; }
 for f in LICENSE.txt CREDITS.md; do cmp "$U/$f" "$TMP/inst/app/$f"; done
+# install.sh puts steam_cef.py (top level in the tarball) beside the flat launcher
+[ ! -x "$U/app/moonlight-xr-launcher" ] || cmp "$U/steam_cef.py" "$TMP/inst/app/steam_cef.py"
 MLXR_CONFIG_DIR="$TMP/cfg" "$TMP/inst/app/mlxr-cli" 2>&1 | head -n 3 || true
 if command -v pacman >/dev/null; then
     ./tools/ldd-audit.sh "$TMP/inst/app/moonlight-xr"
