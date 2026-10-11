@@ -8,8 +8,11 @@
 #include "settings/streamingpreferences.h"
 #include "streaming/session.h"
 #include "streaming/uihooks.h"
+#include "streaming/mlxrprefs.h"
 
+#include <QClipboard>
 #include <QCoreApplication>
+#include <QGuiApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QEventLoop>
@@ -151,6 +154,17 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
     if (p.packetSize > 0) {
         a << "--packet-size" << QString::number(p.packetSize);
     }
+    // Lane artemis-settings: the Artemis-style Settings page. Host settings (stock keys), then the
+    // page's own (mlxrprefs.h); only what differs from the VR client's defaults is passed
+    if (!p.gameOptimizations) {
+        a << "--no-sops";
+    }
+    if (p.playAudioOnHost) {
+        a << "--local-audio";
+    }
+    MlxrPrefs* prefs = MlxrPrefs::get();
+    a << prefs->clientArgs();
+    plan.clipboardSync = prefs->clipboardSync;
     a << "--exit-to-caller";
     // Debugging and tests: extra flags for the client, e.g. "--seconds 30"
     const QString extra = qEnvironmentVariable("MLXR_LAUNCHER_EXTRA_ARGS");
@@ -435,9 +449,61 @@ static void reopenFlatScreen()
     }
 }
 
+// ---- Lane artemis-settings: Artemis's Smart Clipboard Sync with Apollo ------------------
+// Apollo serves actions/clipboard only to a client that streams right now, so the VR client does the
+// requests (app/main.c: after the stream is up, before it stops); the launcher owns the desktop
+// clipboard and hands the text over in two files in the VR client's config dir (0600).
+static QString clipboardFile(const char* name)
+{
+    return nativeConfigDir() + "/" + name;
+}
+
+static void clipboardBeforeStream()
+{
+    QDir().mkpath(nativeConfigDir());
+    QFile::remove(clipboardFile("clipboard-from-host.txt"));
+    QClipboard* cb = QGuiApplication::clipboard();
+    // tests: MLXR_LAUNCHER_TEST_CLIPBOARD puts text on the clipboard first
+    if (cb && qEnvironmentVariableIsSet("MLXR_LAUNCHER_TEST_CLIPBOARD")) {
+        cb->setText(qEnvironmentVariable("MLXR_LAUNCHER_TEST_CLIPBOARD"));
+    }
+    const QByteArray text = cb ? cb->text().toUtf8() : QByteArray();
+    QString error;
+    writeAtomic(clipboardFile("clipboard-to-host.txt"), text, QFile::ReadOwner | QFile::WriteOwner, &error);
+    qInfo().noquote() << "MLXR_LAUNCHER_CLIPBOARD: handing" << text.size() << "bytes to the VR client for the host";
+}
+
+static void clipboardAfterStream()
+{
+    QFile::remove(clipboardFile("clipboard-to-host.txt"));
+    QFile f(clipboardFile("clipboard-from-host.txt"));
+    if (!f.open(QIODevice::ReadOnly)) {
+        const QString none = "MLXR_LAUNCHER_CLIPBOARD: nothing came back from the host";
+        QTextStream(stdout) << none << Qt::endl;
+        qInfo().noquote() << none;
+        return;
+    }
+    const QString text = QString::fromUtf8(f.readAll());
+    f.close();
+    f.remove();
+    if (QClipboard* cb = QGuiApplication::clipboard()) {
+        cb->setText(text);
+    }
+    const QString line = QString("MLXR_LAUNCHER_CLIPBOARD: took %1 bytes from the host").arg(text.toUtf8().size());
+    QTextStream(stdout) << line << Qt::endl;
+    qInfo().noquote() << line;
+}
+
 Result run(const Plan& plan, const std::function<void()>& onStarted, const std::function<void()>& onStreaming)
 {
     Result r;
+    if (plan.clipboardSync) {
+        clipboardBeforeStream();
+    }
+    struct After {
+        bool on;
+        ~After() { if (on) clipboardAfterStream(); }
+    } after { plan.clipboardSync };
     const QString cmd = commandLine(plan);
     const QString dry = qEnvironmentVariable("MLXR_LAUNCHER_DRYRUN");
     if (!dry.isEmpty()) {

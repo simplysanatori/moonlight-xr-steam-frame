@@ -21,3 +21,7 @@ add_test(NAME launcher_handoff
 add_test(NAME launcher_vs_stock
   COMMAND ${CMAKE_CURRENT_LIST_DIR}/compare-stock.sh ${MLXR_LAUNCHER_BIN} ${_cli} ${LROOT}/build-launcher/cmp)
 set_tests_properties(launcher_handoff launcher_vs_stock PROPERTIES TIMEOUT 600 SKIP_RETURN_CODE 77)
+# lane artemis-settings: the VR client's own config.ini parser checks the Settings page's edits
+if(TARGET mlxr-settings-dump)
+  set_tests_properties(launcher_handoff PROPERTIES ENVIRONMENT "MLXR_SETTINGS_DUMP=$<TARGET_FILE:mlxr-settings-dump>")
+endif()

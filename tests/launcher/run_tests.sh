@@ -43,20 +43,22 @@ export MLXR_SEED_CONF="$t/Moonlight.conf"
 HOSTID=EXAMPLE0-example-id1-F307-92C54E613C61
 CONF="$HOME/.config/Moonlight XR Native/Moonlight XR Native.conf"
 
-setconf() { # key=value ... in [General] of the launcher's config
-    python3 -I - "$CONF" "$@" <<'PY'
+setconf() { # key=value ... in [General] (or [$SECTION]) of the launcher's config
+    python3 -I - "$CONF" "${SECTION:-General}" "$@" <<'PY'
 import sys,re
-p=sys.argv[1]; kv=dict(a.split('=',1) for a in sys.argv[2:])
-s=open(p).read().split('\n'); out=[]; sec=None; done=set()
+p=sys.argv[1]; want=sys.argv[2]; kv=dict(a.split('=',1) for a in sys.argv[3:])
+s=open(p).read().split('\n'); out=[]; sec=None; done=set(); seen=False
 for l in s:
     m=re.match(r'^\[(.*)\]$',l)
     if m:
-        if sec=='General':
-            out+= [k+'='+v for k,v in kv.items() if k not in done]
-        sec=m.group(1)
-    elif sec=='General' and '=' in l and l.split('=',1)[0] in kv:
+        if sec==want:
+            out+= [k+'='+v for k,v in kv.items() if k not in done]; done|=set(kv)
+        sec=m.group(1); seen|= sec==want
+    elif sec==want and '=' in l and l.split('=',1)[0] in kv:
         k=l.split('=',1)[0]; l=k+'='+kv[k]; done.add(k)
     out.append(l)
+if sec==want: out+= [k+'='+v for k,v in kv.items() if k not in done]
+elif not seen: out+= ['', '['+want+']'] + [k+'='+v for k,v in kv.items()]
 open(p,'w').write('\n'.join(out))
 PY
 }
@@ -129,6 +131,58 @@ out="$(dry "DESKTOP-EXAMPLE:Assassin's Creed Origins")"; expect "app by name -> 
 out="$(MLXR_LAUNCHER_EXTRA_ARGS="--seconds 5" dry "DESKTOP-EXAMPLE:Desktop")"; expect "extra args" "$out" "--seconds 5"
 grep -q '^width=1920' "$CONF" && fail "reseeded over the user's settings" || ok "later runs do not reseed"
 
+# --- 3b. lane artemis-settings: the Artemis-style page's settings reach the VR client's command line
+out="$(dry "DESKTOP-EXAMPLE:Desktop")"
+for f in --pacing --video-priority --virtual-display --scale-factor --refresh-rate --full-range --no-rumble --deadzone \
+         --no-mouse-nav-buttons --clipboard-sync --no-sops --local-audio; do
+    refute "defaults: no $f" "$out" "$f"
+done
+setconf gameopts=false hostaudio=true
+SECTION=mlxr setconf frame_pacing=latency ultra_low_latency=true virtual_display=true scale_factor=150 \
+    custom_refresh_rate=59.94 full_range=true rumble=false deadzone=-5 mouse_nav_buttons=false clipboard_sync=true
+out="$(dry "DESKTOP-EXAMPLE:Desktop")"; echo "artemis set:   $out"
+expect "host: Optimize game settings off" "$out" "--no-sops"
+expect "host: Play audio on PC" "$out" "--local-audio"
+expect "frame pacing: lowest latency" "$out" "--pacing latency"
+expect "ultra low latency: realtime threads" "$out" "--video-priority rt"
+expect "Apollo virtual display" "$out" "--virtual-display"
+expect "Apollo resolution scale factor" "$out" "--scale-factor 150"
+expect "Apollo custom refresh rate" "$out" "--refresh-rate 59.94"
+expect "full range" "$out" "--full-range"
+expect "rumble off" "$out" "--no-rumble"
+expect "dead zone" "$out" "--deadzone -5"
+expect "mouse back/forward off" "$out" "--no-mouse-nav-buttons"
+expect "clipboard sync" "$out" "--clipboard-sync"
+case "$out" in *"--clipboard-sync --exit-to-caller"*) ok "flags before --exit-to-caller";; *) fail "flag order: $out";; esac
+SECTION=mlxr setconf frame_pacing=smoothness custom_refresh_rate=144 scale_factor=100 deadzone=0 clipboard_sync=false
+out="$(dry "DESKTOP-EXAMPLE:Desktop")"
+expect "frame pacing: smoothest" "$out" "--pacing smoothness"
+expect "custom refresh rate capped at the headset's 90 Hz" "$out" "--refresh-rate 90"
+refute "scale factor 100: not passed" "$out" "--scale-factor"
+SECTION=mlxr setconf frame_pacing=balanced ultra_low_latency=false virtual_display=false custom_refresh_rate= \
+    full_range=false rumble=true mouse_nav_buttons=true
+setconf gameopts=true hostaudio=false
+out="$(dry "DESKTOP-EXAMPLE:Desktop")"
+expect "all back to defaults" "$out" "--bitrate 80000 --exit-to-caller"
+
+# Smart Clipboard Sync: the clipboard goes to the VR client in a file, what it brings back is put on the clipboard
+SECTION=mlxr setconf clipboard_sync=true
+printf 'from the PC' > "$MLXR_CONFIG_DIR/clipboard-from-host.txt"
+out="$(MLXR_LAUNCHER_TEST_CLIPBOARD="from the Frame" MLXR_LAUNCHER_DRYRUN=1 MLXR_NATIVE_CLIENT= selftest "DESKTOP-EXAMPLE:Desktop" 2>&1)"
+expect "clipboard: the dry run removed the stale answer first" "$out" "nothing came back from the host"
+cat >"$t/clip-client.sh" <<'CLIP'
+#!/bin/bash
+echo "to-host: [$(cat "$MLXR_CONFIG_DIR/clipboard-to-host.txt")] mode $(stat -c %a "$MLXR_CONFIG_DIR/clipboard-to-host.txt")" >> "$FAKE_LOG"
+printf 'copied on the PC' > "$MLXR_CONFIG_DIR/clipboard-from-host.txt"
+exit 0
+CLIP
+chmod +x "$t/clip-client.sh"
+FAKE_LOG="$t/clip.log" MLXR_LAUNCHER_TEST_CLIPBOARD="from the Frame" MLXR_NATIVE_CLIENT="$t/clip-client.sh" selftest "DESKTOP-EXAMPLE:Desktop" >"$t/stdout"
+expect "clipboard: the VR client finds the Frame's clipboard (0600)" "$(cat "$t/clip.log")" "to-host: [from the Frame] mode 600"
+expect "clipboard: the PC's clipboard comes back" "$(cat "$t/stdout")" "took 16 bytes from the host"
+[ ! -e "$MLXR_CONFIG_DIR/clipboard-to-host.txt" ] && [ ! -e "$MLXR_CONFIG_DIR/clipboard-from-host.txt" ] && ok "clipboard files removed after the stream" || fail "clipboard files left behind"
+SECTION=mlxr setconf clipboard_sync=false
+
 # --- 4. a client that runs: control comes back with its result
 fake="$t/fake-client.sh"
 cat >"$fake" <<'FAKE'
@@ -180,8 +234,33 @@ if [ -n "$SHOTS" ]; then
     grep -Eq "$QMLERR" "$t/ui.out" && { fail "QML errors:"; grep -E "$QMLERR" "$t/ui.out" | head; } || ok "no QML errors on start"
     grep -q "Screenshot.*saved" "$t/ui.out" && ok "screenshot written" || fail "no screenshot"
     grep -q "Failed to find ANY working\|Unable to find working decoder" "$t/ui.out" && fail "decoder probe ran in hand-off mode" || ok "hand-off mode: no local decoder probe"
-    MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings.png@3000" "$L" >"$t/ui3.out" 2>&1
+    MLXR_LAUNCHER_IW_FILE="$here/iw-dev-sample.txt" MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings.png@3000" "$L" >"$t/ui3.out" 2>&1
     grep -Eq "$QMLERR" "$t/ui3.out" && { fail "settings QML errors"; grep -E "$QMLERR" "$t/ui3.out" | head; } || ok "settings page loads in hand-off mode (no QML errors)"
+    # lane artemis-settings: hand-off mode shows the Artemis-style page, stock mode the stock one
+    grep -q "MLXR_LAUNCHER_PAGE: qrc:/gui/XrSettingsView.qml" "$t/ui3.out" && ok "hand-off mode: Artemis-style Settings page" || fail "not the Artemis-style page: $(grep MLXR_LAUNCHER_PAGE "$t/ui3.out")"
+    grep -q "Screenshot.*settings.png.*saved" "$t/ui3.out" && ok "settings page rendered" || fail "no settings screenshot"
+    grep -q "MLXR_LAUNCHER_WIFI: Wi-Fi (Example Net 5G, 5 GHz)" "$t/ui3.out" && ok "Network connection: the managed Wi-Fi's name and band (not the AP)" || fail "wifi label: $(grep MLXR_LAUNCHER_WIFI "$t/ui3.out")"
+    MLXR_HANDOFF=0 MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_SCREENSHOT="$t/stock-settings.png@3000" "$L" >"$t/ui5.out" 2>&1
+    grep -q "MLXR_LAUNCHER_PAGE: qrc:/gui/SettingsView.qml" "$t/ui5.out" && ok "hand-off off: stock Settings page" || fail "stock page missing with MLXR_HANDOFF=0"
+    # the page edits the VR client's config.ini: only the keys changed, the rest byte for byte
+    ini="$MLXR_CONFIG_DIR/config.ini"
+    printf '# Moonlight XR settings\n[display]\n# Display tab: show performance stats [true | false] (default false)\n#stats = false\nglow = true\n\n[3d]\nseparation = 9\nstereo = false\n' > "$ini"
+    cp "$ini" "$t/ini.before"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,hdrRow \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-clicked.png@3000" "$L" >"$t/ui6.out" 2>&1
+    grep -q "no clickable" "$t/ui6.out" && fail "click hook: $(grep 'no clickable' "$t/ui6.out")"
+    grep -q '^stats = true$' "$ini" && ok "stats overlay row writes [display] stats = true" || { fail "stats not written"; cat "$ini"; }
+    grep -q '^#stats' "$ini" && fail "commented stats line left as well" || ok "the commented default line was replaced"
+    grep -A1 '^\[vr\]' "$ini" | grep -q '^flip_face_buttons = true$' && ok "flip row adds [vr] flip_face_buttons = true" || { fail "flip not written"; cat "$ini"; }
+    grep -q '^glow = true$' "$ini" && grep -q '^separation = 9$' "$ini" && grep -q '^stereo = false$' "$ini" && ok "other config.ini keys untouched" || { fail "config.ini keys changed"; diff "$t/ini.before" "$ini"; }
+    grep -q -i hdr "$ini" && fail "greyed HDR row changed something" || ok "greyed HDR row is inert"
+    grep -q "MLXR_LAUNCHER_WIFI: Wi-Fi$" "$t/ui6.out" && ok "Network connection: plain Wi-Fi when unknown" || fail "wifi fallback: $(grep MLXR_LAUNCHER_WIFI "$t/ui6.out")"
+    # what the VR client's own parser makes of it
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads stats" "$dump" "display.stats = true"
+        expect "VR client reads flip" "$dump" "vr.flip_face_buttons = true"
+    fi
     # MLXR_HANDOFF=0: the stock probe runs again
     MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1
     grep -q "Unable to find working decoder\|Failed to initialize VAAPI" "$t/ui4.out" && ok "hand-off off: stock decoder probe runs" || fail "stock probe missing with MLXR_HANDOFF=0"
