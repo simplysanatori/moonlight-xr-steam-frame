@@ -43,7 +43,24 @@ struct fake_host {
     char last_uid[64];
     int counts[16];
     const char *cmds_seen[16];
+    /* Native (lane artemis-settings): Apollo */
+    bool streaming;
+    char clipboard[4096];
 };
+
+void fake_host_set_streaming(fake_host *h, bool on) { pthread_mutex_lock(&h->mu); h->streaming = on; pthread_mutex_unlock(&h->mu); }
+void fake_host_set_clipboard(fake_host *h, const char *text)
+{
+    pthread_mutex_lock(&h->mu);
+    snprintf(h->clipboard, sizeof h->clipboard, "%s", text);
+    pthread_mutex_unlock(&h->mu);
+}
+void fake_host_clipboard(fake_host *h, char *out, int cap)
+{
+    pthread_mutex_lock(&h->mu);
+    snprintf(out, (size_t)cap, "%s", h->clipboard);
+    pthread_mutex_unlock(&h->mu);
+}
 
 static int listen_local(uint16_t *port)
 {
@@ -236,10 +253,13 @@ static char *handle(fake_host *h, const char *cmd, const char *q, bool https, X5
                  "<ServerCodecModeSupport>259</ServerCodecModeSupport><SupportedDisplayMode>"
                  "<DisplayMode><Width>1920</Width><Height>1080</Height><RefreshRate>60</RefreshRate></DisplayMode>"
                  "<DisplayMode><Width>1280</Width><Height>720</Height><RefreshRate>60</RefreshRate></DisplayMode>"
-                 "</SupportedDisplayMode><PairStatus>%d</PairStatus><currentgame>%d</currentgame><state>%s_SERVER_%s</state>",
+                 "</SupportedDisplayMode><PairStatus>%d</PairStatus><currentgame>%d</currentgame><state>%s_SERVER_%s</state>%s",
                  h->o.gen, h->o.gfe ? "<GfeVersion>3.23.0.74</GfeVersion>" : "", h->p_https, h->p_http,
                  h->o.zero_mac ? "00:00:00:00:00:00" : "aa:bb:cc:dd:ee:ff", authed ? 1 : 0, h->current_game,
-                 h->o.gfe ? "MJOLNIR" : "SUNSHINE", h->current_game ? "BUSY" : "FREE");
+                 h->o.gfe ? "MJOLNIR" : "SUNSHINE", h->current_game ? "BUSY" : "FREE",
+                 h->o.apollo ? "<VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>true"
+                               "</VirtualDisplayDriverReady><ServerCommand>Bubbles</ServerCommand><Permission>118693632</Permission>"
+                             : "");
         r = xml_reply(200, NULL, inner);
     } else if (!strcmp(cmd, "pair")) {
         r = do_pair(h, q, https, peer);
@@ -308,7 +328,40 @@ static void serve_one(fake_host *h, int fd, bool https)
     }
     req[n] = 0;
     char *resp = NULL;
-    if (!strncmp(req, "GET /", 5)) {
+    int status = 200;
+    const char *ctype = "text/xml";
+    /* Native (lane artemis-settings): Apollo's actions/clipboard, GET and POST (raw text) */
+    if (h->o.apollo && https && (!strncmp(req, "GET /actions/clipboard", 22) || !strncmp(req, "POST /actions/clipboard", 23))) {
+        bool post = req[0] == 'P';
+        char *hdr_end = strstr(req, "\r\n\r\n");
+        const char *cl = strcasestr(req, "Content-Length:");
+        size_t want = cl ? (size_t)atol(cl + 15) : 0;
+        size_t have = hdr_end ? n - (size_t)(hdr_end + 4 - req) : 0;
+        while (post && hdr_end && have < want && n < sizeof req - 1) {
+            int r = SSL_read(ssl, req + n, (int)(sizeof req - 1 - n));
+            if (r <= 0) break;
+            n += (size_t)r;
+            have += (size_t)r;
+            req[n] = 0;
+        }
+        bool authed = false;
+        if (peer && h->paired_client_pem) {
+            X509 *pc = mlxr_x509_from_pem(h->paired_client_pem);
+            authed = pc && X509_cmp(pc, peer) == 0;
+            X509_free(pc);
+        }
+        pthread_mutex_lock(&h->mu);
+        ctype = "text/plain";
+        if (!authed || h->o.clipboard_denied) status = 401;
+        else if (!strstr(req, "type=text")) status = 400;
+        else if (!h->streaming) status = 403;
+        if (status != 200) resp = strdup("");
+        else if (post) {
+            snprintf(h->clipboard, sizeof h->clipboard, "%.*s", (int)(want < have ? want : have), hdr_end + 4);
+            resp = strdup("");
+        } else resp = strdup(h->clipboard);
+        pthread_mutex_unlock(&h->mu);
+    } else if (!strncmp(req, "GET /", 5)) {
         char *sp = strchr(req + 5, ' ');
         if (sp) {
             *sp = 0;
@@ -320,7 +373,8 @@ static void serve_one(fake_host *h, int fd, bool https)
     }
     if (!resp) resp = xml_reply(400, "bad request", NULL);
     char head[256];
-    int hl = snprintf(head, sizeof head, "HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", strlen(resp));
+    int hl = snprintf(head, sizeof head, "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n",
+                      status, status == 200 ? "OK" : "Error", ctype, strlen(resp));
     if (https) {
         SSL_write(ssl, head, hl);
         SSL_write(ssl, resp, (int)strlen(resp));

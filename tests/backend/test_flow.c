@@ -339,8 +339,76 @@ static void test_quit_not_owner_and_misc(void)
     fake_host_stop(h);
 }
 
+/* Native (lane artemis-settings): Apollo's serverinfo fields, launch extensions and actions/clipboard */
+static void test_apollo(void)
+{
+    mlxr_error e;
+    mlxr_identity id;
+    CHECK_OK(mlxr_identity_generate(&id, &e));
+    fake_opts o = {.pin = "7777", .apollo = true};
+    fake_host *h = fake_host_start(&o);
+    mlxr_server *s = connect_to(&id, h);
+    mlxr_computer c;
+    char *cert;
+    CHECK_OK(mlxr_server_get_info(s, false, &c, NULL, &e));
+    CHECK_OK(mlxr_pair(s, c.app_version, "7777", 10000, &cert, &e));
+    CHECK_OK(mlxr_server_get_info(s, false, &c, NULL, &e));
+    CHECK(mlxr_computer_is_apollo(&c) && c.vdisplay_capable && c.vdisplay_ready);
+    CHECK_EQ_INT(c.n_server_cmds, 1);
+    CHECK_EQ_STR(c.server_cmds[0], "Bubbles");
+
+    mlxr_launch_params p;
+    mlxr_launch_params_init(&p);
+    p.width = 2560; p.height = 1440; p.fps = 90;
+    p.virtual_display = true;
+    p.scale_factor = 120;
+    char *url;
+    CHECK_OK(mlxr_server_start_app(s, false, 881448767, &p, &url, &e));
+    free(url);
+    char q[1100];
+    fake_host_last_launch(h, q, sizeof q);
+    CHECK(strstr(q, "&mode=2560x1440x90&scaleFactor=120&virtualDisplay=1&") != NULL);
+
+    /* clipboard: refused with no stream (Apollo's 403), then both ways while "streaming" */
+    char *text = NULL;
+    CHECK_EQ_INT(mlxr_server_get_clipboard(s, &text, &e), MLXR_E_HTTP);
+    CHECK_EQ_INT(e.status, 403);
+    CHECK_EQ_INT(mlxr_server_set_clipboard(s, "x", &e), MLXR_E_HTTP);
+    fake_host_set_streaming(h, true);
+    CHECK_OK(mlxr_server_set_clipboard(s, "hello from the Frame\nline 2 & more", &e));
+    char got[256];
+    fake_host_clipboard(h, got, sizeof got);
+    CHECK_EQ_STR(got, "hello from the Frame\nline 2 & more");
+    fake_host_set_clipboard(h, "copied on the PC");
+    CHECK_OK(mlxr_server_get_clipboard(s, &text, &e));
+    CHECK_EQ_STR(text, "copied on the PC");
+    free(text);
+    fake_host_set_clipboard(h, "");
+    CHECK_OK(mlxr_server_get_clipboard(s, &text, &e));   /* an empty clipboard is not an error */
+    CHECK_EQ_STR(text, "");
+    free(text);
+    free(cert);
+    mlxr_server_free(s);
+    fake_host_stop(h);
+
+    /* without the permission: 401 */
+    fake_opts o2 = {.pin = "7778", .apollo = true, .clipboard_denied = true};
+    h = fake_host_start(&o2);
+    s = connect_to(&id, h);
+    CHECK_OK(mlxr_server_get_info(s, false, &c, NULL, &e));
+    CHECK_OK(mlxr_pair(s, c.app_version, "7778", 10000, &cert, &e));
+    fake_host_set_streaming(h, true);
+    CHECK_EQ_INT(mlxr_server_get_clipboard(s, &text, &e), MLXR_E_HTTP);
+    CHECK_EQ_INT(e.status, 401);
+    free(cert);
+    mlxr_server_free(s);
+    mlxr_identity_free(&id);
+    fake_host_stop(h);
+}
+
 int main(void)
 {
+    test_apollo();
     test_pairing_flow(7, false);    /* Sunshine / modern: SHA-256 */
     test_pairing_flow(7, true);     /* GFE-style: placeholder uniqueid */
     test_pairing_flow(6, false);    /* pre-gen-7: SHA-1 */

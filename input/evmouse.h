@@ -32,6 +32,8 @@ typedef struct {
 
 typedef void (*EvMouseLog)(char level, const char* line);
 void evmouse_set_log(EvMouseLog log);
+// Native (lane artemis-settings): 0 drops the back/forward (side/extra) buttons
+void evmouse_set_nav_buttons(int on);
 
 // Without a thread (tests drive evmouse_step); evmouse_start is init plus the thread
 void evmouse_init(const EvMouseSink* sink, void* user, const EvMouseCfg* cfg);

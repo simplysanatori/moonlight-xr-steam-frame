@@ -79,13 +79,17 @@ int evmouse_is_mouse(const unsigned long* evBits, const unsigned long* relBits, 
     return TEST_BIT(BTN_LEFT, keyBits) != 0;
 }
 
+// Native (lane artemis-settings): Artemis's "Enable forward/back mouse buttons" (on here by default)
+static atomic_int gNavOff;
+void evmouse_set_nav_buttons(int on) { atomic_store(&gNavOff, !on); }
+
 int evmouse_button(int code) {
     switch (code) {
     case BTN_LEFT: return BUTTON_LEFT;
     case BTN_MIDDLE: return BUTTON_MIDDLE;
     case BTN_RIGHT: return BUTTON_RIGHT;
-    case BTN_SIDE: case BTN_BACK: return BUTTON_X1;
-    case BTN_EXTRA: case BTN_FORWARD: return BUTTON_X2;
+    case BTN_SIDE: case BTN_BACK: return atomic_load(&gNavOff) ? 0 : BUTTON_X1;
+    case BTN_EXTRA: case BTN_FORWARD: return atomic_load(&gNavOff) ? 0 : BUTTON_X2;
     default: return 0;
     }
 }

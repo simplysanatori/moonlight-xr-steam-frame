@@ -148,6 +148,18 @@ static void print_computer(const mlxr_computer *c)
            c->server_codec_mode_support & 0x200 ? " HEVC-10" : "", c->server_codec_mode_support & 0x10000 ? " AV1" : "",
            c->server_codec_mode_support & 0x20000 ? " AV1-10" : "", c->server_codec_mode_support & 0x7C0000 ? " 4:4:4" : "");
     printf("max luma HEVC:   %d\n", c->max_luma_pixels_hevc);
+    /* Native (lane artemis-settings): Apollo's extensions */
+    printf("Apollo:          %s\n", mlxr_computer_is_apollo(c) ? "yes" : "no (no VirtualDisplayCapable/Permission)");
+    if (mlxr_computer_is_apollo(c)) {
+        printf("virtual display: %s%s\n", c->vdisplay_capable ? "capable" : "no", c->vdisplay_ready ? ", driver ready" : "");
+        if (c->permission >= 0)
+            printf("permission:      0x%08x (keyboard %s, mouse %s, controller %s, clipboard set %s / read %s, server commands %s)\n",
+                   (unsigned)c->permission, c->permission & MLXR_PERM_INPUT_KBD ? "yes" : "NO",
+                   c->permission & MLXR_PERM_INPUT_MOUSE ? "yes" : "NO", c->permission & MLXR_PERM_INPUT_CONTROLLER ? "yes" : "NO",
+                   c->permission & MLXR_PERM_CLIPBOARD_SET ? "yes" : "no", c->permission & MLXR_PERM_CLIPBOARD_READ ? "yes" : "no",
+                   c->permission & MLXR_PERM_SERVER_CMD ? "yes" : "no");
+        for (int i = 0; i < c->n_server_cmds; i++) printf("server command:  %d %s\n", i, c->server_cmds[i]);
+    }
     for (int i = 0; i < c->n_modes; i++)
         printf("display mode:    %dx%dx%d\n", c->modes[i].width, c->modes[i].height, c->modes[i].refresh_rate);
 }
@@ -328,6 +340,27 @@ out:
     return rc;
 }
 
+/* Native (lane artemis-settings): Apollo's clipboard, read only (prints the size, not the text unless
+ * --show); Apollo answers only while this client streams */
+static int cmd_clipboard(int argc, char **argv)
+{
+    if (argc < 1) return fprintf(stderr, "usage: clipboard <host> [--show]\n"), 1;
+    mlxr_error e;
+    struct ctx c;
+    int rc = ctx_open(&c, &e);
+    if (rc) return rc;
+    if ((rc = open_server(&c, argv[0], &e)) || (rc = need_paired(&c))) { ctx_close(&c); return rc; }
+    char *text = NULL;
+    if (mlxr_server_get_clipboard(c.srv, &text, &e) != MLXR_OK) rc = fail("clipboard", &e);
+    else {
+        printf("clipboard: %zu bytes\n", strlen(text));
+        if (argc > 1 && !strcmp(argv[1], "--show")) fputs(text, stdout);
+    }
+    free(text);
+    ctx_close(&c);
+    return rc;
+}
+
 int main(int argc, char **argv)
 {
     if (getenv("MLXR_VERBOSE")) mlxr_set_log(logfn, NULL);
@@ -339,6 +372,7 @@ int main(int argc, char **argv)
                 "       mlxr-cli apps <host>\n"
                 "       mlxr-cli launch <host> <appid> <WxHxFPS> [--hdr]\n"
                 "       mlxr-cli quit <host>\n"
+                "       mlxr-cli clipboard <host> [--show]   (Apollo, while streaming)\n"
                 "config dir: $MLXR_CONFIG_DIR or ~/.config/moonlight-xr\n");
         return 1;
     }
@@ -351,6 +385,7 @@ int main(int argc, char **argv)
     if (!strcmp(cmd, "apps")) return cmd_apps(argc, argv);
     if (!strcmp(cmd, "launch")) return cmd_launch(argc, argv);
     if (!strcmp(cmd, "quit")) return cmd_quit(argc, argv);
+    if (!strcmp(cmd, "clipboard")) return cmd_clipboard(argc, argv);
     fprintf(stderr, "unknown command: %s\n", cmd);
     return 1;
 }

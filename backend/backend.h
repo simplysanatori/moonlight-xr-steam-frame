@@ -108,7 +108,30 @@ typedef struct {
     int max_luma_pixels_hevc;   /* 0 if absent */
     mlxr_display_mode modes[MLXR_MAX_DISPLAY_MODES];
     int n_modes;
+    /* Native (lane artemis-settings): Apollo (ClassicOldSong's Sunshine fork) extensions, read as
+     * Artemis does (NvHTTP.getComputerDetails). Apollo still reports Sunshine's appversion. */
+    bool vdisplay_capable;      /* <VirtualDisplayCapable>true: the host can make a virtual display */
+    bool vdisplay_ready;        /* <VirtualDisplayDriverReady>true */
+    int permission;             /* <Permission> bits of this client (Apollo crypto.h PERM), -1 if absent */
+    char server_cmds[8][64];    /* <ServerCommand> names, in order (the control stream runs them by index) */
+    int n_server_cmds;
 } mlxr_computer;
+
+/* Native (lane artemis-settings): Apollo's per-client permission bits (Apollo crypto.h,
+ * Artemis ComputerDetails.Permission) */
+#define MLXR_PERM_INPUT_CONTROLLER 0x00000100
+#define MLXR_PERM_INPUT_TOUCH      0x00000200
+#define MLXR_PERM_INPUT_PEN        0x00000400
+#define MLXR_PERM_INPUT_MOUSE      0x00000800
+#define MLXR_PERM_INPUT_KBD        0x00001000
+#define MLXR_PERM_CLIPBOARD_SET    0x00010000
+#define MLXR_PERM_CLIPBOARD_READ   0x00020000
+#define MLXR_PERM_SERVER_CMD       0x00100000
+#define MLXR_PERM_LIST             0x01000000
+#define MLXR_PERM_VIEW             0x02000000
+#define MLXR_PERM_LAUNCH           0x04000000
+/* Apollo: <VirtualDisplayCapable> or <Permission> is only sent by Apollo (plain Sunshine has neither) */
+static inline bool mlxr_computer_is_apollo(const mlxr_computer *c) { return c->vdisplay_capable || c->permission >= 0; }
 
 /* Parse a serverinfo response (checks <root status_code>). http_port is what
  * the request used (stored in out->http_port). */
@@ -176,6 +199,11 @@ typedef struct {
     uint8_t ri_key[16];         /* rikey (also STREAM_CONFIGURATION.remoteInputAesKey) */
     uint8_t ri_iv[16];          /* bytes 0..3 = rikeyid big-endian (also ...AesIv) */
     const char *extra_query;    /* NULL -> "&corever=1" (LiGetLaunchUrlQueryParameters) */
+    /* Native (lane artemis-settings): Apollo's launch extensions, sent as Artemis does
+     * (NvHTTP.launchApp); plain Sunshine ignores unknown query fields */
+    bool virtual_display;       /* adds virtualDisplay=1: Apollo streams a virtual display made for this client */
+    int scale_factor;           /* adds scaleFactor=N (percent, 20..200) when > 0: the virtual display's size */
+    int fps_x1000;              /* > 0 and not a whole rate: mode's rate as fps*1000 (Artemis's custom refresh rate) */
 } mlxr_launch_params;
 
 /* Zero + defaults (1920x1080x60, stereo, sops on) + fresh random ri_key/ri_iv. */
@@ -199,6 +227,10 @@ mlxr_status mlxr_server_launch_or_resume(mlxr_server *s, const mlxr_computer *co
 /* /cancel, then verifies via serverinfo that no game is running
  * (else MLXR_E_BUSY_OTHER, like moonlight-qt's synthetic 599). */
 mlxr_status mlxr_server_quit_app(mlxr_server *s, mlxr_error *err);
+/* Native (lane artemis-settings): Apollo's actions/clipboard (text). Apollo answers only while this
+ * client streams (403 otherwise) and has the clipboard permission (401). get: *text malloc'd, may be "". */
+mlxr_status mlxr_server_get_clipboard(mlxr_server *s, char **text, mlxr_error *err);
+mlxr_status mlxr_server_set_clipboard(mlxr_server *s, const char *text, mlxr_error *err);
 /* /unpair over HTTP. */
 mlxr_status mlxr_server_unpair(mlxr_server *s, mlxr_error *err);
 
@@ -269,6 +301,7 @@ typedef struct mlxr_xml mlxr_xml;
 mlxr_xml *mlxr_xml_parse(const char *xml, size_t len);
 void mlxr_xml_free(mlxr_xml *x);
 char *mlxr_xml_get(const mlxr_xml *x, const char *tag);   /* malloc'd text or NULL if absent */
+char *mlxr_xml_get_nth_text(const mlxr_xml *x, const char *tag, size_t idx); /* Native: text of the idx-th <tag> */
 /* <root status_code= status_message=>; returns false if no root element. */
 bool mlxr_xml_status(const mlxr_xml *x, int *code, char *msg, size_t cap);
 size_t mlxr_xml_count(const mlxr_xml *x, const char *tag);

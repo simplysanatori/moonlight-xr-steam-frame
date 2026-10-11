@@ -17,6 +17,10 @@ typedef struct {
     const char *app_title_extra;/* extra app with this title (e.g. with entities) */
     bool expired_cert;          /* server cert validity ended a year ago (pinning must still accept it)*/
     bool wait_for_pin;          /* stage 1 blocks until fake_host_set_pin(), like Sunshine waiting for the web UI */
+    /* Native (lane artemis-settings): Apollo's serverinfo fields and actions/clipboard (raw text,
+     * 403 unless fake_host_set_streaming(true), 401 with clipboard_denied) */
+    bool apollo;
+    bool clipboard_denied;
 } fake_opts;
 
 typedef struct fake_host fake_host;
@@ -33,4 +37,8 @@ void fake_host_last_launch(const fake_host *h, char *out, int cap);
 /* uniqueid seen on the most recent request */
 void fake_host_last_uniqueid(const fake_host *h, char *out, int cap);
 int fake_host_count(const fake_host *h, const char *command);
+/* Native (lane artemis-settings): Apollo clipboard state */
+void fake_host_set_streaming(fake_host *h, bool on);
+void fake_host_set_clipboard(fake_host *h, const char *text);
+void fake_host_clipboard(fake_host *h, char *out, int cap);
 #endif

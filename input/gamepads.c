@@ -4,6 +4,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
+#include <stdatomic.h>
 #include <string.h>
 
 #include "Limelight.h"
@@ -61,6 +63,41 @@ void gpSetChordEnabled(Gamepads* g, int enabled) {
 
 static int live(const Gamepads* g) { return g->active && g->streaming; }
 
+// ---- Native (lane artemis-settings): Artemis's gamepad options -----------------
+static atomic_int gRumbleOff, gDeadzone, gFlip;
+
+void gamepadsSetRumbleEnabled(int enabled) { atomic_store(&gRumbleOff, !enabled); }
+void gamepadsSetDeadzone(int percent) { atomic_store(&gDeadzone, percent < -20 ? -20 : percent > 20 ? 20 : percent); }
+void gamepadsSetFlipFaceButtons(int flip) { atomic_store(&gFlip, flip != 0); }
+
+static void stickDeadzone(short* x, short* y, int pct) {
+    double fx = *x, fy = *y, m = sqrt(fx * fx + fy * fy);
+    if (m <= 0.0) return;
+    const double full = 32767.0, dz = full * (pct < 0 ? -pct : pct) / 100.0;
+    double out;
+    if (pct > 0) out = m <= dz ? 0.0 : (m - dz) / (full - dz) * full;  // radial dead zone, rescaled
+    else out = dz + (m > full ? full : m) * (full - dz) / full;          // compensation: start past dz
+    double k = out / m;
+    double nx = fx * k, ny = fy * k;
+    *x = (short)(nx > 32767 ? 32767 : nx < -32768 ? -32768 : nx);
+    *y = (short)(ny > 32767 ? 32767 : ny < -32768 ? -32768 : ny);
+}
+
+void gpApplyStickOptions(PadOutPacket* pk, int deadzonePercent, int flip) {
+    if (deadzonePercent) {
+        stickDeadzone(&pk->leftStickX, &pk->leftStickY, deadzonePercent);
+        stickDeadzone(&pk->rightStickX, &pk->rightStickY, deadzonePercent);
+    }
+    if (flip) {
+        int b = pk->buttonFlags & ~(A_FLAG | B_FLAG | X_FLAG | Y_FLAG);
+        if (pk->buttonFlags & A_FLAG) b |= B_FLAG;
+        if (pk->buttonFlags & B_FLAG) b |= A_FLAG;
+        if (pk->buttonFlags & X_FLAG) b |= Y_FLAG;
+        if (pk->buttonFlags & Y_FLAG) b |= X_FLAG;
+        pk->buttonFlags = b;
+    }
+}
+
 static int maskNow(const Gamepads* g) {
     int m = atomic_load(&g->announcedMask);
     if (g->frameNumber >= 0) m |= 1 << g->frameNumber;
@@ -69,9 +106,12 @@ static int maskNow(const Gamepads* g) {
 
 static void sendPacket(Gamepads* g, GpSlot* s, const PadOutPacket* pk) {
     if (g->sink.state) {
-        g->sink.state(g->sink.user, (short)s->number, (short)(uint16_t)maskNow(g), pk->buttonFlags,
-                      pk->leftTrigger, pk->rightTrigger, pk->leftStickX, pk->leftStickY,
-                      pk->rightStickX, pk->rightStickY);
+        // Native (lane artemis-settings): dead zone and face button flip on what the host gets only
+        PadOutPacket o = *pk;
+        gpApplyStickOptions(&o, atomic_load(&gDeadzone), atomic_load(&gFlip));
+        g->sink.state(g->sink.user, (short)s->number, (short)(uint16_t)maskNow(g), o.buttonFlags,
+                      o.leftTrigger, o.rightTrigger, o.leftStickX, o.leftStickY,
+                      o.rightStickX, o.rightStickY);
     }
     s->sent = *pk;
     s->haveSent = 1;
@@ -453,12 +493,14 @@ int gamepadsAnnouncedMask(void) {
 
 void gamepadsHostRumble(unsigned short controllerNumber, unsigned short lowFreqMotor,
                         unsigned short highFreqMotor) {
+    if (atomic_load(&gRumbleOff) && (lowFreqMotor || highFreqMotor)) return; // Native (lane artemis-settings)
     if (gGlobal.ready && gpRumble(&gGlobal, controllerNumber, lowFreqMotor, highFreqMotor)) return;
     rumbleHostCallback(controllerNumber, lowFreqMotor, highFreqMotor);
 }
 
 void gamepadsHostRumbleTriggers(uint16_t controllerNumber, uint16_t leftTriggerMotor,
                                 uint16_t rightTriggerMotor) {
+    if (atomic_load(&gRumbleOff) && (leftTriggerMotor || rightTriggerMotor)) return; // Native (lane artemis-settings)
     if (gGlobal.ready && gpRumbleTriggers(&gGlobal, controllerNumber, leftTriggerMotor, rightTriggerMotor)) return;
     rumbleTriggersCallback(controllerNumber, leftTriggerMotor, rightTriggerMotor);
 }

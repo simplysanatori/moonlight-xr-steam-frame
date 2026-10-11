@@ -13,6 +13,21 @@
 //                      the disconnect chord (host session kept): not an error.
 //   --packet-size N    video packet size (bytes, local network), 0/absent = 1392
 //   --audio stereo|51|71   the audio channel layout to ask the host for
+// Native (lane artemis-settings): the flat launcher's Artemis-style Settings page adds
+//   --virtual-display  ask Apollo for a virtual display made for this client (virtualDisplay=1)
+//   --scale-factor N   Apollo: the virtual display is N percent (20..200) of the stream's size
+//   --refresh-rate R   Artemis's custom refresh rate (e.g. 59.94; capped at the headset's 90 Hz)
+//   --no-sops          no "Optimize game settings" (sops=0)
+//   --local-audio      "Play audio on PC" too (localAudioPlayMode=1)
+//   --pacing latency|balanced|smoothness   frame pacing (sets MLXR_VIDEO_PACING 0/2/1 unless set)
+//   --video-priority off|nice|rt   receive/decode threads (sets MLXR_VIDEO_PRIORITY unless set)
+//   --full-range       ask for full range video (hardware decoding reads the range from the stream)
+//   --no-rumble        drop the host's rumble (physical gamepads and the controllers)
+//   --deadzone N       analog stick dead zone in percent, -20..20 (negative: compensation)
+//   --no-mouse-nav-buttons   a physical mouse's back/forward buttons are not sent
+//   --clipboard-sync   Artemis's Smart Clipboard Sync with Apollo: once the stream is up the text
+//                      in <config dir>/clipboard-to-host.txt (the launcher wrote it) goes to the PC;
+//                      before the stream stops the PC's clipboard goes to clipboard-from-host.txt
 //
 // Hosts and the client identity live in ~/.config/moonlight-xr (pair with
 // mlxr-cli, or import Moonlight Qt's pairing with backend/seed-from-moonlight-qt.sh);
@@ -97,7 +112,12 @@ static struct {
     int bitrate, h264Only, wake, swDecode;
     int exitToCaller, packetSize, audio; // audio: 0 stereo (default), 1 5.1, 2 7.1
     double seconds;
+    // Native (lane artemis-settings): the flat launcher's Artemis-style settings
+    int virtualDisplay, scaleFactor, refreshX1000, noSops, localAudio, fullRange, clipboardSync;
 } g_args;
+
+// Native (lane artemis-settings): headset display rate cap for Artemis's custom refresh rate
+#define MLXR_MAX_REFRESH_X1000 90000
 
 // With --exit-to-caller: remember why the process ends (the first reason wins) and
 // make the frame loop leave. The message goes to stderr at exit as "MLXR_ERROR: ...".
@@ -351,6 +371,50 @@ typedef struct Net {
     char* rtsp;
 } Net;
 
+// ---- Native (lane artemis-settings): Artemis's Smart Clipboard Sync (Apollo actions/clipboard) ----
+// Apollo answers only while this client streams, so the upload follows stream_start and the download
+// comes before stream_stop. The flat launcher owns the desktop clipboard; the files are the hand-off.
+static void clipboardPath(const Net* n, const char* name, char* out, size_t cap) {
+    snprintf(out, cap, "%s/%s", n->dir ? n->dir : ".", name);
+}
+
+static void clipboardToHost(Net* n, mlxr_server* s) {
+    char path[600];
+    clipboardPath(n, "clipboard-to-host.txt", path, sizeof(path));
+    FILE* f = fopen(path, "rb");
+    if (!f) return;
+    char buf[65536];
+    size_t len = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[len] = 0;
+    if (!len) return;
+    mlxr_error err = { 0 };
+    if (mlxr_server_set_clipboard(s, buf, &err) == MLXR_OK) MLOG_I("clipboard: %zu bytes sent to the host", len);
+    else MLOG_W("clipboard: not sent: %s", err.msg);
+}
+
+static void clipboardFromHost(Net* n, mlxr_server* s) {
+    char path[600], tmp[620];
+    clipboardPath(n, "clipboard-from-host.txt", path, sizeof(path));
+    char* text = NULL;
+    mlxr_error err = { 0 };
+    if (mlxr_server_get_clipboard(s, &text, &err) != MLXR_OK) {
+        MLOG_W("clipboard: not read from the host: %s", err.msg);
+        return;
+    }
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE* f = fopen(tmp, "wb");
+    if (f) {
+        fchmod(fileno(f), 0600);
+        size_t len = strlen(text);
+        int ok = fwrite(text, 1, len, f) == len;
+        ok = fclose(f) == 0 && ok;
+        if (ok && rename(tmp, path) == 0) MLOG_I("clipboard: %zu bytes read from the host", len);
+        else unlink(tmp);
+    }
+    free(text);
+}
+
 static Net g_net;
 
 // Wake-on-LAN magic packet to the LAN broadcast address.
@@ -527,6 +591,22 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     lp.max_fps = fpsCap;
     lp.audio_configuration = g_args.audio == 2 ? MLXR_AUDIO_71 : g_args.audio == 1 ? MLXR_AUDIO_51 : MLXR_AUDIO_STEREO;
     lp.is_gfe = comp->is_nvidia;
+    // Native (lane artemis-settings): host options and Apollo's launch extensions (Artemis NvHTTP.launchApp)
+    lp.sops = !g_args.noSops;
+    lp.local_audio = g_args.localAudio != 0;
+    lp.virtual_display = g_args.virtualDisplay != 0;
+    lp.scale_factor = g_args.scaleFactor;
+    if (g_args.refreshX1000 > 0) {
+        // the headset's cap (lane hz-cap) holds for a custom rate too
+        lp.fps_x1000 = g_args.refreshX1000 > fpsCap * 1000 ? fpsCap * 1000 : g_args.refreshX1000;
+        lp.fps = (lp.fps_x1000 + 500) / 1000;
+    }
+    if ((lp.virtual_display || lp.scale_factor || lp.fps_x1000 % 1000) && !mlxr_computer_is_apollo(comp))
+        MLOG_W("Apollo options asked (virtual display %d, scale %d%%, rate %d/1000) but %s does not report Apollo's "
+               "fields; sent anyway (other hosts ignore them)", lp.virtual_display, lp.scale_factor, lp.fps_x1000,
+               n->hosts.v[pc].name);
+    else if (lp.virtual_display && !comp->vdisplay_ready)
+        MLOG_W("virtual display asked but %s reports its virtual display driver not ready", n->hosts.v[pc].name);
     free(n->rtsp);
     n->rtsp = NULL;
     if (mlxr_server_launch_or_resume(s, comp, appId, &lp, &n->rtsp, &err) != MLXR_OK) {
@@ -555,9 +635,12 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     }
     int h264Only = g_args.h264Only || g_settings.codec == 3;
     g_job.cfg.supportedVideoFormats = VIDEO_FORMAT_H264 | (h264Only ? 0 : VIDEO_FORMAT_H265);
-    g_job.cfg.clientRefreshRateX100 = mlxr_launch_fps(&lp) * 100;
+    // Native (lane artemis-settings): a custom (Apollo) rate stays under the same cap
+    g_job.cfg.clientRefreshRateX100 = lp.fps_x1000 > 0 ? lp.fps_x1000 / 10 : mlxr_launch_fps(&lp) * 100;
     g_job.cfg.colorSpace = COLORSPACE_REC_709;
-    g_job.cfg.colorRange = COLOR_RANGE_LIMITED;
+    // Native (lane artemis-settings): Artemis's "Force full range video"; the hardware path reads the
+    // range from the stream (vk_import.c colour_for_frame), the software shader is limited range only
+    g_job.cfg.colorRange = g_args.fullRange && !g_args.swDecode ? COLOR_RANGE_FULL : COLOR_RANGE_LIMITED;
     g_job.cfg.encryptionFlags = ENCFLG_ALL;
     mlxr_opus_out_callbacks(&g_job.audio);
     mlxr_opus_out_config_default(&g_job.audioCfg);
@@ -567,6 +650,11 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     stream_set_hw_decode(!g_args.swDecode);
     n->streamPc = pc;
     MLOG_I("stream: %dx%d %d fps, %d kbps, %s", w, h, fps, bitrate, h264Only ? "H.264" : "H.264/HEVC");
+    // Native (lane artemis-settings)
+    MLOG_I("stream options: sops %d, audio on PC %d, %s range, virtual display %d, scale factor %d, rate x1000 %d%s",
+           lp.sops, lp.local_audio, g_job.cfg.colorRange == COLOR_RANGE_FULL ? "full" : "limited", lp.virtual_display,
+           lp.scale_factor, lp.fps_x1000, mlxr_computer_is_apollo(comp) ? " (Apollo host)" : "");
+    gamepadsSetFlipFaceButtons(g_settings.flip_face_buttons);
     if (stream_start(&host, &g_job.cfg, &g_slot, &g_job.audio, &g_job.audioCfg) != 0) {
         stream_stop();
         xr_app_release_video();
@@ -577,6 +665,7 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     atomic_store(&g_streaming, 1);
     xr_app_set_streaming(1);
     updateKeyboard();
+    if (g_args.clipboardSync) clipboardToHost(n, s); // Native (lane artemis-settings)
     return 0;
 }
 
@@ -585,6 +674,8 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
 static void stopStream(Net* n, int quitHost) {
     if (!atomic_load(&g_streaming)) return;
     MLOG_I("stopping stream%s", quitHost ? " and ending the host's session" : "");
+    // Native (lane artemis-settings): Artemis takes the PC's clipboard when leaving the stream
+    if (g_args.clipboardSync && n->streamPc >= 0 && n->srv[n->streamPc]) clipboardFromHost(n, n->srv[n->streamPc]);
     vrkb_release_all(&g_vrkb);
     atomic_store(&g_streaming, 0);
     xr_app_set_streaming(0);
@@ -818,6 +909,42 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--sw-decode")) g_args.swDecode = 1;
         else if (!strcmp(argv[i], "--exit-to-caller")) g_args.exitToCaller = 1;
         else if (!strcmp(argv[i], "--packet-size") && i + 1 < argc) g_args.packetSize = atoi(argv[++i]);
+        // Native (lane artemis-settings): the flat launcher's Artemis-style settings
+        else if (!strcmp(argv[i], "--virtual-display")) g_args.virtualDisplay = 1;
+        else if (!strcmp(argv[i], "--scale-factor") && i + 1 < argc) {
+            int v = atoi(argv[++i]);
+            g_args.scaleFactor = v < 20 ? 20 : v > 200 ? 200 : v;
+        }
+        else if (!strcmp(argv[i], "--refresh-rate") && i + 1 < argc) {
+            double r = atof(argv[++i]);
+            int x = (int)(r * 1000.0 + 0.5);
+            if (x > MLXR_MAX_REFRESH_X1000) x = MLXR_MAX_REFRESH_X1000; // the headset's display rate
+            g_args.refreshX1000 = x >= 10000 ? x : 0;
+        }
+        else if (!strcmp(argv[i], "--no-sops")) g_args.noSops = 1;
+        else if (!strcmp(argv[i], "--local-audio")) g_args.localAudio = 1;
+        else if (!strcmp(argv[i], "--full-range")) g_args.fullRange = 1;
+        else if (!strcmp(argv[i], "--clipboard-sync")) g_args.clipboardSync = 1;
+        else if (!strcmp(argv[i], "--no-rumble")) gamepadsSetRumbleEnabled(0);
+        else if (!strcmp(argv[i], "--deadzone") && i + 1 < argc) gamepadsSetDeadzone(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--no-mouse-nav-buttons")) evmouse_set_nav_buttons(0);
+        else if (!strcmp(argv[i], "--pacing") && i + 1 < argc) {
+            const char* v = argv[++i];
+            const char* m = !strcmp(v, "latency") ? "0" : !strcmp(v, "smoothness") ? "1" : !strcmp(v, "balanced") ? "2" : NULL;
+            if (!m) {
+                fprintf(stderr, "MLXR_ERROR: --pacing takes latency, balanced or smoothness\n");
+                return EXIT_USAGE;
+            }
+            setenv("MLXR_VIDEO_PACING", m, 0); // an explicit MLXR_VIDEO_PACING (debugging) wins
+        }
+        else if (!strcmp(argv[i], "--video-priority") && i + 1 < argc) {
+            const char* v = argv[++i];
+            if (strcmp(v, "off") && strcmp(v, "nice") && strcmp(v, "rt")) {
+                fprintf(stderr, "MLXR_ERROR: --video-priority takes off, nice or rt\n");
+                return EXIT_USAGE;
+            }
+            setenv("MLXR_VIDEO_PRIORITY", v, 0);
+        }
         else if (!strcmp(argv[i], "--audio") && i + 1 < argc) {
             const char* a = argv[++i];
             if (!strcmp(a, "stereo")) g_args.audio = 0;
@@ -834,6 +961,9 @@ int main(int argc, char** argv) {
                     "       %s --host NAME|ADDR [--app NAME|ID] [--mode WxHxFPS] [--bitrate KBPS] [--h264] [--wake] "
                     "[--sw-decode] [--seconds N]\n"
                     "                  [--exit-to-caller] [--packet-size BYTES] [--audio stereo|51|71]\n"
+                    "                  [--virtual-display] [--scale-factor PCT] [--refresh-rate HZ] [--no-sops] [--local-audio]\n"
+                    "                  [--pacing latency|balanced|smoothness] [--video-priority off|nice|rt] [--full-range]\n"
+                    "                  [--no-rumble] [--deadzone PCT] [--no-mouse-nav-buttons] [--clipboard-sync]\n"
                     "       %s --file VIDEO [--sw-decode] [--seconds N]\n",
                     argv[0], argv[0], argv[0]);
             return EXIT_USAGE;
