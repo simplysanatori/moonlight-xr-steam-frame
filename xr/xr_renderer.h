@@ -49,6 +49,7 @@
 #include "xr_controller.h"
 #include "xr_headaim.h"
 #include "xr_clickhold.h"
+#include "xr_pressfix.h"
 #include "xr_gamepad.h"
 #include "room_logic.h"
 
@@ -730,6 +731,11 @@ typedef struct XrCtx {
     // Native (lane click-hold): the host cursor held for a click, see xr_clickhold.h
     ClickHold clickHold;
     float clickHoldPx;
+    // Native (lane pointer-clicks): press stabilisation, double-click snap and
+    // the stick click as a right click, see xr_pressfix.h
+    PressFix pressFix;
+    PressFixCfg pressCfg;
+    int stickRightClick;
     int64_t lastHitNs;
     int lastHand;
     // Native (lane av-latency): how far the smoothing holds the cursor behind
