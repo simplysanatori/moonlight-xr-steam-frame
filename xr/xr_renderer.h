@@ -1168,5 +1168,7 @@ void setRefreshKnob(XrCtx* ctx, int hz);
 void setDepthRate(XrCtx* ctx, int perSecond, const char* why);
 void xrSetDepthRate(XrCtx* ctx, int perSecond);
 float xrGetDisplayRate(XrCtx* ctx);
+// The display rate the runtime last reported, whole Hz, readable from any thread; 0 when not known yet
+int xrReportedDisplayHz(void);
 
 #endif

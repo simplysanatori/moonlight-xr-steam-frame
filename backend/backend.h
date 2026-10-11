@@ -14,6 +14,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "fps_cap.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -163,6 +165,7 @@ void mlxr_apps_free(mlxr_app *apps, size_t n);
 
 typedef struct {
     int width, height, fps;
+    int max_fps;                /* cap on fps in the request (init: MLXR_FPS_CAP; see fps_cap.h) */
     bool sops;                  /* let the host change its desktop resolution */
     bool local_audio;           /* play audio on the host too */
     int audio_configuration;    /* MLXR_AUDIO_* */
@@ -177,6 +180,8 @@ typedef struct {
 
 /* Zero + defaults (1920x1080x60, stereo, sops on) + fresh random ri_key/ri_iv. */
 mlxr_status mlxr_launch_params_init(mlxr_launch_params *p);
+/* The fps the request carries: p->fps limited to p->max_fps (and never above MLXR_FPS_CAP). */
+int mlxr_launch_fps(const mlxr_launch_params *p);
 /* Parse "WxHxFPS" (e.g. "2560x1440x90"). */
 mlxr_status mlxr_parse_mode(const char *s, int *w, int *h, int *fps);
 /* rikeyid as sent on the wire (signed int32 from ri_iv[0..3], big endian). */

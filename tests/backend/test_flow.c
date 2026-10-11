@@ -125,6 +125,56 @@ static void test_pairing_flow(int gen, bool gfe)
     fake_host_stop(h);
 }
 
+/* What the host really receives: a 144 or 360 fps request leaves as 90, or the display's lower rate */
+static void test_launch_fps_capped(void)
+{
+    mlxr_error e;
+    mlxr_identity id;
+    CHECK_OK(mlxr_identity_generate(&id, &e));
+    fake_opts o = {.pin = "4821", .gen = 7};
+    fake_host *h = fake_host_start(&o);
+    mlxr_server *s = connect_to(&id, h);
+    mlxr_computer c;
+    char *cert = NULL;
+    CHECK_OK(mlxr_server_get_info(s, false, &c, NULL, &e));
+    CHECK_OK(mlxr_pair(s, c.app_version, "4821", 10000, &cert, &e));
+    CHECK_OK(mlxr_server_get_info(s, false, &c, NULL, &e));
+
+    static const struct { int asked, display_hz, sent; } cases[] = {
+        {360, 0, 90}, {144, 90, 90}, {120, 120, 90}, {90, 90, 90}, {90, 72, 72}, {144, 72, 72}, {60, 72, 60}, {60, 0, 60},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        mlxr_launch_params p;
+        CHECK_OK(mlxr_launch_params_init(&p));
+        p.width = 2560; p.height = 1440; p.fps = cases[i].asked;
+        p.max_fps = mlxr_fps_cap_for_display(cases[i].display_hz);
+        char *url = NULL;
+        CHECK_OK(mlxr_server_start_app(s, false, 881448767, &p, &url, &e));
+        free(url);
+        char q[1100], want[40];
+        fake_host_last_launch(h, q, sizeof q);
+        snprintf(want, sizeof want, "&mode=2560x1440x%d&", cases[i].sent);
+        CHECK(strstr(q, want) != NULL);
+        CHECK(strstr(q, "x360&") == NULL && strstr(q, "x144&") == NULL);
+        CHECK_OK(mlxr_server_quit_app(s, &e));
+    }
+    /* a caller that forgets the cap still cannot ask for more than 90 */
+    mlxr_launch_params p;
+    CHECK_OK(mlxr_launch_params_init(&p));
+    p.width = 2560; p.height = 1440; p.fps = 360;
+    char *url = NULL;
+    CHECK_OK(mlxr_server_start_app(s, false, 881448767, &p, &url, &e));
+    free(url);
+    char q[1100];
+    fake_host_last_launch(h, q, sizeof q);
+    CHECK(strstr(q, "&mode=2560x1440x90&") != NULL);
+
+    free(cert);
+    mlxr_server_free(s);
+    mlxr_identity_free(&id);
+    fake_host_stop(h);
+}
+
 static void test_pairing_failures(void)
 {
     mlxr_error e;
@@ -294,6 +344,7 @@ int main(void)
     test_pairing_flow(7, false);    /* Sunshine / modern: SHA-256 */
     test_pairing_flow(7, true);     /* GFE-style: placeholder uniqueid */
     test_pairing_flow(6, false);    /* pre-gen-7: SHA-1 */
+    test_launch_fps_capped();
     test_pairing_failures();
     test_pin_mismatch_and_fallback();
     test_expired_cert_still_pinned();

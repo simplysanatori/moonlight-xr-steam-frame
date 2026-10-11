@@ -108,6 +108,15 @@ expect "1440p90" "$out" "--mode 2560x1440x90 --bitrate 80000"
 expect "forced H.264" "$out" "--h264"
 setconf videocfg=2
 out="$(dry "DESKTOP-EXAMPLE:Desktop")"; refute "forced HEVC: no --h264" "$out" "--h264"
+# the headset shows 90 Hz at most: a higher FPS setting (flat Moonlight, 144 or 360 Hz screens) is clamped
+setconf width=2560 height=1440 fps=144 bitrate=80000 videocfg=0
+out="$(dry "DESKTOP-EXAMPLE:Desktop")"; echo "1440p144 setting: $out"
+expect "fps 144 clamped to 90 in the hand-off" "$out" "--mode 2560x1440x90 --bitrate 80000"
+refute "no mode above 90 fps" "$out" "1440x144 "
+setconf width=2560 height=1440 fps=72 bitrate=80000 videocfg=0
+out="$(dry "DESKTOP-EXAMPLE:Desktop")"
+expect "72 fps setting stays 72" "$out" "--mode 2560x1440x72"
+setconf width=2560 height=1440 fps=90 bitrate=80000 videocfg=0
 setconf videocfg=4
 out="$(dry "DESKTOP-EXAMPLE:Desktop")"; refute "AV1 choice: not passed" "$out" "--h264"
 setconf videocfg=0 videodec=2 audiocfg=1 packetsize=1024

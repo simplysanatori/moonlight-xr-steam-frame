@@ -19,6 +19,7 @@ int main(void)
     CHECK_EQ_INT(cfg.width, 3200);
     CHECK_EQ_INT(cfg.height, 1800);
     CHECK_EQ_INT(cfg.fps, 90);
+    CHECK_EQ_INT(cfg.clientRefreshRateX100, 9000);
     CHECK_EQ_INT(cfg.audioConfiguration, AUDIO_CONFIGURATION_51_SURROUND);
     CHECK(memcmp(cfg.remoteInputAesKey, p.ri_key, 16) == 0);
     CHECK(memcmp(cfg.remoteInputAesIv, p.ri_iv, 16) == 0);
@@ -27,6 +28,18 @@ int main(void)
     memcpy(&id, cfg.remoteInputAesIv, 4);
     id = (int)__builtin_bswap32((uint32_t)id);
     CHECK_EQ_INT(id, mlxr_launch_rikeyid(&p));
+
+    /* a higher request leaves the glue as 90 (or the display's lower rate): fps and clientRefreshRateX100 */
+    p.fps = 360;
+    mlxr_fill_stream_config(&cfg, &p);
+    CHECK_EQ_INT(cfg.fps, 90);
+    CHECK_EQ_INT(cfg.clientRefreshRateX100, 9000);
+    p.fps = 144; p.max_fps = mlxr_fps_cap_for_display(72);
+    mlxr_fill_stream_config(&cfg, &p);
+    CHECK_EQ_INT(cfg.fps, 72);
+    CHECK_EQ_INT(cfg.clientRefreshRateX100, 7200);
+    CHECK_EQ_INT(cfg.width, 3200);                       /* the rest of the mode stays */
+    CHECK_EQ_INT(cfg.height, 1800);
 
     mlxr_computer c;
     memset(&c, 0, sizeof c);
