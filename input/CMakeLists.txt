@@ -9,7 +9,7 @@ set(MLXR_MCC_SRC ${PROJECT_SOURCE_DIR}/third_party/moonlight-common-c/src)
 
 add_library(mlxr_input_core STATIC pad_out.c rumble.c gamepads.c evmouse.c)
 target_include_directories(mlxr_input_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${MLXR_MCC_SRC})
-target_link_libraries(mlxr_input_core PUBLIC mlxr_xrcore Threads::Threads)
+target_link_libraries(mlxr_input_core PUBLIC mlxr_xrcore Threads::Threads m)
 set_target_properties(mlxr_input_core PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
 
 add_library(mlxr_input STATIC pad_out_ll.c)

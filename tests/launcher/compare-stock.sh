@@ -12,6 +12,8 @@ STOCK="$here/../../build-launcher/stock/obj/app/moonlight"
 [ -x "$STOCK" ] && [ -x "$L" ] || { echo "SKIP: need the launcher and tests/launcher/build-stock.sh"; exit 77; }
 mkdir -p "$OUT"; t="$(mktemp -d)"; trap 'rm -rf "$t"' EXIT
 unset LD_LIBRARY_PATH XDG_CONFIG_HOME XDG_CACHE_HOME MLXR_CONFIG_DIR MLXR_NATIVE_CLIENT
+# Game Mode (gamescope) makes the launcher, by design, open full screen once; stock does not
+unset XDG_CURRENT_DESKTOP
 export QT_QPA_PLATFORM=offscreen SDL_VIDEODRIVER=dummy QT_QUICK_BACKEND=software
 MLXR_CONFIG_DIR="$t/q" "$CLI" identity >/dev/null 2>&1; MLXR_CONFIG_DIR="$t/s" "$CLI" identity >/dev/null 2>&1
 python3 -I "$here/../backend/make_qt_conf.py" "$t/c.conf" "$t/q/client.pem" "$t/q/client.key" "$t/s/client.pem"

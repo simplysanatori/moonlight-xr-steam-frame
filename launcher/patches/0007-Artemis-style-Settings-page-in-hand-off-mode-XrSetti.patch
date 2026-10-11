@@ -1,0 +1,154 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Sun, 11 Oct 2026 00:59:42 -0400
+Subject: [PATCH] Artemis-style Settings page in hand-off mode
+ (XrSettingsView), MlxrPrefs, Quick Resume
+
+---
+ app/app.pro         |  2 ++
+ app/gui/AppView.qml | 14 +++++++++++++-
+ app/gui/main.qml    | 11 +++++++++--
+ app/main.cpp        |  8 ++++++++
+ app/qml.qrc         |  1 +
+ 5 files changed, 33 insertions(+), 3 deletions(-)
+
+diff --git a/app/app.pro b/app/app.pro
+index 9155c4a..4ceac67 100644
+--- a/app/app.pro
++++ b/app/app.pro
+@@ -196,6 +196,7 @@ SOURCES += \
+     streaming/input/reltouch.cpp \
+     streaming/session.cpp \
+     streaming/mlxrhandoff.cpp \
++    streaming/mlxrprefs.cpp \
+     streaming/audio/audio.cpp \
+     streaming/audio/renderers/sdlaud.cpp \
+     gui/computermodel.cpp \
+@@ -232,6 +233,7 @@ HEADERS += \
+     streaming/input/input.h \
+     streaming/session.h \
+     streaming/mlxrhandoff.h \
++    streaming/mlxrprefs.h \
+     streaming/audio/renderers/renderer.h \
+     streaming/audio/renderers/sdl.h \
+     gui/computermodel.h \
+diff --git a/app/gui/AppView.qml b/app/gui/AppView.qml
+index 56c4efd..2d58daf 100644
+--- a/app/gui/AppView.qml
++++ b/app/gui/AppView.qml
+@@ -5,6 +5,7 @@ import QtQuick.Controls.Material 2.2
+ import AppModel 1.0
+ import ComputerManager 1.0
+ import SdlGamepadKeyNavigation 1.0
++import MlxrPrefs 1.0
+ 
+ CenteredGridView {
+     property int computerIndex
+@@ -236,7 +237,8 @@ CenteredGridView {
+             // For running games, buttons will appear to resume or quit which
+             // will handle starting the game and clicks on the box art will
+             // be ignored.
+-            if (!model.running) {
++            // Moonlight XR Native: Artemis's Quick Resume resumes a running app at once
++            if (!model.running || MlxrPrefs.quickResume) {
+                 launchOrResumeSelectedApp(true)
+             }
+         }
+@@ -265,6 +267,11 @@ CenteredGridView {
+             // for running games. If the game isn't running, the above onClicked
+             // method will handle the launch.
+             if (model.running) {
++                // Moonlight XR Native: Artemis's Quick Resume
++                if (MlxrPrefs.quickResume) {
++                    launchOrResumeSelectedApp(true)
++                    return
++                }
+                 // This will be keyboard/gamepad driven so use
+                 // open() instead of popup()
+                 appContextMenu.open()
+@@ -276,6 +283,11 @@ CenteredGridView {
+             // for running games. If the game isn't running, the above onClicked
+             // method will handle the launch.
+             if (model.running) {
++                // Moonlight XR Native: Artemis's Quick Resume
++                if (MlxrPrefs.quickResume) {
++                    launchOrResumeSelectedApp(true)
++                    return
++                }
+                 // This will be keyboard/gamepad driven so use
+                 // open() instead of popup()
+                 appContextMenu.open()
+diff --git a/app/gui/main.qml b/app/gui/main.qml
+index 32e576e..f96fa7e 100644
+--- a/app/gui/main.qml
++++ b/app/gui/main.qml
+@@ -189,6 +189,12 @@ ApplicationWindow {
+         return str.startsWith(className + "(") || str.startsWith(className + "_QML");
+     }
+ 
++    // Moonlight XR Native: the stock Settings page, or the Artemis-style one when streams go to the VR client
++    function settingsPageUrl()
++    {
++        return SystemProperties.nativeVrHandoff ? "qrc:/gui/XrSettingsView.qml" : "qrc:/gui/SettingsView.qml"
++    }
++
+     function navigateTo(url, objectType)
+     {
+         var existingItem = stackView.find(function(item, index) {
+@@ -259,7 +265,7 @@ ApplicationWindow {
+ 
+             Label {
+                 id: versionLabel
+-                visible: qmltypeof(stackView.currentItem, "SettingsView")
++                visible: qmltypeof(stackView.currentItem, "SettingsView") || qmltypeof(stackView.currentItem, "XrSettingsView")
+                 text: qsTr("Version %1").arg(SystemProperties.versionString)
+                 font.pointSize: 12
+                 horizontalAlignment: Qt.AlignRight
+@@ -398,7 +404,8 @@ ApplicationWindow {
+ 
+                 iconSource:  "qrc:/res/settings.svg"
+ 
+-                onClicked: navigateTo("qrc:/gui/SettingsView.qml", "SettingsView")
++                // Moonlight XR Native: in hand-off mode, the Artemis-style page (launcher/qml)
++                onClicked: navigateTo(settingsPageUrl(), SystemProperties.nativeVrHandoff ? "XrSettingsView" : "SettingsView")
+ 
+                 Keys.onDownPressed: {
+                     stackView.currentItem.forceActiveFocus(Qt.TabFocus)
+diff --git a/app/main.cpp b/app/main.cpp
+index ca6f711..346615f 100644
+--- a/app/main.cpp
++++ b/app/main.cpp
+@@ -48,6 +48,7 @@
+ #include "settings/streamingpreferences.h"
+ #include "gui/sdlgamepadkeynavigation.h"
+ #include "streaming/mlxrhandoff.h"
++#include "streaming/mlxrprefs.h"
+ 
+ #if defined(Q_OS_WIN32)
+ #define IS_UNSPECIFIED_HANDLE(x) ((x) == INVALID_HANDLE_VALUE || (x) == NULL)
+@@ -714,6 +715,13 @@ int main(int argc, char *argv[])
+                                                       [](QQmlEngine* qmlEngine, QJSEngine*) -> QObject* {
+                                                           return new SdlGamepadKeyNavigation(StreamingPreferences::get(qmlEngine));
+                                                       });
++    // Moonlight XR Native: the Artemis-style Settings page's own settings (launcher/src/mlxrprefs.h)
++    qmlRegisterSingletonType<MlxrPrefs>("MlxrPrefs", 1, 0, "MlxrPrefs",
++                                        [](QQmlEngine* qmlEngine, QJSEngine*) -> QObject* {
++                                            QQmlEngine::setObjectOwnership(MlxrPrefs::get(), QQmlEngine::CppOwnership);
++                                            (void)qmlEngine;
++                                            return MlxrPrefs::get();
++                                        });
+     qmlRegisterSingletonType<StreamingPreferences>("StreamingPreferences", 1, 0,
+                                                    "StreamingPreferences",
+                                                    [](QQmlEngine* qmlEngine, QJSEngine*) -> QObject* {
+diff --git a/app/qml.qrc b/app/qml.qrc
+index 5c2c369..5e89302 100644
+--- a/app/qml.qrc
++++ b/app/qml.qrc
+@@ -4,6 +4,7 @@
+         <file>gui/PcView.qml</file>
+         <file>gui/AppView.qml</file>
+         <file>gui/SettingsView.qml</file>
++        <file>gui/XrSettingsView.qml</file>
+         <file>gui/StreamSegue.qml</file>
+         <file>gui/GamepadMapper.qml</file>
+         <file>gui/QuitSegue.qml</file>

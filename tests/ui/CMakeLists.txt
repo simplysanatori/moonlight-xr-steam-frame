@@ -4,6 +4,9 @@ set(UI_TEST_COMMON_INCLUDES ${PROJECT_SOURCE_DIR}/tests/xrcore ${PROJECT_SOURCE_
 set(PANEL_OUT ${PROJECT_BINARY_DIR}/panels)
 
 add_executable(mlxr-panel-test panel_render.c)
+# Native (lane artemis-settings): config.ini as the VR client reads it (tests/launcher uses it)
+add_executable(mlxr-settings-dump settings_dump.c)
+target_link_libraries(mlxr-settings-dump PRIVATE mlxr_ui)
 target_link_libraries(mlxr-panel-test PRIVATE mlxr_ui m)
 target_include_directories(mlxr-panel-test PRIVATE ${UI_TEST_COMMON_INCLUDES})
 target_compile_definitions(mlxr-panel-test PRIVATE PANEL_RENDER_MAIN=1)

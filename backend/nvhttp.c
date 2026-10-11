@@ -177,11 +177,14 @@ static mlxr_status map_curl(CURLcode rc, const char *what, const char *errbuf, m
     }
 }
 
-mlxr_status mlxr_http_get(mlxr_server *s, bool https, const char *command, const char *args, long timeout_ms,
-                          char **body, mlxr_error *err)
+/* Native (lane artemis-settings): GET, or POST with a body (Apollo's actions/clipboard); *http_out gets
+ * the HTTP status; an empty body is returned as "" (callers decide) */
+static mlxr_status http_request(mlxr_server *s, bool https, const char *command, const char *args, long timeout_ms,
+                                const char *post, size_t post_len, char **body, long *http_out, mlxr_error *err)
 {
     pthread_once(&curl_once, curl_init_once);
     *body = NULL;
+    *http_out = 0;
 
     if (https && (!s->pinned_pem || !s->https_port))
         return mlxr_fail(err, MLXR_E_ARG, 0, "HTTPS requested without a pinned server certificate / HTTPS port");
@@ -241,11 +244,22 @@ mlxr_status mlxr_http_get(mlxr_server *s, bool https, const char *command, const
         curl_easy_setopt(c, CURLOPT_SSLVERSION, (long)CURL_SSLVERSION_TLSv1_2);
     }
 
-    mlxr_log(2, "GET %s://<host>:%u/%s", https ? "https" : "http", port, command);
+    struct curl_slist *hdrs = NULL;
+    if (post) {
+        curl_easy_setopt(c, CURLOPT_POST, 1L);
+        curl_easy_setopt(c, CURLOPT_POSTFIELDS, post);
+        curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)post_len);
+        hdrs = curl_slist_append(hdrs, "Content-Type: text/plain");
+        hdrs = curl_slist_append(hdrs, "Expect:");
+        curl_easy_setopt(c, CURLOPT_HTTPHEADER, hdrs);
+    }
+    mlxr_log(2, "%s %s://<host>:%u/%s", post ? "POST" : "GET", https ? "https" : "http", port, command);
     CURLcode rc = curl_easy_perform(c);
     long http = 0;
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &http);
     curl_easy_cleanup(c);
+    curl_slist_free_all(hdrs);
+    *http_out = http;
     X509_free(pinned_x509);
     free(url);
 
@@ -258,12 +272,57 @@ mlxr_status mlxr_http_get(mlxr_server *s, bool https, const char *command, const
         free(b.p);
         return st;
     }
-    if (!b.p || b.n == 0) {
-        free(b.p);
+    *body = b.p ? b.p : calloc(1, 1);
+    return *body ? MLXR_OK : mlxr_fail(err, MLXR_E_NOMEM, 0, "oom");
+}
+
+mlxr_status mlxr_http_get(mlxr_server *s, bool https, const char *command, const char *args, long timeout_ms,
+                          char **body, mlxr_error *err)
+{
+    long http = 0;
+    mlxr_status st = http_request(s, https, command, args, timeout_ms, NULL, 0, body, &http, err);
+    if (st != MLXR_OK) return st;
+    if (!(*body)[0]) {
+        free(*body);
+        *body = NULL;
         return mlxr_fail(err, MLXR_E_XML, (int)http, "%s: empty response (HTTP %ld)", command, http);
     }
-    *body = b.p;
     return MLXR_OK;
+}
+
+/* ---- Native (lane artemis-settings): Apollo's clipboard (Artemis NvHTTP.getClipboard/sendClipboard).
+ * Apollo answers only a client with the clipboard permission (else 401) that is in a stream right now
+ * (else 403); text only. ---- */
+static mlxr_status clipboard_status(long http, mlxr_error *err)
+{
+    if (http == 200) return MLXR_OK;
+    if (http == 401) return mlxr_fail(err, MLXR_E_HTTP, 401, "clipboard: this client lacks Apollo's clipboard permission");
+    if (http == 403) return mlxr_fail(err, MLXR_E_HTTP, 403, "clipboard: the host sees no stream from this client");
+    if (http == 404) return mlxr_fail(err, MLXR_E_HTTP, 404, "clipboard: the host has no clipboard endpoint (not Apollo)");
+    return mlxr_fail(err, MLXR_E_HTTP, (int)http, "clipboard: HTTP %ld", http);
+}
+
+mlxr_status mlxr_server_get_clipboard(mlxr_server *s, char **text, mlxr_error *err)
+{
+    long http = 0;
+    mlxr_status st = http_request(s, true, "actions/clipboard", "type=text", 2000, NULL, 0, text, &http, err);
+    if (st != MLXR_OK) return st;
+    st = clipboard_status(http, err);
+    if (st != MLXR_OK) {
+        free(*text);
+        *text = NULL;
+    }
+    return st;
+}
+
+mlxr_status mlxr_server_set_clipboard(mlxr_server *s, const char *text, mlxr_error *err)
+{
+    long http = 0;
+    char *body = NULL;
+    mlxr_status st = http_request(s, true, "actions/clipboard", "type=text", 2000, text ? text : "",
+                                  text ? strlen(text) : 0, &body, &http, err);
+    free(body);
+    return st != MLXR_OK ? st : clipboard_status(http, err);
 }
 
 /* ---- serverinfo ---- */
@@ -434,10 +493,18 @@ mlxr_status mlxr_launch_query(int appid, const mlxr_launch_params *p, char *out,
     /* Using an FPS value over 60 makes GFE's SOPS fall back to 720p60; Sunshine does not need the hack. */
     int want = mlxr_launch_fps(p);
     int fps = (want > 60 && p->is_gfe) ? 0 : want;
+    /* Native (lane artemis-settings): Artemis's custom refresh rate (Apollo): a rate that is not a
+     * whole number goes in the mode as fps*1000, under the same cap; Apollo's virtual display and
+     * scale factor */
+    if (!p->is_gfe && p->fps_x1000 > 0 && p->fps_x1000 % 1000 != 0 && p->fps_x1000 <= mlxr_fps_clamp(1000, p->max_fps) * 1000)
+        fps = p->fps_x1000;
+    char apollo[64] = "";
+    if (p->scale_factor > 0) snprintf(apollo, sizeof apollo, "&scaleFactor=%d", p->scale_factor);
+    if (p->virtual_display) mlxr_strlcpy(apollo + strlen(apollo), "&virtualDisplay=1", sizeof apollo - strlen(apollo));
     int n = snprintf(out, cap,
-                     "appid=%d&mode=%dx%dx%d&additionalStates=1&sops=%d&rikey=%s&rikeyid=%d%s"
+                     "appid=%d&mode=%dx%dx%d%s&additionalStates=1&sops=%d&rikey=%s&rikeyid=%d%s"
                      "&localAudioPlayMode=%d&surroundAudioInfo=%d&remoteControllersBitmap=%d&gcmap=%d&gcpersist=%d%s",
-                     appid, p->width, p->height, fps, p->sops ? 1 : 0, rikey, (int)mlxr_launch_rikeyid(p),
+                     appid, p->width, p->height, fps, apollo, p->sops ? 1 : 0, rikey, (int)mlxr_launch_rikeyid(p),
                      p->hdr ? "&hdrMode=1&clientHdrCapVersion=0&clientHdrCapSupportedFlagsInUint32=0"
                               "&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1&clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0"
                             : "",

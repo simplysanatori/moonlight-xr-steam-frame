@@ -117,6 +117,24 @@ mlxr_status mlxr_computer_parse(const char *xml, size_t len, uint16_t http_port,
     copy_tag(x, "appversion", out->app_version, sizeof out->app_version);
     copy_tag(x, "GfeVersion", out->gfe_version, sizeof out->gfe_version);
     copy_tag(x, "gputype", out->gpu, sizeof out->gpu);
+
+    /* Native (lane artemis-settings): Apollo's extensions (Artemis NvHTTP.getComputerDetails) */
+    copy_tag(x, "VirtualDisplayCapable", tmp, sizeof tmp);
+    out->vdisplay_capable = strcmp(tmp, "true") == 0;
+    copy_tag(x, "VirtualDisplayDriverReady", tmp, sizeof tmp);
+    out->vdisplay_ready = out->vdisplay_capable && strcmp(tmp, "true") == 0;
+    copy_tag(x, "Permission", tmp, sizeof tmp);
+    {
+        char *end;
+        long long v = strtoll(tmp, &end, 10);
+        out->permission = (tmp[0] && *end == 0 && v >= 0 && v <= 0x7fffffffLL) ? (int)v : -1;
+    }
+    size_t nc = mlxr_xml_count(x, "ServerCommand");
+    for (size_t i = 0; i < nc && out->n_server_cmds < 8; i++) {
+        char *v = mlxr_xml_get_nth_text(x, "ServerCommand", i);
+        mlxr_strlcpy(out->server_cmds[out->n_server_cmds++], v ? v : "", sizeof out->server_cmds[0]);
+        free(v);
+    }
     mlxr_xml_free(x);
     return MLXR_OK;
 }

@@ -70,6 +70,27 @@ static void test_serverinfo(void)
     CHECK(c.modes[1].width == 1280 && c.modes[1].refresh_rate == 120);
     CHECK(c.modes[2].width == 1920);
     CHECK_EQ_INT(mlxr_parse_major_version(c.app_version), 7);
+    /* Native (lane artemis-settings): plain Sunshine has none of Apollo's fields */
+    CHECK(!c.vdisplay_capable && !c.vdisplay_ready);
+    CHECK_EQ_INT(c.permission, -1);
+    CHECK_EQ_INT(c.n_server_cmds, 0);
+    CHECK(!mlxr_computer_is_apollo(&c));
+    free(s);
+
+    /* Apollo (the owner's host, 2026-10-11, read-only serverinfo; address changed, a second command added) */
+    s = fx("serverinfo_apollo.xml");
+    CHECK_OK(mlxr_computer_parse(s, strlen(s), 47989, &c, &e));
+    CHECK_EQ_STR(c.app_version, "7.1.431.-1");   /* Apollo reports Sunshine's version */
+    CHECK(c.vdisplay_capable && c.vdisplay_ready);
+    CHECK_EQ_INT(c.permission, 118693632);
+    CHECK(c.permission & MLXR_PERM_CLIPBOARD_SET);
+    CHECK(c.permission & MLXR_PERM_CLIPBOARD_READ);
+    CHECK(c.permission & MLXR_PERM_SERVER_CMD);
+    CHECK(c.permission & MLXR_PERM_LAUNCH);
+    CHECK_EQ_INT(c.n_server_cmds, 2);
+    CHECK_EQ_STR(c.server_cmds[0], "Bubbles");
+    CHECK_EQ_STR(c.server_cmds[1], "Sleep PC");
+    CHECK(mlxr_computer_is_apollo(&c));
     free(s);
 
     s = fx("serverinfo_sunshine_busy.xml");
@@ -248,6 +269,33 @@ static void test_launch_query(void)
     CHECK_EQ_INT(mlxr_launch_query(1, &p, q, 20), MLXR_E_ARG);   /* truncation is an error */
 
     test_fps_cap();
+
+    /* Native (lane artemis-settings): Apollo's virtual display, scale factor, custom refresh rate */
+    p.is_gfe = false;
+    p.hdr = false;
+    p.fps = 90;
+    p.max_fps = 90;
+    CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
+    CHECK(strstr(q, "scaleFactor") == NULL && strstr(q, "virtualDisplay") == NULL);  /* not asked: not sent */
+    p.virtual_display = true;
+    p.scale_factor = 150;
+    CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
+    CHECK(strstr(q, "&mode=2560x1440x90&scaleFactor=150&virtualDisplay=1&additionalStates=1&") != NULL);
+    p.virtual_display = false;
+    p.scale_factor = 0;
+    p.fps = 60;
+    p.fps_x1000 = 59940;
+    CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
+    CHECK(strstr(q, "&mode=2560x1440x59940&additionalStates") != NULL);   /* Artemis: fps*1000 */
+    p.fps_x1000 = 60000;                                                    /* a whole rate stays as is */
+    CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
+    CHECK(strstr(q, "&mode=2560x1440x60&") != NULL);
+    p.fps = 72;
+    p.max_fps = 72;                                                         /* a 72 Hz headset */
+    p.fps_x1000 = 89910;
+    CHECK_OK(mlxr_launch_query(1, &p, q, sizeof q));
+    CHECK(strstr(q, "&mode=2560x1440x72&") != NULL);                        /* over the cap: the capped rate */
+    p.fps_x1000 = 0;
 
     int w, h, f;
     CHECK_OK(mlxr_parse_mode("2560x1440x90", &w, &h, &f));

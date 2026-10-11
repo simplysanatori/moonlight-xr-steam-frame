@@ -160,6 +160,19 @@ void gamepadsReleaseFramePad(void);
 int gamepadsAnnouncedMask(void);
 // For ConnListenerRumble / ConnListenerRumbleTriggers: a physical pad with the
 // number takes it, anything else goes on to gamepad mode's input/rumble
+// Native (lane artemis-settings): the flat launcher's Artemis-style gamepad settings. Process-wide,
+// may be set before gamepadsStart.
+//   rumble off: the host's rumble is dropped (physical pads and the headset controllers)
+//   deadzone: percent, -20..20 (Artemis seekbar_deadzone): positive is a radial dead zone on the
+//             physical pads' sticks, negative is dead zone compensation (the game's own dead zone is
+//             jumped over); 0 sends the sticks as read
+//   flip: A<->B and X<->Y on the physical pads (Artemis checkbox_flip_face_buttons)
+void gamepadsSetRumbleEnabled(int enabled);
+void gamepadsSetDeadzone(int percent);
+void gamepadsSetFlipFaceButtons(int flip);
+// The transform above on one packet (tests)
+void gpApplyStickOptions(PadOutPacket* pk, int deadzonePercent, int flip);
+
 void gamepadsHostRumble(unsigned short controllerNumber, unsigned short lowFreqMotor,
                         unsigned short highFreqMotor);
 void gamepadsHostRumbleTriggers(uint16_t controllerNumber, uint16_t leftTriggerMotor,

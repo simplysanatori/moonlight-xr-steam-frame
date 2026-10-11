@@ -1,7 +1,11 @@
 // Test-only UI hooks shared by the launcher and by the stock moonlight-qt 6.1.0 build that
 // tests/launcher/build-stock.sh makes for the screenshot comparison. Header only; does nothing
 // unless the environment asks. GPLv3.
-//   MLXR_LAUNCHER_PAGE=settings | apps[:N]      pushes that page (N = the PC's index in the grid)
+//   MLXR_LAUNCHER_PAGE=settings | apps[:N]      pushes that page (N = the PC's index in the grid; settings is
+//                                              the page main.qml's settingsPageUrl() names, if it has one)
+//   MLXR_LAUNCHER_SCROLL=Y                     scrolls the pushed page to content y (to see further down)
+//   MLXR_LAUNCHER_CLICK=name[,name]            clicks those items of the pushed page (a row: toggles it or opens
+//                                              its dialog), then calls the page's saveAll() if it has one
 //   MLXR_LAUNCHER_WINDOW=WxH                   resizes the window (to see a whole Settings page)
 //   MLXR_LAUNCHER_SCREENSHOT="/p/a.png@1500,/p/b.png@3000"   grabs the window at those times, then quits
 #pragma once
@@ -28,6 +32,13 @@ inline void pushPage(QQmlApplicationEngine& engine, QObject* root, const QString
         return;
     }
     QUrl url("qrc:/gui/SettingsView.qml");
+    // The launcher's main.qml picks the Settings page (the Artemis-style one in hand-off mode); the
+    // stock build has no such function and keeps the stock page
+    QVariant chosen;
+    if (root->metaObject()->indexOfMethod("settingsPageUrl()") >= 0 &&
+        QMetaObject::invokeMethod(root, "settingsPageUrl", Q_RETURN_ARG(QVariant, chosen)) && chosen.isValid()) {
+        url = QUrl(chosen.toString());
+    }
     QVariantMap props;
     if (page.startsWith("apps")) {
         url = QUrl("qrc:/gui/AppView.qml");
@@ -44,8 +55,28 @@ inline void pushPage(QQmlApplicationEngine& engine, QObject* root, const QString
         item->setParentItem(qobject_cast<QQuickItem*>(stack));
     }
     QQmlEngine::setObjectOwnership(obj, QQmlEngine::JavaScriptOwnership);
+    qInfo().noquote() << "MLXR_LAUNCHER_PAGE:" << url.toString();
     QJSValue js = engine.newQObject(stack);
     js.property("push").callWithInstance(js, { engine.newQObject(obj) });
+    const QString scroll = qEnvironmentVariable("MLXR_LAUNCHER_SCROLL");
+    if (!scroll.isEmpty()) {
+        QTimer::singleShot(400, obj, [obj, scroll]() { obj->setProperty("contentY", scroll.toDouble()); });
+    }
+    const QString click = qEnvironmentVariable("MLXR_LAUNCHER_CLICK");
+    if (!click.isEmpty()) {
+        QTimer::singleShot(700, obj, [obj, click]() {
+            for (const QString& name : click.split(',', Qt::SkipEmptyParts)) {
+                QObject* target = obj->findChild<QObject*>(name);
+                if (!target || !QMetaObject::invokeMethod(target, "clicked")) {
+                    qWarning() << "MLXR_LAUNCHER_CLICK: no clickable" << name;
+                }
+            }
+            // a page that can save on demand does (the Artemis-style page): what the clicks changed
+            if (obj->metaObject()->indexOfMethod("saveAll()") >= 0) {
+                QMetaObject::invokeMethod(obj, "saveAll");
+            }
+        });
+    }
 }
 
 inline void install(QQmlApplicationEngine& engine)

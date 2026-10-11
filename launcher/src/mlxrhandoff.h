@@ -7,6 +7,7 @@
 //   makePlan()       the exact command line: --host UUID --app ID --mode WxHxFPS --bitrate KBPS ...
 //   run()            runs it, keeps the Qt UI alive meanwhile, reports how it ended
 //   seedLauncherConfig()   first run only: copies Moonlight Qt's (flatpak) config
+//   (lane artemis-settings) the Artemis-style Settings page's own settings: mlxrprefs.h
 #pragma once
 
 #include <QString>
@@ -24,6 +25,7 @@ struct Plan {
     QString program;
     QStringList arguments;
     QString workingDir;
+    bool clipboardSync = false; // Artemis's Smart Clipboard Sync (Apollo): the clipboard files below
 };
 
 struct Result {

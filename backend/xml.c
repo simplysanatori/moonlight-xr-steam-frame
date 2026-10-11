@@ -100,6 +100,14 @@ char *mlxr_xml_get_nth(const mlxr_xml *x, const char *tag, size_t idx, const cha
     return NULL;
 }
 
+/* Native (lane artemis-settings): repeated elements such as Apollo's <ServerCommand> */
+char *mlxr_xml_get_nth_text(const mlxr_xml *x, const char *tag, size_t idx)
+{
+    if (!x) return NULL;
+    xmlNodePtr n = find_nth(x, tag, idx);
+    return n ? text_of(n) : NULL;
+}
+
 bool mlxr_xml_status(const mlxr_xml *x, int *code, char *msg, size_t cap)
 {
     if (!x) return false;

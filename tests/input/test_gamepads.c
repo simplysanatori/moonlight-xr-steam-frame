@@ -507,7 +507,40 @@ static void testThreads(void) {
     gpDestroy(&g);
 }
 
+// Native (lane artemis-settings): Artemis's dead zone and face button flip
+static void testStickOptions(void) {
+    PadOutPacket pk;
+    memset(&pk, 0, sizeof(pk));
+    pk.leftStickX = 1000;                     // inside a 5 % dead zone (1638)
+    pk.rightStickX = 32767;
+    pk.buttonFlags = A_FLAG | X_FLAG | PLAY_FLAG;
+    PadOutPacket o = pk;
+    gpApplyStickOptions(&o, 0, 0);
+    CHECK(memcmp(&o, &pk, sizeof(o)) == 0);   // off: as read
+    gpApplyStickOptions(&o, 5, 0);
+    CHECK(o.leftStickX == 0 && o.leftStickY == 0);
+    CHECK(o.rightStickX >= 32766);            // full deflection stays full
+    o = pk;
+    o.leftStickX = 16384;
+    gpApplyStickOptions(&o, 10, 0);
+    CHECK(o.leftStickX > 14000 && o.leftStickX < 16384);  // rescaled past the dead zone
+    o = pk;
+    gpApplyStickOptions(&o, -10, 0);          // compensation: a small push starts past 10 %
+    CHECK(o.leftStickX > 3276 && o.leftStickX < 4400);
+    CHECK(o.leftStickY == 0);
+    o = pk;
+    o.leftStickX = 0;
+    gpApplyStickOptions(&o, -10, 0);
+    CHECK(o.leftStickX == 0);                 // rest stays rest
+    o = pk;
+    gpApplyStickOptions(&o, 0, 1);
+    CHECK(o.buttonFlags == (B_FLAG | Y_FLAG | PLAY_FLAG));
+    gpApplyStickOptions(&o, 0, 1);
+    CHECK(o.buttonFlags == pk.buttonFlags);
+}
+
 int main(void) {
+    testStickOptions();
     testArrivalAndState();
     testNumbersAndMask();
     testDedup();

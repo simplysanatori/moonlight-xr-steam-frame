@@ -60,6 +60,12 @@ int main(void) {
         CHECK(evmouse_button(BTN_SIDE) == BUTTON_X1 && evmouse_button(BTN_BACK) == BUTTON_X1);
         CHECK(evmouse_button(BTN_EXTRA) == BUTTON_X2 && evmouse_button(BTN_FORWARD) == BUTTON_X2);
         CHECK(evmouse_button(BTN_TOUCH) == 0 && evmouse_button(KEY_A) == 0);
+        // Native (lane artemis-settings): --no-mouse-nav-buttons drops back/forward only
+        evmouse_set_nav_buttons(0);
+        CHECK(evmouse_button(BTN_SIDE) == 0 && evmouse_button(BTN_EXTRA) == 0 && evmouse_button(BTN_FORWARD) == 0);
+        CHECK(evmouse_button(BTN_LEFT) == BUTTON_LEFT && evmouse_button(BTN_MIDDLE) == BUTTON_MIDDLE);
+        evmouse_set_nav_buttons(1);
+        CHECK(evmouse_button(BTN_SIDE) == BUTTON_X1);
     }
 
     // two mice: 0 with a hi-res wheel, 1 without
