@@ -92,6 +92,14 @@ int xrRoomResident(XrCtx* ctx);
 // Native: frames the room was drawn on and frames it kept an older image on,
 // since the last call (the 5 s stats line)
 void xrRoomTakeCounts(int* drawn, int* stale);
+// Native: the room-judder A/B test's mode this frame (xr_room.c), as before
+// unless the test is on
+#define ROOM_AB_AS_BEFORE 0
+#define ROOM_AB_AHEAD 1
+#define ROOM_AB_BEHIND 2
+#define ROOM_AB_NO_PICTURE_LAYER 3
+#define ROOM_AB_BLENDED 4
+int xrRoomAbMode(void);
 int xrRoomLoading(XrCtx* ctx);
 // Rooms freed since the start and rooms waiting on the GPU (tests)
 int xrRoomsRetired(XrCtx* ctx);
