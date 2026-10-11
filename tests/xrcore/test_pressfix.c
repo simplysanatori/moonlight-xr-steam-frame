@@ -260,7 +260,7 @@ static void testEnv(void) {
     unsetenv("MLXR_DOUBLE_CLICK_PX");
     unsetenv("MLXR_STICK_RIGHT_CLICK");
     CHECK(pressStabiliseFromEnv() == 1);
-    CHECK_NEAR(doubleClickPxFromEnv(), 24.0, 1e-6);
+    CHECK_NEAR(doubleClickPxFromEnv(), PRESSFIX_DOUBLE_DEFAULT_PX, 1e-6);
     CHECK(stickRightClickFromEnv() == 1);
     setenv("MLXR_PRESS_STABILISE", "0", 1);
     setenv("MLXR_DOUBLE_CLICK_PX", "0", 1);
@@ -273,11 +273,11 @@ static void testEnv(void) {
     CHECK(pressStabiliseFromEnv() == 1);
     CHECK_NEAR(doubleClickPxFromEnv(), 40.0, 1e-6);
     setenv("MLXR_DOUBLE_CLICK_PX", "-1", 1);
-    CHECK_NEAR(doubleClickPxFromEnv(), 24.0, 1e-6);
+    CHECK_NEAR(doubleClickPxFromEnv(), PRESSFIX_DOUBLE_DEFAULT_PX, 1e-6);
     setenv("MLXR_DOUBLE_CLICK_PX", "x", 1);
-    CHECK_NEAR(doubleClickPxFromEnv(), 24.0, 1e-6);
+    CHECK_NEAR(doubleClickPxFromEnv(), PRESSFIX_DOUBLE_DEFAULT_PX, 1e-6);
     setenv("MLXR_DOUBLE_CLICK_PX", "", 1);
-    CHECK_NEAR(doubleClickPxFromEnv(), 24.0, 1e-6);
+    CHECK_NEAR(doubleClickPxFromEnv(), PRESSFIX_DOUBLE_DEFAULT_PX, 1e-6);
     unsetenv("MLXR_PRESS_STABILISE");
     unsetenv("MLXR_DOUBLE_CLICK_PX");
     unsetenv("MLXR_STICK_RIGHT_CLICK");

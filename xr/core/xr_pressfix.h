@@ -13,9 +13,9 @@
 //    so a drag is not held back. A release that never left the circle is sent
 //    at the press point too, so a click stays a click.
 //  - Double-click snap: a press within 500 ms of the last click's release and
-//    within MLXR_DOUBLE_CLICK_PX (24) host pixels of where it was sent goes at
+//    within MLXR_DOUBLE_CLICK_PX (5) host pixels of where it was sent goes at
 //    exactly that point (and so does its release) until the aim leaves the
-//    24 px circle, when it goes live (a drag).
+//    5 px circle, when it goes live (a drag).
 #ifndef MLXR_XR_PRESSFIX_H
 #define MLXR_XR_PRESSFIX_H
 
@@ -26,7 +26,7 @@
 #define PRESSFIX_MAX_BACK_NS 100000000LL // a slow half pull is not a jolt: look back at most this far
 #define PRESSFIX_DEADZONE_PX 3.0f        // live again once the aim is this far from the press point
 #define PRESSFIX_DOUBLE_NS 500000000LL   // Windows' default double-click time
-#define PRESSFIX_DOUBLE_DEFAULT_PX 24.0f
+#define PRESSFIX_DOUBLE_DEFAULT_PX 5.0f // owner: 5 px (2026-10-11), was 24
 
 typedef struct {
     int64_t t[PRESSFIX_HISTORY];
