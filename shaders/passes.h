@@ -41,6 +41,9 @@ extern "C" {
 // the controller model's (ROOM_MESH_VERTEX_FLOATS)
 #define MLXR_ROOM_VERTEX_FLOATS 10
 #define MLXR_MODEL_VERTEX_FLOATS 11
+// New: a vertex of the textured controller model (tools/frame-models, MXFM):
+// position 3, normal 3, tangent 4 (w the bitangent's sign), uv 2
+#define MLXR_MODEL_TEX_VERTEX_FLOATS 12
 // The format of every intermediate a pass writes and a later pass samples:
 // downscale, upsample, offset, ambi and glow edge, as upstream's GL_RGBA8
 #define MLXR_PASS_FORMAT VK_FORMAT_R8G8B8A8_UNORM
@@ -100,6 +103,7 @@ typedef enum MlxrPassId {
     MLXR_PASS_MODEL,        // MODEL_VERTEX_SRC + MODEL_FRAGMENT_SRC
     MLXR_PASS_SUPERSAMPLE,  // new: app side supersampling (no FB layer settings on the Frame)
     MLXR_PASS_PANEL,        // new: texture on a flat or curved surface (no cylinder layers on the Frame)
+    MLXR_PASS_MODEL_TEX,    // new: the textured controller model (the Frame's own, mlxr_pass_model with textured)
     MLXR_PASS_COUNT
 } MlxrPassId;
 
@@ -233,6 +237,20 @@ void mlxr_pass_room(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, con
 
 // MODEL_*_SRC: both eyes, each shown hand at its grip, over a clear to
 // nothing (premultiplied as it stands), with its own depth.
+//
+// Moonlight XR Native: textured 1 draws the Steam Frame's own controllers as
+// SteamVR ships them (MLXR_PASS_MODEL_TEX, MLXR_MODEL_TEX_VERTEX_FLOATS a
+// vertex): each hand samples its colour image (an _SRGB format, the ambient
+// occlusion in alpha) and its surface image (UNORM: tangent space normal,
+// OpenGL green, roughness in alpha), both with mips, lit by a key light and a
+// sky/ground fill fixed in the room, with GGX highlights and a reflection of
+// that sky, so the near black plastic still shows its shape. A hand's parts
+// (handPartCount > 0) are drawn one by one, each moved by its own transform in
+// grip space (the moving buttons); none: the hand's whole range at once.
+typedef struct MlxrModelPart {
+    uint32_t firstIndex, indexCount; // into the index buffer (absolute)
+    float transform[16];             // column major, grip space; rigid
+} MlxrModelPart;
 typedef struct MlxrModelParams {
     VkBuffer vertices;     // MLXR_MODEL_VERTEX_FLOATS floats a vertex
     VkBuffer indices;
@@ -251,6 +269,14 @@ typedef struct MlxrModelParams {
     float model[2][16];    // per hand, controllerModelMatrix()
     VkImageView depth;
     VkFormat depthFormat;
+    // Moonlight XR Native: the textured path (perHand must be 1)
+    int textured;
+    VkImageView handColour[2];  // R8G8B8A8_SRGB: base colour, AO in alpha
+    VkImageView handSurface[2]; // R8G8B8A8_UNORM: normal xyz, roughness in alpha
+    uint32_t handPartCount[2];
+    const MlxrModelPart* handParts[2];
+    int debugView;              // 0 lit; 1 normals; 2 lit without the normal map; 3 base colour * AO
+    float gain;                 // the base colour times this in linear light (0: 1)
 } MlxrModelParams;
 void mlxr_pass_model(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrModelParams* m);
 

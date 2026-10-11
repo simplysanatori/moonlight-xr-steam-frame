@@ -52,7 +52,7 @@ install -m755 tools/bug-report.sh "$ROOT/app/bug-report.sh"
 mkdir -p "$ROOT/app/docs/probe" && install -m644 docs/probe/SUMMARY.md "$ROOT/app/docs/probe/SUMMARY.md"
 cp -a assets "$ROOT/app/assets"
 # Valve's models, converted: made by install.sh on the owner's machine, never shipped
-rm -f "$ROOT"/app/assets/models/frame_controller_*.room
+rm -f "$ROOT"/app/assets/models/frame_controller_*
 # the converter itself is ours; install.sh runs it against the SteamVR on the target
 install -m755 tools/frame-models/frame-controller-models.py "$ROOT/frame-controller-models.py"
 install -m755 packaging/install.sh "$ROOT/install.sh"
@@ -83,7 +83,7 @@ done
 tail -n 4 "$TMP/install.2.log"
 # (install.sh makes the Frame controller models from the local SteamVR, so the install may have them and the tarball never does)
 [ -z "$(find "$U" -name 'frame_controller_*' -print -quit)" ] || { echo "the tarball holds a Steam Frame controller model"; exit 1; }
-diff -r "$U/app" "$TMP/inst/app" -x LICENSE.txt -x CREDITS.md -x 'frame_controller_*.room' >/dev/null || { echo "installed tree differs from the tarball"; diff -rq "$U/app" "$TMP/inst/app" -x 'frame_controller_*.room' | head; exit 1; }
+diff -r "$U/app" "$TMP/inst/app" -x LICENSE.txt -x CREDITS.md -x 'frame_controller_*' >/dev/null || { echo "installed tree differs from the tarball"; diff -rq "$U/app" "$TMP/inst/app" -x 'frame_controller_*' | head; exit 1; }
 for f in LICENSE.txt CREDITS.md; do cmp "$U/$f" "$TMP/inst/app/$f"; done
 MLXR_CONFIG_DIR="$TMP/cfg" "$TMP/inst/app/mlxr-cli" 2>&1 | head -n 3 || true
 if command -v pacman >/dev/null; then

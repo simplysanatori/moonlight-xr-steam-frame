@@ -9,7 +9,8 @@
 //           (1728 x 1728 a eye), from timestamps, median of 25
 //   glow    the colour sample, the letterbox detection and the glow from a
 //           letterboxed two colour picture; the redraw on a still picture
-//   frame_models  the controller model loader: the Steam Frame's per-hand pair
+//   frame_models  the controller model loader: the Steam Frame's per-hand pair (native: textured
+//                 .model preferred over painted .room)
 //           (written here as tiny meshes) when both parse, each hand its own
 //           range and not mirrored, else the generic controller; a corrupt
 //           pair with no generic one is a failed load, not a crash
@@ -808,6 +809,37 @@ static void writeTriRoom(const char* path, float size, float shiftX, const float
     fclose(f);
 }
 
+// Native: a textured .model (MXFM 1) of one 10 cm square facing +z, moved
+// shiftX along x, one component, a 4 x 4 texture of one colour (sRGB bytes)
+static void writeQuadModel(const char* path, float shiftX, const uint8_t rgb[3]) {
+    FILE* f = fopen(path, "wb");
+    if (!f) return;
+    uint32_t head[8] = { 0x4d46584d /* 'MXFM' */, 1, 4, 6, 1, 4, 4, 0 };
+    fwrite(head, 4, 8, f);
+    unsigned char rec[208];
+    memset(rec, 0, sizeof(rec));
+    snprintf((char*)rec, 32, "body");
+    uint32_t u[4] = { 0, 6, 0, 0 };
+    memcpy(rec + 64, u, sizeof(u));
+    fwrite(rec, 1, sizeof(rec), f);
+    const float p[4][2] = { { -0.05f, -0.05f }, { 0.05f, -0.05f }, { 0.05f, 0.05f }, { -0.05f, 0.05f } };
+    for (int i = 0; i < 4; i++) {
+        float v[12] = { p[i][0] + shiftX, p[i][1], 0, 0, 0, 1, 1, 0, 0, -1, p[i][0] > 0 ? 1.0f : 0.0f, p[i][1] > 0 ? 0.0f : 1.0f };
+        fwrite(v, 4, 12, f);
+    }
+    uint32_t idx[6] = { 0, 1, 2, 0, 2, 3 };
+    fwrite(idx, 4, 6, f);
+    for (int i = 0; i < 16; i++) {
+        uint8_t c[4] = { rgb[0], rgb[1], rgb[2], 255 };
+        fwrite(c, 1, 4, f);
+    }
+    for (int i = 0; i < 16; i++) {
+        uint8_t n[4] = { 128, 128, 255, 128 };
+        fwrite(n, 1, 4, f);
+    }
+    fclose(f);
+}
+
 static void stageAssets(const char* dir) {
     char cmd[1600];
     snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models' && cp '%s/models/controller.room' '%s/models/'", dir,
@@ -875,6 +907,7 @@ static void frameModelsGroup(void) {
     const char* dir = "/tmp/mlxr-frame-models-test";
     char path[700];
     const float red[3] = { 1, 0, 0 }, blue[3] = { 0, 0, 1 };
+    FILE* f = NULL;
 
     // Nothing but the generic controller: as before, one mesh for both hands
     stageAssets(dir);
@@ -921,6 +954,49 @@ static void frameModelsGroup(void) {
     m5_image_free(c, &s.depth);
     unloadWith(c);
 
+    // Native: the textured pair beside the painted one: the textured one,
+    // drawn through xrModelRecord (MLXR_PASS_MODEL_TEX), each hand its own,
+    // not mirrored, a red and a blue texture coming out red and blue
+    const uint8_t texRed[3] = { 220, 20, 20 }, texBlue[3] = { 20, 20, 220 };
+    snprintf(path, sizeof(path), "%s/models/frame_controller_left.model", dir);
+    writeQuadModel(path, 0.15f, texRed);
+    snprintf(path, sizeof(path), "%s/models/frame_controller_right.model", dir);
+    writeQuadModel(path, 0.15f, texBlue);
+    c = ctxWithAssets(dir);
+    CHECK(c->modelReady && c->model && c->model->perHand && c->model->textured);
+    CHECK(c->model->vertexCount == 8 && c->model->indexCount == 12 && c->model->handFirstIndex[1] == 6);
+    memset(&s, 0, sizeof(s));
+    s.w = 256;
+    s.h = 256;
+    m5_image(&g, c, &s.colour, 2 * s.w, s.h, VK_FORMAT_R8G8B8A8_SRGB,
+             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+    m5_image(&g, c, &s.depth, 2 * s.w, s.h, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+             VK_IMAGE_ASPECT_DEPTH_BIT);
+    s.views[0] = m5_view(60.0f, s.w, s.h, 0.0f);
+    s.views[1] = s.views[0];
+    for (int e = 0; e < 2; e++) c->modelViews[e] = s.views[e];
+    handColour(c, &s, HAND_LEFT, &r, &b, &n, &xl);
+    printf("  textured left hand: %d px, red %.0f blue %.0f, mean x %.1f of %d\n", n, r, b, xl, s.w);
+    CHECK(n > 1000 && r > b + 5);
+    handColour(c, &s, HAND_RIGHT, &r, &b, &n, &xr);
+    printf("  textured right hand: %d px, red %.0f blue %.0f, mean x %.1f of %d\n", n, r, b, xr, s.w);
+    CHECK(n > 1000 && b > r + 5);
+    CHECK(xl > s.w / 2 + 20 && xr > s.w / 2 + 20);
+    m5_image_free(c, &s.colour);
+    m5_image_free(c, &s.depth);
+    unloadWith(c);
+    // A textured half that does not parse: the painted pair again
+    snprintf(path, sizeof(path), "%s/models/frame_controller_right.model", dir);
+    f = fopen(path, "wb");
+    fputs("not a model", f);
+    fclose(f);
+    c = ctxWithAssets(dir);
+    CHECK(c->modelReady && c->model && c->model->perHand && !c->model->textured);
+    unloadWith(c);
+    remove(path);
+    snprintf(path, sizeof(path), "%s/models/frame_controller_left.model", dir);
+    remove(path);
+
     // One hand missing: the generic one, both hands
     snprintf(path, sizeof(path), "%s/models/frame_controller_left.room", dir);
     remove(path);
@@ -935,7 +1011,7 @@ static void frameModelsGroup(void) {
     unloadWith(c);
     writeTriRoom(path, 0.10f, 0.15f, red, 0);
     snprintf(path, sizeof(path), "%s/models/frame_controller_right.room", dir);
-    FILE* f = fopen(path, "wb");
+    f = fopen(path, "wb");
     fputs("this is not a mesh", f);
     fclose(f);
     c = ctxWithAssets(dir);

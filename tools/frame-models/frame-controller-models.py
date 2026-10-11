@@ -3,27 +3,45 @@
 
 The client can draw a model at each hand's grip (Settings, controller model). It ships one generic
 controller; on the Frame this reads the real controllers' models that SteamVR's own frame_controller
-driver keeps on every Frame and writes them as `.room` meshes (MXR3, painted from vertex colours),
-which the client picks up in place of the generic one. Valve's models are only read from your own
-SteamVR install on this machine, never redistributed: nothing this writes belongs in git or in a
-release (packaging/install.sh runs it at install time).
+driver keeps on every Frame and writes them as textured `.model` files (MXFM, below), which the
+client picks up in place of the generic one. Valve's models are only read from your own SteamVR
+install on this machine, never redistributed: nothing this writes belongs in git or in a release
+(packaging/install.sh runs it at install time).
 
-What is converted, per hand:
-  - every visible component mesh (body, sticks, buttons, trigger, grips, bumper), triangulated, in
-    OpenXR grip space (the model's `openxr_grip` component), the space the client draws a model in;
-  - simplified toward 4000 triangles per hand (MLXR_FRAME_MODEL_TRIANGLES; texture seams leave the
-    right hand a little above that);
-  - the base colour texture with its ambient occlusion baked in (times MLXR_FRAME_MODEL_GAIN in linear
-    light, default 1), then carried onto the vertices:
-    each vertex takes the average of that texture under its own hat function, over the triangles
-    around it in its own texture chart, so colours do not bleed across seams.
+What is converted, per hand, at full fidelity (as SteamVR draws them):
+  - every visible component mesh (body, sticks, buttons, trigger, grips, bumper), every triangle,
+    each component its own index range, in OpenXR grip space (the model's `openxr_grip` component),
+    the space the client draws a model in; positions, normals, a tangent frame for the normal map
+    (per vertex, from the texture coordinates) and the texture coordinates;
+  - the textures as SteamVR ships them, at their own size (2048 on the Frame): base colour (sRGB)
+    with the ambient occlusion in its alpha, and the tangent space normal map (turned from Valve's
+    DirectX green to OpenGL's) with the roughness in its alpha. The metalness map is all zero on the
+    Frame's plastic and is left out;
+  - each component's motion as SteamVR's model describes it (translate, rotate, joystick: pivot,
+    axis, range, the input path that drives it), in grip space, for the client to animate.
+
+Debugging knobs: MLXR_FRAME_MODEL_TRIANGLES=N simplifies each hand toward N triangles with the quadric
+collapse from the previous, vertex coloured version (0 or unset: every triangle);
+MLXR_FRAME_MODEL_TEXTURE=N scales the textures to N x N (0 or unset: as shipped).
+
+The file (little endian, every field 4 bytes; rooms/room_gpu.c reads it, tests/frame-models checks it):
+  header      'MXFM', version 1, vertexCount, indexCount, componentCount, texWidth, texHeight, flags 0
+  components  componentCount records of 208 bytes: name (32 bytes, NUL padded), input path (32
+              bytes, NUL padded, '' for none), firstIndex, indexCount, motion type (0 none,
+              1 translate, 2 rotate, 3 joystick), 0, then 32 floats of motion (MOTION_* below)
+  vertices    vertexCount x 12 floats: position 3, normal 3, tangent 4 (w: the bitangent's sign,
+              B = w * cross(N, T) runs along +v), uv 2 (v from the top row of the textures down)
+  indices     indexCount uint32, into this file's vertices, triangles
+  textures    texWidth x texHeight RGBA8 rows from the top: colour (sRGB rgb, linear AO a), then
+              surface (normal rgb, OpenGL green, roughness a)
 
 Ported from the owner's Wiicompiled_VR-PLUS-steam-frame/steam-frame/frame-controller-models.py
-(GPLv3): the grip transform, the component walk and the quadric simplifier are that script's. The
-output format and the vertex colours are this client's; the controller motions are not converted.
+(GPLv3): the grip transform, the component walk, the motion reading and the quadric simplifier are
+that script's. The output format is this client's.
 
 usage: python3 -I frame-controller-models.py OUTDIR [SteamVR rendermodels dir]
-writes OUTDIR/frame_controller_left.room and OUTDIR/frame_controller_right.room
+writes OUTDIR/frame_controller_left.model and OUTDIR/frame_controller_right.model (and removes the
+vertex coloured frame_controller_{left,right}.room an older version wrote there)
 Needs Python 3 and GdkPixbuf (python3-gobject), both on SteamOS. No numpy or PIL.
 """
 import json
@@ -33,18 +51,30 @@ import struct
 import sys
 
 RENDERMODELS = '/opt/steamvr/drivers/frame_controller/resources/rendermodels'
-TEXTURE_SIZE = 1024
-TRIANGLES = int(os.environ.get('MLXR_FRAME_MODEL_TRIANGLES', '4000'))  # per hand
-# The Frame's plastic is near black (about sRGB 10 of 255) and the client lights a vertex colour with
-# one diffuse light and no gloss, so it reads as a silhouette in a dark room. A gain above 1 lifts
-# it toward what the glossy original looks like; 1 is the texture as SteamVR ships it.
-GAIN = float(os.environ.get('MLXR_FRAME_MODEL_GAIN', '1'))
+TRIANGLES = int(os.environ.get('MLXR_FRAME_MODEL_TRIANGLES', '0') or 0)  # per hand; 0: all of them
+TEXTURE = int(os.environ.get('MLXR_FRAME_MODEL_TEXTURE', '0') or 0)      # 0: as shipped
 HANDS = ('left', 'right')
+VERSION = 1
+VERTEX_FLOATS = 12
+COMPONENT_BYTES = 208
+NAME_BYTES = 32
+MOTION_FLOATS = 32
+MOTION_TYPES = {'translate': 1, 'rotate': 2, 'joystick': 3}
+# The motion floats: what each type reads (all in grip space, metres and degrees)
+MOTION_ORIGIN = 0        # 3: rotate pivot, joystick centre
+MOTION_AXIS = 3          # 3: translate direction, rotate axis (unit)
+MOTION_RANGE = 6         # 2: value_mapping, the offset (m) or angle (deg) at input 0 and at 1
+MOTION_PRESSED = 8       # 1: the angle a click forces (pressed_value_override), NaN for none
+MOTION_FRAME = 9         # 9: joystick frame (columns: its x, y, z axes in grip space)
+MOTION_ROT_X = 18        # 2: joystick_rotation_x, degrees at x = -1 and x = +1
+MOTION_ROT_Y = 20        # 2: joystick_rotation_y, degrees at y = -1 and y = +1
+MOTION_PRESS = 22        # 3: joystick press_translate, in grip space
 
 
 # --- small vector maths -------------------------------------------------------------------------
 
 def sub(a, b): return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+def add(a, b): return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 def dot(a, b): return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 def cross(a, b): return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 def scale(a, s): return [a[0] * s, a[1] * s, a[2] * s]
@@ -92,63 +122,63 @@ def read_obj(path):
     return tris
 
 
-def load_pixbuf(path):
+def load_pixels(path, size):
+    """The image's RGB bytes, tight rows from the top, at size x size (None: as it is). Returns
+    (bytes, width, height)."""
     import gi
     gi.require_version('GdkPixbuf', '2.0')
     from gi.repository import GdkPixbuf
     pb = GdkPixbuf.Pixbuf.new_from_file(path)
-    return pb.scale_simple(TEXTURE_SIZE, TEXTURE_SIZE, GdkPixbuf.InterpType.HYPER)
+    if size and (pb.get_width(), pb.get_height()) != size:
+        pb = pb.scale_simple(size[0], size[1], GdkPixbuf.InterpType.HYPER)
+    w, h, n, stride = pb.get_width(), pb.get_height(), pb.get_n_channels(), pb.get_rowstride()
+    px = pb.get_pixels()
+    if n == 3 and stride == w * 3:
+        return bytes(px[:w * h * 3]), w, h
+    rgb = bytearray(w * h * 3)
+    for y in range(h):  # padded rows or an alpha channel: drop them
+        row = px[y * stride:y * stride + w * n]
+        for k in range(3):
+            rgb[y * w * 3 + k:(y + 1) * w * 3:3] = row[k::n]
+    return bytes(rgb), w, h
 
 
-SRGB_TO_LINEAR = [((i / 255.0) / 12.92 if i / 255.0 <= 0.04045 else ((i / 255.0 + 0.055) / 1.055) ** 2.4)
-                  for i in range(256)]
+def interleave(rgb, a, texels):
+    """RGBA bytes from RGB bytes and the first channel of another RGB image (both tight)."""
+    out = bytearray(texels * 4)
+    out[0::4] = rgb[0::3]
+    out[1::4] = rgb[1::3]
+    out[2::4] = rgb[2::3]
+    out[3::4] = a[0::3]
+    return bytes(out)
 
 
-def linear_to_srgb(c):
-    c = min(1.0, max(0.0, c))
-    return c * 12.92 if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+def textures(directory, prefix):
+    """(colour+AO, normal+roughness, width, height): base colour (needed), the rest as flat
+    stand-ins when SteamVR has none."""
+    first = None if not TEXTURE else (TEXTURE, TEXTURE)
+    colour, w, h = load_pixels(os.path.join(directory, f'{prefix}_color.png'), first)
+    texels = w * h
 
-
-class Texture:
-    """Base colour times ambient occlusion (both from SteamVR's files), sampled bilinearly in linear
-    light. Texture rows run top down; an OBJ's V runs bottom up."""
-
-    def __init__(self, directory, prefix):
-        colour = load_pixbuf(os.path.join(directory, f'{prefix}_color.png'))
+    def optional(kind, flat):
         try:
-            ao = load_pixbuf(os.path.join(directory, f'{prefix}_ao.png'))
-        except Exception:
-            ao = None  # a model without AO is drawn as its base colour
-        n = TEXTURE_SIZE
-        cp, cs, cc = colour.get_pixels(), colour.get_rowstride(), colour.get_n_channels()
-        ap, as_, ac = (ao.get_pixels(), ao.get_rowstride(), ao.get_n_channels()) if ao else (None, 0, 0)
-        lin = SRGB_TO_LINEAR
-        # Linear RGB per texel, the AO multiplied into the sRGB bytes as the fork does
-        self.texels = []
-        for y in range(n):
-            crow, arow = y * cs, y * as_
-            row = []
-            for x in range(n):
-                c = crow + x * cc
-                a = ap[arow + x * ac] if ap is not None else 255
-                row.append((lin[cp[c] * a // 255], lin[cp[c + 1] * a // 255], lin[cp[c + 2] * a // 255]))
-            self.texels.append(row)
+            return load_pixels(os.path.join(directory, f'{prefix}_{kind}.png'), (w, h))[0]
+        except Exception:  # GLib.Error for a missing or broken file: drawn without it
+            return bytes(flat) * texels
 
-    def sample(self, u, v):
-        n = TEXTURE_SIZE
-        x = (u % 1.0) * n - 0.5
-        y = ((1.0 - v) % 1.0) * n - 0.5
-        x0, y0 = math.floor(x), math.floor(y)
-        fx, fy = x - x0, y - y0
-        x0, x1 = x0 % n, (x0 + 1) % n
-        y0, y1 = y0 % n, (y0 + 1) % n
-        t = self.texels
-        a, b, c, d = t[y0][x0], t[y0][x1], t[y1][x0], t[y1][x1]
-        w = ((1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy)
-        return tuple(a[i] * w[0] + b[i] * w[1] + c[i] * w[2] + d[i] * w[3] for i in range(3))
+    ao = optional('ao', (255, 255, 255))
+    normal = optional('normal', (128, 128, 255))
+    rough = optional('rough', (128, 128, 128))
+    # Valve's normal maps have DirectX's green (+g down the texture); the client's shader reads
+    # OpenGL's (+g up the texture, along +v). Measured: the red channel follows -d(AO)/du and the
+    # green +d(AO)/d(row), across both hands.
+    flip = bytes(255 - i for i in range(256))
+    normal = bytearray(normal)
+    normal[1::3] = normal[1::3].translate(flip)
+    return interleave(colour, ao, texels), interleave(bytes(normal), rough, texels), w, h
 
 
-# --- simplification -----------------------------------------------------------------------------
+# --- simplification (debugging only) ------------------------------------------------------------
 
 def simplify(tris, target):
     """Quadric error half-edge collapse (Garland and Heckbert) down to about `target` triangles.
@@ -287,74 +317,80 @@ def simplify(tris, target):
 
 # --- one hand -----------------------------------------------------------------------------------
 
-def build_vertices(tris, tex):
-    """Welds the corners of tris (position, uv, normal, in grip space) into vertices and paints each
-    with the texture under its hat function: the average over the triangles around it, in its own
-    chart (the key holds the UV, so a seam keeps its two sides apart), of the texture weighted by
-    the triangle's area and by how much of the point is this vertex's barycentric share."""
-    index, verts, wsum, csum, indices = {}, [], [], [], []
+def build_vertices(tris, first_vertex):
+    """Welds the corners of tris (position, uv, normal, in grip space) into vertices and gives each a
+    tangent frame (Lengyel: the triangles' dP/du summed per vertex, made orthogonal to the normal,
+    the bitangent's sign from dP/dv). Returns (vertex tuples, indices from first_vertex)."""
+    index, pos, nrm, uvs, indices = {}, [], [], [], []
     for tri in tris:
-        ids = []
-        for pos, uv, n in tri:
-            key = (round(pos[0], 6), round(pos[1], 6), round(pos[2], 6), round(uv[0], 5), round(uv[1], 5),
-                   round(n[0], 4), round(n[1], 4), round(n[2], 4))
-            if key not in index:
-                index[key] = len(verts)
-                verts.append((pos, n, uv))
-                wsum.append(0.0)
-                csum.append([0.0, 0.0, 0.0])
-            ids.append(index[key])
-        indices.extend(ids)
-        a, b, c = (t[0] for t in tri)
-        nrm = cross(sub(b, a), sub(c, a))
-        area = 0.5 * math.sqrt(dot(nrm, nrm))
-        if area <= 0.0:
+        for p, uv, n in tri:
+            key = (round(p[0], 7), round(p[1], 7), round(p[2], 7), round(uv[0], 6), round(uv[1], 6),
+                   round(n[0], 5), round(n[1], 5), round(n[2], 5))
+            k = index.get(key)
+            if k is None:
+                k = index[key] = len(pos)
+                pos.append(p)
+                nrm.append(n)
+                uvs.append(uv)
+            indices.append(k)
+    tan = [[0.0, 0.0, 0.0] for _ in pos]
+    bit = [[0.0, 0.0, 0.0] for _ in pos]
+    for t in range(0, len(indices), 3):
+        i0, i1, i2 = indices[t:t + 3]
+        e1, e2 = sub(pos[i1], pos[i0]), sub(pos[i2], pos[i0])
+        du1, dv1 = uvs[i1][0] - uvs[i0][0], uvs[i1][1] - uvs[i0][1]
+        du2, dv2 = uvs[i2][0] - uvs[i0][0], uvs[i2][1] - uvs[i0][1]
+        r = du1 * dv2 - du2 * dv1
+        if abs(r) < 1e-12:
             continue
-        # Sub-triangle grid sized to how many texels the triangle covers, 2..8 a side
-        uvs = [t[1] for t in tri]
-        texels = 0.5 * abs((uvs[1][0] - uvs[0][0]) * (uvs[2][1] - uvs[0][1])
-                           - (uvs[2][0] - uvs[0][0]) * (uvs[1][1] - uvs[0][1])) * TEXTURE_SIZE ** 2
-        n = max(2, min(8, int(math.sqrt(texels) / 6) + 1))
-        weight = area / (n * n)
-        for i in range(n):
-            for j in range(n - i):
-                # up triangle (i, j) and, but for the row's last, the down triangle between
-                for cb in ((i + 1 / 3.0, j + 1 / 3.0),) + (((i + 2 / 3.0, j + 2 / 3.0),) if j < n - i - 1 else ()):
-                    b1, b2 = cb[0] / n, cb[1] / n
-                    b0 = 1.0 - b1 - b2
-                    u = b0 * uvs[0][0] + b1 * uvs[1][0] + b2 * uvs[2][0]
-                    v = b0 * uvs[0][1] + b1 * uvs[1][1] + b2 * uvs[2][1]
-                    r, g, bl = tex.sample(u, v)
-                    for corner, share in ((0, b0), (1, b1), (2, b2)):
-                        w = weight * share
-                        k = ids[corner]
-                        wsum[k] += w
-                        csum[k][0] += w * r
-                        csum[k][1] += w * g
-                        csum[k][2] += w * bl
-    colours = []
-    for k in range(len(verts)):
-        w = wsum[k]
-        colours.append([linear_to_srgb(GAIN * c / w) for c in csum[k]] if w > 0 else [0.5, 0.5, 0.5])
-    return verts, colours, indices
+        sdir = scale(sub(scale(e1, dv2), scale(e2, dv1)), 1.0 / r)
+        tdir = scale(sub(scale(e2, du1), scale(e1, du2)), 1.0 / r)
+        for i in (i0, i1, i2):
+            tan[i] = add(tan[i], sdir)
+            bit[i] = add(bit[i], tdir)
+    verts = []
+    for k in range(len(pos)):
+        n = nrm[k]
+        t = norm(sub(tan[k], scale(n, dot(n, tan[k]))))
+        if dot(t, t) < 0.5:  # no UV gradient here: any direction across the normal
+            t = norm(cross(n, [0.0, 1.0, 0.0] if abs(n[1]) < 0.9 else [1.0, 0.0, 0.0]))
+        w = -1.0 if dot(cross(n, t), bit[k]) < 0.0 else 1.0
+        # v turned to run from the textures' top row down, as the image rows are uploaded
+        verts.append((*pos[k], *n, *t, w, uvs[k][0], 1.0 - uvs[k][1]))
+    return verts, [first_vertex + i for i in indices]
 
 
-def write_room(path, verts, colours, indices):
-    """MXR3 (rooms/REPORT.md, xr/core/xr_roommesh.h): one part painted from its vertex colours."""
-    data = bytearray(struct.pack('<4sIIII', b'MXR3', len(verts), len(indices), 1, 0))
-    data += struct.pack('<IIi', 0, len(indices), -1)
-    data += struct.pack('<I', 0)  # no channels
-    for (pos, n, uv), rgb in zip(verts, colours):
-        data += struct.pack('<11f', *pos, *n, uv[0], uv[1], *rgb)
-    data += struct.pack(f'<{len(indices)}I', *indices)
-    tmp = path + '.tmp'
-    with open(tmp, 'wb') as f:
-        f.write(data)
-    os.replace(tmp, path)
+def motion_block(motion, to_grip, dir_to_grip):
+    """(type, input path, MOTION_FLOATS floats) of a component's SteamVR motion, in grip space."""
+    f = [0.0] * MOTION_FLOATS
+    f[MOTION_PRESSED] = float('nan')
+    if not motion or motion.get('type') not in MOTION_TYPES:
+        return 0, '', f
+    kind = motion['type']
+    path = (motion.get('component_path') or motion.get('joystick_path') or motion.get('trigger_path')
+            or motion.get('pressed_path') or '')
+    rng = motion.get('value_mapping', [0.0, 0.0])
+    f[MOTION_RANGE:MOTION_RANGE + 2] = [float(rng[0]), float(rng[1])]
+    if 'pressed_value_override' in motion:
+        f[MOTION_PRESSED] = float(motion['pressed_value_override'])
+    if kind in ('translate', 'rotate'):
+        f[MOTION_AXIS:MOTION_AXIS + 3] = norm(dir_to_grip(motion['axis']))
+    if kind == 'rotate':
+        f[MOTION_ORIGIN:MOTION_ORIGIN + 3] = to_grip(motion['pivot'])
+    if kind == 'joystick':
+        f[MOTION_ORIGIN:MOTION_ORIGIN + 3] = to_grip(motion['center'])
+        frame = euler_xyz(motion.get('rotate_xyz', [0, 0, 0]))
+        for c in range(3):  # the frame's axis c, model space, then grip space
+            f[MOTION_FRAME + 3 * c:MOTION_FRAME + 3 * c + 3] = dir_to_grip([frame[r][c] for r in range(3)])
+        f[MOTION_ROT_X:MOTION_ROT_X + 2] = [float(x) for x in motion.get('joystick_rotation_x', [0, 0])]
+        f[MOTION_ROT_Y:MOTION_ROT_Y + 2] = [float(x) for x in motion.get('joystick_rotation_y', [0, 0])]
+        press = motion.get('press_translate', [0.0, 0.0, 0.0])
+        f[MOTION_PRESS:MOTION_PRESS + 3] = dir_to_grip([sum(frame[r][c] * press[c] for c in range(3)) for r in range(3)])
+    return MOTION_TYPES[kind], path, f
 
 
 def convert(hand, rendermodels):
-    """Returns (verts, colours, indices) of one hand's model in OpenXR grip space."""
+    """One hand's model in OpenXR grip space: a dict of components, vertices, indices, textures."""
     name = f'frame_controller_{hand}'
     directory = os.path.join(rendermodels, name)
     components = json.load(open(os.path.join(directory, name + '.json')))['components']
@@ -371,24 +407,58 @@ def convert(hand, rendermodels):
             meshes[key] = read_obj(os.path.join(directory, c['filename']))
     if not meshes:
         raise ValueError(f'{name}: no visible component meshes')
+    full = sum(len(t) for t in meshes.values())
 
-    # The triangle budget shared between components by size with a floor so small buttons keep their
-    # shape. Largest first: the body's seams can stop it above its share, and the rest absorb that.
-    remaining, left_to_do = TRIANGLES, sum(len(t) for t in meshes.values())
-    for key in sorted(meshes, key=lambda k: -len(meshes[k])):
-        n = len(meshes[key])
-        meshes[key] = simplify(meshes[key], max(min(n, 60), round(n * remaining / left_to_do)))
-        remaining -= len(meshes[key])
-        left_to_do -= n
+    # Debugging only: the budget shared between components by size with a floor so small buttons
+    # keep their shape. Largest first: the body's seams can stop it above its share.
+    if TRIANGLES > 0:
+        remaining, left_to_do = TRIANGLES, full
+        for key in sorted(meshes, key=lambda k: -len(meshes[k])):
+            n = len(meshes[key])
+            meshes[key] = simplify(meshes[key], max(min(n, 60), round(n * remaining / left_to_do)))
+            remaining -= len(meshes[key])
+            left_to_do -= n
 
-    tex = Texture(directory, name)
-    tris = [[(to_grip(pos), uv, norm(dir_to_grip(nrm))) for pos, uv, nrm in tri]
-            for key in meshes for tri in meshes[key]]
-    verts, colours, indices = build_vertices(tris, tex)
-    if len(verts) >= 1 << 20:
+    # The body first, then the moving parts by name, each its own range
+    order = sorted(meshes, key=lambda k: (k != 'body', k))
+    verts, indices, comps = [], [], []
+    for key in order:
+        tris = [[(to_grip(p), uv, norm(dir_to_grip(n))) for p, uv, n in tri] for tri in meshes[key]]
+        v, i = build_vertices(tris, len(verts))
+        kind, path, motion = motion_block(components[key].get('motion'), to_grip, dir_to_grip)
+        comps.append({'name': key, 'path': path, 'first': len(indices), 'count': len(i), 'type': kind,
+                      'motion': motion})
+        verts += v
+        indices += i
+    if len(verts) >= 1 << 22:
         raise ValueError(f'{name}: {len(verts)} vertices, more than the client reads')
-    print(f'{hand}: {len(indices) // 3} triangles, {len(verts)} vertices from {len(meshes)} components')
-    return verts, colours, indices
+    colour, surface, tw, th = textures(directory, name)
+    print(f'{hand}: {len(indices) // 3} triangles of {full}, {len(verts)} vertices, {len(comps)} components, '
+          f'textures {tw}x{th}')
+    return {'components': comps, 'vertices': verts, 'indices': indices, 'colour': colour, 'surface': surface,
+            'width': tw, 'height': th}
+
+
+def pack_name(s):
+    b = s.encode('utf-8')[:NAME_BYTES - 1]
+    return b + b'\0' * (NAME_BYTES - len(b))
+
+
+def write_model(path, m):
+    comps, verts, indices = m['components'], m['vertices'], m['indices']
+    tmp = path + '.tmp'
+    with open(tmp, 'wb') as f:
+        f.write(struct.pack('<4s7I', b'MXFM', VERSION, len(verts), len(indices), len(comps), m['width'],
+                            m['height'], 0))
+        for c in comps:
+            f.write(pack_name(c['name']) + pack_name(c['path']))
+            f.write(struct.pack('<4I', c['first'], c['count'], c['type'], 0))
+            f.write(struct.pack(f'<{MOTION_FLOATS}f', *c['motion']))
+        f.write(struct.pack(f'<{len(verts) * VERTEX_FLOATS}f', *[x for v in verts for x in v]))
+        f.write(struct.pack(f'<{len(indices)}I', *indices))
+        f.write(m['colour'])
+        f.write(m['surface'])
+    os.replace(tmp, path)
 
 
 def main():
@@ -406,12 +476,16 @@ def main():
         sys.exit(f'GdkPixbuf is not available to Python ({e}): python3-gobject is needed')
     try:
         models = {hand: convert(hand, src) for hand in HANDS}
-    except (OSError, ValueError, KeyError, IndexError) as e:
+    except Exception as e:  # OSError, ValueError, KeyError, IndexError, GLib.Error (a bad texture)
         sys.exit(f'could not convert the Steam Frame controller models from {src}: {e!r}')
     # Both hands or neither: the client wants a pair
     os.makedirs(out, exist_ok=True)
     for hand in HANDS:
-        write_room(os.path.join(out, f'frame_controller_{hand}.room'), *models[hand])
+        write_model(os.path.join(out, f'frame_controller_{hand}.model'), models[hand])
+    for hand in HANDS:  # the vertex coloured pair an older converter wrote
+        old = os.path.join(out, f'frame_controller_{hand}.room')
+        if os.path.exists(old):
+            os.remove(old)
 
 
 if __name__ == '__main__':

@@ -15,9 +15,11 @@
 //     Frame controller model in plain asset form, so by default this is the
 //     generic controller (assets/models/controller.room), mirrored for the
 //     left hand. When tools/frame-models has made the Frame's own pair from
-//     the local SteamVR install (assets/models/frame_controller_{left,right}
-//     .room; never shipped, packaging/install.sh makes them) each hand draws
-//     its own, already in its own grip space and so not mirrored;
+//     the local SteamVR install (never shipped, packaging/install.sh makes
+//     them) each hand draws its own, already in its own grip space and so not
+//     mirrored: textured at full detail (frame_controller_{left,right}.model,
+//     MLXR_PASS_MODEL_TEX: colour, occlusion, normal and roughness maps) or,
+//     from an older converter, painted (frame_controller_{left,right}.room);
 //   - the draw is mlxr_pass_model into the swapchain image, recorded into the
 //     frame's command buffer, with the depth image the room's pass uses too;
 //   - the GL timer query is the host's timestamps (xr_world.c).
@@ -45,8 +47,9 @@ static int initModelPass(XrCtx* ctx) {
         return 0;
     }
     LOGEV("swapchains alive %d with the controller models'", ctx->swapchainsAlive);
-    mlxr_passes_warm(ctx->passes, MLXR_PASS_MODEL, MLXR_VIDEO_YUV420P, VK_FORMAT_R8G8B8A8_SRGB,
-                     VK_FORMAT_D32_SFLOAT);
+    // Native: the textured pair's own pipeline when that is what loaded
+    mlxr_passes_warm(ctx->passes, ctx->model && ctx->model->textured ? MLXR_PASS_MODEL_TEX : MLXR_PASS_MODEL,
+                     MLXR_VIDEO_YUV420P, VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_D32_SFLOAT);
 
     ctx->modelEyeWidth = eyeW;
     ctx->modelEyeHeight = eyeH;
@@ -147,6 +150,35 @@ void updateControllerModels(XrCtx* ctx) {
     }
 }
 
+// Native: the textured Frame models' two knobs, read once from the
+// environment. MLXR_FRAME_MODEL_GAIN (default 1) multiplies the base colour in
+// linear light: Valve's plastic is near black and is shown as such, with its
+// shape in its highlights. MLXR_FRAME_MODEL_VIEW: 0 lit (default), 1 the
+// normals, 2 lit without the normal map, 3 base colour times occlusion.
+static void frameModelKnobs(float* gain, int* view) {
+    static int read;
+    static float g = 1.0f;
+    static int v;
+    if (!read) {
+        read = 1;
+        const char* s = getenv("MLXR_FRAME_MODEL_GAIN");
+        if (s && *s) {
+            float f = strtof(s, NULL);
+            g = f > 0.0f && f <= 100.0f ? f : 1.0f;
+        }
+        s = getenv("MLXR_FRAME_MODEL_VIEW");
+        if (s && *s) {
+            v = atoi(s);
+            v = v >= 0 && v <= 3 ? v : 0;
+        }
+        if (g != 1.0f || v != 0) {
+            LOGI("Frame controller models: gain %.2f, view %d (environment)", g, v);
+        }
+    }
+    *gain = g;
+    *view = v;
+}
+
 // Both eyes, each shown model at its grip, over a clear to nothing (native:
 // the pass itself, into any target; renderControllerModels and the snapshot
 // tool both draw through it)
@@ -178,6 +210,9 @@ void xrModelRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat
     }
     mp.depth = depth;
     mp.depthFormat = VK_FORMAT_D32_SFLOAT;
+    if (mp.textured) {
+        frameModelKnobs(&mp.gain, &mp.debugView);
+    }
     mlxr_pass_model(ctx->passes, cmd, &t, &mp);
 }
 

@@ -1,7 +1,7 @@
 // Moonlight XR Native: headless Vulkan tests for the rooms lane. Usage:
-//   mlxr-room-test <group> <outdir>
-// groups: logic load rescale render_<room> model overlay all. Images are
-// written as PNG into <outdir>. GPLv3.
+//   mlxr-room-test <group> <outdir> [converted Frame models dir]
+// groups: logic load rescale render_<room> model overlay model_textured
+// model_fallback all. Images are written as PNG into <outdir>. GPLv3.
 #include <math.h>
 #include <png.h>
 #include <stdarg.h>
@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "passes.h"
 #include "room_gpu.h"
@@ -945,7 +946,27 @@ static void testRenderOne(int style) {
 
 // ------------------------------------------------------------- model
 
+// Native: the grips, which hands show and the textured pass's debug view,
+// for renderModelsAt; renderModels holds both hands up in front
+typedef struct {
+    XrPosef grip[2];
+    int shown[2];
+    int debugView;
+    float gain;
+} ModelPose;
+
+static int renderModelsAt(const MlxrModel* m, uint32_t eyeW, uint32_t eyeH, const ModelPose* pose, Frame* f);
+
 static int renderModels(const MlxrModel* m, uint32_t eyeW, uint32_t eyeH, Frame* f) {
+    // Both hands held up in front, pointing forward and down a little, the
+    // left a little closer so they overlap in depth from one eye
+    Vec3 ax = {1, 0, 0};
+    XrQuaternionf tilt = axisAngleQuat(ax, -0.5f);
+    ModelPose pose = {{{tilt, {-0.18f, -0.22f, -0.45f}}, {tilt, {0.20f, -0.20f, -0.50f}}}, {1, 1}, 0, 0.0f};
+    return renderModelsAt(m, eyeW, eyeH, &pose, f);
+}
+
+static int renderModelsAt(const MlxrModel* m, uint32_t eyeW, uint32_t eyeH, const ModelPose* pose, Frame* f) {
     makeShared();
     memset(f, 0, sizeof(*f));
     const uint32_t W = eyeW * 2;
@@ -967,15 +988,13 @@ static int renderModels(const MlxrModel* m, uint32_t eyeW, uint32_t eyeH, Frame*
         eyeView(e, ROOM_FAR_MIN_M, mp.viewProj[e]);
         mp.eyeRect[e] = (VkRect2D){{(int32_t)(e * eyeW), 0}, {eyeW, eyeH}};
     }
-    // Both hands held up in front, pointing forward and down a little, the
-    // left a little closer so they overlap in depth from one eye
-    Vec3 ax = {1, 0, 0};
-    XrQuaternionf tilt = axisAngleQuat(ax, -0.5f);
-    XrPosef gripL = {tilt, {-0.18f, -0.22f, -0.45f}};
-    XrPosef gripR = {tilt, {0.20f, -0.20f, -0.50f}};
-    controllerModelMatrix(gripL, 1, mp.model[0]);
-    controllerModelMatrix(gripR, 0, mp.model[1]);
-    mp.shown[0] = mp.shown[1] = 1;
+    // Native: only the generic model is mirrored for the left hand
+    controllerModelMatrix(pose->grip[0], !m->perHand, mp.model[0]);
+    controllerModelMatrix(pose->grip[1], 0, mp.model[1]);
+    mp.shown[0] = pose->shown[0];
+    mp.shown[1] = pose->shown[1];
+    mp.debugView = pose->debugView;
+    mp.gain = pose->gain;
     mp.depth = depth.view;
     mp.depthFormat = depth.format;
 
@@ -1083,6 +1102,377 @@ static void testModel(void) {
     mlxr_model_unload(&gpu, m);
 }
 
+// ------------------------------------------------------------- textured model (native)
+//
+// The Steam Frame's textured pair (tools/frame-models, MXFM) through
+// rooms/room_gpu.c and MLXR_PASS_MODEL_TEX: the parse rules, a made-up pair
+// loaded and read back from the GPU, its mips, a render showing where each
+// texel lands and that the colour is decoded once, the fallbacks, and (when
+// the ctest before it could convert them from this machine's SteamVR) the
+// real models rendered for looking at.
+
+#define TQ_TEX 8
+static const char* frameModelsDir; // argv[3]: converted real models, or none
+// The made-up texture's quadrants, sRGB, from its top row: top left, top
+// right, bottom left, bottom right
+static const uint8_t kQuad[4][3] = {{200, 30, 30}, {30, 200, 30}, {30, 30, 200}, {230, 230, 230}};
+
+// A made-up MXFM file: a 10 cm square facing +z in grip space, moved shiftX
+// along x, as two components of one triangle each, an 8 x 8 texture of four
+// quadrants (occlusion 1) and a flat normal map. truncate leaves the last
+// byte off.
+static void writeQuadModel(const char* path, float shiftX, int truncate, uint32_t version) {
+    FILE* f = fopen(path, "wb");
+    if (!f) return;
+    uint32_t head[8] = {0x4d46584d /* 'MXFM' */, version, 4, 6, 2, TQ_TEX, TQ_TEX, 0};
+    fwrite(head, 4, 8, f);
+    for (uint32_t c = 0; c < 2; c++) {
+        unsigned char rec[208];
+        memset(rec, 0, sizeof(rec));
+        snprintf((char*)rec, 32, "%s", c ? "trigger" : "body");
+        if (c) snprintf((char*)rec + 32, 32, "/input/trigger");
+        uint32_t u[4] = {c * 3u, 3, c ? 2u : 0u, 0};
+        memcpy(rec + 64, u, sizeof(u));
+        float nan = NAN;
+        memcpy(rec + 80 + MLXR_MOTION_PRESSED * 4, &nan, 4);
+        fwrite(rec, 1, sizeof(rec), f);
+    }
+    const float P[4][2] = {{-0.05f, -0.05f}, {0.05f, -0.05f}, {0.05f, 0.05f}, {-0.05f, 0.05f}};
+    const float UV[4][2] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}}; // v from the top row down
+    for (int i = 0; i < 4; i++) {
+        // normal +z, tangent +x (+u), w -1: the bitangent w cross(N, T) = -y runs along +v
+        float v[12] = {P[i][0] + shiftX, P[i][1], 0, 0, 0, 1, 1, 0, 0, -1, UV[i][0], UV[i][1]};
+        fwrite(v, 4, 12, f);
+    }
+    uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
+    fwrite(idx, 4, 6, f);
+    uint8_t tex[2][TQ_TEX * TQ_TEX * 4];
+    for (int y = 0; y < TQ_TEX; y++)
+        for (int x = 0; x < TQ_TEX; x++) {
+            int q = (y >= TQ_TEX / 2) * 2 + (x >= TQ_TEX / 2);
+            uint8_t* c = tex[0] + (y * TQ_TEX + x) * 4;
+            uint8_t* n = tex[1] + (y * TQ_TEX + x) * 4;
+            c[0] = kQuad[q][0], c[1] = kQuad[q][1], c[2] = kQuad[q][2], c[3] = 255;
+            n[0] = 128, n[1] = 128, n[2] = 255, n[3] = 128;
+        }
+    fwrite(tex, 1, sizeof(tex) - (truncate ? 1 : 0), f);
+    fclose(f);
+}
+
+// A painted .room of one triangle (the older converter's format, MXR3)
+static void writeTriRoom(const char* path) {
+    FILE* f = fopen(path, "wb");
+    if (!f) return;
+    uint32_t head[5] = {0x3352584d /* 'MXR3' */, 3, 3, 1, 0};
+    fwrite(head, 4, 5, f);
+    uint32_t part[3] = {0, 3, 0xffffffffu};
+    fwrite(part, 4, 3, f);
+    uint32_t channels = 0;
+    fwrite(&channels, 4, 1, f);
+    const float pos[3][2] = {{-0.05f, -0.05f}, {0.05f, -0.05f}, {0, 0.05f}};
+    for (int i = 0; i < 3; i++) {
+        float v[11] = {pos[i][0], pos[i][1], 0, 0, 0, 1, 0, 0, 0.5f, 0.5f, 0.5f};
+        fwrite(v, 4, 11, f);
+    }
+    uint32_t idx[3] = {0, 1, 2};
+    fwrite(idx, 4, 3, f);
+    fclose(f);
+}
+
+static const char* const kTexDir = "/tmp/mlxr-rooms-textured-test";
+
+// A scratch assets dir with the generic controller only
+static void stageModels(void) {
+    char cmd[1400];
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models' && cp '%s/models/controller.room' '%s/models/'", kTexDir,
+             kTexDir, MLXR_ASSETS_DIR, kTexDir);
+    check(system(cmd) == 0, "stage %s", kTexDir);
+}
+
+static void modelPath(char* out, size_t n, const char* name) {
+    snprintf(out, n, "%s/models/%s", kTexDir, name);
+}
+
+static double srgbDecode(double c) {
+    c /= 255.0;
+    return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
+}
+
+static double srgbEncode(double c) {
+    c = c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+    return c * 255.0;
+}
+
+// One texel of a mip level of a model texture (left SHADER_READ_ONLY)
+static void readTexel(const MlxrRoomAtlas* a, uint32_t level, uint8_t out[4]) {
+    Host h;
+    hostMake(&h, 256, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    VkCommandBuffer cmd = begin();
+    mlxr_barrier(cmd, a->image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    VkBufferImageCopy rg = {0, 0, 0, {VK_IMAGE_ASPECT_COLOR_BIT, level, 0, 1}, {0, 0, 0}, {1, 1, 1}};
+    vkCmdCopyImageToBuffer(cmd, a->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, h.buf, 1, &rg);
+    mlxr_barrier(cmd, a->image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    submit(cmd);
+    memcpy(out, h.map, 4);
+    hostFree(&h);
+}
+
+static void testModelTextured(void) {
+    char left[700], right[700];
+    stageModels();
+    modelPath(left, sizeof(left), "frame_controller_left.model");
+    modelPath(right, sizeof(right), "frame_controller_right.model");
+    writeQuadModel(left, 0.0f, 0, 1);
+    writeQuadModel(right, 0.0f, 0, 1);
+
+    // The parse rules
+    size_t n = 0;
+    unsigned char* d = readAll(left, &n);
+    MlxrModelFileInfo fi;
+    memset(&fi, 0, sizeof(fi));
+    check(d && mlxr_model_file_parse(d, n, n, &fi), "the made-up model parses");
+    check(fi.vertexCount == 4 && fi.indexCount == 6 && fi.componentCount == 2 && fi.texWidth == TQ_TEX &&
+              fi.texHeight == TQ_TEX && fi.vertexOffset == 32 + 2 * 208 && fi.colourOffset == 32 + 2 * 208 + 4 * 48 + 6 * 4 &&
+              fi.surfaceOffset == fi.colourOffset + TQ_TEX * TQ_TEX * 4 && fi.size == n,
+          "the layout (%u vertices, %u indices, %u components, %ux%u)", fi.vertexCount, fi.indexCount, fi.componentCount,
+          fi.texWidth, fi.texHeight);
+    if (d) {
+        check(!mlxr_model_file_parse(d, n, n - 1, &fi) && !mlxr_model_file_parse(d, n, n + 1, &fi), "sizes must add up");
+        check(!mlxr_model_file_parse(d, 31, n, &fi), "a short head is refused");
+        d[0] = 'X';
+        check(!mlxr_model_file_parse(d, n, n, &fi), "a wrong magic is refused");
+        d[0] = 'M';
+        d[4] = 2;
+        check(!mlxr_model_file_parse(d, n, n, &fi), "another version is refused");
+        d[4] = 1;
+        d[12] = 7; // 7 indices: not whole triangles
+        check(!mlxr_model_file_parse(d, n, n, &fi), "indices not in whole triangles are refused");
+    }
+
+    // Loaded: the textured pair, each hand its own range, components absolute
+    MlxrModel* m = NULL;
+    check(mlxr_model_load(&gpu, kTexDir, &m) == 0 && m, "load the made-up textured pair");
+    if (!m) {
+        free(d);
+        return;
+    }
+    note("textured     made-up pair: %s, %.0f KB, %u levels", m->source, m->gpuBytes / 1024.0, m->texLevels);
+    check(m->textured && m->perHand, "textured and per hand");
+    check(m->vertexCount == 8 && m->indexCount == 12 && m->handFirstIndex[1] == 6 && m->handIndexCount[0] == 6 &&
+              m->handIndexCount[1] == 6 && m->handVertexOffset[1] == 4,
+          "per hand ranges");
+    check(m->componentCount[0] == 2 && m->componentCount[1] == 2 && !strcmp(m->components[1][1].name, "trigger") &&
+              !strcmp(m->components[1][1].path, "/input/trigger") && m->components[1][1].firstIndex == 9 &&
+              m->components[1][1].indexCount == 3 && m->components[1][1].motionType == MLXR_MOTION_ROTATE &&
+              isnan(m->components[1][1].motion[MLXR_MOTION_PRESSED]) && m->components[0][0].firstIndex == 0,
+          "components: names, input paths, absolute ranges, motions");
+    check(m->texLevels == 4 && m->texture[0][0].levels == 4 && m->texture[1][1].levels == 4, "a full mip chain (%u)",
+          m->texLevels);
+    check(m->texture[0][0].format == VK_FORMAT_R8G8B8A8_SRGB && m->texture[0][1].format == VK_FORMAT_R8G8B8A8_UNORM,
+          "colour sRGB, surface UNORM");
+    MlxrModelParams mp;
+    memset(&mp, 0, sizeof(mp));
+    mlxr_model_fill(m, &mp);
+    check(mp.textured && mp.perHand && mp.handColour[1] == m->texture[1][0].view && mp.handSurface[0] == m->texture[0][1].view,
+          "fill hands over the images");
+
+    // Round trip: the GPU's buffers hold the files' vertices and indices
+    if (d) {
+        unsigned char* vb = readBuffer(m->vertices, m->vertexBytes);
+        unsigned char* ib = readBuffer(m->indices, m->indexBytes);
+        int same = 1;
+        for (int h = 0; h < 2; h++) {
+            same &= memcmp(vb + (size_t)h * 4 * 48, d + fi.vertexOffset, 4 * 48) == 0;
+            same &= memcmp(ib + (size_t)h * 6 * 4, d + fi.indexOffset, 6 * 4) == 0;
+        }
+        check(same, "vertices and indices read back as the files have them");
+        free(vb);
+        free(ib);
+    }
+    free(d);
+
+    // The 1 x 1 mip is the four quadrants averaged in linear light (an sRGB
+    // image filtered as such, not its bytes averaged)
+    uint8_t texel[4];
+    readTexel(&m->texture[0][0], 3, texel);
+    double want[3];
+    for (int c = 0; c < 3; c++) {
+        double sum = 0;
+        for (int q = 0; q < 4; q++) sum += srgbDecode(kQuad[q][c]);
+        want[c] = srgbEncode(sum / 4.0);
+    }
+    note("textured     1x1 mip %u %u %u %u, linear-light average %.0f %.0f %.0f", texel[0], texel[1], texel[2], texel[3],
+         want[0], want[1], want[2]);
+    check(NEAR(texel[0], want[0], 3) && NEAR(texel[1], want[1], 3) && NEAR(texel[2], want[2], 3) && texel[3] == 255,
+          "mips filtered in linear light");
+    readTexel(&m->texture[0][1], 3, texel);
+    check(NEAR(texel[0], 128, 1) && NEAR(texel[2], 255, 1) && NEAR(texel[3], 128, 1), "surface mips as they are");
+
+    // Rendered: base colour x occlusion (debug view 3), each square 0.4 m
+    // ahead of the eyes, the left 6 cm to the left and the right 6 cm to the
+    // right. Each quadrant shows where the texture's own quadrant is (v runs
+    // from the top row) in the colour the texture holds (decoded once: twice
+    // would darken sRGB 200 to about 150).
+    const uint32_t EW = 320, EH = 320;
+    ModelPose pose = {{{{0, 0, 0, 1}, {-0.06f, 0.0f, -0.4f}}, {{0, 0, 0, 1}, {0.06f, 0.0f, -0.4f}}}, {1, 1}, 3, 0.0f};
+    Frame f;
+    check(renderModelsAt(m, EW, EH, &pose, &f) == 0, "render the made-up pair");
+    float vp[16];
+    eyeView(0, ROOM_FAR_MIN_M, vp);
+    const float qx[4] = {-0.025f, 0.025f, -0.025f, 0.025f}, qy[4] = {0.025f, 0.025f, -0.025f, -0.025f};
+    for (int h = 0; h < 2; h++)
+        for (int q = 0; q < 4; q++) {
+            double px, py, pz;
+            projectPoint(vp, pose.grip[h].position.x + qx[q], qy[q], -0.4f, EW, EH, &px, &py, &pz);
+            const uint8_t* c = f.rgba + ((size_t)py * EW * 2 + (size_t)px) * 4;
+            int ok = NEAR(c[0], kQuad[q][0], 4) && NEAR(c[1], kQuad[q][1], 4) && NEAR(c[2], kQuad[q][2], 4) && c[3] == 255;
+            check(ok, "hand %d quadrant %d at (%.0f, %.0f): %u %u %u %u, want %u %u %u", h, q, px, py, c[0], c[1], c[2], c[3],
+                  kQuad[q][0], kQuad[q][1], kQuad[q][2]);
+        }
+    size_t npx = (size_t)EW * 2 * EH;
+    uint8_t* comp = malloc(npx * 4);
+    compositeOver(f.rgba, NULL, comp, npx);
+    writePng("model_textured_quads_base", comp, EW * 2, EH);
+    frameFree(&f);
+
+    // Lit: shaded, opaque where drawn, nothing else drawn, and brighter with
+    // the gain
+    pose.debugView = 0;
+    check(renderModelsAt(m, EW, EH, &pose, &f) == 0, "render the made-up pair lit");
+    size_t opaque = 0, partial = 0, stray = 0;
+    double luma = 0;
+    for (size_t i = 0; i < npx; i++) {
+        uint8_t a = f.rgba[i * 4 + 3];
+        if (a == 255) {
+            opaque++;
+            luma += f.rgba[i * 4] + f.rgba[i * 4 + 1] + f.rgba[i * 4 + 2];
+        }
+        else if (a) partial++;
+        if (!a && (f.rgba[i * 4] | f.rgba[i * 4 + 1] | f.rgba[i * 4 + 2])) stray++;
+    }
+    luma = opaque ? luma / (3.0 * opaque) : 0;
+    check(opaque > 1000 && partial == 0 && stray == 0, "lit: %zu drawn, %zu partial, %zu stray", opaque, partial, stray);
+    compositeOver(f.rgba, NULL, comp, npx);
+    writePng("model_textured_quads_lit", comp, EW * 2, EH);
+    frameFree(&f);
+    pose.gain = 0.25f;
+    renderModelsAt(m, EW, EH, &pose, &f);
+    double dim = 0;
+    for (size_t i = 0; i < npx; i++)
+        if (f.rgba[i * 4 + 3] == 255) dim += f.rgba[i * 4] + f.rgba[i * 4 + 1] + f.rgba[i * 4 + 2];
+    dim = opaque ? dim / (3.0 * opaque) : 0;
+    note("textured     lit mean %.1f, at gain 0.25 %.1f", luma, dim);
+    check(dim < luma - 10, "the gain dims the base colour");
+    frameFree(&f);
+    free(comp);
+    mlxr_model_unload(&gpu, m);
+
+    // The real models, when the ctest before converted them here
+    char rl[700], rr[700];
+    if (frameModelsDir) {
+        snprintf(rl, sizeof(rl), "%s/frame_controller_left.model", frameModelsDir);
+        snprintf(rr, sizeof(rr), "%s/frame_controller_right.model", frameModelsDir);
+    }
+    if (!frameModelsDir || access(rl, R_OK) != 0 || access(rr, R_OK) != 0) {
+        note("textured     no converted Steam Frame models here (no SteamVR?): the real ones were not rendered");
+        return;
+    }
+    char cmd[2400];
+    stageModels();
+    snprintf(cmd, sizeof(cmd), "cp '%s' '%s' '%s/models/'", rl, rr, kTexDir);
+    check(system(cmd) == 0, "stage the real models");
+    double t0 = nowMs();
+    check(mlxr_model_load(&gpu, kTexDir, &m) == 0 && m && m->textured, "load the real textured pair");
+    if (!m) return;
+    note("textured     real pair: %u + %u triangles, %u vertices, textures %ux%u (%u levels), %.1f MB on the GPU, "
+         "record %.1f ms, with the upload %.1f ms",
+         m->handIndexCount[0] / 3, m->handIndexCount[1] / 3, m->vertexCount, m->texWidth, m->texHeight, m->texLevels,
+         m->gpuBytes / (1024.0 * 1024.0), m->loadMs, nowMs() - t0);
+    check(m->handIndexCount[0] / 3 > 8000 && m->handIndexCount[1] / 3 > 8000, "full detail");
+    const uint32_t BW = 1024, BH = 1024;
+    npx = (size_t)BW * 2 * BH;
+    comp = malloc(npx * 4);
+    // Both hands as testModel holds them, lit and as base colour x occlusion
+    check(renderModels(m, BW, BH, &f) == 0, "render the real pair");
+    compositeOver(f.rgba, NULL, comp, npx);
+    writePng("model_textured_frame", comp, BW * 2, BH);
+    frameFree(&f);
+    // A close look at each hand: grip 0.16 m ahead, turned so its face and
+    // the grip's indent show (the grip's -z, the trigger end, away and to the
+    // side; tilted toward the eye)
+    Vec3 up = {0, 1, 0}, ax = {1, 0, 0};
+    for (int view = 0; view < 2; view++) {
+        ModelPose close;
+        memset(&close, 0, sizeof(close));
+        for (int h = 0; h < 2; h++) {
+            XrQuaternionf yaw = axisAngleQuat(up, h ? -0.6f : 0.6f);
+            close.grip[h].orientation = quatMul(yaw, axisAngleQuat(ax, 0.6f));
+            close.grip[h].position = (XrVector3f){h ? 0.06f : -0.06f, -0.03f, -0.16f};
+            close.shown[h] = 1;
+        }
+        close.debugView = view ? 3 : 0;
+        check(renderModelsAt(m, BW, BH, &close, &f) == 0, "render the real pair close");
+        compositeOver(f.rgba, NULL, comp, npx);
+        writePng(view ? "model_textured_frame_close_base" : "model_textured_frame_close", comp, BW * 2, BH);
+        frameFree(&f);
+    }
+    free(comp);
+    mlxr_model_unload(&gpu, m);
+}
+
+// What loads when the files are missing or broken: the textured pair first,
+// then the painted pair, then the generic controller
+static void testModelFallback(void) {
+    char tl[700], tr[700], pl[700], pr[700], gen[700];
+    modelPath(tl, sizeof(tl), "frame_controller_left.model");
+    modelPath(tr, sizeof(tr), "frame_controller_right.model");
+    modelPath(pl, sizeof(pl), "frame_controller_left.room");
+    modelPath(pr, sizeof(pr), "frame_controller_right.room");
+    modelPath(gen, sizeof(gen), "controller.room");
+    struct {
+        const char* what;
+        int left, right; // the .model halves: 0 none, 1 good, 2 cut short, 3 another version
+        int painted;     // the .room pair
+        int generic;     // controller.room
+        int want;        // 0 generic, 1 painted pair, 2 textured pair, -1 nothing loads
+    } cases[] = {
+        {"nothing of the Frame's", 0, 0, 0, 1, 0},
+        {"the textured pair", 1, 1, 0, 1, 2},
+        {"the textured pair over the painted one", 1, 1, 1, 1, 2},
+        {"the textured pair without the generic controller", 1, 1, 0, 0, 2},
+        {"one textured half, the painted pair", 1, 0, 1, 1, 1},
+        {"one textured half", 0, 1, 0, 1, 0},
+        {"a textured half cut short", 1, 2, 0, 1, 0},
+        {"a textured half of another version, the painted pair", 3, 1, 1, 1, 1},
+        {"a textured half cut short, nothing else", 2, 1, 0, 0, -1},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        stageModels();
+        if (cases[i].left) writeQuadModel(tl, 0.0f, cases[i].left == 2, cases[i].left == 3 ? 2 : 1);
+        if (cases[i].right) writeQuadModel(tr, 0.0f, cases[i].right == 2, cases[i].right == 3 ? 2 : 1);
+        if (cases[i].painted) {
+            writeTriRoom(pl);
+            writeTriRoom(pr);
+        }
+        if (!cases[i].generic) remove(gen);
+        MlxrModel* m = NULL;
+        int rc = mlxr_model_load(&gpu, kTexDir, &m);
+        int got = rc != 0 || !m ? -1 : m->textured ? 2 : m->perHand ? 1 : 0;
+        note("fallback     %-55s -> %s", cases[i].what,
+             got == 2 ? "textured pair" : got == 1 ? "painted pair" : got == 0 ? "generic" : "nothing");
+        check(got == cases[i].want, "%s: got %d, want %d", cases[i].what, got, cases[i].want);
+        if (m) {
+            // whatever loaded draws
+            Frame f;
+            check(renderModels(m, 128, 128, &f) == 0, "%s: draws", cases[i].what);
+            frameFree(&f);
+            mlxr_model_unload(&gpu, m);
+        }
+    }
+}
+
 static void testOverlay(void) {
     MlxrRoom* r = loadRoom(ROOM_STYLE_THEATER, 0, 0.0f);
     MlxrModel* m = NULL;
@@ -1109,6 +1499,7 @@ static void testOverlay(void) {
 int main(int argc, char** argv) {
     const char* group = argc > 1 ? argv[1] : "all";
     if (argc > 2) outDir = argv[2];
+    if (argc > 3) frameModelsDir = argv[3];
     int all = strcmp(group, "all") == 0;
     int did = 0;
     if (all || !strcmp(group, "logic")) {
@@ -1131,6 +1522,8 @@ int main(int argc, char** argv) {
     if (all || !strcmp(group, "render_synthwave")) { testRenderOne(3); did = 1; }
     if (all || !strcmp(group, "model")) { testModel(); did = 1; }
     if (all || !strcmp(group, "overlay")) { testOverlay(); did = 1; }
+    if (all || !strcmp(group, "model_textured")) { testModelTextured(); did = 1; }
+    if (all || !strcmp(group, "model_fallback")) { testModelFallback(); did = 1; }
     if (!did) {
         fprintf(stderr, "unknown group %s\n", group);
         return 2;

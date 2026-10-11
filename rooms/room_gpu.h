@@ -106,8 +106,44 @@ void mlxr_room_fill(const MlxrRoom* room, MlxrRoomParams* out);
 // colours. Moonlight XR Native: either the one generic controller
 // (assets/models/controller.room, mirrored for the left hand) or, when both
 // exist and parse, the Steam Frame's own pair that tools/frame-models makes
-// from the local SteamVR install (frame_controller_{left,right}.room, in each
-// hand's grip space, not mirrored): both meshes in the one pair of buffers.
+// from the local SteamVR install, in each hand's grip space, not mirrored:
+// both meshes in the one pair of buffers. The pair is textured
+// (frame_controller_{left,right}.model, MXFM: full meshes, per component
+// ranges and motions, colour + AO and normal + roughness images, mipped here
+// on the GPU) or, from an older converter, painted (frame_controller_{left,
+// right}.room).
+#define MLXR_MODEL_COMPONENTS_MAX 32
+#define MLXR_MODEL_MOTION_FLOATS 32
+#define MLXR_MODEL_NAME_BYTES 32
+// The motion floats (tools/frame-models MOTION_*), all in grip space
+#define MLXR_MOTION_ORIGIN 0   // 3: rotate pivot, joystick centre
+#define MLXR_MOTION_AXIS 3     // 3: translate direction, rotate axis
+#define MLXR_MOTION_RANGE 6    // 2: offset (m) or angle (deg) at input 0 and 1
+#define MLXR_MOTION_PRESSED 8  // 1: angle a click forces, NaN for none
+#define MLXR_MOTION_FRAME 9    // 9: joystick frame, columns x y z
+#define MLXR_MOTION_ROT_X 18   // 2: joystick degrees at x = -1, +1
+#define MLXR_MOTION_ROT_Y 20   // 2: joystick degrees at y = -1, +1
+#define MLXR_MOTION_PRESS 22   // 3: joystick click offset
+enum { MLXR_MOTION_NONE = 0, MLXR_MOTION_TRANSLATE = 1, MLXR_MOTION_ROTATE = 2, MLXR_MOTION_JOYSTICK = 3 };
+
+typedef struct MlxrModelComponent {
+    char name[MLXR_MODEL_NAME_BYTES];  // SteamVR's ("body", "trigger", "button_a", ...)
+    char path[MLXR_MODEL_NAME_BYTES];  // the input that moves it ("/input/trigger"), "" for none
+    uint32_t firstIndex, indexCount;   // into the model's index buffer (absolute)
+    uint32_t motionType;               // MLXR_MOTION_*
+    float motion[MLXR_MODEL_MOTION_FLOATS];
+} MlxrModelComponent;
+
+// Where everything sits in a .model file (MXFM version 1)
+typedef struct MlxrModelFileInfo {
+    uint32_t vertexCount, indexCount, componentCount;
+    uint32_t texWidth, texHeight;
+    uint64_t componentOffset, vertexOffset, indexOffset, colourOffset, surfaceOffset, size;
+} MlxrModelFileInfo;
+// 1 when the first headBytes (at least 32) of a file fileBytes long start a
+// model this reads, and the sizes add up to exactly fileBytes
+int mlxr_model_file_parse(const unsigned char* head, size_t headBytes, uint64_t fileBytes, MlxrModelFileInfo* out);
+
 typedef struct MlxrModel {
     VkBuffer vertices;
     VkBuffer indices;
@@ -119,18 +155,26 @@ typedef struct MlxrModel {
     uint32_t handIndexCount[2];
     int32_t handVertexOffset[2];      // per hand, in vertices
     char source[1100];                // what was read, for the log
+    // Native: the textured pair (perHand too)
+    int textured;
+    uint32_t texWidth, texHeight, texLevels;
+    MlxrRoomAtlas texture[2][2];      // per hand: colour (R8G8B8A8_SRGB), surface (R8G8B8A8_UNORM)
+    uint32_t componentCount[2];
+    MlxrModelComponent components[2][MLXR_MODEL_COMPONENTS_MAX];
     VkDeviceMemory bufferMemory;
     VkBuffer staging;
     VkDeviceMemory stagingMemory;
 } MlxrModel;
 
-// Tries the Frame pair under assetsDir/models first; a pair with a missing or
-// unreadable half is skipped (on stderr) for the generic controller.
+// Tries the Frame pair under assetsDir/models first (textured, then painted);
+// a pair with a missing or unreadable half is skipped (on stderr) for the
+// generic controller.
 int mlxr_model_record(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, MlxrModel** out);
 void mlxr_model_upload_done(const MlxrGpu* gpu, MlxrModel* model);
 int mlxr_model_load(const MlxrGpu* gpu, const char* assetsDir, MlxrModel** out);
 void mlxr_model_unload(const MlxrGpu* gpu, MlxrModel* model);
-// vertices, indices, indexCount and the per-hand ranges of a pass_model call
+// vertices, indices, indexCount, the per-hand ranges and (textured) images of
+// a pass_model call
 void mlxr_model_fill(const MlxrModel* model, MlxrModelParams* out);
 
 // The ASTC UNORM format for a block size the atlas tool writes (4, 6 or 8),

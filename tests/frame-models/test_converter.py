@@ -3,10 +3,14 @@
 (a sphere body, a trigger and a marker, a flat colour texture) and, when this machine has SteamVR,
 on the real Frame controller models. usage: test_converter.py CONVERTER
 
-What is checked: both hands written and both parse as the client reads them (the rules of
-xr/core/xr_roommesh.c), the triangle budget, the grip transform (the grip's own origin and rotation
-land on the origin, a marker where the maths says), the vertex colours (the texture, times AO),
-bounding boxes in metres, and that a bad source writes nothing (both hands or neither)."""
+What is checked: both hands written as textured models (MXFM) that parse as the client reads them
+(rooms/room_gpu.c mlxr_model_file_parse and its range checks), every triangle kept (and the debugging
+budget still simplifying), the grip transform (the grip's own origin and rotation land on the origin,
+the trigger component where the maths says), unit normals and tangent frames, texture coordinates
+turned to run from the image's top row, the textures (colour with AO in alpha, the normal map with
+DirectX's green turned to OpenGL's and roughness in alpha, flat stand-ins for missing optional maps,
+the size knob), bounding boxes in metres, the older painted pair removed, and that a bad source
+writes nothing (both hands or neither)."""
 import json
 import math
 import os
@@ -17,10 +21,12 @@ import tempfile
 
 CONVERTER = sys.argv[1]
 failed = 0
+checks = 0
 
 
 def check(cond, what):
-    global failed
+    global failed, checks
+    checks += 1
     if not cond:
         failed += 1
         print(f'FAIL: {what}')
@@ -36,20 +42,43 @@ def rotation(deg):
     return mul(rz, mul(ry, rx))
 
 
-def parse_room(path):
-    """roomMeshParse's rules; returns (vertices, indices) or raises AssertionError."""
+VERTEX_FLOATS = 12
+COMPONENT_BYTES = 208
+
+
+def parse_model(path):
+    """mlxr_model_file_parse's rules and the loader's range checks; returns a dict or raises
+    AssertionError."""
     d = open(path, 'rb').read()
-    assert d[:4] == b'MXR3', 'magic'
-    vc, ic, pc, ac = struct.unpack_from('<IIII', d, 4)
-    assert 0 < vc < 1 << 20 and ic > 0 and ic % 3 == 0 and pc == 1 and ac == 0
-    first, count, atlas = struct.unpack_from('<IIi', d, 20)
-    assert (first, count, atlas) == (0, ic, -1), 'one painted part over every index'
-    assert struct.unpack_from('<I', d, 32)[0] == 0, 'no channels'
-    assert len(d) == 36 + vc * 44 + ic * 4, 'size'
-    verts = [struct.unpack_from('<11f', d, 36 + i * 44) for i in range(vc)]
-    idx = struct.unpack_from(f'<{ic}I', d, 36 + vc * 44)
+    assert d[:4] == b'MXFM', 'magic'
+    version, vc, ic, cc, tw, th, flags = struct.unpack_from('<7I', d, 4)
+    assert version == 1 and flags == 0, 'version'
+    assert 0 < vc < 1 << 22 and 0 < ic <= 1 << 24 and ic % 3 == 0 and 0 < cc <= 32, 'counts'
+    assert 0 < tw <= 8192 and 0 < th <= 8192, 'texture size'
+    voff = 32 + cc * COMPONENT_BYTES
+    ioff = voff + vc * VERTEX_FLOATS * 4
+    toff = ioff + ic * 4
+    assert len(d) == toff + 2 * tw * th * 4, 'size'
+    comps = []
+    for c in range(cc):
+        o = 32 + c * COMPONENT_BYTES
+        name = d[o:o + 32].split(b'\0')[0].decode()
+        path_ = d[o + 32:o + 64].split(b'\0')[0].decode()
+        first, count, kind, pad = struct.unpack_from('<4I', d, o + 64)
+        motion = struct.unpack_from('<32f', d, o + 80)
+        assert first + count <= ic and first % 3 == 0 and count % 3 == 0 and kind <= 3 and pad == 0, f'component {name}'
+        comps.append({'name': name, 'path': path_, 'first': first, 'count': count, 'type': kind, 'motion': motion})
+    verts = [struct.unpack_from('<12f', d, voff + i * 48) for i in range(vc)]
+    idx = struct.unpack_from(f'<{ic}I', d, ioff)
     assert max(idx) < vc, 'index range'
-    return verts, idx
+    colour = d[toff:toff + tw * th * 4]
+    surface = d[toff + tw * th * 4:]
+    return {'verts': verts, 'idx': idx, 'comps': comps, 'w': tw, 'h': th, 'colour': colour, 'surface': surface}
+
+
+def comp_verts(m, name):
+    c = next(c for c in m['comps'] if c['name'] == name)
+    return [m['verts'][i] for i in set(m['idx'][c['first']:c['first'] + c['count']])]
 
 
 def bbox(verts):
@@ -91,7 +120,11 @@ TRIGGER_AT = (0.01, -0.02, 0.15)  # 0.05 behind the grip origin along the model'
 BODY_AT = (0.01, -0.02, 0.10)     # centred on the grip origin
 
 
-def make_rendermodels(root, ao_level):
+NORMAL = (100, 60, 230)  # DirectX green: the converter turns 60 into 195
+ROUGH = 77
+
+
+def make_rendermodels(root, ao_level, optional=True):
     for hand in ('left', 'right'):
         name = f'frame_controller_{hand}'
         d = os.path.join(root, name)
@@ -108,7 +141,10 @@ def make_rendermodels(root, ao_level):
         }
         json.dump({'components': comps}, open(os.path.join(d, name + '.json'), 'w'))
         make_png(os.path.join(d, name + '_color.png'), (200, 100, 50))
-        make_png(os.path.join(d, name + '_ao.png'), (ao_level,) * 3)
+        if optional:
+            make_png(os.path.join(d, name + '_ao.png'), (ao_level,) * 3)
+            make_png(os.path.join(d, name + '_normal.png'), NORMAL)
+            make_png(os.path.join(d, name + '_rough.png'), (ROUGH,) * 3)
 
 
 def run(args, **env):
@@ -130,47 +166,79 @@ def main():
         make_rendermodels(src, 128)
 
         # --- the made-up models -----------------------------------------------------------------
-        r = run([out, src], MLXR_FRAME_MODEL_TRIANGLES=400)
+        os.makedirs(out)
+        for hand in ('left', 'right'):  # an older converter's painted pair, to be removed
+            open(os.path.join(out, f'frame_controller_{hand}.room'), 'w').write('old')
+        r = run([out, src])
         check(r.returncode == 0, f'converter failed: {r.stdout}{r.stderr}')
+        check(not [f for f in os.listdir(out) if f.endswith('.room')], 'the painted pair is removed')
         full = 2 * 30 * 40 + 2 * 8 * 10  # the visible triangles in the source
         rot = rotation(GRIP_ROT)
         for hand in ('left', 'right'):
-            path = os.path.join(out, f'frame_controller_{hand}.room')
+            path = os.path.join(out, f'frame_controller_{hand}.model')
             check(os.path.isfile(path), f'{hand} written')
             try:
-                verts, idx = parse_room(path)
+                m = parse_model(path)
             except (AssertionError, OSError, struct.error) as e:
                 check(False, f'{hand} does not parse: {e}')
                 continue
-            tris = len(idx) // 3
-            check(tris < full and tris <= 400 * 1.5, f'{hand}: {tris} triangles for a budget of 400 from {full}')
-            check(all(abs(v[0]) < 1e3 and abs(sum(v[3:6]) ) < 1e3 for v in verts), f'{hand}: finite')
-            # the body is centred on the grip origin, so its box is centred on 0 and 3 cm a side
-            box = bbox([v for v in verts if math.dist(v[:3], (0, 0, 0)) < 0.04])
+            verts, idx = m['verts'], m['idx']
+            check(len(idx) // 3 == full, f'{hand}: every triangle kept ({len(idx) // 3} of {full})')
+            names = [c['name'] for c in m['comps']]
+            check(names == ['body', 'trigger'], f'{hand}: components body then trigger, hidden left out: {names}')
+            check(sum(c['count'] for c in m['comps']) == len(idx) and m['comps'][1]['first'] == m['comps'][0]['count'],
+                  f'{hand}: the components cover the indices in order')
+            check(all(math.isfinite(x) for v in verts for x in v), f'{hand}: finite')
+            # the body is centred on the grip origin, so its box is centred on 0 and 6 cm a side
+            box = bbox(comp_verts(m, 'body'))
             for a in range(3):
-                check(abs(sum(box[a]) / 2) < 0.006 and 0.04 < box[a][1] - box[a][0] < 0.065, f'{hand}: body box axis {a} {box[a]}')
+                check(abs(sum(box[a]) / 2) < 0.002 and 0.055 < box[a][1] - box[a][0] < 0.065, f'{hand}: body box axis {a} {box[a]}')
             # the trigger sphere: model (0, 0, +0.05) from the grip origin -> R^T (0, 0, 0.05)
             want = [sum(rot[j][i] * d for j, d in enumerate((0, 0, 0.05))) for i in range(3)]
-            near = [v[:3] for v in verts if math.dist(v[:3], want) < 0.012]
-            check(len(near) > 20, f'{hand}: the trigger is where the grip rotation puts it {want}')
-            # nothing hidden (the status component sits at (5, 5, 5) m)
+            tv = comp_verts(m, 'trigger')
+            centre = [sum(v[a] for v in tv) / len(tv) for a in range(3)]
+            check(math.dist(centre, want) < 0.002, f'{hand}: the trigger is where the grip rotation puts it {centre} vs {want}')
             check(max(abs(c) for v in verts for c in v[:3]) < 0.2, f'{hand}: hidden component left out')
-            # vertex colours: texture (200, 100, 50) times AO 128/255, in sRGB
-            want_rgb = [c * 128 // 255 / 255 for c in (200, 100, 50)]
-            mean = [sum(v[8 + k] for v in verts) / len(verts) for k in range(3)]
-            check(all(abs(mean[k] - want_rgb[k]) < 0.02 for k in range(3)), f'{hand}: colour {mean} vs {want_rgb}')
-            check(all(0.0 <= v[8 + k] <= 1.0 for v in verts for k in range(3)), f'{hand}: colours in range')
-            normals = [math.sqrt(sum(c * c for c in v[3:6])) for v in verts]
-            check(all(abs(n - 1) < 1e-3 for n in normals), f'{hand}: unit normals')
+            # tangent frames: unit normal, unit tangent across it, w a sign
+            check(all(abs(math.sqrt(sum(c * c for c in v[3:6])) - 1) < 1e-3 for v in verts), f'{hand}: unit normals')
+            check(all(abs(math.sqrt(sum(c * c for c in v[6:9])) - 1) < 1e-3 and abs(sum(v[3 + k] * v[6 + k] for k in range(3))) < 1e-3
+                      and v[9] in (-1.0, 1.0) for v in verts), f'{hand}: unit tangents across the normals, w +-1')
+            # texture coordinates from the image's top row: the sphere's top pole has OBJ v = 1, so 0 here
+            up = [rot[1][i] for i in range(3)]  # the model's +y in grip space (R^T y)
+            body = comp_verts(m, 'body')
+            top = max(body, key=lambda v: sum(v[k] * up[k] for k in range(3)))
+            bottom = min(body, key=lambda v: sum(v[k] * up[k] for k in range(3)))
+            check(top[11] < 0.01 and bottom[11] > 0.99, f'{hand}: v runs from the top row (top {top[11]}, bottom {bottom[11]})')
+            check(all(0.0 <= v[10] <= 1.0 and 0.0 <= v[11] <= 1.0 for v in verts), f'{hand}: uv in range')
+            # the textures, 64 x 64 as made: colour + AO, normal (green turned) + roughness
+            check((m['w'], m['h']) == (64, 64), f'{hand}: texture size {m["w"]}x{m["h"]}')
+            check(m['colour'][:4] == bytes((200, 100, 50, 128)) and len(set(m['colour'][i:i + 4] for i in range(0, len(m['colour']), 4))) == 1,
+                  f'{hand}: colour and AO {tuple(m["colour"][:4])}')
+            check(m['surface'][:4] == bytes((NORMAL[0], 255 - NORMAL[1], NORMAL[2], ROUGH)), f'{hand}: normal (OpenGL green) and roughness {tuple(m["surface"][:4])}')
 
-        # an unsimplified run (budget above the source) keeps every triangle
+        # the texture size knob, and the debugging budget still simplifying
         out2 = os.path.join(tmp, 'out2')
-        r = run([out2, src], MLXR_FRAME_MODEL_TRIANGLES=100000)
-        check(r.returncode == 0, 'no-simplify run')
+        r = run([out2, src], MLXR_FRAME_MODEL_TEXTURE=32, MLXR_FRAME_MODEL_TRIANGLES=400)
+        check(r.returncode == 0, f'knob run: {r.stderr}')
         try:
-            check(len(parse_room(os.path.join(out2, 'frame_controller_left.room'))[1]) // 3 == full, 'budget above the source keeps all')
-        except (AssertionError, OSError) as e:
-            check(False, f'no-simplify output: {e}')
+            m = parse_model(os.path.join(out2, 'frame_controller_left.model'))
+            check((m['w'], m['h']) == (32, 32), f'MLXR_FRAME_MODEL_TEXTURE=32 gives {m["w"]}x{m["h"]}')
+            tris = len(m['idx']) // 3
+            check(tris < full and tris <= 400 * 1.5, f'budget of 400 from {full}: {tris}')
+        except (AssertionError, OSError, struct.error) as e:
+            check(False, f'knob output: {e}')
+
+        # no AO, normal or roughness map: flat stand-ins (white AO, flat normal, mid roughness)
+        src3, out3 = os.path.join(tmp, 'rendermodels3'), os.path.join(tmp, 'out3')
+        make_rendermodels(src3, 0, optional=False)
+        r = run([out3, src3])
+        check(r.returncode == 0, f'colour-only source: {r.stderr}')
+        try:
+            m = parse_model(os.path.join(out3, 'frame_controller_right.model'))
+            check(m['colour'][:4] == bytes((200, 100, 50, 255)) and m['surface'][:4] == bytes((128, 127, 255, 128)),
+                  f'stand-ins {tuple(m["colour"][:4])} {tuple(m["surface"][:4])}')
+        except (AssertionError, OSError, struct.error) as e:
+            check(False, f'colour-only output: {e}')
 
         # --- bad sources write nothing, both hands or neither -------------------------------------
         for label, make in (('missing directory', None), ('corrupt json', 'json'), ('missing mesh', 'obj'),
@@ -187,9 +255,9 @@ def main():
                     os.remove(os.path.join(d, 'frame_controller_right_trigger.obj'))
                 else:
                     os.remove(os.path.join(d, 'frame_controller_right_color.png'))
-            r = run([bout, bad], MLXR_FRAME_MODEL_TRIANGLES=400)
+            r = run([bout, bad])
             check(r.returncode != 0 and r.stderr.strip() != '', f'{label}: fails with a message ({r.returncode})')
-            left_over = [f for f in (os.listdir(bout) if os.path.isdir(bout) else []) if f.endswith('.room')]
+            left_over = os.listdir(bout) if os.path.isdir(bout) else []
             check(not left_over, f'{label}: nothing written, found {left_over}')
 
         # --- the real Frame models, when SteamVR is here ------------------------------------------
@@ -200,15 +268,19 @@ def main():
             check(r.returncode == 0, f'real models: {r.stdout}{r.stderr}')
             for hand in ('left', 'right'):
                 try:
-                    verts, idx = parse_room(os.path.join(rout, f'frame_controller_{hand}.room'))
+                    m = parse_model(os.path.join(rout, f'frame_controller_{hand}.model'))
                 except (AssertionError, OSError, struct.error) as e:
                     check(False, f'real {hand}: {e}')
                     continue
+                verts, idx = m['verts'], m['idx']
                 tris = len(idx) // 3
                 box = bbox(verts)
-                print(f'real {hand}: {tris} triangles, {len(verts)} vertices, box {[tuple(round(c, 3) for c in b) for b in box]}')
-                check(3000 <= tris <= 6000, f'real {hand}: triangle count {tris}')
-                check(len(verts) < 20000, f'real {hand}: vertex count')
+                print(f'real {hand}: {tris} triangles, {len(verts)} vertices, {len(m["comps"])} components, textures '
+                      f'{m["w"]}x{m["h"]}, box {[tuple(round(c, 3) for c in b) for b in box]}')
+                check(8000 <= tris <= 60000, f'real {hand}: triangle count {tris}')
+                check(len(verts) < 60000, f'real {hand}: vertex count')
+                check(m['comps'][0]['name'] == 'body' and any(c['name'] == 'trigger' for c in m['comps']), f'real {hand}: components')
+                check(m['w'] >= 512 and m['w'] == m['h'], f'real {hand}: textures {m["w"]}x{m["h"]}')
                 # a handheld controller, in metres around its grip: 5 to 25 cm long, nothing past 20 cm of the grip
                 ext = [b[1] - b[0] for b in box]
                 check(0.05 < max(ext) < 0.25 and all(-0.2 < c < 0.2 for b in box for c in b), f'real {hand}: size {ext}')
@@ -217,7 +289,7 @@ def main():
                 check((lean < 0) == (hand == 'right'), f'real {hand}: leans the right way ({lean:.4f})')
         else:
             print('no SteamVR here: the real models were not tested')
-    print('frame models converter: %s' % ('FAILED %d' % failed if failed else 'ok'))
+    print('frame models converter: %d checks, %s' % (checks, 'FAILED %d' % failed if failed else 'ok'))
     return 1 if failed else 0
 
 

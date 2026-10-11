@@ -541,6 +541,15 @@ static void destroyModel(const MlxrGpu* gpu, MlxrModel* m) {
     if (m->vertices) vkDestroyBuffer(gpu->device, m->vertices, NULL);
     if (m->indices) vkDestroyBuffer(gpu->device, m->indices, NULL);
     if (m->bufferMemory) vkFreeMemory(gpu->device, m->bufferMemory, NULL);
+    // Native: the textured pair's images
+    for (int h = 0; h < 2; h++) {
+        for (int k = 0; k < 2; k++) {
+            MlxrRoomAtlas* a = &m->texture[h][k];
+            if (a->view) vkDestroyImageView(gpu->device, a->view, NULL);
+            if (a->image) vkDestroyImage(gpu->device, a->image, NULL);
+            if (a->memory) vkFreeMemory(gpu->device, a->memory, NULL);
+        }
+    }
     free(m);
 }
 
@@ -578,13 +587,365 @@ static unsigned char* readModelFile(const char* path, RoomMeshInfo* mi, size_t* 
     return NULL;
 }
 
-int mlxr_model_record(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, MlxrModel** out) {
-    double started = nowMs();
-    *out = NULL;
-    // Moonlight XR Native: the Steam Frame's own controllers, when
-    // tools/frame-models has made them from the local SteamVR install: both
-    // hands or neither, each in its own hand's grip space (not mirrored).
-    // Otherwise the one generic controller, mirrored for the left hand.
+// ---- Native: the Steam Frame's textured pair (tools/frame-models, MXFM version 1)
+
+#define MXFM_HEADER_BYTES 32
+#define MXFM_COMPONENT_BYTES 208
+#define MXFM_VERTEX_BYTES (MLXR_MODEL_TEX_VERTEX_FLOATS * 4)
+#define MXFM_TEXTURE_MAX 8192
+
+int mlxr_model_file_parse(const unsigned char* head, size_t headBytes, uint64_t fileBytes, MlxrModelFileInfo* out) {
+    uint32_t h[8];
+    if (!head || headBytes < MXFM_HEADER_BYTES || memcmp(head, "MXFM", 4) != 0) {
+        return 0;
+    }
+    memcpy(h, head, sizeof(h)); // little endian, as the converter writes and the Frame runs
+    if (h[1] != 1 || h[7] != 0) {
+        return 0;
+    }
+    MlxrModelFileInfo i;
+    memset(&i, 0, sizeof(i));
+    i.vertexCount = h[2];
+    i.indexCount = h[3];
+    i.componentCount = h[4];
+    i.texWidth = h[5];
+    i.texHeight = h[6];
+    if (i.vertexCount == 0 || i.vertexCount >= (1u << 22) || i.indexCount == 0 || i.indexCount % 3 != 0 ||
+        i.indexCount > (1u << 24) || i.componentCount == 0 || i.componentCount > MLXR_MODEL_COMPONENTS_MAX ||
+        i.texWidth == 0 || i.texHeight == 0 || i.texWidth > MXFM_TEXTURE_MAX || i.texHeight > MXFM_TEXTURE_MAX) {
+        return 0;
+    }
+    uint64_t texBytes = (uint64_t)i.texWidth * i.texHeight * 4;
+    i.componentOffset = MXFM_HEADER_BYTES;
+    i.vertexOffset = i.componentOffset + (uint64_t)i.componentCount * MXFM_COMPONENT_BYTES;
+    i.indexOffset = i.vertexOffset + (uint64_t)i.vertexCount * MXFM_VERTEX_BYTES;
+    i.colourOffset = i.indexOffset + (uint64_t)i.indexCount * sizeof(uint32_t);
+    i.surfaceOffset = i.colourOffset + texBytes;
+    i.size = i.surfaceOffset + texBytes;
+    if (i.size != fileBytes) {
+        return 0;
+    }
+    *out = i;
+    return 1;
+}
+
+// One hand's file, open: its layout and its components, vertices and indices
+// (read and checked), the images still on disk for the staging buffer
+typedef struct {
+    FILE* f;
+    MlxrModelFileInfo info;
+    unsigned char* mesh; // from componentOffset to colourOffset, as the file has it
+    uint32_t componentCount;
+    MlxrModelComponent components[MLXR_MODEL_COMPONENTS_MAX]; // ranges in this file's indices
+} TexturedFile;
+
+static void closeTextured(TexturedFile* tf) {
+    if (tf->f) fclose(tf->f);
+    free(tf->mesh);
+    memset(tf, 0, sizeof(*tf));
+}
+
+// 0, or -1 with the reason on stderr (and nothing left open)
+static int openTextured(const char* path, TexturedFile* tf) {
+    memset(tf, 0, sizeof(*tf));
+    tf->f = fopen(path, "rb");
+    if (!tf->f) {
+        fprintf(stderr, "controller model %s cannot be read\n", path);
+        return -1;
+    }
+    unsigned char head[MXFM_HEADER_BYTES];
+    long size = -1;
+    if (fseek(tf->f, 0, SEEK_END) == 0) size = ftell(tf->f);
+    if (size < MXFM_HEADER_BYTES || fseek(tf->f, 0, SEEK_SET) != 0 || fread(head, 1, sizeof(head), tf->f) != sizeof(head) ||
+        !mlxr_model_file_parse(head, sizeof(head), (uint64_t)size, &tf->info)) {
+        fprintf(stderr, "controller model %s is not a textured model this reads (MXFM 1, sizes adding up)\n", path);
+        closeTextured(tf);
+        return -1;
+    }
+    const MlxrModelFileInfo* i = &tf->info;
+    size_t meshBytes = (size_t)(i->colourOffset - i->componentOffset);
+    tf->mesh = malloc(meshBytes);
+    if (!tf->mesh || fread(tf->mesh, 1, meshBytes, tf->f) != meshBytes) {
+        fprintf(stderr, "controller model %s: short read\n", path);
+        closeTextured(tf);
+        return -1;
+    }
+    // Every index inside this file's vertices, every component inside its
+    // indices, on whole triangles
+    const unsigned char* idx = tf->mesh + (i->indexOffset - i->componentOffset);
+    for (uint32_t k = 0; k < i->indexCount; k++) {
+        uint32_t v;
+        memcpy(&v, idx + (size_t)k * 4, 4);
+        if (v >= i->vertexCount) {
+            fprintf(stderr, "controller model %s: index %u out of range\n", path, k);
+            closeTextured(tf);
+            return -1;
+        }
+    }
+    for (uint32_t c = 0; c < i->componentCount; c++) {
+        const unsigned char* rec = tf->mesh + (size_t)c * MXFM_COMPONENT_BYTES;
+        MlxrModelComponent* mc = &tf->components[c];
+        uint32_t u[4];
+        memcpy(mc->name, rec, MLXR_MODEL_NAME_BYTES);
+        memcpy(mc->path, rec + MLXR_MODEL_NAME_BYTES, MLXR_MODEL_NAME_BYTES);
+        mc->name[MLXR_MODEL_NAME_BYTES - 1] = 0;
+        mc->path[MLXR_MODEL_NAME_BYTES - 1] = 0;
+        memcpy(u, rec + 2 * MLXR_MODEL_NAME_BYTES, sizeof(u));
+        memcpy(mc->motion, rec + 2 * MLXR_MODEL_NAME_BYTES + sizeof(u), sizeof(mc->motion));
+        mc->firstIndex = u[0];
+        mc->indexCount = u[1];
+        mc->motionType = u[2];
+        if ((uint64_t)u[0] + u[1] > i->indexCount || u[0] % 3 != 0 || u[1] % 3 != 0 || u[2] > MLXR_MOTION_JOYSTICK) {
+            fprintf(stderr, "controller model %s: component %u (%s) is out of range\n", path, c, mc->name);
+            closeTextured(tf);
+            return -1;
+        }
+    }
+    tf->componentCount = i->componentCount;
+    return 0;
+}
+
+// Whether a texture of this format and size can be sampled here, and with a
+// mip chain made by blits (*mips 1 if not: sampled at its one level)
+static int texturedSupport(const MlxrGpu* gpu, VkFormat format, uint32_t w, uint32_t h, uint32_t* mips) {
+    VkFormatProperties fp;
+    vkGetPhysicalDeviceFormatProperties(gpu->phys, format, &fp);
+    VkFormatFeatureFlags need = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT |
+                                VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+    VkFormatFeatureFlags blit = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT;
+    if ((fp.optimalTilingFeatures & need) != need) {
+        return 0;
+    }
+    uint32_t full = 1;
+    for (uint32_t s = w > h ? w : h; s > 1; s >>= 1) full++;
+    *mips = (fp.optimalTilingFeatures & blit) == blit ? full : 1;
+    VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                              (*mips > 1 ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
+    VkImageFormatProperties ip;
+    if (vkGetPhysicalDeviceImageFormatProperties(gpu->phys, format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, usage, 0, &ip) !=
+        VK_SUCCESS) {
+        return 0;
+    }
+    return w <= ip.maxExtent.width && h <= ip.maxExtent.height && *mips <= ip.maxMipLevels;
+}
+
+static int makeModelImage(const MlxrGpu* gpu, VkFormat format, uint32_t w, uint32_t h, uint32_t mips, MlxrRoomAtlas* a) {
+    a->format = format;
+    a->width = w;
+    a->height = h;
+    a->levels = mips;
+    VkImageCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.format = format;
+    ci.extent = (VkExtent3D){w, h, 1};
+    ci.mipLevels = mips;
+    ci.arrayLayers = 1;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | (mips > 1 ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
+    if (vkCreateImage(gpu->device, &ci, NULL, &a->image) != VK_SUCCESS) {
+        return -1;
+    }
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(gpu->device, a->image, &req);
+    VkMemoryAllocateInfo mai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    mai.allocationSize = req.size;
+    mai.memoryTypeIndex = findMemory(gpu, req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+    if (mai.memoryTypeIndex == UINT32_MAX || vkAllocateMemory(gpu->device, &mai, NULL, &a->memory) != VK_SUCCESS) {
+        return -1;
+    }
+    vkBindImageMemory(gpu->device, a->image, a->memory, 0);
+    a->gpuBytes = req.size;
+    VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = a->image;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = format;
+    vi.subresourceRange = (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, 0, 1};
+    return vkCreateImageView(gpu->device, &vi, NULL, &a->view) == VK_SUCCESS ? 0 : -1;
+}
+
+static void levelBarrier(VkCommandBuffer cmd, VkImage image, uint32_t level, uint32_t count, VkImageLayout from,
+                         VkImageLayout to, VkAccessFlags src, VkAccessFlags dst, VkPipelineStageFlags srcStage,
+                         VkPipelineStageFlags dstStage) {
+    VkImageMemoryBarrier b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = image;
+    b.subresourceRange = (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, level, count, 0, 1};
+    b.oldLayout = from;
+    b.newLayout = to;
+    b.srcAccessMask = src;
+    b.dstAccessMask = dst;
+    vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, NULL, 0, NULL, 1, &b);
+}
+
+// Level 0 from the staging buffer, the rest each blitted (linear) from the
+// one above: an sRGB image is filtered in linear light, its alpha (the
+// occlusion) and the UNORM normals as they are, so a normal shortens where
+// its bumps average out (the shader reads that as roughness, Toksvig)
+static void recordModelImage(VkCommandBuffer cmd, VkBuffer staging, uint64_t offset, const MlxrRoomAtlas* a) {
+    const VkPipelineStageFlags T = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    levelBarrier(cmd, a->image, 0, a->levels, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, T);
+    VkBufferImageCopy region = {.bufferOffset = offset,
+                                .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                                .imageExtent = {a->width, a->height, 1}};
+    vkCmdCopyBufferToImage(cmd, staging, a->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    int32_t w = (int32_t)a->width, h = (int32_t)a->height;
+    for (uint32_t l = 1; l < a->levels; l++) {
+        levelBarrier(cmd, a->image, l - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                     VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, T, T);
+        int32_t nw = w > 1 ? w / 2 : 1, nh = h > 1 ? h / 2 : 1;
+        VkImageBlit blit = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, l - 1, 0, 1},
+                            .srcOffsets = {{0, 0, 0}, {w, h, 1}},
+                            .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, l, 0, 1},
+                            .dstOffsets = {{0, 0, 0}, {nw, nh, 1}}};
+        vkCmdBlitImage(cmd, a->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, a->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                       &blit, VK_FILTER_LINEAR);
+        w = nw;
+        h = nh;
+    }
+    const VkPipelineStageFlags FS = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    if (a->levels > 1) {
+        levelBarrier(cmd, a->image, 0, a->levels - 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, T, FS);
+    }
+    levelBarrier(cmd, a->image, a->levels - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, T, FS);
+}
+
+// The textured pair, both hands or neither. Everything is read, checked and
+// created before a command goes into cmd, so a failure (-1, the reason on
+// stderr, all of it freed) leaves cmd as it was for the next candidate.
+static int recordTextured(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, double started, MlxrModel** out) {
+    static const char* const kHand[2] = {"left", "right"};
+    static const VkFormat kFormat[2] = {VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_R8G8B8A8_UNORM};
+    TexturedFile tf[2];
+    memset(tf, 0, sizeof(tf));
+    MlxrModel* m = NULL;
+    int rc = -1;
+    for (int h = 0; h < 2; h++) {
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/models/frame_controller_%s.model", assetsDir, kHand[h]);
+        if (openTextured(path, &tf[h]) != 0) {
+            goto done;
+        }
+    }
+    uint32_t mips[2][2];
+    for (int h = 0; h < 2; h++) {
+        for (int k = 0; k < 2; k++) {
+            if (!texturedSupport(gpu, kFormat[k], tf[h].info.texWidth, tf[h].info.texHeight, &mips[h][k])) {
+                fprintf(stderr, "controller model textures of %ux%u cannot be sampled here\n", tf[h].info.texWidth,
+                        tf[h].info.texHeight);
+                goto done;
+            }
+        }
+    }
+    m = calloc(1, sizeof(*m));
+    if (!m) {
+        goto done;
+    }
+    m->perHand = 1;
+    m->textured = 1;
+    snprintf(m->source, sizeof(m->source), "%s/models/frame_controller_{left,right}.model", assetsDir);
+    uint64_t voff[2], ioff[2];
+    for (int h = 0; h < 2; h++) {
+        const MlxrModelFileInfo* i = &tf[h].info;
+        voff[h] = m->vertexBytes;
+        ioff[h] = m->indexBytes;
+        m->handVertexOffset[h] = (int32_t)m->vertexCount;
+        m->handFirstIndex[h] = m->indexCount;
+        m->handIndexCount[h] = i->indexCount;
+        m->componentCount[h] = tf[h].componentCount;
+        for (uint32_t c = 0; c < tf[h].componentCount; c++) {
+            m->components[h][c] = tf[h].components[c];
+            m->components[h][c].firstIndex += m->indexCount; // absolute, as a draw takes it
+        }
+        m->vertexCount += i->vertexCount;
+        m->indexCount += i->indexCount;
+        m->vertexBytes += (uint64_t)i->vertexCount * MXFM_VERTEX_BYTES;
+        m->indexBytes += (uint64_t)i->indexCount * sizeof(uint32_t);
+    }
+    m->texWidth = tf[0].info.texWidth;
+    m->texHeight = tf[0].info.texHeight;
+    m->texLevels = mips[0][0];
+
+    // Staging: vertices, indices, then each hand's colour and surface images
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(gpu->phys, &props);
+    uint64_t copyAlign = props.limits.optimalBufferCopyOffsetAlignment;
+    if (copyAlign < 16) copyAlign = 16;
+    uint64_t indexStart = alignUp(m->vertexBytes, 16);
+    uint64_t total = alignUp(indexStart + m->indexBytes, copyAlign);
+    uint64_t texOff[2][2];
+    for (int h = 0; h < 2; h++) {
+        for (int k = 0; k < 2; k++) {
+            texOff[h][k] = total;
+            total = alignUp(total + (uint64_t)tf[h].info.texWidth * tf[h].info.texHeight * 4, copyAlign);
+        }
+    }
+    void* map = NULL;
+    if (makeStaging(gpu, total, &m->staging, &m->stagingMemory, &map) != 0) {
+        goto done;
+    }
+    for (int h = 0; h < 2; h++) {
+        const MlxrModelFileInfo* i = &tf[h].info;
+        memcpy((char*)map + voff[h], tf[h].mesh + (i->vertexOffset - i->componentOffset),
+               (size_t)i->vertexCount * MXFM_VERTEX_BYTES);
+        memcpy((char*)map + indexStart + ioff[h], tf[h].mesh + (i->indexOffset - i->componentOffset),
+               (size_t)i->indexCount * sizeof(uint32_t));
+        // The images straight from the file into the staging buffer (the
+        // file pointer is at colourOffset, the surface image follows)
+        size_t texBytes = (size_t)i->texWidth * i->texHeight * 4;
+        for (int k = 0; k < 2; k++) {
+            if (fread((char*)map + texOff[h][k], 1, texBytes, tf[h].f) != texBytes) {
+                fprintf(stderr, "controller model (%s hand): short read of its textures\n", kHand[h]);
+                vkUnmapMemory(gpu->device, m->stagingMemory);
+                goto done;
+            }
+        }
+    }
+    vkUnmapMemory(gpu->device, m->stagingMemory);
+    if (makeMeshBuffers(gpu, m->vertexBytes, m->indexBytes, &m->vertices, &m->indices, &m->bufferMemory, &m->gpuBytes) != 0) {
+        goto done;
+    }
+    for (int h = 0; h < 2; h++) {
+        for (int k = 0; k < 2; k++) {
+            if (makeModelImage(gpu, kFormat[k], tf[h].info.texWidth, tf[h].info.texHeight, mips[h][k], &m->texture[h][k]) !=
+                0) {
+                fprintf(stderr, "controller model textures: out of GPU memory?\n");
+                goto done;
+            }
+            m->gpuBytes += m->texture[h][k].gpuBytes;
+            m->texture[h][k].fileBytes = (uint64_t)tf[h].info.texWidth * tf[h].info.texHeight * 4;
+        }
+    }
+
+    // Nothing failed: the commands
+    recordMeshCopy(cmd, m->staging, indexStart, m->vertices, m->vertexBytes, m->indices, m->indexBytes);
+    for (int h = 0; h < 2; h++) {
+        for (int k = 0; k < 2; k++) {
+            recordModelImage(cmd, m->staging, texOff[h][k], &m->texture[h][k]);
+        }
+    }
+    m->loadMs = nowMs() - started;
+    *out = m;
+    m = NULL;
+    rc = 0;
+done:
+    closeTextured(&tf[0]);
+    closeTextured(&tf[1]);
+    destroyModel(gpu, m);
+    return rc;
+}
+
+// The painted models (.room): the Frame's pair from an older converter, else
+// the generic controller
+static int recordPainted(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, double started, MlxrModel** out) {
+    // Moonlight XR Native: the Steam Frame's own controllers, painted, when
+    // an older tools/frame-models made them from the local SteamVR install:
+    // both hands or neither, each in its own hand's grip space (not
+    // mirrored). Otherwise the one generic controller, mirrored for the left
+    // hand.
     char path[2][1024];
     unsigned char* file[2] = { NULL, NULL };
     RoomMeshInfo mi[2];
@@ -668,6 +1029,24 @@ done:
     return rc;
 }
 
+int mlxr_model_record(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, MlxrModel** out) {
+    double started = nowMs();
+    *out = NULL;
+    // Native: the textured pair when both halves are there; one that does
+    // not load falls through to the painted files and the generic controller
+    char path[2][1024];
+    snprintf(path[0], sizeof(path[0]), "%s/models/frame_controller_left.model", assetsDir);
+    snprintf(path[1], sizeof(path[1]), "%s/models/frame_controller_right.model", assetsDir);
+    if (access(path[0], R_OK) == 0 || access(path[1], R_OK) == 0) {
+        if (recordTextured(gpu, assetsDir, cmd, started, out) == 0) {
+            return 0;
+        }
+        fprintf(stderr, "textured Frame controller models are not usable, trying the painted ones and the generic "
+                        "controller\n");
+    }
+    return recordPainted(gpu, assetsDir, cmd, started, out);
+}
+
 int mlxr_model_load(const MlxrGpu* gpu, const char* assetsDir, MlxrModel** out) {
     double started = nowMs();
     *out = NULL;
@@ -703,5 +1082,9 @@ void mlxr_model_fill(const MlxrModel* m, MlxrModelParams* out) {
         out->handFirstIndex[h] = m->handFirstIndex[h];
         out->handIndexCount[h] = m->handIndexCount[h];
         out->handVertexOffset[h] = m->handVertexOffset[h];
+        // Native: the textured pair's images (NULL for a painted model)
+        out->handColour[h] = m->textured ? m->texture[h][0].view : VK_NULL_HANDLE;
+        out->handSurface[h] = m->textured ? m->texture[h][1].view : VK_NULL_HANDLE;
     }
+    out->textured = m->textured;
 }
