@@ -279,6 +279,30 @@ XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     return pose;
 }
 
+// Native (owner's request): the keyboard where it is now. Under the screen
+// as ever until its move bar has moved it, and then where it was left, at the
+// size the layout showing gives it.
+void kbPlace(XrCtx* ctx) {
+    XrPosef pose = kbPanelPose(ctx, &ctx->kbW, &ctx->kbH);
+    ctx->kbPose = ctx->kbMoved ? ctx->kbMovedPose : pose;
+}
+
+// Native (owner's request): the keyboard's move bar. The frame it is laid
+// out in is the keyboard panel's width as a share of the screen's frame
+// (KB_WIDTH_FRAC, KB_FULL_SCALE for the Full layout) turned back, so the pill
+// is as big as the picture's whatever the layout, and hangs the picture's
+// BAR_DROP_FRAC of that frame under the panel's bottom edge.
+void kbBarGeometry(XrCtx* ctx, float* outWidth, float* outHeight, float* outDrop) {
+    float share = KB_WIDTH_FRAC;
+    if (xrKeyboardLayout(ctx) == KB_LAYOUT_FULL) {
+        share *= KB_FULL_SCALE;
+    }
+    float frame = ctx->kbW / share;
+    *outWidth = frame * BAR_WIDTH_FRAC;
+    *outHeight = frame * BAR_HEIGHT_FRAC;
+    *outDrop = ctx->kbH * 0.5f + frame * BAR_DROP_FRAC;
+}
+
 // Which key a point on the panel is inside, or -1. The rectangles are the
 // whole of what this side knows about the layout, so a row of them is all
 // there is to search. A blank on the sheet showing is no key at all.

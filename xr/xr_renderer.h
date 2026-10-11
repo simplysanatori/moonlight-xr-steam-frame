@@ -153,6 +153,9 @@ static inline int64_t nowNs(void) {
 #define GRAB_NONE   0
 #define GRAB_MOVE   1
 #define GRAB_RESIZE 2
+// Native (owner's request): the keyboard held by its move bar, in place and
+// turn, wherever it is taken to
+#define GRAB_KBMOVE 3
 
 // Widened along with the grid so a cell stays about the size it was at three
 // columns: five of them now
@@ -889,6 +892,11 @@ typedef struct XrCtx {
     KbFull kbFull;
     XrPosef kbPose;
     float kbW, kbH;
+    // Native (owner's request): the keyboard once its move bar has moved it.
+    // Until then it opens under the screen as it always did; after, it opens
+    // where it was left, until the screen's placement is reset.
+    int kbMoved;
+    XrPosef kbMovedPose;
 
     int stereoButtonReady;
     int stereoButtonHot;
@@ -1043,6 +1051,14 @@ float screenRoll(XrCtx* ctx);
 XrPosef pickerPose(XrCtx* ctx, float* outWidth, float* outHeight);
 XrPosef cogPanelPose(XrCtx* ctx, float* outWidth, float* outHeight);
 XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight);
+// Native: kbPose and the panel's size as they stand now, which is under the
+// screen (kbPanelPose) unless the move bar has moved it
+void kbPlace(XrCtx* ctx);
+// Native: the keyboard's move bar, in the keyboard's plane: the pill's width
+// and height and how far its middle is below the panel's centre, metres. The
+// pill is the picture's, at the picture's size and gap, so it hangs off the
+// panel's bottom edge by the same share of the frame as the picture's does.
+void kbBarGeometry(XrCtx* ctx, float* outWidth, float* outHeight, float* outDrop);
 int kbKeyAt(XrCtx* ctx, float u, float v);
 int headAimCanAct(XrCtx* ctx);
 void setHeadAimOn(XrCtx* ctx, int on, const char* from);

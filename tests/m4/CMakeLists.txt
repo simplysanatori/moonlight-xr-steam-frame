@@ -16,7 +16,7 @@ add_custom_target(ui-snapshots COMMAND mlxr-ui-snapshot ${PROJECT_BINARY_DIR}/ui
   COMMAND mlxr-world-snapshot ${PROJECT_BINARY_DIR}/ui-snapshots DEPENDS mlxr-ui-snapshot mlxr-world-snapshot)
 add_test(NAME m4_snapshot_budget COMMAND mlxr-ui-snapshot ${CMAKE_CURRENT_BINARY_DIR}/snapshots)
 
-foreach(t prefs hits launcher budget vrkb panels_async)
+foreach(t prefs hits launcher budget vrkb panels_async kbbar)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/test_${t}.c)
     add_executable(test_m4_${t} test_${t}.c)
     target_link_libraries(test_m4_${t} PRIVATE m4_scene mlxr_launcher mlxr_stream)

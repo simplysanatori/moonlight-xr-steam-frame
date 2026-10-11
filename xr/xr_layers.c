@@ -36,6 +36,8 @@
 // cog button, the panel, the clock, the models, ray, dot and toast: 11. The
 // drop order below is upstream's (toast, models, hover ring, cog button,
 // clock) for a frame that would still go over; tests/m5 counts the cases.
+// The keyboard's move bar (native) is one more, but only with the keyboard up,
+// which sheds the bar furniture the same way a modal does; tests/m4/test_budget.c.
 #define FRAME_MAX_LAYERS XR_FRAME_MAX_LAYERS
 
 typedef struct {
@@ -68,6 +70,7 @@ typedef struct {
     XrCompositionLayerQuad cogClock;
     XrCompositionLayerQuad kbPanel;
     XrCompositionLayerQuad kbMark;
+    XrCompositionLayerQuad kbBar;
     // The controller models, over the picture and the panels and under the
     // beam
     XrCompositionLayerProjection models;
@@ -698,6 +701,21 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
         atlasQuad(ctx, &layers->kbPanel, fadeNext(ctx, layers, FADE_KB, 1, level),
                   UI_PANEL_KEYBOARD, view->space, ctx->kbPose, ctx->kbW, ctx->kbH);
         pushLayer(ctx, layers, &layers->kbPanel);
+
+        // Native (owner's request): the keyboard's move bar, the picture's
+        // pill under the panel. Always there while the keyboard is, since the
+        // keyboard has no bar area to hover into as the picture has; it swells
+        // a little when the ray is on it or it is held, which is the lighting
+        // a quad layer can give.
+        if (ctx->handleArtReady) {
+            float pillW, pillH, drop;
+            kbBarGeometry(ctx, &pillW, &pillH, &drop);
+            float grow = ctx->hoverKind == HOVER_KBBAR ? 1.25f : 1.0f;
+            Vec3 local = { 0.0f, -drop, 0.005f };
+            atlasQuad(ctx, &layers->kbBar, NULL, ATLAS_HANDLE, view->space,
+                      poseOffset(ctx->kbPose, local), pillW * grow, pillH * grow);
+            pushLayer(ctx, layers, &layers->kbBar);
+        }
 
         // The Compact keyboard's "Full" chip has its rect in the last slot
         if (ctx->outlineReady && ctx->kbHoverKey >= 0
