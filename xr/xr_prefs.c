@@ -348,6 +348,19 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
             *v = ctx->pictureUnits[row];
         }
     }
+    // Native (owner's request: the 3D sliders did not move until let go): the
+    // 3D tab's two tracks as they stand while being dragged. The panel is
+    // drawn from this, and config.ini only has the value once the drag ends,
+    // so without it the thumb, readout and preset mark sat on the old value
+    // for the whole drag. Left alone while they agree, so a value the file
+    // leaves to the depth model's own (-1) stays that.
+    if (ctx->panelSeparation >= 0.0f
+            && separationUnits(ctx->panelSeparation) != settings_separation_units(s)) {
+        s->separation = separationUnits(ctx->panelSeparation);
+    }
+    if (iround(ctx->convergence * 100.0f) != settings_convergence_percent(s)) {
+        s->convergence = iround(ctx->convergence * 100.0f);
+    }
     if (ctx->placementValid) {
         float pose[POSE_VALUES];
         pose[0] = ctx->screenPose.position.x;
