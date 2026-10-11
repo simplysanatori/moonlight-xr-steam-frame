@@ -70,7 +70,9 @@ enum {
 UiRectPx xrAtlasRect(int slot);
 // The CPU copy the panels draw into (RGBA8 premultiplied, UI_ATLAS_W wide)
 uint8_t* xrAtlasPixels(XrCtx* ctx);
-// A slot was redrawn: it goes up into each swapchain image as that is next used
+// A slot was redrawn: its pixels are copied into the staging buffer and go up
+// into each swapchain image as that is next used. Frame loop only, after the
+// last frame's fence (the staging buffer is the copies' source)
 void xrAtlasTouch(XrCtx* ctx, int slot);
 XrSwapchain xrAtlasSwapchain(XrCtx* ctx);
 // Created with the session (format R8G8B8A8_SRGB, upstream's SRGB8_ALPHA8:
