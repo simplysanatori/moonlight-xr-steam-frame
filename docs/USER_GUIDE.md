@@ -42,6 +42,10 @@ It works like Moonlight on a PC.
 
 While a stream starts, the window shows a tip: "Tip: Press Start+Select+L1+R1 to disconnect your session". With no gamepad connected it names Ctrl+Alt+Shift+Q instead.
 
+In the headset (Game Mode) the window is drawn 1.5 times larger than on a desktop, so the text is easier to read. Set `MLXR_LAUNCHER_SCALE` to change it, for example `MLXR_LAUNCHER_SCALE=1.25`. It takes 1.0 (no scaling) to 2.5. On a desktop the window is not scaled.
+
+The **Help** button (the question mark at the top) opens this project's readme: <https://github.com/simplysanatori/moonlight-xr-steam-frame#readme>.
+
 If you used the Moonlight flatpak on the Frame before, its PC list and pairing are copied the first time the flat window starts. The flatpak's own files are not changed.
 
 ## Settings page
@@ -60,7 +64,7 @@ The page has the categories below, in this order. A greyed row shows "Not availa
 | --- | --- | --- |
 | Video resolution | 360p, 480p, 720p, 1080p, 1440p, 4K, or a custom size | 1440p (2560x1440) |
 | Refresh rate | **Match headset**, 90 Hz, 72 Hz, 60 Hz, 30 Hz, Custom | Match headset. It uses the rate SteamVR runs the display at. The stream never goes above 90 Hz. Custom takes values such as 59.94 and needs Apollo. |
-| Video bitrate | 0.5 to 150 Mbps | 80 Mbps. See [Recommended PC settings](#recommended-pc-settings). |
+| Video bitrate | 0.5 to 150 Mbps | Twice Moonlight's own default for the size and rate you pick: 98 Mbps at 1440p and 90 Hz, 49 Mbps at 1080p and 90 Hz, 80 Mbps at 1440p and 60 Hz. It is set again to this value whenever you change the resolution or the refresh rate, and it never goes above 150. A value you saved earlier is kept until then. See [Recommended PC settings](#recommended-pc-settings). |
 | Video frame pacing | Prefer lowest latency, Balanced, Prefer smoothest video | Balanced |
 | Ultra Low Latency (experimental) | on, off | off. Runs the network and decoder threads at realtime priority. |
 | Use Virtual Display | on, off | off. Needs Apollo. Apollo makes a display that matches the stream. |
@@ -290,7 +294,7 @@ On the Frame controllers, Start is the right menu button, Select is the left Vie
 
 | Setting | Recommendation |
 | --- | --- |
-| Bitrate | 40 to 60 Mbps over the Steam Frame Wireless Adapter. Higher rates lost packets on that link in testing. On a strong Wi-Fi connection 80 Mbps at 1440p worked. |
+| Bitrate | 40 to 60 Mbps over the Steam Frame Wireless Adapter. Higher rates lost packets on that link in testing. On a strong Wi-Fi connection 80 Mbps at 1440p worked. The default is higher (98 Mbps at 1440p and 90 Hz), so lower it in Settings if you see lost packets. |
 | Codec | Automatic or HEVC. HEVC recovers from lost packets without waiting for a full new frame. |
 | Display refresh rate on the PC | 90 Hz or higher. A 60 Hz desktop gives a 60 fps stream. |
 | Apollo | Use Virtual Display with the refresh rate at 90 Hz. The virtual display then matches the stream. |
@@ -359,3 +363,4 @@ These are for testing and debugging. Most users never need them. Put them in fro
 | `MLXR_LOG_DIR` | `~/Games/MoonlightXRNative` | Where the logs go. |
 | `MLXR_VRTIMING` | 1 | 0 stops the flat window from logging SteamVR's frame timing to `vrtiming.log`. |
 | `MLXR_HANDOFF` | 1 | 0 makes the flat window stream flat, as stock Moonlight. |
+| `MLXR_LAUNCHER_SCALE` | 1.5 | How much larger the flat window is drawn in Game Mode (1.0 to 2.5). A `QT_SCALE_FACTOR` you set yourself is used when this is not set. |

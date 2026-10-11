@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight-XR-Native <noreply@example.invalid>
+Date: Sun, 11 Oct 2026 06:59:06 -0400
+Subject: [PATCH] Game Mode: scale the flat UI up (QT_SCALE_FACTOR, 1.5 by
+ default, MLXR_LAUNCHER_SCALE)
+
+Moonlight XR Native (lane launcher2). The desktop stays stock.
+---
+ app/main.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/app/main.cpp b/app/main.cpp
+index 346615f..6e7faa2 100644
+--- a/app/main.cpp
++++ b/app/main.cpp
+@@ -578,6 +578,10 @@ int main(int argc, char *argv[])
+     SDL_SetHint(SDL_HINT_WINDOWS_DISABLE_THREAD_NAMING, "0");
+ #endif
+ 
++    // Moonlight XR Native (lane launcher2): a larger UI in Game Mode (QT_SCALE_FACTOR, read
++    // when the QGuiApplication is created); the desktop stays stock
++    MlxrHandoff::applyGameModeScale();
++
+     QGuiApplication app(argc, argv);
+ 
+ #ifndef STEAM_LINK
