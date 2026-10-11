@@ -17,6 +17,8 @@
 //   --virtual-display  ask Apollo for a virtual display made for this client (virtualDisplay=1)
 //   --scale-factor N   Apollo: the virtual display is N percent (20..200) of the stream's size
 //   --refresh-rate R   Artemis's custom refresh rate (e.g. 59.94; capped at the headset's 90 Hz)
+//   --fps match        the flat page's "Match headset": the rate SteamVR reports for the display
+//                      (90, or 72 on a 72 Hz headset; 90 when unknown) instead of --mode's
 //   --no-sops          no "Optimize game settings" (sops=0)
 //   --local-audio      "Play audio on PC" too (localAudioPlayMode=1)
 //   --pacing latency|balanced|smoothness   frame pacing (sets MLXR_VIDEO_PACING 0/2/1 unless set)
@@ -117,7 +119,7 @@ static struct {
     int exitToCaller, packetSize, audio; // audio: 0 stereo (default), 1 5.1, 2 7.1
     double seconds;
     // Native (lane artemis-settings): the flat launcher's Artemis-style settings
-    int virtualDisplay, scaleFactor, refreshX1000, noSops, localAudio, fullRange, clipboardSync;
+    int virtualDisplay, scaleFactor, refreshX1000, noSops, localAudio, fullRange, clipboardSync, fpsMatch;
 } g_args;
 
 // Native (lane artemis-settings): headset display rate cap for Artemis's custom refresh rate
@@ -665,6 +667,12 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
                fps, fpsCap, displayHz > 0 ? "reported by SteamVR" : "rate unknown", fpsCap);
         fps = fpsCap;
     }
+    // Native (lane artemis-settings): "Match headset" asks the host for the display's own rate
+    if (g_args.fpsMatch) {
+        fps = mlxr_fps_for_request(fps, displayHz, 1);
+        MLOG_I("frame rate matches the headset: %d fps (display %s)", fps,
+               displayHz > 0 ? "rate reported by SteamVR" : "rate unknown, the 90 Hz ceiling");
+    }
     lp.width = w;
     lp.height = h;
     lp.fps = fps;
@@ -1011,6 +1019,14 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--local-audio")) g_args.localAudio = 1;
         else if (!strcmp(argv[i], "--full-range")) g_args.fullRange = 1;
         else if (!strcmp(argv[i], "--clipboard-sync")) g_args.clipboardSync = 1;
+        else if (!strcmp(argv[i], "--fps") && i + 1 < argc) {
+            const char* v = argv[++i];
+            if (strcmp(v, "match")) {
+                fprintf(stderr, "MLXR_ERROR: --fps takes match (a number goes in --mode)\n");
+                return EXIT_USAGE;
+            }
+            g_args.fpsMatch = 1;
+        }
         else if (!strcmp(argv[i], "--no-rumble")) gamepadsSetRumbleEnabled(0);
         else if (!strcmp(argv[i], "--deadzone") && i + 1 < argc) gamepadsSetDeadzone(atoi(argv[++i]));
         else if (!strcmp(argv[i], "--no-mouse-nav-buttons")) evmouse_set_nav_buttons(0);
@@ -1058,6 +1074,7 @@ int main(int argc, char** argv) {
                     "                  [--virtual-display] [--scale-factor PCT] [--refresh-rate HZ] [--no-sops] [--local-audio]\n"
                     "                  [--pacing latency|balanced|smoothness] [--video-priority off|nice|rt] [--full-range]\n"
                     "                  [--no-rumble] [--deadzone PCT] [--no-mouse-nav-buttons] [--clipboard-sync]\n"
+                    "                  [--fps match]\n"
                     "                  [--network auto|home|adapter]\n"
                     "       %s --file VIDEO [--sw-decode] [--seconds N]\n",
                     argv[0], argv[0], argv[0]);
