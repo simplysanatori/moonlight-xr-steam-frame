@@ -4,7 +4,7 @@
 
 - bug-report.sh now collects the minimum: the app logs, your note from the headset, the version, a short system summary and a filtered copy of config.ini. Addresses, host names, user names, ids, serial numbers, Wi-Fi names, keys and certificates are masked or left out. The zip lists its files when done.
 - The README says how this was made, in my own words.
-- The hint on the Report a problem sheet is shorter.
+- The Report a problem sheet no longer asks for an email address. It saves your note on the Frame and asks you to open an issue on GitHub with the bug-report zip.
 
 ## 0.6.0-alpha.1 (October 2026)
 

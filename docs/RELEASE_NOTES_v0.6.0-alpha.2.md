@@ -1,12 +1,12 @@
 # Moonlight XR for Frame 0.6.0-alpha.2
 
-A small follow-up to the first alpha. The app itself is the same build as 0.6.0-alpha.1 apart from one hint text. The change is in what the bug report collects.
+A small follow-up to the first alpha. The app changes in one place, the Report a problem sheet. The rest is in what the bug report collects and in the README.
 
 ## What changed
 
 - `bug-report.sh` now collects only what is needed to debug: the app logs, your note from the headset, the version, a short system summary (SteamOS, SteamVR, Mesa and kernel versions, display refresh rate) and a filtered copy of `config.ini` with numbers, switches and fixed choices only. Addresses, host names, user names, ids, serial numbers, Wi-Fi names, keys and certificates are masked or left out. It prints the file list when done. Look inside before you share it.
 - The README says how this was made, in my own words.
-- The hint on the Report a problem sheet is shorter.
+- The Report a problem sheet no longer asks for an email address. It saves your note on the Frame and asks you to open an issue on GitHub with the bug-report zip.
 
 ## Download
 
