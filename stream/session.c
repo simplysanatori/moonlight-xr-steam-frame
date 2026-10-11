@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "../xr/mlxr_log.h"
+#include "../input/gamepads.h"
 #include "../input/rumble.h"
 #include "../xr/xr_pad_bridge.h"
 #include "hw_video.h"
@@ -202,8 +203,9 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     cl.connectionTerminated = clTerminated;
     cl.logMessage = clLog;
     cl.connectionStatusUpdate = clStatus;
-    cl.rumble = rumbleHostCallback;          // gamepad mode (M3)
-    cl.rumbleTriggers = rumbleTriggersCallback;
+    // Native: a physical pad (input/gamepads) takes the rumble for its number, else gamepad mode (M3)
+    cl.rumble = gamepadsHostRumble;
+    cl.rumbleTriggers = gamepadsHostRumbleTriggers;
 
     DECODER_RENDERER_CALLBACKS dr;
     LiInitializeVideoCallbacks(&dr);

@@ -1,5 +1,5 @@
 # Tests for the input lane (ctest names input_*), built with -Werror.
-set(INPUT_TESTS pad_out rumble)
+set(INPUT_TESTS pad_out rumble gamepads)
 foreach(t ${INPUT_TESTS})
   add_executable(test_input_${t} test_${t}.c)
   target_link_libraries(test_input_${t} PRIVATE mlxr_input_core m)
@@ -24,6 +24,19 @@ if(MLXR_HAVE_TSAN)
   target_link_options(test_input_rumble_tsan PRIVATE -fsanitize=thread)
   add_test(NAME input_rumble_tsan COMMAND test_input_rumble_tsan)
   set_tests_properties(input_rumble_tsan PROPERTIES ENVIRONMENT "TSAN_OPTIONS=halt_on_error=1")
+endif()
+
+# The same, gamepads included (its threads test is the point)
+if(MLXR_HAVE_TSAN)
+  add_executable(test_input_gamepads_tsan test_gamepads.c ${PROJECT_SOURCE_DIR}/input/gamepads.c
+    ${PROJECT_SOURCE_DIR}/input/rumble.c)
+  target_link_libraries(test_input_gamepads_tsan PRIVATE mlxr_xrcore Threads::Threads m)
+  target_include_directories(test_input_gamepads_tsan PRIVATE
+    ${PROJECT_SOURCE_DIR}/input ${PROJECT_SOURCE_DIR}/tests/xrcore ${MLXR_MCC_SRC})
+  target_compile_options(test_input_gamepads_tsan PRIVATE -Werror -fsanitize=thread -g -O1)
+  target_link_options(test_input_gamepads_tsan PRIVATE -fsanitize=thread)
+  add_test(NAME input_gamepads_tsan COMMAND test_input_gamepads_tsan)
+  set_tests_properties(input_gamepads_tsan PROPERTIES ENVIRONMENT "TSAN_OPTIONS=halt_on_error=1")
 endif()
 
 # The real sends, with no connection

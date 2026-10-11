@@ -5,6 +5,7 @@
 
 #include "core/xr_padexit.h"
 
+#include "../input/gamepads.h"
 #include "../input/pad_out.h"
 #include "../input/rumble.h"
 #include "mlxr_log.h"
@@ -45,6 +46,7 @@ void xrPadBridgeStartWithSink(const PadOutSink* sink) {
     rumbleReset(rumbleGlobal());
     g_ready = 1;
     pthread_mutex_unlock(&g_lock);
+    gamepadsStreamStart(); // Native: physical pads announce themselves to this host
     MLOG_I("gamepad: pad output ready (flip face buttons %s)", g_flip ? "on" : "off");
 }
 
@@ -65,7 +67,18 @@ void xrPadBridgeFrame(int plugged, const PadState* s, int64_t nowNs) {
             padRest(&rest);
             send = &rest;
         }
+        // Native: the pad takes a number the physical pads (input/gamepads) do not hold,
+        // and its packets carry their mask so the host keeps them
+        int wasPlugged = g_out.plugged;
+        if (plugged && !wasPlugged) {
+            int n = gamepadsClaimFramePad();
+            padOutSetNumber(&g_out, n, gamepadsAnnouncedMask());
+            rumbleSetController(rumbleGlobal(), n);
+        } else if (plugged) {
+            padOutSetNumber(&g_out, g_out.controllerNumber, gamepadsAnnouncedMask());
+        }
         padOutFrame(&g_out, plugged, send, nowNs);
+        if (!plugged && wasPlugged) gamepadsReleaseFramePad();
     }
     pthread_mutex_unlock(&g_lock);
     // Outside the lock: the hook takes the launcher's, and stopping the stream
@@ -76,9 +89,11 @@ void xrPadBridgeFrame(int plugged, const PadState* s, int64_t nowNs) {
 void xrPadBridgeStop(void) {
     pthread_mutex_lock(&g_lock);
     if (g_ready) {
+        if (g_out.plugged) gamepadsReleaseFramePad();
         padOutUnplug(&g_out);
         rumbleStop(rumbleGlobal());
         g_ready = 0;
     }
     pthread_mutex_unlock(&g_lock);
+    gamepadsStreamStop(); // Native: physical pads leave the host before the connection ends
 }

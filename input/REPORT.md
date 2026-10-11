@@ -89,3 +89,41 @@ Triggers: padTrigger -> 0..255 (13 percent dead zone) -> unsigned char. Sticks: 
 - Frequency: upstream sends XR_FREQUENCY_UNSPECIFIED. If the Frame's linear haptics feel wrong for the low motor, `rumbleSetFrequency(r, lowHz, highHz)` is the knob; untested on hardware.
 - No trigger rumble on the Frame, so `rumbleTriggers` is ignored and not advertised.
 - Nothing here talks to a real host or the controllers' haptics; both were tested only through the hooks.
+
+# Physical gamepads (lane/gamepads, 2026-10-10)
+
+Normal gamepads connected to the Frame (Bluetooth or USB) reach the host as Moonlight gamepads while the VR client is focused and streaming, the way the physical keyboard does. Native addition; behaviour follows moonlight-qt's `app/streaming/input/gamepad.cpp`.
+
+## Files
+| File | Role |
+|---|---|
+| `input/gamepads.[ch]` | pure core (library `mlxr_input_core`): slots, controller numbers, active mask, arrival / state / removal, gating, disconnect chord, rumble routing, Steam Input copy handling. No SDL. The app-wide instance and `gamepadsHostRumble*` are at the end |
+| `input/gamepads_sdl.c` | the SDL2 GameController source (library `mlxr_input_sdl`, linked by `moonlight-xr`): own thread, hotplug, mappings, reading a pad's state, rumble, player LEDs |
+| `xr/xr_pad_bridge.c` | three small hooks: `gamepadsStreamStart/Stop` (with the stream) and the Frame pad claims its controller number from the same pool |
+| `stream/session.c` | the connection's rumble callbacks are `gamepadsHostRumble(Triggers)`: a physical pad takes its own number, any other goes on to `input/rumble` (gamepad mode) |
+| `app/main.c` | `gamepadsStart(padDisconnectHook)`, `gamepadsSetActive(...)` next to `evkbd_set_active` (same gate: streaming, focused, `stream_running()`), `gamepadsStop` |
+| `tests/input/test_gamepads.c` | ctest `input_gamepads` and `input_gamepads_tsan` |
+
+## Behaviour
+- SDL2 (system `libSDL2`, pacman-owned, passes `tools/ldd-audit.sh`) with `SDL_INIT_GAMECONTROLLER`, no window: background events allowed, SDL's signal handlers off (SIGTERM must still end the app), `USE_BUTTON_LABELS=0` (positional A/B/X/Y as moonlight-qt), PS4/PS5 HIDAPI rumble on. Mappings: SDL's built-in database, `SDL_GAMECONTROLLERCONFIG`, then `$MLXR_GAMECONTROLLERDB`, the flat launcher's `~/.cache/Moonlight XR Native/Moonlight XR Native/gamecontrollerdb.txt` (436 mappings today) and `~/.config/moonlight-xr/gamecontrollerdb.txt`. Pads without a mapping are not game controllers and are ignored (the Frame's `als31300` hall sensor shows up as a joystick that way).
+- Arrival: `LiSendControllerArrivalEvent(number, mask, type, buttons, caps)` as moonlight-qt: type from SDL (Xbox, PS, Nintendo, Steam), the buttons SDL says the mapping has, caps analogue triggers / rumble / trigger rumble. Touchpad, motion, LED, battery are not advertised (not done). Each arrival logs one line with name, VID/PID, GUID, type, caps and the mapping string; removals one line.
+- State: `LiSendMultiControllerEvent` on change only (axis bursts are one read), moonlight-qt's button map (SPECIAL, MISC, paddles and touchpad included), stick Y inverted, triggers 0..255. Removal is a last packet at rest with the mask that no longer has the pad.
+- Gating, as the keyboard: nothing is sent unless streaming and focused. The first focus announces every pad and sends its state; focus lost puts every pad at rest on the host and stops its rumble (the pad stays known); the stream ending takes each pad off the host, the next stream starts clean. A pad plugged in while unfocused is announced at the next focus. The headset UI (cog, keyboard) does not block pads, as it does not block the keyboard. There is no exclusive grab (SDL's own handle would lose its events with an `EVIOCGRAB`), so the pad also reaches SteamOS (Steam Input) if it listens.
+- Controller numbers: lowest free, 0..15, shared with gamepad mode. The Frame pad claims the lowest number the physical pads do not hold when it plugs in and gives it back when it unplugs; its packets carry the mask of the announced physical pads (`padOutSetNumber(..., gamepadsAnnouncedMask())` each frame), and theirs carry its bit, so the host keeps all of them. `rumbleSetController` follows the Frame pad's number.
+- Rumble: `ConnListenerRumble` for a physical pad's number goes to `SDL_GameControllerRumble(low, high, 30 s)`, trigger rumble to `SDL_GameControllerRumbleTriggers`; a stop is always passed, a start only while focused.
+- Disconnect: exactly Start+Select+L1+R1 on one physical pad (moonlight-qt's test, `NO_GAMEPAD_QUIT=1` turns it off) puts the pad at rest on the host and calls `padDisconnectHook`, the same path as the Frame pad's chord (`launcher_disconnect`, the host's session stays). The pad stays at rest until the four are let go.
+- Steam Input: Steam shows "Steam Virtual Gamepad" (28de:11ff) next to the real pad. It is not a second pad: SDL's copy joins the real pad that has none (either order), and the host sees the real pad while it is in use, else the copy while that is (Steam takes a pad over by silencing the real device; its echo of a real press is a little off and is ignored). Pads with the same serial, VID and PID are one pad. A virtual pad with no real pad to join is a pad of its own. With two real pads and two copies the pairing is by order, which may cross them. Verified with a uinput Xbox 360 pad on this Frame with Steam running (it did spawn a virtual copy). Controllers named "Frame" from Valve (28de) are skipped (SteamVR's own); `MLXR_GAMEPAD_IGNORE=<guid>,<guid>` skips others; `MLXR_GAMEPADS=0` turns the module off.
+- Logging: arrivals / removals / chord / dedup in `moonlight.log`; one line per 5 s ("N packets in 5 s ...") only while pads send.
+- Not done: the Frame's face-button flip setting is not applied to physical pads; DualSense touchpad, motion, LED and adaptive triggers; battery.
+
+## Tests
+`input_gamepads` (120 checks, also under ThreadSanitizer as `input_gamepads_tsan`): fake source and recording sink. Arrival then state, change-only sends, removal with the new mask, number reuse and the 16-pad limit, Frame pad claim / release against physical pads and masks, serial dedup, Steam copy (both orders, noise, real wins while used, copy carries a silenced pad, either one going), gating (unfocused, refocus, late arrival, stream end and restart), the chord (extra button, hold, re-arm, off switch), rumble routing and the Frame pad's number left alone, the app-wide instance, and 5 threads (state, rumble, focus, claims, hotplug) at once. Also checked with a throwaway uinput harness against the real SDL source on this Frame (no stream): arrival, state, unfocus and refocus, chord hook, Steam copy merge, unplug.
+
+## Owner test
+1. Pair a pad over Bluetooth in SteamOS (Xbox, DualSense, 8BitDo or Switch Pro). Start a stream in VR as usual.
+2. On the PC open a gamepad tester (https://hardwaretester.com/gamepad or Windows "Set up USB game controllers"). Press every button, move both sticks, squeeze both triggers: each shows. The Frame controllers in gamepad mode (cog toggle) still work at the same time and show as a second pad.
+3. Rumble: use the tester's vibration button or a game with rumble.
+4. Take the headset UI up (cog) and look away: pad input keeps going (or stops when the VR client loses focus, as the keyboard).
+5. Turn the pad off: it disappears on the PC; turn it on: it comes back.
+6. Hold Start+Select+L1+R1 on the physical pad: the VR client leaves the stream and the host's session stays (flat UI shows Resume), same as the Frame pad's chord.
+7. `moonlight.log` has one `gamepad #N arrived: ...` line per pad (name, GUID, mapping). If a pad does nothing, send that line.

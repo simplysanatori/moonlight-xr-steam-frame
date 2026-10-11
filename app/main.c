@@ -41,6 +41,7 @@
 #include "../backend/backend.h"
 #include "../backend/backend_limelight.h"
 #include "../stream/evdev_keyboard.h"
+#include "../input/gamepads.h"
 #include "../stream/file_source.h"
 #include "../stream/frame_slot.h"
 #include "../stream/hw_video.h"
@@ -123,7 +124,9 @@ static void setLastError(const char* msg) {
 // ---- the input the frame loop hands over -------------------------------------------
 
 static void updateKeyboard(void) {
-    evkbd_set_active(atomic_load(&g_streaming) && g_focused && stream_running());
+    int active = atomic_load(&g_streaming) && g_focused && stream_running();
+    evkbd_set_active(active);
+    gamepadsSetActive(active); // Native: physical gamepads follow the keyboard's gating
 }
 
 static void statsHook(void* user, char* buf, int len) {
@@ -871,6 +874,8 @@ int main(int argc, char** argv) {
         }
         evkbd_set_disconnect_hook(keyDisconnectHook, NULL);
         evkbd_start(sendKey, NULL);
+        // Native: physical gamepads (SDL2), Start+Select+L1+R1 leaves the stream like gamepad mode's chord
+        gamepadsStart(padDisconnectHook, NULL);
     }
     pthread_t th;
     pthread_create(&th, NULL, worker, NULL);
@@ -890,6 +895,8 @@ int main(int argc, char** argv) {
         stopStream(&g_net, 1);
         evkbd_set_active(0);
         evkbd_stop();
+        gamepadsSetActive(0);
+        gamepadsStop();
     }
     for (int i = 0; i < LAUNCH_MAX_PCS; i++)
         if (g_net.srv[i]) mlxr_server_free(g_net.srv[i]);
