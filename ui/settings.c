@@ -23,10 +23,11 @@
 const char* const SETTINGS_RESOLUTIONS[] = { "640x360", "854x480", "1280x720", "1920x1080",
                                              "2560x1440", "3840x2160" };
 const int SETTINGS_RESOLUTION_COUNT = 6;
-const int SETTINGS_FPS[] = { 30, 60, 72, 90, 120 };
-const int SETTINGS_FPS_COUNT = 5;
+// Native (lane refresh): 144, the Frame's fastest display rate, added at the end
+const int SETTINGS_FPS[] = { 30, 60, 72, 90, 120, 144 };
+const int SETTINGS_FPS_COUNT = 6;
 
-static const char* const FPS_NAMES[] = { "30", "60", "72", "90", "120" };
+static const char* const FPS_NAMES[] = { "30", "60", "72", "90", "120", "144" };
 static const char* const CODEC_NAMES[] = { "auto", "av1", "hevc", "h264" };
 static const char* const AUDIO_NAMES[] = { "stereo", "5.1", "7.1" };
 static const char* const NETWORK_NAMES[] = { "auto", "home", "adapter" };
@@ -63,7 +64,7 @@ static const SettingDesc TABLE[] = {
     DS("stream", "host", host, "", "address of the host PC last used"),
     DS("stream", "app", app, "", "name of the host app last launched (empty: ask)"),
     DE("stream", "resolution", resolution, SETTINGS_RESOLUTIONS, 4, "list_resolution; 1440p on a headset, 4K is one entry away"),
-    DE("stream", "fps", fps, FPS_NAMES, 3, "list_fps; 90 follows the Steam Frame's display rate"),
+    DE("stream", "fps", fps, FPS_NAMES, 3, "list_fps; the stream never goes above the display's rate (SteamVR's per-app setting: 72, 90, 120 or 144)"),
     DI("stream", "bitrate_kbps", bitrate_kbps, 0, 150000, 0, "seekbar_bitrate_kbps; 0 follows resolution and frame rate, else 500..150000"),
     DE("stream", "codec", codec, CODEC_NAMES, 0, "list_video_format: auto, av1, hevc, h264"),
     DE("stream", "audio_config", audio_config, AUDIO_NAMES, 0, "list_audio_config: stereo, 5.1, 7.1"),
@@ -576,6 +577,13 @@ int settings_default_bitrate_kbps(int width, int height, int fps) {
             res_factor = ((double)(pixels - pixel_vals[i - 1]) / (pixel_vals[i] - pixel_vals[i - 1])) *
                              (factor_vals[i] - factor_vals[i - 1]) + factor_vals[i - 1];
         }
+    }
+    // Native (lane refresh): above 90 fps at 1440p, the flat launcher's rule (twice Moonlight's
+    // curve, to 500 kbps: 113000 at 120, 124000 at 144), so a faster stream never gets less than
+    // the 90 fps figure
+    if (width == 2560 && height == 1440 && fps > 90) {
+        int kbps = (int)llround(4.0 * res_factor * frame_rate_factor) * 500;
+        return kbps > 150000 ? 150000 : kbps;
     }
     return (int)llround(res_factor * frame_rate_factor) * 1000;
 }

@@ -271,7 +271,7 @@ void stream_make_config(const StreamOptions* opt, STREAM_CONFIGURATION* cfg) {
     LiInitializeStreamConfiguration(cfg);
     cfg->width = opt->width;
     cfg->height = opt->height;
-    cfg->fps = mlxr_fps_clamp(opt->fps, MLXR_FPS_CAP); // never more than the headset shows
+    cfg->fps = mlxr_fps_clamp(opt->fps, MLXR_FPS_CAP); // never more than the headset shows (144 at most)
     cfg->bitrate = opt->bitrateKbps;
     cfg->packetSize = opt->remote == STREAM_CFG_REMOTE ? 1024 : 1392;
     cfg->streamingRemotely = opt->remote;
@@ -349,12 +349,19 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
            prioEnv ? prioEnv : "unset");
 
     // Last guard: the SDP's maxFPS and clientRefreshRateX100 (which Apollo builds its virtual
-    // display from) never exceed the headset's 90 Hz, whatever filled the configuration
+    // display from) never exceed the Frame's 144 Hz, whatever filled the configuration.
+    // Native (lane refresh): was 90. The display's own rate (72, 90, 120 or 144, SteamVR's
+    // per-app setting) is applied before this, where the launch is built (app/main.c)
     if (cfg->fps > MLXR_FPS_CAP) {
         MLOG_W("stream fps %d is above the headset's %d: clamped", cfg->fps, MLXR_FPS_CAP);
         cfg->fps = MLXR_FPS_CAP;
     }
     if (cfg->clientRefreshRateX100 > MLXR_FPS_CAP * 100) cfg->clientRefreshRateX100 = MLXR_FPS_CAP * 100;
+    // Native (lane refresh): the host cadence line judges the frames against this stream's period
+    pthread_mutex_lock(&g_latLock);
+    memset(&g_cadence, 0, sizeof(g_cadence));
+    mlxr_cadence_set_fps(&g_cadence, cfg->fps);
+    pthread_mutex_unlock(&g_latLock);
 
     AUDIO_RENDERER_CALLBACKS noAudio;
     LiInitializeAudioCallbacks(&noAudio);

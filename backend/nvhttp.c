@@ -455,7 +455,9 @@ mlxr_status mlxr_launch_params_init(mlxr_launch_params *p)
     p->width = 1920;
     p->height = 1080;
     p->fps = 60;
-    p->max_fps = MLXR_FPS_CAP;
+    /* Native (lane refresh): the display's rate is not known here, so 90 until the caller sets
+     * the cap from it (mlxr_fps_cap_for_display) */
+    p->max_fps = mlxr_fps_cap_for_display(0);
     p->sops = true;
     p->audio_configuration = MLXR_AUDIO_STEREO;
     if (!mlxr_random(p->ri_key, sizeof p->ri_key) || !mlxr_random(p->ri_iv, 4)) return MLXR_E_CRYPTO;

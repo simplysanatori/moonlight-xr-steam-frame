@@ -16,9 +16,9 @@
 // Native (lane artemis-settings): the flat launcher's Artemis-style Settings page adds
 //   --virtual-display  ask Apollo for a virtual display made for this client (virtualDisplay=1)
 //   --scale-factor N   Apollo: the virtual display is N percent (20..200) of the stream's size
-//   --refresh-rate R   Artemis's custom refresh rate (e.g. 59.94; capped at the headset's 90 Hz)
+//   --refresh-rate R   Artemis's custom refresh rate (e.g. 59.94; capped at the display's rate)
 //   --fps match        the flat page's "Match headset": the rate SteamVR reports for the display
-//                      (90, or 72 on a 72 Hz headset; 90 when unknown) instead of --mode's
+//                      (72, 90, 120 or 144; 90 when unknown) instead of --mode's
 //   --no-sops          no "Optimize game settings" (sops=0)
 //   --local-audio      "Play audio on PC" too (localAudioPlayMode=1)
 //   --pacing latency|balanced|smoothness   frame pacing (sets MLXR_VIDEO_PACING 0/2/1 unless set)
@@ -122,8 +122,9 @@ static struct {
     int virtualDisplay, scaleFactor, refreshX1000, noSops, localAudio, fullRange, clipboardSync, fpsMatch;
 } g_args;
 
-// Native (lane artemis-settings): headset display rate cap for Artemis's custom refresh rate
-#define MLXR_MAX_REFRESH_X1000 90000
+// Native (lane artemis-settings): headset display rate cap for Artemis's custom refresh rate.
+// Native (lane refresh): the 144 ceiling here; the launch caps it again at the display's rate.
+#define MLXR_MAX_REFRESH_X1000 (MLXR_FPS_CAP * 1000)
 // The network path (Wi-Fi or the Steam Frame Wireless Adapter) chosen for the session
 static pthread_mutex_t g_netLock = PTHREAD_MUTEX_INITIALIZER;
 static char g_netSummary[200]; // the stats line says which link carried the session
@@ -704,20 +705,29 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
         MLOG_W("bad --mode %s, using config.ini's", g_args.mode);
         settings_resolution(&g_settings, &w, &h);
     }
-    // Never ask the host for more than the headset shows: 90 at most, SteamVR's own rate when
-    // it is lower (72). A higher Moonlight setting or --mode is clamped, here and for the stream.
+    // Never ask the host for more than the headset shows: the rate SteamVR runs the display at
+    // (72, 90, 120 or 144), 144 at most. A higher Moonlight setting or --mode is clamped, here and
+    // for the stream. Native (lane refresh): the ceiling was 90. SteamVR reports the rate about a
+    // second after the session starts, before a stream normally begins; a launch that comes
+    // sooner waits for it up to 3 s, and without it the cap is 90 (fps_cap.h).
     int displayHz = xrReportedDisplayHz();
+    for (int i = 0; displayHz <= 0 && i < 30 && !atomic_load(&g_workerQuit); i++) {
+        struct timespec ts = { 0, 100000000L };
+        nanosleep(&ts, NULL);
+        displayHz = xrReportedDisplayHz();
+    }
     int fpsCap = mlxr_fps_cap_for_display(displayHz);
     if (fps > fpsCap) {
         MLOG_W("requested %d fps is above the headset's %d (display %s): asking the host for %d fps",
-               fps, fpsCap, displayHz > 0 ? "reported by SteamVR" : "rate unknown", fpsCap);
+               fps, fpsCap,
+               displayHz > 0 ? "rate reported by SteamVR; SteamVR's per-app setting picks it" : "rate unknown", fpsCap);
         fps = fpsCap;
     }
     // Native (lane artemis-settings): "Match headset" asks the host for the display's own rate
     if (g_args.fpsMatch) {
         fps = mlxr_fps_for_request(fps, displayHz, 1);
         MLOG_I("frame rate matches the headset: %d fps (display %s)", fps,
-               displayHz > 0 ? "rate reported by SteamVR" : "rate unknown, the 90 Hz ceiling");
+               displayHz > 0 ? "rate reported by SteamVR" : "rate unknown, 90 until SteamVR reports it");
     }
     lp.width = w;
     lp.height = h;
@@ -1168,6 +1178,16 @@ int main(int argc, char** argv) {
     cfg.seconds = g_args.seconds;
     settings_resolution(&g_settings, &cfg.videoWidth, &cfg.videoHeight);
     cfg.fps = mlxr_fps_clamp(settings_fps_value(&g_settings), MLXR_FPS_CAP); // the display rate is chosen for a stream we may ask for
+    // Native (lane refresh): the display rate is asked for the stream's own rate: --mode's (the flat
+    // launcher's choice) or the custom rate; "Match headset" asks for none, so the display stays on
+    // the rate SteamVR's per-app setting gave it and the stream follows that
+    {
+        int mw = 0, mh = 0, mfps = 0;
+        if (!g_args.file && g_args.mode && mlxr_parse_mode(g_args.mode, &mw, &mh, &mfps) == MLXR_OK)
+            cfg.fps = mlxr_fps_clamp(mfps, 0);
+        if (!g_args.file && g_args.refreshX1000 > 0) cfg.fps = mlxr_fps_clamp((g_args.refreshX1000 + 500) / 1000, 0);
+        if (!g_args.file && g_args.fpsMatch) cfg.fps = 0;
+    }
     char reportDir[512];
     snprintf(reportDir, sizeof(reportDir), "%s/Games/MoonlightXRNative/reports", getenv("HOME") ? getenv("HOME") : ".");
     mkdir(reportDir, 0755);

@@ -32,7 +32,8 @@ struct HwVideo {
     // Native (lane perf): the latch. When the loop finds the queue empty while
     // an AU went into the decoder moments ago and its picture is not out
     // yet, it waits up to latchNs for it instead of repeating the last
-    // picture and showing this one a refresh (11 ms) late
+    // picture and showing this one a refresh (11 ms) late. Native (lane refresh): the wait is
+    // set for a 90 Hz refresh and shrinks with a faster one (latchFor)
     uint64_t latchNs;
     atomic_uint_fast64_t lastSubmitNs; // CLOCK_MONOTONIC, the newest AU queued
     uint64_t lastOutSubmitNs;          // its t_submit_ns, the newest picture out (lock)
@@ -183,6 +184,8 @@ HwVideo* hw_video_open(mlxr_codec codec, uint32_t width, uint32_t height, void (
         return NULL;
     }
     v->requestIdr = requestIdr;
+    // Native (lane refresh): 90 until the frame loop's first refresh gives the display's rate
+    // (hw_video_take_refresh starts the pacer again at it: 72, 90, 120 or 144)
     mlxr_pacer_init(&v->pacer, 90);
     v->pacerHz = 90;
     // Native (lane perf): MLXR_PACER_CUSHION (3, or 2) and MLXR_VIDEO_LATCH_MS
@@ -275,6 +278,13 @@ bool hw_video_take(HwVideo* v, mlxr_vframe* out) {
     return got;
 }
 
+// Native (lane refresh): the latch was tuned at 90 Hz (4 ms of an 11.1 ms refresh). On a faster
+// display it keeps the same share of the refresh, so the frame loop is never held most of a
+// 6.9 ms refresh at 144 Hz: 3.0 ms at 120 Hz, 2.5 ms at 144 Hz. At 90 Hz and below it is as set.
+static uint64_t latchFor(uint64_t latchNs, int displayHz) {
+    return displayHz > 90 ? latchNs * 90u / (uint64_t)displayHz : latchNs;
+}
+
 bool hw_video_take_refresh(HwVideo* v, int mode, int displayHz, uint64_t nowNs, mlxr_vframe* out) {
     pthread_mutex_lock(&v->lock);
     int paced = mode != MLXR_PACE_NEWEST;
@@ -301,7 +311,7 @@ bool hw_video_take_refresh(HwVideo* v, int mode, int displayHz, uint64_t nowNs, 
         uint64_t sub = atomic_load(&v->lastSubmitNs);
         uint64_t in = atomic_load(&v->submittedOk), out = atomic_load(&v->decodedOut);
         if (sub > v->lastOutSubmitNs && in > out && nowNs < sub + 12000000ull) {
-            uint64_t deadline = nowNs + v->latchNs;
+            uint64_t deadline = nowNs + latchFor(v->latchNs, v->pacerHz);
             struct timespec dl = { (time_t)(deadline / 1000000000ull), (long)(deadline % 1000000000ull) };
             v->st.latchWaits++;
             while (v->queued == 0 && !atomic_load(&v->stop) &&

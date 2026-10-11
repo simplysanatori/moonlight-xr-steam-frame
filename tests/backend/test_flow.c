@@ -125,7 +125,8 @@ static void test_pairing_flow(int gen, bool gfe)
     fake_host_stop(h);
 }
 
-/* What the host really receives: a 144 or 360 fps request leaves as 90, or the display's lower rate */
+/* What the host really receives: never more than the display's rate, 144 at most, 90 with the
+ * display not known. Native (lane refresh): the ceiling was 90. */
 static void test_launch_fps_capped(void)
 {
     mlxr_error e;
@@ -141,7 +142,8 @@ static void test_launch_fps_capped(void)
     CHECK_OK(mlxr_server_get_info(s, false, &c, NULL, &e));
 
     static const struct { int asked, display_hz, sent; } cases[] = {
-        {360, 0, 90}, {144, 90, 90}, {120, 120, 90}, {90, 90, 90}, {90, 72, 72}, {144, 72, 72}, {60, 72, 60}, {60, 0, 60},
+        {360, 0, 90}, {144, 90, 90}, {120, 120, 120}, {90, 90, 90}, {90, 72, 72}, {144, 72, 72}, {60, 72, 60}, {60, 0, 60},
+        {144, 120, 120}, {144, 144, 144}, {120, 144, 120}, {360, 144, 144}, {360, 165, 144},
     };
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
         mlxr_launch_params p;
@@ -155,7 +157,7 @@ static void test_launch_fps_capped(void)
         fake_host_last_launch(h, q, sizeof q);
         snprintf(want, sizeof want, "&mode=2560x1440x%d&", cases[i].sent);
         CHECK(strstr(q, want) != NULL);
-        CHECK(strstr(q, "x360&") == NULL && strstr(q, "x144&") == NULL);
+        CHECK(strstr(q, "x360&") == NULL && (cases[i].sent == 144 || strstr(q, "x144&") == NULL));
         CHECK_OK(mlxr_server_quit_app(s, &e));
     }
     /* a caller that forgets the cap still cannot ask for more than 90 */

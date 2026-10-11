@@ -104,7 +104,83 @@ QString commandLine(const Plan& plan)
     return parts.join(' ');
 }
 
-static const int kMaxHeadsetFps = 90;
+int steamVrRateFor(int fps, bool match, bool customRate)
+{
+    if (match || customRate) {
+        return 0;
+    }
+    return fps == 72 || fps == 90 || fps == 120 || fps == 144 ? fps : 0;
+}
+
+// Native (lane refresh): SteamVR runs each app at the one rate its per-app setting names, and the
+// OpenXR runtime offers only that rate, so the VR client cannot ask for another. The rate picked
+// on the Settings page is therefore written there first, as packaging/install.sh does.
+bool setSteamVrRefreshRate(int hz)
+{
+    if (hz <= 0) {
+        return false;
+    }
+    bool idOk = false;
+    const qulonglong appId = qEnvironmentVariable("SteamAppId").trimmed().toULongLong(&idOk);
+    if (!idOk || appId == 0) {
+        qInfo().noquote() << QString("SteamVR refresh rate: %1 Hz not set, the launcher was not started from its Steam "
+                                     "shortcut (no SteamAppId); the stream follows the rate SteamVR reports").arg(hz);
+        return false;
+    }
+    const QString key = QString("steam.app.%1.preferredRefreshRate").arg(appId);
+    QString vrcmd = qEnvironmentVariable("MLXR_VRCMD");
+    const bool own = vrcmd.isEmpty();
+    if (own) {
+        if (envSet("MLXR_LAUNCHER_DRYRUN")) {
+            qInfo().noquote() << QString("SteamVR refresh rate: dry run, %1 would be set to %2 Hz").arg(key).arg(hz);
+            return false;
+        }
+        vrcmd = "/opt/steamvr/bin/linuxarm64/vrcmd";
+    }
+    if (!QFileInfo(vrcmd).isExecutable()) {
+        qWarning().noquote() << QString("SteamVR refresh rate: %1 Hz not set, no vrcmd at %2; the stream follows the "
+                                        "rate SteamVR reports").arg(hz).arg(vrcmd);
+        return false;
+    }
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.remove("LD_LIBRARY_PATH");
+    if (own) {
+        // vrcmd talks to the running SteamVR, which keeps steamvr.vrsettings (install.sh's check)
+        QProcess pg;
+        pg.setProcessEnvironment(env);
+        pg.start("pgrep", { "-x", "vrserver" });
+        if (!pg.waitForFinished(3000) || pg.exitStatus() != QProcess::NormalExit || pg.exitCode() != 0) {
+            qWarning().noquote() << QString("SteamVR refresh rate: %1 Hz not set, SteamVR is not running; the stream "
+                                            "follows the rate SteamVR reports").arg(hz);
+            return false;
+        }
+    }
+    QProcess p;
+    p.setProcessEnvironment(env);
+    p.setProcessChannelMode(QProcess::MergedChannels);
+    p.start(vrcmd, { "--set-settings-int", key, QString::number(hz) });
+    if (!p.waitForStarted(3000)) {
+        qWarning().noquote() << QString("SteamVR refresh rate: %1 Hz not set, vrcmd did not start (%2); the stream "
+                                        "follows the rate SteamVR reports").arg(hz).arg(p.errorString());
+        return false;
+    }
+    if (!p.waitForFinished(5000)) {
+        p.kill();
+        p.waitForFinished(1000);
+        qWarning().noquote() << QString("SteamVR refresh rate: %1 Hz not set, vrcmd did not finish in 5 s; the stream "
+                                        "follows the rate SteamVR reports").arg(hz);
+        return false;
+    }
+    if (p.exitStatus() != QProcess::NormalExit || p.exitCode() != 0) {
+        qWarning().noquote() << QString("SteamVR refresh rate: %1 Hz not set, vrcmd failed (exit %2): %3; the stream "
+                                        "follows the rate SteamVR reports")
+                                    .arg(hz).arg(p.exitCode()).arg(QString::fromUtf8(p.readAll()).simplified().left(200));
+        return false;
+    }
+    qInfo().noquote() << QString("SteamVR refresh rate: %1 set to %2 Hz (vrcmd), the headset's rate for this app "
+                                 "from its next VR session").arg(key).arg(hz);
+    return true;
+}
 
 Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences& p)
 {
@@ -125,9 +201,10 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
     // The uuid is how the native client's hosts.ini names this PC (exportPairing wrote it)
     a << "--host" << uuid;
     a << "--app" << QString::number(app.id);
-    // The headset shows 90 Hz at most (the VR client lowers it further to SteamVR's own rate).
-    // Moonlight's flat settings can say 120 or 144 (Game Mode's gamescope reports the screen's
-    // rate), which a Sunshine host would turn into a virtual display at that rate.
+    // The headset shows 144 Hz at most (the VR client lowers it further to SteamVR's own rate).
+    // Moonlight's flat settings can say more (Game Mode's gamescope reports the screen's rate),
+    // which a Sunshine host would turn into a virtual display at that rate.
+    // Native (lane refresh): the ceiling was 90.
     int fps = p.fps;
     if (fps > kMaxHeadsetFps) {
         qWarning() << "The FPS setting" << fps << "is above the headset's" << kMaxHeadsetFps
@@ -169,6 +246,8 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
     MlxrPrefs* prefs = MlxrPrefs::get();
     a << prefs->clientArgs();
     plan.clipboardSync = prefs->clipboardSync;
+    // Native (lane refresh): a fixed display rate picked on the Settings page goes to SteamVR too
+    plan.steamVrRefreshRate = steamVrRateFor(p.fps, prefs->matchHeadsetFps, prefs->refreshRate() > 0);
     // The network path (Auto, Wi-Fi, Steam Frame Wireless Adapter): the flat launcher's setting
     // "networkPath", auto|home|adapter. An unknown value is left to the VR client's own config.ini.
     {
@@ -785,6 +864,10 @@ static void clipboardAfterStream()
 Result run(const Plan& plan, const std::function<void()>& onStarted, const std::function<void()>& onStreaming)
 {
     Result r;
+    // Native (lane refresh): before the VR client's session starts, so SteamVR runs it at that rate
+    if (plan.steamVrRefreshRate > 0) {
+        setSteamVrRefreshRate(plan.steamVrRefreshRate);
+    }
     if (plan.clipboardSync) {
         clipboardBeforeStream();
     }

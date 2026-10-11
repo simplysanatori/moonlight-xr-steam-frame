@@ -90,6 +90,9 @@ static void test_defaults(void) {
     CHECK(settings_bitrate_kbps(&s) == 80000);                       // 1440p90: owner's 80 Mbps (de55376)
     CHECK(settings_default_bitrate_kbps(2560, 1440, 60) == 80000);
     CHECK(settings_default_bitrate_kbps(2560, 1440, 120) != 80000);   // outside the owner's range: the curve
+    // Native (lane refresh): above 90 at 1440p, the flat launcher's rule (twice the curve)
+    CHECK(settings_default_bitrate_kbps(2560, 1440, 120) == 113000);
+    CHECK(settings_default_bitrate_kbps(2560, 1440, 144) == 124000);
     CHECK(settings_default_bitrate_kbps(1920, 1080, 60) == 20000);
     CHECK(settings_default_bitrate_kbps(3840, 2160, 60) == 80000);
     CHECK(settings_default_bitrate_kbps(1280, 720, 30) == 5000);
@@ -412,6 +415,9 @@ static void test_tolerant(void) {
     settings_defaults(&d);
     settings_from_text(&d, "[stream]\nfps = 30\nfps = 120\nhost = my#pc\n", NULL);
     CHECK(settings_fps_value(&d) == 120 && strcmp(d.host, "my#pc") == 0);
+    // Native (lane refresh): 144 is a choice, nothing above it
+    settings_from_text(&d, "[stream]\nfps = 144\n", NULL);
+    CHECK(settings_fps_value(&d) == 144);
 }
 
 static void test_files(void) {

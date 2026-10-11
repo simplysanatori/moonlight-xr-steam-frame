@@ -126,7 +126,7 @@ typedef struct {
 
 extern const char* const SETTINGS_RESOLUTIONS[];   // "640x360" .. "3840x2160"
 extern const int SETTINGS_RESOLUTION_COUNT;
-extern const int SETTINGS_FPS[];                   // 30 60 72 90 120
+extern const int SETTINGS_FPS[];                   // 30 60 72 90 120 144
 extern const int SETTINGS_FPS_COUNT;
 
 const SettingDesc* settings_table(int* count);

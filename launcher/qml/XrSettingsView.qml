@@ -120,9 +120,15 @@ Flickable {
     }
 
     // One rate setting: Match headset (default; the VR client asks the host for the display's rate,
-    // 90 or 72), a fixed rate (stock "fps"), or Artemis's custom rate (Apollo). Never above 90.
-    readonly property var fixedRates: [90, 72, 60, 30]
-    readonly property var rateNames: [qsTr("Match headset"), qsTr("90 Hz"), qsTr("72 Hz"), qsTr("60 Hz"), qsTr("30 Hz"), qsTr("Custom...")]
+    // the one SteamVR runs this app at), a fixed rate (stock "fps"), or Artemis's custom rate
+    // (Apollo). Native (lane refresh): 120 and 144 added, the Frame's faster display rates; a fixed
+    // 72, 90, 120 or 144 is also set as SteamVR's per-app rate when the stream starts
+    // (MlxrHandoff::setSteamVrRefreshRate). Never above 144.
+    readonly property var fixedRates: [144, 120, 90, 72, 60, 30]
+    readonly property var rateNames: [qsTr("Match headset"), qsTr("144 Hz"), qsTr("120 Hz"), qsTr("90 Hz"), qsTr("72 Hz"),
+                                      qsTr("60 Hz"), qsTr("30 Hz"), qsTr("Custom...")]
+    // Match headset: the bitrate default is the 90 Hz one, the rate install.sh gives the app in SteamVR
+    readonly property int matchBitrateFps: 90
     function rateIndex() {
         if (MlxrPrefs.customRefreshRate !== "") return rateNames.length - 1
         if (MlxrPrefs.matchHeadsetFps) return 0
@@ -497,7 +503,7 @@ Flickable {
             objectName: "refreshRow"
             title: qsTr("Refresh rate")
             valueText: settingsPage.rateText()
-            summary: qsTr("How many frames per second the PC streams. Match headset uses the Steam Frame's own display rate (90 Hz, or 72 Hz when the headset runs at 72); the stream never goes above it.") +
+            summary: qsTr("How many frames per second the PC streams. Match headset uses the rate SteamVR runs the Steam Frame's display at for this app (90 Hz unless changed in SteamVR's settings). Picking 72, 90, 120 or 144 Hz also sets the headset to that rate in SteamVR's settings for this app. 120 and 144 Hz need the stream and the PC to keep up. The stream never goes above the headset's rate.") +
                      " " + qsTr("Custom takes rates such as 59.94 (Apollo).")
             onClicked: {
                 var e = []
@@ -506,7 +512,7 @@ Flickable {
                     if (i === 0) {
                         MlxrPrefs.matchHeadsetFps = true
                         MlxrPrefs.customRefreshRate = ""
-                        StreamingPreferences.fps = MlxrPrefs.headsetMaxFps
+                        StreamingPreferences.fps = settingsPage.matchBitrateFps
                         settingsPage.resetBitrate()
                     }
                     else if (i < settingsPage.rateNames.length - 1) {
@@ -516,7 +522,7 @@ Flickable {
                         settingsPage.resetBitrate()
                     }
                     else {
-                        editDialog.show(qsTr("Custom refresh rate"), qsTr("Enter refresh rate manually, for example 59.94. Only supports Apollo. Capped at %1 Hz.").arg(MlxrPrefs.headsetMaxFps),
+                        editDialog.show(qsTr("Custom refresh rate"), qsTr("Enter refresh rate manually, for example 59.94. Only supports Apollo. Capped at the headset's rate (%1 Hz at most).").arg(MlxrPrefs.headsetMaxFps),
                                         MlxrPrefs.customRefreshRate, "^\\s*\\d{2,3}(\\.\\d{1,3})?\\s*$", function(t) {
                             var v = Math.min(Math.max(parseFloat(t), 10), MlxrPrefs.headsetMaxFps)
                             MlxrPrefs.matchHeadsetFps = false
@@ -774,7 +780,7 @@ Flickable {
         PrefSwitch {
             title: qsTr("Unlock all possible frame rates")
             summary: qsTr("Streaming at 90 or 120 FPS may reduce latency on high-end devices but can cause lag or instability on devices that can't support it")
-            reason: qsTr("the Steam Frame's display runs at up to %1 Hz, so the VR client caps the frame rate there").arg(MlxrPrefs.headsetMaxFps)
+            reason: qsTr("the VR client caps the frame rate at the headset's rate, set in SteamVR for this app (%1 Hz at most)").arg(MlxrPrefs.headsetMaxFps)
             isOn: false
         }
 
