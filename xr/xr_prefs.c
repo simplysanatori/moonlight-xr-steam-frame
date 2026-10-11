@@ -94,6 +94,8 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     // Native (lane pointer-clicks)
     ctx->pressCfg.stabilise = pressStabiliseFromEnv();
     ctx->pressCfg.doublePx = doubleClickPxFromEnv();
+    // Native (lane double-click): the double-click time, press to press
+    ctx->pressCfg.doubleNs = (int64_t)(doubleClickMsFromEnv() * 1000000.0f);
     ctx->stickRightClick = stickRightClickFromEnv();
     pressFixReset(&ctx->pressFix);
     ctx->aimMinCutoff = NATIVE_AIM_MIN_CUTOFF;

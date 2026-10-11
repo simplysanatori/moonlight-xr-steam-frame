@@ -26,6 +26,20 @@ float doubleClickPxFromEnv(void) {
     return v;
 }
 
+// Native (lane double-click)
+float doubleClickMsFromEnv(void) {
+    const char* s = getenv("MLXR_DOUBLE_CLICK_MS");
+    if (s == NULL || *s == '\0') {
+        return PRESSFIX_DOUBLE_DEFAULT_MS;
+    }
+    char* end = NULL;
+    float v = strtof(s, &end);
+    if (end == s || !(v >= 0.0f) || v > 5000.0f) {
+        return PRESSFIX_DOUBLE_DEFAULT_MS;
+    }
+    return v;
+}
+
 int stickRightClickFromEnv(void) {
     const char* s = getenv("MLXR_STICK_RIGHT_CLICK");
     return !(s != NULL && s[0] == '0' && s[1] == '\0');
@@ -105,6 +119,16 @@ void pressFixStep(PressFix* p, int touching, int down, float u, float v, int wid
     int press = down && !p->down;
     int release = !down && p->down;
 
+    // Native (lane double-click): the wait after a click ends as soon as the
+    // aim leaves the circle or a second press could no longer be a double
+    // click, and the cursor goes to the aim at once. A press frame is judged
+    // below instead, from the aim before the pull's jolt.
+    if (p->waiting && !press
+            && (nowNs - p->prevPressNs > cfg.doubleNs
+                || distPx(u, v, p->prevU, p->prevV, width, height) > cfg.doublePx)) {
+        p->waiting = 0;
+    }
+
     if (press) {
         float au = u;
         float av = v;
@@ -117,29 +141,47 @@ void pressFixStep(PressFix* p, int touching, int down, float u, float v, int wid
             sampleAt(p, ref - PRESSFIX_LEAD_NS, &au, &av);
             radius = PRESSFIX_DEADZONE_PX;
         }
-        if (cfg.doublePx > 0.0f && p->prevValid && nowNs - p->prevReleaseNs <= PRESSFIX_DOUBLE_NS
+        // A second press while the cursor still waits on the last click goes
+        // at exactly the point that click went down at, the point Windows
+        // compares it with
+        if (p->waiting && nowNs - p->prevPressNs <= cfg.doubleNs
                 && (distPx(au, av, p->prevU, p->prevV, width, height) <= cfg.doublePx
                     || distPx(u, v, p->prevU, p->prevV, width, height) <= cfg.doublePx)) {
-            au = p->prevU;
-            av = p->prevV;
+            au = p->prevDownU;
+            av = p->prevDownV;
             if (cfg.doublePx > radius) {
                 radius = cfg.doublePx;
             }
         }
+        p->waiting = 0;
         p->down = 1;
         p->left = 0;
         p->radiusPx = radius;
         p->anchorU = au;
         p->anchorV = av;
+        p->pressNs = nowNs;
+        p->reachPx = 0.0f;
     }
     if (p->down) {
         // The press frame goes at the anchor whatever the jolt did, and a
         // release frame is the trigger letting go, which jolts too: whether
         // the aim left the circle is judged only while the button is held
-        if (!press && !release && !p->left && distPx(u, v, p->anchorU, p->anchorV, width, height) > p->radiusPx) {
-            p->left = 1;
+        if (!press && !release) {
+            float d = distPx(u, v, p->anchorU, p->anchorV, width, height);
+            if (d > p->reachPx) {
+                p->reachPx = d;
+            }
+            if (!p->left && d > p->radiusPx) {
+                p->left = 1;
+            }
         }
-        if (p->left) {
+        if (release && p->left) {
+            // Native (lane double-click): the release goes where the cursor
+            // already is, not where the let-go jolted the aim
+            *outU = p->lastU;
+            *outV = p->lastV;
+        }
+        else if (p->left) {
             *outU = u;
             *outV = v;
         }
@@ -149,13 +191,27 @@ void pressFixStep(PressFix* p, int touching, int down, float u, float v, int wid
         }
         if (release) {
             p->down = 0;
-            p->prevValid = !p->left;
             p->prevU = *outU;
             p->prevV = *outV;
-            p->prevReleaseNs = nowNs;
+            p->prevDownU = p->anchorU;
+            p->prevDownV = p->anchorV;
+            p->prevPressNs = p->pressNs;
+            // Native (lane double-click): a click starts the wait when its
+            // press is recent enough for a second one to count. A press that
+            // wandered a few pixels (the jolt going on after the press) is
+            // still a click; one that went past the circle is a drag.
+            p->waiting = cfg.doublePx > 0.0f && cfg.doubleNs > 0 && p->reachPx <= cfg.doublePx
+                    && nowNs - p->pressNs <= cfg.doubleNs;
         }
-        return;
     }
-    *outU = u;
-    *outV = v;
+    else if (p->waiting) {
+        *outU = p->prevU;
+        *outV = p->prevV;
+    }
+    else {
+        *outU = u;
+        *outV = v;
+    }
+    p->lastU = *outU;
+    p->lastV = *outV;
 }

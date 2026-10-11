@@ -568,6 +568,11 @@ int initXrInput(XrCtx* ctx) {
          ctx->hapticBound ? "bound" : "not bound, so gamepad mode has no rumble");
     LOGEV("hand lock: three pinches on one hand, the third within %ld ms of the first, the "
           "third held back from the host", TRIPLE_PINCH_WINDOW_NS / 1000000L);
+    // Native (lane double-click): the click switches as this run has them
+    LOGI("pointer clicks: MLXR_DOUBLE_CLICK_PX=%.0f MLXR_DOUBLE_CLICK_MS=%lld "
+         "MLXR_PRESS_STABILISE=%d MLXR_CLICK_HOLD_PX=%.0f",
+         ctx->pressCfg.doublePx, (long long)(ctx->pressCfg.doubleNs / 1000000LL),
+         ctx->pressCfg.stabilise, ctx->clickHoldPx);
     return 1;
 }
 
@@ -3338,9 +3343,10 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
     }
     // Native (lane click-hold): from the first touch of the trigger (or a
     // click button) the host cursor stays put until the aim is MLXR_CLICK_HOLD_PX
-    // (8) host pixels away, and for 0.35 s after the release. The pull jolts
-    // the aim past Windows' 4 px click slop, which failed single and double
-    // clicks. The smoothing above stays on and the dot follows the held point.
+    // (off by default, 8 when set) host pixels away, and for 0.35 s after the
+    // release. The pull jolts the aim past Windows' 4 px click slop, which
+    // failed single and double clicks. The smoothing above stays on and the
+    // dot follows the held point.
     {
         int h = f->hand;
         int touching = ctx->triggerDown[h] || ctx->triggerValue[h] > CLICK_TOUCH_VALUE
@@ -3349,9 +3355,13 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
         clickHoldStep(&ctx->clickHold, touching && !ctx->triggerSwallowed[h], u, v,
                       ctx->videoWidth, ctx->videoHeight, ctx->clickHoldPx, f->now, &u, &v);
         // Native (lane pointer-clicks): the point a press is sent at is the aim
-        // from before the pull jolted it, and a second click of a double click
-        // goes at the first one's point; live again the moment the aim leaves
-        // a few pixels (3, or 24 for a double click), so drags are not held
+        // from before the pull jolted it; live again the moment the aim leaves
+        // 3 px, so drags are not held. Native (lane double-click): after a
+        // click the cursor waits on its point while the aim stays within
+        // MLXR_DOUBLE_CLICK_PX (24) and Windows' double-click time runs
+        // (MLXR_DOUBLE_CLICK_MS, 500, press to press), so a second click
+        // lands on it with no motion sent in between; leaving the circle
+        // ends the wait at once
         pressFixStep(&ctx->pressFix, ctx->triggerDown[h] || ctx->triggerValue[h] > CLICK_TOUCH_VALUE,
                      pointerButtonsWanted(ctx) != 0, u, v, ctx->videoWidth, ctx->videoHeight,
                      ctx->pressCfg, f->now, &u, &v);

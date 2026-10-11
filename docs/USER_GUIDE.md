@@ -200,7 +200,7 @@ This is the default. The ray from either controller is the mouse.
 | Grip | Grab the move pill, a corner of the screen, the keyboard's bar or the stats window |
 | X, Y, d-pad up and left, bumpers, menu | Nothing in pointer mode |
 
-A click is sent at the point you aimed at before the trigger pull moved the controller. The second click of a double click lands on the first one, so double clicks work.
+A click is sent at the point you aimed at before the trigger pull moved the controller. After a click the cursor waits for half a second while you keep aiming near it, so the second click of a double click lands on the first one. Move the ray away and the cursor follows at once.
 
 ### Gamepad mode
 
@@ -349,7 +349,8 @@ These are for testing and debugging. Most users never need them. Put them in fro
 | `MLXR_MOUSE_IGNORE` | | Skip mice whose name contains this text. |
 | `MLXR_MOUSE_PARK` | 1 | 0 lets the controller ray move the cursor while a mouse is in use. |
 | `MLXR_STICK_RIGHT_CLICK` | 1 | 0 makes the thumbstick click switch the pointer on and off, as in Moonlight XR. |
-| `MLXR_DOUBLE_CLICK_PX` | 5 | Pixels within which a second click lands on the first. |
+| `MLXR_DOUBLE_CLICK_PX` | 24 | After a click, the cursor waits while the ray stays this many pixels from it, and a second click lands on the first. 0 turns it off. |
+| `MLXR_DOUBLE_CLICK_MS` | 500 | How long that wait can last, from the first press. Match it to the PC's double-click speed. 0 turns it off. |
 | `MLXR_PRESS_STABILISE` | 1 | 0 sends a click where the ray is at the moment of the press. |
 | `MLXR_CLICK_HOLD_PX` | 0 | Hold the cursor still from the trigger touch until the aim moves this many pixels. |
 | `MLXR_DEPTH_THREADS` | 2 | Threads for the depth model. |
