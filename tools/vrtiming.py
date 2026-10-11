@@ -122,9 +122,11 @@ while time.time() < t_end:
     if len(seen) > 100000: seen = set(list(seen)[-1000:])
 c1 = cumulative()
 say('# window totals: %s' % totals)
-say('# SteamVR cumulative for pid %d over the run: presents %d, dropped %d, reprojected %d, app submits %d' % (
+say('# SteamVR cumulative for pid %d over the run: presents %d, dropped %d, reprojected %d, app submits %d, '
+    'frames with depth %d' % (
     c1.m_nPid, c1.m_nNumFramePresents - (c0.m_nNumFramePresents if c0.m_nPid == c1.m_nPid else 0),
     c1.m_nNumDroppedFrames - (c0.m_nNumDroppedFrames if c0.m_nPid == c1.m_nPid else 0),
     c1.m_nNumReprojectedFrames - (c0.m_nNumReprojectedFrames if c0.m_nPid == c1.m_nPid else 0),
-    c1.m_nNumFrameSubmits - (c0.m_nNumFrameSubmits if c0.m_nPid == c1.m_nPid else 0)))
+    c1.m_nNumFrameSubmits - (c0.m_nNumFrameSubmits if c0.m_nPid == c1.m_nPid else 0),
+    c1.m_nNumFramesWithDepth - (c0.m_nNumFramesWithDepth if c0.m_nPid == c1.m_nPid else 0)))
 lib.VR_ShutdownInternal()

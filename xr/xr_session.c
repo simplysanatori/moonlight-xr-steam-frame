@@ -31,6 +31,71 @@
 #include "xr_vk.h"
 #include "xr_world.h"
 #include "xr_depth.h"
+#include <dirent.h>
+
+// Native: the GPU time each Vulkan device in this process used since the last
+// call, from the kernel's per client counters (/proc/self/fdinfo, drm-engine-gpu).
+// Ours is one device; SteamVR's client library opens its own in our process,
+// and any work it does on our frames (such as downsampling a projection layer
+// too large for the compositor) shows on it. For the room-judder diagnosis.
+#define GPU_CLIENTS_MAX 8
+static struct { unsigned long long id, ns; } g_gpuClients[GPU_CLIENTS_MAX];
+static int g_gpuClientCount;
+
+static void gpuByDeviceLine(char* buf, size_t size, double seconds) {
+    buf[0] = 0;
+    DIR* d = opendir("/proc/self/fd");
+    if (d == NULL) {
+        snprintf(buf, size, "unknown");
+        return;
+    }
+    unsigned long long seen[GPU_CLIENTS_MAX];
+    int nSeen = 0;
+    size_t used = 0;
+    struct dirent* e;
+    while ((e = readdir(d)) != NULL) {
+        if (e->d_name[0] < '0' || e->d_name[0] > '9') continue;
+        char path[64], target[64];
+        snprintf(path, sizeof(path), "/proc/self/fd/%s", e->d_name);
+        ssize_t n = readlink(path, target, sizeof(target) - 1);
+        if (n <= 0) continue;
+        target[n] = 0;
+        if (strncmp(target, "/dev/dri/", 9) != 0) continue;
+        snprintf(path, sizeof(path), "/proc/self/fdinfo/%s", e->d_name);
+        FILE* f = fopen(path, "r");
+        if (f == NULL) continue;
+        char line[128];
+        unsigned long long id = 0, ns = 0;
+        int haveId = 0, haveNs = 0;
+        while (fgets(line, sizeof(line), f)) {
+            if (sscanf(line, "drm-client-id: %llu", &id) == 1) haveId = 1;
+            else if (sscanf(line, "drm-engine-gpu: %llu", &ns) == 1) haveNs = 1;
+        }
+        fclose(f);
+        if (!haveId || !haveNs) continue;
+        int dup = 0;
+        for (int i = 0; i < nSeen; i++) dup |= seen[i] == id;
+        if (dup || nSeen >= GPU_CLIENTS_MAX) continue;
+        seen[nSeen++] = id;
+        int slot = -1;
+        for (int i = 0; i < g_gpuClientCount; i++) {
+            if (g_gpuClients[i].id == id) slot = i;
+        }
+        unsigned long long was = slot >= 0 ? g_gpuClients[slot].ns : ns;
+        if (slot < 0 && g_gpuClientCount < GPU_CLIENTS_MAX) slot = g_gpuClientCount++;
+        if (slot >= 0) {
+            g_gpuClients[slot].id = id;
+            g_gpuClients[slot].ns = ns;
+        }
+        double msPerS = seconds > 0.0 && ns >= was ? (double)(ns - was) / 1e6 / seconds : 0.0;
+        if (used < size) {
+            int w = snprintf(buf + used, size - used, "%sclient %llu %.1f ms/s", used ? ", " : "", id, msPerS);
+            if (w > 0) used += (size_t)w;
+        }
+    }
+    closedir(d);
+    if (!buf[0]) snprintf(buf, size, "none");
+}
 
 static atomic_int g_quit;
 void xr_app_request_quit(void) { atomic_store(&g_quit, 1); }
@@ -1564,6 +1629,7 @@ int xr_app_run(const XrAppConfig* cfg) {
 
     double start = nowNs() / 1e9, lastStats = start;
     uint64_t frames = 0, framesWindow = 0, videoWindow = 0, videoFrames = 0;
+    int64_t endNsSum = 0, endNsMax = 0;
     int exitAsked = 0;
     while (!ctx->exitRequested) {
         if ((atomic_load(&g_quit) || (cfg->seconds > 0 && nowNs() / 1e9 - start > cfg->seconds)) && !exitAsked) {
@@ -1966,7 +2032,14 @@ int xr_app_run(const XrAppConfig* cfg) {
         fei.environmentBlendMode = fs.shouldRender ? fout.blend : XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
         fei.layerCount = fout.count;
         fei.layers = fout.order;
+        int64_t endBegan = nowNs();
         if (!checkXr(xrEndFrame(ctx->session, &fei), "xrEndFrame")) break;
+        // Native: how long the runtime held the frame in xrEndFrame (its own
+        // work on the layers, such as downsampling a scene texture too large
+        // for the compositor), for the room-judder diagnosis
+        int64_t endTook = nowNs() - endBegan;
+        endNsSum += endTook;
+        if (endTook > endNsMax) endNsMax = endTook;
         displayFrameEnded(ctx);
 
         double t = nowNs() / 1e9;
@@ -1988,6 +2061,15 @@ int xr_app_run(const XrAppConfig* cfg) {
                   roomEffective(ctx) > 0 && xrRoomResident(ctx) != roomEffective(ctx) ? " (loading)" : "",
                   xrWorldGlowShown(ctx) ? "up" : "off", ctx->modelsShowing ? "up" : "off", depth[0] ? "; " : "",
                   depth, gpu[0] ? "; " : "", gpu, extra);
+            int roomDrawn = 0, roomStale = 0;
+            xrRoomTakeCounts(&roomDrawn, &roomStale);
+            char byDevice[256];
+            gpuByDeviceLine(byDevice, sizeof(byDevice), t - lastStats);
+            LOGEV("xr: timing: xrEndFrame %.2f ms avg (max %.2f) over %llu frames; room drawn on %d, kept an older "
+                  "image on %d; GPU by device in this process: %s",
+                  framesWindow ? endNsSum / 1e6 / (double)framesWindow : 0.0, endNsMax / 1e6,
+                  (unsigned long long)framesWindow, roomDrawn, roomStale, byDevice);
+            endNsSum = endNsMax = 0;
             framesWindow = videoWindow = 0;
             lastStats = t;
         }
