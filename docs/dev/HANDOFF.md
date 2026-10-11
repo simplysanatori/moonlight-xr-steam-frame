@@ -1,6 +1,6 @@
 # Moonlight XR Native: session hand-off
 
-**Start with [SESSION_4.md](SESSION_4.md)** (2026-10-11, section 0 first): the black screen is fixed and v0.6.0-alpha.3 is prepared; the file also has the current state and the working rules. The sections below are older context.
+**Start with [SESSION_4.md](SESSION_4.md)** (2026-10-11, section 0 first): the black screen is fixed and 1.0.0 is prepared; the file also has the current state and the working rules. The sections below are older context.
 
 Written 2026-10-10 at the end of the first build session (main at the commit that adds this file; 108 test suites green). Paste the prompt at the bottom into a new Claude Code session on the Steam Frame to continue. Everything below is either in this repository or on the Frame at the paths given.
 
@@ -150,6 +150,8 @@ Merged 2026-10-10 (lane/m6 499b972). The whole chain runs headless on the Frame'
 - **In-VR UI = Moonlight XR.** Port upstream's code and assets (`ref/gilleece`, `ref/fork` for Frame-specific features only), keep upstream names and logic, mark native changes in comments.
 - **Verify before claiming.** docs/dev/STATUS.md separates hardware-confirmed from headless-tested. The owner is the only one who can see the headset.
 - **Safety.** No sudo/pacman/steamos-readonly; never restart Steam or SteamVR without asking; no launches against the owner's PC without the owner (read-only serverinfo/applist is fine); `--wake` sends Wake-on-LAN and is only used when asked.
+- **No headless run while the owner is streaming.** Check `pgrep -af "app/moonlight-xr"` first. A headless run takes the scene from a live session.
+- **New worktrees need their submodules:** `git -c protocol.file.allow=always submodule update --init --recursive`.
 - **Commits** end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (or the model that did the work). Keep the README plain; the owner does not want it to read as LLM-written.
 
 ## 8. Prompt for the next session

@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.0-alpha.3 (October 2026)
+## 1.0.0 (October 2026)
+
+The first stable build. It includes everything from the three alphas and the changes below.
+
+### Black picture at high bitrates
 
 - Fixed a black picture at high bitrates. The hardware decoder was given at most 64 pieces of each frame, and a frame is one piece per received packet. Any frame over about 86 KB was cut short, and the decoder flagged the picture as corrupt. At 126 Mbps and 90 fps every frame is about 175 KB, so no picture came out. Every piece is now submitted. A frame whose pieces do not add up to its length is dropped and counted.
 - At 80 Mbps the same cut hit full frames and frames with a lot of motion. It probably caused part of the stutter seen with motion at that bitrate.
@@ -8,8 +12,42 @@
 - A frame that ends in a decoder error now counts as out of the decoder. Before, the frame loop waited 4 ms for a picture on every refresh for nothing.
 - The "hw decode" part of the stats line ends with the largest frame seen: "largest AU N bytes in N parts, N refused (length mismatch)".
 - New environment variable `MLXR_VIDEO_IDR_MIN_MS`: the shortest time between full-frame requests after a decoder error. 100 by default, 0 for no limit.
-- Not yet confirmed in the headset. It was tested with 133 automated test suites, a unit test with 400-packet and 200-packet frames, and a headless file run with 0 decode errors.
+- Tested with 133 automated test suites, a unit test with 400-packet and 200-packet frames, and a headless file run with 0 decode errors. In the headset I got a picture and sound with the fixed build.
+
+### Streaming
+
+- The flat window's default bitrate is now twice Moonlight's figure for the same resolution and frame rate, in steps of 0.5 Mbps and capped at 150 Mbps. At 1440p and 90 fps that is 98 Mbps (Moonlight: 49). A value you saved stays until you change the resolution or the frame rate. The Steam Frame Wireless Adapter lost packets above 40 to 60 Mbps in earlier tests, so lower the slider if you stream over it and see losses.
+
+### Picture
+
+- Every projection layer now has one swapchain per eye. SteamVR shrinks any scene texture wider or taller than 3458 pixels, and the curved or 3D picture and the rooms were drawn side by side in one double-wide texture, so each eye got about 1729 pixels whatever the resolution setting. Each eye now has its own texture of up to 3458 pixels. The flat picture (curve off, 3D off) was not affected.
+- New environment variable `MLXR_EYE_SCALE` (0.5 to 1.6, default 1) scales the size of the picture layer's eye texture. The log says the size and whether it is inside SteamVR's limit.
+- The room's resolution tiers follow the new rule per eye: at a 2160 recommendation Standard is 1760 (was 1728), High 2160 and Ultra 2800. High and Ultra were shrunk by SteamVR before.
+- The app can now use up to 11 of SteamVR's 16 swapchains (it was 8). The stats line shows the count.
+
+### Pointer
+
+- Double click is easier. After a click, the cursor waits where it was released while your aim stays within 24 pixels of that point and less than 500 ms have passed since the press. A second press in that time goes down at the first press's point. Move further, or wait longer, and the cursor follows you at once. New variables `MLXR_DOUBLE_CLICK_PX` (24) and `MLXR_DOUBLE_CLICK_MS` (500); 0 for either turns the wait off.
+- Pulling the held picture closer with the stick works at the same speed as pushing it away. The stick's whole tilt now counts while it leans south or north (within 60 degrees), so a slanted thumb is enough. Letting go of a held window logs how far each stick reached.
+
+### Network
+
+- The Steam Frame Wireless Adapter is only probed or chosen when a device is associated with the Frame's access point. With none, Automatic uses Wi-Fi and the log says why. If you force the adapter and none is there, the app uses Wi-Fi at once and shows a notice. `mlxr-cli adapter` prints the result.
+- Automatic now picks the path with the lower latency score: median round trip, jitter, the slow end (90th percentile) and failed probes, plus the losses of your last stream on that path. It sends 15 probes per path instead of 7. The last stream's figures are kept in `netpath-history.ini` in the config folder, with no addresses or names. The "weak signal" rule is gone. The log explains each choice.
+
+### Flat window
+
+- After a stream the flat window did not always come back in the headset. The launcher now logs what the window does after the stream (shown, exposed, active, first frame drawn). In Game Mode it shows the window again if it was not exposed after one second. The Exit button now brings the flat window back (checked in the headset).
+- In Game Mode the flat window is 1.5 times larger. `MLXR_LAUNCHER_SCALE` (1.0 to 2.5) changes it.
+- The Help button opens this repository's README, not Moonlight's setup guide.
+
+### Project
+
 - The GitHub repository and the release tarball are now named moonlight-xr-steam-frame (before: moonlight-xr-native). The old repository address redirects. The Android route repository is now moonlight-xr-lepton.
+
+### Pending
+
+- 120 and 144 Hz in the headset's refresh list, and the launcher setting SteamVR's per-app rate (lane refresh, not merged yet).
 
 ## 0.6.0-alpha.2 (October 2026)
 

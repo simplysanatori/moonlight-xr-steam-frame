@@ -8,10 +8,31 @@ Section 2 is solved. The hardware decode path gave the decoder at most 64 parts 
 
 - Fix: commit c3f85b8 "Hardware decode: submit every part of a decode unit, limit IDR requests". All parts are submitted with a length check, IDR requests after decoder errors are limited to one per 100 ms (`MLXR_VIDEO_IDR_MIN_MS`), errored frames count as out of the decoder. The account is in docs/dev/reports/au-scatter.md.
 - RFI, the virtual display and the bitrate were suspected and are cleared.
-- Install state: built and tested on main (133 suites, headless file run with 0 errors). Not installed yet: the owner installs it (`NO_SHORTCUT=1 ./packaging/install.sh`, app not running). Not yet confirmed in the headset.
+- Install state: the fix and the later lanes are installed on the Frame. The owner has streamed with it: picture and sound work.
 - The four-run test matrix in section 2 is no longer needed. The owner's check is docs/dev/HEADSET_TEST_4.md.
-- v0.6.0-alpha.3 is prepared: VERSION, CHANGELOG, release notes (docs/RELEASE_NOTES_v0.6.0-alpha.3.md). The tarball and the GitHub release wait for the owner's token.
-- The stutter of 2026-10-10 was put down to the network. At 80 Mbps the cut also hit IDR and high-motion frames, so some of it was ours. Look again after the owner's run.
+- The release is now 1.0.0, the first stable build: VERSION, CHANGELOG and docs/RELEASE_NOTES_v1.0.0.md are written. The tarball and the GitHub release wait for the owner's go and token.
+- The stutter of 2026-10-10 was put down to the network. At 80 Mbps the cut also hit IDR and high-motion frames, so some of it was ours. The owner now prefers 80 Mbps to 126 Mbps.
+
+### Also landed on 2026-10-11 (second half of session 4)
+
+Each lane has a report in docs/dev/reports/ and an entry in docs/dev/STATUS.md.
+
+- launcher-return (3aa78d3): flat window diagnostics and a re-show after a stream. Confirmed: the Exit button brings the flat UI back.
+- double-click (1bc42a0): 24 px and 500 ms wait after a click. Not yet confirmed.
+- eye-swapchains (f05c8fa): a swapchain per eye, up to 11 of 16. The owner says the picture is better. Text sharpness with the curve on is not reported yet.
+- rename (4f98ee3): moonlight-xr-steam-frame, and moonlight-xr-lepton for the Android route.
+- adapter-detect (52c114c), netpath-quality (7344c9c): adapter presence, and Automatic by latency score plus history.
+- launcher2 (ecfd3a3): bitrate default 98 Mbps at 1440p90, flat UI 1.5 times larger, Help opens the README.
+- grab-pull (dbc5024): pull closer with the stick. Not yet confirmed.
+- Audio works. The 360 Hz virtual display was a Windows display setting on the PC.
+- Lane refresh (120 and 144 Hz, SteamVR's per-app rate) is still in progress.
+
+### Where the next session starts
+
+1. Read the owner's results from docs/dev/HEADSET_TEST_5.md.
+2. Finish the refresh lane, merge it and install.
+3. Cut the 1.0.0 release (build the tarball on the Frame with tools/release.sh, create the GitHub release with the owner's token).
+4. Planned, waiting for the owner's go: the fork relationship with Gilleece/moonlight-android-xr, and a Ko-fi section on the other repositories. Do neither without the go.
 
 Sections 1 to 4 below are history as of the morning of 2026-10-11.
 
@@ -68,9 +89,11 @@ How to test without the owner: a headless run against the test clip (`build/moon
 Continue Moonlight XR for Frame on this Steam Frame. Read ~/Games/MoonlightXRNative/src/docs/dev/SESSION_4.md
 (section 0 first), then HANDOFF.md sections 2, 3 and 7 and the end of STATUS.md. Plan on Fable, implement with
 agents (Sonnet for simple work, Opus 5.5 for the decoder, frame loop and headset debugging), one worktree per lane.
-The black screen is fixed in code (c3f85b8) and v0.6.0-alpha.3 is prepared. First job: read my headset result
-from docs/dev/HEADSET_TEST_4.md (I will paste the "hw decode" lines). If the picture is good, build and install
-the release, run tools/release.sh on the Frame and cut v0.6.0-alpha.3 on GitHub. If errors are still high,
-go on from the end of docs/dev/reports/au-scatter.md. Then look again at the stutter at 80 Mbps. I will paste a
+The black screen is fixed (c3f85b8) and many lanes landed after it; section 0 lists them. 1.0.0 is
+prepared. First job: read my results from docs/dev/HEADSET_TEST_5.md (I will paste the lines it asks for) and fix
+what I report. Then finish lane refresh (120 and 144 Hz, SteamVR's per-app rate), merge it, install, and cut 1.0.0:
+run tools/release.sh on the Frame and create the GitHub release. After that, and only when I say go, handle the
+fork relationship with Gilleece/moonlight-android-xr and the Ko-fi sections on my other repositories. Never run a
+headless session while I am streaming. I will paste a
 GitHub token when it is time to push.
 ```

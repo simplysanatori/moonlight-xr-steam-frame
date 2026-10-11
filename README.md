@@ -12,13 +12,32 @@ What it does:
 - Turns 2D games into 3D on the headset with a depth model (ZipDepth or MiDaS).
 - Uses the Frame controllers as a mouse pointer or as an Xbox gamepad.
 - Forwards Bluetooth keyboards, mice and gamepads connected to the Frame.
-- Can stream over your Wi-Fi or over the Steam Frame Wireless Adapter.
+- Can stream over your Wi-Fi or over the Steam Frame Wireless Adapter. It looks for the adapter first, and Automatic picks the path with the lower latency and fewer losses.
+
+## What this adds to Moonlight XR
+
+Sean Gilleece's Moonlight XR is an Android app for headsets like the Quest. This project is a native rewrite for the Steam Frame. Compared with it:
+
+- It is a Linux Arm64 program using OpenXR and Vulkan in the Frame's own SteamVR, with no Android layer.
+- Video is decoded on the Frame's Qualcomm decoder (H.264 and HEVC) and handed to the GPU without a copy.
+- Before the stream you get Moonlight's own PC list, pairing and app list (a patched moonlight-qt), shown flat in the headset, with an Artemis-style settings page.
+- Apollo options are in that settings page: virtual display, resolution scale factor, custom refresh rate and clipboard sync.
+- A Network connection setting for Wi-Fi or the Steam Frame Wireless Adapter. It detects the adapter, and Automatic chooses by latency and drops.
+- A full tenkeyless keyboard with Ctrl, Alt, Shift and Win and key repeat, next to the compact one, with a move bar.
+- Steam Frame controller models built at install time from SteamVR's own render models, with moving buttons and sticks.
+- Frame pacing ported from Moonlight on a PC, with a low-latency default.
+- A texture per eye for the curved and 3D picture and the rooms, so SteamVR's size limit does not shrink them.
+- An installer that adds the Steam library entry with artwork, SteamVR's per-app settings and a dock icon.
+- A bug report tool that masks addresses, names and ids, and a report sheet that saves the note on the Frame.
+- It builds on the Frame itself.
+
+The rooms, 3D mode, glow and virtual surround come from Moonlight XR and are kept.
 
 ## Status
 
-Alpha. Version 0.6.0-alpha.3 is the third public build. It has been used on one Steam Frame (SteamOS 0.4.5, SteamVR 2.18) against one Windows PC with Sunshine and Apollo.
+Version 1.0.0 is the first stable build. It has been used on one Steam Frame (SteamOS 0.4.5, SteamVR 2.18) against one Windows PC with Sunshine and Apollo.
 
-Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz, sound, the pointer, the in-headset bar and menus, rooms, the controller models and the Start+Select+L1+R1 disconnect. Tested only on the desktop or by automated tests: physical gamepads, the Network connection setting, the Apollo options, virtual surround and hand tracking. See the [release notes](docs/RELEASE_NOTES_v0.6.0-alpha.3.md) for the full list and the known problems.
+Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz, sound, the pointer, the Exit button that brings the flat window back, the in-headset bar and menus, rooms, the controller models and the Start+Select+L1+R1 disconnect. Tested only on the desktop or by automated tests: physical gamepads, the Network connection setting, the Apollo options, virtual surround and hand tracking. See the [release notes](docs/RELEASE_NOTES_v1.0.0.md) for the full list and the known problems.
 
 ## Requirements
 
@@ -30,7 +49,7 @@ Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz,
 
 ## Install
 
-1. Download `moonlight-xr-steam-frame-0.6.0-alpha.3-linux-arm64.tar.gz` and `SHA256SUMS` from the [Releases](https://github.com/simplysanatori/moonlight-xr-steam-frame/releases) page. Check the download:
+1. Download `moonlight-xr-steam-frame-1.0.0-linux-arm64.tar.gz` and `SHA256SUMS` from the [Releases](https://github.com/simplysanatori/moonlight-xr-steam-frame/releases) page. Check the download:
 
    ```sh
    sha256sum -c --ignore-missing SHA256SUMS
@@ -39,7 +58,7 @@ Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz,
 2. Unpack it and run the installer:
 
    ```sh
-   tar xzf moonlight-xr-steam-frame-0.6.0-alpha.3-linux-arm64.tar.gz
+   tar xzf moonlight-xr-steam-frame-1.0.0-linux-arm64.tar.gz
    cd MoonlightXRNative
    ./install.sh
    ```
@@ -123,6 +142,12 @@ You can also write a note in the headset (cog, About, Report a problem). It is s
 ## Build from source
 
 See [docs/BUILDING.md](docs/BUILDING.md). The build runs on the Frame itself.
+
+## Support
+
+Moonlight XR is Gilleece's work. If you want to support someone, support upstream first: [Ko-fi: moonlightxr](https://ko-fi.com/moonlightxr).
+
+If you would like more Steam Frame ports, you can also [buy me a coffee](https://ko-fi.com/sana748653). It pays for the Claude API credits these ports are built with, spent as carefully as I can.
 
 ## Credits
 
