@@ -36,6 +36,15 @@ const vec3 KEY = vec3(1.0, 0.97, 0.92) * 2.6;
 const vec3 SKY = vec3(0.60, 0.64, 0.70);
 const vec3 GROUND = vec3(0.10, 0.095, 0.09);
 const float F0 = 0.04; // plastic
+// Matte (the owner found the plastic too shiny): Valve's roughness map is low, so
+// it is lifted to a floor and the lobe broadened, the key highlight is toned down
+// and the edge reflection of the sky cut to a faint sheen. The shape still reads
+// from the broad highlight and the occlusion-dimmed sky fill on the near-black plastic.
+const float ROUGH_FLOOR = 0.5;  // GGX roughness (alpha = rough^2) never below this
+const float SPEC_GAIN = 0.7;    // the key light's highlight
+const float BASE_FLOOR = 0.014;  // linear: the plastic's base colour is never darker than this, so the matte
+                                 // diffuse light shows its shape (Valve's texture is sRGB 15, 0.005)
+const float ENV_GAIN = 0.25;     // the sky's Fresnel reflection
 const float PI = 3.14159265;
 
 vec3 linearToSrgb(vec3 c) {
@@ -60,7 +69,7 @@ void main() {
     vec4 base = texture(u_colour, v_uv);
     vec4 surf = texture(u_surface, v_uv);
     // params.y: MLXR_FRAME_MODEL_GAIN, the base colour times this in linear light
-    vec3 albedo = base.rgb * (pc.params.y > 0.0 ? pc.params.y : 1.0);
+    vec3 albedo = max(base.rgb, vec3(BASE_FLOOR)) * (pc.params.y > 0.0 ? pc.params.y : 1.0);
     float ao = base.a;
 
     vec3 ng = normalize(v_normal);
@@ -89,7 +98,7 @@ void main() {
 
     // Roughness as GGX alpha squared, widened where the normal map's mips
     // average bumps away (Toksvig) and where the surface turns within a pixel
-    float rough = clamp(surf.a, 0.04, 1.0);
+    float rough = mix(ROUGH_FLOOR, 1.0, clamp(surf.a, 0.0, 1.0) * 0.5);
     float a2 = rough * rough * rough * rough;
     a2 += (1.0 - ntLen) / ntLen;
     vec3 dnx = dFdx(ng), dny = dFdy(ng);
@@ -108,14 +117,14 @@ void main() {
     float k = sqrt(a2) * 0.5;
     float G = (NdotV / (NdotV * (1.0 - k) + k)) * (NdotL / (NdotL * (1.0 - k) + k));
     float F = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
-    vec3 spec = KEY * (D * G * F / (4.0 * NdotV)) ; // * NdotL / NdotL
+    vec3 spec = KEY * SPEC_GAIN * (D * G * F / (4.0 * NdotV)); // * NdotL / NdotL
 
     // The sky's reflection: rougher blurs the horizon, Fresnel (with
     // roughness) rims the edges, the occlusion keeps it out of the holes
     vec3 R = reflect(-V, n);
     float fr = F0 + (max(1.0 - sqrt(sqrt(a2)), F0) - F0) * pow(1.0 - NdotV, 5.0);
     float specAo = clamp(ao * ao * 1.2, 0.0, 1.0);
-    vec3 env = sky(R, U, sqrt(sqrt(a2))) * fr * specAo;
+    vec3 env = sky(R, U, sqrt(sqrt(a2))) * fr * specAo * ENV_GAIN;
 
     vec3 colour = diffuse + spec + env;
     fragColor = writeLinear(colour);

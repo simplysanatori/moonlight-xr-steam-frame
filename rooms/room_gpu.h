@@ -124,19 +124,35 @@ void mlxr_room_fill(const MlxrRoom* room, MlxrRoomParams* out);
 #define MLXR_MOTION_ROT_X 18   // 2: joystick degrees at x = -1, +1
 #define MLXR_MOTION_ROT_Y 20   // 2: joystick degrees at y = -1, +1
 #define MLXR_MOTION_PRESS 22   // 3: joystick click offset
-enum { MLXR_MOTION_NONE = 0, MLXR_MOTION_TRANSLATE = 1, MLXR_MOTION_ROTATE = 2, MLXR_MOTION_JOYSTICK = 3 };
+enum { MLXR_MOTION_NONE = 0, MLXR_MOTION_TRANSLATE = 1, MLXR_MOTION_ROTATE = 2, MLXR_MOTION_JOYSTICK = 3,
+       MLXR_MOTION_DPAD = 4 /* MXFM 2 */ };
+
+// Native: the controls a component can follow, as the client reads them off the
+// actions each frame (0 to 1; the stick -1 to 1). A control the hand does not
+// have, or the runtime does not give the app (the system button), stays 0.
+enum {
+    MLXR_IN_TRIGGER, MLXR_IN_GRIP, MLXR_IN_STICK_X, MLXR_IN_STICK_Y, MLXR_IN_STICK_CLICK,
+    MLXR_IN_A, MLXR_IN_B, MLXR_IN_X, MLXR_IN_Y, MLXR_IN_MENU, MLXR_IN_VIEW, MLXR_IN_SYSTEM, MLXR_IN_BUMPER,
+    MLXR_IN_DPAD_UP, MLXR_IN_DPAD_DOWN, MLXR_IN_DPAD_LEFT, MLXR_IN_DPAD_RIGHT,
+    MLXR_IN_COUNT
+};
+typedef struct MlxrModelInput {
+    float v[MLXR_IN_COUNT];
+} MlxrModelInput;
 
 typedef struct MlxrModelComponent {
     char name[MLXR_MODEL_NAME_BYTES];  // SteamVR's ("body", "trigger", "button_a", ...)
     char path[MLXR_MODEL_NAME_BYTES];  // the input that moves it ("/input/trigger"), "" for none
     uint32_t firstIndex, indexCount;   // into the model's index buffer (absolute)
     uint32_t motionType;               // MLXR_MOTION_*
+    int input;                         // MLXR_IN_* that drives it (the stick's x, the d-pad's up), -1 none
     float motion[MLXR_MODEL_MOTION_FLOATS];
 } MlxrModelComponent;
 
 // Where everything sits in a .model file (MXFM version 1)
 typedef struct MlxrModelFileInfo {
     uint32_t vertexCount, indexCount, componentCount;
+    uint32_t version;                  // 1, or 2 (the d-pad's motion)
     uint32_t texWidth, texHeight;
     uint64_t componentOffset, vertexOffset, indexOffset, colourOffset, surfaceOffset, size;
 } MlxrModelFileInfo;
@@ -176,6 +192,14 @@ void mlxr_model_unload(const MlxrGpu* gpu, MlxrModel* model);
 // vertices, indices, indexCount, the per-hand ranges and (textured) images of
 // a pass_model call
 void mlxr_model_fill(const MlxrModel* model, MlxrModelParams* out);
+// Native: each component of a hand's model moved as SteamVR moves it for these
+// control values (trigger and grip turn about their pivot, the stick tilts about
+// its centre and dips when clicked, buttons slide, the d-pad tilts toward a
+// direction): the parts for MlxrModelParams.handParts, in the file's order (parts at rest next to
+// each other are one draw, so a hand at rest is a single range),
+// up to cap. 0 for a model with no components (the generic one), which is drawn whole.
+uint32_t mlxr_model_pose(const MlxrModel* model, int hand, const MlxrModelInput* in, MlxrModelPart* parts,
+                         uint32_t cap);
 
 // The ASTC UNORM format for a block size the atlas tool writes (4, 6 or 8),
 // VK_FORMAT_UNDEFINED otherwise

@@ -52,7 +52,7 @@ def parse_model(path):
     d = open(path, 'rb').read()
     assert d[:4] == b'MXFM', 'magic'
     version, vc, ic, cc, tw, th, flags = struct.unpack_from('<7I', d, 4)
-    assert version == 1 and flags == 0, 'version'
+    assert version in (1, 2) and flags == 0, 'version'
     assert 0 < vc < 1 << 22 and 0 < ic <= 1 << 24 and ic % 3 == 0 and 0 < cc <= 32, 'counts'
     assert 0 < tw <= 8192 and 0 < th <= 8192, 'texture size'
     voff = 32 + cc * COMPONENT_BYTES
@@ -66,7 +66,7 @@ def parse_model(path):
         path_ = d[o + 32:o + 64].split(b'\0')[0].decode()
         first, count, kind, pad = struct.unpack_from('<4I', d, o + 64)
         motion = struct.unpack_from('<32f', d, o + 80)
-        assert first + count <= ic and first % 3 == 0 and count % 3 == 0 and kind <= 3 and pad == 0, f'component {name}'
+        assert first + count <= ic and first % 3 == 0 and count % 3 == 0 and kind <= (4 if version >= 2 else 3) and pad == 0, f'component {name}'
         comps.append({'name': name, 'path': path_, 'first': first, 'count': count, 'type': kind, 'motion': motion})
     verts = [struct.unpack_from('<12f', d, voff + i * 48) for i in range(vc)]
     idx = struct.unpack_from(f'<{ic}I', d, ioff)
@@ -280,6 +280,15 @@ def main():
                 check(8000 <= tris <= 60000, f'real {hand}: triangle count {tris}')
                 check(len(verts) < 60000, f'real {hand}: vertex count')
                 check(m['comps'][0]['name'] == 'body' and any(c['name'] == 'trigger' for c in m['comps']), f'real {hand}: components')
+                by = {c['name']: c for c in m['comps']}
+                check(by['trigger']['type'] == 2 and by['trigger']['path'] == '/input/trigger' and by['thumbstick']['type'] == 3
+                      and by['thumbstick']['path'] == '/input/thumbstick' and by['button_grip']['type'] == 2,
+                      f'real {hand}: trigger, grip and stick motions')
+                if hand == 'left':
+                    check(by['dpad']['type'] == 4 and by['dpad']['path'] == '/input/dpad_up/click', 'real left: the d-pad motion')
+                else:
+                    check(all(by[f'button_{k}']['type'] == 1 and by[f'button_{k}']['path'] == f'/input/{k}/click' for k in 'abxy'),
+                          'real right: A, B, X, Y slide on their clicks')
                 check(m['w'] >= 512 and m['w'] == m['h'], f'real {hand}: textures {m["w"]}x{m["h"]}')
                 # a handheld controller, in metres around its grip: 5 to 25 cm long, nothing past 20 cm of the grip
                 ext = [b[1] - b[0] for b in box]

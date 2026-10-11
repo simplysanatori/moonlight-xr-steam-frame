@@ -39,3 +39,10 @@ add_executable(mlxr-model-snapshot model_snapshot.c)
 target_link_libraries(mlxr-model-snapshot PRIVATE m5_gpu m4_scene)
 target_compile_definitions(mlxr-model-snapshot PRIVATE MLXR_ASSETS_DIR="${MLXR_ASSETS_DIR}")
 mlxr_link_openxr(mlxr-model-snapshot)
+
+# The Frame's textured models with their moving parts posed (trigger, grip, stick,
+# buttons, d-pad); run by hand: mlxr-model-pose-snapshot OUTDIR FRAMEMODELSDIR
+add_executable(mlxr-model-pose-snapshot model_pose_snapshot.c)
+target_link_libraries(mlxr-model-pose-snapshot PRIVATE m5_gpu m4_scene)
+target_compile_definitions(mlxr-model-pose-snapshot PRIVATE MLXR_ASSETS_DIR="${MLXR_ASSETS_DIR}")
+mlxr_link_openxr(mlxr-model-pose-snapshot)

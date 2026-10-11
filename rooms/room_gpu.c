@@ -587,7 +587,24 @@ static unsigned char* readModelFile(const char* path, RoomMeshInfo* mi, size_t* 
     return NULL;
 }
 
-// ---- Native: the Steam Frame's textured pair (tools/frame-models, MXFM version 1)
+// ---- Native: the Steam Frame's textured pair (tools/frame-models, MXFM version 1 or 2)
+
+// Native: which control a component's input path names
+static int motionInput(const char* path) {
+    static const struct { const char* path; int slot; } table[] = {
+        {"/input/trigger", MLXR_IN_TRIGGER}, {"/input/trigger/value", MLXR_IN_TRIGGER},
+        {"/input/grip", MLXR_IN_GRIP}, {"/input/squeeze", MLXR_IN_GRIP}, {"/input/squeeze/value", MLXR_IN_GRIP},
+        {"/input/thumbstick", MLXR_IN_STICK_X},
+        {"/input/a/click", MLXR_IN_A}, {"/input/b/click", MLXR_IN_B}, {"/input/x/click", MLXR_IN_X},
+        {"/input/y/click", MLXR_IN_Y}, {"/input/menu/click", MLXR_IN_MENU}, {"/input/view/click", MLXR_IN_VIEW},
+        {"/input/system/click", MLXR_IN_SYSTEM}, {"/input/bumper/click", MLXR_IN_BUMPER},
+        {"/input/dpad_up/click", MLXR_IN_DPAD_UP},
+    };
+    for (size_t k = 0; k < sizeof(table) / sizeof(table[0]); k++) {
+        if (strcmp(path, table[k].path) == 0) return table[k].slot;
+    }
+    return -1;
+}
 
 #define MXFM_HEADER_BYTES 32
 #define MXFM_COMPONENT_BYTES 208
@@ -600,11 +617,12 @@ int mlxr_model_file_parse(const unsigned char* head, size_t headBytes, uint64_t 
         return 0;
     }
     memcpy(h, head, sizeof(h)); // little endian, as the converter writes and the Frame runs
-    if (h[1] != 1 || h[7] != 0) {
+    if ((h[1] != 1 && h[1] != 2) || h[7] != 0) {
         return 0;
     }
     MlxrModelFileInfo i;
     memset(&i, 0, sizeof(i));
+    i.version = h[1];
     i.vertexCount = h[2];
     i.indexCount = h[3];
     i.componentCount = h[4];
@@ -658,7 +676,7 @@ static int openTextured(const char* path, TexturedFile* tf) {
     if (fseek(tf->f, 0, SEEK_END) == 0) size = ftell(tf->f);
     if (size < MXFM_HEADER_BYTES || fseek(tf->f, 0, SEEK_SET) != 0 || fread(head, 1, sizeof(head), tf->f) != sizeof(head) ||
         !mlxr_model_file_parse(head, sizeof(head), (uint64_t)size, &tf->info)) {
-        fprintf(stderr, "controller model %s is not a textured model this reads (MXFM 1, sizes adding up)\n", path);
+        fprintf(stderr, "controller model %s is not a textured model this reads (MXFM 1 or 2, sizes adding up)\n", path);
         closeTextured(tf);
         return -1;
     }
@@ -695,7 +713,8 @@ static int openTextured(const char* path, TexturedFile* tf) {
         mc->firstIndex = u[0];
         mc->indexCount = u[1];
         mc->motionType = u[2];
-        if ((uint64_t)u[0] + u[1] > i->indexCount || u[0] % 3 != 0 || u[1] % 3 != 0 || u[2] > MLXR_MOTION_JOYSTICK) {
+        mc->input = motionInput(mc->path);
+        if ((uint64_t)u[0] + u[1] > i->indexCount || u[0] % 3 != 0 || u[1] % 3 != 0 || u[2] > (i->version >= 2 ? MLXR_MOTION_DPAD : MLXR_MOTION_JOYSTICK)) {
             fprintf(stderr, "controller model %s: component %u (%s) is out of range\n", path, c, mc->name);
             closeTextured(tf);
             return -1;
@@ -1087,4 +1106,124 @@ void mlxr_model_fill(const MlxrModel* m, MlxrModelParams* out) {
         out->handSurface[h] = m->textured ? m->texture[h][1].view : VK_NULL_HANDLE;
     }
     out->textured = m->textured;
+}
+
+// ---- Native: the Frame controllers' moving parts (SteamVR's motion semantics)
+
+static void poseIdentity(float* m) {
+    for (int i = 0; i < 16; i++) m[i] = i % 5 == 0 ? 1.0f : 0.0f;
+}
+
+// m = rotation by deg about the unit axis a, through the point p, then moved by t (column major)
+static void poseAbout(float* m, const float* a, float deg, const float* p, const float* t) {
+    float r = deg * (3.14159265358979f / 180.0f);
+    float c = cosf(r), s = sinf(r), k = 1.0f - c;
+    float x = a[0], y = a[1], z = a[2];
+    float R[9] = {c + x * x * k,     y * x * k + z * s, z * x * k - y * s,
+                  x * y * k - z * s, c + y * y * k,     z * y * k + x * s,
+                  x * z * k + y * s, y * z * k - x * s, c + z * z * k};
+    poseIdentity(m);
+    for (int col = 0; col < 3; col++)
+        for (int row = 0; row < 3; row++) m[col * 4 + row] = R[col * 3 + row];
+    for (int row = 0; row < 3; row++) {
+        // p + t - R p
+        m[12 + row] = p[row] + (t ? t[row] : 0.0f) - (R[row] * p[0] + R[3 + row] * p[1] + R[6 + row] * p[2]);
+    }
+}
+
+static float poseLerp(float a, float b, float t) {
+    return a + (b - a) * t;
+}
+
+static float poseClamp01(float v) {
+    return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+}
+
+// A joystick's or d-pad's tilt for x, y in -1..1 about its centre, in its own frame (the frame's z
+// for x, its x for y: SteamVR's joystick_rotation_x/y, degrees at -1 and +1), and dipped by the
+// click along press (grip space)
+static void poseStick(float* m, const float* mo, float x, float y, float click) {
+    float len = sqrtf(x * x + y * y);
+    if (len > 1.0f) {
+        x /= len;
+        y /= len;
+    }
+    float ax = poseLerp(mo[MLXR_MOTION_ROT_X], mo[MLXR_MOTION_ROT_X + 1], 0.5f + 0.5f * x);
+    float ay = poseLerp(mo[MLXR_MOTION_ROT_Y], mo[MLXR_MOTION_ROT_Y + 1], 0.5f + 0.5f * y);
+    const float* fx = &mo[MLXR_MOTION_FRAME];
+    const float* fz = &mo[MLXR_MOTION_FRAME + 6];
+    float rz[16], rx[16];
+    poseAbout(rz, fz, ax, mo + MLXR_MOTION_ORIGIN, NULL);
+    poseAbout(rx, fx, ay, mo + MLXR_MOTION_ORIGIN, NULL);
+    // rx * rz (both through the centre)
+    for (int col = 0; col < 4; col++)
+        for (int row = 0; row < 4; row++) {
+            float v = 0.0f;
+            for (int k = 0; k < 4; k++) v += rx[k * 4 + row] * rz[col * 4 + k];
+            m[col * 4 + row] = v;
+        }
+    for (int row = 0; row < 3; row++) m[12 + row] += mo[MLXR_MOTION_PRESS + row] * click;
+}
+
+uint32_t mlxr_model_pose(const MlxrModel* m, int hand, const MlxrModelInput* in, MlxrModelPart* parts, uint32_t cap) {
+    if (!m || !m->textured || hand < 0 || hand > 1 || !in || !parts) return 0;
+    uint32_t n = 0;
+    for (uint32_t c = 0; c < m->componentCount[hand] && n < cap; c++) {
+        const MlxrModelComponent* mc = &m->components[hand][c];
+        if (mc->indexCount == 0) continue;
+        MlxrModelPart* part = &parts[n++];
+        part->firstIndex = mc->firstIndex;
+        part->indexCount = mc->indexCount;
+        poseIdentity(part->transform);
+        const float* mo = mc->motion;
+        int slot = mc->input;
+        if (slot < 0 || slot >= MLXR_IN_COUNT) continue;
+        float v = in->v[slot];
+        switch (mc->motionType) {
+        case MLXR_MOTION_TRANSLATE: {
+            float off = poseLerp(mo[MLXR_MOTION_RANGE], mo[MLXR_MOTION_RANGE + 1], poseClamp01(v));
+            for (int k = 0; k < 3; k++) part->transform[12 + k] = mo[MLXR_MOTION_AXIS + k] * off;
+            break;
+        }
+        case MLXR_MOTION_ROTATE: {
+            v = poseClamp01(v);
+            float deg = poseLerp(mo[MLXR_MOTION_RANGE], mo[MLXR_MOTION_RANGE + 1], v);
+            // The trigger's and grip's last bit of travel (SteamVR's pressed_value_override)
+            if (!isnan(mo[MLXR_MOTION_PRESSED])) {
+                float t = poseClamp01((v - 0.9f) * 10.0f);
+                deg = poseLerp(deg, mo[MLXR_MOTION_PRESSED], t);
+            }
+            poseAbout(part->transform, &mo[MLXR_MOTION_AXIS], deg, &mo[MLXR_MOTION_ORIGIN], NULL);
+            break;
+        }
+        case MLXR_MOTION_JOYSTICK:
+            poseStick(part->transform, mo, in->v[MLXR_IN_STICK_X], in->v[MLXR_IN_STICK_Y], in->v[MLXR_IN_STICK_CLICK]);
+            break;
+        case MLXR_MOTION_DPAD: {
+            float x = in->v[MLXR_IN_DPAD_RIGHT] - in->v[MLXR_IN_DPAD_LEFT];
+            float y = in->v[MLXR_IN_DPAD_UP] - in->v[MLXR_IN_DPAD_DOWN];
+            float any = x != 0.0f || y != 0.0f || in->v[MLXR_IN_DPAD_UP] > 0.0f || in->v[MLXR_IN_DPAD_DOWN] > 0.0f ? 1.0f : 0.0f;
+            poseStick(part->transform, mo, x, y, any);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+    // A part at rest next to another at rest, their ranges running on, is one draw: the whole hand
+    // (every part in the file's order, one range) costs one draw at rest, and only the parts that
+    // move split it (the draw count is what the pass pays for)
+    uint32_t out = 0;
+    int prevRest = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        int rest = 1;
+        for (int e = 0; e < 16 && rest; e++) rest = parts[i].transform[e] == (e % 5 == 0 ? 1.0f : 0.0f);
+        if (out > 0 && rest && prevRest && parts[out - 1].firstIndex + parts[out - 1].indexCount == parts[i].firstIndex) {
+            parts[out - 1].indexCount += parts[i].indexCount;
+            continue;
+        }
+        parts[out++] = parts[i];
+        prevRest = rest;
+    }
+    return out;
 }
