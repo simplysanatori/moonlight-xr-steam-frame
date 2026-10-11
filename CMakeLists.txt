@@ -73,3 +73,8 @@ endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/launcher/CMakeLists.txt)
   add_subdirectory(tests/launcher)
 endif()
+
+# Dock icon installer and branding art tests
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/branding/CMakeLists.txt)
+  add_subdirectory(tests/branding)
+endif()

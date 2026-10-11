@@ -7,6 +7,7 @@ Artwork for the app's icon and its Steam library entry. Every image is made from
 | `source/moonlight-xr-logo.png` | Source of everything below | `moonlight-xr-logo-transparent.png` from Moonlight XR (Sean Gilleece, https://github.com/Gilleece/moonlight-android-xr), unchanged, GPLv3 |
 | `icon-512.png` | Steam shortcut icon (`<appid>_icon.png`) | The logo's disc, cropped, transparent corners |
 | `icon-256.png` | Window icon of the flat launcher (compiled into it by `launcher/build.sh`) | Same |
+| `icon-128.png`, `icon-64.png` | Icon-theme sizes of the SteamVR dock icon (with 256 and 512, installed by `packaging/dock_icon.py` as `hicolor/NxN/apps/moonlight-xr-launcher.png`) | Same |
 | `portrait-600x900.png` | Steam portrait capsule (`<appid>p.png`) | Logo disc and the name on a dark blue gradient |
 | `wide-920x430.png` | Steam wide capsule (`<appid>.png`) | Same layout, side by side |
 | `hero-3840x1240.png` | Steam hero (`<appid>_hero.png`) | The gradient with the logo, large and faint, at the right edge |
