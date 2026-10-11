@@ -76,7 +76,7 @@ At most 4; logged as "swapchains alive N of 16" when each is made and in the 5 s
 | Display: Head aim | live when head locked; session toggle |
 | Display: Controllers (gamepad) | greyed until M3 |
 | Display: Pointer sleep | works (upstream's wake/sleep gate), saved |
-| Display: Ray — Off / Dot / Ray | works: Ray = ray and dot, Dot = dot only (upstream's "off"), Off = neither (only the host's cursor, which Sunshine draws into the video and the protocol cannot hide); the dot is saved (`pointer_dot`), the ray is per session as upstream |
+| Display: Ray: Off / Dot / Ray | works: Ray = ray and dot, Dot = dot only (upstream's "off"), Off = neither (only the host's cursor, which Sunshine draws into the video and the protocol cannot hide); the dot is saved (`pointer_dot`), the ray is per session as upstream |
 | Display: Controller model, Click sound, Glow, Screen light, Glow level | greyed "comes in a later update" (models, the click, the glow; screen light with rooms in M5) |
 | 3D tab (preset, depth, convergence, switch, reset) | greyed until M6: "3D comes with the depth model in a later update" |
 | Picture: Brightness, Contrast, Gamma, Saturation, Reset | work live through `mlxr_pass_warp` gradeOn/grade, saved; a still picture redraws; needs headset check |

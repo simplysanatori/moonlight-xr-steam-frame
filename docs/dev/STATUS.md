@@ -8,7 +8,7 @@ What is confirmed on the Steam Frame versus reasoned from code. The orchestrator
 - **Vulkan 1.2 instance.** SteamVR 2.18.2 accepts Vulkan 1.0 to 1.2; newer features come in as extensions.
 - **Paths.** Project at `~/Games/MoonlightXRNative/` (the Lepton build owns `~/Games/MoonlightXR/`). Log at `~/Games/MoonlightXRNative/moonlight.log`.
 
-## M0 — probe and toolchain
+## M0: probe and toolchain
 | Item | State | Evidence |
 | --- | --- | --- |
 | Toolchain on host | confirmed | `build.sh` builds; `tools/ldd-audit.sh` passes (libvulkan, libm, libc only) |

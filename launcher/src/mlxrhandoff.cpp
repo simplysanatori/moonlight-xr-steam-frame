@@ -695,8 +695,19 @@ static void seedOnce()
         const QString native = QDir::homePath() + "/.config/Moonlight Game Streaming Project/Moonlight.conf";
         src = QFileInfo::exists(flatpak) ? flatpak : native;
     }
+    // The stream settings for the headset: Moonlight Qt's defaults (or the imported ones) were chosen
+    // for a flat window (720p, or 1080p at 144 here). The user changes them in Settings as usual.
+    auto headsetDefaults = [](QSettings& s) {
+        s.setValue("width", 2560);
+        s.setValue("height", 1440);
+        s.setValue("fps", 90);
+        s.setValue("bitrate", 80000);
+    };
     if (!QFileInfo::exists(src) || QFileInfo(src) == QFileInfo(dest)) {
-        qInfo() << "No Moonlight Qt config to import; starting fresh";
+        QSettings s;
+        headsetDefaults(s);
+        s.sync();
+        qInfo() << "No Moonlight Qt config to import; starting fresh with the headset's stream settings";
         return;
     }
     QDir().mkpath(QFileInfo(dest).absolutePath());
@@ -706,13 +717,9 @@ static void seedOnce()
     }
     QFile::setPermissions(dest, QFile::ReadOwner | QFile::WriteOwner);
     // The copy has the identity, the paired PCs (addresses, MACs, pinned certificates, app lists) and
-    // every setting. The stream settings are set for the headset: Moonlight Qt's were chosen for a
-    // flat window (1080p at 144 here). The user changes them in Settings as usual.
+    // every setting; the stream settings are then set for the headset.
     QSettings s;
-    s.setValue("width", 2560);
-    s.setValue("height", 1440);
-    s.setValue("fps", 90);
-    s.setValue("bitrate", 80000);
+    headsetDefaults(s);
     s.setValue("hdr", false);
     s.setValue("yuv444", false);
     s.setValue("videocfg", 0);

@@ -9,7 +9,7 @@ commands at the end of this file.
 | --- | --- | --- |
 | SteamOS | 0.4.5, build 20261007.6125817, kernel 6.18.0, glibc 2.39 | system.txt |
 | CPUs visible to user processes | 5 (of 8) | system.txt |
-| Host toolchain | clang/lld 19.1.7, cmake 3.29, ninja, glslc (shaderc 2023.8), gcc, python3 (no numpy) — all in the factory image | host-packages.txt |
+| Host toolchain | clang/lld 19.1.7, cmake 3.29, ninja, glslc (shaderc 2023.8), gcc, python3 (no numpy), all in the factory image | host-packages.txt |
 | GPU | Turnip Adreno 750, Mesa 26.3.0-devel, Vulkan 1.4.362 | vulkaninfo-summary.txt |
 
 ## OpenXR (SteamVR/OpenXR 2.18.2, `/opt/steamvr/steamxr_linuxarm64.json` → `bin/linuxarm64/vrclient.so`)
