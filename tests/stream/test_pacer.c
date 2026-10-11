@@ -22,9 +22,10 @@ static double jitterMs(unsigned* seed, double j) {
 
 // fps frames a second for `seconds`, refreshes at hz; arrival = nominal +
 // phase + jitter (sorted by the queue, as a decoder delivers in order)
+// paced: 0 newest, 1 smooth, 2 low latency (MlxrPaceMode)
 static Result run(int paced, double fps, double hz, double phaseMs, double jitter, int seconds) {
     MlxrPacer p;
-    mlxr_pacer_init(&p, (int)hz);
+    mlxr_pacer_init_mode(&p, (int)hz, paced == MLXR_PACE_LOW_LATENCY);
     unsigned seed = 7;
     int n = (int)(fps * seconds);
     double* arrive = malloc(sizeof(double) * (size_t)n);
@@ -66,7 +67,7 @@ static Result run(int paced, double fps, double hz, double phaseMs, double jitte
     }
     r.shown = (int)p.shown;
     r.holes = (int)p.holes;
-    r.drops = (int)p.catchUpDrops;
+    r.drops = (int)(p.catchUpDrops + p.staleDrops);
     r.queuedAvg = qsum / refreshes;
     free(arrive);
     return r;
@@ -129,5 +130,63 @@ int main(void) {
     }
     CHECK(shownBurst == 3);
     CHECK(p.catchUpDrops == 0);
+
+    // Native (lane perf): the low-latency mode keeps the jitter cushion...
+    Result ll = run(MLXR_PACE_LOW_LATENCY, 90.0, 90.0, 0.3, 4.0, 60);
+    print("90 fps +-4 ms, low latency:", ll);
+    CHECK(ll.holes < old.holes / 10);
+    CHECK(ll.shown > 5200);
+    CHECK(ll.queuedAvg <= paced.queuedAvg + 0.01);
+    CHECK(ll.maxQueued <= MLXR_PACER_MAX_QUEUED);
+    Result llClean = run(MLXR_PACE_LOW_LATENCY, 90.0, 90.0, 5.0, 0.0, 30);
+    CHECK(llClean.holes == 0 && llClean.drops == 0 && llClean.overflow == 0 && llClean.queuedAvg <= 1.01);
+    Result llSixty = run(MLXR_PACE_LOW_LATENCY, 60.0, 90.0, 0.3, 3.0, 30);
+    print("60 fps +-3 ms, low latency:", llSixty);
+    CHECK(llSixty.drops == 0 && llSixty.shown >= 1795);
+    Result llThirty = run(MLXR_PACE_LOW_LATENCY, 30.0, 90.0, 0.3, 3.0, 30);
+    CHECK(llThirty.drops == 0 && llThirty.shown >= 895); // a 30 fps desktop: every frame
+
+    // ... but after a stall shows the newest frame of the burst at once,
+    // where the smooth mode runs 2 frames late for the next half second
+    MlxrPacer lp, sp;
+    mlxr_pacer_init_mode(&lp, 90, 1);
+    mlxr_pacer_init_mode(&sp, 90, 0);
+    for (int k = 0; k < 45; k++) {
+        mlxr_pacer_refresh(&lp, 1, &drop);
+        mlxr_pacer_refresh(&sp, 1, &drop);
+    }
+    // 3 refreshes without a frame (a 33 ms Wi-Fi stall)
+    for (int k = 0; k < 3; k++) {
+        mlxr_pacer_refresh(&lp, 0, &drop);
+        mlxr_pacer_refresh(&sp, 0, &drop);
+    }
+    // the 3 late frames arrive together, then one a refresh again
+    int lq = 3, sq = 3, lateL = 0, lateS = 0;
+    for (int k = 0; k < 45; k++) {
+        int d = 0;
+        int show = mlxr_pacer_refresh(&lp, lq, &d);
+        lq -= d + show;
+        lateL += lq; // frames still waiting behind the one shown
+        show = mlxr_pacer_refresh(&sp, sq, &d);
+        sq -= d + show;
+        lateS += sq;
+        lq++, sq++; // the next frame
+    }
+    printf("after a 33 ms stall: frames waiting behind the shown one over 45 refreshes: low latency %d, smooth %d\n",
+           lateL, lateS);
+    CHECK(lp.staleDrops == 2);
+    CHECK(lateL == 0);
+    CHECK(lateS >= 45); // a frame or more behind for the whole half second
+    // a single-refresh wobble is not a stall: both frames get shown
+    mlxr_pacer_init_mode(&lp, 90, 1);
+    for (int k = 0; k < 45; k++) mlxr_pacer_refresh(&lp, 1, &drop);
+    mlxr_pacer_refresh(&lp, 0, &drop);
+    int show = mlxr_pacer_refresh(&lp, 2, &drop);
+    CHECK(show == 1 && drop == 0 && lp.staleDrops == 0);
+
+    CHECK(mlxr_pace_mode_parse(NULL) == MLXR_PACE_LOW_LATENCY);
+    CHECK(mlxr_pace_mode_parse("0") == MLXR_PACE_NEWEST);
+    CHECK(mlxr_pace_mode_parse("1") == MLXR_PACE_SMOOTH);
+    CHECK(mlxr_pace_mode_parse("2") == MLXR_PACE_LOW_LATENCY);
     return checksDone("stream pacer");
 }

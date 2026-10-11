@@ -24,7 +24,7 @@ static int fileLogLevel = FILE_LOG_OFF;
 // and a stuck disk costs them nothing at all. Deep enough for a burst of
 // startup lines, shallow enough to be a fixed block of memory.
 #define LOG_QUEUE_LINES 256
-#define LOG_LINE_MAX 1024
+#define LOG_LINE_MAX 1536 // Native (lane perf): was 1024; the 5 s lines grew past 850
 static char logQueue[LOG_QUEUE_LINES][LOG_LINE_MAX];
 static int logQueueLens[LOG_QUEUE_LINES];
 static int logHead;
