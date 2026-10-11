@@ -39,9 +39,9 @@ At 126 Mbps the picture stayed black in the void and in rooms, because the hardw
 
 - The repository and the tarball are named moonlight-xr-steam-frame. The Android route is moonlight-xr-lepton.
 
-### Pending
+### Refresh rate
 
-- 120 and 144 Hz in the headset's refresh list, and the launcher setting SteamVR's per-app rate (lane refresh, not merged yet).
+- 120 and 144 Hz are in the headset's refresh list. Picking 72, 90, 120 or 144 Hz in Settings sets SteamVR's per-app rate for this app before the stream starts, and the stream follows the rate the headset runs at, 144 Hz at most. Match headset leaves SteamVR's setting alone. The default bitrate scales with the rate: 113 Mbps at 1440p and 120 Hz, 124 Mbps at 144 Hz.
 
 ## Download
 
