@@ -1,75 +1,137 @@
 # Steam Frame controller models
 
 The client can draw a model at each hand's grip (Settings, controller model; off by default as
-upstream). It ships one generic Quest-style controller. On a Frame it now draws the Frame's own
+upstream). It ships one generic Quest-style controller. On a Frame it draws the Frame's own
 controllers instead, when they have been made from the local SteamVR install.
 
-## What
+## v2: textured, full detail (lane/models-tex)
 
-- `frame-controller-models.py OUTDIR [rendermodels dir]` reads SteamVR's `frame_controller` driver
-  render models (`/opt/steamvr/drivers/frame_controller/resources/rendermodels`, OBJ + JSON +
-  colour/AO PNG) and writes `frame_controller_left.room` and `frame_controller_right.room`
-  (the `.room` MXR3 format, one part painted from vertex colours, like `controller.room`).
-- Per hand: every visible component (the hidden `status` light is left out) is put in OpenXR grip
-  space with the JSON's `openxr_grip` component (origin and `rotate_xyz`, as the owner's fork does),
-  simplified with the fork's pure-Python quadric collapse (seam, open-edge and non-manifold
-  vertices never move) toward `MLXR_FRAME_MODEL_TRIANGLES` (default 4000), then each vertex gets the
-  colour texture times the AO map: the average of the texture under the vertex's hat function over
-  the triangles around it in its own UV chart (sub-triangle samples, bilinear, linear light), so a
-  texture seam keeps its two sides apart.
-- `MLXR_FRAME_MODEL_GAIN` (default 1) multiplies that colour in linear light. Valve's plastic is
-  near black (about sRGB 10 of 255) and this client has one diffuse light and no gloss, so at 1 the
-  controllers read as silhouettes in a dark room. 8 to 12 gives dark grey. Tune on the headset.
-- Python 3 stdlib and GdkPixbuf only. Run with `python3 -I`. Takes about 3 s. Both hands are
-  converted before either file is written: a bad source writes nothing.
-- Valve's files and anything derived from them are never in git (`.gitignore`) or in the release
-  tarball. `packaging/install.sh` runs the converter into `DEST/assets/models/` on every install
-  (source checkout and unpacked release alike; `tools/release.sh` ships the converter as
-  `frame-controller-models.py` next to `install.sh`, strips any model from the tarball and verifies
-  that). No SteamVR directory, no converter or no GdkPixbuf: a clear message, the install carries on,
-  the generic controller stays. `MLXR_FRAME_RENDERMODELS` points the install at another source dir.
-- Loader (`rooms/room_gpu.c`, `mlxr_model_record`): both Frame files present and parsing give one
-  pair of buffers, left then right, with per-hand first index, index count and vertex offset;
-  anything else (one missing, truncated, not a mesh) falls back to `controller.room`, as before,
-  with the reason on stderr. The Frame models are not mirrored; the generic one still is for the
-  left hand. `MlxrModelParams` gained `perHand` and `handFirstIndex/handIndexCount/handVertexOffset`
-  (zeroed params draw exactly as before). `xr_world.c` logs which model loaded and from where.
+v1 (below, kept as a fallback) painted a ~4500-triangle decimation from vertex colours; the owner
+found it "looks terrible". v2 draws SteamVR's own meshes, every triangle, with SteamVR's own
+textures.
 
-## Numbers (Frame, Turnip, 2 x 1728x1728, both hands)
+### What changed
 
-| | generic | Frame |
-| --- | --- | --- |
-| triangles | 1592 each hand (one mesh) | left 4204, right 4822 |
-| vertices | 890 | left 3904, right 4571 |
-| GPU memory | 57 KB | 470 KB |
-| models pass | 0.03 to 0.10 ms | 0.15 ms |
+- **Converter** (`frame-controller-models.py OUTDIR [rendermodels dir]`) writes
+  `frame_controller_{left,right}.model` (MXFM version 1; the layout is in the script's docstring):
+  every visible component (body, thumbstick, buttons, trigger, grip button, bumper, d-pad; the
+  hidden `status` light left out), every triangle, each component its own index range, in OpenXR
+  grip space through the `openxr_grip` component exactly as v1 did. Per vertex: position, normal,
+  a tangent frame for the normal map, UV (V flipped: the textures are stored top row first).
+  Textures as shipped (2048²): `_color` (sRGB) with `_ao` (linear) in its alpha, and `_normal`
+  (green turned from DirectX to OpenGL) with `_rough` in its alpha. `_metal` is all zero on the
+  Frame and is left out. Each component's SteamVR motion (translate/rotate/joystick, input path,
+  pivot, axis, range) is stored for later animation. A successful run removes the v1 `.room` pair
+  from OUTDIR. Pure Python + GdkPixbuf, about 1.6 s for both hands. Knobs:
+  `MLXR_FRAME_MODEL_TEXTURE=N` scales the textures to N² (default: as shipped);
+  `MLXR_FRAME_MODEL_TRIANGLES=N` still decimates with v1's simplifier (debugging only, default off).
+- **Loader** (`rooms/room_gpu.c`): `mlxr_model_file_parse` (header, counts, sizes must add up),
+  then per hand: components and indices range-checked, the mesh into the shared vertex/index
+  buffers, the two images straight from the file into the staging buffer, `R8G8B8A8_SRGB` colour
+  and `R8G8B8A8_UNORM` surface images with a full mip chain blitted on the GPU (linear blits: the
+  sRGB image is filtered in linear light; the normals average and shorten, which the shader reads
+  as roughness). Everything is read, checked and created before any command goes into the frame's
+  command buffer, so a failure falls through cleanly. Order: textured pair, then the painted
+  `.room` pair (v1), then the generic `controller.room`, each skip with its reason on stderr.
+- **Pass** (`shaders/model_tex.{vert,frag}`, `MLXR_PASS_MODEL_TEX` in `shaders/passes.c`): the
+  painted pass's key light direction (`model.vert`), plus a sky/ground fill dimmed by the AO, GGX
+  highlights and a Fresnel sky reflection, so the near-black plastic shows its shape through its
+  highlights as under SteamVR. Lit in the model's own space; sampled trilinear (with anisotropy)
+  through the rooms' atlas sampler. The colour is decoded once by the sRGB sampler, lit in linear
+  light and written linear into the sRGB swapchain (no double decode or encode).
+- **Client wiring** (`xr/xr_model.c`, `xr/xr_world.c`): the textured pipeline is warmed when the
+  textured pair loaded; the log says which model loaded (textured / painted / generic) with the
+  texture size, levels and component counts. Two environment knobs, read once:
+  `MLXR_FRAME_MODEL_GAIN` (default 1: base colour times this in linear light, at draw time, no
+  reinstall needed) and `MLXR_FRAME_MODEL_VIEW` (0 lit, 1 normals, 2 lit without the normal map,
+  3 base colour x AO).
+- **Packaging**: `install.sh` and `tools/release.sh` clear and exclude `frame_controller_*`
+  (`.room` and `.model`); `.gitignore` covers `/assets/models/frame_controller_*`. The converter
+  still runs only from `install.sh`, into `DEST/assets/models/`; without `/opt/steamvr`, the
+  converter or GdkPixbuf the install carries on and the generic controller is used.
 
-The generic figure moves with the GPU clock; the pass is small either way. The grip-space boxes are
-about 7 x 7 x 14 cm (left x -0.022..0.050, right x -0.050..0.022, y -0.049..0.020,
-z -0.084..0.054 m): the right hand's thumbstick leans to -x, the left's to +x.
+### Numbers (Frame, Turnip, headless)
+
+| | generic | painted v1 | textured v2 |
+| --- | --- | --- | --- |
+| triangles (left / right) | 1592 (one mesh) | 4204 / 4822 | 14886 / 16240 (all) |
+| vertices (both hands) | 890 | 8475 | 19525 |
+| textures | none | none | 2 x 2048² RGBA8 per hand, 12 mips |
+| GPU memory | 57 KB | 470 KB | 87 MB (23 MB at 1024²) |
+| file per hand | | ~0.2 MB | 34 MB (9 MB at 1024²) |
+| load (record, warm cache) | 0.2 ms | 0.3 ms | 37 to 40 ms (11 ms at 1024²) |
+| models pass, both hands, 2 x 1728² | 0.026 to 0.031 ms | 0.040 to 0.053 ms | 0.159 to 0.209 ms |
+
+GPU time from `mlxr-model-snapshot` (timestamp queries round the pass, median of 25, four runs).
+The pass is about 2% of the 11.1 ms frame at 90 Hz, well under the 1 ms budget. The load is a
+one-time stall on the render thread the first frame the model switch is on (the loader was already
+synchronous for v1): at 2048² about 4 frames at 90 Hz from a warm page cache, more from a cold one.
+
+### Headless verification (what was looked at)
+
+- `mlxr-model-snapshot OUT DIR` (generic, painted and textured rows; front, +x, above and
+  three-quarters behind; each hand): the textured models sit exactly where the painted v1 models
+  sit (same grip transform, same boxes: left x -0.022..0.050, right x -0.050..0.022,
+  y -0.050..0.020, z -0.084..0.054 m), so the hold angle is v1's.
+- `MLXR_FRAME_MODEL_VIEW=3` (base colour x AO, brightened crop): the button legends read correctly,
+  upright and not mirrored (Y top, A bottom, X left, B right, Steam logo, menu button), so the UVs
+  and the V flip are right. `MLXR_FRAME_MODEL_VIEW=1`: the face plate's normals point up, the sides
+  out, the normal map's bumps (buttons, stick ring) show; front faces are not lit inside out.
+- `rooms_model_textured` checks the colour path in numbers: an sRGB 200 texel renders as 200 (a
+  double decode would give about 150), and the 1x1 mip of four quadrants is their linear-light
+  average (160 against 159; averaging the bytes would give 122).
+- All of it is headless. Nobody has seen v2 in the headset yet.
+
+### Tests
+
+- `frame_models_converter` (62 checks): MXFM parse rules, every triangle, components in order, the
+  grip transform, unit normals and tangent frames, V from the top row, the textures (colour + AO,
+  normal with its green turned + roughness, flat stand-ins for missing optional maps, the size
+  knob), the v1 pair removed, bad sources write nothing; the real models when SteamVR is here.
+- `rooms_frame_models_convert` converts the real models into the build tree (skipped without
+  SteamVR); `rooms_model_textured` (37 checks): parse rules, load, the GPU's buffers read back
+  equal to the files, absolute component ranges, the mip chain, the colour/UV render check, the lit
+  render, the gain; then renders the real models (`<build>/rooms/tests/out/model_textured_frame*.png`).
+- `rooms_model_fallback` (26 checks): nine cases of missing, cut-short and wrong-version files,
+  textured, then painted, then generic, then no model.
+- `m5_world_frame_models`: the textured pair through `xrModelRecord` (the client's own call),
+  preferred over the painted pair, not mirrored, back to the painted pair when a half does not
+  parse.
+
+### What the owner must check in the headset
+
+1. **Hold angle**: the controller in the hand where the real one is (handle along the palm,
+   trigger under the index finger). Unchanged from v1, which was never confirmed either.
+2. **Colour and brightness**: the plastic is drawn near black, as Valve's texture has it, its
+   shape in grey highlights. If it reads too dark in a dark room, try `MLXR_FRAME_MODEL_GAIN=3`
+   (then 6) in the launch environment; no reinstall needed. The light is fixed in the room (key
+   from above and behind), not taken from the room's own lights.
+3. **Shimmer**: specular aliasing on edges while moving (the shader widens the roughness by the
+   mips and by the normal's change across the pixel; the model layer has no MSAA).
+4. **The one-time stall** when the model switch goes on (about 40 ms). If it shows, reinstall with
+   `MLXR_FRAME_MODEL_TEXTURE=1024` (11 ms, 23 MB, a little softer up close).
+
+### Left
+
+- Animating the trigger, sticks and buttons: the motions are in the file and loaded
+  (`MlxrModel.components`) and `mlxr_pass_model` already draws per-part transforms (`handParts`),
+  but nothing feeds it the input values yet.
+- Loading off the render thread, if the stall matters.
+
+## v1: painted (still read when there is no `.model` pair)
+
+- The previous converter wrote `frame_controller_left.room` and `frame_controller_right.room`
+  (MXR3, one painted part): components in grip space, simplified to about 4000 triangles a hand,
+  vertex colours from the colour texture times AO. Its `MLXR_FRAME_MODEL_GAIN` was a converter-time
+  colour gain; in v2 the same name is the client's draw-time gain for the textured pair.
+- `mlxr_model_record` still loads such a pair when the textured pair is missing or broken, so an
+  install made by the old converter keeps working until the next `install.sh`.
 
 ## How to look
 
 `ninja -C build mlxr-model-snapshot` then
-`env -u LD_LIBRARY_PATH build/xr/tests_m5/mlxr-model-snapshot OUT DIR_WITH_FRAME_ROOMS`
-renders generic and Frame at the same grips (identity orientation, 0.4 m ahead) from the user's
-side, from +x and from above, one hand at a time, into `OUT/models_generic_vs_frame.png`, and
-times the pass. Tests: `frame_models_converter` (made-up render models: parse, budget, the grip
-transform, colours = texture times AO, both-or-neither on a bad source; the real models too when
-SteamVR is here) and `m5_world_frame_models` (loader: pair, ranges, not mirrored, each fallback).
-
-## Things to know
-
-- Trigger forward (-z) and the face up (+y) match the generic controller, and each model is the
-  right hand. The handle differs: the generic one is drawn as a vertical handle, SteamVR's grip has
-  the Frame's handle running back along +z (the aim pose is pitched about 43 degrees from the grip
-  in the JSON). That is what the SteamVR runtime reports the grip as; it was only checked headless
-  here, not against a held controller.
-- Seams leave the right hand a little over the budget (4822), as in the fork.
-
-## Left
-
-- Animating the trigger, grip, sticks and buttons from the JSON motions (the fork does; this does
-  not, all components are static).
-- A settled default for `MLXR_FRAME_MODEL_GAIN` after seeing it in the headset.
-- Headset check of the placement in the hand.
+`env -u LD_LIBRARY_PATH build/xr/tests_m5/mlxr-model-snapshot OUT DIR_WITH_FRAME_MODELS` renders
+whichever of generic, painted (`.room`) and textured (`.model`) are there at the same grips and
+times the pass; with `MLXR_FRAME_MODEL_VIEW=1` or `3` the sheet is
+`models_generic_vs_frame_viewN.png`. Converted files and renders are made from Valve's models: keep
+them in the build tree or /tmp, never in git.

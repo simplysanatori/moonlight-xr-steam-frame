@@ -450,9 +450,13 @@ static void loadControllerModel(XrCtx* ctx) {
     ctx->modelReady = 1;
     // Native: which model it is, the Steam Frame's pair or the generic one
     LOGEV("controller model ready: %s from %s: %u vertices, %u triangles, %.0f KB, %.1f ms, %s",
-          m->perHand ? "Frame per-hand controllers" : "generic controller (no Frame models found, mirrored for "
-          "the left hand)", m->source, m->vertexCount, m->indexCount / 3, m->gpuBytes / 1024.0, m->loadMs,
-          ctx->modelOn ? "shown" : "off for now");
+          m->textured ? "Frame per-hand controllers, textured" : m->perHand ? "Frame per-hand controllers, painted"
+          : "generic controller (no Frame models found, mirrored for the left hand)", m->source, m->vertexCount,
+          m->indexCount / 3, m->gpuBytes / 1024.0, m->loadMs, ctx->modelOn ? "shown" : "off for now");
+    if (m->textured) {
+        LOGEV("controller model textures %ux%u, %u mip levels, components %u left, %u right", m->texWidth,
+              m->texHeight, m->texLevels, m->componentCount[0], m->componentCount[1]);
+    }
 }
 
 void xrWorldFrameBegin(XrCtx* ctx) {

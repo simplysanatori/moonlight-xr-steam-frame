@@ -10,3 +10,21 @@ file(MAKE_DIRECTORY ${MLXR_ROOM_TEST_OUT})
 foreach(t logic load rescale render_home_theater render_grand_cinema render_synthwave model overlay)
   add_test(NAME rooms_${t} COMMAND mlxr-room-test ${t} ${MLXR_ROOM_TEST_OUT})
 endforeach()
+
+# Native: the textured Steam Frame models. The converter runs first into this
+# build tree (never the source tree: Valve's models, converted, stay out of
+# git) when this machine has SteamVR; model_textured then renders them too.
+set(MLXR_ROOM_TEST_FRAME ${CMAKE_CURRENT_BINARY_DIR}/frame-models)
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+  add_test(NAME rooms_frame_models_convert
+    COMMAND sh -c "if [ -d \"$1\" ]; then exec \"$2\" -I \"$3\" \"$4\" \"$1\"; else echo \"no SteamVR models at $1\"; exit 77; fi" sh
+            /opt/steamvr/drivers/frame_controller/resources/rendermodels ${Python3_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/tools/frame-models/frame-controller-models.py ${MLXR_ROOM_TEST_FRAME})
+  set_tests_properties(rooms_frame_models_convert PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+endif()
+add_test(NAME rooms_model_textured COMMAND mlxr-room-test model_textured ${MLXR_ROOM_TEST_OUT} ${MLXR_ROOM_TEST_FRAME})
+if(Python3_FOUND)
+  set_tests_properties(rooms_model_textured PROPERTIES DEPENDS rooms_frame_models_convert)
+endif()
+add_test(NAME rooms_model_fallback COMMAND mlxr-room-test model_fallback ${MLXR_ROOM_TEST_OUT})

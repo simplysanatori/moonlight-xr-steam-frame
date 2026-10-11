@@ -1,15 +1,19 @@
 // Moonlight XR Native, tests/m5: mlxr-model-snapshot. The controller models
-// drawn through xrModelRecord on the Frame's GPU, the generic one beside the
-// Steam Frame's own (tools/frame-models) at the same grip poses, from the
-// front, the side and above, one hand at a time, tiled into one PNG; and the
-// models pass timed for each. The grip is identity-oriented (trigger forward,
-// -z; top face up, +y), so a model that sits in the hand as the generic one
-// does shows the same way up and the same way round in both rows.
+// drawn through xrModelRecord on the Frame's GPU: the generic one beside the
+// Steam Frame's own (tools/frame-models), painted (.room, the older converter)
+// and textured (.model), whichever FRAMEMODELSDIR holds, at the same grip
+// poses, from the front, the side, above and three-quarters behind, one hand
+// at a time, tiled into one PNG; and the models pass timed for each. The grip
+// is identity-oriented (trigger forward, -z; top face up, +y), so a model that
+// sits in the hand as the generic one does shows the same way up and the same
+// way round in every row.
 //
 //   mlxr-model-snapshot OUTDIR FRAMEMODELSDIR
 //
-// FRAMEMODELSDIR holds frame_controller_{left,right}.room (the converter's
-// output). GPLv3.
+// FRAMEMODELSDIR holds frame_controller_{left,right}.room and/or .model (the
+// converters' output). MLXR_FRAME_MODEL_VIEW and MLXR_FRAME_MODEL_GAIN act on
+// the textured rows as in the client; the sheet's name carries the view.
+// GPLv3.
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -21,7 +25,8 @@ int stbi_write_png(char const* filename, int w, int h, int comp, const void* dat
 
 #define CW 480
 #define CH 360
-#define VIEWS 3
+#define VIEWS 4
+#define KINDS 3
 
 static M5Gpu g;
 
@@ -57,20 +62,30 @@ static XrCtx* newCtx(const char* assets) {
 }
 
 // The camera for a view, looking at the grip's position (0, 0, -0.4) from the
-// front (the user's own side, +z), the side (+x) and above (+y)
+// front (the user's own side, +z), the side (+x), above (+y) and from behind,
+// above and to the right (three-quarters, where the grip's indent shows)
 static void camera(int view, XrView* v) {
-    *v = m5_view(40.0f, CW, CH, 0.0f);
+    *v = m5_view(34.0f, CW, CH, 0.0f);
     Vec3 up = { 0, 1, 0 }, right = { 1, 0, 0 };
     if (view == 1) {
         v->pose.orientation = axisAngleQuat(up, 1.5707963f);
-        v->pose.position = (XrVector3f){ 0.45f, 0.0f, -0.4f };
+        v->pose.position = (XrVector3f){ 0.40f, 0.0f, -0.4f };
     }
     else if (view == 2) {
         v->pose.orientation = axisAngleQuat(right, -1.5707963f);
-        v->pose.position = (XrVector3f){ 0.0f, 0.45f, -0.4f };
+        v->pose.position = (XrVector3f){ 0.0f, 0.40f, -0.4f };
+    }
+    else if (view == 3) {
+        // yaw 135 degrees (facing back toward -x+z... i.e. looking from -z+x
+        // toward the grip), then pitched down 30 degrees
+        XrQuaternionf yaw = axisAngleQuat(up, 2.3561945f);
+        XrQuaternionf pitch = axisAngleQuat(right, -0.5235988f);
+        v->pose.orientation = quatMul(yaw, pitch);
+        const float d = 0.40f;
+        v->pose.position = (XrVector3f){ d * 0.866f * 0.7071f, d * 0.5f, -0.4f - d * 0.866f * 0.7071f };
     }
     else {
-        v->pose.position = (XrVector3f){ 0.0f, 0.0f, 0.05f };
+        v->pose.position = (XrVector3f){ 0.0f, 0.0f, 0.0f };
     }
 }
 
@@ -143,6 +158,20 @@ static double timeModels(XrCtx* ctx) {
     return ms[12];
 }
 
+// A scratch assets dir under OUTDIR holding the generic controller and the
+// Frame files of one kind (none, .room or .model); 0 when that kind is there
+static int stage(const char* out, const char* name, const char* frameDir, const char* ext, char* assets, size_t n) {
+    char cmd[2600];
+    snprintf(assets, n, "%s/_%s", out, name);
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models' && cp '%s/models/controller.room' '%s/models/'", assets, assets,
+             MLXR_ASSETS_DIR, assets);
+    if (system(cmd) != 0) return -1;
+    if (!ext) return 0;
+    snprintf(cmd, sizeof(cmd), "cp '%s/frame_controller_left.%s' '%s/frame_controller_right.%s' '%s/models/' 2>/dev/null", frameDir,
+             ext, frameDir, ext, assets);
+    return system(cmd) == 0 ? 0 : -1;
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: mlxr-model-snapshot OUTDIR FRAMEMODELSDIR\n");
@@ -150,37 +179,37 @@ int main(int argc, char** argv) {
     }
     const char* dir = argv[1];
     mkdir(dir, 0755);
-    // A scratch assets dir: the generic controller and the Frame's pair
-    char assets[600], cmd[2400];
-    snprintf(assets, sizeof(assets), "%s/_assets", dir);
-    snprintf(cmd, sizeof(cmd), "mkdir -p '%s/models' && cp '%s/models/controller.room' '%s/models/' && cp '%s'/frame_controller_*.room "
-             "'%s/models/'", assets, MLXR_ASSETS_DIR, assets, argv[2], assets);
-    if (system(cmd) != 0) {
-        fprintf(stderr, "could not stage the models\n");
+    const char* kind[KINDS] = { "generic", "painted", "textured" };
+    const char* ext[KINDS] = { NULL, "room", "model" };
+    char dirs[KINDS][600];
+    int have[KINDS];
+    for (int k = 0; k < KINDS; k++) {
+        have[k] = stage(dir, kind[k], argv[2], ext[k], dirs[k], sizeof(dirs[k])) == 0;
+        if (!have[k]) printf("%-8s no frame_controller_*.%s in %s: row left out\n", kind[k], ext[k], argv[2]);
+    }
+    if (!have[0] || m5_gpu_init(&g) != 0) {
+        fprintf(stderr, "could not stage the generic controller, or no Vulkan device\n");
         return 1;
     }
-    char noFrame[600];
-    snprintf(noFrame, sizeof(noFrame), "%s/_generic", dir);
-    snprintf(cmd, sizeof(cmd), "mkdir -p '%s/models' && cp '%s/models/controller.room' '%s/models/'", noFrame, MLXR_ASSETS_DIR,
-             noFrame);
-    if (system(cmd) != 0 || m5_gpu_init(&g) != 0) {
-        fprintf(stderr, "no Vulkan device\n");
-        return 1;
-    }
-    const char* kind[2] = { "generic", "frame" };
-    const char* dirs[2] = { noFrame, assets };
-    // rows: generic left, frame left, generic right, frame right
-    uint8_t* sheet = calloc((size_t)VIEWS * CW * 4 * CH * 3, 1);
-    int rc = 0;
-    for (int m = 0; m < 2; m++) {
+    // rows: each hand, each kind there (left then right)
+    int rows = 0;
+    for (int k = 0; k < KINDS; k++) rows += have[k] ? 2 : 0;
+    uint8_t* sheet = calloc((size_t)VIEWS * CW * rows * CH * 3, 1);
+    int rc = 0, row = 0;
+    for (int m = 0; m < KINDS; m++) {
+        if (!have[m]) continue;
         XrCtx* ctx = newCtx(dirs[m]);
-        if (!ctx->model || ctx->model->perHand != m) {
+        int wantHand = m > 0, wantTex = m == 2;
+        if (!ctx->model || ctx->model->perHand != wantHand || ctx->model->textured != wantTex) {
             fprintf(stderr, "%s: wrong model loaded\n", kind[m]);
             rc = 1;
             continue;
         }
-        printf("%-8s %s: %u vertices, %u triangles, %.0f KB\n", kind[m], ctx->model->source, ctx->model->vertexCount,
-               ctx->model->indexCount / 3, ctx->model->gpuBytes / 1024.0);
+        printf("%-8s %s: %u vertices, %u triangles, %.0f KB on the GPU, loaded in %.1f ms\n", kind[m], ctx->model->source,
+               ctx->model->vertexCount, ctx->model->indexCount / 3, ctx->model->gpuBytes / 1024.0, ctx->model->loadMs);
+        if (wantTex) {
+            printf("         textures %ux%u, %u levels\n", ctx->model->texWidth, ctx->model->texHeight, ctx->model->texLevels);
+        }
         for (int h = 0; h < 2; h++) {
             printf("         hand %d: first index %u, %u triangles, vertex offset %d\n", h,
                    ctx->model->handFirstIndex[h], ctx->model->handIndexCount[h] / 3, ctx->model->handVertexOffset[h]);
@@ -197,13 +226,13 @@ int main(int argc, char** argv) {
         for (int h = 0; h < 2; h++) {
             for (int v = 0; v < VIEWS; v++) {
                 render(ctx, &cell, h, v, rgb);
-                int row = h * 2 + m;
                 for (int y = 0; y < CH; y++) {
-                    memcpy(sheet + (((size_t)(row * CH + y)) * VIEWS * CW + (size_t)v * CW) * 3, rgb + (size_t)y * CW * 3,
+                    memcpy(sheet + (((size_t)((row + h) * CH + y)) * VIEWS * CW + (size_t)v * CW) * 3, rgb + (size_t)y * CW * 3,
                            (size_t)CW * 3);
                 }
             }
         }
+        row += 2;
         free(rgb);
         printf("%-8s models pass, both hands, 2 x 1728x1728: %.3f ms (median of 25)\n", kind[m], timeModels(ctx));
         m5_image_free(ctx, &cell.colour);
@@ -212,10 +241,11 @@ int main(int argc, char** argv) {
         free(ctx);
     }
     char path[700];
-    snprintf(path, sizeof(path), "%s/models_generic_vs_frame.png", dir);
-    stbi_write_png(path, VIEWS * CW, 4 * CH, 3, sheet, VIEWS * CW * 3);
-    printf("wrote %s (columns: user's side, from +x, from above; rows: generic left, Frame left, generic right, "
-           "Frame right)\n", path);
+    const char* view = getenv("MLXR_FRAME_MODEL_VIEW");
+    snprintf(path, sizeof(path), "%s/models_generic_vs_frame%s%s.png", dir, view && *view ? "_view" : "", view && *view ? view : "");
+    stbi_write_png(path, VIEWS * CW, rows * CH, 3, sheet, VIEWS * CW * 3);
+    printf("wrote %s (columns: user's side, from +x, from above, three-quarters behind; rows: left then right hand of "
+           "each kind there: generic, painted, textured)\n", path);
     free(sheet);
     m5_gpu_free(&g);
     return rc;

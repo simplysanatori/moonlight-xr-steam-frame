@@ -63,6 +63,13 @@ static const uint32_t kPanelVert[] =
 static const uint32_t kPanelFrag[] =
 #include "panel.frag.inc"
     ;
+// Moonlight XR Native: the textured controller model (new)
+static const uint32_t kModelTexVert[] =
+#include "model_tex.vert.inc"
+    ;
+static const uint32_t kModelTexFrag[] =
+#include "model_tex.frag.inc"
+    ;
 
 // Every pipeline layout carries one push constant range this size for both
 // stages; each program reads a prefix of it
@@ -72,11 +79,11 @@ static const uint32_t kPanelFrag[] =
 
 enum { MOD_VERTEX, MOD_WARP, MOD_WARP_NV12, MOD_UPSAMPLE, MOD_UPSAMPLE_NV12, MOD_DOWNSCALE, MOD_DOWNSCALE_NV12,
        MOD_AMBI, MOD_AMBI_NV12, MOD_OFFSET, MOD_GLOW_EDGE, MOD_GLOW, MOD_ROOM_V, MOD_ROOM_F, MOD_MODEL_V,
-       MOD_MODEL_F, MOD_SUPERSAMPLE, MOD_PANEL_V, MOD_PANEL_F, MOD_COUNT };
+       MOD_MODEL_F, MOD_SUPERSAMPLE, MOD_PANEL_V, MOD_PANEL_F, MOD_MODEL_TEX_V, MOD_MODEL_TEX_F, MOD_COUNT };
 
-enum { PL_VIDEO, PL_VIDEO_NV12, PL_TEX, PL_ROOM, PL_NONE, PL_COUNT };
+enum { PL_VIDEO, PL_VIDEO_NV12, PL_TEX, PL_ROOM, PL_NONE, PL_MODEL_TEX, PL_COUNT };
 enum { BLEND_NONE, BLEND_CONSTANT, BLEND_PREMUL };
-enum { VERTS_NONE, VERTS_ROOM, VERTS_MODEL };
+enum { VERTS_NONE, VERTS_ROOM, VERTS_MODEL, VERTS_MODEL_TEX };
 
 typedef struct {
     int pass, kind;
@@ -125,6 +132,7 @@ static const PassDesc kPasses[MLXR_PASS_COUNT] = {
     [MLXR_PASS_MODEL] = {MOD_MODEL_V, MOD_MODEL_F, -1, PL_NONE, BLEND_NONE, 1, VERTS_MODEL},
     [MLXR_PASS_SUPERSAMPLE] = {MOD_VERTEX, MOD_SUPERSAMPLE, -1, PL_TEX, BLEND_NONE, 0, VERTS_NONE},
     [MLXR_PASS_PANEL] = {MOD_PANEL_V, MOD_PANEL_F, -1, PL_TEX, BLEND_PREMUL, 0, VERTS_NONE},
+    [MLXR_PASS_MODEL_TEX] = {MOD_MODEL_TEX_V, MOD_MODEL_TEX_F, -1, PL_MODEL_TEX, BLEND_NONE, 1, VERTS_MODEL_TEX},
 };
 
 static int isSrgb(VkFormat f) {
@@ -265,6 +273,8 @@ int mlxr_passes_create(const MlxrPassesInfo* info, MlxrPasses** out) {
         [MOD_SUPERSAMPLE] = M(kSupersample),
         [MOD_PANEL_V] = M(kPanelVert),
         [MOD_PANEL_F] = M(kPanelFrag),
+        [MOD_MODEL_TEX_V] = M(kModelTexVert),
+        [MOD_MODEL_TEX_F] = M(kModelTexFrag),
 #undef M
     };
     for (int i = 0; i < MOD_COUNT; i++) {
@@ -309,6 +319,9 @@ int mlxr_passes_create(const MlxrPassesInfo* info, MlxrPasses** out) {
     p->dsl[PL_TEX] = makeSetLayout(dev, b, 1);
     VkDescriptorSetLayoutBinding r[2] = {binding(0, VK_SHADER_STAGE_VERTEX_BIT, NULL), binding(1, FS, NULL)};
     p->dsl[PL_ROOM] = makeSetLayout(dev, r, 2);
+    // Native: the textured model's colour and surface images
+    VkDescriptorSetLayoutBinding mt[2] = {binding(0, FS, NULL), binding(1, FS, NULL)};
+    p->dsl[PL_MODEL_TEX] = makeSetLayout(dev, mt, 2);
     for (int i = 0; i < PL_COUNT; i++) {
         if (i == PL_VIDEO_NV12 && !info->nv12) continue;
         if (i != PL_NONE && !p->dsl[i]) goto fail;
@@ -436,6 +449,14 @@ static VkPipeline buildPipeline(MlxrPasses* p, int pass, int kind, VkFormat colo
         va[1] = (VkVertexInputAttributeDescription){1, 0, VK_FORMAT_R32G32B32_SFLOAT, 3 * sizeof(float)};
         va[2] = (VkVertexInputAttributeDescription){2, 0, VK_FORMAT_R32G32B32_SFLOAT, 8 * sizeof(float)};
         vin.vertexAttributeDescriptionCount = 3;
+    } else if (d->verts == VERTS_MODEL_TEX) {
+        // Native: position, normal, tangent (w the bitangent's sign), uv
+        vb.stride = MLXR_MODEL_TEX_VERTEX_FLOATS * sizeof(float);
+        va[0] = (VkVertexInputAttributeDescription){0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0};
+        va[1] = (VkVertexInputAttributeDescription){1, 0, VK_FORMAT_R32G32B32_SFLOAT, 3 * sizeof(float)};
+        va[2] = (VkVertexInputAttributeDescription){2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 6 * sizeof(float)};
+        va[3] = (VkVertexInputAttributeDescription){3, 0, VK_FORMAT_R32G32_SFLOAT, 10 * sizeof(float)};
+        vin.vertexAttributeDescriptionCount = 4;
     }
     if (d->verts != VERTS_NONE) {
         vin.vertexBindingDescriptionCount = 1;
@@ -801,8 +822,104 @@ void mlxr_pass_room(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, con
     p->endRendering(cmd);
 }
 
+// Native helpers for the textured model: a x b (column major 4x4), the
+// inverse of a rigid (or any invertible affine) transform's 3x3 and where a
+// view-projection's camera sits (its rows x, y and w all vanish there)
+static void mul4(const float* a, const float* b, float* out) {
+    for (int c = 0; c < 4; c++)
+        for (int r = 0; r < 4; r++) {
+            float s = 0.0f;
+            for (int k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+            out[c * 4 + r] = s;
+        }
+}
+
+static int inverse3(const float* m, float inv[9]) {
+    // m: the upper 3x3 of a column major 4x4; inv: column major 3x3
+    float a = m[0], b = m[4], c = m[8], d = m[1], e = m[5], f = m[9], g = m[2], h = m[6], i = m[10];
+    float A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
+    float det = a * A + b * B + c * C;
+    if (fabsf(det) < 1e-12f) return -1;
+    float s = 1.0f / det;
+    // rows of the inverse: (A, -(b i - c h), b f - c e), (B, a i - c g, -(a f - c d)), (C, -(a h - b g), a e - b d)
+    float r[9] = {A, -(b * i - c * h), b * f - c * e, B, a * i - c * g, -(a * f - c * d), C, -(a * h - b * g), a * e - b * d};
+    for (int row = 0; row < 3; row++)
+        for (int col = 0; col < 3; col++) inv[col * 3 + row] = r[row * 3 + col] * s;
+    return 0;
+}
+
+static void apply3(const float inv[9], const float v[3], float out[4]) {
+    for (int r = 0; r < 3; r++) out[r] = inv[r] * v[0] + inv[3 + r] * v[1] + inv[6 + r] * v[2];
+    out[3] = 0.0f;
+}
+
+static void cameraOf(const float* vp, float out[3]) {
+    // The camera C (homogeneous) satisfies row_x . C = row_y . C = row_w . C = 0:
+    // the generalised cross product of those three rows
+    float r[3][4];
+    const int rows[3] = {0, 1, 3};
+    for (int i = 0; i < 3; i++)
+        for (int k = 0; k < 4; k++) r[i][k] = vp[k * 4 + rows[i]];
+    float c[4];
+    for (int k = 0; k < 4; k++) {
+        int m[3], n = 0;
+        for (int j = 0; j < 4; j++)
+            if (j != k) m[n++] = j;
+        float det = r[0][m[0]] * (r[1][m[1]] * r[2][m[2]] - r[1][m[2]] * r[2][m[1]]) -
+                    r[0][m[1]] * (r[1][m[0]] * r[2][m[2]] - r[1][m[2]] * r[2][m[0]]) +
+                    r[0][m[2]] * (r[1][m[0]] * r[2][m[1]] - r[1][m[1]] * r[2][m[0]]);
+        c[k] = (k & 1) ? -det : det;
+    }
+    float w = fabsf(c[3]) > 1e-20f ? c[3] : 1e-20f;
+    for (int k = 0; k < 3; k++) out[k] = c[k] / w;
+}
+
+// The key light, from above and behind the viewer's usual side, fixed in the
+// room (the painted model's light, model.vert)
+static const float kModelKey[3] = {-0.303f, 0.808f, 0.505f};
+
+static void drawTexturedModel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrModelParams* m, int eyes) {
+    VkPipelineLayout layout = p->layout[PL_MODEL_TEX];
+    float pc[32];
+    for (int e = 0; e < eyes; e++) {
+        setRect(cmd, m->eyeRect[e]);
+        float cam[3];
+        cameraOf(m->viewProj[e], cam);
+        for (int h = 0; h < 2; h++) {
+            if (!m->shown[h]) continue;
+            VkDescriptorImageInfo ii[2] = {imageInfo(p->atlas, m->handColour[h] ? m->handColour[h] : p->whiteView),
+                                           imageInfo(p->atlas, m->handSurface[h] ? m->handSurface[h] : p->whiteView)};
+            VkWriteDescriptorSet w[2] = {imageWrite(0, &ii[0]), imageWrite(1, &ii[1])};
+            p->pushDescriptors(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 2, w);
+            MlxrModelPart whole = {m->handFirstIndex[h], m->handIndexCount[h], {0}};
+            for (int i = 0; i < 16; i++) whole.transform[i] = i % 5 == 0 ? 1.0f : 0.0f;
+            uint32_t parts = m->handPartCount[h] && m->handParts[h] ? m->handPartCount[h] : 1;
+            for (uint32_t i = 0; i < parts; i++) {
+                const MlxrModelPart* part = m->handPartCount[h] && m->handParts[h] ? &m->handParts[h][i] : &whole;
+                float model[16], inv[9];
+                mul4(m->model[h], part->transform, model);
+                if (inverse3(model, inv) != 0) continue;
+                mul4(m->viewProj[e], model, pc);
+                // The camera, the key and the room's up in the part's own space
+                float rel[3] = {cam[0] - model[12], cam[1] - model[13], cam[2] - model[14]};
+                const float up[3] = {0.0f, 1.0f, 0.0f};
+                apply3(inv, rel, &pc[16]);
+                apply3(inv, kModelKey, &pc[20]);
+                apply3(inv, up, &pc[24]);
+                pc[28] = (float)m->debugView;
+                pc[29] = m->gain;
+                pc[30] = pc[31] = 0.0f;
+                vkCmdPushConstants(cmd, layout, PUSH_STAGES, 0, sizeof(pc), pc);
+                vkCmdDrawIndexed(cmd, part->indexCount, 1, part->firstIndex, m->handVertexOffset[h], 0);
+            }
+        }
+    }
+}
+
 void mlxr_pass_model(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrModelParams* m) {
-    VkPipeline pipe = pipeline(p, MLXR_PASS_MODEL, 0, t->format, m->depthFormat);
+    // Native: the Frame's textured pair has its own pipeline
+    int textured = m->textured && m->perHand;
+    VkPipeline pipe = pipeline(p, textured ? MLXR_PASS_MODEL_TEX : MLXR_PASS_MODEL, 0, t->format, m->depthFormat);
     if (!pipe) return;
     VkPipelineLayout layout = p->layout[PL_NONE];
     // Nothing but the models: the layer shows through everywhere else
@@ -814,6 +931,11 @@ void mlxr_pass_model(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, co
     vkCmdBindVertexBuffers(cmd, 0, 1, &m->vertices, &off);
     vkCmdBindIndexBuffer(cmd, m->indices, 0, VK_INDEX_TYPE_UINT32);
     int eyes = m->eyes < 1 ? 1 : (m->eyes > 2 ? 2 : m->eyes);
+    if (textured) {
+        drawTexturedModel(p, cmd, m, eyes);
+        p->endRendering(cmd);
+        return;
+    }
     float pc[32];
     for (int e = 0; e < eyes; e++) {
         setRect(cmd, m->eyeRect[e]);

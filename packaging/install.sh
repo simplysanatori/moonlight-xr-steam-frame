@@ -100,7 +100,7 @@ else
         rm -rf "$DEST/assets.new" && cp -a "$ASSETS" "$DEST/assets.new" && rm -rf "$DEST/assets" && mv "$DEST/assets.new" "$DEST/assets"
     fi
     # never Frame models that came with the source tree's assets: they are made below, from SteamVR
-    rm -f "$DEST"/assets/models/frame_controller_*.room
+    rm -f "$DEST"/assets/models/frame_controller_*
     echo "  assets/ ($(du -sh "$DEST/assets" | cut -f1): rooms, hrtf, models, images, fonts, depth models, licences)"
     for f in LICENSE.txt CREDITS.md; do
         [ -f "$DOCS/$f" ] && install -m644 "$DOCS/$f" "$DEST/$f"
@@ -112,7 +112,7 @@ fi
 # machine (Valve's files are read here and never redistributed). Optional: any
 # failure leaves the generic controller in use and the install going.
 FM_SRC="${MLXR_FRAME_RENDERMODELS:-/opt/steamvr/drivers/frame_controller/resources/rendermodels}"
-rm -f "$DEST"/assets/models/frame_controller_*.room # remade each install, so a SteamVR that went away leaves none
+rm -f "$DEST"/assets/models/frame_controller_* # remade each install, so a SteamVR that went away leaves none
 if [ ! -f "$FRAMEMODELS" ]; then
     echo "Frame controller models: converter missing ($FRAMEMODELS), skipped (the generic controller is used)"
 elif [ ! -d "$FM_SRC" ]; then
@@ -120,7 +120,7 @@ elif [ ! -d "$FM_SRC" ]; then
 elif python3 -I "$FRAMEMODELS" "$DEST/assets/models" "$FM_SRC"; then
     echo "  Frame controller models (made from the local SteamVR; the Settings switch for controller models draws them)"
 else
-    rm -f "$DEST"/assets/models/frame_controller_*.room
+    rm -f "$DEST"/assets/models/frame_controller_*
     echo "Frame controller models: conversion failed (see above; GdkPixbuf for Python is needed), skipped (the generic controller is used)"
 fi
 
