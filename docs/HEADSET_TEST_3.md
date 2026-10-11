@@ -1,6 +1,6 @@
 # Headset test 3 (after session 3, 2026-10-10)
 
-What is installed and waiting for the owner, and what to report. About 15 minutes. Start from the Steam shortcut "Moonlight XR Native" as usual and stream Desktop.
+What is installed and waiting for the owner, and what to report. About 15 minutes. Start from the Steam shortcut "Moonlight XR for Frame" as usual and stream Desktop.
 
 Every run now also writes SteamVR's own frame timing to `~/Games/MoonlightXRNative/vrtiming.log` (a line a second: frames the compositor reused, dropped or reprojected). Nothing to do for it; just note roughly when each step happened.
 

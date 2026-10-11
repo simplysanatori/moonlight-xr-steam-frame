@@ -148,7 +148,7 @@ typedef struct {
     const char* stereo_reason;
     int env_live_cells;
     // The exit prompt's question (NULL: upstream's "Exit the stream?"); the
-    // native launcher asks "Quit Moonlight XR?" while no stream is up
+    // native launcher asks "Quit Moonlight XR for Frame?" while no stream is up
     const char* exit_question;
 } UiView;
 

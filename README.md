@@ -1,8 +1,10 @@
-# Moonlight XR Native
+# Moonlight XR for Frame
 
 A game-streaming client for the Valve Steam Frame. It connects to a Sunshine or Apollo host (or GeForce Experience), shows the stream on a virtual screen in SteamVR, and sends back pointer, keyboard and controller input. It is a native Linux Arm64 OpenXR program written in C: video is decoded on the Frame's Qualcomm Iris hardware decoder through V4L2 and drawn with Vulkan (Turnip). It is not an Android app and needs no Lepton.
 
-The XR side (screen layout, rooms, depth, virtual surround, interface) is a port of Sean Gilleece's [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr). See [CREDITS.md](CREDITS.md).
+Built by [simplysanatori](https://github.com/simplysanatori). The XR side (screen layout, rooms, depth, virtual surround, interface) is a port of Sean Gilleece's [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr), which is a fork of Moonlight for Android. See [CREDITS.md](CREDITS.md).
+
+The project and its files are still called Moonlight XR Native in places (the repository, the `~/Games/MoonlightXRNative` and `~/.config/moonlight-xr` directories, the tarball name), so existing installs, settings and pairing keep working.
 
 ## Status
 
@@ -23,9 +25,9 @@ Unfinished. Video, hardware decode, audio and mouse input have been tested on a 
    cd MoonlightXRNative
    ./install.sh --seed
    ```
-3. Start "Moonlight XR Native" from the Steam library.
+3. Start "Moonlight XR for Frame" from the Steam library.
 
-`install.sh` copies the program into `~/Games/MoonlightXRNative/app` (set `DEST` to change it), adds or updates the Steam shortcut "Moonlight XR Native", and can be run again at any time. It does not touch anything else. `NO_SHORTCUT=1` skips the shortcut. If Steam is not running, the files are still installed and the shortcut is added the next time you run it.
+`install.sh` copies the program into `~/Games/MoonlightXRNative/app` (set `DEST` to change it), adds or updates the Steam shortcut "Moonlight XR for Frame" (an older shortcut named "Moonlight XR Native" is renamed in place, so its Steam settings stay), puts the shortcut's artwork from `assets/branding` into Steam's grid folder, and can be run again at any time. It does not touch anything else. `NO_SHORTCUT=1` skips the shortcut. If Steam is not running, the files are still installed and the shortcut is added the next time you run it.
 
 ## First run: pairing
 
@@ -68,8 +70,9 @@ On other aarch64 Linux systems with the same development packages (see `.github/
 
 ## Credits
 
-- [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) by Sean Gilleece is the origin of every XR module here.
-- [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) and [moonlight-qt](https://github.com/moonlight-stream/moonlight-qt) (GPLv3): the streaming protocol and the host client behaviour.
+- Built by [simplysanatori](https://github.com/simplysanatori).
+- [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) by Sean Gilleece is the origin of every XR module here, and of the logo the icon and Steam art are made from. simplysanatori' [Steam Frame fork](https://github.com/simplysanatori/moonlight-android-xr-steam-frame) of it was the reference for how it behaves on the Frame.
+- [Moonlight](https://github.com/moonlight-stream) by the Moonlight Game Streaming Project (Cameron Gutman, Diego Waxemberg, Aaron Neyer, Andrew Hennessy and contributors): [moonlight-android](https://github.com/moonlight-stream/moonlight-android), which Moonlight XR is built on; [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c), the streaming protocol; and [moonlight-qt](https://github.com/moonlight-stream/moonlight-qt) (GPLv3), the host client behaviour and the flat launcher.
 - [OpenXR-SDK](https://github.com/KhronosGroup/OpenXR-SDK) from Khronos (Apache 2.0): the OpenXR loader.
 - [LiteRT](https://github.com/tensorflow/tensorflow) (Apache 2.0) runs the depth models: [ZipDepth](https://github.com/fabiotosi92/ZipDepth) by Fabio Tosi (MIT) and [MiDaS](https://github.com/isl-org/MiDaS) by Intel ISL (MIT).
 - KEMAR head-related transfer functions by Bill Gardner and Keith Martin, MIT Media Lab, 1994, for virtual surround.

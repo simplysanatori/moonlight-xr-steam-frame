@@ -374,7 +374,7 @@ static void about_button(Dc* dc, float l, float t, float r, float b, const char*
 static void tab_about(Dc* dc) {
     const UiView* v = dc->v;
     float mid = dc->nw * 0.5f, room = dc->nw - 80.0f;
-    dc_text(dc, UI_WEIGHT_REGULAR, 30.0f, mid, 0.25f * dc->nh, UI_ALIGN_CENTER, WHITE, "Moonlight XR");
+    dc_text(dc, UI_WEIGHT_REGULAR, 30.0f, mid, 0.25f * dc->nh, UI_ALIGN_CENTER, WHITE, "Moonlight XR for Frame");
     char line[256], path[200];
     const char* ver = v->version && *v->version ? v->version : "dev";
     if (v->commit && *v->commit) snprintf(line, sizeof line, ui_str(UIS_VERSION), ver, v->commit);
@@ -392,6 +392,8 @@ static void tab_about(Dc* dc) {
     line_fit_center(dc, 17.0f, mid, (COG_KOFI_B + 0.05f) * dc->nh, room, 0x80FFFFFFu, ui_str(UIS_KOFI_FREE), UI_ELLIPSIZE_END);
     about_button(dc, COG_REPORT_L, COG_REPORT_T, COG_REPORT_R, COG_REPORT_B, ui_str(UIS_REPORT_TITLE), UI_BTN_REPORT);
     line_fit_center(dc, 17.0f, mid, (COG_REPORT_B + 0.05f) * dc->nh, room, 0x80FFFFFFu, ui_str(UIS_REPORT_SENDS), UI_ELLIPSIZE_END);
+    line_fit_center(dc, 17.0f, mid, 0.915f * dc->nh, room, 0x90FFFFFFu, ui_str(UIS_ABOUT_BUILT_BY), UI_ELLIPSIZE_END);
+    line_fit_center(dc, 15.0f, mid, 0.96f * dc->nh, room, 0x70FFFFFFu, ui_str(UIS_ABOUT_BASED_ON), UI_ELLIPSIZE_END);
 }
 
 void panel_cog(Dc* dc) {
