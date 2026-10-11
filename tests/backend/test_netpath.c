@@ -4,6 +4,7 @@
 #define _GNU_SOURCE
 #include <arpa/inet.h>
 #include <signal.h>
+#include <time.h>
 #include <string.h>
 
 #include "backend.h"
@@ -283,7 +284,7 @@ static void test_choose(void)
     mlxr_net_plan p = plan2(MLXR_NET_AUTO, mad, mhome);
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);
     CHECK(p.chosen_path == MLXR_PATH_HOME && !p.fell_back && !p.toast[0]);
-    CHECK_EQ_STR(p.reason, "chose Wi-Fi: adapter link poor (-80 dBm, 576 Mbit/s)");
+    CHECK(strstr(p.reason, "chose Wi-Fi: usable, preferred over the adapter (-48 dBm, 1201 Mbit/s"));
     CHECK(strstr(p.summary, "home 192.0.2.10"));
     p = plan2(MLXR_NET_AUTO, mhome, mad);   /* the order does not matter */
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
@@ -291,15 +292,44 @@ static void test_choose(void)
     p = plan2(MLXR_NET_AUTO, mad, mhome);
     p.bitrate_kbps = 400000;                /* 4 x 400 = 1600 Mbit/s: both poor */
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);   /* both poor: equal round trips, the better link, Wi-Fi */
-    /* both good, similar: the adapter on a full tie, with its reason */
-    mlxr_net_cand gad = mk(MLXR_PATH_ADAPTER, "198.51.100.27", 7, 0, 2.0, 0.1, 80);
-    mlxr_net_cand ghome = mk(MLXR_PATH_HOME, "192.0.2.10", 7, 0, 2.0, 0.1, 80);
-    set_link(&gad, -50, 1201);
-    set_link(&ghome, -50, 1201);
-    p = plan2(MLXR_NET_AUTO, ghome, gad);
+    /* both good: Wi-Fi is preferred, even with the adapter's lower round trip (the owner's 01:39 run:
+     * adapter -69 dBm 865 Mbit/s 2.0 ms, Wi-Fi -49 dBm 1081 Mbit/s 3.5 ms) */
+    mlxr_net_cand gad = mk(MLXR_PATH_ADAPTER, "198.51.100.27", 7, 0, 2.0, 0.3, 66);
+    mlxr_net_cand ghome = mk(MLXR_PATH_HOME, "192.0.2.10", 7, 0, 3.5, 0.2, 100);
+    set_link(&gad, -69, 865);
+    set_link(&ghome, -49, 1081);
+    p = plan2(MLXR_NET_AUTO, gad, ghome);
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);
-    CHECK(strstr(p.reason, "full tie"));
+    CHECK(strstr(p.reason, "chose Wi-Fi: usable, preferred over the adapter"));
+    CHECK_EQ_STR(p.connected, "Connected over Wi-Fi.");
+    /* Wi-Fi weak (-75 dBm), adapter good: the adapter */
+    set_link(&ghome, -75, 1081);
+    p = plan2(MLXR_NET_AUTO, gad, ghome);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    CHECK(strstr(p.reason, "chose adapter: Wi-Fi link weak (-75 dBm, 1081 Mbit/s"));
     CHECK_EQ_STR(p.connected, "Connected over Steam Frame Wireless Adapter.");
+    /* both weak: still Wi-Fi */
+    set_link(&gad, -80, 576);
+    p = plan2(MLXR_NET_AUTO, gad, ghome);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    CHECK(strstr(p.reason, "both links weak"));
+    /* Wi-Fi answers but half the probes failed: weak, the good adapter wins */
+    set_link(&gad, -55, 1201);
+    set_link(&ghome, -48, 1201);
+    ghome = mk(MLXR_PATH_HOME, "192.0.2.10", 3, 4, 3.5, 0.2, 100);
+    set_link(&ghome, -48, 1201);
+    p = plan2(MLXR_NET_AUTO, gad, ghome);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    ghome = mk(MLXR_PATH_HOME, "192.0.2.10", 6, 1, 3.5, 0.2, 100);   /* one failure of seven is fine */
+    set_link(&ghome, -48, 1201);
+    p = plan2(MLXR_NET_AUTO, gad, ghome);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    /* Wi-Fi did not answer at all: the adapter, and the reason says what failed */
+    mlxr_net_cand deadhome = mk(MLXR_PATH_HOME, "192.0.2.10", 0, 4, 0, 0, 0);
+    strcpy(deadhome.error, "connect timed out");
+    p = plan2(MLXR_NET_AUTO, deadhome, gad);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    CHECK(strstr(p.reason, "chose adapter: Wi-Fi did not answer (192.0.2.10: connect timed out)"));
     /* auto: the better */
     p = plan2(MLXR_NET_AUTO, home, ad);
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);   /* no link data, round trips equal, 98 against 51: Wi-Fi */
@@ -341,26 +371,29 @@ static void test_choose(void)
     p = plan2(MLXR_NET_ADAPTER, home, mk(MLXR_PATH_ADAPTER, "198.51.100.27", 0, 4, 0, 0, 51));
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
     CHECK(p.fell_back && p.chosen_path == MLXR_PATH_HOME);
-    CHECK_EQ_STR(p.toast, "Steam Frame Wireless Adapter not reachable. Using Wi-Fi.");
+    CHECK_EQ_STR(p.toast, "Steam Frame Wireless Adapter not reachable (198.51.100.27: no answer). Using Wi-Fi.");
     CHECK(strstr(p.summary, "fell back"));
     /* home asked, only the adapter answers */
     p = plan2(MLXR_NET_HOME, dead, ad);
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);
-    CHECK_EQ_STR(p.toast, "Wi-Fi not reachable. Using Steam Frame Wireless Adapter.");
+    CHECK_EQ_STR(p.toast, "Wi-Fi not reachable (192.0.2.10: connect timed out). Using Steam Frame Wireless Adapter.");
+    CHECK_EQ_STR(p.failure, "192.0.2.10: connect timed out");
     /* asked for a path with no address at all */
     p = plan2(MLXR_NET_ADAPTER, home, home2);
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
     CHECK(p.fell_back);
+    CHECK_EQ_STR(p.failure, "no address of the PC known on this network");
+    CHECK(strstr(p.toast, "Steam Frame Wireless Adapter not reachable (no address of the PC known on this network). Using Wi-Fi."));
     /* none anywhere */
     p = plan2(MLXR_NET_HOME, dead, dead);
     CHECK_EQ_INT(mlxr_net_choose(&p), -1);
     CHECK(!p.toast[0]);
     /* the chosen address and port */
     p = plan2(MLXR_NET_AUTO, ghome, gad);
-    p.c[1].port = 50000;
+    p.c[0].port = 50000;
     mlxr_net_choose(&p);
     uint16_t port = 0;
-    CHECK_EQ_STR(mlxr_net_chosen_address(&p, &port), "198.51.100.27");
+    CHECK_EQ_STR(mlxr_net_chosen_address(&p, &port), "192.0.2.10");
     CHECK_EQ_INT(port, 50000);
 }
 
@@ -461,8 +494,85 @@ static void test_probe(void)
     mlxr_net_plan_add(&p, "127.0.0.1", 1);
     mlxr_net_plan_add(&p, "127.0.0.1", 0);
     CHECK_EQ_INT(mlxr_net_select(&p, &t), 1);
-    CHECK(p.fell_back && strstr(p.toast, "Steam Frame Wireless Adapter not reachable. Using Wi-Fi."));
+    CHECK(p.fell_back && strstr(p.toast, "Steam Frame Wireless Adapter not reachable"));
+
+    /* choosing a path means that path: a refused address on it is retried for retry_ms before the
+     * other path is tried, and the toast names the address and how it failed */
+    memset(&t, 0, sizeof t);
+    add_if(&t, "lo", "127.0.0.1", 8, false, 0, false);
+    add_if(&t, "wlanap", "198.51.100.1", 24, true, 2, false);   /* documentation addresses only */
+    mlxr_net_plan_init(&p, MLXR_NET_ADAPTER, "test", 1, "", "");   /* port 1: refused */
+    p.retry_ms = 700;
+    mlxr_net_plan_add(&p, "198.51.100.7", 0);                    /* the adapter: nothing answers */
+    mlxr_net_plan_add(&p, "127.0.0.1", live);                    /* "Wi-Fi": the fake host */
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 1);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+    CHECK(ms >= 650 && ms < 8000);   /* the retry window passed before the fall back */
+    CHECK(p.fell_back && strstr(p.failure, "198.51.100.7:"));
+    CHECK(strstr(p.toast, "Steam Frame Wireless Adapter not reachable (198.51.100.7: "));
     fake_host_stop(h);
+}
+
+/* mDNS: an answer naming the PC (with a compressed name) and one naming something else */
+static size_t put_rr(uint8_t *b, size_t o, const uint8_t *name, size_t nl, const uint8_t *ip)
+{
+    memcpy(b + o, name, nl);
+    o += nl;
+    const uint8_t hdr[10] = { 0, 1, 0x80, 1, 0, 0, 0, 120, 0, 4 };
+    memcpy(b + o, hdr, 10);
+    memcpy(b + o + 10, ip, 4);
+    return o + 14;
+}
+
+static void test_mdns_and_sources(void)
+{
+    uint8_t m[512] = { 0 };
+    m[2] = 0x84;
+    m[7] = 3;   /* three answers */
+    size_t o = 12;
+    /* "DESKTOP-EXAMPLE.local" spelled out once, then pointed to */
+    const uint8_t n1[] = { 12, 'S', 'a', 'n', 'a', '-', 'd', 'e', 's', 'k', 't', 'o', 'p', 5, 'l', 'o', 'c', 'a', 'l', 0 };
+    const uint8_t ptr[] = { 0xC0, 12 };
+    const uint8_t other[] = { 5, 'p', 'r', 'i', 'n', 't', 5, 'l', 'o', 'c', 'a', 'l', 0 };
+    const uint8_t ip1[] = { 192, 168, 0, 12 }, ip2[] = { 10, 35, 78, 27 }, ip3[] = { 192, 168, 0, 50 };
+    o = put_rr(m, o, n1, sizeof n1, ip1);
+    o = put_rr(m, o, ptr, sizeof ptr, ip2);
+    o = put_rr(m, o, other, sizeof other, ip3);
+    char out[8][128];
+    const char *src[8];
+    int n = mlxr_net_mdns_parse(m, o, "DESKTOP-EXAMPLE.local", out, src, 0, 8);
+    CHECK_EQ_INT(n, 2);
+    CHECK_EQ_STR(out[0], "192.0.2.10");
+    CHECK_EQ_STR(out[1], "198.51.100.27");
+    CHECK_EQ_STR(src[0], "mdns");
+    CHECK_EQ_INT(mlxr_net_mdns_parse(m, o, "", out, src, 0, 8), 3);          /* any name */
+    CHECK_EQ_INT(mlxr_net_mdns_parse(m, o, "nope.local", out, src, 0, 8), 0);
+    CHECK_EQ_INT(mlxr_net_mdns_parse(m, 5, "", out, src, 0, 8), 0);           /* truncated */
+    m[12] = 0xC0; m[13] = 12;                                                 /* a name pointing at itself */
+    CHECK_EQ_INT(mlxr_net_mdns_parse(m, o, "", out, src, 0, 8), 0);
+
+    /* a MAC nobody has: the ARP table gives nothing; no name and no budget: no mDNS */
+    mlxr_netifs t;
+    frame_table(&t, true);
+    const uint8_t nomac[6] = { 2, 0, 0, 0xde, 0xad, 1 };
+    CHECK_EQ_INT(mlxr_net_discover(&t, "", nomac, 0, out, src, 8), 0);
+
+    /* sources and on-link flags are kept, and logged in one line */
+    mlxr_net_plan p;
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 47989, "", "");
+    mlxr_net_plan_add_src(&p, "198.51.100.27", 0, "launcher");
+    mlxr_net_plan_add_record(&p, "198.51.100.27", "192.0.2.10,203.0.113.9");
+    mlxr_net_plan_add_src(&p, "192.0.2.10", 0, "mdns");   /* a duplicate: the first source stays */
+    CHECK_EQ_INT(p.n, 3);
+    CHECK_EQ_STR(p.c[0].source, "launcher");
+    CHECK_EQ_STR(p.c[1].source, "hosts.ini");
+    mlxr_net_plan_classify(&p, &t);
+    CHECK(p.c[0].onlink && p.c[1].onlink && !p.c[2].onlink);
+    CHECK(mlxr_net_onlink_if(&t, "192.0.2.10") && !strcmp(mlxr_net_onlink_if(&t, "192.0.2.10")->name, "wlan0"));
+    CHECK(mlxr_net_onlink_if(&t, "8.8.8.8") == NULL && mlxr_net_onlink_if(&t, "host.local") == NULL);
 }
 
 int main(void)
@@ -474,6 +584,7 @@ int main(void)
     test_stats_and_scoring();
     test_choose();
     test_describe();
+    test_mdns_and_sources();
     test_probe();
     TEST_DONE();
 }

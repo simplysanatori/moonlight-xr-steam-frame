@@ -87,6 +87,7 @@ void mlxr_net_plan_init(mlxr_net_plan *p, mlxr_net_pref pref, const char *source
     p->default_port = http_port ? http_port : 47989;
     p->budget_ms = 1500;
     p->bitrate_kbps = 80000;
+    p->retry_ms = 4000;
     p->grace_ms = 300;
     p->chosen = -1;
     if (uuid) mlxr_strlcpy(p->uuid, uuid, sizeof p->uuid);
@@ -94,6 +95,11 @@ void mlxr_net_plan_init(mlxr_net_plan *p, mlxr_net_pref pref, const char *source
 }
 
 int mlxr_net_plan_add(mlxr_net_plan *p, const char *address, uint16_t port)
+{
+    return mlxr_net_plan_add_src(p, address, port, "");
+}
+
+int mlxr_net_plan_add_src(mlxr_net_plan *p, const char *address, uint16_t port, const char *source)
 {
     if (!address) return -1;
     char a[128];
@@ -107,6 +113,7 @@ int mlxr_net_plan_add(mlxr_net_plan *p, const char *address, uint16_t port)
     mlxr_net_cand *c = &p->c[p->n];
     memset(c, 0, sizeof *c);
     mlxr_strlcpy(c->address, a, sizeof c->address);
+    mlxr_strlcpy(c->source, source ? source : "", sizeof c->source);
     c->port = port;
     return p->n++;
 }
@@ -122,8 +129,14 @@ void mlxr_net_plan_add_csv(mlxr_net_plan *p, const char *csv, uint16_t port)
 
 void mlxr_net_plan_add_record(mlxr_net_plan *p, const char *address, const char *extra_addresses)
 {
-    mlxr_net_plan_add(p, address, 0);
-    mlxr_net_plan_add_csv(p, extra_addresses, 0);
+    mlxr_net_plan_add_src(p, address, 0, "hosts.ini");
+    if (extra_addresses) {
+        char buf[512];
+        mlxr_strlcpy(buf, extra_addresses, sizeof buf);
+        char *save = NULL;
+        for (char *t = strtok_r(buf, ", \t", &save); t; t = strtok_r(NULL, ", \t", &save))
+            mlxr_net_plan_add_src(p, t, 0, "hosts.ini");
+    }
 }
 
 void mlxr_net_plan_classify(mlxr_net_plan *p, const mlxr_netifs *t)
@@ -131,6 +144,7 @@ void mlxr_net_plan_classify(mlxr_net_plan *p, const mlxr_netifs *t)
     for (int i = 0; i < p->n; i++) {
         const mlxr_netif *via = NULL;
         p->c[i].path = mlxr_net_classify(t, p->c[i].address, &via);
+        p->c[i].onlink = mlxr_net_onlink_if(t, p->c[i].address) != NULL;
         p->c[i].ifname[0] = 0;
         if (via) mlxr_strlcpy(p->c[i].ifname, via->name, sizeof p->c[i].ifname);
     }
@@ -209,30 +223,6 @@ static void link_text(const mlxr_net_cand *c, char *out, size_t cap)
         snprintf(out, cap, "no link data");
 }
 
-/* Why w beat l, in a few words */
-static void why(const mlxr_net_cand *w, const mlxr_net_cand *l, char *out, size_t cap)
-{
-    char lt[64];
-    const char *wn = mlxr_net_path_label(w->path), *ln = l->path == MLXR_PATH_ADAPTER ? "adapter" : "Wi-Fi";
-    link_text(l, lt, sizeof lt);
-    if (w->failed != l->failed) {
-        snprintf(out, cap, "chose %s: %s dropped %d of %d probes", wn, ln, l->failed, l->sent);
-    } else if (w->poor != l->poor) {
-        snprintf(out, cap, "chose %s: %s link poor (%s)", wn, ln, lt);
-    } else if (!rtt_equal(w, l)) {
-        snprintf(out, cap, "chose %s: round trip %.1f ms against %.1f ms on %s", wn, w->median_ms, l->median_ms, ln);
-    } else if (fabs(w->link_quality - l->link_quality) > 5.0) {
-        char wt[64];
-        link_text(w, wt, sizeof wt);
-        snprintf(out, cap, "chose %s: better link (%s against %s on %s)", wn, wt, lt, ln);
-    } else if (w->median_ms != l->median_ms) {
-        snprintf(out, cap, "chose %s: lower round trip (%.1f ms against %.1f ms on %s), links alike", wn, w->median_ms,
-                 l->median_ms, ln);
-    } else {
-        snprintf(out, cap, "chose %s: a full tie, the adapter has a link of its own", wn);
-    }
-}
-
 static bool answered(const mlxr_net_cand *c) { return c->probed && c->ok > 0 && !c->other_host; }
 
 void mlxr_net_path_describe(mlxr_net_path p, const mlxr_net_link *l, char *out, size_t cap)
@@ -251,12 +241,40 @@ void mlxr_net_path_describe(mlxr_net_path p, const mlxr_net_link *l, char *out, 
     }
 }
 
+/* weak: a poor link, or half the probes failed */
+static bool weak(const mlxr_net_cand *c) { return c->poor || (c->sent > 0 && c->failed * 2 >= c->sent); }
+
+static int best_on(const mlxr_net_plan *p, mlxr_net_path path)
+{
+    int best = -1;
+    for (int i = 0; i < p->n; i++) {
+        if (!answered(&p->c[i]) || p->c[i].path != path) continue;
+        if (best < 0 || mlxr_net_better(&p->c[i], &p->c[best])) best = i;
+    }
+    return best;
+}
+
+/* "192.0.2.10: connect timed out; ..." for the candidates on a path that did not answer */
+static void failures_on(const mlxr_net_plan *p, mlxr_net_path path, char *out, size_t cap)
+{
+    out[0] = 0;
+    size_t n = 0;
+    for (int i = 0; i < p->n; i++) {
+        const mlxr_net_cand *c = &p->c[i];
+        if (c->path != path || answered(c)) continue;
+        int w = snprintf(out + n, cap - n, "%s%s: %s", n ? "; " : "", c->address,
+                         !c->probed ? "not tried" : c->error[0] ? c->error : "no answer");
+        if (w < 0 || (size_t)w >= cap - n) break;
+        n += (size_t)w;
+    }
+}
+
 int mlxr_net_choose(mlxr_net_plan *p)
 {
     p->chosen = -1;
     p->chosen_path = MLXR_PATH_NONE;
     p->fell_back = false;
-    p->toast[0] = p->connected[0] = p->chosen_desc[0] = 0;
+    p->toast[0] = p->connected[0] = p->chosen_desc[0] = p->failure[0] = 0;
     p->summary[0] = 0;
     p->reason[0] = 0;
     for (int i = 0; i < p->n; i++) {
@@ -264,34 +282,41 @@ int mlxr_net_choose(mlxr_net_plan *p)
         mlxr_net_cand_judge(&p->c[i], p->bitrate_kbps);
     }
     if (p->pref == MLXR_NET_AUTO) {
-        for (int i = 0; i < p->n; i++) {
-            if (!answered(&p->c[i])) continue;
-            if (p->chosen < 0 || mlxr_net_better(&p->c[i], &p->c[p->chosen])) p->chosen = i;
-        }
-        if (p->chosen >= 0) {
-            /* the best answering candidate on another path is who it beat */
-            int ru = -1;
-            for (int i = 0; i < p->n; i++) {
-                if (i == p->chosen || !answered(&p->c[i]) || p->c[i].path == p->c[p->chosen].path) continue;
-                if (ru < 0 || mlxr_net_better(&p->c[i], &p->c[ru])) ru = i;
-            }
-            if (ru >= 0) why(&p->c[p->chosen], &p->c[ru], p->reason, sizeof p->reason);
-            else snprintf(p->reason, sizeof p->reason, "chose %s: the only path that answered",
-                          mlxr_net_path_label(p->c[p->chosen].path));
+        int h = best_on(p, MLXR_PATH_HOME), a = best_on(p, MLXR_PATH_ADAPTER);
+        char hf[160], lt[64], lt2[64];
+        failures_on(p, MLXR_PATH_HOME, hf, sizeof hf);
+        if (h >= 0) link_text(&p->c[h], lt, sizeof lt);
+        if (a >= 0) link_text(&p->c[a], lt2, sizeof lt2);
+        if (h >= 0 && a >= 0 && weak(&p->c[h]) && !weak(&p->c[a])) {
+            p->chosen = a;
+            snprintf(p->reason, sizeof p->reason, "chose adapter: Wi-Fi link weak (%s, %d of %d probes failed) and the adapter is good (%s)",
+                     lt, p->c[h].failed, p->c[h].sent, lt2);
+        } else if (h >= 0) {
+            p->chosen = h;
+            if (a < 0)
+                snprintf(p->reason, sizeof p->reason, "chose Wi-Fi: the only path that answered (%s, %.1f ms)", lt, p->c[h].median_ms);
+            else
+                snprintf(p->reason, sizeof p->reason, "chose Wi-Fi: %s, preferred over the adapter (%s, %.1f ms)",
+                         weak(&p->c[h]) ? "both links weak" : "usable", lt, p->c[h].median_ms);
+        } else if (a >= 0) {
+            p->chosen = a;
+            snprintf(p->reason, sizeof p->reason, "chose adapter: Wi-Fi did not answer (%s)", hf[0] ? hf : "no address of the PC known on that network");
         }
     } else {
         mlxr_net_path want = p->pref == MLXR_NET_HOME ? MLXR_PATH_HOME : MLXR_PATH_ADAPTER;
         for (int i = 0; i < p->n && p->chosen < 0; i++)
             if (answered(&p->c[i]) && p->c[i].path == want) p->chosen = i;
         if (p->chosen < 0) {
+            failures_on(p, want, p->failure, sizeof p->failure);
+            if (!p->failure[0]) snprintf(p->failure, sizeof p->failure, "no address of the PC known on this network");
             for (int i = 0; i < p->n && p->chosen < 0; i++)
                 if (answered(&p->c[i])) p->chosen = i;
             if (p->chosen >= 0) {
                 p->fell_back = true;
-                snprintf(p->toast, sizeof p->toast, "%s not reachable. Using %s.", mlxr_net_path_label(want),
+                snprintf(p->toast, sizeof p->toast, "%s not reachable (%s). Using %s.", mlxr_net_path_label(want), p->failure,
                          mlxr_net_path_label(p->c[p->chosen].path));
-                snprintf(p->reason, sizeof p->reason, "chose %s: %s not reachable", mlxr_net_path_label(p->c[p->chosen].path),
-                         mlxr_net_path_label(want));
+                snprintf(p->reason, sizeof p->reason, "chose %s: %s not reachable (%s)",
+                         mlxr_net_path_label(p->c[p->chosen].path), mlxr_net_path_label(want), p->failure);
             }
         }
     }
@@ -529,6 +554,21 @@ void mlxr_net_probe(mlxr_net_plan *p, const bool *which, int samples, bool first
 
 void mlxr_net_log_plan(const mlxr_net_plan *p)
 {
+    {
+        char list[512];
+        size_t n = 0;
+        list[0] = 0;
+        for (int i = 0; i < p->n && n < sizeof list - 1; i++) {
+            const mlxr_net_cand *c = &p->c[i];
+            int w = snprintf(list + n, sizeof list - n, "%s%s (%s, %s%s via %s)", n ? ", " : "", c->address,
+                             c->source[0] ? c->source : "?", c->onlink ? "" : "off-link, ", mlxr_net_path_label(c->path),
+                             c->ifname[0] ? c->ifname : "?");
+            if (w < 0 || (size_t)w >= sizeof list - n) break;
+            n += (size_t)w;
+        }
+        mlxr_log(1, "network path: setting %s from %s; %d candidate address%s: %s", mlxr_net_pref_name(p->pref), p->source,
+                 p->n, p->n == 1 ? "" : "es", list);
+    }
     for (int i = 0; i < p->n; i++) {
         const mlxr_net_cand *c = &p->c[i];
         char link[112] = "";
@@ -563,6 +603,51 @@ void mlxr_net_log_plan(const mlxr_net_plan *p)
                  mlxr_net_pref_name(p->pref), p->source, p->n);
 }
 
+static int64_t mono_ms(void) { return now_ns() / 1000000; }
+
+/* Wi-Fi may not be ready yet, or an AP asleep: probe the asked-for path again for retry_ms */
+static bool retry_path(mlxr_net_plan *p, const bool *which)
+{
+    int64_t end = mono_ms() + p->retry_ms;
+    int saved = p->budget_ms;
+    bool got = false;
+    while (!got && mono_ms() < end) {
+        int64_t left = end - mono_ms();
+        p->budget_ms = left < 1500 ? (int)left + 50 : 1500;
+        mlxr_net_probe(p, which, 2, true);
+        for (int i = 0; i < p->n; i++)
+            if (which[i] && answered(&p->c[i])) got = true;
+        if (!got) {
+            struct timespec nap = { 0, 300000000 };
+            nanosleep(&nap, NULL);
+        }
+    }
+    p->budget_ms = saved;
+    return got;
+}
+
+/* Other addresses of the PC: the ARP table and mDNS. mDNS only where an up interface has no
+ * candidate on its subnet (the PC may live there under an address nobody told us). */
+static void discover(mlxr_net_plan *p, const mlxr_netifs *t)
+{
+    if (!p->has_mac && !p->hostname[0]) return;
+    bool gap = false;
+    for (int k = 0; k < t->n; k++) {
+        const mlxr_netif *f = &t->v[k];
+        if (!f->up || f->loopback) continue;
+        bool have = false;
+        for (int i = 0; i < p->n; i++) {
+            const mlxr_netif *o = mlxr_net_onlink_if(t, p->c[i].address);
+            if (o && !strcmp(o->name, f->name)) have = true;
+        }
+        if (!have) gap = true;
+    }
+    char found[8][128];
+    const char *src[8];
+    int n = mlxr_net_discover(t, gap ? p->hostname : "", p->has_mac ? p->mac : NULL, gap ? 400 : 0, found, src, 8);
+    for (int i = 0; i < n; i++) mlxr_net_plan_add_src(p, found[i], 0, src[i]);
+}
+
 int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
 {
     mlxr_netifs own;
@@ -570,6 +655,7 @@ int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
         mlxr_netifs_read(&own);
         t = &own;
     }
+    discover(p, t);
     mlxr_net_plan_classify(p, t);
     mlxr_net_plan_read_links(p, t);
     if (p->pref == MLXR_NET_AUTO) {
@@ -579,10 +665,19 @@ int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
         bool which[MLXR_NET_MAX_CANDS] = { false };
         bool any = false;
         for (int i = 0; i < p->n; i++) any |= which[i] = p->c[i].path == want;
-        if (any) mlxr_net_probe(p, which, 2, true);
-        mlxr_net_choose(p);
-        if (p->chosen < 0 || p->c[p->chosen].path != want) {
-            /* nothing answered on the asked-for path: try the others */
+        bool got = false;
+        if (any) {
+            mlxr_net_probe(p, which, 2, true);
+            for (int i = 0; i < p->n; i++)
+                if (which[i] && answered(&p->c[i])) got = true;
+            if (!got) {
+                mlxr_log(1, "network path: nothing answered on %s yet, retrying for %d ms", mlxr_net_path_label(want),
+                         p->retry_ms);
+                got = retry_path(p, which);
+            }
+        }
+        if (!got) {
+            /* only now the other path */
             bool rest[MLXR_NET_MAX_CANDS] = { false };
             for (int i = 0; i < p->n; i++) rest[i] = !which[i];
             mlxr_net_probe(p, rest, 2, true);

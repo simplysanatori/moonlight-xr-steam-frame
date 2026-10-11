@@ -389,9 +389,13 @@ static int cmd_probe_paths(int argc, char **argv)
     mlxr_net_plan_init(&plan, pref, source, rec && rec->http_port ? rec->http_port : MLXR_DEFAULT_HTTP_PORT,
                        rec ? rec->uuid : "", c.id.unique_id);
     plan.bitrate_kbps = bitrate;
+    if (rec) {
+        snprintf(plan.hostname, sizeof plan.hostname, "%s", rec->name);
+        if (rec->has_mac) { memcpy(plan.mac, rec->mac, 6); plan.has_mac = true; }
+    }
     if (rec) mlxr_net_plan_add_record(&plan, rec->address, rec->extra_addresses);
     else if (spec) mlxr_net_plan_add(&plan, spec, 0);
-    mlxr_net_plan_add_csv(&plan, addrs, 0);
+    mlxr_net_plan_add_csv(&plan, addrs, 0);   /* source "" */
     if (plan.n == 0) { ctx_close(&c); return fprintf(stderr, "error: no addresses (pair a host, or pass <host> or --addr)\n"), 2; }
 
     mlxr_netifs t;
@@ -418,7 +422,8 @@ static int cmd_probe_paths(int argc, char **argv)
         const mlxr_net_cand *k = &plan.c[i];
         char desc[96];
         mlxr_net_path_describe(k->path, &k->link, desc, sizeof desc);
-        printf("candidate %s  path=%s via %s\n", k->address, desc, k->ifname[0] ? k->ifname : "?");
+        printf("candidate %s  path=%s via %s  [%s%s]\n", k->address, desc, k->ifname[0] ? k->ifname : "?",
+               k->source[0] ? k->source : "--addr", k->onlink ? "" : ", off-link");
         if (!k->probed) printf("  probe:   not probed\n");
         else if (k->ok == 0) printf("  probe:   no answer, %d/%d failed (%s)\n", k->failed, k->sent, k->error);
         else printf("  probe:   %d/%d ok, median %.1f ms, jitter %.1f ms%s; serverinfo took %.0f ms\n", k->ok, k->sent, k->median_ms,

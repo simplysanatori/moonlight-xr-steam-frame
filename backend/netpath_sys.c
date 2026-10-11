@@ -10,6 +10,9 @@
 #include <linux/netlink.h>
 #include <linux/nl80211.h>
 #include <net/if.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,6 +32,20 @@ bool mlxr_netif_is_ap(const mlxr_netifs *t, const mlxr_netif *i)
     for (int k = 0; k < t->n; k++)
         if (t->v[k].default_route && !t->v[k].loopback && strcmp(t->v[k].name, i->name) != 0) return true;
     return false;
+}
+
+const mlxr_netif *mlxr_net_onlink_if(const mlxr_netifs *t, const char *addr)
+{
+    struct in_addr ia;
+    const mlxr_netif *best = NULL;
+    if (!addr || inet_pton(AF_INET, addr, &ia) != 1) return NULL;
+    uint32_t a = ntohl(ia.s_addr);
+    for (int k = 0; k < t->n; k++) {
+        const mlxr_netif *i = &t->v[k];
+        if (!i->up || !i->mask || (a & i->mask) != (i->addr & i->mask)) continue;
+        if (!best || i->mask > best->mask) best = i;
+    }
+    return best;
 }
 
 mlxr_net_path mlxr_net_classify(const mlxr_netifs *t, const char *addr, const mlxr_netif **via)
@@ -382,4 +399,174 @@ void mlxr_net_link_read(const mlxr_netif *i, const char *peer, mlxr_net_link *ou
     out->signal_dbm = r.v[pick].signal;
     out->tx_mbps = r.v[pick].mbps;
     memcpy(out->tx_desc, r.v[pick].desc, sizeof out->tx_desc);
+}
+
+/* ---------------------------------------------------------------- finding the PC's other addresses */
+
+static int add_found(char out[][128], const char **src, int n, int cap, const char *addr, const char *how)
+{
+    for (int i = 0; i < n; i++)
+        if (!strcmp(out[i], addr)) return n;
+    if (n >= cap) return n;
+    mlxr_strlcpy(out[n], addr, 128);
+    src[n] = how;
+    return n + 1;
+}
+
+/* A DNS name at *pos (with compression) as lower case text; advances *pos past it in the record */
+static int dns_name(const uint8_t *m, size_t len, size_t *pos, char *out, size_t cap)
+{
+    size_t p = *pos, o = 0;
+    bool jumped = false;
+    int hops = 0;
+    for (;;) {
+        if (p >= len || hops > 20) return -1;
+        uint8_t l = m[p];
+        if (l == 0) { p++; break; }
+        if ((l & 0xC0) == 0xC0) {
+            if (p + 1 >= len) return -1;
+            size_t off = (size_t)((l & 0x3F) << 8) | m[p + 1];
+            if (!jumped) *pos = p + 2;
+            jumped = true;
+            p = off;
+            hops++;
+            continue;
+        }
+        if (p + 1 + l > len || o + l + 2 >= cap) return -1;
+        if (o) out[o++] = '.';
+        for (int i = 0; i < l; i++) out[o++] = (char)((m[p + 1 + i] >= 'A' && m[p + 1 + i] <= 'Z') ? m[p + 1 + i] + 32 : m[p + 1 + i]);
+        p += 1 + l;
+    }
+    out[o] = 0;
+    if (!jumped) *pos = p;
+    return 0;
+}
+
+static size_t dns_put_name(uint8_t *b, const char *name)
+{
+    size_t o = 0;
+    const char *s = name;
+    while (*s) {
+        const char *dot = strchr(s, '.');
+        size_t l = dot ? (size_t)(dot - s) : strlen(s);
+        b[o++] = (uint8_t)l;
+        memcpy(b + o, s, l);
+        o += l;
+        s += l + (dot ? 1 : 0);
+    }
+    b[o++] = 0;
+    return o;
+}
+
+/* Addresses in A records named `want` (lower case, "" any) in one mDNS message */
+int mlxr_net_mdns_parse(const uint8_t *m, size_t len, const char *want, char out[][128], const char **src, int n, int cap)
+{
+    if (len < 12) return n;
+    int qd = m[4] << 8 | m[5], rr = (m[6] << 8 | m[7]) + (m[8] << 8 | m[9]) + (m[10] << 8 | m[11]);
+    size_t pos = 12;
+    char name[256];
+    for (int i = 0; i < qd; i++) {
+        if (dns_name(m, len, &pos, name, sizeof name) < 0 || pos + 4 > len) return n;
+        pos += 4;
+    }
+    for (int i = 0; i < rr; i++) {
+        if (dns_name(m, len, &pos, name, sizeof name) < 0 || pos + 10 > len) return n;
+        int type = m[pos] << 8 | m[pos + 1], rdlen = m[pos + 8] << 8 | m[pos + 9];
+        pos += 10;
+        if (pos + (size_t)rdlen > len) return n;
+        if (type == 1 && rdlen == 4 && (!want[0] || !strcmp(name, want))) {
+            char a[32];
+            snprintf(a, sizeof a, "%u.%u.%u.%u", m[pos], m[pos + 1], m[pos + 2], m[pos + 3]);
+            if (m[pos] != 0 && m[pos] != 127 && !(m[pos] == 169 && m[pos + 1] == 254)) n = add_found(out, src, n, cap, a, "mdns");
+        }
+        pos += (size_t)rdlen;
+    }
+    return n;
+}
+
+int mlxr_net_discover(const mlxr_netifs *t, const char *hostname, const uint8_t *mac, int budget_ms,
+                      char out[][128], const char **out_src, int cap)
+{
+    int n = 0;
+    if (mac) {
+        FILE *f = fopen("/proc/net/arp", "r");
+        if (f) {
+            char line[256];
+            if (fgets(line, sizeof line, f))
+                while (fgets(line, sizeof line, f)) {
+                    char a[64], hw[32], flags[16], m[64], mask[32], dev[32];
+                    unsigned b[6];
+                    if (sscanf(line, "%63s %31s %15s %63s %31s %31s", a, hw, flags, m, mask, dev) != 6) continue;
+                    if (strtoul(flags, NULL, 16) == 0) continue;     /* incomplete */
+                    if (sscanf(m, "%x:%x:%x:%x:%x:%x", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) != 6) continue;
+                    bool same = true;
+                    for (int k = 0; k < 6; k++) same &= b[k] == mac[k];
+                    if (same) n = add_found(out, out_src, n, cap, a, "arp");
+                }
+            fclose(f);
+        }
+    }
+    if (!hostname || !hostname[0] || budget_ms <= 0) return n;
+
+    /* mDNS: one query per up interface, legacy unicast replies to our own port */
+    char want[160];
+    snprintf(want, sizeof want, "%s.local", hostname);
+    for (char *c = want; *c; c++) if (*c >= 'A' && *c <= 'Z') *c += 32;
+    uint8_t q[320];
+    memset(q, 0, 12);
+    q[5] = 2;                                           /* two questions */
+    size_t o = 12;
+    o += dns_put_name(q + o, want);
+    q[o++] = 0; q[o++] = 1; q[o++] = 0x80; q[o++] = 1;  /* A IN, unicast reply welcome */
+    o += dns_put_name(q + o, "_nvstream._tcp.local");
+    q[o++] = 0; q[o++] = 12; q[o++] = 0x80; q[o++] = 1; /* PTR IN */
+    /* One socket on the mDNS port (shared with the system's responder), joined to the group on every
+     * up interface; the PC answers to the group, from each of its own addresses */
+    struct sockaddr_in dst = { .sin_family = AF_INET, .sin_port = htons(5353) };
+    inet_pton(AF_INET, "224.0.0.251", &dst.sin_addr);
+    int fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    if (fd < 0) return n;
+    int one = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+    setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof one);
+    struct sockaddr_in me = { .sin_family = AF_INET, .sin_port = htons(5353), .sin_addr.s_addr = htonl(INADDR_ANY) };
+    unsigned char ttl = 255, loop = 0;
+    setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof ttl);
+    setsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP, &loop, sizeof loop);
+    if (bind(fd, (struct sockaddr *)&me, sizeof me) < 0) { close(fd); return n; }
+    struct in_addr ifs[MLXR_NET_MAX_IFS];
+    int ni = 0;
+    for (int k = 0; k < t->n && ni < MLXR_NET_MAX_IFS; k++) {
+        const mlxr_netif *f = &t->v[k];
+        if (!f->up || f->loopback) continue;
+        struct ip_mreq mr = { .imr_multiaddr = dst.sin_addr, .imr_interface = { .s_addr = htonl(f->addr) } };
+        setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mr, sizeof mr);
+        ifs[ni++].s_addr = htonl(f->addr);
+    }
+    struct timespec t0;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    int sends = 0;
+    for (;;) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long el = (now.tv_sec - t0.tv_sec) * 1000 + (now.tv_nsec - t0.tv_nsec) / 1000000;
+        if (el >= budget_ms || ni == 0) break;
+        if ((sends == 0) || (sends == 1 && el >= budget_ms / 2)) {
+            sends++;
+            for (int i = 0; i < ni; i++) {
+                setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, &ifs[i], sizeof ifs[i]);
+                sendto(fd, q, o, 0, (struct sockaddr *)&dst, sizeof dst);
+            }
+        }
+        struct pollfd pf = { fd, POLLIN, 0 };
+        if (poll(&pf, 1, 20) <= 0) continue;
+        for (int r = 0; r < 8; r++) {
+            uint8_t buf[2048];
+            ssize_t got = recv(fd, buf, sizeof buf, 0);
+            if (got <= 0) break;
+            if (got > 2 && (buf[2] & 0x80)) n = mlxr_net_mdns_parse(buf, (size_t)got, want, out, out_src, n, cap);
+        }
+    }
+    close(fd);
+    return n;
 }
