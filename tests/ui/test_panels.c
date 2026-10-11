@@ -406,13 +406,13 @@ static void test_report_toast_lists(void) {
     g = guarded(w, h);
     UiCanvas cv;
     ui_cv_init(&cv, g.px, w, h);
-    UiReport r = { "Something went wrong with the stream when I pressed the cog button and then the keyboard", "me@example.com",
-                   REPORT_ZONE_NOTE, REPORT_ZONE_NONE, 1, 1 };
+    UiReport r = { "Something went wrong with the stream when I pressed the cog button and then the keyboard", 
+                   REPORT_ZONE_NOTE, REPORT_ZONE_NONE, 1 };
     ui_draw_report(&cv, &r, &hits);
     CHECK(guard_ok(&g) && ink_pixels(&g) > 1000);
     check_hits_inside("report");
-    static const int ZONES[] = { REPORT_ZONE_NOTE, REPORT_ZONE_EMAIL, REPORT_ZONE_CANCEL, REPORT_ZONE_SEND };
-    for (size_t i = 0; i < 4; i++) {
+    static const int ZONES[] = { REPORT_ZONE_NOTE, REPORT_ZONE_CANCEL, REPORT_ZONE_SEND };
+    for (size_t i = 0; i < 3; i++) {
         int k = ui_hits_find(&hits, UI_HIT_FIELD, ZONES[i], -1);
         CHECK(k >= 0);
         if (k >= 0) CHECK(reportZone((hits.hit[k].u0 + hits.hit[k].u1) / 2, (hits.hit[k].v0 + hits.hit[k].v1) / 2) == ZONES[i]);
@@ -422,10 +422,10 @@ static void test_report_toast_lists(void) {
     memset(big, 'w', 19999);
     big[19999] = 0;
     for (int i = 100; i < 19999; i += 37) big[i] = ' ';
-    UiReport rb = { big, big, REPORT_ZONE_EMAIL, REPORT_ZONE_SEND, 0, 0 };
+    UiReport rb = { big, REPORT_ZONE_NOTE, REPORT_ZONE_SEND, 0 };
     ui_cv_clear(&cv);
     ui_draw_report(&cv, &rb, NULL);
-    UiReport rn = { NULL, NULL, 0, 0, 0, 0 };
+    UiReport rn = { NULL, 0, 0, 0 };
     ui_draw_report(&cv, &rn, NULL);
     CHECK(guard_ok(&g));
     free(big);

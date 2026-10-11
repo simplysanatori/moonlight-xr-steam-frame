@@ -57,7 +57,7 @@ Line numbers are `app/src/main/java/com/limelight/binding/video/XrPanels.java` u
 | `EXIT` 512x256 | `buildExitPrompt` 2243 | Question, red Exit and white Cancel; hovering fills (`hover`), as upstream's three pre-drawn sheets. |
 | `HINT` 1024x448 | `buildHandHint` 2305 | Wrapped body shrinking 30 to 20 px to fit. |
 | `KOFI` 1024x512 | `buildKofiSheet` 2379 | `assets/images/kofi_qr.png` pixel for pixel on white (nearest), address `https://ko-fi.com/moonlightxr` (`UiView.kofi_url`). |
-| `REPORT` (`ui_draw_report`) 1024x640 | `ReportSheet` 1493 | Note (last 4 wrapped lines, caret), address (end kept, caret), what-goes text, Cancel/Send. |
+| `REPORT` (`ui_draw_report`) 1024x640 | `ReportSheet` 1493 | Note (last wrapped lines, caret), what-goes text, Cancel/Send. |
 | `TOAST` (`ui_draw_toast`) 1024x160 | `Toast` 1127 | One or two lines; a path is cut from the middle. |
 | `CLOCK` (`ui_draw_clock`) 384x48 | `ClockStrip` 1091 | The caller formats "10:42   Battery 87%". |
 | `PC_LIST`, `APP_LIST` 1024x640 | none | New, for the native launcher, in the sheet style (dark sheet, white strokes). 5 rows a page, row = icon/letter tile, name (cut to fit), "Online · Paired" with a state dot, "Running" pill, chevron; Add PC, page up/down and "n / m" for the PC list; Back for the app list; loading ("Refreshing apps…"), failed and empty states. Items come from `UiPcItem`/`UiAppItem` arrays the caller owns. |

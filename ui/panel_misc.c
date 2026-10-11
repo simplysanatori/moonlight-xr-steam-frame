@@ -25,7 +25,7 @@ static void draw_wrapped(Dc* dc, float size, float x, float first_baseline, floa
 
 // ---- report sheet -------------------------------------------------------------------------------
 
-#define NOTE_LINES 4
+#define NOTE_LINES 7
 #define REPORT_PAD 14.0f
 
 static void field_box(Dc* dc, float x0, float y0, float x1, float y1, int focused, int hot) {
@@ -54,7 +54,6 @@ void ui_draw_report(UiCanvas* cv, const UiReport* r, UiHits* hits) {
     dc_init(&dc, cv, hits, &view, REPORT_TEX_W, REPORT_TEX_H);
     if (!dc.font) return;
     const char* note = r->note ? r->note : "";
-    const char* address = r->address ? r->address : "";
     const float left = REPORT_FIELD_L * dc.nw, right = REPORT_FIELD_R * dc.nw;
 
     dc_sheet(&dc, 32.0f, 0xF0141416u);
@@ -81,7 +80,7 @@ void ui_draw_report(UiCanvas* cv, const UiReport* r, UiHits* hits) {
         int n = ui_text_wrap(dc.font, UI_WEIGHT_REGULAR, 25.0f * dc.k, note, text_w * dc.k, lines, 64);
         int have = n > 64 ? 64 : n;
         if (n > 64) {
-            // the tail of a very long note: show the last 4 of what we have wrapped, in order
+            // the tail of a very long note: show the last lines of what we have wrapped, in order
         }
         int first = have > NOTE_LINES ? have - NOTE_LINES : 0;
         for (int i = first; i < have; i++) {
@@ -98,26 +97,6 @@ void ui_draw_report(UiCanvas* cv, const UiReport* r, UiHits* hits) {
         }
     }
     dc_hit_uv(&dc, UI_HIT_FIELD, REPORT_ZONE_NOTE, 0, REPORT_FIELD_L, REPORT_NOTE_T, REPORT_FIELD_R, REPORT_NOTE_B, 1);
-
-    // the address on one line, its end in view when it runs long
-    float et = REPORT_EMAIL_T * dc.nh, eb = REPORT_EMAIL_B * dc.nh;
-    dc_text_fit_left(&dc, UI_WEIGHT_REGULAR, 21.0f, left, et - 12.0f, right - left, 0xB0FFFFFFu, ui_str(UIS_REPORT_EMAIL_LABEL));
-    field_box(&dc, left, et, right, eb, r->focus == REPORT_ZONE_EMAIL, r->hover == REPORT_ZONE_EMAIL);
-    if (!address[0]) {
-        dc_text_left_mid(&dc, UI_WEIGHT_REGULAR, 25.0f, left + REPORT_PAD + hint_in, (et + eb) * 0.5f, 0x60FFFFFFu, ui_str(UIS_REPORT_OPTIONAL));
-        if (r->focus == REPORT_ZONE_EMAIL) caret(&dc, left + REPORT_PAD, et + REPORT_PAD, (eb - et) - 2.0f * REPORT_PAD);
-    } else {
-        char shown[320];
-        ui_text_ellipsize(dc.font, UI_WEIGHT_REGULAR, 25.0f * dc.k, address, (text_w - 8.0f) * dc.k, UI_ELLIPSIZE_START, shown, sizeof shown, NULL);
-        dc_text_left_mid(&dc, UI_WEIGHT_REGULAR, 25.0f, left + REPORT_PAD, (et + eb) * 0.5f, 0xFFFFFFFFu, shown);
-        if (r->focus == REPORT_ZONE_EMAIL) {
-            caret(&dc, left + REPORT_PAD + dc_text_width(&dc, UI_WEIGHT_REGULAR, 25.0f, shown) + 2.0f, et + REPORT_PAD, (eb - et) - 2.0f * REPORT_PAD);
-        }
-    }
-    if (r->address_wrong) {
-        dc_text_fit_left(&dc, UI_WEIGHT_REGULAR, 18.0f, left, eb + 26.0f, right - left, 0xFFFFB74Du, ui_str(UIS_REPORT_EMAIL_BAD));
-    }
-    dc_hit_uv(&dc, UI_HIT_FIELD, REPORT_ZONE_EMAIL, 0, REPORT_FIELD_L, REPORT_EMAIL_T, REPORT_FIELD_R, REPORT_EMAIL_B, 1);
 
     // what goes, and where
     draw_wrapped(&dc, 18.0f, left, 0.69f * dc.nh, 23.0f, right - left, 0x99FFFFFFu, ui_str(UIS_REPORT_GOES), 3);

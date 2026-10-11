@@ -100,10 +100,7 @@
     X(REPORT_TITLE, "title_bug_report", "Report a problem") \
     X(REPORT_NOTE_LABEL, "bug_report_message_hint", "What happened?") \
     X(REPORT_NOTE_HINT, "vr_report_note_hint", "What were you doing when it went wrong?") \
-    X(REPORT_EMAIL_LABEL, "bug_report_email_hint", "Your email address, for a reply") \
-    X(REPORT_OPTIONAL, "vr_report_optional", "Optional") \
-    X(REPORT_EMAIL_BAD, "vr_report_email_bad", "That does not look like an email address") \
-    X(REPORT_GOES, "vr_report_sends", "Saves your note and email in ~/Games/MoonlightXRNative/reports. Nothing leaves the headset. To share it, run bug-report.sh: it zips the logs with addresses and ids masked.") \
+    X(REPORT_GOES, "vr_report_sends", "Saved on the Frame in ~/Games/MoonlightXRNative/reports. To report it, run bug-report.sh and open an issue on GitHub with the zip. Nothing is sent from the headset.") \
     X(REPORT_SEND, "bug_report_send_direct", "Save") \
     /* toasts */ \
     X(TOAST_RATE, "vr_toast_rate", "Display %d Hz") \

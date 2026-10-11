@@ -118,7 +118,7 @@ Left out completely: `hosts.ini`, pairing keys and certificates, the flat window
 
 Have a look inside before you share it. Then attach the zip to an [issue](https://github.com/simplysanatori/moonlight-xr-native/issues). Say what you did, what you expected and what happened.
 
-You can also write a note in the headset (cog, About, Report a problem). It is saved on the Frame and the next `bug-report.sh` run includes it.
+You can also write a note in the headset (cog, About, Report a problem). It is saved on the Frame, nothing is sent from the headset, and the next `bug-report.sh` run includes it. Open an issue on GitHub with the zip.
 
 ## Build from source
 

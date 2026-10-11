@@ -609,7 +609,7 @@
 #define KB_MOD_WIN  8
 
 // Report a problem, the sheet the About tab's button opens over the picture
-// with the keyboard under it: a note, an address to answer, a line saying
+// with the keyboard under it: a note, a line saying
 // what goes, and Cancel and Send. Unlike the other panels it is drawn again
 // in Java whenever what it shows changes, the words in its fields above all,
 // so it is one sheet. Where its parts sit, as fractions of it.
@@ -618,9 +618,7 @@
 #define REPORT_FIELD_L 0.05f
 #define REPORT_FIELD_R 0.95f
 #define REPORT_NOTE_T 0.175f
-#define REPORT_NOTE_B 0.425f
-#define REPORT_EMAIL_T 0.50f
-#define REPORT_EMAIL_B 0.5875f
+#define REPORT_NOTE_B 0.60f
 #define REPORT_BTN_T 0.8125f
 #define REPORT_BTN_B 0.9375f
 #define REPORT_CANCEL_L 0.05f
@@ -631,10 +629,9 @@
 // pressed, and the sheet having just come up
 #define REPORT_ZONE_NONE 0
 #define REPORT_ZONE_NOTE 1
-#define REPORT_ZONE_EMAIL 2
-#define REPORT_ZONE_CANCEL 3
-#define REPORT_ZONE_SEND 4
-#define REPORT_OPENED 5
+#define REPORT_ZONE_CANCEL 2
+#define REPORT_ZONE_SEND 3
+#define REPORT_OPENED 4
 
 // The button that ends the stream and the prompt it opens. The sheet is drawn
 // in Java like the other panels, one per lit button, so hovering one is

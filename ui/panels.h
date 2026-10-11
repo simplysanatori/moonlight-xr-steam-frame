@@ -162,11 +162,9 @@ void ui_draw_panel(UiPanelId id, UiCanvas* cv, const UiView* v, UiHits* hits);
 // ---- panels with their own data -------------------------------------------------------------------
 typedef struct {
     const char* note;
-    const char* address;
-    int focus;                   // REPORT_ZONE_NOTE / _EMAIL / 0
+    int focus;                   // REPORT_ZONE_NOTE / 0
     int hover;                   // REPORT_ZONE_*
     int can_send;
-    int address_wrong;
 } UiReport;
 void ui_draw_report(UiCanvas* cv, const UiReport* r, UiHits* hits);
 

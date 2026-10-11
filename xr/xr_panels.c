@@ -61,7 +61,6 @@ typedef struct {
     int outW, outH;   // native: what the stats window drew (pixels of its slot), for the quad
     char more[256];   // the toast's quieter line
     char note[512];   // report form
-    char address[128];
     int focus, hover, canSend;
     int toastKind, toastArg;
     UiPcItem* pcs;    // launcher lists, owned by the job
@@ -93,10 +92,9 @@ typedef struct XrPanels {
     Settings lastSettings;
     char lastStereoReason[96];
     UiFont* font;     // the drawing thread's only
-    // The report form (XrReportForm.java): the note, the address, which takes
+    // The report form (XrReportForm.java): the note, which takes
     // the keys
     char reportNote[512];
-    char reportAddress[128];
     int reportFocus;
     // Native: the worker. lock guards slots[], busy, quit and the stats.
     pthread_mutex_t lock;
@@ -372,7 +370,6 @@ static int jobDraw(XrPanels* p, PanelJob* j, UiCanvas* cv, UiHits* hits) {
         UiReport r;
         memset(&r, 0, sizeof(r));
         r.note = j->note;
-        r.address = j->address;
         r.focus = j->focus;
         r.hover = j->hover;
         r.can_send = j->canSend;
@@ -790,12 +787,10 @@ static void updateReport(XrCtx* ctx, XrPanels* p) {
     }
     struct {
         char note[512];
-        char address[128];
         int focus, hover, canSend;
     } k;
     memset(&k, 0, sizeof(k));
     snprintf(k.note, sizeof(k.note), "%s", p->reportNote);
-    snprintf(k.address, sizeof(k.address), "%s", p->reportAddress);
     k.focus = p->reportFocus;
     k.hover = ctx->reportHoverZone;
     k.canSend = p->reportNote[0] != '\0';
@@ -808,7 +803,6 @@ static void updateReport(XrCtx* ctx, XrPanels* p) {
     j.kind = JOB_REPORT;
     j.slot = UI_PANEL_REPORT;
     memcpy(j.note, k.note, sizeof(j.note));
-    memcpy(j.address, k.address, sizeof(j.address));
     j.focus = k.focus;
     j.hover = k.hover;
     j.canSend = k.canSend;
@@ -822,8 +816,8 @@ void xrPanelsReportKey(XrCtx* ctx, int code) {
     if (p == NULL) {
         return;
     }
-    char* field = p->reportFocus == REPORT_ZONE_EMAIL ? p->reportAddress : p->reportNote;
-    size_t cap = p->reportFocus == REPORT_ZONE_EMAIL ? sizeof(p->reportAddress) : sizeof(p->reportNote);
+    char* field = p->reportNote;
+    size_t cap = sizeof(p->reportNote);
     size_t len = strlen(field);
     if (code == 8) {
         // Back over one whole UTF-8 character
@@ -835,7 +829,7 @@ void xrPanelsReportKey(XrCtx* ctx, int code) {
         }
         field[len] = '\0';
     }
-    else if (code == 13 && p->reportFocus == REPORT_ZONE_NOTE) {
+    else if (code == 13) {
         if (len + 1 < cap) {
             field[len] = '\n';
             field[len + 1] = '\0';
@@ -859,19 +853,18 @@ void xrPanelsReportEvent(XrCtx* ctx, int event, const char* reportDir) {
     }
     if (event == REPORT_OPENED) {
         p->reportNote[0] = '\0';
-        p->reportAddress[0] = '\0';
         p->reportFocus = REPORT_ZONE_NOTE;
         ctx->reportReady = 0;
         p->drawn[UI_PANEL_REPORT] = 0; // drawn afresh for this opening
         dropSlot(p, UI_PANEL_REPORT);  // Native: nor a drawing of the last one landing
     }
-    else if (event == REPORT_ZONE_NOTE || event == REPORT_ZONE_EMAIL) {
+    else if (event == REPORT_ZONE_NOTE) {
         p->reportFocus = event;
     }
     else if (event == REPORT_ZONE_SEND) {
         // Native: there is no report server here; the note goes in the log and
         // in a file beside it, for the owner to pass on
-        LOGEV("problem report from the headset: \"%s\" (address \"%s\")", p->reportNote, p->reportAddress);
+        LOGEV("problem report from the headset: \"%s\"", p->reportNote);
         if (reportDir != NULL) {
             char path[512];
             time_t t = time(NULL);
@@ -881,7 +874,7 @@ void xrPanelsReportEvent(XrCtx* ctx, int event, const char* reportDir) {
                      tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
             FILE* f = fopen(path, "w");
             if (f != NULL) {
-                fprintf(f, "%s\n\naddress: %s\n", p->reportNote, p->reportAddress);
+                fprintf(f, "%s\n", p->reportNote);
                 fclose(f);
                 LOGEV("problem report saved to %s", path);
             }

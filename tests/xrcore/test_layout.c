@@ -752,20 +752,17 @@ static void testTheReportParts(void) {
 
     float mid = (REPORT_FIELD_L + REPORT_FIELD_R) * 0.5f;
     CHECK(reportZone(mid, (REPORT_NOTE_T + REPORT_NOTE_B) * 0.5f) == REPORT_ZONE_NOTE);
-    CHECK(reportZone(mid, (REPORT_EMAIL_T + REPORT_EMAIL_B) * 0.5f) == REPORT_ZONE_EMAIL);
     float btn = (REPORT_BTN_T + REPORT_BTN_B) * 0.5f;
     CHECK(reportZone((REPORT_CANCEL_L + REPORT_CANCEL_R) * 0.5f, btn) == REPORT_ZONE_CANCEL);
     CHECK(reportZone((REPORT_SEND_L + REPORT_SEND_R) * 0.5f, btn) == REPORT_ZONE_SEND);
-    // The gap between the buttons, the words between the fields, the title
+    // The gap between the buttons, the gap above the buttons, the title
     // and the margins are nothing
     CHECK(reportZone(0.5f, btn) == REPORT_ZONE_NONE);
-    CHECK(reportZone(mid, (REPORT_NOTE_B + REPORT_EMAIL_T) * 0.5f) == REPORT_ZONE_NONE);
-    CHECK(reportZone(mid, (REPORT_EMAIL_B + REPORT_BTN_T) * 0.5f) == REPORT_ZONE_NONE);
+    CHECK(reportZone(mid, (REPORT_NOTE_B + REPORT_BTN_T) * 0.5f) == REPORT_ZONE_NONE);
     CHECK(reportZone(mid, 0.05f) == REPORT_ZONE_NONE);
     CHECK(reportZone(0.02f, (REPORT_NOTE_T + REPORT_NOTE_B) * 0.5f) == REPORT_ZONE_NONE);
     // Top to bottom without overlapping, inside the sheet
-    CHECK(REPORT_NOTE_T < REPORT_NOTE_B && REPORT_NOTE_B < REPORT_EMAIL_T);
-    CHECK(REPORT_EMAIL_T < REPORT_EMAIL_B && REPORT_EMAIL_B < REPORT_BTN_T);
+    CHECK(REPORT_NOTE_T < REPORT_NOTE_B && REPORT_NOTE_B < REPORT_BTN_T);
     CHECK(REPORT_BTN_T < REPORT_BTN_B && REPORT_BTN_B < 1.0f);
     CHECK(REPORT_CANCEL_R < REPORT_SEND_L);
     // The opening is an event of its own, apart from every zone

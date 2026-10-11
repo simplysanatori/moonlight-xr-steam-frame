@@ -2513,7 +2513,7 @@ static void pressKey(XrCtx* ctx, InputFrame* f, int key, int intoReport) {
 
 // A press on a part of the report sheet. A field takes the keys, bringing
 // the keyboard back if it was hidden. Send goes only once Java has said the
-// note and the address will do, and closes the sheet along with Cancel.
+// note will do, and closes the sheet along with Cancel.
 static void pressReport(XrCtx* ctx, InputFrame* f, int zone) {
     if (zone == REPORT_ZONE_NONE || (zone == REPORT_ZONE_SEND && !ctx->reportSendReady)) {
         if (zone == REPORT_ZONE_SEND) {
@@ -2523,13 +2523,13 @@ static void pressReport(XrCtx* ctx, InputFrame* f, int zone) {
     }
     ctx->clickPending = 1;
     f->out[IN_REPORT] = (float)zone;
-    if (zone == REPORT_ZONE_NOTE || zone == REPORT_ZONE_EMAIL) {
+    if (zone == REPORT_ZONE_NOTE) {
         if (!ctx->kbOpen) {
             ctx->kbOpen = 1;
             ctx->kbState = KB_STATE_LOWER;
             kbPlace(ctx);
         }
-        LOGI("report field %s takes the keys", zone == REPORT_ZONE_NOTE ? "note" : "address");
+        LOGI("report note takes the keys");
         return;
     }
     ctx->reportOpen = 0;

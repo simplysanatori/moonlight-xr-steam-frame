@@ -183,12 +183,12 @@ int render_all_panels(const char* dir) {
     {
         uint8_t* buf;
         UiCanvas cv = make(&buf, UI_PANEL_REPORT, 1.0f);
-        UiReport r = { "", "", REPORT_ZONE_NOTE, REPORT_ZONE_NONE, 0, 0 };
+        UiReport r = { "", REPORT_ZONE_NOTE, REPORT_ZONE_NONE, 0 };
         ui_draw_report(&cv, &r, NULL);
         save(dir, "report_empty", &cv, 0);
         ui_cv_clear(&cv);
         UiReport r2 = { "The picture froze for a second when I opened the keyboard, then the ray stopped following my right hand until I put the controller down and picked it up again. It happened three times in ten minutes.",
-                        "someone@example.com", REPORT_ZONE_EMAIL, REPORT_ZONE_SEND, 1, 0 };
+                        REPORT_ZONE_NOTE, REPORT_ZONE_SEND, 1 };
         ui_draw_report(&cv, &r2, NULL);
         save(dir, "report_filled", &cv, 0);
         free(buf);

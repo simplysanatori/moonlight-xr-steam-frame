@@ -180,7 +180,7 @@ Brightness (-50 to 50), Contrast (50 to 150 %), Gamma (0.50 to 2.00) and Saturat
 
 ### About
 
-The version, the log file, a link to support Moonlight XR on Ko-fi, and **Report a problem**. The report sheet saves your note (and an email address if you give one) on the Frame in `~/Games/MoonlightXRNative/reports`. Nothing leaves the headset. Run `bug-report.sh` to bundle it with the logs. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
+The version, the log file, a link to support Moonlight XR on Ko-fi, and **Report a problem**. The report sheet saves your note on the Frame in `~/Games/MoonlightXRNative/reports`. Nothing leaves the headset. To report it, run `bug-report.sh` and open an issue on GitHub with the zip. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
 
 ## Controllers
 
