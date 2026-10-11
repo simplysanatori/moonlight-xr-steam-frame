@@ -37,6 +37,47 @@ int xrArtAcquire(XrSwapchain swapchain, const char* what, uint32_t* index);
 // depth pass of the frame)
 VkImageView xrWorldDepth(XrCtx* ctx, int w, int h);
 
+// ---- native (lane eye-swapchains): an image per eye ---------------------------------------
+// SteamVR 2.18's client library downsamples, every frame, in a pass inside our
+// process, any scene texture past STEAMVR_TEXTURE_MAX (3458) on a side
+// (rooms/room_logic.h). Both eyes side by side in one swapchain went past it
+// at the recommended 2160 per eye, so every projection layer has a swapchain
+// per eye: the two views of a layer each name their own XrSwapchainSubImage.
+// One projection layer a frame still (xrWorldPlanLayers). The passes draw
+// into an XrEyeTargets: an image per eye (the session), or the two halves of
+// one side by side image (the tests' and the snapshot tool's readbacks:
+// view[0] == view[1], x[1] == eyeW), drawn in one pass as before. Each eye is
+// drawn once either way.
+typedef struct XrEyeTargets {
+    VkImage image[ROOM_EYES];     // for the barriers between two passes
+    VkImageView view[ROOM_EYES];
+    int x[ROOM_EYES];             // the eye's left edge in its image
+    int eyeW, eyeH;
+    VkFormat format;
+    int clear;                    // the next panel pass clears each eye's rect first
+    // The depth the room's and the models' passes clear and use: eyeW x eyeH
+    // at least for an image per eye, 2 eyeW x eyeH side by side
+    VkImage depthImage;
+    VkImageView depthView;
+} XrEyeTargets;
+XrEyeTargets xrEyesPerImage(const VkImage image[ROOM_EYES], const VkImageView view[ROOM_EYES], VkFormat format,
+                            int eyeW, int eyeH);
+XrEyeTargets xrEyesSideBySide(VkImage image, VkImageView view, VkFormat format, int eyeW, int eyeH);
+// Both eyes in one image (one pass draws both)
+int xrEyesShared(const XrEyeTargets* t);
+// One eye's rect of its image as a pass target (clear from t->clear)
+MlxrTarget xrEyeTarget(const XrEyeTargets* t, int eye);
+// Orders the next pass after the last one, on each image (COLOR -> COLOR)
+void xrEyesBarrier(VkCommandBuffer cmd, const XrEyeTargets* t);
+// Points the targets at the room's and the models' shared depth image, made
+// large enough (xrWorldDepth); 0 when it could not be made
+int xrEyesWorldDepth(XrCtx* ctx, XrEyeTargets* t);
+// mlxr_pass_panel for both eyes: pp's mvp[e] and uvRect[e] per eye (its
+// eyeRect and eyes are filled here); src, when not NULL, the image each eye
+// samples (an image per eye of a 3D picture), else pp->src for both
+void xrEyesPanel(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* t, const MlxrPanelParams* pp,
+                 const VkImageView* src);
+
 // ---- the frame -------------------------------------------------------------------------
 // Where the rooms and the controller model are read from: ./assets (the
 // installed app runs from its own directory), else beside the binary, else
@@ -73,20 +114,19 @@ int xrWorldGlowShown(XrCtx* ctx);
 // The glow drawn on the curved picture's surface, a little proud of it, into
 // a projection layer target (the curved picture's own; native, there being no
 // cylinder layers): one draw per eye
-void xrWorldCurvedGlow(XrCtx* ctx, const MlxrTarget* target, const XrView* views, int eyeW, int eyeH);
+void xrWorldCurvedGlow(XrCtx* ctx, const XrEyeTargets* target, const XrView* views);
 // Native: the flat glow drawn the same way, into the picture's own projection
 // layer under the picture (flat in 3D): SteamVR puts quad layers over a
 // projection layer whatever their order, so the glow quad would cover it
-void xrWorldFlatGlowInto(XrCtx* ctx, const MlxrTarget* target, const XrView* views, int eyeW, int eyeH);
+void xrWorldFlatGlowInto(XrCtx* ctx, const XrEyeTargets* target, const XrView* views);
 
 // The room's own pass into any target (renderRoom's draw; the snapshot tool
-// draws through it too). colour in COLOR_ATTACHMENT_OPTIMAL, depth in
-// DEPTH_STENCIL_ATTACHMENT_OPTIMAL.
-void xrRoomRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat format, VkImageView depth,
-                  int eyeW, int eyeH, const XrView* views);
-// The models' pass the same way
-void xrModelRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat format, VkImageView depth,
-                   int eyeW, int eyeH, const XrView* views);
+// draws through it too). The colour images in COLOR_ATTACHMENT_OPTIMAL, the
+// depth (target->depthView) in DEPTH_STENCIL_ATTACHMENT_OPTIMAL. Native (lane
+// eye-swapchains): an image per eye or both side by side (XrEyeTargets).
+void xrRoomRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, const XrView* views);
+// The models' pass the same way, clearing round them
+void xrModelRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, const XrView* views);
 // The resident room's style (0 none) and whether a load is under way
 int xrRoomResident(XrCtx* ctx);
 // Native: frames the room was drawn on and frames it kept an older image on,
@@ -98,12 +138,10 @@ void xrRoomTakeCounts(int* drawn, int* stale);
 void xrWorldPlanLayers(XrCtx* ctx, int pictureProjected);
 // The room as the background of another layer's image, clearing it, from that
 // layer's views; 1 if it drew
-int xrRoomRecordInto(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat format, int eyeW, int eyeH,
-                     const XrView* views);
+int xrRoomRecordInto(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, const XrView* views);
 // The models over what an image already holds (the picture's or the room's),
-// from that image's views; image is the colour image, for the barrier
-void xrModelRecordOver(XrCtx* ctx, VkCommandBuffer cmd, VkImage image, VkImageView colour, VkFormat format, int eyeW,
-                       int eyeH, const XrView* views);
+// from that image's views (the target's images, for the barrier)
+void xrModelRecordOver(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, const XrView* views);
 int xrRoomLoading(XrCtx* ctx);
 // Rooms freed since the start and rooms waiting on the GPU (tests)
 int xrRoomsRetired(XrCtx* ctx);

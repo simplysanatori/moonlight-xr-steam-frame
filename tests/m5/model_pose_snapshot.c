@@ -38,7 +38,11 @@ static void body(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     mlxr_barrier(cmd, c->depth.img.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                  VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    xrModelRecord(ctx, cmd, c->colour.img.view, VK_FORMAT_R8G8B8A8_SRGB, c->depth.img.view, c->w, c->h, c->views);
+    // Both eyes side by side in one image, one pass
+    XrEyeTargets t = xrEyesSideBySide(c->colour.img.image, c->colour.img.view, VK_FORMAT_R8G8B8A8_SRGB, c->w, c->h);
+    t.depthImage = c->depth.img.image;
+    t.depthView = c->depth.img.view;
+    xrModelRecord(ctx, cmd, &t, c->views);
 }
 
 // A camera 'dist' from target along the direction given by yaw about +y then pitch about +x

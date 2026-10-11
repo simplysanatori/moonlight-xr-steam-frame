@@ -984,7 +984,9 @@ void xrDepthPicture(XrCtx* ctx, const MlxrVideo* video, int newFrame, uint64_t f
     // Mono is a single full width draw with zero disparity, which with the 3D
     // switched off lands in the left half of the double wide chain. Stereo
     // draws the left eye into the left half and the right eye into the right
-    // half, with opposite disparity signs.
+    // half, with opposite disparity signs. Native (lane eye-swapchains): or
+    // each eye into an image of its own (xrDepthRecordWarpEyes), the curved and
+    // 3D picture's.
     int eyes = warping ? 2 : 1;
     out->eyes = eyes;
     out->upsampled = upsampling;
@@ -1036,11 +1038,10 @@ void xrDepthPicture(XrCtx* ctx, const MlxrVideo* video, int newFrame, uint64_t f
     }
 }
 
-void xrDepthRecordWarp(XrCtx* ctx, VkCommandBuffer cmd, const MlxrTarget* target, const MlxrWarpParams* common,
-                       const XrDepthDraw* draw) {
+void xrDepthRecordWarpEyes(XrCtx* ctx, VkCommandBuffer cmd, const MlxrTarget eyes[2], const MlxrWarpParams* common,
+                           const XrDepthDraw* draw) {
     for (int eye = 0; eye < draw->eyes; eye++) {
-        MlxrTarget t = *target;
-        t.rect.offset.x += eye * (int32_t)target->rect.extent.width;
+        const MlxrTarget* t = &eyes[eye];
         const MlxrWarpParams* e = &draw->eye[eye];
         MlxrWarpParams w = *common;
         w.depth = e->depth;
@@ -1057,8 +1058,16 @@ void xrDepthRecordWarp(XrCtx* ctx, VkCommandBuffer cmd, const MlxrTarget* target
         w.showDepth = e->showDepth;
         w.barTest = e->barTest;
         for (int c = 0; c < 3; c++) w.tint[c] = common->tint[c] * e->tint[c];
-        mlxr_pass_warp(ctx->passes, cmd, &t, &w);
+        mlxr_pass_warp(ctx->passes, cmd, t, &w);
     }
+}
+
+void xrDepthRecordWarp(XrCtx* ctx, VkCommandBuffer cmd, const MlxrTarget* target, const MlxrWarpParams* common,
+                       const XrDepthDraw* draw) {
+    // The halves of one double wide target
+    MlxrTarget eyes[2] = { *target, *target };
+    eyes[1].rect.offset.x += (int32_t)target->rect.extent.width;
+    xrDepthRecordWarpEyes(ctx, cmd, eyes, common, draw);
 }
 
 void xrDepthSubmitted(XrCtx* ctx, uint64_t serial) {

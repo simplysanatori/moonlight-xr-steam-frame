@@ -5,7 +5,9 @@
 // sample of the picture (xrWorldVideoFrame), the controller models
 // (xrModelRecord) at two grips, and the curved picture with its glow drawn
 // into its layer. Writes PNGs into the directory given (ui-snapshots runs it
-// next to mlxr-ui-snapshot). GPLv3.
+// next to mlxr-ui-snapshot). Native (lane eye-swapchains): every pass draws
+// into an image per eye, as the session's swapchains are now; the left eye's
+// image is composed. GPLv3.
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -22,6 +24,10 @@
 #define FAKE_MODEL ((XrSwapchain)(uintptr_t)0x7002)
 #define FAKE_GLOW ((XrSwapchain)(uintptr_t)0x7003)
 #define FAKE_CURVE ((XrSwapchain)(uintptr_t)0x7004)
+// Native (lane eye-swapchains): the right eye's own swapchains
+#define FAKE_ROOM_RIGHT ((XrSwapchain)(uintptr_t)0x7011)
+#define FAKE_MODEL_RIGHT ((XrSwapchain)(uintptr_t)0x7012)
+#define FAKE_CURVE_RIGHT ((XrSwapchain)(uintptr_t)0x7014)
 
 static M5Gpu g;
 static M5Video video;
@@ -82,32 +88,42 @@ static int projTexel(void* user, const XrCompositionLayerProjection* layer, int 
     XrSwapchain sc = layer->views[0].subImage.swapchain;
     const uint8_t* src = sc == FAKE_ROOM ? im.room : sc == FAKE_MODEL ? im.models : sc == FAKE_CURVE ? im.curve : NULL;
     if (src == NULL) return 0;
-    // The left eye's half of a double wide image
-    const uint8_t* p = src + ((size_t)y * (2 * W) + x) * 4;
+    // The left eye's own image
+    const uint8_t* p = src + ((size_t)y * W + x) * 4;
     for (int k = 0; k < 4; k++) out[k] = p[k] / 255.0f;
     return 1;
 }
 
 static XrView views[2];
-static M5Image colour, depth;
+// Native (lane eye-swapchains): an image per eye, as the session's swapchains
+static M5Image eyeImg[2], depth;
 
-static void clearTargets(VkCommandBuffer cmd) {
-    mlxr_barrier(cmd, colour.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+// Both eyes' images and the depth moved to attachment, as the targets of a pass
+static XrEyeTargets eyesNow(VkCommandBuffer cmd) {
+    VkImage im2[2] = { eyeImg[0].img.image, eyeImg[1].img.image };
+    VkImageView v2[2] = { eyeImg[0].img.view, eyeImg[1].img.view };
+    for (int e = 0; e < 2; e++) {
+        mlxr_barrier(cmd, im2[e], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    }
     mlxr_barrier(cmd, depth.img.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                  VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    XrEyeTargets t = xrEyesPerImage(im2, v2, VK_FORMAT_R8G8B8A8_SRGB, W, H);
+    t.depthImage = depth.img.image;
+    t.depthView = depth.img.view;
+    return t;
 }
 
 static void roomBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
     (void)user;
-    clearTargets(cmd);
-    xrRoomRecord(ctx, cmd, colour.img.view, VK_FORMAT_R8G8B8A8_SRGB, depth.img.view, W, H, views);
+    XrEyeTargets t = eyesNow(cmd);
+    xrRoomRecord(ctx, cmd, &t, views);
 }
 
 static void modelBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
     (void)user;
-    clearTargets(cmd);
-    xrModelRecord(ctx, cmd, colour.img.view, VK_FORMAT_R8G8B8A8_SRGB, depth.img.view, W, H, views);
+    XrEyeTargets t = eyesNow(cmd);
+    xrModelRecord(ctx, cmd, &t, views);
 }
 
 static void glowBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
@@ -118,83 +134,60 @@ static void glowBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
 
 static M5Image curvePic;
 
-static void curveBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
-    (void)user;
-    clearTargets(cmd);
-    MlxrTarget tg;
-    memset(&tg, 0, sizeof(tg));
-    tg.view = colour.img.view;
-    tg.format = VK_FORMAT_R8G8B8A8_SRGB;
-    tg.rect.extent = (VkExtent2D){ 2 * W, H };
-    tg.clear = 1;
-    // curveRecord's order: the glow, then the picture over it
-    xrWorldCurvedGlow(ctx, &tg, views, W, H);
-    tg.clear = 0;
-    mlxr_barrier(cmd, colour.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+// The picture on its surface over what the targets hold, as curveRecord draws it
+static void pictureInto(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* tg) {
     MlxrPanelParams pp;
     memset(&pp, 0, sizeof(pp));
     pp.src = curvePic.img.view;
-    pp.eyes = 2;
     xrCurveShape(ctx, &pp.width, &pp.height, &pp.radius);
     pp.segments = 96;
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
     for (int e = 0; e < 2; e++) {
         xrCurveMvp(views[e].fov, views[e].pose, ctx->screenPose, pp.mvp[e]);
-        pp.eyeRect[e].offset.x = e * W;
-        pp.eyeRect[e].extent = (VkExtent2D){ W, H };
         pp.uvRect[e][2] = pp.uvRect[e][3] = 1.0f;
     }
-    mlxr_pass_panel(ctx->passes, cmd, &tg, &pp);
+    xrEyesPanel(ctx, cmd, tg, &pp, NULL);
+}
+
+static void curveBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
+    (void)user;
+    XrEyeTargets tg = eyesNow(cmd);
+    tg.clear = 1;
+    // curveRecord's order: the glow, then the picture over it
+    xrWorldCurvedGlow(ctx, &tg, views);
+    tg.clear = 0;
+    xrEyesBarrier(cmd, &tg);
+    pictureInto(ctx, cmd, &tg);
 }
 
 // Native: one projection layer a frame (xrWorldPlanLayers). The room, the
-// flat 3D picture with its glow and the models drawn into the picture's one
-// image the way curveRecord draws them: room first (clearing), glow and
+// flat 3D picture with its glow and the models drawn into the picture's
+// images the way curveRecord draws them: room first (clearing), glow and
 // picture over it, models last.
 static void oneLayerBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
     (void)user;
-    mlxr_barrier(cmd, colour.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    MlxrTarget tg;
-    memset(&tg, 0, sizeof(tg));
-    tg.view = colour.img.view;
-    tg.format = VK_FORMAT_R8G8B8A8_SRGB;
-    tg.rect.extent = (VkExtent2D){ 2 * W, H };
+    XrEyeTargets tg = eyesNow(cmd);
+    tg.depthImage = VK_NULL_HANDLE; // the room and the models take the world's depth, as in the session
+    tg.depthView = VK_NULL_HANDLE;
     tg.clear = 1;
-    if (xrRoomRecordInto(ctx, cmd, tg.view, tg.format, W, H, views)) {
-        mlxr_barrier(cmd, colour.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    if (xrRoomRecordInto(ctx, cmd, &tg, views)) {
+        xrEyesBarrier(cmd, &tg);
         tg.clear = 0;
     }
     if (xrWorldGlowShown(ctx)) {
-        xrWorldFlatGlowInto(ctx, &tg, views, W, H);
-        mlxr_barrier(cmd, colour.img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        xrWorldFlatGlowInto(ctx, &tg, views);
+        xrEyesBarrier(cmd, &tg);
         tg.clear = 0;
     }
-    MlxrPanelParams pp;
-    memset(&pp, 0, sizeof(pp));
-    pp.src = curvePic.img.view;
-    pp.eyes = 2;
-    xrCurveShape(ctx, &pp.width, &pp.height, &pp.radius);
-    pp.segments = 96;
-    pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
-    for (int e = 0; e < 2; e++) {
-        xrCurveMvp(views[e].fov, views[e].pose, ctx->screenPose, pp.mvp[e]);
-        pp.eyeRect[e].offset.x = e * W;
-        pp.eyeRect[e].extent = (VkExtent2D){ W, H };
-        pp.uvRect[e][2] = pp.uvRect[e][3] = 1.0f;
-    }
-    mlxr_pass_panel(ctx->passes, cmd, &tg, &pp);
-    xrModelRecordOver(ctx, cmd, colour.img.image, tg.view, tg.format, W, H, views);
+    pictureInto(ctx, cmd, &tg);
+    xrModelRecordOver(ctx, cmd, &tg, views);
 }
 
 static int oneLayerFailures;
 
 static uint8_t* grab(void) {
-    uint8_t* px = malloc((size_t)2 * W * H * 4);
-    m5_readback(&g, colour.img.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 2 * W, H, px);
+    uint8_t* px = malloc((size_t)W * H * 4);
+    m5_readback(&g, eyeImg[0].img.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, W, H, px);
     return px;
 }
 
@@ -246,11 +239,13 @@ int main(int argc, char** argv) {
     ctx->overlayVisible = 0;
     m5_frame(&g, ctx, NULL, NULL);
     m5_video(&g, ctx, &video, 1920, 1080, sunset);
-    m5_image(&g, ctx, &colour, 2 * W, H, VK_FORMAT_R8G8B8A8_SRGB,
-             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-    m5_image(&g, ctx, &depth, 2 * W, H, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+    for (int e = 0; e < 2; e++) {
+        m5_image(&g, ctx, &eyeImg[e], W, H, VK_FORMAT_R8G8B8A8_SRGB,
+                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+    }
+    m5_image(&g, ctx, &depth, W, H, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
              VK_IMAGE_ASPECT_DEPTH_BIT);
-    // One eye at the seat for both halves (only the left is composed)
+    // One eye at the seat for both images (only the left is composed)
     views[0] = m5_view(HFOV, W, H, 0.0f);
     views[1] = views[0];
 
@@ -267,7 +262,8 @@ int main(int argc, char** argv) {
     ctx->modelGrip[HAND_RIGHT] = (XrPosef){ axisAngleQuat(ax, -0.60f), { 0.22f, -0.25f, -0.48f } };
     ctx->modelsShowing = 1;
     ctx->modelRendered = 1;
-    ctx->modelSwapchain = FAKE_MODEL;
+    ctx->modelSwapchain[0] = FAKE_MODEL;
+    ctx->modelSwapchain[1] = FAKE_MODEL_RIGHT;
     ctx->modelEyeWidth = W;
     ctx->modelEyeHeight = H;
     for (int e = 0; e < 2; e++) ctx->modelViews[e] = views[e];
@@ -312,7 +308,8 @@ int main(int argc, char** argv) {
         im.curve = grab();
         XrCompositionLayerProjectionView cv[2];
         memset(cv, 0, sizeof(cv));
-        cv[0].subImage.swapchain = cv[1].subImage.swapchain = FAKE_CURVE;
+        cv[0].subImage.swapchain = FAKE_CURVE;
+        cv[1].subImage.swapchain = FAKE_CURVE_RIGHT;
         XrCompositionLayerProjection curved;
         memset(&curved, 0, sizeof(curved));
         curved.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
@@ -328,7 +325,8 @@ int main(int argc, char** argv) {
     // Each room from the seat, lit by the picture, with the picture hung
     // where the room puts it, the glow where the room has it on, the models
     const char* names[4] = { "", "theater", "cinema", "synthwave" };
-    ctx->roomSwapchain = FAKE_ROOM;
+    ctx->roomSwapchain[0] = FAKE_ROOM;
+    ctx->roomSwapchain[1] = FAKE_ROOM_RIGHT;
     ctx->roomViewsValid = 1;
     ctx->roomRendered = 1;
     ctx->roomEyeWidth = W;
@@ -371,7 +369,7 @@ int main(int argc, char** argv) {
             int opaque = 1, modelsOver = 0, modelsSeen = 0, pictureSeen = 0;
             for (int y = 0; y < H; y += 4) {
                 for (int x = 0; x < W; x += 4) {
-                    size_t i = ((size_t)y * 2 * W + x) * 4;
+                    size_t i = ((size_t)y * W + x) * 4;
                     opaque &= one[i + 3] == 255;
                     if (im.models[i + 3] == 255) {
                         modelsSeen++;
@@ -389,7 +387,8 @@ int main(int argc, char** argv) {
             im.curve = one;
             XrCompositionLayerProjectionView ov[2];
             memset(ov, 0, sizeof(ov));
-            ov[0].subImage.swapchain = ov[1].subImage.swapchain = FAKE_CURVE;
+            ov[0].subImage.swapchain = FAKE_CURVE;
+            ov[1].subImage.swapchain = FAKE_CURVE_RIGHT;
             XrCompositionLayerProjection oneLayer;
             memset(&oneLayer, 0, sizeof(oneLayer));
             oneLayer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
@@ -433,10 +432,12 @@ int main(int argc, char** argv) {
     ctx->cogOpen = 0;
 
     m5_image_free(ctx, &curvePic);
-    m5_image_free(ctx, &colour);
+    m5_image_free(ctx, &eyeImg[0]);
+    m5_image_free(ctx, &eyeImg[1]);
     m5_image_free(ctx, &depth);
     m5_video_free(ctx, &video);
-    ctx->glowSwapchain = ctx->modelSwapchain = ctx->roomSwapchain = XR_NULL_HANDLE;
+    ctx->glowSwapchain = XR_NULL_HANDLE;
+    for (int e = 0; e < 2; e++) ctx->modelSwapchain[e] = ctx->roomSwapchain[e] = XR_NULL_HANDLE;
     xrWorldDestroy(ctx);
     scene_free(s);
     m5_gpu_free(&g);

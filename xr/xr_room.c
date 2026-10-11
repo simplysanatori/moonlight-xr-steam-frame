@@ -467,8 +467,10 @@ static int buildableRoomStyle(XrCtx* ctx, int style) {
 void worldEyeSize(XrCtx* ctx, int* outW, int* outH) {
     roomEyeSize(ctx->envResTier, ctx->recommendedEyeWidth, ctx->recommendedEyeHeight, ctx->maxEyeWidth,
                 ctx->maxEyeHeight, outW, outH);
-    // Native: inside the width SteamVR shows without downsampling it again
-    roomEyeFitScene(ctx->envResTier, outW, outH);
+    // Native (lane eye-swapchains): each eye inside the size SteamVR shows
+    // without downsampling it again (an image per eye now; standard used to be
+    // held at 1728 so both eyes fitted side by side)
+    roomEyeFitTexture(outW, outH);
 }
 
 // Brings up everything the room draws with, the first frame that asks for it.
@@ -487,13 +489,16 @@ static int initRoom(XrCtx* ctx) {
     int eyeH;
     worldEyeSize(ctx, &eyeW, &eyeH);
 
-    // Side by side, the same arrangement the video swapchain uses in stereo
+    // Native (lane eye-swapchains): a swapchain per eye rather than both
+    // side by side (upstream), each under SteamVR's 3458
     if (!ctx->offscreen) {
-        if (!createArtSwapchain(ctx, eyeW * ROOM_EYES, eyeH, "create room swapchain", &ctx->roomSwapchain,
-                                &ctx->roomImages, &ctx->roomImageViews, &ctx->roomImageCount)) {
-            return 0;
+        for (int eye = 0; eye < ROOM_EYES; eye++) {
+            if (!createArtSwapchain(ctx, eyeW, eyeH, "create room swapchain", &ctx->roomSwapchain[eye],
+                                    &ctx->roomImages[eye], &ctx->roomImageViews[eye], &ctx->roomImageCount[eye])) {
+                return 0;
+            }
         }
-        LOGEV("swapchains alive %d with the room's", ctx->swapchainsAlive);
+        LOGEV("swapchains alive %d with the room's two (one per eye)", ctx->swapchainsAlive);
     }
     // Native: the pipeline built now rather than on the first draw
     mlxr_passes_warm(ctx->passes, MLXR_PASS_ROOM, MLXR_VIDEO_YUV420P, VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_D32_SFLOAT);
@@ -519,9 +524,9 @@ static int initRoom(XrCtx* ctx) {
                          : tier == ENV_RES_HIGH ? "high"
                          : tier == ENV_RES_ULTRA ? "ultra"
                          : "standard";
-    LOGEV("room ready at %dx%d per eye, env res %s%s", eyeW, eyeH, tierName,
-          eyeW * ROOM_EYES > ROOM_SCENE_MAX_WIDTH ? " (wider than SteamVR's 3458, which it downsamples each frame)"
-                                                  : "");
+    LOGEV("room ready at %dx%d per eye, a swapchain each, env res %s (%s SteamVR's %d)", eyeW, eyeH, tierName,
+          eyeW <= STEAMVR_TEXTURE_MAX && eyeH <= STEAMVR_TEXTURE_MAX ? "within" : "past, so downsampled by",
+          STEAMVR_TEXTURE_MAX);
     return 1;
 }
 
@@ -592,23 +597,19 @@ void prepareRoom(XrCtx* ctx) {
     }
 }
 
-// The room itself, both eyes into their halves of the image (upstream
-// drawRoomEyes and the clear in renderRoom; native: mlxr_pass_room)
-void xrRoomRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat format, VkImageView depth,
-                  int eyeW, int eyeH, const XrView* views) {
-    MlxrTarget t;
-    memset(&t, 0, sizeof(t));
-    t.view = colour;
-    t.format = format;
-    t.rect.extent = (VkExtent2D){ (uint32_t)(eyeW * ROOM_EYES), (uint32_t)eyeH };
-    t.clear = 1;
+// The room itself, both eyes (upstream drawRoomEyes and the clear in
+// renderRoom; native: mlxr_pass_room). Native (lane eye-swapchains): into an
+// image per eye, a pass each with the depth cleared again between them, or
+// into the halves of one image in one pass.
+void xrRoomRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, const XrView* views) {
+    float clear[4];
     // Native: upstream's clear colour is gamma encoded and went into the image
     // as it was; an _SRGB target encodes the clear, so it is decoded first
     for (int c = 0; c < 3; c++) {
         float v = ctx->roomClear[c];
-        t.clearColor[c] = v <= 0.04045f ? v / 12.92f : powf((v + 0.055f) / 1.055f, 2.4f);
+        clear[c] = v <= 0.04045f ? v / 12.92f : powf((v + 0.055f) / 1.055f, 2.4f);
     }
-    t.clearColor[3] = 1.0f;
+    clear[3] = 1.0f;
 
     MlxrRoomParams rp;
     memset(&rp, 0, sizeof(rp));
@@ -623,21 +624,50 @@ void xrRoomRecord(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat 
     // own light level.
     int lit = ctx->ambiSeeded && ctx->roomLightOn;
     rp.ambi = ctx->ambiTexture.view;
-    rp.eyes = ROOM_EYES;
+    rp.spillGain = roomSpillGainFor(lit, built, ctx->roomSpillGain, ctx->roomLightLevel);
+    rp.dim = roomDim(ctx);
+    rp.depth = target->depthView;
+    rp.depthFormat = VK_FORMAT_D32_SFLOAT;
+    float viewProj[ROOM_EYES][16];
     for (int eye = 0; eye < ROOM_EYES; eye++) {
         // Near enough to walk into a wall without it clipping, far enough to
         // hold whatever this room reaches to
-        roomEyeViewProj(rp.viewProj[eye], views[eye].fov, views[eye].pose, ctx->roomFarZ);
-        rp.eyeRect[eye].offset.x = eye * eyeW;
-        rp.eyeRect[eye].extent = (VkExtent2D){ (uint32_t)eyeW, (uint32_t)eyeH };
+        roomEyeViewProj(viewProj[eye], views[eye].fov, views[eye].pose, ctx->roomFarZ);
     }
-    rp.spillGain = roomSpillGainFor(lit, built, ctx->roomSpillGain, ctx->roomLightLevel);
-    rp.dim = roomDim(ctx);
-    rp.depth = depth;
-    rp.depthFormat = VK_FORMAT_D32_SFLOAT;
-    // Nothing until the room's model and atlas have both landed: the clear is
-    // the whole pass until they do (a pass with no parts)
-    mlxr_pass_room(ctx->passes, cmd, &t, &rp);
+    int shared = xrEyesShared(target);
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        MlxrTarget t = xrEyeTarget(target, eye);
+        memcpy(t.clearColor, clear, sizeof(clear));
+        t.clear = 1;
+        if (shared) {
+            // Both halves in one pass
+            t.rect.extent.width = (uint32_t)(target->eyeW * ROOM_EYES);
+            rp.eyes = ROOM_EYES;
+            for (int e = 0; e < ROOM_EYES; e++) {
+                memcpy(rp.viewProj[e], viewProj[e], sizeof(viewProj[e]));
+                rp.eyeRect[e].offset.x = target->x[e];
+                rp.eyeRect[e].offset.y = 0;
+                rp.eyeRect[e].extent = (VkExtent2D){ (uint32_t)target->eyeW, (uint32_t)target->eyeH };
+            }
+        }
+        else {
+            if (eye > 0 && target->depthImage != VK_NULL_HANDLE) {
+                // The depth again, after the first eye's pass
+                mlxr_barrier(cmd, target->depthImage, VK_IMAGE_ASPECT_DEPTH_BIT,
+                             VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                             VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            }
+            rp.eyes = 1;
+            memcpy(rp.viewProj[0], viewProj[eye], sizeof(viewProj[eye]));
+            rp.eyeRect[0] = t.rect;
+        }
+        // Nothing until the room's model and atlas have both landed: the clear
+        // is the whole pass until they do (a pass with no parts)
+        mlxr_pass_room(ctx->passes, cmd, &t, &rp);
+        if (shared) {
+            break;
+        }
+    }
 }
 
 // Native: frames the room was drawn on and frames it was asked for but kept an
@@ -662,28 +692,42 @@ void renderRoom(XrCtx* ctx) {
         g_roomStale++;
         return;
     }
-    uint32_t index = 0;
-    if (!xrArtAcquire(ctx->roomSwapchain, "acquire room image", &index)) {
-        g_roomStale++;
-        return;
+    // Native (lane eye-swapchains): an image of each eye's swapchain
+    uint32_t index[ROOM_EYES] = { 0, 0 };
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        if (!xrArtAcquire(ctx->roomSwapchain[eye], "acquire room image", &index[eye])) {
+            if (eye > 0) {
+                XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+                xrReleaseSwapchainImage(ctx->roomSwapchain[0], &rl);
+            }
+            g_roomStale++;
+            return;
+        }
     }
     g_roomDrawn++;
     VkCommandBuffer cmd = ctx->frameCmd;
+    VkImage images[ROOM_EYES];
+    VkImageView views[ROOM_EYES];
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        images[eye] = ctx->roomImages[eye][index[eye]].image;
+        views[eye] = ctx->roomImageViews[eye][index[eye]];
+    }
+    XrEyeTargets tg = xrEyesPerImage(images, views, VK_FORMAT_R8G8B8A8_SRGB, ctx->roomEyeWidth, ctx->roomEyeHeight);
     xrGpuTimeBegin(ctx, GPU_ROOM);
-    mlxr_barrier(cmd, ctx->roomImages[index].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    VkImageView depth = xrWorldDepth(ctx, ctx->roomEyeWidth * ROOM_EYES, ctx->roomEyeHeight);
-    if (depth != VK_NULL_HANDLE) {
-        xrRoomRecord(ctx, cmd, ctx->roomImageViews[index], VK_FORMAT_R8G8B8A8_SRGB, depth, ctx->roomEyeWidth,
-                     ctx->roomEyeHeight, ctx->roomViews);
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        mlxr_barrier(cmd, images[eye], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    }
+    int depth = xrEyesWorldDepth(ctx, &tg);
+    if (depth) {
+        xrRoomRecord(ctx, cmd, &tg, ctx->roomViews);
     }
     xrGpuTimeEnd(ctx, GPU_ROOM);
     // Native: the models in the room's own layer rather than a second one
-    if (ctx->modelsInRoom && depth != VK_NULL_HANDLE) {
-        xrModelRecordOver(ctx, cmd, ctx->roomImages[index].image, ctx->roomImageViews[index], VK_FORMAT_R8G8B8A8_SRGB,
-                          ctx->roomEyeWidth, ctx->roomEyeHeight, ctx->roomViews);
+    if (ctx->modelsInRoom && depth) {
+        xrModelRecordOver(ctx, cmd, &tg, ctx->roomViews);
     }
-    ctx->roomAcquired = 1;
+    ctx->roomAcquired = (1 << ROOM_EYES) - 1;
     if (!ctx->roomRendered) {
         LOGEV("room drawn for the first time (style %d built)", ctx->roomBuiltStyle);
     }
@@ -696,19 +740,18 @@ void renderRoom(XrCtx* ctx) {
 // Native: the room drawn as the background of another projection layer's
 // image (the picture's, xrWorldPlanLayers), from that layer's views and at its
 // size, clearing it. Returns whether it drew.
-int xrRoomRecordInto(XrCtx* ctx, VkCommandBuffer cmd, VkImageView colour, VkFormat format, int eyeW, int eyeH,
-                     const XrView* views) {
+int xrRoomRecordInto(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, const XrView* views) {
     if (!ctx->roomReady || cmd == VK_NULL_HANDLE || ctx->ambiTexture.view == VK_NULL_HANDLE) {
         g_roomStale++;
         return 0;
     }
-    VkImageView depth = xrWorldDepth(ctx, eyeW * ROOM_EYES, eyeH);
-    if (depth == VK_NULL_HANDLE) {
+    XrEyeTargets t = *target;
+    if (!xrEyesWorldDepth(ctx, &t)) {
         g_roomStale++;
         return 0;
     }
     xrGpuTimeBegin(ctx, GPU_ROOM);
-    xrRoomRecord(ctx, cmd, colour, format, depth, eyeW, eyeH, views);
+    xrRoomRecord(ctx, cmd, &t, views);
     xrGpuTimeEnd(ctx, GPU_ROOM);
     g_roomDrawn++;
     if (!ctx->roomRendered) {

@@ -659,6 +659,7 @@ static void testStates(void) {
 #define FAKE_ROOM ((XrSwapchain)(uintptr_t)0x7001)
 #define FAKE_GLOW ((XrSwapchain)(uintptr_t)0x7002)
 #define FAKE_MODEL ((XrSwapchain)(uintptr_t)0x7003)
+#define FAKE_MODEL_RIGHT ((XrSwapchain)(uintptr_t)0x7013)
 
 static int pictureQuads(const XrFrameOut* out) {
     int n = 0;
@@ -670,7 +671,7 @@ static int pictureQuads(const XrFrameOut* out) {
 }
 
 // Native: SteamVR shows no quad seen by one eye only, so in 3D the picture is
-// the app's own projection layer (both eyes' halves), as the curved one
+// the app's own projection layer (an image per eye), as the curved one
 static XrCompositionLayerProjection fakePicture = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
 
 static int onePictureLayer(const XrFrameOut* out) {
@@ -712,7 +713,9 @@ static void testBudget(void) {
     c->glowSwapchain = FAKE_GLOW;
     c->glowSwapchainFilled = 1;
     c->glowRendered = 1;
-    c->modelSwapchain = FAKE_MODEL;
+    // Native (lane eye-swapchains): a swapchain per eye
+    c->modelSwapchain[0] = FAKE_MODEL;
+    c->modelSwapchain[1] = FAKE_MODEL_RIGHT;
     c->modelsShowing = 1;
     c->modelRendered = 1;
     c->modelEyeWidth = c->modelEyeHeight = 1728;

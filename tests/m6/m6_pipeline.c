@@ -2,8 +2,9 @@
 // code the session runs (xr/xr_depth.c), on a clip:
 //   file -> V4L2 Iris hardware decoder -> cached dma-buf import (NV12)
 //   -> downscale + readback -> stage thread -> LiteRT (ZipDepth) on the
-//   depth thread -> depth texture -> upsample -> offset search -> warp, both
-//   eyes into a double wide image
+//   depth thread -> depth texture -> upsample -> offset search -> warp, each
+//   eye into an image of its own (native, lane eye-swapchains: as the
+//   session's curved and 3D picture)
 // paced like a 90 Hz frame loop for --seconds. Writes left.png, right.png,
 // depth.png (the map the warp used, 1 = near = white), upsample.png and
 // anaglyph.png into --out, and prints maps/s, model ms, capture to display
@@ -63,7 +64,7 @@ typedef struct {
     Import* im;
     uint64_t frameId;
     int64_t frameNs;
-    M5Image* target;
+    M5Image* target; // an image per eye
     int eyes;
 } Body;
 
@@ -73,18 +74,22 @@ static void body(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
     XrDepthDraw dd;
     xrDepthPicture(ctx, &b->video, 1, b->frameId, b->frameNs, &dd);
     xrGpuTimeBegin(ctx, GPU_WARP);
-    xrVkImageTo(ctx, &b->target->img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    MlxrTarget t;
-    memset(&t, 0, sizeof(t));
-    t.view = b->target->img.view;
-    t.format = b->target->img.format;
-    t.rect.extent = (VkExtent2D){ b->video.width, b->video.height };
+    MlxrTarget t[2];
+    memset(t, 0, sizeof(t));
+    for (int e = 0; e < 2; e++) {
+        xrVkImageTo(ctx, &b->target[e].img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        t[e].view = b->target[e].img.view;
+        t[e].format = b->target[e].img.format;
+        t[e].rect.extent = (VkExtent2D){ b->video.width, b->video.height };
+    }
     MlxrWarpParams w;
     memset(&w, 0, sizeof(w));
     w.video = b->video;
     w.tint[0] = w.tint[1] = w.tint[2] = 1.0f;
-    xrDepthRecordWarp(ctx, cmd, &t, &w, &dd);
-    xrVkImageTo(ctx, &b->target->img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    xrDepthRecordWarpEyes(ctx, cmd, t, &w, &dd);
+    for (int e = 0; e < 2; e++) {
+        xrVkImageTo(ctx, &b->target[e].img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
     xrGpuTimeEnd(ctx, GPU_WARP);
     mlxr_vkimp_cmd_release(b->im->imp, cmd, b->img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     ctx->drawnEyes = dd.eyes;
@@ -221,8 +226,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    M5Image target;
-    memset(&target, 0, sizeof(target));
+    M5Image target[2];
+    memset(target, 0, sizeof(target));
     int W = 0, H = 0;
     const int64_t period = 1000000000LL / 90;
     int64_t start = nowNs(), next = start;
@@ -244,13 +249,15 @@ int main(int argc, char** argv) {
                 hw_video_release(hv, &hf);
             }
             else {
-                if (target.img.image == NULL) {
+                if (target[0].img.image == NULL) {
                     W = (int)hf.width;
                     H = (int)hf.height;
-                    m5_image(&g, ctx, &target, 2 * W, H, VK_FORMAT_R8G8B8A8_UNORM,
-                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-                                     | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                             VK_IMAGE_ASPECT_COLOR_BIT);
+                    for (int e = 0; e < 2; e++) {
+                        m5_image(&g, ctx, &target[e], W, H, VK_FORMAT_R8G8B8A8_UNORM,
+                                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                                         | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                                 VK_IMAGE_ASPECT_COLOR_BIT);
+                    }
                 }
                 Body b;
                 memset(&b, 0, sizeof(b));
@@ -264,7 +271,7 @@ int main(int argc, char** argv) {
                 b.im = &im;
                 b.frameId = fid++;
                 b.frameNs = t0;
-                b.target = &target;
+                b.target = target;
                 m6_frame(&g, ctx, 0, body, &b);
                 mlxr_vkimp_frame_done_timeline(im.imp, &hf, g.timeline, g.serial);
                 videoFrames++;
@@ -347,10 +354,14 @@ int main(int argc, char** argv) {
     CHECK(info.submitFailed == 0);
 
     // The pictures
-    if (target.img.image != NULL && info.uploads > 0) {
+    if (target[0].img.image != NULL && info.uploads > 0) {
+        // Each eye's own image into its half of one side by side buffer
         uint8_t* eyes = malloc((size_t)2 * W * H * 4);
-        m5_readback(&g, target.img.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2 * W, H, eyes);
         uint8_t* one = malloc((size_t)W * H * 4);
+        for (int e = 0; e < 2; e++) {
+            m5_readback(&g, target[e].img.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, W, H, one);
+            for (int y = 0; y < H; y++) memcpy(eyes + ((size_t)y * 2 * W + e * W) * 4, one + (size_t)y * W * 4, (size_t)W * 4);
+        }
         char path[512];
         for (int e = 0; e < 2; e++) {
             for (int y = 0; y < H; y++) memcpy(one + (size_t)y * W * 4, eyes + ((size_t)y * 2 * W + e * W) * 4, (size_t)W * 4);
@@ -446,7 +457,8 @@ int main(int argc, char** argv) {
         if (im.views[i].view) vkDestroyImageView(g.vk.device, im.views[i].view, NULL);
     mlxr_vkimp_reset(im.imp);
     mlxr_vkimp_destroy(im.imp);
-    m5_image_free(ctx, &target);
+    m5_image_free(ctx, &target[0]);
+    m5_image_free(ctx, &target[1]);
     m6_ctx_free(ctx);
     file_source_stop(src);
     frame_slot_destroy(&slot);

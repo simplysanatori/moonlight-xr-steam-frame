@@ -22,6 +22,9 @@
 // Stand ins for the swapchains the session would have made
 #define FAKE_ROOM ((XrSwapchain)(uintptr_t)0x7001)
 #define FAKE_MODEL ((XrSwapchain)(uintptr_t)0x7002)
+// Native (lane eye-swapchains): each eye's own swapchain
+#define FAKE_ROOM_RIGHT ((XrSwapchain)(uintptr_t)0x7011)
+#define FAKE_MODEL_RIGHT ((XrSwapchain)(uintptr_t)0x7012)
 #define FAKE_GLOW ((XrSwapchain)(uintptr_t)0x7003)
 
 static const float ASPECTS[] = { 9.0f / 16.0f, 3.0f / 4.0f, 9.0f / 21.0f, 16.0f / 9.0f };
@@ -40,7 +43,8 @@ static int hasSwapchain(const XrFrameOut* out, XrSwapchain sc) {
 // What the session's GPU side would have up: the room drawn, the glow drawn
 // and copied, the models drawn
 static void fakeWorld(XrCtx* c) {
-    c->roomSwapchain = FAKE_ROOM;
+    c->roomSwapchain[0] = FAKE_ROOM;
+    c->roomSwapchain[1] = FAKE_ROOM_RIGHT;
     c->roomRendered = 1;
     c->roomViewsValid = 1;
     c->roomEyeWidth = c->roomEyeHeight = 1728;
@@ -51,7 +55,8 @@ static void fakeWorld(XrCtx* c) {
     c->glowSwapchain = FAKE_GLOW;
     c->glowSwapchainFilled = 1;
     c->glowRendered = 1;
-    c->modelSwapchain = FAKE_MODEL;
+    c->modelSwapchain[0] = FAKE_MODEL;
+    c->modelSwapchain[1] = FAKE_MODEL_RIGHT;
     c->modelsShowing = 1;
     c->modelRendered = 1;
     c->modelEyeWidth = c->modelEyeHeight = 1728;
@@ -550,7 +555,9 @@ static void oneLayerGroup(void) {
     fakeWorld(c);
     XrCompositionLayerProjectionView cv[2];
     memset(cv, 0, sizeof(cv));
-    cv[0].subImage.swapchain = cv[1].subImage.swapchain = (XrSwapchain)(uintptr_t)0x7004;
+    // Native (lane eye-swapchains): the picture's layer has a swapchain per eye
+    cv[0].subImage.swapchain = (XrSwapchain)(uintptr_t)0x7004;
+    cv[1].subImage.swapchain = (XrSwapchain)(uintptr_t)0x7014;
     XrCompositionLayerProjection curved;
     memset(&curved, 0, sizeof(curved));
     curved.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
@@ -612,6 +619,87 @@ static void oneLayerGroup(void) {
     scene_free(s);
 }
 
+// ---- native (lane eye-swapchains): a swapchain per eye ------------------------------------
+
+// The first projection layer of the frame
+static const XrCompositionLayerProjection* firstProjection(const XrFrameOut* out) {
+    for (uint32_t i = 0; i < out->count; i++) {
+        if (out->order[i]->type == XR_TYPE_COMPOSITION_LAYER_PROJECTION) {
+            return (const XrCompositionLayerProjection*)out->order[i];
+        }
+    }
+    return NULL;
+}
+
+// Both views of a projection layer on two swapchains, the whole of each,
+// neither past SteamVR's 3458
+static int eyesOwn(const XrCompositionLayerProjection* p, XrSwapchain left, XrSwapchain right, int w, int h) {
+    if (p == NULL || !xrProjectionEyesOwn(p)) return 0;
+    for (int e = 0; e < 2; e++) {
+        const XrSwapchainSubImage* si = &p->views[e].subImage;
+        if (si->swapchain != (e == 0 ? left : right) || si->imageRect.offset.x != 0 || si->imageRect.offset.y != 0
+                || si->imageRect.extent.width != w || si->imageRect.extent.height != h || si->imageArrayIndex != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void eyeSwapchainsGroup(void) {
+    Scene* s = scene_new();
+    XrCtx* c = s->ctx;
+    c->alphaBlendSupported = 1;
+    c->focusedFrames = 5;
+    fakeWorld(c);
+    // The Frame's recommended 2160 per eye: side by side that was 4320 wide,
+    // which SteamVR downsampled every frame
+    c->roomEyeWidth = c->roomEyeHeight = 2160;
+    c->modelEyeWidth = c->modelEyeHeight = 2160;
+    printf("a swapchain per eye:\n");
+
+    // A room with the picture flat: the room's layer (the models in it)
+    c->stereoMode = DEPTH_MODE_OFF;
+    envStep(s, ENV_CELL_HOME_THEATER);
+    oneFrame(s, NULL, "room 1, flat picture");
+    CHECK(eyesOwn(firstProjection(&s->out), FAKE_ROOM, FAKE_ROOM_RIGHT, 2160, 2160));
+    // The void with the picture flat: the models' layer
+    envStep(s, ENV_CELL_VOID);
+    oneFrame(s, NULL, "void, flat picture, models");
+    CHECK(eyesOwn(firstProjection(&s->out), FAKE_MODEL, FAKE_MODEL_RIGHT, 2160, 2160));
+    // The view filler the picture's own layer uses (xr_session.c curveRecord)
+    XrView views[2];
+    memset(views, 0, sizeof(views));
+    XrCompositionLayerProjectionView pv[2];
+    XrSwapchain pic[2] = { (XrSwapchain)(uintptr_t)0x7004, (XrSwapchain)(uintptr_t)0x7014 };
+    for (int e = 0; e < 2; e++) {
+        views[e].pose.orientation.w = 1.0f;
+        views[e].pose.position.x = e ? 0.032f : -0.032f;
+        views[e].fov = (XrFovf){ -0.9f, 0.8f, 0.85f, -0.95f };
+        xrProjectionEye(&pv[e], &views[e], pic[e], 3456, 3456);
+        CHECK(pv[e].type == XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW);
+        CHECK(pv[e].pose.position.x == views[e].pose.position.x && pv[e].fov.angleLeft == views[e].fov.angleLeft);
+    }
+    XrCompositionLayerProjection layer = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
+    layer.viewCount = 2;
+    layer.views = pv;
+    CHECK(eyesOwn(&layer, pic[0], pic[1], 3456, 3456));
+    // What the check refuses: one swapchain for both eyes, the old halves of a
+    // double wide image, an eye past 3458
+    pv[1].subImage.swapchain = pic[0];
+    CHECK(!xrProjectionEyesOwn(&layer));
+    pv[1].subImage.swapchain = pic[1];
+    pv[1].subImage.imageRect.offset.x = 2160;
+    pv[1].subImage.imageRect.extent.width = 2160;
+    CHECK(!xrProjectionEyesOwn(&layer));
+    xrProjectionEye(&pv[1], &views[1], pic[1], 3459, 2160);
+    CHECK(!xrProjectionEyesOwn(&layer));
+    xrProjectionEye(&pv[1], &views[1], pic[1], 3458, 3458);
+    CHECK(xrProjectionEyesOwn(&layer));
+    layer.viewCount = 1;
+    CHECK(!xrProjectionEyesOwn(&layer));
+    scene_free(s);
+}
+
 int main(int argc, char** argv) {
     const char* g = argc > 1 ? argv[1] : "all";
     int all = !strcmp(g, "all");
@@ -620,6 +708,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(g, "budget")) budgetGroup();
     if (all || !strcmp(g, "click")) clickGroup();
     if (all || !strcmp(g, "one_layer")) oneLayerGroup();
+    if (all || !strcmp(g, "eye_swapchains")) eyeSwapchainsGroup();
     char name[32];
     snprintf(name, sizeof(name), "m5 %s", g);
     return checksDone(name);

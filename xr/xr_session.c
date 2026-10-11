@@ -249,7 +249,11 @@ static void freeVideoSwapchain(XrCtx* ctx, Video* vd) {
 }
 
 // The picture's swapchain at the picture's size, double wide with a stereo
-// mode (upstream's chainWidth: each eye's half, or the left one flat)
+// mode (upstream's chainWidth: each eye's half, or the left one flat).
+// Native (lane eye-swapchains): with a stereo mode SteamVR is never shown this
+// one (xrPictureProjected: the picture goes up through the curved picture's
+// projection layer, an image per eye), so its width past 3458 costs memory
+// but no downsampling.
 static int videoSwapchain(XrCtx* ctx, Video* vd, int pw, int h) {
     int w = xrDepthChainWidth(ctx, pw);
     if (vd->swapchain && vd->width == w && vd->picW == pw && vd->height == h) {
@@ -402,25 +406,43 @@ static VkImageView hwView(const XrVk* vk, Video* vd, MlxrPasses* passes, const m
 // the warp goes into an image of the app's own (a swapchain image cannot be
 // sampled once released), and every display frame mlxr_pass_panel draws that
 // on upstream's cylinder into a projection layer for both eyes.
+//
+// Native (lane eye-swapchains): the projection layer has a swapchain per eye,
+// each the runtime's recommended eye size times MLXR_EYE_SCALE. Both eyes side
+// by side (2 x 2160 = 4320 wide at the Frame's 2160) went past the 3458 px
+// SteamVR's client library takes as it is, so it downsampled the layer every
+// frame and the picture came out at about 1729 px per eye whatever the
+// resolution setting. In 3D the warp's own image is one per eye as well.
 
 #define CURVE_IMAGES 8
 #define CURVE_PICTURE_FORMAT VK_FORMAT_R8G8B8A8_UNORM
+#define CURVE_PICTURES 2
 
-typedef struct XrCurve {
-    VkImage picture;
+// One of the warp's own images, with its mip chain
+typedef struct CurvePicture {
+    VkImage image;
     VkDeviceMemory mem;
     VkImageView view;          // every mip level: what the panel pass samples
     VkImageView rtView;        // level 0: what the warp draws into
-    uint32_t mips;
-    int w, h;
-    int valid;                 // a frame has been warped into it
     VkImageLayout layout;
-    XrSwapchain swapchain;
-    uint32_t count;
-    XrSwapchainImageVulkan2KHR images[CURVE_IMAGES];
-    VkImageView views[CURVE_IMAGES];
+} CurvePicture;
+
+typedef struct XrCurve {
+    // Native (lane eye-swapchains): an image per eye with a stereo chain (each
+    // the picture's size), else pic[0] alone
+    CurvePicture pic[CURVE_PICTURES];
+    int pics;
+    uint32_t mips;
+    int w, h;                  // each image's
+    int valid;                 // a frame has been warped into it
+    // Native (lane eye-swapchains): the projection layer's swapchain per eye
+    XrSwapchain swapchain[ROOM_EYES];
+    uint32_t count[ROOM_EYES];
+    XrSwapchainImageVulkan2KHR images[ROOM_EYES][CURVE_IMAGES];
+    VkImageView views[ROOM_EYES][CURVE_IMAGES];
     int eyeW, eyeH;
     int failed;
+    int layerSaid;
     // What a warp into this image counts as for videoStale: 1 the curve, 2 + 4
     // x width the supersampled picture (M5)
     int mode;
@@ -429,27 +451,61 @@ typedef struct XrCurve {
 } XrCurve;
 
 static void curveFreePicture(const XrVk* vk, XrCurve* cv) {
-    if (cv->view) vkDestroyImageView(vk->device, cv->view, NULL);
-    if (cv->rtView) vkDestroyImageView(vk->device, cv->rtView, NULL);
-    cv->rtView = VK_NULL_HANDLE;
-    if (cv->picture) vkDestroyImage(vk->device, cv->picture, NULL);
-    if (cv->mem) vkFreeMemory(vk->device, cv->mem, NULL);
-    cv->view = VK_NULL_HANDLE;
-    cv->picture = VK_NULL_HANDLE;
-    cv->mem = VK_NULL_HANDLE;
+    for (int i = 0; i < CURVE_PICTURES; i++) {
+        CurvePicture* p = &cv->pic[i];
+        if (p->view) vkDestroyImageView(vk->device, p->view, NULL);
+        if (p->rtView) vkDestroyImageView(vk->device, p->rtView, NULL);
+        if (p->image) vkDestroyImage(vk->device, p->image, NULL);
+        if (p->mem) vkFreeMemory(vk->device, p->mem, NULL);
+        memset(p, 0, sizeof(*p));
+    }
+    cv->pics = 0;
     cv->w = cv->h = 0;
     cv->valid = 0;
 }
 
 static void curveDestroy(XrCtx* ctx, XrCurve* cv) {
     curveFreePicture(ctx->vk, cv);
-    for (uint32_t i = 0; i < cv->count; i++) vkDestroyImageView(ctx->vk->device, cv->views[i], NULL);
-    cv->count = 0;
-    if (cv->swapchain) {
-        xrDestroySwapchain(cv->swapchain);
-        ctx->swapchainsAlive--;
+    for (int e = 0; e < ROOM_EYES; e++) {
+        for (uint32_t i = 0; i < cv->count[e]; i++) vkDestroyImageView(ctx->vk->device, cv->views[e][i], NULL);
+        cv->count[e] = 0;
+        if (cv->swapchain[e]) {
+            xrDestroySwapchain(cv->swapchain[e]);
+            ctx->swapchainsAlive--;
+        }
+        cv->swapchain[e] = XR_NULL_HANDLE;
     }
-    cv->swapchain = XR_NULL_HANDLE;
+}
+
+static int curvePictureMake(const XrVk* vk, CurvePicture* p, int w, int h, uint32_t mips) {
+    VkImageCreateInfo ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.format = CURVE_PICTURE_FORMAT;
+    ci.extent = (VkExtent3D){ (uint32_t)w, (uint32_t)h, 1 };
+    ci.mipLevels = mips;
+    ci.arrayLayers = 1;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+             | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    if (vkCreateImage(vk->device, &ci, NULL, &p->image) != VK_SUCCESS) return -1;
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(vk->device, p->image, &req);
+    VkMemoryAllocateInfo ai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+    ai.allocationSize = req.size;
+    ai.memoryTypeIndex = xr_vk_memory_type(vk, req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (vkAllocateMemory(vk->device, &ai, NULL, &p->mem) != VK_SUCCESS) return -1;
+    vkBindImageMemory(vk->device, p->image, p->mem, 0);
+    VkImageViewCreateInfo vi = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    vi.image = p->image;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = CURVE_PICTURE_FORMAT;
+    vi.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, 0, 1 };
+    if (vkCreateImageView(vk->device, &vi, NULL, &p->view) != VK_SUCCESS) return -1;
+    vi.subresourceRange.levelCount = 1;
+    if (vkCreateImageView(vk->device, &vi, NULL, &p->rtView) != VK_SUCCESS) return -1;
+    p->layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    return 0;
 }
 
 // The app's own copy of the picture. Native M5 fix: _UNORM holding the gamma
@@ -457,92 +513,85 @@ static void curveDestroy(XrCtx* ctx, XrCurve* cv) {
 // samples it treats what it reads as gamma encoded and decodes it itself for
 // the _SRGB target; through an _SRGB view the sampler had decoded it once
 // already, and the curved picture came out darker than the flat one.
-static int curvePicture(XrCtx* ctx, XrCurve* cv, int w, int h) {
-    if (cv->picture && cv->w == w && cv->h == h) {
+// Native (lane eye-swapchains): pics images of w x h, one per eye in 3D.
+static int curvePicture(XrCtx* ctx, XrCurve* cv, int w, int h, int pics) {
+    if (cv->pics == pics && cv->w == w && cv->h == h) {
         return 0;
     }
     const XrVk* vk = ctx->vk;
     vkDeviceWaitIdle(vk->device);
     curveFreePicture(vk, cv);
-    VkImageCreateInfo ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-    ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = CURVE_PICTURE_FORMAT;
-    ci.extent = (VkExtent3D){ (uint32_t)w, (uint32_t)h, 1 };
     // Native: a full mip chain, made after every warp (curveMips), so the
     // panel pass shrinking a 2560 wide picture to the few hundred pixels it
     // covers in an eye filters it rather than skipping texels (text crawled
     // and broke up as the head moved, owner 2026-10-10)
     uint32_t mips = 1;
     for (int m = w > h ? w : h; m > 1; m >>= 1) mips++;
-    ci.mipLevels = mips;
-    ci.arrayLayers = 1;
-    ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-             | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    if (vkCreateImage(vk->device, &ci, NULL, &cv->picture) != VK_SUCCESS) return -1;
-    VkMemoryRequirements req;
-    vkGetImageMemoryRequirements(vk->device, cv->picture, &req);
-    VkMemoryAllocateInfo ai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
-    ai.allocationSize = req.size;
-    ai.memoryTypeIndex = xr_vk_memory_type(vk, req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (vkAllocateMemory(vk->device, &ai, NULL, &cv->mem) != VK_SUCCESS) return -1;
-    vkBindImageMemory(vk->device, cv->picture, cv->mem, 0);
-    VkImageViewCreateInfo vi = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-    vi.image = cv->picture;
-    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    vi.format = CURVE_PICTURE_FORMAT;
-    vi.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, 0, 1 };
-    if (vkCreateImageView(vk->device, &vi, NULL, &cv->view) != VK_SUCCESS) return -1;
-    vi.subresourceRange.levelCount = 1;
-    if (vkCreateImageView(vk->device, &vi, NULL, &cv->rtView) != VK_SUCCESS) return -1;
+    for (int i = 0; i < pics; i++) {
+        if (curvePictureMake(vk, &cv->pic[i], w, h, mips) != 0) {
+            curveFreePicture(vk, cv);
+            return -1;
+        }
+    }
+    cv->pics = pics;
     cv->mips = mips;
     cv->w = w;
     cv->h = h;
-    cv->layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    LOGEV("curved picture: own image %dx%d", w, h);
+    LOGEV("curved picture: own image %dx%d%s", w, h, pics > 1 ? ", one per eye" : "");
     return 0;
 }
 
-// The projection layer's swapchain, both eyes side by side
+// The projection layer's swapchains, one per eye (native, lane eye-swapchains)
 static int curveSwapchain(XrCtx* ctx, XrCurve* cv, int64_t format) {
-    if (cv->swapchain) return 0;
+    if (cv->swapchain[0] && cv->swapchain[1]) return 0;
     if (cv->failed) return -1;
-    cv->eyeW = ctx->recommendedEyeWidth > 0 ? ctx->recommendedEyeWidth : 1728;
-    cv->eyeH = ctx->recommendedEyeHeight > 0 ? ctx->recommendedEyeHeight : 1728;
-    XrSwapchainCreateInfo ci = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
-    ci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
-    ci.format = format;
-    ci.sampleCount = 1;
-    ci.width = (uint32_t)(cv->eyeW * 2);
-    ci.height = (uint32_t)cv->eyeH;
-    ci.faceCount = ci.arraySize = ci.mipCount = 1;
-    if (!checkXr(xrCreateSwapchain(ctx->session, &ci, &cv->swapchain), "create curved picture swapchain")) {
-        cv->failed = 1;
-        return -1;
+    float scale = eyeScaleParse(getenv("MLXR_EYE_SCALE"));
+    int within = pictureEyeSize(ctx->recommendedEyeWidth, ctx->recommendedEyeHeight, ctx->maxEyeWidth,
+                                ctx->maxEyeHeight, scale, &cv->eyeW, &cv->eyeH);
+    for (int e = 0; e < ROOM_EYES; e++) {
+        XrSwapchainCreateInfo ci = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
+        ci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+        ci.format = format;
+        ci.sampleCount = 1;
+        ci.width = (uint32_t)cv->eyeW;
+        ci.height = (uint32_t)cv->eyeH;
+        ci.faceCount = ci.arraySize = ci.mipCount = 1;
+        if (!checkXr(xrCreateSwapchain(ctx->session, &ci, &cv->swapchain[e]), "create curved picture swapchain")) {
+            cv->failed = 1;
+            return -1;
+        }
+        ctx->swapchainsAlive++;
+        xrEnumerateSwapchainImages(cv->swapchain[e], 0, &cv->count[e], NULL);
+        if (cv->count[e] > CURVE_IMAGES) cv->count[e] = CURVE_IMAGES;
+        for (uint32_t i = 0; i < cv->count[e]; i++) {
+            cv->images[e][i] = (XrSwapchainImageVulkan2KHR){ XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR };
+        }
+        xrEnumerateSwapchainImages(cv->swapchain[e], cv->count[e], &cv->count[e],
+                                   (XrSwapchainImageBaseHeader*)cv->images[e]);
+        for (uint32_t i = 0; i < cv->count[e]; i++) {
+            VkImageViewCreateInfo vi = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+            vi.image = cv->images[e][i].image;
+            vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            vi.format = (VkFormat)format;
+            vi.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            if (vkCreateImageView(ctx->vk->device, &vi, NULL, &cv->views[e][i]) != VK_SUCCESS) {
+                cv->failed = 1;
+                return -1;
+            }
+        }
     }
-    ctx->swapchainsAlive++;
-    xrEnumerateSwapchainImages(cv->swapchain, 0, &cv->count, NULL);
-    if (cv->count > CURVE_IMAGES) cv->count = CURVE_IMAGES;
-    for (uint32_t i = 0; i < cv->count; i++) cv->images[i] = (XrSwapchainImageVulkan2KHR){ XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR };
-    xrEnumerateSwapchainImages(cv->swapchain, cv->count, &cv->count, (XrSwapchainImageBaseHeader*)cv->images);
-    for (uint32_t i = 0; i < cv->count; i++) {
-        VkImageViewCreateInfo vi = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-        vi.image = cv->images[i].image;
-        vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        vi.format = (VkFormat)format;
-        vi.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-        if (vkCreateImageView(ctx->vk->device, &vi, NULL, &cv->views[i]) != VK_SUCCESS) return -1;
-    }
-    LOGEV("curved picture: projection layer %dx%d (two eyes), %u images; swapchains alive %d of 16",
-          cv->eyeW * 2, cv->eyeH, cv->count, ctx->swapchainsAlive);
+    LOGEV("curved picture: projection layer %dx%d per eye, a swapchain each (recommended %dx%d, MLXR_EYE_SCALE "
+          "%.2f), %u images each; %s SteamVR's %d; swapchains alive %d of 16", cv->eyeW, cv->eyeH,
+          ctx->recommendedEyeWidth, ctx->recommendedEyeHeight, (double)scale, cv->count[0],
+          within ? "within" : "past, so downsampled each frame by", STEAMVR_TEXTURE_MAX, ctx->swapchainsAlive);
     return 0;
 }
 
 // One display frame of the curved picture: both eyes drawn from where they
-// are now. Fills the layer and returns the acquired image's release duty.
+// are now. Fills the layer and returns the acquired images' release duty.
 static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuffer cmd, int64_t format,
                        XrSpace space, int eyeSwap) {
+    (void)passes;
     if (!cv->valid || curveSwapchain(ctx, cv, format) != 0) return 0;
     // Native: the room or the models drawn in here too (one projection layer a
     // frame, xrWorldPlanLayers) are world locked, so the layer is drawn in the
@@ -577,30 +626,40 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
             || (world && !(vs.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT))) {
         return 0;
     }
-    uint32_t idx = 0;
-    XrSwapchainImageAcquireInfo aq = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
-    XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
-    wi.timeout = XR_INFINITE_DURATION;
-    if (!checkXr(xrAcquireSwapchainImage(cv->swapchain, &aq, &idx), "acquire curved picture image")) return 0;
-    if (!checkXr(xrWaitSwapchainImage(cv->swapchain, &wi), "wait curved picture image")) {
+    // Native (lane eye-swapchains): an image of each eye's swapchain
+    uint32_t idx[ROOM_EYES] = { 0, 0 };
+    for (int e = 0; e < ROOM_EYES; e++) {
+        XrSwapchainImageAcquireInfo aq = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+        XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+        wi.timeout = XR_INFINITE_DURATION;
         XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
-        xrReleaseSwapchainImage(cv->swapchain, &rl);
-        return 0;
+        int ok = checkXr(xrAcquireSwapchainImage(cv->swapchain[e], &aq, &idx[e]), "acquire curved picture image");
+        if (ok && !checkXr(xrWaitSwapchainImage(cv->swapchain[e], &wi), "wait curved picture image")) {
+            xrReleaseSwapchainImage(cv->swapchain[e], &rl);
+            ok = 0;
+        }
+        if (!ok) {
+            if (e > 0) xrReleaseSwapchainImage(cv->swapchain[0], &rl);
+            return 0;
+        }
+    }
+    VkImage images[ROOM_EYES];
+    VkImageView targets[ROOM_EYES];
+    for (int e = 0; e < ROOM_EYES; e++) {
+        images[e] = cv->images[e][idx[e]].image;
+        targets[e] = cv->views[e][idx[e]];
     }
     xrGpuTimeBegin(ctx, GPU_CURVE);
-    mlxr_barrier(cmd, cv->images[idx].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    MlxrTarget tg;
-    memset(&tg, 0, sizeof(tg));
-    tg.view = cv->views[idx];
-    tg.format = (VkFormat)format;
-    tg.rect.extent = (VkExtent2D){ (uint32_t)(cv->eyeW * 2), (uint32_t)cv->eyeH };
+    for (int e = 0; e < ROOM_EYES; e++) {
+        mlxr_barrier(cmd, images[e], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    }
+    XrEyeTargets tg = xrEyesPerImage(images, targets, (VkFormat)format, cv->eyeW, cv->eyeH);
     tg.clear = 1; // transparent round the picture: the void or the room shows
     // Native: the room first, as this layer's opaque background, and then the
     // glow and the picture over it in the order their layers had
-    if (ctx->roomInPicture && xrRoomRecordInto(ctx, cmd, tg.view, tg.format, cv->eyeW, cv->eyeH, views)) {
-        mlxr_barrier(cmd, cv->images[idx].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    if (ctx->roomInPicture && xrRoomRecordInto(ctx, cmd, &tg, views)) {
+        xrEyesBarrier(cmd, &tg);
         tg.clear = 0;
     }
     // The glow and the picture read the picture's pose off the context; a head
@@ -611,57 +670,40 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     // into this layer under the picture (no cylinder layers on SteamVR)
     if (xrWorldGlowShown(ctx)) {
         // Native: flat in 3D, the glow quad's image drawn here as well
-        if (xrPictureCurved(ctx)) xrWorldCurvedGlow(ctx, &tg, views, cv->eyeW, cv->eyeH);
-        else xrWorldFlatGlowInto(ctx, &tg, views, cv->eyeW, cv->eyeH);
-        mlxr_barrier(cmd, cv->images[idx].image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        if (xrPictureCurved(ctx)) xrWorldCurvedGlow(ctx, &tg, views);
+        else xrWorldFlatGlowInto(ctx, &tg, views);
+        xrEyesBarrier(cmd, &tg);
         tg.clear = 0;
     }
     MlxrPanelParams pp;
     memset(&pp, 0, sizeof(pp));
-    pp.src = cv->view;
-    pp.eyes = 2;
+    pp.src = cv->pic[0].view;
     xrCurveShape(ctx, &pp.width, &pp.height, &pp.radius);
     pp.segments = 96;
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
     memset(&cv->layer, 0, sizeof(cv->layer));
-    memset(cv->eyes, 0, sizeof(cv->eyes));
+    VkImageView src[ROOM_EYES];
     for (int e = 0; e < 2; e++) {
         xrCurveMvp(views[e].fov, views[e].pose, ctx->screenPose, pp.mvp[e]);
-        pp.eyeRect[e].offset.x = e * cv->eyeW;
-        pp.eyeRect[e].extent = (VkExtent2D){ (uint32_t)cv->eyeW, (uint32_t)cv->eyeH };
-        // M6: in 3D each eye samples its own half of the picture (upstream's
-        // cylinder layers' subImage per eye), a texel clear of the seam; flat
-        // in a double wide image, both eyes the left half
-        float pw = (float)ctx->videoWidth, iw = (float)cv->w;
-        float x0 = 0.0f, ww = pw;
-        if (cv->w > ctx->videoWidth) {
-            int half = ctx->drawnEyes == 2 ? (eyeSwap ? 1 - e : e) : 0;
-            x0 = (float)half * pw;
-            if (ctx->seamInset && pw > 2 * SEAM_INSET_TEXELS) {
-                x0 += SEAM_INSET_TEXELS;
-                ww -= 2 * SEAM_INSET_TEXELS;
-            }
-        }
-        pp.uvRect[e][0] = x0 / iw;
+        // M6: in 3D each eye samples its own picture (upstream's cylinder
+        // layers' subImage per eye); flat, both eyes the one. Native (lane
+        // eye-swapchains): an image per eye in 3D, so no seam to keep clear of
+        // (the double wide image needed SEAM_INSET_TEXELS at each side).
+        int half = ctx->drawnEyes == 2 && cv->pics > 1 ? (eyeSwap ? 1 - e : e) : 0;
+        src[e] = cv->pic[half].view;
+        pp.uvRect[e][0] = 0.0f;
         pp.uvRect[e][1] = 0.0f;
-        pp.uvRect[e][2] = ww / iw;
+        pp.uvRect[e][2] = cv->w > 0 ? (float)ctx->videoWidth / (float)cv->w : 1.0f;
         pp.uvRect[e][3] = 1.0f;
-        XrCompositionLayerProjectionView* pv = &cv->eyes[e];
-        pv->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
-        pv->pose = views[e].pose;
-        pv->fov = views[e].fov;
-        pv->subImage.swapchain = cv->swapchain;
-        pv->subImage.imageRect.offset.x = e * cv->eyeW;
-        pv->subImage.imageRect.extent.width = cv->eyeW;
-        pv->subImage.imageRect.extent.height = cv->eyeH;
+        // Native (lane eye-swapchains): each view its own swapchain's image
+        xrProjectionEye(&cv->eyes[e], &views[e], cv->swapchain[e], cv->eyeW, cv->eyeH);
     }
-    mlxr_pass_panel(passes, cmd, &tg, &pp);
+    xrEyesPanel(ctx, cmd, &tg, &pp, src);
     xrGpuTimeEnd(ctx, GPU_CURVE);
     ctx->screenPose = heldPose;
     // Native: the models last, over the picture, as their own layer was
     if (ctx->modelsInPicture) {
-        xrModelRecordOver(ctx, cmd, cv->images[idx].image, tg.view, tg.format, cv->eyeW, cv->eyeH, views);
+        xrModelRecordOver(ctx, cmd, &tg, views);
     }
     cv->layer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
     // Opaque with the room behind the picture, as the room's own layer was
@@ -669,6 +711,12 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     cv->layer.space = space;
     cv->layer.viewCount = 2;
     cv->layer.views = cv->eyes;
+    if (!cv->layerSaid) {
+        cv->layerSaid = 1;
+        LOGEV("curved picture: the layer's two views on %s, %dx%d each", xrProjectionEyesOwn(&cv->layer)
+              ? "two swapchains within SteamVR's 3458" : "a shared or oversized swapchain (downsampled)", cv->eyeW,
+              cv->eyeH);
+    }
     return 1;
 }
 
@@ -695,19 +743,20 @@ static void mipBarrier(VkCommandBuffer cmd, VkImage image, uint32_t level, uint3
 
 // Native: the curved (or 3D) picture's mip chain from the level the warp just
 // drew, each level a linear blit of the one above, all of it left for the
-// panel pass to sample. Every level is in COLOR_ATTACHMENT_OPTIMAL on entry
+// panel pass to sample. Native (lane eye-swapchains): one image of them, i. Every level is in COLOR_ATTACHMENT_OPTIMAL on entry
 // (the warp's barrier covers them all).
-static void curveMips(VkCommandBuffer cmd, XrCurve* cv) {
+static void curveMips(VkCommandBuffer cmd, XrCurve* cv, int i) {
+    VkImage image = cv->pic[i].image;
     const VkPipelineStageFlags COLOR = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     const VkPipelineStageFlags XFER = VK_PIPELINE_STAGE_TRANSFER_BIT;
     const VkPipelineStageFlags READ = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    mipBarrier(cmd, cv->picture, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    mipBarrier(cmd, image, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, COLOR, XFER);
     int w = cv->w, h = cv->h;
     for (uint32_t m = 1; m < cv->mips; m++) {
         int nw = w > 1 ? w / 2 : 1, nh = h > 1 ? h / 2 : 1;
         // After the warp's own layout change of every level, before this write
-        mipBarrier(cmd, cv->picture, m, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        mipBarrier(cmd, image, m, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                    0, VK_ACCESS_TRANSFER_WRITE_BIT, COLOR | XFER, XFER);
         VkImageBlit blit;
         memset(&blit, 0, sizeof(blit));
@@ -715,14 +764,14 @@ static void curveMips(VkCommandBuffer cmd, XrCurve* cv) {
         blit.srcOffsets[1] = (VkOffset3D){ w, h, 1 };
         blit.dstSubresource = (VkImageSubresourceLayers){ VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1 };
         blit.dstOffsets[1] = (VkOffset3D){ nw, nh, 1 };
-        vkCmdBlitImage(cmd, cv->picture, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, cv->picture,
+        vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
-        mipBarrier(cmd, cv->picture, m, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        mipBarrier(cmd, image, m, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                    VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, XFER, XFER);
         w = nw;
         h = nh;
     }
-    mipBarrier(cmd, cv->picture, 0, cv->mips, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    mipBarrier(cmd, image, 0, cv->mips, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, XFER,
                READ);
 }
@@ -730,32 +779,46 @@ static void curveMips(VkCommandBuffer cmd, XrCurve* cv) {
 // Records the warp of one picture into swapchain image idx (or the app's own
 // image): the picture grade and the sharpening as the panel has them now, and
 // M6's 3D (xr_depth.c: the capture for the model, the upsample, the offset
-// search, then a warp per eye into the halves of the double wide target)
+// search, then a warp per eye: native (lane eye-swapchains), into an image of
+// its own for the curved or 3D picture, the halves of the double wide chain
+// for the quad)
 static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffer cmd, uint32_t idx,
                        const MlxrVideo* video, XrCurve* curve, int newFrame, uint64_t frameIndex) {
     (void)passes;
     XrDepthDraw dd;
     xrDepthPicture(ctx, video, newFrame, frameIndex, nowNs(), &dd);
+    if (curve != NULL && dd.eyes > curve->pics) {
+        // Never: only a stereo chain warps two eyes, and its own image is two
+        dd.eyes = curve->pics;
+    }
     xrGpuTimeBegin(ctx, GPU_WARP);
-    MlxrTarget tg;
-    memset(&tg, 0, sizeof(tg));
+    // Eye 0's rect: the picture's size
+    MlxrTarget tg[ROOM_EYES];
+    memset(tg, 0, sizeof(tg));
+    for (int e = 0; e < ROOM_EYES; e++) {
+        tg[e].rect.extent = (VkExtent2D){ video->width, video->height };
+    }
     if (curve != NULL) {
-        // The curved picture's own image, sampled afterwards by the panel pass
-        mlxr_barrier(cmd, curve->picture, VK_IMAGE_ASPECT_COLOR_BIT, curve->layout,
-                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        tg.view = curve->rtView;
-        tg.format = CURVE_PICTURE_FORMAT;
+        // The curved picture's own images, sampled afterwards by the panel pass
+        for (int e = 0; e < dd.eyes; e++) {
+            mlxr_barrier(cmd, curve->pic[e].image, VK_IMAGE_ASPECT_COLOR_BIT, curve->pic[e].layout,
+                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            tg[e].view = curve->pic[e].rtView;
+            tg[e].format = CURVE_PICTURE_FORMAT;
+        }
     }
     else {
         xr_vk_image_barrier(cmd, vd->images[idx].image, VK_IMAGE_LAYOUT_UNDEFINED,
                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-        tg.view = vd->views[idx];
-        tg.format = (VkFormat)vd->format;
+        // Eye 1 lands right of eye 0 in the double wide chain
+        for (int e = 0; e < ROOM_EYES; e++) {
+            tg[e].view = vd->views[idx];
+            tg[e].format = (VkFormat)vd->format;
+            tg[e].rect.offset.x = e * (int32_t)video->width;
+        }
     }
-    // Eye 0's rect: the picture's size; eye 1 lands right of it
-    tg.rect.extent = (VkExtent2D){ video->width, video->height };
     MlxrWarpParams w;
     memset(&w, 0, sizeof(w));
     w.video = *video;
@@ -766,10 +829,12 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     w.grade[3] = ctx->grade.saturation;
     w.tint[0] = w.tint[1] = w.tint[2] = 1.0f;
     w.sharpen = sharpenFor(ctx->sharpenMode);
-    xrDepthRecordWarp(ctx, cmd, &tg, &w, &dd);
+    xrDepthRecordWarpEyes(ctx, cmd, tg, &w, &dd);
     if (curve != NULL) {
-        curveMips(cmd, curve);
-        curve->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        for (int e = 0; e < dd.eyes; e++) {
+            curveMips(cmd, curve, e);
+            curve->pic[e].layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        }
         curve->valid = 1;
     }
     // What the layers show from here on (upstream renderVideoFrame)
@@ -804,10 +869,11 @@ static int videoStale(XrCtx* ctx, const Video* vd, int curved) {
 static int videoTarget(XrCtx* ctx, Video* vd, XrCurve* curve, int curved, uint32_t* idx, int* swapAcquired) {
     *swapAcquired = 0;
     if (curved) {
-        // The curve's own image is as wide as the chain (both eyes in 3D),
-        // the supersampled picture's as the picture (never in 3D)
-        int w = curve->mode == 1 ? vd->width : vd->picW;
-        return curvePicture(ctx, curve, w, vd->height) == 0;
+        // The curve's own image is the picture's size, one per eye with a
+        // stereo chain (native, lane eye-swapchains; it was as wide as the
+        // chain), the supersampled picture's one (never in 3D)
+        int pics = curve->mode == 1 && vd->width != vd->picW ? 2 : 1;
+        return curvePicture(ctx, curve, vd->picW, vd->height, pics) == 0;
     }
     XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
     XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
@@ -973,7 +1039,7 @@ static void superRecord(XrCtx* ctx, XrSuper* ss, MlxrPasses* passes, VkCommandBu
     t.rect.extent = (VkExtent2D){ (uint32_t)ss->w, (uint32_t)ss->h };
     MlxrSupersampleParams sp;
     memset(&sp, 0, sizeof(sp));
-    sp.src = ss->pic.view;
+    sp.src = ss->pic.pic[0].view;
     sp.srcRect[2] = sp.srcRect[3] = 1.0f;
     // Normal and Quality, upstream's two levels
     sp.taps = ctx->supersampleMode >= 2 ? 4 : 2;
@@ -2092,8 +2158,11 @@ int xr_app_run(const XrAppConfig* cfg) {
         }
         if (atlasAcquired) xrAtlasRelease(ctx);
         if (curveAcquired) {
-            XrSwapchainImageReleaseInfo rli = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
-            checkXr(xrReleaseSwapchainImage(curve.swapchain, &rli), "release curved picture image");
+            // Native (lane eye-swapchains): an image of each eye's swapchain
+            for (int e = 0; e < ROOM_EYES; e++) {
+                XrSwapchainImageReleaseInfo rli = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+                checkXr(xrReleaseSwapchainImage(curve.swapchain[e], &rli), "release curved picture image");
+            }
         }
         if (videoAcquired) {
             if (swapAcquired) {

@@ -3,6 +3,7 @@
 #include "room_logic.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "xr_layout.h"
@@ -378,13 +379,46 @@ void roomEyeSize(int tier, int recW, int recH, int maxW, int maxH, int* outW, in
     *outH = eyeH;
 }
 
-void roomEyeFitScene(int envResTier, int* eyeW, int* eyeH) {
-    int maxEye = ROOM_SCENE_MAX_WIDTH / ROOM_EYES;
-    if (envResTier != ENV_RES_STANDARD || *eyeW <= maxEye) {
-        return;
+int roomEyeFitTexture(int* eyeW, int* eyeH) {
+    int w = *eyeW, h = *eyeH;
+    if (w <= STEAMVR_TEXTURE_MAX && h <= STEAMVR_TEXTURE_MAX) {
+        return 0;
     }
-    *eyeH = (int)(((long)*eyeH * maxEye + *eyeW / 2) / *eyeW);
-    *eyeW = maxEye;
+    if (w >= h) {
+        *eyeH = (int)(((long)h * STEAMVR_TEXTURE_MAX + w / 2) / w);
+        *eyeW = STEAMVR_TEXTURE_MAX;
+    }
+    else {
+        *eyeW = (int)(((long)w * STEAMVR_TEXTURE_MAX + h / 2) / h);
+        *eyeH = STEAMVR_TEXTURE_MAX;
+    }
+    return 1;
+}
+
+float eyeScaleParse(const char* text) {
+    if (text == NULL || *text == 0) {
+        return 1.0f;
+    }
+    char* end = NULL;
+    float v = strtof(text, &end);
+    if (end == text || !(v == v)) {
+        return 1.0f;
+    }
+    return v < EYE_SCALE_MIN ? EYE_SCALE_MIN : (v > EYE_SCALE_MAX ? EYE_SCALE_MAX : v);
+}
+
+int pictureEyeSize(int recW, int recH, int maxW, int maxH, float scale, int* outW, int* outH) {
+    int w = (int)((float)(recW > 0 ? recW : 1728) * scale + 0.5f);
+    int h = (int)((float)(recH > 0 ? recH : 1728) * scale + 0.5f);
+    if (maxW > 0 && w > maxW) {
+        w = maxW;
+    }
+    if (maxH > 0 && h > maxH) {
+        h = maxH;
+    }
+    *outW = w < 16 ? 16 : w;
+    *outH = h < 16 ? 16 : h;
+    return *outW <= STEAMVR_TEXTURE_MAX && *outH <= STEAMVR_TEXTURE_MAX;
 }
 
 void roomEyeViewProj(float* out16, XrFovf fov, XrPosef pose, float farZ) {
