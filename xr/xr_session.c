@@ -2006,7 +2006,9 @@ int xr_app_run(const XrAppConfig* cfg) {
         fin.headLocked = cfg->settings->head_locked;
         fin.eyeSwap = cfg->settings->eye_swap;
         fin.passthrough = ctx->passthrough;
-        fin.curved = curveAcquired ? &curve.layer : NULL;
+        // Native: the room A/B test's D draws the picture's layer but withholds it
+        fin.curved = curveAcquired && !(roomEffective(ctx) > 0 && xrRoomAbMode() == ROOM_AB_NO_PICTURE_LAYER)
+                ? &curve.layer : NULL;
         if (ssNow && ss.filled && ss.w > 0) {
             fin.picture = ss.swapchain;
             fin.pictureW = ss.w;

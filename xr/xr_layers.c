@@ -249,7 +249,8 @@ static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
         memset(room, 0, sizeof(*room));
         memset(layers->roomViews, 0, sizeof(layers->roomViews));
         room->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
-        room->layerFlags = 0;
+        // Native: the room A/B test's E blends it as the void's picture layer is
+        room->layerFlags = xrRoomAbMode() == ROOM_AB_BLENDED ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
         // World locked, even when the screen is head locked, or the room would
         // swing about with the viewer
         room->space = ctx->localSpace;
