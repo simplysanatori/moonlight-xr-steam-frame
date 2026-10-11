@@ -363,6 +363,49 @@ static int cmd_clipboard(int argc, char **argv)
     return rc;
 }
 
+/* Native (lane adapter-detect). Read-only, probes nothing: is the Steam Frame Wireless Adapter there?
+ * Prints the category and the reason; the PC addresses of hosts.ini only decide "PC address in the table". */
+static int cmd_adapter(int argc, char **argv)
+{
+    const char *ifname = NULL;
+    for (int i = 0; i < argc; i++) {
+        if (argv[i][0] != '-' && !ifname) ifname = argv[i];
+        else return fprintf(stderr, "usage: adapter [<interface>]   (default wlanap)\n"), 1;
+    }
+    /* the PC addresses of hosts.ini (hosts only read: no identity is created) */
+    static char store[64][128];
+    const char *addrs[64];
+    int na = 0;
+    mlxr_error e;
+    char *dir = mlxr_config_dir(&e);
+    mlxr_hosts hosts;
+    memset(&hosts, 0, sizeof hosts);
+    if (dir && mlxr_hosts_load(dir, &hosts, &e) == MLXR_OK) {
+        for (size_t i = 0; i < hosts.n; i++) {
+            char list[sizeof hosts.v[i].extra_addresses + 130];
+            snprintf(list, sizeof list, "%s,%s", hosts.v[i].address, hosts.v[i].extra_addresses);
+            char *save = NULL;
+            for (char *t = strtok_r(list, ", \t", &save); t && na < 64; t = strtok_r(NULL, ", \t", &save)) {
+                snprintf(store[na], sizeof store[na], "%s", t);
+                addrs[na] = store[na];
+                na++;
+            }
+        }
+    }
+    free(dir);
+    mlxr_hosts_free(&hosts);
+    mlxr_adapter_info a;
+    mlxr_net_adapter_detect(ifname, addrs, na, &a);
+    static const char *const names[] = { "none", "link-only", "station" };
+    char text[192];
+    mlxr_net_adapter_text(&a, text, sizeof text);
+    printf("adapter: %s\n", names[a.state]);
+    printf("  %s\n", text);
+    printf("  interface %s: exists %s, up %s; stations %d (from %s)%s\n", a.ifname, a.exists ? "yes" : "no", a.up ? "yes" : "no",
+           a.stations, a.stations_from[0] ? a.stations_from : "nowhere", a.stations_known ? "" : ", unknown");
+    return a.state == MLXR_ADAPTER_STATION ? 0 : 3;
+}
+
 /* Read-only: serverinfo round trips to every known address of a PC, the Wi-Fi link numbers of the
  * interfaces they go through, and the path the setting would pick. Starts no stream. */
 static int cmd_probe_paths(int argc, char **argv)
@@ -458,6 +501,7 @@ int main(int argc, char **argv)
                 "       mlxr-cli quit <host>\n"
                 "       mlxr-cli clipboard <host> [--show]   (Apollo, while streaming)\n"
                 "       mlxr-cli probe-paths [<host>] [--addr a,b] [--network auto|home|adapter]\n"
+                "       mlxr-cli adapter [<interface>]   (is the Steam Frame Wireless Adapter there? read-only)\n"
                 "config dir: $MLXR_CONFIG_DIR or ~/.config/moonlight-xr\n");
         return 1;
     }
@@ -471,6 +515,7 @@ int main(int argc, char **argv)
     if (!strcmp(cmd, "launch")) return cmd_launch(argc, argv);
     if (!strcmp(cmd, "quit")) return cmd_quit(argc, argv);
     if (!strcmp(cmd, "probe-paths")) return cmd_probe_paths(argc, argv);
+    if (!strcmp(cmd, "adapter")) return cmd_adapter(argc, argv);
     if (!strcmp(cmd, "clipboard")) return cmd_clipboard(argc, argv);
     fprintf(stderr, "unknown command: %s\n", cmd);
     return 1;

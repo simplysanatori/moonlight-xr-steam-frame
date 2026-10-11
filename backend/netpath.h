@@ -35,6 +35,13 @@
  * means that path: if nothing answers the probe is repeated for retry_ms (4 s) before the other path
  * is tried, with a toast that names the addresses that failed and how.
  * User-visible names follow Steam's: "Wi-Fi" and "Steam Frame Wireless Adapter".
+ *
+ * Native (lane adapter-detect): is the adapter there at all? Before probing, the plan looks at the
+ * Frame's own access point interface (wlanap) without root: does it exist and is it up, is a station
+ * associated (iw, else nl80211, else the neighbour table), is the PC's address in the neighbour table.
+ * No station means no adapter: auto never probes or picks the adapter path, and a forced adapter
+ * setting falls back to Wi-Fi with the usual toast. When the station list cannot be read at all the
+ * adapter is assumed present (the old behaviour). See mlxr_net_adapter_detect().
  */
 #ifndef MLXR_NETPATH_H
 #define MLXR_NETPATH_H
@@ -110,6 +117,55 @@ void mlxr_net_link_read(const mlxr_netif *i, const char *peer, mlxr_net_link *ou
 /* 0..100 */
 double mlxr_net_link_quality(const mlxr_net_link *l);
 
+/* ---- is there a Steam Frame Wireless Adapter? (Native, lane adapter-detect) ---- */
+
+typedef enum {
+    MLXR_ADAPTER_NONE = 0,      /* the AP interface is missing or down */
+    MLXR_ADAPTER_LINK_ONLY,     /* the AP is up, no station is associated */
+    MLXR_ADAPTER_STATION        /* a station is associated (or the list could not be read) */
+} mlxr_adapter_state;
+
+typedef struct {
+    bool checked;               /* false: not looked at, nothing is assumed */
+    mlxr_adapter_state state;
+    char ifname[16];            /* the AP interface, "wlanap" */
+    bool exists, up;
+    bool stations_known;        /* false: neither iw, nl80211 nor the neighbour table could say; state is STATION then */
+    int stations;               /* associated stations (neighbour entries when from "neighbours") */
+    int signal_dbm;             /* the strongest station's, 0 unknown */
+    char stations_from[12];     /* "iw" "nl80211" "neighbours" "" */
+    bool pc_known;              /* an address of the PC on the AP's subnet was given */
+    bool pc_in_table;           /* ... and the neighbour table of the AP interface has it */
+    char reason[128];           /* "wlanap up, no station" "wlanap down" "wlanap missing" "wlanap up, 1 station (-48 dBm)" */
+} mlxr_adapter_info;
+
+/* The raw facts, as text, so the tests can feed their own. mlxr_net_adapter_inputs_read() fills it
+ * from the system; mlxr_net_adapter_assess() turns it into the answer (pure). */
+typedef struct {
+    bool exists;                /* /sys/class/net/<if> is there */
+    char operstate[32];         /* its operstate file ("up", "down", "unknown") */
+    char carrier[8];            /* its carrier file ("1" "0" ""), */
+    bool has_iw;                /* `iw dev <if> station dump` ran and succeeded */
+    char iw_dump[8192];
+    int nl_stations;            /* nl80211's station count, -1 unavailable */
+    int nl_signal;
+    bool has_arp;               /* /proc/net/arp was readable */
+    char arp[16384];
+} mlxr_adapter_inputs;
+
+/* Reads the inputs from the system (sysfs, /proc/net/arp, iw if the user can run it, nl80211). No root. */
+void mlxr_net_adapter_inputs_read(const char *ifname, mlxr_adapter_inputs *in);
+/* Pure. `pc_addrs` are the PC's candidate addresses on the AP's subnet (may be NULL). */
+void mlxr_net_adapter_assess(const mlxr_adapter_inputs *in, const char *ifname, const char *const *pc_addrs, int n_pc,
+                             mlxr_adapter_info *out);
+/* Reads and assesses in one go: what the flat launcher calls to grey the Steam Frame Wireless
+ * Adapter option (grey it when out->state != MLXR_ADAPTER_STATION). `ifname` NULL means "wlanap". */
+void mlxr_net_adapter_detect(const char *ifname, const char *const *pc_addrs, int n_pc, mlxr_adapter_info *out);
+/* The words for a log line: "no adapter found (wlanap up, no station)", "present (wlanap up, ...)". */
+void mlxr_net_adapter_text(const mlxr_adapter_info *a, char *out, size_t cap);
+/* True when the adapter path may be probed and chosen: not checked, or a station present. */
+bool mlxr_net_adapter_usable(const mlxr_adapter_info *a);
+
 /* ---- candidates and the choice ---- */
 
 #define MLXR_NET_MAX_CANDS 16
@@ -134,6 +190,7 @@ typedef struct {
     double median_ms, jitter_ms;
     bool other_host;            /* answered, but as another PC (uuid differs) */
     char error[96];             /* the last failure */
+    bool skipped;               /* Native (lane adapter-detect): not probed, there is no adapter */
 } mlxr_net_cand;
 
 typedef struct {
@@ -161,6 +218,10 @@ typedef struct {
     char chosen_desc[96];       /* "Wi-Fi (Home 5GHz, 5 GHz)" for the flat launcher to show */
     int grace_ms;               /* auto: how long the others get once a candidate answered (300) */
     char summary[160];          /* "adapter 10.35.50.27 " for the stats line */
+    /* Native (lane adapter-detect) */
+    mlxr_adapter_info adapter;  /* filled by mlxr_net_select (or mlxr_net_plan_detect_adapter) */
+    const mlxr_adapter_inputs *adapter_inputs;   /* tests: facts to use instead of reading the system */
+    bool adapter_absent_fallback;   /* the adapter setting was asked, no adapter is present, Wi-Fi used */
 } mlxr_net_plan;
 
 void mlxr_net_plan_init(mlxr_net_plan *p, mlxr_net_pref pref, const char *source, uint16_t http_port,
@@ -187,6 +248,10 @@ int mlxr_net_mdns_parse(const uint8_t *msg, size_t len, const char *want, char o
 void mlxr_net_plan_add_record(mlxr_net_plan *p, const char *address, const char *extra_addresses);
 /* Sets path, ifname of each candidate from the table. */
 void mlxr_net_plan_classify(mlxr_net_plan *p, const mlxr_netifs *t);
+/* Native (lane adapter-detect): looks for the adapter (plan->adapter_inputs if set, else the system),
+ * stores the answer in plan->adapter and marks the adapter-path candidates `skipped` when there is no
+ * station. Call after mlxr_net_plan_classify. mlxr_net_select does it. */
+void mlxr_net_plan_detect_adapter(mlxr_net_plan *p, const mlxr_netifs *t);
 /* Fills link and link_quality of each candidate (reads nl80211 through the table's interfaces). */
 void mlxr_net_plan_read_links(mlxr_net_plan *p, const mlxr_netifs *t);
 

@@ -438,8 +438,274 @@ static void test_describe(void)
 
 /* The real probe against the fake host: one live candidate, one closed port, one that answers as
  * another PC. The fake host speaks on 127.0.0.1 only, so the "paths" are set by hand. */
+static void station_inputs(mlxr_adapter_inputs *in);
+
+/* ---------------------------------------------------------------- the adapter (Native, lane adapter-detect) */
+
+/* Made-up facts. Addresses are from the documentation ranges, MACs from the locally administered range. */
+#define ARP_HEAD "IP address       HW type     Flags       HW address            Mask     Device\n"
+static const char *IW_ONE =
+    "Station 02:00:00:aa:bb:01 (on wlanap)\n"
+    "\tinactive time:\t120 ms\n"
+    "\tsignal:  \t-48 [-50, -49] dBm\n"
+    "\tsignal avg:\t-47 dBm\n"
+    "\ttx bitrate:\t1201.0 MBit/s 160MHz HE-MCS 9\n";
+static const char *IW_TWO =
+    "Station 02:00:00:aa:bb:01 (on wlanap)\n"
+    "\tsignal:  \t-61 [-62, -60] dBm\n"
+    "Station 02:00:00:aa:bb:02 (on wlanap)\n"
+    "\tsignal:  \t-52 [-53, -51] dBm\n";
+
+static void make_inputs(mlxr_adapter_inputs *in, bool exists, const char *oper, const char *carrier, const char *iw, const char *arp_rows)
+{
+    memset(in, 0, sizeof *in);
+    in->nl_stations = -1;
+    in->exists = exists;
+    snprintf(in->operstate, sizeof in->operstate, "%s", oper);
+    snprintf(in->carrier, sizeof in->carrier, "%s", carrier);
+    if (iw) { in->has_iw = true; snprintf(in->iw_dump, sizeof in->iw_dump, "%s", iw); }
+    if (arp_rows) { in->has_arp = true; snprintf(in->arp, sizeof in->arp, "%s%s", ARP_HEAD, arp_rows); }
+}
+
+#define ARP_PC "198.51.100.7    0x1         0x2         02:00:00:aa:bb:01     *        wlanap\n"
+#define ARP_OTHER_IF "192.0.2.10      0x1         0x2         02:00:00:cc:dd:01     *        wlan0\n"
+
+static void station_inputs(mlxr_adapter_inputs *in)
+{
+    make_inputs(in, true, "up", "1", IW_ONE, ARP_OTHER_IF ARP_PC);
+}
+
+static char g_log[4096];
+static void capture_log(int level, const char *msg, void *ud)
+{
+    (void)ud;
+    if (level > 1) return;
+    size_t n = strlen(g_log);
+    snprintf(g_log + n, sizeof g_log - n, "%s\n", msg);
+}
+
+static void test_adapter_assess(void)
+{
+    mlxr_adapter_inputs in;
+    mlxr_adapter_info a;
+    const char *pc[] = { "198.51.100.7" };
+    char text[200];
+
+    /* wlanap missing */
+    make_inputs(&in, false, "", "", NULL, NULL);
+    mlxr_net_adapter_assess(&in, "wlanap", pc, 1, &a);
+    CHECK(a.checked && a.state == MLXR_ADAPTER_NONE && !a.exists && !a.up);
+    CHECK_EQ_STR(a.reason, "wlanap missing");
+    mlxr_net_adapter_text(&a, text, sizeof text);
+    CHECK_EQ_STR(text, "no adapter found (wlanap missing)");
+    CHECK(!mlxr_net_adapter_usable(&a));
+
+    /* wlanap down: by operstate, and by carrier */
+    make_inputs(&in, true, "down", "0", "", ARP_PC);
+    mlxr_net_adapter_assess(&in, "wlanap", pc, 1, &a);
+    CHECK(a.state == MLXR_ADAPTER_NONE && a.exists && !a.up);
+    CHECK_EQ_STR(a.reason, "wlanap down");
+    make_inputs(&in, true, "up", "0", IW_ONE, ARP_PC);
+    mlxr_net_adapter_assess(&in, "wlanap", pc, 1, &a);
+    CHECK(a.state == MLXR_ADAPTER_NONE);
+    make_inputs(&in, true, "unknown", "", IW_ONE, ARP_PC);   /* "unknown" with no carrier file: up */
+    mlxr_net_adapter_assess(&in, "wlanap", pc, 1, &a);
+    CHECK(a.state == MLXR_ADAPTER_STATION && a.up);
+    make_inputs(&in, true, "lowerlayerdown", "0", IW_ONE, ARP_PC);
+    mlxr_net_adapter_assess(&in, "wlanap", pc, 1, &a);
+    CHECK(a.state == MLXR_ADAPTER_NONE);
+
+    /* up, no station (a stale neighbour entry does not make one) */
+    make_inputs(&in, true, "up", "1", "", ARP_PC);
+    mlxr_net_adapter_assess(&in, "wlanap", pc, 1, &a);
+    CHECK(a.state == MLXR_ADAPTER_LINK_ONLY && a.up && a.stations_known && a.stations == 0);
+    CHECK_EQ_STR(a.reason, "wlanap up, no station");
+    mlxr_net_adapter_text(&a, text, sizeof text);
+    CHECK_EQ_STR(text, "no adapter found (wlanap up, no station)");
+    CHECK(!mlxr_net_adapter_usable(&a));
+
+    /* a station, and the PC's address in the table */
+    station_inputs(&in);
+    mlxr_net_adapter_assess(&in, "wlanap", pc, 1, &a);
+    CHECK(a.state == MLXR_ADAPTER_STATION && a.stations == 1 && a.signal_dbm == -48);
+    CHECK(a.pc_known && a.pc_in_table);
+    CHECK_EQ_STR(a.stations_from, "iw");
+    CHECK_EQ_STR(a.reason, "wlanap up, 1 station (-48 dBm), PC address in the neighbour table");
+    mlxr_net_adapter_text(&a, text, sizeof text);
+    CHECK(!strncmp(text, "present (wlanap up, 1 station", 29));
+    CHECK(mlxr_net_adapter_usable(&a));
+
+    /* a station, the PC's address is not in the table (the entry is on another interface, or missing) */
+    make_inputs(&in, true, "up", "1", IW_ONE, ARP_OTHER_IF);
+    mlxr_net_adapter_assess(&in, "wlanap", pc, 1, &a);
+    CHECK(a.state == MLXR_ADAPTER_STATION && a.pc_known && !a.pc_in_table);
+    CHECK(strstr(a.reason, "PC address not in the neighbour table"));
+    CHECK(mlxr_net_adapter_usable(&a));          /* still usable: the probe decides */
+    make_inputs(&in, true, "up", "1", IW_ONE, ARP_HEAD "198.51.100.7    0x1         0x0         00:00:00:00:00:00     *        wlanap\n");
+    mlxr_net_adapter_assess(&in, "wlanap", pc, 1, &a);   /* an incomplete entry is not in the table */
+    CHECK(a.state == MLXR_ADAPTER_STATION && !a.pc_in_table);
+    /* no PC address given */
+    station_inputs(&in);
+    mlxr_net_adapter_assess(&in, "wlanap", NULL, 0, &a);
+    CHECK(a.state == MLXR_ADAPTER_STATION && !a.pc_known && !strstr(a.reason, "PC address"));
+
+    /* two stations, the stronger signal is reported */
+    make_inputs(&in, true, "up", "1", IW_TWO, NULL);
+    mlxr_net_adapter_assess(&in, "wlanap", NULL, 0, &a);
+    CHECK(a.stations == 2 && a.signal_dbm == -52);
+    CHECK_EQ_STR(a.reason, "wlanap up, 2 stations (-52 dBm)");
+
+    /* iw not available: nl80211's count, then the neighbour table, then "cannot tell" */
+    make_inputs(&in, true, "up", "1", NULL, ARP_PC);
+    in.nl_stations = 0;
+    mlxr_net_adapter_assess(&in, "wlanap", pc, 1, &a);
+    CHECK(a.state == MLXR_ADAPTER_LINK_ONLY && !strcmp(a.stations_from, "nl80211"));
+    in.nl_stations = 1;
+    in.nl_signal = -55;
+    mlxr_net_adapter_assess(&in, "wlanap", pc, 1, &a);
+    CHECK(a.state == MLXR_ADAPTER_STATION && a.signal_dbm == -55);
+    in.nl_stations = -1;
+    mlxr_net_adapter_assess(&in, "wlanap", pc, 1, &a);
+    CHECK(a.state == MLXR_ADAPTER_STATION && !strcmp(a.stations_from, "neighbours") && a.stations == 1);
+    make_inputs(&in, true, "up", "1", NULL, "");   /* nothing says anything: the old behaviour */
+    mlxr_net_adapter_assess(&in, "wlanap", pc, 1, &a);
+    CHECK(a.state == MLXR_ADAPTER_STATION && !a.stations_known);
+    CHECK(strstr(a.reason, "assumed present") && mlxr_net_adapter_usable(&a));
+
+    /* not checked: usable, as before */
+    memset(&a, 0, sizeof a);
+    CHECK(mlxr_net_adapter_usable(&a));
+
+    /* another interface name */
+    make_inputs(&in, true, "up", "1", "", NULL);
+    mlxr_net_adapter_assess(&in, "wlan9", NULL, 0, &a);
+    CHECK_EQ_STR(a.reason, "wlan9 up, no station");
+
+    /* the real reader on an interface that is not there; this works on any machine */
+    mlxr_net_adapter_detect("mlxr-no-such-if", NULL, 0, &a);
+    CHECK(a.checked && a.state == MLXR_ADAPTER_NONE && !a.exists);
+    CHECK_EQ_STR(a.reason, "mlxr-no-such-if missing");
+}
+
+/* select with no station: auto does not probe or pick the adapter; the forced adapter falls back */
+static void test_adapter_plan(fake_host *h)
+{
+    uint16_t live = fake_host_http_port(h);
+    mlxr_netifs t;
+    memset(&t, 0, sizeof t);
+    add_if(&t, "lo", "127.0.0.1", 8, false, 0, false);
+    add_if(&t, "wlanap", "198.51.100.1", 24, true, 2, false);
+    mlxr_adapter_inputs none, st, down;
+    make_inputs(&none, true, "up", "1", "", ARP_PC);
+    station_inputs(&st);
+    make_inputs(&down, true, "down", "0", "", NULL);
+    mlxr_net_plan p;
+
+    /* auto, no station: the adapter candidate is skipped, Wi-Fi chosen, the log says so */
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 1, "", "");
+    p.adapter_inputs = &none;
+    mlxr_net_plan_add(&p, "198.51.100.7", 0);
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    g_log[0] = 0;
+    mlxr_set_log(capture_log, NULL);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 1);
+    mlxr_set_log(NULL, NULL);
+    CHECK(p.adapter.state == MLXR_ADAPTER_LINK_ONLY);
+    CHECK(p.c[0].skipped && !p.c[0].probed && p.c[0].sent == 0);
+    CHECK(p.c[1].probed && p.c[1].ok > 0 && !p.fell_back);
+    CHECK(strstr(p.reason, "chose Wi-Fi: no Steam Frame Wireless Adapter found (wlanap up, no station)"));
+    CHECK(strstr(g_log, "network path: Steam Frame Wireless Adapter: no adapter found (wlanap up, no station)"));
+    CHECK(!p.adapter_absent_fallback);
+
+    /* auto, wlanap down */
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 1, "", "");
+    p.adapter_inputs = &down;
+    mlxr_net_plan_add(&p, "198.51.100.7", 0);
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    g_log[0] = 0;
+    mlxr_set_log(capture_log, NULL);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 1);
+    mlxr_set_log(NULL, NULL);
+    CHECK(p.c[0].skipped && !p.c[0].probed);
+    CHECK(strstr(g_log, "Steam Frame Wireless Adapter: no adapter found (wlanap down)"));
+
+    /* auto, a station: the adapter is probed as before (nothing answers at the made-up address) */
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 1, "", "");
+    p.adapter_inputs = &st;
+    p.budget_ms = 600;
+    mlxr_net_plan_add(&p, "198.51.100.7", 0);
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 1);
+    CHECK(!p.c[0].skipped && p.c[0].probed);   /* tried (cancelled once Wi-Fi answered) */
+    CHECK(!strstr(p.reason, "no Steam Frame Wireless Adapter found"));
+
+    /* the adapter forced, no station: no probe, no retry window, Wi-Fi with the toast */
+    mlxr_net_plan_init(&p, MLXR_NET_ADAPTER, "test", 1, "", "");
+    p.adapter_inputs = &none;
+    mlxr_net_plan_add(&p, "198.51.100.7", 0);
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    g_log[0] = 0;
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 1);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+    CHECK(ms < 2000);   /* the 4 s retry window was not waited */
+    CHECK(p.fell_back && p.adapter_absent_fallback && p.chosen_path == MLXR_PATH_HOME);
+    CHECK(!p.c[0].probed);
+    CHECK_EQ_STR(p.toast, "Steam Frame Wireless Adapter not reachable (no adapter found: wlanap up, no station). Using Wi-Fi.");
+    CHECK_EQ_STR(p.failure, "no adapter found: wlanap up, no station");
+
+    /* the adapter forced and wlanap down */
+    mlxr_net_plan_init(&p, MLXR_NET_ADAPTER, "test", 1, "", "");
+    p.adapter_inputs = &down;
+    mlxr_net_plan_add(&p, "198.51.100.7", 0);
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 1);
+    CHECK_EQ_STR(p.toast, "Steam Frame Wireless Adapter not reachable (no adapter found: wlanap down). Using Wi-Fi.");
+
+    /* Wi-Fi forced: unchanged, the adapter is not needed */
+    mlxr_net_plan_init(&p, MLXR_NET_HOME, "test", 1, "", "");
+    p.adapter_inputs = &none;
+    mlxr_net_plan_add(&p, "198.51.100.7", 0);
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 1);
+    CHECK(!p.fell_back && !p.toast[0]);
+
+    /* the adapter forced and a station: the adapter is tried first, as before (it does not answer
+     * here, the fall back is the old "not reachable" text) */
+    mlxr_net_plan_init(&p, MLXR_NET_ADAPTER, "test", 1, "", "");
+    p.adapter_inputs = &st;
+    p.retry_ms = 300;
+    mlxr_net_plan_add(&p, "198.51.100.7", 0);
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 1);
+    CHECK(p.fell_back && !p.adapter_absent_fallback && p.c[0].probed);
+    CHECK(strstr(p.toast, "not reachable (198.51.100.7: "));
+
+    /* the pure choice: the adapter marked absent by hand */
+    mlxr_net_cand home = mk(MLXR_PATH_HOME, "192.0.2.10", 7, 0, 3.0, 0.1, 98);
+    mlxr_net_cand ad = mk(MLXR_PATH_ADAPTER, "198.51.100.7", 0, 0, 0, 0, 51);
+    ad.probed = false;
+    ad.skipped = true;
+    p = plan2(MLXR_NET_ADAPTER, ad, home);
+    mlxr_adapter_info a;
+    make_inputs(&none, true, "up", "1", "", NULL);
+    mlxr_net_adapter_assess(&none, "wlanap", NULL, 0, &a);
+    p.adapter = a;
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    CHECK(p.adapter_absent_fallback && strstr(p.toast, "no adapter found: wlanap up, no station"));
+    /* an unchecked adapter keeps the old text */
+    p = plan2(MLXR_NET_ADAPTER, mk(MLXR_PATH_ADAPTER, "198.51.100.7", 0, 4, 0, 0, 51), home);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    CHECK(!p.adapter_absent_fallback && strstr(p.toast, "not reachable (198.51.100.7: no answer)"));
+}
+
 static void test_probe(void)
 {
+    /* Native (lane adapter-detect): select looks at the adapter; these tests say a station is there */
+    mlxr_adapter_inputs with_station;
+    station_inputs(&with_station);
     fake_opts o = { 0 };
     fake_host *h = fake_host_start(&o);
     CHECK(h != NULL);
@@ -491,6 +757,7 @@ static void test_probe(void)
     memset(&t, 0, sizeof t);
     add_if(&t, "lo", "127.0.0.1", 8, false, 0, false);
     mlxr_net_plan_init(&p, MLXR_NET_ADAPTER, "test", live, "FAKE-HOST-UUID-0001", "");
+    p.adapter_inputs = &with_station;
     mlxr_net_plan_add(&p, "127.0.0.1", 1);
     mlxr_net_plan_add(&p, "127.0.0.1", 0);
     CHECK_EQ_INT(mlxr_net_select(&p, &t), 1);
@@ -502,6 +769,7 @@ static void test_probe(void)
     add_if(&t, "lo", "127.0.0.1", 8, false, 0, false);
     add_if(&t, "wlanap", "198.51.100.1", 24, true, 2, false);   /* documentation addresses only */
     mlxr_net_plan_init(&p, MLXR_NET_ADAPTER, "test", 1, "", "");   /* port 1: refused */
+    p.adapter_inputs = &with_station;
     p.retry_ms = 700;
     mlxr_net_plan_add(&p, "198.51.100.7", 0);                    /* the adapter: nothing answers */
     mlxr_net_plan_add(&p, "127.0.0.1", live);                    /* "Wi-Fi": the fake host */
@@ -585,6 +853,16 @@ int main(void)
     test_choose();
     test_describe();
     test_mdns_and_sources();
+    test_adapter_assess();
+    {
+        fake_opts o = { 0 };
+        fake_host *h = fake_host_start(&o);
+        CHECK(h != NULL);
+        if (h) {
+            test_adapter_plan(h);
+            fake_host_stop(h);
+        }
+    }
     test_probe();
     TEST_DONE();
 }

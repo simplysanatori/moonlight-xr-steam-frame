@@ -563,6 +563,9 @@ static mlxr_server* connectChosen(Net* n, int i, const char* override) {
     mlxr_net_plan_add_record(plan, rec->address, rec->extra_addresses);
     mlxr_server* s = NULL;
     int pick = mlxr_net_select(plan, NULL);
+    // Native (lane adapter-detect): the adapter was asked for, none is there, Wi-Fi is used (the toast
+    // g_netToast below says so in the headset)
+    if (plan->adapter_absent_fallback) MLOG_W("network path: %s", plan->toast);
     if (pick >= 0) {
         char* pem = NULL;
         mlxr_error err = { 0 };

@@ -164,6 +164,154 @@ void mlxr_net_plan_read_links(mlxr_net_plan *p, const mlxr_netifs *t)
     }
 }
 
+/* ---------------------------------------------------------------- the adapter (Native, lane adapter-detect) */
+
+/* Complete entries of the neighbour table (/proc/net/arp text) on `ifname`; counts them and says
+ * whether any has the address `ip` (when given). */
+static int arp_scan(const char *arp, const char *ifname, const char *ip, bool *has_ip)
+{
+    int n = 0;
+    if (has_ip) *has_ip = false;
+    if (!arp) return 0;
+    const char *line = arp;
+    bool first = true;
+    while (*line) {
+        const char *nl = strchr(line, '\n');
+        size_t len = nl ? (size_t)(nl - line) : strlen(line);
+        char buf[256];
+        if (len >= sizeof buf) len = sizeof buf - 1;
+        memcpy(buf, line, len);
+        buf[len] = 0;
+        line = nl ? nl + 1 : line + len;
+        if (first) { first = false; if (!strncmp(buf, "IP address", 10)) continue; }
+        char a[64], hw[32], flags[16], mac[64], mask[32], dev[32];
+        if (sscanf(buf, "%63s %31s %15s %63s %31s %31s", a, hw, flags, mac, mask, dev) != 6) continue;
+        if (strcmp(dev, ifname)) continue;
+        if (!(strtoul(flags, NULL, 16) & 2) || !strcmp(mac, "00:00:00:00:00:00")) continue;   /* incomplete */
+        n++;
+        if (ip && has_ip && !strcmp(a, ip)) *has_ip = true;
+    }
+    return n;
+}
+
+/* `iw dev <if> station dump`: one "Station <mac> (on <if>)" per station, "signal:" lines */
+static int iw_scan(const char *dump, int *best_signal)
+{
+    int n = 0;
+    *best_signal = 0;
+    const char *line = dump;
+    while (*line) {
+        const char *nl = strchr(line, '\n');
+        const char *t = line;
+        const char *end = nl ? nl : line + strlen(line);
+        while (t < end && (*t == ' ' || *t == '\t')) t++;
+        size_t len = (size_t)(end - t);
+        if (len >= 8 && !strncmp(t, "Station ", 8)) n++;
+        else if (len >= 7 && !strncmp(t, "signal:", 7)) {
+            int v = 0;
+            if (sscanf(t + 7, " %d", &v) == 1 && v < 0 && (!*best_signal || v > *best_signal)) *best_signal = v;
+        }
+        if (!nl) break;
+        line = nl + 1;
+    }
+    return n;
+}
+
+void mlxr_net_adapter_assess(const mlxr_adapter_inputs *in, const char *ifname, const char *const *pc_addrs, int n_pc,
+                             mlxr_adapter_info *out)
+{
+    memset(out, 0, sizeof *out);
+    out->checked = true;
+    mlxr_strlcpy(out->ifname, ifname && ifname[0] ? ifname : "wlanap", sizeof out->ifname);
+    const char *ifn = out->ifname;
+    out->exists = in->exists;
+    if (!in->exists) {
+        out->state = MLXR_ADAPTER_NONE;
+        snprintf(out->reason, sizeof out->reason, "%s missing", ifn);
+        return;
+    }
+    /* up: operstate "up"; "unknown" (some drivers) counts when the carrier is on or not reported */
+    if (!strncmp(in->operstate, "up", 2)) out->up = true;
+    else if (!strncmp(in->operstate, "unknown", 7)) out->up = in->carrier[0] != '0';
+    out->up = out->up && in->carrier[0] != '0';
+    if (!out->up) {
+        out->state = MLXR_ADAPTER_NONE;
+        snprintf(out->reason, sizeof out->reason, "%s down", ifn);
+        return;
+    }
+    int neigh = in->has_arp ? arp_scan(in->arp, ifn, NULL, NULL) : 0;
+    if (in->has_iw) {
+        out->stations = iw_scan(in->iw_dump, &out->signal_dbm);
+        out->stations_known = true;
+        mlxr_strlcpy(out->stations_from, "iw", sizeof out->stations_from);
+    } else if (in->nl_stations >= 0) {
+        out->stations = in->nl_stations;
+        out->signal_dbm = in->nl_signal;
+        out->stations_known = true;
+        mlxr_strlcpy(out->stations_from, "nl80211", sizeof out->stations_from);
+    } else if (neigh > 0) {
+        out->stations = neigh;
+        out->stations_known = true;
+        mlxr_strlcpy(out->stations_from, "neighbours", sizeof out->stations_from);
+    }
+    for (int i = 0; i < n_pc && pc_addrs; i++) {
+        if (!pc_addrs[i] || !pc_addrs[i][0]) continue;
+        bool has = false;
+        out->pc_known = true;
+        arp_scan(in->arp, ifn, pc_addrs[i], &has);
+        if (has && in->has_arp) out->pc_in_table = true;
+    }
+    if (!out->stations_known) {
+        out->state = MLXR_ADAPTER_STATION;   /* cannot tell: keep the old behaviour */
+        snprintf(out->reason, sizeof out->reason, "%s up, station list unavailable (assumed present)", ifn);
+        return;
+    }
+    if (out->stations == 0) {
+        out->state = MLXR_ADAPTER_LINK_ONLY;
+        snprintf(out->reason, sizeof out->reason, "%s up, no station", ifn);
+        return;
+    }
+    out->state = MLXR_ADAPTER_STATION;
+    char sig[24] = "";
+    if (out->signal_dbm) snprintf(sig, sizeof sig, " (%d dBm)", out->signal_dbm);
+    snprintf(out->reason, sizeof out->reason, "%s up, %d station%s%s%s", ifn, out->stations, out->stations == 1 ? "" : "s", sig,
+             !out->pc_known ? "" : out->pc_in_table ? ", PC address in the neighbour table"
+                                                   : ", PC address not in the neighbour table");
+}
+
+void mlxr_net_adapter_text(const mlxr_adapter_info *a, char *out, size_t cap)
+{
+    if (!a->checked) snprintf(out, cap, "not checked");
+    else if (a->state == MLXR_ADAPTER_STATION) snprintf(out, cap, "present (%s)", a->reason);
+    else snprintf(out, cap, "no adapter found (%s)", a->reason);
+}
+
+bool mlxr_net_adapter_usable(const mlxr_adapter_info *a)
+{
+    return !a->checked || a->state == MLXR_ADAPTER_STATION;
+}
+
+void mlxr_net_plan_detect_adapter(mlxr_net_plan *p, const mlxr_netifs *t)
+{
+    const char *ifname = NULL;
+    const char *addrs[MLXR_NET_MAX_CANDS];
+    int na = 0;
+    for (int i = 0; i < p->n; i++) {
+        p->c[i].skipped = false;
+        if (p->c[i].path != MLXR_PATH_ADAPTER) continue;
+        if (!ifname && p->c[i].ifname[0]) ifname = p->c[i].ifname;
+        addrs[na++] = p->c[i].address;
+    }
+    for (int k = 0; !ifname && t && k < t->n; k++)
+        if (!t->v[k].loopback && mlxr_netif_is_ap(t, &t->v[k])) ifname = t->v[k].name;
+    if (!ifname) ifname = "wlanap";
+    if (p->adapter_inputs) mlxr_net_adapter_assess(p->adapter_inputs, ifname, addrs, na, &p->adapter);
+    else mlxr_net_adapter_detect(ifname, addrs, na, &p->adapter);
+    if (!mlxr_net_adapter_usable(&p->adapter))
+        for (int i = 0; i < p->n; i++)
+            if (p->c[i].path == MLXR_PATH_ADAPTER) p->c[i].skipped = true;
+}
+
 /* ---------------------------------------------------------------- scoring */
 
 static int dcmp(const void *a, const void *b)
@@ -277,6 +425,7 @@ int mlxr_net_choose(mlxr_net_plan *p)
     p->toast[0] = p->connected[0] = p->chosen_desc[0] = p->failure[0] = 0;
     p->summary[0] = 0;
     p->reason[0] = 0;
+    p->adapter_absent_fallback = false;
     for (int i = 0; i < p->n; i++) {
         mlxr_net_cand_stats(&p->c[i]);
         mlxr_net_cand_judge(&p->c[i], p->bitrate_kbps);
@@ -293,7 +442,9 @@ int mlxr_net_choose(mlxr_net_plan *p)
                      lt, p->c[h].failed, p->c[h].sent, lt2);
         } else if (h >= 0) {
             p->chosen = h;
-            if (a < 0)
+            if (a < 0 && !mlxr_net_adapter_usable(&p->adapter))
+                snprintf(p->reason, sizeof p->reason, "chose Wi-Fi: no Steam Frame Wireless Adapter found (%s)", p->adapter.reason);
+            else if (a < 0)
                 snprintf(p->reason, sizeof p->reason, "chose Wi-Fi: the only path that answered (%s, %.1f ms)", lt, p->c[h].median_ms);
             else
                 snprintf(p->reason, sizeof p->reason, "chose Wi-Fi: %s, preferred over the adapter (%s, %.1f ms)",
@@ -308,11 +459,15 @@ int mlxr_net_choose(mlxr_net_plan *p)
             if (answered(&p->c[i]) && p->c[i].path == want) p->chosen = i;
         if (p->chosen < 0) {
             failures_on(p, want, p->failure, sizeof p->failure);
+            /* Native (lane adapter-detect): the adapter was asked for and none is there */
+            bool no_adapter = want == MLXR_PATH_ADAPTER && !mlxr_net_adapter_usable(&p->adapter);
+            if (no_adapter) snprintf(p->failure, sizeof p->failure, "no adapter found: %s", p->adapter.reason);
             if (!p->failure[0]) snprintf(p->failure, sizeof p->failure, "no address of the PC known on this network");
             for (int i = 0; i < p->n && p->chosen < 0; i++)
                 if (answered(&p->c[i])) p->chosen = i;
             if (p->chosen >= 0) {
                 p->fell_back = true;
+                p->adapter_absent_fallback = no_adapter;
                 snprintf(p->toast, sizeof p->toast, "%s not reachable (%s). Using %s.", mlxr_net_path_label(want), p->failure,
                          mlxr_net_path_label(p->c[p->chosen].path));
                 snprintf(p->reason, sizeof p->reason, "chose %s: %s not reachable (%s)",
@@ -569,6 +724,11 @@ void mlxr_net_log_plan(const mlxr_net_plan *p)
         mlxr_log(1, "network path: setting %s from %s; %d candidate address%s: %s", mlxr_net_pref_name(p->pref), p->source,
                  p->n, p->n == 1 ? "" : "es", list);
     }
+    if (p->adapter.checked) {
+        char at[192];
+        mlxr_net_adapter_text(&p->adapter, at, sizeof at);
+        mlxr_log(1, "network path: %s: %s", mlxr_net_path_label(MLXR_PATH_ADAPTER), at);
+    }
     for (int i = 0; i < p->n; i++) {
         const mlxr_net_cand *c = &p->c[i];
         char link[112] = "";
@@ -583,7 +743,9 @@ void mlxr_net_log_plan(const mlxr_net_plan *p)
             snprintf(link, sizeof link, "no link data");
         }
         const char *ifn = c->ifname[0] ? c->ifname : "?";
-        if (!c->probed)
+        if (c->skipped)
+            mlxr_log(1, "network path: %s %s via %s: not probed, no adapter found; link: %s", mlxr_net_path_label(c->path), c->address, ifn, link);
+        else if (!c->probed)
             mlxr_log(1, "network path: %s %s via %s: not probed; link: %s", mlxr_net_path_label(c->path), c->address, ifn, link);
         else if (c->ok > 0)
             mlxr_log(1, "network path: %s %s via %s: %d/%d ok, rtt median %.1f ms, jitter %.1f ms (serverinfo %.0f ms)%s%s; link: %s",
@@ -658,13 +820,16 @@ int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
     discover(p, t);
     mlxr_net_plan_classify(p, t);
     mlxr_net_plan_read_links(p, t);
+    mlxr_net_plan_detect_adapter(p, t);   /* Native (lane adapter-detect): no station, no adapter probe */
     if (p->pref == MLXR_NET_AUTO) {
-        mlxr_net_probe(p, NULL, 7, false);
+        bool live[MLXR_NET_MAX_CANDS] = { false };
+        for (int i = 0; i < p->n; i++) live[i] = !p->c[i].skipped;
+        mlxr_net_probe(p, live, 7, false);
     } else {
         mlxr_net_path want = p->pref == MLXR_NET_HOME ? MLXR_PATH_HOME : MLXR_PATH_ADAPTER;
         bool which[MLXR_NET_MAX_CANDS] = { false };
         bool any = false;
-        for (int i = 0; i < p->n; i++) any |= which[i] = p->c[i].path == want;
+        for (int i = 0; i < p->n; i++) any |= which[i] = p->c[i].path == want && !p->c[i].skipped;
         bool got = false;
         if (any) {
             mlxr_net_probe(p, which, 2, true);
@@ -679,7 +844,7 @@ int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
         if (!got) {
             /* only now the other path */
             bool rest[MLXR_NET_MAX_CANDS] = { false };
-            for (int i = 0; i < p->n; i++) rest[i] = !which[i];
+            for (int i = 0; i < p->n; i++) rest[i] = !which[i] && !p->c[i].skipped;
             mlxr_net_probe(p, rest, 2, true);
         }
     }

@@ -12,12 +12,16 @@
 #include <net/if.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <signal.h>
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 #include "internal.h"
@@ -399,6 +403,137 @@ void mlxr_net_link_read(const mlxr_netif *i, const char *peer, mlxr_net_link *ou
     out->signal_dbm = r.v[pick].signal;
     out->tx_mbps = r.v[pick].mbps;
     memcpy(out->tx_desc, r.v[pick].desc, sizeof out->tx_desc);
+}
+
+/* ---------------------------------------------------------------- the adapter (Native, lane adapter-detect) */
+
+static void read_small(const char *path, char *out, size_t cap)
+{
+    out[0] = 0;
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    size_t n = fread(out, 1, cap - 1, f);
+    fclose(f);
+    out[n] = 0;
+    while (n && (out[n - 1] == '\n' || out[n - 1] == ' ')) out[--n] = 0;
+}
+
+/* Runs argv[0] (found in the usual bin directories, as the user, no shell) and captures stdout.
+ * False when it is not there, fails, or does not finish in timeout_ms. */
+static bool run_capture(const char *name, char *const argv[], char *out, size_t cap, int timeout_ms)
+{
+    static const char *const dirs[] = { "/usr/bin", "/usr/sbin", "/bin", "/sbin" };
+    char path[96] = "";
+    for (size_t k = 0; k < sizeof dirs / sizeof dirs[0]; k++) {
+        snprintf(path, sizeof path, "%s/%s", dirs[k], name);
+        if (access(path, X_OK) == 0) break;
+        path[0] = 0;
+    }
+    if (!path[0]) return false;
+    int pfd[2];
+    if (pipe2(pfd, O_CLOEXEC) != 0) return false;
+    /* the Steam runtime's libraries do not belong to a system tool: pass the environment without them */
+    extern char **environ;
+    size_t ne = 0;
+    while (environ && environ[ne]) ne++;
+    char **env = calloc(ne + 1, sizeof *env);
+    if (!env) { close(pfd[0]); close(pfd[1]); return false; }
+    size_t k2 = 0;
+    for (size_t k = 0; k < ne; k++)
+        if (strncmp(environ[k], "LD_LIBRARY_PATH=", 16) && strncmp(environ[k], "LD_PRELOAD=", 11)) env[k2++] = environ[k];
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_adddup2(&fa, pfd[1], 1);
+    posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
+    pid_t pid = 0;
+    int sr = posix_spawn(&pid, path, &fa, NULL, argv, env);
+    posix_spawn_file_actions_destroy(&fa);
+    free(env);
+    if (sr != 0) { close(pfd[0]); close(pfd[1]); return false; }
+    close(pfd[1]);
+    size_t got = 0;
+    struct timespec t0;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    bool ok = true;
+    for (;;) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long el = (now.tv_sec - t0.tv_sec) * 1000 + (now.tv_nsec - t0.tv_nsec) / 1000000;
+        if (el >= timeout_ms) { ok = false; break; }
+        struct pollfd pf = { pfd[0], POLLIN, 0 };
+        int pr = poll(&pf, 1, timeout_ms - (int)el);
+        if (pr < 0 && errno == EINTR) continue;
+        if (pr <= 0) { ok = false; break; }
+        ssize_t r = read(pfd[0], out + got, cap - 1 - got);
+        if (r <= 0) break;
+        got += (size_t)r;
+        if (got >= cap - 1) break;   /* longer than we keep: the count stays right for a few stations */
+    }
+    out[got] = 0;
+    close(pfd[0]);
+    int st = 0;
+    if (!ok) kill(pid, SIGKILL);
+    waitpid(pid, &st, 0);
+    return ok && WIFEXITED(st) && WEXITSTATUS(st) == 0;
+}
+
+/* nl80211's station list of the interface: the count and the strongest signal, false if unavailable */
+static bool nl_station_count(int ifindex, int *count, int *signal)
+{
+    nlsock s;
+    if (nl_open(&s) != 0) return false;
+    int fam = nl80211_family(&s);
+    stations *r = calloc(1, sizeof *r);
+    bool ok = false;
+    if (fam > 0 && r && nl_call(&s, (uint16_t)fam, NL80211_CMD_GET_STATION, 1, NL80211_ATTR_IFINDEX, (uint32_t)ifindex, NULL, station_cb, r) == 0) {
+        ok = true;
+        *count = r->n;
+        *signal = 0;
+        for (int k = 0; k < r->n; k++)
+            if (r->v[k].signal && (!*signal || r->v[k].signal > *signal)) *signal = r->v[k].signal;
+    }
+    free(r);
+    close(s.fd);
+    return ok;
+}
+
+void mlxr_net_adapter_inputs_read(const char *ifname, mlxr_adapter_inputs *in)
+{
+    memset(in, 0, sizeof *in);
+    in->nl_stations = -1;
+    if (!ifname || !ifname[0]) ifname = "wlanap";
+    char path[96];
+    struct stat st;
+    snprintf(path, sizeof path, "/sys/class/net/%s", ifname);
+    in->exists = stat(path, &st) == 0;
+    if (!in->exists) return;
+    snprintf(path, sizeof path, "/sys/class/net/%s/operstate", ifname);
+    read_small(path, in->operstate, sizeof in->operstate);
+    snprintf(path, sizeof path, "/sys/class/net/%s/carrier", ifname);
+    read_small(path, in->carrier, sizeof in->carrier);   /* reading it fails while the interface is down: "" */
+    char *argv[] = { "iw", "dev", (char *)ifname, "station", "dump", NULL };
+    in->has_iw = run_capture("iw", argv, in->iw_dump, sizeof in->iw_dump, 1500);
+    if (!in->has_iw) {
+        in->iw_dump[0] = 0;
+        int ifx = (int)if_nametoindex(ifname), cnt = 0, sig = 0;
+        if (ifx > 0 && nl_station_count(ifx, &cnt, &sig)) { in->nl_stations = cnt; in->nl_signal = sig; }
+    }
+    FILE *f = fopen("/proc/net/arp", "r");
+    if (f) {
+        size_t n = fread(in->arp, 1, sizeof in->arp - 1, f);
+        in->arp[n] = 0;
+        in->has_arp = true;
+        fclose(f);
+    }
+}
+
+void mlxr_net_adapter_detect(const char *ifname, const char *const *pc_addrs, int n_pc, mlxr_adapter_info *out)
+{
+    mlxr_adapter_inputs *in = malloc(sizeof *in);
+    if (!in) { memset(out, 0, sizeof *out); return; }   /* not checked: the old behaviour */
+    mlxr_net_adapter_inputs_read(ifname, in);
+    mlxr_net_adapter_assess(in, ifname, pc_addrs, n_pc, out);
+    free(in);
 }
 
 /* ---------------------------------------------------------------- finding the PC's other addresses */
