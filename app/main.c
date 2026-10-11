@@ -41,6 +41,7 @@
 #include "../backend/backend.h"
 #include "../backend/backend_limelight.h"
 #include "../stream/evdev_keyboard.h"
+#include "../input/evmouse.h"
 #include "../input/gamepads.h"
 #include "../stream/file_source.h"
 #include "../stream/frame_slot.h"
@@ -127,6 +128,7 @@ static void updateKeyboard(void) {
     int active = atomic_load(&g_streaming) && g_focused && stream_running();
     evkbd_set_active(active);
     gamepadsSetActive(active); // Native: physical gamepads follow the keyboard's gating
+    evmouse_set_active(active); // and a physical mouse
 }
 
 static void statsHook(void* user, char* buf, int len) {
@@ -207,7 +209,8 @@ static void latencyHook(void* user, char* buf, int len) {
 
 static void pointerHook(void* user, int x, int y, int w, int h) {
     (void)user;
-    stream_pointer(x, y, w, h);
+    // A physical mouse used a moment ago owns the host cursor: the ray's absolute update waits
+    if (!evmouse_abs_filter(x, y, w, h, evmouse_now_ns())) stream_pointer(x, y, w, h);
     updateKeyboard(); // picks up the moment the stream connects
 }
 
@@ -270,6 +273,13 @@ static void modifiersHook(void* user, int mods) {
     (void)user;
     vrkb_hold(&g_vrkb, mods);
 }
+
+// The evdev mouse (a real mouse in the room): relative motion, buttons, wheels
+static void mouseLog(char level, const char* line) { mlxr_logf(level, "%s", line); }
+static void emMove(int dx, int dy, void* u) { (void)u; stream_mouse_move(dx, dy); }
+static void emButton(int b, int down, void* u) { (void)u; stream_button(b, down); }
+static void emScroll(int a, void* u) { (void)u; stream_scroll(a); }
+static void emHScroll(int a, void* u) { (void)u; stream_hscroll(a); }
 
 // The evdev keyboard (a real keyboard in the room)
 static void sendKey(short vk, int down, char modifiers, void* user) {
@@ -885,6 +895,11 @@ int main(int argc, char** argv) {
         }
         evkbd_set_disconnect_hook(keyDisconnectHook, NULL);
         evkbd_start(sendKey, NULL);
+        evmouse_set_log(mouseLog);
+        {
+            static const EvMouseSink ms = {emMove, emButton, emScroll, emHScroll};
+            evmouse_start(&ms, NULL);
+        }
         // Native: physical gamepads (SDL2), Start+Select+L1+R1 leaves the stream like gamepad mode's chord
         gamepadsStart(padDisconnectHook, NULL);
     }
@@ -906,6 +921,8 @@ int main(int argc, char** argv) {
         stopStream(&g_net, 1);
         evkbd_set_active(0);
         evkbd_stop();
+        evmouse_set_active(0);
+        evmouse_stop();
         gamepadsSetActive(0);
         gamepadsStop();
     }
