@@ -24,7 +24,7 @@ jobs:
             glslc libvulkan-dev \
             libavcodec-dev libavformat-dev libswscale-dev libavutil-dev \
             libssl-dev libcurl4-openssl-dev libxml2-dev \
-            libopus-dev libpulse-dev libpipewire-0.3-dev libsdl2-dev libdrm-dev \
+            libopus-dev libpulse-dev libpipewire-0.3-dev libsdl2-dev libdrm-dev libpng-dev \
             libwayland-dev libx11-dev libxcb1-dev libxxf86vm-dev libxrandr-dev \
             libgl-dev libegl-dev libwayland-bin wayland-protocols
 
@@ -46,11 +46,14 @@ jobs:
         run: JOBS=4 ./build.sh
         env:
           SKIP_AUDIT: '1'       # the ldd audit compares against SteamOS packages
+          NO_LAUNCHER: '1'      # the flat launcher needs Qt 6.5 or newer (Ubuntu 24.04 has 6.4); built on the Frame
 
       # Left out of CI:
       #   audio_pulse      needs a PulseAudio server
       #   video_*          need /dev/video-dec0 (Qualcomm Iris) and the generated sample clips
       #   shaders_*        need a Vulkan device (Turnip on the Frame; the runner has none)
+      # rooms_* and m5_world_* need one too: they skip themselves (exit 77) when
+      # there is no Vulkan driver or device, as the m6_* tests do.
       # Everything else runs on the CPU: backend (fake Sunshine host on localhost),
       # xrcore, ui, depth (LiteRT, CPU), the other audio tests, stream_evkbd.
       - name: Test

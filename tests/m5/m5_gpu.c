@@ -11,11 +11,11 @@ int m5_gpu_init(M5Gpu* g) {
     app.apiVersion = VK_API_VERSION_1_2;
     VkInstanceCreateInfo ici = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
     ici.pApplicationInfo = &app;
-    if (vkCreateInstance(&ici, NULL, &vk->instance) != VK_SUCCESS) return -1;
+    if (vkCreateInstance(&ici, NULL, &vk->instance) != VK_SUCCESS) return M5_GPU_NO_DEVICE;
     uint32_t n = 0;
     VkPhysicalDevice devs[8];
     vkEnumeratePhysicalDevices(vk->instance, &n, NULL);
-    if (n == 0) return -1;
+    if (n == 0) return M5_GPU_NO_DEVICE;
     if (n > 8) n = 8;
     vkEnumeratePhysicalDevices(vk->instance, &n, devs);
     vk->phys = devs[0];

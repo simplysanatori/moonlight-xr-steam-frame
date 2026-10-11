@@ -67,13 +67,14 @@ static int vkInit(void) {
     app.apiVersion = VK_API_VERSION_1_2;
     VkInstanceCreateInfo ici = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     ici.pApplicationInfo = &app;
+    // 77: no Vulkan driver or device at all (a CI runner); ctest counts it as skipped
     if (vkCreateInstance(&ici, NULL, &instance) != VK_SUCCESS) {
-        return -1;
+        return 77;
     }
     uint32_t n = 0;
     VkPhysicalDevice devs[8];
     vkEnumeratePhysicalDevices(instance, &n, NULL);
-    if (n == 0) return -1;
+    if (n == 0) return 77;
     if (n > 8) n = 8;
     vkEnumeratePhysicalDevices(instance, &n, devs);
     gpu.phys = devs[0];
@@ -1872,9 +1873,10 @@ int main(int argc, char** argv) {
     }
     int needVk = all || strcmp(group, "logic") != 0;
     if (needVk) {
-        if (vkInit() != 0) {
+        int vk = vkInit();
+        if (vk != 0) {
             fprintf(stderr, "no usable Vulkan 1.2 device with ASTC and dynamic rendering\n");
-            return 1;
+            return vk == 77 ? 77 : 1;
         }
         note("device: %s (Vulkan %u.%u.%u), outdir %s", props.deviceName, VK_VERSION_MAJOR(props.apiVersion),
              VK_VERSION_MINOR(props.apiVersion), VK_VERSION_PATCH(props.apiVersion), outDir);

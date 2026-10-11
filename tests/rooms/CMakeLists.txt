@@ -38,3 +38,6 @@ if(Python3_FOUND)
 endif()
 add_test(NAME rooms_model_fallback COMMAND mlxr-room-test model_fallback ${MLXR_ROOM_TEST_OUT})
 set_tests_properties(rooms_model_textured rooms_model_pose rooms_model_fallback PROPERTIES RESOURCE_LOCK room_test_models)
+# exit 77 (no Vulkan driver or device, e.g. a CI runner) is a skip
+set_tests_properties(rooms_load rooms_rescale rooms_render_home_theater rooms_render_grand_cinema rooms_render_synthwave
+  rooms_model rooms_overlay rooms_model_textured rooms_model_pose rooms_model_fallback PROPERTIES SKIP_RETURN_CODE 77)

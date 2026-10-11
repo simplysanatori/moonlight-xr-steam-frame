@@ -24,6 +24,7 @@ target_compile_options(test_m5_world PRIVATE -Werror)
 mlxr_link_openxr(test_m5_world)
 foreach(g leaks timing glow curve supersample frame_models eye_images)
   add_test(NAME m5_world_${g} COMMAND test_m5_world ${g})
+  set_tests_properties(m5_world_${g} PROPERTIES SKIP_RETURN_CODE 77)   # 77: no Vulkan device
 endforeach()
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/world_snapshot.c)
@@ -31,6 +32,7 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/world_snapshot.c)
   target_link_libraries(mlxr-world-snapshot PRIVATE m5_gpu m4_scene)
   mlxr_link_openxr(mlxr-world-snapshot)
   add_test(NAME m5_world_snapshot COMMAND mlxr-world-snapshot ${CMAKE_CURRENT_BINARY_DIR}/snapshots)
+  set_tests_properties(m5_world_snapshot PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 # The generic controller beside the Steam Frame's own (tools/frame-models) at

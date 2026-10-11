@@ -226,9 +226,10 @@ static void glowNow(XrCtx* ctx) {
 int main(int argc, char** argv) {
     const char* dir = argc > 1 ? argv[1] : "world-snapshots";
     mkdir(dir, 0755);
-    if (m5_gpu_init(&g) != 0) {
+    int gpu = m5_gpu_init(&g);
+    if (gpu != 0) {
         fprintf(stderr, "no Vulkan device\n");
-        return 1;
+        return gpu == M5_GPU_NO_DEVICE ? 77 : 1;
     }
     Scene* s = scene_new();
     XrCtx* ctx = s->ctx;

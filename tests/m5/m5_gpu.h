@@ -14,7 +14,9 @@ typedef struct M5Gpu {
     uint64_t serial;
 } M5Gpu;
 
-// 0 on success
+// 0 on success; M5_GPU_NO_DEVICE when there is no Vulkan driver or device at all
+// (a CI runner): the tests then exit 77, which ctest counts as skipped
+#define M5_GPU_NO_DEVICE 77
 int m5_gpu_init(M5Gpu* g);
 void m5_gpu_free(M5Gpu* g);
 VkCommandBuffer m5_begin(M5Gpu* g);
