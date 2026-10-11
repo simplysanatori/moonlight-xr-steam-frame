@@ -3,7 +3,7 @@
 #   tools/release.sh
 # Writes moonlight-xr-native-<version>-linux-arm64.tar.gz and SHA256SUMS into
 # $OUT (default ~/Games/MoonlightXRNative/releases). The tarball unpacks to
-# MoonlightXRNative/ holding install.sh, steam_cef.py, the licence files and
+# MoonlightXRNative/ holding install.sh, steam_cef.py, dock_icon.py, the licence files and
 # app/ (binaries, launcher, assets, the Moonlight Qt import script) and the
 # Frame controller model converter. The converted Steam Frame controller
 # models (Valve's) are never in the tarball: install.sh makes them on the target.
@@ -58,6 +58,7 @@ rm -f "$ROOT"/app/assets/models/frame_controller_*
 install -m755 tools/frame-models/frame-controller-models.py "$ROOT/frame-controller-models.py"
 install -m755 packaging/install.sh "$ROOT/install.sh"
 install -m644 packaging/steam_cef.py "$ROOT/steam_cef.py"
+install -m644 packaging/dock_icon.py "$ROOT/dock_icon.py"
 [ -d packaging/art ] && cp -a packaging/art "$ROOT/art"
 for f in README.md LICENSE.txt CREDITS.md; do install -m644 "$f" "$ROOT/$f"; done
 [ -z "$(find "$ROOT" -name 'frame_controller_*' -print -quit)" ] || { echo "a Steam Frame controller model got into the release"; exit 1; }

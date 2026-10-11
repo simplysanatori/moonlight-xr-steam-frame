@@ -145,6 +145,13 @@ if [ "$NOSC" = 1 ]; then echo "Steam shortcut: skipped (NO_SHORTCUT)"; exit 0; f
 if [ ! -f "$CEFPY" ]; then echo "Steam shortcut: $CEFPY missing"; exit 1; fi
 
 CEF="python3 -I $CEFPY"
+# The icon in SteamVR's dock (the VR client's SteamVR app manifest, the launcher window's icon-theme PNGs and
+# .desktop file); see dock_icon.py. Needs the shortcut's appid, which it finds in shortcuts.vdf by itself.
+dock_icon() {
+    local py="$HERE/dock_icon.py"
+    [ -f "$py" ] || { echo "dock icon: $py missing, skipped"; return 0; }
+    python3 -I "$py" install "$DEST" "$@" || echo "dock icon: failed (see above); the rest of the install is done"
+}
 # The shortcut opens the flat Moonlight UI when it is installed (VR_ONLY=1:
 # straight into the VR client's own PC and app lists instead)
 if [ "${VR_ONLY:-0}" != 1 ] && [ -x "$DEST/moonlight-xr-launcher" ] && [ -f "$DEST/moonlight-xr-launcher.sh" ]; then
@@ -184,6 +191,7 @@ if ! APPID=$($CEF "(async()=>{
   return id;
 })()"); then
     echo "Steam shortcut: NOT added (is Steam running?). The files are installed; run this script again with Steam up."
+    dock_icon
     exit 0
 fi
 echo "Steam shortcut \"$NAME\" appid $APPID"
@@ -251,3 +259,5 @@ print("(async()=>{ await SteamClient.Apps.SetCustomArtworkForApp(%s, %r, %r, %s)
 ' "$src" "$APPID" "$mime" "${spec##*:}" | $CEF - >/dev/null 2>&1 || echo "Steam art: Steam did not take ${src##*/} (it is in the grid folder; it shows after a Steam restart)"
     done
 fi
+
+dock_icon --appid "$APPID"

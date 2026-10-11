@@ -74,8 +74,8 @@ def wordmark(cr, x, y_base, px, align="l"):
 
 
 def main():
-    # icon: the disc on a transparent square, 512 and 256
-    for n in (512, 256):
+    # icon: the disc on a transparent square: 512, 256 (launcher window icon), 128 and 64 (dock icon theme sizes)
+    for n in (512, 256, 128, 64):
         s, cr = surface(n, n)
         m = n * 0.02
         disc(cr, m, m, n - 2 * m)
