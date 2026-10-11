@@ -7,7 +7,7 @@ pkg_check_modules(MLXR_XML2 REQUIRED IMPORTED_TARGET libxml-2.0)
 find_package(Threads REQUIRED)
 
 add_library(mlxr_backend STATIC
-  util.c xml.c crypto.c identity.c computer.c nvhttp.c pairing.c store.c netpath.c netpath_sys.c)
+  util.c xml.c crypto.c identity.c computer.c nvhttp.c pairing.c store.c netpath.c netpath_sys.c nethistory.c)
 target_include_directories(mlxr_backend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(mlxr_backend PUBLIC PkgConfig::MLXR_CURL PkgConfig::MLXR_SSL PkgConfig::MLXR_XML2 Threads::Threads)
 set_target_properties(mlxr_backend PROPERTIES POSITION_INDEPENDENT_CODE ON)

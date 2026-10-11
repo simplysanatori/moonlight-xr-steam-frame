@@ -3,7 +3,13 @@
  * fake host. GPLv3. */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
+#include <math.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <pthread.h>
 #include <signal.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <time.h>
 #include <string.h>
 
@@ -11,6 +17,7 @@
 #include "check.h"
 #include "fake_host.h"
 #include "netpath.h"
+#include "nethistory.h"
 
 static uint32_t ip(const char *s) { struct in_addr a; inet_pton(AF_INET, s, &a); return ntohl(a.s_addr); }
 
@@ -172,11 +179,33 @@ static void set_link(mlxr_net_cand *c, int dbm, double mbps)
     c->link.tx_mbps = mbps;
 }
 
+/* Native (lane netpath-quality): every sample the same, so the median and p90 are `rtt`, the jitter 0 and
+ * the score is rtt + 50 per failure */
+static mlxr_net_cand mkflat(mlxr_net_path path, const char *addr, int ok, int failed, double rtt, double quality)
+{
+    mlxr_net_cand c = mk(path, addr, ok, failed, rtt, 0, quality);
+    return c;
+}
+
+/* explicit samples (ms) */
+static mlxr_net_cand mksamples(mlxr_net_path path, const char *addr, const double *v, int n, int failed)
+{
+    mlxr_net_cand c = mk(path, addr, 0, failed, 0, 0, 0);
+    c.ok = n;
+    c.sent = n + failed;
+    for (int i = 0; i < n; i++) c.rtt_ms[c.n_rtt++] = v[i];
+    return c;
+}
+
+/* a flat round trip (median and p90 equal) */
+#define SETRTT(c, v) ((c).median_ms = (c).p90_ms = (v))
+
 static void test_stats_and_scoring(void)
 {
     mlxr_net_cand c = mk(MLXR_PATH_HOME, "a", 5, 0, 10.0, 1.0, 50);   /* 9 11 9 11 9 */
     mlxr_net_cand_stats(&c);
     CHECK(c.median_ms == 9.0);
+    CHECK(c.p90_ms == 11.0);                          /* nearest rank: the 5th of 5 */
     CHECK(c.jitter_ms > 0.5 && c.jitter_ms < 1.5);
     mlxr_net_cand e = mk(MLXR_PATH_HOME, "b", 4, 0, 5.0, 0, 50);
     mlxr_net_cand_stats(&e);
@@ -210,52 +239,120 @@ static void test_stats_and_scoring(void)
     mlxr_net_cand_judge(&j, 80000);
     CHECK(!j.poor);
 
-    mlxr_net_cand home = mk(MLXR_PATH_HOME, "h", 7, 0, 3.5, 0.2, 100);
-    mlxr_net_cand ad = mk(MLXR_PATH_ADAPTER, "a", 7, 0, 2.2, 0.4, 38);
+    /* Native (lane netpath-quality): the score is median + jitter + (p90 - median) + 50 per failure + history */
+    {
+        /* ten samples: 4 4 4 4 4 4 4 4 4 14: median 4, p90 (9th of 10) 4, jitter (10 / 10) 1, score 5 */
+        double v[10] = { 4, 4, 4, 4, 4, 4, 4, 4, 4, 14 };
+        mlxr_net_cand s1 = mksamples(MLXR_PATH_HOME, "s", v, 10, 0);
+        mlxr_net_cand_stats(&s1);
+        CHECK(s1.median_ms == 4 && s1.p90_ms == 4 && s1.jitter_ms == 1.0);
+        CHECK(mlxr_net_score(&s1) == 5.0);
+        /* a tail: 15 samples, 13 at 4 ms and two at 24 ms: p90 (14th) is 24, score 4 + 2.67 + 20 */
+        double w[15] = { 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 24, 24 };
+        mlxr_net_cand s2 = mksamples(MLXR_PATH_HOME, "s", w, 15, 0);
+        mlxr_net_cand_stats(&s2);
+        CHECK(s2.median_ms == 4 && s2.p90_ms == 24);
+        CHECK(fabs(mlxr_net_score(&s2) - (4 + 40.0 / 15 + 20)) < 1e-9);
+        /* failures: 50 ms each */
+        mlxr_net_cand s3 = mkflat(MLXR_PATH_HOME, "s", 13, 2, 4.0, 0);
+        mlxr_net_cand_stats(&s3);
+        CHECK(mlxr_net_score(&s3) == 104.0);
+        /* history penalty is part of the score */
+        s3.hist_penalty_ms = 12;
+        CHECK(mlxr_net_score(&s3) == 116.0);
+    }
+    /* the history penalty: nothing up to 0.5 percent, 20 ms per percent after, 150 at most */
+    CHECK(mlxr_net_hist_penalty(0) == 0 && mlxr_net_hist_penalty(0.5) == 0);
+    CHECK(fabs(mlxr_net_hist_penalty(0.6) - 12.0) < 1e-9);
+    CHECK(fabs(mlxr_net_hist_penalty(2.3) - 46.0) < 1e-9);
+    CHECK(mlxr_net_hist_penalty(7.5) == 150.0);
+    CHECK(mlxr_net_hist_penalty(40) == 150.0 && mlxr_net_hist_penalty(100) == 150.0);
+
+    mlxr_net_cand home = mkflat(MLXR_PATH_HOME, "h", 15, 0, 3.5, 100);
+    mlxr_net_cand ad = mkflat(MLXR_PATH_ADAPTER, "a", 15, 0, 2.2, 38);
     mlxr_net_cand_stats(&home);
     mlxr_net_cand_stats(&ad);
-    /* both under 10 ms: the round trips are equal, the better link wins */
+    /* within 3 ms: a tie, the better link wins (more than 5 points apart) */
     CHECK(mlxr_net_better(&home, &ad) && !mlxr_net_better(&ad, &home));
-    /* failures come first, whatever the rest */
-    ad.failed = 1;
-    CHECK(mlxr_net_better(&ad, &home) == false && mlxr_net_better(&home, &ad));
-    home.failed = 2;
+    /* a tie and links within 5 points: Wi-Fi */
+    ad.link_quality = 97;
+    CHECK(mlxr_net_better(&home, &ad) && !mlxr_net_better(&ad, &home));
+    /* ... also when the adapter's link is the better one by 5 points or less */
+    ad.link_quality = 100;
+    CHECK(mlxr_net_better(&home, &ad) && !mlxr_net_better(&ad, &home));
+    /* the adapter's link clearly better: it wins the tie */
+    ad.link_quality = 70;
+    home.link_quality = 40;
     CHECK(mlxr_net_better(&ad, &home) && !mlxr_net_better(&home, &ad));
-    home.failed = ad.failed = 0;
-    /* a poor link loses to a good one even with a clearly lower round trip */
+    /* the margin: exactly 3 ms apart is a tie, 3.5 ms is not */
+    home.link_quality = 100;
+    ad.link_quality = 38;
+    SETRTT(home, 8.0);
+    SETRTT(ad, 5.0);
+    CHECK(mlxr_net_better(&home, &ad));
+    SETRTT(ad, 4.5);
+    CHECK(mlxr_net_better(&ad, &home) && !mlxr_net_better(&home, &ad));
+    /* latency wins over the link rate: a poor link (-80 dBm, 576 Mbit/s) with the lower round trip beats a good one */
     set_link(&ad, -80, 576);
     set_link(&home, -48, 1201);
     mlxr_net_cand_judge(&ad, 80000);
     mlxr_net_cand_judge(&home, 80000);
-    home.median_ms = 40;
-    ad.median_ms = 2;
-    CHECK(mlxr_net_better(&home, &ad) && !mlxr_net_better(&ad, &home));
-    /* both good: a clearly lower round trip wins (beyond max(25%, 5 ms) and over 10 ms) */
-    set_link(&ad, -55, 900);
-    mlxr_net_cand_judge(&ad, 80000);
-    home.median_ms = 40;
-    home.jitter_ms = 0;
-    ad.median_ms = 20;
-    ad.jitter_ms = 0;
+    SETRTT(home, 12);
+    SETRTT(ad, 2);
+    CHECK(ad.poor && !home.poor);
     CHECK(mlxr_net_better(&ad, &home) && !mlxr_net_better(&home, &ad));
-    /* ... but 12 against 15 ms is a tie (within 5 ms): the link decides */
-    ad.median_ms = 12;
-    home.median_ms = 15;
-    ad.link_quality = 70;
-    home.link_quality = 98;
+    /* ... and the other way: a clearly lower round trip wins whatever the link */
+    SETRTT(home, 2);
+    SETRTT(ad, 12);
+    CHECK(mlxr_net_better(&home, &ad) && !mlxr_net_better(&ad, &home));
+    /* a failure costs 50 ms, far more than a few ms of round trip */
+    SETRTT(home, 3);
+    SETRTT(ad, 9);
+    home.failed = 1;
+    CHECK(mlxr_net_better(&ad, &home) && !mlxr_net_better(&home, &ad));
+    home.failed = 0;
     CHECK(mlxr_net_better(&home, &ad));
-    /* both poor: the rest decides, not the "poor" flag */
-    set_link(&home, -75, 576);
-    mlxr_net_cand_judge(&home, 80000);
-    mlxr_net_cand_judge(&ad, 80000);
-    set_link(&ad, -78, 576);
-    mlxr_net_cand_judge(&ad, 80000);
-    CHECK(home.poor && ad.poor);
-    home.median_ms = ad.median_ms = 5;
-    home.link_quality = ad.link_quality = 40;
-    CHECK(mlxr_net_better(&ad, &home) && !mlxr_net_better(&home, &ad));   /* a full tie: the adapter */
-    home.median_ms = 4;
-    CHECK(mlxr_net_better(&home, &ad));                                    /* the lower median first */
+    /* jitter and the tail count too */
+    SETRTT(home, 5);
+    home.jitter_ms = 4;
+    home.p90_ms = 12;                   /* score 5 + 4 + 7 = 16 */
+    SETRTT(ad, 9);
+    ad.jitter_ms = 0.5;
+    ad.p90_ms = 9.5;                    /* score 10 */
+    CHECK(mlxr_net_better(&ad, &home));
+    /* two addresses on one path: the lower score, no margin */
+    mlxr_net_cand h1 = mkflat(MLXR_PATH_HOME, "h1", 15, 0, 5.0, 100), h2 = mkflat(MLXR_PATH_HOME, "h2", 15, 0, 5.5, 100);
+    mlxr_net_cand_stats(&h1);
+    mlxr_net_cand_stats(&h2);
+    CHECK(mlxr_net_better(&h1, &h2) && !mlxr_net_better(&h2, &h1));
+
+    /* the history, applied to a plan: a path without history has none, one that is old or short is ignored */
+    mlxr_net_plan hp;
+    mlxr_net_plan_init(&hp, MLXR_NET_AUTO, "test", 47989, "", "");
+    hp.now_s = 1800000000;
+    hp.c[0] = mkflat(MLXR_PATH_HOME, "h", 15, 0, 3, 0);
+    hp.c[1] = mkflat(MLXR_PATH_ADAPTER, "a", 15, 0, 3, 0);
+    hp.n = 2;
+    mlxr_net_plan_apply_history(&hp);
+    CHECK(hp.c[0].hist_loss_pct < 0 && hp.c[1].hist_loss_pct < 0 && hp.c[0].hist_penalty_ms == 0 && hp.c[1].hist_penalty_ms == 0);
+    hp.hist.e[MLXR_NETHIST_HOME] = (mlxr_nethist_entry){ true, 9770, 230, 1.0, 4, hp.now_s - 3600 };   /* 2.3 percent */
+    mlxr_net_plan_apply_history(&hp);
+    CHECK(fabs(hp.c[0].hist_loss_pct - 2.3) < 1e-9 && fabs(hp.c[0].hist_penalty_ms - 46.0) < 1e-9);
+    CHECK(hp.c[1].hist_loss_pct < 0 && hp.c[1].hist_penalty_ms == 0);   /* the adapter has none: not charged */
+    hp.hist.e[MLXR_NETHIST_ADAPTER] = (mlxr_nethist_entry){ true, 20000, 0, 1.0, 4, hp.now_s - 3600 };
+    mlxr_net_plan_apply_history(&hp);
+    CHECK(hp.c[1].hist_loss_pct == 0 && hp.c[1].hist_penalty_ms == 0);   /* history with no loss: no penalty */
+    hp.hist.e[MLXR_NETHIST_HOME].time_s = hp.now_s - MLXR_NETHIST_MAX_AGE_S - 10;
+    mlxr_net_plan_apply_history(&hp);
+    CHECK(hp.c[0].hist_loss_pct < 0 && hp.c[0].hist_penalty_ms == 0);   /* too old */
+    hp.hist.e[MLXR_NETHIST_HOME].time_s = hp.now_s - 10;
+    hp.hist.e[MLXR_NETHIST_HOME].frames = 100;
+    hp.hist.e[MLXR_NETHIST_HOME].lost = 50;
+    mlxr_net_plan_apply_history(&hp);
+    CHECK(hp.c[0].hist_loss_pct < 0);                                    /* too few frames to say */
+    hp.hist.e[MLXR_NETHIST_HOME] = (mlxr_nethist_entry){ true, 1000, 1000, 1.0, 4, hp.now_s - 10 };   /* 50 percent */
+    mlxr_net_plan_apply_history(&hp);
+    CHECK(hp.c[0].hist_penalty_ms == 150.0);                             /* capped */
 }
 
 static mlxr_net_plan plan2(mlxr_net_pref pref, mlxr_net_cand a, mlxr_net_cand b)
@@ -276,63 +373,93 @@ static void test_choose(void)
     strcpy(dead.error, "connect timed out");
 
     /* auto, the case measured on the Frame: the adapter has the lower idle round trip (2.2 against
-     * 3.5 ms) but a poor link (-80 dBm, 576 Mbit/s); Wi-Fi is -48 dBm, 1201 Mbit/s */
-    mlxr_net_cand mad = mk(MLXR_PATH_ADAPTER, "10.35.50.27", 7, 0, 2.2, 0.4, 38);
-    mlxr_net_cand mhome = mk(MLXR_PATH_HOME, "192.168.1.10", 7, 0, 3.5, 0.2, 100);
+     * 3.5 ms, a difference inside the 3 ms margin) but a poor link (-80 dBm, 576 Mbit/s); Wi-Fi is
+     * -48 dBm, 1201 Mbit/s. Native (lane netpath-quality): a tie, the better link decides. */
+    mlxr_net_cand mad = mk(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 2.2, 0.4, 38);
+    mlxr_net_cand mhome = mk(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 3.5, 0.2, 100);
     set_link(&mad, -80, 576);
     set_link(&mhome, -48, 1201);
     mlxr_net_plan p = plan2(MLXR_NET_AUTO, mad, mhome);
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);
     CHECK(p.chosen_path == MLXR_PATH_HOME && !p.fell_back && !p.toast[0]);
-    CHECK(strstr(p.reason, "chose Wi-Fi: usable, preferred over the adapter (-48 dBm, 1201 Mbit/s"));
+    CHECK(strstr(p.reason, "chose Wi-Fi: scores within 3 ms"));
+    CHECK(strstr(p.reason, "the better link breaks the tie (quality 100 against 38)"));
     CHECK(strstr(p.summary, "home 192.168.1.10"));
     p = plan2(MLXR_NET_AUTO, mhome, mad);   /* the order does not matter */
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
-    /* a faster session bitrate than the PHY rate allows makes Wi-Fi poor too: then the rest decides */
-    p = plan2(MLXR_NET_AUTO, mad, mhome);
-    p.bitrate_kbps = 400000;                /* 4 x 400 = 1600 Mbit/s: both poor */
-    CHECK_EQ_INT(mlxr_net_choose(&p), 1);   /* both poor: equal round trips, the better link, Wi-Fi */
-    /* both good: Wi-Fi is preferred, even with the adapter's lower round trip (the owner's 01:39 run:
-     * adapter -69 dBm 865 Mbit/s 2.0 ms, Wi-Fi -49 dBm 1081 Mbit/s 3.5 ms) */
-    mlxr_net_cand gad = mk(MLXR_PATH_ADAPTER, "10.35.50.27", 7, 0, 2.0, 0.3, 66);
-    mlxr_net_cand ghome = mk(MLXR_PATH_HOME, "192.168.1.10", 7, 0, 3.5, 0.2, 100);
-    set_link(&gad, -69, 865);
-    set_link(&ghome, -49, 1081);
-    p = plan2(MLXR_NET_AUTO, gad, ghome);
+    /* a tie with no link data on either side: Wi-Fi is preferred */
+    p = plan2(MLXR_NET_AUTO, mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 2.0, 0), mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 4.0, 0));
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);
-    CHECK(strstr(p.reason, "chose Wi-Fi: usable, preferred over the adapter"));
+    CHECK(strstr(p.reason, "Wi-Fi preferred on a tie"));
     CHECK_EQ_STR(p.connected, "Connected over Wi-Fi.");
-    /* Wi-Fi weak (-75 dBm), adapter good: the adapter */
-    set_link(&ghome, -75, 1081);
+    /* latency wins over the link rate: the adapter's round trip is 10 ms lower though its link is poor */
+    mlxr_net_cand gad = mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 2.0, 38);
+    mlxr_net_cand ghome = mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 12.0, 100);
+    set_link(&gad, -80, 576);
+    set_link(&ghome, -48, 1201);
     p = plan2(MLXR_NET_AUTO, gad, ghome);
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
-    CHECK(strstr(p.reason, "chose adapter: Wi-Fi link weak (-75 dBm, 1081 Mbit/s"));
+    CHECK(strstr(p.reason, "chose adapter: score 2.0 ms against Wi-Fi 12.0 ms (lower is better); decided by latency (rtt 2.0 ms against 12.0 ms"));
     CHECK_EQ_STR(p.connected, "Connected over Steam Frame Wireless Adapter.");
-    /* both weak: still Wi-Fi */
-    set_link(&gad, -80, 576);
+    /* ... and Wi-Fi with the lower round trip beats an adapter with a good link */
+    ghome = mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 2.0, 100);
+    gad = mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 9.0, 100);
     p = plan2(MLXR_NET_AUTO, gad, ghome);
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);
-    CHECK(strstr(p.reason, "both links weak"));
-    /* Wi-Fi answers but half the probes failed: weak, the good adapter wins */
-    set_link(&gad, -55, 1201);
-    set_link(&ghome, -48, 1201);
-    ghome = mk(MLXR_PATH_HOME, "192.168.1.10", 3, 4, 3.5, 0.2, 100);
-    set_link(&ghome, -48, 1201);
+    CHECK(strstr(p.reason, "chose Wi-Fi: score 2.0 ms against adapter 9.0 ms"));
+    /* a failed probe costs 50 ms: the path with the lower round trip but a failure loses */
+    ghome = mkflat(MLXR_PATH_HOME, "192.168.1.10", 14, 1, 3.0, 100);
+    gad = mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 8.0, 38);
     p = plan2(MLXR_NET_AUTO, gad, ghome);
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
-    ghome = mk(MLXR_PATH_HOME, "192.168.1.10", 6, 1, 3.5, 0.2, 100);   /* one failure of seven is fine */
-    set_link(&ghome, -48, 1201);
+    CHECK(strstr(p.reason, "chose adapter: score 8.0 ms against Wi-Fi 53.0 ms"));
+    CHECK(strstr(p.reason, "decided by failed probes (Wi-Fi 1 of 15, adapter 0 of 15)"));
+    /* half the probes failing is no longer a rule of its own, but it costs 400 ms */
+    ghome = mkflat(MLXR_PATH_HOME, "192.168.1.10", 7, 8, 2.0, 100);
     p = plan2(MLXR_NET_AUTO, gad, ghome);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    /* the history: Wi-Fi is quicker (3 against 6 ms) but its last stream lost 2.3 percent of the frames */
+    ghome = mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 3.0, 100);
+    gad = mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 6.0, 38);
+    p = plan2(MLXR_NET_AUTO, gad, ghome);
+    p.now_s = 1800000000;
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);                                                    /* no history: Wi-Fi */
+    p.hist.e[MLXR_NETHIST_HOME] = (mlxr_nethist_entry){ true, 9770, 230, 1.0, 4, p.now_s - 7200 };
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    CHECK(strstr(p.reason, "chose adapter: score 6.0 ms against Wi-Fi 49.0 ms"));
+    CHECK(strstr(p.reason, "decided by the last stream's losses (Wi-Fi: 2.3% lost last time; adapter: no history)"));
+    /* history for both paths, equal losses: the latency decides again */
+    p.hist.e[MLXR_NETHIST_ADAPTER] = (mlxr_nethist_entry){ true, 9770, 230, 1.0, 4, p.now_s - 7200 };
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    /* a path with no history is not penalised: the adapter with a clean history next to a lossy Wi-Fi */
+    p.hist.e[MLXR_NETHIST_ADAPTER] = (mlxr_nethist_entry){ true, 20000, 0, 1.0, 4, p.now_s - 7200 };
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    /* a loss of 0.4 percent is not charged */
+    p.hist.e[MLXR_NETHIST_HOME] = (mlxr_nethist_entry){ true, 9960, 40, 1.0, 4, p.now_s - 7200 };
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    /* the hard rules stay: a path that did not answer is never chosen, whatever its history or links */
+    mlxr_net_cand deadad = mk(MLXR_PATH_ADAPTER, "10.35.50.27", 0, 15, 0, 0, 100);
+    strcpy(deadad.error, "connect timed out");
+    p = plan2(MLXR_NET_AUTO, deadad, mkflat(MLXR_PATH_HOME, "192.168.1.10", 3, 12, 30.0, 0));
+    p.now_s = 1800000000;
+    p.hist.e[MLXR_NETHIST_HOME] = (mlxr_nethist_entry){ true, 1000, 1000, 1.0, 4, p.now_s - 7200 };
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    /* the adapter skipped (no station) is never chosen, even next to a bad Wi-Fi */
+    mlxr_net_cand skipped = mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 0, 0, 0, 100);
+    skipped.probed = false;
+    skipped.skipped = true;
+    p = plan2(MLXR_NET_AUTO, skipped, mkflat(MLXR_PATH_HOME, "192.168.1.10", 5, 10, 90.0, 0));
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);
     /* Wi-Fi did not answer at all: the adapter, and the reason says what failed */
     mlxr_net_cand deadhome = mk(MLXR_PATH_HOME, "192.168.1.10", 0, 4, 0, 0, 0);
     strcpy(deadhome.error, "connect timed out");
+    gad = mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 6.0, 38);
     p = plan2(MLXR_NET_AUTO, deadhome, gad);
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);
     CHECK(strstr(p.reason, "chose adapter: Wi-Fi did not answer (192.168.1.10: connect timed out)"));
-    /* auto: the better */
+    /* auto: the better (no link data, scores 3.2 and 2.0: a tie, 98 against 51: Wi-Fi) */
     p = plan2(MLXR_NET_AUTO, home, ad);
-    CHECK_EQ_INT(mlxr_net_choose(&p), 0);   /* no link data, round trips equal, 98 against 51: Wi-Fi */
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
     /* auto: only one answers */
     p = plan2(MLXR_NET_AUTO, dead, ad);
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);
@@ -475,7 +602,7 @@ static void station_inputs(mlxr_adapter_inputs *in)
     make_inputs(in, true, "up", "1", IW_ONE, ARP_OTHER_IF ARP_PC);
 }
 
-static char g_log[4096];
+static char g_log[16384];
 static void capture_log(int level, const char *msg, void *ud)
 {
     (void)ud;
@@ -701,6 +828,225 @@ static void test_adapter_plan(fake_host *h)
     CHECK(!p.adapter_absent_fallback && strstr(p.toast, "not reachable (198.51.100.7: no answer)"));
 }
 
+/* ---- Native (lane netpath-quality): the history file ---- */
+
+static void put_file(const char *path, const char *text)
+{
+    FILE *f = fopen(path, "w");
+    CHECK(f != NULL);
+    if (!f) return;
+    fputs(text, f);
+    fclose(f);
+}
+
+static void test_history_file(void)
+{
+    const char *dir = make_tmpdir();
+    char path[600];
+    snprintf(path, sizeof path, "%s/%s", dir, mlxr_nethist_filename());
+    mlxr_nethist h;
+
+    /* missing file: nothing */
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 0);
+    CHECK(!h.e[0].valid && !h.e[1].valid);
+    CHECK_EQ_INT(mlxr_nethist_load(NULL, &h), 0);
+    CHECK_EQ_INT(mlxr_nethist_load("/nonexistent-mlxr-dir", &h), 0);
+
+    /* write one path, read it back */
+    mlxr_nethist_entry home = { true, 17510, 0, 1.25, 3.0, 1790000000 };
+    CHECK(mlxr_nethist_record(dir, MLXR_NETHIST_HOME, &home));
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 1);
+    CHECK(h.e[MLXR_NETHIST_HOME].valid && !h.e[MLXR_NETHIST_ADAPTER].valid);
+    CHECK(h.e[0].frames == 17510 && h.e[0].lost == 0 && h.e[0].time_s == 1790000000);
+    CHECK(fabs(h.e[0].jitter_ms - 1.25) < 1e-9 && fabs(h.e[0].rtt_ms - 3.0) < 1e-9);
+    /* the second path is added, the first stays */
+    mlxr_nethist_entry ad = { true, 4300, 99, 4.5, 6.0, 1790000500 };
+    CHECK(mlxr_nethist_record(dir, MLXR_NETHIST_ADAPTER, &ad));
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 2);
+    CHECK(h.e[0].frames == 17510 && h.e[1].frames == 4300 && h.e[1].lost == 99);
+    CHECK(fabs(mlxr_nethist_loss_pct(&h.e[1]) - 100.0 * 99 / 4399) < 1e-9);
+    CHECK(mlxr_nethist_loss_pct(&h.e[0]) == 0);
+    /* a newer stream replaces its path's entry */
+    mlxr_nethist_entry home2 = { true, 800, 40, 2.0, 5.0, 1790001000 };
+    CHECK(mlxr_nethist_record(dir, MLXR_NETHIST_HOME, &home2));
+    mlxr_nethist_load(dir, &h);
+    CHECK(h.e[0].frames == 800 && h.e[0].lost == 40 && h.e[1].frames == 4300);
+    CHECK(!mlxr_nethist_record(dir, 5, &home2));
+    char tmp[620];
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    CHECK(access(tmp, F_OK) != 0);   /* no temporary file left */
+
+    /* the file holds the keyword, numbers and a time, and nothing else: no address, no name */
+    char *text = slurp(path);
+    CHECK(text != NULL);
+    if (text) {
+        CHECK(strstr(text, "[home]") && strstr(text, "[adapter]") && strstr(text, "frames=800"));
+        /* every line is a comment, "[word]" or key=number */
+        char *save = NULL, *copy = strdup(text);
+        for (char *l = strtok_r(copy, "\n", &save); l; l = strtok_r(NULL, "\n", &save)) {
+            if (l[0] == '#' || l[0] == '[') continue;
+            char *eq = strchr(l, '=');
+            CHECK(eq != NULL);
+            if (!eq) continue;
+            for (char *v = eq + 1; *v; v++) CHECK((*v >= '0' && *v <= '9') || *v == '.');
+        }
+        free(copy);
+        free(text);
+    }
+    struct stat st;
+    CHECK(stat(path, &st) == 0 && (st.st_mode & 077) == 0);
+
+    /* corrupt files: nothing is believed */
+    put_file(path, "garbage\nnot an ini at all \x01\x02\n");
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 0);
+    put_file(path, "[home]\nframes=abc\nlost=0\njitter_ms=1\nrtt_ms=2\ntime=1790000000\n");
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 0);
+    put_file(path, "[home]\nframes=1000\nlost=-5\njitter_ms=1\nrtt_ms=2\ntime=1790000000\n");
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 0);
+    put_file(path, "[home]\nframes=1000\nlost=5\njitter_ms=nan\nrtt_ms=2\ntime=1790000000\n");
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 0);
+    put_file(path, "[home]\nframes=1000\nlost=5\njitter_ms=1\n");   /* cut short */
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 0);
+    put_file(path, "[home]\nframes=0\nlost=0\njitter_ms=1\nrtt_ms=2\ntime=1790000000\n");   /* empty stream */
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 0);
+    put_file(path, "frames=1000\nlost=5\njitter_ms=1\nrtt_ms=2\ntime=1790000000\n");   /* no section */
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 0);
+    put_file(path, "");
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 0);
+    /* one good entry next to a bad one: the good one is kept; unknown sections and keys are ignored */
+    put_file(path, "# comment\n[other]\nframes=5\n[home]\nframes=1000\nlost=5\njitter_ms=1.5\nrtt_ms=2\ntime=1790000000\nextra=1\n"
+                   "[adapter]\nframes=x\n");
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 1);
+    CHECK(h.e[0].valid && h.e[0].frames == 1000 && !h.e[1].valid);
+    /* a corrupt file does not stop the next write */
+    put_file(path, "garbage\n");
+    CHECK(mlxr_nethist_record(dir, MLXR_NETHIST_ADAPTER, &ad));
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 1);
+    CHECK(h.e[1].valid && h.e[1].frames == 4300);
+
+    /* a stream ends: placed by its address on the real interfaces (loopback is "home"); short streams are not kept */
+    unlink(path);
+    CHECK(!mlxr_nethist_record_stream(dir, "127.0.0.1", 300, 100, 1, 2, 1790000000));   /* 400 frames */
+    CHECK(access(path, F_OK) != 0);
+    CHECK(mlxr_nethist_record_stream(dir, "127.0.0.1", 12000, 36, 0.8, 2.0, 1790000000));
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 1);
+    CHECK(h.e[MLXR_NETHIST_HOME].frames == 12000 && h.e[MLXR_NETHIST_HOME].lost == 36);
+    CHECK(!mlxr_nethist_record_stream(NULL, "127.0.0.1", 12000, 36, 0.8, 2.0, 0));
+    unlink(path);
+    rmdir(dir);
+}
+
+/* A bare HTTP server on one loopback address: answers every request with a serverinfo-like page. The
+ * fake host listens on 127.0.0.1 only; this one gives the second path an address of its own. */
+typedef struct { int fd; volatile int stop; pthread_t th; } mini_srv;
+
+static void *mini_loop(void *arg)
+{
+    mini_srv *m = arg;
+    while (!m->stop) {
+        struct pollfd pf = { m->fd, POLLIN, 0 };
+        if (poll(&pf, 1, 20) <= 0) continue;
+        int c = accept(m->fd, NULL, NULL);
+        if (c < 0) continue;
+        char buf[1024];
+        struct pollfd cp = { c, POLLIN, 0 };
+        if (poll(&cp, 1, 200) > 0) (void)recv(c, buf, sizeof buf, 0);
+        const char *r = "HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: 62\r\nConnection: close\r\n\r\n"
+                        "<root status_code=\"200\"><uniqueid>MINI-SRV-0001</uniqueid></root>";
+        (void)send(c, r, strlen(r), MSG_NOSIGNAL);
+        close(c);
+    }
+    return NULL;
+}
+
+static bool mini_start(mini_srv *m, const char *addr, uint16_t *port)
+{
+    m->stop = 0;
+    m->fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (m->fd < 0) return false;
+    struct sockaddr_in a = { .sin_family = AF_INET };
+    inet_pton(AF_INET, addr, &a.sin_addr);
+    socklen_t l = sizeof a;
+    if (bind(m->fd, (struct sockaddr *)&a, sizeof a) || listen(m->fd, 16) || getsockname(m->fd, (struct sockaddr *)&a, &l)) {
+        close(m->fd);
+        return false;
+    }
+    *port = ntohs(a.sin_port);
+    return pthread_create(&m->th, NULL, mini_loop, m) == 0;
+}
+
+static void mini_stop(mini_srv *m)
+{
+    m->stop = 1;
+    pthread_join(m->th, NULL);
+    close(m->fd);
+}
+
+/* The whole select with a fake interface table, two real servers (one per path) and a history file */
+static void test_select_with_history(fake_host *h)
+{
+    mlxr_adapter_inputs with_station;
+    station_inputs(&with_station);
+    uint16_t home_port = fake_host_http_port(h), ad_port = 0;
+    mini_srv m;
+    if (!mini_start(&m, "127.0.0.2", &ad_port)) {
+        fprintf(stderr, "note: 127.0.0.2 not available, history select test skipped\n");
+        return;
+    }
+    mlxr_netifs t;
+    memset(&t, 0, sizeof t);
+    add_if(&t, "lo", "127.0.0.1", 32, false, 0, false);
+    add_if(&t, "wlanap", "127.0.0.2", 32, true, 2, false);
+    const char *dir = make_tmpdir();
+    char path[600];
+    snprintf(path, sizeof path, "%s/%s", dir, mlxr_nethist_filename());
+    mlxr_net_plan p;
+    const int64_t now = 1800000000;
+
+    for (int round = 0; round < 4; round++) {
+        mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 1, "", "0123456789ABCDEF");
+        p.adapter_inputs = &with_station;
+        p.now_s = now;
+        snprintf(p.history_dir, sizeof p.history_dir, "%s", dir);
+        mlxr_net_plan_add(&p, "127.0.0.1", home_port);
+        mlxr_net_plan_add(&p, "127.0.0.2", ad_port);
+        mlxr_nethist hist;
+        memset(&hist, 0, sizeof hist);
+        if (round == 1) hist.e[MLXR_NETHIST_HOME] = (mlxr_nethist_entry){ true, 19000, 570, 3.0, 4, now - 3600 };       /* 2.9 percent */
+        if (round == 2) hist.e[MLXR_NETHIST_ADAPTER] = (mlxr_nethist_entry){ true, 4000, 100, 6.0, 5, now - 86400 };    /* 2.4 percent */
+        if (round == 1 || round == 2) mlxr_nethist_save(dir, &hist);
+        if (round == 3) put_file(path, "this is not a history file\n");
+        g_log[0] = 0;
+        mlxr_set_log(capture_log, NULL);
+        int pick = mlxr_net_select(&p, &t);
+        mlxr_set_log(NULL, NULL);
+        CHECK(p.c[0].path == MLXR_PATH_HOME && p.c[1].path == MLXR_PATH_ADAPTER);
+        CHECK(p.c[0].sent >= 10 && p.c[1].sent >= 10);                 /* many probes per path */
+        CHECK(p.c[0].ok == p.c[0].sent && p.c[1].ok == p.c[1].sent);   /* none lost on loopback */
+        CHECK(p.c[0].p90_ms >= p.c[0].median_ms && mlxr_net_score(&p.c[0]) >= p.c[0].median_ms);
+        CHECK(strstr(g_log, "score ") != NULL);
+        if (round == 1) {
+            CHECK_EQ_INT(pick, 1);   /* Wi-Fi lost 2.9 percent last time: the adapter */
+            CHECK(p.c[0].hist_loss_pct > 2.8 && p.c[0].hist_penalty_ms > 55);
+            CHECK(strstr(p.reason, "chose adapter") && strstr(p.reason, "the last stream's losses"));
+            CHECK(strstr(g_log, "history: Wi-Fi lost 2.9% of 19570 frames last time") != NULL);
+            CHECK(!strstr(g_log, "adapter lost"));
+        } else if (round == 2) {
+            CHECK_EQ_INT(pick, 0);   /* the adapter lost 2.4 percent: Wi-Fi (ties and the tail both point there) */
+            CHECK(p.c[1].hist_penalty_ms > 45 && p.c[0].hist_loss_pct < 0);
+            CHECK(strstr(g_log, "history: adapter lost 2.4% of 4100 frames last time"));
+        } else {
+            CHECK(p.c[0].hist_loss_pct < 0 && p.c[1].hist_loss_pct < 0);   /* none, or a damaged file: no penalty */
+            CHECK(strstr(g_log, "history:") == NULL);
+            CHECK(pick >= 0);
+        }
+        if (round == 0) unlink(path);
+    }
+    unlink(path);
+    rmdir(dir);
+    mini_stop(&m);
+}
+
 static void test_probe(void)
 {
     /* Native (lane adapter-detect): select looks at the adapter; these tests say a station is there */
@@ -850,6 +1196,7 @@ int main(void)
     test_classify();
     test_candidates();
     test_stats_and_scoring();
+    test_history_file();
     test_choose();
     test_describe();
     test_mdns_and_sources();
@@ -860,6 +1207,7 @@ int main(void)
         CHECK(h != NULL);
         if (h) {
             test_adapter_plan(h);
+            test_select_with_history(h);
             fake_host_stop(h);
         }
     }

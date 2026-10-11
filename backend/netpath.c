@@ -88,7 +88,7 @@ void mlxr_net_plan_init(mlxr_net_plan *p, mlxr_net_pref pref, const char *source
     p->budget_ms = 1500;
     p->bitrate_kbps = 80000;
     p->retry_ms = 4000;
-    p->grace_ms = 300;
+    p->grace_ms = 700;   /* Native (lane netpath-quality): the slower path needs time for its 15 probes */
     p->chosen = -1;
     if (uuid) mlxr_strlcpy(p->uuid, uuid, sizeof p->uuid);
     if (uniqueid) mlxr_strlcpy(p->uniqueid, uniqueid, sizeof p->uniqueid);
@@ -322,15 +322,53 @@ static int dcmp(const void *a, const void *b)
 
 void mlxr_net_cand_stats(mlxr_net_cand *c)
 {
-    c->median_ms = c->jitter_ms = 0;
+    c->median_ms = c->jitter_ms = c->p90_ms = 0;
     if (c->n_rtt <= 0) return;
     double s[MLXR_NET_MAX_SAMPLES];
     memcpy(s, c->rtt_ms, sizeof(double) * (size_t)c->n_rtt);
     qsort(s, (size_t)c->n_rtt, sizeof(double), dcmp);
     c->median_ms = c->n_rtt % 2 ? s[c->n_rtt / 2] : (s[c->n_rtt / 2 - 1] + s[c->n_rtt / 2]) / 2;
+    /* Native (lane netpath-quality): nearest-rank 90th percentile */
+    int r = (int)ceil(0.9 * c->n_rtt) - 1;
+    c->p90_ms = s[r < 0 ? 0 : r >= c->n_rtt ? c->n_rtt - 1 : r];
+    if (c->p90_ms < c->median_ms) c->p90_ms = c->median_ms;
     double dev = 0;
     for (int i = 0; i < c->n_rtt; i++) dev += fabs(c->rtt_ms[i] - c->median_ms);
     c->jitter_ms = dev / c->n_rtt;
+}
+
+/* ---------------------------------------------------------------- Native (lane netpath-quality): score and history */
+
+double mlxr_net_hist_penalty(double pct)
+{
+    if (pct <= MLXR_NET_HIST_LOSS_FREE_PCT) return 0;
+    double ms = MLXR_NET_HIST_MS_PER_PCT * pct;
+    return ms > MLXR_NET_HIST_CAP_MS ? MLXR_NET_HIST_CAP_MS : ms;
+}
+
+/* the three parts of the score, ms */
+static double latency_part(const mlxr_net_cand *c) { return c->median_ms + c->jitter_ms + (c->p90_ms - c->median_ms); }
+static double failure_part(const mlxr_net_cand *c) { return MLXR_NET_FAIL_PENALTY_MS * c->failed; }
+
+double mlxr_net_score(const mlxr_net_cand *c)
+{
+    return latency_part(c) + failure_part(c) + c->hist_penalty_ms;
+}
+
+void mlxr_net_plan_apply_history(mlxr_net_plan *p)
+{
+    int64_t now = p->now_s ? p->now_s : (int64_t)time(NULL);
+    for (int i = 0; i < p->n; i++) {
+        mlxr_net_cand *c = &p->c[i];
+        c->hist_loss_pct = -1;
+        c->hist_penalty_ms = 0;
+        if (c->path != MLXR_PATH_HOME && c->path != MLXR_PATH_ADAPTER) continue;
+        const mlxr_nethist_entry *e = &p->hist.e[c->path == MLXR_PATH_ADAPTER ? MLXR_NETHIST_ADAPTER : MLXR_NETHIST_HOME];
+        if (!e->valid || e->frames + e->lost < MLXR_NETHIST_MIN_FRAMES) continue;
+        if (now - e->time_s > MLXR_NETHIST_MAX_AGE_S) continue;
+        c->hist_loss_pct = mlxr_nethist_loss_pct(e);
+        c->hist_penalty_ms = mlxr_net_hist_penalty(c->hist_loss_pct);
+    }
 }
 
 void mlxr_net_cand_judge(mlxr_net_cand *c, int bitrate_kbps)
@@ -342,33 +380,14 @@ void mlxr_net_cand_judge(mlxr_net_cand *c, int bitrate_kbps)
     if (c->link.tx_mbps > 0 && c->link.tx_mbps < 4.0 * bitrate_kbps / 1000.0) c->poor = true;
 }
 
-static bool rtt_equal(const mlxr_net_cand *a, const mlxr_net_cand *b)
-{
-    double sa = a->median_ms + a->jitter_ms, sb = b->median_ms + b->jitter_ms;
-    if (sa < 10.0 && sb < 10.0) return true;
-    double lo = sa < sb ? sa : sb;
-    double tol = 0.25 * lo > 5.0 ? 0.25 * lo : 5.0;
-    return fabs(sa - sb) <= tol;
-}
-
 bool mlxr_net_better(const mlxr_net_cand *a, const mlxr_net_cand *b)
 {
-    if (a->failed != b->failed) return a->failed < b->failed;
-    if (a->poor != b->poor) return !a->poor;
-    if (!rtt_equal(a, b)) return a->median_ms + a->jitter_ms < b->median_ms + b->jitter_ms;
+    double sa = mlxr_net_score(a), sb = mlxr_net_score(b);
+    if (a->path == b->path) return sa < sb;   /* two addresses on one path: the lower score */
+    if (fabs(sa - sb) > MLXR_NET_TIE_MS) return sa < sb;
+    /* a tie: the link decides if it is clearly different, else Wi-Fi */
     if (fabs(a->link_quality - b->link_quality) > 5.0) return a->link_quality > b->link_quality;
-    if (a->median_ms != b->median_ms) return a->median_ms < b->median_ms;
-    return a->path == MLXR_PATH_ADAPTER && b->path != MLXR_PATH_ADAPTER;
-}
-
-static void link_text(const mlxr_net_cand *c, char *out, size_t cap)
-{
-    if (c->link.valid && c->link.wifi && c->link.signal_dbm)
-        snprintf(out, cap, "%d dBm, %.0f Mbit/s", c->link.signal_dbm, c->link.tx_mbps);
-    else if (c->link.valid && c->link.wifi)
-        snprintf(out, cap, "%.0f Mbit/s", c->link.tx_mbps);
-    else
-        snprintf(out, cap, "no link data");
+    return a->path == MLXR_PATH_HOME && b->path != MLXR_PATH_HOME;
 }
 
 static bool answered(const mlxr_net_cand *c) { return c->probed && c->ok > 0 && !c->other_host; }
@@ -388,9 +407,6 @@ void mlxr_net_path_describe(mlxr_net_path p, const mlxr_net_link *l, char *out, 
         snprintf(out, cap, "%s", name);
     }
 }
-
-/* weak: a poor link, or half the probes failed */
-static bool weak(const mlxr_net_cand *c) { return c->poor || (c->sent > 0 && c->failed * 2 >= c->sent); }
 
 static int best_on(const mlxr_net_plan *p, mlxr_net_path path)
 {
@@ -417,6 +433,46 @@ static void failures_on(const mlxr_net_plan *p, mlxr_net_path path, char *out, s
     }
 }
 
+/* Native (lane netpath-quality): the words for an automatic choice between the two paths' best candidates.
+ * Says both scores and what decided it: the part of the score where the winner is furthest ahead. */
+static void pct_text(double pct, char *out, size_t cap)
+{
+    if (pct < 0) snprintf(out, cap, "no history");
+    else snprintf(out, cap, "%.1f%% lost last time", pct);
+}
+
+static void auto_reason(mlxr_net_plan *p, int h, int a)
+{
+    const mlxr_net_cand *H = &p->c[h], *A = &p->c[a];
+    double sh = mlxr_net_score(H), sa = mlxr_net_score(A);
+    bool adapter_wins = mlxr_net_better(A, H);
+    const mlxr_net_cand *W = adapter_wins ? A : H, *L = adapter_wins ? H : A;
+    const char *wn = adapter_wins ? "adapter" : "Wi-Fi", *ln = adapter_wins ? "Wi-Fi" : "adapter";
+    if (fabs(sh - sa) > MLXR_NET_TIE_MS) {
+        double lat = latency_part(L) - latency_part(W), fail = failure_part(L) - failure_part(W);
+        double hist = L->hist_penalty_ms - W->hist_penalty_ms;
+        char why[160], t1[48], t2[48];
+        if (fail >= lat && fail >= hist && fail > 0)
+            snprintf(why, sizeof why, "failed probes (%s %d of %d, %s %d of %d)", ln, L->failed, L->sent, wn, W->failed, W->sent);
+        else if (hist >= lat && hist > 0) {
+            pct_text(L->hist_loss_pct, t1, sizeof t1);
+            pct_text(W->hist_loss_pct, t2, sizeof t2);
+            snprintf(why, sizeof why, "the last stream's losses (%s: %s; %s: %s)", ln, t1, wn, t2);
+        } else
+            snprintf(why, sizeof why, "latency (rtt %.1f ms against %.1f ms, jitter %.1f ms against %.1f ms)", W->median_ms,
+                     L->median_ms, W->jitter_ms, L->jitter_ms);
+        snprintf(p->reason, sizeof p->reason, "chose %s: score %.1f ms against %s %.1f ms (lower is better); decided by %s", wn,
+                 mlxr_net_score(W), ln, mlxr_net_score(L), why);
+    } else if (fabs(H->link_quality - A->link_quality) > 5.0) {
+        snprintf(p->reason, sizeof p->reason,
+                 "chose %s: scores within %.0f ms (Wi-Fi %.1f, adapter %.1f), the better link breaks the tie (quality %.0f against %.0f)",
+                 wn, MLXR_NET_TIE_MS, sh, sa, W->link_quality, L->link_quality);
+    } else {
+        snprintf(p->reason, sizeof p->reason, "chose Wi-Fi: scores within %.0f ms (Wi-Fi %.1f, adapter %.1f), Wi-Fi preferred on a tie",
+                 MLXR_NET_TIE_MS, sh, sa);
+    }
+}
+
 int mlxr_net_choose(mlxr_net_plan *p)
 {
     p->chosen = -1;
@@ -426,29 +482,25 @@ int mlxr_net_choose(mlxr_net_plan *p)
     p->summary[0] = 0;
     p->reason[0] = 0;
     p->adapter_absent_fallback = false;
+    mlxr_net_plan_apply_history(p);   /* Native (lane netpath-quality) */
     for (int i = 0; i < p->n; i++) {
         mlxr_net_cand_stats(&p->c[i]);
         mlxr_net_cand_judge(&p->c[i], p->bitrate_kbps);
     }
     if (p->pref == MLXR_NET_AUTO) {
         int h = best_on(p, MLXR_PATH_HOME), a = best_on(p, MLXR_PATH_ADAPTER);
-        char hf[160], lt[64], lt2[64];
+        char hf[160];
         failures_on(p, MLXR_PATH_HOME, hf, sizeof hf);
-        if (h >= 0) link_text(&p->c[h], lt, sizeof lt);
-        if (a >= 0) link_text(&p->c[a], lt2, sizeof lt2);
-        if (h >= 0 && a >= 0 && weak(&p->c[h]) && !weak(&p->c[a])) {
-            p->chosen = a;
-            snprintf(p->reason, sizeof p->reason, "chose adapter: Wi-Fi link weak (%s, %d of %d probes failed) and the adapter is good (%s)",
-                     lt, p->c[h].failed, p->c[h].sent, lt2);
+        if (h >= 0 && a >= 0) {
+            p->chosen = mlxr_net_better(&p->c[a], &p->c[h]) ? a : h;
+            auto_reason(p, h, a);
         } else if (h >= 0) {
             p->chosen = h;
-            if (a < 0 && !mlxr_net_adapter_usable(&p->adapter))
+            if (!mlxr_net_adapter_usable(&p->adapter))
                 snprintf(p->reason, sizeof p->reason, "chose Wi-Fi: no Steam Frame Wireless Adapter found (%s)", p->adapter.reason);
-            else if (a < 0)
-                snprintf(p->reason, sizeof p->reason, "chose Wi-Fi: the only path that answered (%s, %.1f ms)", lt, p->c[h].median_ms);
             else
-                snprintf(p->reason, sizeof p->reason, "chose Wi-Fi: %s, preferred over the adapter (%s, %.1f ms)",
-                         weak(&p->c[h]) ? "both links weak" : "usable", lt, p->c[h].median_ms);
+                snprintf(p->reason, sizeof p->reason, "chose Wi-Fi: the only path that answered (score %.1f ms)",
+                         mlxr_net_score(&p->c[h]));
         } else if (a >= 0) {
             p->chosen = a;
             snprintf(p->reason, sizeof p->reason, "chose adapter: Wi-Fi did not answer (%s)", hf[0] ? hf : "no address of the PC known on that network");
@@ -625,7 +677,9 @@ static void *probe_thread(void *arg)
     for (int s = 0; s < j->samples; s++) {
         int64_t now = now_ns();
         if (*(volatile int *)j->cancel || now >= j->deadline_ns) break;
-        int64_t sample_deadline = now + 400000000LL;
+        /* Native (lane netpath-quality): the serverinfo sample may take 400 ms; a bare handshake that takes
+         * over 250 ms is a failure (a lost SYN waits a second to be resent), and it is charged as one */
+        int64_t sample_deadline = now + (s == 0 ? 400000000LL : 250000000LL);
         if (sample_deadline > j->deadline_ns) sample_deadline = j->deadline_ns;
         double ms = 0, total = 0;
         char hu[64], err[96] = "";
@@ -651,7 +705,7 @@ static void *probe_thread(void *arg)
             mlxr_strlcpy(c->error, err, sizeof c->error);
         }
         if (s + 1 < j->samples) {
-            struct timespec gap = { 0, 15000000 };
+            struct timespec gap = { 0, 10000000 };
             nanosleep(&gap, NULL);
         }
     }
@@ -707,6 +761,34 @@ void mlxr_net_probe(mlxr_net_plan *p, const bool *which, int samples, bool first
 
 /* ---------------------------------------------------------------- orchestration */
 
+/* Native (lane netpath-quality): "history: Wi-Fi lost 0.0% of 17510 frames last time (jitter 1.2 ms, rtt 3 ms, 2 days ago); ..." */
+static void log_history(const mlxr_net_plan *p)
+{
+    char line[400];
+    size_t n = 0;
+    line[0] = 0;
+    int64_t now = p->now_s ? p->now_s : (int64_t)time(NULL);
+    for (int k = 0; k < MLXR_NETHIST_PATHS; k++) {
+        const mlxr_nethist_entry *e = &p->hist.e[k];
+        if (!e->valid) continue;
+        double pct = mlxr_nethist_loss_pct(e);
+        double age_h = (double)(now - e->time_s) / 3600.0;
+        char ago[32], note[48] = "";
+        if (age_h < 0) age_h = 0;
+        if (age_h < 48) snprintf(ago, sizeof ago, "%.0f h ago", age_h);
+        else snprintf(ago, sizeof ago, "%.0f days ago", age_h / 24.0);
+        if (now - e->time_s > MLXR_NETHIST_MAX_AGE_S) snprintf(note, sizeof note, ", too old to count");
+        else if (e->frames + e->lost < MLXR_NETHIST_MIN_FRAMES) snprintf(note, sizeof note, ", too short to count");
+        else if (mlxr_net_hist_penalty(pct) > 0) snprintf(note, sizeof note, ", penalty %.0f ms", mlxr_net_hist_penalty(pct));
+        int w = snprintf(line + n, sizeof line - n, "%s%s lost %.1f%% of %llu frames last time (jitter %.1f ms, rtt %.0f ms, %s%s)",
+                         n ? "; " : "", k == MLXR_NETHIST_ADAPTER ? "adapter" : "Wi-Fi", pct,
+                         (unsigned long long)(e->frames + e->lost), e->jitter_ms, e->rtt_ms, ago, note);
+        if (w < 0 || (size_t)w >= sizeof line - n) break;
+        n += (size_t)w;
+    }
+    if (n) mlxr_log(1, "network path: history: %s", line);
+}
+
 void mlxr_net_log_plan(const mlxr_net_plan *p)
 {
     {
@@ -729,6 +811,7 @@ void mlxr_net_log_plan(const mlxr_net_plan *p)
         mlxr_net_adapter_text(&p->adapter, at, sizeof at);
         mlxr_log(1, "network path: %s: %s", mlxr_net_path_label(MLXR_PATH_ADAPTER), at);
     }
+    log_history(p);
     for (int i = 0; i < p->n; i++) {
         const mlxr_net_cand *c = &p->c[i];
         char link[112] = "";
@@ -748,9 +831,9 @@ void mlxr_net_log_plan(const mlxr_net_plan *p)
         else if (!c->probed)
             mlxr_log(1, "network path: %s %s via %s: not probed; link: %s", mlxr_net_path_label(c->path), c->address, ifn, link);
         else if (c->ok > 0)
-            mlxr_log(1, "network path: %s %s via %s: %d/%d ok, rtt median %.1f ms, jitter %.1f ms (serverinfo %.0f ms)%s%s; link: %s",
-                     mlxr_net_path_label(c->path), c->address, ifn, c->ok, c->sent, c->median_ms, c->jitter_ms, c->info_ms,
-                     c->failed ? ", last failure: " : "", c->failed ? c->error : "", link);
+            mlxr_log(1, "network path: %s %s via %s: %d/%d ok, rtt median %.1f ms, p90 %.1f ms, jitter %.1f ms (serverinfo %.0f ms)%s%s; score %.1f ms; link: %s",
+                     mlxr_net_path_label(c->path), c->address, ifn, c->ok, c->sent, c->median_ms, c->p90_ms, c->jitter_ms, c->info_ms,
+                     c->failed ? ", last failure: " : "", c->failed ? c->error : "", mlxr_net_score(c), link);
         else
             mlxr_log(1, "network path: %s %s via %s: no answer (%d/%d failed: %s); link: %s", path_short(c->path),
                      c->address, ifn, c->failed, c->sent, c->error[0] ? c->error : "not tried", link);
@@ -817,6 +900,8 @@ int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
         mlxr_netifs_read(&own);
         t = &own;
     }
+    /* Native (lane netpath-quality): how the last streams went on each path */
+    if (p->history_dir[0]) mlxr_nethist_load(p->history_dir, &p->hist);
     discover(p, t);
     mlxr_net_plan_classify(p, t);
     mlxr_net_plan_read_links(p, t);
@@ -824,7 +909,7 @@ int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
     if (p->pref == MLXR_NET_AUTO) {
         bool live[MLXR_NET_MAX_CANDS] = { false };
         for (int i = 0; i < p->n; i++) live[i] = !p->c[i].skipped;
-        mlxr_net_probe(p, live, 7, false);
+        mlxr_net_probe(p, live, MLXR_NET_AUTO_SAMPLES, false);
     } else {
         mlxr_net_path want = p->pref == MLXR_NET_HOME ? MLXR_PATH_HOME : MLXR_PATH_ADAPTER;
         bool which[MLXR_NET_MAX_CANDS] = { false };

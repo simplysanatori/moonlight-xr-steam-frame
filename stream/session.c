@@ -4,6 +4,7 @@
 
 #include <dirent.h>
 #include <openssl/rand.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdatomic.h>
@@ -56,6 +57,48 @@ static struct {
     uint64_t netLost, idrWaitDrops, rfiWaitDrops, idrRequests; // from common-c's log lines
 } g_lat;
 
+// Native (lane netpath-quality): the whole stream's network figures. The window counters above are
+// reset at every latency line, so each window is folded in here first. Under g_latLock.
+static struct {
+    uint64_t frames, lost, transitN;
+    double jitterVarSum; // sum of the windows' variance of the arrival jitter, weighted by intervals
+    uint32_t rttMs;
+} g_netTot;
+
+static void foldNetWindow(uint64_t frames, uint64_t lost, const MlxrCadence* cad, uint32_t rtt) {
+    g_netTot.frames += frames;
+    g_netTot.lost += lost;
+    if (cad->transitN) {
+        double n = (double)cad->transitN, mean = cad->transitSum / n;
+        g_netTot.jitterVarSum += fmax(0.0, cad->transitSq / n - mean * mean) * n;
+        g_netTot.transitN += cad->transitN;
+    }
+    if (rtt) g_netTot.rttMs = rtt;
+}
+
+int stream_network_figures(StreamNetFigures* out) {
+    uint32_t rtt = 0, var = 0;
+    if (atomic_load(&g_connected)) LiGetEstimatedRttInfo(&rtt, &var);
+    pthread_mutex_lock(&g_latLock);
+    // the folded windows plus the one still open
+    uint64_t frames = g_netTot.frames, lost = g_netTot.lost, n = g_netTot.transitN;
+    double varSum = g_netTot.jitterVarSum;
+    uint32_t last = g_netTot.rttMs;
+    if (g_cadence.transitN) {
+        double cn = (double)g_cadence.transitN, mean = g_cadence.transitSum / cn;
+        varSum += fmax(0.0, g_cadence.transitSq / cn - mean * mean) * cn;
+        n += g_cadence.transitN;
+    }
+    frames += g_lat.frames;
+    lost += g_lat.netLost;
+    pthread_mutex_unlock(&g_latLock);
+    out->framesReceived = frames;
+    out->framesLost = lost;
+    out->jitterMs = n ? sqrt(varSum / (double)n) : 0.0;
+    out->rttMs = rtt ? rtt : last;
+    return frames + lost > 0;
+}
+
 static void noteFrameLatency(const DECODE_UNIT* du) {
     uint64_t now = LiGetMicroseconds();
     double recv = du->enqueueTimeUs > du->receiveTimeUs ? (du->enqueueTimeUs - du->receiveTimeUs) / 1000.0 : 0.0;
@@ -80,6 +123,7 @@ void stream_latency_line(char* buf, int len) {
     uint32_t rtt = 0, var = 0;
     LiGetEstimatedRttInfo(&rtt, &var);
     pthread_mutex_lock(&g_latLock);
+    foldNetWindow(g_lat.frames, g_lat.netLost, &g_cadence, rtt); // Native (lane netpath-quality)
     char cad[360];
     mlxr_cadence_line(&g_cadence, cad, sizeof(cad));
     double n = g_lat.frames ? (double)g_lat.frames : 1.0;
@@ -338,6 +382,10 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     pthread_mutex_lock(&g_latLock);
     mlxr_rfi_watch_init(&g_rfiWatch, idrMs < 0 ? 0 : idrMs, 3, 300);
     g_rfiPrev = g_rfiWatch;
+    // Native (lane netpath-quality): this stream's network totals start at zero
+    memset(&g_netTot, 0, sizeof(g_netTot));
+    memset(&g_lat, 0, sizeof(g_lat));
+    memset(&g_cadence, 0, sizeof(g_cadence));
     pthread_mutex_unlock(&g_latLock);
     if (g_rfi)
         MLOG_I("video: RFI watchdog: an IDR frame after %d ms of waiting for a recovery frame%s (MLXR_VIDEO_RFI_IDR_MS=%s)",

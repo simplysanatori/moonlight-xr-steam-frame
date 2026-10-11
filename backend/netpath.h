@@ -18,14 +18,19 @@
  * a serverinfo round trip over HTTP (is it the PC? how long does it take) and several TCP
  * connects to the same port, whose handshake times are the network round trips (the PC's web server
  * takes a quarter second to answer serverinfo, which would drown the difference between the links).
- * Per candidate: failed samples, median round trip, jitter and the Wi-Fi link (signal dBm and tx
- * bitrate of the station on that interface, read-only from nl80211). A link is "weak" if its signal
- * is below -70 dBm, its PHY rate is under 4x the session bitrate, or half the probes failed.
- * The policy prefers Wi-Fi whenever it is usable: Wi-Fi is chosen unless it did not answer at all,
- * or it is weak while the adapter is not. Within one path the candidates are ranked by
- * mlxr_net_better() (failures, weak link, round trips tied under 10 ms or within max(25%, 5 ms),
- * link quality, median).
- * The reason is kept in plan->reason ("chose Wi-Fi: usable, preferred over the adapter (...)").
+ * Per candidate: failed samples, median and 90th percentile round trip, jitter and the Wi-Fi link
+ * (signal dBm and tx bitrate of the station on that interface, read-only from nl80211, logged only).
+ * Within one path the candidates are ranked like the paths are.
+ *
+ * Native (lane netpath-quality): Automatic prefers the lower latency and the fewer losses. Each
+ * candidate gets a score, lower is better (mlxr_net_score):
+ *     median rtt + jitter + (p90 rtt - median rtt) + 50 ms per failed probe + history penalty
+ * The history penalty (nethistory.h) is 20 ms per percent of frames the path's last stream lost on
+ * the network, once that is over 0.5 percent, capped at 150 ms; no history, no penalty. The lowest
+ * score wins. Scores within 3 ms of each other are a tie: the better link quality breaks it
+ * (more than 5 points apart), then Wi-Fi. A path that did not answer is never chosen. The link
+ * (signal, tx rate) no longer rules out a path by itself.
+ * The reason is kept in plan->reason ("chose adapter: score 6.1 ms against Wi-Fi 31.7 ms; ...").
  *
  * Addresses: hosts.ini, the one named by the caller, ARP entries carrying the PC's MAC and mDNS
  * answers on every interface (A records for <hostname>.local). Serverinfo's LocalIP is only the
@@ -49,6 +54,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include "nethistory.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -169,7 +176,15 @@ bool mlxr_net_adapter_usable(const mlxr_adapter_info *a);
 /* ---- candidates and the choice ---- */
 
 #define MLXR_NET_MAX_CANDS 16
-#define MLXR_NET_MAX_SAMPLES 8
+#define MLXR_NET_MAX_SAMPLES 16
+/* Native (lane netpath-quality): probes per candidate in auto (the first asks serverinfo) */
+#define MLXR_NET_AUTO_SAMPLES 15
+/* Native (lane netpath-quality): the score's constants, ms */
+#define MLXR_NET_FAIL_PENALTY_MS 50.0
+#define MLXR_NET_TIE_MS 3.0
+#define MLXR_NET_HIST_LOSS_FREE_PCT 0.5     /* losses up to this are not charged */
+#define MLXR_NET_HIST_MS_PER_PCT 20.0
+#define MLXR_NET_HIST_CAP_MS 150.0
 
 typedef struct {
     char address[128];
@@ -188,6 +203,9 @@ typedef struct {
     double info_ms;             /* the serverinfo round trip as a whole (host processing included) */
     int n_rtt;
     double median_ms, jitter_ms;
+    double p90_ms;              /* Native (lane netpath-quality): 90th percentile of the round trips */
+    double hist_loss_pct;       /* the path's last stream: percent of frames lost, -1 no history */
+    double hist_penalty_ms;     /* ... and what it costs in the score */
     bool other_host;            /* answered, but as another PC (uuid differs) */
     char error[96];             /* the last failure */
     bool skipped;               /* Native (lane adapter-detect): not probed, there is no adapter */
@@ -214,7 +232,7 @@ typedef struct {
     char toast[200];            /* the in-VR toast for a fallback: "Wi-Fi not reachable (192.168.1.10: connect timed out). Using Steam Frame Wireless Adapter." */
     char failure[160];          /* the asked-for path's failed addresses and how, "" none */
     char connected[128];        /* "Connected over Wi-Fi (5 GHz)." for the chosen path ("" none) */
-    char reason[200];           /* "chose Wi-Fi: adapter link poor (-80 dBm, 576 Mbit/s)" */
+    char reason[360];           /* "chose adapter: score 5.1 ms against Wi-Fi 31.7 ms; decided by failed probes (...)" */
     char chosen_desc[96];       /* "Wi-Fi (Home 5GHz, 5 GHz)" for the flat launcher to show */
     int grace_ms;               /* auto: how long the others get once a candidate answered (300) */
     char summary[160];          /* "adapter 10.35.50.27 " for the stats line */
@@ -222,6 +240,10 @@ typedef struct {
     mlxr_adapter_info adapter;  /* filled by mlxr_net_select (or mlxr_net_plan_detect_adapter) */
     const mlxr_adapter_inputs *adapter_inputs;   /* tests: facts to use instead of reading the system */
     bool adapter_absent_fallback;   /* the adapter setting was asked, no adapter is present, Wi-Fi used */
+    /* Native (lane netpath-quality) */
+    char history_dir[256];      /* the config directory: mlxr_net_select reads netpath-history.ini there ("" none) */
+    mlxr_nethist hist;          /* the last streams per path; filled by mlxr_net_select, or by the tests */
+    int64_t now_s;              /* Unix time for the history's age; 0 means the clock */
 } mlxr_net_plan;
 
 void mlxr_net_plan_init(mlxr_net_plan *p, mlxr_net_pref pref, const char *source, uint16_t http_port,
@@ -257,9 +279,19 @@ void mlxr_net_plan_read_links(mlxr_net_plan *p, const mlxr_netifs *t);
 
 /* Sets c->poor from its link and the session bitrate. */
 void mlxr_net_cand_judge(mlxr_net_cand *c, int bitrate_kbps);
-/* True when a is the better choice. Both must have answered, and been judged. */
+/* Native (lane netpath-quality): the score in ms, lower is better: median + jitter + (p90 - median) +
+ * 50 per failed probe + the history penalty. Needs mlxr_net_cand_stats (and the history) to have run. */
+double mlxr_net_score(const mlxr_net_cand *c);
+/* The history penalty for a loss of `pct` percent: 0 up to 0.5 percent, then 20 ms per percent, at most 150. */
+double mlxr_net_hist_penalty(double pct);
+/* Sets hist_loss_pct and hist_penalty_ms of each candidate from plan->hist (-1 and 0 for a path without
+ * usable history: none, too old, too few frames). mlxr_net_choose does it. */
+void mlxr_net_plan_apply_history(mlxr_net_plan *p);
+/* True when a is the better choice. Both must have answered, and been judged: the lower score,
+ * unless the scores are within 3 ms; then the better link quality (more than 5 points apart), then
+ * the lower median, then Wi-Fi. */
 bool mlxr_net_better(const mlxr_net_cand *a, const mlxr_net_cand *b);
-/* Fills the median and jitter from the samples. */
+/* Fills the median, 90th percentile and jitter from the samples. */
 void mlxr_net_cand_stats(mlxr_net_cand *c);
 /* The choice over the probed candidates (pure): sets chosen, chosen_path, fell_back, toast,
  * summary. Returns chosen. For home/adapter with no answer on that path it returns the first
@@ -274,7 +306,7 @@ void mlxr_net_probe(mlxr_net_plan *p, const bool *which, int samples, bool first
 /* Everything: classify, read the links, probe, choose, log each candidate and the choice.
  * `t` may be NULL (the system's table is read). Returns the chosen index or -1. */
 int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t);
-/* One log line per candidate (to the backend's log hook) and the choice; also used by the CLI. */
+/* One log line per candidate (to the backend's log hook), the history and the choice; also used by the CLI. */
 void mlxr_net_log_plan(const mlxr_net_plan *p);
 /* Address and port the stream should use: the chosen candidate's. */
 const char *mlxr_net_chosen_address(const mlxr_net_plan *p, uint16_t *port);
