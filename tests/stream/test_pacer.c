@@ -73,6 +73,45 @@ static Result run(int paced, double fps, double hz, double phaseMs, double jitte
     return r;
 }
 
+// Native (lane perf): the low-latency pacer with a given cushion, 90 fps on
+// 90 Hz for 60 s, jitter +-j ms and 2% of frames up to 30 ms late
+static Result runCushion(int cushion, double j) {
+    MlxrPacer p;
+    mlxr_pacer_init_mode(&p, 90, 1);
+    p.cushion = cushion;
+    unsigned seed = 7;
+    int n = 90 * 60;
+    double* arrive = malloc(sizeof(double) * (size_t)n);
+    double last = -1e9;
+    for (int i = 0; i < n; i++) {
+        double t = i * 1000.0 / 90.0 + 0.3 + jitterMs(&seed, j);
+        if (jitterMs(&seed, 1.0) > 0.96) t += 15.0 + jitterMs(&seed, 15.0);
+        if (t < last) t = last;
+        arrive[i] = last = t;
+    }
+    Result r = { 0 };
+    int next = 0, queued = 0;
+    double qsum = 0.0;
+    for (int k = 1; k < n; k++) {
+        double now = k * 1000.0 / 90.0;
+        while (next < n && arrive[next] <= now) {
+            next++;
+            if (queued == MLXR_PACER_MAX_QUEUED) r.overflow++;
+            else queued++;
+        }
+        qsum += queued;
+        int drop = 0;
+        int show = mlxr_pacer_refresh(&p, queued, &drop);
+        queued -= drop + show;
+    }
+    r.shown = (int)p.shown;
+    r.holes = (int)p.holes;
+    r.drops = (int)(p.catchUpDrops + p.staleDrops);
+    r.queuedAvg = qsum / n;
+    free(arrive);
+    return r;
+}
+
 static void print(const char* what, Result r) {
     printf("%-34s shown %5d, one-refresh repeats %4d, replaced %4d, catch-up drops %3d, overflow %3d, "
            "queue max %d avg %.2f\n",
@@ -183,6 +222,22 @@ int main(void) {
     mlxr_pacer_refresh(&lp, 0, &drop);
     int show = mlxr_pacer_refresh(&lp, 2, &drop);
     CHECK(show == 1 && drop == 0 && lp.staleDrops == 0);
+
+    // Native (lane perf): heavy Wi-Fi jitter (+-16 ms, 2% of frames up to
+    // 30 ms later still). Cushion 3 (the default) shows far more frames and
+    // repeats far fewer than cushion 2 (the first low-latency choice, whose
+    // catch-up drops were the skips of the owner's 00:47 run), for ~0.6
+    // frames more waiting; with mild jitter the two are alike
+    Result c2 = runCushion(2, 16.0), c3 = runCushion(3, 16.0);
+    print("+-16 ms, low latency, cushion 2:", c2);
+    print("+-16 ms, low latency, cushion 3:", c3);
+    CHECK(c3.shown > c2.shown + 300);
+    CHECK(c3.holes < c2.holes / 2);
+    CHECK(c3.queuedAvg < c2.queuedAvg + 0.8);
+    Result m2 = runCushion(2, 4.0), m3 = runCushion(3, 4.0);
+    print("+-4 ms, low latency, cushion 2:", m2);
+    print("+-4 ms, low latency, cushion 3:", m3);
+    CHECK(m3.shown + 20 > m2.shown && m3.queuedAvg < m2.queuedAvg + 0.5);
 
     CHECK(mlxr_pace_mode_parse(NULL) == MLXR_PACE_LOW_LATENCY);
     CHECK(mlxr_pace_mode_parse("0") == MLXR_PACE_NEWEST);

@@ -19,6 +19,7 @@ void mlxr_pacer_init_mode(MlxrPacer* p, int displayHz, int lowLatency) {
     p->historyLen = len < 1 ? 1 : (len > MLXR_PACER_MAX_HISTORY ? MLXR_PACER_MAX_HISTORY : len);
     p->emptyRun = -1; // nothing shown yet
     p->lowLatency = lowLatency;
+    p->cushion = 3;
 }
 
 void mlxr_pacer_init(MlxrPacer* p, int displayHz) { mlxr_pacer_init_mode(p, displayHz, 0); }
@@ -39,8 +40,8 @@ static void account(MlxrPacer* p, int queued, int shown) {
 int mlxr_pacer_refresh(MlxrPacer* p, int queued, int* drop) {
     // moonlight-qt: strict (1) unless the queue was short at some refresh in
     // the last half second, then lenient (3) so a jittery but on-rate stream
-    // keeps its cushion. Native (lane perf): lenient 2 in low-latency mode.
-    int lenient = p->lowLatency ? 2 : 3;
+    // keeps its cushion. Native (lane perf): MlxrPacer.cushion (3, or 2)
+    int lenient = p->cushion >= 2 && p->cushion <= 3 ? p->cushion : 3;
     int target = 1;
     for (int i = 0; i < p->histCount; i++) {
         if (p->hist[i] <= 1) {

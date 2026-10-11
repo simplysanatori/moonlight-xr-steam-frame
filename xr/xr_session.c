@@ -2194,11 +2194,11 @@ int xr_app_run(const XrAppConfig* cfg) {
                   (unsigned long long)framesWindow, roomDrawn, roomStale, byDevice);
             // Native (lane av-latency): what of the host cursor's delay and of the
             // audio's underruns is ours, for the next owner run
-            char appLat[1280] = "";
+            char appLat[1600] = "";
             if (cfg->hooks.latency) cfg->hooks.latency(cfg->hooks.user, appLat, sizeof(appLat));
             // Native (lane av-latency): how evenly the stream's frames reached
             // the display refreshes in this window
-            char pacing[512] = "";
+            char pacing[700] = "";
             HwVideo* hvNow = hw_video_current();
             if (hvNow) {
                 HwVideoStats hs;
@@ -2209,14 +2209,20 @@ int xr_app_run(const XrAppConfig* cfg) {
                 // taken, and the AUs in the decoder at each submit
                 uint64_t timed = hs.takenTimed - pacePrev.takenTimed;
                 uint64_t inN = hs.inFlightSamples - pacePrev.inFlightSamples;
-                char stages[200];
+                char stages[320];
                 snprintf(stages, sizeof(stages),
                          "decode %.1f ms (max %.1f), waited in the queue %.1f ms (max %.1f), AUs in the decoder %.2f avg "
-                         "(max %llu), %llu stale after a stall skipped; ",
+                         "(max %llu), %llu stale after a stall skipped, latched for the decoder %llu times (%llu got the "
+                         "picture, %.1f ms avg); ",
                          timed ? (hs.decodeNsSum - pacePrev.decodeNsSum) / 1e6 / (double)timed : 0.0,
                          hs.decodeNsMax / 1e6, timed ? (hs.waitNsSum - pacePrev.waitNsSum) / 1e6 / (double)timed : 0.0,
                          hs.waitNsMax / 1e6, inN ? (double)(hs.inFlightSum - pacePrev.inFlightSum) / (double)inN : 0.0,
-                         (unsigned long long)hs.inFlightMax, (unsigned long long)(hs.staleDrops - pacePrev.staleDrops));
+                         (unsigned long long)hs.inFlightMax, (unsigned long long)(hs.staleDrops - pacePrev.staleDrops),
+                         (unsigned long long)(hs.latchWaits - pacePrev.latchWaits),
+                         (unsigned long long)(hs.latchHits - pacePrev.latchHits),
+                         hs.latchWaits > pacePrev.latchWaits
+                             ? (hs.latchNsSum - pacePrev.latchNsSum) / 1e6 / (double)(hs.latchWaits - pacePrev.latchWaits)
+                             : 0.0);
                 hw_video_reset_max(hvNow);
                 snprintf(pacing, sizeof(pacing),
                          "frames %s: %llu decoded, %llu new of %llu refreshes, %llu one-refresh repeats, %llu catch-up "

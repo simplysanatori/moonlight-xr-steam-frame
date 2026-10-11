@@ -18,6 +18,7 @@
 #include "../input/rumble.h"
 #include "../xr/xr_pad_bridge.h"
 #include "../backend/fps_cap.h"
+#include "cadence.h"
 #include "hw_video.h"
 #include "rfi_watch.h"
 #include "sw_decoder.h"
@@ -37,6 +38,7 @@ static int g_rfi; // Native (lane av-latency): reference frame invalidation adve
 static MlxrRfiWatch g_rfiWatch;
 static MlxrRfiWatch g_rfiPrev; // counters at the last latency line
 static MlxrPrioMode g_videoPrio = MLXR_PRIO_NICE;
+static MlxrCadence g_cadence; // Native (lane perf): the host's frame intervals, under g_latLock
 
 // Native (lane av-latency): video latency parts per stats window, written by
 // common-c's decoder thread (drSubmit), read and reset by the log
@@ -54,6 +56,7 @@ static void noteFrameLatency(const DECODE_UNIT* du) {
     double recv = du->enqueueTimeUs > du->receiveTimeUs ? (du->enqueueTimeUs - du->receiveTimeUs) / 1000.0 : 0.0;
     double queue = now > du->enqueueTimeUs ? (now - du->enqueueTimeUs) / 1000.0 : 0.0;
     pthread_mutex_lock(&g_latLock);
+    mlxr_cadence_add(&g_cadence, (uint32_t)du->frameNumber, du->rtpTimestamp, du->receiveTimeUs);
     g_lat.frames++;
     g_lat.recvMsSum += recv;
     if (recv > g_lat.recvMsMax) g_lat.recvMsMax = recv;
@@ -72,12 +75,14 @@ void stream_latency_line(char* buf, int len) {
     uint32_t rtt = 0, var = 0;
     LiGetEstimatedRttInfo(&rtt, &var);
     pthread_mutex_lock(&g_latLock);
+    char cad[360];
+    mlxr_cadence_line(&g_cadence, cad, sizeof(cad));
     double n = g_lat.frames ? (double)g_lat.frames : 1.0;
     snprintf(buf, (size_t)len,
              "host encode %.1f ms (max %.1f), frame received over %.1f ms (max %.1f), queued %.1f ms (max %.1f), "
              "rtt %u ms (variance %u), frames lost on the network %llu, dropped waiting for IDR %llu / RFI %llu, "
              "IDR requests %llu; RFI waits %llu (%llu ended by the host's recovery frame), %.0f ms avg (max %llu), "
-             "IDR asked by the RFI watchdog %llu (after %d ms, MLXR_VIDEO_RFI_IDR_MS)",
+             "IDR asked by the RFI watchdog %llu (after %d ms, MLXR_VIDEO_RFI_IDR_MS); %s",
              g_lat.hostN ? g_lat.hostMsSum / g_lat.hostN : 0.0, g_lat.hostMsMax, g_lat.recvMsSum / n, g_lat.recvMsMax,
              g_lat.queueMsSum / n, g_lat.queueMsMax, rtt, var, (unsigned long long)g_lat.netLost,
              (unsigned long long)g_lat.idrWaitDrops, (unsigned long long)g_lat.rfiWaitDrops,
@@ -87,7 +92,7 @@ void stream_latency_line(char* buf, int len) {
                  ? (double)(g_rfiWatch.waitMsSum - g_rfiPrev.waitMsSum) / (double)(g_rfiWatch.closed - g_rfiPrev.closed)
                  : 0.0,
              (unsigned long long)g_rfiWatch.waitMsMax, (unsigned long long)(g_rfiWatch.idrAsked - g_rfiPrev.idrAsked),
-             g_rfiWatch.timeoutMs);
+             g_rfiWatch.timeoutMs, cad);
     g_rfiPrev = g_rfiWatch;
     g_rfiWatch.waitMsMax = 0;
     memset(&g_lat, 0, sizeof(g_lat));

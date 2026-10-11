@@ -22,10 +22,14 @@
 // a burst; the smooth mode showed every frame of the burst one refresh
 // apiece, so the picture ran 2 frames (22 ms) late for the next half second
 // (owner's 23:46 run: 1.45-1.66 frames waiting on average at full rate).
-// Low latency keeps the one-refresh cushion that hides jitter (a single
-// refresh without a new frame) but relaxes only to 2, and after a real
-// stall (2 or more refreshes without a new frame) shows the newest frame of
-// the burst straight away: frames that old are not worth the delay.
+// Low latency keeps the cushion that hides jitter (a single refresh without
+// a new frame), and after a real stall (2 or more refreshes without a new
+// frame) shows the newest frame of the burst straight away: frames that old
+// are not worth the delay. Its cushion was 2 at first; in the owner's 00:47
+// run that threw away 706 frames as catch-up drops (5% of those decoded)
+// when frames came bunched over Wi-Fi, which shows as skips ("it wasn't
+// stable 90"), so it is 3 again as in the smooth mode (MLXR_PACER_CUSHION=2
+// for the old choice); the stall rule keeps the big latency win.
 #pragma once
 #include <stdint.h>
 
@@ -44,6 +48,7 @@ typedef struct MlxrPacer {
     int histCount, histHead;
     int emptyRun;                        // refreshes since a frame was last shown
     int lowLatency;                      // Native (lane perf): MLXR_PACE_LOW_LATENCY rules
+    int cushion;                         // Native (lane perf): the lenient target (3; 2..3)
 
     // counters (the log takes deltas)
     uint64_t refreshes;     // refreshes with the stream up
