@@ -3,16 +3,17 @@
 #
 # Copies the app (binaries, launcher, assets, licences, the Moonlight Qt
 # import script) into DEST and adds or updates the Steam library shortcut
-# "Moonlight XR Native" through Steam's CEF debugging port. Safe to run again.
+# "Moonlight XR for Frame" through Steam's CEF debugging port, and puts its art
+# in Steam's grid folder. Safe to run again.
 #
 #   install.sh [--seed] [--no-shortcut] [--art DIR]
 #
 #   --seed         if ~/.config/moonlight-xr has no client identity yet, import
 #                  the pairing from Moonlight Qt (seed-from-moonlight-qt.sh)
 #   --no-shortcut  same as NO_SHORTCUT=1
-#   --art DIR      shortcut art; DIR holds any of poster, wide, hero, logo and
-#                  icon, each as .png/.jpg (default: packaging/art or art if
-#                  that directory exists next to this script)
+#   --art DIR      shortcut art; DIR holds any of portrait (or poster), wide,
+#                  hero, logo and icon, as <name>*.png/.jpg (default: the
+#                  branding art in assets/branding)
 #
 # Environment: DEST (default ~/Games/MoonlightXRNative/app), NO_SHORTCUT=1,
 # BUILD (source tree only, default <repo>/build), MLXR_CONFIG_DIR,
@@ -29,7 +30,8 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 DEST="${DEST:-$HOME/Games/MoonlightXRNative/app}"
-NAME="Moonlight XR Native"
+NAME="Moonlight XR for Frame"
+OLDNAME="Moonlight XR Native"   # the shortcut's name until it was renamed; it is renamed in place
 SEED=0; ART=""
 [ "${NO_SHORTCUT:-0}" = 1 ] && NOSC=1 || NOSC=0
 while [ $# -gt 0 ]; do
@@ -63,6 +65,7 @@ else                                              # source checkout
     LAUNCHER_BIN="$SRC/build-launcher/moonlight-xr-launcher"; LAUNCHER_SH="$SRC/launcher/moonlight-xr-launcher.sh"
     [ -z "$ART" ] && [ -d "$HERE/art" ] && ART="$HERE/art"
 fi
+[ -z "$ART" ] && [ -d "$ASSETS/branding" ] && ART="$ASSETS/branding"
 [ -x "$MAIN" ] || { echo "no moonlight-xr binary at $MAIN (run ./build.sh first)"; exit 1; }
 [ -x "$CLI" ] || { echo "no mlxr-cli binary at $CLI (run ./build.sh first)"; exit 1; }
 [ -d "$ASSETS" ] || { echo "no assets directory at $ASSETS"; exit 1; }
@@ -150,11 +153,29 @@ else
     EXE="\"$DEST/moonlight-xr.sh\""
 fi
 JS_NAME=$(printf '%s' "$NAME" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+JS_OLDNAME=$(printf '%s' "$OLDNAME" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
 JS_EXE=$(printf '%s' "$EXE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
 JS_DIR=$(printf '%s' "\"$DEST\"" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+# The shortcut is found by what it runs (the launcher or VR wrapper in DEST), not by its name, so
+# renaming it never makes a second one, and its appid (which SteamVR's per-app settings, the game
+# resolution and the art are keyed by) stays. Then by the new or the old name.
+HAVE_ID=""
+for v in "$HOME"/.local/share/Steam/userdata/*/config/shortcuts.vdf; do
+    [ -f "$v" ] || continue
+    HAVE_ID=$(python3 -I -c '
+import re, struct, sys
+d = open(sys.argv[1], "rb").read()
+dest = sys.argv[2]
+for m in re.finditer(rb"\x02appid\x00(....)\x01AppName\x00[^\x00]*\x00\x01Exe\x00([^\x00]*)\x00", d, re.S):
+    exe = m.group(2).decode(errors="replace").strip(chr(34))
+    if exe in (dest + "/moonlight-xr-launcher.sh", dest + "/moonlight-xr.sh"):
+        print(struct.unpack("<I", m.group(1))[0]); break
+' "$v" "$DEST") && [ -n "$HAVE_ID" ] && break
+done
 if ! APPID=$($CEF "(async()=>{
-  const name=$JS_NAME, exe=$JS_EXE, dir=$JS_DIR;
-  const have=[...appStore.allApps].find(a=>a.app_type===1073741824 && a.display_name===name);
+  const name=$JS_NAME, oldname=$JS_OLDNAME, exe=$JS_EXE, dir=$JS_DIR, known='$HAVE_ID';
+  const shortcuts=[...appStore.allApps].filter(a=>a.app_type===1073741824);
+  const have=(known && shortcuts.find(a=>String(a.appid)===known)) || shortcuts.find(a=>a.display_name===name) || shortcuts.find(a=>a.display_name===oldname);
   let id = have ? have.appid : await SteamClient.Apps.AddShortcut(name, exe, dir, '');
   SteamClient.Apps.SetShortcutName(id, name);
   SteamClient.Apps.SetShortcutExe(id, exe);
@@ -188,18 +209,45 @@ else
     echo "SteamVR per-app settings: SteamVR is not running; run this again with it up to set 90 Hz"
 fi
 
-# Shortcut art: copies into Steam's grid folder under the shortcut's appid.
+# Shortcut art, for this shortcut's appid only: copied into Steam's grid folder under the names Steam
+# reads (<appid>p portrait, <appid> wide, <appid>_hero, <appid>_logo, <appid>_icon), then handed to the
+# running Steam too (SetCustomArtworkForApp: 0 portrait, 1 hero, 2 logo, 3 wide) so the library shows it
+# without a restart, and the shortcut's icon is set. A file that is already the same is left alone.
 if [ -n "$ART" ] && [ -d "$ART" ]; then
-    n=0
+    n=0; ICON=""
+    pick() { # pick <name prefix>...: the first file in ART that starts with one of them
+        local pre f
+        for pre in "$@"; do
+            for f in "$ART/$pre"*.png "$ART/$pre"*.jpg "$ART/$pre"*.jpeg; do [ -f "$f" ] && { echo "$f"; return 0; }; done
+        done
+        return 0
+    }
     for g in "$HOME"/.local/share/Steam/userdata/*/config; do
         [ -d "$g" ] || continue
         mkdir -p "$g/grid"
-        for kind in poster:p wide: hero:_hero logo:_logo icon:_icon; do
-            base="${kind%%:*}"; suf="${kind#*:}"
-            for ext in png jpg jpeg; do
-                [ -f "$ART/$base.$ext" ] && { install -m644 "$ART/$base.$ext" "$g/grid/$APPID$suf.$ext"; n=$((n+1)); }
-            done
+        for kind in "portrait poster:p" "wide:" "hero:_hero" "logo:_logo" "icon-512 icon:_icon"; do
+            pat="${kind%%:*}"; suf="${kind#*:}"
+            src=$(pick $pat)
+            [ -n "$src" ] || continue
+            dst="$g/grid/$APPID$suf.${src##*.}"
+            cmp -s "$src" "$dst" 2>/dev/null || { install -m644 "$src" "$dst"; n=$((n+1)); }
+            [ "$suf" = _icon ] && [ -z "$ICON" ] && ICON="$dst"
         done
     done
-    echo "Steam art: $n file(s) copied into the grid folder (Steam shows them after a restart of the library page)"
+    echo "Steam art: $n file(s) updated in the grid folder"
+    if [ -n "$ICON" ]; then
+        JS_ICON=$(printf '%s' "$ICON" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+        $CEF "(()=>{SteamClient.Apps.SetShortcutIcon($APPID,$JS_ICON); return 1})()" >/dev/null 2>&1 \
+            && echo "Steam shortcut icon: $ICON" || echo "Steam shortcut icon: not set"
+    fi
+    for spec in "portrait poster:0" "hero:1" "logo:2" "wide:3"; do
+        src=$(pick ${spec%%:*})
+        [ -n "$src" ] || continue
+        case "${src##*.}" in png) mime=png ;; *) mime=jpeg ;; esac
+        python3 -I -c '
+import base64, sys
+b = base64.b64encode(open(sys.argv[1], "rb").read()).decode()
+print("(async()=>{ await SteamClient.Apps.SetCustomArtworkForApp(%s, %r, %r, %s); return 1 })()" % (sys.argv[2], b, sys.argv[3], sys.argv[4]))
+' "$src" "$APPID" "$mime" "${spec##*:}" | $CEF - >/dev/null 2>&1 || echo "Steam art: Steam did not take ${src##*/} (it is in the grid folder; it shows after a Steam restart)"
+    done
 fi
