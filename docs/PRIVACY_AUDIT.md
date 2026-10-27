@@ -1,4 +1,4 @@
-# Privacy audit for 1.0.0
+# Privacy audit for 1.0.1
 
 First done on 2026-10-11 on 0.6.0-alpha.1, before the repository was made public. The counts below are from that run; the same checks run on every release. The goal: nothing personal about the owner in the repository, in the release tarball, or in what the app writes for a tester to share.
 
@@ -84,7 +84,7 @@ The in-headset "Report a problem" sheet said it would send the note and the log.
 
 ```sh
 tools/privacy-check.sh
-tools/privacy-check.sh ~/Games/MoonlightXRNative/releases/moonlight-xr-steam-frame-1.0.0-linux-arm64.tar.gz
+tools/privacy-check.sh ~/Games/MoonlightXRNative/releases/moonlight-xr-steam-frame-1.0.1-linux-arm64.tar.gz
 tests/tools/test_bug_report.sh
 env -u LD_LIBRARY_PATH ctest --test-dir build -R tools_
 ```

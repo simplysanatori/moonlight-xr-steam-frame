@@ -35,9 +35,9 @@ The rooms, 3D mode, glow and virtual surround come from Moonlight XR and are kep
 
 ## Status
 
-Version 1.0.0 is the first stable build. It has been used on one Steam Frame (SteamOS 0.4.5, SteamVR 2.18) against one Windows PC with Sunshine and Apollo.
+Version 1.0.1 is the current stable build. 1.0.0 was the first. It has been used on one Steam Frame (SteamOS 0.4.5, SteamVR 2.18) against one Windows PC with Sunshine and Apollo.
 
-Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz, sound, the pointer, the Exit button that brings the flat window back, the in-headset bar and menus, rooms, the controller models and the Start+Select+L1+R1 disconnect. Tested only on the desktop or by automated tests: physical gamepads, the Network connection setting, the Apollo options, virtual surround and hand tracking. See the [release notes](docs/RELEASE_NOTES_v1.0.0.md) for the full list and the known problems.
+Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz, sound, the pointer, the Exit button that brings the flat window back, the in-headset bar and menus, rooms, the controller models and the Start+Select+L1+R1 disconnect. Tested only on the desktop or by automated tests: physical gamepads, the Network connection setting, the Apollo options, virtual surround and hand tracking. See the [1.0.0 release notes](docs/RELEASE_NOTES_v1.0.0.md) for the full list and the [1.0.1 release notes](docs/RELEASE_NOTES_v1.0.1.md) for the latest fix.
 
 ## Requirements
 
@@ -49,7 +49,7 @@ Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz,
 
 ## Install
 
-1. Download `moonlight-xr-steam-frame-1.0.0-linux-arm64.tar.gz` and `SHA256SUMS` from the [Releases](https://github.com/simplysanatori/moonlight-xr-steam-frame/releases) page. Check the download:
+1. Download `moonlight-xr-steam-frame-1.0.1-linux-arm64.tar.gz` and `SHA256SUMS` from the [Releases](https://github.com/simplysanatori/moonlight-xr-steam-frame/releases) page. Check the download:
 
    ```sh
    sha256sum -c --ignore-missing SHA256SUMS
@@ -58,7 +58,7 @@ Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz,
 2. Unpack it and run the installer:
 
    ```sh
-   tar xzf moonlight-xr-steam-frame-1.0.0-linux-arm64.tar.gz
+   tar xzf moonlight-xr-steam-frame-1.0.1-linux-arm64.tar.gz
    cd MoonlightXRNative
    ./install.sh
    ```
