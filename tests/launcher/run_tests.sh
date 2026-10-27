@@ -435,6 +435,7 @@ if [ -n "$SHOTS" ]; then
     FAKE_SLEEP=1 FAKE_MODE=stream XDG_CURRENT_DESKTOP=gamescope SteamAppId= MLXR_LAUNCHER_HIDE_WINDOW=1 MLXR_NATIVE_CLIENT="$fake" \
       MLXR_LAUNCHER_DEMO="gaming-pc:Desktop" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/returned-faded.png@6000" "$L" >"$t/ui10.out" 2>&1; rc=$?
     [ $rc = 0 ] && ok "Game Mode return demo ran" || fail "Game Mode return demo exit $rc"
+    grep -E "$QMLERR" "$t/ui10.out" && fail "Game Mode return demo QML errors"
     r="$(grep -E "flat window|VR client exited" "$t/ui10.out")"
     echo "$r" | sed 's/^/    /'
     refute "Game Mode: never hidden (unmapped)" "$r" "flat window hidden"
