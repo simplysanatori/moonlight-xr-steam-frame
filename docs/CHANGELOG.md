@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- Pressing a volume key during a stream in Game Mode no longer crashes gamescope (and with it Steam and SteamVR). The flat window used to be hidden for the stream, which left gamescope with no window to give keyboard focus to. It now stays mapped at opacity 0. `MLXR_LAUNCHER_FADE_WINDOW=0` brings the old hiding back.
+- Pressing a volume button on the headset during a stream crashed SteamOS and rebooted the Frame. The launcher hid its window for the stream, which left the compositor with nothing to give keyboard focus to when the volume key arrived. The window now stays open but invisible. `MLXR_LAUNCHER_FADE_WINDOW=0` restores the old behaviour.
 
 ## 1.0.0 (October 2026)
 
