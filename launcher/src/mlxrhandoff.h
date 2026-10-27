@@ -75,6 +75,18 @@ Result run(const Plan& plan, const std::function<void()>& onStarted,
 void watchFlatWindow(QWindow* window);
 void flatWindowReturn(QWindow* window);
 
+// Game Mode: the flat window during a stream (owner's crash 2026-10-27). Hiding (unmapping) it
+// destroys its surface, and gamescope then has no keyboard focus: a volume or power key restores
+// that empty focus after handing the key to Steam, and wlroots aborts gamescope ("Assertion
+// `surface' failed" in wlr_seat_keyboard_notify_enter), which takes Steam and SteamVR with it.
+// So in Game Mode the window stays mapped at opacity 0 instead: gamescope never picks a window
+// at opacity 0 for focus or for its screen (the headset shows what it shows for a hidden one),
+// while the keyboard focus keeps its live surface. fadeFlatWindow(w, true) fades it out,
+// fadeFlatWindow(w, false) brings it back (a no-op unless it was faded).
+// MLXR_LAUNCHER_FADE_WINDOW=0 hides it as before.
+bool fadesFlatWindow();
+void fadeFlatWindow(QWindow* window, bool out);
+
 // Copies Moonlight Qt's config into this launcher's on its first run (no-op later).
 // Call after the application and organization names are set, before any QSettings use.
 void seedLauncherConfig();

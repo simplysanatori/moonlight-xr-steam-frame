@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Pressing a volume key during a stream in Game Mode no longer crashes gamescope (and with it Steam and SteamVR). The flat window used to be hidden for the stream, which left gamescope with no window to give keyboard focus to. It now stays mapped at opacity 0. `MLXR_LAUNCHER_FADE_WINDOW=0` brings the old hiding back.
+
 ## 1.0.0 (October 2026)
 
 The first release of Moonlight XR for Frame, a native game-streaming client for the Valve Steam Frame. It streams from a PC running Sunshine or Apollo into SteamVR.

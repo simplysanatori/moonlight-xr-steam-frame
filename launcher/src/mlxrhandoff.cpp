@@ -816,6 +816,28 @@ void flatWindowReturn(QWindow* window)
     }
 }
 
+bool fadesFlatWindow()
+{
+    return inGameMode() && qEnvironmentVariable("MLXR_LAUNCHER_FADE_WINDOW") != "0";
+}
+
+void fadeFlatWindow(QWindow* window, bool out)
+{
+    if (!window || window->property("mlxrFaded").toBool() == out) {
+        return;
+    }
+    window->setProperty("mlxrFaded", out);
+    // _NET_WM_WINDOW_OPACITY: 0 takes the window out of gamescope's focus candidates
+    window->setOpacity(out ? 0.0 : 1.0);
+    // gamescope reads a new opacity without choosing the focus again; a WM_NORMAL_HINTS change
+    // makes it choose. The base size is the one hint it ignores, so set it and put it back.
+    const QSize base = window->baseSize();
+    window->setBaseSize(base == QSize(1, 1) ? QSize(2, 2) : QSize(1, 1));
+    window->setBaseSize(base);
+    qInfo().noquote() << (out ? "flat window faded out for the stream (stays mapped, gamescope keeps a keyboard focus)"
+                              : "flat window faded back in after the stream");
+}
+
 // ---- Lane artemis-settings: Artemis's Smart Clipboard Sync with Apollo ------------------
 // Apollo serves actions/clipboard only to a client that streams right now, so the VR client does the
 // requests (app/main.c: after the stream is up, before it stops); the launcher owns the desktop

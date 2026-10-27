@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Tue, 27 Oct 2026 08:18:02 -0400
+Subject: [PATCH] Game Mode: fade the flat window out for the stream instead of
+ hiding it
+
+Hiding (unmapping) it left gamescope with no keyboard focus; a volume or
+power key then aborted gamescope in wlr_seat_keyboard_notify_enter and took
+Steam and SteamVR down. MlxrHandoff::fadeFlatWindow keeps it mapped at
+opacity 0 (MLXR_LAUNCHER_FADE_WINDOW=0 hides it as before).
+---
+ app/streaming/session.cpp | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/app/streaming/session.cpp b/app/streaming/session.cpp
+index 581a25a..d8249cc 100644
+--- a/app/streaming/session.cpp
++++ b/app/streaming/session.cpp
+@@ -1717,8 +1717,11 @@ void Session::execVr(QWindow* qtWindow)
+             emit vrStreamStarted();
+         }, [this, hideWindow]() {
+             // The headset shows the picture: StreamSegue hides the window, as stock does when
+-            // its stream window opens
+-            if (hideWindow) {
++            // its stream window opens; in Game Mode it fades out instead, mapped (mlxrhandoff.h)
++            if (hideWindow && MlxrHandoff::fadesFlatWindow()) {
++                MlxrHandoff::fadeFlatWindow(m_QtWindow, true);
++            }
++            else if (hideWindow) {
+                 emit connectionStarted();
+             }
+         });
+@@ -1726,6 +1729,7 @@ void Session::execVr(QWindow* qtWindow)
+             emit displayLaunchError(result.message);
+         }
+     }
++    MlxrHandoff::fadeFlatWindow(m_QtWindow, false);
+ 
+     // Tell the UI the stream is over after this call returns, as the SDL path does from its
+     // cleanup thread (the segue is torn down by these, so not from inside its own handler)

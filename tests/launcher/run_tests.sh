@@ -405,8 +405,8 @@ if [ -n "$SHOTS" ]; then
     grep -E "$QMLERR" "$t/ui2.out" && fail "segue QML errors" || ok "no QML errors in the segue"
     grep -q "The VR client exited with 6" "$t/ui2.out" && ok "client failure seen by the UI" || fail "no exit seen: $(tail -5 "$t/ui2.out")"
     # lane launcher-return: the window is hidden for the stream (MLXR_STREAMING), shown after it,
-    # and the log says when it was exposed and drawn again
-    FAKE_SLEEP=1 FAKE_MODE=stream MLXR_LAUNCHER_HIDE_WINDOW=1 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_DEMO="gaming-pc:Desktop" \
+    # and the log says when it was exposed and drawn again (outside Game Mode: in it the window fades)
+    FAKE_SLEEP=1 FAKE_MODE=stream XDG_CURRENT_DESKTOP=KDE MLXR_LAUNCHER_HIDE_WINDOW=1 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_DEMO="gaming-pc:Desktop" \
       MLXR_LAUNCHER_SCREENSHOT="$SHOTS/returned.png@6000" "$L" >"$t/ui7.out" 2>&1; rc=$?
     [ $rc = 0 ] && ok "return demo ran" || fail "return demo exit $rc"
     grep -E "$QMLERR" "$t/ui7.out" && fail "return demo QML errors"
@@ -421,7 +421,7 @@ if [ -n "$SHOTS" ]; then
     order="$(echo "$r" | grep -n "flat window hidden:\|VR client exited with 0\|flat window shown:\|exposed after" | cut -d: -f2- | sed 's/ - Qt Info//' | tr '\n' '|')"
     case "$order" in *"flat window hidden:"*"VR client exited with 0"*"flat window shown:"*"exposed after"*) ok "hide, exit, show, exposed: in that order";; *) fail "order: $order";; esac
     # a window that does not come back (test hook: the first two checks miss): shown again twice
-    FAKE_SLEEP=1 FAKE_MODE=stream MLXR_LAUNCHER_HIDE_WINDOW=1 MLXR_LAUNCHER_TEST_RETURN_MISS=2 MLXR_NATIVE_CLIENT="$fake" \
+    FAKE_SLEEP=1 FAKE_MODE=stream XDG_CURRENT_DESKTOP=KDE MLXR_LAUNCHER_HIDE_WINDOW=1 MLXR_LAUNCHER_TEST_RETURN_MISS=2 MLXR_NATIVE_CLIENT="$fake" \
       MLXR_LAUNCHER_DEMO="gaming-pc:Desktop" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/returned-again.png@8000" "$L" >"$t/ui8.out" 2>&1; rc=$?
     [ $rc = 0 ] && ok "missed-return demo ran" || fail "missed-return demo exit $rc"
     r="$(grep -E "flat window|VR client exited" "$t/ui8.out")"
@@ -430,6 +430,16 @@ if [ -n "$SHOTS" ]; then
     expect "re-show hides first" "$r" "flat window hidden to show it again"
     echo "$r" | grep -Eq "flat window exposed after [0-9]+ ms and drawn \(shown again 2 time\(s\)\)" && ok "back after the second re-show" || fail "no 'exposed after ... shown again 2' line"
     refute "re-show is not reported as a hide after the stream" "$r" "hidden again"
+    # Game Mode: the window fades out for the stream and stays mapped (gamescope aborts on a volume
+    # key when the hidden window took the keyboard focus with it), fades back in after it
+    FAKE_SLEEP=1 FAKE_MODE=stream XDG_CURRENT_DESKTOP=gamescope SteamAppId= MLXR_LAUNCHER_HIDE_WINDOW=1 MLXR_NATIVE_CLIENT="$fake" \
+      MLXR_LAUNCHER_DEMO="gaming-pc:Desktop" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/returned-faded.png@6000" "$L" >"$t/ui10.out" 2>&1; rc=$?
+    [ $rc = 0 ] && ok "Game Mode return demo ran" || fail "Game Mode return demo exit $rc"
+    r="$(grep -E "flat window|VR client exited" "$t/ui10.out")"
+    echo "$r" | sed 's/^/    /'
+    refute "Game Mode: never hidden (unmapped)" "$r" "flat window hidden"
+    order="$(echo "$r" | grep -n "faded out for the stream\|VR client exited with 0\|faded back in\|exposed after" | cut -d: -f2- | sed 's/ - Qt Info//' | tr '\n' '|')"
+    case "$order" in *"faded out for the stream"*"VR client exited with 0"*"faded back in"*"exposed after"*) ok "Game Mode: fade out, exit, fade in, exposed: in that order";; *) fail "Game Mode order: $order";; esac
     # lane launcher2: the Game Mode scale (1.5) on a 1920x1080 window. The offscreen screen is
     # 800x800, so this uses QT_SCALE_FACTOR (what the launcher sets in Game Mode) with the window
     # at 1920/1.5 x 1080/1.5 = 1280x720 logical and a windowed UI; the grab is in device pixels.
