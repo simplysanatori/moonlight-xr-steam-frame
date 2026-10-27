@@ -79,11 +79,12 @@ void flatWindowReturn(QWindow* window);
 // destroys its surface, and gamescope then has no keyboard focus: a volume or power key restores
 // that empty focus after handing the key to Steam, and wlroots aborts gamescope ("Assertion
 // `surface' failed" in wlr_seat_keyboard_notify_enter), which takes Steam and SteamVR with it.
-// So in Game Mode the window stays mapped at opacity 0 instead: gamescope never picks a window
-// at opacity 0 for focus or for its screen (the headset shows what it shows for a hidden one),
-// while the keyboard focus keeps its live surface. fadeFlatWindow(w, true) fades it out,
-// fadeFlatWindow(w, false) brings it back (a no-op unless it was faded).
-// MLXR_LAUNCHER_FADE_WINDOW=0 hides it as before.
+// So in Game Mode the window stays mapped at opacity 0 instead. gamescope rebuilds the list of
+// windows it shows and focuses every frame, and a window at opacity 0 is left off it. The overlay
+// goes away on the next frame, while the keyboard focus keeps its live wl_surface. At opacity 1
+// the window comes back as a fresh overlay whose focus starts dirty. Needs Qt on xcb (warns
+// otherwise). fadeFlatWindow(w, true) fades it out, fadeFlatWindow(w, false) brings it back
+// (a no-op unless it was faded). MLXR_LAUNCHER_FADE_WINDOW=0 hides it as before.
 bool fadesFlatWindow();
 void fadeFlatWindow(QWindow* window, bool out);
 

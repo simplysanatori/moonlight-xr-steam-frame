@@ -7,16 +7,48 @@ Subject: [PATCH] Game Mode: fade the flat window out for the stream instead of
 Hiding (unmapping) it left gamescope with no keyboard focus; a volume or
 power key then aborted gamescope in wlr_seat_keyboard_notify_enter and took
 Steam and SteamVR down. MlxrHandoff::fadeFlatWindow keeps it mapped at
-opacity 0 (MLXR_LAUNCHER_FADE_WINDOW=0 hides it as before).
+opacity 0 (MLXR_LAUNCHER_FADE_WINDOW=0 hides it as before). The new
+Session::vrWindowFaded signal makes StreamSegue hide its contents, as the
+hide path does, so the spinner stops and Qt Quick stops drawing.
 ---
- app/streaming/session.cpp | 8 ++++++--
- 1 file changed, 6 insertions(+), 2 deletions(-)
+ app/gui/StreamSegue.qml   | 10 ++++++++++
+ app/streaming/session.cpp |  9 +++++++--
+ app/streaming/session.h   |  3 +++
+ 3 files changed, 20 insertions(+), 2 deletions(-)
 
+diff --git a/app/gui/StreamSegue.qml b/app/gui/StreamSegue.qml
+index 8097f3b..907d8ba 100644
+--- a/app/gui/StreamSegue.qml
++++ b/app/gui/StreamSegue.qml
+@@ -49,6 +49,15 @@ Item {
+         hintText.text = qsTr("Tip:") + " " + qsTr("Press %1 to disconnect your session").arg(SdlGamepadKeyNavigation.getConnectedGamepads() > 0 ? qsTr("Start+Select+L1+R1") : qsTr("Ctrl+Alt+Shift+Q"))
+     }
+ 
++    // Moonlight XR Native: Game Mode faded the window out instead of hiding it. Hide the
++    // contents so the spinner stops and Qt Quick stops drawing during the stream.
++    function vrWindowFaded()
++    {
++        stageSpinner.visible = false
++        stageLabel.visible = false
++        hintText.visible = false
++    }
++
+     function displayLaunchError(text)
+     {
+         // Display the error dialog after Session::exec() returns
+@@ -147,6 +156,7 @@ Item {
+         session.stageFailed.connect(stageFailed)
+         session.connectionStarted.connect(connectionStarted)
+         session.vrStreamStarted.connect(vrStreamStarted)
++        session.vrWindowFaded.connect(vrWindowFaded)
+         session.displayLaunchError.connect(displayLaunchError)
+         session.displayLaunchWarning.connect(displayLaunchWarning)
+         session.quitStarting.connect(quitStarting)
 diff --git a/app/streaming/session.cpp b/app/streaming/session.cpp
-index 581a25a..d8249cc 100644
+index 581a25a..4c52db6 100644
 --- a/app/streaming/session.cpp
 +++ b/app/streaming/session.cpp
-@@ -1717,8 +1717,11 @@ void Session::execVr(QWindow* qtWindow)
+@@ -1717,8 +1717,12 @@ void Session::execVr(QWindow* qtWindow)
              emit vrStreamStarted();
          }, [this, hideWindow]() {
              // The headset shows the picture: StreamSegue hides the window, as stock does when
@@ -25,12 +57,13 @@ index 581a25a..d8249cc 100644
 +            // its stream window opens; in Game Mode it fades out instead, mapped (mlxrhandoff.h)
 +            if (hideWindow && MlxrHandoff::fadesFlatWindow()) {
 +                MlxrHandoff::fadeFlatWindow(m_QtWindow, true);
++                emit vrWindowFaded();
 +            }
 +            else if (hideWindow) {
                  emit connectionStarted();
              }
          });
-@@ -1726,6 +1729,7 @@ void Session::execVr(QWindow* qtWindow)
+@@ -1726,6 +1730,7 @@ void Session::execVr(QWindow* qtWindow)
              emit displayLaunchError(result.message);
          }
      }
@@ -38,3 +71,17 @@ index 581a25a..d8249cc 100644
  
      // Tell the UI the stream is over after this call returns, as the SDL path does from its
      // cleanup thread (the segue is torn down by these, so not from inside its own handler)
+diff --git a/app/streaming/session.h b/app/streaming/session.h
+index c1b5212..21186e9 100644
+--- a/app/streaming/session.h
++++ b/app/streaming/session.h
+@@ -140,6 +140,9 @@ signals:
+     // Moonlight XR Native: the stream runs in the native VR client now (the segue changes its tip)
+     void vrStreamStarted();
+ 
++    // Moonlight XR Native: Game Mode faded the window out for the stream (the segue hides its contents)
++    void vrWindowFaded();
++
+     void sessionFinished(int portTestResult);
+ 
+     // Emitted after sessionFinished() when the session is ready to be destroyed
