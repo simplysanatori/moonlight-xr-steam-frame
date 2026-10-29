@@ -516,6 +516,8 @@ int main(void) {
     testStats();
     testTenMs();
     testRuntimeControls();
+    testHeadYawDirection();
+    testMuteRestores();
     testInitFailures();
     testNoServer();
     return checksDone("audio_opus");
