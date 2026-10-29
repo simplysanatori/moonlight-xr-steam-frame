@@ -1,6 +1,7 @@
 // Physical gamepads to the host, see gamepads.h. GPLv3.
 #include "gamepads.h"
 
+#include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +27,96 @@ static void say(Gamepads* g, char level, const char* fmt, ...) {
 }
 
 int gpIsChord(int buttonFlags) { return buttonFlags == CHORD_BUTTONS; }
+
+// ---- classification ------------------------------------------------------
+
+// SDL's controller_list.h (Valve products), as moonlight-qt 6.2 copies it
+static const struct { unsigned product; const char* name; } kSteamPids[] = {
+    { 0x1101, "Steam Controller (2015, CHELL)" },
+    { 0x1102, "Steam Controller (2015, wired)" },
+    { 0x1105, "Steam Controller (2015, Bluetooth)" },
+    { 0x1106, "Steam Controller (2015, Bluetooth)" },
+    { 0x1142, "Steam Controller (2015, wireless dongle)" },
+    { 0x1201, "Steam Controller (HEADCRAB, wired)" },
+    { 0x1202, "Steam Controller (HEADCRAB, Bluetooth)" },
+    { 0x1205, "Steam Deck built-in controller" },
+    { 0x1302, "Steam Controller (Triton, USB)" },
+    { 0x1303, "Steam Controller (Triton, Bluetooth LE)" },
+    { 0x1304, "Steam Controller (Proteus puck)" },
+    { 0x1305, "Steam Controller (Nereid puck)" },
+};
+
+const char* gpSteamControllerPidName(unsigned product) {
+    for (size_t i = 0; i < sizeof(kSteamPids) / sizeof(kSteamPids[0]); i++)
+        if (kSteamPids[i].product == product) return kSteamPids[i].name;
+    return NULL;
+}
+
+int gpSteamControllerPid(unsigned product) { return gpSteamControllerPidName(product) != NULL; }
+
+int gpIsSteamVirtualGamepad(unsigned vendor, unsigned product) { return vendor == 0x28de && product == 0x11ff; }
+
+uint8_t gpControllerType(GpSdlKind kind, unsigned vendor, unsigned product) {
+    switch (kind) {
+    case GP_SDL_XBOX360:
+    case GP_SDL_XBOXONE:
+        return LI_CTYPE_XBOX;
+    case GP_SDL_PS3:
+    case GP_SDL_PS4:
+    case GP_SDL_PS5:
+        return LI_CTYPE_PS;
+    case GP_SDL_SWITCH_PRO:
+    case GP_SDL_JOYCON_LEFT:
+    case GP_SDL_JOYCON_RIGHT:
+    case GP_SDL_JOYCON_PAIR:
+        return LI_CTYPE_NINTENDO;
+    default:
+        return (vendor == 0x28de && gpSteamControllerPid(product)) ? LI_CTYPE_STEAM : LI_CTYPE_UNKNOWN;
+    }
+}
+
+void gpClassify(GpInfo* info, GpSdlKind kind) {
+    info->type = gpControllerType(kind, info->vendor, info->product);
+    // Steam Input's virtual copy of a pad (SDL lists it as 28de:11ff)
+    info->mirror = gpIsSteamVirtualGamepad(info->vendor, info->product);
+}
+
+static int containsNoCase(const char* hay, const char* needle) {
+    size_t n = strlen(needle);
+    for (; *hay; hay++) {
+        size_t i = 0;
+        while (i < n && hay[i] && tolower((unsigned char)hay[i]) == tolower((unsigned char)needle[i])) i++;
+        if (i == n) return 1;
+    }
+    return 0;
+}
+
+static int equalNoCase(const char* a, const char* b) {
+    while (*a && *b && tolower((unsigned char)*a) == tolower((unsigned char)*b)) a++, b++;
+    return *a == 0 && *b == 0;
+}
+
+int gpIgnoreReason(const GpInfo* info, const char* ignoreList) {
+    if (info->vendor == 0x28de && containsNoCase(info->name, "frame")) return 1;
+    if (ignoreList && *ignoreList) {
+        char* copy = strdup(ignoreList);
+        int hit = 0;
+        if (!copy) return 0;
+        for (char* save = NULL, *t = strtok_r(copy, ", ", &save); t && !hit; t = strtok_r(NULL, ", ", &save))
+            hit = equalNoCase(t, info->guid);
+        free(copy);
+        return hit ? 2 : 0;
+    }
+    return 0;
+}
+
+const char* gpIgnoreReasonText(int reason) {
+    switch (reason) {
+    case 1: return "SteamVR's own Frame controller (read by SteamVR, not for the host)";
+    case 2: return "its GUID is in MLXR_GAMEPAD_IGNORE";
+    default: return "";
+    }
+}
 
 void gpInit(Gamepads* g, const PadOutSink* sink, const GpHaptics* haptics, GpLog log, void* logUser) {
     memset(g, 0, sizeof(*g));
