@@ -3,6 +3,7 @@
 // XrRenderer.applySetting / saveScreenPose stored what it handed back.
 // GPLv3.
 #include <stdlib.h>
+#include <string.h>
 
 #include "check.h"
 #include "scene.h"
@@ -199,6 +200,58 @@ static void storeSettings(void) {
     scene_free(sc);
 }
 
+// The cog's Ray row is saved in both halves (Off / Dot / Ray -> show_ray and
+// pointer_dot); the bar button's ray switch is not
+static void rayRowSaved(void) {
+    for (int cell = 0; cell < 3; cell++) {
+        Scene* sc = scene_new();
+        XrCtx* c = sc->ctx;
+        Settings s;
+        settings_defaults(&s);
+        float out[IN_SLOTS];
+        memset(out, 0, sizeof(out));
+        out[IN_SETTING] = -1;
+        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_RAY, cell, out);
+        CHECK((int)out[IN_SETTING] == SETTING_POINTER_DOT);
+        // a cell that matches the defaults reports no change, the others do
+        int changed = xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
+        CHECK(changed == (cell != 2));
+        CHECK(s.show_ray == (cell == 2));
+        CHECK(s.pointer_dot == (cell >= 1));
+
+        // through config.ini and into the next session
+        char* text = settings_to_text(&s);
+        CHECK(text != NULL);
+        Settings back;
+        settings_defaults(&back);
+        SettingsLoadInfo info;
+        settings_from_text(&back, text, &info);
+        free(text);
+        CHECK(back.show_ray == s.show_ray && back.pointer_dot == s.pointer_dot);
+        Scene* next = scene_new();
+        xrApplySettings(next->ctx, &back);
+        CHECK(raySwitchOn(next->ctx->raySetting, next->ctx->rayFlipped) == (cell == 2));
+        CHECK(next->ctx->dotOn == (cell >= 1));
+        scene_free(next);
+
+        // the bar button flips this session only: nothing in the file moves,
+        // not even when the settings are rebuilt from the context
+        setRayOn(c, cell != 2, "the bar button");
+        CHECK(raySwitchOn(c->raySetting, c->rayFlipped) == (cell != 2));
+        Settings keep = s;
+        xrSettingsFromCtx(c, &s);
+        CHECK(s.show_ray == keep.show_ray && s.pointer_dot == keep.pointer_dot);
+        CHECK(!xrStoreSetting(c, &s, SETTING_POINTER_SLEEP, s.pointer_sleep));
+        // and the cog's own choice afterwards replaces the flip
+        memset(out, 0, sizeof(out));
+        out[IN_SETTING] = -1;
+        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_RAY, 2, out);
+        xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
+        CHECK(s.show_ray == 1 && raySwitchOn(c->raySetting, c->rayFlipped) == 1);
+        scene_free(sc);
+    }
+}
+
 // The Display tab: the cell lane U rings is the one xr_ui.c says is in force,
 // and the rows that come later are dead in both
 static void displayCells(void) {
@@ -280,6 +333,7 @@ int main(void) {
     poseRoundTrips();
     thumbsAgree();
     storeSettings();
+    rayRowSaved();
     displayCells();
     return checksDone("m4 prefs");
 }

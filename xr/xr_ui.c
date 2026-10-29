@@ -1003,11 +1003,15 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         return SETTING_POINTER_SLEEP;
     }
     if (option == COG_OPTION_RAY) {
-        // The bar button's switch, for this session only, so nothing goes to
-        // Java to store. Native: the third cell is the dot, which is stored.
+        // Native: the row is saved (the bar button's ray switch is not): the
+        // cell's ray becomes the setting each session starts from, and the
+        // session's own flip from the bar is dropped so the row and the beam
+        // agree. The third cell is the dot, which is stored as well.
         int ray = 0, dot = 1;
         settings_pointer_from_cell(cell, &ray, &dot);
         setRayOn(ctx, ray, "the Display tab");
+        ctx->raySetting = ray ? 1 : 0;
+        ctx->rayFlipped = 0;
         if (dot != ctx->dotOn) {
             ctx->dotOn = dot;
             LOGEV("pointer dot %s from the panel", dot ? "on" : "off");

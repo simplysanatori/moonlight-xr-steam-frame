@@ -116,7 +116,7 @@ The bar sits under the screen. From left to right:
 | Move pill | Grab it to move the screen. See [Moving and sizing the screen](#moving-and-sizing-the-screen). |
 | Cog | Opens the cog menu. |
 | Keyboard | Opens or closes the headset keyboard. |
-| Ray | Shows or hides the controller ray for this session. |
+| Ray | Shows or hides the controller ray for this session only. The cog's Ray row is the saved one. |
 | 3D | Only shown when the depth model is ready. Turns 3D on or off. |
 
 ## The cog menu
@@ -159,7 +159,7 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Head aim | Off, On | Off. Needs Head locked; not in a room. |
 | Controllers | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
 | Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
-| Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. |
+| Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. Bar = this session, cog = saved: the choice here is kept for the next session, the bar's Ray button is not. |
 | Controller model | Off, On | Off |
 | Click sound | Off, On | On |
 | Glow | Off, On | Off |

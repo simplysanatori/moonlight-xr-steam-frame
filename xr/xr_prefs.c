@@ -412,7 +412,12 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_PICTURE_GAMMA: s->picture_gamma = value; break;
     case SETTING_PICTURE_SATURATION: s->picture_saturation = value; break;
     case SETTING_RESET_PICTURE: settings_reset_picture(s); break;
-    case SETTING_POINTER_DOT: s->pointer_dot = ctx != NULL ? ctx->dotOn : value >= 1; break;
+    case SETTING_POINTER_DOT:
+        // The Display tab's Ray row: both halves are saved. The bar's ray
+        // button only flips the session (ctx->rayFlipped), which is not stored.
+        s->pointer_dot = ctx != NULL ? ctx->dotOn : value >= 1;
+        if (ctx != NULL) s->show_ray = ctx->raySetting != 0;
+        break;
     case SETTING_ROOM_BRIGHTNESS:
     case SETTING_ROOM_GLOW:
     case SETTING_ROOM_LIGHT_LEVEL:
