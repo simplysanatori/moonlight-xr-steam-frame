@@ -17,3 +17,8 @@ add_test(NAME stream_cadence COMMAND test_cadence)
 add_executable(test_au_gather test_au_gather.c)
 target_link_libraries(test_au_gather PRIVATE mlxr_stream)
 add_test(NAME stream_au_gather COMMAND test_au_gather)
+# Lane wave0-commonc: the common-c log lines session.c and rfi_watch.c parse still exist
+add_executable(test_commonc_log test_commonc_log.c)
+target_compile_definitions(test_commonc_log PRIVATE
+  COMMONC_SRC_DIR="${PROJECT_SOURCE_DIR}/third_party/moonlight-common-c/src")
+add_test(NAME stream_commonc_log COMMAND test_commonc_log)
