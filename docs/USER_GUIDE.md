@@ -328,6 +328,11 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | `[vr] depth_source` | `zipdepth`, `zipdepth-int8`, `midas` | `zipdepth` |
 | `[vr] hand_tracking` | `true`, `false` | `false`. Untested on the Frame. |
 | `[vr] gaze` | `true`, `false` | `false`. Untested on the Frame. |
+| `[vr] pointer` | `true`, `false` | `true`. `false` turns the controllers' pointer off, so only the switch to gamepad mode is read. |
+| `[vr] env_res` | `low`, `standard`, `high`, `ultra` | `standard`. How sharp the rooms are drawn: `low` is half the headset's recommended size, `ultra` the largest the runtime allows. Read when a room is built, so it applies from the next stream. |
+| `[debug] depth_rate` | 5 to 45 | 20. The most depth maps made per second in 3D. Lower saves the CPU; the picture still follows the video. |
+| `[debug] depth_debug` | `true`, `false` | `false`. Shows the depth map in place of the picture. |
+| `[debug] eye_swap` | `true`, `false` | `false`. Swaps the left and right eye in 3D. For checking a wrong-way picture. |
 | `[stream] virtual_surround` | `true`, `false` | `false`. Places 5.1 and 7.1 speakers around you in stereo. |
 | `[debug] file_log` | `off`, `basic`, `verbose` | `basic` |
 

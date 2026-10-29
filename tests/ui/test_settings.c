@@ -34,11 +34,8 @@ static void test_defaults(void) {
     CHECK(geti(&s, "bitrate_kbps") == 0);
     CHECK(geti(&s, "codec") == 0 && geti(&s, "audio_config") == 0);
     CHECK(geti(&s, "virtual_surround") == 0);
-    CHECK(geti(&s, "auto_desktop") == 0 && geti(&s, "check_updates") == 1);
     CHECK(geti(&s, "network_path") == 0);   // auto
-    CHECK(strcmp(gets(&s, "language"), "default") == 0);
     // VR Settings table of the fork README
-    CHECK(geti(&s, "vr_mode") == 1);
     CHECK(geti(&s, "pointer") == 1);
     CHECK(geti(&s, "pointer_sleep") == 1);
     CHECK(geti(&s, "show_ray") == 1);
@@ -56,7 +53,6 @@ static void test_defaults(void) {
     s.passthrough = 0;
     CHECK(geti(&s, "depth_source") == 0);               // ZipDepth
     CHECK(geti(&s, "env_res") == ENV_RES_STANDARD);
-    CHECK(geti(&s, "doff_grace") == 1);
     CHECK(geti(&s, "picture_brightness") == 0 && geti(&s, "picture_contrast") == 100);
     CHECK(geti(&s, "picture_gamma") == 100 && geti(&s, "picture_saturation") == 100);
     // VR Debugging
@@ -132,14 +128,14 @@ static void test_defaults(void) {
 
 static const char* const README_KEYS[] = {
     // VR Settings
-    "vr_mode", "pointer", "pointer_sleep", "show_ray", "controller_model", "head_aim",
+    "pointer", "pointer_sleep", "show_ray", "controller_model", "head_aim",
     "head_aim_sensitivity", "head_aim_deadzone", "gamepad_toggle", "click_sound", "gaze",
-    "hand_tracking", "passthrough", "environment", "depth_source", "env_res", "doff_grace",
+    "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
     "picture_brightness", "picture_contrast", "picture_gamma", "picture_saturation",
     // VR Debugging
     "depth_rate", "depth_debug", "eye_swap", "file_log",
     // elsewhere
-    "virtual_surround", "network_path", "auto_desktop", "language", "check_updates",
+    "virtual_surround", "network_path",
     // stream
     "host", "app", "resolution", "fps", "bitrate_kbps", "codec", "audio_config", "frame_pacing",
     // the panel: Screen, Display, 3D, Room
@@ -323,9 +319,33 @@ static void test_clamping(void) {
     // enum by name or by index, bool spellings
     Settings e;
     settings_defaults(&e);
-    settings_from_text(&e, "[stream]\ncodec = HEVC\naudio_config = 2\nresolution = 1920x1080\nvirtual_surround = Yes\ncheck_updates = off\n", NULL);
+    settings_from_text(&e, "[stream]\ncodec = HEVC\naudio_config = 2\nresolution = 1920x1080\nvirtual_surround = Yes\n", NULL);
     CHECK(e.codec == 2 && e.audio_config == 2 && strcmp(SETTINGS_RESOLUTIONS[e.resolution], "1920x1080") == 0);
-    CHECK(e.virtual_surround == 1 && e.check_updates == 0);
+    CHECK(e.virtual_surround == 1);
+}
+
+// Keys removed because nothing read them: an old config.ini that still has
+// them loads, the rest of the file applies, and they are not written again
+static void test_removed_keys(void) {
+    static const char* const GONE[] = { "auto_desktop", "check_updates", "language", "vr_mode",
+                                        "doff_grace" };
+    for (size_t i = 0; i < sizeof GONE / sizeof GONE[0]; i++) {
+        CHECK(settings_find(GONE[i]) == NULL);
+    }
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    settings_from_text(&s,
+        "[stream]\nauto_desktop = true\ncheck_updates = false\nlanguage = fr\nfps = 72\n"
+        "[vr]\nvr_mode = false\ndoff_grace = false\nshow_ray = false\n", &info);
+    CHECK(info.unknown == 5 && info.bad == 0);
+    CHECK(info.applied == 2 && settings_fps_value(&s) == 72 && s.show_ray == 0);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL);
+    for (size_t i = 0; text && i < sizeof GONE / sizeof GONE[0]; i++) {
+        CHECK(strstr(text, GONE[i]) == NULL);
+    }
+    free(text);
 }
 
 static void test_network_path(void) {
@@ -568,6 +588,7 @@ int main(void) {
     test_clamping();
     test_network_path();
     test_tolerant();
+    test_removed_keys();
     test_files();
     test_sliders();
     return checksDone("ui_settings");

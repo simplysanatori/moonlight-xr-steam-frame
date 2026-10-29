@@ -71,12 +71,12 @@ static const SettingDesc TABLE[] = {
     DB("stream", "virtual_surround", virtual_surround, 0, "checkbox_vr_virtual_surround: place 5.1 and 7.1 speakers around you in stereo"),
     DE("stream", "frame_pacing", frame_pacing, PACING_NAMES, 0, "frame_pacing"),
     DE("stream", "network_path", network_path, NETWORK_NAMES, 0, "native: which link reaches the PC: auto (probe both), home (Wi-Fi) or adapter (Steam Frame Wireless Adapter); the --network flag and MLXR_NETWORK override it"),
-    DB("stream", "auto_desktop", auto_desktop, 0, "Host: open Desktop automatically"),
-    DB("stream", "check_updates", check_updates, 1, "About: check for updates once a day"),
-    DS("stream", "language", language, "default", "UI language (English only for now)"),
+    // TODO(PLAN 6.4): auto_desktop (open the host's Desktop app without the app list) comes
+    // back when something reads it. Dropped with vr_mode, check_updates, language and
+    // doff_grace, which were written with descriptions and read by nothing; old files that
+    // still carry them load fine (unknown keys are ignored and counted).
     // vr
-    DB("vr", "vr_mode", vr_mode, 1, "checkbox_enable_vr_mode: Stream in VR"),
-    DB("vr", "pointer", pointer, 1, "checkbox_vr_pointer: controllers as a mouse"),
+    DB("vr", "pointer", pointer, 1, "checkbox_vr_pointer: controllers as a mouse (false leaves only the gamepad switch live)"),
     DB("vr", "pointer_sleep", pointer_sleep, 1, "checkbox_vr_pointer_sleep: pause the pointer when the controller is still"),
     DB("vr", "show_ray", show_ray, 1, "checkbox_vr_show_ray: show the controller ray"),
     DB("vr", "pointer_dot", pointer_dot, 1, "native: the dot where the ray lands (the host draws its own cursor into the video, which the Moonlight protocol cannot hide)"),
@@ -94,17 +94,16 @@ static const SettingDesc TABLE[] = {
     DB("vr", "passthrough", passthrough, 0, "checkbox_vr_passthrough"),
     DE("vr", "environment", environment, ENV_NAMES, 0, "list_vr_environment: auto = black void, or passthrough with passthrough on"),
     DE("vr", "depth_source", depth_source, DEPTH_NAMES, 0, "list_vr_depth_source: Realtime 3D mode (zipdepth recommended, midas older, zipdepth-int8 lighter on the CPU, off streams flat; flat, ramp, blob, eyetest, shifttest are test patterns)"),
-    DE("vr", "env_res", env_res, ENVRES_NAMES, 1, "list_vr_env_res: Environment Res"),
-    DB("vr", "doff_grace", doff_grace, 1, "checkbox_vr_doff_grace: keep the stream for a minute with the headset off"),
+    DE("vr", "env_res", env_res, ENVRES_NAMES, 1, "list_vr_env_res: Environment Res, how sharp the rooms are drawn: low (half the headset's recommended eye size), standard, high or ultra (the runtime's largest); read when the rooms are built at the start of a stream"),
     DB("vr", "hand_hint_seen", hand_hint_seen, 0, "the hand lock hint was put away for good"),
     DI("vr", "picture_brightness", picture_brightness, PICTURE_BRIGHTNESS_MIN, PICTURE_BRIGHTNESS_MAX, PICTURE_BRIGHTNESS_DEFAULT, "seekbar_vr_picture_brightness: -50..50"),
     DI("vr", "picture_contrast", picture_contrast, PICTURE_CONTRAST_MIN, PICTURE_CONTRAST_MAX, PICTURE_CONTRAST_DEFAULT, "seekbar_vr_picture_contrast: percent, 50..150"),
     DI("vr", "picture_gamma", picture_gamma, PICTURE_GAMMA_MIN, PICTURE_GAMMA_MAX, PICTURE_GAMMA_DEFAULT, "seekbar_vr_picture_gamma: hundredths, 50..200"),
     DI("vr", "picture_saturation", picture_saturation, PICTURE_SATURATION_MIN, PICTURE_SATURATION_MAX, PICTURE_SATURATION_DEFAULT, "seekbar_vr_picture_saturation: percent, 0..200"),
     // debug
-    DI("debug", "depth_rate", depth_rate, DEPTH_RATE_MIN, DEPTH_RATE_MAX, DEPTH_RATE_DEFAULT, "seekbar_vr_inference_cadence: depth maps per second"),
-    DB("debug", "depth_debug", depth_debug, 0, "checkbox_vr_depth_debug: show the depth map"),
-    DB("debug", "eye_swap", eye_swap, 0, "checkbox_vr_eye_swap"),
+    DI("debug", "depth_rate", depth_rate, DEPTH_RATE_MIN, DEPTH_RATE_MAX, DEPTH_RATE_DEFAULT, "seekbar_vr_inference_cadence: the most depth maps made per second (the 3D picture follows the video; fewer saves the CPU)"),
+    DB("debug", "depth_debug", depth_debug, 0, "checkbox_vr_depth_debug: show the depth map in place of the picture"),
+    DB("debug", "eye_swap", eye_swap, 0, "checkbox_vr_eye_swap: swap the left and right eye of the 3D picture (for a wrong-way test pattern)"),
     DE("debug", "file_log", file_log, LOG_NAMES, 1, "list_vr_file_log: off, basic (warnings and errors), verbose"),
     // display tab
     DB("display", "head_locked", head_locked, 0, "Display tab: head locked screen (checkbox_vr_head_locked)"),
