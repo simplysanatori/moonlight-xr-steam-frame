@@ -6,7 +6,7 @@
  *   mlxr-cli apps <host>
  *   mlxr-cli launch <host> <appid> <WxHxFPS> [--hdr]
  *   mlxr-cli quit <host>
- *   mlxr-cli probe-paths [<host>] [--addr a,b,..] [--network auto|home|adapter] [--samples N] [--bitrate KBPS]
+ *   mlxr-cli probe-paths [<host>] [--addr a,b,..] [--network auto|home|adapter|usb] [--samples N] [--bitrate KBPS]
  * <host> is an address[:port], a saved host name or a saved host uuid.
  * Set MLXR_VERBOSE=1 for request logging (never includes secrets). */
 #define _GNU_SOURCE
@@ -418,7 +418,7 @@ static int cmd_probe_paths(int argc, char **argv)
         else if (!strcmp(argv[i], "--samples") && i + 1 < argc) samples = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--bitrate") && i + 1 < argc) bitrate = atoi(argv[++i]);
         else if (argv[i][0] != '-' && !spec) spec = argv[i];
-        else return fprintf(stderr, "usage: probe-paths [<host>] [--addr a,b,..] [--network auto|home|adapter] [--samples N]\n"), 1;
+        else return fprintf(stderr, "usage: probe-paths [<host>] [--addr a,b,..] [--network auto|home|adapter|usb] [--samples N]\n"), 1;
     }
     mlxr_error e;
     struct ctx c;
@@ -450,11 +450,12 @@ static int cmd_probe_paths(int argc, char **argv)
         if (f->loopback) continue;
         printf("  %-8s %u.%u.%u.%u/%d%s%s%s\n", f->name, f->addr >> 24, (f->addr >> 16) & 255, (f->addr >> 8) & 255,
                f->addr & 255, __builtin_popcount(f->mask), f->up ? "" : " (down)", f->default_route ? " default-route" : "",
-               f->wifi ? (mlxr_netif_is_ap(&t, f) ? " wifi:AP" : " wifi:managed") : " wired");
+               f->wifi ? (mlxr_netif_is_ap(&t, f) ? " wifi:AP" : " wifi:managed") : f->usb ? " usb" : " wired");
     }
     int pick = -1;
     if (plan.pref == MLXR_NET_AUTO && samples != MLXR_NET_AUTO_SAMPLES) {
         if (plan.history_dir[0]) mlxr_nethist_load(plan.history_dir, &plan.hist);
+        mlxr_net_plan_add_usb(&plan, &t);   /* Native (lane wave4c-usb) */
         mlxr_net_plan_classify(&plan, &t);
         mlxr_net_plan_read_links(&plan, &t);
         mlxr_net_probe(&plan, NULL, samples, false);
@@ -463,6 +464,7 @@ static int cmd_probe_paths(int argc, char **argv)
         pick = mlxr_net_select(&plan, &t);
     }
     printf("setting: %s (from %s)\n", mlxr_net_pref_name(plan.pref), plan.source);
+    if (plan.usb.checked) printf("usb cable: %s\n", plan.usb.reason);   /* Native (lane wave4c-usb) */
     for (int i = 0; i < plan.n; i++) {
         const mlxr_net_cand *k = &plan.c[i];
         char desc[96];
@@ -508,7 +510,7 @@ int main(int argc, char **argv)
                 "       mlxr-cli launch <host> <appid> <WxHxFPS> [--hdr]\n"
                 "       mlxr-cli quit <host>\n"
                 "       mlxr-cli clipboard <host> [--show]   (Apollo, while streaming)\n"
-                "       mlxr-cli probe-paths [<host>] [--addr a,b] [--network auto|home|adapter]\n"
+                "       mlxr-cli probe-paths [<host>] [--addr a,b] [--network auto|home|adapter|usb]\n"
                 "       mlxr-cli adapter [<interface>]   (is the Steam Frame Wireless Adapter there? read-only)\n"
                 "config dir: $MLXR_CONFIG_DIR or ~/.config/moonlight-xr\n");
         return 1;

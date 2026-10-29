@@ -18,7 +18,7 @@
 
 const char *mlxr_nethist_key(int path)
 {
-    return path == MLXR_NETHIST_ADAPTER ? "adapter" : "home";
+    return path == MLXR_NETHIST_ADAPTER ? "adapter" : path == MLXR_NETHIST_USB ? "usb" : "home";
 }
 
 const char *mlxr_nethist_filename(void) { return HIST_FILE; }
@@ -181,5 +181,5 @@ bool mlxr_nethist_record_stream(const char *dir, const char *address, uint64_t f
     if (p == MLXR_PATH_NONE) return false;
     mlxr_nethist_entry e = { true, frames, lost, jitter_ms < 0 ? 0 : jitter_ms, rtt_ms < 0 ? 0 : rtt_ms,
                              now_s ? now_s : (int64_t)time(NULL) };
-    return mlxr_nethist_record(dir, p == MLXR_PATH_ADAPTER ? MLXR_NETHIST_ADAPTER : MLXR_NETHIST_HOME, &e);
+    return mlxr_nethist_record(dir, mlxr_net_hist_index(p), &e);
 }

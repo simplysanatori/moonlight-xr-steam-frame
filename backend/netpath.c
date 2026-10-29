@@ -24,17 +24,18 @@
 
 const char *mlxr_net_pref_name(mlxr_net_pref p)
 {
-    return p == MLXR_NET_HOME ? "home" : p == MLXR_NET_ADAPTER ? "adapter" : "auto";
+    return p == MLXR_NET_HOME ? "home" : p == MLXR_NET_ADAPTER ? "adapter" : p == MLXR_NET_USB ? "usb" : "auto";
 }
 
 const char *mlxr_net_path_label(mlxr_net_path p)
 {
-    return p == MLXR_PATH_HOME ? "Wi-Fi" : p == MLXR_PATH_ADAPTER ? "Steam Frame Wireless Adapter" : "none";
+    return p == MLXR_PATH_HOME ? "Wi-Fi" : p == MLXR_PATH_ADAPTER ? "Steam Frame Wireless Adapter"
+         : p == MLXR_PATH_USB ? "USB cable" : "none";
 }
 
 static const char *path_short(mlxr_net_path p)
 {
-    return p == MLXR_PATH_HOME ? "home" : p == MLXR_PATH_ADAPTER ? "adapter" : "none";
+    return p == MLXR_PATH_HOME ? "home" : p == MLXR_PATH_ADAPTER ? "adapter" : p == MLXR_PATH_USB ? "usb" : "none";
 }
 
 bool mlxr_net_pref_parse(const char *s, mlxr_net_pref *out)
@@ -51,6 +52,7 @@ bool mlxr_net_pref_parse(const char *s, mlxr_net_pref *out)
     if (!strcasecmp(b, "auto")) *out = MLXR_NET_AUTO;
     else if (!strcasecmp(b, "home")) *out = MLXR_NET_HOME;
     else if (!strcasecmp(b, "adapter")) *out = MLXR_NET_ADAPTER;
+    else if (!strcasecmp(b, "usb")) *out = MLXR_NET_USB;
     else return false;
     return true;
 }
@@ -69,9 +71,9 @@ mlxr_net_pref mlxr_net_pref_resolve(const char *flag, const char *env, const cha
             if (source) *source = names[i];
             return p;
         }
-        if (warn) *warn = i == 1 ? "bad --network value (want auto, home or adapter)"
-                          : i == 0 ? "bad MLXR_NETWORK value (want auto, home or adapter)"
-                                   : "bad network_path in config.ini (want auto, home or adapter)";
+        if (warn) *warn = i == 1 ? "bad --network value (want auto, home, adapter or usb)"
+                          : i == 0 ? "bad MLXR_NETWORK value (want auto, home, adapter or usb)"
+                                   : "bad network_path in config.ini (want auto, home, adapter or usb)";
     }
     return MLXR_NET_AUTO;
 }
@@ -162,6 +164,113 @@ void mlxr_net_plan_read_links(mlxr_net_plan *p, const mlxr_netifs *t)
         if (via) mlxr_net_link_read(via, c->address, &c->link);
         c->link_quality = mlxr_net_link_quality(&c->link);
     }
+}
+
+/* ---------------------------------------------------------------- the USB cable (Native, lane wave4c-usb) */
+
+int mlxr_net_subnet_peers(uint32_t addr, uint32_t mask, uint32_t *out, int cap)
+{
+    if (!out || cap <= 0 || !mask) return 0;
+    uint32_t inv = ~mask;
+    if ((inv & (inv + 1u)) != 0) return 0;      /* ones then zeros, or it is no prefix */
+    if (inv == 0 || inv > 0xffu) return 0;      /* a /32, or larger than a /24: a LAN, not a cable */
+    int n = 0;
+    if (inv == 1u) {                            /* a /31 (RFC 3021): both addresses are hosts */
+        out[n++] = addr ^ 1u;
+        return n;
+    }
+    uint32_t net = addr & mask;
+    uint32_t first = net + 1u, last = (net | inv) - 1u;     /* the usable range */
+    uint32_t count = last - first + 1u;
+    bool self_in = addr >= first && addr <= last;
+    uint32_t start = self_in ? addr - first : count - 1u;
+    uint32_t total = self_in ? count - 1u : count;
+    for (uint32_t k = 1; k <= total && n < cap && n < MLXR_NET_USB_MAX_PEERS; k++)
+        out[n++] = first + (start + k) % count;
+    return n;
+}
+
+void mlxr_net_usb_assess(const mlxr_netifs *t, mlxr_usb_info *out)
+{
+    memset(out, 0, sizeof *out);
+    out->checked = true;
+    const mlxr_netif *down = NULL;
+    for (int k = 0; k < t->n; k++) {
+        const mlxr_netif *i = &t->v[k];
+        if (!i->usb || i->loopback) continue;
+        if (!i->up) {
+            if (!down) down = i;
+            continue;
+        }
+        uint32_t peers[MLXR_NET_USB_MAX_PEERS];
+        int np = mlxr_net_subnet_peers(i->addr, i->mask, peers, MLXR_NET_USB_MAX_PEERS);
+        if (!out->present) {
+            out->present = true;
+            mlxr_strlcpy(out->ifname, i->name, sizeof out->ifname);
+        }
+        out->peers += np;
+    }
+    if (out->present) {
+        if (out->peers > 0)
+            snprintf(out->reason, sizeof out->reason, "%s up, carrier on, %d peer candidate%s", out->ifname, out->peers,
+                     out->peers == 1 ? "" : "s");
+        else
+            snprintf(out->reason, sizeof out->reason, "%s up, carrier on, its subnet is too large to guess the PC's address",
+                     out->ifname);
+    } else if (down) {
+        mlxr_strlcpy(out->ifname, down->name, sizeof out->ifname);
+        snprintf(out->reason, sizeof out->reason, "%s down (no cable, or the PC end is not up)", down->name);
+    } else {
+        snprintf(out->reason, sizeof out->reason, "no USB network interface found");
+    }
+}
+
+bool mlxr_net_usb_usable(const mlxr_usb_info *u)
+{
+    return !u->checked || u->present;
+}
+
+mlxr_usb_event mlxr_usb_watch_poll(mlxr_usb_watch *w, const mlxr_netifs *t, mlxr_usb_info *now)
+{
+    mlxr_usb_info u;
+    mlxr_net_usb_assess(t, &u);
+    mlxr_usb_event ev = MLXR_USB_EVENT_NONE;
+    if (u.present && (!w->known || !w->present)) ev = MLXR_USB_EVENT_UP;
+    else if (!u.present && w->known && w->present) {
+        ev = MLXR_USB_EVENT_LOST;
+        if (!u.ifname[0]) mlxr_strlcpy(u.ifname, w->ifname, sizeof u.ifname);
+    }
+    w->known = true;
+    w->present = u.present;
+    if (u.ifname[0]) mlxr_strlcpy(w->ifname, u.ifname, sizeof w->ifname);
+    if (now) *now = u;
+    return ev;
+}
+
+int mlxr_net_plan_add_usb(mlxr_net_plan *p, const mlxr_netifs *t)
+{
+    mlxr_net_usb_assess(t, &p->usb);
+    int added = 0;
+    for (int k = 0; k < t->n; k++) {
+        const mlxr_netif *i = &t->v[k];
+        if (!i->usb || !i->up || i->loopback) continue;
+        uint32_t peers[MLXR_NET_USB_MAX_PEERS];
+        int np = mlxr_net_subnet_peers(i->addr, i->mask, peers, MLXR_NET_USB_MAX_PEERS);
+        for (int m = 0; m < np; m++) {
+            char a[INET_ADDRSTRLEN];
+            struct in_addr ia = { .s_addr = htonl(peers[m]) };
+            if (!inet_ntop(AF_INET, &ia, a, sizeof a)) continue;
+            int before = p->n;
+            if (mlxr_net_plan_add_src(p, a, 0, "usb") == before && p->n > before) added++;
+        }
+    }
+    return added;
+}
+
+int mlxr_net_hist_index(mlxr_net_path path)
+{
+    return path == MLXR_PATH_HOME ? MLXR_NETHIST_HOME : path == MLXR_PATH_ADAPTER ? MLXR_NETHIST_ADAPTER
+         : path == MLXR_PATH_USB ? MLXR_NETHIST_USB : -1;
 }
 
 /* ---------------------------------------------------------------- the adapter (Native, lane adapter-detect) */
@@ -362,8 +471,9 @@ void mlxr_net_plan_apply_history(mlxr_net_plan *p)
         mlxr_net_cand *c = &p->c[i];
         c->hist_loss_pct = -1;
         c->hist_penalty_ms = 0;
-        if (c->path != MLXR_PATH_HOME && c->path != MLXR_PATH_ADAPTER) continue;
-        const mlxr_nethist_entry *e = &p->hist.e[c->path == MLXR_PATH_ADAPTER ? MLXR_NETHIST_ADAPTER : MLXR_NETHIST_HOME];
+        int hi = mlxr_net_hist_index(c->path);
+        if (hi < 0) continue;
+        const mlxr_nethist_entry *e = &p->hist.e[hi];
         if (!e->valid || e->frames + e->lost < MLXR_NETHIST_MIN_FRAMES) continue;
         if (now - e->time_s > MLXR_NETHIST_MAX_AGE_S) continue;
         c->hist_loss_pct = mlxr_nethist_loss_pct(e);
@@ -380,6 +490,12 @@ void mlxr_net_cand_judge(mlxr_net_cand *c, int bitrate_kbps)
     if (c->link.tx_mbps > 0 && c->link.tx_mbps < 4.0 * bitrate_kbps / 1000.0) c->poor = true;
 }
 
+/* the last word in a tie: Wi-Fi, then the cable, then the adapter */
+static int tie_rank(mlxr_net_path p)
+{
+    return p == MLXR_PATH_HOME ? 0 : p == MLXR_PATH_USB ? 1 : 2;
+}
+
 bool mlxr_net_better(const mlxr_net_cand *a, const mlxr_net_cand *b)
 {
     double sa = mlxr_net_score(a), sb = mlxr_net_score(b);
@@ -387,7 +503,7 @@ bool mlxr_net_better(const mlxr_net_cand *a, const mlxr_net_cand *b)
     if (fabs(sa - sb) > MLXR_NET_TIE_MS) return sa < sb;
     /* a tie: the link decides if it is clearly different, else Wi-Fi */
     if (fabs(a->link_quality - b->link_quality) > 5.0) return a->link_quality > b->link_quality;
-    return a->path == MLXR_PATH_HOME && b->path != MLXR_PATH_HOME;
+    return tie_rank(a->path) < tie_rank(b->path);
 }
 
 static bool answered(const mlxr_net_cand *c) { return c->probed && c->ok > 0 && !c->other_host; }
@@ -401,6 +517,8 @@ void mlxr_net_path_describe(mlxr_net_path p, const mlxr_net_link *l, char *out, 
         snprintf(out, cap, "Wired network");
     } else if (p == MLXR_PATH_HOME && l && l->ssid[0]) {
         snprintf(out, cap, "%s (%s%s%s)", name, l->ssid, band[0] ? ", " : "", band);
+    } else if (p == MLXR_PATH_USB) {
+        snprintf(out, cap, "%s", name);   /* Native (lane wave4c-usb): the cable has no band */
     } else if (band[0]) {
         snprintf(out, cap, "%s (%s)", name, band);
     } else {
@@ -441,13 +559,22 @@ static void pct_text(double pct, char *out, size_t cap)
     else snprintf(out, cap, "%.1f%% lost last time", pct);
 }
 
-static void auto_reason(mlxr_net_plan *p, int h, int a)
+static const char *short_name(mlxr_net_path p)
 {
+    return p == MLXR_PATH_HOME ? "Wi-Fi" : p == MLXR_PATH_ADAPTER ? "adapter" : "USB cable";
+}
+
+/* x and y: the best candidates of two different paths. The text names the lower path (Wi-Fi, adapter,
+ * USB cable, in the order of the enum) first. */
+static void auto_reason(mlxr_net_plan *p, int x, int y)
+{
+    int h = p->c[x].path < p->c[y].path ? x : y, a = h == x ? y : x;
     const mlxr_net_cand *H = &p->c[h], *A = &p->c[a];
     double sh = mlxr_net_score(H), sa = mlxr_net_score(A);
-    bool adapter_wins = mlxr_net_better(A, H);
-    const mlxr_net_cand *W = adapter_wins ? A : H, *L = adapter_wins ? H : A;
-    const char *wn = adapter_wins ? "adapter" : "Wi-Fi", *ln = adapter_wins ? "Wi-Fi" : "adapter";
+    bool second_wins = mlxr_net_better(A, H);
+    const mlxr_net_cand *W = second_wins ? A : H, *L = second_wins ? H : A;
+    const char *wn = short_name(W->path), *ln = short_name(L->path);
+    const char *hn = short_name(H->path), *an = short_name(A->path);
     if (fabs(sh - sa) > MLXR_NET_TIE_MS) {
         double lat = latency_part(L) - latency_part(W), fail = failure_part(L) - failure_part(W);
         double hist = L->hist_penalty_ms - W->hist_penalty_ms;
@@ -465,12 +592,17 @@ static void auto_reason(mlxr_net_plan *p, int h, int a)
                  mlxr_net_score(W), ln, mlxr_net_score(L), why);
     } else if (fabs(H->link_quality - A->link_quality) > 5.0) {
         snprintf(p->reason, sizeof p->reason,
-                 "chose %s: scores within %.0f ms (Wi-Fi %.1f, adapter %.1f), the better link breaks the tie (quality %.0f against %.0f)",
-                 wn, MLXR_NET_TIE_MS, sh, sa, W->link_quality, L->link_quality);
+                 "chose %s: scores within %.0f ms (%s %.1f, %s %.1f), the better link breaks the tie (quality %.0f against %.0f)",
+                 wn, MLXR_NET_TIE_MS, hn, sh, an, sa, W->link_quality, L->link_quality);
     } else {
-        snprintf(p->reason, sizeof p->reason, "chose Wi-Fi: scores within %.0f ms (Wi-Fi %.1f, adapter %.1f), Wi-Fi preferred on a tie",
-                 MLXR_NET_TIE_MS, sh, sa);
+        snprintf(p->reason, sizeof p->reason, "chose %s: scores within %.0f ms (%s %.1f, %s %.1f), %s preferred on a tie",
+                 wn, MLXR_NET_TIE_MS, hn, sh, an, sa, wn);
     }
+}
+
+static mlxr_net_path pref_path(mlxr_net_pref pref)
+{
+    return pref == MLXR_NET_HOME ? MLXR_PATH_HOME : pref == MLXR_NET_USB ? MLXR_PATH_USB : MLXR_PATH_ADAPTER;
 }
 
 int mlxr_net_choose(mlxr_net_plan *p)
@@ -482,18 +614,35 @@ int mlxr_net_choose(mlxr_net_plan *p)
     p->summary[0] = 0;
     p->reason[0] = 0;
     p->adapter_absent_fallback = false;
+    p->usb_absent_fallback = false;   /* Native (lane wave4c-usb) */
     mlxr_net_plan_apply_history(p);   /* Native (lane netpath-quality) */
     for (int i = 0; i < p->n; i++) {
         mlxr_net_cand_stats(&p->c[i]);
         mlxr_net_cand_judge(&p->c[i], p->bitrate_kbps);
     }
     if (p->pref == MLXR_NET_AUTO) {
-        int h = best_on(p, MLXR_PATH_HOME), a = best_on(p, MLXR_PATH_ADAPTER);
+        int h = best_on(p, MLXR_PATH_HOME), a = best_on(p, MLXR_PATH_ADAPTER), u = best_on(p, MLXR_PATH_USB);
         char hf[160];
         failures_on(p, MLXR_PATH_HOME, hf, sizeof hf);
-        if (h >= 0 && a >= 0) {
-            p->chosen = mlxr_net_better(&p->c[a], &p->c[h]) ? a : h;
-            auto_reason(p, h, a);
+        /* Native (lane wave4c-usb): three paths now. The winner among the paths' best candidates, then the
+         * runner-up (the best of the others) for the words. */
+        const int bests[3] = { h, a, u };
+        int answered_paths = 0, win = -1, runner = -1;
+        for (int k = 0; k < 3; k++) {
+            if (bests[k] < 0) continue;
+            answered_paths++;
+            if (win < 0 || mlxr_net_better(&p->c[bests[k]], &p->c[win])) win = bests[k];
+        }
+        for (int k = 0; k < 3; k++)
+            if (bests[k] >= 0 && bests[k] != win && (runner < 0 || mlxr_net_better(&p->c[bests[k]], &p->c[runner])))
+                runner = bests[k];
+        if (answered_paths >= 2) {
+            p->chosen = win;
+            auto_reason(p, win, runner);
+        } else if (u >= 0) {
+            p->chosen = u;
+            snprintf(p->reason, sizeof p->reason, "chose USB cable: the only path that answered (score %.1f ms)",
+                     mlxr_net_score(&p->c[u]));
         } else if (h >= 0) {
             p->chosen = h;
             if (!mlxr_net_adapter_usable(&p->adapter))
@@ -506,7 +655,7 @@ int mlxr_net_choose(mlxr_net_plan *p)
             snprintf(p->reason, sizeof p->reason, "chose adapter: Wi-Fi did not answer (%s)", hf[0] ? hf : "no address of the PC known on that network");
         }
     } else {
-        mlxr_net_path want = p->pref == MLXR_NET_HOME ? MLXR_PATH_HOME : MLXR_PATH_ADAPTER;
+        mlxr_net_path want = pref_path(p->pref);
         for (int i = 0; i < p->n && p->chosen < 0; i++)
             if (answered(&p->c[i]) && p->c[i].path == want) p->chosen = i;
         if (p->chosen < 0) {
@@ -514,12 +663,16 @@ int mlxr_net_choose(mlxr_net_plan *p)
             /* Native (lane adapter-detect): the adapter was asked for and none is there */
             bool no_adapter = want == MLXR_PATH_ADAPTER && !mlxr_net_adapter_usable(&p->adapter);
             if (no_adapter) snprintf(p->failure, sizeof p->failure, "no adapter found: %s", p->adapter.reason);
+            /* Native (lane wave4c-usb): the cable was asked for and no USB link is up */
+            bool no_usb = want == MLXR_PATH_USB && !mlxr_net_usb_usable(&p->usb);
+            if (no_usb) snprintf(p->failure, sizeof p->failure, "no USB cable found: %s", p->usb.reason);
             if (!p->failure[0]) snprintf(p->failure, sizeof p->failure, "no address of the PC known on this network");
             for (int i = 0; i < p->n && p->chosen < 0; i++)
                 if (answered(&p->c[i])) p->chosen = i;
             if (p->chosen >= 0) {
                 p->fell_back = true;
                 p->adapter_absent_fallback = no_adapter;
+                p->usb_absent_fallback = no_usb;
                 snprintf(p->toast, sizeof p->toast, "%s not reachable (%s). Using %s.", mlxr_net_path_label(want), p->failure,
                          mlxr_net_path_label(p->c[p->chosen].path));
                 snprintf(p->reason, sizeof p->reason, "chose %s: %s not reachable (%s)",
@@ -781,7 +934,7 @@ static void log_history(const mlxr_net_plan *p)
         else if (e->frames + e->lost < MLXR_NETHIST_MIN_FRAMES) snprintf(note, sizeof note, ", too short to count");
         else if (mlxr_net_hist_penalty(pct) > 0) snprintf(note, sizeof note, ", penalty %.0f ms", mlxr_net_hist_penalty(pct));
         int w = snprintf(line + n, sizeof line - n, "%s%s lost %.1f%% of %llu frames last time (jitter %.1f ms, rtt %.0f ms, %s%s)",
-                         n ? "; " : "", k == MLXR_NETHIST_ADAPTER ? "adapter" : "Wi-Fi", pct,
+                         n ? "; " : "", k == MLXR_NETHIST_ADAPTER ? "adapter" : k == MLXR_NETHIST_USB ? "USB cable" : "Wi-Fi", pct,
                          (unsigned long long)(e->frames + e->lost), e->jitter_ms, e->rtt_ms, ago, note);
         if (w < 0 || (size_t)w >= sizeof line - n) break;
         n += (size_t)w;
@@ -811,6 +964,9 @@ void mlxr_net_log_plan(const mlxr_net_plan *p)
         mlxr_net_adapter_text(&p->adapter, at, sizeof at);
         mlxr_log(1, "network path: %s: %s", mlxr_net_path_label(MLXR_PATH_ADAPTER), at);
     }
+    /* Native (lane wave4c-usb): the cable, when there is one or it was asked for */
+    if (p->usb.checked && (p->usb.present || p->usb.ifname[0] || p->pref == MLXR_NET_USB))
+        mlxr_log(1, "network path: %s: %s", mlxr_net_path_label(MLXR_PATH_USB), p->usb.reason);
     log_history(p);
     for (int i = 0; i < p->n; i++) {
         const mlxr_net_cand *c = &p->c[i];
@@ -902,6 +1058,7 @@ int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
     }
     /* Native (lane netpath-quality): how the last streams went on each path */
     if (p->history_dir[0]) mlxr_nethist_load(p->history_dir, &p->hist);
+    mlxr_net_plan_add_usb(p, t);   /* Native (lane wave4c-usb): the PC's side of an up USB cable, before discovery */
     discover(p, t);
     mlxr_net_plan_classify(p, t);
     mlxr_net_plan_read_links(p, t);
@@ -911,7 +1068,7 @@ int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
         for (int i = 0; i < p->n; i++) live[i] = !p->c[i].skipped;
         mlxr_net_probe(p, live, MLXR_NET_AUTO_SAMPLES, false);
     } else {
-        mlxr_net_path want = p->pref == MLXR_NET_HOME ? MLXR_PATH_HOME : MLXR_PATH_ADAPTER;
+        mlxr_net_path want = pref_path(p->pref);
         bool which[MLXR_NET_MAX_CANDS] = { false };
         bool any = false;
         for (int i = 0; i < p->n; i++) any |= which[i] = p->c[i].path == want && !p->c[i].skipped;

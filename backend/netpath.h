@@ -1,8 +1,10 @@
-/* Moonlight XR Native - network path choice (home Wi-Fi / Steam Frame adapter). GPLv3.
+/* Moonlight XR Native - network path choice (home Wi-Fi / Steam Frame adapter / USB cable). GPLv3.
  *
- * The PC can be reached over two links: the Steam Frame's own wireless adapter (the Frame hosts an
- * access point, the PC's Steam Frame USB adapter joins it) and the home network (the Frame's
- * ordinary Wi-Fi or ethernet). The `network_path` setting says which to use: auto | home | adapter.
+ * The PC can be reached over three links: the Steam Frame's own wireless adapter (the Frame hosts an
+ * access point, the PC's Steam Frame USB adapter joins it), the home network (the Frame's
+ * ordinary Wi-Fi or ethernet) and a USB data cable between the Frame's USB-C port and the PC (the
+ * Frame's USB gadget network, see below). The `network_path` setting says which to use:
+ * auto | home | adapter | usb.
  *
  * Setting precedence: the MLXR_NETWORK environment variable (a testing override, strongest), then
  * the --network flag (the flat launcher passes its own setting that way), then config.ini's
@@ -47,6 +49,21 @@
  * No station means no adapter: auto never probes or picks the adapter path, and a forced adapter
  * setting falls back to Wi-Fi with the usual toast. When the station list cannot be read at all the
  * adapter is assumed present (the old behaviour). See mlxr_net_adapter_detect().
+ *
+ * Native (lane wave4c-usb): the USB cable. In developer mode the Frame's own USB gadget (NCM) brings
+ * up a network interface, `usb0`, at a small subnet (a /29 on the shipped image) with the Frame on
+ * one address and a DHCP lease for the PC on the next. The interface is DOWN, without carrier, until
+ * a data cable reaches a PC. It is a path of its own, "USB cable" (setting value `usb`):
+ *   - an interface counts as USB when it is named usb*, or the kernel says its device type is
+ *     "gadget" (uevent DEVTYPE=gadget; the net device hangs below the gadget device, which also shows
+ *     in its sysfs path). A USB interface is a candidate only while it is UP with carrier.
+ *   - the PC's address is never hard-coded: the candidates are the other usable addresses of the
+ *     interface's own subnet (mlxr_net_subnet_peers: not the network, not the broadcast, not the
+ *     Frame's own), the one after the Frame's own address first. Discovery over the cable is unicast
+ *     (the PC's mDNS does not listen on that adapter), so each is probed directly with serverinfo.
+ *   - the score is the same as for the others; the cable has no radio jitter, so it normally wins.
+ *   - hot-plug: the table is read afresh each time a path is chosen; the launcher rescans every
+ *     10 s (mlxr_usb_watch below) so a cable plugged in after the app started is noticed and logged.
  */
 #ifndef MLXR_NETPATH_H
 #define MLXR_NETPATH_H
@@ -61,12 +78,12 @@
 extern "C" {
 #endif
 
-typedef enum { MLXR_NET_AUTO = 0, MLXR_NET_HOME, MLXR_NET_ADAPTER } mlxr_net_pref;
-typedef enum { MLXR_PATH_NONE = 0, MLXR_PATH_HOME, MLXR_PATH_ADAPTER } mlxr_net_path;
+typedef enum { MLXR_NET_AUTO = 0, MLXR_NET_HOME, MLXR_NET_ADAPTER, MLXR_NET_USB } mlxr_net_pref;
+typedef enum { MLXR_PATH_NONE = 0, MLXR_PATH_HOME, MLXR_PATH_ADAPTER, MLXR_PATH_USB } mlxr_net_path;
 
-const char *mlxr_net_pref_name(mlxr_net_pref p);          /* "auto" "home" "adapter" */
-const char *mlxr_net_path_label(mlxr_net_path p);         /* "Wi-Fi" "Steam Frame Wireless Adapter" "none" */
-/* Case-insensitive; false (and *out untouched) for anything but auto/home/adapter. */
+const char *mlxr_net_pref_name(mlxr_net_pref p);          /* "auto" "home" "adapter" "usb" (the config.ini value) */
+const char *mlxr_net_path_label(mlxr_net_path p);         /* "Wi-Fi" "Steam Frame Wireless Adapter" "USB cable" "none" */
+/* Case-insensitive; false (and *out untouched) for anything but auto/home/adapter/usb. */
 bool mlxr_net_pref_parse(const char *s, mlxr_net_pref *out);
 /* Precedence env > flag > config > auto. Each may be NULL or empty; an invalid one is skipped (and
  * said in *warn, if given, a short message). *source (static string) says which one won:
@@ -83,6 +100,7 @@ typedef struct {
     int ifindex;
     bool up, loopback;
     bool wifi;                  /* a wireless interface */
+    bool usb;                   /* Native (lane wave4c-usb): the USB gadget network (usb*, or sysfs DEVTYPE=gadget) */
     int wifi_type;              /* 0 unknown, 1 managed (station), 2 AP, 3 other */
     char ssid[33];              /* nl80211, "" unknown */
     int freq_mhz;               /* the channel's centre frequency, 0 unknown */
@@ -101,6 +119,47 @@ int mlxr_netifs_read(mlxr_netifs *t);
 /* The path of an address and the interface entry it goes through (NULL when none matched). */
 mlxr_net_path mlxr_net_classify(const mlxr_netifs *t, const char *addr, const mlxr_netif **via);
 bool mlxr_netif_is_ap(const mlxr_netifs *t, const mlxr_netif *i);
+
+/* ---- the USB cable (Native, lane wave4c-usb) ---- */
+
+/* How many guesses of the PC's address one USB interface gets. */
+#define MLXR_NET_USB_MAX_PEERS 3
+
+/* Pure. The other usable addresses of the subnet addr/mask, host byte order, written to out[0..cap):
+ * not the network address, not the broadcast, not `addr` itself; starting after `addr` and going up,
+ * then wrapping to the bottom. Fewer than MLXR_NET_USB_MAX_PEERS when the subnet has fewer. A /31 has
+ * its one other address, a /30 two, a /29 up to five. Subnets larger than a /24, a /32 and masks that
+ * are not a prefix give none: a link that big is a LAN, not a cable, and the ARP table and mDNS find
+ * the PC there. Returns the count. */
+int mlxr_net_subnet_peers(uint32_t addr, uint32_t mask, uint32_t *out, int cap);
+
+/* What the table says about the cable. `present` means a USB interface that is up with carrier and has
+ * an address; `reason` is the sentence for logs and toasts: "usb0 up, carrier on, 1 peer candidate",
+ * "usb0 down (no cable, or the PC end is not up)", "no USB network interface". */
+typedef struct {
+    bool checked;
+    bool present;
+    char ifname[16];
+    int peers;                  /* candidate addresses (up to MLXR_NET_USB_MAX_PEERS per interface) */
+    char reason[128];
+} mlxr_usb_info;
+void mlxr_net_usb_assess(const mlxr_netifs *t, mlxr_usb_info *out);
+/* True when the USB path may be probed and chosen: not checked, or a cable present. */
+bool mlxr_net_usb_usable(const mlxr_usb_info *u);
+
+/* Hot-plug: remember the last state, report what changed. The launcher calls mlxr_usb_watch_poll()
+ * every MLXR_USB_WATCH_PERIOD_S seconds with a freshly read table. */
+#define MLXR_USB_WATCH_PERIOD_S 10
+typedef enum { MLXR_USB_EVENT_NONE = 0, MLXR_USB_EVENT_UP, MLXR_USB_EVENT_LOST } mlxr_usb_event;
+typedef struct {
+    bool known;                 /* a poll has happened */
+    bool present;               /* ... and the cable was there */
+    char ifname[16];
+} mlxr_usb_watch;
+/* UP: the cable appeared (also on the first poll when it is already there). LOST: it was there and is
+ * gone. NONE: no change (the first poll without a cable is NONE). `now` (may be NULL) receives the
+ * state. */
+mlxr_usb_event mlxr_usb_watch_poll(mlxr_usb_watch *w, const mlxr_netifs *t, mlxr_usb_info *now);
 
 /* ---- link quality (read-only, nl80211) ---- */
 
@@ -240,6 +299,9 @@ typedef struct {
     mlxr_adapter_info adapter;  /* filled by mlxr_net_select (or mlxr_net_plan_detect_adapter) */
     const mlxr_adapter_inputs *adapter_inputs;   /* tests: facts to use instead of reading the system */
     bool adapter_absent_fallback;   /* the adapter setting was asked, no adapter is present, Wi-Fi used */
+    /* Native (lane wave4c-usb) */
+    mlxr_usb_info usb;          /* filled by mlxr_net_plan_add_usb (mlxr_net_select does it) */
+    bool usb_absent_fallback;   /* the USB setting was asked, no cable link is up, another path used */
     /* Native (lane netpath-quality) */
     char history_dir[256];      /* the config directory: mlxr_net_select reads netpath-history.ini there ("" none) */
     mlxr_nethist hist;          /* the last streams per path; filled by mlxr_net_select, or by the tests */
@@ -266,6 +328,10 @@ int mlxr_net_discover(const mlxr_netifs *t, const char *hostname, const uint8_t 
  * message, appended to out[n..] (source "mdns"); returns the new count. Exposed for the tests. */
 int mlxr_net_mdns_parse(const uint8_t *msg, size_t len, const char *want, char out[][128], const char **src, int n,
                         int cap);
+/* Native (lane wave4c-usb): looks at the table for USB interfaces that are up with carrier, stores the
+ * answer in plan->usb and adds the other usable addresses of each one's subnet as candidates
+ * (source "usb"). Returns how many were added. Call before mlxr_net_plan_classify. mlxr_net_select does it. */
+int mlxr_net_plan_add_usb(mlxr_net_plan *p, const mlxr_netifs *t);
 /* The record's address and extra_addresses (hosts.ini), in that order. */
 void mlxr_net_plan_add_record(mlxr_net_plan *p, const char *address, const char *extra_addresses);
 /* Sets path, ifname of each candidate from the table. */
@@ -282,6 +348,8 @@ void mlxr_net_cand_judge(mlxr_net_cand *c, int bitrate_kbps);
 /* Native (lane netpath-quality): the score in ms, lower is better: median + jitter + (p90 - median) +
  * 50 per failed probe + the history penalty. Needs mlxr_net_cand_stats (and the history) to have run. */
 double mlxr_net_score(const mlxr_net_cand *c);
+/* Native (lane wave4c-usb): the slot of a path in the history (MLXR_NETHIST_*), -1 for none. */
+int mlxr_net_hist_index(mlxr_net_path path);
 /* The history penalty for a loss of `pct` percent: 0 up to 0.5 percent, then 20 ms per percent, at most 150. */
 double mlxr_net_hist_penalty(double pct);
 /* Sets hist_loss_pct and hist_penalty_ms of each candidate from plan->hist (-1 and 0 for a path without
@@ -289,7 +357,7 @@ double mlxr_net_hist_penalty(double pct);
 void mlxr_net_plan_apply_history(mlxr_net_plan *p);
 /* True when a is the better choice. Both must have answered, and been judged: the lower score,
  * unless the scores are within 3 ms; then the better link quality (more than 5 points apart), then
- * the lower median, then Wi-Fi. */
+ * Wi-Fi, then the USB cable, then the adapter. */
 bool mlxr_net_better(const mlxr_net_cand *a, const mlxr_net_cand *b);
 /* Fills the median, 90th percentile and jitter from the samples. */
 void mlxr_net_cand_stats(mlxr_net_cand *c);

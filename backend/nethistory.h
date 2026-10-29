@@ -1,7 +1,7 @@
 /* Moonlight XR Native (lane netpath-quality): how the last stream went on each network path. GPLv3.
  *
  * A small file in the config directory (next to config.ini), netpath-history.ini. Per path
- * ("home" for Wi-Fi, "adapter" for the Steam Frame Wireless Adapter) it keeps the last stream's
+ * ("home" for Wi-Fi, "adapter" for the Steam Frame Wireless Adapter, "usb" for the USB cable) it keeps the last stream's
  * frames received, frames lost on the network, arrival jitter, rtt and the time. The automatic
  * network choice reads it and charges a path whose last stream lost frames (see netpath.h).
  *
@@ -20,7 +20,8 @@ extern "C" {
 
 #define MLXR_NETHIST_HOME 0
 #define MLXR_NETHIST_ADAPTER 1
-#define MLXR_NETHIST_PATHS 2
+#define MLXR_NETHIST_USB 2          /* Native (lane wave4c-usb): the USB cable */
+#define MLXR_NETHIST_PATHS 3
 
 /* A stream shorter than this many frames (received plus lost) says too little and is not kept. */
 #define MLXR_NETHIST_MIN_FRAMES 500
@@ -40,7 +41,7 @@ typedef struct {
     mlxr_nethist_entry e[MLXR_NETHIST_PATHS];
 } mlxr_nethist;
 
-const char *mlxr_nethist_key(int path);                         /* "home" "adapter" */
+const char *mlxr_nethist_key(int path);                         /* "home" "adapter" "usb" */
 /* Percent of the frames lost: lost / (frames + lost) * 100; 0 for an empty or invalid entry. */
 double mlxr_nethist_loss_pct(const mlxr_nethist_entry *e);
 
