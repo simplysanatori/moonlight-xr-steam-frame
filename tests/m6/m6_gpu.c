@@ -38,6 +38,12 @@ int m6_gpu_init(M5Gpu* g, int withImport) {
             break;
         }
     if (vk->queueFamily == UINT32_MAX) return -1;
+    // ASTC and anisotropy where the device has them, as m5_gpu.c (lavapipe
+    // may have no ASTC)
+    VkPhysicalDeviceFeatures have;
+    vkGetPhysicalDeviceFeatures(vk->phys, &have);
+    g->astc = have.textureCompressionASTC_LDR == VK_TRUE;
+    if (!g->astc) fprintf(stderr, "no textureCompressionASTC_LDR on %s\n", g->props.deviceName);
     const char* exts[32] = { VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME };
     uint32_t ne = 2;
     if (withImport) {
@@ -65,8 +71,8 @@ int m6_gpu_init(M5Gpu* g, int withImport) {
     f12.hostQueryReset = VK_TRUE;
     VkPhysicalDeviceFeatures2 f2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
     f2.pNext = &f12;
-    f2.features.textureCompressionASTC_LDR = VK_TRUE;
-    f2.features.samplerAnisotropy = VK_TRUE;
+    f2.features.textureCompressionASTC_LDR = have.textureCompressionASTC_LDR;
+    f2.features.samplerAnisotropy = have.samplerAnisotropy;
     VkDeviceCreateInfo dci = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
     dci.pNext = &f2;
     dci.queueCreateInfoCount = 1;

@@ -2,6 +2,8 @@
 #include "m5_gpu.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 int m5_gpu_init(M5Gpu* g) {
     memset(g, 0, sizeof(*g));
@@ -33,6 +35,12 @@ int m5_gpu_init(M5Gpu* g) {
             break;
         }
     if (vk->queueFamily == UINT32_MAX) return -1;
+    // ASTC and anisotropy where the device has them (xr_vk.c asks for ASTC
+    // outright; lavapipe may have none, and the tests needing it skip then)
+    VkPhysicalDeviceFeatures have;
+    vkGetPhysicalDeviceFeatures(vk->phys, &have);
+    g->astc = have.textureCompressionASTC_LDR == VK_TRUE;
+    if (!g->astc) fprintf(stderr, "no textureCompressionASTC_LDR on %s\n", g->props.deviceName);
     // As xr_vk.c asks for them
     const char* exts[] = { VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME };
     float prio = 1.0f;
@@ -51,8 +59,8 @@ int m5_gpu_init(M5Gpu* g) {
     f12.hostQueryReset = VK_TRUE;
     VkPhysicalDeviceFeatures2 f2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
     f2.pNext = &f12;
-    f2.features.textureCompressionASTC_LDR = VK_TRUE;
-    f2.features.samplerAnisotropy = VK_TRUE;
+    f2.features.textureCompressionASTC_LDR = have.textureCompressionASTC_LDR;
+    f2.features.samplerAnisotropy = have.samplerAnisotropy;
     VkDeviceCreateInfo dci = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
     dci.pNext = &f2;
     dci.queueCreateInfoCount = 1;
@@ -82,6 +90,11 @@ int m5_gpu_init(M5Gpu* g) {
     VkCommandBuffer cmd = m5_begin(g);
     mlxr_passes_prepare(g->passes, cmd);
     return m5_submit(g, cmd, NULL, 0);
+}
+
+int m5_soft_gpu(void) {
+    const char* v = getenv("MLXR_SOFT_GPU");
+    return v && v[0] && strcmp(v, "0") != 0;
 }
 
 void m5_gpu_free(M5Gpu* g) {

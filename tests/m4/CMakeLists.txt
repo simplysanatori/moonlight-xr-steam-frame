@@ -15,6 +15,16 @@ mlxr_link_openxr(mlxr-ui-snapshot)
 add_custom_target(ui-snapshots COMMAND mlxr-ui-snapshot ${PROJECT_BINARY_DIR}/ui-snapshots
   COMMAND mlxr-world-snapshot ${PROJECT_BINARY_DIR}/ui-snapshots DEPENDS mlxr-ui-snapshot mlxr-world-snapshot)
 add_test(NAME m4_snapshot_budget COMMAND mlxr-ui-snapshot ${CMAKE_CURRENT_BINARY_DIR}/snapshots)
+# Native: the snapshots against the goldens in tests/ui/golden (shrunk 4x; a
+# state fails past 0.1% of its pixels off by more than 16 levels, see
+# snapshot_golden.py). MLXR_UPDATE_GOLDEN=1 rewrites the goldens instead.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+  add_test(NAME m4_snapshot_golden COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/snapshot_golden.py
+           ${CMAKE_CURRENT_BINARY_DIR}/snapshots ${PROJECT_SOURCE_DIR}/tests/ui/golden)
+  set_tests_properties(m4_snapshot_budget PROPERTIES FIXTURES_SETUP ui_snapshots)
+  set_tests_properties(m4_snapshot_golden PROPERTIES FIXTURES_REQUIRED ui_snapshots SKIP_RETURN_CODE 77 TIMEOUT 600)
+endif()
 
 foreach(t prefs hits launcher budget vrkb panels_async kbbar stats)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/test_${t}.c)

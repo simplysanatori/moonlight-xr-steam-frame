@@ -24,11 +24,11 @@ int vkh_init(Vkh* v) {
     ici.pApplicationInfo = &app;
     if (vkCreateInstance(&ici, NULL, &v->instance) != VK_SUCCESS) {
         fprintf(stderr, "vkCreateInstance failed\n");
-        return -1;
+        return VKH_NO_DEVICE;
     }
     uint32_t n = 0;
     vkEnumeratePhysicalDevices(v->instance, &n, NULL);
-    if (n == 0) return -1;
+    if (n == 0) return VKH_NO_DEVICE;
     VkPhysicalDevice devs[8];
     if (n > 8) n = 8;
     vkEnumeratePhysicalDevices(v->instance, &n, devs);

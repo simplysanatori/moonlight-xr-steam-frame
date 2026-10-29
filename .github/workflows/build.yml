@@ -26,7 +26,8 @@ jobs:
             libssl-dev libcurl4-openssl-dev libxml2-dev \
             libopus-dev libpulse-dev libpipewire-0.3-dev libsdl2-dev libdrm-dev libpng-dev \
             libwayland-dev libx11-dev libxcb1-dev libxxf86vm-dev libxrandr-dev \
-            libgl-dev libegl-dev libwayland-bin wayland-protocols
+            libgl-dev libegl-dev libwayland-bin wayland-protocols \
+            mesa-vulkan-drivers
 
       # LiteRT is built outside the tree by depth/tools/build-litert.sh
       # (about 12 minutes); keep the result between runs. The key changes
@@ -51,13 +52,29 @@ jobs:
       # Left out of CI:
       #   audio_pulse      needs a PulseAudio server
       #   video_*          need /dev/video-dec0 (Qualcomm Iris) and the generated sample clips
-      #   shaders_*        need a Vulkan device (Turnip on the Frame; the runner has none)
-      # rooms_* and m5_world_* need one too: they skip themselves (exit 77) when
-      # there is no Vulkan driver or device, as the m6_* tests do.
+      # The Vulkan tests (shaders_*, rooms_*, m5_world_*, m6_*) run on lavapipe,
+      # Mesa's CPU Vulkan driver (mesa-vulkan-drivers, picked by VK_ICD_FILENAMES);
+      # MLXR_SOFT_GPU=1 makes their time budgets print instead of fail, since a
+      # CPU rasteriser's times say nothing of the Frame's GPU. They still skip
+      # themselves (exit 77) where there is no Vulkan driver or device at all.
       # Everything else runs on the CPU: backend (fake Sunshine host on localhost),
       # xrcore, ui, depth (LiteRT, CPU), the other audio tests, stream_evkbd.
       - name: Test
-        run: ctest --test-dir build --output-on-failure -j2 -E '^(audio_pulse|video_|shaders_)'
+        run: ctest --test-dir build --output-on-failure -j2 -E '^(audio_pulse|video_)'
+        env:
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
+          MLXR_SOFT_GPU: '1'
+
+      # The pictures the tests drew (ui snapshots, rooms, the world snapshot),
+      # for a reviewer to look at; also the shrunk ui snapshots
+      # (golden-actual/) that m4_snapshot_golden compares with tests/ui/golden
+      - name: Upload test pictures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-pictures
+          path: build/**/*.png
+          if-no-files-found: ignore
 
       # This tarball is a build check, not a release. Ubuntu 24.04 ships
       # FFmpeg 6.1 (libavcodec.so.60); SteamOS has 7.0 (.61), so a binary

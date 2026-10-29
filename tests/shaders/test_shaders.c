@@ -21,6 +21,15 @@ static MlxrPasses* P;
 static const char* outDir = ".";
 static int checks, failed;
 static int nv12Ok;
+// NV12 against three-plane, in 1/255: lavapipe's VkSamplerYcbcrConversion
+// lands 3/255 from the shader's own maths (Mesa 25.2), the Frame's within 2
+static int nv12Tol = 2;
+
+// MLXR_SOFT_GPU=1: a software Vulkan driver (lavapipe in CI)
+static int softGpu(void) {
+    const char* v = getenv("MLXR_SOFT_GPU");
+    return v && v[0] && strcmp(v, "0") != 0;
+}
 
 #define UNORM VK_FORMAT_R8G8B8A8_UNORM
 #define SRGB VK_FORMAT_R8G8B8A8_SRGB
@@ -464,7 +473,7 @@ static void testNv12(void) {
                     if ((f == 0 || barsExact(x, y, W, H)) && d > exact) exact = d;
                 }
         note("%s: three-plane vs NV12 ycbcr max diff %d/255 (%d/255 away from chroma edges)", names[f], all, exact);
-        check(exact <= 2, "%s: NV12 and three-plane within 2/255 (%d)", names[f], exact);
+        check(exact <= nv12Tol, "%s: NV12 and three-plane within %d/255 (%d)", names[f], nv12Tol, exact);
         char name[64];
         snprintf(name, sizeof(name), "nv12_%s", names[f]);
         ppm(name, nv, W, H);
@@ -487,7 +496,7 @@ static void testNv12(void) {
             }
             int d = maxDiff(res[0], res[1], MLXR_AMBI_TEX * MLXR_AMBI_TEX, 4, NULL);
             note("ambi sample three-plane vs NV12: max diff %d/255", d);
-            check(d <= 2, "ambi NV12 within 2/255 (%d)", d);
+            check(d <= nv12Tol, "ambi NV12 within %d/255 (%d)", nv12Tol, d);
             free(res[0]);
             free(res[1]);
             targetFree(&a);
@@ -1905,10 +1914,15 @@ static void testBench(void) {
 int main(int argc, char** argv) {
     const char* group = argc > 1 ? argv[1] : "all";
     if (argc > 2) outDir = argv[2];
-    if (vkh_init(&vk)) {
+    int dev = vkh_init(&vk);
+    if (dev != 0) {
         fprintf(stderr, "no Vulkan 1.2 device\n");
-        return 1;
+        // MLXR_SOFT_GPU=1 (CI) promises lavapipe: a missing driver there is a
+        // broken setup, not a skip
+        if (softGpu()) return 1;
+        return dev == VKH_NO_DEVICE ? 77 : 1;
     }
+    if (softGpu()) nv12Tol = 3;
     MlxrPassesInfo info = {vk.phys, vk.device, VK_NULL_HANDLE, 1, MLXR_CHROMA_LEFT, vk.anisotropy ? 8.0f : 0.0f};
     if (mlxr_passes_create(&info, &P)) {
         info.nv12 = 0;

@@ -60,6 +60,15 @@ static VkInstance instance;
 static VkCommandPool pool;
 static VkPhysicalDeviceProperties props;
 static MlxrPasses* passes;
+// Native: textureCompressionASTC_LDR is on. The rooms' atlases are ASTC; a
+// device without it (lavapipe) skips the room groups, the model groups run
+static int astcOk;
+static int astcSkipped;
+
+static int needAstc(void) {
+    if (!astcOk) astcSkipped++;
+    return astcOk;
+}
 
 static int vkInit(void) {
     VkApplicationInfo app = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
@@ -94,9 +103,9 @@ static int vkInit(void) {
 
     VkPhysicalDeviceFeatures have;
     vkGetPhysicalDeviceFeatures(gpu.phys, &have);
-    if (!have.textureCompressionASTC_LDR) {
-        fprintf(stderr, "no textureCompressionASTC_LDR on %s\n", props.deviceName);
-        return -1;
+    astcOk = have.textureCompressionASTC_LDR == VK_TRUE;
+    if (!astcOk) {
+        fprintf(stderr, "no textureCompressionASTC_LDR on %s: the room groups skip\n", props.deviceName);
     }
     const char* exts[] = {VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
     float prio = 1.0f;
@@ -109,7 +118,7 @@ static int vkInit(void) {
     VkPhysicalDeviceFeatures2 f2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     f2.pNext = &dr;
     f2.features.samplerAnisotropy = have.samplerAnisotropy;
-    f2.features.textureCompressionASTC_LDR = VK_TRUE;
+    f2.features.textureCompressionASTC_LDR = have.textureCompressionASTC_LDR;
     VkDeviceCreateInfo dci = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     dci.pNext = &f2;
     dci.queueCreateInfoCount = 1;
@@ -1875,19 +1884,19 @@ int main(int argc, char** argv) {
     if (needVk) {
         int vk = vkInit();
         if (vk != 0) {
-            fprintf(stderr, "no usable Vulkan 1.2 device with ASTC and dynamic rendering\n");
+            fprintf(stderr, "no usable Vulkan 1.2 device with dynamic rendering\n");
             return vk == 77 ? 77 : 1;
         }
         note("device: %s (Vulkan %u.%u.%u), outdir %s", props.deviceName, VK_VERSION_MAJOR(props.apiVersion),
              VK_VERSION_MINOR(props.apiVersion), VK_VERSION_PATCH(props.apiVersion), outDir);
     }
-    if (all || !strcmp(group, "load")) { testLoad(); did = 1; }
-    if (all || !strcmp(group, "rescale")) { testRescale(); did = 1; }
-    if (all || !strcmp(group, "render_home_theater")) { testRenderOne(1); did = 1; }
-    if (all || !strcmp(group, "render_grand_cinema")) { testRenderOne(2); did = 1; }
-    if (all || !strcmp(group, "render_synthwave")) { testRenderOne(3); did = 1; }
+    if (all || !strcmp(group, "load")) { if (needAstc()) testLoad(); did = 1; }
+    if (all || !strcmp(group, "rescale")) { if (needAstc()) testRescale(); did = 1; }
+    if (all || !strcmp(group, "render_home_theater")) { if (needAstc()) testRenderOne(1); did = 1; }
+    if (all || !strcmp(group, "render_grand_cinema")) { if (needAstc()) testRenderOne(2); did = 1; }
+    if (all || !strcmp(group, "render_synthwave")) { if (needAstc()) testRenderOne(3); did = 1; }
     if (all || !strcmp(group, "model")) { testModel(); did = 1; }
-    if (all || !strcmp(group, "overlay")) { testOverlay(); did = 1; }
+    if (all || !strcmp(group, "overlay")) { if (needAstc()) testOverlay(); did = 1; }
     if (all || !strcmp(group, "model_textured")) { testModelTextured(); did = 1; }
     if (all || !strcmp(group, "model_pose")) { testModelPose(); did = 1; }
     if (all || !strcmp(group, "model_fallback")) { testModelFallback(); did = 1; }
@@ -1907,5 +1916,7 @@ int main(int argc, char** argv) {
         vkDestroyInstance(instance, NULL);
     }
     printf("%s: %d checks, %d failed\n", group, run, failed);
-    return failed ? 1 : 0;
+    if (astcSkipped) printf("%d group(s) skipped: no textureCompressionASTC_LDR for the rooms' atlases\n", astcSkipped);
+    if (failed) return 1;
+    return astcSkipped && !all ? 77 : 0;
 }
