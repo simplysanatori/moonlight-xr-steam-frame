@@ -76,3 +76,145 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS
           if-no-files-found: error
+
+  # A tarball that installs on the Steam Frame. The linux-arm64 job links
+  # Ubuntu 24.04's FFmpeg 6.1 (libavcodec.so.60), which SteamOS does not have;
+  # this job builds FFmpeg 7.0.2 (SteamOS ships the 7.0 series, ffmpeg
+  # 2:7.0-1.1 in docs/probe/host-packages.txt; every 7.0.x has the same
+  # sonames and symbol versions) and links against it, so the binary needs
+  # libavcodec.so.61 and loads the Frame's own FFmpeg at run time. glibc
+  # already matches (2.39 on both, docs/probe/system.txt). The FFmpeg built
+  # here is only a link target and is not shipped, so it carries just what the
+  # app calls (stream/sw_decoder.c, stream/file_source.c). Tests run in the
+  # linux-arm64 job; tools/ldd-audit.sh needs pacman, so the NEEDED list
+  # printed below is checked against SteamOS on the Frame.
+  frame-artifact:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      FFMPEG_VERSION: '7.0.2'
+      # sha256 of ffmpeg-7.0.2.tar.xz (signature checked against the FFmpeg
+      # release signing key FCF9 86EA 15E6 E293 A564 4F10 B432 2F04 D676 58D8)
+      FFMPEG_SHA256: 8646515b638a3ad303e23af6a3587734447cb8fc0a0c064ecdb8e95c4fd8b389
+      FFMPEG_CONFIGURE: >-
+        --enable-shared --disable-static --disable-programs --disable-doc
+        --disable-debug --disable-autodetect --enable-pthreads --disable-network
+        --disable-avdevice --disable-avfilter --disable-swresample
+        --disable-everything
+        --enable-decoder=h264,hevc --enable-parser=h264,hevc
+        --enable-demuxer=mov,matroska,h264,hevc
+        --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb
+        --enable-protocol=file
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0        # git describe needs the tags
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang lld cmake ninja-build pkg-config python3 \
+            glslc libvulkan-dev \
+            libssl-dev libcurl4-openssl-dev libxml2-dev \
+            libopus-dev libpulse-dev libpipewire-0.3-dev libsdl2-dev libdrm-dev libpng-dev \
+            libwayland-dev libx11-dev libxcb1-dev libxxf86vm-dev libxrandr-dev \
+            libgl-dev libegl-dev libwayland-bin wayland-protocols
+
+      # The key covers the version and the configure flags.
+      - name: FFmpeg cache key
+        id: ffkey
+        run: |
+          echo "FFMPEG_PREFIX=$HOME/ffmpeg-$FFMPEG_VERSION" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$HOME/ffmpeg-$FFMPEG_VERSION/lib/pkgconfig" >> "$GITHUB_ENV"
+          flags="$(printf '%s' "$FFMPEG_CONFIGURE" | sha256sum | cut -c1-16)"
+          echo "key=ffmpeg-${{ runner.arch }}-$ImageOS-$FFMPEG_VERSION-$flags" >> "$GITHUB_OUTPUT"
+
+      - name: Cache FFmpeg
+        id: ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: ~/ffmpeg-${{ env.FFMPEG_VERSION }}
+          key: ${{ steps.ffkey.outputs.key }}
+
+      - name: Build FFmpeg
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          src="$RUNNER_TEMP/ffmpeg-src"; mkdir -p "$src"; cd "$src"
+          curl -sSfL -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+          echo "$FFMPEG_SHA256  ffmpeg.tar.xz" | sha256sum -c -
+          tar -xf ffmpeg.tar.xz
+          cd "ffmpeg-$FFMPEG_VERSION"
+          ./configure --prefix="$FFMPEG_PREFIX" $FFMPEG_CONFIGURE
+          make -j4
+          make install
+
+      - name: FFmpeg version
+        run: |
+          for m in libavcodec libavformat libavutil libswscale; do
+            echo "$m $(pkg-config --modversion $m) $(pkg-config --variable=libdir $m)"
+          done
+          [ "$(pkg-config --variable=libdir libavcodec)" = "$FFMPEG_PREFIX/lib" ]
+
+      # Same cache as the linux-arm64 job.
+      - name: Cache LiteRT
+        id: litert
+        uses: actions/cache@v4
+        with:
+          path: ~/Games/MoonlightXRNative/third-party-build/litert/dist
+          key: litert-${{ runner.arch }}-${{ hashFiles('depth/tools/build-litert.sh') }}
+
+      - name: Build LiteRT
+        if: steps.litert.outputs.cache-hit != 'true'
+        run: JOBS=4 ./depth/tools/build-litert.sh
+
+      # CMake would give the binaries a RUNPATH to the FFmpeg prefix (it is
+      # not a system directory). A Frame build has none, so configure the
+      # build tree without one first; build.sh keeps the cached setting.
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_SKIP_BUILD_RPATH=ON
+          JOBS=4 ./build.sh
+        env:
+          SKIP_AUDIT: '1'       # the ldd audit compares against SteamOS packages
+          NO_LAUNCHER: '1'      # the flat launcher has its own job
+
+      - name: Check the libraries the binaries need
+        run: |
+          for b in build/moonlight-xr build/backend/mlxr-cli; do
+            echo "== $b NEEDED"
+            objdump -p "$b" | awk '$1 == "NEEDED" { print "  " $2 }'
+            if readelf -d "$b" | grep -E 'R(UN)?PATH'; then
+              echo "::error::$b has an RPATH or RUNPATH"; exit 1
+            fi
+          done
+          needed="$(objdump -p build/moonlight-xr | awk '$1 == "NEEDED" { print $2 }')"
+          grep -qx 'libavcodec.so.61' <<<"$needed" || { echo "::error::build/moonlight-xr does not need libavcodec.so.61"; exit 1; }
+          av="$(grep -E '^lib(av|sw)' <<<"$needed" | sort | tr '\n' ' ')"
+          [ "$av" = "libavcodec.so.61 libavformat.so.61 libavutil.so.59 libswscale.so.8 " ] \
+            || { echo "::error::FFmpeg libraries are not FFmpeg 7.0's: $av"; exit 1; }
+          # SteamOS has glibc 2.39
+          glibc="$(objdump -T build/moonlight-xr build/backend/mlxr-cli | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n 1)"
+          echo "newest glibc symbol version: $glibc"
+          [ "$(printf '%s\nGLIBC_2.39\n' "$glibc" | sort -V | tail -n 1)" = GLIBC_2.39 ] \
+            || { echo "::error::needs $glibc, SteamOS has 2.39"; exit 1; }
+          echo "== build/moonlight-xr version references"
+          objdump -p build/moonlight-xr | sed -n '/^Version References/,$p'
+          echo "== build/moonlight-xr resolved here (FFmpeg from $FFMPEG_PREFIX)"
+          LD_LIBRARY_PATH="$FFMPEG_PREFIX/lib" ldd build/moonlight-xr | tee "$RUNNER_TEMP/ldd.txt"
+          ! grep -q 'not found' "$RUNNER_TEMP/ldd.txt" || { echo "::error::unresolved libraries"; exit 1; }
+
+      - name: Tarball for the Frame
+        run: |
+          mkdir -p dist
+          OUT=dist NO_VERIFY=1 ./tools/release.sh
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moonlight-xr-steam-frame-frame-arm64
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
