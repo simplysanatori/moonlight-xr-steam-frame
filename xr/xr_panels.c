@@ -642,6 +642,7 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->kb_sheet = ctx->kbState;
     v->kb_mods = ctx->kbMods;
     v->kb_layout = xrKeyboardLayout(ctx);
+    v->kb_map = xrKeyboardMap(ctx);
     v->kb_oneshot = ctx->kbFull.oneshot;
     v->kb_locked = ctx->kbFull.locked;
     v->kb_caps = ctx->kbFull.caps;

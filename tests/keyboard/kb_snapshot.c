@@ -67,6 +67,30 @@ int main(int argc, char** argv) {
     v.kb_oneshot = KBF_LSHIFT;
     flat(&st, "kb-full-caps-shift", &v);
 
+    // AZERTY and QWERTZ: the four Compact sheets, and the Full keyboard plain and with Shift
+    static const char* const MAP_NAMES[] = { "qwerty", "azerty", "qwertz" };
+    static const char* const SHEET_NAMES[] = { "lower", "upper", "symbols", "fn" };
+    for (int map = KB_MAP_AZERTY; map <= KB_MAP_QWERTZ; map++) {
+        char name[64];
+        v.kb_map = map;
+        v.kb_oneshot = v.kb_locked = v.kb_caps = 0;
+        v.kb_layout = KB_LAYOUT_COMPACT;
+        for (int sheet = 0; sheet < KB_STATE_COUNT; sheet++) {
+            v.kb_sheet = sheet;
+            snprintf(name, sizeof name, "kb-%s-compact-%s", MAP_NAMES[map], SHEET_NAMES[sheet]);
+            flat(&st, name, &v);
+        }
+        v.kb_sheet = KB_STATE_LOWER;
+        v.kb_layout = KB_LAYOUT_FULL;
+        snprintf(name, sizeof name, "kb-%s-full-plain", MAP_NAMES[map]);
+        flat(&st, name, &v);
+        v.kb_oneshot = KBF_LSHIFT;
+        snprintf(name, sizeof name, "kb-%s-full-shift", MAP_NAMES[map]);
+        flat(&st, name, &v);
+    }
+    v.kb_map = KB_MAP_QWERTY;
+    v.kb_oneshot = 0;
+
     // In the space, with the ray on a key
     Scene* s = scene_new();
     XrCtx* c = s->ctx;

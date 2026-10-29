@@ -81,23 +81,89 @@ static const KbfKey KEYS[KBF_KEY_COUNT] = {
     N("@right", NULL, 0x27, 1, 17.25f, R5, 1.0f),
 };
 
+// The key the French and German boards have between the left Shift and Z
+static const KbfKey ISO_KEY = N("<", ">", 0xE2, 0, 1.25f, R4, 1.0f);
+#define ISO_SHIFT_W 1.25f
+
+// What a map changes about a key: its labels (the virtual key stays). A
+// digit key is a "letter" on AZERTY, where Caps Lock gives the digits; Caps
+// does not touch the keys that make punctuation.
+typedef struct {
+    int vk;
+    const char* label;
+    const char* shifted;  // NULL: the key has no second symbol
+    int letter;
+} MapKey;
+
+static const MapKey AZERTY_KEYS[] = {
+    { 0xC0, "²", NULL, 0 },
+    { 0x31, "&", "1", 1 }, { 0x32, "é", "2", 1 }, { 0x33, "\"", "3", 1 },
+    { 0x34, "'", "4", 1 }, { 0x35, "(", "5", 1 }, { 0x36, "-", "6", 1 },
+    { 0x37, "è", "7", 1 }, { 0x38, "_", "8", 1 }, { 0x39, "ç", "9", 1 },
+    { 0x30, "à", "0", 1 },
+    { 0xBD, ")", "°", 0 }, { 0xBB, "=", "+", 0 },
+    { 0x51, "a", "A", 1 }, { 0x57, "z", "Z", 1 },
+    { 0xDB, "^", "¨", 0 }, { 0xDD, "$", "£", 0 }, { 0xDC, "*", "µ", 0 },
+    { 0x41, "q", "Q", 1 }, { 0xBA, "m", "M", 1 }, { 0xDE, "ù", "%", 0 },
+    { 0x5A, "w", "W", 1 }, { 0x4D, ",", "?", 0 }, { 0xBC, ";", ".", 0 },
+    { 0xBE, ":", "/", 0 }, { 0xBF, "!", "§", 0 },
+};
+
+static const MapKey QWERTZ_KEYS[] = {
+    { 0xC0, "^", "°", 0 },
+    { 0x31, "1", "!", 0 }, { 0x32, "2", "\"", 0 }, { 0x33, "3", "§", 0 },
+    { 0x34, "4", "$", 0 }, { 0x35, "5", "%", 0 }, { 0x36, "6", "&", 0 },
+    { 0x37, "7", "/", 0 }, { 0x38, "8", "(", 0 }, { 0x39, "9", ")", 0 },
+    { 0x30, "0", "=", 0 },
+    { 0xBD, "ß", "?", 0 }, { 0xBB, "´", "`", 0 },
+    { 0x59, "z", "Z", 1 },
+    { 0xDB, "ü", "Ü", 1 }, { 0xDD, "+", "*", 0 }, { 0xDC, "#", "'", 0 },
+    { 0xBA, "ö", "Ö", 1 }, { 0xDE, "ä", "Ä", 1 },
+    { 0x5A, "y", "Y", 1 }, { 0xBC, ",", ";", 0 }, { 0xBE, ".", ":", 0 }, { 0xBF, "-", "_", 0 },
+};
+
+static const MapKey* mapKey(int map, int vk) {
+    const MapKey* t = NULL;
+    int n = 0;
+    if (map == KB_MAP_AZERTY) {
+        t = AZERTY_KEYS;
+        n = (int)(sizeof(AZERTY_KEYS) / sizeof(AZERTY_KEYS[0]));
+    } else if (map == KB_MAP_QWERTZ) {
+        t = QWERTZ_KEYS;
+        n = (int)(sizeof(QWERTZ_KEYS) / sizeof(QWERTZ_KEYS[0]));
+    }
+    for (int i = 0; i < n; i++) {
+        if (t[i].vk == vk) return &t[i];
+    }
+    return NULL;
+}
+
+static int isoMap(int map) { return map == KB_MAP_AZERTY || map == KB_MAP_QWERTZ; }
+
 const KbfKey* kbfKey(int index) {
+    if (index == KBF_ISO_KEY) return &ISO_KEY;
     return index >= 0 && index < KBF_KEY_COUNT ? &KEYS[index] : NULL;
 }
 
-void kbfKeyRect(int index, float r[4]) {
+int kbfKeyCountFor(int map) { return isoMap(map) ? KBF_KEY_COUNT_MAX : KBF_KEY_COUNT; }
+
+void kbfKeyRectFor(int map, int index, float r[4]) {
     const KbfKey* k = kbfKey(index);
-    if (!k) {
+    if (!k || (index == KBF_ISO_KEY && !isoMap(map))) {
         r[0] = r[1] = r[2] = r[3] = 0.0f;
         return;
     }
+    float w = k->w;
+    if (isoMap(map) && k->kind == KBF_MOD && k->modBit == KBF_LSHIFT) w = ISO_SHIFT_W;
     float uw = (1.0f - 2.0f * PAD_U) / KBF_UNITS_W;
     float uh = (1.0f - 2.0f * PAD_V) / KBF_UNITS_H;
     r[0] = PAD_U + k->x * uw + GAP_U * 0.5f;
     r[1] = PAD_V + k->y * uh + GAP_V * 0.5f;
-    r[2] = PAD_U + (k->x + k->w) * uw - GAP_U * 0.5f;
+    r[2] = PAD_U + (k->x + w) * uw - GAP_U * 0.5f;
     r[3] = PAD_V + (k->y + k->h) * uh - GAP_V * 0.5f;
 }
+
+void kbfKeyRect(int index, float r[4]) { kbfKeyRectFor(KB_MAP_QWERTY, index, r); }
 
 int kbfKeyCode(int index) {
     const KbfKey* k = kbfKey(index);
@@ -112,13 +178,26 @@ int kbfFindVk(int vk) {
     return -1;
 }
 
-const char* kbfLabel(int index, int mods, int caps) {
+const char* kbfLabelFor(int map, int index, int mods, int caps) {
     const KbfKey* k = kbfKey(index);
     if (!k) return NULL;
-    if (!k->shifted) return k->label;
+    const char* label = k->label;
+    const char* shifted = k->shifted;
+    int letter = k->letter;
+    const MapKey* m = k->kind == KBF_NORMAL ? mapKey(map, k->vk) : NULL;
+    if (m) {
+        label = m->label;
+        shifted = m->shifted;
+        letter = m->letter;
+    }
+    if (!shifted) return label;
     int shift = (mods & KBF_SHIFTS) != 0;
-    int up = k->letter ? (shift != (caps != 0)) : shift;
-    return up ? k->shifted : k->label;
+    int up = letter ? (shift != (caps != 0)) : shift;
+    return up ? shifted : label;
+}
+
+const char* kbfLabel(int index, int mods, int caps) {
+    return kbfLabelFor(KB_MAP_QWERTY, index, mods, caps);
 }
 
 int kbfModifierByte(int mods) {

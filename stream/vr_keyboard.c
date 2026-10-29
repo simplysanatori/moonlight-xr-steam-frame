@@ -104,6 +104,15 @@ static int encodeUtf8(int cp, char out[5]) {
     return n;
 }
 
+// A key with Shift held round it, as the host's layout reads the capital
+// from the Shift and the key. Shift is named in the modifier as well, so
+// hosts that read either one see it.
+static void pressShifted(VrKeyboard* k, short vk, char modifiers) {
+    k->sink.key(k->sink.user, VK_SHIFT, KEY_ACTION_DOWN, modifiers);
+    press(k, vk, (char)(modifiers | MODIFIER_SHIFT));
+    k->sink.key(k->sink.user, VK_SHIFT, KEY_ACTION_UP, modifiers);
+}
+
 void vrkb_type(VrKeyboard* k, int code, int mods) {
     int flags = mods & (KBF_FLAG_DOWN | KBF_FLAG_UP);
     mods &= KBF_MOD_MASK;
@@ -126,7 +135,13 @@ void vrkb_type(VrKeyboard* k, int code, int mods) {
     }
     vrkb_hold(k, k->held | mods);
     char modifiers = modifierByte(mods);
-    if (code >= KB_CODE_VK) {
+    if (code >= KB_CODE_SVKL) {
+        pressShifted(k, (short)(code - KB_CODE_SVKL), modifiers);
+    }
+    else if (code >= KB_CODE_SVK) {
+        pressShifted(k, (short)(code - KB_CODE_SVK), modifiers);
+    }
+    else if (code >= KB_CODE_VK) {
         press(k, (short)(code - KB_CODE_VK), modifiers);
     }
     else if (code == 8 || code == 9 || code == 13 || code == 32 || (code >= '0' && code <= '9')) {
@@ -136,11 +151,7 @@ void vrkb_type(VrKeyboard* k, int code, int mods) {
         press(k, (short)(code - 32), modifiers);
     }
     else if (code >= 'A' && code <= 'Z') {
-        // Shift is held around the letter and named in the modifier as
-        // well, so hosts that read either one see the capital
-        k->sink.key(k->sink.user, VK_SHIFT, KEY_ACTION_DOWN, modifiers);
-        press(k, (short)code, (char)(modifiers | MODIFIER_SHIFT));
-        k->sink.key(k->sink.user, VK_SHIFT, KEY_ACTION_UP, modifiers);
+        pressShifted(k, (short)code, modifiers);
     }
     else if (mods != 0 && vrkb_punctuation_key(code) != 0) {
         // Text cannot carry a modifier, so Ctrl and the minus key go as the

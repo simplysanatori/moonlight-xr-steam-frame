@@ -200,6 +200,13 @@ int xrHoverAt(XrCtx* ctx, XrPosef aim, float* outU, float* outV, int* outCorner)
 int xrGrabStepAt(XrCtx* ctx, XrPosef aim, int trigger, int grip, float stickY);
 // Native (lane grab-pull): the same with the whole thumbstick, x east positive
 int xrGrabStepStick(XrCtx* ctx, XrPosef aim, int trigger, int grip, XrVector2f stick);
+// Native (lane ray-glitch): the pointer's part of one input frame at now
+// (nanoseconds): the head and the sources read through the seams on the
+// context (locateSpace, poseActive, readFloat, readBool, readVec2 and
+// pfnLocateHandJoints), the controllers' clocks, the pick of the source that
+// points and of the hand whose ray is drawn. What it made of them is left in
+// ctx->rayRow, as the recorder writes it (tests/m4/test_replay.c).
+void xrPointerStep(XrCtx* ctx, int64_t now, int headLocked);
 
 // ---- the context's defaults (xr_prefs.c) -----------------------------------
 // What upstream's nativeInit set before any setter ran
