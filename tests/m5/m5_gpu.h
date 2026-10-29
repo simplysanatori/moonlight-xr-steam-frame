@@ -12,12 +12,18 @@ typedef struct M5Gpu {
     VkPhysicalDeviceProperties props;
     VkSemaphore timeline;
     uint64_t serial;
+    // textureCompressionASTC_LDR is on: the rooms' atlases need it; the
+    // Frame has it, a software device (lavapipe) may not
+    int astc;
 } M5Gpu;
 
 // 0 on success; M5_GPU_NO_DEVICE when there is no Vulkan driver or device at all
 // (a CI runner): the tests then exit 77, which ctest counts as skipped
 #define M5_GPU_NO_DEVICE 77
 int m5_gpu_init(M5Gpu* g);
+// MLXR_SOFT_GPU=1 (a software device, lavapipe in CI): time budgets are
+// printed, not failed
+int m5_soft_gpu(void);
 void m5_gpu_free(M5Gpu* g);
 VkCommandBuffer m5_begin(M5Gpu* g);
 // Submits extra (may be 0 of them) then cmd, signals ++serial, waits; frees cmd
