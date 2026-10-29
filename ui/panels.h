@@ -131,6 +131,7 @@ typedef struct {
     // keyboard's "Full" chip (off by default so the Compact panel is
     // exactly the upstream one).
     int kb_layout;
+    int kb_map;                  // KB_MAP_*: what the keys say (xr_kbfull.h)
     int kb_oneshot, kb_locked;
     int kb_caps;
     int kb_chip;
@@ -213,6 +214,9 @@ int ui_kb_key_count(void);
 void ui_kb_key_rect(int index, float rect[4]);
 int ui_kb_key_code(int sheet, int index);
 const char* ui_kb_key_label(int sheet, int index);   // English label or the character
+// The same on a key map (KB_MAP_*: QWERTY, AZERTY, QWERTZ); the two above are QWERTY's
+int ui_kb_map_key_code(int map, int sheet, int index);
+const char* ui_kb_map_key_label(int map, int sheet, int index);
 // The Compact keyboard's chip (in the half key of room beside the home row)
 void ui_kb_layout_chip_rect(float rect[4]);
 

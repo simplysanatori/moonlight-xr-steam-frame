@@ -88,6 +88,10 @@ void MlxrPrefs::load()
     convergenceIsDefault = conv < 0;
     convergence = conv < 0 ? 50 : qBound(0, conv, 100);
     flipFaceButtons = iniBool(iniValue(ini, "vr", "flip_face_buttons", "false"));
+    keyboardKeymap = iniValue(ini, "vr", "keyboard_keymap", "qwerty").trimmed().toLower();
+    if (keyboardKeymap != "azerty" && keyboardKeymap != "qwertz") {
+        keyboardKeymap = "qwerty";
+    }
 
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
@@ -96,6 +100,7 @@ void MlxrPrefs::load()
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
     m_iniFlip = flipFaceButtons;
+    m_iniKeymap = keyboardKeymap;
 }
 
 void MlxrPrefs::save()
@@ -133,6 +138,9 @@ void MlxrPrefs::save()
     if (flipFaceButtons != m_iniFlip) {
         setIniValue(ini, "vr", "flip_face_buttons", flipFaceButtons ? "true" : "false");
     }
+    if (keyboardKeymap != m_iniKeymap) {
+        setIniValue(ini, "vr", "keyboard_keymap", keyboardKeymap);
+    }
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
@@ -140,6 +148,7 @@ void MlxrPrefs::save()
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
     m_iniFlip = flipFaceButtons;
+    m_iniKeymap = keyboardKeymap;
 }
 
 int MlxrPrefs::headsetMaxFps() const

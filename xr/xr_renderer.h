@@ -972,6 +972,9 @@ typedef struct XrCtx {
     // (config.ini keyboard_layout); the tables above are for the layout
     // shown, which is Compact while the report sheet is up.
     int kbLayout;
+    // Native: which keyboard the labels are for (KB_MAP_*, config.ini
+    // keyboard_keymap); kbLayoutShown carries the map shown in bits 2 and up
+    int kbMap;
     int kbLayoutShown;
     KbFull kbFull;
     XrPosef kbPose;

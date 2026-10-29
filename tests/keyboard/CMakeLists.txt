@@ -10,6 +10,13 @@ target_include_directories(test_kb_layout PRIVATE ${KB_INCLUDES})
 target_compile_options(test_kb_layout PRIVATE -Werror)
 add_test(NAME keyboard_layout COMMAND test_kb_layout)
 
+# AZERTY and QWERTZ (config.ini keyboard_keymap): the host's French and German layouts against both keyboards
+add_executable(test_kb_keymap test_kb_keymap.c)
+target_link_libraries(test_kb_keymap PRIVATE mlxr_ui mlxr_stream mlxr_xrcore m)
+target_include_directories(test_kb_keymap PRIVATE ${KB_INCLUDES})
+target_compile_options(test_kb_keymap PRIVATE -Werror)
+add_test(NAME keyboard_keymap COMMAND test_kb_keymap)
+
 add_executable(test_kb_rules test_kb_rules.c)
 target_link_libraries(test_kb_rules PRIVATE mlxr_stream mlxr_xrcore m)
 target_include_directories(test_kb_rules PRIVATE ${KB_INCLUDES})

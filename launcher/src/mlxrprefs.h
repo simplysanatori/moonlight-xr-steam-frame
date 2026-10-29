@@ -51,6 +51,8 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(int convergence MEMBER convergence NOTIFY changed)            // [3d] convergence, 0..100
     Q_PROPERTY(bool convergenceIsDefault MEMBER convergenceIsDefault NOTIFY changed)
     Q_PROPERTY(bool flipFaceButtons MEMBER flipFaceButtons NOTIFY changed)   // [vr] flip_face_buttons
+    // [vr] keyboard_keymap: what the headset keyboard's keys say, "qwerty" (default), "azerty" or "qwertz"
+    Q_PROPERTY(QString keyboardKeymap MEMBER keyboardKeymap NOTIFY changed)
     // ---- facts ----
     Q_PROPERTY(int headsetMaxFps READ headsetMaxFps CONSTANT)
     Q_PROPERTY(QString configIniPath READ configIniPath CONSTANT)
@@ -108,6 +110,7 @@ public:
     int convergence;
     bool convergenceIsDefault;
     bool flipFaceButtons;
+    QString keyboardKeymap;
 
 signals:
     void changed();
@@ -118,4 +121,5 @@ private:
     bool m_iniPerfOverlay = false, m_iniFlip = false;
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
+    QString m_iniKeymap = QStringLiteral("qwerty");
 };

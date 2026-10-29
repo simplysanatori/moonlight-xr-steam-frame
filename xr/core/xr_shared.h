@@ -612,7 +612,11 @@
 // Codes under zero change the keyboard instead of typing, and 0 is a blank
 // with no key on it. Everything from 8 up to KB_CODE_VK is sent on as it
 // stands, and a Windows virtual key code added to KB_CODE_VK is sent as that
-// key.
+// key. Native: KB_CODE_SVK + vk is that key with Shift held round it, and
+// KB_CODE_SVKL the same for a key that is a letter on the layout showing (the
+// Shift sheet then lasts for one key, as it does over A..Z). The French and
+// German keyboards need them: a digit is Shift + the number row key, and the
+// key that makes an M is where the US keyboard has its semicolon.
 #define KB_CODE_SHIFT   -2
 #define KB_CODE_SYMBOLS -3
 #define KB_CODE_HIDE    -4
@@ -621,6 +625,8 @@
 #define KB_CODE_ALT     -7
 #define KB_CODE_WIN     -8
 #define KB_CODE_VK      65536
+#define KB_CODE_SVK     98304
+#define KB_CODE_SVKL    106496
 // The modifier bits, the same as the host protocol's own
 #define KB_MOD_CTRL 2
 #define KB_MOD_ALT  4
