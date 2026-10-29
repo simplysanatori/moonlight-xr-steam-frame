@@ -92,6 +92,9 @@ void MlxrPrefs::load()
     if (keyboardKeymap != "azerty" && keyboardKeymap != "qwertz") {
         keyboardKeymap = "qwerty";
     }
+    // the VR client takes the name or its index; anything else is its default, all
+    const QString nt = iniValue(ini, "vr", "notices", "all").trimmed().toLower();
+    notices = (nt == "important" || nt == "1") ? "important" : (nt == "off" || nt == "2") ? "off" : "all";
 
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
@@ -101,6 +104,7 @@ void MlxrPrefs::load()
     m_iniConvergenceDefault = convergenceIsDefault;
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
+    m_iniNotices = notices;
 }
 
 void MlxrPrefs::save()
@@ -141,6 +145,9 @@ void MlxrPrefs::save()
     if (keyboardKeymap != m_iniKeymap) {
         setIniValue(ini, "vr", "keyboard_keymap", keyboardKeymap);
     }
+    if (notices != m_iniNotices) {
+        setIniValue(ini, "vr", "notices", notices);
+    }
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
@@ -149,6 +156,7 @@ void MlxrPrefs::save()
     m_iniConvergenceDefault = convergenceIsDefault;
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
+    m_iniNotices = notices;
 }
 
 int MlxrPrefs::headsetMaxFps() const

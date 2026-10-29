@@ -656,6 +656,7 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->env_live_cells = ctx->pickerCells;
     v->env_selected = -1;
     v->exit_question = ctx->launcher != LAUNCHER_NONE ? ui_str(UIS_NATIVE_EXIT_APP) : NULL;
+    v->exit_disconnect = exitPromptHasDisconnect(ctx);
 }
 
 // What the ray is on in the settings panel, as lane U's hover
@@ -760,7 +761,8 @@ static void updateExit(XrCtx* ctx, XrPanels* p, const UiView* base) {
     }
     UiView v = *base;
     v.hover.kind = zone[0] == EXIT_ZONE_NONE ? UI_HIT_NONE : UI_HIT_BUTTON;
-    v.hover.a = zone[0] == EXIT_ZONE_EXIT ? UI_BTN_EXIT_CONFIRM : UI_BTN_EXIT_CANCEL;
+    v.hover.a = zone[0] == EXIT_ZONE_EXIT ? UI_BTN_EXIT_CONFIRM
+              : zone[0] == EXIT_ZONE_DISCONNECT ? UI_BTN_EXIT_DISCONNECT : UI_BTN_EXIT_CANCEL;
     PanelJob j;
     jobPanel(&j, UI_PANEL_EXIT, &v);
     submit(ctx, p, &j);

@@ -197,6 +197,33 @@ static void exitAndKeys(Scene* s) {
     pu = (EXIT_CANCEL_L + EXIT_CANCEL_R) * 0.5f;
     i = ui_hits_at(&hits, pu, pv);
     CHECK(exitPromptZone(pu, pv) == EXIT_ZONE_CANCEL && i >= 0 && hits.hit[i].a == UI_BTN_EXIT_CANCEL);
+    // during a stream the prompt has a third button, Disconnect, between the two
+    v.exit_disconnect = 1;
+    ui_cv_clear(&cv);
+    ui_hits_clear(&hits);
+    ui_draw_panel(UI_PANEL_EXIT, &cv, &v, &hits);
+    CHECK(hits.count == 3);
+    static const struct { float l, r; int zone, btn; } THREE[3] = {
+        { EXIT3_QUIT_L, EXIT3_QUIT_R, EXIT_ZONE_EXIT, UI_BTN_EXIT_CONFIRM },
+        { EXIT3_DISC_L, EXIT3_DISC_R, EXIT_ZONE_DISCONNECT, UI_BTN_EXIT_DISCONNECT },
+        { EXIT3_CANCEL_L, EXIT3_CANCEL_R, EXIT_ZONE_CANCEL, UI_BTN_EXIT_CANCEL },
+    };
+    for (int b = 0; b < 3; b++) {
+        pu = (THREE[b].l + THREE[b].r) * 0.5f;
+        i = ui_hits_at(&hits, pu, pv);
+        CHECK(exitPromptZoneFor(pu, pv, 1) == THREE[b].zone && i >= 0 && hits.hit[i].a == THREE[b].btn);
+    }
+    // the gaps and the margins are no button, and the two button prompt is unchanged
+    CHECK(exitPromptZoneFor((EXIT3_QUIT_R + EXIT3_DISC_L) * 0.5f, pv, 1) == EXIT_ZONE_NONE);
+    CHECK(exitPromptZoneFor(0.01f, pv, 1) == EXIT_ZONE_NONE && exitPromptZoneFor(0.5f, 0.1f, 1) == EXIT_ZONE_NONE);
+    CHECK(exitPromptZoneFor((EXIT_EXIT_L + EXIT_EXIT_R) * 0.5f, pv, 0) == EXIT_ZONE_EXIT);
+    CHECK(EXIT3_QUIT_R < EXIT3_DISC_L && EXIT3_DISC_R < EXIT3_CANCEL_L && EXIT3_CANCEL_R <= 1.0f);
+    // a stream gets the three buttons, the lists' prompt (quit the app) two
+    c->launcher = LAUNCHER_NONE;
+    CHECK(exitPromptHasDisconnect(c));
+    c->launcher = LAUNCHER_APPS;
+    CHECK(!exitPromptHasDisconnect(c));
+    c->launcher = LAUNCHER_NONE;
     // every key of every sheet: the context's layout (handed over at
     // xrPanelsCreate) and kbKeyAt agree with the drawn keys
     c->kbOpen = 1;

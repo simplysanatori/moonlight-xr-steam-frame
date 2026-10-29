@@ -11,7 +11,8 @@ struct UiPcItem;
 
 // What the frame loop hands the app each frame: presses the app acts on
 typedef struct XrUiEvents {
-    int exitConfirmed;          // the exit prompt's Exit was pressed
+    int exitConfirmed;          // the exit prompt's Exit (Quit app) was pressed
+    int disconnectConfirmed;    // native: its Disconnect was pressed (the host's session keeps running)
     int listKind, listA, listB; // a press on the launcher's list (UI_HIT_*, 0 none)
     int focused;                // the session has input focus
     int pictureShown;           // native: the stream's picture is on the screen

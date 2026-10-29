@@ -358,6 +358,12 @@ static void uiHook(void* user, const XrUiEvents* ev, XrUiLauncher* show) {
         launcher_exit(&g_launch);
         poke = 1;
     }
+    if (ev->disconnectConfirmed) {
+        // The exit prompt's Disconnect: the stream stops and the host's session stays, as the gamepad chord does
+        MLOG_I("disconnect confirmed in %s: leaving the stream, the host's session stays", launcher_state_name(g_launch.state));
+        launcher_disconnect_bar(&g_launch);
+        poke = 1;
+    }
     if (ev->listKind != 0) {
         launcher_press(&g_launch, ev->listKind, ev->listA, ev->listB);
         poke = 1;

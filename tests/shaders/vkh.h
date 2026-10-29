@@ -34,6 +34,10 @@ typedef struct VkhBuffer {
     VkDeviceSize size;
 } VkhBuffer;
 
+// 0 on success; VKH_NO_DEVICE when there is no Vulkan driver or device at all
+// (a CI runner without lavapipe): the test then exits 77, which ctest counts
+// as skipped
+#define VKH_NO_DEVICE 77
 int vkh_init(Vkh* v);
 void vkh_destroy(Vkh* v);
 VkCommandBuffer vkh_begin(Vkh* v);

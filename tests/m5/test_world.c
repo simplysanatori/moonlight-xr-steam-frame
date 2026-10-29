@@ -119,6 +119,15 @@ static void printCounts(const char* what, const long* c) {
 
 static M5Gpu g;
 
+// A time budget: failed on the Frame's GPU, printed only with MLXR_SOFT_GPU=1
+// (lavapipe in CI draws on the CPU, so its times say nothing of the Frame's)
+#define CHECK_BUDGET(cond) do { \
+        if (m5_soft_gpu()) { \
+            if (!(cond)) printf("  over budget (MLXR_SOFT_GPU=1, not failed): %s\n", #cond); \
+        } \
+        else CHECK(cond); \
+    } while (0)
+
 static XrCtx* newCtx(void) {
     XrCtx* c = calloc(1, sizeof(XrCtx));
     xrCtxDefaults(c, 1920, 1080, 60);
@@ -439,7 +448,7 @@ static void timingGroup(void) {
         untilBuilt(c, st, NULL);
         double ms = timePass(c, &t, drawRoomBody, &shot);
         printf("  room %-13s 2 x %dx%d, lit, ASTC atlas         %.3f ms\n", names[st], eyeW, eyeH, ms);
-        CHECK(ms < 8.0);
+        CHECK_BUDGET(ms < 8.0);
     }
     // Native: one projection layer a frame draws the room into the 3D
     // picture's image, at the picture's eye size (2640 at the Frame's 90 Hz
@@ -459,7 +468,7 @@ static void timingGroup(void) {
             untilBuilt(c, st, NULL);
             double ms = timePass(c, &t, drawRoomBody, &big);
             printf("  room %-13s 2 x 2640x2640 (in the picture's layer) %.3f ms\n", names[st], ms);
-            CHECK(ms < 8.0);
+            CHECK_BUDGET(ms < 8.0);
         }
         m5_image_free(c, &big.colour);
         m5_image_free(c, &big.depth);
@@ -472,7 +481,7 @@ static void timingGroup(void) {
     c->modelGrip[1] = (XrPosef){ axisAngleQuat(ax, -0.5f), { 0.20f, -0.20f, -0.50f } };
     double modelMs = timePass(c, &t, modelsBody, &shot);
     printf("  controller models, both hands, 2 x %dx%d              %.3f ms\n", eyeW, eyeH, modelMs);
-    CHECK(modelMs < 4.0);
+    CHECK_BUDGET(modelMs < 4.0);
     // The curved picture's layer with the glow drawn into it
     WarpShot pic;
     memset(&pic, 0, sizeof(pic));
@@ -633,6 +642,7 @@ static void curveGroup(void) {
     m5_readback(&g, outC.img.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, W, H, pc);
     // Away from the panel's edge texels
     int maxB = 0, maxC = 0;
+    long overB = 0;
     for (int y = 2; y < H - 2; y++) {
         for (int x = 2; x < W - 2; x++) {
             for (int k = 0; k < 3; k++) {
@@ -640,6 +650,7 @@ static void curveGroup(void) {
                 int db = abs(pa[i] - pb[i]), dc = abs(pa[i] - pc[i]);
                 if (db > maxB) maxB = db;
                 if (dc > maxC) maxC = dc;
+                if (db > 3) overB++;
             }
         }
     }
@@ -647,7 +658,12 @@ static void curveGroup(void) {
     printf("  flat picture %d %d %d; curved through UNORM %d %d %d (max diff %d); through SRGB (M4) %d %d %d "
            "(max diff %d)\n", pa[mid], pa[mid + 1], pa[mid + 2], pb[mid], pb[mid + 1], pb[mid + 2], maxB, pc[mid],
            pc[mid + 1], pc[mid + 2], maxC);
-    CHECK(maxB <= 3);
+    // lavapipe interpolates the curved mesh's UVs a hair apart from the flat
+    // quad's, so the picture's hard colour edges land a texel over (max diff
+    // 18 seen, Mesa 25.2): with MLXR_SOFT_GPU=1 only a few such samples pass
+    printf("  curved through UNORM: %ld samples off by more than 3\n", overB);
+    if (m5_soft_gpu()) CHECK(overB * 100 < (long)W * H * 3);
+    else CHECK(maxB <= 3);
     CHECK(maxC > 40);
     free(pa);
     free(pb);
@@ -1205,7 +1221,7 @@ static void eyeImagesGroup(void) {
         double a = timePass(c, &t, fns[k], k == 2 ? (void*)&cs[0] : (void*)&side);
         double b = timePass(c, &t, fns[k], k == 2 ? (void*)&cs[1] : (void*)&per);
         printf("  %-24s %.3f ms / %.3f ms\n", names[k], a, b);
-        CHECK(b <= a * 1.3 + 0.3);
+        CHECK_BUDGET(b <= a * 1.3 + 0.3);
     }
     shotFree(c, &side);
     shotFree(c, &per);
@@ -1224,14 +1240,28 @@ int main(int argc, char** argv) {
         fprintf(stderr, "no Vulkan device\n");
         return gpu == M5_GPU_NO_DEVICE ? 77 : 1;
     }
-    if (all || !strcmp(grp, "leaks")) leaksGroup();
-    if (all || !strcmp(grp, "timing")) timingGroup();
+    // The rooms' atlases are ASTC: on a device without textureCompressionASTC_LDR
+    // (lavapipe) no room loads, so the groups that draw one skip there
+    int skipped = 0;
+    if (all || !strcmp(grp, "leaks")) {
+        if (g.astc) leaksGroup();
+        else skipped++;
+    }
+    if (all || !strcmp(grp, "timing")) {
+        if (g.astc) timingGroup();
+        else skipped++;
+    }
     if (all || !strcmp(grp, "glow")) glowGroup();
     if (all || !strcmp(grp, "curve")) curveGroup();
     if (all || !strcmp(grp, "supersample")) supersampleGroup();
     if (all || !strcmp(grp, "frame_models")) frameModelsGroup();
-    if (all || !strcmp(grp, "eye_images")) eyeImagesGroup();
+    if (all || !strcmp(grp, "eye_images")) {
+        if (g.astc) eyeImagesGroup();
+        else skipped++;
+    }
     m5_gpu_free(&g);
+    if (skipped) printf("%d group(s) skipped: no textureCompressionASTC_LDR for the rooms' atlases\n", skipped);
+    if (skipped && !all) return 77;
     char name[32];
     snprintf(name, sizeof(name), "m5 world %s", grp);
     return checksDone(name);
