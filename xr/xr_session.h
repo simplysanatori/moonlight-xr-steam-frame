@@ -54,6 +54,10 @@ typedef struct XrAppHooks {
     // while streaming: the app's part of the "xr: latency:" line (host encode,
     // network, audio cushion and underruns). Per-window counters reset here.
     void (*latency)(void* user, char* buf, int len);
+    // Every frame, right after the input pass: the head's yaw against the picture
+    // in radians (positive = turned left), which the virtual surround turns its
+    // speakers by. May be NULL. Must not block.
+    void (*headYaw)(void* user, float yawRadians);
 } XrAppHooks;
 
 typedef struct XrAppConfig {
