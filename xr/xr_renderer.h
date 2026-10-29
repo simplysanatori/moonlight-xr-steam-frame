@@ -51,6 +51,8 @@
 #include "xr_clickhold.h"
 #include "xr_pressfix.h"
 #include "xr_gamepad.h"
+#include "xr_ray.h"
+#include "xr_raylog.h"
 #include "room_logic.h"
 
 #define TAG "moonlight-xr"
@@ -684,6 +686,36 @@ typedef struct XrCtx {
     int profileKind[HAND_COUNT];
     int aimTracked[HAND_COUNT];
     ControllerClock aimClock[HAND_COUNT];
+    // Native (lane ray-glitch, xr_ray.h): each controller's aim and grip held
+    // across a short loss of tracking, the source that pointed last, and
+    // where each hand's ray came from this frame (AIM_)
+    PoseHold aimHold[HAND_COUNT];
+    PoseHold gripHold[HAND_COUNT];
+    PickState pick;
+    int aimSrc[HAND_COUNT];
+    // The ray recorder, MLXR_RAY_DEBUG (docs/dev/ray-debug.md): the CSV, this
+    // frame's row, and the throttle on its log lines
+    int rayDebug;
+    FILE* rayFile;
+    long rayBytes;
+    int64_t rayFlushNs;
+    RayLogRow rayRow;
+    int64_t rayLogWindowNs;
+    int rayLogLines;
+    int rayLogDropped;
+    unsigned raySaidFlags[HAND_COUNT];
+    int raySaidSrc[HAND_COUNT];
+    int raySaidSteep[HAND_COUNT];
+    int raySaidHand;
+    // Native (lane ray-glitch): the runtime reads the pointer's frame makes,
+    // NULL for OpenXR's own. A test points them at recorded rows, so a CSV
+    // from the headset goes through the same code (tests/m4/test_replay.c).
+    XrResult (*locateSpace)(struct XrCtx* ctx, XrSpace space, XrSpace base, XrTime time,
+                            XrSpaceLocation* out);
+    int (*poseActive)(struct XrCtx* ctx, XrAction action, int hand);
+    float (*readFloat)(struct XrCtx* ctx, XrAction action, int hand);
+    int (*readBool)(struct XrCtx* ctx, XrAction action, int hand);
+    XrVector2f (*readVec2)(struct XrCtx* ctx, XrAction action, int hand);
     int controllerAwake;
     GazeBridge gazeBridge;
     int pinchSwallowed[SRC_COUNT];
@@ -870,6 +902,9 @@ typedef struct XrCtx {
     XrVector3f beamStart;
     XrVector3f beamEnd;
     XrVector3f headPos;
+    // Native (lane ray-glitch): the head's +x in the same frame, which the
+    // beam's quad lies along when the head sights down it (beamBasis)
+    XrVector3f headRight;
     float headTurnRate;
     XrQuaternionf headTurnLast;
     int headTurnLastValid;

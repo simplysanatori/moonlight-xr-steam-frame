@@ -191,14 +191,23 @@ void updateControllerModels(XrCtx* ctx) {
         // In the space the models' layer is drawn in, whatever the picture is
         // locked to: a controller is in the room, not on the head
         XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
-        if (!active || XR_FAILED(xrLocateSpace(ctx->gripSpaces[h], ctx->localSpace,
-                                               ctx->predictedDisplayTime, &loc))) {
-            continue;
+        int placed = active && XR_SUCCEEDED(xrLocateSpace(ctx->gripSpaces[h], ctx->localSpace,
+                                                          ctx->predictedDisplayTime, &loc));
+        // Native (lane ray-glitch): the ray's rule (controllerPoseLive, which
+        // controllerModelShown goes by) and the ray's hold, so a short loss of
+        // tracking keeps the model where it last was for as long as it keeps
+        // the ray, and the two go together after that
+        int tracked = placed && controllerModelShown(ctx->modelOn, ctx->passthrough,
+                                                     ctx->profileKind[h], active,
+                                                     (unsigned)loc.locationFlags);
+        int hold = poseHoldStep(&ctx->gripHold[h], tracked, nowNs(), POSE_HOLD_NS);
+        if (tracked) {
+            poseHoldKeep(&ctx->gripHold[h], loc.pose);
         }
-        shown[h] = controllerModelShown(ctx->modelOn, ctx->passthrough, ctx->profileKind[h],
-                                        active, (unsigned)loc.locationFlags);
+        shown[h] = ctx->modelOn && !ctx->passthrough
+                && ctx->profileKind[h] == PROFILE_CONTROLLER && hold != POSE_GONE;
         if (shown[h]) {
-            ctx->modelGrip[h] = loc.pose;
+            ctx->modelGrip[h] = ctx->gripHold[h].pose;
             // Native: the controls the Frame's moving parts follow (the generic
             // model has none: nothing reads them)
             if (ctx->model && ctx->model->textured) {
