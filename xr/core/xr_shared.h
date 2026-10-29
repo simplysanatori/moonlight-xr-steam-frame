@@ -301,8 +301,6 @@
 // HEAD_AIM_ lanes below
 #define SETTING_HEAD_AIM_SENSITIVITY 22
 #define SETTING_HEAD_AIM_DEADZONE 23
-// Which notices the toast says, NOTICES_ALL 0, IMPORTANT 1 or OFF 2
-#define SETTING_NOTICES 24
 
 // The lanes the Room tab's rows move along, in the units the preferences
 // hold. Brightness is the room's own in hundredths of the room as baked, from

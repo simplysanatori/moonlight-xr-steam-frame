@@ -11,6 +11,8 @@
 // Native setting ids past upstream's SETTING_ ones (xr_shared.h), handed back
 // in IN_SETTING the same way
 #define SETTING_POINTER_DOT 24
+// Which notices the toast says, NOTICES_ALL 0, IMPORTANT 1 or OFF 2
+#define SETTING_NOTICES 25
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 
