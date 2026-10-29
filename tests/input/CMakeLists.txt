@@ -1,5 +1,5 @@
 # Tests for the input lane (ctest names input_*), built with -Werror.
-set(INPUT_TESTS pad_out rumble gamepads evmouse)
+set(INPUT_TESTS pad_out rumble gamepads evmouse padprobe)
 foreach(t ${INPUT_TESTS})
   add_executable(test_input_${t} test_${t}.c)
   target_link_libraries(test_input_${t} PRIVATE mlxr_input_core m)

@@ -18,20 +18,8 @@
 
 #include "Limelight.h"
 #include "gamepads.h"
+#include "gamepads_sdl.h"
 #include "../xr/mlxr_log.h"
-
-// SDL_GameControllerButton order -> Moonlight flags (moonlight-qt k_ButtonMap)
-static const int kButtonMap[] = {
-    A_FLAG, B_FLAG, X_FLAG, Y_FLAG,
-    BACK_FLAG, SPECIAL_FLAG, PLAY_FLAG,
-    LS_CLK_FLAG, RS_CLK_FLAG,
-    LB_FLAG, RB_FLAG,
-    UP_FLAG, DOWN_FLAG, LEFT_FLAG, RIGHT_FLAG,
-    MISC_FLAG,
-    PADDLE1_FLAG, PADDLE2_FLAG, PADDLE3_FLAG, PADDLE4_FLAG,
-    TOUCHPAD_FLAG,
-};
-#define BUTTONS ((int)(sizeof(kButtonMap) / sizeof(kButtonMap[0])))
 
 static struct {
     pthread_t thread;
@@ -82,75 +70,7 @@ static void hapLed(void* user, int id, uint8_t r, uint8_t g, uint8_t b) {
 #define hapLed NULL
 #endif
 
-// ---- pad description --------------------------------------------------------------
-
-static int steamControllerPid(unsigned pid) {
-    // From SDL's controller_list.h (as moonlight-qt)
-    switch (pid) {
-    case 0x1101: case 0x1102: case 0x1105: case 0x1106: case 0x1142: case 0x1201:
-    case 0x1202: case 0x1205: case 0x1302: case 0x1303: case 0x1304: case 0x1305:
-        return 1;
-    default:
-        return 0;
-    }
-}
-
-static uint8_t ctype(SDL_GameController* c, unsigned vendor, unsigned product) {
-    switch (SDL_GameControllerGetType(c)) {
-    case SDL_CONTROLLER_TYPE_XBOX360:
-    case SDL_CONTROLLER_TYPE_XBOXONE:
-        return LI_CTYPE_XBOX;
-    case SDL_CONTROLLER_TYPE_PS3:
-    case SDL_CONTROLLER_TYPE_PS4:
-    case SDL_CONTROLLER_TYPE_PS5:
-        return LI_CTYPE_PS;
-    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO:
-    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
-    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
-    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
-        return LI_CTYPE_NINTENDO;
-    default:
-        return (vendor == 0x28de && steamControllerPid(product)) ? LI_CTYPE_STEAM : LI_CTYPE_UNKNOWN;
-    }
-}
-
-static void describe(SDL_GameController* c, GpInfo* info) {
-    memset(info, 0, sizeof(*info));
-    const char* name = SDL_GameControllerName(c);
-    snprintf(info->name, sizeof(info->name), "%s", name ? name : "<unnamed>");
-    SDL_Joystick* js = SDL_GameControllerGetJoystick(c);
-    SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(js), info->guid, sizeof(info->guid));
-    const char* serial = SDL_GameControllerGetSerial(c);
-    if (serial) snprintf(info->serial, sizeof(info->serial), "%s", serial);
-    char* mapping = SDL_GameControllerMapping(c);
-    if (mapping) {
-        snprintf(info->mapping, sizeof(info->mapping), "%s", mapping);
-        SDL_free(mapping);
-    }
-    info->vendor = SDL_GameControllerGetVendor(c);
-    info->product = SDL_GameControllerGetProduct(c);
-    info->type = ctype(c, info->vendor, info->product);
-    // Steam Input's virtual copy of a pad (SDL lists it as 28de:11ff)
-    info->mirror = info->vendor == 0x28de && info->product == 0x11ff;
-    for (int i = 0; i < BUTTONS; i++)
-        if (SDL_GameControllerHasButton(c, (SDL_GameControllerButton)i)) info->buttons |= (uint32_t)kButtonMap[i];
-    GpDeviceFacts f;
-    memset(&f, 0, sizeof(f));
-    // as moonlight-qt: an axis binding means analogue
-    f.analogTriggers = SDL_GameControllerGetBindForAxis(c, SDL_CONTROLLER_AXIS_TRIGGERLEFT).bindType == SDL_CONTROLLER_BINDTYPE_AXIS
-        || SDL_GameControllerGetBindForAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT).bindType == SDL_CONTROLLER_BINDTYPE_AXIS;
-    f.rumble = SDL_GameControllerHasRumble(c);
-    f.triggerRumble = SDL_GameControllerHasRumbleTriggers(c);
-#if SDL_VERSION_ATLEAST(2, 0, 14)
-    f.touchpads = SDL_GameControllerGetNumTouchpads(c);
-    f.accel = SDL_GameControllerHasSensor(c, SDL_SENSOR_ACCEL);
-    f.gyro = SDL_GameControllerHasSensor(c, SDL_SENSOR_GYRO);
-    f.led = SDL_GameControllerHasLED(c);
-#endif
-    // moonlight-qt: a known power level, or an SDL that sends battery events
-    f.battery = SDL_JoystickCurrentPowerLevel(js) != SDL_JOYSTICK_POWER_UNKNOWN || SDL_VERSION_ATLEAST(2, 24, 0);
-    info->caps = gpCapsFor(&f);
-}
+// ---- pad description (gamepads_sdl_info.c, shared with the probe) ------------------
 
 // SDL's power level as the host's battery report (gamepads.c has the table)
 static void sendBattery(SDL_JoystickID id, SDL_JoystickPowerLevel level) {
@@ -165,61 +85,25 @@ _Static_assert(SDL_JOYSTICK_POWER_UNKNOWN == -1 && SDL_JOYSTICK_POWER_EMPTY == 0
 // Pads that are not for the host: the Frame's own controllers (SteamVR reads
 // those), and anything in MLXR_GAMEPAD_IGNORE (comma separated GUIDs)
 static int ignored(const GpInfo* info) {
-    if (info->vendor == 0x28de && (strcasestr(info->name, "frame") != NULL)) return 1;
-    const char* env = getenv("MLXR_GAMEPAD_IGNORE");
-    if (env && *env) {
-        char* copy = strdup(env);
-        int hit = 0;
-        for (char* save = NULL, *t = strtok_r(copy, ", ", &save); t && !hit; t = strtok_r(NULL, ", ", &save))
-            hit = strcasecmp(t, info->guid) == 0;
-        free(copy);
-        return hit;
-    }
-    return 0;
+    return gpIgnoreReason(info, getenv("MLXR_GAMEPAD_IGNORE")) != 0;
 }
 
 // ---- state ---------------------------------------------------------------------------
-
-static short stickY(short v) { return (short)-(v < -32767 ? -32767 : v); } // as moonlight-qt
-
-static void readPacket(SDL_GameController* c, PadOutPacket* pk) {
-    memset(pk, 0, sizeof(*pk));
-    for (int i = 0; i < BUTTONS; i++)
-        if (SDL_GameControllerGetButton(c, (SDL_GameControllerButton)i)) pk->buttonFlags |= kButtonMap[i];
-    pk->leftStickX = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTX);
-    pk->leftStickY = stickY(SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTY));
-    pk->rightStickX = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_RIGHTX);
-    pk->rightStickY = stickY(SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_RIGHTY));
-    int lt = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERLEFT);
-    int rt = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
-    pk->leftTrigger = (unsigned char)(lt < 0 ? 0 : lt * 255L / 32767);
-    pk->rightTrigger = (unsigned char)(rt < 0 ? 0 : rt * 255L / 32767);
-}
 
 static void sendState(SDL_JoystickID id) {
     SDL_GameController* c = SDL_GameControllerFromInstanceID(id);
     if (!c) return;
     PadOutPacket pk;
-    readPacket(c, &pk);
+    gpSdlReadPacket(c, &pk);
     gpState(gamepadsGlobal(), id, &pk);
 }
 
-static void loadMappings(void) {
-    const char* home = getenv("HOME");
-    const char* env = getenv("MLXR_GAMECONTROLLERDB");
-    char paths[3][512];
-    int n = 0;
-    if (env && *env) snprintf(paths[n++], sizeof(paths[0]), "%s", env);
-    if (home) {
-        // The flat launcher's (moonlight-qt's MappingManager) cached database, then the client's own dir
-        snprintf(paths[n++], sizeof(paths[0]), "%s/.cache/Moonlight XR Native/Moonlight XR Native/gamecontrollerdb.txt", home);
-        snprintf(paths[n++], sizeof(paths[0]), "%s/.config/moonlight-xr/gamecontrollerdb.txt", home);
-    }
-    for (int i = 0; i < n; i++) {
-        int r = SDL_GameControllerAddMappingsFromFile(paths[i]);
-        if (r >= 0) MLOG_I("gamepad: %d mappings from %s", r, paths[i]);
-    }
+static void mappingsLoaded(void* user, const char* path, int count) {
+    (void)user;
+    MLOG_I("gamepad: %d mappings from %s", count, path);
 }
+
+static void loadMappings(void) { gpSdlLoadMappings(mappingsLoaded, NULL); }
 
 static void deviceAdded(int index) {
     SDL_GameController* c = SDL_GameControllerOpen(index);
@@ -228,7 +112,7 @@ static void deviceAdded(int index) {
         return;
     }
     GpInfo info;
-    describe(c, &info);
+    gpSdlDescribe(c, &info);
     SDL_JoystickID id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(c));
     if (ignored(&info)) {
         MLOG_I("gamepad: %s (guid %s) is not for the host, ignored", info.name, info.guid);
@@ -256,12 +140,7 @@ static void deviceRemoved(SDL_JoystickID id) {
 
 static void* run(void* arg) {
     (void)arg;
-    SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1"); // SIGTERM must still end the app
-    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1"); // no window
-    SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0"); // positional A/B/X/Y, as moonlight-qt
-    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4_RUMBLE, "1");
-    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
-    SDL_SetHint(SDL_HINT_ACCELEROMETER_AS_JOYSTICK, "0");
+    gpSdlApplyHints();
     if (SDL_Init(SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) != 0) {
         MLOG_W("gamepad: SDL could not start (%s), no physical gamepads", SDL_GetError());
         return NULL;

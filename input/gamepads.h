@@ -227,6 +227,43 @@ void gpTouch(Gamepads* g, int id, int eventType, uint32_t finger, float x, float
 // The packet's buttons exactly Start+Select+L1+R1
 int gpIsChord(int buttonFlags);
 
+// ---- classification (no SDL): what a pad is, from the facts a source has ----
+// gamepads_sdl.c fills a GpInfo from SDL and finishes it with gpClassify();
+// the pad probe (padprobe.h) and the tests do the same with made-up facts.
+
+// SDL_GameControllerType, reduced to what the fork tells apart
+typedef enum {
+    GP_SDL_UNKNOWN = 0,
+    GP_SDL_XBOX360,
+    GP_SDL_XBOXONE,
+    GP_SDL_PS3,
+    GP_SDL_PS4,
+    GP_SDL_PS5,
+    GP_SDL_SWITCH_PRO,
+    GP_SDL_JOYCON_LEFT,
+    GP_SDL_JOYCON_RIGHT,
+    GP_SDL_JOYCON_PAIR,
+    GP_SDL_OTHER // an SDL type the fork does not map (Luna, Stadia, Shield, virtual...)
+} GpSdlKind;
+
+// Valve's Steam Controllers by product id (vendor 0x28de): the list moonlight-qt 6.2
+// (app/streaming/input/gamepad.cpp) takes from SDL's controller_list.h. 0 when not one
+int gpSteamControllerPid(unsigned product);
+// What SDL's controller_list.h calls that product id, NULL when not a Steam Controller
+const char* gpSteamControllerPidName(unsigned product);
+// "Steam Virtual Gamepad", Steam Input's copy of a pad (28de:11ff)
+int gpIsSteamVirtualGamepad(unsigned vendor, unsigned product);
+// LI_CTYPE_ value for a pad: SDL's own type first, then the Steam Controller ids
+uint8_t gpControllerType(GpSdlKind kind, unsigned vendor, unsigned product);
+// Sets info->type and info->mirror from info->vendor, info->product and the SDL type
+void gpClassify(GpInfo* info, GpSdlKind kind);
+
+// Why a pad is not for the host: 0 it is, 1 SteamVR's own Frame controller (vendor 28de,
+// name contains "frame"), 2 its GUID is in ignoreList (MLXR_GAMEPAD_IGNORE: GUIDs separated
+// by commas or spaces; NULL for none)
+int gpIgnoreReason(const GpInfo* info, const char* ignoreList);
+const char* gpIgnoreReasonText(int reason);
+
 // ---- the one instance the app uses ----------------------------------------
 // Everything below is a no-op until gamepadsInit() has run (no SDL, no pads).
 Gamepads* gamepadsGlobal(void);
