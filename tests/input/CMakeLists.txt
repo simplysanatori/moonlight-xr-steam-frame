@@ -29,7 +29,7 @@ endif()
 # The same, gamepads included (its threads test is the point)
 if(MLXR_HAVE_TSAN)
   add_executable(test_input_gamepads_tsan test_gamepads.c ${PROJECT_SOURCE_DIR}/input/gamepads.c
-    ${PROJECT_SOURCE_DIR}/input/rumble.c)
+    ${PROJECT_SOURCE_DIR}/input/rumble.c ${PROJECT_SOURCE_DIR}/input/pad_out.c)
   target_link_libraries(test_input_gamepads_tsan PRIVATE mlxr_xrcore Threads::Threads m)
   target_include_directories(test_input_gamepads_tsan PRIVATE
     ${PROJECT_SOURCE_DIR}/input ${PROJECT_SOURCE_DIR}/tests/xrcore ${MLXR_MCC_SRC})

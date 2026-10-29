@@ -51,13 +51,53 @@ typedef struct {
     int mirror;
 } GpInfo;
 
-// How rumble reaches a pad, by the id its source gave it (called under the
-// lock, so a source must remove a pad before it closes it)
+// How rumble, sensors and the LED reach a pad, by the id its source gave it
+// (called under the lock, so a source must remove a pad before it closes it).
+// Any of them may be NULL.
+//   setSensor: switch one of the pad's sensors (motionType LI_MOTION_TYPE_ACCEL
+//     or _GYRO) on at rateHz, or off when rateHz is 0. Only called for a pad
+//     whose caps say it has that sensor, and only while the pad is on the host.
+//   setLed: the host's colour for the pad's LED
 typedef struct {
     void (*rumble)(void* user, int id, uint16_t low, uint16_t high);
     void (*rumbleTriggers)(void* user, int id, uint16_t left, uint16_t right);
+    void (*setSensor)(void* user, int id, int motionType, int rateHz);
+    void (*setLed)(void* user, int id, uint8_t red, uint8_t green, uint8_t blue);
     void* user;
 } GpHaptics;
+
+// The sends beyond state, for what a pad reports besides its buttons: the
+// arguments of LiSendControllerMotionEvent, LiSendControllerBatteryEvent and
+// LiSendControllerTouchEvent. Optional (a test sets a recorder, the app
+// gpUseLimelightExtras).
+typedef struct {
+    int (*motion)(void* user, uint8_t number, uint8_t motionType, float x, float y, float z);
+    int (*battery)(void* user, uint8_t number, uint8_t state, uint8_t percentage);
+    int (*touch)(void* user, uint8_t number, uint8_t eventType, uint32_t pointerId, float x, float y,
+                 float pressure);
+    void* user;
+} GpExtraSink;
+
+// What the source found out about a device, in plain flags, and the LI_CCAP_
+// bits the pad advertises for it. The capability rule lives here (and is
+// tested) rather than in the SDL source: moonlight-qt's gamepad.cpp.
+typedef struct {
+    int analogTriggers; // the mapping binds a trigger to an axis
+    int rumble;
+    int triggerRumble;
+    int touchpads;      // how many (one advertises LI_CCAP_TOUCHPAD)
+    int accel;
+    int gyro;
+    int battery;        // reports a power level (or the SDL is new enough to)
+    int led;
+} GpDeviceFacts;
+uint16_t gpCapsFor(const GpDeviceFacts* f);
+
+// The SDL_JoystickPowerLevel value (SDL_JOYSTICK_POWER_UNKNOWN is -1, EMPTY 0,
+// LOW 1, MEDIUM 2, FULL 3, WIRED 4) as Moonlight's battery state and
+// percentage, as moonlight-qt does (SDL cannot say more). Returns 0 for a
+// value that is not reported.
+int gpBatteryFromPowerLevel(int level, uint8_t* state, uint8_t* percentage);
 
 // level 'I', 'W' or 'E', one formatted line
 typedef void (*GpLog)(void* user, char level, const char* line);
@@ -77,6 +117,18 @@ typedef struct {
     int announced;   // the host knows it
     int haveSent;
     int latched;     // the disconnect chord fired and its buttons are still down
+    // Motion, index 0 accelerometer and 1 gyroscope (LI_MOTION_TYPE_ minus 1)
+    int motionHz[2];      // what the host asked for
+    int sensorHz[2];      // what the pad's sensor is set to now (0 off)
+    int haveMotion[2];    // lastMotion holds a sample that was sent
+    uint32_t motionMs[2]; // its timestamp
+    float lastMotion[2][3];
+    // Battery as the source last said it, and whether the host has it
+    int haveBattery;
+    uint8_t battery[2];   // state, percentage
+    uint8_t batteryHost[2]; // what the host was last told
+    int batterySent;
+    uint32_t touchDown;   // fingers (by id, below 32) the host has down
     GpInfo info;
     PadOutPacket cur;  // the sources merged
     PadOutPacket sent;
@@ -87,6 +139,7 @@ typedef struct Gamepads {
     int ready;
     PadOutSink sink;
     GpHaptics haptics;
+    GpExtraSink extra;
     GpLog log;
     void* logUser;
     void (*disconnect)(void*);
@@ -101,11 +154,14 @@ typedef struct Gamepads {
 
     // Counts, for logs and tests
     long arrivals, removals, states, drops, chords;
+    long motions, motionsDropped;
     long statesLogged;
 } Gamepads;
 
 void gpInit(Gamepads* g, const PadOutSink* sink, const GpHaptics* haptics, GpLog log, void* logUser);
 void gpDestroy(Gamepads* g);
+// Where motion, battery and touchpad reports go (default: nowhere)
+void gpSetExtraSink(Gamepads* g, const GpExtraSink* extra);
 void gpSetDisconnectHook(Gamepads* g, void (*fn)(void*), void* user);
 // Off to ignore Start+Select+L1+R1 (moonlight-qt's NO_GAMEPAD_QUIT)
 void gpSetChordEnabled(Gamepads* g, int enabled);
@@ -143,6 +199,31 @@ int gpAnnouncedMask(const Gamepads* g);
 int gpRumble(Gamepads* g, unsigned short number, unsigned short low, unsigned short high);
 int gpRumbleTriggers(Gamepads* g, unsigned short number, unsigned short left, unsigned short right);
 
+// The host's setMotionEventState: it wants the pad with this number to report
+// motionType (LI_MOTION_TYPE_ACCEL or _GYRO) about rateHz times a second, 0 to
+// stop. Returns 1 when a physical pad has that number (even if it has no such
+// sensor, which is then ignored), 0 when it is not one of ours (the Frame's
+// own pad never has motion). The sensor is switched on only while the pad is
+// on the host; a stream's end, focus loss or the pad leaving switches it off,
+// and a new stream starts with no requests (the host asks again).
+int gpMotionState(Gamepads* g, unsigned short number, unsigned char motionType, unsigned short rateHz);
+// The host's LED colour for a physical pad's number, as gpRumble
+int gpSetLed(Gamepads* g, unsigned short number, uint8_t red, uint8_t green, uint8_t blue);
+
+// A sensor sample from the source: SDL's units (accelerometer m/s^2, gyroscope
+// rad/s, SDL's axes) and its timestamp in ms. Sent as motion on the pad's own
+// number, gyroscope in deg/s, as moonlight-qt: at most one per 1000/rate ms,
+// and not when the sample equals the last one sent. Dropped unless the host
+// asked for it and the pad is on the host.
+void gpMotion(Gamepads* g, int id, int motionType, float x, float y, float z, uint32_t timestampMs);
+// The pad's battery (see gpBatteryFromPowerLevel): sent when it changes, and
+// again at the next arrival
+void gpBattery(Gamepads* g, int id, uint8_t state, uint8_t percentage);
+// One touchpad finger event, eventType an LI_TOUCH_EVENT_ value (down, up,
+// move) with SDL's coordinates 0..1. Only for a pad advertising a touchpad;
+// fingers still down when the pad leaves the host are cancelled.
+void gpTouch(Gamepads* g, int id, int eventType, uint32_t finger, float x, float y, float pressure);
+
 // The packet's buttons exactly Start+Select+L1+R1
 int gpIsChord(int buttonFlags);
 
@@ -175,10 +256,17 @@ void gamepadsSetFlipFaceButtons(int flip);
 // The transform above on one packet (tests)
 void gpApplyStickOptions(PadOutPacket* pk, int deadzonePercent, int flip);
 
+// For ConnListenerSetMotionEventState / ConnListenerSetControllerLED
+void gamepadsHostMotionState(uint16_t controllerNumber, uint8_t motionType, uint16_t reportRateHz);
+void gamepadsHostSetLed(uint16_t controllerNumber, uint8_t red, uint8_t green, uint8_t blue);
+
 void gamepadsHostRumble(unsigned short controllerNumber, unsigned short lowFreqMotor,
                         unsigned short highFreqMotor);
 void gamepadsHostRumbleTriggers(uint16_t controllerNumber, uint16_t leftTriggerMotor,
                                 uint16_t rightTriggerMotor);
+
+// The real sends for the extras (pad_out_ll.c, library mlxr_input)
+void gpUseLimelightExtras(GpExtraSink* sink);
 
 // ---- the SDL source (gamepads_sdl.c, library mlxr_input_sdl) --------------
 // Starts SDL's game controller subsystem and its thread, and gamepadsInit()s

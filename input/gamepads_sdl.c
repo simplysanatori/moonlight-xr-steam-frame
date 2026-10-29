@@ -58,6 +58,30 @@ static void hapTriggers(void* user, int id, uint16_t left, uint16_t right) {
     if (c) SDL_GameControllerRumbleTriggers(c, left, right, 30000);
 }
 
+#if SDL_VERSION_ATLEAST(2, 0, 14)
+// The host's sensor request (gamepads.c has checked the pad advertises it and
+// the pad is on the host). SDL has no report rate: the rate is the throttle in
+// gpMotion; this only switches the sensor, as moonlight-qt's setMotionEventState.
+static void hapSensor(void* user, int id, int motionType, int rateHz) {
+    (void)user;
+    SDL_GameController* c = SDL_GameControllerFromInstanceID(id);
+    if (!c) return;
+    SDL_SensorType st = motionType == LI_MOTION_TYPE_GYRO ? SDL_SENSOR_GYRO : SDL_SENSOR_ACCEL;
+    if (SDL_GameControllerHasSensor(c, st) && SDL_GameControllerSetSensorEnabled(c, st, rateHz > 0 ? SDL_TRUE : SDL_FALSE) != 0)
+        MLOG_W("gamepad: could not %s the %s: %s", rateHz > 0 ? "start" : "stop",
+               st == SDL_SENSOR_GYRO ? "gyroscope" : "accelerometer", SDL_GetError());
+}
+
+static void hapLed(void* user, int id, uint8_t r, uint8_t g, uint8_t b) {
+    (void)user;
+    SDL_GameController* c = SDL_GameControllerFromInstanceID(id);
+    if (c) SDL_GameControllerSetLED(c, r, g, b);
+}
+#else
+#define hapSensor NULL
+#define hapLed NULL
+#endif
+
 // ---- pad description --------------------------------------------------------------
 
 static int steamControllerPid(unsigned pid) {
@@ -110,12 +134,33 @@ static void describe(SDL_GameController* c, GpInfo* info) {
     info->mirror = info->vendor == 0x28de && info->product == 0x11ff;
     for (int i = 0; i < BUTTONS; i++)
         if (SDL_GameControllerHasButton(c, (SDL_GameControllerButton)i)) info->buttons |= (uint32_t)kButtonMap[i];
-    if (SDL_GameControllerGetBindForAxis(c, SDL_CONTROLLER_AXIS_TRIGGERLEFT).bindType == SDL_CONTROLLER_BINDTYPE_AXIS
-        || SDL_GameControllerGetBindForAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT).bindType == SDL_CONTROLLER_BINDTYPE_AXIS)
-        info->caps |= LI_CCAP_ANALOG_TRIGGERS; // as moonlight-qt: an axis binding means analogue
-    if (SDL_GameControllerHasRumble(c)) info->caps |= LI_CCAP_RUMBLE;
-    if (SDL_GameControllerHasRumbleTriggers(c)) info->caps |= LI_CCAP_TRIGGER_RUMBLE;
+    GpDeviceFacts f;
+    memset(&f, 0, sizeof(f));
+    // as moonlight-qt: an axis binding means analogue
+    f.analogTriggers = SDL_GameControllerGetBindForAxis(c, SDL_CONTROLLER_AXIS_TRIGGERLEFT).bindType == SDL_CONTROLLER_BINDTYPE_AXIS
+        || SDL_GameControllerGetBindForAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT).bindType == SDL_CONTROLLER_BINDTYPE_AXIS;
+    f.rumble = SDL_GameControllerHasRumble(c);
+    f.triggerRumble = SDL_GameControllerHasRumbleTriggers(c);
+#if SDL_VERSION_ATLEAST(2, 0, 14)
+    f.touchpads = SDL_GameControllerGetNumTouchpads(c);
+    f.accel = SDL_GameControllerHasSensor(c, SDL_SENSOR_ACCEL);
+    f.gyro = SDL_GameControllerHasSensor(c, SDL_SENSOR_GYRO);
+    f.led = SDL_GameControllerHasLED(c);
+#endif
+    // moonlight-qt: a known power level, or an SDL that sends battery events
+    f.battery = SDL_JoystickCurrentPowerLevel(js) != SDL_JOYSTICK_POWER_UNKNOWN || SDL_VERSION_ATLEAST(2, 24, 0);
+    info->caps = gpCapsFor(&f);
 }
+
+// SDL's power level as the host's battery report (gamepads.c has the table)
+static void sendBattery(SDL_JoystickID id, SDL_JoystickPowerLevel level) {
+    uint8_t state, pct;
+    if (gpBatteryFromPowerLevel((int)level, &state, &pct)) gpBattery(gamepadsGlobal(), id, state, pct);
+}
+
+_Static_assert(SDL_JOYSTICK_POWER_UNKNOWN == -1 && SDL_JOYSTICK_POWER_EMPTY == 0 && SDL_JOYSTICK_POWER_LOW == 1
+               && SDL_JOYSTICK_POWER_MEDIUM == 2 && SDL_JOYSTICK_POWER_FULL == 3 && SDL_JOYSTICK_POWER_WIRED == 4,
+               "gpBatteryFromPowerLevel assumes SDL's power level numbers");
 
 // Pads that are not for the host: the Frame's own controllers (SteamVR reads
 // those), and anything in MLXR_GAMEPAD_IGNORE (comma separated GUIDs)
@@ -197,6 +242,9 @@ static void deviceAdded(int index) {
     }
     SDL_GameControllerSetPlayerIndex(c, n); // the Xbox 360 ring, a DualSense's player LEDs
     sendState(id);
+    // A level the pad already knows; the host hears it with the arrival
+    SDL_JoystickPowerLevel level = SDL_JoystickCurrentPowerLevel(SDL_GameControllerGetJoystick(c));
+    if (level != SDL_JOYSTICK_POWER_UNKNOWN) sendBattery(id, level);
 }
 
 static void deviceRemoved(SDL_JoystickID id) {
@@ -248,6 +296,32 @@ static void* run(void* arg) {
                 if (!seen && nd < (int)(sizeof(dirty) / sizeof(dirty[0]))) dirty[nd++] = id;
                 break;
             }
+#if SDL_VERSION_ATLEAST(2, 0, 14)
+            case SDL_CONTROLLERSENSORUPDATE:
+                // The core throttles to the host's rate and converts the gyroscope to deg/s
+                if (ev.csensor.sensor == SDL_SENSOR_ACCEL)
+                    gpMotion(gamepadsGlobal(), ev.csensor.which, LI_MOTION_TYPE_ACCEL, ev.csensor.data[0],
+                             ev.csensor.data[1], ev.csensor.data[2], ev.csensor.timestamp);
+                else if (ev.csensor.sensor == SDL_SENSOR_GYRO)
+                    gpMotion(gamepadsGlobal(), ev.csensor.which, LI_MOTION_TYPE_GYRO, ev.csensor.data[0],
+                             ev.csensor.data[1], ev.csensor.data[2], ev.csensor.timestamp);
+                break;
+            case SDL_CONTROLLERTOUCHPADDOWN:
+            case SDL_CONTROLLERTOUCHPADUP:
+            case SDL_CONTROLLERTOUCHPADMOTION:
+                if (ev.ctouchpad.touchpad == 0) { // one touchpad is advertised (a DualSense has one)
+                    int et = ev.type == SDL_CONTROLLERTOUCHPADDOWN ? LI_TOUCH_EVENT_DOWN
+                           : ev.type == SDL_CONTROLLERTOUCHPADUP ? LI_TOUCH_EVENT_UP : LI_TOUCH_EVENT_MOVE;
+                    gpTouch(gamepadsGlobal(), ev.ctouchpad.which, et, (uint32_t)ev.ctouchpad.finger, ev.ctouchpad.x,
+                            ev.ctouchpad.y, ev.ctouchpad.pressure);
+                }
+                break;
+#endif
+#if SDL_VERSION_ATLEAST(2, 24, 0)
+            case SDL_JOYBATTERYUPDATED:
+                sendBattery(ev.jbattery.which, ev.jbattery.level);
+                break;
+#endif
             default:
                 break;
             }
@@ -283,8 +357,12 @@ int gamepadsStart(void (*disconnect)(void*), void* user) {
     }
     PadOutSink sink;
     padOutUseLimelight(&sink);
-    GpHaptics hap = { hapRumble, hapTriggers, NULL };
+    GpHaptics hap = { hapRumble, hapTriggers, hapSensor, hapLed, NULL };
     gamepadsInit(&sink, &hap, logHook, NULL);
+    GpExtraSink extra;
+    memset(&extra, 0, sizeof(extra));
+    gpUseLimelightExtras(&extra);
+    gpSetExtraSink(gamepadsGlobal(), &extra);
     gamepadsSetDisconnectHook(disconnect, user);
     const char* quit = getenv("NO_GAMEPAD_QUIT"); // moonlight-qt's switch
     if (quit && !strcmp(quit, "1")) gpSetChordEnabled(gamepadsGlobal(), 0);

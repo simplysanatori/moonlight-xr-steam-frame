@@ -27,6 +27,50 @@ static void say(Gamepads* g, char level, const char* fmt, ...) {
 
 int gpIsChord(int buttonFlags) { return buttonFlags == CHORD_BUTTONS; }
 
+uint16_t gpCapsFor(const GpDeviceFacts* f) {
+    uint16_t caps = 0;
+    if (f->analogTriggers) caps |= LI_CCAP_ANALOG_TRIGGERS;
+    if (f->rumble) caps |= LI_CCAP_RUMBLE;
+    if (f->triggerRumble) caps |= LI_CCAP_TRIGGER_RUMBLE;
+    if (f->touchpads > 0) caps |= LI_CCAP_TOUCHPAD;
+    if (f->accel) caps |= LI_CCAP_ACCEL;
+    if (f->gyro) caps |= LI_CCAP_GYRO;
+    if (f->battery) caps |= LI_CCAP_BATTERY_STATE;
+    if (f->led) caps |= LI_CCAP_RGB_LED;
+    return caps;
+}
+
+int gpBatteryFromPowerLevel(int level, uint8_t* state, uint8_t* percentage) {
+    switch (level) {
+    case -1: // SDL_JOYSTICK_POWER_UNKNOWN
+        *state = LI_BATTERY_STATE_UNKNOWN;
+        *percentage = LI_BATTERY_PERCENTAGE_UNKNOWN;
+        return 1;
+    case 0: // EMPTY
+        *state = LI_BATTERY_STATE_DISCHARGING;
+        *percentage = 5;
+        return 1;
+    case 1: // LOW
+        *state = LI_BATTERY_STATE_DISCHARGING;
+        *percentage = 20;
+        return 1;
+    case 2: // MEDIUM
+        *state = LI_BATTERY_STATE_DISCHARGING;
+        *percentage = 50;
+        return 1;
+    case 3: // FULL
+        *state = LI_BATTERY_STATE_DISCHARGING;
+        *percentage = 90;
+        return 1;
+    case 4: // WIRED
+        *state = LI_BATTERY_STATE_CHARGING;
+        *percentage = LI_BATTERY_PERCENTAGE_UNKNOWN;
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 void gpInit(Gamepads* g, const PadOutSink* sink, const GpHaptics* haptics, GpLog log, void* logUser) {
     memset(g, 0, sizeof(*g));
     pthread_mutex_init(&g->lock, NULL);
@@ -44,6 +88,13 @@ void gpDestroy(Gamepads* g) {
     if (!g->ready) return;
     g->ready = 0;
     pthread_mutex_destroy(&g->lock);
+}
+
+void gpSetExtraSink(Gamepads* g, const GpExtraSink* extra) {
+    pthread_mutex_lock(&g->lock);
+    memset(&g->extra, 0, sizeof(g->extra));
+    if (extra) g->extra = *extra;
+    pthread_mutex_unlock(&g->lock);
 }
 
 void gpSetDisconnectHook(Gamepads* g, void (*fn)(void*), void* user) {
@@ -131,6 +182,43 @@ static int isRest(const PadOutPacket* pk) {
     return memcmp(pk, &rest, sizeof(rest)) == 0;
 }
 
+// The pad's battery, once per change, while it is on the host (moonlight-qt
+// sends it at arrival and on SDL's battery event)
+static void sendBattery(Gamepads* g, GpSlot* s) {
+    if (!s->haveBattery || !live(g) || !s->announced || !(s->info.caps & LI_CCAP_BATTERY_STATE)) return;
+    if (s->batterySent && s->batteryHost[0] == s->battery[0] && s->batteryHost[1] == s->battery[1]) return;
+    s->batteryHost[0] = s->battery[0];
+    s->batteryHost[1] = s->battery[1];
+    s->batterySent = 1;
+    if (g->extra.battery) g->extra.battery(g->extra.user, (uint8_t)s->number, s->battery[0], s->battery[1]);
+}
+
+// Motion types are LI_MOTION_TYPE_ACCEL (1) and _GYRO (2); the slot's arrays take 0 and 1
+static int motionIndex(int motionType) {
+    return motionType == LI_MOTION_TYPE_ACCEL ? 0 : (motionType == LI_MOTION_TYPE_GYRO ? 1 : -1);
+}
+
+static int motionTypeOf(int index) { return index ? LI_MOTION_TYPE_GYRO : LI_MOTION_TYPE_ACCEL; }
+
+// A sensor runs only while the pad is on the host and the host asked for it
+// (power: moonlight-common-c's own advice)
+static void applySensors(Gamepads* g, GpSlot* s) {
+    for (int t = 0; t < 2; t++) {
+        int want = (live(g) && s->announced) ? s->motionHz[t] : 0;
+        if (want == s->sensorHz[t]) continue;
+        s->sensorHz[t] = want;
+        s->haveMotion[t] = 0;
+        if (g->haptics.setSensor) g->haptics.setSensor(g->haptics.user, s->src[0].id, motionTypeOf(t), want);
+    }
+}
+
+// Fingers the host has down are let go (focus lost, pad or stream gone)
+static void cancelTouches(Gamepads* g, GpSlot* s) {
+    if (!s->touchDown) return;
+    s->touchDown = 0;
+    if (g->extra.touch) g->extra.touch(g->extra.user, (uint8_t)s->number, LI_TOUCH_EVENT_CANCEL_ALL, 0, 0, 0, 0);
+}
+
 static void announce(Gamepads* g, GpSlot* s) {
     atomic_fetch_or(&g->announcedMask, 1 << s->number);
     if (g->sink.arrival) {
@@ -144,6 +232,8 @@ static void announce(Gamepads* g, GpSlot* s) {
     // The first state whatever it is, as pad_out does
     if (s->latched) sendRest(g, s);
     else sendPacket(g, s, &s->cur);
+    s->batterySent = 0;
+    sendBattery(g, s);
 }
 
 // The host loses the pad: a last packet at rest with the mask that no longer
@@ -152,9 +242,11 @@ static void unannounce(Gamepads* g, GpSlot* s) {
     if (!s->announced) return;
     atomic_fetch_and(&g->announcedMask, ~(1 << s->number));
     sendRest(g, s);
+    cancelTouches(g, s);
     s->announced = 0;
     s->haveSent = 0;
     s->latched = 0;
+    s->batterySent = 0;
     g->removals++;
 }
 
@@ -320,6 +412,12 @@ void gpRemove(Gamepads* g, int id) {
         // One of the two went: the other is the pad now
         say(g, 'I', "gamepad #%d: %s gone, %s stays", s->number, s->info.name, which == 0 ? "its Steam Input copy" : "the real pad");
         if (which == 0) {
+            // The real pad took its sensors, touchpad and battery with it
+            cancelTouches(g, s);
+            memset(s->motionHz, 0, sizeof(s->motionHz));
+            memset(s->sensorHz, 0, sizeof(s->sensorHz));
+            memset(s->haveMotion, 0, sizeof(s->haveMotion));
+            s->haveBattery = 0;
             s->src[0] = s->src[1];
             s->virtualOnly = 1;
         }
@@ -330,6 +428,7 @@ void gpRemove(Gamepads* g, int id) {
     } else if (s) {
         say(g, 'I', "gamepad #%d gone: %s", s->number, s->info.name);
         unannounce(g, s);
+        applySensors(g, s); // announced is 0: off, while the device can still be told
         s->used = 0;
     }
     pthread_mutex_unlock(&g->lock);
@@ -369,7 +468,9 @@ void gpSetActive(Gamepads* g, int active) {
                     // Focus lost: nothing stays pressed or rumbling on the host
                     if (!s->haveSent || !isRest(&s->sent)) sendRest(g, s);
                     stopRumble(g, s);
+                    cancelTouches(g, s);
                 }
+                applySensors(g, s);
             }
         }
     }
@@ -383,6 +484,11 @@ void gpStreamStart(Gamepads* g) {
     for (int i = 0; i < GP_MAX; i++) {
         GpSlot* s = &g->slot[i];
         s->announced = s->haveSent = s->latched = 0;
+        // A new host asks for its sensors again
+        memset(s->motionHz, 0, sizeof(s->motionHz));
+        s->touchDown = 0;
+        s->batterySent = 0;
+        if (s->used) applySensors(g, s);
     }
     if (g->active)
         for (int i = 0; i < GP_MAX; i++)
@@ -398,6 +504,8 @@ void gpStreamStop(Gamepads* g) {
             if (!s->used) continue;
             if (s->announced) stopRumble(g, s);
             unannounce(g, s);
+            memset(s->motionHz, 0, sizeof(s->motionHz));
+            applySensors(g, s);
         }
         g->streaming = 0;
     }
@@ -452,6 +560,101 @@ int gpRumbleTriggers(Gamepads* g, unsigned short number, unsigned short left, un
     return mine;
 }
 
+int gpMotionState(Gamepads* g, unsigned short number, unsigned char motionType, unsigned short rateHz) {
+    int mine = 0;
+    pthread_mutex_lock(&g->lock);
+    for (int i = 0; i < GP_MAX; i++) {
+        GpSlot* s = &g->slot[i];
+        if (!s->used || s->number != number) continue;
+        mine = 1;
+        int t = motionIndex(motionType);
+        if (t < 0 || !(s->info.caps & (t ? LI_CCAP_GYRO : LI_CCAP_ACCEL))) {
+            say(g, 'I', "gamepad #%d: the host asked for motion type %u at %u Hz, which this pad does not have, ignored",
+                s->number, (unsigned)motionType, (unsigned)rateHz);
+            break;
+        }
+        say(g, 'I', "gamepad #%d: the host %s the %s at %u Hz", s->number, rateHz ? "asks for" : "stops",
+            t ? "gyroscope" : "accelerometer", (unsigned)rateHz);
+        s->motionHz[t] = rateHz;
+        applySensors(g, s);
+        break;
+    }
+    pthread_mutex_unlock(&g->lock);
+    return mine;
+}
+
+int gpSetLed(Gamepads* g, unsigned short number, uint8_t red, uint8_t green, uint8_t blue) {
+    int mine = 0;
+    pthread_mutex_lock(&g->lock);
+    for (int i = 0; i < GP_MAX; i++) {
+        GpSlot* s = &g->slot[i];
+        if (!s->used || s->number != number) continue;
+        mine = 1;
+        if (live(g) && s->announced && (s->info.caps & LI_CCAP_RGB_LED) && g->haptics.setLed)
+            g->haptics.setLed(g->haptics.user, s->src[0].id, red, green, blue);
+        break;
+    }
+    pthread_mutex_unlock(&g->lock);
+    return mine;
+}
+
+// SDL's gyroscope is rad/s, Moonlight's deg/s (moonlight-qt's constant)
+#define RAD_TO_DEG 57.2957795f
+
+void gpMotion(Gamepads* g, int id, int motionType, float x, float y, float z, uint32_t timestampMs) {
+    pthread_mutex_lock(&g->lock);
+    int which = 0;
+    GpSlot* s = find(g, id, &which);
+    int t = motionIndex(motionType);
+    // Only the real pad has sensors: its Steam Input copy has none
+    if (s && which == 0 && t >= 0 && live(g) && s->announced && s->sensorHz[t] > 0) {
+        uint32_t period = 1000u / (uint32_t)s->sensorHz[t];
+        if (period == 0) period = 1;
+        const float v[3] = { x, y, z };
+        int due = !s->haveMotion[t] || (int32_t)(timestampMs - (s->motionMs[t] + period)) >= 0;
+        if (due && !(s->haveMotion[t] && memcmp(v, s->lastMotion[t], sizeof(v)) == 0)) {
+            memcpy(s->lastMotion[t], v, sizeof(v));
+            s->motionMs[t] = timestampMs;
+            s->haveMotion[t] = 1;
+            float k = t ? RAD_TO_DEG : 1.0f;
+            if (g->extra.motion)
+                g->extra.motion(g->extra.user, (uint8_t)s->number, (uint8_t)motionType, x * k, y * k, z * k);
+            g->motions++;
+        } else {
+            g->motionsDropped++;
+        }
+    }
+    pthread_mutex_unlock(&g->lock);
+}
+
+void gpBattery(Gamepads* g, int id, uint8_t state, uint8_t percentage) {
+    pthread_mutex_lock(&g->lock);
+    int which = 0;
+    GpSlot* s = find(g, id, &which);
+    if (s && which == 0) {
+        s->haveBattery = 1;
+        s->battery[0] = state;
+        s->battery[1] = percentage;
+        sendBattery(g, s);
+    }
+    pthread_mutex_unlock(&g->lock);
+}
+
+void gpTouch(Gamepads* g, int id, int eventType, uint32_t finger, float x, float y, float pressure) {
+    pthread_mutex_lock(&g->lock);
+    int which = 0;
+    GpSlot* s = find(g, id, &which);
+    if (s && which == 0 && live(g) && s->announced && (s->info.caps & LI_CCAP_TOUCHPAD)) {
+        if (finger < 32) {
+            if (eventType == LI_TOUCH_EVENT_DOWN) s->touchDown |= 1u << finger;
+            else if (eventType == LI_TOUCH_EVENT_UP || eventType == LI_TOUCH_EVENT_CANCEL) s->touchDown &= ~(1u << finger);
+        }
+        if (g->extra.touch)
+            g->extra.touch(g->extra.user, (uint8_t)s->number, (uint8_t)eventType, finger, x, y, pressure);
+    }
+    pthread_mutex_unlock(&g->lock);
+}
+
 // ---- the one instance -------------------------------------------------------
 
 static Gamepads gGlobal;
@@ -490,6 +693,15 @@ void gamepadsReleaseFramePad(void) {
 
 int gamepadsAnnouncedMask(void) {
     return gGlobal.ready ? gpAnnouncedMask(&gGlobal) : 0;
+}
+
+void gamepadsHostMotionState(uint16_t controllerNumber, uint8_t motionType, uint16_t reportRateHz) {
+    // Gamepad mode's pad is not one of ours and has no sensors: the request is dropped
+    if (gGlobal.ready) gpMotionState(&gGlobal, controllerNumber, motionType, reportRateHz);
+}
+
+void gamepadsHostSetLed(uint16_t controllerNumber, uint8_t red, uint8_t green, uint8_t blue) {
+    if (gGlobal.ready) gpSetLed(&gGlobal, controllerNumber, red, green, blue);
 }
 
 void gamepadsHostRumble(unsigned short controllerNumber, unsigned short lowFreqMotor,

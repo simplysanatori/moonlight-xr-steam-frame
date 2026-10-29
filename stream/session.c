@@ -354,6 +354,10 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     // Native: a physical pad (input/gamepads) takes the rumble for its number, else gamepad mode (M3)
     cl.rumble = gamepadsHostRumble;
     cl.rumbleTriggers = gamepadsHostRumbleTriggers;
+    // Native: the host's request for a physical pad's gyro/accelerometer and LED. The Frame's own pad
+    // (gamepad mode) has neither, so a request for its number is dropped.
+    cl.setMotionEventState = gamepadsHostMotionState;
+    cl.setControllerLED = gamepadsHostSetLed;
 
     DECODER_RENDERER_CALLBACKS dr;
     LiInitializeVideoCallbacks(&dr);
