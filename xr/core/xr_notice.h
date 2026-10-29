@@ -77,7 +77,11 @@ int splashWedges(const Splash* splash, int64_t now);
 // same thing as the one up replaces it at once, being the newer word on it,
 // and one about something else waits until the one up has had NOTICE_MIN_NS.
 // A few can wait their turn; past that the oldest waiting is dropped.
-#define NOTICE_SHOW_NS 4000000000LL
+//
+// Native: 2.5 seconds, not upstream's 4, which read as a popup that outstays
+// its news (upstream #42). The text notices carry a second line (the way back
+// from gamepad mode), which still reads in that time.
+#define NOTICE_SHOW_NS 2500000000LL
 #define NOTICE_MIN_NS 1500000000LL
 #define NOTICE_QUEUE 4
 
@@ -92,17 +96,35 @@ typedef struct {
     // What is up and since when, kind -1 while nothing is
     Notice current;
     int64_t sinceNs;
+    // Native: NOTICES_ALL, NOTICES_IMPORTANT or NOTICES_OFF (config.ini notices)
+    int level;
 } NoticeBoard;
 
+// Empty, at NOTICES_ALL
 void noticeInit(NoticeBoard* board);
+
+// Whether a notice is worth interrupting for: false for the ones that only
+// report what already happened (the display rate, the 3D going on or off),
+// true for mode changes and text messages, which carry errors and warnings,
+// and for any kind not listed
+int noticeImportant(int kind);
+
+// Whether a notice of this kind is said at a level (NOTICES_*): all of them
+// at ALL, the important ones at IMPORTANT, none at OFF. An unknown level
+// counts as ALL.
+int noticeAllowed(int level, int kind);
+
+// Sets the level. Waiting notices it would not have let in are dropped, and
+// one already up that it would not say is taken down at once.
+void noticeSetLevel(NoticeBoard* board, int level);
 
 // Which notices are about the same thing: a lock and an unlock, the 3D going
 // off and on, head aim going off and on, the controllers going to the pad and
 // back, two display rates, two messages
 int noticeGroup(int kind);
 
-// Queued to be said. One about the same thing already waiting is replaced
-// where it stands.
+// Queued to be said, unless the board's level leaves it out. One about the
+// same thing already waiting is replaced where it stands.
 void noticePush(NoticeBoard* board, int kind, int arg);
 
 // Retires the notice up once its time is over and puts the next one up when

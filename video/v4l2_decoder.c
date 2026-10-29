@@ -167,6 +167,13 @@ static int setup_output(mlxr_vdec *d)
 	f.fmt.pix_mp.num_planes = 1;
 	if (XIOCTL(d->fd, VIDIOC_S_FMT, &f) < 0)
 		return MLXR_VDEC_E_IO;
+	// Nothing here bounds the access-unit size: the driver picks sizeimage for
+	// the size hint and the buffers are mapped at that length, so a frame
+	// above it takes the E_TOO_BIG path in submit. With bitrates now allowed to
+	// 500 Mbps an IDR at 300+ Mbps can run to a few MB. The sizeimage the Frame
+	// returns is not known (only the verbose line below reports it), so it is
+	// left as the driver gave it until a headset run shows the number; if it
+	// turns out small, ask for more with plane_fmt[0].sizeimage before S_FMT.
 	if (d->cfg.verbose) {
 		char b[5];
 		vlog("OUTPUT %s %ux%u sizeimage %u", fourcc_str(f.fmt.pix_mp.pixelformat, b),

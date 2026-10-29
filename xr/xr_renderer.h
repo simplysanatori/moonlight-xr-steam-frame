@@ -248,7 +248,9 @@ static inline float nativePointerTunable(const char* env, float def) {
 // in metres
 #define TOAST_W_M 0.56f
 #define TOAST_DISTANCE_M 0.80f
-#define TOAST_DROP_M 0.14f
+// Native: 0.22 m, about 15 degrees below the gaze (was 0.14), so a notice sits
+// off the middle of the view instead of across it
+#define TOAST_DROP_M 0.22f
 
 // How far the ray runs when it is aimed at nothing at all, in metres
 #define FREE_BEAM_M 4.0f
@@ -1157,6 +1159,8 @@ void setRayOn(XrCtx* ctx, int on, const char* from);
 int panelUp(XrCtx* ctx);
 XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int exitPromptZone(float u, float v);
+int exitPromptZoneFor(float u, float v, int withDisconnect);
+int exitPromptHasDisconnect(const XrCtx* ctx);
 XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);
 XrPosef handHintPose(XrCtx* ctx, float* outWidth, float* outHeight);
 XrPosef kofiSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);

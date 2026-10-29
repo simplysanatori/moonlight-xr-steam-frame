@@ -111,12 +111,12 @@ The bar sits under the screen. From left to right:
 | --- | --- |
 | Head aim | Only shown with Head locked on and outside a room. Your head moves the mouse. |
 | Gamepad / Pointer | Switches the controllers between pointer mode and gamepad mode. |
-| Exit | Asks "Exit the stream?". **Exit** quits the app on the PC and ends the stream. |
+| Exit | Asks "Exit the stream?" with three choices. **Quit app** quits the app on the PC and ends the stream. **Disconnect** ends the stream and leaves the app running on the PC (use **Resume Game** in the flat window to go back). **Cancel** closes the question. |
 | Environment | Opens the Rooms picker. |
 | Move pill | Grab it to move the screen. See [Moving and sizing the screen](#moving-and-sizing-the-screen). |
 | Cog | Opens the cog menu. |
 | Keyboard | Opens or closes the headset keyboard. |
-| Ray | Shows or hides the controller ray for this session. |
+| Ray | Shows or hides the controller ray for this session only. The cog's Ray row is the saved one. |
 | 3D | Only shown when the depth model is ready. Turns 3D on or off. |
 
 ## The cog menu
@@ -159,11 +159,12 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Head aim | Off, On | Off. Needs Head locked; not in a room. |
 | Controllers | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
 | Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
-| Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. |
+| Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. Bar = this session, cog = saved: the choice here is kept for the next session, the bar's Ray button is not. |
 | Controller model | Off, On | Off |
 | Click sound | Off, On | On |
 | Glow | Off, On | Off |
 | Screen light | Off, On | On |
+| Notices | All, Important, Off | All. The small pop-ups that appear below the picture for about 2.5 seconds. Important leaves out "Display N Hz" and "3D on/off" and keeps mode changes (gamepad, head aim, hands) and messages such as errors. Off shows none. The flat window's Settings page has the same choice. |
 | Glow level | 0 to 100 % | 50 % |
 
 ### 3D
@@ -288,7 +289,8 @@ Display tab, Controller model. The installer converts SteamVR's own Steam Frame 
 
 | How | What happens on the PC |
 | --- | --- |
-| Bar, Exit, then Exit | The app on the PC is quit. |
+| Bar, Exit, then Quit app | The app on the PC is quit. |
+| Bar, Exit, then Disconnect | The stream ends. The game keeps running on the PC. Use **Resume Game** in the flat window to go back. |
 | Start+Select+L1+R1 (gamepad mode, or a Bluetooth gamepad) | The stream ends. The game keeps running on the PC. Use **Resume Game** in the flat window to go back. |
 | Ctrl+Alt+Shift+Q on a Bluetooth keyboard | Same as Start+Select+L1+R1. |
 | The PC ends the stream, or the network drops | The flat window comes back. |
@@ -336,6 +338,12 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | `[vr] depth_source` | `zipdepth`, `zipdepth-int8`, `midas` | `zipdepth` |
 | `[vr] hand_tracking` | `true`, `false` | `false`. Untested on the Frame. |
 | `[vr] gaze` | `true`, `false` | `false`. Untested on the Frame. |
+| `[vr] pointer` | `true`, `false` | `true`. `false` turns the controllers' pointer off, so only the switch to gamepad mode is read. |
+| `[vr] env_res` | `low`, `standard`, `high`, `ultra` | `standard`. How sharp the rooms are drawn: `low` is half the headset's recommended size, `ultra` the largest the runtime allows. Read when a room is built, so it applies from the next stream. |
+| `[debug] depth_rate` | 5 to 45 | 20. The most depth maps made per second in 3D. Lower saves the CPU; the picture still follows the video. |
+| `[debug] depth_debug` | `true`, `false` | `false`. Shows the depth map in place of the picture. |
+| `[debug] eye_swap` | `true`, `false` | `false`. Swaps the left and right eye in 3D. For checking a wrong-way picture. |
+| `[stream] bitrate_kbps` | 0, or 500 to 500000 | 0, which follows the resolution and refresh rate. A bitrate the flat window passes for a stream overrides it. The flat window's Custom bitrate goes up to 500 Mbps, and so does this. |
 | `[stream] virtual_surround` | `true`, `false` | `false`. Places 5.1 and 7.1 speakers around you in stereo. |
 | `[debug] file_log` | `off`, `basic`, `verbose` | `basic` |
 

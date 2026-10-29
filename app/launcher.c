@@ -239,6 +239,10 @@ void launcher_disconnect_keys(Launcher* l) {
     disconnectWith(l, UIS_NATIVE_DISCONNECTED_KEYS);
 }
 
+void launcher_disconnect_bar(Launcher* l) {
+    disconnectWith(l, UIS_NATIVE_DISCONNECTED_BAR);
+}
+
 int launcher_take_cmd(Launcher* l, LaunchCmd* out) {
     if (l->ncmd == 0) return 0;
     *out = l->cmds[0];

@@ -2891,7 +2891,7 @@ static void updateExitPrompt(XrCtx* ctx, InputFrame* f) {
         f->hand = h;
         f->hitU[h] = pu;
         f->hitV[h] = pv;
-        ctx->exitHoverZone = exitPromptZone(pu, pv);
+        ctx->exitHoverZone = exitPromptZoneFor(pu, pv, exitPromptHasDisconnect(ctx));
 
         if (ctx->triggerEdge[h]) {
             // The two buttons tick, and the rest of the sheet only closes it
@@ -2902,8 +2902,13 @@ static void updateExitPrompt(XrCtx* ctx, InputFrame* f) {
                 // Said once. Java takes the session down from here, and
                 // the prompt closes either way so a refused exit leaves
                 // the button usable.
-                f->out[IN_EXIT] = 1.0f;
+                f->out[IN_EXIT] = (float)EXIT_SLOT_QUIT;
                 LOGI("exit confirmed from the prompt");
+            }
+            else if (ctx->exitHoverZone == EXIT_ZONE_DISCONNECT) {
+                // Native: leaves the stream, the app keeps running on the PC
+                f->out[IN_EXIT] = (float)EXIT_SLOT_DISCONNECT;
+                LOGI("disconnect confirmed from the prompt");
             }
             ctx->exitConfirmOpen = 0;
             swallowTrigger(ctx, h);

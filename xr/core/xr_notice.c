@@ -82,6 +82,42 @@ void noticeInit(NoticeBoard* board) {
     board->current.kind = -1;
     board->current.arg = 0;
     board->sinceNs = 0;
+    board->level = NOTICES_ALL;
+}
+
+int noticeImportant(int kind) {
+    switch (kind) {
+        case TOAST_RATE:
+        case TOAST_3D_OFF:
+        case TOAST_3D_ON:
+            return 0;
+        default:
+            return 1;
+    }
+}
+
+int noticeAllowed(int level, int kind) {
+    if (level == NOTICES_OFF) {
+        return 0;
+    }
+    if (level == NOTICES_IMPORTANT) {
+        return noticeImportant(kind);
+    }
+    return 1;
+}
+
+void noticeSetLevel(NoticeBoard* board, int level) {
+    board->level = level < NOTICES_ALL || level > NOTICES_OFF ? NOTICES_ALL : level;
+    int kept = 0;
+    for (int i = 0; i < board->count; i++) {
+        if (noticeAllowed(board->level, board->waiting[i].kind)) {
+            board->waiting[kept++] = board->waiting[i];
+        }
+    }
+    board->count = kept;
+    if (board->current.kind >= 0 && !noticeAllowed(board->level, board->current.kind)) {
+        board->current.kind = -1;
+    }
 }
 
 int noticeGroup(int kind) {
@@ -104,7 +140,7 @@ int noticeGroup(int kind) {
 }
 
 void noticePush(NoticeBoard* board, int kind, int arg) {
-    if (kind < 0) {
+    if (kind < 0 || !noticeAllowed(board->level, kind)) {
         return;
     }
     Notice notice = { kind, arg };
