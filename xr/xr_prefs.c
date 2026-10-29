@@ -295,6 +295,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetShowRay(ctx, s->show_ray);
     ctx->dotOn = s->pointer_dot;
     ctx->kbLayout = s->keyboard_layout == KB_LAYOUT_FULL ? KB_LAYOUT_FULL : KB_LAYOUT_COMPACT;
+    ctx->kbMap = s->keyboard_keymap;
     kbfSetHoldMs(&ctx->kbFull, s->keyboard_hold_ms);
     xrSetHeadAim(ctx, s->head_aim, s->head_aim_sensitivity, s->head_aim_deadzone);
     // The stick dead zone is the launcher slider's when it was moved, else Moonlight's own
@@ -355,6 +356,7 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->notices = ctx->notices.level;
     s->pointer_dot = ctx->dotOn;
     s->keyboard_layout = ctx->kbLayout;
+    s->keyboard_keymap = ctx->kbMap;
     s->head_aim_sensitivity = ctx->headAimSensitivity;
     s->head_aim_deadzone = ctx->headAimDeadZone;
     for (int row = 0; row < PICTURE_VALUES; row++) {

@@ -83,6 +83,7 @@ The page has the categories below, in this order. A greyed row shows "Not availa
 | Surround sound configuration | Stereo, 5.1 Surround Sound, 7.1 Surround Sound | Stereo |
 | Adjust analog stick deadzone | -20 to 20 % | 0 %. Above 0 it is also the dead zone of the Frame controllers in gamepad mode, which use 7 % at 0. |
 | Flip face buttons | on, off | off. Swaps A/B and X/Y. |
+| Headset keyboard layout | QWERTY (US), AZERTY (French), QWERTZ (German) | QWERTY. The PC must be on the same Windows layout, see [AZERTY and QWERTZ](#azerty-and-qwertz). |
 | Enable Rumble | on, off | on |
 | Enable forward/back mouse buttons | on, off | on |
 | Optimize game settings | on, off | on |
@@ -283,9 +284,20 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 
 Gyro from Bluetooth pads reaches the PC as a DualSense-class pad. A pad with a gyroscope (a DualSense, DualShock 4 or Switch Pro pad, for example) tells the PC so when it arrives, and the PC asks for the motion data only when a game or Steam Input wants it. This needs Apollo or Sunshine with DS4 emulation on the PC (Apollo: ViGEmBus installed). The Frame controllers in gamepad mode are an Xbox pad and never send motion. The same pad's battery level, touchpad (DualSense) and light bar colour are passed on too.
 
+### AZERTY and QWERTZ
+
+The headset keyboard can show French (AZERTY) or German (QWERTZ) letters. Pick it in the launcher's Settings page under Input Settings ("Headset keyboard layout"), or set `[vr] keyboard_keymap` in `config.ini` to `qwerty` (the default), `azerty` or `qwertz`.
+
+**The PC has to be on the matching Windows keyboard layout.** The keys do not send letters. Like a real keyboard, each one sends the position of a key on a US keyboard, and Windows turns that position into a character with the layout the PC is set to. This is the same for a Bluetooth keyboard. With AZERTY picked and the PC on a US layout, the key labelled "a" types "q". Pick the layout here that is active on the PC (Windows: Settings, Time & language, Language & region, Typing, and the language bar). The keyboard cannot see the PC's layout, so it does not switch by itself.
+
+- **AZERTY** matches Windows "French (France)". The number row shows `& é " ' ( - è _ ç à`, and the Shift sheet shows the digits. The Compact keyboard has `ù` on the symbols sheet and the letter `m` at the end of the bottom letter row. The `^` key of the Full keyboard is a dead key, as on a real French keyboard.
+- **QWERTZ** matches Windows "German (Germany)". The Compact keyboard has `ä ö ü ß` and the capitals on the symbols sheet, and the brackets `[ ] { } \ |`, `<` and `>` on the Fn sheet. `^` and the acute accent are dead keys on the Full keyboard, as on a real German keyboard: press a letter after them, or space for the accent alone.
+- The Full keyboard grows the extra key that French and German keyboards have beside the left Shift (`<` and `>`), so the left Shift is shorter. For the characters on AltGr (`@`, `#`, `{`, `[`, `|`, `\`, `€`), tap the right Alt: Windows reads it as AltGr on these layouts. The Compact keyboard types those characters as text, which works on any layout.
+- The report sheet's note field always shows the QWERTY keys.
+
 ### Controller models
 
-Display tab, Controller model. The installer converts SteamVR's own Steam Frame controller models on your Frame, so the models match the real controllers and move with your buttons and sticks. Valve's models are never in the download. If the conversion fails, a generic controller is shown.
+Display tab, Controller model. The installer converts SteamVR's own Steam Frame controller models on your Frame, so the models match the real controllers and move with your buttons and sticks. Valve's models are never in the download. If the conversion fails, a generic controller is shown. To draw a model of your own, convert it with `tools/xr/make_model.py`; see [Custom controller models](CUSTOM_MODELS.md).
 
 ## Ending a stream
 
@@ -337,6 +349,7 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | `[vr] rumble_intensity` | 0 to 100 (%), the scale on the PC's rumble on the controllers | 100 |
 | `[vr] pad_grip` | `bumpers` (the grips are LB and RB), `none` (the grips do nothing in gamepad mode), `stick_clicks` (the grips are LS and RS) | `bumpers` |
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |
+| `[vr] keyboard_keymap` | `qwerty`, `azerty` (French), `qwertz` (German). What the headset keyboard's keys say. The PC must be on the matching Windows layout. | `qwerty` |
 | `[vr] depth_source` | `zipdepth`, `zipdepth-int8`, `midas` | `zipdepth` |
 | `[vr] hand_tracking` | `true`, `false` | `false`. Untested on the Frame. |
 | `[vr] gaze` | `true`, `false` | `false`. Untested on the Frame. |

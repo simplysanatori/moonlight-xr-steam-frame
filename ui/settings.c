@@ -45,6 +45,7 @@ static const char* const ENVRES_NAMES[] = { "low", "standard", "high", "ultra" }
 static const char* const NOTICES_NAMES[] = { "all", "important", "off" };
 static const char* const LOG_NAMES[] = { "off", "basic", "verbose" };
 static const char* const KBLAYOUT_NAMES[] = { "compact", "full" };
+static const char* const KEYMAP_NAMES[] = { "qwerty", "azerty", "qwertz" };
 static const char* const SHARP_NAMES[] = { "off", "normal", "quality" };
 
 #define NAMES(a) (a), (int)(sizeof(a) / sizeof((a)[0]))
@@ -84,6 +85,7 @@ static const SettingDesc TABLE[] = {
     DB("vr", "show_ray", show_ray, 1, "checkbox_vr_show_ray: show the controller ray"),
     DB("vr", "pointer_dot", pointer_dot, 1, "native: the dot where the ray lands (the host draws its own cursor into the video, which the Moonlight protocol cannot hide)"),
     DE("vr", "keyboard_layout", keyboard_layout, KBLAYOUT_NAMES, 0, "native: the headset keyboard, compact (Moonlight XR's) or full (tenkeyless); the key on each keyboard flips it"),
+    DE("vr", "keyboard_keymap", keyboard_keymap, KEYMAP_NAMES, 0, "native: what the headset keyboard's keys say, qwerty, azerty (French) or qwertz (German); the keys send the US keyboard's positions, so the PC must be on the matching Windows layout"),
     DI("vr", "keyboard_hold_ms", keyboard_hold_ms, 200, 1500, 500, "native: milliseconds a Shift, Ctrl, Alt or Win key is held on the full keyboard to lock it down (a tap lights it for the next key)"),
     DB("vr", "controller_model", controller_model, 0, "checkbox_vr_controller_model: draw a controller in each hand"),
     DB("vr", "head_aim", head_aim, 0, "checkbox_vr_head_aim: head aims the mouse (screen head locked, outside a room)"),
