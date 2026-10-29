@@ -3773,6 +3773,7 @@ static void restPad(XrCtx* ctx, const char* why) {
     padRest(&s);
     padToggleReset(&ctx->padToggle);
     padChordReset(&ctx->padChord, ctx->padChord.parts);
+    padGuideReset(&ctx->padGuide);
     settlePad(ctx, padPlugged(ctx), 0, &s, why);
 }
 
@@ -3810,6 +3811,18 @@ static void hapticOut(XrCtx* ctx, int h, int action, float amp) {
 // being 0 where nothing is read this frame, which stops them. What the host
 // asked for stands while the pad is plugged in and goes when it comes out.
 static void updateRumble(XrCtx* ctx, int live) {
+    // Whether the host's rumble reaches us at all, the one line to look for in the log when
+    // nothing is felt: said once per stream, before anything below can hold it back
+    RumbleWord first;
+    if (rumbleTakeFirst(rumbleGlobal(), &first)) {
+        LOGI("rumble: the host's first request: low motor %u, high motor %u, left trigger %u, "
+             "right trigger %u (of 65535); %s; haptic action %s",
+             (unsigned)first.low, (unsigned)first.high, (unsigned)first.leftTrigger,
+             (unsigned)first.rightTrigger,
+             ctx->padAttached ? "gamepad mode is on, the controllers are the pad"
+                              : "gamepad mode is off, so nothing is felt until it is on",
+             ctx->hapticBound ? "bound" : "not bound");
+    }
     if (ctx->hapticAction == XR_NULL_HANDLE || !ctx->hapticBound) {
         return;
     }
@@ -3910,7 +3923,8 @@ static void updatePad(XrCtx* ctx) {
         PadState rawPad;
         int rawGrips[HAND_COUNT] = { raw[HAND_LEFT].grip >= PAD_GRIP_ON,
                                      raw[HAND_RIGHT].grip >= PAD_GRIP_ON };
-        padMap(&raw[HAND_LEFT], &raw[HAND_RIGHT], rawGrips, 1, ctx->padDeadzone, &rawPad);
+        padMapGrips(&raw[HAND_LEFT], &raw[HAND_RIGHT], rawGrips, 1, ctx->padDeadzone,
+                    ctx->padGripMode, &rawPad);
         logChord(ctx, chord, &rawPad);
     }
 
@@ -3925,7 +3939,19 @@ static void updatePad(XrCtx* ctx) {
     }
 
     PadState s;
-    padMap(&seen[HAND_LEFT], &seen[HAND_RIGHT], ctx->padGrip, startOk, ctx->padDeadzone, &s);
+    padMapGrips(&seen[HAND_LEFT], &seen[HAND_RIGHT], ctx->padGrip, startOk, ctx->padDeadzone,
+                ctx->padGripMode, &s);
+    // The Guide chord, left View with right Menu: only the pad's, so the pointer's frames
+    // neither start nor log one
+    if (ctx->padMode) {
+        if (padGuideStep(&ctx->padGuide, &s, now)) {
+            LOGI("gamepad: Guide button (left View + right Menu held %ld ms), Start and Back "
+                 "kept off until let go", (long)(PAD_GUIDE_HOLD_NS / 1000000L));
+        }
+    }
+    else {
+        padGuideReset(&ctx->padGuide);
+    }
     int plugged = padPlugged(ctx);
     settlePad(ctx, plugged, plugged && !panelUp(ctx), &s, "a panel is up");
 }

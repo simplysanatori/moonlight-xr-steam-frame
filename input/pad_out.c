@@ -28,6 +28,7 @@ static const struct {
     { PAD_B, B_FLAG },
     { PAD_X, X_FLAG },
     { PAD_Y, Y_FLAG },
+    { PAD_GUIDE, SPECIAL_FLAG },
 };
 #define BUTTON_COUNT ((int)(sizeof(kButtonMap) / sizeof(kButtonMap[0])))
 
@@ -129,7 +130,7 @@ static int plugIn(PadOut* p) {
     if (p->sink.arrival != NULL) {
         p->sink.arrival(p->sink.user, (uint8_t)p->controllerNumber,
                         (uint16_t)padOutMask(p), PADOUT_TYPE,
-                        (uint32_t)padOutButtonFlags(PAD_BUTTONS), PADOUT_CAPS);
+                        (uint32_t)padOutButtonFlags(PAD_BUTTONS | PAD_GUIDE), PADOUT_CAPS);
     }
     p->arrivals++;
     return 1;

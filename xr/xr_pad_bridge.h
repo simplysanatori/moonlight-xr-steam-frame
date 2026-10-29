@@ -7,6 +7,7 @@
 #include "core/xr_gamepad.h"
 #include "../input/pad_out.h"
 
+void xrPadBridgeSetRumble(int mix, int intensityPercent); // settings: rumble_mix, rumble_intensity
 void xrPadBridgeSetFlip(int flip);          // settings: swap A/B and X/Y
 void xrPadBridgeStart(void);                // stream start, before LiStartConnection
 void xrPadBridgeFrame(int plugged, const PadState* s, int64_t nowNs); // each input frame
