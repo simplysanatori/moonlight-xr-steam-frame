@@ -79,13 +79,13 @@ jobs:
 
   # The flat launcher (patched moonlight-qt 6.1.0, qmake) and its offscreen tests
   # (tests/launcher/run_tests.sh). Ubuntu 24.04 has Qt 6.4 and the launcher needs 6.5 or newer, so
-  # Qt comes from aqtinstall. 6.7 is the oldest Qt that aqtinstall ships for linux_arm64; the
-  # Frame's own qt6-base is still unchecked (pacman -Q qt6-base), keep this at or below it.
+  # Qt comes from aqtinstall (linux_arm64 builds exist from 6.7). The Frame ships qt6-base 6.8.0 and
+  # qt6-declarative 6.8.0, so this is pinned to 6.8.0: not newer than the Frame.
   launcher:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     env:
-      QT_VERSION: '6.7.3'
+      QT_VERSION: '6.8.0'
       QT_ROOT: /home/runner/Qt
     steps:
       - uses: actions/checkout@v4
