@@ -157,10 +157,10 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Stats | Off, On | Off |
 | Head locked | Off, On | Off. The screen follows your head. |
 | Head aim | Off, On | Off. Needs Head locked; not in a room. |
-| Controllers | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
+| Mode | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
 | Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
 | Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. Bar = this session, cog = saved: the choice here is kept for the next session, the bar's Ray button is not. |
-| Controller model | Off, On | Off |
+| Show controllers | Off, On | Off |
 | Click sound | Off, On | On |
 | Glow | Off, On | Off |
 | Screen light | Off, On | On |
@@ -283,7 +283,7 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 
 ### Controller models
 
-Display tab, Controller model. The installer converts SteamVR's own Steam Frame controller models on your Frame, so the models match the real controllers and move with your buttons and sticks. Valve's models are never in the download. If the conversion fails, a generic controller is shown.
+Display tab, Show controllers. The installer converts SteamVR's own Steam Frame controller models on your Frame, so the models match the real controllers and move with your buttons and sticks. Valve's models are never in the download. If the conversion fails, a generic controller is shown.
 
 ## Ending a stream
 

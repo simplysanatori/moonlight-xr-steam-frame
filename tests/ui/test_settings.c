@@ -632,9 +632,21 @@ static void test_shortcut_wording(void) {
     CHECK(strstr(hint, "menu") == NULL && strstr(back, "menu") == NULL);
 }
 
+// The two input rows say what they do: Mode is pointer or gamepad, Show
+// controllers is whether the models are drawn (the old "Controllers" and
+// "Controller model" sat side by side and read as the same thing)
+static void test_input_row_wording(void) {
+    CHECK(strcmp(ui_str(UIS_ROW_MODE), "Mode") == 0);
+    CHECK(strcmp(ui_str(UIS_ROW_SHOW_CONTROLLERS), "Show controllers") == 0);
+    CHECK(strcmp(ui_str(UIS_POINTER), "Pointer") == 0 && strcmp(ui_str(UIS_GAMEPAD), "Gamepad") == 0);
+    CHECK(strcmp(ui_str(UIS_ROW_MODE), ui_str(UIS_ROW_SHOW_CONTROLLERS)) != 0);
+    CHECK(strstr(ui_str(UIS_ROW_MODE), "Controller") == NULL);
+}
+
 int main(void) {
     test_defaults();
     test_shortcut_wording();
+    test_input_row_wording();
     test_table_covers_readme();
     test_round_trip();
     test_defaults_commented_out();
