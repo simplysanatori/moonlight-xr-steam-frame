@@ -720,7 +720,10 @@ typedef struct XrCtx {
     XrAction padLeftAction;
     XrAction padBumperAction;
     XrAction padStartAction;
-    XrPath frameProfile;
+    // One path per name the profile has gone by (FRAME_PROFILE_PATHS), null for
+    // one the runtime did not take bindings on
+    XrPath frameProfile[FRAME_PROFILE_COUNT];
+    XrPath activeProfile[HAND_COUNT];
     int frameBound;
     int onFrame[HAND_COUNT];
     int hapticBound;
