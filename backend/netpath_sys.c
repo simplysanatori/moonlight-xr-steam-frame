@@ -73,6 +73,11 @@ mlxr_net_path mlxr_net_classify(const mlxr_netifs *t, const char *addr, const ml
             if (t->v[k].default_route && t->v[k].up) { best = &t->v[k]; break; }
     if (via) *via = best;
     if (!best) return MLXR_PATH_HOME;
+    /* Native (lane wave4c-usb): an address on a USB interface's own subnet is on the cable. Reached only by
+     * the subnet match: a default route that happens to leave through a USB tether is not a cable to the PC. */
+    if (best->usb && best->mask && best->up && addr && inet_pton(AF_INET, addr, &ia) == 1 &&
+        (ntohl(ia.s_addr) & best->mask) == (best->addr & best->mask))
+        return MLXR_PATH_USB;
     return mlxr_netif_is_ap(t, best) ? MLXR_PATH_ADAPTER : MLXR_PATH_HOME;
 }
 
@@ -108,6 +113,41 @@ static bool is_wireless(const char *name)
     if (stat(p, &st) == 0) return true;
     snprintf(p, sizeof p, "/sys/class/net/%s/phy80211", name);
     return stat(p, &st) == 0;
+}
+
+/* Native (lane wave4c-usb): is this the USB gadget network (the Frame's usb0, an NCM function of its
+ * own USB device controller), or a USB network device in host mode? Three independent facts, any one is
+ * enough: the name (the kernel names both usb%d), the device type in uevent (DEVTYPE=gadget, set by the
+ * gadget ethernet code), and the sysfs path, which runs through the gadget device
+ * (.../a600000.usb/gadget.0/net/usb0 on the Frame, see the probe in docs/dev/reports/usb-cable.md). */
+static bool is_usb_net(const char *name)
+{
+    if (!strncmp(name, "usb", 3)) return true;
+    char p[128], buf[512];
+    snprintf(p, sizeof p, "/sys/class/net/%s/uevent", name);
+    FILE *f = fopen(p, "r");
+    if (f) {
+        size_t n = fread(buf, 1, sizeof buf - 1, f);
+        fclose(f);
+        buf[n] = 0;
+        if (strstr(buf, "DEVTYPE=gadget")) return true;
+    }
+    char real[512];
+    snprintf(p, sizeof p, "/sys/class/net/%s", name);
+    if (realpath(p, real) && strstr(real, "/gadget")) return true;
+    return false;
+}
+
+/* The carrier file says 1 only with a link partner; reading it on an interface that is down fails. */
+static bool no_carrier(const char *name)
+{
+    char p[128], c[8] = "";
+    snprintf(p, sizeof p, "/sys/class/net/%s/carrier", name);
+    FILE *f = fopen(p, "r");
+    if (!f) return false;
+    if (!fgets(c, sizeof c, f)) c[0] = 0;
+    fclose(f);
+    return c[0] == '0';
 }
 
 static void read_default_routes(mlxr_netifs *t)
@@ -279,6 +319,9 @@ int mlxr_netifs_read(mlxr_netifs *t)
         i->addr = ntohl(((struct sockaddr_in *)a->ifa_addr)->sin_addr.s_addr);
         i->mask = ntohl(((struct sockaddr_in *)a->ifa_netmask)->sin_addr.s_addr);
         i->wifi = is_wireless(i->name);
+        /* Native (lane wave4c-usb): the cable counts as up only with carrier */
+        i->usb = !i->loopback && !i->wifi && is_usb_net(i->name);
+        if (i->usb && i->up && no_carrier(i->name)) i->up = false;
     }
     freeifaddrs(ifa);
     read_default_routes(t);

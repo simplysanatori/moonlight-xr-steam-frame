@@ -248,11 +248,11 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
     plan.clipboardSync = prefs->clipboardSync;
     // Native (lane refresh): a fixed display rate picked on the Settings page goes to SteamVR too
     plan.steamVrRefreshRate = steamVrRateFor(p.fps, prefs->matchHeadsetFps, prefs->refreshRate() > 0);
-    // The network path (Auto, Wi-Fi, Steam Frame Wireless Adapter): the flat launcher's setting
-    // "networkPath", auto|home|adapter. An unknown value is left to the VR client's own config.ini.
+    // The network path (Auto, Wi-Fi, Steam Frame Wireless Adapter, USB cable): the flat launcher's setting
+    // "networkPath", auto|home|adapter|usb. An unknown value is left to the VR client's own config.ini.
     {
         const QString np = QSettings().value("networkPath", "auto").toString().trimmed().toLower();
-        if (np == "auto" || np == "home" || np == "adapter") {
+        if (np == "auto" || np == "home" || np == "adapter" || np == "usb") {
             a << "--network" << np;
         }
     }

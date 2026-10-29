@@ -11,5 +11,5 @@ set_target_properties(moonlight-xr PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT
 
 add_subdirectory(${PROJECT_SOURCE_DIR}/tests/m4 ${CMAKE_CURRENT_BINARY_DIR}/tests)
 
-# --network takes auto, home or adapter; anything else is a usage error before any XR starts
+# --network takes auto, home, adapter or usb; anything else is a usage error before any XR starts
 add_test(NAME app_network_flag COMMAND sh -c "env -u LD_LIBRARY_PATH $<TARGET_FILE:moonlight-xr> --network bogus 2>&1 | grep -q 'MLXR_ERROR: --network takes'")

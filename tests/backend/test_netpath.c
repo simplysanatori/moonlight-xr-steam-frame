@@ -52,6 +52,8 @@ static void test_pref(void)
     CHECK(mlxr_net_pref_parse("auto", &p) && p == MLXR_NET_AUTO);
     CHECK(mlxr_net_pref_parse(" Home\n", &p) && p == MLXR_NET_HOME);
     CHECK(mlxr_net_pref_parse("ADAPTER", &p) && p == MLXR_NET_ADAPTER);
+    CHECK(mlxr_net_pref_parse(" usb\n", &p) && p == MLXR_NET_USB);   /* Native (lane wave4c-usb): the config.ini value is "usb" */
+    CHECK(mlxr_net_pref_parse("USB", &p) && p == MLXR_NET_USB);
     p = MLXR_NET_HOME;
     CHECK(!mlxr_net_pref_parse("wifi", &p) && p == MLXR_NET_HOME);
     CHECK(!mlxr_net_pref_parse("", &p) && !mlxr_net_pref_parse(NULL, &p) && !mlxr_net_pref_parse("home adapter", &p));
@@ -66,6 +68,10 @@ static void test_pref(void)
     CHECK_EQ_STR(src, "flag");
     CHECK(mlxr_net_pref_resolve("home", "adapter", "auto", &src, &warn) == MLXR_NET_ADAPTER);   /* the env beats both */
     CHECK_EQ_STR(src, "env");
+    CHECK(mlxr_net_pref_resolve(NULL, NULL, "usb", &src, &warn) == MLXR_NET_USB);
+    CHECK_EQ_STR(src, "config");
+    CHECK(mlxr_net_pref_resolve("usb", NULL, "home", &src, &warn) == MLXR_NET_USB);
+    CHECK_EQ_STR(src, "flag");
     CHECK(mlxr_net_pref_resolve("", "", "home", &src, &warn) == MLXR_NET_HOME);
     CHECK_EQ_STR(src, "config");
     /* an invalid one is skipped, with a warning */
@@ -1047,6 +1053,330 @@ static void test_select_with_history(fake_host *h)
     mini_stop(&m);
 }
 
+/* ---- Native (lane wave4c-usb): the USB cable ---- */
+
+static void add_usb_if(mlxr_netifs *t, const char *name, const char *addr, int bits, bool up)
+{
+    add_if(t, name, addr, bits, false, 0, false);
+    t->v[t->n - 1].usb = true;
+    t->v[t->n - 1].up = up;
+}
+
+/* The Frame as the probe found it: Wi-Fi client with the default route, its own AP, and usb0 at the gadget's
+ * /29 with the Frame on the first usable address; `cable` says whether a PC is plugged in (carrier) */
+static void usb_table(mlxr_netifs *t, bool cable)
+{
+    frame_table(t, true);
+    add_usb_if(t, "usb0", "198.51.100.233", 29, cable);
+}
+
+static void test_usb_peers(void)
+{
+    uint32_t v[16];
+    int n;
+    /* a /29 with the Frame on the first usable address: the PC's lease is the next one, then the pool */
+    n = mlxr_net_subnet_peers(ip("198.51.100.233"), 0xfffffff8u, v, 16);
+    CHECK_EQ_INT(n, MLXR_NET_USB_MAX_PEERS);
+    CHECK(v[0] == ip("198.51.100.234") && v[1] == ip("198.51.100.235") && v[2] == ip("198.51.100.236"));
+    n = mlxr_net_subnet_peers(ip("198.51.100.233"), 0xfffffff8u, v, 1);
+    CHECK_EQ_INT(n, 1);
+    CHECK(v[0] == ip("198.51.100.234"));
+    /* the last usable address wraps to the bottom of the range, never onto the broadcast address */
+    n = mlxr_net_subnet_peers(ip("198.51.100.238"), 0xfffffff8u, v, 16);
+    CHECK_EQ_INT(n, 3);
+    CHECK(v[0] == ip("198.51.100.233") && v[1] == ip("198.51.100.234") && v[2] == ip("198.51.100.235"));
+    /* every address of the /29: the guesses are inside the usable range and never the Frame's own */
+    uint32_t net = ip("198.51.100.232"), bcast = ip("198.51.100.239");
+    for (uint32_t a = net + 1; a < bcast; a++) {
+        n = mlxr_net_subnet_peers(a, 0xfffffff8u, v, 16);
+        CHECK_EQ_INT(n, 3);
+        for (int k = 0; k < n; k++) CHECK(v[k] != a && v[k] > net && v[k] < bcast);
+    }
+    /* a /30 has two usable addresses: the other one */
+    n = mlxr_net_subnet_peers(ip("198.51.100.1"), 0xfffffffcu, v, 16);
+    CHECK_EQ_INT(n, 1);
+    CHECK(v[0] == ip("198.51.100.2"));
+    n = mlxr_net_subnet_peers(ip("198.51.100.2"), 0xfffffffcu, v, 16);
+    CHECK_EQ_INT(n, 1);
+    CHECK(v[0] == ip("198.51.100.1"));
+    /* a /31 (RFC 3021): both addresses are hosts */
+    n = mlxr_net_subnet_peers(ip("198.51.100.4"), 0xfffffffeu, v, 16);
+    CHECK(n == 1 && v[0] == ip("198.51.100.5"));
+    n = mlxr_net_subnet_peers(ip("198.51.100.5"), 0xfffffffeu, v, 16);
+    CHECK(n == 1 && v[0] == ip("198.51.100.4"));
+    /* a /24 is guessed in the same way, the next three; the network and broadcast addresses are skipped */
+    n = mlxr_net_subnet_peers(ip("192.168.1.233"), 0xffffff00u, v, 16);
+    CHECK_EQ_INT(n, 3);
+    CHECK(v[0] == ip("192.168.1.234") && v[1] == ip("192.168.1.235") && v[2] == ip("192.168.1.236"));
+    n = mlxr_net_subnet_peers(ip("192.168.1.254"), 0xffffff00u, v, 16);
+    CHECK_EQ_INT(n, 3);
+    CHECK(v[0] == ip("192.168.1.1") && v[1] == ip("192.168.1.2") && v[2] == ip("192.168.1.3"));
+    /* nothing to guess: a /32, a LAN larger than a /24, no mask, a mask that is no prefix, no room */
+    CHECK_EQ_INT(mlxr_net_subnet_peers(ip("198.51.100.233"), 0xffffffffu, v, 16), 0);
+    CHECK_EQ_INT(mlxr_net_subnet_peers(ip("192.168.1.233"), 0xffff0000u, v, 16), 0);
+    CHECK_EQ_INT(mlxr_net_subnet_peers(ip("192.168.1.233"), 0, v, 16), 0);
+    CHECK_EQ_INT(mlxr_net_subnet_peers(ip("192.168.1.233"), 0xff00ff00u, v, 16), 0);
+    CHECK_EQ_INT(mlxr_net_subnet_peers(ip("198.51.100.233"), 0xfffffff8u, v, 0), 0);
+    CHECK_EQ_INT(mlxr_net_subnet_peers(ip("198.51.100.233"), 0xfffffff8u, NULL, 4), 0);
+}
+
+static void test_usb_interfaces(void)
+{
+    mlxr_netifs t;
+    mlxr_usb_info u;
+    const mlxr_netif *via = NULL;
+    mlxr_net_plan p;
+    char b[96];
+
+    CHECK_EQ_STR(mlxr_net_path_label(MLXR_PATH_USB), "USB cable");
+    CHECK_EQ_STR(mlxr_net_pref_name(MLXR_NET_USB), "usb");
+
+    /* usb0 DOWN with no carrier, as with nothing plugged in: not a candidate, no address goes onto it */
+    usb_table(&t, false);
+    mlxr_net_usb_assess(&t, &u);
+    CHECK(u.checked && !u.present && !mlxr_net_usb_usable(&u));
+    CHECK_EQ_STR(u.ifname, "usb0");
+    CHECK_EQ_STR(u.reason, "usb0 down (no cable, or the PC end is not up)");
+    CHECK(mlxr_net_classify(&t, "198.51.100.234", &via) == MLXR_PATH_HOME && via && !strcmp(via->name, "wlan0"));
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 47989, "", "");
+    mlxr_net_plan_add(&p, "192.168.1.10", 0);
+    CHECK_EQ_INT(mlxr_net_plan_add_usb(&p, &t), 0);
+    CHECK_EQ_INT(p.n, 1);
+    CHECK(p.usb.checked && !p.usb.present);
+
+    /* no USB interface at all */
+    frame_table(&t, true);
+    mlxr_net_usb_assess(&t, &u);
+    CHECK(u.checked && !u.present && !u.ifname[0]);
+    CHECK_EQ_STR(u.reason, "no USB network interface found");
+
+    /* usb0 UP with carrier: the other addresses of its /29 are candidates, the Frame's own is not */
+    usb_table(&t, true);
+    mlxr_net_usb_assess(&t, &u);
+    CHECK(u.present && mlxr_net_usb_usable(&u) && u.peers == 3);
+    CHECK_EQ_STR(u.reason, "usb0 up, carrier on, 3 peer candidates");
+    CHECK(mlxr_net_classify(&t, "198.51.100.234", &via) == MLXR_PATH_USB && via && !strcmp(via->name, "usb0"));
+    CHECK(mlxr_net_classify(&t, "198.51.100.241", NULL) == MLXR_PATH_HOME);   /* outside the /29 */
+    CHECK(mlxr_net_classify(&t, "192.168.1.10", NULL) == MLXR_PATH_HOME);
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 47989, "", "");
+    mlxr_net_plan_add(&p, "192.168.1.10", 0);
+    CHECK_EQ_INT(mlxr_net_plan_add_usb(&p, &t), 3);
+    CHECK_EQ_INT(p.n, 4);
+    CHECK_EQ_STR(p.c[1].address, "198.51.100.234");
+    CHECK_EQ_STR(p.c[2].address, "198.51.100.235");
+    CHECK_EQ_STR(p.c[3].address, "198.51.100.236");
+    CHECK_EQ_STR(p.c[1].source, "usb");
+    for (int i = 0; i < p.n; i++) CHECK(strcmp(p.c[i].address, "198.51.100.233") != 0);
+    CHECK_EQ_INT(mlxr_net_plan_add_usb(&p, &t), 0);   /* not added twice */
+    CHECK_EQ_INT(p.n, 4);
+    mlxr_net_plan_classify(&p, &t);
+    CHECK(p.c[0].path == MLXR_PATH_HOME && !strcmp(p.c[0].ifname, "wlan0"));
+    CHECK(p.c[1].path == MLXR_PATH_USB && !strcmp(p.c[1].ifname, "usb0") && p.c[1].onlink);
+    mlxr_net_plan_read_links(&p, &t);
+    CHECK(p.c[1].link.valid && !p.c[1].link.wifi && p.c[1].link_quality == 100.0);   /* a cable: no radio numbers */
+    /* an address hosts.ini already knew is kept (and its source), the rest are added */
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 47989, "", "");
+    mlxr_net_plan_add_src(&p, "198.51.100.234", 0, "hosts.ini");
+    CHECK_EQ_INT(mlxr_net_plan_add_usb(&p, &t), 2);
+    CHECK_EQ_STR(p.c[0].source, "hosts.ini");
+    /* the cable's subnet is the only thing that makes an address "USB": a default route through a USB
+     * tether is not a cable to the PC */
+    usb_table(&t, true);
+    t.v[1].default_route = false;
+    t.v[3].default_route = true;
+    CHECK(mlxr_net_classify(&t, "203.0.113.50", &via) == MLXR_PATH_HOME && via && !strcmp(via->name, "usb0"));
+
+    /* the words */
+    mlxr_net_link l;
+    memset(&l, 0, sizeof l);
+    l.valid = true;
+    mlxr_net_path_describe(MLXR_PATH_USB, &l, b, sizeof b);
+    CHECK_EQ_STR(b, "USB cable");
+    mlxr_net_path_describe(MLXR_PATH_USB, NULL, b, sizeof b);
+    CHECK_EQ_STR(b, "USB cable");
+}
+
+static void test_usb_watch(void)
+{
+    mlxr_usb_watch w;
+    mlxr_usb_info u;
+    mlxr_netifs off, on, gone;
+    memset(&w, 0, sizeof w);
+    usb_table(&off, false);
+    usb_table(&on, true);
+    frame_table(&gone, true);
+    CHECK(mlxr_usb_watch_poll(&w, &off, &u) == MLXR_USB_EVENT_NONE);    /* the first poll without a cable says nothing */
+    CHECK(mlxr_usb_watch_poll(&w, &off, &u) == MLXR_USB_EVENT_NONE);
+    CHECK(mlxr_usb_watch_poll(&w, &on, &u) == MLXR_USB_EVENT_UP);       /* plugged in after the app started */
+    CHECK(u.present && !strcmp(u.ifname, "usb0"));
+    CHECK(mlxr_usb_watch_poll(&w, &on, &u) == MLXR_USB_EVENT_NONE);
+    CHECK(mlxr_usb_watch_poll(&w, &off, &u) == MLXR_USB_EVENT_LOST);    /* pulled out */
+    CHECK(!u.present && !strcmp(u.ifname, "usb0"));
+    CHECK(mlxr_usb_watch_poll(&w, &off, NULL) == MLXR_USB_EVENT_NONE);
+    CHECK(mlxr_usb_watch_poll(&w, &on, NULL) == MLXR_USB_EVENT_UP);
+    CHECK(mlxr_usb_watch_poll(&w, &gone, &u) == MLXR_USB_EVENT_LOST);   /* the interface is gone altogether */
+    CHECK_EQ_STR(u.ifname, "usb0");
+    memset(&w, 0, sizeof w);
+    CHECK(mlxr_usb_watch_poll(&w, &on, &u) == MLXR_USB_EVENT_UP);       /* already there at the first poll */
+    CHECK_EQ_INT(MLXR_USB_WATCH_PERIOD_S, 10);
+}
+
+static void test_usb_choose(void)
+{
+    mlxr_net_cand usb = mkflat(MLXR_PATH_USB, "198.51.100.234", 15, 0, 1.0, 100);
+    mlxr_net_cand wifi = mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 12.0, 60);
+    mlxr_net_cand ad = mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 6.0, 38);
+    mlxr_net_cand dead = mk(MLXR_PATH_USB, "198.51.100.234", 0, 4, 0, 0, 100);
+    strcpy(dead.error, "connect timed out");
+    mlxr_net_plan p;
+    mlxr_netifs t;
+
+    /* auto: the cable has the lower round trip and wins */
+    p = plan2(MLXR_NET_AUTO, wifi, usb);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    CHECK(p.chosen_path == MLXR_PATH_USB && !p.fell_back && !p.toast[0]);
+    CHECK(strstr(p.reason, "chose USB cable: score 1.0 ms against Wi-Fi 12.0 ms (lower is better); decided by latency"));
+    CHECK_EQ_STR(p.chosen_desc, "USB cable");
+    CHECK_EQ_STR(p.connected, "Connected over USB cable.");
+    CHECK(strstr(p.summary, "usb 198.51.100.234 (auto)"));
+    p = plan2(MLXR_NET_AUTO, usb, wifi);   /* the order does not matter */
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    /* all three paths: the cable against the best of the others (the adapter here) */
+    p = plan2(MLXR_NET_AUTO, wifi, usb);
+    p.c[2] = ad;
+    p.n = 3;
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    CHECK(strstr(p.reason, "chose USB cable: score 1.0 ms against adapter 6.0 ms (lower is better); decided by latency"));
+    /* Wi-Fi with the lower round trip beats the cable */
+    p = plan2(MLXR_NET_AUTO, mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 2.0, 100), mkflat(MLXR_PATH_USB, "198.51.100.234", 15, 0, 9.0, 100));
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    CHECK(strstr(p.reason, "chose Wi-Fi: score 2.0 ms against USB cable 9.0 ms"));
+    /* a tie: the better link decides (a cable has no radio), with no link data Wi-Fi, and the cable beats the adapter */
+    p = plan2(MLXR_NET_AUTO, mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 4.0, 60), mkflat(MLXR_PATH_USB, "198.51.100.234", 15, 0, 3.0, 100));
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    CHECK(strstr(p.reason, "chose USB cable: scores within 3 ms (Wi-Fi 4.0, USB cable 3.0), the better link breaks the tie (quality 100 against 60)"));
+    p = plan2(MLXR_NET_AUTO, mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 4.0, 0), mkflat(MLXR_PATH_USB, "198.51.100.234", 15, 0, 3.0, 0));
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    CHECK(strstr(p.reason, "Wi-Fi preferred on a tie"));
+    p = plan2(MLXR_NET_AUTO, mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 5.0, 0), mkflat(MLXR_PATH_USB, "198.51.100.234", 15, 0, 6.0, 0));
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    CHECK(strstr(p.reason, "USB cable preferred on a tie"));
+    /* only one path answered */
+    p = plan2(MLXR_NET_AUTO, usb, mk(MLXR_PATH_HOME, "192.168.1.10", 0, 4, 0, 0, 98));
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    CHECK(strstr(p.reason, "chose USB cable: the only path that answered (score 1.0 ms)"));
+    p = plan2(MLXR_NET_AUTO, dead, wifi);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    CHECK(strstr(p.reason, "chose Wi-Fi: the only path that answered"));
+    /* the history charges the cable like the other paths: its last stream lost 2.3 percent of the frames */
+    p = plan2(MLXR_NET_AUTO, wifi, mkflat(MLXR_PATH_USB, "198.51.100.234", 15, 0, 3.0, 100));
+    p.now_s = 1800000000;
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    p.hist.e[MLXR_NETHIST_USB] = (mlxr_nethist_entry){ true, 9770, 230, 1.0, 4, p.now_s - 7200 };
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    CHECK(strstr(p.reason, "decided by the last stream's losses (USB cable: 2.3% lost last time; Wi-Fi: no history)"));
+
+    /* USB asked for and the cable answers: that path, no toast */
+    p = plan2(MLXR_NET_USB, wifi, usb);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    CHECK(!p.fell_back && !p.toast[0] && p.chosen_path == MLXR_PATH_USB);
+    CHECK(strstr(p.reason, "chose USB cable: the setting is usb"));
+    /* USB asked for, a cable is in, the PC does not answer on it: the other path, with the failed address */
+    usb_table(&t, true);
+    p = plan2(MLXR_NET_USB, wifi, dead);
+    mlxr_net_usb_assess(&t, &p.usb);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    CHECK(p.fell_back && !p.usb_absent_fallback && p.chosen_path == MLXR_PATH_HOME);
+    CHECK_EQ_STR(p.toast, "USB cable not reachable (198.51.100.234: connect timed out). Using Wi-Fi.");
+    /* USB asked for and usb0 is DOWN: the notice says there is no cable */
+    usb_table(&t, false);
+    p = plan2(MLXR_NET_USB, wifi, mk(MLXR_PATH_ADAPTER, "10.35.50.27", 0, 0, 0, 0, 0));
+    p.c[1].probed = false;
+    mlxr_net_usb_assess(&t, &p.usb);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    CHECK(p.fell_back && p.usb_absent_fallback && !p.adapter_absent_fallback);
+    CHECK_EQ_STR(p.failure, "no USB cable found: usb0 down (no cable, or the PC end is not up)");
+    CHECK_EQ_STR(p.toast, "USB cable not reachable (no USB cable found: usb0 down (no cable, or the PC end is not up)). Using Wi-Fi.");
+    /* ... and with no USB interface at all */
+    frame_table(&t, true);
+    p = plan2(MLXR_NET_USB, wifi, mk(MLXR_PATH_ADAPTER, "10.35.50.27", 0, 0, 0, 0, 0));
+    mlxr_net_usb_assess(&t, &p.usb);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    CHECK_EQ_STR(p.toast, "USB cable not reachable (no USB cable found: no USB network interface found). Using Wi-Fi.");
+    /* a plan nobody assessed keeps the generic words */
+    p = plan2(MLXR_NET_USB, wifi, mk(MLXR_PATH_ADAPTER, "10.35.50.27", 0, 0, 0, 0, 0));
+    CHECK_EQ_INT(mlxr_net_choose(&p), 0);
+    CHECK(!p.usb_absent_fallback);
+    CHECK_EQ_STR(p.toast, "USB cable not reachable (no address of the PC known on this network). Using Wi-Fi.");
+
+    /* the history file knows the cable */
+    const char *dir = make_tmpdir();
+    mlxr_nethist_entry e = { true, 5000, 10, 0.5, 1.0, 1790000000 };
+    mlxr_nethist hh;
+    CHECK_EQ_STR(mlxr_nethist_key(MLXR_NETHIST_USB), "usb");
+    CHECK_EQ_INT(mlxr_net_hist_index(MLXR_PATH_USB), MLXR_NETHIST_USB);
+    CHECK(mlxr_nethist_record(dir, MLXR_NETHIST_USB, &e));
+    CHECK_EQ_INT(mlxr_nethist_load(dir, &hh), 1);
+    CHECK(hh.e[MLXR_NETHIST_USB].valid && !hh.e[MLXR_NETHIST_HOME].valid && hh.e[MLXR_NETHIST_USB].frames == 5000);
+}
+
+static void test_usb_select(fake_host *h)
+{
+    uint16_t live = fake_host_http_port(h);
+    mlxr_adapter_inputs st;
+    station_inputs(&st);
+    mlxr_netifs t;
+    mlxr_net_plan p;
+    struct timespec t0, t1;
+
+    /* USB asked for, usb0 DOWN: nothing on the cable is probed, no retry window, the other path with the notice */
+    memset(&t, 0, sizeof t);
+    add_if(&t, "lo", "127.0.0.1", 8, false, 0, false);
+    add_usb_if(&t, "usb0", "198.51.100.233", 29, false);
+    mlxr_net_plan_init(&p, MLXR_NET_USB, "test", 1, "", "");
+    p.adapter_inputs = &st;
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    g_log[0] = 0;
+    mlxr_set_log(capture_log, NULL);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 0);
+    mlxr_set_log(NULL, NULL);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+    CHECK(ms < 2000);   /* the 4 s retry window was not waited */
+    CHECK_EQ_INT(p.n, 1);
+    CHECK(p.fell_back && p.usb_absent_fallback && p.chosen_path == MLXR_PATH_HOME);
+    CHECK_EQ_STR(p.toast, "USB cable not reachable (no USB cable found: usb0 down (no cable, or the PC end is not up)). Using Wi-Fi.");
+    CHECK(strstr(g_log, "network path: USB cable: usb0 down (no cable, or the PC end is not up)"));
+
+    /* automatic, usb0 UP: the three guesses join the candidates (nothing answers on them here), with the log line */
+    memset(&t, 0, sizeof t);
+    add_if(&t, "lo", "127.0.0.1", 8, false, 0, false);
+    add_usb_if(&t, "usb0", "198.51.100.233", 29, true);
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 1, "", "");
+    p.adapter_inputs = &st;
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    g_log[0] = 0;
+    mlxr_set_log(capture_log, NULL);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 0);
+    mlxr_set_log(NULL, NULL);
+    CHECK_EQ_INT(p.n, 4);
+    CHECK(p.c[1].path == MLXR_PATH_USB && !strcmp(p.c[1].source, "usb") && !strcmp(p.c[1].ifname, "usb0"));
+    CHECK(p.c[1].probed && p.c[1].ok == 0);
+    CHECK(p.usb.present && p.usb.peers == 3);
+    CHECK(strstr(g_log, "network path: USB cable: usb0 up, carrier on, 3 peer candidates"));
+    CHECK(strstr(g_log, "198.51.100.234 (usb, USB cable via usb0)"));
+
+    /* USB asked for, a cable is in and the PC does not answer on it: retried for retry_ms, then the other path */
+    mlxr_net_plan_init(&p, MLXR_NET_USB, "test", 1, "", "");
+    p.adapter_inputs = &st;
+    p.retry_ms = 300;
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 0);
+    CHECK(p.fell_back && !p.usb_absent_fallback && p.c[1].probed);
+    CHECK(strstr(p.toast, "USB cable not reachable (198.51.100.234: "));
+}
+
 static void test_probe(void)
 {
     /* Native (lane adapter-detect): select looks at the adapter; these tests say a station is there */
@@ -1201,6 +1531,10 @@ int main(void)
     test_describe();
     test_mdns_and_sources();
     test_adapter_assess();
+    test_usb_peers();
+    test_usb_interfaces();
+    test_usb_watch();
+    test_usb_choose();
     {
         fake_opts o = { 0 };
         fake_host *h = fake_host_start(&o);
@@ -1208,6 +1542,7 @@ int main(void)
         if (h) {
             test_adapter_plan(h);
             test_select_with_history(h);
+            test_usb_select(h);
             fake_host_stop(h);
         }
     }

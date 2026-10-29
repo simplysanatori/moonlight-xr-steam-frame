@@ -150,11 +150,17 @@ Flickable {
     // The PC link (the setting's key networkPath; the hand-off passes it to the VR client). The Steam
     // client's own terms: "Wi-Fi", "Steam Frame Wireless Adapter"; the Wi-Fi as the headset sees it now
     readonly property string wifiLabel: MlxrPrefs.wifiLabel()
-    readonly property var networkValues: ["auto", "home", "adapter"]
-    readonly property var networkNames: [qsTr("Automatic"), wifiLabel, qsTr("Steam Frame Wireless Adapter") + " (6 GHz)"]
+    // The USB cable (a data cable from the headset's USB-C port to the PC) is rescanned every 10 s, so
+    // the row says whether it is there now
+    readonly property bool usbCable: MlxrPrefs.usbCable
+    readonly property var networkValues: ["auto", "home", "adapter", "usb"]
+    readonly property var networkNames: [qsTr("Automatic"), wifiLabel, qsTr("Steam Frame Wireless Adapter") + " (6 GHz)",
+                                         qsTr("USB cable")]
     readonly property var networkSummaries: [qsTr("Uses whichever connection to your PC is faster when a stream starts."),
                                              qsTr("Streams over your Wi-Fi network."),
-                                             qsTr("Streams over the Steam Frame Wireless Adapter plugged into your PC.")]
+                                             qsTr("Streams over the Steam Frame Wireless Adapter plugged into your PC."),
+                                             usbCable ? qsTr("Streams over the USB cable between the headset and your PC. Cable detected.")
+                                                      : qsTr("Streams over a USB data cable between the headset and your PC. No cable detected yet; plug it in and it is noticed within ten seconds.")]
     function networkIndex() {
         return Math.max(0, networkValues.indexOf(MlxrPrefs.networkPath))
     }
