@@ -185,3 +185,14 @@ Question 2: with Controller model Off, do you still see a controller? Set it Off
 - The results table.
 - The time of each run, so it can be found in the log, and which item each Report sheet time belongs to.
 - The ray CSV and the masked bug-report zip from `tools/frame-deploy.sh logs`, only if the ray still glitched.
+
+## 7. Controllers rows and the resting beam (PLAN 1.3, 2 minutes)
+
+Requires a dev build at or after the lane/wave1-discover merge (source v1.0.1-9x or later; check `app-dev/VERSION`).
+
+1. Open the cog. It opens on the tab you last used: press a tab, close the cog, reopen it. After a restart it should open on that tab too (key `[display] cog_tab`).
+2. Display tab, read the order and wording: Sharpen, Supersample, Stats, Head locked, Head aim, **Mode** (Pointer / Gamepad, shortcut hint under it), **Show controllers** (Off / On), Ray (Off / Dot / Ray), Pointer sleep, Click sound, Glow, Screen light, Notices, Glow level. Rows must not clip; "Show controllers" must fit before its cells.
+3. Set Ray to Off in the cog and close it: the beam vanishes. Point below the screen at the bar band: the bar buttons appear and a faint full-length beam shows; move away and it goes. Nothing shows while pointing at the picture. Open a panel: the full beam returns. Set the Dot cell: no faint beam.
+4. Show controllers On: the models appear in the hands and vanish/return together with the ray when tracking drops.
+
+| 7 | Cog last tab, row order, faint beam in the bar band only, models | | |
