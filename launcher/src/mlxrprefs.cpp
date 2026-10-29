@@ -10,6 +10,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSettings>
+#include <QTimer>
 #include <QtMath>
 
 static const char* const kPacing[] = { "latency", "balanced", "smoothness" };
@@ -26,6 +27,47 @@ MlxrPrefs* MlxrPrefs::get()
 MlxrPrefs::MlxrPrefs(QObject* parent) : QObject(parent)
 {
     load();
+    // Native (lane wave4c-usb): a cable plugged in after the app started shows up within ten seconds
+    rescanUsb();
+    QTimer* usbTimer = new QTimer(this);
+    usbTimer->setInterval(10000);
+    connect(usbTimer, &QTimer::timeout, this, &MlxrPrefs::rescanUsb);
+    usbTimer->start();
+}
+
+QString MlxrPrefs::usbCableInterface(const QString& netRoot)
+{
+    const QDir dir(netRoot);
+    const QStringList names = dir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QString& name : names) {
+        bool usb = name.startsWith("usb");
+        if (!usb) {
+            QFile u(netRoot + "/" + name + "/uevent");
+            usb = u.open(QIODevice::ReadOnly) && QString::fromUtf8(u.readAll()).contains("DEVTYPE=gadget");
+        }
+        if (!usb) {
+            continue;
+        }
+        QFile c(netRoot + "/" + name + "/carrier");
+        if (c.open(QIODevice::ReadOnly) && QString::fromUtf8(c.readAll()).trimmed() == "1") {
+            return name;
+        }
+    }
+    return QString();
+}
+
+void MlxrPrefs::rescanUsb()
+{
+    const QString root = qEnvironmentVariable("MLXR_LAUNCHER_NET_ROOT", "/sys/class/net");
+    const QString name = usbCableInterface(root);
+    const bool now = !name.isEmpty();
+    if (now == m_usbCable && m_usbScanned) {
+        return;
+    }
+    m_usbCable = now;
+    m_usbScanned = true;
+    qInfo().noquote() << "MLXR_LAUNCHER_USB:" << (now ? QString("cable on ") + name : QString("no cable"));
+    emit usbCableChanged();
 }
 
 QString MlxrPrefs::configIniPath() const
@@ -70,7 +112,7 @@ void MlxrPrefs::load()
     deadzone = qBound(-20, s.value("mlxr/deadzone", 0).toInt(), 20);
     mouseNavButtons = s.value("mlxr/mouse_nav_buttons", true).toBool();
     networkPath = s.value("networkPath", "auto").toString();
-    if (networkPath != "home" && networkPath != "adapter") {
+    if (networkPath != "home" && networkPath != "adapter" && networkPath != "usb") {
         networkPath = "auto";
     }
     clipboardSync = s.value("mlxr/clipboard_sync", false).toBool();

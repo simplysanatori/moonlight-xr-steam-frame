@@ -30,8 +30,8 @@
 //   --clipboard-sync   Artemis's Smart Clipboard Sync with Apollo: once the stream is up the text
 //                      in <config dir>/clipboard-to-host.txt (the launcher wrote it) goes to the PC;
 //                      before the stream stops the PC's clipboard goes to clipboard-from-host.txt
-//   --network auto|home|adapter   which link reaches the PC (Wi-Fi or the Steam Frame Wireless
-//                      Adapter); overrides config.ini's network_path, MLXR_NETWORK overrides both
+//   --network auto|home|adapter|usb   which link reaches the PC (Wi-Fi, the Steam Frame Wireless
+//                      Adapter or a USB cable); overrides config.ini's network_path, MLXR_NETWORK overrides both
 //
 // Hosts and the client identity live in ~/.config/moonlight-xr (pair with
 // mlxr-cli, or import Moonlight Qt's pairing with backend/seed-from-moonlight-qt.sh);
@@ -133,6 +133,9 @@ static pthread_mutex_t g_netLock = PTHREAD_MUTEX_INITIALIZER;
 static mlxr_wifi_ps_guard g_psGuard;
 static mlxr_udp_counters g_udpPrev;
 static char g_netSummary[200]; // the stats line says which link carried the session
+// Native (lane wave4c-usb): the last choice was the USB cable, and what the 10 s rescan saw of it (worker thread only)
+static int g_streamOnUsb;
+static mlxr_usb_watch g_usbWatch;
 static char g_netToast[160];   // for the toast once the stream is up
 
 // With --exit-to-caller: remember why the process ends (the first reason wins) and
@@ -486,6 +489,36 @@ static void wake(const mlxr_host_record* h) {
     MLOG_I("wake: magic packet sent to %s", h->name);
 }
 
+// Native (lane wave4c-usb): the nearest guess of the PC's address on an up USB cable (worked out from the
+// interface's own address and prefix), 0 when there is no cable. The PC list's online check uses it, so a
+// Frame with only the cable plugged in sees the PC.
+static int usbPeerAddress(char* out, size_t cap) {
+    mlxr_netifs t;
+    mlxr_netifs_read(&t);
+    for (int k = 0; k < t.n; k++) {
+        const mlxr_netif* f = &t.v[k];
+        uint32_t peer;
+        if (!f->usb || !f->up || f->loopback) continue;
+        if (mlxr_net_subnet_peers(f->addr, f->mask, &peer, 1) < 1) continue;
+        struct in_addr ia = { .s_addr = htonl(peer) };
+        return inet_ntop(AF_INET, &ia, out, (socklen_t)cap) != NULL;
+    }
+    return 0;
+}
+
+// Native (lane wave4c-usb): hot-plug. Called every MLXR_USB_WATCH_PERIOD_S seconds by the worker (menus
+// and stream alike), and once more when a stream over the cable drops. Only logs; the stream's own drop
+// path returns to the launcher, an automatic reconnect is a later item.
+static void usbWatchTick(int streaming) {
+    mlxr_netifs t;
+    mlxr_netifs_read(&t);
+    mlxr_usb_info u;
+    mlxr_usb_event ev = mlxr_usb_watch_poll(&g_usbWatch, &t, &u);
+    if (ev == MLXR_USB_EVENT_UP) MLOG_I("USB cable link up: %s", u.reason);
+    else if (ev == MLXR_USB_EVENT_LOST)
+        MLOG_W("USB cable link lost%s: %s", streaming && g_streamOnUsb ? " while streaming over it" : "", u.reason);
+}
+
 // Tries the stored address, then the extra ones; keeps the server on the first that answers.
 static mlxr_server* connectHost(Net* n, int i, const char* override) {
     mlxr_host_record* rec = &n->hosts.v[i];
@@ -498,6 +531,15 @@ static mlxr_server* connectHost(Net* n, int i, const char* override) {
     char* save = NULL;
     for (char* t = strtok_r(extra, ",", &save); t && nc < 8; t = strtok_r(NULL, ",", &save))
         snprintf(cands[nc++], 128, "%s", t);
+    // Native (lane wave4c-usb): last, the PC on the USB cable when one is up (it costs nothing without a cable)
+    {
+        char usb[128];
+        int dup = 0;
+        if (nc < 8 && usbPeerAddress(usb, sizeof(usb))) {
+            for (int c = 0; c < nc; c++) dup |= !strcmp(cands[c], usb);
+            if (!dup) snprintf(cands[nc++], 128, "%s", usb);
+        }
+    }
     char* pem = NULL;
     mlxr_error err = { 0 };
     if (mlxr_host_cert_load(n->dir, rec, &pem, &err) != MLXR_OK) {
@@ -543,9 +585,17 @@ static void rememberAddresses(Net* n, int i, const mlxr_net_plan* plan, const ml
     int changed = 0;
     const char* add[MLXR_NET_MAX_CANDS + 1];
     int na = 0;
-    for (int k = 0; k < plan->n; k++)
+    // Native (lane wave4c-usb): the cable's addresses are worked out from the interface each time, not kept
+    // (unplugged, a kept address would only cost a timeout)
+    int localIsUsb = 0;
+    for (int k = 0; k < plan->n; k++) {
+        if (plan->c[k].path == MLXR_PATH_USB) {
+            if (!strcmp(plan->c[k].address, comp->local_ip)) localIsUsb = 1;
+            continue;
+        }
         if (plan->c[k].ok > 0 && !plan->c[k].other_host) add[na++] = plan->c[k].address;
-    if (comp->local_ip[0]) add[na++] = comp->local_ip;
+    }
+    if (comp->local_ip[0] && !localIsUsb) add[na++] = comp->local_ip;
     for (int k = 0; k < na; k++) {
         const char* a = add[k];
         if (!strncmp(a, "127.", 4) || !strcmp(a, rec->address)) continue;
@@ -572,11 +622,11 @@ static void rememberAddresses(Net* n, int i, const mlxr_net_plan* plan, const ml
 // probe finds nothing it falls back to connectHost's sequential try.
 static mlxr_server* connectChosen(Net* n, int i, const char* override) {
     mlxr_host_record* rec = &n->hosts.v[i];
-    static const char* const names[] = { "auto", "home", "adapter" };
+    static const char* const names[] = { "auto", "home", "adapter", "usb" };
     int cfg = g_settings.network_path;
     const char *source = NULL, *warn = NULL;
     mlxr_net_pref pref = mlxr_net_pref_resolve(g_args.network, getenv("MLXR_NETWORK"),
-                                               cfg >= 0 && cfg < 3 ? names[cfg] : NULL, &source, &warn);
+                                               cfg >= 0 && cfg < 4 ? names[cfg] : NULL, &source, &warn);
     if (warn) MLOG_W("network: %s", warn);
     mlxr_net_plan* plan = calloc(1, sizeof(*plan));
     if (!plan) return connectHost(n, i, override);
@@ -595,6 +645,13 @@ static mlxr_server* connectChosen(Net* n, int i, const char* override) {
     // Native (lane adapter-detect): the adapter was asked for, none is there, Wi-Fi is used (the toast
     // g_netToast below says so in the headset)
     if (plan->adapter_absent_fallback) MLOG_W("network path: %s", plan->toast);
+    // Native (lane wave4c-usb): the same for the cable, and the 10 s rescan's idea of "streaming over it"
+    if (plan->usb_absent_fallback) MLOG_W("network path: %s", plan->toast);
+    g_streamOnUsb = pick >= 0 && plan->chosen_path == MLXR_PATH_USB;
+    if (g_streamOnUsb) { // the watch knows the cable is there, so pulling it out is an edge even before the next scan
+        g_usbWatch.known = g_usbWatch.present = true;
+        snprintf(g_usbWatch.ifname, sizeof(g_usbWatch.ifname), "%s", plan->c[pick].ifname);
+    }
     if (pick >= 0) {
         char* pem = NULL;
         mlxr_error err = { 0 };
@@ -974,7 +1031,7 @@ static void* worker(void* arg) {
             if (g_args.host) autostart(n);
         }
     }
-    int64_t lastRefresh = 0;
+    int64_t lastRefresh = 0, lastUsbScan = 0;
     while (!atomic_load(&g_workerQuit)) {
         LaunchCmd c;
         memset(&c, 0, sizeof(c));
@@ -1039,8 +1096,16 @@ static void* worker(void* arg) {
         default:
             break;
         }
+        // Native (lane wave4c-usb): the USB cable is rescanned every 10 s, so one plugged in after the app
+        // started is noticed (the next stream's choice reads the interfaces afresh anyway) and a cable
+        // pulled out mid-stream is logged
+        if (!g_args.file && now - lastUsbScan >= MLXR_USB_WATCH_PERIOD_S) {
+            usbWatchTick(state == LAUNCH_STREAMING);
+            lastUsbScan = now;
+        }
         // The host ended the stream (or the network did)
         if (state == LAUNCH_STREAMING && atomic_load(&g_streaming) && stream_failed()) {
+            if (g_streamOnUsb) usbWatchTick(1); // was it the cable? log it now, not at the next scan
             stopStream(n, 0);
             pthread_mutex_lock(&g_lock);
             launcher_stream_ended(&g_launch, 1);
@@ -1153,7 +1218,7 @@ int main(int argc, char** argv) {
             mlxr_net_pref np;
             g_args.network = argv[++i];
             if (!mlxr_net_pref_parse(g_args.network, &np)) {
-                fprintf(stderr, "MLXR_ERROR: --network takes auto, home or adapter\n");
+                fprintf(stderr, "MLXR_ERROR: --network takes auto, home, adapter or usb\n");
                 return EXIT_USAGE;
             }
         }
@@ -1177,7 +1242,7 @@ int main(int argc, char** argv) {
                     "                  [--pacing latency|balanced|smoothness] [--video-priority off|nice|rt] [--full-range]\n"
                     "                  [--no-rumble] [--deadzone PCT] [--no-mouse-nav-buttons] [--clipboard-sync]\n"
                     "                  [--fps match]\n"
-                    "                  [--network auto|home|adapter]\n"
+                    "                  [--network auto|home|adapter|usb]\n"
                     "       %s --file VIDEO [--sw-decode] [--seconds N]\n",
                     argv[0], argv[0], argv[0]);
             return EXIT_USAGE;

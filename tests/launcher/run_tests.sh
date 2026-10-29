@@ -152,12 +152,14 @@ expect "software decode" "$out" "--sw-decode"; expect "5.1" "$out" "--audio 51";
 setconf videodec=0 audiocfg=2 packetsize=0
 out="$(dry "gaming-pc:Desktop")"; expect "7.1" "$out" "--audio 71"; refute "no packet size" "$out" "--packet-size"
 setconf audiocfg=0
-# the network path: the launcher's networkPath setting (auto, home = Wi-Fi, adapter = Steam Frame Wireless Adapter)
+# the network path: the launcher's networkPath setting (auto, home = Wi-Fi, adapter = Steam Frame Wireless Adapter, usb = USB cable)
 out="$(dry "gaming-pc:Desktop")"; expect "network default: auto" "$out" "--network auto"
 setconf networkPath=adapter
 out="$(dry "gaming-pc:Desktop")"; expect "network adapter" "$out" "--network adapter"
 setconf networkPath=home
 out="$(dry "gaming-pc:Desktop")"; expect "network home" "$out" "--network home"
+setconf networkPath=usb
+out="$(dry "gaming-pc:Desktop")"; expect "network usb" "$out" "--network usb"
 setconf networkPath=bogus
 out="$(dry "gaming-pc:Desktop")"; refute "unknown network value: not passed" "$out" "--network"
 setconf networkPath=auto
@@ -390,6 +392,17 @@ if [ -n "$SHOTS" ]; then
     grep -q '^glow = true$' "$ini" && grep -q '^separation = 9$' "$ini" && grep -q '^stereo = false$' "$ini" && ok "other config.ini keys untouched" || { fail "config.ini keys changed"; diff "$t/ini.before" "$ini"; }
     grep -q -i hdr "$ini" && fail "greyed HDR row changed something" || ok "greyed HDR row is inert"
     grep -q "MLXR_LAUNCHER_WIFI: Wi-Fi$" "$t/ui6.out" && ok "Network connection: plain Wi-Fi when unknown" || fail "wifi fallback: $(grep MLXR_LAUNCHER_WIFI "$t/ui6.out")"
+    # lane wave4c-usb: the USB cable row. A fake /sys/class/net: usb0 with carrier, a wired port without
+    mkdir -p "$t/netroot/usb0" "$t/netroot/eth0"
+    echo 1 > "$t/netroot/usb0/carrier"; echo 0 > "$t/netroot/eth0/carrier"
+    MLXR_LAUNCHER_NET_ROOT="$t/netroot" MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_SCREENSHOT="$t/usb-cable.png@3000" "$L" >"$t/ui7.out" 2>&1
+    grep -Eq "$QMLERR" "$t/ui7.out" && { fail "usb row QML errors"; grep -E "$QMLERR" "$t/ui7.out" | head; } || ok "settings page loads with the USB cable row (no QML errors)"
+    grep -q "MLXR_LAUNCHER_USB: cable on usb0" "$t/ui7.out" && ok "USB cable: usb0 with carrier is detected" || fail "usb cable not detected: $(grep MLXR_LAUNCHER_USB "$t/ui7.out")"
+    echo 0 > "$t/netroot/usb0/carrier"
+    MLXR_LAUNCHER_NET_ROOT="$t/netroot" MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_SCREENSHOT="$t/usb-nocable.png@3000" "$L" >"$t/ui8.out" 2>&1
+    grep -q "MLXR_LAUNCHER_USB: no cable" "$t/ui8.out" && ok "USB cable: usb0 without carrier is ignored" || fail "usb0 without carrier: $(grep MLXR_LAUNCHER_USB "$t/ui8.out")"
     # what the VR client's own parser makes of it
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"

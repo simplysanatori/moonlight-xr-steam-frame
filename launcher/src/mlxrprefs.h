@@ -37,7 +37,7 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(int deadzone MEMBER deadzone NOTIFY changed)                  // -20..20 percent
     Q_PROPERTY(bool mouseNavButtons MEMBER mouseNavButtons NOTIFY changed)
     // The PC link: "auto" (default), "home" (Wi-Fi), "adapter" (the Steam Frame Wireless
-    // adapter). Key "networkPath" (no "mlxr/" group): lane network-path's hand-off reads it and passes
+    // adapter), "usb" (a USB data cable to the PC; Native, lane wave4c-usb). Key "networkPath" (no "mlxr/" group): lane network-path's hand-off reads it and passes
     // --network to the VR client; this page only stores it
     Q_PROPERTY(QString networkPath MEMBER networkPath NOTIFY changed)
     // ---- launcher settings used by the launcher ----
@@ -54,6 +54,9 @@ class MlxrPrefs : public QObject
     // Which notices the headset's toast says: "all", "important" or "off" ([vr] notices)
     Q_PROPERTY(QString notices MEMBER notices NOTIFY changed)
     // ---- facts ----
+    // Native (lane wave4c-usb): a USB data cable to the PC is up, i.e. the headset's USB network
+    // interface (usb*, or a gadget device) has carrier. Rescanned every 10 s while the app is open.
+    Q_PROPERTY(bool usbCable READ usbCable NOTIFY usbCableChanged)
     Q_PROPERTY(int headsetMaxFps READ headsetMaxFps CONSTANT)
     Q_PROPERTY(QString configIniPath READ configIniPath CONSTANT)
 
@@ -78,6 +81,14 @@ public:
     Q_INVOKABLE QString wifiLabel() const;
     static QString wifiLabelFromIw(const QString& iwDevOutput);
     QString configIniPath() const;
+
+    bool usbCable() const { return m_usbCable; }
+    // Looks at the network interfaces under netRoot (/sys/class/net) now and emits usbCableChanged()
+    // when the cable appeared or went away. MLXR_LAUNCHER_NET_ROOT: another directory (tests).
+    Q_INVOKABLE void rescanUsb();
+    // The name of the first USB network interface under netRoot that has carrier ("1" in its carrier
+    // file), "" when none. USB means the name starts with "usb" or uevent says DEVTYPE=gadget.
+    static QString usbCableInterface(const QString& netRoot);
 
     // config.ini access (exposed for tests): the active value of section.key, else the commented
     // default line's, else def
@@ -114,6 +125,7 @@ public:
 
 signals:
     void changed();
+    void usbCableChanged();
 
 private:
     explicit MlxrPrefs(QObject* parent = nullptr);
@@ -122,4 +134,5 @@ private:
     QString m_iniNotices = "all";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
+    bool m_usbCable = false, m_usbScanned = false;
 };

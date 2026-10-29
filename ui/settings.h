@@ -51,7 +51,7 @@ typedef struct Settings {
     int audio_config;      // 0 stereo, 1 5.1, 2 7.1
     int virtual_surround;  // HRTF virtual surround for headsets
     int frame_pacing;      // 0 latency, 1 balanced, 2 cap fps, 3 smoothness
-    int network_path;      // 0 auto, 1 home (Wi-Fi), 2 adapter (Steam Frame Wireless Adapter)
+    int network_path;      // 0 auto, 1 home (Wi-Fi), 2 adapter (Steam Frame Wireless Adapter), 3 usb (USB cable)
 
     // [vr] VR Settings table
     int pointer;           // Controllers as a mouse

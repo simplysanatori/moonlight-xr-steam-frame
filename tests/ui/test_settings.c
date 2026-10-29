@@ -404,6 +404,10 @@ static void test_network_path(void) {
     CHECK(s.network_path == 2);
     settings_from_text(&s, "[stream]\nnetwork_path = Home\n", &info);
     CHECK(s.network_path == 1);
+    settings_from_text(&s, "[stream]\nnetwork_path = USB\n", &info);   // Native (lane wave4c-usb)
+    CHECK(s.network_path == 3);
+    settings_from_text(&s, "[stream]\nnetwork_path = home\n", &info);
+    CHECK(s.network_path == 1);
     settings_from_text(&s, "[stream]\nnetwork_path = ethernet\n", &info);   // not a value: the last good one stays
     CHECK(s.network_path == 1 && info.bad == 1);
     settings_defaults(&s);
@@ -411,6 +415,10 @@ static void test_network_path(void) {
     s.network_path = 2;
     char* text = settings_to_text(&s);
     CHECK(text && strstr(text, "network_path = adapter"));
+    free(text);
+    s.network_path = 3;
+    text = settings_to_text(&s);
+    CHECK(text && strstr(text, "network_path = usb"));
     free(text);
 }
 
