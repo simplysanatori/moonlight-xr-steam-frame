@@ -119,6 +119,15 @@ static void printCounts(const char* what, const long* c) {
 
 static M5Gpu g;
 
+// A time budget: failed on the Frame's GPU, printed only with MLXR_SOFT_GPU=1
+// (lavapipe in CI draws on the CPU, so its times say nothing of the Frame's)
+#define CHECK_BUDGET(cond) do { \
+        if (m5_soft_gpu()) { \
+            if (!(cond)) printf("  over budget (MLXR_SOFT_GPU=1, not failed): %s\n", #cond); \
+        } \
+        else CHECK(cond); \
+    } while (0)
+
 static XrCtx* newCtx(void) {
     XrCtx* c = calloc(1, sizeof(XrCtx));
     xrCtxDefaults(c, 1920, 1080, 60);
@@ -439,7 +448,7 @@ static void timingGroup(void) {
         untilBuilt(c, st, NULL);
         double ms = timePass(c, &t, drawRoomBody, &shot);
         printf("  room %-13s 2 x %dx%d, lit, ASTC atlas         %.3f ms\n", names[st], eyeW, eyeH, ms);
-        CHECK(ms < 8.0);
+        CHECK_BUDGET(ms < 8.0);
     }
     // Native: one projection layer a frame draws the room into the 3D
     // picture's image, at the picture's eye size (2640 at the Frame's 90 Hz
@@ -459,7 +468,7 @@ static void timingGroup(void) {
             untilBuilt(c, st, NULL);
             double ms = timePass(c, &t, drawRoomBody, &big);
             printf("  room %-13s 2 x 2640x2640 (in the picture's layer) %.3f ms\n", names[st], ms);
-            CHECK(ms < 8.0);
+            CHECK_BUDGET(ms < 8.0);
         }
         m5_image_free(c, &big.colour);
         m5_image_free(c, &big.depth);
@@ -472,7 +481,7 @@ static void timingGroup(void) {
     c->modelGrip[1] = (XrPosef){ axisAngleQuat(ax, -0.5f), { 0.20f, -0.20f, -0.50f } };
     double modelMs = timePass(c, &t, modelsBody, &shot);
     printf("  controller models, both hands, 2 x %dx%d              %.3f ms\n", eyeW, eyeH, modelMs);
-    CHECK(modelMs < 4.0);
+    CHECK_BUDGET(modelMs < 4.0);
     // The curved picture's layer with the glow drawn into it
     WarpShot pic;
     memset(&pic, 0, sizeof(pic));
@@ -1205,7 +1214,7 @@ static void eyeImagesGroup(void) {
         double a = timePass(c, &t, fns[k], k == 2 ? (void*)&cs[0] : (void*)&side);
         double b = timePass(c, &t, fns[k], k == 2 ? (void*)&cs[1] : (void*)&per);
         printf("  %-24s %.3f ms / %.3f ms\n", names[k], a, b);
-        CHECK(b <= a * 1.3 + 0.3);
+        CHECK_BUDGET(b <= a * 1.3 + 0.3);
     }
     shotFree(c, &side);
     shotFree(c, &per);
