@@ -77,6 +77,7 @@ jobs:
             dist/SHA256SUMS
           if-no-files-found: error
 
+<<<<<<< HEAD
   # A tarball that installs on the Steam Frame. The linux-arm64 job links
   # Ubuntu 24.04's FFmpeg 6.1 (libavcodec.so.60), which SteamOS does not have;
   # this job builds FFmpeg 7.0.2 (SteamOS ships the 7.0 series, ffmpeg
@@ -105,16 +106,33 @@ jobs:
         --enable-demuxer=mov,matroska,h264,hevc
         --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb
         --enable-protocol=file
+=======
+  # The flat launcher (patched moonlight-qt 6.1.0, qmake) and its offscreen tests
+  # (tests/launcher/run_tests.sh). Ubuntu 24.04 has Qt 6.4 and the launcher needs 6.5 or newer, so
+  # Qt comes from aqtinstall (linux_arm64 builds exist from 6.7). The Frame ships qt6-base 6.8.0 and
+  # qt6-declarative 6.8.0, so this is pinned to 6.8.0: not newer than the Frame.
+  launcher:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      QT_VERSION: '6.8.0'
+      QT_ROOT: /home/runner/Qt
+>>>>>>> origin/lane/wave0-launcher-ci
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+<<<<<<< HEAD
           fetch-depth: 0        # git describe needs the tags
+=======
+          fetch-depth: 0
+>>>>>>> origin/lane/wave0-launcher-ci
 
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+<<<<<<< HEAD
             clang lld cmake ninja-build pkg-config python3 \
             glslc libvulkan-dev \
             libssl-dev libcurl4-openssl-dev libxml2-dev \
@@ -218,3 +236,57 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS
           if-no-files-found: error
+=======
+            clang lld cmake ninja-build pkg-config python3 python3-venv \
+            build-essential rsync patch \
+            glslc libvulkan-dev \
+            libavcodec-dev libavformat-dev libswscale-dev libavutil-dev \
+            libssl-dev libcurl4-openssl-dev libxml2-dev \
+            libopus-dev libsdl2-dev libsdl2-ttf-dev libva-dev libdrm-dev \
+            libwayland-dev libx11-dev libxcb1-dev libxxf86vm-dev libxrandr-dev \
+            libgl-dev libegl-dev libwayland-bin wayland-protocols \
+            libxkbcommon-dev libfontconfig1-dev libfreetype-dev libdbus-1-dev libglib2.0-dev
+
+      - name: Cache Qt
+        id: qt
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.QT_ROOT }}
+          key: qt-${{ env.QT_VERSION }}-linux_gcc_arm64-qtshadertools-v1
+
+      - name: Install Qt ${{ env.QT_VERSION }} (aqtinstall)
+        if: steps.qt.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv "$HOME/aqt-venv"
+          "$HOME/aqt-venv/bin/pip" install aqtinstall
+          "$HOME/aqt-venv/bin/aqt" list-qt linux_arm64 desktop
+          # qtbase, qtdeclarative (Qt Quick, Controls), qtsvg and qttools come with the base
+          # archives; qtshadertools is a separate module that Qt Quick needs.
+          "$HOME/aqt-venv/bin/aqt" install-qt linux_arm64 desktop "$QT_VERSION" linux_gcc_arm64 \
+            -m qtshadertools --outputdir "$QT_ROOT"
+
+      - name: Build mlxr-cli and mlxr-settings-dump
+        run: NO_DEPTH=1 SKIP_AUDIT=1 JOBS=4 ./build.sh mlxr-cli mlxr-settings-dump
+
+      - name: Build the launcher
+        run: |
+          QT_BIN="$QT_ROOT/$QT_VERSION/gcc_arm64/bin"
+          [ -x "$QT_BIN/qmake6" ] || ln -s qmake "$QT_BIN/qmake6"
+          export PATH="$QT_BIN:$PATH"
+          qmake6 --version
+          SKIP_AUDIT=1 JOBS=4 ./launcher/build.sh
+
+      # launcher_vs_stock is not run: it needs a second full moonlight-qt build
+      # (tests/launcher/build-stock.sh), so it skips itself (exit 77).
+      - name: Test
+        run: ctest --test-dir build -R '^launcher_' --output-on-failure
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launcher-test-output
+          path: |
+            build-launcher/shots/
+            build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+>>>>>>> origin/lane/wave0-launcher-ci
