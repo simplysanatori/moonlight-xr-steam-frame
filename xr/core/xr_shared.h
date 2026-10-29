@@ -548,20 +548,22 @@
 #define COG_REPORT_B 0.81f
 
 // Display tab rows. Cells rather than a track, so a press picks one instead of
-// dragging a value. The head aim, gamepad and ray rows are the bar's buttons
-// for the session, so they are not stored. Head aim's is greyed unless the
-// screen is locked to the head outside a room. The gamepad row is Pointer or
-// Gamepad, what the controllers are; the controllers row is whether their
-// model is drawn.
+// dragging a value. The head aim and gamepad rows are the bar's buttons for
+// the session, so they are not stored, and the ray row is the saved half of
+// the bar's Ray button. Head aim's is greyed unless the screen is locked to
+// the head outside a room. The input rows sit together: the gamepad row is
+// Mode (Pointer or Gamepad, what the controllers are), the controllers row is
+// Show controllers (whether their model is drawn), then Ray (Off, Dot, Ray),
+// Pointer sleep and Click sound.
 #define COG_OPTION_SHARPEN 0
 #define COG_OPTION_SUPERSAMPLE 1
 #define COG_OPTION_STATS   2
 #define COG_OPTION_HEAD_LOCK 3
 #define COG_OPTION_HEAD_AIM 4
 #define COG_OPTION_GAMEPAD 5
-#define COG_OPTION_POINTER_SLEEP 6
+#define COG_OPTION_CONTROLLERS 6
 #define COG_OPTION_RAY 7
-#define COG_OPTION_CONTROLLERS 8
+#define COG_OPTION_POINTER_SLEEP 8
 #define COG_OPTION_CLICK_SOUND 9
 #define COG_OPTION_AMBILIGHT 10
 #define COG_OPTION_ROOM_LIGHT 11

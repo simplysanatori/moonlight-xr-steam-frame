@@ -396,6 +396,37 @@ static void test_notices(void) {
     CHECK(settings_option_cell(&s, &t, COG_OPTION_NOTICES) == NOTICES_OFF);
 }
 
+// The cog opens on the tab it was last left on: [display] cog_tab, the tab
+// names in COG_TAB_ order, screen to start with
+static void test_cog_tab(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.cog_tab == COG_TAB_SCREEN);
+    settings_from_text(&s, "[display]\ncog_tab = display\n", &info);
+    CHECK(s.cog_tab == COG_TAB_DISPLAY && info.applied == 1 && info.bad == 0);
+    settings_from_text(&s, "[display]\ncog_tab = 3d\n", &info);
+    CHECK(s.cog_tab == COG_TAB_3D);
+    settings_from_text(&s, "[display]\ncog_tab = picture\n", &info);
+    CHECK(s.cog_tab == COG_TAB_PICTURE);
+    settings_from_text(&s, "[display]\ncog_tab = about\n", &info);
+    CHECK(s.cog_tab == COG_TAB_ABOUT);
+    settings_from_text(&s, "[display]\ncog_tab = 1\n", &info);   // an index works too
+    CHECK(s.cog_tab == COG_TAB_DISPLAY);
+    settings_from_text(&s, "[display]\ncog_tab = sound\n", &info);   // not a tab: the last good one stays
+    CHECK(s.cog_tab == COG_TAB_DISPLAY && info.bad == 1);
+    settings_from_text(&s, "[display]\ncog_tab = 9\n", &info);
+    CHECK(s.cog_tab == COG_TAB_DISPLAY && info.bad == 1);
+    s.cog_tab = COG_TAB_3D;
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\ncog_tab = 3d\n") != NULL);
+    free(text);
+    settings_defaults(&s);
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#cog_tab = screen\n") != NULL);
+    free(text);
+}
+
 static void test_network_path(void) {
     Settings s;
     SettingsLoadInfo info;
@@ -632,9 +663,21 @@ static void test_shortcut_wording(void) {
     CHECK(strstr(hint, "menu") == NULL && strstr(back, "menu") == NULL);
 }
 
+// The two input rows say what they do: Mode is pointer or gamepad, Show
+// controllers is whether the models are drawn (the old "Controllers" and
+// "Controller model" sat side by side and read as the same thing)
+static void test_input_row_wording(void) {
+    CHECK(strcmp(ui_str(UIS_ROW_MODE), "Mode") == 0);
+    CHECK(strcmp(ui_str(UIS_ROW_SHOW_CONTROLLERS), "Show controllers") == 0);
+    CHECK(strcmp(ui_str(UIS_POINTER), "Pointer") == 0 && strcmp(ui_str(UIS_GAMEPAD), "Gamepad") == 0);
+    CHECK(strcmp(ui_str(UIS_ROW_MODE), ui_str(UIS_ROW_SHOW_CONTROLLERS)) != 0);
+    CHECK(strstr(ui_str(UIS_ROW_MODE), "Controller") == NULL);
+}
+
 int main(void) {
     test_defaults();
     test_shortcut_wording();
+    test_input_row_wording();
     test_table_covers_readme();
     test_round_trip();
     test_defaults_commented_out();
@@ -644,6 +687,7 @@ int main(void) {
     test_removed_keys();
     test_bitrate_ceiling();
     test_notices();
+    test_cog_tab();
     test_files();
     test_sliders();
     return checksDone("ui_settings");

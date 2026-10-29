@@ -37,10 +37,10 @@
     X(ROW_STATS, "vr_panel_stats", "Stats") \
     X(ROW_HEAD_LOCKED, "vr_panel_head_locked", "Head locked") \
     X(ROW_HEAD_AIM, "vr_panel_head_aim", "Head aim") \
-    X(ROW_CONTROLLERS, "vr_panel_controllers", "Controllers") \
+    X(ROW_MODE, "vr_panel_controllers", "Mode") \
     X(ROW_POINTER_SLEEP, "vr_panel_pointer_sleep", "Pointer sleep") \
     X(ROW_RAY, "vr_panel_ray", "Ray") \
-    X(ROW_CONTROLLER_MODEL, "vr_panel_controller_model", "Controller model") \
+    X(ROW_SHOW_CONTROLLERS, "vr_panel_controller_model", "Show controllers") \
     X(ROW_CLICK_SOUND, "vr_panel_click_sound", "Click sound") \
     X(NORMAL, "vr_panel_normal", "Normal") \
     X(QUALITY, "vr_panel_quality", "Quality") \

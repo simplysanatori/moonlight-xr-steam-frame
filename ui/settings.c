@@ -45,6 +45,8 @@ static const char* const ENVRES_NAMES[] = { "low", "standard", "high", "ultra" }
 static const char* const NOTICES_NAMES[] = { "all", "important", "off" };
 static const char* const LOG_NAMES[] = { "off", "basic", "verbose" };
 static const char* const KBLAYOUT_NAMES[] = { "compact", "full" };
+static const char* const COGTAB_NAMES[] = { "screen", "display", "3d", "picture", "about" };
+_Static_assert(sizeof(COGTAB_NAMES) / sizeof(COGTAB_NAMES[0]) == COG_TAB_COUNT, "cog_tab names follow COG_TAB_");
 static const char* const KEYMAP_NAMES[] = { "qwerty", "azerty", "qwertz" };
 static const char* const SHARP_NAMES[] = { "off", "normal", "quality" };
 
@@ -122,6 +124,7 @@ static const SettingDesc TABLE[] = {
     DB("display", "glow", glow, 0, "Display tab: glow (checkbox_vr_ambilight; native default off, the owner's choice, upstream on)"),
     DI("display", "glow_level", glow_level, 0, 100, 50, "Display tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
     DB("display", "screen_light", screen_light, 1, "Display tab: screen light in rooms (checkbox_vr_room_light)"),
+    DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (room in a room), display, 3d, picture or about"),
     // 3d
     DI("3d", "separation", separation, -1, COG_SEP_STEPS, -1, "seekbar_vr_separation: tenths of a percent of frame width; -1 is the depth model's own (ZipDepth 6, MiDaS 5)"),
     DI("3d", "convergence", convergence, -1, 100, -1, "seekbar_vr_convergence: percent; -1 is the depth model's own (50)"),

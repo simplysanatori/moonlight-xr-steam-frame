@@ -292,6 +292,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->modelOn = s->controller_model;
     xrSetClickSound(ctx, s->click_sound);
     noticeSetLevel(&ctx->notices, s->notices);
+    ctx->cogTab = s->cog_tab >= 0 && s->cog_tab < COG_TAB_COUNT ? s->cog_tab : COG_TAB_SCREEN;
     xrSetShowRay(ctx, s->show_ray);
     ctx->dotOn = s->pointer_dot;
     ctx->kbLayout = s->keyboard_layout == KB_LAYOUT_FULL ? KB_LAYOUT_FULL : KB_LAYOUT_COMPACT;
@@ -354,6 +355,7 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->controller_model = ctx->modelOn;
     s->click_sound = ctx->clickSoundOn;
     s->notices = ctx->notices.level;
+    s->cog_tab = ctx->cogTab;
     s->pointer_dot = ctx->dotOn;
     s->keyboard_layout = ctx->kbLayout;
     s->keyboard_keymap = ctx->kbMap;
@@ -409,6 +411,7 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_POINTER_SLEEP: s->pointer_sleep = value != 0; break;
     case SETTING_CLICK_SOUND: s->click_sound = value != 0; break;
     case SETTING_NOTICES: s->notices = value; break;
+    case SETTING_COG_TAB: s->cog_tab = value; break;
     case SETTING_CONTROLLER_MODEL: s->controller_model = value != 0; break;
     case SETTING_HEAD_AIM_SENSITIVITY: s->head_aim_sensitivity = value; break;
     case SETTING_HEAD_AIM_DEADZONE: s->head_aim_deadzone = value; break;

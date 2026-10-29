@@ -13,6 +13,8 @@
 #define SETTING_POINTER_DOT 24
 // Which notices the toast says, NOTICES_ALL 0, IMPORTANT 1 or OFF 2
 #define SETTING_NOTICES 25
+// The cog's tab, COG_TAB_*: the next session opens the cog on it
+#define SETTING_COG_TAB 26
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 
@@ -65,12 +67,18 @@ enum {
     ATLAS_CORNER,
     ATLAS_HANDLE,
     ATLAS_OVERLAY,
+    ATLAS_BEAM_FAINT,
     ATLAS_SLOTS
 };
 // Native: 416 x 400, the whole free corner under the clock strip (x 1632..2048,
 // y 1840..2240), so the longest stats line wraps rather than being cut off
 #define ATLAS_OVERLAY_W 416
 #define ATLAS_OVERLAY_H 400
+// Native: the resting beam shown over the bar with the ray off, a short strip
+// of the beam's art at a third of its strength, stretched along the beam
+// (x 1280..1344, y 2496..2536, under the beam's own slot)
+#define ATLAS_BEAM_FAINT_H 40
+#define BEAM_FAINT_LEVEL 0.30f
 UiRectPx xrAtlasRect(int slot);
 // The CPU copy the panels draw into (RGBA8 premultiplied, UI_ATLAS_W wide)
 uint8_t* xrAtlasPixels(XrCtx* ctx);

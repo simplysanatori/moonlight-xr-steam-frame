@@ -23,6 +23,17 @@ int rayFlipFor(int settingOn, int wantOn);
 // gone a lightgun game still has its dot and every press still lands.
 int rayDrawn(int settingOn, int flipped, int panelOpen);
 
+// What the pointing line looks like this frame. RAY_BEAM_FULL is the beam
+// rayDrawn allows. RAY_BEAM_RESTING is a faint beam for the one case the
+// bar can otherwise only be found blind: the ray is switched off, the dot is
+// off too (with the dot on it is the cue), no panel is up, and the controller
+// is inside the bar's hover band, so the user can see where it points. It is
+// off everywhere else, so the picture stays clean.
+#define RAY_BEAM_NONE 0
+#define RAY_BEAM_FULL 1
+#define RAY_BEAM_RESTING 2
+int rayBeamKind(int settingOn, int flipped, int panelOpen, int dotOn, int overBarBand);
+
 // The cursor dot keeps the size it has on the default screen, PTR_DOT_SIZE_M
 // across at PTR_DOT_REF_M away, as an angle at any distance, so it reads the
 // same on a 14 m wall as on a panel near the viewer. Held between a floor,

@@ -106,7 +106,7 @@ The last line of the page says where the headset's own settings are saved (`~/.c
 
 ## In the headset: the bar
 
-The bar sits under the screen. From left to right:
+The bar sits under the screen and shows its buttons only while the ray is over it (see [Controllers](#controllers) if you run with the ray off). From left to right:
 
 | Button | What it does |
 | --- | --- |
@@ -122,7 +122,7 @@ The bar sits under the screen. From left to right:
 
 ## The cog menu
 
-Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture**, **About**. A press outside the menu closes it.
+Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture**, **About**. A press outside the menu closes it. The cog opens on the tab you used last, and remembers it for the next session (`cog_tab` in `config.ini`).
 
 ### Screen
 
@@ -158,10 +158,10 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Stats | Off, On | Off |
 | Head locked | Off, On | Off. The screen follows your head. |
 | Head aim | Off, On | Off. Needs Head locked; not in a room. |
-| Controllers | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
-| Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
+| Mode | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
+| Show controllers | Off, On | Off |
 | Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. Bar = this session, cog = saved: the choice here is kept for the next session, the bar's Ray button is not. |
-| Controller model | Off, On | Off |
+| Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
 | Click sound | Off, On | On |
 | Glow | Off, On | Off |
 | Screen light | Off, On | On |
@@ -262,7 +262,7 @@ The Environment button opens the Rooms picker:
 | Grand Cinema | A large cinema. The screen size is fixed. |
 | Synthwave | A neon landscape |
 
-The choice is remembered. Inside a room the bar's move pill does nothing, and the Screen tab becomes the Room tab. Controller models are hidden in passthrough.
+The choice is remembered. Inside a room the bar's move pill does nothing, and the Screen tab becomes the Room tab. Controllers are hidden in passthrough.
 
 ## 3D
 
@@ -272,6 +272,20 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 - Comfort, Balanced and Strong set the depth. Depth and Convergence fine-tune it.
 - 3D is on by default and remembered.
 - The default model is ZipDepth. `depth_source` in `config.ini` chooses `zipdepth`, `zipdepth-int8` (lighter on the CPU) or `midas`.
+
+## Controllers
+
+The cog's **Display** tab has the controller rows together: **Mode**, **Show controllers**, **Ray**, **Pointer sleep** and **Click sound**.
+
+| Row | What it does |
+| --- | --- |
+| Show controllers | Off by default: no controller is drawn in the headset. Turn it on to draw a controller in each hand. The installer converts SteamVR's own Steam Frame controller models on your Frame, so the models match the real controllers and move with your buttons and sticks. Valve's models are never in the download. If the conversion fails, a generic controller is shown. To draw a model of your own, convert it with `tools/xr/make_model.py`; see [Custom controller models](CUSTOM_MODELS.md). Controllers are hidden in passthrough. |
+| Mode | Pointer or Gamepad. Every session starts in pointer mode. |
+| Ray | Off, Dot or Ray: how the pointer shows. |
+
+**Bar = this session, cog = saved.** The bar's Ray, Gamepad / Pointer and Head aim buttons change this session only. The cog's Ray row and Show controllers are kept for the next session.
+
+The bar is hidden until the ray is over it. With **Ray** set to **Off** (no beam and no dot), a faint beam shows only while the controller points into the bar's area under the screen, so you can still find the bar. Anywhere else, and with a panel open, nothing extra is drawn.
 
 ## Keyboards, mice and gamepads
 
@@ -292,10 +306,6 @@ The headset keyboard can show French (AZERTY) or German (QWERTZ) letters. Pick i
 - **QWERTZ** matches Windows "German (Germany)". The Compact keyboard has `ä ö ü ß` and the capitals on the symbols sheet, and the brackets `[ ] { } \ |`, `<` and `>` on the Fn sheet. `^` and the acute accent are dead keys on the Full keyboard, as on a real German keyboard: press a letter after them, or space for the accent alone.
 - The Full keyboard grows the extra key that French and German keyboards have beside the left Shift (`<` and `>`), so the left Shift is shorter. For the characters on AltGr (`@`, `#`, `{`, `[`, `|`, `\`, `€`), tap the right Alt: Windows reads it as AltGr on these layouts. The Compact keyboard types those characters as text, which works on any layout.
 - The report sheet's note field always shows the QWERTY keys.
-
-### Controller models
-
-Display tab, Controller model. The installer converts SteamVR's own Steam Frame controller models on your Frame, so the models match the real controllers and move with your buttons and sticks. Valve's models are never in the download. If the conversion fails, a generic controller is shown. To draw a model of your own, convert it with `tools/xr/make_model.py`; see [Custom controller models](CUSTOM_MODELS.md).
 
 ## Ending a stream
 

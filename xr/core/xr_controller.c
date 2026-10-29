@@ -15,6 +15,13 @@ int rayDrawn(int settingOn, int flipped, int panelOpen) {
     return panelOpen != 0 || raySwitchOn(settingOn, flipped);
 }
 
+int rayBeamKind(int settingOn, int flipped, int panelOpen, int dotOn, int overBarBand) {
+    if (rayDrawn(settingOn, flipped, panelOpen)) {
+        return RAY_BEAM_FULL;
+    }
+    return overBarBand != 0 && dotOn == 0 && panelOpen == 0 ? RAY_BEAM_RESTING : RAY_BEAM_NONE;
+}
+
 float pointerDotSize(float distance) {
     float size = distance * (PTR_DOT_SIZE_M / PTR_DOT_REF_M);
     return size < PTR_DOT_MIN_M ? PTR_DOT_MIN_M : (size > PTR_DOT_MAX_M ? PTR_DOT_MAX_M : size);
