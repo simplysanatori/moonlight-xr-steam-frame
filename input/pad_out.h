@@ -22,9 +22,10 @@
 #include "xr_gamepad.h"
 
 // What the pad says it is on arrival: an Xbox pad with analogue triggers and
-// rumble, and the buttons two controllers have for an app (PAD_BUTTONS). The
-// values are LI_CTYPE_XBOX, LI_CCAP_ANALOG_TRIGGERS | LI_CCAP_RUMBLE and the
-// Limelight flags of PAD_BUTTONS; pad_out.c checks them against Limelight.h.
+// rumble, and the buttons two controllers have for an app (PAD_BUTTONS) with
+// the guide button the View and Menu chord makes (PAD_GUIDE). The values are
+// LI_CTYPE_XBOX, LI_CCAP_ANALOG_TRIGGERS | LI_CCAP_RUMBLE and the Limelight
+// flags of those; pad_out.c checks them against Limelight.h.
 #define PADOUT_TYPE 0x01
 #define PADOUT_CAPS 0x03
 
@@ -75,7 +76,7 @@ typedef struct {
 } PadOut;
 
 // The Moonlight button flags of a PAD_ bit set, nothing for bits outside
-// PAD_BUTTONS
+// PAD_BUTTONS and PAD_GUIDE
 int padOutButtonFlags(int padButtons);
 
 // A and B swapped and X and Y swapped in Moonlight flags, the rest left alone

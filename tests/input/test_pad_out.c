@@ -84,6 +84,9 @@ static void testButtonMap(void) {
         { PAD_RB, RB_FLAG }, { PAD_A, A_FLAG }, { PAD_B, B_FLAG }, { PAD_X, X_FLAG },
         { PAD_Y, Y_FLAG },
     };
+    // The guide button is the one extra, from the View and Menu chord
+    CHECK(padOutButtonFlags(PAD_GUIDE) == SPECIAL_FLAG && PAD_GUIDE == 0x0400);
+    CHECK((PAD_BUTTONS & PAD_GUIDE) == 0);
     int all = 0;
     int allFlags = 0;
     for (unsigned i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
@@ -96,11 +99,14 @@ static void testButtonMap(void) {
     CHECK(padOutButtonFlags(PAD_BUTTONS) == allFlags);
     // The literal Moonlight values, in case the header ever changes under us
     CHECK(allFlags == 0xf3ff);
-    // No SPECIAL (guide), paddles, touchpad or misc bit ever comes out
+    // No SPECIAL (guide, which only PAD_GUIDE makes), paddles, touchpad or misc bit comes out
+    // of PAD_BUTTONS
     CHECK((allFlags & (SPECIAL_FLAG | PADDLE1_FLAG | PADDLE2_FLAG | PADDLE3_FLAG | PADDLE4_FLAG
                         | TOUCHPAD_FLAG | MISC_FLAG)) == 0);
     // Bits outside PAD_BUTTONS are dropped
-    CHECK(padOutButtonFlags(0x0400 | 0x0800 | 0x4000) == X_FLAG);
+    CHECK(padOutButtonFlags(0x0800 | 0x4000) == X_FLAG);
+    CHECK(padOutButtonFlags(0x0400 | 0x4000) == (SPECIAL_FLAG | X_FLAG));
+    CHECK(padOutButtonFlags(0x10000 | 0x20000 | 0x40000 | 0x4000) == X_FLAG);
     CHECK(padOutButtonFlags(0) == 0);
     // Every pair of buttons together is the union
     for (unsigned i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
@@ -324,7 +330,7 @@ static void testDedupAndPlug(void) {
     CHECK(events[0].type == LI_CTYPE_XBOX);
     CHECK(events[0].caps == (LI_CCAP_ANALOG_TRIGGERS | LI_CCAP_RUMBLE));
     CHECK((events[0].caps & LI_CCAP_TRIGGER_RUMBLE) == 0);
-    CHECK(events[0].buttons == 0xf3ff);
+    CHECK(events[0].buttons == 0xf7ff);    // every button and the guide
     CHECK(events[1].kind == 2 && events[1].number == 0 && events[1].mask == 1);
     CHECK(events[1].pk.buttonFlags == 0);
     CHECK(p.arrivals == 1 && p.states == 1);
@@ -355,7 +361,7 @@ static void testDedupAndPlug(void) {
     CHECK(eventCount == 9);
 
     // Two pad values that convert to the same packet are one state
-    PadState a = stateWith(PAD_A | 0x0400);
+    PadState a = stateWith(PAD_A | 0x0800);
     PadState b = stateWith(PAD_A);
     a.leftX = 40000; b.leftX = 32767;
     PadOut q;

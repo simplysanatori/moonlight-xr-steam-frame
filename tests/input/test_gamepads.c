@@ -537,6 +537,16 @@ static void testStickOptions(void) {
     CHECK(o.buttonFlags == (B_FLAG | Y_FLAG | PLAY_FLAG));
     gpApplyStickOptions(&o, 0, 1);
     CHECK(o.buttonFlags == pk.buttonFlags);
+    // What the launcher set is readable, for the Frame controllers' dead zone
+    CHECK(gamepadsGetDeadzone() == 0);
+    gamepadsSetDeadzone(9);
+    CHECK(gamepadsGetDeadzone() == 9);
+    gamepadsSetDeadzone(99);
+    CHECK(gamepadsGetDeadzone() == 20);
+    gamepadsSetDeadzone(-99);
+    CHECK(gamepadsGetDeadzone() == -20);
+    gamepadsSetDeadzone(0);
+    CHECK(gamepadsGetDeadzone() == 0);
 }
 
 int main(void) {

@@ -63,6 +63,18 @@ void refreshInputSource(XrCtx* ctx) {
             continue;
         }
         XrPath profile = state.interactionProfile;
+        if (profile != ctx->activeProfile[h]) {
+            // Which profile the runtime settled on is the one thing the
+            // bindings on two paths cannot say, so it is named in the log
+            char name[XR_MAX_PATH_LENGTH] = "none";
+            uint32_t len = 0;
+            if (profile != XR_NULL_PATH
+                    && XR_FAILED(xrPathToString(ctx->instance, profile, sizeof(name), &len, name))) {
+                snprintf(name, sizeof(name), "unreadable");
+            }
+            ctx->activeProfile[h] = profile;
+            LOGI("hand %d active interaction profile: %s", h, name);
+        }
         int kind = profileKind(profile != XR_NULL_PATH,
                                profile == ctx->handProfile || profile == ctx->msftHandProfile);
         // Without a pinch bound there is nothing to wake the pointer with, so
@@ -70,7 +82,10 @@ void refreshInputSource(XrCtx* ctx) {
         ctx->usingHands[h] = ctx->handClickOk && kind == PROFILE_HANDS;
         ctx->onExtHands[h] = kind == PROFILE_HANDS && profile == ctx->handProfile;
         ctx->onMsftHands[h] = kind == PROFILE_HANDS && profile == ctx->msftHandProfile;
-        int frame = ctx->frameBound && profile != XR_NULL_PATH && profile == ctx->frameProfile;
+        int frame = 0;
+        for (int i = 0; i < FRAME_PROFILE_COUNT; i++) {
+            frame |= ctx->frameBound && profile != XR_NULL_PATH && profile == ctx->frameProfile[i];
+        }
         if (frame != ctx->onFrame[h]) {
             ctx->onFrame[h] = frame;
             LOGI("hand %d %s the Steam Frame controller profile", h, frame ? "on" : "off");
@@ -230,7 +245,7 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int level, int hapt
 // A and B, and on the left on the d-pad's down and right, which SteamVR pairs
 // with A and B. squeeze is OpenXR's usual name for the grip; the alternative
 // is tried if a runtime wants that instead.
-static int suggestFrameBindings(XrCtx* ctx, const char* squeeze, int haptic) {
+static int suggestFrameBindings(XrCtx* ctx, int which, const char* squeeze, int haptic) {
     XrActionSuggestedBinding b[40];
     uint32_t n = 0;
     static const char* hands[HAND_COUNT] = { "/user/hand/left", "/user/hand/right" };
@@ -267,20 +282,22 @@ static int suggestFrameBindings(XrCtx* ctx, const char* squeeze, int haptic) {
 #undef BIND
 
     XrInteractionProfileSuggestedBinding suggest = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
-    suggest.interactionProfile = ctx->frameProfile;
+    suggest.interactionProfile = ctx->frameProfile[which];
     suggest.countSuggestedBindings = n;
     suggest.suggestedBindings = b;
     XrResult res = xrSuggestInteractionProfileBindings(ctx->instance, &suggest);
     if (XR_SUCCEEDED(res)) {
-        LOGI("bindings accepted for the Steam Frame controllers (%u, grip on %s%s)", n, squeeze,
-             haptic ? ", with the vibration" : "");
+        LOGI("bindings accepted for the Steam Frame controllers on %s (%u, grip on %s%s)",
+             FRAME_PROFILE_PATHS[which], n, squeeze, haptic ? ", with the vibration" : "");
         ctx->frameBound = 1;
         ctx->menuBound = 1;
         ctx->hapticBound |= haptic;
         return 1;
     }
-    LOGW("Steam Frame bindings rejected (%d) with the grip on %s%s", res, squeeze,
-         haptic ? " and the vibration" : "");
+    // A runtime that does not know a path says so with PATH_UNSUPPORTED, the
+    // same as for an input it does not have, so both are tried down the list
+    LOGW("Steam Frame bindings rejected on %s (%d) with the grip on %s%s",
+         FRAME_PROFILE_PATHS[which], res, squeeze, haptic ? " and the vibration" : "");
     return 0;
 }
 
@@ -407,11 +424,20 @@ int initXrInput(XrCtx* ctx) {
         ctx->padBumperAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "padbumper",
                                           "Gamepad bumper");
         ctx->padStartAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "padstart", "Gamepad Start");
-        ctx->frameProfile = toPath(ctx, "/interaction_profiles/valve/frame_controller");
-        if (!suggestFrameBindings(ctx, "input/squeeze/value", 1)
-                && !suggestFrameBindings(ctx, "input/grip/value", 1)
-                && !suggestFrameBindings(ctx, "input/squeeze/value", 0)) {
-            suggestFrameBindings(ctx, "input/grip/value", 0);
+        // Each name the profile has gone by gets the whole set, tried down the
+        // same list of fallbacks. A path the runtime takes none of is dropped.
+        for (int i = 0; i < FRAME_PROFILE_COUNT; i++) {
+            ctx->frameProfile[i] = toPath(ctx, FRAME_PROFILE_PATHS[i]);
+            if (!suggestFrameBindings(ctx, i, "input/squeeze/value", 1)
+                    && !suggestFrameBindings(ctx, i, "input/grip/value", 1)
+                    && !suggestFrameBindings(ctx, i, "input/squeeze/value", 0)
+                    && !suggestFrameBindings(ctx, i, "input/grip/value", 0)) {
+                LOGI("Steam Frame profile %s not accepted by this runtime", FRAME_PROFILE_PATHS[i]);
+                ctx->frameProfile[i] = XR_NULL_PATH;
+            }
+            else {
+                LOGI("Steam Frame profile %s accepted", FRAME_PROFILE_PATHS[i]);
+            }
         }
     }
 
@@ -3747,6 +3773,7 @@ static void restPad(XrCtx* ctx, const char* why) {
     padRest(&s);
     padToggleReset(&ctx->padToggle);
     padChordReset(&ctx->padChord, ctx->padChord.parts);
+    padGuideReset(&ctx->padGuide);
     settlePad(ctx, padPlugged(ctx), 0, &s, why);
 }
 
@@ -3784,6 +3811,18 @@ static void hapticOut(XrCtx* ctx, int h, int action, float amp) {
 // being 0 where nothing is read this frame, which stops them. What the host
 // asked for stands while the pad is plugged in and goes when it comes out.
 static void updateRumble(XrCtx* ctx, int live) {
+    // Whether the host's rumble reaches us at all, the one line to look for in the log when
+    // nothing is felt: said once per stream, before anything below can hold it back
+    RumbleWord first;
+    if (rumbleTakeFirst(rumbleGlobal(), &first)) {
+        LOGI("rumble: the host's first request: low motor %u, high motor %u, left trigger %u, "
+             "right trigger %u (of 65535); %s; haptic action %s",
+             (unsigned)first.low, (unsigned)first.high, (unsigned)first.leftTrigger,
+             (unsigned)first.rightTrigger,
+             ctx->padAttached ? "gamepad mode is on, the controllers are the pad"
+                              : "gamepad mode is off, so nothing is felt until it is on",
+             ctx->hapticBound ? "bound" : "not bound");
+    }
     if (ctx->hapticAction == XR_NULL_HANDLE || !ctx->hapticBound) {
         return;
     }
@@ -3884,7 +3923,8 @@ static void updatePad(XrCtx* ctx) {
         PadState rawPad;
         int rawGrips[HAND_COUNT] = { raw[HAND_LEFT].grip >= PAD_GRIP_ON,
                                      raw[HAND_RIGHT].grip >= PAD_GRIP_ON };
-        padMap(&raw[HAND_LEFT], &raw[HAND_RIGHT], rawGrips, 1, ctx->padDeadzone, &rawPad);
+        padMapGrips(&raw[HAND_LEFT], &raw[HAND_RIGHT], rawGrips, 1, ctx->padDeadzone,
+                    ctx->padGripMode, &rawPad);
         logChord(ctx, chord, &rawPad);
     }
 
@@ -3899,7 +3939,19 @@ static void updatePad(XrCtx* ctx) {
     }
 
     PadState s;
-    padMap(&seen[HAND_LEFT], &seen[HAND_RIGHT], ctx->padGrip, startOk, ctx->padDeadzone, &s);
+    padMapGrips(&seen[HAND_LEFT], &seen[HAND_RIGHT], ctx->padGrip, startOk, ctx->padDeadzone,
+                ctx->padGripMode, &s);
+    // The Guide chord, left View with right Menu: only the pad's, so the pointer's frames
+    // neither start nor log one
+    if (ctx->padMode) {
+        if (padGuideStep(&ctx->padGuide, &s, now)) {
+            LOGI("gamepad: Guide button (left View + right Menu held %ld ms), Start and Back "
+                 "kept off until let go", (long)(PAD_GUIDE_HOLD_NS / 1000000L));
+        }
+    }
+    else {
+        padGuideReset(&ctx->padGuide);
+    }
     int plugged = padPlugged(ctx);
     settlePad(ctx, plugged, plugged && !panelUp(ctx), &s, "a panel is up");
 }

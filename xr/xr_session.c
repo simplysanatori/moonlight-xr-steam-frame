@@ -1847,6 +1847,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         host.live = *cfg->settings;
         xrUpdateInput(ctx, host.distance, host.quadWidth, host.curvature, host.live.head_locked,
                       host.live.pointer, host.live.gaze && ctx->eyeGaze, host.live.pointer_sleep, host.out);
+        if (cfg->hooks.headYaw) cfg->hooks.headYaw(cfg->hooks.user, host.out[IN_HEAD_YAW]);
         XrUiEvents ev;
         memset(&ev, 0, sizeof(ev));
         int64_t sampledNs = nowNs();

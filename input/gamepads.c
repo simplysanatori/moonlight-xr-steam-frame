@@ -68,6 +68,7 @@ static atomic_int gRumbleOff, gDeadzone, gFlip;
 
 void gamepadsSetRumbleEnabled(int enabled) { atomic_store(&gRumbleOff, !enabled); }
 void gamepadsSetDeadzone(int percent) { atomic_store(&gDeadzone, percent < -20 ? -20 : percent > 20 ? 20 : percent); }
+int gamepadsGetDeadzone(void) { return atomic_load(&gDeadzone); }
 void gamepadsSetFlipFaceButtons(int flip) { atomic_store(&gFlip, flip != 0); }
 
 static void stickDeadzone(short* x, short* y, int pct) {

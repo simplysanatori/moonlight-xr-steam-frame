@@ -33,6 +33,8 @@ static const char* const AUDIO_NAMES[] = { "stereo", "5.1", "7.1" };
 static const char* const NETWORK_NAMES[] = { "auto", "home", "adapter" };
 static const char* const PACING_NAMES[] = { "latency", "balanced", "cap-fps", "smoothness" };
 static const char* const TOGGLE_NAMES[] = { "menu_grip", "sticks", "triggers_grips" };
+static const char* const RUMBLEMIX_NAMES[] = { "both", "split" };
+static const char* const PADGRIP_NAMES[] = { "bumpers", "none", "stick_clicks" };
 static const char* const ENV_NAMES[] = { "auto", "passthrough", "void", "home_theater",
                                          "grand_cinema", "synthwave" };
 static const int ENV_IDS[] = { ENV_ID_NONE, ENV_ID_PASSTHROUGH, ENV_ID_VOID, ENV_ID_HOME_THEATER,
@@ -88,6 +90,9 @@ static const SettingDesc TABLE[] = {
     DI("vr", "head_aim_deadzone", head_aim_deadzone, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX, HEAD_AIM_DEADZONE_DEFAULT, "seekbar_vr_head_aim_deadzone: degrees per second"),
     DE("vr", "gamepad_toggle", gamepad_toggle, TOGGLE_NAMES, 0, "list_vr_gamepad_toggle: menu_grip, sticks, triggers_grips"),
     DB("vr", "flip_face_buttons", flip_face_buttons, 0, "checkbox_flip_face_buttons: swap A/B and X/Y on the gamepad"),
+    DE("vr", "rumble_mix", rumble_mix, RUMBLEMIX_NAMES, 0, "native: the host's rumble on the controllers in gamepad mode: both (each hand gets the stronger motor) or split (low frequency motor left, high frequency motor right)"),
+    DI("vr", "rumble_intensity", rumble_intensity, 0, 100, 100, "native: percent, the scale on the host's rumble on the controllers in gamepad mode"),
+    DE("vr", "pad_grip", pad_grip, PADGRIP_NAMES, 0, "native: what the grips are in gamepad mode: bumpers (LB and RB, as the bumpers), none, or stick_clicks (LS and RS)"),
     DB("vr", "click_sound", click_sound, 1, "checkbox_vr_click_sound"),
     DB("vr", "gaze", gaze, 0, "checkbox_vr_gaze: look to point (native default off: with it on a controller takes the pointer back only on a press)"),
     DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),

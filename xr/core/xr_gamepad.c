@@ -44,8 +44,25 @@ float padDeadzoneFromPercent(int percent) {
     return (float)percent / 100.0f;
 }
 
+int padDeadzonePercentFromLauncher(int launcherPercent) {
+    if (launcherPercent <= 0) {
+        return (int)(PAD_STICK_DEADZONE_DEFAULT * 100.0f + 0.5f);
+    }
+    return launcherPercent > PAD_STICK_DEADZONE_LAUNCHER_MAX ? PAD_STICK_DEADZONE_LAUNCHER_MAX
+                                                            : launcherPercent;
+}
+
+int padGripModeClamp(int mode) {
+    return mode >= PAD_GRIP_BUMPERS && mode <= PAD_GRIP_STICK_CLICKS ? mode : PAD_GRIP_BUMPERS;
+}
+
 void padMap(const PadHand* left, const PadHand* right, const int gripDown[2], int startOk,
             float stickDeadzone, PadState* out) {
+    padMapGrips(left, right, gripDown, startOk, stickDeadzone, PAD_GRIP_BUMPERS, out);
+}
+
+void padMapGrips(const PadHand* left, const PadHand* right, const int gripDown[2], int startOk,
+                 float stickDeadzone, int gripMode, PadState* out) {
     int buttons = 0;
     if (right->lower) {
         buttons |= PAD_A;
@@ -93,11 +110,21 @@ void padMap(const PadHand* left, const PadHand* right, const int gripDown[2], in
             buttons |= PAD_START;
         }
     }
-    if (gripDown[0]) {
-        buttons |= PAD_LB;
+    if (gripMode == PAD_GRIP_BUMPERS) {
+        if (gripDown[0]) {
+            buttons |= PAD_LB;
+        }
+        if (gripDown[1]) {
+            buttons |= PAD_RB;
+        }
     }
-    if (gripDown[1]) {
-        buttons |= PAD_RB;
+    else if (gripMode == PAD_GRIP_STICK_CLICKS) {
+        if (gripDown[0]) {
+            buttons |= PAD_LS_CLICK;
+        }
+        if (gripDown[1]) {
+            buttons |= PAD_RS_CLICK;
+        }
     }
     if (left->stickClick) {
         buttons |= PAD_LS_CLICK;
@@ -203,6 +230,56 @@ int padToggleStep(PadToggle* t, int menu, int grip, int64_t nowNs, int* startOk)
     }
     *startOk = !t->menuTaken;
     return fire;
+}
+
+void padGuideReset(PadGuide* g) {
+    g->state = PAD_GUIDE_IDLE;
+    g->sinceNs = 0;
+}
+
+int padGuideStep(PadGuide* g, PadState* s, int64_t nowNs) {
+    int startBack = PAD_START | PAD_BACK;
+    int down = s->buttons & startBack;
+    int both = down == startBack;
+    int bumper = (s->buttons & (PAD_LB | PAD_RB)) != 0;
+    int fired = 0;
+    switch (g->state) {
+        case PAD_GUIDE_IDLE:
+            if (both && !bumper) {
+                g->state = PAD_GUIDE_HOLDING;
+                g->sinceNs = nowNs;
+            }
+            break;
+        case PAD_GUIDE_HOLDING:
+            if (!both || bumper) {
+                g->state = down != 0 ? PAD_GUIDE_YIELDED : PAD_GUIDE_IDLE;
+            }
+            else if (nowNs - g->sinceNs >= PAD_GUIDE_HOLD_NS) {
+                g->state = PAD_GUIDE_TAKEN;
+                fired = 1;
+            }
+            break;
+        case PAD_GUIDE_TAKEN:
+            if (bumper) {
+                g->state = PAD_GUIDE_YIELDED;
+            }
+            else if (down == 0) {
+                g->state = PAD_GUIDE_IDLE;
+            }
+            break;
+        default:
+            if (down == 0) {
+                g->state = PAD_GUIDE_IDLE;
+            }
+            break;
+    }
+    if (g->state == PAD_GUIDE_TAKEN) {
+        s->buttons &= ~startBack;
+        if (both) {
+            s->buttons |= PAD_GUIDE;
+        }
+    }
+    return fired;
 }
 
 int padChordParts(int shortcut) {
@@ -364,6 +441,41 @@ float padRumbleAmplitude(int motor) {
     return (float)(motor & 0xffff) / 65535.0f;
 }
 
+int padRumbleMixClamp(int mix) {
+    return mix == PAD_RUMBLE_MIX_SPLIT ? PAD_RUMBLE_MIX_SPLIT : PAD_RUMBLE_MIX_BOTH;
+}
+
+int padRumbleIntensityClamp(int percent) {
+    return percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+}
+
+static float maxf(float a, float b) {
+    return a > b ? a : b;
+}
+
+void padRumbleMix(int mix, int intensityPercent, int lowMotor, int highMotor, int leftTrigger,
+                  int rightTrigger, float want[2]) {
+    float low = padRumbleAmplitude(lowMotor);
+    float high = padRumbleAmplitude(highMotor);
+    if (padRumbleMixClamp(mix) == PAD_RUMBLE_MIX_SPLIT) {
+        want[0] = low;
+        want[1] = high;
+    }
+    else {
+        want[0] = maxf(low, high);
+        want[1] = want[0];
+    }
+    want[0] = maxf(want[0], padRumbleAmplitude(leftTrigger));
+    want[1] = maxf(want[1], padRumbleAmplitude(rightTrigger));
+    float scale = (float)padRumbleIntensityClamp(intensityPercent) / 100.0f;
+    for (int h = 0; h < 2; h++) {
+        want[h] *= scale;
+        if (want[h] > 1.0f) {
+            want[h] = 1.0f;
+        }
+    }
+}
+
 void padRumbleReset(PadRumble* r) {
     for (int h = 0; h < 2; h++) {
         r->want[h] = 0.0f;
@@ -376,6 +488,12 @@ void padRumbleReset(PadRumble* r) {
 void padRumbleAsk(PadRumble* r, int lowMotor, int highMotor) {
     r->want[0] = padRumbleAmplitude(lowMotor);
     r->want[1] = padRumbleAmplitude(highMotor);
+    r->fresh = 1;
+}
+
+void padRumbleAskMix(PadRumble* r, int mix, int intensityPercent, int lowMotor, int highMotor,
+                     int leftTrigger, int rightTrigger) {
+    padRumbleMix(mix, intensityPercent, lowMotor, highMotor, leftTrigger, rightTrigger, r->want);
     r->fresh = 1;
 }
 
