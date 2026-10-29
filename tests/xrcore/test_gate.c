@@ -151,8 +151,30 @@ static void testGazeBridge(void) {
     CHECK(!b.bridged && b.missingSince == 0);
 }
 
+static void testFrameProfilePaths(void) {
+    // Both names of the Frame controller profile are offered bindings: the
+    // short path the first builds used and the one Valve's documentation gives
+    CHECK(FRAME_PROFILE_COUNT == 2);
+    int legacy = 0;
+    int valve = 0;
+    for (int i = 0; i < FRAME_PROFILE_COUNT; i++) {
+        CHECK(FRAME_PROFILE_PATHS[i] != NULL);
+        legacy += strcmp(FRAME_PROFILE_PATHS[i], "/interaction_profiles/valve/frame_controller") == 0;
+        valve += strcmp(FRAME_PROFILE_PATHS[i],
+                        "/interaction_profiles/valve/frame_controller_valve") == 0;
+        // Every one is a profile path and no two are the same
+        CHECK(strncmp(FRAME_PROFILE_PATHS[i], "/interaction_profiles/valve/", 28) == 0);
+        for (int j = i + 1; j < FRAME_PROFILE_COUNT; j++) {
+            CHECK(strcmp(FRAME_PROFILE_PATHS[i], FRAME_PROFILE_PATHS[j]) != 0);
+        }
+    }
+    CHECK(legacy == 1);
+    CHECK(valve == 1);
+}
+
 int main(void) {
     testWhoCounts();
+    testFrameProfilePaths();
     testControllerClock();
     testGazeBridge();
     return checksDone("xr_gate");

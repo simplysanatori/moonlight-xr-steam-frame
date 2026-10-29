@@ -3,6 +3,11 @@
 
 #include <string.h>
 
+const char* const FRAME_PROFILE_PATHS[FRAME_PROFILE_COUNT] = {
+    "/interaction_profiles/valve/frame_controller",
+    "/interaction_profiles/valve/frame_controller_valve",
+};
+
 int profileKind(int bound, int handProfile) {
     if (!bound) {
         return PROFILE_NONE;
