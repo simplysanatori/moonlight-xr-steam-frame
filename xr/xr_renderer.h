@@ -815,6 +815,9 @@ typedef struct XrCtx {
     int padMode;
     float padDeadzone;
     int padShortcut;
+    // PAD_GRIP_ : what the grips are on the pad (the pad_grip setting)
+    int padGripMode;
+    PadGuide padGuide;
     PadToggle padToggle;
     PadChord padChord;
     int padGrip[HAND_COUNT];
@@ -1179,6 +1182,7 @@ void xrSetClickSound(XrCtx* ctx, int on);
 void xrSetShowRay(XrCtx* ctx, int on);
 void xrSetHeadAim(XrCtx* ctx, int on, int sensitivity, int deadZone);
 void xrSetGamepad(XrCtx* ctx, int shortcut, int deadzonePercent);
+void xrSetPadGrip(XrCtx* ctx, int mode);
 void xrSetPicture(XrCtx* ctx, const int* values);
 
 // xr_assets.c: the UI atlas swapchain, the art drawn in code, and the

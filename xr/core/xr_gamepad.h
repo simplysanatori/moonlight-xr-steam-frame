@@ -32,6 +32,9 @@
 // The stick's round dead zone, a fraction of full tilt, when nothing better is
 // handed down: ControllerHandler's default of 7 percent
 #define PAD_STICK_DEADZONE_DEFAULT 0.07f
+// The stick dead zone the launcher's slider asks for is -20 to 20 percent; only
+// a positive value means a dead zone of its own
+#define PAD_STICK_DEADZONE_LAUNCHER_MAX 20
 // How long the left menu button and the left grip are held together before
 // the controllers switch between the pad and the pointer
 #define PAD_TOGGLE_HOLD_NS 500000000LL
@@ -101,11 +104,24 @@ int padTrigger(float value);
 // 1 percent ControllerHandler allows
 float padDeadzoneFromPercent(int percent);
 
+// The whole percent of dead zone for the Frame controllers from the launcher's
+// stick dead zone slider (-20 to 20, 0 when it was never moved): a positive
+// value is the dead zone itself, anything else leaves the default
+int padDeadzonePercentFromLauncher(int launcherPercent);
+
+// A grip mode held to PAD_GRIP_BUMPERS..PAD_GRIP_STICK_CLICKS
+int padGripModeClamp(int mode);
+
 // The pad off both controllers. gripDown is each grip as a bumper this frame,
 // left first. The left menu button is Start only while startOk says so, which
 // the toggle decides.
 void padMap(const PadHand* left, const PadHand* right, const int gripDown[2], int startOk,
             float stickDeadzone, PadState* out);
+
+// The same with the grips as the pad_grip setting has them: bumpers (padMap's),
+// nothing, or the stick clicks
+void padMapGrips(const PadHand* left, const PadHand* right, const int gripDown[2], int startOk,
+                 float stickDeadzone, int gripMode, PadState* out);
 
 // Everything let go
 void padRest(PadState* s);
@@ -145,6 +161,33 @@ void padToggleReset(PadToggle* t);
 // already down never reaches the host as Start; one made first is Start until
 // the grip joins it.
 int padToggleStep(PadToggle* t, int menu, int grip, int64_t nowNs, int* startOk);
+
+// The Guide button on the Frame controllers, which have none: the left View
+// button (Back) and the right Menu button (Start) held together for
+// PAD_GUIDE_HOLD_NS. Start and Back reach the host as they are until then,
+// as a game may want them together; from then on both are kept off the pad
+// until let go and the pad shows Guide for as long as both are down. With a
+// bumper down the chord is the disconnect chord's (Start, Back and both
+// bumpers), so it never starts and a Guide in progress gives Start and Back
+// back to it.
+#define PAD_GUIDE_HOLD_NS 250000000LL
+
+#define PAD_GUIDE_IDLE 0
+#define PAD_GUIDE_HOLDING 1
+#define PAD_GUIDE_TAKEN 2
+// Given up, or the bumpers' turn: nothing until Start and Back are both up
+#define PAD_GUIDE_YIELDED 3
+
+typedef struct {
+    int state;
+    int64_t sinceNs;
+} PadGuide;
+
+void padGuideReset(PadGuide* g);
+
+// One frame of the pad as mapped, which it edits in place. Returns 1 on the
+// frame Guide goes down.
+int padGuideStep(PadGuide* g, PadState* s, int64_t nowNs);
 
 // The other two shortcuts are chords of two or four controls, the parts, each
 // a bit: a stick click, a trigger or a grip, left or right

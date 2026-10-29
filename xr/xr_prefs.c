@@ -6,6 +6,7 @@
 // OpenXR calls, so the tests reach all of it. GPLv3.
 #include "xr_native.h"
 #include "xr_pad_bridge.h"
+#include "../input/gamepads.h"
 #include "xr_keyboard.h"
 #include "xr_depth.h"
 
@@ -295,8 +296,10 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->kbLayout = s->keyboard_layout == KB_LAYOUT_FULL ? KB_LAYOUT_FULL : KB_LAYOUT_COMPACT;
     kbfSetHoldMs(&ctx->kbFull, s->keyboard_hold_ms);
     xrSetHeadAim(ctx, s->head_aim, s->head_aim_sensitivity, s->head_aim_deadzone);
-    // Moonlight's own stick dead zone default, the preference upstream hands down
-    xrSetGamepad(ctx, s->gamepad_toggle, 7);
+    // The stick dead zone is the launcher slider's when it was moved, else Moonlight's own
+    // default of 7 percent, the preference upstream hands down
+    xrSetGamepad(ctx, s->gamepad_toggle, padDeadzonePercentFromLauncher(gamepadsGetDeadzone()));
+    xrSetPadGrip(ctx, s->pad_grip);
     xrPadBridgeSetFlip(s->flip_face_buttons);
     int picture[PICTURE_VALUES];
     for (int row = 0; row < PICTURE_VALUES; row++) {

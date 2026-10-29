@@ -44,8 +44,25 @@ float padDeadzoneFromPercent(int percent) {
     return (float)percent / 100.0f;
 }
 
+int padDeadzonePercentFromLauncher(int launcherPercent) {
+    if (launcherPercent <= 0) {
+        return (int)(PAD_STICK_DEADZONE_DEFAULT * 100.0f + 0.5f);
+    }
+    return launcherPercent > PAD_STICK_DEADZONE_LAUNCHER_MAX ? PAD_STICK_DEADZONE_LAUNCHER_MAX
+                                                            : launcherPercent;
+}
+
+int padGripModeClamp(int mode) {
+    return mode >= PAD_GRIP_BUMPERS && mode <= PAD_GRIP_STICK_CLICKS ? mode : PAD_GRIP_BUMPERS;
+}
+
 void padMap(const PadHand* left, const PadHand* right, const int gripDown[2], int startOk,
             float stickDeadzone, PadState* out) {
+    padMapGrips(left, right, gripDown, startOk, stickDeadzone, PAD_GRIP_BUMPERS, out);
+}
+
+void padMapGrips(const PadHand* left, const PadHand* right, const int gripDown[2], int startOk,
+                 float stickDeadzone, int gripMode, PadState* out) {
     int buttons = 0;
     if (right->lower) {
         buttons |= PAD_A;
@@ -93,11 +110,21 @@ void padMap(const PadHand* left, const PadHand* right, const int gripDown[2], in
             buttons |= PAD_START;
         }
     }
-    if (gripDown[0]) {
-        buttons |= PAD_LB;
+    if (gripMode == PAD_GRIP_BUMPERS) {
+        if (gripDown[0]) {
+            buttons |= PAD_LB;
+        }
+        if (gripDown[1]) {
+            buttons |= PAD_RB;
+        }
     }
-    if (gripDown[1]) {
-        buttons |= PAD_RB;
+    else if (gripMode == PAD_GRIP_STICK_CLICKS) {
+        if (gripDown[0]) {
+            buttons |= PAD_LS_CLICK;
+        }
+        if (gripDown[1]) {
+            buttons |= PAD_RS_CLICK;
+        }
     }
     if (left->stickClick) {
         buttons |= PAD_LS_CLICK;
@@ -203,6 +230,56 @@ int padToggleStep(PadToggle* t, int menu, int grip, int64_t nowNs, int* startOk)
     }
     *startOk = !t->menuTaken;
     return fire;
+}
+
+void padGuideReset(PadGuide* g) {
+    g->state = PAD_GUIDE_IDLE;
+    g->sinceNs = 0;
+}
+
+int padGuideStep(PadGuide* g, PadState* s, int64_t nowNs) {
+    int startBack = PAD_START | PAD_BACK;
+    int down = s->buttons & startBack;
+    int both = down == startBack;
+    int bumper = (s->buttons & (PAD_LB | PAD_RB)) != 0;
+    int fired = 0;
+    switch (g->state) {
+        case PAD_GUIDE_IDLE:
+            if (both && !bumper) {
+                g->state = PAD_GUIDE_HOLDING;
+                g->sinceNs = nowNs;
+            }
+            break;
+        case PAD_GUIDE_HOLDING:
+            if (!both || bumper) {
+                g->state = down != 0 ? PAD_GUIDE_YIELDED : PAD_GUIDE_IDLE;
+            }
+            else if (nowNs - g->sinceNs >= PAD_GUIDE_HOLD_NS) {
+                g->state = PAD_GUIDE_TAKEN;
+                fired = 1;
+            }
+            break;
+        case PAD_GUIDE_TAKEN:
+            if (bumper) {
+                g->state = PAD_GUIDE_YIELDED;
+            }
+            else if (down == 0) {
+                g->state = PAD_GUIDE_IDLE;
+            }
+            break;
+        default:
+            if (down == 0) {
+                g->state = PAD_GUIDE_IDLE;
+            }
+            break;
+    }
+    if (g->state == PAD_GUIDE_TAKEN) {
+        s->buttons &= ~startBack;
+        if (both) {
+            s->buttons |= PAD_GUIDE;
+        }
+    }
+    return fired;
 }
 
 int padChordParts(int shortcut) {

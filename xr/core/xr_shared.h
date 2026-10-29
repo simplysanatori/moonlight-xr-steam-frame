@@ -230,6 +230,9 @@
 #define PAD_B       0x2000
 #define PAD_X       0x4000
 #define PAD_Y       0x8000
+// The Xbox (guide) button: not on either controller, so it is only ever made by
+// the View and Menu chord (xr_gamepad's PadGuide) and is not in PAD_BUTTONS
+#define PAD_GUIDE   0x0400
 #define PAD_BUTTONS (PAD_UP + PAD_DOWN + PAD_LEFT + PAD_RIGHT + PAD_BACK + PAD_START + PAD_LS_CLICK + PAD_RS_CLICK + PAD_LB + PAD_RB + PAD_A + PAD_B + PAD_X + PAD_Y)
 
 // The shortcut on the controllers that switches between the pointer and the
@@ -238,6 +241,12 @@
 #define PAD_SHORTCUT_MENU_GRIP 0
 #define PAD_SHORTCUT_STICKS 1
 #define PAD_SHORTCUT_TRIGGERS_GRIPS 2
+
+// What the grips are in gamepad mode, in the order the pad_grip setting lists
+// them: the bumpers (as ever), nothing, or the stick clicks
+#define PAD_GRIP_BUMPERS 0
+#define PAD_GRIP_NONE 1
+#define PAD_GRIP_STICK_CLICKS 2
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0

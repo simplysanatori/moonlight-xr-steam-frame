@@ -6,6 +6,7 @@
 
 #include "check.h"
 #include "scene.h"
+#include "gamepads.h"
 
 static float frand(float lo, float hi) { return lo + (hi - lo) * (float)rand() / (float)RAND_MAX; }
 
@@ -31,6 +32,7 @@ static void roundTripChanged(void) {
     in.pointer_sleep = 0;
     in.controller_model = 1;
     in.click_sound = 0;
+    in.pad_grip = PAD_GRIP_NONE;
     in.pointer_dot = 0;
     in.head_aim_sensitivity = HEAD_AIM_SENSITIVITY_MAX;
     in.head_aim_deadzone = HEAD_AIM_DEADZONE_MIN;
@@ -49,7 +51,19 @@ static void roundTripChanged(void) {
     settings_clamp(&in);
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
     xrCtxDefaults(ctx, 2560, 1440, 90);
+    // The launcher's stick dead zone slider (--deadzone) is the Frame controllers' too: untouched
+    // (0) or negative it is the default 7 percent, a positive one is itself
+    gamepadsSetDeadzone(0);
     xrApplySettings(ctx, &in);
+    CHECK_NEAR(ctx->padDeadzone, 0.07, 1e-5);
+    gamepadsSetDeadzone(-12);
+    xrApplySettings(ctx, &in);
+    CHECK_NEAR(ctx->padDeadzone, 0.07, 1e-5);
+    gamepadsSetDeadzone(13);
+    xrApplySettings(ctx, &in);
+    CHECK_NEAR(ctx->padDeadzone, 0.13, 1e-5);
+    gamepadsSetDeadzone(0);
+    CHECK(ctx->padGripMode == PAD_GRIP_NONE);
     // what the context took
     CHECK(ctx->sharpenMode == 1 && ctx->supersampleMode == 2 && ctx->overlayVisible == 1);
     CHECK(ctx->dotOn == 0 && ctx->pointerSleepOn == 0 && ctx->modelOn == 1 && ctx->clickSoundOn == 0);

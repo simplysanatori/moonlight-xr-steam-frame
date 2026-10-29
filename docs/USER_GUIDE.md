@@ -81,7 +81,7 @@ The page has the categories below, in this order. A greyed row shows "Not availa
 | Setting | Options | Default |
 | --- | --- | --- |
 | Surround sound configuration | Stereo, 5.1 Surround Sound, 7.1 Surround Sound | Stereo |
-| Adjust analog stick deadzone | -20 to 20 % | 0 % |
+| Adjust analog stick deadzone | -20 to 20 % | 0 %. Above 0 it is also the dead zone of the Frame controllers in gamepad mode, which use 7 % at 0. |
 | Flip face buttons | on, off | off. Swaps A/B and X/Y. |
 | Enable Rumble | on, off | on |
 | Enable forward/back mouse buttons | on, off | on |
@@ -219,7 +219,12 @@ The two controllers become one Xbox controller on the PC.
 | Left and right thumbsticks, stick clicks | Left and right sticks, LS, RS |
 | Left and right triggers | LT, RT |
 | Left and right bumpers | LB, RB |
-| Left and right grips | LB, RB |
+| Left and right grips | LB, RB (change with `pad_grip`, see [below](#advanced-configini)) |
+| Left View and right Menu, held together for a quarter of a second | Guide (the Xbox button) |
+
+Start and Back reach the PC as you press them. If you keep both down for a quarter of a second they turn into Guide, which stays down while you hold them, and neither of them is sent after that until you let go of both. The Start and Back button presses of the first quarter of a second still reach the game. If you also press both bumpers (Start, Back, LB and RB is the disconnect chord) it is the disconnect chord and not Guide.
+
+The stick dead zone is 7 % of the way out. Move the launcher's **Adjust analog stick deadzone** slider above 0 and the controllers use that value instead (1 to 20 %). Values below 0 are dead zone compensation, which only physical gamepads use.
 
 The PC's rumble drives the controllers in gamepad mode.
 
@@ -324,6 +329,7 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | Section, key | Values | Default |
 | --- | --- | --- |
 | `[vr] gamepad_toggle` | `menu_grip` (left View + left grip), `sticks` (click both sticks), `triggers_grips` (both triggers and both grips) | `menu_grip` |
+| `[vr] pad_grip` | `bumpers` (the grips are LB and RB), `none` (the grips do nothing in gamepad mode), `stick_clicks` (the grips are LS and RS) | `bumpers` |
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |
 | `[vr] depth_source` | `zipdepth`, `zipdepth-int8`, `midas` | `zipdepth` |
 | `[vr] hand_tracking` | `true`, `false` | `false`. Untested on the Frame. |

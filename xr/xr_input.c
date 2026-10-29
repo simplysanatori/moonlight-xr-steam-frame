@@ -3747,6 +3747,7 @@ static void restPad(XrCtx* ctx, const char* why) {
     padRest(&s);
     padToggleReset(&ctx->padToggle);
     padChordReset(&ctx->padChord, ctx->padChord.parts);
+    padGuideReset(&ctx->padGuide);
     settlePad(ctx, padPlugged(ctx), 0, &s, why);
 }
 
@@ -3884,7 +3885,8 @@ static void updatePad(XrCtx* ctx) {
         PadState rawPad;
         int rawGrips[HAND_COUNT] = { raw[HAND_LEFT].grip >= PAD_GRIP_ON,
                                      raw[HAND_RIGHT].grip >= PAD_GRIP_ON };
-        padMap(&raw[HAND_LEFT], &raw[HAND_RIGHT], rawGrips, 1, ctx->padDeadzone, &rawPad);
+        padMapGrips(&raw[HAND_LEFT], &raw[HAND_RIGHT], rawGrips, 1, ctx->padDeadzone,
+                    ctx->padGripMode, &rawPad);
         logChord(ctx, chord, &rawPad);
     }
 
@@ -3899,7 +3901,19 @@ static void updatePad(XrCtx* ctx) {
     }
 
     PadState s;
-    padMap(&seen[HAND_LEFT], &seen[HAND_RIGHT], ctx->padGrip, startOk, ctx->padDeadzone, &s);
+    padMapGrips(&seen[HAND_LEFT], &seen[HAND_RIGHT], ctx->padGrip, startOk, ctx->padDeadzone,
+                ctx->padGripMode, &s);
+    // The Guide chord, left View with right Menu: only the pad's, so the pointer's frames
+    // neither start nor log one
+    if (ctx->padMode) {
+        if (padGuideStep(&ctx->padGuide, &s, now)) {
+            LOGI("gamepad: Guide button (left View + right Menu held %ld ms), Start and Back "
+                 "kept off until let go", (long)(PAD_GUIDE_HOLD_NS / 1000000L));
+        }
+    }
+    else {
+        padGuideReset(&ctx->padGuide);
+    }
     int plugged = padPlugged(ctx);
     settlePad(ctx, plugged, plugged && !panelUp(ctx), &s, "a panel is up");
 }
