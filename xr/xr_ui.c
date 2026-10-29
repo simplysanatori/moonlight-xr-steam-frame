@@ -1358,7 +1358,7 @@ const char* padShortcutName(int shortcut) {
     switch (shortcut) {
         case PAD_SHORTCUT_STICKS: return "both thumbsticks";
         case PAD_SHORTCUT_TRIGGERS_GRIPS: return "both triggers and both grips";
-        default: return "the left menu button and grip";
+        default: return "the left View button and grip";
     }
 }
 

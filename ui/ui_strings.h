@@ -47,7 +47,7 @@
     X(POINTER, "vr_panel_pointer", "Pointer") \
     X(GAMEPAD, "vr_panel_gamepad", "Gamepad") \
     X(ROW_GLOW_LEVEL, "vr_panel_glow_level", "Glow level") \
-    X(SHORTCUT_MENU_GRIP, "vr_panel_shortcut_menu_grip", "Shortcut: left menu + grip") \
+    X(SHORTCUT_MENU_GRIP, "vr_panel_shortcut_menu_grip", "Shortcut: left View + grip") \
     X(SHORTCUT_STICKS, "vr_panel_shortcut_sticks", "Shortcut: both thumbsticks") \
     X(SHORTCUT_TRIGGERS_GRIPS, "vr_panel_shortcut_triggers_grips", "Shortcut: triggers + grips") \
     X(ROW_PRESET, "vr_panel_preset", "Preset") \
@@ -112,7 +112,7 @@
     X(TOAST_HEAD_AIM_ON_MORE, "vr_toast_head_aim_on_more", "Turning your head moves the mouse") \
     X(TOAST_HEAD_AIM_OFF, "vr_toast_head_aim_off", "Head aim off") \
     X(TOAST_GAMEPAD_MODE, "vr_toast_gamepad_mode", "Gamepad mode") \
-    X(TOAST_BACK_MENU_GRIP, "vr_toast_gamepad_back_menu_grip", "Hold the left menu button and left grip to go back to the pointer") \
+    X(TOAST_BACK_MENU_GRIP, "vr_toast_gamepad_back_menu_grip", "Hold the left View button and left grip to go back to the pointer") \
     X(TOAST_BACK_STICKS, "vr_toast_gamepad_back_sticks", "Press both thumbsticks to go back to the pointer") \
     X(TOAST_BACK_TRIGGERS_GRIPS, "vr_toast_gamepad_back_triggers_grips", "Squeeze both triggers and both grips to go back to the pointer") \
     X(TOAST_POINTER_MODE, "vr_toast_pointer_mode", "Pointer mode") \

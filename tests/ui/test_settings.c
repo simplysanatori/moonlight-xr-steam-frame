@@ -9,6 +9,7 @@
 
 #include "check.h"
 #include "settings.h"
+#include "ui_strings.h"
 #include "xr_shared.h"
 
 static int geti(const Settings* s, const char* name) {
@@ -548,8 +549,19 @@ static void test_sliders(void) {
     CHECK(t.stereo_on == 0);
 }
 
+// The Frame's left menu button is its View button: no hint or toast says "menu"
+// for the gamepad-mode chord
+static void test_shortcut_wording(void) {
+    const char* hint = ui_str(UIS_SHORTCUT_MENU_GRIP);
+    const char* back = ui_str(UIS_TOAST_BACK_MENU_GRIP);
+    CHECK(strcmp(hint, "Shortcut: left View + grip") == 0);
+    CHECK(strstr(back, "left View button") != NULL);
+    CHECK(strstr(hint, "menu") == NULL && strstr(back, "menu") == NULL);
+}
+
 int main(void) {
     test_defaults();
+    test_shortcut_wording();
     test_table_covers_readme();
     test_round_trip();
     test_defaults_commented_out();
