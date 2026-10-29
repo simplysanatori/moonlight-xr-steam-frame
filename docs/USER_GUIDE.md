@@ -158,9 +158,9 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Head locked | Off, On | Off. The screen follows your head. |
 | Head aim | Off, On | Off. Needs Head locked; not in a room. |
 | Mode | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
-| Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
-| Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. Bar = this session, cog = saved: the choice here is kept for the next session, the bar's Ray button is not. |
 | Show controllers | Off, On | Off |
+| Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. Bar = this session, cog = saved: the choice here is kept for the next session, the bar's Ray button is not. |
+| Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
 | Click sound | Off, On | On |
 | Glow | Off, On | Off |
 | Screen light | Off, On | On |

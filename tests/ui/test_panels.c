@@ -145,6 +145,14 @@ static void test_cog_rows_present(void) {
         CHECK(ui_hits_find(&hits, UI_HIT_CELL, row, cells) < 0);
     }
     CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_DISPLAY_SLIDER_ROW, -1) >= 0);
+    // The cell counts follow the rows when they are reordered: Ray has the
+    // third cell (Dot), Notices has three, every other row has two or three
+    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_RAY) == 3);
+    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_NOTICES) == 3);
+    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_GAMEPAD) == 2);
+    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS) == 2);
+    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_POINTER_SLEEP) == 2);
+    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_CLICK_SOUND) == 2);
     free(g.base);
 
     // 3D tab
