@@ -61,7 +61,83 @@ static const Key FN[NKEYS] = {
     {"@left",VK(0x25)},{"@down",VK(0x28)},{"@right",VK(0x27)},{"Bksp",8},
     {"ABC",KB_CODE_SYMBOLS},{",",','},{"@space",32},{".",'.'},{"@enter",13},{"@hide",KB_CODE_HIDE},
 };
-static const Key* const SHEETS[KB_STATE_COUNT] = { LOWER, UPPER, SYMBOLS, FN };
+// ---- AZERTY and QWERTZ -------------------------------------------------------------------
+//
+// The code under a key is the US key it sits on, not the character it says:
+// the PC's own layout (French or German) turns that key into the character,
+// as it does for a real keyboard. P is that key pressed, S with Shift held
+// round it (the digits of a French number row, the capitals of the umlauts),
+// SL the same for a key that is a letter, so the Shift sheet lasts one key.
+// Letters that sit where the US keyboard has a letter keep its code (the "a"
+// of AZERTY is the Q key). Characters with no key worth a place on the sheet
+// are typed as text, as on QWERTY.
+#define KP(l, vk) { l, KB_CODE_VK + (vk) }
+#define KS(l, vk) { l, KB_CODE_SVK + (vk) }
+#define KSL(l, vk) { l, KB_CODE_SVKL + (vk) }
+
+static const Key AZ_LOWER[NKEYS] = {
+    KP("&",'1'),KP("é",'2'),KP("\"",'3'),KP("'",'4'),KP("(",'5'),KP("-",'6'),KP("è",'7'),KP("_",'8'),KP("ç",'9'),KP("à",'0'),
+    {"a",'q'},{"z",'w'},{"e",'e'},{"r",'r'},{"t",'t'},{"y",'y'},{"u",'u'},{"i",'i'},{"o",'o'},{"p",'p'},
+    {"q",'a'},{"s",'s'},{"d",'d'},{"f",'f'},{"g",'g'},{"h",'h'},{"j",'j'},{"k",'k'},{"l",'l'},
+    {"@shift",KB_CODE_SHIFT},{"w",'z'},{"x",'x'},{"c",'c'},{"v",'v'},{"b",'b'},{"n",'n'},KP("m",0xBA),{"Del",8},
+    {"?123",KB_CODE_SYMBOLS},{",",','},{"@space",32},{".",'.'},{"@enter",13},{"@hide",KB_CODE_HIDE},
+};
+static const Key AZ_UPPER[NKEYS] = {
+    KS("1",'1'),KS("2",'2'),KS("3",'3'),KS("4",'4'),KS("5",'5'),KS("6",'6'),KS("7",'7'),KS("8",'8'),KS("9",'9'),KS("0",'0'),
+    {"A",'Q'},{"Z",'W'},{"E",'E'},{"R",'R'},{"T",'T'},{"Y",'Y'},{"U",'U'},{"I",'I'},{"O",'O'},{"P",'P'},
+    {"Q",'A'},{"S",'S'},{"D",'D'},{"F",'F'},{"G",'G'},{"H",'H'},{"J",'J'},{"K",'K'},{"L",'L'},
+    {"@shift",KB_CODE_SHIFT},{"W",'Z'},{"X",'X'},{"C",'C'},{"V",'V'},{"B",'B'},{"N",'N'},KSL("M",0xBA),{"Del",8},
+    {"?123",KB_CODE_SYMBOLS},{",",','},{"@space",32},{".",'.'},{"@enter",13},{"@hide",KB_CODE_HIDE},
+};
+static const Key AZ_SYMBOLS[NKEYS] = {
+    KS("1",'1'),KS("2",'2'),KS("3",'3'),KS("4",'4'),KS("5",'5'),KS("6",'6'),KS("7",'7'),KS("8",'8'),KS("9",'9'),KS("0",'0'),
+    {"@",'@'},{"#",'#'},{"$",'$'},{"%",'%'},{"&",'&'},{"*",'*'},{"-",'-'},{"+",'+'},{"(",'('},{")",')'},
+    {"!",'!'},{"\"",'"'},{"'",'\''},{":",':'},{";",';'},{"/",'/'},{"?",'?'},KP("ù",0xDE),{"=",'='},
+    {"Fn",KB_CODE_FN},{"<",'<'},{">",'>'},{"[",'['},{"]",']'},{"{",'{'},{"}",'}'},{"\\",'\\'},{"Del",8},
+    {"ABC",KB_CODE_SYMBOLS},{",",','},{"@space",32},{".",'.'},{"@enter",13},{"@hide",KB_CODE_HIDE},
+};
+
+static const Key QZ_LOWER[NKEYS] = {
+    {"1",'1'},{"2",'2'},{"3",'3'},{"4",'4'},{"5",'5'},{"6",'6'},{"7",'7'},{"8",'8'},{"9",'9'},{"0",'0'},
+    {"q",'q'},{"w",'w'},{"e",'e'},{"r",'r'},{"t",'t'},{"z",'y'},{"u",'u'},{"i",'i'},{"o",'o'},{"p",'p'},
+    {"a",'a'},{"s",'s'},{"d",'d'},{"f",'f'},{"g",'g'},{"h",'h'},{"j",'j'},{"k",'k'},{"l",'l'},
+    {"@shift",KB_CODE_SHIFT},{"y",'z'},{"x",'x'},{"c",'c'},{"v",'v'},{"b",'b'},{"n",'n'},{"m",'m'},{"Del",8},
+    {"?123",KB_CODE_SYMBOLS},{",",','},{"@space",32},{".",'.'},{"@enter",13},{"@hide",KB_CODE_HIDE},
+};
+static const Key QZ_UPPER[NKEYS] = {
+    KS("!",'1'),KS("\"",'2'),KS("§",'3'),KS("$",'4'),KS("%",'5'),KS("&",'6'),KS("/",'7'),KS("(",'8'),KS(")",'9'),KS("=",'0'),
+    {"Q",'Q'},{"W",'W'},{"E",'E'},{"R",'R'},{"T",'T'},{"Z",'Y'},{"U",'U'},{"I",'I'},{"O",'O'},{"P",'P'},
+    {"A",'A'},{"S",'S'},{"D",'D'},{"F",'F'},{"G",'G'},{"H",'H'},{"J",'J'},{"K",'K'},{"L",'L'},
+    {"@shift",KB_CODE_SHIFT},{"Y",'Z'},{"X",'X'},{"C",'C'},{"V",'V'},{"B",'B'},{"N",'N'},{"M",'M'},{"Del",8},
+    {"?123",KB_CODE_SYMBOLS},{",",','},{"@space",32},{".",'.'},{"@enter",13},{"@hide",KB_CODE_HIDE},
+};
+// The umlauts and the sharp s have the room of the seven bracket keys, which
+// move to the Fn sheet: a German keyboard types them with AltGr
+static const Key QZ_SYMBOLS[NKEYS] = {
+    {"1",'1'},{"2",'2'},{"3",'3'},{"4",'4'},{"5",'5'},{"6",'6'},{"7",'7'},{"8",'8'},{"9",'9'},{"0",'0'},
+    {"@",'@'},{"#",'#'},{"$",'$'},{"%",'%'},{"&",'&'},{"*",'*'},{"-",'-'},{"+",'+'},{"(",'('},{")",')'},
+    {"!",'!'},{"\"",'"'},{"'",'\''},{":",':'},{";",';'},{"/",'/'},{"?",'?'},{"_",'_'},{"=",'='},
+    {"Fn",KB_CODE_FN},KS("Ä",0xDE),KS("Ö",0xBA),KS("Ü",0xDB),KP("ä",0xDE),KP("ö",0xBA),KP("ü",0xDB),KP("ß",0xBD),{"Del",8},
+    {"ABC",KB_CODE_SYMBOLS},{",",','},{"@space",32},{".",'.'},{"@enter",13},{"@hide",KB_CODE_HIDE},
+};
+static const Key QZ_FN[NKEYS] = {
+    {"Esc",VK(0x1B)},{"F1",VK(0x70)},{"F2",VK(0x71)},{"F3",VK(0x72)},{"F4",VK(0x73)},{"F5",VK(0x74)},
+    {"F6",VK(0x75)},{"Ins",VK(0x2D)},{"Home",VK(0x24)},{"PgUp",VK(0x21)},
+    {"Tab",9},{"F7",VK(0x76)},{"F8",VK(0x77)},{"F9",VK(0x78)},{"F10",VK(0x79)},{"F11",VK(0x7A)},
+    {"F12",VK(0x7B)},{"Del",VK(0x2E)},{"End",VK(0x23)},{"PgDn",VK(0x22)},
+    {"<",'<'},{">",'>'},{"[",'['},{"]",']'},{"{",'{'},{"}",'}'},{"@up",VK(0x26)},{"\\",'\\'},{"|",'|'},
+    {"?123",KB_CODE_FN},{"@ctrl",KB_CODE_CTRL},{"@win",KB_CODE_WIN},{"@alt",KB_CODE_ALT},{NULL,0},
+    {"@left",VK(0x25)},{"@down",VK(0x28)},{"@right",VK(0x27)},{"Bksp",8},
+    {"ABC",KB_CODE_SYMBOLS},{",",','},{"@space",32},{".",'.'},{"@enter",13},{"@hide",KB_CODE_HIDE},
+};
+
+static const Key* const SHEETS_BY_MAP[KB_MAP_COUNT][KB_STATE_COUNT] = {
+    { LOWER, UPPER, SYMBOLS, FN },
+    { AZ_LOWER, AZ_UPPER, AZ_SYMBOLS, FN },
+    { QZ_LOWER, QZ_UPPER, QZ_SYMBOLS, QZ_FN },
+};
+
+static int mapOf(int map) { return (unsigned)map < KB_MAP_COUNT ? map : KB_MAP_QWERTY; }
 
 static const char* resolve(const char* l) {
     if (!l || l[0] != '@') return l;
@@ -102,14 +178,18 @@ void ui_kb_layout_chip_rect(float r[4]) {
     r[3] = key[3];
 }
 
-int ui_kb_key_code(int sheet, int i) {
-    return (unsigned)sheet < KB_STATE_COUNT && i >= 0 && i < NKEYS ? SHEETS[sheet][i].code : 0;
+int ui_kb_map_key_code(int map, int sheet, int i) {
+    return (unsigned)sheet < KB_STATE_COUNT && i >= 0 && i < NKEYS ? SHEETS_BY_MAP[mapOf(map)][sheet][i].code : 0;
 }
 
-const char* ui_kb_key_label(int sheet, int i) {
+const char* ui_kb_map_key_label(int map, int sheet, int i) {
     if ((unsigned)sheet >= KB_STATE_COUNT || i < 0 || i >= NKEYS) return NULL;
-    return resolve(SHEETS[sheet][i].label);
+    return resolve(SHEETS_BY_MAP[mapOf(map)][sheet][i].label);
 }
+
+int ui_kb_key_code(int sheet, int i) { return ui_kb_map_key_code(KB_MAP_QWERTY, sheet, i); }
+
+const char* ui_kb_key_label(int sheet, int i) { return ui_kb_map_key_label(KB_MAP_QWERTY, sheet, i); }
 
 static void arrow(Dc* dc, const char* token, float cx, float cy, uint32_t ink) {
     float dx = 0, dy = 0;
@@ -141,12 +221,13 @@ static const char* fullText(const char* l) {
 
 static void panelFull(Dc* dc) {
     const UiView* v = dc->v;
+    int map = mapOf(v->kb_map);
     int down = v->kb_oneshot | v->kb_locked;
     dc_sheet(dc, 32.0f, 0xF0141416u);
-    for (int i = 0; i < KBF_KEY_COUNT; i++) {
+    for (int i = 0; i < kbfKeyCountFor(map); i++) {
         const KbfKey* k = kbfKey(i);
         float r[4];
-        kbfKeyRect(i, r);
+        kbfKeyRectFor(map, i, r);
         float x0 = r[0] * dc->nw, y0 = r[1] * dc->nh, x1 = r[2] * dc->nw, y1 = r[3] * dc->nh;
         int bit = k->kind == KBF_MOD ? k->modBit : 0;
         int locked = bit && (v->kb_locked & bit);
@@ -157,7 +238,7 @@ static void panelFull(Dc* dc) {
         dc_fill_rrect(dc, x0, y0, x1, y1, 8.0f, fill);
         dc_stroke_rrect(dc, x0, y0, x1, y1, 8.0f, 2.0f, line);
         uint32_t ink = lit ? 0xFF141416u : 0xFFFFFFFFu;
-        const char* label = kbfLabel(i, down, v->kb_caps);
+        const char* label = kbfLabelFor(map, i, down, v->kb_caps);
         float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f;
         if (!strcmp(label, "@up") || !strcmp(label, "@down") || !strcmp(label, "@left")
                 || !strcmp(label, "@right")) {
@@ -189,7 +270,7 @@ void panel_keyboard(Dc* dc) {
         return;
     }
     int sheet = v->kb_sheet < 0 || v->kb_sheet >= KB_STATE_COUNT ? KB_STATE_LOWER : v->kb_sheet;
-    const Key* keys = SHEETS[sheet];
+    const Key* keys = SHEETS_BY_MAP[mapOf(v->kb_map)][sheet];
     int mods = v->kb_mods;
 
     dc_sheet(dc, 32.0f, 0xF0141416u);
