@@ -388,8 +388,7 @@ static void testHeadYawDirection(void) {
     double ahead = centreBalanceDb(&s, 0.0f);
     double left = centreBalanceDb(&s, quarter);     // head turned left: screen at the right ear
     double right = centreBalanceDb(&s, -quarter);   // head turned right: screen at the left ear
-    printf("  FC left-right: ahead %+.1f dB, head left 90 %+.1f dB, head right 90 %+.1f dB
-", ahead,
+    printf("  FC left-right: ahead %+.1f dB, head left 90 %+.1f dB, head right 90 %+.1f dB\n", ahead,
            left, right);
     CHECK_NEAR(ahead, 0.0, 0.5);
     CHECK(left < -6.0);
@@ -436,8 +435,7 @@ static void testMuteRestores(void) {
     }
     int b = mark + (rec.stereoFrames - mark) / 2, m = rec.stereoFrames - b;
     double after = toneRms(rec.stereo + (size_t) b * 2, m, 2, 1000.0, RATE);
-    printf("  level before mute %.3f, after unmute %.3f, peak after %.3f
-", base, after, peak);
+    printf("  level before mute %.3f, after unmute %.3f, peak after %.3f\n", base, after, peak);
     CHECK_NEAR(db(after / base), 0.0, 1.0);
     CHECK(peak <= 1.0f);
     closeStream(&s);
