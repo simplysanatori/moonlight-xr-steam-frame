@@ -31,6 +31,16 @@ void xrPadBridgeSetFlip(int flip) {
     pthread_mutex_unlock(&g_lock);
 }
 
+void xrPadBridgeSetRumble(int mix, int intensityPercent) {
+    mix = padRumbleMixClamp(mix);
+    intensityPercent = padRumbleIntensityClamp(intensityPercent);
+    rumbleSetMix(rumbleGlobal(), mix, intensityPercent);
+    MLOG_I("rumble: %s, intensity %d%%",
+           mix == PAD_RUMBLE_MIX_SPLIT ? "low motor left, high motor right"
+                                       : "both controllers get the stronger motor",
+           intensityPercent);
+}
+
 void xrPadBridgeStart(void) {
     PadOutSink sink;
     padOutUseLimelight(&sink);

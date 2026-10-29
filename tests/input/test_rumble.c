@@ -210,13 +210,89 @@ static void testGlobal(void) {
     rumbleHostCallback(0, 65535, 0);
     poll(g, BOTH, 0, q);
     CHECK(q[0].action == PAD_RUMBLE_APPLY && q[1].action == PAD_RUMBLE_KEEP);
-    // Trigger rumble has no motor to drive and changes nothing
-    rumbleTriggersCallback(0, 65535, 65535);
+    // Trigger rumble adds to its own side: the right hand starts, the left already runs at full
+    rumbleTriggersCallback(0, 0, 65535);
     poll(g, BOTH, 1, q);
-    CHECK(q[0].action == PAD_RUMBLE_KEEP && q[1].action == PAD_RUMBLE_KEEP);
+    CHECK(q[0].action == PAD_RUMBLE_APPLY && q[1].action == PAD_RUMBLE_APPLY);
+    CHECK_NEAR(q[1].amplitude, 1.0, 1e-6);
     rumbleHostCallback(0, 0, 0);
+    rumbleTriggersCallback(0, 0, 0);
     poll(g, BOTH, 2, q);
-    CHECK(q[0].action == PAD_RUMBLE_STOP);
+    CHECK(q[0].action == PAD_RUMBLE_STOP && q[1].action == PAD_RUMBLE_STOP);
+}
+
+static void testMix(void) {
+    Rumble r;
+    RumbleRequest q[2];
+    rumbleInit(&r);
+    // The default is the upstream split at full strength
+    rumbleOnHost(&r, 0, 65535, 0);
+    poll(&r, BOTH, 0, q);
+    CHECK(q[0].action == PAD_RUMBLE_APPLY && q[1].action == PAD_RUMBLE_KEEP);
+    rumbleOnHost(&r, 0, 0, 0);
+    poll(&r, BOTH, 1, q);
+
+    // Both hands: one motor is felt on both, at the intensity
+    rumbleSetMix(&r, PAD_RUMBLE_MIX_BOTH, 50);
+    rumbleOnHost(&r, 0, 0, 65535);
+    poll(&r, BOTH, 100, q);
+    CHECK(q[0].action == PAD_RUMBLE_APPLY && q[1].action == PAD_RUMBLE_APPLY);
+    CHECK_NEAR(q[0].amplitude, 0.5, 1e-6);
+    CHECK_NEAR(q[1].amplitude, 0.5, 1e-6);
+    rumbleOnHost(&r, 0, 0, 0);
+    poll(&r, BOTH, 101, q);
+    CHECK(q[0].action == PAD_RUMBLE_STOP && q[1].action == PAD_RUMBLE_STOP);
+
+    // Trigger motors, on their own side, from the trigger callback's own word
+    rumbleTriggersOnHost(&r, 0, 65535, 0);
+    poll(&r, BOTH, 200, q);
+    CHECK(q[0].action == PAD_RUMBLE_APPLY && q[1].action == PAD_RUMBLE_KEEP);
+    CHECK_NEAR(q[0].amplitude, 0.5, 1e-6);
+    // Someone else's trigger motors are not ours
+    rumbleTriggersOnHost(&r, 2, 0, 65535);
+    poll(&r, BOTH, 201, q);
+    CHECK(q[1].action == PAD_RUMBLE_KEEP);
+    // Intensity 0 is silence
+    rumbleTriggersOnHost(&r, 0, 0, 0);
+    poll(&r, BOTH, 202, q);
+    rumbleSetMix(&r, PAD_RUMBLE_MIX_SPLIT, 0);
+    rumbleOnHost(&r, 0, 65535, 65535);
+    poll(&r, BOTH, 300, q);
+    CHECK(q[0].action == PAD_RUMBLE_KEEP && q[1].action == PAD_RUMBLE_KEEP);
+    // A stream ending stops the trigger motors too
+    rumbleSetMix(&r, PAD_RUMBLE_MIX_SPLIT, 100);
+    rumbleTriggersOnHost(&r, 0, 65535, 65535);
+    poll(&r, BOTH, 400, q);
+    CHECK(q[0].action == PAD_RUMBLE_APPLY && q[1].action == PAD_RUMBLE_APPLY);
+    rumbleStop(&r);
+    poll(&r, BOTH, 401, q);
+    CHECK(q[0].action == PAD_RUMBLE_STOP && q[1].action == PAD_RUMBLE_STOP);
+    rumbleDestroy(&r);
+}
+
+static void testFirst(void) {
+    Rumble r;
+    RumbleWord w;
+    rumbleInit(&r);
+    CHECK(rumbleTakeFirst(&r, &w) == 0);
+    // Someone else's word, and a host that starts by saying zero, are not the first
+    rumbleOnHost(&r, 4, 100, 100);
+    rumbleOnHost(&r, 0, 0, 0);
+    CHECK(rumbleTakeFirst(&r, &w) == 0);
+    // The first one that asks for something, once
+    rumbleOnHost(&r, 0, 1000, 2000);
+    CHECK(rumbleTakeFirst(&r, &w) == 1);
+    CHECK(w.low == 1000 && w.high == 2000 && w.leftTrigger == 0 && w.rightTrigger == 0);
+    CHECK(rumbleTakeFirst(&r, &w) == 0);
+    rumbleOnHost(&r, 0, 5, 5);
+    CHECK(rumbleTakeFirst(&r, &w) == 0);
+    // The next stream starts it again, and a trigger word counts
+    rumbleStop(&r);
+    CHECK(rumbleTakeFirst(&r, &w) == 0);
+    rumbleTriggersOnHost(&r, 0, 0, 777);
+    CHECK(rumbleTakeFirst(&r, &w) == 1);
+    CHECK(w.low == 0 && w.high == 0 && w.leftTrigger == 0 && w.rightTrigger == 777);
+    rumbleDestroy(&r);
 }
 
 // The callback from other threads while the frame loop polls. Each word the
@@ -312,6 +388,8 @@ int main(void) {
     testStop();
     testController();
     testVibration();
+    testMix();
+    testFirst();
     testThreads();
     // The global one last, since the threads test also leaves it zeroed
     testGlobal();

@@ -44,6 +44,8 @@ static void test_defaults(void) {
     CHECK(geti(&s, "head_aim_sensitivity") == 8);
     CHECK(geti(&s, "head_aim_deadzone") == 2);
     CHECK(geti(&s, "gamepad_toggle") == PAD_SHORTCUT_MENU_GRIP);
+    CHECK(geti(&s, "rumble_mix") == PAD_RUMBLE_MIX_BOTH && geti(&s, "rumble_intensity") == 100);
+    CHECK(geti(&s, "pad_grip") == PAD_GRIP_BUMPERS);   // native: the grips are bumpers, as ever
     CHECK(geti(&s, "click_sound") == 1);
     CHECK(geti(&s, "notices") == NOTICES_ALL);   // native: every toast, as before the setting
     CHECK(geti(&s, "gaze") == 0 && geti(&s, "hand_tracking") == 0);   // native defaults (M4): off on the Frame until checked
@@ -130,7 +132,7 @@ static void test_defaults(void) {
 static const char* const README_KEYS[] = {
     // VR Settings
     "pointer", "pointer_sleep", "show_ray", "controller_model", "head_aim",
-    "head_aim_sensitivity", "head_aim_deadzone", "gamepad_toggle", "click_sound", "gaze",
+    "head_aim_sensitivity", "head_aim_deadzone", "gamepad_toggle", "pad_grip", "rumble_mix", "rumble_intensity", "click_sound", "gaze",
     "notices", "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
     "picture_brightness", "picture_contrast", "picture_gamma", "picture_saturation",
     // VR Debugging
@@ -434,6 +436,9 @@ static void test_tolerant(void) {
         "[unterminated\r\n"
         "hand_tracking = 1\r\n"
         "gamepad_toggle = sticks\r\n"
+        "pad_grip = stick_clicks\r\n"
+        "rumble_mix = split\r\n"
+        "rumble_intensity = 250\r\n"
         "head_locked = true\r\n"             // belongs to [display], in the wrong section: still read
         "\x01\x02\x03 binary = 7\r\n";
     settings_from_text(&s, junk, &info);
@@ -441,6 +446,8 @@ static void test_tolerant(void) {
     CHECK(strcmp(s.app, "Desktop") == 0);
     CHECK(s.head_aim == 1 && s.hand_tracking == 1 && s.gamepad_toggle == PAD_SHORTCUT_STICKS);
     CHECK(s.head_locked == 1);
+    CHECK(s.pad_grip == PAD_GRIP_STICK_CLICKS);
+    CHECK(s.rumble_mix == PAD_RUMBLE_MIX_SPLIT && s.rumble_intensity == 100);   // 250 clamps to 100
     CHECK(s.pointer_sleep == 1 && s.head_aim_sensitivity == 8);   // unreadable values leave the default
     CHECK(info.unknown >= 3);
     CHECK(info.bad >= 4);

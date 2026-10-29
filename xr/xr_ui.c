@@ -1416,6 +1416,16 @@ void xrSetGamepad(XrCtx* ctx, int shortcut, int deadzonePercent) {
           padShortcutName(ctx->padShortcut), ctx->padDeadzone * 100.0f);
 }
 
+// What the grips are on the pad, a PAD_GRIP_ mode (the pad_grip setting)
+void xrSetPadGrip(XrCtx* ctx, int mode) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->padGripMode = padGripModeClamp(mode);
+    LOGEV("gamepad mode grips: %s", ctx->padGripMode == PAD_GRIP_NONE ? "nothing"
+          : ctx->padGripMode == PAD_GRIP_STICK_CLICKS ? "the stick clicks" : "the bumpers");
+}
+
 // One row of the picture grade to a value in its own whole units, held to its
 // lane, with the grade worked out again. Off once every row is back at its
 // default, which is all the shaders look at before skipping it.

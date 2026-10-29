@@ -75,7 +75,7 @@ The xr_input `PadState`/`PadHand` side is untouched: padMap, padHoldBack, the to
 | B | 0x2000 | B_FLAG | right B (`upper`) |
 | X | 0x4000 | X_FLAG | right X (`faceX`); Touch left X |
 | Y | 0x8000 | Y_FLAG | right Y (`faceY`); Touch left Y |
-Triggers: padTrigger -> 0..255 (13 percent dead zone) -> unsigned char. Sticks: padStick -> -32766..32766 -> short, y up positive. No guide/SPECIAL button, no paddles.
+Triggers: padTrigger -> 0..255 (13 percent dead zone) -> unsigned char. Sticks: padStick -> -32766..32766 -> short, y up positive (dead zone 7 percent, or the launcher slider when above 0). Guide (PAD_GUIDE 0x0400 -> SPECIAL_FLAG, advertised in the arrival) only from the left View + right Menu hold (`PadGuide`, xr_gamepad.c). The `pad_grip` setting makes the grips bumpers (default), nothing, or the stick clicks. No paddles.
 
 ## Tests (ctest names input_*, -Werror, clang 19)
 `env -u LD_LIBRARY_PATH ctest --test-dir build-input -R input --output-on-failure`: 4/4 pass.

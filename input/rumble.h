@@ -5,8 +5,13 @@
 // rumbleCount, rumbleWord) and its rumbleHanded handshake in the frame loop,
 // with xr_gamepad's PadRumble doing the pulses.
 //
-// As upstream: the low frequency motor drives the left controller and the high
-// frequency motor the right. The host only says when its rumble changes, so a
+// As upstream when the mix is PAD_RUMBLE_MIX_SPLIT: the low frequency motor drives
+// the left controller and the high frequency motor the right. The default
+// setting is PAD_RUMBLE_MIX_BOTH, where both controllers get the stronger of the
+// two, since many games drive one motor only and the other hand would stay
+// silent. The trigger motors (ConnListenerRumbleTriggers) have no motor of
+// their own on a Frame controller, so each adds to the controller on its side,
+// as far as it is stronger. The rumble intensity setting scales all of it. The host only says when its rumble changes, so a
 // request is a short pulse (PAD_RUMBLE_PULSE_NS) armed again before it runs
 // out (PAD_RUMBLE_REARM_NS) for as long as the host wants it. Every call from
 // the host counts, so the same two values twice still arm a pulse at once. A
@@ -43,6 +48,14 @@ typedef struct {
     int64_t durationNs;
 } RumbleRequest;
 
+// What the host asked for, all four motors, 0..65535
+typedef struct {
+    uint16_t low;
+    uint16_t high;
+    uint16_t leftTrigger;
+    uint16_t rightTrigger;
+} RumbleWord;
+
 typedef struct {
     // Written by any thread under the lock: the host's last word. count rises
     // with every call, so a repeat is a new word.
@@ -50,6 +63,16 @@ typedef struct {
     uint64_t count;
     uint16_t low;
     uint16_t high;
+    uint16_t leftTrigger;
+    uint16_t rightTrigger;
+    // PAD_RUMBLE_MIX_ and the intensity in percent (rumbleSetMix)
+    int mix;
+    int intensity;
+    // The first word the host sent since the stream began, and whether the
+    // frame loop has been told of it
+    RumbleWord first;
+    int firstSeen;
+    int firstTold;
     // Which controller number the pad has on the host; rumble for any other is
     // someone else's
     int controllerNumber;
@@ -65,6 +88,12 @@ void rumbleDestroy(Rumble* r);
 // The pad's number on the host, 0 by default (any thread, before the stream)
 void rumbleSetController(Rumble* r, int controllerNumber);
 
+// How the two motors reach the two controllers (PAD_RUMBLE_MIX_BOTH or _SPLIT)
+// and the scale on every level, 0 to 100 percent. The default is the upstream
+// split at 100 percent; settings hand down the real choice. Takes effect from
+// the host's next word. Any thread.
+void rumbleSetMix(Rumble* r, int mix, int intensityPercent);
+
 // The frequency in Hz to ask for on each hand, XR_FREQUENCY_UNSPECIFIED by
 // default as upstream (frame loop, or before the stream)
 void rumbleSetFrequency(Rumble* r, float leftHz, float rightHz);
@@ -72,6 +101,16 @@ void rumbleSetFrequency(Rumble* r, float leftHz, float rightHz);
 // The host's rumble for a controller, each motor 0..65535. Any thread.
 void rumbleOnHost(Rumble* r, unsigned short controllerNumber, unsigned short lowFreqMotor,
                   unsigned short highFreqMotor);
+
+// The host's trigger motors for a controller, each 0..65535, which add to the
+// controller on their side. Any thread.
+void rumbleTriggersOnHost(Rumble* r, unsigned short controllerNumber, unsigned short leftMotor,
+                          unsigned short rightMotor);
+
+// 1 once per stream, after the first rumble word the host sent for this pad
+// (either callback) that asked for any motor, with that word, so the frame loop can log that rumble
+// arrives at all, whether or not anything can be felt. Frame loop only.
+int rumbleTakeFirst(Rumble* r, RumbleWord* out);
 
 // The host's rumble gone, as at the end of a stream: the next rumblePoll stops
 // both hands. Any thread.
@@ -98,8 +137,7 @@ int rumbleVibration(const RumbleRequest* req, XrHapticVibration* out);
 Rumble* rumbleGlobal(void);
 
 // For ConnListenerRumble and ConnListenerRumbleTriggers in the connection's
-// callback table. The triggers have no motor on a Frame controller, so that
-// one ignores its call.
+// callback table.
 void rumbleHostCallback(unsigned short controllerNumber, unsigned short lowFreqMotor,
                         unsigned short highFreqMotor);
 void rumbleTriggersCallback(uint16_t controllerNumber, uint16_t leftTriggerMotor,

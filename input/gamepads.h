@@ -169,6 +169,8 @@ int gamepadsAnnouncedMask(void);
 //   flip: A<->B and X<->Y on the physical pads (Artemis checkbox_flip_face_buttons)
 void gamepadsSetRumbleEnabled(int enabled);
 void gamepadsSetDeadzone(int percent);
+// What was set, for the Frame controllers' own dead zone (xr_gamepad's padDeadzonePercentFromLauncher)
+int gamepadsGetDeadzone(void);
 void gamepadsSetFlipFaceButtons(int flip);
 // The transform above on one packet (tests)
 void gpApplyStickOptions(PadOutPacket* pk, int deadzonePercent, int flip);
