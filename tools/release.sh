@@ -5,7 +5,7 @@
 # $OUT (default ~/Games/MoonlightXRNative/releases). The tarball unpacks to
 # MoonlightXRNative/ holding install.sh, steam_cef.py, dock_icon.py, README.md, docs/ (user guide,
 # changelog, building, privacy audit), the licence files and
-# app/ (binaries, launcher, assets, the Moonlight Qt import script) and the
+# app/ (binaries incl. mlxr-gamepad-probe, launcher, assets, the Moonlight Qt import script) and the
 # Frame controller model converter. The converted Steam Frame controller
 # models (Valve's) are never in the tarball: install.sh makes them on the target.
 # The version is the top-level VERSION file (e.g. 1.0.0, tag v1.0.0).
@@ -21,7 +21,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 BUILD="${BUILD:-build}"
 OUT="${OUT:-$HOME/Games/MoonlightXRNative/releases}"
-for b in "$BUILD/moonlight-xr" "$BUILD/backend/mlxr-cli"; do
+for b in "$BUILD/moonlight-xr" "$BUILD/backend/mlxr-cli" "$BUILD/input/mlxr-gamepad-probe"; do
     [ -x "$b" ] || { echo "missing $b: run ./build.sh first"; exit 1; }
 done
 VER="$(head -n 1 VERSION)"
@@ -42,6 +42,7 @@ strip_to() {   # copy a binary without debug info when a strip tool exists
 }
 strip_to "$BUILD/moonlight-xr" "$ROOT/app/moonlight-xr"
 strip_to "$BUILD/backend/mlxr-cli" "$ROOT/app/mlxr-cli"
+strip_to "$BUILD/input/mlxr-gamepad-probe" "$ROOT/app/mlxr-gamepad-probe"
 install -m755 packaging/moonlight-xr.sh "$ROOT/app/moonlight-xr.sh"
 # The flat Moonlight UI (patched moonlight-qt), when built (launcher/build.sh)
 if [ -x build-launcher/moonlight-xr-launcher ]; then
@@ -106,9 +107,11 @@ for f in LICENSE.txt CREDITS.md; do cmp "$U/$f" "$TMP/inst/app/$f"; done
 # install.sh puts steam_cef.py (top level in the tarball) beside the flat launcher
 [ ! -x "$U/app/moonlight-xr-launcher" ] || cmp "$U/steam_cef.py" "$TMP/inst/app/steam_cef.py"
 MLXR_CONFIG_DIR="$TMP/cfg" "$TMP/inst/app/mlxr-cli" 2>&1 | head -n 3 || true
+"$TMP/inst/app/mlxr-gamepad-probe" --help >/dev/null
 if command -v pacman >/dev/null; then
     ./tools/ldd-audit.sh "$TMP/inst/app/moonlight-xr"
     ./tools/ldd-audit.sh "$TMP/inst/app/mlxr-cli"
+    ./tools/ldd-audit.sh "$TMP/inst/app/mlxr-gamepad-probe"
 else
     echo "no pacman: ldd audit skipped"
 fi
