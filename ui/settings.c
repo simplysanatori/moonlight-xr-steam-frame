@@ -33,6 +33,8 @@ static const char* const AUDIO_NAMES[] = { "stereo", "5.1", "7.1" };
 static const char* const NETWORK_NAMES[] = { "auto", "home", "adapter" };
 static const char* const PACING_NAMES[] = { "latency", "balanced", "cap-fps", "smoothness" };
 static const char* const TOGGLE_NAMES[] = { "menu_grip", "sticks", "triggers_grips" };
+static const char* const RUMBLEMIX_NAMES[] = { "both", "split" };
+static const char* const PADGRIP_NAMES[] = { "bumpers", "none", "stick_clicks" };
 static const char* const ENV_NAMES[] = { "auto", "passthrough", "void", "home_theater",
                                          "grand_cinema", "synthwave" };
 static const int ENV_IDS[] = { ENV_ID_NONE, ENV_ID_PASSTHROUGH, ENV_ID_VOID, ENV_ID_HOME_THEATER,
@@ -40,6 +42,7 @@ static const int ENV_IDS[] = { ENV_ID_NONE, ENV_ID_PASSTHROUGH, ENV_ID_VOID, ENV
 static const char* const DEPTH_NAMES[] = { "zipdepth", "midas", "off", "flat", "ramp", "blob",
                                            "eyetest", "shifttest", "zipdepth-int8" };
 static const char* const ENVRES_NAMES[] = { "low", "standard", "high", "ultra" };
+static const char* const NOTICES_NAMES[] = { "all", "important", "off" };
 static const char* const LOG_NAMES[] = { "off", "basic", "verbose" };
 static const char* const KBLAYOUT_NAMES[] = { "compact", "full" };
 static const char* const SHARP_NAMES[] = { "off", "normal", "quality" };
@@ -65,18 +68,18 @@ static const SettingDesc TABLE[] = {
     DS("stream", "app", app, "", "name of the host app last launched (empty: ask)"),
     DE("stream", "resolution", resolution, SETTINGS_RESOLUTIONS, 4, "list_resolution; 1440p on a headset, 4K is one entry away"),
     DE("stream", "fps", fps, FPS_NAMES, 3, "list_fps; the stream never goes above the display's rate (SteamVR's per-app setting: 72, 90, 120 or 144)"),
-    DI("stream", "bitrate_kbps", bitrate_kbps, 0, 150000, 0, "seekbar_bitrate_kbps; 0 follows resolution and frame rate, else 500..150000"),
+    DI("stream", "bitrate_kbps", bitrate_kbps, 0, MLXR_BITRATE_MAX_KBPS, 0, "seekbar_bitrate_kbps; 0 follows resolution and frame rate, else 500..500000 (the flat launcher's custom bitrate goes to 500 Mbps)"),
     DE("stream", "codec", codec, CODEC_NAMES, 0, "list_video_format: auto, av1, hevc, h264"),
     DE("stream", "audio_config", audio_config, AUDIO_NAMES, 0, "list_audio_config: stereo, 5.1, 7.1"),
     DB("stream", "virtual_surround", virtual_surround, 0, "checkbox_vr_virtual_surround: place 5.1 and 7.1 speakers around you in stereo"),
     DE("stream", "frame_pacing", frame_pacing, PACING_NAMES, 0, "frame_pacing"),
     DE("stream", "network_path", network_path, NETWORK_NAMES, 0, "native: which link reaches the PC: auto (probe both), home (Wi-Fi) or adapter (Steam Frame Wireless Adapter); the --network flag and MLXR_NETWORK override it"),
-    DB("stream", "auto_desktop", auto_desktop, 0, "Host: open Desktop automatically"),
-    DB("stream", "check_updates", check_updates, 1, "About: check for updates once a day"),
-    DS("stream", "language", language, "default", "UI language (English only for now)"),
+    // TODO(PLAN 6.4): auto_desktop (open the host's Desktop app without the app list) comes
+    // back when something reads it. Dropped with vr_mode, check_updates, language and
+    // doff_grace, which were written with descriptions and read by nothing; old files that
+    // still carry them load fine (unknown keys are ignored and counted).
     // vr
-    DB("vr", "vr_mode", vr_mode, 1, "checkbox_enable_vr_mode: Stream in VR"),
-    DB("vr", "pointer", pointer, 1, "checkbox_vr_pointer: controllers as a mouse"),
+    DB("vr", "pointer", pointer, 1, "checkbox_vr_pointer: controllers as a mouse (false leaves only the gamepad switch live)"),
     DB("vr", "pointer_sleep", pointer_sleep, 1, "checkbox_vr_pointer_sleep: pause the pointer when the controller is still"),
     DB("vr", "show_ray", show_ray, 1, "checkbox_vr_show_ray: show the controller ray"),
     DB("vr", "pointer_dot", pointer_dot, 1, "native: the dot where the ray lands (the host draws its own cursor into the video, which the Moonlight protocol cannot hide)"),
@@ -88,23 +91,26 @@ static const SettingDesc TABLE[] = {
     DI("vr", "head_aim_deadzone", head_aim_deadzone, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX, HEAD_AIM_DEADZONE_DEFAULT, "seekbar_vr_head_aim_deadzone: degrees per second"),
     DE("vr", "gamepad_toggle", gamepad_toggle, TOGGLE_NAMES, 0, "list_vr_gamepad_toggle: menu_grip, sticks, triggers_grips"),
     DB("vr", "flip_face_buttons", flip_face_buttons, 0, "checkbox_flip_face_buttons: swap A/B and X/Y on the gamepad"),
+    DE("vr", "rumble_mix", rumble_mix, RUMBLEMIX_NAMES, 0, "native: the host's rumble on the controllers in gamepad mode: both (each hand gets the stronger motor) or split (low frequency motor left, high frequency motor right)"),
+    DI("vr", "rumble_intensity", rumble_intensity, 0, 100, 100, "native: percent, the scale on the host's rumble on the controllers in gamepad mode"),
+    DE("vr", "pad_grip", pad_grip, PADGRIP_NAMES, 0, "native: what the grips are in gamepad mode: bumpers (LB and RB, as the bumpers), none, or stick_clicks (LS and RS)"),
     DB("vr", "click_sound", click_sound, 1, "checkbox_vr_click_sound"),
+    DE("vr", "notices", notices, NOTICES_NAMES, 0, "native: the toast notices (upstream #42): all, important (leaves out the display rate and 3D on/off; keeps mode changes and errors) or off"),
     DB("vr", "gaze", gaze, 0, "checkbox_vr_gaze: look to point (native default off: with it on a controller takes the pointer back only on a press)"),
     DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),
     DB("vr", "passthrough", passthrough, 0, "checkbox_vr_passthrough"),
     DE("vr", "environment", environment, ENV_NAMES, 0, "list_vr_environment: auto = black void, or passthrough with passthrough on"),
     DE("vr", "depth_source", depth_source, DEPTH_NAMES, 0, "list_vr_depth_source: Realtime 3D mode (zipdepth recommended, midas older, zipdepth-int8 lighter on the CPU, off streams flat; flat, ramp, blob, eyetest, shifttest are test patterns)"),
-    DE("vr", "env_res", env_res, ENVRES_NAMES, 1, "list_vr_env_res: Environment Res"),
-    DB("vr", "doff_grace", doff_grace, 1, "checkbox_vr_doff_grace: keep the stream for a minute with the headset off"),
+    DE("vr", "env_res", env_res, ENVRES_NAMES, 1, "list_vr_env_res: Environment Res, how sharp the rooms are drawn: low (half the headset's recommended eye size), standard, high or ultra (the runtime's largest); read when the rooms are built at the start of a stream"),
     DB("vr", "hand_hint_seen", hand_hint_seen, 0, "the hand lock hint was put away for good"),
     DI("vr", "picture_brightness", picture_brightness, PICTURE_BRIGHTNESS_MIN, PICTURE_BRIGHTNESS_MAX, PICTURE_BRIGHTNESS_DEFAULT, "seekbar_vr_picture_brightness: -50..50"),
     DI("vr", "picture_contrast", picture_contrast, PICTURE_CONTRAST_MIN, PICTURE_CONTRAST_MAX, PICTURE_CONTRAST_DEFAULT, "seekbar_vr_picture_contrast: percent, 50..150"),
     DI("vr", "picture_gamma", picture_gamma, PICTURE_GAMMA_MIN, PICTURE_GAMMA_MAX, PICTURE_GAMMA_DEFAULT, "seekbar_vr_picture_gamma: hundredths, 50..200"),
     DI("vr", "picture_saturation", picture_saturation, PICTURE_SATURATION_MIN, PICTURE_SATURATION_MAX, PICTURE_SATURATION_DEFAULT, "seekbar_vr_picture_saturation: percent, 0..200"),
     // debug
-    DI("debug", "depth_rate", depth_rate, DEPTH_RATE_MIN, DEPTH_RATE_MAX, DEPTH_RATE_DEFAULT, "seekbar_vr_inference_cadence: depth maps per second"),
-    DB("debug", "depth_debug", depth_debug, 0, "checkbox_vr_depth_debug: show the depth map"),
-    DB("debug", "eye_swap", eye_swap, 0, "checkbox_vr_eye_swap"),
+    DI("debug", "depth_rate", depth_rate, DEPTH_RATE_MIN, DEPTH_RATE_MAX, DEPTH_RATE_DEFAULT, "seekbar_vr_inference_cadence: the most depth maps made per second (the 3D picture follows the video; fewer saves the CPU)"),
+    DB("debug", "depth_debug", depth_debug, 0, "checkbox_vr_depth_debug: show the depth map in place of the picture"),
+    DB("debug", "eye_swap", eye_swap, 0, "checkbox_vr_eye_swap: swap the left and right eye of the 3D picture (for a wrong-way test pattern)"),
     DE("debug", "file_log", file_log, LOG_NAMES, 1, "list_vr_file_log: off, basic (warnings and errors), verbose"),
     // display tab
     DB("display", "head_locked", head_locked, 0, "Display tab: head locked screen (checkbox_vr_head_locked)"),
@@ -251,7 +257,7 @@ void settings_clamp(Settings* s) {
             settings_set(s, d, settings_get(s, d));
         }
     }
-    // a bitrate is 0 (follow resolution and rate) or 500..150000 kbps
+    // a bitrate is 0 (follow resolution and rate) or 500..MLXR_BITRATE_MAX_KBPS kbps
     if (s->bitrate_kbps > 0 && s->bitrate_kbps < 500) s->bitrate_kbps = 500;
     // glow level moves in five percent steps
     s->glow_level = (s->glow_level + 2) / 5 * 5;
@@ -589,7 +595,7 @@ int settings_default_bitrate_kbps(int width, int height, int fps) {
 }
 
 int settings_bitrate_kbps(const Settings* s) {
-    if (s->bitrate_kbps > 0) return clamp_int(s->bitrate_kbps, 500, 150000);
+    if (s->bitrate_kbps > 0) return clamp_int(s->bitrate_kbps, 500, MLXR_BITRATE_MAX_KBPS);
     int w, h;
     settings_resolution(s, &w, &h);
     return settings_default_bitrate_kbps(w, h, settings_fps_value(s));
@@ -729,6 +735,7 @@ int settings_option_cell(const Settings* s, const SessionToggles* t, int option)
     case COG_OPTION_CLICK_SOUND: return s->click_sound;
     case COG_OPTION_AMBILIGHT: return s->glow;
     case COG_OPTION_ROOM_LIGHT: return s->screen_light;
+    case COG_OPTION_NOTICES: return clamp_int(s->notices, 0, 2);
     default: return -1;
     }
 }

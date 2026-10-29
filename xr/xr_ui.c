@@ -548,7 +548,25 @@ XrPosef kofiSheetPose(XrCtx* ctx, float* outWidth, float* outHeight) {
 // Which of the prompt's two buttons a point is on, in the sheet's own
 // coordinates. Everything else on it is a question and a background.
 int exitPromptZone(float u, float v) {
+    return exitPromptZoneFor(u, v, 0);
+}
+
+// The same for the prompt a stream gets, whose three buttons (Quit app,
+// Disconnect, Cancel) share the row when withDisconnect is set
+int exitPromptZoneFor(float u, float v, int withDisconnect) {
     if (v < EXIT_BTN_T || v > EXIT_BTN_B) {
+        return EXIT_ZONE_NONE;
+    }
+    if (withDisconnect) {
+        if (u >= EXIT3_QUIT_L && u <= EXIT3_QUIT_R) {
+            return EXIT_ZONE_EXIT;
+        }
+        if (u >= EXIT3_DISC_L && u <= EXIT3_DISC_R) {
+            return EXIT_ZONE_DISCONNECT;
+        }
+        if (u >= EXIT3_CANCEL_L && u <= EXIT3_CANCEL_R) {
+            return EXIT_ZONE_CANCEL;
+        }
         return EXIT_ZONE_NONE;
     }
     if (u >= EXIT_EXIT_L && u <= EXIT_EXIT_R) {
@@ -558,6 +576,12 @@ int exitPromptZone(float u, float v) {
         return EXIT_ZONE_CANCEL;
     }
     return EXIT_ZONE_NONE;
+}
+
+// Whether the exit prompt offers Disconnect: while a stream is up, not over
+// the launcher's lists, where leaving is quitting the app
+int exitPromptHasDisconnect(const XrCtx* ctx) {
+    return ctx->launcher == LAUNCHER_NONE;
 }
 
 // How many rows a face has, whatever kind they are
@@ -904,6 +928,9 @@ int cogOptionCells(int option) {
     if (option == COG_OPTION_CLICK_SOUND) {
         return COG_CLICK_SOUND_CELLS;
     }
+    if (option == COG_OPTION_NOTICES) {
+        return COG_NOTICES_CELLS;
+    }
     if (option == COG_OPTION_AMBILIGHT) {
         return COG_AMBI_CELLS;
     }
@@ -955,6 +982,9 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
     if (option == COG_OPTION_ROOM_LIGHT) {
         return ctx->roomLightOn ? 1 : 0;
     }
+    if (option == COG_OPTION_NOTICES) {
+        return ctx->notices.level;
+    }
     return ctx->overlayVisible ? 1 : 0;
 }
 
@@ -1003,11 +1033,15 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         return SETTING_POINTER_SLEEP;
     }
     if (option == COG_OPTION_RAY) {
-        // The bar button's switch, for this session only, so nothing goes to
-        // Java to store. Native: the third cell is the dot, which is stored.
+        // Native: the row is saved (the bar button's ray switch is not): the
+        // cell's ray becomes the setting each session starts from, and the
+        // session's own flip from the bar is dropped so the row and the beam
+        // agree. The third cell is the dot, which is stored as well.
         int ray = 0, dot = 1;
         settings_pointer_from_cell(cell, &ray, &dot);
         setRayOn(ctx, ray, "the Display tab");
+        ctx->raySetting = ray ? 1 : 0;
+        ctx->rayFlipped = 0;
         if (dot != ctx->dotOn) {
             ctx->dotOn = dot;
             LOGEV("pointer dot %s from the panel", dot ? "on" : "off");
@@ -1043,6 +1077,14 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         ctx->roomLightOn = cell != 0;
         LOGEV("room light %s from the panel", ctx->roomLightOn ? "on" : "off");
         return SETTING_ROOM_LIGHT;
+    }
+    if (option == COG_OPTION_NOTICES) {
+        // Native: takes effect for the next notice, and takes down one that
+        // the new level would not have said
+        noticeSetLevel(&ctx->notices, cell);
+        LOGEV("notices %s from the panel", cell == NOTICES_OFF ? "off"
+              : cell == NOTICES_IMPORTANT ? "important only" : "all");
+        return SETTING_NOTICES;
     }
     return -1;
 }
@@ -1354,7 +1396,7 @@ const char* padShortcutName(int shortcut) {
     switch (shortcut) {
         case PAD_SHORTCUT_STICKS: return "both thumbsticks";
         case PAD_SHORTCUT_TRIGGERS_GRIPS: return "both triggers and both grips";
-        default: return "the left menu button and grip";
+        default: return "the left View button and grip";
     }
 }
 
@@ -1372,6 +1414,16 @@ void xrSetGamepad(XrCtx* ctx, int shortcut, int deadzonePercent) {
     ctx->padDeadzone = padDeadzoneFromPercent(deadzonePercent);
     LOGEV("controllers start as the pointer, gamepad mode shortcut %s, stick dead zone %.0f%%",
           padShortcutName(ctx->padShortcut), ctx->padDeadzone * 100.0f);
+}
+
+// What the grips are on the pad, a PAD_GRIP_ mode (the pad_grip setting)
+void xrSetPadGrip(XrCtx* ctx, int mode) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->padGripMode = padGripModeClamp(mode);
+    LOGEV("gamepad mode grips: %s", ctx->padGripMode == PAD_GRIP_NONE ? "nothing"
+          : ctx->padGripMode == PAD_GRIP_STICK_CLICKS ? "the stick clicks" : "the bumpers");
 }
 
 // One row of the picture grade to a value in its own whole units, held to its

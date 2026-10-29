@@ -384,7 +384,26 @@ static void test_other_panels_hits(void) {
     check_hits_inside("exit");
     CHECK(hits.count == 2);
     CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_EXIT_CONFIRM, -1) >= 0 && ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_EXIT_CANCEL, -1) >= 0);
+    CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_EXIT_DISCONNECT, -1) < 0);
     free(g.base);
+    // a stream's prompt: Quit app, Disconnect, Cancel, side by side inside the sheet
+    v.exit_disconnect = 1;
+    draw(UI_PANEL_EXIT, &v, 1.0f, &g);
+    check_hits_inside("exit with disconnect");
+    CHECK(hits.count == 3);
+    int hq = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_EXIT_CONFIRM, -1);
+    int hd = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_EXIT_DISCONNECT, -1);
+    int hc = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_EXIT_CANCEL, -1);
+    CHECK(hq >= 0 && hd >= 0 && hc >= 0);
+    if (hq >= 0 && hd >= 0 && hc >= 0) {
+        CHECK(hits.hit[hq].u1 <= hits.hit[hd].u0 && hits.hit[hd].u1 <= hits.hit[hc].u0);
+        CHECK(hits.hit[hq].v0 == hits.hit[hd].v0 && hits.hit[hd].v0 == hits.hit[hc].v0);
+    }
+    // the labels and the line about what Disconnect does are on the sheet
+    CHECK(strstr(ui_str(UIS_EXIT_DISCONNECT_HINT), "running") != NULL);
+    CHECK(strcmp(ui_str(UIS_EXIT_QUIT_APP), "Quit app") == 0 && strcmp(ui_str(UIS_EXIT_DISCONNECT), "Disconnect") == 0);
+    free(g.base);
+    v.exit_disconnect = 0;
     draw(UI_PANEL_HINT, &v, 1.0f, &g);
     check_hits_inside("hint");
     int ok = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HINT_OK, -1);

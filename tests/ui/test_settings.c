@@ -9,6 +9,7 @@
 
 #include "check.h"
 #include "settings.h"
+#include "ui_strings.h"
 #include "xr_shared.h"
 
 static int geti(const Settings* s, const char* name) {
@@ -33,11 +34,8 @@ static void test_defaults(void) {
     CHECK(geti(&s, "bitrate_kbps") == 0);
     CHECK(geti(&s, "codec") == 0 && geti(&s, "audio_config") == 0);
     CHECK(geti(&s, "virtual_surround") == 0);
-    CHECK(geti(&s, "auto_desktop") == 0 && geti(&s, "check_updates") == 1);
     CHECK(geti(&s, "network_path") == 0);   // auto
-    CHECK(strcmp(gets(&s, "language"), "default") == 0);
     // VR Settings table of the fork README
-    CHECK(geti(&s, "vr_mode") == 1);
     CHECK(geti(&s, "pointer") == 1);
     CHECK(geti(&s, "pointer_sleep") == 1);
     CHECK(geti(&s, "show_ray") == 1);
@@ -46,7 +44,10 @@ static void test_defaults(void) {
     CHECK(geti(&s, "head_aim_sensitivity") == 8);
     CHECK(geti(&s, "head_aim_deadzone") == 2);
     CHECK(geti(&s, "gamepad_toggle") == PAD_SHORTCUT_MENU_GRIP);
+    CHECK(geti(&s, "rumble_mix") == PAD_RUMBLE_MIX_BOTH && geti(&s, "rumble_intensity") == 100);
+    CHECK(geti(&s, "pad_grip") == PAD_GRIP_BUMPERS);   // native: the grips are bumpers, as ever
     CHECK(geti(&s, "click_sound") == 1);
+    CHECK(geti(&s, "notices") == NOTICES_ALL);   // native: every toast, as before the setting
     CHECK(geti(&s, "gaze") == 0 && geti(&s, "hand_tracking") == 0);   // native defaults (M4): off on the Frame until checked
     CHECK(geti(&s, "passthrough") == 0);
     CHECK(settings_environment_id(&s) == ENV_ID_VOID);   // black void unless passthrough is on
@@ -55,7 +56,6 @@ static void test_defaults(void) {
     s.passthrough = 0;
     CHECK(geti(&s, "depth_source") == 0);               // ZipDepth
     CHECK(geti(&s, "env_res") == ENV_RES_STANDARD);
-    CHECK(geti(&s, "doff_grace") == 1);
     CHECK(geti(&s, "picture_brightness") == 0 && geti(&s, "picture_contrast") == 100);
     CHECK(geti(&s, "picture_gamma") == 100 && geti(&s, "picture_saturation") == 100);
     // VR Debugging
@@ -131,14 +131,14 @@ static void test_defaults(void) {
 
 static const char* const README_KEYS[] = {
     // VR Settings
-    "vr_mode", "pointer", "pointer_sleep", "show_ray", "controller_model", "head_aim",
-    "head_aim_sensitivity", "head_aim_deadzone", "gamepad_toggle", "click_sound", "gaze",
-    "hand_tracking", "passthrough", "environment", "depth_source", "env_res", "doff_grace",
+    "pointer", "pointer_sleep", "show_ray", "controller_model", "head_aim",
+    "head_aim_sensitivity", "head_aim_deadzone", "gamepad_toggle", "pad_grip", "rumble_mix", "rumble_intensity", "click_sound", "gaze",
+    "notices", "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
     "picture_brightness", "picture_contrast", "picture_gamma", "picture_saturation",
     // VR Debugging
     "depth_rate", "depth_debug", "eye_swap", "file_log",
     // elsewhere
-    "virtual_surround", "network_path", "auto_desktop", "language", "check_updates",
+    "virtual_surround", "network_path",
     // stream
     "host", "app", "resolution", "fps", "bitrate_kbps", "codec", "audio_config", "frame_pacing",
     // the panel: Screen, Display, 3D, Room
@@ -294,7 +294,7 @@ static void test_clamping(void) {
     CHECK(s.room[0].screen == ROOM_SCREEN_MIN);          // the theater's lane starts at a quarter
     CHECK(s.room[2].brightness == ROOM_BRIGHTNESS_MAX);
     CHECK(s.glow_level == 55);                           // five percent steps
-    CHECK(s.bitrate_kbps == 500);                        // 500..150000 where not 0
+    CHECK(s.bitrate_kbps == 500);                        // 500..500000 where not 0
     CHECK(s.resolution == 4);                            // an enum index out of range is unreadable, the default stays
     CHECK(s.fps == 4);                                   // 4 is a valid index (120)
     CHECK(s.separation == COG_SEP_STEPS && s.convergence == 100);
@@ -322,9 +322,78 @@ static void test_clamping(void) {
     // enum by name or by index, bool spellings
     Settings e;
     settings_defaults(&e);
-    settings_from_text(&e, "[stream]\ncodec = HEVC\naudio_config = 2\nresolution = 1920x1080\nvirtual_surround = Yes\ncheck_updates = off\n", NULL);
+    settings_from_text(&e, "[stream]\ncodec = HEVC\naudio_config = 2\nresolution = 1920x1080\nvirtual_surround = Yes\n", NULL);
     CHECK(e.codec == 2 && e.audio_config == 2 && strcmp(SETTINGS_RESOLUTIONS[e.resolution], "1920x1080") == 0);
-    CHECK(e.virtual_surround == 1 && e.check_updates == 0);
+    CHECK(e.virtual_surround == 1);
+}
+
+// Keys removed because nothing read them: an old config.ini that still has
+// them loads, the rest of the file applies, and they are not written again
+// The config.ini bitrate follows the flat launcher's 500 Mbps ceiling (it stopped at 150)
+static void test_bitrate_ceiling(void) {
+    Settings s;
+    settings_defaults(&s);
+    settings_from_text(&s, "[stream]\nbitrate_kbps = 300000\n", NULL);
+    CHECK(s.bitrate_kbps == 300000 && settings_bitrate_kbps(&s) == 300000);
+    settings_from_text(&s, "[stream]\nbitrate_kbps = 500000\n", NULL);
+    CHECK(settings_bitrate_kbps(&s) == 500000);
+    SettingsLoadInfo info;
+    settings_from_text(&s, "[stream]\nbitrate_kbps = 900000\n", &info);
+    CHECK(s.bitrate_kbps == 500000 && info.clamped == 1);
+    settings_from_text(&s, "[stream]\nbitrate_kbps = 100\n", NULL);
+    CHECK(s.bitrate_kbps == 500);
+    // the default curve is untouched
+    CHECK(settings_default_bitrate_kbps(2560, 1440, 144) == 124000);
+    CHECK(MLXR_BITRATE_MAX_KBPS == 500000);
+}
+
+static void test_removed_keys(void) {
+    static const char* const GONE[] = { "auto_desktop", "check_updates", "language", "vr_mode",
+                                        "doff_grace" };
+    for (size_t i = 0; i < sizeof GONE / sizeof GONE[0]; i++) {
+        CHECK(settings_find(GONE[i]) == NULL);
+    }
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    settings_from_text(&s,
+        "[stream]\nauto_desktop = true\ncheck_updates = false\nlanguage = fr\nfps = 72\n"
+        "[vr]\nvr_mode = false\ndoff_grace = false\nshow_ray = false\n", &info);
+    CHECK(info.unknown == 5 && info.bad == 0);
+    CHECK(info.applied == 2 && settings_fps_value(&s) == 72 && s.show_ray == 0);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL);
+    for (size_t i = 0; text && i < sizeof GONE / sizeof GONE[0]; i++) {
+        CHECK(strstr(text, GONE[i]) == NULL);
+    }
+    free(text);
+}
+
+static void test_notices(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    settings_from_text(&s, "[vr]\nnotices = important\n", &info);
+    CHECK(s.notices == NOTICES_IMPORTANT && info.applied == 1 && info.bad == 0);
+    settings_from_text(&s, "[vr]\nnotices = Off\n", &info);
+    CHECK(s.notices == NOTICES_OFF);
+    settings_from_text(&s, "[vr]\nnotices = 0\n", &info);
+    CHECK(s.notices == NOTICES_ALL);
+    settings_from_text(&s, "[vr]\nnotices = loud\n", &info);   // not a value: the last good one stays
+    CHECK(s.notices == NOTICES_ALL && info.bad == 1);
+    s.notices = NOTICES_IMPORTANT;
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nnotices = important\n") != NULL);
+    free(text);
+    settings_defaults(&s);
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#notices = all\n") != NULL);
+    free(text);
+    // the Display tab's row reads it
+    SessionToggles t;
+    session_from_settings(&s, &t);
+    s.notices = NOTICES_OFF;
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_NOTICES) == NOTICES_OFF);
 }
 
 static void test_network_path(void) {
@@ -367,6 +436,9 @@ static void test_tolerant(void) {
         "[unterminated\r\n"
         "hand_tracking = 1\r\n"
         "gamepad_toggle = sticks\r\n"
+        "pad_grip = stick_clicks\r\n"
+        "rumble_mix = split\r\n"
+        "rumble_intensity = 250\r\n"
         "head_locked = true\r\n"             // belongs to [display], in the wrong section: still read
         "\x01\x02\x03 binary = 7\r\n";
     settings_from_text(&s, junk, &info);
@@ -374,6 +446,8 @@ static void test_tolerant(void) {
     CHECK(strcmp(s.app, "Desktop") == 0);
     CHECK(s.head_aim == 1 && s.hand_tracking == 1 && s.gamepad_toggle == PAD_SHORTCUT_STICKS);
     CHECK(s.head_locked == 1);
+    CHECK(s.pad_grip == PAD_GRIP_STICK_CLICKS);
+    CHECK(s.rumble_mix == PAD_RUMBLE_MIX_SPLIT && s.rumble_intensity == 100);   // 250 clamps to 100
     CHECK(s.pointer_sleep == 1 && s.head_aim_sensitivity == 8);   // unreadable values leave the default
     CHECK(info.unknown >= 3);
     CHECK(info.bad >= 4);
@@ -548,14 +622,28 @@ static void test_sliders(void) {
     CHECK(t.stereo_on == 0);
 }
 
+// The Frame's left menu button is its View button: no hint or toast says "menu"
+// for the gamepad-mode chord
+static void test_shortcut_wording(void) {
+    const char* hint = ui_str(UIS_SHORTCUT_MENU_GRIP);
+    const char* back = ui_str(UIS_TOAST_BACK_MENU_GRIP);
+    CHECK(strcmp(hint, "Shortcut: left View + grip") == 0);
+    CHECK(strstr(back, "left View button") != NULL);
+    CHECK(strstr(hint, "menu") == NULL && strstr(back, "menu") == NULL);
+}
+
 int main(void) {
     test_defaults();
+    test_shortcut_wording();
     test_table_covers_readme();
     test_round_trip();
     test_defaults_commented_out();
     test_clamping();
     test_network_path();
     test_tolerant();
+    test_removed_keys();
+    test_bitrate_ceiling();
+    test_notices();
     test_files();
     test_sliders();
     return checksDone("ui_settings");

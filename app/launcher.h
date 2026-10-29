@@ -101,6 +101,8 @@ void launcher_disconnect(Launcher* l);
 // The same from a physical keyboard's Ctrl+Alt+Shift+Q (Moonlight's own
 // keyboard combo), with its own notice
 void launcher_disconnect_keys(Launcher* l);
+// The same from the exit prompt's Disconnect button, with its own notice
+void launcher_disconnect_bar(Launcher* l);
 
 // ---- what the worker and the frame loop take ----
 int launcher_take_cmd(Launcher* l, LaunchCmd* out);

@@ -175,6 +175,10 @@ int render_all_panels(const char* dir) {
     panel_to_png(dir, "exit", UI_PANEL_EXIT, &v, 1.0f);
     v.hover = (UiHover){ UI_HIT_BUTTON, UI_BTN_EXIT_CONFIRM, 0 };
     panel_to_png(dir, "exit_hot", UI_PANEL_EXIT, &v, 1.0f);
+    v.exit_disconnect = 1;
+    v.hover = (UiHover){ UI_HIT_BUTTON, UI_BTN_EXIT_DISCONNECT, 0 };
+    panel_to_png(dir, "exit_disconnect_hot", UI_PANEL_EXIT, &v, 1.0f);
+    v.exit_disconnect = 0;
     v.hover.kind = UI_HIT_NONE;
     panel_to_png(dir, "hint", UI_PANEL_HINT, &v, 1.0f);
     panel_to_png(dir, "kofi", UI_PANEL_KOFI, &v, 1.0f);

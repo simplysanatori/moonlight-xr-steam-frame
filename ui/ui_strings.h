@@ -47,7 +47,10 @@
     X(POINTER, "vr_panel_pointer", "Pointer") \
     X(GAMEPAD, "vr_panel_gamepad", "Gamepad") \
     X(ROW_GLOW_LEVEL, "vr_panel_glow_level", "Glow level") \
-    X(SHORTCUT_MENU_GRIP, "vr_panel_shortcut_menu_grip", "Shortcut: left menu + grip") \
+    X(ROW_NOTICES, "vr_panel_notices", "Notices") \
+    X(NOTICE_CELL_ALL, "vr_panel_notices_all", "All") \
+    X(NOTICE_CELL_IMPORTANT, "vr_panel_notices_important", "Important") \
+    X(SHORTCUT_MENU_GRIP, "vr_panel_shortcut_menu_grip", "Shortcut: left View + grip") \
     X(SHORTCUT_STICKS, "vr_panel_shortcut_sticks", "Shortcut: both thumbsticks") \
     X(SHORTCUT_TRIGGERS_GRIPS, "vr_panel_shortcut_triggers_grips", "Shortcut: triggers + grips") \
     X(ROW_PRESET, "vr_panel_preset", "Preset") \
@@ -88,6 +91,9 @@
     /* exit prompt, hints, sheets */ \
     X(EXIT_QUESTION, "vr_exit_question", "Exit the stream?") \
     X(EXIT, "vr_exit", "Exit") \
+    X(EXIT_QUIT_APP, "vr_exit_quit_app", "Quit app") \
+    X(EXIT_DISCONNECT, "vr_exit_disconnect", "Disconnect") \
+    X(EXIT_DISCONNECT_HINT, "vr_exit_disconnect_hint", "Disconnect leaves the app running on the PC") \
     X(CANCEL, "cancel", "Cancel") \
     X(OK, "ok", "OK") \
     X(HAND_HINT_TITLE, "vr_hand_hint_title", "Hand tracking is on.") \
@@ -112,7 +118,7 @@
     X(TOAST_HEAD_AIM_ON_MORE, "vr_toast_head_aim_on_more", "Turning your head moves the mouse") \
     X(TOAST_HEAD_AIM_OFF, "vr_toast_head_aim_off", "Head aim off") \
     X(TOAST_GAMEPAD_MODE, "vr_toast_gamepad_mode", "Gamepad mode") \
-    X(TOAST_BACK_MENU_GRIP, "vr_toast_gamepad_back_menu_grip", "Hold the left menu button and left grip to go back to the pointer") \
+    X(TOAST_BACK_MENU_GRIP, "vr_toast_gamepad_back_menu_grip", "Hold the left View button and left grip to go back to the pointer") \
     X(TOAST_BACK_STICKS, "vr_toast_gamepad_back_sticks", "Press both thumbsticks to go back to the pointer") \
     X(TOAST_BACK_TRIGGERS_GRIPS, "vr_toast_gamepad_back_triggers_grips", "Squeeze both triggers and both grips to go back to the pointer") \
     X(TOAST_POINTER_MODE, "vr_toast_pointer_mode", "Pointer mode") \
@@ -159,7 +165,8 @@
     X(NATIVE_STREAM_ENDED, "native_stream_ended", "The stream ended") \
     X(NATIVE_QUITTING, "native_quitting", "Ending the session on %s") \
     X(NATIVE_DISCONNECTED, "native_disconnected", "Disconnected: Start+Select+L1+R1") \
-    X(NATIVE_DISCONNECTED_KEYS, "native_disconnected_keys", "Disconnected: Ctrl+Alt+Shift+Q")
+    X(NATIVE_DISCONNECTED_KEYS, "native_disconnected_keys", "Disconnected: Ctrl+Alt+Shift+Q") \
+    X(NATIVE_DISCONNECTED_BAR, "native_disconnected_bar", "Disconnected: the app is still running on the PC")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

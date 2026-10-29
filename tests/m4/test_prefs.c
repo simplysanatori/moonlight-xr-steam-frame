@@ -3,9 +3,12 @@
 // XrRenderer.applySetting / saveScreenPose stored what it handed back.
 // GPLv3.
 #include <stdlib.h>
+#include <string.h>
 
 #include "check.h"
 #include "scene.h"
+#include "gamepads.h"
+#include "rumble.h"
 
 static float frand(float lo, float hi) { return lo + (hi - lo) * (float)rand() / (float)RAND_MAX; }
 
@@ -31,6 +34,9 @@ static void roundTripChanged(void) {
     in.pointer_sleep = 0;
     in.controller_model = 1;
     in.click_sound = 0;
+    in.pad_grip = PAD_GRIP_NONE;
+    in.rumble_mix = PAD_RUMBLE_MIX_SPLIT;
+    in.rumble_intensity = 40;
     in.pointer_dot = 0;
     in.head_aim_sensitivity = HEAD_AIM_SENSITIVITY_MAX;
     in.head_aim_deadzone = HEAD_AIM_DEADZONE_MIN;
@@ -49,7 +55,31 @@ static void roundTripChanged(void) {
     settings_clamp(&in);
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
     xrCtxDefaults(ctx, 2560, 1440, 90);
+    // The launcher's stick dead zone slider (--deadzone) is the Frame controllers' too: untouched
+    // (0) or negative it is the default 7 percent, a positive one is itself
+    gamepadsSetDeadzone(0);
     xrApplySettings(ctx, &in);
+    CHECK_NEAR(ctx->padDeadzone, 0.07, 1e-5);
+    gamepadsSetDeadzone(-12);
+    xrApplySettings(ctx, &in);
+    CHECK_NEAR(ctx->padDeadzone, 0.07, 1e-5);
+    gamepadsSetDeadzone(13);
+    xrApplySettings(ctx, &in);
+    CHECK_NEAR(ctx->padDeadzone, 0.13, 1e-5);
+    gamepadsSetDeadzone(0);
+    CHECK(ctx->padGripMode == PAD_GRIP_NONE);
+    // The rumble settings reached input/rumble: split, and at 40 percent
+    {
+        RumbleRequest rq[2];
+        const int both[2] = { 1, 1 };
+        rumbleHostCallback(0, 65535, 0);
+        rumblePoll(rumbleGlobal(), both, 1000000, rq);
+        CHECK(rq[0].action == PAD_RUMBLE_APPLY && rq[1].action == PAD_RUMBLE_KEEP);
+        CHECK_NEAR(rq[0].amplitude, 0.4, 1e-6);
+        rumbleStop(rumbleGlobal());
+        rumblePoll(rumbleGlobal(), both, 2000000, rq);
+        rumbleSetMix(rumbleGlobal(), PAD_RUMBLE_MIX_SPLIT, 100);
+    }
     // what the context took
     CHECK(ctx->sharpenMode == 1 && ctx->supersampleMode == 2 && ctx->overlayVisible == 1);
     CHECK(ctx->dotOn == 0 && ctx->pointerSleepOn == 0 && ctx->modelOn == 1 && ctx->clickSoundOn == 0);
@@ -199,6 +229,101 @@ static void storeSettings(void) {
     scene_free(sc);
 }
 
+// The cog's Ray row is saved in both halves (Off / Dot / Ray -> show_ray and
+// pointer_dot); the bar button's ray switch is not
+static void rayRowSaved(void) {
+    for (int cell = 0; cell < 3; cell++) {
+        Scene* sc = scene_new();
+        XrCtx* c = sc->ctx;
+        Settings s;
+        settings_defaults(&s);
+        float out[IN_SLOTS];
+        memset(out, 0, sizeof(out));
+        out[IN_SETTING] = -1;
+        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_RAY, cell, out);
+        CHECK((int)out[IN_SETTING] == SETTING_POINTER_DOT);
+        // a cell that matches the defaults reports no change, the others do
+        int changed = xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
+        CHECK(changed == (cell != 2));
+        CHECK(s.show_ray == (cell == 2));
+        CHECK(s.pointer_dot == (cell >= 1));
+
+        // through config.ini and into the next session
+        char* text = settings_to_text(&s);
+        CHECK(text != NULL);
+        Settings back;
+        settings_defaults(&back);
+        SettingsLoadInfo info;
+        settings_from_text(&back, text, &info);
+        free(text);
+        CHECK(back.show_ray == s.show_ray && back.pointer_dot == s.pointer_dot);
+        Scene* next = scene_new();
+        xrApplySettings(next->ctx, &back);
+        CHECK(raySwitchOn(next->ctx->raySetting, next->ctx->rayFlipped) == (cell == 2));
+        CHECK(next->ctx->dotOn == (cell >= 1));
+        scene_free(next);
+
+        // the bar button flips this session only: nothing in the file moves,
+        // not even when the settings are rebuilt from the context
+        setRayOn(c, cell != 2, "the bar button");
+        CHECK(raySwitchOn(c->raySetting, c->rayFlipped) == (cell != 2));
+        Settings keep = s;
+        xrSettingsFromCtx(c, &s);
+        CHECK(s.show_ray == keep.show_ray && s.pointer_dot == keep.pointer_dot);
+        CHECK(!xrStoreSetting(c, &s, SETTING_POINTER_SLEEP, s.pointer_sleep));
+        // and the cog's own choice afterwards replaces the flip
+        memset(out, 0, sizeof(out));
+        out[IN_SETTING] = -1;
+        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_RAY, 2, out);
+        xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
+        CHECK(s.show_ray == 1 && raySwitchOn(c->raySetting, c->rayFlipped) == 1);
+        scene_free(sc);
+    }
+}
+
+// The Display tab's Notices row (All / Important / Off): applied to the
+// board, stored, round-tripped, and what it silences (the Hz toast, #42)
+static void noticesRow(void) {
+    for (int cell = 0; cell < 3; cell++) {
+        Scene* sc = scene_new();
+        XrCtx* c = sc->ctx;
+        Settings s;
+        settings_defaults(&s);
+        float out[IN_SLOTS];
+        memset(out, 0, sizeof(out));
+        out[IN_SETTING] = -1;
+        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_NOTICES, cell, out);
+        CHECK((int)out[IN_SETTING] == SETTING_NOTICES && (int)out[IN_SETTING_VALUE] == cell);
+        CHECK(xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) == (cell != 0));
+        CHECK(s.notices == cell && c->notices.level == cell);
+        CHECK(cogOptionValue(c, COG_OPTION_NOTICES, 0) == cell);
+        CHECK(cogOptionCells(COG_OPTION_NOTICES) == 3);
+        Settings back;
+        settings_defaults(&back);
+        xrSettingsFromCtx(c, &back);
+        CHECK(back.notices == cell);
+        Scene* next = scene_new();
+        xrApplySettings(next->ctx, &s);
+        CHECK(next->ctx->notices.level == cell);
+        scene_free(next);
+
+        // the display rate moving, once the session's first rate has landed
+        c->rateSettled = 1;
+        c->notices.count = 0;
+        displayRateChanged(c, 90.0f, 72.0f);
+        CHECK(c->notices.count == (cell == NOTICES_ALL ? 1 : 0));
+        // a message (an error or a warning) is said at All and Important
+        c->notices.count = 0;
+        xrPanelsNotice(c, "Something went wrong");
+        CHECK(c->notices.count == (cell == NOTICES_OFF ? 0 : 1));
+        // so is a mode change
+        c->notices.count = 0;
+        noticePush(&c->notices, TOAST_HEAD_AIM_ON, 0);
+        CHECK(c->notices.count == (cell == NOTICES_OFF ? 0 : 1));
+        scene_free(sc);
+    }
+}
+
 // The Display tab: the cell lane U rings is the one xr_ui.c says is in force,
 // and the rows that come later are dead in both
 static void displayCells(void) {
@@ -280,6 +405,8 @@ int main(void) {
     poseRoundTrips();
     thumbsAgree();
     storeSettings();
+    rayRowSaved();
+    noticesRow();
     displayCells();
     return checksDone("m4 prefs");
 }

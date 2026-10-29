@@ -11,7 +11,8 @@ struct UiPcItem;
 
 // What the frame loop hands the app each frame: presses the app acts on
 typedef struct XrUiEvents {
-    int exitConfirmed;          // the exit prompt's Exit was pressed
+    int exitConfirmed;          // the exit prompt's Exit (Quit app) was pressed
+    int disconnectConfirmed;    // native: its Disconnect was pressed (the host's session keeps running)
     int listKind, listA, listB; // a press on the launcher's list (UI_HIT_*, 0 none)
     int focused;                // the session has input focus
     int pictureShown;           // native: the stream's picture is on the screen
@@ -54,6 +55,10 @@ typedef struct XrAppHooks {
     // while streaming: the app's part of the "xr: latency:" line (host encode,
     // network, audio cushion and underruns). Per-window counters reset here.
     void (*latency)(void* user, char* buf, int len);
+    // Every frame, right after the input pass: the head's yaw against the picture
+    // in radians (positive = turned left), which the virtual surround turns its
+    // speakers by. May be NULL. Must not block.
+    void (*headYaw)(void* user, float yawRadians);
 } XrAppHooks;
 
 typedef struct XrAppConfig {

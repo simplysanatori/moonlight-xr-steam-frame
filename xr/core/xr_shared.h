@@ -106,6 +106,13 @@
 #define TOAST_HEAD_AIM_ON 7
 #define TOAST_GAMEPAD_MODE 8
 #define TOAST_POINTER_MODE 9
+// Native: which notices the toast says (config.ini notices). All is every one;
+// Important leaves out the ones that only report something that already
+// happened (the display rate, the 3D going on or off) and keeps mode changes
+// and messages (errors and warnings); Off says nothing.
+#define NOTICES_ALL 0
+#define NOTICES_IMPORTANT 1
+#define NOTICES_OFF 2
 
 // Slots in the float array handed back to Java each frame
 #define IN_HIT      0
@@ -128,9 +135,13 @@
 // The key the in world keyboard just typed, or -1. Unicode with the shift
 // already applied, plus the four control codes below 32.
 #define IN_KEY      20
-// Set to 1 the frame the exit prompt is confirmed. Nothing else is meaningful
-// here, so a zeroed slot says nothing happened.
+// Set to EXIT_SLOT_QUIT the frame the exit prompt's Exit (Quit app) is pressed,
+// or to EXIT_SLOT_DISCONNECT for native's Disconnect (leave, the app keeps
+// running on the PC). Nothing else is meaningful here, so a zeroed slot says
+// nothing happened.
 #define IN_EXIT     21
+#define EXIT_SLOT_QUIT 1
+#define EXIT_SLOT_DISCONNECT 2
 // How far the head has turned from the screen, radians, positive to the left.
 // 0 with the screen locked to the head. The virtual surround turns its
 // speakers by it. Written every frame, carried over when the head is lost.
@@ -166,7 +177,7 @@
 // up, and -1 for a row greyed where it can do nothing. Every frame. As many as
 // COG_OPTION_COUNT below, which the native side checks when it builds.
 #define IN_MARKS    (IN_CLICK + 1)
-#define MARK_VALUES 12
+#define MARK_VALUES 13
 // 1 while the settings panel is up, fading out included, so Java keeps the
 // clock line over it up to the minute
 #define IN_COG_OPEN (IN_MARKS + MARK_VALUES)
@@ -230,6 +241,9 @@
 #define PAD_B       0x2000
 #define PAD_X       0x4000
 #define PAD_Y       0x8000
+// The Xbox (guide) button: not on either controller, so it is only ever made by
+// the View and Menu chord (xr_gamepad's PadGuide) and is not in PAD_BUTTONS
+#define PAD_GUIDE   0x0400
 #define PAD_BUTTONS (PAD_UP + PAD_DOWN + PAD_LEFT + PAD_RIGHT + PAD_BACK + PAD_START + PAD_LS_CLICK + PAD_RS_CLICK + PAD_LB + PAD_RB + PAD_A + PAD_B + PAD_X + PAD_Y)
 
 // The shortcut on the controllers that switches between the pointer and the
@@ -238,6 +252,21 @@
 #define PAD_SHORTCUT_MENU_GRIP 0
 #define PAD_SHORTCUT_STICKS 1
 #define PAD_SHORTCUT_TRIGGERS_GRIPS 2
+
+// How the host's two rumble motors reach the two controllers, in the order the
+// rumble_mix setting lists them: both controllers get the stronger motor, or
+// the low frequency motor drives the left and the high the right (as a real
+// pad has them). Either way each trigger motor adds to its own side.
+#define PAD_RUMBLE_MIX_BOTH 0
+#define PAD_RUMBLE_MIX_SPLIT 1
+// The scale on every level the host asks for, whole percent
+#define PAD_RUMBLE_INTENSITY_DEFAULT 100
+
+// What the grips are in gamepad mode, in the order the pad_grip setting lists
+// them: the bumpers (as ever), nothing, or the stick clicks
+#define PAD_GRIP_BUMPERS 0
+#define PAD_GRIP_NONE 1
+#define PAD_GRIP_STICK_CLICKS 2
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
@@ -536,7 +565,9 @@
 #define COG_OPTION_CLICK_SOUND 9
 #define COG_OPTION_AMBILIGHT 10
 #define COG_OPTION_ROOM_LIGHT 11
-#define COG_OPTION_COUNT   12
+// Native: which notices the toast says (All, Important, Off)
+#define COG_OPTION_NOTICES 12
+#define COG_OPTION_COUNT   13
 #define COG_SHARPEN_CELLS 3
 #define COG_SUPERSAMPLE_CELLS 3
 #define COG_STATS_CELLS   2
@@ -551,19 +582,21 @@
 #define COG_CLICK_SOUND_CELLS 2
 #define COG_AMBI_CELLS    2
 #define COG_ROOM_LIGHT_CELLS 2
+#define COG_NOTICES_CELLS 3
 // The one row on this tab that is a track rather than cells, under the option
 // rows, so the glow can be turned down without leaving the tab it lives on.
 // This tab has no reset button for it to land on.
-#define COG_DISPLAY_SLIDER_ROW 12
-// Thirteen rows on this tab, so its rows start a little higher and sit closer
-// together than the other tabs', with shallower cells to keep a gap between
-// them. The last is centred at 0.917 and its thumb still clears the bottom
+#define COG_DISPLAY_SLIDER_ROW 13
+// Fourteen rows on this tab (thirteen of cells, native added Notices, and the glow level track), so its
+// rows start a little higher and sit closer together than the other tabs',
+// with shallower cells to keep a gap between them. The last is centred at
+// 0.9172 and its thumb still clears the bottom
 // edge, grown or not. The hit band is half the pitch, so neighbouring bands
 // meet without overlapping, and the first starts just under the tab bar.
 #define COG_DISPLAY_ROW_V0 0.197f
-#define COG_DISPLAY_ROW_STEP 0.06f
-#define COG_DISPLAY_ROW_HALF 0.03f
-#define COG_DISPLAY_CELL_HALF 0.025f
+#define COG_DISPLAY_ROW_STEP 0.0554f
+#define COG_DISPLAY_ROW_HALF 0.0277f
+#define COG_DISPLAY_CELL_HALF 0.0235f
 // The marks on the display tab's cells, which of each row's cells is in
 // force, drawn in Java as one strip over the column of cells rather than a
 // ring each, so the tab costs one layer for them however many rows it has.
@@ -643,7 +676,10 @@
 #define EXIT_ZONE_NONE   0
 #define EXIT_ZONE_EXIT   1
 #define EXIT_ZONE_CANCEL 2
-#define EXIT_ART_COUNT   3
+// Native: the middle button of the three-button prompt (Quit app, Disconnect,
+// Cancel) a stream gets
+#define EXIT_ZONE_DISCONNECT 3
+#define EXIT_ART_COUNT   4
 // Where the two buttons sit on the sheet, as fractions of it
 #define EXIT_BTN_T 0.56f
 #define EXIT_BTN_B 0.86f
@@ -651,6 +687,13 @@
 #define EXIT_EXIT_R 0.46f
 #define EXIT_CANCEL_L 0.54f
 #define EXIT_CANCEL_R 0.92f
+// The same three buttons in a row, during a stream: Quit app, Disconnect, Cancel
+#define EXIT3_QUIT_L 0.03f
+#define EXIT3_QUIT_R 0.33f
+#define EXIT3_DISC_L 0.35f
+#define EXIT3_DISC_R 0.65f
+#define EXIT3_CANCEL_L 0.67f
+#define EXIT3_CANCEL_R 0.97f
 
 // The hand lock hint, the sheet that says once a session how the triple pinch
 // locks the hands, the first time they point: its words over OK and "Don't

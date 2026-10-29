@@ -100,6 +100,22 @@ int main(void) {
     CHECK(l.state == LAUNCH_APPS && take(&l, LCMD_FETCH_APPS, NULL));
     apps(&l, 0);
 
+    // The exit prompt's Disconnect: the stream stops but the host's session
+    // stays (quitHost 0), with its own notice, and the app list comes back
+    launcher_press(&l, UI_HIT_LIST_ITEM, 3, 0);
+    CHECK(take(&l, LCMD_LAUNCH, &c));
+    launcher_stream_started(&l);
+    launcher_disconnect_bar(&l);
+    CHECK(l.state == LAUNCH_STOPPING && take(&l, LCMD_STOP, &c) && c.quitHost == 0);
+    CHECK(strcmp(l.notice, ui_str(UIS_NATIVE_DISCONNECTED_BAR)) == 0);
+    l.notice[0] = '\0';
+    launcher_stream_ended(&l, 0);
+    CHECK(l.state == LAUNCH_APPS && take(&l, LCMD_FETCH_APPS, NULL));
+    apps(&l, 0);
+    // outside a stream it does nothing
+    launcher_disconnect_bar(&l);
+    CHECK(l.state == LAUNCH_APPS && l.ncmd == 0);
+
     // Another app running on the host is ended before a different one starts
     l.pcs[0].currentGame = 101;
     launcher_view(&l, &v);
@@ -150,6 +166,10 @@ int main(void) {
     launcher_view(&l, &v);
     CHECK(v.mode == 0);
     launcher_exit(&l);
+    CHECK(l.state == LAUNCH_QUIT && take(&l, LCMD_EXIT, NULL));
+    // and Disconnect in file mode has nothing to keep running: it quits too
+    launcher_init_file(&l);
+    launcher_disconnect_bar(&l);
     CHECK(l.state == LAUNCH_QUIT && take(&l, LCMD_EXIT, NULL));
 
     // A full queue keeps the newest

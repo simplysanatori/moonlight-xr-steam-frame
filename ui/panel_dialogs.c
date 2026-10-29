@@ -8,17 +8,30 @@
 
 void panel_exit(Dc* dc) {
     dc_sheet(dc, 32.0f, 0xF0141416u);
-    dc_text_center(dc, UI_WEIGHT_REGULAR, 34.0f, dc->nw * 0.5f, dc->nh * 0.30f, 0xFFFFFFFFu,
+    // Native: during a stream the prompt has a third choice, Disconnect, which
+    // leaves the stream and keeps the app running on the PC; the question
+    // moves up for the line that says so
+    int three = dc->v->exit_disconnect;
+    dc_text_center(dc, UI_WEIGHT_REGULAR, 34.0f, dc->nw * 0.5f, dc->nh * (three ? 0.22f : 0.30f), 0xFFFFFFFFu,
                    dc->v->exit_question ? dc->v->exit_question : ui_str(UIS_EXIT_QUESTION));
-    struct { float l, r; UiStr label; uint32_t colour; int btn; } B[2] = {
-        { EXIT_EXIT_L, EXIT_EXIT_R, UIS_EXIT, 0xFFE05A5Au, UI_BTN_EXIT_CONFIRM },
-        { EXIT_CANCEL_L, EXIT_CANCEL_R, UIS_CANCEL, 0xEEFFFFFFu, UI_BTN_EXIT_CANCEL },
-    };
-    for (int i = 0; i < 2; i++) {
+    typedef struct { float l, r; UiStr label; uint32_t colour; int btn; } ExitBtn;
+    ExitBtn B[3];
+    int n = 0;
+    if (three) {
+        B[n++] = (ExitBtn){ EXIT3_QUIT_L, EXIT3_QUIT_R, UIS_EXIT_QUIT_APP, 0xFFE05A5Au, UI_BTN_EXIT_CONFIRM };
+        B[n++] = (ExitBtn){ EXIT3_DISC_L, EXIT3_DISC_R, UIS_EXIT_DISCONNECT, 0xFFF0B040u, UI_BTN_EXIT_DISCONNECT };
+        B[n++] = (ExitBtn){ EXIT3_CANCEL_L, EXIT3_CANCEL_R, UIS_CANCEL, 0xEEFFFFFFu, UI_BTN_EXIT_CANCEL };
+        dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 20.0f, dc->nw * 0.5f, dc->nh * 0.40f, dc->nw * 0.92f,
+                           0x99FFFFFFu, ui_str(UIS_EXIT_DISCONNECT_HINT));
+    } else {
+        B[n++] = (ExitBtn){ EXIT_EXIT_L, EXIT_EXIT_R, UIS_EXIT, 0xFFE05A5Au, UI_BTN_EXIT_CONFIRM };
+        B[n++] = (ExitBtn){ EXIT_CANCEL_L, EXIT_CANCEL_R, UIS_CANCEL, 0xEEFFFFFFu, UI_BTN_EXIT_CANCEL };
+    }
+    for (int i = 0; i < n; i++) {
         float x0 = B[i].l * dc->nw, x1 = B[i].r * dc->nw, y0 = EXIT_BTN_T * dc->nh, y1 = EXIT_BTN_B * dc->nh;
         int hot = dc_hover(dc, UI_HIT_BUTTON, B[i].btn, -1);
-        // hovering fills it, which says which of the two a press would land on
-        dc_button(dc, x0, y0, x1, y1, 16.0f, 3.0f, B[i].colour, ui_str(B[i].label), 30.0f, hot);
+        // hovering fills it, which says which of them a press would land on
+        dc_button(dc, x0, y0, x1, y1, 16.0f, 3.0f, B[i].colour, ui_str(B[i].label), three ? 24.0f : 30.0f, hot);
         dc_hit_uv(dc, UI_HIT_BUTTON, B[i].btn, 0, B[i].l, EXIT_BTN_T, B[i].r, EXIT_BTN_B, 1);
     }
 }

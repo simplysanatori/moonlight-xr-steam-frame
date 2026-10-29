@@ -19,6 +19,11 @@
 
 #define UI_STR_MAX 128
 
+// The highest bitrate a setting may ask for: the flat launcher's custom bitrate
+// goes to 500 Mbps, so config.ini follows (it capped at 150 Mbps before). The
+// default curve for a size and rate still tops out at 150000 (its 4K figure).
+#define MLXR_BITRATE_MAX_KBPS 500000
+
 typedef struct {
     int brightness;   // hundredths of the room as baked
     int glow;         // 0/1
@@ -47,12 +52,8 @@ typedef struct Settings {
     int virtual_surround;  // HRTF virtual surround for headsets
     int frame_pacing;      // 0 latency, 1 balanced, 2 cap fps, 3 smoothness
     int network_path;      // 0 auto, 1 home (Wi-Fi), 2 adapter (Steam Frame Wireless Adapter)
-    int auto_desktop;      // open the host's app named Desktop without the app list
-    int check_updates;
-    char language[16];     // "default" or a language code (English only for now)
 
     // [vr] VR Settings table
-    int vr_mode;           // Stream in VR
     int pointer;           // Controllers as a mouse
     int pointer_sleep;
     int show_ray;
@@ -65,14 +66,17 @@ typedef struct Settings {
     int head_aim_deadzone;
     int gamepad_toggle;    // PAD_SHORTCUT_* : 0 menu+grip, 1 sticks, 2 triggers+grips
     int flip_face_buttons; // swap A/B and X/Y on gamepad mode's pad
+    int rumble_mix;        // PAD_RUMBLE_MIX_* : 0 both controllers get the stronger motor, 1 low motor left and high motor right
+    int rumble_intensity;  // percent, 0..100: the scale on the host's rumble on the controllers
+    int pad_grip;          // PAD_GRIP_* : what the grips are on gamepad mode's pad: 0 bumpers, 1 nothing, 2 stick clicks
     int click_sound;
+    int notices;           // native: NOTICES_ALL, IMPORTANT, OFF (the toast's informational notices)
     int gaze;
     int hand_tracking;
     int passthrough;
     int environment;       // 0 auto (void, or passthrough when passthrough is on), 1 passthrough, 2 void, 3 theater, 4 grand cinema, 5 synthwave
     int depth_source;      // 0 ZipDepth, 1 MiDaS, 2 off (flat), 3..7 test patterns, 8 ZipDepth int8 (native)
     int env_res;           // ENV_RES_LOW..ULTRA
-    int doff_grace;
     int hand_hint_seen;
     int picture_brightness, picture_contrast, picture_gamma, picture_saturation;
 
