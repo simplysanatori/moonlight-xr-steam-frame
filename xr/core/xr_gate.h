@@ -28,6 +28,13 @@
 // controller: a runtime reports one when it drops a hand.
 int profileKind(int bound, int handProfile);
 
+// The Steam Frame controller's interaction profile has gone by two paths: the
+// first builds used the short one and Valve's input documentation names the
+// second (SteamVR 2.15.1 on). Bindings are offered on both, and whichever the
+// runtime reports as current is logged.
+#define FRAME_PROFILE_COUNT 2
+extern const char* const FRAME_PROFILE_PATHS[FRAME_PROFILE_COUNT];
+
 // A gaze pose that can be pointed with: valid, and its orientation tracked as
 // well. An eye tracker can go on reporting a valid pose after it has lost
 // the eyes, and that frozen ray hovers nothing and clicks nowhere.
