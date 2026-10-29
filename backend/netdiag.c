@@ -121,7 +121,7 @@ bool mlxr_udp_parse(const char *snmp, mlxr_udp_counters *out)
         p = next_line(p);
         if (strncmp(hdr, "Udp: ", 5) != 0) continue;                 /* not "UdpLite:" */
         char tok[40];
-        if (!token_at(hdr, 1, tok, sizeof tok) || strcmp(tok, "InDatagrams") != 0) continue;   /* a value line */
+        if (!token_at(hdr, 1, tok, sizeof tok) || !isalpha((unsigned char)tok[0])) continue;   /* a value line */
         const char *val = p;
         if (strncmp(val, "Udp: ", 5) != 0) return false;
         bool got_rcvbuf = false;
