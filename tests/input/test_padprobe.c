@@ -96,7 +96,7 @@ static void testMixedSet(void) {
     PadProbeDev xbox = dev(1, "Xbox Wireless Controller", 0x045e, 0x0b13, GP_SDL_XBOXONE, "");
     PadProbeDev copy = dev(2, "Steam Virtual Gamepad", 0x28de, 0x11ff, GP_SDL_XBOX360, "");
     PadProbeDev frame = dev(3, "Valve Frame Controller", 0x28de, 0x2000, GP_SDL_UNKNOWN, "");
-    PadProbeDev ds = dev(4, "DualSense Wireless Controller", 0x054c, 0x0ce6, GP_SDL_PS5, "e8:47:3a:00:00:01");
+    PadProbeDev ds = dev(4, "DualSense Wireless Controller", 0x054c, 0x0ce6, GP_SDL_PS5, "DS-SERIAL-0001");
     ds.hasGyro = ds.hasAccel = 1;
     ds.gyroHz = ds.accelHz = 250.0f;
     ds.touchpads = 1;
@@ -146,7 +146,7 @@ static void testMixedSet(void) {
 
     t = text(pd);
     CHECK(strstr(t, "sdl type    TEST -> fork type PlayStation (LI_CTYPE 2)"));
-    CHECK(strstr(t, "serial      e8:47:3a:00:00:01"));
+    CHECK(strstr(t, "serial      DS-SERIAL-0001"));
     CHECK(strstr(t, "sensors     gyro yes, 250 Hz; accel yes, 250 Hz"));
     CHECK(strstr(t, "rumble      yes; trigger rumble yes"));
     CHECK(strstr(t, "touchpads 1; LED yes; battery medium (70% or less); player index 0"));
