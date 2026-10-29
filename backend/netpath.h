@@ -83,7 +83,7 @@ typedef enum { MLXR_PATH_NONE = 0, MLXR_PATH_HOME, MLXR_PATH_ADAPTER, MLXR_PATH_
 
 const char *mlxr_net_pref_name(mlxr_net_pref p);          /* "auto" "home" "adapter" "usb" (the config.ini value) */
 const char *mlxr_net_path_label(mlxr_net_path p);         /* "Wi-Fi" "Steam Frame Wireless Adapter" "USB cable" "none" */
-/* Case-insensitive; false (and *out untouched) for anything but auto/home/adapter/usb. */
+/* Case-insensitive; false (and *out untouched) for anything but auto, home, adapter or usb. */
 bool mlxr_net_pref_parse(const char *s, mlxr_net_pref *out);
 /* Precedence env > flag > config > auto. Each may be NULL or empty; an invalid one is skipped (and
  * said in *warn, if given, a short message). *source (static string) says which one won:
