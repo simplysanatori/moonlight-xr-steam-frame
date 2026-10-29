@@ -1905,9 +1905,10 @@ static void testBench(void) {
 int main(int argc, char** argv) {
     const char* group = argc > 1 ? argv[1] : "all";
     if (argc > 2) outDir = argv[2];
-    if (vkh_init(&vk)) {
+    int dev = vkh_init(&vk);
+    if (dev != 0) {
         fprintf(stderr, "no Vulkan 1.2 device\n");
-        return 1;
+        return dev == VKH_NO_DEVICE ? 77 : 1;
     }
     MlxrPassesInfo info = {vk.phys, vk.device, VK_NULL_HANDLE, 1, MLXR_CHROMA_LEFT, vk.anisotropy ? 8.0f : 0.0f};
     if (mlxr_passes_create(&info, &P)) {
