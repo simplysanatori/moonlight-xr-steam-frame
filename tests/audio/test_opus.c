@@ -407,7 +407,7 @@ static void testMuteRestores(void) {
     Stream s;
     recReset();
     fed = 0;
-    int only = 2;
+    int only = 0;  // the left channel of a stereo stream
     if (openStream(&s, 2, 0, 0, 240) != 0) {
         return;
     }
