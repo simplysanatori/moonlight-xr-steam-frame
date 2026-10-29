@@ -1,7 +1,8 @@
 // gamepads: the physical pad core with a fake source and a recording sink:
 // arrival / removal / active mask, controller numbers shared with gamepad
 // mode's pad, gating (focus and stream), dedup, the disconnect chord, rumble
-// routing, and a threaded run (also built under ThreadSanitizer).
+// routing, motion (gyro / accelerometer) requests and samples, battery,
+// touchpad and LED, and a threaded run (also built under ThreadSanitizer).
 #include <pthread.h>
 #include <stdatomic.h>
 #include <string.h>
@@ -72,6 +73,63 @@ static void hapTriggers(void* user, int id, uint16_t l, uint16_t r) {
     hap.tr = r;
 }
 
+// What the core asks of the source's sensors and LED, and what it sends beyond state
+static struct { int id, type, hz; } sensLog[32];
+static int sensCount;
+static struct { int calls, id, r, g, b; } led;
+
+static void hapSensor(void* user, int id, int type, int hz) {
+    if (sensCount >= 32) return;
+    sensLog[sensCount].id = id;
+    sensLog[sensCount].type = type;
+    sensLog[sensCount].hz = hz;
+    sensCount++;
+}
+
+static void hapLed(void* user, int id, uint8_t r, uint8_t g, uint8_t b) {
+    led.calls++;
+    led.id = id;
+    led.r = r;
+    led.g = g;
+    led.b = b;
+}
+
+typedef struct {
+    int kind; // 1 motion, 2 battery, 3 touch
+    int number;
+    int type; // motion type, battery state, touch event
+    float v[3];
+    int pct;
+    uint32_t finger;
+} Extra;
+static Extra extras[256];
+static int extraCount;
+
+static void addExtra(Extra e) {
+    if (extraCount < 256) extras[extraCount++] = e;
+}
+
+static int recMotion(void* user, uint8_t n, uint8_t type, float x, float y, float z) {
+    addExtra((Extra){ 1, n, type, { x, y, z }, 0, 0 });
+    return 0;
+}
+
+static int recBattery(void* user, uint8_t n, uint8_t state, uint8_t pct) {
+    addExtra((Extra){ 2, n, state, { 0, 0, 0 }, pct, 0 });
+    return 0;
+}
+
+static int recTouch(void* user, uint8_t n, uint8_t type, uint32_t finger, float x, float y, float pressure) {
+    addExtra((Extra){ 3, n, type, { x, y, pressure }, 0, finger });
+    return 0;
+}
+
+static int countExtras(int kind) {
+    int n = 0;
+    for (int i = 0; i < extraCount; i++) n += extras[i].kind == kind;
+    return n;
+}
+
 static char logLines[16][512];
 static int logCount;
 
@@ -84,9 +142,14 @@ static void onDisconnect(void* user) { hooks++; }
 
 static void reset(Gamepads* g) {
     PadOutSink sink = { recArrival, recState, NULL };
-    GpHaptics h = { hapRumble, hapTriggers, NULL };
+    GpHaptics h = { hapRumble, hapTriggers, hapSensor, hapLed, NULL };
+    GpExtraSink ex = { recMotion, recBattery, recTouch, NULL };
     gpInit(g, &sink, &h, logHook, NULL);
+    gpSetExtraSink(g, &ex);
     gpSetDisconnectHook(g, onDisconnect, NULL);
+    extraCount = 0;
+    sensCount = 0;
+    memset(&led, 0, sizeof(led));
     eventCount = 0;
     logCount = 0;
     hooks = 0;
@@ -105,6 +168,17 @@ static GpInfo xbox(const char* name, const char* serial) {
     i.type = LI_CTYPE_XBOX;
     i.buttons = A_FLAG | B_FLAG | PLAY_FLAG;
     i.caps = LI_CCAP_ANALOG_TRIGGERS | LI_CCAP_RUMBLE | LI_CCAP_TRIGGER_RUMBLE;
+    return i;
+}
+
+// A DualSense: everything moonlight-qt looks for (caps from the same rule the SDL source uses)
+static GpInfo dualsense(const char* name, const char* serial) {
+    GpInfo i = xbox(name, serial);
+    GpDeviceFacts f = { 1, 1, 1, 1, 1, 1, 1, 1 };
+    i.vendor = 0x054c;
+    i.product = 0x0ce6;
+    i.type = LI_CTYPE_PS;
+    i.caps = gpCapsFor(&f);
     return i;
 }
 
@@ -424,16 +498,287 @@ static void testRumble(void) {
     gpDestroy(&g);
 }
 
+
+// ---- motion, battery, touchpad, LED ---------------------------------------
+
+#define MOTION_CAPS (LI_CCAP_ACCEL | LI_CCAP_GYRO)
+#define DEG 57.2957795f
+
+static int lastArrivalCaps(int number) {
+    for (int i = eventCount - 1; i >= 0; i--)
+        if (events[i].kind == 1 && events[i].number == number) return events[i].caps;
+    return -1;
+}
+
+static void testMotionCaps(void) {
+    GpDeviceFacts none;
+    memset(&none, 0, sizeof(none));
+    CHECK(gpCapsFor(&none) == 0);
+    GpDeviceFacts ds = { 1, 1, 1, 1, 1, 1, 1, 1 };
+    CHECK(gpCapsFor(&ds) == (LI_CCAP_ANALOG_TRIGGERS | LI_CCAP_RUMBLE | LI_CCAP_TRIGGER_RUMBLE | LI_CCAP_TOUCHPAD
+                             | LI_CCAP_ACCEL | LI_CCAP_GYRO | LI_CCAP_BATTERY_STATE | LI_CCAP_RGB_LED));
+    GpDeviceFacts xb = { 1, 1, 1, 0, 0, 0, 1, 0 }; // an Xbox pad: no sensors, no touchpad
+    CHECK((gpCapsFor(&xb) & (MOTION_CAPS | LI_CCAP_TOUCHPAD)) == 0);
+    GpDeviceFacts gyroOnly = { 0, 0, 0, 0, 0, 1, 0, 0 };
+    CHECK(gpCapsFor(&gyroOnly) == LI_CCAP_GYRO);
+
+    // Arrival carries what the source said, per pad
+    Gamepads g;
+    reset(&g);
+    GpInfo d = dualsense("DualSense", ""), x = xbox("Xbox", "");
+    CHECK(gpAdd(&g, 10, &d) == 0);
+    CHECK(gpAdd(&g, 11, &x) == 1);
+    gpStreamStart(&g);
+    gpSetActive(&g, 1);
+    CHECK((lastArrivalCaps(0) & MOTION_CAPS) == MOTION_CAPS);
+    CHECK((lastArrivalCaps(1) & MOTION_CAPS) == 0);
+
+    // The Frame pad (gamepad mode) never advertises motion: PADOUT_CAPS is its arrival word
+    CHECK((PADOUT_CAPS & (MOTION_CAPS | LI_CCAP_TOUCHPAD | LI_CCAP_BATTERY_STATE | LI_CCAP_RGB_LED)) == 0);
+    PadOut po;
+    PadOutSink sink = { recArrival, recState, NULL };
+    padOutInit(&po, &sink);
+    padOutSetNumber(&po, gpClaimFramePad(&g), gpAnnouncedMask(&g));
+    PadState rest;
+    padRest(&rest);
+    CHECK(padOutFrame(&po, 1, &rest, 0) == 2);
+    CHECK(lastArrivalCaps(2) == PADOUT_CAPS);
+    gpDestroy(&g);
+}
+
+static void testMotionFlow(void) {
+    Gamepads g;
+    reset(&g);
+    GpInfo d = dualsense("DualSense", ""), x = xbox("Xbox", "");
+    gpAdd(&g, 10, &d);
+    gpAdd(&g, 11, &x);
+
+    // Nothing is on before the host asks, or before the pad is on the host
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 1, 1, 1, 100);
+    CHECK(extraCount == 0 && sensCount == 0);
+    CHECK(gpMotionState(&g, 0, LI_MOTION_TYPE_GYRO, 250) == 1);
+    CHECK(sensCount == 0); // asked early: held until the pad is on the host
+    gpStreamStart(&g);
+    CHECK(gpMotionState(&g, 0, LI_MOTION_TYPE_GYRO, 250) == 1); // a new stream: the host asks again
+    CHECK(sensCount == 0);
+    gpSetActive(&g, 1);
+    CHECK(sensCount == 1 && sensLog[0].id == 10 && sensLog[0].type == LI_MOTION_TYPE_GYRO && sensLog[0].hz == 250);
+
+    // Samples: gyro rad/s to deg/s on pad 0, throttled to 1000/250 = 4 ms, no repeats
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 1.0f, 2.0f, -0.5f, 1000);
+    CHECK(countExtras(1) == 1);
+    CHECK(extras[0].number == 0 && extras[0].type == LI_MOTION_TYPE_GYRO);
+    CHECK_NEAR(extras[0].v[0], DEG, 1e-3);
+    CHECK_NEAR(extras[0].v[1], 2 * DEG, 1e-3);
+    CHECK_NEAR(extras[0].v[2], -0.5f * DEG, 1e-3);
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 3.0f, 0, 0, 1002); // too soon
+    CHECK(countExtras(1) == 1);
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 3.0f, 0, 0, 1004);
+    CHECK(countExtras(1) == 2);
+    CHECK_NEAR(extras[1].v[0], 3 * DEG, 1e-3);
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 3.0f, 0, 0, 1020); // same data again
+    CHECK(countExtras(1) == 2);
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 4.0f, 0, 0, 1021);
+    CHECK(countExtras(1) == 3);
+    // The accelerometer was not asked for
+    gpMotion(&g, 10, LI_MOTION_TYPE_ACCEL, 0, 9.81f, 0, 2000);
+    CHECK(countExtras(1) == 3);
+
+    // Accelerometer at 100 Hz: m/s^2 as it is, 10 ms apart, on the same number
+    CHECK(gpMotionState(&g, 0, LI_MOTION_TYPE_ACCEL, 100) == 1);
+    CHECK(sensCount == 2 && sensLog[1].type == LI_MOTION_TYPE_ACCEL && sensLog[1].hz == 100);
+    gpMotion(&g, 10, LI_MOTION_TYPE_ACCEL, 0.1f, 9.81f, 0.2f, 3000);
+    CHECK(countExtras(1) == 4 && extras[3].type == LI_MOTION_TYPE_ACCEL && extras[3].number == 0);
+    CHECK_NEAR(extras[3].v[1], 9.81f, 1e-4);
+    gpMotion(&g, 10, LI_MOTION_TYPE_ACCEL, 0.1f, 9.7f, 0.2f, 3005);
+    CHECK(countExtras(1) == 4);
+    gpMotion(&g, 10, LI_MOTION_TYPE_ACCEL, 0.1f, 9.7f, 0.2f, 3010);
+    CHECK(countExtras(1) == 5);
+
+    // A faster rate than the clock can tell apart, a slow one, and a wrapping clock
+    gpMotionState(&g, 0, LI_MOTION_TYPE_GYRO, 4000); // 1000/4000 = 0: every sample
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 1, 0, 0, 5000);
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 2, 0, 0, 5001);
+    CHECK(countExtras(1) == 7);
+    gpMotionState(&g, 0, LI_MOTION_TYPE_GYRO, 3); // 333 ms
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 5, 0, 0, 0xFFFFFF00u);
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 6, 0, 0, 0xFFFFFFF0u);
+    CHECK(countExtras(1) == 8); // 224 ms after the first: not yet
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 6, 0, 0, 0x00000070u); // 368 ms after it, across the wrap
+    CHECK(countExtras(1) == 9);
+
+    // Stop: the sensor goes off and samples are dropped
+    int before = sensCount;
+    CHECK(gpMotionState(&g, 0, LI_MOTION_TYPE_GYRO, 0) == 1);
+    CHECK(sensCount == before + 1 && sensLog[before].type == LI_MOTION_TYPE_GYRO && sensLog[before].hz == 0);
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 7, 7, 7, 9000);
+    CHECK(countExtras(1) == 9);
+
+    // A pad without sensors ignores the request: no sensor call, no samples
+    before = sensCount;
+    CHECK(gpMotionState(&g, 1, LI_MOTION_TYPE_GYRO, 250) == 1);
+    CHECK(gpMotionState(&g, 1, LI_MOTION_TYPE_ACCEL, 250) == 1);
+    CHECK(sensCount == before);
+    gpMotion(&g, 11, LI_MOTION_TYPE_GYRO, 1, 1, 1, 9100);
+    gpMotion(&g, 11, LI_MOTION_TYPE_ACCEL, 1, 1, 1, 9100);
+    CHECK(countExtras(1) == 9);
+    // An unknown type is not a request either
+    CHECK(gpMotionState(&g, 0, 9, 250) == 1 && sensCount == before);
+
+    // The Frame pad's number (gamepad mode) and numbers nobody holds are not ours
+    CHECK(gpClaimFramePad(&g) == 2);
+    CHECK(gpMotionState(&g, 2, LI_MOTION_TYPE_GYRO, 250) == 0);
+    CHECK(gpMotionState(&g, 9, LI_MOTION_TYPE_GYRO, 250) == 0);
+    CHECK(sensCount == before);
+    gpReleaseFramePad(&g);
+    gpDestroy(&g);
+}
+
+static void testMotionGating(void) {
+    Gamepads g;
+    reset(&g);
+    GpInfo d = dualsense("DualSense", "");
+    gpAdd(&g, 10, &d);
+    gpStreamStart(&g);
+    gpSetActive(&g, 1);
+    gpMotionState(&g, 0, LI_MOTION_TYPE_GYRO, 250);
+    gpMotionState(&g, 0, LI_MOTION_TYPE_ACCEL, 100);
+    CHECK(sensCount == 2);
+
+    // Focus lost: both sensors off, samples dropped; focus back: on again at the same rates
+    gpSetActive(&g, 0);
+    CHECK(sensCount == 4 && sensLog[2].hz == 0 && sensLog[3].hz == 0);
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 1, 1, 1, 100);
+    CHECK(extraCount == 0);
+    gpSetActive(&g, 1);
+    CHECK(sensCount == 6);
+    int gyroOn = 0, accelOn = 0;
+    for (int i = 4; i < 6; i++) {
+        gyroOn |= sensLog[i].type == LI_MOTION_TYPE_GYRO && sensLog[i].hz == 250;
+        accelOn |= sensLog[i].type == LI_MOTION_TYPE_ACCEL && sensLog[i].hz == 100;
+    }
+    CHECK(gyroOn && accelOn);
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 1, 1, 1, 200); // the first sample after a restart is not throttled
+    CHECK(countExtras(1) == 1);
+
+    // The stream ends: off, and the next stream starts with no requests
+    gpStreamStop(&g);
+    CHECK(sensCount == 8);
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 2, 2, 2, 300);
+    CHECK(countExtras(1) == 1);
+    gpStreamStart(&g);
+    gpSetActive(&g, 0);
+    gpSetActive(&g, 1);
+    CHECK(sensCount == 8);
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 3, 3, 3, 400);
+    CHECK(countExtras(1) == 1);
+
+    // The pad unplugged while on: its sensor is told to stop
+    gpMotionState(&g, 0, LI_MOTION_TYPE_GYRO, 250);
+    CHECK(sensCount == 9 && sensLog[8].hz == 250);
+    gpRemove(&g, 10);
+    CHECK(sensCount == 10 && sensLog[9].id == 10 && sensLog[9].hz == 0);
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 4, 4, 4, 500);
+    CHECK(countExtras(1) == 1);
+    gpDestroy(&g);
+}
+
+static void testMotionMirror(void) {
+    Gamepads g;
+    reset(&g);
+    GpInfo real = dualsense("DualSense", ""), copy = xbox("Steam Virtual Gamepad", "");
+    copy.vendor = 0x28de;
+    copy.product = 0x11ff;
+    copy.mirror = 1;
+    CHECK(gpAdd(&g, 20, &real) == 0);
+    CHECK(gpAdd(&g, 21, &copy) == 0); // merged into pad 0
+    gpStreamStart(&g);
+    gpSetActive(&g, 1);
+    CHECK((lastArrivalCaps(0) & MOTION_CAPS) == MOTION_CAPS);
+    gpMotionState(&g, 0, LI_MOTION_TYPE_GYRO, 250);
+    CHECK(sensCount == 1 && sensLog[0].id == 20); // the real pad's sensor, not the copy's
+    gpMotion(&g, 21, LI_MOTION_TYPE_GYRO, 1, 1, 1, 100); // Steam's copy has none; whatever it says is ignored
+    CHECK(extraCount == 0);
+    gpMotion(&g, 20, LI_MOTION_TYPE_GYRO, 1, 1, 1, 100);
+    CHECK(countExtras(1) == 1 && extras[0].number == 0);
+    // The real pad going leaves the copy, which has no sensors: nothing more is sent
+    gpRemove(&g, 20);
+    gpMotion(&g, 21, LI_MOTION_TYPE_GYRO, 2, 2, 2, 200);
+    CHECK(countExtras(1) == 1);
+    gpDestroy(&g);
+}
+
+static void testBatteryTouchLed(void) {
+    uint8_t st, pct;
+    CHECK(gpBatteryFromPowerLevel(-1, &st, &pct) && st == LI_BATTERY_STATE_UNKNOWN && pct == LI_BATTERY_PERCENTAGE_UNKNOWN);
+    CHECK(gpBatteryFromPowerLevel(0, &st, &pct) && st == LI_BATTERY_STATE_DISCHARGING && pct == 5);
+    CHECK(gpBatteryFromPowerLevel(1, &st, &pct) && st == LI_BATTERY_STATE_DISCHARGING && pct == 20);
+    CHECK(gpBatteryFromPowerLevel(2, &st, &pct) && st == LI_BATTERY_STATE_DISCHARGING && pct == 50);
+    CHECK(gpBatteryFromPowerLevel(3, &st, &pct) && st == LI_BATTERY_STATE_DISCHARGING && pct == 90);
+    CHECK(gpBatteryFromPowerLevel(4, &st, &pct) && st == LI_BATTERY_STATE_CHARGING && pct == LI_BATTERY_PERCENTAGE_UNKNOWN);
+    CHECK(!gpBatteryFromPowerLevel(5, &st, &pct) && !gpBatteryFromPowerLevel(-2, &st, &pct));
+
+    Gamepads g;
+    reset(&g);
+    GpInfo d = dualsense("DualSense", ""), x = xbox("Xbox", "");
+    x.caps = LI_CCAP_ANALOG_TRIGGERS | LI_CCAP_RUMBLE; // no battery, touchpad or LED
+    gpAdd(&g, 10, &d);
+    gpAdd(&g, 11, &x);
+
+    // Battery: known before the stream, told at arrival, then on change only
+    gpBattery(&g, 10, LI_BATTERY_STATE_DISCHARGING, 50);
+    gpBattery(&g, 11, LI_BATTERY_STATE_DISCHARGING, 50);
+    CHECK(countExtras(2) == 0);
+    gpStreamStart(&g);
+    gpSetActive(&g, 1);
+    CHECK(countExtras(2) == 1 && extras[0].number == 0 && extras[0].type == LI_BATTERY_STATE_DISCHARGING && extras[0].pct == 50);
+    gpBattery(&g, 10, LI_BATTERY_STATE_DISCHARGING, 50);
+    CHECK(countExtras(2) == 1);
+    gpBattery(&g, 10, LI_BATTERY_STATE_DISCHARGING, 20);
+    CHECK(countExtras(2) == 2 && extras[1].pct == 20);
+    gpBattery(&g, 11, LI_BATTERY_STATE_DISCHARGING, 20); // the pad did not advertise it
+    CHECK(countExtras(2) == 2);
+
+    // Touchpad: only a pad that advertises one; fingers still down are let go with focus
+    extraCount = 0;
+    gpTouch(&g, 10, LI_TOUCH_EVENT_DOWN, 0, 0.25f, 0.5f, 1.0f);
+    gpTouch(&g, 10, LI_TOUCH_EVENT_MOVE, 0, 0.3f, 0.5f, 1.0f);
+    CHECK(countExtras(3) == 2 && extras[0].number == 0 && extras[0].type == LI_TOUCH_EVENT_DOWN && extras[0].finger == 0);
+    CHECK_NEAR(extras[0].v[0], 0.25, 1e-6);
+    CHECK_NEAR(extras[1].v[0], 0.3, 1e-6);
+    gpTouch(&g, 10, LI_TOUCH_EVENT_UP, 0, 0.3f, 0.5f, 0.0f);
+    CHECK(countExtras(3) == 3);
+    gpTouch(&g, 11, LI_TOUCH_EVENT_DOWN, 0, 0.5f, 0.5f, 1.0f);
+    CHECK(countExtras(3) == 3);
+    gpTouch(&g, 10, LI_TOUCH_EVENT_DOWN, 1, 0.5f, 0.5f, 1.0f);
+    gpSetActive(&g, 0);
+    CHECK(countExtras(3) == 5 && extras[extraCount - 1].type == LI_TOUCH_EVENT_CANCEL_ALL && extras[extraCount - 1].number == 0);
+    gpTouch(&g, 10, LI_TOUCH_EVENT_MOVE, 1, 0.5f, 0.5f, 1.0f); // unfocused: dropped
+    CHECK(countExtras(3) == 5);
+    gpSetActive(&g, 1);
+
+    // LED: a pad with one gets the host's colour while it is on the host
+    CHECK(gpSetLed(&g, 0, 1, 2, 3) == 1);
+    CHECK(led.calls == 1 && led.id == 10 && led.r == 1 && led.g == 2 && led.b == 3);
+    CHECK(gpSetLed(&g, 1, 9, 9, 9) == 1 && led.calls == 1); // the Xbox pad has none
+    CHECK(gpSetLed(&g, 5, 9, 9, 9) == 0 && led.calls == 1);
+    gpSetActive(&g, 0);
+    CHECK(gpSetLed(&g, 0, 4, 5, 6) == 1 && led.calls == 1);
+    gpDestroy(&g);
+}
+
 // The app-wide instance: before init everything is a no-op
 static void testGlobal(void) {
     CHECK(!gamepadsReady());
+    gamepadsHostMotionState(0, LI_MOTION_TYPE_GYRO, 250); // no instance yet: dropped
+    gamepadsHostSetLed(0, 1, 2, 3);
     CHECK(gamepadsClaimFramePad() == 0 && gamepadsAnnouncedMask() == 0);
     gamepadsStreamStart();
     gamepadsSetActive(1);
     gamepadsHostRumble(0, 1, 1); // falls on input/rumble, no crash
 
     PadOutSink sink = { recArrival, recState, NULL };
-    GpHaptics h = { hapRumble, hapTriggers, NULL };
+    GpHaptics h = { hapRumble, hapTriggers, NULL, NULL, NULL };
     eventCount = 0;
     memset(&hap, 0, sizeof(hap));
     gamepadsInit(&sink, &h, logHook, NULL);
@@ -450,6 +795,9 @@ static void testGlobal(void) {
     CHECK(hap.calls == 1);
     gamepadsHostRumbleTriggers(0, 9, 10);
     CHECK(hap.tcalls == 1);
+    gamepadsHostMotionState(1, LI_MOTION_TYPE_GYRO, 250); // gamepad mode's number: nothing happens
+    gamepadsHostMotionState(0, LI_MOTION_TYPE_GYRO, 250); // the Xbox pad has no gyroscope
+    gamepadsHostSetLed(0, 1, 2, 3);
     gamepadsReleaseFramePad();
     gamepadsStreamStop();
     CHECK(gamepadsAnnouncedMask() == 0);
@@ -470,6 +818,12 @@ static void* worker(void* arg) {
         case 1: gpRumble(w->g, 0, (unsigned short)i, 0); gpRumbleTriggers(w->g, 1, 1, 2); break;
         case 2: gpSetActive(w->g, i & 1); break;
         case 3: gpClaimFramePad(w->g); gpAnnouncedMask(w->g); gpReleaseFramePad(w->g); break;
+        case 5:
+            gpMotionState(w->g, 0, (unsigned char)(1 + (i & 1)), (unsigned short)(i & 1 ? 250 : 0));
+            gpMotion(w->g, 1, 1 + (i & 1), (float)i, 0, 0, (uint32_t)i * 4);
+            gpBattery(w->g, 1, 2, (uint8_t)(i & 63));
+            gpTouch(w->g, 1, 1 + (i & 1), 0, 0.5f, 0.5f, 1.0f);
+            break;
         case 4: {
             GpInfo x = xbox("T", "");
             gpAdd(w->g, 2, &x);
@@ -484,15 +838,15 @@ static void* worker(void* arg) {
 static void testThreads(void) {
     static Gamepads g;
     PadOutSink sink = { recArrival, recState, NULL };
-    GpHaptics h = { hapRumble, hapTriggers, NULL };
+    GpHaptics h = { hapRumble, hapTriggers, hapSensor, hapLed, NULL };
     gpInit(&g, &sink, &h, NULL, NULL);
-    GpInfo a = xbox("A", "");
+    GpInfo a = dualsense("A", "");
     gpAdd(&g, 1, &a);
     gpStreamStart(&g);
     atomic_int stop = 0;
-    pthread_t th[5];
-    Worker w[5];
-    for (int i = 0; i < 5; i++) {
+    pthread_t th[6];
+    Worker w[6];
+    for (int i = 0; i < 6; i++) {
         w[i] = (Worker){ &g, &stop, i };
         pthread_create(&th[i], NULL, worker, &w[i]);
     }
@@ -501,7 +855,7 @@ static void testThreads(void) {
         nanosleep(&ts, NULL);
     }
     atomic_store(&stop, 1);
-    for (int i = 0; i < 5; i++) pthread_join(th[i], NULL);
+    for (int i = 0; i < 6; i++) pthread_join(th[i], NULL);
     gpStreamStop(&g);
     CHECK(gpAnnouncedMask(&g) == 0);
     gpDestroy(&g);
@@ -559,6 +913,11 @@ int main(void) {
     testGatingLate();
     testChord();
     testRumble();
+    testMotionCaps();
+    testMotionFlow();
+    testMotionGating();
+    testMotionMirror();
+    testBatteryTouchLed();
     testThreads();
     testGlobal();
     return checksDone("input_gamepads");

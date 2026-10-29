@@ -316,6 +316,8 @@ The bar is hidden until the ray is over it. With **Ray** set to **Off** (no beam
 | Bluetooth mouse | Same as the keyboard. While you use the mouse, the controller ray does not move the cursor. |
 | Bluetooth gamepad | Pair it in SteamOS. It shows up as a gamepad on the PC, next to the Frame controllers. The Steam Virtual Gamepad copy of the same pad is ignored. Start+Select+L1+R1 disconnects. |
 
+Gyro from Bluetooth pads reaches the PC as a DualSense-class pad. A pad with a gyroscope (a DualSense, DualShock 4 or Switch Pro pad, for example) tells the PC so when it arrives, and the PC asks for the motion data only when a game or Steam Input wants it. This needs Apollo or Sunshine with DS4 emulation on the PC (Apollo: ViGEmBus installed). The Frame controllers in gamepad mode are an Xbox pad and never send motion. The same pad's battery level, touchpad (DualSense) and light bar colour are passed on too.
+
 ### AZERTY and QWERTZ
 
 The headset keyboard can show French (AZERTY) or German (QWERTZ) letters. Pick it in the launcher's Settings page under Input Settings ("Headset keyboard layout"), or set `[vr] keyboard_keymap` in `config.ini` to `qwerty` (the default), `azerty` or `qwertz`.

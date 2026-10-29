@@ -105,11 +105,22 @@ void gpSdlDescribe(SDL_GameController* c, GpInfo* info) {
     gpClassify(info, gpSdlKind(SDL_GameControllerGetType(c)));
     for (int i = 0; i < BUTTONS; i++)
         if (SDL_GameControllerHasButton(c, (SDL_GameControllerButton)i)) info->buttons |= (uint32_t)kButtonMap[i];
-    if (SDL_GameControllerGetBindForAxis(c, SDL_CONTROLLER_AXIS_TRIGGERLEFT).bindType == SDL_CONTROLLER_BINDTYPE_AXIS
-        || SDL_GameControllerGetBindForAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT).bindType == SDL_CONTROLLER_BINDTYPE_AXIS)
-        info->caps |= LI_CCAP_ANALOG_TRIGGERS; // as moonlight-qt: an axis binding means analogue
-    if (SDL_GameControllerHasRumble(c)) info->caps |= LI_CCAP_RUMBLE;
-    if (SDL_GameControllerHasRumbleTriggers(c)) info->caps |= LI_CCAP_TRIGGER_RUMBLE;
+    GpDeviceFacts f;
+    memset(&f, 0, sizeof(f));
+    // as moonlight-qt: an axis binding means analogue
+    f.analogTriggers = SDL_GameControllerGetBindForAxis(c, SDL_CONTROLLER_AXIS_TRIGGERLEFT).bindType == SDL_CONTROLLER_BINDTYPE_AXIS
+        || SDL_GameControllerGetBindForAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT).bindType == SDL_CONTROLLER_BINDTYPE_AXIS;
+    f.rumble = SDL_GameControllerHasRumble(c);
+    f.triggerRumble = SDL_GameControllerHasRumbleTriggers(c);
+#if SDL_VERSION_ATLEAST(2, 0, 14)
+    f.touchpads = SDL_GameControllerGetNumTouchpads(c);
+    f.accel = SDL_GameControllerHasSensor(c, SDL_SENSOR_ACCEL);
+    f.gyro = SDL_GameControllerHasSensor(c, SDL_SENSOR_GYRO);
+    f.led = SDL_GameControllerHasLED(c);
+#endif
+    // moonlight-qt: a known power level, or an SDL that sends battery events
+    f.battery = SDL_JoystickCurrentPowerLevel(js) != SDL_JOYSTICK_POWER_UNKNOWN || SDL_VERSION_ATLEAST(2, 24, 0);
+    info->caps = gpCapsFor(&f);
 }
 
 static short stickY(short v) { return (short)-(v < -32767 ? -32767 : v); } // as moonlight-qt
