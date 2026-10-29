@@ -1,6 +1,7 @@
 // The controllers as they are drawn, see xr_controller.h
 #include "xr_controller.h"
 #include "xr_gate.h"
+#include "xr_ray.h"
 
 int raySwitchOn(int settingOn, int flipped) {
     return (settingOn != 0) != (flipped != 0);
@@ -21,10 +22,10 @@ float pointerDotSize(float distance) {
 
 int controllerModelShown(int settingOn, int passthrough, int kind, int poseActive,
                          unsigned flags) {
-    const unsigned needed = GATE_POSITION_VALID | GATE_ORIENTATION_VALID
-            | GATE_ORIENTATION_TRACKED;
-    return settingOn && !passthrough && kind == PROFILE_CONTROLLER && poseActive
-            && (flags & needed) == needed;
+    // Native (lane ray-glitch): the rule the ray goes by too, so the two
+    // hold and hide together
+    return settingOn && !passthrough && kind == PROFILE_CONTROLLER
+            && controllerPoseLive(poseActive, flags);
 }
 
 void controllerModelMatrix(XrPosef grip, int leftHand, float* out16) {

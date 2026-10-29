@@ -777,21 +777,13 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
         Vec3 mid = { (start.x + end.x) * 0.5f, (start.y + end.y) * 0.5f,
                      (start.z + end.z) * 0.5f };
         Vec3 beamY = vecNorm(along);
-        Vec3 toHead = vecNorm(vecSub(head, mid));
-        Vec3 beamX = vecCross(beamY, toHead);
-        float sideLen = sqrtf(beamX.x * beamX.x + beamX.y * beamX.y + beamX.z * beamX.z);
-        if (sideLen < 0.15f) {
-            Vec3 up = { 0.0f, 1.0f, 0.0f };
-            beamX = vecCross(beamY, up);
-            sideLen = sqrtf(beamX.x * beamX.x + beamX.y * beamX.y + beamX.z * beamX.z);
-            if (sideLen < 0.15f) {
-                Vec3 side = { 1.0f, 0.0f, 0.0f };
-                beamX = vecCross(beamY, side);
-            }
-        }
+        // Native (lane ray-glitch, H4): turned to the head, and leaning to
+        // lie along the head's right as the head comes in line with the beam,
+        // with no switch to the world's up that flickered the quad edge on
+        Vec3 headRight = { ctx->headRight.x, ctx->headRight.y, ctx->headRight.z };
+        Vec3 beamX = beamBasis(start, end, head, headRight);
 
         if (length > 0.10f && beamShown) {
-            beamX = vecNorm(beamX);
             Vec3 beamZ = vecCross(beamX, beamY);
             XrPosef beamPose = { quatFromBasis(beamX, beamY, beamZ),
                                  { mid.x, mid.y, mid.z } };
