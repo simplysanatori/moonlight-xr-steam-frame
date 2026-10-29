@@ -59,6 +59,7 @@
 #include "../audio/opus_out.h"
 #include "../backend/backend.h"
 #include "../backend/backend_limelight.h"
+#include "../backend/netdiag.h"
 #include "../backend/netpath.h"
 #include "../stream/evdev_keyboard.h"
 #include "../input/evmouse.h"
@@ -127,6 +128,10 @@ static struct {
 #define MLXR_MAX_REFRESH_X1000 (MLXR_FPS_CAP * 1000)
 // The network path (Wi-Fi or the Steam Frame Wireless Adapter) chosen for the session
 static pthread_mutex_t g_netLock = PTHREAD_MUTEX_INITIALIZER;
+// Native (lane wave1-net): Wi-Fi power save turned off for the stream (netdiag.h), and the kernel UDP
+// counters at the last latency line (under g_netLock)
+static mlxr_wifi_ps_guard g_psGuard;
+static mlxr_udp_counters g_udpPrev;
 static char g_netSummary[200]; // the stats line says which link carried the session
 static char g_netToast[160];   // for the toast once the stream is up
 
@@ -227,15 +232,20 @@ static void latencyHook(void* user, char* buf, int len) {
     double sinkHz = secs > 0.0 ? (st.sinkFrames - prev.sinkFrames) / secs : 0.0;
     double cpuPct = secs > 0.0 ? (st.threadCpuNs - prev.threadCpuNs) / 1e7 / secs : 0.0;
     char net[200];
+    char udp[160];
+    mlxr_udp_counters udpNow;
+    mlxr_udp_read(&udpNow); // Native (lane wave1-net): the kernel's receive-buffer overflows in this window
     pthread_mutex_lock(&g_netLock);
     snprintf(net, sizeof(net), "%s", g_netSummary[0] ? g_netSummary : "unknown");
+    mlxr_udp_delta_text(&g_udpPrev, &udpNow, udp, sizeof(udp));
+    g_udpPrev = udpNow;
     pthread_mutex_unlock(&g_netLock);
     snprintf(buf, (size_t)len,
-             "net %s; %s; audio cushion %.0f ms, %.0f ms buffered, underruns +%u (%u late of which %u outages, %u after "
+             "net %s; %s; %s; audio cushion %.0f ms, %.0f ms buffered, underruns +%u (%u late of which %u outages, %u after "
              "silence), lost +%u, dropped %.0f ms, trimmed %.0f ms, longest packet gap %d ms, sink took %.0f Hz, "
              "host clock %+.0f ppm, receive thread waited %.1f ms for a CPU (%.1f%% busy), decode %.2f ms avg "
              "(max %.2f)",
-             net, v, st.jitterTargetMs, st.bufferedMs, st.underruns - prev.underruns,
+             net, udp, v, st.jitterTargetMs, st.bufferedMs, st.underruns - prev.underruns,
              st.lateUnderruns - prev.lateUnderruns, st.outages - prev.outages,
              st.silenceUnderruns - prev.silenceUnderruns,
              st.lostPackets - prev.lostPackets, (st.droppedFrames - prev.droppedFrames) / 48.0,
@@ -811,7 +821,19 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
            lp.sops, lp.local_audio, g_job.cfg.colorRange == COLOR_RANGE_FULL ? "full" : "limited", lp.virtual_display,
            lp.scale_factor, lp.fps_x1000, mlxr_computer_is_apollo(comp) ? " (Apollo host)" : "");
     gamepadsSetFlipFaceButtons(g_settings.flip_face_buttons);
+    // Native (lane wave1-net): Wi-Fi power save read, and turned off if the user may; rmem_max and the kernel's
+    // UDP receive-buffer overflow counter at the start (the latency line reports the change per window)
+    mlxr_wifi_ps_begin(&g_psGuard, n->address[pc]);
+    long long rmemMax = mlxr_rmem_max_read();
+    if (rmemMax >= 0)
+        MLOG_I("net: net.core.rmem_max is %lld bytes (the stream's UDP receive buffer request is clamped to it)", rmemMax);
+    else
+        MLOG_I("net: net.core.rmem_max could not be read");
+    pthread_mutex_lock(&g_netLock);
+    mlxr_udp_read(&g_udpPrev);
+    pthread_mutex_unlock(&g_netLock);
     if (stream_start(&host, &g_job.cfg, &g_slot, &g_job.audio, &g_job.audioCfg) != 0) {
+        mlxr_wifi_ps_end(&g_psGuard);
         stream_stop();
         xr_app_release_video();
         stream_close_video();
@@ -848,6 +870,7 @@ static void stopStream(Net* n, int quitHost) {
         mlxr_nethist_record_stream(n->dir, n->address[n->streamPc], nf.framesReceived, nf.framesLost, nf.jitterMs,
                                    nf.rttMs, 0);
     stream_stop();
+    mlxr_wifi_ps_end(&g_psGuard); // Native (lane wave1-net)
     xr_app_release_video();
     stream_close_video();
     int pc = n->streamPc;
