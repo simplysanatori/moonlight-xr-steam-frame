@@ -403,45 +403,27 @@ static void test_cog_tab(void) {
     SettingsLoadInfo info;
     settings_defaults(&s);
     CHECK(s.cog_tab == COG_TAB_SCREEN);
-    settings_from_text(&s, "[display]
-cog_tab = display
-", &info);
+    settings_from_text(&s, "[display]\ncog_tab = display\n", &info);
     CHECK(s.cog_tab == COG_TAB_DISPLAY && info.applied == 1 && info.bad == 0);
-    settings_from_text(&s, "[display]
-cog_tab = 3d
-", &info);
+    settings_from_text(&s, "[display]\ncog_tab = 3d\n", &info);
     CHECK(s.cog_tab == COG_TAB_3D);
-    settings_from_text(&s, "[display]
-cog_tab = picture
-", &info);
+    settings_from_text(&s, "[display]\ncog_tab = picture\n", &info);
     CHECK(s.cog_tab == COG_TAB_PICTURE);
-    settings_from_text(&s, "[display]
-cog_tab = about
-", &info);
+    settings_from_text(&s, "[display]\ncog_tab = about\n", &info);
     CHECK(s.cog_tab == COG_TAB_ABOUT);
-    settings_from_text(&s, "[display]
-cog_tab = 1
-", &info);   // an index works too
+    settings_from_text(&s, "[display]\ncog_tab = 1\n", &info);   // an index works too
     CHECK(s.cog_tab == COG_TAB_DISPLAY);
-    settings_from_text(&s, "[display]
-cog_tab = sound
-", &info);   // not a tab: the last good one stays
+    settings_from_text(&s, "[display]\ncog_tab = sound\n", &info);   // not a tab: the last good one stays
     CHECK(s.cog_tab == COG_TAB_DISPLAY && info.bad == 1);
-    settings_from_text(&s, "[display]
-cog_tab = 9
-", &info);
+    settings_from_text(&s, "[display]\ncog_tab = 9\n", &info);
     CHECK(s.cog_tab == COG_TAB_DISPLAY && info.bad == 1);
     s.cog_tab = COG_TAB_3D;
     char* text = settings_to_text(&s);
-    CHECK(text != NULL && strstr(text, "
-cog_tab = 3d
-") != NULL);
+    CHECK(text != NULL && strstr(text, "\ncog_tab = 3d\n") != NULL);
     free(text);
     settings_defaults(&s);
     text = settings_to_text(&s);
-    CHECK(text != NULL && strstr(text, "
-#cog_tab = screen
-") != NULL);
+    CHECK(text != NULL && strstr(text, "\n#cog_tab = screen\n") != NULL);
     free(text);
 }
 
