@@ -130,6 +130,10 @@ void MlxrPrefs::load()
     convergenceIsDefault = conv < 0;
     convergence = conv < 0 ? 50 : qBound(0, conv, 100);
     flipFaceButtons = iniBool(iniValue(ini, "vr", "flip_face_buttons", "false"));
+    keyboardKeymap = iniValue(ini, "vr", "keyboard_keymap", "qwerty").trimmed().toLower();
+    if (keyboardKeymap != "azerty" && keyboardKeymap != "qwertz") {
+        keyboardKeymap = "qwerty";
+    }
     // the VR client takes the name or its index; anything else is its default, all
     const QString nt = iniValue(ini, "vr", "notices", "all").trimmed().toLower();
     notices = (nt == "important" || nt == "1") ? "important" : (nt == "off" || nt == "2") ? "off" : "all";
@@ -141,6 +145,7 @@ void MlxrPrefs::load()
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
     m_iniFlip = flipFaceButtons;
+    m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
 }
 
@@ -179,6 +184,9 @@ void MlxrPrefs::save()
     if (flipFaceButtons != m_iniFlip) {
         setIniValue(ini, "vr", "flip_face_buttons", flipFaceButtons ? "true" : "false");
     }
+    if (keyboardKeymap != m_iniKeymap) {
+        setIniValue(ini, "vr", "keyboard_keymap", keyboardKeymap);
+    }
     if (notices != m_iniNotices) {
         setIniValue(ini, "vr", "notices", notices);
     }
@@ -189,6 +197,7 @@ void MlxrPrefs::save()
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
     m_iniFlip = flipFaceButtons;
+    m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
 }
 

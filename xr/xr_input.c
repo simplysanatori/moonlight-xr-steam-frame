@@ -14,6 +14,76 @@
 #include "xr_keyboard.h"
 #include "xr_native.h"
 
+// Native (lane ray-glitch): the ray recorder, switched on by MLXR_RAY_DEBUG=1
+// in the environment (docs/dev/ray-debug.md). A CSV row per input frame of
+// what the runtime gave for the head and both hands and what the frame made of
+// it, into <log dir>/reports/ray-<date>-<time>.csv, and a log line, at most
+// RAY_LOG_PER_SEC a second, whenever a hand's flags or ray source change, its
+// ray goes steep or the pointing source changes. Off, it costs a few stores a
+// frame.
+#define RAY_LOG_PER_SEC 20
+#define RAY_FLUSH_NS 1000000000LL
+#define RAY_FILE_MAX_BYTES (96L * 1024L * 1024L)
+
+static void rayDebugStart(XrCtx* ctx) {
+    const char* env = getenv("MLXR_RAY_DEBUG");
+    ctx->rayDebug = env != NULL && env[0] != '\0' && strcmp(env, "0") != 0;
+    ctx->raySaidHand = -2;
+    if (!ctx->rayDebug || ctx->rayFile != NULL) {
+        return;
+    }
+    const char* dir = getenv("MLXR_LOG_DIR");
+    const char* home = getenv("HOME");
+    char base[400];
+    if (dir != NULL && dir[0] != '\0') {
+        snprintf(base, sizeof(base), "%s/reports", dir);
+    }
+    else {
+        snprintf(base, sizeof(base), "%s/Games/MoonlightXRNative/reports",
+                 home != NULL ? home : ".");
+    }
+    mkdir(base, 0755);
+    time_t now = time(NULL);
+    struct tm local;
+    localtime_r(&now, &local);
+    char stamp[32];
+    strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
+    char path[480];
+    snprintf(path, sizeof(path), "%s/ray-%s.csv", base, stamp);
+    ctx->rayFile = fopen(path, "w");
+    if (ctx->rayFile == NULL) {
+        LOGW("ray debug: on, but %s cannot be written, so the log lines only", path);
+        return;
+    }
+    char header[1024];
+    if (rayLogHeader(header, sizeof(header)) > 0) {
+        fprintf(ctx->rayFile, "%s\n", header);
+    }
+    ctx->rayBytes = 0;
+    ctx->rayFlushNs = 0;
+    LOGI("ray debug: on, a row a frame into %s", path);
+}
+
+static void rayDebugFlush(XrCtx* ctx, const char* why) {
+    if (ctx->rayFile == NULL) {
+        return;
+    }
+    fflush(ctx->rayFile);
+    if (why != NULL) {
+        LOGI("ray debug: %s at t_ns %lld, the CSV is %.1f MB so far", why,
+             (long long)ctx->rayRow.t, ctx->rayBytes / 1048576.0);
+    }
+}
+
+static void rayDebugStop(XrCtx* ctx) {
+    if (ctx->rayFile == NULL) {
+        return;
+    }
+    rayDebugFlush(ctx, "input closing");
+    fclose(ctx->rayFile);
+    ctx->rayFile = NULL;
+}
+
 // A pinch is how these headsets click. The runtime's own pinch is used
 // wherever it gives one, and where it does not the joints always are there,
 // so it is measured instead: thumb tip to index tip, see xr_pinch.h.
@@ -599,12 +669,16 @@ int initXrInput(XrCtx* ctx) {
          "MLXR_PRESS_STABILISE=%d MLXR_CLICK_HOLD_PX=%.0f",
          ctx->pressCfg.doublePx, (long long)(ctx->pressCfg.doubleNs / 1000000LL),
          ctx->pressCfg.stabilise, ctx->clickHoldPx);
+    rayDebugStart(ctx);
     return 1;
 }
 
 static float actionFloat(XrCtx* ctx, XrAction action, int hand) {
     if (action == XR_NULL_HANDLE) {
         return 0.0f;
+    }
+    if (ctx->readFloat != NULL) {
+        return ctx->readFloat(ctx, action, hand);
     }
     XrActionStateGetInfo get = { XR_TYPE_ACTION_STATE_GET_INFO };
     get.action = action;
@@ -621,6 +695,9 @@ static int actionBool(XrCtx* ctx, XrAction action, int hand) {
     if (action == XR_NULL_HANDLE) {
         return 0;
     }
+    if (ctx->readBool != NULL) {
+        return ctx->readBool(ctx, action, hand);
+    }
     XrActionStateGetInfo get = { XR_TYPE_ACTION_STATE_GET_INFO };
     get.action = action;
     get.subactionPath = hand < 0 ? XR_NULL_PATH : ctx->handPaths[hand];
@@ -636,6 +713,9 @@ static XrVector2f actionVec2(XrCtx* ctx, XrAction action, int hand) {
     XrVector2f zero = { 0.0f, 0.0f };
     if (action == XR_NULL_HANDLE) {
         return zero;
+    }
+    if (ctx->readVec2 != NULL) {
+        return ctx->readVec2(ctx, action, hand);
     }
     XrActionStateGetInfo get = { XR_TYPE_ACTION_STATE_GET_INFO };
     get.action = action;
@@ -654,12 +734,25 @@ static int actionPoseActive(XrCtx* ctx, XrAction action, int hand) {
     if (action == XR_NULL_HANDLE) {
         return 0;
     }
+    if (ctx->poseActive != NULL) {
+        return ctx->poseActive(ctx, action, hand) != 0;
+    }
     XrActionStateGetInfo get = { XR_TYPE_ACTION_STATE_GET_INFO };
     get.action = action;
     get.subactionPath = ctx->handPaths[hand];
 
     XrActionStatePose state = { XR_TYPE_ACTION_STATE_POSE };
     return XR_SUCCEEDED(xrGetActionStatePose(ctx->session, &get, &state)) && state.isActive;
+}
+
+// Native (lane ray-glitch): a space located for the pointer, through the seam
+// a replay test feeds recorded poses in by
+static XrResult locateSpace(XrCtx* ctx, XrSpace space, XrSpace base, XrTime time,
+                            XrSpaceLocation* out) {
+    if (ctx->locateSpace != NULL) {
+        return ctx->locateSpace(ctx, space, base, time, out);
+    }
+    return xrLocateSpace(space, base, time, out);
 }
 
 static int stickPushed(XrVector2f stick) {
@@ -813,6 +906,14 @@ static void readJoints(XrCtx* ctx, int hand, const FrameXform* xform, const XrPo
     if (located && ctx->handAim) {
         ctx->aimPinch[hand] = (aim.status & XR_HAND_TRACKING_AIM_VALID_BIT_FB)
                 && (aim.status & XR_HAND_TRACKING_AIM_INDEX_PINCHING_BIT_FB);
+    }
+    // Native (lane ray-glitch): the knuckle the joint ray is cast through, as
+    // the runtime gave it, for the recorder
+    if (located) {
+        const XrHandJointLocationEXT* knuckle = &joints[XR_HAND_JOINT_INDEX_PROXIMAL_EXT];
+        ctx->rayRow.hand[hand].joints
+                = (knuckle->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+        ctx->rayRow.hand[hand].knuckle = knuckle->pose.position;
     }
     // Into the screen's frame, all of them, so the ray and the pinch point
     // come out where the aim poses are
@@ -1486,6 +1587,7 @@ static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef scre
 }
 
 void destroyXrInput(XrCtx* ctx) {
+    rayDebugStop(ctx);
     for (int h = 0; h < HAND_COUNT; h++) {
         if (ctx->handTrackers[h] != XR_NULL_HANDLE && ctx->pfnDestroyHandTracker != NULL) {
             ctx->pfnDestroyHandTracker(ctx->handTrackers[h]);
@@ -1561,6 +1663,10 @@ typedef struct {
     // The source doing the pointing, or -1, and what it is over
     int hand;
     int hover;
+    // Native (lane ray-glitch): the head's location flags, for the recorder,
+    // and what the pick went by, which the free beam goes by too
+    unsigned headFlags;
+    PickIn pick;
 } InputFrame;
 
 // Whether the eyes are what is doing the pointing. A controller in use takes
@@ -1976,14 +2082,38 @@ static void sayPinchSource(XrCtx* ctx, int h) {
     }
 }
 
+// Native (lane ray-glitch): the recorder's row for this frame, started before
+// the sources are read and filled in as they are
+static void rayRowBegin(XrCtx* ctx, const InputFrame* f) {
+    RayLogRow* r = &ctx->rayRow;
+    memset(r, 0, sizeof(*r));
+    r->t = f->now;
+    r->toHead = f->xform.toHead;
+    r->headFlags = f->headFlags;
+    r->head = f->xform.head;
+    r->chosen = -1;
+    r->ray = -1;
+}
+
+// The filters forget a hand, so its ray does not sweep in from where it was
+static void resetAimFilter(XrCtx* ctx, int h) {
+    ctx->aimFilterPos[h][0].valid = 0;
+    ctx->aimFilterPos[h][1].valid = 0;
+    ctx->aimFilterPos[h][2].valid = 0;
+    ctx->aimFilterRot[h].valid = 0;
+}
+
 // Reads every source: the triggers, the aim poses and where each ray lands
 static void readSources(XrCtx* ctx, InputFrame* f) {
     int gazeSpace = ctx->aimSpaces[SRC_GAZE] != XR_NULL_HANDLE;
+    rayRowBegin(ctx, f);
     // A controller that is the pad's points at nothing and presses nothing, so
     // it is never read here
     for (int h = 0; h < HAND_COUNT; h++) {
+        ctx->aimSrc[h] = AIM_NONE;
         if (padHand(ctx, h)) {
             padHandAway(ctx, h);
+            poseHoldReset(&ctx->aimHold[h]);
         }
     }
     // The eyes point and the hands only pinch, which is the rule while gaze
@@ -2001,6 +2131,9 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             f->stick[h] = seenStick(ctx, h);
             int wasDown = ctx->triggerDown[h];
             float value = seenTrigger(ctx, h);
+            ctx->rayRow.hand[h].trigger = value;
+            ctx->rayRow.hand[h].grip = f->grab[h];
+            ctx->rayRow.hand[h].stick = f->stick[h];
             // The joints are read whatever is on the hand, since the ray and
             // the point a drag follows come out of them too
             readJoints(ctx, h, &f->xform, &f->headPose, f->headValid);
@@ -2062,10 +2195,22 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
         // wherever the controller was put down
         int handActions = onHandActions(ctx, h);
         XrSpace space = handActions ? ctx->handAimSpaces[h] : ctx->aimSpaces[h];
-        int ok = space != XR_NULL_HANDLE
-                && XR_SUCCEEDED(xrLocateSpace(space, ctx->localSpace,
-                                              ctx->predictedDisplayTime, &loc))
-                && intoFrame(&f->xform, &loc.pose);
+        // Native (lane ray-glitch): through the seam, and kept as the runtime
+        // gave it for the recorder before the screen's frame moves it
+        int found = space != XR_NULL_HANDLE
+                && XR_SUCCEEDED(locateSpace(ctx, space, ctx->localSpace,
+                                            ctx->predictedDisplayTime, &loc));
+        int active = 0;
+        if (h < HAND_COUNT) {
+            active = found && actionPoseActive(ctx, handActions ? ctx->handAimAction
+                                                                : ctx->aimAction, h);
+            RayLogHand* row = &ctx->rayRow.hand[h];
+            row->ok = found;
+            row->flags = found ? (unsigned)loc.locationFlags : 0u;
+            row->active = active;
+            row->pose = loc.pose;
+        }
+        int ok = found && intoFrame(&f->xform, &loc.pose);
         int located = ok && (loc.locationFlags & needed) == needed;
         if (h == SRC_GAZE) {
             // Tracked as well as valid. Untracked takes the not located path
@@ -2079,29 +2224,45 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             // taking that for a controller in use is what made the pointing
             // flap between it and the eyes
             ctx->aimTracked[h] = located && aimFullyTracked((unsigned)loc.locationFlags)
-                    && actionPoseActive(ctx, handActions ? ctx->handAimAction : ctx->aimAction,
-                                        h);
+                    && active;
         }
         int fromJoints = 0;
-        if (!located) {
-            // No controller and no pointer pose from the runtime, so the ray
-            // built out of the joints stands in. This is what makes hand
-            // pointing work on runtimes that refuse the hand profile.
-            if (h < HAND_COUNT && ctx->handRayValid[h]) {
-                loc.pose = ctx->handRay[h];
-                fromJoints = 1;
+        int held = 0;
+        if (h < HAND_COUNT) {
+            // Native (lane ray-glitch): the aim where it is placed, else the
+            // ray out of the joints, but never on a controller's hand (H1)
+            int src = aimFallbackFor(ctx->profileKind[h], located, ctx->handRayValid[h]);
+            if (ctx->profileKind[h] == PROFILE_CONTROLLER) {
+                // A controller's aim is drawn as it is only while it is
+                // tracked by the rule its model goes by. Lost, valid or not,
+                // its last tracked pose is held a moment and then the ray goes
+                // with the model, rather than drawing SteamVR's extrapolation
+                // and snapping back when tracking returns (H3).
+                int live = src == AIM_POSE
+                        && controllerPoseLive(active, (unsigned)loc.locationFlags);
+                int state = poseHoldStep(&ctx->aimHold[h], live, f->now, POSE_HOLD_NS);
+                src = state == POSE_LIVE ? AIM_POSE : (state == POSE_HELD ? AIM_HELD : AIM_NONE);
             }
-            else {
+            ctx->aimSrc[h] = src;
+            if (src == AIM_NONE || src == AIM_HELD) {
                 // Filtering across a tracking gap would sweep the ray in
                 // from wherever the hand was last seen
-                if (h < HAND_COUNT) {
-                    ctx->aimFilterPos[h][0].valid = 0;
-                    ctx->aimFilterPos[h][1].valid = 0;
-                    ctx->aimFilterPos[h][2].valid = 0;
-                    ctx->aimFilterRot[h].valid = 0;
-                }
+                resetAimFilter(ctx, h);
+            }
+            if (src == AIM_NONE) {
                 continue;
             }
+            fromJoints = src == AIM_JOINTS;
+            held = src == AIM_HELD;
+            if (fromJoints) {
+                // No controller and no pointer pose from the runtime, so the
+                // ray built out of the joints stands in. This is what makes
+                // hand pointing work on runtimes that refuse the hand profile.
+                loc.pose = ctx->handRay[h];
+            }
+        }
+        else if (!located) {
+            continue;
         }
         // The eyes are back but the bridge keeps the pointer with the hands
         // until the pinches let go, so the pose goes no further
@@ -2110,7 +2271,10 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
         }
         // Hands and controllers go through the pose filter. Gaze does not:
         // eyes move in saccades and the cursor is already smoothed downstream.
-        if (h < HAND_COUNT) {
+        if (held) {
+            f->aimPoses[h] = ctx->aimHold[h].pose;
+        }
+        else if (h < HAND_COUNT) {
             XrPosef filtered = loc.pose;
             filtered.position.x = euroFilter(&ctx->aimFilterPos[h][0], filtered.position.x,
                                              f->dt, ctx->aimMinCutoff, ctx->aimBeta);
@@ -2121,13 +2285,21 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             filtered.orientation = euroFilterQuat(&ctx->aimFilterRot[h], filtered.orientation,
                                                   f->dt, ctx->aimMinCutoff, ctx->aimBeta);
             f->aimPoses[h] = filtered;
+            if (ctx->aimSrc[h] == AIM_POSE) {
+                poseHoldKeep(&ctx->aimHold[h], filtered);
+            }
         }
         else {
             f->aimPoses[h] = loc.pose;
         }
         f->aimValid[h] = 1;
 
-        if (ctx->poseSeen[h] && f->dt > 0.0f) {
+        if (held) {
+            // A held pose says nothing about how the hand moves, and the
+            // first live one after it must not read as a jump
+            ctx->poseSeen[h] = 0;
+        }
+        else if (ctx->poseSeen[h] && f->dt > 0.0f) {
             Vec3 now3 = { loc.pose.position.x, loc.pose.position.y, loc.pose.position.z };
             Vec3 was3 = { ctx->lastAim[h].position.x, ctx->lastAim[h].position.y,
                           ctx->lastAim[h].position.z };
@@ -2152,8 +2324,10 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
                 f->handMoved[h] = 1;
             }
         }
-        ctx->lastAim[h] = loc.pose;
-        ctx->poseSeen[h] = 1;
+        if (!held) {
+            ctx->lastAim[h] = loc.pose;
+            ctx->poseSeen[h] = 1;
+        }
 
         // A tracked hand's ray is a guess drawn from the shoulder through the
         // knuckle, so left pointing while the eyes do it would claim every
@@ -2260,11 +2434,15 @@ static void applyHandLock(XrCtx* ctx, InputFrame* f) {
 
 // Whether a button is down on this controller. Each is read on this hand's
 // own path, since a press on the other controller says nothing about this one.
+// Native (lane ray-glitch): the buttons read as RAYLOG_BTN_ bits, which the
+// recorder keeps for the frame.
 static int controllerPressed(XrCtx* ctx, const InputFrame* f, int h) {
+    unsigned buttons = (actionBool(ctx, ctx->rightClickAction, h) ? RAYLOG_BTN_RIGHT_CLICK : 0u)
+            | (actionBool(ctx, ctx->middleClickAction, h) ? RAYLOG_BTN_MIDDLE_CLICK : 0u)
+            | (seenStickClick(ctx, h) ? RAYLOG_BTN_STICK_CLICK : 0u);
+    ctx->rayRow.hand[h].buttons = buttons;
     return ctx->triggerDown[h] || f->grab[h] > PRESS_ON || stickPushed(f->stick[h])
-            || actionBool(ctx, ctx->rightClickAction, h)
-            || actionBool(ctx, ctx->middleClickAction, h)
-            || seenStickClick(ctx, h);
+            || buttons != 0;
 }
 
 // The pointer's clock again, one per controller. The shared one is held on by
@@ -2420,25 +2598,34 @@ static void pickPointingSource(XrCtx* ctx, InputFrame* f) {
         }
     }
 
-    f->hand = -1;
+    // Native (lane ray-glitch, H2): the source that pointed last keeps the
+    // pointer while its ray is on something, and for a moment after it slips
+    // off; another takes it on a press, or once awake on its own clock. A
+    // controller lying in a lap is asleep, so its ray lying across the picture
+    // or the bar no longer takes the pointer and the beam out of the lap.
+    // A hand on something still beats one merely near it, so a controller
+    // resting in the margin never takes the pointer off the one being aimed.
+    PickIn* in = &f->pick;
+    memset(in, 0, sizeof(*in));
+    in->count = SRC_COUNT;
     for (int i = 0; i < SRC_COUNT; i++) {
         int h = order[i];
-        if (f->hovers[h] == HOVER_SCREEN && ctx->triggerDown[h]) {
-            f->hand = h;
-            break;
+        in->order[i] = h;
+        in->hover[h] = f->hovers[h] == HOVER_NONE ? PICK_OFF
+                : (f->hovers[h] == HOVER_HALO ? PICK_NEAR : PICK_ON);
+        in->valid[h] = f->aimValid[h];
+        in->triggerOnScreen[h] = f->hovers[h] == HOVER_SCREEN && ctx->triggerDown[h];
+        if (h < HAND_COUNT && ctx->profileKind[h] == PROFILE_CONTROLLER) {
+            in->awake[h] = ctx->aimClock[h].awake;
+            in->pressed[h] = controllerPressed(ctx, f, h);
+        }
+        else {
+            // Hands and eyes have no rest clock of their own
+            in->awake[h] = 1;
+            in->pressed[h] = ctx->triggerDown[h];
         }
     }
-    // A hand on something beats one merely near it, so a controller resting in
-    // the margin never takes the pointer off the one being aimed
-    for (int pass = 0; pass < 2 && f->hand < 0; pass++) {
-        for (int i = 0; i < SRC_COUNT && f->hand < 0; i++) {
-            int h = order[i];
-            if (f->hovers[h] == HOVER_NONE || (pass == 0 && f->hovers[h] == HOVER_HALO)) {
-                continue;
-            }
-            f->hand = h;
-        }
-    }
+    f->hand = pickHand(&ctx->pick, in, f->now, PICK_HOLD_NS);
 
     if (!ctx->pointerAwake && ctx->grabMode == GRAB_NONE) {
         f->hand = -1;
@@ -2450,6 +2637,131 @@ static void pickPointingSource(XrCtx* ctx, InputFrame* f) {
     f->hover = f->hand >= 0 ? f->hovers[f->hand] : HOVER_NONE;
     if (f->hover == HOVER_CORNER) {
         ctx->hoverCorner = f->corners[f->hand];
+    }
+}
+
+// Native (lane ray-glitch, H2): whose ray runs free into the room while no
+// source is on anything. The one that pointed last, not the right hand first:
+// that drew a near vertical beam out of a controller lying in the lap
+// whenever the left one aimed past the picture. Never a hand that only
+// pinches, nor a controller lying down while the eyes point (canPoint).
+static int freeBeamHand(XrCtx* ctx, const InputFrame* f) {
+    int able[SRC_COUNT] = { 0 };
+    for (int h = 0; h < HAND_COUNT; h++) {
+        able[h] = canPoint(ctx, f, h);
+    }
+    return pickFreeHand(&ctx->pick, &f->pick, able);
+}
+
+// The hand whose ray is drawn this frame, for the recorder: the pointing one,
+// or the free beam's
+static int rayHandOf(XrCtx* ctx, const InputFrame* f) {
+    if (f->hand >= 0) {
+        return f->hand < HAND_COUNT ? f->hand : -1;
+    }
+    if (!ctx->pointerAwake || !f->headValid) {
+        return -1;
+    }
+    return freeBeamHand(ctx, f);
+}
+
+static const char* aimSrcName(int src) {
+    switch (src) {
+        case AIM_POSE: return "aim";
+        case AIM_JOINTS: return "joints";
+        case AIM_HELD: return "held";
+        default: return "none";
+    }
+}
+
+// One more of the recorder's log lines, at most RAY_LOG_PER_SEC a second
+static int rayLogAllowed(XrCtx* ctx, int64_t now) {
+    if (now - ctx->rayLogWindowNs >= 1000000000LL) {
+        if (ctx->rayLogDropped > 0) {
+            LOGI("ray debug: %d lines held back in the last second", ctx->rayLogDropped);
+        }
+        ctx->rayLogWindowNs = now;
+        ctx->rayLogLines = 0;
+        ctx->rayLogDropped = 0;
+    }
+    if (ctx->rayLogLines >= RAY_LOG_PER_SEC) {
+        ctx->rayLogDropped++;
+        return 0;
+    }
+    ctx->rayLogLines++;
+    return 1;
+}
+
+// Native (lane ray-glitch): the recorder's row finished once the pointing
+// source is picked, its log lines, and the row onto the CSV
+static void rayRowEnd(XrCtx* ctx, const InputFrame* f) {
+    RayLogRow* r = &ctx->rayRow;
+    for (int h = 0; h < HAND_COUNT; h++) {
+        r->hand[h].kind = ctx->profileKind[h];
+        r->hand[h].src = ctx->aimSrc[h];
+        r->hand[h].awake = ctx->aimClock[h].awake;
+    }
+    r->pointer = ctx->pointerAwake;
+    r->chosen = f->hand;
+    r->ray = rayHandOf(ctx, f);
+    r->hover = f->hover;
+    if (!ctx->rayDebug) {
+        return;
+    }
+
+    for (int h = 0; h < HAND_COUNT; h++) {
+        const RayLogHand* p = &r->hand[h];
+        // How far the drawn ray points up or down, which is what a ray gone
+        // vertical shows as
+        float pitch = 0.0f;
+        if (f->aimValid[h]) {
+            Vec3 forward = { 0.0f, 0.0f, -1.0f };
+            Vec3 d = quatRotate(f->aimPoses[h].orientation, forward);
+            float y = d.y > 1.0f ? 1.0f : (d.y < -1.0f ? -1.0f : d.y);
+            pitch = asinf(y) * 180.0f / (float)M_PI;
+        }
+        int steep = f->aimValid[h] && fabsf(pitch) > 80.0f;
+        if (p->flags == ctx->raySaidFlags[h] && p->src == ctx->raySaidSrc[h]
+                && steep == ctx->raySaidSteep[h]) {
+            continue;
+        }
+        if (!rayLogAllowed(ctx, f->now)) {
+            continue;
+        }
+        ctx->raySaidFlags[h] = p->flags;
+        ctx->raySaidSrc[h] = p->src;
+        ctx->raySaidSteep[h] = steep;
+        LOGI("ray debug: t_ns %lld hand %d kind %d ok %d flags 0x%x active %d joints %d "
+             "ray from %s pitch %.0f quat %.3f %.3f %.3f %.3f", (long long)r->t, h, p->kind,
+             p->ok, p->flags, p->active, p->joints, aimSrcName(p->src), pitch,
+             p->pose.orientation.x, p->pose.orientation.y, p->pose.orientation.z,
+             p->pose.orientation.w);
+    }
+    if (r->chosen != ctx->raySaidHand && rayLogAllowed(ctx, f->now)) {
+        ctx->raySaidHand = r->chosen;
+        LOGI("ray debug: t_ns %lld pointing %d, ray drawn from %d, hovers left %d right %d "
+             "gaze %d, awake left %d right %d, pointer %d", (long long)r->t, r->chosen, r->ray,
+             f->hovers[HAND_LEFT], f->hovers[HAND_RIGHT], f->hovers[SRC_GAZE],
+             r->hand[HAND_LEFT].awake, r->hand[HAND_RIGHT].awake, r->pointer);
+    }
+
+    if (ctx->rayFile == NULL || ctx->rayBytes > RAY_FILE_MAX_BYTES) {
+        return;
+    }
+    char line[1024];
+    int n = rayLogFormat(r, line, sizeof(line));
+    if (n > 0) {
+        fprintf(ctx->rayFile, "%s\n", line);
+        ctx->rayBytes += n + 1;
+        if (ctx->rayBytes > RAY_FILE_MAX_BYTES) {
+            LOGW("ray debug: the CSV reached %ld MB, no more rows",
+                 RAY_FILE_MAX_BYTES / (1024L * 1024L));
+            rayDebugFlush(ctx, NULL);
+        }
+    }
+    if (f->now - ctx->rayFlushNs >= RAY_FLUSH_NS) {
+        ctx->rayFlushNs = f->now;
+        rayDebugFlush(ctx, NULL);
     }
 }
 
@@ -2558,6 +2870,9 @@ static void openReport(XrCtx* ctx, InputFrame* f) {
     kbPlace(ctx);
     f->out[IN_REPORT] = (float)REPORT_OPENED;
     LOGEV("report sheet open");
+    // Native (lane ray-glitch): the recorder's CSV complete up to here, and the
+    // moment marked in the log, so a glitch just seen is easy to find
+    rayDebugFlush(ctx, "report sheet opened");
 }
 
 // A press on a key: the sheet it leaves showing and what it types, one key a
@@ -3553,10 +3868,8 @@ static void beamIntoRoom(XrCtx* ctx, InputFrame* f) {
     if (!ctx->beamVisible && ctx->pointerAwake && f->headValid && !ctx->beamGaze) {
         int free = f->hand;
         if (free < 0) {
-            // Never a hand that only pinches, nor a controller lying down
-            // while the eyes point
-            free = canPoint(ctx, f, HAND_RIGHT) ? HAND_RIGHT
-                    : (canPoint(ctx, f, HAND_LEFT) ? HAND_LEFT : -1);
+            // Native (lane ray-glitch): the one that pointed last
+            free = freeBeamHand(ctx, f);
         }
         if (free >= 0) {
             Vec3 forward = { 0.0f, 0.0f, -1.0f };
@@ -4073,6 +4386,87 @@ static void handBack(XrCtx* ctx, float* out) {
     }
 }
 
+// Native (lane ray-glitch): the input frame set up, the head located through
+// the seam, as every frame and the replay test (xrPointerStep) start it
+static void beginPointerFrame(XrCtx* ctx, InputFrame* f, float* out, int headLocked,
+                              int64_t now) {
+    memset(f, 0, sizeof(*f));
+    f->out = out;
+    // Both of these have to agree with what endFrame submits, or the ray lands
+    // somewhere other than where the picture is drawn. A room world locks it
+    // and flattens it whatever the preference and the panel say.
+    f->roomOn = roomEffective(ctx) > 0;
+    f->xform.toHead = headLocked && !f->roomOn;
+    f->height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    f->curved = !f->roomOn && effectiveCurvature(ctx) > 0.01f && ctx->cylinderSupported;
+    f->radius = ctx->screenRadius;
+    f->cornerSide = cornerSide(ctx);
+    f->screenPose = ctx->screenPose;
+    f->bar = barFrame(ctx);
+
+    f->now = now;
+    f->dt = ctx->lastInputNs != 0 ? (f->now - ctx->lastInputNs) / 1e9f : 0.0f;
+    ctx->lastInputNs = f->now;
+    if (f->dt > 0.1f) {
+        f->dt = 0.1f;
+    }
+
+    // The head in the local space, the one locate every frame makes whether
+    // the screen is head locked or not
+    XrSpaceLocation head = { XR_TYPE_SPACE_LOCATION };
+    int headOk = XR_SUCCEEDED(locateSpace(ctx, ctx->viewSpace, ctx->localSpace,
+                                          ctx->predictedDisplayTime, &head));
+    f->headFlags = headOk ? (unsigned)head.locationFlags : 0u;
+    const XrSpaceLocationFlags placed = XR_SPACE_LOCATION_POSITION_VALID_BIT
+            | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+    f->xform.ok = headOk && (head.locationFlags & placed) == placed;
+    f->xform.head = head.pose;
+    if (f->xform.toHead) {
+        // In its own frame the head is always at the origin looking down -z
+        memset(&f->headPose, 0, sizeof(f->headPose));
+        f->headPose.orientation.w = 1.0f;
+        f->headValid = f->xform.ok;
+    }
+    else {
+        f->headPose = head.pose;
+        f->headValid = headOk && (head.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+    }
+    if (f->headValid) {
+        ctx->headPos = f->headPose.position;
+        // Native (lane ray-glitch): the beam's quad lies along it when the
+        // head sights down the beam (beamBasis)
+        Vec3 right = { 1.0f, 0.0f, 0.0f };
+        Vec3 r = quatRotate(f->headPose.orientation, right);
+        ctx->headRight.x = r.x;
+        ctx->headRight.y = r.y;
+        ctx->headRight.z = r.z;
+    }
+    updateHeadTurn(ctx, f);
+}
+
+// The sources read, the pointer woken or retired and the pointing source
+// picked, and the recorder's row for the frame finished
+static void pointerPass(XrCtx* ctx, InputFrame* f) {
+    statsPlace(ctx);
+    readSources(ctx, f);
+    gazeBridgeTrack(&ctx->gazeBridge, f->gazeAsked, f->gazeUsable, f->now);
+    updateLockGesture(ctx, f);
+    applyHandLock(ctx, f);
+    updatePointerWake(ctx, f);
+    pickPointingSource(ctx, f);
+    rayRowEnd(ctx, f);
+}
+
+// Native (lane ray-glitch), for the tests: the pointer's part of one input
+// frame, every runtime read through the seams, see xr_native.h
+void xrPointerStep(XrCtx* ctx, int64_t now, int headLocked) {
+    float out[IN_SLOTS];
+    memset(out, 0, sizeof(out));
+    InputFrame f;
+    beginPointerFrame(ctx, &f, out, headLocked, now);
+    pointerPass(ctx, &f);
+}
+
 // Reads the controllers and works out where they are pointing on the screen.
 // Java turns the result into host mouse events, so nothing here knows about
 // the connection.
@@ -4169,58 +4563,8 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     out[IN_POINTER] = ctx->pointerOn ? 1.0f : 0.0f;
 
     InputFrame f;
-    memset(&f, 0, sizeof(f));
-    f.out = out;
-    // Both of these have to agree with what endFrame submits, or the ray lands
-    // somewhere other than where the picture is drawn. A room world locks it
-    // and flattens it whatever the preference and the panel say.
-    f.roomOn = roomEffective(ctx) > 0;
-    f.xform.toHead = headLocked && !f.roomOn;
-    f.height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
-    f.curved = !f.roomOn && effectiveCurvature(ctx) > 0.01f && ctx->cylinderSupported;
-    f.radius = ctx->screenRadius;
-    f.cornerSide = cornerSide(ctx);
-    f.screenPose = ctx->screenPose;
-    f.bar = barFrame(ctx);
-
-    f.now = nowNs();
-    f.dt = ctx->lastInputNs != 0 ? (f.now - ctx->lastInputNs) / 1e9f : 0.0f;
-    ctx->lastInputNs = f.now;
-    if (f.dt > 0.1f) {
-        f.dt = 0.1f;
-    }
-
-    // The head in the local space, the one locate every frame makes whether
-    // the screen is head locked or not
-    XrSpaceLocation head = { XR_TYPE_SPACE_LOCATION };
-    int headOk = XR_SUCCEEDED(xrLocateSpace(ctx->viewSpace, ctx->localSpace,
-                                            ctx->predictedDisplayTime, &head));
-    const XrSpaceLocationFlags placed = XR_SPACE_LOCATION_POSITION_VALID_BIT
-            | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
-    f.xform.ok = headOk && (head.locationFlags & placed) == placed;
-    f.xform.head = head.pose;
-    if (f.xform.toHead) {
-        // In its own frame the head is always at the origin looking down -z
-        memset(&f.headPose, 0, sizeof(f.headPose));
-        f.headPose.orientation.w = 1.0f;
-        f.headValid = f.xform.ok;
-    }
-    else {
-        f.headPose = head.pose;
-        f.headValid = headOk && (head.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
-    }
-    if (f.headValid) {
-        ctx->headPos = f.headPose.position;
-    }
-    updateHeadTurn(ctx, &f);
-
-    statsPlace(ctx);
-    readSources(ctx, &f);
-    gazeBridgeTrack(&ctx->gazeBridge, f.gazeAsked, f.gazeUsable, f.now);
-    updateLockGesture(ctx, &f);
-    applyHandLock(ctx, &f);
-    updatePointerWake(ctx, &f);
-    pickPointingSource(ctx, &f);
+    beginPointerFrame(ctx, &f, out, headLocked, nowNs());
+    pointerPass(ctx, &f);
     ctx->statsOver = f.hand >= 0 && f.hand < SRC_COUNT && f.onStats[f.hand];
     clearHotState(ctx);
     updateHintOpening(ctx, &f);

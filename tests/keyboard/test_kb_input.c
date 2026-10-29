@@ -309,6 +309,58 @@ int main(void) {
     xrKeyboardFrame(c, out, now, 1);
     CHECK(c->kbKeyCount == KBF_KEY_COUNT);
 
+    // AZERTY and QWERTZ (keyboard_keymap): the context takes the map from the settings, the hit
+    // tables are the map's, the report sheet's note field stays QWERTY (it reads a code as the
+    // character it types), and the Full keyboard has the extra key beside the left Shift
+    for (int map = KB_MAP_AZERTY; map <= KB_MAP_QWERTZ; map++) {
+        s->settings.keyboard_layout = KB_LAYOUT_COMPACT;
+        s->settings.keyboard_keymap = map;
+        xrApplySettings(c, &s->settings);
+        CHECK(c->kbMap == map);
+        openKeyboard(s);
+        CHECK(xrKeyboardMap(c) == map && c->kbKeyCount == 44);
+        for (int sheet = 0; sheet < KB_STATE_COUNT; sheet++) {
+            for (int k = 0; k < 44; k++) CHECK(c->kbCodes[sheet][k] == ui_kb_map_key_code(map, sheet, k));
+        }
+        CHECK(c->kbCodes[KB_STATE_LOWER][10] == ui_kb_map_key_code(map, KB_STATE_LOWER, 10));
+        c->reportOpen = 1;
+        fresh(out);
+        xrKeyboardFrame(c, out, now, 1);
+        CHECK(xrKeyboardMap(c) == KB_MAP_QWERTY);
+        for (int sheet = 0; sheet < KB_STATE_COUNT; sheet++) {
+            for (int k = 0; k < 44; k++) CHECK(c->kbCodes[sheet][k] == ui_kb_key_code(sheet, k));
+        }
+        c->reportOpen = 0;
+        fresh(out);
+        xrKeyboardFrame(c, out, now, 1);
+        CHECK(xrKeyboardMap(c) == map && c->kbCodes[KB_STATE_LOWER][10] == ui_kb_map_key_code(map, KB_STATE_LOWER, 10));
+        Settings back = s->settings;
+        back.keyboard_keymap = 0;
+        xrSettingsFromCtx(c, &back);
+        CHECK(back.keyboard_keymap == map);
+
+        s->settings.keyboard_layout = KB_LAYOUT_FULL;
+        xrApplySettings(c, &s->settings);
+        openKeyboard(s);
+        CHECK(xrKeyboardLayout(c) == KB_LAYOUT_FULL && c->kbKeyCount == KBF_KEY_COUNT_MAX);
+        const float* iso = &c->kbKeyRects[KBF_ISO_KEY * 4];
+        CHECK(kbKeyAt(c, (iso[0] + iso[2]) * 0.5f, (iso[1] + iso[3]) * 0.5f) == KBF_ISO_KEY);
+        CHECK(rayKey(c, (iso[0] + iso[2]) * 0.5f, (iso[1] + iso[3]) * 0.5f) == KBF_ISO_KEY);
+        int shiftAt = kbfFindVk(0xA0);
+        float plainShift[4];
+        kbfKeyRect(shiftAt, plainShift);
+        CHECK(c->kbKeyRects[shiftAt * 4 + 2] < plainShift[2]);
+        fresh(out);
+        CHECK(xrKeyboardPress(c, out, KBF_ISO_KEY, 0, now) == 1);
+        CHECK((int)out[IN_KEY] == KB_CODE_VK + 0xE2 && (int)out[IN_KEY_MODS] == KBF_FLAG_DOWN);
+        kbfInit(&c->kbFull);
+    }
+    s->settings.keyboard_layout = KB_LAYOUT_COMPACT;
+    s->settings.keyboard_keymap = KB_MAP_QWERTY;
+    xrApplySettings(c, &s->settings);
+    openKeyboard(s);
+    CHECK(c->kbKeyCount == 44 && c->kbCodes[KB_STATE_LOWER][11] == 'w');
+
     // The panel draws: the Full keyboard in its states differs from plain
     scene_frame(s, NULL);
     scene_free(s);

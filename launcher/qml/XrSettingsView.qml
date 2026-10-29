@@ -165,6 +165,10 @@ Flickable {
         return Math.max(0, networkValues.indexOf(MlxrPrefs.networkPath))
     }
 
+    // The headset keyboard's letters ([vr] keyboard_keymap in the VR client's config.ini). The keys send the
+    // US keyboard's positions, so the PC has to be on the same layout
+    readonly property var keymapValues: ["qwerty", "azerty", "qwertz"]
+    readonly property var keymapNames: [qsTr("QWERTY (US)"), qsTr("AZERTY (French)"), qsTr("QWERTZ (German)")]
     // [vr] notices of the VR client's config.ini
     readonly property var noticeValues: ["all", "important", "off"]
     readonly property var noticeNames: [qsTr("All"), qsTr("Important only"), qsTr("Off")]
@@ -709,6 +713,20 @@ Flickable {
 
         // ======== Input Settings ========
         PrefCategory { text: qsTr("Input Settings") }
+
+        PrefRow {
+            objectName: "keymapRow"
+            title: qsTr("Headset keyboard layout")
+            valueText: settingsPage.keymapNames[Math.max(0, settingsPage.keymapValues.indexOf(MlxrPrefs.keyboardKeymap))]
+            summary: qsTr("The letters on the headset keyboard. The PC's Windows keyboard layout has to be the same one: the keys send their positions and Windows turns them into letters.")
+            onClicked: {
+                var e = []
+                for (var i = 0; i < settingsPage.keymapNames.length; i++) e.push({ text: settingsPage.keymapNames[i], reason: "" })
+                listDialog.show(title, e, settingsPage.keymapValues.indexOf(MlxrPrefs.keyboardKeymap), function(i) {
+                    MlxrPrefs.keyboardKeymap = settingsPage.keymapValues[i]
+                })
+            }
+        }
 
         PrefSwitch {
             title: qsTr("Enable forward/back mouse buttons")
