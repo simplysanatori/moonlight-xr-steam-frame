@@ -49,7 +49,7 @@ if [ -x "$HERE/app/moonlight-xr" ]; then          # unpacked release
     MODE=release
     PAY="$HERE/app"; ASSETS="$PAY/assets"; WRAPPER="$PAY/moonlight-xr.sh"
     FRAMEMODELS="$HERE/frame-controller-models.py"
-    CLI="$PAY/mlxr-cli"; MAIN="$PAY/moonlight-xr"; HELLO=""
+    CLI="$PAY/mlxr-cli"; MAIN="$PAY/moonlight-xr"; HELLO=""; PADPROBE="$PAY/mlxr-gamepad-probe"
     SEEDDIR="$PAY"; CEFPY="$HERE/steam_cef.py"; DOCS="$HERE"
     BUGREPORT="$PAY/bug-report.sh"; PROBE="$PAY/docs/probe/SUMMARY.md"; VRTIMING="$PAY/vrtiming.py"
     LAUNCHER_BIN="$PAY/moonlight-xr-launcher"; LAUNCHER_SH="$PAY/moonlight-xr-launcher.sh"
@@ -59,7 +59,7 @@ else                                              # source checkout
     SRC="$(cd "$HERE/.." && pwd)"; BUILD="${BUILD:-$SRC/build}"
     FRAMEMODELS="$SRC/tools/frame-models/frame-controller-models.py"
     ASSETS="$SRC/assets"; WRAPPER="$HERE/moonlight-xr.sh"
-    CLI="$BUILD/backend/mlxr-cli"; MAIN="$BUILD/moonlight-xr"; HELLO="$BUILD/hello/mlxr-hello"
+    CLI="$BUILD/backend/mlxr-cli"; MAIN="$BUILD/moonlight-xr"; HELLO="$BUILD/hello/mlxr-hello"; PADPROBE="$BUILD/input/mlxr-gamepad-probe"
     SEEDDIR="$SRC/backend"; CEFPY="$HERE/steam_cef.py"; DOCS="$SRC"
     BUGREPORT="$SRC/tools/bug-report.sh"; PROBE="$SRC/docs/probe/SUMMARY.md"; VRTIMING="$SRC/tools/vrtiming.py"
     LAUNCHER_BIN="$SRC/build-launcher/moonlight-xr-launcher"; LAUNCHER_SH="$SRC/launcher/moonlight-xr-launcher.sh"
@@ -78,6 +78,8 @@ else
     install -m755 "$MAIN" "$DEST/moonlight-xr";                    echo "  moonlight-xr"
     install -m755 "$CLI" "$DEST/mlxr-cli";                         echo "  mlxr-cli"
     [ -n "$HELLO" ] && [ -x "$HELLO" ] && { install -m755 "$HELLO" "$DEST/mlxr-hello"; echo "  mlxr-hello"; }
+    # Lists the SDL gamepads as the client classifies them (docs/dev/GAMEPAD_CERT.md)
+    [ -x "$PADPROBE" ] && { install -m755 "$PADPROBE" "$DEST/mlxr-gamepad-probe"; echo "  mlxr-gamepad-probe"; }
     install -m755 "$WRAPPER" "$DEST/moonlight-xr.sh";              echo "  moonlight-xr.sh (VR client wrapper)"
     # The flat Moonlight UI (patched moonlight-qt) that hands streams to the VR client
     if [ -x "$LAUNCHER_BIN" ] && [ -f "$LAUNCHER_SH" ]; then

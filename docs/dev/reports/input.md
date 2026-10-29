@@ -128,6 +128,20 @@ Normal gamepads connected to the Frame (Bluetooth or USB) reach the host as Moon
 6. Hold Start+Select+L1+R1 on the physical pad: the VR client leaves the stream and the host's session stays (flat UI shows Resume), same as the Frame pad's chord.
 7. `moonlight.log` has one `gamepad #N arrived: ...` line per pad (name, GUID, mapping). If a pad does nothing, send that line.
 
+# mlxr-gamepad-probe (lane wave2b-padprobe, 2026-10-29)
+
+`build/input/mlxr-gamepad-probe` (also `mlxr-gamepad-probe` beside the client after `install.sh`, in the release tarball, `--help` for the options) lists every SDL joystick and game controller the way the physical pad source sees it, and with `--watch` prints hotplug and per-event state lines for a certification pass: `docs/dev/GAMEPAD_CERT.md`.
+
+| File | What |
+| --- | --- |
+| `input/gamepads.[ch]` | Classification moved here from `gamepads_sdl.c` so it has no SDL: `gpSteamControllerPid`/`PidName`, `gpControllerType(GpSdlKind, vid, pid)`, `gpClassify`, `gpIgnoreReason` (Frame controller rule, `MLXR_GAMEPAD_IGNORE`). Behaviour unchanged |
+| `input/gamepads_sdl_info.c`, `gamepads_sdl.h` | `gpSdlDescribe`, `gpSdlReadPacket`, `gpSdlApplyHints`, `gpSdlLoadMappings`, SDL type names: what `gamepads_sdl.c` did inline, now shared with the probe (library `mlxr_input_sdlinfo`) |
+| `input/padprobe.[ch]` | No SDL: `PadProbe` runs each device through `gpIgnoreReason` and `gpAdd` on a throwaway `Gamepads` (controller number, Steam Input copy merge, serial duplicates) and prints the block, the summary, watch lines |
+| `input/gamepad_probe.c` | The SDL side and the command line |
+| `tests/input/test_padprobe.c` | ctest `input_padprobe`: classification and text for a pad with its Steam Input copy, a Frame controller (skipped), a DualSense with sensors, the 2026 Steam Controller ids, duplicates, an unmapped joystick |
+
+Steam Controller ids (`gpSteamControllerPid`): 28de:1101, 1102, 1105, 1106, 1142 (2015 controller and its dongle), 1201, 1202 (HEADCRAB), 1205 (Steam Deck built-in), 1302, 1303 (2026 controller, USB and Bluetooth LE), 1304, 1305 (the two pucks). This is moonlight-qt 6.2.0's `app/streaming/input/gamepad.cpp` list and SDL main's `src/joystick/controller_list.h` (Valve products); 28de:11ff is Steam's virtual pad and is not a Steam Controller.
+
 # Physical mice (lane/mouse, 2026-10-10)
 
 A USB or Bluetooth mouse acts as the host's mouse while the VR client is focused and streaming. Native addition; behaviour follows moonlight-qt's `app/streaming/input/mouse.cpp`.
