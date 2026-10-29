@@ -1,6 +1,7 @@
 // padOutUseLimelight against the real moonlight-common-c with no connection up:
 // the sends must be harmless (they report an error, nothing more).
 #include "check.h"
+#include "Limelight.h"
 #include "gamepads.h"
 #include "pad_out.h"
 
