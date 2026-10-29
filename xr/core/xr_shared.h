@@ -135,9 +135,13 @@
 // The key the in world keyboard just typed, or -1. Unicode with the shift
 // already applied, plus the four control codes below 32.
 #define IN_KEY      20
-// Set to 1 the frame the exit prompt is confirmed. Nothing else is meaningful
-// here, so a zeroed slot says nothing happened.
+// Set to EXIT_SLOT_QUIT the frame the exit prompt's Exit (Quit app) is pressed,
+// or to EXIT_SLOT_DISCONNECT for native's Disconnect (leave, the app keeps
+// running on the PC). Nothing else is meaningful here, so a zeroed slot says
+// nothing happened.
 #define IN_EXIT     21
+#define EXIT_SLOT_QUIT 1
+#define EXIT_SLOT_DISCONNECT 2
 // How far the head has turned from the screen, radians, positive to the left.
 // 0 with the screen locked to the head. The virtual surround turns its
 // speakers by it. Written every frame, carried over when the head is lost.
@@ -656,7 +660,10 @@
 #define EXIT_ZONE_NONE   0
 #define EXIT_ZONE_EXIT   1
 #define EXIT_ZONE_CANCEL 2
-#define EXIT_ART_COUNT   3
+// Native: the middle button of the three-button prompt (Quit app, Disconnect,
+// Cancel) a stream gets
+#define EXIT_ZONE_DISCONNECT 3
+#define EXIT_ART_COUNT   4
 // Where the two buttons sit on the sheet, as fractions of it
 #define EXIT_BTN_T 0.56f
 #define EXIT_BTN_B 0.86f
@@ -664,6 +671,13 @@
 #define EXIT_EXIT_R 0.46f
 #define EXIT_CANCEL_L 0.54f
 #define EXIT_CANCEL_R 0.92f
+// The same three buttons in a row, during a stream: Quit app, Disconnect, Cancel
+#define EXIT3_QUIT_L 0.03f
+#define EXIT3_QUIT_R 0.33f
+#define EXIT3_DISC_L 0.35f
+#define EXIT3_DISC_R 0.65f
+#define EXIT3_CANCEL_L 0.67f
+#define EXIT3_CANCEL_R 0.97f
 
 // The hand lock hint, the sheet that says once a session how the triple pinch
 // locks the hands, the first time they point: its words over OK and "Don't

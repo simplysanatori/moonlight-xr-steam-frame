@@ -548,7 +548,25 @@ XrPosef kofiSheetPose(XrCtx* ctx, float* outWidth, float* outHeight) {
 // Which of the prompt's two buttons a point is on, in the sheet's own
 // coordinates. Everything else on it is a question and a background.
 int exitPromptZone(float u, float v) {
+    return exitPromptZoneFor(u, v, 0);
+}
+
+// The same for the prompt a stream gets, whose three buttons (Quit app,
+// Disconnect, Cancel) share the row when withDisconnect is set
+int exitPromptZoneFor(float u, float v, int withDisconnect) {
     if (v < EXIT_BTN_T || v > EXIT_BTN_B) {
+        return EXIT_ZONE_NONE;
+    }
+    if (withDisconnect) {
+        if (u >= EXIT3_QUIT_L && u <= EXIT3_QUIT_R) {
+            return EXIT_ZONE_EXIT;
+        }
+        if (u >= EXIT3_DISC_L && u <= EXIT3_DISC_R) {
+            return EXIT_ZONE_DISCONNECT;
+        }
+        if (u >= EXIT3_CANCEL_L && u <= EXIT3_CANCEL_R) {
+            return EXIT_ZONE_CANCEL;
+        }
         return EXIT_ZONE_NONE;
     }
     if (u >= EXIT_EXIT_L && u <= EXIT_EXIT_R) {
@@ -558,6 +576,12 @@ int exitPromptZone(float u, float v) {
         return EXIT_ZONE_CANCEL;
     }
     return EXIT_ZONE_NONE;
+}
+
+// Whether the exit prompt offers Disconnect: while a stream is up, not over
+// the launcher's lists, where leaving is quitting the app
+int exitPromptHasDisconnect(const XrCtx* ctx) {
+    return ctx->launcher == LAUNCHER_NONE;
 }
 
 // How many rows a face has, whatever kind they are

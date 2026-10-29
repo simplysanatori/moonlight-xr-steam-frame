@@ -91,6 +91,9 @@
     /* exit prompt, hints, sheets */ \
     X(EXIT_QUESTION, "vr_exit_question", "Exit the stream?") \
     X(EXIT, "vr_exit", "Exit") \
+    X(EXIT_QUIT_APP, "vr_exit_quit_app", "Quit app") \
+    X(EXIT_DISCONNECT, "vr_exit_disconnect", "Disconnect") \
+    X(EXIT_DISCONNECT_HINT, "vr_exit_disconnect_hint", "Disconnect leaves the app running on the PC") \
     X(CANCEL, "cancel", "Cancel") \
     X(OK, "ok", "OK") \
     X(HAND_HINT_TITLE, "vr_hand_hint_title", "Hand tracking is on.") \
@@ -162,7 +165,8 @@
     X(NATIVE_STREAM_ENDED, "native_stream_ended", "The stream ended") \
     X(NATIVE_QUITTING, "native_quitting", "Ending the session on %s") \
     X(NATIVE_DISCONNECTED, "native_disconnected", "Disconnected: Start+Select+L1+R1") \
-    X(NATIVE_DISCONNECTED_KEYS, "native_disconnected_keys", "Disconnected: Ctrl+Alt+Shift+Q")
+    X(NATIVE_DISCONNECTED_KEYS, "native_disconnected_keys", "Disconnected: Ctrl+Alt+Shift+Q") \
+    X(NATIVE_DISCONNECTED_BAR, "native_disconnected_bar", "Disconnected: the app is still running on the PC")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

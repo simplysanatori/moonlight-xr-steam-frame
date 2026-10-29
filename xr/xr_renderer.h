@@ -1156,6 +1156,8 @@ void setRayOn(XrCtx* ctx, int on, const char* from);
 int panelUp(XrCtx* ctx);
 XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int exitPromptZone(float u, float v);
+int exitPromptZoneFor(float u, float v, int withDisconnect);
+int exitPromptHasDisconnect(const XrCtx* ctx);
 XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);
 XrPosef handHintPose(XrCtx* ctx, float* outWidth, float* outHeight);
 XrPosef kofiSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);

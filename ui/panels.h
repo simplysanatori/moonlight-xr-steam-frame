@@ -76,6 +76,7 @@ typedef enum {
     UI_BTN_REPORT,           // About tab
     UI_BTN_EXIT_CONFIRM,     // exit prompt (EXIT_ZONE_EXIT)
     UI_BTN_EXIT_CANCEL,      // exit prompt (EXIT_ZONE_CANCEL)
+    UI_BTN_EXIT_DISCONNECT,  // exit prompt during a stream (EXIT_ZONE_DISCONNECT)
     UI_BTN_HINT_OK,          // hint (HINT_ZONE_OK)
     UI_BTN_HINT_NEVER,       // hint (HINT_ZONE_NEVER)
     UI_BTN_KOFI_CLOSE,       // Ko-fi sheet (KOFI_ZONE_CLOSE)
@@ -150,6 +151,9 @@ typedef struct {
     // The exit prompt's question (NULL: upstream's "Exit the stream?"); the
     // native launcher asks "Quit Moonlight XR for Frame?" while no stream is up
     const char* exit_question;
+    // Native: 1 draws the prompt as Quit app / Disconnect / Cancel (a stream is
+    // up), 0 as Exit / Cancel
+    int exit_disconnect;
 } UiView;
 
 // Fills the view's defaults from settings (session toggles included)

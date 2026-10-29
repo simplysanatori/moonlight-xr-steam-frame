@@ -111,7 +111,7 @@ The bar sits under the screen. From left to right:
 | --- | --- |
 | Head aim | Only shown with Head locked on and outside a room. Your head moves the mouse. |
 | Gamepad / Pointer | Switches the controllers between pointer mode and gamepad mode. |
-| Exit | Asks "Exit the stream?". **Exit** quits the app on the PC and ends the stream. |
+| Exit | Asks "Exit the stream?" with three choices. **Quit app** quits the app on the PC and ends the stream. **Disconnect** ends the stream and leaves the app running on the PC (use **Resume Game** in the flat window to go back). **Cancel** closes the question. |
 | Environment | Opens the Rooms picker. |
 | Move pill | Grab it to move the screen. See [Moving and sizing the screen](#moving-and-sizing-the-screen). |
 | Cog | Opens the cog menu. |
@@ -284,7 +284,8 @@ Display tab, Controller model. The installer converts SteamVR's own Steam Frame 
 
 | How | What happens on the PC |
 | --- | --- |
-| Bar, Exit, then Exit | The app on the PC is quit. |
+| Bar, Exit, then Quit app | The app on the PC is quit. |
+| Bar, Exit, then Disconnect | The stream ends. The game keeps running on the PC. Use **Resume Game** in the flat window to go back. |
 | Start+Select+L1+R1 (gamepad mode, or a Bluetooth gamepad) | The stream ends. The game keeps running on the PC. Use **Resume Game** in the flat window to go back. |
 | Ctrl+Alt+Shift+Q on a Bluetooth keyboard | Same as Start+Select+L1+R1. |
 | The PC ends the stream, or the network drops | The flat window comes back. |
