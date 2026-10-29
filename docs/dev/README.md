@@ -55,6 +55,7 @@ What the developer asked the owner to check in the headset after a session.
 | [reports/au-scatter.md](reports/au-scatter.md) | The black picture of 2026-10-11: the decoder was given too few parts of each frame |
 | [reports/adapter-detect.md](reports/adapter-detect.md) | Detecting whether a Steam Frame Wireless Adapter is present |
 | [reports/netpath-quality.md](reports/netpath-quality.md) | Automatic network choice by latency and drops, not only link quality |
+| [reports/usb-cable.md](reports/usb-cable.md) | The USB cable as a third network path: the Frame's USB gadget network, candidate addresses, hot-plug, host setup |
 | [reports/launcher2.md](reports/launcher2.md) | Bitrate default, larger flat UI, Help link |
 | [reports/launcher-return.md](reports/launcher-return.md) | Getting the flat window back after a stream ends |
 | [reports/double-click.md](reports/double-click.md) | Making double clicks work with the Frame controller as the mouse |
