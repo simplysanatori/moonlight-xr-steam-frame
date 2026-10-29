@@ -79,8 +79,9 @@ jobs:
 
   # A tarball that installs on the Steam Frame. The linux-arm64 job links
   # Ubuntu 24.04's FFmpeg 6.1 (libavcodec.so.60), which SteamOS does not have;
-  # this job builds FFmpeg 7.0, the version SteamOS ships (ffmpeg 2:7.0-1.1,
-  # docs/probe/host-packages.txt), and links against it, so the binary needs
+  # this job builds FFmpeg 7.0.2 (SteamOS ships the 7.0 series, ffmpeg
+  # 2:7.0-1.1 in docs/probe/host-packages.txt; every 7.0.x has the same
+  # sonames and symbol versions) and links against it, so the binary needs
   # libavcodec.so.61 and loads the Frame's own FFmpeg at run time. glibc
   # already matches (2.39 on both, docs/probe/system.txt). The FFmpeg built
   # here is only a link target and is not shipped, so it carries just what the
@@ -91,10 +92,10 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     env:
-      FFMPEG_VERSION: '7.0'
-      # sha256 of ffmpeg-7.0.tar.xz (signature checked against the FFmpeg
+      FFMPEG_VERSION: '7.0.2'
+      # sha256 of ffmpeg-7.0.2.tar.xz (signature checked against the FFmpeg
       # release signing key FCF9 86EA 15E6 E293 A564 4F10 B432 2F04 D676 58D8)
-      FFMPEG_SHA256: 4426a94dd2c814945456600c8adfc402bee65ec14a70e8c531ec9a2cd651da7b
+      FFMPEG_SHA256: 8646515b638a3ad303e23af6a3587734447cb8fc0a0c064ecdb8e95c4fd8b389
       FFMPEG_CONFIGURE: >-
         --enable-shared --disable-static --disable-programs --disable-doc
         --disable-debug --disable-autodetect --enable-pthreads --disable-network
