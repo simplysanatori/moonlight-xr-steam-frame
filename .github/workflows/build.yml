@@ -62,7 +62,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure -j2 -E '^(audio_pulse|video_)'
         env:
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.aarch64.json
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
           MLXR_SOFT_GPU: '1'
 
       # The pictures the tests drew (ui snapshots, rooms, the world snapshot),
