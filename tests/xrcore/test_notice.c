@@ -220,7 +220,7 @@ static void testNoticeShowsForItsTime(void) {
     CHECK(noticeAdvance(&board, now, 0, &up) == 1);
     CHECK(up.kind == TOAST_RATE && up.arg == 90);
     CHECK(noticeShowing(&board, now));
-    // Said once, then up for its four seconds and gone
+    // Said once, then up for its time and gone
     CHECK(noticeAdvance(&board, now + FRAME, 0, &up) == 0);
     CHECK(noticeShowing(&board, now + NOTICE_SHOW_NS - MS));
     noticeAdvance(&board, now + NOTICE_SHOW_NS, 0, &up);
@@ -240,7 +240,7 @@ static void testNoticeOfTheSameKindReplacesAtOnce(void) {
     noticePush(&board, TOAST_HANDS_UNLOCKED, 0);
     CHECK(noticeAdvance(&board, now, 0, &up) == 1);
     CHECK(up.kind == TOAST_HANDS_UNLOCKED);
-    // And starts its own four seconds
+    // And starts its own time
     CHECK(noticeShowing(&board, now + NOTICE_SHOW_NS - MS));
 
     // The 3D going off and on again are one thing too, and two rates
@@ -293,6 +293,84 @@ static void testTheSplashHoldsThemBack(void) {
     CHECK(up.kind == TOAST_RATE && up.arg == 72);
 }
 
+// Native (upstream #42): the notices setting. All says everything, Important
+// leaves out the display rate and the 3D going on or off but keeps mode
+// changes and messages, Off says nothing.
+static void testNoticeLevels(void) {
+    NoticeBoard board;
+    noticeInit(&board);
+    Notice up = { -1, 0 };
+    CHECK(board.level == NOTICES_ALL);
+    CHECK(NOTICES_ALL == 0 && NOTICES_IMPORTANT == 1 && NOTICES_OFF == 2);
+
+    // which kinds count as important
+    CHECK(!noticeImportant(TOAST_RATE));
+    CHECK(!noticeImportant(TOAST_3D_ON) && !noticeImportant(TOAST_3D_OFF));
+    CHECK(noticeImportant(TOAST_TEXT));
+    CHECK(noticeImportant(TOAST_HANDS_LOCKED) && noticeImportant(TOAST_HANDS_UNLOCKED));
+    CHECK(noticeImportant(TOAST_HEAD_AIM_ON) && noticeImportant(TOAST_HEAD_AIM_OFF));
+    CHECK(noticeImportant(TOAST_GAMEPAD_MODE) && noticeImportant(TOAST_POINTER_MODE));
+    CHECK(noticeImportant(99));
+
+    // All: every kind goes up
+    int kinds[] = { TOAST_RATE, TOAST_3D_ON, TOAST_TEXT, TOAST_HEAD_AIM_ON, TOAST_GAMEPAD_MODE };
+    long long now = 0;
+    for (size_t i = 0; i < sizeof kinds / sizeof kinds[0]; i++) {
+        noticePush(&board, kinds[i], 0);
+        CHECK(board.count == 1);
+        CHECK(noticeAdvance(&board, now, 0, &up) == 1 && up.kind == kinds[i]);
+        now += NOTICE_SHOW_NS;
+    }
+
+    // Important: the Hz and 3D notices never queue; the rest do
+    noticeSetLevel(&board, NOTICES_IMPORTANT);
+    CHECK(board.level == NOTICES_IMPORTANT);
+    noticePush(&board, TOAST_RATE, 72);
+    noticePush(&board, TOAST_3D_OFF, 0);
+    CHECK(board.count == 0);
+    noticePush(&board, TOAST_TEXT, 1);
+    CHECK(board.count == 1);
+    CHECK(noticeAdvance(&board, now, 0, &up) == 1 && up.kind == TOAST_TEXT);
+    now += NOTICE_SHOW_NS;
+    noticePush(&board, TOAST_HEAD_AIM_ON, 0);
+    CHECK(board.count == 1);
+
+    // Off: nothing queues, and the level change clears what waits
+    noticeSetLevel(&board, NOTICES_OFF);
+    CHECK(board.count == 0);
+    noticePush(&board, TOAST_TEXT, 2);
+    noticePush(&board, TOAST_POINTER_MODE, 0);
+    CHECK(board.count == 0);
+    CHECK(noticeAdvance(&board, now, 0, &up) == 0);
+
+    // Back to All, and a notice up that a stricter level would not say is
+    // taken down when the level changes
+    noticeSetLevel(&board, NOTICES_ALL);
+    noticePush(&board, TOAST_RATE, 90);
+    CHECK(noticeAdvance(&board, now, 0, &up) == 1 && noticeShowing(&board, now));
+    noticeSetLevel(&board, NOTICES_IMPORTANT);
+    CHECK(!noticeShowing(&board, now));
+    // A message up stays through Important, and goes at Off
+    noticeSetLevel(&board, NOTICES_ALL);
+    now += NOTICE_SHOW_NS;
+    noticePush(&board, TOAST_TEXT, 3);
+    noticeAdvance(&board, now, 0, &up);
+    noticeSetLevel(&board, NOTICES_IMPORTANT);
+    CHECK(noticeShowing(&board, now));
+    noticeSetLevel(&board, NOTICES_OFF);
+    CHECK(!noticeShowing(&board, now));
+
+    // A value out of range is All, and the allowed table agrees
+    noticeSetLevel(&board, 7);
+    CHECK(board.level == NOTICES_ALL);
+    CHECK(noticeAllowed(NOTICES_ALL, TOAST_RATE) && !noticeAllowed(NOTICES_IMPORTANT, TOAST_RATE));
+    CHECK(noticeAllowed(NOTICES_IMPORTANT, TOAST_TEXT) && !noticeAllowed(NOTICES_OFF, TOAST_TEXT));
+    CHECK(noticeAllowed(-3, TOAST_RATE));
+
+    // A toast stays up a short while, and a second one waits less than that
+    CHECK(NOTICE_SHOW_NS <= 3000 * MS && NOTICE_MIN_NS < NOTICE_SHOW_NS);
+}
+
 static void testTheQueueDropsItsOldest(void) {
     NoticeBoard board;
     noticeInit(&board);
@@ -338,5 +416,6 @@ int main(void) {
     testAnotherKindWaitsItsTurn();
     testTheSplashHoldsThemBack();
     testTheQueueDropsItsOldest();
+    testNoticeLevels();
     return checksDone("xr_notice");
 }

@@ -164,6 +164,7 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Click sound | Off, On | On |
 | Glow | Off, On | Off |
 | Screen light | Off, On | On |
+| Notices | All, Important, Off | All. The small pop-ups that appear below the picture for about 2.5 seconds. Important leaves out "Display N Hz" and "3D on/off" and keeps mode changes (gamepad, head aim, hands) and messages such as errors. Off shows none. The flat window's Settings page has the same choice. |
 | Glow level | 0 to 100 % | 50 % |
 
 ### 3D

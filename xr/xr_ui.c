@@ -904,6 +904,9 @@ int cogOptionCells(int option) {
     if (option == COG_OPTION_CLICK_SOUND) {
         return COG_CLICK_SOUND_CELLS;
     }
+    if (option == COG_OPTION_NOTICES) {
+        return COG_NOTICES_CELLS;
+    }
     if (option == COG_OPTION_AMBILIGHT) {
         return COG_AMBI_CELLS;
     }
@@ -954,6 +957,9 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
     }
     if (option == COG_OPTION_ROOM_LIGHT) {
         return ctx->roomLightOn ? 1 : 0;
+    }
+    if (option == COG_OPTION_NOTICES) {
+        return ctx->notices.level;
     }
     return ctx->overlayVisible ? 1 : 0;
 }
@@ -1047,6 +1053,14 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         ctx->roomLightOn = cell != 0;
         LOGEV("room light %s from the panel", ctx->roomLightOn ? "on" : "off");
         return SETTING_ROOM_LIGHT;
+    }
+    if (option == COG_OPTION_NOTICES) {
+        // Native: takes effect for the next notice, and takes down one that
+        // the new level would not have said
+        noticeSetLevel(&ctx->notices, cell);
+        LOGEV("notices %s from the panel", cell == NOTICES_OFF ? "off"
+              : cell == NOTICES_IMPORTANT ? "important only" : "all");
+        return SETTING_NOTICES;
     }
     return -1;
 }

@@ -88,6 +88,9 @@ void MlxrPrefs::load()
     convergenceIsDefault = conv < 0;
     convergence = conv < 0 ? 50 : qBound(0, conv, 100);
     flipFaceButtons = iniBool(iniValue(ini, "vr", "flip_face_buttons", "false"));
+    // the VR client takes the name or its index; anything else is its default, all
+    const QString nt = iniValue(ini, "vr", "notices", "all").trimmed().toLower();
+    notices = (nt == "important" || nt == "1") ? "important" : (nt == "off" || nt == "2") ? "off" : "all";
 
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
@@ -96,6 +99,7 @@ void MlxrPrefs::load()
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
     m_iniFlip = flipFaceButtons;
+    m_iniNotices = notices;
 }
 
 void MlxrPrefs::save()
@@ -133,6 +137,9 @@ void MlxrPrefs::save()
     if (flipFaceButtons != m_iniFlip) {
         setIniValue(ini, "vr", "flip_face_buttons", flipFaceButtons ? "true" : "false");
     }
+    if (notices != m_iniNotices) {
+        setIniValue(ini, "vr", "notices", notices);
+    }
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
@@ -140,6 +147,7 @@ void MlxrPrefs::save()
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
     m_iniFlip = flipFaceButtons;
+    m_iniNotices = notices;
 }
 
 int MlxrPrefs::headsetMaxFps() const

@@ -40,6 +40,7 @@ static const int ENV_IDS[] = { ENV_ID_NONE, ENV_ID_PASSTHROUGH, ENV_ID_VOID, ENV
 static const char* const DEPTH_NAMES[] = { "zipdepth", "midas", "off", "flat", "ramp", "blob",
                                            "eyetest", "shifttest", "zipdepth-int8" };
 static const char* const ENVRES_NAMES[] = { "low", "standard", "high", "ultra" };
+static const char* const NOTICES_NAMES[] = { "all", "important", "off" };
 static const char* const LOG_NAMES[] = { "off", "basic", "verbose" };
 static const char* const KBLAYOUT_NAMES[] = { "compact", "full" };
 static const char* const SHARP_NAMES[] = { "off", "normal", "quality" };
@@ -89,6 +90,7 @@ static const SettingDesc TABLE[] = {
     DE("vr", "gamepad_toggle", gamepad_toggle, TOGGLE_NAMES, 0, "list_vr_gamepad_toggle: menu_grip, sticks, triggers_grips"),
     DB("vr", "flip_face_buttons", flip_face_buttons, 0, "checkbox_flip_face_buttons: swap A/B and X/Y on the gamepad"),
     DB("vr", "click_sound", click_sound, 1, "checkbox_vr_click_sound"),
+    DE("vr", "notices", notices, NOTICES_NAMES, 0, "native: the toast notices (upstream #42): all, important (leaves out the display rate and 3D on/off; keeps mode changes and errors) or off"),
     DB("vr", "gaze", gaze, 0, "checkbox_vr_gaze: look to point (native default off: with it on a controller takes the pointer back only on a press)"),
     DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),
     DB("vr", "passthrough", passthrough, 0, "checkbox_vr_passthrough"),
@@ -728,6 +730,7 @@ int settings_option_cell(const Settings* s, const SessionToggles* t, int option)
     case COG_OPTION_CLICK_SOUND: return s->click_sound;
     case COG_OPTION_AMBILIGHT: return s->glow;
     case COG_OPTION_ROOM_LIGHT: return s->screen_light;
+    case COG_OPTION_NOTICES: return clamp_int(s->notices, 0, 2);
     default: return -1;
     }
 }

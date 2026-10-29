@@ -45,6 +45,7 @@ static void test_defaults(void) {
     CHECK(geti(&s, "head_aim_deadzone") == 2);
     CHECK(geti(&s, "gamepad_toggle") == PAD_SHORTCUT_MENU_GRIP);
     CHECK(geti(&s, "click_sound") == 1);
+    CHECK(geti(&s, "notices") == NOTICES_ALL);   // native: every toast, as before the setting
     CHECK(geti(&s, "gaze") == 0 && geti(&s, "hand_tracking") == 0);   // native defaults (M4): off on the Frame until checked
     CHECK(geti(&s, "passthrough") == 0);
     CHECK(settings_environment_id(&s) == ENV_ID_VOID);   // black void unless passthrough is on
@@ -130,7 +131,7 @@ static const char* const README_KEYS[] = {
     // VR Settings
     "pointer", "pointer_sleep", "show_ray", "controller_model", "head_aim",
     "head_aim_sensitivity", "head_aim_deadzone", "gamepad_toggle", "click_sound", "gaze",
-    "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
+    "notices", "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
     "picture_brightness", "picture_contrast", "picture_gamma", "picture_saturation",
     // VR Debugging
     "depth_rate", "depth_debug", "eye_swap", "file_log",
@@ -346,6 +347,33 @@ static void test_removed_keys(void) {
         CHECK(strstr(text, GONE[i]) == NULL);
     }
     free(text);
+}
+
+static void test_notices(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    settings_from_text(&s, "[vr]\nnotices = important\n", &info);
+    CHECK(s.notices == NOTICES_IMPORTANT && info.applied == 1 && info.bad == 0);
+    settings_from_text(&s, "[vr]\nnotices = Off\n", &info);
+    CHECK(s.notices == NOTICES_OFF);
+    settings_from_text(&s, "[vr]\nnotices = 0\n", &info);
+    CHECK(s.notices == NOTICES_ALL);
+    settings_from_text(&s, "[vr]\nnotices = loud\n", &info);   // not a value: the last good one stays
+    CHECK(s.notices == NOTICES_ALL && info.bad == 1);
+    s.notices = NOTICES_IMPORTANT;
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nnotices = important\n") != NULL);
+    free(text);
+    settings_defaults(&s);
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#notices = all\n") != NULL);
+    free(text);
+    // the Display tab's row reads it
+    SessionToggles t;
+    session_from_settings(&s, &t);
+    s.notices = NOTICES_OFF;
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_NOTICES) == NOTICES_OFF);
 }
 
 static void test_network_path(void) {
@@ -589,6 +617,7 @@ int main(void) {
     test_network_path();
     test_tolerant();
     test_removed_keys();
+    test_notices();
     test_files();
     test_sliders();
     return checksDone("ui_settings");

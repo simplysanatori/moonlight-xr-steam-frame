@@ -47,6 +47,9 @@
     X(POINTER, "vr_panel_pointer", "Pointer") \
     X(GAMEPAD, "vr_panel_gamepad", "Gamepad") \
     X(ROW_GLOW_LEVEL, "vr_panel_glow_level", "Glow level") \
+    X(ROW_NOTICES, "vr_panel_notices", "Notices") \
+    X(NOTICE_CELL_ALL, "vr_panel_notices_all", "All") \
+    X(NOTICE_CELL_IMPORTANT, "vr_panel_notices_important", "Important") \
     X(SHORTCUT_MENU_GRIP, "vr_panel_shortcut_menu_grip", "Shortcut: left View + grip") \
     X(SHORTCUT_STICKS, "vr_panel_shortcut_sticks", "Shortcut: both thumbsticks") \
     X(SHORTCUT_TRIGGERS_GRIPS, "vr_panel_shortcut_triggers_grips", "Shortcut: triggers + grips") \

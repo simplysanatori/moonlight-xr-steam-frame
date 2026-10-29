@@ -159,6 +159,13 @@ Flickable {
         return Math.max(0, networkValues.indexOf(MlxrPrefs.networkPath))
     }
 
+    // [vr] notices of the VR client's config.ini
+    readonly property var noticeValues: ["all", "important", "off"]
+    readonly property var noticeNames: [qsTr("All"), qsTr("Important only"), qsTr("Off")]
+    function noticeIndex() {
+        return Math.max(0, noticeValues.indexOf(MlxrPrefs.notices))
+    }
+
     readonly property var audioNames: [qsTr("Stereo"), qsTr("5.1 Surround Sound"), qsTr("7.1 Surround Sound")]
 
     // Artemis video_format; AV1 is listed greyed (the VR client has no AV1 decoder)
@@ -762,6 +769,16 @@ Flickable {
                      qsTr("(the headset's stats panel; also on its Display tab)")
             isOn: MlxrPrefs.perfOverlay
             onSwitched: function(on) { MlxrPrefs.perfOverlay = on }
+        }
+
+        // The headset's toast: pressing the row steps All -> Important -> Off
+        PrefRow {
+            objectName: "noticesRow"
+            title: qsTr("Headset notices")
+            valueText: settingsPage.noticeNames[settingsPage.noticeIndex()]
+            summary: qsTr("The small pop-ups in the headset. Important leaves out the display rate and 3D on/off and keeps mode changes and errors.") + " " +
+                     qsTr("(also on its Display tab)")
+            onClicked: MlxrPrefs.notices = settingsPage.noticeValues[(settingsPage.noticeIndex() + 1) % settingsPage.noticeValues.length]
         }
 
         // ======== Advanced Settings ========

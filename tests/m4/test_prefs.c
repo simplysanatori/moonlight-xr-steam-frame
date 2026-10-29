@@ -252,6 +252,49 @@ static void rayRowSaved(void) {
     }
 }
 
+// The Display tab's Notices row (All / Important / Off): applied to the
+// board, stored, round-tripped, and what it silences (the Hz toast, #42)
+static void noticesRow(void) {
+    for (int cell = 0; cell < 3; cell++) {
+        Scene* sc = scene_new();
+        XrCtx* c = sc->ctx;
+        Settings s;
+        settings_defaults(&s);
+        float out[IN_SLOTS];
+        memset(out, 0, sizeof(out));
+        out[IN_SETTING] = -1;
+        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_NOTICES, cell, out);
+        CHECK((int)out[IN_SETTING] == SETTING_NOTICES && (int)out[IN_SETTING_VALUE] == cell);
+        CHECK(xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) == (cell != 0));
+        CHECK(s.notices == cell && c->notices.level == cell);
+        CHECK(cogOptionValue(c, COG_OPTION_NOTICES, 0) == cell);
+        CHECK(cogOptionCells(COG_OPTION_NOTICES) == 3);
+        Settings back;
+        settings_defaults(&back);
+        xrSettingsFromCtx(c, &back);
+        CHECK(back.notices == cell);
+        Scene* next = scene_new();
+        xrApplySettings(next->ctx, &s);
+        CHECK(next->ctx->notices.level == cell);
+        scene_free(next);
+
+        // the display rate moving, once the session's first rate has landed
+        c->rateSettled = 1;
+        c->notices.count = 0;
+        displayRateChanged(c, 90.0f, 72.0f);
+        CHECK(c->notices.count == (cell == NOTICES_ALL ? 1 : 0));
+        // a message (an error or a warning) is said at All and Important
+        c->notices.count = 0;
+        xrPanelsNotice(c, "Something went wrong");
+        CHECK(c->notices.count == (cell == NOTICES_OFF ? 0 : 1));
+        // so is a mode change
+        c->notices.count = 0;
+        noticePush(&c->notices, TOAST_HEAD_AIM_ON, 0);
+        CHECK(c->notices.count == (cell == NOTICES_OFF ? 0 : 1));
+        scene_free(sc);
+    }
+}
+
 // The Display tab: the cell lane U rings is the one xr_ui.c says is in force,
 // and the rows that come later are dead in both
 static void displayCells(void) {
@@ -334,6 +377,7 @@ int main(void) {
     thumbsAgree();
     storeSettings();
     rayRowSaved();
+    noticesRow();
     displayCells();
     return checksDone("m4 prefs");
 }

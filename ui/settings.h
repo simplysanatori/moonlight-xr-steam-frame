@@ -62,6 +62,7 @@ typedef struct Settings {
     int gamepad_toggle;    // PAD_SHORTCUT_* : 0 menu+grip, 1 sticks, 2 triggers+grips
     int flip_face_buttons; // swap A/B and X/Y on gamepad mode's pad
     int click_sound;
+    int notices;           // native: NOTICES_ALL, IMPORTANT, OFF (the toast's informational notices)
     int gaze;
     int hand_tracking;
     int passthrough;
