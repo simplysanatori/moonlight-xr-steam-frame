@@ -77,7 +77,6 @@ jobs:
             dist/SHA256SUMS
           if-no-files-found: error
 
-<<<<<<< HEAD
   # A tarball that installs on the Steam Frame. The linux-arm64 job links
   # Ubuntu 24.04's FFmpeg 6.1 (libavcodec.so.60), which SteamOS does not have;
   # this job builds FFmpeg 7.0.2 (SteamOS ships the 7.0 series, ffmpeg
@@ -106,33 +105,16 @@ jobs:
         --enable-demuxer=mov,matroska,h264,hevc
         --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb
         --enable-protocol=file
-=======
-  # The flat launcher (patched moonlight-qt 6.1.0, qmake) and its offscreen tests
-  # (tests/launcher/run_tests.sh). Ubuntu 24.04 has Qt 6.4 and the launcher needs 6.5 or newer, so
-  # Qt comes from aqtinstall (linux_arm64 builds exist from 6.7). The Frame ships qt6-base 6.8.0 and
-  # qt6-declarative 6.8.0, so this is pinned to 6.8.0: not newer than the Frame.
-  launcher:
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 90
-    env:
-      QT_VERSION: '6.8.0'
-      QT_ROOT: /home/runner/Qt
->>>>>>> origin/lane/wave0-launcher-ci
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-<<<<<<< HEAD
           fetch-depth: 0        # git describe needs the tags
-=======
-          fetch-depth: 0
->>>>>>> origin/lane/wave0-launcher-ci
 
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-<<<<<<< HEAD
             clang lld cmake ninja-build pkg-config python3 \
             glslc libvulkan-dev \
             libssl-dev libcurl4-openssl-dev libxml2-dev \
@@ -236,7 +218,27 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS
           if-no-files-found: error
-=======
+
+  # The flat launcher (patched moonlight-qt 6.1.0, qmake) and its offscreen tests
+  # (tests/launcher/run_tests.sh). Ubuntu 24.04 has Qt 6.4 and the launcher needs 6.5 or newer, so
+  # Qt comes from aqtinstall (linux_arm64 builds exist from 6.7). The Frame ships qt6-base 6.8.0 and
+  # qt6-declarative 6.8.0, so this is pinned to 6.8.0: not newer than the Frame.
+  launcher:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      QT_VERSION: '6.8.0'
+      QT_ROOT: /home/runner/Qt
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
             clang lld cmake ninja-build pkg-config python3 python3-venv \
             build-essential rsync patch \
             glslc libvulkan-dev \
@@ -289,4 +291,3 @@ jobs:
             build-launcher/shots/
             build/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
->>>>>>> origin/lane/wave0-launcher-ci
