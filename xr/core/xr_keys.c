@@ -50,7 +50,7 @@ KbPress kbPress(int sheet, int mods, int code) {
         p.mods = 0;
         // Shift is one shot over the letters, the way a phone keyboard
         // behaves, and sticky over the punctuation row above them
-        if (sheet == KB_STATE_UPPER && code >= 'A' && code <= 'Z') {
+        if (sheet == KB_STATE_UPPER && ((code >= 'A' && code <= 'Z') || code >= KB_CODE_SVKL)) {
             p.sheet = KB_STATE_LOWER;
         }
     }
