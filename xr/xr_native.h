@@ -67,12 +67,18 @@ enum {
     ATLAS_CORNER,
     ATLAS_HANDLE,
     ATLAS_OVERLAY,
+    ATLAS_BEAM_FAINT,
     ATLAS_SLOTS
 };
 // Native: 416 x 400, the whole free corner under the clock strip (x 1632..2048,
 // y 1840..2240), so the longest stats line wraps rather than being cut off
 #define ATLAS_OVERLAY_W 416
 #define ATLAS_OVERLAY_H 400
+// Native: the resting beam shown over the bar with the ray off, a short strip
+// of the beam's art at a third of its strength, stretched along the beam
+// (x 1280..1344, y 2496..2536, under the beam's own slot)
+#define ATLAS_BEAM_FAINT_H 40
+#define BEAM_FAINT_LEVEL 0.30f
 UiRectPx xrAtlasRect(int slot);
 // The CPU copy the panels draw into (RGBA8 premultiplied, UI_ATLAS_W wide)
 uint8_t* xrAtlasPixels(XrCtx* ctx);

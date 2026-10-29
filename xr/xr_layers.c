@@ -766,6 +766,10 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
         }
         ctx->rayDrawnSaid = beamShown;
     }
+    // Native: with the ray and the dot off, a faint beam while the controller
+    // is in the bar's hover band, so the bar can be found (xr_controller.c)
+    int beamKind = rayBeamKind(ctx->raySetting, ctx->rayFlipped, panelUp(ctx), ctx->dotOn, view->barArea);
+    int beamSlot = beamKind == RAY_BEAM_RESTING ? ATLAS_BEAM_FAINT : ATLAS_BEAM;
 
     if (ctx->beamVisible && !ctx->beamGaze && ctx->pointerArtReady) {
         Vec3 start = { ctx->beamStart.x, ctx->beamStart.y, ctx->beamStart.z };
@@ -790,12 +794,12 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
             }
         }
 
-        if (length > 0.10f && beamShown) {
+        if (length > 0.10f && beamKind != RAY_BEAM_NONE) {
             beamX = vecNorm(beamX);
             Vec3 beamZ = vecCross(beamX, beamY);
             XrPosef beamPose = { quatFromBasis(beamX, beamY, beamZ),
                                  { mid.x, mid.y, mid.z } };
-            atlasQuad(ctx, &layers->beam, NULL, ATLAS_BEAM, view->space, beamPose, ctx->beamWidth,
+            atlasQuad(ctx, &layers->beam, NULL, beamSlot, view->space, beamPose, ctx->beamWidth,
                       length);
             pushLayer(ctx, layers, &layers->beam);
         }

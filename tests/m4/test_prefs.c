@@ -365,6 +365,77 @@ static void cogTabKept(void) {
     scene_free(sc);
 }
 
+// How many of the frame's quads show a slot of the atlas
+static int quadsOfSlot(const Scene* sc, int slot) {
+    UiRectPx r = xrAtlasRect(slot);
+    int n = 0;
+    for (uint32_t i = 0; i < sc->out.count; i++) {
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)sc->out.order[i];
+        if (q->type == XR_TYPE_COMPOSITION_LAYER_QUAD && q->subImage.imageRect.offset.x == r.x
+                && q->subImage.imageRect.offset.y == r.y && q->subImage.imageRect.extent.width == r.w
+                && q->subImage.imageRect.extent.height == r.h) {
+            n++;
+        }
+    }
+    return n;
+}
+
+// With the Ray row on Off, a faint beam is drawn only while the controller is
+// in the bar's hover band, so the bar can be found; the Dot cell, the Ray
+// cell, a panel and the rest of the view are not changed by it
+static void restingBeam(void) {
+    Vec3 hand = { 0.2f, -0.3f, -0.3f }, at = { 0, -1.0f, -3.0f };
+    for (int cell = 0; cell < 3; cell++) {
+        Scene* sc = scene_new();
+        XrCtx* c = sc->ctx;
+        float out[IN_SLOTS];
+        memset(out, 0, sizeof(out));
+        out[IN_SETTING] = -1;
+        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_RAY, cell, out);
+        // Off 0, Dot 1, Ray 2: only Off has neither the beam nor the dot
+        int full = cell == 2 ? 1 : 0, faintInBand = cell == 0 ? 1 : 0;
+
+        c->hoverKind = HOVER_SCREEN;
+        scene_ray_to(sc, hand, at);
+        scene_frame(sc, NULL);
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM) == full);
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM_FAINT) == 0);
+
+        c->hoverKind = HOVER_BAR;
+        scene_frame(sc, NULL);
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM) == full);
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM_FAINT) == faintInBand);
+
+        // on a bar button too, and gone again once the ray leaves the band
+        c->hoverKind = HOVER_COGBUTTON;
+        scene_frame(sc, NULL);
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM_FAINT) == faintInBand);
+        c->hoverKind = HOVER_NONE;
+        scene_frame(sc, NULL);
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM_FAINT) == 0);
+
+        // a panel up brings the full beam back, never the stub
+        c->hoverKind = HOVER_BAR;
+        c->cogOpen = 1;
+        c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
+        scene_frame(sc, NULL);
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM) == 1);
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM_FAINT) == 0);
+        scene_free(sc);
+    }
+    // the bar's own Ray button, which is the session's only: on the Ray cell,
+    // switched off from the bar, the stub shows in the band
+    Scene* sc = scene_new();
+    XrCtx* c = sc->ctx;
+    c->dotOn = 0;
+    setRayOn(c, 0, "the bar button");
+    c->hoverKind = HOVER_BAR;
+    scene_ray_to(sc, hand, at);
+    scene_frame(sc, NULL);
+    CHECK(quadsOfSlot(sc, ATLAS_BEAM_FAINT) == 1 && quadsOfSlot(sc, ATLAS_BEAM) == 0);
+    scene_free(sc);
+}
+
 // The Display tab: the cell lane U rings is the one xr_ui.c says is in force,
 // and the rows that come later are dead in both
 static void displayCells(void) {
@@ -449,6 +520,7 @@ int main(void) {
     rayRowSaved();
     noticesRow();
     cogTabKept();
+    restingBeam();
     displayCells();
     return checksDone("m4 prefs");
 }

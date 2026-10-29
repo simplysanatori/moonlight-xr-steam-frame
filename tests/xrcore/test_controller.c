@@ -52,6 +52,39 @@ static void testRayDrawn(void) {
     CHECK(rayDrawn(1, 1, 1));
 }
 
+static void testRayBeamKind(void) {
+    // Every combination against the rule written out: whatever rayDrawn
+    // allows is the full beam; otherwise the resting stub shows only with the
+    // dot off, no panel up and the controller over the bar's band
+    for (int setting = 0; setting < 2; setting++) {
+        for (int flipped = 0; flipped < 2; flipped++) {
+            for (int panel = 0; panel < 2; panel++) {
+                for (int dot = 0; dot < 2; dot++) {
+                    for (int band = 0; band < 2; band++) {
+                        int want = rayDrawn(setting, flipped, panel) ? RAY_BEAM_FULL
+                                 : (band && !dot && !panel) ? RAY_BEAM_RESTING : RAY_BEAM_NONE;
+                        CHECK(rayBeamKind(setting, flipped, panel, dot, band) == want);
+                    }
+                }
+            }
+        }
+    }
+    // Ray Off, Dot Off (the cog's Off cell) from the start of a session:
+    // nothing away from the bar, the stub inside its band, nothing again once
+    // a panel opens (the full beam comes back there), and the full beam when
+    // the ray is on whatever the band says
+    CHECK(rayBeamKind(0, 0, 0, 0, 0) == RAY_BEAM_NONE);
+    CHECK(rayBeamKind(0, 0, 0, 0, 1) == RAY_BEAM_RESTING);
+    CHECK(rayBeamKind(0, 0, 1, 0, 1) == RAY_BEAM_FULL);
+    CHECK(rayBeamKind(1, 0, 0, 1, 0) == RAY_BEAM_FULL);
+    CHECK(rayBeamKind(1, 0, 0, 1, 1) == RAY_BEAM_FULL);
+    // Ray Off with the Dot on: the dot shows where it points, so no stub
+    CHECK(rayBeamKind(0, 0, 0, 1, 1) == RAY_BEAM_NONE);
+    // Switched off from the bar for the session: the same as the setting off
+    CHECK(rayBeamKind(1, 1, 0, 0, 1) == RAY_BEAM_RESTING);
+    CHECK(rayBeamKind(1, 1, 0, 0, 0) == RAY_BEAM_NONE);
+}
+
 static void testModelShown(void) {
     const unsigned located = GATE_POSITION_VALID | GATE_ORIENTATION_VALID
             | GATE_ORIENTATION_TRACKED;
@@ -234,6 +267,7 @@ static void testDotSize(void) {
 int main(void) {
     testRaySwitch();
     testRayDrawn();
+    testRayBeamKind();
     testModelShown();
     testModelMatrix();
     testDotSize();

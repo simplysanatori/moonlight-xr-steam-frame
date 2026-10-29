@@ -26,6 +26,7 @@ UiRectPx xrAtlasRect(int slot) {
         [ATLAS_CORNER - UI_PANEL_COUNT] = { 1536, 2240, CORNER_TEX_W, CORNER_TEX_H },
         [ATLAS_HANDLE - UI_PANEL_COUNT] = { 1600, 2240, BAR_TEX_W, BAR_TEX_H },
         [ATLAS_OVERLAY - UI_PANEL_COUNT] = { 1632, 1840, ATLAS_OVERLAY_W, ATLAS_OVERLAY_H },
+        [ATLAS_BEAM_FAINT - UI_PANEL_COUNT] = { 1280, 2240 + PTR_BEAM_H, PTR_TEX_W, ATLAS_BEAM_FAINT_H },
     };
     if (slot >= 0 && slot < UI_PANEL_COUNT) {
         return ui_atlas_rect((UiPanelId)slot);
@@ -394,6 +395,23 @@ void xrDrawCodeArt(uint8_t* atlas) {
             float a = expf(-t * t) * lengthFade;
             float lit = (float)(unsigned char)(a * 255.0f + 0.5f);
             putGrey(slotPx(atlas, ATLAS_BEAM, x, y), lit, lit);
+        }
+    }
+
+    // The resting beam: the same profile at a third of the strength (the
+    // atlas is premultiplied, so grey and alpha scale together), shown over the
+    // bar with the ray off. It has no colour scale to fade with, so it is its
+    // own art.
+    for (int y = 0; y < ATLAS_BEAM_FAINT_H; y++) {
+        float along = (y + 0.5f) / ATLAS_BEAM_FAINT_H;
+        float edge = along < 0.5f ? along : 1.0f - along;
+        float lengthFade = edge < 0.12f ? edge / 0.12f : 1.0f;
+        for (int x = 0; x < PTR_TEX_W; x++) {
+            float r = fabsf((x + 0.5f) - pmid) / pmid;
+            float t = r * 3.2f;
+            float a = expf(-t * t) * lengthFade * BEAM_FAINT_LEVEL;
+            float lit = (float)(unsigned char)(a * 255.0f + 0.5f);
+            putGrey(slotPx(atlas, ATLAS_BEAM_FAINT, x, y), lit, lit);
         }
     }
 

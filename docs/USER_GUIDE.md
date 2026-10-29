@@ -105,7 +105,7 @@ The last line of the page says where the headset's own settings are saved (`~/.c
 
 ## In the headset: the bar
 
-The bar sits under the screen. From left to right:
+The bar sits under the screen and shows its buttons only while the ray is over it (see [Controllers](#controllers) if you run with the ray off). From left to right:
 
 | Button | What it does |
 | --- | --- |
@@ -261,7 +261,7 @@ The Environment button opens the Rooms picker:
 | Grand Cinema | A large cinema. The screen size is fixed. |
 | Synthwave | A neon landscape |
 
-The choice is remembered. Inside a room the bar's move pill does nothing, and the Screen tab becomes the Room tab. Controller models are hidden in passthrough.
+The choice is remembered. Inside a room the bar's move pill does nothing, and the Screen tab becomes the Room tab. Controllers are hidden in passthrough.
 
 ## 3D
 
@@ -272,6 +272,20 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 - 3D is on by default and remembered.
 - The default model is ZipDepth. `depth_source` in `config.ini` chooses `zipdepth`, `zipdepth-int8` (lighter on the CPU) or `midas`.
 
+## Controllers
+
+The cog's **Display** tab has the controller rows together: **Mode**, **Show controllers**, **Ray**, **Pointer sleep** and **Click sound**.
+
+| Row | What it does |
+| --- | --- |
+| Show controllers | Off by default: no controller is drawn in the headset. Turn it on to draw a controller in each hand. The installer converts SteamVR's own Steam Frame controller models on your Frame, so the models match the real controllers and move with your buttons and sticks. Valve's models are never in the download. If the conversion fails, a generic controller is shown. Controllers are hidden in passthrough. |
+| Mode | Pointer or Gamepad. Every session starts in pointer mode. |
+| Ray | Off, Dot or Ray: how the pointer shows. |
+
+**Bar = this session, cog = saved.** The bar's Ray, Gamepad / Pointer and Head aim buttons change this session only. The cog's Ray row and Show controllers are kept for the next session.
+
+The bar is hidden until the ray is over it. With **Ray** set to **Off** (no beam and no dot), a faint beam shows only while the controller points into the bar's area under the screen, so you can still find the bar. Anywhere else, and with a panel open, nothing extra is drawn.
+
 ## Keyboards, mice and gamepads
 
 | Device | Notes |
@@ -280,10 +294,6 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 | Bluetooth keyboard | Pair it in SteamOS. Keys go to the PC while the stream is in front. The app takes the keyboard for itself during the stream. |
 | Bluetooth mouse | Same as the keyboard. While you use the mouse, the controller ray does not move the cursor. |
 | Bluetooth gamepad | Pair it in SteamOS. It shows up as a gamepad on the PC, next to the Frame controllers. The Steam Virtual Gamepad copy of the same pad is ignored. Start+Select+L1+R1 disconnects. |
-
-### Controller models
-
-Display tab, Show controllers. The installer converts SteamVR's own Steam Frame controller models on your Frame, so the models match the real controllers and move with your buttons and sticks. Valve's models are never in the download. If the conversion fails, a generic controller is shown.
 
 ## Ending a stream
 
