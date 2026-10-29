@@ -282,7 +282,7 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 
 ### Controller models
 
-Display tab, Controller model. The installer converts SteamVR's own Steam Frame controller models on your Frame, so the models match the real controllers and move with your buttons and sticks. Valve's models are never in the download. If the conversion fails, a generic controller is shown.
+Display tab, Controller model. The installer converts SteamVR's own Steam Frame controller models on your Frame, so the models match the real controllers and move with your buttons and sticks. Valve's models are never in the download. If the conversion fails, a generic controller is shown. To draw a model of your own, convert it with `tools/xr/make_model.py`; see [Custom controller models](CUSTOM_MODELS.md).
 
 ## Ending a stream
 
