@@ -38,6 +38,10 @@ int main(void) {
     CHECK(strcmp(run(&k, 'A', 0), "+10/0 +41/1 -41/1 -10/0 ") == 0);
     CHECK(strcmp(run(&k, 8, 0), "+8/0 -8/0 ") == 0);
     CHECK(strcmp(run(&k, KB_CODE_VK + 0x70, 0), "+70/0 -70/0 ") == 0); // F1
+    // a key with Shift round it, the digits of a French number row (KB_CODE_SVK) and the like
+    CHECK(strcmp(run(&k, KB_CODE_SVK + '1', 0), "+10/0 +31/1 -31/1 -10/0 ") == 0);
+    CHECK(strcmp(run(&k, KB_CODE_SVKL + 0xBA, 0), "+10/0 +ba/1 -ba/1 -10/0 ") == 0);
+    CHECK(strcmp(run(&k, KB_CODE_VK + 0xBA, 0), "+ba/0 -ba/0 ") == 0);
     CHECK(strcmp(run(&k, '!', 0), "t:! ") == 0);
     CHECK(strcmp(run(&k, 0xE9, 0), "t:\xC3\xA9 ") == 0);              // é as UTF-8
     // Ctrl lit: put down once, the key carries it, and it stays down

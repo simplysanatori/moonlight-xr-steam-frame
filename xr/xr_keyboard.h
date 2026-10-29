@@ -15,6 +15,10 @@
 // The layout showing: the choice, but Compact while the report sheet is up
 // (its fields take characters, not key codes)
 int xrKeyboardLayout(XrCtx* ctx);
+// The key map showing (KB_MAP_*): the choice (config.ini keyboard_keymap),
+// but QWERTY while the report sheet is up, whose note field takes the code of
+// a key as the character it types
+int xrKeyboardMap(XrCtx* ctx);
 // Fills kbKeyCount, kbKeyRects and kbCodes for the layout showing
 void xrKeyboardFillTables(XrCtx* ctx);
 // The start of an input pass, and again at its end: when the layout showing

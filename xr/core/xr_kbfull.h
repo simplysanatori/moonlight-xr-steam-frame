@@ -48,6 +48,20 @@
 
 #define KBF_KEY_COUNT 88  /* 87 keys and the layout key */
 
+// The key maps (config.ini keyboard_keymap): what the keys say, and so which
+// Windows layout the PC has to be on. Every key keeps the virtual key of the
+// US keyboard's key in that place; the host's layout turns it into the
+// character (Sunshine and Apollo send each as the US scan code), so only the
+// labels change. The French and German boards also have a key beside the left
+// Shift (VK_OEM_102, "<" and ">"): the Full keyboard grows it, at index
+// KBF_ISO_KEY, and the left Shift is the shorter for it.
+#define KB_MAP_QWERTY 0
+#define KB_MAP_AZERTY 1
+#define KB_MAP_QWERTZ 2
+#define KB_MAP_COUNT 3
+#define KBF_ISO_KEY 88
+#define KBF_KEY_COUNT_MAX 89
+
 // What a key does
 enum { KBF_NORMAL = 0, KBF_MOD, KBF_CAPS, KBF_LAYOUT };
 
@@ -66,14 +80,19 @@ typedef struct {
 #define KBF_UNITS_H 6.5f
 
 const KbfKey* kbfKey(int index);
+// The keys the Full keyboard has on a map: KBF_KEY_COUNT, and the ISO key too
+// on AZERTY and QWERTZ. Out of range gives QWERTY.
+int kbfKeyCountFor(int map);
 // The key's rectangle on the panel (0..1: x0, y0, x1, y1)
 void kbfKeyRect(int index, float r[4]);
+void kbfKeyRectFor(int map, int index, float r[4]);
 // The key code the panel's tables carry: KB_CODE_VK + vk, or KB_CODE_LAYOUT
 int kbfKeyCode(int index);
 // The key whose code is vk (a modifier by its own side), or -1
 int kbfFindVk(int vk);
 // The label to draw given the modifiers down (KBF_ mask) and Caps Lock
 const char* kbfLabel(int index, int mods, int caps);
+const char* kbfLabelFor(int map, int index, int mods, int caps);
 // The Moonlight modifier flags (MODIFIER_*) for a KBF_ mask
 int kbfModifierByte(int mods);
 

@@ -9,14 +9,20 @@ int xrKeyboardLayout(XrCtx* ctx) {
     return ctx->reportOpen ? KB_LAYOUT_COMPACT : ctx->kbLayout;
 }
 
+int xrKeyboardMap(XrCtx* ctx) {
+    return ctx->reportOpen || ctx->kbMap < 0 || ctx->kbMap >= KB_MAP_COUNT ? KB_MAP_QWERTY : ctx->kbMap;
+}
+
 void xrKeyboardFillTables(XrCtx* ctx) {
     memset(ctx->kbKeyRects, 0, sizeof(ctx->kbKeyRects));
     memset(ctx->kbCodes, 0, sizeof(ctx->kbCodes));
     int layout = xrKeyboardLayout(ctx);
+    int map = xrKeyboardMap(ctx);
     if (layout == KB_LAYOUT_FULL) {
-        ctx->kbKeyCount = KBF_KEY_COUNT;
-        for (int k = 0; k < KBF_KEY_COUNT; k++) {
-            kbfKeyRect(k, &ctx->kbKeyRects[k * 4]);
+        int keys = kbfKeyCountFor(map);
+        ctx->kbKeyCount = keys;
+        for (int k = 0; k < keys; k++) {
+            kbfKeyRectFor(map, k, &ctx->kbKeyRects[k * 4]);
             for (int sheet = 0; sheet < KB_STATE_COUNT; sheet++) {
                 ctx->kbCodes[sheet][k] = kbfKeyCode(k);
             }
@@ -30,7 +36,7 @@ void xrKeyboardFillTables(XrCtx* ctx) {
         for (int k = 0; k < ctx->kbKeyCount; k++) {
             ui_kb_key_rect(k, &ctx->kbKeyRects[k * 4]);
             for (int sheet = 0; sheet < KB_STATE_COUNT; sheet++) {
-                ctx->kbCodes[sheet][k] = ui_kb_key_code(sheet, k);
+                ctx->kbCodes[sheet][k] = ui_kb_map_key_code(map, sheet, k);
             }
         }
         // The chip beside the home row is hit-tested past the keys (kbKeyAt);
@@ -42,7 +48,7 @@ void xrKeyboardFillTables(XrCtx* ctx) {
             }
         }
     }
-    ctx->kbLayoutShown = layout | (ctx->reportOpen ? 2 : 0);
+    ctx->kbLayoutShown = layout | (ctx->reportOpen ? 2 : 0) | (map << 2);
 }
 
 // A key event into the key slot, if it is free. Returns 1 if it went.
@@ -72,7 +78,7 @@ static void letGoOfAll(XrCtx* ctx, float* out) {
 }
 
 void xrKeyboardSync(XrCtx* ctx, float* out) {
-    int layout = xrKeyboardLayout(ctx) | (ctx->reportOpen ? 2 : 0);
+    int layout = xrKeyboardLayout(ctx) | (ctx->reportOpen ? 2 : 0) | (xrKeyboardMap(ctx) << 2);
     if (layout == ctx->kbLayoutShown) {
         return;
     }
