@@ -66,7 +66,7 @@ static const SettingDesc TABLE[] = {
     DS("stream", "app", app, "", "name of the host app last launched (empty: ask)"),
     DE("stream", "resolution", resolution, SETTINGS_RESOLUTIONS, 4, "list_resolution; 1440p on a headset, 4K is one entry away"),
     DE("stream", "fps", fps, FPS_NAMES, 3, "list_fps; the stream never goes above the display's rate (SteamVR's per-app setting: 72, 90, 120 or 144)"),
-    DI("stream", "bitrate_kbps", bitrate_kbps, 0, 150000, 0, "seekbar_bitrate_kbps; 0 follows resolution and frame rate, else 500..150000"),
+    DI("stream", "bitrate_kbps", bitrate_kbps, 0, MLXR_BITRATE_MAX_KBPS, 0, "seekbar_bitrate_kbps; 0 follows resolution and frame rate, else 500..500000 (the flat launcher's custom bitrate goes to 500 Mbps)"),
     DE("stream", "codec", codec, CODEC_NAMES, 0, "list_video_format: auto, av1, hevc, h264"),
     DE("stream", "audio_config", audio_config, AUDIO_NAMES, 0, "list_audio_config: stereo, 5.1, 7.1"),
     DB("stream", "virtual_surround", virtual_surround, 0, "checkbox_vr_virtual_surround: place 5.1 and 7.1 speakers around you in stereo"),
@@ -252,7 +252,7 @@ void settings_clamp(Settings* s) {
             settings_set(s, d, settings_get(s, d));
         }
     }
-    // a bitrate is 0 (follow resolution and rate) or 500..150000 kbps
+    // a bitrate is 0 (follow resolution and rate) or 500..MLXR_BITRATE_MAX_KBPS kbps
     if (s->bitrate_kbps > 0 && s->bitrate_kbps < 500) s->bitrate_kbps = 500;
     // glow level moves in five percent steps
     s->glow_level = (s->glow_level + 2) / 5 * 5;
@@ -590,7 +590,7 @@ int settings_default_bitrate_kbps(int width, int height, int fps) {
 }
 
 int settings_bitrate_kbps(const Settings* s) {
-    if (s->bitrate_kbps > 0) return clamp_int(s->bitrate_kbps, 500, 150000);
+    if (s->bitrate_kbps > 0) return clamp_int(s->bitrate_kbps, 500, MLXR_BITRATE_MAX_KBPS);
     int w, h;
     settings_resolution(s, &w, &h);
     return settings_default_bitrate_kbps(w, h, settings_fps_value(s));

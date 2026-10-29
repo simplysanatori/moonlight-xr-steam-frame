@@ -292,7 +292,7 @@ static void test_clamping(void) {
     CHECK(s.room[0].screen == ROOM_SCREEN_MIN);          // the theater's lane starts at a quarter
     CHECK(s.room[2].brightness == ROOM_BRIGHTNESS_MAX);
     CHECK(s.glow_level == 55);                           // five percent steps
-    CHECK(s.bitrate_kbps == 500);                        // 500..150000 where not 0
+    CHECK(s.bitrate_kbps == 500);                        // 500..500000 where not 0
     CHECK(s.resolution == 4);                            // an enum index out of range is unreadable, the default stays
     CHECK(s.fps == 4);                                   // 4 is a valid index (120)
     CHECK(s.separation == COG_SEP_STEPS && s.convergence == 100);
@@ -327,6 +327,24 @@ static void test_clamping(void) {
 
 // Keys removed because nothing read them: an old config.ini that still has
 // them loads, the rest of the file applies, and they are not written again
+// The config.ini bitrate follows the flat launcher's 500 Mbps ceiling (it stopped at 150)
+static void test_bitrate_ceiling(void) {
+    Settings s;
+    settings_defaults(&s);
+    settings_from_text(&s, "[stream]\nbitrate_kbps = 300000\n", NULL);
+    CHECK(s.bitrate_kbps == 300000 && settings_bitrate_kbps(&s) == 300000);
+    settings_from_text(&s, "[stream]\nbitrate_kbps = 500000\n", NULL);
+    CHECK(settings_bitrate_kbps(&s) == 500000);
+    SettingsLoadInfo info;
+    settings_from_text(&s, "[stream]\nbitrate_kbps = 900000\n", &info);
+    CHECK(s.bitrate_kbps == 500000 && info.clamped == 1);
+    settings_from_text(&s, "[stream]\nbitrate_kbps = 100\n", NULL);
+    CHECK(s.bitrate_kbps == 500);
+    // the default curve is untouched
+    CHECK(settings_default_bitrate_kbps(2560, 1440, 144) == 124000);
+    CHECK(MLXR_BITRATE_MAX_KBPS == 500000);
+}
+
 static void test_removed_keys(void) {
     static const char* const GONE[] = { "auto_desktop", "check_updates", "language", "vr_mode",
                                         "doff_grace" };
@@ -617,6 +635,7 @@ int main(void) {
     test_network_path();
     test_tolerant();
     test_removed_keys();
+    test_bitrate_ceiling();
     test_notices();
     test_files();
     test_sliders();

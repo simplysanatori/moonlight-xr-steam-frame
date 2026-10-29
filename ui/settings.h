@@ -19,6 +19,11 @@
 
 #define UI_STR_MAX 128
 
+// The highest bitrate a setting may ask for: the flat launcher's custom bitrate
+// goes to 500 Mbps, so config.ini follows (it capped at 150 Mbps before). The
+// default curve for a size and rate still tops out at 150000 (its 4K figure).
+#define MLXR_BITRATE_MAX_KBPS 500000
+
 typedef struct {
     int brightness;   // hundredths of the room as baked
     int glow;         // 0/1
