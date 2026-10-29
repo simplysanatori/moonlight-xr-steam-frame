@@ -5,11 +5,13 @@
 # the Frame or a gadget, pings the Frame's device-side address, and prints an
 # iperf3 hint when iperf3 is on PATH. Changes nothing.
 #
-# Usage (Frame connected by its USB-C data cable, Developer Mode on):
-#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\probe\usb-probe-windows.ps1
+# Usage (Frame connected by its USB-C data cable, Developer Mode on). The Frame's
+# device-side address is the usb0 address that `ip -br addr` shows on the Frame.
+# Pass it with -FrameAddress or set MLXR_FRAME_USB_IP; without it the ping is skipped.
+#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\probe\usb-probe-windows.ps1 -FrameAddress <usb0-address>
 
 param(
-    [string]$FrameAddress = '10.86.200.233',
+    [string]$FrameAddress = $env:MLXR_FRAME_USB_IP,
     [string]$PcSubnetPrefix = '10.86.200.'
 )
 
@@ -67,12 +69,18 @@ if ($usb.Count -eq 0) {
     $usb | Select-Object Status, Class, FriendlyName | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
 }
 
-Section "Ping $FrameAddress"
-& ping.exe -n 4 -w 1000 $FrameAddress
-if ($LASTEXITCODE -eq 0) {
-    Write-Host 'reply received'
+$target = if ($FrameAddress) { $FrameAddress } else { '<frame-usb0-address>' }
+
+Section "Ping $target"
+if (-not $FrameAddress) {
+    Write-Host 'skipped: no Frame address. Pass -FrameAddress or set MLXR_FRAME_USB_IP (usb0 address from ip -br addr on the Frame).'
 } else {
-    Write-Host "no reply (exit $LASTEXITCODE): check the adapter above has a $($PcSubnetPrefix)x address and the cable is data-capable"
+    & ping.exe -n 4 -w 1000 $FrameAddress
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host 'reply received'
+    } else {
+        Write-Host "no reply (exit $LASTEXITCODE): check the adapter above has a $($PcSubnetPrefix)x address and the cable is data-capable"
+    }
 }
 
 Section 'iperf3'
@@ -80,8 +88,8 @@ $iperf = Get-Command iperf3 -ErrorAction SilentlyContinue
 if ($iperf) {
     Write-Host "found: $($iperf.Source)"
     Write-Host 'The Frame needs an iperf3 server running first (only if iperf3 exists there): iperf3 -s'
-    Write-Host "PC to Frame:  iperf3 -c $FrameAddress -t 10"
-    Write-Host "Frame to PC:  iperf3 -c $FrameAddress -t 10 -R"
+    Write-Host "PC to Frame:  iperf3 -c $target -t 10"
+    Write-Host "Frame to PC:  iperf3 -c $target -t 10 -R"
 } else {
     Write-Host 'iperf3 not on PATH; skipped (the throughput test is optional)'
 }

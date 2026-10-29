@@ -3,7 +3,7 @@
 # and the USB-C gadget network (plan 4c.1). GPLv3.
 #
 # Run it on the Frame from the PC; see tools/probe/README.md:
-#   ssh steamos@192.168.0.168 'bash -s' < tools/probe/frame-probe.sh
+#   ssh steamos@<frame-address> 'bash -s' < tools/probe/frame-probe.sh
 #
 # Output goes to ~/moonlight-xr-probe/<timestamp>/report.txt on the Frame and
 # is echoed to stdout. The script changes no system state: no package, config,

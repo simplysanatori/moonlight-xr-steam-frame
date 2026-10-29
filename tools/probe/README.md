@@ -8,8 +8,8 @@ Two read-only probes for the owner to run when the Steam Frame is back online.
   Mesa package versions, the USB gadget/UDC/Type-C state (plan row 4c.1), battery
   sysfs, Wi-Fi power save, and the SteamVR render-model directories.
 - `usb-probe-windows.ps1` runs on the PC. It is the PC side of plan row 4c.1:
-  USB Ethernet adapters and their IPs, routes into 10.86.200.0/24, a ping to the
-  Frame's 10.86.200.233, and an iperf3 hint.
+  USB Ethernet adapters and their IPs, routes into the PC's link subnet, a ping to the
+  Frame's device-side address (from `$env:MLXR_FRAME_USB_IP`), and an iperf3 hint.
 
 Neither script changes system state. Each section prints "not present" for a
 missing tool or file and the scripts keep going.
@@ -25,14 +25,14 @@ missing tool or file and the scripts keep going.
 From the fork root in Git Bash:
 
 ```
-tr -d '\r' < tools/probe/frame-probe.sh | ssh steamos@192.168.0.168 'bash -s'
+tr -d '\r' < tools/probe/frame-probe.sh | ssh steamos@<frame-address> 'bash -s'
 ```
 
 The `tr` is needed because the Windows checkout uses CRLF line endings, and bash
 on the Frame cannot run a script with `\r` in it. From PowerShell:
 
 ```
-(Get-Content -Raw tools\probe\frame-probe.sh) -replace "`r", '' | ssh steamos@192.168.0.168 'bash -s'
+(Get-Content -Raw tools\probe\frame-probe.sh) -replace "`r", '' | ssh steamos@<frame-address> 'bash -s'
 ```
 
 The report is written on the Frame to `~/moonlight-xr-probe/<timestamp>/report.txt`
@@ -46,8 +46,8 @@ and printed to the terminal too.
   `tests/video` target (aarch64 only) and run:
 
   ```
-  ssh steamos@192.168.0.168 'mkdir -p moonlight-xr-probe/bin'
-  scp path/to/build/tests/video/mlxr-decode-test steamos@192.168.0.168:moonlight-xr-probe/bin/
+  ssh steamos@<frame-address> 'mkdir -p moonlight-xr-probe/bin'
+  scp path/to/build/tests/video/mlxr-decode-test steamos@<frame-address>:moonlight-xr-probe/bin/
   ```
 
   Or set `MLXR_DECODE_TEST=/full/path` in the environment of the `bash -s` run.
@@ -79,8 +79,8 @@ cable. The script cannot tell.
 ## Copy the results back
 
 ```
-LATEST=$(ssh steamos@192.168.0.168 'ls -1t moonlight-xr-probe | head -n 1')
-scp -r "steamos@192.168.0.168:moonlight-xr-probe/$LATEST" ./frame-probe-results/
+LATEST=$(ssh steamos@<frame-address> 'ls -1t moonlight-xr-probe | head -n 1')
+scp -r "steamos@<frame-address>:moonlight-xr-probe/$LATEST" ./frame-probe-results/
 ```
 
 The reports include device identifiers (USB and Wi-Fi MAC addresses, the
