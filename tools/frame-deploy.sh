@@ -42,7 +42,7 @@
 #
 # Options (any subcommand): --dry-run prints each step instead of doing it (read-only lookups
 # such as the gameid still run), --host H, --dest D, -h/--help.
-# Environment: FRAME_HOST (default steamos@192.168.0.168), DEST (default
+# Environment: FRAME_HOST (steamos@<name or address>; default: first line of ~/.config/frame-deploy/host), DEST (default
 # ~/Games/MoonlightXRNative/app-dev), BRANCH, FRAME_SRC (default ~/Games/MoonlightXRNative/src),
 # FRAME_LOCAL, CI_PY (path of ci.py), CTEST_ARGS, FRAME_ALLOW_MAIN=1 (allow DEST to be the main
 # install ~/Games/MoonlightXRNative/app; refused otherwise).
@@ -50,7 +50,9 @@
 # Exit status: 0 ok, 1 a step failed, 2 usage, 3 installed but the binaries cannot start.
 set -uo pipefail
 
-FRAME_HOST="${FRAME_HOST:-steamos@192.168.0.168}"
+# The Frame's address is not kept in the repository: FRAME_HOST, or the first line of
+# ~/.config/frame-deploy/host (steamos@<name or address>). Not needed on the Frame itself.
+FRAME_HOST="${FRAME_HOST:-$(head -n 1 "$HOME/.config/frame-deploy/host" 2>/dev/null || true)}"
 DEST="${DEST:-~/Games/MoonlightXRNative/app-dev}"
 SRC="${FRAME_SRC:-~/Games/MoonlightXRNative/src}"
 BRANCH="${BRANCH:-}"
@@ -65,6 +67,7 @@ bad_usage() { echo "frame-deploy: $*" >&2; echo "try: $0 --help" >&2; exit 2; }
 if [ -z "${FRAME_LOCAL:-}" ]; then
     case "$(hostname -s 2>/dev/null | tr 'A-Z' 'a-z')" in frame) FRAME_LOCAL=1 ;; *) FRAME_LOCAL=0 ;; esac
 fi
+[ "$FRAME_LOCAL" = 1 ] || [ -n "$FRAME_HOST" ] || [ "${1:-}" = -h ] || [ "${1:-}" = --help ] || [ $# -eq 0 ]     || fail "no Frame address: set FRAME_HOST=steamos@<name or address> or put it in ~/.config/frame-deploy/host"
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30)
 
 # rx <script> [args...]: run a bash script on the Frame (or here), stdin and stdout passed through.
