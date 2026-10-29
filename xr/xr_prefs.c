@@ -301,6 +301,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetGamepad(ctx, s->gamepad_toggle, padDeadzonePercentFromLauncher(gamepadsGetDeadzone()));
     xrSetPadGrip(ctx, s->pad_grip);
     xrPadBridgeSetFlip(s->flip_face_buttons);
+    xrPadBridgeSetRumble(s->rumble_mix, s->rumble_intensity);
     int picture[PICTURE_VALUES];
     for (int row = 0; row < PICTURE_VALUES; row++) {
         picture[row] = settings_picture_value(s, row);

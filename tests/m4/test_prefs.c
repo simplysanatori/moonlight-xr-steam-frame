@@ -7,6 +7,7 @@
 #include "check.h"
 #include "scene.h"
 #include "gamepads.h"
+#include "rumble.h"
 
 static float frand(float lo, float hi) { return lo + (hi - lo) * (float)rand() / (float)RAND_MAX; }
 
@@ -33,6 +34,8 @@ static void roundTripChanged(void) {
     in.controller_model = 1;
     in.click_sound = 0;
     in.pad_grip = PAD_GRIP_NONE;
+    in.rumble_mix = PAD_RUMBLE_MIX_SPLIT;
+    in.rumble_intensity = 40;
     in.pointer_dot = 0;
     in.head_aim_sensitivity = HEAD_AIM_SENSITIVITY_MAX;
     in.head_aim_deadzone = HEAD_AIM_DEADZONE_MIN;
@@ -64,6 +67,18 @@ static void roundTripChanged(void) {
     CHECK_NEAR(ctx->padDeadzone, 0.13, 1e-5);
     gamepadsSetDeadzone(0);
     CHECK(ctx->padGripMode == PAD_GRIP_NONE);
+    // The rumble settings reached input/rumble: split, and at 40 percent
+    {
+        RumbleRequest rq[2];
+        const int both[2] = { 1, 1 };
+        rumbleHostCallback(0, 65535, 0);
+        rumblePoll(rumbleGlobal(), both, 1000000, rq);
+        CHECK(rq[0].action == PAD_RUMBLE_APPLY && rq[1].action == PAD_RUMBLE_KEEP);
+        CHECK_NEAR(rq[0].amplitude, 0.4, 1e-6);
+        rumbleStop(rumbleGlobal());
+        rumblePoll(rumbleGlobal(), both, 2000000, rq);
+        rumbleSetMix(rumbleGlobal(), PAD_RUMBLE_MIX_SPLIT, 100);
+    }
     // what the context took
     CHECK(ctx->sharpenMode == 1 && ctx->supersampleMode == 2 && ctx->overlayVisible == 1);
     CHECK(ctx->dotOn == 0 && ctx->pointerSleepOn == 0 && ctx->modelOn == 1 && ctx->clickSoundOn == 0);

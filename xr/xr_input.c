@@ -3785,6 +3785,18 @@ static void hapticOut(XrCtx* ctx, int h, int action, float amp) {
 // being 0 where nothing is read this frame, which stops them. What the host
 // asked for stands while the pad is plugged in and goes when it comes out.
 static void updateRumble(XrCtx* ctx, int live) {
+    // Whether the host's rumble reaches us at all, the one line to look for in the log when
+    // nothing is felt: said once per stream, before anything below can hold it back
+    RumbleWord first;
+    if (rumbleTakeFirst(rumbleGlobal(), &first)) {
+        LOGI("rumble: the host's first request: low motor %u, high motor %u, left trigger %u, "
+             "right trigger %u (of 65535); %s; haptic action %s",
+             (unsigned)first.low, (unsigned)first.high, (unsigned)first.leftTrigger,
+             (unsigned)first.rightTrigger,
+             ctx->padAttached ? "gamepad mode is on, the controllers are the pad"
+                              : "gamepad mode is off, so nothing is felt until it is on",
+             ctx->hapticBound ? "bound" : "not bound");
+    }
     if (ctx->hapticAction == XR_NULL_HANDLE || !ctx->hapticBound) {
         return;
     }

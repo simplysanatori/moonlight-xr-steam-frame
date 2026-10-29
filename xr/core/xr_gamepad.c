@@ -441,6 +441,41 @@ float padRumbleAmplitude(int motor) {
     return (float)(motor & 0xffff) / 65535.0f;
 }
 
+int padRumbleMixClamp(int mix) {
+    return mix == PAD_RUMBLE_MIX_SPLIT ? PAD_RUMBLE_MIX_SPLIT : PAD_RUMBLE_MIX_BOTH;
+}
+
+int padRumbleIntensityClamp(int percent) {
+    return percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+}
+
+static float maxf(float a, float b) {
+    return a > b ? a : b;
+}
+
+void padRumbleMix(int mix, int intensityPercent, int lowMotor, int highMotor, int leftTrigger,
+                  int rightTrigger, float want[2]) {
+    float low = padRumbleAmplitude(lowMotor);
+    float high = padRumbleAmplitude(highMotor);
+    if (padRumbleMixClamp(mix) == PAD_RUMBLE_MIX_SPLIT) {
+        want[0] = low;
+        want[1] = high;
+    }
+    else {
+        want[0] = maxf(low, high);
+        want[1] = want[0];
+    }
+    want[0] = maxf(want[0], padRumbleAmplitude(leftTrigger));
+    want[1] = maxf(want[1], padRumbleAmplitude(rightTrigger));
+    float scale = (float)padRumbleIntensityClamp(intensityPercent) / 100.0f;
+    for (int h = 0; h < 2; h++) {
+        want[h] *= scale;
+        if (want[h] > 1.0f) {
+            want[h] = 1.0f;
+        }
+    }
+}
+
 void padRumbleReset(PadRumble* r) {
     for (int h = 0; h < 2; h++) {
         r->want[h] = 0.0f;
@@ -453,6 +488,12 @@ void padRumbleReset(PadRumble* r) {
 void padRumbleAsk(PadRumble* r, int lowMotor, int highMotor) {
     r->want[0] = padRumbleAmplitude(lowMotor);
     r->want[1] = padRumbleAmplitude(highMotor);
+    r->fresh = 1;
+}
+
+void padRumbleAskMix(PadRumble* r, int mix, int intensityPercent, int lowMotor, int highMotor,
+                     int leftTrigger, int rightTrigger) {
+    padRumbleMix(mix, intensityPercent, lowMotor, highMotor, leftTrigger, rightTrigger, r->want);
     r->fresh = 1;
 }
 

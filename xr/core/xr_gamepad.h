@@ -290,6 +290,18 @@ typedef struct {
     int64_t givenNs[2];
 } PadRumble;
 
+// A rumble mix held to PAD_RUMBLE_MIX_BOTH or PAD_RUMBLE_MIX_SPLIT, and an
+// intensity held to 0 to 100 percent
+int padRumbleMixClamp(int mix);
+int padRumbleIntensityClamp(int percent);
+
+// What each controller is asked for, left then right, 0 to 1, from the host's
+// four motors (each 0 to 65535): the low and high frequency motors the mix way,
+// each trigger motor on its own controller as far as it is stronger, and then
+// all of it scaled by the intensity
+void padRumbleMix(int mix, int intensityPercent, int lowMotor, int highMotor, int leftTrigger,
+                  int rightTrigger, float want[2]);
+
 // A motor's level as the host sends it, 0 to 65535 (a Java short is taken as
 // unsigned), as an amplitude from 0 to 1
 float padRumbleAmplitude(int motor);
@@ -300,6 +312,10 @@ void padRumbleReset(PadRumble* r);
 // The host's latest, the two motors as they came. The same values again still
 // arm a pulse at once.
 void padRumbleAsk(PadRumble* r, int lowMotor, int highMotor);
+
+// The same with all four motors, through the mix and the intensity
+void padRumbleAskMix(PadRumble* r, int mix, int intensityPercent, int lowMotor, int highMotor,
+                     int leftTrigger, int rightTrigger);
 
 // One frame. live says, left then right, whether that controller is the pad's
 // now; one that is not is stopped if it was running. Each action is a

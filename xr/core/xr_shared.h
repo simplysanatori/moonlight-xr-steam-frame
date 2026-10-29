@@ -242,6 +242,15 @@
 #define PAD_SHORTCUT_STICKS 1
 #define PAD_SHORTCUT_TRIGGERS_GRIPS 2
 
+// How the host's two rumble motors reach the two controllers, in the order the
+// rumble_mix setting lists them: both controllers get the stronger motor, or
+// the low frequency motor drives the left and the high the right (as a real
+// pad has them). Either way each trigger motor adds to its own side.
+#define PAD_RUMBLE_MIX_BOTH 0
+#define PAD_RUMBLE_MIX_SPLIT 1
+// The scale on every level the host asks for, whole percent
+#define PAD_RUMBLE_INTENSITY_DEFAULT 100
+
 // What the grips are in gamepad mode, in the order the pad_grip setting lists
 // them: the bumpers (as ever), nothing, or the stick clicks
 #define PAD_GRIP_BUMPERS 0
