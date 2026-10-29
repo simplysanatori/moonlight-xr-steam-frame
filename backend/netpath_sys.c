@@ -2,6 +2,7 @@
  * and station link numbers (nl80211 over generic netlink, read-only). See netpath.h. GPLv3. */
 #define _GNU_SOURCE
 #include "netpath.h"
+#include "netdiag.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -475,6 +476,24 @@ static bool run_capture(const char *name, char *const argv[], char *out, size_t 
     if (!ok) kill(pid, SIGKILL);
     waitpid(pid, &st, 0);
     return ok && WIFEXITED(st) && WEXITSTATUS(st) == 0;
+}
+
+/* Wi-Fi power save through iw (netdiag.h): a read-only get, and a set that needs CAP_NET_ADMIN */
+int mlxr_wifi_ps_get(const char *ifname)
+{
+    if (!ifname || !ifname[0]) return -1;
+    char out[256];
+    char *argv[] = { "iw", "dev", (char *)ifname, "get", "power_save", NULL };
+    if (!run_capture("iw", argv, out, sizeof out, 1500)) return -1;
+    return mlxr_wifi_ps_parse(out);
+}
+
+bool mlxr_wifi_ps_set(const char *ifname, bool on)
+{
+    if (!ifname || !ifname[0]) return false;
+    char out[256];
+    char *argv[] = { "iw", "dev", (char *)ifname, "set", "power_save", (char *)(on ? "on" : "off"), NULL };
+    return run_capture("iw", argv, out, sizeof out, 1500);
 }
 
 /* nl80211's station list of the interface: the count and the strongest signal, false if unavailable */
