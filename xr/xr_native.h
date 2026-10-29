@@ -13,6 +13,8 @@
 #define SETTING_POINTER_DOT 24
 // Which notices the toast says, NOTICES_ALL 0, IMPORTANT 1 or OFF 2
 #define SETTING_NOTICES 25
+// The cog's tab, COG_TAB_*: the next session opens the cog on it
+#define SETTING_COG_TAB 26
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 

@@ -94,6 +94,7 @@ typedef struct Settings {
     int glow;              // ambilight
     int glow_level;        // percent, five percent steps
     int screen_light;      // room light
+    int cog_tab;           // native: the cog's tab as it was last left (COG_TAB_*), where it opens next time
 
     // [3d]
     int separation;        // tenths of a percent of frame width; -1 = the depth model's own

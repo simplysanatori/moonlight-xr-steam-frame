@@ -324,6 +324,47 @@ static void noticesRow(void) {
     }
 }
 
+// The cog opens on the tab it was last left on: the tab bar press hands
+// SETTING_COG_TAB back, it is stored, survives config.ini text, and the next
+// session starts with the context on it. A tab that is not one is ignored.
+static void cogTabKept(void) {
+    for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
+        Scene* sc = scene_new();
+        XrCtx* c = sc->ctx;
+        Settings s;
+        settings_defaults(&s);
+        CHECK(c->cogTab == COG_TAB_SCREEN);
+        CHECK(xrStoreSetting(c, &s, SETTING_COG_TAB, tab) == (tab != COG_TAB_SCREEN));
+        CHECK(s.cog_tab == tab);
+        char* text = settings_to_text(&s);
+        CHECK(text != NULL);
+        Settings back;
+        settings_defaults(&back);
+        SettingsLoadInfo info;
+        settings_from_text(&back, text, &info);
+        free(text);
+        CHECK(back.cog_tab == tab);
+        Scene* next = scene_new();
+        xrApplySettings(next->ctx, &back);
+        CHECK(next->ctx->cogTab == tab);
+        // and what the context holds is what a rebuild of the file says
+        Settings live;
+        settings_defaults(&live);
+        xrSettingsFromCtx(next->ctx, &live);
+        CHECK(live.cog_tab == tab);
+        scene_free(next);
+        scene_free(sc);
+    }
+    // a stored tab out of range cannot put the context out of range
+    Scene* sc = scene_new();
+    Settings s;
+    settings_defaults(&s);
+    s.cog_tab = COG_TAB_COUNT + 3;
+    xrApplySettings(sc->ctx, &s);
+    CHECK(sc->ctx->cogTab == COG_TAB_SCREEN);
+    scene_free(sc);
+}
+
 // The Display tab: the cell lane U rings is the one xr_ui.c says is in force,
 // and the rows that come later are dead in both
 static void displayCells(void) {
@@ -407,6 +448,7 @@ int main(void) {
     storeSettings();
     rayRowSaved();
     noticesRow();
+    cogTabKept();
     displayCells();
     return checksDone("m4 prefs");
 }

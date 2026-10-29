@@ -396,6 +396,55 @@ static void test_notices(void) {
     CHECK(settings_option_cell(&s, &t, COG_OPTION_NOTICES) == NOTICES_OFF);
 }
 
+// The cog opens on the tab it was last left on: [display] cog_tab, the tab
+// names in COG_TAB_ order, screen to start with
+static void test_cog_tab(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.cog_tab == COG_TAB_SCREEN);
+    settings_from_text(&s, "[display]
+cog_tab = display
+", &info);
+    CHECK(s.cog_tab == COG_TAB_DISPLAY && info.applied == 1 && info.bad == 0);
+    settings_from_text(&s, "[display]
+cog_tab = 3d
+", &info);
+    CHECK(s.cog_tab == COG_TAB_3D);
+    settings_from_text(&s, "[display]
+cog_tab = picture
+", &info);
+    CHECK(s.cog_tab == COG_TAB_PICTURE);
+    settings_from_text(&s, "[display]
+cog_tab = about
+", &info);
+    CHECK(s.cog_tab == COG_TAB_ABOUT);
+    settings_from_text(&s, "[display]
+cog_tab = 1
+", &info);   // an index works too
+    CHECK(s.cog_tab == COG_TAB_DISPLAY);
+    settings_from_text(&s, "[display]
+cog_tab = sound
+", &info);   // not a tab: the last good one stays
+    CHECK(s.cog_tab == COG_TAB_DISPLAY && info.bad == 1);
+    settings_from_text(&s, "[display]
+cog_tab = 9
+", &info);
+    CHECK(s.cog_tab == COG_TAB_DISPLAY && info.bad == 1);
+    s.cog_tab = COG_TAB_3D;
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "
+cog_tab = 3d
+") != NULL);
+    free(text);
+    settings_defaults(&s);
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "
+#cog_tab = screen
+") != NULL);
+    free(text);
+}
+
 static void test_network_path(void) {
     Settings s;
     SettingsLoadInfo info;
@@ -656,6 +705,7 @@ int main(void) {
     test_removed_keys();
     test_bitrate_ceiling();
     test_notices();
+    test_cog_tab();
     test_files();
     test_sliders();
     return checksDone("ui_settings");

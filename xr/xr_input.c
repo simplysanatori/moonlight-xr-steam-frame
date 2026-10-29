@@ -2740,6 +2740,13 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
                 int t = (int)(pu * COG_TAB_COUNT);
                 if (t >= COG_TAB_COUNT) t = COG_TAB_COUNT - 1;
                 ctx->cogTab = t;
+                // Kept: the cog opens on this tab next time, this session
+                // and the next. Skipped on the rare frame a slider drag
+                // ending has the setting slot, which it must not lose.
+                if (f->out[IN_SETTING] < 0.0f) {
+                    f->out[IN_SETTING] = (float)SETTING_COG_TAB;
+                    f->out[IN_SETTING_VALUE] = (float)t;
+                }
                 ctx->clickPending = 1;
                 ctx->cogDragSlider = -1;
                 ctx->cogDragHand = -1;
@@ -3152,9 +3159,9 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
         if (ctx->triggerEdge[f->hand]) {
             ctx->cogOpen = !ctx->cogOpen;
             if (ctx->cogOpen) {
-                // Always opens on the first tab, so the button does the same
-                // thing every time
-                ctx->cogTab = COG_TAB_SCREEN;
+                // Opens on the tab it was last left on (cogTab is kept, and
+                // stored for the next session), so the Display tab's rows are
+                // one press away for whoever uses them
                 ctx->cogPose = cogPanelPose(ctx, &ctx->cogW, &ctx->cogH);
             }
         }
