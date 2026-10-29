@@ -363,6 +363,86 @@ static void testRuntimeControls(void) {
     closeStream(&s);
 }
 
+// What the frame loop feeds: the head's yaw against the screen, positive = turned
+// left (xr/core yawBetween). A source on the screen has to stay with the screen,
+// so turning the head one way and the other swings it to the opposite ears.
+static double centreBalanceDb(Stream* s, float yaw) {
+    int only = 2;  // centre
+    mlxr_opus_out_set_pose(yaw, 0.0f);
+    int mark = rec.stereoFrames;
+    feed(s, 30, 240, soloGen, &only);
+    int a = mark + (rec.stereoFrames - mark) / 2, n = rec.stereoFrames - a;
+    double l = toneRms(rec.stereo + (size_t) a * 2, n, 2, 1000.0, RATE);
+    double r = toneRms(rec.stereo + (size_t) a * 2 + 1, n, 2, 1000.0, RATE);
+    return db(l / r);
+}
+
+static void testHeadYawDirection(void) {
+    Stream s;
+    recReset();
+    fed = 0;
+    if (openStream(&s, 6, 1, 1, 240) != 0) {
+        return;
+    }
+    const float quarter = 1.5707963f;
+    double ahead = centreBalanceDb(&s, 0.0f);
+    double left = centreBalanceDb(&s, quarter);     // head turned left: screen at the right ear
+    double right = centreBalanceDb(&s, -quarter);   // head turned right: screen at the left ear
+    printf("  FC left-right: ahead %+.1f dB, head left 90 %+.1f dB, head right 90 %+.1f dB
+", ahead,
+           left, right);
+    CHECK_NEAR(ahead, 0.0, 0.5);
+    CHECK(left < -6.0);
+    CHECK(right > 6.0);
+    // The same angle either way is the same distance from the midline
+    CHECK_NEAR(left, -right, 3.0);
+    // Back to the front and the sound is back in the middle
+    CHECK_NEAR(centreBalanceDb(&s, 0.0f), 0.0, 0.5);
+    closeStream(&s);
+}
+
+// Headset off: nothing reaches the sink, and putting it on again restores the
+// sound at the level it had, with no spike. (There is no gain ramp: the stream is
+// corked and the decoder restarted, so the first packet starts from silence.)
+static void testMuteRestores(void) {
+    Stream s;
+    recReset();
+    fed = 0;
+    int only = 2;
+    if (openStream(&s, 2, 0, 0, 240) != 0) {
+        return;
+    }
+    mlxr_opus_out_set_muted(false);
+    feed(&s, 40, 240, soloGen, &only);
+    int a = rec.stereoFrames / 2, n = rec.stereoFrames - a;
+    double base = toneRms(rec.stereo + (size_t) a * 2, n, 2, 1000.0, RATE);
+    CHECK(base > 0.1);
+
+    int framesBefore = rec.stereoFrames;
+    mlxr_opus_out_set_muted(true);
+    feed(&s, 20, 240, soloGen, &only);
+    CHECK(rec.stereoFrames == framesBefore);
+
+    mlxr_opus_out_set_muted(false);
+    int mark = rec.stereoFrames;
+    feed(&s, 40, 240, soloGen, &only);
+    CHECK(rec.stereoFrames == mark + 40 * 240);
+    float peak = 0.0f;
+    for (int i = mark * 2; i < rec.stereoFrames * 2; i++) {
+        float v = fabsf(rec.stereo[i]);
+        if (v > peak) {
+            peak = v;
+        }
+    }
+    int b = mark + (rec.stereoFrames - mark) / 2, m = rec.stereoFrames - b;
+    double after = toneRms(rec.stereo + (size_t) b * 2, m, 2, 1000.0, RATE);
+    printf("  level before mute %.3f, after unmute %.3f, peak after %.3f
+", base, after, peak);
+    CHECK_NEAR(db(after / base), 0.0, 1.0);
+    CHECK(peak <= 1.0f);
+    closeStream(&s);
+}
+
 static void testInitFailures(void) {
     AUDIO_RENDERER_CALLBACKS ar;
     mlxr_opus_out_callbacks(&ar);

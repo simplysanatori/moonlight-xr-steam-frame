@@ -273,6 +273,17 @@ static void focusHook(void* user, int focused) {
     (void)user;
     g_focused = focused;
     updateKeyboard();
+    // Headset off, or the dashboard or a system menu up over the app: the session
+    // is no longer focused, and the stream's sound stays quiet until it is again
+    mlxr_opus_out_set_muted(!focused);
+}
+
+// The head's yaw against the picture, every frame (frame loop). With the virtual
+// surround on, its speakers are held to the screen as the head turns; with it off
+// the pose is not used, so it is not sent.
+static void headYawHook(void* user, float yaw) {
+    (void)user;
+    if (g_settings.virtual_surround) mlxr_opus_out_set_pose(yaw, 0.0f);
 }
 
 // The on-screen keyboard (VrKeyboard): keys and text to the host
@@ -1201,6 +1212,7 @@ int main(int argc, char** argv) {
     cfg.hooks = (XrAppHooks){ NULL, pointerHook, mouseMoveHook, buttonHook, scrollHook, keyHook, modifiersHook,
                               statsHook, focusHook, uiHook };
     cfg.hooks.latency = latencyHook;
+    cfg.hooks.headYaw = headYawHook;
 
     FileSource* src = NULL;
     if (g_args.file) {
