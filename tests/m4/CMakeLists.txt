@@ -16,7 +16,7 @@ add_custom_target(ui-snapshots COMMAND mlxr-ui-snapshot ${PROJECT_BINARY_DIR}/ui
   COMMAND mlxr-world-snapshot ${PROJECT_BINARY_DIR}/ui-snapshots DEPENDS mlxr-ui-snapshot mlxr-world-snapshot)
 add_test(NAME m4_snapshot_budget COMMAND mlxr-ui-snapshot ${CMAKE_CURRENT_BINARY_DIR}/snapshots)
 # Native: the snapshots against the goldens in tests/ui/golden (shrunk 4x; a
-# state fails past 0.5% of its pixels off by more than 16 levels, see
+# state fails past 0.1% of its pixels off by more than 16 levels, see
 # snapshot_golden.py). MLXR_UPDATE_GOLDEN=1 rewrites the goldens instead.
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)

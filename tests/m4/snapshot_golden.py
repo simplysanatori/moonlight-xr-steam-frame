@@ -7,8 +7,11 @@ Each snapshot (1600x1200) is shrunk 4x by a box average to 400x300 (the
 goldens are kept small; a moved panel, a lost row or a wrong colour still
 shows at that size) and compared with GOLDENDIR/<name>.png:
   a pixel differs when any channel is off by more than TOL (16 of 255), and
-  a state fails when more than MAX_FRAC (0.5%) of its pixels differ,
-so font rasteriser drift of a level or two passes and a layout change fails.
+  a state fails when more than MAX_FRAC (0.1%, 120 pixels) of them differ,
+so rasteriser drift (another compiler's float rounding) passes and a moved,
+added or lost panel, row or button fails. A changed word in small text may
+not: that is what the full size snapshots are for. (Two CI runs gave
+bit-identical snapshots.)
 A golden with no snapshot fails; a snapshot with no golden is reported only.
 The shrunk snapshots land in SNAPDIR/golden-actual/ either way (the CI
 artefact carries them), ready to be copied over the goldens.
@@ -25,7 +28,7 @@ import zlib
 
 SCALE = 4
 TOL = 16
-MAX_FRAC = 0.005
+MAX_FRAC = 0.001
 
 
 def load(path):
@@ -99,7 +102,18 @@ def shrink(w, h, rows):
 
 
 def save(path, w, h, rows):
-    raw = b''.join(b'\x00' + bytes(r) for r in rows)
+    # each row filtered None, Sub or Up, whichever sums smallest (as libpng
+    # guesses), to keep the committed goldens small
+    lines, prev = [], bytes(w * 3)
+    for r in rows:
+        r = bytes(r)
+        sub = bytes((r[x] - (r[x - 3] if x >= 3 else 0)) & 255 for x in range(len(r)))
+        up = bytes((a - b) & 255 for a, b in zip(r, prev))
+        cost = lambda f: sum(v if v < 128 else 256 - v for v in f)
+        best = min(((cost(r), 0, r), (cost(sub), 1, sub), (cost(up), 2, up)), key=lambda c: c[0])
+        lines.append(bytes([best[1]]) + best[2])
+        prev = r
+    raw = b''.join(lines)
 
     def chunk(t, body):
         return struct.pack('>I', len(body)) + t + body + struct.pack('>I', zlib.crc32(t + body) & 0xffffffff)
