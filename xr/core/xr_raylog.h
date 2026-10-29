@@ -68,8 +68,9 @@ int rayLogHeader(char* buf, size_t size);
 // One row, without the newline. Says the length written, 0 if it did not fit.
 int rayLogFormat(const RayLogRow* row, char* buf, size_t size);
 
-// Reads one line back. Says 1 for a row, 0 for the header, a blank line, a
-// comment (#) or anything that is not a whole row.
+// Reads one line back, the quaternions brought back to unit length. Says 1
+// for a row, 0 for the header, a blank line, a comment (#) or anything that is
+// not a whole row.
 int rayLogParse(const char* line, RayLogRow* row);
 
 #endif

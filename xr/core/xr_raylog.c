@@ -1,6 +1,7 @@
 // The ray recorder's CSV rows, see xr_raylog.h
 #include "xr_raylog.h"
 
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,6 +71,19 @@ int rayLogFormat(const RayLogRow* r, char* buf, size_t size) {
     }
     put(buf, size, &at, &fits, ",%d,%d,%d,%d", r->pointer, r->chosen, r->ray, r->hover);
     return fits ? (int)at : 0;
+}
+
+// A quaternion written to five places is a hair off unit length, and a
+// controller lying still would read as turning: the pose filter's movement
+// test takes the angle from the dot product of two orientations
+static void unitQuat(XrQuaternionf* q) {
+    float len = sqrtf(q->x * q->x + q->y * q->y + q->z * q->z + q->w * q->w);
+    if (len > 1e-6f) {
+        q->x /= len;
+        q->y /= len;
+        q->z /= len;
+        q->w /= len;
+    }
 }
 
 int rayLogParse(const char* line, RayLogRow* r) {
@@ -147,6 +161,9 @@ int rayLogParse(const char* line, RayLogRow* r) {
         o->src = (int)q[20];
         o->awake = (int)q[21];
     }
+    unitQuat(&r->head.orientation);
+    unitQuat(&r->hand[0].pose.orientation);
+    unitQuat(&r->hand[1].pose.orientation);
     const double* out = &v[RAYLOG_FRAME_COLS + 2 * RAYLOG_HAND_COLS];
     r->pointer = (int)out[0];
     r->chosen = (int)out[1];

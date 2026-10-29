@@ -24,7 +24,7 @@ The bug: a controller's pointer ray snaps vertical, or glitches, for about a sec
 - CSV: `~/Games/MoonlightXRNative/reports/ray-<date>-<time>.csv`, one file per session. If `MLXR_LOG_DIR` is set, it goes to `$MLXR_LOG_DIR/reports/` instead. It holds one row per input frame and grows by about 2 MB a minute. It stops at 96 MB.
 - Log lines: `~/Games/MoonlightXRNative/moonlight.log`, all starting `ray debug:`, at most 20 a second. A line is written when a hand's location flags or ray source change (`aim`, `joints`, `held`, `none`), when its ray goes steeper than 80 degrees, or when the pointing source changes. The pointing-source line includes both hands' hovers and awake state.
 - Copy both off the headset:
-  `scp steamos@192.168.0.168:'~/Games/MoonlightXRNative/reports/ray-*.csv' steamos@192.168.0.168:~/Games/MoonlightXRNative/moonlight.log out/`
+  `scp steamos@<frame>:'~/Games/MoonlightXRNative/reports/ray-*.csv' steamos@<frame>:~/Games/MoonlightXRNative/moonlight.log out/`
   `tools/bug-report.sh` does not bundle the CSV.
 
 ## What the run has to confirm
