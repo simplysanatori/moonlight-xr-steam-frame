@@ -634,8 +634,8 @@ static void testFiles(void) {
     CHECK(xrBindLoadFile(&g_set, NULL, &errs) == 1);
     CHECK(stat(path, &st) == 0);
     unsetenv("MLXR_CONFIG_DIR");
-    setenv("HOME", "/home/frame", 1);
-    CHECK(strcmp(xrBindDefaultPath(buf, sizeof(buf)), "/home/frame/.config/moonlight-xr/bindings.ini")
+    setenv("HOME", "/home/someone", 1);
+    CHECK(strcmp(xrBindDefaultPath(buf, sizeof(buf)), "/home/someone/.config/moonlight-xr/bindings.ini")
           == 0);
 
     snprintf(path, sizeof(path), "rm -rf '%s'", dir);
