@@ -34,6 +34,12 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     ctx->upsampleSigmaR = 0.25f;
     ctx->upsampleEnabled = 1;
     ctx->occlusionEnabled = 1;
+    // Native (lane wave5-depth, PLAN 5.2): on, as it fixes the fur on one
+    // side of a subject in one eye (#36, #46)
+    ctx->holeFill = 1;
+    ctx->depthGlobal = 1.0f;
+    ctx->depthLocal = 1.0f;
+    ctx->depthThreads = DEPTH_THREADS_DEFAULT;
     // The warp's edges: sample held inside the frame, shift faded out over
     // the last few pixels each side, and each eye's rectangle a texel clear
     // of the seam between them. The cubic depth read is off for its cost.
@@ -46,7 +52,7 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     ctx->separationPref = 0.006f;
     // Native: upstream's debug properties as environment variables
     // (MLXR_SEPARATION in tenths of a percent, MLXR_DEPTH_CUBIC,
-    // MLXR_OCCLUSION, MLXR_UPSAMPLE, MLXR_EDGE_FADE in pixels)
+    // MLXR_OCCLUSION, MLXR_UPSAMPLE, MLXR_EDGE_FADE in pixels, MLXR_HOLE_FILL)
     const char* knob = getenv("MLXR_SEPARATION");
     if (knob != NULL && *knob) ctx->separationOverride = (float)atof(knob) / 1000.0f;
     knob = getenv("MLXR_DEPTH_CUBIC");
@@ -55,6 +61,8 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     if (knob != NULL && *knob) ctx->occlusionEnabled = atoi(knob) != 0;
     knob = getenv("MLXR_UPSAMPLE");
     if (knob != NULL && *knob) ctx->upsampleEnabled = atoi(knob) != 0;
+    knob = getenv("MLXR_HOLE_FILL");
+    if (knob != NULL && *knob) ctx->holeFill = atoi(knob) != 0;
     knob = getenv("MLXR_EDGE_FADE");
     if (knob != NULL && *knob) {
         int px = atoi(knob);
@@ -338,6 +346,17 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->separationPref = separationOf(settings_separation_units(s));
     ctx->separationCurrent = ctx->separationPref;
     ctx->convergence = (float)settings_convergence_percent(s) / 100.0f;
+    // Native (lane wave5-depth, PLAN 5.1): the Edge setting is the upsample's
+    // two knobs; 0 leaves them as upstream has them
+    depthEdgeParams(s->edge_sharpness, &ctx->upsampleSigmaR, &ctx->depthSharp);
+    // PLAN 5.4: the motion reset, percent of luma to a fraction; 0 off
+    ctx->depthMotion = (float)s->motion_reset / 100.0f;
+    // PLAN 5.6: upstream's depth scale (depthLocal = vrDepthScale / 100) and
+    // the overall shape's gain
+    ctx->depthGlobal = (float)s->depth_global / 100.0f;
+    ctx->depthLocal = (float)s->depth_scale / 100.0f;
+    // PLAN 5.5: the model's threads, for the next time it starts
+    ctx->depthThreads = s->depth_threads;
     xrSetDepthRate(ctx, s->depth_rate);
     // M6: the depth model or test pattern, and the 3D switch as last left
     xrDepthConfigure(ctx, s);

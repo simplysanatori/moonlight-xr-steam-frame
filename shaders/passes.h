@@ -169,12 +169,22 @@ typedef struct MlxrOffsetParams {
     VkImageView depth;     // the upsample's output
     float dispTexels;      // u_dispTexels: the larger eye's shift (as the warp is given it)
     float convergence;     // u_convergence
+    // Native (lane wave5-depth, PLAN 5.2): u_holeStretch, how far apart (in
+    // texels) a source segment may land before its pixels are a hole the
+    // shift opened, filled from the background side (offset.frag); 0 off,
+    // which is upstream's search exactly
+    float holeStretch;
     // Native (lane wave3-visual), 3D Eye Balance -1..1: the left eye is shifted
     // by (1 + balance) separations and the right by (1 - balance), where
     // dispTexels was sized for the larger of them. 0 (zeroed params) is an even
     // split, a whole separation each way.
     float balance;
 } MlxrOffsetParams;
+// The stretch the 3D runs with: a segment spread over more than one and a
+// half texels. Measured on a thin dark bar over a bright page with a model
+// soft depth edge (tests/shaders warp_fur): the edge of the bar the shift
+// uncovers went from 3 or 4 pixels of smear to 1, the same as the other eye.
+#define MLXR_HOLE_STRETCH 1.5f
 void mlxr_pass_offset(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrOffsetParams* o);
 
 // DOWNSCALE_FRAGMENT_SRC, into a MLXR_PASS_FORMAT image the depth map's size
