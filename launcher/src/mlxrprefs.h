@@ -158,6 +158,7 @@ class MlxrPrefs : public QObject
     // Native (lane a11y-tab): head_dwell_ms, the dwell click of the head or eyes pointer: 0 (default, off) or
     // 400..2000; the Accessibility section offers 600, 900, 1200 and 1500. Written only when changed here.
     Q_PROPERTY(int headDwellMs MEMBER headDwellMs NOTIFY changed)
+    Q_PROPERTY(int assistDotSize MEMBER assistDotSize NOTIFY changed)   // native (lane a11y-2)
     // ---- Native (lane launcher-bundle, PLAN 6.7): the rest of the VR client's config.ini ----
     // Every key of ui/settings.c that a user would set and that had no row of its own: picture, pointer,
     // keyboard, gamepad mode, the screen and its surroundings (the table is kVrKeys in mlxrprefs.cpp; tests
@@ -317,6 +318,7 @@ public:
     QString mouseMode = QStringLiteral("absolute"); // native (lane headinput-finish)
     bool backAsGuide = false;
     int headDwellMs = 0;   // native (lane a11y-tab)
+    int assistDotSize = 100;   // native (lane a11y-2): [vr] assist_dot_size, percent, 50..300
 
 signals:
     void changed();
@@ -350,6 +352,7 @@ private:
     QString m_iniMouseMode = QStringLiteral("absolute");
     bool m_iniBackAsGuide = false;
     int m_iniHeadDwellMs = 0;   // native (lane a11y-tab)
+    int m_iniAssistDotSize = 100;   // native (lane a11y-2)
     void loadHeadInput(const QString& ini);
     void saveHeadInput(const QString& ini);
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
