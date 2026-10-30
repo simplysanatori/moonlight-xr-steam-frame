@@ -23,3 +23,22 @@ if(Python3_FOUND)
             ${PROJECT_SOURCE_DIR}/tools/xr/make_gun.py ${PROJECT_SOURCE_DIR}/assets/models)
   set_tests_properties(tools_make_gun PROPERTIES TIMEOUT 120)
 endif()
+
+# packaging/steam_cef.py (the Steam CEF driver, and the PC VR hand-off's JavaScript, list parsing and
+# preflight) against a fake CEF endpoint (tests/tools/fake_cef.py, a small HTTP + websocket stub).
+if(Python3_FOUND)
+  add_test(NAME tools_steam_cef
+    COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/test_steam_cef.py
+            ${PROJECT_SOURCE_DIR}/packaging/steam_cef.py)
+  set_tests_properties(tools_steam_cef PROPERTIES TIMEOUT 120)
+endif()
+
+# tools/probe/doctor.py (the update doctor: the mlxr-hello --probe diff against a baseline, and the
+# Steam debugging port line).
+if(Python3_FOUND)
+  add_test(NAME tools_doctor
+    COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/test_doctor.py
+            ${PROJECT_SOURCE_DIR}/tools/probe/doctor.py ${PROJECT_SOURCE_DIR}/docs/probe/openxr-probe.txt
+            ${PROJECT_SOURCE_DIR}/packaging/steam_cef.py)
+  set_tests_properties(tools_doctor PROPERTIES TIMEOUT 120)
+endif()

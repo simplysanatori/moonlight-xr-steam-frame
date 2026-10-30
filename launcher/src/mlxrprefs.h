@@ -16,6 +16,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QVariantList>
 
 class MlxrPrefs : public QObject
 {
@@ -81,6 +82,9 @@ class MlxrPrefs : public QObject
     // before the same; 0 never, default 0)
     Q_PROPERTY(int doffDisconnect MEMBER doffDisconnect NOTIFY changed)
     Q_PROPERTY(int idleDisconnect MEMBER idleDisconnect NOTIFY changed)
+    // Native (lane wave1-burst): [stream] rfi_idr_ms, at most one full-frame (IDR) request of the headset's
+    // own per this many ms after lost video (0 no limit, default 500, 0..5000)
+    Q_PROPERTY(int rfiIdrMs MEMBER rfiIdrMs NOTIFY changed)
     // Native (lane wave2b-padmouse): physical gamepads in the headset. [vr] pad_mouse_chord: what turns a pad
     // into the PC's mouse, "start_hold" (default), "start_back" or "off"; [vr] pad_mouse_scroll: the stick that
     // scrolls then, "right" (default), "left" or "none"; [vr] pad_arbitration: what a used pad does to the
@@ -88,6 +92,22 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(QString padMouseChord MEMBER padMouseChord NOTIFY changed)
     Q_PROPERTY(QString padMouseScroll MEMBER padMouseScroll NOTIFY changed)
     Q_PROPERTY(QString padArbitration MEMBER padArbitration NOTIFY changed)
+    // ---- PC VR: Valve's Steam Link stream of the PC (lane wave4-pcvr, PLAN 4.1, 4.2, 4.9) ----
+    // The Host sheet's PC VR button ends the stream and the launcher asks Steam to stream pcvrApp (a Steam
+    // app id; empty: open Steam's library) from the Remote Play PC pcvrClient (a Remote Play client id; empty:
+    // the only paired PC). The names are for this page. Keys mlxr/pcvr_app, pcvr_app_name, pcvr_client,
+    // pcvr_client_name.
+    Q_PROPERTY(QString pcvrApp MEMBER pcvrApp NOTIFY changed)
+    Q_PROPERTY(QString pcvrAppName MEMBER pcvrAppName NOTIFY changed)
+    Q_PROPERTY(QString pcvrClient MEMBER pcvrClient NOTIFY changed)
+    Q_PROPERTY(QString pcvrClientName MEMBER pcvrClientName NOTIFY changed)
+    // What the last check found (steam_cef.py --probe, --devices, --apps): a sentence for the page, the paired
+    // PCs [{clientId, clientName, streaming}] and the games on the chosen PC [{appid, name, vr}] (vr true,
+    // false or null when Steam does not say)
+    Q_PROPERTY(QString pcvrStatus READ pcvrStatus NOTIFY pcvrChanged)
+    Q_PROPERTY(bool pcvrBusy READ pcvrBusy NOTIFY pcvrChanged)
+    Q_PROPERTY(QVariantList pcvrDevices READ pcvrDevices NOTIFY pcvrChanged)
+    Q_PROPERTY(QVariantList pcvrApps READ pcvrApps NOTIFY pcvrChanged)
     // ---- facts ----
     // Native (lane wave4c-usb): a USB data cable to the PC is up, i.e. the headset's USB network
     // interface (usb*, or a gadget device) has carrier. Rescanned every 10 s while the app is open.
@@ -118,6 +138,22 @@ public:
     QString configIniPath() const;
 
     bool usbCable() const { return m_usbCable; }
+
+    QString pcvrStatus() const { return m_pcvrStatus; }
+    bool pcvrBusy() const { return m_pcvrBusy; }
+    QVariantList pcvrDevices() const { return m_pcvrDevices; }
+    QVariantList pcvrApps() const { return m_pcvrApps; }
+    // PLAN 4.9: only asks Steam's debugging port (steam_cef.py --probe) and says so in pcvrStatus and the log
+    Q_INVOKABLE void pcvrProbe();
+    // PLAN 4.2: the probe, then the paired PCs, then the games on the chosen PC (the only one when none is chosen)
+    Q_INVOKABLE void pcvrRefresh();
+    // index into pcvrDevices / pcvrApps; -1 = none (a PC: the only paired one; a game: open the library)
+    Q_INVOKABLE void pcvrChooseDevice(int index);
+    Q_INVOKABLE void pcvrChooseApp(int index);
+    // A Steam app id typed by hand (the lists need Steam's undocumented library data); "" = none
+    Q_INVOKABLE void pcvrSetAppId(const QString& id);
+    // The one-sentence reading of steam_cef.py --probe's JSON (exposed for tests): ok, what is wrong, a hint
+    static QString pcvrProbeSummary(const QByteArray& json, int exitCode, const QString& stderrText, bool* ok);
     // Looks at the network interfaces under netRoot (/sys/class/net) now and emits usbCableChanged()
     // when the cable appeared or went away. MLXR_LAUNCHER_NET_ROOT: another directory (tests).
     Q_INVOKABLE void rescanUsb();
@@ -168,11 +204,17 @@ public:
     QString controllerModel;
     int doffDisconnect = 60;
     int idleDisconnect = 0;
+    int rfiIdrMs = 500;
     QString padMouseChord;
     QString padMouseScroll;
     QString padArbitration;
+    QString pcvrApp;
+    QString pcvrAppName;
+    QString pcvrClient;
+    QString pcvrClientName;
 
 signals:
+    void pcvrChanged();
     void changed();
     void usbCableChanged();
 
@@ -184,6 +226,7 @@ private:
     int m_iniScrollSpeed = 100;
     QString m_iniControllerModel = "off";
     int m_iniDoff = 60, m_iniIdle = 0;
+    int m_iniRfiIdr = 500;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
@@ -191,5 +234,10 @@ private:
     bool m_iniSbsFull = false;
     int m_iniEdgeSharpness = 0, m_iniMotionReset = 0, m_iniDepthScale = 100, m_iniDepthGlobal = 100;
     bool m_usbCable = false, m_usbScanned = false;
+    QString m_pcvrStatus, m_pcvrBase;
+    bool m_pcvrBusy = false;
+    QVariantList m_pcvrDevices, m_pcvrApps;
+    void pcvrLoadApps();
+    void pcvrSay(const QString& status, bool busy);
     QString m_iniKeymap = QStringLiteral("qwerty");
 };

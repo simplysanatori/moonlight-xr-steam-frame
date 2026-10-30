@@ -43,6 +43,10 @@ void xrHostCloseRect(float r[4]) {
     uv(840.0f, 22.0f, 990.0f, 70.0f, r);
 }
 
+void xrHostPcvrRect(float r[4]) {
+    uv(660.0f, 22.0f, 826.0f, 70.0f, r);
+}
+
 void xrHostConfirmBox(float r[4]) {
     uv(212.0f, 112.0f, 812.0f, 352.0f, r);
 }
@@ -88,6 +92,10 @@ int xrHostZoneAt(float u, float v, int macros, int confirm) {
     xrHostCloseRect(r);
     if (inRect(r, u, v)) {
         return XR_HOST_ZONE_CLOSE;
+    }
+    xrHostPcvrRect(r);
+    if (inRect(r, u, v)) {
+        return XR_HOST_ZONE_PCVR;
     }
     for (int cell = 0; cell < XR_HOST_CELLS; cell++) {
         if (xrHostCellKind(cell, macros) == XR_HOST_CELL_NONE) {
