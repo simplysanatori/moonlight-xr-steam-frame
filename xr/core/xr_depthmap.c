@@ -165,6 +165,36 @@ void depthTauBlend(float* avg, const float* v, int count, float alpha, int seed)
     }
 }
 
+void depthGuideLuma(const float* rgb, float* luma, int count) {
+    for (int i = 0; i < count; i++) {
+        const float* c = rgb + (size_t)i * 3;
+        luma[i] = 0.2126f * c[0] + 0.7152f * c[1] + 0.0722f * c[2];
+    }
+}
+
+int depthMotionReset(float* avg, const float* v, const float* luma, const float* lastLuma, int count,
+                     float threshold) {
+    if (!(threshold > 0.0f)) {
+        return 0;
+    }
+    int n = 0;
+    for (int i = 0; i < count; i++) {
+        if (fabsf(luma[i] - lastLuma[i]) > threshold && isfinite(v[i])) {
+            avg[i] = v[i];
+            n++;
+        }
+    }
+    return n;
+}
+
+void depthEdgeParams(int sharpness, float* sigmaR, float* sharp) {
+    int s = sharpness < EDGE_SHARPNESS_MIN ? EDGE_SHARPNESS_MIN
+            : (sharpness > EDGE_SHARPNESS_MAX ? EDGE_SHARPNESS_MAX : sharpness);
+    float t = (float)(s - EDGE_SHARPNESS_MIN) / (float)(EDGE_SHARPNESS_MAX - EDGE_SHARPNESS_MIN);
+    *sigmaR = EDGE_SIGMA_R_SOFT + t * (EDGE_SIGMA_R_SHARP - EDGE_SIGMA_R_SOFT);
+    *sharp = t;
+}
+
 void depthRangeStep(DepthRange* r, float lo, float hi, float dtSec, float tauSec) {
     if (!r->valid || !(tauSec > 0.0f)) {
         r->lo = lo;
