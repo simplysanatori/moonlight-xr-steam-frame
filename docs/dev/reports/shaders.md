@@ -150,7 +150,11 @@ xr/core module that owns the same sums (section 4).
     toward the viewer around an axis `radius` behind the surface, as upstream
     poses its cylinder layers. It is for the curved screen, the curved glow
     and curved UI panels.
-12. **Upstream's UI has no shader.** Panels, text and the stats overlay are CPU
+12. **Later (lane text-clarity, `text-clarity.md`).** The panel pass has a picture filter for the curved and 3D
+    picture (a 2 x 2 box over each eye pixel's footprint, and Sharpen at the eye's pixels). The warp has chroma
+    from luma (`guidedChroma`, switch bits 16, 32 and 64). The mip chain is `mlxr_record_mips`. Group `text` of
+    the shader tests measures them.
+13. **Upstream's UI has no shader.** Panels, text and the stats overlay are CPU
     pixels uploaded with `glTexSubImage2D`. In Vulkan that is a buffer-to-image
     copy into the quad layer's swapchain image, which the orchestrator or
     lane U records. Nothing for it lives in this lane.
