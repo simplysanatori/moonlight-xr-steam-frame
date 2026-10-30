@@ -167,6 +167,10 @@ void MlxrPrefs::pcvrLoadApps()
             for (const QJsonValue& v : doc.array()) {
                 QVariantMap m = v.toObject().toVariantMap();
                 m["appid"] = QString::number(static_cast<qlonglong>(v.toObject().value("appid").toDouble()));   // a whole number, not a double
+                // SteamVR is the list's own first entry (the page's), whether or not Steam lists it
+                if (m["appid"].toString() == QString::number(MlxrHandoff::kSteamVrAppId)) {
+                    continue;
+                }
                 m_pcvrApps << m;
             }
             pcvrSay(m_pcvrBase + " " + QObject::tr("%n game(s) on the PC.", "", m_pcvrApps.size()), false);
@@ -213,7 +217,8 @@ void MlxrPrefs::pcvrChooseApp(int index)
 
 void MlxrPrefs::pcvrSetAppId(const QString& id)
 {
-    const QString t = id.trimmed();
+    // SteamVR's id is the default, saved as none
+    const QString t = MlxrHandoff::pcvrChosenGame(id);
     pcvrApp = t;
     pcvrAppName.clear();
     for (const QVariant& a : m_pcvrApps) {

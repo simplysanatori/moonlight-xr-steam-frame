@@ -13,10 +13,18 @@ PC VR (Valve's Steam Link stream, see docs/USER_GUIDE.md "PC VR"):
                                        the paired Remote Play PCs (RemotePlay.RegisterForDevicesChanges,
                                        collected for N seconds, default 4): JSON [{clientId, clientName, ...}]
     steam_cef.py --apps [--client ID]  the library's apps installed on that PC (all PCs when no id): JSON
-    steam_cef.py --pcvr [--app ID] [--client ID]
-                                       the hand-off: Apps.StreamGame(app, client, 0), or without an app the
-                                       library page, to press "Stream from your PC" there. Without --client
-                                       the only paired PC is used.
+    steam_cef.py --pcvr [--app ID|steamvr] [--client ID] [--confirm N] [--dry-run]
+                                       the hand-off: Apps.StreamGame(app, client, 0) streams the app from
+                                       the PC to this headset. Without --app the app is SteamVR itself
+                                       (250820: SteamVR Home on the PC, any game from there). Without
+                                       --client the only paired PC is used. Steam refusing the call opens
+                                       the app's page instead (press Stream there); several paired PCs and
+                                       none chosen open that page too; no paired PC at all opens the
+                                       library. The JSON says which path was taken ("path") and why.
+                                       --confirm N then watches the PC's Remote Play state for N seconds
+                                       ("streaming": true once Steam reports a session). --dry-run asks
+                                       only for the paired PCs (none with --client) and prints the call
+                                       it would make, without making it.
 
 STEAM_CEF_PORT changes the port. The calls are the community-documented names of Steam's own client
 API (decky-frontend-lib typings); their exact signatures on the Frame's Steam build are what
@@ -41,6 +49,10 @@ API_REQUIRED = ("StreamGame", "RegisterForDevicesChanges")
 # shows what the client really reports; no app carries one => the list is not filtered)
 VR_CATEGORIES = (53, 54)
 MAX_SECONDS = 15   # the websocket read times out at 20 s
+# SteamVR's own Steam app id (a Tool, so the library's app list may leave it out): what PC VR streams when
+# no game was chosen, so the headset lands in SteamVR Home on the PC and any game starts from there
+STEAMVR_APPID = 250820
+STEAMVR_NAME = "SteamVR"
 
 EXIT_FAILED, EXIT_USAGE, EXIT_UNREACHABLE, EXIT_NO_API = 1, 2, 3, 4
 
@@ -156,7 +168,10 @@ def evaluate(expr):
 # ---- the JavaScript the PC VR hand-off sends (strings only: built here, unit-tested) ----------------
 
 def _app_id(v):
-    """A Steam app id (an unsigned 32-bit number, or a non-Steam shortcut's 32-bit id) as a plain int."""
+    """A Steam app id (an unsigned 32-bit number, or a non-Steam shortcut's 32-bit id) as a plain int.
+    "steamvr" (any case) is SteamVR's."""
+    if str(v).strip().lower() == "steamvr":
+        return STEAMVR_APPID
     try:
         n = int(str(v).strip(), 10)
     except ValueError:
@@ -191,8 +206,14 @@ def js_show_dashboard(app):
 
 
 def js_library():
-    """Steam's library page: where the user presses 'Stream from your PC' when no app was chosen."""
+    """Steam's library page: the last way out, when no paired PC was found to stream from."""
     return "SteamClient.URL.ExecuteSteamURL('steam://nav/games')"
+
+
+def js_app_page(app):
+    """The app's own library page, where its Stream button (and the PC to stream from) is one press away:
+    the fallback when Steam refuses StreamGame or when several PCs are paired and none was chosen."""
+    return f"SteamClient.URL.ExecuteSteamURL('steam://nav/games/details/{_app_id(app)}')"
 
 
 def js_devices(seconds):
@@ -356,25 +377,102 @@ def apps(client=None):
     return parse_apps(got, client)
 
 
-def pcvr(app=None, client=None):
-    """The hand-off. Returns what was asked of Steam: {action, app, client, js}."""
-    if app is not None:
-        app = _app_id(app)
-        if client is None:
-            found = devices()
-            if not found:
-                raise CefError("no paired Remote Play PC: pair this headset with the PC in Steam first")
-            if len(found) > 1:
-                raise CefError("several Remote Play PCs are paired (" + ", ".join(d["clientName"] for d in found)
-                               + "): pick one in the launcher's Settings")
-            client = found[0]["clientId"]
-        js = js_stream_game(app, client)
-        action = "stream"
+def plan_pcvr(app=None, client=None, found=None):
+    """The hand-off's decision (pure: unit-tested with made-up device lists). app None is SteamVR. found is
+    the paired PCs (parse_devices' list; only looked at when client is None). Returns {path, target, app,
+    appName, client, js, fallback, reason}: path "stream" calls StreamGame (fallback: the app's page if
+    Steam refuses), "app-page" opens the app's page (several PCs, none chosen), "library" opens the library
+    (no paired PC)."""
+    app = STEAMVR_APPID if app is None or str(app).strip() == "" else _app_id(app)
+    steamvr = app == STEAMVR_APPID
+    out = {"path": None, "target": "steamvr" if steamvr else "game", "app": app,
+           "appName": STEAMVR_NAME if steamvr else None, "client": None, "js": None, "fallback": None,
+           "reason": ""}
+    if client is not None and str(client).strip() != "":
+        out["client"] = _client_id(client)
+        out["reason"] = "the PC chosen in the launcher's Settings"
     else:
-        js = js_library()
-        action = "library"
-    evaluate(js)
-    return {"action": action, "app": app, "client": client, "js": js}
+        found = [d for d in (found or []) if isinstance(d, dict) and d.get("clientId")]
+        if len(found) == 1:
+            out["client"] = _client_id(found[0]["clientId"])
+            out["reason"] = "the only paired PC"
+        elif len(found) > 1:
+            out["path"] = "app-page"
+            out["js"] = js_app_page(app)
+            out["reason"] = ("several Remote Play PCs are paired (" + ", ".join(d.get("clientName", d["clientId"])
+                             for d in found) + ") and none is chosen in the launcher's Settings: the app's page "
+                             "opens, press Stream there")
+            return out
+        else:
+            out["path"] = "library"
+            out["js"] = js_library()
+            out["reason"] = ("no paired Remote Play PC found: pair this headset with the PC in Steam "
+                             "(Steam Link), then try again; the library opens")
+            return out
+    out["path"] = "stream"
+    out["js"] = js_stream_game(app, out["client"])
+    out["fallback"] = js_app_page(app)
+    return out
+
+
+def stream_state(found, client):
+    """Whether Steam's device list says `client` is streaming: True, False, or None when it is not listed."""
+    for d in found or []:
+        if str(d.get("clientId")) == str(client):
+            return bool(d.get("streaming"))
+    return None
+
+
+def pcvr(app=None, client=None, dry_run=False, confirm=0, ev=None, list_devices=None):
+    """The hand-off. Asks Steam for what plan_pcvr() decides and returns the plan with what happened:
+    {action (= path), path, target, app, appName, client, js (the call made), tried: [{js, error}], reason,
+    returned, streaming (with confirm), dryRun}. ev and list_devices stand in for evaluate() and devices()
+    in tests."""
+    ev = ev or evaluate
+    list_devices = list_devices or devices
+    found, why_none = None, ""
+    if client is None or str(client).strip() == "":
+        try:
+            found = list_devices()
+        except CefUnreachable:
+            raise
+        except CefError as e:   # the list call is missing or threw: nothing to stream to
+            found, why_none = [], str(e)
+    plan = plan_pcvr(app, client, found)
+    if why_none:
+        plan["reason"] += " (" + why_none + ")"
+    plan["tried"] = []
+    if dry_run:
+        plan["dryRun"] = True
+        plan["action"] = plan["path"]
+        return plan
+    try:
+        plan["returned"] = ev(plan["js"])
+        plan["tried"].append({"js": plan["js"], "error": None})
+    except CefUnreachable:
+        raise
+    except CefError as e:
+        plan["tried"].append({"js": plan["js"], "error": str(e)[:300]})
+        if not plan["fallback"]:
+            raise
+        # Steam refused StreamGame (the call or its form changed): the app's page, one press from Stream
+        try:
+            ev(plan["fallback"])
+        except CefError as e2:
+            raise CefError(f"StreamGame failed ({e}) and so did the app's page ({e2})")
+        plan["tried"].append({"js": plan["fallback"], "error": None})
+        plan["path"], plan["js"] = "app-page", plan["fallback"]
+        plan["reason"] = "Steam refused StreamGame: the app's page opens, press Stream there"
+    plan["action"] = plan["path"]
+    if confirm and plan["path"] == "stream":
+        # Steam's Remote Play device list carries a session id while a stream runs (parse_devices'
+        # "streaming"); a failure here does not undo the call above
+        try:
+            plan["streaming"] = stream_state(list_devices(confirm), plan["client"])
+        except (CefError, OSError) as e:
+            plan["streaming"] = None
+            plan["confirmError"] = str(e)[:300]
+    return plan
 
 
 def _opt(argv, name, default=None):
@@ -404,7 +502,10 @@ def main(argv):
             print(json.dumps(apps(_opt(argv, "--client"))))
             return 0
         if cmd == "--pcvr":
-            print(json.dumps(pcvr(_opt(argv, "--app"), _opt(argv, "--client"))))
+            confirm = float(_opt(argv, "--confirm", 0))
+            if not 0 <= confirm <= MAX_SECONDS:
+                raise ValueError(f"--confirm takes 0 to {MAX_SECONDS} seconds")
+            print(json.dumps(pcvr(_opt(argv, "--app"), _opt(argv, "--client"), "--dry-run" in argv, confirm)))
             return 0
         if cmd.startswith("--"):
             sys.stderr.write(__doc__)

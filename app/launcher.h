@@ -50,7 +50,8 @@ typedef struct {
     int appId;
     int quitFirst;
     int quitHost;
-    int pcvr;           // LCMD_STOP: the stream stops for the hand-off to PC VR (the exit code says so)
+    int pcvr;           // LCMD_STOP: the stream stops for the hand-off to PC VR (the exit code says so):
+                        // LAUNCH_PCVR_STEAMVR or LAUNCH_PCVR_GAME, 0 not PC VR
 } LaunchCmd;
 
 typedef struct Launcher {
@@ -112,6 +113,11 @@ void launcher_disconnect_idle(Launcher* l);
 // PC): LCMD_STOP with quitHost 0 (the host's session keeps running, as with Disconnect) and pcvr
 // set, which makes the process end with the PC VR exit code. Outside a stream it does nothing.
 void launcher_pcvr(Launcher* l);
+// Lane pcvr-steamvr: the same with what Steam Link is to start, LAUNCH_PCVR_STEAMVR (what launcher_pcvr
+// asks) or LAUNCH_PCVR_GAME (the flat launcher's chosen game): LaunchCmd.pcvr carries it to the exit code
+#define LAUNCH_PCVR_STEAMVR 1
+#define LAUNCH_PCVR_GAME 2
+void launcher_pcvr_to(Launcher* l, int target);
 
 // ---- what the worker and the frame loop take ----
 int launcher_take_cmd(Launcher* l, LaunchCmd* out);

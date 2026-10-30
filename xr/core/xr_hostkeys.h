@@ -276,4 +276,22 @@ int xrHostComposeKey(XrHostCompose* c, int code);
 // The last `chars` characters of the text, with a leading ellipsis when it was longer (for the space bar)
 void xrHostComposeTail(const char* text, int chars, char* out, size_t cap);
 
+// ---- the PC VR question's choice (lane pcvr-steamvr) -------------------------------------------------------
+// The question offers SteamVR (Steam Link streams SteamVR Home from the PC; on the confirmation's Send
+// button, XR_HOST_ZONE_CONFIRM_SEND) and, when the flat launcher chose one, a game by name
+// (XR_HOST_ZONE_CONFIRM_GAME), then Cancel. Without a game it is the usual two-button box.
+#define XR_HOST_ZONE_CONFIRM_GAME 105
+#define XR_HOST_PCVR_GAME_NAME 64
+// The PC VR question's box: wider when it offers a game, else xrHostConfirmBox
+void xrHostPcvrBox(int game, float r[4]);
+// Button i of the PC VR question (0 SteamVR, 1 the game, 2 Cancel) when it offers a game; without one,
+// 0 is xrHostConfirmSendRect and 2 xrHostConfirmCancelRect (1 is zeros)
+void xrHostPcvrChoiceRect(int i, int game, float r[4]);
+// What a point on the sheet is on while the PC VR question is up: XR_HOST_ZONE_CONFIRM_SEND (SteamVR),
+// _CONFIRM_GAME (only with game), _CONFIRM_CANCEL or _NONE
+int xrHostPcvrZoneAt(float u, float v, int game);
+// The game's name as the launcher hands it over (MLXR_PCVR_GAME): spaces round it and control characters
+// out, cut at a whole UTF-8 character to fit cap. NULL or blank gives "" (no game: SteamVR only).
+void xrHostPcvrGameName(const char* raw, char* out, size_t cap);
+
 #endif

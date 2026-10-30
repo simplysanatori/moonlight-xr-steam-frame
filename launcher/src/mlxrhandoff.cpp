@@ -22,6 +22,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJSValue>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPlatformSurfaceEvent>
 #include <QPointer>
 #include <memory>
@@ -279,6 +281,14 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
                                .trimmed().toLower();
         if (np == "auto" || np == "home" || np == "adapter" || np == "usb") {
             a << "--network" << np;
+        }
+    }
+    // Lane pcvr-steamvr: the Host sheet's PC VR question offers SteamVR, and this game when one is chosen
+    {
+        const QString game = pcvrChosenGame(prefs->pcvrApp);
+        if (!game.isEmpty()) {
+            plan.extraEnv.insert("MLXR_PCVR_GAME", prefs->pcvrAppName.trimmed().isEmpty()
+                                                       ? QObject::tr("Steam app %1").arg(game) : prefs->pcvrAppName.trimmed());
         }
     }
     a << "--exit-to-caller";
@@ -621,24 +631,36 @@ QProcess* runSteamCef(const QStringList& args, int timeoutMs, QObject* context,
     return p;
 }
 
-QStringList pcvrArguments(const QString& app, const QString& client)
+QString pcvrChosenGame(const QString& app)
+{
+    const QString t = app.trimmed();
+    return t.isEmpty() || t == QString::number(kSteamVrAppId) ? QString() : t;
+}
+
+QStringList pcvrArguments(const QString& app, const QString& client, int confirmSeconds)
 {
     QStringList a { "--pcvr" };
-    if (!app.trimmed().isEmpty()) {
+    if (!pcvrChosenGame(app).isEmpty()) {
         a << "--app" << app.trimmed();
     }
     if (!client.trimmed().isEmpty()) {
         a << "--client" << client.trimmed();
     }
+    if (confirmSeconds > 0) {
+        a << "--confirm" << QString::number(confirmSeconds);
+    }
     return a;
 }
 
-void startPcvr()
+void startPcvr(bool game)
 {
     QSettings s;
-    const QString app = s.value("mlxr/pcvr_app").toString();
+    // Lane pcvr-steamvr: SteamVR unless the headset's question was answered with the chosen game
+    const QString app = game ? pcvrChosenGame(s.value("mlxr/pcvr_app").toString()) : QString();
+    const QString appName = s.value("mlxr/pcvr_app_name").toString();
     const QString client = s.value("mlxr/pcvr_client").toString();
-    const QStringList args = pcvrArguments(app, client);
+    // --confirm: the log then says whether Steam reported the stream (10 s of its Remote Play state)
+    const QStringList args = pcvrArguments(app, client, 10);
     s_pcvrStarted = true;
     s_pcvrSince.start();
     const QString line = "MLXR_PCVR: python3 -I steam_cef.py " + args.join(' ');
@@ -655,10 +677,17 @@ void startPcvr()
         return;
     }
     qInfo().noquote() << "Handing the headset to PC VR (Steam Link):" << args.join(' ')
-                      << (app.isEmpty() ? "(no game chosen: Steam's library opens)" : "");
+                      << (app.isEmpty() ? QString("(SteamVR)") : QString("(%1)").arg(appName.isEmpty() ? app : appName));
     s_pcvrProcess = runSteamCef(args, 40000, qApp, [](int code, const QByteArray& out, const QString& err) {
         if (code == 0) {
-            qInfo().noquote() << "Asked Steam for PC VR: done" << QString::fromUtf8(out).trimmed();
+            // which path steam_cef.py took (stream, app-page, library), why, and what Steam reported after
+            const QJsonObject o = QJsonDocument::fromJson(out).object();
+            const QJsonValue st = o.value("streaming");
+            qInfo().noquote() << QString("Asked Steam for PC VR: %1 (%2)%3").arg(o.value("path").toString("?"),
+                                     o.value("reason").toString(),
+                                     st.isBool() ? QString("; Steam reports the PC %1").arg(st.toBool() ? "streaming" : "not streaming yet")
+                                                 : QString())
+                              << QString::fromUtf8(out).trimmed();
         }
         else {
             qWarning().noquote() << QString("Asked Steam for PC VR: failed (exit %1): %2 %3; run steam_cef.py --probe for the "
@@ -1073,10 +1102,10 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
             const QStringList p = dry.split(':');
             r.exitCode = p.value(1, "1").toInt();
             r.message = p.mid(2).join(':');
-            if (r.exitCode == kExitPcvr) {
+            if (r.exitCode == kExitPcvr || r.exitCode == kExitPcvrGame) {
                 r.disconnected = r.pcvr = true;
                 r.message.clear();
-                startPcvr();
+                startPcvr(r.exitCode == kExitPcvrGame);
             }
         }
         return r;
@@ -1167,7 +1196,7 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
         if (r.exitCode == 11) {
             r.disconnected = true; // not an error: no dialog, the app list shows the app as running
         }
-        else if (r.exitCode == kExitPcvr) {
+        else if (r.exitCode == kExitPcvr || r.exitCode == kExitPcvrGame) {
             r.disconnected = r.pcvr = true; // the same, and Steam is asked to stream the PC below
         }
         else if (r.exitCode != 0) {
@@ -1179,7 +1208,7 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
     }
     log.write(QString("\n== VR client exited: code %1%2\n").arg(r.exitCode).arg(r.crashed ? " (crashed)" : "").toUtf8());
     if (r.pcvr) {
-        startPcvr();   // not the flat screen: the headset goes to Valve's stream
+        startPcvr(r.exitCode == kExitPcvrGame);   // not the flat screen: the headset goes to Valve's stream
     }
     else {
         reopenFlatScreen();
@@ -1443,13 +1472,13 @@ static int selfTestPlan(const QString& spec)
     _exit(0);
 }
 
-// "pcvr:probe", "pcvr:devices", "pcvr:apps[:CLIENT]", "pcvr:go" for tests/launcher: no UI
+// "pcvr:probe", "pcvr:devices", "pcvr:apps[:CLIENT]", "pcvr:go", "pcvr:game" for tests/launcher: no UI
 static int selfTestPcvr(const QString& spec)
 {
     const QStringList p = spec.split(':');
     const QString what = p.value(1);
-    if (what == "go") {
-        startPcvr();
+    if (what == "go" || what == "game") {
+        startPcvr(what == "game");
         waitForPcvr(20000);
         return 0;
     }
@@ -1467,7 +1496,7 @@ static int selfTestPcvr(const QString& spec)
         }
     }
     else {
-        QTextStream(stderr) << "SELFTEST: pcvr:probe|devices|apps[:CLIENT]|go" << Qt::endl;
+        QTextStream(stderr) << "SELFTEST: pcvr:probe|devices|apps[:CLIENT]|go|game" << Qt::endl;
         return 20;
     }
     int rc = -3;

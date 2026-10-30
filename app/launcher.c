@@ -253,13 +253,17 @@ void launcher_disconnect_idle(Launcher* l) {
 }
 
 void launcher_pcvr(Launcher* l) {
+    launcher_pcvr_to(l, LAUNCH_PCVR_STEAMVR);
+}
+
+void launcher_pcvr_to(Launcher* l, int target) {
     if (l->fileMode) {
         return;   // no host, nothing to hand over
     }
     int streaming = l->state == LAUNCH_STREAMING || l->state == LAUNCH_STARTING;
     disconnectWith(l, UIS_NATIVE_PCVR);
     if (streaming && l->state == LAUNCH_STOPPING && l->ncmd > 0 && l->cmds[l->ncmd - 1].kind == LCMD_STOP) {
-        l->cmds[l->ncmd - 1].pcvr = 1;
+        l->cmds[l->ncmd - 1].pcvr = target == LAUNCH_PCVR_GAME ? LAUNCH_PCVR_GAME : LAUNCH_PCVR_STEAMVR;
     }
 }
 

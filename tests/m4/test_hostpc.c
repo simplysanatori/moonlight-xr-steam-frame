@@ -3,6 +3,7 @@
 // clipboard; a host command asks first and then asks the app to run it by number; "Send text to PC"
 // puts the keyboard up as a field of its own (Compact, nothing to the host as keys) and Enter hands the
 // text to the app; and a host that is not Apollo has no commands to press. GPLv3.
+#include <stdlib.h>
 #include <string.h>
 
 #include "check.h"
@@ -197,6 +198,38 @@ static void testBesidePcvr(Scene* s) {
     CHECK(pressRect(c, r, &tick) == XR_HOST_ZONE_CONFIRM_SEND);
     CHECK(c->pcvrRequest == 1 && c->hostActKind == XR_HOSTACT_NONE && !c->hostOpen && c->hostConfirm == -1);
     c->pcvrRequest = 0;
+
+    // Lane pcvr-steamvr: with a game from the launcher the question offers it beside SteamVR
+    setenv("MLXR_PCVR_GAME", " Beat Saber ", 1);
+    xrHostOpen(c);
+    CHECK(strcmp(c->pcvrGame, "Beat Saber") == 0);
+    xrHostPcvrRect(r);
+    CHECK(pressRect(c, r, &tick) == XR_HOST_ZONE_PCVR && c->hostConfirm == XR_HOST_CONFIRM_PCVR);
+    xrHostPcvrChoiceRect(1, 1, r);
+    CHECK(pressRect(c, r, &tick) == XR_HOST_ZONE_CONFIRM_GAME);
+    CHECK(c->pcvrRequest == 2 && !c->hostOpen && c->hostConfirm == -1);
+    c->pcvrRequest = 0;
+    xrHostOpen(c);
+    xrHostPcvrRect(r);
+    pressRect(c, r, &tick);
+    xrHostPcvrChoiceRect(0, 1, r);
+    CHECK(pressRect(c, r, &tick) == XR_HOST_ZONE_CONFIRM_SEND && c->pcvrRequest == 1);
+    c->pcvrRequest = 0;
+    xrHostOpen(c);
+    xrHostPcvrRect(r);
+    pressRect(c, r, &tick);
+    xrHostPcvrChoiceRect(2, 1, r);
+    CHECK(pressRect(c, r, &tick) == XR_HOST_ZONE_CONFIRM_CANCEL && !c->pcvrRequest && c->hostOpen);
+    xrHostClose(c);
+    // none: the game's place is no button
+    unsetenv("MLXR_PCVR_GAME");
+    xrHostOpen(c);
+    CHECK(c->pcvrGame[0] == '\0');
+    xrHostPcvrRect(r);
+    pressRect(c, r, &tick);
+    xrHostPcvrChoiceRect(1, 1, r);
+    CHECK(pressRect(c, r, &tick) != XR_HOST_ZONE_CONFIRM_GAME && !c->pcvrRequest);
+    xrHostClose(c);
 }
 
 int main(void) {

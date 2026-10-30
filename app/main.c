@@ -115,7 +115,8 @@ enum {
     EXIT_LAUNCH_FAILED = 6,  // the host refused the launch/resume, or the stream would not connect
     EXIT_STREAM_ENDED = 10,  // the stream ended by itself (the host closed it, or the network dropped)
     EXIT_DISCONNECTED = 11,  // left with the disconnect chord: not an error, the host's session still runs
-    EXIT_PCVR = 12           // the Host sheet's Switch to PC VR: like 11, and the launcher hands the headset to Steam Link
+    EXIT_PCVR = 12,          // the Host sheet's Switch to PC VR: like 11, and the launcher hands the headset to Steam Link (SteamVR)
+    EXIT_PCVR_GAME = 13      // the same, to the game chosen in the launcher (lane pcvr-steamvr)
 };
 static atomic_int g_exitCode;
 static char g_exitMsg[256];
@@ -513,7 +514,7 @@ static void uiHook(void* user, const XrUiEvents* ev, XrUiLauncher* show) {
         // reads the code), so without --exit-to-caller the stream carries on
         if (g_args.exitToCaller) {
             MLOG_I("PC VR confirmed in %s: leaving the stream for Steam Link, the host's session stays", launcher_state_name(g_launch.state));
-            launcher_pcvr(&g_launch);
+            launcher_pcvr_to(&g_launch, ev->pcvrConfirmed == 2 ? LAUNCH_PCVR_GAME : LAUNCH_PCVR_STEAMVR);
             poke = 1;
         } else {
             xr_app_notice(ui_str(UIS_NATIVE_PCVR_NEEDS_LAUNCHER));
@@ -1621,7 +1622,7 @@ static void* worker(void* arg) {
             pthread_mutex_unlock(&g_lock);
             // The bar's exit (the host's session is ended) or the disconnect chord (it stays, so the
             // caller shows the app as running, as Moonlight does after a disconnect)
-            if (g_args.exitToCaller) endForCaller(c.pcvr ? EXIT_PCVR : c.quitHost ? EXIT_OK : EXIT_DISCONNECTED, NULL);
+            if (g_args.exitToCaller) endForCaller(c.pcvr == LAUNCH_PCVR_GAME ? EXIT_PCVR_GAME : c.pcvr ? EXIT_PCVR : c.quitHost ? EXIT_OK : EXIT_DISCONNECTED, NULL);
             break;
         case LCMD_WAKE:
             if (c.pc >= 0 && c.pc < (int)n->hosts.n) {
