@@ -169,6 +169,13 @@ Flickable {
     // US keyboard's positions, so the PC has to be on the same layout
     readonly property var keymapValues: ["qwerty", "azerty", "qwertz"]
     readonly property var keymapNames: [qsTr("QWERTY (US)"), qsTr("AZERTY (French)"), qsTr("QWERTZ (German)")]
+    // Native (PLAN 4.3): [3d] stereo_source of the VR client's config.ini, where the 3D comes from
+    readonly property var stereoSourceValues: ["depth", "sbs", "top-bottom"]
+    readonly property var stereoSourceNames: [qsTr("Depth model"), qsTr("SBS from the PC"), qsTr("Top-bottom from the PC")]
+    function stereoSourceIndex() {
+        return Math.max(0, stereoSourceValues.indexOf(MlxrPrefs.stereoSource))
+    }
+
     // [vr] notices of the VR client's config.ini
     readonly property var noticeValues: ["all", "important", "off"]
     readonly property var noticeNames: [qsTr("All"), qsTr("Important only"), qsTr("Off")]
@@ -676,7 +683,8 @@ Flickable {
             title: qsTr("3D Effect Strength")
             summary: qsTr("Higher more effect, but maybe strain on eyes and unnatural. Lower, easier on eyes and smoother experience.") +
                      (MlxrPrefs.strengthIsDefault ? " " + qsTr("(Now: the depth model's own.)") : "")
-            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            reason: MlxrPrefs.renderMode !== 1 ? qsTr("Render Mode is Default 2D")
+                    : MlxrPrefs.stereoSource !== "depth" ? qsTr("3D source is the PC's own pair") : ""
             from: 1
             to: 100
             value: MlxrPrefs.strength
@@ -692,6 +700,25 @@ Flickable {
             to: 100
             value: MlxrPrefs.convergence
             onMoved: function(v) { MlxrPrefs.convergence = Math.round(v); MlxrPrefs.convergenceIsDefault = false }
+        }
+
+        // Native (PLAN 4.3): the headset's 3D tab's 3D source row; pressing steps Depth -> SBS -> Top-bottom
+        PrefRow {
+            objectName: "stereoSourceRow"
+            title: qsTr("3D source")
+            valueText: settingsPage.stereoSourceNames[settingsPage.stereoSourceIndex()]
+            summary: qsTr("Depth model: the headset makes the 3D from a 2D stream. SBS or Top-bottom: the PC renders the two eyes itself (a 3D film, a game's own SBS mode, ReShade SuperDepth3D) and each eye sees its half; no depth model runs and Convergence moves the halves apart or together.") + " " +
+                     qsTr("(also on the headset's 3D tab)")
+            onClicked: MlxrPrefs.stereoSource = settingsPage.stereoSourceValues[(settingsPage.stereoSourceIndex() + 1) % settingsPage.stereoSourceValues.length]
+        }
+
+        PrefSwitch {
+            objectName: "sbsFullRow"
+            title: qsTr("Full-size SBS")
+            summary: qsTr("On: the PC's pair holds a full picture per eye (set a 3840x1080 Custom Resolution for two 1920x1080 eyes). Off: half-size, each eye squeezed into half of a 1920x1080 frame.")
+            reason: MlxrPrefs.stereoSource === "depth" ? qsTr("3D source is the depth model") : ""
+            isOn: MlxrPrefs.sbsFull
+            onSwitched: function(on) { MlxrPrefs.sbsFull = on }
         }
 
         PrefSwitch {

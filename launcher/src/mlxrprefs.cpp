@@ -129,6 +129,10 @@ void MlxrPrefs::load()
     const int conv = iniValue(ini, "3d", "convergence", "-1").toInt();
     convergenceIsDefault = conv < 0;
     convergence = conv < 0 ? 50 : qBound(0, conv, 100);
+    // the VR client takes the name or its index; anything else is its default, depth
+    const QString src = iniValue(ini, "3d", "stereo_source", "depth").trimmed().toLower();
+    stereoSource = (src == "sbs" || src == "1") ? "sbs" : (src == "top-bottom" || src == "2") ? "top-bottom" : "depth";
+    sbsFull = iniBool(iniValue(ini, "3d", "sbs_full", "false"));
     flipFaceButtons = iniBool(iniValue(ini, "vr", "flip_face_buttons", "false"));
     keyboardKeymap = iniValue(ini, "vr", "keyboard_keymap", "qwerty").trimmed().toLower();
     if (keyboardKeymap != "azerty" && keyboardKeymap != "qwertz") {
@@ -171,6 +175,8 @@ void MlxrPrefs::load()
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniStereoSource = stereoSource;
+    m_iniSbsFull = sbsFull;
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
@@ -215,6 +221,12 @@ void MlxrPrefs::save()
     if (convergence != m_iniConvergence || convergenceIsDefault != m_iniConvergenceDefault) {
         setIniValue(ini, "3d", "convergence", convergenceIsDefault ? "-1" : QString::number(qBound(0, convergence, 100)));
     }
+    if (stereoSource != m_iniStereoSource) {
+        setIniValue(ini, "3d", "stereo_source", stereoSource);
+    }
+    if (sbsFull != m_iniSbsFull) {
+        setIniValue(ini, "3d", "sbs_full", sbsFull ? "true" : "false");
+    }
     if (flipFaceButtons != m_iniFlip) {
         setIniValue(ini, "vr", "flip_face_buttons", flipFaceButtons ? "true" : "false");
     }
@@ -251,6 +263,8 @@ void MlxrPrefs::save()
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniStereoSource = stereoSource;
+    m_iniSbsFull = sbsFull;
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
