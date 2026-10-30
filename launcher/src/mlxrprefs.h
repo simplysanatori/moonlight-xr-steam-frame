@@ -149,6 +149,10 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(int opentrackPort MEMBER opentrackPort NOTIFY changed)
     // pointer_source (PLAN 6.5): "controller" (default), "head" or "gaze"
     Q_PROPERTY(QString pointerSource MEMBER pointerSource NOTIFY changed)
+    // Native (lane headinput-finish, PLAN 4b.10): mouse_mode "absolute" (default) or "relative";
+    // back_as_guide, gamepad mode's Back (View) button as Guide
+    Q_PROPERTY(QString mouseMode MEMBER mouseMode NOTIFY changed)
+    Q_PROPERTY(bool backAsGuide MEMBER backAsGuide NOTIFY changed)
     // ---- PC VR: Valve's Steam Link stream of the PC (lane wave4-pcvr, PLAN 4.1, 4.2, 4.9) ----
     // The Host sheet's PC VR button ends the stream and the launcher asks Steam to stream pcvrApp (a Steam
     // app id; empty: open Steam's library) from the Remote Play PC pcvrClient (a Remote Play client id; empty:
@@ -300,6 +304,8 @@ public:
     QString opentrackHost;
     int opentrackPort = 4242;
     QString pointerSource = QStringLiteral("controller");
+    QString mouseMode = QStringLiteral("absolute"); // native (lane headinput-finish)
+    bool backAsGuide = false;
     QString pcvrApp;
     QString pcvrAppName;
     QString pcvrClient;
@@ -335,6 +341,8 @@ private:
     QString m_iniOpentrackHost;
     int m_iniOpentrackPort = 4242;
     QString m_iniPointerSource = QStringLiteral("controller");
+    QString m_iniMouseMode = QStringLiteral("absolute");
+    bool m_iniBackAsGuide = false;
     void loadHeadInput(const QString& ini);
     void saveHeadInput(const QString& ini);
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;

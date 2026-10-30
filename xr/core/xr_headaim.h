@@ -140,4 +140,19 @@ int headLookHeld(int boundHeld, int gripDownL, int gripFreeL, int gripDownR, int
 // head_look_px_deg held to head aim's lane (HEAD_AIM_SENSITIVITY_MIN..MAX)
 int headLookSensitivityClamp(int units);
 
+// Native (lane headinput-finish, PLAN 4b.10): [vr] mouse_mode. Absolute (the
+// default, Moonlight's remote desktop mouse) puts the host's cursor where the
+// ray lands on the picture. Relative sends how far the ray's point moved, in
+// stream pixels, through pointerNudge, for games that capture the mouse and
+// read only its motion (a first-person game's look, a strategy game's edge
+// scroll held by the cursor).
+#define MOUSE_MODE_ABSOLUTE 0
+#define MOUSE_MODE_RELATIVE 1
+#define MOUSE_MODE_COUNT    2
+
+// Whether the ray's point goes to the host as motion (1) rather than a
+// position (0): under head aim or head-look (the head is turning the mouse),
+// or with mouse_mode relative. Out of range is absolute.
+int pointerAsMotion(int headMouseActive, int mouseMode);
+
 #endif

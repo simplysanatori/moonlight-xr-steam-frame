@@ -317,6 +317,14 @@ void xrSetPointerSource(XrCtx* ctx, int source, int dwellMs);
 // Native (lane wave4-headinput): the eyes this frame: -1 no eye gaze, 0 not usable, 1 usable
 // (XR_EXT_eye_gaze_interaction's location flags; one combined pose, no per-eye openness)
 int xrGazeValid(const XrCtx* ctx);
+// Native (lane headinput-finish, PLAN 4b.10): [vr] mouse_mode, MOUSE_MODE_ABSOLUTE (the cursor goes
+// where the ray lands) or MOUSE_MODE_RELATIVE (the ray's movement goes as mouse motion); out of range
+// is absolute
+void xrSetMouseMode(XrCtx* ctx, int mode);
+// The ray's smoothed point on the picture (u, v across it) from hand to the host's slots in out, as
+// the input pass hands it on: IN_HIT, IN_U and IN_V, or added to IN_MOUSE_DX and DY under head aim,
+// head-look or mouse_mode relative (xr_headaim.h pointerAsMotion). Public for the tests.
+void xrPointerToHost(XrCtx* ctx, int hand, float u, float v, float* out);
 
 // ---- Native (lane wave2-bind-wire): bindings.ini (xr_input.c) -------------
 // Reads bindings.ini (path NULL: xrBindDefaultPath, which is written with the

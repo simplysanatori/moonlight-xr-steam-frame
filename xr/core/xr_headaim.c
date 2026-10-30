@@ -181,6 +181,10 @@ int headLookHeld(int boundHeld, int gripDownL, int gripFreeL, int gripDownR, int
     return boundHeld || (gripDownL && gripFreeL) || (gripDownR && gripFreeR);
 }
 
+int pointerAsMotion(int headMouseActive, int mouseMode) {
+    return headMouseActive || mouseMode == MOUSE_MODE_RELATIVE;
+}
+
 int headLookSensitivityClamp(int units) {
     return clampUnits(units, HEAD_AIM_SENSITIVITY_MIN, HEAD_AIM_SENSITIVITY_MAX);
 }

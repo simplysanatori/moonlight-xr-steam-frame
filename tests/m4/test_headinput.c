@@ -19,6 +19,7 @@
 #include "check.h"
 #include "opentrack.h"
 #include "scene.h"
+#include "xr_pad_bridge.h"
 
 #define FAKE(n) ((uintptr_t)(n))
 #define VIEW ((XrSpace)FAKE(0x303))
@@ -409,6 +410,165 @@ static void headPointWired(Scene* s) {
     xrButtonsFrame(c, 0, HOVER_NONE, 0);
 }
 
+// Native (lane headinput-finish): head Point mode and its dwell never turn on by themselves. The
+// context starts on the controllers with no dwell; config.ini with every other setting moved (gaze,
+// head aim, head-look, relative mouse and the rest, at random) leaves it so; only pointer_source turns
+// it on, and the dwell's number alone neither points with the head nor clicks.
+static void headPointNeverByItself(Scene* s) {
+    XrCtx* c = s->ctx;
+    scene_reset(s);
+    CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER && c->headDwellMs == 0);
+    int n;
+    const SettingDesc* t = settings_table(&n);
+    const SettingDesc* src = settings_find("pointer_source");
+    const SettingDesc* dwell = settings_find("head_dwell_ms");
+    for (unsigned seed = 1; seed <= 16; seed++) {
+        Settings st;
+        settings_defaults(&st);
+        srand(seed);
+        for (int i = 0; i < n; i++) {
+            const SettingDesc* d = &t[i];
+            if (d == src || d == dwell || d->type == SET_STR) {
+                continue;
+            }
+            int span = d->max - d->min + 1;
+            settings_set(&st, d, d->min + (span > 1 ? rand() % span : 0));
+        }
+        st.gaze = 1;
+        st.head_aim = 1;
+        st.head_look = 1;
+        settings_clamp(&st);
+        xrApplySettings(c, &st);
+        CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER && c->headDwellMs == 0);
+    }
+    // the dwell's time alone: no head pointing, so a dwell's press never reaches the host
+    Settings st;
+    settings_defaults(&st);
+    st.head_dwell_ms = 800;
+    xrApplySettings(c, &st);
+    CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER && c->headDwellMs == 800);
+    c->dwellHostUntil = 1;
+    CHECK((xrButtonsFrame(c, 0, HOVER_SCREEN, 1) & VR_BUTTON_LEFT) == 0);
+    c->dwellHostUntil = 0;
+    xrButtonsFrame(c, 0, HOVER_NONE, 0);
+    settings_defaults(&st);
+    xrApplySettings(c, &st);
+    CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER && c->headDwellMs == 0);
+}
+
+// ---- mouse_mode and back_as_guide (PLAN 4b.10, lane headinput-finish) ----------------------------------
+
+static void mouseModeWired(Scene* s) {
+    XrCtx* c = s->ctx;
+    scene_reset(s);
+    Settings st;
+    settings_defaults(&st);
+    xrApplySettings(c, &st);
+    CHECK(c->mouseMode == MOUSE_MODE_ABSOLUTE);
+    c->headAimActive = 0;
+    c->videoWidth = 2560;
+    c->videoHeight = 1440;
+    c->inputFrames = 100;
+    // absolute: where the ray lands, no motion
+    memset(g_out, 0, sizeof(g_out));
+    xrPointerToHost(c, 1, 0.25f, 0.75f, g_out);
+    CHECK(g_out[IN_HIT] == 1.0f && g_out[IN_U] == 0.25f && g_out[IN_V] == 0.75f);
+    CHECK(g_out[IN_MOUSE_DX] == 0.0f && g_out[IN_MOUSE_DY] == 0.0f);
+    // relative from config.ini: no position, the first frame only takes the point, then how far it moved
+    st.mouse_mode = MOUSE_MODE_RELATIVE;
+    xrApplySettings(c, &st);
+    CHECK(c->mouseMode == MOUSE_MODE_RELATIVE);
+    memset(g_out, 0, sizeof(g_out));
+    xrPointerToHost(c, 1, 0.50f, 0.50f, g_out);
+    CHECK(g_out[IN_HIT] == 0.0f && g_out[IN_MOUSE_DX] == 0.0f && g_out[IN_MOUSE_DY] == 0.0f);
+    c->inputFrames++;
+    memset(g_out, 0, sizeof(g_out));
+    xrPointerToHost(c, 1, 0.51f, 0.49f, g_out);
+    CHECK(g_out[IN_HIT] == 0.0f && (int)g_out[IN_MOUSE_DX] == 26 && (int)g_out[IN_MOUSE_DY] == -14);
+    // a gap (the ray off the picture for a frame): coming back elsewhere throws nothing
+    c->inputFrames += 2;
+    memset(g_out, 0, sizeof(g_out));
+    xrPointerToHost(c, 1, 0.10f, 0.90f, g_out);
+    CHECK(g_out[IN_MOUSE_DX] == 0.0f && g_out[IN_MOUSE_DY] == 0.0f);
+    // it adds to what the head sent this frame
+    c->inputFrames++;
+    memset(g_out, 0, sizeof(g_out));
+    g_out[IN_MOUSE_DX] = 5.0f;
+    xrPointerToHost(c, 1, 0.11f, 0.90f, g_out);
+    CHECK((int)g_out[IN_MOUSE_DX] == 31);
+    // out of range is absolute, and back to absolute puts the cursor where the ray is
+    xrSetMouseMode(c, 9);
+    CHECK(c->mouseMode == MOUSE_MODE_ABSOLUTE);
+    st.mouse_mode = MOUSE_MODE_ABSOLUTE;
+    xrApplySettings(c, &st);
+    memset(g_out, 0, sizeof(g_out));
+    xrPointerToHost(c, 1, 0.40f, 0.60f, g_out);
+    CHECK(g_out[IN_HIT] == 1.0f && g_out[IN_U] == 0.40f && g_out[IN_MOUSE_DX] == 0.0f);
+    xrSetMouseMode(NULL, MOUSE_MODE_RELATIVE); // harmless
+}
+
+static int g_padButtons = -1;
+static int g_padStates;
+static int padArrival(void* user, uint8_t n, uint16_t mask, uint8_t type, uint32_t buttons, uint16_t caps) {
+    (void)user; (void)n; (void)mask; (void)type; (void)buttons; (void)caps;
+    return 0;
+}
+static int padState(void* user, short n, short mask, int flags, unsigned char lt, unsigned char rt,
+                    short lx, short ly, short rx, short ry) {
+    (void)user; (void)n; (void)mask; (void)lt; (void)rt; (void)lx; (void)ly; (void)rx; (void)ry;
+    g_padButtons = flags;
+    g_padStates++;
+    return 0;
+}
+static void padHook(void* user) {
+    (*(int*)user)++;
+}
+
+static int padSend(int buttons, int64_t t) {
+    PadState p;
+    padRest(&p);
+    p.buttons = buttons;
+    g_padButtons = -1;
+    xrPadBridgeFrame(1, &p, t);
+    return g_padButtons;
+}
+
+static void backAsGuideWired(Scene* s) {
+    XrCtx* c = s->ctx;
+    Settings st;
+    settings_defaults(&st);
+    xrApplySettings(c, &st);
+    PadOutSink sink = { padArrival, padState, NULL, NULL };
+    xrPadBridgeStop();
+    xrPadBridgeStartWithSink(&sink);
+    int hooks = 0;
+    xrPadBridgeSetDisconnectHook(padHook, &hooks);
+    int64_t t = 1000000000LL;
+    // off (the default): Back is Back
+    CHECK(padSend(PAD_BACK, t += FRAME_NS) == PAD_BACK);
+    CHECK(padSend(0, t += FRAME_NS) == 0);
+    // on from config.ini, live: Back is Guide, the rest as it is
+    st.back_as_guide = 1;
+    xrApplySettings(c, &st);
+    CHECK(padSend(PAD_BACK, t += FRAME_NS) == PAD_GUIDE);
+    CHECK(padSend(PAD_BACK | PAD_A, t += FRAME_NS) == (PAD_GUIDE | PAD_A));
+    CHECK(padSend(0, t += FRAME_NS) == 0);
+    // with Start it stays Back, and the disconnect chord still fires (the pad at rest first)
+    CHECK(padSend(PAD_START | PAD_BACK, t += FRAME_NS) == (PAD_START | PAD_BACK));
+    CHECK(padSend(PAD_START | PAD_BACK | PAD_LB | PAD_RB, t += FRAME_NS) == 0 && hooks == 1);
+    CHECK(padSend(0, t += 300000000LL) == -1); // already at rest: nothing new to send
+    CHECK(padSend(PAD_BACK, t += FRAME_NS) == PAD_GUIDE);
+    CHECK(padSend(0, t += FRAME_NS) == 0);
+    // off again: Back
+    st.back_as_guide = 0;
+    xrApplySettings(c, &st);
+    CHECK(padSend(PAD_BACK, t += FRAME_NS) == PAD_BACK);
+    CHECK(padSend(0, t += FRAME_NS) == 0);
+    CHECK(g_padStates > 0);
+    xrPadBridgeSetDisconnectHook(NULL, NULL);
+    xrPadBridgeStop();
+}
+
 int main(void) {
     snprintf(g_dir, sizeof(g_dir), "/tmp/mlxr-headinput-XXXXXX");
     if (mkdtemp(g_dir) == NULL) {
@@ -423,6 +583,9 @@ int main(void) {
     headLookHold(s);
     opentrackWired(s);
     headPointWired(s);
+    headPointNeverByItself(s);
+    mouseModeWired(s);
+    backAsGuideWired(s);
     scene_free(s);
     unlink(g_path);
     rmdir(g_dir);
