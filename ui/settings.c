@@ -45,6 +45,9 @@ static const int ENV_IDS[] = { ENV_ID_NONE, ENV_ID_PASSTHROUGH, ENV_ID_VOID, ENV
                                ENV_ID_GRAND_CINEMA, ENV_ID_SYNTHWAVE };
 static const char* const DEPTH_NAMES[] = { "zipdepth", "midas", "off", "flat", "ramp", "blob",
                                            "eyetest", "shifttest", "zipdepth-int8" };
+// STEREO_SOURCE_*
+static const char* const SOURCE3D_NAMES[] = { "depth", "sbs", "top-bottom" };
+_Static_assert(sizeof(SOURCE3D_NAMES) / sizeof(SOURCE3D_NAMES[0]) == STEREO_SOURCE_COUNT, "stereo_source names follow STEREO_SOURCE_");
 static const char* const ENVRES_NAMES[] = { "low", "standard", "high", "ultra" };
 static const char* const NOTICES_NAMES[] = { "all", "important", "off" };
 static const char* const STEADY_NAMES[] = { "off", "normal", "steady" };
@@ -90,6 +93,7 @@ static const SettingDesc TABLE[] = {
     DE("stream", "network_path", network_path, NETWORK_NAMES, 0, "native: which link reaches the PC: auto (probe all), home (Wi-Fi), adapter (Steam Frame Wireless Adapter) or usb (a USB cable between the headset and the PC); the --network flag and MLXR_NETWORK override it"),
     DI("stream", "doff_disconnect", doff_disconnect, 0, 3600, 60, "native: seconds with the headset off before the stream is disconnected, leaving the host's app running; 0 never. The sound mutes and the input is let go the moment it comes off, and putting it back on within the time carries on"),
     DI("stream", "idle_disconnect", idle_disconnect, 0, 1440, 0, "native: minutes without any input (controllers, hands, keyboard, mouse, pads) before the stream is disconnected, leaving the host's app running; 0 never"),
+    DI("stream", "rfi_idr_ms", rfi_idr_ms, 0, 5000, 500, "native: after lost video, the headset asks the PC for a full (IDR) frame at most once in this many ms; a full frame is large, and asked for again while the Wi-Fi is still losing packets it makes the stall longer. 0 no limit"),
     // TODO(PLAN 6.4): auto_desktop (open the host's Desktop app without the app list) comes
     // back when something reads it. Dropped with vr_mode, check_updates, language and
     // doff_grace, which were written with descriptions and read by nothing; old files that
@@ -155,6 +159,8 @@ static const SettingDesc TABLE[] = {
     DI("3d", "convergence", convergence, -1, 100, -1, "seekbar_vr_convergence: percent; -1 is the depth model's own (50)"),
     DB("3d", "stereo", stereo, 1, "native: the 3D switch (bar button, 3D tab) as it was last left; on to begin with, as upstream started every session"),
     DI("3d", "eye_balance", eye_balance, EYE_BALANCE_MIN, EYE_BALANCE_MAX, EYE_BALANCE_DEFAULT, "native: 3D Eye Balance, percent. How the depth shift is shared by the eyes: 0 evenly, +100 all in the left eye (the right eye keeps the picture as streamed), -100 all in the right. The total between the eyes does not change"),
+    DE("3d", "stereo_source", stereo_source, SOURCE3D_NAMES, STEREO_SOURCE_DEPTH, "native: the 3D tab's 3D source: depth (the depth model makes the 3D from a 2D stream), sbs (the PC renders a side by side pair, left eye in the left half: a 3D film, a game's own SBS mode, ReShade SuperDepth3D) or top-bottom (left eye in the top half); with sbs and top-bottom no depth model runs, the convergence track moves the halves apart or together, and [debug] eye_swap swaps them"),
+    DB("3d", "sbs_full", sbs_full, 0, "native: an sbs or top-bottom stream carries a full size picture per eye (3840x1080 for two 1920x1080 eyes, shown 16:9); false: half size, each eye squeezed to half the width or height (1920x1080 for both eyes, stretched back to 16:9)"),
     DI("3d", "edge_sharpness", edge_sharpness, EDGE_SHARPNESS_MIN, EDGE_SHARPNESS_MAX, EDGE_SHARPNESS_DEFAULT, "native: Edge, how closely the 3D's depth keeps to the edges in the picture, 0..100; 0 is Moonlight XR's own soft edges, higher keeps hair and thin outlines on their own depth (the upsample's colour match tightens from 0.25 to 0.10 and the snap to the nearer side rises from off to full)"),
     DI("3d", "depth_scale", depth_scale, DEPTH_SCALE_MIN, DEPTH_SCALE_MAX, DEPTH_SCALE_DEFAULT, "seekbar_vr_depth_scale: Depth detail, percent; the depth between neighbouring things (a face in front of a wall, the folds of a coat) scaled around the picture's overall shape. 100 is the depth as the model makes it, higher pops the detail out more"),
     DI("3d", "depth_global", depth_global, DEPTH_SCALE_MIN, DEPTH_SCALE_MAX, DEPTH_SCALE_DEFAULT, "native: Depth shape, percent; the picture's overall depth (near at the bottom, far at the top) scaled around the screen plane. 100 is as the model makes it, lower flattens the whole toward the screen while depth_scale keeps the detail"),

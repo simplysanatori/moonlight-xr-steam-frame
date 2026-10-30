@@ -149,7 +149,19 @@ typedef struct MlxrWarpParams {
     float grade[4];        // u_grade: PictureGrade offset, contrast, exponent, saturation
     float tint[3];         // u_tint, {1, 1, 1} normally
     float sharpen;         // new: 0 off (upstream), up to 1
+    // New (PLAN 4.3): a host-rendered stereo pair in the one frame. split
+    // MLXR_SPLIT_NONE reads the whole picture (everything above as ever);
+    // SBS or TB reads only half (0 the left or top, 1 the right or bottom),
+    // stretched over the target, held a texel clear of the seam, moved
+    // sideways by shift (a fraction of the half's width, signed per eye), and
+    // the depth inputs are not read.
+    int split;
+    int half;
+    float shift;
 } MlxrWarpParams;
+#define MLXR_SPLIT_NONE 0
+#define MLXR_SPLIT_SBS 1
+#define MLXR_SPLIT_TB 2
 void mlxr_pass_warp(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrWarpParams* w);
 
 // UPSAMPLE_FRAGMENT_SRC, into a MLXR_PASS_FORMAT image a quarter of the video

@@ -147,6 +147,10 @@ static void* decodeThread(void* arg) {
         }
         if (f.corrupt) {
             v->st.corrupt++;
+            // Native (lane wave1-burst): the session's requestIdr goes through its IDR cap
+            // ([stream] rfi_idr_ms, shared with the RFI watchdog), so this and the error path above
+            // can no longer add a request inside the cap's window; this 500 ms limit stays as the
+            // path's own
             if (v->idrOnCorrupt && v->requestIdr && f.t_dequeue_ns - v->lastCorruptIdrNs > 500000000ull) {
                 v->lastCorruptIdrNs = f.t_dequeue_ns;
                 v->st.idrRequests++;

@@ -272,6 +272,15 @@ void xrDepthConfigure(XrCtx* ctx, const Settings* s) {
             ctx->depthTexH = spec->height;
         }
     }
+    // Native (PLAN 4.3): a pair the host draws needs no model; depth_source's
+    // mode is kept for the 3D source row's Depth cell
+    ctx->depthModeSet = mode;
+    ctx->stereoSource = s->stereo_source > STEREO_SOURCE_DEPTH && s->stereo_source < STEREO_SOURCE_COUNT
+            ? s->stereo_source : STEREO_SOURCE_DEPTH;
+    ctx->sbsFull = s->sbs_full != 0;
+    if (ctx->stereoSource != STEREO_SOURCE_DEPTH) {
+        mode = DEPTH_MODE_SBS;
+    }
     ctx->stereoMode = mode;
     // Native: the switch as it was last left (upstream: on in every session
     // with stereo, for that session only)
@@ -281,8 +290,59 @@ void xrDepthConfigure(XrCtx* ctx, const Settings* s) {
     ctx->depthFailed = 0;
     atomic_store_explicit(&ctx->depthGaveUp, 0, memory_order_relaxed);
     LOGEV("3d: %s, depth map %dx%d, 3D %s at start%s", mode == DEPTH_MODE_MODEL ? "depth model"
-          : mode == DEPTH_MODE_OFF ? "off" : "test pattern", ctx->depthTexW, ctx->depthTexH,
-          ctx->stereoLive ? "on" : "off", mode == DEPTH_MODE_MODEL ? "" : "");
+          : mode == DEPTH_MODE_OFF ? "off" : mode == DEPTH_MODE_SBS ? "host-rendered pair" : "test pattern",
+          ctx->depthTexW, ctx->depthTexH, ctx->stereoLive ? "on" : "off",
+          mode != DEPTH_MODE_SBS ? "" : ctx->stereoSource == STEREO_SOURCE_TB
+                  ? (ctx->sbsFull ? ", top-bottom, full size" : ", top-bottom, half size")
+                  : (ctx->sbsFull ? ", side by side, full size" : ", side by side, half size"));
+}
+
+int xrDepthSetSource(XrCtx* ctx, int source) {
+    if (source < 0 || source >= STEREO_SOURCE_COUNT || source == ctx->stereoSource) {
+        return 0;
+    }
+    ctx->stereoSource = source;
+    // Depth goes back to what depth_source gave, unless the model gave up
+    int mode = source != STEREO_SOURCE_DEPTH ? DEPTH_MODE_SBS : ctx->depthFailed ? DEPTH_MODE_OFF : ctx->depthModeSet;
+    ctx->stereoMode = mode;
+    ctx->stereoButtonReady = mode != DEPTH_MODE_OFF;
+    ctx->warpRedraw = 1;
+    ctx->barTestFramesLogged = 0;
+    LOGEV("3d source %s from the panel", source == STEREO_SOURCE_SBS ? "side by side"
+          : source == STEREO_SOURCE_TB ? "top-bottom" : mode == DEPTH_MODE_OFF ? "depth (off here)" : "depth");
+    if (mode == DEPTH_MODE_OFF) {
+        ctx->stereoLive = 0;
+        ctx->stereoWaiting = 0;
+        return 1;
+    }
+    // Picking where the 3D comes from is asking to see it: on, and with the
+    // model, flat until a map of what is on screen now lands
+    ctx->stereoLive = 0;
+    setStereoLive(ctx, 1, "the 3D source row");
+    return 1;
+}
+
+float xrDepthSbsShift(float convergence) {
+    float c = convergence < 0.0f ? 0.0f : (convergence > 1.0f ? 1.0f : convergence);
+    return (c - 0.5f) * 2.0f * SBS_SHIFT_MAX;
+}
+
+void xrDepthPointerUv(XrCtx* ctx, float* u, float* v) {
+    if (ctx->stereoMode != DEPTH_MODE_SBS) {
+        return;
+    }
+    sbsPointerUv(ctx->stereoSource, u, v);
+}
+
+void xrDepthPictureSize(XrCtx* ctx, int frameW, int frameH, int* w, int* h) {
+    if (ctx->stereoMode != DEPTH_MODE_SBS) {
+        *w = frameW;
+        *h = frameH;
+        return;
+    }
+    // A full size pair: one eye's half is the picture (3840x1080 shows as a
+    // 1920x1080 screen); a half size one is stretched back to the frame's shape
+    sbsPictureSize(ctx->stereoSource, ctx->sbsFull, frameW, frameH, w, h);
 }
 
 int xrDepthChainWidth(XrCtx* ctx, int pictureWidth) {
@@ -779,6 +839,16 @@ void xrDepthFrame(XrCtx* ctx) {
     if (ctx->stereoMode == DEPTH_MODE_OFF || ctx->vk == NULL) {
         return;
     }
+    if (ctx->stereoMode == DEPTH_MODE_SBS) {
+        // Native (PLAN 4.3): the host drew the pair, so there is nothing to
+        // make, upload or wait for. A model that ran before idles here, and
+        // the Depth cell brings it back as if the 3D had been off.
+        if (ctx->depth != NULL) {
+            ctx->depth->wasLive = 0;
+        }
+        ctx->stereoWaiting = 0;
+        return;
+    }
     XrDepth* d = depthState(ctx);
     if (d == NULL) return;
     int64_t now = nowMono();
@@ -911,10 +981,39 @@ static void recordCapture(XrCtx* ctx, XrDepth* d, const MlxrVideo* video, uint64
     d->captures++;
 }
 
+// Native (PLAN 4.3): a pair the host drew. No capture for the model, no
+// upsample, no offset search: each eye reads its own half, moved sideways by
+// the convergence track (the halves apart for more than 0.5, together for
+// less), eye 0 the left (or top) half. [debug] eye_swap is the layers' (which
+// image each eye's view shows), as for the depth model's pair. Switched off,
+// the left eye's half alone is the flat picture.
+static void sbsPicture(XrCtx* ctx, const MlxrVideo* video, XrDepthDraw* out) {
+    int eyes = ctx->stereoLive ? 2 : 1;
+    int split = ctx->stereoSource == STEREO_SOURCE_TB ? MLXR_SPLIT_TB : MLXR_SPLIT_SBS;
+    float shift = eyes == 2 ? xrDepthSbsShift(ctx->convergence) : 0.0f;
+    out->eyes = eyes;
+    for (int eye = 0; eye < eyes; eye++) {
+        MlxrWarpParams* w = &out->eye[eye];
+        w->eye = eye;
+        w->convergence = ctx->convergence;
+        w->srcInset = ctx->srcInsetOn ? 0.5f / (float)video->width : -1.0f;
+        w->split = split;
+        w->half = eye;
+        // More than 0.5 sends the picture behind the screen: the left eye's
+        // half moves left (reads further right), the right eye's right
+        w->shift = eye == 0 ? shift : -shift;
+        w->tint[0] = w->tint[1] = w->tint[2] = 1.0f;
+    }
+}
+
 void xrDepthPicture(XrCtx* ctx, const MlxrVideo* video, int newFrame, uint64_t frameIndex, int64_t frameNs,
                     XrDepthDraw* out) {
     memset(out, 0, sizeof(*out));
     out->eyes = 1;
+    if (ctx->stereoMode == DEPTH_MODE_SBS) {
+        sbsPicture(ctx, video, out);
+        return;
+    }
     const float W = (float)video->width;
     float separation = ctx->separationCurrent;
     XrDepth* d = ctx->depth;
@@ -1082,6 +1181,9 @@ void xrDepthRecordWarpEyes(XrCtx* ctx, VkCommandBuffer cmd, const MlxrTarget eye
         w.depthCubic = e->depthCubic;
         w.showDepth = e->showDepth;
         w.barTest = e->barTest;
+        w.split = e->split;
+        w.half = e->half;
+        w.shift = e->shift;
         for (int c = 0; c < 3; c++) w.tint[c] = common->tint[c] * e->tint[c];
         mlxr_pass_warp(ctx->passes, cmd, t, &w);
     }
@@ -1159,6 +1261,14 @@ void xrDepthGetInfo(XrCtx* ctx, XrDepthInfo* info) {
     info->downscaleImage = d->downscale.image;
 }
 
+// Native (PLAN 4.3): the host-rendered pair's layout, for the stats
+static const char* sbsName(XrCtx* ctx) {
+    if (ctx->stereoSource == STEREO_SOURCE_TB) {
+        return ctx->sbsFull ? "top-bottom, full size" : "top-bottom, half size";
+    }
+    return ctx->sbsFull ? "side by side, full size" : "side by side, half size";
+}
+
 static const char* patternName(int mode) {
     switch (mode) {
     case DEPTH_MODE_FLAT: return "flat";
@@ -1175,6 +1285,11 @@ void xrDepthStatsLine(XrCtx* ctx, char* buf, int len) {
     XrDepth* d = ctx->depth;
     if (ctx->stereoMode == DEPTH_MODE_OFF) {
         if (ctx->depthFailed) snprintf(buf, (size_t)len, "3d off (depth model failed)");
+        return;
+    }
+    if (ctx->stereoMode == DEPTH_MODE_SBS) {
+        snprintf(buf, (size_t)len, "3d %s, host-rendered pair (%s), no depth passes, %d eyes drawn",
+                 ctx->stereoLive ? "on" : "off", sbsName(ctx), ctx->drawnEyes);
         return;
     }
     if (ctx->stereoMode != DEPTH_MODE_MODEL) {
@@ -1221,6 +1336,10 @@ void xrDepthOverlay(XrCtx* ctx, char* buf, int len) {
     buf[0] = '\0';
     XrDepth* d = ctx->depth;
     if (ctx->stereoMode == DEPTH_MODE_OFF) {
+        return;
+    }
+    if (ctx->stereoMode == DEPTH_MODE_SBS) {
+        snprintf(buf, (size_t)len, "3D: %s, from the PC (%s)", ctx->stereoLive ? "on" : "off", sbsName(ctx));
         return;
     }
     if (ctx->stereoMode != DEPTH_MODE_MODEL) {
