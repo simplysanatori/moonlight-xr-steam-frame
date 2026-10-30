@@ -60,3 +60,8 @@ typedef struct StreamNetFigures {
     uint32_t rttMs;
 } StreamNetFigures;
 int stream_network_figures(StreamNetFigures* out);
+// Native (lane wave3-hud): the stream's running totals for the in-headset HUD and the slow connection badge
+// (xr_hud.h). Unlike stream_latency_line it resets nothing, so any number of readers can take windows of it.
+// 1 with *out filled while connected, else 0 (udpDrops is left for the caller: it is the kernel's counter).
+struct MlxrHudCum;
+int stream_hud(struct MlxrHudCum* out);

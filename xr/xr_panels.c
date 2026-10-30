@@ -33,6 +33,7 @@
 // GPLv3.
 #define _GNU_SOURCE // pthread_setname_np
 #include "xr_native.h"
+#include "xr_bugzip.h"
 #include "xr_keyboard.h"
 
 #include "text.h"
@@ -63,6 +64,7 @@ typedef struct {
     char note[512];   // report form
     int focus, hover, canSend;
     int toastKind, toastArg;
+    int clockBattery, clockCharging, clockSlow;   // native (lane wave3-hud): the clock strip's extras
     UiPcItem* pcs;    // launcher lists, owned by the job
     UiAppItem* apps;
     int count, page, loading, failed;
@@ -330,6 +332,13 @@ static void overlayDraw(UiCanvas* cv, UiFont* font, PanelJob* j) {
     float maxW = (float)cv->w - 2.0f * OVERLAY_PAD;
     float size = 17.0f;
     int n = 0;
+    // Native (lane wave3-hud): a text of one line (the Lite stats) keeps to one line: the type steps down to fit
+    // it, to 12 px, instead of the line wrapping
+    if (strchr(j->text, '\n') == NULL) {
+        while (size > 12.0f && ui_text_width(font, UI_WEIGHT_REGULAR, size, j->text, (int)strlen(j->text)) > maxW) {
+            size -= 1.0f;
+        }
+    }
     for (; size >= OVERLAY_MIN_SIZE; size -= 1.0f) {
         n = overlayWrap(font, size, maxW, j->text, lines);
         if ((float)n * size * 1.35f + 2.0f * OVERLAY_PAD - size * 0.35f <= (float)cv->h) {
@@ -365,7 +374,11 @@ static int jobDraw(XrPanels* p, PanelJob* j, UiCanvas* cv, UiHits* hits) {
     ui_hits_clear(hits);
     switch (j->kind) {
     case JOB_PANEL: ui_draw_panel((UiPanelId)j->slot, cv, &j->view, NULL); break;
-    case JOB_CLOCK: ui_draw_clock(cv, j->text); break;
+    case JOB_CLOCK: {
+        UiClock c = { j->text, j->clockBattery, j->clockCharging, j->clockSlow };
+        ui_draw_clock_strip(cv, &c);
+        break;
+    }
     case JOB_REPORT: {
         UiReport r;
         memset(&r, 0, sizeof(r));
@@ -376,7 +389,7 @@ static int jobDraw(XrPanels* p, PanelJob* j, UiCanvas* cv, UiHits* hits) {
         ui_draw_report(cv, &r, NULL);
         break;
     }
-    case JOB_TOAST: ui_draw_toast(cv, j->text, j->more, 0); break;
+    case JOB_TOAST: ui_draw_toast(cv, j->text, j->more, j->more[0] == '/' || j->more[0] == '~'); break;
     case JOB_OVERLAY: {
         if (p->font == NULL) {
             p->font = ui_font_default();
@@ -724,7 +737,17 @@ static void updateClock(XrCtx* ctx, XrPanels* p, const char* clockText) {
     if (!ctx->cogOpen || clockText == NULL) {
         return;
     }
-    if (!keyChanged(p, UI_PANEL_CLOCK, clockText, (int)strlen(clockText) + 1)) {
+    // Native (lane wave3-hud): the time, and beside it the headset's battery and the slow connection badge
+    struct {
+        char time[32];
+        int battery, charging, slow;
+    } k;
+    memset(&k, 0, sizeof(k));
+    snprintf(k.time, sizeof(k.time), "%s", clockText);
+    k.battery = ctx->batteryPresent ? ctx->batteryPercent : -1;
+    k.charging = ctx->batteryPresent && ctx->batteryCharging;
+    k.slow = ctx->slowConn != 0;
+    if (!keyChanged(p, UI_PANEL_CLOCK, &k, sizeof(k))) {
         return;
     }
     PanelJob j;
@@ -732,6 +755,9 @@ static void updateClock(XrCtx* ctx, XrPanels* p, const char* clockText) {
     j.kind = JOB_CLOCK;
     j.slot = UI_PANEL_CLOCK;
     snprintf(j.text, sizeof(j.text), "%s", clockText);
+    j.clockBattery = k.battery;
+    j.clockCharging = k.charging;
+    j.clockSlow = k.slow;
     submit(ctx, p, &j);
 }
 
@@ -864,11 +890,16 @@ void xrPanelsReportEvent(XrCtx* ctx, int event, const char* reportDir) {
     else if (event == REPORT_ZONE_NOTE) {
         p->reportFocus = event;
     }
-    else if (event == REPORT_ZONE_SEND) {
+    else if (event == REPORT_ZONE_SEND || event == REPORT_ZONE_ZIP) {
         // Native: there is no report server here; the note goes in the log and
         // in a file beside it, for the owner to pass on
-        LOGEV("problem report from the headset: \"%s\"", p->reportNote);
-        if (reportDir != NULL) {
+        if (event == REPORT_ZONE_ZIP && p->reportNote[0] == '\0') {
+            LOGEV("problem report from the headset: no note, the zip only");
+        }
+        else {
+            LOGEV("problem report from the headset: \"%s\"", p->reportNote);
+        }
+        if (reportDir != NULL && (event == REPORT_ZONE_SEND || p->reportNote[0] != '\0')) {
             char path[512];
             time_t t = time(NULL);
             struct tm tm;
@@ -882,6 +913,42 @@ void xrPanelsReportEvent(XrCtx* ctx, int event, const char* reportDir) {
                 LOGEV("problem report saved to %s", path);
             }
         }
+        // Native (lane wave3-hud): Save and zip also makes the masked bug report, off this thread; xrPanelsReportPoll
+        // says where it landed
+        if (event == REPORT_ZONE_ZIP) {
+            if (xrBugzipStart(reportDir)) {
+                LOGEV("problem report: making the masked zip (bug-report.sh)");
+            }
+            else {
+                xrPanelsNotice(ctx, ui_str(UIS_NATIVE_REPORT_ZIP_BUSY));
+            }
+        }
+    }
+}
+
+// The zip run that ended since the last frame, on the toast (with the path on its second line) and in the log
+void xrPanelsReportPoll(XrCtx* ctx) {
+    int ok = 0;
+    char result[512];
+    if (!xrBugzipPoll(&ok, result, sizeof(result))) {
+        return;
+    }
+    if (ok) {
+        LOGEV("problem report zip: %s", result);
+        const char* home = getenv("HOME");
+        char shown[512];
+        size_t hl = home != NULL ? strlen(home) : 0;
+        if (hl > 1 && strncmp(result, home, hl) == 0 && result[hl] == '/') {
+            snprintf(shown, sizeof(shown), "~%s", result + hl);
+        }
+        else {
+            snprintf(shown, sizeof(shown), "%s", result);
+        }
+        xrPanelsNoticeMore(ctx, ui_str(UIS_NATIVE_REPORT_ZIP_DONE), shown);
+    }
+    else {
+        LOGW("problem report zip failed: %s", result);
+        xrPanelsNotice(ctx, ui_str(UIS_NATIVE_REPORT_ZIP_FAIL));
     }
 }
 
@@ -912,13 +979,19 @@ static void toastText(XrCtx* ctx, int kind, int arg, char* text, size_t cap, con
 
 // Native text notices (TOAST_TEXT + slot upstream): what the app wants said
 static char noticeTexts[TOAST_TEXT_SLOTS][160];
+static char noticeMores[TOAST_TEXT_SLOTS][256];   // native (lane wave3-hud): the quieter line under it
 static int noticeNext;
 
-void xrPanelsNotice(XrCtx* ctx, const char* text) {
+void xrPanelsNoticeMore(XrCtx* ctx, const char* text, const char* more) {
     int slot = noticeNext++ % TOAST_TEXT_SLOTS;
     snprintf(noticeTexts[slot], sizeof(noticeTexts[slot]), "%s", text);
+    snprintf(noticeMores[slot], sizeof(noticeMores[slot]), "%s", more != NULL ? more : "");
     noticePush(&ctx->notices, TOAST_TEXT, slot);
-    LOGI("toast: %s", text);
+    LOGI("toast: %s%s%s", text, more != NULL && more[0] ? " / " : "", more != NULL ? more : "");
+}
+
+void xrPanelsNotice(XrCtx* ctx, const char* text) {
+    xrPanelsNoticeMore(ctx, text, NULL);
 }
 
 // A notice went up this frame (IN_TOAST): its words into the toast's slot
@@ -935,7 +1008,9 @@ void xrPanelsToast(XrCtx* ctx, int kind, int arg) {
     j.toastArg = arg;
     const char* more = "";
     if (kind == TOAST_TEXT) {
-        snprintf(j.text, sizeof(j.text), "%s", noticeTexts[(arg % TOAST_TEXT_SLOTS + TOAST_TEXT_SLOTS) % TOAST_TEXT_SLOTS]);
+        int slot = (arg % TOAST_TEXT_SLOTS + TOAST_TEXT_SLOTS) % TOAST_TEXT_SLOTS;
+        snprintf(j.text, sizeof(j.text), "%s", noticeTexts[slot]);
+        more = noticeMores[slot];
     }
     else {
         toastText(ctx, kind, arg, j.text, sizeof(j.text), &more);
@@ -1104,6 +1179,7 @@ void xrPanelsUpdate(XrCtx* ctx, const Settings* live, const XrLauncherView* laun
     updateKeyboard(ctx, p, &base);
     updateExit(ctx, p, &base);
     updateReport(ctx, p);
+    xrPanelsReportPoll(ctx);
     updateOverlay(ctx, p, statsText);
     updateLauncher(ctx, p, launcher);
 }

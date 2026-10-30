@@ -106,8 +106,13 @@
     X(REPORT_TITLE, "title_bug_report", "Report a problem") \
     X(REPORT_NOTE_LABEL, "bug_report_message_hint", "What happened?") \
     X(REPORT_NOTE_HINT, "vr_report_note_hint", "What were you doing when it went wrong?") \
-    X(REPORT_GOES, "vr_report_sends", "Saved on the Frame in ~/Games/MoonlightXRNative/reports. To report it, run bug-report.sh and open an issue on GitHub with the zip. Nothing is sent from the headset.") \
+    X(REPORT_GOES, "vr_report_sends", "Save keeps your note on the Frame in ~/Games/MoonlightXRNative/reports. Save and zip also makes the masked zip there, to attach to an issue on GitHub. Nothing is sent from the headset.") \
     X(REPORT_SEND, "bug_report_send_direct", "Save") \
+    X(NATIVE_REPORT_ZIP, "native_report_zip", "Save and zip") \
+    X(NATIVE_REPORT_ZIP_DONE, "native_report_zip_done", "Report zip saved") \
+    X(NATIVE_REPORT_ZIP_FAIL, "native_report_zip_fail", "The report zip could not be made") \
+    X(NATIVE_REPORT_ZIP_BUSY, "native_report_zip_busy", "The report zip is still being made") \
+    X(NATIVE_SLOW_CONN, "native_slow_conn", "Slow connection") \
     /* toasts */ \
     X(TOAST_RATE, "vr_toast_rate", "Display %d Hz") \
     X(TOAST_HANDS_LOCKED, "vr_toast_hands_locked", "Hands locked") \

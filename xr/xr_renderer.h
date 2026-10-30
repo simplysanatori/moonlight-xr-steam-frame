@@ -42,6 +42,7 @@
 #include "xr_gate.h"
 #include "xr_pinch.h"
 #include "xr_notice.h"
+#include "xr_hud.h"
 #include "xr_glow.h"
 #include "xr_grade.h"
 #include "xr_keys.h"
@@ -356,6 +357,14 @@ typedef struct XrCtx {
     // of the UI atlas, drawn from the session's stats line)
     int overlayHasContent;
     int overlayVisible;
+    // Native (lane wave3-hud): what the overlay shows (STATS_STYLE_ from xr_hud.h: full lines, HUD,
+    // Lite), and what the clock strip over the cog shows beside the time: the headset battery
+    // (present, percent, charging; a machine with none shows nothing) and the slow connection badge
+    int statsStyle;
+    int batteryPresent;
+    int batteryPercent;
+    int batteryCharging;
+    int slowConn;
     // Native (owner's request): the stats window is movable. overlayW/H are the
     // pixels of its slot the drawing used (xr_panels.c lays the lines out to fit);
     // statsPose and statsW/H are where it is and how big, metres (statsPlace).
@@ -638,6 +647,8 @@ typedef struct XrCtx {
     int perfSettingsSupported;
     PFN_xrPerfSettingsSetPerformanceLevelEXT pfnPerfSettingsSetPerformanceLevel;
     int perfLevel;
+    // Native (lane wave3-hud): XR_META_performance_metrics offered (xr_metrics.c reads the compositor's times)
+    int metricsSupported;
 
     int virtualKeyboardSupported;
     int maxLayerCount;

@@ -31,6 +31,11 @@ LOG
 sed "s/\$USERNAME_PLACEHOLDER/$USERNAME/" "$t/logs/moonlight.log.tmpl" > "$t/logs/moonlight.log"; rm "$t/logs/moonlight.log.tmpl"
 printf '[6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B]\nname = test-pc-name\naddress = 192.168.1.10\nextra_addresses = 100.64.0.5,10.35.50.27\nmac = 02:f0:2c:5d:a5:10\ncert = servercerts/x.pem\n' > "$t/cfg/hosts.ini"
 printf '# a comment about the host\n[stream]\nhost = 192.168.1.10\napp = My Game\nbitrate_kbps = 50000\nresolution = 2560x1440\ncodec = hevc\nlast_server_name = test-pc-name\nunique_id = 0123456789abcdef\nprivate_key = 0123\nsave_path = /home/someone/x\nssid = Example Home Net\n[vr]\nstats = true\nkeyboard_layout = compact\nmac_addr = 02:f0:2c:5d:a5:10\ncert = x.pem\n[debug]\nfile_log = verbose\n' > "$t/cfg/config.ini"
+# the ray recorder's file (MLXR_RAY_DEBUG): an old one and a newer one, the newer is bundled, header once
+ray_row='1000000000,0,0xf,0.0000,0.0000,0.0000,0.00000,0.00000,0.00000,1.00000,3,1,0xf,1,-0.2500,-0.3000,-0.3000'
+printf 't_ns,to_head,head_flags,hx,hy,hz\nold-row-not-wanted\n' > "$t/out/ray-20260101-000000.csv"
+touch -d '2026-01-01 00:00:00' "$t/out/ray-20260101-000000.csv"
+{ printf 't_ns,to_head,head_flags,hx,hy,hz\n'; for i in 1 2 3; do echo "$ray_row"; done; } > "$t/out/ray-20261029-120000.csv"
 HOME="$t/home-tester" MLXR_LOG_DIR="$t/logs" MLXR_CONFIG_DIR="$t/cfg" MLXR_EXTRA_NAMES="test-box-name" REPORT_DIR="$t/out" \
     "$ROOT/tools/bug-report.sh" > "$t/stdout" 2>&1 || { cat "$t/stdout"; echo "bug-report.sh failed"; exit 1; }
 zip="$(ls "$t"/out/*.zip)"
@@ -38,7 +43,7 @@ python3 -I -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); [sys.stdout.w
 python3 -I -c 'import sys,zipfile; print("\n".join(n.split("/",1)[1] for n in zipfile.ZipFile(sys.argv[1]).namelist()))' "$zip" | sort > "$t/files.txt"
 fail=0
 # only these files, nothing else
-printf 'VERSION\nconfig.ini\nmoonlight.log\nsystem.txt\n' | sort > "$t/want.txt"
+printf 'VERSION\nconfig.ini\nmoonlight.log\nray.csv\nsystem.txt\n' | sort > "$t/want.txt"
 diff "$t/want.txt" "$t/files.txt" > /dev/null || { echo "unexpected file list:"; cat "$t/files.txt"; fail=1; }
 grep -qiE 'hosts\.ini|\.pem|\.key|uniqueid|servercerts|\.conf|kernel\.txt|SUMMARY' "$t/files.txt" && { echo "forbidden file in the zip"; fail=1; }
 # nothing identifying in any file
@@ -68,6 +73,10 @@ for s in '3.7 ms p50' 'frames 162001 lost 68' '90.00 Hz' '1234567890123456 ns' '
          '<ip1:lan>' ':cgnat>' '<ipv6-1:link-local>' '<host1>' 'session ended on <host' 'MLXR_VERBOSE=1' '~/.config/moonlight-xr/config.ini' 'serial' '12:34:56.789'; do
     grep -qF -- "$s" "$t/all.txt" || { echo "lost: $s"; fail=1; }
 done
+ray_in="$(python3 -I -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); n=[x for x in z.namelist() if x.endswith("/ray.csv")][0]; print(z.read(n).decode())' "$zip")"
+[ "$(grep -c '^t_ns,' <<<"$ray_in")" = 1 ] || { echo "ray.csv: the header is not there exactly once"; fail=1; }
+[ "$(grep -c '^1000000000,' <<<"$ray_in")" = 3 ] || { echo "ray.csv: the rows are not all there"; fail=1; }
+grep -qF 'old-row-not-wanted' <<<"$ray_in" && { echo "ray.csv is not the newest recording"; fail=1; }
 grep -qF 'Look inside' "$t/stdout" || { echo "no reminder printed"; fail=1; }
 grep -qF 'moonlight.log' "$t/stdout" || { echo "file list not printed"; fail=1; }
 [ $fail = 0 ] && echo "bug-report masking ok" || { cat "$t/all.txt"; exit 1; }

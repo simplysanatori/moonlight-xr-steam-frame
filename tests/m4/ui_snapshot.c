@@ -94,6 +94,21 @@ int main(int argc, char** argv) {
         shot(s, name, NULL);
     }
 
+    // Native (lane wave3-hud): the clock strip over the cog with the headset's battery (charging) and the
+    // slow connection badge
+    scene_reset(s);
+    c->cogOpen = 1;
+    c->cogTab = COG_TAB_DISPLAY;
+    c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
+    c->batteryPresent = 1;
+    c->batteryPercent = 87;
+    c->batteryCharging = 1;
+    c->slowConn = 1;
+    shot(s, "08b-cog-clock-battery", NULL);
+    c->batteryPresent = 0;
+    c->batteryCharging = 0;
+    c->slowConn = 0;
+
     scene_reset(s);
     c->kbOpen = 1;
     c->kbState = KB_STATE_LOWER;
@@ -195,6 +210,31 @@ int main(int argc, char** argv) {
         shot(s, "13b-stats-moved", LONG_STATS);
         xrGrabStepAt(c, aim, 0, 0, 0.0f);
         c->statsMoved = 0;
+    }
+    // Native (lane wave3-hud): the HUD and Lite styles, as the session writes them from the stream's figures
+    {
+        MlxrHudFigures f;
+        memset(&f, 0, sizeof(f));
+        f.valid = 1;
+        f.mbps = 54.2;
+        f.hostMs = 4.2;
+        f.recvMs = 1.1;
+        f.queueMs = 0.4;
+        f.decodeMs = 3.1;
+        f.rttMs = 4.0;
+        f.latencyMs = f.hostMs + f.rttMs * 0.5 + f.recvMs + f.queueMs + f.decodeMs;
+        f.lossPct = 0.2;
+        f.fps = 89.0;
+        MlxrCompositorMetrics m;
+        memset(&m, 0, sizeof(m));
+        mlxr_metric_set(&m, "compositor/cpu_frametime", 1.4f);
+        mlxr_metric_set(&m, "compositor/gpu_frametime", 3.2f);
+        mlxr_metric_set(&m, "compositor/dropped_frame_count", 0.0f);
+        char text[512];
+        mlxr_hud_panel(&f, 0, &m, 90.0, text, sizeof(text));
+        shot(s, "13c-stats-hud", text);
+        mlxr_hud_lite(&f, 0, text, sizeof(text));
+        shot(s, "13d-stats-lite", text);
     }
     c->overlayVisible = 0;
 

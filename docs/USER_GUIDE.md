@@ -116,7 +116,7 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 
 | Setting | Options | Default |
 | --- | --- | --- |
-| Show performance stats while streaming | on, off | off. Same as Stats in the headset's Display tab. |
+| Show performance stats while streaming | on, off | off. Same as Stats in the headset's Display tab. In `config.ini`, `stats = hud` or `stats = lite` turns them on in that style (see Stats styles below). |
 | Change codec settings | Automatic (Recommended), Prefer HEVC, Prefer H.264 | Automatic. Prefer AV1 is greyed: the Frame decodes H.264 and HEVC only. |
 | Unlock all possible frame rates | greyed | The stream is capped at the rate the headset runs at, 144 Hz at most. |
 | Force full range video (Experimental) | on, off | off |
@@ -206,7 +206,13 @@ Brightness (-50 to 50), Contrast (50 to 150 %), Gamma (0.50 to 2.00) and Saturat
 
 ### About
 
-The version, the log file, a link to support Moonlight XR on Ko-fi, and **Report a problem**. The report sheet saves your note on the Frame in `~/Games/MoonlightXRNative/reports`. Nothing leaves the headset. To report it, run `bug-report.sh` and open an issue on GitHub with the zip. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
+The version, the log file, a link to support Moonlight XR on Ko-fi, and **Report a problem**. The report sheet has three buttons. **Save** keeps your note on the Frame in `~/Games/MoonlightXRNative/reports`. **Save and zip** does that and also runs `bug-report.sh` in the background, so the masked zip is made without leaving the headset. A notice shows where the zip is (`~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip`) and the log says so too. A note is not needed for the zip. Nothing leaves the headset: copy the zip off the Frame and open an issue on GitHub with it. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
+
+### Stats styles, battery and the slow connection badge
+
+The Stats row turns the overlay on and off. What it shows is `stats_style` in `config.ini` (`[display]`): `full` is every line the session writes, `hud` is a few lines (latency with its parts, round trip, loss, bit rate, frame rate, and the compositor's frame times and dropped frames when SteamVR reports them), and `lite` is one line: `54 Mb/s | 11 ms | dec 3.1 | loss 0.2% | 90 fps` (speed, latency from the host's capture to the end of decoding, decode time, frames lost on the network, pictures drawn a second). `stats = hud` in the file means stats on in the HUD style. While stats are on and a stream is up, `perf-<date>-<time>.csv` next to `vrtiming.log` gets a row every 5 seconds with the figures and the settings they were measured in (size, rate, bit rate, codec, display rate, 3D, room, sharpening), for comparing runs.
+
+Over the cog the clock strip also shows the headset's battery (a cell, the percentage, a bolt while it charges; read every 30 seconds, nothing on a PC with no battery) and a **Slow connection** badge once the connection has been poor, or more than 1.5 % of frames lost, for 5 seconds on end. The badge goes when it has been fine for 5 seconds. The HUD line starts with `!` or says slow connection while it is up.
 
 ## Controllers
 

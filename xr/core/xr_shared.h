@@ -663,9 +663,12 @@
 #define REPORT_BTN_T 0.8125f
 #define REPORT_BTN_B 0.9375f
 #define REPORT_CANCEL_L 0.05f
-#define REPORT_CANCEL_R 0.47f
-#define REPORT_SEND_L 0.53f
-#define REPORT_SEND_R 0.95f
+#define REPORT_CANCEL_R 0.33f
+#define REPORT_SEND_L 0.36f
+#define REPORT_SEND_R 0.64f
+// Native (lane wave3-hud): the third button, Save and zip (the masked bug report)
+#define REPORT_ZIP_L 0.67f
+#define REPORT_ZIP_R 0.95f
 // The parts a press can land on, which is also what IN_REPORT says was
 // pressed, and the sheet having just come up
 #define REPORT_ZONE_NONE 0
@@ -673,6 +676,7 @@
 #define REPORT_ZONE_CANCEL 2
 #define REPORT_ZONE_SEND 3
 #define REPORT_OPENED 4
+#define REPORT_ZONE_ZIP 5
 
 // The button that ends the stream and the prompt it opens. The sheet is drawn
 // in Java like the other panels, one per lit button, so hovering one is

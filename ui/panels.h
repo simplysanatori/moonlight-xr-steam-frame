@@ -177,6 +177,15 @@ void ui_draw_report(UiCanvas* cv, const UiReport* r, UiHits* hits);
 // from the middle when it does not fit, anything else from the end.
 void ui_draw_toast(UiCanvas* cv, const char* text, const char* more, int more_is_path);
 void ui_draw_clock(UiCanvas* cv, const char* line);
+// Native (lane wave3-hud): the clock strip with the headset battery (percent 0..100, -1 for none; charging draws
+// a bolt on it) and the slow connection pill
+typedef struct {
+    const char* time;
+    int battery;
+    int charging;
+    int slow;
+} UiClock;
+void ui_draw_clock_strip(UiCanvas* cv, const UiClock* c);
 
 typedef enum { UI_PC_OFFLINE = 0, UI_PC_ONLINE = 1, UI_PC_REFRESHING = 2 } UiPcState;
 typedef struct {
