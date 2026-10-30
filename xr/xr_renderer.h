@@ -404,6 +404,13 @@ typedef struct XrCtx {
     // tab and leaves the bar's 3D button out)
     int stereoMode;
     int depthDebug;
+    // Native (PLAN 4.3): the 3D tab's 3D source (STEREO_SOURCE_*); anything
+    // but Depth makes stereoMode DEPTH_MODE_SBS, a pair the host drew, side by
+    // side or top and bottom, full size per eye with sbsFull. depthModeSet is
+    // the mode depth_source gave at the start, which Depth goes back to.
+    int stereoSource;
+    int sbsFull;
+    int depthModeSet;
     // The 3D switch on the bar and the 3D tab. Native: remembered in
     // config.ini ([3d] stereo) rather than starting on in every session
     int stereoLive;
@@ -1277,6 +1284,10 @@ int initAmbilight(XrCtx* ctx);
 void ambiEffective(XrCtx* ctx, int* on, float* level);
 void runAmbiBarDetect(XrCtx* ctx, const struct MlxrVideo* video);
 void finishAmbiBarDetect(XrCtx* ctx);
+// Whether the letterbox detector runs and its crop applies: not on a
+// host-rendered stereo pair (native, PLAN 4.3), whose seam and halves are no
+// letterbox
+int ambiBarDetectOn(const XrCtx* ctx);
 void runFrameColorSample(XrCtx* ctx, const struct MlxrVideo* video);
 void runGlowRender(XrCtx* ctx);
 int glowStale(XrCtx* ctx);
