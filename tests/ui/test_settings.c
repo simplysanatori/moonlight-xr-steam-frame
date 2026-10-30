@@ -11,6 +11,7 @@
 #include "panels.h"
 #include "settings.h"
 #include "ui_strings.h"
+#include "xr_cards.h"
 #include "xr_lightgun.h"
 #include "xr_padgyro.h"
 #include "xr_shared.h"
@@ -540,6 +541,28 @@ static void test_click_and_scroll(void) {
     CHECK(settings_option_cell(&s, &t, COG_OPTION_CLICK_STEADY) == CLICK_STEADY_OFF);
     s.click_steadiness = CLICK_STEADY_STEADY;
     CHECK(settings_option_cell(&s, &t, COG_OPTION_CLICK_STEADY) == CLICK_STEADY_STEADY);
+}
+
+// Native (lane wave3-cards): the first-run controls card's once-only mark and the pad card's mode
+static void test_cards_settings(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.first_run_shown == 0 && s.pad_card == PADCARD_AUTO);
+    memset(&info, 0, sizeof info);
+    settings_from_text(&s, "[vr]\nfirst_run_shown = yes\npad_card = OFF\n", &info);
+    CHECK(s.first_run_shown == 1 && s.pad_card == PADCARD_OFF && info.bad == 0);
+    settings_from_text(&s, "[vr]\npad_card = 1\n", &info);
+    CHECK(s.pad_card == PADCARD_ON);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nfirst_run_shown = true\n") != NULL && strstr(text, "\npad_card = on\n") != NULL);
+    free(text);
+    // a file that says false brings the card back on the next stream
+    settings_from_text(&s, "[vr]\nfirst_run_shown = false\n", &info);
+    CHECK(s.first_run_shown == 0);
+    memset(&info, 0, sizeof info);
+    settings_from_text(&s, "[vr]\npad_card = sometimes\n", &info);
+    CHECK(s.pad_card == PADCARD_ON && info.bad == 1);
 }
 
 // Native (lane wave2-lightgun-gyro): the lightgun policy and the gamepad's gyro
@@ -1223,6 +1246,7 @@ int main(void) {
     test_bitrate_ceiling();
     test_notices();
     test_click_and_scroll();
+    test_cards_settings();
     test_lightgun_and_gyro();
     test_controller_model();
     test_cog_tab();

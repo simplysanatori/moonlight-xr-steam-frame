@@ -370,6 +370,41 @@ int main(int argc, char** argv) {
     c->kbSticky.locked = 0;
     c->kbMods = 0;
 
+    // Native (PLAN 3.9): the first-run controls card over the middle of the picture
+    scene_reset(s);
+    c->firstRunUp = 1;
+    shot(s, "27-firstrun", NULL);
+    c->firstRunUp = 0;
+
+    // Native (PLAN 2b.6): the pad card, held in the lap. The snapshot's eye is at the origin looking
+    // straight ahead, so the head is put 0.38 m up (the card is 0.45 m under the head and 0.35 m ahead)
+    // to bring the lap into the picture. Idle, then with an A press, a bumper, a trigger, a stick and
+    // the gyro lit, then a PlayStation pad with a finger on its touchpad.
+    scene_reset(s);
+    c->headPoseValid = 1;
+    c->headPose.orientation = (XrQuaternionf){ 0, 0, 0, 1 };
+    c->headPose.position = (XrVector3f){ 0, 0.38f, 0 };
+    c->padCardUp = 1;
+    memset(&c->padLive, 0, sizeof(c->padLive));
+    c->padLive.present = 1;
+    c->padLive.style = PADSTYLE_XBOX;
+    shot(s, "28-padcard-idle", NULL);
+    c->padLive.buttons = PAD_A | PAD_RB | PAD_UP;
+    c->padLive.lt = 180;
+    c->padLive.lx = -22000;
+    c->padLive.ly = 12000;
+    c->padLive.gyro = 1;
+    shot(s, "29-padcard-lit", NULL);
+    c->padLive.style = PADSTYLE_PLAYSTATION;
+    c->padLive.buttons = PAD_B | PAD_LB;
+    c->padLive.touching = 1;
+    c->padLive.touchX = 0.7f;
+    c->padLive.touchY = 0.4f;
+    shot(s, "30-padcard-playstation", NULL);
+    c->padCardUp = 0;
+    c->headPoseValid = 0;
+    memset(&c->padLive, 0, sizeof(c->padLive));
+
     // Native (PLAN 6.3): a stream is starting and no frame has come yet, so the logo and its line
     // hang in front of the eyes
     scene_reset(s);

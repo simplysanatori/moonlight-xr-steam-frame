@@ -90,7 +90,9 @@ void xrDepthPictureSize(XrCtx* ctx, int frameW, int frameH, int* w, int* h);
 float xrDepthSbsShift(float convergence);
 // Where a point on the picture (u, v, 0..1 from the top left) is on the PC's
 // desktop, as a fraction of it: with a host-rendered pair the desktop holds
-// both eyes, and the pointer goes to the left (or top) eye's half
+// both eyes, and the pointer goes to the left (or top) eye's half. Native
+// (PLAN 4b.6): through the zoom first (the part of the picture shown), so the
+// zoom is inside the half
 void xrDepthPointerUv(XrCtx* ctx, float* u, float* v);
 
 // Once a display frame on the frame loop, after the input pass and before a

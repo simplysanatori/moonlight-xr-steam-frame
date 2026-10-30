@@ -67,6 +67,8 @@ typedef struct {
     XrCompositionLayerQuad hint;
     XrCompositionLayerQuad kofi;
     XrCompositionLayerQuad host;
+    XrCompositionLayerQuad firstRun;
+    XrCompositionLayerQuad padCard;
     XrCompositionLayerQuad picker;
     XrCompositionLayerQuad outline[2];
     XrCompositionLayerQuad cogPanel;
@@ -716,6 +718,40 @@ static void addHostLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers
     pushLayer(ctx, layers, &layers->host);
 }
 
+// Native (lane wave3-cards): layers that may only take the room the rest leave. The models, the
+// beam, the dot and the toast come after them and keep their place, so the frame that was full
+// before is as full now
+#define CARD_LAYER_RESERVE 4
+
+static int cardLayerRoom(XrCtx* ctx, const FrameLayers* layers) {
+    int cap = ctx->maxLayerCount < FRAME_MAX_LAYERS ? ctx->maxLayerCount : FRAME_MAX_LAYERS;
+    return (int)layers->count + 1 + CARD_LAYER_RESERVE <= cap;
+}
+
+// The first-run controls card (PLAN 3.9), over the middle of the picture
+static void addFirstRunLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    if (!ctx->firstRunUp || !ctx->firstRunReady || !cardLayerRoom(ctx, layers)) {
+        return;
+    }
+    float w, h;
+    XrPosef pose = firstRunPose(ctx, &w, &h);
+    atlasQuad(ctx, &layers->firstRun, NULL, UI_PANEL_FIRSTRUN, view->space, pose, w, h);
+    pushLayer(ctx, layers, &layers->firstRun);
+}
+
+// The pad card (PLAN 2b.6), in the lap: in the local space under the head's heading, or in the
+// view space when the head is not located
+static void addPadCardLayer(XrCtx* ctx, FrameLayers* layers) {
+    if (!ctx->padCardUp || !ctx->padCardReady || !cardLayerRoom(ctx, layers)) {
+        return;
+    }
+    float w, h;
+    XrPosef pose = padCardPose(ctx, &w, &h);
+    atlasQuad(ctx, &layers->padCard, NULL, UI_PANEL_PADCARD,
+              ctx->headPoseValid ? ctx->localSpace : ctx->viewSpace, pose, w, h);
+    pushLayer(ctx, layers, &layers->padCard);
+}
+
 // The environment grid and the rings on its hovered and chosen cells
 static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     float level = ctx->panelFades[FADE_PICKER].level;
@@ -1022,6 +1058,8 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
         addKofiLayers(ctx, &view, layers);
         addHostLayers(ctx, &view, layers);
         addKeyboardLayers(ctx, &view, layers);
+        addFirstRunLayer(ctx, &view, layers);
+        addPadCardLayer(ctx, layers);
         addModelLayer(ctx, layers);
         addPointerLayers(ctx, &view, layers);
     }

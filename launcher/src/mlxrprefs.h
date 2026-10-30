@@ -87,6 +87,9 @@ class MlxrPrefs : public QObject
     // How fast a controller thumbstick scrolls in the headset, percent of 7.5 notches a
     // second, 25..400 ([vr] scroll_speed)
     Q_PROPERTY(int scrollSpeed MEMBER scrollSpeed NOTIFY changed)
+    // Native (lane wave4b-zoom, PLAN 4b.6): the zoom a stream starts at in the headset, percent, 100..400
+    // ([display] zoom). The headset keeps the zoom and the pan per PC and app once they are set there
+    Q_PROPERTY(int zoom MEMBER zoom NOTIFY changed)
     // Which controller the headset draws in each hand: "off", "frame", "generic", "gun" or "custom"
     // ([vr] controller_model). Custom (your own files in the models folder) is only chosen here and
     // in the file; the headset's Display tab has a cell for the other four
@@ -117,6 +120,11 @@ class MlxrPrefs : public QObject
     // locale), "en", or a code of tools/ui/gen_strings.py's list ("de", "pt-BR", ...). Read by the VR
     // client when it starts
     Q_PROPERTY(QString headsetLanguage MEMBER headsetLanguage NOTIFY changed)
+    // Native (lane wave3-cards): [vr] pad_card: the gamepad card in the headset's lap, "auto" (default: up while
+    // a gamepad is in use, gone 4 s after the last input), "on" or "off"; [vr] first_run_shown: the first-run
+    // controls card has been shown (false brings it back on the next stream)
+    Q_PROPERTY(QString padCard MEMBER padCard NOTIFY changed)
+    Q_PROPERTY(bool firstRunShown MEMBER firstRunShown NOTIFY changed)
     // Native (lane wave2-lightgun-gyro): [vr] lightgun, the lightgun pointer policy, "auto" (default: on while the
     // controller model is the gun), "on" or "off"; [vr] pad_gyro, what the headset controllers' gamepad sends as
     // gyro to the PC, "off" (default), "controller" or "head". The rest (lightgun_reload, lightgun_recoil,
@@ -247,6 +255,7 @@ public:
     QString keyboardKeymap;
     QString notices;
     int scrollSpeed;
+    int zoom = 100;
     QString controllerModel;
     int doffDisconnect = 60;
     int idleDisconnect = 0;
@@ -260,6 +269,8 @@ public:
     // A [ui] language value as the VR client spells it: "auto" for an empty or malformed one,
     // else lower case with the region upper case ("pt_br" -> "pt-BR")
     static QString normalizeLanguage(const QString& v);
+    QString padCard;
+    bool firstRunShown = false;
     QString lightgun;
     QString padGyro;
     QString pcvrApp;
@@ -278,11 +289,14 @@ private:
     bool m_iniPerfOverlay = false, m_iniFlip = false;
     QString m_iniNotices = "all";
     int m_iniScrollSpeed = 100;
+    int m_iniZoom = 100;
     QString m_iniControllerModel = "off";
     int m_iniDoff = 60, m_iniIdle = 0;
     int m_iniBitrateWifi = 0, m_iniBitrateAdapter = 0, m_iniBitrateWired = 0, m_iniBitrateUsb = 0;
     int m_iniRfiIdr = 500;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
+    QString m_iniPadCard = "auto";
+    bool m_iniFirstRunShown = false;
     QString m_iniLightgun = "auto", m_iniPadGyro = "off";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     int m_iniEyeBalance = 0, m_iniBackgroundDim = 0;
