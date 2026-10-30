@@ -250,6 +250,66 @@ int roomScreenClamp(int percent, int resizable);
 // the ray.
 int roomResizePercent(int startPercent, float startReach, float reach);
 
+// ---- screen presets, bringing the screen here, lazy follow ----------------------------
+// The Screen tab's presets: how far the screen is from the seat and how wide
+// it is, in centimetres. Only those two: it stays in the direction it sits in
+// (so its height scales with its distance, as the Distance track does), and
+// its tilt, roll and curve stay as they were set.
+#define LAYOUT_PRESET_DESK 0
+#define LAYOUT_PRESET_COUCH 1
+#define LAYOUT_PRESET_CINEMA 2
+#define LAYOUT_PRESETS 3
+typedef struct {
+    int distanceCm;
+    int widthCm;
+} LayoutPreset;
+LayoutPreset layoutPresetOf(int preset);
+
+// Which preset a distance and width are, or -1: a centimetre or two either
+// way still counts, since both went through a float on the way to the file
+int layoutPresetAt(int distanceCm, int widthCm);
+
+// The way the head looks, as a unit vector, held to LAYOUT_GAZE_PITCH_MAX_DEG
+// up or down so a glance at the ceiling does not take the screen there
+#define LAYOUT_GAZE_PITCH_MAX_DEG 40.0f
+Vec3 layoutGazeDir(XrQuaternionf head);
+
+// The screen turned about the vertical to face the head, with its tilt and
+// roll kept. Unchanged when it is nearly over or under the head.
+XrQuaternionf layoutFaceHead(XrQuaternionf orientation, Vec3 screenPos, Vec3 headPos);
+
+// "Bring here": the screen where the head looks, as far from the head as it
+// was, facing it, the same size. Only its pose; the width is not touched.
+XrPosef layoutBringHere(XrPosef screen, XrPosef head);
+
+// Where the screen is when it sits dir from the head, as far from it as it
+// was, facing it with its tilt and roll kept
+XrPosef layoutScreenAlong(XrPosef screen, Vec3 headPos, Vec3 dir);
+
+// Lazy follow. The screen is world locked until the gaze is more than the
+// leash from it in yaw or in pitch; then it eases after the gaze, a slerp over
+// FOLLOW_EASE_SEC, and is world locked again where it lands. Directions are
+// unit vectors from the head: screenDir to the screen's middle, gazeDir the way
+// the head looks.
+#define FOLLOW_EASE_SEC 0.6f
+typedef struct {
+    int easing;     // 1 from the moment the leash breaks until it lands
+    float t;        // 0..1 along the ease
+    Vec3 from;
+    Vec3 to;
+} FollowState;
+void followReset(FollowState* st);
+int followOutsideLeash(Vec3 screenDir, Vec3 gazeDir, float leashRad);
+// Where the screen should be this frame, dt seconds on from the last. Not
+// moving, it returns screenDir untouched. A gaze that moves on while it eases
+// is chased: the ease starts again from where the screen is.
+Vec3 followStep(FollowState* st, Vec3 screenDir, Vec3 gazeDir, float dt, float leashRad);
+
+// Angular-size lock: the width that keeps a screen the same size in the view
+// after it has been pushed or pulled from distFrom to distNow metres from the
+// head, held to the widths a screen may have
+float layoutAngularWidth(float width, float distFrom, float distNow, float minWidth, float maxWidth);
+
 // How big a corner bracket on a room's picture is drawn, in metres, for a
 // picture that far from the seat: whatever size looks the same as a bracket
 // on the stand in screen, so a picture on a far wall or shrunk to a quarter

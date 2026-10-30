@@ -40,6 +40,18 @@ typedef struct {
 #define ENV_ID_SYNTHWAVE 6
 #define ROOM_COUNT 3   // the baked rooms, indexed 0 theater, 1 grand cinema, 2 synthwave
 
+// What the Screen tab remembers per PC and app: where the screen hangs, how the
+// head lock stands, and the 3D state. A hash of the PC and app names picks the
+// slot; the file keeps one [screen.<hash>] section for each. Whole ints only,
+// so a copy of the settings compares byte for byte.
+#define APP_LAYOUT_MAX 32
+typedef struct {
+    unsigned hash;        // settings_app_hash of the PC and app; never 0 in a slot in use
+    int distance_cm, height_cm, azimuth_deg, tilt_deg, rotate_deg, curve, width_cm;
+    int head_locked, head_follow;
+    int stereo, separation, convergence;
+} AppLayout;
+
 typedef struct Settings {
     // [stream]
     char host[UI_STR_MAX];
@@ -116,6 +128,16 @@ typedef struct Settings {
     int screen_rotate_deg;    // clockwise positive as the viewer sees it
     int screen_curve;         // percent
     int screen_width_cm;
+    int per_app;              // native: remember the layout per PC and app
+    int angular_lock;         // native: pushing or pulling the held screen keeps its size in the view
+
+    // [display] the Head locked row's third cell
+    int head_follow;          // native: Follow (head_locked is then 0)
+    int follow_leash_deg;     // native: how far the head turns before a followed screen comes after it
+
+    // [screen.<hash>] the layouts remembered per PC and app, the oldest first
+    AppLayout layouts[APP_LAYOUT_MAX];
+    int layout_count;
 
     // [rooms] per room
     RoomSettings room[ROOM_COUNT];
@@ -196,6 +218,23 @@ int settings_model_default_separation(const Settings* s);
 float settings_screen_slider(const Settings* s, int row);
 void settings_set_screen_slider(Settings* s, int row, float t);
 void settings_reset_screen(Settings* s);
+
+// Per PC and app layouts. The hash is of the PC's name and the app's name, 0
+// when there is no app (a file played locally), which is never remembered.
+unsigned settings_app_hash(const char* host, const char* app);
+const AppLayout* settings_layout_find(const Settings* s, unsigned hash);
+// The layout the settings hold now, and a stored one put back as the settings
+void settings_layout_snapshot(const Settings* s, AppLayout* out);
+void settings_layout_apply(Settings* s, const AppLayout* l);
+// Whether two layouts hold the same values, whatever their slots
+int settings_layout_same(const AppLayout* a, const AppLayout* b);
+// Stores a layout under a hash: added, or replaced where the hash has one,
+// the oldest dropped when the file is full. Returns 1 when something changed.
+int settings_layout_store(Settings* s, unsigned hash, const AppLayout* l);
+// Drops the layout under a hash. Returns 1 when there was one.
+int settings_layout_forget(Settings* s, unsigned hash);
+// The cell the Head locked row shows: 0 off, 1 on, 2 follow
+int settings_head_lock_cell(const Settings* s);
 void settings_reset_3d(Settings* s);
 void settings_reset_picture(Settings* s);
 int* settings_picture_ptr(Settings* s, int row);              // PICTURE_* row

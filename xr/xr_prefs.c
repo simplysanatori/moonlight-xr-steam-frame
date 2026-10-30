@@ -289,6 +289,11 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
         ctx->roomScreen[style] = r->screen;
     }
     ctx->headLockedPref = s->head_locked;
+    // Native (lane layout): Follow, its leash, the angular-size lock and the per app switch
+    ctx->followOn = s->head_follow && !s->head_locked;
+    ctx->followLeashDeg = s->follow_leash_deg;
+    ctx->angularLockOn = s->angular_lock;
+    ctx->perAppOn = s->per_app;
     ctx->pointerSleepOn = s->pointer_sleep;
     ctx->modelOn = s->controller_model;
     xrSetClickSound(ctx, s->click_sound);
@@ -414,7 +419,25 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_STATS: s->stats = value != 0; break;
     case SETTING_AMBILIGHT: s->glow = value != 0; break;
     case SETTING_ROOM_LIGHT: s->screen_light = value != 0; break;
-    case SETTING_HEAD_LOCK: s->head_locked = value != 0; break;
+    case SETTING_HEAD_LOCK:
+        // The Head locked row's cell: Off 0, On 1, Follow 2
+        s->head_locked = value == 1;
+        s->head_follow = value == 2;
+        break;
+    case SETTING_PER_APP: s->per_app = value != 0; break;
+    case SETTING_ANGULAR_LOCK: s->angular_lock = value != 0; break;
+    case SETTING_FORGET_LAYOUT:
+        // The layout kept for the app streaming now, and nothing kept again
+        // until something about it changes
+        if (ctx != NULL && settings_layout_forget(s, ctx->layoutHash)) {
+            AppLayout now;
+            settings_layout_snapshot(s, &now);
+            _Static_assert(sizeof(AppLayout) == sizeof(ctx->layoutSeen), "layoutSeen holds an AppLayout");
+            memcpy(ctx->layoutSeen, &now, sizeof(now));
+            ctx->layoutSeenValid = 1;
+            ctx->layoutPending = 0;
+        }
+        break;
     case SETTING_POINTER_SLEEP: s->pointer_sleep = value != 0; break;
     case SETTING_CLICK_SOUND: s->click_sound = value != 0; break;
     case SETTING_NOTICES: s->notices = value; break;

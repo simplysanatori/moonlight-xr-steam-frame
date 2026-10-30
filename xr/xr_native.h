@@ -15,12 +15,32 @@
 #define SETTING_NOTICES 25
 // The cog's tab, COG_TAB_*: the next session opens the cog on it
 #define SETTING_COG_TAB 26
+// Screen tab: remember the layout per PC and app, Off 0 or On 1; forget the
+// one remembered for the app now streaming; the angular-size lock, Off 0 or 1
+#define SETTING_PER_APP 27
+#define SETTING_FORGET_LAYOUT 28
+#define SETTING_ANGULAR_LOCK 29
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 
 // The curve the panel or the preference asks for (xr_ui.c): what is stored,
 // whether or not the launcher's flat list has the picture's place now
 float xrCurveSetting(XrCtx* ctx);
+
+// ---- placement, the lane that remembers it (xr_place.c) -------------------
+// Once a frame, after the input pass and before the layers: the screen follows
+// the head if it is told to, keeps its size in the view while it is pushed or
+// pulled, and the layout is kept per PC and app. Works on the settings the
+// session saves. Returns 1 when they changed and want saving.
+int xrLayoutFrame(XrCtx* ctx, Settings* s, int64_t nowNs);
+// The PC and app now streaming, as the names the layout is keyed by (the
+// worker thread calls this when a stream starts). NULL or empty app: none.
+void xrSetStreamIdentity(const char* host, const char* app);
+// "Bring here": the screen comes to where the head looks, the same size and
+// as far from the head as it was. This is what the app:bringhere binding and
+// the Screen tab's button call. Returns 1 when the screen moved (not in a
+// room, not head locked, a head pose to go by).
+int xrBringScreenHere(XrCtx* ctx);
 
 // ---- rows the native client cannot act on yet (xr_prefs.c) ----------------
 // 0 when the row is live as far as the native client goes, else the reason's

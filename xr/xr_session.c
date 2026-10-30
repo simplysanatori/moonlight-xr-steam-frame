@@ -1541,6 +1541,12 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
         ctx->launcherPressHit = -1;
     }
     ev->focused = ctx->sessionState == XR_SESSION_STATE_FOCUSED;
+    // Native (lane layout): Follow, the angular-size lock and the layout kept
+    // per PC and app, after everything the input pass changed and before the
+    // layers are built
+    if (xrLayoutFrame(ctx, s, nowNs())) {
+        saveSettings(h, "app layout");
+    }
     // M6 (native): the 3D switch is remembered, unless the model failing
     // turned it off
     if (ctx->stereoMode != DEPTH_MODE_OFF && !ctx->depthFailed && s->stereo != ctx->stereoLive) {

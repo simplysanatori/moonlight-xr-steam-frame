@@ -607,7 +607,7 @@ static void test_files(void) {
 static void test_sliders(void) {
     Settings s;
     settings_defaults(&s);
-    for (int row = 0; row < COG_SCREEN_ROW_COUNT; row++) {
+    for (int row = 0; row < COG_SCREEN_TRACK_ROWS; row++) {
         for (int i = 0; i <= 10; i++) {
             float t = (float)i / 10.0f;
             settings_set_screen_slider(&s, row, t);
@@ -747,7 +747,171 @@ static void test_stats_style(void) {
     CHECK(settings_option_cell(&s, &t, COG_OPTION_STATS) == 1);
 }
 
+// The Head locked row's third cell, the leash, the per app switch and the
+// angular-size lock
+static void test_follow_and_lock_settings(void) {
+    Settings s;
+    settings_defaults(&s);
+    CHECK(geti(&s, "head_follow") == 0 && geti(&s, "follow_leash_deg") == 25);
+    CHECK(geti(&s, "per_app") == 1 && geti(&s, "angular_lock") == 1);
+    CHECK(FOLLOW_LEASH_DEFAULT_DEG == 25);
+    CHECK(settings_head_lock_cell(&s) == 0);
+    CHECK(settings_option_cell(&s, &(SessionToggles){ 0 }, COG_OPTION_HEAD_LOCK) == 0);
+    s.head_follow = 1;
+    CHECK(settings_option_cell(&s, &(SessionToggles){ 0 }, COG_OPTION_HEAD_LOCK) == 2);
+    s.head_locked = 1;
+    // locked wins, and the clamp drops the follow
+    settings_clamp(&s);
+    CHECK(s.head_follow == 0 && settings_head_lock_cell(&s) == 1);
+    // the leash is held to its lane
+    settings_set(&s, settings_find("follow_leash_deg"), 5);
+    CHECK(s.follow_leash_deg == FOLLOW_LEASH_MIN_DEG);
+    settings_set(&s, settings_find("follow_leash_deg"), 500);
+    CHECK(s.follow_leash_deg == FOLLOW_LEASH_MAX_DEG);
+    CHECK(COG_HEAD_LOCK_CELLS == 3);
+}
+
+static AppLayout layout_of(int distance, int width, int stereo) {
+    Settings s;
+    settings_defaults(&s);
+    s.screen_distance_cm = distance;
+    s.screen_width_cm = width;
+    s.stereo = stereo;
+    AppLayout l;
+    settings_layout_snapshot(&s, &l);
+    return l;
+}
+
+// The names that key a layout, and the layouts kept in the file
+static void test_layouts(void) {
+    // the hash: stable, case blind, told apart by either name, none without an app
+    unsigned a = settings_app_hash("Desk PC", "Desktop");
+    CHECK(a != 0);
+    CHECK(a == settings_app_hash("desk pc", "DESKTOP"));
+    CHECK(a != settings_app_hash("Desk PC", "Steam Big Picture"));
+    CHECK(a != settings_app_hash("Other PC", "Desktop"));
+    CHECK(settings_app_hash("Desk PC", "") == 0 && settings_app_hash("Desk PC", NULL) == 0);
+    CHECK(settings_app_hash(NULL, "Desktop") != 0);
+    // "ab"+"c" is not "a"+"bc"
+    CHECK(settings_app_hash("ab", "c") != settings_app_hash("a", "bc"));
+
+    Settings s;
+    settings_defaults(&s);
+    CHECK(s.layout_count == 0 && settings_layout_find(&s, a) == NULL);
+    AppLayout l1 = layout_of(120, 160, 0);
+    CHECK(settings_layout_store(&s, a, &l1) == 1);
+    CHECK(s.layout_count == 1 && settings_layout_find(&s, a) != NULL);
+    CHECK(settings_layout_find(&s, a)->hash == a);
+    // the same again changes nothing, a different one replaces it
+    CHECK(settings_layout_store(&s, a, &l1) == 0);
+    AppLayout l2 = layout_of(400, 500, 1);
+    CHECK(settings_layout_store(&s, a, &l2) == 1 && s.layout_count == 1);
+    CHECK(settings_layout_find(&s, a)->distance_cm == 400 && settings_layout_find(&s, a)->stereo == 1);
+    CHECK(settings_layout_store(&s, 0, &l2) == 0);
+
+    // it is a section of the file with the settings' own keys, and comes back
+    unsigned b = settings_app_hash("Desk PC", "Cyberpunk 2077");
+    CHECK(settings_layout_store(&s, b, &l1) == 1);
+    char* text = settings_to_text(&s);
+    char want[64];
+    snprintf(want, sizeof want, "[screen.%08x]", a);
+    CHECK(strstr(text, want) != NULL);
+    CHECK(strstr(text, "distance_cm = 400") != NULL);
+    // every active line outside the sections is still the defaults' commented ones
+    Settings back;
+    settings_defaults(&back);
+    SettingsLoadInfo info;
+    settings_from_text(&back, text, &info);
+    CHECK(info.unknown == 0 && info.bad == 0);
+    CHECK(settings_equal(&s, &back));
+    CHECK(back.layout_count == 2);
+    CHECK(settings_layout_find(&back, b)->width_cm == 160);
+    // and none of it reached the settings in force
+    Settings d;
+    settings_defaults(&d);
+    CHECK(back.screen_distance_cm == d.screen_distance_cm && back.stereo == d.stereo);
+    // saving it again is the same file
+    char* again = settings_to_text(&back);
+    CHECK(strcmp(text, again) == 0);
+    free(again);
+    free(text);
+
+    // a section with some keys: the rest are the defaults'; a bad hash, an
+    // unknown key and a bad value are counted and change nothing in force
+    Settings t;
+    settings_defaults(&t);
+    settings_from_text(&t,
+        "[screen.00000abc]\n"
+        "distance_cm = 333\n"
+        "bogus = 1\n"
+        "width_cm = wide\n"
+        "head_locked = yes\n"
+        "[screen.nothex]\n"
+        "distance_cm = 111\n"
+        "[screen.00000def]\n"
+        "distance_cm = 99999\n"
+        "[screen]\n"
+        "tilt_deg = 7\n", &info);
+    CHECK(t.layout_count == 2);
+    const AppLayout* abc = settings_layout_find(&t, 0xabc);
+    CHECK(abc != NULL && abc->distance_cm == 333 && abc->width_cm == d.screen_width_cm && abc->head_locked == 1);
+    CHECK(info.unknown >= 2 && info.bad == 1 && info.clamped == 1);
+    CHECK(settings_layout_find(&t, 0xdef)->distance_cm == 800);
+    CHECK(t.screen_distance_cm == d.screen_distance_cm && t.screen_tilt_deg == 7);
+
+    // apply puts one in force, snapshot reads it back
+    Settings u;
+    settings_defaults(&u);
+    settings_layout_apply(&u, abc);
+    CHECK(u.screen_distance_cm == 333 && u.head_locked == 1 && u.head_follow == 0);
+    AppLayout snap;
+    settings_layout_snapshot(&u, &snap);
+    CHECK(settings_layout_same(&snap, abc));
+    CHECK(!settings_layout_same(&snap, &l1));
+
+    // forgetting
+    CHECK(settings_layout_forget(&t, 0xabc) == 1 && t.layout_count == 1);
+    CHECK(settings_layout_forget(&t, 0xabc) == 0 && settings_layout_forget(&t, 0) == 0);
+    CHECK(settings_layout_find(&t, 0xabc) == NULL && settings_layout_find(&t, 0xdef) != NULL);
+
+    // the file holds APP_LAYOUT_MAX and drops the oldest
+    Settings full;
+    settings_defaults(&full);
+    for (unsigned i = 1; i <= APP_LAYOUT_MAX + 5; i++) {
+        AppLayout l = layout_of(100 + (int)i, 200, 0);
+        CHECK(settings_layout_store(&full, 0x1000 + i, &l) == 1);
+    }
+    CHECK(full.layout_count == APP_LAYOUT_MAX);
+    CHECK(settings_layout_find(&full, 0x1001) == NULL && settings_layout_find(&full, 0x1005) == NULL);
+    CHECK(settings_layout_find(&full, 0x1006) != NULL);
+    CHECK(settings_layout_find(&full, 0x1000 + APP_LAYOUT_MAX + 5) != NULL);
+    // a replaced one moves to the newest end
+    AppLayout l3 = layout_of(555, 200, 0);
+    CHECK(settings_layout_store(&full, 0x1006, &l3) == 1);
+    CHECK(full.layouts[APP_LAYOUT_MAX - 1].hash == 0x1006);
+    char* big = settings_to_text(&full);
+    Settings bigBack;
+    settings_defaults(&bigBack);
+    settings_from_text(&bigBack, big, &info);
+    CHECK(settings_equal(&full, &bigBack) && info.unknown == 0 && info.bad == 0);
+    free(big);
+
+    // out of range values in a layout are held to the setting's range, on load and on store
+    AppLayout wild = layout_of(100, 200, 0);
+    wild.distance_cm = 100000;
+    wild.separation = -50;
+    wild.head_locked = 1;
+    wild.head_follow = 1;
+    Settings w;
+    settings_defaults(&w);
+    CHECK(settings_layout_store(&w, 7, &wild) == 1);
+    CHECK(settings_layout_find(&w, 7)->distance_cm == 800 && settings_layout_find(&w, 7)->separation == -1);
+    CHECK(settings_layout_find(&w, 7)->head_follow == 0);
+}
+
 int main(void) {
+    test_follow_and_lock_settings();
+    test_layouts();
     test_defaults();
     test_stats_style();
     test_shortcut_wording();

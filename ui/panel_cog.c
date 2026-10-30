@@ -75,7 +75,10 @@ static void cells(Dc* dc, int face, int row, const UiStr* names, int n, float y,
         int hot = live && dc_hover(dc, UI_HIT_CELL, row, i);
         dc_fill_rrect(dc, x0, y - cell_half, x1, y + cell_half, 10.0f, live ? (hot ? 0x40FFFFFFu : 0x28FFFFFFu) : 0x10FFFFFFu);
         dc_stroke_rrect(dc, x0, y - cell_half, x1, y + cell_half, 10.0f, 2.0f, live ? 0x50FFFFFFu : 0x20FFFFFFu);
-        dc_text_center(dc, UI_WEIGHT_REGULAR, 19.0f, (x0 + x1) * 0.5f, y, live ? WHITE : DIM, ui_str(names[i]));
+        // a long name (Bring here, in the Screen tab's four cells) shrinks to fit rather than being cut
+        float fit = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, 19.0f * dc->k, 12.0f * dc->k, ui_str(names[i]),
+                                     ((x1 - x0) - 8.0f) * dc->k) / dc->k;
+        dc_text_center(dc, UI_WEIGHT_REGULAR, fit, (x0 + x1) * 0.5f, y, live ? WHITE : DIM, ui_str(names[i]));
         if (live && i == mark) {
             // on the edge of the cell the sheet draws, inset the same way
             dc_stroke_rrect(dc, x0 + 1.5f, y - cell_half + 1.5f, x1 - 1.5f, y + cell_half - 1.5f, 10.0f, 3.0f, WHITE);
@@ -137,17 +140,41 @@ static void chrome(Dc* dc, int tab, int in_room) {
 
 // ---- tabs -------------------------------------------------------------------------------------
 
+// The three rows of cells under the tracks: the presets with Bring here, the
+// per app switch with Forget, and the angular-size lock. Bring here and Forget
+// are presses rather than states, so neither is ever ringed.
+static void screen_cells(Dc* dc, int row, float y, float cell_half) {
+    const Settings* s = dc->v->settings;
+    static const UiStr PRESET[COG_SCREEN_PRESET_CELLS] = { UIS_PRESET_DESK, UIS_PRESET_COUCH, UIS_PRESET_CINEMA,
+                                                           UIS_BRING_HERE };
+    static const UiStr PER_APP[COG_SCREEN_PER_APP_CELLS] = { UIS_OFF, UIS_ON, UIS_FORGET };
+    static const UiStr LOCK[COG_SCREEN_LOCK_CELLS] = { UIS_OFF, UIS_ON };
+    if (row == COG_SCREEN_ROW_PRESET) {
+        cells(dc, COG_TAB_SCREEN, row, PRESET, COG_SCREEN_PRESET_CELLS, y, 1, cell_half,
+              layoutPresetAt(s->screen_distance_cm, s->screen_width_cm));
+    } else if (row == COG_SCREEN_ROW_PER_APP) {
+        cells(dc, COG_TAB_SCREEN, row, PER_APP, COG_SCREEN_PER_APP_CELLS, y, 1, cell_half, s->per_app ? 1 : 0);
+    } else {
+        cells(dc, COG_TAB_SCREEN, row, LOCK, COG_SCREEN_LOCK_CELLS, y, 1, cell_half, s->angular_lock ? 1 : 0);
+    }
+}
+
 static void tab_screen(Dc* dc) {
     const UiView* v = dc->v;
     const Settings* s = v->settings;
     static const UiStr ROWS[COG_SCREEN_ROW_COUNT] = { UIS_ROW_DISTANCE, UIS_ROW_HEIGHT, UIS_ROW_TILT,
-        UIS_ROW_ROTATE, UIS_ROW_CURVE, UIS_ROW_SIZE, UIS_ROW_AIM_SENSITIVITY, UIS_ROW_AIM_DEAD_ZONE };
+        UIS_ROW_ROTATE, UIS_ROW_CURVE, UIS_ROW_SIZE, UIS_ROW_AIM_SENSITIVITY, UIS_ROW_AIM_DEAD_ZONE,
+        UIS_ROW_PRESET, UIS_ROW_PER_APP, UIS_ROW_ANGULAR_LOCK };
     float cell_half = COG_SCREEN_CELL_HALF * dc->nh;
     for (int row = 0; row < COG_SCREEN_ROW_COUNT; row++) {
         int aim = row == COG_SLIDER_AIM_SENSITIVITY || row == COG_SLIDER_AIM_DEADZONE;
         int live = ui_cog_row_live(v, COG_TAB_SCREEN, row);
         float y = row_y(dc, COG_TAB_SCREEN, row);
         label(dc, ui_str(ROWS[row]), y, live);
+        if (row >= COG_SCREEN_TRACK_ROWS) {
+            screen_cells(dc, row, y, cell_half);
+            continue;
+        }
         if (aim && !live) {
             greyed_reason(dc, y, ui_str(UIS_NEEDS_HEAD_LOCK));
             track_hits(dc, COG_TAB_SCREEN, row, 0);
@@ -230,6 +257,8 @@ static void tab_display(Dc* dc) {
     static const UiStr OFFNQ[3] = { UIS_OFF, UIS_NORMAL, UIS_QUALITY };
     static const UiStr OFFON[2] = { UIS_OFF, UIS_ON };
     static const UiStr PADPTR[2] = { UIS_POINTER, UIS_GAMEPAD };
+    // native: the Head locked row's third cell, the screen that follows the head late
+    static const UiStr HEADLOCK3[3] = { UIS_OFF, UIS_ON, UIS_FOLLOW };
     // native: which notices the toast says
     static const UiStr NOTICES3[3] = { UIS_NOTICE_CELL_ALL, UIS_NOTICE_CELL_IMPORTANT, UIS_OFF };
     // native: the ray row has a third cell, the dot without the ray
@@ -262,7 +291,8 @@ static void tab_display(Dc* dc) {
             continue;
         }
         const UiStr* names = row <= COG_OPTION_SUPERSAMPLE ? OFFNQ : row == COG_OPTION_GAMEPAD ? PADPTR
-                           : row == COG_OPTION_RAY ? POINTER3 : row == COG_OPTION_NOTICES ? NOTICES3 : OFFON;
+                           : row == COG_OPTION_RAY ? POINTER3 : row == COG_OPTION_NOTICES ? NOTICES3
+                           : row == COG_OPTION_HEAD_LOCK ? HEADLOCK3 : OFFON;
         int n = ui_cog_row_cells(COG_TAB_DISPLAY, row);
         cells(dc, COG_TAB_DISPLAY, row, names, n, y, 1, cell_half, settings_option_cell(s, &v->session, row));
     }
