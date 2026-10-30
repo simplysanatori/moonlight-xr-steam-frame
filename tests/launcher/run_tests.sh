@@ -470,7 +470,7 @@ if [ -n "$SHOTS" ]; then
     ini="$MLXR_CONFIG_DIR/config.ini"
     printf '# Moonlight XR settings\n[display]\n# Display tab: show performance stats [true | false] (default false)\n#stats = false\nglow = true\n\n[3d]\nseparation = 9\nstereo = false\n' > "$ini"
     cp "$ini" "$t/ini.before"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,scrollSpeedRow,doffRow,idleRow,controllerModelRow,hdrRow,padCardRow,firstRunRow \
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,scrollSpeedRow,doffRow,idleRow,controllerModelRow,hdrRow,idrCapRow,padCardRow,firstRunRow \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-clicked.png@3000" "$L" >"$t/ui6.out" 2>&1
     grep -q "no clickable" "$t/ui6.out" && fail "click hook: $(grep 'no clickable' "$t/ui6.out")"
     grep -q '^stats = true$' "$ini" && ok "stats overlay row writes [display] stats = true" || { fail "stats not written"; cat "$ini"; }
@@ -481,6 +481,8 @@ if [ -n "$SHOTS" ]; then
     grep -A6 '^\[vr\]' "$ini" | grep -q '^controller_model = frame$' && ok "controller row steps Off to Steam Frame and writes [vr] controller_model" || { fail "controller_model not written"; cat "$ini"; }
     grep -A3 '^\[stream\]' "$ini" | grep -q '^doff_disconnect = 120$' && ok "headset-off row steps 60 s to 120 s and writes [stream] doff_disconnect" || { fail "doff_disconnect not written"; cat "$ini"; }
     grep -A3 '^\[stream\]' "$ini" | grep -q '^idle_disconnect = 10$' && ok "idle row steps Never to 10 minutes and writes [stream] idle_disconnect" || { fail "idle_disconnect not written"; cat "$ini"; }
+    # lane wave1-burst: the full-frame request cap steps 500 ms to 1000 ms
+    grep -A4 '^\[stream\]' "$ini" | grep -q '^rfi_idr_ms = 1000$' && ok "full-frame request row steps 500 ms to 1000 ms and writes [stream] rfi_idr_ms" || { fail "rfi_idr_ms not written"; cat "$ini"; }
     # lane wave3-cards: the gamepad card's row steps Auto to On, the controls card's switch (on: not shown yet) turns off
     sed -n '/^\[vr\]/,/^\[/p' "$ini" | grep -q '^pad_card = on$' && ok "gamepad card row steps Auto to On and writes [vr] pad_card" || { fail "pad_card not written"; cat "$ini"; }
     sed -n '/^\[vr\]/,/^\[/p' "$ini" | grep -q '^first_run_shown = true$' && ok "controls card switch off writes [vr] first_run_shown = true" || { fail "first_run_shown not written"; cat "$ini"; }
@@ -526,6 +528,7 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads controller_model" "$dump" "vr.controller_model = frame"
         expect "VR client reads doff_disconnect" "$dump" "stream.doff_disconnect = 120"
         expect "VR client reads idle_disconnect" "$dump" "stream.idle_disconnect = 10"
+        expect "VR client reads rfi_idr_ms" "$dump" "stream.rfi_idr_ms = 1000"
         expect "VR client reads pad_card" "$dump" "vr.pad_card = on"
         expect "VR client reads first_run_shown" "$dump" "vr.first_run_shown = true"
     fi
