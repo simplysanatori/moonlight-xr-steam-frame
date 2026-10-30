@@ -260,3 +260,13 @@ A USB or Bluetooth mouse acts as the host's mouse while the VR client is focused
 
 ## Open question: does the host make a DualShock 4?
 Steam Input on the PC only sees native gyro from a device that has it. That needs Apollo to emulate a DualShock 4 (ViGEmBus) for the arrival we send (`LI_CTYPE_PS` with gyro and accelerometer). Not yet known: whether Apollo 0.4.x asks for motion (`setMotionEventState`) for this arrival; whether its `gamepad` setting (Automatic / DS4 / X360) can force an Xbox 360 pad and ignore the type; whether Steam Input reads gyro from ViGEm's DualShock 4 at all; and the axis signs and scale Apollo gives the DualShock 4 report. Needs one test on the PC; no code here depends on the answer, but the guide tells users to leave Apollo's gamepad type on Automatic.
+
+# Head and pointer input (lane wave4-headinput, PLAN 4.4, 4.5, 6.5, 4b.10)
+
+Each item is a `[vr]` key that is off by default, mirrored on the launcher's Settings page under Input Settings. No cog row (the Display tab is full). Tests: `xrcore_headaim` and the other cores named below, `m4_headinput` (the input pass through the seams on the context), `ui_settings`, `tests/launcher/run_tests.sh`.
+
+## 4.4 Head-look (`head_look`, `head_look_px_deg`)
+- Shares head aim's code end to end: `updateHeadAim` in `xr/xr_input.c` asks `headMouseWho` (`xr/core/xr_headaim.c`) which of the two drives this frame, then runs the same `headAimStep` (jump and gap drops, recentre drop, pitch limit, carry) and the same `pointerNudge` for the ray. Head aim wins where it can act (head locked, no room, either mode), so its behaviour is unchanged; head-look takes pointer mode with the screen head locked or a room up, at `head_look_px_deg` (head aim's lane 1..30, default 8) and head aim's dead zone. A switch between the two resets the step so no carry crosses rates.
+- The pause: `bindPointerStep` sets `ctx->headLookHold` from `headLookHeld`: any held `app:lookhold` (new binding command, `XR_BIND_APP_LOOKHOLD`), or a grip down while the pointer table binds it to `none` (the default; grips are already taken out while the ray is on our UI). The head reads it the next frame (one frame late, the head runs ahead of the controllers). A pause is `HEAD_AIM_PAUSED`, so the head is measured afresh after it. Let go with everything else (`bindLetGo`).
+- The head is located through the `locateSpace` seam now (it was `xrLocateSpace` directly), which is what `m4_headinput` drives; `xrHeadMouseFrame` runs the head's part of a frame for the tests.
+- Log: `head-look on: N px a degree, dead zone D deg/s`, `head-look paused while its hold is down`, `head-look moved the mouse X, Y px in N s`, `head-look off`, as head aim's lines.

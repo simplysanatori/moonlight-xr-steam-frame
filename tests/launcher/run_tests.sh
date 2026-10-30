@@ -594,6 +594,21 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads depth_scale" "$dump" "3d.depth_scale = 125"
         expect "VR client reads depth_global" "$dump" "3d.depth_global = 125"
     fi
+    # lane wave4-headinput: the head and pointer input rows under Input Settings write only their keys
+    printf '[vr]\nhead_aim = true\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=headLookRow,headLookPxRow \
+        MLXR_LAUNCHER_SCREENSHOT="$t/settings-headinput.png@3000" "$L" >"$t/ui13.out" 2>&1
+    grep -q "no clickable" "$t/ui13.out" && fail "head input click hook: $(grep 'no clickable' "$t/ui13.out")"
+    grep -Eq "$QMLERR" "$t/ui13.out" && { fail "head input rows: QML errors"; grep -E "$QMLERR" "$t/ui13.out" | head -3; } || ok "head input rows load (no QML errors)"
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^head_look = true$' && ok "head-look switch writes [vr] head_look = true" || { fail "head_look not written"; cat "$ini"; }
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^head_look_px_deg = 12$' && ok "head-look speed row steps 8 to 12 and writes [vr] head_look_px_deg" || { fail "head_look_px_deg not written"; cat "$ini"; }
+    grep -q '^head_aim = true$' "$ini" && ok "head input rows leave head_aim alone" || { fail "head_aim changed"; cat "$ini"; }
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads head_look" "$dump" "vr.head_look = true"
+        expect "VR client reads head_look_px_deg" "$dump" "vr.head_look_px_deg = 12"
+    fi
     # MLXR_HANDOFF=0: the stock probe runs again
     MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1
     grep -q "Unable to find working decoder\|Failed to initialize VAAPI" "$t/ui4.out" && ok "hand-off off: stock decoder probe runs" || fail "stock probe missing with MLXR_HANDOFF=0"

@@ -139,6 +139,9 @@ static const SettingDesc TABLE[] = {
     DE("vr", "lightgun", lightgun, LIGHTGUN_NAMES, LIGHTGUN_AUTO, "native: the lightgun pointer policy: auto (on while the controller model is the gun), on or off. On: pointer sleep, the double-click wait, press stabilising and the click hold are off, the trigger never grabs the screen (the grip does), and a shot pulses the controller"),
     DB("vr", "lightgun_reload", lightgun_reload, 0, "native: with the lightgun policy on, a trigger pulled off the picture is a right click for as long as it is held (reload)"),
     DB("vr", "lightgun_recoil", lightgun_recoil, 1, "native: with the lightgun policy on, a short strong pulse in the controller on every shot"),
+    // Native (lane wave4-headinput, PLAN 4.4): head-look
+    DB("vr", "head_look", head_look, 0, "native: experimental head-look: in pointer mode with the screen locked to the head or a room up, the head's turn moves the PC's mouse like a game's look control (for first-person games streamed in SBS); hold a grip bound to nothing, or a control bound to app:lookhold, to pause it; head_aim wins where both could act"),
+    DI("vr", "head_look_px_deg", head_look_px_deg, HEAD_AIM_SENSITIVITY_MIN, HEAD_AIM_SENSITIVITY_MAX, HEAD_AIM_SENSITIVITY_DEFAULT, "native: head-look's mouse pixels a degree of head turn; the dead zone is head_aim_deadzone"),
     DI("vr", "scroll_speed", scroll_speed, SCROLL_SPEED_MIN, SCROLL_SPEED_MAX, SCROLL_SPEED_DEFAULT, "native: how fast a thumbstick scrolls, percent (100 is 7.5 notches a second at full tilt); the wheel is smooth, and the stick's sideways tilt scrolls sideways"),
     DB("vr", "gaze", gaze, 0, "checkbox_vr_gaze: look to point (native default off: with it on a controller takes the pointer back only on a press)"),
     DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),

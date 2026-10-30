@@ -136,7 +136,7 @@ static const char* const README_KEYS[] = {
     // VR Settings
     "pointer", "pointer_sleep", "show_ray", "controller_model", "head_aim",
     "head_aim_sensitivity", "head_aim_deadzone", "gamepad_toggle", "pad_grip", "rumble_mix", "rumble_intensity", "click_sound", "gaze",
-    "notices", "click_steadiness", "scroll_speed", "lightgun", "lightgun_reload", "lightgun_recoil", "pad_gyro", "pad_gyro_ratchet", "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
+    "notices", "click_steadiness", "scroll_speed", "lightgun", "lightgun_reload", "lightgun_recoil", "pad_gyro", "pad_gyro_ratchet", "head_look", "head_look_px_deg", "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
     "picture_brightness", "picture_contrast", "picture_gamma", "picture_saturation",
     // VR Debugging
     "depth_rate", "depth_debug", "eye_swap", "file_log",
@@ -570,6 +570,26 @@ static void test_lightgun_and_gyro(void) {
     text = settings_to_text(&s);
     CHECK(text != NULL && strstr(text, "\n#pad_gyro = off\n") != NULL);
     CHECK(text != NULL && strstr(text, "\n#lightgun = auto\n") != NULL);
+    free(text);
+}
+
+// Native (lane wave4-headinput, PLAN 4.4): head-look
+static void test_head_look(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.head_look == 0 && s.head_look_px_deg == HEAD_AIM_SENSITIVITY_DEFAULT);
+    settings_from_text(&s, "[vr]\nhead_look = on\nhead_look_px_deg = 12\n", &info);
+    CHECK(s.head_look == 1 && s.head_look_px_deg == 12 && info.bad == 0);
+    settings_from_text(&s, "[vr]\nhead_look_px_deg = 500\n", &info);
+    CHECK(s.head_look_px_deg == HEAD_AIM_SENSITIVITY_MAX);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nhead_look = true\n") != NULL);
+    free(text);
+    settings_defaults(&s);
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#head_look = false\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\n#head_look_px_deg = 8\n") != NULL);
     free(text);
 }
 
@@ -1222,6 +1242,7 @@ int main(void) {
     test_notices();
     test_click_and_scroll();
     test_lightgun_and_gyro();
+    test_head_look();
     test_controller_model();
     test_cog_tab();
     test_stereo_source();

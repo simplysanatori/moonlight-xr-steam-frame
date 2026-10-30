@@ -371,6 +371,7 @@ void MlxrPrefs::load()
     lightgun = (lg == "on" || lg == "1") ? "on" : (lg == "off" || lg == "2") ? "off" : "auto";
     const QString pg = iniValue(ini, "vr", "pad_gyro", "off").trimmed().toLower();
     padGyro = (pg == "controller" || pg == "1") ? "controller" : (pg == "head" || pg == "2") ? "head" : "off";
+    loadHeadInput(ini); // Native (lane wave4-headinput)
 
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
@@ -520,6 +521,7 @@ void MlxrPrefs::save()
     if (padGyro != m_iniPadGyro) {
         setIniValue(ini, "vr", "pad_gyro", padGyro);
     }
+    saveHeadInput(ini); // Native (lane wave4-headinput)
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
@@ -553,6 +555,31 @@ void MlxrPrefs::save()
     m_iniPadArbitration = padArbitration;
     m_iniLightgun = lightgun;
     m_iniPadGyro = padGyro;
+}
+
+// Native (lane wave4-headinput): the head and pointer input keys, read as the VR client reads them
+// (ui/settings.c: a switch takes true/1/on/yes, a number is held to its range and anything else is
+// its default) and written only when this page changed them
+void MlxrPrefs::loadHeadInput(const QString& ini)
+{
+    headLook = iniBool(iniValue(ini, "vr", "head_look", "false"));
+    bool pxOk = false;
+    const int px = iniValue(ini, "vr", "head_look_px_deg", "8").trimmed().toInt(&pxOk);
+    headLookPxDeg = pxOk ? qBound(1, px, 30) : 8;
+    m_iniHeadLook = headLook;
+    m_iniHeadLookPxDeg = headLookPxDeg;
+}
+
+void MlxrPrefs::saveHeadInput(const QString& ini)
+{
+    if (headLook != m_iniHeadLook) {
+        setIniValue(ini, "vr", "head_look", headLook ? "true" : "false");
+    }
+    if (headLookPxDeg != m_iniHeadLookPxDeg) {
+        setIniValue(ini, "vr", "head_look_px_deg", QString::number(qBound(1, headLookPxDeg, 30)));
+    }
+    m_iniHeadLook = headLook;
+    m_iniHeadLookPxDeg = headLookPxDeg;
 }
 
 int MlxrPrefs::headsetMaxFps() const

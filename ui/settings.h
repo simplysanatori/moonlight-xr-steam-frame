@@ -100,6 +100,9 @@ typedef struct Settings {
     int lightgun_recoil;   // native: with the policy on, a pulse in the controller on every shot
     int pad_gyro;          // native: PAD_GYRO_OFF, CONTROLLER, HEAD (what turns the gamepad's gyro)
     int pad_gyro_ratchet;  // native: PAD_GYRO_RATCHET_ALWAYS, STICK_TOUCH (when the gyro is sent)
+    // Native (lane wave4-headinput): head and pointer input
+    int head_look;         // native: PLAN 4.4, the head's turn as relative mouse motion in pointer mode (head locked or a room)
+    int head_look_px_deg;  // native: head-look's pixels a degree (HEAD_AIM_SENSITIVITY_MIN..MAX)
     int scroll_speed;      // native: the thumbstick's wheel, percent of 7.5 notches a second (SCROLL_SPEED_MIN..MAX)
     int gaze;
     int hand_tracking;

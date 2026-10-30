@@ -337,6 +337,12 @@ The gyro is in degrees per second about the controller's own axes, the way a Dua
 
 **On the PC**, this needs a host that emulates a DualShock 4 for a PlayStation pad: Apollo (or Sunshine) with ViGEmBus installed and the gamepad type left on Automatic (or set to DS4). Steam Input only sees native gyro from that DualShock 4, so on a host that always makes an Xbox 360 pad the gyro cannot arrive.
 
+### Head-look (experimental)
+
+`head_look = true` in `config.ini` (or **Head-look (experimental)** on the launcher's Settings page, under Input Settings) makes your head the mouse for first-person games, the way a game's look control works: turn your head right and the PC's mouse moves right, look up and it moves up. It is meant for games streamed in side by side 3D in a room, where the screen stays put and you look around inside the game. It only works in pointer mode, and only with the screen locked to your head (**Head locked**) or with a room up; a screen placed in the world without a room is left alone. The speed is `head_look_px_deg` (pixels a degree, 1 to 30, default 8; the launcher's **Head-look speed** row steps through it), and the dead zone is Head aim's (`head_aim_deadzone`, degrees a second: a slower drift sends nothing). It is 3DoF: only turning counts, not leaning. The ray keeps working on top: while head-look is on, moving the ray nudges the cursor by how far its point moves instead of placing it.
+
+To turn back without turning the game, hold a **grip** (either one, as long as it is bound to nothing, which it is by default in pointer mode) and turn your head; let go and it carries on from there, like lifting a mouse off the desk. Any other control can be the pause too: bind it to `app:lookhold` in `bindings.ini`. A panel opening (cog, keyboard, Host sheet) also pauses it. Head aim (the bar's button and the Display tab's row) wins where both could act, so with the screen head locked and Head aim on, Head aim's speed is used; in a room Head aim cannot act and head-look takes over. `moonlight.log` says `head-look on`, `head-look paused while its hold is down` and how far it moved the mouse every few seconds.
+
 ### Changing the buttons
 
 `~/.config/moonlight-xr/bindings.ini` says what each control does. The first start writes it with every default as a line that starts with `#`, so it changes nothing until you take the `#` off a line and edit it. For example:
@@ -353,7 +359,7 @@ right.grip = key:R             ; the right grip presses R instead of RB
 pointer.right.trigger = mouse:left
 ```
 
-An action is `key:` (a key, with `ctrl+`, `shift+`, `alt+`, `win+` in front), `mouse:left|right|middle|x1|x2`, `wheel:up|down|left|right`, `pad:` (a gamepad button, gamepad mode only), `stick:` (what a whole thumbstick does: `scroll`, `mouse`, `wasd`, `arrows`, `dpad`) or `app:keyboard|ray|recentre|cog|3d|gamepad|bringhere|host`. A line that is not right is left out: `moonlight.log` says which line and why, and the headset shows "bindings.ini: N errors, see log". The mode switch shortcuts, the disconnect chord and the grips' grab over the bar and corners cannot be changed. The full list is in the file itself. The flat launcher's **Controller bindings** page edits the same file ([BINDINGS.md](BINDINGS.md)). The headset reads the file when a stream starts, so a change takes effect at the next stream start.
+An action is `key:` (a key, with `ctrl+`, `shift+`, `alt+`, `win+` in front), `mouse:left|right|middle|x1|x2`, `wheel:up|down|left|right`, `pad:` (a gamepad button, gamepad mode only), `stick:` (what a whole thumbstick does: `scroll`, `mouse`, `wasd`, `arrows`, `dpad`) or `app:keyboard|ray|recentre|cog|3d|gamepad|bringhere|host|lookhold` (`lookhold` pauses head-look while held). A line that is not right is left out: `moonlight.log` says which line and why, and the headset shows "bindings.ini: N errors, see log". The mode switch shortcuts, the disconnect chord and the grips' grab over the bar and corners cannot be changed. The full list is in the file itself. The flat launcher's **Controller bindings** page edits the same file ([BINDINGS.md](BINDINGS.md)). The headset reads the file when a stream starts, so a change takes effect at the next stream start.
 
 ### Switching between the modes
 
@@ -654,6 +660,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] lightgun_recoil` | `true`, `false`. In lightgun mode, a short strong pulse in the controller on every shot. | `true` |
 | `[vr] pad_gyro` | `off`, `controller`, `head`. Sends the right controller's (or the head's) turn to the PC as the gyro of a PlayStation gamepad in gamepad mode. See [Gyro in gamepad mode](#gyro-in-gamepad-mode); the launcher has it too (**Gyro from the headset**). Read when gamepad mode turns on. | `off` |
 | `[vr] pad_gyro_ratchet` | `always`, `stick_touch` (only while the right thumb touches the right thumbstick of a Steam Frame controller; the same as `always` where that touch is not read). | `always` |
+| `[vr] head_look` | `true`, `false`. Experimental: your head's turn moves the PC's mouse in pointer mode with the screen head locked or a room up. See [Head-look](#head-look-experimental); the launcher has it too. | `false` |
+| `[vr] head_look_px_deg` | 1 to 30. Head-look's mouse pixels for each degree the head turns. | 8 |
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
 | `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
 | `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |

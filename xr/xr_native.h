@@ -252,6 +252,13 @@ int xrButtonsFrame(XrCtx* ctx, int wanted, int hover, int hit);
 // after the pad has gone to the host: plugged says the pad is on the host, live that it is being
 // read (no panel up). The sources go through the seams on the context (locateSpace, readBool).
 void xrPadGyroFrame(XrCtx* ctx, int plugged, int live, int64_t now);
+// Native (lane wave4-headinput, PLAN 4.4): head-look's setting and pixels a degree (held to head aim's
+// lane), handed down before the first frame
+void xrSetHeadLook(XrCtx* ctx, int on, int pxDeg);
+// Native (lane wave4-headinput), for the tests: the head's part of an input frame (head aim and
+// head-look), as xrUpdateInput runs it ahead of everything else: IN_HEAD_AIM, IN_MOUSE_DX and DY
+// into out. The head goes through the seam on the context (locateSpace).
+void xrHeadMouseFrame(XrCtx* ctx, int headLocked, float* out);
 
 // ---- Native (lane wave2-bind-wire): bindings.ini (xr_input.c) -------------
 // Reads bindings.ini (path NULL: xrBindDefaultPath, which is written with the
