@@ -234,7 +234,9 @@ static void test_cog_rows_present(void) {
     v.cog_tab = COG_TAB_PICTURE;
     draw(UI_PANEL_COG, &v, 1.0f, &g);
     check_hits_inside("picture");
-    for (int row = 0; row < PICTURE_VALUES; row++) CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1) >= 0);
+    for (int row = 0; row < PICTURE_TAB_ROWS; row++) CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1) >= 0);
+    CHECK(ui_cog_row_count(COG_TAB_PICTURE) == PICTURE_TAB_ROWS);
+    CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, PICTURE_TAB_ROWS, -1) < 0);
     CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_RESET, -1) >= 0);
     free(g.base);
 
