@@ -201,6 +201,34 @@ int main(void) {
     launcher_disconnect_bar(&l);
     CHECK(l.state == LAUNCH_QUIT && take(&l, LCMD_EXIT, NULL));
 
+    // Native (PLAN 4.1): the Host sheet's Switch to PC VR leaves the stream like Disconnect (the host's
+    // session stays, quitHost 0) and marks the stop, so the process ends with the PC VR exit code
+    launcher_init(&l);
+    hosts(&l);
+    launcher_pcvr(&l);
+    CHECK(l.state == LAUNCH_PCS);                 // outside a stream it does nothing
+    launcher_autostart(&l, 0, 881);
+    CHECK(take(&l, LCMD_LAUNCH, &c));
+    launcher_stream_started(&l);
+    CHECK(l.state == LAUNCH_STREAMING);
+    launcher_pcvr(&l);
+    CHECK(l.state == LAUNCH_STOPPING && l.ncmd == 1);
+    CHECK(strcmp(l.notice, ui_str(UIS_NATIVE_PCVR)) == 0);
+    launcher_pcvr(&l);                            // asked twice: still one stop
+    CHECK(l.ncmd == 1);
+    CHECK(take(&l, LCMD_STOP, &c) && c.quitHost == 0 && c.pcvr == 1);
+    launcher_stream_ended(&l, 0);
+    CHECK(l.state == LAUNCH_APPS && take(&l, LCMD_FETCH_APPS, &c) && c.pcvr == 0);
+    // the other ways out are not PC VR
+    launcher_autostart(&l, 0, 881);
+    CHECK(take(&l, LCMD_LAUNCH, &c) && c.pcvr == 0);
+    launcher_stream_started(&l);
+    launcher_disconnect_bar(&l);
+    CHECK(take(&l, LCMD_STOP, &c) && c.pcvr == 0);
+    launcher_init_file(&l);
+    launcher_pcvr(&l);                            // --file has no host to hand over
+    CHECK(l.state == LAUNCH_STREAMING && l.ncmd == 0);
+
     // A full queue keeps the newest
     launcher_init(&l);
     for (int i = 0; i < 20; i++) launcher_press(&l, UI_HIT_BUTTON, UI_BTN_LIST_ADD, 0);

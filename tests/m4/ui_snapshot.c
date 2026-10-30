@@ -300,6 +300,10 @@ int main(int argc, char** argv) {
     c->hostConfirm = 10;
     c->hostHoverZone = XR_HOST_ZONE_CONFIRM_SEND;
     shot(s, "20-host-confirm", NULL);
+    // Native (PLAN 4.1): asking before it switches to PC VR
+    c->hostConfirm = XR_HOST_CONFIRM_PCVR;
+    c->hostHoverZone = XR_HOST_ZONE_CONFIRM_SEND;
+    shot(s, "20b-host-pcvr-confirm", NULL);
     c->hostOpen = 0;
     c->hostConfirm = -1;
     c->hostHoverZone = XR_HOST_ZONE_NONE;

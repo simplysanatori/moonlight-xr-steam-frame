@@ -114,6 +114,9 @@
     X(HOST_CONFIRM_Q, "native_host_confirm_q", "Send %s to the PC?") \
     X(HOST_CONFIRM_SEND, "native_host_confirm_send", "Send") \
     X(HOST_NO_MACROS, "native_host_no_macros", "Your own buttons go in macros.ini") \
+    X(HOST_PCVR, "native_host_pcvr", "PC VR") \
+    X(HOST_PCVR_Q, "native_host_pcvr_q", "Switch to PC VR? This stream ends and Steam Link takes over.") \
+    X(HOST_PCVR_GO, "native_host_pcvr_go", "Switch") \
     X(HOST_HINT_ESC, "native_host_hint_esc", "Escape") \
     X(HOST_HINT_WIN, "native_host_hint_win", "Start menu") \
     X(HOST_HINT_DESKTOP, "native_host_hint_desktop", "Show desktop") \
@@ -237,7 +240,9 @@
     X(PADCARD_BACK_VIEW, "native_padcard_back_view", "View") \
     X(PADCARD_BACK_CREATE, "native_padcard_back_create", "Create") \
     X(PADCARD_BACK_MINUS, "native_padcard_back_minus", "-") \
-    X(PADCARD_BACK_GENERIC, "native_padcard_back_generic", "Back")
+    X(PADCARD_BACK_GENERIC, "native_padcard_back_generic", "Back") \
+    X(NATIVE_PCVR, "native_pcvr", "Switching to PC VR: the app is still running on the PC") \
+    X(NATIVE_PCVR_NEEDS_LAUNCHER, "native_pcvr_needs_launcher", "PC VR needs the Moonlight XR launcher: start the stream from it")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,
