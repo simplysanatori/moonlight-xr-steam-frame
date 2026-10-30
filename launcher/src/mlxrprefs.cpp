@@ -68,6 +68,8 @@ const VrKey kVrKeys[] = {
     { "display.follow_leash_deg", 'i', 25, 10, 60, nullptr },
     { "display.sharpening", 'e', 0, 0, 2, "off|normal|quality" },
     { "display.supersampling", 'e', 1, 0, 2, "off|normal|quality" },
+    { "display.picture_filter", 'b', 1, 0, 1, nullptr },
+    { "display.chroma_from_luma", 'b', 1, 0, 1, nullptr },
     { "display.stats_style", 'e', 0, 0, 2, "full|hud|lite" },
     { "display.glow", 'b', 0, 0, 1, nullptr },
     { "display.glow_level", 'i', 50, 0, 100, nullptr },
