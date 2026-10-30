@@ -12,6 +12,9 @@ t="$(mktemp -d)"; trap 'rm -rf "$t"' EXIT
 unset LD_LIBRARY_PATH XDG_CONFIG_HOME XDG_CACHE_HOME MLXR_CONFIG_DIR MLXR_NATIVE_CLIENT MLXR_HANDOFF MLXR_LAUNCHER_DRYRUN
 export HOME="$t/home" QT_QPA_PLATFORM=offscreen SDL_VIDEODRIVER=dummy QT_QUICK_BACKEND=software
 export MLXR_LOG_DIR="$t/log" MLXR_CONFIG_DIR="$t/native"
+# lane wave4-launcher: the check before a stream asks the PC; only section 3e turns it on, against a fake PC
+export MLXR_LAUNCHER_PREFLIGHT=0
+unset MLXR_LAUNCHER_PREFLIGHT_URL MLXR_APP_UUID
 mkdir -p "$HOME" "$MLXR_LOG_DIR"
 # Lane refresh: SteamVR's per-app refresh rate is set through vrcmd. The tests never reach the real
 # one (it would change this machine's SteamVR settings): a fake records its arguments instead, and
@@ -318,6 +321,218 @@ else
     echo "skip: no $mq (Help button check)"
 fi
 
+# --- 3d. lane wave4-launcher: settings profiles per PC or app (PLAN 4.7). A profile is a saved copy of the
+# stream settings; the one for the PC or the app is in force while makePlan builds the command line and until
+# the stream ends, and nothing of it is saved over the Settings page's own values. profileops runs the
+# MlxrProfiles calls the Stream profiles page makes; plan: prints the settings before, during and after a plan.
+pops() { MLXR_LAUNCHER_SELFTEST="profileops:$1" "$L" 2>"$t/stderr"; }
+pplan() { MLXR_LAUNCHER_DRYRUN=1 MLXR_NATIVE_CLIENT= MLXR_LAUNCHER_SELFTEST="plan:$1" "$L" 2>"$t/stderr"; }
+setconf width=2560 height=1440 fps=90 bitrate=80000 videocfg=0
+SECTION=mlxr setconf match_headset_fps=true virtual_display=false scale_factor=100 custom_refresh_rate=
+out="$(pops 'set|width|1920~set|height|1080~set|fps|60~set|bitrateKbps|20000~set|matchHeadsetFps|false~create|Desktop~set|width|3840~set|height|2160~set|fps|120~set|bitrateKbps|150000~set|virtualDisplay|true~set|scaleFactor|150~set|perfOverlay|true~set|notices|off~set|networkPath|adapter~create|Game~create|desktop~create|Default~create|~duplicate|Game~rename|Game copy|Cinema~rename|Nope|X~assign|gaming-pc||Desktop~assign|gaming-pc|Desktop|Game~assign|gaming-pc|Desktop|Nope~dump')"
+echo "$out" | sed 's/^/    /'
+expect "profiles: made from the settings in force" "$out" "create|Desktop -> ok"
+expect "profiles: a second one" "$out" "create|Game -> ok"
+expect "profiles: names are unique, case ignored" "$out" "create|desktop -> There is a profile called desktop already."
+expect "profiles: Default is not a profile name" "$out" "create|Default -> Default is the settings on the Settings page"
+expect "profiles: a name is needed" "$out" "create| -> A profile needs a name."
+expect "profiles: duplicate" "$out" "duplicate|Game -> ok"
+expect "profiles: rename" "$out" "rename|Game copy|Cinema -> ok"
+expect "profiles: rename of a missing one" "$out" "rename|Nope|X -> There is no profile called Nope."
+expect "profiles: an unknown profile is not assigned" "$out" "assign|gaming-pc|Desktop|Nope -> There is no profile called Nope."
+expect "profiles: Desktop holds 1080p 60 Hz 20 Mbps" "$out" 'profile "Desktop": 1920x1080, 60 Hz, 20 Mbps'
+expect "profiles: Game holds 4K 120 Hz, 150 Mbps, a virtual display at 150 %" "$out" 'profile "Game": 3840x2160, 120 Hz, 150 Mbps, virtual display 150%'
+expect "profiles: the copy keeps the values" "$out" 'profile "Cinema": 3840x2160, 120 Hz, 150 Mbps'
+expect "profiles: the PC's every app uses Desktop" "$out" 'use "gaming-pc" / "" -> "Desktop"'
+expect "profiles: one app uses Game" "$out" 'use "gaming-pc" / "Desktop" -> "Game"'
+grep -q '^width=2560$' "$CONF" && grep -q '^fps=90$' "$CONF" && grep -q '^bitrate=80000$' "$CONF" \
+    && ok "profiles: making them did not save over the Settings page's values" || fail "profiles: the page's values changed"
+grep -q '^1\\name=Desktop$' "$CONF" && ok "profiles: kept in the launcher's settings" || fail "profiles: not in $CONF"
+# a stream: the app's profile wins over the PC's; the config.ini keys it holds are written for the stream and put back
+ini="$MLXR_CONFIG_DIR/config.ini"
+printf '# Moonlight XR settings\n[display]\nstats = false\nglow = true\n\n[vr]\nnotices = all\n' > "$ini"
+cp "$ini" "$t/ini.profile"
+out="$(pplan "gaming-pc:Desktop")"
+echo "$out" | sed 's/^/    /'
+expect "profile for the app: Game" "$out" "SELFTEST: profile: Game"
+expect "profile: the Settings page's values before" "$out" "before: width=2560 height=1440 fps=90 bitrateKbps=80000"
+expect "profile: the profile's values during the stream" "$out" "during: width=3840 height=2160 fps=120 bitrateKbps=150000"
+expect "profile: the command line has them" "$out" "--mode 3840x2160x120 --bitrate 150000"
+expect "profile: virtual display and scale factor" "$out" "--virtual-display --scale-factor 150"
+expect "profile: its network path" "$out" "--network adapter"
+refute "profile: a fixed rate, no --fps match" "$out" "--fps match"
+expect "profile: the Settings page's values after" "$out" "after: width=2560 height=1440 fps=90 bitrateKbps=80000"
+expect "profile: the launcher settings back after" "$(echo "$out" | grep 'SELFTEST: after:')" "virtualDisplay=false scaleFactor=100"
+expect "profile: the network path back after" "$(echo "$out" | grep 'SELFTEST: after:')" "networkPath=auto"
+cmp -s "$ini" "$t/ini.profile" && ok "profile: config.ini as it was after the stream" || { fail "profile: config.ini not put back"; diff "$t/ini.profile" "$ini"; }
+expect "profile: the config.ini keys are logged" "$(cat "$t/stderr")" "MLXR_LAUNCHER_PROFILE: using Game for gaming-pc / Desktop"
+out="$(pplan "gaming-pc:Assassin's Creed Origins")"
+expect "profile for the PC's other apps: Desktop" "$out" "SELFTEST: profile: Desktop"
+expect "profile Desktop: 1080p60 20 Mbps" "$out" "--mode 1920x1080x60 --bitrate 20000"
+expect "profile Desktop: the Settings page's network path" "$out" "--network auto"
+out="$(dry "gaming-pc:Desktop")"
+expect "profile: the hand-off's own run uses it too" "$out" "--mode 3840x2160x120 --bitrate 150000"
+grep -q '^width=2560$' "$CONF" && grep -q '^virtual_display=false$' "$CONF" && ok "profile: nothing of it saved by a stream" || fail "profile: saved by the stream"
+# a launcher killed during the stream: the config.ini keys go back at its next start, a key the headset changed is kept
+out="$(MLXR_LAUNCHER_TEST_PROFILE_CRASH=1 pplan "gaming-pc:Desktop")"
+grep -q '^stats = true$' "$ini" && grep -q '^notices = off$' "$ini" && ok "profile: config.ini has the profile's keys during the stream" || { fail "profile keys not written"; cat "$ini"; }
+sed -i 's/^notices = off$/notices = important/' "$ini"
+out="$(pops 'dump')"
+grep -q '^stats = false$' "$ini" && ok "profile: a killed launcher's config.ini key is put back at the next start" || { fail "not recovered"; cat "$ini"; }
+grep -q '^notices = important$' "$ini" && ok "profile: a key the headset changed meanwhile is kept" || { fail "headset's change lost"; cat "$ini"; }
+expect "profile: the recovery is logged" "$(cat "$t/stderr")" "put config.ini display stats back to false"
+out="$(pops 'dump')"
+refute "profile: recovered once only" "$(cat "$t/stderr")" "put config.ini"
+cp "$t/ini.profile" "$ini"
+# the app's own profile taken away: the PC's is used; a profile deleted: no profile
+out="$(pops 'assign|gaming-pc|Desktop|Default~remove|Cinema~dump')"
+expect "profiles: Default takes an app's profile away" "$out" "assign|gaming-pc|Desktop|Default -> ok"
+refute "profiles: the app's line is gone" "$out" 'use "gaming-pc" / "Desktop"'
+expect "profiles: delete" "$out" "remove|Cinema -> ok"
+out="$(pplan "gaming-pc:Desktop")"
+expect "profile: the PC's profile for the app now" "$out" "SELFTEST: profile: Desktop"
+out="$(pops 'remove|Desktop~dump')"
+refute "profiles: a deleted profile is taken from every PC and app" "$out" 'use "gaming-pc"'
+out="$(pplan "gaming-pc:Desktop")"
+expect "profile: none in force" "$out" "SELFTEST: profile: none"
+expect "profile none: the Settings page's settings" "$out" "--mode 2560x1440x90 --bitrate 80000 --fps match --network auto"
+# Load into the Settings page: the profile's values become the page's own (saved)
+out="$(pops 'load|Game')"
+grep -q '^width=3840$' "$CONF" && grep -q '^virtual_display=true$' "$CONF" && ok "profiles: Load into the Settings page saves its values" || fail "load did not save"
+setconf width=2560 height=1440 fps=90 bitrate=80000
+SECTION=mlxr setconf match_headset_fps=true virtual_display=false scale_factor=100
+cp "$t/ini.profile" "$ini"
+out="$(pops 'remove|Game~dump')"
+expect "profiles: all gone" "$out" "remove|Game -> ok"
+networkPath_now="$(grep '^networkPath=' "$CONF")"
+[ "$networkPath_now" = "networkPath=auto" ] || setconf networkPath=auto
+
+# --- 3e. lane wave4-launcher: the check before a stream (PLAN 4.8) and launch by app UUID. A fake PC on
+# localhost answers serverinfo and applist from files (MLXR_LAUNCHER_PREFLIGHT_URL points the check at it).
+pf="$t/fakepc"; mkdir -p "$pf"
+cat >"$t/fakepc.py" <<'PY'
+import http.server, os, sys, urllib.parse
+root = sys.argv[1]
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        name = urllib.parse.urlparse(self.path).path.strip('/')
+        with open(os.path.join(root, 'requests.log'), 'a') as f:
+            f.write(name + '\n')
+        p = os.path.join(root, name + '.xml')
+        if not name.isalnum() or not os.path.exists(p):
+            self.send_response(404); self.end_headers(); return
+        body = open(p, 'rb').read()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/xml')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *a):
+        pass
+s = http.server.HTTPServer(('127.0.0.1', 0), H)
+open(os.path.join(root, 'port'), 'w').write(str(s.server_address[1]))
+s.serve_forever()
+PY
+python3 -I "$t/fakepc.py" "$pf" & fakepc=$!
+trap 'kill $fakepc 2>/dev/null; rm -rf "$t"' EXIT
+for i in $(seq 50); do [ -s "$pf/port" ] && break; sleep 0.1; done
+PFURL="http://127.0.0.1:$(cat "$pf/port")"
+UUID_DESKTOP=8C3F5D2A-1B2C-4D3E-9F40-0A1B2C3D4E5F
+UUID_ACO=0B1C2D3E-4F50-4617-8293-A4B5C6D7E8F9
+srvinfo() { # perm, vd capable, vd ready, state, current game, pair status, codec support, extra xml
+    {
+        echo '<?xml version="1.0" encoding="utf-8"?>'
+        echo '<root status_code="200"><hostname>gaming-pc</hostname><appversion>7.1.431.-1</appversion>'
+        [ -n "$1" ] && echo "<Permission>$1</Permission>"
+        [ -n "$2" ] && echo "<VirtualDisplayCapable>$2</VirtualDisplayCapable><VirtualDisplayDriverReady>$3</VirtualDisplayDriverReady>"
+        echo "<state>$4</state><currentgame>$5</currentgame><PairStatus>$6</PairStatus><ServerCodecModeSupport>$7</ServerCodecModeSupport>$8</root>"
+    } > "$pf/serverinfo.xml"
+}
+cat >"$pf/applist.xml" <<APPS
+<?xml version="1.0" encoding="utf-8"?>
+<root status_code="200"><App><IsHdrSupported>0</IsHdrSupported><AppTitle>Desktop</AppTitle><UUID>$UUID_DESKTOP</UUID><ID>881448767</ID></App><App><AppTitle>Assassin's Creed Origins</AppTitle><UUID>$UUID_ACO</UUID><ID>1439608285</ID></App></root>
+APPS
+pfplan() { MLXR_LAUNCHER_PREFLIGHT=1 MLXR_LAUNCHER_PREFLIGHT_URL="${PFU:-$PFURL}" pplan "$1"; }
+PERM_ALL=118693632   # 0x07131f00: launch, view, list, input, clipboard, server commands
+srvinfo $PERM_ALL true true SUNSHINE_SERVER_FREE 0 1 769
+: > "$pf/requests.log"
+out="$(pfplan "gaming-pc:Desktop")"
+echo "$out" | sed 's/^/    /'
+expect "check: the PC is asked for serverinfo and the app list" "$(tr '\n' ' ' < "$pf/requests.log")" "serverinfo applist"
+refute "check: Apollo with every permission and nothing set: no hint" "$out" "SELFTEST: hint:"
+expect "launch by UUID: the app's UUID goes to the VR client" "$out" "SELFTEST: env: MLXR_APP_UUID=$UUID_DESKTOP"
+expect "check: logged" "$(cat "$t/stderr")" "MLXR_LAUNCHER_PREFLIGHT: Apollo permission 118693632 virtual display ready"
+out="$(pfplan "gaming-pc:Assassin's Creed Origins")"
+expect "launch by UUID: by the app's id" "$out" "SELFTEST: env: MLXR_APP_UUID=$UUID_ACO"
+# the virtual display on, its driver not ready
+SECTION=mlxr setconf virtual_display=true
+srvinfo $PERM_ALL true false SUNSHINE_SERVER_FREE 0 1 769
+out="$(pfplan "gaming-pc:Desktop")"
+expect "check: virtual display driver not ready" "$out" "hint: Use Virtual Display is on, but Apollo's virtual display driver is not ready on gaming-pc."
+expect "check: the hint is logged" "$(cat "$t/stderr")" "MLXR_LAUNCHER_HINT: Use Virtual Display is on"
+# not Apollo (no Permission, no virtual display), virtual display and clipboard sync on
+SECTION=mlxr setconf clipboard_sync=true
+srvinfo "" "" "" SUNSHINE_SERVER_FREE 0 1 769
+out="$(pfplan "gaming-pc:Desktop")"
+expect "check: a virtual display needs Apollo" "$out" "hint: Use Virtual Display is on, but gaming-pc does not look like Apollo."
+expect "check: clipboard sync needs Apollo" "$out" "hint: Smart Clipboard Sync is on, but gaming-pc does not look like Apollo"
+cp "$pf/applist.xml" "$t/applist.uuid"
+sed -i "s/$UUID_DESKTOP//" "$pf/applist.xml"
+out="$(pfplan "gaming-pc:Desktop")"
+refute "launch by UUID: a host that sends none, no MLXR_APP_UUID" "$out" "MLXR_APP_UUID"
+cp "$t/applist.uuid" "$pf/applist.xml"
+SECTION=mlxr setconf virtual_display=false clipboard_sync=false
+# Apollo's second client: list and view only; and one without mouse and keyboard
+srvinfo 50331648 true true SUNSHINE_SERVER_FREE 0 1 769
+out="$(pfplan "gaming-pc:Desktop")"
+expect "check: no Launch Apps permission" "$out" "hint: gaming-pc does not let this client launch apps (Apollo permission Launch Apps)"
+srvinfo $((0x07000100)) true true SUNSHINE_SERVER_FREE 0 1 769
+out="$(pfplan "gaming-pc:Desktop")"
+expect "check: input permissions missing" "$out" "hint: gaming-pc will ignore this client's mouse, keyboard input"
+# over plain HTTP Apollo says Permission 0 and nothing of the virtual display: no false alarm
+SECTION=mlxr setconf virtual_display=true
+srvinfo 0 "" "" SUNSHINE_SERVER_FREE 0 0 769
+out="$(pfplan "gaming-pc:Desktop")"
+refute "check: Permission 0 from an unpaired answer is not believed" "$out" "SELFTEST: hint:"
+SECTION=mlxr setconf virtual_display=false
+# another app running
+srvinfo $PERM_ALL true true SUNSHINE_SERVER_BUSY 1439608285 1 769
+out="$(pfplan "gaming-pc:Desktop")"
+expect "check: another app is running" "$out" "hint: gaming-pc is already running Assassin's Creed Origins, maybe for another client."
+out="$(pfplan "gaming-pc:Assassin's Creed Origins")"
+refute "check: the same app running is a resume, no hint" "$out" "SELFTEST: hint:"
+# a resolution the PC does not list (GameStream's display modes), HEVC asked of a PC without it
+srvinfo "" "" "" SUNSHINE_SERVER_FREE 0 1 1 '<SupportedDisplayMode><DisplayMode><Width>1920</Width><Height>1080</Height><RefreshRate>60</RefreshRate></DisplayMode></SupportedDisplayMode>'
+setconf videocfg=2
+out="$(pfplan "gaming-pc:Desktop")"
+expect "check: a resolution the PC does not list" "$out" "hint: 2560x1440 is not one of the resolutions gaming-pc lists (1920x1080)."
+expect "check: HEVC the PC does not have" "$out" "hint: Prefer HEVC is set, but gaming-pc does not advertise HEVC"
+setconf videocfg=0
+# a PC that does not answer: no hints, the stream goes on; the switch and the environment turn it off; a dry run asks nothing
+out="$(PFU=http://127.0.0.1:9 pfplan "gaming-pc:Desktop")"
+refute "check: a PC that does not answer gives no hint" "$out" "SELFTEST: hint:"
+expect "check: not answered is logged" "$(cat "$t/stderr")" "MLXR_LAUNCHER_PREFLIGHT: not answered"
+expect "check: the stream goes on" "$out" "SELFTEST: command: "
+srvinfo 50331648 true true SUNSHINE_SERVER_FREE 0 1 769
+SECTION=mlxr setconf preflight=false
+: > "$pf/requests.log"
+out="$(pfplan "gaming-pc:Desktop")"
+[ ! -s "$pf/requests.log" ] && ok "check: off on the Settings page, the PC is not asked" || fail "asked with the switch off"
+refute "check: off, no MLXR_APP_UUID" "$out" "MLXR_APP_UUID"
+SECTION=mlxr setconf preflight=true
+out="$(MLXR_LAUNCHER_PREFLIGHT=0 MLXR_LAUNCHER_PREFLIGHT_URL="$PFURL" pplan "gaming-pc:Desktop")"
+[ ! -s "$pf/requests.log" ] && ok "check: MLXR_LAUNCHER_PREFLIGHT=0 turns it off" || fail "asked with MLXR_LAUNCHER_PREFLIGHT=0"
+out="$(MLXR_LAUNCHER_PREFLIGHT=1 pplan "gaming-pc:Desktop")"
+refute "check: a dry run does not ask the PC" "$(cat "$t/stderr")" "MLXR_LAUNCHER_PREFLIGHT"
+# the hints reach the segue (a toast) and the error dialog when the stream then fails; the dry run of a stream
+# carries MLXR_APP_UUID to the client
+out="$(MLXR_LAUNCHER_PREFLIGHT=1 MLXR_LAUNCHER_PREFLIGHT_URL="$PFURL" MLXR_LAUNCHER_DRYRUN="fail:6:The host refused the launch" MLXR_NATIVE_CLIENT= selftest "gaming-pc:Desktop")"
+expect "check: the hint is shown when the stream starts" "$out" "SELFTEST: warning: gaming-pc does not let this client launch apps"
+expect "check: the hint is added to the error dialog" "$out" "error=The host refused the launch"
+expect "check: under its own heading" "$out" "Found before the stream started:"
+expect "launch by UUID: in the VR client's environment" "$out" "MLXR_LAUNCHER_DRYRUN_ENV: MLXR_APP_UUID=$UUID_DESKTOP"
+srvinfo $PERM_ALL true true SUNSHINE_SERVER_FREE 0 1 769
+
 # --- 4. a client that runs: control comes back with its result
 fake="$t/fake-client.sh"
 cat >"$fake" <<'FAKE'
@@ -583,6 +798,68 @@ PY
     grep -q "no clickable" "$t/bind-via.out" && fail "bindings row: $(grep 'no clickable' "$t/bind-via.out")"
     expect "bindings: the Settings page's row opens the Controller bindings page" "$(cat "$t/bind-via.out")" "MLXR_BINDINGS_UI:"
     bindqml "$t/bind-via.out" "bindings via Settings"
+    # lane wave4-launcher: the Stream profiles page (PLAN 4.7), opened as an app's menu opens it (PC 0, app Desktop);
+    # the page's own functions make a profile and use it for the app
+    uiout() { grep -E "$QMLERR" "$1" && fail "$2: QML errors" || ok "$2: no QML errors"; }
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE="profiles:0:Desktop" MLXR_LAUNCHER_WINDOW=1280x1100 \
+        MLXR_LAUNCHER_INVOKE='doCreate:Couch;doUse:Couch;doCreate:Default' MLXR_LAUNCHER_SCREENSHOT="$SHOTS/profiles.png@3000" "$L" >"$t/prof1.out" 2>&1
+    uiout "$t/prof1.out" "profiles page"
+    grep -q "MLXR_LAUNCHER_PAGE: qrc:/gui/XrProfilesView.qml" "$t/prof1.out" && ok "profiles page opened" || fail "no profiles page"
+    expect "profiles page: made a profile" "$(cat "$t/prof1.out")" "MLXR_PROFILES_UI: Saved the settings now in force as Couch."
+    expect "profiles page: used for the app" "$(cat "$t/prof1.out")" "MLXR_PROFILES_UI: Desktop on gaming-pc uses Couch."
+    expect "profiles page: a refused name says why" "$(cat "$t/prof1.out")" "MLXR_PROFILES_UI: error: Default is the settings on the Settings page"
+    expect "profiles page: the PC, the app and what it uses" "$(grep 'MLXR_PROFILES_UI: pcs=' "$t/prof1.out")" "pc=gaming-pc app=Desktop apps="
+    expect "profiles page: the app list of the PC" "$(grep 'MLXR_PROFILES_UI: pcs=' "$t/prof1.out")" "Assassin's Creed Origins"
+    expect "profiles page: assigned and in force" "$(grep 'MLXR_PROFILES_UI: pcs=' "$t/prof1.out")" "profiles=Couch assigned=Couch effective=Couch"
+    grep -q "profiles.png\" QSize.* saved" "$t/prof1.out" && ok "profiles page rendered" || fail "no profiles screenshot"
+    out="$(pops 'dump')"
+    expect "profiles page: the use is saved" "$out" 'use "gaming-pc" / "Desktop" -> "Couch"'
+    out="$(pplan "gaming-pc:Desktop")"
+    expect "profiles page: the app streams with it" "$out" "SELFTEST: profile: Couch"
+    # the other app of the PC has none; the page says so
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE="profiles:0:Assassin's Creed Origins" \
+        MLXR_LAUNCHER_SCREENSHOT="$t/prof2.png@2500" "$L" >"$t/prof2.out" 2>&1
+    uiout "$t/prof2.out" "profiles page, another app"
+    expect "profiles page: another app uses the Default" "$(grep 'MLXR_PROFILES_UI: pcs=' "$t/prof2.out")" "assigned= effective="
+    # the Settings page's row opens it, and an app's menu has the entry
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=profilesRow \
+        MLXR_LAUNCHER_SCREENSHOT="$t/prof3.png@3000" "$L" >"$t/prof3.out" 2>&1
+    grep -q "no clickable" "$t/prof3.out" && fail "profiles row: $(grep 'no clickable' "$t/prof3.out")"
+    expect "profiles: the Settings page's row opens the Stream profiles page" "$(cat "$t/prof3.out")" "MLXR_PROFILES_UI: pcs="
+    uiout "$t/prof3.out" "profiles via Settings"
+    av="$(dirname "$L")/src/app/gui/AppView.qml"
+    if [ -f "$av" ]; then
+        grep -q 'qsTr("Stream settings profile...")' "$av" && grep -q 'stackView.push("qrc:/gui/XrProfilesView.qml", {"initialPcIndex": appGrid.computerIndex, "initialApp": model.name})' "$av" \
+            && ok "profiles: an app's menu has Stream settings profile... (hand-off mode)" || fail "app menu entry"
+    else
+        echo "skip: no $av (app menu check)"
+    fi
+    pops 'remove|Couch' >/dev/null
+
+    # lane wave4-launcher: search and the jump list on the Settings page (PLAN 4b.17)
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_WINDOW=1280x1100 \
+        MLXR_LAUNCHER_INVOKE='setSearch:refresh rate' MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-search.png@3000" "$L" >"$t/srch1.out" 2>&1
+    uiout "$t/srch1.out" "settings search"
+    s="$(grep 'MLXR_SETTINGS_SEARCH: text="refresh rate"' "$t/srch1.out")"
+    expect "search: the Refresh rate row matches" "$s" "titles=Refresh rate"
+    expect "search: only its section is left" "$s" "sections=Video Settings"
+    refute "search: other rows are hidden" "$s" "Surround sound"
+    grep -q "settings-search.png\" QSize.* saved" "$t/srch1.out" && ok "search rendered" || fail "no search screenshot"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='setSearch:AUDIO;setSearch:virtual display;setSearch:nothing like this;setSearch:' \
+        MLXR_LAUNCHER_SCREENSHOT="$t/srch2.png@3000" "$L" >"$t/srch2.out" 2>&1
+    uiout "$t/srch2.out" "settings search 2"
+    expect "search: a section's name finds its rows, case ignored" "$(grep 'text="AUDIO"' "$t/srch2.out")" "titles=Surround sound configuration sections=Audio Settings"
+    expect "search: two words, both in the row" "$(grep 'text="virtual display"' "$t/srch2.out")" "Use Virtual Display"
+    expect "search: nothing found" "$(grep 'text="nothing like this"' "$t/srch2.out")" "rows=0 titles= sections="
+    s="$(grep 'MLXR_SETTINGS_SEARCH: text=""' "$t/srch2.out")"
+    expect "search: cleared, every section is back" "$s" "sections=Connection|Stream profiles|Video Settings|Audio Settings"
+    expect "search: cleared, the last section too" "$s" "|MISC"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=jump_audio \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-jump.png@3000" "$L" >"$t/jump.out" 2>&1
+    grep -q "no clickable" "$t/jump.out" && fail "jump list: $(grep 'no clickable' "$t/jump.out")"
+    uiout "$t/jump.out" "jump list"
+    grep -Eq 'MLXR_SETTINGS_JUMP: Audio Settings y=[1-9][0-9]+' "$t/jump.out" && ok "jump list: Audio goes down the page to its section" || fail "jump: $(grep MLXR_SETTINGS_JUMP "$t/jump.out")"
     # lane launcher2: the Game Mode scale (1.5) on a 1920x1080 window. The offscreen screen is
     # 800x800, so this uses QT_SCALE_FACTOR (what the launcher sets in Game Mode) with the window
     # at 1920/1.5 x 1080/1.5 = 1280x720 logical and a windowed UI; the grab is in device pixels.

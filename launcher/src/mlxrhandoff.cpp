@@ -268,8 +268,10 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
     }
     // The network path (Auto, Wi-Fi, Steam Frame Wireless Adapter, USB cable): the flat launcher's setting
     // "networkPath", auto|home|adapter|usb. An unknown value is left to the VR client's own config.ini.
+    // Native (lane wave4-launcher): with a settings profile in force its network path is the one in memory
     {
-        const QString np = QSettings().value("networkPath", "auto").toString().trimmed().toLower();
+        const QString np = (plan.profile ? prefs->networkPath : QSettings().value("networkPath", "auto").toString())
+                               .trimmed().toLower();
         if (np == "auto" || np == "home" || np == "adapter" || np == "usb") {
             a << "--network" << np;
         }
@@ -1287,6 +1289,10 @@ int selfTest(const QString& spec)
     bool finished = false, deleted = false;
     QEventLoop loop;
     QObject::connect(&session, &Session::displayLaunchError, [&](QString t) { err = t; });
+    // Native (lane wave4-launcher): the hints from the check before the stream (the segue's toast)
+    QObject::connect(&session, &Session::displayLaunchWarning, [&](QString t) {
+        QTextStream(stdout) << "SELFTEST: warning: " << QString(t).replace('\n', " | ") << Qt::endl;
+    });
     QObject::connect(&session, &Session::vrStreamStarted, [&]() { started = "yes"; });
     QObject::connect(&session, &Session::sessionFinished, [&](int) { finished = true; });
     QObject::connect(&session, &Session::readyForDeletion, [&]() { deleted = true; loop.quit(); });

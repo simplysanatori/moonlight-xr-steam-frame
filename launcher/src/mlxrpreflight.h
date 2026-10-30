@@ -57,6 +57,9 @@ struct Facts {
     QString currentGameUuid;       // Apollo's <currentgameuuid>
     bool apollo = false;           // VirtualDisplayCapable or Permission present (the backend's rule)
     int permission = -1;           // <Permission> bits of this client, -1 when absent
+    // <PairStatus> 1: the answer came over HTTPS to this paired client. Apollo says Permission 0 and leaves out
+    // the virtual display over plain HTTP, so those are only believed from such an answer.
+    bool paired = false;
     bool vdCapable = false;
     bool vdReady = false;
     int codecSupport = 1;          // <ServerCodecModeSupport>, H.264 only when absent

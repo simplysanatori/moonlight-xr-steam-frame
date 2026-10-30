@@ -266,8 +266,9 @@ Flickable {
         return 0
     }
 
-    // ---- search and the jump list ----
-    // The sections, for the jump list: {title, icon, item, shown}; shown is false for a section the search left empty
+    // ---- search and the jump list (lane wave4-launcher) ----
+    // The sections, for the jump list: {title, icon, item, shown}; shown is false for a section the search left empty.
+    // A row is hidden through its searchHit (PrefRow, PrefCategory), so a row with a visible: of its own keeps it.
     property var sections: []
 
     function collectSections() {
@@ -285,9 +286,9 @@ Flickable {
         return searchField.text.toLowerCase().split(/\s+/).filter(function(t) { return t !== "" })
     }
 
-    // Every word typed has to be in the row's title, its value or its summary
-    function rowMatches(row, terms) {
-        var hay = (row.title + "\n" + row.valueText + "\n" + row.summary).toLowerCase()
+    // Every word typed has to be in the row's title, its value, its summary or its section's name
+    function rowMatches(row, terms, sectionTitle) {
+        var hay = (row.title + "\n" + row.valueText + "\n" + row.summary + "\n" + sectionTitle).toLowerCase()
         for (var i = 0; i < terms.length; i++) {
             if (hay.indexOf(terms[i]) < 0) return false
         }
@@ -299,39 +300,35 @@ Flickable {
         var terms = searchTerms()
         var kids = prefColumn.children
         var titles = []
-        var shownIcons = {}
         var cat = null
         var catHas = false
         for (var i = 0; i <= kids.length; i++) {
             var it = i < kids.length ? kids[i] : null
             if (it === null || it.isCategory === true) {
                 if (cat !== null) {
-                    cat.visible = terms.length === 0 || catHas
-                    shownIcons[cat.icon] = cat.visible
+                    cat.searchHit = terms.length === 0 || catHas
                 }
                 cat = it
                 catHas = false
             }
             else if (it.isPrefRow === true) {
-                var m = terms.length === 0 || rowMatches(it, terms)
-                it.visible = m
-                if (m) {
+                var m = terms.length === 0 || rowMatches(it, terms, cat !== null ? cat.text : "")
+                it.searchHit = m
+                if (m && it.visible) {
                     catHas = true
                     titles.push(it.title)
                 }
             }
         }
         var out = []
+        var names = []
         for (var s = 0; s < sections.length; s++) {
-            out.push({ title: sections[s].title, icon: sections[s].icon, item: sections[s].item,
-                       shown: shownIcons[sections[s].icon] !== false })
+            var shown = sections[s].item.searchHit === true
+            out.push({ title: sections[s].title, icon: sections[s].icon, item: sections[s].item, shown: shown })
+            if (shown) names.push(sections[s].title)
         }
         sections = out
         noMatchLabel.visible = terms.length > 0 && titles.length === 0
-        var names = []
-        for (var n = 0; n < out.length; n++) {
-            if (out[n].shown) names.push(out[n].title)
-        }
         console.info("MLXR_SETTINGS_SEARCH: text=\"" + searchField.text + "\" rows=" + titles.length +
                      " titles=" + titles.join("|") + " sections=" + names.join("|"))
     }
@@ -381,7 +378,9 @@ Flickable {
         property string text
         property string icon
         property bool showTop: true
+        property bool searchHit: true
         readonly property bool isCategory: true
+        visible: searchHit
         Layout.fillWidth: true
         Layout.topMargin: 22
         Layout.leftMargin: 16
@@ -410,7 +409,7 @@ Flickable {
                 color: settingsPage.accentColor
             }
             ToolButton {
-                objectName: "top_" + category.icon
+                objectName: "top_" + (category.icon !== "" ? category.icon : category.text)
                 visible: category.showTop
                 focusPolicy: Qt.StrongFocus
                 activeFocusOnTab: true
@@ -442,6 +441,9 @@ Flickable {
         default property alias trailing: trailingSlot.data
         property alias extra: extraSlot.data
         readonly property bool isPrefRow: true
+        // false while the search at the top of the page does not match this row
+        property bool searchHit: true
+        visible: searchHit
 
         Layout.fillWidth: true
         enabled: reason === ""
@@ -716,7 +718,7 @@ Flickable {
                 model: settingsPage.sections
                 delegate: Button {
                     required property var modelData
-                    objectName: "jump_" + modelData.icon
+                    objectName: "jump_" + (modelData.icon !== "" ? modelData.icon : modelData.title)
                     visible: modelData.shown
                     flat: true
                     focusPolicy: Qt.StrongFocus

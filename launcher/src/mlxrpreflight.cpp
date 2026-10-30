@@ -82,6 +82,9 @@ Facts parseServerInfo(const QString& xml)
             const qlonglong v = text.toLongLong(&ok);
             f.permission = (ok && v >= 0 && v <= 0x7fffffffLL) ? int(v) : -1;
         }
+        else if (n == QLatin1String("PairStatus")) {
+            f.paired = text == QLatin1String("1");
+        }
         else if (n == QLatin1String("ServerCodecModeSupport")) {
             bool ok = false;
             const int v = text.toInt(&ok);
@@ -146,8 +149,8 @@ QStringList hintsFor(const Facts& f, const Request& r, const QVector<App>& apps)
     QStringList h;
     const QString pc = r.pc.isEmpty() ? QObject::tr("The PC") : r.pc;
 
-    // ---- Apollo's permissions for this client ----
-    if (f.permission >= 0) {
+    // ---- Apollo's permissions for this client (only known from an answer to this paired client) ----
+    if (f.permission >= 0 && f.paired) {
         const bool launch = (f.permission & kPermLaunch) != 0;
         if (!launch) {
             h << QObject::tr("%1 does not let this client launch apps (Apollo permission Launch Apps), so the stream will be refused. "
@@ -179,7 +182,7 @@ QStringList hintsFor(const Facts& f, const Request& r, const QVector<App>& apps)
                              "(Clipboard Set and Clipboard Read). Turn them on in Apollo's web page, Clients.").arg(pc);
         }
     }
-    else if (r.clipboardSync) {
+    else if (r.clipboardSync && !f.apollo) {
         h << QObject::tr("Smart Clipboard Sync is on, but %1 does not look like Apollo, which is the only host that has it.").arg(pc);
     }
 
@@ -188,6 +191,9 @@ QStringList hintsFor(const Facts& f, const Request& r, const QVector<App>& apps)
         if (!f.apollo) {
             h << QObject::tr("Use Virtual Display is on, but %1 does not look like Apollo. Sunshine and GeForce Experience have no "
                              "virtual display, so the setting does nothing.").arg(pc);
+        }
+        else if (!f.paired) {
+            // an answer over plain HTTP: Apollo does not say there whether it can make one
         }
         else if (!f.vdCapable) {
             h << QObject::tr("Use Virtual Display is on, but Apollo on %1 says it cannot make a virtual display "
