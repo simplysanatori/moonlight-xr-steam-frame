@@ -73,6 +73,13 @@ int main(int argc, char** argv) {
     shot(s, "03-bar-cog-hover", NULL);
     scene_reset(s);
 
+    // Native (lane bar-glare): the bar's Bring here button, outermost on the
+    // left, under the ray
+    c->hoverKind = HOVER_HEREBUTTON;
+    scene_ray_to(s, hand(), barButtonPoint(c, BAR_SLOT_HERE));
+    shot(s, "03b-bar-here-hover", NULL);
+    scene_reset(s);
+
     static const char* const TABS[COG_TAB_COUNT] = { "screen", "display", "3d", "picture", "about" };
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
         scene_reset(s);
