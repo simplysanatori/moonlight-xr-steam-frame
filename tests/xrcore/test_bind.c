@@ -80,7 +80,7 @@ static void testNames(void) {
         "mouse:x1", "mouse:x2", "wheel:up", "wheel:right", "pad:a", "pad:lt", "pad:guide",
         "pad:dpad_left", "stick:scroll", "stick:wasd", "stick:pad_right", "app:keyboard",
         "app:ray", "app:recentre", "app:cog", "app:3d", "app:gamepad", "app:bringhere", "app:host",
-        "app:zoomin", "app:zoomout", "app:zoomreset",
+        "app:zoomin", "app:zoomout", "app:zoomreset", "app:lookhold",
     };
     for (size_t i = 0; i < sizeof(TEXTS) / sizeof(TEXTS[0]); i++) {
         XrBindAction a, b;
