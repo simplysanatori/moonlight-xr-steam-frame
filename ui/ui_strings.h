@@ -116,7 +116,7 @@
     X(HOST_CONFIRM_SEND, "native_host_confirm_send", "Send") \
     X(HOST_NO_MACROS, "native_host_no_macros", "Your own buttons go in macros.ini") \
     X(HOST_PCVR, "native_host_pcvr", "PC VR") \
-    X(HOST_PCVR_Q, "native_host_pcvr_q", "Switch to PC VR? This stream ends and Steam Link takes over.") \
+    X(HOST_PCVR_Q, "native_host_pcvr_q", "Switch to PC VR? This stream ends.") \
     X(HOST_PCVR_GO, "native_host_pcvr_go", "Switch") \
     X(HOST_HINT_ESC, "native_host_hint_esc", "Escape") \
     X(HOST_HINT_WIN, "native_host_hint_win", "Start menu") \
