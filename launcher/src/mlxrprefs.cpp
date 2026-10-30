@@ -271,6 +271,7 @@ void MlxrPrefs::load()
     }
     clipboardSync = s.value("mlxr/clipboard_sync", false).toBool();
     quickResume = s.value("mlxr/quick_resume", false).toBool();
+    preflight = s.value("mlxr/preflight", true).toBool();
     pcvrApp = s.value("mlxr/pcvr_app", "").toString().trimmed();
     pcvrAppName = s.value("mlxr/pcvr_app_name", "").toString();
     pcvrClient = s.value("mlxr/pcvr_client", "").toString().trimmed();
@@ -423,6 +424,7 @@ void MlxrPrefs::save()
     s.setValue("networkPath", networkPath);
     s.setValue("mlxr/clipboard_sync", clipboardSync);
     s.setValue("mlxr/quick_resume", quickResume);
+    s.setValue("mlxr/preflight", preflight);
     s.setValue("mlxr/pcvr_app", pcvrApp.trimmed());
     s.setValue("mlxr/pcvr_app_name", pcvrAppName);
     s.setValue("mlxr/pcvr_client", pcvrClient.trimmed());
@@ -553,6 +555,45 @@ void MlxrPrefs::save()
     m_iniPadArbitration = padArbitration;
     m_iniLightgun = lightgun;
     m_iniPadGyro = padGyro;
+}
+
+void MlxrPrefs::reloadAll()
+{
+    load();
+    emit changed();
+}
+
+QVector<MlxrPrefs::IniEntry> MlxrPrefs::profileIniEntries() const
+{
+    // The same text save() writes for each of these keys
+    return {
+        { "display", "stats", perfOverlay ? "true" : "false" },
+        { "3d", "stereo", renderMode ? "true" : "false" },
+        { "3d", "separation", strengthIsDefault ? QString("-1") : QString::number(separationFromStrength(strength)) },
+        { "3d", "convergence", convergenceIsDefault ? QString("-1") : QString::number(qBound(0, convergence, 100)) },
+        { "3d", "edge_sharpness", QString::number(qBound(0, edgeSharpness, 100)) },
+        { "3d", "motion_reset", QString::number(qBound(0, motionReset, 50)) },
+        { "3d", "depth_scale", QString::number(qBound(0, depthScale, 200)) },
+        { "3d", "depth_global", QString::number(qBound(0, depthGlobal, 200)) },
+        { "3d", "stereo_source", stereoSource },
+        { "3d", "sbs_full", sbsFull ? "true" : "false" },
+        { "stream", "rfi_idr_ms", QString::number(qBound(0, rfiIdrMs, 5000)) },
+        { "3d", "eye_balance", QString::number(qBound(-100, eyeBalance, 100)) },
+        { "stream", "bitrate_wifi", QString::number(bitrateWifi <= 0 ? 0 : qBound(500, bitrateWifi, 500000)) },
+        { "stream", "bitrate_adapter", QString::number(bitrateAdapter <= 0 ? 0 : qBound(500, bitrateAdapter, 500000)) },
+        { "stream", "bitrate_wired", QString::number(bitrateWired <= 0 ? 0 : qBound(500, bitrateWired, 500000)) },
+        { "stream", "bitrate_usb", QString::number(bitrateUsb <= 0 ? 0 : qBound(500, bitrateUsb, 500000)) },
+        { "vr", "lightgun", lightgun },
+        { "vr", "pad_gyro", padGyro },
+        { "vr", "flip_face_buttons", flipFaceButtons ? "true" : "false" },
+        { "vr", "notices", notices },
+        { "vr", "scroll_speed", QString::number(qBound(25, scrollSpeed, 400)) },
+        { "stream", "doff_disconnect", QString::number(qBound(0, doffDisconnect, 3600)) },
+        { "stream", "idle_disconnect", QString::number(qBound(0, idleDisconnect, 1440)) },
+        { "vr", "pad_mouse_chord", padMouseChord },
+        { "vr", "pad_mouse_scroll", padMouseScroll },
+        { "vr", "pad_arbitration", padArbitration },
+    };
 }
 
 int MlxrPrefs::headsetMaxFps() const
