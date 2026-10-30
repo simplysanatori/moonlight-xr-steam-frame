@@ -659,6 +659,7 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->room_env = style >= ROOM_STYLE_FIRST && style <= ROOM_STYLE_LAST ? ENV_ID_HOME_THEATER + style - 1 : -1;
     v->curve_ok = ctx->cylinderSupported;
     v->stereo_ok = ctx->stereoMode != DEPTH_MODE_OFF;
+    v->stereo_source = ctx->stereoSource;
     v->bar_show_aim = headAimCanAct(ctx);
     v->bar_show_stereo = ctx->stereoButtonReady;
     v->kb_sheet = ctx->kbState;

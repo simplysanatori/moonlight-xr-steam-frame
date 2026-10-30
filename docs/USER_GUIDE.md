@@ -13,6 +13,7 @@ This guide covers version 1.0.1. For install, update and uninstall, see the [REA
 - [Moving and sizing the screen](#moving-and-sizing-the-screen)
 - [Rooms and passthrough](#rooms-and-passthrough)
 - [3D](#3d)
+- [SBS 3D](#sbs-3d)
 - [Keyboards, mice and gamepads](#keyboards-mice-and-gamepads)
 - [Host: keys for the PC](#host-keys-for-the-pc)
 - [PC VR](#pc-vr)
@@ -60,8 +61,22 @@ The page has the categories below, in this order. A greyed row shows "Not availa
 
 | Setting | Options | Notes |
 | --- | --- | --- |
-| Network connection | **Automatic**, **Wi-Fi (*network name*, *band*)**, **Steam Frame Wireless Adapter (6 GHz)**, **USB cable** | Automatic (the default) tries every link that is there when a stream starts (Wi-Fi, the adapter and a USB cable, see [USB cable](#usb-cable)) and uses the one with the lower latency and the fewer losses. It sends about 15 short probes down each link (about a second in all) and gives each link a score in milliseconds, lower is better: the median round trip, plus the jitter, plus how far the slowest probes run above the median, plus 50 ms for every probe that failed, plus a penalty from the last stream on that link. That penalty applies when the last stream lost more than 0.5 percent of its frames on the network: 20 ms for each percent, at most 150 ms. A link with no history gets no penalty. The lowest score wins. When two scores are within 3 ms of each other, the stronger signal and faster link rate break the tie, and Wi-Fi wins a tie after that. Signal and link rate no longer decide on their own. A link that does not answer is never used. The client keeps the last stream's numbers for each link in `netpath-history.ini` next to `config.ini` (frames received, frames lost, jitter, round trip and the time; no addresses or names). It writes them when a stream ends, after at least 500 frames. Delete the file to forget them. History older than 14 days is ignored. Wi-Fi streams over your home network. The adapter option streams over the Steam Frame Wireless Adapter plugged into your PC. The USB cable option streams over a USB data cable between the headset and your PC. Before it tries the adapter, the client checks that the adapter is there: the headset's own adapter network (`wlanap`) must be up and your PC must be connected to it. With no adapter found, Automatic uses Wi-Fi without trying the adapter, and if you chose the adapter the client uses Wi-Fi and shows a notice in the headset ("Steam Frame Wireless Adapter not reachable (no adapter found: ...). Using Wi-Fi."). If the chosen link does not answer, the client uses the other one and says so in the headset. |
+| Network connection | **Automatic**, **Wi-Fi (*network name*, *band*)**, **Steam Frame Wireless Adapter (6 GHz)**, **USB cable** | Automatic (the default) tries every link that is there when a stream starts (Wi-Fi, the adapter and a USB cable, see [USB cable](#usb-cable)) and uses the one with the lower latency and the fewer losses. It sends about 15 short probes down each link (about a second in all) and gives each link a score in milliseconds, lower is better: the median round trip, plus the jitter, plus how far the slowest probes run above the median, plus 50 ms for every probe that failed, plus a penalty from the last stream on that link. That penalty applies when the last stream lost more than 0.5 percent of its frames on the network: 20 ms for each percent, at most 150 ms. A link with no history gets no penalty. The lowest score wins. When two scores are within 3 ms of each other, the stronger signal and faster link rate break the tie, and Wi-Fi wins a tie after that. Signal and link rate no longer decide on their own. A link that does not answer is never used. The client keeps the last stream's numbers for each link in `netpath-history.ini` next to `config.ini` (frames received, frames lost, jitter, round trip and the time; no addresses or names). It writes them when a stream ends, after at least 500 frames. Delete the file to forget them. History older than 14 days is ignored. Wi-Fi streams over your home network. The adapter option streams over the Steam Frame Wireless Adapter plugged into your PC. The USB cable option streams over a USB data cable between the headset and your PC. Before it tries the adapter, the client checks that the adapter is there: the headset's own adapter network (`wlanap`) must be up and your PC must be connected to it. With no adapter found, Automatic uses Wi-Fi without trying the adapter, and if you chose the adapter the client uses Wi-Fi and shows a notice in the headset ("Steam Frame Wireless Adapter not reachable (no adapter found: ...). Using Wi-Fi."). If the chosen link does not answer, the client uses the other one and says so in the headset. The Steam Frame Wireless Adapter can have worse latency than a good 5 GHz network. Automatic measures latency and drops on each link before it chooses, so do not assume the adapter wins. |
+| Bitrate over Wi-Fi | **Same as above**, then 10 to 500 Mbps in steps | The bitrate a stream starts with when it goes over Wi-Fi. **Same as above** uses the Video bitrate. Tap the row to step up; past 500 Mbps it goes back to Same as above. See [Bitrate for each connection](#bitrate-for-each-connection). |
+| Bitrate over the Steam Frame Wireless Adapter | the same | The same for the Steam Frame Wireless Adapter. |
+| Bitrate over a wired network | the same | The same for a wired network (the headset on ethernet). |
+| Bitrate over the USB cable | the same | The same for the [USB cable](#usb-cable). |
 | Full-frame requests after lost video | **No limit**, **250 ms**, **500 ms**, **1000 ms**, **2000 ms** | 500 ms (the default). When video is lost and the PC's quick repair does not come, the headset asks the PC for a full picture (an IDR frame). A full picture is large: asked for again while the Wi-Fi is still losing packets, it lands in the same bad moment and makes the freeze longer. This is the least time between two such requests of the headset's own. Pressing the row steps through the choices. It is `rfi_idr_ms` in `config.ini`'s `[stream]` section. |
+
+### Bitrate for each connection
+
+A stream's bitrate cannot be changed once it is running (Apollo and Sunshine take it only when the stream starts), so the one moment to choose it is the start. The client already knows which link a stream will use at that moment, after Automatic has decided, so each link can have its own starting bitrate: a lower one for a Wi-Fi that drops frames above 60 Mbps, a higher one for the adapter or the cable.
+
+- Set it in Settings, Connection, under Network connection: one row each for Wi-Fi, the Steam Frame Wireless Adapter, a wired network and the USB cable. **Same as above** (the default) means that link uses the Video bitrate you set further down the page, or the bitrate the flat window passes.
+- A link's own bitrate replaces that bitrate only when a stream goes over that link. When the client did not choose the link (a stream started by a direct address, or a probe that found nothing), no link is known and the Video bitrate is used.
+- The values are held to 0.5 to 500 Mbps. In `config.ini` they are `bitrate_wifi`, `bitrate_adapter`, `bitrate_wired` and `bitrate_usb` in the `[stream]` section, in kbps; 0 is Same as above.
+- The log has one line at the start of every stream, for example `bitrate for Wi-Fi: 60000 kbps (override)` or `bitrate for USB cable: 98000 kbps (launcher)`. The Stats overlay in the HUD style shows the rate it started with beside the rate arriving ("54 of 98 Mb/s"), and the full style's stream line says `bitrate set` and the number in kbps.
+- A link that is rated higher than the connection can carry will drop frames; the slow connection badge and the loss figure in the Stats overlay show it. Lower that link's row and try again.
 
 ### USB cable
 
@@ -89,7 +104,7 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 | --- | --- | --- |
 | Video resolution | 360p, 480p, 720p, 1080p, 1440p, 4K, or a custom size | 1440p (2560x1440) |
 | Refresh rate | **Match headset**, 144 Hz, 120 Hz, 90 Hz, 72 Hz, 60 Hz, 30 Hz, Custom | Match headset. It uses the rate SteamVR runs the headset's display at for this app: 90 Hz unless you changed it in SteamVR's settings. Pick 72, 90, 120 or 144 Hz here to choose the headset's rate: when the stream starts, the launcher sets that rate in SteamVR's per-app video settings for this app, and the stream runs at it. 120 and 144 Hz need the stream and your PC to keep up: the PC has to render and encode that many frames a second, and the network has to carry the higher bitrate. The stream never goes above the rate the headset runs at, 144 Hz at most. If SteamVR still runs the app at its old rate, the log says so and the stream uses that rate; start the app again. Custom takes values such as 59.94 and needs Apollo. |
-| Video bitrate | 0.5 to 150 Mbps | Twice Moonlight's own default for the size and rate you pick: 98 Mbps at 1440p and 90 Hz, 113 Mbps at 1440p and 120 Hz, 124 Mbps at 1440p and 144 Hz, 49 Mbps at 1080p and 90 Hz, 80 Mbps at 1440p and 60 Hz. With Match headset it is the 90 Hz figure. It is set again to this value whenever you change the resolution or the refresh rate, and it never goes above 150. A value you saved earlier is kept until then. See [Recommended PC settings](#recommended-pc-settings). |
+| Video bitrate | 0.5 to 500 Mbps | Twice Moonlight's own default for the size and rate you pick: 98 Mbps at 1440p and 90 Hz, 113 Mbps at 1440p and 120 Hz, 124 Mbps at 1440p and 144 Hz, 49 Mbps at 1080p and 90 Hz, 80 Mbps at 1440p and 60 Hz. With Match headset it is the 90 Hz figure. It is set again to this value whenever you change the resolution or the refresh rate, and the default itself tops out at 150 Mbps (4K). The row goes up to 500 Mbps, for a good 5 GHz Wi-Fi or a wired link. A value you saved earlier, up to 500 Mbps, is kept until then. See [Recommended PC settings](#recommended-pc-settings). |
 | Video frame pacing | Prefer lowest latency, Balanced, Prefer smoothest video | Balanced |
 | Ultra Low Latency (experimental) | on, off | off. Runs the network and decoder threads at realtime priority. |
 | Use Virtual Display | on, off | off. Needs Apollo. Apollo makes a display that matches the stream. |
@@ -97,8 +112,10 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 | Custom Resolution | width and height | |
 | Custom bitrate | 0.5 to 500 Mbps | |
 | Render Mode | Default 2D, AI SBS 3D | AI SBS 3D. This is the 3D switch; the headset can also change it. See [3D](#3d). |
-| 3D Effect Strength | 1 to 100 | The depth model's own value. Greyed in Default 2D. |
-| 3D Convergence | 0 to 100 | 50. Greyed in Default 2D. |
+| 3D Effect Strength | 1 to 100 | The depth model's own value. Greyed in Default 2D, and with SBS or Top-bottom as the 3D source. |
+| 3D Convergence | 0 to 100 | 50. Greyed in Default 2D. With SBS or Top-bottom it moves the two halves apart or together. |
+| 3D source | Depth model, SBS from the PC, Top-bottom from the PC | Depth model. Press to step through them. See [SBS 3D](#sbs-3d). The headset's 3D tab has the same row. |
+| Full-size SBS | on, off | off. On: the PC's pair has a full picture per eye (3840x1080 for two 1920x1080 eyes). Off: half-size, both eyes squeezed into one 1920x1080 frame. Greyed with the depth model. |
 | 3D Edge Sharpness | 0, 25, 50, 75, 100 (press to step) | 0. See [3D](#3d). Greyed in Default 2D. |
 | 3D Motion Reset | Off, 5, 10, 20, 30 % (press to step) | Off. See [3D](#3d). Greyed in Default 2D. |
 | 3D Depth Detail | 50 to 200 % (press to step) | 100 %. See [3D](#3d). Greyed in Default 2D. |
@@ -151,7 +168,7 @@ The bar sits under the screen and shows its buttons only while the ray is over i
 | Cog | Opens the cog menu. |
 | Keyboard | Opens or closes the headset keyboard. |
 | Ray | Shows or hides the controller ray for this session only. The cog's Ray row is the saved one. |
-| 3D | Only shown when the depth model is ready. Turns 3D on or off. |
+| 3D | Only shown when the depth model is ready, or when the 3D source is SBS or Top-bottom. Turns 3D on or off. With the PC's own pair it reads **SBS** or **TB** while on. |
 | Host | Opens the Host sheet: Esc, Win, Alt+Enter and the other keys that are awkward to reach, plus your own macros. A button can open it too: `app:host` in `bindings.ini`. See [Host: keys for the PC](#host-keys-for-the-pc). |
 
 ## The cog menu
@@ -214,15 +231,25 @@ The presets and Bring here also work from a controller button: bind `app:bringhe
 | --- | --- |
 | Preset | Comfort, Balanced, Strong. |
 | Depth | How far apart the eyes' pictures are. The part of the track past the model's default is marked "harder on the eyes". |
-| Convergence | Where the screen plane sits in depth. Default 50. |
+| Convergence | Where the screen plane sits in depth. Default 50. With SBS or Top-bottom it moves the two halves apart (above 50, the picture goes behind the screen) or together (below 50, it comes out). |
 | 3D | On or Off. Remembered between sessions. |
+| 3D source | Depth, SBS, Top-bottom. Where the 3D comes from: the depth model, or a pair the PC renders itself. Takes effect at once and is remembered. See [SBS 3D](#sbs-3d). |
 | Reset | Back to the model's values. |
 
-The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the depth model is not installed, or it did not load.
+The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the depth model is not installed, or it did not load. The 3D source row stays live, so SBS and Top-bottom work without the depth model. With SBS or Top-bottom, Preset and Depth are greyed ("the PC draws the depth").
 
 ### Picture
 
-Brightness (-50 to 50), Contrast (50 to 150 %), Gamma (0.50 to 2.00) and Saturation (0 to 200 %), with **Reset**.
+| Row | Values | Notes |
+| --- | --- | --- |
+| Brightness | -50 to 50 | |
+| Contrast | 50 to 150 % | |
+| Gamma | 0.50 to 2.00 | |
+| Saturation | 0 to 200 % | |
+| Background | 0 to 100 %, in steps of 5 | How far the surroundings are dimmed. In a room it turns the whole room down, its lighting and the light the picture throws on it too, to black at 100 %. In passthrough it lays a black layer of that strength over the cameras (100 % hides them). In the void it darkens the void's colour (`void_color`, below). 0 leaves all three as they were. The picture itself is not dimmed. |
+| Glow edge | Off, Soft, Wide | Fades the picture's outer edge into the glow around it, so the screen has no hard border. Soft fades the outer 6 % of the picture's width and height, Wide the outer 15 %. Off by default. It needs the glow on (Display tab), and it takes the glow's level: at a low glow level the edge fades toward a dim colour. |
+
+**Reset** puts all six rows back, and not the void's colour, which only the file has (or the launcher's Settings page: **Void colour**, under Performance Monitor, which also has **Dim the surroundings** and **Glow edge**; press a row to step it).
 
 ### About
 
@@ -261,6 +288,19 @@ Every button can be changed in `bindings.ini`, for every app or for one app. See
 
 A click is sent at the point you aimed at before the trigger pull moved the controller. After a click the cursor waits for half a second while you keep aiming near it, so the second click of a double click lands on the first one. Move the ray away and the cursor follows at once. The Display tab's **Click steadiness** row turns this off or makes it stronger.
 
+### Lightgun mode
+
+With **Show controllers** set to **Gun**, the pointer becomes a light gun. The headset does this by itself (`lightgun = auto` in `config.ini`; `on` and `off` force it whatever the controller looks like). In lightgun mode:
+
+- **Pointer sleep** is off, so the ray is always there between shots. The Pointer sleep row keeps showing what you chose and is used again when you leave lightgun mode.
+- Clicks go to the PC exactly where the gun points this frame: the click smoothing of **Click steadiness** (the aim from before the trigger pull, the double-click wait and the hold) is off.
+- The trigger never takes hold of the screen, so a shot that lands on the move pill below the picture is just a shot. The grip still grabs the pill, a corner, the keyboard's bar and the stats window.
+- A short, strong pulse runs through the controller on every shot (the recoil). `lightgun_recoil = false` turns it off.
+- The dot where the gun points stays as the **Ray** row has it. Set Ray to Dot to keep the dot and hide the beam.
+- Optional reload: with `lightgun_reload = true`, a trigger pull that starts off the picture (in the room, in the margin round the picture or on the pill) is a right click for as long as you hold the trigger. Many light gun games and emulators use a shot off the screen to reload, and a right click is the button they ask for. A pull that starts on the picture is a left click even if you swing off it.
+
+The PC sees one mouse, so this is a single-player light gun; the host cursor is also drawn into the video by Sunshine and Apollo, which the Moonlight protocol cannot hide.
+
 ### Gamepad mode
 
 The two controllers become one Xbox controller on the PC.
@@ -282,6 +322,22 @@ Start and Back reach the PC as you press them. If you keep both down for a quart
 The stick dead zone is 7 % of the way out. Move the launcher's **Adjust analog stick deadzone** slider above 0 and the controllers use that value instead (1 to 20 %). Values below 0 are dead zone compensation, which only physical gamepads use.
 
 The PC's rumble drives the controllers in gamepad mode. By default both controllers get the stronger of the PC's two motors, so a game that uses one motor is felt in both hands; the trigger motors (when the PC sends them) add to the controller on their side. `rumble_mix` and `rumble_intensity` in `config.ini` change this (see [below](#advanced-configini)). If you feel nothing, `moonlight.log` has `rumble: the host's first request` when the PC's first rumble arrives, and `rumble on the left controller ... runtime said` for what the headset's runtime did with it. No first-request line means the PC sent no rumble (check Enable Rumble in the launcher and the PC's gamepad type).
+
+### Gyro in gamepad mode
+
+The Frame controllers' gamepad has no gyro unless you ask for it. `pad_gyro` in `config.ini` (or **Gyro from the headset** on the launcher's Settings page) sends the turn of one of two things to the PC as the gyro of a gamepad, for gyro aiming in Steam Input:
+
+- `controller`: the right controller's turn (the left controller's when the right one is not tracked), as it points.
+- `head`: the turn of your head.
+- `off` (the default): the gamepad is an Xbox pad with no motion, as before.
+
+With it on, the gamepad tells the PC it is a PlayStation pad with a gyroscope and an accelerometer. The PC then makes a DualShock 4 for it, so games and Steam Input show PlayStation button names for the controllers. The setting is read when gamepad mode turns on (turn gamepad mode off and on after changing it); a physical gamepad's own motion is a separate thing and is never mixed with this one. Motion goes out only in gamepad mode, only when the PC asks for it, and only for the controllers' own gamepad. With a panel open the gyro is held still.
+
+The gyro is in degrees per second about the controller's own axes, the way a DualShock 4's is: turning the controller right is a negative yaw. The accelerometer is gravity alone, the way a still controller or head tilted like this would read; it does not send the movement of your hand.
+
+`pad_gyro_ratchet` picks when the motion is sent. `always` (the default) sends it all the time. `stick_touch` sends it only while the right thumb touches the right thumbstick, the usual Steam Input ratchet, so you can lift the thumb to reposition the controller. While the thumb is off, the PC is told the gyro is still. The touch is read on the Steam Frame controllers; with other controllers, with hand tracking, or if SteamVR refuses the touch binding, `stick_touch` behaves as `always`, and `moonlight.log` says so.
+
+**On the PC**, this needs a host that emulates a DualShock 4 for a PlayStation pad: Apollo (or Sunshine) with ViGEmBus installed and the gamepad type left on Automatic (or set to DS4). Steam Input only sees native gyro from that DualShock 4, so on a host that always makes an Xbox 360 pad the gyro cannot arrive.
 
 ### Changing the buttons
 
@@ -365,6 +421,32 @@ These four are on the flat window's Settings page and in `config.ini` (`[3d]`). 
 
 At their defaults all four leave the picture as before.
 
+## SBS 3D
+
+If the PC renders the 3D itself, the headset can show it instead of making its own. This is for 3D films, games with their own side-by-side (SBS) mode, and games run through ReShade's SuperDepth3D or a similar 3D shader. Each eye sees its own half of the stream. The depth model does not run, so there is no 80 ms depth lag and no soft edges, and the CPU is free.
+
+This is "3D cinema", not PC VR: the picture stays on the screen in front of you and does not follow your head. For PC VR games, use Steam Link.
+
+Turn it on:
+
+1. On the cog's 3D tab, set **3D source** to **SBS** (left eye in the left half) or **Top-bottom** (left eye in the top half). The flat window's Settings page has the same row. The bar's 3D button then reads SBS or TB.
+2. Make the PC send the pair (see below).
+3. If the depth looks inside out, the PC's pair has the right eye first: set `[debug] eye_swap = true` in `config.ini`.
+4. **Convergence** moves the two halves apart or together. 50 is the pair as the PC drew it.
+
+With the 3D switched off, you see the left eye's half on its own, as a flat picture.
+
+**Half-size or full-size.** A half-size pair squeezes both eyes into one normal frame, so each eye has half the width (SBS) or half the height (Top-bottom). The headset stretches each half back to 16:9. This is what most 3D films and ReShade use, and it needs no change on the PC. A full-size pair puts two whole pictures side by side, for example 3840x1080 for two 1920x1080 eyes. It is sharper, but the stream is twice as large. Turn on `[3d] sbs_full` (Full-size SBS on the Settings page) for it. The screen still shows a 16:9 picture.
+
+**The Apollo virtual display.** With Apollo, the PC can make a display of exactly the stream's size:
+
+- Half-size (recommended): keep the stream at 1920x1080 (or 2560x1440). Turn on Use Virtual Display. Set the game or player to its SBS (or Top-bottom) mode, full screen.
+- Full-size: set Custom Resolution to 3840x1080 in the flat window's Settings page and turn on Use Virtual Display. Apollo makes a 3840x1080 display. Set the game to render side by side across it, and turn on Full-size SBS.
+
+Do not use 4K (3840x2160) full-size SBS for now. The headset decodes 4K, but a test on a home network could not carry a 4K stream at 150 Mbps: the picture stalled and lost frames. 3840x1080 is half of that and is the largest pair to try.
+
+The mouse pointer lands on the left eye's half of the PC's desktop. The ambient glow keeps the whole frame: the black-bar detection is off in this mode, since the seam between the halves is not a letterbox.
+
 ## Controllers
 
 The cog's **Display** tab has the controller rows together: **Mode**, **Show controllers**, **Ray**, **Pointer sleep**, **Click steadiness** and **Click sound**.
@@ -390,7 +472,7 @@ The bar is hidden until the ray is over it. With **Ray** set to **Off** (no beam
 | Bluetooth mouse | Same as the keyboard. While you use the mouse, the controller ray does not move the cursor. |
 | Bluetooth gamepad | Pair it in SteamOS. It shows up as a gamepad on the PC; once you use it the Frame controllers' gamepad steps aside ([below](#frame-controllers-and-a-gamepad-together)). The Steam Virtual Gamepad copy of the same pad is ignored. Hold Start for a second and it becomes the PC's mouse ([below](#a-gamepad-as-the-pcs-mouse)). Start+Select+L1+R1 disconnects. |
 
-Gyro from Bluetooth pads reaches the PC as a DualSense-class pad. A pad with a gyroscope (a DualSense, DualShock 4 or Switch Pro pad, for example) tells the PC so when it arrives, and the PC asks for the motion data only when a game or Steam Input wants it. This needs Apollo or Sunshine with DS4 emulation on the PC (Apollo: ViGEmBus installed). The Frame controllers in gamepad mode are an Xbox pad and never send motion. The same pad's battery level, touchpad (DualSense) and light bar colour are passed on too.
+Gyro from Bluetooth pads reaches the PC as a DualSense-class pad. A pad with a gyroscope (a DualSense, DualShock 4 or Switch Pro pad, for example) tells the PC so when it arrives, and the PC asks for the motion data only when a game or Steam Input wants it. This needs Apollo or Sunshine with DS4 emulation on the PC (Apollo: ViGEmBus installed). The Frame controllers in gamepad mode are an Xbox pad and send no motion, unless you turn on `pad_gyro` ([Gyro in gamepad mode](#gyro-in-gamepad-mode)), and then only on their own gamepad. The same pad's battery level, touchpad (DualSense) and light bar colour are passed on too.
 
 ### A gamepad as the PC's mouse
 
@@ -569,11 +651,22 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] pad_mouse_chord` | `start_hold` (hold Start for a second), `start_back` (hold Start and Back), `off`. Turns a physical gamepad into the PC's mouse and back. | `start_hold` |
 | `[vr] pad_mouse_scroll` | `right`, `left`, `none`. The stick that scrolls while a gamepad is a mouse; the other stick points. | `right` |
 | `[vr] pad_arbitration` | `pointer` (a used gamepad takes the Frame controllers' gamepad off the PC), `also_gamepad` (both), `sleep` (pointer, and the controllers' pointer rests) | `pointer` |
+| `[vr] lightgun` | `auto` (the lightgun mode is on while Show controllers is Gun), `on`, `off`. See [Lightgun mode](#lightgun-mode). The launcher's Settings page has it too (**Lightgun mode**). | `auto` |
+| `[vr] lightgun_reload` | `true`, `false`. In lightgun mode, a trigger pull that starts off the picture is a right click while it is held. | `false` |
+| `[vr] lightgun_recoil` | `true`, `false`. In lightgun mode, a short strong pulse in the controller on every shot. | `true` |
+| `[vr] pad_gyro` | `off`, `controller`, `head`. Sends the right controller's (or the head's) turn to the PC as the gyro of a PlayStation gamepad in gamepad mode. See [Gyro in gamepad mode](#gyro-in-gamepad-mode); the launcher has it too (**Gyro from the headset**). Read when gamepad mode turns on. | `off` |
+| `[vr] pad_gyro_ratchet` | `always`, `stick_touch` (only while the right thumb touches the right thumbstick of a Steam Frame controller; the same as `always` where that touch is not read). | `always` |
+| `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
+| `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
+| `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |
+| `[3d] eye_balance` | -100 to 100 | 0. 3D Eye Balance: how the 3D's shift is shared by the two eyes. 0 shifts each eye by the same amount in opposite directions. +100 puts all of it in the left eye and leaves the right eye's picture as streamed, -100 the other way round, and in between the left eye takes (100 + n) / 2 percent of the total and the right eye (100 - n) / 2. The total difference between the eyes, so the depth you see, is the same at every setting. Useful with a dominant eye. The 3D tab has no row for it yet; the launcher's Settings page has **3D eye balance**, which steps -100, -50, 0, 50, 100. |
 | `[vr] scroll_speed` | 25 to 400 (%) | 100, which is 7.5 notches a second with the thumbstick pushed all the way. The flat window's Settings page has it too. |
 | `[vr] click_steadiness` | `off`, `normal`, `steady` | `normal`. The Display tab's Click steadiness row. |
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |
 | `[vr] keyboard_keymap` | `qwerty`, `azerty` (French), `qwertz` (German). What the headset keyboard's keys say. The PC must be on the matching Windows layout. | `qwerty` |
 | `[vr] depth_source` | `zipdepth`, `zipdepth-int8`, `midas` | `zipdepth` |
+| `[3d] stereo_source` | `depth`, `sbs`, `top-bottom` | `depth`. The 3D tab's 3D source row. See [SBS 3D](#sbs-3d). |
+| `[3d] sbs_full` | `true`, `false` | `false`. The PC's pair has a full-size picture per eye (3840x1080 side by side, 1920x2160 top-bottom). |
 | `[vr] hand_tracking` | `true`, `false` | `false`. Untested on the Frame. |
 | `[vr] gaze` | `true`, `false` | `false`. Untested on the Frame. |
 | `[vr] pointer` | `true`, `false` | `true`. `false` turns the controllers' pointer off, so only the switch to gamepad mode is read. |
@@ -582,8 +675,12 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[debug] depth_threads` | 1 to 4 | 2. CPU threads the depth model runs on. 3 makes each depth map a few milliseconds sooner (up to about 10) and uses another core. `MLXR_DEPTH_THREADS` overrides it. Read when the model starts. |
 | `[3d] edge_sharpness`, `motion_reset`, `depth_scale`, `depth_global` | see [3D](#edges) | 0, 0, 100, 100 |
 | `[debug] depth_debug` | `true`, `false` | `false`. Shows the depth map in place of the picture. |
-| `[debug] eye_swap` | `true`, `false` | `false`. Swaps the left and right eye in 3D. For checking a wrong-way picture. |
+| `[debug] eye_swap` | `true`, `false` | `false`. Swaps the left and right eye in 3D. For checking a wrong-way picture, and for an SBS or Top-bottom pair with the right eye first. |
 | `[stream] bitrate_kbps` | 0, or 500 to 500000 | 0, which follows the resolution and refresh rate. A bitrate the flat window passes for a stream overrides it. The flat window's Custom bitrate goes up to 500 Mbps, and so does this. |
+| `[stream] bitrate_wifi` | 0, or 500 to 500000 | 0, which uses `bitrate_kbps` or the bitrate the flat window passes. The bitrate in kbps a stream starts with when it goes over Wi-Fi. See [Bitrate for each connection](#bitrate-for-each-connection). |
+| `[stream] bitrate_adapter` | 0, or 500 to 500000 | 0. The same for the Steam Frame Wireless Adapter. |
+| `[stream] bitrate_wired` | 0, or 500 to 500000 | 0. The same for a wired network. |
+| `[stream] bitrate_usb` | 0, or 500 to 500000 | 0. The same for the USB cable. |
 | `[stream] doff_disconnect` | 0 to 3600 (seconds) | 60. How long the headset can stay off before the stream is disconnected (the game keeps running on the PC). 0 never. |
 | `[stream] idle_disconnect` | 0 to 1440 (minutes) | 0 (off). Disconnects the stream after this long with no input. |
 | `[stream] rfi_idr_ms` | 0 to 5000 (ms) | 500. After lost video, the headset asks the PC for a full (IDR) frame at most once in this time. 0 no limit. The PC's own requests from the streaming library cannot be held back; the log counts them. The flat window's Settings page has the same choice under Connection. |

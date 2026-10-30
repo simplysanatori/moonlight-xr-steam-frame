@@ -29,6 +29,18 @@
 #define PADOUT_TYPE 0x01
 #define PADOUT_CAPS 0x03
 
+// Native (lane wave2-lightgun-gyro, PLAN 2.9): with the pad_gyro opt-in the pad
+// says it is a PlayStation pad (LI_CTYPE_PS) with a gyroscope and an
+// accelerometer (LI_CCAP_GYRO | LI_CCAP_ACCEL), so the host emulates a
+// DualShock 4 and Steam Input on the PC sees native gyro. Only then: without
+// the opt-in the arrival is PADOUT_TYPE and PADOUT_CAPS as ever. pad_out.c
+// checks the values against Limelight.h.
+#define PADOUT_TYPE_MOTION 0x02
+#define PADOUT_CAPS_MOTION 0x33
+// The motion types of padOutMotion, as LI_MOTION_TYPE_ACCEL and _GYRO
+#define PADOUT_MOTION_ACCEL 0x01
+#define PADOUT_MOTION_GYRO 0x02
+
 // The sends, with the same arguments as LiSendControllerArrivalEvent and
 // LiSendMultiControllerEvent, and the user pointer handed back
 typedef struct {
@@ -38,6 +50,9 @@ typedef struct {
                  unsigned char leftTrigger, unsigned char rightTrigger, short leftStickX,
                  short leftStickY, short rightStickX, short rightStickY);
     void* user;
+    // Native (lane wave2-lightgun-gyro): LiSendControllerMotionEvent's arguments, for the pad_gyro
+    // opt-in. Optional, and last so that a sink written without it still reads {arrival, state, user}
+    int (*motion)(void* user, uint8_t controllerNumber, uint8_t motionType, float x, float y, float z);
 } PadOutSink;
 
 // One packet's worth as Moonlight takes it
@@ -64,6 +79,18 @@ typedef struct {
     // plugged in, 0 for never. Neither upstream nor moonlight-qt does, and the
     // gamepad channel is reliable, so it is off.
     int64_t keepAliveNs;
+
+    // Native (lane wave2-lightgun-gyro): the pad_gyro opt-in. motion is the setting; the arrival that
+    // follows it carries the motion caps (motionAnnounced says this plug-in did), motionHz is what the
+    // host asked for (accelerometer, gyroscope) and 0 when it has not, and what was last sent and when
+    // limits the rate and drops a sample that repeats the last
+    int motion;
+    int motionAnnounced;
+    int motionHz[2];
+    int haveMotion[2];
+    float lastMotion[2][3];
+    int64_t motionNs[2];
+    long motions;
 
     int plugged;
     int haveSent;
@@ -119,6 +146,23 @@ int padOutRest(PadOut* p, int64_t nowNs);
 // longer has it, which is how the host hears it unplugged. Always sent, even
 // when the last state was already rest, so the host removes it.
 int padOutUnplug(PadOut* p);
+
+// ---- Native (lane wave2-lightgun-gyro): the pad_gyro opt-in, PLAN 2.9 --------------------------
+// The setting. On, the arrival the pad makes next (it is not changed while plugged in) is a
+// PlayStation pad with PADOUT_CAPS_MOTION; off, it is the Xbox pad it always was, and nothing
+// below sends anything.
+void padOutSetMotion(PadOut* p, int on);
+// The host's setMotionEventState for this pad: it wants motionType
+// (PADOUT_MOTION_ACCEL or _GYRO) about rateHz times a second, 0 to stop. Taken only while the pad is
+// plugged in and announced motion; returns 1 when it was, 0 otherwise (a pad that never said it had
+// motion has nothing to answer with). The host asks again after a pad is unplugged and plugged in.
+int padOutMotionState(PadOut* p, int motionType, int rateHz);
+// What the host asked for, Hz, 0 when nothing (or the pad does not report it)
+int padOutMotionRate(const PadOut* p, int motionType);
+// One sample, the gyroscope in deg/s and the accelerometer in m/s^2 including gravity (the axes of
+// moonlight-qt's, see xr_padgyro.h). Sent when the host asked for this type, no sooner than one period
+// of its rate after the last and not when it equals the last sample. Returns 1 when it was sent.
+int padOutMotion(PadOut* p, int motionType, float x, float y, float z, int64_t nowNs);
 
 // Wires the sink to LiSendControllerArrivalEvent / LiSendMultiControllerEvent
 // (pad_out_ll.c, library mlxr_input)

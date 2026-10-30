@@ -289,8 +289,11 @@ static void freeVideoSwapchain(XrCtx* ctx, Video* vd) {
 // Native (lane eye-swapchains): with a stereo mode SteamVR is never shown this
 // one (xrPictureProjected: the picture goes up through the curved picture's
 // projection layer, an image per eye), so its width past 3458 costs memory
-// but no downsampling.
-static int videoSwapchain(XrCtx* ctx, Video* vd, int pw, int h) {
+// but no downsampling. Native (PLAN 4.3): the picture is what one eye sees of
+// the decoded frame, fw x fh, which is half of a full size host-rendered pair.
+static int videoSwapchain(XrCtx* ctx, Video* vd, int fw, int fh) {
+    int pw, h;
+    xrDepthPictureSize(ctx, fw, fh, &pw, &h);
     int w = xrDepthChainWidth(ctx, pw);
     if (vd->swapchain && vd->width == w && vd->picW == pw && vd->height == h) {
         return 0;
@@ -692,6 +695,17 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     }
     XrEyeTargets tg = xrEyesPerImage(images, targets, (VkFormat)format, cv->eyeW, cv->eyeH);
     tg.clear = 1; // transparent round the picture: the void or the room shows
+    // Native (lane wave3-visual): or, standing in for the backdrop's own layer,
+    // the dimmed cameras' black or the void's colour. The colour is the one as
+    // typed, so an _SRGB image is cleared to its linear value.
+    float backdrop[4];
+    if (ctx->passthroughInPicture && xrBackdropColor(ctx, ctx->passthrough, backdrop)) {
+        int srgb = format == VK_FORMAT_R8G8B8A8_SRGB || format == VK_FORMAT_B8G8R8A8_SRGB;
+        for (int i = 0; i < 3; i++) {
+            tg.clearColor[i] = srgb ? srgbToLinear(backdrop[i]) : backdrop[i];
+        }
+        tg.clearColor[3] = backdrop[3];
+    }
     // Native: the room first, as this layer's opaque background, and then the
     // glow and the picture over it in the order their layers had
     if (ctx->roomInPicture && xrRoomRecordInto(ctx, cmd, &tg, views)) {
@@ -704,7 +718,11 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     ctx->screenPose = picturePose;
     // M5: the glow round a curved picture, upstream's glow cylinder drawn
     // into this layer under the picture (no cylinder layers on SteamVR)
-    if (xrWorldGlowShown(ctx)) {
+    // Native (lane wave3-visual): feathered (the Picture tab's Glow edge) the glow
+    // image is the picture's border fading into it, so it is drawn over the
+    // picture, below, instead
+    int glowOver = ctx->glowDrawnFeather > 0;
+    if (xrWorldGlowShown(ctx) && !glowOver) {
         // Native: flat in 3D, the glow quad's image drawn here as well
         if (xrPictureCurved(ctx)) xrWorldCurvedGlow(ctx, &tg, views);
         else xrWorldFlatGlowInto(ctx, &tg, views);
@@ -725,7 +743,7 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         // layers' subImage per eye); flat, both eyes the one. Native (lane
         // eye-swapchains): an image per eye in 3D, so no seam to keep clear of
         // (the double wide image needed SEAM_INSET_TEXELS at each side).
-        int half = ctx->drawnEyes == 2 && cv->pics > 1 ? (eyeSwap ? 1 - e : e) : 0;
+        int half = ctx->drawnEyes == 2 && cv->pics > 1 ? sbsEyeHalf(e, eyeSwap) : 0;
         src[e] = cv->pic[half].view;
         pp.uvRect[e][0] = 0.0f;
         pp.uvRect[e][1] = 0.0f;
@@ -735,6 +753,12 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         xrProjectionEye(&cv->eyes[e], &views[e], cv->swapchain[e], cv->eyeW, cv->eyeH);
     }
     xrEyesPanel(ctx, cmd, &tg, &pp, src);
+    if (xrWorldGlowShown(ctx) && glowOver) {
+        xrEyesBarrier(cmd, &tg);
+        tg.clear = 0;
+        if (xrPictureCurved(ctx)) xrWorldCurvedGlow(ctx, &tg, views);
+        else xrWorldFlatGlowInto(ctx, &tg, views);
+    }
     xrGpuTimeEnd(ctx, GPU_CURVE);
     ctx->screenPose = heldPose;
     // Native: the models last, over the picture, as their own layer was
@@ -828,11 +852,12 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
         dd.eyes = curve->pics;
     }
     xrGpuTimeBegin(ctx, GPU_WARP);
-    // Eye 0's rect: the picture's size
+    // Eye 0's rect: the picture's size (native, PLAN 4.3: one eye's half of
+    // a full size host-rendered pair, else the frame's)
     MlxrTarget tg[ROOM_EYES];
     memset(tg, 0, sizeof(tg));
     for (int e = 0; e < ROOM_EYES; e++) {
-        tg[e].rect.extent = (VkExtent2D){ video->width, video->height };
+        tg[e].rect.extent = (VkExtent2D){ (uint32_t)vd->picW, (uint32_t)vd->height };
     }
     if (curve != NULL) {
         // The curved picture's own images, sampled afterwards by the panel pass
@@ -852,7 +877,7 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
         for (int e = 0; e < ROOM_EYES; e++) {
             tg[e].view = vd->views[idx];
             tg[e].format = (VkFormat)vd->format;
-            tg[e].rect.offset.x = e * (int32_t)video->width;
+            tg[e].rect.offset.x = e * (int32_t)vd->picW;
         }
     }
     MlxrWarpParams w;
@@ -1112,9 +1137,47 @@ static VkCommandBuffer frameBegin(XrCtx* ctx, Frame* fr) {
 
 static Frame* g_frame; // for xrEnsurePassthroughSwapchain
 
-// The fork's transparent projection layer, filled once with zeros
+// One image of the backdrop swapchain cleared to a colour (linear red, green,
+// blue, alpha) and left ready to be released
+static void clearBackdropImage(VkCommandBuffer cmd, VkImage image, const float linear[4]) {
+    mlxr_barrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkClearColorValue value = { { linear[0], linear[1], linear[2], linear[3] } };
+    VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    vkCmdClearColorImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &value, 1, &range);
+    mlxr_barrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+}
+
+// The fork's projection layer behind everything: transparent when passthrough
+// is on, and since lane wave3-visual also dimmed (black at the Background
+// dim's alpha) or, in the void, the void's colour. Made once; a change of
+// colour clears the next image the layer will show.
 static int ensurePassthroughSwapchain(XrCtx* ctx, int size) {
+    // The colour as the _SRGB image holds it: the red, green and blue as typed
+    // are cleared as their linear values
+    float want[4] = { srgbToLinear(ctx->backdropWant[0]), srgbToLinear(ctx->backdropWant[1]),
+                      srgbToLinear(ctx->backdropWant[2]), ctx->backdropWant[3] };
     if (ctx->passthroughSwapchain != XR_NULL_HANDLE) {
+        if (ctx->backdropDrawnValid
+                && memcmp(ctx->backdropDrawn, ctx->backdropWant, sizeof(ctx->backdropDrawn)) == 0) {
+            return 1;
+        }
+        uint32_t idx = 0;
+        XrSwapchainImageAcquireInfo aq = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+        if (!checkXr(xrAcquireSwapchainImage(ctx->passthroughSwapchain, &aq, &idx), "acquire passthrough image")) {
+            return 0;
+        }
+        XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+        wi.timeout = XR_INFINITE_DURATION;
+        xrWaitSwapchainImage(ctx->passthroughSwapchain, &wi);
+        if (idx < ctx->passthroughImageCount) {
+            clearBackdropImage(frameBegin(ctx, g_frame), ctx->passthroughImages[idx], want);
+        }
+        XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+        xrReleaseSwapchainImage(ctx->passthroughSwapchain, &rl);
+        memcpy(ctx->backdropDrawn, ctx->backdropWant, sizeof(ctx->backdropDrawn));
+        ctx->backdropDrawnValid = 1;
         return 1;
     }
     XrSwapchainCreateInfo ci = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
@@ -1134,9 +1197,10 @@ static int ensurePassthroughSwapchain(XrCtx* ctx, int size) {
     if (count > 8) count = 8;
     for (uint32_t i = 0; i < count; i++) imgs[i] = (XrSwapchainImageVulkan2KHR){ XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR };
     xrEnumerateSwapchainImages(sc, count, &count, (XrSwapchainImageBaseHeader*)imgs);
-    // Every image cleared to nothing, one acquire each, recorded into the
+    // Every image cleared to the colour, one acquire each, recorded into the
     // frame's command buffer (submitted before the end of this frame)
     VkCommandBuffer cmd = frameBegin(ctx, g_frame);
+    ctx->passthroughImageCount = count;
     for (uint32_t i = 0; i < count; i++) {
         uint32_t idx = 0;
         XrSwapchainImageAcquireInfo aq = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
@@ -1144,17 +1208,13 @@ static int ensurePassthroughSwapchain(XrCtx* ctx, int size) {
         XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
         wi.timeout = XR_INFINITE_DURATION;
         xrWaitSwapchainImage(sc, &wi);
-        VkImage image = imgs[idx].image;
-        mlxr_barrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        VkClearColorValue zero = { { 0.0f, 0.0f, 0.0f, 0.0f } };
-        VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-        vkCmdClearColorImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &range);
-        mlxr_barrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        if (idx < 8) ctx->passthroughImages[idx] = imgs[idx].image;
+        clearBackdropImage(cmd, imgs[idx].image, want);
         XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
         xrReleaseSwapchainImage(sc, &rl);
     }
+    memcpy(ctx->backdropDrawn, ctx->backdropWant, sizeof(ctx->backdropDrawn));
+    ctx->backdropDrawnValid = 1;
     ctx->passthroughSwapchain = sc;
     LOGEV("passthrough projection layer ready (%dx%d transparent, %u images); swapchains alive %d of 16", size,
           size, count, ctx->swapchainsAlive);
@@ -1479,7 +1539,10 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
     if (streaming) {
         if (in[IN_HIT] != 0.0f && hk->pointer) {
             int w = ctx->videoWidth, hgt = ctx->videoHeight;
-            int x = (int)(in[IN_U] * (float)w), y = (int)(in[IN_V] * (float)hgt);
+            // Native (PLAN 4.3): on a host-rendered pair, onto the left eye's half
+            float pu = in[IN_U], pv = in[IN_V];
+            xrDepthPointerUv(ctx, &pu, &pv);
+            int x = (int)(pu * (float)w), y = (int)(pv * (float)hgt);
             x = x < 0 ? 0 : (x > w - 1 ? w - 1 : x);
             y = y < 0 ? 0 : (y > hgt - 1 ? hgt - 1 : y);
             if (x != h->lastX || y != h->lastY) {
@@ -1712,8 +1775,10 @@ static void perfRow(Host* h, int64_t now, uint64_t videoFrames) {
     r.width = ctx->videoWidth;
     r.height = ctx->videoHeight;
     r.streamFps = h->cfg->fps;
-    r.bitrateKbps = settings_bitrate_kbps(s) > 0 ? settings_bitrate_kbps(s)
-                                                  : settings_default_bitrate_kbps(r.width, r.height, r.streamFps);
+    // Native (lane wave4b-abr): the bitrate the stream started with (a path's own setting may have replaced the launcher's)
+    r.bitrateKbps = fig.setKbps > 0 ? fig.setKbps
+                    : settings_bitrate_kbps(s) > 0 ? settings_bitrate_kbps(s)
+                                                   : settings_default_bitrate_kbps(r.width, r.height, r.streamFps);
     r.codec = s->codec;
     r.displayHz = xrGetDisplayRate(ctx);
     r.stereo = ctx->stereoMode != DEPTH_MODE_OFF && ctx->stereoLive;

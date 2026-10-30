@@ -13,7 +13,7 @@
 // out top row first the way a Vulkan swapchain is read.
 layout(push_constant) uniform PC {
     mat4 viewproj;   // u_viewproj
-    vec4 params;     // u_spillGain, u_texMix, u_dim, spare
+    vec4 params;     // u_spillGain, u_texMix, u_dim, u_keep (fragment)
 } pc;
 
 layout(set = 0, binding = 0) uniform sampler2D u_ambi;
