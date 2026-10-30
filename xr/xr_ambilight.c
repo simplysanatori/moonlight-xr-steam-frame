@@ -232,6 +232,10 @@ void detectAmbiBars(XrCtx* ctx, const unsigned char* rgba) {
     LOGI("ambilight bars: top %d bottom %d left %d right %d", bottom, top, left, right);
 }
 
+int ambiBarDetectOn(const XrCtx* ctx) {
+    return ambiBarDetectApplies(ctx->ambiBarDetect, ctx->stereoMode);
+}
+
 // Draws the frame uncropped into the detector's target and asks for it back
 // into the readback buffer, where finishAmbiBarDetect reads it a frame later
 // rather than draining the GPU queue for it here
@@ -305,7 +309,7 @@ void runFrameColorSample(XrCtx* ctx, const MlxrVideo* video) {
     // Whatever the detector last settled on, so the glow and the room's light
     // come from the picture rather than from the bars around it. With the
     // detection off the crop is not applied, but the state it found is kept.
-    memcpy(a.crop, ctx->ambiBarDetect ? ctx->ambiCrop : AMBI_CROP_FULL, sizeof(a.crop));
+    memcpy(a.crop, ambiBarDetectOn(ctx) ? ctx->ambiCrop : AMBI_CROP_FULL, sizeof(a.crop));
     // Graded the way the screen is, so the glow and the room's light come from
     // the picture as it is seen
     a.gradeOn = ctx->gradeOn;
@@ -372,11 +376,16 @@ void runGlowRender(XrCtx* ctx) {
     g.sample = norm ? ctx->glowEdgeTexture.view : ctx->ambiTexture.view;
     g.intensity = level;
     g.blur = norm ? 1 : 0;
+    // Native (lane wave3-visual): the Picture tab's Glow edge, read once so the
+    // drawn mode and the one glowStale compares are the same
+    int feather = ctx->glowFeather;
+    g.feather = glowFeatherFraction(feather);
     mlxr_pass_glow(ctx->passes, ctx->frameCmd, &t, &g);
     xrVkImageTo(ctx, &ctx->glowTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     ctx->glowRendered = 1;
     ctx->glowDrawnOn = 1;
     ctx->glowDrawnLevel = level;
+    ctx->glowDrawnFeather = feather;
     ctx->glowCopied = 0;
 }
 
@@ -384,7 +393,7 @@ int glowStale(XrCtx* ctx) {
     int on;
     float level;
     ambiEffective(ctx, &on, &level);
-    return on && (!ctx->glowDrawnOn || level != ctx->glowDrawnLevel);
+    return on && (!ctx->glowDrawnOn || level != ctx->glowDrawnLevel || ctx->glowFeather != ctx->glowDrawnFeather);
 }
 
 // A desktop standing still sends no frames, which left the level slider and

@@ -126,6 +126,15 @@ int render_all_panels(const char* dir) {
         vo.cog_tab = COG_TAB_3D;
         panel_to_png(dir, "cog_3d_off", UI_PANEL_COG, &vo, 1.0f);
     }
+    // native (PLAN 4.3): the PC's own side by side pair
+    {
+        Settings sbs = s;
+        sbs.stereo_source = STEREO_SOURCE_SBS;
+        UiView vs;
+        ui_view_init(&vs, &sbs);
+        vs.cog_tab = COG_TAB_3D;
+        panel_to_png(dir, "cog_3d_sbs", UI_PANEL_COG, &vs, 1.0f);
+    }
     // hover on a cell and a thumb
     {
         UiView vh = v;

@@ -10,7 +10,7 @@
 // Output: the glow swapchain (GLOW_TEX 256 square), premultiplied alpha.
 // Spec constant 0: OUT_LINEAR.
 layout(push_constant) uniform PC {
-    vec4 params;   // u_intensity, u_blur, spare, spare
+    vec4 params;   // u_intensity, u_blur, u_feather, spare
 } pc;
 
 #include "common.glsl"
@@ -81,11 +81,39 @@ vec3 blurredSpline(vec2 fuv) {
 void main() {
     vec2 uv = v_plain;
     vec2 fuv = (uv - 0.5) * scale + 0.5;
+    // Native (lane wave3-visual), the Picture tab's Glow edge. u_feather is the
+    // depth of the fade into the picture as a fraction of its width and height,
+    // 0 for off, which leaves everything below as it always was. On, the quad
+    // is drawn over the picture instead of under it, and where it covers the
+    // picture it is the glow's colour taken from the border texels, held
+    // inward, at an alpha that is 1 on the picture's edge and eases to 0 a
+    // feather's depth in (the picture's own edge fade in upstream pull request
+    // 35, the same smoothstep, turned round: that fades the picture out over the
+    // glow, this fades the glow in over the picture). fuv is 0..1 across the
+    // picture, so the picture's edge is where it leaves that range.
+    float feather = pc.params.z;
+    vec2 depth = min(fuv, 1.0 - fuv);
+    bool inside = feather > 0.0 && min(depth.x, depth.y) >= 0.0;
+    vec2 sfuv = fuv;
+    float ramp = 0.0;
+    if (inside) {
+        vec2 hold = 1.0 - smoothstep(vec2(0.0), vec2(feather), depth);
+        vec2 edge = vec2(fuv.x < 0.5 ? 0.0 : 1.0, fuv.y < 0.5 ? 0.0 : 1.0);
+        sfuv = mix(fuv, edge, hold);
+        float ft = clamp(min(depth.x, depth.y) / feather, 0.0, 1.0);
+        ramp = 1.0 - ft * ft * (3.0 - 2.0 * ft);
+    }
     vec3 color;
     if (pc.params.y > 0.5) {
-        color = blurredSpline(fuv);
+        color = blurredSpline(sfuv);
     } else {
-        color = spline(fuv);
+        color = spline(sfuv);
+    }
+    if (inside) {
+        // Premultiplied: at the edge the glow as it is just outside (colour at
+        // the glow level), then less of it to nothing
+        fragColor = encodeOut(vec4(color * (pc.params.x * ramp), ramp));
+        return;
     }
     // Distance out into the border, 0 at the screen edge and 1 at the rim
     vec2 d = max(abs(uv - 0.5) - 0.5 / scale, 0.0) / (0.5 - 0.5 / scale);

@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "check.h"
+#include "panels.h"
 #include "settings.h"
 #include "ui_strings.h"
 #include "xr_shared.h"
@@ -144,7 +145,7 @@ static const char* const README_KEYS[] = {
     // the panel: Screen, Display, 3D, Room
     "distance_cm", "height_cm", "tilt_deg", "rotate_deg", "curve", "width_cm", "azimuth_deg",
     "head_locked", "sharpening", "supersampling", "stats", "stats_style", "glow", "glow_level", "screen_light",
-    "separation", "convergence",
+    "separation", "convergence", "stereo_source", "sbs_full",
     "room_4_brightness", "room_4_glow", "room_4_light", "room_4_screen",
     "room_5_brightness", "room_5_glow", "room_5_light", "room_5_screen",
     "room_6_brightness", "room_6_glow", "room_6_light", "room_6_screen",
@@ -477,6 +478,47 @@ static void test_cog_tab(void) {
     free(text);
 }
 
+// Native (PLAN 4.3): the 3D source and full-size SBS, through the file and
+// back, with the names, an index, a bad value and the panel's view
+static void test_stereo_source(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.stereo_source == STEREO_SOURCE_DEPTH && s.sbs_full == 0);
+    CHECK(settings_find("3d.stereo_source") != NULL && settings_find("3d.sbs_full") != NULL);
+    settings_from_text(&s, "[3d]\nstereo_source = sbs\nsbs_full = true\n", &info);
+    CHECK(s.stereo_source == STEREO_SOURCE_SBS && s.sbs_full == 1 && info.applied == 2 && info.bad == 0);
+    settings_from_text(&s, "[3d]\nstereo_source = Top-Bottom\n", &info);
+    CHECK(s.stereo_source == STEREO_SOURCE_TB);
+    settings_from_text(&s, "[3d]\nstereo_source = 1\n", &info);   // an index works too
+    CHECK(s.stereo_source == STEREO_SOURCE_SBS);
+    settings_from_text(&s, "[3d]\nstereo_source = anaglyph\n", &info);   // not a source: the last good one stays
+    CHECK(s.stereo_source == STEREO_SOURCE_SBS && info.bad == 1);
+    s.stereo_source = STEREO_SOURCE_TB;
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nstereo_source = top-bottom\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\nsbs_full = true\n") != NULL);
+    Settings back;
+    settings_defaults(&back);
+    if (text != NULL) settings_from_text(&back, text, &info);
+    CHECK(back.stereo_source == STEREO_SOURCE_TB && back.sbs_full == 1 && settings_equal(&s, &back));
+    free(text);
+    settings_defaults(&s);
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#stereo_source = depth\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\n#sbs_full = false\n") != NULL);
+    free(text);
+    // the panel's view: the PC's pair needs no depth model, so the 3D rows
+    // and the bar's button are there with the model off
+    s.depth_source = 2;
+    UiView v;
+    ui_view_init(&v, &s);
+    CHECK(!v.stereo_ok && !v.bar_show_stereo && v.stereo_source == STEREO_SOURCE_DEPTH);
+    s.stereo_source = STEREO_SOURCE_SBS;
+    ui_view_init(&v, &s);
+    CHECK(v.stereo_ok && v.bar_show_stereo && v.stereo_source == STEREO_SOURCE_SBS);
+}
+
 // Native (lane wave2-bind-wire): Click steadiness and the stick's wheel speed
 static void test_click_and_scroll(void) {
     Settings s;
@@ -545,6 +587,29 @@ static void test_session_limits(void) {
     s.idle_disconnect = 45;
     text = settings_to_text(&s);
     CHECK(text != NULL && strstr(text, "\ndoff_disconnect = 15\n") != NULL && strstr(text, "\nidle_disconnect = 45\n") != NULL);
+    free(text);
+}
+
+// Native (lane wave1-burst): [stream] rfi_idr_ms, the cap on the client's own IDR frame requests
+static void test_rfi_idr_ms(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.rfi_idr_ms == 500);
+    CHECK(settings_find("stream.rfi_idr_ms") != NULL && settings_find("rfi_idr_ms") != NULL);
+    settings_from_text(&s, "[stream]\nrfi_idr_ms = 0\n", &info);   // 0: no cap
+    CHECK(s.rfi_idr_ms == 0 && info.applied == 1 && info.bad == 0);
+    settings_from_text(&s, "[stream]\nrfi_idr_ms = 90000\n", &info);   // held to the range
+    CHECK(s.rfi_idr_ms == 5000);
+    settings_from_text(&s, "[stream]\nrfi_idr_ms = -1\n", &info);
+    CHECK(s.rfi_idr_ms == 0);
+    settings_defaults(&s);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#rfi_idr_ms = 500\n") != NULL);
+    free(text);
+    s.rfi_idr_ms = 1000;
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nrfi_idr_ms = 1000\n") != NULL);
     free(text);
 }
 
@@ -980,7 +1045,101 @@ static void test_layouts(void) {
     CHECK(settings_layout_find(&w, 7)->head_follow == 0);
 }
 
+// Native (lane wave3-visual): Background dim, the void's colour, Glow edge and
+// 3D Eye Balance
+static void test_surroundings(void) {
+    Settings s;
+    settings_defaults(&s);
+    CHECK(geti(&s, "background_dim") == 0 && s.bg_dim == BG_DIM_DEFAULT);
+    CHECK(strcmp(gets(&s, "void_color"), "#000000") == 0);
+    CHECK(geti(&s, "glow_feather") == GLOW_FEATHER_OFF && s.glow_feather == 0);
+    CHECK(geti(&s, "eye_balance") == 0 && s.eye_balance == EYE_BALANCE_DEFAULT);
+    // where each lives in the file
+    CHECK(strcmp(settings_find("background_dim")->section, "vr") == 0);
+    CHECK(strcmp(settings_find("void_color")->section, "vr") == 0);
+    CHECK(strcmp(settings_find("glow_feather")->section, "display") == 0);
+    CHECK(strcmp(settings_find("eye_balance")->section, "3d") == 0);
+    // their ranges
+    CHECK(settings_find("background_dim")->min == 0 && settings_find("background_dim")->max == 100);
+    CHECK(settings_find("eye_balance")->min == -100 && settings_find("eye_balance")->max == 100);
+    CHECK(settings_find("glow_feather")->nnames == GLOW_FEATHER_COUNT);
+
+    // out of range values are pulled in, on load as through the setter
+    settings_from_text(&s, "[vr]\nbackground_dim = 250\n[3d]\neye_balance = -400\n", NULL);
+    CHECK(s.bg_dim == 100 && s.eye_balance == -100);
+    settings_from_text(&s, "[vr]\nbackground_dim = -3\n[3d]\neye_balance = 33\n", NULL);
+    CHECK(s.bg_dim == 0 && s.eye_balance == 33);
+
+    // the names, their indexes and the wrong ones
+    settings_defaults(&s);
+    settings_from_text(&s, "[display]\nglow_feather = wide\n", NULL);
+    CHECK(s.glow_feather == GLOW_FEATHER_WIDE);
+    settings_from_text(&s, "[display]\nglow_feather = soft\n", NULL);
+    CHECK(s.glow_feather == GLOW_FEATHER_SOFT);
+    settings_from_text(&s, "[display]\nglow_feather = 0\n", NULL);
+    CHECK(s.glow_feather == GLOW_FEATHER_OFF);
+    SettingsLoadInfo info;
+    settings_from_text(&s, "[display]\nglow_feather = huge\n", &info);
+    CHECK(info.bad == 1 && s.glow_feather == GLOW_FEATHER_OFF);
+
+    // through the file and back, as typed
+    settings_defaults(&s);
+    s.bg_dim = 35;
+    s.eye_balance = -60;
+    s.glow_feather = GLOW_FEATHER_SOFT;
+    settings_set_str(&s, settings_find("void_color"), "#1a2b3c");
+    char* text = settings_to_text(&s);
+    CHECK(strstr(text, "\nbackground_dim = 35\n") != NULL);
+    CHECK(strstr(text, "\neye_balance = -60\n") != NULL);
+    CHECK(strstr(text, "\nglow_feather = soft\n") != NULL);
+    CHECK(strstr(text, "\nvoid_color = #1a2b3c\n") != NULL);
+    Settings back;
+    settings_defaults(&back);
+    settings_from_text(&back, text, &info);
+    free(text);
+    CHECK(settings_equal(&s, &back) && info.bad == 0 && info.unknown == 0);
+    CHECK(strcmp(gets(&back, "void_color"), "#1a2b3c") == 0);
+
+    // the colour: with or without the hash, short or long, any case
+    float rgb[3] = { 0.5f, 0.5f, 0.5f };
+    CHECK(settings_parse_hex_rgb("#ff8000", rgb) == 1);
+    CHECK(rgb[0] == 1.0f && rgb[1] > 0.50f && rgb[1] < 0.51f && rgb[2] == 0.0f);
+    CHECK(settings_parse_hex_rgb("00FF00", rgb) == 1 && rgb[0] == 0.0f && rgb[1] == 1.0f && rgb[2] == 0.0f);
+    CHECK(settings_parse_hex_rgb("  #f00  ", rgb) == 1 && rgb[0] == 1.0f && rgb[1] == 0.0f && rgb[2] == 0.0f);
+    CHECK(settings_parse_hex_rgb("abc", rgb) == 1 && rgb[0] > 0.66f && rgb[0] < 0.67f && rgb[2] > 0.79f && rgb[2] < 0.81f);
+    // not colours: nothing touched
+    rgb[0] = 0.25f; rgb[1] = 0.5f; rgb[2] = 0.75f;
+    CHECK(settings_parse_hex_rgb("", rgb) == 0);
+    CHECK(settings_parse_hex_rgb("#", rgb) == 0);
+    CHECK(settings_parse_hex_rgb("#12345", rgb) == 0);
+    CHECK(settings_parse_hex_rgb("#1234567", rgb) == 0);
+    CHECK(settings_parse_hex_rgb("#12345678", rgb) == 0);
+    CHECK(settings_parse_hex_rgb("#gg0000", rgb) == 0);
+    CHECK(settings_parse_hex_rgb("red", rgb) == 0);
+    CHECK(settings_parse_hex_rgb(NULL, rgb) == 0);
+    CHECK(rgb[0] == 0.25f && rgb[1] == 0.5f && rgb[2] == 0.75f);
+    // a bad colour in the file is black, and the default is too
+    settings_set_str(&s, settings_find("void_color"), "mauve");
+    CHECK(settings_void_rgb(&s, rgb) == 0 && rgb[0] == 0.0f && rgb[1] == 0.0f && rgb[2] == 0.0f);
+    settings_defaults(&s);
+    rgb[0] = 1.0f;
+    CHECK(settings_void_rgb(&s, rgb) == 1 && rgb[0] == 0.0f && rgb[1] == 0.0f && rgb[2] == 0.0f);
+
+    // the Picture tab's Reset takes the two rows with it, and leaves the colour
+    s.bg_dim = 80;
+    s.glow_feather = GLOW_FEATHER_WIDE;
+    s.picture_gamma = 150;
+    settings_set_str(&s, settings_find("void_color"), "#102030");
+    settings_reset_picture(&s);
+    CHECK(s.bg_dim == BG_DIM_DEFAULT && s.glow_feather == GLOW_FEATHER_OFF && s.picture_gamma == 100);
+    CHECK(strcmp(gets(&s, "void_color"), "#102030") == 0);
+    s.eye_balance = 40;
+    settings_reset_3d(&s);
+    CHECK(s.eye_balance == 40);   // the 3D tab's reset is the depth pair's
+}
+
 int main(void) {
+    test_surroundings();
     test_follow_and_lock_settings();
     test_layouts();
     test_defaults();
@@ -993,6 +1152,7 @@ int main(void) {
     test_clamping();
     test_network_path();
     test_session_limits();
+    test_rfi_idr_ms();
     test_tolerant();
     test_removed_keys();
     test_bitrate_ceiling();
@@ -1000,6 +1160,7 @@ int main(void) {
     test_click_and_scroll();
     test_controller_model();
     test_cog_tab();
+    test_stereo_source();
     test_files();
     test_sliders();
     return checksDone("ui_settings");
