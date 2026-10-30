@@ -44,6 +44,9 @@ void scene_reset(Scene* s) {
     c->cogOpen = c->kbOpen = c->exitConfirmOpen = c->pickerOpen = c->reportOpen = c->hintOpen = c->kofiOpen = c->hostOpen = 0;
     c->hostConfirm = -1;
     c->hostHoverZone = XR_HOST_ZONE_NONE;
+    c->hostPage = XR_HOST_PAGE_MAIN;
+    c->hostActKind = XR_HOSTACT_NONE;
+    memset(&c->hostCompose, 0, sizeof(c->hostCompose));
     for (int i = 0; i < FADE_PANELS; i++) {
         c->panelFades[i].level = 0.0f;
     }
