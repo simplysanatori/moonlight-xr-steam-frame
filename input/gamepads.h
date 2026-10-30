@@ -27,6 +27,7 @@
 #include <stdint.h>
 
 #include "pad_out.h"
+#include "xr_padmouse.h"
 
 #define GP_MAX 16
 
@@ -131,7 +132,8 @@ typedef struct {
     uint32_t touchDown;   // fingers (by id, below 32) the host has down
     GpInfo info;
     PadOutPacket cur;  // the sources merged
-    PadOutPacket sent;
+    PadOutPacket sent; // what the host was last sent (the mouse emulation's neutral state included)
+    PadMouse pm;       // mouse emulation on this pad (xr_padmouse.h)
 } GpSlot;
 
 typedef struct Gamepads {
@@ -151,6 +153,16 @@ typedef struct Gamepads {
     int streaming;  // a connection exists (between xrPadBridgeStart and Stop)
     int frameNumber; // the number gamepad mode's pad holds, -1 for none
     atomic_int announcedMask; // pads the host knows about
+
+    // Mouse emulation (2b.4): where it goes, and the clock it runs on
+    PadMouseSink pmSink;
+    int64_t (*clock)(void*);
+    void* clockUser;
+    // Pad arbitration (2b.5): a physical pad was used, so gamepad mode's pad is
+    // retired; when the last physical input was (0 never); its LI_CTYPE_ + 1
+    atomic_int frameRetired;
+    atomic_llong lastInputNs;
+    atomic_int lastType;
 
     // Counts, for logs and tests
     long arrivals, removals, states, drops, chords;
@@ -227,6 +239,66 @@ void gpTouch(Gamepads* g, int id, int eventType, uint32_t finger, float x, float
 // The packet's buttons exactly Start+Select+L1+R1
 int gpIsChord(int buttonFlags);
 
+// ---- mouse emulation on a physical pad (2b.4, xr/core/xr_padmouse.h) ---------
+// Hold Start (the pad_mouse_chord setting) and the pad becomes the host's mouse:
+// the host sees that pad at rest for as long as it is one, and the sink gets the
+// motion, buttons, wheel and arrow keys. Per pad, and only while the pad is on
+// the host: focus lost, the stream ending and the pad going let go of everything
+// and end the mode. The settings are process wide (gamepadsSetPadMouse), read at
+// every step.
+//
+// The clock the chord's hold and the stick's speed run on, CLOCK_MONOTONIC
+// unless a test sets another
+void gpSetClock(Gamepads* g, int64_t (*fn)(void*), void* user);
+// Where the emulation goes. The hooks run under the pad lock (or on the source's
+// thread): they must not call back into this module, and the keyboard one only
+// raises a flag for the frame loop.
+void gpSetPadMouseSink(Gamepads* g, const PadMouseSink* sink);
+// Whether a pad is a mouse, or a chord is being held (its clock runs): the source
+// then steps about every PADMOUSE_TICK_MS with gpTick, as a held stick sends no event
+int gpWantsTick(Gamepads* g);
+// Steps the mouse emulation of every pad on the host with its last state
+void gpTick(Gamepads* g);
+// 1 when pad number n (a physical pad's controller number) is a mouse now
+int gpIsPadMouse(Gamepads* g, int number);
+
+// ---- pad arbitration (2b.5) -----------------------------------------------------
+// With the Frame controllers in gamepad mode and a physical pad in use, the host
+// would see two pads. The pad_arbitration setting (gamepadsSetArbitration):
+//   PAD_ARB_POINTER (default): the physical pad's input retires gamepad mode's pad
+//     (the bridge sends it at rest and takes it out, the controllers are pointers
+//     again); turning gamepad mode off and on again brings it back
+//   PAD_ARB_ALSO_GAMEPAD: both pads stay on the host
+//   PAD_ARB_SLEEP: as pointer, and the controllers' pointer sleeps while a physical
+//     pad was used in the last GP_ARB_IDLE_NS (gpFrameControllersAsleep)
+// A pad's input is a button, a trigger or a stick out of its dead zone, on a pad
+// that is on the host.
+#define GP_ARB_IDLE_NS 20000000000LL
+// The Frame pad's filter, once per frame, given whether gamepad mode wants it
+// plugged in: the answer is whether it should be. Wanted 0 re-arms it.
+int gpFramePadAllowed(Gamepads* g, int wanted);
+// A physical pad was used in the last GP_ARB_IDLE_NS and is still there
+int gpPhysicalActive(Gamepads* g);
+// The setting is sleep and gpPhysicalActive: the Frame controllers' pointer rests
+int gpFrameControllersAsleep(Gamepads* g);
+
+// ---- glyphs (2b.7) -----------------------------------------------------------------
+// Which set of button pictures and names a hint should use for a pad
+typedef enum { GP_GLYPH_XBOX = 0, GP_GLYPH_PLAYSTATION, GP_GLYPH_NINTENDO, GP_GLYPH_STEAM } GpGlyphSet;
+// A face button as the game on the host sees it (Moonlight's A, B, X, Y flags)
+typedef enum { GP_FACE_A = 0, GP_FACE_B, GP_FACE_X, GP_FACE_Y } GpFaceButton;
+// From an LI_CTYPE_ value (what the pad announces); unknown pads and the Frame
+// controllers (announced as Xbox) are Xbox
+GpGlyphSet gpGlyphSetForType(int ctype);
+const char* gpGlyphSetName(GpGlyphSet set);
+// The name printed on the physical button that sends hostButton on a pad of the
+// set: positions are fixed (A is the bottom button whatever the pad calls it), so a
+// PlayStation pad's A is Cross and a Nintendo pad's is B, and with the face buttons
+// flipped (the flip_face_buttons setting) A is the right-hand button instead.
+const char* gpFaceLabel(GpGlyphSet set, GpFaceButton hostButton, int flipped);
+// The set of the physical pad used last, Xbox until one was
+GpGlyphSet gpGlyphSetInUse(const Gamepads* g);
+
 // ---- classification (no SDL): what a pad is, from the facts a source has ----
 // gamepads_sdl.c fills a GpInfo from SDL and finishes it with gpClassify();
 // the pad probe (padprobe.h) and the tests do the same with made-up facts.
@@ -290,6 +362,25 @@ void gamepadsSetDeadzone(int percent);
 // What was set, for the Frame controllers' own dead zone (xr_gamepad's padDeadzonePercentFromLauncher)
 int gamepadsGetDeadzone(void);
 void gamepadsSetFlipFaceButtons(int flip);
+
+// Native (lane wave2b-padmouse): the three settings of 2b.4 and 2b.5, process wide, may be
+// set before gamepadsStart. chord: PAD_MOUSE_CHORD_*, scroll: PAD_MOUSE_SCROLL_*,
+// mode: PAD_ARB_*
+void gamepadsSetPadMouse(int chord, int scroll);
+void gamepadsSetArbitration(int mode);
+void gamepadsSetPadMouseSink(const PadMouseSink* sink);
+// The Frame pad's filter (see gpFramePadAllowed): xr_pad_bridge asks it every frame
+int gamepadsFramePadAllowed(int wanted);
+// For the frame loop: a physical pad was used lately (any setting), and the one
+// the sleep setting turns into "the Frame controllers' pointer rests" (call it
+// where the pointer's sleep is decided and treat the pointer as asleep when it says 1)
+int gamepadsPhysicalActive(void);
+int gamepadsFrameControllersAsleep(void);
+// The glyph set for hints: the pad used last, Xbox until a physical pad was used
+GpGlyphSet gamepadsGlyphSet(void);
+// For the source's loop (gamepads_sdl.c)
+int gamepadsWantsTick(void);
+void gamepadsTick(void);
 // The transform above on one packet (tests)
 void gpApplyStickOptions(PadOutPacket* pk, int deadzonePercent, int flip);
 

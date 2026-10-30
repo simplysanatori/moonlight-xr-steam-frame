@@ -59,6 +59,13 @@ class MlxrPrefs : public QObject
     // ([vr] controller_model). Custom (your own files in the models folder) is only chosen here and
     // in the file; the headset's Display tab has a cell for the other four
     Q_PROPERTY(QString controllerModel MEMBER controllerModel NOTIFY changed)
+    // Native (lane wave2b-padmouse): physical gamepads in the headset. [vr] pad_mouse_chord: what turns a pad
+    // into the PC's mouse, "start_hold" (default), "start_back" or "off"; [vr] pad_mouse_scroll: the stick that
+    // scrolls then, "right" (default), "left" or "none"; [vr] pad_arbitration: what a used pad does to the
+    // headset controllers' gamepad, "pointer" (default), "also_gamepad" or "sleep"
+    Q_PROPERTY(QString padMouseChord MEMBER padMouseChord NOTIFY changed)
+    Q_PROPERTY(QString padMouseScroll MEMBER padMouseScroll NOTIFY changed)
+    Q_PROPERTY(QString padArbitration MEMBER padArbitration NOTIFY changed)
     // ---- facts ----
     // Native (lane wave4c-usb): a USB data cable to the PC is up, i.e. the headset's USB network
     // interface (usb*, or a gadget device) has carrier. Rescanned every 10 s while the app is open.
@@ -130,6 +137,9 @@ public:
     QString keyboardKeymap;
     QString notices;
     QString controllerModel;
+    QString padMouseChord;
+    QString padMouseScroll;
+    QString padArbitration;
 
 signals:
     void changed();
@@ -141,6 +151,7 @@ private:
     bool m_iniPerfOverlay = false, m_iniFlip = false;
     QString m_iniNotices = "all";
     QString m_iniControllerModel = "off";
+    QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
     bool m_usbCable = false, m_usbScanned = false;

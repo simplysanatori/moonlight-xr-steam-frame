@@ -144,6 +144,20 @@ void MlxrPrefs::load()
                     : (cm == "gun" || cm == "3") ? "gun"
                     : (cm == "custom" || cm == "4") ? "custom" : "off";
 
+    // the VR client's names, anything else is its default
+    padMouseChord = iniValue(ini, "vr", "pad_mouse_chord", "start_hold").trimmed().toLower();
+    if (padMouseChord != "start_back" && padMouseChord != "off") {
+        padMouseChord = "start_hold";
+    }
+    padMouseScroll = iniValue(ini, "vr", "pad_mouse_scroll", "right").trimmed().toLower();
+    if (padMouseScroll != "left" && padMouseScroll != "none") {
+        padMouseScroll = "right";
+    }
+    padArbitration = iniValue(ini, "vr", "pad_arbitration", "pointer").trimmed().toLower();
+    if (padArbitration != "also_gamepad" && padArbitration != "sleep") {
+        padArbitration = "pointer";
+    }
+
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
@@ -154,6 +168,9 @@ void MlxrPrefs::load()
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
     m_iniControllerModel = controllerModel;
+    m_iniPadMouseChord = padMouseChord;
+    m_iniPadMouseScroll = padMouseScroll;
+    m_iniPadArbitration = padArbitration;
 }
 
 void MlxrPrefs::save()
@@ -200,6 +217,15 @@ void MlxrPrefs::save()
     if (controllerModel != m_iniControllerModel) {
         setIniValue(ini, "vr", "controller_model", controllerModel);
     }
+    if (padMouseChord != m_iniPadMouseChord) {
+        setIniValue(ini, "vr", "pad_mouse_chord", padMouseChord);
+    }
+    if (padMouseScroll != m_iniPadMouseScroll) {
+        setIniValue(ini, "vr", "pad_mouse_scroll", padMouseScroll);
+    }
+    if (padArbitration != m_iniPadArbitration) {
+        setIniValue(ini, "vr", "pad_arbitration", padArbitration);
+    }
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
@@ -210,6 +236,9 @@ void MlxrPrefs::save()
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
     m_iniControllerModel = controllerModel;
+    m_iniPadMouseChord = padMouseChord;
+    m_iniPadMouseScroll = padMouseScroll;
+    m_iniPadArbitration = padArbitration;
 }
 
 int MlxrPrefs::headsetMaxFps() const
