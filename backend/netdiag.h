@@ -13,7 +13,14 @@
  *    counts datagrams dropped for a full socket buffer (system-wide); its change per 5 s window goes
  *    into the stats line, and rmem_max is logged once at stream start.
  *
- * The parsers are pure (text in, numbers out) so the tests feed them samples. */
+ *  - Native (lane wave1-burst): receive drops neither of the above shows, for the 5 s line's
+ *    "rx drop misc" tag: the stream interface's rx dropped / errors / fifo in /proc/net/dev (the
+ *    driver or the stack threw the packet away before any socket), Udp MemErrors and InCsumErrors
+ *    in /proc/net/snmp, and the drops column of /proc/net/udp(6) for this process's own UDP sockets
+ *    (found through /proc/self/fd), which says whether the system-wide RcvbufErrors are ours.
+ *
+ * The parsers are pure (text in, numbers out) so the tests feed them samples; the readers take a
+ * proc root, so the tests point them at a directory of synthetic files. */
 #ifndef MLXR_NETDIAG_H
 #define MLXR_NETDIAG_H
 
@@ -48,6 +55,8 @@ typedef struct {
     uint64_t in_datagrams;
     uint64_t in_errors;
     uint64_t rcvbuf_errors;     /* datagrams dropped because a socket's receive buffer was full */
+    uint64_t mem_errors;        /* Native (lane wave1-burst): MemErrors, 0 when the kernel has no column */
+    uint64_t csum_errors;       /* InCsumErrors, likewise */
 } mlxr_udp_counters;
 
 /* The "Udp:" header and value lines of /proc/net/snmp text. False when RcvbufErrors is not there. */
@@ -60,5 +69,34 @@ void mlxr_udp_delta_text(const mlxr_udp_counters *prev, const mlxr_udp_counters 
 /* net.core.rmem_max file text ("212992\n"): the number, -1 when not one. */
 long long mlxr_rmem_max_parse(const char *text);
 long long mlxr_rmem_max_read(void);                         /* from /proc/sys/net/core/rmem_max, -1 unreadable */
+
+/* ---- receive drops not shown elsewhere (Native, lane wave1-burst) ---- */
+
+typedef struct {
+    bool if_valid;
+    char ifname[16];
+    uint64_t if_errs, if_drop, if_fifo;   /* /proc/net/dev receive columns of ifname */
+    bool udp_valid;
+    uint64_t mem_errors, csum_errors;     /* /proc/net/snmp Udp */
+    bool sock_valid;
+    int sockets;                          /* this process's UDP sockets found */
+    uint64_t sock_drops;                  /* their drops column, summed */
+} mlxr_rx_misc;
+
+/* /proc/net/dev text: the receive errs, drop and fifo of ifname. False when the interface is not there. */
+bool mlxr_netdev_parse(const char *text, const char *ifname, uint64_t *errs, uint64_t *drop, uint64_t *fifo);
+/* /proc/net/udp or udp6 text: adds the drops of the sockets whose inode is in inodes[0..n) to *drops.
+ * Returns how many matched, -1 when the text is not such a table. */
+int mlxr_udp_sock_drops_parse(const char *text, const unsigned long *inodes, int n, uint64_t *drops);
+/* The socket inodes of the links in an fd directory (/proc/self/fd: "socket:[12345]"). Count, -1 unreadable. */
+int mlxr_fd_socket_inodes(const char *fd_dir, unsigned long *out, int cap);
+/* All of it under a proc root ("/proc" in the app): net/dev, net/snmp, net/udp, net/udp6, self/fd. */
+void mlxr_rx_misc_read(const char *proc_root, const char *ifname, mlxr_rx_misc *out);
+/* "rx drop misc +5 (wlan0 drop +5 err +0 fifo +0, udp mem +0 csum +0, own sockets +0 of 3)". The total
+ * is the interface's and the Udp counters' changes (the own sockets' drops are already in the rcvbuf and
+ * in errors, so they only say whose those were). A part not read twice says "?". */
+void mlxr_rx_misc_delta_text(const mlxr_rx_misc *prev, const mlxr_rx_misc *cur, char *out, size_t cap);
+/* The interface the stream reaches addr through, into out ("" and false when none). */
+bool mlxr_net_ifname_for(const char *addr, char *out, size_t cap);
 
 #endif
