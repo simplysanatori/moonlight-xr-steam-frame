@@ -330,6 +330,11 @@
 // HEAD_AIM_ lanes below
 #define SETTING_HEAD_AIM_SENSITIVITY 22
 #define SETTING_HEAD_AIM_DEADZONE 23
+// Native (lane wave3-visual): the Picture tab's Background dim in whole
+// percent, and its Glow edge cell (GLOW_FEATHER_). Numbered clear of the ids
+// the neighbouring lanes add.
+#define SETTING_BG_DIM 40
+#define SETTING_GLOW_FEATHER 41
 // The Head locked row's three cells: Off 0, On 1 and Follow 2 (the screen
 // stays where it is until the head turns past the leash, then eases after the
 // gaze). SETTING_HEAD_LOCK takes the cell.
@@ -389,6 +394,44 @@
 #define PICTURE_GAMMA 2
 #define PICTURE_SATURATION 3
 #define PICTURE_VALUES 4
+// Native (lane wave3-visual): the Picture tab's two rows under the grade. They
+// are tracks like the grade's but belong to the surroundings rather than the
+// colours: Background, how far the room, the passthrough or the void is dimmed,
+// and Glow edge, whether the picture's edge is feathered into the glow. They
+// follow the four grade values in the tab, so the tab has PICTURE_TAB_ROWS.
+#define PICTURE_ROW_BACKGROUND 4
+#define PICTURE_ROW_GLOW_EDGE 5
+#define PICTURE_TAB_ROWS 6
+
+// Background dim, whole percent of the environment taken away: 0 leaves the
+// room, the cameras or the void as they are, 100 is black. The track moves in
+// five percent steps.
+#define BG_DIM_MIN 0
+#define BG_DIM_MAX 100
+#define BG_DIM_DEFAULT 0
+#define BG_DIM_STEP 5
+
+// Glow edge, how the picture's border is softened into the glow round it. Off
+// leaves the hard edge, Soft and Wide fade the outer GLOW_FEATHER_SOFT_FRAC or
+// GLOW_FEATHER_WIDE_FRAC of the picture's width and height into the glow's
+// colour (the fade a picture's own alpha edge would give, upstream pull request
+// 35, 0.15 being its figure). Off by default.
+#define GLOW_FEATHER_OFF 0
+#define GLOW_FEATHER_SOFT 1
+#define GLOW_FEATHER_WIDE 2
+#define GLOW_FEATHER_COUNT 3
+#define GLOW_FEATHER_SOFT_FRAC 0.06f
+#define GLOW_FEATHER_WIDE_FRAC 0.15f
+
+// 3D Eye Balance, in whole percent: how the depth's disparity is shared by the
+// two eyes. 0 splits it evenly (the left eye shifts one separation one way,
+// the right eye one separation the other); +100 puts all of it in the left eye
+// and leaves the right eye's picture as streamed, -100 the other way round.
+// The total between the eyes is the same at every balance. Config only: the 3D
+// tab has no row for it yet.
+#define EYE_BALANCE_MIN -100
+#define EYE_BALANCE_MAX 100
+#define EYE_BALANCE_DEFAULT 0
 
 // Head aim, in the whole units its preferences hold: how far the mouse moves
 // for a degree the head turns, in pixels, and how slowly the head can turn,

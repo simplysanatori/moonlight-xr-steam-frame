@@ -129,6 +129,19 @@ void MlxrPrefs::load()
     const int conv = iniValue(ini, "3d", "convergence", "-1").toInt();
     convergenceIsDefault = conv < 0;
     convergence = conv < 0 ? 50 : qBound(0, conv, 100);
+    // the VR client holds these to their ranges and takes anything else as its default
+    bool balanceOk = false;
+    const int balance = iniValue(ini, "3d", "eye_balance", "0").trimmed().toInt(&balanceOk);
+    eyeBalance = balanceOk ? qBound(-100, balance, 100) : 0;
+    bool dimOk = false;
+    const int dim = iniValue(ini, "vr", "background_dim", "0").trimmed().toInt(&dimOk);
+    backgroundDim = dimOk ? qBound(0, dim, 100) : 0;
+    voidColor = iniValue(ini, "vr", "void_color", "#000000").trimmed();
+    if (!QRegularExpression("^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$").match(voidColor).hasMatch()) {
+        voidColor = "#000000";
+    }
+    const QString gf = iniValue(ini, "display", "glow_feather", "off").trimmed().toLower();
+    glowFeather = (gf == "soft" || gf == "1") ? "soft" : (gf == "wide" || gf == "2") ? "wide" : "off";
     flipFaceButtons = iniBool(iniValue(ini, "vr", "flip_face_buttons", "false"));
     keyboardKeymap = iniValue(ini, "vr", "keyboard_keymap", "qwerty").trimmed().toLower();
     if (keyboardKeymap != "azerty" && keyboardKeymap != "qwertz") {
@@ -171,6 +184,10 @@ void MlxrPrefs::load()
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniEyeBalance = eyeBalance;
+    m_iniBackgroundDim = backgroundDim;
+    m_iniVoidColor = voidColor;
+    m_iniGlowFeather = glowFeather;
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
@@ -215,6 +232,18 @@ void MlxrPrefs::save()
     if (convergence != m_iniConvergence || convergenceIsDefault != m_iniConvergenceDefault) {
         setIniValue(ini, "3d", "convergence", convergenceIsDefault ? "-1" : QString::number(qBound(0, convergence, 100)));
     }
+    if (eyeBalance != m_iniEyeBalance) {
+        setIniValue(ini, "3d", "eye_balance", QString::number(qBound(-100, eyeBalance, 100)));
+    }
+    if (backgroundDim != m_iniBackgroundDim) {
+        setIniValue(ini, "vr", "background_dim", QString::number(qBound(0, backgroundDim, 100)));
+    }
+    if (voidColor != m_iniVoidColor) {
+        setIniValue(ini, "vr", "void_color", voidColor);
+    }
+    if (glowFeather != m_iniGlowFeather) {
+        setIniValue(ini, "display", "glow_feather", glowFeather);
+    }
     if (flipFaceButtons != m_iniFlip) {
         setIniValue(ini, "vr", "flip_face_buttons", flipFaceButtons ? "true" : "false");
     }
@@ -251,6 +280,10 @@ void MlxrPrefs::save()
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniEyeBalance = eyeBalance;
+    m_iniBackgroundDim = backgroundDim;
+    m_iniVoidColor = voidColor;
+    m_iniGlowFeather = glowFeather;
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;

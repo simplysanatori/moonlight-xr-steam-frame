@@ -13,7 +13,7 @@
 // Output: RGBA8_UNORM, r the left eye's offset and g the right's, each in
 // texels over 2 * reach, biased by 0.5.
 layout(push_constant) uniform PC {
-    vec4 params;   // u_dispTexels, u_convergence, spare, spare
+    vec4 params;   // u_dispTexels, u_convergence, u_leftShare, u_rightShare
 } pc;
 
 layout(set = 0, binding = 3) uniform sampler2D u_depth;
@@ -31,7 +31,9 @@ void main() {
     int reach = int(ceil(abs(u_dispTexels) * max(u_convergence, 1.0 - u_convergence))) + 2;
     vec2 result = vec2(0.0);
     for (int eye = 0; eye < 2; eye++) {
-        float disp = (eye == 0) ? u_dispTexels : -u_dispTexels;
+        // Each eye's share of the larger eye's shift: 1 and 1 when the eyes
+        // are balanced, and so exactly as before
+        float disp = (eye == 0) ? u_dispTexels * pc.params.z : -u_dispTexels * pc.params.w;
         float here = texelFetch(u_depth, ivec2(x, y), 0).a;
         float bestD = -1.0;
         float bestOff = -disp * (here - u_convergence);

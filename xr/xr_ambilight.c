@@ -372,11 +372,16 @@ void runGlowRender(XrCtx* ctx) {
     g.sample = norm ? ctx->glowEdgeTexture.view : ctx->ambiTexture.view;
     g.intensity = level;
     g.blur = norm ? 1 : 0;
+    // Native (lane wave3-visual): the Picture tab's Glow edge, read once so the
+    // drawn mode and the one glowStale compares are the same
+    int feather = ctx->glowFeather;
+    g.feather = glowFeatherFraction(feather);
     mlxr_pass_glow(ctx->passes, ctx->frameCmd, &t, &g);
     xrVkImageTo(ctx, &ctx->glowTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     ctx->glowRendered = 1;
     ctx->glowDrawnOn = 1;
     ctx->glowDrawnLevel = level;
+    ctx->glowDrawnFeather = feather;
     ctx->glowCopied = 0;
 }
 
@@ -384,7 +389,7 @@ int glowStale(XrCtx* ctx) {
     int on;
     float level;
     ambiEffective(ctx, &on, &level);
-    return on && (!ctx->glowDrawnOn || level != ctx->glowDrawnLevel);
+    return on && (!ctx->glowDrawnOn || level != ctx->glowDrawnLevel || ctx->glowFeather != ctx->glowDrawnFeather);
 }
 
 // A desktop standing still sends no frames, which left the level slider and

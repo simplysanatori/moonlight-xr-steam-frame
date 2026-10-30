@@ -284,6 +284,10 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->supersampleMode = s->supersampling;
     ctx->ambilightOn = s->glow;
     ctx->ambiIntensity = (float)s->glow_level / 100.0f;
+    ctx->glowFeather = s->glow_feather;
+    ctx->bgDim = s->bg_dim;
+    settings_void_rgb(s, ctx->voidColor);
+    ctx->eyeBalance = (float)s->eye_balance / 100.0f;
     ctx->roomLightOn = s->screen_light;
     for (int style = ROOM_STYLE_FIRST; style <= ROOM_STYLE_LAST; style++) {
         const RoomSettings* r = &s->room[style - ROOM_STYLE_FIRST];
@@ -362,6 +366,8 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->supersampling = ctx->supersampleMode;
     s->glow = ctx->ambilightOn;
     s->glow_level = iround(ctx->ambiIntensity * 100.0f);
+    s->glow_feather = ctx->glowFeather;
+    s->bg_dim = ctx->bgDim;
     s->screen_light = ctx->roomLightOn;
     for (int style = ROOM_STYLE_FIRST; style <= ROOM_STYLE_LAST; style++) {
         RoomSettings* r = &s->room[style - ROOM_STYLE_FIRST];
@@ -466,6 +472,8 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_PICTURE_GAMMA: s->picture_gamma = value; break;
     case SETTING_PICTURE_SATURATION: s->picture_saturation = value; break;
     case SETTING_RESET_PICTURE: settings_reset_picture(s); break;
+    case SETTING_BG_DIM: s->bg_dim = value; break;
+    case SETTING_GLOW_FEATHER: s->glow_feather = value; break;
     case SETTING_POINTER_DOT:
         // The Display tab's Ray row: both halves are saved. The bar's ray
         // button only flips the session (ctx->rayFlipped), which is not stored.

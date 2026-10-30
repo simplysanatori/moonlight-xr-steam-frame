@@ -978,7 +978,101 @@ static void test_layouts(void) {
     CHECK(settings_layout_find(&w, 7)->head_follow == 0);
 }
 
+// Native (lane wave3-visual): Background dim, the void's colour, Glow edge and
+// 3D Eye Balance
+static void test_surroundings(void) {
+    Settings s;
+    settings_defaults(&s);
+    CHECK(geti(&s, "background_dim") == 0 && s.bg_dim == BG_DIM_DEFAULT);
+    CHECK(strcmp(gets(&s, "void_color"), "#000000") == 0);
+    CHECK(geti(&s, "glow_feather") == GLOW_FEATHER_OFF && s.glow_feather == 0);
+    CHECK(geti(&s, "eye_balance") == 0 && s.eye_balance == EYE_BALANCE_DEFAULT);
+    // where each lives in the file
+    CHECK(strcmp(settings_find("background_dim")->section, "vr") == 0);
+    CHECK(strcmp(settings_find("void_color")->section, "vr") == 0);
+    CHECK(strcmp(settings_find("glow_feather")->section, "display") == 0);
+    CHECK(strcmp(settings_find("eye_balance")->section, "3d") == 0);
+    // their ranges
+    CHECK(settings_find("background_dim")->min == 0 && settings_find("background_dim")->max == 100);
+    CHECK(settings_find("eye_balance")->min == -100 && settings_find("eye_balance")->max == 100);
+    CHECK(settings_find("glow_feather")->nnames == GLOW_FEATHER_COUNT);
+
+    // out of range values are pulled in, on load as through the setter
+    settings_from_text(&s, "[vr]\nbackground_dim = 250\n[3d]\neye_balance = -400\n", NULL);
+    CHECK(s.bg_dim == 100 && s.eye_balance == -100);
+    settings_from_text(&s, "[vr]\nbackground_dim = -3\n[3d]\neye_balance = 33\n", NULL);
+    CHECK(s.bg_dim == 0 && s.eye_balance == 33);
+
+    // the names, their indexes and the wrong ones
+    settings_defaults(&s);
+    settings_from_text(&s, "[display]\nglow_feather = wide\n", NULL);
+    CHECK(s.glow_feather == GLOW_FEATHER_WIDE);
+    settings_from_text(&s, "[display]\nglow_feather = soft\n", NULL);
+    CHECK(s.glow_feather == GLOW_FEATHER_SOFT);
+    settings_from_text(&s, "[display]\nglow_feather = 0\n", NULL);
+    CHECK(s.glow_feather == GLOW_FEATHER_OFF);
+    SettingsLoadInfo info;
+    settings_from_text(&s, "[display]\nglow_feather = huge\n", &info);
+    CHECK(info.bad == 1 && s.glow_feather == GLOW_FEATHER_OFF);
+
+    // through the file and back, as typed
+    settings_defaults(&s);
+    s.bg_dim = 35;
+    s.eye_balance = -60;
+    s.glow_feather = GLOW_FEATHER_SOFT;
+    settings_set_str(&s, settings_find("void_color"), "#1a2b3c");
+    char* text = settings_to_text(&s);
+    CHECK(strstr(text, "\nbackground_dim = 35\n") != NULL);
+    CHECK(strstr(text, "\neye_balance = -60\n") != NULL);
+    CHECK(strstr(text, "\nglow_feather = soft\n") != NULL);
+    CHECK(strstr(text, "\nvoid_color = #1a2b3c\n") != NULL);
+    Settings back;
+    settings_defaults(&back);
+    settings_from_text(&back, text, &info);
+    free(text);
+    CHECK(settings_equal(&s, &back) && info.bad == 0 && info.unknown == 0);
+    CHECK(strcmp(gets(&back, "void_color"), "#1a2b3c") == 0);
+
+    // the colour: with or without the hash, short or long, any case
+    float rgb[3] = { 0.5f, 0.5f, 0.5f };
+    CHECK(settings_parse_hex_rgb("#ff8000", rgb) == 1);
+    CHECK(rgb[0] == 1.0f && rgb[1] > 0.50f && rgb[1] < 0.51f && rgb[2] == 0.0f);
+    CHECK(settings_parse_hex_rgb("00FF00", rgb) == 1 && rgb[0] == 0.0f && rgb[1] == 1.0f && rgb[2] == 0.0f);
+    CHECK(settings_parse_hex_rgb("  #f00  ", rgb) == 1 && rgb[0] == 1.0f && rgb[1] == 0.0f && rgb[2] == 0.0f);
+    CHECK(settings_parse_hex_rgb("abc", rgb) == 1 && rgb[0] > 0.66f && rgb[0] < 0.67f && rgb[2] > 0.79f && rgb[2] < 0.81f);
+    // not colours: nothing touched
+    rgb[0] = 0.25f; rgb[1] = 0.5f; rgb[2] = 0.75f;
+    CHECK(settings_parse_hex_rgb("", rgb) == 0);
+    CHECK(settings_parse_hex_rgb("#", rgb) == 0);
+    CHECK(settings_parse_hex_rgb("#12345", rgb) == 0);
+    CHECK(settings_parse_hex_rgb("#1234567", rgb) == 0);
+    CHECK(settings_parse_hex_rgb("#12345678", rgb) == 0);
+    CHECK(settings_parse_hex_rgb("#gg0000", rgb) == 0);
+    CHECK(settings_parse_hex_rgb("red", rgb) == 0);
+    CHECK(settings_parse_hex_rgb(NULL, rgb) == 0);
+    CHECK(rgb[0] == 0.25f && rgb[1] == 0.5f && rgb[2] == 0.75f);
+    // a bad colour in the file is black, and the default is too
+    settings_set_str(&s, settings_find("void_color"), "mauve");
+    CHECK(settings_void_rgb(&s, rgb) == 0 && rgb[0] == 0.0f && rgb[1] == 0.0f && rgb[2] == 0.0f);
+    settings_defaults(&s);
+    rgb[0] = 1.0f;
+    CHECK(settings_void_rgb(&s, rgb) == 1 && rgb[0] == 0.0f && rgb[1] == 0.0f && rgb[2] == 0.0f);
+
+    // the Picture tab's Reset takes the two rows with it, and leaves the colour
+    s.bg_dim = 80;
+    s.glow_feather = GLOW_FEATHER_WIDE;
+    s.picture_gamma = 150;
+    settings_set_str(&s, settings_find("void_color"), "#102030");
+    settings_reset_picture(&s);
+    CHECK(s.bg_dim == BG_DIM_DEFAULT && s.glow_feather == GLOW_FEATHER_OFF && s.picture_gamma == 100);
+    CHECK(strcmp(gets(&s, "void_color"), "#102030") == 0);
+    s.eye_balance = 40;
+    settings_reset_3d(&s);
+    CHECK(s.eye_balance == 40);   // the 3D tab's reset is the depth pair's
+}
+
 int main(void) {
+    test_surroundings();
     test_follow_and_lock_settings();
     test_layouts();
     test_defaults();

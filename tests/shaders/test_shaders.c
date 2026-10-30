@@ -1063,6 +1063,87 @@ static void testOffset(void) {
     }
 }
 
+// 3D Eye Balance (native, lane wave3-visual): the offset search with the eyes
+// given unequal shares of the shift. dispTexels is the larger eye's; each
+// eye's own is that times (1 +- b) / (1 + |b|).
+static float offsetCpuBal(const uint8_t* up, int w, int x, int y, float dispTexels, float conv, int eye, float b) {
+    float top = 1.0f + fabsf(b);
+    float share = eye == 0 ? (1.0f + b) / top : (1.0f - b) / top;
+    int reach = (int)ceilf(fabsf(dispTexels) * fmaxf(conv, 1.0f - conv)) + 2;
+    float disp = (eye == 0 ? dispTexels : -dispTexels) * share;
+#define D(xx) (up[((size_t)y * w + ((xx) < 0 ? 0 : ((xx) > w - 1 ? w - 1 : (xx)))) * 4 + 3] / 255.0f)
+    float here = D(x);
+    float bestD = -1.0f, bestOff = -disp * (here - conv);
+    float pd = D(x - reach);
+    float pe = (float)(-reach) + disp * (pd - conv);
+    for (int t = -reach + 1; t <= reach; t++) {
+        float cd = D(x + t);
+        float ce = (float)t + disp * (cd - conv);
+        float span = ce - pe;
+        if (pe * ce <= 0.0f && fabsf(span) > 1e-6f) {
+            float f = clampf(-pe / span, 0, 1);
+            float rd = pd + f * (cd - pd);
+            if (rd > bestD) {
+                bestD = rd;
+                bestOff = (float)(t - 1) + f;
+            }
+        }
+        pd = cd;
+        pe = ce;
+    }
+#undef D
+    return bestOff / (2.0f * reach) + 0.5f;
+}
+
+static void testOffsetBalance(void) {
+    const uint32_t W = 512, H = 64, MW = 128, MH = 16;
+    const float sep = 0.05f;
+    const float balances[] = {0.0f, 0.5f, -0.5f, 1.0f, -1.0f};
+    for (int k = 0; k < 5; k++) {
+        float b = balances[k];
+        Video vd;
+        videoMake(&vd, W, H, fillStep);
+        uint8_t* map = depthMap(&vd, MW, MH, depthStep);
+        Depth3d d;
+        depthChain(&d, &vd, MW, MH, map, sep, 0.5f, 1.0f);
+        // again with the balance: dispTexels sized for the larger eye
+        float disp = sep * (float)(W / 4) * (1.0f + fabsf(b));
+        MlxrOffsetParams op = {d.up.img.view, disp, 0.5f, b};
+        VkCommandBuffer cmd = vkh_begin(&vk);
+        vkh_layout(&vk, &d.off.img, COLOR_ATT);
+        mlxr_pass_offset(P, cmd, &d.off.t, &op);
+        vkh_layout(&vk, &d.off.img, SHADER_READ);
+        check(vkh_submit(&vk) == 0, "balanced offset submit");
+        uint8_t* up = readTarget(&d.up);
+        uint8_t* got = readTarget(&d.off);
+        int m = 0, moved[2] = {0, 0};
+        for (uint32_t y = 0; y < H / 4; y++)
+            for (uint32_t x = 0; x < W / 4; x++)
+                for (int eye = 0; eye < 2; eye++) {
+                    float e = offsetCpuBal(up, W / 4, x, y, disp, 0.5f, eye, b);
+                    int g = got[((size_t)y * (W / 4) + x) * 4 + eye];
+                    int dd = abs(to8(e) - g);
+                    if (dd > m) m = dd;
+                    if (abs(g - 128) > 1) moved[eye]++;
+                }
+        note("offset search, balance %+.1f: max diff from the CPU copy %d/255, texels moved %d (left) %d (right)", b, m,
+             moved[0], moved[1]);
+        check(m <= 1, "balanced offset search within 1/255 (%d) at %+.1f", m, b);
+        if (b == 0.0f) check(moved[0] > 0 && moved[1] > 0, "an even balance moves both eyes (%d, %d)", moved[0], moved[1]);
+        if (b == 1.0f)
+            check(moved[1] == 0 && moved[0] > 0, "all in the left eye: the right is not moved (%d), the left is (%d)", moved[1],
+                  moved[0]);
+        if (b == -1.0f)
+            check(moved[0] == 0 && moved[1] > 0, "all in the right eye: the left is not moved (%d), the right is (%d)", moved[0],
+                  moved[1]);
+        free(up);
+        free(got);
+        free(map);
+        depthFree(&d);
+        videoFree(&vd);
+    }
+}
+
 static void testDownscale(void) {
     const uint32_t W = 256, H = 128, DW = 64, DH = 32;
     Video vd;
@@ -1514,6 +1595,222 @@ static void testRoom(void) {
     targetFree(&t);
 }
 
+static float smooth01(float a, float b, float x) {
+    float t = clampf((x - a) / (b - a), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// The Picture tab's Glow edge (native, lane wave3-visual): the glow image with
+// u_feather set. Off it is what it always was (testGlow); on, the middle of the
+// image, which is behind or over the picture, goes clear, and a band along the
+// picture's edge is the glow's colour taken from the border texels, opaque on
+// the edge and easing out a feather's depth in. Outside the picture nothing
+// moves.
+static void testGlowFeather(void) {
+    uint8_t px[32 * 32 * 4];
+    glowSample(px);
+    VkhImage tex;
+    textureMake(&tex, 32, 32, px);
+    Target t;
+    targetMake(&t, MLXR_GLOW_TEX, MLXR_GLOW_TEX, UNORM);
+    const float intensity = 0.7f;
+    const float fracs[3] = {0.0f, GLOW_FEATHER_SOFT_FRAC, GLOW_FEATHER_WIDE_FRAC};
+    const int N = MLXR_GLOW_TEX;
+    for (int blur = 0; blur < 2; blur++) {
+        uint8_t* img[3];
+        for (int k = 0; k < 3; k++) {
+            MlxrGlowParams gp = {tex.view, intensity, blur, fracs[k]};
+            VkCommandBuffer cmd = vkh_begin(&vk);
+            vkh_layout(&vk, &t.img, COLOR_ATT);
+            mlxr_pass_glow(P, cmd, &t.t, &gp);
+            vkh_submit(&vk);
+            img[k] = readTarget(&t);
+        }
+        // The middle: at the glow's level behind the picture when off, clear when on
+        const uint8_t* mid[3];
+        for (int k = 0; k < 3; k++) mid[k] = img[k] + ((size_t)(N / 2) * N + N / 2) * 4;
+        check(abs(mid[0][3] - to8(intensity)) <= 1, "blur %d: feather off leaves the middle at the glow level (%d)", blur,
+              mid[0][3]);
+        for (int k = 1; k < 3; k++)
+            check(mid[k][3] == 0 && mid[k][0] == 0 && mid[k][1] == 0 && mid[k][2] == 0,
+                  "blur %d: feather %.2f clears the middle (%d %d %d %d)", blur, fracs[k], mid[k][0], mid[k][1], mid[k][2],
+                  mid[k][3]);
+        // Against a CPU copy of the shader inside the picture, and the image
+        // outside the picture untouched
+        for (int k = 1; k < 3; k++) {
+            const float f = fracs[k];
+            int m = 0, ma = 0, outsideDiff = 0, bandLit = 0, bandPixels = 0;
+            for (int y = 0; y < N; y++)
+                for (int x = 0; x < N; x++) {
+                    float u = (x + 0.5f) / N, v = (y + 0.5f) / N;
+                    float fu = (u - 0.5f) * 1.7f + 0.5f, fv = (v - 0.5f) * 1.7f + 0.5f;
+                    float dx = fminf(fu, 1.0f - fu), dy = fminf(fv, 1.0f - fv);
+                    const uint8_t* g = img[k] + ((size_t)y * N + x) * 4;
+                    const uint8_t* o = img[0] + ((size_t)y * N + x) * 4;
+                    if (fminf(dx, dy) < -1e-4f) {
+                        for (int c = 0; c < 4; c++)
+                            if (abs(g[c] - o[c]) > outsideDiff) outsideDiff = abs(g[c] - o[c]);
+                        continue;
+                    }
+                    if (fminf(dx, dy) < 1e-4f) continue;   // on the edge itself: either side of it
+                    float hx = 1.0f - smooth01(0.0f, f, dx), hy = 1.0f - smooth01(0.0f, f, dy);
+                    float sx = fu + ((fu < 0.5f ? 0.0f : 1.0f) - fu) * hx;
+                    float sy = fv + ((fv < 0.5f ? 0.0f : 1.0f) - fv) * hy;
+                    float col[3];
+                    if (blur)
+                        blurredCpu(px, sx, sy, col);
+                    else
+                        splineCpu(px, sx, sy, col);
+                    float ft = clampf(fminf(dx, dy) / f, 0.0f, 1.0f);
+                    float ramp = 1.0f - ft * ft * (3.0f - 2.0f * ft);
+                    for (int c = 0; c < 3; c++) {
+                        int dd = abs(to8(col[c] * intensity * ramp) - g[c]);
+                        if (dd > m) m = dd;
+                    }
+                    int da = abs(to8(ramp) - g[3]);
+                    if (da > ma) ma = da;
+                    if (fminf(dx, dy) < f * 0.9f) {
+                        bandPixels++;
+                        if (g[3] > 0) bandLit++;
+                    }
+                }
+            note("glow feather %.2f blur %d: colour max diff %d/255, alpha %d/255; %d of %d band pixels lit", f, blur, m, ma,
+                 bandLit, bandPixels);
+            check(m <= 3 && ma <= 2, "glow feather %.2f blur %d within 3/255 of the CPU copy (colour %d, alpha %d)", f, blur,
+                  m, ma);
+            check(outsideDiff == 0, "glow feather %.2f blur %d leaves outside the picture alone (%d)", f, blur, outsideDiff);
+            check(bandPixels > 0 && bandLit == bandPixels, "the feather band is lit (%d of %d)", bandLit, bandPixels);
+        }
+        // Next to the left edge, half way down: nearly opaque, in the border
+        // texels' colour at the glow level. A little further in the soft feather
+        // has cleared while the wide one is still fading.
+        int row = N / 2;
+        float fvRow = ((row + 0.5f) / N - 0.5f) * 1.7f + 0.5f;
+        int xe = (int)ceilf((0.5f - 0.5f / 1.7f) * N) + 1;   // the first column inside the picture
+        const uint8_t* edgePx = img[2] + ((size_t)row * N + xe) * 4;
+        float border[3];
+        if (blur)
+            blurredCpu(px, 0.0f, fvRow, border);
+        else
+            splineCpu(px, 0.0f, fvRow, border);
+        check(edgePx[3] > 235, "blur %d: the wide feather is nearly opaque on the picture's edge (%d)", blur, edgePx[3]);
+        int worst = 0;
+        for (int c = 0; c < 3; c++) {
+            int want = to8(border[c] * intensity * (edgePx[3] / 255.0f));
+            if (abs(edgePx[c] - want) > worst) worst = abs(edgePx[c] - want);
+        }
+        check(worst <= 12, "blur %d: and in the colour of the border texels there at the glow level (%d off)", blur, worst);
+        int xin = xe + (int)(GLOW_FEATHER_SOFT_FRAC * 1.5f * N / 1.7f);
+        const uint8_t* soft = img[1] + ((size_t)row * N + xin) * 4;
+        const uint8_t* wide = img[2] + ((size_t)row * N + xin) * 4;
+        check(soft[3] == 0 && wide[3] > 0 && wide[3] < edgePx[3], "blur %d: soft clears (%d) where wide is still fading (%d of %d)",
+              blur, soft[3], wide[3], edgePx[3]);
+        if (blur == 0) {
+            ppm("glow_feather_soft", img[1], N, N);
+            ppm("glow_feather_wide", img[2], N, N);
+        }
+        for (int k = 0; k < 3; k++) free(img[k]);
+    }
+    targetFree(&t);
+    vkh_image_free(&vk, &tex);
+}
+
+// The Picture tab's Background dim on the room (native, lane wave3-visual):
+// u_keep scales the whole of what the room shows, the wash of the picture's
+// light included, to black at the far end
+static void testRoomDim(void) {
+    const uint32_t EW = 64, EH = 64;
+    Target t;
+    VkhImage depth;
+    targetMake(&t, 2 * EW, EH, UNORM);
+    vkh_image(&vk, 2 * EW, EH, VK_FORMAT_D32_SFLOAT, &depth);
+    VkhBuffer vb, ib;
+    vkh_buffer(&vk, 8 * MLXR_ROOM_VERTEX_FLOATS * sizeof(float), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, &vb);
+    vkh_buffer(&vk, 12 * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, &ib);
+    const float red[3] = {0.8f, 0.3f, 0.2f}, grey[3] = {0.5f, 0.5f, 0.5f};
+    quadVerts(vb.map, 0, -20, -20, 20, 20, -10, red, 0.0f);          // fills the view, unlit
+    quadVerts(vb.map, 4, -0.5f, -0.5f, 0.5f, 0.5f, -1, grey, 1.0f);   // lit by the picture's light
+    uint32_t* idx = ib.map;
+    for (int q = 0; q < 2; q++) {
+        uint32_t b = q * 4, quad[6] = {b, b + 1, b + 2, b + 2, b + 1, b + 3};
+        memcpy(idx + q * 6, quad, sizeof(quad));
+    }
+    VkhImage ambi;
+    uint8_t ambiPx[32 * 32 * 4];
+    for (int i = 0; i < 32 * 32; i++) {
+        ambiPx[i * 4] = 204;
+        ambiPx[i * 4 + 1] = 153;
+        ambiPx[i * 4 + 2] = 102;
+        ambiPx[i * 4 + 3] = 255;
+    }
+    textureMake(&ambi, 32, 32, ambiPx);
+    MlxrRoomPart parts[2] = {{0, 6, VK_NULL_HANDLE, 0.0f}, {6, 6, VK_NULL_HANDLE, 0.0f}};
+    const float dims[] = {0.0f, 0.25f, 0.5f, 0.8f, 1.0f};
+    uint8_t* base = NULL;
+    double baseMean = 0;
+    size_t n = (size_t)2 * EW * EH;
+    for (int k = 0; k < 5; k++) {
+        MlxrRoomParams rp;
+        memset(&rp, 0, sizeof(rp));
+        rp.ambi = ambi.view;
+        rp.vertices = vb.buffer;
+        rp.indices = ib.buffer;
+        rp.parts = parts;
+        rp.partCount = 2;
+        rp.eyes = 2;
+        eyeViewProj(rp.viewProj[0], -0.03f);
+        eyeViewProj(rp.viewProj[1], 0.03f);
+        rp.eyeRect[0] = (VkRect2D){{0, 0}, {EW, EH}};
+        rp.eyeRect[1] = (VkRect2D){{(int32_t)EW, 0}, {EW, EH}};
+        rp.spillGain = 0.5f;
+        rp.dim = 0.8f;
+        rp.bgDim = dims[k];
+        rp.depth = depth.view;
+        rp.depthFormat = VK_FORMAT_D32_SFLOAT;
+        VkCommandBuffer cmd = vkh_begin(&vk);
+        vkh_layout(&vk, &t.img, COLOR_ATT);
+        vkh_layout(&vk, &depth, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        mlxr_pass_room(P, cmd, &t.t, &rp);
+        check(vkh_submit(&vk) == 0, "room dim submit");
+        uint8_t* got = readTarget(&t);
+        double mean = 0;
+        int alphaBad = 0;
+        for (size_t i = 0; i < n; i++) {
+            for (int c = 0; c < 3; c++) mean += got[i * 4 + c];
+            if (got[i * 4 + 3] != 255) alphaBad++;
+        }
+        mean /= (double)(n * 3);
+        check(alphaBad == 0, "room dim %.2f keeps the room opaque (%d)", dims[k], alphaBad);
+        if (k == 0) {
+            base = got;
+            baseMean = mean;
+            check(baseMean > 20.0, "the undimmed room is lit (mean %.1f)", baseMean);
+            continue;
+        }
+        double want = baseMean * (1.0 - dims[k]);
+        note("room dim %.2f: mean luminance %.2f, %.2f of the undimmed %.2f", dims[k], mean, mean / baseMean, baseMean);
+        check(fabs(mean - want) < 1.0, "room dim %.2f scales the mean luminance (%.2f, wanted %.2f)", dims[k], mean, want);
+        int worst = 0, lit = 0;
+        for (size_t i = 0; i < n; i++)
+            for (int c = 0; c < 3; c++) {
+                int w = to8(base[i * 4 + c] / 255.0f * (1.0f - dims[k]));
+                if (abs(w - got[i * 4 + c]) > worst) worst = abs(w - got[i * 4 + c]);
+                if (got[i * 4 + c] > 0) lit++;
+            }
+        check(worst <= 1, "room dim %.2f scales every pixel (worst %d/255)", dims[k], worst);
+        if (dims[k] >= 1.0f) check(lit == 0, "all the way down is black (%d lit)", lit);
+        if (k == 3) ppm("room_dim_80", got, 2 * EW, EH);
+        free(got);
+    }
+    ppm("room_dim_0", base, 2 * EW, EH);
+    free(base);
+    vkh_buffer_free(&vk, &vb);
+    vkh_buffer_free(&vk, &ib);
+    vkh_image_free(&vk, &ambi);
+    vkh_image_free(&vk, &depth);
+    targetFree(&t);
+}
+
 static void testModel(void) {
     const uint32_t EW = 64, EH = 64;
     Target t;
@@ -1948,11 +2245,14 @@ int main(int argc, char** argv) {
                  {"sharpen", testSharpen},
                  {"upsample", testUpsample},
                  {"offset", testOffset},
+                 {"offset_balance", testOffsetBalance},
                  {"downscale", testDownscale},
                  {"ambi", testAmbi},
                  {"glow_edge", testGlowEdge},
                  {"glow", testGlow},
+                 {"glow_feather", testGlowFeather},
                  {"room", testRoom},
+                 {"room_dim", testRoomDim},
                  {"model", testModel},
                  {"supersample", testSupersample},
                  {"panel", testPanel},

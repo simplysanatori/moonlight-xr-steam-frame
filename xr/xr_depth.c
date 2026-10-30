@@ -932,6 +932,12 @@ void xrDepthPicture(XrCtx* ctx, const MlxrVideo* video, int newFrame, uint64_t f
         upsampling = 0;
     }
     int occluding = upsampling && ctx->occlusionEnabled && separation > 0.0f;
+    // 3D Eye Balance: the left eye is shifted by shareL separations and the
+    // right by shareR, 1 each when even. The searches reach as far as the
+    // larger of the two takes a pixel.
+    float shareL, shareR;
+    eyeShares(ctx->eyeBalance, &shareL, &shareR);
+    float reach = eyeShareReach(ctx->eyeBalance);
     VkImageView mapView = haveMap ? d->tex[d->readIndex].img.view : VK_NULL_HANDLE;
     if (haveMap && warping) {
         d->tex[d->readIndex].lastUse = ctx->gpuSerial;
@@ -974,8 +980,9 @@ void xrDepthPicture(XrCtx* ctx, const MlxrVideo* video, int newFrame, uint64_t f
         MlxrOffsetParams op;
         memset(&op, 0, sizeof(op));
         op.depth = d->upsample.view;
-        op.dispTexels = separation * (float)d->upsample.width;
+        op.dispTexels = separation * (float)d->upsample.width * reach;
         op.convergence = ctx->convergence;
+        op.balance = ctx->eyeBalance;
         mlxr_pass_offset(ctx->passes, cmd, &t, &op);
         xrVkImageTo(ctx, &d->offsets, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         xrGpuTimeEnd(ctx, GPU_OFFSET);
@@ -999,7 +1006,7 @@ void xrDepthPicture(XrCtx* ctx, const MlxrVideo* video, int newFrame, uint64_t f
         w->offsets = occluding ? d->offsets.view : VK_NULL_HANDLE;
         w->occlusion = occluding;
         w->convergence = ctx->convergence;
-        w->dispTexels = separation * (float)lowResW;
+        w->dispTexels = separation * (float)lowResW * reach;
         w->lowResWidth = (float)lowResW;
         // Half a texel of the frame, which the shifted sample is held inside,
         // or with the clamp off a whole frame outside either edge
@@ -1011,7 +1018,7 @@ void xrDepthPicture(XrCtx* ctx, const MlxrVideo* video, int newFrame, uint64_t f
         w->eye = eye;
         w->disparity = 0.0f;
         if (eyes == 2 && ctx->stereoMode != DEPTH_MODE_EYETEST) {
-            w->disparity = eye == 0 ? separation : -separation;
+            w->disparity = eye == 0 ? separation * shareL : -separation * shareR;
         }
         w->barTest = ctx->stereoMode == DEPTH_MODE_SHIFTTEST;
         w->tint[0] = w->tint[1] = w->tint[2] = 1.0f;

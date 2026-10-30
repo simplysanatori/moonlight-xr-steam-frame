@@ -381,21 +381,36 @@ static void picture_text(int row, int units, char* out, size_t cap) {
 
 static void tab_picture(Dc* dc) {
     const Settings* s = dc->v->settings;
-    static const UiStr ROWS[PICTURE_VALUES] = { UIS_ROW_BRIGHTNESS, UIS_ROW_CONTRAST, UIS_ROW_GAMMA, UIS_ROW_SATURATION };
-    static const int MIN[PICTURE_VALUES] = { PICTURE_BRIGHTNESS_MIN, PICTURE_CONTRAST_MIN, PICTURE_GAMMA_MIN, PICTURE_SATURATION_MIN };
-    static const int MAX[PICTURE_VALUES] = { PICTURE_BRIGHTNESS_MAX, PICTURE_CONTRAST_MAX, PICTURE_GAMMA_MAX, PICTURE_SATURATION_MAX };
-    static const int DEF[PICTURE_VALUES] = { PICTURE_BRIGHTNESS_DEFAULT, PICTURE_CONTRAST_DEFAULT, PICTURE_GAMMA_DEFAULT, PICTURE_SATURATION_DEFAULT };
+    // The four grade values, then Background (percent dimmed) and Glow edge
+    // (off, soft, wide on a three place track)
+    static const UiStr ROWS[PICTURE_TAB_ROWS] = { UIS_ROW_BRIGHTNESS, UIS_ROW_CONTRAST, UIS_ROW_GAMMA, UIS_ROW_SATURATION,
+                                                  UIS_ROW_BACKGROUND, UIS_ROW_GLOW_EDGE };
+    static const int MIN[PICTURE_TAB_ROWS] = { PICTURE_BRIGHTNESS_MIN, PICTURE_CONTRAST_MIN, PICTURE_GAMMA_MIN, PICTURE_SATURATION_MIN,
+                                               BG_DIM_MIN, GLOW_FEATHER_OFF };
+    static const int MAX[PICTURE_TAB_ROWS] = { PICTURE_BRIGHTNESS_MAX, PICTURE_CONTRAST_MAX, PICTURE_GAMMA_MAX, PICTURE_SATURATION_MAX,
+                                               BG_DIM_MAX, GLOW_FEATHER_COUNT - 1 };
+    static const int DEF[PICTURE_TAB_ROWS] = { PICTURE_BRIGHTNESS_DEFAULT, PICTURE_CONTRAST_DEFAULT, PICTURE_GAMMA_DEFAULT, PICTURE_SATURATION_DEFAULT,
+                                               BG_DIM_DEFAULT, GLOW_FEATHER_OFF };
+    static const UiStr FEATHER[GLOW_FEATHER_COUNT] = { UIS_OFF, UIS_FEATHER_SOFT, UIS_FEATHER_WIDE };
     float tick_half = COG_CELL_HALF * dc->nh;
-    for (int row = 0; row < PICTURE_VALUES; row++) {
+    for (int row = 0; row < PICTURE_TAB_ROWS; row++) {
         float y = row_y(dc, COG_TAB_PICTURE, row);
         label(dc, ui_str(ROWS[row]), y, 1);
         track_line(dc, y, 0x66FFFFFFu);
         chevrons(dc, y, 1, tick_half);
         tick(dc, cogRunU(lanePlace(DEF[row], MIN[row], MAX[row])) * dc->nw, y, tick_half, 1);
-        int units = settings_picture_value(s, row);
+        int units = row == PICTURE_ROW_BACKGROUND ? s->bg_dim
+                  : row == PICTURE_ROW_GLOW_EDGE ? s->glow_feather
+                  : settings_picture_value(s, row);
         thumb(dc, COG_TAB_PICTURE, row, y, lanePlace(units, MIN[row], MAX[row]));
         char buf[24];
-        picture_text(row, units, buf, sizeof buf);
+        if (row == PICTURE_ROW_BACKGROUND) {
+            snprintf(buf, sizeof buf, "%d%%", units);
+        } else if (row == PICTURE_ROW_GLOW_EDGE) {
+            snprintf(buf, sizeof buf, "%s", ui_str(FEATHER[units < 0 ? 0 : (units >= GLOW_FEATHER_COUNT ? GLOW_FEATHER_COUNT - 1 : units)]));
+        } else {
+            picture_text(row, units, buf, sizeof buf);
+        }
         readout(dc, cogRowV(COG_TAB_PICTURE, row), buf);
         track_hits(dc, COG_TAB_PICTURE, row, 1);
     }

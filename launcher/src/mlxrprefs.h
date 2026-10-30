@@ -50,6 +50,16 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(bool strengthIsDefault MEMBER strengthIsDefault NOTIFY changed)
     Q_PROPERTY(int convergence MEMBER convergence NOTIFY changed)            // [3d] convergence, 0..100
     Q_PROPERTY(bool convergenceIsDefault MEMBER convergenceIsDefault NOTIFY changed)
+    // Native (lane wave3-visual): [3d] eye_balance, -100..100 percent: how the depth shift is shared by the
+    // eyes, 0 evenly, +100 all in the left eye, -100 all in the right (config and this mirror only, the
+    // headset's 3D tab has no row for it)
+    Q_PROPERTY(int eyeBalance MEMBER eyeBalance NOTIFY changed)
+    // Native (lane wave3-visual): the surroundings. [vr] background_dim, 0..100 percent the room, the
+    // passthrough or the void is dimmed; [vr] void_color, "#rrggbb", the void's colour; [display]
+    // glow_feather, "off", "soft" or "wide", the picture's edge faded into the glow
+    Q_PROPERTY(int backgroundDim MEMBER backgroundDim NOTIFY changed)
+    Q_PROPERTY(QString voidColor MEMBER voidColor NOTIFY changed)
+    Q_PROPERTY(QString glowFeather MEMBER glowFeather NOTIFY changed)
     Q_PROPERTY(bool flipFaceButtons MEMBER flipFaceButtons NOTIFY changed)   // [vr] flip_face_buttons
     // [vr] keyboard_keymap: what the headset keyboard's keys say, "qwerty" (default), "azerty" or "qwertz"
     Q_PROPERTY(QString keyboardKeymap MEMBER keyboardKeymap NOTIFY changed)
@@ -141,6 +151,10 @@ public:
     bool strengthIsDefault;
     int convergence;
     bool convergenceIsDefault;
+    int eyeBalance = 0;
+    int backgroundDim = 0;
+    QString voidColor = QStringLiteral("#000000");
+    QString glowFeather = QStringLiteral("off");
     bool flipFaceButtons;
     QString keyboardKeymap;
     QString notices;
@@ -166,6 +180,8 @@ private:
     int m_iniDoff = 60, m_iniIdle = 0;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
+    int m_iniEyeBalance = 0, m_iniBackgroundDim = 0;
+    QString m_iniVoidColor = QStringLiteral("#000000"), m_iniGlowFeather = QStringLiteral("off");
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
     bool m_usbCable = false, m_usbScanned = false;
     QString m_iniKeymap = QStringLiteral("qwerty");

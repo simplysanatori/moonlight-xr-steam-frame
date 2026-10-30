@@ -238,6 +238,39 @@ int kofiSheetZone(float u, float v);
 int separationUnits(float separation);
 float separationOf(int units);
 
+// Native (lane wave3-visual). The Picture tab's Background dim: a percent held
+// to its lane and its five percent steps, and the share of the environment's
+// light that is left of it (1 at 0 percent, 0 at 100).
+int bgDimClamp(int percent);
+float bgDimKeep(int percent);
+// The Picture tab's Glow edge: how deep into the picture the fade reaches, as
+// a fraction of its width and height (0 for off, and for a value out of range)
+float glowFeatherFraction(int mode);
+// 3D Eye Balance. The percent the preference stores as -1..1, and the share of
+// one separation each eye is shifted by: left 1 + b, right 1 - b, so an even
+// 0 is a whole separation each way, +1 is two in the left eye and none in the
+// right, -1 the other way round, and the two always add up to two. The reach
+// is the larger of the two, which the warp's search window is sized for.
+// What lies behind everything else in the views, for the layer that holds it
+// (a 16x16 image in a projection layer of its own, or the clear of the
+// picture's). mode is BACKDROP_PASSTHROUGH, the cameras showing through, for
+// which it is black at the dim's share of alpha, or BACKDROP_VOID, which is
+// the void's colour taken down by the dim and opaque. Fills out with sRGB red,
+// green, blue and alpha and returns 1 when a layer is wanted: not in a room
+// (BACKDROP_NONE, which dims through the room's own shader), and not for a
+// black void, which is what the runtime shows with nothing there.
+#define BACKDROP_NONE 0
+#define BACKDROP_PASSTHROUGH 1
+#define BACKDROP_VOID 2
+int backdropFor(int mode, int dimPercent, const float voidColor[3], float out[4]);
+// One sRGB channel as the linear value a render target of an _SRGB format is
+// cleared with to hold it
+float srgbToLinear(float c);
+
+float eyeBalanceOf(int percent);
+void eyeShares(float balance, float* left, float* right);
+float eyeShareReach(float balance);
+
 // Which preset a separation in those units is, as its cell, or -1 when it is
 // none of them. The three are in cell order. Balanced is tried first, so a
 // default near an end that clamps another preset onto it still reads as

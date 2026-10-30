@@ -711,7 +711,10 @@ void mlxr_pass_offset(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, c
     VkPipeline pipe = pipeline(p, MLXR_PASS_OFFSET, MLXR_VIDEO_YUV420P, t->format, VK_FORMAT_UNDEFINED);
     if (!pipe) return;
     VkPipelineLayout layout = p->layout[PL_VIDEO];
-    float pc[4] = {o->dispTexels, o->convergence, 0.0f, 0.0f};
+    // Each eye's share of dispTexels, which was sized for the larger of the two
+    float b = o->balance < -1.0f ? -1.0f : (o->balance > 1.0f ? 1.0f : o->balance);
+    float top = 1.0f + (b < 0.0f ? -b : b);
+    float pc[4] = {o->dispTexels, o->convergence, (1.0f + b) / top, (1.0f - b) / top};
     beginRender(p, cmd, t, 1, VK_NULL_HANDLE, t->clear);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
     pushVideoSet(p, cmd, layout, NULL, o->depth, VK_NULL_HANDLE, 1);
@@ -780,7 +783,7 @@ void mlxr_pass_glow(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, con
     VkPipeline pipe = pipeline(p, MLXR_PASS_GLOW, 0, t->format, VK_FORMAT_UNDEFINED);
     if (!pipe) return;
     VkPipelineLayout layout = p->layout[PL_TEX];
-    float pc[4] = {g->intensity, g->blur ? 1.0f : 0.0f, 0.0f, 0.0f};
+    float pc[4] = {g->intensity, g->blur ? 1.0f : 0.0f, g->feather > 0.0f ? g->feather : 0.0f, 0.0f};
     beginRender(p, cmd, t, 1, VK_NULL_HANDLE, t->clear);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
     pushTex(p, cmd, layout, g->sample);
@@ -803,7 +806,7 @@ void mlxr_pass_room(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, con
     float pc[20];
     pc[16] = r->spillGain;
     pc[18] = r->dim;
-    pc[19] = 0.0f;
+    pc[19] = 1.0f - (r->bgDim < 0.0f ? 0.0f : (r->bgDim > 1.0f ? 1.0f : r->bgDim));
     int eyes = r->eyes < 1 ? 1 : (r->eyes > 2 ? 2 : r->eyes);
     for (int e = 0; e < eyes && r->partCount > 0; e++) {
         setRect(cmd, r->eyeRect[e]);
