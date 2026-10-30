@@ -19,6 +19,9 @@
 //             waits for a fresh map; FAILED (and a thread that never starts)
 //             stays flat with a toast and puts the switch away
 //   eyebalance  3D Eye Balance: the per eye disparity at several balances
+//   params    the 3D's tuning keys only config.ini and the launcher carry
+//             (edge_sharpness, motion_reset, depth_scale, depth_global,
+//             depth_threads), into the context, the engine and the passes
 //   budget    the layers of the busiest frames with the 3D on (two picture
 //             quads, one an eye, and the bar's 3D button), against SteamVR's 16
 // GPLv3.
@@ -54,6 +57,8 @@ struct MlxrDepthEngine {
     int newest, held;
     // what the tests read
     int resets, rateCalls, paramsCalls;
+    MlxrDepthParams params;   // as started, then as last set
+    int threads;
     long submits, contentBad, orderBad;
     uint64_t lastFrameId;
     int haveLast;
@@ -85,6 +90,8 @@ static MlxrDepthEngine* fStart(const MlxrDepthConfig* cfg) {
     e->fail = fakeFailNext;
     fakeFailNext = 0;
     e->rate = cfg->perSecond;
+    e->params = cfg->params;
+    e->threads = cfg->threads;
     e->held = -1;
     e->newest = -1;
     fakeLive = e;
@@ -117,7 +124,7 @@ static void fRate(MlxrDepthEngine* e, int r) {
     pthread_mutex_unlock(&e->lock);
 }
 static void fParams(MlxrDepthEngine* e, const MlxrDepthParams* p) {
-    (void)p;
+    e->params = *p;
     e->paramsCalls++;
 }
 static void fReset(MlxrDepthEngine* e) {
@@ -575,6 +582,123 @@ static void testSettings(void) {
     m6_ctx_free(ctx);
 }
 
+// ---- params --------------------------------------------------------------------------------
+
+// Native (lane wave5-depth, PLAN 5.x): the 3D's tuning keys that only config.ini
+// and the flat launcher carry, through the file into the context and on to
+// the engine and the passes; at their defaults everything is as it was
+static void testParams(void) {
+    char path[300];
+    snprintf(path, sizeof(path), "%s/config.ini", assets);
+    Settings s;
+    settings_defaults(&s);
+    // 5.1 Edge: 0 is upstream's upsample (sigma 0.25, no snap)
+    CHECK(s.edge_sharpness == EDGE_SHARPNESS_DEFAULT && EDGE_SHARPNESS_DEFAULT == 0);
+    XrCtx* ctx = m6_ctx(&g, &FAKE, assets, &s);
+    CHECK(ctx->upsampleSigmaR == 0.25f && ctx->depthSharp == 0.0f);
+    // 5.2: the hole fill is on (MLXR_HOLE_FILL=0 is the way back)
+    CHECK(ctx->holeFill == 1 || getenv("MLXR_HOLE_FILL") != NULL);
+    m6_ctx_free(ctx);
+    s.edge_sharpness = 60;
+    CHECK(settings_save(&s, path) == 0);
+    Settings back;
+    settings_defaults(&back);
+    CHECK(settings_load(&back, path, NULL) == 0);
+    CHECK(back.edge_sharpness == 60);
+    unlink(path);
+    ctx = m6_ctx(&g, &FAKE, assets, &back);
+    CHECK_NEAR(ctx->upsampleSigmaR, 0.16, 1e-6);
+    CHECK_NEAR(ctx->depthSharp, 0.6, 1e-6);
+    m6_ctx_free(ctx);
+    Settings bad;
+    settings_defaults(&bad);
+    settings_from_text(&bad, "[3d]\nedge_sharpness = 400\nmotion_reset = 99\n", NULL);
+    CHECK(bad.edge_sharpness == EDGE_SHARPNESS_MAX);
+    CHECK(bad.motion_reset == MOTION_RESET_MAX);
+
+    // 5.4 Motion reset: off by default, so the engine averages as upstream's
+    settings_defaults(&s);
+    CHECK(s.motion_reset == MOTION_RESET_DEFAULT && MOTION_RESET_DEFAULT == 0);
+    ctx = m6_ctx(&g, &FAKE, assets, &s);
+    uint64_t fid = 0;
+    waitReady(ctx, &fid);
+    CHECK(fakeLive != NULL && fakeLive->params.motion == 0.0f && fakeLive->params.tauMs == DEPTH_TAU_DEFAULT_MS);
+    m6_ctx_free(ctx);
+    // set: the engine starts with it, and a change reaches it at the next frame
+    s.motion_reset = 12;
+    ctx = m6_ctx(&g, &FAKE, assets, &s);
+    CHECK_NEAR(ctx->depthMotion, 0.12, 1e-6);
+    fid = 0;
+    waitReady(ctx, &fid);
+    CHECK(fakeLive != NULL);
+    if (fakeLive != NULL) {
+        CHECK_NEAR(fakeLive->params.motion, 0.12, 1e-6);
+        int calls = fakeLive->paramsCalls;
+        frames(ctx, 1, &fid, 0);
+        CHECK(fakeLive->paramsCalls == calls);   // nothing changed, nothing sent
+        ctx->depthMotion = 0.2f;
+        frames(ctx, 1, &fid, 0);
+        CHECK(fakeLive->paramsCalls == calls + 1);
+        CHECK_NEAR(fakeLive->params.motion, 0.2, 1e-6);
+        CHECK_NEAR(fakeLive->params.convergence, ctx->convergence, 1e-6);
+    }
+    m6_ctx_free(ctx);
+
+    // 5.6 Depth scale: 100 and 100, the map as made
+    settings_defaults(&s);
+    CHECK(s.depth_scale == DEPTH_SCALE_DEFAULT && s.depth_global == DEPTH_SCALE_DEFAULT && DEPTH_SCALE_DEFAULT == 100);
+    ctx = m6_ctx(&g, &FAKE, assets, &s);
+    fid = 0;
+    waitReady(ctx, &fid);
+    CHECK(fakeLive != NULL && fakeLive->params.global == 1.0f && fakeLive->params.local == 1.0f);
+    m6_ctx_free(ctx);
+    s.depth_scale = 150;
+    s.depth_global = 80;
+    CHECK(settings_save(&s, path) == 0);
+    settings_defaults(&back);
+    CHECK(settings_load(&back, path, NULL) == 0);
+    unlink(path);
+    CHECK(back.depth_scale == 150 && back.depth_global == 80);
+    ctx = m6_ctx(&g, &FAKE, assets, &back);
+    CHECK_NEAR(ctx->depthLocal, 1.5, 1e-6);
+    CHECK_NEAR(ctx->depthGlobal, 0.8, 1e-6);
+    fid = 0;
+    waitReady(ctx, &fid);
+    CHECK(fakeLive != NULL);
+    if (fakeLive != NULL) {
+        CHECK_NEAR(fakeLive->params.local, 1.5, 1e-6);
+        CHECK_NEAR(fakeLive->params.global, 0.8, 1e-6);
+        ctx->depthLocal = 0.5f;
+        frames(ctx, 1, &fid, 0);
+        CHECK_NEAR(fakeLive->params.local, 0.5, 1e-6);
+    }
+    m6_ctx_free(ctx);
+    settings_defaults(&bad);
+    settings_from_text(&bad, "[3d]\ndepth_scale = 900\ndepth_global = -4\n", NULL);
+    CHECK(bad.depth_scale == DEPTH_SCALE_MAX && bad.depth_global == DEPTH_SCALE_MIN);
+
+    // 5.5 the model's threads: 2 as upstream's CPU route, else as set (the
+    // variable, when the environment has it, wins over both)
+    if (getenv("MLXR_DEPTH_THREADS") == NULL) {
+        settings_defaults(&s);
+        CHECK(s.depth_threads == DEPTH_THREADS_DEFAULT && DEPTH_THREADS_DEFAULT == 2);
+        ctx = m6_ctx(&g, &FAKE, assets, &s);
+        fid = 0;
+        waitReady(ctx, &fid);
+        CHECK(fakeLive != NULL && fakeLive->threads == 2);
+        m6_ctx_free(ctx);
+        s.depth_threads = 3;
+        ctx = m6_ctx(&g, &FAKE, assets, &s);
+        fid = 0;
+        waitReady(ctx, &fid);
+        CHECK(fakeLive != NULL && fakeLive->threads == 3);
+        m6_ctx_free(ctx);
+    }
+    settings_defaults(&bad);
+    settings_from_text(&bad, "[debug]\ndepth_threads = 16\n", NULL);
+    CHECK(bad.depth_threads == DEPTH_THREADS_MAX);
+}
+
 // ---- states --------------------------------------------------------------------------------
 
 // 3D Eye Balance (native, lane wave3-visual): how the warp's per eye
@@ -835,6 +959,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(group, "states")) testStates();
     if (all || !strcmp(group, "eyebalance")) testEyeBalance();
     if (all || !strcmp(group, "budget")) testBudget();
+    if (all || !strcmp(group, "params")) testParams();
     vkDeviceWaitIdle(g.vk.device);
     for (int i = 0; i < VIDEOS; i++) m5_video_free(&tmp, &videos[i]);
     m5_image_free(&tmp, &target);

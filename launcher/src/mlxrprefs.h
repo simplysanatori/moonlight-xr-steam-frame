@@ -60,6 +60,15 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(int backgroundDim MEMBER backgroundDim NOTIFY changed)
     Q_PROPERTY(QString voidColor MEMBER voidColor NOTIFY changed)
     Q_PROPERTY(QString glowFeather MEMBER glowFeather NOTIFY changed)
+    // Native (lane wave5-depth, PLAN 5.1): [3d] edge_sharpness, the Edge setting, 0..100 (0, the
+    // default, is the soft edges the 3D always had)
+    Q_PROPERTY(int edgeSharpness MEMBER edgeSharpness NOTIFY changed)
+    // Native (lane wave5-depth, PLAN 5.4): [3d] motion_reset, percent 0..50 (0, the default, off)
+    Q_PROPERTY(int motionReset MEMBER motionReset NOTIFY changed)
+    // Native (lane wave5-depth, PLAN 5.6): [3d] depth_scale (upstream's depth scale) and depth_global,
+    // percent 0..200 (100, the default, the depth as the model makes it)
+    Q_PROPERTY(int depthScale MEMBER depthScale NOTIFY changed)
+    Q_PROPERTY(int depthGlobal MEMBER depthGlobal NOTIFY changed)
     Q_PROPERTY(bool flipFaceButtons MEMBER flipFaceButtons NOTIFY changed)   // [vr] flip_face_buttons
     // [vr] keyboard_keymap: what the headset keyboard's keys say, "qwerty" (default), "azerty" or "qwertz"
     Q_PROPERTY(QString keyboardKeymap MEMBER keyboardKeymap NOTIFY changed)
@@ -155,6 +164,10 @@ public:
     int backgroundDim = 0;
     QString voidColor = QStringLiteral("#000000");
     QString glowFeather = QStringLiteral("off");
+    int edgeSharpness = 0;
+    int motionReset = 0;
+    int depthScale = 100;
+    int depthGlobal = 100;
     bool flipFaceButtons;
     QString keyboardKeymap;
     QString notices;
@@ -183,6 +196,7 @@ private:
     int m_iniEyeBalance = 0, m_iniBackgroundDim = 0;
     QString m_iniVoidColor = QStringLiteral("#000000"), m_iniGlowFeather = QStringLiteral("off");
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
+    int m_iniEdgeSharpness = 0, m_iniMotionReset = 0, m_iniDepthScale = 100, m_iniDepthGlobal = 100;
     bool m_usbCable = false, m_usbScanned = false;
     QString m_iniKeymap = QStringLiteral("qwerty");
 };

@@ -714,7 +714,7 @@ void mlxr_pass_offset(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, c
     // Each eye's share of dispTexels, which was sized for the larger of the two
     float b = o->balance < -1.0f ? -1.0f : (o->balance > 1.0f ? 1.0f : o->balance);
     float top = 1.0f + (b < 0.0f ? -b : b);
-    float pc[4] = {o->dispTexels, o->convergence, (1.0f + b) / top, (1.0f - b) / top};
+    float pc[6] = {o->dispTexels, o->convergence, o->holeStretch, 0.0f, (1.0f + b) / top, (1.0f - b) / top};
     beginRender(p, cmd, t, 1, VK_NULL_HANDLE, t->clear);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
     pushVideoSet(p, cmd, layout, NULL, o->depth, VK_NULL_HANDLE, 1);
