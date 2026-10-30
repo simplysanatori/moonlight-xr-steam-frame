@@ -120,8 +120,81 @@ Looked at and left alone:
      own 4 reads. Magnified, it uses the 4 neighbouring texels and clamps to their range.
    - No overshoot at any placement.
    - The warp's CAS stays for the flat quad picture only.
-   - The default stays off (the owner's choice). It buys after-SteamVR sharpness (MTF50 +11 %, 3 px lines 0.19 to
-     0.26) for more crawl (1.58 to 2.29) and zone plate alias (8.8 to 13.0). The trade is for the owner's eye.
+   - It buys after-SteamVR sharpness (MTF50 +11 %, 3 px lines 0.19 to 0.26) for more crawl (1.58 to 2.29) and zone
+     plate alias (8.8 to 13.0). The default was off until the 1.1.0 headset run; it is now normal (next section).
+
+## Sharpen's brightness and colour, quality's shimmer (lane polish-3)
+
+The owner, after the 1.1.0 headset run: "Normal is good. Off darkens and seems more accurate colour-wise, but check
+to make sure I'm not tripping. Quality does have shimmering with white text on black."
+
+`ctest -R shaders_text` now also scores brightness and colour, each eye pixel against its ideal, over three kinds of
+text in the text desktop and over a second desktop of eight flat colour patches, a photo-like gradient with soft
+blobs of colour, and the same with fine (2 to 12 px) texture over it. Default placement:
+
+| Score | What |
+| --- | --- |
+| luma | mean encoded luma, out minus the ideal (the area average of the encoded desktop), /255 |
+| light | mean linear luminance against the area average of the desktop's light, % off |
+| chroma | chroma RMS from the encoded ideal, /255 |
+| sat | mean chroma magnitude over the ideal's (1: as saturated as the desktop) |
+| crawl, light text on dark | as crawl, over the light-on-dark text only and in light, /255 |
+
+Before (each channel sharpened on its own; quality clamped to the reads' full range):
+
+| | dark text on light: luma, light, chroma, sat | light text on dark | coloured text | photo-like texture |
+| --- | --- | --- | --- | --- |
+| Off | -0.01, -5.2 %, 5.30, 0.451 | -0.01, -25.0 %, 4.02, 0.535 | -0.22, -5.7 %, 3.49, 0.880 | +0.08, -1.1 %, 1.05, 0.998 |
+| Normal | -3.14, -5.2 %, 5.50, 0.546 | +2.11, -9.0 %, 4.32, 0.667 | -0.78, -5.3 %, 2.89, 0.946 | -0.35, -0.5 %, 1.08, 0.998 |
+| Quality | -5.26, -5.4 %, 5.72, 0.607 | +3.65, +1.5 %, 4.63, 0.747 | -1.12, -5.1 %, 3.39, 0.988 | -0.50, -0.1 %, 1.23, 0.998 |
+
+Flat patches and the smooth gradient: the same for all three to 0.1/255 and 0.2 %.
+
+What that says:
+- **Brightness.** On pictures Sharpen moves nothing. On text it makes strokes bolder: the clamp to the footprint's
+  range keeps the push on the stroke and cuts the halo the unsharp mask would put on the paper beside it (that halo is
+  the ringing the clamp is there to stop). Measured in light, which is what the eye adds up, Off is the one that is
+  off: the footprint filter averages encoded values, which loses a quarter of the light of thin bright strokes, and
+  Normal gives back two thirds of it. On dark text on light the light is the same with or without. So the owner's
+  "Off darkens" is real, on a dark theme, and it is Off that is darker than the desktop.
+- **Colour.** On pictures, none. On text, sharpening each channel on its own raised the saturation of ClearType's
+  fringes (0.45 to 0.55 of the ideal's) and of coloured text. That is the colour difference.
+- **Encoded or linear.** Sharpening in linear light instead: MTF50 0.412 against 0.393, light text on dark -13.8 %
+  against -9.0 %, crawl 2.75 against 2.29. No better, so it stays on encoded values.
+- **Quality's shimmer.** On a bright stroke the clamp holds a pixel at the brightest of its four reads, and that read
+  changes as the head moves. Quality's gain pulls many more pixels all the way up. Crawl on light text on dark, in
+  light: Off 0.28, Normal 0.47, Quality 0.61.
+
+The changes (`panel.frag sharpened`):
+- Sharpen works on luma alone and adds the one change to all three channels, held so that no channel clips. The colour
+  is the unsharpened picture's exactly.
+- Quality (gain 1.0) now reaches only half way to the footprint's darkest or brightest read where the reads span
+  more than 0.6 (eased in from 0.1); normal reaches all the way as before (`MlxrPanelParams.sharpenReach`).
+- The Display tab's Sharpen defaults to normal (the owner's pick).
+
+After, default placement:
+
+| | MTF50 | lines 3/4/6 | text | crawl, light text on dark in light | after SteamVR: MTF50 |
+| --- | --- | --- | --- | --- | --- |
+| Normal before | 0.393 0.380 | 0.55 0.77 1.00 | 14.1 | 2.29, 0.47 | 0.206 0.195 |
+| Normal after | 0.393 0.380 | 0.55 0.77 1.00 | 14.1 | 2.29, 0.47 | 0.206 0.195 |
+| Quality before | 0.496 0.476 | 0.63 0.86 1.12 | 20.8 | 2.80, 0.61 | 0.217 0.203 |
+| Quality after | 0.477 0.458 | 0.59 0.81 1.03 | 17.0 | 2.46, 0.50 | 0.215 0.201 |
+
+| | dark text on light: luma, light, chroma, sat | light text on dark | coloured text | photo-like texture |
+| --- | --- | --- | --- | --- |
+| Normal after | -3.22, -5.3 %, 5.30, 0.450 | +2.13, -9.1 %, 4.02, 0.532 | -1.17, -6.2 %, 3.49, 0.880 | -0.45, -0.7 %, 1.05, 0.998 |
+| Quality after | -3.88, -5.3 %, 5.30, 0.450 | +3.03, -3.1 %, 4.02, 0.532 | -1.36, -6.4 %, 3.49, 0.880 | -0.65, -0.4 %, 1.05, 0.998 |
+
+Normal is as sharp as before, its colour is now Off's, and its light is as before (nearer the desktop's than Off's).
+Quality is still about a fifth sharper than normal (MTF50 +21 %, 3 px lines 0.59 against 0.55) and shimmers on
+light text on dark about as much as normal does (0.50 against 0.47). Coloured text keeps Off's chroma error (3.49);
+per channel sharpening had brought it to 2.89 while making grey text's fringes worse, and the owner's eye preferred
+Off's colour. The test holds all of this (`text:` checks: colour within 0.15 and 0.03 of Off's, light no further from
+the ideal than Off's, quality at least 12 % sharper than normal with crawl on light text within 12 % of normal's).
+
+The flat picture's Sharpen (the warp's CAS) was measured too: no change on pictures, and on text it is near Off's
+(light text on dark -19.5 %, luma +0.01), as CAS barely touches text. It was left alone.
 
 ## Cost
 
@@ -149,12 +222,12 @@ Lavapipe's timings (report only, in the test output) rise in the same order.
 See the lane's final report, "Headset must confirm". In short:
 - With `MLXR_PICTURE_FILTER=0` and `MLXR_CHROMA_FROM_LUMA=0` in the shortcut's launch options, compare small text
   and coloured text against the new default.
-- Then try Sharpen normal.
+- Then try Sharpen off and quality against the default normal.
 
 ## Open risks
 
 - **SteamVR's resample** is a model. If SteamVR already sharpens or supersamples projection layers on the Frame,
-  Sharpen normal may look over-done; the default leaves it off.
+  Sharpen normal may look over-done; Off is one row away.
 - **Encoder chroma**: the chroma from luma fit assumes the host's chroma is a local average. An encoder that
   sharpens chroma, or another siting, makes the fit weaker, but never worse than the bilinear it falls back to by r².
 - **Field and resolution**: the eye's field is taken as 100 degrees square. The Frame's real field moves the

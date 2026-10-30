@@ -46,3 +46,13 @@ static inline int txs_period(int i) {
 // Fills rgb (TXS_W * TXS_H * 3 floats). Glyphs are Noto Sans from fontPath
 // through stb_truetype; 0 on success, -1 when the font cannot be read.
 int txs_build(float* rgb, const char* fontPath);
+
+// The tone desktop (lane polish-3: does Sharpen move brightness or colour?):
+// row 0 eight flat colour patches of 320 x 360, rows 1 and 2 a photo-like
+// smooth gradient with soft blobs of colour, row 3 the same with fine
+// photo-like texture over it (2 to 12 px detail)
+enum { TXS_TONE_FLAT, TXS_TONE_GRADIENT, TXS_TONE_TEXTURE, TXS_TONE_CLASSES };
+void txs_build_tone(float* rgb);
+// Which of the classes above a desktop position is in, -1 within margin of a
+// patch or band edge
+int txs_tone_class(float sx, float sy, float margin);

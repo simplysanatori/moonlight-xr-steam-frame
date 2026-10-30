@@ -2828,6 +2828,7 @@ typedef struct {
     int video;          // 0 three planes 4:2:0, 1 NV12, 2 three planes 4:4:4 (a bound)
     int everywhere;     // 1: at every placement; 0: the default placement only
     int crawl;          // 1: the crawl run too
+    float sharpenReach; // its reach over high contrast (0: all the way)
 } TxCfg;
 
 typedef struct {
@@ -3364,6 +3365,7 @@ static void txRecPanel(VkCommandBuffer cmd, void* u) {
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
     pp.pictureFilter = r->cfg->pictureFilter;
     pp.sharpen = r->cfg->sharpen;
+    pp.sharpenReach = r->cfg->sharpenReach;
     MlxrTarget t = r->eye.t;
     t.clear = 1;
     mlxr_pass_panel(P, cmd, &t, &pp);
@@ -3406,6 +3408,100 @@ static void txCrop(const char* name, const TxSurf* s, const uint8_t* eye) {
     free(c);
 }
 
+// ---- tone: does Sharpen move brightness or colour? (lane polish-3) ----
+// The owner, after the 1.1.0 headset run: Sharpen off "darkens and seems more
+// accurate colour-wise". Over regions of a desktop, each eye pixel against
+// its ideal, worked two ways: the area average of the gamma encoded desktop
+// (what every filter here averages) and the area average of its light
+// (decoded, what the eye sums); a desktop pixel is a uniform square.
+//   luma   mean encoded luma, out minus ideal, /255
+//   light  mean linear luminance, out over the light ideal, % off
+//   chroma chroma RMS from the encoded ideal, /255
+//   sat    mean chroma magnitude, out over ideal (1: no saturation change)
+typedef struct {
+    float luma, light, chroma, sat;
+} TxTone;
+
+static float txDecode(float v) {
+    return v <= 0.04045f ? v / 12.92f : powf((v + 0.055f) / 1.055f, 2.4f);
+}
+
+// cls(sx, sy) gives a pixel's class, 0..classes-1, or -1 to leave it out
+static void txTone(const TxSurf* s, const uint8_t* img, int (*cls)(float, float), int classes, TxTone* out) {
+    double n[8] = {0}, yo[8] = {0}, yi[8] = {0}, lo[8] = {0}, li[8] = {0}, csq[8] = {0}, mo[8] = {0}, mi[8] = {0};
+    int x0, y0, x1, y1;
+    txBox(s, &x0, &y0, &x1, &y1);
+    for (int y = y0; y < y1; y += 2)
+        for (int x = x0; x < x1; x += 2) {
+            float sx, sy;
+            if (!txMap(s, x + 0.5f, y + 0.5f, &sx, &sy)) continue;
+            int c = cls(sx, sy);
+            if (c < 0) continue;
+            float ie[3] = {0, 0, 0}, il[3] = {0, 0, 0}, o[3], ol[3];
+            for (int j = 0; j < 6; j++)
+                for (int i = 0; i < 6; i++) {
+                    float px, py;
+                    txMap(s, x + (i + 0.5f) / 6.0f, y + (j + 0.5f) / 6.0f, &px, &py);
+                    int X = (int)px, Y = (int)py;
+                    X = X < 0 ? 0 : X >= TXS_W ? TXS_W - 1 : X;
+                    Y = Y < 0 ? 0 : Y >= TXS_H ? TXS_H - 1 : Y;
+                    const float* p = txSrc + ((size_t)Y * TXS_W + X) * 3;
+                    for (int k = 0; k < 3; k++) {
+                        ie[k] += p[k] / 36.0f;
+                        il[k] += txDecode(p[k]) / 36.0f;
+                    }
+                }
+            for (int k = 0; k < 3; k++) {
+                o[k] = img[((size_t)y * TX_EYE + x) * 4 + k] / 255.0f;
+                ol[k] = txDecode(o[k]);
+            }
+            float cbo, cro, cbi, cri;
+            txChroma(o, &cbo, &cro);
+            txChroma(ie, &cbi, &cri);
+            n[c]++;
+            yo[c] += txLuma(o);
+            yi[c] += txLuma(ie);
+            lo[c] += txLuma(ol);
+            li[c] += txLuma(il);
+            csq[c] += (cbo - cbi) * (cbo - cbi) + (cro - cri) * (cro - cri);
+            mo[c] += sqrt(cbo * cbo + cro * cro);
+            mi[c] += sqrt(cbi * cbi + cri * cri);
+        }
+    for (int c = 0; c < classes; c++) {
+        double k = n[c] > 0 ? n[c] : 1;
+        out[c].luma = (float)(255.0 * (yo[c] - yi[c]) / k);
+        out[c].light = (float)(100.0 * (lo[c] / (li[c] > 0 ? li[c] : 1) - 1.0));
+        out[c].chroma = (float)(255.0 * sqrt(csq[c] / (2 * k)));
+        out[c].sat = (float)(mi[c] > 1e-9 ? mo[c] / mi[c] : 1.0);
+    }
+}
+
+enum { TXT_DARK_ON_LIGHT, TXT_LIGHT_ON_DARK, TXT_COLOURED, TXT_CLASSES };
+static const char* const TXT_CLASS_NAMES[TXT_CLASSES] = {"dark text on light", "light text on dark",
+                                                         "coloured text"};
+static const char* const TONE_CLASS_NAMES[TXS_TONE_CLASSES] = {"flat colour patches", "photo-like gradient",
+                                                               "photo-like texture"};
+
+static int txTextClass(float sx, float sy) {
+    int tile = (int)(sx / TXS_TILE_W) + 4 * (int)(sy / TXS_TILE_H);
+    float lx, ly;
+    if (tile < 0 || tile >= TXS_TILES || !txIn(tile, sx, sy, TX_MARGIN, &lx, &ly)) return -1;
+    if (tile == TXS_TEXT_WD || tile == TXS_TEXT_CT_WD) return TXT_LIGHT_ON_DARK;
+    if (tile == TXS_TEXT_CODE || tile == TXS_TEXT_RED) return TXT_COLOURED;
+    if (tile == TXS_TEXT_BW || tile == TXS_TEXT_CT || tile >= TXS_TEXT_BW2) return TXT_DARK_ON_LIGHT;
+    return -1;
+}
+
+static int txToneClass(float sx, float sy) {
+    return txs_tone_class(sx, sy, TX_MARGIN);
+}
+
+static void txTonePrint(const char* label, const char* const* names, int classes, const TxTone* t) {
+    for (int c = 0; c < classes; c++)
+        note("tone, %-30s %-20s luma %+5.2f  light %+5.1f%%  chroma %4.2f  sat %.3f", c == 0 ? label : "", names[c],
+             t[c].luma, t[c].light, t[c].chroma, t[c].sat);
+}
+
 static void testText(void) {
     txSrc = malloc(sizeof(float) * TXS_W * TXS_H * 3);
     if (txs_build(txSrc, MLXR_TEXT_FONT) != 0) {
@@ -3443,14 +3539,21 @@ static void testText(void) {
         [FILTER] = {"+ footprint filter", 0.0f, 1, 0.0f, 0, 0, 1, 1},
         [DEFAULT] = {"+ chroma from luma: new default", 0.0f, 1, 0.0f, 1, 0, 1, 1},
         [SHARP_N] = {"new, Sharpen normal (eye scale)", 0.0f, 1, 0.5f, 1, 0, 1, 1},
-        [SHARP_Q] = {"new, Sharpen quality (eye scale)", 0.0f, 1, 1.0f, 1, 0, 1, 0},
+        [SHARP_Q] = {"new, Sharpen quality (eye scale)", 0.0f, 1, 1.0f, 1, 0, 1, 1, 0.5f},
         [NV12] = {"new default, NV12 (lavapipe's)", 0.0f, 1, 0.0f, 1, 1, 0, 0},
         [BOUND] = {"new default, 4:4:4 frame (bound)", 0.0f, 1, 0.0f, 0, 2, 0, 0},
     };
     TxScore at[TX_GEOM_COUNT][ROWS][2];
-    float crawl[TX_GEOM_COUNT][ROWS + 1];
+    float crawl[TX_GEOM_COUNT][ROWS + 1], crawlDark[TX_GEOM_COUNT][ROWS + 1];
     memset(at, 0, sizeof(at));
     memset(crawl, 0, sizeof(crawl));
+    memset(crawlDark, 0, sizeof(crawlDark));
+    // Brightness and colour against the ideal (lane polish-3): Sharpen off,
+    // normal and quality, and the flat picture's Sharpen normal (the warp's CAS)
+    static const TxCfg flatCas = {"flat picture, Sharpen normal (CAS)", 0.4f, 1, 0.0f, 1, 0, 0, 0};
+    const TxCfg* toneCfgs[4] = {&cfgs[DEFAULT], &cfgs[SHARP_N], &cfgs[SHARP_Q], &flatCas};
+    const char* toneNames[4] = {"Sharpen off", "Sharpen normal", "Sharpen quality", "flat picture, CAS normal"};
+    TxTone toneText[4][TXT_CLASSES], tonePhoto[4][TXS_TONE_CLASSES];
     note("three plane video (chroma left sited, midway between rows: the Frame's NV12 conversion; lavapipe's NV12 "
          "conversion offers only cosited rows); eye %dx%d, field 100 degrees; ideal = the area average of the desktop "
          "under each eye pixel",
@@ -3480,7 +3583,15 @@ static void testText(void) {
                 char name[64];
                 snprintf(name, sizeof(name), "text_eye_row%d", k);
                 txCrop(name, &r.surf, eye);
+                for (int t = 0; t < 3; t++)
+                    if (toneCfgs[t] == &cfgs[k]) txTone(&r.surf, eye, txTextClass, TXT_CLASSES, toneText[t]);
             }
+        }
+        if (g == 0) {
+            r.cfg = &flatCas;
+            txRender(&r, eye);
+            txTone(&r.surf, eye, txTextClass, TXT_CLASSES, toneText[3]);
+            for (int t = 0; t < 4; t++) txTonePrint(toneNames[t], TXT_CLASS_NAMES, TXT_CLASSES, toneText[t]);
         }
         // Crawl: the screen moved one eye pixel sideways (1.79 desktop
         // pixels at the default placement, so the desktop lands on the eye's
@@ -3503,8 +3614,8 @@ static void testText(void) {
                 txMvp(&ms, rp.mvp);
                 txRender(&rp, moved);
             }
-            double sq = 0;
-            long n = 0;
+            double sq = 0, sqDark = 0;
+            long n = 0, nDark = 0;
             for (int y = k0.y0; y < k0.y0 + k0.h; y++)
                 for (int x = k0.x0; x + 1 < k0.x0 + k0.w; x++) {
                     size_t ki = (size_t)(y - k0.y0) * k0.w + (x - k0.x0);
@@ -3513,7 +3624,7 @@ static void testText(void) {
                     int tile = (int)(sx / TXS_TILE_W) + 4 * (int)(sy / TXS_TILE_H);
                     if (tile < 0 || tile >= TXS_TILES || !txTextTile(tile) || !txIn(tile, sx, sy, TX_MARGIN, &lx, &ly))
                         continue;
-                    float l0, l1;
+                    float l0, l1, d0[3], d1[3];
                     if (k < 0) {
                         int mx = x + 1 - km.x0, my = y - km.y0;
                         if (mx < 0 || my < 0 || mx >= km.w || my >= km.h) continue;
@@ -3521,6 +3632,10 @@ static void testText(void) {
                         if (isnan(i1[0]) || isnan(k0.ideal[ki * 3])) continue;
                         l0 = txLuma(&k0.ideal[ki * 3]);
                         l1 = txLuma(i1);
+                        for (int c = 0; c < 3; c++) {
+                            d0[c] = txDecode(k0.ideal[ki * 3 + c]);
+                            d1[c] = txDecode(i1[c]);
+                        }
                     } else {
                         const uint8_t* p0 = eye + ((size_t)y * TX_EYE + x) * 4;
                         const uint8_t* p1 = moved + ((size_t)y * TX_EYE + x + 1) * 4;
@@ -3528,16 +3643,49 @@ static void testText(void) {
                         float c1[3] = {p1[0] / 255.0f, p1[1] / 255.0f, p1[2] / 255.0f};
                         l0 = txLuma(c0);
                         l1 = txLuma(c1);
+                        for (int c = 0; c < 3; c++) {
+                            d0[c] = txDecode(c0[c]);
+                            d1[c] = txDecode(c1[c]);
+                        }
                     }
                     sq += (l1 - l0) * (l1 - l0);
                     n++;
+                    if (tile == TXS_TEXT_WD || tile == TXS_TEXT_CT_WD) {
+                        // in light: a bright stroke's flicker is what shows
+                        float dl = txLuma(d1) - txLuma(d0);
+                        sqDark += dl * dl;
+                        nDark++;
+                    }
                 }
             crawl[g][k + 1] = (float)(255.0 * sqrt(sq / (n ? n : 1)));
-            note("crawl, %-34s %5.2f", k < 0 ? "ideal" : cfgs[k].name, crawl[g][k + 1]);
+            crawlDark[g][k + 1] = (float)(255.0 * sqrt(sqDark / (nDark ? nDark : 1)));
+            note("crawl, %-34s %5.2f  light text on dark, in light %5.2f", k < 0 ? "ideal" : cfgs[k].name, crawl[g][k + 1],
+                 crawlDark[g][k + 1]);
         }
         txCacheFree(&km);
         txCacheFree(&k0);
         txCacheFree(&kc);
+    }
+    // The tone desktop: flat patches, a photo-like gradient and texture, at
+    // the default placement
+    {
+        txs_build_tone(txSrc);
+        videoFree(&vd);
+        check(txVideo(&vd) == 0, "text: the tone frame uploads");
+        r.surf = txSurf(&TX_GEOMS[0]);
+        txMvp(&r.surf, r.mvp);
+        note("");
+        for (int t = 0; t < 4; t++) {
+            r.cfg = toneCfgs[t];
+            txRender(&r, eye);
+            txTone(&r.surf, eye, txToneClass, TXS_TONE_CLASSES, tonePhoto[t]);
+            txTonePrint(toneNames[t], TONE_CLASS_NAMES, TXS_TONE_CLASSES, tonePhoto[t]);
+            if (t < 3) {
+                char name[64];
+                snprintf(name, sizeof(name), "text_tone%d", t);
+                txCrop(name, &r.surf, eye);
+            }
+        }
     }
     // GPU time on this device (report only: lavapipe's says nothing about the
     // Frame's; docs/dev/reports/text-clarity.md has the estimate)
@@ -3620,6 +3768,49 @@ static void testText(void) {
                       "text: %s after the compositor MTF50 %.3f, unsharpened %.3f", cfgs[k].name, at[0][k][1].mtf50[e],
                       at[0][DEFAULT][1].mtf50[e]);
         }
+    }
+    // Sharpen keeps the picture's colour and brightness (lane polish-3). Its
+    // colour is the unsharpened picture's (it works on luma alone); on flat
+    // colour and photo-like pictures it moves neither; on text its light is
+    // no further from the ideal's than the unsharpened picture's (it makes
+    // strokes bolder in encoded values, which gives back light the footprint
+    // average took from thin bright strokes)
+    {
+        for (int t = 1; t < 3; t++) {
+            for (int c = 0; c < TXT_CLASSES; c++) {
+                check(fabsf(toneText[t][c].chroma - toneText[0][c].chroma) <= 0.15f &&
+                          fabsf(toneText[t][c].sat - toneText[0][c].sat) <= 0.03f,
+                      "text: %s keeps the colour of %s (chroma %.2f sat %.3f, off %.2f %.3f)", toneNames[t],
+                      TXT_CLASS_NAMES[c], toneText[t][c].chroma, toneText[t][c].sat, toneText[0][c].chroma,
+                      toneText[0][c].sat);
+                check(fabsf(toneText[t][c].light) <= fabsf(toneText[0][c].light) + 1.0f,
+                      "text: %s, %s light %+.1f%% from the ideal, off %+.1f%%", toneNames[t], TXT_CLASS_NAMES[c],
+                      toneText[t][c].light, toneText[0][c].light);
+            }
+            for (int c = 0; c < TXS_TONE_CLASSES; c++)
+                check(fabsf(tonePhoto[t][c].luma - tonePhoto[0][c].luma) <= 0.75f &&
+                          fabsf(tonePhoto[t][c].light - tonePhoto[0][c].light) <= 1.0f &&
+                          fabsf(tonePhoto[t][c].chroma - tonePhoto[0][c].chroma) <= 0.15f &&
+                          fabsf(tonePhoto[t][c].sat - tonePhoto[0][c].sat) <= 0.01f,
+                      "text: %s on %s: luma %+.2f light %+.1f%% chroma %.2f sat %.3f, off %+.2f %+.1f%% %.2f %.3f",
+                      toneNames[t], TONE_CLASS_NAMES[c], tonePhoto[t][c].luma, tonePhoto[t][c].light,
+                      tonePhoto[t][c].chroma, tonePhoto[t][c].sat, tonePhoto[0][c].luma, tonePhoto[0][c].light,
+                      tonePhoto[0][c].chroma, tonePhoto[0][c].sat);
+        }
+        // Quality: visibly sharper than normal, without shimmering much more
+        // than normal on light text on dark
+        const TxScore* n0 = &at[0][SHARP_N][0];
+        const TxScore* q0 = &at[0][SHARP_Q][0];
+        for (int e = 0; e < 2; e++)
+            check(q0->mtf50[e] >= 1.12f * n0->mtf50[e], "text: quality MTF50 %.3f, normal %.3f", q0->mtf50[e],
+                  n0->mtf50[e]);
+        check(q0->lines[0] >= n0->lines[0] + 0.01f, "text: quality 3 px lines %.2f, normal %.2f", q0->lines[0],
+              n0->lines[0]);
+        check(crawlDark[0][SHARP_Q + 1] <= 1.12f * crawlDark[0][SHARP_N + 1],
+              "text: quality's crawl on light text on dark %.2f, normal %.2f", crawlDark[0][SHARP_Q + 1],
+              crawlDark[0][SHARP_N + 1]);
+        check(crawl[0][SHARP_Q + 1] <= crawl[0][SHARP_N + 1] + 0.3f, "text: quality's crawl %.2f, normal %.2f",
+              crawl[0][SHARP_Q + 1], crawl[0][SHARP_N + 1]);
     }
     free(moved);
     free(eye);
