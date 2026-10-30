@@ -185,6 +185,33 @@ Flickable {
         return scrollSpeedSteps[0]
     }
 
+    // [3d] edge_sharpness: the steps the Edge row goes through (0 is the 3D's own soft edges)
+    readonly property var edgeSteps: [0, 25, 50, 75, 100]
+    function nextEdge() {
+        for (var i = 0; i < edgeSteps.length; i++) {
+            if (edgeSteps[i] > MlxrPrefs.edgeSharpness) return edgeSteps[i]
+        }
+        return edgeSteps[0]
+    }
+
+    // [3d] motion_reset: the steps the Motion row goes through (0 is off)
+    readonly property var motionSteps: [0, 5, 10, 20, 30]
+    function nextMotion() {
+        for (var i = 0; i < motionSteps.length; i++) {
+            if (motionSteps[i] > MlxrPrefs.motionReset) return motionSteps[i]
+        }
+        return motionSteps[0]
+    }
+
+    // [3d] depth_scale and depth_global: the steps their rows go through, percent (100 is as made)
+    readonly property var depthSteps: [50, 75, 100, 125, 150, 200]
+    function nextDepthStep(v) {
+        for (var i = 0; i < depthSteps.length; i++) {
+            if (depthSteps[i] > v) return depthSteps[i]
+        }
+        return depthSteps[0]
+    }
+
     // [vr] controller_model: which controller the headset draws in each hand
     readonly property var modelValues: ["off", "frame", "generic", "gun", "custom"]
     readonly property var modelNames: [qsTr("Off"), qsTr("Steam Frame controller"), qsTr("Generic controller"), qsTr("Gun"), qsTr("Your own model")]
@@ -692,6 +719,48 @@ Flickable {
             to: 100
             value: MlxrPrefs.convergence
             onMoved: function(v) { MlxrPrefs.convergence = Math.round(v); MlxrPrefs.convergenceIsDefault = false }
+        }
+
+        // Native (lane wave5-depth): how closely the depth keeps to the edges in the picture. Pressing the
+        // row steps 0, 25, 50, 75, 100 ([3d] edge_sharpness of the VR client's config.ini)
+        PrefRow {
+            objectName: "edgeRow"
+            title: qsTr("3D Edge Sharpness")
+            valueText: MlxrPrefs.edgeSharpness === 0 ? qsTr("0 (soft, the default)") : ("" + MlxrPrefs.edgeSharpness)
+            summary: qsTr("Higher keeps hair, outlines and thin text on their own depth instead of blending them into what is behind. Too high can make edges look cut out.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            onClicked: if (enabled) MlxrPrefs.edgeSharpness = settingsPage.nextEdge()
+        }
+
+        // Native (lane wave5-depth): the depth's smoothing over time restarts where the picture moved, so a
+        // fast edge leaves no trail. Pressing the row steps Off, 5, 10, 20, 30 percent ([3d] motion_reset)
+        PrefRow {
+            objectName: "motionRow"
+            title: qsTr("3D Motion Reset")
+            valueText: MlxrPrefs.motionReset === 0 ? qsTr("Off (the default)") : (MlxrPrefs.motionReset + "%")
+            summary: qsTr("For fast scenes: where the picture changes by more than this between two depth maps, the 3D stops smoothing the old depth into the new there, so moving edges leave no trail. Lower reacts to smaller changes; too low brings back flicker.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            onClicked: if (enabled) MlxrPrefs.motionReset = settingsPage.nextMotion()
+        }
+
+        // Native (lane wave5-depth): upstream's depth scale, and the overall shape's gain beside it. Pressing a
+        // row steps 50, 75, 100, 125, 150, 200 percent ([3d] depth_scale, depth_global)
+        PrefRow {
+            objectName: "depthScaleRow"
+            title: qsTr("3D Depth Detail")
+            valueText: MlxrPrefs.depthScale + "%" + (MlxrPrefs.depthScale === 100 ? " " + qsTr("(as the model makes it)") : "")
+            summary: qsTr("The depth between things near each other, like a face in front of a wall. Higher makes them stand apart more, without pushing the whole picture further in or out.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            onClicked: if (enabled) MlxrPrefs.depthScale = settingsPage.nextDepthStep(MlxrPrefs.depthScale)
+        }
+
+        PrefRow {
+            objectName: "depthGlobalRow"
+            title: qsTr("3D Depth Shape")
+            valueText: MlxrPrefs.depthGlobal + "%" + (MlxrPrefs.depthGlobal === 100 ? " " + qsTr("(as the model makes it)") : "")
+            summary: qsTr("The depth of the picture as a whole, from the near ground to the far sky. Lower flattens it toward the screen, which is easier on the eyes, while Depth Detail keeps things standing apart.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            onClicked: if (enabled) MlxrPrefs.depthGlobal = settingsPage.nextDepthStep(MlxrPrefs.depthGlobal)
         }
 
         PrefSwitch {
