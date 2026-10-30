@@ -16,6 +16,7 @@
 #                  branding art in assets/branding)
 #
 # Environment: DEST (default ~/Games/MoonlightXRNative/app), NO_SHORTCUT=1,
+# MLXR_INSTALL_LOG (default ~/Games/MoonlightXRNative/install.log),
 # BUILD (source tree only, default <repo>/build), MLXR_CONFIG_DIR,
 # MLXR_FRAME_RENDERMODELS (where SteamVR keeps the Frame controller models,
 # default /opt/steamvr/drivers/frame_controller/resources/rendermodels).
@@ -25,10 +26,38 @@
 # part of a release or of git; without SteamVR or GdkPixbuf the client keeps
 # drawing its generic controller and the install carries on.
 #
+# It never asks a question and never reads the terminal, so another program (the community installers
+# Frametanium and FrameDrop) can run it with no terminal and without Steam running. Everything it prints is
+# also appended to the log file. When Steam cannot be reached it installs the files, says that the Steam
+# shortcut was skipped and exits 0; run it again with Steam up to add the shortcut. The last two lines of the
+# output are the summary (some callers show only those).
+#
 # Runs from a source checkout (binaries from the build directory) or from an
 # unpacked release (binaries in app/ next to this script); it tells which.
 set -euo pipefail
-HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+SELF="$(readlink -f "$0")"
+HERE="$(cd "$(dirname "$SELF")" && pwd)"
+# Log file: run again as a child with stdout and stderr copied into it. The pipe makes this wait for the copy,
+# so the last lines are in the caller's output and in the log before this exits. With no writable log the
+# install goes on without one.
+LOG="${MLXR_INSTALL_LOG:-$HOME/Games/MoonlightXRNative/install.log}"
+if [ -z "${MLXR_INSTALL_INNER:-}" ]; then
+    case " $* " in *" -h "*|*" --help "*) ;; *)
+        if mkdir -p "$(dirname "$LOG")" 2>/dev/null \
+           && { [ ! -f "$LOG" ] || [ "$(stat -c %s "$LOG" 2>/dev/null || echo 0)" -lt 1048576 ] || mv -f "$LOG" "$LOG.1"; } \
+           && : >> "$LOG" 2>/dev/null; then
+            set +e
+            MLXR_INSTALL_INNER=1 MLXR_INSTALL_TTY="$([ -t 0 ] && echo yes || echo none)" bash "$SELF" "$@" 2>&1 </dev/null | tee -a "$LOG"
+            rc=${PIPESTATUS[0]}
+            exit "$rc"
+        fi
+        echo "log file $LOG is not writable: installing without one" ;;
+    esac
+fi
+exec </dev/null   # nothing below asks anything; a closed or missing terminal changes nothing
+if [ -n "${MLXR_INSTALL_INNER:-}" ]; then
+    echo "== $(date '+%Y-%m-%d %H:%M:%S') install.sh $* (user $(id -un), terminal: ${MLXR_INSTALL_TTY:-none}, log: $LOG)"
+fi
 DEST="${DEST:-$HOME/Games/MoonlightXRNative/app}"
 NAME="Moonlight XR for Frame"
 OLDNAME="Moonlight XR Native"   # the shortcut's name until it was renamed; it is renamed in place
@@ -70,6 +99,14 @@ fi
 [ -x "$CLI" ] || { echo "no mlxr-cli binary at $CLI (run ./build.sh first)"; exit 1; }
 [ -d "$ASSETS" ] || { echo "no assets directory at $ASSETS"; exit 1; }
 echo "installing ($MODE) to $DEST"
+# The last two lines of every successful run: what was installed and what happened to the Steam shortcut.
+finish() {   # finish <shortcut status>
+    local v; v="$(cat "$DEST/VERSION" 2>/dev/null | head -n 1 | cut -d' ' -f1)"
+    echo "$NAME ${v:+$v }installed."
+    echo "$1"
+    exit 0
+}
+tilde() { printf '%s' "${1/#$HOME/\~}"; }
 
 mkdir -p "$DEST"
 if [ "$(readlink -f "$DEST")" = "$(readlink -f "$(dirname "$MAIN")")" ] && [ "$MODE" = release ]; then
@@ -143,7 +180,7 @@ elif [ ! -f "$CFG/client.pem" ]; then
     echo "pairing: no client identity in $CFG yet; run with --seed to import from Moonlight Qt, or: $DEST/mlxr-cli pair <host address>"
 fi
 
-if [ "$NOSC" = 1 ]; then echo "Steam shortcut: skipped (NO_SHORTCUT)"; exit 0; fi
+if [ "$NOSC" = 1 ]; then echo "Steam shortcut: skipped (NO_SHORTCUT)"; finish "Steam shortcut skipped (asked for)."; fi
 if [ ! -f "$CEFPY" ]; then echo "Steam shortcut: $CEFPY missing"; exit 1; fi
 
 CEF="python3 -I $CEFPY"
@@ -154,7 +191,7 @@ CEF="python3 -I $CEFPY"
 dock_icon() {
     local py="$HERE/dock_icon.py"
     [ -f "$py" ] || { echo "dock icon: $py missing, skipped"; return 0; }
-    python3 -I "$py" install "$DEST" "$@" || echo "dock icon: failed (see above); the rest of the install is done"
+    python3 -I "$py" install "$DEST" "$@" || echo "dock icon: not set up yet (see above); the rest of the install is done"
 }
 # The shortcut opens the flat Moonlight UI when it is installed (VR_ONLY=1:
 # straight into the VR client's own PC and app lists instead)
@@ -194,9 +231,9 @@ if ! APPID=$($CEF "(async()=>{
   SteamClient.Apps.SetShortcutLaunchOptions(id, '');
   return id;
 })()"); then
-    echo "Steam shortcut: NOT added (is Steam running?). The files are installed; run this script again with Steam up."
+    echo "Steam shortcut: SKIPPED, Steam could not be reached (is Steam running?). The files are installed."
     dock_icon
-    exit 0
+    finish "Steam shortcut skipped (Steam not reachable): start Steam, then run $(tilde "$SELF") again."
 fi
 echo "Steam shortcut \"$NAME\" appid $APPID"
 # Steam's game resolution for the flat window, 1080p (the owner found 1440p too small to read; gamescope's own default is 1280x720
@@ -265,3 +302,4 @@ print("(async()=>{ await SteamClient.Apps.SetCustomArtworkForApp(%s, %r, %r, %s)
 fi
 
 dock_icon --appid "$APPID"
+finish "Steam shortcut ready (appid $APPID). Log: $(tilde "$LOG")"

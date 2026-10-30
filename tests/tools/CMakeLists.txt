@@ -4,6 +4,12 @@ add_test(NAME tools_bug_report COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_bug_repo
 add_test(NAME tools_privacy_check COMMAND ${PROJECT_SOURCE_DIR}/tools/privacy-check.sh)
 set_tests_properties(tools_bug_report tools_privacy_check PROPERTIES TIMEOUT 120)
 
+# tools/release.sh: the .tar.gz and the .zip (for Frametanium and FrameDrop) hold the same entries with the
+# same modes, both pass the privacy check, and install.sh from the unpacked zip works with no terminal and no
+# Steam. Binaries are copies of /bin/true, so no build is needed.
+add_test(NAME tools_release_archives COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_release_archives.sh)
+set_tests_properties(tools_release_archives PROPERTIES TIMEOUT 300)
+
 # tools/xr/make_model.py (glTF/GLB/OBJ to the client's MXFM model format) on tiny generated models,
 # read back with a Python mirror of rooms/room_gpu.c's reader. Plain python3, no GdkPixbuf.
 find_package(Python3 COMPONENTS Interpreter)
