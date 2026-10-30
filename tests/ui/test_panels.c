@@ -185,6 +185,19 @@ static void test_cog_rows_present(void) {
         CHECK(i >= 0 && hits.hit[i].enabled);
     }
     CHECK(ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SOURCE, COG_SOURCE_CELLS) < 0);
+    // native (lane wave3-tidy): the depth model's five tracks (Edge, Depth
+    // detail, Depth shape, Motion reset, Eye balance), live with the depth
+    // model as the source
+    CHECK(COG_ROW3D_COUNT == 10);
+    for (int row = COG_ROW3D_EDGE; row < COG_ROW3D_COUNT; row++) {
+        CHECK(ui_cog_row_is_track(COG_TAB_3D, row));
+        CHECK(ui_cog_row_live(&v, COG_TAB_3D, row));
+        int i = ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1);
+        CHECK(i >= 0 && hits.hit[i].enabled);
+        CHECK(ui_hits_find(&hits, UI_HIT_TRACK_DOWN, row, 0) >= 0);
+        CHECK(ui_hits_find(&hits, UI_HIT_TRACK_UP, row, 0) >= 0);
+        if (i >= 0) CHECK_NEAR((hits.hit[i].v0 + hits.hit[i].v1) * 0.5f, cogRowV(COG_TAB_3D, row), 1e-5);
+    }
     {
         // the PC's pair: the preset and depth rows greyed, convergence, the
         // switch and the source live, and the panel not the Depth one
@@ -211,7 +224,12 @@ static void test_cog_rows_present(void) {
             CHECK(i >= 0 && hits.hit[i].enabled);
         }
         for (int row = 0; row < COG_ROW3D_COUNT; row++) {
-            CHECK(ui_cog_row_live(&vs, COG_TAB_3D, row) == (row != COG_ROW3D_PRESET && row != COG_ROW3D_SEPARATION));
+            // the preset, the depth track and the five depth-model tracks have nothing to set
+            CHECK(ui_cog_row_live(&vs, COG_TAB_3D, row) == (row == COG_ROW3D_CONVERGENCE || row == COG_ROW3D_SWITCH || row == COG_ROW3D_SOURCE));
+        }
+        for (int row = COG_ROW3D_EDGE; row < COG_ROW3D_COUNT; row++) {
+            i = ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1);
+            CHECK(i >= 0 && !hits.hit[i].enabled);
         }
         free(gs.base);
         // the model off and Depth chosen: only the source row is live
@@ -770,6 +788,8 @@ static void test_rows_read_settings(void) {
         { COG_TAB_SCREEN, "head_aim_sensitivity", 20 }, { COG_TAB_SCREEN, "head_aim_deadzone", 12 },
         { COG_TAB_SCREEN, "per_app", 0 }, { COG_TAB_SCREEN, "angular_lock", 0 },
         { COG_TAB_3D, "separation", 12 }, { COG_TAB_3D, "convergence", 20 },
+        { COG_TAB_3D, "edge_sharpness", 50 }, { COG_TAB_3D, "depth_scale", 150 }, { COG_TAB_3D, "depth_global", 60 },
+        { COG_TAB_3D, "motion_reset", 10 }, { COG_TAB_3D, "eye_balance", -40 },
         { COG_TAB_PICTURE, "picture_brightness", 20 }, { COG_TAB_PICTURE, "picture_contrast", 80 },
         { COG_TAB_PICTURE, "picture_gamma", 150 }, { COG_TAB_PICTURE, "picture_saturation", 20 },
     };

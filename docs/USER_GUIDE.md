@@ -410,7 +410,7 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 
 Each eye sees a little more of what is behind a person or an object on one side: the left eye on the left, the right eye on the right. Earlier versions filled that sliver by stretching the person's own edge across it, which showed as a fuzzy, furry outline in one eye only, most of all on hair or a dark outline against a bright sky or page. That gap is now filled from the background beside it, so the edge is as sharp in both eyes. This is on by default; `MLXR_HOLE_FILL=0` brings back the old look.
 
-These four are on the flat window's Settings page and in `config.ini` (`[3d]`). They are not on the headset's 3D tab yet.
+These four are on the flat window's Settings page, in `config.ini` (`[3d]`) and on the headset's 3D tab (Edge, Depth detail, Depth shape, Motion reset, under the 3D source row; they move the picture as you drag them, and are greyed while the 3D source is SBS or Top-bottom, since the PC then draws the pair). On the tab Edge steps by 25, Depth detail and Depth shape by 10 and Motion reset by 5.
 
 | Setting | Key | Values | What it does |
 | --- | --- | --- | --- |
@@ -679,7 +679,7 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
 | `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
 | `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |
-| `[3d] eye_balance` | -100 to 100 | 0. 3D Eye Balance: how the 3D's shift is shared by the two eyes. 0 shifts each eye by the same amount in opposite directions. +100 puts all of it in the left eye and leaves the right eye's picture as streamed, -100 the other way round, and in between the left eye takes (100 + n) / 2 percent of the total and the right eye (100 - n) / 2. The total difference between the eyes, so the depth you see, is the same at every setting. Useful with a dominant eye. The 3D tab has no row for it yet; the launcher's Settings page has **3D eye balance**, which steps -100, -50, 0, 50, 100. |
+| `[3d] eye_balance` | -100 to 100 | 0. 3D Eye Balance: how the 3D's shift is shared by the two eyes. 0 shifts each eye by the same amount in opposite directions. +100 puts all of it in the left eye and leaves the right eye's picture as streamed, -100 the other way round, and in between the left eye takes (100 + n) / 2 percent of the total and the right eye (100 - n) / 2. The total difference between the eyes, so the depth you see, is the same at every setting. Useful with a dominant eye. The 3D tab's **Eye balance** row moves it in steps of 10 (greyed with SBS or Top-bottom); the launcher's Settings page has **3D eye balance**, which steps -100, -50, 0, 50, 100. |
 | `[vr] scroll_speed` | 25 to 400 (%) | 100, which is 7.5 notches a second with the thumbstick pushed all the way. The flat window's Settings page has it too. |
 | `[vr] click_steadiness` | `off`, `normal`, `steady` | `normal`. The Display tab's Click steadiness row. |
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |
