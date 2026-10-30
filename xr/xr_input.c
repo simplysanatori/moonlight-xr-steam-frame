@@ -3987,6 +3987,9 @@ static void bindAppCommand(XrCtx* ctx, int code, float* out) {
                 LOGI("bring here from a binding: nothing moved (a room, head locked, or no head pose yet)");
             }
             break;
+        case XR_BIND_APP_ZOOMIN: xrZoomStep(ctx, 1); break;
+        case XR_BIND_APP_ZOOMOUT: xrZoomStep(ctx, -1); break;
+        case XR_BIND_APP_ZOOMRESET: xrZoomStep(ctx, 0); break;
         case XR_BIND_APP_HOST:
             if (ctx->hostOpen) {
                 xrHostClose(ctx);
