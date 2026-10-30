@@ -109,6 +109,12 @@ class MlxrPrefs : public QObject
     // Native (lane wave1-burst): [stream] rfi_idr_ms, at most one full-frame (IDR) request of the headset's
     // own per this many ms after lost video (0 no limit, default 500, 0..5000)
     Q_PROPERTY(int rfiIdrMs MEMBER rfiIdrMs NOTIFY changed)
+    // Native (lane wave1-failover): [stream] failover ("off" default, "on"): when the video keeps losing packets on
+    // the link a stream started on, move it to another link that measured clearly better at its start; and
+    // [stream] failover_burst_ms, how many ms of loss within 10 s make it leave (500..9000, default 3000). The
+    // headset reads both while the stream runs
+    Q_PROPERTY(bool pathFailover MEMBER pathFailover NOTIFY changed)
+    Q_PROPERTY(int failoverBurstMs MEMBER failoverBurstMs NOTIFY changed)
     // Native (lane wave2b-padmouse): physical gamepads in the headset. [vr] pad_mouse_chord: what turns a pad
     // into the PC's mouse, "start_hold" (default), "start_back" or "off"; [vr] pad_mouse_scroll: the stick that
     // scrolls then, "right" (default), "left" or "none"; [vr] pad_arbitration: what a used pad does to the
@@ -261,6 +267,8 @@ public:
     int idleDisconnect = 0;
     int bitrateWifi = 0, bitrateAdapter = 0, bitrateWired = 0, bitrateUsb = 0;
     int rfiIdrMs = 500;
+    bool pathFailover = false;      // Native (lane wave1-failover)
+    int failoverBurstMs = 3000;
     QString padMouseChord;
     QString padMouseScroll;
     QString padArbitration;
@@ -294,6 +302,8 @@ private:
     int m_iniDoff = 60, m_iniIdle = 0;
     int m_iniBitrateWifi = 0, m_iniBitrateAdapter = 0, m_iniBitrateWired = 0, m_iniBitrateUsb = 0;
     int m_iniRfiIdr = 500;
+    bool m_iniFailover = false;     // Native (lane wave1-failover)
+    int m_iniFailoverBurst = 3000;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
     QString m_iniPadCard = "auto";
     bool m_iniFirstRunShown = false;
