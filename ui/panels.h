@@ -130,6 +130,7 @@ typedef struct {
     int env_selected;            // ENV_CELL_* ringed on the picker, or -1
     int bar_show_aim;            // head aim button on the bar (screen head locked, outside a room)
     int bar_show_stereo;         // 3D button on the bar (3D mode not off)
+    int stereo_source;           // native (PLAN 4.3): the 3D source in force, STEREO_SOURCE_*
     UiHover hover;
     int kb_sheet;                // KB_STATE_*
     int kb_mods;                 // KB_MOD_* lit

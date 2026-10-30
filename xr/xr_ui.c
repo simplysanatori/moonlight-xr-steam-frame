@@ -10,6 +10,7 @@
 #include "xr_renderer.h"
 #include "xr_native.h"
 #include "xr_keyboard.h"
+#include "xr_depth.h"
 
 // Whether the panels hang against the stand in screen rather than the
 // picture, which they do whenever a room is up. The picker, the settings
@@ -634,7 +635,8 @@ int cogRowCells(int face, int row) {
         return COG_ROOM_SWITCH_CELLS;
     }
     if (face == COG_TAB_3D) {
-        return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS : COG_STEREO_CELLS;
+        return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS
+                : row == COG_ROW3D_SOURCE ? COG_SOURCE_CELLS : COG_STEREO_CELLS;
     }
     return cogOptionCells(row);
 }
@@ -659,9 +661,11 @@ int cogRowLive(XrCtx* ctx, int face, int row) {
     if (face == COG_TAB_DISPLAY && row == COG_OPTION_HEAD_AIM) {
         return headAimCanAct(ctx);
     }
-    // With stereo off there is nothing for any 3D row to move or switch
+    // With stereo off there is nothing for any 3D row to move or switch.
+    // Native (PLAN 4.3): but the 3D source row, which can bring it; and a
+    // pair the PC drew has no depth for the preset and depth rows to set.
     if (face == COG_TAB_3D) {
-        return ctx->stereoMode != DEPTH_MODE_OFF;
+        return cog3dRowLive(ctx->stereoMode != DEPTH_MODE_OFF, ctx->stereoSource, row);
     }
     // A room built around its picture keeps it at the whole of its anchor
     if (face == COG_FACE_ROOM && row == COG_ROOM_ROW_SIZE) {
@@ -1160,6 +1164,9 @@ int cogCellInForce(XrCtx* ctx, int face, int row) {
     if (face == COG_TAB_3D && row == COG_ROW3D_SWITCH) {
         return ctx->stereoLive ? 1 : 0;
     }
+    if (face == COG_TAB_3D && row == COG_ROW3D_SOURCE) {
+        return ctx->stereoSource;
+    }
     return -1;
 }
 
@@ -1173,6 +1180,15 @@ static void cogApply3dCell(XrCtx* ctx, int row, int cell, float* out) {
     };
     if (row == COG_ROW3D_SWITCH) {
         setStereoLive(ctx, cell != 0, "the 3D tab");
+        return;
+    }
+    // Native (PLAN 4.3): where the 3D comes from, at once, and stored
+    if (row == COG_ROW3D_SOURCE) {
+        if (cell >= 0 && cell < COG_SOURCE_CELLS) {
+            xrDepthSetSource(ctx, cell);
+            out[IN_SETTING] = (float)SETTING_STEREO_SOURCE;
+            out[IN_SETTING_VALUE] = (float)cell;
+        }
         return;
     }
     if (row != COG_ROW3D_PRESET || cell < 0 || cell >= COG_PRESET_CELLS) {

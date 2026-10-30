@@ -287,6 +287,10 @@ void MlxrPrefs::load()
     const int conv = iniValue(ini, "3d", "convergence", "-1").toInt();
     convergenceIsDefault = conv < 0;
     convergence = conv < 0 ? 50 : qBound(0, conv, 100);
+    // the VR client takes the name or its index; anything else is its default, depth
+    const QString src = iniValue(ini, "3d", "stereo_source", "depth").trimmed().toLower();
+    stereoSource = (src == "sbs" || src == "1") ? "sbs" : (src == "top-bottom" || src == "2") ? "top-bottom" : "depth";
+    sbsFull = iniBool(iniValue(ini, "3d", "sbs_full", "false"));
     // the VR client holds it to 0..100 and takes anything else as its default, 0
     bool edgeOk = false;
     const int edge = iniValue(ini, "3d", "edge_sharpness", "0").trimmed().toInt(&edgeOk);
@@ -347,6 +351,8 @@ void MlxrPrefs::load()
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniStereoSource = stereoSource;
+    m_iniSbsFull = sbsFull;
     m_iniEdgeSharpness = edgeSharpness;
     m_iniMotionReset = motionReset;
     m_iniDepthScale = depthScale;
@@ -400,6 +406,12 @@ void MlxrPrefs::save()
     if (convergence != m_iniConvergence || convergenceIsDefault != m_iniConvergenceDefault) {
         setIniValue(ini, "3d", "convergence", convergenceIsDefault ? "-1" : QString::number(qBound(0, convergence, 100)));
     }
+    if (stereoSource != m_iniStereoSource) {
+        setIniValue(ini, "3d", "stereo_source", stereoSource);
+    }
+    if (sbsFull != m_iniSbsFull) {
+        setIniValue(ini, "3d", "sbs_full", sbsFull ? "true" : "false");
+    }
     if (edgeSharpness != m_iniEdgeSharpness) {
         setIniValue(ini, "3d", "edge_sharpness", QString::number(qBound(0, edgeSharpness, 100)));
     }
@@ -451,6 +463,8 @@ void MlxrPrefs::save()
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniStereoSource = stereoSource;
+    m_iniSbsFull = sbsFull;
     m_iniEdgeSharpness = edgeSharpness;
     m_iniMotionReset = motionReset;
     m_iniDepthScale = depthScale;
