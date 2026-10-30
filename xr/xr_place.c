@@ -29,6 +29,12 @@ void xrSetStreamIdentity(const char* host, const char* app) {
     pthread_mutex_unlock(&g_identityLock);
 }
 
+void xrStreamIdentityHost(char* out, size_t cap) {
+    pthread_mutex_lock(&g_identityLock);
+    snprintf(out, cap, "%s", g_identityHost);
+    pthread_mutex_unlock(&g_identityLock);
+}
+
 // ---- the head ------------------------------------------------------------------------------------
 
 // Where the head is in the local space, which is what the screen's pose is in.
