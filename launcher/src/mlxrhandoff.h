@@ -152,7 +152,7 @@ bool setSteamVrRefreshRate(int hz);
 // Settings slider's maximum. `stockMbps` is stock's figure before it is rounded to whole Mbps.
 // 1080p60 40000, 1080p90 49000, 1440p60 80000, 1440p72 87500, 1440p90 98000, 4K 150000;
 // (lane refresh) 1440p120 113000, 1440p144 124000.
-constexpr int kMaxDefaultBitrateKbps = 150000; // the slider's maximum (stock: 150000 unless "unlock")
+constexpr int kMaxDefaultBitrateKbps = 150000; // the default curve's cap (stock's slider maximum; the page's slider itself goes to 500000 since lane wave4b-abr)
 int headsetDefaultBitrateKbps(double stockMbps);
 
 // Moonlight XR Native (lane launcher2): the UI scale in Game Mode (XDG_CURRENT_DESKTOP is

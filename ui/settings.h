@@ -66,6 +66,10 @@ typedef struct Settings {
     int network_path;      // 0 auto, 1 home (Wi-Fi), 2 adapter (Steam Frame Wireless Adapter), 3 usb (USB cable)
     int doff_disconnect;   // native: seconds with the headset off before the stream disconnects (the host's app stays); 0 never
     int idle_disconnect;   // native: minutes without input before the same; 0 never
+    int bitrate_wifi;      // native (lane wave4b-abr): start bitrate in kbps over Wi-Fi; 0 = the launcher's bitrate
+    int bitrate_adapter;   // ... over the Steam Frame Wireless Adapter
+    int bitrate_wired;     // ... over a wired network
+    int bitrate_usb;       // ... over the USB cable
     int rfi_idr_ms;        // native (lane wave1-burst): at most one IDR frame request of the client's own per this many ms; 0 no cap
 
     // [vr] VR Settings table
@@ -223,6 +227,9 @@ int settings_fps_value(const Settings* s);
 // Upstream's default curve for a resolution and rate (Moonlight Qt's table)
 int settings_default_bitrate_kbps(int w, int h, int fps);
 int settings_bitrate_kbps(const Settings* s);                 // 0 means default curve
+// Native (lane wave4b-abr): the four per-path start bitrates in xr/core/xr_abr.h's order (Wi-Fi, adapter,
+// wired, USB), 0 = none
+void settings_abr_overrides(const Settings* s, int out[4]);
 int settings_environment_id(const Settings* s);               // ENV_ID_*; 0 auto resolves with passthrough
 int settings_room_index(int env_id);                          // 0..2, or -1 if not a room
 int settings_room_resizable(int env_id);

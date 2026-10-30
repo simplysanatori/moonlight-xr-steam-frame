@@ -99,6 +99,10 @@ static const SettingDesc TABLE[] = {
     DE("stream", "network_path", network_path, NETWORK_NAMES, 0, "native: which link reaches the PC: auto (probe all), home (Wi-Fi), adapter (Steam Frame Wireless Adapter) or usb (a USB cable between the headset and the PC); the --network flag and MLXR_NETWORK override it"),
     DI("stream", "doff_disconnect", doff_disconnect, 0, 3600, 60, "native: seconds with the headset off before the stream is disconnected, leaving the host's app running; 0 never. The sound mutes and the input is let go the moment it comes off, and putting it back on within the time carries on"),
     DI("stream", "idle_disconnect", idle_disconnect, 0, 1440, 0, "native: minutes without any input (controllers, hands, keyboard, mouse, pads) before the stream is disconnected, leaving the host's app running; 0 never"),
+    DI("stream", "bitrate_wifi", bitrate_wifi, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: start bitrate in kbps when the stream goes over Wi-Fi; 0 uses the launcher's bitrate, else 500..500000 (a stream's bitrate cannot change once it runs, so this is chosen at the start, for the path Automatic or the Network connection setting picked)"),
+    DI("stream", "bitrate_adapter", bitrate_adapter, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: the same for the Steam Frame Wireless Adapter; 0 uses the launcher's bitrate"),
+    DI("stream", "bitrate_wired", bitrate_wired, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: the same for a wired network (the headset's ethernet); 0 uses the launcher's bitrate"),
+    DI("stream", "bitrate_usb", bitrate_usb, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: the same for the USB cable; 0 uses the launcher's bitrate"),
     DI("stream", "rfi_idr_ms", rfi_idr_ms, 0, 5000, 500, "native: after lost video, the headset asks the PC for a full (IDR) frame at most once in this many ms; a full frame is large, and asked for again while the Wi-Fi is still losing packets it makes the stall longer. 0 no limit"),
     // TODO(PLAN 6.4): auto_desktop (open the host's Desktop app without the app list) comes
     // back when something reads it. Dropped with vr_mode, check_updates, language and
@@ -311,6 +315,11 @@ void settings_clamp(Settings* s) {
     }
     // a bitrate is 0 (follow resolution and rate) or 500..MLXR_BITRATE_MAX_KBPS kbps
     if (s->bitrate_kbps > 0 && s->bitrate_kbps < 500) s->bitrate_kbps = 500;
+    // the same for each path's start bitrate (native, lane wave4b-abr)
+    int* const pathRates[] = { &s->bitrate_wifi, &s->bitrate_adapter, &s->bitrate_wired, &s->bitrate_usb };
+    for (int i = 0; i < 4; i++) {
+        if (*pathRates[i] > 0 && *pathRates[i] < 500) *pathRates[i] = 500;
+    }
     // glow level moves in five percent steps
     s->glow_level = (s->glow_level + 2) / 5 * 5;
     for (int r = 0; r < ROOM_COUNT; r++) {
@@ -866,6 +875,13 @@ int settings_bitrate_kbps(const Settings* s) {
     int w, h;
     settings_resolution(s, &w, &h);
     return settings_default_bitrate_kbps(w, h, settings_fps_value(s));
+}
+
+void settings_abr_overrides(const Settings* s, int out[4]) {
+    out[0] = s->bitrate_wifi;
+    out[1] = s->bitrate_adapter;
+    out[2] = s->bitrate_wired;
+    out[3] = s->bitrate_usb;
 }
 
 int settings_environment_id(const Settings* s) {
