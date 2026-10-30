@@ -345,7 +345,7 @@ The presets and Bring here also work from a controller button: bind `app:bringhe
 
 | Row | Options | Default |
 | --- | --- | --- |
-| Sharpen | Off, Normal, Quality | Off |
+| Sharpen | Off, Normal, Quality | Off. With the screen curved or 3D on, it sharpens at the headset's own pixels, where it also crisps black text on white, and never rings past an edge. With a flat screen it sharpens the stream's pixels and leaves black on white alone. |
 | Supersample | Off, Normal, Quality | Normal. Not used while the screen is curved or 3D is on. |
 | Stats | Off, On | Off |
 | Head locked | Off, On, Follow | Off. On: the screen is fixed to your head. Follow: the screen stays where it is until your head has turned more than the leash (25° by default, `follow_leash_deg`) away from it, in yaw or in pitch, then it eases after where you look over about half a second and stays there. See [Follow and comfort](#follow-and-comfort). |
@@ -889,6 +889,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
 | `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
 | `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |
+| `[display] picture_filter` | `true`, `false` | `true`. A curved or 3D screen is drawn smaller than the stream's pixels, and each of the headset's pixels then averages the stream under it, so small text keeps its strokes. `false` is the softer single read of before. The `MLXR_PICTURE_FILTER=0` or `1` launch option overrides it for a comparison. |
+| `[display] chroma_from_luma` | `true`, `false` | `true`. The stream carries colour at half resolution. With this on, colour edges follow the sharp brightness edges, so red, blue and syntax-coloured text keeps its colour to the edge. `false` reads the colour plainly (softer coloured text). `MLXR_CHROMA_FROM_LUMA=0` or `1` overrides it. |
 | `[3d] eye_balance` | -100 to 100 | 0. 3D Eye Balance: how the 3D's shift is shared by the two eyes. 0 shifts each eye by the same amount in opposite directions. +100 puts all of it in the left eye and leaves the right eye's picture as streamed, -100 the other way round, and in between the left eye takes (100 + n) / 2 percent of the total and the right eye (100 - n) / 2. The total difference between the eyes, so the depth you see, is the same at every setting. Useful with a dominant eye. The 3D tab's **Eye balance** row moves it in steps of 10 (greyed with SBS or Top-bottom); the launcher's Settings page has **3D eye balance**, which steps -100, -50, 0, 50, 100. |
 | `[vr] scroll_speed` | 25 to 400 (%) | 100, which is 7.5 notches a second with the thumbstick pushed all the way. The flat window's Settings page has it too. |
 | `[vr] click_steadiness` | `off`, `normal`, `steady` | `normal`. The Display tab's Click steadiness row. |
