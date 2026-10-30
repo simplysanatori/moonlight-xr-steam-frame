@@ -56,8 +56,8 @@ static void test_tables(void) {
                 CHECK(t == en);
             }
         }
-        // every language upstream completed has the 111 keys it shares with this port
-        if (l > 0) CHECK(own == 111);
+        // every language upstream completed has the 109 keys it shares with this port (111 less the two Ko-fi lines that drifted)
+        if (l > 0) CHECK(own == 109);
     }
     // the strings written for this port are English everywhere (docs/dev/i18n.md lists them)
     CHECK(!translated_somewhere[UIS_NATIVE_PC_LIST_TITLE]);

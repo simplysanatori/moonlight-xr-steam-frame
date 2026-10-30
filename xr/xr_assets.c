@@ -17,7 +17,8 @@
 
 UiRectPx xrAtlasRect(int slot) {
     // In the free corner right of the picker (x 1280..2048, y 2240..2536) and
-    // under the clock strip (x 1632..2048, y 1840..2240); tests/m4 checks none
+    // under the clock strip (x 1632..2048, y 1840..2240), and right of the keyboard
+    // (the splash, x 1408..2048, y 3072..3432); tests/m4 checks none
     // of them overlap each other or lane U's panels
     static const UiRectPx R[ATLAS_SLOTS - UI_PANEL_COUNT] = {
         [ATLAS_BEAM - UI_PANEL_COUNT] = { 1280, 2240, PTR_TEX_W, PTR_BEAM_H },
@@ -27,6 +28,7 @@ UiRectPx xrAtlasRect(int slot) {
         [ATLAS_HANDLE - UI_PANEL_COUNT] = { 1600, 2240, BAR_TEX_W, BAR_TEX_H },
         [ATLAS_OVERLAY - UI_PANEL_COUNT] = { 1632, 1840, ATLAS_OVERLAY_W, ATLAS_OVERLAY_H },
         [ATLAS_BEAM_FAINT - UI_PANEL_COUNT] = { 1280, 2240 + PTR_BEAM_H, PTR_TEX_W, ATLAS_BEAM_FAINT_H },
+        [ATLAS_SPLASH - UI_PANEL_COUNT] = { 1408, 3072, ATLAS_SPLASH_W, ATLAS_SPLASH_H },
     };
     if (slot >= 0 && slot < UI_PANEL_COUNT) {
         return ui_atlas_rect((UiPanelId)slot);

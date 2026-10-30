@@ -367,6 +367,47 @@ static void host_drawn_row(Dc* dc, int row, int n, int track) {
     }
 }
 
+// Native (lane wave3-tidy): the depth model's five tracks under the source
+// row. Each is the percent its [3d] key is stored in, a tick at the value the
+// model makes without it, its value beside it; with the PC drawing the pair
+// they are dimmed and carry no thumb, since there is no depth to set.
+static void depth_tracks(Dc* dc, int live, float tick_half) {
+    static const struct {
+        int row;
+        UiStr name;
+        int min, max, def;
+    } ROWS[] = {
+        { COG_ROW3D_EDGE, UIS_ROW_EDGE, EDGE_SHARPNESS_MIN, EDGE_SHARPNESS_MAX, EDGE_SHARPNESS_DEFAULT },
+        { COG_ROW3D_DETAIL, UIS_ROW_DEPTH_DETAIL, DEPTH_SCALE_MIN, DEPTH_SCALE_MAX, DEPTH_SCALE_DEFAULT },
+        { COG_ROW3D_SHAPE, UIS_ROW_DEPTH_SHAPE, DEPTH_SCALE_MIN, DEPTH_SCALE_MAX, DEPTH_SCALE_DEFAULT },
+        { COG_ROW3D_MOTION, UIS_ROW_MOTION_RESET, MOTION_RESET_MIN, MOTION_RESET_MAX, MOTION_RESET_DEFAULT },
+        { COG_ROW3D_BALANCE, UIS_ROW_EYE_BALANCE, EYE_BALANCE_MIN, EYE_BALANCE_MAX, EYE_BALANCE_DEFAULT },
+    };
+    const Settings* s = dc->v->settings;
+    for (size_t i = 0; i < sizeof ROWS / sizeof ROWS[0]; i++) {
+        int row = ROWS[i].row;
+        int value = row == COG_ROW3D_EDGE ? s->edge_sharpness
+                  : row == COG_ROW3D_DETAIL ? s->depth_scale
+                  : row == COG_ROW3D_SHAPE ? s->depth_global
+                  : row == COG_ROW3D_MOTION ? s->motion_reset : s->eye_balance;
+        float y = row_y(dc, COG_TAB_3D, row);
+        label(dc, ui_str(ROWS[i].name), y, live);
+        track_line(dc, y, live ? 0x66FFFFFFu : 0x30FFFFFFu);
+        if (ROWS[i].def != ROWS[i].min) {
+            tick(dc, cogRunU(lanePlace(ROWS[i].def, ROWS[i].min, ROWS[i].max)) * dc->nw, y, tick_half, live);
+        }
+        chevrons(dc, y, live, tick_half);
+        if (live) {
+            char buf[16];
+            if (row == COG_ROW3D_BALANCE && value != 0) snprintf(buf, sizeof buf, "%+d%%", value);
+            else snprintf(buf, sizeof buf, "%d%%", value);
+            thumb(dc, COG_TAB_3D, row, y, lanePlace(value, ROWS[i].min, ROWS[i].max));
+            readout(dc, cogRowV(COG_TAB_3D, row), buf);
+        }
+        track_hits(dc, COG_TAB_3D, row, live);
+    }
+}
+
 static void tab_3d(Dc* dc) {
     const UiView* v = dc->v;
     const Settings* s = v->settings;
@@ -377,7 +418,7 @@ static void tab_3d(Dc* dc) {
     static const UiStr PRESETS[COG_PRESET_CELLS] = { UIS_COMFORT, UIS_BALANCED, UIS_STRONG };
     static const UiStr SW[2] = { UIS_OFF, UIS_ON };
     static const UiStr SOURCES[COG_SOURCE_CELLS] = { UIS_SOURCE_DEPTH, UIS_SOURCE_SBS, UIS_SOURCE_TB };
-    float tick_half = COG_CELL_HALF * dc->nh;
+    float tick_half = COG_3D_CELL_HALF * dc->nh;
     int presets[COG_PRESET_CELLS];
     ui_presets_for(s, presets);
     int sep = settings_separation_units(s);
@@ -426,9 +467,10 @@ static void tab_3d(Dc* dc) {
     y = row_y(dc, COG_TAB_3D, COG_ROW3D_SOURCE);
     label(dc, ui_str(UIS_ROW_3D_SOURCE), y, 1);
     cells(dc, COG_TAB_3D, COG_ROW3D_SOURCE, SOURCES, COG_SOURCE_CELLS, y, 1, tick_half, src);
+    depth_tracks(dc, ok && !host_drawn, tick_half);
     reset_button(dc);
     if (!ok) {
-        dc_text(dc, UI_WEIGHT_REGULAR, 17.0f, dc->nw * 0.5f, (COG_ROW_V0 + COG_ROW3D_COUNT * COG_ROW_STEP) * dc->nh,
+        dc_text(dc, UI_WEIGHT_REGULAR, 17.0f, dc->nw * 0.5f, cogRowV(COG_TAB_3D, COG_ROW3D_COUNT) * dc->nh,
                 UI_ALIGN_CENTER, 0x50FFFFFFu, v->stereo_reason ? v->stereo_reason : ui_str(UIS_THREE_D_OFF_IN_SETTINGS));
     }
 }

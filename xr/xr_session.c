@@ -29,6 +29,7 @@
 #include "../video/vk_import.h"
 #include "mlxr_log.h"
 #include "xr_native.h"
+#include "xr_host.h"
 #include "xr_vk.h"
 #include "xr_world.h"
 #include "xr_depth.h"
@@ -135,6 +136,32 @@ void xr_app_set_host_app(const char* name) {
     pthread_mutex_lock(&g_reqLock);
     snprintf(g_hostApp, sizeof(g_hostApp), "%s", name != NULL ? name : "");
     g_hostAppSerial++;
+    pthread_mutex_unlock(&g_reqLock);
+}
+
+// Native (lane wave4-apollo): what the host offers, taken up by the frame loop when the serial moves
+static XrHostInfo g_hostInfo;
+static unsigned g_hostInfoSerial;
+
+void xr_app_set_host_info(const XrHostInfo* info) {
+    pthread_mutex_lock(&g_reqLock);
+    if (info != NULL) {
+        g_hostInfo = *info;
+    }
+    else {
+        memset(&g_hostInfo, 0, sizeof(g_hostInfo));
+    }
+    g_hostInfoSerial++;
+    pthread_mutex_unlock(&g_reqLock);
+}
+
+static void takeHostInfo(XrCtx* ctx, unsigned* seen) {
+    pthread_mutex_lock(&g_reqLock);
+    int fresh = g_hostInfoSerial != *seen;
+    *seen = g_hostInfoSerial;
+    if (fresh) {
+        ctx->hostInfo = g_hostInfo;
+    }
     pthread_mutex_unlock(&g_reqLock);
 }
 
@@ -1593,14 +1620,28 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
         if (in[IN_REPORT_ZONE] >= 0.0f) {
             xrPanelsReportKey(ctx, key);
         }
+        else if (xrHostComposeFeed(ctx, key)) {
+            // Native (lane wave4-apollo): "Send text to PC" has the keys
+        }
         else if (hk->key) {
             hk->key(hk->user, key, (int)in[IN_KEY_MODS]);
         }
     }
-    int mods = (int)in[IN_KB_MODS];
+    int mods = ctx->hostCompose.active ? 0 : (int)in[IN_KB_MODS];   // nothing is held on the host while composing
     if (mods != h->heldKbMods) {
         h->heldKbMods = mods;
         if (hk->modifiers) hk->modifiers(hk->user, mods);
+    }
+    // Native (lane wave4-apollo): a Host sheet press the app acts on (the PC clipboard, a host command)
+    if (ctx->hostActKind != XR_HOSTACT_NONE) {
+        if (streaming && hk->hostAction) {
+            hk->hostAction(hk->user, ctx->hostActKind, ctx->hostActArg, ctx->hostActText);
+        }
+        else {
+            xrPanelsNotice(ctx, "Not streaming");
+        }
+        ctx->hostActKind = XR_HOSTACT_NONE;
+        ctx->hostActText[0] = '\0';
     }
     if (ctx->pcvrRequest) {
         ctx->pcvrRequest = 0;
@@ -2109,6 +2150,7 @@ int xr_app_run(const XrAppConfig* cfg) {
     int64_t endNsSum = 0, endNsMax = 0;
     // Native (lane wave2-bind-wire): the host app last handed to the bindings
     unsigned hostAppSeen = 0;
+    unsigned hostInfoSeen = 0;
     // Native (lane av-latency): the parts of the host cursor's delay that are
     // ours, per 5 s window: when the mouse move leaves after xrWaitFrame
     // returns, how far ahead of display the poses are, and how long a decoded
@@ -2194,6 +2236,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         // ---- input (nativeUpdateInput) and what it decided (dispatchInput)
         host.live = *cfg->settings;
         takeHostApp(ctx, &hostAppSeen);
+        takeHostInfo(ctx, &hostInfoSeen);
         if (atomic_exchange(&g_kbToggle, 0)) {
             xrKeyboardToggle(ctx, "a gamepad's Y");
         }
@@ -2562,6 +2605,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         if (fs.shouldRender) {
             xrBuildLayers(ctx, &fin, &fout);
         }
+        xrSplashLayers(ctx, &fout, nowNs()); // Native (lane wave6-splash): the logo until the first frame, while it reconnects
         if (fr.recording) {
             // xrBuildLayers made the passthrough swapchain this frame
             vkEndCommandBuffer(fr.cmd);

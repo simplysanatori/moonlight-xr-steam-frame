@@ -185,6 +185,19 @@ static void test_cog_rows_present(void) {
         CHECK(i >= 0 && hits.hit[i].enabled);
     }
     CHECK(ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SOURCE, COG_SOURCE_CELLS) < 0);
+    // native (lane wave3-tidy): the depth model's five tracks (Edge, Depth
+    // detail, Depth shape, Motion reset, Eye balance), live with the depth
+    // model as the source
+    CHECK(COG_ROW3D_COUNT == 10);
+    for (int row = COG_ROW3D_EDGE; row < COG_ROW3D_COUNT; row++) {
+        CHECK(ui_cog_row_is_track(COG_TAB_3D, row));
+        CHECK(ui_cog_row_live(&v, COG_TAB_3D, row));
+        int i = ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1);
+        CHECK(i >= 0 && hits.hit[i].enabled);
+        CHECK(ui_hits_find(&hits, UI_HIT_TRACK_DOWN, row, 0) >= 0);
+        CHECK(ui_hits_find(&hits, UI_HIT_TRACK_UP, row, 0) >= 0);
+        if (i >= 0) CHECK_NEAR((hits.hit[i].v0 + hits.hit[i].v1) * 0.5f, cogRowV(COG_TAB_3D, row), 1e-5);
+    }
     {
         // the PC's pair: the preset and depth rows greyed, convergence, the
         // switch and the source live, and the panel not the Depth one
@@ -211,7 +224,12 @@ static void test_cog_rows_present(void) {
             CHECK(i >= 0 && hits.hit[i].enabled);
         }
         for (int row = 0; row < COG_ROW3D_COUNT; row++) {
-            CHECK(ui_cog_row_live(&vs, COG_TAB_3D, row) == (row != COG_ROW3D_PRESET && row != COG_ROW3D_SEPARATION));
+            // the preset, the depth track and the five depth-model tracks have nothing to set
+            CHECK(ui_cog_row_live(&vs, COG_TAB_3D, row) == (row == COG_ROW3D_CONVERGENCE || row == COG_ROW3D_SWITCH || row == COG_ROW3D_SOURCE));
+        }
+        for (int row = COG_ROW3D_EDGE; row < COG_ROW3D_COUNT; row++) {
+            i = ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1);
+            CHECK(i >= 0 && !hits.hit[i].enabled);
         }
         free(gs.base);
         // the model off and Depth chosen: only the source row is live
@@ -514,6 +532,9 @@ static void test_other_panels_hits(void) {
     check_hits_inside("kofi");
     int cl = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_KOFI_CLOSE, -1);
     CHECK(cl >= 0 && kofiSheetZone((hits.hit[cl].u0 + hits.hit[cl].u1) / 2, (hits.hit[cl].v0 + hits.hit[cl].v1) / 2) == KOFI_ZONE_CLOSE);
+    int op = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_KOFI_OPEN, -1);
+    CHECK(op >= 0 && kofiSheetZone((hits.hit[op].u0 + hits.hit[op].u1) / 2, (hits.hit[op].v0 + hits.hit[op].v1) / 2) == KOFI_ZONE_OPEN);
+    CHECK(strcmp(ui_str(UIS_KOFI_OPEN), "Open page") == 0 && strcmp(ui_str(UIS_KOFI_CLOSE), "Not now") == 0);
     free(g.base);
 }
 
@@ -767,6 +788,8 @@ static void test_rows_read_settings(void) {
         { COG_TAB_SCREEN, "head_aim_sensitivity", 20 }, { COG_TAB_SCREEN, "head_aim_deadzone", 12 },
         { COG_TAB_SCREEN, "per_app", 0 }, { COG_TAB_SCREEN, "angular_lock", 0 },
         { COG_TAB_3D, "separation", 12 }, { COG_TAB_3D, "convergence", 20 },
+        { COG_TAB_3D, "edge_sharpness", 50 }, { COG_TAB_3D, "depth_scale", 150 }, { COG_TAB_3D, "depth_global", 60 },
+        { COG_TAB_3D, "motion_reset", 10 }, { COG_TAB_3D, "eye_balance", -40 },
         { COG_TAB_PICTURE, "picture_brightness", 20 }, { COG_TAB_PICTURE, "picture_contrast", 80 },
         { COG_TAB_PICTURE, "picture_gamma", 150 }, { COG_TAB_PICTURE, "picture_saturation", 20 },
     };
@@ -888,11 +911,12 @@ static void test_host_sheet(void) {
     ui_view_init(&v, &s);
     CHECK(v.host_confirm == -1);
     Guarded g;
-    // no macros: Close, PC VR (PLAN 4.1), the 11 quick actions and Send keys
+    // no macros: Close, PC VR (PLAN 4.1), the button to the PC page, the 11 quick actions and Send keys
     draw(UI_PANEL_HOST, &v, 1.0f, &g);
     check_hits_inside("host");
-    CHECK(hits.count == 2 + XR_HOST_MACRO_FIRST);
+    CHECK(hits.count == 3 + XR_HOST_MACRO_FIRST);
     CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CLOSE, -1) >= 0);
+    CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PAGE, -1) >= 0);
     {
         int pc = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PCVR, -1);
         CHECK(pc >= 0);
@@ -909,15 +933,17 @@ static void test_host_sheet(void) {
         draw(UI_PANEL_HOST, &v, 1.0f, &g);
         check_hits_inside("host macros");
         int shown = n < XR_HOST_MACRO_SLOTS ? n : XR_HOST_MACRO_SLOTS;
-        CHECK(hits.count == 2 + XR_HOST_MACRO_FIRST + shown);
+        CHECK(hits.count == 3 + XR_HOST_MACRO_FIRST + shown);
         for (int i = 0; i < hits.count; i++) {
             const UiHit* h = &hits.hit[i];
             float u = (h->u0 + h->u1) * 0.5f, w = (h->v0 + h->v1) * 0.5f;
-            int zone = xrHostZoneAt(u, w, shown, 0);
+            int zone = xrHostZoneAtPage(u, w, XR_HOST_PAGE_MAIN, shown, 0, 0);
             if (h->kind == UI_HIT_HOST_CELL) {
                 CHECK(zone == h->a && h->b == xrHostCellKind(h->a, shown));
             } else if (h->a == UI_BTN_HOST_PCVR) {
                 CHECK(h->kind == UI_HIT_BUTTON && zone == XR_HOST_ZONE_PCVR);
+            } else if (h->kind == UI_HIT_BUTTON && h->a == UI_BTN_HOST_PAGE) {
+                CHECK(zone == XR_HOST_ZONE_PAGE);
             } else {
                 CHECK(h->kind == UI_HIT_BUTTON && h->a == UI_BTN_HOST_CLOSE && zone == XR_HOST_ZONE_CLOSE);
             }
@@ -969,9 +995,96 @@ static void test_host_sheet(void) {
     free(g.base);
 }
 
+// The Host sheet's PC page (lane wave4-apollo): the clipboard entries and one cell per command the host
+// listed, where xr_hostkeys.c says the ray hits, a question that names the command, and the page button
+static void test_host_pc_page(void) {
+    Settings s;
+    settings_defaults(&s);
+    UiView v;
+    ui_view_init(&v, &s);
+    v.host_page = XR_HOST_PAGE_PC;
+    Guarded g;
+    for (int n = 0; n <= XR_HOST_CMD_SLOTS + 2; n++) {
+        v.host_info.apollo = 1;
+        v.host_info.clipRead = v.host_info.clipSet = 1;
+        v.host_info.cmdCount = n;
+        v.host_info.cmdWhy = n ? XR_HOSTINFO_OK : XR_HOSTINFO_NONE_SET;
+        for (int i = 0; i < XR_HOST_CMD_SLOTS; i++) snprintf(v.host_info.cmd[i], sizeof v.host_info.cmd[i], "Command %d", i + 1);
+        draw(UI_PANEL_HOST, &v, 1.0f, &g);
+        check_hits_inside("host pc");
+        int shown = n < XR_HOST_CMD_SLOTS ? n : XR_HOST_CMD_SLOTS;
+        // Close, PC VR, the page button, Paste, Send text and the commands
+        CHECK(hits.count == 3 + 2 + shown);
+        CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PAGE, -1) >= 0);
+        CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PCVR, -1) >= 0);
+        for (int i = 0; i < hits.count; i++) {
+            const UiHit* h = &hits.hit[i];
+            float u = (h->u0 + h->u1) * 0.5f, w = (h->v0 + h->v1) * 0.5f;
+            int zone = xrHostZoneAtPage(u, w, XR_HOST_PAGE_PC, 0, shown, 0);
+            if (h->kind == UI_HIT_HOST_CELL) {
+                CHECK(zone == h->a && h->b == xrHostPcCellKind(h->a, shown));
+            } else if (h->a == UI_BTN_HOST_PAGE) {
+                CHECK(h->kind == UI_HIT_BUTTON && zone == XR_HOST_ZONE_PAGE);
+            } else if (h->a == UI_BTN_HOST_PCVR) {
+                CHECK(h->kind == UI_HIT_BUTTON && zone == XR_HOST_ZONE_PCVR);
+            } else {
+                CHECK(h->kind == UI_HIT_BUTTON && h->a == UI_BTN_HOST_CLOSE && zone == XR_HOST_ZONE_CLOSE);
+            }
+        }
+        free(g.base);
+    }
+    // a host that is not Apollo, or that has not allowed commands, draws differently from one with none
+    // set up: each says its own reason where the commands would be
+    long sums[3];
+    for (int why = 0; why < 3; why++) {
+        memset(&v.host_info, 0, sizeof v.host_info);
+        v.host_info.apollo = why != 0;
+        v.host_info.cmdWhy = why == 0 ? XR_HOSTINFO_NOT_APOLLO : why == 1 ? XR_HOSTINFO_NO_PERMISSION : XR_HOSTINFO_NONE_SET;
+        draw(UI_PANEL_HOST, &v, 1.0f, &g);
+        sums[why] = 0;
+        for (size_t i = 0; i < g.size; i++) sums[why] += g.px[i];
+        free(g.base);
+    }
+    CHECK(sums[0] != sums[1] && sums[1] != sums[2] && sums[0] != sums[2]);
+    // the page's own words are whole: the header button's at its 24 px, the clipboard cells' at the
+    // smallest size a cell label shrinks to before it is cut short (panel_host.c)
+    UiFont* font = ui_font_default();
+    CHECK(font != NULL);
+    if (font != NULL) {
+        float r[4];
+        xrHostPageRect(r);
+        CHECK(ui_text_width(font, UI_WEIGHT_REGULAR, 24.0f, ui_str(UIS_HOST_PAGE_PC), -1)
+              <= (r[2] - r[0]) * XR_HOST_TEX_W - 24.0f);
+        // and the PC page's title (30 px from x 34, panel_host.c) ends before it
+        CHECK(34.0f + ui_text_width(font, UI_WEIGHT_REGULAR, 30.0f, ui_str(UIS_HOST_PC_TITLE), -1)
+              < r[0] * XR_HOST_TEX_W - 8.0f);
+        xrHostCellRect(XR_HOST_PC_PASTE, r);
+        float room = (r[2] - r[0]) * XR_HOST_TEX_W - 20.0f;
+        CHECK(ui_text_width(font, UI_WEIGHT_REGULAR, 19.0f, ui_str(UIS_HOST_PASTE), -1) <= room);
+        CHECK(ui_text_width(font, UI_WEIGHT_REGULAR, 19.0f, ui_str(UIS_HOST_COPY), -1) <= room);
+    }
+    // asking about a command: the question names it, and the buttons are where the zones say
+    v.host_info.apollo = 1;
+    v.host_info.cmdCount = 2;
+    snprintf(v.host_info.cmd[1], sizeof v.host_info.cmd[1], "Sleep PC");
+    v.host_confirm = XR_HOST_PC_CMD_FIRST + 1;
+    v.host_confirm_cmd = 1;
+    snprintf(v.host_confirm_label, sizeof v.host_confirm_label, "Sleep PC");
+    draw(UI_PANEL_HOST, &v, 1.0f, &g);
+    CHECK(hits.count == 2);
+    int send = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CONFIRM, -1);
+    CHECK(send >= 0);
+    if (send >= 0) {
+        CHECK(xrHostZoneAtPage((hits.hit[send].u0 + hits.hit[send].u1) * 0.5f, (hits.hit[send].v0 + hits.hit[send].v1) * 0.5f,
+                               XR_HOST_PAGE_PC, 0, 2, 1) == XR_HOST_ZONE_CONFIRM_SEND);
+    }
+    free(g.base);
+}
+
 int main(void) {
     ui_panels_set_assets_dir(MLXR_ASSETS_DIR);
     test_host_sheet();
+    test_host_pc_page();
     test_all_panels_scales();
     test_cog_rows_present();
     test_cog_hits_agree_with_xr_layout();

@@ -667,7 +667,34 @@
 #define COG_ROW3D_CONVERGENCE 2
 #define COG_ROW3D_SWITCH 3
 #define COG_ROW3D_SOURCE 4
-#define COG_ROW3D_COUNT 5
+// Native (lane wave3-tidy): then the depth model's own five tracks, which
+// used to be config.ini and the launcher only. All are depth-model rows, so
+// they are dead with the 3D off and with a host-rendered pair, and they act
+// on the next depth map, so they move at once.
+#define COG_ROW3D_EDGE 5
+#define COG_ROW3D_DETAIL 6
+#define COG_ROW3D_SHAPE 7
+#define COG_ROW3D_MOTION 8
+#define COG_ROW3D_BALANCE 9
+#define COG_ROW3D_COUNT 10
+// Steps along those tracks, in the units their preferences are stored in:
+// Edge in 25s over 0..100, Depth detail and Depth shape in 10s over 0..200,
+// Motion reset in 5s over 0..50, Eye balance in 10s over -100..100
+#define COG_EDGE_STEP 25
+#define COG_EDGE_STEPS ((EDGE_SHARPNESS_MAX - EDGE_SHARPNESS_MIN) / COG_EDGE_STEP)
+#define COG_DEPTH_STEP 10
+#define COG_DEPTH_STEPS ((DEPTH_SCALE_MAX - DEPTH_SCALE_MIN) / COG_DEPTH_STEP)
+#define COG_MOTION_STEP 5
+#define COG_MOTION_STEPS ((MOTION_RESET_MAX - MOTION_RESET_MIN) / COG_MOTION_STEP)
+#define COG_BALANCE_STEP 10
+#define COG_BALANCE_STEPS ((EYE_BALANCE_MAX - EYE_BALANCE_MIN) / COG_BALANCE_STEP)
+// Ten rows over the reset button, so the tab spaces them as the Screen tab
+// does its eleven: starting higher, closer together, with shallower cells.
+// The last row's band ends at 0.79375, clear of the reset button.
+#define COG_3D_ROW_V0 0.2f
+#define COG_3D_ROW_STEP 0.0625f
+#define COG_3D_ROW_HALF 0.03125f
+#define COG_3D_CELL_HALF 0.027f
 #define COG_STEREO_CELLS 2
 #define COG_SOURCE_CELLS STEREO_SOURCE_COUNT
 // The presets, in the order their cells are drawn. Each is a separation on the
@@ -896,7 +923,7 @@
 
 // The Ko-fi sheet the About tab's button opens, in the exit prompt's style:
 // the title, the page's QR code on the left, its address and a line on the
-// right, and one Close button. Drawn once in Java at the start of a session,
+// right, and two buttons, Open page and Not now. Drawn once in Java at the start of a session,
 // with the ring over the button a quad of its own. The code goes on a pixel
 // for a pixel, its quiet zone included, with its top left corner where these
 // say; the button sits where these say, all as fractions of the sheet.
@@ -907,10 +934,15 @@
 #define KOFI_QR_T 0.22f
 #define KOFI_BTN_T 0.76f
 #define KOFI_BTN_B 0.92f
-#define KOFI_CLOSE_L 0.64f
+// Two buttons side by side: "Open page" (runs Steam's browser on the Frame, xr_kofi.c) on the
+// left, "Not now" (KOFI_ZONE_CLOSE) on the right
+#define KOFI_OPEN_L  0.36f
+#define KOFI_OPEN_R  0.64f
+#define KOFI_CLOSE_L 0.67f
 #define KOFI_CLOSE_R 0.95f
 // Whether a point is on its button
 #define KOFI_ZONE_NONE  0
 #define KOFI_ZONE_CLOSE 1
+#define KOFI_ZONE_OPEN  2
 
 #endif

@@ -342,6 +342,104 @@ static void storeSettings(void) {
     scene_free(sc);
 }
 
+// Native (lane wave3-tidy): the 3D tab's depth model rows (Edge, Depth
+// detail, Depth shape, Motion reset, Eye balance). A drag moves what the model
+// reads at once, the panel's view of the settings follows it, letting go
+// hands the units to xrStoreSetting for the key they are stored in, and the
+// step buttons move one step of their own size. With the PC drawing the pair
+// the rows are dead.
+static void depthRows(void) {
+    struct { int row, id, steps, step, min, max; } T[] = {
+        { COG_ROW3D_EDGE, SETTING_EDGE, 4, 25, EDGE_SHARPNESS_MIN, EDGE_SHARPNESS_MAX },
+        { COG_ROW3D_DETAIL, SETTING_DEPTH_DETAIL, 20, 10, DEPTH_SCALE_MIN, DEPTH_SCALE_MAX },
+        { COG_ROW3D_SHAPE, SETTING_DEPTH_SHAPE, 20, 10, DEPTH_SCALE_MIN, DEPTH_SCALE_MAX },
+        { COG_ROW3D_MOTION, SETTING_MOTION_RESET, 10, 5, MOTION_RESET_MIN, MOTION_RESET_MAX },
+        { COG_ROW3D_BALANCE, SETTING_EYE_BALANCE, 20, 10, EYE_BALANCE_MIN, EYE_BALANCE_MAX },
+    };
+    // the ids are the 3D tab's own and distinct from every other native one
+    CHECK(SETTING_EDGE > SETTING_STEREO_SOURCE && SETTING_EYE_BALANCE == SETTING_MOTION_RESET + 1);
+    for (size_t i = 0; i < sizeof(T) / sizeof(T[0]); i++) {
+        Scene* sc = scene_new();
+        XrCtx* c = sc->ctx;
+        Settings file = sc->settings;
+        const SettingDesc* keys[5] = { settings_find("edge_sharpness"), settings_find("depth_scale"),
+                                       settings_find("depth_global"), settings_find("motion_reset"),
+                                       settings_find("eye_balance") };
+        const SettingDesc* key = keys[i];
+        CHECK(key != NULL && key->min == T[i].min && key->max == T[i].max);
+        CHECK(cogTabRowCount(COG_TAB_3D) == COG_ROW3D_COUNT);
+        CHECK(cogRowIsTrack(COG_TAB_3D, T[i].row));
+        CHECK(cogTrackSteps(COG_TAB_3D, T[i].row) == T[i].steps);
+        CHECK(T[i].steps * T[i].step == T[i].max - T[i].min);
+        // dead with the 3D off and with the PC's pair, live with the depth model
+        c->stereoMode = DEPTH_MODE_OFF;
+        CHECK(!cogRowLive(c, COG_TAB_3D, T[i].row));
+        c->stereoMode = DEPTH_MODE_MODEL;
+        c->stereoSource = STEREO_SOURCE_SBS;
+        CHECK(!cogRowLive(c, COG_TAB_3D, T[i].row));
+        c->stereoSource = STEREO_SOURCE_TB;
+        CHECK(!cogRowLive(c, COG_TAB_3D, T[i].row));
+        c->stereoSource = STEREO_SOURCE_DEPTH;
+        CHECK(cogRowLive(c, COG_TAB_3D, T[i].row));
+        // where the file leaves it is where the thumb starts
+        CHECK(cogSliderValue(c, COG_TAB_3D, T[i].row) >= 0.0f);
+        CHECK_NEAR(cogSliderValue(c, COG_TAB_3D, T[i].row), lanePlace(settings_get(&file, key), T[i].min, T[i].max), 1e-5);
+        // a drag to each step lands on that step's units everywhere
+        for (int step = 0; step <= T[i].steps; step++) {
+            int units = T[i].min + step * T[i].step;
+            c->cogDragSlider = T[i].row;
+            c->cogDragFace = COG_TAB_3D;
+            cogApplySlider(c, COG_TAB_3D, T[i].row, cogRunU((float)step / (float)T[i].steps));
+            Settings live = file;
+            xrSettingsFromCtx(c, &live);
+            CHECK(settings_get(&live, key) == units);
+            CHECK_NEAR(cogSliderValue(c, COG_TAB_3D, T[i].row), lanePlace(units, T[i].min, T[i].max), 1e-5);
+            float out[IN_SLOTS];
+            memset(out, 0, sizeof(out));
+            out[IN_SETTING] = -1.0f;
+            cogDragEnded(c, out);
+            CHECK((int)out[IN_SETTING] == T[i].id && (int)out[IN_SETTING_VALUE] == units);
+            Settings stored = file;
+            xrStoreSetting(c, &stored, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
+            CHECK(settings_get(&stored, key) == units);
+            // and starting again from that file gives the same model values
+            XrCtx* again = calloc(1, sizeof(XrCtx));
+            xrCtxDefaults(again, 2560, 1440, 90);
+            xrApplySettings(again, &stored);
+            Settings back = stored;
+            xrSettingsFromCtx(again, &back);
+            CHECK(settings_equal(&back, &stored));
+            CHECK_NEAR(cogSliderValue(again, COG_TAB_3D, T[i].row), lanePlace(units, T[i].min, T[i].max), 1e-5);
+            free(again);
+        }
+        // a step button from the middle of the range goes one step either way
+        int mid = (T[i].min + T[i].max) / 2;
+        for (int dir = -1; dir <= 1; dir += 2) {
+            Settings f = file;
+            settings_set(&f, key, mid);
+            xrApplySettings(c, &f);
+            float out[IN_SLOTS];
+            memset(out, 0, sizeof(out));
+            out[IN_SETTING] = -1.0f;
+            cogStepTrack(c, COG_TAB_3D, T[i].row, dir, out);
+            CHECK((int)out[IN_SETTING] == T[i].id);
+            CHECK((int)out[IN_SETTING_VALUE] == mid + dir * T[i].step);
+        }
+        scene_free(sc);
+    }
+    // Edge at 0 is upstream's soft edges, and a step of it moves both knobs
+    {
+        Scene* sc = scene_new();
+        XrCtx* c = sc->ctx;
+        c->stereoMode = DEPTH_MODE_MODEL;
+        float sigma0 = c->upsampleSigmaR;
+        cogApplySlider(c, COG_TAB_3D, COG_ROW3D_EDGE, cogRunU(0.5f));
+        CHECK_NEAR(c->depthSharp, 0.5, 1e-6);
+        CHECK(c->upsampleSigmaR < sigma0);
+        scene_free(sc);
+    }
+}
+
 // The cog's Ray row is saved in both halves (Off / Dot / Ray -> show_ray and
 // pointer_dot); the bar button's ray switch is not
 static void rayRowSaved(void) {
@@ -768,5 +866,6 @@ int main(void) {
     cogTabKept();
     restingBeam();
     displayCells();
+    depthRows();
     return checksDone("m4 prefs");
 }

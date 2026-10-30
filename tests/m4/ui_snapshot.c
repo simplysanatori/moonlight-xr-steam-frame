@@ -258,6 +258,7 @@ int main(int argc, char** argv) {
     // The launcher: the lists in the picture's place
     scene_reset(s);
     c->videoShown = 0;
+    c->streaming = 0; // the lists are what is shown when no stream is up (and the splash waits on one)
     const char* pcNames[3] = { "gaming-pc", "Living room PC", "Office laptop" };
     for (int i = 0; i < 3; i++) {
         memset(&s->pcs[i], 0, sizeof(s->pcs[i]));
@@ -304,9 +305,31 @@ int main(int argc, char** argv) {
     c->hostConfirm = XR_HOST_CONFIRM_PCVR;
     c->hostHoverZone = XR_HOST_ZONE_CONFIRM_SEND;
     shot(s, "20b-host-pcvr-confirm", NULL);
+    // Native (lane wave4-apollo): the PC page on an Apollo host with three commands, asking before one
+    // runs, and on a host that is not Apollo
+    c->hostConfirm = -1;
+    c->hostPage = XR_HOST_PAGE_PC;
+    c->hostInfo.apollo = 1;
+    c->hostInfo.clipRead = c->hostInfo.clipSet = 1;
+    c->hostInfo.cmdCount = 3;
+    snprintf(c->hostInfo.cmd[0], XR_HOST_CMD_NAME, "Bubbles");
+    snprintf(c->hostInfo.cmd[1], XR_HOST_CMD_NAME, "Sleep PC");
+    snprintf(c->hostInfo.cmd[2], XR_HOST_CMD_NAME, "Lock PC");
+    c->hostHoverZone = XR_HOST_PC_CMD_FIRST + 1;
+    shot(s, "23-host-pc", NULL);
+    c->hostConfirm = XR_HOST_PC_CMD_FIRST + 1;
+    c->hostHoverZone = XR_HOST_ZONE_CONFIRM_SEND;
+    shot(s, "24-host-pc-confirm", NULL);
+    c->hostConfirm = -1;
+    memset(&c->hostInfo, 0, sizeof(c->hostInfo));
+    c->hostInfo.cmdWhy = XR_HOSTINFO_NOT_APOLLO;
+    c->hostHoverZone = XR_HOST_ZONE_NONE;
+    shot(s, "25-host-pc-sunshine", NULL);
     c->hostOpen = 0;
+    c->hostPage = XR_HOST_PAGE_MAIN;
     c->hostConfirm = -1;
     c->hostHoverZone = XR_HOST_ZONE_NONE;
+    memset(&c->hostInfo, 0, sizeof(c->hostInfo));
     xrMacrosClear(&c->macros);
 
     // Native (PLAN 3.11, 4b.1): the Full keyboard with its media row, waiting
@@ -323,6 +346,19 @@ int main(int argc, char** argv) {
     xrHostChordStop(&c->hostChord);
     xrKeyboardSetLayout(c, NULL, KB_LAYOUT_COMPACT);
 
+    // Native (lane wave4-apollo): "Send text to PC" has the keyboard, and has been typed a line
+    scene_reset(s);
+    c->kbOpen = 1;
+    c->kbState = KB_STATE_LOWER;
+    c->kbMods = 0;
+    xrHostComposeStart(&c->hostCompose);
+    for (const char* t = "Meet at the usual place at noon"; *t; t++) xrHostComposeKey(&c->hostCompose, *t);
+    xrKeyboardSync(c, NULL);
+    kbPlace(c);
+    shot(s, "26-keyboard-compose", NULL);
+    xrHostComposeStop(&c->hostCompose);
+    xrKeyboardSync(c, NULL);
+
     // Native (PLAN 4b.13): the Compact keyboard with Ctrl held down to lock
     scene_reset(s);
     c->kbOpen = 1;
@@ -333,6 +369,16 @@ int main(int argc, char** argv) {
     shot(s, "22-keyboard-locked", NULL);
     c->kbSticky.locked = 0;
     c->kbMods = 0;
+
+    // Native (PLAN 6.3): a stream is starting and no frame has come yet, so the logo and its line
+    // hang in front of the eyes
+    scene_reset(s);
+    xrSetStreamIdentity("Desk PC", "Desktop");
+    memset(&c->splashUi, 0, sizeof(c->splashUi)); // the pictures before were the same stream's: this is a new one
+    c->streaming = 1;
+    c->videoShown = 0;
+    shot(s, "23-splash", NULL);
+    c->videoShown = 1;
 
     scene_free(s);
     if (g_over) {
