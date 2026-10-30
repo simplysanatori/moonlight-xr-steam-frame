@@ -142,6 +142,8 @@ void seedLauncherConfig();
 // StreamingPreferences::getDefaultBitrate gives, "scale" prints the Game Mode UI scale.
 // (lane wave4-pcvr) "pcvr:probe", "pcvr:devices", "pcvr:apps[:CLIENT]" run that steam_cef.py command and print
 // "SELFTEST: pcvr <what> rc=N <its output>"; "pcvr:go" runs the hand-off with the saved settings.
+// (lane launcher-bundle) "vrkeys" prints MlxrPrefs::vrKeyTable(), "update" runs the update check (mlxrupdate.h),
+// "onstart[:running app id]" the On start decision (mlxronstart.h).
 int selfTest(const QString& spec);
 
 // Moonlight XR Native (lane refresh): the Steam Frame's display rates. The VR client never streams

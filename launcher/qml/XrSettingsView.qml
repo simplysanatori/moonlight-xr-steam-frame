@@ -352,6 +352,24 @@ Flickable {
         return i >= 0 ? headsetLanguageNames[i] : MlxrPrefs.headsetLanguage
     }
 
+    // Native (lane launcher-bundle, PLAN 6.4): the On start row
+    readonly property var onStartValues: ["none", "desktop", "app"]
+    readonly property var onStartNames: [qsTr("Nothing"), qsTr("Last PC's Desktop"), qsTr("An app")]
+    function onStartText() {
+        if (MlxrPrefs.onStart === "desktop")
+            return MlxrPrefs.lastPc !== "" ? qsTr("Desktop on %1").arg(MlxrPrefs.lastPc) : qsTr("Last PC's Desktop (no stream yet)")
+        if (MlxrPrefs.onStart === "app")
+            return MlxrPrefs.onStartApp !== "" ? qsTr("%1 on %2").arg(MlxrPrefs.onStartApp).arg(MlxrPrefs.onStartPc) : qsTr("An app (none chosen)")
+        return qsTr("Nothing")
+    }
+    function pickOnStart(i) {
+        MlxrPrefs.onStart = onStartValues[Number(i)]
+    }
+    function pickOnStartApp(pc, app) {
+        MlxrPrefs.onStartPc = pc
+        MlxrPrefs.onStartApp = app
+    }
+
     function languageIndex() {
         for (var i = 0; i < languages.length; i++) {
             if (languages[i].val === StreamingPreferences.language) return i
@@ -652,6 +670,59 @@ Flickable {
                 horizontalAlignment: Text.AlignRight
             }
         }
+    }
+
+    // Native (lane launcher-bundle, PLAN 6.7): rows for the VR client's config.ini keys in MlxrPrefs.vr, by
+    // "section.key". objectName is the key, for the tests.
+    component VrSwitch: PrefSwitch {
+        property string key
+        objectName: key
+        isOn: MlxrPrefs.vr[key] === true
+        onSwitched: function(on) { MlxrPrefs.setVr(key, on) }
+    }
+
+    // A list in the dialog; values are the VR client's names, names what the row says. A value the list leaves out
+    // (one typed into config.ini) is shown as it is.
+    component VrChoice: PrefRow {
+        id: choiceRow
+        property string key
+        property var values: []
+        property var names: []
+        readonly property int current: values.indexOf(MlxrPrefs.vr[key])
+        objectName: key
+        valueText: current >= 0 ? names[current] : String(MlxrPrefs.vr[key])
+        function pick(i) {
+            MlxrPrefs.setVr(key, values[i])
+        }
+        onClicked: {
+            var e = []
+            for (var i = 0; i < names.length; i++) e.push({ text: names[i], reason: "" })
+            listDialog.show(title, e, current, function(i) { choiceRow.pick(i) })
+        }
+    }
+
+    // The slider shows the value divided by scale (the gamma is kept in hundredths)
+    component VrSlider: PrefSlider {
+        property string key
+        property real scale: 1
+        objectName: key
+        value: MlxrPrefs.vr[key] / scale
+        onMoved: function(v) { MlxrPrefs.setVr(key, Math.round(v * scale)) }
+    }
+
+    // Tests (MLXR_LAUNCHER_INVOKE): what a pick in a VrChoice row's dialog does, and a value set as a slider would
+    function vrPick(key, index) {
+        var kids = prefColumn.children
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i].objectName === key && kids[i].pick !== undefined) {
+                kids[i].pick(Number(index))
+                return
+            }
+        }
+        console.warn("vrPick: no row " + key)
+    }
+    function vrSet(key, value) {
+        MlxrPrefs.setVr(key, value)
     }
 
     // ---- shared dialogs ----
@@ -1180,6 +1251,61 @@ Flickable {
             onClicked: if (enabled) MlxrPrefs.depthGlobal = settingsPage.nextDepthStep(MlxrPrefs.depthGlobal)
         }
 
+        VrChoice {
+            key: "vr.depth_source"
+            title: qsTr("3D depth model")
+            values: ["zipdepth", "zipdepth-int8", "midas", "off"]
+            names: [qsTr("ZipDepth"), qsTr("ZipDepth, lighter on the CPU"), qsTr("MiDaS (older)"), qsTr("Off (2D only)")]
+        }
+
+        VrChoice {
+            key: "display.sharpening"
+            title: qsTr("Sharpening")
+            values: ["off", "normal", "quality"]
+            names: [qsTr("Off"), qsTr("Normal"), qsTr("Quality")]
+        }
+
+        VrChoice {
+            key: "display.supersampling"
+            title: qsTr("Supersampling")
+            summary: qsTr("Not used while the 3D is on.")
+            values: ["off", "normal", "quality"]
+            names: [qsTr("Off"), qsTr("Normal"), qsTr("Quality")]
+        }
+
+        VrSlider {
+            key: "vr.picture_brightness"
+            title: qsTr("Picture brightness")
+            from: -50
+            to: 50
+        }
+
+        VrSlider {
+            key: "vr.picture_contrast"
+            title: qsTr("Picture contrast")
+            from: 50
+            to: 150
+            suffix: "%"
+        }
+
+        VrSlider {
+            key: "vr.picture_gamma"
+            title: qsTr("Picture gamma")
+            scale: 100
+            from: 0.5
+            to: 2.0
+            stepSize: 0.05
+            decimals: 2
+        }
+
+        VrSlider {
+            key: "vr.picture_saturation"
+            title: qsTr("Picture saturation")
+            from: 0
+            to: 200
+            suffix: "%"
+        }
+
         PrefSwitch {
             objectName: "hdrRow"
             title: qsTr("Enable HDR (Experimental)")
@@ -1200,6 +1326,12 @@ Flickable {
                 for (var i = 0; i < settingsPage.audioNames.length; i++) e.push({ text: settingsPage.audioNames[i], reason: "" })
                 listDialog.show(title, e, StreamingPreferences.audioConfig, function(i) { StreamingPreferences.audioConfig = i })
             }
+        }
+
+        VrSwitch {
+            key: "stream.virtual_surround"
+            title: qsTr("Virtual surround")
+            summary: qsTr("Places the 5.1 and 7.1 speakers around you in stereo.")
         }
 
         // ======== Gamepad Settings ========
@@ -1312,11 +1444,60 @@ Flickable {
             }
         }
 
+        VrChoice {
+            key: "vr.pad_gyro_ratchet"
+            title: qsTr("When the gyro is sent")
+            values: ["always", "stick_touch"]
+            names: [qsTr("Always"), qsTr("While the thumb touches the right stick")]
+        }
+
+        VrSwitch {
+            key: "vr.lightgun_reload"
+            title: qsTr("Lightgun reload")
+            summary: qsTr("In lightgun mode, a trigger pulled off the picture is a right click.")
+        }
+
+        VrSwitch {
+            key: "vr.lightgun_recoil"
+            title: qsTr("Lightgun recoil")
+            summary: qsTr("In lightgun mode, a short pulse in the controller on every shot.")
+        }
+
+        VrChoice {
+            key: "vr.gamepad_toggle"
+            title: qsTr("Gamepad mode shortcut")
+            values: ["menu_grip", "sticks", "triggers_grips"]
+            names: [qsTr("Left View and left grip"), qsTr("Click both sticks"), qsTr("Both triggers and both grips")]
+        }
+
+        VrChoice {
+            key: "vr.pad_grip"
+            title: qsTr("Grips in gamepad mode")
+            values: ["bumpers", "none", "stick_clicks"]
+            names: [qsTr("Bumpers (LB, RB)"), qsTr("Nothing"), qsTr("Stick clicks (LS, RS)")]
+        }
+
         PrefSwitch {
             title: qsTr("Enable Rumble")
             summary: qsTr("Enable rumble feedback on supported gamepads.") + " " + qsTr("Also the headset controllers.")
             isOn: MlxrPrefs.rumble
             onSwitched: function(on) { MlxrPrefs.rumble = on }
+        }
+
+        VrChoice {
+            key: "vr.rumble_mix"
+            title: qsTr("Rumble on the headset controllers")
+            values: ["both", "split"]
+            names: [qsTr("Stronger motor in both hands"), qsTr("Low motor left, high motor right")]
+        }
+
+        VrSlider {
+            key: "vr.rumble_intensity"
+            title: qsTr("Rumble strength on the headset controllers")
+            from: 0
+            to: 100
+            stepSize: 5
+            suffix: "%"
         }
 
         // ======== Input Settings ========
@@ -1334,6 +1515,23 @@ Flickable {
                     MlxrPrefs.keyboardKeymap = settingsPage.keymapValues[i]
                 })
             }
+        }
+
+        VrChoice {
+            key: "vr.keyboard_layout"
+            title: qsTr("Headset keyboard size")
+            values: ["compact", "full"]
+            names: [qsTr("Compact"), qsTr("Full (tenkeyless)")]
+        }
+
+        VrSlider {
+            key: "vr.keyboard_hold_ms"
+            title: qsTr("Hold to lock Shift, Ctrl, Alt or Win")
+            summary: qsTr("On the full keyboard.")
+            from: 200
+            to: 1500
+            stepSize: 50
+            suffix: " ms"
         }
 
         // Pressing the row steps Off -> Steam Frame -> Generic -> Gun -> Your own model
@@ -1358,6 +1556,74 @@ Flickable {
             summary: qsTr("Sends a physical mouse's back and forward buttons to the PC")
             isOn: MlxrPrefs.mouseNavButtons
             onSwitched: function(on) { MlxrPrefs.mouseNavButtons = on }
+        }
+
+        VrSwitch {
+            key: "vr.pointer"
+            title: qsTr("Controllers as a mouse")
+            summary: qsTr("Off leaves only the switch to gamepad mode.")
+        }
+
+        VrSwitch {
+            key: "vr.pointer_sleep"
+            title: qsTr("Pause the pointer when the controller is still")
+        }
+
+        VrSwitch {
+            key: "vr.show_ray"
+            title: qsTr("Show the ray")
+        }
+
+        VrSwitch {
+            key: "vr.pointer_dot"
+            title: qsTr("Show the dot where the ray lands")
+        }
+
+        VrChoice {
+            key: "vr.click_steadiness"
+            title: qsTr("Click steadiness")
+            summary: qsTr("How still the cursor is held around a click.")
+            values: ["off", "normal", "steady"]
+            names: [qsTr("Off"), qsTr("Normal"), qsTr("Steady")]
+        }
+
+        VrSwitch {
+            key: "vr.click_sound"
+            title: qsTr("Click sound")
+        }
+
+        VrSwitch {
+            key: "vr.head_aim"
+            title: qsTr("Head aims the mouse")
+            summary: qsTr("With the screen head-locked, outside a room.")
+        }
+
+        VrSlider {
+            key: "vr.head_aim_sensitivity"
+            title: qsTr("Head aim speed")
+            from: 1
+            to: 30
+            suffix: " px/°"
+        }
+
+        VrSlider {
+            key: "vr.head_aim_deadzone"
+            title: qsTr("Head aim dead zone")
+            from: 0
+            to: 20
+            suffix: " °/s"
+        }
+
+        VrSwitch {
+            key: "vr.gaze"
+            title: qsTr("Look to point")
+            summary: qsTr("Not tested on the Steam Frame yet.")
+        }
+
+        VrSwitch {
+            key: "vr.hand_tracking"
+            title: qsTr("Hand tracking")
+            summary: qsTr("Not tested on the Steam Frame yet.")
         }
 
         // ======== Host Settings ========
@@ -1396,6 +1662,47 @@ Flickable {
             onSwitched: function(on) { MlxrPrefs.clipboardSync = on }
         }
 
+        // Native (lane launcher-bundle, PLAN 6.4): what the launcher opens by itself once the PC is online
+        PrefRow {
+            objectName: "onStartRow"
+            title: qsTr("On start")
+            valueText: settingsPage.onStartText()
+            summary: qsTr("Starts the stream as soon as the PC is online.")
+            onClicked: {
+                var e = []
+                for (var i = 0; i < settingsPage.onStartNames.length; i++) e.push({ text: settingsPage.onStartNames[i], reason: "" })
+                listDialog.show(title, e, Math.max(0, settingsPage.onStartValues.indexOf(MlxrPrefs.onStart)), function(i) {
+                    settingsPage.pickOnStart(i)
+                })
+            }
+        }
+
+        PrefRow {
+            objectName: "onStartAppRow"
+            title: qsTr("App to open on start")
+            visible: searchHit && MlxrPrefs.onStart === "app"
+            valueText: MlxrPrefs.onStartApp !== "" ? qsTr("%1 on %2").arg(MlxrPrefs.onStartApp).arg(MlxrPrefs.onStartPc) : qsTr("None chosen")
+            onClicked: {
+                var c = MlxrPrefs.onStartChoices()
+                var e = []
+                var cur = -1
+                for (var i = 0; i < c.length; i++) {
+                    e.push({ text: qsTr("%1 on %2").arg(c[i].app).arg(c[i].pc), reason: "" })
+                    if (c[i].pc === MlxrPrefs.onStartPc && c[i].app === MlxrPrefs.onStartApp) cur = i
+                }
+                listDialog.show(title, e, cur, function(i) { settingsPage.pickOnStartApp(c[i].pc, c[i].app) })
+            }
+        }
+
+        // Native (lane launcher-bundle, PLAN 6.2)
+        PrefSwitch {
+            objectName: "checkUpdatesRow"
+            title: qsTr("Check for updates")
+            summary: qsTr("Once a day, asks GitHub whether a newer release is out. Nothing is downloaded or installed.")
+            isOn: MlxrPrefs.checkUpdates
+            onSwitched: function(on) { MlxrPrefs.checkUpdates = on }
+        }
+
         // ======== UI Settings ========
         PrefCategory { text: qsTr("UI Settings"); icon: "ui" }
 
@@ -1416,6 +1723,102 @@ Flickable {
             }
         }
 
+        VrChoice {
+            key: "vr.environment"
+            title: qsTr("Environment")
+            summary: qsTr("Automatic is the void, or the passthrough with Passthrough on.")
+            values: ["auto", "passthrough", "void", "home_theater", "grand_cinema", "synthwave"]
+            names: [qsTr("Automatic"), qsTr("Passthrough"), qsTr("Void"), qsTr("Home Theater"), qsTr("Grand Cinema"), qsTr("Synthwave")]
+        }
+
+        VrSwitch {
+            key: "vr.passthrough"
+            title: qsTr("Passthrough")
+        }
+
+        VrChoice {
+            key: "vr.env_res"
+            title: qsTr("Room detail")
+            summary: qsTr("Takes effect at the next stream.")
+            values: ["low", "standard", "high", "ultra"]
+            names: [qsTr("Low"), qsTr("Standard"), qsTr("High"), qsTr("Ultra")]
+        }
+
+        VrSwitch {
+            key: "display.screen_light"
+            title: qsTr("Screen light in rooms")
+        }
+
+        VrSwitch {
+            key: "display.glow"
+            title: qsTr("Glow")
+        }
+
+        VrSlider {
+            key: "display.glow_level"
+            title: qsTr("Glow level")
+            from: 0
+            to: 100
+            stepSize: 5
+            suffix: "%"
+        }
+
+        VrSlider {
+            key: "screen.distance_cm"
+            title: qsTr("Screen distance")
+            from: 20
+            to: 800
+            stepSize: 10
+            suffix: " cm"
+        }
+
+        VrSlider {
+            key: "screen.width_cm"
+            title: qsTr("Screen width")
+            from: 80
+            to: 800
+            stepSize: 10
+            suffix: " cm"
+        }
+
+        VrSlider {
+            key: "screen.curve"
+            title: qsTr("Screen curve")
+            from: 0
+            to: 100
+            suffix: "%"
+        }
+
+        VrSwitch {
+            key: "screen.per_app"
+            title: qsTr("Remember the screen per app")
+            summary: qsTr("An app without its own place starts from the rows above.")
+        }
+
+        VrSwitch {
+            key: "screen.angular_lock"
+            title: qsTr("Keep the screen's size when pushing or pulling it")
+        }
+
+        VrSwitch {
+            key: "display.head_locked"
+            title: qsTr("Head-locked screen")
+        }
+
+        VrSwitch {
+            key: "display.head_follow"
+            title: qsTr("Screen follows your head")
+            summary: qsTr("Head-locked wins when both are on.")
+        }
+
+        VrSlider {
+            key: "display.follow_leash_deg"
+            title: qsTr("Follow after turning")
+            from: 10
+            to: 60
+            suffix: "°"
+        }
+
         // ======== Performance Monitor ========
         PrefCategory { text: qsTr("Performance Monitor"); icon: "performance" }
 
@@ -1426,6 +1829,13 @@ Flickable {
                      qsTr("(the headset's stats panel; also on its Display tab)")
             isOn: MlxrPrefs.perfOverlay
             onSwitched: function(on) { MlxrPrefs.perfOverlay = on }
+        }
+
+        VrChoice {
+            key: "display.stats_style"
+            title: qsTr("Stats style")
+            values: ["full", "hud", "lite"]
+            names: [qsTr("Full"), qsTr("HUD"), qsTr("Lite")]
         }
 
         // The headset's toast: pressing the row steps All -> Important -> Off
@@ -1668,7 +2078,7 @@ Flickable {
             Layout.topMargin: 24
             Layout.leftMargin: 16
             Layout.rightMargin: 16
-            text: qsTr("More settings for the headset (screen, room, pointer, keyboard) are in its cog menu, saved in %1.").arg(MlxrPrefs.configIniPath)
+            text: qsTr("The screen's place and each room's look are set in the headset's cog menu. All of the headset's settings are saved in %1.").arg(MlxrPrefs.configIniPath)
             font.pointSize: 9
             color: settingsPage.summaryColor
             wrapMode: Text.Wrap
