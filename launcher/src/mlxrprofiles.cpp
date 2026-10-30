@@ -92,6 +92,9 @@ const PrefField kPrefFields[] = {
     { "bitrateAdapter", KInt, 0, 500000, nullptr },
     { "bitrateWired", KInt, 0, 500000, nullptr },
     { "bitrateUsb", KInt, 0, 500000, nullptr },
+    // lane wave2-lightgun-gyro: the game's input choices
+    { "lightgun", KStr, 0, 0, "|auto|on|off|" },
+    { "padGyro", KStr, 0, 0, "|off|controller|head|" },
     { "flipFaceButtons", KBool, 0, 0, nullptr },
     { "notices", KStr, 0, 0, "|all|important|off|" },
     { "scrollSpeed", KInt, 25, 400, nullptr },

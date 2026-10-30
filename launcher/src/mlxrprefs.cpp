@@ -583,6 +583,8 @@ QVector<MlxrPrefs::IniEntry> MlxrPrefs::profileIniEntries() const
         { "stream", "bitrate_adapter", QString::number(bitrateAdapter <= 0 ? 0 : qBound(500, bitrateAdapter, 500000)) },
         { "stream", "bitrate_wired", QString::number(bitrateWired <= 0 ? 0 : qBound(500, bitrateWired, 500000)) },
         { "stream", "bitrate_usb", QString::number(bitrateUsb <= 0 ? 0 : qBound(500, bitrateUsb, 500000)) },
+        { "vr", "lightgun", lightgun },
+        { "vr", "pad_gyro", padGyro },
         { "vr", "flip_face_buttons", flipFaceButtons ? "true" : "false" },
         { "vr", "notices", notices },
         { "vr", "scroll_speed", QString::number(qBound(25, scrollSpeed, 400)) },
