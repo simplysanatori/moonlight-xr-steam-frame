@@ -244,7 +244,7 @@ typedef struct Video {
     VkSemaphore timeline;
     uint64_t value;
     // what the last draw used, so a change redraws a still picture
-    int drawnGradeOn, drawnSharpen, drawnCurved;
+    int drawnGradeOn, drawnSharpen, drawnCurved, drawnChroma;
     PictureGrade drawnGrade;
     // M6: the 3D as last drawn (eyes, separation, convergence, depth view)
     int drawnEyes, drawnShowDepth;
@@ -510,6 +510,7 @@ typedef struct XrCurve {
     int eyeW, eyeH;
     int failed;
     int layerSaid;
+    int filterSaid;            // native (lane text-clarity): the filter last logged
     // What a warp into this image counts as for videoStale: 1 the curve, 2 + 4
     // x width the supersampled picture (M5)
     int mode;
@@ -654,6 +655,35 @@ static int curveSwapchain(XrCtx* ctx, XrCurve* cv, int64_t format) {
     return 0;
 }
 
+// The sharpen the Display tab's row asks for: off, normal, quality. The quad
+// picture's is the warp's (CAS on the video's own texels, before the
+// supersample pass); the curved or 3D picture's is the panel pass's, at the
+// eye's pixels (native, lane text-clarity: CAS never touches black text on
+// white, as its weight falls to nothing where a neighbourhood reaches black
+// or white; tests/shaders text)
+static float sharpenFor(int mode) {
+    return mode == 2 ? 0.8f : (mode == 1 ? 0.4f : 0.0f);
+}
+
+static float panelSharpenFor(int mode) {
+    return mode == 2 ? 1.0f : (mode == 1 ? 0.5f : 0.0f);
+}
+
+// Native (lane text-clarity): a config.ini switch with its variable over it
+// (for a headset A/B from the shortcut's launch options; never saved)
+static int knobOr(const char* name, int setting) {
+    const char* v = getenv(name);
+    return v != NULL && *v ? atoi(v) != 0 : setting != 0;
+}
+
+static int pictureFilterOn(XrCtx* ctx) {
+    return knobOr("MLXR_PICTURE_FILTER", ctx->pictureFilter);
+}
+
+static int chromaFromLumaOn(XrCtx* ctx) {
+    return knobOr("MLXR_CHROMA_FROM_LUMA", ctx->chromaFromLuma);
+}
+
 // One display frame of the curved picture: both eyes drawn from where they
 // are now. Fills the layer and returns the acquired images' release duty.
 static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuffer cmd, int64_t format,
@@ -763,6 +793,18 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     xrCurveShape(ctx, &pp.width, &pp.height, &pp.radius);
     pp.segments = 96;
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
+    // Native (lane text-clarity): shrunk into the eye through the footprint
+    // filter, and sharpened there (panel.frag)
+    pp.pictureFilter = pictureFilterOn(ctx);
+    pp.sharpen = panelSharpenFor(ctx->sharpenMode);
+    int said = 1 + pp.pictureFilter * 2 + ctx->sharpenMode * 4 + chromaFromLumaOn(ctx) * 16;
+    if (cv->filterSaid != said) {
+        cv->filterSaid = said;
+        LOGEV("curved picture: %s, sharpen %s at the eye's pixels, chroma %s",
+              pp.pictureFilter ? "footprint filter" : "one trilinear read (picture_filter off)",
+              ctx->sharpenMode == 2 ? "quality" : ctx->sharpenMode == 1 ? "normal" : "off",
+              chromaFromLumaOn(ctx) ? "from luma" : "bilinear (chroma_from_luma off)");
+    }
     memset(&cv->layer, 0, sizeof(cv->layer));
     VkImageView src[ROOM_EYES];
     for (int e = 0; e < 2; e++) {
@@ -808,60 +850,11 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     return 1;
 }
 
-// The sharpen the Display tab's row asks for: off, normal, quality
-static float sharpenFor(int mode) {
-    return mode == 2 ? 0.8f : (mode == 1 ? 0.4f : 0.0f);
-}
-
-// One level's layout change, with the stages a blit chain needs
-static void mipBarrier(VkCommandBuffer cmd, VkImage image, uint32_t level, uint32_t count, VkImageLayout from,
-                       VkImageLayout to, VkAccessFlags srcAccess, VkAccessFlags dstAccess,
-                       VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
-    VkImageMemoryBarrier b = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-    b.srcAccessMask = srcAccess;
-    b.dstAccessMask = dstAccess;
-    b.oldLayout = from;
-    b.newLayout = to;
-    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.image = image;
-    b.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, level, count, 0, 1 };
-    vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, NULL, 0, NULL, 1, &b);
-}
-
 // Native: the curved (or 3D) picture's mip chain from the level the warp just
-// drew, each level a linear blit of the one above, all of it left for the
-// panel pass to sample. Native (lane eye-swapchains): one image of them, i. Every level is in COLOR_ATTACHMENT_OPTIMAL on entry
-// (the warp's barrier covers them all).
+// drew (mlxr_record_mips), all of it left for the panel pass to sample.
+// Native (lane eye-swapchains): one image of them, i.
 static void curveMips(VkCommandBuffer cmd, XrCurve* cv, int i) {
-    VkImage image = cv->pic[i].image;
-    const VkPipelineStageFlags COLOR = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    const VkPipelineStageFlags XFER = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    const VkPipelineStageFlags READ = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    mipBarrier(cmd, image, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-               VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, COLOR, XFER);
-    int w = cv->w, h = cv->h;
-    for (uint32_t m = 1; m < cv->mips; m++) {
-        int nw = w > 1 ? w / 2 : 1, nh = h > 1 ? h / 2 : 1;
-        // After the warp's own layout change of every level, before this write
-        mipBarrier(cmd, image, m, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                   0, VK_ACCESS_TRANSFER_WRITE_BIT, COLOR | XFER, XFER);
-        VkImageBlit blit;
-        memset(&blit, 0, sizeof(blit));
-        blit.srcSubresource = (VkImageSubresourceLayers){ VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1 };
-        blit.srcOffsets[1] = (VkOffset3D){ w, h, 1 };
-        blit.dstSubresource = (VkImageSubresourceLayers){ VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1 };
-        blit.dstOffsets[1] = (VkOffset3D){ nw, nh, 1 };
-        vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image,
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
-        mipBarrier(cmd, image, m, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, XFER, XFER);
-        w = nw;
-        h = nh;
-    }
-    mipBarrier(cmd, image, 0, cv->mips, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, XFER,
-               READ);
+    mlxr_record_mips(cmd, cv->pic[i].image, (uint32_t)cv->w, (uint32_t)cv->h, cv->mips);
 }
 
 // Records the warp of one picture into swapchain image idx (or the app's own
@@ -917,7 +910,9 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     w.grade[2] = ctx->grade.exponent;
     w.grade[3] = ctx->grade.saturation;
     w.tint[0] = w.tint[1] = w.tint[2] = 1.0f;
-    w.sharpen = sharpenFor(ctx->sharpenMode);
+    // The curved or 3D picture is sharpened by the panel pass (curveRecord)
+    w.sharpen = curve != NULL && curve->mode == 1 ? 0.0f : sharpenFor(ctx->sharpenMode);
+    w.chromaGuided = chromaFromLumaOn(ctx);
     xrDepthRecordWarpEyes(ctx, cmd, tg, &w, &dd);
     if (curve != NULL) {
         for (int e = 0; e < dd.eyes; e++) {
@@ -933,6 +928,7 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     vd->drawnGradeOn = ctx->gradeOn;
     vd->drawnGrade = ctx->grade;
     vd->drawnSharpen = ctx->sharpenMode;
+    vd->drawnChroma = w.chromaGuided;
     vd->drawnEyes = dd.eyes;
     vd->drawnSep = ctx->separationCurrent;
     vd->drawnConv = ctx->convergence;
@@ -954,6 +950,7 @@ static int videoStale(XrCtx* ctx, const Video* vd, int curved) {
     // Native (PLAN 4b.6): or the part of the picture shown moved
     int zoomed = vd->drawnZoom[0] != ctx->zoomPct || vd->drawnZoom[1] != ctx->zoomX || vd->drawnZoom[2] != ctx->zoomY;
     return vd->draws > 0 && (vd->drawnGradeOn != ctx->gradeOn || vd->drawnSharpen != ctx->sharpenMode
+                             || vd->drawnChroma != chromaFromLumaOn(ctx)
                              || vd->drawnCurved != curved || ctx->warpRedraw || stereo3d || zoomed
                              || memcmp(&vd->drawnGrade, &ctx->grade, sizeof(PictureGrade)) != 0);
 }

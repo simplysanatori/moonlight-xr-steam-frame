@@ -677,7 +677,16 @@ void mlxr_pass_warp(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, con
     pc[23] = w->edgeFade;
     // The four switches as bits of one number (warp.frag's WARP_ flags), which
     // frees the push block's last three floats for the zoom's rectangle
-    pc[24] = (float)((w->occlusion ? 1 : 0) | (w->depthCubic ? 2 : 0) | (w->showDepth ? 4 : 0) | (w->barTest ? 8 : 0));
+    // Native (lane text-clarity): 16 chroma from luma; where its chroma sites
+    // are: 32 midway between luma columns (centre siting) rather than on the
+    // even ones, 64 on the even rows rather than midway between two (both as
+    // the NV12 conversion got them, or as the three planes are read)
+    int nv12 = w->video.kind == MLXR_VIDEO_NV12;
+    int centreX = nv12 ? p->nv12X != VK_CHROMA_LOCATION_COSITED_EVEN : w->video.chroma != MLXR_CHROMA_LEFT;
+    int cositedY = nv12 && p->nv12Y == VK_CHROMA_LOCATION_COSITED_EVEN;
+    int chroma = w->chromaGuided ? 16 | (centreX ? 32 : 0) | (cositedY ? 64 : 0) : 0;
+    pc[24] = (float)((w->occlusion ? 1 : 0) | (w->depthCubic ? 2 : 0) | (w->showDepth ? 4 : 0) | (w->barTest ? 8 : 0) |
+                     chroma);
     int zoomed = w->zoomSize > 0.0f && w->zoomSize < 1.0f;
     pc[25] = zoomed ? w->zoomX : 0.0f;
     pc[26] = zoomed ? w->zoomY : 0.0f;
@@ -994,12 +1003,16 @@ void mlxr_pass_panel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, co
     VkWriteDescriptorSet wr = imageWrite(0, &ii);
     p->pushDescriptors(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &wr);
     int eyes = pp->eyes < 1 ? 1 : (pp->eyes > 2 ? 2 : pp->eyes);
-    float pc[28];
+    float pc[32];
     pc[16] = pp->width;
     pc[17] = pp->height;
     pc[18] = pp->radius;
     pc[19] = (float)segments;
     memcpy(&pc[24], pp->color, sizeof(pp->color));
+    pc[28] = pp->pictureFilter ? 1.0f : 0.0f;
+    pc[29] = pp->pictureFilter ? pp->sharpen : 0.0f;
+    pc[30] = 0.0f;
+    pc[31] = 0.0f;
     for (int e = 0; e < eyes; e++) {
         setRect(cmd, pp->eyeRect[e]);
         memcpy(pc, pp->mvp[e], 16 * sizeof(float));
@@ -1008,6 +1021,52 @@ void mlxr_pass_panel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, co
         vkCmdDraw(cmd, (uint32_t)segments * 6u, 1, 0, 0);
     }
     p->endRendering(cmd);
+}
+
+// One level's layout change, with the stages a blit chain needs
+static void mipBarrier(VkCommandBuffer cmd, VkImage image, uint32_t level, uint32_t count, VkImageLayout from,
+                       VkImageLayout to, VkAccessFlags srcAccess, VkAccessFlags dstAccess,
+                       VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+    VkImageMemoryBarrier b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.srcAccessMask = srcAccess;
+    b.dstAccessMask = dstAccess;
+    b.oldLayout = from;
+    b.newLayout = to;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = image;
+    b.subresourceRange = (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, level, count, 0, 1};
+    vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, NULL, 0, NULL, 1, &b);
+}
+
+// Moved here from xr_session.c (lane text-clarity) so the shader tests build
+// the curved picture's chain the way the session does
+void mlxr_record_mips(VkCommandBuffer cmd, VkImage image, uint32_t w, uint32_t h, uint32_t mips) {
+    const VkPipelineStageFlags COLOR = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    const VkPipelineStageFlags XFER = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    const VkPipelineStageFlags READ = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    mipBarrier(cmd, image, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+               VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, COLOR, XFER);
+    for (uint32_t m = 1; m < mips; m++) {
+        uint32_t nw = w > 1 ? w / 2 : 1, nh = h > 1 ? h / 2 : 1;
+        // After the warp's own layout change of every level, before this write
+        mipBarrier(cmd, image, m, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                   VK_ACCESS_TRANSFER_WRITE_BIT, COLOR | XFER, XFER);
+        VkImageBlit blit;
+        memset(&blit, 0, sizeof(blit));
+        blit.srcSubresource = (VkImageSubresourceLayers){VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1};
+        blit.srcOffsets[1] = (VkOffset3D){(int32_t)w, (int32_t)h, 1};
+        blit.dstSubresource = (VkImageSubresourceLayers){VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1};
+        blit.dstOffsets[1] = (VkOffset3D){(int32_t)nw, (int32_t)nh, 1};
+        vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                       &blit, VK_FILTER_LINEAR);
+        mipBarrier(cmd, image, m, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, XFER, XFER);
+        w = nw;
+        h = nh;
+    }
+    mipBarrier(cmd, image, 0, mips, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+               VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, XFER, READ);
 }
 
 static void layoutSync(VkImageLayout l, VkPipelineStageFlags* stage, VkAccessFlags* access) {

@@ -18,8 +18,9 @@
 // Spec constant 0: OUT_LINEAR (common.glsl).
 //
 // Added for the native port, off (0) reproduces upstream exactly:
-//   modes    the four switches share one number (bits 1 occlusion, 2 depthCubic,
-//            4 showDepth, 8 barTest), and its other three floats are the zoom
+//   modes    the switches share one number (bits 1 occlusion, 2 depthCubic,
+//            4 showDepth, 8 barTest; 16, 32 and 64 chroma from luma and its
+//            chroma siting, see guidedChroma), and its other three floats are the zoom
 //            (PLAN 4b.6): the x0, y0 and side, in picture uv, of the part of the
 //            picture that fills the target; 0 0 1 is the whole of it.
 //   extra.x  sharpen strength 0..1 (contrast adaptive, on the video taps
@@ -127,11 +128,63 @@ vec3 sharpened(vec2 tc, vec3 c) {
     return clamp((c + wt * (n + s + w + e)) / (1.0 + 4.0 * wt), 0.0, 1.0);
 }
 
+// Native (lane text-clarity): chroma from luma. A 4:2:0 frame carries chroma
+// at half the resolution each way, and the bilinear read under videoAt smears
+// it across a coloured stroke's edge (red text, syntax colours): a 1 px red
+// stroke reaches the chroma samples diluted with the paper round it. Over the
+// four chroma sites round the pixel the chroma is fitted as a straight line of
+// the luma there (read at the same sites, so both are the half resolution
+// picture), and the line is put through this pixel's own full resolution
+// luma. Where a stroke of one colour lies on a background of another, chroma
+// is exactly such a line of luma, so the stroke gets its whole colour back.
+// The fit is mixed in by how well it fits (r squared, per chroma channel), so
+// a flat patch, an edge between two colours of one luma or a mix of three
+// colours keeps the bilinear chroma; the result is held to a valid colour.
+// switches bit 16: on; bit 32: chroma sites between luma columns (centre
+// siting) rather than on the even ones (left, the H.264/HEVC default); bit
+// 64: sites on the even rows rather than between two (a conversion that only
+// offers cosited siting).
+const vec3 LUMA709 = vec3(0.2126, 0.7152, 0.0722);
+vec3 guidedChroma(vec2 tc, vec3 c, vec4 rect) {
+    vec2 texel = pc.vidChroma.zw;
+    vec2 p = tc / texel;
+    float sx = (u_switches & 32) != 0 ? 1.0 : 0.5, sy = (u_switches & 64) != 0 ? 0.5 : 1.0;
+    float i0 = floor((p.x - sx) * 0.5), j0 = floor((p.y - sy) * 0.5);
+    // Every site read is held inside the picture (or the eye's half of it)
+    vec2 lo = rect.xy + 0.5 * texel, hi = rect.xy + rect.zw - 0.5 * texel;
+    float mY = 0.0, mY2 = 0.0;
+    vec2 mC = vec2(0.0), mYC = vec2(0.0), mC2 = vec2(0.0);
+    for (int k = 0; k < 4; k++) {
+        vec2 site = vec2(2.0 * (i0 + float(k & 1)) + sx, 2.0 * (j0 + float(k >> 1)) + sy);
+        vec3 s = videoAt(clamp(site * texel, lo, hi));
+        float y = dot(s, LUMA709);
+        vec2 ch = vec2(s.b - y, s.r - y);
+        mY += 0.25 * y;
+        mY2 += 0.25 * y * y;
+        mC += 0.25 * ch;
+        mYC += 0.25 * y * ch;
+        mC2 += 0.25 * ch * ch;
+    }
+    float varY = mY2 - mY * mY;
+    vec2 cov = mYC - mY * mC, varC = mC2 - mC * mC;
+    float Y = dot(c, LUMA709);
+    vec2 cur = vec2(c.b - Y, c.r - Y);
+    if (varY < 1e-5) return c;
+    vec2 pred = mC + cov / varY * (Y - mY);
+    vec2 fit = clamp(cov * cov / max(varY * varC, vec2(1e-8)), 0.0, 1.0);
+    vec2 ch = mix(cur, pred, fit);
+    vec3 rgb;
+    rgb.r = Y + ch.y;
+    rgb.b = Y + ch.x;
+    rgb.g = (Y - LUMA709.r * rgb.r - LUMA709.b * rgb.b) / LUMA709.g;
+    return clamp(rgb, 0.0, 1.0);
+}
+
 // Native (PLAN 4.3): a host-rendered pair. The eye's half of the picture's
 // rectangle (left eye left, or left eye top), uv spread over it, held a texel
 // and a half clear of the half's edges, so neither the bilinear tap nor the
 // half resolution chroma under it reaches into the other eye's half
-vec2 halfTc(vec2 uv) {
+vec4 halfRect() {
     vec4 r = pc.vidRect;
     if (u_split < 1.5) {
         r.z *= 0.5;
@@ -141,6 +194,11 @@ vec2 halfTc(vec2 uv) {
         r.w *= 0.5;
         r.y += u_half * r.w;
     }
+    return r;
+}
+
+vec2 halfTc(vec2 uv) {
+    vec4 r = halfRect();
     vec2 hold = 1.5 * pc.vidChroma.zw;
     return clamp(r.xy + uv * r.zw, r.xy + hold, r.xy + r.zw - hold);
 }
@@ -203,6 +261,9 @@ void main() {
     tc.x = clamp(tc.x, u_srcInset, 1.0 - u_srcInset);
     vec2 vtc = u_split > 0.5 ? halfTc(tc) : videoTc(tc);
     fragColor = vec4(videoAt(vtc), 1.0);
+    if ((u_switches & 16) != 0) {
+        fragColor.rgb = guidedChroma(vtc, fragColor.rgb, u_split > 0.5 ? halfRect() : pc.vidRect);
+    }
     if (pc.extra.x > 0.0) {
         fragColor.rgb = sharpened(vtc, fragColor.rgb);
     }

@@ -70,6 +70,8 @@ static void test_defaults(void) {
     CHECK(geti(&s, "head_locked") == 0);
     CHECK(geti(&s, "sharpening") == 0);      // native: off (upstream quality)
     CHECK(geti(&s, "supersampling") == 1);   // native: normal (upstream off)
+    CHECK(geti(&s, "picture_filter") == 1);  // native (lane text-clarity): on, by measurement
+    CHECK(geti(&s, "chroma_from_luma") == 1);
     CHECK(geti(&s, "stats") == 0);
     CHECK(geti(&s, "glow") == 0 && geti(&s, "glow_level") == 50 && geti(&s, "screen_light") == 1);
     CHECK(geti(&s, "separation") == -1 && settings_separation_units(&s) == 6);   // ZipDepth's own
