@@ -48,3 +48,10 @@ if(Python3_FOUND)
             ${PROJECT_SOURCE_DIR}/packaging/steam_cef.py)
   set_tests_properties(tools_doctor PROPERTIES TIMEOUT 120)
 endif()
+
+# packaging/install.sh --desktop-shortcut (PLAN 6.4): the "Desktop in VR" Steam shortcut, against the fake CEF
+# endpoint; binaries are copies of /bin/true.
+if(Python3_FOUND)
+  add_test(NAME tools_install_desktop_shortcut COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_install_desktop_shortcut.sh)
+  set_tests_properties(tools_install_desktop_shortcut PROPERTIES TIMEOUT 300)
+endif()

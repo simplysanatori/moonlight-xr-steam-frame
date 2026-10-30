@@ -154,6 +154,8 @@ void seedLauncherConfig();
 // (lane pcvr-steamvr) "vr:<host name|uuid>" is the app grid's VR for that saved PC; with MLXR_LAUNCHER_DRYRUN
 // it ends nothing and asks Steam nothing, and prints steam_cef.py --pcvr --dry-run's answer as
 // "SELFTEST: vr steam rc=N <json>".
+// (lane launcher-bundle) "vrkeys" prints MlxrPrefs::vrKeyTable(), "update" runs the update check (mlxrupdate.h),
+// "onstart[:running app id]" the On start decision (mlxronstart.h).
 int selfTest(const QString& spec);
 
 // Moonlight XR Native (lane refresh): the Steam Frame's display rates. The VR client never streams

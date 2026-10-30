@@ -63,6 +63,7 @@
 #include "../backend/backend_limelight.h"
 #include "../backend/netdiag.h"
 #include "../backend/netpath.h"
+#include "../backend/opentrack.h"
 #include "../stream/evdev_keyboard.h"
 #include "../stream/failover.h"
 #include "../input/evmouse.h"
@@ -1296,6 +1297,8 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     }
     atomic_store(&g_streaming, 1);
     xr_app_set_streaming(1);
+    // Native (lane headinput-finish, PLAN 4.5): opentrack_host's default target is the streaming PC
+    mlxr_opentrack_set_stream_host(n->address[pc]);
     // Native (lane wave2-bind-wire): the app's name, for its own lines in bindings.ini
     {
         char appName[96] = "";
@@ -1376,6 +1379,7 @@ static void stopStream(Net* n, int quitHost) {
     vrkb_release_all(&g_vrkb);
     atomic_store(&g_streaming, 0);
     xr_app_set_streaming(0);
+    mlxr_opentrack_set_stream_host(""); // native (lane headinput-finish): no stream, no default target
     xr_app_set_host_app(""); // native (lane wave2-bind-wire)
     hostLinkClear();         // native (lane wave4-apollo)
     updateKeyboard();

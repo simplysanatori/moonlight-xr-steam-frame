@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- The flat window checks once a day whether a newer release is out on GitHub and then shows an update button that opens its release page. Nothing is downloaded or sent; **Check for updates** in Settings turns it off.
+- **On start** in Settings opens the last PC's Desktop, or an app you choose, as soon as the PC is online. `install.sh --desktop-shortcut` adds a second Steam shortcut, **Desktop in VR**, that goes straight to the Desktop.
+- The Settings page has rows for the headset settings that were only in `config.ini` or the cog menu: the picture, the pointer, the keyboard, gamepad mode, the environment and the screen.
+
 ### Changed
 
 - The release is also written as a `.zip` with the same files and modes as the `.tar.gz`, for the community installers Frametanium and FrameDrop. `install.sh` now keeps a log in `~/Games/MoonlightXRNative/install.log`, never waits for input, and when Steam is not running it installs the files, says that the Steam shortcut was skipped and exits 0.

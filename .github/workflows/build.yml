@@ -286,8 +286,8 @@ jobs:
           "$HOME/aqt-venv/bin/aqt" install-qt linux_arm64 desktop "$QT_VERSION" linux_gcc_arm64 \
             -m qtshadertools --outputdir "$QT_ROOT"
 
-      - name: Build mlxr-cli and mlxr-settings-dump
-        run: NO_DEPTH=1 SKIP_AUDIT=1 JOBS=4 ./build.sh mlxr-cli mlxr-settings-dump
+      - name: Build mlxr-cli, mlxr-settings-dump and the fake host
+        run: NO_DEPTH=1 SKIP_AUDIT=1 JOBS=4 ./build.sh mlxr-cli mlxr-settings-dump backend_fake_host_main
 
       - name: Build the launcher
         run: |
