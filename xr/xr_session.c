@@ -1235,6 +1235,13 @@ static void pollEvents(XrCtx* ctx, const XrAppHooks* hk) {
                 displayRateChanged(ctx, rate->fromDisplayRefreshRate, rate->toDisplayRefreshRate);
                 break;
             }
+            case XR_TYPE_EVENT_DATA_USER_PRESENCE_CHANGED_EXT: {
+                // Native (lane wave3-session): the headset off or on
+                const XrEventDataUserPresenceChangedEXT* up = (const XrEventDataUserPresenceChangedEXT*)&event;
+                LOGEV("user presence: headset %s", up->isUserPresent ? "on" : "off");
+                if (hk->presence) hk->presence(hk->user, up->isUserPresent ? 1 : 0);
+                break;
+            }
             case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
                 runtimeEnded(ctx, "instance loss pending");
                 break;
@@ -1252,6 +1259,9 @@ static void pollEvents(XrCtx* ctx, const XrAppHooks* hk) {
 typedef XrResult(XRAPI_PTR* ConvertTimeFn)(XrInstance instance, XrTime time, struct timespec* out);
 static int g_convertTimeOffered;
 static ConvertTimeFn g_xrTimeToTimespec;
+// Native (lane wave3-session): XR_EXT_user_presence is offered and enabled (the headset's on and off
+// come as events), and the system says it has the sensor
+static int g_presenceOffered, g_presenceSupported;
 
 // 0 when the runtime cannot say
 static int64_t xrTimeToMonoNs(XrInstance instance, XrTime t) {
@@ -1291,6 +1301,8 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
     ctx->handAimOffered = offered(exts, n, XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME);
     ctx->eyeGaze = offered(exts, n, XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME);
     g_convertTimeOffered = offered(exts, n, "XR_KHR_convert_timespec_time");
+    g_presenceOffered = offered(exts, n, XR_EXT_USER_PRESENCE_EXTENSION_NAME);
+    g_presenceSupported = 0;
     ctx->handsEnabled = s->hand_tracking;
     if (!ctx->handsEnabled) {
         ctx->handInteraction = 0;
@@ -1319,6 +1331,7 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
     if (ctx->eyeGaze) enabled[ne++] = XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME;
     if (ctx->msftHandInteraction) enabled[ne++] = XR_MSFT_HAND_INTERACTION_EXTENSION_NAME;
     if (g_convertTimeOffered) enabled[ne++] = "XR_KHR_convert_timespec_time";
+    if (g_presenceOffered) enabled[ne++] = XR_EXT_USER_PRESENCE_EXTENSION_NAME;
 
     XrInstanceCreateInfo ici = { XR_TYPE_INSTANCE_CREATE_INFO };
     strcpy(ici.applicationInfo.applicationName, "Moonlight XR for Frame");
@@ -1361,7 +1374,12 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
     ctx->maxLayerCount = XR_MIN_COMPOSITION_LAYERS_SUPPORTED;
     XrSystemEyeGazeInteractionPropertiesEXT gazeProps = { XR_TYPE_SYSTEM_EYE_GAZE_INTERACTION_PROPERTIES_EXT };
     XrSystemHandTrackingPropertiesEXT handProps = { XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT };
+    XrSystemUserPresencePropertiesEXT presenceProps = { XR_TYPE_SYSTEM_USER_PRESENCE_PROPERTIES_EXT };
     XrSystemProperties props = { XR_TYPE_SYSTEM_PROPERTIES };
+    if (g_presenceOffered) {
+        presenceProps.next = props.next;
+        props.next = &presenceProps;
+    }
     if (ctx->eyeGaze) {
         gazeProps.next = props.next;
         props.next = &gazeProps;
@@ -1378,6 +1396,14 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
         LOGEV("system %s, %d composition layers used", props.systemName, ctx->maxLayerCount);
         if (ctx->eyeGaze && !gazeProps.supportsEyeGazeInteraction) ctx->eyeGaze = 0;
         if (ctx->handTracking && !handProps.supportsHandTracking) ctx->handTracking = 0;
+        g_presenceSupported = g_presenceOffered && presenceProps.supportsUserPresence;
+    }
+    if (g_presenceOffered) {
+        LOGEV("user presence: XR_EXT_user_presence enabled, the system %s the sensor",
+              g_presenceSupported ? "has" : "does not report");
+    }
+    else {
+        LOGI("user presence: XR_EXT_user_presence not offered by this runtime: headset-off handling is off");
     }
     XrViewConfigurationView cv[2] = { { XR_TYPE_VIEW_CONFIGURATION_VIEW }, { XR_TYPE_VIEW_CONFIGURATION_VIEW } };
     uint32_t ncv = 0;

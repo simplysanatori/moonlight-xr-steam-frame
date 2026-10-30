@@ -66,6 +66,10 @@ typedef struct XrAppHooks {
     // may be NULL.
     void (*hscroll)(void* user, int amount);
     void (*bindKey)(void* user, int vk, int mods, int down);
+    // Native (lane wave3-session): the headset came off (present 0) or went back on (1), from
+    // XR_EXT_user_presence, on the frame loop. Never called when the runtime does not offer the
+    // extension. May be NULL. Must not block.
+    void (*presence)(void* user, int present);
 } XrAppHooks;
 
 typedef struct XrAppConfig {

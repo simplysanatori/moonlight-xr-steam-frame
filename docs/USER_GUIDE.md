@@ -73,7 +73,7 @@ How to use it:
 - Choose **USB cable** in Settings, Connection, Network connection, or leave **Automatic**. Automatic probes the cable like the other links and uses it when its score is the lowest, which it normally is. The row says whether a cable is detected; it looks again every 10 seconds, so you can plug the cable in after starting the app.
 - The same choice in `config.ini` is `network_path = usb` in the `[stream]` section. On the command line it is `--network usb`, and `MLXR_NETWORK=usb` overrides both.
 - If you choose USB cable and no cable is there, the stream uses the other link and the headset shows a notice, for example "USB cable not reachable (no USB cable found: usb0 down (no cable, or the PC end is not up)). Using Wi-Fi." If the cable is in and the PC does not answer on it, the notice names the address that failed.
-- Pulling the cable out during a stream ends the stream the same way a lost connection does, and the flat window comes back. `moonlight.log` has `USB cable link lost`. Reconnecting by itself is not done yet.
+- Pulling the cable out during a stream is a lost connection: the headset tries to reconnect twice (see Ending a stream, When the connection drops) before the flat window comes back. `moonlight.log` has `USB cable link lost`.
 - Power: over the cable the headset draws from the PC's USB port, which gives far less than the headset uses while streaming, so the battery may still drain slowly. Whether a hub with USB Power Delivery pass-through fixes that has not been tested.
 
 If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/reports/usb-cable.md`) have the details.
@@ -382,9 +382,26 @@ The headset keyboard can show French (AZERTY) or German (QWERTZ) letters. Pick i
 | Bar, Exit, then Disconnect | The stream ends. The game keeps running on the PC. Use **Resume Game** in the flat window to go back. |
 | Start+Select+L1+R1 (gamepad mode, or a Bluetooth gamepad) | The stream ends. The game keeps running on the PC. Use **Resume Game** in the flat window to go back. |
 | Ctrl+Alt+Shift+Q on a Bluetooth keyboard | Same as Start+Select+L1+R1. |
-| The PC ends the stream, or the network drops | The flat window comes back. |
+| The PC ends the stream | The flat window comes back. |
+| The network drops | The headset keeps the room and the screen where they were and tries the same app again, twice (after 2 seconds, then 5 seconds later). The flat window comes back if both tries fail. |
+| The headset stays off | After `doff_disconnect` seconds (60 by default) the stream ends. The game keeps running on the PC. |
+| Nothing is touched for `idle_disconnect` minutes (off by default) | The stream ends. The game keeps running on the PC. |
 
 On the Frame controllers, Start is the right menu button, Select is the left View button, and L1 and R1 are the bumpers. Hold all four.
+
+### When the connection drops
+
+If the stream ends because the link was lost (a Wi-Fi dropout, the USB cable pulled out, the PC not answering), the headset says "Connection lost, reconnecting (1/2)..." (the Notices setting decides whether you see it), keeps the room, the screen's place and the 3D state, and asks the PC to resume the app that was running. The first try comes 2 seconds after the drop and the second 5 seconds after the first one fails. When one works the picture comes back and nothing more is said. The tries choose the network link again, so a stream that was on Wi-Fi can come back on the USB cable.
+
+It does not start the app a second time: if the app is no longer running on the PC (it was closed there, or the PC restarted), or the PC refuses the headset, it gives up at once. It also does not try when the PC ended the stream on purpose (you quit the app on the PC, or it exited). Pressing Exit or Disconnect while it is trying stops the tries. When the tries are over the flat window comes back, as before. `moonlight.log` has a line for each step, starting with `reconnect:`.
+
+### Taking the headset off
+
+When the headset comes off, the sound mutes at once and everything held down on the PC is let go (keys of the headset keyboard, the controllers' mouse buttons, the Frame's gamepad). Put it back on and the sound returns and the stream carries on. If it stays off for `doff_disconnect` seconds (60 by default, in the `[stream]` section of `config.ini`, 0 means never) the stream is disconnected, leaving the game running on the PC, and the flat window comes back; **Resume Game** goes back in. The Settings page has the same choice under **Disconnect when the headset is off**.
+
+`idle_disconnect` (minutes, 0 by default which is off; **Disconnect when idle** on the Settings page) does the same when nothing has been pressed or moved for that long: the controllers' ray or buttons, the headset keyboard, a physical keyboard or mouse, or a gamepad. The clock starts over when the headset goes back on or the dashboard is closed. Opening the dashboard also mutes the sound, as it always did.
+
+This uses the headset sensor through `XR_EXT_user_presence`. `moonlight.log` has `presence:` lines: `headset off`, `headset back on after N s`, and the disconnect. If the runtime does not offer the extension, the log says so and none of this happens.
 
 ## Recommended PC settings
 
@@ -440,6 +457,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | `[debug] depth_debug` | `true`, `false` | `false`. Shows the depth map in place of the picture. |
 | `[debug] eye_swap` | `true`, `false` | `false`. Swaps the left and right eye in 3D. For checking a wrong-way picture. |
 | `[stream] bitrate_kbps` | 0, or 500 to 500000 | 0, which follows the resolution and refresh rate. A bitrate the flat window passes for a stream overrides it. The flat window's Custom bitrate goes up to 500 Mbps, and so does this. |
+| `[stream] doff_disconnect` | 0 to 3600 (seconds) | 60. How long the headset can stay off before the stream is disconnected (the game keeps running on the PC). 0 never. |
+| `[stream] idle_disconnect` | 0 to 1440 (minutes) | 0 (off). Disconnects the stream after this long with no input. |
 | `[stream] virtual_surround` | `true`, `false` | `false`. Places 5.1 and 7.1 speakers around you in stereo. |
 | `[debug] file_log` | `off`, `basic`, `verbose` | `basic` |
 
