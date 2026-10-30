@@ -456,13 +456,17 @@ static void groupScale(void) {
     float* guide = malloc(sizeof(float) * n * 3);
     float* plain = malloc(sizeof(float) * n);
     float* got = malloc(sizeof(float) * n);
+    float* base = malloc(sizeof(float) * n);
     float* low = malloc(sizeof(float) * n);
     float* scratch = malloc(sizeof(float) * n);
     float* cols = malloc(sizeof(float) * w);
     for (int i = 0; i < n; i++) {
         int x = i % w, y = i / w;
-        // A slope (the overall shape) with a bump on it (local detail)
-        raw[i] = 10.0f + 40.0f * (float)y / (h - 1) + ((x - 40) * (x - 40) + (y - 12) * (y - 12) < 25 ? 30.0f : 0.0f);
+        // A slope (the overall shape) with a bump on it (local detail). The
+        // bump stays inside the slope's span, so the plain map does not
+        // already hold its top at 1 and leave a larger local gain nothing to
+        // show
+        raw[i] = 10.0f + 40.0f * (float)y / (h - 1) + ((x - 40) * (x - 40) + (y - 12) * (y - 12) < 25 ? 10.0f : 0.0f);
         guide[i * 3 + 0] = guide[i * 3 + 1] = guide[i * 3 + 2] = 0.5f;
     }
     MlxrDepthParams p;
@@ -477,25 +481,32 @@ static void groupScale(void) {
     mlxr_depth_norm_run(nm, &p, raw, guide, 0, 1010000000LL, NULL, got);
     CHECK(memcmp(plain, got, sizeof(float) * n) == 0, "100/100 leaves the map alone");
     lowPass(plain, low, scratch, cols, w, h, 11 * w / 256, 11 * h / 256);
+    int bump = 12 * w + 40, beside = 12 * w + 20;
+    CHECK(plain[bump] < 0.99f && low[bump] < plain[bump],
+          "the bump is detail inside the range: plain %.3f, its shape %.3f", plain[bump], low[bump]);
     const float gains[][2] = { { 1.0f, 1.5f }, { 0.5f, 1.0f }, { 0.6f, 1.4f }, { 1.0f, 0.0f } };
     for (size_t k = 0; k < sizeof gains / sizeof gains[0]; k++) {
         p.global = gains[k][0];
         p.local = gains[k][1];
         mlxr_depth_norm_run(nm, &p, raw, guide, 0, 1020000000LL + (int64_t)k * 10000000LL, NULL, got);
-        float worst = 0.0f, spreadPlain = 0.0f, spreadGot = 0.0f;
+        float worst = 0.0f, spreadBase = 0.0f, spreadGot = 0.0f;
         for (int i = 0; i < n; i++) {
             float want = p.convergence + p.global * (low[i] - p.convergence) + p.local * (plain[i] - low[i]);
             want = want < 0.0f ? 0.0f : (want > 1.0f ? 1.0f : want);
             worst = fmaxf(worst, fabsf(got[i] - want));
         }
-        // The bump over the slope beside it, before and after
-        int bump = 12 * w + 40, beside = 12 * w + 20;
-        spreadPlain = plain[bump] - plain[beside];
+        // The bump over the slope beside it, against the same global gain
+        // with the local gain at 1, so only the local gain differs
+        float l = p.local;
+        p.local = 1.0f;
+        mlxr_depth_norm_run(nm, &p, raw, guide, 0, 1060000000LL + (int64_t)k * 10000000LL, NULL, base);
+        p.local = l;
+        spreadBase = base[bump] - base[beside];
         spreadGot = got[bump] - got[beside];
-        printf("  global %.1f local %.1f: worst %.2g from the formula, bump over its row %.3f (plain %.3f)\n",
-               p.global, p.local, worst, spreadGot, spreadPlain);
+        printf("  global %.1f local %.1f: worst %.2g from the formula, bump over its row %.3f (local 1: %.3f)\n",
+               p.global, p.local, worst, spreadGot, spreadBase);
         CHECK(worst < 1e-5f, "global %.1f local %.1f follows the remap (%.2g)", p.global, p.local, worst);
-        if (p.local > 1.0f) CHECK(spreadGot > spreadPlain, "more local gain pops the bump out more");
+        if (p.local > 1.0f) CHECK(spreadGot > spreadBase, "more local gain pops the bump out more");
         if (p.local == 0.0f) CHECK(fabsf(got[bump] - low[bump]) < 1e-5f, "no local gain leaves the shape alone");
     }
     // The whole map toward the screen plane: half the global gain halves the
@@ -507,7 +518,7 @@ static void groupScale(void) {
     CHECK(fabsf((got[flatSpot] - p.convergence) - 0.5f * (low[flatSpot] - p.convergence)
                 - (plain[flatSpot] - low[flatSpot])) < 1e-5f, "global 0.5 halves the shape");
     mlxr_depth_norm_free(nm);
-    free(raw); free(guide); free(plain); free(got); free(low); free(scratch); free(cols);
+    free(raw); free(guide); free(plain); free(got); free(base); free(low); free(scratch); free(cols);
 }
 
 static void sleepMs(int ms) {
