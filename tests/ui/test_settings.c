@@ -776,28 +776,17 @@ static void test_layouts(void) {
     Settings t;
     settings_defaults(&t);
     settings_from_text(&t,
-        "[screen.00000abc]
-"
-        "distance_cm = 333
-"
-        "bogus = 1
-"
-        "width_cm = wide
-"
-        "head_locked = yes
-"
-        "[screen.nothex]
-"
-        "distance_cm = 111
-"
-        "[screen.00000def]
-"
-        "distance_cm = 99999
-"
-        "[screen]
-"
-        "tilt_deg = 7
-", &info);
+        "[screen.00000abc]\n"
+        "distance_cm = 333\n"
+        "bogus = 1\n"
+        "width_cm = wide\n"
+        "head_locked = yes\n"
+        "[screen.nothex]\n"
+        "distance_cm = 111\n"
+        "[screen.00000def]\n"
+        "distance_cm = 99999\n"
+        "[screen]\n"
+        "tilt_deg = 7\n", &info);
     CHECK(t.layout_count == 2);
     const AppLayout* abc = settings_layout_find(&t, 0xabc);
     CHECK(abc != NULL && abc->distance_cm == 333 && abc->width_cm == d.screen_width_cm && abc->head_locked == 1);
