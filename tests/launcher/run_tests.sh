@@ -126,6 +126,14 @@ setconf width=2560 height=1440 fps=90 bitrate=80000 videocfg=1
 out="$(dry "gaming-pc:Desktop")"; echo "1440p90 H.264: $out"
 expect "1440p90" "$out" "--mode 2560x1440x90 --bitrate 80000"
 expect "forced H.264" "$out" "--h264"
+# lane wave4b-abr: a saved 400 Mbps (the Video bitrate row now goes to 500) reaches the client unchanged, whatever the resolution
+setconf width=2560 height=1440 fps=90 bitrate=400000 videocfg=0
+out="$(dry "gaming-pc:Desktop")"; expect "saved 400 Mbps at 1440p90" "$out" "--mode 2560x1440x90 --bitrate 400000"
+setconf width=1920 height=1080 fps=60
+out="$(dry "gaming-pc:Desktop")"; expect "saved 400 Mbps survives a resolution change (1080p60)" "$out" "--mode 1920x1080x60 --bitrate 400000"
+setconf width=3840 height=2160 fps=90 bitrate=500000
+out="$(dry "gaming-pc:Desktop")"; expect "saved 500 Mbps at 4K" "$out" "--mode 3840x2160x90 --bitrate 500000"
+setconf width=2560 height=1440 fps=90 bitrate=80000 videocfg=1
 setconf videocfg=2
 out="$(dry "gaming-pc:Desktop")"; refute "forced HEVC: no --h264" "$out" "--h264"
 # the headset shows 144 Hz at most (lane refresh; was 90): a higher FPS setting (flat Moonlight on
@@ -500,6 +508,22 @@ if [ -n "$SHOTS" ]; then
     MLXR_LAUNCHER_NET_ROOT="$t/netroot" MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
         MLXR_LAUNCHER_SCREENSHOT="$t/usb-nocable.png@3000" "$L" >"$t/ui8.out" 2>&1
     grep -q "MLXR_LAUNCHER_USB: no cable" "$t/ui8.out" && ok "USB cable: usb0 without carrier is ignored" || fail "usb0 without carrier: $(grep MLXR_LAUNCHER_USB "$t/ui8.out")"
+    # lane wave4b-abr: one stepped bitrate row per network path under Network connection ("Same as above" at 0)
+    rep() { local n="$1" c="$2" o="" i; for ((i = 0; i < c; i++)); do o="$o${o:+,}$n"; done; printf '%s' "$o"; }
+    abr_clicks="$(rep bitrateWifiRow 7),$(rep bitrateAdapterRow 10),$(rep bitrateUsbRow 14),$(rep bitrateWiredRow 15)"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK="$abr_clicks" \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-path-bitrates.png@3000" "$L" >"$t/uiabr1.out" 2>&1
+    grep -q "no clickable" "$t/uiabr1.out" && fail "bitrate rows not found: $(grep 'no clickable' "$t/uiabr1.out" | head -2)"
+    grep -Eq "$QMLERR" "$t/uiabr1.out" && { fail "path bitrate rows: QML errors"; grep -E "$QMLERR" "$t/uiabr1.out" | head; } || ok "settings page loads with the path bitrate rows (no QML errors)"
+    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_wifi = 80000$' && ok "Wi-Fi bitrate row steps 0 up to 80 Mbps and writes [stream] bitrate_wifi" || { fail "bitrate_wifi not written"; cat "$ini"; }
+    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_adapter = 150000$' && ok "adapter bitrate row steps to 150 Mbps and writes [stream] bitrate_adapter" || { fail "bitrate_adapter not written"; cat "$ini"; }
+    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_usb = 500000$' && ok "USB bitrate row steps to the 500 Mbps cap and writes [stream] bitrate_usb" || { fail "bitrate_usb not written"; cat "$ini"; }
+    grep -q '^bitrate_wired' "$ini" && fail "wired bitrate row wrapped back to Same as above but wrote a key" || ok "wired bitrate row wraps from 500 Mbps back to Same as above and writes nothing"
+    grep -q '^doff_disconnect = 120$' "$ini" && grep -q '^idle_disconnect = 10$' "$ini" && ok "other [stream] keys untouched by the bitrate rows" || { fail "[stream] keys changed"; cat "$ini"; }
+    # a second page start reads the keys back: the 80000 steps on to 100000, and the value shows in the row
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=bitrateWifiRow \
+        MLXR_LAUNCHER_SCREENSHOT="$t/path-bitrates-2.png@3000" "$L" >"$t/uiabr2.out" 2>&1
+    grep -q '^bitrate_wifi = 100000$' "$ini" && ok "path bitrates are read back from config.ini (80000 steps to 100000)" || { fail "bitrate_wifi not read back"; cat "$ini"; }
     # lane wave4-pcvr: the Settings page's PC VR rows and the startup preflight
     if [ -n "${CEFPID:-}" ]; then
         # preflight at start (MLXR_PCVR_PREFLIGHT stands in for Game Mode): logged as ok
@@ -528,9 +552,30 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads controller_model" "$dump" "vr.controller_model = frame"
         expect "VR client reads doff_disconnect" "$dump" "stream.doff_disconnect = 120"
         expect "VR client reads idle_disconnect" "$dump" "stream.idle_disconnect = 10"
+        expect "VR client reads bitrate_wifi" "$dump" "stream.bitrate_wifi = 100000"
+        expect "VR client reads bitrate_adapter" "$dump" "stream.bitrate_adapter = 150000"
+        expect "VR client reads bitrate_usb" "$dump" "stream.bitrate_usb = 500000"
         expect "VR client reads stereo_source" "$dump" "3d.stereo_source = sbs"
         expect "VR client reads sbs_full" "$dump" "3d.sbs_full = true"
         expect "VR client reads rfi_idr_ms" "$dump" "stream.rfi_idr_ms = 1000"
+    fi
+    # lane wave3-visual: the surroundings rows (Picture tab's Background and Glow edge, 3D eye balance) step
+    # from the file's values and write only their keys; the void colour is read as typed and kept
+    printf '[vr]\nvoid_color = #204060\n\n[3d]\nseparation = 9\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=backgroundDimRow,backgroundDimRow,glowFeatherRow,eyeBalanceRow,eyeBalanceRow \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-surroundings.png@3000" "$L" >"$t/ui6b.out" 2>&1
+    grep -q "no clickable" "$t/ui6b.out" && fail "surroundings click hook: $(grep 'no clickable' "$t/ui6b.out")"
+    grep -Eq "$QMLERR" "$t/ui6b.out" && { fail "surroundings QML errors"; grep -E "$QMLERR" "$t/ui6b.out" | head; } || ok "surroundings rows load (no QML errors)"
+    grep -A4 '^\[vr\]' "$ini" | grep -q '^background_dim = 50$' && ok "background row steps 0 to 25 to 50 and writes [vr] background_dim" || { fail "background_dim not written"; cat "$ini"; }
+    grep -A2 '^\[display\]' "$ini" | grep -q '^glow_feather = soft$' && ok "glow edge row steps Off to Soft and writes [display] glow_feather" || { fail "glow_feather not written"; cat "$ini"; }
+    grep -A4 '^\[3d\]' "$ini" | grep -q '^eye_balance = 100$' && ok "eye balance row steps 0 to 50 to 100 and writes [3d] eye_balance" || { fail "eye_balance not written"; cat "$ini"; }
+    grep -q '^void_color = #204060$' "$ini" && grep -q '^separation = 9$' "$ini" && ok "void colour and the other keys untouched" || { fail "void_color or separation changed"; cat "$ini"; }
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads background_dim" "$dump" "vr.background_dim = 50"
+        expect "VR client reads void_color" "$dump" "vr.void_color = #204060"
+        expect "VR client reads glow_feather" "$dump" "display.glow_feather = soft"
+        expect "VR client reads eye_balance" "$dump" "3d.eye_balance = 100"
     fi
     # lane wave5-depth: the 3D rows that only the file and this page carry (3D on, so they are live)
     printf '[3d]\nstereo = true\nseparation = 9\n' > "$ini"

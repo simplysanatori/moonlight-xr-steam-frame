@@ -7,6 +7,7 @@
 #include "xr_renderer.h"
 #include "settings.h"
 #include "panels.h"
+#include "xr_abr.h"
 
 // Native setting ids past upstream's SETTING_ ones (xr_shared.h), handed back
 // in IN_SETTING the same way
@@ -269,6 +270,13 @@ void xrBindFrame(XrCtx* ctx, int64_t now, float dt, PadState* pad, float* out);
 // The in-world keyboard shown or hidden, as the bar's button does (app:keyboard,
 // and a physical pad's Y in mouse mode); from names who asked, for the log
 void xrKeyboardToggle(XrCtx* ctx, const char* from);
+
+// ---- the bitrate a stream starts with (xr_prefs.c) --------------------------
+// Native (lane wave4b-abr), PLAN 4b.8. The bitrate to start the stream with on the network path in use:
+// that path's own setting ([stream] bitrate_wifi, bitrate_adapter, bitrate_wired, bitrate_usb) when it is
+// above 0, else launcherKbps. pathKind is mlxr_net_kind_for_address(address of the PC) (backend/netpath.h),
+// MLXR_ABR_UNKNOWN (-1) when no path was chosen. Logs one line, "bitrate for Wi-Fi: 60000 kbps (override)".
+int xrStreamBitrate(const Settings* s, int pathKind, int launcherKbps);
 
 // ---- the context's defaults (xr_prefs.c) -----------------------------------
 // What upstream's nativeInit set before any setter ran

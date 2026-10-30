@@ -312,7 +312,7 @@ int ui_cog_row_count(int face) {
     if (face == COG_TAB_SCREEN) return COG_SCREEN_ROW_COUNT;
     if (face == COG_TAB_3D) return COG_ROW3D_COUNT;
     if (face == COG_FACE_ROOM) return COG_ROOM_ROW_COUNT;
-    if (face == COG_TAB_PICTURE) return PICTURE_VALUES;
+    if (face == COG_TAB_PICTURE) return PICTURE_TAB_ROWS;
     if (face == COG_TAB_ABOUT) return 0;
     return COG_DISPLAY_SLIDER_ROW + 1;
 }
