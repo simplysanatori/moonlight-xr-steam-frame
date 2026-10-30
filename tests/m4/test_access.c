@@ -1,9 +1,10 @@
-// Moonlight XR Native, tests/m4: the Accessibility tab (lane a11y-tab), driven through the input
-// pass's seams with no controllers in use: a press on each of its cells is applied and handed back
-// to be stored; the pointer row shows Eyes only where eye gaze arrives; looking at the tab, with the
-// head or the eyes, never changes a setting by itself; with the head pointing and a dwell picked,
-// the head alone turns it off again; and the Eyes pointer follows the gaze, falling back to the
-// head's ray while the eyes are lost. GPLv3.
+// Moonlight XR Native, tests/m4: the Accessibility tab (lanes a11y-tab, a11y-2), driven through
+// the input pass's seams with no controllers in use: a press on each of its cells is applied and
+// handed back to be stored; the pointer row always has Eyes, dimmed only where the runtime offers no
+// eye gaze; looking at the tab, with the head or the eyes, never changes a setting by itself; with
+// the head pointing and a dwell picked, the head alone turns it off again; the Eyes pointer follows
+// the gaze, falling back to the head's ray while the eyes are lost; the Dot size track scales the
+// dot and its dwell ring; and the footer follows the row under the pointer. GPLv3.
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,13 +12,14 @@
 
 #include "check.h"
 #include "scene.h"
-#include "xr_pad_bridge.h"
 
 #define FAKE(n) ((uintptr_t)(n))
 #define VIEW ((XrSpace)FAKE(0x503))
 #define LOCAL ((XrSpace)FAKE(0x504))
 #define GAZE ((XrSpace)FAKE(0x505))
 #define FRAME_NS 11111111LL
+// Where the rows' labels are, left of the cells
+#define LABEL_U 0.12f
 
 // Where the head and the eyes look (directions in the local space, from the origin), and whether the
 // eyes are tracked
@@ -92,10 +94,10 @@ static void setUp(Scene* s, int eyes) {
     c->pointerSleepOn = 0;
     c->pointerAwake = 1;
     c->padMode = 0;
-    // the eye gaze as a session that asked for it and got its binding has it
+    // the eye gaze as a session on a runtime that offers it has it (lane a11y-2: always asked for)
     c->eyeGaze = eyes;
     c->gazeOffered = eyes;
-    c->gazeAsked = eyes;
+    c->gazeAsked = 0;
     c->gazeBound = eyes;
     c->gazeSupportFlag = eyes;
     c->gazeSeen = 0;
@@ -103,24 +105,38 @@ static void setUp(Scene* s, int eyes) {
     c->gazeAction = eyes ? (XrAction)FAKE(0x601) : XR_NULL_HANDLE;
     c->aimSpaces[SRC_GAZE] = eyes ? GAZE : XR_NULL_HANDLE;
     g_eyesTracked = 0;
+    c->gazeEnabled = 0;
     xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
-    xrSetHeadLook(c, 0, HEAD_AIM_SENSITIVITY_DEFAULT);
-    xrSetMouseMode(c, MOUSE_MODE_ABSOLUTE);
+    c->assistDotSize = ACCESS_DOT_DEFAULT;
+    c->cogDragSlider = -1;
     // the cog open on the Accessibility tab
     c->cogOpen = 1;
     c->cogTab = COG_TAB_ACCESS;
     c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
 }
 
-// The direction from the origin to the middle of a cell of the tab
-static Vec3 cellAt(XrCtx* c, int row, int cell) {
-    int n = cogAccessCells(c, row);
-    float u = COG_TRACK_L + (cell + 0.5f) * (COG_TRACK_R - COG_TRACK_L) / (float)n;
-    float v = cogRowV(COG_TAB_ACCESS, row);
+// A point of the panel (u, v) in the local space
+static Vec3 panelAt(XrCtx* c, float u, float v) {
     Vec3 local = { (u - 0.5f) * c->cogW, (0.5f - v) * c->cogH, 0.0f };
     Vec3 off = quatRotate(c->cogPose.orientation, local);
     Vec3 p = { c->cogPose.position.x + off.x, c->cogPose.position.y + off.y, c->cogPose.position.z + off.z };
     return p;
+}
+
+// The middle of a cell of the tab
+static Vec3 cellAt(XrCtx* c, int row, int cell) {
+    int n = cogAccessCells(c, row);
+    return panelAt(c, COG_TRACK_L + (cell + 0.5f) * (COG_TRACK_R - COG_TRACK_L) / (float)n, cogRowV(COG_TAB_ACCESS, row));
+}
+
+// The Dot size track's step buttons (dir -1 the smaller, 1 the larger) and a row's label
+static Vec3 stepAt(XrCtx* c, int dir) {
+    float u = dir < 0 ? COG_TRACK_L + COG_CHEVRON_W * 0.5f : COG_TRACK_R - COG_CHEVRON_W * 0.5f;
+    return panelAt(c, u, cogRowV(COG_TAB_ACCESS, COG_ACCESS_ROW_DOT));
+}
+
+static Vec3 labelAt(XrCtx* c, int row) {
+    return panelAt(c, LABEL_U, cogRowV(COG_TAB_ACCESS, row));
 }
 
 // Frames of the pointer and the open panel; how many handed a setting back
@@ -148,22 +164,26 @@ static void presses(Scene* s) {
     Settings st;
     settings_defaults(&st);
     float out[IN_SLOTS];
-    // no eye gaze: the pointer row is Controller and Head only, a press past them does nothing
-    CHECK(cogAccessCells(c, COG_ACCESS_ROW_POINTER) == 2);
-    CHECK(cogRowCells(COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER) == 3);
+    // no eye gaze offered: the pointer row still has Eyes, dimmed, and a press on it does nothing
+    CHECK(cogAccessCells(c, COG_ACCESS_ROW_POINTER) == 3 && cogRowCells(COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER) == 3);
+    CHECK(xrAccessEyes(c) == ACCESS_EYES_UNAVAILABLE && !cogAccessCellLive(c, COG_ACCESS_ROW_POINTER, 2));
     out[IN_SETTING] = -1.0f;
     cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, 2, out);
     CHECK(out[IN_SETTING] == -1.0f && c->pointerSource == POINTER_SOURCE_CONTROLLER);
-    // the dwell row is dead while the controllers point
-    CHECK(!cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL));
+    // the dwell row and the dot track are dead while the controllers point
+    CHECK(!cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL) && !cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT));
     cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL, 2, out);
     CHECK(out[IN_SETTING] == -1.0f && c->headDwellMs == 0);
+    cogStepTrack(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT, 1, out);
+    CHECK(out[IN_SETTING] == -1.0f || (int)out[IN_SETTING] != SETTING_ASSIST_DOT_SIZE || c->assistDotSize == ACCESS_DOT_DEFAULT);
+    CHECK(c->assistDotSize == ACCESS_DOT_DEFAULT);
     // Head
+    out[IN_SETTING] = -1.0f;
     cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, 1, out);
     CHECK((int)out[IN_SETTING] == SETTING_POINTER_SOURCE && (int)out[IN_SETTING_VALUE] == POINTER_SOURCE_HEAD);
     CHECK(c->pointerSource == POINTER_SOURCE_HEAD);
     CHECK(xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) && st.pointer_source == POINTER_SOURCE_HEAD);
-    CHECK(cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL));
+    CHECK(cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL) && cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT));
     // each dwell time
     for (int cell = 0; cell < COG_ACCESS_DWELL_CELLS; cell++) {
         out[IN_SETTING] = -1.0f;
@@ -173,36 +193,57 @@ static void presses(Scene* s) {
         xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
         CHECK(st.head_dwell_ms == accessDwellMs(cell) && accessDwellCell(st.head_dwell_ms) == cell);
     }
-    // head-look, Back as Guide, the mouse mode
-    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_HEAD_LOOK, 1, out);
-    CHECK((int)out[IN_SETTING] == SETTING_HEAD_LOOK && c->headLookOn == 1);
+    // the dot: each step button press is a 25 % step, handed back at once; the ends hold
+    CHECK(cogRowIsTrack(COG_TAB_ACCESS, COG_ACCESS_ROW_DOT) && !cogRowIsTrack(COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL));
+    CHECK_NEAR(cogSliderValue(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT), 0.2f, 1e-5);
+    out[IN_SETTING] = -1.0f;
+    cogStepTrack(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT, 1, out);
+    CHECK((int)out[IN_SETTING] == SETTING_ASSIST_DOT_SIZE && (int)out[IN_SETTING_VALUE] == 125 && c->assistDotSize == 125);
     xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
-    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_BACK_GUIDE, 1, out);
-    CHECK((int)out[IN_SETTING] == SETTING_BACK_AS_GUIDE && (int)out[IN_SETTING_VALUE] == 1);
+    CHECK(st.assist_dot_size == 125);
+    for (int i = 0; i < 20; i++) {
+        cogStepTrack(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT, -1, out);
+    }
+    CHECK(c->assistDotSize == ACCESS_DOT_MIN && (int)out[IN_SETTING_VALUE] == ACCESS_DOT_MIN);
+    // a drag lands on a step, and is handed back when it ends
+    cogApplySlider(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT, cogRunU(0.62f));
+    CHECK(c->assistDotSize == 200);
+    c->cogDragSlider = COG_ACCESS_ROW_DOT;
+    c->cogDragFace = COG_TAB_ACCESS;
+    out[IN_SETTING] = -1.0f;
+    cogDragEnded(c, out);
+    CHECK((int)out[IN_SETTING] == SETTING_ASSIST_DOT_SIZE && (int)out[IN_SETTING_VALUE] == 200);
     xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
-    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_MOUSE, 1, out);
-    CHECK((int)out[IN_SETTING] == SETTING_MOUSE_MODE && c->mouseMode == MOUSE_MODE_RELATIVE);
-    xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
-    CHECK(st.head_look == 1 && st.back_as_guide == 1 && st.mouse_mode == MOUSE_MODE_RELATIVE);
-    // and back
-    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_BACK_GUIDE, 0, out);
-    xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
+    // the panel's view follows the drag (the thumb and the readout are drawn from it)
+    Settings live = st;
+    cogApplySlider(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT, cogRunU(1.0f));
+    xrSettingsFromCtx(c, &live);
+    CHECK(live.assist_dot_size == ACCESS_DOT_MAX);
+    c->assistDotSize = 200;
+    // and back to the controllers
     cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, 0, out);
     xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
-    CHECK(st.back_as_guide == 0 && st.pointer_source == POINTER_SOURCE_CONTROLLER && c->pointerSource == POINTER_SOURCE_CONTROLLER);
+    CHECK(st.pointer_source == POINTER_SOURCE_CONTROLLER && c->pointerSource == POINTER_SOURCE_CONTROLLER);
     // the stored values survive config.ini
     char* text = settings_to_text(&st);
     Settings back;
     settings_defaults(&back);
     settings_from_text(&back, text ? text : "", NULL);
-    CHECK(back.head_dwell_ms == 1500 && back.head_look == 1 && back.mouse_mode == MOUSE_MODE_RELATIVE);
+    CHECK(back.head_dwell_ms == 1500 && back.assist_dot_size == 200);
     free(text);
-    xrPadBridgeSetBackAsGuide(0);
+    // a runtime that offers eye gaze: Eyes takes a press, before any gaze has arrived
+    setUp(s, 1);
+    CHECK(xrAccessEyes(c) == ACCESS_EYES_WAITING && cogAccessCellLive(c, COG_ACCESS_ROW_POINTER, 2));
+    out[IN_SETTING] = -1.0f;
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, 2, out);
+    CHECK((int)out[IN_SETTING] == SETTING_POINTER_SOURCE && (int)out[IN_SETTING_VALUE] == POINTER_SOURCE_GAZE);
+    CHECK(c->pointerSource == POINTER_SOURCE_GAZE);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
 }
 
-// Looking at the tab, with the head and the eyes, for a long time, on every cell: nothing changes.
-// Only a press does, and with the controllers pointing (the default) the head and the eyes press
-// nothing.
+// Looking at the tab, with the head and the eyes, for a long time, on every cell and step button:
+// nothing changes. Only a press does, and with the controllers pointing (the default) the head and
+// the eyes press nothing.
 static void neverByItself(Scene* s) {
     XrCtx* c = s->ctx;
     setUp(s, 1);
@@ -210,22 +251,35 @@ static void neverByItself(Scene* s) {
     g_settingsOut = 0;
     // gaze = true as well (the eyes point, the hands would pinch to click)
     c->gazeEnabled = 1;
+    Vec3 spots[16];
+    int n = 0;
     for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) {
         for (int cell = 0; cell < cogAccessCells(c, row); cell++) {
-            g_head = cellAt(c, row, cell);
-            g_eyes = cellAt(c, (row + 1) % COG_ACCESS_ROW_COUNT, 1);
-            frames(c, 270); // 3 s on each
-            CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER && c->headDwellMs == 0);
-            CHECK(c->headLookOn == 0 && c->mouseMode == MOUSE_MODE_ABSOLUTE);
-            CHECK(c->dwellClicks == 0 && g_settingsOut == 0);
+            spots[n++] = cellAt(c, row, cell);
         }
     }
-    // the ray did reach the tab: the cell under the head is lit
+    spots[n++] = stepAt(c, -1);
+    spots[n++] = stepAt(c, 1);
+    for (int i = 0; i < n; i++) {
+        g_head = spots[i];
+        g_eyes = spots[(i + 3) % n];
+        frames(c, 270); // 3 s on each
+        CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER && c->headDwellMs == 0);
+        CHECK(c->assistDotSize == ACCESS_DOT_DEFAULT);
+        CHECK(c->dwellClicks == 0 && g_settingsOut == 0);
+    }
     c->gazeEnabled = 0;
-    // the eyes were seen, so the Eyes cell is offered now, and still nothing is on
+    // the eyes were seen: the line says so, and still nothing is on
     CHECK(c->gazeSeen == 1 && xrAccessEyes(c) == ACCESS_EYES_READY);
-    CHECK(cogAccessCells(c, COG_ACCESS_ROW_POINTER) == 3);
     CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER);
+    // gaze = false and the controllers pointing (the defaults): the gaze is read for the eye line
+    // only, and points at nothing
+    setUp(s, 1);
+    g_eyesTracked = 1;
+    g_eyes = cellAt(c, COG_ACCESS_ROW_POINTER, 1);
+    g_head = cellAt(c, COG_ACCESS_ROW_POINTER, 2);
+    frames(c, 200);
+    CHECK(c->gazeSeen == 1 && c->cogHoverSlider == -1 && g_settingsOut == 0 && c->dwellClicks == 0);
 }
 
 // The head picked and a dwell time: resting the head on Controller for longer than the dwell turns
@@ -237,16 +291,16 @@ static void headTurnsItOff(Scene* s) {
     cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_HEAD, out);
     // the head pointing with the dwell off: resting on a cell clicks nothing
     g_settingsOut = 0;
-    g_head = cellAt(c, COG_ACCESS_ROW_HEAD_LOOK, 1);
+    g_head = cellAt(c, COG_ACCESS_ROW_DWELL, 3);
     frames(c, 270);
-    CHECK(c->cogHoverSlider == COG_ACCESS_ROW_HEAD_LOOK && c->cogHoverCell == 1);
-    CHECK(g_settingsOut == 0 && c->headLookOn == 0 && c->dwellClicks == 0);
+    CHECK(c->cogHoverSlider == COG_ACCESS_ROW_DWELL && c->cogHoverCell == 3);
+    CHECK(g_settingsOut == 0 && c->headDwellMs == 0 && c->dwellClicks == 0);
     cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL, 2, out);
     CHECK(c->pointerSource == POINTER_SOURCE_HEAD && c->headDwellMs == 900);
     // a glance across Controller is not a click
     g_head = cellAt(c, COG_ACCESS_ROW_POINTER, 0);
     frames(c, 60); // 0.67 s
-    g_head = cellAt(c, COG_ACCESS_ROW_HEAD_LOOK, 0);
+    g_head = labelAt(c, COG_ACCESS_ROW_DOT);
     frames(c, 10);
     CHECK(c->pointerSource == POINTER_SOURCE_HEAD);
     // resting on it is
@@ -266,6 +320,11 @@ static void headTurnsItOff(Scene* s) {
     frames(c, 450); // 5 s
     CHECK(c->headDwellMs == 1500 && c->dwellClicks == 2);
     CHECK(g_settingsOut == 1 && g_lastSetting == SETTING_HEAD_DWELL && g_lastValue == 1500);
+    // a dwell on the Dot size's larger step button: one 25 % step, handed back
+    g_head = stepAt(c, 1);
+    g_settingsOut = 0;
+    frames(c, 300);
+    CHECK(c->assistDotSize == 125 && g_settingsOut == 1 && g_lastSetting == SETTING_ASSIST_DOT_SIZE && g_lastValue == 125);
     xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
 }
 
@@ -275,35 +334,32 @@ static void eyesFallBack(Scene* s) {
     XrCtx* c = s->ctx;
     setUp(s, 1);
     g_eyesTracked = 1;
-    g_head = cellAt(c, COG_ACCESS_ROW_HEAD_LOOK, 1);   // head-look On
-    g_eyes = cellAt(c, COG_ACCESS_ROW_MOUSE, 1);       // Relative
+    g_head = stepAt(c, -1);   // the dot smaller
+    g_eyes = stepAt(c, 1);    // the dot larger
     frames(c, 5);
-    CHECK(c->gazeSeen == 1 && cogAccessCells(c, COG_ACCESS_ROW_POINTER) == 3);
+    CHECK(c->gazeSeen == 1);
     float out[IN_SLOTS];
     out[IN_SETTING] = -1.0f;
     cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_GAZE, out);
     CHECK((int)out[IN_SETTING] == SETTING_POINTER_SOURCE && (int)out[IN_SETTING_VALUE] == POINTER_SOURCE_GAZE);
     cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL, 2, out);
     CHECK(c->pointerSource == POINTER_SOURCE_GAZE && c->headDwellMs == 900);
-    // the eyes tracked: after their 300 ms the dot is theirs, and their dwell picks Relative
+    // the eyes tracked: after their 300 ms the dot is theirs, and their dwell makes it larger
     frames(c, 150);
     CHECK(c->gazeFall.head == 0);
-    CHECK(c->mouseMode == MOUSE_MODE_RELATIVE);
-    CHECK(c->headLookOn == 0);
+    CHECK(c->assistDotSize == 125);
     // a blink (150 ms) leaves the eyes pointing
     g_eyesTracked = 0;
     frames(c, 13);
     CHECK(c->gazeFall.head == 0);
     g_eyesTracked = 1;
     frames(c, 5);
-    // lost: the head's ray takes over and its dwell picks head-look On
+    // lost: the head's ray takes over and its dwell makes it smaller again
     g_eyesTracked = 0;
     frames(c, 25);
     CHECK(c->gazeFall.head == 1);
     frames(c, 130);
-    CHECK(c->headLookOn == 1);
-    xrSetHeadLook(c, 0, HEAD_AIM_SENSITIVITY_DEFAULT);
-    xrSetMouseMode(c, MOUSE_MODE_ABSOLUTE);
+    CHECK(c->assistDotSize == 100);
     xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
 }
 
@@ -313,12 +369,11 @@ static void eyesLine(Scene* s) {
     setUp(s, 0);
     c->gazeOffered = 0;
     CHECK(xrAccessEyes(c) == ACCESS_EYES_UNAVAILABLE);
+    // offered, but the action could not be set up
     c->gazeOffered = 1;
-    CHECK(xrAccessEyes(c) == ACCESS_EYES_NOT_ASKED);
+    CHECK(xrAccessEyes(c) == ACCESS_EYES_NO_ACTION && cogAccessCellLive(c, COG_ACCESS_ROW_POINTER, 2));
     setUp(s, 1);
-    c->gazeSupportFlag = 0;   // SteamVR said no, the action is still watched
-    CHECK(xrAccessEyes(c) == ACCESS_EYES_UNAVAILABLE);
-    c->gazeSupportFlag = 1;
+    c->gazeSupportFlag = 0;   // SteamVR's flag plays no part
     CHECK(xrAccessEyes(c) == ACCESS_EYES_WAITING);
     // focused for 10 s with no gaze: logged once, and still waiting
     frames(c, 950);
@@ -332,6 +387,106 @@ static void eyesLine(Scene* s) {
     CHECK(v != NULL && v->access_eyes == ACCESS_EYES_READY && v->cog_tab == COG_TAB_ACCESS);
 }
 
+// The footer: the row under the pointer, its label or its cells, live or greyed
+static void footer(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 0);
+    xrSetPointerSource(c, POINTER_SOURCE_HEAD, 0);
+    static const int ROWS[] = { COG_ACCESS_ROW_DOT, COG_ACCESS_ROW_POINTER, COG_ACCESS_ROW_DWELL };
+    for (int i = 0; i < 3; i++) {
+        g_head = labelAt(c, ROWS[i]);
+        frames(c, 3);
+        CHECK(xrAccessHoverRow(c) == ROWS[i]);
+        scene_frame(s, NULL);
+        xrPanelsFlush(c);
+        const UiView* v = xrPanelsLastView(c);
+        CHECK(v != NULL && v->access_row == ROWS[i]);
+    }
+    g_head = cellAt(c, COG_ACCESS_ROW_DWELL, 1);
+    frames(c, 3);
+    CHECK(xrAccessHoverRow(c) == COG_ACCESS_ROW_DWELL);
+    // the status line and the instructions are no row
+    g_head = panelAt(c, 0.5f, COG_ACCESS_HELP_T);
+    frames(c, 3);
+    CHECK(xrAccessHoverRow(c) == -1);
+    // a greyed row is described too: the controllers' pointer greys the dwell and the dot (here
+    // the eyes point for them, gaze = true)
+    setUp(s, 1);
+    c->gazeEnabled = 1;
+    g_eyesTracked = 1;
+    g_eyes = labelAt(c, COG_ACCESS_ROW_DOT);
+    frames(c, 30);
+    CHECK(!cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT));
+    CHECK(xrAccessHoverRow(c) == COG_ACCESS_ROW_DOT);
+    g_eyes = cellAt(c, COG_ACCESS_ROW_DWELL, 2);
+    frames(c, 3);
+    CHECK(xrAccessHoverRow(c) == COG_ACCESS_ROW_DWELL && c->cogHoverSlider == -1);
+    c->gazeEnabled = 0;
+    // another tab, or the cog shut: none
+    c->cogTab = COG_TAB_ABOUT;
+    CHECK(xrAccessHoverRow(c) == -1);
+    c->cogTab = COG_TAB_ACCESS;
+    c->cogOpen = 0;
+    CHECK(xrAccessHoverRow(c) == -1);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
+static const XrCompositionLayerQuad* findQuad(Scene* s, int slot) {
+    UiRectPx r = xrAtlasRect(slot);
+    for (uint32_t i = 0; i < s->out.count; i++) {
+        const XrCompositionLayerBaseHeader* b = s->out.order[i];
+        if (b->type != XR_TYPE_COMPOSITION_LAYER_QUAD) continue;
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)b;
+        if (q->subImage.imageRect.offset.x == r.x && q->subImage.imageRect.offset.y == r.y &&
+            q->subImage.imageRect.extent.width == r.w && q->subImage.imageRect.extent.height == r.h) {
+            return q;
+        }
+    }
+    return NULL;
+}
+
+// The dot's side as the frame draws it, at the slot (the dot, or the ring while a dwell charges)
+static float dotSide(Scene* s, int slot) {
+    Vec3 hand = { 0.0f, 0.0f, 0.0f };
+    Vec3 target = { 0.0f, 0.0f, -2.0f };
+    scene_ray_to(s, hand, target);
+    scene_frame(s, NULL);
+    const XrCompositionLayerQuad* q = findQuad(s, slot);
+    return q != NULL ? q->size.width : -1.0f;
+}
+
+// Dot size scales the head and eye pointer's dot and its dwell ring, and only theirs
+static void dotScales(Scene* s) {
+    XrCtx* c = s->ctx;
+    scene_reset(s);
+    c->dwellFraction = -1.0f;
+    xrSetPointerSource(c, POINTER_SOURCE_HEAD, 900);
+    c->assistDotSize = 100;
+    float base = dotSide(s, ATLAS_DOT);
+    CHECK(base > 0.0f);
+    c->assistDotSize = 200;
+    CHECK_NEAR(dotSide(s, ATLAS_DOT), base * 2.0f, 1e-5);
+    c->assistDotSize = 50;
+    CHECK_NEAR(dotSide(s, ATLAS_DOT), base * 0.5f, 1e-5);
+    c->assistDotSize = 300;
+    CHECK_NEAR(dotSide(s, ATLAS_DOT), base * 3.0f, 1e-5);
+    // the ring closing in (half way: twice the dot) scales with it
+    c->dwellFraction = 0.5f;
+    c->assistDotSize = 100;
+    float ring = dotSide(s, ATLAS_OUTLINE);
+    CHECK_NEAR(ring, base * dwellRingScale(0.5f), 1e-5);
+    c->assistDotSize = 250;
+    CHECK_NEAR(dotSide(s, ATLAS_OUTLINE), ring * 2.5f, 1e-5);
+    // the eyes too; the controllers' dot is today's whatever the setting
+    c->dwellFraction = -1.0f;
+    xrSetPointerSource(c, POINTER_SOURCE_GAZE, 900);
+    CHECK_NEAR(dotSide(s, ATLAS_DOT), base * 2.5f, 1e-5);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+    CHECK_NEAR(dotSide(s, ATLAS_DOT), base, 1e-5);
+    c->assistDotSize = ACCESS_DOT_DEFAULT;
+    c->beamVisible = 0;
+}
+
 int main(void) {
     Scene* s = scene_new();
     presses(s);
@@ -339,6 +494,8 @@ int main(void) {
     headTurnsItOff(s);
     eyesFallBack(s);
     eyesLine(s);
+    footer(s);
+    dotScales(s);
     scene_free(s);
     return checksDone("m4_access");
 }

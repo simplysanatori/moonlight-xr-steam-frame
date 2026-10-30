@@ -271,18 +271,19 @@ MAP = [
     ("native_dwell_09", NATIVE),
     ("native_dwell_12", NATIVE),
     ("native_dwell_15", NATIVE),
-    ("native_row_head_look", NATIVE),
-    ("native_row_back_guide", NATIVE),
-    ("native_row_mouse_mode", NATIVE),
-    ("native_cell_absolute", NATIVE),
-    ("native_cell_relative", NATIVE),
     ("native_needs_head_pointer", NATIVE),
     ("native_eyes_ready", NATIVE),
     ("native_eyes_waiting", NATIVE),
-    ("native_eyes_not_asked", NATIVE),
     ("native_eyes_unavailable", NATIVE),
     ("native_access_help", NATIVE),
     ("native_access_help_eyes", NATIVE),
+    # native (lane a11y-2): Dot size, the footer's descriptions, the eye line
+    ("native_row_dot_size", NATIVE),
+    ("native_access_desc_pointer", NATIVE),
+    ("native_access_desc_dwell", NATIVE),
+    ("native_access_desc_dot", NATIVE),
+    ("native_access_desc_none", NATIVE),
+    ("native_eyes_no_action", NATIVE),
 ]
 
 # Keys of lanes not merged into main yet, all written for this port: listed so that their merges

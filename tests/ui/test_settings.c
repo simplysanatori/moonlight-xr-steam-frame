@@ -690,6 +690,30 @@ static void test_pointer_source(void) {
 // without them, every other setting moved off its default (many times over, as the round trip does),
 // an unreadable value and the launcher's numbers all leave the pointer on the controllers and the
 // dwell off, and settings_clamp never makes them.
+// Native (lane a11y-2): the head and eye pointer's dot size, percent: 100 by default, held to 50..300,
+// through config.ini
+static void test_assist_dot_size(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.assist_dot_size == 100);
+    const SettingDesc* d = settings_find("assist_dot_size");
+    CHECK(d != NULL && settings_is_default(&s, d));
+    settings_from_text(&s, "[vr]\nassist_dot_size = 175\n", &info);
+    CHECK(s.assist_dot_size == 175);
+    settings_from_text(&s, "[vr]\nassist_dot_size = 900\n", &info);
+    CHECK(s.assist_dot_size == 300);
+    settings_from_text(&s, "[vr]\nassist_dot_size = 10\n", &info);
+    CHECK(s.assist_dot_size == 50);
+    s.assist_dot_size = 225;
+    char* text = settings_to_text(&s);
+    Settings back;
+    settings_defaults(&back);
+    settings_from_text(&back, text ? text : "", &info);
+    CHECK(back.assist_dot_size == 225);
+    free(text);
+}
+
 static void test_head_point_never_by_itself(void) {
     Settings s;
     SettingsLoadInfo info;
@@ -1454,6 +1478,7 @@ int main(void) {
     test_opentrack();
     test_pointer_source();
     test_head_point_never_by_itself();
+    test_assist_dot_size();
     test_mouse_mode_back_as_guide();
     test_controller_model();
     test_cog_tab();

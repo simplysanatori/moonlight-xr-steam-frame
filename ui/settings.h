@@ -111,6 +111,7 @@ typedef struct Settings {
     int opentrack_port;    // native: its UDP port (OPENTRACK_PORT_MIN..MAX, default 4242)
     int pointer_source;    // native: PLAN 6.5, POINTER_SOURCE_CONTROLLER, HEAD, GAZE (what points)
     int head_dwell_ms;     // native: head Point mode's dwell click, 0 off, else DWELL_MS_MIN..MAX
+    int assist_dot_size;   // native (lane a11y-2): the head and eye pointer's dot, percent (ACCESS_DOT_*)
     int mouse_mode;        // native: PLAN 4b.10, MOUSE_MODE_ABSOLUTE, RELATIVE (the ray's point, or its movement)
     int back_as_guide;     // native: PLAN 4b.10, gamepad mode's Back (View) button is Guide
     int scroll_speed;      // native: the thumbstick's wheel, percent of 7.5 notches a second (SCROLL_SPEED_MIN..MAX)

@@ -3185,6 +3185,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
     f->hover = HOVER_COGPANEL;
     f->hand = -1;
     int face = cogFace(ctx);
+    ctx->cogPointV = -1.0f;   // native (lane a11y-2): where the pointer is, for the Accessibility footer
 
     // A drag keeps the hand that started it, and keeps it even once the
     // ray has wandered off the panel, so a slider can be run to either end
@@ -3223,6 +3224,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             f->hand = ctx->cogDragByGaze ? SRC_GAZE : h;
             f->hitU[f->hand] = pu;
             f->hitV[f->hand] = pv;
+            ctx->cogPointV = pv;
             ctx->cogHoverSlider = ctx->cogDragSlider;
             cogApplySlider(ctx, face, ctx->cogDragSlider, pu);
         }
@@ -3246,6 +3248,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
         f->hand = h;
         f->hitU[h] = pu;
         f->hitV[h] = pv;
+        ctx->cogPointV = pv;
 
         // The tab bar runs across the top, one even slot per tab. A press
         // up here changes tab and reaches nothing else.

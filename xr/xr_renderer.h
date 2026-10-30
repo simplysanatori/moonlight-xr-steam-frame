@@ -983,7 +983,9 @@ typedef struct XrCtx {
     unsigned gazeFlags;
     // Native (lane a11y-tab): what the session found out about eye gaze, for the Accessibility tab's
     // eye tracking line (xr_access.h accessEyesState) and the log: the runtime offers the extension,
-    // the settings asked for it, the system's supportsEyeGazeInteraction (-1 not read), the gaze
+    // the settings wanted it for themselves (gaze = true or pointer_source = gaze; the app asks for it
+    // whenever it is offered since lane a11y-2, this is only for the log), the system's
+    // supportsEyeGazeInteraction (-1 not read), the gaze
     // binding was taken, and a usable gaze pose has arrived this session (with when the pointer's
     // eyes report was logged). gazeFall is the Eyes pointer's fallback to the head, eyesHold the
     // last tracked gaze pose (local space), held through a blink.
@@ -997,6 +999,11 @@ typedef struct XrCtx {
     GazeFall gazeFall;
     XrPosef eyesHold;
     int eyesHoldValid;
+    // Native (lane a11y-2): the head and eye pointer's dot size in percent ([vr] assist_dot_size), and
+    // where on the settings panel (v, 0 top) the pointer is this frame, -1 off it, for the
+    // Accessibility tab's footer (which row it describes)
+    int assistDotSize;
+    float cogPointV;
     long inputFrames;
     // Gamepad mode (M3: the pad's state is worked out as upstream does, but
     // nothing sends it to the host yet)
