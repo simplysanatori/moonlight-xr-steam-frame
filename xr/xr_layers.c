@@ -204,14 +204,34 @@ static void setLayerSettings(XrCtx* ctx, FrameLayers* layers) {
 // made (the fork's: SteamVR on the Steam Frame leaves the background opaque
 // without one)
 #define PASSTHROUGH_TEX 16
-static void addPassthroughLayer(XrCtx* ctx, FrameLayers* layers) {
+
+int xrBackdropColor(XrCtx* ctx, int passthroughNow, float out[4]) {
+    int mode = BACKDROP_NONE;
+    if (passthroughNow) {
+        mode = BACKDROP_PASSTHROUGH;
+    }
+    else if (!ctx->passthrough && roomEffective(ctx) <= 0) {
+        mode = BACKDROP_VOID;
+    }
+    return backdropFor(mode, ctx->bgDim, ctx->voidColor, out);
+}
+
+// Native (lane wave3-visual): the same layer also holds the Picture tab's
+// Background dim over the cameras (black at the dim's share of alpha) and the
+// void's colour; `want` is that colour, and the swapchain's newest image is
+// cleared to it when it changes
+static void addPassthroughLayer(XrCtx* ctx, FrameLayers* layers, const float want[4]) {
     // Native: the picture's own transparent projection layer stands in for it
     // (one projection layer a frame, xrWorldPlanLayers)
     if (ctx->passthroughFailed || ctx->passthroughInPicture) {
         return;
     }
-    if (ctx->passthroughSwapchain == XR_NULL_HANDLE
-            && (ctx->ensurePassthrough == NULL || !ctx->ensurePassthrough(ctx, PASSTHROUGH_TEX))) {
+    memcpy(ctx->backdropWant, want, sizeof(ctx->backdropWant));
+    int made = ctx->passthroughSwapchain != XR_NULL_HANDLE;
+    if ((!made || !ctx->backdropDrawnValid || memcmp(ctx->backdropDrawn, want, sizeof(ctx->backdropDrawn)) != 0)
+            && (ctx->ensurePassthrough == NULL || !ctx->ensurePassthrough(ctx, PASSTHROUGH_TEX))
+            && !made) {
+        // Making the layer failed; failing to change its colour keeps the old one
         ctx->passthroughFailed = 1;
         return;
     }
@@ -307,21 +327,30 @@ static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     }
 }
 
-// The ambilight glow behind the picture
-static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+// The ambilight glow behind the picture. Native (lane wave3-visual): or over
+// it, when the Picture tab's Glow edge is on, since the glow image is then
+// the fade of the picture's border into it; `over` says which of the two
+// calls this is, and each does nothing in the other's case. The mode the
+// image was drawn with decides, so a switch lands together with the redraw.
+static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers, int over) {
     // The glow, over the environment and under the picture. Deliberately not
     // sharpened: being soft is the whole of the effect. Native: a curved
     // picture's glow is drawn into the curved picture's own projection layer
     // (there are no cylinder layers), so only the flat glow is a layer here.
     // Native: inside the picture's projection layer when it has one (curved, or flat in 3D)
     (void)view;
+    if ((ctx->glowDrawnFeather > 0) != (over != 0)) {
+        return;
+    }
     if (!xrWorldGlowShown(ctx) || xrPictureProjected(ctx) || ctx->glowSwapchain == XR_NULL_HANDLE
             || !ctx->glowSwapchainFilled) {
         return;
     }
     // Local +z is toward the viewer, so this sits just proud of the picture.
     // The layer order is what keeps it under the picture, not the depth.
-    Vec3 proudLocal = { 0.0f, 0.0f, GLOW_PROUD_M };
+    // Over the picture it sits in the picture's plane, so its border fade
+    // lands on the picture's edge from every angle.
+    Vec3 proudLocal = { 0.0f, 0.0f, over ? 0.0f : GLOW_PROUD_M };
     quadLayerRect(&layers->glow, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->glowSwapchain, 0,
                   0, GLOW_TEX, GLOW_TEX, view->space, poseOffset(view->screenPose, proudLocal),
                   view->screenWidth * GLOW_SCALE, view->screenHeight * GLOW_SCALE);
@@ -1000,17 +1029,20 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
     FrameLayers* layers = &frameLayers;
     layers->count = 0;
     setLayerSettings(ctx, layers);
-    if (blendNow) {
-        addPassthroughLayer(ctx, layers);
+    float backdrop[4];
+    if (xrBackdropColor(ctx, blendNow, backdrop)) {
+        addPassthroughLayer(ctx, layers, backdrop);
     }
     addRoomLayer(ctx, &view, layers);
-    addGlowLayer(ctx, &view, layers);
+    addGlowLayer(ctx, &view, layers, 0);
     if (ctx->everRendered && ctx->shouldRender) {
         if (ctx->launcher != LAUNCHER_NONE) {
             addLauncherLayer(ctx, &view, layers);
         }
         else if (ctx->videoShown) {
             addVideoLayers(ctx, &view, layers, in);
+            // Feathered, the glow is the layer over the picture's border
+            addGlowLayer(ctx, &view, layers, 1);
         }
         addOverlayLayer(ctx, &view, layers);
         addHandleLayer(ctx, &view, layers);
