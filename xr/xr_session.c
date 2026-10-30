@@ -1673,6 +1673,7 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
     Settings* s = h->cfg->settings;
     if (in[IN_POSE_DIRTY] != 0.0f) {
         xrPoseToSettings(&in[IN_POSE], xrCurveSetting(ctx), s);
+        xrBringFarToSettings(ctx, s); // native (lane bar-glare): the bar's Bring here's far placement
         saveSettings(h, "screen placement");
     }
     int pick = (int)in[IN_PICKER_PICK];

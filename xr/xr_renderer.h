@@ -1151,6 +1151,9 @@ typedef struct XrCtx {
     int64_t followNs;
     XrPosef headPose;
     int headPoseValid;
+    // Native (lane bar-glare): the bar's Bring here switch, near and far
+    // (xr/core/xr_layout.h); the far placement is kept in config.ini
+    BringToggle bringToggle;
     int perAppOn;
     int angularLockOn;
     int lockActive;
