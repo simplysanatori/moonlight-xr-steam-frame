@@ -130,6 +130,20 @@ void MlxrPrefs::load()
     const int conv = iniValue(ini, "3d", "convergence", "-1").toInt();
     convergenceIsDefault = conv < 0;
     convergence = conv < 0 ? 50 : qBound(0, conv, 100);
+    // the VR client holds it to 0..100 and takes anything else as its default, 0
+    bool edgeOk = false;
+    const int edge = iniValue(ini, "3d", "edge_sharpness", "0").trimmed().toInt(&edgeOk);
+    edgeSharpness = edgeOk ? qBound(0, edge, 100) : 0;
+    // 0..50, the same way
+    bool motionOk = false;
+    const int motion = iniValue(ini, "3d", "motion_reset", "0").trimmed().toInt(&motionOk);
+    motionReset = motionOk ? qBound(0, motion, 50) : 0;
+    // 0..200, default 100
+    bool scaleOk = false, globalOk = false;
+    const int scale = iniValue(ini, "3d", "depth_scale", "100").trimmed().toInt(&scaleOk);
+    const int global = iniValue(ini, "3d", "depth_global", "100").trimmed().toInt(&globalOk);
+    depthScale = scaleOk ? qBound(0, scale, 200) : 100;
+    depthGlobal = globalOk ? qBound(0, global, 200) : 100;
     flipFaceButtons = iniBool(iniValue(ini, "vr", "flip_face_buttons", "false"));
     keyboardKeymap = iniValue(ini, "vr", "keyboard_keymap", "qwerty").trimmed().toLower();
     if (keyboardKeymap != "azerty" && keyboardKeymap != "qwertz") {
@@ -172,6 +186,10 @@ void MlxrPrefs::load()
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniEdgeSharpness = edgeSharpness;
+    m_iniMotionReset = motionReset;
+    m_iniDepthScale = depthScale;
+    m_iniDepthGlobal = depthGlobal;
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
@@ -217,6 +235,18 @@ void MlxrPrefs::save()
     if (convergence != m_iniConvergence || convergenceIsDefault != m_iniConvergenceDefault) {
         setIniValue(ini, "3d", "convergence", convergenceIsDefault ? "-1" : QString::number(qBound(0, convergence, 100)));
     }
+    if (edgeSharpness != m_iniEdgeSharpness) {
+        setIniValue(ini, "3d", "edge_sharpness", QString::number(qBound(0, edgeSharpness, 100)));
+    }
+    if (motionReset != m_iniMotionReset) {
+        setIniValue(ini, "3d", "motion_reset", QString::number(qBound(0, motionReset, 50)));
+    }
+    if (depthScale != m_iniDepthScale) {
+        setIniValue(ini, "3d", "depth_scale", QString::number(qBound(0, depthScale, 200)));
+    }
+    if (depthGlobal != m_iniDepthGlobal) {
+        setIniValue(ini, "3d", "depth_global", QString::number(qBound(0, depthGlobal, 200)));
+    }
     if (flipFaceButtons != m_iniFlip) {
         setIniValue(ini, "vr", "flip_face_buttons", flipFaceButtons ? "true" : "false");
     }
@@ -253,6 +283,10 @@ void MlxrPrefs::save()
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniEdgeSharpness = edgeSharpness;
+    m_iniMotionReset = motionReset;
+    m_iniDepthScale = depthScale;
+    m_iniDepthGlobal = depthGlobal;
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;

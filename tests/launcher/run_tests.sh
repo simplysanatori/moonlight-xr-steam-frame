@@ -633,6 +633,23 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads doff_disconnect" "$dump" "stream.doff_disconnect = 120"
         expect "VR client reads idle_disconnect" "$dump" "stream.idle_disconnect = 10"
     fi
+    # lane wave5-depth: the 3D rows that only the file and this page carry (3D on, so they are live)
+    printf '[3d]\nstereo = true\nseparation = 9\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=edgeRow,motionRow,depthScaleRow,depthGlobalRow \
+        MLXR_LAUNCHER_SCREENSHOT="$t/settings-3d.png@3000" "$L" >"$t/ui9.out" 2>&1
+    grep -q "no clickable" "$t/ui9.out" && fail "3d click hook: $(grep 'no clickable' "$t/ui9.out")"
+    grep -A4 '^\[3d\]' "$ini" | grep -q '^edge_sharpness = 25$' && ok "edge row steps 0 to 25 and writes [3d] edge_sharpness" || { fail "edge_sharpness not written"; cat "$ini"; }
+    grep -A4 '^\[3d\]' "$ini" | grep -q '^motion_reset = 5$' && ok "motion row steps off to 5 and writes [3d] motion_reset" || { fail "motion_reset not written"; cat "$ini"; }
+    grep -A6 '^\[3d\]' "$ini" | grep -q '^depth_scale = 125$' && ok "depth detail row steps 100 to 125 and writes [3d] depth_scale" || { fail "depth_scale not written"; cat "$ini"; }
+    grep -A6 '^\[3d\]' "$ini" | grep -q '^depth_global = 125$' && ok "depth shape row steps 100 to 125 and writes [3d] depth_global" || { fail "depth_global not written"; cat "$ini"; }
+    grep -q '^separation = 9$' "$ini" && grep -q '^stereo = true$' "$ini" && ok "3d rows leave the other [3d] keys alone" || { fail "[3d] keys changed"; cat "$ini"; }
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads edge_sharpness" "$dump" "3d.edge_sharpness = 25"
+        expect "VR client reads motion_reset" "$dump" "3d.motion_reset = 5"
+        expect "VR client reads depth_scale" "$dump" "3d.depth_scale = 125"
+        expect "VR client reads depth_global" "$dump" "3d.depth_global = 125"
+    fi
     # MLXR_HANDOFF=0: the stock probe runs again
     MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1
     grep -q "Unable to find working decoder\|Failed to initialize VAAPI" "$t/ui4.out" && ok "hand-off off: stock decoder probe runs" || fail "stock probe missing with MLXR_HANDOFF=0"

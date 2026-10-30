@@ -618,13 +618,13 @@ typedef struct {
 
 // Upsample and offset search for a map, the way renderVideoFrame chains
 // them; leaves both sampled
-static void depthChain(Depth3d* d, const Video* vd, uint32_t mw, uint32_t mh, const uint8_t* map, float sep,
-                       float conv, float sharp) {
+static void depthChainEx(Depth3d* d, const Video* vd, uint32_t mw, uint32_t mh, const uint8_t* map, float sep,
+                         float conv, float sharp, float sigmaR, float hole) {
     textureMake(&d->map, mw, mh, map);
     targetMake(&d->up, vd->w / 4, vd->h / 4, UNORM);
     targetMake(&d->off, vd->w / 4, vd->h / 4, UNORM);
-    MlxrUpsampleParams up = {vd->yuv, d->map.view, mw, mh, 0.1f, sharp};
-    MlxrOffsetParams op = {d->up.img.view, sep * (float)(vd->w / 4), conv};
+    MlxrUpsampleParams up = {vd->yuv, d->map.view, mw, mh, sigmaR, sharp};
+    MlxrOffsetParams op = {d->up.img.view, sep * (float)(vd->w / 4), conv, hole};
     VkCommandBuffer cmd = vkh_begin(&vk);
     vkh_layout(&vk, &d->up.img, COLOR_ATT);
     vkh_layout(&vk, &d->off.img, COLOR_ATT);
@@ -633,6 +633,12 @@ static void depthChain(Depth3d* d, const Video* vd, uint32_t mw, uint32_t mh, co
     mlxr_pass_offset(P, cmd, &d->off.t, &op);
     vkh_layout(&vk, &d->off.img, SHADER_READ);
     check(vkh_submit(&vk) == 0, "depth chain submit");
+}
+
+// The chain as the older groups run it: a tight colour match, no hole fill
+static void depthChain(Depth3d* d, const Video* vd, uint32_t mw, uint32_t mh, const uint8_t* map, float sep,
+                       float conv, float sharp) {
+    depthChainEx(d, vd, mw, mh, map, sep, conv, sharp, 0.1f, 0.0f);
 }
 
 static void depthFree(Depth3d* d) {
@@ -872,6 +878,169 @@ static void testWarpStep(void) {
     videoFree(&vd);
 }
 
+// ---- the fur (#36, #46): a thin dark bar on a bright page ---------------------------
+
+// Native (lane wave5-depth, PLAN 5.2). 1024 wide, the bar from pixel 497 to
+// 504, its edges anti-aliased over two pixels as text and hair are
+#define FUR_W 1024
+#define FUR_BAR0 497.0f
+#define FUR_BAR1 504.0f
+#define FUR_SOFT 2.0f
+
+static void fillBar(float x, float y, float rgb[3]) {
+    float px = x * FUR_W;
+    float cover = clampf((px - FUR_BAR0) / FUR_SOFT + 0.5f, 0.0f, 1.0f)
+                  * clampf((FUR_BAR1 - px) / FUR_SOFT + 0.5f, 0.0f, 1.0f);
+    rgb[0] = rgb[1] = rgb[2] = 0.9f - 0.8f * cover;
+}
+
+// The bar near (0.9) over a far page (0.2), a step at the map's texels made
+// as soft as a depth model makes it (each texel the mean of itself and the
+// one to its left), the guide the picture under each texel
+static uint8_t* furMap(const Video* vd, uint32_t mw, uint32_t mh) {
+    float* d = malloc(sizeof(float) * mw);
+    float* s = malloc(sizeof(float) * mw);
+    for (uint32_t x = 0; x < mw; x++) {
+        float px = (x + 0.5f) / mw * FUR_W;
+        d[x] = px >= FUR_BAR0 && px < FUR_BAR1 ? 0.9f : 0.2f;
+    }
+    for (uint32_t x = 0; x < mw; x++) s[x] = (d[x == 0 ? 0 : x - 1] + d[x]) / 2.0f;
+    uint8_t* out = malloc((size_t)mw * mh * 4);
+    for (uint32_t y = 0; y < mh; y++)
+        for (uint32_t x = 0; x < mw; x++) {
+            float rgb[3];
+            videoCpu(vd, MLXR_CHROMA_CENTER, (x + 0.5f) / mw, (y + 0.5f) / mh, rgb);
+            uint8_t* p = out + ((size_t)y * mw + x) * 4;
+            for (int c = 0; c < 3; c++) p[c] = (uint8_t)to8(rgb[c]);
+            p[3] = (uint8_t)to8(s[x]);
+        }
+    free(d);
+    free(s);
+    return out;
+}
+
+typedef struct {
+    int left, right;   // pixels of smear at the bar's left and right edges
+    int dark;          // pixels of the bar's own dark
+} FurEdges;
+
+// On a row: the pixels strictly between 10 and 90 percent of the way from the
+// bar's dark to the page's bright, next to the dark run on each side
+static FurEdges furEdges(const uint8_t* row, uint32_t w, float dark, float bright) {
+    FurEdges e = {99, 99, 0};
+    float lo = dark + 0.1f * (bright - dark), hi = bright - 0.1f * (bright - dark);
+    int first = -1, last = -1;
+    for (int x = 300; x < 720 && x < (int)w; x++) {
+        float v = row[x * 4] / 255.0f;
+        if (v <= lo) {
+            if (first < 0) first = x;
+            last = x;
+            e.dark++;
+        }
+    }
+    if (first < 0) return e;
+    int i = first;
+    while (i > 0 && row[(i - 1) * 4] / 255.0f < hi) i--;
+    e.left = first - i;
+    int j = last;
+    while (j + 1 < (int)w && row[(j + 1) * 4] / 255.0f < hi) j++;
+    e.right = j - last;
+    return e;
+}
+
+// The left eye uncovers the page beside the bar's left edge and the right eye
+// beside its right edge. Without the fill the uncovered side is the bar's edge
+// stretched across the gap, a smear several pixels wide in one eye where the
+// other eye's edge is sharp: the reported "left eye fuzzy, right eye sharp".
+// With it the uncovered side in each eye is the picture's own edge, the same
+// in both eyes, the covered side stays upstream's, and the bar keeps most of
+// its width. The separation puts as many depth texels between the eyes as
+// the Frame's default 0.6 percent does on a 1920 wide stream (2.9).
+static void testWarpFur(void) {
+    const uint32_t W = FUR_W, H = 16, MW = W / 4, MH = H / 4;
+    const float sep = 0.012f, conv = 0.5f;
+    Video vd;
+    Target t;
+    if (videoMake(&vd, W, H, fillBar) || targetMake(&t, W, H, UNORM)) return;
+    uint8_t* map = furMap(&vd, MW, MH);
+    MlxrWarpParams w = warpDefaults(&vd.yuv);
+    uint8_t* flat = runWarp(&t, &w);
+    const uint8_t* flatRow = flat + (size_t)(H / 2) * W * 4;
+    float bright = flatRow[100 * 4] / 255.0f, dark = 1.0f;
+    for (uint32_t x = 490; x < 520; x++) dark = fminf(dark, flatRow[x * 4] / 255.0f);
+    FurEdges src = furEdges(flatRow, W, dark, bright);
+    note("source: page %.3f, bar %.3f, bar %d px, edges %d | %d px", bright, dark, src.dark, src.left, src.right);
+    FurEdges e[2][2];   // [fill off, on][eye]
+    memset(e, 0, sizeof(e));
+    for (int fill = 0; fill < 2; fill++) {
+        Depth3d d;
+        depthChainEx(&d, &vd, MW, MH, map, sep, conv, 0.0f, 0.25f, fill ? MLXR_HOLE_STRETCH : 0.0f);
+        w.depth = d.up.img.view;
+        w.offsets = d.off.img.view;
+        w.occlusion = 1;
+        w.convergence = conv;
+        w.dispTexels = sep * (float)MW;
+        w.lowResWidth = (float)MW;
+        for (int eye = 0; eye < 2; eye++) {
+            w.eye = eye;
+            w.disparity = eye == 0 ? sep : -sep;
+            uint8_t* got = runWarp(&t, &w);
+            // Every row is the same picture; the worst row counts
+            FurEdges worst = {0, 0, 1 << 20};
+            for (uint32_t y = 0; y < H; y++) {
+                FurEdges r = furEdges(got + (size_t)y * W * 4, W, dark, bright);
+                if (r.left > worst.left) worst.left = r.left;
+                if (r.right > worst.right) worst.right = r.right;
+                if (r.dark < worst.dark) worst.dark = r.dark;
+            }
+            e[fill][eye] = worst;
+            note("fill %s, %s eye: smear %d px left of the bar, %d px right, bar %d px", fill ? "on " : "off",
+                 eye == 0 ? "left " : "right", worst.left, worst.right, worst.dark);
+            char name[64];
+            snprintf(name, sizeof(name), "warp_fur_%s_%s", fill ? "fill" : "nofill", eye == 0 ? "left" : "right");
+            ppm(name, got, W, H);
+            free(got);
+        }
+        depthFree(&d);
+    }
+    // The fixture shows the bug: without the fill the uncovered edge smears
+    // in the eye that uncovers it, three pixels or more past the other eye's
+    check(e[0][0].left >= e[0][1].left + 3, "fill off: the left eye's left edge smears (%d px, right eye %d)",
+          e[0][0].left, e[0][1].left);
+    check(e[0][1].right >= e[0][0].right + 3, "fill off: the right eye's right edge smears (%d px, left eye %d)",
+          e[0][1].right, e[0][0].right);
+    // With it the edge each eye uncovers is as wide as the one the other eye
+    // uncovers (the left eye's left edge against the right eye's right)...
+    check(abs(e[1][0].left - e[1][1].right) <= 1, "fill on: uncovered edges %d px left eye, %d right eye",
+          e[1][0].left, e[1][1].right);
+    // ...the side each eye covers is upstream's, untouched by the fill (its
+    // occlusion cut is harder than the picture's own edge, one pixel landing
+    // either side of the 90 percent mark between lavapipe builds, so it is
+    // held to upstream exactly rather than to the uncovered side's width)...
+    check(e[1][0].right == e[0][0].right && e[1][1].left == e[0][1].left,
+          "fill on: the covered edges as without it (left eye %d from %d, right eye %d from %d)", e[1][0].right,
+          e[0][0].right, e[1][1].left, e[0][1].left);
+    // ...narrower than the smear was by two pixels or more...
+    check(e[1][0].left <= e[0][0].left - 2 && e[1][1].right <= e[0][1].right - 2,
+          "fill on: the uncovered edges narrower (left eye %d from %d, right eye %d from %d)", e[1][0].left,
+          e[0][0].left, e[1][1].right, e[0][1].right);
+    for (int eye = 0; eye < 2; eye++) {
+        // ...no wider than the picture's own anti-aliased edge and a pixel...
+        int own = src.left > src.right ? src.left : src.right;
+        check(e[1][eye].left <= own + 1 && e[1][eye].right <= own + 1,
+              "fill on, eye %d: edges as the picture's own (%d | %d px, the picture's %d)", eye, e[1][eye].left,
+              e[1][eye].right, own);
+        // ...and the bar is still there, as much of it as without the fill
+        check(e[1][eye].dark >= e[0][eye].dark - 2 && e[1][eye].dark >= 2,
+              "fill on, eye %d: the bar keeps its dark (%d px, %d without the fill)", eye, e[1][eye].dark,
+              e[0][eye].dark);
+    }
+    free(flat);
+    free(map);
+    targetFree(&t);
+    videoFree(&vd);
+}
+
 static void testSharpen(void) {
     const uint32_t W = 256, H = 64;
     Video flat, step;
@@ -999,13 +1168,17 @@ static void testUpsample(void) {
     videoFree(&vd);
 }
 
-// CPU copy of OFFSET_FRAGMENT_SRC for one eye
-static float offsetCpu(const uint8_t* up, int w, int x, int y, float dispTexels, float conv, int eye) {
+// CPU copy of OFFSET_FRAGMENT_SRC for one eye: the encoded offset, and in
+// *isHole whether the pixel is a hole the shift opened (hole stretch > 0)
+static float offsetCpu(const uint8_t* up, int w, int x, int y, float dispTexels, float conv, int eye, float hole,
+                       int* isHole) {
     int reach = (int)ceilf(fabsf(dispTexels) * fmaxf(conv, 1.0f - conv)) + 2;
     float disp = eye == 0 ? dispTexels : -dispTexels;
 #define D(xx) (up[((size_t)y * w + ((xx) < 0 ? 0 : ((xx) > w - 1 ? w - 1 : (xx)))) * 4 + 3] / 255.0f)
+#define E(tt) ((float)(tt) + disp * (D(x + (tt)) - conv))
     float here = D(x);
-    float bestD = -1.0f, bestOff = -disp * (here - conv);
+    float bestD = -1.0f, bestOff = -disp * (here - conv), bestSpan = 1.0f;
+    int bestT = 0;
     float pd = D(x - reach);
     float pe = (float)(-reach) + disp * (pd - conv);
     for (int t = -reach + 1; t <= reach; t++) {
@@ -1018,11 +1191,29 @@ static float offsetCpu(const uint8_t* up, int w, int x, int y, float dispTexels,
             if (rd > bestD) {
                 bestD = rd;
                 bestOff = (float)(t - 1) + f;
+                bestSpan = span;
+                bestT = t;
             }
         }
         pd = cd;
         pe = ce;
     }
+    *isHole = 0;
+    if (hole > 0.0f && bestD >= 0.0f && bestSpan > hole) {
+        int dir = D(x + bestT) < D(x + bestT - 1) ? 1 : -1;
+        int tFar = dir > 0 ? bestT : bestT - 1;
+        int tNear = dir > 0 ? bestT - 1 : bestT;
+        for (int k = 0; k < 2 * reach && (E(tFar + dir) - E(tFar)) * (float)dir > hole; k++) tFar += dir;
+        for (int k = 0; k < 2 * reach && (E(tNear) - E(tNear - dir)) * (float)dir > hole; k++) tNear -= dir;
+        float kept = -disp * (D(x + tNear) - conv);
+        if ((kept - (float)tNear) * (float)dir >= 0.0f && ((float)tFar - kept) * (float)dir >= 0.0f)
+            bestOff = kept;
+        else
+            bestOff = (float)(tFar + dir);
+        bestOff = clampf(bestOff, -(float)reach, (float)reach);
+        *isHole = 1;
+    }
+#undef E
 #undef D
     return bestOff / (2.0f * reach) + 0.5f;
 }
@@ -1030,25 +1221,46 @@ static float offsetCpu(const uint8_t* up, int w, int x, int y, float dispTexels,
 static void testOffset(void) {
     const uint32_t W = 512, H = 64, MW = 128, MH = 16;
     const float seps[] = {0.0f, 0.02f, 0.05f};
-    for (int k = 0; k < 3; k++) {
+    // Native (lane wave5-depth): each with the hole fill off (upstream's
+    // search) and on, as the 3D runs it
+    for (int run = 0; run < 6; run++) {
+        int k = run % 3;
+        float hole = run < 3 ? 0.0f : MLXR_HOLE_STRETCH;
         Video vd;
         videoMake(&vd, W, H, fillStep);
         uint8_t* map = depthMap(&vd, MW, MH, k == 1 ? depthWobble : depthStep);
         Depth3d d;
         float disp = seps[k] * (W / 4);
-        depthChain(&d, &vd, MW, MH, map, seps[k], 0.5f, 1.0f);
+        depthChainEx(&d, &vd, MW, MH, map, seps[k], 0.5f, 1.0f, 0.1f, hole);
         uint8_t* up = readTarget(&d.up);
         uint8_t* got = readTarget(&d.off);
-        int m = 0;
+        int m = 0, holes = 0, flagOff = 0;
         for (uint32_t y = 0; y < H / 4; y++)
             for (uint32_t x = 0; x < W / 4; x++)
                 for (int eye = 0; eye < 2; eye++) {
-                    float e = offsetCpu(up, W / 4, x, y, disp, 0.5f, eye);
-                    int dd = abs(to8(e) - got[((size_t)y * (W / 4) + x) * 4 + eye]);
+                    int isHole = 0;
+                    float e = offsetCpu(up, W / 4, x, y, disp, 0.5f, eye, hole, &isHole);
+                    const uint8_t* px = got + ((size_t)y * (W / 4) + x) * 4;
+                    int gotHole = px[2 + eye] > 127;
+                    holes += isHole;
+                    // A segment whose spread sits right on the threshold may
+                    // round either way; the offsets are compared where the
+                    // two agree
+                    if (gotHole != isHole) {
+                        flagOff++;
+                        continue;
+                    }
+                    int dd = abs(to8(e) - px[eye]);
                     if (dd > m) m = dd;
                 }
-        note("offset search, separation %.2f (%.2f texels): max diff from the CPU copy %d/255", seps[k], disp, m);
+        note("offset search, separation %.2f (%.2f texels), hole stretch %.1f: max diff from the CPU copy %d/255, "
+             "%d hole texels, %d flagged differently",
+             seps[k], disp, hole, m, holes, flagOff);
         check(m <= 1, "offset search within 1/255 (%d)", m);
+        check(flagOff <= 2, "holes flagged as the CPU copy flags them (%d off)", flagOff);
+        if (hole == 0.0f) check(holes == 0, "no holes with the fill off (%d)", holes);
+        // The step at 0.05 (6.4 texels) opens a gap in the left eye on every row
+        if (hole > 0.0f && k == 2) check(holes >= 2 * (int)(H / 4), "the step's gap is flagged (%d)", holes);
         if (k == 0) {
             int notZero = 0;
             for (uint32_t i = 0; i < (W / 4) * (H / 4); i++)
@@ -1945,6 +2157,7 @@ int main(int argc, char** argv) {
                  {"srgb", testSrgb},
                  {"warp_identity", testWarpIdentity},
                  {"warp_step", testWarpStep},
+                 {"warp_fur", testWarpFur},
                  {"sharpen", testSharpen},
                  {"upsample", testUpsample},
                  {"offset", testOffset},
