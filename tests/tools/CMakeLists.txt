@@ -20,9 +20,9 @@ if(Python3_FOUND)
   set_tests_properties(tools_make_model PROPERTIES TIMEOUT 120)
 endif()
 
-# tools/xr/make_gun.py (the Gun controller model, an original pistol in MXFM): size, muzzle on the aim
-# ray, trigger component, flat normals, closed surfaces, the mirrored left hand, and the committed
-# assets/models/gun_{right,left}.model matching what the generator writes.
+# tools/xr/make_gun.py (converts the Gun controller model, a G17 under CC BY 4.0, into MXFM) on a
+# stand-in pistol: parts left out, scale, the bore on the aim ray, the grip placed, the trigger split
+# out, colours, the mirrored left hand; then the committed assets/models/gun_{right,left}.model.
 if(Python3_FOUND)
   add_test(NAME tools_make_gun
     COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/test_make_gun.py
