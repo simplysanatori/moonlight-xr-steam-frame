@@ -103,9 +103,11 @@
     X(HAND_HINT_BODY, "vr_hand_hint_body", "Pinch your thumb and index finger three times quickly to lock your hands out, so a stray pinch does not click; the same triple pinch unlocks them.") \
     X(HAND_HINT_NEVER, "vr_hand_hint_never", "Don't show this again") \
     X(KOFI_TITLE, "vr_kofi_title", "Support Moonlight XR on Ko-fi") \
-    X(KOFI_SCAN, "vr_kofi_scan", "Scan it with your phone.") \
+    X(KOFI_SCAN, "vr_kofi_scan", "Taken the headset off? Scan it with your phone.") \
+    X(KOFI_HERE, "vr_kofi_here", "In the headset, Open page shows it in Steam's browser.") \
     X(KOFI_FREE, "vr_kofi_free", "Optional: Moonlight XR is free and stays free.") \
-    X(KOFI_CLOSE, "vr_kofi_close", "Close") \
+    X(KOFI_CLOSE, "vr_kofi_close", "Not now") \
+    X(KOFI_OPEN, "vr_kofi_open", "Open page") \
     /* the Host sheet (PLAN 4b.1) */ \
     X(HOST_TITLE, "native_host_title", "Host") \
     X(HOST_SEND_KEYS, "native_host_send_keys", "Send keys…") \

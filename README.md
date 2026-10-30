@@ -148,7 +148,7 @@ See [docs/BUILDING.md](docs/BUILDING.md). The build runs on the Frame itself.
 
 ## Support
 
-Moonlight XR is Gilleece's work. If you want to support someone, support upstream first: [Ko-fi: moonlightxr](https://ko-fi.com/moonlightxr).
+Moonlight XR is Gilleece's work. If you want to support someone, support upstream first: [Ko-fi: moonlightxr](https://ko-fi.com/moonlightxr). In the headset, the settings panel's About tab has a Ko-fi button: **Open page** shows that page in Steam's browser in the dashboard (the QR code on the sheet is for a phone, with the headset off).
 
 If you would like more Steam Frame ports, you can also [buy me a coffee](https://ko-fi.com/sana748653). It pays for the Claude API credits these ports are built with, spent as carefully as I can.
 

@@ -3496,6 +3496,8 @@ static void updateKofiSheet(XrCtx* ctx, InputFrame* f) {
         return;
     }
     int onClose = pressed == f->hand && zone == KOFI_ZONE_CLOSE;
+    int onOpen = pressed == f->hand && zone == KOFI_ZONE_OPEN;
+    if (onOpen) { ctx->clickPending = 1; kofiOpenPage(NULL); }
     if (onClose) {
         ctx->clickPending = 1;
     }
@@ -3503,7 +3505,7 @@ static void updateKofiSheet(XrCtx* ctx, InputFrame* f) {
     ctx->kofiHoverZone = KOFI_ZONE_NONE;
     int byHand = pressed == SRC_GAZE
             || (pressed < HAND_COUNT && ctx->profileKind[pressed] != PROFILE_CONTROLLER);
-    LOGEV("Ko-fi sheet put away by %s", onClose ? "Close" : byHand ? "a pinch" : "a press");
+    LOGEV("Ko-fi sheet put away by %s", onOpen ? "Open page" : onClose ? "Not now" : byHand ? "a pinch" : "a press");
     for (int h = 0; h < SRC_COUNT; h++) {
         if (ctx->triggerEdge[h]) {
             swallowTrigger(ctx, h);

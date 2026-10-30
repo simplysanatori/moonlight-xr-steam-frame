@@ -1422,6 +1422,9 @@ int exitPromptHasDisconnect(const XrCtx* ctx);
 XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);
 XrPosef handHintPose(XrCtx* ctx, float* outWidth, float* outHeight);
 XrPosef kofiSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);
+// xr_kofi.c: runs Steam's browser on the Frame for the Ko-fi page (NULL: the default address).
+// Once per press, never blocks. 1 when a program was started.
+int kofiOpenPage(const char* url);
 int cogTabRowCount(int face);
 int cogRowIsTrack(int face, int row);
 int cogRowLive(XrCtx* ctx, int face, int row);
