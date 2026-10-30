@@ -92,7 +92,7 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 
 ### Stream profiles
 
-A profile is a saved copy of the stream settings on this page, with a name. It holds the Connection choice, every Video setting (with the 3D rows), the sound, the gamepad and mouse rows, Optimize game settings, Play audio on PC, Smart Clipboard Sync, stats, the codec, full range, software decoding, and the headset's own rows on this page (notices, scroll speed, the disconnect times, gamepad as mouse). For example a desktop profile at 1080p and 60 Hz, and a game profile at 1440p and 120 Hz with Apollo's virtual display. Not in a profile: the headset keyboard layout, Show controllers, Quick Resume, Enable Full Screen, Language and Check the PC before streaming.
+A profile is a saved copy of the stream settings on this page, with a name. It holds the Connection rows, every Video setting (with the 3D rows and where the 3D comes from), the sound, the gamepad and mouse rows, Optimize game settings, Play audio on PC, Smart Clipboard Sync, stats, the codec, full range, software decoding, and the headset's own rows on this page (notices, scroll speed, the disconnect times, gamepad as mouse). For example a desktop profile at 1080p and 60 Hz, and a game profile at 1440p and 120 Hz with Apollo's virtual display. Not in a profile: the headset keyboard layout, Show controllers, Quick Resume, Enable Full Screen, Language and Check the PC before streaming.
 
 The **Profiles** row (or **Stream settings profile...** in an app's menu) opens the Stream profiles page:
 
