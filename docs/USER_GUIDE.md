@@ -218,7 +218,7 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Click steadiness (Input) | Off, Normal, Steady | Normal | `[vr] click_steadiness` |
 | Click sound (Input) | on, off | on | `[vr] click_sound` |
 | Head aims the mouse, Head aim speed, Head aim dead zone (Input) | on, off; 1 to 30 px/°; 0 to 20 °/s | off, 8, 2 | `[vr] head_aim`, `head_aim_sensitivity`, `head_aim_deadzone` |
-| Look to point, Hand tracking (Input) | on, off | off, off. Not tested on the Steam Frame yet. | `[vr] gaze`, `hand_tracking` |
+| Look to point, Hand tracking (Input) | on, off | off, off. Look to point needs eye tracking from SteamVR; the Accessibility tab shows whether it reaches the app. | `[vr] gaze`, `hand_tracking` |
 | Environment (UI) | Automatic, Passthrough, Void, Home Theater, Grand Cinema, Synthwave | Automatic: the void, or the passthrough with Passthrough on | `[vr] environment` |
 | Passthrough (UI) | on, off | off | `[vr] passthrough` |
 | Room detail (UI) | Low, Standard, High, Ultra | Standard | `[vr] env_res` |
@@ -946,8 +946,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] depth_source` | `zipdepth`, `zipdepth-int8`, `midas` | `zipdepth` |
 | `[3d] stereo_source` | `depth`, `sbs`, `top-bottom` | `depth`. The 3D tab's 3D source row. See [SBS 3D](#sbs-3d). |
 | `[3d] sbs_full` | `true`, `false` | `false`. The PC's pair has a full-size picture per eye (3840x1080 side by side, 1920x2160 top-bottom). |
-| `[vr] hand_tracking` | `true`, `false` | `false`. Untested on the Frame. |
-| `[vr] gaze` | `true`, `false` | `false`. Untested on the Frame. |
+| `[vr] hand_tracking` | `true`, `false` | `false`. See [Hand tracking](#hand-tracking). |
+| `[vr] gaze` | `true`, `false` | `false`. Needs eye tracking from SteamVR; see [Accessibility](#accessibility). |
 | `[vr] pointer` | `true`, `false` | `true`. `false` turns the controllers' pointer off, so only the switch to gamepad mode is read. |
 | `[vr] env_res` | `low`, `standard`, `high`, `ultra` | `standard`. How sharp the rooms are drawn: `low` is half the headset's recommended size, `ultra` the largest the runtime allows. Read when a room is built, so it applies from the next stream. |
 | `[debug] depth_rate` | 5 to 45 | 20. The most depth maps made per second in 3D. Lower saves the CPU; the picture still follows the video. |

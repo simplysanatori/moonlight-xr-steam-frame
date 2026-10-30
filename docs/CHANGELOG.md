@@ -6,14 +6,14 @@
 
 - Each connection can start at its own bitrate: **Bitrate over Wi-Fi**, **Bitrate over the Steam Frame Wireless Adapter**, **Bitrate over a wired network** and **Bitrate over the USB cable** under Connection. **Same as above** (the default) uses the Video bitrate.
 - The **Video bitrate** row and `config.ini` go up to 500 Mbps.
-- PLACEHOLDER: the **Video bitrate** slider under Connection. <!-- pending lane -->
+- The Settings page's **Video bitrate** slider moved to Connection, right above the per-connection bitrate rows (which stay **Same as above**).
 - A dropped connection reconnects by itself: the headset keeps the room, the screen's place and the 3D, and asks the PC to resume the same app twice (after 2 and 5 seconds) before the flat window comes back.
 - Taking the headset off mutes the sound and lets go of every key and button held on the PC. After 60 seconds off, the stream disconnects and the game keeps running on the PC (`[stream] doff_disconnect`, 0 for never).
 - **Disconnect when idle** ends the stream after a set time with no input; the game keeps running (off by default).
 - After lost video the headset waits for the PC's quick repair as long as the link needs before it asks for a full frame, so a bad moment on Wi-Fi does not turn into a longer freeze.
 - **Full-frame requests after lost video** limits how often the headset asks the PC for a full frame (500 ms by default).
 - **Virtual surround** keeps the 5.1 and 7.1 speakers in place as you turn your head, and has a switch on the Settings page (off by default).
-- PLACEHOLDER: **Virtual surround** on stereo. <!-- pending lane -->
+- **Virtual surround** now works with Stereo too: the two channels become speakers in front of the screen that stay put as you turn your head.
 - The sound mutes while the SteamVR dashboard is open, and everything held down on the PC is let go.
 - The Moonlight XR logo with "Connecting to *PC name*..." shows while a stream starts, and "Reconnecting..." while it reconnects.
 
@@ -28,7 +28,8 @@
 - **Sharper small text** averages the stream under each of the headset's pixels on a curved or 3D screen, so small text is sharper (on by default).
 - **Sharper coloured text** keeps red, blue and syntax-coloured text in colour to its edge on a curved or 3D screen (on by default).
 - **Sharpen** (Settings page: **Sharpening**) on a curved or 3D screen now works at the headset's own pixels, crisps black text on white and never rings past an edge.
-- PLACEHOLDER: **Sharpen** is Normal by default, with its colour fix and a calmer Quality. <!-- pending lane -->
+- **Sharpen** now defaults to **Normal** and sharpens brightness only, so colour stays exactly as with Off.
+- **Sharpen**'s **Quality** holds back on black-and-white edges, so white text on black shimmers about as little as with Normal.
 - Zoom and pan: bind `app:zoomin`, `app:zoomout` and `app:zoomreset` to show a part of the picture filling the screen, from 100 to 400 %. Zoom in aims at where the controller points, and the zoom is kept for each app.
 - The Settings page's **Zoom** row sets the zoom a stream starts with.
 - The Screen tab's **Preset** row: **Desk** (1.2 m away, 1.6 m wide), **Couch** (2.5 m, 2.6 m) and **Cinema** (4 m, 5 m).
@@ -78,8 +79,8 @@
 - **Mouse mode** Relative sends how far the pointer moves instead of where it is, for games that capture the mouse (Absolute by default).
 - **Head-look (experimental)**: with the screen head locked or in a room, your head's turn moves the PC's mouse for first-person games; hold a grip to turn back without turning the game (off by default).
 - **Head tracking to opentrack** sends your head's position and turn to opentrack on the PC, for simulators that take TrackIR or FreeTrack (off by default).
-- **What points** can be your head instead of a controller, with an optional click by resting the dot (`head_dwell_ms`), for when holding a controller up is hard (off by default).
-- PLACEHOLDER: an **Accessibility** tab with the head pointer and dwell click (early); eye tracking only when SteamVR provides it. <!-- pending lane -->
+- **Accessibility** (early): a new Accessibility tab in the cog and a matching section on the Settings page. Point with your head instead of a controller (**What points**), click by resting the dot (**Dwell click**, 0.6 to 1.5 s), and set Head-look, Back as Guide and Mouse mode there, with short instructions on the tab. Nothing turns on by itself.
+- Your eyes can point when SteamVR provides eye tracking: the Accessibility tab shows whether eye tracking reaches the app, the **Eyes** choice appears only then, and the head takes over while the eyes are lost.
 - A gamepad card hangs in your lap while a Bluetooth or USB gamepad is in use and lights up what you press on it (**Gamepad card in the headset**: Auto, On, Off).
 
 ### The bar and menus
@@ -136,6 +137,7 @@
 - A white beam no longer runs across the picture when you move the ray along the bar with the other controller pointing at the picture: the whole bar row now belongs to the hand on it.
 - The ray and the controller model no longer flicker or jump when tracking drops for a moment: the last aim is held for up to 300 ms.
 - The controller bindings are offered to SteamVR under both names it gives the Frame controllers, the older one and the one SteamVR uses since 2.15.1.
+- A dwell click no longer repeats on the same spot every dwell time, and a dwell on an open menu no longer clicks the picture behind it.
 
 ## 1.0.1 (October 2026)
 

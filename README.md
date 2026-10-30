@@ -39,7 +39,7 @@ The rooms, 3D mode, glow and virtual surround come from Moonlight XR and are kep
 
 Version 1.1.0 is the current stable build. 1.0.0 was the first. It has been used on one Steam Frame (SteamOS 0.4.5, SteamVR 2.18) against one Windows PC with Sunshine and Apollo.
 
-The 1.1.0 build went through the full headset checklist on 30 October 2026, and everything tested there worked, except eye tracking (**Look to point**), which did not work on that Frame. The USB cable connection was not tried. The [changelog](docs/CHANGELOG.md) lists everything new in 1.1.0; the [1.0.0 release notes](docs/RELEASE_NOTES_v1.0.0.md) describe the first release.
+The 1.1.0 build went through the full headset checklist on 30 October 2026, and everything tested there worked, except eye tracking, which did not reach the app on that Frame (the cause is under investigation). The cog's Accessibility tab shows whether SteamVR provides eye tracking, and offers the eyes as a pointer only then. The USB cable connection was not tried. The [changelog](docs/CHANGELOG.md) lists everything new in 1.1.0; the [1.0.0 release notes](docs/RELEASE_NOTES_v1.0.0.md) describe the first release.
 
 ## Requirements
 
@@ -136,6 +136,8 @@ The bar under the screen shows its buttons while the ray is over it. From left t
 | Ray | Shows or hides the ray for this session. |
 | 3D | Turns 3D on or off (shown when 3D can run). |
 | Host | Opens the Host sheet: Esc, Win, Alt+Enter and other keys, and your own macros. |
+
+The cog menu's **Accessibility** tab (early) lets you point with your head and click by resting the dot, with your eyes too when SteamVR provides eye tracking.
 
 To change what a button does, edit `~/.config/moonlight-xr/bindings.ini` or use the flat window's **Controller bindings** page ([BINDINGS.md](docs/BINDINGS.md)); the mode switch, the disconnect chord and the grips' grab cannot be changed.
 
