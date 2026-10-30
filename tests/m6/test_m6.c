@@ -1072,11 +1072,8 @@ int main(int argc, char** argv) {
     if (all || !strcmp(group, "settings")) testSettings();
     if (all || !strcmp(group, "states")) testStates();
     if (all || !strcmp(group, "budget")) testBudget();
-<<<<<<< HEAD
     if (all || !strcmp(group, "sbs")) testSbs();
-=======
     if (all || !strcmp(group, "params")) testParams();
->>>>>>> origin/main
     vkDeviceWaitIdle(g.vk.device);
     for (int i = 0; i < VIDEOS; i++) m5_video_free(&tmp, &videos[i]);
     m5_image_free(&tmp, &target);
