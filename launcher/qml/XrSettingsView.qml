@@ -185,6 +185,13 @@ Flickable {
         return scrollSpeedSteps[0]
     }
 
+    // Native (lane wave3-visual): the surroundings. [vr] background_dim (percent), [display] glow_feather and
+    // [3d] eye_balance (percent) step through these; [vr] void_color is typed
+    readonly property var backgroundDimSteps: [0, 25, 50, 75, 100]
+    readonly property var glowFeatherValues: ["off", "soft", "wide"]
+    readonly property var glowFeatherNames: [qsTr("Off"), qsTr("Soft"), qsTr("Wide")]
+    readonly property var eyeBalanceSteps: [-100, -50, 0, 50, 100]
+
     // [vr] controller_model: which controller the headset draws in each hand
     readonly property var modelValues: ["off", "frame", "generic", "gun", "custom"]
     readonly property var modelNames: [qsTr("Off"), qsTr("Steam Frame controller"), qsTr("Generic controller"), qsTr("Gun"), qsTr("Your own model")]
@@ -905,6 +912,46 @@ Flickable {
             valueText: MlxrPrefs.scrollSpeed + "%"
             summary: qsTr("How fast a controller's thumbstick scrolls in pointer mode. Tilt it sideways to scroll sideways.")
             onClicked: MlxrPrefs.scrollSpeed = settingsPage.nextScrollSpeed()
+        }
+
+        // Native (lane wave3-visual): the Picture tab's Background and Glow edge rows, the void's colour and
+        // the 3D eye balance. Pressing a row steps through its choices.
+        PrefRow {
+            objectName: "backgroundDimRow"
+            title: qsTr("Dim the surroundings")
+            valueText: MlxrPrefs.backgroundDim + "%"
+            summary: qsTr("How far the room, the passthrough cameras or the void are turned down, the picture itself not. 100% is black.") + " " +
+                     qsTr("(the headset's Picture tab has it too)")
+            onClicked: MlxrPrefs.backgroundDim = settingsPage.nextLimit(settingsPage.backgroundDimSteps, MlxrPrefs.backgroundDim)
+        }
+
+        PrefRow {
+            objectName: "glowFeatherRow"
+            title: qsTr("Glow edge")
+            valueText: settingsPage.glowFeatherNames[Math.max(0, settingsPage.glowFeatherValues.indexOf(MlxrPrefs.glowFeather))]
+            summary: qsTr("Fades the picture's outer edge into the glow around it so the screen has no hard border. Needs the glow on.") + " " +
+                     qsTr("(the headset's Picture tab has it too)")
+            onClicked: MlxrPrefs.glowFeather = settingsPage.nextLimit(settingsPage.glowFeatherValues, MlxrPrefs.glowFeather)
+        }
+
+        PrefRow {
+            objectName: "voidColorRow"
+            title: qsTr("Void colour")
+            valueText: MlxrPrefs.voidColor
+            summary: qsTr("The colour of the void environment, as on a web page: #rrggbb. Black draws nothing.")
+            onClicked: editDialog.show(title, qsTr("#rrggbb"), MlxrPrefs.voidColor,
+                                       "^\\s*#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\\s*$", function(t) {
+                MlxrPrefs.voidColor = "#" + t.trim().replace("#", "").toLowerCase()
+            })
+        }
+
+        PrefRow {
+            objectName: "eyeBalanceRow"
+            title: qsTr("3D eye balance")
+            valueText: MlxrPrefs.eyeBalance > 0 ? qsTr("Left eye %1%").arg(MlxrPrefs.eyeBalance)
+                     : MlxrPrefs.eyeBalance < 0 ? qsTr("Right eye %1%").arg(-MlxrPrefs.eyeBalance) : qsTr("Even")
+            summary: qsTr("How the 3D's shift is shared by the two eyes. Even moves each eye the same; at 100% only the left eye's picture moves and the right eye's is as streamed. The depth you see is the same at every setting. Useful with a dominant eye.")
+            onClicked: MlxrPrefs.eyeBalance = settingsPage.nextLimit(settingsPage.eyeBalanceSteps, MlxrPrefs.eyeBalance)
         }
 
         // The headset coming off: the sound mutes and the input is let go at once; after the time the stream
