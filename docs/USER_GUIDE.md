@@ -49,7 +49,7 @@ In the headset, the Moonlight XR logo with "Connecting to *PC name*..." under it
 
 In the headset (Game Mode) the window is drawn 1.5 times larger than on a desktop, so the text is easier to read. Set `MLXR_LAUNCHER_SCALE` to change it, for example `MLXR_LAUNCHER_SCALE=1.25`. It takes 1.0 (no scaling) to 2.5. On a desktop the window is not scaled.
 
-The **Help** button (the question mark at the top) opens this project's readme: <https://github.com/simplysanatori/moonlight-xr-steam-frame#readme>.
+The **Help** button (the question mark at the top) opens this project's readme: <https://github.com/simplysanatori/moonlight-xr-steam-frame#readme>. In Game Mode it opens in Steam's browser (`steam steam://openurl/...` on the Frame), which SteamVR shows in the dashboard; on a desktop it is your normal browser.
 
 If you used the Moonlight flatpak on the Frame before, its PC list and pairing are copied the first time the flat window starts. The flatpak's own files are not changed.
 
@@ -253,7 +253,7 @@ The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the d
 
 ### About
 
-The version, the log file, a link to support Moonlight XR on Ko-fi, and **Report a problem**. The report sheet has three buttons. **Save** keeps your note on the Frame in `~/Games/MoonlightXRNative/reports`. **Save and zip** does that and also runs `bug-report.sh` in the background, so the masked zip is made without leaving the headset. A notice shows where the zip is (`~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip`) and the log says so too. A note is not needed for the zip. Nothing leaves the headset: copy the zip off the Frame and open an issue on GitHub with it. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
+The version, the log file, a Ko-fi button to support Moonlight XR, and **Report a problem**. The Ko-fi button opens a sheet with the page's address and a QR code for anyone who takes the headset off. In the headset, press **Open page** and Steam's browser shows the page in the dashboard (the Frame runs `steam steam://openurl/https://ko-fi.com/moonlightxr`, or `xdg-open` when `steam` is not found). **Not now**, or a press anywhere off the buttons, closes the sheet and opens nothing. Ko-fi is optional: Moonlight XR is free and stays free. The report sheet has three buttons. **Save** keeps your note on the Frame in `~/Games/MoonlightXRNative/reports`. **Save and zip** does that and also runs `bug-report.sh` in the background, so the masked zip is made without leaving the headset. A notice shows where the zip is (`~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip`) and the log says so too. A note is not needed for the zip. Nothing leaves the headset: copy the zip off the Frame and open an issue on GitHub with it. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
 
 ### Stats styles, battery and the slow connection badge
 
