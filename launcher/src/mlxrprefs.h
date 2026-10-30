@@ -84,6 +84,9 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(int bitrateAdapter MEMBER bitrateAdapter NOTIFY changed)
     Q_PROPERTY(int bitrateWired MEMBER bitrateWired NOTIFY changed)
     Q_PROPERTY(int bitrateUsb MEMBER bitrateUsb NOTIFY changed)
+    // Native (lane wave1-burst): [stream] rfi_idr_ms, at most one full-frame (IDR) request of the headset's
+    // own per this many ms after lost video (0 no limit, default 500, 0..5000)
+    Q_PROPERTY(int rfiIdrMs MEMBER rfiIdrMs NOTIFY changed)
     // Native (lane wave2b-padmouse): physical gamepads in the headset. [vr] pad_mouse_chord: what turns a pad
     // into the PC's mouse, "start_hold" (default), "start_back" or "off"; [vr] pad_mouse_scroll: the stick that
     // scrolls then, "right" (default), "left" or "none"; [vr] pad_arbitration: what a used pad does to the
@@ -202,6 +205,7 @@ public:
     int doffDisconnect = 60;
     int idleDisconnect = 0;
     int bitrateWifi = 0, bitrateAdapter = 0, bitrateWired = 0, bitrateUsb = 0;
+    int rfiIdrMs = 500;
     QString padMouseChord;
     QString padMouseScroll;
     QString padArbitration;
@@ -224,6 +228,7 @@ private:
     QString m_iniControllerModel = "off";
     int m_iniDoff = 60, m_iniIdle = 0;
     int m_iniBitrateWifi = 0, m_iniBitrateAdapter = 0, m_iniBitrateWired = 0, m_iniBitrateUsb = 0;
+    int m_iniRfiIdr = 500;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
