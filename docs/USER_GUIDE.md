@@ -218,7 +218,7 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Click steadiness (Input) | Off, Normal, Steady | Normal | `[vr] click_steadiness` |
 | Click sound (Input) | on, off | on | `[vr] click_sound` |
 | Head aims the mouse, Head aim speed, Head aim dead zone (Input) | on, off; 1 to 30 px/°; 0 to 20 °/s | off, 8, 2 | `[vr] head_aim`, `head_aim_sensitivity`, `head_aim_deadzone` |
-| Look to point, Hand tracking (Input) | on, off | off, off. Not tested on the Steam Frame yet. | `[vr] gaze`, `hand_tracking` |
+| Look to point, Hand tracking (Input) | on, off | off, off. Look to point needs eye tracking from SteamVR; the Accessibility tab shows whether it reaches the app. | `[vr] gaze`, `hand_tracking` |
 | Environment (UI) | Automatic, Passthrough, Void, Home Theater, Grand Cinema, Synthwave | Automatic: the void, or the passthrough with Passthrough on | `[vr] environment` |
 | Passthrough (UI) | on, off | off | `[vr] passthrough` |
 | Room detail (UI) | Low, Standard, High, Ultra | Standard | `[vr] env_res` |
@@ -299,7 +299,7 @@ The bar is not drawn all the time. Its buttons and the move pill appear only whi
 - Point either controller just below the picture. The buttons appear, the one under the ray grows a little, and a press lands on it. The whole row counts as the bar, gaps and all, so the buttons stay up while the ray moves along it and the pointer stays with that controller even when the other one is pointing at the picture.
 - With **Ray** on Off (no beam and no dot), a faint beam shows only while the controller points into that strip, so the bar can still be found. Anywhere else nothing extra is drawn. With a menu open the faint beam and the dot show, so the menu can still be aimed at.
 - In gamepad mode the controllers are not pointers, so there is nothing to point at the bar with: switch back to pointer mode first (see [Switching between the modes](#switching-between-the-modes)).
-- Everything on the bar can also go on a controller button without the bar: `app:cog`, `app:keyboard`, `app:gamepad`, `app:host`, `app:3d`, `app:ray`, `app:recentre` and `app:bringhere` in `bindings.ini` ([Changing the buttons](#changing-the-buttons)).
+- Most of the bar can also go on a controller button without the bar: `app:cog`, `app:keyboard`, `app:gamepad`, `app:host`, `app:3d` and `app:ray` in `bindings.ini` ([Changing the buttons](#changing-the-buttons)). Exit, Environment, Head aim, the bar's Bring here switch and the move pill have no binding. Two more actions are not on the bar: `app:recentre` turns the screen round to where you face, and `app:bringhere` puts the screen where you look (the Screen tab's Bring here cell, not the bar's Desk switch).
 
 ### The first-run card
 
@@ -329,7 +329,7 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 
 **Reset** puts the screen back to the defaults.
 
-The presets and Bring here also work from a controller button: bind `app:bringhere` in `bindings.ini` (see [the binding notes](dev/bindings.md)).
+The Screen tab's Bring here also works from a controller button: bind `app:bringhere` in `bindings.ini` (see [Changing the buttons](#changing-the-buttons)). Desk, Couch and Cinema have no binding.
 
 ### Room
 
@@ -520,6 +520,12 @@ To turn back without turning the game, hold a **grip** (either one, as long as i
 
 `pointer_source = head` in `config.ini` (or **Pointer: Head** on the cog's [Accessibility](#accessibility) tab, or **What points** on the launcher's Settings page, under Accessibility) points with the middle of your view instead of a controller, for when holding a controller up is hard. A dot shows where you point (the beam would run out of your face, so there is none), smoothed so a still head holds it still; the PC's cursor follows it. Either controller's trigger clicks, on the picture and on the headset's own menus. With `head_dwell_ms` set (400 to 2000; 0, the default, is off), resting the dot on one spot for that long clicks it: a square ring closes in on the dot while it counts, and moving it more than about a degree starts the count again. After a click, move the dot away and back to click again. Dwell never clicks the move pill, the corners or the keyboard's bar (a press there would grab them), and never lands beside an open menu (a press there would close it). Gamepad mode is unchanged. `pointer_source = gaze` is the Accessibility tab's **Eyes**: the same, with the dot following your eyes while SteamVR gives eye tracking to apps, and your head while it does not.
 
+### Hand tracking
+
+`hand_tracking = true` in `config.ini` (or **Hand tracking** on the launcher's Settings page, under Input Settings; off by default) lets you point with your hands instead of the controllers. A hand's ray is the pointer, and a pinch of thumb and index finger is the trigger: a left click on the picture, a press on the bar and the menus.
+
+**The triple pinch** locks the hands out, so a stray pinch does not click: pinch three times quickly on one hand (the third within 0.9 seconds of the first). The headset shows "Hands locked"; locked hands have no ray and send no clicks. The same triple pinch unlocks them ("Hands unlocked"). The first two pinches are ordinary clicks, the third is never sent to the PC. Controllers are never locked. The first time a hand points in a session, a sheet explains this; **Don't show this again** keeps it away.
+
 ### Head tracking for PC games (opentrack)
 
 Games with head tracking (flight and racing simulators that take TrackIR or FreeTrack) can follow your real head through [opentrack](https://github.com/opentrack/opentrack) on the PC. With `opentrack = true` in `config.ini` (or **Head tracking to opentrack** on the launcher's Settings page, under Input Settings), the headset sends your head's position and turn to the PC every frame while a stream is running, as opentrack's "UDP over network" packet: x, y, z in centimetres, then yaw, pitch and roll in degrees. It goes to the PC you are streaming from unless `opentrack_host` names another address or name, on UDP port `opentrack_port` (4242, opentrack's own default). Sending never holds up a frame: a packet that cannot go out at once is dropped, and the next frame sends a newer one.
@@ -546,10 +552,13 @@ An action is `key:` (a key, with `ctrl+`, `shift+`, `alt+`, `win+` in front), `m
 
 ### Switching between the modes
 
-- Hold the **left View button and the left grip** together for half a second.
-- Or select the Gamepad/Pointer button on the bar, or the Controllers row in the Display tab.
+- Hold the **left View button and the left grip** together for half a second (the default shortcut).
+- Or, with the other two shortcuts, **click both thumbsticks**, or **squeeze both triggers and both grips**: press the second within 0.15 seconds of the first and hold them all for 0.3 seconds.
+- Or, in pointer mode, select the Gamepad / Pointer button on the bar, or the **Mode** row in the Display tab.
 
-The headset shows "Gamepad mode" or "Pointer mode". In gamepad mode the menus close. The shortcut can be changed in `config.ini` (`gamepad_toggle`, see [below](#advanced-configini)).
+Only the shortcut you chose works; the other two do nothing. Choose it with **Gamepad mode shortcut** on the flat window's Settings page (Gamepad Settings) or `gamepad_toggle` in `config.ini` (see [below](#advanced-configini)); the Display tab's Mode row shows the one in use. A shortcut works both ways and cannot be rebound in `bindings.ini`.
+
+The headset shows "Gamepad mode" or "Pointer mode". In gamepad mode the menus close.
 
 ## Moving and sizing the screen
 
@@ -559,7 +568,7 @@ The headset shows "Gamepad mode" or "Pointer mode". In gamepad mode the menus cl
 | Push it away or pull it closer | While holding the pill, push either thumbstick up (farther) or down (closer). A push on a slant counts, and most of the way to the rim is full speed: 1.5 m a second either way. 0.3 to 8 m. |
 | Resize | Grip a corner of the screen. In a room this sets the room's screen size. |
 | Curve | Screen tab, Curve. |
-| Recentre | Use SteamVR's recentre. The screen turns to your new forward direction and keeps its distance, size and curve. |
+| Recentre | Press d-pad up in pointer mode (`app:recentre`), or use SteamVR's recentre. The screen turns to where you face and keeps its distance, size and curve. |
 | Move the headset keyboard | Grip or trigger on the keyboard's bar. The thumbstick pushes and pulls it the same way. |
 | Move the stats window | Grip anywhere on it and drag. |
 | Reset | Screen tab, Reset. |
@@ -798,7 +807,7 @@ The clipboard sync at the start and end of a stream (Smart Clipboard Sync on the
 | The headset stays off | After `doff_disconnect` seconds (60 by default) the stream ends. The game keeps running on the PC. |
 | Nothing is touched for `idle_disconnect` minutes (off by default) | The stream ends. The game keeps running on the PC. |
 
-On the Frame controllers, Start is the right menu button, Select is the left View button, and L1 and R1 are the bumpers. Hold all four.
+On the Frame controllers, Start is the right menu button, Select is the left View button, and L1 and R1 are the bumpers. Hold all four. With **Grips in gamepad mode** on Bumpers (the default) the grips count as L1 and R1 too; with Nothing or Stick clicks only the bumpers do.
 
 ### When the connection drops
 
@@ -937,8 +946,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] depth_source` | `zipdepth`, `zipdepth-int8`, `midas` | `zipdepth` |
 | `[3d] stereo_source` | `depth`, `sbs`, `top-bottom` | `depth`. The 3D tab's 3D source row. See [SBS 3D](#sbs-3d). |
 | `[3d] sbs_full` | `true`, `false` | `false`. The PC's pair has a full-size picture per eye (3840x1080 side by side, 1920x2160 top-bottom). |
-| `[vr] hand_tracking` | `true`, `false` | `false`. Untested on the Frame. |
-| `[vr] gaze` | `true`, `false` | `false`. Untested on the Frame. |
+| `[vr] hand_tracking` | `true`, `false` | `false`. See [Hand tracking](#hand-tracking). |
+| `[vr] gaze` | `true`, `false` | `false`. Needs eye tracking from SteamVR; see [Accessibility](#accessibility). |
 | `[vr] pointer` | `true`, `false` | `true`. `false` turns the controllers' pointer off, so only the switch to gamepad mode is read. |
 | `[vr] env_res` | `low`, `standard`, `high`, `ultra` | `standard`. How sharp the rooms are drawn: `low` is half the headset's recommended size, `ultra` the largest the runtime allows. Read when a room is built, so it applies from the next stream. |
 | `[debug] depth_rate` | 5 to 45 | 20. The most depth maps made per second in 3D. Lower saves the CPU; the picture still follows the video. |
