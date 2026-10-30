@@ -890,7 +890,7 @@ if [ -n "$SHOTS" ]; then
     printf '[vr]\nhead_aim = true\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
         MLXR_LAUNCHER_CLICK=mouseModeRow,backAsGuideRow,headLookRow,opentrackRow \
-        "$L" >"$t/ui13b.out" 2>&1
+        MLXR_LAUNCHER_SCREENSHOT="$t/settings-mousemode.png@3000" "$L" >"$t/ui13b.out" 2>&1
     grep -q "no clickable" "$t/ui13b.out" && fail "mouse mode click hook: $(grep 'no clickable' "$t/ui13b.out")"
     grep -Eq "$QMLERR" "$t/ui13b.out" && { fail "mouse mode rows: QML errors"; grep -E "$QMLERR" "$t/ui13b.out" | head -3; } || ok "mouse mode and Back as Guide rows load (no QML errors)"
     grep -A8 '^\[vr\]' "$ini" | grep -q '^mouse_mode = relative$' && ok "mouse mode row steps to relative and writes [vr] mouse_mode" || { fail "mouse_mode not written"; cat "$ini"; }
