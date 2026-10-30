@@ -30,14 +30,18 @@ fi
 SUBREV="$(git -C "$SUB" rev-parse HEAD)"
 [ "$SUBREV" = "f786e94c7b2f943e24e65d7d74deb539b827fc84" ] || echo "note: $SUB is at $SUBREV, not v6.1.0; the patches may not apply"
 
+# the binding core the VR client reads bindings.ini with, compiled into the launcher (launcher/src/mlxrbindings.h)
+BINDCORE="xr/core/xr_bind.c xr/core/xr_bind.h xr/core/xr_gamepad.c xr/core/xr_gamepad.h xr/core/xr_shared.h"
+
 mkdir -p "$BUILD"
-STAMP="$(cat launcher/patches/*.patch launcher/src/* launcher/qml/* assets/branding/icon-256.png VERSION | sha256sum | cut -c1-16)-$SUBREV"
+STAMP="$(cat launcher/patches/*.patch launcher/src/* launcher/qml/* $BINDCORE assets/branding/icon-256.png VERSION | sha256sum | cut -c1-16)-$SUBREV"
 if [ "$(cat "$BUILD/.stamp" 2>/dev/null)" != "$STAMP" ]; then
     echo "== preparing $BUILD/src (moonlight-qt $SUBREV + launcher/src + patches)"
     rm -rf "$BUILD/src"
     mkdir -p "$BUILD/src"
     rsync -a --exclude='.git*' --exclude=/libs "$SUB/" "$BUILD/src/"
     cp launcher/src/* "$BUILD/src/app/streaming/"
+    cp $BINDCORE "$BUILD/src/app/streaming/"   # lane wave2-bind-editor: xr_bind.c is pure C, so there is no second parser
     cp launcher/qml/*.qml "$BUILD/src/app/gui/"   # new pages (lane artemis-settings: XrSettingsView.qml)
     cp assets/branding/icon-256.png "$BUILD/src/app/res/moonlight-xr.png"   # window icon (patch 0006)
     # the release version for the Settings page footer (patch 0005)
