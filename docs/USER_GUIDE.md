@@ -15,6 +15,7 @@ This guide covers version 1.0.1. For install, update and uninstall, see the [REA
 - [3D](#3d)
 - [Keyboards, mice and gamepads](#keyboards-mice-and-gamepads)
 - [Host: keys for the PC](#host-keys-for-the-pc)
+- [PC VR](#pc-vr)
 - [Ending a stream](#ending-a-stream)
 - [Recommended PC settings](#recommended-pc-settings)
 - [Troubleshooting](#troubleshooting)
@@ -97,6 +98,10 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 | Render Mode | Default 2D, AI SBS 3D | AI SBS 3D. This is the 3D switch; the headset can also change it. See [3D](#3d). |
 | 3D Effect Strength | 1 to 100 | The depth model's own value. Greyed in Default 2D. |
 | 3D Convergence | 0 to 100 | 50. Greyed in Default 2D. |
+| 3D Edge Sharpness | 0, 25, 50, 75, 100 (press to step) | 0. See [3D](#3d). Greyed in Default 2D. |
+| 3D Motion Reset | Off, 5, 10, 20, 30 % (press to step) | Off. See [3D](#3d). Greyed in Default 2D. |
+| 3D Depth Detail | 50 to 200 % (press to step) | 100 %. See [3D](#3d). Greyed in Default 2D. |
+| 3D Depth Shape | 50 to 200 % (press to step) | 100 %. See [3D](#3d). Greyed in Default 2D. |
 | Enable HDR (Experimental) | greyed | The Frame's video path is 8-bit SDR. |
 
 ### Audio, gamepad, input, host, general, UI
@@ -114,6 +119,10 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 | Smart Clipboard Sync (Experimental) | on, off | off. Needs Apollo. |
 | Quick Resume | on, off | off. Selecting a running app resumes it at once. |
 | Enable Full Screen | on, off | Takes effect at the next start. |
+
+### PC VR
+
+Four rows for the Host sheet's PC VR button: the check, the PC, the game and the game's Steam app id. They are described under [PC VR](#pc-vr).
 
 ### Performance Monitor and Advanced Settings
 
@@ -340,6 +349,21 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 - 3D is on by default and remembered.
 - The default model is ZipDepth. `depth_source` in `config.ini` chooses `zipdepth`, `zipdepth-int8` (lighter on the CPU) or `midas`.
 
+### Edges
+
+Each eye sees a little more of what is behind a person or an object on one side: the left eye on the left, the right eye on the right. Earlier versions filled that sliver by stretching the person's own edge across it, which showed as a fuzzy, furry outline in one eye only, most of all on hair or a dark outline against a bright sky or page. That gap is now filled from the background beside it, so the edge is as sharp in both eyes. This is on by default; `MLXR_HOLE_FILL=0` brings back the old look.
+
+These four are on the flat window's Settings page and in `config.ini` (`[3d]`). They are not on the headset's 3D tab yet.
+
+| Setting | Key | Values | What it does |
+| --- | --- | --- | --- |
+| Edge Sharpness | `edge_sharpness` | 0 to 100 | 0. How closely the depth keeps to the edges in the picture. 0 is the soft edges the 3D always had. Higher keeps hair, outlines and thin text on their own depth instead of blending them into what is behind; too high can make edges look cut out or blocky on text. |
+| Motion Reset | `motion_reset` | 0 to 50 (%) | 0, off. The depth is smoothed over time so it does not flicker, which leaves a short trail of the old depth behind something moving fast. With this set, where the picture changes by more than this percentage between two depth maps the smoothing starts again there, so fast edges leave no trail. About 10 suits fast games; too low brings back flicker. |
+| Depth Detail | `depth_scale` | 0 to 200 (%) | 100. Moonlight XR's depth scale. The depth between things near each other, such as a face in front of a wall, scaled without moving the picture as a whole further in or out. |
+| Depth Shape | `depth_global` | 0 to 200 (%) | 100. The depth of the picture as a whole, from the near ground to the far sky, scaled toward the screen plane. Lower is easier on the eyes; Depth Detail keeps things standing apart. |
+
+At their defaults all four leave the picture as before.
+
 ## Controllers
 
 The cog's **Display** tab has the controller rows together: **Mode**, **Show controllers**, **Ray**, **Pointer sleep**, **Click steadiness** and **Click sound**.
@@ -418,6 +442,8 @@ The **Host** sheet is a grid of keys to send to the PC, for the ones a headset k
 
 After those come your own macros, up to eight.
 
+In the header, left of **Close**, is **PC VR**: it hands the headset to Valve's Steam Link, see [PC VR](#pc-vr).
+
 ### Macros
 
 Macros live in `macros.ini` next to `config.ini` (`~/.config/moonlight-xr/macros.ini`, or `$MLXR_CONFIG_DIR/macros.ini`). The Host sheet reads it each time it opens, so you can edit it and open the sheet again without restarting. A line is `name = steps`. The steps are separated by spaces or commas:
@@ -441,6 +467,29 @@ Lock PC = !win+l
 ```
 
 A line that is not right is left out, the rest still work, and `moonlight.log` names the first one and why. Up to 16 macros of 32 steps each; the sheet shows the first eight.
+
+## PC VR
+
+The **PC VR** button on the Host sheet ends this stream and has the headset's Steam stream a VR game from your PC. **This is Valve's Steam Link, not Moonlight.** The picture, the head and controller tracking, the eye-tracked foveation and the audio all come from Valve's own streaming; Moonlight XR for Frame only gets out of the way. Moonlight and Apollo cannot carry a headset's position to the PC, so there is no PC VR inside this client, and none is planned.
+
+What you need: the headset and the PC signed in to the same Steam account, the headset paired with the PC in Steam (Valve's setup: plug the Steam Frame Wireless Adapter into the PC, start SteamVR on it, pair), and the VR game installed on the PC. This works only when the stream was started from the flat Moonlight XR window (the Steam shortcut). Started straight from the headset's own PC list it says so and carries on.
+
+**What happens.** You press **PC VR** and confirm (**Switch** or **Cancel**). The Moonlight stream stops, but your session on the PC keeps running, as with **Disconnect**. The flat window then asks Steam, through Steam's local debugging port, to stream the game you chose on the Settings page. If you chose none, it opens Steam's library instead and you press **Stream from your PC** on a game yourself. When Valve's stream ends, the flat window comes back as after any other stream.
+
+**Choosing the game.** On the flat window's Settings page, under **PC VR**:
+
+| Row | What it does |
+| --- | --- |
+| Switch to PC VR | Press it to check Steam and list the PCs you paired with and their games. It also shows what is wrong when something is: Steam's debugging port not answering, the call missing on this version of Steam. |
+| PC to stream from | One of the listed PCs. The default is the only paired PC. |
+| PC VR game | One of the listed games (VR ones are marked), or none: Steam's library opens. |
+| PC VR game: Steam app id | The same choice typed by hand, for when Steam does not list the PC's games. The id is the number in the game's store page address. |
+
+**Limits, honestly.**
+- It needs Steam's debugging port (port 8080 on the headset), the same one the flat window's return from a stream uses. SteamOS updates can move or close it. The launcher checks it when it starts in Game Mode and logs `Steam CEF preflight: ...` in `moonlight-launcher.log`; the Settings page shows the same sentence. If it fails, the hand-off cannot work; `python3 -I steam_cef.py --probe` in a terminal on the headset says why, and `STEAM_CEF_PORT=<port>` points it elsewhere.
+- The calls it makes (`SteamClient.Apps.StreamGame` and the Remote Play device list) are Steam's own client functions that Valve does not document. Their exact form on the Frame's Steam can change with an update. If Steam refuses, nothing is harmed: the stream has already stopped, the flat window is still there, and the log has the reason.
+- Whether Steam starts the stream while this app's shortcut is still the running game is not yet confirmed on the headset. If it does not, quit this app from the Steam library and use Valve's own **Stream from your PC** on the game.
+- For developers: after a SteamOS or SteamVR update, `python3 tools/probe/doctor.py` in the source tree (in a terminal on the headset, with the client closed, `mlxr-hello` built) compares what the headset's OpenXR runtime offers with the last known good probe and prints what changed, and checks Steam's debugging port. `--save` keeps the current probe as the new baseline.
 
 ## Ending a stream
 
@@ -492,6 +541,7 @@ This uses the headset sensor through `XR_EXT_user_presence`. `moonlight.log` has
 | The USB cable is never used | `moonlight.log` has a line `network path: USB cable: ...`. `usb0 up, carrier on, 3 peer candidates` means the headset sees the cable and tried three addresses on it: if none answered, check on the PC that the new network adapter is up, set to Private, and that Apollo or Sunshine is allowed through the firewall. `usb0 down (no cable, or the PC end is not up)` means no PC is on the other end: try another cable (it must carry data) or another USB port. No `USB cable` line at all means the headset is not in developer mode, so it has no USB network. In a terminal on the headset, `mlxr-cli probe-paths --network usb` prints the same check and the result for each address, and starts no stream. |
 | The adapter is never used | `moonlight.log` has a line `network path: Steam Frame Wireless Adapter: ...`. `present (...)` means the PC is connected to the headset's adapter network. `no adapter found (wlanap up, no station)` means the headset's adapter network is on but no PC has joined it: plug the Steam Frame Wireless Adapter into the PC and wait for it to connect. `no adapter found (wlanap down)` or `(wlanap missing)` means the headset's adapter network is off. In a terminal, `mlxr-cli adapter` prints the same check and does not start a stream. |
 | Cannot reach the PC | `moonlight.log` has `host ... not reachable at ...` for each address tried. Check the PC is on and Sunshine or Apollo is running. |
+| PC VR does nothing, or Steam's library opens instead of the game | The Settings page's first PC VR row shows the reason. `moonlight-launcher.log` has `Steam CEF preflight:` at start (Game Mode) and `Asked Steam for PC VR:` after the button. `python3 -I steam_cef.py --probe` prints whether Steam's debugging port answers and whether the calls are there; `--devices` lists the paired PCs; `--apps --client <id>` lists their games. The library opens when no game is chosen. |
 | The flat window does not come back after a stream | Open the app again from the Steam library. `moonlight-launcher.log` shows `Asked Steam to show the flat screen again` and the `flat window` lines (what the window did after the stream). |
 | Grey icon in the SteamVR dock | Restart Steam once after the first install. |
 | 3D tab greyed | The tab says why. If the depth model did not load, the log has the error. |
@@ -527,6 +577,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | `[vr] pointer` | `true`, `false` | `true`. `false` turns the controllers' pointer off, so only the switch to gamepad mode is read. |
 | `[vr] env_res` | `low`, `standard`, `high`, `ultra` | `standard`. How sharp the rooms are drawn: `low` is half the headset's recommended size, `ultra` the largest the runtime allows. Read when a room is built, so it applies from the next stream. |
 | `[debug] depth_rate` | 5 to 45 | 20. The most depth maps made per second in 3D. Lower saves the CPU; the picture still follows the video. |
+| `[debug] depth_threads` | 1 to 4 | 2. CPU threads the depth model runs on. 3 makes each depth map a few milliseconds sooner (up to about 10) and uses another core. `MLXR_DEPTH_THREADS` overrides it. Read when the model starts. |
+| `[3d] edge_sharpness`, `motion_reset`, `depth_scale`, `depth_global` | see [3D](#edges) | 0, 0, 100, 100 |
 | `[debug] depth_debug` | `true`, `false` | `false`. Shows the depth map in place of the picture. |
 | `[debug] eye_swap` | `true`, `false` | `false`. Swaps the left and right eye in 3D. For checking a wrong-way picture. |
 | `[stream] bitrate_kbps` | 0, or 500 to 500000 | 0, which follows the resolution and refresh rate. A bitrate the flat window passes for a stream overrides it. The flat window's Custom bitrate goes up to 500 Mbps, and so does this. |
@@ -564,7 +616,8 @@ These are for testing and debugging. Most users never need them. Put them in fro
 | `MLXR_CLICK_HOLD_PX` | 0 | Hold the cursor still from the trigger touch until the aim moves this many pixels. |
 
 The four click variables above override the Click steadiness row for their own part when they are set.
-| `MLXR_DEPTH_THREADS` | 2 | Threads for the depth model. |
+| `MLXR_DEPTH_THREADS` | 2 | Threads for the depth model. Overrides `[debug] depth_threads`. |
+| `MLXR_HOLE_FILL` | 1 | 0 fills the gaps beside edges in 3D by stretching the edge, as earlier versions did (the fuzzy outline in one eye). |
 | `MLXR_FRAME_MODEL_GAIN` | 1 | Brightens the Steam Frame controller models (set at install). |
 | `MLXR_CONFIG_DIR` | `~/.config/moonlight-xr` | Where settings and pairing live. |
 | `MLXR_LOG_DIR` | `~/Games/MoonlightXRNative` | Where the logs go. |

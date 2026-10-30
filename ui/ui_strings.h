@@ -114,6 +114,9 @@
     X(HOST_CONFIRM_Q, "native_host_confirm_q", "Send %s to the PC?") \
     X(HOST_CONFIRM_SEND, "native_host_confirm_send", "Send") \
     X(HOST_NO_MACROS, "native_host_no_macros", "Your own buttons go in macros.ini") \
+    X(HOST_PCVR, "native_host_pcvr", "PC VR") \
+    X(HOST_PCVR_Q, "native_host_pcvr_q", "Switch to PC VR? This stream ends and Steam Link takes over.") \
+    X(HOST_PCVR_GO, "native_host_pcvr_go", "Switch") \
     X(HOST_HINT_ESC, "native_host_hint_esc", "Escape") \
     X(HOST_HINT_WIN, "native_host_hint_win", "Start menu") \
     X(HOST_HINT_DESKTOP, "native_host_hint_desktop", "Show desktop") \
@@ -202,7 +205,9 @@
     X(NATIVE_SPLASH_CONNECTING_NOPC, "native_splash_connecting_nopc", "Connecting…") \
     X(NATIVE_SPLASH_RECONNECTING, "native_splash_reconnecting", "Reconnecting…") \
     X(NATIVE_DISCONNECTED_DOFF, "native_disconnected_doff", "Disconnected while the headset was off: the app is still running on the PC") \
-    X(NATIVE_DISCONNECTED_IDLE, "native_disconnected_idle", "Disconnected after no input for a while: the app is still running on the PC")
+    X(NATIVE_DISCONNECTED_IDLE, "native_disconnected_idle", "Disconnected after no input for a while: the app is still running on the PC") \
+    X(NATIVE_PCVR, "native_pcvr", "Switching to PC VR: the app is still running on the PC") \
+    X(NATIVE_PCVR_NEEDS_LAUNCHER, "native_pcvr_needs_launcher", "PC VR needs the Moonlight XR launcher: start the stream from it")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

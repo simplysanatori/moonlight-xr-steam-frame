@@ -45,6 +45,9 @@ typedef struct MlxrDepthParams {
     float global;         // depthGlobal, 1.0
     float local;          // depthLocal, the depth scale preference / 100
     float convergence;    // convergence preference / 100
+    // Native (lane wave5-depth, PLAN 5.4): the guide luma change (0..1) at a
+    // texel that starts its average again there (depthMotionReset); 0 off
+    float motion;
 } MlxrDepthParams;
 
 void mlxr_depth_params_default(MlxrDepthParams* p);
@@ -156,6 +159,10 @@ void mlxr_depth_norm_free(MlxrDepthNorm* n);
 void mlxr_depth_norm_run(MlxrDepthNorm* n, const MlxrDepthParams* p, const float* raw,
                          const float* guide, int resets, int64_t nowNs, uint8_t* outRgba,
                          float* outDepth);
+// For tests: the per texel average after the last run (w*h, the model's
+// units), and how many of its texels the motion reset started again then
+const float* mlxr_depth_norm_average(const MlxrDepthNorm* n);
+int mlxr_depth_norm_motion_resets(const MlxrDepthNorm* n);
 
 #ifdef __cplusplus
 }
