@@ -14,6 +14,8 @@ Thanks as well to the Sunshine and Apollo projects, Khronos, the LiteRT/TensorFl
 
 Every third-party component and asset is listed below. The same table is in `assets/licenses/README.md`; the licence texts it names are in the repository and in the installed `assets/` directory.
 
+The gun model: This work is based on "G17 Gen 5 Handgun + Olight - NSW Police Force" (https://sketchfab.com/3d-models/g17-gen-5-handgun-olight-nsw-police-force-0200c248eba14385ad2bee8d4dc4e586) by 8sianDude (https://sketchfab.com/haoliu95) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/). Changed by this project (`tools/xr/make_gun.py`): the two spare magazines and the cartridges inside the inserted one left out; turned, scaled to a real G17's size and placed at the controller's aim pose; the textures baked into 16 flat colours (the light's lens made pale); the trigger made a separate moving part; converted to the MXFM model format; mirrored for the left hand. Its triangles are otherwise as made (29,150 of 73,200 kept, none simplified).
+
 | Component | Used for | Licence | Source | Licence text |
 | --- | --- | --- | --- | --- |
 | **Code that was ported or followed** | | | | |
@@ -59,6 +61,7 @@ Every third-party component and asset is listed below. The same table is in `ass
 | **Art and fonts** | | | | |
 | Home Theater, Grand Cinema and Synthwave environments (`.room`, `.atlas`, `thumbs/`), Sean Gilleece / Woodford XR | Viewing rooms | CC BY 4.0 | https://github.com/Gilleece/moonlight-android-xr | `assets/licenses/CC-BY-4.0.txt` |
 | Controller model (`assets/models/controller.room`), Sean Gilleece / Woodford XR | Controller drawn in the headset | CC BY 4.0 | https://github.com/Gilleece/moonlight-android-xr | `assets/licenses/CC-BY-4.0.txt` |
+| Gun model (`assets/models/gun_right.model`, `gun_left.model`): "G17 Gen 5 Handgun + Olight - NSW Police Force" by 8sianDude (Sketchfab: haoliu95), changed (see above) | The Gun kind of Show controllers | CC BY 4.0 | https://sketchfab.com/3d-models/g17-gen-5-handgun-olight-nsw-police-force-0200c248eba14385ad2bee8d4dc4e586 | `assets/licenses/CC-BY-4.0.txt` |
 | `assets/branding/`: Moonlight XR logo (`moonlight-xr-logo-transparent.png`), Sean Gilleece; the icon and the Steam images are made from it by `tools/branding/make-art.py` | App and window icon, Steam shortcut icon and library images | GPLv3 | https://github.com/Gilleece/moonlight-android-xr | `LICENSE.txt` |
 | Noto Sans 2.013 (Regular, Medium), The Noto Project Authors | All interface text | SIL OFL 1.1 | https://github.com/notofonts/latin-greek-cyrillic | `assets/fonts/OFL.txt` |
 | Noto Sans CJK, Adobe and Google (not shipped: read from the system's `/usr/share/fonts` when there) | Chinese, Japanese and Korean interface text | SIL OFL 1.1 | https://github.com/notofonts/noto-cjk | the system's copy |
