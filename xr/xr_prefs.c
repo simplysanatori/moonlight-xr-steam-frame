@@ -159,6 +159,9 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     ctx->gazeSupportFlag = -1;
     ctx->assistDotSize = ACCESS_DOT_DEFAULT;   // native (lane a11y-2)
     ctx->cogPointV = -1.0f;
+    auxDevInit(&ctx->auxDev);
+    auxClickReset(&ctx->auxGest);
+    assistPlayReset(&ctx->assistPlay);
     gazeFallReset(&ctx->gazeFall);
     ctx->padDeadzone = PAD_STICK_DEADZONE_DEFAULT;
     ctx->padShortcut = PAD_SHORTCUT_MENU_GRIP;
@@ -395,6 +398,8 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetOpentrack(ctx, s->opentrack, s->opentrack_host, s->opentrack_port); // PLAN 4.5
     xrSetPointerSource(ctx, s->pointer_source, s->head_dwell_ms);              // PLAN 6.5
     ctx->assistDotSize = accessDotClamp(s->assist_dot_size);                   // native (lane a11y-2)
+    ctx->assistHeadsetButton = s->assist_headset_button != 0;
+    snprintf(ctx->assistClickPath, sizeof(ctx->assistClickPath), "%s", s->assist_click_path);
     xrSetMouseMode(ctx, s->mouse_mode);           // native (lane headinput-finish, PLAN 4b.10)
     xrPadBridgeSetBackAsGuide(s->back_as_guide);  // native (lane headinput-finish, PLAN 4b.10)
     xrSetScrollSpeed(ctx, s->scroll_speed);
@@ -585,6 +590,7 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
         break;
     case SETTING_HEAD_DWELL: s->head_dwell_ms = dwellMsClamp(value); break;
     case SETTING_ASSIST_DOT_SIZE: s->assist_dot_size = accessDotClamp(value); break;   // native (lane a11y-2)
+    case SETTING_ASSIST_HEADSET_BUTTON: s->assist_headset_button = value != 0; break;
     case SETTING_PICTURE_BRIGHTNESS: s->picture_brightness = value; break;
     case SETTING_PICTURE_CONTRAST: s->picture_contrast = value; break;
     case SETTING_PICTURE_GAMMA: s->picture_gamma = value; break;

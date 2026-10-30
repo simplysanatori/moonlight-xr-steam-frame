@@ -55,6 +55,8 @@
 #include "xr_opentrack.h"
 #include "xr_dwell.h"
 #include "xr_access.h"
+#include "xr_assistclick.h"
+#include "auxbutton.h"
 #include "xr_clickhold.h"
 #include "xr_pressfix.h"
 #include "xr_gamepad.h"
@@ -1004,6 +1006,29 @@ typedef struct XrCtx {
     // Accessibility tab's footer (which row it describes)
     int assistDotSize;
     float cogPointV;
+    // Native (lane a11y-2): clicks that are not a controller's trigger, for the head and eye pointer.
+    // The headset's side button: whether it is on
+    // (assist_headset_button), its device (auxDev, found as auxInfo, ACCESS_BUTTON_* in auxState),
+    // when it is back with SteamVR after the 3 s hold (auxEscapeUntilNs), the log said once. An
+    // OpenXR button that does the same (assist_click_path): its action, bound or not, last state.
+    // auxGest turns either into actions, assistPlay plays them as mouse buttons: assistButtons and
+    // assistPress are this frame's (xrAssistFrame), assistUi whether they go to our menus.
+    int assistHeadsetButton;
+    AuxDev auxDev;
+    AuxDevInfo auxInfo;
+    int auxState;
+    int auxWarned;
+    int64_t auxLookNs;
+    int64_t auxEscapeUntilNs;
+    char assistClickPath[160];
+    XrAction assistClickAction;
+    int assistClickBound;
+    int assistClickLast;
+    AuxClick auxGest;
+    AssistPlay assistPlay;
+    int assistButtons;
+    int assistPress;
+    int assistUi;
     long inputFrames;
     // Gamepad mode (M3: the pad's state is worked out as upstream does, but
     // nothing sends it to the host yet)

@@ -700,6 +700,7 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->pad = ctx->padLive;   // Native (lane wave3-cards): the pad card, and the first-run card's wording
     v->access_eyes = xrAccessEyes(ctx);   // Native (lane a11y-tab): the Accessibility tab's eye line
     v->access_row = xrAccessHoverRow(ctx);   // Native (lane a11y-2): and the row its footer describes
+    v->access_button = ctx->auxState;
 }
 
 // What the ray is on in the settings panel, as lane U's hover
@@ -738,6 +739,7 @@ typedef struct {
     unsigned later;
     int accessEyes;
     int accessRow;
+    int accessButton;
 } CogKey;
 _Static_assert(sizeof(CogKey) <= KEY_MAX, "the cog's key is compared whole");
 
@@ -760,6 +762,7 @@ static void updateCog(XrCtx* ctx, XrPanels* p, const UiView* base) {
     k.later = v.display_later;
     k.accessEyes = v.access_eyes;
     k.accessRow = v.access_row;
+    k.accessButton = v.access_button;
     if (!keyChanged(p, UI_PANEL_COG, &k, sizeof(k))) {
         return;
     }

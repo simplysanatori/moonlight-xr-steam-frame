@@ -773,6 +773,8 @@ void MlxrPrefs::loadHeadInput(const QString& ini)
     const int dot = iniValue(ini, "vr", "assist_dot_size", "100").trimmed().toInt(&dotOk);
     assistDotSize = dotOk ? qBound(50, dot, 300) : 100;
     m_iniAssistDotSize = assistDotSize;
+    assistHeadsetButton = iniBool(iniValue(ini, "vr", "assist_headset_button", "false"));
+    m_iniAssistHeadsetButton = assistHeadsetButton;
 }
 
 void MlxrPrefs::saveHeadInput(const QString& ini)
@@ -817,6 +819,10 @@ void MlxrPrefs::saveHeadInput(const QString& ini)
         setIniValue(ini, "vr", "assist_dot_size", QString::number(qBound(50, assistDotSize, 300)));
     }
     m_iniAssistDotSize = assistDotSize;
+    if (assistHeadsetButton != m_iniAssistHeadsetButton) {
+        setIniValue(ini, "vr", "assist_headset_button", assistHeadsetButton ? "true" : "false");
+    }
+    m_iniAssistHeadsetButton = assistHeadsetButton;
 }
 
 int MlxrPrefs::headsetMaxFps() const

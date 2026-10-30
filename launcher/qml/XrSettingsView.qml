@@ -1816,6 +1816,16 @@ Flickable {
             onMoved: function(v) { MlxrPrefs.assistDotSize = Math.round(v) }
         }
 
+        // Lane a11y-2: off by default, since it takes a system button from SteamVR while it is on
+        PrefSwitch {
+            objectName: "assistHeadsetButtonRow"
+            title: qsTr("Headset button clicks")
+            tip: qsTr("The headset's side button clicks instead of opening the Steam home. Hold it 3 seconds to get the Steam home back.")
+            summary: qsTr("With the Head or Eyes pointer: press once to click, twice to double click, three times to right click, hold to drag. Holding it 3 seconds gives it back to SteamVR for 15 seconds. The app needs read access to the button's input device; the headset's Accessibility tab says when it does not have it.")
+            isOn: MlxrPrefs.assistHeadsetButton
+            onSwitched: function(on) { MlxrPrefs.assistHeadsetButton = on }
+        }
+
         // ======== Host Settings ========
         PrefCategory { text: qsTr("Host Settings"); icon: "host" }
 

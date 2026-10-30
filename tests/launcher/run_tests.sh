@@ -954,10 +954,10 @@ if [ -n "$SHOTS" ]; then
         MLXR_LAUNCHER_INVOKE='saveAll;setSearch:first-person;setSearch:accessibility' \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-accessibility.png@3000" "$L" >"$t/acc0.out" 2>&1
     uiout "$t/acc0.out" "accessibility section"
-    grep -Eq '^(pointer_source|head_dwell_ms|assist_dot_size) *=' "$ini" && { fail "opening the page wrote an accessibility key"; cat "$ini"; } || ok "the page opened and saved writes no accessibility key"
+    grep -Eq '^(pointer_source|head_dwell_ms|assist_dot_size|assist_headset_button) *=' "$ini" && { fail "opening the page wrote an accessibility key"; cat "$ini"; } || ok "the page opened and saved writes no accessibility key"
     s="$(grep 'MLXR_SETTINGS_SEARCH: text="accessibility"' "$t/acc0.out")"
     expect "search: the Accessibility section is found" "$s" "sections=Accessibility"
-    expect "search: with its rows" "$s" "titles=Pointer|Dwell click|Dot size sections=Accessibility"
+    expect "search: with its rows" "$s" "titles=Pointer|Dwell click|Dot size|Headset button clicks sections=Accessibility"
     # lane a11y-2: head-look is under Input with a name that says what it does, Back as Guide under Gamepad
     s="$(grep 'MLXR_SETTINGS_SEARCH: text="first-person"' "$t/acc0.out")"
     expect "search: head-look is found under Input" "$s" "titles=Head turns the game's camera (first-person games) sections=Input Settings"
@@ -979,15 +979,27 @@ if [ -n "$SHOTS" ]; then
     # moved, and each Accessibility row has its tip, shown on a gamepad's or a keyboard's focus
     printf '[vr]\nhead_aim = true\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
-        MLXR_LAUNCHER_INVOKE='showTip:pointerSourceRow;showTip:headDwellRow;showTip:assistDotSizeRow;setPref:assistDotSize|175;saveAll' \
+        MLXR_LAUNCHER_INVOKE='showTip:pointerSourceRow;showTip:headDwellRow;showTip:assistDotSizeRow;showTip:assistHeadsetButtonRow;setPref:assistDotSize|175;saveAll' \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-accessibility-tip.png@3000" "$L" >"$t/acc2.out" 2>&1
     uiout "$t/acc2.out" "accessibility tips"
     grep -A8 '^\[vr\]' "$ini" | grep -q '^assist_dot_size = 175$' && ok "Dot size writes [vr] assist_dot_size = 175" || { fail "assist_dot_size not written"; cat "$ini"; }
-    grep -Eq '^(pointer_source|head_dwell_ms) *=' "$ini" && { fail "the dot size wrote another accessibility key"; cat "$ini"; } || ok "the dot size writes only its key"
+    grep -Eq '^(pointer_source|head_dwell_ms|assist_headset_button) *=' "$ini" && { fail "the dot size wrote another accessibility key"; cat "$ini"; } || ok "the dot size writes only its key"
+    # the headset button writes its key when pressed
+    printf '[vr]\nhead_aim = true\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=assistHeadsetButtonRow MLXR_LAUNCHER_SCREENSHOT="$t/acc3.png@3000" "$L" >"$t/acc3.out" 2>&1
+    uiout "$t/acc3.out" "headset button row"
+    grep -q "no clickable" "$t/acc3.out" && fail "accessibility click hook: $(grep 'no clickable' "$t/acc3.out")"
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^assist_headset_button = true$' && ok "Headset button clicks writes [vr] assist_headset_button = true" || { fail "assist_headset_button not written"; cat "$ini"; }
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads assist_headset_button" "$dump" "vr.assist_headset_button = true"
+    fi
     tips="$(grep 'MLXR_SETTINGS_TIP:' "$t/acc2.out")"
     expect "tip: Pointer" "$tips" 'pointerSourceRow visible=true text="What moves the pointer: a controller, your head, or where you look."'
     expect "tip: Dwell click" "$tips" 'headDwellRow visible=true text="Rest the dot this long on something to click it."'
     expect "tip: Dot size" "$tips" 'assistDotSizeRow visible=true text="How big the dot is when you point with your head or eyes."'
+    expect "tip: Headset button" "$tips" "assistHeadsetButtonRow visible=true text=\"The headset's side button clicks instead of opening the Steam home. Hold it 3 seconds to get the Steam home back.\""
     grep -q 'MLXR_LAUNCHER_CLICK\|showTip: no row' "$t/acc2.out" && fail "a tip row is missing: $(grep 'showTip: no row' "$t/acc2.out")"
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"

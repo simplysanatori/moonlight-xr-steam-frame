@@ -280,7 +280,14 @@
     X(ACCESS_DESC_DWELL, "native_access_desc_dwell", "Rest the dot this long on something to click it.") \
     X(ACCESS_DESC_DOT, "native_access_desc_dot", "How big the dot is when you point with your head or eyes.") \
     X(ACCESS_DESC_NONE, "native_access_desc_none", "Point at a setting to see what it does.") \
-    X(EYES_NO_ACTION, "native_eyes_no_action", "Eye tracking: offered, but the app could not set it up")
+    X(EYES_NO_ACTION, "native_eyes_no_action", "Eye tracking: offered, but the app could not set it up") \
+    /* native (lane a11y-2): the headset button */ \
+    X(ROW_HEADSET_BUTTON, "native_row_headset_button", "Headset button clicks") \
+    X(ACCESS_DESC_BUTTON, "native_access_desc_button", "The headset's side button clicks instead of opening the Steam home. Hold it 3 seconds to get the Steam home back.") \
+    X(BUTTON_MISSING, "native_button_missing", "no headset button found") \
+    X(BUTTON_UNREADABLE, "native_button_unreadable", "cannot read the button: see the guide") \
+    X(ACCESS_DESC_BUTTON_UNREADABLE, "native_access_desc_button_unreadable", "This app may not read the headset button's device; the user guide says how to allow it.") \
+    X(AUX_RETURNED, "native_aux_returned", "Headset button returned to SteamVR for 15 s")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

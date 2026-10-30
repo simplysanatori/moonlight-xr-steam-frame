@@ -100,6 +100,12 @@ static int access_drawn(const UiView* v, const char* text) {
     for (int i = 0; i < access_ntexts; i++) {
         if (strcmp(access_texts[i], text) == 0) return 1;
     }
+    // a sentence wrapped onto two lines: the lines one after the other, joined where they broke
+    for (int i = 0; i + 1 < access_ntexts; i++) {
+        char two[330];
+        snprintf(two, sizeof two, "%s %s", access_texts[i], access_texts[i + 1]);
+        if (strcmp(two, text) == 0) return 1;
+    }
     return 0;
 }
 
@@ -119,7 +125,8 @@ static void test_access_tab(void) {
     ui_view_init(&v, &s);
     v.cog_tab = COG_TAB_ACCESS;
     v.access_eyes = ACCESS_EYES_WAITING;
-    static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL, UIS_ACCESS_DESC_DOT };
+    static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL, UIS_ACCESS_DESC_DOT,
+                                                      UIS_ACCESS_DESC_BUTTON };
     // nothing pointed at: the hint, and no row's sentence
     CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_NONE)));
     for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) CHECK(!access_drawn(&v, ui_str(DESC[row])));
@@ -165,6 +172,18 @@ static void test_access_tab(void) {
     CHECK(run != NULL && !run->enabled);
     v.access_row = COG_ACCESS_ROW_DOT;
     CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_DOT)));
+    // the headset button: greyed with the device's reason, whatever points; the footer says what to do
+    s.pointer_source = POINTER_SOURCE_HEAD;
+    v.access_row = COG_ACCESS_ROW_BUTTON;
+    v.access_button = ACCESS_BUTTON_OK;
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_BUTTON)));
+    CHECK(access_hit(UI_HIT_CELL, COG_ACCESS_ROW_BUTTON, 1)->enabled);
+    v.access_button = ACCESS_BUTTON_UNREADABLE;
+    CHECK(access_drawn(&v, ui_str(UIS_BUTTON_UNREADABLE)));
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_BUTTON_UNREADABLE)));
+    CHECK(!access_hit(UI_HIT_CELL, COG_ACCESS_ROW_BUTTON, 1)->enabled);
+    v.access_button = ACCESS_BUTTON_MISSING;
+    CHECK(access_drawn(&v, ui_str(UIS_BUTTON_MISSING)));
 }
 
 // Every pixel of a panel is within its buffer at every scale, and the output is sane
