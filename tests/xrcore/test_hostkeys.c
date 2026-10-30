@@ -84,6 +84,20 @@ static void testZones(void) {
     xrHostCloseRect(r);
     CHECK(xrHostZoneAt((r[0] + r[2]) * 0.5f, (r[1] + r[3]) * 0.5f, 0, 0) == XR_HOST_ZONE_CLOSE);
     CHECK(xrHostZoneAt((r[0] + r[2]) * 0.5f, (r[1] + r[3]) * 0.5f, 0, 1) == XR_HOST_ZONE_NONE);
+    // Native (PLAN 4.1): PC VR is a zone left of Close, over no cell, and out of reach while asking
+    float pc[4], cl[4];
+    xrHostPcvrRect(pc);
+    xrHostCloseRect(cl);
+    CHECK(pc[2] <= cl[0] && pc[0] >= 0.0f && pc[1] >= 0.0f && pc[3] <= 1.0f);
+    for (int i = 0; i < XR_HOST_CELLS; i++) {
+        float cr[4];
+        xrHostCellRect(i, cr);
+        CHECK(pc[2] <= cr[0] || cr[2] <= pc[0] || pc[3] <= cr[1] || cr[3] <= pc[1]);
+    }
+    CHECK(xrHostZoneAt((pc[0] + pc[2]) * 0.5f, (pc[1] + pc[3]) * 0.5f, 0, 0) == XR_HOST_ZONE_PCVR);
+    CHECK(xrHostZoneAt((pc[0] + pc[2]) * 0.5f, (pc[1] + pc[3]) * 0.5f, 8, 0) == XR_HOST_ZONE_PCVR);
+    CHECK(xrHostZoneAt((pc[0] + pc[2]) * 0.5f, (pc[1] + pc[3]) * 0.5f, 0, 1) == XR_HOST_ZONE_NONE);
+    CHECK(XR_HOST_CONFIRM_PCVR >= XR_HOST_CELLS && XR_HOST_ZONE_PCVR != XR_HOST_ZONE_CLOSE);
     xrHostConfirmSendRect(r);
     CHECK(xrHostZoneAt((r[0] + r[2]) * 0.5f, (r[1] + r[3]) * 0.5f, 0, 1) == XR_HOST_ZONE_CONFIRM_SEND);
     CHECK(xrHostZoneAt((r[0] + r[2]) * 0.5f, (r[1] + r[3]) * 0.5f, 0, 0) != XR_HOST_ZONE_CONFIRM_SEND);

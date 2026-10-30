@@ -80,6 +80,11 @@ const PrefField kPrefFields[] = {
     { "motionReset", KInt, 0, 50, nullptr },
     { "depthScale", KInt, 0, 200, nullptr },
     { "depthGlobal", KInt, 0, 200, nullptr },
+    // lane wave4-sbs: where the 3D comes from (the PC's side by side or top-bottom pair)
+    { "stereoSource", KStr, 0, 0, "|depth|sbs|top-bottom|" },
+    { "sbsFull", KBool, 0, 0, nullptr },
+    // lane wave1-burst: the cap on full-frame requests after lost video
+    { "rfiIdrMs", KInt, 0, 5000, nullptr },
     { "flipFaceButtons", KBool, 0, 0, nullptr },
     { "notices", KStr, 0, 0, "|all|important|off|" },
     { "scrollSpeed", KInt, 25, 400, nullptr },
@@ -244,7 +249,8 @@ QString summaryOf(const QVariantMap& v)
         p << QObject::tr("HDR");
     }
     if (v.value("renderMode").toInt() == 1) {
-        p << QObject::tr("3D");
+        const QString src = v.value("stereoSource").toString();
+        p << (src == "sbs" ? QObject::tr("3D side by side") : src == "top-bottom" ? QObject::tr("3D top-bottom") : QObject::tr("3D"));
     }
     if (v.value("virtualDisplay").toBool()) {
         const int scale = v.value("scaleFactor", 100).toInt();

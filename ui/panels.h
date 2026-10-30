@@ -92,7 +92,8 @@ typedef enum {
     UI_BTN_KB_LAYOUT,        // Compact keyboard: the chip that flips to the Full one (needs UiView.kb_chip)
     UI_BTN_HOST_CLOSE,       // Host sheet (XR_HOST_ZONE_CLOSE)
     UI_BTN_HOST_CONFIRM,     // Host sheet's confirmation: send (XR_HOST_ZONE_CONFIRM_SEND)
-    UI_BTN_HOST_CANCEL       // Host sheet's confirmation: cancel (XR_HOST_ZONE_CONFIRM_CANCEL)
+    UI_BTN_HOST_CANCEL,      // Host sheet's confirmation: cancel (XR_HOST_ZONE_CONFIRM_CANCEL)
+    UI_BTN_HOST_PCVR         // Host sheet: Switch to PC VR (XR_HOST_ZONE_PCVR)
 } UiButton;
 
 typedef struct {
@@ -129,6 +130,7 @@ typedef struct {
     int env_selected;            // ENV_CELL_* ringed on the picker, or -1
     int bar_show_aim;            // head aim button on the bar (screen head locked, outside a room)
     int bar_show_stereo;         // 3D button on the bar (3D mode not off)
+    int stereo_source;           // native (PLAN 4.3): the 3D source in force, STEREO_SOURCE_*
     UiHover hover;
     int kb_sheet;                // KB_STATE_*
     int kb_mods;                 // KB_MOD_* lit
@@ -149,6 +151,7 @@ typedef struct {
     // Native: the Host sheet (UI_PANEL_HOST). host_macros is how many of the
     // user's macros there are (names in host_macro, at most XR_HOST_MACRO_SLOTS
     // shown); host_confirm is the cell waiting for a yes, or -1 for none
+    // (XR_HOST_CONFIRM_PCVR: the PC VR switch is asking)
     int host_macros;
     char host_macro[XR_HOST_MACRO_SLOTS][XR_MACRO_NAME];
     int host_confirm;

@@ -329,7 +329,7 @@ pops() { MLXR_LAUNCHER_SELFTEST="profileops:$1" "$L" 2>"$t/stderr"; }
 pplan() { MLXR_LAUNCHER_DRYRUN=1 MLXR_NATIVE_CLIENT= MLXR_LAUNCHER_SELFTEST="plan:$1" "$L" 2>"$t/stderr"; }
 setconf width=2560 height=1440 fps=90 bitrate=80000 videocfg=0
 SECTION=mlxr setconf match_headset_fps=true virtual_display=false scale_factor=100 custom_refresh_rate=
-out="$(pops 'set|width|1920~set|height|1080~set|fps|60~set|bitrateKbps|20000~set|matchHeadsetFps|false~create|Desktop~set|width|3840~set|height|2160~set|fps|120~set|bitrateKbps|150000~set|virtualDisplay|true~set|scaleFactor|150~set|perfOverlay|true~set|notices|off~set|depthScale|150~set|networkPath|adapter~create|Game~create|desktop~create|Default~create|~duplicate|Game~rename|Game copy|Cinema~rename|Nope|X~assign|gaming-pc||Desktop~assign|gaming-pc|Desktop|Game~assign|gaming-pc|Desktop|Nope~dump')"
+out="$(pops 'set|width|1920~set|height|1080~set|fps|60~set|bitrateKbps|20000~set|matchHeadsetFps|false~create|Desktop~set|width|3840~set|height|2160~set|fps|120~set|bitrateKbps|150000~set|virtualDisplay|true~set|scaleFactor|150~set|perfOverlay|true~set|notices|off~set|depthScale|150~set|stereoSource|sbs~set|networkPath|adapter~create|Game~create|desktop~create|Default~create|~duplicate|Game~rename|Game copy|Cinema~rename|Nope|X~assign|gaming-pc||Desktop~assign|gaming-pc|Desktop|Game~assign|gaming-pc|Desktop|Nope~dump')"
 echo "$out" | sed 's/^/    /'
 expect "profiles: made from the settings in force" "$out" "create|Desktop -> ok"
 expect "profiles: a second one" "$out" "create|Game -> ok"
@@ -341,7 +341,7 @@ expect "profiles: rename" "$out" "rename|Game copy|Cinema -> ok"
 expect "profiles: rename of a missing one" "$out" "rename|Nope|X -> There is no profile called Nope."
 expect "profiles: an unknown profile is not assigned" "$out" "assign|gaming-pc|Desktop|Nope -> There is no profile called Nope."
 expect "profiles: Desktop holds 1080p 60 Hz 20 Mbps" "$out" 'profile "Desktop": 1920x1080, 60 Hz, 20 Mbps'
-expect "profiles: Game holds 4K 120 Hz, 150 Mbps, a virtual display at 150 %" "$out" 'profile "Game": 3840x2160, 120 Hz, 150 Mbps, 3D, virtual display 150%'
+expect "profiles: Game holds 4K 120 Hz, 150 Mbps, a virtual display at 150 %" "$out" 'profile "Game": 3840x2160, 120 Hz, 150 Mbps, 3D side by side, virtual display 150%'
 expect "profiles: the copy keeps the values" "$out" 'profile "Cinema": 3840x2160, 120 Hz, 150 Mbps'
 expect "profiles: the PC's every app uses Desktop" "$out" 'use "gaming-pc" / "" -> "Desktop"'
 expect "profiles: one app uses Game" "$out" 'use "gaming-pc" / "Desktop" -> "Game"'
@@ -375,8 +375,8 @@ expect "profile: the hand-off's own run uses it too" "$out" "--mode 3840x2160x12
 grep -q '^width=2560$' "$CONF" && grep -q '^virtual_display=false$' "$CONF" && ok "profile: nothing of it saved by a stream" || fail "profile: saved by the stream"
 # a launcher killed during the stream: the config.ini keys go back at its next start, a key the headset changed is kept
 out="$(MLXR_LAUNCHER_TEST_PROFILE_CRASH=1 pplan "gaming-pc:Desktop")"
-grep -q '^stats = true$' "$ini" && grep -q '^notices = off$' "$ini" && grep -q '^depth_scale = 150$' "$ini" \
-    && ok "profile: config.ini has the profile's keys during the stream (3D depth too)" || { fail "profile keys not written"; cat "$ini"; }
+grep -q '^stats = true$' "$ini" && grep -q '^notices = off$' "$ini" && grep -q '^depth_scale = 150$' "$ini" && grep -q '^stereo_source = sbs$' "$ini" \
+    && ok "profile: config.ini has the profile's keys during the stream (3D depth and source too)" || { fail "profile keys not written"; cat "$ini"; }
 out="$(pops 'dump')"
 cmp -s "$ini" "$t/ini.profile" && ok "profile: a killed launcher's config.ini is put back byte for byte at the next start" || { fail "not recovered"; diff "$t/ini.profile" "$ini"; }
 expect "profile: the recovery is logged" "$(cat "$t/stderr")" "put config.ini back as it was"
@@ -439,7 +439,7 @@ s = http.server.HTTPServer(('127.0.0.1', 0), H)
 open(os.path.join(root, 'port'), 'w').write(str(s.server_address[1]))
 s.serve_forever()
 PY
-python3 -I "$t/fakepc.py" "$pf" & fakepc=$!
+python3 -I "$t/fakepc.py" "$pf" >"$t/fakepc.log" 2>&1 & fakepc=$!
 trap 'kill $fakepc 2>/dev/null; rm -rf "$t"' EXIT
 for i in $(seq 50); do [ -s "$pf/port" ] && break; sleep 0.1; done
 PFURL="http://127.0.0.1:$(cat "$pf/port")"
@@ -553,6 +553,7 @@ case "${FAKE_MODE:-ok}" in
   err) echo "some log line"; echo "MLXR_ERROR: The host is on fire" >&2; exit 6;;
   silent) exit 3;;
   disc) exit 11;;
+  pcvr) exit 12;;
   crash) kill -SEGV $$;;
 esac
 FAKE
@@ -580,6 +581,93 @@ selftest "nosuch:Desktop" >/dev/null 2>&1; [ $? = 20 ] && ok "unknown PC is repo
 # a PC without that app
 selftest "laptop:1" >/dev/null 2>&1; [ $? = 21 ] && ok "unknown app is reported" || fail "unknown app"
 
+# --- 4b. lane wave4-pcvr: exit code 12 (the Host sheet's Switch to PC VR) hands the headset to Valve's
+# Steam Link stream through steam_cef.py. A fake CEF endpoint (tests/tools/fake_cef.py) stands in for
+# Steam; it logs every expression it is asked to evaluate.
+SC="$here/../../packaging/steam_cef.py"
+FC="$here/../tools/fake_cef.py"
+if [ -f "$SC" ] && [ -f "$FC" ]; then
+    read -r CEFPORT DEADPORT < <(python3 -I -c 'import socket
+a=socket.socket(); a.bind(("127.0.0.1",0)); b=socket.socket(); b.bind(("127.0.0.1",0))
+print(a.getsockname()[1], b.getsockname()[1])')
+    cat >"$t/cef-rules.json" <<'JSON'
+[
+ ["navigator.userAgent", {"StreamGame":"function","RunGame":"function","RegisterForDevicesChanges":"function","ExecuteSteamURL":"function","ShowDashboard":"function","userAgent":"Steam/test"}],
+ ["RegisterForDevicesChanges", {"devices":[{"clientId":"76561198000000001","clientName":"gaming-pc","unStreamingSessionID":0}]}],
+ ["appStore", {"apps":[
+   {"appid":620980,"name":"Beat Saber","categories":[53],"perClient":[{"clientid":"76561198000000001","installed":true}]},
+   {"appid":440,"name":"Team Fortress 2","categories":[1],"perClient":[{"clientid":"76561198000000001","installed":true}]}]}],
+ ["StreamGame", true],
+ ["ExecuteSteamURL", true]
+]
+JSON
+    : > "$t/cef.log"
+    python3 -I "$FC" "$CEFPORT" "$t/cef-rules.json" "$t/cef.log" >"$t/cef.out" 2>&1 &
+    CEFPID=$!
+    trap 'kill $CEFPID ${fakepc:-} 2>/dev/null; rm -rf "$t"' EXIT   # (lane wave4-launcher: and the fake PC of 3e)
+    for _ in $(seq 1 50); do grep -q "fake CEF on" "$t/cef.out" 2>/dev/null && break; sleep 0.1; done
+    export MLXR_STEAM_CEF="$SC" STEAM_CEF_PORT="$CEFPORT" STEAM_CEF_FLAG_FILE="$t/no-flag"
+    pcvrsay() { MLXR_LAUNCHER_SELFTEST="$1" "$L" 2>"$t/stderr"; }
+
+    # the exit code, as a dry run: the launcher treats 12 like 11 (no dialog) and prints what it asks Steam
+    unset FAKE_MODE
+    MLXR_LAUNCHER_DRYRUN="fail:12:" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
+    [ $rc = 0 ] && ok "exit 12 (Switch to PC VR) is not an error" || fail "exit 12 gave $rc"
+    expect "exit 12: no error dialog" "$(cat "$t/stdout")" "error=none"
+    expect "exit 12 with no game chosen: --pcvr alone" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr"
+    refute "exit 12 with no game chosen: no --app" "$(grep '^MLXR_PCVR' "$t/stdout")" "--app"
+    SECTION=mlxr setconf pcvr_app=620980 pcvr_client=76561198000000001
+    MLXR_LAUNCHER_DRYRUN="fail:12:" selftest "gaming-pc:Desktop" >"$t/stdout"
+    expect "exit 12 with a game and a PC chosen" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --app 620980 --client 76561198000000001"
+    MLXR_LAUNCHER_DRYRUN="fail:11:" selftest "gaming-pc:Desktop" >"$t/stdout"
+    refute "exit 11 (disconnect) does not hand off to PC VR" "$(cat "$t/stdout")" "MLXR_PCVR"
+    MLXR_LAUNCHER_DRYRUN="fail:6:no" selftest "gaming-pc:Desktop" >"$t/stdout"
+    refute "a failing client does not hand off to PC VR" "$(cat "$t/stdout")" "MLXR_PCVR"
+
+    # for real: a client that exits 12, Steam's side played by the fake endpoint
+    : > "$t/cef.log"
+    FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
+    [ $rc = 0 ] && ok "client exit 12 -> success" || fail "client exit 12 gave $rc"
+    expect "client exit 12: finished without an error" "$(cat "$t/stdout")" "started=yes finished=yes error=none"
+    expect "client exit 12: Steam is asked to StreamGame the chosen game from the chosen PC" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(620980, "76561198000000001", 0)'
+    refute "client exit 12: the flat screen is not asked for" "$(cat "$t/cef.log")" "ShowDashboard"
+    # no PC chosen: the only paired PC is used (the script asks Steam for the list first)
+    : > "$t/cef.log"
+    SECTION=mlxr setconf pcvr_client=
+    FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"
+    expect "no PC chosen: Steam is asked for the paired PCs" "$(cat "$t/cef.log")" "RegisterForDevicesChanges"
+    expect "no PC chosen: the only paired PC is streamed from" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(620980, "76561198000000001", 0)'
+    # no game chosen: Steam's library opens
+    : > "$t/cef.log"
+    SECTION=mlxr setconf pcvr_app=
+    FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"
+    expect "no game chosen: Steam's library opens" "$(cat "$t/cef.log")" "steam://nav/games"
+    refute "no game chosen: nothing is streamed" "$(cat "$t/cef.log")" "StreamGame"
+    # Steam's port does not answer: the hand-off fails quietly (logged), the launcher carries on
+    SECTION=mlxr setconf pcvr_app=620980 pcvr_client=76561198000000001
+    STEAM_CEF_PORT="$DEADPORT" FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
+    [ $rc = 0 ] && expect "Steam port dead: no error dialog" "$(cat "$t/stdout")" "error=none" || fail "dead port gave $rc"
+    expect "Steam port dead: logged with the way to check" "$(cat "$t/stderr")" "steam_cef.py --probe"
+
+    # the preflight and the lists (steam_cef.py through the launcher)
+    out="$(pcvrsay pcvr:probe)"
+    expect "preflight: port answers, calls present" "$out" "SELFTEST: pcvr probe rc=0"
+    expect "preflight: reports ok" "$out" '"ok": true'
+    out="$(STEAM_CEF_PORT="$DEADPORT" pcvrsay pcvr:probe)"
+    expect "preflight: a dead port is exit 3" "$out" "SELFTEST: pcvr probe rc=3"
+    expect "preflight: with a hint" "$out" "does not answer"
+    out="$(pcvrsay pcvr:devices)"
+    expect "paired PCs are listed" "$out" '"clientName": "gaming-pc"'
+    out="$(pcvrsay pcvr:apps:76561198000000001)"
+    expect "the PC's games are listed" "$out" '"name": "Beat Saber"'
+    expect "VR games first" "$out" '[{"appid": 620980'
+    out="$(pcvrsay pcvr:bogus)"; [ $? = 20 ] && ok "a bad pcvr self-test is reported" || fail "bad pcvr self-test"
+    unset MLXR_STEAM_CEF STEAM_CEF_PORT STEAM_CEF_FLAG_FILE
+    SECTION=mlxr setconf pcvr_app= pcvr_client=
+else
+    ok "(PC VR tests skipped: no packaging/steam_cef.py or tests/tools/fake_cef.py)"
+fi
+
 # --- 5. the whole app starts headless, shows the seeded PCs, and leaves cleanly
 if [ -n "$SHOTS" ]; then
     mkdir -p "$SHOTS"
@@ -603,7 +691,7 @@ if [ -n "$SHOTS" ]; then
     ini="$MLXR_CONFIG_DIR/config.ini"
     printf '# Moonlight XR settings\n[display]\n# Display tab: show performance stats [true | false] (default false)\n#stats = false\nglow = true\n\n[3d]\nseparation = 9\nstereo = false\n' > "$ini"
     cp "$ini" "$t/ini.before"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,scrollSpeedRow,doffRow,idleRow,controllerModelRow,hdrRow \
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,scrollSpeedRow,doffRow,idleRow,controllerModelRow,hdrRow,stereoSourceRow,sbsFullRow,idrCapRow \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-clicked.png@3000" "$L" >"$t/ui6.out" 2>&1
     grep -q "no clickable" "$t/ui6.out" && fail "click hook: $(grep 'no clickable' "$t/ui6.out")"
     grep -q '^stats = true$' "$ini" && ok "stats overlay row writes [display] stats = true" || { fail "stats not written"; cat "$ini"; }
@@ -614,6 +702,11 @@ if [ -n "$SHOTS" ]; then
     grep -A6 '^\[vr\]' "$ini" | grep -q '^controller_model = frame$' && ok "controller row steps Off to Steam Frame and writes [vr] controller_model" || { fail "controller_model not written"; cat "$ini"; }
     grep -A3 '^\[stream\]' "$ini" | grep -q '^doff_disconnect = 120$' && ok "headset-off row steps 60 s to 120 s and writes [stream] doff_disconnect" || { fail "doff_disconnect not written"; cat "$ini"; }
     grep -A3 '^\[stream\]' "$ini" | grep -q '^idle_disconnect = 10$' && ok "idle row steps Never to 10 minutes and writes [stream] idle_disconnect" || { fail "idle_disconnect not written"; cat "$ini"; }
+    # lane wave4-sbs (PLAN 4.3): the 3D source row steps Depth to SBS, then the full-size switch comes alive
+    grep -A6 '^\[3d\]' "$ini" | grep -q '^stereo_source = sbs$' && ok "3D source row steps Depth to SBS and writes [3d] stereo_source" || { fail "stereo_source not written"; cat "$ini"; }
+    grep -A6 '^\[3d\]' "$ini" | grep -q '^sbs_full = true$' && ok "full-size SBS switch writes [3d] sbs_full = true" || { fail "sbs_full not written"; cat "$ini"; }
+    # lane wave1-burst: the full-frame request cap steps 500 ms to 1000 ms
+    grep -A4 '^\[stream\]' "$ini" | grep -q '^rfi_idr_ms = 1000$' && ok "full-frame request row steps 500 ms to 1000 ms and writes [stream] rfi_idr_ms" || { fail "rfi_idr_ms not written"; cat "$ini"; }
     grep -q '^glow = true$' "$ini" && grep -q '^separation = 9$' "$ini" && grep -q '^stereo = false$' "$ini" && ok "other config.ini keys untouched" || { fail "config.ini keys changed"; diff "$t/ini.before" "$ini"; }
     grep -q -i hdr "$ini" && fail "greyed HDR row changed something" || ok "greyed HDR row is inert"
     grep -q "MLXR_LAUNCHER_WIFI: Wi-Fi$" "$t/ui6.out" && ok "Network connection: plain Wi-Fi when unknown" || fail "wifi fallback: $(grep MLXR_LAUNCHER_WIFI "$t/ui6.out")"
@@ -628,6 +721,24 @@ if [ -n "$SHOTS" ]; then
     MLXR_LAUNCHER_NET_ROOT="$t/netroot" MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
         MLXR_LAUNCHER_SCREENSHOT="$t/usb-nocable.png@3000" "$L" >"$t/ui8.out" 2>&1
     grep -q "MLXR_LAUNCHER_USB: no cable" "$t/ui8.out" && ok "USB cable: usb0 without carrier is ignored" || fail "usb0 without carrier: $(grep MLXR_LAUNCHER_USB "$t/ui8.out")"
+    # lane wave4-pcvr: the Settings page's PC VR rows and the startup preflight
+    if [ -n "${CEFPID:-}" ]; then
+        # preflight at start (MLXR_PCVR_PREFLIGHT stands in for Game Mode): logged as ok
+        MLXR_STEAM_CEF="$SC" STEAM_CEF_PORT="$CEFPORT" STEAM_CEF_FLAG_FILE="$t/no-flag" MLXR_PCVR_PREFLIGHT=1 MLXR_LAUNCHER_IW_FILE=/dev/null \
+            MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_SCREENSHOT="$t/pcvr-pre.png@3000" "$L" >"$t/ui10.out" 2>&1
+        expect "preflight at start: Steam's port is fine" "$(grep 'Steam CEF preflight' "$t/ui10.out")" "Steam CEF preflight: ok"
+        MLXR_STEAM_CEF="$SC" STEAM_CEF_PORT="$DEADPORT" STEAM_CEF_FLAG_FILE="$t/no-flag" MLXR_PCVR_PREFLIGHT=1 MLXR_LAUNCHER_IW_FILE=/dev/null \
+            MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_SCREENSHOT="$t/pcvr-dead.png@3000" "$L" >"$t/ui11.out" 2>&1
+        expect "preflight at start: a dead port is logged with the hint" "$(grep 'Steam CEF preflight' "$t/ui11.out")" "NOT OK - Steam's debugging port $DEADPORT does not answer"
+        # the Settings page: the rows load without QML errors, and the first one asks Steam for the lists
+        MLXR_STEAM_CEF="$SC" STEAM_CEF_PORT="$CEFPORT" STEAM_CEF_FLAG_FILE="$t/no-flag" MLXR_LAUNCHER_IW_FILE=/dev/null \
+            MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_SCROLL=1500 MLXR_LAUNCHER_CLICK=pcvrCheckRow \
+            MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-pcvr.png@4500" "$L" >"$t/ui12.out" 2>&1
+        grep -Eq "$QMLERR" "$t/ui12.out" && { fail "PC VR rows: QML errors"; grep -E "$QMLERR" "$t/ui12.out" | head -3; } || ok "settings page with the PC VR rows loads (no QML errors)"
+        grep -q "no clickable" "$t/ui12.out" && fail "PC VR click hook: $(grep 'no clickable' "$t/ui12.out")"
+        expect "PC VR check row: asks Steam" "$(grep 'Steam CEF preflight' "$t/ui12.out")" "Steam CEF preflight: ok"
+        SECTION=mlxr setconf pcvr_app= pcvr_client=
+    fi
     # what the VR client's own parser makes of it
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
@@ -638,6 +749,9 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads controller_model" "$dump" "vr.controller_model = frame"
         expect "VR client reads doff_disconnect" "$dump" "stream.doff_disconnect = 120"
         expect "VR client reads idle_disconnect" "$dump" "stream.idle_disconnect = 10"
+        expect "VR client reads stereo_source" "$dump" "3d.stereo_source = sbs"
+        expect "VR client reads sbs_full" "$dump" "3d.sbs_full = true"
+        expect "VR client reads rfi_idr_ms" "$dump" "stream.rfi_idr_ms = 1000"
     fi
     # lane wave5-depth: the 3D rows that only the file and this page carry (3D on, so they are live)
     printf '[3d]\nstereo = true\nseparation = 9\n' > "$ini"
