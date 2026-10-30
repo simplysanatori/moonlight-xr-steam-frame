@@ -259,6 +259,13 @@ void xrSetHeadLook(XrCtx* ctx, int on, int pxDeg);
 // head-look), as xrUpdateInput runs it ahead of everything else: IN_HEAD_AIM, IN_MOUSE_DX and DY
 // into out. The head goes through the seam on the context (locateSpace).
 void xrHeadMouseFrame(XrCtx* ctx, int headLocked, float* out);
+// Native (lane wave4-headinput, PLAN 4.5): the opentrack setting, where to ("" or NULL: the PC of the
+// current stream) and the UDP port (held to 1..65535)
+void xrSetOpentrack(XrCtx* ctx, int on, const char* host, int port);
+// Native (lane wave4-headinput, PLAN 4.5): one frame of the opentrack sender, as xrUpdateInput runs
+// it every frame: while on and streaming, the head pose in the local space (through the locateSpace
+// seam) goes out as opentrack's packet; it never blocks. Public for the tests.
+void xrOpentrackFrame(XrCtx* ctx);
 
 // ---- Native (lane wave2-bind-wire): bindings.ini (xr_input.c) -------------
 // Reads bindings.ini (path NULL: xrBindDefaultPath, which is written with the

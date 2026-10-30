@@ -1041,6 +1041,37 @@ Flickable {
         }
 
         PrefSwitch {
+            objectName: "opentrackRow"
+            title: qsTr("Head tracking to opentrack")
+            summary: qsTr("While streaming, sends your head's position and turn to opentrack on the PC every frame, for games with head tracking (TrackIR, FreeTrack). In opentrack choose the input \"UDP over network\" with the port below.")
+            isOn: MlxrPrefs.opentrack
+            onSwitched: function(on) { MlxrPrefs.opentrack = on }
+        }
+
+        PrefRow {
+            objectName: "opentrackHostRow"
+            title: qsTr("opentrack's PC")
+            valueText: MlxrPrefs.opentrackHost === "" ? qsTr("The streaming PC") : MlxrPrefs.opentrackHost
+            summary: qsTr("Where the head tracking goes: an address or a name. Leave it empty for the PC you are streaming from.")
+            onClicked: editDialog.show(title, qsTr("Address or name, empty for the streaming PC"), MlxrPrefs.opentrackHost,
+                                       "^\\s*[A-Za-z0-9_.:%-]*\\s*$", function(t) {
+                MlxrPrefs.opentrackHost = t.trim()
+            })
+        }
+
+        PrefRow {
+            objectName: "opentrackPortRow"
+            title: qsTr("opentrack's port")
+            valueText: "" + MlxrPrefs.opentrackPort
+            summary: qsTr("The UDP port opentrack's UDP over network input listens on (4242 unless you changed it).")
+            onClicked: editDialog.show(title, qsTr("1 to 65535"), "" + MlxrPrefs.opentrackPort,
+                                       "^\\s*[0-9]{1,5}\\s*$", function(t) {
+                var p = parseInt(t.trim(), 10)
+                MlxrPrefs.opentrackPort = p >= 1 && p <= 65535 ? p : 4242
+            })
+        }
+
+        PrefSwitch {
             title: qsTr("Enable forward/back mouse buttons")
             summary: qsTr("Sends a physical mouse's back and forward buttons to the PC")
             isOn: MlxrPrefs.mouseNavButtons

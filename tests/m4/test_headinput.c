@@ -3,15 +3,21 @@
 // seams on the context. Head-look (PLAN 4.4): config.ini to the context, the head's turn to
 // relative mouse motion in pointer mode with the screen head locked or a room up, at its own pixels
 // a degree, paused by a free grip or app:lookhold as bindings.ini leaves them, and head aim's own
-// behaviour unchanged where both could act. GPLv3.
+// behaviour unchanged where both could act. Opentrack (PLAN 4.5): config.ini to the context, and the
+// head pose out of the input pass to a UDP socket on the loopback standing in for opentrack, only
+// while on and streaming with the head placed. GPLv3.
 #define _GNU_SOURCE
+#include <arpa/inet.h>
 #include <math.h>
+#include <poll.h>
+#include <sys/socket.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "check.h"
+#include "opentrack.h"
 #include "scene.h"
 
 #define FAKE(n) ((uintptr_t)(n))
@@ -267,6 +273,112 @@ static void headLookHold(Scene* s) {
     unlink(g_path);
 }
 
+// ---- opentrack (PLAN 4.5) ---------------------------------------------------------------------------------
+
+static int udpListener(int* port) {
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in a = { .sin_family = AF_INET, .sin_port = 0 };
+    inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
+    if (fd < 0 || bind(fd, (struct sockaddr*)&a, sizeof(a)) != 0) {
+        return -1;
+    }
+    socklen_t n = sizeof(a);
+    getsockname(fd, (struct sockaddr*)&a, &n);
+    *port = ntohs(a.sin_port);
+    return fd;
+}
+
+// The six doubles of the packet that arrived within ms; 0 when none did
+static int udpPose(int fd, double v[6], int ms) {
+    struct pollfd p = { fd, POLLIN, 0 };
+    if (poll(&p, 1, ms) <= 0) {
+        return 0;
+    }
+    uint8_t b[64];
+    if (recv(fd, b, sizeof(b), 0) != 48) {
+        return 0;
+    }
+    for (int i = 0; i < 6; i++) {
+        uint64_t bits = 0;
+        for (int k = 0; k < 8; k++) {
+            bits |= (uint64_t)b[8 * i + k] << (8 * k);
+        }
+        memcpy(&v[i], &bits, sizeof(double));
+    }
+    return 1;
+}
+
+static void opentrackWired(Scene* s) {
+    XrCtx* c = s->ctx;
+    headSetUp(c);
+    Settings st;
+    settings_defaults(&st);
+    xrApplySettings(c, &st);
+    CHECK(c->opentrackOn == 0 && c->opentrackPort == 4242 && c->opentrackHost[0] == 0);
+    st.opentrack = 1;
+    snprintf(st.opentrack_host, sizeof(st.opentrack_host), "%s", "127.0.0.1");
+    st.opentrack_port = 70000;
+    xrApplySettings(c, &st);
+    CHECK(c->opentrackOn == 1 && c->opentrackPort == 4242 && strcmp(c->opentrackHost, "127.0.0.1") == 0);
+
+    int port = 0;
+    int fd = udpListener(&port);
+    CHECK(fd >= 0);
+    double v[6];
+    xrSetOpentrack(c, 1, "127.0.0.1", port);
+    // not streaming: nothing
+    c->streaming = 0;
+    xrOpentrackFrame(c);
+    CHECK(udpPose(fd, v, 50) == 0);
+    // streaming: every frame, the head as it is, in cm and degrees
+    c->streaming = 1;
+    g_yawDeg = 30.0f;
+    g_pitchDeg = -10.0f;
+    xrOpentrackFrame(c);
+    CHECK(udpPose(fd, v, 1000) == 1);
+    CHECK_NEAR(v[0], 0.0, 1e-3);
+    CHECK_NEAR(v[1], 160.0, 1e-3);
+    CHECK_NEAR(v[2], 0.0, 1e-3);
+    CHECK_NEAR(v[3], 30.0, 1e-2);
+    CHECK_NEAR(v[4], -10.0, 1e-2);
+    CHECK_NEAR(v[5], 0.0, 1e-2);
+    for (int i = 0; i < 4; i++) {
+        xrOpentrackFrame(c);
+    }
+    int n = 0;
+    while (udpPose(fd, v, 200)) {
+        n++;
+    }
+    CHECK(n == 4 && c->opentrackSent == 5 && c->opentrackLive);
+    // the head not placed: that frame sends nothing
+    g_headTracked = 0;
+    xrOpentrackFrame(c);
+    CHECK(udpPose(fd, v, 50) == 0);
+    g_headTracked = 1;
+    // the stream stops: nothing more, and the sender lets go
+    c->streaming = 0;
+    xrOpentrackFrame(c);
+    CHECK(!c->opentrackLive && c->opentrackSent == 0);
+    CHECK(udpPose(fd, v, 50) == 0);
+    // switched off while streaming: nothing
+    c->streaming = 1;
+    xrSetOpentrack(c, 0, "127.0.0.1", port);
+    xrOpentrackFrame(c);
+    CHECK(udpPose(fd, v, 50) == 0);
+    // empty host: the stream's PC as main.c hands it to the sender
+    xrSetOpentrack(c, 1, "", port);
+    mlxr_opentrack_set_stream_host("127.0.0.1");
+    xrOpentrackFrame(c);
+    CHECK(udpPose(fd, v, 1000) == 1);
+    mlxr_opentrack_set_stream_host("");
+    xrOpentrackFrame(c);
+    CHECK(udpPose(fd, v, 50) == 0);
+    c->streaming = 0;
+    xrOpentrackFrame(c);
+    xrSetOpentrack(c, 0, "", 4242);
+    close(fd);
+}
+
 int main(void) {
     snprintf(g_dir, sizeof(g_dir), "/tmp/mlxr-headinput-XXXXXX");
     if (mkdtemp(g_dir) == NULL) {
@@ -279,6 +391,7 @@ int main(void) {
     headLookTurns(s);
     headLookAndAim(s);
     headLookHold(s);
+    opentrackWired(s);
     scene_free(s);
     unlink(g_path);
     rmdir(g_dir);

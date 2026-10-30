@@ -50,6 +50,7 @@
 #include "xr_hostkeys.h"
 #include "xr_controller.h"
 #include "xr_headaim.h"
+#include "xr_opentrack.h"
 #include "xr_clickhold.h"
 #include "xr_pressfix.h"
 #include "xr_gamepad.h"
@@ -938,6 +939,13 @@ typedef struct XrCtx {
     int headLookPxDeg;
     int headMouseWho;
     int headLookHold;
+    // Native (lane wave4-headinput, PLAN 4.5): the head pose to opentrack (backend/opentrack.h): the
+    // setting, where to (empty: the stream's PC) and the port; asked to send this stream, packets sent
+    int opentrackOn;
+    char opentrackHost[128];
+    int opentrackPort;
+    int opentrackLive;
+    long opentrackSent;
     long inputFrames;
     // Gamepad mode (M3: the pad's state is worked out as upstream does, but
     // nothing sends it to the host yet)

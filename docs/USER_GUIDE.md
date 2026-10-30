@@ -343,6 +343,12 @@ The gyro is in degrees per second about the controller's own axes, the way a Dua
 
 To turn back without turning the game, hold a **grip** (either one, as long as it is bound to nothing, which it is by default in pointer mode) and turn your head; let go and it carries on from there, like lifting a mouse off the desk. Any other control can be the pause too: bind it to `app:lookhold` in `bindings.ini`. A panel opening (cog, keyboard, Host sheet) also pauses it. Head aim (the bar's button and the Display tab's row) wins where both could act, so with the screen head locked and Head aim on, Head aim's speed is used; in a room Head aim cannot act and head-look takes over. `moonlight.log` says `head-look on`, `head-look paused while its hold is down` and how far it moved the mouse every few seconds.
 
+### Head tracking for PC games (opentrack)
+
+Games with head tracking (flight and racing simulators that take TrackIR or FreeTrack) can follow your real head through [opentrack](https://github.com/opentrack/opentrack) on the PC. With `opentrack = true` in `config.ini` (or **Head tracking to opentrack** on the launcher's Settings page, under Input Settings), the headset sends your head's position and turn to the PC every frame while a stream is running, as opentrack's "UDP over network" packet: x, y, z in centimetres, then yaw, pitch and roll in degrees. It goes to the PC you are streaming from unless `opentrack_host` names another address or name, on UDP port `opentrack_port` (4242, opentrack's own default). Sending never holds up a frame: a packet that cannot go out at once is dropped, and the next frame sends a newer one.
+
+**On the PC:** install opentrack and start it. Under **Input** choose **UDP over network** and press the hammer button next to it: the port must be the same as `opentrack_port` (4242). Under **Output** choose what the game reads: **freetrack 2.0 Enhanced** for most TrackIR and FreeTrack games, or **Virtual joystick** for games that take a joystick. Press **Start**; the octopus in opentrack's window turns with your head once the stream is up. Let Windows Firewall allow opentrack on private networks when it asks (or allow UDP port 4242 in). Press opentrack's **Center** key (set one under Options, Shortcuts) while you look straight at the screen; opentrack then measures from there. Yaw is positive turning left, pitch positive looking up and roll positive tilting your head to the left; if a game turns the wrong way, tick **Invert** for that axis on opentrack's Output tab. The curves under **Mapping** set how far the game turns for each degree. `moonlight.log` says `opentrack: the head pose goes to <address>:4242 every frame` once the first packet is out, and how many went when the stream stops.
+
 ### Changing the buttons
 
 `~/.config/moonlight-xr/bindings.ini` says what each control does. The first start writes it with every default as a line that starts with `#`, so it changes nothing until you take the `#` off a line and edit it. For example:
@@ -662,6 +668,9 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] pad_gyro_ratchet` | `always`, `stick_touch` (only while the right thumb touches the right thumbstick of a Steam Frame controller; the same as `always` where that touch is not read). | `always` |
 | `[vr] head_look` | `true`, `false`. Experimental: your head's turn moves the PC's mouse in pointer mode with the screen head locked or a room up. See [Head-look](#head-look-experimental); the launcher has it too. | `false` |
 | `[vr] head_look_px_deg` | 1 to 30. Head-look's mouse pixels for each degree the head turns. | 8 |
+| `[vr] opentrack` | `true`, `false`. While streaming, the head pose goes to opentrack on the PC every frame. See [Head tracking for PC games](#head-tracking-for-pc-games-opentrack); the launcher has it too. | `false` |
+| `[vr] opentrack_host` | An address or a name | Empty: the PC you are streaming from. |
+| `[vr] opentrack_port` | 1 to 65535 | 4242, opentrack's UDP over network default. |
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
 | `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
 | `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |

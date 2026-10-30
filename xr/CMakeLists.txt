@@ -16,6 +16,8 @@ target_sources(mlxr_xrui PRIVATE xr_keyboard.c xr_depth.c xr_host.c)
 target_include_directories(mlxr_xrui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/depth)
 target_link_libraries(mlxr_xrui PUBLIC openxr_loader OpenXR::headers Vulkan::Vulkan mlxr_xrcore mlxr_ui mlxr_input mlxr_input_core
   mlxr_rooms mlxr_passes pthread m)
+# Native (lane wave4-headinput, PLAN 4.5): the head pose sender to opentrack (backend/opentrack.c)
+target_link_libraries(mlxr_xrui PUBLIC mlxr_backend)
 target_compile_definitions(mlxr_xrui PRIVATE MLXR_ASSETS_DIR="${MLXR_ASSETS_DIR}")
 
 add_library(mlxr_xr STATIC xr_session.c)

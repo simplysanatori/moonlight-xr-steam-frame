@@ -15,6 +15,7 @@
 
 #include "xr_shared.h"
 #include "xr_lightgun.h"
+#include "xr_opentrack.h"
 #include "xr_padgyro.h"
 #include "xr_padmouse.h"
 
@@ -142,6 +143,10 @@ static const SettingDesc TABLE[] = {
     // Native (lane wave4-headinput, PLAN 4.4): head-look
     DB("vr", "head_look", head_look, 0, "native: experimental head-look: in pointer mode with the screen locked to the head or a room up, the head's turn moves the PC's mouse like a game's look control (for first-person games streamed in SBS); hold a grip bound to nothing, or a control bound to app:lookhold, to pause it; head_aim wins where both could act"),
     DI("vr", "head_look_px_deg", head_look_px_deg, HEAD_AIM_SENSITIVITY_MIN, HEAD_AIM_SENSITIVITY_MAX, HEAD_AIM_SENSITIVITY_DEFAULT, "native: head-look's mouse pixels a degree of head turn; the dead zone is head_aim_deadzone"),
+    // Native (lane wave4-headinput, PLAN 4.5): the head pose to opentrack
+    DB("vr", "opentrack", opentrack, 0, "native: while streaming, send the head pose to opentrack on the PC every frame as its UDP packet (x, y, z in cm, yaw, pitch, roll in degrees); in opentrack pick the input \"UDP over network\" on the same port"),
+    DS("vr", "opentrack_host", opentrack_host, "", "native: where the opentrack packets go, an address or a name; empty sends them to the PC of the current stream"),
+    DI("vr", "opentrack_port", opentrack_port, OPENTRACK_PORT_MIN, OPENTRACK_PORT_MAX, OPENTRACK_PORT_DEFAULT, "native: opentrack's UDP port, the one its UDP over network input listens on (4242 is its default)"),
     DI("vr", "scroll_speed", scroll_speed, SCROLL_SPEED_MIN, SCROLL_SPEED_MAX, SCROLL_SPEED_DEFAULT, "native: how fast a thumbstick scrolls, percent (100 is 7.5 notches a second at full tilt); the wheel is smooth, and the stick's sideways tilt scrolls sideways"),
     DB("vr", "gaze", gaze, 0, "checkbox_vr_gaze: look to point (native default off: with it on a controller takes the pointer back only on a press)"),
     DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),
