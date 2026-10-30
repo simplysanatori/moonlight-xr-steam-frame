@@ -5,6 +5,8 @@
 #   moonlight.log, moonlight.log.1, moonlight.previous.log, moonlight-console.log,
 #   moonlight-launcher.log, vrtiming.log     (the app logs, masked as below, last 20000 lines each)
 #   headset-note-1.txt ...                   (the newest notes from the in-VR "Report a problem" sheet, masked)
+#   ray.csv                                  (the newest ray recorder file, when MLXR_RAY_DEBUG made one: the header and
+#                                            its last 20000 rows, numbers only)
 #   config.ini                               (the settings you changed, numbers, on/off and fixed choices only)
 #   VERSION
 #   system.txt                               (SteamOS, SteamVR, Mesa/Turnip, kernel release, display rate)
@@ -65,6 +67,12 @@ for line in open(src, encoding="utf-8", errors="replace"):
         out.append("%s = %s" % (k, v))
 open(dst, "w").write("\n".join(out) + "\n")
 PY
+fi
+# the ray recorder's CSV (MLXR_RAY_DEBUG=1, docs/dev/ray-debug.md), newest of the report directory and the log directory's:
+# its header and the last 20000 rows. The recorder writes only numbers and fixed words.
+ray="$(ls -t "$OUTDIR"/ray-*.csv "$LOGDIR"/reports/ray-*.csv 2>/dev/null | head -n 1)"
+if [ -n "$ray" ] && [ -f "$ray" ]; then
+    { head -n 1 "$ray"; tail -n 20000 "$ray" | grep -v '^t_ns\|^t,'; } > "$WORK/raw/ray.csv"
 fi
 # the newest notes saved from the headset's "Report a problem" sheet
 n=0
