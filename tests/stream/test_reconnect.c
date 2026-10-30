@@ -242,6 +242,51 @@ static void testStableThenDrop(void) {
     CHECK(mlxr_reconnect_result(&r, MLXR_RC_OK, 5) == 0 && r.upMs == 2500);   // a result with no try under way is ignored
 }
 
+// Native (lane wave1-failover): a deliberate move to another network path. The stream is up, a series of tries
+// starts at once (500 ms) with all its tries, without the "connection lost" notice; a failed first try is followed
+// by the second as for a drop; a series already waiting is not doubled.
+static void testSwitch(void) {
+    Fake f;
+    memset(&f, 0, sizeof(f));
+    f.script[0] = MLXR_RC_OK;
+    f.scripted = 1;
+    MlxrReconnect r;
+    mlxr_reconnect_init(&r);
+    MlxrReconnectOps ops = opsFor(&f, 1);
+    f.now = 90000;
+    CHECK(mlxr_reconnect_switch(&r, f.now) == 1);
+    CHECK(r.state == MLXR_RC_WAITING && r.attempt == 1 && r.dueMs == 90500 && r.used == 0 && r.lastCode == MLXR_RC_CODE_SWITCH);
+    CHECK(f.noticed == 0);   // the caller says the move itself
+    CHECK(mlxr_reconnect_switch(&r, f.now) == 0 && r.dueMs == 90500);   // a series is waiting: not started twice
+    CHECK(mlxr_reconnect_poll(&r, &ops, 90499) == MLXR_RC_EV_WAITING && f.tries == 0);
+    f.now = 90500;
+    CHECK(mlxr_reconnect_poll(&r, &ops, f.now) == MLXR_RC_EV_RESUMED);
+    CHECK(f.tries == 1 && f.tryAt[0] == 90500 && !mlxr_reconnect_active(&r) && r.upMs == 90500);
+
+    // The first try fails: the second follows after the usual 5 s, then the series is over
+    memset(&f, 0, sizeof(f));
+    f.scripted = 0;
+    mlxr_reconnect_init(&r);
+    ops = opsFor(&f, 1);
+    f.now = 1000;
+    CHECK(mlxr_reconnect_switch(&r, f.now) == 1);
+    CHECK(runOut(&r, &ops, &f, 60000) == MLXR_RC_EV_GAVE_UP);
+    CHECK(f.tries == 2 && f.tryAt[0] == 1500 && f.tryAt[1] == 6500 && f.gaveUp == 1 && f.gaveUpCode == MLXR_RC_CODE_SWITCH);
+
+    // A try is under way or waiting after a drop: a switch is refused
+    mlxr_reconnect_init(&r);
+    CHECK(mlxr_reconnect_drop(&r, -100, 0) == 1);
+    CHECK(mlxr_reconnect_switch(&r, 10) == 0 && r.dueMs == 2000);
+    CHECK(mlxr_reconnect_due(&r, 2000) == 1 && r.state == MLXR_RC_TRYING);
+    CHECK(mlxr_reconnect_switch(&r, 2001) == 0);
+
+    // The code is no drop: a cancelled switch is forgotten like any series
+    mlxr_reconnect_init(&r);
+    CHECK(mlxr_reconnect_switch(&r, 0) == 1);
+    mlxr_reconnect_cancel(&r);
+    CHECK(!mlxr_reconnect_active(&r) && !mlxr_reconnect_retryable(MLXR_RC_CODE_SWITCH));
+}
+
 int main(void) {
     testCodes();
     testNoRetryForOtherCodes();
@@ -252,5 +297,6 @@ int main(void) {
     testCancel();
     testFlappingLinkDoesNotLoopForever();
     testStableThenDrop();
+    testSwitch();
     return checksDone("stream reconnect");
 }

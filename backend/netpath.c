@@ -1092,12 +1092,113 @@ int mlxr_net_kind_for_address(const char *addr)
     return kind;
 }
 
+/* Native (lane wave1-failover): the quality per path of the last choice, and a forced path for the next one */
+#define FORCE_VALID_MS 60000
+static pthread_mutex_t g_q_lock = PTHREAD_MUTEX_INITIALIZER;
+static mlxr_net_quality g_q;
+static mlxr_net_path g_force;
+static int64_t g_force_at_ms;
+
+void mlxr_net_quality_get(mlxr_net_quality *out)
+{
+    pthread_mutex_lock(&g_q_lock);
+    *out = g_q;
+    pthread_mutex_unlock(&g_q_lock);
+}
+
+void mlxr_net_quality_reset(void)
+{
+    pthread_mutex_lock(&g_q_lock);
+    memset(&g_q, 0, sizeof g_q);
+    g_force = MLXR_PATH_NONE;
+    pthread_mutex_unlock(&g_q_lock);
+}
+
+void mlxr_net_quality_abandon(mlxr_net_path path)
+{
+    if (path < MLXR_PATH_HOME || path > MLXR_PATH_USB) return;
+    pthread_mutex_lock(&g_q_lock);
+    g_q.p[path].present = false;
+    pthread_mutex_unlock(&g_q_lock);
+}
+
+void mlxr_net_force_path(mlxr_net_path path)
+{
+    pthread_mutex_lock(&g_q_lock);
+    g_force = path >= MLXR_PATH_HOME && path <= MLXR_PATH_USB ? path : MLXR_PATH_NONE;
+    g_force_at_ms = mono_ms();
+    pthread_mutex_unlock(&g_q_lock);
+}
+
+bool mlxr_net_force_pending(mlxr_net_path *path)
+{
+    pthread_mutex_lock(&g_q_lock);
+    bool on = g_force != MLXR_PATH_NONE && mono_ms() - g_force_at_ms <= FORCE_VALID_MS;
+    if (path) *path = on ? g_force : MLXR_PATH_NONE;
+    pthread_mutex_unlock(&g_q_lock);
+    return on;
+}
+
+static mlxr_net_path force_take(void)
+{
+    mlxr_net_path p = MLXR_PATH_NONE;
+    mlxr_net_force_pending(&p);
+    pthread_mutex_lock(&g_q_lock);
+    g_force = MLXR_PATH_NONE;
+    pthread_mutex_unlock(&g_q_lock);
+    return p;
+}
+
+/* After a choice: the best answering candidate of each path probed this time. An unforced choice starts the
+ * table afresh; a forced one only updates the paths it probed (the others keep what the start measured). */
+static void quality_note(const mlxr_net_plan *p, bool was_auto, bool forced)
+{
+    pthread_mutex_lock(&g_q_lock);
+    if (!forced) {
+        int gen = g_q.generation + 1;
+        memset(&g_q, 0, sizeof g_q);
+        g_q.generation = gen;
+        g_q.pref_auto = was_auto;
+        for (int k = 0; k < 4; k++) g_q.p[k].score_ms = -1;
+    }
+    g_q.valid = p->chosen >= 0;
+    g_q.chosen = p->chosen >= 0 ? p->chosen_path : MLXR_PATH_NONE;
+    int64_t now = mono_ms();
+    for (int path = MLXR_PATH_HOME; path <= MLXR_PATH_USB; path++) {
+        int best = -1;
+        bool probed = false;
+        for (int i = 0; i < p->n; i++) {
+            const mlxr_net_cand *c = &p->c[i];
+            if (c->path != (mlxr_net_path)path || c->skipped || !c->probed) continue;
+            probed = true;
+            if (answered(c) && (best < 0 || mlxr_net_score(c) < mlxr_net_score(&p->c[best]))) best = i;
+        }
+        if (!probed) continue;
+        mlxr_net_path_quality *q = &g_q.p[path];
+        q->present = best >= 0;
+        q->score_ms = best >= 0 ? mlxr_net_score(&p->c[best]) : -1;
+        q->probed_ms = now;
+        snprintf(q->address, sizeof q->address, "%s", best >= 0 ? p->c[best].address : "");
+    }
+    pthread_mutex_unlock(&g_q_lock);
+}
+
 int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
 {
     mlxr_netifs own;
     if (!t) {
         mlxr_netifs_read(&own);
         t = &own;
+    }
+    /* Native (lane wave1-failover): a failover asks for one path; it goes through the same steps as a path set by
+     * hand, without waiting for it to come up */
+    bool was_auto = p->pref == MLXR_NET_AUTO;
+    mlxr_net_path forced = force_take();
+    if (forced != MLXR_PATH_NONE) {
+        p->pref = forced == MLXR_PATH_HOME ? MLXR_NET_HOME : forced == MLXR_PATH_USB ? MLXR_NET_USB : MLXR_NET_ADAPTER;
+        p->source = "failover";
+        p->retry_ms = 0;
+        was_auto = true;
     }
     /* Native (lane netpath-quality): how the last streams went on each path */
     if (p->history_dir[0]) mlxr_nethist_load(p->history_dir, &p->hist);
@@ -1136,5 +1237,6 @@ int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
     int r = mlxr_net_choose(p);
     mlxr_net_log_plan(p);
     if (r >= 0) kind_note(p->c[r].address, mlxr_net_bitrate_kind(p->chosen_path, &p->c[r].link));
+    quality_note(p, was_auto, forced != MLXR_PATH_NONE);
     return r;
 }

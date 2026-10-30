@@ -383,6 +383,31 @@ int mlxr_net_bitrate_kind(mlxr_net_path p, const mlxr_net_link *l);
 /* The kind of the path mlxr_net_select last chose for this address (the chosen candidate's address, which is what
  * the app keeps as the PC's address for the stream); -1 when it never chose it. Thread safe. */
 int mlxr_net_kind_for_address(const char *addr);
+/* Native (lane wave1-failover): what the last choice measured per path, for a failover to another path in the
+ * middle of a stream (failover.h). Filled by mlxr_net_select; indexed by mlxr_net_path (1..3). Thread safe. */
+typedef struct {
+    bool present;               /* a candidate on this path answered the probe */
+    double score_ms;            /* its score (mlxr_net_score), -1 when not present */
+    int64_t probed_ms;          /* CLOCK_MONOTONIC milliseconds of that probe */
+    char address[128];
+} mlxr_net_path_quality;
+typedef struct {
+    bool valid;                 /* a choice was made */
+    bool pref_auto;             /* the setting was Automatic (a path set by hand is never left) */
+    mlxr_net_path chosen;
+    int generation;             /* counts the unforced choices (a new stream, a reconnect) */
+    mlxr_net_path_quality p[4];
+} mlxr_net_quality;
+void mlxr_net_quality_get(mlxr_net_quality *out);
+/* The stream left this path for another: it is not a candidate again until the next unforced choice. */
+void mlxr_net_quality_abandon(mlxr_net_path path);
+/* The next mlxr_net_select (within 60 s) goes for this path alone, with no retry wait; if nothing answers on it
+ * the other paths are tried as for a path set by hand. One shot. Used by the failover after a switch is decided. */
+void mlxr_net_force_path(mlxr_net_path path);
+/* Pure helpers for the tests: the same state without a plan. */
+void mlxr_net_quality_reset(void);
+bool mlxr_net_force_pending(mlxr_net_path *path);
+
 /* Address and port the stream should use: the chosen candidate's. */
 const char *mlxr_net_chosen_address(const mlxr_net_plan *p, uint16_t *port);
 

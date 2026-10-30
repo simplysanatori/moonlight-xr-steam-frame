@@ -41,3 +41,7 @@ target_link_libraries(test_servercmd PRIVATE mlxr_stream mlxr_xr)
 target_compile_definitions(test_servercmd PRIVATE
   SERVERCMD_INC="${PROJECT_SOURCE_DIR}/stream/commonc_servercmd.inc")
 add_test(NAME stream_servercmd COMMAND test_servercmd)
+# Lane wave1-failover: the failover loop against a fake session
+add_executable(test_failover test_failover.c)
+target_link_libraries(test_failover PRIVATE mlxr_stream)
+add_test(NAME stream_failover COMMAND test_failover)
