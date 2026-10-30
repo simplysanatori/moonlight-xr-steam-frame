@@ -26,7 +26,7 @@ if(Python3_FOUND)
   set_tests_properties(m4_snapshot_golden PROPERTIES FIXTURES_REQUIRED ui_snapshots SKIP_RETURN_CODE 77 TIMEOUT 600)
 endif()
 
-foreach(t prefs hits launcher budget vrkb panels_async kbbar stats replay hud place bindings)
+foreach(t prefs hits launcher budget vrkb panels_async kbbar stats replay hud place bindings lightgun splash)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/test_${t}.c)
     add_executable(test_m4_${t} test_${t}.c)
     target_link_libraries(test_m4_${t} PRIVATE m4_scene mlxr_launcher mlxr_stream)

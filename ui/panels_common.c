@@ -290,10 +290,12 @@ void ui_view_init(UiView* v, const Settings* s) {
     v->cog_tab = COG_TAB_SCREEN;
     v->room_env = -1;
     v->curve_ok = 1;
-    v->stereo_ok = s->depth_source != 2;
+    // native (PLAN 4.3): a host-rendered pair needs no depth model
+    v->stereo_source = s->stereo_source;
+    v->stereo_ok = s->depth_source != 2 || s->stereo_source != STEREO_SOURCE_DEPTH;
     v->env_selected = -1;
     v->bar_show_aim = s->head_locked;
-    v->bar_show_stereo = s->depth_source != 2;
+    v->bar_show_stereo = v->stereo_ok;
     v->hover.kind = UI_HIT_NONE;
     v->kb_sheet = KB_STATE_LOWER;
     v->kofi_url = "https://ko-fi.com/moonlightxr";
@@ -310,7 +312,7 @@ int ui_cog_row_count(int face) {
     if (face == COG_TAB_SCREEN) return COG_SCREEN_ROW_COUNT;
     if (face == COG_TAB_3D) return COG_ROW3D_COUNT;
     if (face == COG_FACE_ROOM) return COG_ROOM_ROW_COUNT;
-    if (face == COG_TAB_PICTURE) return PICTURE_VALUES;
+    if (face == COG_TAB_PICTURE) return PICTURE_TAB_ROWS;
     if (face == COG_TAB_ABOUT) return 0;
     return COG_DISPLAY_SLIDER_ROW + 1;
 }
@@ -338,7 +340,9 @@ int ui_cog_row_cells(int face, int row) {
              : row == COG_SCREEN_ROW_LOCK ? COG_SCREEN_LOCK_CELLS : 0;
     }
     if (face == COG_FACE_ROOM) return COG_ROOM_SWITCH_CELLS;
-    if (face == COG_TAB_3D) return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS : COG_STEREO_CELLS;
+    if (face == COG_TAB_3D) {
+        return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS : row == COG_ROW3D_SOURCE ? COG_SOURCE_CELLS : COG_STEREO_CELLS;
+    }
     return option_cells(row);
 }
 
@@ -350,7 +354,7 @@ int ui_cog_row_live(const UiView* v, int face, int row) {
         (row == COG_SLIDER_AIM_SENSITIVITY || row == COG_SLIDER_AIM_DEADZONE)) return head_locked;
     if (face == COG_TAB_DISPLAY && row >= 0 && row < 32 && (v->display_later & (1u << row))) return 0;
     if (face == COG_TAB_DISPLAY && row == COG_OPTION_HEAD_AIM) return head_locked && !in_room;
-    if (face == COG_TAB_3D) return v->stereo_ok;
+    if (face == COG_TAB_3D) return cog3dRowLive(v->stereo_ok, v->stereo_source, row);
     if (face == COG_FACE_ROOM && row == COG_ROOM_ROW_SIZE) return settings_room_resizable(v->room_env);
     return 1;
 }

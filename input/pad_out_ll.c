@@ -21,15 +21,16 @@ static int llState(void* user, short controllerNumber, short activeGamepadMask, 
                                       rightStickX, rightStickY);
 }
 
+static int llMotion(void* user, uint8_t number, uint8_t motionType, float x, float y, float z) {
+    (void)user;
+    return LiSendControllerMotionEvent(number, motionType, x, y, z);
+}
+
 void padOutUseLimelight(PadOutSink* sink) {
     sink->arrival = llArrival;
     sink->state = llState;
     sink->user = NULL;
-}
-
-static int llMotion(void* user, uint8_t number, uint8_t motionType, float x, float y, float z) {
-    (void)user;
-    return LiSendControllerMotionEvent(number, motionType, x, y, z);
+    sink->motion = llMotion;
 }
 
 static int llBattery(void* user, uint8_t number, uint8_t state, uint8_t percentage) {

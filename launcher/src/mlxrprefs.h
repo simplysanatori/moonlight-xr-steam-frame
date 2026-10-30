@@ -51,6 +51,21 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(bool strengthIsDefault MEMBER strengthIsDefault NOTIFY changed)
     Q_PROPERTY(int convergence MEMBER convergence NOTIFY changed)            // [3d] convergence, 0..100
     Q_PROPERTY(bool convergenceIsDefault MEMBER convergenceIsDefault NOTIFY changed)
+    // Native (lane wave3-visual): [3d] eye_balance, -100..100 percent: how the depth shift is shared by the
+    // eyes, 0 evenly, +100 all in the left eye, -100 all in the right (config and this mirror only, the
+    // headset's 3D tab has no row for it)
+    Q_PROPERTY(int eyeBalance MEMBER eyeBalance NOTIFY changed)
+    // Native (lane wave3-visual): the surroundings. [vr] background_dim, 0..100 percent the room, the
+    // passthrough or the void is dimmed; [vr] void_color, "#rrggbb", the void's colour; [display]
+    // glow_feather, "off", "soft" or "wide", the picture's edge faded into the glow
+    Q_PROPERTY(int backgroundDim MEMBER backgroundDim NOTIFY changed)
+    Q_PROPERTY(QString voidColor MEMBER voidColor NOTIFY changed)
+    Q_PROPERTY(QString glowFeather MEMBER glowFeather NOTIFY changed)
+    // Native (PLAN 4.3): [3d] stereo_source, where the 3D comes from: "depth" (default, the depth model),
+    // "sbs" (the PC renders a side by side pair) or "top-bottom"; [3d] sbs_full: that pair holds a full
+    // size picture per eye (3840x1080) rather than two squeezed halves (1920x1080)
+    Q_PROPERTY(QString stereoSource MEMBER stereoSource NOTIFY changed)
+    Q_PROPERTY(bool sbsFull MEMBER sbsFull NOTIFY changed)
     // Native (lane wave5-depth, PLAN 5.1): [3d] edge_sharpness, the Edge setting, 0..100 (0, the
     // default, is the soft edges the 3D always had)
     Q_PROPERTY(int edgeSharpness MEMBER edgeSharpness NOTIFY changed)
@@ -77,6 +92,16 @@ class MlxrPrefs : public QObject
     // before the same; 0 never, default 0)
     Q_PROPERTY(int doffDisconnect MEMBER doffDisconnect NOTIFY changed)
     Q_PROPERTY(int idleDisconnect MEMBER idleDisconnect NOTIFY changed)
+    // Native (lane wave4b-abr): [stream] bitrate_wifi, bitrate_adapter, bitrate_wired, bitrate_usb: the start bitrate in
+    // kbps for the network path the stream goes over; 0 uses the Video bitrate above (500..500000 otherwise). The
+    // VR client reads them from config.ini when the stream starts (a running stream's bitrate cannot change)
+    Q_PROPERTY(int bitrateWifi MEMBER bitrateWifi NOTIFY changed)
+    Q_PROPERTY(int bitrateAdapter MEMBER bitrateAdapter NOTIFY changed)
+    Q_PROPERTY(int bitrateWired MEMBER bitrateWired NOTIFY changed)
+    Q_PROPERTY(int bitrateUsb MEMBER bitrateUsb NOTIFY changed)
+    // Native (lane wave1-burst): [stream] rfi_idr_ms, at most one full-frame (IDR) request of the headset's
+    // own per this many ms after lost video (0 no limit, default 500, 0..5000)
+    Q_PROPERTY(int rfiIdrMs MEMBER rfiIdrMs NOTIFY changed)
     // Native (lane wave2b-padmouse): physical gamepads in the headset. [vr] pad_mouse_chord: what turns a pad
     // into the PC's mouse, "start_hold" (default), "start_back" or "off"; [vr] pad_mouse_scroll: the stick that
     // scrolls then, "right" (default), "left" or "none"; [vr] pad_arbitration: what a used pad does to the
@@ -84,6 +109,12 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(QString padMouseChord MEMBER padMouseChord NOTIFY changed)
     Q_PROPERTY(QString padMouseScroll MEMBER padMouseScroll NOTIFY changed)
     Q_PROPERTY(QString padArbitration MEMBER padArbitration NOTIFY changed)
+    // Native (lane wave2-lightgun-gyro): [vr] lightgun, the lightgun pointer policy, "auto" (default: on while the
+    // controller model is the gun), "on" or "off"; [vr] pad_gyro, what the headset controllers' gamepad sends as
+    // gyro to the PC, "off" (default), "controller" or "head". The rest (lightgun_reload, lightgun_recoil,
+    // pad_gyro_ratchet) are in the file only
+    Q_PROPERTY(QString lightgun MEMBER lightgun NOTIFY changed)
+    Q_PROPERTY(QString padGyro MEMBER padGyro NOTIFY changed)
     // ---- PC VR: Valve's Steam Link stream of the PC (lane wave4-pcvr, PLAN 4.1, 4.2, 4.9) ----
     // The Host sheet's PC VR button ends the stream and the launcher asks Steam to stream pcvrApp (a Steam
     // app id; empty: open Steam's library) from the Remote Play PC pcvrClient (a Remote Play client id; empty:
@@ -183,6 +214,12 @@ public:
     bool strengthIsDefault;
     int convergence;
     bool convergenceIsDefault;
+    int eyeBalance = 0;
+    int backgroundDim = 0;
+    QString voidColor = QStringLiteral("#000000");
+    QString glowFeather = QStringLiteral("off");
+    QString stereoSource;
+    bool sbsFull = false;
     int edgeSharpness = 0;
     int motionReset = 0;
     int depthScale = 100;
@@ -194,9 +231,13 @@ public:
     QString controllerModel;
     int doffDisconnect = 60;
     int idleDisconnect = 0;
+    int bitrateWifi = 0, bitrateAdapter = 0, bitrateWired = 0, bitrateUsb = 0;
+    int rfiIdrMs = 500;
     QString padMouseChord;
     QString padMouseScroll;
     QString padArbitration;
+    QString lightgun;
+    QString padGyro;
     QString pcvrApp;
     QString pcvrAppName;
     QString pcvrClient;
@@ -215,9 +256,16 @@ private:
     int m_iniScrollSpeed = 100;
     QString m_iniControllerModel = "off";
     int m_iniDoff = 60, m_iniIdle = 0;
+    int m_iniBitrateWifi = 0, m_iniBitrateAdapter = 0, m_iniBitrateWired = 0, m_iniBitrateUsb = 0;
+    int m_iniRfiIdr = 500;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
+    QString m_iniLightgun = "auto", m_iniPadGyro = "off";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
+    int m_iniEyeBalance = 0, m_iniBackgroundDim = 0;
+    QString m_iniVoidColor = QStringLiteral("#000000"), m_iniGlowFeather = QStringLiteral("off");
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
+    QString m_iniStereoSource = QStringLiteral("depth");
+    bool m_iniSbsFull = false;
     int m_iniEdgeSharpness = 0, m_iniMotionReset = 0, m_iniDepthScale = 100, m_iniDepthGlobal = 100;
     bool m_usbCable = false, m_usbScanned = false;
     QString m_pcvrStatus, m_pcvrBase;

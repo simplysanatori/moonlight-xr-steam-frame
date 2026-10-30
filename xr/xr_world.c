@@ -257,6 +257,7 @@ MlxrTarget xrEyeTarget(const XrEyeTargets* t, int eye) {
     m.rect.offset.x = t->x[eye];
     m.rect.extent = (VkExtent2D){ (uint32_t)t->eyeW, (uint32_t)t->eyeH };
     m.clear = t->clear;
+    memcpy(m.clearColor, t->clearColor, sizeof(m.clearColor));
     return m;
 }
 
@@ -628,7 +629,11 @@ void xrWorldPlanLayers(XrCtx* ctx, int pictureProjected) {
     ctx->roomInPicture = one && pictureProjected && room;
     ctx->modelsInPicture = one && pictureProjected && ctx->modelsShowing;
     ctx->modelsInRoom = one && !pictureProjected && room && ctx->modelsShowing;
-    ctx->passthroughInPicture = one && !ownPassthrough && pictureProjected && ctx->passthrough;
+    // Native (lane wave3-visual): passthrough's layer, which is also the void's
+    // colour when it has one
+    float backdrop[4];
+    ctx->passthroughInPicture = one && !ownPassthrough && pictureProjected
+            && (ctx->passthrough || xrBackdropColor(ctx, 0, backdrop));
     int now = ctx->roomInPicture | (ctx->modelsInPicture << 1) | (ctx->modelsInRoom << 2)
             | (ctx->passthroughInPicture << 3);
     if (now != was) {
@@ -750,7 +755,8 @@ void xrWorldVideoFrame(XrCtx* ctx, const MlxrVideo* video) {
     // Letterbox detection, once every so many frames the colour sample ran:
     // last time's readback first (its frame has finished), then this frame's
     // request if it is due
-    if (sampled && ctx->ambiBarDetect) {
+    // (native, PLAN 4.3: not on a host-rendered pair)
+    if (sampled && ambiBarDetectOn(ctx)) {
         finishAmbiBarDetect(ctx);
         ctx->ambiBarCounter++;
         if (ctx->ambiBarCounter >= AMBI_BAR_PERIOD) {
