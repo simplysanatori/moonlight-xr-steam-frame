@@ -4,13 +4,16 @@
 
 ### Streaming
 
-- Each connection can start at its own bitrate: **Bitrate over Wi-Fi**, **over the Steam Frame Wireless Adapter**, **over a wired network** and **over the USB cable** under Connection. **Same as above** (the default) uses the Video bitrate.
-- The Video bitrate row and `config.ini` go up to 500 Mbps.
+- Each connection can start at its own bitrate: **Bitrate over Wi-Fi**, **Bitrate over the Steam Frame Wireless Adapter**, **Bitrate over a wired network** and **Bitrate over the USB cable** under Connection. **Same as above** (the default) uses the Video bitrate.
+- The **Video bitrate** row and `config.ini` go up to 500 Mbps.
+- PLACEHOLDER: the **Video bitrate** slider under Connection. <!-- pending lane -->
 - A dropped connection reconnects by itself: the headset keeps the room, the screen's place and the 3D, and asks the PC to resume the same app twice (after 2 and 5 seconds) before the flat window comes back.
 - Taking the headset off mutes the sound and lets go of every key and button held on the PC. After 60 seconds off, the stream disconnects and the game keeps running on the PC (`[stream] doff_disconnect`, 0 for never).
 - **Disconnect when idle** ends the stream after a set time with no input; the game keeps running (off by default).
-- After lost video the headset waits for the PC's quick repair as long as the link needs before it asks for a full frame, and **Full-frame requests after lost video** limits how often it asks (500 ms by default), so a bad moment on Wi-Fi does not turn into a longer freeze.
-- **Virtual surround** places 5.1 and 7.1 speakers around you in stereo and keeps them in place as you turn your head (off by default).
+- After lost video the headset waits for the PC's quick repair as long as the link needs before it asks for a full frame, so a bad moment on Wi-Fi does not turn into a longer freeze.
+- **Full-frame requests after lost video** limits how often the headset asks the PC for a full frame (500 ms by default).
+- **Virtual surround** keeps the 5.1 and 7.1 speakers in place as you turn your head, and has a switch on the Settings page (off by default).
+- PLACEHOLDER: **Virtual surround** on stereo. <!-- pending lane -->
 - The sound mutes while the SteamVR dashboard is open, and everything held down on the PC is let go.
 - The Moonlight XR logo with "Connecting to *PC name*..." shows while a stream starts, and "Reconnecting..." while it reconnects.
 
@@ -18,59 +21,89 @@
 
 - A USB data cable between the headset and the PC is a third connection: **USB cable** under Network connection, and Automatic tries it too. It needs the headset in developer mode.
 - **Switch network when video keeps breaking up** moves a stream that keeps losing video to another link that measured clearly better when it started; **Video loss before switching** sets how much loss that takes. Off by default, and only with Network connection on Automatic.
+- `moonlight.log` tells video lost on the network apart from Wi-Fi power saving and packets dropped inside the headset, with a summary of each burst of loss, for bug reports.
 
 ### The picture
 
-- Small text on a curved or 3D screen is sharper: **Sharper small text** averages the stream under each of the headset's pixels, and **Sharper coloured text** keeps red, blue and syntax-coloured text in colour to its edge. Both are on by default.
-- **Sharpen** on a curved or 3D screen now works at the headset's own pixels, crisps black text on white and never rings past an edge.
+- **Sharper small text** averages the stream under each of the headset's pixels on a curved or 3D screen, so small text is sharper (on by default).
+- **Sharper coloured text** keeps red, blue and syntax-coloured text in colour to its edge on a curved or 3D screen (on by default).
+- **Sharpen** (Settings page: **Sharpening**) on a curved or 3D screen now works at the headset's own pixels, crisps black text on white and never rings past an edge.
+- PLACEHOLDER: **Sharpen** is Normal by default, with its colour fix and a calmer Quality. <!-- pending lane -->
 - Zoom and pan: bind `app:zoomin`, `app:zoomout` and `app:zoomreset` to show a part of the picture filling the screen, from 100 to 400 %. Zoom in aims at where the controller points, and the zoom is kept for each app.
-- The Screen tab's **Preset** row: **Desk** (1.2 m away, 1.6 m wide), **Couch** (2.5 m, 2.6 m), **Cinema** (4 m, 5 m) and **Bring here**, which puts the screen where you look.
-- **Remember per app** keeps the screen's place, the head lock and the 3D state for each PC and app (on by default; **Forget** drops what is kept for the app now streaming).
-- **Follow**, a third choice of the Head locked row: the screen stays put until your head turns more than 25° away, then glides after you (`follow_leash_deg`, 10 to 60°).
-- **Angular-size lock**: pushing or pulling the held screen with the thumbstick keeps its size in your view (on by default).
-- The Picture tab's **Background** dims the room, the passthrough or the void from 0 to 100 %, and **Glow edge** fades the picture's edge into the glow (Soft or Wide; off by default). `[vr] void_color` sets the colour of the void.
+- The Settings page's **Zoom** row sets the zoom a stream starts with.
+- The Screen tab's **Preset** row: **Desk** (1.2 m away, 1.6 m wide), **Couch** (2.5 m, 2.6 m) and **Cinema** (4 m, 5 m).
+- The Screen tab's **Bring here** puts the screen where you look, as far away and as large as it was (also `app:bringhere` in `bindings.ini`).
+- **Remember per app** (Settings page: **Remember the screen per app**) keeps the screen's place, the head lock, the 3D state and the zoom for each PC and app (on by default; **Forget** drops what is kept for the app now streaming).
+- **Follow**, a third choice of the Head locked row (Settings page: **Screen follows your head**): the screen stays put until your head turns more than 25° away, then glides after you (**Follow after turning**, 10 to 60°).
+- **Angular-size lock** (Settings page: **Keep the screen's size when pushing or pulling it**): pushing or pulling the held screen with the thumbstick keeps its size in your view (on by default).
+- The Picture tab's **Background** (Settings page: **Dim the surroundings**) dims the room, the passthrough or the void from 0 to 100 % (0 by default).
+- The Picture tab's **Glow edge** fades the picture's edge into the glow, **Soft** or **Wide** (off by default).
+- **Void colour** on the Settings page (`[vr] void_color`) sets the colour of the black void.
 
 ### 3D
 
-- **3D source** shows a side-by-side or top-bottom pair the PC renders itself (3D films, games with an SBS mode, ReShade's SuperDepth3D) instead of the depth model, with no depth lag. **Full-size SBS** is for a full picture per eye. The bar's 3D button reads SBS or TB.
-- The sliver each eye sees behind a person or an object is filled from the background, so outlines are as sharp in both eyes. On by default.
-- New rows on the 3D tab and the Settings page: **Edge Sharpness**, **Motion Reset**, **Depth Detail** and **Depth Shape**. At their defaults the picture is as before.
-- **3D Eye Balance** shares the 3D shift between the two eyes, or puts all of it in one (`[3d] eye_balance`).
+- **3D source** shows a side-by-side or top-bottom pair the PC renders itself (3D films, games with an SBS mode, ReShade's SuperDepth3D) instead of the depth model, with no depth lag. The bar's 3D button reads SBS or TB.
+- **Full-size SBS** is for a PC pair with a full picture per eye (off by default).
+- The sliver each eye sees behind a person or an object is filled from the background, so outlines are as sharp in both eyes (on by default).
+- **Edge** on the 3D tab (Settings page: **3D Edge Sharpness**) keeps hair, outlines and thin text on their own depth instead of blending them into what is behind.
+- **Motion reset** (Settings page: **3D Motion Reset**) restarts the depth smoothing where the picture changes fast, so moving edges leave no trail.
+- **Depth detail** (Settings page: **3D Depth Detail**) scales the depth between things near each other without moving the whole picture in or out.
+- **Depth shape** (Settings page: **3D Depth Shape**) scales the depth of the picture as a whole toward the screen.
+- **Eye balance** (Settings page: **3D eye balance**) shares the 3D shift between the two eyes, or puts all of it in one.
+- At their defaults the five new 3D rows leave the picture as before.
 
 ### Controllers and input
 
-- `bindings.ini` changes what each controller button does, in pointer and gamepad mode, for every app or for one app. The flat window's **Controller bindings** page edits it, and a change applies at the next stream.
-- Lightgun mode: with Show controllers on Gun, clicks land exactly where the gun points, each shot gives a recoil pulse, and **Lightgun reload** makes a pull off the picture a right click (off by default).
+- New pointer-mode buttons: X turns 3D on or off, Y shows or hides the headset keyboard, the right Menu button opens the cog, d-pad up turns the screen round to where you face, and the bumpers are Back and Forward. D-pad left stays free.
+- `bindings.ini` changes what each controller button does, in pointer and gamepad mode, for every app or for one app, and a change applies at the next stream.
+- The flat window's **Controller bindings** page edits `bindings.ini`.
+- **Show controllers** on the Display tab chooses what is drawn in each hand: **Off** (the default), **Frame** or **Gun**.
+- The **Gun** is a G17 Gen 5 with a weapon light, held like a light gun with the muzzle on the dot and a trigger that moves with yours (model by 8sianDude, CC BY 4.0; see CREDITS.md). A `gun_left.model` and `gun_right.model` pair of your own in the models folder replaces it.
+- **Your own model** (Settings page's **Show controllers**, or `controller_model = custom`) draws a controller model you made yourself from `~/.config/moonlight-xr/models/`; [CUSTOM_MODELS.md](CUSTOM_MODELS.md) explains how to convert one.
+- Lightgun mode: with Show controllers on Gun, clicks land exactly where the gun points and each shot gives a recoil pulse (**Lightgun recoil**, on by default).
+- **Lightgun reload** makes a trigger pull that starts off the picture a right click, for games that reload with a shot off the screen (off by default).
 - **Gyro from the headset** sends the right controller's or your head's turn to the PC as the gyro of a PlayStation gamepad in gamepad mode, for gyro aiming in Steam Input (off by default). **When the gyro is sent** can limit it to while your thumb touches the right stick.
 - Bluetooth gamepads pass their gyro, accelerometer, battery, touchpad and light bar to the PC (needs DS4 emulation on the PC).
-- Hold Start on a Bluetooth or USB gamepad for a second and it becomes the PC's mouse; hold it again to give it back (**Gamepad as mouse**).
+- **Gamepad as mouse**: hold Start on a Bluetooth or USB gamepad for a second and it becomes the PC's mouse; hold it again to give it back.
 - **When a gamepad is connected**: a Bluetooth gamepad in use takes the Frame controllers' gamepad off the PC, so the controllers point again.
-- In gamepad mode, left View and right Menu held together for a quarter of a second is the Guide button. **Back button as Guide** makes View the Guide button on its own (off by default).
-- The grips in gamepad mode can be the bumpers, the stick clicks or nothing (**Grips in gamepad mode**), and **Adjust analog stick deadzone** now applies to the Frame controllers too.
-- Rumble reaches both hands by default, the trigger motors included, with **Rumble strength on the headset controllers** to turn it down.
-- **Click steadiness** (Off, Normal, Steady) holds the cursor still around a click so double clicks land on the same spot, and thumbstick scrolling is smooth, with `scroll_speed` for its speed.
+- **Flip face buttons** now applies to Bluetooth and USB gamepads too.
+- In gamepad mode, left View and right Menu held together for a quarter of a second is the Guide button.
+- **Back button as Guide** makes View the Guide button on its own (off by default).
+- **Grips in gamepad mode**: the grips can be the bumpers (the default), the stick clicks or nothing.
+- **Adjust analog stick deadzone** now applies to the Frame controllers too.
+- Rumble reaches both hands by default, the trigger motors included.
+- **Rumble strength on the headset controllers** turns the controllers' rumble down.
+- **Click steadiness** (Off, Normal, Steady) holds the cursor still around a click so double clicks land on the same spot.
+- Thumbstick scrolling is smooth, with `scroll_speed` in `config.ini` for its speed.
 - **Mouse mode** Relative sends how far the pointer moves instead of where it is, for games that capture the mouse (Absolute by default).
-- Head-look (experimental, off by default): with the screen head locked or in a room, your head's turn moves the PC's mouse for first-person games; hold a grip to turn back without turning the game.
+- **Head-look (experimental)**: with the screen head locked or in a room, your head's turn moves the PC's mouse for first-person games; hold a grip to turn back without turning the game (off by default).
 - **Head tracking to opentrack** sends your head's position and turn to opentrack on the PC, for simulators that take TrackIR or FreeTrack (off by default).
 - **What points** can be your head instead of a controller, with an optional click by resting the dot (`head_dwell_ms`), for when holding a controller up is hard (off by default).
-- A gamepad card hangs in your lap while a Bluetooth or USB gamepad is in use and lights up what you press on it (**Gamepad card in the headset**: Automatic, On, Off).
+- PLACEHOLDER: an **Accessibility** tab with the head pointer and dwell click (early); eye tracking only when SteamVR provides it. <!-- pending lane -->
+- A gamepad card hangs in your lap while a Bluetooth or USB gamepad is in use and lights up what you press on it (**Gamepad card in the headset**: Auto, On, Off).
 
 ### The bar and menus
 
 - **Bring here**, outermost on the bar's left, switches the screen between the Screen tab's Desk preset and the place it had before, exactly as you left it (Cinema when nothing is remembered). It does not follow your head, and the place it goes back to is kept across restarts.
 - A **Host** button on the bar opens the Host sheet (also `app:host` in `bindings.ini`).
 - Exit on the bar asks **Quit app**, **Disconnect** (the game keeps running on the PC) or **Cancel**.
-- The cog opens on the tab you used last, and the Display tab has the controller rows together: Mode, Show controllers, Ray, Pointer sleep, Click steadiness and Click sound.
-- **Notices** (All, Important, Off) chooses which pop-ups appear under the picture.
-- The cog's **Ray** row (Off, Dot, Ray) is kept for the next session and shows at once with the cog open. With the ray off, a faint beam still shows over the bar so you can find it.
-- Stats has two shorter styles, **HUD** and **Lite** (`stats_style`). The clock strip shows the headset's battery and a **Slow connection** badge when frames are being lost.
+- The cog opens on the tab you used last.
+- The Display tab has the controller rows together: **Mode**, **Show controllers**, **Ray**, **Pointer sleep**, **Click steadiness** and **Click sound**.
+- **Notices** (All, Important, Off; Settings page: **Headset notices**, with **Important only**) chooses which pop-ups appear under the picture.
+- The cog's **Ray** row (Off, Dot, Ray) is kept for the next session and shows at once with the cog open.
+- With the ray off, a faint beam still shows over the bar so you can find it.
+- Stats has two shorter styles, **HUD** and **Lite** (**Stats style** on the Settings page, `stats_style`). The HUD also shows the compositor's frame times and dropped frames when SteamVR reports them.
+- With Stats on, `perf-<date>-<time>.csv` next to `vrtiming.log` gets a row of figures every 5 seconds, for comparing runs.
+- The clock strip shows the headset's battery.
+- A **Slow connection** badge shows in the clock strip while frames are being lost.
 - A card lists the controls the first time you stream after installing (**Controls card on the next stream** shows it again).
 - The headset's menus, keyboard and notices can be in 19 languages besides English (**Headset language**). Chinese, Japanese and Korean need the Noto Sans CJK fonts on the Frame.
 - The report sheet has **Save and zip**, which runs `bug-report.sh` and shows where the zip is.
 
 ### Keyboard and host
 
-- The **Host** sheet sends keys that are awkward to reach in one press (Esc, Win, Win+D, Alt+Enter, Ctrl+Alt+Tab, Ctrl+Shift+Esc, Alt+F4 after asking, and more), **Send keys...** for any combo, and up to eight of your own macros from `macros.ini`.
+- The **Host** sheet sends keys that are awkward to reach in one press (Esc, Win, Win+D, Alt+Enter, Ctrl+Alt+Tab, Ctrl+Shift+Esc, Alt+F4 after asking, and more), and **Send keys...** for any combo.
+- Up to eight macros of your own from `macros.ini` show on the Host sheet.
 - With an Apollo PC, the Host sheet's **Clipboard, commands** page has **Paste from PC** (types the PC's clipboard), **Send text to PC** (puts what you type on the PC's clipboard) and the server commands set up in Apollo.
 - The headset keyboards have AZERTY (French) and QWERTZ (German) layouts (**Headset keyboard layout**), with dead keys on the Full keyboard.
 - A row of media keys under both keyboards: previous, play/pause, next, mute, volume down and up, for the PC's own player and volume.
@@ -83,18 +116,19 @@
 - The Settings page has a **Search settings** field and a button for each category.
 - The Settings page has rows for the headset settings that were only in `config.ini` or the cog menu: the picture, the pointer, the keyboard, gamepad mode, the environment and the screen.
 - The flat window checks once a day whether a newer release is out on GitHub and then shows an update button that opens its release page. Nothing is downloaded or sent; **Check for updates** in Settings turns it off.
-- **On start** in Settings opens the last PC's Desktop, or an app you choose, as soon as the PC is online.
+- **On start** in Settings opens the last PC's Desktop, or an app you choose, as soon as the PC is online, and wakes the PC first.
 - **Help** opens the readme in Steam's browser in Game Mode, as the Ko-fi page does.
 - Apollo apps are started by their UUID as well as their number, as Artemis does, so Apollo knows when that app is already running.
 
 ### Install
 
 - `install.sh --desktop-shortcut` adds a second Steam shortcut, **Desktop in VR**, that goes straight to the PC's Desktop.
-- The release is also written as a `.zip` with the same files and modes as the `.tar.gz`, for the community installers Frametanium and FrameDrop. `install.sh` now keeps a log in `~/Games/MoonlightXRNative/install.log`, never waits for input, and when Steam is not running it installs the files, says that the Steam shortcut was skipped and exits 0.
+- The release is also written as a `.zip` with the same files and modes as the `.tar.gz`, for the community installers Frametanium and FrameDrop.
+- `install.sh` keeps a log in `~/Games/MoonlightXRNative/install.log` and never waits for input; when Steam is not running it installs the files, says that the Steam shortcut was skipped and exits 0.
 
 ### Changed
 
-- **Show controllers** is Off, Frame or Gun. The Gun model is now a G17 Gen 5 with a weapon light (credit: 8sianDude, CC BY 4.0; see CREDITS.md); a `gun_left.model` and `gun_right.model` pair of your own in the models folder replaces it.
+- The Display tab's Controller model row (Off, On) is now **Show controllers** (Off, Frame, Gun). When SteamVR's Frame models could not be converted, no controller is drawn instead of a plain one.
 - The About tab's Ko-fi button reads **Support simplysanatori on Ko-fi** and its sheet opens this port's page in Steam's browser; the QR code is gone.
 
 ### Fixed
