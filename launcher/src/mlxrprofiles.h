@@ -14,8 +14,8 @@
 // When a stream starts (MlxrHandoff::makePlan), beginLaunch() puts the profile's values into the settings in force
 // and writes its config.ini keys, which only lasts as long as the Applied object that comes back. Nothing is saved
 // to the launcher's settings: the Settings page's own values were never changed on disk. When it ends the stream
-// settings go back, a config.ini key goes back to the value it had unless the headset changed it meanwhile, and
-// MlxrPrefs reads its settings again. The config.ini keys are written to disk, so what has to go back is also noted
+// settings go back, config.ini goes back as it was (byte for byte when nothing else changed it; else key by key, a
+// key the headset changed meanwhile keeping the headset's value), and MlxrPrefs reads its settings again. The config.ini keys are written to disk, so what has to go back is also noted
 // in the launcher's settings ("mlxr_profile_pending") until then; if the launcher is killed during a stream, the next
 // start puts them back.
 #pragma once
@@ -55,6 +55,10 @@ public:
             QString section, key, old, applied;
         };
         QVector<Ini> ini;
+        // config.ini as a whole before and after the profile's keys were written: when the file is still as the
+        // profile left it at the end, it goes back byte for byte (else key by key, keeping the headset's changes)
+        QByteArray fileBefore, fileDuring;
+        bool fileExisted = false;
         bool ended = false;
         void end();
     };

@@ -6,8 +6,10 @@
 
 #include <QDateTime>
 #include <QDebug>
+#include <QFile>
 #include <QMetaProperty>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QSettings>
 #include <QTextStream>
 
@@ -73,6 +75,11 @@ const PrefField kPrefFields[] = {
     { "strengthIsDefault", KBool, 0, 0, nullptr },
     { "convergence", KInt, 0, 100, nullptr },
     { "convergenceIsDefault", KBool, 0, 0, nullptr },
+    // lane wave5-depth's 3D rows
+    { "edgeSharpness", KInt, 0, 100, nullptr },
+    { "motionReset", KInt, 0, 50, nullptr },
+    { "depthScale", KInt, 0, 200, nullptr },
+    { "depthGlobal", KInt, 0, 200, nullptr },
     { "flipFaceButtons", KBool, 0, 0, nullptr },
     { "notices", KStr, 0, 0, "|all|important|off|" },
     { "scrollSpeed", KInt, 25, 400, nullptr },
@@ -247,6 +254,27 @@ QString summaryOf(const QVariantMap& v)
         p << QObject::tr("software decoding");
     }
     return p.join(", ");
+}
+
+QByteArray readWhole(const QString& path, bool* exists)
+{
+    QFile f(path);
+    *exists = f.open(QIODevice::ReadOnly);
+    return *exists ? f.readAll() : QByteArray();
+}
+
+// config.ini back to what it held before the profile (or gone, if there was none); false when it could not be
+bool putBack(const QString& path, const QByteArray& before, bool existed)
+{
+    if (!existed) {
+        return QFile::remove(path) || !QFile::exists(path);
+    }
+    QSaveFile out(path);
+    if (!out.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    out.write(before);
+    return out.commit();
 }
 
 QString printable(const QVariant& v)
@@ -651,9 +679,11 @@ std::shared_ptr<MlxrProfiles::Applied> MlxrProfiles::beginLaunch(const QString& 
         }
     }
     if (!a->ini.isEmpty()) {
+        a->fileBefore = readWhole(ini, &a->fileExisted);
         // noted before the file is touched, so a launcher that dies during the stream is put right at its next start
         QSettings s;
         s.remove("mlxr_profile_pending");
+        s.remove("mlxr_profile_pending_file");
         s.beginWriteArray("mlxr_profile_pending", int(a->ini.size()));
         for (int i = 0; i < a->ini.size(); i++) {
             s.setArrayIndex(i);
@@ -667,6 +697,12 @@ std::shared_ptr<MlxrProfiles::Applied> MlxrProfiles::beginLaunch(const QString& 
         for (const Applied::Ini& e : a->ini) {
             MlxrPrefs::setIniValue(ini, e.section, e.key, e.applied);
         }
+        bool now = false;
+        a->fileDuring = readWhole(ini, &now);
+        s.setValue("mlxr_profile_pending_file/before", a->fileBefore);
+        s.setValue("mlxr_profile_pending_file/during", a->fileDuring);
+        s.setValue("mlxr_profile_pending_file/existed", a->fileExisted);
+        s.sync();
     }
     qInfo().noquote() << "MLXR_LAUNCHER_PROFILE: using" << a->profile << "for" << pc << "/" << app << "-"
                       << summaryOf(m_profiles[pi].values) << "(" << a->ini.size() << "config.ini keys changed)";
@@ -690,18 +726,25 @@ void MlxrProfiles::Applied::end()
     }
     MlxrPrefs* mp = MlxrPrefs::get();
     const QString file = mp->configIniPath();
-    for (const Ini& e : ini) {
-        // a key the headset changed while the stream ran keeps the headset's value
-        if (sameIniValue(MlxrPrefs::iniValue(file, e.section, e.key, e.applied), e.applied)) {
-            MlxrPrefs::setIniValue(file, e.section, e.key, e.old);
-        }
-        else {
-            qInfo().noquote() << "MLXR_LAUNCHER_PROFILE: config.ini" << e.section << e.key << "was changed during the stream, left as it is";
+    bool now = false;
+    if (!ini.isEmpty() && readWhole(file, &now) == fileDuring && now && putBack(file, fileBefore, fileExisted)) {
+        qInfo().noquote() << "MLXR_LAUNCHER_PROFILE: config.ini is as it was before the stream";
+    }
+    else {
+        for (const Ini& e : ini) {
+            // a key the headset changed while the stream ran keeps the headset's value
+            if (sameIniValue(MlxrPrefs::iniValue(file, e.section, e.key, e.applied), e.applied)) {
+                MlxrPrefs::setIniValue(file, e.section, e.key, e.old);
+            }
+            else {
+                qInfo().noquote() << "MLXR_LAUNCHER_PROFILE: config.ini" << e.section << e.key << "was changed during the stream, left as it is";
+            }
         }
     }
     if (!ini.isEmpty()) {
         QSettings s;
         s.remove("mlxr_profile_pending");
+        s.remove("mlxr_profile_pending_file");
         s.sync();
     }
     mp->reloadAll();
@@ -712,13 +755,21 @@ void MlxrProfiles::Applied::end()
 void MlxrProfiles::recoverPending()
 {
     QSettings s;
+    const QByteArray before = s.value("mlxr_profile_pending_file/before").toByteArray();
+    const QByteArray during = s.value("mlxr_profile_pending_file/during").toByteArray();
+    const bool existed = s.value("mlxr_profile_pending_file/existed", true).toBool();
     const int n = s.beginReadArray("mlxr_profile_pending");
     if (n <= 0) {
         s.endArray();
         return;
     }
     const QString file = MlxrPrefs::get()->configIniPath();
-    for (int i = 0; i < n; i++) {
+    bool now = false;
+    const bool whole = !during.isEmpty() && readWhole(file, &now) == during && now && putBack(file, before, existed);
+    if (whole) {
+        qInfo().noquote() << "MLXR_LAUNCHER_PROFILE: put config.ini back as it was (the last stream ended without it)";
+    }
+    for (int i = 0; i < n && !whole; i++) {
         s.setArrayIndex(i);
         const QString section = s.value("section").toString();
         const QString key = s.value("key").toString();
@@ -731,6 +782,7 @@ void MlxrProfiles::recoverPending()
     }
     s.endArray();
     s.remove("mlxr_profile_pending");
+    s.remove("mlxr_profile_pending_file");
     s.sync();
     MlxrPrefs::get()->reloadAll();
 }

@@ -329,7 +329,7 @@ pops() { MLXR_LAUNCHER_SELFTEST="profileops:$1" "$L" 2>"$t/stderr"; }
 pplan() { MLXR_LAUNCHER_DRYRUN=1 MLXR_NATIVE_CLIENT= MLXR_LAUNCHER_SELFTEST="plan:$1" "$L" 2>"$t/stderr"; }
 setconf width=2560 height=1440 fps=90 bitrate=80000 videocfg=0
 SECTION=mlxr setconf match_headset_fps=true virtual_display=false scale_factor=100 custom_refresh_rate=
-out="$(pops 'set|width|1920~set|height|1080~set|fps|60~set|bitrateKbps|20000~set|matchHeadsetFps|false~create|Desktop~set|width|3840~set|height|2160~set|fps|120~set|bitrateKbps|150000~set|virtualDisplay|true~set|scaleFactor|150~set|perfOverlay|true~set|notices|off~set|networkPath|adapter~create|Game~create|desktop~create|Default~create|~duplicate|Game~rename|Game copy|Cinema~rename|Nope|X~assign|gaming-pc||Desktop~assign|gaming-pc|Desktop|Game~assign|gaming-pc|Desktop|Nope~dump')"
+out="$(pops 'set|width|1920~set|height|1080~set|fps|60~set|bitrateKbps|20000~set|matchHeadsetFps|false~create|Desktop~set|width|3840~set|height|2160~set|fps|120~set|bitrateKbps|150000~set|virtualDisplay|true~set|scaleFactor|150~set|perfOverlay|true~set|notices|off~set|depthScale|150~set|networkPath|adapter~create|Game~create|desktop~create|Default~create|~duplicate|Game~rename|Game copy|Cinema~rename|Nope|X~assign|gaming-pc||Desktop~assign|gaming-pc|Desktop|Game~assign|gaming-pc|Desktop|Nope~dump')"
 echo "$out" | sed 's/^/    /'
 expect "profiles: made from the settings in force" "$out" "create|Desktop -> ok"
 expect "profiles: a second one" "$out" "create|Game -> ok"
@@ -341,7 +341,7 @@ expect "profiles: rename" "$out" "rename|Game copy|Cinema -> ok"
 expect "profiles: rename of a missing one" "$out" "rename|Nope|X -> There is no profile called Nope."
 expect "profiles: an unknown profile is not assigned" "$out" "assign|gaming-pc|Desktop|Nope -> There is no profile called Nope."
 expect "profiles: Desktop holds 1080p 60 Hz 20 Mbps" "$out" 'profile "Desktop": 1920x1080, 60 Hz, 20 Mbps'
-expect "profiles: Game holds 4K 120 Hz, 150 Mbps, a virtual display at 150 %" "$out" 'profile "Game": 3840x2160, 120 Hz, 150 Mbps, virtual display 150%'
+expect "profiles: Game holds 4K 120 Hz, 150 Mbps, a virtual display at 150 %" "$out" 'profile "Game": 3840x2160, 120 Hz, 150 Mbps, 3D, virtual display 150%'
 expect "profiles: the copy keeps the values" "$out" 'profile "Cinema": 3840x2160, 120 Hz, 150 Mbps'
 expect "profiles: the PC's every app uses Desktop" "$out" 'use "gaming-pc" / "" -> "Desktop"'
 expect "profiles: one app uses Game" "$out" 'use "gaming-pc" / "Desktop" -> "Game"'
@@ -375,12 +375,18 @@ expect "profile: the hand-off's own run uses it too" "$out" "--mode 3840x2160x12
 grep -q '^width=2560$' "$CONF" && grep -q '^virtual_display=false$' "$CONF" && ok "profile: nothing of it saved by a stream" || fail "profile: saved by the stream"
 # a launcher killed during the stream: the config.ini keys go back at its next start, a key the headset changed is kept
 out="$(MLXR_LAUNCHER_TEST_PROFILE_CRASH=1 pplan "gaming-pc:Desktop")"
-grep -q '^stats = true$' "$ini" && grep -q '^notices = off$' "$ini" && ok "profile: config.ini has the profile's keys during the stream" || { fail "profile keys not written"; cat "$ini"; }
+grep -q '^stats = true$' "$ini" && grep -q '^notices = off$' "$ini" && grep -q '^depth_scale = 150$' "$ini" \
+    && ok "profile: config.ini has the profile's keys during the stream (3D depth too)" || { fail "profile keys not written"; cat "$ini"; }
+out="$(pops 'dump')"
+cmp -s "$ini" "$t/ini.profile" && ok "profile: a killed launcher's config.ini is put back byte for byte at the next start" || { fail "not recovered"; diff "$t/ini.profile" "$ini"; }
+expect "profile: the recovery is logged" "$(cat "$t/stderr")" "put config.ini back as it was"
+out="$(MLXR_LAUNCHER_TEST_PROFILE_CRASH=1 pplan "gaming-pc:Desktop")"
 sed -i 's/^notices = off$/notices = important/' "$ini"
 out="$(pops 'dump')"
-grep -q '^stats = false$' "$ini" && ok "profile: a killed launcher's config.ini key is put back at the next start" || { fail "not recovered"; cat "$ini"; }
+grep -q '^stats = false$' "$ini" && ok "profile: after a headset change, the keys are put back one by one" || { fail "not recovered"; cat "$ini"; }
 grep -q '^notices = important$' "$ini" && ok "profile: a key the headset changed meanwhile is kept" || { fail "headset's change lost"; cat "$ini"; }
-expect "profile: the recovery is logged" "$(cat "$t/stderr")" "put config.ini display stats back to false"
+grep -q '^depth_scale = 100$' "$ini" && ok "profile: a key the file did not have gets the value it was read as" || { fail "depth_scale"; cat "$ini"; }
+expect "profile: the key recovery is logged" "$(cat "$t/stderr")" "put config.ini display stats back to false"
 out="$(pops 'dump')"
 refute "profile: recovered once only" "$(cat "$t/stderr")" "put config.ini"
 cp "$t/ini.profile" "$ini"
@@ -445,7 +451,7 @@ srvinfo() { # perm, vd capable, vd ready, state, current game, pair status, code
         echo '<root status_code="200"><hostname>gaming-pc</hostname><appversion>7.1.431.-1</appversion>'
         [ -n "$1" ] && echo "<Permission>$1</Permission>"
         [ -n "$2" ] && echo "<VirtualDisplayCapable>$2</VirtualDisplayCapable><VirtualDisplayDriverReady>$3</VirtualDisplayDriverReady>"
-        echo "<state>$4</state><currentgame>$5</currentgame><PairStatus>$6</PairStatus><ServerCodecModeSupport>$7</ServerCodecModeSupport>$8</root>"
+        echo "<state>$4</state><currentgame>$5</currentgame><PairStatus>$6</PairStatus><ServerCodecModeSupport>$7</ServerCodecModeSupport>${8:-}</root>"
     } > "$pf/serverinfo.xml"
 }
 cat >"$pf/applist.xml" <<APPS
@@ -659,6 +665,18 @@ if [ -n "$SHOTS" ]; then
     [ $rc = 0 ] && ok "segue demo ran (client started, failed, UI came back)" || fail "segue demo exit $rc"
     grep -E "$QMLERR" "$t/ui2.out" && fail "segue QML errors" || ok "no QML errors in the segue"
     grep -q "The VR client exited with 6" "$t/ui2.out" && ok "client failure seen by the UI" || fail "no exit seen: $(tail -5 "$t/ui2.out")"
+    # lane wave4-launcher: the check before the stream finds trouble (the fake PC of section 3e): the segue shows
+    # the hints as a toast, and the error dialog of the failed stream repeats them
+    srvinfo 50331648 true false SUNSHINE_SERVER_BUSY 1439608285 1 769
+    SECTION=mlxr setconf virtual_display=true
+    FAKE_SLEEP=4 FAKE_MODE=err MLXR_LAUNCHER_PREFLIGHT=1 MLXR_LAUNCHER_PREFLIGHT_URL="$PFURL" MLXR_NATIVE_CLIENT="$fake" \
+      MLXR_LAUNCHER_DEMO="gaming-pc:Desktop" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/segue-hints.png@2000,$SHOTS/after-hints.png@7500" "$L" >"$t/hint.out" 2>&1
+    grep -E "$QMLERR" "$t/hint.out" && fail "hints demo QML errors" || ok "hints demo: no QML errors"
+    expect "hints: the segue shows them (toast)" "$(grep 'Qt Warning: gaming-pc does not let this client launch apps' "$t/hint.out")" "launch apps"
+    expect "hints: the virtual display one too" "$(cat "$t/hint.out")" "Use Virtual Display is on, but Apollo's virtual display driver is not ready"
+    grep -q "segue-hints.png\" QSize.* saved" "$t/hint.out" && grep -q "after-hints.png\" QSize.* saved" "$t/hint.out" && ok "hints demo rendered" || fail "hints demo screenshots"
+    SECTION=mlxr setconf virtual_display=false
+    srvinfo $PERM_ALL true true SUNSHINE_SERVER_FREE 0 1 769
     # lane launcher-return: the window is hidden for the stream (MLXR_STREAMING), shown after it,
     # and the log says when it was exposed and drawn again (outside Game Mode: in it the window fades)
     FAKE_SLEEP=1 FAKE_MODE=stream XDG_CURRENT_DESKTOP=KDE MLXR_LAUNCHER_HIDE_WINDOW=1 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_DEMO="gaming-pc:Desktop" \
@@ -866,7 +884,8 @@ PY
         MLXR_LAUNCHER_INVOKE='setSearch:AUDIO;setSearch:virtual display;setSearch:nothing like this;setSearch:' \
         MLXR_LAUNCHER_SCREENSHOT="$t/srch2.png@3000" "$L" >"$t/srch2.out" 2>&1
     uiout "$t/srch2.out" "settings search 2"
-    expect "search: a section's name finds its rows, case ignored" "$(grep 'text="AUDIO"' "$t/srch2.out")" "titles=Surround sound configuration sections=Audio Settings"
+    expect "search: a section's name finds its rows, case ignored" "$(grep 'text="AUDIO"' "$t/srch2.out")" "titles=Surround sound configuration|"
+    expect "search: and the sections they are in" "$(grep 'text="AUDIO"' "$t/srch2.out")" "sections=Audio Settings|"
     expect "search: two words, both in the row" "$(grep 'text="virtual display"' "$t/srch2.out")" "Use Virtual Display"
     expect "search: nothing found" "$(grep 'text="nothing like this"' "$t/srch2.out")" "rows=0 titles= sections="
     s="$(grep 'MLXR_SETTINGS_SEARCH: text=""' "$t/srch2.out")"

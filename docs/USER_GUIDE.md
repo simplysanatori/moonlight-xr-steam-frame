@@ -38,7 +38,7 @@ It works like Moonlight on a PC.
 | --- | --- |
 | PC list | Your PCs. A PC on the same network appears by itself. The **+** button (Add PC manually) adds one by address. Select a PC to pair with it or to open its apps. |
 | Pairing | Moonlight shows a PIN. Type it on the Sunshine or Apollo PIN page (`https://localhost:47990` on the PC). The dialog closes when pairing is done. |
-| App list | The apps your PC offers. Select one to start it. A running app has **Resume Game** and **Quit Game** in its menu. |
+| App list | The apps your PC offers. Select one to start it. A running app has **Resume Game** and **Quit Game** in its menu. Every app's menu has **Stream settings profile...**, which opens the [Stream profiles](#stream-profiles) page for that app. |
 | Settings | The cog at the top. See [Settings page](#settings-page). |
 
 While a stream starts, the window shows a tip: "Tip: Press Start+Select+L1+R1 to disconnect your session". With no gamepad connected it names Ctrl+Alt+Shift+Q instead.
@@ -52,6 +52,14 @@ If you used the Moonlight flatpak on the Frame before, its PC list and pairing a
 ## Settings page
 
 The page has the categories below, in this order. A greyed row shows "Not available:" and the reason. Settings are saved when you leave the page.
+
+### Search and jump list
+
+The top of the page has a **Search settings** field and a row of buttons, one for each category.
+
+- Type in the field and the page shows only the settings whose name, value or description has every word you typed, and the categories they are in. A category's name finds all its settings (for example `audio`). Case does not matter. The cross next to the field, or Esc, clears it and the whole page is back. "No setting matches" means nothing has all the words.
+- A category button scrolls the page to that category and puts the focus on its first setting, so a gamepad carries on from there. A button disappears while the search leaves its category empty.
+- Each category heading has an arrow at its right that goes back to the top of the page and the search field.
 
 ### Connection
 
@@ -78,6 +86,18 @@ How to use it:
 - Power: over the cable the headset draws from the PC's USB port, which gives far less than the headset uses while streaming, so the battery may still drain slowly. Whether a hub with USB Power Delivery pass-through fixes that has not been tested.
 
 If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/reports/usb-cable.md`) have the details.
+
+### Stream profiles
+
+A profile is a saved copy of the stream settings on this page, with a name. It holds the Connection choice, every Video setting (with the 3D rows), the sound, the gamepad and mouse rows, Optimize game settings, Play audio on PC, Smart Clipboard Sync, stats, the codec, full range, software decoding, and the headset's own rows on this page (notices, scroll speed, the disconnect times, gamepad as mouse). For example a desktop profile at 1080p and 60 Hz, and a game profile at 1440p and 120 Hz with Apollo's virtual display. Not in a profile: the headset keyboard layout, Show controllers, Quick Resume, Enable Full Screen, Language and Check the PC before streaming.
+
+The **Profiles** row (or **Stream settings profile...** in an app's menu) opens the Stream profiles page:
+
+- **Save the settings now in force as a profile** asks for a name and saves the page's settings as they are. Set the Settings page the way you want the profile first. "Default" cannot be a name: it means the Settings page itself.
+- Select a profile for **Use for** (the PC or app chosen below), **Rename...**, **Duplicate**, **Update from the settings in force now**, **Load into the Settings page** (its values become the page's own, saved), or **Delete...**.
+- **PC**, **App** and **Profile for ...** choose which profile a PC uses for every app, or one app uses. **Default (the Settings page's settings)** takes it away. An app's own profile wins over its PC's. The **In use** list shows every PC and app that has one; select a line to change it. Opened from an app's menu, the page starts on that PC and app.
+
+When a stream starts, the profile of the app, or else of its PC, is in force for that stream: the flat window passes its values to the VR client, and writes the headset's settings it holds into `config.ini` for the stream. When the stream ends, the Settings page's own values are back and `config.ini` is as it was; a headset setting you changed in the cog during the stream keeps your change. If the flat window is closed or killed during a stream, `config.ini` is put back the next time it starts. `moonlight-launcher.log` has `MLXR_LAUNCHER_PROFILE: using <name> for <PC> / <app>` for each stream. A PC and an app are matched by name, case ignored, as the headset matches its per-app bindings. A stream started from the command line (`moonlight-xr-launcher stream PC App`) uses the profile too, over the command line's own options.
 
 ### Video Settings
 
@@ -111,11 +131,26 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 | Headset keyboard layout | QWERTY (US), AZERTY (French), QWERTZ (German) | QWERTY. The PC must be on the same Windows layout, see [AZERTY and QWERTZ](#azerty-and-qwertz). |
 | Enable Rumble | on, off | on |
 | Enable forward/back mouse buttons | on, off | on |
+| Check the PC before streaming | on, off | on. See [Check before a stream](#check-before-a-stream). |
 | Optimize game settings | on, off | on |
 | Play audio on PC | on, off | off |
 | Smart Clipboard Sync (Experimental) | on, off | off. Needs Apollo. |
 | Quick Resume | on, off | off. Selecting a running app resumes it at once. |
 | Enable Full Screen | on, off | Takes effect at the next start. |
+
+### Check before a stream
+
+Just before a stream starts, the flat window asks the PC (serverinfo and the app list, about 2 seconds at most) what it would say about this stream, and shows what will go wrong as a message at the top of the "Starting ..." screen:
+
+- Apollo does not let this headset launch apps, view streams, or use its gamepad, mouse or keyboard input (Apollo's **Clients** page, the permissions of this client). Apollo gives a client paired after the first one only List Apps and View Streams.
+- Use Virtual Display is on, but the PC is not Apollo, cannot make a virtual display, or Apollo's virtual display driver is not ready.
+- Smart Clipboard Sync is on with a PC that is not Apollo, or without Apollo's clipboard permissions.
+- The PC is already running another app (maybe for another client).
+- The resolution is not one the PC lists (GameStream PCs list them; Apollo and Sunshine do not), or Prefer HEVC is set and the PC has no HEVC.
+
+The stream starts anyway. If it then fails, the error message repeats these under "Found before the stream started:". The last check is also shown at the bottom of the Stream profiles page, and `moonlight-launcher.log` has `MLXR_LAUNCHER_PREFLIGHT:` and one `MLXR_LAUNCHER_HINT:` line for each message. A PC that does not answer in time gives no message. Turn it off with **Check the PC before streaming** (Host Settings) or `MLXR_LAUNCHER_PREFLIGHT=0`.
+
+The same question gives the app's UUID on Apollo. The flat window passes it to the VR client (`MLXR_APP_UUID`), which sends it with the launch request next to the app's number, as Artemis does, so Apollo finds the app by its UUID and knows when that app is already running.
 
 ### Performance Monitor and Advanced Settings
 
@@ -512,7 +547,8 @@ This uses the headset sensor through `XR_EXT_user_presence`. `moonlight.log` has
 | The flat window does not come back after a stream | Open the app again from the Steam library. `moonlight-launcher.log` shows `Asked Steam to show the flat screen again` and the `flat window` lines (what the window did after the stream). |
 | Grey icon in the SteamVR dock | Restart Steam once after the first install. |
 | 3D tab greyed | The tab says why. If the depth model did not load, the log has the error. |
-| The stream did not start | The flat window shows the client's error. `moonlight-console.log` has the details. |
+| The stream did not start | The flat window shows the client's error, and under "Found before the stream started:" what the PC said just before (see [Check before a stream](#check-before-a-stream)). `moonlight-console.log` has the details. |
+| The stream used other settings than the Settings page | The app or its PC has a stream profile. `moonlight-launcher.log` says `MLXR_LAUNCHER_PROFILE: using <name>`. See [Stream profiles](#stream-profiles). |
 
 Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use the zip from `bug-report.sh`. It holds the logs, your headset note, the settings you changed and a short version summary, all masked, and nothing else. It leaves out `hosts.ini`, keys and certificates. Look inside before you share it.
 
@@ -590,5 +626,7 @@ The four click variables above override the Click steadiness row for their own p
 | `MLXR_LOG_DIR` | `~/Games/MoonlightXRNative` | Where the logs go. |
 | `MLXR_VRTIMING` | 1 | 0 stops the flat window from logging SteamVR's frame timing to `vrtiming.log`. |
 | `MLXR_HANDOFF` | 1 | 0 makes the flat window stream flat, as stock Moonlight. |
+| `MLXR_LAUNCHER_PREFLIGHT` | 1 | 0 stops the flat window from asking the PC before a stream (the check and the app's UUID). |
+| `MLXR_APP_UUID` | | Set by the flat window for the VR client: the app's UUID on Apollo, sent in the launch request as `appuuid`. Anything that is not a UUID is ignored. |
 | `MLXR_LAUNCHER_SCALE` | 1.5 | How much larger the flat window is drawn in Game Mode (1.0 to 2.5). A `QT_SCALE_FACTOR` you set yourself is used when this is not set. |
 | `MLXR_LAUNCHER_FADE_WINDOW` | 1 | In Game Mode the flat window fades to opacity 0 during a stream and stays mapped, so gamescope keeps a window for keyboard focus. 0 hides the window instead, which can crash gamescope on a volume key press. |

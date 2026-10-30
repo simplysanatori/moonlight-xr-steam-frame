@@ -104,7 +104,8 @@ public:
     void reloadAll();
 
     // Native (lane wave4-launcher): the config.ini keys a settings profile carries, as they stand in memory now
-    // (section, key, the text the VR client reads)
+    // (section, key, the text the VR client reads). A lane that adds a stream setting to the page adds its key
+    // here and its property to kPrefFields in mlxrprofiles.cpp, so profiles hold it too.
     struct IniEntry {
         QString section, key, value;
     };
