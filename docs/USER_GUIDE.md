@@ -302,6 +302,19 @@ Every button can be changed in `bindings.ini`, for every app or for one app. See
 
 A click is sent at the point you aimed at before the trigger pull moved the controller. After a click the cursor waits for half a second while you keep aiming near it, so the second click of a double click lands on the first one. Move the ray away and the cursor follows at once. The Display tab's **Click steadiness** row turns this off or makes it stronger.
 
+### Lightgun mode
+
+With **Show controllers** set to **Gun**, the pointer becomes a light gun. The headset does this by itself (`lightgun = auto` in `config.ini`; `on` and `off` force it whatever the controller looks like). In lightgun mode:
+
+- **Pointer sleep** is off, so the ray is always there between shots. The Pointer sleep row keeps showing what you chose and is used again when you leave lightgun mode.
+- Clicks go to the PC exactly where the gun points this frame: the click smoothing of **Click steadiness** (the aim from before the trigger pull, the double-click wait and the hold) is off.
+- The trigger never takes hold of the screen, so a shot that lands on the move pill below the picture is just a shot. The grip still grabs the pill, a corner, the keyboard's bar and the stats window.
+- A short, strong pulse runs through the controller on every shot (the recoil). `lightgun_recoil = false` turns it off.
+- The dot where the gun points stays as the **Ray** row has it. Set Ray to Dot to keep the dot and hide the beam.
+- Optional reload: with `lightgun_reload = true`, a trigger pull that starts off the picture (in the room, in the margin round the picture or on the pill) is a right click for as long as you hold the trigger. Many light gun games and emulators use a shot off the screen to reload, and a right click is the button they ask for. A pull that starts on the picture is a left click even if you swing off it.
+
+The PC sees one mouse, so this is a single-player light gun; the host cursor is also drawn into the video by Sunshine and Apollo, which the Moonlight protocol cannot hide.
+
 ### Gamepad mode
 
 The two controllers become one Xbox controller on the PC.
@@ -323,6 +336,22 @@ Start and Back reach the PC as you press them. If you keep both down for a quart
 The stick dead zone is 7 % of the way out. Move the launcher's **Adjust analog stick deadzone** slider above 0 and the controllers use that value instead (1 to 20 %). Values below 0 are dead zone compensation, which only physical gamepads use.
 
 The PC's rumble drives the controllers in gamepad mode. By default both controllers get the stronger of the PC's two motors, so a game that uses one motor is felt in both hands; the trigger motors (when the PC sends them) add to the controller on their side. `rumble_mix` and `rumble_intensity` in `config.ini` change this (see [below](#advanced-configini)). If you feel nothing, `moonlight.log` has `rumble: the host's first request` when the PC's first rumble arrives, and `rumble on the left controller ... runtime said` for what the headset's runtime did with it. No first-request line means the PC sent no rumble (check Enable Rumble in the launcher and the PC's gamepad type).
+
+### Gyro in gamepad mode
+
+The Frame controllers' gamepad has no gyro unless you ask for it. `pad_gyro` in `config.ini` (or **Gyro from the headset** on the launcher's Settings page) sends the turn of one of two things to the PC as the gyro of a gamepad, for gyro aiming in Steam Input:
+
+- `controller`: the right controller's turn (the left controller's when the right one is not tracked), as it points.
+- `head`: the turn of your head.
+- `off` (the default): the gamepad is an Xbox pad with no motion, as before.
+
+With it on, the gamepad tells the PC it is a PlayStation pad with a gyroscope and an accelerometer. The PC then makes a DualShock 4 for it, so games and Steam Input show PlayStation button names for the controllers. The setting is read when gamepad mode turns on (turn gamepad mode off and on after changing it); a physical gamepad's own motion is a separate thing and is never mixed with this one. Motion goes out only in gamepad mode, only when the PC asks for it, and only for the controllers' own gamepad. With a panel open the gyro is held still.
+
+The gyro is in degrees per second about the controller's own axes, the way a DualShock 4's is: turning the controller right is a negative yaw. The accelerometer is gravity alone, the way a still controller or head tilted like this would read; it does not send the movement of your hand.
+
+`pad_gyro_ratchet` picks when the motion is sent. `always` (the default) sends it all the time. `stick_touch` sends it only while the right thumb touches the right thumbstick, the usual Steam Input ratchet, so you can lift the thumb to reposition the controller. While the thumb is off, the PC is told the gyro is still. The touch is read on the Steam Frame controllers; with other controllers, with hand tracking, or if SteamVR refuses the touch binding, `stick_touch` behaves as `always`, and `moonlight.log` says so.
+
+**On the PC**, this needs a host that emulates a DualShock 4 for a PlayStation pad: Apollo (or Sunshine) with ViGEmBus installed and the gamepad type left on Automatic (or set to DS4). Steam Input only sees native gyro from that DualShock 4, so on a host that always makes an Xbox 360 pad the gyro cannot arrive.
 
 ### Changing the buttons
 
@@ -457,7 +486,7 @@ The bar is hidden until the ray is over it. With **Ray** set to **Off** (no beam
 | Bluetooth mouse | Same as the keyboard. While you use the mouse, the controller ray does not move the cursor. |
 | Bluetooth gamepad | Pair it in SteamOS. It shows up as a gamepad on the PC; once you use it the Frame controllers' gamepad steps aside ([below](#frame-controllers-and-a-gamepad-together)). The Steam Virtual Gamepad copy of the same pad is ignored. Hold Start for a second and it becomes the PC's mouse ([below](#a-gamepad-as-the-pcs-mouse)). Start+Select+L1+R1 disconnects. |
 
-Gyro from Bluetooth pads reaches the PC as a DualSense-class pad. A pad with a gyroscope (a DualSense, DualShock 4 or Switch Pro pad, for example) tells the PC so when it arrives, and the PC asks for the motion data only when a game or Steam Input wants it. This needs Apollo or Sunshine with DS4 emulation on the PC (Apollo: ViGEmBus installed). The Frame controllers in gamepad mode are an Xbox pad and never send motion. The same pad's battery level, touchpad (DualSense) and light bar colour are passed on too.
+Gyro from Bluetooth pads reaches the PC as a DualSense-class pad. A pad with a gyroscope (a DualSense, DualShock 4 or Switch Pro pad, for example) tells the PC so when it arrives, and the PC asks for the motion data only when a game or Steam Input wants it. This needs Apollo or Sunshine with DS4 emulation on the PC (Apollo: ViGEmBus installed). The Frame controllers in gamepad mode are an Xbox pad and send no motion, unless you turn on `pad_gyro` ([Gyro in gamepad mode](#gyro-in-gamepad-mode)), and then only on their own gamepad. The same pad's battery level, touchpad (DualSense) and light bar colour are passed on too.
 
 ### A gamepad as the PC's mouse
 
@@ -687,6 +716,11 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] pad_arbitration` | `pointer` (a used gamepad takes the Frame controllers' gamepad off the PC), `also_gamepad` (both), `sleep` (pointer, and the controllers' pointer rests) | `pointer` |
 | `[vr] first_run_shown` | `true`, `false` | `false`. Becomes `true` as the first-run controls card appears (once per install, on the first stream). Set it to `false` to see the card again. |
 | `[vr] pad_card` | `auto`, `on`, `off` | `auto`. The gamepad card in your lap: `auto` shows it while a Bluetooth or USB gamepad is in use and takes it away 4 seconds after the last input, `on` keeps it up while the gamepad counts as in use, `off` never shows it. |
+| `[vr] lightgun` | `auto` (the lightgun mode is on while Show controllers is Gun), `on`, `off`. See [Lightgun mode](#lightgun-mode). The launcher's Settings page has it too (**Lightgun mode**). | `auto` |
+| `[vr] lightgun_reload` | `true`, `false`. In lightgun mode, a trigger pull that starts off the picture is a right click while it is held. | `false` |
+| `[vr] lightgun_recoil` | `true`, `false`. In lightgun mode, a short strong pulse in the controller on every shot. | `true` |
+| `[vr] pad_gyro` | `off`, `controller`, `head`. Sends the right controller's (or the head's) turn to the PC as the gyro of a PlayStation gamepad in gamepad mode. See [Gyro in gamepad mode](#gyro-in-gamepad-mode); the launcher has it too (**Gyro from the headset**). Read when gamepad mode turns on. | `off` |
+| `[vr] pad_gyro_ratchet` | `always`, `stick_touch` (only while the right thumb touches the right thumbstick of a Steam Frame controller; the same as `always` where that touch is not read). | `always` |
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
 | `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
 | `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |

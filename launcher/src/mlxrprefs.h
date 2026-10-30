@@ -114,6 +114,12 @@ class MlxrPrefs : public QObject
     // controls card has been shown (false brings it back on the next stream)
     Q_PROPERTY(QString padCard MEMBER padCard NOTIFY changed)
     Q_PROPERTY(bool firstRunShown MEMBER firstRunShown NOTIFY changed)
+    // Native (lane wave2-lightgun-gyro): [vr] lightgun, the lightgun pointer policy, "auto" (default: on while the
+    // controller model is the gun), "on" or "off"; [vr] pad_gyro, what the headset controllers' gamepad sends as
+    // gyro to the PC, "off" (default), "controller" or "head". The rest (lightgun_reload, lightgun_recoil,
+    // pad_gyro_ratchet) are in the file only
+    Q_PROPERTY(QString lightgun MEMBER lightgun NOTIFY changed)
+    Q_PROPERTY(QString padGyro MEMBER padGyro NOTIFY changed)
     // ---- PC VR: Valve's Steam Link stream of the PC (lane wave4-pcvr, PLAN 4.1, 4.2, 4.9) ----
     // The Host sheet's PC VR button ends the stream and the launcher asks Steam to stream pcvrApp (a Steam
     // app id; empty: open Steam's library) from the Remote Play PC pcvrClient (a Remote Play client id; empty:
@@ -237,6 +243,8 @@ public:
     QString padArbitration;
     QString padCard;
     bool firstRunShown = false;
+    QString lightgun;
+    QString padGyro;
     QString pcvrApp;
     QString pcvrAppName;
     QString pcvrClient;
@@ -260,6 +268,7 @@ private:
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
     QString m_iniPadCard = "auto";
     bool m_iniFirstRunShown = false;
+    QString m_iniLightgun = "auto", m_iniPadGyro = "off";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     int m_iniEyeBalance = 0, m_iniBackgroundDim = 0;
     QString m_iniVoidColor = QStringLiteral("#000000"), m_iniGlowFeather = QStringLiteral("off");
