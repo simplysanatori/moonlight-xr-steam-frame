@@ -525,7 +525,7 @@ The **Host** sheet is a grid of keys to send to the PC, for the ones a headset k
 
 After those come your own macros, up to eight.
 
-In the header, left of **Close**, is **PC VR**: it hands the headset to Valve's Steam Link, see [PC VR](#pc-vr).
+In the header, left of **Close**, is **PC VR**: it hands the headset to Valve's Steam Link, see [PC VR](#pc-vr). Left of it, **Clipboard, commands** opens a second page of the sheet (**Back** returns; **PC VR** and **Close** are there too): the PC's clipboard and the commands the PC offers. Both need an Apollo PC; see [Clipboard and PC commands](#clipboard-and-pc-commands-apollo) for what to set up on it.
 
 ### Macros
 
@@ -550,6 +550,26 @@ Lock PC = !win+l
 ```
 
 A line that is not right is left out, the rest still work, and `moonlight.log` names the first one and why. Up to 16 macros of 32 steps each; the sheet shows the first eight.
+
+### Clipboard and PC commands (Apollo)
+
+Open the Host sheet, then **Clipboard, commands**. The page has:
+
+| Cell | Does |
+| --- | --- |
+| Paste from PC | Reads the PC's clipboard text and types it on the PC, as if you had typed it on the headset keyboard (line ends are the Enter key, tabs the Tab key). It types at most the first 4096 bytes. The toast says how many characters went. Use it where Ctrl+V does not work, such as a remote console, a game's chat box or a password box that blocks pasting. |
+| Send text to PC | Closes the sheet and puts the Compact keyboard up as a text field of its own: what you type is kept on the keyboard (its space bar shows the end of it) and nothing goes to the PC. **Enter** sends the text to the PC's clipboard; **Hide** throws it away. On the PC, Ctrl+V pastes it. The text is one line. |
+| One cell per command | The commands set up on the PC (up to eight). A press asks **Run** or **Cancel**, because a command can do anything the PC can: sleep, lock, change the audio device, start a script. The toast says it was sent. The PC does not answer, so a command that fails on the PC fails there. |
+
+The toast says why when something cannot be done: "Not supported by this host" (the PC runs Sunshine or another host, not Apollo; the cells are dimmed and the page says so), "This host has not allowed it for the Frame" (the permission is off), "This host has no commands set up", or "The host sees no stream from this client". The clipboard works only while a stream is up.
+
+On the PC, in Apollo:
+
+- **Server commands.** Add them in Apollo's web UI settings (Configuration, General, Server Commands: a name, a command, and whether it runs elevated), or as `server_cmd` in its config file. The first one is number 0. The headset shows the names only.
+- **Permissions.** Apollo gives each paired client its own permissions (the Clients page of its web UI). The Frame needs **Server Command** for the commands, **Clipboard Read** for Paste from PC and **Clipboard Set** for Send text to PC. The first client paired gets everything; a client paired later gets only View and List until you allow more. Apollo lists commands only to a client that has the Server Command permission, so with it off the page says the host has not allowed them.
+- **Apollo 0.2.4 or newer** has the clipboard. Older ones answer "Not supported by this host".
+
+The clipboard sync at the start and end of a stream (Smart Clipboard Sync on the Settings page) is separate and works as before.
 
 ## PC VR
 
