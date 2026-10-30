@@ -9,6 +9,7 @@
 #include "streaming/session.h"
 #include "streaming/uihooks.h"
 #include "streaming/mlxrprefs.h"
+#include "streaming/mlxrpreflight.h"
 #include "backend/computermanager.h"
 
 #include <QClipboard>
@@ -191,10 +192,16 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
     }
     plan.workingDir = QFileInfo(plan.program).absolutePath();
 
-    QString uuid;
+    QString uuid, pcName;
     {
         QReadLocker lock(&c.lock);
         uuid = c.uuid;
+        pcName = c.name;
+    }
+    // Native (lane wave4-launcher): the PC's or the app's settings profile, if it has one, is in force from here until
+    // the Plan is gone (mlxrprofiles.h); everything below reads the settings in force
+    if (&p == StreamingPreferences::get()) {
+        plan.profile = MlxrProfiles::get()->beginLaunch(pcName, app.name);
     }
 
     QStringList a;
@@ -248,6 +255,17 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
     plan.clipboardSync = prefs->clipboardSync;
     // Native (lane refresh): a fixed display rate picked on the Settings page goes to SteamVR too
     plan.steamVrRefreshRate = steamVrRateFor(p.fps, prefs->matchHeadsetFps, prefs->refreshRate() > 0);
+    // Native (lane wave4-launcher): ask the PC what it would say about this stream (mlxrpreflight.h)
+    {
+        const MlxrPreflight::Result pf = MlxrPreflight::check(c, app, p, *prefs);
+        plan.hints = pf.hints;
+        if (!pf.appUuid.isEmpty()) {
+            plan.extraEnv.insert("MLXR_APP_UUID", pf.appUuid);
+        }
+        if (pf.enabled) {
+            MlxrProfiles::get()->setLastCheck(pf.hints, pf.reached);
+        }
+    }
     // The network path (Auto, Wi-Fi, Steam Frame Wireless Adapter, USB cable): the flat launcher's setting
     // "networkPath", auto|home|adapter|usb. An unknown value is left to the VR client's own config.ini.
     {
@@ -905,6 +923,9 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
         const QString line = "MLXR_LAUNCHER_DRYRUN: " + cmd;
         QTextStream(stdout) << line << Qt::endl;
         qInfo().noquote() << line;
+        for (auto it = plan.extraEnv.constBegin(); it != plan.extraEnv.constEnd(); ++it) {
+            QTextStream(stdout) << "MLXR_LAUNCHER_DRYRUN_ENV: " << it.key() << "=" << it.value() << Qt::endl;
+        }
         const QString outPath = qEnvironmentVariable("MLXR_LAUNCHER_DRYRUN_OUT");
         if (!outPath.isEmpty()) {
             QFile f(outPath);
@@ -936,6 +957,9 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
     }
     if (qEnvironmentVariableIsEmpty("MLXR_LOG_DIR")) {
         env.insert("MLXR_LOG_DIR", QDir::homePath() + "/Games/MoonlightXRNative");
+    }
+    for (auto it = plan.extraEnv.constBegin(); it != plan.extraEnv.constEnd(); ++it) {
+        env.insert(it.key(), it.value());
     }
     proc.setProcessEnvironment(env);
     // If the launcher dies (closed, killed), the client must not outlive it with the host session running
@@ -1194,8 +1218,54 @@ static int selfTestValue(const QString& spec)
     return 0;
 }
 
+// "plan:<PC>:<app>": makes the Plan for that stream and says what is in force before it, while it runs and after
+// it (settings profiles), the command line, the hints from the check before the stream and the environment for
+// the VR client. MLXR_LAUNCHER_TEST_PROFILE_CRASH=1 leaves without ending the profile, as a killed launcher would.
+static int selfTestPlan(const QString& spec)
+{
+    NvApp app;
+    QString why;
+    NvComputer* found = loadComputer(spec, &app, &why);
+    if (!found) {
+        QTextStream(stderr) << "SELFTEST: " << why << Qt::endl;
+        fflush(stderr);
+        _exit(why.startsWith("no app") ? 21 : 20);
+    }
+    QTextStream out(stdout);
+    MlxrProfiles* profiles = MlxrProfiles::get();
+    out << "SELFTEST: before: " << profiles->dumpCurrent() << Qt::endl;
+    {
+        const Plan plan = makePlan(*found, app, *StreamingPreferences::get());
+        out << "SELFTEST: profile: " << (plan.profile ? plan.profile->profile : QString("none")) << Qt::endl;
+        out << "SELFTEST: during: " << profiles->dumpCurrent() << Qt::endl;
+        out << "SELFTEST: command: " << commandLine(plan) << Qt::endl;
+        for (const QString& hint : plan.hints) {
+            out << "SELFTEST: hint: " << hint << Qt::endl;
+        }
+        for (auto it = plan.extraEnv.constBegin(); it != plan.extraEnv.constEnd(); ++it) {
+            out << "SELFTEST: env: " << it.key() << "=" << it.value() << Qt::endl;
+        }
+        out.flush();
+        if (qEnvironmentVariableIsSet("MLXR_LAUNCHER_TEST_PROFILE_CRASH")) {
+            fflush(stdout);
+            _exit(0);
+        }
+    }
+    out << "SELFTEST: after: " << profiles->dumpCurrent() << Qt::endl;
+    out.flush();
+    fflush(stdout);
+    fflush(stderr);
+    _exit(0);
+}
+
 int selfTest(const QString& spec)
 {
+    if (spec.startsWith("profileops:")) {
+        return MlxrProfiles::selfTestOps(spec.mid(11));
+    }
+    if (spec.startsWith("plan:")) {
+        return selfTestPlan(spec.mid(5));
+    }
     if (spec == "scale" || spec.startsWith("bitrate:")) {
         const int rc = selfTestValue(spec);
         fflush(stdout);

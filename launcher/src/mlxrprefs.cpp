@@ -117,6 +117,7 @@ void MlxrPrefs::load()
     }
     clipboardSync = s.value("mlxr/clipboard_sync", false).toBool();
     quickResume = s.value("mlxr/quick_resume", false).toBool();
+    preflight = s.value("mlxr/preflight", true).toBool();
 
     // The VR client's defaults (ui/settings.c) when config.ini or the key is absent
     const QString ini = configIniPath();
@@ -199,6 +200,7 @@ void MlxrPrefs::save()
     s.setValue("networkPath", networkPath);
     s.setValue("mlxr/clipboard_sync", clipboardSync);
     s.setValue("mlxr/quick_resume", quickResume);
+    s.setValue("mlxr/preflight", preflight);
     s.sync();
 
     // Only what changed here: the headset may have changed the others since (the cog saves the file)
@@ -261,6 +263,31 @@ void MlxrPrefs::save()
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
+}
+
+void MlxrPrefs::reloadAll()
+{
+    load();
+    emit changed();
+}
+
+QVector<MlxrPrefs::IniEntry> MlxrPrefs::profileIniEntries() const
+{
+    // The same text save() writes for each of these keys
+    return {
+        { "display", "stats", perfOverlay ? "true" : "false" },
+        { "3d", "stereo", renderMode ? "true" : "false" },
+        { "3d", "separation", strengthIsDefault ? QString("-1") : QString::number(separationFromStrength(strength)) },
+        { "3d", "convergence", convergenceIsDefault ? QString("-1") : QString::number(qBound(0, convergence, 100)) },
+        { "vr", "flip_face_buttons", flipFaceButtons ? "true" : "false" },
+        { "vr", "notices", notices },
+        { "vr", "scroll_speed", QString::number(qBound(25, scrollSpeed, 400)) },
+        { "stream", "doff_disconnect", QString::number(qBound(0, doffDisconnect, 3600)) },
+        { "stream", "idle_disconnect", QString::number(qBound(0, idleDisconnect, 1440)) },
+        { "vr", "pad_mouse_chord", padMouseChord },
+        { "vr", "pad_mouse_scroll", padMouseScroll },
+        { "vr", "pad_arbitration", padArbitration },
+    };
 }
 
 int MlxrPrefs::headsetMaxFps() const
