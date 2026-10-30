@@ -224,7 +224,8 @@ static int rendererInit(int audioConfiguration, const POPUS_MULTISTREAM_CONFIGUR
         teardown();
         return -3;
     }
-    if (channels > 2 && cfg->hrtfDir != NULL) {
+    // Native (lane polish-3): stereo too, as two speakers in front of the screen
+    if (cfg->hrtfDir != NULL) {
         MlxrSurroundParams sp;
         mlxr_surround_params_default(&sp);
         sp.hrtfDir = cfg->hrtfDir;
@@ -287,8 +288,8 @@ static int rendererInit(int audioConfiguration, const POPUS_MULTISTREAM_CONFIGUR
     O.initialised = 1;
     fprintf(stderr, "audio: %d channels at %d Hz, %d frames/packet, %s, %s\n", channels, O.rate,
             O.samplesPerFrame,
-            channels == 2 ? "stereo passthrough"
-            : O.surround != NULL ? "virtual surround available" : "plain downmix",
+            O.surround != NULL ? "virtual surround available"
+            : channels == 2 ? "stereo passthrough" : "plain downmix",
             cfg->fixedBuffer && getenv("MLXR_AUDIO_JITTER") == NULL ? "fixed buffer"
                                                                  : "adaptive jitter cushion");
     return 0;
@@ -383,17 +384,16 @@ static void rendererDecode(char* data, int length) {
     }
 
     const float* out = O.pcm;
-    if (O.channels > 2) {
-        if (O.surround != NULL) {
-            mlxr_surround_set_enabled(O.surround, atomic_load(&O.surroundEnabled) != 0);
-            mlxr_surround_set_pose(O.surround, atomic_load_explicit(&O.yaw, memory_order_relaxed),
-                                   atomic_load_explicit(&O.pitch, memory_order_relaxed));
-            mlxr_surround_render(O.surround, O.pcm, frames, O.stereo);
-        } else {
-            mlxr_downmix_to_stereo(O.channels, O.pcm, frames, O.stereo);
-            for (int i = 0; i < 2 * frames; i++) {
-                O.stereo[i] = O.stereo[i] > 1.0f ? 1.0f : O.stereo[i] < -1.0f ? -1.0f : O.stereo[i];
-            }
+    if (O.surround != NULL) {
+        mlxr_surround_set_enabled(O.surround, atomic_load(&O.surroundEnabled) != 0);
+        mlxr_surround_set_pose(O.surround, atomic_load_explicit(&O.yaw, memory_order_relaxed),
+                               atomic_load_explicit(&O.pitch, memory_order_relaxed));
+        mlxr_surround_render(O.surround, O.pcm, frames, O.stereo);
+        out = O.stereo;
+    } else if (O.channels > 2) {
+        mlxr_downmix_to_stereo(O.channels, O.pcm, frames, O.stereo);
+        for (int i = 0; i < 2 * frames; i++) {
+            O.stereo[i] = O.stereo[i] > 1.0f ? 1.0f : O.stereo[i] < -1.0f ? -1.0f : O.stereo[i];
         }
         out = O.stereo;
     }

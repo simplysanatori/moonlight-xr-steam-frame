@@ -201,7 +201,7 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Supersampling (Video) | Off, Normal, Quality | Normal. Not used while the 3D is on. | `[display] supersampling` |
 | Sharper small text, Sharper coloured text (Video) | on, off | on, on | `[display] picture_filter`, `chroma_from_luma` |
 | Picture brightness, contrast, gamma, saturation (Video) | -50 to 50; 50 to 150 %; 0.50 to 2.00; 0 to 200 % | 0, 100 %, 1.00, 100 % | `[vr] picture_brightness`, `picture_contrast`, `picture_gamma` (hundredths), `picture_saturation` |
-| Virtual surround (Audio) | on, off | off | `[stream] virtual_surround` |
+| Virtual surround (Audio) | on, off | off. Works with Stereo as well as 5.1 and 7.1: stereo becomes two speakers in front of the screen, so turning your head moves the sound. | `[stream] virtual_surround` |
 | When the gyro is sent (Gamepad) | Always, While the thumb touches the right stick | Always | `[vr] pad_gyro_ratchet` |
 | Lightgun reload, Lightgun recoil (Gamepad) | on, off | off, on | `[vr] lightgun_reload`, `lightgun_recoil` |
 | Gamepad mode shortcut (Gamepad) | Left View and left grip, Click both sticks, Both triggers and both grips | Left View and left grip | `[vr] gamepad_toggle` |
@@ -925,7 +925,7 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[stream] rfi_idr_ms` | 0 to 5000 (ms) | 500. After lost video, the headset asks the PC for a full (IDR) frame at most once in this time. 0 no limit. The PC's own requests from the streaming library cannot be held back; the log counts them. The flat window's Settings page has the same choice under Connection. |
 | `[stream] failover` | `off`, `on` | `off`. With `on` and `network_path = auto`, a stream that keeps losing video on its link moves to another link that measured clearly better when the stream started. See [Switching links when video keeps breaking up](#switching-links-when-video-keeps-breaking-up). The flat window's Settings page has the same switch under Connection. |
 | `[stream] failover_burst_ms` | 500 to 9000 (ms) | 3000. How much lost video within 10 seconds makes `failover` leave the link. |
-| `[stream] virtual_surround` | `true`, `false` | `false`. Places 5.1 and 7.1 speakers around you in stereo. |
+| `[stream] virtual_surround` | `true`, `false` | `false`. Places the speakers around you in your headphones and keeps them with the screen as you turn your head: 5.1 and 7.1 all round you, stereo as two speakers in front of the screen, 30° either side. |
 | `[debug] file_log` | `off`, `basic`, `verbose` | `basic` |
 
 Close the app before you edit the file.

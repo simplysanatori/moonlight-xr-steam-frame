@@ -1342,7 +1342,7 @@ Flickable {
         VrSwitch {
             key: "stream.virtual_surround"
             title: qsTr("Virtual surround")
-            summary: qsTr("Places the 5.1 and 7.1 speakers around you in stereo.")
+            summary: qsTr("Places stereo, 5.1 and 7.1 speakers around you, held to the screen.")
         }
 
         // ======== Gamepad Settings ========
