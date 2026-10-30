@@ -34,7 +34,7 @@ gamepad.right.grip = pad:rb
 | left | `trigger`, `grip`, `bumper`, `stick`, `stick_up`, `stick_down`, `stick_left`, `stick_right`, `stick_click`, `view`, `dpad_up`, `dpad_down`, `dpad_left`, `dpad_right`, `trigger_touch`, `stick_touch` |
 | right | `trigger`, `grip`, `bumper`, `stick`, `stick_up`, `stick_down`, `stick_left`, `stick_right`, `stick_click`, `a`, `b`, `x`, `y`, `menu`, `trigger_touch`, `stick_touch`, `a_touch`, `b_touch`, `x_touch`, `y_touch` |
 
-Written `left.trigger`, `right.a_touch` and so on. `left.stick` and `right.stick` are the whole stick (two axes) and only take `stick:` actions or `none`; the four directions and the click are buttons. The touch controls are the capacitive sensors in the OpenXR probe (`docs/probe/openxr-probe.txt`); they are not bound to OpenXR actions yet (that needs a headset check that the Frame profile accepts them all together). The system button is SteamVR's and is refused with its own message.
+Written `left.trigger`, `right.a_touch` and so on. `left.stick` and `right.stick` are the whole stick (two axes) and only take `stick:` actions or `none`; the four directions and the click are buttons. The touch controls are the capacitive sensors in the OpenXR probe (`docs/probe/openxr-probe.txt`); only the right thumbstick's touch is bound to an OpenXR action so far, and only for the pad gyro's `stick_touch` ratchet (`xr/xr_input.c`, `suggestFrameBindings`); the rest are not bound yet (that needs a headset check that the Frame profile accepts them all together), and a rule on any touch control, `right.stick_touch` included, still reads nothing. The system button is SteamVR's and is refused with its own message.
 
 ### Actions
 
