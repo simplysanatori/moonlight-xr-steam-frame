@@ -436,7 +436,7 @@ void setRayOn(XrCtx* ctx, int on, const char* from) {
 // sheet. The ray comes back for them while it is switched off.
 int panelUp(XrCtx* ctx) {
     return ctx->cogOpen || ctx->pickerOpen || ctx->kbOpen || ctx->exitConfirmOpen
-            || ctx->reportOpen || ctx->hintOpen || ctx->kofiOpen;
+            || ctx->reportOpen || ctx->hintOpen || ctx->kofiOpen || ctx->hostOpen;
 }
 
 // The 3D on or off for the rest of the session, from the bar or the 3D tab.

@@ -117,6 +117,16 @@ static void face_aim(Face* f, int on) {
     if (!on) strike(f, 30, 30, 98, 98);
 }
 
+// Native (lane wave2-bind-wire): the Host sheet's, a PC screen on its stand
+// with two keys on it
+static void face_host(Face* f) {
+    f_srr(f, 16, 22, 112, 88, 10, 6, INK_ON);
+    f_line(f, 64, 88, 64, 102, 6, INK_ON);
+    f_line(f, 42, 106, 86, 106, 6, INK_ON);
+    f_rr(f, 34, 44, 60, 66, 4, INK_ON);
+    f_rr(f, 68, 44, 94, 66, 4, INK_ON);
+}
+
 void dc_button_face(Dc* dc, int cell, float ox, float oy, float size) {
     Face f = { dc, ox, oy, size / (float)BUTTON_TEX };
     switch (cell) {
@@ -132,6 +142,7 @@ void dc_button_face(Dc* dc, int cell, float ox, float oy, float size) {
     case BTN_CELL_AIM + 1: face_aim(&f, 1); break;
     case BTN_CELL_PAD: face_pad(&f, 0); break;
     case BTN_CELL_PAD + 1: face_pad(&f, 1); break;
+    case BTN_CELL_HOST: face_host(&f); break;
     default: break;
     }
 }

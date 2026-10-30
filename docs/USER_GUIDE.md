@@ -138,9 +138,9 @@ The bar sits under the screen and shows its buttons only while the ray is over i
 | Move pill | Grab it to move the screen. See [Moving and sizing the screen](#moving-and-sizing-the-screen). |
 | Cog | Opens the cog menu. |
 | Keyboard | Opens or closes the headset keyboard. |
-| Host | Opens the Host sheet: Esc, Win, Alt+Enter and the other keys that are awkward to reach, plus your own macros. See [Host: keys for the PC](#host-keys-for-the-pc). |
 | Ray | Shows or hides the controller ray for this session only. The cog's Ray row is the saved one. |
 | 3D | Only shown when the depth model is ready. Turns 3D on or off. |
+| Host | Opens the Host sheet: Esc, Win, Alt+Enter and the other keys that are awkward to reach, plus your own macros. A button can open it too: `app:host` in `bindings.ini`. See [Host: keys for the PC](#host-keys-for-the-pc). |
 
 ## The cog menu
 
@@ -183,7 +183,7 @@ The presets and Bring here also work from a controller button: bind `app:bringhe
 | Sharpen | Off, Normal, Quality | Off |
 | Supersample | Off, Normal, Quality | Normal. Not used while the screen is curved or 3D is on. |
 | Stats | Off, On | Off |
-| Head locked | Off, On, Follow | Off. On: the screen is fixed to your head. Follow: the screen stays where it is until your head has turned more than the leash (25° by default, `follow_leash_deg`) away from it, in yaw or in pitch, then it eases after where you look over about half a second and stays there. See [Follow and comfort](#follow-and-comfort). |
+| Head locked | Off, On, Follow | Off. On: the screen is fixed to your head. Follow: the screen stays where it is until your head has turned more than the leash (25Â° by default, `follow_leash_deg`) away from it, in yaw or in pitch, then it eases after where you look over about half a second and stays there. See [Follow and comfort](#follow-and-comfort). |
 | Head aim | Off, On | Off. Needs Head locked; not in a room. |
 | Mode | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
 | Show controllers | Off, On | Off |
@@ -287,7 +287,7 @@ right.grip = key:R             ; the right grip presses R instead of RB
 pointer.right.trigger = mouse:left
 ```
 
-An action is `key:` (a key, with `ctrl+`, `shift+`, `alt+`, `win+` in front), `mouse:left|right|middle|x1|x2`, `wheel:up|down|left|right`, `pad:` (a gamepad button, gamepad mode only), `stick:` (what a whole thumbstick does: `scroll`, `mouse`, `wasd`, `arrows`, `dpad`) or `app:keyboard|ray|recentre|cog|3d|gamepad`. A line that is not right is left out: `moonlight.log` says which line and why, and the headset shows "bindings.ini: N errors, see log". The mode switch shortcuts, the disconnect chord and the grips' grab over the bar and corners cannot be changed. The full list is in the file itself. The flat launcher's **Controller bindings** page edits the same file ([BINDINGS.md](BINDINGS.md)). The headset reads the file when a stream starts, so a change takes effect at the next stream start.
+An action is `key:` (a key, with `ctrl+`, `shift+`, `alt+`, `win+` in front), `mouse:left|right|middle|x1|x2`, `wheel:up|down|left|right`, `pad:` (a gamepad button, gamepad mode only), `stick:` (what a whole thumbstick does: `scroll`, `mouse`, `wasd`, `arrows`, `dpad`) or `app:keyboard|ray|recentre|cog|3d|gamepad|bringhere|host`. A line that is not right is left out: `moonlight.log` says which line and why, and the headset shows "bindings.ini: N errors, see log". The mode switch shortcuts, the disconnect chord and the grips' grab over the bar and corners cannot be changed. The full list is in the file itself. The flat launcher's **Controller bindings** page edits the same file ([BINDINGS.md](BINDINGS.md)). The headset reads the file when a stream starts, so a change takes effect at the next stream start.
 
 ### Switching between the modes
 
@@ -313,7 +313,7 @@ The headset shows "Gamepad mode" or "Pointer mode". In gamepad mode the menus cl
 
 Follow is a lazy head lock. A screen fixed to the head never leaves your view, which some people find tiring or queasy; a screen fixed in the world makes you turn all the way round to find it again. Follow sits between: look around inside the leash and the screen holds still, look further and it glides after you (a slerp over 0.6 s, slow at the start and the end) and stops. It keeps its distance from you, its size and its tilt, and it waits while a menu is open, while you hold the screen, in a room and in the launcher's lists.
 
-If it makes you uneasy, make the leash larger (up to 60°) so it moves less often, or use Off or On. Sit still for the first try: a screen that moves while you turn your head is the most noticeable thing to get used to. Following is a world-locked mode, so Head aim (which needs Head locked) is off while it is.
+If it makes you uneasy, make the leash larger (up to 60Â°) so it moves less often, or use Off or On. Sit still for the first try: a screen that moves while you turn your head is the most noticeable thing to get used to. Following is a world-locked mode, so Head aim (which needs Head locked) is off while it is.
 
 ## Rooms and passthrough
 

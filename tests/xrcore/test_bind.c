@@ -79,7 +79,7 @@ static void testNames(void) {
         "none", "key:F", "key:ctrl+shift+esc", "key:win+D", "key:0xE9", "mouse:left",
         "mouse:x1", "mouse:x2", "wheel:up", "wheel:right", "pad:a", "pad:lt", "pad:guide",
         "pad:dpad_left", "stick:scroll", "stick:wasd", "stick:pad_right", "app:keyboard",
-        "app:ray", "app:recentre", "app:cog", "app:3d", "app:gamepad", "app:bringhere",
+        "app:ray", "app:recentre", "app:cog", "app:3d", "app:gamepad", "app:bringhere", "app:host",
     };
     for (size_t i = 0; i < sizeof(TEXTS) / sizeof(TEXTS[0]); i++) {
         XrBindAction a, b;

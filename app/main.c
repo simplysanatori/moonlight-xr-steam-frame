@@ -381,6 +381,9 @@ static int vkExtended(int vk) {
     case 0x5B: case 0x5C: case 0x5D:                                                         // Win Win Menu
     case 0xA3: case 0xA5:                                                                    // RCtrl RAlt
     case 0x6F: case 0x90:                                                                    // Divide NumLock
+    case 0xA6: case 0xA7: case 0xA8: case 0xA9: case 0xAA: case 0xAB: case 0xAC:             // Browser keys
+    case 0xAD: case 0xAE: case 0xAF:                                                         // Mute Vol- Vol+
+    case 0xB0: case 0xB1: case 0xB2: case 0xB3:                                              // Next Prev Stop Play
         return 1;
     default:
         return 0;

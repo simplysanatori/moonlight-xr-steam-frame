@@ -13,6 +13,7 @@
 #include "xr_renderer.h"
 #include "xr_keyboard.h"
 #include "xr_native.h"
+#include "xr_host.h"
 #include "../input/gamepads.h"
 
 // Native (lane ray-glitch): the ray recorder, switched on by MLXR_RAY_DEBUG=1
@@ -1283,7 +1284,7 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         int statsGrab = !kbBar && hand >= 0 && hand < HAND_COUNT && ctx->statsOver
                 && ctx->gripEdge[hand] && statsShown(ctx) && hover != HOVER_KBPANEL
                 && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen && !ctx->reportOpen
-                && !ctx->hintOpen && !ctx->kofiOpen;
+                && !ctx->hintOpen && !ctx->kofiOpen && !ctx->hostOpen;
         int winGrab = kbBar || statsGrab;
         if (!winGrab && roomStyle > 0 && (hover != HOVER_CORNER || !roomResizable(roomStyle))) {
             return;
@@ -1550,7 +1551,8 @@ static int onFurniture(int hover) {
     return hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_COGBUTTON
             || hover == HOVER_KBBUTTON || hover == HOVER_EXITBUTTON
             || hover == HOVER_STEREOBUTTON || hover == HOVER_RAYBUTTON
-            || hover == HOVER_AIMBUTTON || hover == HOVER_PADBUTTON;
+            || hover == HOVER_AIMBUTTON || hover == HOVER_PADBUTTON
+            || hover == HOVER_HOSTBUTTON;
 }
 
 // Where the ray lands on furniture rather than on the picture. The grid and the
@@ -1583,6 +1585,9 @@ static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef scre
     }
     if (hover == HOVER_KOFI) {
         return screenPoint(u, v, ctx->kofiPose, ctx->kofiW, ctx->kofiH, 0.0f, 0);
+    }
+    if (hover == HOVER_HOST) {
+        return screenPoint(u, v, ctx->hostPose, ctx->hostW, ctx->hostH, 0.0f, 0);
     }
     return screenPoint(u, v, screenPose, ctx->screenWidth, height, radius, curved);
 }
@@ -1831,15 +1836,17 @@ static int furnitureHover(XrCtx* ctx, int hover, float u, float v, const BarFram
     // The rest sit further out, past the ends of the bar's zone entirely.
     // That is halo ground, so each has to claim the halo back or the ray
     // never reaches it: the keyboard and the exit button one place out, then
-    // gamepad mode and the ray's switch, then head aim and the 3D switch.
-    static const int OUTER[6] = {
-        BAR_SLOT_KB, BAR_SLOT_EXIT, BAR_SLOT_PAD, BAR_SLOT_AIM, BAR_SLOT_RAY, BAR_SLOT_STEREO
+    // gamepad mode and the ray's switch, then head aim and the 3D switch, and
+    // last the Host sheet's (native, lane wave2-bind-wire).
+    static const int OUTER[7] = {
+        BAR_SLOT_KB, BAR_SLOT_EXIT, BAR_SLOT_PAD, BAR_SLOT_AIM, BAR_SLOT_RAY, BAR_SLOT_STEREO,
+        BAR_SLOT_HOST
     };
-    static const int HOVERS[6] = {
+    static const int HOVERS[7] = {
         HOVER_KBBUTTON, HOVER_EXITBUTTON, HOVER_PADBUTTON, HOVER_AIMBUTTON, HOVER_RAYBUTTON,
-        HOVER_STEREOBUTTON
+        HOVER_STEREOBUTTON, HOVER_HOSTBUTTON
     };
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 7; i++) {
         if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
                 && barButtonHit(ctx, OUTER[i], u, v, bar)) {
             hover = HOVERS[i];
@@ -2579,7 +2586,7 @@ static void updatePointerWake(XrCtx* ctx, InputFrame* f) {
     // The hand lock hint and the Ko-fi sheet wait on a press, so the pointer
     // stays up under them. Retiring there would cost the press that puts one
     // away as a waking pinch.
-    if (ctx->hintOpen || ctx->kofiOpen) {
+    if (ctx->hintOpen || ctx->kofiOpen || ctx->hostOpen) {
         ctx->pointerAwake = 1;
         ctx->stillFor = 0.0f;
     }
@@ -2790,6 +2797,7 @@ static void clearHotState(XrCtx* ctx) {
     ctx->rayButtonHot = 0;
     ctx->aimButtonHot = 0;
     ctx->padButtonHot = 0;
+    ctx->hostButtonHot = 0;
     ctx->reportHoverZone = REPORT_ZONE_NONE;
     ctx->cogReportHot = 0;
     ctx->cogKofiHot = 0;
@@ -3457,6 +3465,61 @@ static void updateKofiSheet(XrCtx* ctx, InputFrame* f) {
     }
 }
 
+// Native (lane wave2-bind-wire): the Host sheet is modal like the Ko-fi
+// sheet. The ray is on its cells; a press on one does what it says
+// (xrHostPress: plays its keys, asks first, or puts the keyboard up for Send
+// keys), and a press off the sheet puts it away.
+static void updateHostSheet(XrCtx* ctx, InputFrame* f) {
+    f->hover = HOVER_HOST;
+    f->hand = -1;
+    int zone = XR_HOST_ZONE_NONE;
+    for (int h = 0; h < SRC_COUNT; h++) {
+        float pu, pv;
+        if (!canPoint(ctx, f, h)) {
+            continue;
+        }
+        if (!screenProject(f->aimPoses[h], ctx->hostPose, ctx->hostW, ctx->hostH, 0.0f, 0, &pu,
+                           &pv)) {
+            continue;
+        }
+        if (pu < 0.0f || pu > 1.0f || pv < 0.0f || pv > 1.0f) {
+            continue;
+        }
+        f->hand = h;
+        f->hitU[h] = pu;
+        f->hitV[h] = pv;
+        zone = xrHostZone(ctx, pu, pv);
+        break;
+    }
+    ctx->hostHoverZone = zone;
+
+    int pressed = -1;
+    for (int h = 0; h < SRC_COUNT && pressed < 0; h++) {
+        if (ctx->triggerEdge[h]) {
+            pressed = h;
+        }
+    }
+    if (pressed < 0) {
+        return;
+    }
+    if (pressed == f->hand) {
+        int tick = 0;
+        xrHostPress(ctx, f->hitU[pressed], f->hitV[pressed], &tick);
+        if (tick) {
+            ctx->clickPending = 1;
+        }
+    }
+    else {
+        xrHostClose(ctx);
+        LOGEV("host sheet put away by a press off it");
+    }
+    for (int h = 0; h < SRC_COUNT; h++) {
+        if (ctx->triggerEdge[h]) {
+            swallowTrigger(ctx, h);
+        }
+    }
+}
+
 // Lights whichever piece of furniture the ray is on, and acts on a press there.
 // A press on any of them, a key included, ticks.
 static void updateFurniture(XrCtx* ctx, InputFrame* f) {
@@ -3465,6 +3528,7 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
             || f->hover == HOVER_KBBUTTON || f->hover == HOVER_EXITBUTTON
             || f->hover == HOVER_STEREOBUTTON || f->hover == HOVER_RAYBUTTON
             || f->hover == HOVER_AIMBUTTON || f->hover == HOVER_PADBUTTON
+            || f->hover == HOVER_HOSTBUTTON
             || (f->hover == HOVER_KBPANEL
                 && kbKeyAt(ctx, f->hitU[f->hand], f->hitV[f->hand]) >= 0))) {
         ctx->clickPending = 1;
@@ -3546,6 +3610,15 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
             setPadMode(ctx, !ctx->padMode, "the bar button");
         }
     }
+    else if (f->hover == HOVER_HOSTBUTTON) {
+        // Native (lane wave2-bind-wire): the Host sheet (docs/dev/host.md)
+        ctx->hostButtonHot = 1;
+        if (ctx->triggerEdge[f->hand]) {
+            xrHostOpen(ctx);
+            // The press belonged to the button, not to the host behind it
+            swallowTrigger(ctx, f->hand);
+        }
+    }
     else if (f->hover == HOVER_KBPANEL) {
         int key = kbKeyAt(ctx, f->hitU[f->hand], f->hitV[f->hand]);
         ctx->kbHoverKey = key;
@@ -3585,7 +3658,7 @@ static void updateLauncher(XrCtx* ctx, InputFrame* f) {
 // dismiss it while the first is still on the screen.
 static void dismissKeyboard(XrCtx* ctx, InputFrame* f) {
     if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen
-            && !ctx->reportOpen && !ctx->hintOpen && !ctx->kofiOpen) {
+            && !ctx->reportOpen && !ctx->hintOpen && !ctx->kofiOpen && !ctx->hostOpen) {
         for (int h = 0; h < SRC_COUNT; h++) {
             if (!canPoint(ctx, f, h) || !ctx->triggerEdge[h]) {
                 continue;
@@ -3862,7 +3935,18 @@ static void bindAppCommand(XrCtx* ctx, int code, float* out) {
             setPadMode(ctx, !ctx->padMode, "a binding");
             break;
         case XR_BIND_APP_BRINGHERE:
-            LOGI("bring here from a binding: comes in a later update");
+            if (!xrBringScreenHere(ctx)) {
+                LOGI("bring here from a binding: nothing moved (a room, head locked, or no head pose yet)");
+            }
+            break;
+        case XR_BIND_APP_HOST:
+            if (ctx->hostOpen) {
+                xrHostClose(ctx);
+            }
+            else {
+                xrHostOpen(ctx);
+            }
+            LOGI("host sheet %s from a binding", ctx->hostOpen ? "open" : "closed");
             break;
         default:
             break;
@@ -4846,6 +4930,7 @@ static void padPutPanelsAway(XrCtx* ctx, float* out) {
     ctx->reportOpen = 0;
     ctx->hintOpen = 0;
     ctx->kofiOpen = 0;
+    ctx->hostOpen = 0;
     ctx->buttonsDown = 0;
 }
 
@@ -5149,6 +5234,9 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     else if (ctx->kofiOpen) {
         updateKofiSheet(ctx, &f);
     }
+    else if (ctx->hostOpen) {
+        updateHostSheet(ctx, &f);
+    }
     else {
         updateFurniture(ctx, &f);
         // Native: the launcher's list stands where the picture would
@@ -5232,7 +5320,8 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
             || f.hover == HOVER_KBPANEL || f.hover == HOVER_KBBAR || f.hover == HOVER_EXITBUTTON
             || f.hover == HOVER_EXITPROMPT || f.hover == HOVER_STEREOBUTTON
             || f.hover == HOVER_RAYBUTTON || f.hover == HOVER_AIMBUTTON
-            || f.hover == HOVER_PADBUTTON || f.hover == HOVER_REPORT || f.hover == HOVER_KOFI)
+            || f.hover == HOVER_PADBUTTON || f.hover == HOVER_REPORT || f.hover == HOVER_KOFI
+            || f.hover == HOVER_HOSTBUTTON || f.hover == HOVER_HOST)
             && f.headValid && f.hand >= 0) {
         beamToFurniture(ctx, &f);
     }

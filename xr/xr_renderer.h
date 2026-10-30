@@ -1117,6 +1117,8 @@ typedef struct XrCtx {
     int aimButtonHot;
     int padButtonReady;
     int padButtonHot;
+    // Native (lane wave2-bind-wire): the bar's Host button under the ray
+    int hostButtonHot;
 
     int exitButtonReady;
     int exitConfirmOpen;

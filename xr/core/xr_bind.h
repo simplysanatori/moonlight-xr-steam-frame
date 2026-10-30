@@ -159,6 +159,9 @@ int xrBindSourceIsStick(int src);
 #define XR_BIND_APP_GAMEPAD 5
 // Bring the screen to in front of the controller (PLAN 3.6, not in yet)
 #define XR_BIND_APP_BRINGHERE 6
+// Open or close the Host sheet (keys for the PC, PLAN 4b.1)
+#define XR_BIND_APP_HOST 7
+#define XR_BIND_APP_COUNT 8
 
 typedef struct {
     // XR_BIND_ACT_

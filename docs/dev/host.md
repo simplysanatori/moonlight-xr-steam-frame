@@ -50,9 +50,9 @@ Six keys under the main block on both keyboards, every sheet, every map: previou
 
 `kbPress` (tap = lit for the next key, a second tap puts it out) is unchanged. `KbSticky` adds the lock: `xrKeyboardPress` calls `kbStickyPress` (a tap on a locked modifier lets it go; a press on a modifier starts its hold clock, with the hand), `compactSticky` in `xrKeyboardFrame` ticks it with the Full keyboard's hold time (`keyboard_hold_ms`), then re-lights the locked bits in `kbMods` and keeps the capitals sheet for a locked Shift. `kbMods` goes to the host as it always did (`IN_KB_MODS`), so a locked Ctrl is held down on the PC.
 
-## What is not wired (needs `xr/xr_input.c`, owned by another lane)
+## Wiring (done in lane wave2-bind-wire)
 
-The sheet draws, fades, snapshots and tests, but nothing can open it or press it yet:
+The bar button, the press branch and `app:host` are in. What was asked for, as built:
 
 1. **A bar button.** `BAR_SLOT_HOST` in `xr/core/xr_layout.[ch]` (`BAR_SLOTS` 9, its `OUT`/`LEFT` placement entries), a `BTN_CELL_HOST` face in `ui/icons.c` and `panel_bar.c`'s `FACE_CELL`, a `HOVER_HOSTBUTTON` in `furnitureHover`'s `OUTER` list, `addBarButton` in `xr_layers.c`, and `barSlotShown` in `xr_ui.c`.
 2. **A press branch.** On the button: `xrHostOpen(ctx)`. A modal branch next to `updateKofiSheet`: project the ray on `ctx->hostPose` (`screenProject` as `updateExitPrompt` does), set `ctx->hostHoverZone = xrHostZone(ctx, u, v)`, on `ctx->triggerEdge[h]` call `xrHostPress(ctx, u, v, &tick)` (set `ctx->clickPending = tick`, `swallowTrigger`), and a press off the sheet calls `xrHostClose`. Add `hostOpen` to `panelUp`, to the places that list `kofiOpen` (`xr_input.c`) and to `closeAllPanels`-style resets.

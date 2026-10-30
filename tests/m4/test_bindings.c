@@ -306,6 +306,31 @@ static void explicitGrip(void) {
     scene_free(sc);
 }
 
+// app:host opens and closes the Host sheet; app:bringhere asks the layout
+// to bring the screen (it may decline without a head pose, but never fails)
+static void hostAndBringHere(void) {
+    Scene* sc = scene_new();
+    XrCtx* c = sc->ctx;
+    writeFile("[pointer]\nright.y = app:host\nleft.dpad_left = app:bringhere\n");
+    CHECK(xrBindLoad(c, g_path) == 0);
+    rest(c);
+    CHECK(c->hostOpen == 0);
+    c->padSeen[HAND_RIGHT].faceY = 1;
+    frame(c);
+    CHECK(c->hostOpen == 1);
+    rest(c);
+    frame(c);
+    c->padSeen[HAND_RIGHT].faceY = 1;
+    frame(c);
+    CHECK(c->hostOpen == 0);
+    rest(c);
+    frame(c);
+    c->padSeen[HAND_LEFT].dpadLeft = 1;
+    frame(c);
+    CHECK(c->hostOpen == 0 && c->kbOpen == 0);
+    scene_free(sc);
+}
+
 // Mistakes in the file: each a warning in the log, and one toast for them all
 static void fileWithErrors(void) {
     Scene* sc = scene_new();
@@ -335,6 +360,7 @@ int main(void) {
     sampleFile();
     gamepadDefaults();
     explicitGrip();
+    hostAndBringHere();
     fileWithErrors();
     unlink(g_path);
     rmdir(g_dir);

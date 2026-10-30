@@ -338,6 +338,12 @@ static void testTheRowsOrder(void) {
         lastL = l.x - sideL * 0.5f;
         lastR = r.x + sideR * 0.5f;
     }
+    // Native (lane wave2-bind-wire): the Host sheet's past the 3D, on the right
+    Vec3 host;
+    float hostSide;
+    barSlotPlacement(BAR_SLOT_HOST, w, h, &host, &hostSide);
+    CHECK(host.x - hostSide * 0.5f > lastR);
+    CHECK_NEAR(host.y, -(h * 0.5f + w * BAR_DROP_FRAC), 1e-6);
     // Every button is clear of the frame's bottom edge
     for (int slot = 0; slot < BAR_SLOTS; slot++) {
         Vec3 p;
@@ -835,11 +841,12 @@ static void testTheKofiButton(void) {
 // offsets in y, and a face written in lands in its cell the right way up for
 // a texture uploaded bottom row first, touching nothing else.
 static void testTheButtonCells(void) {
-    CHECK(BTN_ATLAS_W == 1536 && BTN_ATLAS_H == BUTTON_TEX);
-    // Every switch has its on face in the cell after its off face, and the
-    // last switch's on face is the last cell
+    CHECK(BTN_ATLAS_W == 1664 && BTN_ATLAS_H == BUTTON_TEX);
+    // Every switch has its on face in the cell after its off face; the Host
+    // sheet's button (native) has one face, the last cell
     CHECK(BTN_CELL_STEREO + 1 < BTN_CELL_RAY && BTN_CELL_RAY + 1 < BTN_CELL_AIM);
-    CHECK(BTN_CELL_AIM + 1 < BTN_CELL_PAD && BTN_CELL_PAD + 1 == BTN_CELLS - 1);
+    CHECK(BTN_CELL_AIM + 1 < BTN_CELL_PAD && BTN_CELL_PAD + 1 < BTN_CELL_HOST);
+    CHECK(BTN_CELL_HOST == BTN_CELLS - 1);
 
     int seen[BTN_ATLAS_COLS * BTN_ATLAS_ROWS] = { 0 };
     for (int cell = 0; cell < BTN_CELLS; cell++) {

@@ -52,7 +52,7 @@ static const char* const kWheel[] = { "up", "down", "left", "right" };
 static const char* const kPad[] = { "a", "b", "x", "y", "lb", "rb", "lt", "rt", "ls", "rs", "start", "back", "guide",
                                     "dpad_up", "dpad_down", "dpad_left", "dpad_right" };
 static const char* const kStick[] = { "scroll", "mouse", "wasd", "arrows", "dpad", "pad_left", "pad_right" };
-static const char* const kApp[] = { "keyboard", "ray", "recentre", "cog", "3d", "gamepad", "bringhere" };
+static const char* const kApp[] = { "keyboard", "ray", "recentre", "cog", "3d", "gamepad", "bringhere", "host" };
 
 // The chords the core refuses in every mode (docs/dev/bindings.md "Never bindable"); selfCheck() asks the
 // core that it still does

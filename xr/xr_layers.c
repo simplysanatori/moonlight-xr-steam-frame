@@ -61,6 +61,7 @@ typedef struct {
     XrCompositionLayerQuad rayButton;
     XrCompositionLayerQuad aimButton;
     XrCompositionLayerQuad padButton;
+    XrCompositionLayerQuad hostButton;
     XrCompositionLayerQuad exitPrompt;
     XrCompositionLayerQuad report;
     XrCompositionLayerQuad hint;
@@ -595,6 +596,13 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
                      BTN_CELL_STEREO + (ctx->stereoLive ? 1 : 0),
                      BAR_SLOT_STEREO, ctx->stereoButtonHot, NULL);
     }
+    // Native (lane wave2-bind-wire): the Host sheet's, from the same strip
+    // the keyboard's face comes from
+    if (ctx->kbButtonReady
+            && panelButton(ctx, view, layers, FADE_HOST, ctx->hostOpen, &next)) {
+        addBarButton(ctx, view, layers, &layers->hostButton, BTN_CELL_HOST,
+                     BAR_SLOT_HOST, ctx->hostButtonHot || ctx->hostOpen, next);
+    }
 }
 
 // The prompt the exit button opens, on the pose frozen when it opened; the
@@ -937,7 +945,8 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
                 || ctx->hoverKind == HOVER_STEREOBUTTON
                 || ctx->hoverKind == HOVER_RAYBUTTON
                 || ctx->hoverKind == HOVER_AIMBUTTON
-                || ctx->hoverKind == HOVER_PADBUTTON);
+                || ctx->hoverKind == HOVER_PADBUTTON
+                || ctx->hoverKind == HOVER_HOSTBUTTON);
 
     // Some runtimes only bring the cameras up on a change of blend mode seen
     // after the session is focused, so the first focused frame goes opaque

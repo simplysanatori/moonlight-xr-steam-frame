@@ -39,6 +39,9 @@
 #define HOVER_KBBAR     20
 // Native (owner's request): the stats window, where nothing else is behind it
 #define HOVER_STATS     21
+// Native (lane wave2-bind-wire): the bar's Host button and the Host sheet
+#define HOVER_HOSTBUTTON 22
+#define HOVER_HOST      23
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 
@@ -90,7 +93,9 @@
 #define BAR_SLOT_AIM    5
 #define BAR_SLOT_RAY    6
 #define BAR_SLOT_STEREO 7
-#define BAR_SLOTS       8
+// Native (lane wave2-bind-wire): the Host sheet's, outermost on the right
+#define BAR_SLOT_HOST   8
+#define BAR_SLOTS       9
 
 // The rectangle the bar and its buttons are laid out in: the picture's shape,
 // its bottom edge on the bottom edge of the picture as drawn and centred on
@@ -137,8 +142,9 @@ int barSlotHit(int slot, float u, float v, float width, float height);
 #define BTN_CELL_RAY    6
 #define BTN_CELL_AIM    8
 #define BTN_CELL_PAD    10
-#define BTN_CELLS       12
-#define BTN_ATLAS_COLS  12
+#define BTN_CELL_HOST   12
+#define BTN_CELLS       13
+#define BTN_ATLAS_COLS  13
 #define BTN_ATLAS_ROWS  1
 #define BTN_ATLAS_W     (BTN_ATLAS_COLS * BUTTON_TEX)
 #define BTN_ATLAS_H     (BTN_ATLAS_ROWS * BUTTON_TEX)

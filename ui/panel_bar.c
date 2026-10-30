@@ -6,13 +6,14 @@
 
 #include "panels_int.h"
 
-// The strip covers this much of the frame's width: the outermost buttons'
-// edges are 0.342 either side of the centre, and each hit zone reaches a little past that
-#define STRIP_SPAN 0.72f
+// The strip covers this much of the frame's width: the outermost button's
+// edge is 0.41 right of the centre (the Host button), and each hit zone
+// reaches a little past that
+#define STRIP_SPAN 0.86f
 
 static const int FACE_CELL[BAR_SLOTS] = {
     BTN_CELL_ENV, BTN_CELL_COG, BTN_CELL_KB, BTN_CELL_EXIT, BTN_CELL_PAD, BTN_CELL_AIM,
-    BTN_CELL_RAY, BTN_CELL_STEREO
+    BTN_CELL_RAY, BTN_CELL_STEREO, BTN_CELL_HOST
 };
 
 void panel_bar(Dc* dc) {
