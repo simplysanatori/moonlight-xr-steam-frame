@@ -350,8 +350,10 @@ typedef struct MlxrPanelParams {
     float color[4];        // premultiplied multiplier, {1, 1, 1, 1} normally
     // New (lane text-clarity), for the curved or 3D picture's own image (with
     // its mip chain): 1 the picture's footprint filter (panel.frag), 0 one
-    // trilinear read as for the glow and the panels
+    // trilinear read as for the glow and the panels; and with it, sharpen
+    // (0 off, 0.5 normal, 1 quality) at the eye's pixel scale
     int pictureFilter;
+    float sharpen;
 } MlxrPanelParams;
 void mlxr_pass_panel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrPanelParams* pp);
 

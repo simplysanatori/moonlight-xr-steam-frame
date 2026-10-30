@@ -655,6 +655,20 @@ static int curveSwapchain(XrCtx* ctx, XrCurve* cv, int64_t format) {
     return 0;
 }
 
+// The sharpen the Display tab's row asks for: off, normal, quality. The quad
+// picture's is the warp's (CAS on the video's own texels, before the
+// supersample pass); the curved or 3D picture's is the panel pass's, at the
+// eye's pixels (native, lane text-clarity: CAS never touches black text on
+// white, as its weight falls to nothing where a neighbourhood reaches black
+// or white; tests/shaders text)
+static float sharpenFor(int mode) {
+    return mode == 2 ? 0.8f : (mode == 1 ? 0.4f : 0.0f);
+}
+
+static float panelSharpenFor(int mode) {
+    return mode == 2 ? 1.0f : (mode == 1 ? 0.5f : 0.0f);
+}
+
 // Native (lane text-clarity): a config.ini switch with its variable over it
 // (for a headset A/B from the shortcut's launch options; never saved)
 static int knobOr(const char* name, int setting) {
@@ -780,12 +794,15 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     pp.segments = 96;
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
     // Native (lane text-clarity): shrunk into the eye through the footprint
-    // filter (panel.frag)
+    // filter, and sharpened there (panel.frag)
     pp.pictureFilter = pictureFilterOn(ctx);
-    int said = 1 + pp.pictureFilter * 2 + chromaFromLumaOn(ctx) * 16;
+    pp.sharpen = panelSharpenFor(ctx->sharpenMode);
+    int said = 1 + pp.pictureFilter * 2 + ctx->sharpenMode * 4 + chromaFromLumaOn(ctx) * 16;
     if (cv->filterSaid != said) {
         cv->filterSaid = said;
-        LOGEV("curved picture: %s, chroma %s", pp.pictureFilter ? "footprint filter" : "one trilinear read (picture_filter off)",
+        LOGEV("curved picture: %s, sharpen %s at the eye's pixels, chroma %s",
+              pp.pictureFilter ? "footprint filter" : "one trilinear read (picture_filter off)",
+              ctx->sharpenMode == 2 ? "quality" : ctx->sharpenMode == 1 ? "normal" : "off",
               chromaFromLumaOn(ctx) ? "from luma" : "bilinear (chroma_from_luma off)");
     }
     memset(&cv->layer, 0, sizeof(cv->layer));
@@ -831,11 +848,6 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
               cv->eyeH);
     }
     return 1;
-}
-
-// The sharpen the Display tab's row asks for: off, normal, quality
-static float sharpenFor(int mode) {
-    return mode == 2 ? 0.8f : (mode == 1 ? 0.4f : 0.0f);
 }
 
 // Native: the curved (or 3D) picture's mip chain from the level the warp just
@@ -898,7 +910,8 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     w.grade[2] = ctx->grade.exponent;
     w.grade[3] = ctx->grade.saturation;
     w.tint[0] = w.tint[1] = w.tint[2] = 1.0f;
-    w.sharpen = sharpenFor(ctx->sharpenMode);
+    // The curved or 3D picture is sharpened by the panel pass (curveRecord)
+    w.sharpen = curve != NULL && curve->mode == 1 ? 0.0f : sharpenFor(ctx->sharpenMode);
     w.chromaGuided = chromaFromLumaOn(ctx);
     xrDepthRecordWarpEyes(ctx, cmd, tg, &w, &dd);
     if (curve != NULL) {
