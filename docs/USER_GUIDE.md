@@ -18,7 +18,6 @@ This guide covers version 1.0.1. For install, update and uninstall, see the [REA
 - [Keyboards, mice and gamepads](#keyboards-mice-and-gamepads)
 - [Host: keys for the PC](#host-keys-for-the-pc)
 - [Language](#language)
-- [PC VR](#pc-vr)
 - [Ending a stream](#ending-a-stream)
 - [Apollo on the PC: recipes](#apollo-on-the-pc-recipes)
 - [Recommended PC settings](#recommended-pc-settings)
@@ -134,7 +133,7 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 
 ### Stream profiles
 
-A profile is a saved copy of the stream settings on this page, with a name. It holds the Connection rows (with the bitrate for each connection), every Video setting (with the 3D rows, the eye balance and where the 3D comes from), the sound, the gamepad and mouse rows (with the lightgun and the gamepad gyro), Optimize game settings, Play audio on PC, Smart Clipboard Sync, stats, the codec, full range, software decoding, and the headset's own rows on this page (notices, scroll speed, the disconnect times, gamepad as mouse). For example a desktop profile at 1080p and 60 Hz, and a game profile at 1440p and 120 Hz with Apollo's virtual display. Not in a profile: the room's look (background dim, void colour, glow edge), the headset keyboard layout, Show controllers, the PC VR rows, Quick Resume, Enable Full Screen, Language and Check the PC before streaming.
+A profile is a saved copy of the stream settings on this page, with a name. It holds the Connection rows (with the bitrate for each connection), every Video setting (with the 3D rows, the eye balance and where the 3D comes from), the sound, the gamepad and mouse rows (with the lightgun and the gamepad gyro), Optimize game settings, Play audio on PC, Smart Clipboard Sync, stats, the codec, full range, software decoding, and the headset's own rows on this page (notices, scroll speed, the disconnect times, gamepad as mouse). For example a desktop profile at 1080p and 60 Hz, and a game profile at 1440p and 120 Hz with Apollo's virtual display. Not in a profile: the room's look (background dim, void colour, glow edge), the headset keyboard layout, Show controllers, Quick Resume, Enable Full Screen, Language and Check the PC before streaming.
 
 The **Profiles** row (or **Stream settings profile...** in an app's menu) opens the Stream profiles page:
 
@@ -260,10 +259,6 @@ Just before a stream starts, the flat window asks the PC (serverinfo and the app
 The stream starts anyway. If it then fails, the error message repeats these under "Found before the stream started:". The last check is also shown at the bottom of the Stream profiles page, and `moonlight-launcher.log` has `MLXR_LAUNCHER_PREFLIGHT:` and one `MLXR_LAUNCHER_HINT:` line for each message. A PC that does not answer in time gives no message. Turn it off with **Check the PC before streaming** (Host Settings) or `MLXR_LAUNCHER_PREFLIGHT=0`.
 
 The same question gives the app's UUID on Apollo. The flat window passes it to the VR client (`MLXR_APP_UUID`), which sends it with the launch request next to the app's number, as Artemis does, so Apollo finds the app by its UUID and knows when that app is already running.
-
-### PC VR
-
-Two rows for VR (the first entry of every PC's app list) and the Host sheet's PC VR button: the check and the PC. They are described under [PC VR](#pc-vr).
 
 ### Performance Monitor and Advanced Settings
 
@@ -605,7 +600,7 @@ At their defaults all four leave the picture as before.
 
 If the PC renders the 3D itself, the headset can show it instead of making its own. This is for 3D films, games with their own side-by-side (SBS) mode, and games run through ReShade's SuperDepth3D or a similar 3D shader. Each eye sees its own half of the stream. The depth model does not run, so there is no 80 ms depth lag and no soft edges, and the CPU is free.
 
-This is "3D cinema", not PC VR: the picture stays on the screen in front of you and does not follow your head. For PC VR games, use Steam Link.
+This is "3D cinema", not PC VR: the picture stays on the screen in front of you and does not follow your head. For PC VR games, use Valve's Steam Link on its own, outside this app.
 
 Turn it on:
 
@@ -713,7 +708,7 @@ The **Host** sheet is a grid of keys to send to the PC, for the ones a headset k
 
 After those come your own macros, up to eight.
 
-In the header, left of **Close**, is **PC VR**: it closes what runs on the PC and hands the headset to Valve's Steam Link in SteamVR, see [PC VR](#pc-vr). Left of it, **Clipboard, commands** opens a second page of the sheet (**Back** returns; **PC VR** and **Close** are there too): the PC's clipboard and the commands the PC offers. Both need an Apollo PC; see [Clipboard and PC commands](#clipboard-and-pc-commands-apollo) for what to set up on it.
+In the header, left of **Close**, **Clipboard, commands** opens a second page of the sheet (**Back** returns; **Close** is there too): the PC's clipboard and the commands the PC offers. Both need an Apollo PC; see [Clipboard and PC commands](#clipboard-and-pc-commands-apollo) for what to set up on it.
 
 ### Macros
 
@@ -758,27 +753,6 @@ On the PC, in Apollo:
 - **Apollo 0.2.4 or newer** has the clipboard. Older ones answer "Not supported by this host".
 
 The clipboard sync at the start and end of a stream (Smart Clipboard Sync on the Settings page) is separate and works as before.
-
-## PC VR
-
-**VR** is the first entry in every PC's app list, in the flat window and in the headset. Press it and the desktop (or whatever runs on the PC) closes, then the headset switches to Valve's Steam Link in SteamVR Home on that PC, where you pick any VR game. The Host sheet's **PC VR** button does the same during a stream, after asking "Switch to VR? The desktop closes."
-
-**This is Valve's Steam Link, not Moonlight.** The picture, the head and controller tracking, the eye-tracked foveation and the audio all come from Valve's own streaming; Moonlight XR for Frame only gets out of the way. Moonlight and Apollo cannot carry a headset's position to the PC, so there is no PC VR inside this client, and none is planned. What you need: the headset and the PC signed in to the same Steam account, the headset paired with the PC in Steam (Valve's setup: plug the Steam Frame Wireless Adapter into the PC, start SteamVR on it, pair), and SteamVR installed on the PC. When Valve's stream ends, the flat window comes back as after any other stream.
-
-If Steam will not start the stream itself, it shows SteamVR's page instead, where **Stream** is one press away; with no paired PC found it shows the library. `moonlight-launcher.log` says which of these happened.
-
-On the flat window's Settings page, under **PC VR**:
-
-| Row | What it does |
-| --- | --- |
-| Switch to PC VR | Press it to check Steam and list the PCs you paired with. It also shows what is wrong when something is: Steam's debugging port not answering, the call missing on this version of Steam. |
-| PC to stream from | Automatic (the paired PC with the same name as in Moonlight, else the only one), or one of the listed PCs. |
-
-**Limits, honestly.**
-- It needs Steam's debugging port (port 8080 on the headset), the same one the flat window's return from a stream uses. SteamOS updates can move or close it. The launcher checks it when it starts in Game Mode and logs `Steam CEF preflight: ...` in `moonlight-launcher.log`; the Settings page shows the same sentence. If it fails, the hand-off cannot work; `python3 -I steam_cef.py --probe` in a terminal on the headset says why, and `STEAM_CEF_PORT=<port>` points it elsewhere.
-- The calls it makes (`SteamClient.Apps.StreamGame` and the Remote Play device list) are Steam's own client functions that Valve does not document. Their exact form on the Frame's Steam can change with an update. If Steam refuses, the app on the PC has already closed, the flat window is still there, and the log has the reason.
-- Whether Steam starts the stream while this app's shortcut is still the running game is not yet confirmed on the headset. If it does not, quit this app from the Steam library and use Valve's own **Stream from your PC** on SteamVR.
-- For developers: after a SteamOS or SteamVR update, `python3 tools/probe/doctor.py` in the source tree (in a terminal on the headset, with the client closed, `mlxr-hello` built) compares what the headset's OpenXR runtime offers with the last known good probe and prints what changed, and checks Steam's debugging port. `--save` keeps the current probe as the new baseline.
 
 ## Ending a stream
 
@@ -873,7 +847,7 @@ Do the A and B on the same link, at the same bitrate, in the same scene. A diffe
 | The USB cable is never used | `moonlight.log` has a line `network path: USB cable: ...`. `usb0 up, carrier on, 3 peer candidates` means the headset sees the cable and tried three addresses on it: if none answered, check on the PC that the new network adapter is up, set to Private, and that Apollo or Sunshine is allowed through the firewall. `usb0 down (no cable, or the PC end is not up)` means no PC is on the other end: try another cable (it must carry data) or another USB port. No `USB cable` line at all means the headset is not in developer mode, so it has no USB network. In a terminal on the headset, `mlxr-cli probe-paths --network usb` prints the same check and the result for each address, and starts no stream. |
 | The adapter is never used | `moonlight.log` has a line `network path: Steam Frame Wireless Adapter: ...`. `present (...)` means the PC is connected to the headset's adapter network. `no adapter found (wlanap up, no station)` means the headset's adapter network is on but no PC has joined it: plug the Steam Frame Wireless Adapter into the PC and wait for it to connect. `no adapter found (wlanap down)` or `(wlanap missing)` means the headset's adapter network is off. In a terminal, `mlxr-cli adapter` prints the same check and does not start a stream. |
 | Cannot reach the PC | `moonlight.log` has `host ... not reachable at ...` for each address tried. Check the PC is on and Sunshine or Apollo is running. |
-| VR does nothing, or a Steam page opens instead of SteamVR | The Settings page's first PC VR row shows the reason. `moonlight-launcher.log` has `Steam CEF preflight:` at start (Game Mode), `VR: ...` (what was closed on the PC) and `Asked Steam for PC VR: <stream, app-page or library> (<why>)` after the press. `python3 -I steam_cef.py --probe` prints whether Steam's debugging port answers and whether the calls are there; `--devices` lists the paired PCs; `--pcvr --pc "<PC name>" --dry-run` prints the call it would make without making it. The library opens only when no paired PC is found. |
+| Something stopped working after a SteamOS or SteamVR update (for developers) | `python3 tools/probe/doctor.py` in the source tree (in a terminal on the headset, with the client closed, `mlxr-hello` built) compares what the headset's OpenXR runtime offers with the last known good probe and prints what changed, and checks Steam's debugging port (the flat window's return after a stream uses it). `--save` keeps the current probe as the new baseline. |
 | The flat window does not come back after a stream | Open the app again from the Steam library. `moonlight-launcher.log` shows `Asked Steam to show the flat screen again` and the `flat window` lines (what the window did after the stream). |
 | Grey icon in the SteamVR dock | Restart Steam once after the first install. |
 | 3D tab greyed | The tab says why. If the depth model did not load, the log has the error. |
