@@ -11,6 +11,8 @@
 #include "panels.h"
 #include "settings.h"
 #include "ui_strings.h"
+#include "xr_lightgun.h"
+#include "xr_padgyro.h"
 #include "xr_shared.h"
 
 static int geti(const Settings* s, const char* name) {
@@ -134,7 +136,7 @@ static const char* const README_KEYS[] = {
     // VR Settings
     "pointer", "pointer_sleep", "show_ray", "controller_model", "head_aim",
     "head_aim_sensitivity", "head_aim_deadzone", "gamepad_toggle", "pad_grip", "rumble_mix", "rumble_intensity", "click_sound", "gaze",
-    "notices", "click_steadiness", "scroll_speed", "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
+    "notices", "click_steadiness", "scroll_speed", "lightgun", "lightgun_reload", "lightgun_recoil", "pad_gyro", "pad_gyro_ratchet", "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
     "picture_brightness", "picture_contrast", "picture_gamma", "picture_saturation",
     // VR Debugging
     "depth_rate", "depth_debug", "eye_swap", "file_log",
@@ -536,6 +538,39 @@ static void test_click_and_scroll(void) {
     CHECK(settings_option_cell(&s, &t, COG_OPTION_CLICK_STEADY) == CLICK_STEADY_OFF);
     s.click_steadiness = CLICK_STEADY_STEADY;
     CHECK(settings_option_cell(&s, &t, COG_OPTION_CLICK_STEADY) == CLICK_STEADY_STEADY);
+}
+
+// Native (lane wave2-lightgun-gyro): the lightgun policy and the gamepad's gyro
+static void test_lightgun_and_gyro(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    // defaults: the lightgun follows the Gun model with recoil and no reload; no gyro, always on
+    CHECK(s.lightgun == LIGHTGUN_AUTO && s.lightgun_reload == 0 && s.lightgun_recoil == 1);
+    CHECK(s.pad_gyro == PAD_GYRO_OFF && s.pad_gyro_ratchet == PAD_GYRO_RATCHET_ALWAYS);
+    settings_from_text(&s, "[vr]\nlightgun = On\nlightgun_reload = true\nlightgun_recoil = false\n"
+                           "pad_gyro = head\npad_gyro_ratchet = stick_touch\n", &info);
+    CHECK(s.lightgun == LIGHTGUN_ON && s.lightgun_reload == 1 && s.lightgun_recoil == 0 && info.bad == 0);
+    CHECK(s.pad_gyro == PAD_GYRO_HEAD && s.pad_gyro_ratchet == PAD_GYRO_RATCHET_STICK_TOUCH);
+    settings_from_text(&s, "[vr]\nlightgun = off\npad_gyro = controller\npad_gyro_ratchet = always\n", &info);
+    CHECK(s.lightgun == LIGHTGUN_OFF && s.pad_gyro == PAD_GYRO_CONTROLLER && s.pad_gyro_ratchet == PAD_GYRO_RATCHET_ALWAYS);
+    // indices read too, and a word that is not a value leaves the last good one
+    settings_from_text(&s, "[vr]\nlightgun = 1\npad_gyro = 2\n", &info);
+    CHECK(s.lightgun == LIGHTGUN_ON && s.pad_gyro == PAD_GYRO_HEAD);
+    settings_from_text(&s, "[vr]\nlightgun = sometimes\npad_gyro = wrist\n", &info);
+    CHECK(s.lightgun == LIGHTGUN_ON && s.pad_gyro == PAD_GYRO_HEAD && info.bad == 2);
+    // they are written by name, and not at all while they are at their defaults
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nlightgun = on\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\npad_gyro = head\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\n#pad_gyro_ratchet = always\n") != NULL);
+    free(text);
+    // the Frame pad advertises nothing by default: the opt-in is off in a fresh file
+    settings_defaults(&s);
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#pad_gyro = off\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\n#lightgun = auto\n") != NULL);
+    free(text);
 }
 
 static void test_network_path(void) {
@@ -1186,6 +1221,7 @@ int main(void) {
     test_bitrate_ceiling();
     test_notices();
     test_click_and_scroll();
+    test_lightgun_and_gyro();
     test_controller_model();
     test_cog_tab();
     test_stereo_source();

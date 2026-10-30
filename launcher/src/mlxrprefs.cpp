@@ -366,6 +366,11 @@ void MlxrPrefs::load()
     if (padArbitration != "also_gamepad" && padArbitration != "sleep") {
         padArbitration = "pointer";
     }
+    // the VR client takes the name or its index, anything else is its default
+    const QString lg = iniValue(ini, "vr", "lightgun", "auto").trimmed().toLower();
+    lightgun = (lg == "on" || lg == "1") ? "on" : (lg == "off" || lg == "2") ? "off" : "auto";
+    const QString pg = iniValue(ini, "vr", "pad_gyro", "off").trimmed().toLower();
+    padGyro = (pg == "controller" || pg == "1") ? "controller" : (pg == "head" || pg == "2") ? "head" : "off";
 
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
@@ -398,6 +403,8 @@ void MlxrPrefs::load()
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
+    m_iniLightgun = lightgun;
+    m_iniPadGyro = padGyro;
 }
 
 void MlxrPrefs::save()
@@ -507,6 +514,12 @@ void MlxrPrefs::save()
     if (padArbitration != m_iniPadArbitration) {
         setIniValue(ini, "vr", "pad_arbitration", padArbitration);
     }
+    if (lightgun != m_iniLightgun) {
+        setIniValue(ini, "vr", "lightgun", lightgun);
+    }
+    if (padGyro != m_iniPadGyro) {
+        setIniValue(ini, "vr", "pad_gyro", padGyro);
+    }
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
@@ -538,6 +551,8 @@ void MlxrPrefs::save()
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
+    m_iniLightgun = lightgun;
+    m_iniPadGyro = padGyro;
 }
 
 int MlxrPrefs::headsetMaxFps() const
