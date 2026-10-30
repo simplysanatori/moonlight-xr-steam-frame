@@ -122,6 +122,10 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(QString padMouseChord MEMBER padMouseChord NOTIFY changed)
     Q_PROPERTY(QString padMouseScroll MEMBER padMouseScroll NOTIFY changed)
     Q_PROPERTY(QString padArbitration MEMBER padArbitration NOTIFY changed)
+    // Native (lane wave6-i18n): [ui] language, the headset UI's language: "auto" (default, the headset's
+    // locale), "en", or a code of tools/ui/gen_strings.py's list ("de", "pt-BR", ...). Read by the VR
+    // client when it starts
+    Q_PROPERTY(QString headsetLanguage MEMBER headsetLanguage NOTIFY changed)
     // Native (lane wave3-cards): [vr] pad_card: the gamepad card in the headset's lap, "auto" (default: up while
     // a gamepad is in use, gone 4 s after the last input), "on" or "off"; [vr] first_run_shown: the first-run
     // controls card has been shown (false brings it back on the next stream)
@@ -268,6 +272,11 @@ public:
     QString padMouseChord;
     QString padMouseScroll;
     QString padArbitration;
+    QString headsetLanguage;
+
+    // A [ui] language value as the VR client spells it: "auto" for an empty or malformed one,
+    // else lower case with the region upper case ("pt_br" -> "pt-BR")
+    static QString normalizeLanguage(const QString& v);
     QString padCard;
     bool firstRunShown = false;
     QString lightgun;
@@ -313,4 +322,5 @@ private:
     void pcvrLoadApps();
     void pcvrSay(const QString& status, bool busy);
     QString m_iniKeymap = QStringLiteral("qwerty");
+    QString m_iniHeadsetLanguage = QStringLiteral("auto");
 };

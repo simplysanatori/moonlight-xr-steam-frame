@@ -343,6 +343,15 @@ Flickable {
         { text: "Lietuvių kalba", val: StreamingPreferences.LANG_LT },
         { text: "Eesti", val: StreamingPreferences.LANG_ET }
     ]
+    // Native (lane wave6-i18n): the headset UI's language ([ui] language in the VR client's config.ini).
+    // The codes are tools/ui/gen_strings.py's LANGS (tests/ui/test_i18n_gen.py checks they agree)
+    readonly property var headsetLanguageValues: ["auto", "en", "cs", "da", "de", "es", "fi", "fr", "it", "nb", "nl", "pl", "pt-BR", "sv", "tr", "ru", "uk", "ja", "ko", "zh-CN", "zh-TW"]
+    readonly property var headsetLanguageNames: [qsTr("Automatic (the headset's system language)"), "English", "Čeština", "Dansk", "Deutsch", "Español", "Suomi", "Français", "Italiano", "Norsk bokmål", "Nederlands", "Polski", "Português (Brasil)", "Svenska", "Türkçe", "Русский", "Українська", "日本語", "한국어", "简体中文", "繁體中文"]
+    function headsetLanguageText() {
+        var i = headsetLanguageValues.indexOf(MlxrPrefs.headsetLanguage)
+        return i >= 0 ? headsetLanguageNames[i] : MlxrPrefs.headsetLanguage
+    }
+
     function languageIndex() {
         for (var i = 0; i < languages.length; i++) {
             if (languages[i].val === StreamingPreferences.language) return i
@@ -1618,6 +1627,39 @@ Flickable {
                         }
                     }
                 })
+            }
+        }
+
+        // Native (lane wave6-i18n): the headset's own language. Pressing the row shows the languages under it
+        PrefRow {
+            objectName: "headsetLanguageRow"
+            title: qsTr("Headset language")
+            valueText: settingsPage.headsetLanguageText()
+            summary: qsTr("The language of the menus, keyboard and notices in the headset. It takes effect the next time the VR client starts. Text without a translation stays English; Chinese, Japanese and Korean need the headset's Noto Sans CJK fonts, else English.")
+            onClicked: headsetLanguagePicker.visible = !headsetLanguagePicker.visible
+        }
+
+        Flow {
+            id: headsetLanguagePicker
+            objectName: "headsetLanguagePicker"
+            Layout.fillWidth: true
+            Layout.leftMargin: 16
+            Layout.rightMargin: 16
+            Layout.bottomMargin: 8
+            visible: false
+            spacing: 6
+            Repeater {
+                model: settingsPage.headsetLanguageValues
+                delegate: Button {
+                    objectName: "headsetLang_" + modelData
+                    text: settingsPage.headsetLanguageNames[index]
+                    flat: MlxrPrefs.headsetLanguage !== modelData
+                    highlighted: MlxrPrefs.headsetLanguage === modelData
+                    onClicked: {
+                        MlxrPrefs.headsetLanguage = modelData
+                        headsetLanguagePicker.visible = false
+                    }
+                }
             }
         }
 
