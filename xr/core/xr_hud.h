@@ -35,6 +35,7 @@ typedef struct MlxrHudCum {
     uint32_t fecFailed;        // and the times it could not save them
     uint64_t udpDrops;         // datagrams the kernel dropped for a full receive buffer (whole system)
     int poor;                  // the connection status common-c last reported is "poor"
+    int setKbps;               // the bitrate the stream was started with (0 unknown); wave4b-abr
 } MlxrHudCum;
 
 // One window of it
@@ -52,6 +53,7 @@ typedef struct MlxrHudFigures {
     uint32_t fecRecovered, fecFailed;   // in the window
     uint64_t udpDrops;                  // in the window
     int poor;
+    int setKbps;               // the bitrate the stream was started with (0 unknown); the HUD shows it beside the rate
 } MlxrHudFigures;
 
 // The window from prev (NULL or invalid: from the start) to cur, secs long;
