@@ -97,3 +97,6 @@ void xr_app_set_streaming(int on);
 // name as the app list shows it ("" for none), which picks its own lines out
 // of bindings.ini
 void xr_app_set_host_app(const char* name);
+// Native, any thread: show or hide the in-world keyboard on the next frame (a
+// physical pad's Y in mouse mode, lane wave2b-padmouse)
+void xr_app_toggle_keyboard(void);

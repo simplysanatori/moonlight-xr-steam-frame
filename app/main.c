@@ -362,6 +362,8 @@ static void pmMove(void* u, int dx, int dy) {
 static void pmButton(void* u, int b, int down) { (void)u; stream_button(b, down); }
 static void pmScroll(void* u, int a) { (void)u; stream_scroll(a); }
 static void pmHScroll(void* u, int a) { (void)u; stream_hscroll(a); }
+// Y in mouse mode: the VR keyboard, toggled by the frame loop on its next frame
+static void pmKeyboard(void* u) { (void)u; xr_app_toggle_keyboard(); }
 // The notice rides the toast path, so the Notices setting decides whether it is said
 static void pmMode(void* u, int on) {
     (void)u;
@@ -1407,7 +1409,7 @@ int main(int argc, char** argv) {
         // Native (lane wave2b-padmouse): a pad as the mouse, its settings, and pad arbitration. The Y button's
         // keyboard hook stays empty until the frame loop has something to toggle the VR keyboard with.
         {
-            PadMouseSink pms = { pmMove, pmButton, pmScroll, pmHScroll, pmKey, NULL, pmMode, NULL };
+            PadMouseSink pms = { pmMove, pmButton, pmScroll, pmHScroll, pmKey, pmKeyboard, pmMode, NULL };
             gamepadsSetPadMouseSink(&pms);
             gamepadsSetPadMouse(g_settings.pad_mouse_chord, g_settings.pad_mouse_scroll);
             gamepadsSetArbitration(g_settings.pad_arbitration);

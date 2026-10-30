@@ -136,6 +136,10 @@ void xr_app_set_host_app(const char* name) {
     pthread_mutex_unlock(&g_reqLock);
 }
 
+static atomic_int g_kbToggle;
+
+void xr_app_toggle_keyboard(void) { atomic_store(&g_kbToggle, 1); }
+
 // The frame loop's side: the bindings follow a new host app
 static void takeHostApp(XrCtx* ctx, unsigned* seen) {
     char name[XR_BIND_APP_MAX];
@@ -1892,6 +1896,9 @@ int xr_app_run(const XrAppConfig* cfg) {
         // ---- input (nativeUpdateInput) and what it decided (dispatchInput)
         host.live = *cfg->settings;
         takeHostApp(ctx, &hostAppSeen);
+        if (atomic_exchange(&g_kbToggle, 0)) {
+            xrKeyboardToggle(ctx, "a gamepad's Y");
+        }
         xrUpdateInput(ctx, host.distance, host.quadWidth, host.curvature, host.live.head_locked,
                       host.live.pointer, host.live.gaze && ctx->eyeGaze, host.live.pointer_sleep, host.out);
         if (cfg->hooks.headYaw) cfg->hooks.headYaw(cfg->hooks.user, host.out[IN_HEAD_YAW]);

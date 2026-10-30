@@ -13,6 +13,7 @@
 #include "xr_renderer.h"
 #include "xr_keyboard.h"
 #include "xr_native.h"
+#include "../input/gamepads.h"
 
 // Native (lane ray-glitch): the ray recorder, switched on by MLXR_RAY_DEBUG=1
 // in the environment (docs/dev/ray-debug.md). A CSV row per input frame of
@@ -2569,6 +2570,11 @@ static void updatePointerWake(XrCtx* ctx, InputFrame* f) {
         ctx->pointerAwake = 1;
         ctx->stillFor = 0.0f;
     }
+    // Native (lane wave2b-padmouse): with pad_arbitration = sleep a physical
+    // pad in use rests the Frame controllers' pointer
+    if (gamepadsFrameControllersAsleep()) {
+        ctx->pointerAwake = 0;
+    }
 
     // The hand lock hint and the Ko-fi sheet wait on a press, so the pointer
     // stays up under them. Retiring there would cost the press that puts one
@@ -3782,6 +3788,19 @@ static void bindQueueKey(XrCtx* ctx, const XrBindAction* a, int down) {
     k->down = down;
 }
 
+void xrKeyboardToggle(XrCtx* ctx, const char* from) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->kbOpen = !ctx->kbOpen;
+    if (ctx->kbOpen) {
+        // Up in lowercase, as from the bar's button
+        ctx->kbState = KB_STATE_LOWER;
+        kbPlace(ctx);
+    }
+    LOGI("keyboard %s from %s", ctx->kbOpen ? "open" : "closed", from);
+}
+
 // app:recentre: what SteamVR's recentre does, the screen brought round to
 // where the head faces. A screen locked to the head comes straight ahead.
 static void bindRecentre(XrCtx* ctx) {
@@ -3802,12 +3821,7 @@ static void bindRecentre(XrCtx* ctx) {
 static void bindAppCommand(XrCtx* ctx, int code, float* out) {
     switch (code) {
         case XR_BIND_APP_KEYBOARD:
-            ctx->kbOpen = !ctx->kbOpen;
-            if (ctx->kbOpen) {
-                ctx->kbState = KB_STATE_LOWER;
-                kbPlace(ctx);
-            }
-            LOGI("keyboard %s from a binding", ctx->kbOpen ? "open" : "closed");
+            xrKeyboardToggle(ctx, "a binding");
             break;
         case XR_BIND_APP_RAY: {
             // Off, Dot, Ray and round again, saved as the Display tab's row is

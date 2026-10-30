@@ -225,6 +225,9 @@ void xrBindSetApp(XrCtx* ctx, const char* app);
 // with the ray on the picture. In gamepad mode *pad comes in as padMapGrips
 // made it and goes out as the bindings leave it.
 void xrBindFrame(XrCtx* ctx, int64_t now, float dt, PadState* pad, float* out);
+// The in-world keyboard shown or hidden, as the bar's button does (app:keyboard,
+// and a physical pad's Y in mouse mode); from names who asked, for the log
+void xrKeyboardToggle(XrCtx* ctx, const char* from);
 
 // ---- the context's defaults (xr_prefs.c) -----------------------------------
 // What upstream's nativeInit set before any setter ran
