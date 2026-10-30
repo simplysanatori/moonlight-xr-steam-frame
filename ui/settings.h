@@ -65,6 +65,7 @@ typedef struct Settings {
     int virtual_surround;  // HRTF virtual surround for headsets
     int frame_pacing;      // 0 latency, 1 balanced, 2 cap fps, 3 smoothness
     int network_path;      // 0 auto, 1 home (Wi-Fi), 2 adapter (Steam Frame Wireless Adapter), 3 usb (USB cable)
+    int vpn_only_away;     // native (lane vpn-fallback): 1 = a VPN address of the PC is used only when it does not answer directly
     int doff_disconnect;   // native: seconds with the headset off before the stream disconnects (the host's app stays); 0 never
     int idle_disconnect;   // native: minutes without input before the same; 0 never
     int bitrate_wifi;      // native (lane wave4b-abr): start bitrate in kbps over Wi-Fi; 0 = the launcher's bitrate
