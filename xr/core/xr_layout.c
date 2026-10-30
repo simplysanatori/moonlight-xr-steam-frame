@@ -8,6 +8,26 @@
 #include "xr_layout.h"
 #include "xr_shared.h"
 
+// Native (lane bar-glare): whether a point on a frame that size, u and v
+// across it from the top left, is inside the bar's row: from the outer edge of
+// the leftmost button's zone to that of the rightmost, and from the frame's
+// bottom edge down as far as the buttons' zones reach
+int barRowHolds(float u, float v, float width, float height) {
+    float left = 0.0f, right = 0.0f, below = 0.0f;
+    for (int slot = 0; slot < BAR_SLOTS; slot++) {
+        Vec3 local;
+        float side;
+        barSlotPlacement(slot, width, height, &local, &side);
+        float half = side * HOVER_MARGIN * 0.5f;
+        if (local.x - half < left) left = local.x - half;
+        if (local.x + half > right) right = local.x + half;
+        if (half - local.y > below) below = half - local.y;
+    }
+    float x = (u - 0.5f) * width;
+    float y = (0.5f - v) * height;
+    return x > left && x < right && y < -height * 0.5f && -y < below;
+}
+
 int hoverTest(float u, float v, float width, float height, float cornerSide, int* corner) {
     if (cornerSide > 0.0f) {
         // Centred where the bracket is drawn, which is a half bracket outside
@@ -36,6 +56,17 @@ int hoverTest(float u, float v, float width, float height, float cornerSide, int
     float barU = BAR_WIDTH_FRAC * BAR_HOVER * 0.5f;
     float reach = (BAR_GAP_FRAC + BAR_HEIGHT_FRAC * 3.0f) * width / height;
     if (v > 1.0f && v < 1.0f + reach && fabsf(u - 0.5f) < barU) {
+        return HOVER_BAR;
+    }
+
+    // Native (lane bar-glare): and so is the rest of its row, end to end and
+    // as deep as the buttons reach, where no button claims it: under the pill,
+    // under and between the buttons, a hidden button's place. That was the
+    // picture's margin, which counts as merely near something, and an awake
+    // controller in the other hand with its ray on the picture took the
+    // pointer from the one aimed along the bar: its beam ran across the
+    // middle of the picture, the bar hid and the PC's cursor jumped.
+    if (v > 1.0f && barRowHolds(u, v, width, height)) {
         return HOVER_BAR;
     }
 
