@@ -222,6 +222,7 @@ typedef struct Video {
     // M6: the 3D as last drawn (eyes, separation, convergence, depth view)
     int drawnEyes, drawnShowDepth;
     float drawnSep, drawnConv;
+    int drawnZoom[3];           // native (PLAN 4b.6): zoom percent and pan centre as last drawn
     uint64_t draws;
 } Video;
 
@@ -908,6 +909,9 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     vd->drawnEyes = dd.eyes;
     vd->drawnSep = ctx->separationCurrent;
     vd->drawnConv = ctx->convergence;
+    vd->drawnZoom[0] = ctx->zoomPct;
+    vd->drawnZoom[1] = ctx->zoomX;
+    vd->drawnZoom[2] = ctx->zoomY;
     vd->drawnShowDepth = dd.eye[0].showDepth;
     vd->draws++;
 }
@@ -920,8 +924,10 @@ static int videoStale(XrCtx* ctx, const Video* vd, int curved) {
     int stereo3d = vd->drawnEyes == 2
             && (fabsf(vd->drawnSep - ctx->separationCurrent) > 1e-6f
                 || fabsf(vd->drawnConv - ctx->convergence) > 1e-6f);
+    // Native (PLAN 4b.6): or the part of the picture shown moved
+    int zoomed = vd->drawnZoom[0] != ctx->zoomPct || vd->drawnZoom[1] != ctx->zoomX || vd->drawnZoom[2] != ctx->zoomY;
     return vd->draws > 0 && (vd->drawnGradeOn != ctx->gradeOn || vd->drawnSharpen != ctx->sharpenMode
-                             || vd->drawnCurved != curved || ctx->warpRedraw || stereo3d
+                             || vd->drawnCurved != curved || ctx->warpRedraw || stereo3d || zoomed
                              || memcmp(&vd->drawnGrade, &ctx->grade, sizeof(PictureGrade)) != 0);
 }
 
@@ -1536,6 +1542,12 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
     const XrAppHooks* hk = &h->cfg->hooks;
     float* in = h->out;
     int streaming = atomic_load(&g_streaming);
+    // Native (PLAN 4b.6): the zoom actions aim at where the pointer is on the screen
+    ctx->zoomHitValid = in[IN_HIT] != 0.0f;
+    if (ctx->zoomHitValid) {
+        ctx->zoomHitU = in[IN_U];
+        ctx->zoomHitV = in[IN_V];
+    }
     if (streaming) {
         if (in[IN_HIT] != 0.0f && hk->pointer) {
             int w = ctx->videoWidth, hgt = ctx->videoHeight;

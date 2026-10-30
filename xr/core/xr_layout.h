@@ -309,6 +309,45 @@ void sbsHalfRect(int source, int half, int frameW, int frameH, int rect[4]);
 // host-rendered pair (stereoMode DEPTH_MODE_SBS), whose seam is no letterbox
 int ambiBarDetectApplies(int detectSetting, int stereoMode);
 
+// ---- zoom and pan (PLAN 4b.6) -----------------------------------------------------------
+// A part of the picture fills the screen. The zoom is a whole percent (100 the
+// whole picture), the pan the centre of what is shown, in whole percent of the
+// picture across and down; a centre too near an edge is held where the part
+// still fits. The part is a rectangle {x0, y0, w, h} in the picture's own uv
+// (the screen's uv before the zoom, 0..1 each way), always the picture's shape.
+// The picture is the whole frame, or with a host-rendered pair one eye's half
+// of it, so the zoom is inside the half and the same rectangle serves a flat
+// frame, either eye and the glow.
+#define ZOOM_MIN_PCT 100
+#define ZOOM_MAX_PCT 400
+#define ZOOM_PAN_MIN 0
+#define ZOOM_PAN_MAX 100
+#define ZOOM_PAN_DEFAULT 50
+// The part shown at a zoom and a centre, in picture uv
+void zoomRect(int pct, int cxPct, int cyPct, float rect[4]);
+// The rungs the zoom in and zoom out actions step through (100, 125, 150, 175,
+// 200, 250, 300, 350, 400): the next rung above pct for dir > 0, below for
+// dir < 0, 100 for 0. Stays on the end it reaches.
+int zoomStepPct(int pct, int dir);
+// A point of the screen (uv 0..1) onto the picture, through the part shown
+void zoomPointerUv(const float rect[4], float* u, float* v);
+// And back: where a picture point lies on the screen (outside 0..1 when the part
+// shown does not hold it)
+void zoomScreenUv(const float rect[4], float* u, float* v);
+// The centre (whole percent) that zooming from oldPct to newPct leaves the
+// picture point under the screen point (hitU, hitV) where it was, held where
+// the part still fits. Pass 0.5, 0.5 to zoom about the middle of the view.
+void zoomAnchorCentre(int oldPct, int oldCx, int oldCy, int newPct, float hitU, float hitV, int* newCx, int* newCy);
+// What the screen shows of the decoded frame, in frame uv: the picture (the
+// whole frame, or the left or top half for a host-rendered pair, source
+// STEREO_SOURCE_SBS or TB; anything else is the whole frame) narrowed by the
+// zoom's rect (NULL: not zoomed)
+void videoShownRect(int source, const float* zoom, float out[4]);
+// The same narrowed to the content inside the letterbox bars the detector found
+// (crop: x0, y0, w, h in frame uv). Where nothing of the shown part is inside,
+// the shown part itself.
+void videoGlowRect(const float shown[4], const float crop[4], float out[4]);
+
 // How much of a room's screen the picture hangs at, in whole percent: inside
 // the size row's lane where the room may be resized, and all of it where not
 int roomScreenClamp(int percent, int resizable);

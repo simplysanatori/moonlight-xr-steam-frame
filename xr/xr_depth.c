@@ -328,6 +328,9 @@ float xrDepthSbsShift(float convergence) {
 }
 
 void xrDepthPointerUv(XrCtx* ctx, float* u, float* v) {
+    // Native (PLAN 4b.6): the zoom narrows the picture first, and with a
+    // host-rendered pair the picture is the eye's half, so then the half
+    xrZoomPointer(ctx, u, v);
     if (ctx->stereoMode != DEPTH_MODE_SBS) {
         return;
     }
@@ -1184,6 +1187,13 @@ void xrDepthRecordWarpEyes(XrCtx* ctx, VkCommandBuffer cmd, const MlxrTarget eye
         w.split = e->split;
         w.half = e->half;
         w.shift = e->shift;
+        // Native (PLAN 4b.6): the part of the picture shown, the same for both eyes and
+        // inside the eye's half when there is one
+        float zoom[4];
+        xrZoomRect(ctx, zoom);
+        w.zoomX = zoom[0];
+        w.zoomY = zoom[1];
+        w.zoomSize = zoom[2];
         for (int c = 0; c < 3; c++) w.tint[c] = common->tint[c] * e->tint[c];
         mlxr_pass_warp(ctx->passes, cmd, t, &w);
     }

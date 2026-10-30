@@ -163,6 +163,9 @@ static const SettingDesc TABLE[] = {
     DB("display", "head_locked", head_locked, 0, "Display tab: head locked screen (checkbox_vr_head_locked)"),
     DB("display", "head_follow", head_follow, 0, "native: Display tab, Head locked row's Follow cell: the screen stays in the world until the head turns past the leash, then eases after the gaze (head_locked wins when both are on)"),
     DI("display", "follow_leash_deg", follow_leash_deg, FOLLOW_LEASH_MIN_DEG, FOLLOW_LEASH_MAX_DEG, FOLLOW_LEASH_DEFAULT_DEG, "native: Follow mode's leash, degrees of head yaw or pitch away from the screen before it eases after the gaze"),
+    DI("display", "zoom", zoom, 100, 400, 100, "native (PLAN 4b.6): zoom percent, 100 shows the whole picture and 400 a quarter of it across and down, filling the screen. The binding actions app:zoomin, app:zoomout and app:zoomreset step it, aimed at the controller's pointer. Remembered per PC and app with the layout (Remember per app)"),
+    DI("display", "zoom_x", zoom_x, 0, 100, 50, "native (PLAN 4b.6): where the zoomed part is centred across the picture, percent (0 the left edge, 100 the right); held where the part still fits"),
+    DI("display", "zoom_y", zoom_y, 0, 100, 50, "native (PLAN 4b.6): where the zoomed part is centred down the picture, percent (0 the top edge, 100 the bottom)"),
     DE("display", "sharpening", sharpening, SHARP_NAMES, 0, "Display tab: sharpen (list_vr_sharpening; native default off, the owner's choice, upstream quality)"),
     DE("display", "supersampling", supersampling, SHARP_NAMES, 1, "Display tab: supersample (list_vr_supersampling; native default normal, the owner's choice, upstream off; never used with the 3D on)"),
     DB("display", "stats", stats, 0, "Display tab: show performance stats (true, false, or hud / lite to switch them on in that style)"),
@@ -367,6 +370,7 @@ static const LayoutKey LAYOUT_KEYS[] = {
     LK(rotate_deg, "screen.rotate_deg"), LK(curve, "screen.curve"), LK(width_cm, "screen.width_cm"),
     LK(head_locked, "display.head_locked"), LK(head_follow, "display.head_follow"),
     LK(stereo, "3d.stereo"), LK(separation, "3d.separation"), LK(convergence, "3d.convergence"),
+    LK(zoom, "display.zoom"), LK(zoom_x, "display.zoom_x"), LK(zoom_y, "display.zoom_y"),
 };
 #define LAYOUT_KEY_COUNT ((int)(sizeof(LAYOUT_KEYS) / sizeof(LAYOUT_KEYS[0])))
 
@@ -571,7 +575,7 @@ char* settings_to_text(const Settings* s) {
         if (n == 0) {
             buf_add(&b, "# Remembered layouts, one section for each PC and app (Remember per app on the Screen\n"
                         "# tab). The name is a hash of the PC's and the app's names. The keys are the\n"
-                        "# settings' own: screen placement, head lock and the 3D state. Delete a section\n"
+                        "# settings' own: screen placement, head lock, the 3D state and the zoom. Delete a section\n"
                         "# to forget the app, or use Forget on the Screen tab while it streams.\n");
         }
         for (int i = 0; i < LAYOUT_KEY_COUNT; i++) {

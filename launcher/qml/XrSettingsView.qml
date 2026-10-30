@@ -202,6 +202,7 @@ Flickable {
 
     // [vr] scroll_speed: the steps the row goes through, percent
     readonly property var scrollSpeedSteps: [50, 75, 100, 150, 200, 300]
+    readonly property var zoomSteps: [100, 125, 150, 175, 200, 250, 300, 350, 400]
     function nextScrollSpeed() {
         for (var i = 0; i < scrollSpeedSteps.length; i++) {
             if (scrollSpeedSteps[i] > MlxrPrefs.scrollSpeed) return scrollSpeedSteps[i]
@@ -1105,6 +1106,15 @@ Flickable {
             valueText: MlxrPrefs.scrollSpeed + "%"
             summary: qsTr("How fast a controller's thumbstick scrolls in pointer mode. Tilt it sideways to scroll sideways.")
             onClicked: MlxrPrefs.scrollSpeed = settingsPage.nextScrollSpeed()
+        }
+
+        // Native (lane wave4b-zoom, PLAN 4b.6): the zoom a stream starts at; pressing the row steps it
+        PrefRow {
+            objectName: "zoomRow"
+            title: qsTr("Zoom")
+            valueText: MlxrPrefs.zoom + "%"
+            summary: qsTr("How much of the picture fills the screen in the headset: 100% is all of it, 400% a quarter across and down. In the headset, bind zoom in, zoom out and zoom reset to a button, and aim at the part to zoom into; it remembers the zoom and the place for each app.")
+            onClicked: MlxrPrefs.zoom = settingsPage.nextLimit(settingsPage.zoomSteps, MlxrPrefs.zoom)
         }
 
         // Native (lane wave3-visual): the Picture tab's Background and Glow edge rows, the void's colour and

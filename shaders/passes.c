@@ -675,10 +675,13 @@ void mlxr_pass_warp(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, con
     pc[21] = (float)w->video.width;
     pc[22] = w->srcInset;
     pc[23] = w->edgeFade;
-    pc[24] = w->occlusion ? 1.0f : 0.0f;
-    pc[25] = w->depthCubic ? 1.0f : 0.0f;
-    pc[26] = w->showDepth ? 1.0f : 0.0f;
-    pc[27] = w->barTest ? 1.0f : 0.0f;
+    // The four switches as bits of one number (warp.frag's WARP_ flags), which
+    // frees the push block's last three floats for the zoom's rectangle
+    pc[24] = (float)((w->occlusion ? 1 : 0) | (w->depthCubic ? 2 : 0) | (w->showDepth ? 4 : 0) | (w->barTest ? 8 : 0));
+    int zoomed = w->zoomSize > 0.0f && w->zoomSize < 1.0f;
+    pc[25] = zoomed ? w->zoomX : 0.0f;
+    pc[26] = zoomed ? w->zoomY : 0.0f;
+    pc[27] = zoomed ? w->zoomSize : 1.0f;
     pc[28] = w->sharpen;
     pc[29] = (float)w->split;
     pc[30] = (float)w->half;
