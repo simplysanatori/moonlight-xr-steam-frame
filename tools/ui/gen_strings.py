@@ -258,6 +258,34 @@ MAP = [
     ("native_pcvr_needs_launcher", NATIVE),
 ]
 
+# Keys of lanes not merged into main yet, all written for this port: listed so that their merges
+# need no MAP line. A key here that ui_strings.h does not have is not an error.
+PENDING = [
+    # wave3-cards: the first-run and gamepad cards
+    "native_firstrun_title", "native_firstrun_bar_l", "native_firstrun_bar", "native_firstrun_cog_l",
+    "native_firstrun_cog", "native_firstrun_kb_l", "native_firstrun_kb", "native_firstrun_pad_l",
+    "native_firstrun_pad_menu_grip", "native_firstrun_pad_sticks", "native_firstrun_pad_triggers_grips",
+    "native_firstrun_host_l", "native_firstrun_host", "native_firstrun_keys_l", "native_firstrun_keys",
+    "native_firstrun_mouse_l", "native_firstrun_mouse", "native_firstrun_mouse_both",
+    "native_firstrun_mouse_off", "native_firstrun_foot", "native_padcard_xbox", "native_padcard_playstation",
+    "native_padcard_nintendo", "native_padcard_steam", "native_padcard_generic", "native_padcard_gyro",
+    "native_padcard_touchpad", "native_padcard_hint", "native_padcard_start_menu",
+    "native_padcard_start_options", "native_padcard_start_plus", "native_padcard_start_generic",
+    "native_padcard_back_view", "native_padcard_back_create", "native_padcard_back_minus",
+    "native_padcard_back_generic",
+    # wave4-apollo: the Host sheet's PC page
+    "native_host_page_pc", "native_host_page_back", "native_host_pc_title", "native_host_paste",
+    "native_host_paste_hint", "native_host_copy", "native_host_copy_hint", "native_host_cmd_hint",
+    "native_host_confirm_run_q", "native_host_confirm_run", "native_host_pc_not_apollo",
+    "native_host_pc_no_permission", "native_host_pc_no_commands", "native_host_compose_prompt",
+    # wave6-kofi (it also rewords vr_kofi_scan and vr_kofi_close: --verify then asks whether they
+    # are DRIFT now)
+    "vr_kofi_here", "vr_kofi_open",
+    # wave6-splash
+    "native_splash_connecting", "native_splash_connecting_nopc", "native_splash_reconnecting",
+]
+MAP += [(k, NATIVE) for k in PENDING]
+
 # ---- the languages ------------------------------------------------------------------------------------
 # (setting code, upstream values-<dir>, name in its own language, script). The setting code is
 # what config.ini's [ui] language takes; the order is the launcher's list. Scripts other than
@@ -445,7 +473,11 @@ def map_hash():
     return h.hexdigest()[:16]
 
 
-def check_map(header):
+def en_hash(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+
+
+def check_map(header, strict=True):
     """Problems with MAP against the header's keys, as messages"""
     keys = [k for _, k, _ in header]
     mapped = [k for k, _ in MAP]
@@ -455,7 +487,7 @@ def check_map(header):
             errs.append("%s is in ui/ui_strings.h but not in gen_strings.py's MAP: add a line "
                         "(NATIVE for a string written for this port)" % k)
     for k in mapped:
-        if k not in keys:
+        if k not in keys and k not in PENDING:
             errs.append("%s is in gen_strings.py's MAP but not in ui/ui_strings.h" % k)
     dup = {k for k in mapped if mapped.count(k) > 1}
     for k in sorted(dup):
@@ -490,6 +522,9 @@ def generate(res, header, upstream_rev=None, strict=True, native_dir=NATIVE_DIR)
     lines.append("// Do not edit; run the script (docs/dev/i18n.md). Translations by upstream's translators")
     lines.append("// (CREDITS.md). GPLv3.")
     lines.append("// map: %s" % map_hash())
+    lines.append("// The English each translated key had when this was made (--verify fails when one changes):")
+    for key, _ in translatable:
+        lines.append("// en %s %s" % (key, en_hash(english[key])))
     lines.append("")
     lines.append("// X(ident, setting code, name in its own language, UI_SCRIPT_*) for each language,")
     lines.append("// English (the built-in table) not included")
@@ -636,6 +671,18 @@ def verify(inc_path, header_path):
     for ident in sorted(used):
         if ident not in ids:
             errs.append("the table has UIS_%s, which ui/ui_strings.h does not" % ident)
+    # the English of a translated key must be what it was when the table was made: a changed one
+    # may no longer mean what the translations say
+    english = {k: e for _, k, e in header}
+    recorded = dict(re.findall(r"^// en (\S+) ([0-9a-f]{8})$", text, re.M))
+    for key, src in MAP:
+        if key not in english or src in (NATIVE, DRIFT):
+            continue
+        if key not in recorded:
+            errs.append("%s has no recorded English in %s: regenerate it" % (key, inc_path))
+        elif recorded[key] != en_hash(english[key]):
+            errs.append("the English of %s changed since %s was made (now \"%s\"): if it means something "
+                        "else now, make its MAP line DRIFT; then regenerate" % (key, inc_path, english[key]))
     natives = {i for i, k, _ in header if dict(MAP).get(k, SAME) in (NATIVE, DRIFT)}
     for ident in sorted(used & natives):
         errs.append("the table translates UIS_%s, which MAP keeps in English" % ident)
