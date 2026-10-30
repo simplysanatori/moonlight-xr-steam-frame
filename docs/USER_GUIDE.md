@@ -11,6 +11,7 @@ This guide covers version 1.0.1. For install, update and uninstall, see the [REA
 - [The cog menu](#the-cog-menu)
 - [Controllers](#controllers)
 - [Moving and sizing the screen](#moving-and-sizing-the-screen)
+- [Zoom and pan](#zoom-and-pan)
 - [Rooms and passthrough](#rooms-and-passthrough)
 - [3D](#3d)
 - [SBS 3D](#sbs-3d)
@@ -406,7 +407,7 @@ right.grip = key:R             ; the right grip presses R instead of RB
 pointer.right.trigger = mouse:left
 ```
 
-An action is `key:` (a key, with `ctrl+`, `shift+`, `alt+`, `win+` in front), `mouse:left|right|middle|x1|x2`, `wheel:up|down|left|right`, `pad:` (a gamepad button, gamepad mode only), `stick:` (what a whole thumbstick does: `scroll`, `mouse`, `wasd`, `arrows`, `dpad`) or `app:keyboard|ray|recentre|cog|3d|gamepad|bringhere|host`. A line that is not right is left out: `moonlight.log` says which line and why, and the headset shows "bindings.ini: N errors, see log". The mode switch shortcuts, the disconnect chord and the grips' grab over the bar and corners cannot be changed. The full list is in the file itself. The flat launcher's **Controller bindings** page edits the same file ([BINDINGS.md](BINDINGS.md)). The headset reads the file when a stream starts, so a change takes effect at the next stream start.
+An action is `key:` (a key, with `ctrl+`, `shift+`, `alt+`, `win+` in front), `mouse:left|right|middle|x1|x2`, `wheel:up|down|left|right`, `pad:` (a gamepad button, gamepad mode only), `stick:` (what a whole thumbstick does: `scroll`, `mouse`, `wasd`, `arrows`, `dpad`) or `app:keyboard|ray|recentre|cog|3d|gamepad|bringhere|host|zoomin|zoomout|zoomreset` (the last three are [Zoom and pan](#zoom-and-pan)). A line that is not right is left out: `moonlight.log` says which line and why, and the headset shows "bindings.ini: N errors, see log". The mode switch shortcuts, the disconnect chord and the grips' grab over the bar and corners cannot be changed. The full list is in the file itself. The flat launcher's **Controller bindings** page edits the same file ([BINDINGS.md](BINDINGS.md)). The headset reads the file when a stream starts, so a change takes effect at the next stream start.
 
 ### Switching between the modes
 
@@ -433,6 +434,25 @@ The headset shows "Gamepad mode" or "Pointer mode". In gamepad mode the menus cl
 Follow is a lazy head lock. A screen fixed to the head never leaves your view, which some people find tiring or queasy; a screen fixed in the world makes you turn all the way round to find it again. Follow sits between: look around inside the leash and the screen holds still, look further and it glides after you (a slerp over 0.6 s, slow at the start and the end) and stops. It keeps its distance from you, its size and its tilt, and it waits while a menu is open, while you hold the screen, in a room and in the launcher's lists.
 
 If it makes you uneasy, make the leash larger (up to 60°) so it moves less often, or use Off or On. Sit still for the first try: a screen that moves while you turn your head is the most noticeable thing to get used to. Following is a world-locked mode, so Head aim (which needs Head locked) is off while it is.
+
+## Zoom and pan
+
+Zoom shows a part of the picture filling the screen: 100 % is the whole picture, 200 % the middle quarter of it (half across, half down), 400 % a sixteenth. It is for a desktop with small text, a game's map or a corner of the screen you keep looking at. The steps are 100, 125, 150, 175, 200, 250, 300, 350 and 400 %.
+
+There is no cog row for it. Bind it to a button in `bindings.ini` (see [Changing the buttons](#changing-the-buttons)):
+
+```ini
+[pointer]
+right.y = app:zoomin           ; one step in, towards where the controller points
+right.x = app:zoomout          ; one step out
+left.dpad_left = app:zoomreset ; back to the whole picture
+```
+
+**Zoom in aims.** The point of the picture the controller is pointing at stays under it, so to look at a corner, point at the corner and press zoom in, a few times if you want. To move around inside the zoom, zoom out a step, point at the new place and zoom in again. If the controller is not pointing at the screen, the zoom goes about the middle of what you see. A part never goes past the picture's edge: pointing at the very edge and zooming puts the edge on the screen's edge.
+
+**The pointer follows.** The PC's mouse lands where you point, in the picture as it is shown, so it clicks what you see. With a 3D film in SBS or Top-bottom the zoom is inside one eye's half: both eyes zoom into the same part and neither reads the other's half. The glow around the screen is made from the part you see, and the black bars of a letterboxed film are still found over the whole frame.
+
+**It is remembered for each app**, with the screen's place (the Screen tab's Remember per app): zoom into a game's map, quit, start the game again and it is zoomed. An app you have not set one for starts with what is on. Forget on the Screen tab drops the remembered zoom with the rest of the layout. The flat launcher's Settings page has a **Zoom** row (press it to step) for the zoom a stream starts with, and `[display] zoom`, `zoom_x` and `zoom_y` in `config.ini` hold the zoom and where its middle is, in percent across and down the picture (0 the left or top edge, 100 the right or bottom edge).
 
 ## Rooms and passthrough
 
@@ -496,7 +516,7 @@ With the 3D switched off, you see the left eye's half on its own, as a flat pict
 
 Do not use 4K (3840x2160) full-size SBS for now. The headset decodes 4K, but a test on a home network could not carry a 4K stream at 150 Mbps: the picture stalled and lost frames. 3840x1080 is half of that and is the largest pair to try.
 
-The mouse pointer lands on the left eye's half of the PC's desktop. The ambient glow keeps the whole frame: the black-bar detection is off in this mode, since the seam between the halves is not a letterbox.
+The mouse pointer lands on the left eye's half of the PC's desktop. The ambient glow is made from the left eye's half, and the black-bar detection is off in this mode, since the seam between the halves is not a letterbox. [Zoom](#zoom-and-pan) works inside each eye's half.
 
 ## Controllers
 
@@ -762,9 +782,11 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | --- | --- | --- |
 | `[display] head_follow` | `true`, `false` | `false`. The Head locked row's Follow cell. Head locked wins when both are on. |
 | `[display] follow_leash_deg` | 10 to 60 | 25. How far, in degrees of yaw or pitch, your head turns from a followed screen before it eases after you. |
+| `[display] zoom` | 100 to 400 | 100. Zoom in percent: 100 the whole picture, 400 a quarter of it across and down. See [Zoom and pan](#zoom-and-pan). Kept for each PC and app with the layout. |
+| `[display] zoom_x`, `zoom_y` | 0 to 100 | 50. Where the zoomed part is centred, in percent across and down the picture; held where the part still fits. |
 | `[screen] per_app` | `true`, `false` | `true`. Remember the layout per PC and app. |
 | `[screen] angular_lock` | `true`, `false` | `true`. Pushing or pulling the held screen keeps its size in your view. |
-| `[screen.<hash>]` | the `[screen]` keys, `head_locked`, `head_follow`, `stereo`, `separation`, `convergence` | One section for each remembered PC and app, named by a hash of their names. The program writes them (up to 32, the oldest dropped); delete a section to forget the app. |
+| `[screen.<hash>]` | the `[screen]` keys, `head_locked`, `head_follow`, `stereo`, `separation`, `convergence`, `zoom`, `zoom_x`, `zoom_y` | One section for each remembered PC and app, named by a hash of their names. The program writes them (up to 32, the oldest dropped); delete a section to forget the app. |
 | `[vr] gamepad_toggle` | `menu_grip` (left View + left grip), `sticks` (click both sticks), `triggers_grips` (both triggers and both grips) | `menu_grip` |
 | `[vr] rumble_mix` | `both` (each controller gets the stronger of the PC's two motors), `split` (low frequency motor on the left, high frequency motor on the right) | `both` |
 | `[vr] rumble_intensity` | 0 to 100 (%), the scale on the PC's rumble on the controllers | 100 |

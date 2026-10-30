@@ -87,6 +87,9 @@ class MlxrPrefs : public QObject
     // How fast a controller thumbstick scrolls in the headset, percent of 7.5 notches a
     // second, 25..400 ([vr] scroll_speed)
     Q_PROPERTY(int scrollSpeed MEMBER scrollSpeed NOTIFY changed)
+    // Native (lane wave4b-zoom, PLAN 4b.6): the zoom a stream starts at in the headset, percent, 100..400
+    // ([display] zoom). The headset keeps the zoom and the pan per PC and app once they are set there
+    Q_PROPERTY(int zoom MEMBER zoom NOTIFY changed)
     // Which controller the headset draws in each hand: "off", "frame", "generic", "gun" or "custom"
     // ([vr] controller_model). Custom (your own files in the models folder) is only chosen here and
     // in the file; the headset's Display tab has a cell for the other four
@@ -248,6 +251,7 @@ public:
     QString keyboardKeymap;
     QString notices;
     int scrollSpeed;
+    int zoom = 100;
     QString controllerModel;
     int doffDisconnect = 60;
     int idleDisconnect = 0;
@@ -276,6 +280,7 @@ private:
     bool m_iniPerfOverlay = false, m_iniFlip = false;
     QString m_iniNotices = "all";
     int m_iniScrollSpeed = 100;
+    int m_iniZoom = 100;
     QString m_iniControllerModel = "off";
     int m_iniDoff = 60, m_iniIdle = 0;
     int m_iniBitrateWifi = 0, m_iniBitrateAdapter = 0, m_iniBitrateWired = 0, m_iniBitrateUsb = 0;

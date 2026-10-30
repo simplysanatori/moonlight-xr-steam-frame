@@ -1153,10 +1153,21 @@ typedef struct XrCtx {
     float lockBaseRadius;
     unsigned layoutHash;
     unsigned identityGen;
-    int layoutSeen[13];
+    int layoutSeen[16];
     int layoutSeenValid;
     int layoutPending;
     int64_t layoutDirtyNs;
+    // Native (lane wave4b-zoom, PLAN 4b.6): the part of the picture shown (xr_zoom.c).
+    // zoomPct is 100..400, zoomX and zoomY the centre in percent; zoomHit is where
+    // the pointer last landed on the screen (uv), which the zoom actions aim at;
+    // glowZoom is the part the glow's colour sample was last taken from
+    int zoomPct;
+    int zoomX;
+    int zoomY;
+    float zoomHitU;
+    float zoomHitV;
+    int zoomHitValid;
+    int glowZoom[3];
     int cogHoverSlider;
     int cogHoverCell;
     int cogHoverStep;
@@ -1363,6 +1374,12 @@ void runFrameColorSample(XrCtx* ctx, const struct MlxrVideo* video);
 void runGlowRender(XrCtx* ctx);
 int glowStale(XrCtx* ctx);
 void redrawGlow(XrCtx* ctx, const struct MlxrVideo* video);
+
+// Native (lane wave4b-zoom, PLAN 4b.6), xr_zoom.c: the part of the picture shown,
+// x0 y0 w h in the picture's uv (the whole picture when not zoomed), and a
+// screen uv (0..1) onto the picture's uv through it
+void xrZoomRect(const XrCtx* ctx, float rect[4]);
+void xrZoomPointer(const XrCtx* ctx, float* u, float* v);
 
 // xr_model.c: the controller models
 void updateControllerModels(XrCtx* ctx);
