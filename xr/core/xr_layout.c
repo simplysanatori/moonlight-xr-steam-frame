@@ -266,6 +266,65 @@ float separationOf(int units) {
     return units * 0.001f;
 }
 
+int bgDimClamp(int percent) {
+    int steps = (percent + BG_DIM_STEP / 2) / BG_DIM_STEP;
+    if (percent < 0) {
+        steps = 0;
+    }
+    int units = steps * BG_DIM_STEP;
+    return units < BG_DIM_MIN ? BG_DIM_MIN : (units > BG_DIM_MAX ? BG_DIM_MAX : units);
+}
+
+float bgDimKeep(int percent) {
+    int p = percent < BG_DIM_MIN ? BG_DIM_MIN : (percent > BG_DIM_MAX ? BG_DIM_MAX : percent);
+    return 1.0f - (float)p / 100.0f;
+}
+
+float glowFeatherFraction(int mode) {
+    return mode == GLOW_FEATHER_SOFT ? GLOW_FEATHER_SOFT_FRAC
+            : mode == GLOW_FEATHER_WIDE ? GLOW_FEATHER_WIDE_FRAC : 0.0f;
+}
+
+float srgbToLinear(float c) {
+    c = c < 0.0f ? 0.0f : (c > 1.0f ? 1.0f : c);
+    return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
+}
+
+int backdropFor(int mode, int dimPercent, const float voidColor[3], float out[4]) {
+    float keep = bgDimKeep(dimPercent);
+    if (mode == BACKDROP_PASSTHROUGH) {
+        out[0] = out[1] = out[2] = 0.0f;
+        out[3] = 1.0f - keep;
+        return 1;
+    }
+    if (mode == BACKDROP_VOID) {
+        for (int i = 0; i < 3; i++) {
+            float c = voidColor != NULL ? voidColor[i] : 0.0f;
+            out[i] = (c < 0.0f ? 0.0f : (c > 1.0f ? 1.0f : c)) * keep;
+        }
+        out[3] = 1.0f;
+        return out[0] > 0.0f || out[1] > 0.0f || out[2] > 0.0f;
+    }
+    out[0] = out[1] = out[2] = out[3] = 0.0f;
+    return 0;
+}
+
+float eyeBalanceOf(int percent) {
+    int p = percent < EYE_BALANCE_MIN ? EYE_BALANCE_MIN : (percent > EYE_BALANCE_MAX ? EYE_BALANCE_MAX : percent);
+    return (float)p / 100.0f;
+}
+
+void eyeShares(float balance, float* left, float* right) {
+    float b = balance < -1.0f ? -1.0f : (balance > 1.0f ? 1.0f : balance);
+    *left = 1.0f + b;
+    *right = 1.0f - b;
+}
+
+float eyeShareReach(float balance) {
+    float b = balance < 0.0f ? -balance : balance;
+    return 1.0f + (b > 1.0f ? 1.0f : b);
+}
+
 int cogPresetAt(int units, const int presets[COG_PRESET_CELLS]) {
     static const int order[COG_PRESET_CELLS] = {
         COG_PRESET_BALANCED, COG_PRESET_COMFORT, COG_PRESET_STRONG
@@ -400,13 +459,16 @@ int cogTrackSteps(int tab, int row) {
     }
     if (tab == COG_TAB_PICTURE) {
         // Whole units, the ones each value is kept in and its readout shows
-        static const int PICTURE_STEPS[PICTURE_VALUES] = {
+        // then Background's five percent steps and Glow edge's three cells
+        static const int PICTURE_STEPS[PICTURE_TAB_ROWS] = {
             PICTURE_BRIGHTNESS_MAX - PICTURE_BRIGHTNESS_MIN,
             PICTURE_CONTRAST_MAX - PICTURE_CONTRAST_MIN,
             PICTURE_GAMMA_MAX - PICTURE_GAMMA_MIN,
-            PICTURE_SATURATION_MAX - PICTURE_SATURATION_MIN
+            PICTURE_SATURATION_MAX - PICTURE_SATURATION_MIN,
+            (BG_DIM_MAX - BG_DIM_MIN) / BG_DIM_STEP,
+            GLOW_FEATHER_COUNT - 1
         };
-        return row >= 0 && row < PICTURE_VALUES ? PICTURE_STEPS[row] : 0;
+        return row >= 0 && row < PICTURE_TAB_ROWS ? PICTURE_STEPS[row] : 0;
     }
     // The Room tab's lanes in five unit steps, and the size in whole percent
     if (row == COG_ROOM_ROW_BRIGHTNESS) {
