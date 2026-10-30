@@ -64,6 +64,10 @@ typedef struct XrAppHooks {
     // Native (lane wave3-hud): about once a second from the frame loop, the stream's running totals for the HUD and
     // the slow connection badge. 1 with *out filled while a stream is up, else 0. May be NULL. Must not block.
     int (*hud)(void* user, struct MlxrHudCum* out);
+    // Native (lane wave3-session): the headset came off (present 0) or went back on (1), from
+    // XR_EXT_user_presence, on the frame loop. Never called when the runtime does not offer the
+    // extension. May be NULL. Must not block.
+    void (*presence)(void* user, int present);
 } XrAppHooks;
 
 typedef struct XrAppConfig {

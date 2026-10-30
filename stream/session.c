@@ -37,6 +37,7 @@ static size_t g_auCap;
 static MlxrAuGather g_gather;
 static uint64_t g_gatherWarnUs;
 static atomic_int g_connected, g_failed;
+static atomic_int g_termCode; // Native (lane wave3-session): the code common-c's connectionTerminated gave
 static atomic_uint_fast64_t g_units, g_idr;
 static int g_lastErr;
 static int g_rfi; // Native (lane av-latency): reference frame invalidation advertised for this stream
@@ -290,6 +291,7 @@ static void clStarted(void) {
 static void clTerminated(int err) {
     MLOG_W("stream terminated: %d", err);
     g_lastErr = err;
+    atomic_store(&g_termCode, err);
     atomic_store(&g_connected, 0);
     atomic_store(&g_failed, 1);
 }
@@ -355,6 +357,7 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     g_video = video;
     atomic_store(&g_connected, 0);
     atomic_store(&g_failed, 0);
+    atomic_store(&g_termCode, 0);
     SERVER_INFORMATION si;
     LiInitializeServerInformation(&si);
     si.address = host->address;
@@ -466,6 +469,7 @@ void stream_stop(void) {
 
 int stream_running(void) { return atomic_load(&g_connected); }
 int stream_failed(void) { return atomic_load(&g_failed); }
+int stream_termination_code(void) { return atomic_load(&g_termCode); }
 
 void stream_pointer(int x, int y, int w, int h) {
     if (atomic_load(&g_connected)) LiSendMousePositionEvent((short)x, (short)y, (short)w, (short)h);

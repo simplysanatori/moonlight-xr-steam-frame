@@ -171,7 +171,10 @@
     X(NATIVE_QUITTING, "native_quitting", "Ending the session on %s") \
     X(NATIVE_DISCONNECTED, "native_disconnected", "Disconnected: Start+Select+L1+R1") \
     X(NATIVE_DISCONNECTED_KEYS, "native_disconnected_keys", "Disconnected: Ctrl+Alt+Shift+Q") \
-    X(NATIVE_DISCONNECTED_BAR, "native_disconnected_bar", "Disconnected: the app is still running on the PC")
+    X(NATIVE_DISCONNECTED_BAR, "native_disconnected_bar", "Disconnected: the app is still running on the PC") \
+    X(NATIVE_RECONNECTING, "native_reconnecting", "Connection lost, reconnecting (%d/%d)…") \
+    X(NATIVE_DISCONNECTED_DOFF, "native_disconnected_doff", "Disconnected while the headset was off: the app is still running on the PC") \
+    X(NATIVE_DISCONNECTED_IDLE, "native_disconnected_idle", "Disconnected after no input for a while: the app is still running on the PC")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

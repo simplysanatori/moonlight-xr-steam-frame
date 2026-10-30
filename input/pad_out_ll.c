@@ -2,6 +2,7 @@
 #include "Limelight.h"
 #include "gamepads.h"
 #include "pad_out.h"
+#include "xr_presence.h"
 
 static int llArrival(void* user, uint8_t controllerNumber, uint16_t activeGamepadMask,
                      uint8_t type, uint32_t supportedButtonFlags, uint16_t capabilities) {
@@ -14,6 +15,7 @@ static int llState(void* user, short controllerNumber, short activeGamepadMask, 
                    unsigned char leftTrigger, unsigned char rightTrigger, short leftStickX,
                    short leftStickY, short rightStickX, short rightStickY) {
     (void)user;
+    presenceNoteActivity(); // Native (lane wave3-session): a pad's state changed, so the idle clock starts over
     return LiSendMultiControllerEvent(controllerNumber, activeGamepadMask, buttonFlags,
                                       leftTrigger, rightTrigger, leftStickX, leftStickY,
                                       rightStickX, rightStickY);

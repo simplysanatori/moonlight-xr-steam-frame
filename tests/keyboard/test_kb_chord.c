@@ -142,8 +142,37 @@ static void bridge(void) {
     CHECK(hooks == 3);
 }
 
+// Native (lane wave3-session): the headset comes off, the pad goes to the host at rest at once and stays
+// plugged in; the next state replaces it
+static void bridgeRest(void) {
+    PadOutSink sink = { onArrival, onState, NULL };
+    xrPadBridgeSetDisconnectHook(NULL, NULL);
+    g_log[0] = '\0';
+    xrPadBridgeRest();                                   // not started: nothing
+    CHECK(g_log[0] == '\0');
+    xrPadBridgeStartWithSink(&sink);
+    xrPadBridgeRest();                                   // not plugged in yet: nothing
+    CHECK(g_log[0] == '\0');
+    PadState s = pad(PAD_A | PAD_LB, 200, 0);
+    xrPadBridgeFrame(1, &s, 1000000);
+    CHECK(strstr(g_log, "S1100/200/0") != NULL);
+    g_log[0] = '\0';
+    xrPadBridgeRest();
+    CHECK(strcmp(g_log, "S0000/0/0 ") == 0);
+    xrPadBridgeRest();                                   // already at rest: nothing more
+    CHECK(strcmp(g_log, "S0000/0/0 ") == 0);
+    g_log[0] = '\0';
+    xrPadBridgeFrame(1, &s, 2000000);                    // the controllers still hold it: sent again
+    CHECK(strstr(g_log, "S1100/200/0") != NULL);
+    xrPadBridgeStop();
+    g_log[0] = '\0';
+    xrPadBridgeRest();
+    CHECK(g_log[0] == '\0');
+}
+
 int main(void) {
     detector();
     bridge();
+    bridgeRest();
     return checksDone("kb chord");
 }

@@ -116,6 +116,35 @@ int main(void) {
     launcher_disconnect_bar(&l);
     CHECK(l.state == LAUNCH_APPS && l.ncmd == 0);
 
+    // Native (lane wave3-session): the headset-off and idle disconnects leave the host's session as well,
+    // each with its own notice, and do nothing outside a stream
+    launcher_disconnect_doff(&l);
+    launcher_disconnect_idle(&l);
+    CHECK(l.state == LAUNCH_APPS && l.ncmd == 0);
+    launcher_press(&l, UI_HIT_LIST_ITEM, 3, 0);
+    CHECK(take(&l, LCMD_LAUNCH, &c));
+    launcher_stream_started(&l);
+    launcher_disconnect_doff(&l);
+    CHECK(l.state == LAUNCH_STOPPING && take(&l, LCMD_STOP, &c) && c.quitHost == 0);
+    CHECK(strcmp(l.notice, ui_str(UIS_NATIVE_DISCONNECTED_DOFF)) == 0);
+    launcher_stream_ended(&l, 0);
+    CHECK(l.state == LAUNCH_APPS && take(&l, LCMD_FETCH_APPS, NULL));
+    apps(&l, 0);
+    launcher_press(&l, UI_HIT_LIST_ITEM, 3, 0);
+    CHECK(take(&l, LCMD_LAUNCH, &c));
+    launcher_stream_started(&l);
+    launcher_disconnect_idle(&l);
+    CHECK(l.state == LAUNCH_STOPPING && take(&l, LCMD_STOP, &c) && c.quitHost == 0);
+    CHECK(strcmp(l.notice, ui_str(UIS_NATIVE_DISCONNECTED_IDLE)) == 0);
+    l.notice[0] = '\0';
+    launcher_stream_ended(&l, 0);
+    CHECK(l.state == LAUNCH_APPS && take(&l, LCMD_FETCH_APPS, NULL));
+    apps(&l, 0);
+    // the reconnecting notice takes the try and the total
+    char said[160];
+    snprintf(said, sizeof(said), ui_str(UIS_NATIVE_RECONNECTING), 1, 2);
+    CHECK(strstr(said, "(1/2)") != NULL && strstr(said, "reconnecting") != NULL);
+
     // Another app running on the host is ended before a different one starts
     l.pcs[0].currentGame = 101;
     launcher_view(&l, &v);

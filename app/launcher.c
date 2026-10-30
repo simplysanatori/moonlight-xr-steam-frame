@@ -243,6 +243,14 @@ void launcher_disconnect_bar(Launcher* l) {
     disconnectWith(l, UIS_NATIVE_DISCONNECTED_BAR);
 }
 
+void launcher_disconnect_doff(Launcher* l) {
+    disconnectWith(l, UIS_NATIVE_DISCONNECTED_DOFF);
+}
+
+void launcher_disconnect_idle(Launcher* l) {
+    disconnectWith(l, UIS_NATIVE_DISCONNECTED_IDLE);
+}
+
 int launcher_take_cmd(Launcher* l, LaunchCmd* out) {
     if (l->ncmd == 0) return 0;
     *out = l->cmds[0];

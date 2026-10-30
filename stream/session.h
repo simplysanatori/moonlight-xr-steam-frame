@@ -36,6 +36,9 @@ void stream_set_hw_decode(int on);
 void stream_close_video(void);
 int stream_running(void);   // 1 while connected
 int stream_failed(void);    // 1 once the connection has terminated or failed
+// Native (lane wave3-session): the code moonlight-common-c ended the connection with (ML_ERROR_*, an errno
+// for a socket failure, 0 for the host's graceful end); 0 until it has terminated. Reset by stream_start.
+int stream_termination_code(void);
 
 // Input from the frame loop (no-ops when not connected).
 void stream_pointer(int x, int y, int w, int h);
