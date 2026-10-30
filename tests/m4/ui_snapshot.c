@@ -333,7 +333,7 @@ int main(int argc, char** argv) {
     // Native (PLAN 3.9): the first-run controls card over the middle of the picture
     scene_reset(s);
     c->firstRunUp = 1;
-    shot(s, "23-firstrun", NULL);
+    shot(s, "27-firstrun", NULL);
     c->firstRunUp = 0;
 
     // Native (PLAN 2b.6): the pad card, held in the lap. The snapshot's eye is at the origin looking
@@ -348,19 +348,19 @@ int main(int argc, char** argv) {
     memset(&c->padLive, 0, sizeof(c->padLive));
     c->padLive.present = 1;
     c->padLive.style = PADSTYLE_XBOX;
-    shot(s, "24-padcard-idle", NULL);
+    shot(s, "28-padcard-idle", NULL);
     c->padLive.buttons = PAD_A | PAD_RB | PAD_UP;
     c->padLive.lt = 180;
     c->padLive.lx = -22000;
     c->padLive.ly = 12000;
     c->padLive.gyro = 1;
-    shot(s, "25-padcard-lit", NULL);
+    shot(s, "29-padcard-lit", NULL);
     c->padLive.style = PADSTYLE_PLAYSTATION;
     c->padLive.buttons = PAD_B | PAD_LB;
     c->padLive.touching = 1;
     c->padLive.touchX = 0.7f;
     c->padLive.touchY = 0.4f;
-    shot(s, "26-padcard-playstation", NULL);
+    shot(s, "30-padcard-playstation", NULL);
     c->padCardUp = 0;
     c->headPoseValid = 0;
     memset(&c->padLive, 0, sizeof(c->padLive));
