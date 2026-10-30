@@ -48,6 +48,7 @@
 #include "xr_keys.h"
 #include "xr_kbfull.h"
 #include "xr_hostkeys.h"
+#include "xr_cards.h"
 #include "xr_splash.h"
 #include "xr_controller.h"
 #include "xr_headaim.h"
@@ -1234,6 +1235,16 @@ typedef struct XrCtx {
     XrMacros macros;
     XrHostRun hostRun;
     XrHostChord hostChord;
+    // Native (lane wave3-cards): the first-run controls card (PLAN 3.9) and the pad card
+    // (PLAN 2b.6), xr_padcard.c. *Up is what the frame wants drawn, *Ready that the panel's art has
+    // landed in the atlas. The pad card is held in the lap (padLive is the pad as last read).
+    FirstRun firstRun;
+    int firstRunUp;
+    int firstRunReady;
+    int padCardMode;
+    int padCardUp;
+    int padCardReady;
+    PadLive padLive;
     // Native (PLAN 4.1): the Host sheet's "Switch to PC VR" was confirmed; xr_session.c turns it into
     // XrUiEvents.pcvrConfirmed once and clears it
     int pcvrRequest;

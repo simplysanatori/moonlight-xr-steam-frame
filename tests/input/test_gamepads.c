@@ -1301,6 +1301,98 @@ static void testArbitration(void) {
     gamepadsSetArbitration(PAD_ARB_POINTER);
 }
 
+// The pad card's view of the pad in use (PLAN 2b.6): the style from the type it announced, what is
+// pressed and pulled, a finger on the touchpad, gyro reaching the host, and the time since it was used
+static void testLiveState(void) {
+    PadLive live;
+    gamepadsLiveState(&live);   // before gamepadsInit: nothing, and a generic pad
+    CHECK(!live.present && live.buttons == 0 && live.style == PADSTYLE_GENERIC);
+
+    Gamepads g;
+    padMouseSetup(&g);
+    gpLiveState(&g, &live);
+    CHECK(!live.present && live.buttons == 0 && live.style == PADSTYLE_GENERIC);
+    GpInfo d = dualsense("DualSense", "");
+    CHECK(gpAdd(&g, 10, &d) == 0);
+    gpStreamStart(&g);
+    gpSetActive(&g, 1);
+    gpLiveState(&g, &live);
+    CHECK(!live.present);   // plugged in, not used
+
+    PadOutPacket p = pkt(A_FLAG | UP_FLAG, 200, -20000);
+    p.rightStickY = 15000;
+    gpState(&g, 10, &p);
+    gpLiveState(&g, &live);
+    CHECK(live.present && live.style == PADSTYLE_PLAYSTATION && live.buttons == (A_FLAG | UP_FLAG));
+    CHECK(live.lt == 200 && live.rt == 0 && live.lx == -20000 && live.ly == 0 && live.ry == 15000 && live.ageNs == 0);
+    CHECK(live.buttons == (PAD_A | PAD_UP));   // xr_shared.h's PAD_ bits are Moonlight's flags
+
+    // let go: the pad is still in use for 20 s, and the age counts from the last input
+    p = pkt(0, 0, 0);
+    gpState(&g, 10, &p);
+    fakeNow += 3000 * NS_MS;
+    gpLiveState(&g, &live);
+    CHECK(live.present && live.buttons == 0 && live.lt == 0 && live.ageNs == 3000 * NS_MS);
+    CHECK(padCardVisible(PADCARD_AUTO, live.present, live.ageNs));
+    fakeNow += 1001 * NS_MS;
+    gpLiveState(&g, &live);
+    CHECK(live.present && live.ageNs == 4001 * NS_MS && !padCardVisible(PADCARD_AUTO, live.present, live.ageNs));
+    CHECK(padCardVisible(PADCARD_ON, live.present, live.ageNs));
+    fakeNow += 17000 * NS_MS;
+    gpLiveState(&g, &live);
+    CHECK(!live.present && !padCardVisible(PADCARD_ON, live.present, live.ageNs));
+
+    // a finger on the touchpad, then off
+    gpTouch(&g, 10, LI_TOUCH_EVENT_DOWN, 0, 0.25f, 0.75f, 1.0f);
+    gpLiveState(&g, &live);
+    CHECK(live.touching && live.touchX == 0.25f && live.touchY == 0.75f);
+    gpTouch(&g, 10, LI_TOUCH_EVENT_MOVE, 0, 0.5f, 0.5f, 1.0f);
+    gpLiveState(&g, &live);
+    CHECK(live.touching && live.touchX == 0.5f);
+    gpTouch(&g, 10, LI_TOUCH_EVENT_UP, 0, 0.5f, 0.5f, 0.0f);
+    gpLiveState(&g, &live);
+    CHECK(!live.touching);
+
+    // gyro: lit while samples reach the host, and for PADLIVE_MOTION_NS after
+    gpLiveState(&g, &live);
+    CHECK(!live.gyro);
+    CHECK(gpMotionState(&g, 0, LI_MOTION_TYPE_GYRO, 250) == 1);
+    gpMotion(&g, 10, LI_MOTION_TYPE_GYRO, 1.0f, 0, 0, 1000);
+    gpLiveState(&g, &live);
+    CHECK(live.gyro);
+    fakeNow += 200 * NS_MS;
+    gpLiveState(&g, &live);
+    CHECK(live.gyro);
+    fakeNow += 150 * NS_MS;
+    gpLiveState(&g, &live);
+    CHECK(!live.gyro);
+
+    // two pads: the one used last is the one shown, with its own style; a pad of no type is generic
+    GpInfo x = xbox("Xbox", "");
+    CHECK(gpAdd(&g, 11, &x) == 1);
+    p = pkt(B_FLAG, 0, 0);
+    gpState(&g, 11, &p);
+    gpLiveState(&g, &live);
+    CHECK(live.present && live.style == PADSTYLE_XBOX && live.buttons == B_FLAG);
+    fakeNow += 10 * NS_MS;
+    GpInfo u = xbox("Mystery", "");
+    u.type = LI_CTYPE_UNKNOWN;
+    CHECK(gpAdd(&g, 12, &u) == 2);
+    p = pkt(X_FLAG, 0, 0);
+    gpState(&g, 12, &p);
+    gpLiveState(&g, &live);
+    CHECK(live.style == PADSTYLE_GENERIC && live.buttons == X_FLAG);
+    fakeNow += 10 * NS_MS;
+    GpInfo s = xbox("Steam Controller", "");
+    s.type = LI_CTYPE_STEAM;
+    CHECK(gpAdd(&g, 13, &s) == 3);
+    p = pkt(Y_FLAG, 0, 0);
+    gpState(&g, 13, &p);
+    gpLiveState(&g, &live);
+    CHECK(live.style == PADSTYLE_STEAM && live.buttons == Y_FLAG);
+    gpDestroy(&g);
+}
+
 static void testGlyphs(void) {
     CHECK(gpGlyphSetForType(LI_CTYPE_XBOX) == GP_GLYPH_XBOX);
     CHECK(gpGlyphSetForType(LI_CTYPE_PS) == GP_GLYPH_PLAYSTATION);
@@ -1375,6 +1467,7 @@ int main(void) {
     testPadMouseTwoPads();
     testFlipPhysical();
     testArbitration();
+    testLiveState();
     testGlyphs();
     testThreads();
     testGlobal();

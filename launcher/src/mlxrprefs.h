@@ -113,6 +113,11 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(QString padMouseChord MEMBER padMouseChord NOTIFY changed)
     Q_PROPERTY(QString padMouseScroll MEMBER padMouseScroll NOTIFY changed)
     Q_PROPERTY(QString padArbitration MEMBER padArbitration NOTIFY changed)
+    // Native (lane wave3-cards): [vr] pad_card: the gamepad card in the headset's lap, "auto" (default: up while
+    // a gamepad is in use, gone 4 s after the last input), "on" or "off"; [vr] first_run_shown: the first-run
+    // controls card has been shown (false brings it back on the next stream)
+    Q_PROPERTY(QString padCard MEMBER padCard NOTIFY changed)
+    Q_PROPERTY(bool firstRunShown MEMBER firstRunShown NOTIFY changed)
     // Native (lane wave2-lightgun-gyro): [vr] lightgun, the lightgun pointer policy, "auto" (default: on while the
     // controller model is the gun), "on" or "off"; [vr] pad_gyro, what the headset controllers' gamepad sends as
     // gyro to the PC, "off" (default), "controller" or "head". The rest (lightgun_reload, lightgun_recoil,
@@ -251,6 +256,8 @@ public:
     QString padMouseChord;
     QString padMouseScroll;
     QString padArbitration;
+    QString padCard;
+    bool firstRunShown = false;
     QString lightgun;
     QString padGyro;
     QString pcvrApp;
@@ -274,6 +281,8 @@ private:
     int m_iniBitrateWifi = 0, m_iniBitrateAdapter = 0, m_iniBitrateWired = 0, m_iniBitrateUsb = 0;
     int m_iniRfiIdr = 500;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
+    QString m_iniPadCard = "auto";
+    bool m_iniFirstRunShown = false;
     QString m_iniLightgun = "auto", m_iniPadGyro = "off";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     int m_iniEyeBalance = 0, m_iniBackgroundDim = 0;
