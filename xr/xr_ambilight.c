@@ -293,6 +293,17 @@ void finishAmbiBarDetect(XrCtx* ctx) {
     }
 }
 
+// The part of the decoded frame the glow and the room's light are sampled
+// from, x0 y0 w h in frame uv: what the screen shows (the zoom's part of the
+// picture, which with a host-rendered pair is the left or top eye's half),
+// narrowed to the content inside the letterbox bars where the detector runs
+static void glowSampleRect(const XrCtx* ctx, float out[4]) {
+    float zoom[4], shown[4];
+    xrZoomRect(ctx, zoom);
+    videoShownRect(ctx->stereoMode == DEPTH_MODE_SBS ? ctx->stereoSource : STEREO_SOURCE_DEPTH, zoom, shown);
+    videoGlowRect(shown, ambiBarDetectOn(ctx) ? ctx->ambiCrop : AMBI_CROP_FULL, out);
+}
+
 // Boils the frame down to the tiny colour texture. Kept self contained and
 // free of anything glow shaped, since it is the frame's colours rather than
 // the glow that anything else would want.
@@ -309,7 +320,9 @@ void runFrameColorSample(XrCtx* ctx, const MlxrVideo* video) {
     // Whatever the detector last settled on, so the glow and the room's light
     // come from the picture rather than from the bars around it. With the
     // detection off the crop is not applied, but the state it found is kept.
-    memcpy(a.crop, ambiBarDetectOn(ctx) ? ctx->ambiCrop : AMBI_CROP_FULL, sizeof(a.crop));
+    // Native (PLAN 4b.6): and only the part of the picture the screen shows (the
+    // zoom, inside the eye's half with a host-rendered pair)
+    glowSampleRect(ctx, a.crop);
     // Graded the way the screen is, so the glow and the room's light come from
     // the picture as it is seen
     a.gradeOn = ctx->gradeOn;
@@ -321,7 +334,12 @@ void runFrameColorSample(XrCtx* ctx, const MlxrVideo* video) {
     // different scene would otherwise strobe the whole glow in one frame,
     // where this takes about ten to get there. The first frame has nothing to
     // mix with, so it lands whole.
-    a.blend = ctx->ambiSeeded ? ctx->ambiSmooth : 1.0f;
+    // (a zoom that moved lands whole too: the old colours are of another part of the picture)
+    int moved = ctx->glowZoom[0] != ctx->zoomPct || ctx->glowZoom[1] != ctx->zoomX || ctx->glowZoom[2] != ctx->zoomY;
+    a.blend = ctx->ambiSeeded && !moved ? ctx->ambiSmooth : 1.0f;
+    ctx->glowZoom[0] = ctx->zoomPct;
+    ctx->glowZoom[1] = ctx->zoomX;
+    ctx->glowZoom[2] = ctx->zoomY;
     mlxr_pass_ambi(ctx->passes, ctx->frameCmd, &t, &a);
     xrVkImageTo(ctx, &ctx->ambiTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     ctx->ambiSeeded = 1;
@@ -393,7 +411,10 @@ int glowStale(XrCtx* ctx) {
     int on;
     float level;
     ambiEffective(ctx, &on, &level);
-    return on && (!ctx->glowDrawnOn || level != ctx->glowDrawnLevel || ctx->glowFeather != ctx->glowDrawnFeather);
+    // Native (PLAN 4b.6): or the zoom moved, which changes what the colours are of
+    int zoomed = ctx->glowZoom[0] != ctx->zoomPct || ctx->glowZoom[1] != ctx->zoomX || ctx->glowZoom[2] != ctx->zoomY;
+    return on && (!ctx->glowDrawnOn || level != ctx->glowDrawnLevel || ctx->glowFeather != ctx->glowDrawnFeather
+                  || zoomed);
 }
 
 // A desktop standing still sends no frames, which left the level slider and
@@ -401,7 +422,8 @@ int glowStale(XrCtx* ctx) {
 // latched; the sample is taken again only where the glow was off, since
 // then it may be from another picture.
 void redrawGlow(XrCtx* ctx, const MlxrVideo* video) {
-    if (!ctx->glowDrawnOn) {
+    if (!ctx->glowDrawnOn || ctx->glowZoom[0] != ctx->zoomPct || ctx->glowZoom[1] != ctx->zoomX
+            || ctx->glowZoom[2] != ctx->zoomY) {
         runFrameColorSample(ctx, video);
     }
     runGlowRender(ctx);

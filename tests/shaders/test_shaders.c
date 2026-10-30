@@ -1017,6 +1017,214 @@ static void testWarpSbs(void) {
     videoFree(&vd);
 }
 
+// ---- zoom and pan (PLAN 4b.6) ---------------------------------------------------------------
+// A part of the picture fills the target: x0, y0 and the side in picture uv.
+// A: flat, a ramp in both axes, so each output pixel has a known colour from
+// where it lands in the zoomed part. B: inside the eye's half of a host-rendered
+// pair, the zoom narrowing the half and nothing of the other half reading in.
+// C: with a disparity, the depth is read at the zoomed position, so the zoomed
+// picture is the crop of the unzoomed one.
+
+static void fillRamp2(float x, float y, float rgb[3]) {
+    rgb[0] = 0.1f + 0.8f * x;
+    rgb[1] = 0.1f + 0.8f * y;
+    rgb[2] = 0.5f;
+}
+// Each half holds the same ramp over its own extent; the blue channel says which half
+static void fillSbsRamp2(float x, float y, float rgb[3]) {
+    float u = x < 0.5f ? 2.0f * x : 2.0f * x - 1.0f;
+    rgb[0] = 0.1f + 0.8f * u;
+    rgb[1] = 0.1f + 0.8f * y;
+    rgb[2] = x < 0.5f ? 0.2f : 0.8f;
+}
+static void fillTbRamp2(float x, float y, float rgb[3]) {
+    float v = y < 0.5f ? 2.0f * y : 2.0f * y - 1.0f;
+    rgb[0] = 0.1f + 0.8f * x;
+    rgb[1] = 0.1f + 0.8f * v;
+    rgb[2] = y < 0.5f ? 0.2f : 0.8f;
+}
+
+// The worst channel difference of a render against the ramp it should show:
+// the pixel at (a, b) of the target is at (x0 + a s, y0 + b s) of the picture, and the
+// picture is the whole frame or one half of it
+static int rampDiff(const uint8_t* px, uint32_t w, uint32_t h, float x0, float y0, float s, float blue, int split) {
+    int m = 0;
+    for (int i = 1; i < 10; i++) {
+        for (int j = 1; j < 10; j++) {
+            float a = i / 10.0f, b = j / 10.0f;
+            float u = x0 + a * s, v = y0 + b * s;
+            const uint8_t* p = px + ((size_t)(uint32_t)(b * h) * w + (uint32_t)(a * w)) * 4;
+            float want[3] = {0.1f + 0.8f * u, 0.1f + 0.8f * v, blue};
+            (void)split;
+            for (int c = 0; c < 3; c++) {
+                int d = abs((int)p[c] - to8(want[c]));
+                if (d > m) m = d;
+            }
+        }
+    }
+    return m;
+}
+
+static void testWarpZoom(void) {
+    const uint32_t W = 256, H = 128, TW = 128, TH = 64;
+    Video vd;
+    Target t;
+    // A: flat
+    if (videoMake(&vd, W, H, fillRamp2) || targetMake(&t, TW, TH, UNORM)) {
+        check(0, "zoom fixture");
+        return;
+    }
+    vd.yuv.chroma = MLXR_CHROMA_LEFT;
+    const struct { float x0, y0, s; const char* name; } cases[] = {
+        {0.0f, 0.0f, 1.0f, "whole"}, {0.25f, 0.25f, 0.5f, "200% about the middle"},
+        {0.75f, 0.75f, 0.25f, "400% in the bottom right corner"}, {0.0f, 0.0f, 0.25f, "400% in the top left corner"},
+        {0.05f, 0.45f, 0.5f, "200% about 30,70"},
+    };
+    for (int k = 0; k < (nv12Ok ? 2 : 1); k++) {
+        const MlxrVideo* v = k ? &vd.nv : &vd.yuv;
+        int tol = k ? nv12Tol + 3 : 6;   // the arm64 runner's rounding is a notch wider than lavapipe on x86
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+            MlxrWarpParams w = warpDefaults(v);
+            w.zoomX = cases[c].x0;
+            w.zoomY = cases[c].y0;
+            w.zoomSize = cases[c].s;
+            uint8_t* px = runWarp(&t, &w);
+            int d = rampDiff(px, TW, TH, cases[c].x0, cases[c].y0, cases[c].s, 0.5f, 0);
+            note("%s, %s: ramp off by at most %d/255", k ? "NV12" : "three-plane", cases[c].name, d);
+            check(d <= tol, "%s zoom, %s: every sampled pixel is where the zoomed part puts it (%d/255)",
+                  k ? "NV12" : "three-plane", cases[c].name, d);
+            if (k == 0) {
+                char name[64];
+                snprintf(name, sizeof(name), "zoom_flat_%zu", c);
+                ppm(name, px, TW, TH);
+            }
+            free(px);
+        }
+        // Not zoomed is as it was: a size of 0 (the params' zeros) and the whole picture are the same draw
+        MlxrWarpParams w = warpDefaults(v);
+        uint8_t* a = runWarp(&t, &w);
+        w.zoomSize = 1.0f;
+        uint8_t* b = runWarp(&t, &w);
+        check(maxDiff(a, b, (size_t)TW * TH, 4, NULL) == 0, "%s: zoom size 0 and 1 draw the same", k ? "NV12" : "three-plane");
+        w.zoomSize = 0.5f;
+        w.zoomX = 0.3f;
+        w.zoomY = 0.2f;
+        w.showDepth = 0;
+        uint8_t* z = runWarp(&t, &w);
+        check(maxDiff(a, z, (size_t)TW * TH, 4, NULL) > 20, "%s: a zoom does change the picture", k ? "NV12" : "three-plane");
+        free(a);
+        free(b);
+        free(z);
+    }
+    targetFree(&t);
+    videoFree(&vd);
+
+    // B: inside the eye's half
+    for (int layout = 0; layout < 2; layout++) {
+        Video pv;
+        Target pt;
+        uint32_t ew = layout ? W : W / 2, eh = layout ? H / 2 : H;
+        if (videoMake(&pv, W, H, layout ? fillTbRamp2 : fillSbsRamp2) || targetMake(&pt, ew / 2, eh / 2, UNORM)) {
+            check(0, "zoom pair fixture");
+            return;
+        }
+        pv.yuv.chroma = MLXR_CHROMA_LEFT;
+        const struct { float x0, y0, s; } parts[] = {{0.0f, 0.0f, 1.0f}, {0.25f, 0.25f, 0.5f}, {0.75f, 0.75f, 0.25f},
+                                                      {0.0f, 0.5f, 0.5f}, {0.5f, 0.0f, 0.5f}};
+        for (int half = 0; half < 2; half++) {
+            for (size_t c = 0; c < sizeof(parts) / sizeof(parts[0]); c++) {
+                MlxrWarpParams w = warpDefaults(&pv.yuv);
+                w.split = layout ? MLXR_SPLIT_TB : MLXR_SPLIT_SBS;
+                w.half = half;
+                w.eye = half;
+                w.zoomX = parts[c].x0;
+                w.zoomY = parts[c].y0;
+                w.zoomSize = parts[c].s;
+                uint8_t* px = runWarp(&pt, &w);
+                int d = rampDiff(px, ew / 2, eh / 2, parts[c].x0, parts[c].y0, parts[c].s, half ? 0.8f : 0.2f, 1);
+                note("%s eye %d, part %.2f,%.2f side %.2f: off by at most %d/255", layout ? "top-bottom" : "side by side",
+                     half, parts[c].x0, parts[c].y0, parts[c].s, d);
+                check(d <= 6, "%s eye %d zoomed %.2f,%.2f/%.2f: the part of its own half, none of the other (%d/255)",
+                      layout ? "top-bottom" : "side by side", half, parts[c].x0, parts[c].y0, parts[c].s, d);
+                if (c == 2) {
+                    char name[64];
+                    snprintf(name, sizeof(name), "zoom_%s_eye%d", layout ? "tb" : "lr", half);
+                    ppm(name, px, ew / 2, eh / 2);
+                }
+                free(px);
+            }
+        }
+        targetFree(&pt);
+        videoFree(&pv);
+    }
+
+    // C: the depth read at the zoomed position
+    {
+        const uint32_t N = 256;
+        Video cv;
+        Target full, zoomed;
+        if (videoMake(&cv, N, 64, fillRamp2) || targetMake(&full, N, 32, UNORM) || targetMake(&zoomed, N, 32, UNORM)) {
+            check(0, "zoom depth fixture");
+            return;
+        }
+        // Depth by the pixel's x alone, a ramp from near to far, in the alpha
+        uint8_t* dm = malloc((size_t)64 * 8 * 4);
+        for (uint32_t y = 0; y < 8; y++)
+            for (uint32_t x = 0; x < 64; x++) {
+                uint8_t* p = dm + ((size_t)y * 64 + x) * 4;
+                p[0] = p[1] = p[2] = 128;
+                p[3] = (uint8_t)to8(0.05f + 0.9f * (x + 0.5f) / 64.0f);
+            }
+        VkhImage dtex;
+        textureMake(&dtex, 64, 8, dm);
+        free(dm);
+        MlxrWarpParams w = warpDefaults(&cv.yuv);
+        w.depth = dtex.view;
+        w.offsets = dtex.view;
+        w.eye = 0;
+        w.disparity = 0.2f;
+        w.convergence = 0.5f;
+        w.srcInset = -1.0f;
+        w.edgeFade = 1e-6f;
+        uint8_t* a = runWarp(&full, &w);
+        const struct { float x0, s; } zs[] = {{0.25f, 0.5f}, {0.5f, 0.5f}, {0.0f, 0.5f}, {0.375f, 0.25f}};
+        for (size_t k = 0; k < sizeof(zs) / sizeof(zs[0]); k++) {
+            w.zoomX = zs[k].x0;
+            w.zoomY = 0.25f;
+            w.zoomSize = zs[k].s;
+            uint8_t* b = runWarp(&zoomed, &w);
+            // The zoomed row against the unzoomed one read between its pixels, where
+            // the zoomed pixel lands; red is the ramp of x so a shift moves it
+            int worst = 0;
+            for (uint32_t i = 8; i < N - 8; i++) {
+                float pos = (zs[k].x0 + (i + 0.5f) / N * zs[k].s) * N - 0.5f;
+                int p0 = (int)floorf(pos);
+                float f = pos - (float)p0;
+                if (p0 < 8 || p0 + 1 >= (int)N - 8) continue;
+                float ref = a[((size_t)16 * N + p0) * 4] * (1.0f - f) + a[((size_t)16 * N + p0 + 1) * 4] * f;
+                int d = (int)fabsf(ref - (float)b[((size_t)16 * N + i) * 4]);
+                if (d > worst) worst = d;
+            }
+            note("depth warp zoomed %.3f..%.3f: the crop of the unzoomed one within %d/255", zs[k].x0, zs[k].x0 + zs[k].s, worst);
+            check(worst <= 5, "zoomed %.3f side %.2f with a disparity is the crop of the unzoomed picture (%d/255)", zs[k].x0,
+                  zs[k].s, worst);
+            if (k == 0) ppm("zoom_depth", b, N, 32);
+            free(b);
+        }
+        // And the shift is there at all (else the check above proves nothing): the same row with and without a disparity
+        w.zoomSize = 0.0f;
+        w.disparity = 0.0f;
+        uint8_t* flat = runWarp(&zoomed, &w);
+        check(maxDiff(a, flat, (size_t)N * 32, 4, NULL) > 12, "the disparity moves the picture the test reads");
+        free(flat);
+        free(a);
+        vkh_image_free(&vk, &dtex);
+        targetFree(&full);
+        targetFree(&zoomed);
+        videoFree(&cv);
+    }
+}
+
 // ---- the fur (#36, #46): a thin dark bar on a bright page ---------------------------
 
 // Native (lane wave5-depth, PLAN 5.2). 1024 wide, the bar from pixel 497 to
@@ -2594,6 +2802,7 @@ int main(int argc, char** argv) {
                  {"warp_identity", testWarpIdentity},
                  {"warp_step", testWarpStep},
                  {"warp_sbs", testWarpSbs},
+                 {"warp_zoom", testWarpZoom},
                  {"warp_fur", testWarpFur},
                  {"sharpen", testSharpen},
                  {"upsample", testUpsample},

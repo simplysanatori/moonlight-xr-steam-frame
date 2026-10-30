@@ -230,6 +230,44 @@
     X(NATIVE_SPLASH_RECONNECTING, "native_splash_reconnecting", "Reconnecting…") \
     X(NATIVE_DISCONNECTED_DOFF, "native_disconnected_doff", "Disconnected while the headset was off: the app is still running on the PC") \
     X(NATIVE_DISCONNECTED_IDLE, "native_disconnected_idle", "Disconnected after no input for a while: the app is still running on the PC") \
+    /* the first-run controls card (PLAN 3.9) */ \
+    X(FIRSTRUN_TITLE, "native_firstrun_title", "Controls at a glance") \
+    X(FIRSTRUN_BAR_L, "native_firstrun_bar_l", "Bar") \
+    X(FIRSTRUN_BAR, "native_firstrun_bar", "Point under the screen to show it") \
+    X(FIRSTRUN_COG_L, "native_firstrun_cog_l", "Cog") \
+    X(FIRSTRUN_COG, "native_firstrun_cog", "Right Menu button: settings") \
+    X(FIRSTRUN_KB_L, "native_firstrun_kb_l", "Keyboard") \
+    X(FIRSTRUN_KB, "native_firstrun_kb", "Y button, or the bar's keyboard button") \
+    X(FIRSTRUN_PAD_L, "native_firstrun_pad_l", "Gamepad") \
+    X(FIRSTRUN_PAD_MENU_GRIP, "native_firstrun_pad_menu_grip", "Hold left View + left grip: gamepad mode") \
+    X(FIRSTRUN_PAD_STICKS, "native_firstrun_pad_sticks", "Press both thumbsticks: gamepad mode") \
+    X(FIRSTRUN_PAD_TRIGGERS_GRIPS, "native_firstrun_pad_triggers_grips", "Squeeze triggers + grips: gamepad mode") \
+    X(FIRSTRUN_HOST_L, "native_firstrun_host_l", "Host") \
+    X(FIRSTRUN_HOST, "native_firstrun_host", "The bar's Host button: Esc, Win, macros") \
+    X(FIRSTRUN_KEYS_L, "native_firstrun_keys_l", "Keys") \
+    X(FIRSTRUN_KEYS, "native_firstrun_keys", "Ctrl+Alt+Shift+Q on a keyboard: disconnect") \
+    X(FIRSTRUN_MOUSE_L, "native_firstrun_mouse_l", "Pad") \
+    X(FIRSTRUN_MOUSE, "native_firstrun_mouse", "Hold %s on a gamepad: the PC's mouse") \
+    X(FIRSTRUN_MOUSE_BOTH, "native_firstrun_mouse_both", "Hold %s and %s on a gamepad: the PC's mouse") \
+    X(FIRSTRUN_MOUSE_OFF, "native_firstrun_mouse_off", "Gamepad as the PC's mouse is off (pad_mouse_chord)") \
+    X(FIRSTRUN_FOOT, "native_firstrun_foot", "Shown once. It goes by itself, or when you open a menu.") \
+    /* the pad card (PLAN 2b.6) */ \
+    X(PADCARD_XBOX, "native_padcard_xbox", "Xbox gamepad") \
+    X(PADCARD_PLAYSTATION, "native_padcard_playstation", "PlayStation gamepad") \
+    X(PADCARD_NINTENDO, "native_padcard_nintendo", "Nintendo gamepad") \
+    X(PADCARD_STEAM, "native_padcard_steam", "Steam controller") \
+    X(PADCARD_GENERIC, "native_padcard_generic", "Gamepad") \
+    X(PADCARD_GYRO, "native_padcard_gyro", "Gyro") \
+    X(PADCARD_TOUCHPAD, "native_padcard_touchpad", "Touchpad") \
+    X(PADCARD_HINT, "native_padcard_hint", "Press a button, a stick or a trigger") \
+    X(PADCARD_START_MENU, "native_padcard_start_menu", "Menu") \
+    X(PADCARD_START_OPTIONS, "native_padcard_start_options", "Options") \
+    X(PADCARD_START_PLUS, "native_padcard_start_plus", "+") \
+    X(PADCARD_START_GENERIC, "native_padcard_start_generic", "Start") \
+    X(PADCARD_BACK_VIEW, "native_padcard_back_view", "View") \
+    X(PADCARD_BACK_CREATE, "native_padcard_back_create", "Create") \
+    X(PADCARD_BACK_MINUS, "native_padcard_back_minus", "-") \
+    X(PADCARD_BACK_GENERIC, "native_padcard_back_generic", "Back") \
     X(NATIVE_PCVR, "native_pcvr", "Switching to PC VR: the app is still running on the PC") \
     X(NATIVE_PCVR_NEEDS_LAUNCHER, "native_pcvr_needs_launcher", "PC VR needs the Moonlight XR launcher: start the stream from it")
 

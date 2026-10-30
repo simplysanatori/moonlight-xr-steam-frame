@@ -44,6 +44,11 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     ctx->stereoMode = DEPTH_MODE_OFF;
     ctx->stereoLive = 0;
     ctx->drawnEyes = 1;
+    ctx->zoomPct = ZOOM_MIN_PCT;
+    ctx->zoomX = ZOOM_PAN_DEFAULT;
+    ctx->zoomY = ZOOM_PAN_DEFAULT;
+    ctx->glowZoom[0] = ZOOM_MIN_PCT;
+    ctx->glowZoom[1] = ctx->glowZoom[2] = ZOOM_PAN_DEFAULT;
     ctx->depthModel = -1;
     ctx->depthTexW = 512;
     ctx->depthTexH = 288;
@@ -316,6 +321,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->ambilightOn = s->glow;
     ctx->ambiIntensity = (float)s->glow_level / 100.0f;
     ctx->glowFeather = s->glow_feather;
+    xrZoomFromSettings(ctx, s);
     ctx->bgDim = s->bg_dim;
     settings_void_rgb(s, ctx->voidColor);
     ctx->eyeBalance = (float)s->eye_balance / 100.0f;
@@ -402,6 +408,8 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->passthrough = cell == ENV_CELL_PASSTHROUGH;
     ctx->handsEnabled = s->hand_tracking;
     xrSetHandHint(ctx, s->hand_tracking && !s->hand_hint_seen);
+    // Native (lane wave3-cards): the first-run card and the pad card
+    xrCardsApplySettings(ctx, s);
 }
 
 // ---- context -> config.ini ---------------------------------------------------------
@@ -414,6 +422,7 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->glow = ctx->ambilightOn;
     s->glow_level = iround(ctx->ambiIntensity * 100.0f);
     s->glow_feather = ctx->glowFeather;
+    xrZoomToSettings(ctx, s);
     s->bg_dim = ctx->bgDim;
     s->screen_light = ctx->roomLightOn;
     for (int style = ROOM_STYLE_FIRST; style <= ROOM_STYLE_LAST; style++) {
