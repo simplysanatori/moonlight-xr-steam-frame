@@ -2,7 +2,7 @@
 // (ordering, rank correlation with the truth), run-to-run and thread-count
 // stability, fp16 vs int8 agreement, fp16 arithmetic vs fp32, the
 // normalisation, and the threaded engine's hand-off and rate. GPLv3.
-//   test_depth [group]   groups: spec order stable agree arith norm engine
+//   test_depth [group]   groups: spec order stable agree arith norm motion scale engine
 #define _GNU_SOURCE
 #include <math.h>
 #include <stdio.h>
@@ -386,6 +386,141 @@ static void groupNorm(void) {
     mlxr_depth_norm_free(nm);
 }
 
+// Native (lane wave5-depth, PLAN 5.4): an edge in the guide moves between two
+// maps. With the motion reset the average starts again where the picture
+// changed and keeps its history where it did not; without it every texel
+// carries the old depth for a while
+static void groupMotion(void) {
+    printf("motion\n");
+    const int w = 64, h = 16, n = w * h;
+    float* raw = malloc(sizeof(float) * n);
+    float* guide = malloc(sizeof(float) * n * 3);
+    MlxrDepthParams p;
+    mlxr_depth_params_default(&p);
+    p.rangeTauMs = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        p.motion = pass == 0 ? 0.0f : 0.10f;
+        MlxrDepthNorm* nm = mlxr_depth_norm_create(w, h);
+        int64_t t = 1000000000LL;
+        // First map: a bright object over columns 10..19, near (60) on a far
+        // page (20)
+        for (int i = 0; i < n; i++) {
+            int x = i % w;
+            int in = x >= 10 && x < 20;
+            float g = in ? 0.9f : 0.1f;
+            guide[i * 3 + 0] = guide[i * 3 + 1] = guide[i * 3 + 2] = g;
+            raw[i] = in ? 60.0f : 20.0f;
+        }
+        mlxr_depth_norm_run(nm, &p, raw, guide, 0, t, NULL, NULL);
+        // 20 ms on the object has moved to columns 30..39; the model also
+        // wobbles the far page a little (21) where nothing moved
+        for (int i = 0; i < n; i++) {
+            int x = i % w;
+            int in = x >= 30 && x < 40;
+            float g = in ? 0.9f : 0.1f;
+            guide[i * 3 + 0] = guide[i * 3 + 1] = guide[i * 3 + 2] = g;
+            raw[i] = in ? 60.0f : 21.0f;
+        }
+        mlxr_depth_norm_run(nm, &p, raw, guide, 0, t + 20000000LL, NULL, NULL);
+        const float* avg = mlxr_depth_norm_average(nm);
+        int row = 8 * w;
+        float oldSpot = avg[row + 15], newSpot = avg[row + 35], still = avg[row + 50];
+        int resets = mlxr_depth_norm_motion_resets(nm);
+        printf("  motion %.2f: where it was %.2f, where it is %.2f, the still page %.2f, %d texels started again\n",
+               p.motion, oldSpot, newSpot, still, resets);
+        // The still page keeps averaging either way: between 20 and 21
+        CHECK(still > 20.0f && still < 21.0f, "still page averaged: %.3f", still);
+        if (pass == 0) {
+            CHECK(oldSpot > 30.0f && newSpot < 50.0f, "without it the old depth trails: %.2f %.2f", oldSpot, newSpot);
+            CHECK(resets == 0, "off: no texel starts again (%d)", resets);
+        } else {
+            CHECK(oldSpot == 21.0f && newSpot == 60.0f, "with it the moved texels take the new map: %.2f %.2f",
+                  oldSpot, newSpot);
+            CHECK(resets == 20 * h, "the two moved bands start again, nothing else (%d)", resets);
+        }
+        mlxr_depth_norm_free(nm);
+    }
+    free(raw);
+    free(guide);
+}
+
+// Native (lane wave5-depth, PLAN 5.6): the depth scale. At 100 and 100 the
+// map is exactly the plain normalisation; otherwise every texel is
+// convergence + global * (shape - convergence) + local * (detail), the shape
+// the map's box low pass (radius 11 texels of a 256 map, scaled with it) and
+// the detail what is left, held to 0..1
+static void groupScale(void) {
+    printf("scale\n");
+    const int w = 64, h = 32, n = w * h;
+    float* raw = malloc(sizeof(float) * n);
+    float* guide = malloc(sizeof(float) * n * 3);
+    float* plain = malloc(sizeof(float) * n);
+    float* got = malloc(sizeof(float) * n);
+    float* base = malloc(sizeof(float) * n);
+    float* low = malloc(sizeof(float) * n);
+    float* scratch = malloc(sizeof(float) * n);
+    float* cols = malloc(sizeof(float) * w);
+    for (int i = 0; i < n; i++) {
+        int x = i % w, y = i / w;
+        // A slope (the overall shape) with a bump on it (local detail). The
+        // bump stays inside the slope's span, so the plain map does not
+        // already hold its top at 1 and leave a larger local gain nothing to
+        // show
+        raw[i] = 10.0f + 40.0f * (float)y / (h - 1) + ((x - 40) * (x - 40) + (y - 12) * (y - 12) < 25 ? 10.0f : 0.0f);
+        guide[i * 3 + 0] = guide[i * 3 + 1] = guide[i * 3 + 2] = 0.5f;
+    }
+    MlxrDepthParams p;
+    mlxr_depth_params_default(&p);
+    p.tauMs = 0;
+    p.rangeTauMs = 0;
+    MlxrDepthNorm* nm = mlxr_depth_norm_create(w, h);
+    mlxr_depth_norm_run(nm, &p, raw, guide, 0, 1000000000LL, NULL, plain);
+    // 100 and 100 is the plain map, bit for bit
+    p.global = 1.0f;
+    p.local = 1.0f;
+    mlxr_depth_norm_run(nm, &p, raw, guide, 0, 1010000000LL, NULL, got);
+    CHECK(memcmp(plain, got, sizeof(float) * n) == 0, "100/100 leaves the map alone");
+    lowPass(plain, low, scratch, cols, w, h, 11 * w / 256, 11 * h / 256);
+    int bump = 12 * w + 40, beside = 12 * w + 20;
+    CHECK(plain[bump] < 0.99f && low[bump] < plain[bump],
+          "the bump is detail inside the range: plain %.3f, its shape %.3f", plain[bump], low[bump]);
+    const float gains[][2] = { { 1.0f, 1.5f }, { 0.5f, 1.0f }, { 0.6f, 1.4f }, { 1.0f, 0.0f } };
+    for (size_t k = 0; k < sizeof gains / sizeof gains[0]; k++) {
+        p.global = gains[k][0];
+        p.local = gains[k][1];
+        mlxr_depth_norm_run(nm, &p, raw, guide, 0, 1020000000LL + (int64_t)k * 10000000LL, NULL, got);
+        float worst = 0.0f, spreadBase = 0.0f, spreadGot = 0.0f;
+        for (int i = 0; i < n; i++) {
+            float want = p.convergence + p.global * (low[i] - p.convergence) + p.local * (plain[i] - low[i]);
+            want = want < 0.0f ? 0.0f : (want > 1.0f ? 1.0f : want);
+            worst = fmaxf(worst, fabsf(got[i] - want));
+        }
+        // The bump over the slope beside it, against the same global gain
+        // with the local gain at 1, so only the local gain differs
+        float l = p.local;
+        p.local = 1.0f;
+        mlxr_depth_norm_run(nm, &p, raw, guide, 0, 1060000000LL + (int64_t)k * 10000000LL, NULL, base);
+        p.local = l;
+        spreadBase = base[bump] - base[beside];
+        spreadGot = got[bump] - got[beside];
+        printf("  global %.1f local %.1f: worst %.2g from the formula, bump over its row %.3f (local 1: %.3f)\n",
+               p.global, p.local, worst, spreadGot, spreadBase);
+        CHECK(worst < 1e-5f, "global %.1f local %.1f follows the remap (%.2g)", p.global, p.local, worst);
+        if (p.local > 1.0f) CHECK(spreadGot > spreadBase, "more local gain pops the bump out more");
+        if (p.local == 0.0f) CHECK(fabsf(got[bump] - low[bump]) < 1e-5f, "no local gain leaves the shape alone");
+    }
+    // The whole map toward the screen plane: half the global gain halves the
+    // shape's distance from the convergence where there is no detail
+    int flatSpot = 28 * w + 5;
+    p.global = 0.5f;
+    p.local = 1.0f;
+    mlxr_depth_norm_run(nm, &p, raw, guide, 0, 1100000000LL, NULL, got);
+    CHECK(fabsf((got[flatSpot] - p.convergence) - 0.5f * (low[flatSpot] - p.convergence)
+                - (plain[flatSpot] - low[flatSpot])) < 1e-5f, "global 0.5 halves the shape");
+    mlxr_depth_norm_free(nm);
+    free(raw); free(guide); free(plain); free(got); free(base); free(low); free(scratch); free(cols);
+}
+
 static void sleepMs(int ms) {
     struct timespec ts = { ms / 1000, (long)(ms % 1000) * 1000000L };
     nanosleep(&ts, NULL);
@@ -523,7 +658,8 @@ int main(int argc, char** argv) {
     const char* only = argc > 1 ? argv[1] : NULL;
     struct { const char* name; void (*fn)(void); } groups[] = {
         { "spec", groupSpec }, { "order", groupOrder }, { "stable", groupStable },
-        { "agree", groupAgree }, { "arith", groupArith }, { "norm", groupNorm },
+        { "agree", groupAgree }, { "arith", groupArith }, { "norm", groupNorm }, { "motion", groupMotion },
+        { "scale", groupScale },
         { "engine", groupEngine },
     };
     for (size_t i = 0; i < sizeof groups / sizeof groups[0]; i++) {
