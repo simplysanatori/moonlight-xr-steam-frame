@@ -58,6 +58,12 @@ void xrStreamIdentityHost(char* out, size_t cap);
 // the Screen tab's button call. Returns 1 when the screen moved (not in a
 // room, not head locked, a head pose to go by).
 int xrBringScreenHere(XrCtx* ctx);
+// Native (lane bar-glare): whether Bring here can act at all, the screen in
+// the world and no room up. The bar's Bring here button shows only then.
+int xrBringHereCanAct(XrCtx* ctx);
+// Native (lane bar-glare): Bring here from the bar's button, where the eyes are
+// on the bar (layoutBringHereFromBar). Returns 1 when the screen moved.
+int xrBringScreenHereFromBar(XrCtx* ctx);
 
 // ---- zoom and pan (xr_zoom.c, PLAN 4b.6) ------------------------------------
 // The step the app:zoomin, app:zoomout and app:zoomreset bindings take: +1 the

@@ -62,6 +62,7 @@ typedef struct {
     XrCompositionLayerQuad aimButton;
     XrCompositionLayerQuad padButton;
     XrCompositionLayerQuad hostButton;
+    XrCompositionLayerQuad hereButton;
     XrCompositionLayerQuad exitPrompt;
     XrCompositionLayerQuad report;
     XrCompositionLayerQuad hint;
@@ -634,6 +635,12 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
         addBarButton(ctx, view, layers, &layers->hostButton, BTN_CELL_HOST,
                      BAR_SLOT_HOST, ctx->hostButtonHot || ctx->hostOpen, next);
     }
+    // Native (lane bar-glare): Bring here, in head aim's place, only while it
+    // can act. Lit by the ray being on it; it has no state to show.
+    if (ctx->kbButtonReady && view->barArea && xrBringHereCanAct(ctx)) {
+        addBarButton(ctx, view, layers, &layers->hereButton, BTN_CELL_HERE, BAR_SLOT_HERE,
+                     ctx->hoverKind == HOVER_HEREBUTTON, NULL);
+    }
 }
 
 // The prompt the exit button opens, on the pose frozen when it opened; the
@@ -1024,7 +1031,8 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
                 || ctx->hoverKind == HOVER_RAYBUTTON
                 || ctx->hoverKind == HOVER_AIMBUTTON
                 || ctx->hoverKind == HOVER_PADBUTTON
-                || ctx->hoverKind == HOVER_HOSTBUTTON);
+                || ctx->hoverKind == HOVER_HOSTBUTTON
+                || ctx->hoverKind == HOVER_HEREBUTTON);
 
     // Some runtimes only bring the cameras up on a change of blend mode seen
     // after the session is focused, so the first focused frame goes opaque

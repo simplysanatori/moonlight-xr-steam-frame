@@ -13,7 +13,7 @@
 
 static const int FACE_CELL[BAR_SLOTS] = {
     BTN_CELL_ENV, BTN_CELL_COG, BTN_CELL_KB, BTN_CELL_EXIT, BTN_CELL_PAD, BTN_CELL_AIM,
-    BTN_CELL_RAY, BTN_CELL_STEREO, BTN_CELL_HOST
+    BTN_CELL_RAY, BTN_CELL_STEREO, BTN_CELL_HOST, BTN_CELL_HERE
 };
 
 void panel_bar(Dc* dc) {
@@ -31,6 +31,7 @@ void panel_bar(Dc* dc) {
     for (int slot = 0; slot < BAR_SLOTS; slot++) {
         if (slot == BAR_SLOT_AIM && !v->bar_show_aim) continue;
         if (slot == BAR_SLOT_STEREO && !v->bar_show_stereo) continue;
+        if (slot == BAR_SLOT_HERE && !v->bar_show_here) continue;
         Vec3 local;
         float side;
         barSlotPlacement(slot, 1.0f, 1.0f, &local, &side);

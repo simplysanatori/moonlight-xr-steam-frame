@@ -668,6 +668,7 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->stereo_source = ctx->stereoSource;
     v->bar_show_aim = headAimCanAct(ctx);
     v->bar_show_stereo = ctx->stereoButtonReady;
+    v->bar_show_here = xrBringHereCanAct(ctx);
     v->kb_sheet = ctx->kbState;
     v->kb_mods = ctx->kbMods | (ctx->hostChord.active ? ctx->hostChord.mods : 0);
     v->kb_layout = xrKeyboardLayout(ctx);
@@ -897,7 +898,7 @@ static void updateOnce(XrCtx* ctx, XrPanels* p, const UiView* base, int slot, in
     if (!wanted) {
         return;
     }
-    int k[3] = { base->env_live_cells, base->bar_show_aim, base->bar_show_stereo };
+    int k[4] = { base->env_live_cells, base->bar_show_aim, base->bar_show_stereo, base->bar_show_here };
     if (!keyChanged(p, slot, k, sizeof(k))) {
         return;
     }
