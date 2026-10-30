@@ -589,7 +589,7 @@ if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
          3d.separation 3d.convergence 3d.stereo 3d.eye_balance 3d.stereo_source 3d.sbs_full 3d.edge_sharpness 3d.depth_scale
          3d.depth_global 3d.motion_reset ui.language"
     left="stream.host stream.app vr.hand_hint_seen display.cog_tab display.zoom_x display.zoom_y screen.height_cm
-          screen.azimuth_deg screen.tilt_deg screen.rotate_deg"
+          screen.azimuth_deg screen.tilt_deg screen.rotate_deg screen.far_distance_cm screen.far_width_cm"
     for k in $(cut -d' ' -f1 "$t/client-table"); do
         case "$k" in debug.*|rooms.*) continue;; esac
         case " $(echo $own $left) " in *" $k "*) continue;; esac
