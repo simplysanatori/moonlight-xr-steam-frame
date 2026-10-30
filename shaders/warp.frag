@@ -18,6 +18,10 @@
 // Spec constant 0: OUT_LINEAR (common.glsl).
 //
 // Added for the native port, off (0) reproduces upstream exactly:
+//   modes    the four switches share one number (bits 1 occlusion, 2 depthCubic,
+//            4 showDepth, 8 barTest), and its other three floats are the zoom
+//            (PLAN 4b.6): the x0, y0 and side, in picture uv, of the part of the
+//            picture that fills the target; 0 0 1 is the whole of it.
 //   extra.x  sharpen strength 0..1 (contrast adaptive, on the video taps
 //            before the grade). Upstream asked the compositor for this
 //            through XR_FB_composition_layer_settings, which SteamVR on the
@@ -36,7 +40,7 @@ layout(push_constant) uniform PC {
     vec4 tintOn;   // rgb u_tint, a u_gradeOn
     vec4 dispA;    // u_disparity, u_eyeIndex, u_convergence, u_dispTexels
     vec4 dispB;    // u_lowResWidth, u_frameWidth, u_srcInset, u_edgeFade
-    vec4 modes;    // u_occlusion, u_depthCubic, u_showDepth, u_barTest
+    vec4 modes;    // x switches (bits: 1 occlusion, 2 depthCubic, 4 showDepth, 8 barTest), yzw zoom x0, y0, side
     vec4 extra;    // x sharpen, y split, z half, w shift
 } pc;
 
@@ -47,7 +51,7 @@ layout(push_constant) uniform PC {
 layout(set = 0, binding = 3) uniform sampler2D u_depth;
 layout(set = 0, binding = 4) uniform sampler2D u_offsets;
 
-layout(location = 0) in vec2 v_plain;
+layout(location = 0) in vec2 v_screen;
 layout(location = 0) out vec4 fragColor;
 
 #define u_disparity pc.dispA.x
@@ -58,10 +62,12 @@ layout(location = 0) out vec4 fragColor;
 #define u_frameWidth pc.dispB.y
 #define u_srcInset pc.dispB.z
 #define u_edgeFade pc.dispB.w
-#define u_occlusion pc.modes.x
-#define u_depthCubic pc.modes.y
-#define u_showDepth pc.modes.z
-#define u_barTest pc.modes.w
+#define u_switches int(pc.modes.x + 0.5)
+#define u_occlusion float(u_switches & 1)
+#define u_depthCubic float((u_switches >> 1) & 1)
+#define u_showDepth float((u_switches >> 2) & 1)
+#define u_barTest float((u_switches >> 3) & 1)
+#define u_zoom pc.modes.yzw
 #define u_split pc.extra.y
 #define u_half pc.extra.z
 #define u_shift pc.extra.w
@@ -72,6 +78,12 @@ layout(location = 0) out vec4 fragColor;
 // fetches. Every read of the depth in a pixel is on that pixel's row, so
 // the vertical half of the spline is worked out once in main, into
 // depthRow: the two fetch rows in uv and the share of the first.
+// Native (PLAN 4b.6): the picture position this pixel shows. v_screen is the
+// pixel's place on the target (0..1 across the whole picture); the zoom
+// narrows it to the part of the picture that fills the target, and everything
+// below (the depth maps, the shift, the eye's half of a host-rendered pair)
+// works on that, so a zoom is a crop of the picture as it would be drawn
+vec2 v_plain;
 vec2 depthSize;
 float depthTexelX;
 vec3 depthRow;
@@ -134,6 +146,7 @@ vec2 halfTc(vec2 uv) {
 }
 
 void main() {
+    v_plain = u_zoom.xy + v_screen * u_zoom.z;
     if (u_depthCubic > 0.5) {
         depthSize = vec2(textureSize(u_depth, 0));
         depthTexelX = 1.0 / depthSize.x;

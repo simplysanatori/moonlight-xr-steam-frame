@@ -259,7 +259,9 @@ Flickable {
                      "recentre": qsTr("Recentre the screen"), "cog": qsTr("Open or close the cog panel"),
                      "3d": qsTr("3D on or off"), "gamepad": qsTr("Switch pointer and gamepad mode"),
                      "bringhere": qsTr("Bring the screen here"),
-                     "host": qsTr("Open or close the Host sheet") }
+                     "host": qsTr("Open or close the Host sheet"),
+                     "zoomin": qsTr("Zoom in on the pointer"), "zoomout": qsTr("Zoom out"),
+                     "zoomreset": qsTr("Zoom back to the whole picture") }
         }
         var m = maps[kind]
         return m && m[value] !== undefined ? m[value] : value

@@ -44,6 +44,8 @@ void ui_panel_native_size(UiPanelId id, int* w, int* h) {
         { 1024, 640 },                  // pc list
         { 1024, 640 },                  // app list
         { XR_HOST_TEX_W, XR_HOST_TEX_H }, // host sheet
+        { FIRSTRUN_TEX_W, FIRSTRUN_TEX_H }, // first-run card
+        { PADCARD_TEX_W, PADCARD_TEX_H },   // pad card
     };
     if ((unsigned)id >= UI_PANEL_COUNT) {
         *w = *h = 0;
@@ -55,7 +57,8 @@ void ui_panel_native_size(UiPanelId id, int* w, int* h) {
 
 const char* ui_panel_name(UiPanelId id) {
     static const char* const N[UI_PANEL_COUNT] = { "cog", "picker", "keyboard", "bar",
-        "button_atlas", "exit", "hint", "kofi", "report", "toast", "clock", "pc_list", "app_list", "host" };
+        "button_atlas", "exit", "hint", "kofi", "report", "toast", "clock", "pc_list", "app_list", "host",
+        "firstrun", "padcard" };
     return (unsigned)id < UI_PANEL_COUNT ? N[id] : "?";
 }
 
@@ -63,6 +66,7 @@ const char* ui_panel_name(UiPanelId id) {
 // C kofi | hint, D host sheet | exit, clock, E picker, then the toast, the bar
 // strip and the button strip, one to a row, and last the keyboard (its media
 // row made it taller than the shelf)
+// Native (lane wave3-cards): under the keyboard, the first-run card and the pad card side by side.
 UiRectPx ui_atlas_rect(UiPanelId id) {
     static const UiRectPx R[UI_PANEL_COUNT] = {
         [UI_PANEL_COG] = { 0, 0, COG_TEX_W, COG_TEX_H },
@@ -79,6 +83,8 @@ UiRectPx ui_atlas_rect(UiPanelId id) {
         [UI_PANEL_TOAST] = { 0, 2536, TOAST_TEX_W, TOAST_TEX_H },
         [UI_PANEL_BAR] = { 0, 2696, 1792, 128 },
         [UI_PANEL_BUTTON_ATLAS] = { 0, 2824, BTN_ATLAS_W, BTN_ATLAS_H },
+        [UI_PANEL_FIRSTRUN] = { 0, 3472, FIRSTRUN_TEX_W, FIRSTRUN_TEX_H },
+        [UI_PANEL_PADCARD] = { 1024, 3472, PADCARD_TEX_W, PADCARD_TEX_H },
     };
     UiRectPx none = { 0, 0, 0, 0 };
     return (unsigned)id < UI_PANEL_COUNT ? R[id] : none;
@@ -388,6 +394,8 @@ void ui_draw_panel(UiPanelId id, UiCanvas* cv, const UiView* v, UiHits* hits) {
     case UI_PANEL_HINT: panel_hint(&dc); break;
     case UI_PANEL_KOFI: panel_kofi(&dc); break;
     case UI_PANEL_HOST: panel_host(&dc); break;
+    case UI_PANEL_FIRSTRUN: panel_firstrun(&dc); break;
+    case UI_PANEL_PADCARD: panel_padcard(&dc); break;
     default: break;
     }
 }

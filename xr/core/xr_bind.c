@@ -40,7 +40,7 @@ static const char* const WHEEL_NAMES[] = { "up", "down", "left", "right" };
 static const char* const STICK_NAMES[] = { "scroll", "mouse", "wasd", "arrows", "dpad",
                                            "pad_left", "pad_right" };
 static const char* const APP_NAMES[] = { "keyboard", "ray", "recentre", "cog", "3d", "gamepad",
-                                         "bringhere", "host" };
+                                         "bringhere", "host", "zoomin", "zoomout", "zoomreset" };
 _Static_assert(sizeof(APP_NAMES) / sizeof(APP_NAMES[0]) == XR_BIND_APP_COUNT, "an app name a code");
 
 typedef struct {
@@ -383,7 +383,7 @@ int xrBindActionParse(const char* text, XrBindAction* out, char* err, size_t cap
             if (i < 0) {
                 setErr(err, cap, col, vcol,
                        "unknown app command '%.*s' (keyboard, ray, recentre, cog, 3d, gamepad, "
-                       "bringhere, host or none)", (int)vn, v);
+                       "bringhere, host, zoomin, zoomout, zoomreset or none)", (int)vn, v);
                 return 0;
             }
             a.kind = kind;
@@ -604,7 +604,7 @@ int xrBindDefaultText(char* out, size_t cap) {
         "#                                                    a gamepad button (gamepad mode only)\n"
         "#   stick:scroll|mouse|wasd|arrows|dpad|pad_left|pad_right\n"
         "#                                                    a whole stick (left.stick, right.stick)\n"
-        "#   app:keyboard|ray|recentre|cog|3d|gamepad|bringhere|host\n"
+        "#   app:keyboard|ray|recentre|cog|3d|gamepad|bringhere|host|zoomin|zoomout|zoomreset\n"
         "#   none                                             nothing\n"
         "#\n"
         "# [pointer] is pointer mode and [gamepad] gamepad mode, for every app. An\n"

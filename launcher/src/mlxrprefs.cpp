@@ -355,6 +355,10 @@ void MlxrPrefs::load()
     bool speedOk = false;
     const int speed = iniValue(ini, "vr", "scroll_speed", "100").trimmed().toInt(&speedOk);
     scrollSpeed = speedOk ? qBound(25, speed, 400) : 100;
+    // the VR client holds it to 100..400 and takes anything else as its default, 100
+    bool zoomOk = false;
+    const int zoomPct = iniValue(ini, "display", "zoom", "100").trimmed().toInt(&zoomOk);
+    zoom = zoomOk ? qBound(100, zoomPct, 400) : 100;
     padMouseChord = iniValue(ini, "vr", "pad_mouse_chord", "start_hold").trimmed().toLower();
     if (padMouseChord != "start_back" && padMouseChord != "off") {
         padMouseChord = "start_hold";
@@ -367,6 +371,10 @@ void MlxrPrefs::load()
     if (padArbitration != "also_gamepad" && padArbitration != "sleep") {
         padArbitration = "pointer";
     }
+    // the VR client takes the name or its index; anything else is its default, auto
+    const QString pc = iniValue(ini, "vr", "pad_card", "auto").trimmed().toLower();
+    padCard = (pc == "on" || pc == "1") ? "on" : (pc == "off" || pc == "2") ? "off" : "auto";
+    firstRunShown = iniBool(iniValue(ini, "vr", "first_run_shown", "false"));
     // the VR client takes the name or its index, anything else is its default
     const QString lg = iniValue(ini, "vr", "lightgun", "auto").trimmed().toLower();
     lightgun = (lg == "on" || lg == "1") ? "on" : (lg == "off" || lg == "2") ? "off" : "auto";
@@ -396,6 +404,7 @@ void MlxrPrefs::load()
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
     m_iniScrollSpeed = scrollSpeed;
+    m_iniZoom = zoom;
     m_iniControllerModel = controllerModel;
     m_iniDoff = doffDisconnect;
     m_iniIdle = idleDisconnect;
@@ -408,6 +417,8 @@ void MlxrPrefs::load()
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
     m_iniHeadsetLanguage = headsetLanguage;
+    m_iniPadCard = padCard;
+    m_iniFirstRunShown = firstRunShown;
     m_iniLightgun = lightgun;
     m_iniPadGyro = padGyro;
 }
@@ -491,6 +502,9 @@ void MlxrPrefs::save()
     if (scrollSpeed != m_iniScrollSpeed) {
         setIniValue(ini, "vr", "scroll_speed", QString::number(qBound(25, scrollSpeed, 400)));
     }
+    if (zoom != m_iniZoom) {
+        setIniValue(ini, "display", "zoom", QString::number(qBound(100, zoom, 400)));
+    }
     if (controllerModel != m_iniControllerModel) {
         setIniValue(ini, "vr", "controller_model", controllerModel);
     }
@@ -522,8 +536,13 @@ void MlxrPrefs::save()
     }
     if (headsetLanguage != m_iniHeadsetLanguage) {
         setIniValue(ini, "ui", "language", normalizeLanguage(headsetLanguage));
-}
-
+    }
+    if (padCard != m_iniPadCard) {
+        setIniValue(ini, "vr", "pad_card", padCard);
+    }
+    if (firstRunShown != m_iniFirstRunShown) {
+        setIniValue(ini, "vr", "first_run_shown", firstRunShown ? "true" : "false");
+    }
     if (lightgun != m_iniLightgun) {
         setIniValue(ini, "vr", "lightgun", lightgun);
     }
@@ -550,6 +569,7 @@ void MlxrPrefs::save()
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
     m_iniScrollSpeed = scrollSpeed;
+    m_iniZoom = zoom;
     m_iniControllerModel = controllerModel;
     m_iniDoff = doffDisconnect;
     m_iniIdle = idleDisconnect;
@@ -562,6 +582,8 @@ void MlxrPrefs::save()
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
     m_iniHeadsetLanguage = headsetLanguage;
+    m_iniPadCard = padCard;
+    m_iniFirstRunShown = firstRunShown;
 }
 
 QString MlxrPrefs::normalizeLanguage(const QString& v)
