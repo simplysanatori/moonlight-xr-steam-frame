@@ -96,6 +96,10 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 | Render Mode | Default 2D, AI SBS 3D | AI SBS 3D. This is the 3D switch; the headset can also change it. See [3D](#3d). |
 | 3D Effect Strength | 1 to 100 | The depth model's own value. Greyed in Default 2D. |
 | 3D Convergence | 0 to 100 | 50. Greyed in Default 2D. |
+| 3D Edge Sharpness | 0, 25, 50, 75, 100 (press to step) | 0. See [3D](#3d). Greyed in Default 2D. |
+| 3D Motion Reset | Off, 5, 10, 20, 30 % (press to step) | Off. See [3D](#3d). Greyed in Default 2D. |
+| 3D Depth Detail | 50 to 200 % (press to step) | 100 %. See [3D](#3d). Greyed in Default 2D. |
+| 3D Depth Shape | 50 to 200 % (press to step) | 100 %. See [3D](#3d). Greyed in Default 2D. |
 | Enable HDR (Experimental) | greyed | The Frame's video path is 8-bit SDR. |
 
 ### Audio, gamepad, input, host, general, UI
@@ -339,6 +343,21 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 - 3D is on by default and remembered.
 - The default model is ZipDepth. `depth_source` in `config.ini` chooses `zipdepth`, `zipdepth-int8` (lighter on the CPU) or `midas`.
 
+### Edges
+
+Each eye sees a little more of what is behind a person or an object on one side: the left eye on the left, the right eye on the right. Earlier versions filled that sliver by stretching the person's own edge across it, which showed as a fuzzy, furry outline in one eye only, most of all on hair or a dark outline against a bright sky or page. That gap is now filled from the background beside it, so the edge is as sharp in both eyes. This is on by default; `MLXR_HOLE_FILL=0` brings back the old look.
+
+These four are on the flat window's Settings page and in `config.ini` (`[3d]`). They are not on the headset's 3D tab yet.
+
+| Setting | Key | Values | What it does |
+| --- | --- | --- | --- |
+| Edge Sharpness | `edge_sharpness` | 0 to 100 | 0. How closely the depth keeps to the edges in the picture. 0 is the soft edges the 3D always had. Higher keeps hair, outlines and thin text on their own depth instead of blending them into what is behind; too high can make edges look cut out or blocky on text. |
+| Motion Reset | `motion_reset` | 0 to 50 (%) | 0, off. The depth is smoothed over time so it does not flicker, which leaves a short trail of the old depth behind something moving fast. With this set, where the picture changes by more than this percentage between two depth maps the smoothing starts again there, so fast edges leave no trail. About 10 suits fast games; too low brings back flicker. |
+| Depth Detail | `depth_scale` | 0 to 200 (%) | 100. Moonlight XR's depth scale. The depth between things near each other, such as a face in front of a wall, scaled without moving the picture as a whole further in or out. |
+| Depth Shape | `depth_global` | 0 to 200 (%) | 100. The depth of the picture as a whole, from the near ground to the far sky, scaled toward the screen plane. Lower is easier on the eyes; Depth Detail keeps things standing apart. |
+
+At their defaults all four leave the picture as before.
+
 ## Controllers
 
 The cog's **Display** tab has the controller rows together: **Mode**, **Show controllers**, **Ray**, **Pointer sleep**, **Click steadiness** and **Click sound**.
@@ -527,6 +546,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] pointer` | `true`, `false` | `true`. `false` turns the controllers' pointer off, so only the switch to gamepad mode is read. |
 | `[vr] env_res` | `low`, `standard`, `high`, `ultra` | `standard`. How sharp the rooms are drawn: `low` is half the headset's recommended size, `ultra` the largest the runtime allows. Read when a room is built, so it applies from the next stream. |
 | `[debug] depth_rate` | 5 to 45 | 20. The most depth maps made per second in 3D. Lower saves the CPU; the picture still follows the video. |
+| `[debug] depth_threads` | 1 to 4 | 2. CPU threads the depth model runs on. 3 makes each depth map a few milliseconds sooner (up to about 10) and uses another core. `MLXR_DEPTH_THREADS` overrides it. Read when the model starts. |
+| `[3d] edge_sharpness`, `motion_reset`, `depth_scale`, `depth_global` | see [3D](#edges) | 0, 0, 100, 100 |
 | `[debug] depth_debug` | `true`, `false` | `false`. Shows the depth map in place of the picture. |
 | `[debug] eye_swap` | `true`, `false` | `false`. Swaps the left and right eye in 3D. For checking a wrong-way picture. |
 | `[stream] bitrate_kbps` | 0, or 500 to 500000 | 0, which follows the resolution and refresh rate. A bitrate the flat window passes for a stream overrides it. The flat window's Custom bitrate goes up to 500 Mbps, and so does this. |
@@ -566,7 +587,8 @@ These are for testing and debugging. Most users never need them. Put them in fro
 | `MLXR_CLICK_HOLD_PX` | 0 | Hold the cursor still from the trigger touch until the aim moves this many pixels. |
 
 The four click variables above override the Click steadiness row for their own part when they are set.
-| `MLXR_DEPTH_THREADS` | 2 | Threads for the depth model. |
+| `MLXR_DEPTH_THREADS` | 2 | Threads for the depth model. Overrides `[debug] depth_threads`. |
+| `MLXR_HOLE_FILL` | 1 | 0 fills the gaps beside edges in 3D by stretching the edge, as earlier versions did (the fuzzy outline in one eye). |
 | `MLXR_FRAME_MODEL_GAIN` | 1 | Brightens the Steam Frame controller models (set at install). |
 | `MLXR_CONFIG_DIR` | `~/.config/moonlight-xr` | Where settings and pairing live. |
 | `MLXR_LOG_DIR` | `~/Games/MoonlightXRNative` | Where the logs go. |
