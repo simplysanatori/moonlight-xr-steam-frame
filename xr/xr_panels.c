@@ -438,6 +438,12 @@ static int jobDraw(XrPanels* p, PanelJob* j, UiCanvas* cv, UiHits* hits) {
 static void jobLand(XrCtx* ctx, XrPanels* p, const PanelJob* j, const UiHits* hits) {
     switch (j->kind) {
     case JOB_PANEL:
+        if (j->slot == UI_PANEL_FIRSTRUN) {
+            ctx->firstRunReady = 1;
+        }
+        else if (j->slot == UI_PANEL_PADCARD) {
+            ctx->padCardReady = 1;
+        }
         if (j->slot == UI_PANEL_COG) {
             p->lastSettings = j->settings;
             snprintf(p->lastStereoReason, sizeof(p->lastStereoReason), "%s", j->stereoReason);
@@ -687,6 +693,7 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->env_selected = -1;
     v->exit_question = ctx->launcher != LAUNCHER_NONE ? ui_str(UIS_NATIVE_EXIT_APP) : NULL;
     v->exit_disconnect = exitPromptHasDisconnect(ctx);
+    v->pad = ctx->padLive;   // Native (lane wave3-cards): the pad card, and the first-run card's wording
 }
 
 // What the ray is on in the settings panel, as lane U's hover
@@ -899,6 +906,52 @@ static void updateOnce(XrCtx* ctx, XrPanels* p, const UiView* base, int slot, in
     PanelJob j;
     jobPanel(&j, slot, &v);
     submit(ctx, p, &j);
+}
+
+// Native (lane wave3-cards): the first-run card, drawn when it comes up (and again if the
+// gamepad shortcut, the gamepad-as-mouse chord or the pad's style it words changes), and the
+// pad card, drawn again when what you could see of the pad changes
+static void updateCards(XrCtx* ctx, XrPanels* p, const UiView* base) {
+    if (ctx->firstRunUp) {
+        struct { int toggle, chord, style; } k;
+        memset(&k, 0, sizeof(k));
+        k.toggle = base->settings->gamepad_toggle;
+        k.chord = base->settings->pad_mouse_chord;
+        k.style = base->pad.style;
+        if (keyChanged(p, UI_PANEL_FIRSTRUN, &k, sizeof(k))) {
+            UiView v = *base;
+            v.hover.kind = UI_HIT_NONE;
+            PanelJob j;
+            jobPanel(&j, UI_PANEL_FIRSTRUN, &v);
+            submit(ctx, p, &j);
+        }
+    }
+    if (ctx->padCardUp) {
+        PadLive q;
+        padLiveQuantise(&base->pad, &q);
+        struct { int style, buttons, lt, rt, lx, ly, rx, ry, touching, gyro; float tx, ty; } k;
+        memset(&k, 0, sizeof(k));
+        k.style = q.style;
+        k.buttons = q.buttons;
+        k.lt = q.lt;
+        k.rt = q.rt;
+        k.lx = q.lx;
+        k.ly = q.ly;
+        k.rx = q.rx;
+        k.ry = q.ry;
+        k.touching = q.touching;
+        k.gyro = q.gyro;
+        k.tx = q.touchX;
+        k.ty = q.touchY;
+        if (keyChanged(p, UI_PANEL_PADCARD, &k, sizeof(k))) {
+            UiView v = *base;
+            v.hover.kind = UI_HIT_NONE;
+            v.pad = q;
+            PanelJob j;
+            jobPanel(&j, UI_PANEL_PADCARD, &v);
+            submit(ctx, p, &j);
+        }
+    }
 }
 
 static void updateReport(XrCtx* ctx, XrPanels* p) {
@@ -1287,6 +1340,7 @@ void xrPanelsUpdate(XrCtx* ctx, const Settings* live, const XrLauncherView* laun
     updateKeyboard(ctx, p, &base);
     updateExit(ctx, p, &base);
     updateHost(ctx, p, &base);
+    updateCards(ctx, p, &base);
     updateReport(ctx, p);
     xrPanelsReportPoll(ctx);
     updateOverlay(ctx, p, statsText);

@@ -102,6 +102,18 @@ void xrPoseFromSettings(const Settings* s, float* pose);
 // 2D settings' sliders; native: config.ini's defaults)
 void xrDefaultPlacement(float* distance, float* width, float* curvature);
 
+// ---- the first-run card and the pad card (xr_padcard.c) -------------------------
+// First_run_shown and pad_card from config.ini, before the first frame
+void xrCardsApplySettings(XrCtx* ctx, const Settings* s);
+// Once a frame, after the input pass and before the panels and layers: steps the first-run
+// card's life and reads the pad in use. Returns 1 once, the frame the first-run card comes up:
+// the caller writes first_run_shown = true into config.ini.
+int xrCardsFrame(XrCtx* ctx, int64_t now);
+// Where each stands: the first-run card in front of the picture's middle, the pad card in the lap
+// (PADCARD_DOWN_M under the eyes and PADCARD_FWD_M ahead along the heading), and their sizes
+XrPosef firstRunPose(XrCtx* ctx, float* outWidth, float* outHeight);
+XrPosef padCardPose(XrCtx* ctx, float* outWidth, float* outHeight);
+
 // ---- the launcher list (xr_panels.c) ------------------------------------------
 // A point on the picture (u, v from its top left) on the list standing in its
 // place: the list's own uv, 0 when off the list

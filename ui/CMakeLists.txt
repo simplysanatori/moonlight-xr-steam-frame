@@ -3,7 +3,7 @@
 add_library(mlxr_ui STATIC
   canvas.c text.c ui_strings.c settings.c
   icons.c panels_common.c panel_cog.c panel_keyboard.c panel_picker.c panel_bar.c
-  panel_dialogs.c panel_misc.c panel_host.c)
+  panel_dialogs.c panel_misc.c panel_host.c panel_firstrun.c panel_padcard.c)
 target_include_directories(mlxr_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(mlxr_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 target_link_libraries(mlxr_ui PUBLIC mlxr_xrcore PRIVATE m)
