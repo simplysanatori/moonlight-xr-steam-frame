@@ -67,8 +67,10 @@
 #include "../stream/file_source.h"
 #include "../stream/frame_slot.h"
 #include "../stream/hw_video.h"
+#include "../stream/reconnect.h"
 #include "../stream/session.h"
 #include "../stream/vr_keyboard.h"
+#include "../xr/core/xr_presence.h"
 #include "../xr/mlxr_log.h"
 #include "../xr/xr_pad_bridge.h"
 #include "../xr/xr_renderer.h"
@@ -83,6 +85,17 @@ static atomic_int g_streaming;
 static int g_fileHw;
 static int g_focused;
 static VrKeyboard g_vrkb;
+// Native (lane wave3-session): the headset is off (XR_EXT_user_presence), and the timers behind the
+// headset-off and idle disconnects (xr/core/xr_presence.h; the lock is for the event on the frame loop
+// and the tick on the worker)
+static atomic_int g_doffed;
+static PresenceState g_pres;
+static pthread_mutex_t g_presLock = PTHREAD_MUTEX_INITIALIZER;
+// Native (lane wave3-session): auto-reconnect (stream/reconnect.h). g_linkDown is set while the stream is
+// torn down for a retry: the scene, the screen placement and g_streaming stay, the connection is gone.
+static MlxrReconnect g_rc;      // worker thread only
+static atomic_int g_linkDown;
+static int g_rcFatal;           // the last try was refused for a reason a retry does not change (worker only)
 
 // ---- --exit-to-caller: how the process ends for the flat launcher ----
 // The exit codes are the hand-off contract (docs/dev/reports/launcher.md).
@@ -164,10 +177,16 @@ static void setLastError(const char* msg) {
 // ---- the input the frame loop hands over -------------------------------------------
 
 static void updateKeyboard(void) {
-    int active = atomic_load(&g_streaming) && g_focused && stream_running();
+    int active = atomic_load(&g_streaming) && g_focused && !atomic_load(&g_doffed) && stream_running();
     evkbd_set_active(active);
     gamepadsSetActive(active); // Native: physical gamepads follow the keyboard's gating
     evmouse_set_active(active); // and a physical mouse
+}
+
+// Sound follows the session: quiet while the dashboard or a system menu is up (not focused) and while the
+// headset is off. Native (lane wave3-session): the headset-off half comes from XR_EXT_user_presence.
+static void applyMute(void) {
+    mlxr_opus_out_set_muted(!g_focused || atomic_load(&g_doffed));
 }
 
 static void statsHook(void* user, char* buf, int len) {
@@ -184,7 +203,7 @@ static void statsHook(void* user, char* buf, int len) {
                  (unsigned long long)h.skipped, (unsigned long long)h.errors, (unsigned long long)h.largestAuBytes,
                  (unsigned long long)h.largestAuParts);
     }
-    if (atomic_load(&g_streaming) && !g_args.file) {
+    if (atomic_load(&g_streaming) && !atomic_load(&g_linkDown) && !g_args.file) {
         stream_stats(s, sizeof(s));
         MlxrOpusOutStats st;
         mlxr_opus_out_stats(&st);
@@ -204,7 +223,7 @@ static void statsHook(void* user, char* buf, int len) {
 static void latencyHook(void* user, char* buf, int len) {
     (void)user;
     buf[0] = 0;
-    if (g_args.file || !atomic_load(&g_streaming)) return;
+    if (g_args.file || !atomic_load(&g_streaming) || atomic_load(&g_linkDown)) return;
     char v[1024]; // Native (lane perf): room for the RFI watchdog and host cadence parts
     stream_latency_line(v, sizeof(v));
     static MlxrOpusOutStats prev;
@@ -261,6 +280,7 @@ static void latencyHook(void* user, char* buf, int len) {
 
 static void pointerHook(void* user, int x, int y, int w, int h) {
     (void)user;
+    presenceNoteActivity();
     // A physical mouse used a moment ago owns the host cursor: the ray's absolute update waits
     if (!evmouse_abs_filter(x, y, w, h, evmouse_now_ns())) stream_pointer(x, y, w, h);
     updateKeyboard(); // picks up the moment the stream connects
@@ -268,17 +288,20 @@ static void pointerHook(void* user, int x, int y, int w, int h) {
 
 static void mouseMoveHook(void* user, int dx, int dy) {
     (void)user;
+    presenceNoteActivity();
     stream_mouse_move(dx, dy);
 }
 
 static void buttonHook(void* user, int button, int down) {
     (void)user;
+    presenceNoteActivity();
     if (atomic_load(&g_streaming)) stream_button(button, down);
     else MLOG_I("button %d %s", button, down ? "down" : "up");
 }
 
 static void scrollHook(void* user, int amount) {
     (void)user;
+    presenceNoteActivity();
     stream_scroll(amount);
 }
 
@@ -288,7 +311,46 @@ static void focusHook(void* user, int focused) {
     updateKeyboard();
     // Headset off, or the dashboard or a system menu up over the app: the session
     // is no longer focused, and the stream's sound stays quiet until it is again
-    mlxr_opus_out_set_muted(!focused);
+    // (Native, lane wave3-session: and while XR_EXT_user_presence says the headset is off)
+    applyMute();
+    if (focused) presenceNoteActivity(); // back from the dashboard: the idle clock starts over
+}
+
+// Native (lane wave3-session): everything held on the host is let go: the headset keyboard's keys, the
+// controllers' mouse buttons and the Frame pad (the physical keyboard, mouse and pads let go when
+// updateKeyboard turns them off). Frame loop.
+static void releaseAllInput(void) {
+    vrkb_release_all(&g_vrkb);
+    for (int b = 1; b <= 3; b++) stream_button(b, 0);
+    xrPadBridgeRest();
+}
+
+// XR_EXT_user_presence: the headset came off or went back on (frame loop)
+static void presenceHook(void* user, int present) {
+    (void)user;
+    int64_t now = presenceNowNs();
+    pthread_mutex_lock(&g_presLock);
+    double offFor = presenceOffSeconds(&g_pres, now);
+    int ev = presenceEvent(&g_pres, present, now);
+    int limit = g_pres.doffSeconds;
+    pthread_mutex_unlock(&g_presLock);
+    if (ev == PRESENCE_DOFF) {
+        atomic_store(&g_doffed, 1);
+        applyMute();
+        releaseAllInput();
+        updateKeyboard();
+        if (limit > 0)
+            MLOG_I("presence: headset off: audio muted, input released; disconnecting in %d s if it stays off", limit);
+        else
+            MLOG_I("presence: headset off: audio muted, input released; staying connected (doff_disconnect 0)");
+    }
+    else if (ev == PRESENCE_DON) {
+        atomic_store(&g_doffed, 0);
+        applyMute();
+        updateKeyboard();
+        MLOG_I("presence: headset back on after %.1f s: audio %s", offFor,
+               g_focused ? "unmuted" : "stays muted until the app has focus");
+    }
 }
 
 // The head's yaw against the picture, every frame (frame loop). With the virtual
@@ -329,24 +391,27 @@ static void vrkbText(void* user, const char* utf8) {
 
 static void keyHook(void* user, int code, int mods) {
     (void)user;
+    presenceNoteActivity();
     vrkb_type(&g_vrkb, code, mods);
 }
 
 static void modifiersHook(void* user, int mods) {
     (void)user;
+    presenceNoteActivity();
     vrkb_hold(&g_vrkb, mods);
 }
 
 // The evdev mouse (a real mouse in the room): relative motion, buttons, wheels
 static void mouseLog(char level, const char* line) { mlxr_logf(level, "%s", line); }
-static void emMove(int dx, int dy, void* u) { (void)u; stream_mouse_move(dx, dy); }
-static void emButton(int b, int down, void* u) { (void)u; stream_button(b, down); }
-static void emScroll(int a, void* u) { (void)u; stream_scroll(a); }
-static void emHScroll(int a, void* u) { (void)u; stream_hscroll(a); }
+static void emMove(int dx, int dy, void* u) { (void)u; presenceNoteActivity(); stream_mouse_move(dx, dy); }
+static void emButton(int b, int down, void* u) { (void)u; presenceNoteActivity(); stream_button(b, down); }
+static void emScroll(int a, void* u) { (void)u; presenceNoteActivity(); stream_scroll(a); }
+static void emHScroll(int a, void* u) { (void)u; presenceNoteActivity(); stream_hscroll(a); }
 
 // The evdev keyboard (a real keyboard in the room)
 static void sendKey(short vk, int down, char modifiers, void* user) {
     (void)user;
+    presenceNoteActivity();
     if (stream_running())
         LiSendKeyboardEvent((short)(0x8000 | vk), down ? KEY_ACTION_DOWN : KEY_ACTION_UP, modifiers);
 }
@@ -434,6 +499,7 @@ typedef struct Net {
     mlxr_computer comp[LAUNCH_MAX_PCS];
     char address[LAUNCH_MAX_PCS][128];
     int streamPc;
+    int streamApp;  // Native (lane wave3-session): the app the stream is of, for a reconnect
     char* rtsp;
 } Net;
 
@@ -779,7 +845,28 @@ typedef struct StreamJob {
 } StreamJob;
 static StreamJob g_job;
 
-static int launchStream(Net* n, int pc, int appId, int quitFirst) {
+// Native (lane wave3-session): a refusal a retry will not change: the host does not know this client
+// (pairing, the certificate), or another client owns the session
+static int refusalIsFinal(const mlxr_error* err) {
+    switch (err->code) {
+    case MLXR_E_NOT_PAIRED:
+    case MLXR_E_TLS:
+    case MLXR_E_PIN_WRONG:
+    case MLXR_E_PAIR_BUSY:
+    case MLXR_E_PAIR_FAILED:
+    case MLXR_E_MITM:
+    case MLXR_E_BUSY_OTHER:
+        return 1;
+    case MLXR_E_HTTP:
+        return err->status == 401 || err->status == 403;
+    default:
+        return 0;
+    }
+}
+
+// reconnect: the same app again after a drop (stream/reconnect.h): the host's running session is resumed
+// and never launched anew, the net toast stays quiet, and a refusal sets g_rcFatal
+static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect) {
     mlxr_error err = { 0 };
     // The network path is chosen when the stream starts (and held for the stream); a choice made a
     // moment ago, by --host's connect, stands
@@ -793,6 +880,13 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
         }
     }
     mlxr_computer* comp = &n->comp[pc];
+    if (reconnect && comp->current_game != appId) {
+        // The app ended on the PC while the link was down (or another one runs): resuming would start it anew
+        MLOG_W("reconnect: the host's current app is %d, not %d: not starting it again", comp->current_game, appId);
+        setLastError("The app is no longer running on the host");
+        g_rcFatal = 1;
+        return -1;
+    }
     if (quitFirst && comp->current_game != 0 && comp->current_game != appId) {
         MLOG_I("ending app %d on %s before starting %d", comp->current_game, n->hosts.v[pc].name, appId);
         mlxr_server_quit_app(s, &err);
@@ -857,6 +951,7 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     n->rtsp = NULL;
     if (mlxr_server_launch_or_resume(s, comp, appId, &lp, &n->rtsp, &err) != MLXR_OK) {
         MLOG_E("launch: %s", err.msg);
+        if (reconnect && refusalIsFinal(&err)) g_rcFatal = 1;
         char why[200];
         snprintf(why, sizeof(why), "The host refused to start the stream: %s", err.msg);
         setLastError(why);
@@ -895,6 +990,7 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     g_job.audioCfg.surround = g_settings.virtual_surround != 0;
     stream_set_hw_decode(!g_args.swDecode);
     n->streamPc = pc;
+    n->streamApp = appId;
     MLOG_I("stream: %dx%d %d fps, %d kbps, %s", w, h, fps, bitrate, h264Only ? "H.264" : "H.264/HEVC");
     // Native (lane artemis-settings)
     MLOG_I("stream options: sops %d, audio on PC %d, %s range, virtual display %d, scale factor %d, rate x1000 %d%s",
@@ -929,30 +1025,40 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     snprintf(toast, sizeof(toast), "%s", g_netToast);
     g_netToast[0] = 0;
     pthread_mutex_unlock(&g_netLock);
-    if (toast[0]) xr_app_notice(toast);
+    if (toast[0] && !reconnect) xr_app_notice(toast); // a reconnect continues silently
     return 0;
 }
 
 // The stream down: input let go, the decoder closed after the renderer let go
 // of its frames, and the host's session ended when asked
 static void stopStream(Net* n, int quitHost) {
+    // Native (lane wave3-session): the user leaving (exit, disconnect, quit) or the end of a failed series
+    // ends any retry
+    if (mlxr_reconnect_active(&g_rc)) MLOG_I("reconnect: cancelled");
+    mlxr_reconnect_cancel(&g_rc);
     if (!atomic_load(&g_streaming)) return;
-    MLOG_I("stopping stream%s", quitHost ? " and ending the host's session" : "");
+    int linkDown = atomic_load(&g_linkDown); // the connection is already torn down (a retry was waiting)
+    MLOG_I("stopping stream%s%s", quitHost ? " and ending the host's session" : "",
+           linkDown ? " (the connection was already down)" : "");
     // Native (lane artemis-settings): Artemis takes the PC's clipboard when leaving the stream
-    if (g_args.clipboardSync && n->streamPc >= 0 && n->srv[n->streamPc]) clipboardFromHost(n, n->srv[n->streamPc]);
+    if (!linkDown && g_args.clipboardSync && n->streamPc >= 0 && n->srv[n->streamPc])
+        clipboardFromHost(n, n->srv[n->streamPc]);
     vrkb_release_all(&g_vrkb);
     atomic_store(&g_streaming, 0);
     xr_app_set_streaming(0);
     updateKeyboard();
-    // Native (lane netpath-quality): remember how this stream went on its network path
-    StreamNetFigures nf;
-    if (n->streamPc >= 0 && stream_network_figures(&nf))
-        mlxr_nethist_record_stream(n->dir, n->address[n->streamPc], nf.framesReceived, nf.framesLost, nf.jitterMs,
-                                   nf.rttMs, 0);
-    stream_stop();
-    mlxr_wifi_ps_end(&g_psGuard); // Native (lane wave1-net)
-    xr_app_release_video();
-    stream_close_video();
+    if (!linkDown) {
+        // Native (lane netpath-quality): remember how this stream went on its network path
+        StreamNetFigures nf;
+        if (n->streamPc >= 0 && stream_network_figures(&nf))
+            mlxr_nethist_record_stream(n->dir, n->address[n->streamPc], nf.framesReceived, nf.framesLost,
+                                       nf.jitterMs, nf.rttMs, 0);
+        stream_stop();
+        mlxr_wifi_ps_end(&g_psGuard); // Native (lane wave1-net)
+        xr_app_release_video();
+        stream_close_video();
+    }
+    atomic_store(&g_linkDown, 0);
     int pc = n->streamPc;
     if (quitHost && pc >= 0 && n->srv[pc]) {
         // Leaving ends the session on the host too (Moonlight's "Quit session"),
@@ -961,6 +1067,113 @@ static void stopStream(Net* n, int quitHost) {
         mlxr_status qs = mlxr_server_quit_app(n->srv[pc], &qerr);
         if (qs == MLXR_OK) MLOG_I("host session ended on %s", n->hosts.v[pc].name);
         else MLOG_W("could not end the host session: %s (%s)", mlxr_status_name(qs), qerr.msg);
+    }
+}
+
+// ---- Native (lane wave3-session): auto-reconnect (stream/reconnect.h) ----
+
+static int64_t monoMs(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+// The connection is gone but the scene stays: the picture, decoder and pad are let go like a stop, while
+// g_streaming, the launcher's state and the room, screen and 3D state are left alone
+static void teardownForRetry(Net* n) {
+    atomic_store(&g_linkDown, 1);
+    vrkb_release_all(&g_vrkb);
+    updateKeyboard();
+    StreamNetFigures nf;
+    if (n->streamPc >= 0 && stream_network_figures(&nf))
+        mlxr_nethist_record_stream(n->dir, n->address[n->streamPc], nf.framesReceived, nf.framesLost, nf.jitterMs,
+                                   nf.rttMs, 0);
+    stream_stop();
+    mlxr_wifi_ps_end(&g_psGuard);
+    xr_app_release_video();
+    stream_close_video();
+}
+
+static void rcScheduled(void* user, int attempt, int max, int code) {
+    (void)user;
+    MLOG_W("reconnect: connection lost (code %d), try %d of %d in %d s", code, attempt, max,
+           (attempt <= 1 ? MLXR_RECONNECT_DELAY1_MS : MLXR_RECONNECT_DELAY2_MS) / 1000);
+    char msg[160];
+    snprintf(msg, sizeof(msg), ui_str(UIS_NATIVE_RECONNECTING), attempt, max);
+    xr_app_notice(msg); // a text notice: the toast's Notices level decides (All and Important say it)
+}
+
+static MlxrReconnectOutcome rcAttempt(void* user, int attempt) {
+    Net* n = user;
+    int pc = n->streamPc, app = n->streamApp;
+    MLOG_I("reconnect: try %d of %d: resuming app %d on %s", attempt, MLXR_RECONNECT_TRIES, app,
+           pc >= 0 && pc < (int)n->hosts.n ? n->hosts.v[pc].name : "?");
+    if (pc < 0 || app <= 0 || !n->haveId) {
+        g_rcFatal = 1;
+        return MLXR_RC_FATAL;
+    }
+    g_rcFatal = 0;
+    g_choiceAt[pc] = 0; // choose the network path again: the other link may be the one that is up
+    if (launchStream(n, pc, app, 0, 1) == 0) {
+        atomic_store(&g_linkDown, 0);
+        return MLXR_RC_OK;
+    }
+    MLOG_W("reconnect: try %d failed: %s", attempt, g_lastError[0] ? g_lastError : "the stream did not start");
+    return g_rcFatal ? MLXR_RC_FATAL : MLXR_RC_FAILED;
+}
+
+static void rcResumed(void* user, int attempt) {
+    (void)user;
+    MLOG_I("reconnect: the stream is back after try %d", attempt);
+}
+
+static void rcGaveUp(void* user, int code, MlxrReconnectOutcome last) {
+    (void)user;
+    MLOG_W("reconnect: not trying again (code %d%s): back to the launcher", code,
+           last == MLXR_RC_FATAL ? ", the host refused or the app is gone" : "");
+}
+
+static int64_t rcNow(void* user) {
+    (void)user;
+    return monoMs();
+}
+
+static const MlxrReconnectOps g_rcOps = { &g_net, rcScheduled, rcAttempt, rcResumed, rcGaveUp, rcNow };
+
+// The stream ended by itself (the host closed it, or the network dropped and the retries are over, or
+// were never going to help): the way out it always had
+static void streamEnded(Net* n) {
+    stopStream(n, 0);
+    pthread_mutex_lock(&g_lock);
+    launcher_stream_ended(&g_launch, 1);
+    pthread_mutex_unlock(&g_lock);
+    if (g_args.exitToCaller)
+        endForCaller(EXIT_STREAM_ENDED, "The stream ended: the host closed the session or the connection was lost");
+}
+
+// The headset-off and idle timers, once a turn of the worker's loop
+static void presenceTickWorker(int streaming) {
+    int64_t now = presenceNowNs();
+    pthread_mutex_lock(&g_presLock);
+    presenceSetLimits(&g_pres, g_settings.doff_disconnect, g_settings.idle_disconnect);
+    int64_t last = presenceActivityNs();
+    if (last > g_pres.lastInputNs) presenceInput(&g_pres, last);
+    int act = presenceTick(&g_pres, now, streaming);
+    int doffS = g_pres.doffSeconds, idleM = g_pres.idleMinutes;
+    pthread_mutex_unlock(&g_presLock);
+    if (act == PRESENCE_DISCONNECT_DOFF) {
+        MLOG_I("presence: headset off for %d s (doff_disconnect): disconnecting, the host's app keeps running", doffS);
+        pthread_mutex_lock(&g_lock);
+        launcher_disconnect_doff(&g_launch);
+        pthread_cond_signal(&g_wake);
+        pthread_mutex_unlock(&g_lock);
+    }
+    else if (act == PRESENCE_DISCONNECT_IDLE) {
+        MLOG_I("presence: no input for %d min (idle_disconnect): disconnecting, the host's app keeps running", idleM);
+        pthread_mutex_lock(&g_lock);
+        launcher_disconnect_idle(&g_launch);
+        pthread_cond_signal(&g_wake);
+        pthread_mutex_unlock(&g_lock);
     }
 }
 
@@ -1056,7 +1269,13 @@ static void* worker(void* arg) {
         if (!launcher_take_cmd(&g_launch, &c)) {
             struct timespec ts;
             clock_gettime(CLOCK_REALTIME, &ts);
-            ts.tv_sec += 1;
+            // Native (lane wave3-session): a waiting retry is looked at four times a second
+            if (mlxr_reconnect_active(&g_rc)) ts.tv_nsec += 250000000L;
+            else ts.tv_sec += 1;
+            if (ts.tv_nsec >= 1000000000L) {
+                ts.tv_sec++;
+                ts.tv_nsec -= 1000000000L;
+            }
             pthread_cond_timedwait(&g_wake, &g_lock, &ts);
             if (!launcher_take_cmd(&g_launch, &c)) c.kind = LCMD_NONE;
         }
@@ -1081,7 +1300,14 @@ static void* worker(void* arg) {
             break;
         }
         case LCMD_LAUNCH: {
-            int ok = n->haveId && launchStream(n, c.pc, c.appId, c.quitFirst) == 0;
+            int ok = n->haveId && launchStream(n, c.pc, c.appId, c.quitFirst, 0) == 0;
+            if (ok) {
+                // A stream begun by the user: the idle clock starts now
+                pthread_mutex_lock(&g_presLock);
+                presenceReset(&g_pres, presenceNowNs());
+                pthread_mutex_unlock(&g_presLock);
+                presenceNoteActivity();
+            }
             pthread_mutex_lock(&g_lock);
             if (ok) launcher_stream_started(&g_launch);
             else launcher_stream_failed(&g_launch, NULL);
@@ -1121,15 +1347,23 @@ static void* worker(void* arg) {
             lastUsbScan = now;
         }
         // The host ended the stream (or the network did)
-        if (state == LAUNCH_STREAMING && atomic_load(&g_streaming) && stream_failed()) {
+        if (state == LAUNCH_STREAMING && atomic_load(&g_streaming) && !atomic_load(&g_linkDown) && stream_failed()) {
             if (g_streamOnUsb) usbWatchTick(1); // was it the cable? log it now, not at the next scan
-            stopStream(n, 0);
-            pthread_mutex_lock(&g_lock);
-            launcher_stream_ended(&g_launch, 1);
-            pthread_mutex_unlock(&g_lock);
-            if (g_args.exitToCaller)
-                endForCaller(EXIT_STREAM_ENDED, "The stream ended: the host closed the session or the connection was lost");
+            // Native (lane wave3-session): a dropped link is retried twice on the same app with the scene kept
+            // (stream/reconnect.h); the host ending the stream, or the retries running out, take the old way out
+            int code = stream_termination_code();
+            MlxrReconnectEvent ev = MLXR_RC_EV_GAVE_UP;
+            if (!g_args.file && n->streamPc >= 0 && n->streamApp > 0)
+                ev = mlxr_reconnect_on_drop(&g_rc, &g_rcOps, code, monoMs());
+            if (ev == MLXR_RC_EV_SCHEDULED) teardownForRetry(n);
+            else streamEnded(n);
         }
+        else if (mlxr_reconnect_active(&g_rc) && state == LAUNCH_STREAMING) {
+            MlxrReconnectEvent ev = mlxr_reconnect_poll(&g_rc, &g_rcOps, monoMs());
+            if (ev == MLXR_RC_EV_GAVE_UP) streamEnded(n);
+        }
+        // Native (lane wave3-session): headset off and idle timers
+        if (!g_args.file) presenceTickWorker(state == LAUNCH_STREAMING && atomic_load(&g_streaming));
         // The PC list keeps its online states fresh
         if (state == LAUNCH_PCS && n->haveId && now - lastRefresh >= 10) {
             refreshPcs(n);
@@ -1295,6 +1529,8 @@ int main(int argc, char** argv) {
     if (access("assets/images", R_OK) == 0) ui_panels_set_assets_dir("assets");
 
     frame_slot_init(&g_slot);
+    mlxr_reconnect_init(&g_rc);
+    presenceInit(&g_pres, g_settings.doff_disconnect, g_settings.idle_disconnect, presenceNowNs());
     VrKeyboardSink sink = { NULL, vrkbKey, vrkbText };
     vrkb_init(&g_vrkb, sink);
     xrPadBridgeSetDisconnectHook(padDisconnectHook, NULL);
@@ -1324,6 +1560,7 @@ int main(int argc, char** argv) {
                               statsHook, focusHook, uiHook };
     cfg.hooks.latency = latencyHook;
     cfg.hooks.headYaw = headYawHook;
+    cfg.hooks.presence = presenceHook;
 
     FileSource* src = NULL;
     if (g_args.file) {

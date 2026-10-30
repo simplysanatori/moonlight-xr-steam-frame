@@ -103,6 +103,10 @@ void launcher_disconnect(Launcher* l);
 void launcher_disconnect_keys(Launcher* l);
 // The same from the exit prompt's Disconnect button, with its own notice
 void launcher_disconnect_bar(Launcher* l);
+// Native (lane wave3-session): the same when the headset has been off for the configured time
+// (doff_disconnect), and when nothing was pressed for the configured minutes (idle_disconnect)
+void launcher_disconnect_doff(Launcher* l);
+void launcher_disconnect_idle(Launcher* l);
 
 // ---- what the worker and the frame loop take ----
 int launcher_take_cmd(Launcher* l, LaunchCmd* out);
