@@ -6,7 +6,7 @@ target that answers Runtime.evaluate. It does not run JavaScript: a rule is a su
 expression and the value to answer; the first rule that matches wins, no match answers undefined.
 Every expression received is kept in `.expressions`.
 
-    with FakeCef([("StreamGame", True)]) as cef:
+    with FakeCef([("ShowDashboard", True)]) as cef:
         os.environ["STEAM_CEF_PORT"] = str(cef.port)
 
     fake_cef.py PORT RULES.json [LOG]    standalone: serve until killed, append expressions to LOG

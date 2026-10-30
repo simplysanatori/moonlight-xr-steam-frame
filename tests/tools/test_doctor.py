@@ -102,8 +102,7 @@ if os.name == "posix":
     check(c == 2 and "no headset" in err, "a probe that fails is exit 2 with its message")
 
 # the Steam port line
-good_api = {"StreamGame": "function", "RunGame": "function", "RegisterForDevicesChanges": "function",
-            "ExecuteSteamURL": "function", "ShowDashboard": "function", "userAgent": "x"}
+good_api = {"ShowDashboard": "function", "userAgent": "x"}
 with fake_cef.FakeCef([("navigator.userAgent", good_api)]) as cef:
     c, out, err = run("--current", same_file, "--baseline", PROBE, "--cef-script", CEF,
                       env_extra={"STEAM_CEF_PORT": str(cef.port), "STEAM_CEF_FLAG_FILE": os.path.join(tmp, "x")})

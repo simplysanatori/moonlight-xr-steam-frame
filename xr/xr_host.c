@@ -144,19 +144,6 @@ int xrHostPress(XrCtx* ctx, float u, float v, int* tick) {
         ctx->hostConfirm = -1;
         return zone;
     }
-    if (zone == XR_HOST_ZONE_PCVR) {
-        // Asks first: this ends the stream and hands the headset to Steam Link
-        ctx->hostConfirm = XR_HOST_CONFIRM_PCVR;
-        return zone;
-    }
-    if (zone == XR_HOST_ZONE_CONFIRM_SEND && ctx->hostConfirm == XR_HOST_CONFIRM_PCVR) {
-        // from either page (the header is the same on both)
-        ctx->hostConfirm = -1;
-        ctx->pcvrRequest = 1;
-        LOGEV("host: switch to PC VR confirmed");
-        xrHostClose(ctx);
-        return zone;
-    }
     if (ctx->hostPage == XR_HOST_PAGE_PC) {
         pcPress(ctx, zone);
         return zone;

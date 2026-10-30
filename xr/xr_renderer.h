@@ -1304,9 +1304,6 @@ typedef struct XrCtx {
     int padCardUp;
     int padCardReady;
     PadLive padLive;
-    // Native (PLAN 4.1): the Host sheet's "Switch to PC VR" was confirmed; xr_session.c turns it into
-    // XrUiEvents.pcvrConfirmed once and clears it
-    int pcvrRequest;
     // Native (lane wave4-apollo): the Host sheet's PC page. hostPage is the page showing; hostInfo what the
     // host offers (xr_app_set_host_info); hostCompose "Send text to PC" having the keyboard; and
     // hostActKind (XR_HOSTACT_*, with hostActArg and hostActText) the thing a press chose, which the
@@ -1512,6 +1509,10 @@ int cogCellAt(float pu, int cells);
 void cogReadouts(XrCtx* ctx, int* values);
 void pictureSet(XrCtx* ctx, int row, int units);
 void pictureReset(XrCtx* ctx);
+// The Screen tab's preset rows: which preset the screen is at now (-1 none, the
+// one whose cell shows its ring), and a preset put in force as its cell does
+int xrScreenPresetNow(XrCtx* ctx);
+void xrScreenApplyPreset(XrCtx* ctx, int preset);
 // Native names for upstream's JNI setters, fed from config.ini
 void xrSetDepthDefaults(XrCtx* ctx, int separation, int convergence, const int* presets);
 void xrSetClickSound(XrCtx* ctx, int on);

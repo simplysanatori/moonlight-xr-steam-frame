@@ -26,9 +26,9 @@ Record: fit (cm too high, low, forward, back), muzzle on the dot or the offset, 
 ## 3. The bar: no white beam, Bring here near and far (3 minutes)
 
 - Ray on, both controllers in hand, the left held up and pointing at the picture. Move the right ray slowly along the whole bar, under the icons and under the pill. Good: no beam jumps from the left hand across the picture, the bar never blinks out, the PC cursor stays put.
-- Head locked off. The new button outermost on the left (a screen, a two-way arrow, a person). Press it: the screen comes round where you look at desk size, close, with the bar under your eyes. Turn about 20 degrees and press again: it goes back to your own distance and size, centred where you look.
+- Head locked off, once in the black void and once in passthrough. The button outermost on the left (a screen, a two-way arrow, a person). Put the screen somewhere of your own (drag it, resize it), then press: it goes to Desk exactly as the cog's Screen tab Desk cell puts it (the Desk cell shows its ring). Press again: it goes back exactly where you had it, wherever you look. On a fresh config (or right after Reset, at Desk) the press from Desk goes to Cinema, as the Cinema cell does. Nothing follows your head, nothing is placed by the bar.
 
-Record: any white beam (and what your hands were doing), near and far feel right yes or no, icon readable.
+Record: any white beam (and what your hands were doing), Desk and back (or Cinema) right yes or no in the void and in passthrough, icon readable.
 
 ## 4. Text (3 minutes)
 
@@ -37,17 +37,14 @@ Record: any white beam (and what your hands were doing), near and far feel right
 
 Record: better than the last build yes or no, Sharpen off / Normal / Quality preferred (this decides the default), shimmer.
 
-## 5. VR (4 minutes; ends the stream)
+## 5. VR
 
-- In the flat window, open the PC: a "VR" tile sits above the apps. Start Desktop, then come back and press VR (or during the stream, Host sheet, PC VR: "Switch to VR? The desktop closes.", Switch).
-- Good: Desktop quits on the PC, and within about 15 s the headset is in SteamVR Home streamed from the PC. When Valve's stream ends, the flat window comes back.
-
-Record: did SteamVR Home come up, how long it took, and the log lines below. If a Steam page with a Stream button came up instead, Steam refused the direct call: press Stream there and say so.
+PC VR was removed in 1.1.0 (SteamVR takes the Frame over and cannot stream beside Moonlight): nothing to test; there is no VR tile and no PC VR button.
 
 ## 6. The launcher (1 minute)
 
 - Settings, General: "Check for updates" (on) and "On start" (none, the last PC's Desktop, or an app). Video Settings: "Sharper small text" and "Sharper coloured text" switches. The search finds the new rows.
-- Settings, PC VR: only the check row and "PC to stream from" (Automatic). No game picker.
+- PC VR was removed: no PC VR section on the Settings page, no VR tile above a PC's apps.
 
 # Part B: more on each change (optional)
 
@@ -98,6 +95,5 @@ grep -E "update check|On start" out/moonlight-launcher.log | tail -6
 | 3a | No white beam near the bar | |
 | 3b | Bring here near and far | |
 | 4 | Small and coloured text; Sharpen preference | |
-| 5 | VR: SteamVR Home came up, time, log lines | |
 | 6 | Launcher rows | |
 | B | Anything from Part B | |

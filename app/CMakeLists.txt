@@ -1,5 +1,5 @@
 # Moonlight XR Native: the moonlight-xr binary. GPLv3.
-add_library(mlxr_launcher STATIC launcher.c vr_handoff.c)
+add_library(mlxr_launcher STATIC launcher.c)
 target_include_directories(mlxr_launcher PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(mlxr_launcher PUBLIC mlxr_ui)
 
