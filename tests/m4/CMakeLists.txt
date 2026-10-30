@@ -41,4 +41,7 @@ endforeach()
 if(TARGET test_m4_replay)
   target_compile_definitions(test_m4_replay PRIVATE
     MLXR_REPLAY_CSV="${CMAKE_CURRENT_SOURCE_DIR}/data/ray-replay.csv")
+  # Native (lane bar-glare): the ray along the bar while the other hand points
+  # at the picture, data/make_bar_replay.py
+  add_test(NAME m4_replay_bar COMMAND test_m4_replay ${CMAKE_CURRENT_SOURCE_DIR}/data/bar-replay.csv)
 endif()

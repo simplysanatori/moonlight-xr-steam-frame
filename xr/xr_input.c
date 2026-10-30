@@ -1599,7 +1599,7 @@ static int onFurniture(int hover) {
             || hover == HOVER_KBBUTTON || hover == HOVER_EXITBUTTON
             || hover == HOVER_STEREOBUTTON || hover == HOVER_RAYBUTTON
             || hover == HOVER_AIMBUTTON || hover == HOVER_PADBUTTON
-            || hover == HOVER_HOSTBUTTON;
+            || hover == HOVER_HOSTBUTTON || hover == HOVER_HEREBUTTON;
 }
 
 // Where the ray lands on furniture rather than on the picture. The grid and the
@@ -1905,16 +1905,17 @@ static int furnitureHover(XrCtx* ctx, int hover, float u, float v, const BarFram
     // That is halo ground, so each has to claim the halo back or the ray
     // never reaches it: the keyboard and the exit button one place out, then
     // gamepad mode and the ray's switch, then head aim and the 3D switch, and
-    // last the Host sheet's (native, lane wave2-bind-wire).
-    static const int OUTER[7] = {
+    // last the Host sheet's (native, lane wave2-bind-wire) and Bring here
+    // (native, lane bar-glare).
+    static const int OUTER[8] = {
         BAR_SLOT_KB, BAR_SLOT_EXIT, BAR_SLOT_PAD, BAR_SLOT_AIM, BAR_SLOT_RAY, BAR_SLOT_STEREO,
-        BAR_SLOT_HOST
+        BAR_SLOT_HOST, BAR_SLOT_HERE
     };
-    static const int HOVERS[7] = {
+    static const int HOVERS[8] = {
         HOVER_KBBUTTON, HOVER_EXITBUTTON, HOVER_PADBUTTON, HOVER_AIMBUTTON, HOVER_RAYBUTTON,
-        HOVER_STEREOBUTTON, HOVER_HOSTBUTTON
+        HOVER_STEREOBUTTON, HOVER_HOSTBUTTON, HOVER_HEREBUTTON
     };
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 8; i++) {
         if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
                 && barButtonHit(ctx, OUTER[i], u, v, bar)) {
             hover = HOVERS[i];
@@ -3655,7 +3656,7 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
             || f->hover == HOVER_KBBUTTON || f->hover == HOVER_EXITBUTTON
             || f->hover == HOVER_STEREOBUTTON || f->hover == HOVER_RAYBUTTON
             || f->hover == HOVER_AIMBUTTON || f->hover == HOVER_PADBUTTON
-            || f->hover == HOVER_HOSTBUTTON
+            || f->hover == HOVER_HOSTBUTTON || f->hover == HOVER_HEREBUTTON
             || (f->hover == HOVER_KBPANEL
                 && kbKeyAt(ctx, f->hitU[f->hand], f->hitV[f->hand]) >= 0))) {
         ctx->clickPending = 1;
@@ -3743,6 +3744,16 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
         if (ctx->triggerEdge[f->hand]) {
             xrHostOpen(ctx);
             // The press belonged to the button, not to the host behind it
+            swallowTrigger(ctx, f->hand);
+        }
+    }
+    else if (f->hover == HOVER_HEREBUTTON) {
+        // Native (lane bar-glare): Bring here, as the Screen tab's but with the
+        // eyes on the bar (xr_place.c). The screen comes round under the ray,
+        // so the press is held back from the PC. Lit off hoverKind
+        // (xr_layers.c), so no hot flag.
+        if (ctx->triggerEdge[f->hand]) {
+            LOGEV("bring here from the bar: %s", xrBringScreenHereFromBar(ctx) ? "moved" : "nothing to move");
             swallowTrigger(ctx, f->hand);
         }
     }
@@ -5744,7 +5755,7 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
             || f.hover == HOVER_EXITPROMPT || f.hover == HOVER_STEREOBUTTON
             || f.hover == HOVER_RAYBUTTON || f.hover == HOVER_AIMBUTTON
             || f.hover == HOVER_PADBUTTON || f.hover == HOVER_REPORT || f.hover == HOVER_KOFI
-            || f.hover == HOVER_HOSTBUTTON || f.hover == HOVER_HOST)
+            || f.hover == HOVER_HOSTBUTTON || f.hover == HOVER_HOST || f.hover == HOVER_HEREBUTTON)
             && f.headValid && f.hand >= 0) {
         beamToFurniture(ctx, &f);
     }
