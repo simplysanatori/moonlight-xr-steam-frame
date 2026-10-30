@@ -569,64 +569,149 @@ static void zoomMemory(void) {
     scene_free(sc);
 }
 
-// Native (lane bar-glare): the bar's Bring here button, as its press calls
-// it: near at the Desk preset, back to the far placement it had, the far one
-// kept in the settings, and nothing in a room or head locked
+// The screen's whole placement, to compare one with another exactly
+typedef struct {
+    XrPosef pose;
+    float width, radius, curve;
+} Placement;
+
+static Placement placementOf(const XrCtx* c) {
+    Placement p = { c->screenPose, c->screenWidth, c->screenRadius, c->panelCurve };
+    return p;
+}
+
+static int samePlacement(Placement a, Placement b) {
+    return memcmp(&a.pose, &b.pose, sizeof(a.pose)) == 0 && a.width == b.width && a.radius == b.radius
+        && a.curve == b.curve;
+}
+
+// The placement a Screen tab cell gives from where the screen is now
+static Placement cellResult(XrCtx* c, int preset) {
+    Placement was = placementOf(c);
+    float out[IN_SLOTS];
+    freshOut(out);
+    cogApplyCell(c, COG_TAB_SCREEN, COG_SCREEN_ROW_PRESET, preset, out);
+    Placement got = placementOf(c);
+    c->screenPose = was.pose;
+    c->screenWidth = was.width;
+    c->screenRadius = was.radius;
+    c->panelCurve = was.curve;
+    return got;
+}
+
+// The bar's Bring here button, as its press calls it: from anywhere but Desk it
+// remembers the placement and applies Desk exactly as the Desk cell does; at
+// Desk it puts that placement back exactly, or applies Cinema as the Cinema
+// cell does when none is remembered. The head plays no part. The remembered
+// placement is kept in the settings; nothing moves in a room or head locked.
 static void bringHereSwitch(void) {
     Scene* s = scene_new();
     XrCtx* c = s->ctx;
-    LayoutPreset desk = layoutPresetOf(LAYOUT_PRESET_DESK);
-    float width0 = c->screenWidth;
-    float dist0 = distFromSeat(c);
-    float radius0 = c->screenRadius;
-    c->headPoseValid = 0;
-    CHECK(xrBringHereToggle(c) == -1);
-    // Looking down at the bar, turned 30 degrees left
-    BarFrame f = barFrame(c);
-    float down = atan2f(f.height * 0.5f + f.width * BAR_DROP_FRAC, dist0) * 180.0f / (float)M_PI;
-    setHead(c, 30.0f, -down);
+    // A screen off to the left and up, curved, tipped and rolled, as the owner may have put it
+    Settings in = s->settings;
+    in.screen_distance_cm = 300;
+    in.screen_height_cm = 60;
+    in.screen_azimuth_deg = 30;
+    in.screen_tilt_deg = -10;
+    in.screen_rotate_deg = 4;
+    in.screen_curve = 40;
+    in.screen_width_cm = 330;
+    settings_clamp(&in);
+    xrApplySettings(c, &in);
+    CHECK(!c->bringBackValid);
+    Placement far0 = placementOf(c);
+    // the head looks somewhere else entirely, and is not there at all for one press: neither matters
+    setHead(c, -70.0f, 35.0f);
 
+    // Desk from anywhere: exactly the Desk cell's result, and the placement before it remembered
+    Placement deskCell = cellResult(c, LAYOUT_PRESET_DESK);
     c->poseDirty = 0;
-    CHECK(xrBringHereToggle(c) == 1);
+    CHECK(xrBringHereToggle(c) == BRING_TO_DESK);
     CHECK(c->poseDirty);
-    CHECK_NEAR(c->screenWidth, desk.widthCm / 100.0f, 1e-4);
-    CHECK_NEAR(distFromSeat(c), desk.distanceCm / 100.0f, 1e-3);
-    CHECK_NEAR(c->screenRadius, radius0 * (desk.distanceCm / 100.0f / dist0) * (desk.widthCm / 100.0f / width0),
-               1e-3);
-    // round to the left, where the head looks
-    CHECK(c->screenPose.position.x < 0.0f);
-    CHECK(bringToggleNear(&c->bringToggle, c->screenPose, c->screenWidth, c->headPose));
-    // the far placement goes into the settings with the screen's
+    CHECK(samePlacement(placementOf(c), deskCell));
+    CHECK(cogCellInForce(c, COG_TAB_SCREEN, COG_SCREEN_ROW_PRESET) == LAYOUT_PRESET_DESK);
+    CHECK(c->bringBackValid && memcmp(&c->bringBackPose, &far0.pose, sizeof(far0.pose)) == 0
+          && c->bringBackWidth == far0.width && c->bringBackRadius == far0.radius && c->bringBackCurve == far0.curve);
+
+    // At Desk: back exactly where it was (not re-centred where the head looks)
+    c->headPoseValid = 0;
+    CHECK(xrBringHereToggle(c) == BRING_BACK);
+    CHECK(samePlacement(placementOf(c), far0));
+    setHead(c, 20.0f, 0.0f);
+    // and the switch goes on: Desk, back, Desk
+    CHECK(xrBringHereToggle(c) == BRING_TO_DESK && samePlacement(placementOf(c), deskCell));
+    CHECK(xrBringHereToggle(c) == BRING_BACK && samePlacement(placementOf(c), far0));
+
+    // The remembered placement goes into the settings beside the screen's, in the screen's own units
+    CHECK(xrBringHereToggle(c) == BRING_TO_DESK);
     Settings st = s->settings;
     xrSettingsFromCtx(c, &st);
-    CHECK(st.screen_far_distance_cm == (int)lroundf(dist0 * 100.0f));
-    CHECK(st.screen_far_width_cm == (int)lroundf(width0 * 100.0f));
-    CHECK(st.screen_distance_cm == desk.distanceCm && st.screen_width_cm == desk.widthCm);
+    CHECK(st.screen_back_distance_cm == in.screen_distance_cm && st.screen_back_height_cm == in.screen_height_cm
+          && st.screen_back_azimuth_deg == in.screen_azimuth_deg && st.screen_back_tilt_deg == in.screen_tilt_deg
+          && st.screen_back_rotate_deg == in.screen_rotate_deg && st.screen_back_curve == in.screen_curve
+          && st.screen_back_width_cm == in.screen_width_cm);
+    CHECK(layoutPresetAt(st.screen_distance_cm, st.screen_width_cm) == LAYOUT_PRESET_DESK);
+    // and survives the file: written, read back, and a restart (a fresh context from it) goes back there
+    char* text = settings_to_text(&st);
+    CHECK(text != NULL && strstr(text, "back_width_cm = 330") != NULL);
+    Settings reread;
+    settings_defaults(&reread);
+    settings_from_text(&reread, text ? text : "", NULL);
+    free(text);
+    Scene* s2 = scene_new();
+    XrCtx* c2 = s2->ctx;
+    xrApplySettings(c2, &reread);
+    CHECK(c2->bringBackValid);
+    CHECK(cogCellInForce(c2, COG_TAB_SCREEN, COG_SCREEN_ROW_PRESET) == LAYOUT_PRESET_DESK);
+    CHECK(xrBringHereToggle(c2) == BRING_BACK);
+    Settings fromFile = reread;
+    xrSettingsFromCtx(c2, &fromFile);
+    CHECK(fromFile.screen_distance_cm == in.screen_distance_cm && fromFile.screen_height_cm == in.screen_height_cm
+          && fromFile.screen_azimuth_deg == in.screen_azimuth_deg && fromFile.screen_tilt_deg == in.screen_tilt_deg
+          && fromFile.screen_rotate_deg == in.screen_rotate_deg && fromFile.screen_curve == in.screen_curve
+          && fromFile.screen_width_cm == in.screen_width_cm);
+    scene_free(s2);
 
-    // and back far, as it was, centred where the head looks now
-    setHead(c, -20.0f, -down);
-    CHECK(xrBringHereToggle(c) == 0);
-    CHECK_NEAR(c->screenWidth, width0, 1e-4);
-    CHECK_NEAR(distFromSeat(c), dist0, 1e-3);
-    CHECK_NEAR(c->screenRadius, radius0, 1e-3);
-    CHECK(c->screenPose.position.x > 0.0f);
+    // Cinema when nothing is remembered: a file without the keys (or with the old far_distance_cm and
+    // far_width_cm, which load as unknown keys), at Desk, goes to exactly what the Cinema cell gives
+    Settings old;
+    settings_defaults(&old);
+    SettingsLoadInfo info;
+    memset(&info, 0, sizeof info);
+    settings_from_text(&old, "[screen]\ndistance_cm = 120\nwidth_cm = 160\nfar_distance_cm = 250\nfar_width_cm = 300\n", &info);
+    CHECK(old.screen_back_width_cm == 0 && info.unknown == 2);
+    Scene* s3 = scene_new();
+    XrCtx* c3 = s3->ctx;
+    xrApplySettings(c3, &old);
+    CHECK(!c3->bringBackValid);
+    CHECK(xrScreenPresetNow(c3) == LAYOUT_PRESET_DESK);
+    Placement cinemaCell = cellResult(c3, LAYOUT_PRESET_CINEMA);
+    CHECK(xrBringHereToggle(c3) == BRING_TO_CINEMA);
+    CHECK(samePlacement(placementOf(c3), cinemaCell));
+    CHECK(cogCellInForce(c3, COG_TAB_SCREEN, COG_SCREEN_ROW_PRESET) == LAYOUT_PRESET_CINEMA);
+    // from Cinema the next press remembers it and goes to Desk, and the one after comes back to Cinema
+    Placement cinema = placementOf(c3);
+    CHECK(xrBringHereToggle(c3) == BRING_TO_DESK);
+    CHECK(xrBringHereToggle(c3) == BRING_BACK && samePlacement(placementOf(c3), cinema));
+    scene_free(s3);
 
-    // A restart while near: the far placement comes back from the file, and
-    // the screen at the Desk preset reads as near, so the press goes far
-    CHECK(xrBringHereToggle(c) == 1);
-    xrSettingsFromCtx(c, &st);
-    memset(&c->bringToggle, 0, sizeof(c->bringToggle));
-    xrBringFarFromSettings(c, &st);
-    CHECK(c->bringToggle.farValid);
-    CHECK(xrBringHereToggle(c) == 0);
-    CHECK_NEAR(c->screenWidth, width0, 1e-2);
-    CHECK_NEAR(distFromSeat(c), dist0, 1e-2);
+    // A move while at Desk that takes it off the preset: the next press remembers that new placement and
+    // goes to Desk, and the one after comes back to it, not to the older one
+    CHECK(xrScreenPresetNow(c) == LAYOUT_PRESET_DESK);
+    cogApplySlider(c, COG_TAB_SCREEN, COG_SLIDER_DISTANCE, cogRunU(0.6f));
+    c->screenPose.position.y += 0.25f;
+    CHECK(xrScreenPresetNow(c) != LAYOUT_PRESET_DESK);
+    Placement moved = placementOf(c);
+    Placement deskFromMoved = cellResult(c, LAYOUT_PRESET_DESK);
+    CHECK(xrBringHereToggle(c) == BRING_TO_DESK && samePlacement(placementOf(c), deskFromMoved));
+    CHECK(xrBringHereToggle(c) == BRING_BACK && samePlacement(placementOf(c), moved));
+    CHECK(!samePlacement(moved, far0));
 
-    // Nothing in a room's place or head locked
+    // Nothing moves head locked
     c->headLockedPref = 1;
-    XrPosef was = c->screenPose;
+    Placement was = placementOf(c);
     CHECK(xrBringHereToggle(c) == -1);
-    CHECK(c->screenPose.position.x == was.position.x && c->screenPose.position.z == was.position.z);
+    CHECK(samePlacement(placementOf(c), was));
     c->headLockedPref = 0;
     scene_free(s);
 }

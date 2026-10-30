@@ -236,8 +236,16 @@ static const SettingDesc TABLE[] = {
     DI("screen", "rotate_deg", screen_rotate_deg, -90, 90, 0, "Screen tab: rotate, degrees clockwise"),
     DI("screen", "curve", screen_curve, 0, 100, 0, "Screen tab: curve, percent (seekbar_vr_curvature)"),
     DI("screen", "width_cm", screen_width_cm, 80, 800, 300, "Screen tab: size, picture width in centimetres (seekbar_vr_screen_size)"),
-    DI("screen", "far_distance_cm", screen_far_distance_cm, 0, 800, 0, "native: the bar's Bring here switch, the distance from the head the screen goes back to from near, centimetres; 0 none (the Cinema preset)"),
-    DI("screen", "far_width_cm", screen_far_width_cm, 0, 800, 0, "native: the bar's Bring here switch, the width it goes back to, centimetres; 0 none"),
+    // The bar's Bring here switch: the placement the screen had before a press took it to the Desk preset, which
+    // the next press puts back (the screen's own keys above, prefixed back_). Old files with far_distance_cm and
+    // far_width_cm (the switch before 1.1.0) load: the two are unknown keys now, dropped on the next save.
+    DI("screen", "back_distance_cm", screen_back_distance_cm, 0, 800, 0, "native: the bar's Bring here switch, the placement it goes back to from Desk: distance in centimetres (0 none remembered)"),
+    DI("screen", "back_height_cm", screen_back_height_cm, -200, 200, 0, "native: the same placement's height above eye level, centimetres"),
+    DI("screen", "back_azimuth_deg", screen_back_azimuth_deg, -180, 180, 0, "native: the same placement's direction, degrees to the left of straight ahead"),
+    DI("screen", "back_tilt_deg", screen_back_tilt_deg, -40, 40, 0, "native: the same placement's tilt, degrees"),
+    DI("screen", "back_rotate_deg", screen_back_rotate_deg, -90, 90, 0, "native: the same placement's rotate, degrees clockwise"),
+    DI("screen", "back_curve", screen_back_curve, 0, 100, 0, "native: the same placement's curve, percent"),
+    DI("screen", "back_width_cm", screen_back_width_cm, 0, 800, 0, "native: the same placement's width, centimetres (0 none remembered: the switch goes to the Cinema preset from Desk)"),
     DB("screen", "per_app", per_app, 1, "native: Screen tab, Remember per app: each PC and app keeps its own placement, head lock and 3D state in a [screen.<hash>] section; an app with none starts from the settings in force"),
     DB("screen", "angular_lock", angular_lock, 1, "native: Screen tab, Angular-size lock: pushing or pulling the held screen with the thumbsticks resizes it to look the same size"),
     // ui (lane wave6-i18n)

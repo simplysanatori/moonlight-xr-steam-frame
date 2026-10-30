@@ -23,8 +23,8 @@ static const char* const kPacing[] = { "latency", "balanced", "smoothness" };
 // The keys of ui/settings.c's TABLE a user would set that had no row on the page. Left out on purpose: [debug]; the
 // state the headset keeps by itself (stream host and app, cog_tab, hand_hint_seen, zoom_x and zoom_y); the stream's
 // basics, which the page's own rows pass as flags (resolution, fps, bitrate_kbps, codec, audio_config,
-// frame_pacing, network_path); the screen's placement (height, azimuth, tilt, rotate: set by grabbing it; far_distance_cm
-// and far_width_cm: where the bar's Bring here switch goes back to) and the
+// frame_pacing, network_path); the screen's placement (height, azimuth, tilt, rotate: set by grabbing it; back_*: the
+// placement the bar's Bring here switch goes back to from Desk) and the
 // rooms' own look (room_N_*: the Room tab, while looking at the room). The test compares this table with
 // `mlxr-settings-dump --table`, so a range or default changed there shows up.
 namespace {

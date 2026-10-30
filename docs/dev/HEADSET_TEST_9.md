@@ -23,7 +23,7 @@ Record: any tagline still there (where), the Ko-fi page that opened.
 
 Record: fit (cm too high, low, forward, back), muzzle on the dot or the offset, trigger right or wrong, any part in bright yellow, too dark in a dark room.
 
-## 3. The bar: no white beam, Bring here near and far (3 minutes)
+## 3. The bar: no white beam, Bring here Desk and Cinema (3 minutes)
 
 - Ray on, both controllers in hand, the left held up and pointing at the picture. Move the right ray slowly along the whole bar, under the icons and under the pill. Good: no beam jumps from the left hand across the picture, the bar never blinks out, the PC cursor stays put.
 - Head locked off, once in the black void and once in passthrough. The button outermost on the left (a screen, a two-way arrow, a person). Put the screen somewhere of your own (drag it, resize it), then press: it goes to Desk exactly as the cog's Screen tab Desk cell puts it (the Desk cell shows its ring). Press again: it goes back exactly where you had it, wherever you look. On a fresh config (or right after Reset, at Desk) the press from Desk goes to Cinema, as the Cinema cell does. Nothing follows your head, nothing is placed by the bar.
@@ -58,7 +58,7 @@ Both guns shown vs the Frame kind: frame time in vrtiming.log, any stall when sw
 
 ## B3. Bring here edge cases
 
-Go near, drag or resize a little, press: near again; press once more: Cinema (4 m, 5 m wide). Go near, restart the stream, press: back to your far placement (`[screen] far_distance_cm`, `far_width_cm` in config.ini). Head locked on: head aim's button takes that place. In a room: neither shows.
+At Desk, drag or resize so the Desk cell loses its ring, press: it goes to Desk again, and the next press comes back to that new place, not the older one. From your own place press (Desk), restart the stream, press: back to your own place (`[screen] back_*` in config.ini). Head locked on: head aim's button takes that place. In a room: neither shows.
 
 ## B4. Head input (all off by default)
 
@@ -79,7 +79,7 @@ Go near, drag or resize a little, press: near again; press once more: Cinema (4 
 tools/frame-deploy.sh logs out
 grep -E "the gun is|controller model ready" out/moonlight.log | tail -6
 grep -E "curved picture: (footprint|picture)" out/moonlight.log | tail -3
-grep -E "^.*VR: |Asked Steam for PC VR|Switching to VR" out/moonlight.log out/moonlight-launcher.log | tail -10
+grep -E "Bring here" out/moonlight.log | tail -6
 grep -E "head-look|opentrack:|mouse mode" out/moonlight.log | tail -8
 grep -E "update check|On start" out/moonlight-launcher.log | tail -6
 ```
@@ -93,7 +93,7 @@ grep -E "update check|On start" out/moonlight-launcher.log | tail -6
 | 2b | G17: fit, muzzle on the dot, trigger, looks | |
 | 2c | Ray row live with the cog open | |
 | 3a | No white beam near the bar | |
-| 3b | Bring here near and far | |
+| 3b | Bring here: Desk and back (or Cinema), void and passthrough | |
 | 4 | Small and coloured text; Sharpen preference | |
 | 6 | Launcher rows | |
 | B | Anything from Part B | |
