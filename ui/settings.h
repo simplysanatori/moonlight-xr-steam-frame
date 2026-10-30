@@ -50,6 +50,7 @@ typedef struct {
     int distance_cm, height_cm, azimuth_deg, tilt_deg, rotate_deg, curve, width_cm;
     int head_locked, head_follow;
     int stereo, separation, convergence;
+    int zoom, zoom_x, zoom_y;   // PLAN 4b.6: the part of the picture shown (zoom percent, pan centre percent)
 } AppLayout;
 
 typedef struct Settings {
@@ -157,6 +158,8 @@ typedef struct Settings {
     // [display] the Head locked row's third cell
     int head_follow;          // native: Follow (head_locked is then 0)
     int follow_leash_deg;     // native: how far the head turns before a followed screen comes after it
+    int zoom;                 // native (PLAN 4b.6): zoom percent, 100..400; the part of the picture that fills the screen
+    int zoom_x, zoom_y;       // native (PLAN 4b.6): where that part is centred, percent across and down the picture
 
     // [screen.<hash>] the layouts remembered per PC and app, the oldest first
     AppLayout layouts[APP_LAYOUT_MAX];

@@ -354,6 +354,10 @@ void MlxrPrefs::load()
     bool speedOk = false;
     const int speed = iniValue(ini, "vr", "scroll_speed", "100").trimmed().toInt(&speedOk);
     scrollSpeed = speedOk ? qBound(25, speed, 400) : 100;
+    // the VR client holds it to 100..400 and takes anything else as its default, 100
+    bool zoomOk = false;
+    const int zoomPct = iniValue(ini, "display", "zoom", "100").trimmed().toInt(&zoomOk);
+    zoom = zoomOk ? qBound(100, zoomPct, 400) : 100;
     padMouseChord = iniValue(ini, "vr", "pad_mouse_chord", "start_hold").trimmed().toLower();
     if (padMouseChord != "start_back" && padMouseChord != "off") {
         padMouseChord = "start_hold";
@@ -392,6 +396,7 @@ void MlxrPrefs::load()
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
     m_iniScrollSpeed = scrollSpeed;
+    m_iniZoom = zoom;
     m_iniControllerModel = controllerModel;
     m_iniDoff = doffDisconnect;
     m_iniIdle = idleDisconnect;
@@ -485,6 +490,9 @@ void MlxrPrefs::save()
     if (scrollSpeed != m_iniScrollSpeed) {
         setIniValue(ini, "vr", "scroll_speed", QString::number(qBound(25, scrollSpeed, 400)));
     }
+    if (zoom != m_iniZoom) {
+        setIniValue(ini, "display", "zoom", QString::number(qBound(100, zoom, 400)));
+    }
     if (controllerModel != m_iniControllerModel) {
         setIniValue(ini, "vr", "controller_model", controllerModel);
     }
@@ -540,6 +548,7 @@ void MlxrPrefs::save()
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
     m_iniScrollSpeed = scrollSpeed;
+    m_iniZoom = zoom;
     m_iniControllerModel = controllerModel;
     m_iniDoff = doffDisconnect;
     m_iniIdle = idleDisconnect;

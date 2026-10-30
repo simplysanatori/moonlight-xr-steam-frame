@@ -184,6 +184,8 @@ static void layoutIntoContext(XrCtx* ctx, Settings* s) {
     ctx->grabMode = GRAB_NONE;
     followReset(&ctx->follow);
     ctx->followOn = s->head_follow && !s->head_locked;
+    // The part of the picture shown (PLAN 4b.6)
+    xrZoomFromSettings(ctx, s);
     // The 3D state, where there is a 3D to set
     if (ctx->stereoMode != DEPTH_MODE_OFF) {
         setStereoLive(ctx, s->stereo, "the layout kept for this app");
@@ -255,7 +257,8 @@ static int syncFrame(XrCtx* ctx, Settings* s, int64_t now) {
         ctx->layoutPending = 0;
         seenGet(ctx, &seen);
         if (settings_layout_store(s, ctx->layoutHash, &seen)) {
-            LOGEV("layout kept for this app: %d cm away, %d cm wide", seen.distance_cm, seen.width_cm);
+            LOGEV("layout kept for this app: %d cm away, %d cm wide, zoom %d%%", seen.distance_cm, seen.width_cm,
+                  seen.zoom);
             return 1;
         }
     }
@@ -269,6 +272,8 @@ int xrLayoutFrame(XrCtx* ctx, Settings* s, int64_t now) {
     ctx->perAppOn = s->per_app;
     locateHead(ctx);
     int save = identityFrame(ctx, s);
+    // Native (PLAN 4b.6): a zoom step the bindings took, into the settings before the layout is compared
+    save |= xrZoomSync(ctx, s);
     angularLockFrame(ctx);
     followFrame(ctx, now);
     save |= syncFrame(ctx, s, now);

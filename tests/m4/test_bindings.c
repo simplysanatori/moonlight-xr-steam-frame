@@ -14,6 +14,7 @@
 
 #include "check.h"
 #include "scene.h"
+#include "xr_depth.h"
 
 static char g_dir[64];
 static char g_path[128];
@@ -349,6 +350,53 @@ static void fileWithErrors(void) {
     scene_free(sc);
 }
 
+// PLAN 4b.6: app:zoomin, app:zoomout and app:zoomreset are in the table with the
+// codes xr_input.c's bindAppCommand switches on, and what that switch does for
+// each is xrZoomStep(ctx, +1 / -1 / 0), aimed at the pointer
+static void zoomActions(void) {
+    Scene* sc = scene_new();
+    XrCtx* c = sc->ctx;
+    writeFile("[pointer]\nright.y = app:zoomin\nright.x = app:zoomout\nleft.dpad_left = app:zoomreset\n");
+    CHECK(xrBindLoad(c, g_path) == 0);
+    const XrBindTable* t = &c->bindTable[XR_BIND_MODE_POINTER];
+    CHECK(t->single[XR_BIND_SRC_RIGHT_Y].kind == XR_BIND_ACT_APP && t->single[XR_BIND_SRC_RIGHT_Y].code == XR_BIND_APP_ZOOMIN);
+    CHECK(t->single[XR_BIND_SRC_RIGHT_X].kind == XR_BIND_ACT_APP && t->single[XR_BIND_SRC_RIGHT_X].code == XR_BIND_APP_ZOOMOUT);
+    CHECK(t->single[XR_BIND_SRC_LEFT_DPAD_LEFT].kind == XR_BIND_ACT_APP
+          && t->single[XR_BIND_SRC_LEFT_DPAD_LEFT].code == XR_BIND_APP_ZOOMRESET);
+    // A file that names an unknown one says so on the toast and keeps the rest
+    writeFile("[pointer]\nright.y = app:zoomin\nright.x = app:zoomed\n");
+    c->notices.count = 0;
+    CHECK(xrBindLoad(c, g_path) == 1);
+    CHECK(c->notices.count == 1);
+    CHECK(c->bindTable[XR_BIND_MODE_POINTER].single[XR_BIND_SRC_RIGHT_Y].code == XR_BIND_APP_ZOOMIN);
+
+    // What each does, the way the owner's switch calls it, from the whole picture
+    CHECK(c->zoomPct == 100);
+    c->zoomHitValid = 1;
+    c->zoomHitU = 0.9f;
+    c->zoomHitV = 0.1f;
+    CHECK(xrZoomStep(c, 1) == 1 && c->zoomPct == 125);
+    CHECK(xrZoomStep(c, 1) == 1 && c->zoomPct == 150);
+    CHECK(xrZoomStep(c, -1) == 1 && c->zoomPct == 125);
+    CHECK(c->zoomX > 50 && c->zoomY < 50);   // toward the corner the pointer was on
+    CHECK(xrZoomStep(c, 0) == 1 && c->zoomPct == 100 && c->zoomX == 50 && c->zoomY == 50);
+    CHECK(xrZoomStep(c, 0) == 0);   // nothing to reset
+    CHECK(xrZoomStep(c, -1) == 0);  // nothing to zoom out of
+    for (int i = 0; i < 20; i++) xrZoomStep(c, 1);
+    CHECK(c->zoomPct == 400 && xrZoomStep(c, 1) == 0);
+    // The corner it was aimed at is on screen under the pointer
+    float u = 0.9f, v = 0.1f;
+    xrDepthPointerUv(c, &u, &v);
+    CHECK_NEAR(u, 0.9, 0.01);
+    CHECK_NEAR(v, 0.1, 0.01);
+    // No pointer on the screen: about the middle of the view
+    xrZoomStep(c, 0);
+    c->zoomHitValid = 0;
+    xrZoomStep(c, 1);
+    CHECK(c->zoomPct == 125 && c->zoomX == 50 && c->zoomY == 50);
+    scene_free(sc);
+}
+
 int main(void) {
     snprintf(g_dir, sizeof(g_dir), "/tmp/mlxr-bind-XXXXXX");
     if (mkdtemp(g_dir) == NULL) {
@@ -361,6 +409,7 @@ int main(void) {
     gamepadDefaults();
     explicitGrip();
     hostAndBringHere();
+    zoomActions();
     fileWithErrors();
     unlink(g_path);
     rmdir(g_dir);

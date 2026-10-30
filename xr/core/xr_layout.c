@@ -203,6 +203,110 @@ void sbsHalfRect(int source, int half, int frameW, int frameH, int rect[4]) {
     }
 }
 
+static float clampUnit(float v, float lo, float hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+void zoomRect(int pct, int cxPct, int cyPct, float rect[4]) {
+    if (pct < ZOOM_MIN_PCT) pct = ZOOM_MIN_PCT;
+    if (pct > ZOOM_MAX_PCT) pct = ZOOM_MAX_PCT;
+    float s = 100.0f / (float)pct;
+    float cx = clampUnit((float)cxPct, ZOOM_PAN_MIN, ZOOM_PAN_MAX) * 0.01f;
+    float cy = clampUnit((float)cyPct, ZOOM_PAN_MIN, ZOOM_PAN_MAX) * 0.01f;
+    rect[0] = clampUnit(cx - 0.5f * s, 0.0f, 1.0f - s);
+    rect[1] = clampUnit(cy - 0.5f * s, 0.0f, 1.0f - s);
+    rect[2] = s;
+    rect[3] = s;
+}
+
+int zoomStepPct(int pct, int dir) {
+    static const int RUNGS[] = { 100, 125, 150, 175, 200, 250, 300, 350, 400 };
+    const int n = (int)(sizeof(RUNGS) / sizeof(RUNGS[0]));
+    if (dir == 0) {
+        return ZOOM_MIN_PCT;
+    }
+    if (dir > 0) {
+        for (int i = 0; i < n; i++) {
+            if (RUNGS[i] > pct) return RUNGS[i];
+        }
+        return RUNGS[n - 1];
+    }
+    for (int i = n - 1; i >= 0; i--) {
+        if (RUNGS[i] < pct) return RUNGS[i];
+    }
+    return RUNGS[0];
+}
+
+void zoomPointerUv(const float rect[4], float* u, float* v) {
+    *u = rect[0] + *u * rect[2];
+    *v = rect[1] + *v * rect[3];
+}
+
+void zoomScreenUv(const float rect[4], float* u, float* v) {
+    *u = (*u - rect[0]) / rect[2];
+    *v = (*v - rect[1]) / rect[3];
+}
+
+// One axis of the above: the centre (whole percent) that puts the picture
+// point at p under the screen point at hit, for a part s of the picture wide.
+// A part that would touch or pass an edge is stored as the edge's own centre
+// (0 or 100), which holds it exactly there; the rest are rounded.
+static int anchorAxis(float p, float hit, float s) {
+    if (s >= 1.0f) {
+        return ZOOM_PAN_DEFAULT;
+    }
+    float x0 = p - hit * s;
+    if (x0 <= 1e-4f) {
+        return ZOOM_PAN_MIN;
+    }
+    if (x0 >= 1.0f - s - 1e-4f) {
+        return ZOOM_PAN_MAX;
+    }
+    return (int)floorf((x0 + 0.5f * s) * 100.0f + 0.5f);
+}
+
+void zoomAnchorCentre(int oldPct, int oldCx, int oldCy, int newPct, float hitU, float hitV, int* newCx, int* newCy) {
+    float was[4];
+    zoomRect(oldPct, oldCx, oldCy, was);
+    float s = 100.0f / (float)(newPct < ZOOM_MIN_PCT ? ZOOM_MIN_PCT : (newPct > ZOOM_MAX_PCT ? ZOOM_MAX_PCT : newPct));
+    *newCx = anchorAxis(was[0] + hitU * was[2], hitU, s);
+    *newCy = anchorAxis(was[1] + hitV * was[3], hitV, s);
+}
+
+void videoShownRect(int source, const float* zoom, float out[4]) {
+    float pic[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+    if (source == STEREO_SOURCE_SBS) {
+        pic[2] = 0.5f;
+    }
+    else if (source == STEREO_SOURCE_TB) {
+        pic[3] = 0.5f;
+    }
+    if (zoom == NULL) {
+        memcpy(out, pic, sizeof(pic));
+        return;
+    }
+    out[0] = pic[0] + zoom[0] * pic[2];
+    out[1] = pic[1] + zoom[1] * pic[3];
+    out[2] = zoom[2] * pic[2];
+    out[3] = zoom[3] * pic[3];
+}
+
+void videoGlowRect(const float shown[4], const float crop[4], float out[4]) {
+    float x0 = shown[0] > crop[0] ? shown[0] : crop[0];
+    float y0 = shown[1] > crop[1] ? shown[1] : crop[1];
+    float x1 = shown[0] + shown[2] < crop[0] + crop[2] ? shown[0] + shown[2] : crop[0] + crop[2];
+    float y1 = shown[1] + shown[3] < crop[1] + crop[3] ? shown[1] + shown[3] : crop[1] + crop[3];
+    // Under a texel of the 32 square sample is nothing to average
+    if (x1 - x0 < 1.0f / 32.0f || y1 - y0 < 1.0f / 32.0f) {
+        memcpy(out, shown, 4 * sizeof(float));
+        return;
+    }
+    out[0] = x0;
+    out[1] = y0;
+    out[2] = x1 - x0;
+    out[3] = y1 - y0;
+}
+
 int ambiBarDetectApplies(int detectSetting, int stereoMode) {
     return detectSetting && stereoMode != DEPTH_MODE_SBS;
 }

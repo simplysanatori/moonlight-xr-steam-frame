@@ -157,11 +157,16 @@ int xrBindSourceIsStick(int src);
 #define XR_BIND_APP_3D 4
 // Switch between pointer and gamepad mode at once (no hold)
 #define XR_BIND_APP_GAMEPAD 5
-// Bring the screen to in front of the controller (PLAN 3.6, not in yet)
+// Bring the screen to in front of the controller (PLAN 3.6)
 #define XR_BIND_APP_BRINGHERE 6
 // Open or close the Host sheet (keys for the PC, PLAN 4b.1)
 #define XR_BIND_APP_HOST 7
-#define XR_BIND_APP_COUNT 8
+// Zoom the picture one rung in or out, aimed at the pointer, and back to the
+// whole picture (PLAN 4b.6)
+#define XR_BIND_APP_ZOOMIN 8
+#define XR_BIND_APP_ZOOMOUT 9
+#define XR_BIND_APP_ZOOMRESET 10
+#define XR_BIND_APP_COUNT 11
 
 typedef struct {
     // XR_BIND_ACT_
