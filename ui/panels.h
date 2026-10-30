@@ -98,8 +98,7 @@ typedef enum {
     UI_BTN_HOST_CANCEL,      // Host sheet's confirmation: cancel (XR_HOST_ZONE_CONFIRM_CANCEL)
     UI_BTN_HOST_PCVR,        // Host sheet: Switch to PC VR (XR_HOST_ZONE_PCVR)
     UI_BTN_KOFI_OPEN,        // Ko-fi sheet, "Open page" (KOFI_ZONE_OPEN)
-    UI_BTN_HOST_PAGE,        // Host sheet: the header button between its pages (XR_HOST_ZONE_PAGE)
-    UI_BTN_HOST_PCVR_GAME    // Host sheet's PC VR question: the launcher's game (XR_HOST_ZONE_CONFIRM_GAME)
+    UI_BTN_HOST_PAGE         // Host sheet: the header button between its pages (XR_HOST_ZONE_PAGE)
 } UiButton;
 
 typedef struct {
@@ -169,8 +168,6 @@ typedef struct {
     int host_page;
     XrHostInfo host_info;
     int host_confirm_cmd;
-    // Lane pcvr-steamvr: the game the PC VR question offers beside SteamVR ("" none: SteamVR and Cancel)
-    char host_pcvr_game[XR_HOST_PCVR_GAME_NAME];
     int kb_compose;
     char kb_compose_text[64];
     const char* version;         // About tab ("0.1.0"), NULL for none

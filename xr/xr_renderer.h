@@ -1257,10 +1257,8 @@ typedef struct XrCtx {
     int padCardReady;
     PadLive padLive;
     // Native (PLAN 4.1): the Host sheet's "Switch to PC VR" was confirmed; xr_session.c turns it into
-    // XrUiEvents.pcvrConfirmed once and clears it. Lane pcvr-steamvr: 1 SteamVR, 2 the game pcvrGame
-    // names (the launcher's choice, MLXR_PCVR_GAME, read when the sheet opens; "" none)
+    // XrUiEvents.pcvrConfirmed once and clears it
     int pcvrRequest;
-    char pcvrGame[XR_HOST_PCVR_GAME_NAME];
     // Native (lane wave4-apollo): the Host sheet's PC page. hostPage is the page showing; hostInfo what the
     // host offers (xr_app_set_host_info); hostCompose "Send text to PC" having the keyboard; and
     // hostActKind (XR_HOSTACT_*, with hostActArg and hostActText) the thing a press chose, which the

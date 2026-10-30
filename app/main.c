@@ -82,6 +82,7 @@
 #include "../xr/xr_stream_prefs.h"
 #include "launcher.h"
 #include "panels.h"
+#include "vr_handoff.h"
 #include "settings.h"
 
 static FrameSlot g_slot;
@@ -115,8 +116,8 @@ enum {
     EXIT_LAUNCH_FAILED = 6,  // the host refused the launch/resume, or the stream would not connect
     EXIT_STREAM_ENDED = 10,  // the stream ended by itself (the host closed it, or the network dropped)
     EXIT_DISCONNECTED = 11,  // left with the disconnect chord: not an error, the host's session still runs
-    EXIT_PCVR = 12,          // the Host sheet's Switch to PC VR: like 11, and the launcher hands the headset to Steam Link (SteamVR)
-    EXIT_PCVR_GAME = 13      // the same, to the game chosen in the launcher (lane pcvr-steamvr)
+    EXIT_PCVR = 12           // VR (the app list's entry, the Host sheet's PC VR): the host's session ended, and the
+                             // launcher hands the headset to Steam Link in SteamVR
 };
 static atomic_int g_exitCode;
 static char g_exitMsg[256];
@@ -510,15 +511,11 @@ static void uiHook(void* user, const XrUiEvents* ev, XrUiLauncher* show) {
         poke = 1;
     }
     if (ev->pcvrConfirmed) {
-        // The Host sheet's Switch to PC VR: only the flat launcher can run Steam's side of it (it
-        // reads the code), so without --exit-to-caller the stream carries on
-        if (g_args.exitToCaller) {
-            MLOG_I("PC VR confirmed in %s: leaving the stream for Steam Link, the host's session stays", launcher_state_name(g_launch.state));
-            launcher_pcvr_to(&g_launch, ev->pcvrConfirmed == 2 ? LAUNCH_PCVR_GAME : LAUNCH_PCVR_STEAMVR);
-            poke = 1;
-        } else {
-            xr_app_notice(ui_str(UIS_NATIVE_PCVR_NEEDS_LAUNCHER));
-        }
+        // The Host sheet's PC VR: the host's session ends and Steam Link takes the headset in SteamVR (the flat
+        // launcher asks Steam, or steam_cef.py next to this program when there is no launcher: vrHandOff)
+        MLOG_I("VR confirmed in %s: ending the host's session for Steam Link", launcher_state_name(g_launch.state));
+        launcher_pcvr(&g_launch);
+        poke = 1;
     }
     if (ev->listKind != 0) {
         launcher_press(&g_launch, ev->listKind, ev->listA, ev->listB);
@@ -1326,6 +1323,42 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     return 0;
 }
 
+// Lane pcvr-steamvr: VR. The host's session ends if an app still runs there, the host is asked until it
+// reports none (10 s at most), then the flat launcher (the PC VR exit code) or, without one, steam_cef.py
+// asks Steam to stream SteamVR from that PC to this headset, and the app ends
+static void vrHandOff(Net* n, int pc) {
+    const char* name = pc >= 0 && pc < (int)n->hosts.n ? n->hosts.v[pc].name : "";
+    mlxr_server* s = name[0] ? (n->srv[pc] ? n->srv[pc] : connectHost(n, pc, NULL)) : NULL;
+    int game = -1;
+    for (int i = 0; s && i < 20 && !atomic_load(&g_workerQuit); i++) {
+        mlxr_error err = { 0 };
+        if (mlxr_server_get_info(s, true, &n->comp[pc], NULL, &err) == MLXR_OK) {
+            game = n->comp[pc].current_game;
+            if (game == 0) break;
+            if (i == 0) {
+                MLOG_I("VR: ending app %d on %s", game, name);
+                if (mlxr_server_quit_app(s, &err) != MLXR_OK) MLOG_W("VR: the quit was refused: %s", err.msg);
+            }
+        }
+        usleep(500 * 1000);
+    }
+    if (game == 0) MLOG_I("VR: %s reports no running app", name);
+    else if (s) MLOG_W("VR: %s still reports app %d after 10 s: asking Steam anyway", name, game);
+    else MLOG_W("VR: %s does not answer: asking Steam anyway", name);
+    if (g_args.exitToCaller) {
+        endForCaller(EXIT_PCVR, NULL);
+        return;
+    }
+    char cef[1024], logPath[1024];
+    vr_steam_cef_path(cef, sizeof(cef));
+    const char* dir = getenv("MLXR_LOG_DIR");
+    snprintf(logPath, sizeof(logPath), "%s/pcvr-handoff.log", dir && dir[0] ? dir : "/tmp");
+    int pid = vr_handoff_spawn(cef, name, logPath);
+    if (pid > 0) MLOG_I("VR: asked Steam through %s --pcvr --pc %s (pid %d, output in %s)", cef, name, pid, logPath);
+    else MLOG_W("VR: python3 %s could not be started", cef);
+    xr_app_request_quit();
+}
+
 // The stream down: input let go, the decoder closed after the renderer let go
 // of its frames, and the host's session ended when asked
 static void stopStream(Net* n, int quitHost) {
@@ -1620,9 +1653,13 @@ static void* worker(void* arg) {
             pthread_mutex_lock(&g_lock);
             launcher_stream_ended(&g_launch, 0);
             pthread_mutex_unlock(&g_lock);
+            if (c.pcvr) {
+                vrHandOff(n, c.pc);   // lane pcvr-steamvr: the Host sheet's PC VR
+                break;
+            }
             // The bar's exit (the host's session is ended) or the disconnect chord (it stays, so the
             // caller shows the app as running, as Moonlight does after a disconnect)
-            if (g_args.exitToCaller) endForCaller(c.pcvr == LAUNCH_PCVR_GAME ? EXIT_PCVR_GAME : c.pcvr ? EXIT_PCVR : c.quitHost ? EXIT_OK : EXIT_DISCONNECTED, NULL);
+            if (g_args.exitToCaller) endForCaller(c.pcvr ? EXIT_PCVR : c.quitHost ? EXIT_OK : EXIT_DISCONNECTED, NULL);
             break;
         case LCMD_WAKE:
             if (c.pc >= 0 && c.pc < (int)n->hosts.n) {
@@ -1634,6 +1671,9 @@ static void* worker(void* arg) {
         case LCMD_EXIT:
             stopStream(n, 1);
             xr_app_request_quit();
+            break;
+        case LCMD_VR:
+            vrHandOff(n, c.pc);   // lane pcvr-steamvr: the app list's VR
             break;
         default:
             break;
@@ -1881,6 +1921,11 @@ int main(int argc, char** argv) {
     }
     else {
         launcher_init(&g_launch);
+        {
+            // Lane pcvr-steamvr: VR needs the flat launcher or steam_cef.py beside this program
+            char cef[1024];
+            g_launch.vrMissing = !g_args.exitToCaller && !vr_steam_cef_path(cef, sizeof(cef));
+        }
         if (g_args.host) {
             g_launch.state = LAUNCH_STARTING; // the worker's autostart decides
             g_launch.ncmd = 0;

@@ -835,7 +835,6 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
         int zone, confirm, count, page;
         char names[XR_HOST_MACRO_SLOTS][XR_MACRO_NAME];
         char label[XR_HOST_CMD_NAME];
-        char game[XR_HOST_PCVR_GAME_NAME];
         XrHostInfo info;
     } k;
     memset(&k, 0, sizeof(k));
@@ -843,7 +842,6 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
     k.confirm = ctx->hostConfirm;
     k.page = ctx->hostPage;
     k.info = ctx->hostInfo;
-    snprintf(k.game, sizeof(k.game), "%s", ctx->pcvrGame);
     k.count = ctx->macros.count < XR_HOST_MACRO_SLOTS ? ctx->macros.count : XR_HOST_MACRO_SLOTS;
     for (int i = 0; i < k.count; i++) {
         snprintf(k.names[i], sizeof(k.names[i]), "%s", ctx->macros.macro[i].name);
@@ -873,12 +871,11 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
     }
     else if (k.zone == XR_HOST_ZONE_CLOSE || k.zone == XR_HOST_ZONE_CONFIRM_SEND
              || k.zone == XR_HOST_ZONE_CONFIRM_CANCEL || k.zone == XR_HOST_ZONE_PCVR
-             || k.zone == XR_HOST_ZONE_PAGE || k.zone == XR_HOST_ZONE_CONFIRM_GAME) {
+             || k.zone == XR_HOST_ZONE_PAGE) {
         v.hover.kind = UI_HIT_BUTTON;
         v.hover.a = k.zone == XR_HOST_ZONE_CLOSE ? UI_BTN_HOST_CLOSE
                   : k.zone == XR_HOST_ZONE_PCVR ? UI_BTN_HOST_PCVR
                   : k.zone == XR_HOST_ZONE_PAGE ? UI_BTN_HOST_PAGE
-                  : k.zone == XR_HOST_ZONE_CONFIRM_GAME ? UI_BTN_HOST_PCVR_GAME
                   : k.zone == XR_HOST_ZONE_CONFIRM_SEND ? UI_BTN_HOST_CONFIRM : UI_BTN_HOST_CANCEL;
     }
     v.host_macros = k.count;
@@ -890,7 +887,6 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
     v.host_page = k.page;
     v.host_info = k.info;
     v.host_confirm_cmd = k.page == XR_HOST_PAGE_PC && k.confirm != XR_HOST_CONFIRM_PCVR;
-    snprintf(v.host_pcvr_game, sizeof(v.host_pcvr_game), "%s", k.game);
     PanelJob j;
     jobPanel(&j, UI_PANEL_HOST, &v);
     submit(ctx, p, &j);

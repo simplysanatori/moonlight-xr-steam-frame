@@ -34,6 +34,10 @@ typedef struct {
     int id;
 } LaunchApp;
 
+// Lane pcvr-steamvr: the app list's first entry, "VR", is ours and not the host's (this id never goes to
+// the host): it ends the host's session and hands the headset to Valve's Steam Link in SteamVR Home
+#define LAUNCH_APP_VR (-1)
+
 typedef enum {
     LCMD_NONE = 0,
     LCMD_REFRESH_PCS,   // serverinfo on every PC
@@ -41,7 +45,8 @@ typedef enum {
     LCMD_LAUNCH,        // pc, appId: launch or resume, start the stream (quitFirst: end another app first)
     LCMD_STOP,          // stop the stream; quitHost: end the host's session too
     LCMD_WAKE,          // pc: Wake-on-LAN, then refresh
-    LCMD_EXIT           // quit the app
+    LCMD_EXIT,          // quit the app
+    LCMD_VR             // pc: end the host's session (when one runs), then hand the headset to SteamVR (lane pcvr-steamvr)
 } LaunchCmdKind;
 
 typedef struct {
@@ -50,8 +55,7 @@ typedef struct {
     int appId;
     int quitFirst;
     int quitHost;
-    int pcvr;           // LCMD_STOP: the stream stops for the hand-off to PC VR (the exit code says so):
-                        // LAUNCH_PCVR_STEAMVR or LAUNCH_PCVR_GAME, 0 not PC VR
+    int pcvr;           // LCMD_STOP: the stream stops for the hand-off to VR (the exit code says so)
 } LaunchCmd;
 
 typedef struct Launcher {
@@ -67,6 +71,7 @@ typedef struct Launcher {
     int appsFailed;
     int startingApp;        // the app id being launched
     int fileMode;           // --file: no hosts, exit quits
+    int vrMissing;          // lane pcvr-steamvr: nothing here can ask Steam for VR (no launcher, no steam_cef.py)
     LaunchCmd cmds[8];
     int ncmd;
     char notice[160];       // a toast for the frame loop to show, "" none
@@ -109,15 +114,11 @@ void launcher_disconnect_bar(Launcher* l);
 // (doff_disconnect), and when nothing was pressed for the configured minutes (idle_disconnect)
 void launcher_disconnect_doff(Launcher* l);
 void launcher_disconnect_idle(Launcher* l);
-// Native (PLAN 4.1): leaves the stream for the hand-off to PC VR (Valve's Steam Link stream of the
-// PC): LCMD_STOP with quitHost 0 (the host's session keeps running, as with Disconnect) and pcvr
-// set, which makes the process end with the PC VR exit code. Outside a stream it does nothing.
+// Native (PLAN 4.1): leaves the stream for the hand-off to VR (Valve's Steam Link stream of SteamVR from
+// the PC): LCMD_STOP with quitHost 1 (lane pcvr-steamvr: the desktop closes on the host, as the VR app
+// entry does) and pcvr set, which makes the worker hand the headset over (the PC VR exit code with the
+// flat launcher). Outside a stream it does nothing.
 void launcher_pcvr(Launcher* l);
-// Lane pcvr-steamvr: the same with what Steam Link is to start, LAUNCH_PCVR_STEAMVR (what launcher_pcvr
-// asks) or LAUNCH_PCVR_GAME (the flat launcher's chosen game): LaunchCmd.pcvr carries it to the exit code
-#define LAUNCH_PCVR_STEAMVR 1
-#define LAUNCH_PCVR_GAME 2
-void launcher_pcvr_to(Launcher* l, int target);
 
 // ---- what the worker and the frame loop take ----
 int launcher_take_cmd(Launcher* l, LaunchCmd* out);

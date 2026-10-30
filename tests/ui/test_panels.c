@@ -981,26 +981,6 @@ static void test_host_sheet(void) {
     for (size_t i = 0; i < g.size; i++) sumPcvr += g.px[i];
     CHECK(sumPcvr != sumKeys);
     free(g.base);
-    // lane pcvr-steamvr: SteamVR, the launcher's game and Cancel, each where the zones say
-    snprintf(v.host_pcvr_game, sizeof v.host_pcvr_game, "Half-Life: Alyx");
-    draw(UI_PANEL_HOST, &v, 1.0f, &g);
-    check_hits_inside("host pcvr confirm with a game");
-    CHECK(hits.count == 3);
-    {
-        static const int BTN[3] = { UI_BTN_HOST_CONFIRM, UI_BTN_HOST_PCVR_GAME, UI_BTN_HOST_CANCEL };
-        static const int ZONE[3] = { XR_HOST_ZONE_CONFIRM_SEND, XR_HOST_ZONE_CONFIRM_GAME, XR_HOST_ZONE_CONFIRM_CANCEL };
-        for (int i = 0; i < 3; i++) {
-            int h = ui_hits_find(&hits, UI_HIT_BUTTON, BTN[i], -1);
-            CHECK(h >= 0);
-            if (h >= 0) {
-                CHECK(xrHostPcvrZoneAt((hits.hit[h].u0 + hits.hit[h].u1) * 0.5f, (hits.hit[h].v0 + hits.hit[h].v1) * 0.5f, 1)
-                      == ZONE[i]);
-            }
-        }
-    }
-    CHECK(strcmp(ui_str(UIS_HOST_PCVR_GO), "SteamVR") == 0);
-    free(g.base);
-    v.host_pcvr_game[0] = '\0';
     // a lit cell changes the drawing
     v.host_confirm = -1;
     draw(UI_PANEL_HOST, &v, 1.0f, &g);

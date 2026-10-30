@@ -8,8 +8,8 @@
 //   run()            runs it, keeps the Qt UI alive meanwhile, reports how it ended
 //   seedLauncherConfig()   first run only: copies Moonlight Qt's (flatpak) config
 //   (lane artemis-settings) the Artemis-style Settings page's own settings: mlxrprefs.h
-//   (lane wave4-pcvr) startPcvr()  exit code 12 (SteamVR) or 13 (the chosen game): hands the headset to
-//                                  Valve's Steam Link stream of the PC
+//   (lane wave4-pcvr) startPcvr()  exit code 12: hands the headset to Valve's Steam Link stream of the PC
+//   (lane pcvr-steamvr) startVr()  the app grid's VR: ends the PC's app, then the same
 #pragma once
 
 #include <QMap>
@@ -47,6 +47,8 @@ struct Plan {
     QStringList hints;
     // More environment for the VR client: MLXR_APP_UUID, the app's UUID from an Apollo host (launch by appuuid)
     QMap<QString, QString> extraEnv;
+    // Lane pcvr-steamvr: the PC's name, which steam_cef.py --pc matches against Steam's paired PCs
+    QString pcName;
 };
 
 struct Result {
@@ -55,8 +57,8 @@ struct Result {
     bool crashed = false;      // killed by a signal
     bool dryRun = false;
     bool disconnected = false; // left with the disconnect chord: the host's app still runs (exit code 11)
-    bool pcvr = false;         // left with the Host sheet's Switch to PC VR (exit code 12): run() has started Steam's side
-                               // of it (startPcvr()); the host's app still runs, so disconnected is set too
+    bool pcvr = false;         // left for VR (exit code 12): the client ended the host's app, run() has started Steam's
+                               // side of it (startPcvr()); disconnected is set too (no error dialog)
     bool ok() const { return exitCode == 0 || disconnected; }
     QString message;           // for the error dialog; empty when exitCode == 0
 };
@@ -107,18 +109,13 @@ bool fadesFlatWindow();
 void fadeFlatWindow(QWindow* window, bool out);
 
 // ---- Moonlight XR Native (lane wave4-pcvr): PC VR, Valve's Steam Link stream (PLAN 4.1, 4.2, 4.9) ----
-// The VR client's PC VR question (Host sheet) ends its session with one of these exit codes. The host's
-// session keeps running, as after the disconnect chord. run() then asks Steam, through its debugging
-// port (packaging/steam_cef.py), to stream from the PC: Apps.StreamGame(app, client, 0). 12 is SteamVR
-// itself (250820: SteamVR Home on the PC, any game from there), 13 the game chosen on the Settings page
-// (lane pcvr-steamvr), offered in the headset only when one is (MLXR_PCVR_GAME, its name, in the client's
-// environment). This is Valve's stream, not Moonlight's; when it ends Steam brings this window back.
+// The VR client's VR (the Host sheet's PC VR, lane pcvr-steamvr) ends the host's session, waits until the
+// host reports no running app, and ends with this exit code. run() then asks Steam, through its debugging
+// port (packaging/steam_cef.py), to stream SteamVR itself from that PC to the headset:
+// Apps.StreamGame(250820, client, 0), the client being Steam's paired PC of that name (or the one chosen on
+// the Settings page, or the only one). Fallbacks: SteamVR's page, then the library. This is Valve's stream,
+// not Moonlight's; when it ends Steam brings this window back.
 constexpr int kExitPcvr = 12;
-constexpr int kExitPcvrGame = 13;
-// SteamVR's Steam app id: a chosen game of this id is SteamVR, the default
-constexpr int kSteamVrAppId = 250820;
-// The chosen game when it is one (not empty, not SteamVR), else an empty string
-QString pcvrChosenGame(const QString& app);
 // MLXR_STEAM_CEF (tests), else <dir of this binary>/steam_cef.py
 QString steamCefPath();
 // Runs `python3 -I steam_cef.py <args>` without blocking the UI. done(code, stdout, stderr) is called once
@@ -127,13 +124,17 @@ QString steamCefPath();
 // context owns the process (the application when null). Returns the process (null when it was not started).
 QProcess* runSteamCef(const QStringList& args, int timeoutMs, QObject* context,
                       const std::function<void(int, const QByteArray&, const QString&)>& done);
-// steam_cef.py's arguments for the hand-off: --pcvr [--app APP] [--client CLIENT] [--confirm SECONDS]
-// (no --app: SteamVR)
-QStringList pcvrArguments(const QString& app, const QString& client, int confirmSeconds = 0);
-// The hand-off itself: reads the PC (mlxr/pcvr_client) and, for game, the chosen game (mlxr/pcvr_app) from
-// the launcher's settings and starts steam_cef.py --pcvr; without game, or with no game chosen, SteamVR.
-// A dry run (MLXR_LAUNCHER_DRYRUN) prints "MLXR_PCVR: ..." and starts nothing.
-void startPcvr(bool game = false);
+// steam_cef.py's arguments for the hand-off: --pcvr [--pc PCNAME] [--client CLIENT] [--confirm SECONDS]
+QStringList pcvrArguments(const QString& pcName, const QString& client, int confirmSeconds = 0);
+// The hand-off itself: SteamVR from the PC pcName (the PC chosen on the Settings page, mlxr/pcvr_client,
+// wins) through steam_cef.py --pcvr. A dry run (MLXR_LAUNCHER_DRYRUN) prints "MLXR_PCVR: ..." and starts
+// nothing.
+void startPcvr(const QString& pcName);
+// Lane pcvr-steamvr: the app grid's VR entry. On a thread: asks the PC what runs (serverinfo), ends it
+// (the grid's own Quit Game), asks again until it reports none (10 s at most); then, on the GUI thread,
+// logs "VR: ..." and calls startPcvr(its name), then done. A dry run prints "MLXR_VR: would quit ..." and
+// ends nothing.
+void startVr(NvComputer* computer, const std::function<void()>& done = {});
 // True for 20 s after startPcvr(): the flat screen is not asked for again then (it would pull the dashboard
 // back to the flat window over Valve's stream)
 bool pcvrHeldOff();
@@ -149,8 +150,10 @@ void seedLauncherConfig();
 // Also (lane launcher2): "bitrate:<W>x<H>x<FPS>[x444]" prints the default bitrate
 // StreamingPreferences::getDefaultBitrate gives, "scale" prints the Game Mode UI scale.
 // (lane wave4-pcvr) "pcvr:probe", "pcvr:devices", "pcvr:apps[:CLIENT]" run that steam_cef.py command and print
-// "SELFTEST: pcvr <what> rc=N <its output>"; "pcvr:go" runs the hand-off to SteamVR, "pcvr:game" to the
-// chosen game, with the saved settings.
+// "SELFTEST: pcvr <what> rc=N <its output>"; "pcvr:go" runs the hand-off with the saved settings.
+// (lane pcvr-steamvr) "vr:<host name|uuid>" is the app grid's VR for that saved PC; with MLXR_LAUNCHER_DRYRUN
+// it ends nothing and asks Steam nothing, and prints steam_cef.py --pcvr --dry-run's answer as
+// "SELFTEST: vr steam rc=N <json>".
 int selfTest(const QString& spec);
 
 // Moonlight XR Native (lane refresh): the Steam Frame's display rates. The VR client never streams

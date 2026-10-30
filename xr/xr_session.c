@@ -1656,8 +1656,8 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
         ctx->hostActText[0] = '\0';
     }
     if (ctx->pcvrRequest) {
-        ev->pcvrConfirmed = ctx->pcvrRequest;   // 1 SteamVR, 2 the launcher's game
         ctx->pcvrRequest = 0;
+        ev->pcvrConfirmed = 1;
     }
     if ((int)in[IN_EXIT] == EXIT_SLOT_DISCONNECT) {
         ev->disconnectConfirmed = 1;

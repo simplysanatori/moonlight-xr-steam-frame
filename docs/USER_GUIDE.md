@@ -209,7 +209,7 @@ The same question gives the app's UUID on Apollo. The flat window passes it to t
 
 ### PC VR
 
-Four rows for the Host sheet's PC VR button: the check, the PC, the game and the game's Steam app id. They are described under [PC VR](#pc-vr).
+Two rows for VR (the first entry of every PC's app list) and the Host sheet's PC VR button: the check and the PC. They are described under [PC VR](#pc-vr).
 
 ### Performance Monitor and Advanced Settings
 
@@ -636,7 +636,7 @@ The **Host** sheet is a grid of keys to send to the PC, for the ones a headset k
 
 After those come your own macros, up to eight.
 
-In the header, left of **Close**, is **PC VR**: it hands the headset to Valve's Steam Link, see [PC VR](#pc-vr). Left of it, **Clipboard, commands** opens a second page of the sheet (**Back** returns; **PC VR** and **Close** are there too): the PC's clipboard and the commands the PC offers. Both need an Apollo PC; see [Clipboard and PC commands](#clipboard-and-pc-commands-apollo) for what to set up on it.
+In the header, left of **Close**, is **PC VR**: it closes what runs on the PC and hands the headset to Valve's Steam Link in SteamVR, see [PC VR](#pc-vr). Left of it, **Clipboard, commands** opens a second page of the sheet (**Back** returns; **PC VR** and **Close** are there too): the PC's clipboard and the commands the PC offers. Both need an Apollo PC; see [Clipboard and PC commands](#clipboard-and-pc-commands-apollo) for what to set up on it.
 
 ### Macros
 
@@ -684,27 +684,23 @@ The clipboard sync at the start and end of a stream (Smart Clipboard Sync on the
 
 ## PC VR
 
-The **PC VR** button on the Host sheet ends this stream and has the headset's Steam stream SteamVR, or a VR game, from your PC. **This is Valve's Steam Link, not Moonlight.** The picture, the head and controller tracking, the eye-tracked foveation and the audio all come from Valve's own streaming; Moonlight XR for Frame only gets out of the way. Moonlight and Apollo cannot carry a headset's position to the PC, so there is no PC VR inside this client, and none is planned.
+**VR** is the first entry in every PC's app list, in the flat window and in the headset. Press it and the desktop (or whatever runs on the PC) closes, then the headset switches to Valve's Steam Link in SteamVR Home on that PC, where you pick any VR game. The Host sheet's **PC VR** button does the same during a stream, after asking "Switch to VR? The desktop closes."
 
-What you need: the headset and the PC signed in to the same Steam account, the headset paired with the PC in Steam (Valve's setup: plug the Steam Frame Wireless Adapter into the PC, start SteamVR on it, pair), and the VR game installed on the PC. This works only when the stream was started from the flat Moonlight XR window (the Steam shortcut). Started straight from the headset's own PC list it says so and carries on.
+**This is Valve's Steam Link, not Moonlight.** The picture, the head and controller tracking, the eye-tracked foveation and the audio all come from Valve's own streaming; Moonlight XR for Frame only gets out of the way. Moonlight and Apollo cannot carry a headset's position to the PC, so there is no PC VR inside this client, and none is planned. What you need: the headset and the PC signed in to the same Steam account, the headset paired with the PC in Steam (Valve's setup: plug the Steam Frame Wireless Adapter into the PC, start SteamVR on it, pair), and SteamVR installed on the PC. When Valve's stream ends, the flat window comes back as after any other stream.
 
-**What happens.** You press **PC VR** and choose: **SteamVR**, the game you chose on the Settings page (only shown when you chose one), or **Cancel**. The Moonlight stream stops, but your session on the PC keeps running, as with **Disconnect**. The flat window then asks Steam, through Steam's local debugging port, to stream your choice from the PC. **SteamVR** starts SteamVR on the PC and puts you in SteamVR Home, where you pick any VR game. When Valve's stream ends, the flat window comes back as after any other stream.
+If Steam will not start the stream itself, it shows SteamVR's page instead, where **Stream** is one press away; with no paired PC found it shows the library. `moonlight-launcher.log` says which of these happened.
 
-If Steam will not start the stream itself, it shows the page of SteamVR (or of the game) instead, where **Stream** is one press away; with no paired PC found it shows the library. `moonlight-launcher.log` says which of these happened.
-
-**Choosing the game.** On the flat window's Settings page, under **PC VR**:
+On the flat window's Settings page, under **PC VR**:
 
 | Row | What it does |
 | --- | --- |
-| Switch to PC VR | Press it to check Steam and list the PCs you paired with and their games. It also shows what is wrong when something is: Steam's debugging port not answering, the call missing on this version of Steam. |
-| PC to stream from | One of the listed PCs. The default is the only paired PC. With several paired and none chosen, Steam shows the page of SteamVR or the game, to press Stream and pick the PC there. |
-| PC VR game | **SteamVR** (the first entry and the default), or one of the listed games (VR ones are marked). A game chosen here is offered in the headset next to SteamVR. |
-| PC VR game: Steam app id | The same choice typed by hand, for when Steam does not list the PC's games. The id is the number in the game's store page address. Empty is SteamVR. |
+| Switch to PC VR | Press it to check Steam and list the PCs you paired with. It also shows what is wrong when something is: Steam's debugging port not answering, the call missing on this version of Steam. |
+| PC to stream from | Automatic (the paired PC with the same name as in Moonlight, else the only one), or one of the listed PCs. |
 
 **Limits, honestly.**
 - It needs Steam's debugging port (port 8080 on the headset), the same one the flat window's return from a stream uses. SteamOS updates can move or close it. The launcher checks it when it starts in Game Mode and logs `Steam CEF preflight: ...` in `moonlight-launcher.log`; the Settings page shows the same sentence. If it fails, the hand-off cannot work; `python3 -I steam_cef.py --probe` in a terminal on the headset says why, and `STEAM_CEF_PORT=<port>` points it elsewhere.
-- The calls it makes (`SteamClient.Apps.StreamGame` and the Remote Play device list) are Steam's own client functions that Valve does not document. Their exact form on the Frame's Steam can change with an update. If Steam refuses, nothing is harmed: the stream has already stopped, the flat window is still there, and the log has the reason.
-- Whether Steam starts the stream while this app's shortcut is still the running game is not yet confirmed on the headset. If it does not, quit this app from the Steam library and use Valve's own **Stream from your PC** on the game.
+- The calls it makes (`SteamClient.Apps.StreamGame` and the Remote Play device list) are Steam's own client functions that Valve does not document. Their exact form on the Frame's Steam can change with an update. If Steam refuses, the app on the PC has already closed, the flat window is still there, and the log has the reason.
+- Whether Steam starts the stream while this app's shortcut is still the running game is not yet confirmed on the headset. If it does not, quit this app from the Steam library and use Valve's own **Stream from your PC** on SteamVR.
 - For developers: after a SteamOS or SteamVR update, `python3 tools/probe/doctor.py` in the source tree (in a terminal on the headset, with the client closed, `mlxr-hello` built) compares what the headset's OpenXR runtime offers with the last known good probe and prints what changed, and checks Steam's debugging port. `--save` keeps the current probe as the new baseline.
 
 ## Ending a stream
@@ -800,7 +796,7 @@ Do the A and B on the same link, at the same bitrate, in the same scene. A diffe
 | The USB cable is never used | `moonlight.log` has a line `network path: USB cable: ...`. `usb0 up, carrier on, 3 peer candidates` means the headset sees the cable and tried three addresses on it: if none answered, check on the PC that the new network adapter is up, set to Private, and that Apollo or Sunshine is allowed through the firewall. `usb0 down (no cable, or the PC end is not up)` means no PC is on the other end: try another cable (it must carry data) or another USB port. No `USB cable` line at all means the headset is not in developer mode, so it has no USB network. In a terminal on the headset, `mlxr-cli probe-paths --network usb` prints the same check and the result for each address, and starts no stream. |
 | The adapter is never used | `moonlight.log` has a line `network path: Steam Frame Wireless Adapter: ...`. `present (...)` means the PC is connected to the headset's adapter network. `no adapter found (wlanap up, no station)` means the headset's adapter network is on but no PC has joined it: plug the Steam Frame Wireless Adapter into the PC and wait for it to connect. `no adapter found (wlanap down)` or `(wlanap missing)` means the headset's adapter network is off. In a terminal, `mlxr-cli adapter` prints the same check and does not start a stream. |
 | Cannot reach the PC | `moonlight.log` has `host ... not reachable at ...` for each address tried. Check the PC is on and Sunshine or Apollo is running. |
-| PC VR does nothing, or a Steam page opens instead of SteamVR or the game | The Settings page's first PC VR row shows the reason. `moonlight-launcher.log` has `Steam CEF preflight:` at start (Game Mode) and `Asked Steam for PC VR: <stream, app-page or library> (<why>)` after the button. `python3 -I steam_cef.py --probe` prints whether Steam's debugging port answers and whether the calls are there; `--devices` lists the paired PCs; `--apps --client <id>` lists their games; `--pcvr --dry-run` prints the call it would make without making it. The library opens only when no paired PC is found. |
+| VR does nothing, or a Steam page opens instead of SteamVR | The Settings page's first PC VR row shows the reason. `moonlight-launcher.log` has `Steam CEF preflight:` at start (Game Mode), `VR: ...` (what was closed on the PC) and `Asked Steam for PC VR: <stream, app-page or library> (<why>)` after the press. `python3 -I steam_cef.py --probe` prints whether Steam's debugging port answers and whether the calls are there; `--devices` lists the paired PCs; `--pcvr --pc "<PC name>" --dry-run` prints the call it would make without making it. The library opens only when no paired PC is found. |
 | The flat window does not come back after a stream | Open the app again from the Steam library. `moonlight-launcher.log` shows `Asked Steam to show the flat screen again` and the `flat window` lines (what the window did after the stream). |
 | Grey icon in the SteamVR dock | Restart Steam once after the first install. |
 | 3D tab greyed | The tab says why. If the depth model did not load, the log has the error. |
