@@ -30,3 +30,12 @@ add_test(NAME stream_reconnect COMMAND test_reconnect)
 add_executable(test_log_throttle test_log_throttle.c)
 target_link_libraries(test_log_throttle PRIVATE mlxr_stream)
 add_test(NAME stream_log_throttle COMMAND test_log_throttle)
+# Lane wave4-apollo: the text a clipboard is typed through, and Apollo's server command packet
+add_executable(test_vrkb_text test_vrkb_text.c)
+target_link_libraries(test_vrkb_text PRIVATE mlxr_stream)
+add_test(NAME stream_vrkb_text COMMAND test_vrkb_text)
+add_executable(test_servercmd test_servercmd.c)
+target_link_libraries(test_servercmd PRIVATE mlxr_stream)
+target_compile_definitions(test_servercmd PRIVATE
+  SERVERCMD_INC="${PROJECT_SOURCE_DIR}/stream/commonc_servercmd.inc")
+add_test(NAME stream_servercmd COMMAND test_servercmd)
