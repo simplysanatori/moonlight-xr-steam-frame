@@ -1,11 +1,12 @@
-// Native (lane a11y-tab): the Accessibility tab on the XR side. Which cells its rows show, a press
-// on one (applied at once and handed back to be stored, as every cog cell is), the eye tracking
-// line's state, and the once-a-session log line that says whether eye gaze reached the app and,
-// when it did not, what the runtime said. Nothing here changes a setting except a press on the
-// tab. The rules themselves are xr/core/xr_access.c's. GPLv3.
+// Native (lane a11y-tab, a11y-2): the Accessibility tab on the XR side. Which cells its rows show,
+// a press on one (applied at once and handed back to be stored, as every cog cell is), the Dot size
+// track, the row the footer describes, the eye tracking line's state, and the once-a-session log
+// line that says whether eye gaze reached the app and, when it did not, what the runtime said.
+// Nothing here changes a setting except a press or a drag on the tab. The rules themselves are
+// xr/core/xr_access.c's. GPLv3.
 #include "xr_renderer.h"
 #include "xr_native.h"
-#include "xr_pad_bridge.h"
+#include <math.h>
 
 // How long the eyes are watched for, focused, before the log says none came
 #define GAZE_WATCH_NS 10000000000LL
@@ -14,24 +15,38 @@ int xrAccessEyes(const XrCtx* ctx) {
     if (ctx == NULL) {
         return ACCESS_EYES_UNAVAILABLE;
     }
-    int working = ctx->eyeGaze && ctx->gazeBound && ctx->gazeSupportFlag > 0;
-    return accessEyesState(ctx->gazeOffered, ctx->gazeAsked, working, ctx->gazeSeen);
+    return accessEyesState(ctx->gazeOffered, ctx->eyeGaze && ctx->gazeBound, ctx->gazeSeen);
 }
 
 int cogAccessCells(XrCtx* ctx, int row) {
-    if (row == COG_ACCESS_ROW_POINTER) {
-        return accessPointerCells(xrAccessEyes(ctx), ctx->pointerSource);
+    (void)ctx;
+    return row == COG_ACCESS_ROW_POINTER ? COG_ACCESS_POINTER_CELLS
+         : row == COG_ACCESS_ROW_DWELL ? COG_ACCESS_DWELL_CELLS
+         : row == COG_ACCESS_ROW_BUTTON ? COG_ACCESS_BUTTON_CELLS : 0;
+}
+
+int cogAccessCellLive(XrCtx* ctx, int row, int cell) {
+    // native (lane a11y-2): Eyes is always there, dimmed only where the runtime has no eye gaze
+    if (row == COG_ACCESS_ROW_POINTER && cell == POINTER_SOURCE_GAZE) {
+        return accessEyesCellLive(xrAccessEyes(ctx), ctx->pointerSource);
     }
-    return row == COG_ACCESS_ROW_DWELL ? COG_ACCESS_DWELL_CELLS : COG_ACCESS_SWITCH_CELLS;
+    return cell >= 0 && cell < cogAccessCells(ctx, row);
 }
 
 int cogAccessRowLive(XrCtx* ctx, int row) {
-    // the dwell click only acts with the head or the eyes pointing
-    return row != COG_ACCESS_ROW_DWELL || ctx->pointerSource != POINTER_SOURCE_CONTROLLER;
+    // every row but the pointer's acts only with the head or the eyes pointing; the headset button
+    // also needs a device this app may read (unknown until the session has looked: live)
+    if (row == COG_ACCESS_ROW_POINTER) {
+        return 1;
+    }
+    if (row == COG_ACCESS_ROW_BUTTON && accessButtonGreyed(ctx->auxState)) {
+        return 0;
+    }
+    return ctx->pointerSource != POINTER_SOURCE_CONTROLLER;
 }
 
 void cogApplyAccessCell(XrCtx* ctx, int row, int cell, float* out) {
-    if (cell < 0 || cell >= cogAccessCells(ctx, row) || !cogAccessRowLive(ctx, row)) {
+    if (!cogAccessCellLive(ctx, row, cell) || !cogAccessRowLive(ctx, row)) {
         return;
     }
     int setting = -1;
@@ -39,8 +54,7 @@ void cogApplyAccessCell(XrCtx* ctx, int row, int cell, float* out) {
     switch (row) {
     case COG_ACCESS_ROW_POINTER:
         // the cells are POINTER_SOURCE_ in order; the dwell time stays as it is. The one in force
-        // pressed again (a dwell resting on it) leaves the pointer and its dwell as they are, so the
-        // dwell's "look away before clicking again" holds.
+        // again changes nothing, so a dwell resting on it does not start over and click it again.
         if (cell != ctx->pointerSource) {
             xrSetPointerSource(ctx, cell, ctx->headDwellMs);
         }
@@ -50,32 +64,63 @@ void cogApplyAccessCell(XrCtx* ctx, int row, int cell, float* out) {
         break;
     case COG_ACCESS_ROW_DWELL:
         value = accessDwellMs(cell);
-        // only the time: the dwell that clicked this cell stays spent until the dot leaves it
+        // native (lane a11y-2): the time alone, read by the next dwell step; the dwell under way keeps
+        // its place, so resting on the cell clicks it once (xrSetPointerSource would start it over)
         ctx->headDwellMs = dwellMsClamp(value);
         setting = SETTING_HEAD_DWELL;
         LOGEV("dwell click %d ms from the Accessibility tab", value);
         break;
-    case COG_ACCESS_ROW_HEAD_LOOK:
-        xrSetHeadLook(ctx, cell != 0, ctx->headLookPxDeg);
-        setting = SETTING_HEAD_LOOK;
-        LOGEV("head-look %s from the Accessibility tab", cell != 0 ? "on" : "off");
-        break;
-    case COG_ACCESS_ROW_BACK_GUIDE:
-        xrPadBridgeSetBackAsGuide(cell != 0);
-        setting = SETTING_BACK_AS_GUIDE;
-        LOGEV("Back as Guide %s from the Accessibility tab", cell != 0 ? "on" : "off");
-        break;
-    case COG_ACCESS_ROW_MOUSE:
-        value = cell != 0 ? MOUSE_MODE_RELATIVE : MOUSE_MODE_ABSOLUTE;
-        xrSetMouseMode(ctx, value);
-        setting = SETTING_MOUSE_MODE;
-        LOGEV("mouse mode %s from the Accessibility tab", cell != 0 ? "relative" : "absolute");
+    case COG_ACCESS_ROW_BUTTON:
+        // native (lane a11y-2): the next frame takes the button, or gives it back
+        value = cell != 0;
+        ctx->assistHeadsetButton = value;
+        ctx->auxEscapeUntilNs = 0;
+        setting = SETTING_ASSIST_HEADSET_BUTTON;
+        LOGEV("headset button clicks %s from the Accessibility tab", value ? "on" : "off");
         break;
     default:
         return;
     }
     out[IN_SETTING] = (float)setting;
     out[IN_SETTING_VALUE] = (float)value;
+}
+
+// Native (lane a11y-2): the Dot size track, in the 25 % steps it is stored in, so the thumb and
+// the readout show exactly what is written when the drag ends
+float cogAccessSliderValue(XrCtx* ctx, int row) {
+    if (row != COG_ACCESS_ROW_DOT) {
+        return 0.0f;
+    }
+    return lanePlace(accessDotClamp(ctx->assistDotSize), ACCESS_DOT_MIN, ACCESS_DOT_MAX);
+}
+
+void cogApplyAccessSlider(XrCtx* ctx, int row, float t) {
+    if (row != COG_ACCESS_ROW_DOT || !cogAccessRowLive(ctx, row)) {
+        return;
+    }
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    ctx->assistDotSize = ACCESS_DOT_MIN + (int)lroundf(t * (float)ACCESS_DOT_STEPS) * ACCESS_DOT_STEP;
+}
+
+void cogAccessDragEnded(XrCtx* ctx, int row, float* out) {
+    if (row != COG_ACCESS_ROW_DOT) {
+        return;
+    }
+    out[IN_SETTING] = (float)SETTING_ASSIST_DOT_SIZE;
+    out[IN_SETTING_VALUE] = (float)ctx->assistDotSize;
+    LOGEV("dot size %d%% from the Accessibility tab", ctx->assistDotSize);
+}
+
+int xrAccessHoverRow(const XrCtx* ctx) {
+    if (ctx == NULL || !ctx->cogOpen || ctx->cogTab != COG_TAB_ACCESS || ctx->cogPointV < 0.0f) {
+        return -1;
+    }
+    return accessRowAt(ctx->cogPointV);
+}
+
+float xrAssistDotScale(const XrCtx* ctx) {
+    return ctx != NULL ? accessDotScale(ctx->assistDotSize, ctx->pointerSource) : 1.0f;
 }
 
 void xrGazeWatch(XrCtx* ctx, int64_t nowNs, int focused, int actionActive) {

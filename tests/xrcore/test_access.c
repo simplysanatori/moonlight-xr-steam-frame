@@ -1,6 +1,6 @@
-// Native (lane a11y-tab): the Accessibility tab's pure parts: the dwell row's cells, the eye
-// tracking line, the pointer row's cells, the eyes pointer's fallback to the head, and the tab
-// bar's uneven slots
+// Native (lane a11y-tab, a11y-2): the Accessibility tab's pure parts: the dwell row's cells, the
+// eye tracking line, the pointer row's Eyes cell, the dot's size, the row the footer describes, the
+// eyes pointer's fallback to the head, and the tab bar's uneven slots
 #include "check.h"
 #include "xr_access.h"
 #include "xr_dwell.h"
@@ -26,27 +26,56 @@ static void testDwellCells(void) {
 
 static void testEyesState(void) {
     // not offered
-    CHECK(accessEyesState(0, 1, 1, 0) == ACCESS_EYES_UNAVAILABLE);
-    CHECK(accessEyesState(0, 0, 0, 0) == ACCESS_EYES_UNAVAILABLE);
-    // a gaze that arrived is ready, even with the system's flag at 0
-    CHECK(accessEyesState(1, 1, 0, 1) == ACCESS_EYES_READY);
-    // offered but not asked for
-    CHECK(accessEyesState(1, 0, 0, 0) == ACCESS_EYES_NOT_ASKED);
-    // asked, but the system says no (or the binding was refused)
-    CHECK(accessEyesState(1, 1, 0, 0) == ACCESS_EYES_UNAVAILABLE);
-    CHECK(accessEyesState(1, 1, 1, 0) == ACCESS_EYES_WAITING);
-    CHECK(accessEyesState(1, 1, 1, 1) == ACCESS_EYES_READY);
+    CHECK(accessEyesState(0, 0, 0) == ACCESS_EYES_UNAVAILABLE);
+    // a gaze that arrived is ready, whatever else
+    CHECK(accessEyesState(1, 0, 1) == ACCESS_EYES_READY);
+    CHECK(accessEyesState(1, 1, 1) == ACCESS_EYES_READY);
+    CHECK(accessEyesState(0, 0, 1) == ACCESS_EYES_READY);
+    // lane a11y-2: offered is always asked for; attached and waiting, or the action refused
+    CHECK(accessEyesState(1, 1, 0) == ACCESS_EYES_WAITING);
+    CHECK(accessEyesState(1, 0, 0) == ACCESS_EYES_NO_ACTION);
 }
 
-static void testPointerCells(void) {
-    // Eyes only where it works, or where it is already the setting
-    CHECK(accessPointerCells(ACCESS_EYES_READY, POINTER_SOURCE_CONTROLLER) == 3);
-    for (int st = ACCESS_EYES_WAITING; st < ACCESS_EYES_COUNT; st++) {
-        CHECK(accessPointerCells(st, POINTER_SOURCE_CONTROLLER) == 2);
-        CHECK(accessPointerCells(st, POINTER_SOURCE_HEAD) == 2);
-        CHECK(accessPointerCells(st, POINTER_SOURCE_GAZE) == 3);
-    }
+static void testEyesCell(void) {
+    // lane a11y-2: Eyes is always on the row, and takes a press unless the runtime has no eye gaze
     CHECK(COG_ACCESS_POINTER_CELLS == 3);
+    for (int st = 0; st < ACCESS_EYES_COUNT; st++) {
+        CHECK(accessEyesCellLive(st, POINTER_SOURCE_CONTROLLER) == (st != ACCESS_EYES_UNAVAILABLE));
+        CHECK(accessEyesCellLive(st, POINTER_SOURCE_HEAD) == (st != ACCESS_EYES_UNAVAILABLE));
+        // what is set is never dimmed
+        CHECK(accessEyesCellLive(st, POINTER_SOURCE_GAZE) == 1);
+    }
+}
+
+// Lane a11y-2: the dot's size
+static void testDotSize(void) {
+    CHECK(ACCESS_DOT_STEPS == 10);
+    CHECK(cogTrackSteps(COG_TAB_ACCESS, COG_ACCESS_ROW_DOT) == ACCESS_DOT_STEPS);
+    CHECK(accessDotClamp(100) == 100 && accessDotClamp(10) == 50 && accessDotClamp(999) == 300);
+    CHECK(accessDotClamp(130) == 130);
+    // the head and the eyes: percent of today's dot; the controllers: today's dot
+    CHECK(accessDotScale(100, POINTER_SOURCE_HEAD) == 1.0f);
+    CHECK(accessDotScale(50, POINTER_SOURCE_HEAD) == 0.5f);
+    CHECK(accessDotScale(300, POINTER_SOURCE_GAZE) == 3.0f);
+    CHECK(accessDotScale(250, POINTER_SOURCE_CONTROLLER) == 1.0f);
+    CHECK(accessDotScale(5000, POINTER_SOURCE_HEAD) == 3.0f);
+    // each step lands on a place of the track's eleven
+    for (int i = 0; i <= ACCESS_DOT_STEPS; i++) {
+        int pct = ACCESS_DOT_MIN + i * ACCESS_DOT_STEP;
+        CHECK_NEAR(lanePlace(pct, ACCESS_DOT_MIN, ACCESS_DOT_MAX), (float)i / ACCESS_DOT_STEPS, 1e-5);
+    }
+}
+
+// Lane a11y-2: the row the footer describes, label or cells, between rows none
+static void testRowAt(void) {
+    for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) {
+        float v = cogRowV(COG_TAB_ACCESS, row), half = cogRowHalf(COG_TAB_ACCESS);
+        CHECK(accessRowAt(v) == row);
+        CHECK(accessRowAt(v - half * 0.9f) == row && accessRowAt(v + half * 0.9f) == row);
+    }
+    CHECK(accessRowAt(0.05f) == -1);
+    CHECK(accessRowAt(COG_ACCESS_STATUS_V) == -1 && accessRowAt(COG_ACCESS_FOOTER_T) == -1);
+    CHECK(accessRowAt(-1.0f) == -1);
 }
 
 // At 90 Hz: gaze for frames [from, to) is the given value
@@ -113,16 +142,19 @@ static void testTabSlots(void) {
     for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) {
         CHECK(cogRowV(COG_TAB_ACCESS, row) - cogRowHalf(COG_TAB_ACCESS) >= COG_TAB_BAR_B);
         CHECK(cogCellHalf(COG_TAB_ACCESS) < cogRowHalf(COG_TAB_ACCESS));
-        CHECK(cogTrackSteps(COG_TAB_ACCESS, row) == 0);
+        CHECK(cogTrackSteps(COG_TAB_ACCESS, row) == (row == COG_ACCESS_ROW_DOT ? ACCESS_DOT_STEPS : 0));
     }
     CHECK(cogRowV(COG_TAB_ACCESS, COG_ACCESS_ROW_COUNT - 1) + cogRowHalf(COG_TAB_ACCESS) < COG_ACCESS_STATUS_V);
-    CHECK(COG_ACCESS_STATUS_V < COG_ACCESS_HELP_T && COG_ACCESS_HELP_T < 1.0f);
+    CHECK(COG_ACCESS_STATUS_V < COG_ACCESS_HELP_T && COG_ACCESS_HELP_T < COG_ACCESS_FOOTER_RULE);
+    CHECK(COG_ACCESS_FOOTER_RULE < COG_ACCESS_FOOTER_T && COG_ACCESS_FOOTER_T < 0.95f);
 }
 
 int main(void) {
     testDwellCells();
     testEyesState();
-    testPointerCells();
+    testEyesCell();
+    testDotSize();
+    testRowAt();
     testGazeFall();
     testTabSlots();
     return checksDone("xr_access");

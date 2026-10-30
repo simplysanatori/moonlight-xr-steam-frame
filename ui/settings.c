@@ -18,6 +18,7 @@
 #include "xr_lightgun.h"
 #include "xr_opentrack.h"
 #include "xr_dwell.h"
+#include "xr_access.h"
 #include "xr_headaim.h"
 #include "xr_padgyro.h"
 #include "xr_padmouse.h"
@@ -172,8 +173,12 @@ static const SettingDesc TABLE[] = {
     DB("vr", "opentrack", opentrack, 0, "native: while streaming, send the head pose to opentrack on the PC every frame as its UDP packet (x, y, z in cm, yaw, pitch, roll in degrees); in opentrack pick the input \"UDP over network\" on the same port"),
     DS("vr", "opentrack_host", opentrack_host, "", "native: where the opentrack packets go, an address or a name; empty sends them to the PC of the current stream"),
     // Native (lane wave4-headinput, PLAN 6.5): head Point mode
-    DE("vr", "pointer_source", pointer_source, POINTER_SOURCE_NAMES, POINTER_SOURCE_CONTROLLER, "native: what points (the cog's Accessibility tab sets it too): controller (the controllers' rays, and the eyes when gaze is on), head (the head's own ray, smoothed, with either controller's trigger as the click; for accessibility) or gaze (the Accessibility tab's Eyes: the head pointer driven by the eyes while SteamVR gives eye gaze, the head's ray while they are lost; asks for eye gaze as gaze = true does)"),
+    DE("vr", "pointer_source", pointer_source, POINTER_SOURCE_NAMES, POINTER_SOURCE_CONTROLLER, "native: what points (the cog's Accessibility tab sets it too): controller (the controllers' rays, and the eyes when gaze is on), head (the head's own ray, smoothed, with either controller's trigger as the click; for accessibility) or gaze (the Accessibility tab's Eyes: the head pointer driven by the eyes while SteamVR gives eye gaze, the head's ray while they are lost). The app asks the runtime for eye gaze whenever it offers it"),
     DI("vr", "head_dwell_ms", head_dwell_ms, 0, DWELL_MS_MAX, 0, "native: with pointer_source = head or gaze, resting the dot this long on one spot clicks it (400 to 2000 ms; the Accessibility tab offers 600, 900, 1200 and 1500); 0 is off"),
+    // Native (lane a11y-2): the Accessibility tab's Dot size
+    DI("vr", "assist_dot_size", assist_dot_size, ACCESS_DOT_MIN, ACCESS_DOT_MAX, ACCESS_DOT_DEFAULT, "native: with pointer_source = head or gaze, the size of the dot (and of its dwell ring) in percent of its usual size, 50 to 300 (the Accessibility tab's Dot size slider steps by 25); 100 is the usual size"),
+    DB("vr", "assist_headset_button", assist_headset_button, 0, "native: with pointer_source = head or gaze, the headset's side button clicks where the dot is (once a click, twice a double click, three times a right click, held a drag) instead of opening the Steam home; held 3 s it goes back to SteamVR for 15 s. Needs read access to the button's input device (gpio-keys); the Accessibility tab's Headset button"),
+    DS("vr", "assist_click_path", assist_click_path, "", "native: an OpenXR button that clicks for the head and eye pointer as the headset button does, as \"<interaction profile> <input path>\" (for example the one mlxr-hello --button-probe reports); empty is off"),
     // Native (lane headinput-finish, PLAN 4b.10)
     DE("vr", "mouse_mode", mouse_mode, MOUSE_MODE_NAMES, MOUSE_MODE_ABSOLUTE, "native: how the pointer moves the PC's mouse: absolute (the cursor goes where the ray lands, Moonlight's remote desktop mouse) or relative (the ray's movement goes as mouse motion, for games that capture the mouse)"),
     DB("vr", "back_as_guide", back_as_guide, 0, "native: in gamepad mode the Frame controllers' Back (View) button is the Guide (Xbox) button; with Start held it stays Back, so the Start and Back chords work as ever"),

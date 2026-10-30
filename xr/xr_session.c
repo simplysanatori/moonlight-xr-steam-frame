@@ -1419,15 +1419,14 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
         ctx->handAimOffered = 0;
         LOGI("hand tracking off by preference");
     }
-    // Native: the gaze extension only when the setting wants it, so a runtime
-    // that would ask for eye tracking does not ask for nothing. Native (lane
-    // a11y-tab): pointer_source = gaze (the Accessibility tab's Eyes) asks for
-    // it too, as gaze = true does.
+    // Native (lane a11y-2): the gaze extension whenever the runtime offers it,
+    // and the gaze action with it (xr_input.c), so the Accessibility tab can say
+    // whether eye gaze arrives and its Eyes cell works without config.ini.
+    // Reading the gaze points nothing: the eyes point only with gaze = true or
+    // pointer_source = gaze (gazeEnabled, headPointing). gazeAsked says, for
+    // the log, whether the settings wanted it for themselves.
     ctx->gazeOffered = ctx->eyeGaze;
     ctx->gazeAsked = s->gaze || s->pointer_source == POINTER_SOURCE_GAZE;
-    if (!ctx->gazeAsked) {
-        ctx->eyeGaze = 0;
-    }
     free(exts);
 
     const char* enabled[16];
@@ -1520,12 +1519,11 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
         LOGEV("eye gaze: the runtime does not offer XR_EXT_eye_gaze_interaction to apps%s",
               ctx->gazeAsked ? " (asked for by the settings)" : "");
     }
-    else if (!ctx->gazeAsked) {
-        LOGEV("eye gaze: XR_EXT_eye_gaze_interaction offered, not asked for (gaze = false, pointer_source is not gaze)");
-    }
     else {
-        LOGEV("eye gaze: XR_EXT_eye_gaze_interaction enabled (asked by %s), supportsEyeGazeInteraction %d%s",
-              s->gaze ? "gaze = true" : "pointer_source = gaze", ctx->gazeSupportFlag,
+        LOGEV("eye gaze: XR_EXT_eye_gaze_interaction enabled (%s), supportsEyeGazeInteraction %d%s",
+              s->gaze ? "gaze = true points with the eyes" : s->pointer_source == POINTER_SOURCE_GAZE
+              ? "pointer_source = gaze" : "watched for the Accessibility tab, pointing with it is off",
+              ctx->gazeSupportFlag,
               ctx->gazeSupportFlag == 0 ? ": the system says no eye gaze, the gaze action is kept to see" : "");
     }
     if (g_presenceOffered) {
@@ -2282,6 +2280,9 @@ int xr_app_run(const XrAppConfig* cfg) {
         if (atomic_exchange(&g_kbToggle, 0)) {
             xrKeyboardToggle(ctx, "a gamepad's Y");
         }
+        // native (lane a11y-2): the headset button, taken from SteamVR only while it may be
+        xrAuxButtonFrame(ctx, nowNs(), ctx->sessionState == XR_SESSION_STATE_FOCUSED,
+                         atomic_load(&g_streaming));
         xrUpdateInput(ctx, host.distance, host.quadWidth, host.curvature, host.live.head_locked,
                       host.live.pointer, host.live.gaze && ctx->eyeGaze, host.live.pointer_sleep, host.out);
         if (cfg->hooks.headYaw) cfg->hooks.headYaw(cfg->hooks.user, host.out[IN_HEAD_YAW]);
@@ -2819,6 +2820,7 @@ fail:
     if (ctx->localSpace) xrDestroySpace(ctx->localSpace);
     perfClose(&host);
     xrMetricsStop(ctx);
+    xrAuxButtonRelease(ctx, "the session ended");   // native (lane a11y-2)
     if (ctx->session) xrDestroySession(ctx->session);
     if (ctx->instance) xrDestroyInstance(ctx->instance);
     xr_vk_destroy(&vk);

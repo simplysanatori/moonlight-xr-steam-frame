@@ -55,6 +55,8 @@
 #include "xr_opentrack.h"
 #include "xr_dwell.h"
 #include "xr_access.h"
+#include "xr_assistclick.h"
+#include "auxbutton.h"
 #include "xr_clickhold.h"
 #include "xr_pressfix.h"
 #include "xr_gamepad.h"
@@ -983,7 +985,9 @@ typedef struct XrCtx {
     unsigned gazeFlags;
     // Native (lane a11y-tab): what the session found out about eye gaze, for the Accessibility tab's
     // eye tracking line (xr_access.h accessEyesState) and the log: the runtime offers the extension,
-    // the settings asked for it, the system's supportsEyeGazeInteraction (-1 not read), the gaze
+    // the settings wanted it for themselves (gaze = true or pointer_source = gaze; the app asks for it
+    // whenever it is offered since lane a11y-2, this is only for the log), the system's
+    // supportsEyeGazeInteraction (-1 not read), the gaze
     // binding was taken, and a usable gaze pose has arrived this session (with when the pointer's
     // eyes report was logged). gazeFall is the Eyes pointer's fallback to the head, eyesHold the
     // last tracked gaze pose (local space), held through a blink.
@@ -997,6 +1001,34 @@ typedef struct XrCtx {
     GazeFall gazeFall;
     XrPosef eyesHold;
     int eyesHoldValid;
+    // Native (lane a11y-2): the head and eye pointer's dot size in percent ([vr] assist_dot_size), and
+    // where on the settings panel (v, 0 top) the pointer is this frame, -1 off it, for the
+    // Accessibility tab's footer (which row it describes)
+    int assistDotSize;
+    float cogPointV;
+    // Native (lane a11y-2): clicks that are not a controller's trigger, for the head and eye pointer.
+    // The headset's side button: whether it is on
+    // (assist_headset_button), its device (auxDev, found as auxInfo, ACCESS_BUTTON_* in auxState),
+    // when it is back with SteamVR after the 3 s hold (auxEscapeUntilNs), the log said once. An
+    // OpenXR button that does the same (assist_click_path): its action, bound or not, last state.
+    // auxGest turns either into actions, assistPlay plays them as mouse buttons: assistButtons and
+    // assistPress are this frame's (xrAssistFrame), assistUi whether they go to our menus.
+    int assistHeadsetButton;
+    AuxDev auxDev;
+    AuxDevInfo auxInfo;
+    int auxState;
+    int auxWarned;
+    int64_t auxLookNs;
+    int64_t auxEscapeUntilNs;
+    char assistClickPath[160];
+    XrAction assistClickAction;
+    int assistClickBound;
+    int assistClickLast;
+    AuxClick auxGest;
+    AssistPlay assistPlay;
+    int assistButtons;
+    int assistPress;
+    int assistUi;
     long inputFrames;
     // Gamepad mode (M3: the pad's state is worked out as upstream does, but
     // nothing sends it to the host yet)

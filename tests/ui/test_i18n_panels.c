@@ -132,26 +132,47 @@ static void build_states(void) {
     st = add("cog-display-later", UI_PANEL_COG, &s);
     st->v.cog_tab = COG_TAB_DISPLAY;
     st->v.display_later = 0xFFFFFFFFu;
-    // Native (lane a11y-tab): the Accessibility tab with the head pointing and a dwell, and with the
-    // eyes ready (the Eyes cell up) and every switch on
+    // Native (lane a11y-tab, a11y-2): the Accessibility tab with the head pointing, a dwell, the
+    // largest dot and the footer describing Dot size; with the eyes ready and the footer on Pointer;
+    // waiting with the footer on Dwell click; and with no eye gaze offered (Eyes dimmed)
     Settings head = s;
     head.pointer_source = POINTER_SOURCE_HEAD;
     head.head_dwell_ms = 900;
+    head.assist_dot_size = ACCESS_DOT_MAX;
     st = add("cog-access-head", UI_PANEL_COG, &head);
     st->v.cog_tab = COG_TAB_ACCESS;
-    st->v.access_eyes = ACCESS_EYES_NOT_ASKED;
+    st->v.access_eyes = ACCESS_EYES_NO_ACTION;
+    st->v.access_row = COG_ACCESS_ROW_DOT;
     Settings eyes = s;
     eyes.pointer_source = POINTER_SOURCE_GAZE;
     eyes.head_dwell_ms = 1500;
-    eyes.head_look = 1;
-    eyes.back_as_guide = 1;
-    eyes.mouse_mode = MOUSE_MODE_RELATIVE;
     st = add("cog-access-eyes", UI_PANEL_COG, &eyes);
     st->v.cog_tab = COG_TAB_ACCESS;
     st->v.access_eyes = ACCESS_EYES_READY;
-    st = add("cog-access-waiting", UI_PANEL_COG, &s);
+    st->v.access_row = COG_ACCESS_ROW_POINTER;
+    st = add("cog-access-waiting", UI_PANEL_COG, &head);
     st->v.cog_tab = COG_TAB_ACCESS;
     st->v.access_eyes = ACCESS_EYES_WAITING;
+    st->v.access_row = COG_ACCESS_ROW_DWELL;
+    st = add("cog-access-no-eyes", UI_PANEL_COG, &s);
+    st->v.cog_tab = COG_TAB_ACCESS;
+    st->v.access_eyes = ACCESS_EYES_UNAVAILABLE;
+    // the headset button on, the footer on the button's two lines; the button's device unreadable
+    // and missing
+    Settings radial = head;
+    radial.assist_headset_button = 1;
+    st = add("cog-access-button", UI_PANEL_COG, &radial);
+    st->v.cog_tab = COG_TAB_ACCESS;
+    st->v.access_eyes = ACCESS_EYES_READY;
+    st->v.access_row = COG_ACCESS_ROW_BUTTON;
+    st = add("cog-access-button-unreadable", UI_PANEL_COG, &radial);
+    st->v.cog_tab = COG_TAB_ACCESS;
+    st->v.access_button = ACCESS_BUTTON_UNREADABLE;
+    st->v.access_row = COG_ACCESS_ROW_BUTTON;
+    st = add("cog-access-button-missing", UI_PANEL_COG, &radial);
+    st->v.cog_tab = COG_TAB_ACCESS;
+    st->v.access_button = ACCESS_BUTTON_MISSING;
+    st->v.access_row = COG_ACCESS_ROW_DWELL;
     st = add("cog-about-nolog", UI_PANEL_COG, &s);
     st->v.cog_tab = COG_TAB_ABOUT;
     st->v.log_path = NULL;

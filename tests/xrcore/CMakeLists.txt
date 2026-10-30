@@ -3,7 +3,7 @@
 set(XRCORE_TESTS math depthmap atlas roommesh layout audio rate gate pinch notice
                  glow grade keys controller headaim gamepad gamepad_frame clickhold pressfix
                  gamepad_guide gamepad_rumble ray bind bindrun scroll padmouse presence hud battery
-                 hostkeys lightgun padgyro abr kofi opentrack dwell access)
+                 hostkeys lightgun padgyro abr kofi opentrack dwell access assistclick)
 foreach(t ${XRCORE_TESTS})
   add_executable(test_${t} test_${t}.c)
   target_link_libraries(test_${t} PRIVATE mlxr_xrcore m)
