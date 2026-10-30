@@ -6,6 +6,8 @@
 #ifndef UI_STRINGS_H
 #define UI_STRINGS_H
 
+#include <stddef.h>
+
 #define UI_STRINGS(X) \
     /* settings panel tabs and rows (vr_panel_*) */ \
     X(TAB_SCREEN, "vr_panel_tab_screen", "Screen") \
@@ -248,5 +250,10 @@ const char* ui_str_lang(int lang, UiStr id);
 int ui_str_translated(int lang, UiStr id);
 void ui_str_set_lang(int lang);          // out of range means English
 int ui_str_lang_current(void);
+// What the app does once at start: sets the language and, for Chinese, Japanese and Korean, gives
+// the shared font (text.h ui_font_default) the system's Noto Sans CJK as its fallback, found under
+// $MLXR_SYSTEM_FONT_DIR or /usr/share/fonts. Without it, or when it lacks a glyph the language's
+// strings use, the language is English. Returns the language set; msg gets a line for the log.
+int ui_lang_start(int lang, char* msg, size_t cap);
 
 #endif

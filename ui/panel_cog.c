@@ -18,8 +18,29 @@
 
 static float row_y(Dc* dc, int face, int row) { return cogRowV(face, row) * dc->nh; }
 
+// Native (lane wave6-i18n): a row's label is drawn once the row knows its room: up to the row's
+// readout when it has one (readout below), else up to the track or the cells. A longer label (a
+// translation) shrinks to fit, as the cells' names do; English labels fit and are drawn as before.
+#define LABEL_MIN_SIZE 14.0f
+static void label_flush(Dc* dc, float right) {
+    const char* text = dc->label_text;
+    if (!text) return;
+    dc->label_text = NULL;
+    float room = right - LABEL_X * dc->nw;
+    float size = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, LABEL_SIZE * dc->k, LABEL_MIN_SIZE * dc->k, text,
+                                  room * dc->k) / dc->k;
+    dc_text_left_mid(dc, UI_WEIGHT_REGULAR, size, LABEL_X * dc->nw, dc->label_y, dc->label_live ? WHITE : DIM, text);
+}
+
+// Where a label may reach on a row without a readout: short of the track's step button (and of the
+// cells, which start further right)
+static float label_right(Dc* dc) { return (COG_TRACK_L - COG_CHEVRON_REACH) * dc->nw - 6.0f; }
+
 static void label(Dc* dc, const char* text, float y, int live) {
-    dc_text_left_mid(dc, UI_WEIGHT_REGULAR, LABEL_SIZE, LABEL_X * dc->nw, y, live ? WHITE : DIM, text);
+    label_flush(dc, label_right(dc));
+    dc->label_text = text;
+    dc->label_y = y;
+    dc->label_live = live;
 }
 
 // Why a row is greyed, across where its track or cells would be
@@ -101,6 +122,8 @@ static void reset_button(Dc* dc) {
 
 static void readout(Dc* dc, float row_v, const char* text) {
     float right = COG_READOUT_L * dc->nw + COG_READOUT_TEX_W - 8.0f;
+    // the row's label stops short of the readout
+    label_flush(dc, right - dc_text_width(dc, UI_WEIGHT_REGULAR, 20.0f, text) - 10.0f);
     UiFontMetrics m;
     ui_font_metrics(dc->font, UI_WEIGHT_REGULAR, 20.0f * dc->k, &m);
     dc_text(dc, UI_WEIGHT_REGULAR, 20.0f, right, row_v * dc->nh + m.cap_height * 0.5f / dc->k, UI_ALIGN_RIGHT,
@@ -278,8 +301,16 @@ static void tab_display(Dc* dc) {
             // the controllers' own shortcut under the label
             static const UiStr HINT[3] = { UIS_SHORTCUT_MENU_GRIP, UIS_SHORTCUT_STICKS, UIS_SHORTCUT_TRIGGERS_GRIPS };
             int sc = s->gamepad_toggle < 0 || s->gamepad_toggle > 2 ? 0 : s->gamepad_toggle;
-            dc_text(dc, UI_WEIGHT_REGULAR, LABEL_SIZE, LABEL_X * dc->nw, y - 2.0f, UI_ALIGN_LEFT, ink, ui_str(ROWS[row]));
-            dc_text(dc, UI_WEIGHT_REGULAR, 15.0f, LABEL_X * dc->nw, y - 2.0f + 15.0f, UI_ALIGN_LEFT, 0x99FFFFFFu, ui_str(HINT[sc]));
+            // native (lane wave6-i18n): under a label that reaches below its baseline (a translation's
+            // p, j, р) the shortcut line moves down clear of it, into the room above the next row;
+            // "Mode" does not, and both stay where they were. A long label shrinks to its room.
+            float below = 0.0f;
+            ui_text_ink_extent(dc->font, UI_WEIGHT_REGULAR, LABEL_SIZE * dc->k, ui_str(ROWS[row]), NULL, &below);
+            float drop = below / dc->k > 2.5f ? below / dc->k - 2.5f : 0.0f;
+            float fit = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, LABEL_SIZE * dc->k, LABEL_MIN_SIZE * dc->k, ui_str(ROWS[row]),
+                                         (label_right(dc) - LABEL_X * dc->nw) * dc->k) / dc->k;
+            dc_text(dc, UI_WEIGHT_REGULAR, fit, LABEL_X * dc->nw, y - 2.0f, UI_ALIGN_LEFT, ink, ui_str(ROWS[row]));
+            dc_text(dc, UI_WEIGHT_REGULAR, 15.0f, LABEL_X * dc->nw, y - 2.0f + 15.0f + drop, UI_ALIGN_LEFT, 0x99FFFFFFu, ui_str(HINT[sc]));
         } else {
             label(dc, ui_str(ROWS[row]), y, live);
         }
@@ -441,6 +472,7 @@ void panel_cog(Dc* dc) {
     int tab = dc->v->cog_tab < 0 || dc->v->cog_tab >= COG_TAB_COUNT ? COG_TAB_SCREEN : dc->v->cog_tab;
     // in a room the Screen tab's slot is the Room tab, and every other tab is as ever
     int room_up = dc->v->room_env >= 0 && settings_room_index(dc->v->room_env) >= 0;
+    dc->label_text = NULL;
     chrome(dc, tab, room_up);
     switch (face) {
     case COG_TAB_SCREEN: tab_screen(dc); break;
@@ -451,5 +483,6 @@ void panel_cog(Dc* dc) {
     case COG_TAB_ABOUT: tab_about(dc); break;
     default: break;
     }
+    label_flush(dc, label_right(dc));
     (void)in_room;
 }

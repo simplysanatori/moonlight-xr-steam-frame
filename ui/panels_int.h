@@ -15,6 +15,11 @@ typedef struct {
     float nw, nh;      // native size of the panel
     float kx, ky;      // canvas / native
     float k;           // size scale (kx)
+    // native (lane wave6-i18n): the settings panel's row label waiting to be drawn once its row
+    // knows how much room it has (panel_cog.c label)
+    const char* label_text;
+    float label_y;
+    int label_live;
 } Dc;
 
 void dc_init(Dc* dc, UiCanvas* cv, UiHits* hits, const UiView* v, int native_w, int native_h);
