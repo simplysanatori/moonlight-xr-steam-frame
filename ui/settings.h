@@ -70,6 +70,7 @@ typedef struct Settings {
     int bitrate_adapter;   // ... over the Steam Frame Wireless Adapter
     int bitrate_wired;     // ... over a wired network
     int bitrate_usb;       // ... over the USB cable
+    int rfi_idr_ms;        // native (lane wave1-burst): at most one IDR frame request of the client's own per this many ms; 0 no cap
 
     // [vr] VR Settings table
     int pointer;           // Controllers as a mouse

@@ -92,6 +92,7 @@ static const SettingDesc TABLE[] = {
     DI("stream", "bitrate_adapter", bitrate_adapter, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: the same for the Steam Frame Wireless Adapter; 0 uses the launcher's bitrate"),
     DI("stream", "bitrate_wired", bitrate_wired, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: the same for a wired network (the headset's ethernet); 0 uses the launcher's bitrate"),
     DI("stream", "bitrate_usb", bitrate_usb, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: the same for the USB cable; 0 uses the launcher's bitrate"),
+    DI("stream", "rfi_idr_ms", rfi_idr_ms, 0, 5000, 500, "native: after lost video, the headset asks the PC for a full (IDR) frame at most once in this many ms; a full frame is large, and asked for again while the Wi-Fi is still losing packets it makes the stall longer. 0 no limit"),
     // TODO(PLAN 6.4): auto_desktop (open the host's Desktop app without the app list) comes
     // back when something reads it. Dropped with vr_mode, check_updates, language and
     // doff_grace, which were written with descriptions and read by nothing; old files that

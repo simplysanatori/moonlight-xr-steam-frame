@@ -37,6 +37,13 @@ static const Contract contracts[] = {
     {"ControlStream.c", "Invalidate reference frame request sent (%d to %d)", "Invalidate reference frame request", "rfi_watch.c"},
     {"VideoDepacketizer.c", "Sending speculative RFI request for predicted loss of frame %d", "RFI request", "rfi_watch.c"},
     {"VideoDepacketizer.c", "Sending RFI request for unrecoverable frame %d", "RFI request", "rfi_watch.c"},
+    // rfi_watch.c (lane wave1-burst): the burst tracker's and the adaptive wait's kinds (mlxr_burst_classify)
+    {"VideoDepacketizer.c", "Sending speculative RFI request for predicted loss of frame %d", "RFI request for", "rfi_watch.c burst"},
+    {"VideoDepacketizer.c", "Sending RFI request for unrecoverable frame %d", "RFI request for", "rfi_watch.c burst"},
+    {"VideoDepacketizer.c", "Requesting IDR frame on behalf of DR", "Requesting IDR frame on behalf of DR", "rfi_watch.c burst"},
+    {"VideoDepacketizer.c", "Network dropped %d frames (frames %d to %d)", "Network dropped ", "rfi_watch.c burst"},
+    {"ControlStream.c", "IDR frame request sent", "IDR frame request sent", "rfi_watch.c burst"},
+    {"RtpVideoQueue.c", "Unrecoverable frame %d (block %d of %d): %d+%d=%d received < %d needed", "Unrecoverable frame", "rfi_watch.c burst"},
     // log_throttle.c: the lines written at most about once a second (the parsers above still see all)
     {"RtpVideoQueue.c", "Unrecoverable frame %d: %d+%d=%d received < %d needed", "Unrecoverable frame", "log_throttle.c"},
     {"RtpVideoQueue.c", "Unrecoverable frame %d: lost FEC blocks %d to %d", "Unrecoverable frame", "log_throttle.c"},
