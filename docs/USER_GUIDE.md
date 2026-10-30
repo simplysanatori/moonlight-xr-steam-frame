@@ -16,6 +16,7 @@ This guide covers version 1.0.1. For install, update and uninstall, see the [REA
 - [SBS 3D](#sbs-3d)
 - [Keyboards, mice and gamepads](#keyboards-mice-and-gamepads)
 - [Host: keys for the PC](#host-keys-for-the-pc)
+- [PC VR](#pc-vr)
 - [Ending a stream](#ending-a-stream)
 - [Recommended PC settings](#recommended-pc-settings)
 - [Troubleshooting](#troubleshooting)
@@ -59,6 +60,7 @@ The page has the categories below, in this order. A greyed row shows "Not availa
 | Setting | Options | Notes |
 | --- | --- | --- |
 | Network connection | **Automatic**, **Wi-Fi (*network name*, *band*)**, **Steam Frame Wireless Adapter (6 GHz)**, **USB cable** | Automatic (the default) tries every link that is there when a stream starts (Wi-Fi, the adapter and a USB cable, see [USB cable](#usb-cable)) and uses the one with the lower latency and the fewer losses. It sends about 15 short probes down each link (about a second in all) and gives each link a score in milliseconds, lower is better: the median round trip, plus the jitter, plus how far the slowest probes run above the median, plus 50 ms for every probe that failed, plus a penalty from the last stream on that link. That penalty applies when the last stream lost more than 0.5 percent of its frames on the network: 20 ms for each percent, at most 150 ms. A link with no history gets no penalty. The lowest score wins. When two scores are within 3 ms of each other, the stronger signal and faster link rate break the tie, and Wi-Fi wins a tie after that. Signal and link rate no longer decide on their own. A link that does not answer is never used. The client keeps the last stream's numbers for each link in `netpath-history.ini` next to `config.ini` (frames received, frames lost, jitter, round trip and the time; no addresses or names). It writes them when a stream ends, after at least 500 frames. Delete the file to forget them. History older than 14 days is ignored. Wi-Fi streams over your home network. The adapter option streams over the Steam Frame Wireless Adapter plugged into your PC. The USB cable option streams over a USB data cable between the headset and your PC. Before it tries the adapter, the client checks that the adapter is there: the headset's own adapter network (`wlanap`) must be up and your PC must be connected to it. With no adapter found, Automatic uses Wi-Fi without trying the adapter, and if you chose the adapter the client uses Wi-Fi and shows a notice in the headset ("Steam Frame Wireless Adapter not reachable (no adapter found: ...). Using Wi-Fi."). If the chosen link does not answer, the client uses the other one and says so in the headset. |
+| Full-frame requests after lost video | **No limit**, **250 ms**, **500 ms**, **1000 ms**, **2000 ms** | 500 ms (the default). When video is lost and the PC's quick repair does not come, the headset asks the PC for a full picture (an IDR frame). A full picture is large: asked for again while the Wi-Fi is still losing packets, it lands in the same bad moment and makes the freeze longer. This is the least time between two such requests of the headset's own. Pressing the row steps through the choices. It is `rfi_idr_ms` in `config.ini`'s `[stream]` section. |
 
 ### USB cable
 
@@ -119,6 +121,10 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 | Smart Clipboard Sync (Experimental) | on, off | off. Needs Apollo. |
 | Quick Resume | on, off | off. Selecting a running app resumes it at once. |
 | Enable Full Screen | on, off | Takes effect at the next start. |
+
+### PC VR
+
+Four rows for the Host sheet's PC VR button: the check, the PC, the game and the game's Steam app id. They are described under [PC VR](#pc-vr).
 
 ### Performance Monitor and Advanced Settings
 
@@ -465,6 +471,8 @@ The **Host** sheet is a grid of keys to send to the PC, for the ones a headset k
 
 After those come your own macros, up to eight.
 
+In the header, left of **Close**, is **PC VR**: it hands the headset to Valve's Steam Link, see [PC VR](#pc-vr).
+
 ### Macros
 
 Macros live in `macros.ini` next to `config.ini` (`~/.config/moonlight-xr/macros.ini`, or `$MLXR_CONFIG_DIR/macros.ini`). The Host sheet reads it each time it opens, so you can edit it and open the sheet again without restarting. A line is `name = steps`. The steps are separated by spaces or commas:
@@ -488,6 +496,29 @@ Lock PC = !win+l
 ```
 
 A line that is not right is left out, the rest still work, and `moonlight.log` names the first one and why. Up to 16 macros of 32 steps each; the sheet shows the first eight.
+
+## PC VR
+
+The **PC VR** button on the Host sheet ends this stream and has the headset's Steam stream a VR game from your PC. **This is Valve's Steam Link, not Moonlight.** The picture, the head and controller tracking, the eye-tracked foveation and the audio all come from Valve's own streaming; Moonlight XR for Frame only gets out of the way. Moonlight and Apollo cannot carry a headset's position to the PC, so there is no PC VR inside this client, and none is planned.
+
+What you need: the headset and the PC signed in to the same Steam account, the headset paired with the PC in Steam (Valve's setup: plug the Steam Frame Wireless Adapter into the PC, start SteamVR on it, pair), and the VR game installed on the PC. This works only when the stream was started from the flat Moonlight XR window (the Steam shortcut). Started straight from the headset's own PC list it says so and carries on.
+
+**What happens.** You press **PC VR** and confirm (**Switch** or **Cancel**). The Moonlight stream stops, but your session on the PC keeps running, as with **Disconnect**. The flat window then asks Steam, through Steam's local debugging port, to stream the game you chose on the Settings page. If you chose none, it opens Steam's library instead and you press **Stream from your PC** on a game yourself. When Valve's stream ends, the flat window comes back as after any other stream.
+
+**Choosing the game.** On the flat window's Settings page, under **PC VR**:
+
+| Row | What it does |
+| --- | --- |
+| Switch to PC VR | Press it to check Steam and list the PCs you paired with and their games. It also shows what is wrong when something is: Steam's debugging port not answering, the call missing on this version of Steam. |
+| PC to stream from | One of the listed PCs. The default is the only paired PC. |
+| PC VR game | One of the listed games (VR ones are marked), or none: Steam's library opens. |
+| PC VR game: Steam app id | The same choice typed by hand, for when Steam does not list the PC's games. The id is the number in the game's store page address. |
+
+**Limits, honestly.**
+- It needs Steam's debugging port (port 8080 on the headset), the same one the flat window's return from a stream uses. SteamOS updates can move or close it. The launcher checks it when it starts in Game Mode and logs `Steam CEF preflight: ...` in `moonlight-launcher.log`; the Settings page shows the same sentence. If it fails, the hand-off cannot work; `python3 -I steam_cef.py --probe` in a terminal on the headset says why, and `STEAM_CEF_PORT=<port>` points it elsewhere.
+- The calls it makes (`SteamClient.Apps.StreamGame` and the Remote Play device list) are Steam's own client functions that Valve does not document. Their exact form on the Frame's Steam can change with an update. If Steam refuses, nothing is harmed: the stream has already stopped, the flat window is still there, and the log has the reason.
+- Whether Steam starts the stream while this app's shortcut is still the running game is not yet confirmed on the headset. If it does not, quit this app from the Steam library and use Valve's own **Stream from your PC** on the game.
+- For developers: after a SteamOS or SteamVR update, `python3 tools/probe/doctor.py` in the source tree (in a terminal on the headset, with the client closed, `mlxr-hello` built) compares what the headset's OpenXR runtime offers with the last known good probe and prints what changed, and checks Steam's debugging port. `--save` keeps the current probe as the new baseline.
 
 ## Ending a stream
 
@@ -533,18 +564,20 @@ This uses the headset sensor through `XR_EXT_user_presence`. `moonlight.log` has
 
 | Problem | What to check |
 | --- | --- |
+| The picture freezes or drops to a few frames a second for a moment, the sound lags | Packets are lost in bursts. `moonlight.log` has one `video: burst at <time> for <N> ms: ...` line when such a burst ends: how many frames were lost on the network, how many whole frames were thrown away waiting for a repair (`dropped waiting for RFI / IDR`), how many full frames were asked for (`IDR requests sent`, `asked here`, `held back ... by rfi_idr_ms`) and whether the picture came back by the quick repair (`recovered by RFI`), by a full frame (`recovered by IDR`) or neither. During the burst the per-frame lines (`Waiting for RFI frame` and the like) are written once each and then only counted. Many bursts with `recovered by IDR` and several `IDR requests sent` each: try a larger `rfi_idr_ms`, a lower bitrate or another link. The 5 s line in the log adds `rx drop misc`: packets the headset's network interface or the system threw away before the app could read them (`drop`, `err`, `fifo` on the interface, `udp mem` and `csum`); they are not the network's losses. `own sockets` says how many of the receive-buffer drops were this app's. |
 | Judder or stutter | Turn on Stats (Display tab). `Display 90 Hz, 90 fps` means the headset draws every frame. If `Video ... fps` is low, the PC is sending fewer frames: check the PC's display rate. If `idr requests` keeps rising, packets are being lost: lower the bitrate or try the other link. `vrtiming.log` shows SteamVR's dropped and reprojected frames. |
 | Crackling sound | The stats line `audio ... underruns, ... lost` counts gaps. Lost packets are the network. On the adapter link, lower the bitrate. |
 | Which link is in use | `moonlight.log` has `network path: using Wi-Fi (...)` or the adapter, when the stream starts. The line before it, `network path: chose ...`, gives both scores and what decided it (latency, failed probes or the last stream's losses), and `network path: history: ...` shows what the last stream on each link lost. The headset shows a notice when it falls back to the other link. |
 | The USB cable is never used | `moonlight.log` has a line `network path: USB cable: ...`. `usb0 up, carrier on, 3 peer candidates` means the headset sees the cable and tried three addresses on it: if none answered, check on the PC that the new network adapter is up, set to Private, and that Apollo or Sunshine is allowed through the firewall. `usb0 down (no cable, or the PC end is not up)` means no PC is on the other end: try another cable (it must carry data) or another USB port. No `USB cable` line at all means the headset is not in developer mode, so it has no USB network. In a terminal on the headset, `mlxr-cli probe-paths --network usb` prints the same check and the result for each address, and starts no stream. |
 | The adapter is never used | `moonlight.log` has a line `network path: Steam Frame Wireless Adapter: ...`. `present (...)` means the PC is connected to the headset's adapter network. `no adapter found (wlanap up, no station)` means the headset's adapter network is on but no PC has joined it: plug the Steam Frame Wireless Adapter into the PC and wait for it to connect. `no adapter found (wlanap down)` or `(wlanap missing)` means the headset's adapter network is off. In a terminal, `mlxr-cli adapter` prints the same check and does not start a stream. |
 | Cannot reach the PC | `moonlight.log` has `host ... not reachable at ...` for each address tried. Check the PC is on and Sunshine or Apollo is running. |
+| PC VR does nothing, or Steam's library opens instead of the game | The Settings page's first PC VR row shows the reason. `moonlight-launcher.log` has `Steam CEF preflight:` at start (Game Mode) and `Asked Steam for PC VR:` after the button. `python3 -I steam_cef.py --probe` prints whether Steam's debugging port answers and whether the calls are there; `--devices` lists the paired PCs; `--apps --client <id>` lists their games. The library opens when no game is chosen. |
 | The flat window does not come back after a stream | Open the app again from the Steam library. `moonlight-launcher.log` shows `Asked Steam to show the flat screen again` and the `flat window` lines (what the window did after the stream). |
 | Grey icon in the SteamVR dock | Restart Steam once after the first install. |
 | 3D tab greyed | The tab says why. If the depth model did not load, the log has the error. |
 | The stream did not start | The flat window shows the client's error. `moonlight-console.log` has the details. |
 
-Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use the zip from `bug-report.sh`. It holds the logs, your headset note, the settings you changed and a short version summary, all masked, and nothing else. It leaves out `hosts.ini`, keys and certificates. Look inside before you share it.
+Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report freezes or stutter, say roughly when they happened: `moonlight.log`'s `video: burst at` lines carry the time, and the line written every 5 seconds has the round trip, the frames lost and dropped, `bursts N (longest N ms)`, `udp rcvbuf errors` and `rx drop misc` for those 5 seconds. To share them, use the zip from `bug-report.sh`. It holds the logs, your headset note, the settings you changed and a short version summary, all masked, and nothing else. It leaves out `hosts.ini`, keys and certificates. Look inside before you share it.
 
 ## Advanced: config.ini
 
@@ -583,6 +616,7 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | `[stream] bitrate_kbps` | 0, or 500 to 500000 | 0, which follows the resolution and refresh rate. A bitrate the flat window passes for a stream overrides it. The flat window's Custom bitrate goes up to 500 Mbps, and so does this. |
 | `[stream] doff_disconnect` | 0 to 3600 (seconds) | 60. How long the headset can stay off before the stream is disconnected (the game keeps running on the PC). 0 never. |
 | `[stream] idle_disconnect` | 0 to 1440 (minutes) | 0 (off). Disconnects the stream after this long with no input. |
+| `[stream] rfi_idr_ms` | 0 to 5000 (ms) | 500. After lost video, the headset asks the PC for a full (IDR) frame at most once in this time. 0 no limit. The PC's own requests from the streaming library cannot be held back; the log counts them. The flat window's Settings page has the same choice under Connection. |
 | `[stream] virtual_surround` | `true`, `false` | `false`. Places 5.1 and 7.1 speakers around you in stereo. |
 | `[debug] file_log` | `off`, `basic`, `verbose` | `basic` |
 
@@ -598,7 +632,8 @@ These are for testing and debugging. Most users never need them. Put them in fro
 | `MLXR_VIDEO_PACING` | 2 | 2 low latency, 1 smooth, 0 always the newest frame. |
 | `MLXR_VIDEO_PRIORITY` | `nice` | `off`, `nice` or `rt` for the video threads. |
 | `MLXR_VIDEO_RFI` | 1 | 0 turns off reference frame invalidation (HEVC loss recovery). |
-| `MLXR_VIDEO_RFI_IDR_MS` | 100 | How long a recovery may take before a full frame is asked for. |
+| `MLXR_VIDEO_RFI_IDR_MS` | 100 | The shortest time a recovery may take before a full frame is asked for. The wait grows to three round trips on a slow link, and while the link is still losing frames it lasts until the link has been clean that long. |
+| `MLXR_VIDEO_RFI_IDR_MAX_MS` | 1000 | The longest that wait grows to: after it a full frame is asked for even if frames are still being lost. |
 | `MLXR_VIDEO_IDR_MIN_MS` | 100 | After a decoder error, a full frame is asked for at most this often (0: no limit). |
 | `MLXR_PACER_CUSHION` | 3 | Decoded frames held for pacing (2 or 3). |
 | `MLXR_VIDEO_LATCH_MS` | 4 | 0 to 8 ms the pacer waits for a frame in decode. |

@@ -831,9 +831,10 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
         v.hover.a = k.zone;
     }
     else if (k.zone == XR_HOST_ZONE_CLOSE || k.zone == XR_HOST_ZONE_CONFIRM_SEND
-             || k.zone == XR_HOST_ZONE_CONFIRM_CANCEL) {
+             || k.zone == XR_HOST_ZONE_CONFIRM_CANCEL || k.zone == XR_HOST_ZONE_PCVR) {
         v.hover.kind = UI_HIT_BUTTON;
         v.hover.a = k.zone == XR_HOST_ZONE_CLOSE ? UI_BTN_HOST_CLOSE
+                  : k.zone == XR_HOST_ZONE_PCVR ? UI_BTN_HOST_PCVR
                   : k.zone == XR_HOST_ZONE_CONFIRM_SEND ? UI_BTN_HOST_CONFIRM : UI_BTN_HOST_CANCEL;
     }
     v.host_macros = k.count;
