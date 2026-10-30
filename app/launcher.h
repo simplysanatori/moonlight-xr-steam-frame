@@ -50,6 +50,7 @@ typedef struct {
     int appId;
     int quitFirst;
     int quitHost;
+    int pcvr;           // LCMD_STOP: the stream stops for the hand-off to PC VR (the exit code says so)
 } LaunchCmd;
 
 typedef struct Launcher {
@@ -107,6 +108,10 @@ void launcher_disconnect_bar(Launcher* l);
 // (doff_disconnect), and when nothing was pressed for the configured minutes (idle_disconnect)
 void launcher_disconnect_doff(Launcher* l);
 void launcher_disconnect_idle(Launcher* l);
+// Native (PLAN 4.1): leaves the stream for the hand-off to PC VR (Valve's Steam Link stream of the
+// PC): LCMD_STOP with quitHost 0 (the host's session keeps running, as with Disconnect) and pcvr
+// set, which makes the process end with the PC VR exit code. Outside a stream it does nothing.
+void launcher_pcvr(Launcher* l);
 
 // ---- what the worker and the frame loop take ----
 int launcher_take_cmd(Launcher* l, LaunchCmd* out);
