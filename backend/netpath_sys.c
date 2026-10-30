@@ -11,6 +11,7 @@
 #include <linux/netlink.h>
 #include <linux/nl80211.h>
 #include <net/if.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <signal.h>
@@ -345,6 +346,53 @@ int mlxr_netifs_read(mlxr_netifs *t)
         close(s.fd);
     }
     return t->n;
+}
+
+/* ---------------------------------------------------------------- route lookup (Native, lane vpn-fallback) */
+
+bool mlxr_net_route_ifname(const mlxr_netifs *t, const char *addr, char *out, size_t cap)
+{
+    if (!addr || !out || !cap) return false;
+    out[0] = 0;
+    char a[128];
+    mlxr_strlcpy(a, addr, sizeof a);
+    mlxr_trim(a);
+    struct addrinfo hints = { 0 }, *ai = NULL;
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV;
+    if (getaddrinfo(a, "9", &hints, &ai) != 0 || !ai) return false;
+    bool found = false;
+    int fd = socket(ai->ai_family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    /* connect() on UDP only asks the kernel for the route; nothing is sent */
+    if (fd >= 0 && connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) {
+        struct sockaddr_storage ss;
+        socklen_t sl = sizeof ss;
+        if (getsockname(fd, (struct sockaddr *)&ss, &sl) == 0) {
+            if (ss.ss_family == AF_INET && t) {
+                uint32_t src = ntohl(((struct sockaddr_in *)&ss)->sin_addr.s_addr);
+                for (int k = 0; k < t->n && !found; k++)
+                    if (t->v[k].addr == src) {
+                        mlxr_strlcpy(out, t->v[k].name, cap);
+                        found = true;
+                    }
+            } else if (ss.ss_family == AF_INET6) {
+                struct ifaddrs *ifa = NULL;
+                if (getifaddrs(&ifa) == 0) {
+                    const struct in6_addr *src = &((struct sockaddr_in6 *)&ss)->sin6_addr;
+                    for (struct ifaddrs *x = ifa; x && !found; x = x->ifa_next)
+                        if (x->ifa_addr && x->ifa_addr->sa_family == AF_INET6 &&
+                            !memcmp(&((struct sockaddr_in6 *)x->ifa_addr)->sin6_addr, src, sizeof *src)) {
+                            mlxr_strlcpy(out, x->ifa_name, cap);
+                            found = true;
+                        }
+                    freeifaddrs(ifa);
+                }
+            }
+        }
+    }
+    if (fd >= 0) close(fd);
+    freeaddrinfo(ai);
+    return found;
 }
 
 /* ---------------------------------------------------------------- station link */

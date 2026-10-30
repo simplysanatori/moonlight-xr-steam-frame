@@ -110,6 +110,7 @@ mlxr_failover_out mlxr_failover_decide(const mlxr_failover_in *in)
         const mlxr_failover_cand *c = &in->cand[i];
         if (c->path == in->cur_path || c->path == MLXR_PATH_NONE || !c->present || c->score_ms < 0) continue;
         if (in->now_ms - c->probed_ms > MLXR_FAILOVER_PROBE_MAX_AGE_MS) continue;
+        if (in->vpn_only_away && c->vpn && !in->cur_vpn) continue;   /* Native (lane vpn-fallback): never direct -> VPN */
         if (!best || c->score_ms < best->score_ms || (c->score_ms == best->score_ms && c->path < best->path)) best = c;
     }
     if (!best) { o.reason = MLXR_FO_STAY_NO_ALTERNATIVE; return o; }
