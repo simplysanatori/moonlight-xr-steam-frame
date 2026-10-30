@@ -15,6 +15,7 @@
 
 #include "backend.h"
 #include "check.h"
+#include "failover.h"
 #include "fake_host.h"
 #include "netpath.h"
 #include "nethistory.h"
@@ -930,14 +931,19 @@ static void test_history_file(void)
     CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 1);
     CHECK(h.e[1].valid && h.e[1].frames == 4300);
 
-    /* a stream ends: placed by its address on the real interfaces (loopback is "home"); short streams are not kept */
+    /* a stream ends: placed by its address on the real interfaces (a documentation address goes out by the default
+     * route, "home"); short streams are not kept. Native (lane vpn-fallback): nor are streams over a VPN address
+     * (loopback, the shared address range), which say nothing about the home link */
     unlink(path);
-    CHECK(!mlxr_nethist_record_stream(dir, "127.0.0.1", 300, 100, 1, 2, 1790000000));   /* 400 frames */
+    CHECK(!mlxr_nethist_record_stream(dir, "192.0.2.10", 300, 100, 1, 2, 1790000000));   /* 400 frames */
     CHECK(access(path, F_OK) != 0);
-    CHECK(mlxr_nethist_record_stream(dir, "127.0.0.1", 12000, 36, 0.8, 2.0, 1790000000));
+    CHECK(!mlxr_nethist_record_stream(dir, "127.0.0.1", 12000, 36, 0.8, 2.0, 1790000000));
+    CHECK(!mlxr_nethist_record_stream(dir, "100.64.0.5", 12000, 36, 0.8, 2.0, 1790000000));
+    CHECK(access(path, F_OK) != 0);
+    CHECK(mlxr_nethist_record_stream(dir, "192.0.2.10", 12000, 36, 0.8, 2.0, 1790000000));
     CHECK_EQ_INT(mlxr_nethist_load(dir, &h), 1);
     CHECK(h.e[MLXR_NETHIST_HOME].frames == 12000 && h.e[MLXR_NETHIST_HOME].lost == 36);
-    CHECK(!mlxr_nethist_record_stream(NULL, "127.0.0.1", 12000, 36, 0.8, 2.0, 0));
+    CHECK(!mlxr_nethist_record_stream(NULL, "192.0.2.10", 12000, 36, 0.8, 2.0, 0));
     unlink(path);
     rmdir(dir);
 }
@@ -1674,6 +1680,306 @@ static void test_failover_select(fake_host *h)
     mlxr_net_quality_reset();
 }
 
+/* ---------------------------------------------------------------- Native (lane vpn-fallback): VPN addresses */
+
+static void test_vpn_classify(void)
+{
+    /* the shared address range, 100.64.0.0/10, by number (its far end is not a documentation address) */
+    CHECK(mlxr_net_ipv4_is_vpn(0x64400000u) && mlxr_net_ipv4_is_vpn(0x647fffffu) && mlxr_net_ipv4_is_vpn(ip("100.64.0.5")));
+    CHECK(!mlxr_net_ipv4_is_vpn(0x643fffffu) && !mlxr_net_ipv4_is_vpn(0x64800000u) && !mlxr_net_ipv4_is_vpn(ip("192.168.1.10")));
+    /* interface names */
+    const char *vpn_ifs[] = { "tailscale0", "wg0", "wg-home", "tun0", "tap1", "ztabcdef", "utun3" };
+    const char *direct_ifs[] = { "wlan0", "wlanap", "eth0", "usb0", "lo", "enp3s0", "", NULL };
+    for (size_t i = 0; i < sizeof vpn_ifs / sizeof vpn_ifs[0]; i++) CHECK(mlxr_net_ifname_is_vpn(vpn_ifs[i]));
+    for (size_t i = 0; i < sizeof direct_ifs / sizeof direct_ifs[0]; i++) CHECK(!mlxr_net_ifname_is_vpn(direct_ifs[i]));
+    /* addresses, with and without the interface they go through */
+    struct { const char *addr, *ifname; bool vpn; const char *why; } rows[] = {
+        { "100.64.0.5", "wlan0", true, "100.64.0.0/10" },
+        { " 100.64.0.7 ", NULL, true, "100.64.0.0/10" },
+        { "fd7a:115c:a1e0::5", NULL, true, "fd7a:115c:a1e0::/48" },
+        { "FD7A:115C:A1E0:AB12::1", "wlan0", true, "fd7a:115c:a1e0::/48" },
+        { "fd7a:115c:a1e1::5", NULL, false, "" },
+        { "::ffff:100.64.0.5", NULL, true, "100.64.0.0/10" },
+        { "127.0.0.1", NULL, true, "loopback" },
+        { "127.0.0.2", "lo", true, "loopback" },
+        { "::1", NULL, true, "loopback" },
+        { "10.9.9.1", "wg0", true, "interface" },
+        { "10.9.9.1", "tun0", true, "interface" },
+        { "192.168.1.10", "wlan0", false, "" },
+        { "192.168.1.10", NULL, false, "" },
+        { "10.35.50.27", "wlanap", false, "" },
+        { "10.0.0.2", "usb0", false, "" },
+        { "fe80::1%wlan0", "wlan0", false, "" },
+        { "gaming-pc.local", NULL, false, "" },
+    };
+    for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+        const char *why = "x";
+        bool v = mlxr_net_addr_is_vpn(rows[i].addr, rows[i].ifname, &why);
+        if (v != rows[i].vpn || strcmp(why, rows[i].why)) fprintf(stderr, "vpn row %zu: %s via %s\n", i, rows[i].addr, rows[i].ifname ? rows[i].ifname : "-");
+        CHECK(v == rows[i].vpn);
+        CHECK_EQ_STR(why, rows[i].why);
+    }
+    CHECK(!mlxr_net_addr_is_vpn(NULL, NULL, NULL));
+
+    /* in a plan, with the Frame's table plus a VPN interface of each kind: the path stays what the interface says */
+    mlxr_netifs t;
+    frame_table(&t, true);
+    add_if(&t, "tailscale0", "100.64.0.9", 32, false, 0, false);
+    add_if(&t, "wg0", "10.9.9.2", 24, false, 0, false);
+    mlxr_net_plan p;
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 47989, "", "");
+    CHECK(p.vpn_only_away);   /* the default */
+    mlxr_net_plan_add_record(&p, "100.64.0.5", "192.168.1.10,10.9.9.1,10.35.50.27");
+    mlxr_net_plan_classify(&p, &t);
+    CHECK_EQ_INT(p.n, 4);
+    CHECK(p.c[0].vpn && p.c[0].path == MLXR_PATH_HOME && !strcmp(p.c[0].vpn_why, "100.64.0.0/10"));
+    CHECK(!p.c[1].vpn && p.c[1].path == MLXR_PATH_HOME && !strcmp(p.c[1].ifname, "wlan0") && !p.c[1].vpn_why[0]);
+    CHECK(p.c[2].vpn && !strcmp(p.c[2].ifname, "wg0") && !strcmp(p.c[2].vpn_why, "wg0"));
+    CHECK(!p.c[3].vpn && p.c[3].path == MLXR_PATH_ADAPTER);
+    /* a VPN that carries the default route makes every off-link address a VPN one, never an on-link one */
+    memset(&t, 0, sizeof t);
+    add_if(&t, "wlan0", "192.168.1.20", 24, true, 1, false);
+    add_if(&t, "tun0", "10.9.9.2", 32, false, 0, true);
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 47989, "", "");
+    mlxr_net_plan_add_record(&p, "203.0.113.7", "192.168.1.10");
+    mlxr_net_plan_classify(&p, &t);
+    CHECK(p.c[0].vpn && !strcmp(p.c[0].vpn_why, "tun0"));
+    CHECK(!p.c[1].vpn);
+}
+
+static mlxr_net_cand vpncand(mlxr_net_cand c)
+{
+    c.vpn = true;
+    snprintf(c.vpn_why, sizeof c.vpn_why, "100.64.0.0/10");
+    return c;
+}
+
+/* The rule as a table: which candidate is chosen, with the setting on and off */
+static void test_vpn_choose(void)
+{
+    const mlxr_net_cand home = mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 9.0, 100);
+    const mlxr_net_cand home_dead = mkflat(MLXR_PATH_HOME, "192.168.1.10", 0, 4, 0, 100);
+    const mlxr_net_cand vpn = vpncand(mkflat(MLXR_PATH_HOME, "100.64.0.5", 15, 0, 2.0, 100));        /* a fast forward */
+    const mlxr_net_cand vpn_dead = vpncand(mkflat(MLXR_PATH_HOME, "100.64.0.5", 0, 4, 0, 100));
+    const mlxr_net_cand vpn_slow = vpncand(mkflat(MLXR_PATH_HOME, "100.64.0.6", 15, 0, 40.0, 100));
+    const mlxr_net_cand ad = mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 12.0, 100);
+    const mlxr_net_cand ad_dead = mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 0, 4, 0, 100);
+    struct {
+        const char *what;
+        mlxr_net_pref pref;
+        bool only_away;
+        mlxr_net_cand c[3];
+        int n;
+        int want;                   /* the chosen index, -1 none */
+        const char *note;           /* in plan.vpn_note ("" must be empty) */
+    } rows[] = {
+        { "both answer, the VPN scores lower: direct wins", MLXR_NET_AUTO, true, { vpn, home }, 2, 1,
+          "the PC answered on the home network (Wi-Fi 192.168.1.10); its VPN address 100.64.0.5 is not used" },
+        { "the same, the other order", MLXR_NET_AUTO, true, { home, vpn }, 2, 0, "its VPN address 100.64.0.5 is not used" },
+        { "only the VPN answers: VPN", MLXR_NET_AUTO, true, { home_dead, vpn }, 2, 1,
+          "the PC did not answer on the home network; using its VPN address 100.64.0.5 (score 2.0 ms)" },
+        { "setting off: the lowest score, the VPN", MLXR_NET_AUTO, false, { home, vpn }, 2, 1,
+          "using the VPN address 100.64.0.5 on its score (2.0 ms): VPN addresses only away from home is off" },
+        { "setting off, direct scores lower: direct", MLXR_NET_AUTO, false, { home, vpn_slow }, 2, 0,
+          "Wi-Fi 192.168.1.10 scored better than the VPN address 100.64.0.6" },
+        { "a direct path on the adapter beats a faster VPN", MLXR_NET_AUTO, true, { vpn, ad }, 2, 1,
+          "the PC answered on the home network (Steam Frame Wireless Adapter 10.35.50.27)" },
+        { "two VPN addresses, nothing direct: the better VPN", MLXR_NET_AUTO, true, { vpn_slow, vpn, home_dead }, 3, 1,
+          "using its VPN address 100.64.0.5" },
+        { "the VPN did not answer either: direct, said so", MLXR_NET_AUTO, true, { vpn_dead, home }, 2, 1,
+          "its VPN address 100.64.0.5 is not used (it did not answer either)" },
+        { "nothing answers", MLXR_NET_AUTO, true, { vpn_dead, home_dead }, 2, -1,
+          "the PC answered neither on the home network nor on its VPN address 100.64.0.5" },
+        { "no VPN address: no line", MLXR_NET_AUTO, true, { home, ad }, 2, 0, "" },
+        { "Wi-Fi set by hand, VPN first in the list: direct", MLXR_NET_HOME, true, { vpn, home }, 2, 1, "is not used" },
+        { "Wi-Fi set by hand, away: VPN", MLXR_NET_HOME, true, { home_dead, vpn }, 2, 1, "using its VPN address" },
+        { "Wi-Fi set by hand, setting off: the first in the list", MLXR_NET_HOME, false, { vpn, home }, 2, 0, "on its score" },
+        { "adapter set by hand and silent: the fallback takes direct Wi-Fi", MLXR_NET_ADAPTER, true, { ad_dead, vpn, home }, 3, 2,
+          "is not used" },
+        { "adapter set by hand and silent, away: the VPN", MLXR_NET_ADAPTER, true, { ad_dead, vpn, home_dead }, 3, 1,
+          "using its VPN address" },
+    };
+    for (size_t r = 0; r < sizeof rows / sizeof rows[0]; r++) {
+        mlxr_net_plan p;
+        mlxr_net_plan_init(&p, rows[r].pref, "test", 47989, "", "");
+        p.vpn_only_away = rows[r].only_away;
+        for (int i = 0; i < rows[r].n; i++) p.c[i] = rows[r].c[i];
+        p.n = rows[r].n;
+        int got = mlxr_net_choose(&p);
+        bool ok = got == rows[r].want &&
+                  (rows[r].note[0] ? strstr(p.vpn_note, rows[r].note) != NULL : p.vpn_note[0] == 0);
+        if (!ok) fprintf(stderr, "vpn choose row %zu (%s): chose %d, note \"%s\"\n", r, rows[r].what, got, p.vpn_note);
+        CHECK(ok);
+        if (got >= 0) {
+            CHECK(p.vpn_set_aside == (rows[r].only_away && !p.c[got].vpn && strstr(p.vpn_note, "not used") &&
+                                      !strstr(p.vpn_note, "did not answer either")));
+            CHECK((strstr(p.summary, ", VPN") != NULL) == p.c[got].vpn);
+        }
+    }
+}
+
+/* The failover: never from a working direct path to a VPN one; from VPN to direct it may */
+static void test_vpn_failover(void)
+{
+    struct {
+        const char *what;
+        bool only_away, cur_vpn, other_vpn;
+        bool sw;
+    } rows[] = {
+        { "direct -> VPN: never", true, false, true, false },
+        { "direct -> VPN, setting off: by score", false, false, true, true },
+        { "VPN -> direct: yes", true, true, false, true },
+        { "VPN -> VPN: by score", true, true, true, true },
+        { "direct -> direct: by score", true, false, false, true },
+    };
+    for (size_t r = 0; r < sizeof rows / sizeof rows[0]; r++) {
+        mlxr_failover_cand c[2] = {
+            { MLXR_PATH_HOME, true, 30.0, 1000, rows[r].cur_vpn },
+            { MLXR_PATH_ADAPTER, true, 5.0, 1000, rows[r].other_vpn },
+        };
+        mlxr_failover_in in;
+        memset(&in, 0, sizeof in);
+        in.enabled = in.pref_auto = true;
+        in.now_ms = 100000;
+        in.stream_start_ms = 1000;
+        in.last_switch_ms = -1;
+        in.cur_path = MLXR_PATH_HOME;
+        in.cur_score_ms = 30.0;
+        in.cur_loss_pct = 10;
+        in.loss.lossMs = 5000;
+        in.cand = c;
+        in.n_cand = 2;
+        in.vpn_only_away = rows[r].only_away;
+        in.cur_vpn = rows[r].cur_vpn;
+        mlxr_failover_out o = mlxr_failover_decide(&in);
+        if (o.sw != rows[r].sw) fprintf(stderr, "vpn failover row %zu (%s): %s\n", r, rows[r].what, mlxr_failover_reason_text(o.reason));
+        CHECK(o.sw == rows[r].sw);
+        if (!rows[r].sw) CHECK(o.reason == MLXR_FO_STAY_NO_ALTERNATIVE);
+        else CHECK(o.to == MLXR_PATH_ADAPTER);
+    }
+}
+
+/* Remembering addresses: the direct ones discovery found are kept; VPN, loopback and cable addresses are not; nothing
+ * is removed */
+static void test_vpn_learn(void)
+{
+    mlxr_net_plan p;
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 47989, "", "");
+    p.c[0] = vpncand(mkflat(MLXR_PATH_HOME, "100.64.0.5", 15, 0, 2.0, 100));
+    snprintf(p.c[0].source, sizeof p.c[0].source, "hosts.ini");
+    p.c[1] = mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 4.0, 100);
+    snprintf(p.c[1].source, sizeof p.c[1].source, "mdns");
+    p.c[2] = mkflat(MLXR_PATH_HOME, "192.168.1.11", 0, 4, 0, 100);   /* found, did not answer */
+    snprintf(p.c[2].source, sizeof p.c[2].source, "arp");
+    p.c[3] = mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 6.0, 100);
+    snprintf(p.c[3].source, sizeof p.c[3].source, "arp");
+    p.c[4] = mkflat(MLXR_PATH_USB, "10.0.0.2", 15, 0, 1.0, 100);
+    snprintf(p.c[4].source, sizeof p.c[4].source, "usb");
+    p.c[5] = vpncand(mkflat(MLXR_PATH_HOME, "127.0.0.1", 15, 0, 1.0, 100));   /* a loopback forward */
+    snprintf(p.c[5].source, sizeof p.c[5].source, "mdns");
+    p.c[6] = mkflat(MLXR_PATH_HOME, "192.168.1.12", 15, 0, 3.0, 100);
+    p.c[6].other_host = true;                                            /* another PC */
+    snprintf(p.c[6].source, sizeof p.c[6].source, "mdns");
+    p.c[7] = vpncand(mkflat(MLXR_PATH_HOME, "10.9.9.1", 15, 0, 3.0, 100));  /* found on a VPN interface */
+    snprintf(p.c[7].source, sizeof p.c[7].source, "arp");
+    p.n = 8;
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);   /* at home: the direct Wi-Fi address */
+
+    char extra[256] = "203.0.113.7", learned[256];
+    /* the record's address is the VPN one the user saved; the PC's LocalIP is the one it was reached on */
+    CHECK_EQ_INT(mlxr_net_learn_addresses(&p, "100.64.0.5", "192.168.1.10", extra, sizeof extra, learned, sizeof learned), 2);
+    CHECK_EQ_STR(extra, "203.0.113.7,192.168.1.10,10.35.50.27");
+    CHECK_EQ_STR(learned, "192.168.1.10,10.35.50.27");
+    /* again: nothing new, nothing removed */
+    CHECK_EQ_INT(mlxr_net_learn_addresses(&p, "100.64.0.5", "192.168.1.10", extra, sizeof extra, learned, sizeof learned), 0);
+    CHECK_EQ_STR(extra, "203.0.113.7,192.168.1.10,10.35.50.27");
+    CHECK(!learned[0]);
+    /* the VPN address stays, in the record and in the list, when it is there */
+    char extra2[256] = "100.64.0.5";
+    CHECK_EQ_INT(mlxr_net_learn_addresses(&p, "192.168.1.10", NULL, extra2, sizeof extra2, NULL, 0), 1);
+    CHECK_EQ_STR(extra2, "100.64.0.5,10.35.50.27");
+    /* the LocalIP of a direct stream is learned; over a VPN it is the PC's VPN side and is not */
+    char extra3[256] = "";
+    CHECK_EQ_INT(mlxr_net_learn_addresses(&p, "100.64.0.5", "192.168.1.30", extra3, sizeof extra3, NULL, 0), 3);
+    CHECK_EQ_STR(extra3, "192.168.1.10,10.35.50.27,192.168.1.30");
+    p.c[1].ok = 0;   /* away: only the VPN answers */
+    p.c[3].ok = 0;
+    p.c[4].ok = 0;
+    CHECK_EQ_INT(mlxr_net_choose(&p), 5);   /* the faster of the VPN addresses (the loopback forward) */
+    char extra4[256] = "";
+    CHECK_EQ_INT(mlxr_net_learn_addresses(&p, "100.64.0.5", "192.168.1.30", extra4, sizeof extra4, NULL, 0), 0);
+    CHECK_EQ_STR(extra4, "");
+    /* a loopback LocalIP is never kept, flagged or not */
+    p.chosen = 1;
+    char extra5[256] = "";
+    CHECK_EQ_INT(mlxr_net_learn_addresses(&p, "100.64.0.5", "127.0.0.5", extra5, sizeof extra5, NULL, 0), 0);
+    /* a full list takes nothing more and keeps what it has */
+    p.c[1].ok = 15;
+    char tiny[16] = "203.0.113.7";
+    CHECK_EQ_INT(mlxr_net_learn_addresses(&p, "100.64.0.5", NULL, tiny, sizeof tiny, NULL, 0), 0);
+    CHECK_EQ_STR(tiny, "203.0.113.7");
+    /* next time at home the learned direct address is a candidate from the start, before discovery */
+    mlxr_net_plan q;
+    mlxr_net_plan_init(&q, MLXR_NET_AUTO, "test", 47989, "", "");
+    mlxr_net_plan_add_record(&q, "100.64.0.5", extra);
+    CHECK_EQ_INT(q.n, 4);
+    CHECK_EQ_STR(q.c[2].address, "192.168.1.10");
+    CHECK_EQ_STR(q.c[2].source, "hosts.ini");
+}
+
+/* The probe: with the setting on, a VPN address that answers first does not end a probe for a path set by hand while
+ * a direct one is still running, and Automatic waits for the direct one. Two real servers on loopback, flagged by
+ * hand (loopback itself counts as VPN in the classification). */
+static void test_vpn_probe(fake_host *h)
+{
+    mini_srv m;
+    uint16_t mport = 0, live = fake_host_http_port(h);
+    if (!mini_start(&m, "127.0.0.2", &mport)) {
+        fprintf(stderr, "note: 127.0.0.2 not available, VPN probe test skipped\n");
+        return;
+    }
+    for (int k = 0; k < 2; k++) {
+        mlxr_net_plan p;
+        mlxr_net_plan_init(&p, k ? MLXR_NET_AUTO : MLXR_NET_HOME, "test", 1, "", "");
+        mlxr_net_plan_add(&p, "127.0.0.1", live);    /* the "VPN", first in the list */
+        mlxr_net_plan_add(&p, "127.0.0.2", mport);   /* the "home network" */
+        p.c[0].vpn = true;
+        p.c[0].path = p.c[1].path = MLXR_PATH_HOME;
+        mlxr_net_probe(&p, NULL, k ? 4 : 2, k == 0);
+        CHECK(p.c[1].ok > 0);   /* the direct one was waited for */
+        CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+        CHECK(strstr(p.vpn_note, "its VPN address 127.0.0.1 is not used"));
+    }
+    /* away: the direct address does not answer, the VPN one is used */
+    mlxr_net_plan p;
+    mlxr_net_plan_init(&p, MLXR_NET_HOME, "test", 1, "", "");
+    mlxr_net_plan_add(&p, "127.0.0.2", 1);       /* refused at once */
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    p.c[1].vpn = true;
+    p.c[0].path = p.c[1].path = MLXR_PATH_HOME;
+    mlxr_net_probe(&p, NULL, 2, true);
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    CHECK(strstr(p.vpn_note, "did not answer on the home network; using its VPN address 127.0.0.1"));
+    mini_stop(&m);
+
+    /* the whole select over loopback (VPN by the classification): the failover's table says so */
+    mlxr_adapter_inputs st;
+    station_inputs(&st);
+    mlxr_netifs t;
+    memset(&t, 0, sizeof t);
+    add_if(&t, "lo", "127.0.0.1", 8, false, 0, false);
+    mlxr_net_quality_reset();
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 1, "", "");
+    p.adapter_inputs = &st;
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 0);
+    CHECK(p.c[0].vpn && !strcmp(p.c[0].vpn_why, "loopback"));
+    mlxr_net_quality q;
+    mlxr_net_quality_get(&q);
+    CHECK(q.valid && q.chosen_vpn && q.vpn_only_away && q.p[MLXR_PATH_HOME].present && q.p[MLXR_PATH_HOME].vpn);
+    mlxr_net_quality_reset();
+}
+
 int main(void)
 {
     signal(SIGPIPE, SIG_IGN);   /* the in-process fake host writes to probes that hung up */
@@ -1691,6 +1997,10 @@ int main(void)
     test_usb_watch();
     test_usb_choose();
     test_bitrate_kind();
+    test_vpn_classify();
+    test_vpn_choose();
+    test_vpn_failover();
+    test_vpn_learn();
     {
         fake_opts o = { 0 };
         fake_host *h = fake_host_start(&o);
@@ -1701,6 +2011,7 @@ int main(void)
             test_usb_select(h);
             test_bitrate_kind_select(h);
             test_failover_select(h);
+            test_vpn_probe(h);
             fake_host_stop(h);
         }
     }

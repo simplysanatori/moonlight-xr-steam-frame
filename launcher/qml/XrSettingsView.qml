@@ -1000,6 +1000,14 @@ Flickable {
             }
         }
 
+        // Native (lane vpn-fallback): a VPN address of the PC (100.64.x.x, a VPN interface) only when it does not
+        // answer directly. Off: whichever address answers best.
+        VrSwitch {
+            key: "stream.vpn_only_away"
+            title: qsTr("Use VPN addresses only away from home")
+            summary: qsTr("When the PC also has a VPN address, it is used only when the PC does not answer on your home network. Off: whichever address answers fastest.")
+        }
+
         // Native (lane polish-3): the stream's bitrate, over the per-connection rows whose "Same as above" is
         // this one (it was under Video Settings, below them)
         PrefSlider {

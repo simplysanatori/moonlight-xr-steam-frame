@@ -58,8 +58,8 @@ bool mlxr_nethist_save(const char *dir, const mlxr_nethist *h);
 /* Loads, replaces the entry of `path`, saves. False when it could not be saved. */
 bool mlxr_nethist_record(const char *dir, int path, const mlxr_nethist_entry *e);
 /* A stream ended: works out which path `address` is on (the interfaces' subnets, as the choice does)
- * and records the figures for it. Ignores a short stream or an address it cannot place; returns true
- * when something was written. `now_s` 0 means the current time. */
+ * and records the figures for it. Ignores a short stream, an address it cannot place and a VPN address
+ * (netpath.h, lane vpn-fallback); returns true when something was written. `now_s` 0 means the current time. */
 bool mlxr_nethist_record_stream(const char *dir, const char *address, uint64_t frames, uint64_t lost, double jitter_ms,
                                 double rtt_ms, int64_t now_s);
 
