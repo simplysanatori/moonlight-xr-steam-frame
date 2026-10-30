@@ -101,7 +101,10 @@ typedef struct XrDepth {
     int forceCapture;
     int64_t backNs;           // when the 3D last came back on
     int rateSet;
-    float convSet;
+    // the stage thread's knobs the engine was last given (paramsValid 0:
+    // not yet)
+    MlxrDepthParams paramsSet;
+    int paramsValid;
     uint64_t cpuMask;
     // counters (frame loop)
     uint64_t captures, skipsNoPair, uploads, uploadBlocked, pairReuseBad, lastFrameId, frameIdBackwards;
@@ -184,6 +187,26 @@ static void hostBufFree(XrCtx* ctx, HostBuf* b) {
 }
 
 // ---- configuration -------------------------------------------------------------------
+
+// The stage thread's knobs as the context has them: upstream's averages and
+// cut detector, the convergence, and (native, lane wave5-depth) the motion
+// reset and the depth scale, PLAN 5.4 and 5.6
+static void depthParamsOf(const XrCtx* ctx, MlxrDepthParams* p) {
+    memset(p, 0, sizeof(*p));
+    p->tauMs = DEPTH_TAU_DEFAULT_MS;
+    p->rangeTauMs = DEPTH_RANGE_TAU_DEFAULT_MS;
+    p->cutLevel = 1;
+    p->global = ctx->depthGlobal;
+    p->local = ctx->depthLocal;
+    p->convergence = ctx->convergence;
+    p->motion = ctx->depthMotion;
+}
+
+static int depthParamsSame(const MlxrDepthParams* a, const MlxrDepthParams* b) {
+    return a->tauMs == b->tauMs && a->rangeTauMs == b->rangeTauMs && a->cutLevel == b->cutLevel
+            && fabsf(a->global - b->global) <= 1e-4f && fabsf(a->local - b->local) <= 1e-4f
+            && fabsf(a->convergence - b->convergence) <= 1e-4f && fabsf(a->motion - b->motion) <= 1e-4f;
+}
 
 // config.ini's depth_source to upstream's DEPTH_MODE_ and the model
 // (settings.c DEPTH_NAMES: zipdepth, midas, off, flat, ramp, blob, eyetest,
@@ -515,7 +538,7 @@ static XrDepth* depthState(XrCtx* ctx) {
         if (d == NULL) return NULL;
         d->state = DEPTH_IDLE;
         d->rateSet = -1;
-        d->convSet = -1.0f;
+        d->paramsValid = 0;
         pthread_mutex_init(&d->lock, NULL);
         pthread_cond_init(&d->cond, NULL);
         ctx->depth = d;
@@ -601,8 +624,10 @@ static void engineStart(XrCtx* ctx, XrDepth* d) {
     memset(&cfg, 0, sizeof(cfg));
     cfg.modelPath = path;
     // Upstream's CPU route: two threads, and fp16 arithmetic on these cores
-    // (docs/dev/reports/depth.md: ZipDepth 512x288 27 maps/s at 2 threads in fp16)
-    cfg.threads = 2;
+    // (docs/dev/reports/depth.md: ZipDepth 512x288 27 maps/s at 2 threads in fp16).
+    // Native (lane wave5-depth, PLAN 5.5): [debug] depth_threads, 2 unless set
+    cfg.threads = ctx->depthThreads >= DEPTH_THREADS_MIN && ctx->depthThreads <= DEPTH_THREADS_MAX
+            ? ctx->depthThreads : DEPTH_THREADS_DEFAULT;
     const char* threads = getenv("MLXR_DEPTH_THREADS");
     if (threads != NULL && atoi(threads) > 0) cfg.threads = atoi(threads);
     cfg.flags = MLXR_DEPTH_FP16;
@@ -614,12 +639,7 @@ static void engineStart(XrCtx* ctx, XrDepth* d) {
     d->cpuMask = parseCpus(getenv("MLXR_DEPTH_CPUS"));
     cfg.cpuMask = d->cpuMask;
     cfg.warmupRuns = 0;
-    cfg.params.tauMs = DEPTH_TAU_DEFAULT_MS;
-    cfg.params.rangeTauMs = DEPTH_RANGE_TAU_DEFAULT_MS;
-    cfg.params.cutLevel = 1;
-    cfg.params.global = 1.0f;
-    cfg.params.local = 1.0f;
-    cfg.params.convergence = ctx->convergence;
+    depthParamsOf(ctx, &cfg.params);
     snprintf(d->modelName, sizeof(d->modelName), "%s", spec->name);
     d->startNs = nowMono();
     d->engine = ops->start(&cfg);
@@ -629,7 +649,8 @@ static void engineStart(XrCtx* ctx, XrDepth* d) {
     }
     d->state = MLXR_DEPTH_LOADING;
     d->rateSet = cfg.perSecond;
-    d->convSet = ctx->convergence;
+    d->paramsSet = cfg.params;
+    d->paramsValid = 1;
     LOGEV("depth model %s starting: %s, %d threads, %s, %d maps/s, cpus %s", spec->name, path, cfg.threads,
           cfg.flags & MLXR_DEPTH_FP16 ? "fp16" : "fp32", cfg.perSecond,
           d->cpuMask ? getenv("MLXR_DEPTH_CPUS") : "any");
@@ -812,16 +833,12 @@ void xrDepthFrame(XrCtx* ctx) {
         d->ops->setRate(d->engine, ctx->depthGov.target);
         d->rateSet = ctx->depthGov.target;
     }
-    if (fabsf(ctx->convergence - d->convSet) > 1e-4f) {
-        MlxrDepthParams p;
-        p.tauMs = DEPTH_TAU_DEFAULT_MS;
-        p.rangeTauMs = DEPTH_RANGE_TAU_DEFAULT_MS;
-        p.cutLevel = 1;
-        p.global = 1.0f;
-        p.local = 1.0f;
-        p.convergence = ctx->convergence;
-        d->ops->setParams(d->engine, &p);
-        d->convSet = ctx->convergence;
+    MlxrDepthParams want;
+    depthParamsOf(ctx, &want);
+    if (!d->paramsValid || !depthParamsSame(&want, &d->paramsSet)) {
+        d->ops->setParams(d->engine, &want);
+        d->paramsSet = want;
+        d->paramsValid = 1;
     }
 
     if (ctx->frameCmd != VK_NULL_HANDLE && ctx->stereoLive) {
@@ -976,6 +993,7 @@ void xrDepthPicture(XrCtx* ctx, const MlxrVideo* video, int newFrame, uint64_t f
         op.depth = d->upsample.view;
         op.dispTexels = separation * (float)d->upsample.width;
         op.convergence = ctx->convergence;
+        op.holeStretch = ctx->holeFill ? MLXR_HOLE_STRETCH : 0.0f;
         mlxr_pass_offset(ctx->passes, cmd, &t, &op);
         xrVkImageTo(ctx, &d->offsets, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         xrGpuTimeEnd(ctx, GPU_OFFSET);

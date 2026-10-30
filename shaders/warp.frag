@@ -126,11 +126,15 @@ void main() {
         // The offset map already picked the right surface; two Newton steps
         // against the full resolution depth settle the position on it
         int reach = int(ceil(abs(u_dispTexels) * max(u_convergence, 1.0 - u_convergence))) + 2;
-        vec2 enc = texture(u_offsets, v_plain).rg;
+        vec4 enc = texture(u_offsets, v_plain);
         float off = (u_eyeIndex < 0.5 ? enc.r : enc.g) - 0.5;
         tc.x = v_plain.x + edgeW * off * 2.0 * float(reach) / u_lowResWidth;
+        // Native (lane wave5-depth, PLAN 5.2): a hole the shift opened
+        // (offset.frag) already has its fill from the background side; the
+        // Newton steps would only walk it back onto the stretched edge
+        float hole = u_eyeIndex < 0.5 ? enc.b : enc.a;
         float h = 1.0 / u_frameWidth;
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < 2 && hole < 0.5; i++) {
             float d0 = depthAt(tc.x);
             float dm = texture(u_depth, vec2(tc.x - h, v_plain.y)).a;
             float dp = texture(u_depth, vec2(tc.x + h, v_plain.y)).a;
