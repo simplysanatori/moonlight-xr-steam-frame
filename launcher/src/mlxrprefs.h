@@ -67,6 +67,13 @@ class MlxrPrefs : public QObject
     // before the same; 0 never, default 0)
     Q_PROPERTY(int doffDisconnect MEMBER doffDisconnect NOTIFY changed)
     Q_PROPERTY(int idleDisconnect MEMBER idleDisconnect NOTIFY changed)
+    // Native (lane wave4b-abr): [stream] bitrate_wifi, bitrate_adapter, bitrate_wired, bitrate_usb: the start bitrate in
+    // kbps for the network path the stream goes over; 0 uses the Video bitrate above (500..500000 otherwise). The
+    // VR client reads them from config.ini when the stream starts (a running stream's bitrate cannot change)
+    Q_PROPERTY(int bitrateWifi MEMBER bitrateWifi NOTIFY changed)
+    Q_PROPERTY(int bitrateAdapter MEMBER bitrateAdapter NOTIFY changed)
+    Q_PROPERTY(int bitrateWired MEMBER bitrateWired NOTIFY changed)
+    Q_PROPERTY(int bitrateUsb MEMBER bitrateUsb NOTIFY changed)
     // Native (lane wave2b-padmouse): physical gamepads in the headset. [vr] pad_mouse_chord: what turns a pad
     // into the PC's mouse, "start_hold" (default), "start_back" or "off"; [vr] pad_mouse_scroll: the stick that
     // scrolls then, "right" (default), "left" or "none"; [vr] pad_arbitration: what a used pad does to the
@@ -148,6 +155,7 @@ public:
     QString controllerModel;
     int doffDisconnect = 60;
     int idleDisconnect = 0;
+    int bitrateWifi = 0, bitrateAdapter = 0, bitrateWired = 0, bitrateUsb = 0;
     QString padMouseChord;
     QString padMouseScroll;
     QString padArbitration;
@@ -164,6 +172,7 @@ private:
     int m_iniScrollSpeed = 100;
     QString m_iniControllerModel = "off";
     int m_iniDoff = 60, m_iniIdle = 0;
+    int m_iniBitrateWifi = 0, m_iniBitrateAdapter = 0, m_iniBitrateWired = 0, m_iniBitrateUsb = 0;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;

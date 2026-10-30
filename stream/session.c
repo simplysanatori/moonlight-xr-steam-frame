@@ -66,6 +66,7 @@ static struct {
 // Native (lane wave3-hud): the running totals the in-headset HUD and the slow connection badge take windows of
 // (xr_hud.h). Unlike g_lat they are never reset within a stream. Under g_latLock.
 static MlxrHudCum g_hud;
+static int g_setKbps;   // Native (lane wave4b-abr): the bitrate this stream started with, for the HUD and the stats line
 static atomic_int g_poor;   // the connection status common-c last reported is "poor"
 
 // Native (lane netpath-quality): the whole stream's network figures. The window counters above are
@@ -460,6 +461,7 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
 
     AUDIO_RENDERER_CALLBACKS noAudio;
     LiInitializeAudioCallbacks(&noAudio);
+    g_setKbps = cfg->bitrate;
     MLOG_I("starting stream to %s: %dx%d %d fps %d kbps, formats 0x%x", host->address, cfg->width, cfg->height,
            cfg->fps, cfg->bitrate, cfg->supportedVideoFormats);
     xrPadBridgeStart();
@@ -519,6 +521,7 @@ int stream_hud(MlxrHudCum* out) {
     *out = g_hud;
     pthread_mutex_unlock(&g_latLock);
     out->valid = 1;
+    out->setKbps = g_setKbps;
     out->rttMs = rtt;
     out->rttVarMs = var;
     out->poor = atomic_load(&g_poor);
@@ -551,7 +554,7 @@ void stream_stats(char* buf, int len) {
                  (unsigned long long)h.errors, (unsigned long long)h.largestAuBytes,
                  (unsigned long long)h.largestAuParts, (unsigned long long)h.refusedAus);
     }
-    snprintf(buf, (size_t)len, "units %llu, idr requests %llu, rtt %u ms, pending video %d%s",
-             (unsigned long long)atomic_load(&g_units), (unsigned long long)atomic_load(&g_idr), rtt,
+    snprintf(buf, (size_t)len, "bitrate set %d kbps, units %llu, idr requests %llu, rtt %u ms, pending video %d%s",
+             g_setKbps, (unsigned long long)atomic_load(&g_units), (unsigned long long)atomic_load(&g_idr), rtt,
              LiGetPendingVideoFrames(), hw);
 }

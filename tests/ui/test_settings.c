@@ -546,6 +546,35 @@ static void test_session_limits(void) {
     free(text);
 }
 
+static void test_path_bitrates(void) {
+    // Native (lane wave4b-abr): one start bitrate per network path, 0 = the launcher's
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.bitrate_wifi == 0 && s.bitrate_adapter == 0 && s.bitrate_wired == 0 && s.bitrate_usb == 0);
+    CHECK(settings_find("stream.bitrate_wifi") != NULL && settings_find("bitrate_adapter") != NULL);
+    CHECK(settings_find("bitrate_wired") != NULL && settings_find("bitrate_usb") != NULL);
+    settings_from_text(&s, "[stream]\nbitrate_wifi = 60000\nbitrate_adapter = 150000\nbitrate_wired = 250000\nbitrate_usb = 500000\n", &info);
+    CHECK(s.bitrate_wifi == 60000 && s.bitrate_adapter == 150000 && s.bitrate_wired == 250000 && s.bitrate_usb == 500000);
+    CHECK(info.applied == 4 && info.bad == 0);
+    int ov[4];
+    settings_abr_overrides(&s, ov);
+    CHECK(ov[0] == 60000 && ov[1] == 150000 && ov[2] == 250000 && ov[3] == 500000);   // xr_abr.h's order
+    settings_from_text(&s, "[stream]\nbitrate_wifi = 99999999\nbitrate_usb = -3\nbitrate_adapter = 120\n", &info);   // held to the range
+    CHECK(s.bitrate_wifi == MLXR_BITRATE_MAX_KBPS && s.bitrate_usb == 0 && s.bitrate_adapter == 500);
+    settings_from_text(&s, "[stream]\nbitrate_wired = fast\n", &info);   // not a number: the last good one stays
+    CHECK(s.bitrate_wired == 250000 && info.bad == 1);
+    settings_defaults(&s);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#bitrate_wifi = 0\n") != NULL && strstr(text, "\n#bitrate_usb = 0\n") != NULL);
+    free(text);
+    s.bitrate_wifi = 60000;
+    s.bitrate_wired = 300000;
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nbitrate_wifi = 60000\n") != NULL && strstr(text, "\nbitrate_wired = 300000\n") != NULL);
+    free(text);
+}
+
 static void test_tolerant(void) {
     Settings s;
     settings_defaults(&s);
@@ -991,6 +1020,7 @@ int main(void) {
     test_clamping();
     test_network_path();
     test_session_limits();
+    test_path_bitrates();
     test_tolerant();
     test_removed_keys();
     test_bitrate_ceiling();

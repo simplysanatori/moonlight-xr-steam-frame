@@ -628,7 +628,21 @@ static void pointerSmoothing(void) {
     unsetenv("MLXR_POINTER_MIN_CUTOFF");
 }
 
+// Native (lane wave4b-abr): the bitrate a stream starts with on the path in use (xrStreamBitrate)
+static void pathBitrates(void) {
+    Settings s;
+    settings_defaults(&s);
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIFI, 98000) == 98000);      // no override anywhere: the launcher's
+    s.bitrate_wifi = 60000;
+    s.bitrate_adapter = 150000;
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIFI, 98000) == 60000);
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_ADAPTER, 98000) == 150000);
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIRED, 98000) == 98000);     // that path has none
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_UNKNOWN, 98000) == 98000);   // no path chosen: none applies
+}
+
 int main(void) {
+    pathBitrates();
     pointerSmoothing();
     roundTripDefaults();
     roundTripChanged();

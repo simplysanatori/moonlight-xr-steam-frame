@@ -1708,8 +1708,10 @@ static void perfRow(Host* h, int64_t now, uint64_t videoFrames) {
     r.width = ctx->videoWidth;
     r.height = ctx->videoHeight;
     r.streamFps = h->cfg->fps;
-    r.bitrateKbps = settings_bitrate_kbps(s) > 0 ? settings_bitrate_kbps(s)
-                                                  : settings_default_bitrate_kbps(r.width, r.height, r.streamFps);
+    // Native (lane wave4b-abr): the bitrate the stream started with (a path's own setting may have replaced the launcher's)
+    r.bitrateKbps = fig.setKbps > 0 ? fig.setKbps
+                    : settings_bitrate_kbps(s) > 0 ? settings_bitrate_kbps(s)
+                                                   : settings_default_bitrate_kbps(r.width, r.height, r.streamFps);
     r.codec = s->codec;
     r.displayHz = xrGetDisplayRate(ctx);
     r.stereo = ctx->stereoMode != DEPTH_MODE_OFF && ctx->stereoLive;
