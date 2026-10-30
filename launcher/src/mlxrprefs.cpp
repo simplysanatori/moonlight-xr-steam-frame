@@ -3,6 +3,9 @@
 #include "mlxrhandoff.h"
 
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QFileInfo>
@@ -70,6 +73,157 @@ void MlxrPrefs::rescanUsb()
     emit usbCableChanged();
 }
 
+// ---- PC VR (lane wave4-pcvr) ---------------------------------------------------------------------------
+
+void MlxrPrefs::pcvrSay(const QString& status, bool busy)
+{
+    m_pcvrStatus = status;
+    m_pcvrBusy = busy;
+    emit pcvrChanged();
+}
+
+QString MlxrPrefs::pcvrProbeSummary(const QByteArray& json, int exitCode, const QString& stderrText, bool* ok)
+{
+    const QJsonObject o = QJsonDocument::fromJson(json).object();
+    if (ok) {
+        *ok = o.value("ok").toBool();
+    }
+    QString hint = o.value("hint").toString();
+    if (hint.isEmpty()) {
+        // no JSON at all: python or the script did not run (-1), timed out (-2), or crashed
+        hint = stderrText.simplified().left(300);
+        if (hint.isEmpty()) {
+            hint = QObject::tr("steam_cef.py gave no answer (exit %1)").arg(exitCode);
+        }
+        if (ok) {
+            *ok = false;
+        }
+    }
+    return hint;
+}
+
+void MlxrPrefs::pcvrProbe()
+{
+    MlxrHandoff::runSteamCef({ "--probe" }, 20000, this, [this](int code, const QByteArray& out, const QString& err) {
+        bool ok = false;
+        const QString hint = pcvrProbeSummary(out, code, err, &ok);
+        qInfo().noquote() << "Steam CEF preflight:" << (ok ? "ok" : "NOT OK") << "-" << hint;
+        pcvrSay(hint, false);
+    });
+}
+
+void MlxrPrefs::pcvrRefresh()
+{
+    if (m_pcvrBusy) {
+        return;
+    }
+    pcvrSay(QObject::tr("Asking Steam..."), true);
+    MlxrHandoff::runSteamCef({ "--probe" }, 20000, this, [this](int code, const QByteArray& out, const QString& err) {
+        bool ok = false;
+        const QString hint = pcvrProbeSummary(out, code, err, &ok);
+        const QJsonObject o = QJsonDocument::fromJson(out).object();
+        qInfo().noquote() << "Steam CEF preflight:" << (ok ? "ok" : "NOT OK") << "-" << hint;
+        if (!o.value("reachable").toBool() || !o.value("context").toBool()) {
+            m_pcvrDevices.clear();
+            m_pcvrApps.clear();
+            pcvrSay(hint, false);
+            return;
+        }
+        MlxrHandoff::runSteamCef({ "--devices", "--seconds", "3" }, 25000, this,
+                                 [this, hint, ok](int dcode, const QByteArray& dout, const QString& derr) {
+            const QJsonDocument doc = QJsonDocument::fromJson(dout);
+            if (dcode != 0 || !doc.isArray()) {
+                m_pcvrDevices.clear();
+                pcvrSay(QObject::tr("Steam did not list the paired PCs: %1").arg(derr.isEmpty() ? hint : derr.simplified().left(300)), false);
+                return;
+            }
+            m_pcvrDevices.clear();
+            for (const QJsonValue& v : doc.array()) {
+                m_pcvrDevices << v.toObject().toVariantMap();
+            }
+            // The only paired PC is the one to stream from, unless one was chosen
+            if (pcvrClient.isEmpty() && m_pcvrDevices.size() == 1) {
+                pcvrClient = m_pcvrDevices[0].toMap().value("clientId").toString();
+                pcvrClientName = m_pcvrDevices[0].toMap().value("clientName").toString();
+                emit changed();
+            }
+            m_pcvrBase = (ok ? QObject::tr("Steam is ready.") : hint) + " " + QObject::tr("%n paired PC(s) found.", "", m_pcvrDevices.size());
+            pcvrSay(m_pcvrBase, true);
+            pcvrLoadApps();
+        });
+    });
+}
+
+void MlxrPrefs::pcvrLoadApps()
+{
+    QStringList args { "--apps" };
+    if (!pcvrClient.isEmpty()) {
+        args << "--client" << pcvrClient;
+    }
+    MlxrHandoff::runSteamCef(args, 30000, this, [this](int code, const QByteArray& out, const QString& err) {
+        const QJsonDocument doc = QJsonDocument::fromJson(out);
+        m_pcvrApps.clear();
+        if (code == 0 && doc.isArray()) {
+            for (const QJsonValue& v : doc.array()) {
+                QVariantMap m = v.toObject().toVariantMap();
+                m["appid"] = QString::number(static_cast<qlonglong>(v.toObject().value("appid").toDouble()));   // a whole number, not a double
+                m_pcvrApps << m;
+            }
+            pcvrSay(m_pcvrBase + " " + QObject::tr("%n game(s) on the PC.", "", m_pcvrApps.size()), false);
+        }
+        else {
+            pcvrSay(m_pcvrBase + " " + QObject::tr("Steam did not list the PC's games (%1): type a game's Steam app id instead.")
+                        .arg(err.isEmpty() ? QString::number(code) : err.simplified().left(200)), false);
+        }
+    });
+}
+
+void MlxrPrefs::pcvrChooseDevice(int index)
+{
+    const QString before = pcvrClient;
+    if (index >= 0 && index < m_pcvrDevices.size()) {
+        const QVariantMap d = m_pcvrDevices[index].toMap();
+        pcvrClient = d.value("clientId").toString();
+        pcvrClientName = d.value("clientName").toString();
+    }
+    else {
+        pcvrClient.clear();
+        pcvrClientName.clear();
+    }
+    emit changed();
+    if (pcvrClient != before && !m_pcvrBusy) {
+        pcvrSay(m_pcvrStatus, true);
+        pcvrLoadApps();
+    }
+}
+
+void MlxrPrefs::pcvrChooseApp(int index)
+{
+    if (index >= 0 && index < m_pcvrApps.size()) {
+        const QVariantMap a = m_pcvrApps[index].toMap();
+        pcvrApp = a.value("appid").toString();
+        pcvrAppName = a.value("name").toString();
+    }
+    else {
+        pcvrApp.clear();
+        pcvrAppName.clear();
+    }
+    emit changed();
+}
+
+void MlxrPrefs::pcvrSetAppId(const QString& id)
+{
+    const QString t = id.trimmed();
+    pcvrApp = t;
+    pcvrAppName.clear();
+    for (const QVariant& a : m_pcvrApps) {
+        if (a.toMap().value("appid").toString() == t) {
+            pcvrAppName = a.toMap().value("name").toString();
+        }
+    }
+    emit changed();
+}
+
 QString MlxrPrefs::configIniPath() const
 {
     return MlxrHandoff::nativeConfigDir() + "/config.ini";
@@ -117,6 +271,10 @@ void MlxrPrefs::load()
     }
     clipboardSync = s.value("mlxr/clipboard_sync", false).toBool();
     quickResume = s.value("mlxr/quick_resume", false).toBool();
+    pcvrApp = s.value("mlxr/pcvr_app", "").toString().trimmed();
+    pcvrAppName = s.value("mlxr/pcvr_app_name", "").toString();
+    pcvrClient = s.value("mlxr/pcvr_client", "").toString().trimmed();
+    pcvrClientName = s.value("mlxr/pcvr_client_name", "").toString();
 
     // The VR client's defaults (ui/settings.c) when config.ini or the key is absent
     const QString ini = configIniPath();
@@ -129,6 +287,37 @@ void MlxrPrefs::load()
     const int conv = iniValue(ini, "3d", "convergence", "-1").toInt();
     convergenceIsDefault = conv < 0;
     convergence = conv < 0 ? 50 : qBound(0, conv, 100);
+    // the VR client holds these to their ranges and takes anything else as its default
+    bool balanceOk = false;
+    const int balance = iniValue(ini, "3d", "eye_balance", "0").trimmed().toInt(&balanceOk);
+    eyeBalance = balanceOk ? qBound(-100, balance, 100) : 0;
+    bool dimOk = false;
+    const int dim = iniValue(ini, "vr", "background_dim", "0").trimmed().toInt(&dimOk);
+    backgroundDim = dimOk ? qBound(0, dim, 100) : 0;
+    voidColor = iniValue(ini, "vr", "void_color", "#000000").trimmed();
+    if (!QRegularExpression("^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$").match(voidColor).hasMatch()) {
+        voidColor = "#000000";
+    }
+    const QString gf = iniValue(ini, "display", "glow_feather", "off").trimmed().toLower();
+    glowFeather = (gf == "soft" || gf == "1") ? "soft" : (gf == "wide" || gf == "2") ? "wide" : "off";
+    // the VR client takes the name or its index; anything else is its default, depth
+    const QString src = iniValue(ini, "3d", "stereo_source", "depth").trimmed().toLower();
+    stereoSource = (src == "sbs" || src == "1") ? "sbs" : (src == "top-bottom" || src == "2") ? "top-bottom" : "depth";
+    sbsFull = iniBool(iniValue(ini, "3d", "sbs_full", "false"));
+    // the VR client holds it to 0..100 and takes anything else as its default, 0
+    bool edgeOk = false;
+    const int edge = iniValue(ini, "3d", "edge_sharpness", "0").trimmed().toInt(&edgeOk);
+    edgeSharpness = edgeOk ? qBound(0, edge, 100) : 0;
+    // 0..50, the same way
+    bool motionOk = false;
+    const int motion = iniValue(ini, "3d", "motion_reset", "0").trimmed().toInt(&motionOk);
+    motionReset = motionOk ? qBound(0, motion, 50) : 0;
+    // 0..200, default 100
+    bool scaleOk = false, globalOk = false;
+    const int scale = iniValue(ini, "3d", "depth_scale", "100").trimmed().toInt(&scaleOk);
+    const int global = iniValue(ini, "3d", "depth_global", "100").trimmed().toInt(&globalOk);
+    depthScale = scaleOk ? qBound(0, scale, 200) : 100;
+    depthGlobal = globalOk ? qBound(0, global, 200) : 100;
     flipFaceButtons = iniBool(iniValue(ini, "vr", "flip_face_buttons", "false"));
     keyboardKeymap = iniValue(ini, "vr", "keyboard_keymap", "qwerty").trimmed().toLower();
     if (keyboardKeymap != "azerty" && keyboardKeymap != "qwertz") {
@@ -146,6 +335,19 @@ void MlxrPrefs::load()
     // the VR client's limits, held to its range
     doffDisconnect = qBound(0, iniValue(ini, "stream", "doff_disconnect", "60").trimmed().toInt(), 3600);
     idleDisconnect = qBound(0, iniValue(ini, "stream", "idle_disconnect", "0").trimmed().toInt(), 1440);
+    // Native (lane wave4b-abr): the per-path start bitrates, the VR client's rule: 0, or 500..500000 kbps
+    auto pathBitrate = [&ini](const char* key) {
+        const int v = iniValue(ini, "stream", key, "0").trimmed().toInt();
+        return v <= 0 ? 0 : qBound(500, v, 500000);
+    };
+    bitrateWifi = pathBitrate("bitrate_wifi");
+    bitrateAdapter = pathBitrate("bitrate_adapter");
+    bitrateWired = pathBitrate("bitrate_wired");
+    bitrateUsb = pathBitrate("bitrate_usb");
+    // Native (lane wave1-burst): not a number is the VR client's default
+    bool idrOk = false;
+    const int idrMs = iniValue(ini, "stream", "rfi_idr_ms", "500").trimmed().toInt(&idrOk);
+    rfiIdrMs = idrOk ? qBound(0, idrMs, 5000) : 500;
 
     // the VR client's names, anything else is its default
     // the VR client holds it to 25..400 and takes anything else as its default, 100
@@ -164,6 +366,11 @@ void MlxrPrefs::load()
     if (padArbitration != "also_gamepad" && padArbitration != "sleep") {
         padArbitration = "pointer";
     }
+    // the VR client takes the name or its index, anything else is its default
+    const QString lg = iniValue(ini, "vr", "lightgun", "auto").trimmed().toLower();
+    lightgun = (lg == "on" || lg == "1") ? "on" : (lg == "off" || lg == "2") ? "off" : "auto";
+    const QString pg = iniValue(ini, "vr", "pad_gyro", "off").trimmed().toLower();
+    padGyro = (pg == "controller" || pg == "1") ? "controller" : (pg == "head" || pg == "2") ? "head" : "off";
 
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
@@ -171,6 +378,16 @@ void MlxrPrefs::load()
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniEyeBalance = eyeBalance;
+    m_iniBackgroundDim = backgroundDim;
+    m_iniVoidColor = voidColor;
+    m_iniGlowFeather = glowFeather;
+    m_iniStereoSource = stereoSource;
+    m_iniSbsFull = sbsFull;
+    m_iniEdgeSharpness = edgeSharpness;
+    m_iniMotionReset = motionReset;
+    m_iniDepthScale = depthScale;
+    m_iniDepthGlobal = depthGlobal;
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
@@ -178,9 +395,16 @@ void MlxrPrefs::load()
     m_iniControllerModel = controllerModel;
     m_iniDoff = doffDisconnect;
     m_iniIdle = idleDisconnect;
+    m_iniBitrateWifi = bitrateWifi;
+    m_iniBitrateAdapter = bitrateAdapter;
+    m_iniBitrateWired = bitrateWired;
+    m_iniBitrateUsb = bitrateUsb;
+    m_iniRfiIdr = rfiIdrMs;
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
+    m_iniLightgun = lightgun;
+    m_iniPadGyro = padGyro;
 }
 
 void MlxrPrefs::save()
@@ -199,6 +423,10 @@ void MlxrPrefs::save()
     s.setValue("networkPath", networkPath);
     s.setValue("mlxr/clipboard_sync", clipboardSync);
     s.setValue("mlxr/quick_resume", quickResume);
+    s.setValue("mlxr/pcvr_app", pcvrApp.trimmed());
+    s.setValue("mlxr/pcvr_app_name", pcvrAppName);
+    s.setValue("mlxr/pcvr_client", pcvrClient.trimmed());
+    s.setValue("mlxr/pcvr_client_name", pcvrClientName);
     s.sync();
 
     // Only what changed here: the headset may have changed the others since (the cog saves the file)
@@ -214,6 +442,36 @@ void MlxrPrefs::save()
     }
     if (convergence != m_iniConvergence || convergenceIsDefault != m_iniConvergenceDefault) {
         setIniValue(ini, "3d", "convergence", convergenceIsDefault ? "-1" : QString::number(qBound(0, convergence, 100)));
+    }
+    if (eyeBalance != m_iniEyeBalance) {
+        setIniValue(ini, "3d", "eye_balance", QString::number(qBound(-100, eyeBalance, 100)));
+    }
+    if (backgroundDim != m_iniBackgroundDim) {
+        setIniValue(ini, "vr", "background_dim", QString::number(qBound(0, backgroundDim, 100)));
+    }
+    if (voidColor != m_iniVoidColor) {
+        setIniValue(ini, "vr", "void_color", voidColor);
+    }
+    if (glowFeather != m_iniGlowFeather) {
+        setIniValue(ini, "display", "glow_feather", glowFeather);
+    }
+    if (stereoSource != m_iniStereoSource) {
+        setIniValue(ini, "3d", "stereo_source", stereoSource);
+    }
+    if (sbsFull != m_iniSbsFull) {
+        setIniValue(ini, "3d", "sbs_full", sbsFull ? "true" : "false");
+    }
+    if (edgeSharpness != m_iniEdgeSharpness) {
+        setIniValue(ini, "3d", "edge_sharpness", QString::number(qBound(0, edgeSharpness, 100)));
+    }
+    if (motionReset != m_iniMotionReset) {
+        setIniValue(ini, "3d", "motion_reset", QString::number(qBound(0, motionReset, 50)));
+    }
+    if (depthScale != m_iniDepthScale) {
+        setIniValue(ini, "3d", "depth_scale", QString::number(qBound(0, depthScale, 200)));
+    }
+    if (depthGlobal != m_iniDepthGlobal) {
+        setIniValue(ini, "3d", "depth_global", QString::number(qBound(0, depthGlobal, 200)));
     }
     if (flipFaceButtons != m_iniFlip) {
         setIniValue(ini, "vr", "flip_face_buttons", flipFaceButtons ? "true" : "false");
@@ -236,6 +494,17 @@ void MlxrPrefs::save()
     if (idleDisconnect != m_iniIdle) {
         setIniValue(ini, "stream", "idle_disconnect", QString::number(qBound(0, idleDisconnect, 1440)));
     }
+    // Native (lane wave4b-abr)
+    const auto writeBitrate = [&ini](const char* key, int now, int was) {
+        if (now != was) setIniValue(ini, "stream", key, QString::number(now <= 0 ? 0 : qBound(500, now, 500000)));
+    };
+    writeBitrate("bitrate_wifi", bitrateWifi, m_iniBitrateWifi);
+    writeBitrate("bitrate_adapter", bitrateAdapter, m_iniBitrateAdapter);
+    writeBitrate("bitrate_wired", bitrateWired, m_iniBitrateWired);
+    writeBitrate("bitrate_usb", bitrateUsb, m_iniBitrateUsb);
+    if (rfiIdrMs != m_iniRfiIdr) {
+        setIniValue(ini, "stream", "rfi_idr_ms", QString::number(qBound(0, rfiIdrMs, 5000)));
+    }
     if (padMouseChord != m_iniPadMouseChord) {
         setIniValue(ini, "vr", "pad_mouse_chord", padMouseChord);
     }
@@ -245,12 +514,28 @@ void MlxrPrefs::save()
     if (padArbitration != m_iniPadArbitration) {
         setIniValue(ini, "vr", "pad_arbitration", padArbitration);
     }
+    if (lightgun != m_iniLightgun) {
+        setIniValue(ini, "vr", "lightgun", lightgun);
+    }
+    if (padGyro != m_iniPadGyro) {
+        setIniValue(ini, "vr", "pad_gyro", padGyro);
+    }
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniEyeBalance = eyeBalance;
+    m_iniBackgroundDim = backgroundDim;
+    m_iniVoidColor = voidColor;
+    m_iniGlowFeather = glowFeather;
+    m_iniStereoSource = stereoSource;
+    m_iniSbsFull = sbsFull;
+    m_iniEdgeSharpness = edgeSharpness;
+    m_iniMotionReset = motionReset;
+    m_iniDepthScale = depthScale;
+    m_iniDepthGlobal = depthGlobal;
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
@@ -258,9 +543,16 @@ void MlxrPrefs::save()
     m_iniControllerModel = controllerModel;
     m_iniDoff = doffDisconnect;
     m_iniIdle = idleDisconnect;
+    m_iniBitrateWifi = bitrateWifi;
+    m_iniBitrateAdapter = bitrateAdapter;
+    m_iniBitrateWired = bitrateWired;
+    m_iniBitrateUsb = bitrateUsb;
+    m_iniRfiIdr = rfiIdrMs;
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
+    m_iniLightgun = lightgun;
+    m_iniPadGyro = padGyro;
 }
 
 int MlxrPrefs::headsetMaxFps() const

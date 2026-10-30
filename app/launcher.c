@@ -21,6 +21,7 @@ static void push(Launcher* l, LaunchCmdKind kind, int pc, int appId, int quitFir
     c->appId = appId;
     c->quitFirst = quitFirst;
     c->quitHost = quitHost;
+    c->pcvr = 0;
 }
 
 static void say(Launcher* l, const char* fmt, const char* arg) {
@@ -249,6 +250,17 @@ void launcher_disconnect_doff(Launcher* l) {
 
 void launcher_disconnect_idle(Launcher* l) {
     disconnectWith(l, UIS_NATIVE_DISCONNECTED_IDLE);
+}
+
+void launcher_pcvr(Launcher* l) {
+    if (l->fileMode) {
+        return;   // no host, nothing to hand over
+    }
+    int streaming = l->state == LAUNCH_STREAMING || l->state == LAUNCH_STARTING;
+    disconnectWith(l, UIS_NATIVE_PCVR);
+    if (streaming && l->state == LAUNCH_STOPPING && l->ncmd > 0 && l->cmds[l->ncmd - 1].kind == LCMD_STOP) {
+        l->cmds[l->ncmd - 1].pcvr = 1;
+    }
 }
 
 int launcher_take_cmd(Launcher* l, LaunchCmd* out) {

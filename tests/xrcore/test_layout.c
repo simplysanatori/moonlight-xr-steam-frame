@@ -500,7 +500,7 @@ static void testThePresetAccent(void) {
 // bands apart and every cell drawn inside its own band
 static void testTheRowsFit(void) {
     int counts[COG_TAB_COUNT] = {
-        COG_SCREEN_ROW_COUNT, COG_DISPLAY_SLIDER_ROW + 1, COG_ROW3D_COUNT, PICTURE_VALUES, 0
+        COG_SCREEN_ROW_COUNT, COG_DISPLAY_SLIDER_ROW + 1, COG_ROW3D_COUNT, PICTURE_TAB_ROWS, 0
     };
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
         // The About tab has no rows, only its button
@@ -572,8 +572,11 @@ static void testTheRowsFit(void) {
     CHECK(COG_TAB_PICTURE == 3 && COG_TAB_ABOUT == 4 && COG_TAB_COUNT == 5);
     CHECK_NEAR(cogRowV(COG_TAB_PICTURE, PICTURE_SATURATION),
                COG_ROW_V0 + PICTURE_SATURATION * COG_ROW_STEP, 1e-6);
-    CHECK(cogRowV(COG_TAB_PICTURE, PICTURE_VALUES - 1) + cogRowHalf(COG_TAB_PICTURE)
+    CHECK(cogRowV(COG_TAB_PICTURE, PICTURE_TAB_ROWS - 1) + cogRowHalf(COG_TAB_PICTURE)
           < COG_RESET_T);
+    // Background and Glow edge follow the four grade rows
+    CHECK(PICTURE_VALUES == 4 && PICTURE_ROW_BACKGROUND == PICTURE_VALUES);
+    CHECK(PICTURE_ROW_GLOW_EDGE == PICTURE_ROW_BACKGROUND + 1 && PICTURE_TAB_ROWS == PICTURE_ROW_GLOW_EDGE + 1);
     // Every room sheet follows the tabs, one per tab and the fixed Room tab,
     // then the screen and display tabs for a screen not locked to the head
     CHECK(COG_ART_ROOM == COG_TAB_COUNT);
@@ -583,7 +586,7 @@ static void testTheRowsFit(void) {
     // The strip beside the tracks reaches every Picture and Room row, and
     // head aim's two on the Screen tab
     float stripB = COG_READOUT_T + (float)COG_READOUT_TEX_H / (float)COG_TEX_H;
-    for (int row = 0; row < PICTURE_VALUES; row++) {
+    for (int row = 0; row < PICTURE_TAB_ROWS; row++) {
         CHECK(cogRowV(COG_TAB_PICTURE, row) - COG_CELL_HALF > COG_READOUT_T);
         CHECK(cogRowV(COG_TAB_PICTURE, row) + COG_CELL_HALF < stripB);
     }
@@ -725,8 +728,17 @@ static void testEveryTrackHasItsSteps(void) {
         { PICTURE_GAMMA_MIN, PICTURE_GAMMA_MAX, PICTURE_GAMMA_DEFAULT },
         { PICTURE_SATURATION_MIN, PICTURE_SATURATION_MAX, PICTURE_SATURATION_DEFAULT }
     };
-    CHECK(cogTrackSteps(COG_TAB_PICTURE, PICTURE_VALUES) == 0);
+    CHECK(cogTrackSteps(COG_TAB_PICTURE, PICTURE_TAB_ROWS) == 0);
     CHECK(cogTrackSteps(COG_TAB_PICTURE, -1) == 0);
+    // Background in five percent steps, Glow edge off, soft, wide
+    CHECK(cogTrackSteps(COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND) == 20);
+    CHECK(cogTrackSteps(COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE) == GLOW_FEATHER_COUNT - 1);
+    for (int step = 0; step <= 20; step++) {
+        CHECK(bgDimClamp(laneUnits((float)step / 20.0f, BG_DIM_MIN, BG_DIM_MAX)) == step * 5);
+    }
+    for (int mode = 0; mode < GLOW_FEATHER_COUNT; mode++) {
+        CHECK(laneUnits((float)mode / (float)(GLOW_FEATHER_COUNT - 1), GLOW_FEATHER_OFF, GLOW_FEATHER_COUNT - 1) == mode);
+    }
     for (int row = 0; row < PICTURE_VALUES; row++) {
         int min = pictureLanes[row][0];
         int max = pictureLanes[row][1];
@@ -848,12 +860,16 @@ static void testTheKofiButton(void) {
 // offsets in y, and a face written in lands in its cell the right way up for
 // a texture uploaded bottom row first, touching nothing else.
 static void testTheButtonCells(void) {
-    CHECK(BTN_ATLAS_W == 1664 && BTN_ATLAS_H == BUTTON_TEX);
+    CHECK(BTN_ATLAS_W == 1920 && BTN_ATLAS_H == BUTTON_TEX);
     // Every switch has its on face in the cell after its off face; the Host
-    // sheet's button (native) has one face, the last cell
+    // sheet's button (native) has one face; the 3D button's on faces for the
+    // PC's own pair (native, PLAN 4.3) are the last two cells
     CHECK(BTN_CELL_STEREO + 1 < BTN_CELL_RAY && BTN_CELL_RAY + 1 < BTN_CELL_AIM);
     CHECK(BTN_CELL_AIM + 1 < BTN_CELL_PAD && BTN_CELL_PAD + 1 < BTN_CELL_HOST);
-    CHECK(BTN_CELL_HOST == BTN_CELLS - 1);
+    CHECK(BTN_CELL_HOST + 1 == BTN_CELL_STEREO_SBS && BTN_CELL_STEREO_TB == BTN_CELLS - 1);
+    CHECK(barStereoCell(STEREO_SOURCE_DEPTH, 0) == BTN_CELL_STEREO && barStereoCell(STEREO_SOURCE_SBS, 0) == BTN_CELL_STEREO);
+    CHECK(barStereoCell(STEREO_SOURCE_DEPTH, 1) == BTN_CELL_STEREO + 1);
+    CHECK(barStereoCell(STEREO_SOURCE_SBS, 1) == BTN_CELL_STEREO_SBS && barStereoCell(STEREO_SOURCE_TB, 1) == BTN_CELL_STEREO_TB);
 
     int seen[BTN_ATLAS_COLS * BTN_ATLAS_ROWS] = { 0 };
     for (int cell = 0; cell < BTN_CELLS; cell++) {
@@ -1195,7 +1211,164 @@ static void testAngularWidth(void) {
     CHECK_NEAR(layoutAngularWidth(2.0f, 2.0f, 0.0f, 0.8f, 8.0f), 2.0, 1e-6);
 }
 
+// Native (lane wave3-visual): the Picture tab's Background and Glow edge, the
+// backdrop behind the views, and 3D Eye Balance
+static void testTheSurroundings(void) {
+    // Background dim: held to five percent steps and to its lane
+    CHECK(bgDimClamp(0) == 0 && bgDimClamp(100) == 100);
+    CHECK(bgDimClamp(2) == 0 && bgDimClamp(3) == 5 && bgDimClamp(47) == 45 && bgDimClamp(48) == 50);
+    CHECK(bgDimClamp(-30) == 0 && bgDimClamp(130) == 100 && bgDimClamp(103) == 100);
+    CHECK_NEAR(bgDimKeep(0), 1.0, 1e-6);
+    CHECK_NEAR(bgDimKeep(25), 0.75, 1e-6);
+    CHECK_NEAR(bgDimKeep(100), 0.0, 1e-6);
+    CHECK_NEAR(bgDimKeep(-5), 1.0, 1e-6);
+    CHECK_NEAR(bgDimKeep(500), 0.0, 1e-6);
+
+    // Glow edge: nothing when off, the pull request's 0.15 at its widest
+    CHECK(glowFeatherFraction(GLOW_FEATHER_OFF) == 0.0f);
+    CHECK(glowFeatherFraction(GLOW_FEATHER_SOFT) > 0.0f);
+    CHECK(glowFeatherFraction(GLOW_FEATHER_WIDE) > glowFeatherFraction(GLOW_FEATHER_SOFT));
+    CHECK_NEAR(glowFeatherFraction(GLOW_FEATHER_WIDE), 0.15, 1e-6);
+    CHECK(glowFeatherFraction(-1) == 0.0f && glowFeatherFraction(GLOW_FEATHER_COUNT) == 0.0f);
+    CHECK(glowFeatherFraction(GLOW_FEATHER_WIDE) < 0.5f);
+
+    // The backdrop: black at the dim's alpha over the cameras, the void's
+    // colour taken down by it, nothing in a room or for a black void
+    float out[4];
+    const float orange[3] = { 1.0f, 0.5f, 0.0f };
+    const float black[3] = { 0.0f, 0.0f, 0.0f };
+    CHECK(backdropFor(BACKDROP_PASSTHROUGH, 0, black, out) == 1);
+    CHECK(out[0] == 0.0f && out[1] == 0.0f && out[2] == 0.0f && out[3] == 0.0f);
+    CHECK(backdropFor(BACKDROP_PASSTHROUGH, 40, orange, out) == 1);
+    CHECK(out[0] == 0.0f && out[1] == 0.0f && out[2] == 0.0f);
+    CHECK_NEAR(out[3], 0.4, 1e-6);
+    CHECK(backdropFor(BACKDROP_PASSTHROUGH, 100, black, out) == 1);
+    CHECK_NEAR(out[3], 1.0, 1e-6);
+    CHECK(backdropFor(BACKDROP_VOID, 0, orange, out) == 1);
+    CHECK_NEAR(out[0], 1.0, 1e-6);
+    CHECK_NEAR(out[1], 0.5, 1e-6);
+    CHECK_NEAR(out[3], 1.0, 1e-6);
+    CHECK(backdropFor(BACKDROP_VOID, 50, orange, out) == 1);
+    CHECK_NEAR(out[0], 0.5, 1e-6);
+    CHECK_NEAR(out[1], 0.25, 1e-6);
+    CHECK(backdropFor(BACKDROP_VOID, 100, orange, out) == 0);   // dimmed to black
+    CHECK(backdropFor(BACKDROP_VOID, 0, black, out) == 0);      // a black void has no layer
+    CHECK(backdropFor(BACKDROP_VOID, 0, NULL, out) == 0);
+    CHECK(backdropFor(BACKDROP_NONE, 30, orange, out) == 0);
+    CHECK(out[3] == 0.0f);
+    // sRGB to the linear value an _SRGB target is cleared with
+    CHECK_NEAR(srgbToLinear(0.0f), 0.0, 1e-7);
+    CHECK_NEAR(srgbToLinear(1.0f), 1.0, 1e-6);
+    CHECK_NEAR(srgbToLinear(0.5f), 0.2140, 1e-3);
+    CHECK_NEAR(srgbToLinear(0.02f), 0.02 / 12.92, 1e-6);
+
+    // 3D Eye Balance: even by default, the total between the eyes never changes
+    float l, r;
+    eyeShares(0.0f, &l, &r);
+    CHECK(l == 1.0f && r == 1.0f);
+    CHECK(eyeShareReach(0.0f) == 1.0f);
+    eyeShares(1.0f, &l, &r);
+    CHECK(l == 2.0f && r == 0.0f);
+    eyeShares(-1.0f, &l, &r);
+    CHECK(l == 0.0f && r == 2.0f);
+    for (int p = EYE_BALANCE_MIN; p <= EYE_BALANCE_MAX; p += 5) {
+        float b = eyeBalanceOf(p);
+        eyeShares(b, &l, &r);
+        CHECK_NEAR(l + r, 2.0, 1e-5);
+        CHECK(l >= 0.0f && r >= 0.0f);
+        CHECK_NEAR(eyeShareReach(b), fmaxf(l, r), 1e-5);
+        // positive balance favours the left eye, negative the right
+        CHECK((p > 0) == (l > r) && (p < 0) == (r > l));
+    }
+    CHECK_NEAR(eyeBalanceOf(50), 0.5, 1e-6);
+    CHECK_NEAR(eyeBalanceOf(500), 1.0, 1e-6);
+    CHECK_NEAR(eyeBalanceOf(-500), -1.0, 1e-6);
+    eyeShares(7.0f, &l, &r);
+    CHECK(l == 2.0f && r == 0.0f);
+    CHECK_NEAR(eyeShareReach(-7.0f), 2.0, 1e-6);
+}
+
+// PLAN 4.3, the host-rendered pair's arithmetic: which half each eye shows
+// (and the swap), the picture a half size and a full size pair makes, where
+// the pointer goes, each half's rectangle, and the letterbox detector standing
+// down for a pair.
+static void testTheSbsPair(void) {
+    // Eye 0 the left (top) half, eye 1 the right (bottom); swapped, exchanged
+    CHECK(sbsEyeHalf(0, 0) == 0 && sbsEyeHalf(1, 0) == 1);
+    CHECK(sbsEyeHalf(0, 1) == 1 && sbsEyeHalf(1, 1) == 0);
+    CHECK(sbsEyeHalf(2, 0) == 0 && sbsEyeHalf(-1, 1) == 1);
+    // The two eyes never read the same half, swapped or not
+    for (int swap = 0; swap < 2; swap++) {
+        CHECK(sbsEyeHalf(0, swap) != sbsEyeHalf(1, swap));
+    }
+    // Swapping twice is the identity
+    for (int eye = 0; eye < 2; eye++) {
+        CHECK(sbsEyeHalf(sbsEyeHalf(eye, 1), 1) == eye);
+    }
+
+    int w, h;
+    // Half size: the frame's own shape, whatever the layout
+    sbsPictureSize(STEREO_SOURCE_SBS, 0, 1920, 1080, &w, &h);
+    CHECK(w == 1920 && h == 1080);
+    sbsPictureSize(STEREO_SOURCE_TB, 0, 1920, 1080, &w, &h);
+    CHECK(w == 1920 && h == 1080);
+    // Full size: one eye's half is the picture
+    sbsPictureSize(STEREO_SOURCE_SBS, 1, 3840, 1080, &w, &h);
+    CHECK(w == 1920 && h == 1080);
+    sbsPictureSize(STEREO_SOURCE_TB, 1, 1920, 2160, &w, &h);
+    CHECK(w == 1920 && h == 1080);
+    sbsPictureSize(STEREO_SOURCE_SBS, 1, 1, 1, &w, &h);
+    CHECK(w == 1 && h == 1);
+    sbsPictureSize(STEREO_SOURCE_TB, 1, 1, 1, &w, &h);
+    CHECK(w == 1 && h == 1);
+
+    // The pointer lands on the left (top) eye's half, the other axis whole
+    float u = 0.5f, v = 0.4f;
+    sbsPointerUv(STEREO_SOURCE_SBS, &u, &v);
+    CHECK_NEAR(u, 0.25, 1e-6);
+    CHECK_NEAR(v, 0.4, 1e-6);
+    u = 1.0f;
+    v = 1.0f;
+    sbsPointerUv(STEREO_SOURCE_SBS, &u, &v);
+    CHECK_NEAR(u, 0.5, 1e-6);
+    CHECK_NEAR(v, 1.0, 1e-6);
+    u = 0.5f;
+    v = 0.4f;
+    sbsPointerUv(STEREO_SOURCE_TB, &u, &v);
+    CHECK_NEAR(u, 0.5, 1e-6);
+    CHECK_NEAR(v, 0.2, 1e-6);
+
+    // Each half's rectangle: side by side, left then right; top-bottom, top
+    // then bottom; together they tile the frame with no overlap and no gap
+    int r[4];
+    sbsHalfRect(STEREO_SOURCE_SBS, 0, 3840, 1080, r);
+    CHECK(r[0] == 0 && r[1] == 0 && r[2] == 1920 && r[3] == 1080);
+    sbsHalfRect(STEREO_SOURCE_SBS, 1, 3840, 1080, r);
+    CHECK(r[0] == 1920 && r[1] == 0 && r[2] == 1920 && r[3] == 1080);
+    sbsHalfRect(STEREO_SOURCE_TB, 0, 1920, 2160, r);
+    CHECK(r[0] == 0 && r[1] == 0 && r[2] == 1920 && r[3] == 1080);
+    sbsHalfRect(STEREO_SOURCE_TB, 1, 1920, 2160, r);
+    CHECK(r[0] == 0 && r[1] == 1080 && r[2] == 1920 && r[3] == 1080);
+    // A half size pair's halves are half the frame the same way
+    sbsHalfRect(STEREO_SOURCE_SBS, 1, 1920, 1080, r);
+    CHECK(r[0] == 960 && r[2] == 960 && r[3] == 1080);
+    sbsHalfRect(STEREO_SOURCE_TB, 1, 1920, 1080, r);
+    CHECK(r[1] == 540 && r[2] == 1920 && r[3] == 540);
+    // The half's size is the full size picture's
+    sbsPictureSize(STEREO_SOURCE_SBS, 1, 3840, 1080, &w, &h);
+    sbsHalfRect(STEREO_SOURCE_SBS, 0, 3840, 1080, r);
+    CHECK(r[2] == w && r[3] == h);
+
+    // The letterbox detector: on for the model and the test patterns, never
+    // for a host-rendered pair; off stays off
+    CHECK(ambiBarDetectApplies(1, DEPTH_MODE_MODEL) && ambiBarDetectApplies(1, DEPTH_MODE_OFF));
+    CHECK(ambiBarDetectApplies(1, DEPTH_MODE_FLAT) && ambiBarDetectApplies(1, DEPTH_MODE_SHIFTTEST));
+    CHECK(!ambiBarDetectApplies(1, DEPTH_MODE_SBS));
+    CHECK(!ambiBarDetectApplies(0, DEPTH_MODE_MODEL) && !ambiBarDetectApplies(0, DEPTH_MODE_SBS));
+}
+
 int main(void) {
+    testTheSurroundings();
     testThePresets();
     testTheGaze();
     testBringHere();
@@ -1226,5 +1399,6 @@ int main(void) {
     testTheTrackParts();
     testTheStepsLandOnTheGrid();
     testEveryTrackHasItsSteps();
+    testTheSbsPair();
     return checksDone("xr_layout");
 }
