@@ -666,7 +666,7 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
         xrHostComposeTail(ctx->hostCompose.text, 14, v->kb_compose_text, sizeof(v->kb_compose_text));
     }
     v->kb_caps = ctx->kbFull.caps;
-    v->kb_chip = !ctx->reportOpen;
+    v->kb_chip = !ctx->reportOpen && !ctx->hostCompose.active;   // a text field of ours stays Compact
     v->version = MLXR_VERSION;   // the top-level VERSION file, through CMake
     v->commit = NULL;
     v->log_path = "~/Games/MoonlightXRNative/moonlight.log";
