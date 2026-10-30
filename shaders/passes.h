@@ -165,6 +165,9 @@ typedef struct MlxrWarpParams {
     // as they were. The depth maps are in frame space, and are read at the
     // zoomed position.
     float zoomX, zoomY, zoomSize;
+    // New (lane text-clarity): chroma from luma (warp.frag guidedChroma), 0
+    // the plain bilinear chroma of before
+    int chromaGuided;
 } MlxrWarpParams;
 #define MLXR_SPLIT_NONE 0
 #define MLXR_SPLIT_SBS 1
@@ -345,8 +348,20 @@ typedef struct MlxrPanelParams {
     float width, height, radius;
     int segments;          // across; 1 is enough for a flat one
     float color[4];        // premultiplied multiplier, {1, 1, 1, 1} normally
+    // New (lane text-clarity), for the curved or 3D picture's own image (with
+    // its mip chain): 1 the picture's footprint filter (panel.frag), 0 one
+    // trilinear read as for the glow and the panels; and with it, sharpen
+    // (0 off, 0.5 normal, 1 quality) at the eye's pixel scale
+    int pictureFilter;
+    float sharpen;
 } MlxrPanelParams;
 void mlxr_pass_panel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrPanelParams* pp);
+
+// A full mip chain of a colour image from level 0, each level a linear blit
+// of the one above (the curved and 3D picture's own image). Level 0 is in
+// COLOR_ATTACHMENT_OPTIMAL on entry and the other levels in it or UNDEFINED;
+// every level is SHADER_READ_ONLY_OPTIMAL after.
+void mlxr_record_mips(VkCommandBuffer cmd, VkImage image, uint32_t width, uint32_t height, uint32_t levels);
 
 // An image barrier whose stages and access masks follow from the two
 // layouts (UNDEFINED, TRANSFER_DST/SRC, COLOR_ATTACHMENT,
