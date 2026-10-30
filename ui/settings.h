@@ -104,6 +104,8 @@ typedef struct Settings {
     int env_res;           // ENV_RES_LOW..ULTRA
     int hand_hint_seen;
     int picture_brightness, picture_contrast, picture_gamma, picture_saturation;
+    int bg_dim;            // native: Picture tab Background, percent of the room, cameras or void taken away (BG_DIM_)
+    char void_color[32];   // native: the void's colour, "#rrggbb" (config only; black unless set)
 
     // [debug] VR Debugging table
     int depth_rate;
@@ -120,6 +122,7 @@ typedef struct Settings {
     int stats_style;       // native: what the Stats overlay shows: 0 full lines, 1 HUD, 2 Lite one-liner (xr_hud.h STATS_STYLE_)
     int glow;              // ambilight
     int glow_level;        // percent, five percent steps
+    int glow_feather;      // native: Picture tab Glow edge, 0 off, 1 soft, 2 wide (GLOW_FEATHER_)
     int screen_light;      // room light
     int cog_tab;           // native: the cog's tab as it was last left (COG_TAB_*), where it opens next time
 
@@ -127,6 +130,9 @@ typedef struct Settings {
     int separation;        // tenths of a percent of frame width; -1 = the depth model's own
     int convergence;       // percent; -1 = the depth model's own
     int stereo;            // native: the 3D switch as it was last left (0 off, 1 on)
+    int eye_balance;       // native: percent -100..100, how the disparity is shared by the eyes (0 even; config only)
+    int stereo_source;     // native (PLAN 4.3): STEREO_SOURCE_* (depth, sbs, top-bottom)
+    int sbs_full;          // native (PLAN 4.3): the SBS or top-bottom frame holds a full size picture per eye
     int edge_sharpness;    // native (PLAN 5.1): the Edge setting, EDGE_SHARPNESS_MIN..MAX; 0 is upstream's edges
     int motion_reset;      // native (PLAN 5.4): percent luma change that restarts a depth texel's average; 0 off
     int depth_scale;       // PLAN 5.6, upstream vrDepthScale: percent gain on the depth's local detail (100 as made)
@@ -252,6 +258,11 @@ int settings_layout_forget(Settings* s, unsigned hash);
 int settings_head_lock_cell(const Settings* s);
 void settings_reset_3d(Settings* s);
 void settings_reset_picture(Settings* s);
+// The void's colour as 0..1 red, green and blue as typed (sRGB). Reads "#rrggbb",
+// "rrggbb", "#rgb" or "rgb"; anything else gives black and returns 0.
+int settings_void_rgb(const Settings* s, float rgb[3]);
+// The same parse on its own: 0 and rgb untouched when text is not a colour
+int settings_parse_hex_rgb(const char* text, float rgb[3]);
 int* settings_picture_ptr(Settings* s, int row);              // PICTURE_* row
 int settings_picture_value(const Settings* s, int row);
 
