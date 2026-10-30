@@ -165,6 +165,9 @@ typedef struct MlxrWarpParams {
     // as they were. The depth maps are in frame space, and are read at the
     // zoomed position.
     float zoomX, zoomY, zoomSize;
+    // New (lane text-clarity): chroma from luma (warp.frag guidedChroma), 0
+    // the plain bilinear chroma of before
+    int chromaGuided;
 } MlxrWarpParams;
 #define MLXR_SPLIT_NONE 0
 #define MLXR_SPLIT_SBS 1

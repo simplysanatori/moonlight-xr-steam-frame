@@ -244,7 +244,7 @@ typedef struct Video {
     VkSemaphore timeline;
     uint64_t value;
     // what the last draw used, so a change redraws a still picture
-    int drawnGradeOn, drawnSharpen, drawnCurved;
+    int drawnGradeOn, drawnSharpen, drawnCurved, drawnChroma;
     PictureGrade drawnGrade;
     // M6: the 3D as last drawn (eyes, separation, convergence, depth view)
     int drawnEyes, drawnShowDepth;
@@ -666,6 +666,10 @@ static int pictureFilterOn(XrCtx* ctx) {
     return knobOr("MLXR_PICTURE_FILTER", ctx->pictureFilter);
 }
 
+static int chromaFromLumaOn(XrCtx* ctx) {
+    return knobOr("MLXR_CHROMA_FROM_LUMA", ctx->chromaFromLuma);
+}
+
 // One display frame of the curved picture: both eyes drawn from where they
 // are now. Fills the layer and returns the acquired images' release duty.
 static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuffer cmd, int64_t format,
@@ -778,9 +782,11 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     // Native (lane text-clarity): shrunk into the eye through the footprint
     // filter (panel.frag)
     pp.pictureFilter = pictureFilterOn(ctx);
-    if (cv->filterSaid != 1 + pp.pictureFilter) {
-        cv->filterSaid = 1 + pp.pictureFilter;
-        LOGEV("curved picture: %s", pp.pictureFilter ? "footprint filter" : "one trilinear read (picture_filter off)");
+    int said = 1 + pp.pictureFilter * 2 + chromaFromLumaOn(ctx) * 16;
+    if (cv->filterSaid != said) {
+        cv->filterSaid = said;
+        LOGEV("curved picture: %s, chroma %s", pp.pictureFilter ? "footprint filter" : "one trilinear read (picture_filter off)",
+              chromaFromLumaOn(ctx) ? "from luma" : "bilinear (chroma_from_luma off)");
     }
     memset(&cv->layer, 0, sizeof(cv->layer));
     VkImageView src[ROOM_EYES];
@@ -893,6 +899,7 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     w.grade[3] = ctx->grade.saturation;
     w.tint[0] = w.tint[1] = w.tint[2] = 1.0f;
     w.sharpen = sharpenFor(ctx->sharpenMode);
+    w.chromaGuided = chromaFromLumaOn(ctx);
     xrDepthRecordWarpEyes(ctx, cmd, tg, &w, &dd);
     if (curve != NULL) {
         for (int e = 0; e < dd.eyes; e++) {
@@ -908,6 +915,7 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     vd->drawnGradeOn = ctx->gradeOn;
     vd->drawnGrade = ctx->grade;
     vd->drawnSharpen = ctx->sharpenMode;
+    vd->drawnChroma = w.chromaGuided;
     vd->drawnEyes = dd.eyes;
     vd->drawnSep = ctx->separationCurrent;
     vd->drawnConv = ctx->convergence;
@@ -929,6 +937,7 @@ static int videoStale(XrCtx* ctx, const Video* vd, int curved) {
     // Native (PLAN 4b.6): or the part of the picture shown moved
     int zoomed = vd->drawnZoom[0] != ctx->zoomPct || vd->drawnZoom[1] != ctx->zoomX || vd->drawnZoom[2] != ctx->zoomY;
     return vd->draws > 0 && (vd->drawnGradeOn != ctx->gradeOn || vd->drawnSharpen != ctx->sharpenMode
+                             || vd->drawnChroma != chromaFromLumaOn(ctx)
                              || vd->drawnCurved != curved || ctx->warpRedraw || stereo3d || zoomed
                              || memcmp(&vd->drawnGrade, &ctx->grade, sizeof(PictureGrade)) != 0);
 }

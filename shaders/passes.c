@@ -677,7 +677,16 @@ void mlxr_pass_warp(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, con
     pc[23] = w->edgeFade;
     // The four switches as bits of one number (warp.frag's WARP_ flags), which
     // frees the push block's last three floats for the zoom's rectangle
-    pc[24] = (float)((w->occlusion ? 1 : 0) | (w->depthCubic ? 2 : 0) | (w->showDepth ? 4 : 0) | (w->barTest ? 8 : 0));
+    // Native (lane text-clarity): 16 chroma from luma; where its chroma sites
+    // are: 32 midway between luma columns (centre siting) rather than on the
+    // even ones, 64 on the even rows rather than midway between two (both as
+    // the NV12 conversion got them, or as the three planes are read)
+    int nv12 = w->video.kind == MLXR_VIDEO_NV12;
+    int centreX = nv12 ? p->nv12X != VK_CHROMA_LOCATION_COSITED_EVEN : w->video.chroma != MLXR_CHROMA_LEFT;
+    int cositedY = nv12 && p->nv12Y == VK_CHROMA_LOCATION_COSITED_EVEN;
+    int chroma = w->chromaGuided ? 16 | (centreX ? 32 : 0) | (cositedY ? 64 : 0) : 0;
+    pc[24] = (float)((w->occlusion ? 1 : 0) | (w->depthCubic ? 2 : 0) | (w->showDepth ? 4 : 0) | (w->barTest ? 8 : 0) |
+                     chroma);
     int zoomed = w->zoomSize > 0.0f && w->zoomSize < 1.0f;
     pc[25] = zoomed ? w->zoomX : 0.0f;
     pc[26] = zoomed ? w->zoomY : 0.0f;
