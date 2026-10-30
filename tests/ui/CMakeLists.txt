@@ -57,3 +57,10 @@ find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
   add_test(NAME ui_i18n_gen COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/test_i18n_gen.py)
 endif()
+
+# Native (lane wave6-i18n): every panel in every language, PNGs into build/ui/tests/i18n-panels
+add_executable(test_ui_i18n_panels test_i18n_panels.c)
+target_link_libraries(test_ui_i18n_panels PRIVATE mlxr_ui m)
+target_include_directories(test_ui_i18n_panels PRIVATE ${UI_TEST_COMMON_INCLUDES})
+target_compile_options(test_ui_i18n_panels PRIVATE -Werror)
+add_test(NAME ui_i18n_panels COMMAND test_ui_i18n_panels ${CMAKE_CURRENT_BINARY_DIR}/i18n-panels)

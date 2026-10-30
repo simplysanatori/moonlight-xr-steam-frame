@@ -294,9 +294,14 @@ static void applyLanguageOnce(const Settings* s) {
         return;
     }
     done = 1;
-    int lang = settings_ui_language(s);
-    ui_str_set_lang(lang);
-    LOGI("UI language %s (%s)", ui_lang_code(lang), s->language == 0 ? "auto: the locale" : "[ui] language");
+    int want = settings_ui_language(s);
+    char msg[768];
+    int got = ui_lang_start(want, msg, sizeof msg);
+    if (got == want) {
+        LOGI("%s, %s", msg, s->language == 0 ? "auto: the locale" : "from [ui] language");
+    } else {
+        LOGW("%s", msg);
+    }
 }
 
 void xrApplySettings(XrCtx* ctx, const Settings* s) {

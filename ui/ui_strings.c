@@ -2,8 +2,11 @@
 #include "ui_strings.h"
 
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "text.h"
 
 static const char* const TEXT[UIS_COUNT] = {
 #define X(id, key, en) en,
@@ -131,3 +134,55 @@ int ui_str_translated(int lang, UiStr id) {
 void ui_str_set_lang(int lang) { g_lang = lang > 0 && lang < LANG_COUNT ? lang : 0; }
 
 int ui_str_lang_current(void) { return g_lang; }
+
+int ui_lang_start(int lang, char* msg, size_t cap) {
+    char dummy[8];
+    if (!msg || !cap) { msg = dummy; cap = sizeof dummy; }
+    if (lang <= 0 || lang >= LANG_COUNT) {
+        ui_str_set_lang(0);
+        snprintf(msg, cap, "UI language en (English)");
+        return 0;
+    }
+    UiFont* font = ui_font_default();
+    int script = LANGS[lang].script;
+    const char* region = script == UI_SCRIPT_CJK_JA ? "JP" : script == UI_SCRIPT_CJK_KO ? "KR"
+                       : script == UI_SCRIPT_CJK_SC ? "SC" : script == UI_SCRIPT_CJK_TC ? "TC" : NULL;
+    char reg[512] = "", med[512] = "";
+    int ri = 0, mi = 0;
+    if (region) {
+        const char* root = getenv("MLXR_SYSTEM_FONT_DIR");
+        if (!root || !*root) root = "/usr/share/fonts";
+        if (!font || !ui_font_find_cjk(root, region, reg, sizeof reg, &ri, med, sizeof med, &mi)) {
+            ui_str_set_lang(0);
+            snprintf(msg, cap, "UI language %s (%s) needs Noto Sans CJK, which is not under %s: English instead",
+                     LANGS[lang].code, LANGS[lang].name, root);
+            return 0;
+        }
+        if (!ui_font_set_fallback(font, reg, ri, med[0] ? med : NULL, mi)) {
+            ui_str_set_lang(0);
+            snprintf(msg, cap, "UI language %s (%s): %s did not load: English instead", LANGS[lang].code,
+                     LANGS[lang].name, reg);
+            return 0;
+        }
+    }
+    // every string the language has must draw: no .notdef boxes
+    for (int id = 0; font && id < UIS_COUNT; id++) {
+        const char* t = LANGS[lang].text[id];
+        uint32_t cp = 0;
+        if (t && (!ui_font_covers(font, UI_WEIGHT_REGULAR, t, &cp) || !ui_font_covers(font, UI_WEIGHT_MEDIUM, t, &cp))) {
+            if (region) ui_font_clear_fallback(font);
+            ui_str_set_lang(0);
+            snprintf(msg, cap, "UI language %s (%s): no glyph for U+%04X (%s): English instead", LANGS[lang].code,
+                     LANGS[lang].name, (unsigned)cp, KEYS[id]);
+            return 0;
+        }
+    }
+    ui_str_set_lang(lang);
+    if (region) {
+        snprintf(msg, cap, "UI language %s (%s), its characters from %s (face %d)%s%s", LANGS[lang].code,
+                 LANGS[lang].name, reg, ri, med[0] ? " and " : "", med);
+    } else {
+        snprintf(msg, cap, "UI language %s (%s)", LANGS[lang].code, LANGS[lang].name);
+    }
+    return lang;
+}
