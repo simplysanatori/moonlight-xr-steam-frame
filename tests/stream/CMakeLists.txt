@@ -30,6 +30,17 @@ add_test(NAME stream_reconnect COMMAND test_reconnect)
 add_executable(test_log_throttle test_log_throttle.c)
 target_link_libraries(test_log_throttle PRIVATE mlxr_stream)
 add_test(NAME stream_log_throttle COMMAND test_log_throttle)
+# Lane wave4-apollo: the text a clipboard is typed through, and Apollo's server command packet
+add_executable(test_vrkb_text test_vrkb_text.c)
+target_link_libraries(test_vrkb_text PRIVATE mlxr_stream)
+add_test(NAME stream_vrkb_text COMMAND test_vrkb_text)
+add_executable(test_servercmd test_servercmd.c)
+# stream_exec_server_cmd lives in session.c, which logs through xr/xr_log.c and starts the pad bridge
+# (xr/xr_pad_bridge.c): link mlxr_xr as test_evkbd does
+target_link_libraries(test_servercmd PRIVATE mlxr_stream mlxr_xr)
+target_compile_definitions(test_servercmd PRIVATE
+  SERVERCMD_INC="${PROJECT_SOURCE_DIR}/stream/commonc_servercmd.inc")
+add_test(NAME stream_servercmd COMMAND test_servercmd)
 # Lane wave1-failover: the failover loop against a fake session
 add_executable(test_failover test_failover.c)
 target_link_libraries(test_failover PRIVATE mlxr_stream)

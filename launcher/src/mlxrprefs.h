@@ -16,6 +16,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QVector>
 #include <QVariantList>
 
 class MlxrPrefs : public QObject
@@ -44,6 +45,9 @@ class MlxrPrefs : public QObject
     // ---- launcher settings used by the launcher ----
     Q_PROPERTY(bool clipboardSync MEMBER clipboardSync NOTIFY changed)       // Apollo
     Q_PROPERTY(bool quickResume MEMBER quickResume NOTIFY changed)
+    // Native (lane wave4-launcher): ask the PC about permissions, the virtual display and its modes before a stream
+    // starts and say what is wrong (mlxrpreflight.h); on by default. Not part of a settings profile.
+    Q_PROPERTY(bool preflight MEMBER preflight NOTIFY changed)
     // ---- the VR client's config.ini ----
     Q_PROPERTY(bool perfOverlay MEMBER perfOverlay NOTIFY changed)           // [display] stats
     Q_PROPERTY(int renderMode MEMBER renderMode NOTIFY changed)              // [3d] stereo: 0 2D, 1 AI 3D
@@ -150,6 +154,16 @@ public:
     // Writes the launcher settings, and the config.ini keys changed since load()
     Q_INVOKABLE void save();
     void load();
+    // load() again and tell the page (a settings profile ended: mlxrprofiles.h)
+    void reloadAll();
+
+    // Native (lane wave4-launcher): the config.ini keys a settings profile carries, as they stand in memory now
+    // (section, key, the text the VR client reads). A lane that adds a stream setting to the page adds its key
+    // here and its property to kPrefFields in mlxrprofiles.cpp, so profiles hold it too.
+    struct IniEntry {
+        QString section, key, value;
+    };
+    QVector<IniEntry> profileIniEntries() const;
 
     // The VR client flags for these settings (only those that differ from the client's defaults)
     QStringList clientArgs() const;
@@ -214,6 +228,7 @@ public:
     QString networkPath;
     bool clipboardSync;
     bool quickResume;
+    bool preflight = true;
     bool perfOverlay;
     int renderMode;
     int strength;

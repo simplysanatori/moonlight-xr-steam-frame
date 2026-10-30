@@ -1237,6 +1237,15 @@ typedef struct XrCtx {
     // Native (PLAN 4.1): the Host sheet's "Switch to PC VR" was confirmed; xr_session.c turns it into
     // XrUiEvents.pcvrConfirmed once and clears it
     int pcvrRequest;
+    // Native (lane wave4-apollo): the Host sheet's PC page. hostPage is the page showing; hostInfo what the
+    // host offers (xr_app_set_host_info); hostCompose "Send text to PC" having the keyboard; and
+    // hostActKind (XR_HOSTACT_*, with hostActArg and hostActText) the thing a press chose, which the
+    // frame loop hands to the app once.
+    int hostPage;
+    XrHostInfo hostInfo;
+    XrHostCompose hostCompose;
+    int hostActKind, hostActArg;
+    char hostActText[XR_COMPOSE_MAX];
     // Native: the Compact keyboard's locked modifiers, and the hand holding the key
     KbSticky kbSticky;
     int kbStickyHand;
@@ -1405,6 +1414,9 @@ int exitPromptHasDisconnect(const XrCtx* ctx);
 XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);
 XrPosef handHintPose(XrCtx* ctx, float* outWidth, float* outHeight);
 XrPosef kofiSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);
+// xr_kofi.c: runs Steam's browser on the Frame for the Ko-fi page (NULL: the default address).
+// Once per press, never blocks. 1 when a program was started.
+int kofiOpenPage(const char* url);
 int cogTabRowCount(int face);
 int cogRowIsTrack(int face, int row);
 int cogRowLive(XrCtx* ctx, int face, int row);
