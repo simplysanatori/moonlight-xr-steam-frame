@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include "xr_shared.h"
+#include "xr_cards.h"
 #include "xr_padmouse.h"
 
 // Where the tilt and rotate tracks clip to level, in radians (xr_renderer.h:
@@ -39,6 +40,8 @@ static const char* const PADGRIP_NAMES[] = { "bumpers", "none", "stick_clicks" }
 static const char* const PADMOUSECHORD_NAMES[] = { "start_hold", "start_back", "off" };
 static const char* const PADMOUSESCROLL_NAMES[] = { "right", "left", "none" };
 static const char* const PADARB_NAMES[] = { "pointer", "also_gamepad", "sleep" };
+static const char* const PADCARD_NAMES[] = { "auto", "on", "off" };
+_Static_assert(sizeof(PADCARD_NAMES) / sizeof(PADCARD_NAMES[0]) == PADCARD_MODES, "pad_card names follow PADCARD_");
 static const char* const ENV_NAMES[] = { "auto", "passthrough", "void", "home_theater",
                                          "grand_cinema", "synthwave" };
 static const int ENV_IDS[] = { ENV_ID_NONE, ENV_ID_PASSTHROUGH, ENV_ID_VOID, ENV_ID_HOME_THEATER,
@@ -123,6 +126,8 @@ static const SettingDesc TABLE[] = {
     DE("vr", "depth_source", depth_source, DEPTH_NAMES, 0, "list_vr_depth_source: Realtime 3D mode (zipdepth recommended, midas older, zipdepth-int8 lighter on the CPU, off streams flat; flat, ramp, blob, eyetest, shifttest are test patterns)"),
     DE("vr", "env_res", env_res, ENVRES_NAMES, 1, "list_vr_env_res: Environment Res, how sharp the rooms are drawn: low (half the headset's recommended eye size), standard, high or ultra (the runtime's largest); read when the rooms are built at the start of a stream"),
     DB("vr", "hand_hint_seen", hand_hint_seen, 0, "the hand lock hint was put away for good"),
+    DB("vr", "first_run_shown", first_run_shown, 0, "native: the first-run controls card has been shown (it comes up once, on the first stream; set to false to see it again)"),
+    DE("vr", "pad_card", pad_card, PADCARD_NAMES, PADCARD_AUTO, "native: the gamepad card, a schematic of the Bluetooth or USB gamepad in use that lights up as you press it, held in your lap: auto (up while a gamepad is in use, gone 4 seconds after the last input), on (up while a gamepad counts as in use) or off"),
     DI("vr", "picture_brightness", picture_brightness, PICTURE_BRIGHTNESS_MIN, PICTURE_BRIGHTNESS_MAX, PICTURE_BRIGHTNESS_DEFAULT, "seekbar_vr_picture_brightness: -50..50"),
     DI("vr", "picture_contrast", picture_contrast, PICTURE_CONTRAST_MIN, PICTURE_CONTRAST_MAX, PICTURE_CONTRAST_DEFAULT, "seekbar_vr_picture_contrast: percent, 50..150"),
     DI("vr", "picture_gamma", picture_gamma, PICTURE_GAMMA_MIN, PICTURE_GAMMA_MAX, PICTURE_GAMMA_DEFAULT, "seekbar_vr_picture_gamma: hundredths, 50..200"),
