@@ -45,6 +45,13 @@
 // is typed whole, as the Compact keyboard does.
 #define KBF_FLAG_DOWN 0x10000
 #define KBF_FLAG_UP 0x20000
+// Native (the Host sheet and macros, xr_hostkeys.h): the key is tapped whole
+// with these modifiers held round it, and the modifiers it brought go up
+// after it. HOLD puts the KBF_ modifier bits in the mods down on the host and
+// LET takes them up; both carry no key of their own.
+#define KBF_FLAG_CHORD 0x40000
+#define KBF_FLAG_HOLD 0x80000
+#define KBF_FLAG_LET 0x100000
 
 #define KBF_KEY_COUNT 88  /* 87 keys and the layout key */
 
@@ -59,8 +66,14 @@
 #define KB_MAP_AZERTY 1
 #define KB_MAP_QWERTZ 2
 #define KB_MAP_COUNT 3
-#define KBF_ISO_KEY 88
-#define KBF_KEY_COUNT_MAX 89
+// Native (PLAN 3.11): the media keys row follows the 88, on every map: previous
+// track, play/pause, next track, mute, volume down, volume up (xr_keys.h
+// kbMedia*). Under them the ISO key, where a map has one.
+#define KBF_MEDIA_FIRST KBF_KEY_COUNT
+#define KBF_MEDIA_COUNT 6
+#define KBF_KEY_COUNT_ALL (KBF_KEY_COUNT + KBF_MEDIA_COUNT)
+#define KBF_ISO_KEY KBF_KEY_COUNT_ALL
+#define KBF_KEY_COUNT_MAX (KBF_KEY_COUNT_ALL + 1)
 
 // What a key does
 enum { KBF_NORMAL = 0, KBF_MOD, KBF_CAPS, KBF_LAYOUT };
@@ -80,8 +93,9 @@ typedef struct {
 #define KBF_UNITS_H 6.5f
 
 const KbfKey* kbfKey(int index);
-// The keys the Full keyboard has on a map: KBF_KEY_COUNT, and the ISO key too
-// on AZERTY and QWERTZ. Out of range gives QWERTY.
+// The keys the Full keyboard has on a map: KBF_KEY_COUNT_ALL (the 88 and the
+// media keys), and the ISO key too on AZERTY and QWERTZ. Out of range gives
+// QWERTY.
 int kbfKeyCountFor(int map);
 // The key's rectangle on the panel (0..1: x0, y0, x1, y1)
 void kbfKeyRect(int index, float r[4]);
