@@ -2,9 +2,11 @@
 
 This directory holds the licence texts that have no better home. The complete list of what the project contains or uses is the table below (also in `CREDITS.md` at the top of the repository and in the install directory). Licence texts for the assets sit next to them: `assets/depth/`, `assets/fonts/OFL.txt`, `assets/hrtf/kemar/LICENSE.txt`.
 
-Files in this directory: `CC-BY-4.0.txt` (rooms), `moonlight-common-c_LICENSE.txt`, `enet_LICENSE.txt`, `nanors_LICENSE.txt`, `openxr-sdk_LICENSE.txt`, `jsoncpp_LICENSE.txt`, `zipdepth_LICENSE.txt`.
+Files in this directory: `CC-BY-4.0.txt` (rooms, gun model), `moonlight-common-c_LICENSE.txt`, `enet_LICENSE.txt`, `nanors_LICENSE.txt`, `openxr-sdk_LICENSE.txt`, `jsoncpp_LICENSE.txt`, `zipdepth_LICENSE.txt`.
 
 The room and controller notices as upstream words them: Copyright (c) 2026 Sean Gilleece / Woodford XR, Creative Commons Attribution 4.0, attribution to Sean Gilleece / Woodford XR (first made for Depthray, Woodford XR's VR video player). KEMAR: Copyright 1994 MIT Media Laboratory, "provided free with no restrictions on use, provided the authors are cited when the data is used in any research or commercial application"; citation: Bill Gardner and Keith Martin, "HRTF Measurements of a KEMAR Dummy-Head Microphone", MIT Media Lab Perceptual Computing Technical Report #280, May 1994.
+
+The gun model: This work is based on "G17 Gen 5 Handgun + Olight - NSW Police Force" (https://sketchfab.com/3d-models/g17-gen-5-handgun-olight-nsw-police-force-0200c248eba14385ad2bee8d4dc4e586) by 8sianDude (https://sketchfab.com/haoliu95) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/). Changed by this project (`tools/xr/make_gun.py`): the two spare magazines and the cartridges inside the inserted one left out; turned, scaled to a real G17's size and placed at the controller's aim pose; the textures baked into 16 flat colours (the light's lens made pale); the trigger made a separate moving part; converted to the MXFM model format; mirrored for the left hand. Its triangles are otherwise as made (29,150 of 73,200 kept, none simplified).
 
 | Component | Used for | Licence | Source | Licence text |
 | --- | --- | --- | --- | --- |
@@ -50,6 +52,7 @@ The room and controller notices as upstream words them: Copyright (c) 2026 Sean 
 | KEMAR HRTF measurements, Bill Gardner and Keith Martin, MIT Media Lab, 1994 | Virtual surround (37 elevation-0 files, unchanged) | Free to use, authors must be cited | https://sound.media.mit.edu/resources/KEMAR.html | `assets/hrtf/kemar/LICENSE.txt` |
 | **Art and fonts** | | | | |
 | Home Theater, Grand Cinema and Synthwave environments (`.room`, `.atlas`, `thumbs/`), Sean Gilleece / Woodford XR | Viewing rooms | CC BY 4.0 | https://github.com/Gilleece/moonlight-android-xr | `assets/licenses/CC-BY-4.0.txt` |
+| Gun model (`assets/models/gun_right.model`, `gun_left.model`): "G17 Gen 5 Handgun + Olight - NSW Police Force" by 8sianDude (Sketchfab: haoliu95), changed (see above) | The Gun kind of Show controllers | CC BY 4.0 | https://sketchfab.com/3d-models/g17-gen-5-handgun-olight-nsw-police-force-0200c248eba14385ad2bee8d4dc4e586 | `assets/licenses/CC-BY-4.0.txt` |
 | `assets/branding/`: Moonlight XR logo (`moonlight-xr-logo-transparent.png`), Sean Gilleece; the icon and the Steam images are made from it by `tools/branding/make-art.py` | App and window icon, Steam shortcut icon and library images | GPLv3 | https://github.com/Gilleece/moonlight-android-xr | `LICENSE.txt` |
 | Noto Sans 2.013 (Regular, Medium), The Noto Project Authors | All interface text | SIL OFL 1.1 | https://github.com/notofonts/latin-greek-cyrillic | `assets/fonts/OFL.txt` |
 | Noto Sans CJK, Adobe and Google (not shipped: read from the system's `/usr/share/fonts` when there) | Chinese, Japanese and Korean interface text | SIL OFL 1.1 | https://github.com/notofonts/noto-cjk | the system's copy |

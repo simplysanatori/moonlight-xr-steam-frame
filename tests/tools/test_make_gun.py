@@ -1,25 +1,29 @@
 #!/usr/bin/env python3
-"""Tests tools/xr/make_gun.py, which writes the Gun controller model (an original low-poly pistol, MXFM).
+"""Tests tools/xr/make_gun.py, which converts the Gun controller model (a G17 with a weapon light, CC BY
+4.0) into the client's MXFM files, and the committed assets/models/gun_{right,left}.model.
 usage: test_make_gun.py MAKE_GUN.py [ASSETS_MODELS_DIR]
 
-The generator is run into a temporary folder and its two files are read back with a Python mirror of
-rooms/room_gpu.c (mlxr_model_file_parse and the range checks of openTextured: header 32 bytes, component
-records of 208 bytes, vertices of 12 floats, uint32 indices, two RGBA8 images). Checked: parses; fewer
-than 1500 triangles; two components, body and a `trigger` that rotates about x from /input/trigger with
-its pivot under the bore; the size of a hand held pistol (0.18 to 0.22 m long, the muzzle at the minimum
-z and on the bore axis, so the aim ray leaves it; the grip below the origin, raked back); unit normals
-and tangent frames that agree with each triangle's winding (flat shading); no degenerate triangles;
-every component a closed surface (each directed edge matched by its reverse) enclosing positive volume;
-sights standing above the slide at one height, parallel to the bore; a palette image whose texels the
-vertices' coordinates land on; a full trigger pull staying clear of the grip; the left file the right
-one mirrored in x (positions, normals, winding, trigger pivot and axis); and, if the models folder is
-given, the committed gun_right.model and gun_left.model being exactly what the generator writes."""
+A stand-in pistol made of boxes is written as a GLB shaped like a Sketchfab export (a Z-up root node
+with a scale, a textured slide, flat colours, the trigger a loose piece inside the frame's mesh, a
+spare magazine node and a loose part behind the pistol), converted with a profile of its own, and both
+files read back with a Python mirror of rooms/room_gpu.c (mlxr_model_file_parse and the range checks
+of openTextured). Checked: what is not the pistol is left out (by node name and by keep_box); length
+scaled; the bore on the z axis, so the front face of the barrel is centred on the aim ray; the grip
+placed on the pistol grip line; the trigger split out as its own component, rotating about x from
+/input/trigger, hinged at its top front; colours from the texture and the materials on palette
+texels; the left file the right one mirrored (positions, normals, winding, pivot); a missing trigger
+or an empty selection refused. With numpy and pyfqmr, the over-budget path (simplify, recolour,
+smooth normals). Then, if the models folder is given, the committed pair: what the client reads,
+at most 30000 triangles a hand, body and trigger, the size of a G17, the slide's front on the aim
+ray, the grip below the bore, the trigger hinged under the bore, and the left file the right mirrored."""
+import json
 import math
 import os
 import struct
 import subprocess
 import sys
 import tempfile
+import zlib
 
 MAKE_GUN = sys.argv[1]
 COMMITTED = sys.argv[2] if len(sys.argv) > 2 else None
@@ -27,7 +31,8 @@ failed = 0
 checks = 0
 VERTEX_FLOATS = 12
 COMPONENT_BYTES = 208
-GRIP_RAKE_DEG = 22.0   # the generator's own figure: the grip's front face leans this far
+GRIP_RAKE_DEG = 22.0
+PISTOL_GRIP = (-0.0525, 0.043)
 
 
 def check(cond, what):
@@ -77,7 +82,6 @@ def length(a): return math.sqrt(dot(a, a))
 
 
 def triangles(m, comp=None):
-    """Corners ((position, normal) x 3) of a component's triangles, or of all of them."""
     lo, hi = (0, m['ic']) if comp is None else (comp['first'], comp['first'] + comp['count'])
     for t in range(lo, hi, 3):
         yield [(m['verts'][i][0:3], m['verts'][i][3:6]) for i in m['idx'][t:t + 3]]
@@ -91,182 +95,298 @@ def key(p):
     return tuple(round(c * 1e6) for c in p)
 
 
-def closed_with_volume(m, comp):
-    """(every directed edge has its reverse, the enclosed volume by the divergence theorem)."""
-    edges = {}
-    volume = 0.0
-    for tri in triangles(m, comp):
-        pts = [p for p, _ in tri]
-        volume += dot(pts[0], cross(pts[1], pts[2])) / 6.0
-        for a, b in ((0, 1), (1, 2), (2, 0)):
-            e = (key(pts[a]), key(pts[b]))
-            edges[e] = edges.get(e, 0) + 1
-    return all(edges.get((b, a), 0) == n for (a, b), n in edges.items()), volume
-
-
-def close(a, b, eps=1e-6):
+def close(a, b, eps=1e-5):
     return len(a) == len(b) and all(abs(x - y) <= eps for x, y in zip(a, b))
 
 
-def run_generator(args):
+# --- the stand-in -----------------------------------------------------------------------------------
+#
+# Authored Z-up in centimetres under a root node that turns it Y-up and scales it to metres, like
+# Sketchfab's exports. In the Y-up world (metres) the barrel points along +x.
+
+def outward(tris):
+    vol = sum(dot(a, cross(b, c)) for a, b, c in tris)
+    return tris if vol > 0 else [(a, c, b) for a, b, c in tris]
+
+
+def prism(front, back):
+    """A closed solid between two quads (4 corners each, same order), 12 triangles wound outward."""
+    q = [(front[0], front[1], front[2], front[3]), (back[3], back[2], back[1], back[0])]
+    for i in range(4):
+        j = (i + 1) % 4
+        q.append((front[i], back[i], back[j], front[j]))
+    tris = []
+    for a, b, c, d in q:
+        tris += [(a, b, c), (a, c, d)]
+    return outward(tris)
+
+
+def box(lo, hi):
+    x0, y0, z0 = lo
+    x1, y1, z1 = hi
+    return prism([(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0)],
+                 [(x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)])
+
+
+def raked_grip():
+    """Below the frame's back, its bottom further back (toward -x) than its top."""
+    side = [(0.0, 0.0), (0.04, 0.0), (0.01, -0.1), (-0.03, -0.1)]
+    return prism([(x, y, -0.011) for x, y in side], [(x, y, 0.011) for x, y in side])
+
+
+def to_authored(p):
+    """Y-up metres to the authored Z-up centimetres (the root node undoes it)."""
+    x, y, z = p
+    return (x * 100, -z * 100, y * 100)
+
+
+def png_bytes(rgbs):
+    raw = b'\0' + bytes(c for rgb in rgbs for c in rgb)
+
+    def chunk(t, d):
+        return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', len(rgbs), 1, 8, 2, 0, 0, 0)) +
+            chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+
+
+TEXEL = (60, 60, 64)          # the slide's texel (sRGB); the other texel is red and unused
+FLAT = {'Frame': (0.02, 0.02, 0.025), 'Light': (0.4, 0.4, 0.42), 'Spare': (0.8, 0.7, 0.1)}
+
+
+def standin_glb(path):
+    parts = [  # (node name, mesh name, material, triangles)
+        ('Slide', 'Slide_mesh', 'Slide', box((0.0, 0.02, -0.012), (0.19, 0.05, 0.012))),
+        ('Lower', 'Lower_mesh', 'Frame', box((0.02, 0.0, -0.011), (0.17, 0.02, 0.011)) + raked_grip() +
+         box((0.055, -0.02, -0.003), (0.062, 0.0, 0.003))),
+        ('Olight', 'Light_mesh', 'Light', box((0.12, -0.02, -0.012), (0.18, 0.0, 0.012))),
+        ('Magazine_spare', 'Mag_mesh', 'Spare', box((-0.15, -0.1, -0.01), (-0.12, 0.0, 0.01))),
+        ('Object_9', 'Loose_mesh', 'Spare', box((-0.25, -0.05, -0.01), (-0.22, 0.0, 0.01))),
+    ]
+    blob = bytearray()
+    views, accessors, meshes, nodes = [], [], [], []
+    materials = {'Slide': 0, 'Frame': 1, 'Light': 2, 'Spare': 3}
+
+    def add(data, count, typ):
+        views.append({'buffer': 0, 'byteOffset': len(blob), 'byteLength': len(data)})
+        blob.extend(data)
+        blob.extend(b'\0' * (-len(blob) % 4))
+        accessors.append({'bufferView': len(views) - 1, 'componentType': 5126, 'count': count, 'type': typ})
+        return len(accessors) - 1
+
+    for node, mesh, mat, tris in parts:
+        pts = [to_authored(p) for t in tris for p in t]
+        pos = add(struct.pack(f'<{len(pts) * 3}f', *[c for p in pts for c in p]), len(pts), 'VEC3')
+        accessors[pos]['min'] = [min(p[k] for p in pts) for k in range(3)]
+        accessors[pos]['max'] = [max(p[k] for p in pts) for k in range(3)]
+        attrs = {'POSITION': pos}
+        if mat == 'Slide':
+            attrs['TEXCOORD_0'] = add(struct.pack(f'<{len(pts) * 2}f', *([0.25, 0.5] * len(pts))), len(pts), 'VEC2')
+        meshes.append({'name': mesh, 'primitives': [{'attributes': attrs, 'material': materials[mat]}]})
+        nodes.append({'name': node, 'mesh': len(meshes) - 1})
+    png = png_bytes([TEXEL, (200, 0, 0)])
+    views.append({'buffer': 0, 'byteOffset': len(blob), 'byteLength': len(png)})
+    blob.extend(png)
+    blob.extend(b'\0' * (-len(blob) % 4))
+    # -90 degrees about x (Z-up to Y-up), times 0.01 (column major)
+    nodes.append({'name': 'Sketchfab_model', 'children': list(range(len(nodes))),
+                  'matrix': [0.01, 0, 0, 0, 0, 0, -0.01, 0, 0, 0.01, 0, 0, 0, 0, 0, 1]})
+    doc = {'asset': {'version': '2.0'}, 'scene': 0, 'scenes': [{'nodes': [len(nodes) - 1]}], 'nodes': nodes,
+           'meshes': meshes, 'accessors': accessors, 'bufferViews': views, 'buffers': [{'byteLength': len(blob)}],
+           'images': [{'bufferView': len(views) - 1, 'mimeType': 'image/png'}], 'textures': [{'source': 0}],
+           'materials': [{'name': 'Slide', 'pbrMetallicRoughness': {'baseColorTexture': {'index': 0}}}] +
+                        [{'name': n, 'pbrMetallicRoughness': {'baseColorFactor': list(FLAT[n]) + [1.0]}}
+                         for n in ('Frame', 'Light', 'Spare')]}
+    text = json.dumps(doc).encode()
+    text += b' ' * (-len(text) % 4)
+    with open(path, 'wb') as f:
+        f.write(struct.pack('<III', 0x46546C67, 2, 12 + 8 + len(text) + 8 + len(blob)))
+        f.write(struct.pack('<II', len(text), 0x4E4F534A) + text + struct.pack('<II', len(blob), 0x004E4942) + blob)
+
+
+# Its profile: in the turned model (the world's +x, forward, becomes -z: turned x = world z,
+# y = world y, z = -world x), metres
+STANDIN = {
+    'forward': '+x', 'up': '+y',
+    'drop_nodes': ['Magazine_spare'],
+    'keep_box': [[-0.1, -0.2, -0.3], [0.1, 0.2, 0.08]],
+    'length': 0.22,                        # slide front (z -0.19) to grip bottom (z +0.03): scale 1
+    'bore': [0.0, 0.035],
+    'grip': [-0.05, -0.005],
+    'trigger_box': [[-0.01, -0.03, -0.07], [0.01, 0.005, -0.05]],
+    'colours': 8,
+    'triangles': 30000,
+}
+# how far along z the conversion slides it: the grip point (y -0.085 once the bore is at 0, z -0.005)
+# onto the pistol grip line
+SHIFT_Z = PISTOL_GRIP[1] - (-0.085 - PISTOL_GRIP[0]) * math.tan(math.radians(GRIP_RAKE_DEG)) + 0.005
+
+
+def run(args, ok=True):
     rc = subprocess.run([sys.executable, '-I', MAKE_GUN] + args, capture_output=True, text=True)
-    check(rc.returncode == 0, f'make_gun.py {" ".join(args)} runs ({rc.stderr.strip()[:300]})')
-    return rc.returncode == 0
+    if ok:
+        check(rc.returncode == 0, f'make_gun.py {" ".join(args)} runs ({rc.stderr.strip()[-400:]})')
+    return rc
 
 
-def examine(m, name):
-    """Checks one hand's file; returns its trigger pivot and axis."""
-    check(m['version'] == 2, f'{name}: MXFM version 2')
-    check(100 < m['ic'] // 3 < 1500, f'{name}: more than a handful and under 1500 triangles ({m["ic"] // 3})')
+def srgb(c):
+    return round(255 * (c * 12.92 if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055))
+
+
+def check_pair(right, left, name):
+    """The left file is the right one mirrored in x, winding flipped, pivot mirrored."""
+    check(right['ic'] == left['ic'] and right['vc'] == left['vc'], f'{name}: both hands have the same counts')
+    check(sorted((key((-v[0], v[1], v[2])), key((-v[3], v[4], v[5]))) for v in right['verts']) ==
+          sorted((key(v[0:3]), key(v[3:6])) for v in left['verts']),
+          f'{name}: every left vertex and normal is a right one mirrored in x')
+
+    def corner_sets(m, mirror):
+        out = []
+        for tri in triangles(m):
+            pts = [(-p[0] if mirror else p[0], p[1], p[2]) for p, _ in tri]
+            if mirror:
+                pts = [pts[0], pts[2], pts[1]]
+            k = [key(p) for p in pts]
+            i = k.index(min(k))
+            out.append(tuple(k[i:] + k[:i]))
+        return sorted(out)
+    check(corner_sets(right, True) == corner_sets(left, False),
+          f'{name}: every left triangle is a right one mirrored with its winding flipped')
+    rp, lp = right['comps'][1]['motion'][0:3], left['comps'][1]['motion'][0:3]
+    check(close(lp, [-rp[0], rp[1], rp[2]]), f'{name}: the left trigger pivot is the right one mirrored ({lp})')
+
+
+def check_components(m, name):
+    """Body and trigger as the client animates them; returns the trigger's pivot."""
     check([c['name'] for c in m['comps']] == ['body', 'trigger'], f'{name}: components body, trigger')
     body, trig = m['comps']
     check(body['type'] == 0 and body['path'] == '', f'{name}: the body does not move')
-    check(trig['path'] == '/input/trigger' and trig['type'] == 2,
-          f'{name}: the trigger rotates, driven by /input/trigger')
+    check(trig['path'] == '/input/trigger' and trig['type'] == 2, f'{name}: the trigger rotates, from /input/trigger')
     check(body['first'] + body['count'] == trig['first'] and trig['first'] + trig['count'] == m['ic'],
           f'{name}: the two components cover every index')
     mo = trig['motion']
-    pivot, axis, rng = mo[0:3], mo[3:6], mo[6:8]
-    check(abs(pivot[0]) < 1e-6 and -0.03 < pivot[1] < -0.005 and -0.05 < pivot[2] < -0.01,
-          f'{name}: trigger pivot is on the centre plane, under the bore, in front of the grip ({pivot})')
-    check(abs(abs(axis[0]) - 1) < 1e-5, f'{name}: trigger axis is x ({axis})')
-    check(rng[0] == 0 and -45 < rng[1] < -10, f'{name}: the range turns the foot back, in degrees ({rng})')
+    check(abs(abs(mo[3]) - 1) < 1e-5 and abs(mo[4]) < 1e-5 and abs(mo[5]) < 1e-5, f'{name}: trigger axis is x')
+    check(mo[6] == 0 and -45 < mo[7] < -10, f'{name}: the range swings the foot back ({mo[6:8]})')
+    check(all(abs(length(v[3:6]) - 1) < 1e-4 for v in m['verts']), f'{name}: unit normals')
+    return mo[0:3]
 
-    pts = [v[0:3] for v in m['verts']]
+
+def test_standin(work):
+    glb = os.path.join(work, 'standin.glb')
+    standin_glb(glb)
+    prof = os.path.join(work, 'standin.json')
+    with open(prof, 'w') as f:
+        json.dump(STANDIN, f)
+    out = os.path.join(work, 'out')
+    rc = run(['--in', glb, '--profile', prof, out])
+    check('84 triangles in the file, 60 of the pistol' in rc.stdout,
+          f'the spare magazine and the loose part are left out ({rc.stdout.strip()})')
+    try:
+        right = parse_model(os.path.join(out, 'gun_right.model'))
+        left = parse_model(os.path.join(out, 'gun_left.model'))
+    except (AssertionError, OSError) as e:
+        check(False, f'the client reads the stand-in\'s files ({e})')
+        return
+    pivot = check_components(right, 'stand-in')
+    check(right['ic'] // 3 == 60 and right['comps'][1]['count'] // 3 == 12,
+          f'stand-in: 60 triangles, the trigger\'s 12 ({right["ic"] // 3}, {right["comps"][1]["count"] // 3})')
+    pts = [v[0:3] for v in right['verts']]
     lo, hi = bounds(pts)
-    check(0.18 <= hi[2] - lo[2] <= 0.22, f'{name}: 0.18 to 0.22 m long ({hi[2] - lo[2]:.4f})')
-    check(0.10 <= hi[1] - lo[1] <= 0.15 and 0.02 <= hi[0] - lo[0] <= 0.04,
-          f'{name}: height and width of a pistol ({hi[1] - lo[1]:.3f} x {hi[0] - lo[0]:.3f})')
-    check(lo[2] < -0.10 and hi[2] > 0.03, f'{name}: the barrel in front of the origin, the slide behind it')
-    muzzle = [p for p in pts if abs(p[2] - lo[2]) < 1e-6]
-    check(muzzle and all(math.hypot(p[0], p[1]) < 0.0085 for p in muzzle),
-          f'{name}: the front-most points are the muzzle, round the bore axis')
-    cx, cy = sum(p[0] for p in muzzle) / len(muzzle), sum(p[1] for p in muzzle) / len(muzzle)
-    check(abs(cx) < 1e-5 and abs(cy) < 1e-5, f'{name}: the muzzle is centred on the aim ray ({cx}, {cy})')
-    check(lo[1] < -0.08, f'{name}: the grip hangs below the origin ({lo[1]:.3f})')
-    check(abs(lo[0] + hi[0]) < 0.004, f'{name}: centred left to right ({lo[0]:.4f} {hi[0]:.4f})')
-    # The grip leans back at the bottom: its lowest points are behind its highest
-    low = [p for p in pts if p[1] < lo[1] + 0.004]
-    top_grip = [p for p in pts if -0.0105 < p[1] < -0.0095 and p[2] > 0.0]
-    shift = sum(p[2] for p in low) / len(low) - sum(p[2] for p in top_grip) / len(top_grip)
-    check(0.02 < shift < 0.06, f'{name}: the grip is raked back ({shift:.4f} m over its length)')
+    check(abs((hi[2] - lo[2]) - 0.22) < 1e-5, f'stand-in: scaled to its length ({hi[2] - lo[2]:.5f})')
+    check(abs(lo[2] - (-0.19 + SHIFT_Z)) < 1e-5, f'stand-in: slid along the bore onto the grip line ({lo[2]:.5f})')
+    front = [p for p in pts if abs(p[2] - lo[2]) < 1e-6]
+    cx, cy = sum(p[0] for p in front) / len(front), sum(p[1] for p in front) / len(front)
+    check(abs(cx) < 1e-5 and abs(cy) < 1e-5, f'stand-in: the barrel\'s front is centred on the aim ray ({cx}, {cy})')
+    check(abs(hi[1] - 0.015) < 1e-5 and abs(lo[1] + 0.135) < 1e-5, f'stand-in: the bore at y = 0 ({lo[1]}..{hi[1]})')
+    check(close(pivot, [0.0, -0.035, -0.062 + SHIFT_Z]), f'stand-in: trigger hinged at its top front ({pivot})')
+    tlo, thi = bounds([p for tri in triangles(right, right['comps'][1]) for p, _ in tri])
+    check(close(tlo, [-0.003, -0.055, -0.062 + SHIFT_Z]) and close(thi, [0.003, -0.035, -0.055 + SHIFT_Z]),
+          f'stand-in: the trigger is the loose piece in the frame ({tlo} {thi})')
+    # Colours: the slide's texel and the flat colours, each vertex on a palette texel
+    tw = right['tw']
+    texels = [tuple(right['colour'][4 * i:4 * i + 3]) for i in range(tw)]
+    check(right['th'] == 1 and tw == 3, f'stand-in: three colours left (slide, frame, light): {texels}')
+    want_c = [TEXEL, tuple(srgb(c) for c in FLAT['Frame']), tuple(srgb(c) for c in FLAT['Light'])]
+    check(all(any(max(abs(a - b) for a, b in zip(w, t)) <= 2 for t in texels) for w in want_c),
+          f'stand-in: the palette holds the texture\'s colour and the flat ones ({texels} vs {want_c})')
+    check(all(abs(v[10] * tw - 0.5 - round(v[10] * tw - 0.5)) < 1e-4 for v in right['verts']),
+          'stand-in: every vertex is on a palette texel')
+    slide_top = [v for v in right['verts'] if abs(v[1] - 0.015) < 1e-6]
+    k = round(slide_top[0][10] * tw - 0.5) if slide_top else -1
+    check(0 <= k < tw and max(abs(a - b) for a, b in zip(texels[k], TEXEL)) <= 2,
+          'stand-in: the slide is drawn in its texture\'s colour')
+    check_pair(right, left, 'stand-in')
 
-    flat = True
-    for tri in triangles(m):
-        a, b, c = (p for p, _ in tri)
-        n = cross(sub(b, a), sub(c, a))
-        area = length(n) / 2
-        check(area > 1e-8, f'{name}: no degenerate triangle ({a} {b} {c})')
-        if area > 1e-8:
-            n = [x / (2 * area) for x in n]
-            flat = flat and all(abs(length(vn) - 1) < 1e-4 and dot(vn, n) > 0.9999 for _, vn in tri)
-    check(flat, f'{name}: flat, unit normals that agree with every triangle\'s winding')
-    check(all(abs(length(v[6:9]) - 1) < 1e-4 and abs(dot(v[3:6], v[6:9])) < 1e-4 and abs(abs(v[9]) - 1) < 1e-6
-              for v in m['verts']), f'{name}: unit tangents, square to the normals')
+    # Refused: no trigger in the box, nothing kept
+    for bad, words in ((dict(STANDIN, trigger_box=[[0.5, 0.5, 0.5], [0.6, 0.6, 0.6]]), 'trigger_box'),
+                       (dict(STANDIN, keep_box=[[5, 5, 5], [6, 6, 6]]), 'nothing is left')):
+        with open(prof, 'w') as f:
+            json.dump(bad, f)
+        rc = run(['--in', glb, '--profile', prof, os.path.join(work, 'bad')], ok=False)
+        check(rc.returncode != 0 and words in rc.stderr, f'refused: {words} ({rc.stderr.strip()})')
+    check(not os.path.exists(os.path.join(work, 'bad', 'gun_right.model')), 'a refused conversion writes nothing')
+    rc = run(['--in', glb, '--profile', prof, '--inspect'], ok=False)
+    check(rc.returncode == 0 and 'Magazine_spare' in rc.stdout, f'--inspect lists the nodes ({rc.stderr.strip()})')
 
-    for comp in m['comps']:
-        balanced, volume = closed_with_volume(m, comp)
-        check(balanced, f'{name}: {comp["name"]} is a closed surface (no holes, consistent winding)')
-        check(volume > 1e-8, f'{name}: {comp["name"]} faces outward, enclosing {volume:.3e} m3')
+    # Over the budget: simplified (only where numpy and pyfqmr are installed)
+    try:
+        import numpy  # noqa: F401
+        import pyfqmr  # noqa: F401
+        have = True
+    except ImportError:
+        have = False
+    with open(prof, 'w') as f:
+        json.dump(dict(STANDIN, triangles=30), f)
+    rc = run(['--in', glb, '--profile', prof, os.path.join(work, 'small')], ok=False)
+    if not have:
+        check(rc.returncode != 0 and 'pyfqmr' in rc.stderr, 'over the budget without pyfqmr says what it needs')
+        print('(numpy or pyfqmr is missing here: the simplifying path is not run)')
+        return
+    check(rc.returncode == 0, f'over the budget, it simplifies ({rc.stderr.strip()[-300:]})')
+    if rc.returncode == 0:
+        r2 = parse_model(os.path.join(work, 'small', 'gun_right.model'))
+        l2 = parse_model(os.path.join(work, 'small', 'gun_left.model'))
+        check_components(r2, 'simplified')
+        check(r2['ic'] // 3 <= 30 and r2['comps'][1]['count'] // 3 == 12,
+              f'simplified: within the budget, the trigger kept whole ({r2["ic"] // 3})')
+        check_pair(r2, l2, 'simplified')
 
-    # Sights: posts above the slide top, ending at one height; a post at the front, a notch behind
-    sight = [p for p in pts if p[1] > 0.0205]
-    check(len(sight) > 0, f'{name}: sights stand above the slide')
-    if sight:
-        top = max(p[1] for p in sight)
-        ends = {round(p[0], 6) for p in sight if abs(p[1] - top) < 1e-6}
-        check(0.022 < top < 0.035, f'{name}: sight height ({top:.4f})')
-        check(min(p[2] for p in sight) < -0.08 and max(p[2] for p in sight) > 0.02,
-              f'{name}: a front sight near the muzzle and a rear sight near the back')
-        rear = [p for p in sight if p[2] > 0.0]
-        front = [p for p in sight if p[2] < -0.05]
-        check(all(abs(p[0]) > 0.003 for p in rear) and max(abs(p[0]) for p in rear) > 0.008,
-              f'{name}: the rear sight is a notch with a gap on the centre line')
-        check(max(abs(p[0]) for p in front) < 0.004 and all(abs(p[1] - top) < 1e-6 or p[1] < top for p in front),
-              f'{name}: the front sight is a post on the centre line')
-        check(all(abs(p[1] - top) < 1e-6 for p in sight if p[1] > top - 0.002), f'{name}: one sight height ({ends})')
 
-    # The palette: one row of texels, every vertex on the middle of one
-    tw, th = m['tw'], m['th']
-    check(th == 1 and 3 <= tw <= 8, f'{name}: a small palette image ({tw}x{th})')
-    used = set()
-    for v in m['verts']:
-        texel = v[10] * tw - 0.5
-        check(abs(texel - round(texel)) < 1e-4 and abs(v[11] - 0.5) < 1e-6 and 0 <= round(texel) < tw,
-              f'{name}: texture coordinate ({v[10]}, {v[11]}) is on a palette texel')
-        used.add(round(texel))
-    check(len(used) >= 3, f'{name}: at least three flat materials are used ({len(used)})')
-    texels = [tuple(m['colour'][4 * i:4 * i + 3]) for i in range(tw)]
-    check(len(set(texels)) == tw and all(m['colour'][4 * i + 3] == 255 for i in range(tw)),
-          f'{name}: distinct palette colours, no ambient occlusion')
-
-    # A full pull swings the foot back toward the palm, and the foot stays in front of the grip face
-    ang = math.radians(rng[1])
-    foot = min((p for tri in triangles(m, trig) for p, _ in tri), key=lambda p: p[1])
-    dy, dz = foot[1] - pivot[1], foot[2] - pivot[2]
-    pulled_z = pivot[2] + dy * math.sin(ang) + dz * math.cos(ang)
-    pulled_y = pivot[1] + dy * math.cos(ang) - dz * math.sin(ang)
-    grip_front = 0.010 + (-0.010 - pulled_y) * math.tan(math.radians(GRIP_RAKE_DEG))
-    check(pulled_z > foot[2] + 0.005 and pulled_z < grip_front - 0.005,
-          f'{name}: pulled, the foot ({pulled_z:.4f}) moves back and clears the grip face ({grip_front:.4f})')
-    return pivot, axis
+def test_committed():
+    try:
+        right = parse_model(os.path.join(COMMITTED, 'gun_right.model'))
+        left = parse_model(os.path.join(COMMITTED, 'gun_left.model'))
+    except (AssertionError, OSError) as e:
+        check(False, f'the client reads the committed gun ({e})')
+        return
+    name = 'committed'
+    pivot = check_components(right, name)
+    check(1000 < right['ic'] // 3 <= 30000, f'{name}: at most 30000 triangles a hand ({right["ic"] // 3})')
+    pts = [v[0:3] for v in right['verts']]
+    lo, hi = bounds(pts)
+    check(0.17 <= hi[2] - lo[2] <= 0.23, f'{name}: the length of a G17 ({hi[2] - lo[2]:.4f})')
+    check(0.11 <= hi[1] - lo[1] <= 0.16 and 0.02 <= hi[0] - lo[0] <= 0.05,
+          f'{name}: its height and width ({hi[1] - lo[1]:.4f} x {hi[0] - lo[0]:.4f})')
+    check(abs(lo[0] + hi[0]) < 0.006, f'{name}: centred left to right ({lo[0]:.4f} {hi[0]:.4f})')
+    check(lo[2] < -0.1 and lo[1] < -0.08, f'{name}: the barrel in front of the origin, the grip below it')
+    # The muzzle on the aim ray: the front of the slide (the frontmost points above the light) round the axis
+    top = [p for p in pts if p[1] > -0.012]
+    front = min(p[2] for p in top)
+    face = [p for p in top if p[2] < front + 0.004]
+    fx = (min(p[0] for p in face) + max(p[0] for p in face)) / 2
+    fy_lo, fy_hi = min(p[1] for p in face), max(p[1] for p in face)
+    check(abs(fx) < 0.002 and fy_lo < 0.0 < fy_hi, f'{name}: the front of the slide straddles the aim ray '
+          f'(x {fx:.4f}, y {fy_lo:.4f}..{fy_hi:.4f})')
+    check(front < -0.09, f'{name}: the muzzle well in front of the origin ({front:.4f})')
+    check(-0.04 < pivot[1] < 0.0 and -0.06 < pivot[2] < 0.03 and abs(pivot[0]) < 0.004,
+          f'{name}: the trigger hinge is under the bore, ahead of the grip ({pivot})')
+    check_pair(right, left, name)
 
 
 def main():
     with tempfile.TemporaryDirectory() as work:
-        if not run_generator([work]):
-            return 1
-        rpath, lpath = os.path.join(work, 'gun_right.model'), os.path.join(work, 'gun_left.model')
-        try:
-            right, left = parse_model(rpath), parse_model(lpath)
-        except AssertionError as e:
-            print(f'FAIL: the client would refuse the model: {e}')
-            return 1
-        r_pivot, r_axis = examine(right, 'right')
-        l_pivot, l_axis = examine(left, 'left')
-
-        rlo, rhi = bounds([v[0:3] for v in right['verts']])
-        llo, lhi = bounds([v[0:3] for v in left['verts']])
-        check(close([-rhi[0], rlo[1], rlo[2]], llo) and close([-rlo[0], rhi[1], rhi[2]], lhi),
-              'the left bounds are the right bounds mirrored in x')
-        check(right['ic'] == left['ic'] and right['vc'] == left['vc'], 'both hands have the same counts')
-        check(sorted((key((-v[0], v[1], v[2])), key((-v[3], v[4], v[5]))) for v in right['verts']) ==
-              sorted((key(v[0:3]), key(v[3:6])) for v in left['verts']),
-              'every left vertex and normal is a right one mirrored in x')
-        # The winding is flipped with it: each triangle, mirrored, is a left one with its corners reversed
-        def corner_sets(m, mirror):
-            out = []
-            for tri in triangles(m):
-                pts = [(-p[0] if mirror else p[0], p[1], p[2]) for p, _ in tri]
-                if mirror:
-                    pts = [pts[0], pts[2], pts[1]]
-                k = [key(p) for p in pts]
-                i = k.index(min(k))
-                out.append(tuple(k[i:] + k[:i]))
-            return sorted(out)
-        check(corner_sets(right, True) == corner_sets(left, False),
-              'every left triangle is a right one mirrored with its winding flipped')
-        check(close(l_pivot, [-r_pivot[0], r_pivot[1], r_pivot[2]]),
-              f'the left trigger pivot is the right one mirrored ({l_pivot})')
-        check(abs(abs(l_axis[0]) - 1) < 1e-5 and l_axis[0] * r_axis[0] > 0, f'the left trigger axis is still x ({l_axis})')
-        check(right['bytes'] != left['bytes'], 'the two files differ')
-
-        # --out and --mirror give the same files as the folder form
-        single = os.path.join(work, 'single.model')
-        if run_generator(['--out', single, '--mirror']):
-            check(open(single, 'rb').read() == open(lpath, 'rb').read(), '--out FILE --mirror writes the left file')
-        again = os.path.join(work, 'again.model')
-        if run_generator(['--out', again]):
-            check(open(again, 'rb').read() == open(rpath, 'rb').read(), '--out FILE writes the right file')
-        rc = subprocess.run([sys.executable, '-I', MAKE_GUN, '--bogus'], capture_output=True, text=True)
-        check(rc.returncode != 0 and 'usage' in rc.stderr + rc.stdout, 'bad arguments print the usage')
-
-        if COMMITTED:
-            for name, fresh in (('gun_right.model', rpath), ('gun_left.model', lpath)):
-                path = os.path.join(COMMITTED, name)
-                check(os.path.isfile(path) and open(path, 'rb').read() == open(fresh, 'rb').read(),
-                      f'{path} is what tools/xr/make_gun.py writes (python3 tools/xr/make_gun.py assets/models)')
-
+        test_standin(work)
+    if COMMITTED:
+        test_committed()
     print(f'{checks - failed}/{checks} checks passed')
     return 1 if failed else 0
 

@@ -7,6 +7,8 @@
 
 #include "xr_native.h"
 
+#include <string.h>
+
 #ifndef MLXR_ASSETS_DIR
 #define MLXR_ASSETS_DIR "assets"
 #endif
@@ -572,7 +574,10 @@ static void loadControllerModel(XrCtx* ctx, int want) {
     MlxrGpu g = xrWorldGpu(ctx);
     MlxrModel* m = NULL;
     char userDir[600];
-    const char* user = want == CONTROLLER_MODEL_CUSTOM ? controllerModelUserDir(userDir, sizeof(userDir)) : NULL;
+    // The user's own models folder: the custom kind's files, and a gun of their own over the bundled one
+    const char* user = want == CONTROLLER_MODEL_CUSTOM || want == CONTROLLER_MODEL_GUN
+                           ? controllerModelUserDir(userDir, sizeof(userDir))
+                           : NULL;
     ctx->modelKindAsked = want;
     if (mlxr_model_record_kind(&g, ctx->assetsDir, user, want, ctx->frameCmd, &m) != 0) {
         // Native (lane fix-polish): there is no generic controller to fall back on any more, so a kind
@@ -615,6 +620,12 @@ static void loadControllerModel(XrCtx* ctx, int want) {
                       : m->perHand ? "per-hand, painted" : "painted, mirrored for the left hand",
           m->source, m->vertexCount, m->indexCount / 3, m->gpuBytes / 1024.0, m->loadMs,
           ctx->modelOn ? "shown" : "off for now");
+    if (m->kind == CONTROLLER_MODEL_GUN) {
+        size_t ul = user != NULL ? strlen(user) : 0;
+        LOGEV("controller model: the gun is %s", ul > 0 && strncmp(m->source, user, ul) == 0
+                                                     ? "your own (gun_left.model and gun_right.model in the models folder)"
+                                                     : "the bundled one");
+    }
     if (m->textured) {
         LOGEV("controller model textures %ux%u, %u mip levels, components %u left, %u right", m->texWidth,
               m->texHeight, m->texLevels, m->componentCount[0], m->componentCount[1]);
