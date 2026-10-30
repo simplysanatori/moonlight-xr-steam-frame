@@ -402,13 +402,16 @@ static void test_notices(void) {
     CHECK(settings_option_cell(&s, &t, COG_OPTION_NOTICES) == NOTICES_OFF);
 }
 
-// Show controllers is a kind: off, frame, generic, gun, custom. Files from before it was a switch
-// say true and false (or 0 and 1) and keep their meaning: the Frame's controllers, or none
+// Show controllers is a kind: off, frame, gun, custom. Files from before it was a switch say true
+// and false (or 0 and 1) and keep their meaning: the Frame's controllers, or none. Lane fix-polish
+// took the generic controller out: its name and its old number 2 read as the Frame's, and the old
+// numbers of gun (3) and custom (4) keep their meaning
 static void test_controller_model(void) {
     static const struct { const char* text; int want; } OK[] = {
-        { "off", CONTROLLER_MODEL_OFF }, { "frame", CONTROLLER_MODEL_FRAME }, { "generic", CONTROLLER_MODEL_GENERIC },
+        { "off", CONTROLLER_MODEL_OFF }, { "frame", CONTROLLER_MODEL_FRAME }, { "generic", CONTROLLER_MODEL_FRAME },
+        { "Generic", CONTROLLER_MODEL_FRAME },
         { "gun", CONTROLLER_MODEL_GUN }, { "custom", CONTROLLER_MODEL_CUSTOM }, { "Gun", CONTROLLER_MODEL_GUN },
-        { "0", CONTROLLER_MODEL_OFF }, { "1", CONTROLLER_MODEL_FRAME }, { "2", CONTROLLER_MODEL_GENERIC },
+        { "0", CONTROLLER_MODEL_OFF }, { "1", CONTROLLER_MODEL_FRAME }, { "2", CONTROLLER_MODEL_FRAME },
         { "3", CONTROLLER_MODEL_GUN }, { "4", CONTROLLER_MODEL_CUSTOM },
         { "true", CONTROLLER_MODEL_FRAME }, { "false", CONTROLLER_MODEL_OFF }, { "on", CONTROLLER_MODEL_FRAME },
     };
@@ -426,11 +429,19 @@ static void test_controller_model(void) {
     Settings s;
     SettingsLoadInfo info;
     settings_defaults(&s);
-    s.controller_model = CONTROLLER_MODEL_GENERIC;
+    s.controller_model = CONTROLLER_MODEL_GUN;
     settings_from_text(&s, "[vr]\ncontroller_model = 5\n", &info);
-    CHECK(s.controller_model == CONTROLLER_MODEL_GENERIC && info.bad == 1);
+    CHECK(s.controller_model == CONTROLLER_MODEL_GUN && info.bad == 1);
     settings_from_text(&s, "[vr]\ncontroller_model = knife\n", &info);
-    CHECK(s.controller_model == CONTROLLER_MODEL_GENERIC && info.bad == 1);
+    CHECK(s.controller_model == CONTROLLER_MODEL_GUN && info.bad == 1);
+    settings_from_text(&s, "[vr]\ncontroller_model = -1\n", &info);
+    CHECK(s.controller_model == CONTROLLER_MODEL_GUN && info.bad == 1);
+    // "generic" is never written back, and the names the file lists have no generic
+    settings_from_text(&s, "[vr]\ncontroller_model = generic\n", &info);
+    char* back = settings_to_text(&s);
+    CHECK(back != NULL && strstr(back, "\ncontroller_model = frame\n") != NULL && strstr(back, "generic |") == NULL
+          && strstr(back, "[off | frame | gun | custom]") != NULL);
+    free(back);
     // Written by name, the default commented out
     s.controller_model = CONTROLLER_MODEL_CUSTOM;
     char* text = settings_to_text(&s);

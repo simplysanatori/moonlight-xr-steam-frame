@@ -17,14 +17,15 @@ int rayFlipFor(int settingOn, int wantOn) {
 }
 
 int rayDrawn(int settingOn, int flipped, int panelOpen) {
-    return panelOpen != 0 || raySwitchOn(settingOn, flipped);
+    (void)panelOpen;
+    return raySwitchOn(settingOn, flipped);
 }
 
 int rayBeamKind(int settingOn, int flipped, int panelOpen, int dotOn, int overBarBand) {
     if (rayDrawn(settingOn, flipped, panelOpen)) {
         return RAY_BEAM_FULL;
     }
-    return overBarBand != 0 && dotOn == 0 && panelOpen == 0 ? RAY_BEAM_RESTING : RAY_BEAM_NONE;
+    return (overBarBand != 0 || panelOpen != 0) && dotOn == 0 ? RAY_BEAM_RESTING : RAY_BEAM_NONE;
 }
 
 float pointerDotSize(float distance) {
@@ -82,7 +83,7 @@ int controllerModelSpace(int kind) {
 }
 
 const char* controllerModelKindName(int kind) {
-    static const char* const NAMES[CONTROLLER_MODEL_COUNT] = { "off", "frame", "generic", "gun", "custom" };
+    static const char* const NAMES[CONTROLLER_MODEL_COUNT] = { "off", "frame", "gun", "custom" };
     return kind >= 0 && kind < CONTROLLER_MODEL_COUNT ? NAMES[kind] : "?";
 }
 
@@ -128,8 +129,8 @@ static int addModelPair(ModelCandidate* out, int* n, int kind, const char* dir, 
     return has;
 }
 
-// What the Steam Frame's models are, and what is left when they are not: the textured pair, the
-// painted pair an older converter made, the bundled generic controller
+// What the Steam Frame's models are: the textured pair, else the painted pair an older converter
+// made. Nothing after them (lane fix-polish: the generic controller is gone)
 static void addFrameChain(ModelCandidate* out, int* n, const char* assets) {
     char dir[MODEL_PATH_MAX], l[MODEL_PATH_MAX], r[MODEL_PATH_MAX];
     snprintf(dir, sizeof(dir), "%s/models", assets);
@@ -139,8 +140,6 @@ static void addFrameChain(ModelCandidate* out, int* n, const char* assets) {
     if (readable(l) && readable(r)) {
         addCandidate(out, n, MODEL_FILES_PAINTED_PAIR, CONTROLLER_MODEL_FRAME, l, r);
     }
-    snprintf(l, sizeof(l), "%s/controller.room", dir);
-    addCandidate(out, n, MODEL_FILES_GENERIC, CONTROLLER_MODEL_GENERIC, l, NULL);
 }
 
 int controllerModelCandidates(int kind, const char* assetsDir, const char* userDir, ModelCandidate* out) {
@@ -153,10 +152,6 @@ int controllerModelCandidates(int kind, const char* assetsDir, const char* userD
     switch (kind) {
     case CONTROLLER_MODEL_FRAME:
         addFrameChain(out, &n, assetsDir);
-        break;
-    case CONTROLLER_MODEL_GENERIC:
-        snprintf(l, sizeof(l), "%s/controller.room", dir);
-        addCandidate(out, &n, MODEL_FILES_GENERIC, CONTROLLER_MODEL_GENERIC, l, NULL);
         break;
     case CONTROLLER_MODEL_GUN:
         addModelPair(out, &n, CONTROLLER_MODEL_GUN, dir, "gun", 0);

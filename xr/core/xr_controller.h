@@ -19,19 +19,24 @@ int raySwitchOn(int settingOn, int flipped);
 // What the flip has to be for the switch to read wantOn
 int rayFlipFor(int settingOn, int wantOn);
 
-// Whether the beam is drawn this frame. Switched off it is not, except while
-// a panel is up (the settings panel, the picker, the keyboard, the exit prompt
-// or the report sheet), so those can still be aimed at, and it goes again
-// when they close. The cursor dot and the hit test never ask: with the beam
-// gone a lightgun game still has its dot and every press still lands.
+// Whether the full beam is drawn this frame: when the ray is switched on.
+// Native (lane fix-polish): a panel being up (the settings panel, the picker,
+// the keyboard, the exit prompt or the report sheet) no longer brings it back,
+// so the cog's Ray row shows its choice while the cog is still open; the
+// panel is aimed at with the dot, which a panel keeps, or the faint beam
+// below. panelOpen is kept for the callers. The cursor dot and the hit test
+// never ask: with the beam gone a lightgun game still has its dot and every
+// press still lands.
 int rayDrawn(int settingOn, int flipped, int panelOpen);
 
 // What the pointing line looks like this frame. RAY_BEAM_FULL is the beam
-// rayDrawn allows. RAY_BEAM_RESTING is a faint beam for the one case the
-// bar can otherwise only be found blind: the ray is switched off, the dot is
-// off too (with the dot on it is the cue), no panel is up, and the controller
-// is inside the bar's hover band, so the user can see where it points. It is
-// off everywhere else, so the picture stays clean.
+// rayDrawn allows. RAY_BEAM_RESTING is a faint beam for the two cases where
+// the pointer could otherwise only be aimed blind: the ray is switched off,
+// the dot is off too (with the dot on it is the cue), and either the
+// controller is inside the bar's hover band or a panel is up. It is off
+// everywhere else, so the picture stays clean. So with a panel up the three
+// cells of the Ray row look apart: Ray the beam and the dot, Dot the dot
+// alone, Off the faint beam (and the dot every panel keeps).
 #define RAY_BEAM_NONE 0
 #define RAY_BEAM_FULL 1
 #define RAY_BEAM_RESTING 2
@@ -74,24 +79,25 @@ Vec3 controllerModelPoint(XrPosef grip, int leftHand, Vec3 local);
 // (or a switch on with no kind yet, the way the first version of the row set it) is the Frame's
 int controllerModelKind(int on, int kind);
 
-// Where a kind's model is placed: at the hand's grip (the Frame's, the generic and a user's own,
-// all authored for the grip), or at its aim pose with the barrel along -z (the gun, so its muzzle
+// Where a kind's model is placed: at the hand's grip (the Frame's and a user's own, both authored
+// for the grip), or at its aim pose with the barrel along -z (the gun, so its muzzle
 // is on the ray and the dot)
 #define MODEL_SPACE_GRIP 0
 #define MODEL_SPACE_AIM 1
 int controllerModelSpace(int kind);
 
-// "off", "frame", "generic", "gun", "custom" (the names the setting is written with)
+// "off", "frame", "gun", "custom" (the names the setting is written with)
 const char* controllerModelKindName(int kind);
 
 // What the loader reads, in the order it tries. The first that loads is the model; one that is
 // missing is left out, one that is there but unusable is skipped by the loader with the reason on
 // stderr. kind is what the candidate gives, which is not the kind asked for when it fell back
-// (a gun without its files is the Frame's, the Frame's without its files the generic one).
+// (a gun without its files is the Frame's). Native (lane fix-polish): nothing comes after the
+// Frame's files: the bundled generic controller is gone, so with no Frame model (the install
+// converts SteamVR's) the list can be empty and no controller is drawn.
 #define MODEL_FILES_TEXTURED_PAIR 1   // two MXFM files, path[0] the left hand's and path[1] the right's
 #define MODEL_FILES_TEXTURED_ONE 2    // one MXFM file, path[0], the right hand's, mirrored for the left
 #define MODEL_FILES_PAINTED_PAIR 3    // two painted .room files, as the pair
-#define MODEL_FILES_GENERIC 4         // the bundled controller.room, path[0], mirrored for the left
 #define MODEL_CANDIDATES_MAX 6
 #define MODEL_PATH_MAX 1024
 typedef struct ModelCandidate {

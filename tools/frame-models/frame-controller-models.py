@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Converts SteamVR's Steam Frame controller render models into Moonlight XR Native's model format.
 
-The client can draw a model at each hand's grip (Settings, controller model). It ships one generic
+The client can draw a model at each hand's grip (Settings, controller model). It ships no Frame
 controller; on the Frame this reads the real controllers' models that SteamVR's own frame_controller
 driver keeps on every Frame and writes them as textured `.model` files (MXFM, below), which the
-client picks up in place of the generic one. Valve's models are only read from your own SteamVR
+client draws for Show controllers Frame (without them it draws none). Valve's models are only read from your own SteamVR
 install on this machine, never redistributed: nothing this writes belongs in git or in a release
 (packaging/install.sh runs it at install time).
 

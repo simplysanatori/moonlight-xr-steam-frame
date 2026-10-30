@@ -1065,12 +1065,13 @@ int mlxr_model_record_kind(const MlxrGpu* gpu, const char* assetsDir, const char
     *out = NULL;
     // Native: the kind says what to read (controllerModelCandidates): the first of its files that
     // loads is the model, and a kind whose files are missing or unusable gives way to the next
-    // (a custom or gun model to the Frame's, the Frame's textured pair to the painted one and the
-    // generic controller)
+    // (a custom or gun model to the Frame's, the Frame's textured pair to the painted one; after
+    // that there is nothing, lane fix-polish took the generic controller out)
     ModelCandidate cand[MODEL_CANDIDATES_MAX];
     int n = controllerModelCandidates(kind, assetsDir, userDir, cand);
     if (n == 0) {
-        fprintf(stderr, "controller model kind %d has nothing to read\n", kind);
+        fprintf(stderr, "controller model %s has nothing to read under %s/models\n", controllerModelKindName(kind),
+                assetsDir != NULL ? assetsDir : ".");
         return -1;
     }
     for (int i = 0; i < n; i++) {
@@ -1080,7 +1081,6 @@ int mlxr_model_record_kind(const MlxrGpu* gpu, const char* assetsDir, const char
         case MODEL_FILES_TEXTURED_PAIR: rc = recordTextured(gpu, path, 2, cmd, started, out); break;
         case MODEL_FILES_TEXTURED_ONE: rc = recordTextured(gpu, path, 1, cmd, started, out); break;
         case MODEL_FILES_PAINTED_PAIR: rc = recordPainted(gpu, path, 2, cmd, started, out); break;
-        case MODEL_FILES_GENERIC: rc = recordPainted(gpu, path, 1, cmd, started, out); break;
         default: break;
         }
         if (rc == 0) {

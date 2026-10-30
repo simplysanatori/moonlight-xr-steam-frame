@@ -868,7 +868,10 @@ static void testTheKofiButton(void) {
     CHECK(kofiSheetZone((KOFI_CLOSE_L + KOFI_CLOSE_R) * 0.5f, btn) == KOFI_ZONE_CLOSE);
     // "Open page" beside it, the two never overlapping
     CHECK(kofiSheetZone((KOFI_OPEN_L + KOFI_OPEN_R) * 0.5f, btn) == KOFI_ZONE_OPEN);
-    CHECK(KOFI_OPEN_R < KOFI_CLOSE_L && KOFI_OPEN_L > KOFI_QR_L + (float)KOFI_QR_PX / KOFI_TEX_W);
+    CHECK(KOFI_OPEN_R < KOFI_CLOSE_L);
+    // lane fix-polish: the pair sits in the middle of the sheet, under the title
+    CHECK(fabsf((KOFI_OPEN_L + KOFI_CLOSE_R) * 0.5f - 0.5f) < 0.001f);
+    CHECK(KOFI_TITLE_V < KOFI_BTN_T && KOFI_BTN_B < 1.0f);
     CHECK(kofiSheetZone(KOFI_OPEN_L - 0.01f, btn) == KOFI_ZONE_NONE);
     CHECK(kofiSheetZone((KOFI_OPEN_R + KOFI_CLOSE_L) * 0.5f, btn) == KOFI_ZONE_NONE);
     CHECK(kofiSheetZone((KOFI_OPEN_L + KOFI_OPEN_R) * 0.5f, KOFI_BTN_T - 0.01f) == KOFI_ZONE_NONE);
@@ -879,12 +882,9 @@ static void testTheKofiButton(void) {
           == KOFI_ZONE_NONE);
     CHECK(kofiSheetZone((KOFI_CLOSE_L + KOFI_CLOSE_R) * 0.5f, KOFI_BTN_B + 0.01f)
           == KOFI_ZONE_NONE);
-    // On the code and the title is nothing
-    CHECK(kofiSheetZone(KOFI_QR_L + 0.05f, KOFI_QR_T + 0.1f) == KOFI_ZONE_NONE);
+    // On the title is nothing
+    CHECK(kofiSheetZone(0.5f, KOFI_TITLE_V) == KOFI_ZONE_NONE);
     CHECK(kofiSheetZone(0.5f, 0.1f) == KOFI_ZONE_NONE);
-    // The code is clear of the button, on the left
-    CHECK(KOFI_QR_L + (float)KOFI_QR_PX / KOFI_TEX_W < KOFI_CLOSE_L);
-    CHECK(KOFI_QR_T + (float)KOFI_QR_PX / KOFI_TEX_H < 1.0f);
 }
 
 // The bar's buttons share one texture, a cell a face. Every face has a cell

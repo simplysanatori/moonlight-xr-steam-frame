@@ -2,7 +2,7 @@
 // XR's (github.com/Gilleece/moonlight-android-xr) app/src/main/res/values-*/strings.xml at fixture.
 // Do not edit; run the script (docs/dev/i18n.md). Translations by upstream's translators
 // (CREDITS.md). GPLv3.
-// map: 7f42b551478c3d16
+// map: d8e2e9553a9be642
 // The English each translated key had when this was made (--verify fails when one changes):
 // en vr_panel_distance b7bdf7a2
 // en vr_panel_version 170672f8

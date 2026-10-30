@@ -13,7 +13,7 @@
 // ---- sizes ---------------------------------------------------------------------
 // Native pixels of the panels' atlas slots, and the pad card's width in metres
 #define FIRSTRUN_TEX_W 1024
-#define FIRSTRUN_TEX_H 576
+#define FIRSTRUN_TEX_H 544   // lane fix-polish: 576 with the foot line it no longer has
 #define PADCARD_TEX_W 768
 #define PADCARD_TEX_H 432
 #define PADCARD_WIDTH_M 0.30f

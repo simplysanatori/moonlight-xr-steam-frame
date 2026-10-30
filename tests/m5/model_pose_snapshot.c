@@ -118,9 +118,9 @@ int main(int argc, char** argv) {
     mkdir(dir, 0755);
     char assets[700], cmd[2600];
     snprintf(assets, sizeof(assets), "%s/_assets", dir);
-    snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models' && cp '%s/models/controller.room' '%s/models/' && cp "
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models' && cp "
              "'%s/frame_controller_left.model' '%s/frame_controller_right.model' '%s/models/'",
-             assets, assets, MLXR_ASSETS_DIR, assets, argv[2], argv[2], assets);
+             assets, assets, argv[2], argv[2], assets);
     if (system(cmd) != 0 || m5_gpu_init(&g) != 0) {
         fprintf(stderr, "could not stage the models, or no Vulkan device\n");
         return 1;

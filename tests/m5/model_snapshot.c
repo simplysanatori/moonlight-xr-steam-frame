@@ -1,12 +1,12 @@
 // Moonlight XR Native, tests/m5: mlxr-model-snapshot. The controller models
-// drawn through xrModelRecord on the Frame's GPU: the generic one beside the
-// Steam Frame's own (tools/frame-models), painted (.room, the older converter)
-// and textured (.model), whichever FRAMEMODELSDIR holds, at the same grip
-// poses, from the front, the side, above and three-quarters behind, one hand
-// at a time, tiled into one PNG; and the models pass timed for each. The grip
-// is identity-oriented (trigger forward, -z; top face up, +y), so a model that
-// sits in the hand as the generic one does shows the same way up and the same
-// way round in every row.
+// drawn through xrModelRecord on the Frame's GPU: the Steam Frame's own
+// (tools/frame-models), painted (.room, the older converter) and textured
+// (.model), whichever FRAMEMODELSDIR holds, at the same grip poses, from the
+// front, the side, above and three-quarters behind, one hand at a time, tiled
+// into one PNG; and the models pass timed for each. The grip is
+// identity-oriented (trigger forward, -z; top face up, +y), so a model that
+// sits in the hand the right way shows the same way up and the same way round
+// in every row. (Lane fix-polish: the generic controller's row went with it.)
 //
 //   mlxr-model-snapshot OUTDIR FRAMEMODELSDIR
 //
@@ -26,7 +26,7 @@ int stbi_write_png(char const* filename, int w, int h, int comp, const void* dat
 #define CW 480
 #define CH 360
 #define VIEWS 4
-#define KINDS 3
+#define KINDS 2
 
 static M5Gpu g;
 
@@ -175,15 +175,13 @@ static double timeModels(XrCtx* ctx, int pressed) {
     return ms[12];
 }
 
-// A scratch assets dir under OUTDIR holding the generic controller and the
-// Frame files of one kind (none, .room or .model); 0 when that kind is there
+// A scratch assets dir under OUTDIR holding the Frame files of one kind (.room
+// or .model); 0 when that kind is there
 static int stage(const char* out, const char* name, const char* frameDir, const char* ext, char* assets, size_t n) {
     char cmd[2600];
     snprintf(assets, n, "%s/_%s", out, name);
-    snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models' && cp '%s/models/controller.room' '%s/models/'", assets, assets,
-             MLXR_ASSETS_DIR, assets);
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models'", assets, assets);
     if (system(cmd) != 0) return -1;
-    if (!ext) return 0;
     snprintf(cmd, sizeof(cmd), "cp '%s/frame_controller_left.%s' '%s/frame_controller_right.%s' '%s/models/' 2>/dev/null", frameDir,
              ext, frameDir, ext, assets);
     return system(cmd) == 0 ? 0 : -1;
@@ -196,16 +194,16 @@ int main(int argc, char** argv) {
     }
     const char* dir = argv[1];
     mkdir(dir, 0755);
-    const char* kind[KINDS] = { "generic", "painted", "textured" };
-    const char* ext[KINDS] = { NULL, "room", "model" };
+    const char* kind[KINDS] = { "painted", "textured" };
+    const char* ext[KINDS] = { "room", "model" };
     char dirs[KINDS][600];
     int have[KINDS];
     for (int k = 0; k < KINDS; k++) {
         have[k] = stage(dir, kind[k], argv[2], ext[k], dirs[k], sizeof(dirs[k])) == 0;
         if (!have[k]) printf("%-8s no frame_controller_*.%s in %s: row left out\n", kind[k], ext[k], argv[2]);
     }
-    if (!have[0] || m5_gpu_init(&g) != 0) {
-        fprintf(stderr, "could not stage the generic controller, or no Vulkan device\n");
+    if ((!have[0] && !have[1]) || m5_gpu_init(&g) != 0) {
+        fprintf(stderr, "no Frame models in %s, or no Vulkan device\n", argv[2]);
         return 1;
     }
     // rows: each hand, each kind there (left then right)
@@ -216,7 +214,7 @@ int main(int argc, char** argv) {
     for (int m = 0; m < KINDS; m++) {
         if (!have[m]) continue;
         XrCtx* ctx = newCtx(dirs[m]);
-        int wantHand = m > 0, wantTex = m == 2;
+        int wantHand = 1, wantTex = m == 1;
         if (!ctx->model || ctx->model->perHand != wantHand || ctx->model->textured != wantTex) {
             fprintf(stderr, "%s: wrong model loaded\n", kind[m]);
             rc = 1;
@@ -263,10 +261,10 @@ int main(int argc, char** argv) {
     }
     char path[700];
     const char* view = getenv("MLXR_FRAME_MODEL_VIEW");
-    snprintf(path, sizeof(path), "%s/models_generic_vs_frame%s%s.png", dir, view && *view ? "_view" : "", view && *view ? view : "");
+    snprintf(path, sizeof(path), "%s/models_frame%s%s.png", dir, view && *view ? "_view" : "", view && *view ? view : "");
     stbi_write_png(path, VIEWS * CW, rows * CH, 3, sheet, VIEWS * CW * 3);
     printf("wrote %s (columns: user's side, from +x, from above, three-quarters behind; rows: left then right hand of "
-           "each kind there: generic, painted, textured)\n", path);
+           "each kind there: painted, textured)\n", path);
     free(sheet);
     m5_gpu_free(&g);
     return rc;

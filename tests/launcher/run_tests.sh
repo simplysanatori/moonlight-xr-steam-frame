@@ -809,6 +809,21 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads failover" "$dump" "stream.failover = on"
         expect "VR client reads failover_burst_ms" "$dump" "stream.failover_burst_ms = 5000"
     fi
+    # lane fix-polish: Show controllers has no Generic choice. A file's old "generic" (and its old number 2) reads
+    # as the Steam Frame controller, here and in the VR client, so one press steps it on to Gun
+    printf '[vr]\ncontroller_model = generic\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=controllerModelRow \
+        MLXR_LAUNCHER_SCREENSHOT="$t/model-generic.png@3000" "$L" >"$t/uimodel.out" 2>&1
+    grep -q "no clickable" "$t/uimodel.out" && fail "controller row click hook: $(grep 'no clickable' "$t/uimodel.out")"
+    grep -A2 '^\[vr\]' "$ini" | grep -q '^controller_model = gun$' && ok "an old generic reads as Steam Frame: the row steps it to Gun" || { fail "generic did not step to gun"; cat "$ini"; }
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        for old in generic 2; do
+            printf '[vr]\ncontroller_model = %s\n' "$old" > "$t/model-old.ini"
+            expect "VR client reads controller_model = $old as frame" "$("$MLXR_SETTINGS_DUMP" "$t/model-old.ini")" "vr.controller_model = frame"
+        done
+        printf '[vr]\ncontroller_model = 3\n' > "$t/model-old.ini"
+        expect "VR client reads the old number of gun" "$("$MLXR_SETTINGS_DUMP" "$t/model-old.ini")" "vr.controller_model = gun"
+    fi
     # lane wave3-visual: the surroundings rows (Picture tab's Background and Glow edge, 3D eye balance) step
     # from the file's values and write only their keys; the void colour is read as typed and kept
     printf '[vr]\nvoid_color = #204060\n\n[3d]\nseparation = 9\n' > "$ini"

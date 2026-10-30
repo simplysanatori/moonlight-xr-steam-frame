@@ -63,7 +63,6 @@
     X(STRONG, "vr_panel_strong", "Strong") \
     X(ROW_DEPTH, "vr_panel_depth", "Depth") \
     X(ROW_CONVERGENCE, "vr_panel_convergence", "Convergence") \
-    X(HARDER_ON_EYES, "vr_panel_harder_on_eyes", "harder on the eyes") \
     X(THREE_D_OFF_IN_SETTINGS, "vr_panel_3d_off_in_settings", "3D is off in settings") \
     X(ROW_CONTRAST, "vr_panel_contrast", "Contrast") \
     X(ROW_GAMMA, "vr_panel_gamma", "Gamma") \
@@ -104,10 +103,7 @@
     X(HAND_HINT_TITLE, "vr_hand_hint_title", "Hand tracking is on.") \
     X(HAND_HINT_BODY, "vr_hand_hint_body", "Pinch your thumb and index finger three times quickly to lock your hands out, so a stray pinch does not click; the same triple pinch unlocks them.") \
     X(HAND_HINT_NEVER, "vr_hand_hint_never", "Don't show this again") \
-    X(KOFI_TITLE, "vr_kofi_title", "Support Moonlight XR on Ko-fi") \
-    X(KOFI_SCAN, "vr_kofi_scan", "Taken the headset off? Scan it with your phone.") \
-    X(KOFI_HERE, "vr_kofi_here", "In the headset, Open page shows it in Steam's browser.") \
-    X(KOFI_FREE, "vr_kofi_free", "Optional: Moonlight XR is free and stays free.") \
+    X(KOFI_TITLE, "vr_kofi_title", "Support simplysanatori on Ko-fi") \
     X(KOFI_CLOSE, "vr_kofi_close", "Not now") \
     X(KOFI_OPEN, "vr_kofi_open", "Open page") \
     /* the Host sheet (PLAN 4b.1) */ \
@@ -118,7 +114,6 @@
     X(HOST_CLOSE, "native_host_close", "Close") \
     X(HOST_CONFIRM_Q, "native_host_confirm_q", "Send %s to the PC?") \
     X(HOST_CONFIRM_SEND, "native_host_confirm_send", "Send") \
-    X(HOST_NO_MACROS, "native_host_no_macros", "Your own buttons go in macros.ini") \
     X(HOST_PCVR, "native_host_pcvr", "PC VR") \
     X(HOST_PCVR_Q, "native_host_pcvr_q", "Switch to PC VR? This stream ends.") \
     X(HOST_PCVR_GO, "native_host_pcvr_go", "Switch") \
@@ -138,10 +133,7 @@
     X(HOST_PAGE_BACK, "native_host_page_back", "Back") \
     X(HOST_PC_TITLE, "native_host_pc_title", "PC clipboard, commands") \
     X(HOST_PASTE, "native_host_paste", "Paste from PC") \
-    X(HOST_PASTE_HINT, "native_host_paste_hint", "types its clipboard") \
     X(HOST_COPY, "native_host_copy", "Send text to PC") \
-    X(HOST_COPY_HINT, "native_host_copy_hint", "type, then Enter") \
-    X(HOST_CMD_HINT, "native_host_cmd_hint", "host command") \
     X(HOST_CONFIRM_RUN_Q, "native_host_confirm_run_q", "Run %s on the PC?") \
     X(HOST_CONFIRM_RUN, "native_host_confirm_run", "Run") \
     X(HOST_PC_NOT_APOLLO, "native_host_pc_not_apollo", "Not supported by this host: commands and the PC clipboard need Apollo") \
@@ -207,7 +199,6 @@
     X(NATIVE_DOT, "native_dot", "Dot") \
     X(NATIVE_RAY, "native_ray", "Ray") \
     X(MODEL_FRAME, "native_model_frame", "Frame") \
-    X(MODEL_GENERIC, "native_model_generic", "Generic") \
     X(MODEL_GUN, "native_model_gun", "Gun") \
     X(ROW_3D_SOURCE, "native_3d_source", "3D source") \
     X(SOURCE_DEPTH, "native_3d_source_depth", "Depth") \
@@ -252,7 +243,6 @@
     X(FIRSTRUN_MOUSE, "native_firstrun_mouse", "Hold %s on a gamepad: the PC's mouse") \
     X(FIRSTRUN_MOUSE_BOTH, "native_firstrun_mouse_both", "Hold %s and %s on a gamepad: the PC's mouse") \
     X(FIRSTRUN_MOUSE_OFF, "native_firstrun_mouse_off", "Gamepad as the PC's mouse is off (pad_mouse_chord)") \
-    X(FIRSTRUN_FOOT, "native_firstrun_foot", "Shown once. It goes by itself, or when you open a menu.") \
     /* the pad card (PLAN 2b.6) */ \
     X(PADCARD_XBOX, "native_padcard_xbox", "Xbox gamepad") \
     X(PADCARD_PLAYSTATION, "native_padcard_playstation", "PlayStation gamepad") \

@@ -567,7 +567,7 @@ void xrWorldFindAssets(XrCtx* ctx) {
 // Native: of the kind asked for (the first load, and each change of kind after it, on this the
 // render thread and into this frame's command buffer, the thread and buffer every other upload
 // of the world goes through). The model it replaces is freed once the GPU is past the frames that
-// drew it; one that fails to load leaves the one in use drawn.
+// drew it; one that fails to load leaves none drawn (lane fix-polish).
 static void loadControllerModel(XrCtx* ctx, int want) {
     MlxrGpu g = xrWorldGpu(ctx);
     MlxrModel* m = NULL;
@@ -575,11 +575,24 @@ static void loadControllerModel(XrCtx* ctx, int want) {
     const char* user = want == CONTROLLER_MODEL_CUSTOM ? controllerModelUserDir(userDir, sizeof(userDir)) : NULL;
     ctx->modelKindAsked = want;
     if (mlxr_model_record_kind(&g, ctx->assetsDir, user, want, ctx->frameCmd, &m) != 0) {
-        if (ctx->model == NULL) {
-            ctx->modelLoadFailed = 1;
+        // Native (lane fix-polish): there is no generic controller to fall back on any more, so a kind
+        // that loads nothing draws nothing, whatever was drawn before it (the gun stays no longer once
+        // Frame is picked on a headset without the Frame's models). Said once for each kind asked:
+        // modelKindAsked holds it until the kind changes
+        if (ctx->model != NULL) {
+            retireModel(ctx, ctx->model, ctx->gpuSerial);
+            ctx->model = NULL;
         }
-        LOGW("controller model (%s) is not a mesh the renderer reads (%s/models/controller.room)",
-             controllerModelKindName(want), ctx->assetsDir);
+        ctx->modelReady = 0;
+        ctx->modelLoadFailed = 1;
+        ModelCandidate cand[MODEL_CANDIDATES_MAX];
+        if (controllerModelCandidates(want, ctx->assetsDir, user, cand) == 0) {
+            LOGW("controller model (%s): no model files under %s/models (the Steam Frame's are converted from "
+                 "SteamVR's at install), so no controller is drawn", controllerModelKindName(want), ctx->assetsDir);
+        } else {
+            LOGW("controller model (%s): none of its files is a mesh the renderer reads (%s/models), so no "
+                 "controller is drawn", controllerModelKindName(want), ctx->assetsDir);
+        }
         return;
     }
     xrWorldQueueUpload(ctx, VK_NULL_HANDLE, VK_NULL_HANDLE, NULL, m);

@@ -1,5 +1,5 @@
-// The bundled controller model: one generic controller, baked like the rooms
-// and drawn at each hand's grip, lit by a fixed light. Its own pass and its
+// The controller model: the Steam Frame's own (converted at install), the gun,
+// or the user's own, drawn at each hand's grip, lit by a fixed light. Its own pass and its
 // own projection layer, cleared to nothing round the models and put up over
 // the picture and the panels, so a controller held up in front of the screen
 // is never lost behind it. Only the beam, the dot and what hangs off the head
@@ -12,12 +12,11 @@
 //   - the model is rooms/room_gpu's MlxrModel, read off the assets the first
 //     frame the switch is on (xr_world.c; upstream: Java read it and
 //     nativeUploadControllerModel took it). The Steam Frame fork ships no
-//     Frame controller model in plain asset form, so by default this is the
-//     generic controller (assets/models/controller.room), mirrored for the
-//     left hand. When tools/frame-models has made the Frame's own pair from
-//     the local SteamVR install (never shipped, packaging/install.sh makes
-//     them) each hand draws its own, already in its own grip space and so not
-//     mirrored: textured at full detail (frame_controller_{left,right}.model,
+//     Frame controller model in plain asset form; tools/frame-models makes
+//     the Frame's own pair from the local SteamVR install (never shipped,
+//     packaging/install.sh makes them; without them no controller is drawn,
+//     lane fix-polish took the generic controller out) and each hand draws
+//     its own, already in its own grip space and so not mirrored: textured at full detail (frame_controller_{left,right}.model,
 //     MLXR_PASS_MODEL_TEX: colour, occlusion, normal and roughness maps) or,
 //     from an older converter, painted (frame_controller_{left,right}.room);
 //   - the draw is mlxr_pass_model into the swapchain image, recorded into the
@@ -220,7 +219,7 @@ void updateControllerModels(XrCtx* ctx) {
                 && ctx->profileKind[h] == PROFILE_CONTROLLER && hold != POSE_GONE;
         if (shown[h]) {
             ctx->modelGrip[h] = ctx->gripHold[h].pose;
-            // Native: the controls the Frame's moving parts follow (the generic
+            // Native: the controls the Frame's moving parts follow (a painted
             // model has none: nothing reads them)
             if (ctx->model && ctx->model->textured) {
                 readModelInput(ctx, h, (MlxrModelInput*)ctx->modelInput[h]);
@@ -293,8 +292,8 @@ static void modelRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* tar
     for (int h = 0; h < HAND_COUNT; h++) {
         mp.shown[h] = ctx->modelShown[h];
         if (ctx->modelShown[h]) {
-            // Native: only a model with one mesh for both hands is mirrored (the generic
-            // controller, a single custom file); the Frame's and the gun's left is its own
+            // Native: only a model with one mesh for both hands is mirrored (a single
+            // custom file); the Frame's and the gun's left is its own
             controllerModelMatrix(ctx->modelGrip[h], h == HAND_LEFT && ctx->model->mirrorLeft, mp.model[h]);
         }
     }

@@ -164,7 +164,7 @@ static void test_cog_rows_present(void) {
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_RAY) == 3);
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_NOTICES) == 3);
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_GAMEPAD) == 2);
-    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS) == 4);   // Off, Frame, Generic, Gun
+    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS) == 3);   // Off, Frame, Gun
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_POINTER_SLEEP) == 2);
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_CLICK_SOUND) == 2);
     free(g.base);
@@ -536,6 +536,9 @@ static void test_other_panels_hits(void) {
     int op = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_KOFI_OPEN, -1);
     CHECK(op >= 0 && kofiSheetZone((hits.hit[op].u0 + hits.hit[op].u1) / 2, (hits.hit[op].v0 + hits.hit[op].v1) / 2) == KOFI_ZONE_OPEN);
     CHECK(strcmp(ui_str(UIS_KOFI_OPEN), "Open page") == 0 && strcmp(ui_str(UIS_KOFI_CLOSE), "Not now") == 0);
+    // lane fix-polish: the title names this port's author's page, and the sheet has nothing else
+    CHECK(strcmp(ui_str(UIS_KOFI_TITLE), "Support simplysanatori on Ko-fi") == 0);
+    CHECK(hits.count == 2);
     free(g.base);
 }
 
