@@ -16,7 +16,7 @@
 
 ### Network
 
-- A USB data cable between the headset and the PC is a third connection: **USB cable** under Network connection, and Automatic tries it too. It needs the headset in developer mode and has not been measured in the headset yet.
+- A USB data cable between the headset and the PC is a third connection: **USB cable** under Network connection, and Automatic tries it too. It needs the headset in developer mode.
 - **Switch network when video keeps breaking up** moves a stream that keeps losing video to another link that measured clearly better when it started; **Video loss before switching** sets how much loss that takes. Off by default, and only with Network connection on Automatic.
 
 ### The picture
