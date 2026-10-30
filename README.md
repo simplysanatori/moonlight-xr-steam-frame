@@ -159,6 +159,7 @@ If you would like more Steam Frame ports, you can also [buy me a coffee](https:/
 - [Moonlight](https://github.com/moonlight-stream) by the Moonlight Game Streaming Project (Cameron Gutman, Diego Waxemberg, Aaron Neyer, Andrew Hennessy and contributors): [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) for the streaming protocol, and [moonlight-qt](https://github.com/moonlight-stream/moonlight-qt) for the flat window and the host client behaviour.
 - [OpenXR-SDK](https://github.com/KhronosGroup/OpenXR-SDK) from Khronos, [LiteRT](https://github.com/tensorflow/tensorflow) for the depth models, [ZipDepth](https://github.com/fabiotosi92/ZipDepth) by Fabio Tosi and [MiDaS](https://github.com/isl-org/MiDaS) by Intel ISL, KEMAR head-related transfer functions (MIT Media Lab), and Noto Sans.
 - The three rooms and the generic controller model are by Sean Gilleece / Woodford XR (CC BY 4.0).
+- The Gun controller model is "[G17 Gen 5 Handgun + Olight - NSW Police Force](https://sketchfab.com/3d-models/g17-gen-5-handgun-olight-nsw-police-force-0200c248eba14385ad2bee8d4dc4e586)" by [8sianDude](https://sketchfab.com/haoliu95) (CC BY 4.0), converted and changed for the headset.
 
 [CREDITS.md](CREDITS.md) has the full list with licences and links.
 
