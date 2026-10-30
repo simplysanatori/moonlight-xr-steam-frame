@@ -292,11 +292,15 @@ SKIPPED = {
     "el": "13 of the headset's strings translated upstream",
     "hu": "13 of the headset's strings translated upstream",
     "in": "13 of the headset's strings translated upstream",
-    "pt": "13 of the headset's strings translated upstream (pt-rBR is complete)",
+    "pt": "13 of the headset's strings translated upstream; pt-rBR is complete",
     "ro": "10 of the headset's strings translated upstream",
     "vi": "13 of the headset's strings translated upstream",
 }
 
+# Translations of the native and drift strings, made for this port by people (never by a
+# machine): tools/ui/native/values-<dir>/strings.xml, upstream's format, keys from MAP's NATIVE
+# and DRIFT lines only. None exist yet; docs/dev/i18n.md lists what each language lacks.
+NATIVE_DIR = os.path.join(HERE, "native")
 INC_PATH = os.path.join(ROOT, "ui", "ui_strings_i18n.inc")
 HEADER_PATH = os.path.join(ROOT, "ui", "ui_strings.h")
 DOC_PATH = os.path.join(ROOT, "docs", "dev", "i18n.md")
@@ -454,7 +458,7 @@ def check_map(header):
     return errs
 
 
-def generate(res, header, upstream_rev=None, strict=True):
+def generate(res, header, upstream_rev=None, strict=True, native_dir=NATIVE_DIR):
     """Returns (inc text, report) for upstream's res directory"""
     ids = {k: i for i, k, _ in header}
     english = {k: e for _, k, e in header}
@@ -493,8 +497,15 @@ def generate(res, header, upstream_rev=None, strict=True):
             if strict:
                 raise SystemExit("upstream has no values-%s" % d)
             continue
-        present.append((code, d, name, script, read_strings(path)))
-    for n, (code, d, name, script, _) in enumerate(present):
+        own = {}
+        npath = os.path.join(native_dir, "values-" + d, "strings.xml") if native_dir else ""
+        if npath and os.path.exists(npath):
+            own = read_strings(npath)
+            for k in own:
+                if srcmap.get(k, SAME) not in (NATIVE, DRIFT):
+                    raise SystemExit("%s: %s is not a NATIVE or DRIFT key" % (npath, k))
+        present.append((code, d, name, script, read_strings(path), own))
+    for n, (code, d, name, script, _, _) in enumerate(present):
         ident = re.sub(r"[^A-Z0-9]", "_", code.upper())
         lines.append("    X(%s, %s, %s, UI_SCRIPT_%s)%s" % (ident, c_string(code), c_string(name), script,
                                                           " \\" if n + 1 < len(present) else ""))
@@ -503,7 +514,7 @@ def generate(res, header, upstream_rev=None, strict=True):
     lines.append("#endif")
     lines.append("")
     lines.append("#ifdef UI_I18N_TABLES")
-    for code, d, name, script, tr in present:
+    for code, d, name, script, tr, own in present:
         ident = re.sub(r"[^A-Z0-9]", "_", code.upper())
         have, missing, refused = [], [], []
         lines.append("")
@@ -520,9 +531,24 @@ def generate(res, header, upstream_rev=None, strict=True):
                 continue
             have.append(key)
             lines.append("    [UIS_%s] = %s," % (ids[key], c_string(ctext)))
+        native_have, native_missing = [], []
+        for key, src in MAP:
+            if key not in ids or src not in (NATIVE, DRIFT):
+                continue
+            text = own.get(key)
+            if not text:
+                native_missing.append(key)
+                continue
+            ctext, why = c_format(text, english[key])
+            if ctext is None:
+                refused.append((key, why))
+                continue
+            native_have.append(key)
+            lines.append("    [UIS_%s] = %s, // tools/ui/native" % (ids[key], c_string(ctext)))
         lines.append("};")
         report["langs"].append({"code": code, "dir": d, "name": name, "script": script,
-                                "have": have, "missing": missing, "refused": refused})
+                                "have": have + native_have, "missing": missing, "refused": refused,
+                                "native_missing": native_missing})
     lines.append("#endif")
     lines.append("")
     return "\n".join(lines), report
@@ -546,32 +572,32 @@ def doc_block(report, header):
     out.append("Left out of upstream's languages: " + "; ".join(
         "`values-%s` (%s)" % (d, why) for d, why in sorted(SKIPPED.items())) + ".")
     out.append("")
-    out.append("### TODO for every language: the native and drift strings")
+    common = None
+    for L in report["langs"]:
+        common = set(L["native_missing"]) if common is None else common & set(L["native_missing"])
+    common = [k for k in report["native"] + report["drift"] if k in (common or set())]
+    out.append("### TODO in every language: the native and drift strings")
     out.append("")
-    out.append("No language has these yet; each shows the English below. A translation goes in a table of")
-    out.append("this port's own (see \"Adding a translation\" above), never invented by a machine.")
+    out.append("No language has these yet, so each shows the English below. A translation of them is made by")
+    out.append("a person who speaks the language, never by a machine, and goes in")
+    out.append("`tools/ui/native/values-<dir>/strings.xml` (see \"Translating a native string\" above).")
     out.append("")
     out.append("| Key | English | Why |")
     out.append("| --- | --- | --- |")
-    for k in report["native"] + report["drift"]:
+    for k in common:
         why = "native" if k in report["native"] else "drift"
         out.append("| `%s` | %s | %s |" % (k, english[k].replace("|", "\\|").replace("\n", " "), why))
     out.append("")
-    out.append("### TODO per language: upstream strings it has no translation for")
+    out.append("### TODO per language, beyond that list")
     out.append("")
     for L in report["langs"]:
-        rest = L["missing"] + [k for k, _ in L["refused"]]
+        rest = L["missing"] + [k for k, _ in L["refused"]] + [k for k in L["native_missing"] if k not in common]
         if not rest:
-            out.append("* `%s`: none beyond the list above" % L["code"])
+            out.append("* `%s` (%s): nothing more" % (L["code"], L["name"]))
             continue
-        if len(L["missing"]) > len(report["translatable"]) // 2:
-            out.append("* `%s`: %d of the %d (only %s translated)" % (
-                L["code"], len(rest), len(report["translatable"]),
-                ", ".join("`%s`" % k for k in L["have"]) or "none"))
-        else:
-            out.append("* `%s`: %s" % (L["code"], ", ".join("`%s`" % k for k in rest)))
+        out.append("* `%s` (%s): %s" % (L["code"], L["name"], ", ".join("`%s`" % k for k in rest)))
         for k, why in L["refused"]:
-            out.append("  * `%s` left in English: the translation %s" % (k, why))
+            out.append("  * `%s` stays English: the translation %s" % (k, why))
     out.append("")
     out.append(DOC_END)
     return "\n".join(out)
@@ -622,7 +648,7 @@ def main(argv):
     ap.add_argument("--out", default=INC_PATH)
     ap.add_argument("--doc", default=DOC_PATH, help="docs/dev/i18n.md ('' for none)")
     ap.add_argument("--fixture", action="store_true",
-                    help="tests: languages missing from --res are left out, no doc")
+                    help="tests: languages missing from --res are left out, no doc, no tools/ui/native")
     ap.add_argument("--verify", action="store_true", help="check the committed table against MAP")
     a = ap.parse_args(argv)
     if a.verify:
@@ -639,7 +665,8 @@ def main(argv):
         for e in errs:
             print("gen_strings: " + e, file=sys.stderr)
         return 1
-    text, report = generate(a.res, header, a.upstream_rev, strict=not a.fixture)
+    text, report = generate(a.res, header, a.upstream_rev, strict=not a.fixture,
+                            native_dir=None if a.fixture else NATIVE_DIR)
     with open(a.out, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
     if a.doc and not a.fixture:
