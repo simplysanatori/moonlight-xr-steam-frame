@@ -149,7 +149,19 @@ typedef struct MlxrWarpParams {
     float grade[4];        // u_grade: PictureGrade offset, contrast, exponent, saturation
     float tint[3];         // u_tint, {1, 1, 1} normally
     float sharpen;         // new: 0 off (upstream), up to 1
+    // New (PLAN 4.3): a host-rendered stereo pair in the one frame. split
+    // MLXR_SPLIT_NONE reads the whole picture (everything above as ever);
+    // SBS or TB reads only half (0 the left or top, 1 the right or bottom),
+    // stretched over the target, held a texel clear of the seam, moved
+    // sideways by shift (a fraction of the half's width, signed per eye), and
+    // the depth inputs are not read.
+    int split;
+    int half;
+    float shift;
 } MlxrWarpParams;
+#define MLXR_SPLIT_NONE 0
+#define MLXR_SPLIT_SBS 1
+#define MLXR_SPLIT_TB 2
 void mlxr_pass_warp(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrWarpParams* w);
 
 // UPSAMPLE_FRAGMENT_SRC, into a MLXR_PASS_FORMAT image a quarter of the video
@@ -167,13 +179,18 @@ void mlxr_pass_upsample(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t,
 // upsample's size
 typedef struct MlxrOffsetParams {
     VkImageView depth;     // the upsample's output
-    float dispTexels;      // u_dispTexels
+    float dispTexels;      // u_dispTexels: the larger eye's shift (as the warp is given it)
     float convergence;     // u_convergence
     // Native (lane wave5-depth, PLAN 5.2): u_holeStretch, how far apart (in
     // texels) a source segment may land before its pixels are a hole the
     // shift opened, filled from the background side (offset.frag); 0 off,
     // which is upstream's search exactly
     float holeStretch;
+    // Native (lane wave3-visual), 3D Eye Balance -1..1: the left eye is shifted
+    // by (1 + balance) separations and the right by (1 - balance), where
+    // dispTexels was sized for the larger of them. 0 (zeroed params) is an even
+    // split, a whole separation each way.
+    float balance;
 } MlxrOffsetParams;
 // The stretch the 3D runs with: a segment spread over more than one and a
 // half texels. Measured on a thin dark bar over a bright page with a model
@@ -218,6 +235,9 @@ typedef struct MlxrGlowParams {
     VkImageView sample;    // the glow edge copy (blur 1) or the raw colour sample (blur 0)
     float intensity;       // u_intensity
     int blur;              // u_blur
+    // u_feather (native, lane wave3-visual): 0, or how deep into the picture
+    // the glow is faded in over it, as a fraction of its size (glowFeatherFraction)
+    float feather;
 } MlxrGlowParams;
 void mlxr_pass_glow(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrGlowParams* g);
 
@@ -240,6 +260,10 @@ typedef struct MlxrRoomParams {
     VkRect2D eyeRect[2];
     float spillGain;       // u_spillGain (0 when the room is unlit)
     float dim;             // u_dim
+    // Native (lane wave3-visual): the Background dim, 0 (zeroed params) leaves
+    // the room as it is, 1 is black; the whole of the room's colour, the
+    // wash of the picture's light included, is scaled by 1 - bgDim
+    float bgDim;
     VkImageView depth;     // depth attachment covering target.rect
     VkFormat depthFormat;
 } MlxrRoomParams;

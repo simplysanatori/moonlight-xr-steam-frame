@@ -51,6 +51,36 @@ static int recState(void* user, short n, short mask, int flags, unsigned char lt
     return 0;
 }
 
+// Native (lane wave2-lightgun-gyro): motion samples the sink was handed
+typedef struct {
+    int number;
+    int type;
+    float v[3];
+} MotionEvent;
+static MotionEvent motions[16];
+static int motionCount;
+
+static int recMotion(void* user, uint8_t n, uint8_t type, float x, float y, float z) {
+    (void)user;
+    if (motionCount < 16) {
+        MotionEvent* m = &motions[motionCount++];
+        m->number = n;
+        m->type = type;
+        m->v[0] = x;
+        m->v[1] = y;
+        m->v[2] = z;
+    }
+    return 0;
+}
+
+static void newMotionPad(PadOut* p, int optIn) {
+    PadOutSink sink = { recArrival, recState, NULL, recMotion };
+    padOutInit(p, &sink);
+    padOutSetMotion(p, optIn);
+    eventCount = 0;
+    motionCount = 0;
+}
+
 static void newPad(PadOut* p) {
     PadOutSink sink = { recArrival, recState, NULL };
     padOutInit(p, &sink);
@@ -472,7 +502,95 @@ static void testKeepAlive(void) {
     CHECK(eventCount == n);
 }
 
+// The pad_gyro opt-in (PLAN 2.9): the arrival says motion only with it on, and only the Frame pad's own
+// slot is touched
+static void testMotion(void) {
+    PadState rest;
+    padRest(&rest);
+    PadOut p;
+
+    // Off (the default): the Xbox pad it always was, with neither sensor
+    newMotionPad(&p, 0);
+    padOutFrame(&p, 1, &rest, 0);
+    CHECK(events[0].kind == 1 && events[0].type == PADOUT_TYPE && events[0].caps == PADOUT_CAPS);
+    CHECK((events[0].caps & (LI_CCAP_GYRO | LI_CCAP_ACCEL)) == 0);
+    CHECK(events[0].type == LI_CTYPE_XBOX);
+    // the host asking for motion from a pad that never said it had any is not taken
+    CHECK(padOutMotionState(&p, LI_MOTION_TYPE_GYRO, 100) == 0);
+    CHECK(padOutMotionRate(&p, LI_MOTION_TYPE_GYRO) == 0);
+    CHECK(padOutMotion(&p, LI_MOTION_TYPE_GYRO, 1, 2, 3, 1000) == 0 && motionCount == 0);
+
+    // On: a PlayStation pad with a gyroscope and an accelerometer, and the Xbox pad's caps besides
+    newMotionPad(&p, 1);
+    padOutFrame(&p, 1, &rest, 0);
+    CHECK(events[0].kind == 1 && events[0].type == PADOUT_TYPE_MOTION && events[0].type == LI_CTYPE_PS);
+    CHECK(events[0].caps == PADOUT_CAPS_MOTION);
+    CHECK((events[0].caps & (LI_CCAP_GYRO | LI_CCAP_ACCEL)) == (LI_CCAP_GYRO | LI_CCAP_ACCEL));
+    CHECK((events[0].caps & PADOUT_CAPS) == PADOUT_CAPS);
+    // nothing else is claimed: no touchpad, battery, LED or trigger rumble
+    CHECK((events[0].caps & ~(PADOUT_CAPS | LI_CCAP_GYRO | LI_CCAP_ACCEL)) == 0);
+    // the buttons it offers are the same
+    CHECK(events[0].buttons == (uint32_t)padOutButtonFlags(PAD_BUTTONS | PAD_GUIDE));
+
+    // nothing goes before the host asks
+    CHECK(padOutMotionRate(&p, LI_MOTION_TYPE_GYRO) == 0);
+    CHECK(padOutMotion(&p, LI_MOTION_TYPE_GYRO, 1, 2, 3, 1000) == 0 && motionCount == 0);
+    // the host asks for the gyroscope at 100 Hz: that one goes, not the accelerometer
+    CHECK(padOutMotionState(&p, LI_MOTION_TYPE_GYRO, 100) == 1);
+    CHECK(padOutMotionRate(&p, LI_MOTION_TYPE_GYRO) == 100 && padOutMotionRate(&p, LI_MOTION_TYPE_ACCEL) == 0);
+    CHECK(padOutMotion(&p, LI_MOTION_TYPE_ACCEL, 0, 9.8f, 0, 1000) == 0);
+    CHECK(padOutMotion(&p, LI_MOTION_TYPE_GYRO, 1, 2, 3, 1000000000LL) == 1);
+    CHECK(motionCount == 1 && motions[0].type == LI_MOTION_TYPE_GYRO && motions[0].number == p.controllerNumber);
+    CHECK(motions[0].v[0] == 1 && motions[0].v[1] == 2 && motions[0].v[2] == 3);
+    // no sooner than a period (10 ms) after, and not the same sample again
+    CHECK(padOutMotion(&p, LI_MOTION_TYPE_GYRO, 4, 5, 6, 1005000000LL) == 0);
+    CHECK(padOutMotion(&p, LI_MOTION_TYPE_GYRO, 1, 2, 3, 1011000000LL) == 0);
+    CHECK(padOutMotion(&p, LI_MOTION_TYPE_GYRO, 4, 5, 6, 1011000000LL) == 1);
+    CHECK(motionCount == 2 && motions[1].v[0] == 4);
+    // the accelerometer on its own request, in m/s^2 as given
+    CHECK(padOutMotionState(&p, LI_MOTION_TYPE_ACCEL, 100) == 1);
+    CHECK(padOutMotion(&p, LI_MOTION_TYPE_ACCEL, 0, 9.81f, 0, 1012000000LL) == 1);
+    CHECK(motions[2].type == LI_MOTION_TYPE_ACCEL && motions[2].v[1] == 9.81f);
+    // a type that is neither is ignored
+    CHECK(padOutMotionState(&p, 9, 100) == 0 && padOutMotion(&p, 9, 1, 2, 3, 2000000000LL) == 0);
+    // the host stopping the gyroscope stops it
+    CHECK(padOutMotionState(&p, LI_MOTION_TYPE_GYRO, 0) == 1);
+    CHECK(padOutMotionRate(&p, LI_MOTION_TYPE_GYRO) == 0);
+    CHECK(padOutMotion(&p, LI_MOTION_TYPE_GYRO, 7, 8, 9, 3000000000LL) == 0);
+
+    // unplugged (gamepad mode off, or a physical pad took over) the requests go with the pad
+    padOutFrame(&p, 0, &rest, 4000000000LL);
+    CHECK(padOutMotionRate(&p, LI_MOTION_TYPE_ACCEL) == 0);
+    CHECK(padOutMotion(&p, LI_MOTION_TYPE_ACCEL, 0, 9.81f, 0, 5000000000LL) == 0);
+    CHECK(padOutMotionState(&p, LI_MOTION_TYPE_ACCEL, 100) == 0);
+    // and it plugs in again as a new pad that the host asks afresh
+    int before = motionCount;
+    padOutFrame(&p, 1, &rest, 6000000000LL);
+    CHECK(events[eventCount - 2].kind == 1 && events[eventCount - 2].caps == PADOUT_CAPS_MOTION);
+    CHECK(padOutMotionRate(&p, LI_MOTION_TYPE_GYRO) == 0);
+    CHECK(padOutMotionState(&p, LI_MOTION_TYPE_GYRO, 60) == 1);
+    CHECK(padOutMotion(&p, LI_MOTION_TYPE_GYRO, 1, 2, 3, 7000000000LL) == 1 && motionCount == before + 1);
+
+    // The setting changed while plugged in does not change the arrival already made
+    newMotionPad(&p, 0);
+    padOutFrame(&p, 1, &rest, 0);
+    padOutSetMotion(&p, 1);
+    CHECK(padOutMotionState(&p, LI_MOTION_TYPE_GYRO, 100) == 0);
+    padOutFrame(&p, 0, &rest, 1);
+    padOutFrame(&p, 1, &rest, 2);
+    CHECK(events[eventCount - 2].caps == PADOUT_CAPS_MOTION);
+
+    // A sink with no motion hook (the three-field form) takes the samples and sends nothing
+    PadOutSink plain = { recArrival, recState, NULL };
+    padOutInit(&p, &plain);
+    padOutSetMotion(&p, 1);
+    padOutFrame(&p, 1, &rest, 0);
+    CHECK(padOutMotionState(&p, LI_MOTION_TYPE_GYRO, 100) == 1);
+    CHECK(padOutMotion(&p, LI_MOTION_TYPE_GYRO, 1, 2, 3, 1000000000LL) == 1);
+}
+
 int main(void) {
+    testMotion();
     testButtonMap();
     testFrameLayout();
     testFlip();

@@ -30,6 +30,7 @@ int mlxr_hud_window(const MlxrHudCum* prev, const MlxrHudCum* cur, double secs, 
     uint64_t decN = usub(cur->decodeN, prev->decodeN);
     out->rttMs = (double)cur->rttMs;
     out->poor = cur->poor;
+    out->setKbps = cur->setKbps;
     out->fps = fps;
     out->udpDrops = usub(cur->udpDrops, prev->udpDrops);
     out->fecRecovered = (uint32_t)usub(cur->fecRecovered, prev->fecRecovered);
@@ -142,13 +143,20 @@ void mlxr_hud_panel(const MlxrHudFigures* f, int slow, const MlxrCompositorMetri
     if (f == NULL || !f->valid) {
         return;
     }
-    char lat[16], host[16], net[16], dec[16], loss[16], rate[16];
+    char lat[16], host[16], net[16], dec[16], loss[16], rate[16], set[16];
     num(lat, sizeof(lat), f->latencyMs);
     num(host, sizeof(host), f->hostMs);
     num(net, sizeof(net), f->rttMs * 0.5 + f->recvMs + f->queueMs);
     num(dec, sizeof(dec), f->decodeMs);
     num(loss, sizeof(loss), f->lossPct);
     num(rate, sizeof(rate), f->mbps);
+    // Native (lane wave4b-abr): the rate the stream was started with, beside the one arriving: "54 of 98 Mb/s"
+    set[0] = '\0';
+    if (f->setKbps > 0) {
+        char v[16];
+        num(v, sizeof(v), f->setKbps / 1000.0);
+        snprintf(set, sizeof(set), " of %s", v);
+    }
     size_t n = (size_t)snprintf(buf, cap, "Latency %s ms%s\nHost %s, net %s, decode %s ms\nRTT %.0f ms, loss %s%%",
                                 lat, slow ? "  - slow connection" : "", host, net, dec, f->rttMs, loss);
     if ((f->fecRecovered > 0 || f->fecFailed > 0) && n < cap) {
@@ -158,7 +166,7 @@ void mlxr_hud_panel(const MlxrHudFigures* f, int slow, const MlxrCompositorMetri
         n += (size_t)snprintf(buf + n, cap - n, ", UDP drops %llu", (unsigned long long)f->udpDrops);
     }
     if (n < cap) {
-        n += (size_t)snprintf(buf + n, cap - n, "\n%s Mb/s, %.0f fps", rate, f->fps);
+        n += (size_t)snprintf(buf + n, cap - n, "\n%s%s Mb/s, %.0f fps", rate, set, f->fps);
     }
     if (n < cap && displayHz > 0.0) {
         n += (size_t)snprintf(buf + n, cap - n, " on %.0f Hz", displayHz);
