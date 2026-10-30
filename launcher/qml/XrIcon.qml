@@ -46,7 +46,9 @@ Item {
         // a cross
         "close": "M6 6 L18 18 M18 6 L6 18",
         // a tick, for what is in use
-        "check": "M5 12.5 L10 17.5 L19 7"
+        "check": "M5 12.5 L10 17.5 L19 7",
+        // a figure with open arms (native, lane a11y-tab: Accessibility)
+        "accessibility": "M10.5 4.5 A1.5 1.5 0 1 0 13.5 4.5 A1.5 1.5 0 1 0 10.5 4.5 M5 8.5 H19 M12 8.5 V14 M12 14 L8.5 21 M12 14 L15.5 21"
     })
 
     Shape {
