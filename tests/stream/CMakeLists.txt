@@ -30,3 +30,7 @@ add_test(NAME stream_reconnect COMMAND test_reconnect)
 add_executable(test_log_throttle test_log_throttle.c)
 target_link_libraries(test_log_throttle PRIVATE mlxr_stream)
 add_test(NAME stream_log_throttle COMMAND test_log_throttle)
+# Lane wave1-failover: the failover loop against a fake session
+add_executable(test_failover test_failover.c)
+target_link_libraries(test_failover PRIVATE mlxr_stream)
+add_test(NAME stream_failover COMMAND test_failover)

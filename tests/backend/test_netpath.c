@@ -1582,6 +1582,98 @@ static void test_mdns_and_sources(void)
     CHECK(mlxr_net_onlink_if(&t, "8.8.8.8") == NULL && mlxr_net_onlink_if(&t, "host.local") == NULL);
 }
 
+/* Native (lane wave1-failover): the per-path quality of the last choice, and a forced path for the next one */
+static void test_failover_select(fake_host *h)
+{
+    uint16_t live = fake_host_http_port(h);
+    mlxr_adapter_inputs st;
+    station_inputs(&st);
+    mlxr_netifs t;
+    mlxr_net_plan p;
+    mlxr_net_quality q;
+    mlxr_net_path fp;
+
+    mlxr_net_quality_reset();
+    mlxr_net_quality_get(&q);
+    CHECK(!q.valid && q.generation == 0);
+    CHECK(!mlxr_net_force_pending(&fp) && fp == MLXR_PATH_NONE);
+
+    /* an automatic choice over loopback: Wi-Fi, measured; the table starts afresh */
+    memset(&t, 0, sizeof t);
+    add_if(&t, "lo", "127.0.0.1", 8, false, 0, false);
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 1, "", "");
+    p.adapter_inputs = &st;
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 0);
+    mlxr_net_quality_get(&q);
+    CHECK(q.valid && q.pref_auto && q.chosen == MLXR_PATH_HOME && q.generation == 1);
+    CHECK(q.p[MLXR_PATH_HOME].present && q.p[MLXR_PATH_HOME].score_ms >= 0 && q.p[MLXR_PATH_HOME].probed_ms > 0);
+    CHECK_EQ_STR(q.p[MLXR_PATH_HOME].address, "127.0.0.1");
+    CHECK(!q.p[MLXR_PATH_ADAPTER].present && q.p[MLXR_PATH_ADAPTER].score_ms < 0);
+    CHECK(!q.p[MLXR_PATH_USB].present);
+
+    /* a path set by hand is remembered as such: a failover never leaves it */
+    mlxr_net_plan_init(&p, MLXR_NET_HOME, "test", 1, "", "");
+    p.adapter_inputs = &st;
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 0);
+    mlxr_net_quality_get(&q);
+    CHECK(!q.pref_auto && q.generation == 2);
+
+    /* back to automatic, then the USB path forced: loopback is the cable here (usb0 owns 127.0.0.0/8), the forced
+     * choice probes it alone, takes no retry wait and leaves Wi-Fi's measurement (and the generation) alone */
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 1, "", "");
+    p.adapter_inputs = &st;
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 0);
+    mlxr_net_quality_get(&q);
+    CHECK(q.pref_auto && q.generation == 3 && q.chosen == MLXR_PATH_HOME);
+    int64_t homeProbedAt = q.p[MLXR_PATH_HOME].probed_ms;
+    mlxr_netifs u;
+    memset(&u, 0, sizeof u);
+    add_usb_if(&u, "usb0", "127.0.0.5", 8, true);
+    mlxr_net_force_path(MLXR_PATH_USB);
+    CHECK(mlxr_net_force_pending(&fp) && fp == MLXR_PATH_USB);
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 1, "", "");
+    p.adapter_inputs = &st;
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    CHECK_EQ_INT(mlxr_net_select(&p, &u), 0);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    CHECK((t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6 < 2000);
+    CHECK(p.pref == MLXR_NET_USB && !strcmp(p.source, "failover") && p.chosen_path == MLXR_PATH_USB && !p.fell_back);
+    CHECK(!mlxr_net_force_pending(&fp));   /* one shot */
+    mlxr_net_quality_get(&q);
+    CHECK(q.generation == 3 && q.pref_auto && q.chosen == MLXR_PATH_USB);
+    CHECK(q.p[MLXR_PATH_USB].present && q.p[MLXR_PATH_USB].score_ms >= 0);
+    CHECK(q.p[MLXR_PATH_HOME].present && q.p[MLXR_PATH_HOME].probed_ms == homeProbedAt);
+
+    /* the path the stream left is not a candidate again */
+    mlxr_net_quality_abandon(MLXR_PATH_HOME);
+    mlxr_net_quality_get(&q);
+    CHECK(!q.p[MLXR_PATH_HOME].present && q.p[MLXR_PATH_USB].present);
+    mlxr_net_quality_abandon(MLXR_PATH_NONE);   /* nothing to do, nothing breaks */
+
+    /* a forced path with nothing on it: the others are tried at once, the toast says so */
+    mlxr_net_force_path(MLXR_PATH_ADAPTER);
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 1, "", "");
+    p.adapter_inputs = &st;
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 0);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    CHECK((t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6 < 2000);
+    CHECK(p.fell_back && p.chosen_path == MLXR_PATH_HOME);
+    CHECK(strstr(p.toast, "Steam Frame Wireless Adapter not reachable"));
+    mlxr_net_quality_get(&q);
+    CHECK(q.chosen == MLXR_PATH_HOME && q.generation == 3);
+
+    mlxr_net_force_path(MLXR_PATH_NONE);
+    CHECK(!mlxr_net_force_pending(&fp));
+    mlxr_net_quality_reset();
+}
+
 int main(void)
 {
     signal(SIGPIPE, SIG_IGN);   /* the in-process fake host writes to probes that hung up */
@@ -1608,6 +1700,7 @@ int main(void)
             test_select_with_history(h);
             test_usb_select(h);
             test_bitrate_kind_select(h);
+            test_failover_select(h);
             fake_host_stop(h);
         }
     }

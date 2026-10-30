@@ -71,6 +71,8 @@ typedef struct Settings {
     int bitrate_wired;     // ... over a wired network
     int bitrate_usb;       // ... over the USB cable
     int rfi_idr_ms;        // native (lane wave1-burst): at most one IDR frame request of the client's own per this many ms; 0 no cap
+    int failover;          // native (lane wave1-failover): 0 off, 1 on: leave a link that keeps losing video for another one that measured clearly better
+    int failover_burst_ms; // ... and how many ms of loss within 10 s make it leave (500..9000, 3000)
 
     // [vr] VR Settings table
     int pointer;           // Controllers as a mouse
