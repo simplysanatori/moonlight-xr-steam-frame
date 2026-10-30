@@ -1377,6 +1377,69 @@ static void test_usb_select(fake_host *h)
     CHECK(strstr(p.toast, "USB cable not reachable (198.51.100.234: "));
 }
 
+/* Native (lane wave4b-abr): the path kind a start bitrate is chosen for */
+static void test_bitrate_kind(void)
+{
+    mlxr_net_link wifi, wired, unknown;
+    memset(&wifi, 0, sizeof wifi);
+    memset(&wired, 0, sizeof wired);
+    memset(&unknown, 0, sizeof unknown);
+    wifi.valid = wifi.wifi = true;
+    wired.valid = true;
+    CHECK_EQ_INT(mlxr_net_bitrate_kind(MLXR_PATH_HOME, &wifi), 0);
+    CHECK_EQ_INT(mlxr_net_bitrate_kind(MLXR_PATH_HOME, &wired), 2);
+    CHECK_EQ_INT(mlxr_net_bitrate_kind(MLXR_PATH_HOME, &unknown), 0);   /* nothing known about the link: Wi-Fi */
+    CHECK_EQ_INT(mlxr_net_bitrate_kind(MLXR_PATH_HOME, NULL), 0);
+    CHECK_EQ_INT(mlxr_net_bitrate_kind(MLXR_PATH_ADAPTER, &wifi), 1);
+    CHECK_EQ_INT(mlxr_net_bitrate_kind(MLXR_PATH_ADAPTER, NULL), 1);
+    CHECK_EQ_INT(mlxr_net_bitrate_kind(MLXR_PATH_USB, &wired), 3);
+    CHECK_EQ_INT(mlxr_net_bitrate_kind(MLXR_PATH_NONE, &wifi), -1);
+    CHECK_EQ_INT(mlxr_net_kind_for_address(NULL), -1);
+    CHECK_EQ_INT(mlxr_net_kind_for_address(""), -1);
+    CHECK_EQ_INT(mlxr_net_kind_for_address("203.0.113.99"), -1);       /* never chosen */
+}
+
+static void test_bitrate_kind_select(fake_host *h)
+{
+    uint16_t live = fake_host_http_port(h);
+    mlxr_adapter_inputs st;
+    station_inputs(&st);
+    mlxr_netifs t;
+    mlxr_net_plan p;
+
+    /* the fake PC reached over an ethernet-like interface: a wired network */
+    memset(&t, 0, sizeof t);
+    add_if(&t, "lo", "127.0.0.1", 8, false, 0, false);
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 1, "", "");
+    p.adapter_inputs = &st;
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 0);
+    CHECK(p.c[0].link.valid && !p.c[0].link.wifi);
+    CHECK_EQ_INT(mlxr_net_kind_for_address("127.0.0.1"), 2);
+
+    /* the same address through a Wi-Fi interface: Wi-Fi, the newest choice wins */
+    memset(&t, 0, sizeof t);
+    add_if(&t, "wlan0", "127.0.0.1", 8, true, 1, true);
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 1, "", "");
+    p.adapter_inputs = &st;
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 0);
+    CHECK_EQ_INT(mlxr_net_kind_for_address("127.0.0.1"), 0);
+
+    /* the forced Steam Frame Wireless Adapter with no adapter present falls back to Wi-Fi: the path that carries it */
+    memset(&t, 0, sizeof t);
+    add_if(&t, "wlan0", "127.0.0.1", 8, true, 1, true);
+    add_if(&t, "wlanap", "198.51.100.1", 24, true, 2, false);
+    mlxr_adapter_inputs none;
+    make_inputs(&none, true, "up", "1", "", ARP_PC);
+    mlxr_net_plan_init(&p, MLXR_NET_ADAPTER, "test", 1, "", "");
+    p.adapter_inputs = &none;
+    mlxr_net_plan_add(&p, "127.0.0.1", live);
+    CHECK_EQ_INT(mlxr_net_select(&p, &t), 0);
+    CHECK(p.adapter_absent_fallback);
+    CHECK_EQ_INT(mlxr_net_kind_for_address("127.0.0.1"), 0);
+}
+
 static void test_probe(void)
 {
     /* Native (lane adapter-detect): select looks at the adapter; these tests say a station is there */
@@ -1535,6 +1598,7 @@ int main(void)
     test_usb_interfaces();
     test_usb_watch();
     test_usb_choose();
+    test_bitrate_kind();
     {
         fake_opts o = { 0 };
         fake_host *h = fake_host_start(&o);
@@ -1543,6 +1607,7 @@ int main(void)
             test_adapter_plan(h);
             test_select_with_history(h);
             test_usb_select(h);
+            test_bitrate_kind_select(h);
             fake_host_stop(h);
         }
     }

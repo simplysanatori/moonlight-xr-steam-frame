@@ -9,6 +9,7 @@
 #include "../input/gamepads.h"
 #include "xr_keyboard.h"
 #include "xr_depth.h"
+#include "mlxr_log.h"
 #include "xr_stream_prefs.h"
 
 #include <stdatomic.h>
@@ -552,4 +553,16 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     }
     settings_clamp(s);
     return !settings_equal(&before, s);
+}
+
+// ---- the bitrate a stream starts with (Native, lane wave4b-abr) ----------------
+
+int xrStreamBitrate(const Settings* s, int pathKind, int launcherKbps) {
+    int overrides[MLXR_ABR_KINDS];
+    settings_abr_overrides(s, overrides);
+    MlxrAbrPick pick = mlxr_abr_pick(pathKind, launcherKbps, overrides);
+    char line[128];
+    mlxr_abr_line(pathKind, &pick, line, sizeof(line));
+    MLOG_I("%s", line);
+    return pick.kbps;
 }
