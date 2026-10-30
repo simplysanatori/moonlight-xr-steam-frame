@@ -348,6 +348,12 @@ typedef struct MlxrPanelParams {
 } MlxrPanelParams;
 void mlxr_pass_panel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrPanelParams* pp);
 
+// A full mip chain of a colour image from level 0, each level a linear blit
+// of the one above (the curved and 3D picture's own image). Level 0 is in
+// COLOR_ATTACHMENT_OPTIMAL on entry and the other levels in it or UNDEFINED;
+// every level is SHADER_READ_ONLY_OPTIMAL after.
+void mlxr_record_mips(VkCommandBuffer cmd, VkImage image, uint32_t width, uint32_t height, uint32_t levels);
+
 // An image barrier whose stages and access masks follow from the two
 // layouts (UNDEFINED, TRANSFER_DST/SRC, COLOR_ATTACHMENT,
 // DEPTH_STENCIL_ATTACHMENT, SHADER_READ_ONLY; anything else as all commands)

@@ -120,6 +120,8 @@ static void videoCpu(const Video* vd, MlxrChroma chroma, float u, float v, float
     yuvToRgb(Y, U, V, rgb);
 }
 
+static int videoUpload(Video* vd);
+
 static int videoMake(Video* vd, uint32_t w, uint32_t h, FillFn fill) {
     memset(vd, 0, sizeof(*vd));
     vd->w = w;
@@ -145,6 +147,13 @@ static int videoMake(Video* vd, uint32_t w, uint32_t h, FillFn fill) {
     }
     free(cb);
     free(cr);
+    return videoUpload(vd);
+}
+
+// The images of vd's Y, U and V planes (already filled), three plane and NV12
+static int videoUpload(Video* vd) {
+    uint32_t w = vd->w, h = vd->h;
+    uint32_t cw = (w + 1) / 2, ch = (h + 1) / 2;
     if (vkh_image(&vk, w, h, VK_FORMAT_R8_UNORM, &vd->y) || vkh_image(&vk, cw, ch, VK_FORMAT_R8_UNORM, &vd->u) ||
         vkh_image(&vk, cw, ch, VK_FORMAT_R8_UNORM, &vd->v))
         return -1;
@@ -2767,6 +2776,789 @@ static void testBench(void) {
     check(1, "bench ran");
 }
 
+// ---- text clarity (lane text-clarity) ------------------------------------
+// The owner, after a headset run: small text "could still be a little bit
+// better". This renders a synthetic desktop (text_scene.h: Noto Sans at 12 to
+// 16 px em, grey and ClearType antialiasing, a dark theme, syntax colours, a
+// slanted edge, 1 px line grids, a zone plate) the way a stream reaches the
+// picture: 2560x1440 encoded to 4:2:0 (BT.709 limited, chroma left sited),
+// the warp into the curved picture's own image, its mip chain
+// (mlxr_record_mips, the session's), and the panel pass into one eye's
+// projection image at the Frame's 3408x3408, from the eye in front of the
+// screen as the Screen tab places it. Then it scores what came out against
+// the picture itself:
+//   MTF50     slanted edge, cycles per desktop pixel, horizontal and vertical
+//   overshoot the slanted edge's ring past either side, % of the step
+//   lines     the 1 px line grids' modulation (fitted fundamental, out / in)
+//             at periods 3, 4 and 6 px
+//   contrast  text tiles' luma spread against the ideal's (1 is the ideal:
+//             the area average of the desktop under each eye pixel)
+//   text RMS  grey and ClearType text against that ideal, luma, /255
+//   chroma    syntax coloured and red / blue text, chroma RMS against it, /255
+//   alias     the zone plate's left over modulation beyond the eye image's
+//             Nyquist, RMS /255 (the ideal's own figure beside it)
+// and the same after a model of SteamVR's own resample of the layer (bilinear,
+// 1:1, a 0.3 px phase: at the lens centre the Frame's 3408 per eye is about
+// one panel pixel a pixel). The eye's field is taken as 100 degrees square.
+#include "text_scene.h"
+
+#define TX_EYE 3408
+#define TX_TAN 1.19175359f // tan(50 degrees)
+#define TX_COMP 0.3f       // the compositor model's phase, eye pixels
+#define TX_MARGIN 14.0f    // desktop pixels kept clear of a tile's sides
+
+typedef struct {
+    const char* name;
+    float width, dist, curve; // the Screen tab: metres, metres, 0..1
+} TxGeom;
+
+static const TxGeom TX_GEOMS[] = {
+    {"3 m wide at 3 m, curve 50 (the default size and distance)", 3.0f, 3.0f, 0.5f},
+    {"4 m wide at 2.5 m, curve 50 (big and near)", 4.0f, 2.5f, 0.5f},
+    {"2 m wide at 4 m, curve 50 (small and far)", 2.0f, 4.0f, 0.5f},
+};
+#define TX_GEOM_COUNT ((int)(sizeof(TX_GEOMS) / sizeof(TX_GEOMS[0])))
+
+typedef struct {
+    const char* name;
+    float warpSharpen;  // the warp's CAS (the Display tab's Sharpen before: 0.4 normal, 0.8 quality)
+    int pictureFilter;  // the panel pass's footprint filter (0: one trilinear read, as before)
+    float sharpen;      // the panel pass's eye scale sharpen (0.5 normal, 1 quality)
+    int chroma;         // chroma from luma in the warp
+    int video;          // 0 three planes 4:2:0, 1 NV12, 2 three planes 4:4:4 (a bound)
+    int everywhere;     // 1: at every placement; 0: the default placement only
+    int crawl;          // 1: the crawl run too
+} TxCfg;
+
+typedef struct {
+    float W, H, R, D; // the drawn surface: width, height, radius (0 flat), distance
+    float shift;      // the surface moved sideways, metres (the phase runs)
+} TxSurf;
+
+typedef struct {
+    float mtf50[2];   // horizontal, vertical; cycles per desktop pixel
+    float overshoot;  // % of the step, the worse side of either edge
+    float lines[3];   // periods 3, 4, 6
+    float contrast;   // text luma spread over the ideal's
+    float textRms;    // /255
+    float chromaRms;  // /255
+    float alias;      // /255
+    float aliasIdeal; // /255
+    float textStd;    // the text tiles' luma spread, /255 (the phase runs)
+} TxScore;
+
+static float* txSrc; // the desktop, RGB, gamma encoded
+
+static float txLuma(const float* c) {
+    return 0.2126f * c[0] + 0.7152f * c[1] + 0.0722f * c[2];
+}
+
+static void txChroma(const float* c, float* cb, float* cr) {
+    float y = txLuma(c);
+    *cb = (c[2] - y) / 1.8556f;
+    *cr = (c[0] - y) / 1.5748f;
+}
+
+// The desktop at continuous pixel coordinates (pixel k spans k..k+1), bilinear
+static void txSrcAt(float sx, float sy, float out[3]) {
+    float x = sx - 0.5f, y = sy - 0.5f;
+    float fx = floorf(x), fy = floorf(y);
+    float ax = x - fx, ay = y - fy;
+    int x0 = (int)fx, y0 = (int)fy;
+    for (int c = 0; c < 3; c++) out[c] = 0.0f;
+    for (int j = 0; j < 2; j++)
+        for (int i = 0; i < 2; i++) {
+            int X = x0 + i, Y = y0 + j;
+            X = X < 0 ? 0 : (X >= TXS_W ? TXS_W - 1 : X);
+            Y = Y < 0 ? 0 : (Y >= TXS_H ? TXS_H - 1 : Y);
+            float wgt = (i ? ax : 1 - ax) * (j ? ay : 1 - ay);
+            const float* p = txSrc + ((size_t)Y * TXS_W + X) * 3;
+            for (int c = 0; c < 3; c++) out[c] += wgt * p[c];
+        }
+}
+
+static TxSurf txSurf(const TxGeom* g) {
+    TxSurf s;
+    float aspect = (float)TXS_H / TXS_W;
+    s.D = g->dist;
+    if (g->curve > 0.01f) {
+        // xr_input.c: radius = distance (1 + 3 (1 - curvature)); xrCurveShape
+        s.R = g->dist * (1.0f + 3.0f * (1.0f - g->curve));
+        float fit = cylinderFit(g->width, s.R);
+        s.W = g->width * fit;
+        s.H = g->width * aspect * fit;
+    } else {
+        s.R = 0.0f;
+        s.W = g->width;
+        s.H = g->width * aspect;
+    }
+    return s;
+}
+
+// An eye image position (continuous pixels, row 0 the top) to the desktop's
+// continuous pixel coordinates: the eye at the origin looking down -z, the
+// surface as panel.vert draws it, centred on (0, 0, -D)
+static int txMap(const TxSurf* s, float fx, float fy, float* sx, float* sy) {
+    float dx = (fx / TX_EYE * 2.0f - 1.0f) * TX_TAN, dy = (1.0f - fy / TX_EYE * 2.0f) * TX_TAN;
+    float u, v;
+    if (s->R <= 0.0f) {
+        u = (dx * s->D - s->shift) / s->W + 0.5f;
+        v = 0.5f - dy * s->D / s->H;
+    } else {
+        float zc = s->R - s->D; // the axis
+        float a = dx * dx + 1.0f, b = 2.0f * zc, c = zc * zc - s->R * s->R;
+        float disc = b * b - 4.0f * a * c;
+        if (disc < 0.0f) return 0;
+        float t = (-b + sqrtf(disc)) / (2.0f * a);
+        float zc2 = zc;
+        // the axis moved with the surface: solve about (shift, zc)
+        if (s->shift != 0.0f) {
+            float bx = -2.0f * dx * s->shift + 2.0f * zc2;
+            float cx = s->shift * s->shift + zc2 * zc2 - s->R * s->R;
+            float dd = bx * bx - 4.0f * a * cx;
+            if (dd < 0.0f) return 0;
+            t = (-bx + sqrtf(dd)) / (2.0f * a);
+        }
+        u = atan2f(t * dx - s->shift, zc + t) * s->R / s->W + 0.5f;
+        v = 0.5f - t * dy / s->H;
+    }
+    *sx = u * TXS_W;
+    *sy = v * TXS_H;
+    return u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f;
+}
+
+// The eye image box the picture covers (a little generous)
+static void txBox(const TxSurf* s, int* x0, int* y0, int* x1, int* y1) {
+    *x0 = TX_EYE;
+    *y0 = TX_EYE;
+    *x1 = 0;
+    *y1 = 0;
+    for (int y = 0; y < TX_EYE; y += 4)
+        for (int x = 0; x < TX_EYE; x += 4) {
+            float sx, sy;
+            if (!txMap(s, x + 0.5f, y + 0.5f, &sx, &sy)) continue;
+            if (x < *x0) *x0 = x;
+            if (y < *y0) *y0 = y;
+            if (x > *x1) *x1 = x;
+            if (y > *y1) *y1 = y;
+        }
+    *x0 = *x0 > 4 ? *x0 - 4 : 0;
+    *y0 = *y0 > 4 ? *y0 - 4 : 0;
+    *x1 = *x1 + 5 < TX_EYE ? *x1 + 5 : TX_EYE;
+    *y1 = *y1 + 5 < TX_EYE ? *y1 + 5 : TX_EYE;
+}
+
+// The ideal eye pixel at continuous position (fx, fy) (its centre): the area
+// average of the desktop under the pixel's footprint, 6 x 6 points
+static void txIdeal(const TxSurf* s, float fx, float fy, float out[3]) {
+    out[0] = out[1] = out[2] = 0.0f;
+    for (int j = 0; j < 6; j++)
+        for (int i = 0; i < 6; i++) {
+            float sx, sy, c[3];
+            txMap(s, fx - 0.5f + (i + 0.5f) / 6.0f, fy - 0.5f + (j + 0.5f) / 6.0f, &sx, &sy);
+            txSrcAt(sx, sy, c);
+            for (int k = 0; k < 3; k++) out[k] += c[k] / 36.0f;
+        }
+}
+
+// The eye image (RGBA8) at continuous position (fx, fy), bilinear
+static void txLayerAt(const uint8_t* img, float fx, float fy, float out[3]) {
+    float x = fx - 0.5f, y = fy - 0.5f;
+    float bx = floorf(x), by = floorf(y);
+    float ax = x - bx, ay = y - by;
+    int x0 = (int)bx, y0 = (int)by;
+    out[0] = out[1] = out[2] = 0.0f;
+    for (int j = 0; j < 2; j++)
+        for (int i = 0; i < 2; i++) {
+            int X = x0 + i, Y = y0 + j;
+            X = X < 0 ? 0 : (X >= TX_EYE ? TX_EYE - 1 : X);
+            Y = Y < 0 ? 0 : (Y >= TX_EYE ? TX_EYE - 1 : Y);
+            float wgt = (i ? ax : 1 - ax) * (j ? ay : 1 - ay);
+            const uint8_t* p = img + ((size_t)Y * TX_EYE + X) * 4;
+            for (int c = 0; c < 3; c++) out[c] += wgt * p[c] / 255.0f;
+        }
+}
+
+#define TX_ESF_BINS 240
+#define TX_ESF_BIN 0.1f
+#define TX_ESF_HALF 12.0f
+
+// MTF50 (cycles per desktop pixel) and the worse overshoot of a binned edge
+// spread function
+static float txMtf50(const double* sum, const int* cnt, float* overshoot) {
+    float esf[TX_ESF_BINS];
+    int last = -1;
+    for (int i = 0; i < TX_ESF_BINS; i++) {
+        if (cnt[i] == 0) continue;
+        esf[i] = (float)(sum[i] / cnt[i]);
+        if (last >= 0 && i - last > 1)
+            for (int k = last + 1; k < i; k++) esf[k] = esf[last] + (esf[i] - esf[last]) * (k - last) / (i - last);
+        else if (last < 0)
+            for (int k = 0; k < i; k++) esf[k] = esf[i];
+        last = i;
+    }
+    if (last < 0) return 0.0f;
+    for (int k = last + 1; k < TX_ESF_BINS; k++) esf[k] = esf[last];
+    double lo = 0, hi = 0;
+    int nl = 0, nh = 0;
+    float mx = -1e9f, mn = 1e9f;
+    for (int i = 0; i < TX_ESF_BINS; i++) {
+        float d = -TX_ESF_HALF + (i + 0.5f) * TX_ESF_BIN;
+        if (d < -7.0f) lo += esf[i], nl++;
+        if (d > 7.0f) hi += esf[i], nh++;
+        if (esf[i] > mx) mx = esf[i];
+        if (esf[i] < mn) mn = esf[i];
+    }
+    lo /= nl;
+    hi /= nh;
+    float step = (float)(hi - lo);
+    float over = fmaxf(mx - (float)hi, (float)lo - mn) / step;
+    *overshoot = over > 0.0f ? 100.0f * over : 0.0f;
+    float lsf[TX_ESF_BINS];
+    for (int i = 0; i < TX_ESF_BINS; i++) {
+        int a = i > 0 ? i - 1 : i, b = i + 1 < TX_ESF_BINS ? i + 1 : i;
+        float d = -TX_ESF_HALF + (i + 0.5f) * TX_ESF_BIN;
+        float hann = 0.5f + 0.5f * cosf((float)M_PI * d / TX_ESF_HALF);
+        lsf[i] = (esf[b] - esf[a]) / ((b - a) * TX_ESF_BIN) * hann;
+    }
+    double dc = 0;
+    for (int i = 0; i < TX_ESF_BINS; i++) dc += lsf[i];
+    float prev = 1.0f;
+    for (float f = 0.002f; f < 1.0f; f += 0.002f) {
+        double re = 0, im = 0;
+        for (int i = 0; i < TX_ESF_BINS; i++) {
+            float d = -TX_ESF_HALF + (i + 0.5f) * TX_ESF_BIN;
+            re += lsf[i] * cos(2 * M_PI * f * d);
+            im -= lsf[i] * sin(2 * M_PI * f * d);
+        }
+        float m = (float)(sqrt(re * re + im * im) / dc);
+        if (m < 0.5f) return f - 0.002f * (0.5f - m) / (prev - m);
+        prev = m;
+    }
+    return 1.0f;
+}
+
+// Least squares fit of v = a + b cos(2 pi p / P) + c sin(...), as normal
+// equations; the fundamental's amplitude
+typedef struct {
+    double m[3][3], r[3];
+} TxFit;
+
+static void txFitAdd(TxFit* f, float pos, float period, float v) {
+    double bas[3] = {1.0, cos(2 * M_PI * pos / period), sin(2 * M_PI * pos / period)};
+    for (int i = 0; i < 3; i++) {
+        f->r[i] += bas[i] * v;
+        for (int j = 0; j < 3; j++) f->m[i][j] += bas[i] * bas[j];
+    }
+}
+
+static float txFitAmp(const TxFit* f) {
+    double a[3][4];
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) a[i][j] = f->m[i][j];
+        a[i][3] = f->r[i];
+    }
+    for (int c = 0; c < 3; c++) {
+        int p = c;
+        for (int i = c + 1; i < 3; i++)
+            if (fabs(a[i][c]) > fabs(a[p][c])) p = i;
+        for (int j = 0; j < 4; j++) {
+            double t = a[c][j];
+            a[c][j] = a[p][j];
+            a[p][j] = t;
+        }
+        if (fabs(a[c][c]) < 1e-12) return 0.0f;
+        for (int i = 0; i < 3; i++) {
+            if (i == c) continue;
+            double k = a[i][c] / a[c][c];
+            for (int j = c; j < 4; j++) a[i][j] -= k * a[c][j];
+        }
+    }
+    double b = a[1][3] / a[1][1], cc = a[2][3] / a[2][2];
+    return (float)sqrt(b * b + cc * cc);
+}
+
+static const int TX_LINE_PERIODS[3] = {3, 4, 6};
+
+// The source's own fundamental for 1 px lines every P pixels
+static float txLinesSourceAmp(int period) {
+    TxFit f;
+    memset(&f, 0, sizeof(f));
+    for (int k = 0; k < period * 64; k++) txFitAdd(&f, k + 0.5f, (float)period, k % period == 0 ? 0.0f : 1.0f);
+    return txFitAmp(&f);
+}
+
+static int txIn(int tile, float sx, float sy, float margin, float* lx, float* ly) {
+    int x0, y0;
+    txs_tile(tile, &x0, &y0);
+    *lx = sx - x0;
+    *ly = sy - y0;
+    return *lx >= margin && *ly >= margin && *lx <= TXS_TILE_W - margin && *ly <= TXS_TILE_H - margin;
+}
+
+static int txTextTile(int t) {
+    return t == TXS_TEXT_BW || t == TXS_TEXT_WD || t == TXS_TEXT_CT || t == TXS_TEXT_CT_WD || t >= TXS_TEXT_BW2;
+}
+
+// Per placement and read offset: each eye pixel's desktop position and, where
+// a score needs it, its ideal colour (worked out once, used by every run)
+typedef struct {
+    int x0, y0, w, h;
+    float off;
+    float* sxy;   // 2 a pixel; NAN outside the picture
+    float* ideal; // 3 a pixel; NAN where no score needs it
+} TxCache;
+
+static void txCacheMake(TxCache* k, const TxSurf* s, float off, int noIdeal) {
+    int x1, y1;
+    txBox(s, &k->x0, &k->y0, &x1, &y1);
+    k->w = x1 - k->x0;
+    k->h = y1 - k->y0;
+    k->off = off;
+    k->sxy = malloc(sizeof(float) * 2 * k->w * k->h);
+    k->ideal = malloc(sizeof(float) * 3 * k->w * k->h);
+    for (int y = 0; y < k->h; y++)
+        for (int x = 0; x < k->w; x++) {
+            size_t i = (size_t)y * k->w + x;
+            float fx = k->x0 + x + 0.5f + off, fy = k->y0 + y + 0.5f + off, sx, sy;
+            k->ideal[i * 3] = NAN;
+            if (!txMap(s, fx, fy, &sx, &sy)) {
+                k->sxy[i * 2] = NAN;
+                continue;
+            }
+            k->sxy[i * 2] = sx;
+            k->sxy[i * 2 + 1] = sy;
+            int tile = (int)(sx / TXS_TILE_W) + 4 * (int)(sy / TXS_TILE_H);
+            float lx, ly;
+            if (noIdeal || tile < 0 || tile >= TXS_TILES || !txIn(tile, sx, sy, TX_MARGIN, &lx, &ly)) continue;
+            txIdeal(s, fx, fy, &k->ideal[i * 3]);
+        }
+}
+
+static void txCacheFree(TxCache* k) {
+    free(k->sxy);
+    free(k->ideal);
+}
+
+// Scores an eye image read at the cache's offset (0: the layer as drawn;
+// TX_COMP: the compositor model). img NULL: the ideal itself.
+static TxScore txScore(const TxSurf* s, const TxCache* k, const uint8_t* img) {
+    TxScore sc;
+    memset(&sc, 0, sizeof(sc));
+    float off = k->off;
+    int ideal = img == NULL;
+    int bx0 = k->x0, by0 = k->y0, bx1 = k->x0 + k->w, by1 = k->y0 + k->h;
+    static double esfSum[2][TX_ESF_BINS];
+    static int esfCnt[2][TX_ESF_BINS];
+    memset(esfSum, 0, sizeof(esfSum));
+    memset(esfCnt, 0, sizeof(esfCnt));
+    TxFit fits[2][3];
+    memset(fits, 0, sizeof(fits));
+    double tSq = 0, cSq = 0, aSq = 0;
+    long tN = 0, cN = 0, aN = 0;
+    // text spread: sums of luma and squares, out and ideal
+    double so = 0, so2 = 0, si = 0, si2 = 0;
+    long sn = 0;
+    // the eye image's Nyquist in desktop cycles a pixel, from the centre
+    float ax0, ay0, ax1, ay1;
+    txMap(s, TX_EYE / 2.0f, TX_EYE / 2.0f, &ax0, &ay0);
+    txMap(s, TX_EYE / 2.0f + 1.0f, TX_EYE / 2.0f, &ax1, &ay1);
+    float ratio = fabsf(ax1 - ax0);
+    float nyq = 0.5f / ratio;
+    float cosT = 1.0f / sqrtf(1.0f + TXS_EDGE_TAN * TXS_EDGE_TAN);
+    for (int y = by0; y < by1; y++)
+        for (int x = bx0; x < bx1; x++) {
+            float fx = x + 0.5f + off, fy = y + 0.5f + off;
+            size_t ki = (size_t)(y - by0) * k->w + (x - bx0);
+            float sx = k->sxy[ki * 2], sy = k->sxy[ki * 2 + 1];
+            if (isnan(sx)) continue;
+            int tile = (int)(sx / TXS_TILE_W) + 4 * (int)(sy / TXS_TILE_H);
+            if (tile < 0 || tile >= TXS_TILES) continue;
+            float lx, ly;
+            if (!txIn(tile, sx, sy, TX_MARGIN, &lx, &ly)) continue;
+            float c[3];
+            const float* id = &k->ideal[ki * 3];
+            if (ideal)
+                memcpy(c, id, sizeof(c));
+            else if (off != 0.0f)
+                txLayerAt(img, fx, fy, c);
+            else
+                for (int k = 0; k < 3; k++) c[k] = img[((size_t)y * TX_EYE + x) * 4 + k] / 255.0f;
+            float l = txLuma(c);
+            if (tile == TXS_EDGE_V || tile == TXS_EDGE_H) {
+                float d = tile == TXS_EDGE_V ? (lx - (TXS_TILE_W / 2.0f + (ly - TXS_TILE_H / 2.0f) * TXS_EDGE_TAN))
+                                             : (ly - (TXS_TILE_H / 2.0f - (lx - TXS_TILE_W / 2.0f) * TXS_EDGE_TAN));
+                d *= cosT;
+                int b = (int)floorf((d + TX_ESF_HALF) / TX_ESF_BIN);
+                if (b >= 0 && b < TX_ESF_BINS) {
+                    esfSum[tile == TXS_EDGE_H][b] += l;
+                    esfCnt[tile == TXS_EDGE_H][b]++;
+                }
+            } else if (tile == TXS_LINES_V || tile == TXS_LINES_H) {
+                int vert = tile == TXS_LINES_V;
+                float along = vert ? lx : ly, bandW = vert ? TXS_TILE_W / 4.0f : TXS_TILE_H / 4.0f;
+                int band = (int)(along / bandW);
+                float inBand = along - band * bandW;
+                if (inBand < 6.0f || inBand > bandW - 6.0f || band < 1) continue;
+                txFitAdd(&fits[!vert][band - 1], along, (float)txs_period(band), l);
+            } else if (tile == TXS_ZONE) {
+                float dx = lx - TXS_TILE_W / 2.0f, dy = ly - TXS_TILE_H / 2.0f;
+                float f = sqrtf(dx * dx + dy * dy) / 360.0f;
+                if (f > 1.15f * nyq && f < 0.5f && f * 360.0f < TXS_TILE_H / 2.0f - 4.0f) {
+                    aSq += (l - 0.5) * (l - 0.5);
+                    aN++;
+                }
+            } else if ((tile == TXS_TEXT_CODE || tile == TXS_TEXT_RED) && !isnan(id[0])) {
+                float cb, cr, ib, ir;
+                txChroma(c, &cb, &cr);
+                txChroma(id, &ib, &ir);
+                cSq += (cb - ib) * (cb - ib) + (cr - ir) * (cr - ir);
+                cN += 2;
+            } else if (txTextTile(tile)) {
+                float il = isnan(id[0]) ? 0.0f : txLuma(id);
+                tSq += (l - il) * (l - il);
+                tN++;
+                so += l;
+                so2 += l * l;
+                si += il;
+                si2 += il * il;
+                sn++;
+            }
+        }
+    for (int e = 0; e < 2; e++) {
+        float o;
+        sc.mtf50[e] = txMtf50(esfSum[e], esfCnt[e], &o);
+        if (o > sc.overshoot) sc.overshoot = o;
+    }
+    for (int p = 0; p < 3; p++) {
+        float src = txLinesSourceAmp(TX_LINE_PERIODS[p]);
+        sc.lines[p] = 0.5f * (txFitAmp(&fits[0][p]) + txFitAmp(&fits[1][p])) / src;
+    }
+    double vo = so2 / sn - (so / sn) * (so / sn), vi = si2 / sn - (si / sn) * (si / sn);
+    sc.contrast = (float)sqrt(vo / vi);
+    sc.textStd = (float)(255.0 * sqrt(vo));
+    sc.textRms = tN ? (float)(255.0 * sqrt(tSq / tN)) : 0.0f;
+    sc.chromaRms = cN ? (float)(255.0 * sqrt(cSq / cN)) : 0.0f;
+    sc.alias = aN ? (float)(255.0 * sqrt(aSq / aN)) : -1.0f;
+    return sc;
+}
+
+static void txPrint(const char* label, const TxScore* s) {
+    note("%-34s MTF50 %.3f %.3f  over %4.1f%%  lines %.2f %.2f %.2f  contrast %.2f  text %5.1f  chroma %4.1f  "
+         "alias %5.1f",
+         label, s->mtf50[0], s->mtf50[1], s->overshoot, s->lines[0], s->lines[1], s->lines[2], s->contrast, s->textRms,
+         s->chromaRms, s->alias);
+}
+
+// The stream's frame: 4:2:0, BT.709 limited, chroma left sited (even columns,
+// 1 2 1 across, between the two rows), as a hardware encoder hands it on
+static int txVideo(Video* vd) {
+    memset(vd, 0, sizeof(*vd));
+    uint32_t w = TXS_W, h = TXS_H, cw = w / 2, ch = h / 2;
+    vd->w = w;
+    vd->h = h;
+    vd->Y = malloc((size_t)w * h);
+    vd->U = malloc((size_t)cw * ch);
+    vd->V = malloc((size_t)cw * ch);
+    for (uint32_t y = 0; y < h; y++)
+        for (uint32_t x = 0; x < w; x++) {
+            const float* p = txSrc + ((size_t)y * w + x) * 3;
+            vd->Y[(size_t)y * w + x] = (uint8_t)to8((16.0f + 219.0f * txLuma(p)) / 255.0f);
+        }
+    for (uint32_t j = 0; j < ch; j++)
+        for (uint32_t i = 0; i < cw; i++) {
+            float cb = 0, cr = 0;
+            for (int r = 0; r < 2; r++)
+                for (int k = -1; k <= 1; k++) {
+                    int X = (int)(2 * i) + k;
+                    X = X < 0 ? 0 : X;
+                    float wgt = (k == 0 ? 0.5f : 0.25f) * 0.5f, b, rr;
+                    txChroma(txSrc + ((size_t)(2 * j + r) * w + X) * 3, &b, &rr);
+                    cb += wgt * b;
+                    cr += wgt * rr;
+                }
+            vd->U[(size_t)j * cw + i] = (uint8_t)to8((128.0f + 224.0f * cb) / 255.0f);
+            vd->V[(size_t)j * cw + i] = (uint8_t)to8((128.0f + 224.0f * cr) / 255.0f);
+        }
+    if (videoUpload(vd)) return -1;
+    vd->yuv.chroma = MLXR_CHROMA_LEFT;
+    vd->nv.chroma = MLXR_CHROMA_LEFT;
+    return 0;
+}
+
+// The same frame with chroma at full resolution (three planes): what a
+// perfect chroma upsample could give back, a bound
+static int txVideo444(Video* vd) {
+    memset(vd, 0, sizeof(*vd));
+    uint32_t w = TXS_W, h = TXS_H;
+    vd->w = w;
+    vd->h = h;
+    vd->Y = malloc((size_t)w * h);
+    vd->U = malloc((size_t)w * h);
+    vd->V = malloc((size_t)w * h);
+    for (size_t i = 0; i < (size_t)w * h; i++) {
+        float cb, cr;
+        txChroma(txSrc + i * 3, &cb, &cr);
+        vd->Y[i] = (uint8_t)to8((16.0f + 219.0f * txLuma(txSrc + i * 3)) / 255.0f);
+        vd->U[i] = (uint8_t)to8((128.0f + 224.0f * cb) / 255.0f);
+        vd->V[i] = (uint8_t)to8((128.0f + 224.0f * cr) / 255.0f);
+    }
+    if (vkh_image(&vk, w, h, VK_FORMAT_R8_UNORM, &vd->y) || vkh_image(&vk, w, h, VK_FORMAT_R8_UNORM, &vd->u) ||
+        vkh_image(&vk, w, h, VK_FORMAT_R8_UNORM, &vd->v))
+        return -1;
+    vkh_upload(&vk, &vd->y, VK_IMAGE_ASPECT_COLOR_BIT, w, h, 1, vd->Y);
+    vkh_upload(&vk, &vd->u, VK_IMAGE_ASPECT_COLOR_BIT, w, h, 1, vd->U);
+    vkh_upload(&vk, &vd->v, VK_IMAGE_ASPECT_COLOR_BIT, w, h, 1, vd->V);
+    vd->yuv.kind = MLXR_VIDEO_YUV420P;
+    vd->yuv.planes[0] = vd->y.view;
+    vd->yuv.planes[1] = vd->u.view;
+    vd->yuv.planes[2] = vd->v.view;
+    vd->yuv.width = w;
+    vd->yuv.height = h;
+    vd->yuv.chroma = MLXR_CHROMA_CENTER;
+    return 0;
+}
+
+typedef struct {
+    Video* vd;
+    Video* vd444;
+    VkhImage pic;        // the curved picture's own image, with its chain
+    VkImageView picL0;
+    uint32_t mips;
+    Target eye;          // one eye of the projection layer
+    const TxCfg* cfg;
+    TxSurf surf;
+    float mvp[16];
+} TxRun;
+
+static void txRecWarp(VkCommandBuffer cmd, void* u) {
+    TxRun* r = u;
+    MlxrVideo v = r->cfg->video == 2 ? r->vd444->yuv : (nv12Ok && r->cfg->video == 1) ? r->vd->nv : r->vd->yuv;
+    MlxrWarpParams w = warpDefaults(&v);
+    w.srcInset = 0.5f / TXS_W;
+    w.sharpen = r->cfg->warpSharpen;
+    MlxrTarget t;
+    memset(&t, 0, sizeof(t));
+    t.view = r->picL0;
+    t.format = UNORM;
+    t.rect.extent = (VkExtent2D){TXS_W, TXS_H};
+    mlxr_barrier(cmd, r->pic.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, COLOR_ATT);
+    mlxr_pass_warp(P, cmd, &t, &w);
+    mlxr_record_mips(cmd, r->pic.image, TXS_W, TXS_H, r->mips);
+}
+
+static void txRecPanel(VkCommandBuffer cmd, void* u) {
+    TxRun* r = u;
+    MlxrPanelParams pp;
+    memset(&pp, 0, sizeof(pp));
+    pp.src = r->pic.view;
+    pp.eyes = 1;
+    memcpy(pp.mvp[0], r->mvp, sizeof(r->mvp));
+    pp.eyeRect[0] = r->eye.t.rect;
+    pp.uvRect[0][2] = pp.uvRect[0][3] = 1.0f;
+    pp.width = r->surf.W;
+    pp.height = r->surf.H;
+    pp.radius = r->surf.R;
+    pp.segments = 96;
+    pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
+    MlxrTarget t = r->eye.t;
+    t.clear = 1;
+    mlxr_pass_panel(P, cmd, &t, &pp);
+}
+
+static void txMvp(const TxSurf* s, float* mvp) {
+    float proj[16], view[16], model[16], vp[16];
+    XrFovf fov = {-atanf(TX_TAN), atanf(TX_TAN), atanf(TX_TAN), -atanf(TX_TAN)};
+    XrPosef eye;
+    memset(&eye, 0, sizeof(eye));
+    eye.orientation.w = 1.0f;
+    projectionFromFov(proj, fov, 0.05f, 100.0f);
+    viewFromPose(view, eye);
+    for (int i = 0; i < 16; i++) model[i] = i % 5 == 0 ? 1.0f : 0.0f;
+    model[12] = s->shift;
+    model[14] = -s->D;
+    matMul(vp, proj, view);
+    matMul(mvp, vp, model);
+}
+
+// Renders one configuration at one placement; out is the eye image
+static void txRender(TxRun* r, uint8_t* out) {
+    txRecWarp(vkh_begin(&vk), r);
+    vkh_submit(&vk);
+    r->pic.layout = SHADER_READ;
+    VkCommandBuffer cmd = vkh_begin(&vk);
+    vkh_layout(&vk, &r->eye.img, COLOR_ATT);
+    txRecPanel(cmd, r);
+    vkh_submit(&vk);
+    vkh_read(&vk, &r->eye.img, out);
+}
+
+static void txCrop(const char* name, const TxSurf* s, const uint8_t* eye) {
+    int x0, y0, x1, y1;
+    txBox(s, &x0, &y0, &x1, &y1);
+    int w = x1 - x0, h = y1 - y0;
+    uint8_t* c = malloc((size_t)w * h * 4);
+    for (int y = 0; y < h; y++) memcpy(c + (size_t)y * w * 4, eye + ((size_t)(y + y0) * TX_EYE + x0) * 4, (size_t)w * 4);
+    ppm(name, c, (uint32_t)w, (uint32_t)h);
+    free(c);
+}
+
+static void testText(void) {
+    txSrc = malloc(sizeof(float) * TXS_W * TXS_H * 3);
+    if (txs_build(txSrc, MLXR_TEXT_FONT) != 0) {
+        check(0, "text: the font %s cannot be read", MLXR_TEXT_FONT);
+        free(txSrc);
+        return;
+    }
+    {
+        uint8_t* px = malloc((size_t)TXS_W * TXS_H * 4);
+        for (size_t i = 0; i < (size_t)TXS_W * TXS_H; i++) {
+            for (int c = 0; c < 3; c++) px[i * 4 + c] = (uint8_t)to8(txSrc[i * 3 + c]);
+            px[i * 4 + 3] = 255;
+        }
+        ppm("text_desktop", px, TXS_W, TXS_H);
+        free(px);
+    }
+    Video vd;
+    check(txVideo(&vd) == 0, "text: the 4:2:0 frame uploads");
+    Video vd444;
+    check(txVideo444(&vd444) == 0, "text: the 4:4:4 frame uploads");
+    TxRun r;
+    memset(&r, 0, sizeof(r));
+    r.vd = &vd;
+    r.vd444 = &vd444;
+    r.mips = 1;
+    for (uint32_t m = TXS_W; m > 1; m >>= 1) r.mips++;
+    vkh_image_mips(&vk, TXS_W, TXS_H, UNORM, r.mips, &r.pic, &r.picL0);
+    targetMake(&r.eye, TX_EYE, TX_EYE, UNORM);
+    uint8_t* eye = malloc((size_t)TX_EYE * TX_EYE * 4);
+    uint8_t* moved = malloc((size_t)TX_EYE * TX_EYE * 4);
+    enum { BEFORE, BEFORE_CAS, ROWS };
+    static const TxCfg cfgs[ROWS] = {
+        [BEFORE] = {"before: trilinear, bilinear chroma", 0.0f, 0, 0.0f, 0, 0, 1, 1},
+        [BEFORE_CAS] = {"before, Sharpen quality (warp CAS)", 0.8f, 0, 0.0f, 0, 0, 0, 0},
+    };
+    TxScore at[TX_GEOM_COUNT][ROWS][2];
+    float crawl[TX_GEOM_COUNT][ROWS + 1];
+    memset(at, 0, sizeof(at));
+    memset(crawl, 0, sizeof(crawl));
+    note("three plane video (chroma left sited, midway between rows: the Frame's NV12 conversion; lavapipe's NV12 "
+         "conversion offers only cosited rows); eye %dx%d, field 100 degrees; ideal = the area average of the desktop "
+         "under each eye pixel",
+         TX_EYE, TX_EYE);
+    for (int g = 0; g < TX_GEOM_COUNT; g++) {
+        r.surf = txSurf(&TX_GEOMS[g]);
+        txMvp(&r.surf, r.mvp);
+        float ax0, ay0, ax1, ay1;
+        txMap(&r.surf, TX_EYE / 2.0f, TX_EYE / 2.0f, &ax0, &ay0);
+        txMap(&r.surf, TX_EYE / 2.0f + 1.0f, TX_EYE / 2.0f, &ax1, &ay1);
+        note("");
+        note("%s: %.2f desktop pixels an eye pixel at the centre", TX_GEOMS[g].name, fabsf(ax1 - ax0));
+        TxCache k0, kc, km;
+        txCacheMake(&k0, &r.surf, 0.0f, 0);
+        txCacheMake(&kc, &r.surf, TX_COMP, 0);
+        TxScore id = txScore(&r.surf, &k0, NULL);
+        txPrint("ideal", &id);
+        for (int k = 0; k < ROWS; k++) {
+            if (g > 0 && !cfgs[k].everywhere) continue;
+            r.cfg = &cfgs[k];
+            txRender(&r, eye);
+            at[g][k][0] = txScore(&r.surf, &k0, eye);
+            at[g][k][1] = txScore(&r.surf, &kc, eye);
+            txPrint(cfgs[k].name, &at[g][k][0]);
+            txPrint("  + compositor resample", &at[g][k][1]);
+            if (g == 0) {
+                char name[64];
+                snprintf(name, sizeof(name), "text_eye_row%d", k);
+                txCrop(name, &r.surf, eye);
+            }
+        }
+        // Crawl: the screen moved one eye pixel sideways (1.79 desktop
+        // pixels at the default placement, so the desktop lands on the eye's
+        // pixels at a new phase), and the new image compared with the first
+        // one moved by that pixel. A filter that treated every phase alike
+        // would give the same picture; the difference is the text crawling
+        // and changing weight as the head moves. RMS over the text tiles,
+        // /255; the ideal's own (the area average is not phase free either)
+        // for scale.
+        TxSurf ms = r.surf;
+        ms.shift = r.surf.D * 2.0f * TX_TAN / TX_EYE;
+        txCacheMake(&km, &ms, 0.0f, 0);
+        for (int k = -1; k < ROWS; k++) {
+            if (k >= 0 && (!cfgs[k].crawl || (g > 0 && !cfgs[k].everywhere))) continue;
+            if (k >= 0) {
+                r.cfg = &cfgs[k];
+                txRender(&r, eye);
+                TxRun rp = r;
+                rp.surf = ms;
+                txMvp(&ms, rp.mvp);
+                txRender(&rp, moved);
+            }
+            double sq = 0;
+            long n = 0;
+            for (int y = k0.y0; y < k0.y0 + k0.h; y++)
+                for (int x = k0.x0; x + 1 < k0.x0 + k0.w; x++) {
+                    size_t ki = (size_t)(y - k0.y0) * k0.w + (x - k0.x0);
+                    float sx = k0.sxy[ki * 2], sy = k0.sxy[ki * 2 + 1], lx, ly;
+                    if (isnan(sx)) continue;
+                    int tile = (int)(sx / TXS_TILE_W) + 4 * (int)(sy / TXS_TILE_H);
+                    if (tile < 0 || tile >= TXS_TILES || !txTextTile(tile) || !txIn(tile, sx, sy, TX_MARGIN, &lx, &ly))
+                        continue;
+                    float l0, l1;
+                    if (k < 0) {
+                        int mx = x + 1 - km.x0, my = y - km.y0;
+                        if (mx < 0 || my < 0 || mx >= km.w || my >= km.h) continue;
+                        const float* i1 = &km.ideal[((size_t)my * km.w + mx) * 3];
+                        if (isnan(i1[0]) || isnan(k0.ideal[ki * 3])) continue;
+                        l0 = txLuma(&k0.ideal[ki * 3]);
+                        l1 = txLuma(i1);
+                    } else {
+                        const uint8_t* p0 = eye + ((size_t)y * TX_EYE + x) * 4;
+                        const uint8_t* p1 = moved + ((size_t)y * TX_EYE + x + 1) * 4;
+                        float c0[3] = {p0[0] / 255.0f, p0[1] / 255.0f, p0[2] / 255.0f};
+                        float c1[3] = {p1[0] / 255.0f, p1[1] / 255.0f, p1[2] / 255.0f};
+                        l0 = txLuma(c0);
+                        l1 = txLuma(c1);
+                    }
+                    sq += (l1 - l0) * (l1 - l0);
+                    n++;
+                }
+            crawl[g][k + 1] = (float)(255.0 * sqrt(sq / (n ? n : 1)));
+            note("crawl, %-34s %5.2f", k < 0 ? "ideal" : cfgs[k].name, crawl[g][k + 1]);
+        }
+        txCacheFree(&km);
+        txCacheFree(&k0);
+        txCacheFree(&kc);
+    }
+    // GPU time on this device (report only: lavapipe's says nothing about the
+    // Frame's; docs/dev/reports/text-clarity.md has the estimate)
+    {
+        r.surf = txSurf(&TX_GEOMS[0]);
+        txMvp(&r.surf, r.mvp);
+        VkCommandBuffer cmd = vkh_begin(&vk);
+        vkh_layout(&vk, &r.eye.img, COLOR_ATT);
+        vkh_submit(&vk);
+        const int timed[] = {BEFORE};
+        for (size_t i = 0; i < sizeof(timed) / sizeof(timed[0]); i++) {
+            r.cfg = &cfgs[timed[i]];
+            float wm = timeIt(txRecWarp, &r, 5);
+            cmd = vkh_begin(&vk);
+            mlxr_barrier(cmd, r.pic.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, SHADER_READ);
+            vkh_submit(&vk);
+            float pm = timeIt(txRecPanel, &r, 5);
+            note("time (report only, %s): warp + mips %.2f ms, panel into one eye %.2f ms", cfgs[timed[i]].name, wm, pm);
+        }
+    }
+    free(moved);
+    free(eye);
+    targetFree(&r.eye);
+    vkDestroyImageView(vk.device, r.picL0, NULL);
+    vkh_image_free(&vk, &r.pic);
+    videoFree(&vd);
+    videoFree(&vd444);
+    free(txSrc);
+}
+
 int main(int argc, char** argv) {
     const char* group = argc > 1 ? argv[1] : "all";
     if (argc > 2) outDir = argv[2];
@@ -2818,6 +3610,7 @@ int main(int argc, char** argv) {
                  {"model", testModel},
                  {"supersample", testSupersample},
                  {"panel", testPanel},
+                 {"text", testText},
                  {"bench", testBench}};
     int ran = 0;
     for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
