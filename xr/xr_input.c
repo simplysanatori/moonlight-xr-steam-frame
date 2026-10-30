@@ -3669,12 +3669,14 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
         }
     }
     else if (f->hover == HOVER_HEREBUTTON) {
-        // Native (lane bar-glare): Bring here, as the Screen tab's but with the
+        // Native (lane bar-glare): Bring here, near and back far, with the
         // eyes on the bar (xr_place.c). The screen comes round under the ray,
         // so the press is held back from the PC. Lit off hoverKind
         // (xr_layers.c), so no hot flag.
         if (ctx->triggerEdge[f->hand]) {
-            LOGEV("bring here from the bar: %s", xrBringScreenHereFromBar(ctx) ? "moved" : "nothing to move");
+            if (xrBringHereToggle(ctx) < 0) {
+                LOGI("bring here from the bar: nothing moved (a room, head locked, or no head pose yet)");
+            }
             swallowTrigger(ctx, f->hand);
         }
     }
