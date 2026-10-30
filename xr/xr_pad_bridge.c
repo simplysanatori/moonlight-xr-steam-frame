@@ -96,6 +96,12 @@ void xrPadBridgeFrame(int plugged, const PadState* s, int64_t nowNs) {
     if (fire) fire(user);
 }
 
+void xrPadBridgeRest(void) {
+    pthread_mutex_lock(&g_lock);
+    if (g_ready && g_out.plugged) padOutRest(&g_out, 0);
+    pthread_mutex_unlock(&g_lock);
+}
+
 void xrPadBridgeStop(void) {
     pthread_mutex_lock(&g_lock);
     if (g_ready) {
