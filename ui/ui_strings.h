@@ -125,6 +125,21 @@
     X(HOST_HINT_PASTE, "native_host_hint_paste", "Paste") \
     X(HOST_HINT_TASKMGR, "native_host_hint_taskmgr", "Task manager") \
     X(HOST_HINT_CLOSE_WINDOW, "native_host_hint_close_window", "Close window") \
+    /* the Host sheet's PC page (lane wave4-apollo, PLAN 4.6, 4b.4, 4b.5) */ \
+    X(HOST_PAGE_PC, "native_host_page_pc", "Clipboard, commands") \
+    X(HOST_PAGE_BACK, "native_host_page_back", "Back") \
+    X(HOST_PC_TITLE, "native_host_pc_title", "Host: PC clipboard and commands") \
+    X(HOST_PASTE, "native_host_paste", "Paste from PC") \
+    X(HOST_PASTE_HINT, "native_host_paste_hint", "types its clipboard") \
+    X(HOST_COPY, "native_host_copy", "Send text to PC") \
+    X(HOST_COPY_HINT, "native_host_copy_hint", "type, then Enter") \
+    X(HOST_CMD_HINT, "native_host_cmd_hint", "host command") \
+    X(HOST_CONFIRM_RUN_Q, "native_host_confirm_run_q", "Run %s on the PC?") \
+    X(HOST_CONFIRM_RUN, "native_host_confirm_run", "Run") \
+    X(HOST_PC_NOT_APOLLO, "native_host_pc_not_apollo", "Not supported by this host: commands and the PC clipboard need Apollo") \
+    X(HOST_PC_NO_PERMISSION, "native_host_pc_no_permission", "This host has not allowed server commands for the Frame") \
+    X(HOST_PC_NO_COMMANDS, "native_host_pc_no_commands", "No server commands are set up on this host") \
+    X(HOST_COMPOSE_PROMPT, "native_host_compose_prompt", "Type, Enter sends") \
     X(REPORT_TITLE, "title_bug_report", "Report a problem") \
     X(REPORT_NOTE_LABEL, "bug_report_message_hint", "What happened?") \
     X(REPORT_NOTE_HINT, "vr_report_note_hint", "What were you doing when it went wrong?") \

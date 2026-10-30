@@ -16,6 +16,7 @@ static const UiStr HINT[XR_HOST_QUICK_COUNT] = {
 
 #define INK 0xEEFFFFFFu
 #define DANGER 0xFFE05A5Au
+#define DIM 0x70FFFFFFu
 
 static void rectPx(const Dc* dc, const float r[4], float* x0, float* y0, float* x1, float* y1) {
     *x0 = r[0] * dc->nw;
@@ -42,15 +43,69 @@ static void cell(Dc* dc, int index, const char* label, const char* hint, uint32_
     }
 }
 
+// Native (lane wave4-apollo): the PC page, its clipboard entries and the host's commands. An entry the
+// host cannot do is drawn dim but stays a hit, so a press can say why not.
+static void pcPage(Dc* dc, int confirm) {
+    const UiView* v = dc->v;
+    const XrHostInfo* info = &v->host_info;
+    int cmds = info->cmdCount < 0 ? 0 : info->cmdCount > XR_HOST_CMD_SLOTS ? XR_HOST_CMD_SLOTS : info->cmdCount;
+    float r[4];
+    float x0, y0, x1, y1;
+    for (int i = 0; i < XR_HOST_CELLS; i++) {
+        int kind = xrHostPcCellKind(i, cmds);
+        if (kind == XR_HOST_CELL_NONE) continue;
+        const char* label;
+        const char* hint;
+        uint32_t ink = INK;
+        if (kind == XR_HOST_CELL_PASTE) {
+            label = ui_str(UIS_HOST_PASTE);
+            hint = ui_str(UIS_HOST_PASTE_HINT);
+            if (!info->clipRead) ink = DIM;
+        } else if (kind == XR_HOST_CELL_COPY) {
+            label = ui_str(UIS_HOST_COPY);
+            hint = ui_str(UIS_HOST_COPY_HINT);
+            if (!info->clipSet) ink = DIM;
+        } else {
+            label = info->cmd[i - XR_HOST_PC_CMD_FIRST];
+            hint = ui_str(UIS_HOST_CMD_HINT);
+        }
+        cell(dc, i, label, hint, ink, !confirm && dc_hover(dc, UI_HIT_HOST_CELL, i, -1));
+        if (!confirm) {
+            xrHostCellRect(i, r);
+            dc_hit_uv(dc, UI_HIT_HOST_CELL, i, kind, r[0], r[1], r[2], r[3], 1);
+        }
+    }
+    // Why there is nothing to run, where the cells below the clipboard ones would be
+    UiStr why = UIS_HOST_PC_NO_COMMANDS;
+    int say = 0;
+    if (!info->apollo) {
+        why = UIS_HOST_PC_NOT_APOLLO;
+        say = 1;
+    } else if (info->cmdWhy == XR_HOSTINFO_NO_PERMISSION) {
+        why = UIS_HOST_PC_NO_PERMISSION;
+        say = 1;
+    } else if (cmds == 0) {
+        say = 1;
+    }
+    if (say) {
+        xrHostCellRect(XR_HOST_PC_CMD_FIRST, r);
+        rectPx(dc, r, &x0, &y0, &x1, &y1);
+        dc_text_fit_left(dc, UI_WEIGHT_REGULAR, 21.0f, 34.0f, (y0 + y1) * 0.5f + 8.0f, dc->nw - 68.0f,
+                         0x80FFFFFFu, ui_str(why));
+    }
+}
+
 void panel_host(Dc* dc) {
     const UiView* v = dc->v;
     int confirm = v->host_confirm >= 0;
+    int pc = v->host_page == XR_HOST_PAGE_PC;
     int macros = v->host_macros < 0 ? 0 : v->host_macros > XR_HOST_MACRO_SLOTS ? XR_HOST_MACRO_SLOTS : v->host_macros;
     float r[4];
     float x0, y0, x1, y1;
 
     dc_sheet(dc, 32.0f, 0xF0141416u);
-    dc_text_left_mid(dc, UI_WEIGHT_REGULAR, 38.0f, 34.0f, 46.0f, 0xFFFFFFFFu, ui_str(UIS_HOST_TITLE));
+    dc_text_left_mid(dc, UI_WEIGHT_REGULAR, pc ? 30.0f : 38.0f, 34.0f, 46.0f, 0xFFFFFFFFu,
+                     ui_str(pc ? UIS_HOST_PC_TITLE : UIS_HOST_TITLE));
 
     // Close, top right
     xrHostCloseRect(r);
@@ -59,7 +114,17 @@ void panel_host(Dc* dc) {
               !confirm && dc_hover(dc, UI_HIT_BUTTON, UI_BTN_HOST_CLOSE, -1));
     if (!confirm) dc_hit_uv(dc, UI_HIT_BUTTON, UI_BTN_HOST_CLOSE, 0, r[0], r[1], r[2], r[3], 1);
 
-    for (int i = 0; i < XR_HOST_CELLS; i++) {
+    // The button beside it between the main page and the PC page
+    xrHostPageRect(r);
+    rectPx(dc, r, &x0, &y0, &x1, &y1);
+    dc_button(dc, x0, y0, x1, y1, 14.0f, 3.0f, INK, ui_str(pc ? UIS_HOST_PAGE_BACK : UIS_HOST_PAGE_PC), 24.0f,
+              !confirm && dc_hover(dc, UI_HIT_BUTTON, UI_BTN_HOST_PAGE, -1));
+    if (!confirm) dc_hit_uv(dc, UI_HIT_BUTTON, UI_BTN_HOST_PAGE, 0, r[0], r[1], r[2], r[3], 1);
+
+    if (pc) {
+        pcPage(dc, confirm);
+    }
+    for (int i = 0; i < XR_HOST_CELLS && !pc; i++) {
         int kind = xrHostCellKind(i, macros);
         if (kind == XR_HOST_CELL_NONE) continue;
         const char* label;
@@ -81,7 +146,7 @@ void panel_host(Dc* dc) {
             dc_hit_uv(dc, UI_HIT_HOST_CELL, i, kind, r[0], r[1], r[2], r[3], 1);
         }
     }
-    if (macros == 0) {
+    if (macros == 0 && !pc) {
         // where the macros would be
         xrHostCellRect(XR_HOST_MACRO_FIRST + 3, r);
         rectPx(dc, r, &x0, &y0, &x1, &y1);
@@ -98,13 +163,15 @@ void panel_host(Dc* dc) {
     dc_fill_rrect(dc, x0, y0, x1, y1, 24.0f, 0xFF232328u);
     dc_stroke_rrect(dc, x0, y0, x1, y1, 24.0f, 3.0f, 0xFFB0B0B8u);
     char q[160];
-    snprintf(q, sizeof q, ui_str(UIS_HOST_CONFIRM_Q), v->host_confirm_label);
+    snprintf(q, sizeof q, ui_str(v->host_confirm_cmd ? UIS_HOST_CONFIRM_RUN_Q : UIS_HOST_CONFIRM_Q),
+             v->host_confirm_label);
     dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 32.0f, (x0 + x1) * 0.5f, y0 + (y1 - y0) * 0.30f,
                        (x1 - x0) - 48.0f, 0xFFFFFFFFu, q);
 
     xrHostConfirmSendRect(r);
     rectPx(dc, r, &x0, &y0, &x1, &y1);
-    dc_button(dc, x0, y0, x1, y1, 16.0f, 3.0f, DANGER, ui_str(UIS_HOST_CONFIRM_SEND), 28.0f,
+    dc_button(dc, x0, y0, x1, y1, 16.0f, 3.0f, DANGER,
+              ui_str(v->host_confirm_cmd ? UIS_HOST_CONFIRM_RUN : UIS_HOST_CONFIRM_SEND), 28.0f,
               dc_hover(dc, UI_HIT_BUTTON, UI_BTN_HOST_CONFIRM, -1));
     dc_hit_uv(dc, UI_HIT_BUTTON, UI_BTN_HOST_CONFIRM, 0, r[0], r[1], r[2], r[3], 1);
 

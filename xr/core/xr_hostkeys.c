@@ -690,3 +690,126 @@ int xrHostChordKey(XrHostChord* c, int code, int* vk, int* mods) {
     xrHostChordStop(c);
     return XR_CHORD_SEND;
 }
+
+// ---- the PC page ----------------------------------------------------------------------------------
+
+void xrHostPageRect(float r[4]) {
+    uv(560.0f, 22.0f, 826.0f, 70.0f, r);
+}
+
+int xrHostPcCellKind(int cell, int commands) {
+    if (cell == XR_HOST_PC_PASTE) {
+        return XR_HOST_CELL_PASTE;
+    }
+    if (cell == XR_HOST_PC_COPY) {
+        return XR_HOST_CELL_COPY;
+    }
+    int n = cell - XR_HOST_PC_CMD_FIRST;
+    if (n >= 0 && n < XR_HOST_CMD_SLOTS && n < commands && cell < XR_HOST_CELLS) {
+        return XR_HOST_CELL_CMD;
+    }
+    return XR_HOST_CELL_NONE;
+}
+
+int xrHostZoneAtPage(float u, float v, int page, int macros, int commands, int confirm) {
+    if (confirm) {
+        return xrHostZoneAt(u, v, macros, 1);
+    }
+    float r[4];
+    xrHostPageRect(r);
+    if (inRect(r, u, v)) {
+        return XR_HOST_ZONE_PAGE;
+    }
+    if (page != XR_HOST_PAGE_PC) {
+        return xrHostZoneAt(u, v, macros, 0);
+    }
+    xrHostCloseRect(r);
+    if (inRect(r, u, v)) {
+        return XR_HOST_ZONE_CLOSE;
+    }
+    for (int cell = 0; cell < XR_HOST_CELLS; cell++) {
+        if (xrHostPcCellKind(cell, commands) == XR_HOST_CELL_NONE) {
+            continue;
+        }
+        xrHostCellRect(cell, r);
+        if (inRect(r, u, v)) {
+            return cell;
+        }
+    }
+    return XR_HOST_ZONE_NONE;
+}
+
+// ---- "Send text to PC" -----------------------------------------------------------------------------
+
+void xrHostComposeStart(XrHostCompose* c) {
+    memset(c, 0, sizeof(*c));
+    c->active = 1;
+}
+
+void xrHostComposeStop(XrHostCompose* c) {
+    memset(c, 0, sizeof(*c));
+}
+
+static int utf8Put(int cp, char out[4]) {
+    if (cp < 0x80) {
+        out[0] = (char)cp;
+        return 1;
+    }
+    if (cp < 0x800) {
+        out[0] = (char)(0xC0 | (cp >> 6));
+        out[1] = (char)(0x80 | (cp & 0x3F));
+        return 2;
+    }
+    out[0] = (char)(0xE0 | (cp >> 12));
+    out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    out[2] = (char)(0x80 | (cp & 0x3F));
+    return 3;
+}
+
+int xrHostComposeKey(XrHostCompose* c, int code) {
+    if (!c->active) {
+        return XR_COMPOSE_IGNORE;
+    }
+    if (code == 13) {
+        return XR_COMPOSE_SEND;
+    }
+    if (code == 8) {
+        // back over one whole UTF-8 character
+        while (c->len > 0) {
+            c->len--;
+            if (((unsigned char)c->text[c->len] & 0xC0) != 0x80) {
+                break;
+            }
+        }
+        c->text[c->len] = '\0';
+        return XR_COMPOSE_EDITED;
+    }
+    // a character; the surrogate range and the private keys of the tables are not text
+    if (code < 32 || code >= KB_CODE_VK || (code >= 0xD800 && code < 0xE000)) {
+        return XR_COMPOSE_IGNORE;
+    }
+    char enc[4];
+    int n = utf8Put(code, enc);
+    if (c->len + n < XR_COMPOSE_MAX) {
+        memcpy(c->text + c->len, enc, (size_t)n);
+        c->len += n;
+        c->text[c->len] = '\0';
+    }
+    return XR_COMPOSE_EDITED;
+}
+
+void xrHostComposeTail(const char* text, int chars, char* out, size_t cap) {
+    size_t len = strlen(text);
+    // walk back over `chars` characters
+    size_t at = len;
+    int n = 0;
+    while (at > 0 && n < chars) {
+        at--;
+        while (at > 0 && ((unsigned char)text[at] & 0xC0) == 0x80) {
+            at--;
+        }
+        n++;
+    }
+    int cut = at > 0;
+    snprintf(out, cap, "%s%s", cut ? "\xE2\x80\xA6" : "", text + at);
+}

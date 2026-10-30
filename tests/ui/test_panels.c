@@ -810,11 +810,12 @@ static void test_host_sheet(void) {
     ui_view_init(&v, &s);
     CHECK(v.host_confirm == -1);
     Guarded g;
-    // no macros: Close, the 11 quick actions and Send keys
+    // no macros: Close, the button to the PC page, the 11 quick actions and Send keys
     draw(UI_PANEL_HOST, &v, 1.0f, &g);
     check_hits_inside("host");
-    CHECK(hits.count == 1 + XR_HOST_MACRO_FIRST);
+    CHECK(hits.count == 2 + XR_HOST_MACRO_FIRST);
     CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CLOSE, -1) >= 0);
+    CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PAGE, -1) >= 0);
     free(g.base);
     // with macros (and more than the sheet has room for)
     for (int n = 1; n <= XR_HOST_MACRO_SLOTS + 3; n++) {
@@ -823,13 +824,15 @@ static void test_host_sheet(void) {
         draw(UI_PANEL_HOST, &v, 1.0f, &g);
         check_hits_inside("host macros");
         int shown = n < XR_HOST_MACRO_SLOTS ? n : XR_HOST_MACRO_SLOTS;
-        CHECK(hits.count == 1 + XR_HOST_MACRO_FIRST + shown);
+        CHECK(hits.count == 2 + XR_HOST_MACRO_FIRST + shown);
         for (int i = 0; i < hits.count; i++) {
             const UiHit* h = &hits.hit[i];
             float u = (h->u0 + h->u1) * 0.5f, w = (h->v0 + h->v1) * 0.5f;
-            int zone = xrHostZoneAt(u, w, shown, 0);
+            int zone = xrHostZoneAtPage(u, w, XR_HOST_PAGE_MAIN, shown, 0, 0);
             if (h->kind == UI_HIT_HOST_CELL) {
                 CHECK(zone == h->a && h->b == xrHostCellKind(h->a, shown));
+            } else if (h->kind == UI_HIT_BUTTON && h->a == UI_BTN_HOST_PAGE) {
+                CHECK(zone == XR_HOST_ZONE_PAGE);
             } else {
                 CHECK(h->kind == UI_HIT_BUTTON && h->a == UI_BTN_HOST_CLOSE && zone == XR_HOST_ZONE_CLOSE);
             }
@@ -867,9 +870,76 @@ static void test_host_sheet(void) {
     free(g.base);
 }
 
+// The Host sheet's PC page (lane wave4-apollo): the clipboard entries and one cell per command the host
+// listed, where xr_hostkeys.c says the ray hits, a question that names the command, and the page button
+static void test_host_pc_page(void) {
+    Settings s;
+    settings_defaults(&s);
+    UiView v;
+    ui_view_init(&v, &s);
+    v.host_page = XR_HOST_PAGE_PC;
+    Guarded g;
+    for (int n = 0; n <= XR_HOST_CMD_SLOTS + 2; n++) {
+        v.host_info.apollo = 1;
+        v.host_info.clipRead = v.host_info.clipSet = 1;
+        v.host_info.cmdCount = n;
+        v.host_info.cmdWhy = n ? XR_HOSTINFO_OK : XR_HOSTINFO_NONE_SET;
+        for (int i = 0; i < XR_HOST_CMD_SLOTS; i++) snprintf(v.host_info.cmd[i], sizeof v.host_info.cmd[i], "Command %d", i + 1);
+        draw(UI_PANEL_HOST, &v, 1.0f, &g);
+        check_hits_inside("host pc");
+        int shown = n < XR_HOST_CMD_SLOTS ? n : XR_HOST_CMD_SLOTS;
+        // Close, the page button, Paste, Send text and the commands
+        CHECK(hits.count == 2 + 2 + shown);
+        CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PAGE, -1) >= 0);
+        for (int i = 0; i < hits.count; i++) {
+            const UiHit* h = &hits.hit[i];
+            float u = (h->u0 + h->u1) * 0.5f, w = (h->v0 + h->v1) * 0.5f;
+            int zone = xrHostZoneAtPage(u, w, XR_HOST_PAGE_PC, 0, shown, 0);
+            if (h->kind == UI_HIT_HOST_CELL) {
+                CHECK(zone == h->a && h->b == xrHostPcCellKind(h->a, shown));
+            } else if (h->a == UI_BTN_HOST_PAGE) {
+                CHECK(h->kind == UI_HIT_BUTTON && zone == XR_HOST_ZONE_PAGE);
+            } else {
+                CHECK(h->kind == UI_HIT_BUTTON && h->a == UI_BTN_HOST_CLOSE && zone == XR_HOST_ZONE_CLOSE);
+            }
+        }
+        free(g.base);
+    }
+    // a host that is not Apollo, or that has not allowed commands, draws differently from one with none
+    // set up: each says its own reason where the commands would be
+    long sums[3];
+    for (int why = 0; why < 3; why++) {
+        memset(&v.host_info, 0, sizeof v.host_info);
+        v.host_info.apollo = why != 0;
+        v.host_info.cmdWhy = why == 0 ? XR_HOSTINFO_NOT_APOLLO : why == 1 ? XR_HOSTINFO_NO_PERMISSION : XR_HOSTINFO_NONE_SET;
+        draw(UI_PANEL_HOST, &v, 1.0f, &g);
+        sums[why] = 0;
+        for (size_t i = 0; i < g.size; i++) sums[why] += g.px[i];
+        free(g.base);
+    }
+    CHECK(sums[0] != sums[1] && sums[1] != sums[2] && sums[0] != sums[2]);
+    // asking about a command: the question names it, and the buttons are where the zones say
+    v.host_info.apollo = 1;
+    v.host_info.cmdCount = 2;
+    snprintf(v.host_info.cmd[1], sizeof v.host_info.cmd[1], "Sleep PC");
+    v.host_confirm = XR_HOST_PC_CMD_FIRST + 1;
+    v.host_confirm_cmd = 1;
+    snprintf(v.host_confirm_label, sizeof v.host_confirm_label, "Sleep PC");
+    draw(UI_PANEL_HOST, &v, 1.0f, &g);
+    CHECK(hits.count == 2);
+    int send = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CONFIRM, -1);
+    CHECK(send >= 0);
+    if (send >= 0) {
+        CHECK(xrHostZoneAtPage((hits.hit[send].u0 + hits.hit[send].u1) * 0.5f, (hits.hit[send].v0 + hits.hit[send].v1) * 0.5f,
+                               XR_HOST_PAGE_PC, 0, 2, 1) == XR_HOST_ZONE_CONFIRM_SEND);
+    }
+    free(g.base);
+}
+
 int main(void) {
     ui_panels_set_assets_dir(MLXR_ASSETS_DIR);
     test_host_sheet();
+    test_host_pc_page();
     test_all_panels_scales();
     test_cog_rows_present();
     test_cog_hits_agree_with_xr_layout();

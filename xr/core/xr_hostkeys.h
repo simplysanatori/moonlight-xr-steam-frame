@@ -199,4 +199,76 @@ void xrHostChordStop(XrHostChord* c);
 // sheet keys (?123, Fn, Shift, the layout key) are left to the keyboard.
 int xrHostChordKey(XrHostChord* c, int code, int* vk, int* mods);
 
+// ---- the PC page (lane wave4-apollo, PLAN 4.6, 4b.4, 4b.5) -----------------------------------------
+// A second page of the sheet, reached by a button in its header: "Paste from PC", "Send text to PC"
+// and the host's own commands (Apollo's server commands). Its cells sit on the same grid. This block is
+// kept apart from the main page's entries above.
+#define XR_HOST_PAGE_MAIN 0
+#define XR_HOST_PAGE_PC 1
+// The header button that flips between the pages (a point on it is this zone)
+#define XR_HOST_ZONE_PAGE 103
+
+// PC page cells: the two clipboard entries on the first row, the commands from the second
+#define XR_HOST_PC_PASTE 0
+#define XR_HOST_PC_COPY 1
+#define XR_HOST_PC_CMD_FIRST XR_HOST_COLS
+#define XR_HOST_CMD_SLOTS 8
+#define XR_HOST_CMD_NAME 64
+// What a PC page cell is
+#define XR_HOST_CELL_PASTE 3
+#define XR_HOST_CELL_COPY 4
+#define XR_HOST_CELL_CMD 5
+
+void xrHostPageRect(float r[4]);
+// What a PC page cell is, given how many commands the host listed: XR_HOST_CELL_PASTE, _COPY, _CMD
+// (cell - XR_HOST_PC_CMD_FIRST is its number) or XR_HOST_CELL_NONE
+int xrHostPcCellKind(int cell, int commands);
+// xrHostZoneAt for either page; page XR_HOST_PAGE_MAIN is xrHostZoneAt's answer. The page button counts
+// on both, and a confirmation hides it like it hides Close.
+int xrHostZoneAtPage(float u, float v, int page, int macros, int commands, int confirm);
+
+// What the host offers, which the app learns from serverinfo when a stream starts and the PC page
+// shows. cmdWhy is why there are no commands to run (XR_HOSTINFO_*), 0 when there are.
+#define XR_HOSTINFO_OK 0
+#define XR_HOSTINFO_NOT_APOLLO 1
+#define XR_HOSTINFO_NO_PERMISSION 2
+#define XR_HOSTINFO_NONE_SET 3
+
+typedef struct {
+    int apollo;       // the host speaks Apollo
+    int clipRead;     // this client may read its clipboard
+    int clipSet;      // and set it
+    int cmdWhy;       // XR_HOSTINFO_*
+    int cmdCount;
+    char cmd[XR_HOST_CMD_SLOTS][XR_HOST_CMD_NAME];
+} XrHostInfo;
+
+// What a press on the PC page asks the app to do (XrAppHooks.hostAction)
+#define XR_HOSTACT_NONE 0
+#define XR_HOSTACT_PASTE 1   // fetch the host's clipboard and type it
+#define XR_HOSTACT_COPY 2    // set the host's clipboard to a text
+#define XR_HOSTACT_CMD 3     // run server command number arg
+
+// "Send text to PC": the keyboard takes text instead of sending keys, into a field of its own, and
+// Enter sends it. Plain editing, so the tests reach all of it.
+#define XR_COMPOSE_MAX 1024
+typedef struct {
+    int active;
+    int len;
+    char text[XR_COMPOSE_MAX];
+} XrHostCompose;
+
+enum {
+    XR_COMPOSE_IGNORE = 0,   // not the field's: the keyboard does its own thing with it
+    XR_COMPOSE_EDITED,       // a character in, one out (Backspace), or nothing room for
+    XR_COMPOSE_SEND          // Enter: the text is complete
+};
+
+void xrHostComposeStart(XrHostCompose* c);
+void xrHostComposeStop(XrHostCompose* c);
+// A key by its table code: a character (Unicode below KB_CODE_VK), 8 Backspace, 13 Enter
+int xrHostComposeKey(XrHostCompose* c, int code);
+// The last `chars` characters of the text, with a leading ellipsis when it was longer (for the space bar)
+void xrHostComposeTail(const char* text, int chars, char* out, size_t cap);
+
 #endif

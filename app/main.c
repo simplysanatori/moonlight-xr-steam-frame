@@ -599,6 +599,201 @@ static void clipboardFromHost(Net* n, mlxr_server* s) {
     free(text);
 }
 
+// ---- Native (lane wave4-apollo): the Host sheet's PC page (PLAN 4.6, 4b.4, 4b.5) ----
+// Apollo's clipboard (the same actions/clipboard Smart Clipboard Sync uses) and its server commands.
+// A command is one packet on the control stream and goes at once. The clipboard calls are HTTPS and
+// block, so each runs on a thread of its own, one at a time, over a copy of the stream's server handle
+// (the stream's own is left to the stream's thread). What the host offers is read from serverinfo when
+// the stream starts and gates the entries; the host's own permission has the last word.
+static pthread_mutex_t g_hostLinkLock = PTHREAD_MUTEX_INITIALIZER;
+static mlxr_server* g_hostLinkSrv;
+static mlxr_computer g_hostLinkComp;
+static atomic_int g_hostActBusy;
+
+// A longer clipboard is typed up to here: typing is slow, and a paste is for a line or a few
+#define HOST_PASTE_MAX_BYTES 4096
+
+static void hostInfoFrom(const mlxr_computer* c, XrHostInfo* out) {
+    memset(out, 0, sizeof(*out));
+    out->apollo = mlxr_computer_is_apollo(c) || c->n_server_cmds > 0;
+    out->clipRead = mlxr_clipboard_gate(c, false) == MLXR_HOSTFEAT_OK;
+    out->clipSet = mlxr_clipboard_gate(c, true) == MLXR_HOSTFEAT_OK;
+    mlxr_hostfeat f = mlxr_server_cmd_gate(c, -1);
+    out->cmdWhy = f == MLXR_HOSTFEAT_OK ? XR_HOSTINFO_OK
+                : f == MLXR_HOSTFEAT_NOT_APOLLO ? XR_HOSTINFO_NOT_APOLLO
+                : f == MLXR_HOSTFEAT_NO_PERMISSION ? XR_HOSTINFO_NO_PERMISSION : XR_HOSTINFO_NONE_SET;
+    if (f == MLXR_HOSTFEAT_OK) {
+        for (int i = 0; i < c->n_server_cmds && i < XR_HOST_CMD_SLOTS; i++) {
+            snprintf(out->cmd[out->cmdCount++], XR_HOST_CMD_NAME, "%s", c->server_cmds[i]);
+        }
+    }
+}
+
+// The stream is up on PC `pc`: keep a copy of its server handle and what the host said, and tell the sheet
+static void hostLinkSet(Net* n, int pc) {
+    mlxr_server* copy = n->srv[pc] ? mlxr_server_clone(n->srv[pc]) : NULL;
+    pthread_mutex_lock(&g_hostLinkLock);
+    mlxr_server_free(g_hostLinkSrv);
+    g_hostLinkSrv = copy;
+    g_hostLinkComp = n->comp[pc];
+    pthread_mutex_unlock(&g_hostLinkLock);
+    XrHostInfo info;
+    hostInfoFrom(&n->comp[pc], &info);
+    xr_app_set_host_info(&info);
+    MLOG_I("host sheet: %s, %d server commands, clipboard read %d set %d", info.apollo ? "Apollo" : "not Apollo",
+           info.cmdCount, info.clipRead, info.clipSet);
+}
+
+static void hostLinkClear(void) {
+    pthread_mutex_lock(&g_hostLinkLock);
+    mlxr_server_free(g_hostLinkSrv);
+    g_hostLinkSrv = NULL;
+    memset(&g_hostLinkComp, 0, sizeof(g_hostLinkComp));
+    pthread_mutex_unlock(&g_hostLinkLock);
+    xr_app_set_host_info(NULL);
+}
+
+// Characters in a UTF-8 text (not bytes), for the toast
+static int utf8Chars(const char* s) {
+    int n = 0;
+    for (; *s; s++) n += ((unsigned char)*s & 0xC0) != 0x80;
+    return n;
+}
+
+// Why a clipboard call failed, as the toast says it
+static const char* clipboardWhy(const mlxr_error* e) {
+    if (e->code == MLXR_E_HTTP) {
+        const char* t = mlxr_hostfeat_http_text(e->status);
+        if (t) return t;
+    }
+    if (e->code == MLXR_E_TIMEOUT || e->code == MLXR_E_NET) return "The host did not answer";
+    return "The host's clipboard could not be reached";
+}
+
+typedef struct HostAct {
+    int action;
+    char* text;   // COPY: the text to set
+} HostAct;
+
+static void* hostActThread(void* arg) {
+    HostAct* a = arg;
+    mlxr_server* srv = NULL;
+    mlxr_computer comp;
+    pthread_mutex_lock(&g_hostLinkLock);
+    srv = g_hostLinkSrv ? mlxr_server_clone(g_hostLinkSrv) : NULL;
+    comp = g_hostLinkComp;
+    pthread_mutex_unlock(&g_hostLinkLock);
+    mlxr_error err = { 0 };
+    char note[160];
+    note[0] = '\0';
+    if (!srv) {
+        snprintf(note, sizeof(note), "Not streaming");
+    }
+    else if (a->action == XR_HOSTACT_PASTE) {
+        mlxr_hostfeat f = mlxr_clipboard_gate(&comp, false);
+        char* text = NULL;
+        if (f != MLXR_HOSTFEAT_OK) {
+            snprintf(note, sizeof(note), "%s", mlxr_hostfeat_text(f));
+        }
+        else if (mlxr_server_get_clipboard(srv, &text, &err) != MLXR_OK) {
+            MLOG_W("host sheet: PC clipboard not read: %s", err.msg);
+            snprintf(note, sizeof(note), "%s", clipboardWhy(&err));
+        }
+        else if (!text[0]) {
+            snprintf(note, sizeof(note), "The PC clipboard is empty");
+        }
+        else if (!stream_running()) {
+            snprintf(note, sizeof(note), "Not streaming");
+        }
+        else {
+            // typed on the PC through the keyboard's own text path (a local keyboard: nothing of g_vrkb is shared)
+            VrKeyboard kb;
+            VrKeyboardSink sink = { NULL, vrkbKey, vrkbText };
+            vrkb_init(&kb, sink);
+            size_t total = strlen(text);
+            size_t used = vrkb_type_text(&kb, text, HOST_PASTE_MAX_BYTES);
+            MLOG_I("host sheet: %zu of %zu bytes of the PC clipboard typed", used, total);
+            if (used < total) {
+                snprintf(note, sizeof(note), "Typed the first %d characters of the PC clipboard", utf8Chars(text) - utf8Chars(text + used));
+            }
+            else {
+                snprintf(note, sizeof(note), "Typed %d characters from the PC clipboard", utf8Chars(text));
+            }
+        }
+        free(text);
+    }
+    else if (a->action == XR_HOSTACT_COPY) {
+        mlxr_hostfeat f = mlxr_clipboard_gate(&comp, true);
+        if (f != MLXR_HOSTFEAT_OK) {
+            snprintf(note, sizeof(note), "%s", mlxr_hostfeat_text(f));
+        }
+        else if (mlxr_server_set_clipboard(srv, a->text, &err) != MLXR_OK) {
+            MLOG_W("host sheet: PC clipboard not set: %s", err.msg);
+            snprintf(note, sizeof(note), "%s", clipboardWhy(&err));
+        }
+        else {
+            MLOG_I("host sheet: %zu bytes sent to the PC clipboard", strlen(a->text));
+            snprintf(note, sizeof(note), "Sent %d characters to the PC clipboard", utf8Chars(a->text));
+        }
+    }
+    if (note[0]) xr_app_notice(note);
+    mlxr_server_free(srv);
+    free(a->text);
+    free(a);
+    atomic_store(&g_hostActBusy, 0);
+    return NULL;
+}
+
+// On the frame loop: the Host sheet's PC page asked for something. Must not block.
+static void hostActionHook(void* user, int action, int arg, const char* text) {
+    (void)user;
+    presenceNoteActivity();
+    if (action == XR_HOSTACT_CMD) {
+        mlxr_computer comp;
+        pthread_mutex_lock(&g_hostLinkLock);
+        comp = g_hostLinkComp;
+        pthread_mutex_unlock(&g_hostLinkLock);
+        mlxr_hostfeat f = mlxr_server_cmd_gate(&comp, arg);
+        char note[160];
+        if (f != MLXR_HOSTFEAT_OK) {
+            snprintf(note, sizeof(note), "%s", mlxr_hostfeat_text(f));
+        }
+        else if (stream_exec_server_cmd(arg)) {
+            MLOG_I("host sheet: server command %d (%s) sent", arg, comp.server_cmds[arg]);
+            snprintf(note, sizeof(note), "Sent \"%.60s\" to the PC", comp.server_cmds[arg]);
+        }
+        else {
+            snprintf(note, sizeof(note), "The command could not be sent");
+        }
+        xr_app_notice(note);
+        return;
+    }
+    if (action != XR_HOSTACT_PASTE && action != XR_HOSTACT_COPY) return;
+    if (!stream_running()) {
+        xr_app_notice("Not streaming");
+        return;
+    }
+    int idle = 0;
+    if (!atomic_compare_exchange_strong(&g_hostActBusy, &idle, 1)) {
+        xr_app_notice("Still working on the last one");
+        return;
+    }
+    HostAct* a = calloc(1, sizeof(*a));
+    pthread_t th;
+    if (a) {
+        a->action = action;
+        a->text = action == XR_HOSTACT_COPY ? strdup(text ? text : "") : NULL;
+    }
+    if (!a || (action == XR_HOSTACT_COPY && !a->text) || pthread_create(&th, NULL, hostActThread, a) != 0) {
+        if (a) free(a->text);
+        free(a);
+        atomic_store(&g_hostActBusy, 0);
+        xr_app_notice("Could not start that");
+        return;
+    }
+    pthread_detach(th);
+}
+
 static Net g_net;
 
 // Wake-on-LAN magic packet to the LAN broadcast address.
@@ -1098,6 +1293,7 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
         MLOG_I("bindings: host app \"%s\"", appName);
         xr_app_set_host_app(appName);
     }
+    hostLinkSet(n, pc);   // Native (lane wave4-apollo): the Host sheet's PC page
     updateKeyboard();
     if (g_args.clipboardSync) clipboardToHost(n, s); // Native (lane artemis-settings)
     char toast[160];
@@ -1127,6 +1323,7 @@ static void stopStream(Net* n, int quitHost) {
     atomic_store(&g_streaming, 0);
     xr_app_set_streaming(0);
     xr_app_set_host_app(""); // native (lane wave2-bind-wire)
+    hostLinkClear();         // native (lane wave4-apollo)
     updateKeyboard();
     if (!linkDown) {
         // Native (lane netpath-quality): remember how this stream went on its network path
@@ -1645,6 +1842,7 @@ int main(int argc, char** argv) {
     cfg.hooks.hscroll = hscrollHook;
     cfg.hooks.bindKey = bindKeyHook;
     cfg.hooks.presence = presenceHook;
+    cfg.hooks.hostAction = hostActionHook;   // Native (lane wave4-apollo)
 
     FileSource* src = NULL;
     if (g_args.file) {
