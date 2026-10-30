@@ -255,6 +255,15 @@ int xrGrabStepStick(XrCtx* ctx, XrPosef aim, int trigger, int grip, XrVector2f s
 // points and of the hand whose ray is drawn. What it made of them is left in
 // ctx->rayRow, as the recorder writes it (tests/m4/test_replay.c).
 void xrPointerStep(XrCtx* ctx, int64_t now, int headLocked);
+// Native (lane wave2-lightgun-gyro): for the tests, the buttons part of a pointer frame: the host
+// buttons the controllers ask for (VR_BUTTON_ bits, as the bindings leave them), what the ray is over
+// (HOVER_*) and whether that is the picture. Returns the buttons that go to the host, which are
+// also left in ctx->buttonsDown; a recoil pulse bumps ctx->recoilPulses.
+int xrButtonsFrame(XrCtx* ctx, int wanted, int hover, int hit);
+// Native (lane wave2-lightgun-gyro): the gamepad's gyro for this frame, as the input pass runs it
+// after the pad has gone to the host: plugged says the pad is on the host, live that it is being
+// read (no panel up). The sources go through the seams on the context (locateSpace, readBool).
+void xrPadGyroFrame(XrCtx* ctx, int plugged, int live, int64_t now);
 
 // ---- Native (lane wave2-bind-wire): bindings.ini (xr_input.c) -------------
 // Reads bindings.ini (path NULL: xrBindDefaultPath, which is written with the

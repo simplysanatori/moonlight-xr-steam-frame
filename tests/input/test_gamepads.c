@@ -543,6 +543,17 @@ static void testMotionCaps(void) {
     padRest(&rest);
     CHECK(padOutFrame(&po, 1, &rest, 0) == 2);
     CHECK(lastArrivalCaps(2) == PADOUT_CAPS);
+    // Native (lane wave2-lightgun-gyro): with the pad_gyro opt-in it does, on its own slot only: the
+    // physical pads' words are as they were
+    PadOut gyro;
+    padOutInit(&gyro, &sink);
+    padOutSetMotion(&gyro, 1);
+    padOutSetNumber(&gyro, gpClaimFramePad(&g), gpAnnouncedMask(&g));
+    CHECK(padOutFrame(&gyro, 1, &rest, 0) == 2);
+    CHECK(gyro.controllerNumber != 0 && gyro.controllerNumber != 1);
+    CHECK(lastArrivalCaps(gyro.controllerNumber) == PADOUT_CAPS_MOTION);
+    CHECK((lastArrivalCaps(gyro.controllerNumber) & MOTION_CAPS) == MOTION_CAPS);
+    CHECK((lastArrivalCaps(0) & MOTION_CAPS) == MOTION_CAPS && (lastArrivalCaps(1) & MOTION_CAPS) == 0);
     gpDestroy(&g);
 }
 
@@ -767,6 +778,14 @@ static void testBatteryTouchLed(void) {
     gpDestroy(&g);
 }
 
+static int frameMotionCalls, frameMotionNumber, frameMotionType, frameMotionRate;
+static void frameMotion(uint16_t number, uint8_t type, uint16_t rate) {
+    frameMotionCalls++;
+    frameMotionNumber = number;
+    frameMotionType = type;
+    frameMotionRate = rate;
+}
+
 // The app-wide instance: before init everything is a no-op
 static void testGlobal(void) {
     CHECK(!gamepadsReady());
@@ -802,6 +821,18 @@ static void testGlobal(void) {
     CHECK(hap.tcalls == 1);
     gamepadsHostMotionState(1, LI_MOTION_TYPE_GYRO, 250); // gamepad mode's number: nothing happens
     gamepadsHostMotionState(0, LI_MOTION_TYPE_GYRO, 250); // the Xbox pad has no gyroscope
+    // Native (lane wave2-lightgun-gyro): a request no physical pad owns goes to the Frame pad's hook, once
+    // one is set, and one a physical pad owns does not
+    frameMotionCalls = 0;
+    gamepadsSetFramePadMotionHook(frameMotion);
+    gamepadsHostMotionState(1, LI_MOTION_TYPE_GYRO, 250);
+    CHECK(frameMotionCalls == 1 && frameMotionNumber == 1 && frameMotionType == LI_MOTION_TYPE_GYRO
+          && frameMotionRate == 250);
+    gamepadsHostMotionState(0, LI_MOTION_TYPE_ACCEL, 100); // the Xbox pad is ours: it answers (and has none)
+    CHECK(frameMotionCalls == 1);
+    gamepadsSetFramePadMotionHook(NULL);
+    gamepadsHostMotionState(1, LI_MOTION_TYPE_GYRO, 250);
+    CHECK(frameMotionCalls == 1);
     gamepadsHostSetLed(0, 1, 2, 3);
     gamepadsReleaseFramePad();
     gamepadsStreamStop();

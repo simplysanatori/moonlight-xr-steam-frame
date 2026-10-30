@@ -277,6 +277,11 @@ Flickable {
     function padCardIndex() {
         return Math.max(0, padCardValues.indexOf(MlxrPrefs.padCard))
     }
+    // Native (lane wave2-lightgun-gyro): [vr] lightgun and pad_gyro of the VR client
+    readonly property var lightgunValues: ["auto", "on", "off"]
+    readonly property var lightgunNames: [qsTr("Automatic"), qsTr("On"), qsTr("Off")]
+    readonly property var padGyroValues: ["off", "controller", "head"]
+    readonly property var padGyroNames: [qsTr("Off"), qsTr("Controller"), qsTr("Head")]
 
     readonly property var audioNames: [qsTr("Stereo"), qsTr("5.1 Surround Sound"), qsTr("7.1 Surround Sound")]
 
@@ -969,6 +974,34 @@ Flickable {
             summary: qsTr("The card that shows the headset's controls when a stream starts. It comes up once by itself; switch this on to see it again.")
             isOn: !MlxrPrefs.firstRunShown
             onSwitched: function(on) { MlxrPrefs.firstRunShown = !on }
+        }
+
+        PrefRow {
+            objectName: "lightgunRow"
+            title: qsTr("Lightgun mode")
+            valueText: settingsPage.lightgunNames[Math.max(0, settingsPage.lightgunValues.indexOf(MlxrPrefs.lightgun))]
+            summary: qsTr("Aim like a lightgun: the pointer never sleeps, clicks go out exactly where you aim, only the grip takes hold of the screen and a shot pulses the controller. Automatic turns it on while the headset draws the Gun.")
+            onClicked: {
+                var e = []
+                for (var i = 0; i < settingsPage.lightgunNames.length; i++) e.push({ text: settingsPage.lightgunNames[i], reason: "" })
+                listDialog.show(title, e, settingsPage.lightgunValues.indexOf(MlxrPrefs.lightgun), function(i) {
+                    MlxrPrefs.lightgun = settingsPage.lightgunValues[i]
+                })
+            }
+        }
+
+        PrefRow {
+            objectName: "padGyroRow"
+            title: qsTr("Gyro from the headset")
+            valueText: settingsPage.padGyroNames[Math.max(0, settingsPage.padGyroValues.indexOf(MlxrPrefs.padGyro))]
+            summary: qsTr("Send the turn of the right controller, or of your head, to the PC as the gyro of a PlayStation gamepad while the controllers are the gamepad, for gyro aiming in Steam Input. The PC then sees a DualShock 4, with PlayStation button names.")
+            onClicked: {
+                var e = []
+                for (var i = 0; i < settingsPage.padGyroNames.length; i++) e.push({ text: settingsPage.padGyroNames[i], reason: "" })
+                listDialog.show(title, e, settingsPage.padGyroValues.indexOf(MlxrPrefs.padGyro), function(i) {
+                    MlxrPrefs.padGyro = settingsPage.padGyroValues[i]
+                })
+            }
         }
 
         PrefSwitch {

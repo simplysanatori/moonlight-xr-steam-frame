@@ -997,9 +997,18 @@ int gamepadsAnnouncedMask(void) {
     return gGlobal.ready ? gpAnnouncedMask(&gGlobal) : 0;
 }
 
+// Native (lane wave2-lightgun-gyro): the hook for the Frame controllers' pad, set while it is on the
+// host (xr/xr_pad_bridge.c). A pointer; the host's thread reads it and the frame loop sets it.
+static _Atomic(GamepadsFramePadMotionFn) gFramePadMotion;
+
+void gamepadsSetFramePadMotionHook(GamepadsFramePadMotionFn fn) { atomic_store(&gFramePadMotion, fn); }
+
 void gamepadsHostMotionState(uint16_t controllerNumber, uint8_t motionType, uint16_t reportRateHz) {
-    // Gamepad mode's pad is not one of ours and has no sensors: the request is dropped
-    if (gGlobal.ready) gpMotionState(&gGlobal, controllerNumber, motionType, reportRateHz);
+    // A physical pad with that number takes it. Gamepad mode's pad is not one of ours: it has no
+    // sensors unless the pad_gyro opt-in is on, and then the bridge answers for it
+    if (gGlobal.ready && gpMotionState(&gGlobal, controllerNumber, motionType, reportRateHz)) return;
+    GamepadsFramePadMotionFn fn = atomic_load(&gFramePadMotion);
+    if (fn) fn(controllerNumber, motionType, reportRateHz);
 }
 
 void gamepadsHostSetLed(uint16_t controllerNumber, uint8_t red, uint8_t green, uint8_t blue) {
