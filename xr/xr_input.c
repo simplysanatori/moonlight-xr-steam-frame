@@ -5588,13 +5588,21 @@ static void updateDwell(XrCtx* ctx, InputFrame* f) {
         ctx->dwellFraction = -1.0f;
         return;
     }
+    // Native (lane a11y-tab): the dwell's own click is waited out with the dwell as it is, so the
+    // spot it clicked stays spent until the dot leaves it. (Counted as an invalid frame, it reset
+    // the dwell and the same spot clicked again every dwell time.)
+    if (f->now < ctx->dwellHostUntil || f->now < ctx->dwellUiUntil) {
+        ctx->dwellFraction = -1.0f;
+        return;
+    }
     int panel = dwellPanelHover(ctx, f);
     int hover = panel >= 0 ? panel : f->hand == SRC_GAZE ? f->hover : HOVER_NONE;
     int target = hover != HOVER_NONE && hover != HOVER_HALO && hover != HOVER_BAR
             && hover != HOVER_CORNER && hover != HOVER_KBBAR;
+    // a controller's press, or a grab, drops the dwell
     int held = ctx->triggerDown[HAND_LEFT] || ctx->triggerDown[HAND_RIGHT]
-            || ctx->triggerDown[SRC_GAZE] || ctx->grabMode != GRAB_NONE
-            || f->now < ctx->dwellHostUntil || f->now < ctx->dwellUiUntil;
+            || ctx->grabMode != GRAB_NONE
+            || (ctx->triggerDown[SRC_GAZE] && f->now >= ctx->dwellUiUntil);
     int valid = target && !held && f->aimValid[SRC_GAZE]
             && (hover != HOVER_SCREEN || ctx->pointerOn);
     float yaw = 0.0f, pitch = 0.0f;

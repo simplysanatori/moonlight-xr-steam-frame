@@ -587,7 +587,7 @@ if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
          vr.pad_mouse_chord vr.pad_mouse_scroll vr.pad_arbitration vr.pad_gyro vr.notices vr.lightgun vr.scroll_speed
          vr.background_dim vr.void_color vr.first_run_shown vr.pad_card display.zoom display.stats display.glow_feather
          3d.separation 3d.convergence 3d.stereo 3d.eye_balance 3d.stereo_source 3d.sbs_full 3d.edge_sharpness 3d.depth_scale
-         3d.depth_global 3d.motion_reset ui.language"
+         3d.depth_global 3d.motion_reset ui.language vr.head_dwell_ms"
     left="stream.host stream.app vr.hand_hint_seen display.cog_tab display.zoom_x display.zoom_y screen.height_cm
           screen.azimuth_deg screen.tilt_deg screen.rotate_deg screen.back_distance_cm screen.back_height_cm
           screen.back_azimuth_deg screen.back_tilt_deg screen.back_rotate_deg screen.back_curve screen.back_width_cm"

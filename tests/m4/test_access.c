@@ -259,6 +259,13 @@ static void headTurnsItOff(Scene* s) {
     CHECK(g_settingsOut == 1 && g_lastSetting == SETTING_POINTER_SOURCE && g_lastValue == POINTER_SOURCE_CONTROLLER);
     // the dwell time is kept for the next time the head points
     CHECK(c->headDwellMs == 900);
+    // a dwell on a cell clicks it once: resting there on, nothing more is handed back
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_HEAD, out);
+    g_head = cellAt(c, COG_ACCESS_ROW_DWELL, 4);
+    g_settingsOut = 0;
+    frames(c, 450); // 5 s
+    CHECK(c->headDwellMs == 1500 && c->dwellClicks == 2);
+    CHECK(g_settingsOut == 1 && g_lastSetting == SETTING_HEAD_DWELL && g_lastValue == 1500);
     xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
 }
 
