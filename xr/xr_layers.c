@@ -593,7 +593,7 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     }
     if (ctx->stereoButtonReady && view->barArea) {
         addBarButton(ctx, view, layers, &layers->stereoButton,
-                     BTN_CELL_STEREO + (ctx->stereoLive ? 1 : 0),
+                     barStereoCell(ctx->stereoSource, ctx->stereoLive),
                      BAR_SLOT_STEREO, ctx->stereoButtonHot, NULL);
     }
     // Native (lane wave2-bind-wire): the Host sheet's, from the same strip

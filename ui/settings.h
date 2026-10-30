@@ -121,6 +121,8 @@ typedef struct Settings {
     int separation;        // tenths of a percent of frame width; -1 = the depth model's own
     int convergence;       // percent; -1 = the depth model's own
     int stereo;            // native: the 3D switch as it was last left (0 off, 1 on)
+    int stereo_source;     // native (PLAN 4.3): STEREO_SOURCE_* (depth, sbs, top-bottom)
+    int sbs_full;          // native (PLAN 4.3): the SBS or top-bottom frame holds a full size picture per eye
 
     // [screen] where the picture hangs (what the Screen tab moves)
     int screen_distance_cm;

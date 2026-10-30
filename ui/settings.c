@@ -45,6 +45,9 @@ static const int ENV_IDS[] = { ENV_ID_NONE, ENV_ID_PASSTHROUGH, ENV_ID_VOID, ENV
                                ENV_ID_GRAND_CINEMA, ENV_ID_SYNTHWAVE };
 static const char* const DEPTH_NAMES[] = { "zipdepth", "midas", "off", "flat", "ramp", "blob",
                                            "eyetest", "shifttest", "zipdepth-int8" };
+// STEREO_SOURCE_*
+static const char* const SOURCE3D_NAMES[] = { "depth", "sbs", "top-bottom" };
+_Static_assert(sizeof(SOURCE3D_NAMES) / sizeof(SOURCE3D_NAMES[0]) == STEREO_SOURCE_COUNT, "stereo_source names follow STEREO_SOURCE_");
 static const char* const ENVRES_NAMES[] = { "low", "standard", "high", "ultra" };
 static const char* const NOTICES_NAMES[] = { "all", "important", "off" };
 static const char* const STEADY_NAMES[] = { "off", "normal", "steady" };
@@ -148,6 +151,8 @@ static const SettingDesc TABLE[] = {
     DI("3d", "separation", separation, -1, COG_SEP_STEPS, -1, "seekbar_vr_separation: tenths of a percent of frame width; -1 is the depth model's own (ZipDepth 6, MiDaS 5)"),
     DI("3d", "convergence", convergence, -1, 100, -1, "seekbar_vr_convergence: percent; -1 is the depth model's own (50)"),
     DB("3d", "stereo", stereo, 1, "native: the 3D switch (bar button, 3D tab) as it was last left; on to begin with, as upstream started every session"),
+    DE("3d", "stereo_source", stereo_source, SOURCE3D_NAMES, STEREO_SOURCE_DEPTH, "native: the 3D tab's 3D source: depth (the depth model makes the 3D from a 2D stream), sbs (the PC renders a side by side pair, left eye in the left half: a 3D film, a game's own SBS mode, ReShade SuperDepth3D) or top-bottom (left eye in the top half); with sbs and top-bottom no depth model runs, the convergence track moves the halves apart or together, and [debug] eye_swap swaps them"),
+    DB("3d", "sbs_full", sbs_full, 0, "native: an sbs or top-bottom stream carries a full size picture per eye (3840x1080 for two 1920x1080 eyes, shown 16:9); false: half size, each eye squeezed to half the width or height (1920x1080 for both eyes, stretched back to 16:9)"),
     // screen
     DI("screen", "distance_cm", screen_distance_cm, 20, 800, 300, "Screen tab: distance in centimetres"),
     DI("screen", "height_cm", screen_height_cm, -200, 200, 0, "Screen tab: height of the centre above eye level, centimetres"),

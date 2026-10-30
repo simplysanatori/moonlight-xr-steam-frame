@@ -144,6 +144,27 @@ int buttonCellOrigin(int cell, int* outX, int* outY) {
     return 1;
 }
 
+int cog3dRowLive(int stereoOk, int source, int row) {
+    if (row == COG_ROW3D_SOURCE) {
+        return 1;
+    }
+    if (!stereoOk) {
+        return 0;
+    }
+    if (source != STEREO_SOURCE_DEPTH) {
+        return row == COG_ROW3D_CONVERGENCE || row == COG_ROW3D_SWITCH;
+    }
+    return 1;
+}
+
+int barStereoCell(int source, int on) {
+    if (!on) {
+        return BTN_CELL_STEREO;
+    }
+    return source == STEREO_SOURCE_SBS ? BTN_CELL_STEREO_SBS
+            : source == STEREO_SOURCE_TB ? BTN_CELL_STEREO_TB : BTN_CELL_STEREO + 1;
+}
+
 int buttonCellPut(unsigned char* atlas, int cell, const unsigned char* face) {
     int x, y;
     if (atlas == NULL || face == NULL || !buttonCellOrigin(cell, &x, &y)) {

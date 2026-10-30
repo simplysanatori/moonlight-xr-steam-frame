@@ -232,6 +232,10 @@ void detectAmbiBars(XrCtx* ctx, const unsigned char* rgba) {
     LOGI("ambilight bars: top %d bottom %d left %d right %d", bottom, top, left, right);
 }
 
+int ambiBarDetectOn(const XrCtx* ctx) {
+    return ctx->ambiBarDetect && ctx->stereoMode != DEPTH_MODE_SBS;
+}
+
 // Draws the frame uncropped into the detector's target and asks for it back
 // into the readback buffer, where finishAmbiBarDetect reads it a frame later
 // rather than draining the GPU queue for it here
@@ -305,7 +309,7 @@ void runFrameColorSample(XrCtx* ctx, const MlxrVideo* video) {
     // Whatever the detector last settled on, so the glow and the room's light
     // come from the picture rather than from the bars around it. With the
     // detection off the crop is not applied, but the state it found is kept.
-    memcpy(a.crop, ctx->ambiBarDetect ? ctx->ambiCrop : AMBI_CROP_FULL, sizeof(a.crop));
+    memcpy(a.crop, ambiBarDetectOn(ctx) ? ctx->ambiCrop : AMBI_CROP_FULL, sizeof(a.crop));
     // Graded the way the screen is, so the glow and the room's light come from
     // the picture as it is seen
     a.gradeOn = ctx->gradeOn;
