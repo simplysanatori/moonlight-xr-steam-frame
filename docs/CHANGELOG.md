@@ -78,11 +78,12 @@
 - **Click steadiness** (Off, Normal, Steady) holds the cursor still around a click so double clicks land on the same spot.
 - Thumbstick scrolling is smooth, with **Scroll speed** on the Settings page (`scroll_speed` in `config.ini`) for its speed.
 - **Mouse mode** Relative sends how far the pointer moves instead of where it is, for games that capture the mouse (Absolute by default).
-- **Head-look (experimental)**: with the screen head locked or in a room, your head's turn moves the PC's mouse for first-person games; hold a grip to turn back without turning the game (off by default).
+- **Head turns the game's camera (first-person games)** (head-look, experimental): with the screen head locked or in a room, your head's turn moves the PC's mouse for first-person games; hold a grip to turn back without turning the game (off by default).
 - **Head tracking to opentrack** sends your head's position and turn to opentrack on the PC, for simulators that take TrackIR or FreeTrack (off by default).
-- **Accessibility** (early): a new Accessibility tab in the cog and a matching section on the Settings page. Point with your head instead of a controller (**What points**), click by resting the dot (**Dwell click**, 0.6 to 1.5 s), and set Head-look, Back as Guide and Mouse mode there, with short instructions on the tab. Nothing turns on by itself.
-- Your eyes can point when SteamVR provides eye tracking: the Accessibility tab shows whether eye tracking reaches the app, the **Eyes** choice appears only then, and the head takes over while the eyes are lost.
-<!-- pending lane: accessibility round two (Eyes in the menu, dot size, hover texts, side-button clicks, radial dwell menu) -->
+- **Accessibility** (early): a new Accessibility tab in the cog and a matching section on the Settings page, with one **Pointer** control (Controller, Head, Eyes), **Dwell click** (0.6 to 1.5 s), a **Dot size** slider (50 to 300 % of the head and eye pointer's dot and its dwell ring), and a line at the bottom saying what the row under the pointer does. The flat window shows the same sentence as a tip on hover or gamepad focus. Nothing turns on by itself.
+- Whenever SteamVR offers eye tracking, the app asks for it, so **Eyes** works from the Accessibility tab without editing `config.ini`. On a Steam Frame, eye gaze reaches the app. The tab says whether gaze is arriving, Eyes is dimmed only when SteamVR does not offer eye tracking at all, and the head takes over while the eyes are lost.
+- **Headset button clicks** (off by default): with the head or eye pointer, the headset's side button clicks (twice for a double click, three times for a right click, hold to drag) instead of opening the Steam home, where the app is allowed to read the button. Hold it 3 seconds to give it back to SteamVR for 15 seconds.
+<!-- pending lane: radial dwell -->
 - A gamepad card hangs in your lap while a Bluetooth or USB gamepad is in use and lights up what you press on it (**Gamepad card in the headset**: Automatic, On, Off).
 
 ### The bar and menus
@@ -131,7 +132,7 @@
 
 ### Changed
 
-- The Settings page is tidied up. Rows that were filed under Performance Monitor or Gamepad move to where they belong (Scroll speed to Input; 3D eye balance to the 3D rows; Notices, Zoom, Background dim, Glow edge and Void colour to UI; the two disconnect rows and the controls card to General), the 3D switch, 3D source and depth model come before the rows they grey out, and a row that depends on another is greyed with the reason while that one is off.
+- The Settings page is tidied up. Rows that were filed under Performance Monitor or Gamepad move to where they belong (Scroll speed to Input; 3D eye balance to the 3D rows; Notices, Zoom, Background dim, Glow edge and Void colour to UI; the two disconnect rows and the controls card to General), the 3D switch, 3D source and depth model come before the rows they grey out, and a row that depends on another is greyed with the reason while that one is off. Head-look is **Head turns the game's camera (first-person games)** under Input, next to Mouse mode, and Back button as Guide is under Gamepad.
 - Settings page names follow the headset's cog where it has the same setting (**Sharpen**, **Supersample**, **Screen size**, **Remember per app**, **Angular-size lock**, **Head aim**, **Pointer sleep**, **Notices**, **Stats**, **3D depth**, **3D convergence** and more), in sentence case. **Head locked** (Off, On, Follow) and **Ray** (Off, Dot, Ray) are one row each, as in the cog, and Render Mode is the **3D** switch. Custom resolution is the **Custom...** entry of Video resolution. The rows that could never be used on the Frame are gone (HDR, Unlock all possible frame rates, the AV1 codec choice). Apollo-only rows say "Needs Apollo".
 - The headset remembers the PC's home address the first time it finds it and never removes a saved VPN address. Switching networks when video keeps breaking up never moves a stream from the home network to a VPN. Streams over a VPN are not counted in the per-link history.
 - The Display tab's Controller model row (Off, On) is now **Show controllers** (Off, Frame, Gun). When SteamVR's Frame models could not be converted, no controller is drawn instead of a plain one.
@@ -144,6 +145,7 @@
 - The ray and the controller model no longer flicker or jump when tracking drops for a moment: the last aim is held for up to 300 ms.
 - The controller bindings are offered to SteamVR under both names it gives the Frame controllers, the older one and the one SteamVR uses since 2.15.1.
 - A dwell click no longer repeats on the same spot every dwell time, and a dwell on an open menu no longer clicks the picture behind it.
+- Resting the dwell on a cell already in force no longer clicks it again every dwell time, and the headset's menus redraw on their own when only the hover changes.
 
 ## 1.0.1 (October 2026)
 
