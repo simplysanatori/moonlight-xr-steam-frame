@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Fri, 30 Oct 2026 03:23:02 +0000
+Subject: [PATCH] Open web pages through Steam's browser in Game Mode (Help
+ button)
+
+Moonlight XR Native (lane wave6-kofi). QDesktopServices may not reach a browser in Game Mode, so SystemProperties.openExternalUrl runs steam steam://openurl/<url> there (MlxrHandoff::openExternalUrl) and the Help button in hand-off mode uses it. Elsewhere it is the normal openUrl.
+---
+ app/backend/systemproperties.cpp | 5 +++++
+ app/backend/systemproperties.h   | 2 ++
+ app/gui/main.qml                 | 7 ++++---
+ 3 files changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/app/backend/systemproperties.cpp b/app/backend/systemproperties.cpp
+index 0836475..ed4a8a2 100644
+--- a/app/backend/systemproperties.cpp
++++ b/app/backend/systemproperties.cpp
+@@ -183,6 +183,11 @@ public:
+     SystemProperties* m_Me;
+ };
+ 
++void SystemProperties::openExternalUrl(const QString& url)
++{
++    MlxrHandoff::openExternalUrl(url);
++}
++
+ void SystemProperties::refreshDisplays()
+ {
+     if (WMUtils::isRunningX11() || WMUtils::isRunningWayland()) {
+diff --git a/app/backend/systemproperties.h b/app/backend/systemproperties.h
+index 5649d2b..7e7e190 100644
+--- a/app/backend/systemproperties.h
++++ b/app/backend/systemproperties.h
+@@ -30,6 +30,8 @@ public:
+     Q_PROPERTY(bool nativeVrHandoff MEMBER nativeVrHandoff CONSTANT)
+ 
+     Q_INVOKABLE void refreshDisplays();
++    // Moonlight XR Native: a web page for the headset's user (Steam's browser in Game Mode)
++    Q_INVOKABLE void openExternalUrl(const QString& url);
+     Q_INVOKABLE QRect getNativeResolution(int displayIndex);
+     Q_INVOKABLE QRect getSafeAreaResolution(int displayIndex);
+     Q_INVOKABLE int getRefreshRate(int displayIndex);
+diff --git a/app/gui/main.qml b/app/gui/main.qml
+index e08011f..8712a84 100644
+--- a/app/gui/main.qml
++++ b/app/gui/main.qml
+@@ -376,9 +376,10 @@ ApplicationWindow {
+                 // TODO need to make sure browser is brought to foreground.
+                 // Moonlight XR Native (lane launcher2): in hand-off mode the Help button opens this app's own
+                 // readme; the other help links stay stock
+-                onClicked: Qt.openUrlExternally(SystemProperties.nativeVrHandoff ?
+-                                                    "https://github.com/simplysanatori/moonlight-xr-steam-frame#readme" :
+-                                                    "https://github.com/moonlight-stream/moonlight-docs/wiki/Setup-Guide");
++                // (lane wave6-kofi): through Steam's browser in Game Mode, where Qt may not reach one
++                onClicked: SystemProperties.nativeVrHandoff ?
++                               SystemProperties.openExternalUrl("https://github.com/simplysanatori/moonlight-xr-steam-frame#readme") :
++                               Qt.openUrlExternally("https://github.com/moonlight-stream/moonlight-docs/wiki/Setup-Guide");
+ 
+                 Keys.onDownPressed: {
+                     stackView.currentItem.forceActiveFocus(Qt.TabFocus)
