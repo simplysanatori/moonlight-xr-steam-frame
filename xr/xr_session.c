@@ -813,55 +813,11 @@ static float sharpenFor(int mode) {
     return mode == 2 ? 0.8f : (mode == 1 ? 0.4f : 0.0f);
 }
 
-// One level's layout change, with the stages a blit chain needs
-static void mipBarrier(VkCommandBuffer cmd, VkImage image, uint32_t level, uint32_t count, VkImageLayout from,
-                       VkImageLayout to, VkAccessFlags srcAccess, VkAccessFlags dstAccess,
-                       VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
-    VkImageMemoryBarrier b = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-    b.srcAccessMask = srcAccess;
-    b.dstAccessMask = dstAccess;
-    b.oldLayout = from;
-    b.newLayout = to;
-    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.image = image;
-    b.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, level, count, 0, 1 };
-    vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, NULL, 0, NULL, 1, &b);
-}
-
 // Native: the curved (or 3D) picture's mip chain from the level the warp just
-// drew, each level a linear blit of the one above, all of it left for the
-// panel pass to sample. Native (lane eye-swapchains): one image of them, i. Every level is in COLOR_ATTACHMENT_OPTIMAL on entry
-// (the warp's barrier covers them all).
+// drew (mlxr_record_mips), all of it left for the panel pass to sample.
+// Native (lane eye-swapchains): one image of them, i.
 static void curveMips(VkCommandBuffer cmd, XrCurve* cv, int i) {
-    VkImage image = cv->pic[i].image;
-    const VkPipelineStageFlags COLOR = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    const VkPipelineStageFlags XFER = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    const VkPipelineStageFlags READ = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    mipBarrier(cmd, image, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-               VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, COLOR, XFER);
-    int w = cv->w, h = cv->h;
-    for (uint32_t m = 1; m < cv->mips; m++) {
-        int nw = w > 1 ? w / 2 : 1, nh = h > 1 ? h / 2 : 1;
-        // After the warp's own layout change of every level, before this write
-        mipBarrier(cmd, image, m, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                   0, VK_ACCESS_TRANSFER_WRITE_BIT, COLOR | XFER, XFER);
-        VkImageBlit blit;
-        memset(&blit, 0, sizeof(blit));
-        blit.srcSubresource = (VkImageSubresourceLayers){ VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1 };
-        blit.srcOffsets[1] = (VkOffset3D){ w, h, 1 };
-        blit.dstSubresource = (VkImageSubresourceLayers){ VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1 };
-        blit.dstOffsets[1] = (VkOffset3D){ nw, nh, 1 };
-        vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image,
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
-        mipBarrier(cmd, image, m, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, XFER, XFER);
-        w = nw;
-        h = nh;
-    }
-    mipBarrier(cmd, image, 0, cv->mips, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, XFER,
-               READ);
+    mlxr_record_mips(cmd, cv->pic[i].image, (uint32_t)cv->w, (uint32_t)cv->h, cv->mips);
 }
 
 // Records the warp of one picture into swapchain image idx (or the app's own
