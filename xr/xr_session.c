@@ -316,8 +316,11 @@ static void freeVideoSwapchain(XrCtx* ctx, Video* vd) {
 // Native (lane eye-swapchains): with a stereo mode SteamVR is never shown this
 // one (xrPictureProjected: the picture goes up through the curved picture's
 // projection layer, an image per eye), so its width past 3458 costs memory
-// but no downsampling.
-static int videoSwapchain(XrCtx* ctx, Video* vd, int pw, int h) {
+// but no downsampling. Native (PLAN 4.3): the picture is what one eye sees of
+// the decoded frame, fw x fh, which is half of a full size host-rendered pair.
+static int videoSwapchain(XrCtx* ctx, Video* vd, int fw, int fh) {
+    int pw, h;
+    xrDepthPictureSize(ctx, fw, fh, &pw, &h);
     int w = xrDepthChainWidth(ctx, pw);
     if (vd->swapchain && vd->width == w && vd->picW == pw && vd->height == h) {
         return 0;
@@ -752,7 +755,7 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         // layers' subImage per eye); flat, both eyes the one. Native (lane
         // eye-swapchains): an image per eye in 3D, so no seam to keep clear of
         // (the double wide image needed SEAM_INSET_TEXELS at each side).
-        int half = ctx->drawnEyes == 2 && cv->pics > 1 ? (eyeSwap ? 1 - e : e) : 0;
+        int half = ctx->drawnEyes == 2 && cv->pics > 1 ? sbsEyeHalf(e, eyeSwap) : 0;
         src[e] = cv->pic[half].view;
         pp.uvRect[e][0] = 0.0f;
         pp.uvRect[e][1] = 0.0f;
@@ -855,11 +858,12 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
         dd.eyes = curve->pics;
     }
     xrGpuTimeBegin(ctx, GPU_WARP);
-    // Eye 0's rect: the picture's size
+    // Eye 0's rect: the picture's size (native, PLAN 4.3: one eye's half of
+    // a full size host-rendered pair, else the frame's)
     MlxrTarget tg[ROOM_EYES];
     memset(tg, 0, sizeof(tg));
     for (int e = 0; e < ROOM_EYES; e++) {
-        tg[e].rect.extent = (VkExtent2D){ video->width, video->height };
+        tg[e].rect.extent = (VkExtent2D){ (uint32_t)vd->picW, (uint32_t)vd->height };
     }
     if (curve != NULL) {
         // The curved picture's own images, sampled afterwards by the panel pass
@@ -879,7 +883,7 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
         for (int e = 0; e < ROOM_EYES; e++) {
             tg[e].view = vd->views[idx];
             tg[e].format = (VkFormat)vd->format;
-            tg[e].rect.offset.x = e * (int32_t)video->width;
+            tg[e].rect.offset.x = e * (int32_t)vd->picW;
         }
     }
     MlxrWarpParams w;
@@ -1506,7 +1510,10 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
     if (streaming) {
         if (in[IN_HIT] != 0.0f && hk->pointer) {
             int w = ctx->videoWidth, hgt = ctx->videoHeight;
-            int x = (int)(in[IN_U] * (float)w), y = (int)(in[IN_V] * (float)hgt);
+            // Native (PLAN 4.3): on a host-rendered pair, onto the left eye's half
+            float pu = in[IN_U], pv = in[IN_V];
+            xrDepthPointerUv(ctx, &pu, &pv);
+            int x = (int)(pu * (float)w), y = (int)(pv * (float)hgt);
             x = x < 0 ? 0 : (x > w - 1 ? w - 1 : x);
             y = y < 0 ? 0 : (y > hgt - 1 ? hgt - 1 : y);
             if (x != h->lastX || y != h->lastY) {
