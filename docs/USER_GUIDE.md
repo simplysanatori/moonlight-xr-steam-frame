@@ -9,6 +9,7 @@ This guide covers version 1.1.0. For install, update and uninstall, see the [REA
 - [Settings page](#settings-page)
 - [In the headset: the bar](#in-the-headset-the-bar)
 - [The cog menu](#the-cog-menu)
+- [Accessibility](#accessibility)
 - [Controllers](#controllers)
 - [Moving and sizing the screen](#moving-and-sizing-the-screen)
 - [Zoom and pan](#zoom-and-pan)
@@ -174,8 +175,9 @@ When a stream starts, the profile of the app, or else of its PC, is in force for
 | Surround sound configuration | Stereo, 5.1 Surround Sound, 7.1 Surround Sound | Stereo |
 | Adjust analog stick deadzone | -20 to 20 % | 0 %. Above 0 it is also the dead zone of the Frame controllers in gamepad mode, which use 7 % at 0. |
 | Flip face buttons | on, off | off. Swaps A/B and X/Y. |
-| Back button as Guide | on, off | off. In the headset's gamepad mode the View (Back) button is Guide, see [Gamepad mode](#gamepad-mode). |
-| Mouse mode | Absolute, Relative | Absolute. See [Relative mouse](#relative-mouse). |
+| Back button as Guide (Accessibility) | on, off | off. In the headset's gamepad mode the View (Back) button is Guide, see [Gamepad mode](#gamepad-mode). |
+| Mouse mode (Accessibility) | Absolute, Relative | Absolute. See [Relative mouse](#relative-mouse). |
+| What points, Dwell click (Accessibility) | Controller, Head, Eyes; Off, 0.6, 0.9, 1.2, 1.5 s | Controller, Off. See [Accessibility](#accessibility). |
 | Headset keyboard layout | QWERTY (US), AZERTY (French), QWERTZ (German) | QWERTY. The PC must be on the same Windows layout, see [AZERTY and QWERTZ](#azerty-and-qwertz). |
 | Enable Rumble | on, off | on |
 | Enable forward/back mouse buttons | on, off | on |
@@ -307,7 +309,7 @@ It has no buttons. It goes by itself after 20 seconds, or the moment you open an
 
 ## The cog menu
 
-Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture**, **About**. A press outside the menu closes it. The cog opens on the tab you used last, and remembers it for the next session (`cog_tab` in `config.ini`).
+Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture**, **Accessibility** (see [Accessibility](#accessibility)), **About**. A press outside the menu closes it. The cog opens on the tab you used last, and remembers it for the next session (`cog_tab` in `config.ini`).
 
 ### Screen
 
@@ -395,6 +397,35 @@ The Stats row turns the overlay on and off. What it shows is `stats_style` in `c
 
 Over the cog the clock strip also shows the headset's battery (a cell, the percentage, a bolt while it charges; read every 30 seconds, nothing on a PC with no battery) and a **Slow connection** badge once the connection has been poor, or more than 1.5 % of frames lost, for 5 seconds on end. The badge goes when it has been fine for 5 seconds. The HUD line starts with `!` or says slow connection while it is up.
 
+## Accessibility
+
+For people who cannot use their hands, or can use them only a little. The cog's **Accessibility** tab, and the same rows under **Accessibility** on the flat window's Settings page, let the head (and, where SteamVR allows it, the eyes) point and click. Nothing here turns on by itself: each setting changes only when its row is pressed, by you or by the person helping you. Accessibility is early in this version: head pointing and the dwell click are done; the eyes depend on SteamVR (below).
+
+**For the person setting it up.** With a controller in hand, open the cog (the bar's cog button), go to **Accessibility**, press **Head** on the Pointer row, then a time on the **Dwell click** row (**0.9 s** is a good start; **0.6 s** once practised). From then on the controllers no longer point; the head does. On the flat window's Settings page the rows are **What points** and **Dwell click**; they take effect at the next stream. The tab's rows:
+
+| Row | Cells | What it does |
+| --- | --- | --- |
+| Pointer | Controller, Head, Eyes | What points. **Eyes** shows only once SteamVR has given the app eye gaze in this session (or when it is already the setting). `[vr] pointer_source` |
+| Dwell click | Off, 0.6 s, 0.9 s, 1.2 s, 1.5 s | Resting the dot this long on one spot clicks it. Greyed while the controllers point. `[vr] head_dwell_ms` |
+| Head-look | Off, On | The head's turn moves the PC's mouse, for first-person games, see [Head-look](#head-look-experimental). `[vr] head_look` |
+| Back as Guide | Off, On | Gamepad mode's View (Back) button is Guide, see [Gamepad mode](#gamepad-mode). `[vr] back_as_guide` |
+| Mouse mode | Absolute, Relative | Where the pointer is, or how far it moved, see [Relative mouse](#relative-mouse). `[vr] mouse_mode` |
+
+Under the rows a line says whether eye tracking reaches the app, and a few lines say how to use the tab.
+
+**For the person using it.** A dot sits in the middle of your view; turn your head to move it. Hold it still on a button, a cell of the cog or a spot on the picture, and a ring closes in on the dot: when it closes, that is a click (the left mouse button on the picture). To click the same spot again, look away and back. A controller's trigger, if someone is holding one, clicks too. The dwell never clicks beside an open menu, so a look away cannot close it.
+
+**Turning it off.** Open the cog's Accessibility tab and rest the dot on **Controller** (or press it with a trigger). Or set `pointer_source = controller` in `config.ini` (`~/.config/moonlight-xr/`), or **What points: Controller** on the flat window's Settings page.
+
+**Eyes.** With **Eyes** the dot follows your eyes while SteamVR gives eye gaze to the app, and your head while it does not: when the eyes are lost for more than 0.2 s (a long blink, the headset lifted) the head takes over, and the eyes take it back after 0.3 s. The status line on the tab says which it is:
+
+- **Eye tracking: available**: eye gaze reached the app this session; Eyes can be picked.
+- **Eye tracking: not asked for**: `gaze = true` (or `pointer_source = gaze`) is not in `config.ini`, so the app did not ask SteamVR for it. Set one and restart the stream.
+- **Eye tracking: offered, but no gaze has arrived yet**: SteamVR says it can, but nothing has come yet.
+- **Eye tracking: not available to apps yet**: SteamVR does not give eye gaze to this app.
+
+On the Frame, eye gaze has not reached the app in testing so far, so treat Eyes as a feature for when SteamVR provides it. What may help (reported by others, not confirmed by Valve): wear the headset; in SteamVR Settings > General turn **Eye Tracking** on and **Track Dominant Eye Only** off (show advanced settings if they are hidden); then restart the app. `moonlight.log` says once a session whether eye gaze arrived and, if not, what SteamVR answered (`eye gaze: ...`).
+
 ## Controllers
 
 The right Frame controller has A, B, X, Y and a menu button. The left one has a d-pad and a View button. Both have a trigger, a grip, a bumper and a thumbstick.
@@ -477,17 +508,17 @@ The gyro is in degrees per second about the controller's own axes, the way a Dua
 
 ### Head-look (experimental)
 
-`head_look = true` in `config.ini` (or **Head-look (experimental)** on the launcher's Settings page, under Input Settings) makes your head the mouse for first-person games, the way a game's look control works: turn your head right and the PC's mouse moves right, look up and it moves up. It is meant for games streamed in side by side 3D in a room, where the screen stays put and you look around inside the game. It only works in pointer mode, and only with the screen locked to your head (**Head locked**) or with a room up; a screen placed in the world without a room is left alone. The speed is `head_look_px_deg` (pixels a degree, 1 to 30, default 8; the launcher's **Head-look speed** row steps through it), and the dead zone is Head aim's (`head_aim_deadzone`, degrees a second: a slower drift sends nothing). It is 3DoF: only turning counts, not leaning. The ray keeps working on top: while head-look is on, moving the ray nudges the cursor by how far its point moves instead of placing it.
+`head_look = true` in `config.ini` (or **Head-look** on the cog's Accessibility tab, or **Head-look (experimental)** on the launcher's Settings page, under Accessibility) makes your head the mouse for first-person games, the way a game's look control works: turn your head right and the PC's mouse moves right, look up and it moves up. It is meant for games streamed in side by side 3D in a room, where the screen stays put and you look around inside the game. It only works in pointer mode, and only with the screen locked to your head (**Head locked**) or with a room up; a screen placed in the world without a room is left alone. The speed is `head_look_px_deg` (pixels a degree, 1 to 30, default 8; the launcher's **Head-look speed** row steps through it), and the dead zone is Head aim's (`head_aim_deadzone`, degrees a second: a slower drift sends nothing). It is 3DoF: only turning counts, not leaning. The ray keeps working on top: while head-look is on, moving the ray nudges the cursor by how far its point moves instead of placing it.
 
 To turn back without turning the game, hold a **grip** (either one, as long as it is bound to nothing, which it is by default in pointer mode) and turn your head; let go and it carries on from there, like lifting a mouse off the desk. Any other control can be the pause too: bind it to `app:lookhold` in `bindings.ini`. A panel opening (cog, keyboard, Host sheet) also pauses it. Head aim (the bar's button and the Display tab's row) wins where both could act, so with the screen head locked and Head aim on, Head aim's speed is used; in a room Head aim cannot act and head-look takes over. `moonlight.log` says `head-look on`, `head-look paused while its hold is down` and how far it moved the mouse every few seconds.
 
 ### Relative mouse
 
-`mouse_mode = relative` in `config.ini` (or **Mouse mode** on the launcher's Settings page, under Input Settings) sends how far the pointer moves on the picture instead of where it is, the way a real mouse does. Use it for games that capture the mouse and ignore its position: first-person games, and games whose cursor jumps or sticks to an edge with the default. Moving the ray across the picture moves the PC's mouse by the same number of stream pixels; the dot still shows where the ray lands, but the game's own cursor (if it draws one) goes its own way. Taking the ray off the picture and back somewhere else does not throw the mouse. `absolute` (the default) puts the PC's cursor where the ray lands, Moonlight's remote desktop mouse, which is what desktops and menus want. Head aim and head-look already move the mouse this way while they are on.
+`mouse_mode = relative` in `config.ini` (or **Mouse mode** on the cog's Accessibility tab or on the launcher's Settings page, under Accessibility) sends how far the pointer moves on the picture instead of where it is, the way a real mouse does. Use it for games that capture the mouse and ignore its position: first-person games, and games whose cursor jumps or sticks to an edge with the default. Moving the ray across the picture moves the PC's mouse by the same number of stream pixels; the dot still shows where the ray lands, but the game's own cursor (if it draws one) goes its own way. Taking the ray off the picture and back somewhere else does not throw the mouse. `absolute` (the default) puts the PC's cursor where the ray lands, Moonlight's remote desktop mouse, which is what desktops and menus want. Head aim and head-look already move the mouse this way while they are on.
 
 ### Pointing with your head
 
-`pointer_source = head` in `config.ini` (or **What points** on the launcher's Settings page, under Input Settings) points with the middle of your view instead of a controller, for when holding a controller up is hard. A dot shows where you point (the beam would run out of your face, so there is none), smoothed so a still head holds it still; the PC's cursor follows it. Either controller's trigger clicks, on the picture and on the headset's own menus. With `head_dwell_ms` set (400 to 2000; 0, the default, is off), resting the dot on one spot for that long clicks it: a square ring closes in on the dot while it counts, and moving it more than about a degree starts the count again. After a click, move the dot away and back to click again. Dwell never clicks the move pill, the corners or the keyboard's bar (a press there would grab them). Gamepad mode is unchanged. `pointer_source = gaze` is the eye-gaze pointer, the same as `gaze = true`.
+`pointer_source = head` in `config.ini` (or **Pointer: Head** on the cog's [Accessibility](#accessibility) tab, or **What points** on the launcher's Settings page, under Accessibility) points with the middle of your view instead of a controller, for when holding a controller up is hard. A dot shows where you point (the beam would run out of your face, so there is none), smoothed so a still head holds it still; the PC's cursor follows it. Either controller's trigger clicks, on the picture and on the headset's own menus. With `head_dwell_ms` set (400 to 2000; 0, the default, is off), resting the dot on one spot for that long clicks it: a square ring closes in on the dot while it counts, and moving it more than about a degree starts the count again. After a click, move the dot away and back to click again. Dwell never clicks the move pill, the corners or the keyboard's bar (a press there would grab them), and never lands beside an open menu (a press there would close it). Gamepad mode is unchanged. `pointer_source = gaze` is the Accessibility tab's **Eyes**: the same, with the dot following your eyes while SteamVR gives eye tracking to apps, and your head while it does not.
 
 ### Head tracking for PC games (opentrack)
 
@@ -888,8 +919,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] opentrack` | `true`, `false`. While streaming, the head pose goes to opentrack on the PC every frame. See [Head tracking for PC games](#head-tracking-for-pc-games-opentrack); the launcher has it too. | `false` |
 | `[vr] opentrack_host` | An address or a name | Empty: the PC you are streaming from. |
 | `[vr] opentrack_port` | 1 to 65535 | 4242, opentrack's UDP over network default. |
-| `[vr] pointer_source` | `controller`, `head`, `gaze`. What points. See [Pointing with your head](#pointing-with-your-head). | `controller` |
-| `[vr] head_dwell_ms` | 0, or 400 to 2000 | 0 (off). With `pointer_source = head`, resting the dot this long clicks. |
+| `[vr] pointer_source` | `controller`, `head`, `gaze`. What points; `gaze` is the Accessibility tab's Eyes and asks SteamVR for eye tracking, as `gaze = true` does. See [Accessibility](#accessibility). | `controller` |
+| `[vr] head_dwell_ms` | 0, or 400 to 2000 | 0 (off). With `pointer_source = head` or `gaze`, resting the dot this long clicks. The Accessibility tab offers 600, 900, 1200 and 1500. |
 | `[vr] mouse_mode` | `absolute`, `relative`. Where the ray lands, or how far it moves. See [Relative mouse](#relative-mouse); the launcher has it too. | `absolute` |
 | `[vr] back_as_guide` | `true`, `false`. Gamepad mode's View (Back) button is Guide, except with Start held. The launcher has it too. | `false` |
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |

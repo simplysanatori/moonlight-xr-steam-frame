@@ -80,7 +80,10 @@ int main(int argc, char** argv) {
     shot(s, "03b-bar-here-hover", NULL);
     scene_reset(s);
 
-    static const char* const TABS[COG_TAB_COUNT] = { "screen", "display", "3d", "picture", "about" };
+    // Native (lane a11y-tab): the golden names the tabs had before Accessibility came in before
+    // About stay, and Accessibility's sits between Picture's and About's
+    static const char* const TABS[COG_TAB_COUNT] = { "04-cog-screen", "05-cog-display", "06-cog-3d", "07-cog-picture",
+                                                     "07b-cog-accessibility", "08-cog-about" };
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
         scene_reset(s);
         c->cogOpen = 1;
@@ -97,10 +100,17 @@ int main(int argc, char** argv) {
         else if (tab == COG_TAB_PICTURE) {
             c->cogHoverSlider = PICTURE_CONTRAST;
         }
+        else if (tab == COG_TAB_ACCESS) {
+            // the head pointing with a dwell (as config.ini holds it), the Head cell under the ray
+            s->settings.pointer_source = POINTER_SOURCE_HEAD;
+            s->settings.head_dwell_ms = 900;
+            c->cogHoverSlider = COG_ACCESS_ROW_POINTER;
+            c->cogHoverCell = 1;
+        }
         scene_ray_to(s, hand(), panelPoint(c->cogPose, c->cogW, c->cogH, 0.7f, 0.55f));
-        char name[64];
-        snprintf(name, sizeof(name), "%02d-cog-%s", 4 + tab, TABS[tab]);
-        shot(s, name, NULL);
+        shot(s, TABS[tab], NULL);
+        s->settings.pointer_source = POINTER_SOURCE_CONTROLLER;
+        s->settings.head_dwell_ms = 0;
     }
 
     // Native (lane wave3-hud): the clock strip over the cog with the headset's battery (charging) and the

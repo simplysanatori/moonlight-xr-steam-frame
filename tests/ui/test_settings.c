@@ -480,6 +480,14 @@ static void test_cog_tab(void) {
     CHECK(s.cog_tab == COG_TAB_PICTURE);
     settings_from_text(&s, "[display]\ncog_tab = about\n", &info);
     CHECK(s.cog_tab == COG_TAB_ABOUT);
+    // native (lane a11y-tab): the Accessibility tab, kept by name like the others
+    settings_from_text(&s, "[display]\ncog_tab = accessibility\n", &info);
+    CHECK(s.cog_tab == COG_TAB_ACCESS && info.bad == 0);
+    {
+        char* t = settings_to_text(&s);
+        CHECK(t != NULL && strstr(t, "\ncog_tab = accessibility\n") != NULL);
+        free(t);
+    }
     settings_from_text(&s, "[display]\ncog_tab = 1\n", &info);   // an index works too
     CHECK(s.cog_tab == COG_TAB_DISPLAY);
     settings_from_text(&s, "[display]\ncog_tab = sound\n", &info);   // not a tab: the last good one stays
