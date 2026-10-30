@@ -1178,6 +1178,20 @@ PY
     s="$(grep 'MLXR_SETTINGS_SEARCH: text=""' "$t/srch2.out")"
     expect "search: cleared, every section is back" "$s" "sections=Connection|Stream profiles|Video Settings|Audio Settings"
     expect "search: cleared, the last section too" "$s" "|MISC"
+    # lane polish-3: the Video bitrate slider is in Connection, right above the per-connection rows whose
+    # "Same as above" it is, and no longer under Video Settings
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='setSearch:bitrate;setSearch:video settings' \
+        MLXR_LAUNCHER_SCREENSHOT="$t/srch3.png@3000" "$L" >"$t/srch3.out" 2>&1
+    uiout "$t/srch3.out" "settings search 3"
+    s="$(grep 'MLXR_SETTINGS_SEARCH: text="bitrate"' "$t/srch3.out")"
+    expect "Video bitrate: first of the bitrate rows, right above the per-connection ones" "$s" \
+        "titles=Video bitrate|Bitrate over Wi-Fi|Bitrate over the Steam Frame Wireless Adapter|Bitrate over a wired network|Bitrate over the USB cable"
+    expect "Video bitrate: under the Connection heading" "$s" "sections=Connection|"
+    [ "$(echo "$s" | grep -o 'Video bitrate' | wc -l)" = 1 ] && ok "Video bitrate: one slider, not two" || fail "Video bitrate twice: $s"
+    s="$(grep 'MLXR_SETTINGS_SEARCH: text="video settings"' "$t/srch3.out")"
+    expect "search: Video Settings still finds its rows" "$s" "Video resolution|Refresh rate"
+    refute "Video bitrate: no longer under Video Settings" "$s" "Video bitrate"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=jump_audio \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-jump.png@3000" "$L" >"$t/jump.out" 2>&1
     grep -q "no clickable" "$t/jump.out" && fail "jump list: $(grep 'no clickable' "$t/jump.out")"
