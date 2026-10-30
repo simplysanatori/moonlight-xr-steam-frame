@@ -230,6 +230,7 @@ The bar sits under the screen and shows its buttons only while the ray is over i
 | Button | What it does |
 | --- | --- |
 | Head aim | Only shown with Head locked on and outside a room. Your head moves the mouse. |
+| Bring here | In the same place as Head aim, shown when Head aim is not: with the screen in the room (Head locked off) and outside a room. Brings the screen round to where you are looking, at the same size and distance, like the Screen tab's **Bring here**. You are looking at the bar when you press it, so the screen comes round with its bar where your eyes are and keeps its height; a second press leaves it where it is. No toast: the screen moving is the sign. |
 | Gamepad / Pointer | Switches the controllers between pointer mode and gamepad mode. |
 | Exit | Asks "Exit the stream?" with three choices. **Quit app** quits the app on the PC and ends the stream. **Disconnect** ends the stream and leaves the app running on the PC (use **Resume Game** in the flat window to go back). **Cancel** closes the question. |
 | Environment | Opens the Rooms picker. |
@@ -244,7 +245,7 @@ The bar sits under the screen and shows its buttons only while the ray is over i
 
 The bar is not drawn all the time. Its buttons and the move pill appear only while the ray is over the strip under the picture, and they go again when it leaves. That keeps the picture clear, but it means you have to point at the strip before the bar is there.
 
-- Point either controller just below the picture. The buttons appear, the one under the ray grows a little, and a press lands on it.
+- Point either controller just below the picture. The buttons appear, the one under the ray grows a little, and a press lands on it. The whole row counts as the bar, gaps and all, so the buttons stay up while the ray moves along it and the pointer stays with that controller even when the other one is pointing at the picture.
 - With **Ray** on Off (no beam and no dot), a faint beam shows only while the controller points into that strip, so the bar can still be found. Anywhere else nothing extra is drawn. With a menu open the beam comes back anyway.
 - In gamepad mode the controllers are not pointers, so there is nothing to point at the bar with: switch back to pointer mode first (see [Switching between the modes](#switching-between-the-modes)).
 - Everything on the bar can also go on a controller button without the bar: `app:cog`, `app:keyboard`, `app:gamepad`, `app:host`, `app:3d`, `app:ray`, `app:recentre` and `app:bringhere` in `bindings.ini` ([Changing the buttons](#changing-the-buttons)).
@@ -556,7 +557,7 @@ The cog's **Display** tab has the controller rows together: **Mode**, **Show con
 
 | Row | What it does |
 | --- | --- |
-| Show controllers | **Off** (the default) draws no controller in the headset. The other cells draw one in each hand: **Frame** is the Steam Frame controller itself (the installer converts SteamVR's own models on your Frame, so they match the real controllers and move with your buttons and sticks; Valve's models are never in the download; if the conversion failed you get the generic controller instead), **Generic** is a plain Touch-style controller that is always available, and **Gun** is a pistol held like a light gun: it is drawn at the ray, with the barrel pointing along it and the muzzle where the dot is, and its trigger moves as you pull yours. Controllers are hidden in passthrough. The choice takes effect at once and is kept for the next session. |
+| Show controllers | **Off** (the default) draws no controller in the headset. The other cells draw one in each hand: **Frame** is the Steam Frame controller itself (the installer converts SteamVR's own models on your Frame, so they match the real controllers and move with your buttons and sticks; Valve's models are never in the download; if the conversion failed you get the generic controller instead), **Generic** is a plain Touch-style controller that is always available, and **Gun** is a Glock 17 with a weapon light, held like a light gun: it is drawn at the ray, with the barrel pointing along it and the muzzle where the dot is, and its trigger moves as you pull yours (the model is by 8sianDude, CC BY 4.0; a `gun_left.model` and `gun_right.model` of your own in `~/.config/moonlight-xr/models/` are drawn instead, see [Custom controller models](CUSTOM_MODELS.md#the-gun-model)). Controllers are hidden in passthrough. The choice takes effect at once and is kept for the next session. |
 | Mode | Pointer or Gamepad. Every session starts in pointer mode. |
 | Ray | Off, Dot or Ray: how the pointer shows. |
 
