@@ -26,6 +26,15 @@
 #define SETTING_CLICK_STEADY 30
 // Native (PLAN 4.3): the 3D tab's 3D source, STEREO_SOURCE_DEPTH 0, SBS 1 or TB 2
 #define SETTING_STEREO_SOURCE 31
+// Native (lane wave3-tidy): the 3D tab's depth model rows, each the value its
+// config.ini key is stored in: Edge ([3d] edge_sharpness, 0..100), Depth
+// detail (depth_scale), Depth shape (depth_global), Motion reset
+// (motion_reset) and Eye balance (eye_balance, -100..100)
+#define SETTING_EDGE 32
+#define SETTING_DEPTH_DETAIL 33
+#define SETTING_DEPTH_SHAPE 34
+#define SETTING_MOTION_RESET 35
+#define SETTING_EYE_BALANCE 36
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 

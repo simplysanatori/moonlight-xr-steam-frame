@@ -53,7 +53,9 @@ for s in 192.168.1.10 10.35.50 100.64.0.5 203.0.113.50 10.0.0.5 fe80::1c2d 2001:
     grep -qF -- "$s" "$t/all.txt" && { echo "not masked: $s"; fail=1; }
 done
 hn="$(hostname 2>/dev/null)"
-case "$hn" in ''|frame|steamdeck|steamframe|localhost) ;; *) grep -qiF -- "$hn" "$t/all.txt" && { echo "host name present: $hn"; fail=1; };; esac
+# As a whole word in any case, the way the script masks it (a host named vm is not in "LLVM"), and not
+# for names of two characters or fewer, which the script leaves alone because they are common
+case "$hn" in ''|??|?|frame|steamdeck|steamframe|localhost) ;; *) grep -qiFw -- "$hn" "$t/all.txt" && { echo "host name present: $hn"; fail=1; };; esac
 grep -qw -- "$USERNAME" "$t/all.txt" && { echo "user name present: $USERNAME"; fail=1; }
 grep -qE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' "$t/all.txt" && { echo "a MAC-like string is left"; fail=1; }
 grep -qE '\b[0-9]{1,3}(\.[0-9]{1,3}){3}\b' <(grep -v -e '^== ' -e 'GfeVersion' -e 'app version' -e '^moonlight-xr-steam-frame' "$t/all.txt") && { echo "an IPv4-like string is left"; fail=1; }

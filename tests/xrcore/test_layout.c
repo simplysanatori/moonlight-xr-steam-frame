@@ -561,12 +561,22 @@ static void testTheRowsFit(void) {
     // keeps the size its thumbs always had
     CHECK(cogThumbSize(COG_TAB_SCREEN) < COG_SCREEN_ROW_STEP);
     CHECK_NEAR(cogThumbSize(COG_TAB_DISPLAY), 0.085, 1e-6);
-    CHECK_NEAR(cogThumbSize(COG_TAB_3D), 0.085, 1e-6);
     CHECK_NEAR(cogThumbSize(COG_TAB_COUNT), 0.085, 1e-6);
-    // The other tabs keep the rows they always had
-    CHECK_NEAR(cogRowV(COG_TAB_3D, 3), COG_ROW_V0 + 3 * COG_ROW_STEP, 1e-6);
+    // The 3D tab's ten rows (the depth model's five under the source row) sit
+    // as the Screen tab's do: closer, shallower cells, smaller thumbs, and the
+    // last row's band ends clear of the reset button
+    CHECK_NEAR(cogRowV(COG_TAB_3D, 0), COG_3D_ROW_V0, 1e-6);
+    CHECK_NEAR(cogRowV(COG_TAB_3D, 3), COG_3D_ROW_V0 + 3 * COG_3D_ROW_STEP, 1e-6);
+    CHECK_NEAR(cogRowV(COG_TAB_3D, COG_ROW3D_BALANCE), 0.7625, 1e-5);
+    CHECK(cogRowV(COG_TAB_3D, COG_ROW3D_COUNT - 1) + cogRowHalf(COG_TAB_3D) < COG_RESET_T);
+    CHECK_NEAR(cogRowHalf(COG_TAB_3D), COG_3D_ROW_HALF, 1e-6);
+    CHECK_NEAR(cogCellHalf(COG_TAB_3D), COG_3D_CELL_HALF, 1e-6);
+    CHECK_NEAR(cogThumbSize(COG_TAB_3D), 0.06, 1e-6);
+    CHECK(cogThumbSize(COG_TAB_3D) < COG_3D_ROW_STEP);
+    CHECK(COG_ROW3D_COUNT <= COG_DISPLAY_SLIDER_ROW + 1);
+    // The other faces keep the rows they always had
     CHECK_NEAR(cogRowV(COG_TAB_COUNT, 2), COG_ROW_V0 + 2 * COG_ROW_STEP, 1e-6);
-    CHECK_NEAR(cogCellHalf(COG_TAB_3D), COG_CELL_HALF, 1e-6);
+    CHECK_NEAR(cogCellHalf(COG_TAB_COUNT), COG_CELL_HALF, 1e-6);
     // The Picture tab is the fourth, with the screen tab's spacing, and its
     // last row's band ends well clear of the reset button
     CHECK(COG_TAB_PICTURE == 3 && COG_TAB_ABOUT == 4 && COG_TAB_COUNT == 5);
@@ -684,6 +694,28 @@ static void testEveryTrackHasItsSteps(void) {
     CHECK(cogTrackSteps(COG_TAB_3D, COG_ROW3D_SEPARATION) == COG_SEP_STEPS);
     CHECK(cogTrackSteps(COG_TAB_3D, COG_ROW3D_CONVERGENCE) == 100);
     CHECK(cogTrackSteps(COG_TAB_3D, COG_ROW3D_PRESET) == 0);
+    CHECK(cogTrackSteps(COG_TAB_3D, COG_ROW3D_SWITCH) == 0 && cogTrackSteps(COG_TAB_3D, COG_ROW3D_SOURCE) == 0);
+    // The depth model's five: Edge in 25s, Depth detail and Depth shape in
+    // 10s, Motion reset in 5s, Eye balance in 10s, each landing on whole units
+    CHECK(cogTrackSteps(COG_TAB_3D, COG_ROW3D_EDGE) == 4);
+    CHECK(cogTrackSteps(COG_TAB_3D, COG_ROW3D_DETAIL) == 20 && cogTrackSteps(COG_TAB_3D, COG_ROW3D_SHAPE) == 20);
+    CHECK(cogTrackSteps(COG_TAB_3D, COG_ROW3D_MOTION) == 10);
+    CHECK(cogTrackSteps(COG_TAB_3D, COG_ROW3D_BALANCE) == 20);
+    CHECK(laneUnits(0.25f, EDGE_SHARPNESS_MIN, EDGE_SHARPNESS_MAX) == 25);
+    CHECK(laneUnits(0.5f, DEPTH_SCALE_MIN, DEPTH_SCALE_MAX) == DEPTH_SCALE_DEFAULT);
+    CHECK(laneUnits(0.5f, EYE_BALANCE_MIN, EYE_BALANCE_MAX) == EYE_BALANCE_DEFAULT);
+    CHECK(cogTrackSteps(COG_TAB_3D, COG_ROW3D_COUNT) == 0);
+    // Source SBS or Top-bottom: the five are depth-model rows and dim with the
+    // preset and the depth track; the source, convergence and switch stay
+    for (int source = 0; source < STEREO_SOURCE_COUNT; source++) {
+        for (int row = 0; row < COG_ROW3D_COUNT; row++) {
+            int host = source != STEREO_SOURCE_DEPTH;
+            int live = row == COG_ROW3D_SOURCE
+                    || (!host) || row == COG_ROW3D_CONVERGENCE || row == COG_ROW3D_SWITCH;
+            CHECK(cog3dRowLive(1, source, row) == live);
+            CHECK(cog3dRowLive(0, source, row) == (row == COG_ROW3D_SOURCE));
+        }
+    }
     CHECK(cogTrackSteps(COG_TAB_COUNT, COG_ROOM_ROW_GLOW) == 0);
     CHECK(cogTrackSteps(COG_TAB_COUNT, COG_ROOM_ROW_SIZE) == 75);
     // The About tab sits just before the Room tab's number and has no tracks,

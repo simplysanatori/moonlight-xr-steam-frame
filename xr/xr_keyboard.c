@@ -6,12 +6,18 @@
 #include "panels.h"
 #include "xr_host.h"
 
+// The keyboard types characters into a field of ours (the report sheet's note, or the Host sheet's
+// "Send text to PC"): Compact, QWERTY, and nothing of it goes to the host as keys
+static int textEntry(XrCtx* ctx) {
+    return ctx->reportOpen || ctx->hostCompose.active;
+}
+
 int xrKeyboardLayout(XrCtx* ctx) {
-    return ctx->reportOpen ? KB_LAYOUT_COMPACT : ctx->kbLayout;
+    return textEntry(ctx) ? KB_LAYOUT_COMPACT : ctx->kbLayout;
 }
 
 int xrKeyboardMap(XrCtx* ctx) {
-    return ctx->reportOpen || ctx->kbMap < 0 || ctx->kbMap >= KB_MAP_COUNT ? KB_MAP_QWERTY : ctx->kbMap;
+    return textEntry(ctx) || ctx->kbMap < 0 || ctx->kbMap >= KB_MAP_COUNT ? KB_MAP_QWERTY : ctx->kbMap;
 }
 
 void xrKeyboardFillTables(XrCtx* ctx) {
@@ -42,14 +48,14 @@ void xrKeyboardFillTables(XrCtx* ctx) {
         }
         // The chip beside the home row is hit-tested past the keys (kbKeyAt);
         // the report sheet has no use for it
-        if (!ctx->reportOpen) {
+        if (!textEntry(ctx)) {
             ui_kb_layout_chip_rect(&ctx->kbKeyRects[KB_KEY_LAYOUT * 4]);
             for (int sheet = 0; sheet < KB_STATE_COUNT; sheet++) {
                 ctx->kbCodes[sheet][KB_KEY_LAYOUT] = KB_CODE_LAYOUT;
             }
         }
     }
-    ctx->kbLayoutShown = layout | (ctx->reportOpen ? 2 : 0) | (map << 2);
+    ctx->kbLayoutShown = layout | (textEntry(ctx) ? 2 : 0) | (map << 2);
 }
 
 // A key event into the key slot, if it is free. Returns 1 if it went.
@@ -79,7 +85,7 @@ static void letGoOfAll(XrCtx* ctx, float* out) {
 }
 
 void xrKeyboardSync(XrCtx* ctx, float* out) {
-    int layout = xrKeyboardLayout(ctx) | (ctx->reportOpen ? 2 : 0) | (xrKeyboardMap(ctx) << 2);
+    int layout = xrKeyboardLayout(ctx) | (textEntry(ctx) ? 2 : 0) | (xrKeyboardMap(ctx) << 2);
     if (layout == ctx->kbLayoutShown) {
         return;
     }

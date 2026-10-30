@@ -401,7 +401,10 @@ void panel_keyboard(Dc* dc) {
             dc_line(dc, x0 + 12.0f, y1 - 9.0f, x1 - 12.0f, y1 - 9.0f, 4.0f, ink);
             dc_fill_circle(dc, x1 - 10.0f, y0 + 10.0f, 4.0f, ink);
         }
-        if (code == 32 && v->kb_chord) {
+        if (code == 32 && v->kb_compose) {
+            // Send text to PC: the end of what is typed, or what to do
+            keyPill(dc, x0, y0, y1, v->kb_compose_text[0] ? v->kb_compose_text : ui_str(UIS_HOST_COMPOSE_PROMPT));
+        } else if (code == 32 && v->kb_chord) {
             // Send keys is waiting for a combo: what it has so far
             char said[64];
             chordText(v, said, sizeof said);
