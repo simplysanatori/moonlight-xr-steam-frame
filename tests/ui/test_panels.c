@@ -867,8 +867,185 @@ static void test_host_sheet(void) {
     free(g.base);
 }
 
+// Pixels that differ between two drawings of one panel, and the box they lie in
+static long diff_box(const Guarded* a, const Guarded* b, int box[4]) {
+    long n = 0;
+    box[0] = a->w;
+    box[1] = a->h;
+    box[2] = -1;
+    box[3] = -1;
+    for (int y = 0; y < a->h; y++) {
+        for (int x = 0; x < a->w; x++) {
+            const uint8_t* p = a->px + ((size_t)y * a->w + x) * 4;
+            const uint8_t* q = b->px + ((size_t)y * a->w + x) * 4;
+            if (memcmp(p, q, 4) != 0) {
+                n++;
+                if (x < box[0]) box[0] = x;
+                if (y < box[1]) box[1] = y;
+                if (x > box[2]) box[2] = x;
+                if (y > box[3]) box[3] = y;
+            }
+        }
+    }
+    return n;
+}
+
+// One drawing of the pad card with the pad as given, compared with another
+static long pad_diff(const PadLive* base, const PadLive* other, int box[4]) {
+    Settings s;
+    settings_defaults(&s);
+    UiView v;
+    ui_view_init(&v, &s);
+    Guarded a, b;
+    v.pad = *base;
+    draw(UI_PANEL_PADCARD, &v, 1.0f, &a);
+    v.pad = *other;
+    draw(UI_PANEL_PADCARD, &v, 1.0f, &b);
+    CHECK(guard_ok(&a) && guard_ok(&b));
+    long n = diff_box(&a, &b, box);
+    free(a.base);
+    free(b.base);
+    return n;
+}
+
+static int box_within(const int box[4], float cx, float cy, float rx, float ry) {
+    return box[2] >= box[0] && box[0] >= (int)(cx - rx) && box[2] <= (int)(cx + rx) && box[1] >= (int)(cy - ry) &&
+           box[3] <= (int)(cy + ry);
+}
+
+// The first-run card (PLAN 3.9) and the pad card (PLAN 2b.6)
+static void test_cards(void) {
+    Settings s;
+    settings_defaults(&s);
+    UiView v;
+    ui_view_init(&v, &s);
+    CHECK(UI_PANEL_FIRSTRUN < UI_PANEL_COUNT && UI_PANEL_PADCARD < UI_PANEL_COUNT);
+    int w, h;
+    ui_panel_native_size(UI_PANEL_FIRSTRUN, &w, &h);
+    CHECK(w == FIRSTRUN_TEX_W && h == FIRSTRUN_TEX_H);
+    ui_panel_native_size(UI_PANEL_PADCARD, &w, &h);
+    CHECK(w == PADCARD_TEX_W && h == PADCARD_TEX_H);
+    CHECK(strcmp(ui_panel_name(UI_PANEL_FIRSTRUN), "firstrun") == 0 && strcmp(ui_panel_name(UI_PANEL_PADCARD), "padcard") == 0);
+
+    // the first-run card has nothing to press, and words the shortcut and the pad's Start button
+    Guarded a, b;
+    int box[4];
+    draw(UI_PANEL_FIRSTRUN, &v, 1.0f, &a);
+    CHECK(guard_ok(&a) && hits.count == 0 && ink_pixels(&a) > a.w * a.h / 3 && premultiplied_ok(&a));
+    CHECK(a.px[3] == 0);   // a rounded sheet
+    Settings sticks = s;
+    sticks.gamepad_toggle = PAD_SHORTCUT_STICKS;
+    UiView vs;
+    ui_view_init(&vs, &sticks);
+    draw(UI_PANEL_FIRSTRUN, &vs, 1.0f, &b);
+    long n = diff_box(&a, &b, box);
+    float rowTop = 112.0f + 3 * 56.0f;   // the Gamepad row, the fourth
+    CHECK(n > 0 && box[1] >= (int)rowTop && box[3] <= (int)(rowTop + 56.0f));
+    free(b.base);
+    sticks.gamepad_toggle = PAD_SHORTCUT_TRIGGERS_GRIPS;
+    ui_view_init(&vs, &sticks);
+    draw(UI_PANEL_FIRSTRUN, &vs, 1.0f, &b);
+    CHECK(diff_box(&a, &b, box) > 0);
+    free(b.base);
+    ui_view_init(&vs, &s);
+    vs.pad.style = PADSTYLE_PLAYSTATION;
+    draw(UI_PANEL_FIRSTRUN, &vs, 1.0f, &b);
+    n = diff_box(&a, &b, box);
+    float lastTop = 112.0f + 6 * 56.0f;   // the pad-as-mouse row, the last
+    CHECK(n > 0 && box[1] >= (int)lastTop && box[3] <= (int)(lastTop + 56.0f));
+    free(b.base);
+    free(a.base);
+    CHECK(strcmp(ui_pad_start_name(PADSTYLE_XBOX), "Menu") == 0 && strcmp(ui_pad_start_name(PADSTYLE_PLAYSTATION), "Options") == 0 &&
+          strcmp(ui_pad_start_name(PADSTYLE_NINTENDO), "+") == 0 && strcmp(ui_pad_start_name(PADSTYLE_GENERIC), "Start") == 0);
+
+    // the pad card: every style draws inside its buffer at every scale, with nothing to press
+    for (int st = 0; st < PADSTYLE_COUNT; st++) {
+        v.pad.style = st;
+        static const float SC[] = { 0.5f, 1.0f, 1.7f };
+        for (size_t k = 0; k < sizeof SC / sizeof SC[0]; k++) {
+            draw(UI_PANEL_PADCARD, &v, SC[k], &a);
+            CHECK(guard_ok(&a) && hits.count == 0 && ink_pixels(&a) > a.w * a.h / 3 && premultiplied_ok(&a));
+            free(a.base);
+        }
+    }
+    // each style differs from the others
+    for (int st = 0; st < PADSTYLE_COUNT; st++) {
+        PadLive p1, p2;
+        memset(&p1, 0, sizeof p1);
+        p2 = p1;
+        p1.style = st;
+        p2.style = (st + 1) % PADSTYLE_COUNT;
+        CHECK(pad_diff(&p1, &p2, box) > 100);
+    }
+    // a button lit: only that button changes (compared with another button already lit, so the idle
+    // hint line is gone from both)
+    static const struct { int style; float ax, ay, sx, sy; } AT[PADSTYLE_COUNT] = {
+        { PADSTYLE_XBOX, 546.0f, 232.0f, 222.0f, 196.0f },
+        { PADSTYLE_PLAYSTATION, 546.0f, 232.0f, 306.0f, 282.0f },
+        { PADSTYLE_NINTENDO, 546.0f, 232.0f, 222.0f, 196.0f },
+        { PADSTYLE_STEAM, 546.0f, 222.0f, 222.0f, 188.0f },
+        { PADSTYLE_GENERIC, 546.0f, 232.0f, 222.0f, 196.0f },
+    };
+    for (int st = 0; st < PADSTYLE_COUNT; st++) {
+        PadLive off, on;
+        memset(&off, 0, sizeof off);
+        off.style = st;
+        off.buttons = PAD_START;
+        on = off;
+        on.buttons = PAD_START | PAD_A;
+        CHECK(pad_diff(&off, &on, box) > 50);
+        CHECK(box_within(box, AT[st].ax, AT[st].ay, 26.0f, 26.0f));
+        // a stick pulled left moves its cap and lights its ring
+        on = off;
+        on.lx = -30000;
+        CHECK(pad_diff(&off, &on, box) > 50);
+        CHECK(box_within(box, AT[st].sx, AT[st].sy, 46.0f, 46.0f));
+        // a trigger pulled fills its bar; the bumper lights its own
+        on = off;
+        on.lt = 255;
+        CHECK(pad_diff(&off, &on, box) > 50);
+        CHECK(box_within(box, 201.0f, 93.0f, 54.0f, 14.0f));
+        on = off;
+        on.buttons |= PAD_RB;
+        CHECK(pad_diff(&off, &on, box) > 50);
+        CHECK(box_within(box, 567.0f, 119.0f, 64.0f, 12.0f));
+        // gyro lights its mark in the header
+        on = off;
+        on.gyro = 1;
+        CHECK(pad_diff(&off, &on, box) > 20);
+        CHECK(box[3] < 70);
+    }
+    // a finger on the touchpad: a dot on the PlayStation pad's pad and on the Steam pad's right trackpad
+    for (int st = PADSTYLE_PLAYSTATION; st <= PADSTYLE_STEAM; st += 2) {
+        PadLive off, on;
+        memset(&off, 0, sizeof off);
+        off.style = st;
+        off.buttons = PAD_START;
+        on = off;
+        on.touching = 1;
+        on.touchX = 0.5f;
+        on.touchY = 0.5f;
+        CHECK(pad_diff(&off, &on, box) > 50);
+        if (st == PADSTYLE_PLAYSTATION) {
+            CHECK(box_within(box, 384.0f, 186.0f, 80.0f, 44.0f));
+        } else {
+            CHECK(box_within(box, 506.0f, 286.0f, 54.0f, 54.0f));
+        }
+    }
+    // the same pad, drawn twice, is the same bytes
+    {
+        PadLive p;
+        memset(&p, 0, sizeof p);
+        p.style = PADSTYLE_STEAM;
+        p.buttons = PAD_X | PAD_DOWN;
+        p.rx = 12345;
+        CHECK(pad_diff(&p, &p, box) == 0);
+    }
+}
+
 int main(void) {
     ui_panels_set_assets_dir(MLXR_ASSETS_DIR);
+    test_cards();
     test_host_sheet();
     test_all_panels_scales();
     test_cog_rows_present();

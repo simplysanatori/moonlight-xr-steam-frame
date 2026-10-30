@@ -183,6 +183,39 @@ int render_all_panels(const char* dir) {
     panel_to_png(dir, "hint", UI_PANEL_HINT, &v, 1.0f);
     panel_to_png(dir, "kofi", UI_PANEL_KOFI, &v, 1.0f);
 
+    // Native (lane wave3-cards): the first-run controls card, worded for two pads and two shortcuts,
+    // and the pad card per style, idle and with things lit
+    panel_to_png(dir, "firstrun", UI_PANEL_FIRSTRUN, &v, 1.0f);
+    {
+        Settings sticks = s;
+        sticks.gamepad_toggle = PAD_SHORTCUT_STICKS;
+        UiView vf;
+        ui_view_init(&vf, &sticks);
+        vf.pad.style = PADSTYLE_PLAYSTATION;
+        panel_to_png(dir, "firstrun_sticks_playstation", UI_PANEL_FIRSTRUN, &vf, 1.0f);
+        static const char* const STYLE[PADSTYLE_COUNT] = { "xbox", "playstation", "nintendo", "steam", "generic" };
+        for (int st = 0; st < PADSTYLE_COUNT; st++) {
+            UiView vp;
+            ui_view_init(&vp, &s);
+            vp.pad.style = st;
+            snprintf(name, sizeof name, "padcard_%s", STYLE[st]);
+            panel_to_png(dir, name, UI_PANEL_PADCARD, &vp, 1.0f);
+            vp.pad.present = 1;
+            vp.pad.buttons = PAD_A | PAD_LB | PAD_UP | PAD_START;
+            vp.pad.lt = 200;
+            vp.pad.lx = -24000;
+            vp.pad.ly = 9000;
+            vp.pad.ry = -16000;
+            vp.pad.rx = 12000;
+            vp.pad.touching = 1;
+            vp.pad.touchX = 0.7f;
+            vp.pad.touchY = 0.3f;
+            vp.pad.gyro = 1;
+            snprintf(name, sizeof name, "padcard_%s_lit", STYLE[st]);
+            panel_to_png(dir, name, UI_PANEL_PADCARD, &vp, 1.0f);
+        }
+    }
+
     // report
     {
         uint8_t* buf;

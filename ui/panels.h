@@ -20,6 +20,7 @@
 #include "settings.h"
 #include "text.h"
 #include "ui_strings.h"
+#include "xr_cards.h"
 #include "xr_hostkeys.h"
 #include "xr_keys.h"
 #include "xr_layout.h"
@@ -40,6 +41,8 @@ typedef enum {
     UI_PANEL_PC_LIST,      // native launcher: computers
     UI_PANEL_APP_LIST,     // native launcher: apps of one computer
     UI_PANEL_HOST,         // the Host sheet: quick actions, macros, Send keys (see UiView.host_*)
+    UI_PANEL_FIRSTRUN,     // the first-run controls card (UiView.settings gamepad_toggle, pad.style)
+    UI_PANEL_PADCARD,      // the gamepad card: a schematic of the pad in use, lit from UiView.pad
     UI_PANEL_COUNT
 } UiPanelId;
 
@@ -51,7 +54,7 @@ const char* ui_panel_name(UiPanelId id);
 // through its XrSwapchainSubImage.imageRect. Draw a panel into its slot with
 // ui_cv_sub (canvas.h); upload only the rectangles that changed.
 #define UI_ATLAS_W 2048
-#define UI_ATLAS_H 3472
+#define UI_ATLAS_H 4048
 typedef struct { int x, y, w, h; } UiRectPx;
 UiRectPx ui_atlas_rect(UiPanelId id);
 
@@ -172,6 +175,9 @@ typedef struct {
     // Native: 1 draws the prompt as Quit app / Disconnect / Cancel (a stream is
     // up), 0 as Exit / Cancel
     int exit_disconnect;
+    // Native (lane wave3-cards): the pad in use as the pad card draws it, and what the first-run
+    // card words its gamepad lines for (pad.style; Xbox until a pad has been used)
+    PadLive pad;
 } UiView;
 
 // Fills the view's defaults from settings (session toggles included)
@@ -236,6 +242,9 @@ typedef struct {
     UiHover hover;
 } UiAppList;
 void ui_draw_app_list(UiCanvas* cv, const UiAppList* l, UiHits* hits);
+
+// What a pad of this style (PADSTYLE_*) calls its Start button: Menu, Options, + or Start
+const char* ui_pad_start_name(int style);
 
 // ---- helpers for the orchestrator -----------------------------------------------------------------------
 // Keyboard layout, shared by every sheet: how many keys, each key's rectangle
