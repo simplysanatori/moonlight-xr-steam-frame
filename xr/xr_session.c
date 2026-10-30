@@ -1539,6 +1539,10 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
         h->heldKbMods = mods;
         if (hk->modifiers) hk->modifiers(hk->user, mods);
     }
+    if (ctx->pcvrRequest) {
+        ctx->pcvrRequest = 0;
+        ev->pcvrConfirmed = 1;
+    }
     if ((int)in[IN_EXIT] == EXIT_SLOT_DISCONNECT) {
         ev->disconnectConfirmed = 1;
     }
@@ -2162,7 +2166,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         XrUiLauncher show;
         memset(&show, 0, sizeof(show));
         if (cfg->hooks.ui) cfg->hooks.ui(cfg->hooks.user, &ev, &show);
-        else if (ev.exitConfirmed || ev.disconnectConfirmed) atomic_store(&g_quit, 1);
+        else if (ev.exitConfirmed || ev.disconnectConfirmed || ev.pcvrConfirmed) atomic_store(&g_quit, 1);
         XrLauncherView lv;
         memset(&lv, 0, sizeof(lv));
         lv.mode = show.mode;
