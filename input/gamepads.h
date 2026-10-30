@@ -386,6 +386,12 @@ void gpApplyStickOptions(PadOutPacket* pk, int deadzonePercent, int flip);
 
 // For ConnListenerSetMotionEventState / ConnListenerSetControllerLED
 void gamepadsHostMotionState(uint16_t controllerNumber, uint8_t motionType, uint16_t reportRateHz);
+// Native (lane wave2-lightgun-gyro): who answers a motion request no physical pad owns. Gamepad
+// mode's pad (xr/xr_pad_bridge.c) sets this while it is on the host, and only answers for its own
+// number; NULL clears it. Called on the host's thread.
+typedef void (*GamepadsFramePadMotionFn)(uint16_t controllerNumber, uint8_t motionType,
+                                         uint16_t reportRateHz);
+void gamepadsSetFramePadMotionHook(GamepadsFramePadMotionFn fn);
 void gamepadsHostSetLed(uint16_t controllerNumber, uint8_t red, uint8_t green, uint8_t blue);
 
 void gamepadsHostRumble(unsigned short controllerNumber, unsigned short lowFreqMotor,
