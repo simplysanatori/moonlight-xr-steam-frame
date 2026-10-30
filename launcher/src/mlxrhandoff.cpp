@@ -26,6 +26,9 @@
 #include <QPointer>
 #include <memory>
 #include <QProcess>
+#include <QDesktopServices>
+#include <QStandardPaths>
+#include <QUrl>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -1344,9 +1347,47 @@ void applyGameModeScale()
     qputenv("QT_SCALE_FACTOR", QByteArray::number(gameModeScale(), 'g', 4));
 }
 
-// "bitrate:2560x1440x90[x444]" and "scale" for tests/launcher: no UI, nothing else runs
+QStringList openExternalCommand(const QString& url, bool gameMode, bool steamOnPath)
+{
+    static const QRegularExpression ok("^https?://[^\\s\"'`\\\\]+$");
+    if (!gameMode || !steamOnPath || url.size() > 400 || !ok.match(url).hasMatch()) {
+        return QStringList();
+    }
+    return QStringList{"steam", "steam://openurl/" + url};
+}
+
+void openExternalUrl(const QString& url)
+{
+    const QStringList cmd = openExternalCommand(url, inGameMode(), !QStandardPaths::findExecutable("steam").isEmpty());
+    if (cmd.isEmpty()) {
+        qInfo().noquote() << "open page:" << url << "(QDesktopServices)";
+        QDesktopServices::openUrl(QUrl(url));
+        return;
+    }
+    // Steam's runtime variables are for the games it runs; the steam script wants the host's
+    QProcess p;
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.remove("LD_LIBRARY_PATH");
+    env.remove("LD_PRELOAD");
+    p.setProcessEnvironment(env);
+    p.setProgram(cmd[0]);
+    p.setArguments(cmd.mid(1));
+    const bool started = p.startDetached();
+    qInfo().noquote() << "open page:" << url << (started ? "with steam steam://openurl" : "steam did not start");
+    if (!started) {
+        QDesktopServices::openUrl(QUrl(url));
+    }
+}
+
+// "bitrate:2560x1440x90[x444]", "scale" and "openurl:<url>" for tests/launcher: no UI, nothing else runs
 static int selfTestValue(const QString& spec)
 {
+    if (spec.startsWith("openurl:")) {
+        const QString url = spec.mid(8);
+        const QStringList cmd = openExternalCommand(url, inGameMode(), !QStandardPaths::findExecutable("steam").isEmpty());
+        QTextStream(stdout) << "SELFTEST: openurl=" << (cmd.isEmpty() ? QString("qt ") + url : cmd.join(' ')) << Qt::endl;
+        return 0;
+    }
     if (spec == "scale") {
         QTextStream(stdout) << "SELFTEST: scale=" << QByteArray::number(gameModeScale(), 'g', 4)
                             << " QT_SCALE_FACTOR=" << qEnvironmentVariable("QT_SCALE_FACTOR") << Qt::endl;
@@ -1454,7 +1495,7 @@ int selfTest(const QString& spec)
         fflush(stderr);
         _exit(rc);
     }
-    if (spec == "scale" || spec.startsWith("bitrate:")) {
+    if (spec == "scale" || spec.startsWith("bitrate:") || spec.startsWith("openurl:")) {
         const int rc = selfTestValue(spec);
         fflush(stdout);
         fflush(stderr);
