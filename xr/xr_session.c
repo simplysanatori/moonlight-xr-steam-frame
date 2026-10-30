@@ -1420,8 +1420,12 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
         LOGI("hand tracking off by preference");
     }
     // Native: the gaze extension only when the setting wants it, so a runtime
-    // that would ask for eye tracking does not ask for nothing
-    if (!s->gaze) {
+    // that would ask for eye tracking does not ask for nothing. Native (lane
+    // a11y-tab): pointer_source = gaze (the Accessibility tab's Eyes) asks for
+    // it too, as gaze = true does.
+    ctx->gazeOffered = ctx->eyeGaze;
+    ctx->gazeAsked = s->gaze || s->pointer_source == POINTER_SOURCE_GAZE;
+    if (!ctx->gazeAsked) {
         ctx->eyeGaze = 0;
     }
     free(exts);
@@ -1504,9 +1508,25 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
             ctx->maxLayerCount = (int)props.graphicsProperties.maxLayerCount;
         }
         LOGEV("system %s, %d composition layers used", props.systemName, ctx->maxLayerCount);
-        if (ctx->eyeGaze && !gazeProps.supportsEyeGazeInteraction) ctx->eyeGaze = 0;
+        // Native (lane a11y-tab): the flag is read and logged, but the gaze
+        // action is kept without it: SteamVR's flag has read 0 on systems that
+        // gave gaze, and a gaze pose arriving is the real signal (xrGazeWatch)
+        if (ctx->eyeGaze) ctx->gazeSupportFlag = gazeProps.supportsEyeGazeInteraction ? 1 : 0;
         if (ctx->handTracking && !handProps.supportsHandTracking) ctx->handTracking = 0;
         g_presenceSupported = g_presenceOffered && presenceProps.supportsUserPresence;
+    }
+    // Native (lane a11y-tab): once a session, why eye gaze can or cannot reach the app
+    if (!ctx->gazeOffered) {
+        LOGEV("eye gaze: the runtime does not offer XR_EXT_eye_gaze_interaction to apps%s",
+              ctx->gazeAsked ? " (asked for by the settings)" : "");
+    }
+    else if (!ctx->gazeAsked) {
+        LOGEV("eye gaze: XR_EXT_eye_gaze_interaction offered, not asked for (gaze = false, pointer_source is not gaze)");
+    }
+    else {
+        LOGEV("eye gaze: XR_EXT_eye_gaze_interaction enabled (asked by %s), supportsEyeGazeInteraction %d%s",
+              s->gaze ? "gaze = true" : "pointer_source = gaze", ctx->gazeSupportFlag,
+              ctx->gazeSupportFlag == 0 ? ": the system says no eye gaze, the gaze action is kept to see" : "");
     }
     if (g_presenceOffered) {
         LOGEV("user presence: XR_EXT_user_presence enabled, the system %s the sensor",

@@ -35,6 +35,15 @@
 #define SETTING_DEPTH_SHAPE 34
 #define SETTING_MOTION_RESET 35
 #define SETTING_EYE_BALANCE 36
+// Native (lane a11y-tab): the Accessibility tab's rows, each the value its [vr] key is stored in:
+// pointer_source (POINTER_SOURCE_*), head_dwell_ms (0 off), head_look (0 or 1), back_as_guide
+// (0 or 1) and mouse_mode (MOUSE_MODE_*). Only a press on the tab hands these back. (37 to 39
+// are free; 40 and 41 are xr_shared.h's Background and Glow edge.)
+#define SETTING_POINTER_SOURCE 42
+#define SETTING_HEAD_DWELL 43
+#define SETTING_HEAD_LOOK 44
+#define SETTING_BACK_AS_GUIDE 45
+#define SETTING_MOUSE_MODE 46
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 
@@ -87,6 +96,20 @@ int xrZoomStep(XrCtx* ctx, int dir);
 void xrZoomFromSettings(XrCtx* ctx, const Settings* s);
 void xrZoomToSettings(const XrCtx* ctx, Settings* s);
 int xrZoomSync(XrCtx* ctx, Settings* s);
+
+// ---- the Accessibility tab (xr_assist.c, lane a11y-tab) -----------------------
+// What its eye tracking line says (ACCESS_EYES_*, xr/core/xr_access.h) from what the session found
+int xrAccessEyes(const XrCtx* ctx);
+// The cells a row of it shows (the pointer row's Eyes only where it can work), whether a row can
+// act (the dwell click needs the head or the eyes pointing), and a press on a cell: applied now
+// and handed back in IN_SETTING to be stored. Only a press here changes these settings.
+int cogAccessCells(XrCtx* ctx, int row);
+int cogAccessRowLive(XrCtx* ctx, int row);
+void cogApplyAccessCell(XrCtx* ctx, int row, int cell, float* out);
+// Once a frame from the input pass, after the gaze is read: notes the first tracked gaze pose of the
+// session (the Eyes cell shows from then) and logs, once a session, that it came, or after 10 s
+// focused without one, the action's state and the pose's flags
+void xrGazeWatch(XrCtx* ctx, int64_t nowNs, int focused, int actionActive);
 
 // ---- rows the native client cannot act on yet (xr_prefs.c) ----------------
 // 0 when the row is live as far as the native client goes, else the reason's
@@ -303,6 +326,9 @@ int xrGrabStepStick(XrCtx* ctx, XrPosef aim, int trigger, int grip, XrVector2f s
 // points and of the hand whose ray is drawn. What it made of them is left in
 // ctx->rayRow, as the recorder writes it (tests/m4/test_replay.c).
 void xrPointerStep(XrCtx* ctx, int64_t now, int headLocked);
+// Native (lane a11y-tab), for the tests: the same, then the settings panel's part when it is open
+// (hover, presses, a dwell's click on it), with what the frame hands back in out
+void xrPointerPanelStep(XrCtx* ctx, int64_t now, int headLocked, float* out);
 // Native (lane wave2-lightgun-gyro): for the tests, the buttons part of a pointer frame: the host
 // buttons the controllers ask for (VR_BUTTON_ bits, as the bindings leave them), what the ray is over
 // (HOVER_*) and whether that is the picture. Returns the buttons that go to the host, which are

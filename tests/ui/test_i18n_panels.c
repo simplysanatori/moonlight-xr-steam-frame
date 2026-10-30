@@ -15,6 +15,7 @@
 #include "panels.h"
 #include "settings.h"
 #include "text.h"
+#include "xr_headaim.h"
 #include "xr_kbfull.h"
 #include "ui_strings.h"
 
@@ -105,7 +106,7 @@ static void build_states(void) {
     nstates = 0;
     Settings s;
     settings_defaults(&s);
-    static const char* const TABS[COG_TAB_COUNT] = { "screen", "display", "3d", "picture", "about" };
+    static const char* const TABS[COG_TAB_COUNT] = { "screen", "display", "3d", "picture", "accessibility", "about" };
     char name[64];
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
         snprintf(name, sizeof name, "cog-%s", TABS[tab]);
@@ -131,6 +132,26 @@ static void build_states(void) {
     st = add("cog-display-later", UI_PANEL_COG, &s);
     st->v.cog_tab = COG_TAB_DISPLAY;
     st->v.display_later = 0xFFFFFFFFu;
+    // Native (lane a11y-tab): the Accessibility tab with the head pointing and a dwell, and with the
+    // eyes ready (the Eyes cell up) and every switch on
+    Settings head = s;
+    head.pointer_source = POINTER_SOURCE_HEAD;
+    head.head_dwell_ms = 900;
+    st = add("cog-access-head", UI_PANEL_COG, &head);
+    st->v.cog_tab = COG_TAB_ACCESS;
+    st->v.access_eyes = ACCESS_EYES_NOT_ASKED;
+    Settings eyes = s;
+    eyes.pointer_source = POINTER_SOURCE_GAZE;
+    eyes.head_dwell_ms = 1500;
+    eyes.head_look = 1;
+    eyes.back_as_guide = 1;
+    eyes.mouse_mode = MOUSE_MODE_RELATIVE;
+    st = add("cog-access-eyes", UI_PANEL_COG, &eyes);
+    st->v.cog_tab = COG_TAB_ACCESS;
+    st->v.access_eyes = ACCESS_EYES_READY;
+    st = add("cog-access-waiting", UI_PANEL_COG, &s);
+    st->v.cog_tab = COG_TAB_ACCESS;
+    st->v.access_eyes = ACCESS_EYES_WAITING;
     st = add("cog-about-nolog", UI_PANEL_COG, &s);
     st->v.cog_tab = COG_TAB_ABOUT;
     st->v.log_path = NULL;

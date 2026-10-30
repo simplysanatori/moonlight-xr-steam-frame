@@ -155,6 +155,9 @@ class MlxrPrefs : public QObject
     // back_as_guide, gamepad mode's Back (View) button as Guide
     Q_PROPERTY(QString mouseMode MEMBER mouseMode NOTIFY changed)
     Q_PROPERTY(bool backAsGuide MEMBER backAsGuide NOTIFY changed)
+    // Native (lane a11y-tab): head_dwell_ms, the dwell click of the head or eyes pointer: 0 (default, off) or
+    // 400..2000; the Accessibility section offers 600, 900, 1200 and 1500. Written only when changed here.
+    Q_PROPERTY(int headDwellMs MEMBER headDwellMs NOTIFY changed)
     // ---- Native (lane launcher-bundle, PLAN 6.7): the rest of the VR client's config.ini ----
     // Every key of ui/settings.c that a user would set and that had no row of its own: picture, pointer,
     // keyboard, gamepad mode, the screen and its surroundings (the table is kVrKeys in mlxrprefs.cpp; tests
@@ -313,6 +316,7 @@ public:
     QString pointerSource = QStringLiteral("controller");
     QString mouseMode = QStringLiteral("absolute"); // native (lane headinput-finish)
     bool backAsGuide = false;
+    int headDwellMs = 0;   // native (lane a11y-tab)
 
 signals:
     void changed();
@@ -345,6 +349,7 @@ private:
     QString m_iniPointerSource = QStringLiteral("controller");
     QString m_iniMouseMode = QStringLiteral("absolute");
     bool m_iniBackAsGuide = false;
+    int m_iniHeadDwellMs = 0;   // native (lane a11y-tab)
     void loadHeadInput(const QString& ini);
     void saveHeadInput(const QString& ini);
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;

@@ -20,6 +20,7 @@
 #include "settings.h"
 #include "text.h"
 #include "ui_strings.h"
+#include "xr_access.h"
 #include "xr_cards.h"
 #include "xr_hostkeys.h"
 #include "xr_keys.h"
@@ -190,6 +191,9 @@ typedef struct {
     // Native (lane wave3-cards): the pad in use as the pad card draws it, and what the first-run
     // card words its gamepad lines for (pad.style; Xbox until a pad has been used)
     PadLive pad;
+    // Native (lane a11y-tab): what the Accessibility tab's eye tracking line says (ACCESS_EYES_*,
+    // xr_access.h), which also decides whether its pointer row has the Eyes cell
+    int access_eyes;
 } UiView;
 
 // Fills the view's defaults from settings (session toggles included)
@@ -283,6 +287,9 @@ int ui_cog_row_count(int face);
 int ui_cog_row_is_track(int face, int row);
 int ui_cog_row_cells(int face, int row);
 int ui_cog_row_live(const UiView* v, int face, int row);
+// Native (lane a11y-tab): the cells an Accessibility row shows (the pointer row's Eyes only where
+// it can work, xr_access.h accessPointerCells)
+int ui_cog_access_cells(const UiView* v, int row);
 
 // Preset separations (units of the track) for the 3D tab, in cell order
 void ui_presets_for(const Settings* s, int presets[COG_PRESET_CELLS]);

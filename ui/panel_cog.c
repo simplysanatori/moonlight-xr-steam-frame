@@ -1,4 +1,4 @@
-// The settings panel: five tabs (Screen, Display, 3D, Picture, About) and the
+// The settings panel: six tabs (Screen, Display, 3D, Picture, Accessibility, About) and the
 // Room tab that takes the Screen tab's place in a room. XrPanels.buildCogSheet
 // and its drawCog* helpers, with the things upstream puts on separate quads
 // (thumbs, the Display tab's marks, the Room/Picture/Screen readouts, the
@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "panels_int.h"
+#include "xr_headaim.h"   // MOUSE_MODE_*
 
 #define LABEL_X 0.06f
 #define LABEL_SIZE 22.0f
@@ -142,21 +143,26 @@ static void line_fit_center(Dc* dc, float size, float x, float baseline, float r
 
 static void chrome(Dc* dc, int tab, int in_room) {
     dc_sheet(dc, 32.0f, 0xF0141416u);
-    static const UiStr TABS[COG_TAB_COUNT] = { UIS_TAB_SCREEN, UIS_TAB_DISPLAY, UIS_TAB_3D, UIS_TAB_PICTURE, UIS_TAB_ABOUT };
+    static const UiStr TABS[COG_TAB_COUNT] = { UIS_TAB_SCREEN, UIS_TAB_DISPLAY, UIS_TAB_3D, UIS_TAB_PICTURE,
+                                               UIS_TAB_ACCESS, UIS_TAB_ABOUT };
     float bar_b = COG_TAB_BAR_B * dc->nh;
-    float slot_w = dc->nw / (float)COG_TAB_COUNT;
     for (int i = 0; i < COG_TAB_COUNT; i++) {
         int current = i == tab;
-        float x0 = (float)i * slot_w + 12.0f, x1 = (float)(i + 1) * slot_w - 12.0f, y0 = 12.0f, y1 = bar_b - 8.0f;
+        // native (lane a11y-tab): six slots of their own widths (xr_layout.h cogTabLeft), the gaps
+        // between them a little narrower than the five even ones had
+        float x0 = cogTabLeft(i) * dc->nw + 8.0f, x1 = cogTabRight(i) * dc->nw - 8.0f, y0 = 12.0f, y1 = bar_b - 8.0f;
         if (current) dc_fill_rrect(dc, x0, y0, x1, y1, 14.0f, 0x28FFFFFFu);
         else if (dc_hover(dc, UI_HIT_TAB, i, -1)) dc_fill_rrect(dc, x0, y0, x1, y1, 14.0f, 0x14FFFFFFu);
         const char* name = ui_str(in_room && i == COG_TAB_SCREEN ? UIS_TAB_ROOM : TABS[i]);
-        dc_text_center(dc, UI_WEIGHT_REGULAR, 25.0f, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, current ? WHITE : 0x60FFFFFFu, name);
+        // a name longer than its slot (a translation's) shrinks to fit
+        float fit = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, 25.0f * dc->k, 15.0f * dc->k, name,
+                                     ((x1 - x0) - 10.0f) * dc->k) / dc->k;
+        dc_text_center(dc, UI_WEIGHT_REGULAR, fit, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, current ? WHITE : 0x60FFFFFFu, name);
         if (current) {
             // the underline is what carries at a glance, the fill alone is too subtle
-            dc_fill_rrect(dc, x0 + 24.0f, y1 - 4.0f, x1 - 24.0f, y1, 0.0f, 0xEEFFFFFFu);
+            dc_fill_rrect(dc, x0 + 20.0f, y1 - 4.0f, x1 - 20.0f, y1, 0.0f, 0xEEFFFFFFu);
         }
-        dc_hit_uv(dc, UI_HIT_TAB, i, 0, (float)i / COG_TAB_COUNT, 0.0f, (float)(i + 1) / COG_TAB_COUNT, COG_TAB_BAR_B, 1);
+        dc_hit_uv(dc, UI_HIT_TAB, i, 0, cogTabLeft(i), 0.0f, cogTabRight(i), COG_TAB_BAR_B, 1);
     }
     dc_fill_rrect(dc, 20.0f, bar_b, dc->nw - 20.0f, bar_b + 2.0f, 0.0f, 0x30FFFFFFu);
 }
@@ -520,6 +526,69 @@ static void tab_picture(Dc* dc) {
     reset_button(dc);
 }
 
+// Native (lane a11y-tab): the Accessibility tab. What points (Controller, Head, and Eyes where eye
+// gaze reaches the app), the dwell click, head-look, Back as Guide and the mouse mode, all cells;
+// under them the eye tracking line and a few short lines on how to use it and turn it off.
+static void tab_access(Dc* dc) {
+    const UiView* v = dc->v;
+    const Settings* s = v->settings;
+    static const UiStr ROWS[COG_ACCESS_ROW_COUNT] = { UIS_ROW_POINTER_SOURCE, UIS_ROW_DWELL, UIS_ROW_HEAD_LOOK,
+                                                      UIS_ROW_BACK_GUIDE, UIS_ROW_MOUSE_MODE };
+    static const UiStr POINTER[COG_ACCESS_POINTER_CELLS] = { UIS_CELL_CONTROLLER, UIS_CELL_HEAD, UIS_CELL_EYES };
+    static const UiStr DWELL[COG_ACCESS_DWELL_CELLS] = { UIS_OFF, UIS_DWELL_06, UIS_DWELL_09, UIS_DWELL_12, UIS_DWELL_15 };
+    static const UiStr OFFON[COG_ACCESS_SWITCH_CELLS] = { UIS_OFF, UIS_ON };
+    static const UiStr MOUSE[COG_ACCESS_SWITCH_CELLS] = { UIS_CELL_ABSOLUTE, UIS_CELL_RELATIVE };
+    static const UiStr EYES[ACCESS_EYES_COUNT] = { UIS_EYES_READY, UIS_EYES_WAITING, UIS_EYES_NOT_ASKED,
+                                                   UIS_EYES_UNAVAILABLE };
+    float cell_half = COG_ACCESS_CELL_HALF * dc->nh;
+    for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) {
+        int live = ui_cog_row_live(v, COG_TAB_ACCESS, row);
+        float y = row_y(dc, COG_TAB_ACCESS, row);
+        label(dc, ui_str(ROWS[row]), y, live);
+        int n = ui_cog_access_cells(v, row);
+        if (!live) {
+            greyed_reason(dc, y, ui_str(UIS_NEEDS_HEAD_POINTER));
+            float rv = cogRowV(COG_TAB_ACCESS, row), half = cogRowHalf(COG_TAB_ACCESS);
+            for (int c = 0; c < n; c++) {
+                dc_hit_uv(dc, UI_HIT_CELL, row, c, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)c / (float)n, rv - half,
+                          COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)(c + 1) / (float)n, rv + half, 0);
+            }
+            continue;
+        }
+        const UiStr* names = row == COG_ACCESS_ROW_POINTER ? POINTER : row == COG_ACCESS_ROW_DWELL ? DWELL
+                           : row == COG_ACCESS_ROW_MOUSE ? MOUSE : OFFON;
+        int mark = row == COG_ACCESS_ROW_POINTER ? (s->pointer_source < n ? s->pointer_source : -1)
+                 : row == COG_ACCESS_ROW_DWELL ? accessDwellCell(s->head_dwell_ms)
+                 : row == COG_ACCESS_ROW_HEAD_LOOK ? (s->head_look ? 1 : 0)
+                 : row == COG_ACCESS_ROW_BACK_GUIDE ? (s->back_as_guide ? 1 : 0)
+                 : (s->mouse_mode == MOUSE_MODE_RELATIVE ? 1 : 0);
+        cells(dc, COG_TAB_ACCESS, row, names, n, y, 1, cell_half, mark);
+    }
+    label_flush(dc, label_right(dc));
+    // whether eye tracking reaches the app, so the user sees why Eyes does nothing
+    int eyes = v->access_eyes >= 0 && v->access_eyes < ACCESS_EYES_COUNT ? v->access_eyes : ACCESS_EYES_UNAVAILABLE;
+    float left = LABEL_X * dc->nw, room = COG_TRACK_R * dc->nw - left;
+    dc_text_fit_left(dc, UI_WEIGHT_REGULAR, 19.0f, left, COG_ACCESS_STATUS_V * dc->nh, room,
+                     eyes == ACCESS_EYES_READY ? 0xEE9BE7A0u : 0xEEFFC870u, ui_str(EYES[eyes]));
+    // the instructions, and how to get the eyes working while they are not
+    UiTextLine lines[12];
+    const char* help[2] = { ui_str(UIS_ACCESS_HELP), eyes == ACCESS_EYES_READY ? NULL : ui_str(UIS_ACCESS_HELP_EYES) };
+    float baseline = COG_ACCESS_HELP_T * dc->nh, step = 26.0f;
+    for (int h = 0; h < 2 && help[h]; h++) {
+        int got = ui_text_wrap(dc->font, UI_WEIGHT_REGULAR, 19.0f * dc->k, help[h], room * dc->k, lines, 12);
+        if (got > 12) got = 12;
+        for (int i = 0; i < got && baseline < dc->nh - 8.0f; i++) {
+            char buf[512];
+            int len = lines[i].len < 511 ? lines[i].len : 511;
+            memcpy(buf, help[h] + lines[i].start, (size_t)len);
+            buf[len] = 0;
+            dc_text(dc, UI_WEIGHT_REGULAR, 19.0f, left, baseline, UI_ALIGN_LEFT, 0xB0FFFFFFu, buf);
+            baseline += step;
+        }
+        baseline += 6.0f;
+    }
+}
+
 static void about_button(Dc* dc, float l, float t, float r, float b, const char* text, int btn) {
     float x0 = l * dc->nw, y0 = t * dc->nh, x1 = r * dc->nw, y1 = b * dc->nh;
     if (dc_hover(dc, UI_HIT_BUTTON, btn, -1)) dc_fill_rrect(dc, x0, y0, x1, y1, 14.0f, 0x28FFFFFFu);
@@ -566,6 +635,7 @@ void panel_cog(Dc* dc) {
     case COG_TAB_DISPLAY: tab_display(dc); break;
     case COG_TAB_3D: tab_3d(dc); break;
     case COG_TAB_PICTURE: tab_picture(dc); break;
+    case COG_TAB_ACCESS: tab_access(dc); break;
     case COG_TAB_ABOUT: tab_about(dc); break;
     default: break;
     }

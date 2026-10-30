@@ -574,7 +574,8 @@ static void testThePresetAccent(void) {
 // bands apart and every cell drawn inside its own band
 static void testTheRowsFit(void) {
     int counts[COG_TAB_COUNT] = {
-        COG_SCREEN_ROW_COUNT, COG_DISPLAY_SLIDER_ROW + 1, COG_ROW3D_COUNT, PICTURE_TAB_ROWS, 0
+        COG_SCREEN_ROW_COUNT, COG_DISPLAY_SLIDER_ROW + 1, COG_ROW3D_COUNT, PICTURE_TAB_ROWS,
+        COG_ACCESS_ROW_COUNT, 0
     };
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
         // The About tab has no rows, only its button
@@ -653,7 +654,7 @@ static void testTheRowsFit(void) {
     CHECK_NEAR(cogCellHalf(COG_TAB_COUNT), COG_CELL_HALF, 1e-6);
     // The Picture tab is the fourth, with the screen tab's spacing, and its
     // last row's band ends well clear of the reset button
-    CHECK(COG_TAB_PICTURE == 3 && COG_TAB_ABOUT == 4 && COG_TAB_COUNT == 5);
+    CHECK(COG_TAB_PICTURE == 3 && COG_TAB_ACCESS == 4 && COG_TAB_ABOUT == 5 && COG_TAB_COUNT == 6);
     CHECK_NEAR(cogRowV(COG_TAB_PICTURE, PICTURE_SATURATION),
                COG_ROW_V0 + PICTURE_SATURATION * COG_ROW_STEP, 1e-6);
     CHECK(cogRowV(COG_TAB_PICTURE, PICTURE_TAB_ROWS - 1) + cogRowHalf(COG_TAB_PICTURE)
