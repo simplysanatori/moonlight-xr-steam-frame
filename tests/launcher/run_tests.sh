@@ -532,7 +532,7 @@ if [ -n "$SHOTS" ]; then
     grep -q "no clickable" "$t/lang.out" && fail "language click hook: $(grep 'no clickable' "$t/lang.out")"
     grep -Eq "$QMLERR" "$t/lang.out" && { fail "language row QML errors"; grep -E "$QMLERR" "$t/lang.out" | head; } || ok "headset language row loads (no QML errors)"
     grep -A1 '^\[ui\]' "$ini" | grep -q '^language = de$' && ok "headset language row writes [ui] language = de" || { fail "[ui] language not written"; cat "$ini"; }
-    diff <(grep -v '^\[ui\]$\|^language = ' "$t/ini.lang-before") <(grep -v '^\[ui\]$\|^language = ' "$ini") >/dev/null && ok "language row leaves the other keys alone" || { fail "language row changed other keys"; diff "$t/ini.lang-before" "$ini"; }
+    diff <(grep -v '^\[ui\]$\|^language = \|^$' "$t/ini.lang-before") <(grep -v '^\[ui\]$\|^language = \|^$' "$ini") >/dev/null && ok "language row leaves the other keys alone" || { fail "language row changed other keys"; diff "$t/ini.lang-before" "$ini"; }
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         expect "VR client reads the headset language" "$("$MLXR_SETTINGS_DUMP" "$ini")" "ui.language = de"
     fi
