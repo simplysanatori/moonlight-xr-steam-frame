@@ -584,6 +584,8 @@ void MlxrPrefs::save()
     m_iniHeadsetLanguage = headsetLanguage;
     m_iniPadCard = padCard;
     m_iniFirstRunShown = firstRunShown;
+    m_iniLightgun = lightgun;
+    m_iniPadGyro = padGyro;
 }
 
 QString MlxrPrefs::normalizeLanguage(const QString& v)
@@ -595,10 +597,6 @@ QString MlxrPrefs::normalizeLanguage(const QString& v)
     }
     const QString lang = m.captured(1).toLower();
     return m.captured(2).isEmpty() ? lang : lang + "-" + m.captured(2).toUpper();
-}
-
-    m_iniLightgun = lightgun;
-    m_iniPadGyro = padGyro;
 }
 
 void MlxrPrefs::reloadAll()
