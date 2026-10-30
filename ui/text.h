@@ -86,4 +86,46 @@ float ui_text_fit_size(UiFont* font, UiWeight w, float size_px, float min_px, co
 const uint8_t* ui_font_atlas(UiFont* font, int* w, int* h, uint32_t* generation);
 int ui_font_cached_glyphs(UiFont* font);
 
+// ---- other scripts and the test hook (lane wave6-i18n, PLAN 6.1) ----------------------------------
+// A fallback face for code points the family lacks: Chinese, Japanese and Korean from the system's
+// Noto Sans CJK (not bundled). Mapped, not read. index picks a face in a .ttc collection; medium may
+// be NULL (regular stands in). Replaces an earlier fallback and empties the glyph cache. 0 on failure.
+int ui_font_set_fallback(UiFont* font, const char* regular_path, int regular_index, const char* medium_path,
+                         int medium_index);
+void ui_font_clear_fallback(UiFont* font);
+int ui_font_has_fallback(UiFont* font);
+// 1 when every code point of s has a glyph in the family or the fallback; else 0 and the first
+// one missing in *missing
+int ui_font_covers(UiFont* font, UiWeight w, const char* s, uint32_t* missing);
+// Looks under root (/usr/share/fonts; four levels down) for Noto Sans CJK for a region ("JP", "KR",
+// "SC", "TC"): a NotoSansCJK-Regular.ttc collection (the face of that region), else
+// NotoSansCJK<region>-Regular.otf, else NotoSans<region>-Regular.otf, else another region's
+// NotoSansCJK file. The -Medium file beside it when there is one (medium[0] = 0 when not).
+// 1 when found.
+int ui_font_find_cjk(const char* root, const char* region, char* regular, size_t rcap, int* rindex, char* medium,
+                     size_t mcap, int* mindex);
+
+// How far the glyphs of s reach above and below the baseline at size_px (from the glyphs' boxes,
+// positive both), for a line laid out close to another one
+void ui_text_ink_extent(UiFont* font, UiWeight w, float size_px, const char* s, float* above, float* below);
+
+// Every ui_text_draw (DRAW: the text, the pen's extent and the box of what it inked, in canvas
+// pixels, unclipped; ink_x0 > ink_x1 when nothing inked; missing counts code points drawn as the
+// .notdef box) and every ui_text_ellipsize that had to cut (CUT: the whole text, pen_x1 the width it
+// had) goes to fn while it is set. For tests (tests/ui/test_i18n_panels.c); NULL turns it off.
+typedef enum { UI_TEXT_TRACE_DRAW = 0, UI_TEXT_TRACE_CUT = 1 } UiTextTraceKind;
+typedef struct {
+    int kind;
+    const char* text;
+    int len;
+    const UiCanvas* cv;
+    float size_px;
+    float pen_x0, pen_x1;
+    float ink_x0, ink_y0, ink_x1, ink_y1;
+    int truncated;
+    int missing;
+} UiTextTraceEvent;
+typedef void (*UiTextTraceFn)(const UiTextTraceEvent* e, void* user);
+void ui_text_set_trace(UiTextTraceFn fn, void* user);
+
 #endif

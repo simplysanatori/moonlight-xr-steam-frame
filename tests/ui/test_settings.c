@@ -352,11 +352,13 @@ static void test_bitrate_ceiling(void) {
 }
 
 static void test_removed_keys(void) {
-    static const char* const GONE[] = { "auto_desktop", "check_updates", "language", "vr_mode",
-                                        "doff_grace" };
+    // Native (lane wave6-i18n): language is back as [ui] language (the headset UI's); the old
+    // [stream] one still reads as unknown
+    static const char* const GONE[] = { "auto_desktop", "check_updates", "vr_mode", "doff_grace" };
     for (size_t i = 0; i < sizeof GONE / sizeof GONE[0]; i++) {
         CHECK(settings_find(GONE[i]) == NULL);
     }
+    CHECK(settings_find("stream.language") == NULL && settings_find("ui.language") != NULL);
     Settings s;
     SettingsLoadInfo info;
     settings_defaults(&s);

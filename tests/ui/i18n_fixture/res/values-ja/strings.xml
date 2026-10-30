@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vr_panel_distance">距離</string>
+    <string name="applist_menu_cancel">キャンセル</string>
+    <string name="vr_kofi_close">閉じる</string>
+    <string name="vr_toast_rate">ディスプレイ %d Hz</string>
+    <string name="vr_battery">バッテリー %1$d%%</string>
+    <string name="vr_key_space"></string>
+</resources>

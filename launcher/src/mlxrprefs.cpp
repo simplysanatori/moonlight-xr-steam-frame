@@ -386,6 +386,9 @@ void MlxrPrefs::load()
     const QString pg = iniValue(ini, "vr", "pad_gyro", "off").trimmed().toLower();
     padGyro = (pg == "controller" || pg == "1") ? "controller" : (pg == "head" || pg == "2") ? "head" : "off";
 
+    // the VR client's spelling; anything else is its default, auto
+    headsetLanguage = normalizeLanguage(iniValue(ini, "ui", "language", "auto"));
+
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
@@ -420,6 +423,7 @@ void MlxrPrefs::load()
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
+    m_iniHeadsetLanguage = headsetLanguage;
     m_iniPadCard = padCard;
     m_iniFirstRunShown = firstRunShown;
     m_iniLightgun = lightgun;
@@ -543,6 +547,9 @@ void MlxrPrefs::save()
     if (padArbitration != m_iniPadArbitration) {
         setIniValue(ini, "vr", "pad_arbitration", padArbitration);
     }
+    if (headsetLanguage != m_iniHeadsetLanguage) {
+        setIniValue(ini, "ui", "language", normalizeLanguage(headsetLanguage));
+    }
     if (padCard != m_iniPadCard) {
         setIniValue(ini, "vr", "pad_card", padCard);
     }
@@ -589,10 +596,22 @@ void MlxrPrefs::save()
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
+    m_iniHeadsetLanguage = headsetLanguage;
     m_iniPadCard = padCard;
     m_iniFirstRunShown = firstRunShown;
     m_iniLightgun = lightgun;
     m_iniPadGyro = padGyro;
+}
+
+QString MlxrPrefs::normalizeLanguage(const QString& v)
+{
+    static const QRegularExpression re(QStringLiteral("^([A-Za-z]{2,3})(?:[-_]([A-Za-z]{2,4}))?$"));
+    const QRegularExpressionMatch m = re.match(v.trimmed());
+    if (!m.hasMatch()) {
+        return QStringLiteral("auto");
+    }
+    const QString lang = m.captured(1).toLower();
+    return m.captured(2).isEmpty() ? lang : lang + "-" + m.captured(2).toUpper();
 }
 
 void MlxrPrefs::reloadAll()

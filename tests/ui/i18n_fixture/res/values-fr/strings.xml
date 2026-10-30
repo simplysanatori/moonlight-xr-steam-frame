@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vr_panel_distance">Distance &amp; taille</string>
+    <string name="vr_panel_version">Commit %2$s de la version %1$s</string>
+    <string name="vr_panel_report_sends">Envoie une note</string>
+    <string name="applist_menu_cancel">Annuler</string>
+    <string name="vr_hand_hint_never">Ne plus afficher</string>
+    <string name="vr_battery">Batterie %1$s</string>
+    <string name="vr_key_space">espace à 100%</string>
+</resources>

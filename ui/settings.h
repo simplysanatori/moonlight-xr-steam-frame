@@ -165,6 +165,10 @@ typedef struct Settings {
     int zoom;                 // native (PLAN 4b.6): zoom percent, 100..400; the part of the picture that fills the screen
     int zoom_x, zoom_y;       // native (PLAN 4b.6): where that part is centred, percent across and down the picture
 
+    // [ui] native (lane wave6-i18n): the headset UI's language, read once at start. 0 auto (the
+    // locale: LC_ALL, LC_MESSAGES, LANG), else 1 + the ui_strings.h language (1 English)
+    int language;
+
     // [screen.<hash>] the layouts remembered per PC and app, the oldest first
     AppLayout layouts[APP_LAYOUT_MAX];
     int layout_count;
@@ -266,6 +270,9 @@ int settings_layout_same(const AppLayout* a, const AppLayout* b);
 int settings_layout_store(Settings* s, unsigned hash, const AppLayout* l);
 // Drops the layout under a hash. Returns 1 when there was one.
 int settings_layout_forget(Settings* s, unsigned hash);
+// Native (lane wave6-i18n): the ui_strings.h language the [ui] language setting picks (auto: the
+// process's locale); 0 is English
+int settings_ui_language(const Settings* s);
 // The cell the Head locked row shows: 0 off, 1 on, 2 follow
 int settings_head_lock_cell(const Settings* s);
 void settings_reset_3d(Settings* s);

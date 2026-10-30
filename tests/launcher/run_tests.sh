@@ -827,6 +827,23 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads glow_feather" "$dump" "display.glow_feather = soft"
         expect "VR client reads eye_balance" "$dump" "3d.eye_balance = 100"
     fi
+    # lane wave6-i18n: the Headset language row shows the languages; picking one writes [ui] language,
+    # which the VR client reads (at its next start); the rest of the file is kept
+    cp "$ini" "$t/ini.lang-before"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=headsetLanguageRow,headsetLang_de \
+        MLXR_LAUNCHER_SCREENSHOT="$t/language.png@3000" "$L" >"$t/lang.out" 2>&1
+    grep -q "no clickable" "$t/lang.out" && fail "language click hook: $(grep 'no clickable' "$t/lang.out")"
+    grep -Eq "$QMLERR" "$t/lang.out" && { fail "language row QML errors"; grep -E "$QMLERR" "$t/lang.out" | head; } || ok "headset language row loads (no QML errors)"
+    grep -A1 '^\[ui\]' "$ini" | grep -q '^language = de$' && ok "headset language row writes [ui] language = de" || { fail "[ui] language not written"; cat "$ini"; }
+    diff <(grep -v '^\[ui\]$\|^language = \|^$' "$t/ini.lang-before") <(grep -v '^\[ui\]$\|^language = \|^$' "$ini") >/dev/null && ok "language row leaves the other keys alone" || { fail "language row changed other keys"; diff "$t/ini.lang-before" "$ini"; }
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        expect "VR client reads the headset language" "$("$MLXR_SETTINGS_DUMP" "$ini")" "ui.language = de"
+    fi
+    # the locale's spelling in the file reads as the client spells it, and survives a save untouched
+    sed -i 's/^language = de$/language = pt_br/' "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=headsetLanguageRow \
+        MLXR_LAUNCHER_SCREENSHOT="$t/language2.png@3000" "$L" >"$t/lang2.out" 2>&1
+    grep -q '^language = pt_br$' "$ini" && ok "an unchanged headset language is not rewritten" || { fail "[ui] language rewritten"; grep -A1 '^\[ui\]' "$ini"; }
     # lane wave5-depth: the 3D rows that only the file and this page carry (3D on, so they are live)
     printf '[3d]\nstereo = true\nseparation = 9\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=edgeRow,motionRow,depthScaleRow,depthGlobalRow,zoomRow \
