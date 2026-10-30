@@ -505,14 +505,14 @@ expect "launch by UUID: by the app's id" "$out" "SELFTEST: env: MLXR_APP_UUID=$U
 SECTION=mlxr setconf virtual_display=true
 srvinfo $PERM_ALL true false SUNSHINE_SERVER_FREE 0 1 769
 out="$(pfplan "gaming-pc:Desktop")"
-expect "check: virtual display driver not ready" "$out" "hint: Use Virtual Display is on, but Apollo's virtual display driver is not ready on gaming-pc."
-expect "check: the hint is logged" "$(cat "$t/stderr")" "MLXR_LAUNCHER_HINT: Use Virtual Display is on"
+expect "check: virtual display driver not ready" "$out" "hint: Use virtual display is on, but Apollo's virtual display driver is not ready on gaming-pc."
+expect "check: the hint is logged" "$(cat "$t/stderr")" "MLXR_LAUNCHER_HINT: Use virtual display is on"
 # not Apollo (no Permission, no virtual display), virtual display and clipboard sync on
 SECTION=mlxr setconf clipboard_sync=true
 srvinfo "" "" "" SUNSHINE_SERVER_FREE 0 1 769
 out="$(pfplan "gaming-pc:Desktop")"
-expect "check: a virtual display needs Apollo" "$out" "hint: Use Virtual Display is on, but gaming-pc does not look like Apollo."
-expect "check: clipboard sync needs Apollo" "$out" "hint: Smart Clipboard Sync is on, but gaming-pc does not look like Apollo"
+expect "check: a virtual display needs Apollo" "$out" "hint: Use virtual display is on, but gaming-pc does not look like Apollo."
+expect "check: clipboard sync needs Apollo" "$out" "hint: Smart clipboard sync is on, but gaming-pc does not look like Apollo"
 cp "$pf/applist.xml" "$t/applist.uuid"
 sed -i "s/$UUID_DESKTOP//" "$pf/applist.xml"
 out="$(pfplan "gaming-pc:Desktop")"
@@ -754,7 +754,7 @@ if [ -n "$SHOTS" ]; then
     ini="$MLXR_CONFIG_DIR/config.ini"
     printf '# Moonlight XR settings\n[display]\n# Display tab: show performance stats [true | false] (default false)\n#stats = false\nglow = true\n\n[3d]\nseparation = 9\nstereo = false\n' > "$ini"
     cp "$ini" "$t/ini.before"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,scrollSpeedRow,doffRow,idleRow,controllerModelRow,hdrRow,stereoSourceRow,sbsFullRow,idrCapRow,padCardRow,firstRunRow,pathFailoverRow,failoverBurstRow \
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,scrollSpeedRow,doffRow,idleRow,controllerModelRow,stereoSourceRow,sbsFullRow,idrCapRow,padCardRow,firstRunRow,pathFailoverRow,failoverBurstRow \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-clicked.png@3000" "$L" >"$t/ui6.out" 2>&1
     grep -q "no clickable" "$t/ui6.out" && fail "click hook: $(grep 'no clickable' "$t/ui6.out")"
     grep -q '^stats = true$' "$ini" && ok "stats overlay row writes [display] stats = true" || { fail "stats not written"; cat "$ini"; }
@@ -762,7 +762,7 @@ if [ -n "$SHOTS" ]; then
     grep -A1 '^\[vr\]' "$ini" | grep -q '^flip_face_buttons = true$' && ok "flip row adds [vr] flip_face_buttons = true" || { fail "flip not written"; cat "$ini"; }
     grep -A2 '^\[vr\]' "$ini" | grep -q '^notices = important$' && ok "notices row steps All to Important and writes [vr] notices" || { fail "notices not written"; cat "$ini"; }
     grep -A6 '^\[vr\]' "$ini" | grep -q '^scroll_speed = 150$' && ok "scroll speed row steps 100 to 150 and writes [vr] scroll_speed" || { fail "scroll_speed not written"; cat "$ini"; }
-    grep -A6 '^\[vr\]' "$ini" | grep -q '^controller_model = frame$' && ok "controller row steps Off to Steam Frame and writes [vr] controller_model" || { fail "controller_model not written"; cat "$ini"; }
+    grep -A6 '^\[vr\]' "$ini" | grep -q '^controller_model = frame$' && ok "controller row steps Off to Frame and writes [vr] controller_model" || { fail "controller_model not written"; cat "$ini"; }
     grep -A3 '^\[stream\]' "$ini" | grep -q '^doff_disconnect = 120$' && ok "headset-off row steps 60 s to 120 s and writes [stream] doff_disconnect" || { fail "doff_disconnect not written"; cat "$ini"; }
     grep -A3 '^\[stream\]' "$ini" | grep -q '^idle_disconnect = 10$' && ok "idle row steps Never to 10 minutes and writes [stream] idle_disconnect" || { fail "idle_disconnect not written"; cat "$ini"; }
     # lane wave4-sbs (PLAN 4.3): the 3D source row steps Depth to SBS, then the full-size switch comes alive
@@ -777,7 +777,6 @@ if [ -n "$SHOTS" ]; then
     grep -A8 '^\[stream\]' "$ini" | grep -q '^failover = on$' && ok "path failover switch writes [stream] failover = on" || { fail "failover not written"; cat "$ini"; }
     grep -A8 '^\[stream\]' "$ini" | grep -q '^failover_burst_ms = 5000$' && ok "loss length row steps 3 s to 5 s and writes [stream] failover_burst_ms" || { fail "failover_burst_ms not written"; cat "$ini"; }
     grep -q '^glow = true$' "$ini" && grep -q '^separation = 9$' "$ini" && grep -q '^stereo = false$' "$ini" && ok "other config.ini keys untouched" || { fail "config.ini keys changed"; diff "$t/ini.before" "$ini"; }
-    grep -q -i hdr "$ini" && fail "greyed HDR row changed something" || ok "greyed HDR row is inert"
     grep -q "MLXR_LAUNCHER_WIFI: Wi-Fi$" "$t/ui6.out" && ok "Network connection: plain Wi-Fi when unknown" || fail "wifi fallback: $(grep MLXR_LAUNCHER_WIFI "$t/ui6.out")"
     # lane wave4c-usb: the USB cable row. A fake /sys/class/net: usb0 with carrier, a wired port without
     mkdir -p "$t/netroot/usb0" "$t/netroot/eth0"
@@ -903,7 +902,7 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads depth_global" "$dump" "3d.depth_global = 125"
         expect "VR client reads zoom" "$dump" "display.zoom = 125"
     fi
-    # lane wave4-headinput: the head and pointer input rows under Input Settings write only their keys
+    # lane wave4-headinput: the head and pointer input rows under Input settings write only their keys
     printf '[vr]\nhead_aim = true\nopentrack_host = gaming-pc.local\nopentrack_port = 5555\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
         MLXR_LAUNCHER_CLICK=headLookRow,headLookPxRow,opentrackRow,pointerSourceRow \
@@ -986,7 +985,7 @@ if [ -n "$SHOTS" ]; then
       MLXR_LAUNCHER_DEMO="gaming-pc:Desktop" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/segue-hints.png@2000,$SHOTS/after-hints.png@7500" "$L" >"$t/hint.out" 2>&1
     grep -E "$QMLERR" "$t/hint.out" && fail "hints demo QML errors" || ok "hints demo: no QML errors"
     expect "hints: the segue shows them (toast)" "$(grep 'Qt Warning: gaming-pc does not let this client launch apps' "$t/hint.out")" "launch apps"
-    expect "hints: the virtual display one too" "$(cat "$t/hint.out")" "Use Virtual Display is on, but Apollo's virtual display driver is not ready"
+    expect "hints: the virtual display one too" "$(cat "$t/hint.out")" "Use virtual display is on, but Apollo's virtual display driver is not ready"
     grep -q "segue-hints.png\" QSize.* saved" "$t/hint.out" && grep -q "after-hints.png\" QSize.* saved" "$t/hint.out" && ok "hints demo rendered" || fail "hints demo screenshots"
     SECTION=mlxr setconf virtual_display=false
     srvinfo $PERM_ALL true true SUNSHINE_SERVER_FREE 0 1 769
@@ -1190,7 +1189,7 @@ PY
     uiout "$t/srch1.out" "settings search"
     s="$(grep 'MLXR_SETTINGS_SEARCH: text="refresh rate"' "$t/srch1.out")"
     expect "search: the Refresh rate row matches" "$s" "titles=Refresh rate"
-    expect "search: only its section is left" "$s" "sections=Video Settings"
+    expect "search: only its section is left" "$s" "sections=Video settings"
     refute "search: other rows are hidden" "$s" "Surround sound"
     grep -q "settings-search.png\" QSize.* saved" "$t/srch1.out" && ok "search rendered" || fail "no search screenshot"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
@@ -1198,14 +1197,14 @@ PY
         MLXR_LAUNCHER_SCREENSHOT="$t/srch2.png@3000" "$L" >"$t/srch2.out" 2>&1
     uiout "$t/srch2.out" "settings search 2"
     expect "search: a section's name finds its rows, case ignored" "$(grep 'text="AUDIO"' "$t/srch2.out")" "titles=Surround sound configuration|"
-    expect "search: and the sections they are in" "$(grep 'text="AUDIO"' "$t/srch2.out")" "sections=Audio Settings|"
-    expect "search: two words, both in the row" "$(grep 'text="virtual display"' "$t/srch2.out")" "Use Virtual Display"
+    expect "search: and the sections they are in" "$(grep 'text="AUDIO"' "$t/srch2.out")" "sections=Audio settings|"
+    expect "search: two words, both in the row" "$(grep 'text="virtual display"' "$t/srch2.out")" "Use virtual display"
     expect "search: nothing found" "$(grep 'text="nothing like this"' "$t/srch2.out")" "rows=0 titles= sections="
     s="$(grep 'MLXR_SETTINGS_SEARCH: text=""' "$t/srch2.out")"
-    expect "search: cleared, every section is back" "$s" "sections=Connection|Stream profiles|Video Settings|Audio Settings"
-    expect "search: cleared, the last section too" "$s" "|MISC"
+    expect "search: cleared, every section is back" "$s" "sections=Connection|Stream profiles|Video settings|Audio settings"
+    expect "search: cleared, the last section too" "$s" "|Misc"
     # lane polish-3: the Video bitrate slider is in Connection, right above the per-connection rows whose
-    # "Same as above" it is, and no longer under Video Settings
+    # "Same as above" it is, and no longer under Video settings
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
         MLXR_LAUNCHER_INVOKE='setSearch:bitrate;setSearch:video settings' \
         MLXR_LAUNCHER_SCREENSHOT="$t/srch3.png@3000" "$L" >"$t/srch3.out" 2>&1
@@ -1216,13 +1215,30 @@ PY
     expect "Video bitrate: under the Connection heading" "$s" "sections=Connection|"
     [ "$(echo "$s" | grep -o 'Video bitrate' | wc -l)" = 1 ] && ok "Video bitrate: one slider, not two" || fail "Video bitrate twice: $s"
     s="$(grep 'MLXR_SETTINGS_SEARCH: text="video settings"' "$t/srch3.out")"
-    expect "search: Video Settings still finds its rows" "$s" "Video resolution|Refresh rate"
-    refute "Video bitrate: no longer under Video Settings" "$s" "Video bitrate"
+    expect "search: Video settings still finds its rows" "$s" "Video resolution|Refresh rate"
+    refute "Video bitrate: no longer under Video settings" "$s" "Video bitrate"
+    # lane flat-coherence: rows in the category they belong to, the rows that did nothing gone, one Apollo wording
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='setSearch:performance monitor;setSearch:background dim;setSearch:disconnect when;setSearch:controls card;setSearch:eye balance;setSearch:scroll speed;setSearch:hdr;setSearch:unlock;setSearch:custom;setSearch:needs apollo' \
+        MLXR_LAUNCHER_SCREENSHOT="$t/srch4.png@3000" "$L" >"$t/srch4.out" 2>&1
+    uiout "$t/srch4.out" "settings search 4"
+    sq() { grep "MLXR_SETTINGS_SEARCH: text=\"$1\"" "$t/srch4.out"; }
+    expect "Performance monitor holds only the stats rows" "$(sq 'performance monitor')" "rows=2 titles=Stats|Stats style sections=Performance monitor"
+    expect "Background dim is under UI settings" "$(sq 'background dim')" "titles=Background dim sections=UI settings"
+    expect "the disconnect rows are under General settings" "$(sq 'disconnect when')" "titles=Disconnect when the headset is off|Disconnect when idle sections=General settings"
+    expect "the controls card row is under General settings" "$(sq 'controls card')" "titles=Controls card on the next stream sections=General settings"
+    expect "3D eye balance is with the 3D rows" "$(sq 'eye balance')" "titles=3D eye balance sections=Video settings"
+    expect "Scroll speed is under Input settings" "$(sq 'scroll speed')" "titles=Scroll speed sections=Input settings"
+    expect "no HDR row (the Frame's video is 8-bit SDR)" "$(sq hdr)" "rows=0"
+    expect "no Unlock all possible frame rates row" "$(sq unlock)" "rows=0"
+    expect "custom: the resolution list's Custom... and Custom bitrate" "$(sq custom)" "Video resolution|Refresh rate|Custom bitrate"
+    refute "no Custom Resolution row (it is in the list)" "$(sq custom)" "Custom resolution"
+    expect "one wording for the Apollo-only rows" "$(sq 'needs apollo')" "titles=Refresh rate|Use virtual display|Resolution scale factor|Smart clipboard sync (experimental)"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=jump_audio \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-jump.png@3000" "$L" >"$t/jump.out" 2>&1
     grep -q "no clickable" "$t/jump.out" && fail "jump list: $(grep 'no clickable' "$t/jump.out")"
     uiout "$t/jump.out" "jump list"
-    grep -Eq 'MLXR_SETTINGS_JUMP: Audio Settings y=[1-9][0-9]+' "$t/jump.out" && ok "jump list: Audio goes down the page to its section" || fail "jump: $(grep MLXR_SETTINGS_JUMP "$t/jump.out")"
+    grep -Eq 'MLXR_SETTINGS_JUMP: Audio settings y=[1-9][0-9]+' "$t/jump.out" && ok "jump list: Audio goes down the page to its section" || fail "jump: $(grep MLXR_SETTINGS_JUMP "$t/jump.out")"
     # lane launcher2: the Game Mode scale (1.5) on a 1920x1080 window. The offscreen screen is
     # 800x800, so this uses QT_SCALE_FACTOR (what the launcher sets in Game Mode) with the window
     # at 1920/1.5 x 1080/1.5 = 1280x720 logical and a windowed UI; the grab is in device pixels.
@@ -1239,14 +1255,19 @@ PY
     # page's own functions do, then only those keys written, as the VR client reads them
     ini="$MLXR_CONFIG_DIR/config.ini"
     printf '[vr]\n# checkbox_vr_show_ray: show the controller ray [true | false] (default true)\n#show_ray = true\nnotices = off\n\n[screen]\ndistance_cm = 280\n' > "$ini"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.show_ray,vr.passthrough,display.glow \
-        MLXR_LAUNCHER_INVOKE='vrSet:vr.picture_contrast|120;vrSet:vr.picture_gamma|135;vrSet:vr.head_aim_sensitivity|99;vrSet:screen.width_cm|450;vrPick:vr.environment|3;vrPick:display.stats_style|1;vrPick:vr.depth_source|1;vrPick:vr.gamepad_toggle|2;pickOnStart:1;saveAll;setSearch:picture' \
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.pointer_sleep,vr.passthrough,display.glow \
+        MLXR_LAUNCHER_INVOKE='vrPick:rayRow|1;vrPick:headLockRow|2;vrSet:vr.picture_contrast|120;vrSet:vr.picture_gamma|135;vrSet:vr.head_aim_sensitivity|99;vrSet:screen.width_cm|450;vrPick:vr.environment|3;vrPick:display.stats_style|1;vrPick:vr.depth_source|1;vrPick:vr.gamepad_toggle|2;pickOnStart:1;saveAll;setSearch:picture' \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-vrkeys.png@3000" "$L" >"$t/vrk.out" 2>&1
     grep -q "no clickable\|no function\|could not call\|vrPick: no row" "$t/vrk.out" && fail "config key rows: $(grep -E 'no clickable|no function|could not call|vrPick' "$t/vrk.out" | head -3)"
     uiout "$t/vrk.out" "config key rows"
     sec() { sed -n "/^\[$1\]/,/^\[/p" "$ini"; }
-    expect "a switch row writes its key: Show the ray off" "$(sec vr)" "show_ray = false"
+    expect "a switch row writes its key: Pointer sleep off" "$(sec vr)" "pointer_sleep = false"
+    # lane flat-coherence: Ray and Head locked are one three-way row each, as in the cog
+    expect "the Ray row's Dot writes show_ray = false" "$(sec vr)" "show_ray = false"
     refute "the commented default line was replaced" "$(cat "$ini")" "#show_ray"
+    refute "Dot leaves pointer_dot at its default (not written)" "$(sec vr)" "pointer_dot"
+    expect "the Head locked row's Follow writes head_follow = true" "$(sec display)" "head_follow = true"
+    refute "Follow leaves head_locked at its default (not written)" "$(sec display)" "head_locked"
     expect "Passthrough on" "$(sec vr)" "passthrough = true"
     expect "Glow on" "$(sec display)" "glow = true"
     expect "a slider row writes its key: contrast" "$(sec vr)" "picture_contrast = 120"
@@ -1265,7 +1286,7 @@ PY
     expect "search finds the new rows" "$s" "Picture brightness|Picture contrast|Picture gamma|Picture saturation"
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
-        for kv in "vr.show_ray = false" "vr.passthrough = true" "display.glow = true" "vr.picture_contrast = 120" "vr.picture_gamma = 135" \
+        for kv in "vr.show_ray = false" "vr.pointer_dot = true" "vr.pointer_sleep = false" "display.head_follow = true" "display.head_locked = false" "vr.passthrough = true" "display.glow = true" "vr.picture_contrast = 120" "vr.picture_gamma = 135" \
                   "vr.head_aim_sensitivity = 30" "screen.width_cm = 450" "vr.environment = home_theater" "display.stats_style = hud" \
                   "vr.depth_source = zipdepth-int8" "vr.gamepad_toggle = triggers_grips" "screen.distance_cm = 280"; do
             expect "VR client reads $kv" "$dump" "$kv"
@@ -1273,10 +1294,12 @@ PY
         expect "VR client: nothing it could not read" "$dump" "unknown 0, unreadable 0"
     fi
     # read back: the switch starts off now, a click turns it on again
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.show_ray \
-        MLXR_LAUNCHER_INVOKE='setSearch:steadiness' MLXR_LAUNCHER_SCREENSHOT="$t/vrk2.png@3000" "$L" >"$t/vrk2.out" 2>&1
-    expect "the rows read config.ini back (Show the ray off -> on)" "$(sec vr)" "show_ray = true"
-    expect "search: one word finds its row" "$(grep 'text="steadiness"' "$t/vrk2.out")" "rows=1 titles=Click steadiness sections=Input Settings"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.pointer_sleep \
+        MLXR_LAUNCHER_INVOKE='vrPick:headLockRow|1;saveAll;setSearch:steadiness' MLXR_LAUNCHER_SCREENSHOT="$t/vrk2.png@3000" "$L" >"$t/vrk2.out" 2>&1
+    expect "the rows read config.ini back (Pointer sleep off -> on)" "$(sec vr)" "pointer_sleep = true"
+    expect "Head locked On after Follow: head_locked = true" "$(sec display)" "head_locked = true"
+    expect "and head_follow = false (the cog's one row)" "$(sec display)" "head_follow = false"
+    expect "search: one word finds its row" "$(grep 'text="steadiness"' "$t/vrk2.out")" "rows=1 titles=Click steadiness sections=Input settings"
     SECTION=mlxr setconf on_start=none
 
     # --- PLAN 6.2: the update notice in the toolbar (stock's update button) with this project's version
