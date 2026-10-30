@@ -431,6 +431,20 @@ static void testRecentre(void) {
     CHECK_NEAR(squared.position.y, 0.1, 1e-6);
     CHECK_NEAR(squared.position.z, -sqrt(2.0), 1e-5);
     CHECK_NEAR(quatAgreement(squared.orientation, ahead.orientation), 1.0, 1e-6);
+
+    // Native (lane wave2-bind-wire): brought round to a heading instead. A
+    // quarter turn left puts it on the viewer's left, facing them, at the
+    // same distance and height with the tilt and roll it had
+    XrPosef left = poseRecentredTo(swung, (float)M_PI / 2.0f);
+    CHECK_NEAR(left.position.x, -2.0, 1e-5);
+    CHECK_NEAR(left.position.y, 0.3, 1e-6);
+    CHECK_NEAR(left.position.z, 0.0, 1e-5);
+    CHECK_NEAR(quatAgreement(left.orientation, screenAngles((float)M_PI / 2.0f, tilt, roll)), 1.0, 1e-5);
+    // A heading of 0 is the plain recentre
+    XrPosef zero = poseRecentredTo(behind, 0.0f);
+    CHECK_NEAR(zero.position.x, front.position.x, 1e-6);
+    CHECK_NEAR(zero.position.z, front.position.z, 1e-6);
+    CHECK_NEAR(quatAgreement(zero.orientation, front.orientation), 1.0, 1e-6);
 }
 
 int main(void) {

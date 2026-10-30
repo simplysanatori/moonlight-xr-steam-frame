@@ -52,6 +52,12 @@ XrPosef poseInFrame(XrPosef frame, XrPosef pose);
 // at the same distance and height, with its tilt and roll kept
 XrPosef poseRecentred(XrPosef screen);
 
+// Native (lane wave2-bind-wire): the same, brought round to a heading of yaw
+// radians instead of straight ahead (positive to the left, as a turn about
+// +y goes), for a recentre on a button where the space itself has not turned:
+// the screen comes round to where the head faces
+XrPosef poseRecentredTo(XrPosef screen, float yaw);
+
 // How far the head has turned from the way the screen faces, in radians,
 // positive to the viewer's left, in (-pi, pi]
 float yawBetween(XrQuaternionf head, XrQuaternionf screen);
