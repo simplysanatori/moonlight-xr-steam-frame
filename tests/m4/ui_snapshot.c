@@ -305,6 +305,11 @@ int main(int argc, char** argv) {
     c->hostConfirm = XR_HOST_CONFIRM_PCVR;
     c->hostHoverZone = XR_HOST_ZONE_CONFIRM_SEND;
     shot(s, "20b-host-pcvr-confirm", NULL);
+    // Lane pcvr-steamvr: the same with a game chosen in the launcher, offered beside SteamVR
+    snprintf(c->pcvrGame, sizeof(c->pcvrGame), "Half-Life: Alyx");
+    c->hostHoverZone = XR_HOST_ZONE_CONFIRM_GAME;
+    shot(s, "20c-host-pcvr-game", NULL);
+    c->pcvrGame[0] = '\0';
     // Native (lane wave4-apollo): the PC page on an Apollo host with three commands, asking before one
     // runs, and on a host that is not Apollo
     c->hostConfirm = -1;

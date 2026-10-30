@@ -121,7 +121,7 @@
     X(HOST_NO_MACROS, "native_host_no_macros", "Your own buttons go in macros.ini") \
     X(HOST_PCVR, "native_host_pcvr", "PC VR") \
     X(HOST_PCVR_Q, "native_host_pcvr_q", "Switch to PC VR? This stream ends.") \
-    X(HOST_PCVR_GO, "native_host_pcvr_go", "Switch") \
+    X(HOST_PCVR_GO, "native_host_pcvr_go", "SteamVR") \
     X(HOST_HINT_ESC, "native_host_hint_esc", "Escape") \
     X(HOST_HINT_WIN, "native_host_hint_win", "Start menu") \
     X(HOST_HINT_DESKTOP, "native_host_hint_desktop", "Show desktop") \

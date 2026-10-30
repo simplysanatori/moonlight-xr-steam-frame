@@ -3,6 +3,7 @@
 #include "xr_host.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "xr_keyboard.h"
 
@@ -40,6 +41,8 @@ void xrHostOpen(XrCtx* ctx) {
     ctx->hostConfirm = -1;
     ctx->hostHoverZone = XR_HOST_ZONE_NONE;
     ctx->hostPose = hostSheetPose(ctx, &ctx->hostW, &ctx->hostH);
+    // Lane pcvr-steamvr: the game the flat launcher offers beside SteamVR, if any
+    xrHostPcvrGameName(getenv("MLXR_PCVR_GAME"), ctx->pcvrGame, sizeof(ctx->pcvrGame));
     LOGEV("host sheet open");
 }
 
@@ -50,6 +53,9 @@ void xrHostClose(XrCtx* ctx) {
 }
 
 int xrHostZone(XrCtx* ctx, float u, float v) {
+    if (ctx->hostConfirm == XR_HOST_CONFIRM_PCVR) {
+        return xrHostPcvrZoneAt(u, v, ctx->pcvrGame[0] != '\0');
+    }
     return xrHostZoneAtPage(u, v, ctx->hostPage, ctx->macros.count, ctx->hostInfo.cmdCount,
                             ctx->hostConfirm >= 0);
 }
@@ -149,11 +155,12 @@ int xrHostPress(XrCtx* ctx, float u, float v, int* tick) {
         ctx->hostConfirm = XR_HOST_CONFIRM_PCVR;
         return zone;
     }
-    if (zone == XR_HOST_ZONE_CONFIRM_SEND && ctx->hostConfirm == XR_HOST_CONFIRM_PCVR) {
-        // from either page (the header is the same on both)
+    if ((zone == XR_HOST_ZONE_CONFIRM_SEND || zone == XR_HOST_ZONE_CONFIRM_GAME)
+        && ctx->hostConfirm == XR_HOST_CONFIRM_PCVR) {
+        // from either page (the header is the same on both). Lane pcvr-steamvr: SteamVR, or the game
         ctx->hostConfirm = -1;
-        ctx->pcvrRequest = 1;
-        LOGEV("host: switch to PC VR confirmed");
+        ctx->pcvrRequest = zone == XR_HOST_ZONE_CONFIRM_GAME ? 2 : 1;
+        LOGEV("host: switch to PC VR confirmed (%s)", ctx->pcvrRequest == 2 ? ctx->pcvrGame : "SteamVR");
         xrHostClose(ctx);
         return zone;
     }

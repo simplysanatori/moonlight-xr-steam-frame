@@ -581,6 +581,7 @@ case "${FAKE_MODE:-ok}" in
   silent) exit 3;;
   disc) exit 11;;
   pcvr) exit 12;;
+  pcvrgame) echo "pcvr game: [${MLXR_PCVR_GAME-unset}]" >> "$FAKE_LOG"; exit 13;;
   crash) kill -SEGV $$;;
 esac
 FAKE
@@ -641,11 +642,23 @@ JSON
     MLXR_LAUNCHER_DRYRUN="fail:12:" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
     [ $rc = 0 ] && ok "exit 12 (Switch to PC VR) is not an error" || fail "exit 12 gave $rc"
     expect "exit 12: no error dialog" "$(cat "$t/stdout")" "error=none"
-    expect "exit 12 with no game chosen: --pcvr alone" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr"
+    expect "exit 12 with no game chosen: --pcvr alone (SteamVR)" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --confirm 10"
     refute "exit 12 with no game chosen: no --app" "$(grep '^MLXR_PCVR' "$t/stdout")" "--app"
+    refute "no game chosen: the headset is not offered one" "$(cat "$t/stdout")" "MLXR_PCVR_GAME"
+    # lane pcvr-steamvr: 12 is SteamVR even with a game chosen; 13 is that game, offered to the headset by name
     SECTION=mlxr setconf pcvr_app=620980 pcvr_client=76561198000000001
     MLXR_LAUNCHER_DRYRUN="fail:12:" selftest "gaming-pc:Desktop" >"$t/stdout"
-    expect "exit 12 with a game and a PC chosen" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --app 620980 --client 76561198000000001"
+    expect "exit 12 with a game and a PC chosen: SteamVR from that PC" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --client 76561198000000001 --confirm 10"
+    refute "exit 12 with a game chosen: still no --app" "$(grep '^MLXR_PCVR' "$t/stdout")" "--app"
+    expect "a game chosen: the headset is offered it (no name saved: its id)" "$(cat "$t/stdout")" "MLXR_LAUNCHER_DRYRUN_ENV: MLXR_PCVR_GAME=Steam app 620980"
+    MLXR_LAUNCHER_DRYRUN="fail:13:" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
+    [ $rc = 0 ] && expect "exit 13 (the chosen game) is not an error" "$(cat "$t/stdout")" "error=none" || fail "exit 13 gave $rc"
+    expect "exit 13 with a game and a PC chosen: that game" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --app 620980 --client 76561198000000001 --confirm 10"
+    SECTION=mlxr setconf pcvr_app=250820
+    MLXR_LAUNCHER_DRYRUN="fail:13:" selftest "gaming-pc:Desktop" >"$t/stdout"
+    refute "SteamVR's own id saved as the game: SteamVR, not a game" "$(grep '^MLXR_PCVR' "$t/stdout")" "--app"
+    refute "SteamVR's own id saved as the game: no second choice in the headset" "$(cat "$t/stdout")" "MLXR_PCVR_GAME"
+    SECTION=mlxr setconf pcvr_app=620980
     MLXR_LAUNCHER_DRYRUN="fail:11:" selftest "gaming-pc:Desktop" >"$t/stdout"
     refute "exit 11 (disconnect) does not hand off to PC VR" "$(cat "$t/stdout")" "MLXR_PCVR"
     MLXR_LAUNCHER_DRYRUN="fail:6:no" selftest "gaming-pc:Desktop" >"$t/stdout"
@@ -656,20 +669,29 @@ JSON
     FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
     [ $rc = 0 ] && ok "client exit 12 -> success" || fail "client exit 12 gave $rc"
     expect "client exit 12: finished without an error" "$(cat "$t/stdout")" "started=yes finished=yes error=none"
-    expect "client exit 12: Steam is asked to StreamGame the chosen game from the chosen PC" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(620980, "76561198000000001", 0)'
+    expect "client exit 12: Steam is asked to StreamGame SteamVR from the chosen PC" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(250820, "76561198000000001", 0)'
     refute "client exit 12: the flat screen is not asked for" "$(cat "$t/cef.log")" "ShowDashboard"
+    refute "client exit 12: no library page" "$(cat "$t/cef.log")" "ExecuteSteamURL"
+    expect "client exit 12: the log names the path taken" "$(cat "$t/stderr")" "Asked Steam for PC VR: stream (the PC chosen"
+    : > "$t/cef.log"
+    SECTION=mlxr setconf "pcvr_app_name=Beat Saber"
+    FAKE_MODE=pcvrgame MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
+    [ $rc = 0 ] && ok "client exit 13 -> success" || fail "client exit 13 gave $rc"
+    expect "client exit 13: Steam is asked to StreamGame the chosen game" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(620980, "76561198000000001", 0)'
+    expect "the client was told the game's name" "$(cat "$FAKE_LOG")" "pcvr game: [Beat Saber]"
+    SECTION=mlxr setconf pcvr_app_name=
     # no PC chosen: the only paired PC is used (the script asks Steam for the list first)
     : > "$t/cef.log"
     SECTION=mlxr setconf pcvr_client=
     FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"
     expect "no PC chosen: Steam is asked for the paired PCs" "$(cat "$t/cef.log")" "RegisterForDevicesChanges"
-    expect "no PC chosen: the only paired PC is streamed from" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(620980, "76561198000000001", 0)'
-    # no game chosen: Steam's library opens
+    expect "no PC chosen: the only paired PC is streamed from" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(250820, "76561198000000001", 0)'
+    # no game chosen: SteamVR, not the library (lane pcvr-steamvr)
     : > "$t/cef.log"
     SECTION=mlxr setconf pcvr_app=
     FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"
-    expect "no game chosen: Steam's library opens" "$(cat "$t/cef.log")" "steam://nav/games"
-    refute "no game chosen: nothing is streamed" "$(cat "$t/cef.log")" "StreamGame"
+    expect "no game chosen: SteamVR is streamed" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(250820, "76561198000000001", 0)'
+    refute "no game chosen: the library does not open" "$(cat "$t/cef.log")" "steam://nav/games"
     # Steam's port does not answer: the hand-off fails quietly (logged), the launcher carries on
     SECTION=mlxr setconf pcvr_app=620980 pcvr_client=76561198000000001
     STEAM_CEF_PORT="$DEADPORT" FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?

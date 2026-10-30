@@ -488,7 +488,60 @@ static void testCompose(void) {
     CHECK(strlen(out) == 4);
 }
 
+// Lane pcvr-steamvr: the PC VR question's choice (SteamVR, the launcher's game, Cancel) and the game's name
+static void testPcvrChoice(void) {
+    float box[4], r[3][4];
+    xrHostPcvrBox(1, box);
+    for (int i = 0; i < 3; i++) {
+        xrHostPcvrChoiceRect(i, 1, r[i]);
+        CHECK(r[i][2] > r[i][0] && r[i][3] > r[i][1]);
+        CHECK(r[i][0] >= box[0] && r[i][2] <= box[2] && r[i][1] >= box[1] && r[i][3] <= box[3]);   // in the box
+        if (i > 0) CHECK(r[i - 1][2] < r[i][0]);   // left to right, apart
+    }
+    static const int ZONE[3] = { XR_HOST_ZONE_CONFIRM_SEND, XR_HOST_ZONE_CONFIRM_GAME, XR_HOST_ZONE_CONFIRM_CANCEL };
+    for (int i = 0; i < 3; i++) {
+        CHECK(xrHostPcvrZoneAt((r[i][0] + r[i][2]) * 0.5f, (r[i][1] + r[i][3]) * 0.5f, 1) == ZONE[i]);
+    }
+    CHECK(xrHostPcvrZoneAt((r[0][2] + r[1][0]) * 0.5f, (r[0][1] + r[0][3]) * 0.5f, 1) == XR_HOST_ZONE_NONE);
+    // without a game: the usual two buttons, and nothing is the game
+    float send[4], cancel[4], two[4];
+    xrHostConfirmSendRect(send);
+    xrHostConfirmCancelRect(cancel);
+    xrHostPcvrChoiceRect(0, 0, two);
+    CHECK(memcmp(two, send, sizeof two) == 0);
+    xrHostPcvrChoiceRect(2, 0, two);
+    CHECK(memcmp(two, cancel, sizeof two) == 0);
+    xrHostPcvrChoiceRect(1, 0, two);
+    CHECK(two[2] == 0.0f);
+    CHECK(xrHostPcvrZoneAt((send[0] + send[2]) * 0.5f, (send[1] + send[3]) * 0.5f, 0) == XR_HOST_ZONE_CONFIRM_SEND);
+    CHECK(xrHostPcvrZoneAt((cancel[0] + cancel[2]) * 0.5f, (cancel[1] + cancel[3]) * 0.5f, 0) == XR_HOST_ZONE_CONFIRM_CANCEL);
+    CHECK(xrHostPcvrZoneAt((r[1][0] + r[1][2]) * 0.5f, (r[1][1] + r[1][3]) * 0.5f, 0) != XR_HOST_ZONE_CONFIRM_GAME);
+    float plain[4];
+    xrHostPcvrBox(0, box);
+    xrHostConfirmBox(plain);
+    CHECK(memcmp(box, plain, sizeof box) == 0);
+    CHECK(XR_HOST_ZONE_CONFIRM_GAME != XR_HOST_ZONE_PAGE && XR_HOST_ZONE_CONFIRM_GAME != XR_HOST_ZONE_PCVR
+          && XR_HOST_ZONE_CONFIRM_GAME >= XR_HOST_CELLS);
+    // the name: trimmed, control characters out, cut at a whole character
+    char n[XR_HOST_PCVR_GAME_NAME];
+    xrHostPcvrGameName(NULL, n, sizeof n);
+    CHECK(n[0] == '\0');
+    xrHostPcvrGameName("   ", n, sizeof n);
+    CHECK(n[0] == '\0');
+    xrHostPcvrGameName("  Half-Life: Alyx \n", n, sizeof n);
+    CHECK(strcmp(n, "Half-Life: Alyx") == 0);
+    xrHostPcvrGameName("Beat\tSaber", n, sizeof n);
+    CHECK(strcmp(n, "BeatSaber") == 0);
+    char small[6];
+    xrHostPcvrGameName("Pok\xC3\xA9mon", small, sizeof small);   // "Pok" + a 2-byte e: 5 bytes fit
+    CHECK(strcmp(small, "Pok\xC3\xA9") == 0);
+    char tiny[5];
+    xrHostPcvrGameName("Pok\xC3\xA9mon", tiny, sizeof tiny);     // 4 bytes: the e would be cut, so it goes
+    CHECK(strcmp(tiny, "Pok") == 0);
+}
+
 int main(void) {
+    testPcvrChoice();
     testPcPage();
     testCompose();
     testQuick();

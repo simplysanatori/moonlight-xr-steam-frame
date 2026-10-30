@@ -225,6 +225,15 @@ int main(void) {
     launcher_stream_started(&l);
     launcher_disconnect_bar(&l);
     CHECK(take(&l, LCMD_STOP, &c) && c.pcvr == 0);
+    // lane pcvr-steamvr: the question answered with the launcher's game is carried to the exit code
+    launcher_init(&l);
+    hosts(&l);
+    launcher_autostart(&l, 0, 881);
+    CHECK(take(&l, LCMD_LAUNCH, &c));
+    launcher_stream_started(&l);
+    launcher_pcvr_to(&l, LAUNCH_PCVR_GAME);
+    CHECK(take(&l, LCMD_STOP, &c) && c.quitHost == 0 && c.pcvr == LAUNCH_PCVR_GAME);
+    CHECK(LAUNCH_PCVR_STEAMVR == 1);
     launcher_init_file(&l);
     launcher_pcvr(&l);                            // --file has no host to hand over
     CHECK(l.state == LAUNCH_STREAMING && l.ncmd == 0);

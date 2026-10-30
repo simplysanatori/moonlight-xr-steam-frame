@@ -1522,7 +1522,7 @@ Flickable {
             title: qsTr("Switch to PC VR")
             valueText: MlxrPrefs.pcvrBusy ? qsTr("Asking Steam...") : ""
             summary: (MlxrPrefs.pcvrStatus !== "" ? MlxrPrefs.pcvrStatus + " " : "") +
-                     qsTr("The Host sheet's PC VR button ends the stream and has the headset's Steam stream a VR game from your PC. That is Valve's Steam Link, not Moonlight: its picture, its tracking and its limits. Press here to check Steam and list the PCs you paired with and their games.")
+                     qsTr("The Host sheet's PC VR button ends the stream and has the headset's Steam stream SteamVR, or the game chosen below, from your PC. That is Valve's Steam Link, not Moonlight: its picture, its tracking and its limits. Press here to check Steam and list the PCs you paired with and their games.")
             onClicked: MlxrPrefs.pcvrRefresh()
         }
 
@@ -1546,11 +1546,11 @@ Flickable {
         PrefRow {
             objectName: "pcvrAppRow"
             title: qsTr("PC VR game")
-            valueText: MlxrPrefs.pcvrApp === "" ? qsTr("None: open Steam's library")
+            valueText: MlxrPrefs.pcvrApp === "" ? "SteamVR"
                        : (MlxrPrefs.pcvrAppName !== "" ? MlxrPrefs.pcvrAppName : qsTr("Steam app %1").arg(MlxrPrefs.pcvrApp))
-            summary: qsTr("The game the PC VR button streams from the PC. With none, Steam's library opens and you press \"Stream from your PC\" on a game yourself.")
+            summary: qsTr("SteamVR starts SteamVR Home on the PC, where you pick any game. A game chosen here is offered in the headset next to SteamVR.")
             onClicked: {
-                var e = [{ text: qsTr("None: open Steam's library"), reason: "" }]
+                var e = [{ text: "SteamVR", reason: "" }]
                 var cur = 0
                 var a = MlxrPrefs.pcvrApps
                 for (var i = 0; i < a.length; i++) {
@@ -1565,7 +1565,7 @@ Flickable {
             objectName: "pcvrAppIdRow"
             title: qsTr("PC VR game: Steam app id")
             valueText: MlxrPrefs.pcvrApp
-            summary: qsTr("The same choice typed by hand, for when Steam does not list the PC's games. Empty for none.")
+            summary: qsTr("The same choice typed by hand, for when Steam does not list the PC's games. Empty for SteamVR.")
             onClicked: editDialog.show(title, qsTr("The game's Steam app id, digits only (it is in its store page address)."),
                                        MlxrPrefs.pcvrApp, "^\\d{0,10}$", function(t) { MlxrPrefs.pcvrSetAppId(t) })
         }

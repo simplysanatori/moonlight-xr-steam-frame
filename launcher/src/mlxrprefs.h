@@ -138,9 +138,9 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(QString lightgun MEMBER lightgun NOTIFY changed)
     Q_PROPERTY(QString padGyro MEMBER padGyro NOTIFY changed)
     // ---- PC VR: Valve's Steam Link stream of the PC (lane wave4-pcvr, PLAN 4.1, 4.2, 4.9) ----
-    // The Host sheet's PC VR button ends the stream and the launcher asks Steam to stream pcvrApp (a Steam
-    // app id; empty: open Steam's library) from the Remote Play PC pcvrClient (a Remote Play client id; empty:
-    // the only paired PC). The names are for this page. Keys mlxr/pcvr_app, pcvr_app_name, pcvr_client,
+    // The Host sheet's PC VR button ends the stream and the launcher asks Steam to stream SteamVR, or pcvrApp
+    // (a Steam app id; empty: none, SteamVR only; lane pcvr-steamvr) when the headset's question was answered
+    // with it, from the Remote Play PC pcvrClient (a Remote Play client id; empty: the only paired PC). The names are for this page. Keys mlxr/pcvr_app, pcvr_app_name, pcvr_client,
     // pcvr_client_name.
     Q_PROPERTY(QString pcvrApp MEMBER pcvrApp NOTIFY changed)
     Q_PROPERTY(QString pcvrAppName MEMBER pcvrAppName NOTIFY changed)
@@ -202,7 +202,7 @@ public:
     Q_INVOKABLE void pcvrProbe();
     // PLAN 4.2: the probe, then the paired PCs, then the games on the chosen PC (the only one when none is chosen)
     Q_INVOKABLE void pcvrRefresh();
-    // index into pcvrDevices / pcvrApps; -1 = none (a PC: the only paired one; a game: open the library)
+    // index into pcvrDevices / pcvrApps; -1 = none (a PC: the only paired one; a game: SteamVR only)
     Q_INVOKABLE void pcvrChooseDevice(int index);
     Q_INVOKABLE void pcvrChooseApp(int index);
     // A Steam app id typed by hand (the lists need Steam's undocumented library data); "" = none
