@@ -63,6 +63,9 @@ void xrPadBridgeStartWithSink(const PadOutSink* sink) {
 void xrPadBridgeFrame(int plugged, const PadState* s, int64_t nowNs) {
     void (*fire)(void*) = NULL;
     void* user = NULL;
+    // Native (lane wave2b-padmouse, pad_arbitration): once a physical pad has been used the Frame
+    // pad is not wanted on the host, so it goes out like a mode switch (neutral, then unplugged)
+    plugged = gamepadsFramePadAllowed(plugged);
     pthread_mutex_lock(&g_lock);
     if (g_ready) {
         PadState rest;
