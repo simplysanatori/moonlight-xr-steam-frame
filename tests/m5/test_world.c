@@ -1165,6 +1165,25 @@ static void modelKindGroup(void) {
     CHECK(xr > s.w / 2 + 20 && xl < s.w / 2 - 20);
     m5_image_free(c, &s.colour);
     m5_image_free(c, &s.depth);
+    // A gun of the user's own (both halves in the config folder) is drawn instead of the bundled one
+    snprintf(path, sizeof(path), "%s/models/gun_right.model", cfg);
+    writeQuadModel(path, 0.15f, texRed);
+    snprintf(path, sizeof(path), "%s/models/gun_left.model", cfg);
+    writeQuadModel(path, -0.15f, texRed);
+    c->modelKind = CONTROLLER_MODEL_GUN;
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->model && c->model->kind == CONTROLLER_MODEL_GUN && c->model->space == MODEL_SPACE_AIM);
+    CHECK(c->model && strstr(c->model->source, cfg) != NULL && strstr(c->model->source, "gun_left.model") != NULL);
+    CHECK(c->model && c->model->vertexCount < 100);
+    // A broken one gives way to the bundled gun
+    FILE* broken = fopen(path, "wb");
+    if (broken) fclose(broken);
+    c->modelKind = CONTROLLER_MODEL_CUSTOM;
+    m5_frame(&g, c, NULL, NULL);
+    c->modelKind = CONTROLLER_MODEL_GUN;
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->model && c->model->kind == CONTROLLER_MODEL_GUN && strstr(c->model->source, cfg) == NULL);
+    CHECK(c->model && c->model->vertexCount > 1000);
     unloadWith(c);
     unsetenv("MLXR_CONFIG_DIR");
 }
