@@ -302,6 +302,7 @@ void ui_view_init(UiView* v, const Settings* s) {
     v->env_selected = -1;
     v->bar_show_aim = s->head_locked;
     v->bar_show_stereo = v->stereo_ok;
+    v->bar_show_here = !s->head_locked;
     v->hover.kind = UI_HIT_NONE;
     v->kb_sheet = KB_STATE_LOWER;
     v->env_live_cells = ENV_CELL_COUNT;
