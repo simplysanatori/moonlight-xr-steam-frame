@@ -984,6 +984,10 @@ if [ -n "$SHOTS" ]; then
     uiout "$t/acc2.out" "accessibility tips"
     grep -A8 '^\[vr\]' "$ini" | grep -q '^assist_dot_size = 175$' && ok "Dot size writes [vr] assist_dot_size = 175" || { fail "assist_dot_size not written"; cat "$ini"; }
     grep -Eq '^(pointer_source|head_dwell_ms|assist_headset_button) *=' "$ini" && { fail "the dot size wrote another accessibility key"; cat "$ini"; } || ok "the dot size writes only its key"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads assist_dot_size" "$dump" "vr.assist_dot_size = 175"
+    fi
     # the headset button writes its key when pressed
     printf '[vr]\nhead_aim = true\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
@@ -1001,10 +1005,6 @@ if [ -n "$SHOTS" ]; then
     expect "tip: Dot size" "$tips" 'assistDotSizeRow visible=true text="How big the dot is when you point with your head or eyes."'
     expect "tip: Headset button" "$tips" "assistHeadsetButtonRow visible=true text=\"The headset's side button clicks instead of opening the Steam home. Hold it 3 seconds to get the Steam home back.\""
     grep -q 'MLXR_LAUNCHER_CLICK\|showTip: no row' "$t/acc2.out" && fail "a tip row is missing: $(grep 'showTip: no row' "$t/acc2.out")"
-    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
-        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
-        expect "VR client reads assist_dot_size" "$dump" "vr.assist_dot_size = 175"
-    fi
     # MLXR_HANDOFF=0: the stock probe runs again
     MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1
     grep -q "Unable to find working decoder\|Failed to initialize VAAPI" "$t/ui4.out" && ok "hand-off off: stock decoder probe runs" || fail "stock probe missing with MLXR_HANDOFF=0"
