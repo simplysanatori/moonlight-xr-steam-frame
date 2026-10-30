@@ -181,6 +181,8 @@ Flickable {
     readonly property var modelNames: [qsTr("Off"), qsTr("Steam Frame controller"), qsTr("Generic controller"), qsTr("Gun"), qsTr("Your own model")]
     function modelIndex() {
         return Math.max(0, modelValues.indexOf(MlxrPrefs.controllerModel))
+    }
+
     // [stream] doff_disconnect (seconds) and idle_disconnect (minutes) of the VR client's config.ini: 0 is never
     readonly property var doffValues: [0, 15, 30, 60, 120, 300]
     readonly property var idleValues: [0, 10, 30, 60, 120]
