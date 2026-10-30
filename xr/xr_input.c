@@ -317,7 +317,11 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int level, int hapt
 // A and B, and on the left on the d-pad's down and right, which SteamVR pairs
 // with A and B. squeeze is OpenXR's usual name for the grip; the alternative
 // is tried if a runtime wants that instead.
-static int suggestFrameBindings(XrCtx* ctx, int which, const char* squeeze, int haptic) {
+//
+// Native (lane wave2-lightgun-gyro): touch adds the right thumbstick's touch sensor for the gyro
+// ratchet. It is only on the first rung, so a runtime that will not take it together with the rest
+// costs the ratchet (stick_touch then reads as always) and nothing the pointer or the pad uses.
+static int suggestFrameBindings(XrCtx* ctx, int which, const char* squeeze, int haptic, int touch) {
     XrActionSuggestedBinding b[40];
     uint32_t n = 0;
     static const char* hands[HAND_COUNT] = { "/user/hand/left", "/user/hand/right" };
@@ -351,6 +355,10 @@ static int suggestFrameBindings(XrCtx* ctx, int which, const char* squeeze, int 
     BIND(ctx->padXAction, HAND_RIGHT, "input/x/click");
     BIND(ctx->padYAction, HAND_RIGHT, "input/y/click");
     BIND(ctx->padStartAction, HAND_RIGHT, "input/menu/click");
+    int withTouch = touch && ctx->stickTouchAction != XR_NULL_HANDLE;
+    if (withTouch) {
+        BIND(ctx->stickTouchAction, HAND_RIGHT, "input/thumbstick/touch");
+    }
 #undef BIND
 
     XrInteractionProfileSuggestedBinding suggest = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
@@ -359,17 +367,20 @@ static int suggestFrameBindings(XrCtx* ctx, int which, const char* squeeze, int 
     suggest.suggestedBindings = b;
     XrResult res = xrSuggestInteractionProfileBindings(ctx->instance, &suggest);
     if (XR_SUCCEEDED(res)) {
-        LOGI("bindings accepted for the Steam Frame controllers on %s (%u, grip on %s%s)",
-             FRAME_PROFILE_PATHS[which], n, squeeze, haptic ? ", with the vibration" : "");
+        LOGI("bindings accepted for the Steam Frame controllers on %s (%u, grip on %s%s%s)",
+             FRAME_PROFILE_PATHS[which], n, squeeze, haptic ? ", with the vibration" : "",
+             withTouch ? ", with the right stick's touch" : "");
         ctx->frameBound = 1;
         ctx->menuBound = 1;
         ctx->hapticBound |= haptic;
+        ctx->stickTouchBound |= withTouch;
         return 1;
     }
     // A runtime that does not know a path says so with PATH_UNSUPPORTED, the
     // same as for an input it does not have, so both are tried down the list
-    LOGW("Steam Frame bindings rejected on %s (%d) with the grip on %s%s",
-         FRAME_PROFILE_PATHS[which], res, squeeze, haptic ? " and the vibration" : "");
+    LOGW("Steam Frame bindings rejected on %s (%d) with the grip on %s%s%s",
+         FRAME_PROFILE_PATHS[which], res, squeeze, haptic ? " and the vibration" : "",
+         withTouch ? " and the right stick's touch" : "");
     return 0;
 }
 
@@ -496,14 +507,18 @@ int initXrInput(XrCtx* ctx) {
         ctx->padBumperAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "padbumper",
                                           "Gamepad bumper");
         ctx->padStartAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "padstart", "Gamepad Start");
+        // Native (lane wave2-lightgun-gyro, PLAN 2.9): the gyro ratchet's thumb on the right stick
+        ctx->stickTouchAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "sticktouch",
+                                           "Gamepad gyro (thumb on the right stick)");
         // Each name the profile has gone by gets the whole set, tried down the
         // same list of fallbacks. A path the runtime takes none of is dropped.
         for (int i = 0; i < FRAME_PROFILE_COUNT; i++) {
             ctx->frameProfile[i] = toPath(ctx, FRAME_PROFILE_PATHS[i]);
-            if (!suggestFrameBindings(ctx, i, "input/squeeze/value", 1)
-                    && !suggestFrameBindings(ctx, i, "input/grip/value", 1)
-                    && !suggestFrameBindings(ctx, i, "input/squeeze/value", 0)
-                    && !suggestFrameBindings(ctx, i, "input/grip/value", 0)) {
+            if (!suggestFrameBindings(ctx, i, "input/squeeze/value", 1, 1)
+                    && !suggestFrameBindings(ctx, i, "input/squeeze/value", 1, 0)
+                    && !suggestFrameBindings(ctx, i, "input/grip/value", 1, 0)
+                    && !suggestFrameBindings(ctx, i, "input/squeeze/value", 0, 0)
+                    && !suggestFrameBindings(ctx, i, "input/grip/value", 0, 0)) {
                 LOGI("Steam Frame profile %s not accepted by this runtime", FRAME_PROFILE_PATHS[i]);
                 ctx->frameProfile[i] = XR_NULL_PATH;
             }
@@ -5631,15 +5646,23 @@ void xrPadGyroFrame(XrCtx* ctx, int plugged, int live, int64_t now) {
         ctx->padGyroPrevWho = -2;
     }
 
-    // The ratchet: the right thumb on the right stick. Where the touch sensor is not read it is
-    // always, said once
-    int touchAvailable = ctx->stickTouchAction != XR_NULL_HANDLE;
+    // The ratchet: the right thumb on the right stick. The sensor counts only where a Frame profile
+    // took its binding and the right hand is on that profile now; elsewhere it is always, said each
+    // time that starts
+    int touchAvailable = ctx->stickTouchAction != XR_NULL_HANDLE && ctx->stickTouchBound
+            && ctx->onFrame[HAND_RIGHT];
     int touching = touchAvailable && actionBool(ctx, ctx->stickTouchAction, HAND_RIGHT);
-    if (padGyroRatchetFallsBack(ctx->padGyroRatchet, touchAvailable) && !ctx->padGyroSaidFallback) {
-        ctx->padGyroSaidFallback = 1;
-        LOGW("pad_gyro_ratchet = stick_touch, but the thumbstick touch sensor is not read on this "
-             "controller yet: the gyro is sent always");
+    int fallsBack = padGyroRatchetFallsBack(ctx->padGyroRatchet, touchAvailable);
+    if (fallsBack && !ctx->padGyroSaidFallback) {
+        LOGW("pad_gyro_ratchet = stick_touch, but the right thumbstick's touch is not read (%s): "
+             "the gyro is sent always",
+             !ctx->stickTouchBound ? "the runtime did not take its binding"
+                                   : "the right hand is not on the Steam Frame controller profile");
     }
+    else if (!fallsBack && ctx->padGyroSaidFallback) {
+        LOGEV("pad_gyro_ratchet = stick_touch: the right thumbstick's touch is read again");
+    }
+    ctx->padGyroSaidFallback = fallsBack;
     if (!ok || !live || !padGyroGateOpen(ctx->padGyroRatchet, touchAvailable, touching)) {
         gyro.x = gyro.y = gyro.z = 0.0f;
     }

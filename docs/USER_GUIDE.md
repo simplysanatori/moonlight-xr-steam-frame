@@ -296,7 +296,7 @@ With it on, the gamepad tells the PC it is a PlayStation pad with a gyroscope an
 
 The gyro is in degrees per second about the controller's own axes, the way a DualShock 4's is: turning the controller right is a negative yaw. The accelerometer is gravity alone, the way a still controller or head tilted like this would read; it does not send the movement of your hand.
 
-`pad_gyro_ratchet` picks when the motion is sent. `always` (the default) sends it all the time. `stick_touch` sends it only while the right thumb touches the right thumbstick, the usual Steam Input ratchet, so you can lift the thumb to reposition the controller. The Frame controllers' touch sensors are not read yet: until they are, `stick_touch` behaves as `always`, and `moonlight.log` says so once.
+`pad_gyro_ratchet` picks when the motion is sent. `always` (the default) sends it all the time. `stick_touch` sends it only while the right thumb touches the right thumbstick, the usual Steam Input ratchet, so you can lift the thumb to reposition the controller. While the thumb is off, the PC is told the gyro is still. The touch is read on the Steam Frame controllers; with other controllers, with hand tracking, or if SteamVR refuses the touch binding, `stick_touch` behaves as `always`, and `moonlight.log` says so.
 
 **On the PC**, this needs a host that emulates a DualShock 4 for a PlayStation pad: Apollo (or Sunshine) with ViGEmBus installed and the gamepad type left on Automatic (or set to DS4). Steam Input only sees native gyro from that DualShock 4, so on a host that always makes an Xbox 360 pad the gyro cannot arrive.
 
@@ -548,7 +548,7 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | `[vr] lightgun_reload` | `true`, `false`. In lightgun mode, a trigger pull that starts off the picture is a right click while it is held. | `false` |
 | `[vr] lightgun_recoil` | `true`, `false`. In lightgun mode, a short strong pulse in the controller on every shot. | `true` |
 | `[vr] pad_gyro` | `off`, `controller`, `head`. Sends the right controller's (or the head's) turn to the PC as the gyro of a PlayStation gamepad in gamepad mode. See [Gyro in gamepad mode](#gyro-in-gamepad-mode); the launcher has it too (**Gyro from the headset**). Read when gamepad mode turns on. | `off` |
-| `[vr] pad_gyro_ratchet` | `always`, `stick_touch` (only while the right thumb touches the right thumbstick; the same as `always` until the touch sensors are read). | `always` |
+| `[vr] pad_gyro_ratchet` | `always`, `stick_touch` (only while the right thumb touches the right thumbstick of a Steam Frame controller; the same as `always` where that touch is not read). | `always` |
 | `[vr] scroll_speed` | 25 to 400 (%) | 100, which is 7.5 notches a second with the thumbstick pushed all the way. The flat window's Settings page has it too. |
 | `[vr] click_steadiness` | `off`, `normal`, `steady` | `normal`. The Display tab's Click steadiness row. |
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |

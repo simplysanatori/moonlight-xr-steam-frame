@@ -395,6 +395,8 @@ static void gyroSetUp(XrCtx* c) {
     c->locateSpace = gyroLocate;
     c->readBool = gyroBool;
     c->stickTouchAction = XR_NULL_HANDLE;
+    c->stickTouchBound = 0;
+    c->onFrame[HAND_LEFT] = c->onFrame[HAND_RIGHT] = 0;
 }
 
 static void gyroOff(Scene* s) {
@@ -562,8 +564,11 @@ static void gyroHead(Scene* s) {
 static void gyroRatchet(Scene* s) {
     XrCtx* c = s->ctx;
     gyroSetUp(c);
-    // stick_touch with the touch sensor read: motion only while the thumb is on the stick
+    // stick_touch with the touch sensor read (bound on the Frame profile, the right hand on it):
+    // motion only while the thumb is on the stick
     c->stickTouchAction = TOUCH_ACTION;
+    c->stickTouchBound = 1;
+    c->onFrame[HAND_RIGHT] = 1;
     startPad(c, PAD_GYRO_CONTROLLER, PAD_GYRO_RATCHET_STICK_TOUCH);
     frame(c, 1, 1);
     xrPadBridgeHostMotionState(0, PADOUT_MOTION_GYRO, 100);
@@ -589,6 +594,35 @@ static void gyroRatchet(Scene* s) {
     CHECK(countKind(3) == n + 1 && g->v[0] == 0.0f && g->v[1] == 0.0f && g->v[2] == 0.0f);
     frame(c, 1, 1);
     CHECK(countKind(3) == n + 1);
+    xrPadBridgeStop();
+
+    // the right hand leaves the Frame profile (another profile, or hands): the binding no longer
+    // reads, so the thumb off the stick does not hold the gyro still; back on it, the ratchet again
+    startPad(c, PAD_GYRO_CONTROLLER, PAD_GYRO_RATCHET_STICK_TOUCH);
+    frame(c, 1, 1);
+    xrPadBridgeHostMotionState(0, PADOUT_MOTION_GYRO, 100);
+    touch = 0;
+    c->onFrame[HAND_RIGHT] = 0;
+    frame(c, 1, 1);
+    g = lastMotion(PADOUT_MOTION_GYRO);
+    CHECK(g != NULL && fabs(g->v[1] - 0.5 * DEG) < 1e-2);
+    CHECK(c->padGyroSaidFallback == 1);
+    c->onFrame[HAND_RIGHT] = 1;
+    frame(c, 1, 1);
+    g = lastMotion(PADOUT_MOTION_GYRO);
+    CHECK(g != NULL && g->v[1] == 0.0f);
+    CHECK(c->padGyroSaidFallback == 0);
+    xrPadBridgeStop();
+
+    // the action exists but no Frame profile took its binding: always, with a line in the log
+    c->stickTouchBound = 0;
+    startPad(c, PAD_GYRO_CONTROLLER, PAD_GYRO_RATCHET_STICK_TOUCH);
+    frame(c, 1, 1);
+    xrPadBridgeHostMotionState(0, PADOUT_MOTION_GYRO, 100);
+    frame(c, 1, 1);
+    g = lastMotion(PADOUT_MOTION_GYRO);
+    CHECK(g != NULL && fabs(g->v[1] - 0.5 * DEG) < 1e-2);
+    CHECK(c->padGyroSaidFallback == 1);
     xrPadBridgeStop();
 
     // stick_touch where the touch sensor is not read: always, with a line in the log (said once)

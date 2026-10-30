@@ -768,9 +768,12 @@ typedef struct XrCtx {
     int menuBound;
     XrAction hapticAction;
     // Native (lane wave2-lightgun-gyro, PLAN 2.9): the right thumbstick's touch sensor, for the gyro
-    // ratchet. Nothing binds it yet (the Frame profile's touches are all or nothing per profile and
-    // wait for a headset check), so it stays XR_NULL_HANDLE and stick_touch reads as always.
+    // ratchet. Created with the Frame profile's actions and offered on the first rung of its binding
+    // ladder only (input/thumbstick/touch, which the probe found on both hands); stickTouchBound says
+    // a Frame profile took it. Where it is not bound, or the right hand is on another profile,
+    // stick_touch reads as always.
     XrAction stickTouchAction;
+    int stickTouchBound;
     // The Steam Frame controller's own profile, offered when the runtime has
     // XR_VALVE_frame_controller_interaction, and the controls only it has
     XrAction padXAction;
