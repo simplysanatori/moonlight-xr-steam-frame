@@ -246,6 +246,16 @@ static char *handle(fake_host *h, const char *cmd, const char *q, bool https, X5
 
     if (!strcmp(cmd, "serverinfo")) {
         char inner[2048];
+        char apollo_inner[512];
+        /* Apollo lists server commands only to a client holding the Server Command permission */
+        snprintf(apollo_inner, sizeof apollo_inner,
+                 "<VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>true"
+                 "</VirtualDisplayDriverReady>%s<Permission>%d</Permission>",
+                 h->o.cmd_denied ? ""
+                 : h->o.more_cmds ? "<ServerCommand>Bubbles</ServerCommand><ServerCommand>Sleep PC</ServerCommand>"
+                                    "<ServerCommand>Lock PC</ServerCommand>"
+                                  : "<ServerCommand>Bubbles</ServerCommand>",
+                 h->o.cmd_denied ? 117645056 : 118693632);
         snprintf(inner, sizeof inner,
                  "<hostname>fake-host</hostname><appversion>%d.1.431.-1</appversion>%s"
                  "<uniqueid>FAKE-HOST-UUID-0001</uniqueid><HttpsPort>%u</HttpsPort><ExternalPort>%u</ExternalPort>"
@@ -257,9 +267,7 @@ static char *handle(fake_host *h, const char *cmd, const char *q, bool https, X5
                  h->o.gen, h->o.gfe ? "<GfeVersion>3.23.0.74</GfeVersion>" : "", h->p_https, h->p_http,
                  h->o.zero_mac ? "00:00:00:00:00:00" : "aa:bb:cc:dd:ee:ff", authed ? 1 : 0, h->current_game,
                  h->o.gfe ? "MJOLNIR" : "SUNSHINE", h->current_game ? "BUSY" : "FREE",
-                 h->o.apollo ? "<VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>true"
-                               "</VirtualDisplayDriverReady><ServerCommand>Bubbles</ServerCommand><Permission>118693632</Permission>"
-                             : "");
+                 h->o.apollo ? apollo_inner : "");
         r = xml_reply(200, NULL, inner);
     } else if (!strcmp(cmd, "pair")) {
         r = do_pair(h, q, https, peer);
@@ -352,7 +360,8 @@ static void serve_one(fake_host *h, int fd, bool https)
         }
         pthread_mutex_lock(&h->mu);
         ctype = "text/plain";
-        if (!authed || h->o.clipboard_denied) status = 401;
+        if (h->o.clipboard_404) status = 404;
+        else if (!authed || h->o.clipboard_denied) status = 401;
         else if (!strstr(req, "type=text")) status = 400;
         else if (!h->streaming) status = 403;
         if (status != 200) resp = strdup("");

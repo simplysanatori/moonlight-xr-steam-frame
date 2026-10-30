@@ -619,7 +619,8 @@ int cogRowIsTrack(int face, int row) {
         return row != COG_ROOM_ROW_GLOW && row != COG_ROOM_ROW_LIGHT;
     }
     if (face == COG_TAB_3D) {
-        return row == COG_ROW3D_SEPARATION || row == COG_ROW3D_CONVERGENCE;
+        return row == COG_ROW3D_SEPARATION || row == COG_ROW3D_CONVERGENCE
+                || row >= COG_ROW3D_EDGE;
     }
     return 1;
 }
@@ -712,6 +713,21 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
         else if (slider == COG_ROW3D_CONVERGENCE) {
             t = ctx->convergence;
         }
+        else if (slider == COG_ROW3D_EDGE) {
+            t = lanePlace((int)lroundf(ctx->depthSharp * 100.0f), EDGE_SHARPNESS_MIN, EDGE_SHARPNESS_MAX);
+        }
+        else if (slider == COG_ROW3D_DETAIL) {
+            t = lanePlace((int)lroundf(ctx->depthLocal * 100.0f), DEPTH_SCALE_MIN, DEPTH_SCALE_MAX);
+        }
+        else if (slider == COG_ROW3D_SHAPE) {
+            t = lanePlace((int)lroundf(ctx->depthGlobal * 100.0f), DEPTH_SCALE_MIN, DEPTH_SCALE_MAX);
+        }
+        else if (slider == COG_ROW3D_MOTION) {
+            t = lanePlace((int)lroundf(ctx->depthMotion * 100.0f), MOTION_RESET_MIN, MOTION_RESET_MAX);
+        }
+        else if (slider == COG_ROW3D_BALANCE) {
+            t = lanePlace((int)lroundf(ctx->eyeBalance * 100.0f), EYE_BALANCE_MIN, EYE_BALANCE_MAX);
+        }
     }
     else if (face == COG_TAB_PICTURE) {
         if (slider >= 0 && slider < PICTURE_VALUES) {
@@ -756,6 +772,12 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
     }
 
     return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+}
+
+// A point on a track as the units of a row that moves in whole steps: the
+// nearest of steps+1 places from min, step apart
+static int stepUnits(float t, int min, int step, int steps) {
+    return min + (int)lroundf(t * (float)steps) * step;
 }
 
 // Applies a point on the track to whatever the row controls. The run the
@@ -823,6 +845,25 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
             // Whole percent, same reason
             int units = (int)roundf(t * 100.0f);
             ctx->convergence = units / 100.0f;
+        }
+        else if (slider == COG_ROW3D_EDGE) {
+            // The depth model's five are read every frame, so the next depth
+            // map is already made with what the thumb shows; each lands on
+            // one of the steps its preference is stored in
+            depthEdgeParams(stepUnits(t, EDGE_SHARPNESS_MIN, COG_EDGE_STEP, COG_EDGE_STEPS),
+                            &ctx->upsampleSigmaR, &ctx->depthSharp);
+        }
+        else if (slider == COG_ROW3D_DETAIL) {
+            ctx->depthLocal = (float)stepUnits(t, DEPTH_SCALE_MIN, COG_DEPTH_STEP, COG_DEPTH_STEPS) / 100.0f;
+        }
+        else if (slider == COG_ROW3D_SHAPE) {
+            ctx->depthGlobal = (float)stepUnits(t, DEPTH_SCALE_MIN, COG_DEPTH_STEP, COG_DEPTH_STEPS) / 100.0f;
+        }
+        else if (slider == COG_ROW3D_MOTION) {
+            ctx->depthMotion = (float)stepUnits(t, MOTION_RESET_MIN, COG_MOTION_STEP, COG_MOTION_STEPS) / 100.0f;
+        }
+        else if (slider == COG_ROW3D_BALANCE) {
+            ctx->eyeBalance = (float)stepUnits(t, EYE_BALANCE_MIN, COG_BALANCE_STEP, COG_BALANCE_STEPS) / 100.0f;
         }
         return;
     }
@@ -1361,6 +1402,26 @@ void cogDragEnded(XrCtx* ctx, float* out) {
         else if (slider == COG_ROW3D_CONVERGENCE) {
             out[IN_SETTING] = (float)SETTING_CONVERGENCE;
             out[IN_SETTING_VALUE] = roundf(ctx->convergence * 100.0f);
+        }
+        else if (slider == COG_ROW3D_EDGE) {
+            out[IN_SETTING] = (float)SETTING_EDGE;
+            out[IN_SETTING_VALUE] = roundf(ctx->depthSharp * 100.0f);
+        }
+        else if (slider == COG_ROW3D_DETAIL) {
+            out[IN_SETTING] = (float)SETTING_DEPTH_DETAIL;
+            out[IN_SETTING_VALUE] = roundf(ctx->depthLocal * 100.0f);
+        }
+        else if (slider == COG_ROW3D_SHAPE) {
+            out[IN_SETTING] = (float)SETTING_DEPTH_SHAPE;
+            out[IN_SETTING_VALUE] = roundf(ctx->depthGlobal * 100.0f);
+        }
+        else if (slider == COG_ROW3D_MOTION) {
+            out[IN_SETTING] = (float)SETTING_MOTION_RESET;
+            out[IN_SETTING_VALUE] = roundf(ctx->depthMotion * 100.0f);
+        }
+        else if (slider == COG_ROW3D_BALANCE) {
+            out[IN_SETTING] = (float)SETTING_EYE_BALANCE;
+            out[IN_SETTING_VALUE] = roundf(ctx->eyeBalance * 100.0f);
         }
     }
     else if (face == COG_TAB_DISPLAY) {

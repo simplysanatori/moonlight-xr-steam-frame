@@ -23,6 +23,7 @@
 #include "../backend/netdiag.h"
 #include "../xr/xr_stream_prefs.h"
 #include "au_gather.h"
+#include "commonc_ext.h"
 #include "cadence.h"
 #include "xr_hud.h"
 #include "hw_video.h"
@@ -645,6 +646,11 @@ void stream_note_path_switch(const char* from, const char* to) {
 int stream_running(void) { return atomic_load(&g_connected); }
 int stream_failed(void) { return atomic_load(&g_failed); }
 int stream_termination_code(void) { return atomic_load(&g_termCode); }
+
+int stream_exec_server_cmd(int index) {
+    if (!atomic_load(&g_connected) || index < 0 || index > 255) return 0;
+    return mlxrSendExecServerCmd((uint8_t)index);
+}
 
 void stream_pointer(int x, int y, int w, int h) {
     if (atomic_load(&g_connected)) LiSendMousePositionEvent((short)x, (short)y, (short)w, (short)h);

@@ -5,6 +5,8 @@
 #pragma once
 #include <stdint.h>
 
+#include "core/xr_hostkeys.h"
+
 struct FrameSlot;
 struct Settings;
 struct UiPcItem;
@@ -76,6 +78,11 @@ typedef struct XrAppHooks {
     // XR_EXT_user_presence, on the frame loop. Never called when the runtime does not offer the
     // extension. May be NULL. Must not block.
     void (*presence)(void* user, int present);
+    // Native (lane wave4-apollo): a press on the Host sheet's PC page, on the frame loop, while a stream is up:
+    // action is XR_HOSTACT_PASTE, _COPY (text is what to set the host's clipboard to) or _CMD (arg is the
+    // number of the host command, its place in XrHostInfo.cmd). text is only good for the call. Must not
+    // block: it starts the work and says how it went through xr_app_notice. May be NULL.
+    void (*hostAction)(void* user, int action, int arg, const char* text);
 } XrAppHooks;
 
 typedef struct XrAppConfig {
@@ -107,6 +114,9 @@ void xr_app_set_streaming(int on);
 // name as the app list shows it ("" for none), which picks its own lines out
 // of bindings.ini
 void xr_app_set_host_app(const char* name);
+// Native (lane wave4-apollo), any thread: what the host being streamed offers, which the Host sheet's PC
+// page shows (NULL: nothing, as with no stream)
+void xr_app_set_host_info(const XrHostInfo* info);
 // Native, any thread: show or hide the in-world keyboard on the next frame (a
 // physical pad's Y in mouse mode, lane wave2b-padmouse)
 void xr_app_toggle_keyboard(void);

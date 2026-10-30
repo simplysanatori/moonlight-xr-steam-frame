@@ -40,7 +40,7 @@ It works like Moonlight on a PC.
 | --- | --- |
 | PC list | Your PCs. A PC on the same network appears by itself. The **+** button (Add PC manually) adds one by address. Select a PC to pair with it or to open its apps. |
 | Pairing | Moonlight shows a PIN. Type it on the Sunshine or Apollo PIN page (`https://localhost:47990` on the PC). The dialog closes when pairing is done. |
-| App list | The apps your PC offers. Select one to start it. A running app has **Resume Game** and **Quit Game** in its menu. |
+| App list | The apps your PC offers. Select one to start it. A running app has **Resume Game** and **Quit Game** in its menu. Every app's menu has **Stream settings profile...**, which opens the [Stream profiles](#stream-profiles) page for that app. |
 | Settings | The cog at the top. See [Settings page](#settings-page). |
 
 While a stream starts, the window shows a tip: "Tip: Press Start+Select+L1+R1 to disconnect your session". With no gamepad connected it names Ctrl+Alt+Shift+Q instead.
@@ -49,13 +49,21 @@ In the headset, the Moonlight XR logo with "Connecting to *PC name*..." under it
 
 In the headset (Game Mode) the window is drawn 1.5 times larger than on a desktop, so the text is easier to read. Set `MLXR_LAUNCHER_SCALE` to change it, for example `MLXR_LAUNCHER_SCALE=1.25`. It takes 1.0 (no scaling) to 2.5. On a desktop the window is not scaled.
 
-The **Help** button (the question mark at the top) opens this project's readme: <https://github.com/simplysanatori/moonlight-xr-steam-frame#readme>.
+The **Help** button (the question mark at the top) opens this project's readme: <https://github.com/simplysanatori/moonlight-xr-steam-frame#readme>. In Game Mode it opens in Steam's browser (`steam steam://openurl/...` on the Frame), which SteamVR shows in the dashboard; on a desktop it is your normal browser.
 
 If you used the Moonlight flatpak on the Frame before, its PC list and pairing are copied the first time the flat window starts. The flatpak's own files are not changed.
 
 ## Settings page
 
 The page has the categories below, in this order. A greyed row shows "Not available:" and the reason. Settings are saved when you leave the page.
+
+### Search and jump list
+
+The top of the page has a **Search settings** field and a row of buttons, one for each category.
+
+- Type in the field and the page shows only the settings whose name, value or description has every word you typed, and the categories they are in. A category's name finds all its settings (for example `audio`). Case does not matter. The cross next to the field, or Esc, clears it and the whole page is back. "No setting matches" means nothing has all the words.
+- A category button scrolls the page to that category and puts the focus on its first setting, so a gamepad carries on from there. A button disappears while the search leaves its category empty.
+- Each category heading has an arrow at its right that goes back to the top of the page and the search field.
 
 ### Connection
 
@@ -111,6 +119,18 @@ How to use it:
 
 If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/reports/usb-cable.md`) have the details.
 
+### Stream profiles
+
+A profile is a saved copy of the stream settings on this page, with a name. It holds the Connection rows (with the bitrate for each connection), every Video setting (with the 3D rows, the eye balance and where the 3D comes from), the sound, the gamepad and mouse rows (with the lightgun and the gamepad gyro), Optimize game settings, Play audio on PC, Smart Clipboard Sync, stats, the codec, full range, software decoding, and the headset's own rows on this page (notices, scroll speed, the disconnect times, gamepad as mouse). For example a desktop profile at 1080p and 60 Hz, and a game profile at 1440p and 120 Hz with Apollo's virtual display. Not in a profile: the room's look (background dim, void colour, glow edge), the headset keyboard layout, Show controllers, the PC VR rows, Quick Resume, Enable Full Screen, Language and Check the PC before streaming.
+
+The **Profiles** row (or **Stream settings profile...** in an app's menu) opens the Stream profiles page:
+
+- **Save the settings now in force as a profile** asks for a name and saves the page's settings as they are. Set the Settings page the way you want the profile first. "Default" cannot be a name: it means the Settings page itself.
+- Select a profile for **Use for** (the PC or app chosen below), **Rename...**, **Duplicate**, **Update from the settings in force now**, **Load into the Settings page** (its values become the page's own, saved), or **Delete...**.
+- **PC**, **App** and **Profile for ...** choose which profile a PC uses for every app, or one app uses. **Default (the Settings page's settings)** takes it away. An app's own profile wins over its PC's. The **In use** list shows every PC and app that has one; select a line to change it. Opened from an app's menu, the page starts on that PC and app.
+
+When a stream starts, the profile of the app, or else of its PC, is in force for that stream: the flat window passes its values to the VR client, and writes the headset's settings it holds into `config.ini` for the stream. When the stream ends, the Settings page's own values are back and `config.ini` is as it was; a headset setting you changed in the cog during the stream keeps your change. If the flat window is closed or killed during a stream, `config.ini` is put back the next time it starts. `moonlight-launcher.log` has `MLXR_LAUNCHER_PROFILE: using <name> for <PC> / <app>` for each stream. A PC and an app are matched by name, case ignored, as the headset matches its per-app bindings. A stream started from the command line (`moonlight-xr-launcher stream PC App`) uses the profile too, over the command line's own options.
+
 ### Video Settings
 
 | Setting | Options | Default |
@@ -145,11 +165,26 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 | Headset keyboard layout | QWERTY (US), AZERTY (French), QWERTZ (German) | QWERTY. The PC must be on the same Windows layout, see [AZERTY and QWERTZ](#azerty-and-qwertz). |
 | Enable Rumble | on, off | on |
 | Enable forward/back mouse buttons | on, off | on |
+| Check the PC before streaming | on, off | on. See [Check before a stream](#check-before-a-stream). |
 | Optimize game settings | on, off | on |
 | Play audio on PC | on, off | off |
 | Smart Clipboard Sync (Experimental) | on, off | off. Needs Apollo. |
 | Quick Resume | on, off | off. Selecting a running app resumes it at once. |
 | Enable Full Screen | on, off | Takes effect at the next start. |
+
+### Check before a stream
+
+Just before a stream starts, the flat window asks the PC (serverinfo and the app list, about 2 seconds at most) what it would say about this stream, and shows what will go wrong as a message at the top of the "Starting ..." screen:
+
+- Apollo does not let this headset launch apps, view streams, or use its gamepad, mouse or keyboard input (Apollo's **Clients** page, the permissions of this client). Apollo gives a client paired after the first one only List Apps and View Streams.
+- Use Virtual Display is on, but the PC is not Apollo, cannot make a virtual display, or Apollo's virtual display driver is not ready.
+- Smart Clipboard Sync is on with a PC that is not Apollo, or without Apollo's clipboard permissions.
+- The PC is already running another app (maybe for another client).
+- The resolution is not one the PC lists (GameStream PCs list them; Apollo and Sunshine do not), or Prefer HEVC is set and the PC has no HEVC.
+
+The stream starts anyway. If it then fails, the error message repeats these under "Found before the stream started:". The last check is also shown at the bottom of the Stream profiles page, and `moonlight-launcher.log` has `MLXR_LAUNCHER_PREFLIGHT:` and one `MLXR_LAUNCHER_HINT:` line for each message. A PC that does not answer in time gives no message. Turn it off with **Check the PC before streaming** (Host Settings) or `MLXR_LAUNCHER_PREFLIGHT=0`.
+
+The same question gives the app's UUID on Apollo. The flat window passes it to the VR client (`MLXR_APP_UUID`), which sends it with the launch request next to the app's number, as Artemis does, so Apollo finds the app by its UUID and knows when that app is already running.
 
 ### PC VR
 
@@ -266,7 +301,7 @@ The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the d
 
 ### About
 
-The version, the log file, a link to support Moonlight XR on Ko-fi, and **Report a problem**. The report sheet has three buttons. **Save** keeps your note on the Frame in `~/Games/MoonlightXRNative/reports`. **Save and zip** does that and also runs `bug-report.sh` in the background, so the masked zip is made without leaving the headset. A notice shows where the zip is (`~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip`) and the log says so too. A note is not needed for the zip. Nothing leaves the headset: copy the zip off the Frame and open an issue on GitHub with it. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
+The version, the log file, a Ko-fi button to support Moonlight XR, and **Report a problem**. The Ko-fi button opens a sheet with the page's address and a QR code for anyone who takes the headset off. In the headset, press **Open page** and Steam's browser shows the page in the dashboard (the Frame runs `steam steam://openurl/https://ko-fi.com/moonlightxr`, or `xdg-open` when `steam` is not found). **Not now**, or a press anywhere off the buttons, closes the sheet and opens nothing. Ko-fi is optional: Moonlight XR is free and stays free. The report sheet has three buttons. **Save** keeps your note on the Frame in `~/Games/MoonlightXRNative/reports`. **Save and zip** does that and also runs `bug-report.sh` in the background, so the masked zip is made without leaving the headset. A notice shows where the zip is (`~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip`) and the log says so too. A note is not needed for the zip. Nothing leaves the headset: copy the zip off the Frame and open an issue on GitHub with it. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
 
 ### Stats styles, battery and the slow connection badge
 
@@ -423,7 +458,7 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 
 Each eye sees a little more of what is behind a person or an object on one side: the left eye on the left, the right eye on the right. Earlier versions filled that sliver by stretching the person's own edge across it, which showed as a fuzzy, furry outline in one eye only, most of all on hair or a dark outline against a bright sky or page. That gap is now filled from the background beside it, so the edge is as sharp in both eyes. This is on by default; `MLXR_HOLE_FILL=0` brings back the old look.
 
-These four are on the flat window's Settings page and in `config.ini` (`[3d]`). They are not on the headset's 3D tab yet.
+These four are on the flat window's Settings page, in `config.ini` (`[3d]`) and on the headset's 3D tab (Edge, Depth detail, Depth shape, Motion reset, under the 3D source row; they move the picture as you drag them, and are greyed while the 3D source is SBS or Top-bottom, since the PC then draws the pair). On the tab Edge steps by 25, Depth detail and Depth shape by 10 and Motion reset by 5.
 
 | Setting | Key | Values | What it does |
 | --- | --- | --- | --- |
@@ -538,7 +573,7 @@ The **Host** sheet is a grid of keys to send to the PC, for the ones a headset k
 
 After those come your own macros, up to eight.
 
-In the header, left of **Close**, is **PC VR**: it hands the headset to Valve's Steam Link, see [PC VR](#pc-vr).
+In the header, left of **Close**, is **PC VR**: it hands the headset to Valve's Steam Link, see [PC VR](#pc-vr). Left of it, **Clipboard, commands** opens a second page of the sheet (**Back** returns; **PC VR** and **Close** are there too): the PC's clipboard and the commands the PC offers. Both need an Apollo PC; see [Clipboard and PC commands](#clipboard-and-pc-commands-apollo) for what to set up on it.
 
 ### Macros
 
@@ -563,6 +598,26 @@ Lock PC = !win+l
 ```
 
 A line that is not right is left out, the rest still work, and `moonlight.log` names the first one and why. Up to 16 macros of 32 steps each; the sheet shows the first eight.
+
+### Clipboard and PC commands (Apollo)
+
+Open the Host sheet, then **Clipboard, commands**. The page has:
+
+| Cell | Does |
+| --- | --- |
+| Paste from PC | Reads the PC's clipboard text and types it on the PC, as if you had typed it on the headset keyboard (line ends are the Enter key, tabs the Tab key). It types at most the first 4096 bytes. The toast says how many characters went. Use it where Ctrl+V does not work, such as a remote console, a game's chat box or a password box that blocks pasting. |
+| Send text to PC | Closes the sheet and puts the Compact keyboard up as a text field of its own: what you type is kept on the keyboard (its space bar shows the end of it) and nothing goes to the PC. **Enter** sends the text to the PC's clipboard; **Hide** throws it away. On the PC, Ctrl+V pastes it. The text is one line. |
+| One cell per command | The commands set up on the PC (up to eight). A press asks **Run** or **Cancel**, because a command can do anything the PC can: sleep, lock, change the audio device, start a script. The toast says it was sent. The PC does not answer, so a command that fails on the PC fails there. |
+
+The toast says why when something cannot be done: "Not supported by this host" (the PC runs Sunshine or another host, not Apollo; the cells are dimmed and the page says so), "This host has not allowed it for the Frame" (the permission is off), "This host has no commands set up", or "The host sees no stream from this client". The clipboard works only while a stream is up.
+
+On the PC, in Apollo:
+
+- **Server commands.** Add them in Apollo's web UI settings (Configuration, General, Server Commands: a name, a command, and whether it runs elevated), or as `server_cmd` in its config file. The first one is number 0. The headset shows the names only.
+- **Permissions.** Apollo gives each paired client its own permissions (the Clients page of its web UI). The Frame needs **Server Command** for the commands, **Clipboard Read** for Paste from PC and **Clipboard Set** for Send text to PC. The first client paired gets everything; a client paired later gets only View and List until you allow more. Apollo lists commands only to a client that has the Server Command permission, so with it off the page says the host has not allowed them.
+- **Apollo 0.2.4 or newer** has the clipboard. Older ones answer "Not supported by this host".
+
+The clipboard sync at the start and end of a stream (Smart Clipboard Sync on the Settings page) is separate and works as before.
 
 ## PC VR
 
@@ -643,7 +698,8 @@ This uses the headset sensor through `XR_EXT_user_presence`. `moonlight.log` has
 | The flat window does not come back after a stream | Open the app again from the Steam library. `moonlight-launcher.log` shows `Asked Steam to show the flat screen again` and the `flat window` lines (what the window did after the stream). |
 | Grey icon in the SteamVR dock | Restart Steam once after the first install. |
 | 3D tab greyed | The tab says why. If the depth model did not load, the log has the error. |
-| The stream did not start | The flat window shows the client's error. `moonlight-console.log` has the details. |
+| The stream did not start | The flat window shows the client's error, and under "Found before the stream started:" what the PC said just before (see [Check before a stream](#check-before-a-stream)). `moonlight-console.log` has the details. |
+| The stream used other settings than the Settings page | The app or its PC has a stream profile. `moonlight-launcher.log` says `MLXR_LAUNCHER_PROFILE: using <name>`. See [Stream profiles](#stream-profiles). |
 
 Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report freezes or stutter, say roughly when they happened: `moonlight.log`'s `video: burst at` lines carry the time, and the line written every 5 seconds has the round trip, the frames lost and dropped, `bursts N (longest N ms)`, `udp rcvbuf errors` and `rx drop misc` for those 5 seconds. To share them, use the zip from `bug-report.sh`. It holds the logs, your headset note, the settings you changed and a short version summary, all masked, and nothing else. It leaves out `hosts.ini`, keys and certificates. Look inside before you share it.
 
@@ -673,7 +729,7 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
 | `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
 | `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |
-| `[3d] eye_balance` | -100 to 100 | 0. 3D Eye Balance: how the 3D's shift is shared by the two eyes. 0 shifts each eye by the same amount in opposite directions. +100 puts all of it in the left eye and leaves the right eye's picture as streamed, -100 the other way round, and in between the left eye takes (100 + n) / 2 percent of the total and the right eye (100 - n) / 2. The total difference between the eyes, so the depth you see, is the same at every setting. Useful with a dominant eye. The 3D tab has no row for it yet; the launcher's Settings page has **3D eye balance**, which steps -100, -50, 0, 50, 100. |
+| `[3d] eye_balance` | -100 to 100 | 0. 3D Eye Balance: how the 3D's shift is shared by the two eyes. 0 shifts each eye by the same amount in opposite directions. +100 puts all of it in the left eye and leaves the right eye's picture as streamed, -100 the other way round, and in between the left eye takes (100 + n) / 2 percent of the total and the right eye (100 - n) / 2. The total difference between the eyes, so the depth you see, is the same at every setting. Useful with a dominant eye. The 3D tab's **Eye balance** row moves it in steps of 10 (greyed with SBS or Top-bottom); the launcher's Settings page has **3D eye balance**, which steps -100, -50, 0, 50, 100. |
 | `[vr] scroll_speed` | 25 to 400 (%) | 100, which is 7.5 notches a second with the thumbstick pushed all the way. The flat window's Settings page has it too. |
 | `[vr] click_steadiness` | `off`, `normal`, `steady` | `normal`. The Display tab's Click steadiness row. |
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |
@@ -740,5 +796,7 @@ The four click variables above override the Click steadiness row for their own p
 | `MLXR_LOG_DIR` | `~/Games/MoonlightXRNative` | Where the logs go. |
 | `MLXR_VRTIMING` | 1 | 0 stops the flat window from logging SteamVR's frame timing to `vrtiming.log`. |
 | `MLXR_HANDOFF` | 1 | 0 makes the flat window stream flat, as stock Moonlight. |
+| `MLXR_LAUNCHER_PREFLIGHT` | 1 | 0 stops the flat window from asking the PC before a stream (the check and the app's UUID). |
+| `MLXR_APP_UUID` | | Set by the flat window for the VR client: the app's UUID on Apollo, sent in the launch request as `appuuid`. Anything that is not a UUID is ignored. |
 | `MLXR_LAUNCHER_SCALE` | 1.5 | How much larger the flat window is drawn in Game Mode (1.0 to 2.5). A `QT_SCALE_FACTOR` you set yourself is used when this is not set. |
 | `MLXR_LAUNCHER_FADE_WINDOW` | 1 | In Game Mode the flat window fades to opacity 0 during a stream and stays mapped, so gamescope keeps a window for keyboard focus. 0 hides the window instead, which can crash gamescope on a volume key press. |

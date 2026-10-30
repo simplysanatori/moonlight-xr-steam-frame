@@ -9,6 +9,7 @@
 #include "streaming/session.h"
 #include "streaming/uihooks.h"
 #include "streaming/mlxrprefs.h"
+#include "streaming/mlxrpreflight.h"
 #include "backend/computermanager.h"
 
 #include <QClipboard>
@@ -25,6 +26,9 @@
 #include <QPointer>
 #include <memory>
 #include <QProcess>
+#include <QDesktopServices>
+#include <QStandardPaths>
+#include <QUrl>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -193,10 +197,16 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
     }
     plan.workingDir = QFileInfo(plan.program).absolutePath();
 
-    QString uuid;
+    QString uuid, pcName;
     {
         QReadLocker lock(&c.lock);
         uuid = c.uuid;
+        pcName = c.name;
+    }
+    // Native (lane wave4-launcher): the PC's or the app's settings profile, if it has one, is in force from here until
+    // the Plan is gone (mlxrprofiles.h); everything below reads the settings in force
+    if (&p == StreamingPreferences::get()) {
+        plan.profile = MlxrProfiles::get()->beginLaunch(pcName, app.name);
     }
 
     QStringList a;
@@ -250,10 +260,23 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
     plan.clipboardSync = prefs->clipboardSync;
     // Native (lane refresh): a fixed display rate picked on the Settings page goes to SteamVR too
     plan.steamVrRefreshRate = steamVrRateFor(p.fps, prefs->matchHeadsetFps, prefs->refreshRate() > 0);
+    // Native (lane wave4-launcher): ask the PC what it would say about this stream (mlxrpreflight.h)
+    {
+        const MlxrPreflight::Result pf = MlxrPreflight::check(c, app, p, *prefs);
+        plan.hints = pf.hints;
+        if (!pf.appUuid.isEmpty()) {
+            plan.extraEnv.insert("MLXR_APP_UUID", pf.appUuid);
+        }
+        if (pf.enabled) {
+            MlxrProfiles::get()->setLastCheck(pf.hints, pf.reached);
+        }
+    }
     // The network path (Auto, Wi-Fi, Steam Frame Wireless Adapter, USB cable): the flat launcher's setting
     // "networkPath", auto|home|adapter|usb. An unknown value is left to the VR client's own config.ini.
+    // Native (lane wave4-launcher): with a settings profile in force its network path is the one in memory
     {
-        const QString np = QSettings().value("networkPath", "auto").toString().trimmed().toLower();
+        const QString np = (plan.profile ? prefs->networkPath : QSettings().value("networkPath", "auto").toString())
+                               .trimmed().toLower();
         if (np == "auto" || np == "home" || np == "adapter" || np == "usb") {
             a << "--network" << np;
         }
@@ -1034,6 +1057,9 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
         const QString line = "MLXR_LAUNCHER_DRYRUN: " + cmd;
         QTextStream(stdout) << line << Qt::endl;
         qInfo().noquote() << line;
+        for (auto it = plan.extraEnv.constBegin(); it != plan.extraEnv.constEnd(); ++it) {
+            QTextStream(stdout) << "MLXR_LAUNCHER_DRYRUN_ENV: " << it.key() << "=" << it.value() << Qt::endl;
+        }
         const QString outPath = qEnvironmentVariable("MLXR_LAUNCHER_DRYRUN_OUT");
         if (!outPath.isEmpty()) {
             QFile f(outPath);
@@ -1070,6 +1096,9 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
     }
     if (qEnvironmentVariableIsEmpty("MLXR_LOG_DIR")) {
         env.insert("MLXR_LOG_DIR", QDir::homePath() + "/Games/MoonlightXRNative");
+    }
+    for (auto it = plan.extraEnv.constBegin(); it != plan.extraEnv.constEnd(); ++it) {
+        env.insert(it.key(), it.value());
     }
     proc.setProcessEnvironment(env);
     // If the launcher dies (closed, killed), the client must not outlive it with the host session running
@@ -1318,9 +1347,47 @@ void applyGameModeScale()
     qputenv("QT_SCALE_FACTOR", QByteArray::number(gameModeScale(), 'g', 4));
 }
 
-// "bitrate:2560x1440x90[x444]" and "scale" for tests/launcher: no UI, nothing else runs
+QStringList openExternalCommand(const QString& url, bool gameMode, bool steamOnPath)
+{
+    static const QRegularExpression ok("^https?://[^\\s\"'`\\\\]+$");
+    if (!gameMode || !steamOnPath || url.size() > 400 || !ok.match(url).hasMatch()) {
+        return QStringList();
+    }
+    return QStringList{"steam", "steam://openurl/" + url};
+}
+
+void openExternalUrl(const QString& url)
+{
+    const QStringList cmd = openExternalCommand(url, inGameMode(), !QStandardPaths::findExecutable("steam").isEmpty());
+    if (cmd.isEmpty()) {
+        qInfo().noquote() << "open page:" << url << "(QDesktopServices)";
+        QDesktopServices::openUrl(QUrl(url));
+        return;
+    }
+    // Steam's runtime variables are for the games it runs; the steam script wants the host's
+    QProcess p;
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.remove("LD_LIBRARY_PATH");
+    env.remove("LD_PRELOAD");
+    p.setProcessEnvironment(env);
+    p.setProgram(cmd[0]);
+    p.setArguments(cmd.mid(1));
+    const bool started = p.startDetached();
+    qInfo().noquote() << "open page:" << url << (started ? "with steam steam://openurl" : "steam did not start");
+    if (!started) {
+        QDesktopServices::openUrl(QUrl(url));
+    }
+}
+
+// "bitrate:2560x1440x90[x444]", "scale" and "openurl:<url>" for tests/launcher: no UI, nothing else runs
 static int selfTestValue(const QString& spec)
 {
+    if (spec.startsWith("openurl:")) {
+        const QString url = spec.mid(8);
+        const QStringList cmd = openExternalCommand(url, inGameMode(), !QStandardPaths::findExecutable("steam").isEmpty());
+        QTextStream(stdout) << "SELFTEST: openurl=" << (cmd.isEmpty() ? QString("qt ") + url : cmd.join(' ')) << Qt::endl;
+        return 0;
+    }
     if (spec == "scale") {
         QTextStream(stdout) << "SELFTEST: scale=" << QByteArray::number(gameModeScale(), 'g', 4)
                             << " QT_SCALE_FACTOR=" << qEnvironmentVariable("QT_SCALE_FACTOR") << Qt::endl;
@@ -1334,6 +1401,46 @@ static int selfTestValue(const QString& spec)
     QTextStream(stdout) << "SELFTEST: bitrate=" << StreamingPreferences::getDefaultBitrate(p[0].toInt(), p[1].toInt(), p[2].toInt(), p.size() > 3 && p[3] == "444")
                         << " handoff=" << (enabled() ? "yes" : "no") << Qt::endl;
     return 0;
+}
+
+// "plan:<PC>:<app>": makes the Plan for that stream and says what is in force before it, while it runs and after
+// it (settings profiles), the command line, the hints from the check before the stream and the environment for
+// the VR client. MLXR_LAUNCHER_TEST_PROFILE_CRASH=1 leaves without ending the profile, as a killed launcher would.
+static int selfTestPlan(const QString& spec)
+{
+    NvApp app;
+    QString why;
+    NvComputer* found = loadComputer(spec, &app, &why);
+    if (!found) {
+        QTextStream(stderr) << "SELFTEST: " << why << Qt::endl;
+        fflush(stderr);
+        _exit(why.startsWith("no app") ? 21 : 20);
+    }
+    QTextStream out(stdout);
+    MlxrProfiles* profiles = MlxrProfiles::get();
+    out << "SELFTEST: before: " << profiles->dumpCurrent() << Qt::endl;
+    {
+        const Plan plan = makePlan(*found, app, *StreamingPreferences::get());
+        out << "SELFTEST: profile: " << (plan.profile ? plan.profile->profile : QString("none")) << Qt::endl;
+        out << "SELFTEST: during: " << profiles->dumpCurrent() << Qt::endl;
+        out << "SELFTEST: command: " << commandLine(plan) << Qt::endl;
+        for (const QString& hint : plan.hints) {
+            out << "SELFTEST: hint: " << hint << Qt::endl;
+        }
+        for (auto it = plan.extraEnv.constBegin(); it != plan.extraEnv.constEnd(); ++it) {
+            out << "SELFTEST: env: " << it.key() << "=" << it.value() << Qt::endl;
+        }
+        out.flush();
+        if (qEnvironmentVariableIsSet("MLXR_LAUNCHER_TEST_PROFILE_CRASH")) {
+            fflush(stdout);
+            _exit(0);
+        }
+    }
+    out << "SELFTEST: after: " << profiles->dumpCurrent() << Qt::endl;
+    out.flush();
+    fflush(stdout);
+    fflush(stderr);
+    _exit(0);
 }
 
 // "pcvr:probe", "pcvr:devices", "pcvr:apps[:CLIENT]", "pcvr:go" for tests/launcher: no UI
@@ -1376,13 +1483,19 @@ static int selfTestPcvr(const QString& spec)
 
 int selfTest(const QString& spec)
 {
+    if (spec.startsWith("profileops:")) {
+        return MlxrProfiles::selfTestOps(spec.mid(11));
+    }
+    if (spec.startsWith("plan:")) {
+        return selfTestPlan(spec.mid(5));
+    }
     if (spec.startsWith("pcvr:")) {
         const int rc = selfTestPcvr(spec);
         fflush(stdout);
         fflush(stderr);
         _exit(rc);
     }
-    if (spec == "scale" || spec.startsWith("bitrate:")) {
+    if (spec == "scale" || spec.startsWith("bitrate:") || spec.startsWith("openurl:")) {
         const int rc = selfTestValue(spec);
         fflush(stdout);
         fflush(stderr);
@@ -1403,6 +1516,10 @@ int selfTest(const QString& spec)
     bool finished = false, deleted = false;
     QEventLoop loop;
     QObject::connect(&session, &Session::displayLaunchError, [&](QString t) { err = t; });
+    // Native (lane wave4-launcher): the hints from the check before the stream (the segue's toast)
+    QObject::connect(&session, &Session::displayLaunchWarning, [&](QString t) {
+        QTextStream(stdout) << "SELFTEST: warning: " << QString(t).replace('\n', " | ") << Qt::endl;
+    });
     QObject::connect(&session, &Session::vrStreamStarted, [&]() { started = "yes"; });
     QObject::connect(&session, &Session::sessionFinished, [&](int) { finished = true; });
     QObject::connect(&session, &Session::readyForDeletion, [&]() { deleted = true; loop.quit(); });
