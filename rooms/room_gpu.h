@@ -167,6 +167,13 @@ typedef struct MlxrModel {
     uint64_t vertexBytes, indexBytes, gpuBytes;
     double loadMs;
     int perHand;                      // 1: the Frame's pair; 0: the generic one for both
+    // Native: which CONTROLLER_MODEL_* this is (what loaded, which is not the kind asked for when
+    // that fell back), where it is drawn (MODEL_SPACE_*) and whether the left hand is the right's
+    // mesh mirrored by its matrix (the generic controller, a single custom file) rather than its
+    // own
+    int kind;
+    int space;
+    int mirrorLeft;
     uint32_t handFirstIndex[2];       // per hand into the index buffer
     uint32_t handIndexCount[2];
     int32_t handVertexOffset[2];      // per hand, in vertices
@@ -184,10 +191,17 @@ typedef struct MlxrModel {
 
 // Tries the Frame pair under assetsDir/models first (textured, then painted);
 // a pair with a missing or unreadable half is skipped (on stderr) for the
-// generic controller.
+// generic controller. The same as mlxr_model_record_kind for the Frame kind.
 int mlxr_model_record(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, MlxrModel** out);
+// Native: the model of a CONTROLLER_MODEL_* kind (not off), chosen by the kind rather than by
+// which files happen to be there: controllerModelCandidates (xr_controller.h) lists what to read
+// and in what order, the first that loads is the model, and each one skipped is said on stderr.
+// userDir is where the user's own models are (NULL: none). *out->kind says what loaded.
+int mlxr_model_record_kind(const MlxrGpu* gpu, const char* assetsDir, const char* userDir, int kind,
+                           VkCommandBuffer cmd, MlxrModel** out);
 void mlxr_model_upload_done(const MlxrGpu* gpu, MlxrModel* model);
 int mlxr_model_load(const MlxrGpu* gpu, const char* assetsDir, MlxrModel** out);
+int mlxr_model_load_kind(const MlxrGpu* gpu, const char* assetsDir, const char* userDir, int kind, MlxrModel** out);
 void mlxr_model_unload(const MlxrGpu* gpu, MlxrModel* model);
 // vertices, indices, indexCount, the per-hand ranges and (textured) images of
 // a pass_model call

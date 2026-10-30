@@ -1079,6 +1079,96 @@ static void frameModelsGroup(void) {
     unloadWith(c);
 }
 
+// ---- native: the model by kind, and a change of kind in a running session ----------------
+// Show controllers: the first frame the switch is on loads the kind asked for; a change of kind loads
+// the new one on the next frame and frees the old one once the GPU is past it; the same kind, or the
+// switch going off and on again, loads nothing
+
+static void modelKindGroup(void) {
+    const char* cfg = "/tmp/mlxr-model-kind-cfg";
+    char path[700];
+    char cmd[1000];
+    const uint8_t texRed[3] = { 220, 20, 20 };
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models'", cfg, cfg);
+    CHECK(system(cmd) == 0);
+    setenv("MLXR_CONFIG_DIR", cfg, 1);
+
+    XrCtx* c = newCtx();
+    snprintf(c->assetsDir, sizeof(c->assetsDir), "%s", MLXR_ASSETS_DIR);
+    // Off: nothing is read
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(!c->modelReady && c->model == NULL);
+    // Generic, the first load
+    c->modelOn = 1;
+    c->modelKind = CONTROLLER_MODEL_GENERIC;
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->modelReady && c->model && c->model->kind == CONTROLLER_MODEL_GENERIC && c->model->mirrorLeft);
+    CHECK(c->modelKindAsked == CONTROLLER_MODEL_GENERIC);
+    MlxrModel* generic = c->model;
+    // The same kind again is the same model
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->model == generic);
+    // The gun replaces it between frames: aim pose, a real pair, the trigger animated
+    c->modelKind = CONTROLLER_MODEL_GUN;
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->modelReady && c->model && c->model != NULL && c->model->kind == CONTROLLER_MODEL_GUN);
+    CHECK(c->model->space == MODEL_SPACE_AIM && c->model->textured && c->model->perHand && !c->model->mirrorLeft);
+    MlxrModel* gun = c->model;
+    // Off keeps what is loaded and loads nothing; on again with the same kind is the same model
+    c->modelOn = 0;
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->model == gun);
+    c->modelOn = 1;
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->model == gun);
+    // On with no kind stored reads as the Frame's, which here (no Frame models converted) is the
+    // generic controller, said so
+    c->modelKind = 0;
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->modelKindAsked == CONTROLLER_MODEL_FRAME && c->model && c->model != gun);
+    CHECK(c->model->kind == CONTROLLER_MODEL_GENERIC || c->model->kind == CONTROLLER_MODEL_FRAME);
+    // Custom with nothing in the config folder: the same fall back, and no second attempt every frame
+    c->modelKind = CONTROLLER_MODEL_CUSTOM;
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->modelKindAsked == CONTROLLER_MODEL_CUSTOM && c->model && c->model->kind != CONTROLLER_MODEL_CUSTOM);
+    MlxrModel* fell = c->model;
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->model == fell);
+    // A custom file dropped in, and the kind asked for again from another kind: the file loads, mirrored
+    snprintf(path, sizeof(path), "%s/models/custom.model", cfg);
+    writeQuadModel(path, 0.15f, texRed);
+    c->modelKind = CONTROLLER_MODEL_GUN;
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->model && c->model->kind == CONTROLLER_MODEL_GUN);
+    c->modelKind = CONTROLLER_MODEL_CUSTOM;
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->model && c->model->kind == CONTROLLER_MODEL_CUSTOM && c->model->textured && c->model->mirrorLeft);
+    // and it draws, the left hand mirrored to the other side of its grip
+    FrameShot s;
+    memset(&s, 0, sizeof(s));
+    s.w = 256;
+    s.h = 256;
+    m5_image(&g, c, &s.colour, 2 * s.w, s.h, VK_FORMAT_R8G8B8A8_SRGB,
+             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+    m5_image(&g, c, &s.depth, 2 * s.w, s.h, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+             VK_IMAGE_ASPECT_DEPTH_BIT);
+    s.views[0] = m5_view(60.0f, s.w, s.h, 0.0f);
+    s.views[1] = s.views[0];
+    for (int e = 0; e < 2; e++) c->modelViews[e] = s.views[e];
+    double r, b, xl, xr;
+    int n;
+    handColour(c, &s, HAND_RIGHT, &r, &b, &n, &xr);
+    handColour(c, &s, HAND_LEFT, &r, &b, &n, &xl);
+    printf("  custom: right hand mean x %.1f, left hand %.1f of %d\n", xr, xl, s.w);
+    CHECK(n > 1000 && r > b + 5);
+    // the quad is 0.15 m right of the grip; mirrored for the left hand it is 0.15 m left of it
+    CHECK(xr > s.w / 2 + 20 && xl < s.w / 2 - 20);
+    m5_image_free(c, &s.colour);
+    m5_image_free(c, &s.depth);
+    unloadWith(c);
+    unsetenv("MLXR_CONFIG_DIR");
+}
+
 // ---- native (lane eye-swapchains): an image per eye ---------------------------------------
 // The session draws every projection layer into a swapchain per eye (SteamVR
 // downsamples a texture past 3458 px, and two 2160 eyes side by side are 4320).
@@ -1255,6 +1345,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(grp, "curve")) curveGroup();
     if (all || !strcmp(grp, "supersample")) supersampleGroup();
     if (all || !strcmp(grp, "frame_models")) frameModelsGroup();
+    if (all || !strcmp(grp, "model_kind")) modelKindGroup();
     if (all || !strcmp(grp, "eye_images")) {
         if (g.astc) eyeImagesGroup();
         else skipped++;

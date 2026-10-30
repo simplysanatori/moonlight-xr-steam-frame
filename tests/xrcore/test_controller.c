@@ -1,6 +1,11 @@
 // The controllers as drawn: when the ray's beam goes up, when a controller's
 // model is drawn, where the model goes for each hand, and how wide the cursor
 // dot is at each distance
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include "check.h"
 #include "xr_controller.h"
 #include "xr_gate.h"
@@ -264,7 +269,191 @@ static void testDotSize(void) {
     CHECK(pointerDotSize(-1.0f) == PTR_DOT_MIN_M);
 }
 
+// ---- which model: the kind, its space and the files it reads ---------------------------------
+
+static void touch(const char* dir, const char* name) {
+    char path[1100];
+    snprintf(path, sizeof(path), "%s/%s", dir, name);
+    FILE* f = fopen(path, "wb");
+    if (f != NULL) {
+        fputs("x", f);
+        fclose(f);
+    }
+}
+
+// A fresh folder tree: root/assets/models (the bundled and the Frame's files) and root/user
+static void scratch(char* root, char* assets, char* user) {
+    strcpy(root, "/tmp/mlxr-model-kind-XXXXXX");
+    CHECK(mkdtemp(root) != NULL);
+    char path[1100];
+    snprintf(assets, 600, "%.500s/assets", root);
+    snprintf(user, 600, "%.500s/user", root);
+    CHECK(mkdir(assets, 0755) == 0);
+    snprintf(path, sizeof(path), "%.500s/models", assets);
+    CHECK(mkdir(path, 0755) == 0);
+    CHECK(mkdir(user, 0755) == 0);
+}
+
+static void rmTree(const char* root) {
+    char cmd[1200];
+    snprintf(cmd, sizeof(cmd), "rm -rf '%.1000s'", root);
+    CHECK(system(cmd) == 0);
+}
+
+// The candidates as "format:kind" pairs, for one comparison
+static void listed(int kind, const char* assets, const char* user, char* out, size_t cap) {
+    ModelCandidate c[MODEL_CANDIDATES_MAX];
+    int n = controllerModelCandidates(kind, assets, user, c);
+    out[0] = '\0';
+    for (int i = 0; i < n; i++) {
+        size_t at = strlen(out);
+        snprintf(out + at, cap - at, "%s%d:%d", i ? " " : "", c[i].format, c[i].kind);
+    }
+}
+
+static int endsWith(const char* s, const char* tail) {
+    size_t a = strlen(s), b = strlen(tail);
+    return a >= b && strcmp(s + a - b, tail) == 0;
+}
+
+static void testModelKind(void) {
+    // On with no kind (the first version of the row) is the Frame's; off is off whatever was kept
+    CHECK(controllerModelKind(0, CONTROLLER_MODEL_GUN) == CONTROLLER_MODEL_OFF);
+    CHECK(controllerModelKind(1, 0) == CONTROLLER_MODEL_FRAME);
+    CHECK(controllerModelKind(1, CONTROLLER_MODEL_FRAME) == CONTROLLER_MODEL_FRAME);
+    CHECK(controllerModelKind(1, CONTROLLER_MODEL_GENERIC) == CONTROLLER_MODEL_GENERIC);
+    CHECK(controllerModelKind(1, CONTROLLER_MODEL_GUN) == CONTROLLER_MODEL_GUN);
+    CHECK(controllerModelKind(1, CONTROLLER_MODEL_CUSTOM) == CONTROLLER_MODEL_CUSTOM);
+    CHECK(controllerModelKind(1, CONTROLLER_MODEL_COUNT) == CONTROLLER_MODEL_FRAME);
+    CHECK(controllerModelKind(1, -3) == CONTROLLER_MODEL_FRAME);
+    // The settings' order is the enum's
+    CHECK(CONTROLLER_MODEL_OFF == 0 && CONTROLLER_MODEL_FRAME == 1 && CONTROLLER_MODEL_GENERIC == 2 &&
+          CONTROLLER_MODEL_GUN == 3 && CONTROLLER_MODEL_CUSTOM == 4 && CONTROLLER_MODEL_COUNT == 5);
+    CHECK(strcmp(controllerModelKindName(CONTROLLER_MODEL_GUN), "gun") == 0);
+    CHECK(strcmp(controllerModelKindName(CONTROLLER_MODEL_CUSTOM), "custom") == 0);
+    CHECK(strcmp(controllerModelKindName(9), "?") == 0);
+    // Only the gun is drawn at the aim pose
+    for (int k = 0; k < CONTROLLER_MODEL_COUNT; k++) {
+        CHECK(controllerModelSpace(k) == (k == CONTROLLER_MODEL_GUN ? MODEL_SPACE_AIM : MODEL_SPACE_GRIP));
+    }
+}
+
+// Lists read "format:kind": format 1 textured pair, 2 textured one, 3 painted pair, 4 generic;
+// kind 1 the Frame's, 2 generic, 3 gun, 4 custom
+static void testModelCandidates(void) {
+    char root[100], assets[600], user[600], models[700], got[200];
+    scratch(root, assets, user);
+    snprintf(models, sizeof(models), "%.500s/models", assets);
+    ModelCandidate c[MODEL_CANDIDATES_MAX];
+
+    // Off has nothing to read
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_OFF, assets, user, c) == 0);
+
+    // Nothing of the Frame's installed: the Frame kind is the generic controller, tried even if the
+    // file is gone (the loader says so)
+    listed(CONTROLLER_MODEL_FRAME, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "4:2") == 0);
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_FRAME, assets, user, c) == 1);
+    CHECK(endsWith(c[0].path[0], "/models/controller.room"));
+
+    // The Frame's textured pair is first; one half there is still the pair (the loader refuses it)
+    touch(models, "frame_controller_left.model");
+    listed(CONTROLLER_MODEL_FRAME, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:1 4:2") == 0);
+    touch(models, "frame_controller_right.model");
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_FRAME, assets, user, c) == 2);
+    CHECK(c[0].format == MODEL_FILES_TEXTURED_PAIR && endsWith(c[0].path[0], "frame_controller_left.model") &&
+          endsWith(c[0].path[1], "frame_controller_right.model"));
+
+    // The painted pair from an older converter needs both halves, and comes after the textured one
+    touch(models, "frame_controller_left.room");
+    listed(CONTROLLER_MODEL_FRAME, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:1 4:2") == 0);
+    touch(models, "frame_controller_right.room");
+    listed(CONTROLLER_MODEL_FRAME, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:1 3:1 4:2") == 0);
+
+    // Generic is the generic controller whatever the Frame's files are
+    listed(CONTROLLER_MODEL_GENERIC, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "4:2") == 0);
+
+    // Gun: its pair, then the Frame's chain when it is missing or broken
+    listed(CONTROLLER_MODEL_GUN, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:1 3:1 4:2") == 0);
+    touch(models, "gun_left.model");
+    touch(models, "gun_right.model");
+    listed(CONTROLLER_MODEL_GUN, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:3 1:1 3:1 4:2") == 0);
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_GUN, assets, user, c) == 4);
+    CHECK(endsWith(c[0].path[0], "/models/gun_left.model") && endsWith(c[0].path[1], "/models/gun_right.model"));
+
+    // Custom with no folder, or an empty one: the Frame's chain
+    listed(CONTROLLER_MODEL_CUSTOM, assets, NULL, got, sizeof(got));
+    CHECK(strcmp(got, "1:1 3:1 4:2") == 0);
+    listed(CONTROLLER_MODEL_CUSTOM, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:1 3:1 4:2") == 0);
+    // One half of a pair is not used
+    touch(user, "custom_right.model");
+    listed(CONTROLLER_MODEL_CUSTOM, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:1 3:1 4:2") == 0);
+    touch(user, "custom_left.model");
+    listed(CONTROLLER_MODEL_CUSTOM, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:4 1:1 3:1 4:2") == 0);
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_CUSTOM, assets, user, c) == 4);
+    CHECK(strstr(c[0].path[0], "/user/custom_left.model") != NULL &&
+          strstr(c[0].path[1], "/user/custom_right.model") != NULL);
+    // A single custom.model: the right hand's, mirrored. A pair beside it is tried first
+    touch(user, "custom.model");
+    listed(CONTROLLER_MODEL_CUSTOM, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:4 2:4 1:1 3:1 4:2") == 0);
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_CUSTOM, assets, user, c) == 5);
+    CHECK(c[1].format == MODEL_FILES_TEXTURED_ONE && endsWith(c[1].path[0], "/user/custom.model"));
+    char gone[1200];
+    snprintf(gone, sizeof(gone), "%.600s/custom_left.model", user);
+    CHECK(remove(gone) == 0);
+    listed(CONTROLLER_MODEL_CUSTOM, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "2:4 1:1 3:1 4:2") == 0);
+    // The other kinds never look in the user's folder
+    listed(CONTROLLER_MODEL_FRAME, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:1 3:1 4:2") == 0);
+    listed(CONTROLLER_MODEL_GUN, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:3 1:1 3:1 4:2") == 0);
+
+    // A kind out of range reads nothing
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_COUNT, assets, user, c) == 0);
+    CHECK(controllerModelCandidates(-1, assets, user, c) == 0);
+    rmTree(root);
+
+    // The files the build ships: the gun's pair is where the loader looks for it
+    listed(CONTROLLER_MODEL_GUN, MLXR_ASSETS_DIR, NULL, got, sizeof(got));
+    CHECK(strncmp(got, "1:3 ", 4) == 0);
+    listed(CONTROLLER_MODEL_GENERIC, MLXR_ASSETS_DIR, NULL, got, sizeof(got));
+    CHECK(strcmp(got, "4:2") == 0);
+}
+
+static void testModelUserDir(void) {
+    char buf[600];
+    const char* oldCfg = getenv("MLXR_CONFIG_DIR");
+    const char* oldHome = getenv("HOME");
+    char cfg[700] = "", home[700] = "";
+    if (oldCfg) snprintf(cfg, sizeof(cfg), "%.600s", oldCfg);
+    if (oldHome) snprintf(home, sizeof(home), "%.600s", oldHome);
+    setenv("MLXR_CONFIG_DIR", "/tmp/mlxr-cfg-test", 1);
+    CHECK(controllerModelUserDir(buf, sizeof(buf)) == buf && strcmp(buf, "/tmp/mlxr-cfg-test/models") == 0);
+    unsetenv("MLXR_CONFIG_DIR");
+    setenv("HOME", "/tmp/mlxr-home-test", 1);
+    CHECK(controllerModelUserDir(buf, sizeof(buf)) == buf &&
+          strcmp(buf, "/tmp/mlxr-home-test/.config/moonlight-xr/models") == 0);
+    unsetenv("HOME");
+    CHECK(controllerModelUserDir(buf, sizeof(buf)) == NULL);
+    if (oldCfg) setenv("MLXR_CONFIG_DIR", cfg, 1);
+    if (oldHome) setenv("HOME", home, 1);
+}
+
 int main(void) {
+    testModelKind();
+    testModelCandidates();
+    testModelUserDir();
     testRaySwitch();
     testRayDrawn();
     testRayBeamKind();

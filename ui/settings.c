@@ -54,6 +54,9 @@ _Static_assert(sizeof(COGTAB_NAMES) / sizeof(COGTAB_NAMES[0]) == COG_TAB_COUNT, 
 static const char* const KEYMAP_NAMES[] = { "qwerty", "azerty", "qwertz" };
 static const char* const STATS_STYLE_NAMES[] = { "full", "hud", "lite" };
 static const char* const SHARP_NAMES[] = { "off", "normal", "quality" };
+// CONTROLLER_MODEL_*: 1 is what the old on/off switch's true meant
+static const char* const MODEL_NAMES[] = { "off", "frame", "generic", "gun", "custom" };
+_Static_assert(sizeof(MODEL_NAMES) / sizeof(MODEL_NAMES[0]) == CONTROLLER_MODEL_COUNT, "controller_model names follow CONTROLLER_MODEL_");
 
 #define NAMES(a) (a), (int)(sizeof(a) / sizeof((a)[0]))
 #define NONAMES NULL, 0
@@ -96,7 +99,7 @@ static const SettingDesc TABLE[] = {
     DE("vr", "keyboard_layout", keyboard_layout, KBLAYOUT_NAMES, 0, "native: the headset keyboard, compact (Moonlight XR's) or full (tenkeyless); the key on each keyboard flips it"),
     DE("vr", "keyboard_keymap", keyboard_keymap, KEYMAP_NAMES, 0, "native: what the headset keyboard's keys say, qwerty, azerty (French) or qwertz (German); the keys send the US keyboard's positions, so the PC must be on the matching Windows layout"),
     DI("vr", "keyboard_hold_ms", keyboard_hold_ms, 200, 1500, 500, "native: milliseconds a Shift, Ctrl, Alt or Win key is held on the full keyboard to lock it down (a tap lights it for the next key)"),
-    DB("vr", "controller_model", controller_model, 0, "checkbox_vr_controller_model: draw a controller in each hand"),
+    DE("vr", "controller_model", controller_model, MODEL_NAMES, 0, "checkbox_vr_controller_model: which controller is drawn in each hand; custom reads your own files from the models folder beside this file (true reads as frame, false as off)"),
     DB("vr", "head_aim", head_aim, 0, "checkbox_vr_head_aim: head aims the mouse (screen head locked, outside a room)"),
     DI("vr", "head_aim_sensitivity", head_aim_sensitivity, HEAD_AIM_SENSITIVITY_MIN, HEAD_AIM_SENSITIVITY_MAX, HEAD_AIM_SENSITIVITY_DEFAULT, "seekbar_vr_head_aim_sensitivity: pixels per degree"),
     DI("vr", "head_aim_deadzone", head_aim_deadzone, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX, HEAD_AIM_DEADZONE_DEFAULT, "seekbar_vr_head_aim_deadzone: degrees per second"),
@@ -578,8 +581,14 @@ static int apply_value(Settings* s, const SettingDesc* d, const char* v, Setting
         if (found < 0) {
             char* end;
             long n = strtol(v, &end, 10);
-            if (end == v || *end || n < 0 || n >= d->nnames) return 0;
-            found = (int)n;
+            int b = 0;
+            if (strcmp(d->key, "controller_model") == 0 && parse_bool(v, &b)) {
+                // Native: the key was a switch (true/false) before it was a kind
+                found = b ? CONTROLLER_MODEL_FRAME : CONTROLLER_MODEL_OFF;
+            } else {
+                if (end == v || *end || n < 0 || n >= d->nnames) return 0;
+                found = (int)n;
+            }
         }
         x = found;
     } else {

@@ -37,7 +37,9 @@ if(Python3_FOUND)
   set_tests_properties(rooms_model_pose PROPERTIES FIXTURES_REQUIRED frame_models)
 endif()
 add_test(NAME rooms_model_fallback COMMAND mlxr-room-test model_fallback ${MLXR_ROOM_TEST_OUT})
-set_tests_properties(rooms_model_textured rooms_model_pose rooms_model_fallback PROPERTIES RESOURCE_LOCK room_test_models)
+# Native: the model by kind (Show controllers): gun, generic, Frame, custom and their fall backs
+add_test(NAME rooms_model_kind COMMAND mlxr-room-test model_kind ${MLXR_ROOM_TEST_OUT})
+set_tests_properties(rooms_model_textured rooms_model_pose rooms_model_fallback rooms_model_kind PROPERTIES RESOURCE_LOCK room_test_models)
 # exit 77 (no Vulkan driver or device, e.g. a CI runner) is a skip
 set_tests_properties(rooms_load rooms_rescale rooms_render_home_theater rooms_render_grand_cinema rooms_render_synthwave
-  rooms_model rooms_overlay rooms_model_textured rooms_model_pose rooms_model_fallback PROPERTIES SKIP_RETURN_CODE 77)
+  rooms_model rooms_overlay rooms_model_textured rooms_model_pose rooms_model_fallback rooms_model_kind PROPERTIES SKIP_RETURN_CODE 77)

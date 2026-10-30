@@ -55,6 +55,10 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(QString keyboardKeymap MEMBER keyboardKeymap NOTIFY changed)
     // Which notices the headset's toast says: "all", "important" or "off" ([vr] notices)
     Q_PROPERTY(QString notices MEMBER notices NOTIFY changed)
+    // Which controller the headset draws in each hand: "off", "frame", "generic", "gun" or "custom"
+    // ([vr] controller_model). Custom (your own files in the models folder) is only chosen here and
+    // in the file; the headset's Display tab has a cell for the other four
+    Q_PROPERTY(QString controllerModel MEMBER controllerModel NOTIFY changed)
     // Native (lane wave3-session): [stream] doff_disconnect (seconds with the headset off before the stream is
     // disconnected, the PC's app keeps running; 0 never, default 60) and idle_disconnect (minutes without input
     // before the same; 0 never, default 0)
@@ -137,6 +141,7 @@ public:
     bool flipFaceButtons;
     QString keyboardKeymap;
     QString notices;
+    QString controllerModel;
     int doffDisconnect = 60;
     int idleDisconnect = 0;
     QString padMouseChord;
@@ -152,6 +157,7 @@ private:
     // what config.ini held at load(), to write only what this page changed
     bool m_iniPerfOverlay = false, m_iniFlip = false;
     QString m_iniNotices = "all";
+    QString m_iniControllerModel = "off";
     int m_iniDoff = 60, m_iniIdle = 0;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
