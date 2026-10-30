@@ -11,9 +11,13 @@
 //   (lane wave4-pcvr) startPcvr()  exit code 12: hands the headset to Valve's Steam Link stream of the PC
 #pragma once
 
+#include <QMap>
 #include <QString>
 #include <QStringList>
 #include <functional>
+#include <memory>
+
+#include "mlxrprofiles.h"
 
 class QObject;
 class QProcess;
@@ -34,6 +38,14 @@ struct Plan {
     // run() sets as SteamVR's per-app preferredRefreshRate before the client starts; 0 leaves it
     // ("Match headset", a custom rate, 30 or 60 fps)
     int steamVrRefreshRate = 0;
+    // Native (lane wave4-launcher): the settings profile in force for this stream (mlxrprofiles.h); the settings
+    // go back when the last copy of the Plan is gone. Null for the Default.
+    std::shared_ptr<MlxrProfiles::Applied> profile;
+    // What the check before the stream found (mlxrpreflight.h), one hint to a line; shown as a toast and added to an
+    // error dialog if the stream fails
+    QStringList hints;
+    // More environment for the VR client: MLXR_APP_UUID, the app's UUID from an Apollo host (launch by appuuid)
+    QMap<QString, QString> extraEnv;
 };
 
 struct Result {
@@ -162,6 +174,16 @@ double gameModeScale();
 // Sets QT_SCALE_FACTOR from gameModeScale() in Game Mode. Call before the QGuiApplication exists.
 // An existing QT_SCALE_FACTOR is kept unless MLXR_LAUNCHER_SCALE is set.
 void applyGameModeScale();
+
+// Moonlight XR Native (lane wave6-kofi): opens a web page for the person using the headset.
+// QDesktopServices may not reach a browser in Game Mode (gamescope), so there the page opens in
+// Steam's own browser, which SteamVR shows in the dashboard: `steam steam://openurl/<url>`,
+// started detached, logged. Elsewhere (or when `steam` is not on PATH) it is the normal openUrl.
+// Same page, same Steam URL as the headset's Ko-fi sheet (xr/core/xr_kofi.c).
+// openExternalCommand is the choice by itself: {"steam", "steam://openurl/<url>"}, or empty for
+// QDesktopServices (not a web address, not Game Mode, or no steam).
+QStringList openExternalCommand(const QString& url, bool gameMode, bool steamOnPath);
+void openExternalUrl(const QString& url);
 
 // Test hooks for the UI, called after main.qml loaded:
 //   MLXR_LAUNCHER_SCREENSHOT, MLXR_LAUNCHER_PAGE: see uihooks.h (QT_QPA_PLATFORM=offscreen

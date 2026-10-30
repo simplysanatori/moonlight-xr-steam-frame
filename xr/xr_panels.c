@@ -29,6 +29,7 @@
 //   report sheet       UI_PANEL_REPORT from the native report form
 //   toast              UI_PANEL_TOAST per notice
 //   stats              ATLAS_OVERLAY, the session's stats lines
+//   splash             ATLAS_SPLASH, the logo and its line (xr_splash.c)
 //   launcher lists     UI_PANEL_PC_LIST / UI_PANEL_APP_LIST, with the hover
 // GPLv3.
 #define _GNU_SOURCE // pthread_setname_np
@@ -47,7 +48,7 @@
 
 // ---- a panel drawing, as the worker gets it ------------------------------------------
 
-typedef enum { JOB_PANEL, JOB_CLOCK, JOB_REPORT, JOB_TOAST, JOB_OVERLAY, JOB_PC_LIST, JOB_APP_LIST } JobKind;
+typedef enum { JOB_PANEL, JOB_CLOCK, JOB_REPORT, JOB_TOAST, JOB_OVERLAY, JOB_PC_LIST, JOB_APP_LIST, JOB_SPLASH } JobKind;
 
 // Everything a panel is drawn from, by value: the worker never reads the
 // context. view.settings and view.stereo_reason are pointed at this job's own
@@ -64,6 +65,8 @@ typedef struct {
     char note[512];   // report form
     int focus, hover, canSend;
     int toastKind, toastArg;
+    unsigned splashKey;   // native (lane wave6-splash): names the words drawn
+    int splashStep, splashAlpha;
     int clockBattery, clockCharging, clockSlow;   // native (lane wave3-hud): the clock strip's extras
     UiPcItem* pcs;    // launcher lists, owned by the job
     UiAppItem* apps;
@@ -390,6 +393,7 @@ static int jobDraw(XrPanels* p, PanelJob* j, UiCanvas* cv, UiHits* hits) {
         break;
     }
     case JOB_TOAST: ui_draw_toast(cv, j->text, j->more, j->more[0] == '/' || j->more[0] == '~'); break;
+    case JOB_SPLASH: xrSplashDraw(cv, j->text, j->splashAlpha); break;
     case JOB_OVERLAY: {
         if (p->font == NULL) {
             p->font = ui_font_default();
@@ -447,6 +451,11 @@ static void jobLand(XrCtx* ctx, XrPanels* p, const PanelJob* j, const UiHits* hi
         ctx->toastDrawnKind = j->toastKind;
         ctx->toastDrawnArg = j->toastArg;
         ctx->toastArtReady = 1;
+        break;
+    case JOB_SPLASH:
+        ctx->splashUi.drawnKey = j->splashKey;
+        ctx->splashUi.drawnStep = j->splashStep;
+        ctx->splashUi.artReady = 1;
         break;
     case JOB_OVERLAY:
         ctx->overlayW = j->outW;
@@ -662,8 +671,12 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->kb_locked = v->kb_layout == KB_LAYOUT_FULL ? ctx->kbFull.locked : ctx->kbSticky.locked;
     v->kb_chord = ctx->hostChord.active;
     v->kb_chord_mods = ctx->hostChord.mods;
+    v->kb_compose = ctx->hostCompose.active;
+    if (ctx->hostCompose.active) {
+        xrHostComposeTail(ctx->hostCompose.text, 14, v->kb_compose_text, sizeof(v->kb_compose_text));
+    }
     v->kb_caps = ctx->kbFull.caps;
-    v->kb_chip = !ctx->reportOpen;
+    v->kb_chip = !ctx->reportOpen && !ctx->hostCompose.active;   // a text field of ours stays Compact
     v->version = MLXR_VERSION;   // the top-level VERSION file, through CMake
     v->commit = NULL;
     v->log_path = "~/Games/MoonlightXRNative/moonlight.log";
@@ -769,10 +782,17 @@ static void updateKeyboard(XrCtx* ctx, XrPanels* p, const UiView* base) {
     if (!ctx->kbOpen) {
         return;
     }
-    int k[10] = { ctx->kbState, ctx->kbMods, ctx->kbLayoutShown, ctx->kbFull.oneshot,
-                  ctx->kbFull.locked, ctx->kbFull.caps, ctx->reportOpen, ctx->kbSticky.locked,
-                  ctx->hostChord.active, ctx->hostChord.mods };
-    if (!keyChanged(p, UI_PANEL_KEYBOARD, k, sizeof(k))) {
+    struct {
+        int k[11];
+        char tail[sizeof(base->kb_compose_text)];
+    } k;
+    memset(&k, 0, sizeof(k));
+    int keys[11] = { ctx->kbState, ctx->kbMods, ctx->kbLayoutShown, ctx->kbFull.oneshot,
+                     ctx->kbFull.locked, ctx->kbFull.caps, ctx->reportOpen, ctx->kbSticky.locked,
+                     ctx->hostChord.active, ctx->hostChord.mods, ctx->hostCompose.active };
+    memcpy(k.k, keys, sizeof(keys));
+    snprintf(k.tail, sizeof(k.tail), "%s", base->kb_compose_text);   // what "Send text to PC" has typed
+    if (!keyChanged(p, UI_PANEL_KEYBOARD, &k, sizeof(k))) {
         return;
     }
     UiView v = *base;
@@ -805,21 +825,33 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
         return;
     }
     struct {
-        int zone, confirm, count;
+        int zone, confirm, count, page;
         char names[XR_HOST_MACRO_SLOTS][XR_MACRO_NAME];
-        char label[XR_MACRO_NAME];
+        char label[XR_HOST_CMD_NAME];
+        XrHostInfo info;
     } k;
     memset(&k, 0, sizeof(k));
     k.zone = ctx->hostHoverZone;
     k.confirm = ctx->hostConfirm;
+    k.page = ctx->hostPage;
+    k.info = ctx->hostInfo;
     k.count = ctx->macros.count < XR_HOST_MACRO_SLOTS ? ctx->macros.count : XR_HOST_MACRO_SLOTS;
     for (int i = 0; i < k.count; i++) {
         snprintf(k.names[i], sizeof(k.names[i]), "%s", ctx->macros.macro[i].name);
     }
-    if (k.confirm >= 0) {
+    if (k.confirm >= 0 && k.confirm != XR_HOST_CONFIRM_PCVR && k.page == XR_HOST_PAGE_PC) {
+        // a command: its name is the question
+        int n = k.confirm - XR_HOST_PC_CMD_FIRST;
+        if (n >= 0 && n < XR_HOST_CMD_SLOTS) {
+            snprintf(k.label, sizeof(k.label), "%s", k.info.cmd[n]);
+        }
+    }
+    else if (k.confirm >= 0) {
         XrHostSeq seq;
         int ask;
-        xrHostCellSeq(k.confirm, &ctx->macros, &seq, &ask, k.label, sizeof(k.label));
+        char name[XR_MACRO_NAME];
+        xrHostCellSeq(k.confirm, &ctx->macros, &seq, &ask, name, sizeof(name));
+        snprintf(k.label, sizeof(k.label), "%s", name);
     }
     if (!keyChanged(p, UI_PANEL_HOST, &k, sizeof(k))) {
         return;
@@ -831,10 +863,12 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
         v.hover.a = k.zone;
     }
     else if (k.zone == XR_HOST_ZONE_CLOSE || k.zone == XR_HOST_ZONE_CONFIRM_SEND
-             || k.zone == XR_HOST_ZONE_CONFIRM_CANCEL || k.zone == XR_HOST_ZONE_PCVR) {
+             || k.zone == XR_HOST_ZONE_CONFIRM_CANCEL || k.zone == XR_HOST_ZONE_PCVR
+             || k.zone == XR_HOST_ZONE_PAGE) {
         v.hover.kind = UI_HIT_BUTTON;
         v.hover.a = k.zone == XR_HOST_ZONE_CLOSE ? UI_BTN_HOST_CLOSE
                   : k.zone == XR_HOST_ZONE_PCVR ? UI_BTN_HOST_PCVR
+                  : k.zone == XR_HOST_ZONE_PAGE ? UI_BTN_HOST_PAGE
                   : k.zone == XR_HOST_ZONE_CONFIRM_SEND ? UI_BTN_HOST_CONFIRM : UI_BTN_HOST_CANCEL;
     }
     v.host_macros = k.count;
@@ -843,6 +877,9 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
     }
     v.host_confirm = k.confirm;
     snprintf(v.host_confirm_label, sizeof(v.host_confirm_label), "%s", k.label);
+    v.host_page = k.page;
+    v.host_info = k.info;
+    v.host_confirm_cmd = k.page == XR_HOST_PAGE_PC && k.confirm != XR_HOST_CONFIRM_PCVR;
     PanelJob j;
     jobPanel(&j, UI_PANEL_HOST, &v);
     submit(ctx, p, &j);
@@ -1073,6 +1110,23 @@ void xrPanelsToast(XrCtx* ctx, int kind, int arg) {
     // (xr_layers shows the toast once the art drawn is this notice's kind
     // and argument, so the last toast's art never stands in while the worker
     // draws this one)
+    submit(ctx, p, &j);
+}
+
+// Native (lane wave6-splash): the splash's art (xr_splash.c), the logo and a line under it
+void xrPanelsSplash(XrCtx* ctx, const char* line, unsigned key, int step, int alpha) {
+    XrPanels* p = ctx->panels;
+    if (p == NULL || xrAtlasPixels(ctx) == NULL) {
+        return;
+    }
+    PanelJob j;
+    memset(&j, 0, sizeof(j));
+    j.kind = JOB_SPLASH;
+    j.slot = ATLAS_SPLASH;
+    snprintf(j.text, sizeof(j.text), "%s", line != NULL ? line : "");
+    j.splashKey = key;
+    j.splashStep = step;
+    j.splashAlpha = alpha;
     submit(ctx, p, &j);
 }
 

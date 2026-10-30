@@ -16,6 +16,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QVector>
 #include <QVariantList>
 
 class MlxrPrefs : public QObject
@@ -44,6 +45,9 @@ class MlxrPrefs : public QObject
     // ---- launcher settings used by the launcher ----
     Q_PROPERTY(bool clipboardSync MEMBER clipboardSync NOTIFY changed)       // Apollo
     Q_PROPERTY(bool quickResume MEMBER quickResume NOTIFY changed)
+    // Native (lane wave4-launcher): ask the PC about permissions, the virtual display and its modes before a stream
+    // starts and say what is wrong (mlxrpreflight.h); on by default. Not part of a settings profile.
+    Q_PROPERTY(bool preflight MEMBER preflight NOTIFY changed)
     // ---- the VR client's config.ini ----
     Q_PROPERTY(bool perfOverlay MEMBER perfOverlay NOTIFY changed)           // [display] stats
     Q_PROPERTY(int renderMode MEMBER renderMode NOTIFY changed)              // [3d] stereo: 0 2D, 1 AI 3D
@@ -113,6 +117,12 @@ class MlxrPrefs : public QObject
     // locale), "en", or a code of tools/ui/gen_strings.py's list ("de", "pt-BR", ...). Read by the VR
     // client when it starts
     Q_PROPERTY(QString headsetLanguage MEMBER headsetLanguage NOTIFY changed)
+    // Native (lane wave2-lightgun-gyro): [vr] lightgun, the lightgun pointer policy, "auto" (default: on while the
+    // controller model is the gun), "on" or "off"; [vr] pad_gyro, what the headset controllers' gamepad sends as
+    // gyro to the PC, "off" (default), "controller" or "head". The rest (lightgun_reload, lightgun_recoil,
+    // pad_gyro_ratchet) are in the file only
+    Q_PROPERTY(QString lightgun MEMBER lightgun NOTIFY changed)
+    Q_PROPERTY(QString padGyro MEMBER padGyro NOTIFY changed)
     // ---- PC VR: Valve's Steam Link stream of the PC (lane wave4-pcvr, PLAN 4.1, 4.2, 4.9) ----
     // The Host sheet's PC VR button ends the stream and the launcher asks Steam to stream pcvrApp (a Steam
     // app id; empty: open Steam's library) from the Remote Play PC pcvrClient (a Remote Play client id; empty:
@@ -142,6 +152,16 @@ public:
     // Writes the launcher settings, and the config.ini keys changed since load()
     Q_INVOKABLE void save();
     void load();
+    // load() again and tell the page (a settings profile ended: mlxrprofiles.h)
+    void reloadAll();
+
+    // Native (lane wave4-launcher): the config.ini keys a settings profile carries, as they stand in memory now
+    // (section, key, the text the VR client reads). A lane that adds a stream setting to the page adds its key
+    // here and its property to kPrefFields in mlxrprofiles.cpp, so profiles hold it too.
+    struct IniEntry {
+        QString section, key, value;
+    };
+    QVector<IniEntry> profileIniEntries() const;
 
     // The VR client flags for these settings (only those that differ from the client's defaults)
     QStringList clientArgs() const;
@@ -206,6 +226,7 @@ public:
     QString networkPath;
     bool clipboardSync;
     bool quickResume;
+    bool preflight = true;
     bool perfOverlay;
     int renderMode;
     int strength;
@@ -239,6 +260,8 @@ public:
     // A [ui] language value as the VR client spells it: "auto" for an empty or malformed one,
     // else lower case with the region upper case ("pt_br" -> "pt-BR")
     static QString normalizeLanguage(const QString& v);
+    QString lightgun;
+    QString padGyro;
     QString pcvrApp;
     QString pcvrAppName;
     QString pcvrClient;
@@ -260,6 +283,7 @@ private:
     int m_iniBitrateWifi = 0, m_iniBitrateAdapter = 0, m_iniBitrateWired = 0, m_iniBitrateUsb = 0;
     int m_iniRfiIdr = 500;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
+    QString m_iniLightgun = "auto", m_iniPadGyro = "off";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     int m_iniEyeBalance = 0, m_iniBackgroundDim = 0;
     QString m_iniVoidColor = QStringLiteral("#000000"), m_iniGlowFeather = QStringLiteral("off");

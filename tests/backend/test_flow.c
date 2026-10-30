@@ -408,9 +408,81 @@ static void test_apollo(void)
     fake_host_stop(h);
 }
 
+/* Native (lane wave4-apollo): the Host sheet's data from a live (fake) Apollo: the command list as
+ * serverinfo gives it to a client with and without the Server Command permission, and the clipboard
+ * on an Apollo that predates it (404) */
+static void test_apollo_host_menu(void)
+{
+    mlxr_error e;
+    mlxr_identity id;
+    CHECK_OK(mlxr_identity_generate(&id, &e));
+    mlxr_computer c;
+    char *cert, *text = NULL;
+    int idx = -1;
+
+    fake_opts o = {.pin = "7781", .apollo = true, .more_cmds = true};
+    fake_host *h = fake_host_start(&o);
+    mlxr_server *s = connect_to(&id, h);
+    CHECK_OK(mlxr_server_get_info(s, false, &c, NULL, &e));
+    CHECK_OK(mlxr_pair(s, c.app_version, "7781", 10000, &cert, &e));
+    CHECK_OK(mlxr_server_get_info(s, false, &c, NULL, &e));
+    CHECK_EQ_INT(c.n_server_cmds, 3);
+    CHECK_EQ_STR(c.server_cmds[2], "Lock PC");
+    CHECK_EQ_INT(mlxr_server_cmd_resolve(&c, "lock pc", &idx), MLXR_HOSTFEAT_OK);
+    CHECK_EQ_INT(idx, 2);   /* the number the control stream runs it by */
+    CHECK_EQ_INT(mlxr_clipboard_gate(&c, false), MLXR_HOSTFEAT_OK);
+    /* a clone (the Host sheet's thread works on one) is as paired as the original, and outlives it */
+    fake_host_set_streaming(h, true);
+    mlxr_server *cl = mlxr_server_clone(s);
+    CHECK(cl != NULL && mlxr_server_clone(NULL) == NULL);
+    CHECK_EQ_INT(mlxr_server_https_port(cl), mlxr_server_https_port(s));
+    mlxr_server_free(s);
+    CHECK_OK(mlxr_server_set_clipboard(cl, "from the clone", &e));
+    CHECK_OK(mlxr_server_get_clipboard(cl, &text, &e));
+    CHECK_EQ_STR(text, "from the clone");
+    free(text);
+    text = NULL;
+    mlxr_server_free(cl);
+    free(cert);
+    fake_host_stop(h);
+
+    /* a client without the Server Command permission is told of none */
+    fake_opts o2 = {.pin = "7782", .apollo = true, .cmd_denied = true};
+    h = fake_host_start(&o2);
+    s = connect_to(&id, h);
+    CHECK_OK(mlxr_server_get_info(s, false, &c, NULL, &e));
+    CHECK_OK(mlxr_pair(s, c.app_version, "7782", 10000, &cert, &e));
+    CHECK_OK(mlxr_server_get_info(s, false, &c, NULL, &e));
+    CHECK_EQ_INT(c.n_server_cmds, 0);
+    CHECK(mlxr_computer_is_apollo(&c));
+    CHECK_EQ_INT(mlxr_server_cmd_gate(&c, -1), MLXR_HOSTFEAT_NO_PERMISSION);
+    CHECK_EQ_INT(mlxr_clipboard_gate(&c, true), MLXR_HOSTFEAT_OK);
+    free(cert);
+    mlxr_server_free(s);
+    fake_host_stop(h);
+
+    /* an Apollo without the clipboard endpoint: 404, which the sheet says as "not supported" */
+    fake_opts o3 = {.pin = "7783", .apollo = true, .clipboard_404 = true};
+    h = fake_host_start(&o3);
+    s = connect_to(&id, h);
+    CHECK_OK(mlxr_server_get_info(s, false, &c, NULL, &e));
+    CHECK_OK(mlxr_pair(s, c.app_version, "7783", 10000, &cert, &e));
+    fake_host_set_streaming(h, true);
+    CHECK_EQ_INT(mlxr_server_get_clipboard(s, &text, &e), MLXR_E_HTTP);
+    CHECK_EQ_INT(e.status, 404);
+    CHECK_EQ_STR(mlxr_hostfeat_http_text(e.status), "Not supported by this host");
+    CHECK_EQ_INT(mlxr_server_set_clipboard(s, "x", &e), MLXR_E_HTTP);
+    CHECK_EQ_INT(e.status, 404);
+    free(cert);
+    mlxr_server_free(s);
+    mlxr_identity_free(&id);
+    fake_host_stop(h);
+}
+
 int main(void)
 {
     test_apollo();
+    test_apollo_host_menu();
     test_pairing_flow(7, false);    /* Sunshine / modern: SHA-256 */
     test_pairing_flow(7, true);     /* GFE-style: placeholder uniqueid */
     test_pairing_flow(6, false);    /* pre-gen-7: SHA-1 */

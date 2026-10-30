@@ -317,7 +317,11 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int level, int hapt
 // A and B, and on the left on the d-pad's down and right, which SteamVR pairs
 // with A and B. squeeze is OpenXR's usual name for the grip; the alternative
 // is tried if a runtime wants that instead.
-static int suggestFrameBindings(XrCtx* ctx, int which, const char* squeeze, int haptic) {
+//
+// Native (lane wave2-lightgun-gyro): touch adds the right thumbstick's touch sensor for the gyro
+// ratchet. It is only on the first rung, so a runtime that will not take it together with the rest
+// costs the ratchet (stick_touch then reads as always) and nothing the pointer or the pad uses.
+static int suggestFrameBindings(XrCtx* ctx, int which, const char* squeeze, int haptic, int touch) {
     XrActionSuggestedBinding b[40];
     uint32_t n = 0;
     static const char* hands[HAND_COUNT] = { "/user/hand/left", "/user/hand/right" };
@@ -351,6 +355,10 @@ static int suggestFrameBindings(XrCtx* ctx, int which, const char* squeeze, int 
     BIND(ctx->padXAction, HAND_RIGHT, "input/x/click");
     BIND(ctx->padYAction, HAND_RIGHT, "input/y/click");
     BIND(ctx->padStartAction, HAND_RIGHT, "input/menu/click");
+    int withTouch = touch && ctx->stickTouchAction != XR_NULL_HANDLE;
+    if (withTouch) {
+        BIND(ctx->stickTouchAction, HAND_RIGHT, "input/thumbstick/touch");
+    }
 #undef BIND
 
     XrInteractionProfileSuggestedBinding suggest = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
@@ -359,17 +367,20 @@ static int suggestFrameBindings(XrCtx* ctx, int which, const char* squeeze, int 
     suggest.suggestedBindings = b;
     XrResult res = xrSuggestInteractionProfileBindings(ctx->instance, &suggest);
     if (XR_SUCCEEDED(res)) {
-        LOGI("bindings accepted for the Steam Frame controllers on %s (%u, grip on %s%s)",
-             FRAME_PROFILE_PATHS[which], n, squeeze, haptic ? ", with the vibration" : "");
+        LOGI("bindings accepted for the Steam Frame controllers on %s (%u, grip on %s%s%s)",
+             FRAME_PROFILE_PATHS[which], n, squeeze, haptic ? ", with the vibration" : "",
+             withTouch ? ", with the right stick's touch" : "");
         ctx->frameBound = 1;
         ctx->menuBound = 1;
         ctx->hapticBound |= haptic;
+        ctx->stickTouchBound |= withTouch;
         return 1;
     }
     // A runtime that does not know a path says so with PATH_UNSUPPORTED, the
     // same as for an input it does not have, so both are tried down the list
-    LOGW("Steam Frame bindings rejected on %s (%d) with the grip on %s%s",
-         FRAME_PROFILE_PATHS[which], res, squeeze, haptic ? " and the vibration" : "");
+    LOGW("Steam Frame bindings rejected on %s (%d) with the grip on %s%s%s",
+         FRAME_PROFILE_PATHS[which], res, squeeze, haptic ? " and the vibration" : "",
+         withTouch ? " and the right stick's touch" : "");
     return 0;
 }
 
@@ -496,14 +507,18 @@ int initXrInput(XrCtx* ctx) {
         ctx->padBumperAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "padbumper",
                                           "Gamepad bumper");
         ctx->padStartAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "padstart", "Gamepad Start");
+        // Native (lane wave2-lightgun-gyro, PLAN 2.9): the gyro ratchet's thumb on the right stick
+        ctx->stickTouchAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "sticktouch",
+                                           "Gamepad gyro (thumb on the right stick)");
         // Each name the profile has gone by gets the whole set, tried down the
         // same list of fallbacks. A path the runtime takes none of is dropped.
         for (int i = 0; i < FRAME_PROFILE_COUNT; i++) {
             ctx->frameProfile[i] = toPath(ctx, FRAME_PROFILE_PATHS[i]);
-            if (!suggestFrameBindings(ctx, i, "input/squeeze/value", 1)
-                    && !suggestFrameBindings(ctx, i, "input/grip/value", 1)
-                    && !suggestFrameBindings(ctx, i, "input/squeeze/value", 0)
-                    && !suggestFrameBindings(ctx, i, "input/grip/value", 0)) {
+            if (!suggestFrameBindings(ctx, i, "input/squeeze/value", 1, 1)
+                    && !suggestFrameBindings(ctx, i, "input/squeeze/value", 1, 0)
+                    && !suggestFrameBindings(ctx, i, "input/grip/value", 1, 0)
+                    && !suggestFrameBindings(ctx, i, "input/squeeze/value", 0, 0)
+                    && !suggestFrameBindings(ctx, i, "input/grip/value", 0, 0)) {
                 LOGI("Steam Frame profile %s not accepted by this runtime", FRAME_PROFILE_PATHS[i]);
                 ctx->frameProfile[i] = XR_NULL_PATH;
             }
@@ -759,6 +774,34 @@ static XrResult locateSpace(XrCtx* ctx, XrSpace space, XrSpace base, XrTime time
 
 static int stickPushed(XrVector2f stick) {
     return fabsf(stick.x) > SCROLL_DEADZONE || fabsf(stick.y) > SCROLL_DEADZONE;
+}
+
+// Native (lane wave2-lightgun-gyro, PLAN 2.3): the pointer sleep setting as the pointer sees it. The
+// lightgun policy holds it off without touching the setting, which the cog still shows and saves.
+static int sleepOn(const XrCtx* ctx) {
+    return lightgunSleepOn(&ctx->lightgun, ctx->pointerSleepOn);
+}
+
+// The policy from the settings and the model that is drawn, once per input frame (the model can be
+// changed from the cog at any time). Turning it on or off drops what the press fix and the click hold
+// were holding, so nothing from the other way of pointing is left over.
+static void refreshLightgun(XrCtx* ctx) {
+    LightgunPolicy now;
+    lightgunPolicy(ctx->lightgunSetting, controllerModelKind(ctx->modelOn, ctx->modelKind),
+                   ctx->lightgunReloadSetting, ctx->lightgunRecoilSetting, &now);
+    if (now.active != ctx->lightgun.active) {
+        clickHoldReset(&ctx->clickHold);
+        pressFixReset(&ctx->pressFix);
+        lightgunReloadReset(&ctx->lightgunReload);
+        LOGEV("lightgun pointer %s (lightgun %s, controller model %s)%s",
+              now.active ? "on: pointer sleep, the double-click wait and press stabilising are off, "
+                           "the grip alone grabs the screen"
+                         : "off",
+              ctx->lightgunSetting == LIGHTGUN_ON ? "on" : ctx->lightgunSetting == LIGHTGUN_OFF ? "off" : "auto",
+              controllerModelKindName(controllerModelKind(ctx->modelOn, ctx->modelKind)),
+              now.active && now.reload ? ", off-picture trigger is a right click" : "");
+    }
+    ctx->lightgun = now;
 }
 
 // Whether a hand is read through the hands' own actions rather than the
@@ -1299,7 +1342,10 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         int byGrip = ctx->gripEdge[hand];
         // (The keyboard's bar hangs clear of its keys, so there is no click
         // for the trigger to have meant.)
-        int byTrigger = ctx->triggerEdge[hand] && (offPicture || kbBar);
+        // Native (lane wave2-lightgun-gyro): not with the lightgun policy, where a shot at the bar
+        // is a shot and the grip alone takes hold of the screen
+        int byTrigger = ctx->triggerEdge[hand] && (offPicture || kbBar)
+                && lightgunTriggerMayGrab(&ctx->lightgun);
         if (!byGrip && !byTrigger) {
             return;
         }
@@ -2476,7 +2522,7 @@ static void updateControllerClocks(XrCtx* ctx, InputFrame* f) {
         int swallow = 0;
         int event = controllerClockStep(&ctx->aimClock[h], f->dt, f->handMoved[h], pressed,
                                         holding, ctx->triggerDown[h], pressWakes,
-                                        ctx->pointerSleepOn, ctx->pointerWake,
+                                        sleepOn(ctx), ctx->pointerWake,
                                         ctx->pointerSleep, &swallow);
         if (event == CLOCK_PRESSED || event == CLOCK_PICKED_UP) {
             LOGI("controller %d %s, its ray is back", h,
@@ -2572,8 +2618,8 @@ static void updatePointerWake(XrCtx* ctx, InputFrame* f) {
     // With the pause switched off a controller in the hand keeps the pointer
     // up however still it is held, so the stick and the trigger always work.
     // Hands keep their own rule, since a resting hand points at the screen.
-    if (!ctx->pointerSleepOn && (ctx->profileKind[HAND_LEFT] == PROFILE_CONTROLLER
-                                 || ctx->profileKind[HAND_RIGHT] == PROFILE_CONTROLLER)) {
+    if (!sleepOn(ctx) && (ctx->profileKind[HAND_LEFT] == PROFILE_CONTROLLER
+                          || ctx->profileKind[HAND_RIGHT] == PROFILE_CONTROLLER)) {
         ctx->pointerAwake = 1;
         ctx->stillFor = 0.0f;
     }
@@ -3450,6 +3496,8 @@ static void updateKofiSheet(XrCtx* ctx, InputFrame* f) {
         return;
     }
     int onClose = pressed == f->hand && zone == KOFI_ZONE_CLOSE;
+    int onOpen = pressed == f->hand && zone == KOFI_ZONE_OPEN;
+    if (onOpen) { ctx->clickPending = 1; kofiOpenPage(NULL); }
     if (onClose) {
         ctx->clickPending = 1;
     }
@@ -3457,7 +3505,7 @@ static void updateKofiSheet(XrCtx* ctx, InputFrame* f) {
     ctx->kofiHoverZone = KOFI_ZONE_NONE;
     int byHand = pressed == SRC_GAZE
             || (pressed < HAND_COUNT && ctx->profileKind[pressed] != PROFILE_CONTROLLER);
-    LOGEV("Ko-fi sheet put away by %s", onClose ? "Close" : byHand ? "a pinch" : "a press");
+    LOGEV("Ko-fi sheet put away by %s", onOpen ? "Open page" : onClose ? "Not now" : byHand ? "a pinch" : "a press");
     for (int h = 0; h < SRC_COUNT; h++) {
         if (ctx->triggerEdge[h]) {
             swallowTrigger(ctx, h);
@@ -4363,8 +4411,13 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
         int touching = ctx->triggerDown[h] || ctx->triggerValue[h] > CLICK_TOUCH_VALUE
                 || (!ctx->padMode && (actionBool(ctx, ctx->rightClickAction, -1)
                                       || actionBool(ctx, ctx->middleClickAction, -1)));
+        // Native (lane wave2-lightgun-gyro): a lightgun wants the aim as it is, so the policy turns
+        // the press fix, the double-click wait and the hold off whatever Click steadiness says
+        PressFixCfg pressCfg = ctx->pressCfg;
+        float holdPx = ctx->clickHoldPx;
+        lightgunClickConfig(&ctx->lightgun, &pressCfg, &holdPx);
         clickHoldStep(&ctx->clickHold, touching && !ctx->triggerSwallowed[h], u, v,
-                      ctx->videoWidth, ctx->videoHeight, ctx->clickHoldPx, f->now, &u, &v);
+                      ctx->videoWidth, ctx->videoHeight, holdPx, f->now, &u, &v);
         // Native (lane pointer-clicks): the point a press is sent at is the aim
         // from before the pull jolted it; live again the moment the aim leaves
         // 3 px, so drags are not held. Native (lane double-click): after a
@@ -4375,7 +4428,7 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
         // ends the wait at once
         pressFixStep(&ctx->pressFix, ctx->triggerDown[h] || ctx->triggerValue[h] > CLICK_TOUCH_VALUE,
                      pointerButtonsWanted(ctx) != 0, u, v, ctx->videoWidth, ctx->videoHeight,
-                     ctx->pressCfg, f->now, &u, &v);
+                     pressCfg, f->now, &u, &v);
     }
     if (ctx->headAimActive) {
         // The head is turning the host's mouse, so a position from the ray
@@ -4404,12 +4457,63 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
     ctx->beamVisible = f->headValid;
 }
 
+// Native (lane wave2-lightgun-gyro, PLAN 2.3): a lightgun's recoil, one short strong pulse through
+// the same vibration action the host's rumble uses, on the hand that pulled the trigger. Counted even
+// where nothing can be played (no vibration bound), which is what the tests read.
+static void recoilPulse(XrCtx* ctx, const InputFrame* f) {
+    ctx->recoilPulses++;
+    int h = -1;
+    for (int k = 0; k < HAND_COUNT; k++) {
+        if (ctx->triggerEdge[k]) {
+            h = k;
+        }
+    }
+    if (h < 0 && f->hand >= 0 && f->hand < HAND_COUNT) {
+        h = f->hand;
+    }
+    if (h < 0) {
+        h = HAND_RIGHT;
+    }
+    if (ctx->hapticAction == XR_NULL_HANDLE || !ctx->hapticBound
+            || ctx->profileKind[h] != PROFILE_CONTROLLER) {
+        return;
+    }
+    XrHapticActionInfo info = { XR_TYPE_HAPTIC_ACTION_INFO };
+    info.action = ctx->hapticAction;
+    info.subactionPath = ctx->handPaths[h];
+    XrHapticVibration vibration = { XR_TYPE_HAPTIC_VIBRATION };
+    vibration.duration = LIGHTGUN_RECOIL_NS;
+    vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
+    vibration.amplitude = LIGHTGUN_RECOIL_AMPLITUDE;
+    XrResult res = xrApplyHapticFeedback(ctx->session, &info, (const XrHapticBaseHeader*)&vibration);
+    if (ctx->recoilPulses == 1) {
+        LOGI("recoil on the %s controller: runtime said %s", h == HAND_LEFT ? "left" : "right",
+             xrResultName(res));
+    }
+    else if (XR_FAILED(res)) {
+        LOGW("recoil pulse on the %s controller refused: %s", h == HAND_LEFT ? "left" : "right",
+             xrResultName(res));
+    }
+}
+
 // Works out which host buttons are down, and logs each trigger transition
 static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
     int mask = pointerButtonsWanted(ctx);
+    int prevButtons = ctx->buttonsDown;
     // A press only counts while aimed at the screen, but a release always
     // does, so walking the pointer off the edge mid drag still lets go
     ctx->buttonsDown = (ctx->buttonsDown & mask) | (hit ? mask : 0);
+    // Native (lane wave2-lightgun-gyro, PLAN 2.3): with the lightgun policy a trigger pulled off the
+    // picture (the room, the margin round it, the bar under it) can be a right click, and a shot
+    // pulses the controller
+    {
+        int clear = f->hover == HOVER_NONE || f->hover == HOVER_HALO || f->hover == HOVER_BAR;
+        ctx->buttonsDown = lightgunButtons(&ctx->lightgunReload, &ctx->lightgun, mask, hit, clear,
+                                           ctx->buttonsDown);
+        if (lightgunRecoilDue(&ctx->lightgun, &ctx->lightgunReload, prevButtons, ctx->buttonsDown)) {
+            recoilPulse(ctx, f);
+        }
+    }
     f->out[IN_BUTTONS] = (float)ctx->buttonsDown;
 
     // Diagnostics for the click path, one line per transition, so an ordinary
@@ -4467,7 +4571,7 @@ static void updateScroll(XrCtx* ctx, InputFrame* f, int hit) {
             bindStickTilt(t, h, &ctx->padSeen[h], XR_BIND_STICK_SCROLL, &x, &y);
         }
     }
-    int offPicture = !ctx->pointerSleepOn
+    int offPicture = !sleepOn(ctx)
             && (f->hover == HOVER_NONE || f->hover == HOVER_HALO);
     int v = 0, side = 0;
     if (hit || offPicture) {
@@ -4702,7 +4806,9 @@ static void settlePad(XrCtx* ctx, int plugged, int live, PadState* s, const char
         ctx->padButtonsSaid = s->buttons;
     }
     ctx->pad = *s;
-    xrPadBridgeFrame(plugged, s, nowNs()); // native: to the host (upstream: reportXrPad in Java)
+    int64_t padNow = nowNs();
+    xrPadBridgeFrame(plugged, s, padNow); // native: to the host (upstream: reportXrPad in Java)
+    xrPadGyroFrame(ctx, plugged, live, padNow);
 }
 
 // Nothing is read this frame, so the pad lets go of everything and the switch
@@ -5037,6 +5143,7 @@ static void beginPointerFrame(XrCtx* ctx, InputFrame* f, float* out, int headLoc
                               int64_t now) {
     memset(f, 0, sizeof(*f));
     f->out = out;
+    refreshLightgun(ctx); // Native (lane wave2-lightgun-gyro)
     // Both of these have to agree with what endFrame submits, or the ray lands
     // somewhere other than where the picture is drawn. A room world locks it
     // and flattens it whatever the preference and the panel say.
@@ -5110,6 +5217,21 @@ void xrPointerStep(XrCtx* ctx, int64_t now, int headLocked) {
     InputFrame f;
     beginPointerFrame(ctx, &f, out, headLocked, now);
     pointerPass(ctx, &f);
+}
+
+// Native (lane wave2-lightgun-gyro), for the tests: see xr_native.h
+int xrButtonsFrame(XrCtx* ctx, int wanted, int hover, int hit) {
+    float out[IN_SLOTS];
+    memset(out, 0, sizeof(out));
+    InputFrame f;
+    memset(&f, 0, sizeof(f));
+    f.out = out;
+    f.hover = hover;
+    f.hand = hover == HOVER_NONE ? -1 : HAND_RIGHT;
+    ctx->bindMouse = wanted;
+    refreshLightgun(ctx);
+    updateButtons(ctx, &f, hit);
+    return ctx->buttonsDown;
 }
 
 // Reads the controllers and works out where they are pointing on the screen.
@@ -5399,4 +5521,159 @@ void xrSetHandHint(XrCtx* ctx, int wanted) {
     LOGI("hand lock hint %s", ctx->hintWanted ? "shows the first time a hand points"
                               : ctx->handsEnabled ? "put away for good in an earlier session"
                                                   : "not wanted, hands are off");
+}
+
+// ---- Native (lane wave2-lightgun-gyro): settings, and the gamepad's gyro (PLAN 2.9) ------------------
+
+void xrSetLightgun(XrCtx* ctx, int setting, int reload, int recoil) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->lightgunSetting = lightgunSettingClamp(setting);
+    ctx->lightgunReloadSetting = reload != 0;
+    ctx->lightgunRecoilSetting = recoil != 0;
+    refreshLightgun(ctx);
+}
+
+void xrSetPadGyro(XrCtx* ctx, int source, int ratchet) {
+    if (ctx == NULL) {
+        return;
+    }
+    static const char* const sources[PAD_GYRO_COUNT] = { "off", "controller", "head" };
+    ctx->padGyroSource = padGyroSourceClamp(source);
+    ctx->padGyroRatchet = padGyroRatchetClamp(ratchet);
+    ctx->padGyroPrevWho = -2;
+    ctx->padGyroSaidHz = 0;
+    ctx->padGyroSaidFallback = 0;
+    // The Frame pad advertises motion only with this on, and then only on its own slot
+    xrPadBridgeSetMotion(ctx->padGyroSource != PAD_GYRO_OFF);
+    if (ctx->padGyroSource != PAD_GYRO_OFF) {
+        LOGEV("gamepad gyro from the %s, motion sent %s", sources[ctx->padGyroSource],
+              ctx->padGyroRatchet == PAD_GYRO_RATCHET_STICK_TOUCH ? "while the right thumb touches the stick"
+                                                                  : "always");
+    }
+}
+
+// One space's orientation and angular velocity in the local space, from the runtime's own
+// XrSpaceVelocity where it gives one
+typedef struct {
+    XrQuaternionf q;
+    Vec3 w;       // rad/s about the local space's axes
+    int velocity; // w is the runtime's
+} GyroSample;
+
+static int locateGyro(XrCtx* ctx, XrSpace space, int needTracked, GyroSample* out) {
+    if (space == XR_NULL_HANDLE) {
+        return 0;
+    }
+    XrSpaceVelocity vel = { XR_TYPE_SPACE_VELOCITY };
+    XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
+    loc.next = &vel;
+    if (XR_FAILED(locateSpace(ctx, space, ctx->localSpace, ctx->predictedDisplayTime, &loc))) {
+        return 0;
+    }
+    XrSpaceLocationFlags need = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+    if (needTracked) {
+        need |= XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT;
+    }
+    if ((loc.locationFlags & need) != need) {
+        return 0;
+    }
+    out->q = quatNorm(loc.pose.orientation);
+    out->velocity = (vel.velocityFlags & XR_SPACE_VELOCITY_ANGULAR_VALID_BIT) != 0;
+    out->w.x = vel.angularVelocity.x;
+    out->w.y = vel.angularVelocity.y;
+    out->w.z = vel.angularVelocity.z;
+    return 1;
+}
+
+// The gyroscope and the accelerometer of the gamepad the Frame controllers make, from the right
+// controller's aim pose (the left one's when the right is not tracked) or from the head, as the
+// pad_gyro setting says. Sent only while the pad is on the host and the host asked for motion on it
+// (setMotionEventState), so with the setting off, or in pointer mode, nothing is read or sent.
+// A panel up, or the thumb off the stick under the ratchet, sends a still gyroscope (zeroes, which
+// the pad drops once they repeat); the accelerometer is gravity alone, turned into the device's frame.
+void xrPadGyroFrame(XrCtx* ctx, int plugged, int live, int64_t now) {
+    if (ctx->padGyroSource == PAD_GYRO_OFF || !plugged) {
+        ctx->padGyroPrevWho = -2;
+        ctx->padGyroSaidHz = 0;
+        return;
+    }
+    int gyroHz = xrPadBridgeMotionRate(PADOUT_MOTION_GYRO);
+    int accelHz = xrPadBridgeMotionRate(PADOUT_MOTION_ACCEL);
+    if (gyroHz != ctx->padGyroSaidHz) {
+        LOGEV("gamepad gyro: the host %s the gyroscope (%d Hz) and %s the accelerometer (%d Hz)",
+              gyroHz > 0 ? "asks for" : "does not ask for", gyroHz,
+              accelHz > 0 ? "asks for" : "does not ask for", accelHz);
+        ctx->padGyroSaidHz = gyroHz;
+    }
+    if (gyroHz <= 0 && accelHz <= 0) {
+        ctx->padGyroPrevWho = -2;
+        return;
+    }
+
+    GyroSample s = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }, 0 };
+    int who = -2;
+    int ok = 0;
+    if (ctx->padGyroSource == PAD_GYRO_HEAD) {
+        ok = locateGyro(ctx, ctx->viewSpace, 0, &s);
+        who = -1;
+    }
+    else {
+        static const int order[HAND_COUNT] = { HAND_RIGHT, HAND_LEFT };
+        for (int i = 0; i < HAND_COUNT && !ok; i++) {
+            int h = order[i];
+            if (ctx->profileKind[h] == PROFILE_CONTROLLER && locateGyro(ctx, ctx->aimSpaces[h], 1, &s)) {
+                ok = 1;
+                who = h;
+            }
+        }
+    }
+
+    Vec3 gyro = { 0.0f, 0.0f, 0.0f };
+    if (ok) {
+        if (s.velocity) {
+            gyro = padGyroFromVelocity(s.q, s.w);
+        }
+        else if (ctx->padGyroPrevWho == who && ctx->padGyroPrevNs > 0 && now > ctx->padGyroPrevNs
+                 && now - ctx->padGyroPrevNs < 100000000LL) {
+            // A runtime that gives no velocity: the turn since the last sample
+            gyro = padGyroFromTurn(ctx->padGyroPrev, s.q, (float)(now - ctx->padGyroPrevNs) * 1e-9f);
+        }
+        ctx->padGyroPrev = s.q;
+        ctx->padGyroPrevNs = now;
+        ctx->padGyroPrevWho = who;
+    }
+    else {
+        ctx->padGyroPrevWho = -2;
+    }
+
+    // The ratchet: the right thumb on the right stick. The sensor counts only where a Frame profile
+    // took its binding and the right hand is on that profile now; elsewhere it is always, said each
+    // time that starts
+    int touchAvailable = ctx->stickTouchAction != XR_NULL_HANDLE && ctx->stickTouchBound
+            && ctx->onFrame[HAND_RIGHT];
+    int touching = touchAvailable && actionBool(ctx, ctx->stickTouchAction, HAND_RIGHT);
+    int fallsBack = padGyroRatchetFallsBack(ctx->padGyroRatchet, touchAvailable);
+    if (fallsBack && !ctx->padGyroSaidFallback) {
+        LOGW("pad_gyro_ratchet = stick_touch, but the right thumbstick's touch is not read (%s): "
+             "the gyro is sent always",
+             !ctx->stickTouchBound ? "the runtime did not take its binding"
+                                   : "the right hand is not on the Steam Frame controller profile");
+    }
+    else if (!fallsBack && ctx->padGyroSaidFallback) {
+        LOGEV("pad_gyro_ratchet = stick_touch: the right thumbstick's touch is read again");
+    }
+    ctx->padGyroSaidFallback = fallsBack;
+    if (!ok || !live || !padGyroGateOpen(ctx->padGyroRatchet, touchAvailable, touching)) {
+        gyro.x = gyro.y = gyro.z = 0.0f;
+    }
+
+    if (gyroHz > 0 && xrPadBridgeMotion(PADOUT_MOTION_GYRO, gyro.x, gyro.y, gyro.z, now)) {
+        ctx->padGyroSamples++;
+    }
+    if (accelHz > 0 && ok) {
+        Vec3 g = padGyroGravity(s.q);
+        xrPadBridgeMotion(PADOUT_MOTION_ACCEL, g.x, g.y, g.z, now);
+    }
 }

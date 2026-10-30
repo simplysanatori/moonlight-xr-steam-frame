@@ -26,6 +26,15 @@
 #define SETTING_CLICK_STEADY 30
 // Native (PLAN 4.3): the 3D tab's 3D source, STEREO_SOURCE_DEPTH 0, SBS 1 or TB 2
 #define SETTING_STEREO_SOURCE 31
+// Native (lane wave3-tidy): the 3D tab's depth model rows, each the value its
+// config.ini key is stored in: Edge ([3d] edge_sharpness, 0..100), Depth
+// detail (depth_scale), Depth shape (depth_global), Motion reset
+// (motion_reset) and Eye balance (eye_balance, -100..100)
+#define SETTING_EDGE 32
+#define SETTING_DEPTH_DETAIL 33
+#define SETTING_DEPTH_SHAPE 34
+#define SETTING_MOTION_RESET 35
+#define SETTING_EYE_BALANCE 36
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 
@@ -42,6 +51,8 @@ int xrLayoutFrame(XrCtx* ctx, Settings* s, int64_t nowNs);
 // The PC and app now streaming, as the names the layout is keyed by (the
 // worker thread calls this when a stream starts). NULL or empty app: none.
 void xrSetStreamIdentity(const char* host, const char* app);
+// Native (lane wave6-splash): the PC's name as set above ("" before any stream)
+void xrStreamIdentityHost(char* out, size_t cap);
 // "Bring here": the screen comes to where the head looks, the same size and
 // as far from the head as it was. This is what the app:bringhere binding and
 // the Screen tab's button call. Returns 1 when the screen moved (not in a
@@ -94,6 +105,7 @@ enum {
     ATLAS_HANDLE,
     ATLAS_OVERLAY,
     ATLAS_BEAM_FAINT,
+    ATLAS_SPLASH,
     ATLAS_SLOTS
 };
 // Native: 416 x 400, the whole free corner under the clock strip (x 1632..2048,
@@ -104,6 +116,10 @@ enum {
 // of the beam's art at a third of its strength, stretched along the beam
 // (x 1280..1344, y 2496..2536, under the beam's own slot)
 #define ATLAS_BEAM_FAINT_H 40
+// Native (lane wave6-splash): the logo and its line (xr_splash.c), in the free
+// corner right of the keyboard (x 1408..2048, y 3072..3432)
+#define ATLAS_SPLASH_W 640
+#define ATLAS_SPLASH_H 360
 #define BEAM_FAINT_LEVEL 0.30f
 UiRectPx xrAtlasRect(int slot);
 // The CPU copy the panels draw into (RGBA8 premultiplied, UI_ATLAS_W wide)
@@ -167,6 +183,9 @@ void xrPanelsFlush(XrCtx* ctx);
 void xrPanelsReportKey(XrCtx* ctx, int code);
 void xrPanelsReportEvent(XrCtx* ctx, int event, const char* reportDir);
 void xrPanelsToast(XrCtx* ctx, int kind, int arg);
+// Native (lane wave6-splash): the splash's art (xr_splash.c) drawn into ATLAS_SPLASH: the words, a key that names
+// them, the fade step (1..SPLASH_STEPS) and the alpha (0..255) it is drawn at
+void xrPanelsSplash(XrCtx* ctx, const char* line, unsigned key, int step, int alpha);
 void xrPanelsNotice(XrCtx* ctx, const char* text);
 // Native (lane wave3-hud): the same with a quieter second line (a path is cut from the middle)
 void xrPanelsNoticeMore(XrCtx* ctx, const char* text, const char* more);
@@ -243,6 +262,15 @@ int xrGrabStepStick(XrCtx* ctx, XrPosef aim, int trigger, int grip, XrVector2f s
 // points and of the hand whose ray is drawn. What it made of them is left in
 // ctx->rayRow, as the recorder writes it (tests/m4/test_replay.c).
 void xrPointerStep(XrCtx* ctx, int64_t now, int headLocked);
+// Native (lane wave2-lightgun-gyro): for the tests, the buttons part of a pointer frame: the host
+// buttons the controllers ask for (VR_BUTTON_ bits, as the bindings leave them), what the ray is over
+// (HOVER_*) and whether that is the picture. Returns the buttons that go to the host, which are
+// also left in ctx->buttonsDown; a recoil pulse bumps ctx->recoilPulses.
+int xrButtonsFrame(XrCtx* ctx, int wanted, int hover, int hit);
+// Native (lane wave2-lightgun-gyro): the gamepad's gyro for this frame, as the input pass runs it
+// after the pad has gone to the host: plugged says the pad is on the host, live that it is being
+// read (no panel up). The sources go through the seams on the context (locateSpace, readBool).
+void xrPadGyroFrame(XrCtx* ctx, int plugged, int live, int64_t now);
 
 // ---- Native (lane wave2-bind-wire): bindings.ini (xr_input.c) -------------
 // Reads bindings.ini (path NULL: xrBindDefaultPath, which is written with the

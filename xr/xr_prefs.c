@@ -116,6 +116,9 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     // Native (lane double-click): the double-click time, press to press
     ctx->pressCfg.doubleNs = (int64_t)(doubleClickMsFromEnv() * 1000000.0f);
     ctx->stickRightClick = stickRightClickFromEnv();
+    // Native (lane wave2-lightgun-gyro): the recoil is on unless config.ini says otherwise
+    ctx->lightgunRecoilSetting = 1;
+    ctx->padGyroPrevWho = -2;
     // Native (lane wave2-bind-wire): the variables above are the Normal level
     // with any that is set taken in, until config.ini says otherwise
     ctx->clickSteady = CLICK_STEADY_NORMAL;
@@ -357,6 +360,9 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetGamepad(ctx, s->gamepad_toggle, padDeadzonePercentFromLauncher(gamepadsGetDeadzone()));
     xrSetPadGrip(ctx, s->pad_grip);
     xrSetClickSteadiness(ctx, s->click_steadiness);
+    // Native (lane wave2-lightgun-gyro): the lightgun pointer policy, and the gamepad's gyro
+    xrSetLightgun(ctx, s->lightgun, s->lightgun_reload, s->lightgun_recoil);
+    xrSetPadGyro(ctx, s->pad_gyro, s->pad_gyro_ratchet);
     xrSetScrollSpeed(ctx, s->scroll_speed);
     xrPadBridgeSetFlip(s->flip_face_buttons);
     // Native (lane wave2b-padmouse): the same switch for the physical pads, live (the stream start
@@ -457,6 +463,13 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     if (iround(ctx->convergence * 100.0f) != settings_convergence_percent(s)) {
         s->convergence = iround(ctx->convergence * 100.0f);
     }
+    // Native (lane wave3-tidy): and the depth model's five, kept in the ctx
+    // the model reads every frame, so a drag shows on the panel as it moves
+    s->edge_sharpness = iround(ctx->depthSharp * 100.0f);
+    s->depth_scale = iround(ctx->depthLocal * 100.0f);
+    s->depth_global = iround(ctx->depthGlobal * 100.0f);
+    s->motion_reset = iround(ctx->depthMotion * 100.0f);
+    s->eye_balance = iround(ctx->eyeBalance * 100.0f);
     if (ctx->placementValid) {
         float pose[POSE_VALUES];
         pose[0] = ctx->screenPose.position.x;
@@ -518,6 +531,11 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_CONVERGENCE: s->convergence = value; break;
     case SETTING_RESET_3D: settings_reset_3d(s); break;
     case SETTING_STEREO_SOURCE: s->stereo_source = value; break;
+    case SETTING_EDGE: s->edge_sharpness = value; break;
+    case SETTING_DEPTH_DETAIL: s->depth_scale = value; break;
+    case SETTING_DEPTH_SHAPE: s->depth_global = value; break;
+    case SETTING_MOTION_RESET: s->motion_reset = value; break;
+    case SETTING_EYE_BALANCE: s->eye_balance = value; break;
     case SETTING_PICTURE_BRIGHTNESS: s->picture_brightness = value; break;
     case SETTING_PICTURE_CONTRAST: s->picture_contrast = value; break;
     case SETTING_PICTURE_GAMMA: s->picture_gamma = value; break;

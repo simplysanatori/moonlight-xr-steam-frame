@@ -4,6 +4,7 @@
 // codes, capitals inside a held shift, other characters as text. Ctrl, Alt and
 // Win are held down on the host for as long as they are lit on the keyboard.
 #pragma once
+#include <stddef.h>
 
 typedef struct VrKeyboardSink {
     void* user;
@@ -32,5 +33,13 @@ void vrkb_type(VrKeyboard* k, int code, int mods);
 // which for the left Ctrl, Alt and Win are the old KB_MOD_* bits)
 void vrkb_hold(VrKeyboard* k, int mods);
 void vrkb_release_all(VrKeyboard* k);
+// Native (lane wave4-apollo): types a whole text as the host's keyboard would take it, the text path a
+// character from the keyboard's symbol sheets goes by (sink.text, in pieces of at most
+// VRKB_TEXT_CHUNK bytes cut between characters), except that a line end is the Enter key and a tab
+// the Tab key, since text events do not carry them. Other control characters and bytes that are not
+// UTF-8 are left out. Stops before the character that would pass maxBytes of the text; returns the
+// bytes of utf8 used (all of it when it fits), which the caller compares with strlen to say it was cut.
+#define VRKB_TEXT_CHUNK 64
+size_t vrkb_type_text(VrKeyboard* k, const char* utf8, size_t maxBytes);
 // The US layout's virtual key for punctuation with a key of its own, or 0
 short vrkb_punctuation_key(int code);

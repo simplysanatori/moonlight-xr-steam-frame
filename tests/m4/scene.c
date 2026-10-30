@@ -44,6 +44,9 @@ void scene_reset(Scene* s) {
     c->cogOpen = c->kbOpen = c->exitConfirmOpen = c->pickerOpen = c->reportOpen = c->hintOpen = c->kofiOpen = c->hostOpen = 0;
     c->hostConfirm = -1;
     c->hostHoverZone = XR_HOST_ZONE_NONE;
+    c->hostPage = XR_HOST_PAGE_MAIN;
+    c->hostActKind = XR_HOSTACT_NONE;
+    memset(&c->hostCompose, 0, sizeof(c->hostCompose));
     for (int i = 0; i < FADE_PANELS; i++) {
         c->panelFades[i].level = 0.0f;
     }
@@ -84,6 +87,8 @@ void scene_frame(Scene* s, const char* stats) {
     in.curved = s->curved;
     memset(&s->out, 0, sizeof(s->out));
     xrBuildLayers(ctx, &in, &s->out);
+    // as the session does right after: the splash's layer, only while there is no picture (or it is fading out)
+    xrSplashLayers(ctx, &s->out, nowNs());
 }
 
 // The stand in for a frame of video: a dark gradient with a grid, so the
