@@ -795,7 +795,7 @@
 
 // The Ko-fi sheet the About tab's button opens, in the exit prompt's style:
 // the title, the page's QR code on the left, its address and a line on the
-// right, and one Close button. Drawn once in Java at the start of a session,
+// right, and two buttons, Open page and Not now. Drawn once in Java at the start of a session,
 // with the ring over the button a quad of its own. The code goes on a pixel
 // for a pixel, its quiet zone included, with its top left corner where these
 // say; the button sits where these say, all as fractions of the sheet.
@@ -806,10 +806,15 @@
 #define KOFI_QR_T 0.22f
 #define KOFI_BTN_T 0.76f
 #define KOFI_BTN_B 0.92f
-#define KOFI_CLOSE_L 0.64f
+// Two buttons side by side: "Open page" (runs Steam's browser on the Frame, xr_kofi.c) on the
+// left, "Not now" (KOFI_ZONE_CLOSE) on the right
+#define KOFI_OPEN_L  0.36f
+#define KOFI_OPEN_R  0.64f
+#define KOFI_CLOSE_L 0.67f
 #define KOFI_CLOSE_R 0.95f
 // Whether a point is on its button
 #define KOFI_ZONE_NONE  0
 #define KOFI_ZONE_CLOSE 1
+#define KOFI_ZONE_OPEN  2
 
 #endif
