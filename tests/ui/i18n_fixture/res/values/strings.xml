@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="vr_panel_distance">Distance</string>
+    <string name="vr_panel_version">Version %1$s, commit %2$s</string>
+    <string name="vr_panel_report_sends">Sends a note with the headset, your settings and the log</string>
+    <string name="applist_menu_cancel">Cancel</string>
+    <string name="vr_hand_hint_never">Don\'t show this again</string>
+    <string name="vr_kofi_close">Close</string>
+    <string name="vr_toast_rate">Display %1$d Hz</string>
+    <string name="vr_battery">Battery %1$d%%</string>
+    <string name="vr_key_space">space</string>
+    <string name="app_label" translatable="false">Moonlight</string>
+</resources>
