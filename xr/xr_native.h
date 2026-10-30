@@ -266,6 +266,12 @@ void xrSetOpentrack(XrCtx* ctx, int on, const char* host, int port);
 // it every frame: while on and streaming, the head pose in the local space (through the locateSpace
 // seam) goes out as opentrack's packet; it never blocks. Public for the tests.
 void xrOpentrackFrame(XrCtx* ctx);
+// Native (lane wave4-headinput, PLAN 6.5): what points (POINTER_SOURCE_, out of range is the
+// controllers) and head Point mode's dwell click time (0 off, else held to 400..2000 ms)
+void xrSetPointerSource(XrCtx* ctx, int source, int dwellMs);
+// Native (lane wave4-headinput): the eyes this frame: -1 no eye gaze, 0 not usable, 1 usable
+// (XR_EXT_eye_gaze_interaction's location flags; one combined pose, no per-eye openness)
+int xrGazeValid(const XrCtx* ctx);
 
 // ---- Native (lane wave2-bind-wire): bindings.ini (xr_input.c) -------------
 // Reads bindings.ini (path NULL: xrBindDefaultPath, which is written with the

@@ -848,7 +848,11 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
 
         // Native: the dot is the owner's to hide (the host draws its own
         // cursor into the picture); a panel up keeps it, being ours
-        if (!ctx->beamFree && (ctx->dotOn || panelUp(ctx) || ctx->launcher != LAUNCHER_NONE)) {
+        // Native (lane wave4-headinput, PLAN 6.5): a charging dwell click shows whatever the
+        // Ray row says, as the hover ring's art closing in on the point (xr_dwell.h dwellRingScale)
+        float dwellRing = ctx->outlineReady ? dwellRingScale(ctx->dwellFraction) : 0.0f;
+        if (!ctx->beamFree && (ctx->dotOn || panelUp(ctx) || ctx->launcher != LAUNCHER_NONE
+                               || dwellRing > 0.0f)) {
             Vec3 toHead2 = vecSub(head, end);
             float away = sqrtf(vecDot(toHead2, toHead2));
             float dotSize = pointerDotSize(away);
@@ -863,7 +867,13 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
             XrPosef dotPose = { quatFromBasis(dotX, dotY, dotZ),
                                 { end.x + dotZ.x * 0.012f, end.y + dotZ.y * 0.012f,
                                   end.z + dotZ.z * 0.012f } };
-            atlasQuad(ctx, &layers->dot, NULL, ATLAS_DOT, view->space, dotPose, dotSize, dotSize);
+            if (dwellRing > 0.0f) {
+                atlasQuad(ctx, &layers->dot, NULL, ATLAS_OUTLINE, view->space, dotPose,
+                          dotSize * dwellRing, dotSize * dwellRing);
+            }
+            else {
+                atlasQuad(ctx, &layers->dot, NULL, ATLAS_DOT, view->space, dotPose, dotSize, dotSize);
+            }
             pushLayer(ctx, layers, &layers->dot);
         }
     }
