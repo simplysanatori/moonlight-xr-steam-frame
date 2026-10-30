@@ -166,7 +166,10 @@ int xrBindSourceIsStick(int src);
 #define XR_BIND_APP_ZOOMIN 8
 #define XR_BIND_APP_ZOOMOUT 9
 #define XR_BIND_APP_ZOOMRESET 10
-#define XR_BIND_APP_COUNT 11
+// Native (lane wave4-headinput, PLAN 4.4): held, head-look pauses (a mouse
+// lifted off the desk); nothing happens on the press itself
+#define XR_BIND_APP_LOOKHOLD 11
+#define XR_BIND_APP_COUNT 12
 
 typedef struct {
     // XR_BIND_ACT_

@@ -261,7 +261,8 @@ Flickable {
                      "bringhere": qsTr("Bring the screen here"),
                      "host": qsTr("Open or close the Host sheet"),
                      "zoomin": qsTr("Zoom in on the pointer"), "zoomout": qsTr("Zoom out"),
-                     "zoomreset": qsTr("Zoom back to the whole picture") }
+                     "zoomreset": qsTr("Zoom back to the whole picture"),
+                     "lookhold": qsTr("Hold to pause head-look") }
         }
         var m = maps[kind]
         return m && m[value] !== undefined ? m[value] : value

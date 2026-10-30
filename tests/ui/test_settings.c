@@ -12,6 +12,7 @@
 #include "settings.h"
 #include "ui_strings.h"
 #include "xr_cards.h"
+#include "xr_dwell.h"
 #include "xr_lightgun.h"
 #include "xr_padgyro.h"
 #include "xr_shared.h"
@@ -137,7 +138,7 @@ static const char* const README_KEYS[] = {
     // VR Settings
     "pointer", "pointer_sleep", "show_ray", "controller_model", "head_aim",
     "head_aim_sensitivity", "head_aim_deadzone", "gamepad_toggle", "pad_grip", "rumble_mix", "rumble_intensity", "click_sound", "gaze",
-    "notices", "click_steadiness", "scroll_speed", "lightgun", "lightgun_reload", "lightgun_recoil", "pad_gyro", "pad_gyro_ratchet", "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
+    "notices", "click_steadiness", "scroll_speed", "lightgun", "lightgun_reload", "lightgun_recoil", "pad_gyro", "pad_gyro_ratchet", "head_look", "head_look_px_deg", "opentrack", "opentrack_host", "opentrack_port", "pointer_source", "head_dwell_ms", "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
     "picture_brightness", "picture_contrast", "picture_gamma", "picture_saturation",
     // VR Debugging
     "depth_rate", "depth_debug", "eye_swap", "file_log",
@@ -595,6 +596,70 @@ static void test_lightgun_and_gyro(void) {
     text = settings_to_text(&s);
     CHECK(text != NULL && strstr(text, "\n#pad_gyro = off\n") != NULL);
     CHECK(text != NULL && strstr(text, "\n#lightgun = auto\n") != NULL);
+    free(text);
+}
+
+// Native (lane wave4-headinput, PLAN 4.4): head-look
+static void test_head_look(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.head_look == 0 && s.head_look_px_deg == HEAD_AIM_SENSITIVITY_DEFAULT);
+    settings_from_text(&s, "[vr]\nhead_look = on\nhead_look_px_deg = 12\n", &info);
+    CHECK(s.head_look == 1 && s.head_look_px_deg == 12 && info.bad == 0);
+    settings_from_text(&s, "[vr]\nhead_look_px_deg = 500\n", &info);
+    CHECK(s.head_look_px_deg == HEAD_AIM_SENSITIVITY_MAX);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nhead_look = true\n") != NULL);
+    free(text);
+    settings_defaults(&s);
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#head_look = false\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\n#head_look_px_deg = 8\n") != NULL);
+    free(text);
+}
+
+// Native (lane wave4-headinput, PLAN 4.5): the head pose to opentrack
+static void test_opentrack(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.opentrack == 0 && s.opentrack_host[0] == 0 && s.opentrack_port == 4242);
+    settings_from_text(&s, "[vr]\nopentrack = true\nopentrack_host = gaming-pc.local\nopentrack_port = 5555\n", &info);
+    CHECK(s.opentrack == 1 && strcmp(s.opentrack_host, "gaming-pc.local") == 0 && s.opentrack_port == 5555 && info.bad == 0);
+    settings_from_text(&s, "[vr]\nopentrack_port = 0\n", &info);
+    CHECK(s.opentrack_port >= 1 && s.opentrack_port <= 65535);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nopentrack = true\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\nopentrack_host = gaming-pc.local\n") != NULL);
+    free(text);
+    settings_defaults(&s);
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#opentrack = false\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\n#opentrack_port = 4242\n") != NULL);
+    free(text);
+}
+
+// Native (lane wave4-headinput, PLAN 6.5): head Point mode
+static void test_pointer_source(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.pointer_source == POINTER_SOURCE_CONTROLLER && s.head_dwell_ms == 0);
+    settings_from_text(&s, "[vr]\npointer_source = head\nhead_dwell_ms = 800\n", &info);
+    CHECK(s.pointer_source == POINTER_SOURCE_HEAD && s.head_dwell_ms == 800 && info.bad == 0);
+    settings_from_text(&s, "[vr]\npointer_source = gaze\n", &info);
+    CHECK(s.pointer_source == POINTER_SOURCE_GAZE);
+    settings_from_text(&s, "[vr]\npointer_source = nose\n", &info);
+    CHECK(s.pointer_source == POINTER_SOURCE_GAZE && info.bad == 1);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\npointer_source = gaze\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\nhead_dwell_ms = 800\n") != NULL);
+    free(text);
+    settings_defaults(&s);
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#pointer_source = controller\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\n#head_dwell_ms = 0\n") != NULL);
     free(text);
 }
 
@@ -1277,6 +1342,9 @@ int main(void) {
     test_click_and_scroll();
     test_cards_settings();
     test_lightgun_and_gyro();
+    test_head_look();
+    test_opentrack();
+    test_pointer_source();
     test_controller_model();
     test_cog_tab();
     test_stereo_source();
