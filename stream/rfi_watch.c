@@ -254,6 +254,16 @@ int mlxr_burst_line(MlxrBurst* b, const char* line, uint64_t nowMs, MlxrBurstSum
     return 0;
 }
 
+int mlxr_burst_open(const MlxrBurst* b, MlxrBurstSummary* out) {
+    if (!b->active) return 0;
+    if (out) {
+        *out = b->cur;
+        out->durMs = b->lastEventMs > b->cur.startMs ? b->lastEventMs - b->cur.startMs : 0;
+        out->stillBroken = b->broken;
+    }
+    return 1;
+}
+
 void mlxr_burst_idr_frame(MlxrBurst* b) {
     if (!b->active || !b->broken) return;
     b->broken = 0;

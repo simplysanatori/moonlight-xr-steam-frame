@@ -64,6 +64,7 @@
 #include "../backend/netdiag.h"
 #include "../backend/netpath.h"
 #include "../stream/evdev_keyboard.h"
+#include "../stream/failover.h"
 #include "../input/evmouse.h"
 #include "../input/gamepads.h"
 #include "../stream/file_source.h"
@@ -98,6 +99,7 @@ static pthread_mutex_t g_presLock = PTHREAD_MUTEX_INITIALIZER;
 // Native (lane wave3-session): auto-reconnect (stream/reconnect.h). g_linkDown is set while the stream is
 // torn down for a retry: the scene, the screen placement and g_streaming stay, the connection is gone.
 static MlxrReconnect g_rc;      // worker thread only
+static MlxrFailover g_fo;       // Native (lane wave1-failover): worker thread only
 static atomic_int g_linkDown;
 static int g_rcFatal;           // the last try was refused for a reason a retry does not change (worker only)
 
@@ -1658,6 +1660,10 @@ static void* worker(void* arg) {
             MlxrReconnectEvent ev = mlxr_reconnect_poll(&g_rc, &g_rcOps, monoMs());
             if (ev == MLXR_RC_EV_GAVE_UP) streamEnded(n);
         }
+        // Native (lane wave1-failover): a stream that keeps losing video on its link moves to a better one
+        else if (state == LAUNCH_STREAMING && atomic_load(&g_streaming) && !atomic_load(&g_linkDown) && !g_args.file &&
+                 n->streamPc >= 0 && n->streamApp > 0 && mlxr_failover_poll(&g_fo, &g_rc, monoMs(), xr_app_notice))
+            teardownForRetry(n);
         // Native (lane wave3-session): headset off and idle timers
         if (!g_args.file) presenceTickWorker(state == LAUNCH_STREAMING && atomic_load(&g_streaming));
         // The PC list keeps its online states fresh

@@ -700,6 +700,34 @@ static void test_rfi_idr_ms(void) {
     free(text);
 }
 
+// Native (lane wave1-failover): [stream] failover (off by default) and failover_burst_ms
+static void test_failover(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.failover == 0 && s.failover_burst_ms == 3000);
+    CHECK(settings_find("stream.failover") != NULL && settings_find("failover_burst_ms") != NULL);
+    settings_from_text(&s, "[stream]\nfailover = on\nfailover_burst_ms = 5000\n", &info);
+    CHECK(s.failover == 1 && s.failover_burst_ms == 5000 && info.applied == 2 && info.bad == 0);
+    settings_from_text(&s, "[stream]\nfailover = OFF\n", &info);
+    CHECK(s.failover == 0);
+    settings_from_text(&s, "[stream]\nfailover = maybe\n", &info);   // not a value: the last good one stays
+    CHECK(s.failover == 0 && info.bad == 1);
+    settings_from_text(&s, "[stream]\nfailover_burst_ms = 50\n", &info);   // held to 500..9000
+    CHECK(s.failover_burst_ms == 500);
+    settings_from_text(&s, "[stream]\nfailover_burst_ms = 60000\n", &info);
+    CHECK(s.failover_burst_ms == 9000);
+    settings_defaults(&s);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#failover = off\n") != NULL && strstr(text, "\n#failover_burst_ms = 3000\n") != NULL);
+    free(text);
+    s.failover = 1;
+    s.failover_burst_ms = 2000;
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nfailover = on\n") != NULL && strstr(text, "\nfailover_burst_ms = 2000\n") != NULL);
+    free(text);
+}
+
 static void test_tolerant(void) {
     Settings s;
     settings_defaults(&s);
@@ -1241,6 +1269,7 @@ int main(void) {
     test_session_limits();
     test_path_bitrates();
     test_rfi_idr_ms();
+    test_failover();
     test_tolerant();
     test_removed_keys();
     test_bitrate_ceiling();
