@@ -197,7 +197,7 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Row (category) | Options | Default | `config.ini` |
 | --- | --- | --- | --- |
 | 3D depth model (Video) | ZipDepth, ZipDepth lighter on the CPU, MiDaS (older), Off (2D only) | ZipDepth | `[vr] depth_source` |
-| Sharpening (Video) | Off, Normal, Quality | Off | `[display] sharpening` |
+| Sharpening (Video) | Off, Normal, Quality | Normal | `[display] sharpening` |
 | Supersampling (Video) | Off, Normal, Quality | Normal. Not used while the 3D is on. | `[display] supersampling` |
 | Sharper small text, Sharper coloured text (Video) | on, off | on, on | `[display] picture_filter`, `chroma_from_luma` |
 | Picture brightness, contrast, gamma, saturation (Video) | -50 to 50; 50 to 150 %; 0.50 to 2.00; 0 to 200 % | 0, 100 %, 1.00, 100 % | `[vr] picture_brightness`, `picture_contrast`, `picture_gamma` (hundredths), `picture_saturation` |
@@ -343,7 +343,7 @@ The presets and Bring here also work from a controller button: bind `app:bringhe
 
 | Row | Options | Default |
 | --- | --- | --- |
-| Sharpen | Off, Normal, Quality | Off. With the screen curved or 3D on, it sharpens at the headset's own pixels, where it also crisps black text on white, and never rings past an edge. With a flat screen it sharpens the stream's pixels and leaves black on white alone. |
+| Sharpen | Off, Normal, Quality | Normal. With the screen curved or 3D on, it sharpens at the headset's own pixels, where it also crisps black text on white, and never rings past an edge. It sharpens brightness only and leaves colour as Off has it; text looks a little bolder, and light text on a dark background keeps more of its light than with Off. Quality is sharper still and holds back on black and white edges so white text on black does not shimmer. With a flat screen it sharpens the stream's pixels and leaves black on white alone. |
 | Supersample | Off, Normal, Quality | Normal. Not used while the screen is curved or 3D is on. |
 | Stats | Off, On | Off |
 | Head locked | Off, On, Follow | Off. On: the screen is fixed to your head. Follow: the screen stays where it is until your head has turned more than the leash (25° by default, `follow_leash_deg`) away from it, in yaw or in pitch, then it eases after where you look over about half a second and stays there. See [Follow and comfort](#follow-and-comfort). |
