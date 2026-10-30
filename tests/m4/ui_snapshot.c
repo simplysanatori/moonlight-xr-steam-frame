@@ -300,6 +300,10 @@ int main(int argc, char** argv) {
     c->hostConfirm = 10;
     c->hostHoverZone = XR_HOST_ZONE_CONFIRM_SEND;
     shot(s, "20-host-confirm", NULL);
+    // Native (PLAN 4.1): asking before it switches to PC VR
+    c->hostConfirm = XR_HOST_CONFIRM_PCVR;
+    c->hostHoverZone = XR_HOST_ZONE_CONFIRM_SEND;
+    shot(s, "20b-host-pcvr-confirm", NULL);
     // Native (lane wave4-apollo): the PC page on an Apollo host with three commands, asking before one
     // runs, and on a host that is not Apollo
     c->hostConfirm = -1;

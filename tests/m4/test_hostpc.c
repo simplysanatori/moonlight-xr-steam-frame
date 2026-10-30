@@ -176,9 +176,33 @@ static void testCompose(Scene* s) {
     xrKeyboardSync(c, NULL);
 }
 
+// PC VR (PLAN 4.1, main's) and the PC page's button share the header, which is the same on both pages:
+// each press reaches its own, and PC VR asked from the PC page switches, not runs a command
+static void testBesidePcvr(Scene* s) {
+    XrCtx* c = s->ctx;
+    scene_reset(s);
+    apollo(c, 3);
+    xrHostOpen(c);
+    float r[4];
+    int tick = 0;
+    xrHostPcvrRect(r);
+    CHECK(pressRect(c, r, &tick) == XR_HOST_ZONE_PCVR && c->hostConfirm == XR_HOST_CONFIRM_PCVR);
+    xrHostConfirmCancelRect(r);
+    CHECK(pressRect(c, r, &tick) == XR_HOST_ZONE_CONFIRM_CANCEL && c->hostConfirm == -1 && !c->pcvrRequest);
+    toPcPage(c);
+    CHECK(c->hostPage == XR_HOST_PAGE_PC && c->hostConfirm == -1);
+    xrHostPcvrRect(r);
+    CHECK(pressRect(c, r, &tick) == XR_HOST_ZONE_PCVR && c->hostConfirm == XR_HOST_CONFIRM_PCVR);
+    xrHostConfirmSendRect(r);
+    CHECK(pressRect(c, r, &tick) == XR_HOST_ZONE_CONFIRM_SEND);
+    CHECK(c->pcvrRequest == 1 && c->hostActKind == XR_HOSTACT_NONE && !c->hostOpen && c->hostConfirm == -1);
+    c->pcvrRequest = 0;
+}
+
 int main(void) {
     Scene* s = scene_new();
     testPages(s);
+    testBesidePcvr(s);
     testPaste(s);
     testCommands(s);
     testCompose(s);

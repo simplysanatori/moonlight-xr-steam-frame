@@ -43,6 +43,11 @@ void xrHostCloseRect(float r[4]) {
     uv(840.0f, 22.0f, 990.0f, 70.0f, r);
 }
 
+// Left of Close, then the PC page's button left of it (lane wave4-apollo): 14 px apart like the cells
+void xrHostPcvrRect(float r[4]) {
+    uv(700.0f, 22.0f, 826.0f, 70.0f, r);
+}
+
 void xrHostConfirmBox(float r[4]) {
     uv(212.0f, 112.0f, 812.0f, 352.0f, r);
 }
@@ -88,6 +93,10 @@ int xrHostZoneAt(float u, float v, int macros, int confirm) {
     xrHostCloseRect(r);
     if (inRect(r, u, v)) {
         return XR_HOST_ZONE_CLOSE;
+    }
+    xrHostPcvrRect(r);
+    if (inRect(r, u, v)) {
+        return XR_HOST_ZONE_PCVR;
     }
     for (int cell = 0; cell < XR_HOST_CELLS; cell++) {
         if (xrHostCellKind(cell, macros) == XR_HOST_CELL_NONE) {
@@ -694,8 +703,9 @@ int xrHostChordKey(XrHostChord* c, int code, int* vk, int* mods) {
 // ---- the PC page ----------------------------------------------------------------------------------
 
 void xrHostPageRect(float r[4]) {
-    // wide enough for "Clipboard, commands" at the header's 24 px, clear of the PC page's title
-    uv(540.0f, 22.0f, 826.0f, 70.0f, r);
+    // wide enough for "Clipboard, commands" at the header's 24 px, left of PC VR and clear of the PC
+    // page's title
+    uv(410.0f, 22.0f, 686.0f, 70.0f, r);
 }
 
 int xrHostPcCellKind(int cell, int commands) {
@@ -727,6 +737,11 @@ int xrHostZoneAtPage(float u, float v, int page, int macros, int commands, int c
     xrHostCloseRect(r);
     if (inRect(r, u, v)) {
         return XR_HOST_ZONE_CLOSE;
+    }
+    // the header is the same on both pages: PC VR is here too
+    xrHostPcvrRect(r);
+    if (inRect(r, u, v)) {
+        return XR_HOST_ZONE_PCVR;
     }
     for (int cell = 0; cell < XR_HOST_CELLS; cell++) {
         if (xrHostPcCellKind(cell, commands) == XR_HOST_CELL_NONE) {

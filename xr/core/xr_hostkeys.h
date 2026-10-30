@@ -34,6 +34,10 @@
 #define XR_HOST_ZONE_CLOSE 100
 #define XR_HOST_ZONE_CONFIRM_SEND 101
 #define XR_HOST_ZONE_CONFIRM_CANCEL 102
+// Native (PLAN 4.1): "PC VR" in the header, left of Close. Its confirmation uses the same box with
+// hostConfirm set to XR_HOST_CONFIRM_PCVR (no cell asks for it, so it is out of the cell range).
+#define XR_HOST_ZONE_PCVR 103
+#define XR_HOST_CONFIRM_PCVR 200
 
 // What a cell is
 #define XR_HOST_CELL_NONE (-1)
@@ -45,6 +49,7 @@
 // used; zeros out of range
 void xrHostCellRect(int cell, float r[4]);
 void xrHostCloseRect(float r[4]);
+void xrHostPcvrRect(float r[4]);
 // The confirmation box, and its two buttons
 void xrHostConfirmBox(float r[4]);
 void xrHostConfirmSendRect(float r[4]);
@@ -206,7 +211,7 @@ int xrHostChordKey(XrHostChord* c, int code, int* vk, int* mods);
 #define XR_HOST_PAGE_MAIN 0
 #define XR_HOST_PAGE_PC 1
 // The header button that flips between the pages (a point on it is this zone)
-#define XR_HOST_ZONE_PAGE 103
+#define XR_HOST_ZONE_PAGE 104   // 103 is XR_HOST_ZONE_PCVR
 
 // PC page cells: the two clipboard entries on the first row, the commands from the second
 #define XR_HOST_PC_PASTE 0
@@ -223,8 +228,8 @@ void xrHostPageRect(float r[4]);
 // What a PC page cell is, given how many commands the host listed: XR_HOST_CELL_PASTE, _COPY, _CMD
 // (cell - XR_HOST_PC_CMD_FIRST is its number) or XR_HOST_CELL_NONE
 int xrHostPcCellKind(int cell, int commands);
-// xrHostZoneAt for either page; page XR_HOST_PAGE_MAIN is xrHostZoneAt's answer. The page button counts
-// on both, and a confirmation hides it like it hides Close.
+// xrHostZoneAt for either page; page XR_HOST_PAGE_MAIN is xrHostZoneAt's answer. The header (Close, PC VR,
+// the page button) counts on both, and a confirmation hides it.
 int xrHostZoneAtPage(float u, float v, int page, int macros, int commands, int confirm);
 
 // What the host offers, which the app learns from serverinfo when a stream starts and the PC page
