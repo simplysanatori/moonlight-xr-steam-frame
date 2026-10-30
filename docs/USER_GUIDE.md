@@ -9,6 +9,7 @@ This guide covers version 1.1.0. For install, update and uninstall, see the [REA
 - [Settings page](#settings-page)
 - [In the headset: the bar](#in-the-headset-the-bar)
 - [The cog menu](#the-cog-menu)
+- [Accessibility](#accessibility)
 - [Controllers](#controllers)
 - [Moving and sizing the screen](#moving-and-sizing-the-screen)
 - [Zoom and pan](#zoom-and-pan)
@@ -82,6 +83,7 @@ The top of the page has a **Search settings** field and a row of buttons, one fo
 | Setting | Options | Notes |
 | --- | --- | --- |
 | Network connection | **Automatic**, **Wi-Fi (*network name*, *band*)**, **Steam Frame Wireless Adapter (6 GHz)**, **USB cable** | Automatic (the default) tries every link that is there when a stream starts (Wi-Fi, the adapter and a USB cable, see [USB cable](#usb-cable)) and uses the one with the lower latency and the fewer losses. It sends about 15 short probes down each link (about a second in all) and gives each link a score in milliseconds, lower is better: the median round trip, plus the jitter, plus how far the slowest probes run above the median, plus 50 ms for every probe that failed, plus a penalty from the last stream on that link. That penalty applies when the last stream lost more than 0.5 percent of its frames on the network: 20 ms for each percent, at most 150 ms. A link with no history gets no penalty. The lowest score wins. When two scores are within 3 ms of each other, the stronger signal and faster link rate break the tie, and Wi-Fi wins a tie after that. Signal and link rate no longer decide on their own. A link that does not answer is never used. The client keeps the last stream's numbers for each link in `netpath-history.ini` next to `config.ini` (frames received, frames lost, jitter, round trip and the time; no addresses or names). It writes them when a stream ends, after at least 500 frames. Delete the file to forget them. History older than 14 days is ignored. Wi-Fi streams over your home network. The adapter option streams over the Steam Frame Wireless Adapter plugged into your PC. The USB cable option streams over a USB data cable between the headset and your PC. Before it tries the adapter, the client checks that the adapter is there: the headset's own adapter network (`wlanap`) must be up and your PC must be connected to it. With no adapter found, Automatic uses Wi-Fi without trying the adapter, and if you chose the adapter the client uses Wi-Fi and shows a notice in the headset ("Steam Frame Wireless Adapter not reachable (no adapter found: ...). Using Wi-Fi."). If the chosen link does not answer, the client uses the other one and says so in the headset. The Steam Frame Wireless Adapter can have worse latency than a good 5 GHz network. Automatic measures latency and drops on each link before it chooses, so do not assume the adapter wins. |
+| Video bitrate | 0.5 to 500 Mbps | The stream's bitrate, and what **Same as above** in the four rows below it means. The default is twice Moonlight's own default for the size and rate you pick under Video Settings: 98 Mbps at 1440p and 90 Hz, 113 Mbps at 1440p and 120 Hz, 124 Mbps at 1440p and 144 Hz, 49 Mbps at 1080p and 90 Hz, 80 Mbps at 1440p and 60 Hz. With Match headset it is the 90 Hz figure. It is set again to this value whenever you change the resolution or the refresh rate, and the default itself tops out at 150 Mbps (4K). The slider goes up to 500 Mbps, for a good 5 GHz Wi-Fi or a wired link. A value you saved earlier, up to 500 Mbps, is kept until then. See [Recommended PC settings](#recommended-pc-settings). |
 | Bitrate over Wi-Fi | **Same as above**, then 10 to 500 Mbps in steps | The bitrate a stream starts with when it goes over Wi-Fi. **Same as above** uses the Video bitrate. Tap the row to step up; past 500 Mbps it goes back to Same as above. See [Bitrate for each connection](#bitrate-for-each-connection). |
 | Bitrate over the Steam Frame Wireless Adapter | the same | The same for the Steam Frame Wireless Adapter. |
 | Bitrate over a wired network | the same | The same for a wired network (the headset on ethernet). |
@@ -105,7 +107,7 @@ Then the client writes `network path: switching from Wi-Fi to Steam Frame Wirele
 
 A stream's bitrate cannot be changed once it is running (Apollo and Sunshine take it only when the stream starts), so the one moment to choose it is the start. The client already knows which link a stream will use at that moment, after Automatic has decided, so each link can have its own starting bitrate: a lower one for a Wi-Fi that drops frames above 60 Mbps, a higher one for the adapter or the cable.
 
-- Set it in Settings, Connection, under Network connection: one row each for Wi-Fi, the Steam Frame Wireless Adapter, a wired network and the USB cable. **Same as above** (the default) means that link uses the Video bitrate you set further down the page, or the bitrate the flat window passes.
+- Set it in Settings, Connection, under the Video bitrate slider: one row each for Wi-Fi, the Steam Frame Wireless Adapter, a wired network and the USB cable. **Same as above** (the default) means that link uses the Video bitrate just above, or the bitrate the flat window passes.
 - A link's own bitrate replaces that bitrate only when a stream goes over that link. When the client did not choose the link (a stream started by a direct address, or a probe that found nothing), no link is known and the Video bitrate is used.
 - The values are held to 0.5 to 500 Mbps. In `config.ini` they are `bitrate_wifi`, `bitrate_adapter`, `bitrate_wired` and `bitrate_usb` in the `[stream]` section, in kbps; 0 is Same as above.
 - The log has one line at the start of every stream, for example `bitrate for Wi-Fi: 60000 kbps (override)` or `bitrate for USB cable: 98000 kbps (launcher)`. The Stats overlay in the HUD style shows the rate it started with beside the rate arriving ("54 of 98 Mb/s"), and the full style's stream line says `bitrate set` and the number in kbps.
@@ -149,7 +151,6 @@ When a stream starts, the profile of the app, or else of its PC, is in force for
 | --- | --- | --- |
 | Video resolution | 360p, 480p, 720p, 1080p, 1440p, 4K, or a custom size | 1440p (2560x1440) |
 | Refresh rate | **Match headset**, 144 Hz, 120 Hz, 90 Hz, 72 Hz, 60 Hz, 30 Hz, Custom | Match headset. It uses the rate SteamVR runs the headset's display at for this app: 90 Hz unless you changed it in SteamVR's settings. Pick 72, 90, 120 or 144 Hz here to choose the headset's rate: when the stream starts, the launcher sets that rate in SteamVR's per-app video settings for this app, and the stream runs at it. 120 and 144 Hz need the stream and your PC to keep up: the PC has to render and encode that many frames a second, and the network has to carry the higher bitrate. The stream never goes above the rate the headset runs at, 144 Hz at most. If SteamVR still runs the app at its old rate, the log says so and the stream uses that rate; start the app again. Custom takes values such as 59.94 and needs Apollo. |
-| Video bitrate | 0.5 to 500 Mbps | Twice Moonlight's own default for the size and rate you pick: 98 Mbps at 1440p and 90 Hz, 113 Mbps at 1440p and 120 Hz, 124 Mbps at 1440p and 144 Hz, 49 Mbps at 1080p and 90 Hz, 80 Mbps at 1440p and 60 Hz. With Match headset it is the 90 Hz figure. It is set again to this value whenever you change the resolution or the refresh rate, and the default itself tops out at 150 Mbps (4K). The row goes up to 500 Mbps, for a good 5 GHz Wi-Fi or a wired link. A value you saved earlier, up to 500 Mbps, is kept until then. See [Recommended PC settings](#recommended-pc-settings). |
 | Video frame pacing | Prefer lowest latency, Balanced, Prefer smoothest video | Balanced |
 | Ultra Low Latency (experimental) | on, off | off. Runs the network and decoder threads at realtime priority. |
 | Use Virtual Display | on, off | off. Needs Apollo. Apollo makes a display that matches the stream. |
@@ -174,8 +175,9 @@ When a stream starts, the profile of the app, or else of its PC, is in force for
 | Surround sound configuration | Stereo, 5.1 Surround Sound, 7.1 Surround Sound | Stereo |
 | Adjust analog stick deadzone | -20 to 20 % | 0 %. Above 0 it is also the dead zone of the Frame controllers in gamepad mode, which use 7 % at 0. |
 | Flip face buttons | on, off | off. Swaps A/B and X/Y. |
-| Back button as Guide | on, off | off. In the headset's gamepad mode the View (Back) button is Guide, see [Gamepad mode](#gamepad-mode). |
-| Mouse mode | Absolute, Relative | Absolute. See [Relative mouse](#relative-mouse). |
+| Back button as Guide (Accessibility) | on, off | off. In the headset's gamepad mode the View (Back) button is Guide, see [Gamepad mode](#gamepad-mode). |
+| Mouse mode (Accessibility) | Absolute, Relative | Absolute. See [Relative mouse](#relative-mouse). |
+| What points, Dwell click (Accessibility) | Controller, Head, Eyes; Off, 0.6, 0.9, 1.2, 1.5 s | Controller, Off. See [Accessibility](#accessibility). |
 | Headset keyboard layout | QWERTY (US), AZERTY (French), QWERTZ (German) | QWERTY. The PC must be on the same Windows layout, see [AZERTY and QWERTZ](#azerty-and-qwertz). |
 | Enable Rumble | on, off | on |
 | Enable forward/back mouse buttons | on, off | on |
@@ -197,11 +199,11 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Row (category) | Options | Default | `config.ini` |
 | --- | --- | --- | --- |
 | 3D depth model (Video) | ZipDepth, ZipDepth lighter on the CPU, MiDaS (older), Off (2D only) | ZipDepth | `[vr] depth_source` |
-| Sharpening (Video) | Off, Normal, Quality | Off | `[display] sharpening` |
+| Sharpening (Video) | Off, Normal, Quality | Normal | `[display] sharpening` |
 | Supersampling (Video) | Off, Normal, Quality | Normal. Not used while the 3D is on. | `[display] supersampling` |
 | Sharper small text, Sharper coloured text (Video) | on, off | on, on | `[display] picture_filter`, `chroma_from_luma` |
 | Picture brightness, contrast, gamma, saturation (Video) | -50 to 50; 50 to 150 %; 0.50 to 2.00; 0 to 200 % | 0, 100 %, 1.00, 100 % | `[vr] picture_brightness`, `picture_contrast`, `picture_gamma` (hundredths), `picture_saturation` |
-| Virtual surround (Audio) | on, off | off | `[stream] virtual_surround` |
+| Virtual surround (Audio) | on, off | off. Works with Stereo as well as 5.1 and 7.1: stereo becomes two speakers in front of the screen, so turning your head moves the sound. | `[stream] virtual_surround` |
 | When the gyro is sent (Gamepad) | Always, While the thumb touches the right stick | Always | `[vr] pad_gyro_ratchet` |
 | Lightgun reload, Lightgun recoil (Gamepad) | on, off | off, on | `[vr] lightgun_reload`, `lightgun_recoil` |
 | Gamepad mode shortcut (Gamepad) | Left View and left grip, Click both sticks, Both triggers and both grips | Left View and left grip | `[vr] gamepad_toggle` |
@@ -307,7 +309,7 @@ It has no buttons. It goes by itself after 20 seconds, or the moment you open an
 
 ## The cog menu
 
-Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture**, **About**. A press outside the menu closes it. The cog opens on the tab you used last, and remembers it for the next session (`cog_tab` in `config.ini`).
+Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture**, **Accessibility** (see [Accessibility](#accessibility)), **About**. A press outside the menu closes it. The cog opens on the tab you used last, and remembers it for the next session (`cog_tab` in `config.ini`).
 
 ### Screen
 
@@ -343,7 +345,7 @@ The Screen tab's Bring here also works from a controller button: bind `app:bring
 
 | Row | Options | Default |
 | --- | --- | --- |
-| Sharpen | Off, Normal, Quality | Off. With the screen curved or 3D on, it sharpens at the headset's own pixels, where it also crisps black text on white, and never rings past an edge. With a flat screen it sharpens the stream's pixels and leaves black on white alone. |
+| Sharpen | Off, Normal, Quality | Normal. With the screen curved or 3D on, it sharpens at the headset's own pixels, where it also crisps black text on white, and never rings past an edge. It sharpens brightness only and leaves colour as Off has it; text looks a little bolder, and light text on a dark background keeps more of its light than with Off. Quality is sharper still and holds back on black and white edges so white text on black does not shimmer. With a flat screen it sharpens the stream's pixels and leaves black on white alone. |
 | Supersample | Off, Normal, Quality | Normal. Not used while the screen is curved or 3D is on. |
 | Stats | Off, On | Off |
 | Head locked | Off, On, Follow | Off. On: the screen is fixed to your head. Follow: the screen stays where it is until your head has turned more than the leash (25° by default, `follow_leash_deg`) away from it, in yaw or in pitch, then it eases after where you look over about half a second and stays there. See [Follow and comfort](#follow-and-comfort). |
@@ -394,6 +396,35 @@ The version, the log file, **Support simplysanatori on Ko-fi**, and **Report a p
 The Stats row turns the overlay on and off. What it shows is `stats_style` in `config.ini` (`[display]`): `full` is every line the session writes, `hud` is a few lines (latency with its parts, round trip, loss, bit rate, frame rate, and the compositor's frame times and dropped frames when SteamVR reports them), and `lite` is one line: `54 Mb/s | 11 ms | dec 3.1 | loss 0.2% | 90 fps` (speed, latency from the host's capture to the end of decoding, decode time, frames lost on the network, pictures drawn a second). `stats = hud` in the file means stats on in the HUD style. While stats are on and a stream is up, `perf-<date>-<time>.csv` next to `vrtiming.log` gets a row every 5 seconds with the figures and the settings they were measured in (size, rate, bit rate, codec, display rate, 3D, room, sharpening), for comparing runs.
 
 Over the cog the clock strip also shows the headset's battery (a cell, the percentage, a bolt while it charges; read every 30 seconds, nothing on a PC with no battery) and a **Slow connection** badge once the connection has been poor, or more than 1.5 % of frames lost, for 5 seconds on end. The badge goes when it has been fine for 5 seconds. The HUD line starts with `!` or says slow connection while it is up.
+
+## Accessibility
+
+For people who cannot use their hands, or can use them only a little. The cog's **Accessibility** tab, and the same rows under **Accessibility** on the flat window's Settings page, let the head (and, where SteamVR allows it, the eyes) point and click. Nothing here turns on by itself: each setting changes only when its row is pressed, by you or by the person helping you. Accessibility is early in this version: head pointing and the dwell click are done; the eyes depend on SteamVR (below).
+
+**For the person setting it up.** With a controller in hand, open the cog (the bar's cog button), go to **Accessibility**, press **Head** on the Pointer row, then a time on the **Dwell click** row (**0.9 s** is a good start; **0.6 s** once practised). From then on the controllers no longer point; the head does. On the flat window's Settings page the rows are **What points** and **Dwell click**; they take effect at the next stream. The tab's rows:
+
+| Row | Cells | What it does |
+| --- | --- | --- |
+| Pointer | Controller, Head, Eyes | What points. **Eyes** shows only once SteamVR has given the app eye gaze in this session (or when it is already the setting). `[vr] pointer_source` |
+| Dwell click | Off, 0.6 s, 0.9 s, 1.2 s, 1.5 s | Resting the dot this long on one spot clicks it. Greyed while the controllers point. `[vr] head_dwell_ms` |
+| Head-look | Off, On | The head's turn moves the PC's mouse, for first-person games, see [Head-look](#head-look-experimental). `[vr] head_look` |
+| Back as Guide | Off, On | Gamepad mode's View (Back) button is Guide, see [Gamepad mode](#gamepad-mode). `[vr] back_as_guide` |
+| Mouse mode | Absolute, Relative | Where the pointer is, or how far it moved, see [Relative mouse](#relative-mouse). `[vr] mouse_mode` |
+
+Under the rows a line says whether eye tracking reaches the app, and a few lines say how to use the tab.
+
+**For the person using it.** A dot sits in the middle of your view; turn your head to move it. Hold it still on a button, a cell of the cog or a spot on the picture, and a ring closes in on the dot: when it closes, that is a click (the left mouse button on the picture). To click the same spot again, look away and back. A controller's trigger, if someone is holding one, clicks too. The dwell never clicks beside an open menu, so a look away cannot close it.
+
+**Turning it off.** Open the cog's Accessibility tab and rest the dot on **Controller** (or press it with a trigger). Or set `pointer_source = controller` in `config.ini` (`~/.config/moonlight-xr/`), or **What points: Controller** on the flat window's Settings page.
+
+**Eyes.** With **Eyes** the dot follows your eyes while SteamVR gives eye gaze to the app, and your head while it does not: when the eyes are lost for more than 0.2 s (a long blink, the headset lifted) the head takes over, and the eyes take it back after 0.3 s. The status line on the tab says which it is:
+
+- **Eye tracking: available**: eye gaze reached the app this session; Eyes can be picked.
+- **Eye tracking: not asked for**: `gaze = true` (or `pointer_source = gaze`) is not in `config.ini`, so the app did not ask SteamVR for it. Set one and restart the stream.
+- **Eye tracking: offered, but no gaze has arrived yet**: SteamVR says it can, but nothing has come yet.
+- **Eye tracking: not available to apps yet**: SteamVR does not give eye gaze to this app.
+
+On the Frame, eye gaze has not reached the app in testing so far, so treat Eyes as a feature for when SteamVR provides it. What may help (reported by others, not confirmed by Valve): wear the headset; in SteamVR Settings > General turn **Eye Tracking** on and **Track Dominant Eye Only** off (show advanced settings if they are hidden); then restart the app. `moonlight.log` says once a session whether eye gaze arrived and, if not, what SteamVR answered (`eye gaze: ...`).
 
 ## Controllers
 
@@ -477,17 +508,17 @@ The gyro is in degrees per second about the controller's own axes, the way a Dua
 
 ### Head-look (experimental)
 
-`head_look = true` in `config.ini` (or **Head-look (experimental)** on the launcher's Settings page, under Input Settings) makes your head the mouse for first-person games, the way a game's look control works: turn your head right and the PC's mouse moves right, look up and it moves up. It is meant for games streamed in side by side 3D in a room, where the screen stays put and you look around inside the game. It only works in pointer mode, and only with the screen locked to your head (**Head locked**) or with a room up; a screen placed in the world without a room is left alone. The speed is `head_look_px_deg` (pixels a degree, 1 to 30, default 8; the launcher's **Head-look speed** row steps through it), and the dead zone is Head aim's (`head_aim_deadzone`, degrees a second: a slower drift sends nothing). It is 3DoF: only turning counts, not leaning. The ray keeps working on top: while head-look is on, moving the ray nudges the cursor by how far its point moves instead of placing it.
+`head_look = true` in `config.ini` (or **Head-look** on the cog's Accessibility tab, or **Head-look (experimental)** on the launcher's Settings page, under Accessibility) makes your head the mouse for first-person games, the way a game's look control works: turn your head right and the PC's mouse moves right, look up and it moves up. It is meant for games streamed in side by side 3D in a room, where the screen stays put and you look around inside the game. It only works in pointer mode, and only with the screen locked to your head (**Head locked**) or with a room up; a screen placed in the world without a room is left alone. The speed is `head_look_px_deg` (pixels a degree, 1 to 30, default 8; the launcher's **Head-look speed** row steps through it), and the dead zone is Head aim's (`head_aim_deadzone`, degrees a second: a slower drift sends nothing). It is 3DoF: only turning counts, not leaning. The ray keeps working on top: while head-look is on, moving the ray nudges the cursor by how far its point moves instead of placing it.
 
 To turn back without turning the game, hold a **grip** (either one, as long as it is bound to nothing, which it is by default in pointer mode) and turn your head; let go and it carries on from there, like lifting a mouse off the desk. Any other control can be the pause too: bind it to `app:lookhold` in `bindings.ini`. A panel opening (cog, keyboard, Host sheet) also pauses it. Head aim (the bar's button and the Display tab's row) wins where both could act, so with the screen head locked and Head aim on, Head aim's speed is used; in a room Head aim cannot act and head-look takes over. `moonlight.log` says `head-look on`, `head-look paused while its hold is down` and how far it moved the mouse every few seconds.
 
 ### Relative mouse
 
-`mouse_mode = relative` in `config.ini` (or **Mouse mode** on the launcher's Settings page, under Input Settings) sends how far the pointer moves on the picture instead of where it is, the way a real mouse does. Use it for games that capture the mouse and ignore its position: first-person games, and games whose cursor jumps or sticks to an edge with the default. Moving the ray across the picture moves the PC's mouse by the same number of stream pixels; the dot still shows where the ray lands, but the game's own cursor (if it draws one) goes its own way. Taking the ray off the picture and back somewhere else does not throw the mouse. `absolute` (the default) puts the PC's cursor where the ray lands, Moonlight's remote desktop mouse, which is what desktops and menus want. Head aim and head-look already move the mouse this way while they are on.
+`mouse_mode = relative` in `config.ini` (or **Mouse mode** on the cog's Accessibility tab or on the launcher's Settings page, under Accessibility) sends how far the pointer moves on the picture instead of where it is, the way a real mouse does. Use it for games that capture the mouse and ignore its position: first-person games, and games whose cursor jumps or sticks to an edge with the default. Moving the ray across the picture moves the PC's mouse by the same number of stream pixels; the dot still shows where the ray lands, but the game's own cursor (if it draws one) goes its own way. Taking the ray off the picture and back somewhere else does not throw the mouse. `absolute` (the default) puts the PC's cursor where the ray lands, Moonlight's remote desktop mouse, which is what desktops and menus want. Head aim and head-look already move the mouse this way while they are on.
 
 ### Pointing with your head
 
-`pointer_source = head` in `config.ini` (or **What points** on the launcher's Settings page, under Input Settings) points with the middle of your view instead of a controller, for when holding a controller up is hard. A dot shows where you point (the beam would run out of your face, so there is none), smoothed so a still head holds it still; the PC's cursor follows it. Either controller's trigger clicks, on the picture and on the headset's own menus. With `head_dwell_ms` set (400 to 2000; 0, the default, is off), resting the dot on one spot for that long clicks it: a square ring closes in on the dot while it counts, and moving it more than about a degree starts the count again. After a click, move the dot away and back to click again. Dwell never clicks the move pill, the corners or the keyboard's bar (a press there would grab them). Gamepad mode is unchanged. `pointer_source = gaze` is the eye-gaze pointer, the same as `gaze = true`.
+`pointer_source = head` in `config.ini` (or **Pointer: Head** on the cog's [Accessibility](#accessibility) tab, or **What points** on the launcher's Settings page, under Accessibility) points with the middle of your view instead of a controller, for when holding a controller up is hard. A dot shows where you point (the beam would run out of your face, so there is none), smoothed so a still head holds it still; the PC's cursor follows it. Either controller's trigger clicks, on the picture and on the headset's own menus. With `head_dwell_ms` set (400 to 2000; 0, the default, is off), resting the dot on one spot for that long clicks it: a square ring closes in on the dot while it counts, and moving it more than about a degree starts the count again. After a click, move the dot away and back to click again. Dwell never clicks the move pill, the corners or the keyboard's bar (a press there would grab them), and never lands beside an open menu (a press there would close it). Gamepad mode is unchanged. `pointer_source = gaze` is the Accessibility tab's **Eyes**: the same, with the dot following your eyes while SteamVR gives eye tracking to apps, and your head while it does not.
 
 ### Hand tracking
 
@@ -897,8 +928,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] opentrack` | `true`, `false`. While streaming, the head pose goes to opentrack on the PC every frame. See [Head tracking for PC games](#head-tracking-for-pc-games-opentrack); the launcher has it too. | `false` |
 | `[vr] opentrack_host` | An address or a name | Empty: the PC you are streaming from. |
 | `[vr] opentrack_port` | 1 to 65535 | 4242, opentrack's UDP over network default. |
-| `[vr] pointer_source` | `controller`, `head`, `gaze`. What points. See [Pointing with your head](#pointing-with-your-head). | `controller` |
-| `[vr] head_dwell_ms` | 0, or 400 to 2000 | 0 (off). With `pointer_source = head`, resting the dot this long clicks. |
+| `[vr] pointer_source` | `controller`, `head`, `gaze`. What points; `gaze` is the Accessibility tab's Eyes and asks SteamVR for eye tracking, as `gaze = true` does. See [Accessibility](#accessibility). | `controller` |
+| `[vr] head_dwell_ms` | 0, or 400 to 2000 | 0 (off). With `pointer_source = head` or `gaze`, resting the dot this long clicks. The Accessibility tab offers 600, 900, 1200 and 1500. |
 | `[vr] mouse_mode` | `absolute`, `relative`. Where the ray lands, or how far it moves. See [Relative mouse](#relative-mouse); the launcher has it too. | `absolute` |
 | `[vr] back_as_guide` | `true`, `false`. Gamepad mode's View (Back) button is Guide, except with Start held. The launcher has it too. | `false` |
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
@@ -934,7 +965,7 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[stream] rfi_idr_ms` | 0 to 5000 (ms) | 500. After lost video, the headset asks the PC for a full (IDR) frame at most once in this time. 0 no limit. The PC's own requests from the streaming library cannot be held back; the log counts them. The flat window's Settings page has the same choice under Connection. |
 | `[stream] failover` | `off`, `on` | `off`. With `on` and `network_path = auto`, a stream that keeps losing video on its link moves to another link that measured clearly better when the stream started. See [Switching links when video keeps breaking up](#switching-links-when-video-keeps-breaking-up). The flat window's Settings page has the same switch under Connection. |
 | `[stream] failover_burst_ms` | 500 to 9000 (ms) | 3000. How much lost video within 10 seconds makes `failover` leave the link. |
-| `[stream] virtual_surround` | `true`, `false` | `false`. Places 5.1 and 7.1 speakers around you in stereo. |
+| `[stream] virtual_surround` | `true`, `false` | `false`. Places the speakers around you in your headphones and keeps them with the screen as you turn your head: 5.1 and 7.1 all round you, stereo as two speakers in front of the screen, 30° either side. |
 | `[debug] file_log` | `off`, `basic`, `verbose` | `basic` |
 
 Close the app before you edit the file.

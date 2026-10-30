@@ -67,7 +67,7 @@ const VrKey kVrKeys[] = {
     { "display.head_locked", 'b', 0, 0, 1, nullptr },
     { "display.head_follow", 'b', 0, 0, 1, nullptr },
     { "display.follow_leash_deg", 'i', 25, 10, 60, nullptr },
-    { "display.sharpening", 'e', 0, 0, 2, "off|normal|quality" },
+    { "display.sharpening", 'e', 1, 0, 2, "off|normal|quality" },
     { "display.supersampling", 'e', 1, 0, 2, "off|normal|quality" },
     { "display.picture_filter", 'b', 1, 0, 1, nullptr },
     { "display.chroma_from_luma", 'b', 1, 0, 1, nullptr },
@@ -760,6 +760,12 @@ void MlxrPrefs::loadHeadInput(const QString& ini)
     m_iniMouseMode = mouseMode;
     backAsGuide = iniBool(iniValue(ini, "vr", "back_as_guide", "false"));
     m_iniBackAsGuide = backAsGuide;
+    // Native (lane a11y-tab): the dwell click, as ui/settings.c reads it: 0 or less off, else 400..2000;
+    // anything unreadable is the default, off
+    bool dwellOk = false;
+    const int dwell = iniValue(ini, "vr", "head_dwell_ms", "0").trimmed().toInt(&dwellOk);
+    headDwellMs = !dwellOk || dwell <= 0 ? 0 : qBound(400, dwell, 2000);
+    m_iniHeadDwellMs = headDwellMs;
 }
 
 void MlxrPrefs::saveHeadInput(const QString& ini)
@@ -796,6 +802,10 @@ void MlxrPrefs::saveHeadInput(const QString& ini)
         setIniValue(ini, "vr", "back_as_guide", backAsGuide ? "true" : "false");
     }
     m_iniBackAsGuide = backAsGuide;
+    if (headDwellMs != m_iniHeadDwellMs) {
+        setIniValue(ini, "vr", "head_dwell_ms", QString::number(headDwellMs <= 0 ? 0 : qBound(400, headDwellMs, 2000)));
+    }
+    m_iniHeadDwellMs = headDwellMs;
 }
 
 int MlxrPrefs::headsetMaxFps() const

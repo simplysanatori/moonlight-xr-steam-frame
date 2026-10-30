@@ -517,19 +517,46 @@ float cogRowV(int tab, int row) {
     if (tab == COG_TAB_3D) {
         return COG_3D_ROW_V0 + row * COG_3D_ROW_STEP;
     }
+    if (tab == COG_TAB_ACCESS) {
+        return COG_ACCESS_ROW_V0 + row * COG_ACCESS_ROW_STEP;
+    }
     return COG_ROW_V0 + row * COG_ROW_STEP;
 }
 
 float cogRowHalf(int tab) {
     return tab == COG_TAB_DISPLAY ? COG_DISPLAY_ROW_HALF
             : tab == COG_TAB_SCREEN ? COG_SCREEN_ROW_HALF
-            : tab == COG_TAB_3D ? COG_3D_ROW_HALF : COG_ROW_HALF;
+            : tab == COG_TAB_3D ? COG_3D_ROW_HALF
+            : tab == COG_TAB_ACCESS ? COG_ACCESS_ROW_HALF : COG_ROW_HALF;
 }
 
 float cogCellHalf(int tab) {
     return tab == COG_TAB_DISPLAY ? COG_DISPLAY_CELL_HALF
             : tab == COG_TAB_SCREEN ? COG_SCREEN_CELL_HALF
-            : tab == COG_TAB_3D ? COG_3D_CELL_HALF : COG_CELL_HALF;
+            : tab == COG_TAB_3D ? COG_3D_CELL_HALF
+            : tab == COG_TAB_ACCESS ? COG_ACCESS_CELL_HALF : COG_CELL_HALF;
+}
+
+// Native (lane a11y-tab): the tab bar's slots
+static const float TAB_EDGES[COG_TAB_COUNT + 1] = {
+    0.0f, COG_TAB_EDGE_1, COG_TAB_EDGE_2, COG_TAB_EDGE_3, COG_TAB_EDGE_4, COG_TAB_EDGE_5, 1.0f
+};
+
+int cogTabAt(float pu) {
+    for (int t = 0; t < COG_TAB_COUNT - 1; t++) {
+        if (pu < TAB_EDGES[t + 1]) {
+            return t;
+        }
+    }
+    return COG_TAB_COUNT - 1;
+}
+
+float cogTabLeft(int tab) {
+    return tab <= 0 ? 0.0f : tab >= COG_TAB_COUNT ? 1.0f : TAB_EDGES[tab];
+}
+
+float cogTabRight(int tab) {
+    return tab < 0 ? 0.0f : tab >= COG_TAB_COUNT - 1 ? 1.0f : TAB_EDGES[tab + 1];
 }
 
 // The screen and 3D tabs' rows sit closer than a full size thumb, so their
@@ -605,8 +632,8 @@ int cogTrackSteps(int tab, int row) {
         default: return 0;
         }
     }
-    if (tab == COG_TAB_ABOUT) {
-        // No rows at all, only the button
+    if (tab == COG_TAB_ABOUT || tab == COG_TAB_ACCESS) {
+        // No tracks: the About tab has only its buttons, Accessibility only cells
         return 0;
     }
     if (tab == COG_TAB_PICTURE) {

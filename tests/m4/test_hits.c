@@ -106,16 +106,21 @@ static void cogRows(Scene* s) {
         int face = cogFace(c);
         // The tabs
         for (int t = 0; t < COG_TAB_COUNT; t++) {
-            float pu = (t + 0.5f) / COG_TAB_COUNT, pv = COG_TAB_BAR_B * 0.5f;
-            int i = ui_hits_at(&hits, pu, pv);
-            CHECK(i >= 0 && hits.hit[i].kind == UI_HIT_TAB && hits.hit[i].a == t);
-            CHECK((int)(pu * COG_TAB_COUNT) == t); // updateCogPanel's own sums
+            // native (lane a11y-tab): the slots have their own widths; both ends of each too
+            float l = cogTabLeft(t), r = cogTabRight(t), pv = COG_TAB_BAR_B * 0.5f;
+            float at[3] = { (l + r) * 0.5f, l + 0.004f, r - 0.004f };
+            for (int k = 0; k < 3; k++) {
+                int i = ui_hits_at(&hits, at[k], pv);
+                CHECK(i >= 0 && hits.hit[i].kind == UI_HIT_TAB && hits.hit[i].a == t);
+                CHECK(cogTabAt(at[k]) == t); // updateCogPanel's own sums
+            }
         }
         for (int row = 0; row < cogTabRowCount(face); row++) {
             int live = cogRowLive(c, face, row);
             int track = cogRowIsTrack(face, row);
             float pv = cogRowV(face, row);
-            int cells = track ? 1 : cogRowCells(face, row);
+            // native (lane a11y-tab): the Accessibility tab's pointer row shows what can work
+            int cells = track ? 1 : face == COG_TAB_ACCESS ? cogAccessCells(c, row) : cogRowCells(face, row);
             for (int cell = 0; cell < cells; cell++) {
                 float pu = track ? (COG_RUN_L + COG_RUN_R) * 0.5f
                                  : COG_TRACK_L + (cell + 0.5f) * (COG_TRACK_R - COG_TRACK_L) / cells;
