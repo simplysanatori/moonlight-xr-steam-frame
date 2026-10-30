@@ -325,6 +325,7 @@ static float srgbToLinear(float c) {
 }
 
 static float dimOverride; // 0: the room's own row
+static float bgDimTest;   // native (lane wave3-visual): the Picture tab's Background dim, 0 none to 1 black
 static Img ambiImg, shotImg;
 static int sharedMade;
 
@@ -393,6 +394,7 @@ static int renderRoom(const MlxrRoom* room, uint32_t eyeW, uint32_t eyeH, int ey
     }
     rp.spillGain = roomSpillGainFor(lit, room->style, room->spillGain, levels.lightLevel);
     rp.dim = roomDimFor(dimOverride, room->style, levels.brightness, room->dim);
+    rp.bgDim = bgDimTest;
     rp.depth = depth.view;
     rp.depthFormat = depth.format;
 
@@ -958,6 +960,27 @@ static void testRenderOne(int style) {
     saveFrame(img, &fu);
     frameFree(&fu);
     frameFree(&fl);
+
+    // The Background dim (native, lane wave3-visual) turns the room down as a
+    // whole, the picture's light on it included: about half at 50 percent, and
+    // black at 100
+    Frame fh, fz;
+    bgDimTest = 0.5f;
+    check(renderRoom(r, 320, 320, 2, 0, 1, &fh) == 0, "render %s dimmed to half", name);
+    bgDimTest = 1.0f;
+    check(renderRoom(r, 320, 320, 2, 0, 1, &fz) == 0, "render %s dimmed to black", name);
+    bgDimTest = 0.0f;
+    Stats sh = frameStats(&fh), sz = frameStats(&fz);
+    note("%-13s mean luma lit %.2f, dimmed 50 percent %.2f, 100 percent %.2f", name, sl.meanLuma, sh.meanLuma, sz.meanLuma);
+    if (sl.meanLuma > 3.0) {
+        check(sh.meanLuma > sl.meanLuma * 0.40 && sh.meanLuma < sl.meanLuma * 0.60,
+              "%s: a 50 percent dim leaves about half the room (%.2f of %.2f)", name, sh.meanLuma, sl.meanLuma);
+    }
+    check(sh.meanLuma < sl.meanLuma, "%s: dimmed is darker", name);
+    check(sz.meanLuma < 0.01, "%s: dimmed all the way is black (%.3f)", name, sz.meanLuma);
+    check(sz.coverage == sl.coverage, "%s: and the room is still drawn, only dark", name);
+    frameFree(&fh);
+    frameFree(&fz);
 
     // Mips: a small render samples the lower levels. Compare it with a box
     // filtered large render; garbage or missing levels would be far apart.

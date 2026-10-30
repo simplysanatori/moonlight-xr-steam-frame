@@ -166,6 +166,23 @@ Flickable {
         return Math.max(0, networkValues.indexOf(MlxrPrefs.networkPath))
     }
 
+    // Native (lane wave4b-abr): [stream] bitrate_wifi, bitrate_adapter, bitrate_wired, bitrate_usb of the VR client's
+    // config.ini, kbps. 0 is "Same as above" (the Video bitrate). A running stream's bitrate cannot change, so the
+    // client picks it at the start, for the connection it ended up on
+    readonly property var pathBitrateSteps: [0, 10000, 20000, 30000, 40000, 50000, 60000, 80000, 100000, 120000, 150000,
+                                             200000, 300000, 400000, 500000]
+    function pathBitrateText(kbps) {
+        return kbps <= 0 ? qsTr("Same as above") : (Math.round(kbps / 100) / 10) + " " + qsTr("Mbps")
+    }
+    function nextPathBitrate(current) {   // the next listed step above; past the last, or a value typed into config.ini, wraps to 0
+        for (var i = 0; i < pathBitrateSteps.length; i++) {
+            if (pathBitrateSteps[i] > current) return pathBitrateSteps[i]
+        }
+        return 0
+    }
+    readonly property string pathBitrateSummary: qsTr("The bitrate a stream starts with when it goes over this connection. Same as above uses the Video bitrate. A stream's bitrate cannot change once it runs, so this is chosen at the start, for the connection Network connection ends up using. Tap to step up.") + " " +
+        qsTr("The Steam Frame Wireless Adapter can have worse latency than a good 5 GHz network. Automatic measures latency and drops on each connection before it chooses, so do not assume the adapter wins.")
+
     // The headset keyboard's letters ([vr] keyboard_keymap in the VR client's config.ini). The keys send the
     // US keyboard's positions, so the PC has to be on the same layout
     readonly property var keymapValues: ["qwerty", "azerty", "qwertz"]
@@ -193,6 +210,12 @@ Flickable {
         return scrollSpeedSteps[0]
     }
 
+    // Native (lane wave3-visual): the surroundings. [vr] background_dim (percent), [display] glow_feather and
+    // [3d] eye_balance (percent) step through these; [vr] void_color is typed
+    readonly property var backgroundDimSteps: [0, 25, 50, 75, 100]
+    readonly property var glowFeatherValues: ["off", "soft", "wide"]
+    readonly property var glowFeatherNames: [qsTr("Off"), qsTr("Soft"), qsTr("Wide")]
+    readonly property var eyeBalanceSteps: [-100, -50, 0, 50, 100]
     // [3d] edge_sharpness: the steps the Edge row goes through (0 is the 3D's own soft edges)
     readonly property var edgeSteps: [0, 25, 50, 75, 100]
     function nextEdge() {
@@ -825,6 +848,38 @@ Flickable {
             }
         }
 
+        PrefRow {
+            objectName: "bitrateWifiRow"
+            title: qsTr("Bitrate over Wi-Fi")
+            valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateWifi)
+            summary: settingsPage.pathBitrateSummary
+            onClicked: MlxrPrefs.bitrateWifi = settingsPage.nextPathBitrate(MlxrPrefs.bitrateWifi)
+        }
+
+        PrefRow {
+            objectName: "bitrateAdapterRow"
+            title: qsTr("Bitrate over the Steam Frame Wireless Adapter")
+            valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateAdapter)
+            summary: settingsPage.pathBitrateSummary
+            onClicked: MlxrPrefs.bitrateAdapter = settingsPage.nextPathBitrate(MlxrPrefs.bitrateAdapter)
+        }
+
+        PrefRow {
+            objectName: "bitrateWiredRow"
+            title: qsTr("Bitrate over a wired network")
+            valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateWired)
+            summary: settingsPage.pathBitrateSummary
+            onClicked: MlxrPrefs.bitrateWired = settingsPage.nextPathBitrate(MlxrPrefs.bitrateWired)
+        }
+
+        PrefRow {
+            objectName: "bitrateUsbRow"
+            title: qsTr("Bitrate over the USB cable")
+            valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateUsb)
+            summary: settingsPage.pathBitrateSummary
+            onClicked: MlxrPrefs.bitrateUsb = settingsPage.nextPathBitrate(MlxrPrefs.bitrateUsb)
+        }
+
         // Native (lane wave1-burst): the cap on the headset's full-frame requests after lost video. Pressing
         // the row steps No limit -> 250 -> 500 -> 1000 -> 2000 ms.
         PrefRow {
@@ -907,9 +962,10 @@ Flickable {
 
         PrefSlider {
             title: qsTr("Video bitrate")
-            summary: qsTr("Increase for better image quality. Decrease to improve performance on slower connections.")
+            summary: qsTr("Increase for better image quality. Decrease to improve performance on slower connections.") +
+                     " " + qsTr("Goes up to 500 Mbps, for a good 5 GHz Wi-Fi or a wired link.")
             from: 0.5
-            to: 150
+            to: 500
             stepSize: 0.5
             decimals: 1
             suffix: " " + qsTr("Mbps")
@@ -1294,6 +1350,46 @@ Flickable {
             valueText: MlxrPrefs.scrollSpeed + "%"
             summary: qsTr("How fast a controller's thumbstick scrolls in pointer mode. Tilt it sideways to scroll sideways.")
             onClicked: MlxrPrefs.scrollSpeed = settingsPage.nextScrollSpeed()
+        }
+
+        // Native (lane wave3-visual): the Picture tab's Background and Glow edge rows, the void's colour and
+        // the 3D eye balance. Pressing a row steps through its choices.
+        PrefRow {
+            objectName: "backgroundDimRow"
+            title: qsTr("Dim the surroundings")
+            valueText: MlxrPrefs.backgroundDim + "%"
+            summary: qsTr("How far the room, the passthrough cameras or the void are turned down, the picture itself not. 100% is black.") + " " +
+                     qsTr("(the headset's Picture tab has it too)")
+            onClicked: MlxrPrefs.backgroundDim = settingsPage.nextLimit(settingsPage.backgroundDimSteps, MlxrPrefs.backgroundDim)
+        }
+
+        PrefRow {
+            objectName: "glowFeatherRow"
+            title: qsTr("Glow edge")
+            valueText: settingsPage.glowFeatherNames[Math.max(0, settingsPage.glowFeatherValues.indexOf(MlxrPrefs.glowFeather))]
+            summary: qsTr("Fades the picture's outer edge into the glow around it so the screen has no hard border. Needs the glow on.") + " " +
+                     qsTr("(the headset's Picture tab has it too)")
+            onClicked: MlxrPrefs.glowFeather = settingsPage.nextLimit(settingsPage.glowFeatherValues, MlxrPrefs.glowFeather)
+        }
+
+        PrefRow {
+            objectName: "voidColorRow"
+            title: qsTr("Void colour")
+            valueText: MlxrPrefs.voidColor
+            summary: qsTr("The colour of the void environment, as on a web page: #rrggbb. Black draws nothing.")
+            onClicked: editDialog.show(title, qsTr("#rrggbb"), MlxrPrefs.voidColor,
+                                       "^\\s*#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\\s*$", function(t) {
+                MlxrPrefs.voidColor = "#" + t.trim().replace("#", "").toLowerCase()
+            })
+        }
+
+        PrefRow {
+            objectName: "eyeBalanceRow"
+            title: qsTr("3D eye balance")
+            valueText: MlxrPrefs.eyeBalance > 0 ? qsTr("Left eye %1%").arg(MlxrPrefs.eyeBalance)
+                     : MlxrPrefs.eyeBalance < 0 ? qsTr("Right eye %1%").arg(-MlxrPrefs.eyeBalance) : qsTr("Even")
+            summary: qsTr("How the 3D's shift is shared by the two eyes. Even moves each eye the same; at 100% only the left eye's picture moves and the right eye's is as streamed. The depth you see is the same at every setting. Useful with a dominant eye.")
+            onClicked: MlxrPrefs.eyeBalance = settingsPage.nextLimit(settingsPage.eyeBalanceSteps, MlxrPrefs.eyeBalance)
         }
 
         // The headset coming off: the sound mutes and the input is let go at once; after the time the stream
