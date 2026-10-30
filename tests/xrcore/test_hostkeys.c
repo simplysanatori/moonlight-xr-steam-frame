@@ -372,7 +372,125 @@ static void testChord(void) {
     CHECK(xrHostChordKey(&c, KB_CODE_HIDE, &vk, &mods) == XR_CHORD_CANCEL && !c.active && c.mods == 0);
 }
 
+// The PC page (lane wave4-apollo): the header button, the clipboard cells and the host's commands
+static void testPcPage(void) {
+    float page[4], close[4], cell[4];
+    xrHostPageRect(page);
+    xrHostCloseRect(close);
+    CHECK(page[0] >= 0 && page[1] >= 0 && page[2] <= 1 && page[3] <= 1 && page[2] > page[0] && page[3] > page[1]);
+    // beside Close, clear of it, of PC VR (main's) and of every cell
+    CHECK(page[2] <= close[0] || close[2] <= page[0] || page[3] <= close[1] || close[3] <= page[1]);
+    float pcvr[4];
+    xrHostPcvrRect(pcvr);
+    CHECK(page[2] <= pcvr[0] || pcvr[2] <= page[0] || page[3] <= pcvr[1] || pcvr[3] <= page[1]);
+    CHECK(XR_HOST_ZONE_PAGE != XR_HOST_ZONE_PCVR && XR_HOST_ZONE_PAGE != XR_HOST_ZONE_CLOSE
+          && XR_HOST_ZONE_PAGE != XR_HOST_ZONE_CONFIRM_SEND && XR_HOST_ZONE_PAGE != XR_HOST_ZONE_CONFIRM_CANCEL);
+    // the header is the same on both pages: PC VR is a zone on each, and hidden by a question
+    float qu = (pcvr[0] + pcvr[2]) * 0.5f, qv = (pcvr[1] + pcvr[3]) * 0.5f;
+    CHECK(xrHostZoneAtPage(qu, qv, XR_HOST_PAGE_MAIN, 0, 3, 0) == XR_HOST_ZONE_PCVR);
+    CHECK(xrHostZoneAtPage(qu, qv, XR_HOST_PAGE_PC, 0, 3, 0) == XR_HOST_ZONE_PCVR);
+    CHECK(xrHostZoneAtPage(qu, qv, XR_HOST_PAGE_PC, 0, 3, 1) == XR_HOST_ZONE_NONE);
+    for (int i = 0; i < XR_HOST_CELLS; i++) {
+        xrHostCellRect(i, cell);
+        CHECK(page[2] <= cell[0] || cell[2] <= page[0] || page[3] <= cell[1] || cell[3] <= page[1]);
+    }
+    float pu = (page[0] + page[2]) * 0.5f, pv = (page[1] + page[3]) * 0.5f;
+
+    // cell kinds: two clipboard entries, then one cell per command, at most 8
+    CHECK(xrHostPcCellKind(XR_HOST_PC_PASTE, 0) == XR_HOST_CELL_PASTE);
+    CHECK(xrHostPcCellKind(XR_HOST_PC_COPY, 0) == XR_HOST_CELL_COPY);
+    CHECK(xrHostPcCellKind(2, 3) == XR_HOST_CELL_NONE && xrHostPcCellKind(4, 3) == XR_HOST_CELL_NONE);
+    CHECK(xrHostPcCellKind(XR_HOST_PC_CMD_FIRST, 0) == XR_HOST_CELL_NONE);
+    CHECK(xrHostPcCellKind(XR_HOST_PC_CMD_FIRST, 1) == XR_HOST_CELL_CMD);
+    CHECK(xrHostPcCellKind(XR_HOST_PC_CMD_FIRST + 1, 1) == XR_HOST_CELL_NONE);
+    CHECK(xrHostPcCellKind(XR_HOST_PC_CMD_FIRST + 7, 8) == XR_HOST_CELL_CMD);
+    CHECK(xrHostPcCellKind(XR_HOST_PC_CMD_FIRST + 8, 12) == XR_HOST_CELL_NONE);   // 8 slots, however many were listed
+    CHECK(xrHostPcCellKind(-1, 3) == XR_HOST_CELL_NONE && xrHostPcCellKind(XR_HOST_CELLS, 3) == XR_HOST_CELL_NONE);
+    // the clipboard cells and the command cells do not share a cell, and the main page's cells are untouched
+    CHECK(XR_HOST_PC_CMD_FIRST > XR_HOST_PC_COPY && XR_HOST_PC_CMD_FIRST + XR_HOST_CMD_SLOTS <= XR_HOST_CELLS);
+    CHECK(xrHostCellKind(XR_HOST_CELL_SEND_KEYS, 0) == XR_HOST_CELL_KEYS);
+
+    // zones: the page button on both pages; each page's own cells; Close; a question hides the rest
+    CHECK(xrHostZoneAtPage(pu, pv, XR_HOST_PAGE_MAIN, 0, 3, 0) == XR_HOST_ZONE_PAGE);
+    CHECK(xrHostZoneAtPage(pu, pv, XR_HOST_PAGE_PC, 0, 3, 0) == XR_HOST_ZONE_PAGE);
+    CHECK(xrHostZoneAtPage(pu, pv, XR_HOST_PAGE_PC, 0, 3, 1) == XR_HOST_ZONE_NONE);
+    xrHostCellRect(XR_HOST_PC_CMD_FIRST + 2, cell);
+    float cu = (cell[0] + cell[2]) * 0.5f, cv = (cell[1] + cell[3]) * 0.5f;
+    CHECK(xrHostZoneAtPage(cu, cv, XR_HOST_PAGE_PC, 0, 3, 0) == XR_HOST_PC_CMD_FIRST + 2);
+    CHECK(xrHostZoneAtPage(cu, cv, XR_HOST_PAGE_PC, 0, 2, 0) == XR_HOST_ZONE_NONE);       // only 2 were listed
+    CHECK(xrHostZoneAtPage(cu, cv, XR_HOST_PAGE_MAIN, 0, 3, 0) == XR_HOST_PC_CMD_FIRST + 2);   // a quick action there
+    xrHostCellRect(XR_HOST_CELL_SEND_KEYS, cell);
+    CHECK(xrHostZoneAtPage((cell[0] + cell[2]) * 0.5f, (cell[1] + cell[3]) * 0.5f, XR_HOST_PAGE_PC, 0, 3, 0)
+          == XR_HOST_ZONE_NONE);
+    CHECK(xrHostZoneAtPage((cell[0] + cell[2]) * 0.5f, (cell[1] + cell[3]) * 0.5f, XR_HOST_PAGE_MAIN, 0, 3, 0)
+          == XR_HOST_CELL_SEND_KEYS);
+    CHECK(xrHostZoneAtPage((close[0] + close[2]) * 0.5f, (close[1] + close[3]) * 0.5f, XR_HOST_PAGE_PC, 0, 3, 0)
+          == XR_HOST_ZONE_CLOSE);
+    float send[4];
+    xrHostConfirmSendRect(send);
+    CHECK(xrHostZoneAtPage((send[0] + send[2]) * 0.5f, (send[1] + send[3]) * 0.5f, XR_HOST_PAGE_PC, 0, 3, 1)
+          == XR_HOST_ZONE_CONFIRM_SEND);
+    // the main page's answer is xrHostZoneAt's
+    for (int cellIx = 0; cellIx < XR_HOST_CELLS; cellIx++) {
+        xrHostCellRect(cellIx, cell);
+        float u = (cell[0] + cell[2]) * 0.5f, v = (cell[1] + cell[3]) * 0.5f;
+        CHECK(xrHostZoneAtPage(u, v, XR_HOST_PAGE_MAIN, 3, 0, 0) == xrHostZoneAt(u, v, 3, 0));
+    }
+}
+
+static void testCompose(void) {
+    XrHostCompose c;
+    xrHostComposeStart(&c);
+    CHECK(c.active && c.len == 0 && c.text[0] == '\0');
+    CHECK(xrHostComposeKey(&c, 'h') == XR_COMPOSE_EDITED && xrHostComposeKey(&c, 'i') == XR_COMPOSE_EDITED);
+    CHECK(strcmp(c.text, "hi") == 0 && c.len == 2);
+    CHECK(xrHostComposeKey(&c, ' ') == XR_COMPOSE_EDITED && xrHostComposeKey(&c, 0xE9) == XR_COMPOSE_EDITED
+          && xrHostComposeKey(&c, 0x20AC) == XR_COMPOSE_EDITED);
+    CHECK(strcmp(c.text, "hi \xC3\xA9\xE2\x82\xAC") == 0 && c.len == 8);
+    // Backspace takes a whole character, whatever its length
+    CHECK(xrHostComposeKey(&c, 8) == XR_COMPOSE_EDITED && strcmp(c.text, "hi \xC3\xA9") == 0);
+    CHECK(xrHostComposeKey(&c, 8) == XR_COMPOSE_EDITED && strcmp(c.text, "hi ") == 0);
+    CHECK(xrHostComposeKey(&c, 8) == XR_COMPOSE_EDITED && xrHostComposeKey(&c, 8) == XR_COMPOSE_EDITED
+          && xrHostComposeKey(&c, 8) == XR_COMPOSE_EDITED && c.len == 0 && c.text[0] == '\0');
+    CHECK(xrHostComposeKey(&c, 8) == XR_COMPOSE_EDITED && c.len == 0);   // nothing left to take
+    // not text: left to the keyboard
+    CHECK(xrHostComposeKey(&c, 9) == XR_COMPOSE_IGNORE && xrHostComposeKey(&c, 27) == XR_COMPOSE_IGNORE
+          && xrHostComposeKey(&c, KB_CODE_SHIFT) == XR_COMPOSE_IGNORE && xrHostComposeKey(&c, KB_CODE_HIDE) == XR_COMPOSE_IGNORE
+          && xrHostComposeKey(&c, KB_CODE_VK + 0x41) == XR_COMPOSE_IGNORE && xrHostComposeKey(&c, 0xD800) == XR_COMPOSE_IGNORE
+          && xrHostComposeKey(&c, 0) == XR_COMPOSE_IGNORE);
+    CHECK(c.len == 0);
+    // Enter is the end, and leaves the text as it was
+    xrHostComposeKey(&c, 'o');
+    xrHostComposeKey(&c, 'k');
+    CHECK(xrHostComposeKey(&c, 13) == XR_COMPOSE_SEND && strcmp(c.text, "ok") == 0 && c.active);
+    // the field has a size: a character that would not fit is dropped, never half written
+    for (int i = 0; i < XR_COMPOSE_MAX + 20; i++) xrHostComposeKey(&c, 'a');
+    CHECK(c.len == XR_COMPOSE_MAX - 1 && c.text[c.len] == '\0');
+    CHECK(xrHostComposeKey(&c, 0x20AC) == XR_COMPOSE_EDITED && c.len == XR_COMPOSE_MAX - 1);
+    xrHostComposeStop(&c);
+    CHECK(!c.active && c.len == 0);
+    // stopped: nothing is the field's
+    CHECK(xrHostComposeKey(&c, 'a') == XR_COMPOSE_IGNORE && c.len == 0);
+
+    // the tail the space bar shows
+    char out[64];
+    xrHostComposeTail("", 5, out, sizeof(out));
+    CHECK(strcmp(out, "") == 0);
+    xrHostComposeTail("short", 5, out, sizeof(out));
+    CHECK(strcmp(out, "short") == 0);
+    xrHostComposeTail("a longer line", 6, out, sizeof(out));
+    CHECK(strcmp(out, "\xE2\x80\xA6" "r line") == 0);
+    xrHostComposeTail("caf\xC3\xA9 \xE2\x82\xAC\xE2\x82\xAC", 4, out, sizeof(out));
+    CHECK(strcmp(out, "\xE2\x80\xA6" "\xC3\xA9 \xE2\x82\xAC\xE2\x82\xAC") == 0);
+    xrHostComposeTail("exactly", 7, out, sizeof(out));
+    CHECK(strcmp(out, "exactly") == 0);
+    xrHostComposeTail("a longer line", 6, out, 5);   // a small buffer is cut, and ends
+    CHECK(strlen(out) == 4);
+}
+
 int main(void) {
+    testPcPage();
+    testCompose();
     testQuick();
     testZones();
     testParse();

@@ -21,6 +21,12 @@ typedef struct {
      * 403 unless fake_host_set_streaming(true), 401 with clipboard_denied) */
     bool apollo;
     bool clipboard_denied;
+    /* Native (lane wave4-apollo): server commands and the clipboard on other Apollos. more_cmds lists
+     * three commands instead of one; cmd_denied is an Apollo whose permission bits lack Server Command
+     * (it then lists none, as Apollo does); clipboard_404 is an Apollo older than 0.2.4 (no endpoint) */
+    bool more_cmds;
+    bool cmd_denied;
+    bool clipboard_404;
 } fake_opts;
 
 typedef struct fake_host fake_host;

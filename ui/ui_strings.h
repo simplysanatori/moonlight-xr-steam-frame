@@ -118,7 +118,7 @@
     X(HOST_CONFIRM_SEND, "native_host_confirm_send", "Send") \
     X(HOST_NO_MACROS, "native_host_no_macros", "Your own buttons go in macros.ini") \
     X(HOST_PCVR, "native_host_pcvr", "PC VR") \
-    X(HOST_PCVR_Q, "native_host_pcvr_q", "Switch to PC VR? This stream ends and Steam Link takes over.") \
+    X(HOST_PCVR_Q, "native_host_pcvr_q", "Switch to PC VR? This stream ends.") \
     X(HOST_PCVR_GO, "native_host_pcvr_go", "Switch") \
     X(HOST_HINT_ESC, "native_host_hint_esc", "Escape") \
     X(HOST_HINT_WIN, "native_host_hint_win", "Start menu") \
@@ -131,6 +131,21 @@
     X(HOST_HINT_PASTE, "native_host_hint_paste", "Paste") \
     X(HOST_HINT_TASKMGR, "native_host_hint_taskmgr", "Task manager") \
     X(HOST_HINT_CLOSE_WINDOW, "native_host_hint_close_window", "Close window") \
+    /* the Host sheet's PC page (lane wave4-apollo, PLAN 4.6, 4b.4, 4b.5) */ \
+    X(HOST_PAGE_PC, "native_host_page_pc", "Clipboard, commands") \
+    X(HOST_PAGE_BACK, "native_host_page_back", "Back") \
+    X(HOST_PC_TITLE, "native_host_pc_title", "PC clipboard, commands") \
+    X(HOST_PASTE, "native_host_paste", "Paste from PC") \
+    X(HOST_PASTE_HINT, "native_host_paste_hint", "types its clipboard") \
+    X(HOST_COPY, "native_host_copy", "Send text to PC") \
+    X(HOST_COPY_HINT, "native_host_copy_hint", "type, then Enter") \
+    X(HOST_CMD_HINT, "native_host_cmd_hint", "host command") \
+    X(HOST_CONFIRM_RUN_Q, "native_host_confirm_run_q", "Run %s on the PC?") \
+    X(HOST_CONFIRM_RUN, "native_host_confirm_run", "Run") \
+    X(HOST_PC_NOT_APOLLO, "native_host_pc_not_apollo", "Not supported by this host: commands and the PC clipboard need Apollo") \
+    X(HOST_PC_NO_PERMISSION, "native_host_pc_no_permission", "This host has not allowed server commands for the Frame") \
+    X(HOST_PC_NO_COMMANDS, "native_host_pc_no_commands", "No server commands are set up on this host") \
+    X(HOST_COMPOSE_PROMPT, "native_host_compose_prompt", "Type, Enter sends") \
     X(REPORT_TITLE, "title_bug_report", "Report a problem") \
     X(REPORT_NOTE_LABEL, "bug_report_message_hint", "What happened?") \
     X(REPORT_NOTE_HINT, "vr_report_note_hint", "What were you doing when it went wrong?") \
@@ -197,6 +212,7 @@
     X(SOURCE_SBS, "native_3d_source_sbs", "SBS") \
     X(SOURCE_TB, "native_3d_source_tb", "Top-bottom") \
     X(SBS_NO_DEPTH, "native_3d_sbs_no_depth", "the PC draws the depth") \
+    X(ROW_EDGE, "native_row_edge", "Edge")     X(ROW_DEPTH_DETAIL, "native_row_depth_detail", "Depth detail")     X(ROW_DEPTH_SHAPE, "native_row_depth_shape", "Depth shape")     X(ROW_MOTION_RESET, "native_row_motion_reset", "Motion reset")     X(ROW_EYE_BALANCE, "native_row_eye_balance", "Eye balance") \
     X(NATIVE_EXIT_APP, "native_exit_app", "Quit Moonlight XR for Frame?") \
     X(NATIVE_PAIR_LATER, "native_pair_later", "Pairing from the headset comes later: pair with mlxr-cli") \
     X(NATIVE_NOT_PAIRED, "native_not_paired", "%s is not paired: pair it with mlxr-cli") \

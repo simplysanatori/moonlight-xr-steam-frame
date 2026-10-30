@@ -445,6 +445,13 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     if (iround(ctx->convergence * 100.0f) != settings_convergence_percent(s)) {
         s->convergence = iround(ctx->convergence * 100.0f);
     }
+    // Native (lane wave3-tidy): and the depth model's five, kept in the ctx
+    // the model reads every frame, so a drag shows on the panel as it moves
+    s->edge_sharpness = iround(ctx->depthSharp * 100.0f);
+    s->depth_scale = iround(ctx->depthLocal * 100.0f);
+    s->depth_global = iround(ctx->depthGlobal * 100.0f);
+    s->motion_reset = iround(ctx->depthMotion * 100.0f);
+    s->eye_balance = iround(ctx->eyeBalance * 100.0f);
     if (ctx->placementValid) {
         float pose[POSE_VALUES];
         pose[0] = ctx->screenPose.position.x;
@@ -506,6 +513,11 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_CONVERGENCE: s->convergence = value; break;
     case SETTING_RESET_3D: settings_reset_3d(s); break;
     case SETTING_STEREO_SOURCE: s->stereo_source = value; break;
+    case SETTING_EDGE: s->edge_sharpness = value; break;
+    case SETTING_DEPTH_DETAIL: s->depth_scale = value; break;
+    case SETTING_DEPTH_SHAPE: s->depth_global = value; break;
+    case SETTING_MOTION_RESET: s->motion_reset = value; break;
+    case SETTING_EYE_BALANCE: s->eye_balance = value; break;
     case SETTING_PICTURE_BRIGHTNESS: s->picture_brightness = value; break;
     case SETTING_PICTURE_CONTRAST: s->picture_contrast = value; break;
     case SETTING_PICTURE_GAMMA: s->picture_gamma = value; break;

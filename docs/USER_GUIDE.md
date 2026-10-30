@@ -426,7 +426,7 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 
 Each eye sees a little more of what is behind a person or an object on one side: the left eye on the left, the right eye on the right. Earlier versions filled that sliver by stretching the person's own edge across it, which showed as a fuzzy, furry outline in one eye only, most of all on hair or a dark outline against a bright sky or page. That gap is now filled from the background beside it, so the edge is as sharp in both eyes. This is on by default; `MLXR_HOLE_FILL=0` brings back the old look.
 
-These four are on the flat window's Settings page and in `config.ini` (`[3d]`). They are not on the headset's 3D tab yet.
+These four are on the flat window's Settings page, in `config.ini` (`[3d]`) and on the headset's 3D tab (Edge, Depth detail, Depth shape, Motion reset, under the 3D source row; they move the picture as you drag them, and are greyed while the 3D source is SBS or Top-bottom, since the PC then draws the pair). On the tab Edge steps by 25, Depth detail and Depth shape by 10 and Motion reset by 5.
 
 | Setting | Key | Values | What it does |
 | --- | --- | --- | --- |
@@ -549,7 +549,7 @@ The **Host** sheet is a grid of keys to send to the PC, for the ones a headset k
 
 After those come your own macros, up to eight.
 
-In the header, left of **Close**, is **PC VR**: it hands the headset to Valve's Steam Link, see [PC VR](#pc-vr).
+In the header, left of **Close**, is **PC VR**: it hands the headset to Valve's Steam Link, see [PC VR](#pc-vr). Left of it, **Clipboard, commands** opens a second page of the sheet (**Back** returns; **PC VR** and **Close** are there too): the PC's clipboard and the commands the PC offers. Both need an Apollo PC; see [Clipboard and PC commands](#clipboard-and-pc-commands-apollo) for what to set up on it.
 
 ### Macros
 
@@ -574,6 +574,26 @@ Lock PC = !win+l
 ```
 
 A line that is not right is left out, the rest still work, and `moonlight.log` names the first one and why. Up to 16 macros of 32 steps each; the sheet shows the first eight.
+
+### Clipboard and PC commands (Apollo)
+
+Open the Host sheet, then **Clipboard, commands**. The page has:
+
+| Cell | Does |
+| --- | --- |
+| Paste from PC | Reads the PC's clipboard text and types it on the PC, as if you had typed it on the headset keyboard (line ends are the Enter key, tabs the Tab key). It types at most the first 4096 bytes. The toast says how many characters went. Use it where Ctrl+V does not work, such as a remote console, a game's chat box or a password box that blocks pasting. |
+| Send text to PC | Closes the sheet and puts the Compact keyboard up as a text field of its own: what you type is kept on the keyboard (its space bar shows the end of it) and nothing goes to the PC. **Enter** sends the text to the PC's clipboard; **Hide** throws it away. On the PC, Ctrl+V pastes it. The text is one line. |
+| One cell per command | The commands set up on the PC (up to eight). A press asks **Run** or **Cancel**, because a command can do anything the PC can: sleep, lock, change the audio device, start a script. The toast says it was sent. The PC does not answer, so a command that fails on the PC fails there. |
+
+The toast says why when something cannot be done: "Not supported by this host" (the PC runs Sunshine or another host, not Apollo; the cells are dimmed and the page says so), "This host has not allowed it for the Frame" (the permission is off), "This host has no commands set up", or "The host sees no stream from this client". The clipboard works only while a stream is up.
+
+On the PC, in Apollo:
+
+- **Server commands.** Add them in Apollo's web UI settings (Configuration, General, Server Commands: a name, a command, and whether it runs elevated), or as `server_cmd` in its config file. The first one is number 0. The headset shows the names only.
+- **Permissions.** Apollo gives each paired client its own permissions (the Clients page of its web UI). The Frame needs **Server Command** for the commands, **Clipboard Read** for Paste from PC and **Clipboard Set** for Send text to PC. The first client paired gets everything; a client paired later gets only View and List until you allow more. Apollo lists commands only to a client that has the Server Command permission, so with it off the page says the host has not allowed them.
+- **Apollo 0.2.4 or newer** has the clipboard. Older ones answer "Not supported by this host".
+
+The clipboard sync at the start and end of a stream (Smart Clipboard Sync on the Settings page) is separate and works as before.
 
 ## PC VR
 
@@ -726,7 +746,7 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
 | `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
 | `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |
-| `[3d] eye_balance` | -100 to 100 | 0. 3D Eye Balance: how the 3D's shift is shared by the two eyes. 0 shifts each eye by the same amount in opposite directions. +100 puts all of it in the left eye and leaves the right eye's picture as streamed, -100 the other way round, and in between the left eye takes (100 + n) / 2 percent of the total and the right eye (100 - n) / 2. The total difference between the eyes, so the depth you see, is the same at every setting. Useful with a dominant eye. The 3D tab has no row for it yet; the launcher's Settings page has **3D eye balance**, which steps -100, -50, 0, 50, 100. |
+| `[3d] eye_balance` | -100 to 100 | 0. 3D Eye Balance: how the 3D's shift is shared by the two eyes. 0 shifts each eye by the same amount in opposite directions. +100 puts all of it in the left eye and leaves the right eye's picture as streamed, -100 the other way round, and in between the left eye takes (100 + n) / 2 percent of the total and the right eye (100 - n) / 2. The total difference between the eyes, so the depth you see, is the same at every setting. Useful with a dominant eye. The 3D tab's **Eye balance** row moves it in steps of 10 (greyed with SBS or Top-bottom); the launcher's Settings page has **3D eye balance**, which steps -100, -50, 0, 50, 100. |
 | `[vr] scroll_speed` | 25 to 400 (%) | 100, which is 7.5 notches a second with the thumbstick pushed all the way. The flat window's Settings page has it too. |
 | `[vr] click_steadiness` | `off`, `normal`, `steady` | `normal`. The Display tab's Click steadiness row. |
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |
