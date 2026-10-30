@@ -84,6 +84,8 @@ void scene_frame(Scene* s, const char* stats) {
     in.curved = s->curved;
     memset(&s->out, 0, sizeof(s->out));
     xrBuildLayers(ctx, &in, &s->out);
+    // as the session does right after: the splash's layer, only while there is no picture (or it is fading out)
+    xrSplashLayers(ctx, &s->out, nowNs());
 }
 
 // The stand in for a frame of video: a dark gradient with a grid, so the
