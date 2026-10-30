@@ -1224,6 +1224,15 @@ Flickable {
             onSwitched: function(on) { MlxrPrefs.flipFaceButtons = on }
         }
 
+        // Native (lane headinput-finish, PLAN 4b.10)
+        PrefSwitch {
+            objectName: "backAsGuideRow"
+            title: qsTr("Back button as Guide")
+            summary: qsTr("In the headset's gamepad mode the controllers' View (Back) button is the Xbox Guide button. With Start held it stays Back, so the Start and Back chords still work.")
+            isOn: MlxrPrefs.backAsGuide
+            onSwitched: function(on) { MlxrPrefs.backAsGuide = on }
+        }
+
         PrefRow {
             objectName: "padMouseChordRow"
             title: qsTr("Gamepad as mouse")
@@ -1381,6 +1390,15 @@ Flickable {
             valueText: names[Math.max(0, values.indexOf(MlxrPrefs.pointerSource))]
             summary: qsTr("Head points with the middle of your view, smoothed, and either controller's trigger clicks; head_dwell_ms in config.ini adds a click by resting the dot. Eyes is the eye-gaze pointer.")
             onClicked: MlxrPrefs.pointerSource = values[(Math.max(0, values.indexOf(MlxrPrefs.pointerSource)) + 1) % values.length]
+        }
+
+        // Native (lane headinput-finish, PLAN 4b.10): pressing the row steps Absolute -> Relative
+        PrefRow {
+            objectName: "mouseModeRow"
+            title: qsTr("Mouse mode")
+            valueText: MlxrPrefs.mouseMode === "relative" ? qsTr("Relative") : qsTr("Absolute")
+            summary: qsTr("Absolute puts the PC's cursor where the pointer lands on the picture, as a remote desktop does. Relative sends how far the pointer moves instead, for games that capture the mouse and ignore where it is.")
+            onClicked: MlxrPrefs.mouseMode = MlxrPrefs.mouseMode === "relative" ? "absolute" : "relative"
         }
 
         PrefSwitch {

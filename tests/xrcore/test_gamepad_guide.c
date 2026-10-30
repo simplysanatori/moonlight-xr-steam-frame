@@ -202,11 +202,42 @@ static void testGuideReset(void) {
     CHECK(s.buttons == PAD_GUIDE);
 }
 
+// Native (lane headinput-finish, PLAN 4b.10): back_as_guide's remap of the pad as it goes out
+static void testBackAsGuide(void) {
+    // Back alone is Guide, whatever else is down, and nothing else changes
+    PadState s = held(PAD_BACK);
+    s.leftTrigger = 200;
+    s.rightX = -1234;
+    CHECK(padBackAsGuide(&s) == 1);
+    CHECK(s.buttons == PAD_GUIDE && s.leftTrigger == 200 && s.rightX == -1234);
+    s = held(PAD_BACK | PAD_A | PAD_LB);
+    CHECK(padBackAsGuide(&s) == 1 && s.buttons == (PAD_GUIDE | PAD_A | PAD_LB));
+    // With Start down it stays Back, for the chords (Guide's hold, the disconnect chord)
+    s = held(PAD_BACK | PAD_START);
+    CHECK(padBackAsGuide(&s) == 0 && s.buttons == (PAD_BACK | PAD_START));
+    s = held(PAD_BACK | PAD_START | PAD_LB | PAD_RB);
+    CHECK(padBackAsGuide(&s) == 0 && s.buttons == (PAD_BACK | PAD_START | PAD_LB | PAD_RB));
+    // Without Back nothing happens, and a Guide the chord made stays
+    s = held(PAD_START | PAD_A);
+    CHECK(padBackAsGuide(&s) == 0 && s.buttons == (PAD_START | PAD_A));
+    s = held(PAD_GUIDE);
+    CHECK(padBackAsGuide(&s) == 0 && s.buttons == PAD_GUIDE);
+    // After the chord's step: Start and Back held past the hold are Guide alone already
+    PadGuide g;
+    padGuideReset(&g);
+    s = held(PAD_START | PAD_BACK);
+    padGuideStep(&g, &s, 0);
+    s = held(PAD_START | PAD_BACK);
+    padGuideStep(&g, &s, PAD_GUIDE_HOLD_NS);
+    CHECK(padBackAsGuide(&s) == 0 && s.buttons == PAD_GUIDE);
+}
+
 int main(void) {
     testDeadzoneFromLauncher();
     testGripModes();
     testGuideChord();
     testGuideAndDisconnect();
     testGuideReset();
+    testBackAsGuide();
     return checksDone("xr_gamepad_guide");
 }

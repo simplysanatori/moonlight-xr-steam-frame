@@ -438,6 +438,19 @@ static void testHeadLook(void) {
     CHECK(abs(sx - 80) <= 1 && sy == 0 && frames == 20);
 }
 
+// Native (lane headinput-finish, PLAN 4b.10): mouse_mode, and what sends the ray's point as motion
+static void testMouseMode(void) {
+    CHECK(MOUSE_MODE_ABSOLUTE == 0 && MOUSE_MODE_RELATIVE == 1 && MOUSE_MODE_COUNT == 2);
+    // absolute, the default: a position, unless the head turns the mouse
+    CHECK(pointerAsMotion(0, MOUSE_MODE_ABSOLUTE) == 0);
+    CHECK(pointerAsMotion(1, MOUSE_MODE_ABSOLUTE) == 1);
+    // relative: motion either way
+    CHECK(pointerAsMotion(0, MOUSE_MODE_RELATIVE) == 1);
+    CHECK(pointerAsMotion(1, MOUSE_MODE_RELATIVE) == 1);
+    // out of range is absolute
+    CHECK(pointerAsMotion(0, 7) == 0 && pointerAsMotion(0, -1) == 0);
+}
+
 int main(void) {
     testTheSwitch();
     testTheLanes();
@@ -452,5 +465,6 @@ int main(void) {
     testNearVertical();
     testTheNudge();
     testHeadLook();
+    testMouseMode();
     return checksDone("xr_headaim");
 }

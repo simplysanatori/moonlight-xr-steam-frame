@@ -677,6 +677,12 @@ void MlxrPrefs::loadHeadInput(const QString& ini)
     const QString ps = iniValue(ini, "vr", "pointer_source", "controller").trimmed().toLower();
     pointerSource = (ps == "head" || ps == "1") ? "head" : (ps == "gaze" || ps == "2") ? "gaze" : "controller";
     m_iniPointerSource = pointerSource;
+    // Native (lane headinput-finish, PLAN 4b.10)
+    const QString mm = iniValue(ini, "vr", "mouse_mode", "absolute").trimmed().toLower();
+    mouseMode = (mm == "relative" || mm == "1") ? "relative" : "absolute";
+    m_iniMouseMode = mouseMode;
+    backAsGuide = iniBool(iniValue(ini, "vr", "back_as_guide", "false"));
+    m_iniBackAsGuide = backAsGuide;
 }
 
 void MlxrPrefs::saveHeadInput(const QString& ini)
@@ -705,6 +711,14 @@ void MlxrPrefs::saveHeadInput(const QString& ini)
         setIniValue(ini, "vr", "pointer_source", pointerSource);
     }
     m_iniPointerSource = pointerSource;
+    if (mouseMode != m_iniMouseMode) {
+        setIniValue(ini, "vr", "mouse_mode", mouseMode == "relative" ? "relative" : "absolute");
+    }
+    m_iniMouseMode = mouseMode;
+    if (backAsGuide != m_iniBackAsGuide) {
+        setIniValue(ini, "vr", "back_as_guide", backAsGuide ? "true" : "false");
+    }
+    m_iniBackAsGuide = backAsGuide;
 }
 
 int MlxrPrefs::headsetMaxFps() const

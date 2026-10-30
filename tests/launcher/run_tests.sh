@@ -885,6 +885,25 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads opentrack_port" "$dump" "vr.opentrack_port = 5555"
         expect "VR client reads pointer_source" "$dump" "vr.pointer_source = head"
     fi
+    # lane headinput-finish: mouse mode and Back as Guide write only their keys, and no row but What points
+    # ever writes pointer_source or head_dwell_ms (head Point mode never turns on by itself)
+    printf '[vr]\nhead_aim = true\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=mouseModeRow,backAsGuideRow,headLookRow,opentrackRow \
+        "$L" >"$t/ui13b.out" 2>&1
+    grep -q "no clickable" "$t/ui13b.out" && fail "mouse mode click hook: $(grep 'no clickable' "$t/ui13b.out")"
+    grep -Eq "$QMLERR" "$t/ui13b.out" && { fail "mouse mode rows: QML errors"; grep -E "$QMLERR" "$t/ui13b.out" | head -3; } || ok "mouse mode and Back as Guide rows load (no QML errors)"
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^mouse_mode = relative$' && ok "mouse mode row steps to relative and writes [vr] mouse_mode" || { fail "mouse_mode not written"; cat "$ini"; }
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^back_as_guide = true$' && ok "Back as Guide switch writes [vr] back_as_guide = true" || { fail "back_as_guide not written"; cat "$ini"; }
+    grep -q '^head_aim = true$' "$ini" && ok "mouse mode rows leave head_aim alone" || { fail "head_aim changed"; cat "$ini"; }
+    grep -Eq '^(pointer_source|head_dwell_ms) *=' "$ini" && { fail "a row wrote pointer_source or head_dwell_ms"; cat "$ini"; } || ok "no other row writes pointer_source or head_dwell_ms"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads mouse_mode" "$dump" "vr.mouse_mode = relative"
+        expect "VR client reads back_as_guide" "$dump" "vr.back_as_guide = true"
+        expect "VR client keeps pointer_source on the controllers" "$dump" "vr.pointer_source = controller"
+        expect "VR client keeps the dwell off" "$dump" "vr.head_dwell_ms = 0"
+    fi
     # MLXR_HANDOFF=0: the stock probe runs again
     MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1
     grep -q "Unable to find working decoder\|Failed to initialize VAAPI" "$t/ui4.out" && ok "hand-off off: stock decoder probe runs" || fail "stock probe missing with MLXR_HANDOFF=0"

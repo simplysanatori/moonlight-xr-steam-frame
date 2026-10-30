@@ -944,6 +944,9 @@ typedef struct XrCtx {
     int headLookPxDeg;
     int headMouseWho;
     int headLookHold;
+    // Native (lane headinput-finish, PLAN 4b.10): [vr] mouse_mode (MOUSE_MODE_, xr_headaim.h); relative
+    // sends the ray's movement through headAimNudge
+    int mouseMode;
     // Native (lane wave4-headinput, PLAN 4.5): the head pose to opentrack (backend/opentrack.h): the
     // setting, where to (empty: the stream's PC) and the port; asked to send this stream, packets sent
     int opentrackOn;

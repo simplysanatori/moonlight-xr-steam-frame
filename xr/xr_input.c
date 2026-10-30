@@ -4453,6 +4453,28 @@ static int pointerButtonsWanted(XrCtx* ctx) {
 // How far the trigger is pulled before the click hold starts: a touch, short of the press
 #define CLICK_TOUCH_VALUE 0.12f
 
+// The ray's smoothed point on the picture to the host: a position (IN_HIT,
+// IN_U, IN_V), or how far it moved (IN_MOUSE_DX and DY). When the head is
+// turning the host's mouse (head aim, head-look) a position from the ray
+// would fight it, so the ray moves the cursor by how far its point moved
+// instead, on top of the head's turn. Native (lane headinput-finish, PLAN
+// 4b.10): mouse_mode relative does the same without the head, for games that
+// capture the mouse.
+void xrPointerToHost(XrCtx* ctx, int hand, float u, float v, float* out) {
+    if (pointerAsMotion(ctx->headAimActive, ctx->mouseMode)) {
+        int dx, dy;
+        pointerNudge(&ctx->headAimNudge, hand, u, v, ctx->inputFrames, ctx->videoWidth,
+                     ctx->videoHeight, &dx, &dy);
+        out[IN_MOUSE_DX] += (float)dx;
+        out[IN_MOUSE_DY] += (float)dy;
+    }
+    else {
+        out[IN_HIT] = 1.0f;
+        out[IN_U] = u;
+        out[IN_V] = v;
+    }
+}
+
 // Smooths the hit point, hands it to Java and ends the ray on it
 static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
     if (!hit) {
@@ -4523,21 +4545,7 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
                      pointerButtonsWanted(ctx) != 0, u, v, ctx->videoWidth, ctx->videoHeight,
                      pressCfg, f->now, &u, &v);
     }
-    if (ctx->headAimActive) {
-        // The head is turning the host's mouse, so a position from the ray
-        // would fight it. The ray moves the cursor by how far its point moved
-        // instead, on top of the head's turn.
-        int dx, dy;
-        pointerNudge(&ctx->headAimNudge, f->hand, u, v, ctx->inputFrames, ctx->videoWidth,
-                     ctx->videoHeight, &dx, &dy);
-        f->out[IN_MOUSE_DX] += (float)dx;
-        f->out[IN_MOUSE_DY] += (float)dy;
-    }
-    else {
-        f->out[IN_HIT] = 1.0f;
-        f->out[IN_U] = u;
-        f->out[IN_V] = v;
-    }
+    xrPointerToHost(ctx, f->hand, u, v, f->out);
 
     // The ray is only drawn when it lands on something, which is what
     // makes a laser readable rather than a light show
@@ -4869,6 +4877,22 @@ void xrSetHeadLook(XrCtx* ctx, int on, int pxDeg) {
     ctx->headLookPxDeg = headLookSensitivityClamp(pxDeg);
     LOGEV("head-look %s at the start of the session, %d px a degree", on ? "on" : "off",
           ctx->headLookPxDeg);
+}
+
+// Native (lane headinput-finish, PLAN 4b.10): see xr_native.h
+void xrSetMouseMode(XrCtx* ctx, int mode) {
+    if (ctx == NULL) {
+        return;
+    }
+    mode = mode == MOUSE_MODE_RELATIVE ? MOUSE_MODE_RELATIVE : MOUSE_MODE_ABSOLUTE;
+    if (mode != ctx->mouseMode) {
+        // the first frame in the other mode only takes the point
+        pointerNudgeReset(&ctx->headAimNudge);
+    }
+    ctx->mouseMode = mode;
+    if (mode == MOUSE_MODE_RELATIVE) {
+        LOGEV("mouse mode relative: the ray sends how far its point moves, not where it is");
+    }
 }
 
 // Native (lane wave4-headinput, PLAN 6.5): see xr_native.h

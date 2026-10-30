@@ -387,6 +387,8 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetHeadLook(ctx, s->head_look, s->head_look_px_deg);
     xrSetOpentrack(ctx, s->opentrack, s->opentrack_host, s->opentrack_port); // PLAN 4.5
     xrSetPointerSource(ctx, s->pointer_source, s->head_dwell_ms);              // PLAN 6.5
+    xrSetMouseMode(ctx, s->mouse_mode);           // native (lane headinput-finish, PLAN 4b.10)
+    xrPadBridgeSetBackAsGuide(s->back_as_guide);  // native (lane headinput-finish, PLAN 4b.10)
     xrSetScrollSpeed(ctx, s->scroll_speed);
     xrPadBridgeSetFlip(s->flip_face_buttons);
     // Native (lane wave2b-padmouse): the same switch for the physical pads, live (the stream start
