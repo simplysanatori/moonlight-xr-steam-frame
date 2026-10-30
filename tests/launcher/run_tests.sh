@@ -394,7 +394,7 @@ JSON
     [ $rc = 0 ] && ok "exit 12 (Switch to PC VR) is not an error" || fail "exit 12 gave $rc"
     expect "exit 12: no error dialog" "$(cat "$t/stdout")" "error=none"
     expect "exit 12 with no game chosen: --pcvr alone" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr"
-    refute "exit 12 with no game chosen: no --app" "$(cat "$t/stdout")" "--app"
+    refute "exit 12 with no game chosen: no --app" "$(grep '^MLXR_PCVR' "$t/stdout")" "--app"
     SECTION=mlxr setconf pcvr_app=620980 pcvr_client=76561198000000001
     MLXR_LAUNCHER_DRYRUN="fail:12:" selftest "gaming-pc:Desktop" >"$t/stdout"
     expect "exit 12 with a game and a PC chosen" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --app 620980 --client 76561198000000001"
