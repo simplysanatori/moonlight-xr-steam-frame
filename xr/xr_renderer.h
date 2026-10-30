@@ -48,6 +48,7 @@
 #include "xr_keys.h"
 #include "xr_kbfull.h"
 #include "xr_hostkeys.h"
+#include "xr_splash.h"
 #include "xr_controller.h"
 #include "xr_headaim.h"
 #include "xr_clickhold.h"
@@ -609,6 +610,8 @@ typedef struct XrCtx {
 
     // The launch splash (native: not drawn, starts gone)
     Splash splash;
+    // Native (lane wave6-splash): the logo shown while a stream has no picture (xr_splash.c)
+    XrSplashState splashUi;
 
     // The toast
     NoticeBoard notices;
