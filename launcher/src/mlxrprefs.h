@@ -74,6 +74,12 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(QString padMouseChord MEMBER padMouseChord NOTIFY changed)
     Q_PROPERTY(QString padMouseScroll MEMBER padMouseScroll NOTIFY changed)
     Q_PROPERTY(QString padArbitration MEMBER padArbitration NOTIFY changed)
+    // Native (lane wave2-lightgun-gyro): [vr] lightgun, the lightgun pointer policy, "auto" (default: on while the
+    // controller model is the gun), "on" or "off"; [vr] pad_gyro, what the headset controllers' gamepad sends as
+    // gyro to the PC, "off" (default), "controller" or "head". The rest (lightgun_reload, lightgun_recoil,
+    // pad_gyro_ratchet) are in the file only
+    Q_PROPERTY(QString lightgun MEMBER lightgun NOTIFY changed)
+    Q_PROPERTY(QString padGyro MEMBER padGyro NOTIFY changed)
     // ---- facts ----
     // Native (lane wave4c-usb): a USB data cable to the PC is up, i.e. the headset's USB network
     // interface (usb*, or a gadget device) has carrier. Rescanned every 10 s while the app is open.
@@ -151,6 +157,8 @@ public:
     QString padMouseChord;
     QString padMouseScroll;
     QString padArbitration;
+    QString lightgun;
+    QString padGyro;
 
 signals:
     void changed();
@@ -165,6 +173,7 @@ private:
     QString m_iniControllerModel = "off";
     int m_iniDoff = 60, m_iniIdle = 0;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
+    QString m_iniLightgun = "auto", m_iniPadGyro = "off";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
     bool m_usbCable = false, m_usbScanned = false;
