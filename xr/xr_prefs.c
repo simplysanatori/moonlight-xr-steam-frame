@@ -496,6 +496,7 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_SEPARATION: s->separation = value; break;
     case SETTING_CONVERGENCE: s->convergence = value; break;
     case SETTING_RESET_3D: settings_reset_3d(s); break;
+    case SETTING_STEREO_SOURCE: s->stereo_source = value; break;
     case SETTING_PICTURE_BRIGHTNESS: s->picture_brightness = value; break;
     case SETTING_PICTURE_CONTRAST: s->picture_contrast = value; break;
     case SETTING_PICTURE_GAMMA: s->picture_gamma = value; break;

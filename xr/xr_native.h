@@ -23,6 +23,8 @@
 // Native (lane wave2-bind-wire): how still the cursor is held around a click,
 // CLICK_STEADY_OFF 0, NORMAL 1 or STEADY 2
 #define SETTING_CLICK_STEADY 30
+// Native (PLAN 4.3): the 3D tab's 3D source, STEREO_SOURCE_DEPTH 0, SBS 1 or TB 2
+#define SETTING_STEREO_SOURCE 31
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 
