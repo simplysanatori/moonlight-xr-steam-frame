@@ -67,7 +67,7 @@ static void followsModel(Scene* s) {
     xrSetLightgun(c, 77, 1, 1);
     CHECK(c->lightgunSetting == LIGHTGUN_AUTO && c->lightgun.active);
     // the policy tracks a change of model from the cog on the next frame, not only at the setting
-    c->modelKind = CONTROLLER_MODEL_GENERIC;
+    c->modelKind = CONTROLLER_MODEL_FRAME;
     xrButtonsFrame(c, 0, HOVER_NONE, 0);
     CHECK(!c->lightgun.active);
     c->modelKind = CONTROLLER_MODEL_GUN;

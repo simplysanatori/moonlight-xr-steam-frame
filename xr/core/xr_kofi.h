@@ -1,16 +1,17 @@
 // The Ko-fi sheet's "Open page" (PLAN 6.14): which program shows the page on the Frame, the
 // command line for a URL, and the once-per-press guard. Plain strings and arithmetic, no
 // process and no OpenXR, so the tests reach all of it; xr/xr_kofi.c does the forking.
-// A QR code cannot be scanned from inside the headset, so the sheet opens the page in Steam's
-// own browser instead: `steam steam://openurl/<url>` (SteamVR shows it in the dashboard), or
-// `xdg-open <url>` when `steam` is not on PATH. Used by the flat launcher too. GPLv3.
+// The sheet opens the page in Steam's own browser: `steam steam://openurl/<url>` (SteamVR shows
+// it in the dashboard), or `xdg-open <url>` when `steam` is not on PATH. Used by the flat
+// launcher too. GPLv3.
 
 #ifndef XR_KOFI_H
 #define XR_KOFI_H
 
 #include <stddef.h>
 
-#define XR_KOFI_URL "https://ko-fi.com/moonlightxr"
+// This port's author's page (README.md, Support); upstream's is linked from the README
+#define XR_KOFI_URL "https://ko-fi.com/sana748653"
 
 typedef enum {
     XR_KOFI_OPEN_NONE = 0,  // neither program is on PATH

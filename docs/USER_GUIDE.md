@@ -300,7 +300,7 @@ The bar sits under the screen and shows its buttons only while the ray is over i
 The bar is not drawn all the time. Its buttons and the move pill appear only while the ray is over the strip under the picture, and they go again when it leaves. That keeps the picture clear, but it means you have to point at the strip before the bar is there.
 
 - Point either controller just below the picture. The buttons appear, the one under the ray grows a little, and a press lands on it. The whole row counts as the bar, gaps and all, so the buttons stay up while the ray moves along it and the pointer stays with that controller even when the other one is pointing at the picture.
-- With **Ray** on Off (no beam and no dot), a faint beam shows only while the controller points into that strip, so the bar can still be found. Anywhere else nothing extra is drawn. With a menu open the beam comes back anyway.
+- With **Ray** on Off (no beam and no dot), a faint beam shows only while the controller points into that strip, so the bar can still be found. Anywhere else nothing extra is drawn. With a menu open the faint beam and the dot show, so the menu can still be aimed at.
 - In gamepad mode the controllers are not pointers, so there is nothing to point at the bar with: switch back to pointer mode first (see [Switching between the modes](#switching-between-the-modes)).
 - Everything on the bar can also go on a controller button without the bar: `app:cog`, `app:keyboard`, `app:gamepad`, `app:host`, `app:3d`, `app:ray`, `app:recentre` and `app:bringhere` in `bindings.ini` ([Changing the buttons](#changing-the-buttons)).
 
@@ -354,8 +354,8 @@ The presets and Bring here also work from a controller button: bind `app:bringhe
 | Head locked | Off, On, Follow | Off. On: the screen is fixed to your head. Follow: the screen stays where it is until your head has turned more than the leash (25° by default, `follow_leash_deg`) away from it, in yaw or in pitch, then it eases after where you look over about half a second and stays there. See [Follow and comfort](#follow-and-comfort). |
 | Head aim | Off, On | Off. Needs Head locked; not in a room. |
 | Mode | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
-| Show controllers | Off, Frame, Generic, Gun | Off. Which controller is drawn in each hand; see [Controllers](#controllers). |
-| Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. Bar = this session, cog = saved: the choice here is kept for the next session, the bar's Ray button is not. |
+| Show controllers | Off, Frame, Gun | Off. Which controller is drawn in each hand; see [Controllers](#controllers). |
+| Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. Bar = this session, cog = saved: the choice here is kept for the next session, the bar's Ray button is not. A press shows at once, with the cog still open: while a menu is up, Ray is the beam and the dot, Dot the dot alone, and Off a faint beam with the dot, so the menu can still be aimed at. |
 | Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
 | Click steadiness | Off, Normal, Steady | Normal. How still the PC's cursor is held around a click. Normal sends a click where you aimed before the trigger pull moved the controller, and holds the cursor for a double click. Steady also keeps the cursor still from the moment you touch the trigger until you aim a few pixels away. Off sends the aim as it is, for light gun games and fast clicking. |
 | Click sound | Off, On | On |
@@ -369,7 +369,7 @@ The presets and Bring here also work from a controller button: bind `app:bringhe
 | Row | Notes |
 | --- | --- |
 | Preset | Comfort, Balanced, Strong. |
-| Depth | How far apart the eyes' pictures are. The part of the track past the model's default is marked "harder on the eyes". |
+| Depth | How far apart the eyes' pictures are. The part of the track past the model's default is amber: depth there is harder on the eyes. |
 | Convergence | Where the screen plane sits in depth. Default 50. With SBS or Top-bottom it moves the two halves apart (above 50, the picture goes behind the screen) or together (below 50, it comes out). |
 | 3D | On or Off. Remembered between sessions. |
 | 3D source | Depth, SBS, Top-bottom. Where the 3D comes from: the depth model, or a pair the PC renders itself. Takes effect at once and is remembered. See [SBS 3D](#sbs-3d). |
@@ -392,7 +392,7 @@ The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the d
 
 ### About
 
-The version, the log file, a Ko-fi button to support Moonlight XR, and **Report a problem**. The Ko-fi button opens a sheet with the page's address and a QR code for anyone who takes the headset off. In the headset, press **Open page** and Steam's browser shows the page in the dashboard (the Frame runs `steam steam://openurl/https://ko-fi.com/moonlightxr`, or `xdg-open` when `steam` is not found). **Not now**, or a press anywhere off the buttons, closes the sheet and opens nothing. Ko-fi is optional: Moonlight XR is free and stays free. The report sheet has three buttons. **Save** keeps your note on the Frame in `~/Games/MoonlightXRNative/reports`. **Save and zip** does that and also runs `bug-report.sh` in the background, so the masked zip is made without leaving the headset. A notice shows where the zip is (`~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip`) and the log says so too. A note is not needed for the zip. Nothing leaves the headset: copy the zip off the Frame and open an issue on GitHub with it. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
+The version, the log file, **Support simplysanatori on Ko-fi**, and **Report a problem**. The Ko-fi button opens a small sheet with two buttons. **Open page** shows this port's Ko-fi page in Steam's browser in the dashboard (the Frame runs `steam steam://openurl/https://ko-fi.com/sana748653`, or `xdg-open` when `steam` is not found). **Not now**, or a press anywhere off the buttons, closes the sheet and opens nothing. Upstream Moonlight XR's own Ko-fi is linked from the [README](../README.md#support). The report sheet has three buttons. **Save** keeps your note on the Frame in `~/Games/MoonlightXRNative/reports`. **Save and zip** does that and also runs `bug-report.sh` in the background, so the masked zip is made without leaving the headset. A notice shows where the zip is (`~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip`) and the log says so too. A note is not needed for the zip. Nothing leaves the headset: copy the zip off the Frame and open an issue on GitHub with it. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
 
 ### Stats styles, battery and the slow connection badge
 
@@ -633,15 +633,15 @@ The cog's **Display** tab has the controller rows together: **Mode**, **Show con
 
 | Row | What it does |
 | --- | --- |
-| Show controllers | **Off** (the default) draws no controller in the headset. The other cells draw one in each hand: **Frame** is the Steam Frame controller itself (the installer converts SteamVR's own models on your Frame, so they match the real controllers and move with your buttons and sticks; Valve's models are never in the download; if the conversion failed you get the generic controller instead), **Generic** is a plain Touch-style controller that is always available, and **Gun** is a Glock 17 with a weapon light, held like a light gun: it is drawn at the ray, with the barrel pointing along it and the muzzle where the dot is, and its trigger moves as you pull yours (the model is by 8sianDude, CC BY 4.0; a `gun_left.model` and `gun_right.model` of your own in `~/.config/moonlight-xr/models/` are drawn instead, see [Custom controller models](CUSTOM_MODELS.md#the-gun-model)). Controllers are hidden in passthrough. The choice takes effect at once and is kept for the next session. |
+| Show controllers | **Off** (the default) draws no controller in the headset. The other cells draw one in each hand: **Frame** is the Steam Frame controller itself (the installer converts SteamVR's own models on your Frame, so they match the real controllers and move with your buttons and sticks; Valve's models are never in the download; if the conversion failed no controller is drawn and `moonlight.log` says why), and **Gun** is a Glock 17 with a weapon light, held like a light gun: it is drawn at the ray, with the barrel pointing along it and the muzzle where the dot is, and its trigger moves as you pull yours (the model is by 8sianDude, CC BY 4.0; a `gun_left.model` and `gun_right.model` of your own in `~/.config/moonlight-xr/models/` are drawn instead, see [Custom controller models](CUSTOM_MODELS.md#the-gun-model)). Controllers are hidden in passthrough. The choice takes effect at once and is kept for the next session. |
 | Mode | Pointer or Gamepad. Every session starts in pointer mode. |
 | Ray | Off, Dot or Ray: how the pointer shows. |
 
-**A model of your own.** `controller_model = custom` in `config.ini` (or the launcher's Settings page, under Input Settings, **Show controllers**: press the row until it says Your own model) draws the model you put in `~/.config/moonlight-xr/models/`. The cog has no cell for it. If the files are missing or cannot be read, the Frame controllers are drawn and `moonlight.log` says why. How to make the files: [Custom controller models](CUSTOM_MODELS.md). Older config files that say `controller_model = true` or `false` still work (Frame and Off).
+**A model of your own.** `controller_model = custom` in `config.ini` (or the launcher's Settings page, under Input Settings, **Show controllers**: press the row until it says Your own model) draws the model you put in `~/.config/moonlight-xr/models/`. The cog has no cell for it. If the files are missing or cannot be read, the Frame controllers are drawn and `moonlight.log` says why. How to make the files: [Custom controller models](CUSTOM_MODELS.md). Older config files that say `controller_model = true` or `false` still work (Frame and Off), and `generic`, the plain controller earlier versions had, reads as Frame.
 
 **Bar = this session, cog = saved.** The bar's Ray, Gamepad / Pointer and Head aim buttons change this session only. The cog's Ray row and Show controllers are kept for the next session.
 
-The bar is hidden until the ray is over it. With **Ray** set to **Off** (no beam and no dot), a faint beam shows only while the controller points into the bar's area under the screen, so you can still find the bar. Anywhere else, and with a panel open, nothing extra is drawn.
+The bar is hidden until the ray is over it. With **Ray** set to **Off** (no beam and no dot), a faint beam shows only while the controller points into the bar's area under the screen, so you can still find the bar. Anywhere else nothing extra is drawn; with a panel open the faint beam and the dot show, so the panel can be aimed at.
 
 ## Keyboards, mice and gamepads
 

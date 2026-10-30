@@ -12,8 +12,8 @@
 //   frame_models  the controller model loader: the Steam Frame's per-hand pair (native: textured
 //                 .model preferred over painted .room)
 //           (written here as tiny meshes) when both parse, each hand its own
-//           range and not mirrored, else the generic controller; a corrupt
-//           pair with no generic one is a failed load, not a crash
+//           range and not mirrored, else no model (lane fix-polish: no
+//           generic controller); a corrupt pair is a failed load, not a crash
 //   curve   the curved picture's image (UNORM since M5) gives the same bytes
 //           through the panel pass as the flat picture; the M4 _SRGB image
 //           did not
@@ -890,10 +890,10 @@ static void writeQuadModel(const char* path, float shiftX, const uint8_t rgb[3])
     fclose(f);
 }
 
+// An empty assets folder (lane fix-polish: the generic controller that went in it is gone)
 static void stageAssets(const char* dir) {
     char cmd[1600];
-    snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models' && cp '%s/models/controller.room' '%s/models/'", dir,
-             dir, MLXR_ASSETS_DIR, dir);
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models'", dir, dir);
     CHECK(system(cmd) == 0);
 }
 
@@ -962,15 +962,14 @@ static void frameModelsGroup(void) {
     const float red[3] = { 1, 0, 0 }, blue[3] = { 0, 0, 1 };
     FILE* f = NULL;
 
-    // Nothing but the generic controller: as before, one mesh for both hands
+    // Nothing of the Frame's: no model (lane fix-polish: no generic controller to fall back on), said
+    // so, not a crash
     stageAssets(dir);
     XrCtx* c = ctxWithAssets(dir);
-    CHECK(c->modelReady && c->model && !c->model->perHand);
-    CHECK(c->model->handFirstIndex[0] == 0 && c->model->handFirstIndex[1] == 0);
-    CHECK(c->model->handIndexCount[0] == c->model->indexCount && c->model->handIndexCount[1] == c->model->indexCount);
+    CHECK(!c->modelReady && c->model == NULL && c->modelLoadFailed && c->modelKindAsked == CONTROLLER_MODEL_FRAME);
     unloadWith(c);
 
-    // Both hands there and valid: the pair, each hand its own range, not the generic one
+    // Both hands there and valid: the pair, each hand its own range
     snprintf(path, sizeof(path), "%s/models/frame_controller_left.room", dir);
     writeTriRoom(path, 0.10f, 0.15f, red, 0);
     snprintf(path, sizeof(path), "%s/models/frame_controller_right.room", dir);
@@ -1000,8 +999,8 @@ static void frameModelsGroup(void) {
     handColour(c, &s, HAND_RIGHT, &r, &b, &n, &xr);
     printf("  right hand: %d px, red %.0f blue %.0f, mean x %.1f of %d\n", n, r, b, xr, s.w);
     CHECK(n > 1000 && b > 50 && r < 5);
-    // Not mirrored: both triangles were made 0.15 m to the right and both are drawn there (the
-    // generic left would be flipped to the left of the grip)
+    // Not mirrored: both triangles were made 0.15 m to the right and both are drawn there (a
+    // one-mesh model's left would be flipped to the left of the grip)
     CHECK(xl > s.w / 2 + 20 && xr > s.w / 2 + 20);
     m5_image_free(c, &s.colour);
     m5_image_free(c, &s.depth);
@@ -1050,17 +1049,18 @@ static void frameModelsGroup(void) {
     snprintf(path, sizeof(path), "%s/models/frame_controller_left.model", dir);
     remove(path);
 
-    // One hand missing: the generic one, both hands
+    // One hand missing: no model (never half a pair)
     snprintf(path, sizeof(path), "%s/models/frame_controller_left.room", dir);
     remove(path);
     c = ctxWithAssets(dir);
-    CHECK(c->modelReady && c->model && !c->model->perHand);
+    CHECK(!c->modelReady && c->model == NULL && c->modelLoadFailed);
     unloadWith(c);
 
-    // One hand cut short (a file that does not parse), or not a mesh at all: the generic one
+    // One hand cut short (a file that does not parse), or not a mesh at all: no model, and it is
+    // said so (not a crash)
     writeTriRoom(path, 0.10f, 0.15f, red, 1);
     c = ctxWithAssets(dir);
-    CHECK(c->modelReady && c->model && !c->model->perHand);
+    CHECK(!c->modelReady && c->model == NULL && c->modelLoadFailed);
     unloadWith(c);
     writeTriRoom(path, 0.10f, 0.15f, red, 0);
     snprintf(path, sizeof(path), "%s/models/frame_controller_right.room", dir);
@@ -1068,14 +1068,7 @@ static void frameModelsGroup(void) {
     fputs("this is not a mesh", f);
     fclose(f);
     c = ctxWithAssets(dir);
-    CHECK(c->modelReady && c->model && !c->model->perHand);
-    unloadWith(c);
-
-    // Corrupt pair and no generic one either: no model, and it is said so (not a crash)
-    snprintf(path, sizeof(path), "%s/models/controller.room", dir);
-    remove(path);
-    c = ctxWithAssets(dir);
-    CHECK(!c->modelReady && c->modelLoadFailed);
+    CHECK(!c->modelReady && c->model == NULL && c->modelLoadFailed);
     unloadWith(c);
 }
 
@@ -1098,22 +1091,17 @@ static void modelKindGroup(void) {
     // Off: nothing is read
     m5_frame(&g, c, NULL, NULL);
     CHECK(!c->modelReady && c->model == NULL);
-    // Generic, the first load
+    // The gun, the first load: aim pose, a real pair, the trigger animated
     c->modelOn = 1;
-    c->modelKind = CONTROLLER_MODEL_GENERIC;
-    m5_frame(&g, c, NULL, NULL);
-    CHECK(c->modelReady && c->model && c->model->kind == CONTROLLER_MODEL_GENERIC && c->model->mirrorLeft);
-    CHECK(c->modelKindAsked == CONTROLLER_MODEL_GENERIC);
-    MlxrModel* generic = c->model;
-    // The same kind again is the same model
-    m5_frame(&g, c, NULL, NULL);
-    CHECK(c->model == generic);
-    // The gun replaces it between frames: aim pose, a real pair, the trigger animated
     c->modelKind = CONTROLLER_MODEL_GUN;
     m5_frame(&g, c, NULL, NULL);
     CHECK(c->modelReady && c->model && c->model != NULL && c->model->kind == CONTROLLER_MODEL_GUN);
+    CHECK(c->modelKindAsked == CONTROLLER_MODEL_GUN);
     CHECK(c->model->space == MODEL_SPACE_AIM && c->model->textured && c->model->perHand && !c->model->mirrorLeft);
     MlxrModel* gun = c->model;
+    // The same kind again is the same model
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->model == gun);
     // Off keeps what is loaded and loads nothing; on again with the same kind is the same model
     c->modelOn = 0;
     m5_frame(&g, c, NULL, NULL);
@@ -1121,19 +1109,20 @@ static void modelKindGroup(void) {
     c->modelOn = 1;
     m5_frame(&g, c, NULL, NULL);
     CHECK(c->model == gun);
-    // On with no kind stored reads as the Frame's, which here (no Frame models converted) is the
-    // generic controller, said so
+    // On with no kind stored reads as the Frame's, which here (no Frame models converted) loads
+    // nothing: lane fix-polish took the generic controller out, so no model is drawn, not even the
+    // gun that was, and it is said so once
     c->modelKind = 0;
     m5_frame(&g, c, NULL, NULL);
-    CHECK(c->modelKindAsked == CONTROLLER_MODEL_FRAME && c->model && c->model != gun);
-    CHECK(c->model->kind == CONTROLLER_MODEL_GENERIC || c->model->kind == CONTROLLER_MODEL_FRAME);
-    // Custom with nothing in the config folder: the same fall back, and no second attempt every frame
+    CHECK(c->modelKindAsked == CONTROLLER_MODEL_FRAME && c->model == NULL && !c->modelReady && c->modelLoadFailed);
+    m5_frame(&g, c, NULL, NULL);
+    CHECK(c->modelKindAsked == CONTROLLER_MODEL_FRAME && c->model == NULL);
+    // Custom with nothing in the config folder: the same fall back, to nothing here
     c->modelKind = CONTROLLER_MODEL_CUSTOM;
     m5_frame(&g, c, NULL, NULL);
-    CHECK(c->modelKindAsked == CONTROLLER_MODEL_CUSTOM && c->model && c->model->kind != CONTROLLER_MODEL_CUSTOM);
-    MlxrModel* fell = c->model;
+    CHECK(c->modelKindAsked == CONTROLLER_MODEL_CUSTOM && c->model == NULL && !c->modelReady);
     m5_frame(&g, c, NULL, NULL);
-    CHECK(c->model == fell);
+    CHECK(c->model == NULL);
     // A custom file dropped in, and the kind asked for again from another kind: the file loads, mirrored
     snprintf(path, sizeof(path), "%s/models/custom.model", cfg);
     writeQuadModel(path, 0.15f, texRed);

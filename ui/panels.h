@@ -174,7 +174,6 @@ typedef struct {
     const char* version;         // About tab ("0.1.0"), NULL for none
     const char* commit;          // may be NULL
     const char* log_path;        // shown shortened; NULL means the log is off
-    const char* kofi_url;        // default https://ko-fi.com/moonlightxr
     // Native (M4): what the native client cannot act on yet. Display tab rows
     // (bit per COG_OPTION_*, bit COG_DISPLAY_SLIDER_ROW for the glow level)
     // drawn greyed with later_reason (NULL: "comes in a later update"); the 3D
@@ -290,7 +289,7 @@ int ui_cog_row_live(const UiView* v, int face, int row);
 // Preset separations (units of the track) for the 3D tab, in cell order
 void ui_presets_for(const Settings* s, int presets[COG_PRESET_CELLS]);
 
-// Where assets (room thumbnails, Ko-fi QR, settings icon) are read from;
+// Where assets (room thumbnails, settings icon) are read from;
 // defaults to $MLXR_ASSETS_DIR, then the compiled-in assets directory. Frees
 // anything cached.
 void ui_panels_set_assets_dir(const char* dir);

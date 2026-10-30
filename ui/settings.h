@@ -83,7 +83,7 @@ typedef struct Settings {
     int keyboard_layout;   // native: 0 compact (Moonlight XR's laser keyboard), 1 full (tenkeyless)
     int keyboard_keymap;   // native: 0 qwerty, 1 azerty, 2 qwertz: what the headset keyboard's keys say
     int keyboard_hold_ms;  // native: how long a modifier key is held to lock it on the full keyboard
-    int controller_model;  // CONTROLLER_MODEL_*: 0 off, 1 the Frame's, 2 generic, 3 gun, 4 custom
+    int controller_model;  // CONTROLLER_MODEL_*: 0 off, 1 the Frame's, 2 gun, 3 custom
     int head_aim;
     int head_aim_sensitivity;
     int head_aim_deadzone;

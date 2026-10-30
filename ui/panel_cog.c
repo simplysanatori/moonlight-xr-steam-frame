@@ -290,7 +290,7 @@ static void tab_display(Dc* dc) {
     // native: the ray row has a third cell, the dot without the ray
     static const UiStr POINTER3[3] = { UIS_OFF, UIS_NATIVE_DOT, UIS_NATIVE_RAY };
     // native: which controller to draw (a custom model has no cell: the file and the launcher pick it)
-    static const UiStr MODEL4[4] = { UIS_OFF, UIS_MODEL_FRAME, UIS_MODEL_GENERIC, UIS_MODEL_GUN };
+    static const UiStr MODEL3[COG_CONTROLLERS_CELLS] = { UIS_OFF, UIS_MODEL_FRAME, UIS_MODEL_GUN };
     float cell_half = COG_DISPLAY_CELL_HALF * dc->nh;
     int in_room = v->room_env >= 0 && settings_room_index(v->room_env) >= 0;
     for (int row = 0; row < COG_OPTION_COUNT; row++) {
@@ -329,7 +329,7 @@ static void tab_display(Dc* dc) {
         const UiStr* names = row <= COG_OPTION_SUPERSAMPLE ? OFFNQ : row == COG_OPTION_GAMEPAD ? PADPTR
                            : row == COG_OPTION_RAY ? POINTER3 : row == COG_OPTION_NOTICES ? NOTICES3
                            : row == COG_OPTION_HEAD_LOCK ? HEADLOCK3
-                           : row == COG_OPTION_CONTROLLERS ? MODEL4
+                           : row == COG_OPTION_CONTROLLERS ? MODEL3
                            : row == COG_OPTION_CLICK_STEADY ? STEADY3 : OFFON;
         int n = ui_cog_row_cells(COG_TAB_DISPLAY, row);
         cells(dc, COG_TAB_DISPLAY, row, names, n, y, 1, cell_half, settings_option_cell(s, &v->session, row));
@@ -446,8 +446,6 @@ static void tab_3d(Dc* dc) {
             // past the model's default depth stops growing and only the strain does
             dc_line(dc, COG_RUN_L * dc->nw, y, mark_x, y, 6.0f, ok ? 0x66FFFFFFu : 0x30FFFFFFu);
             dc_line(dc, mark_x, y, COG_RUN_R * dc->nw, y, 6.0f, ok ? 0x66FFB74Du : 0x30FFB74Du);
-            dc_text(dc, UI_WEIGHT_REGULAR, 15.0f, (mark_x + COG_RUN_R * dc->nw) * 0.5f, y + 0.04f * dc->nh,
-                    UI_ALIGN_CENTER, ok ? 0xA0FFB74Du : 0x30FFB74Du, ui_str(UIS_HARDER_ON_EYES));
         } else {
             track_line(dc, y, ok ? 0x66FFFFFFu : 0x30FFFFFFu);
         }
@@ -548,7 +546,6 @@ static void tab_about(Dc* dc) {
     line_fit_center(dc, 19.0f, mid, 0.38f * dc->nh, room, 0xB0FFFFFFu, line, UI_ELLIPSIZE_MIDDLE);
 
     about_button(dc, COG_KOFI_L, COG_KOFI_T, COG_KOFI_R, COG_KOFI_B, ui_str(UIS_KOFI_TITLE), UI_BTN_KOFI);
-    line_fit_center(dc, 17.0f, mid, (COG_KOFI_B + 0.05f) * dc->nh, room, 0x80FFFFFFu, ui_str(UIS_KOFI_FREE), UI_ELLIPSIZE_END);
     about_button(dc, COG_REPORT_L, COG_REPORT_T, COG_REPORT_R, COG_REPORT_B, ui_str(UIS_REPORT_TITLE), UI_BTN_REPORT);
     line_fit_center(dc, 17.0f, mid, (COG_REPORT_B + 0.05f) * dc->nh, room, 0x80FFFFFFu, ui_str(UIS_REPORT_SENDS), UI_ELLIPSIZE_END);
     line_fit_center(dc, 17.0f, mid, 0.915f * dc->nh, room, 0x90FFFFFFu, ui_str(UIS_ABOUT_BUILT_BY), UI_ELLIPSIZE_END);

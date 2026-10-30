@@ -495,13 +495,13 @@ static void rayRowSaved(void) {
     }
 }
 
-// The Display tab's Show controllers row (Off / Frame / Generic / Gun): applied to the context,
+// The Display tab's Show controllers row (Off / Frame / Gun): applied to the context,
 // stored as the kind, round-tripped through config.ini into the next session, which loads that
 // kind. Custom has no cell: it comes from the file, shows no cell marked, and survives the row's
 // other cells being read
 static void controllerModelRow(void) {
-    CHECK(cogOptionCells(COG_OPTION_CONTROLLERS) == 4);
-    for (int cell = 0; cell < 4; cell++) {
+    CHECK(cogOptionCells(COG_OPTION_CONTROLLERS) == 3);
+    for (int cell = 0; cell < 3; cell++) {
         Scene* sc = scene_new();
         XrCtx* c = sc->ctx;
         Settings s;
@@ -565,6 +565,14 @@ static void controllerModelRow(void) {
     scene_free(oldScene);
     settings_from_text(&old, "[vr]\ncontroller_model = false\n", NULL);
     CHECK(old.controller_model == CONTROLLER_MODEL_OFF);
+    // Lane fix-polish: the generic controller is gone; a file that picked it gets the Frame's
+    settings_from_text(&old, "[vr]\ncontroller_model = generic\n", NULL);
+    oldScene = scene_new();
+    xrApplySettings(oldScene->ctx, &old);
+    CHECK(old.controller_model == CONTROLLER_MODEL_FRAME && oldScene->ctx->modelOn == 1 &&
+          oldScene->ctx->modelKind == CONTROLLER_MODEL_FRAME);
+    CHECK(cogOptionValue(oldScene->ctx, COG_OPTION_CONTROLLERS, 0) == 1);   // the Frame cell
+    scene_free(oldScene);
 }
 
 // The Display tab's Notices row (All / Important / Off): applied to the
@@ -667,8 +675,10 @@ static int quadsOfSlot(const Scene* sc, int slot) {
 }
 
 // With the Ray row on Off, a faint beam is drawn only while the controller is
-// in the bar's hover band, so the bar can be found; the Dot cell, the Ray
-// cell, a panel and the rest of the view are not changed by it
+// in the bar's hover band, so the bar can be found, or while a panel is up, so
+// it can be aimed at; the Dot cell, the Ray cell and the rest of the view are
+// not changed by it. Lane fix-polish: a panel up shows the row's choice live
+// (Ray the beam, Dot no beam, Off the faint one) instead of the full beam
 static void restingBeam(void) {
     Vec3 hand = { 0.2f, -0.3f, -0.3f }, at = { 0, -1.0f, -3.0f };
     for (int cell = 0; cell < 3; cell++) {
@@ -700,13 +710,24 @@ static void restingBeam(void) {
         scene_frame(sc, NULL);
         CHECK(quadsOfSlot(sc, ATLAS_BEAM_FAINT) == 0);
 
-        // a panel up brings the full beam back, never the stub
+        // a panel up shows the cell as it is: the full beam on Ray, none on Dot (the dot is the
+        // cue), the faint one on Off, in the band or out of it
         c->hoverKind = HOVER_BAR;
         c->cogOpen = 1;
         c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
         scene_frame(sc, NULL);
-        CHECK(quadsOfSlot(sc, ATLAS_BEAM) == 1);
-        CHECK(quadsOfSlot(sc, ATLAS_BEAM_FAINT) == 0);
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM) == full);
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM_FAINT) == faintInBand);
+        c->hoverKind = HOVER_COGPANEL;
+        scene_frame(sc, NULL);
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM) == full);
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM_FAINT) == faintInBand);
+        // and a pick of another cell with the cog still open shows at once
+        int next = (cell + 1) % 3;
+        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_RAY, next, out);
+        scene_frame(sc, NULL);
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM) == (next == 2 ? 1 : 0));
+        CHECK(quadsOfSlot(sc, ATLAS_BEAM_FAINT) == (next == 0 ? 1 : 0));
         scene_free(sc);
     }
     // the bar's own Ray button, which is the session's only: on the Ray cell,

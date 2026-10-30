@@ -152,7 +152,7 @@ See [docs/BUILDING.md](docs/BUILDING.md). The build runs on the Frame itself.
 
 ## Support
 
-Moonlight XR is Gilleece's work. If you want to support someone, support upstream first: [Ko-fi: moonlightxr](https://ko-fi.com/moonlightxr). In the headset, the settings panel's About tab has a Ko-fi button: **Open page** shows that page in Steam's browser in the dashboard (the QR code on the sheet is for a phone, with the headset off).
+Moonlight XR is Gilleece's work. If you want to support someone, support upstream first: [Ko-fi: moonlightxr](https://ko-fi.com/moonlightxr). In the headset, the settings panel's About tab has a Ko-fi button for this port's page (the coffee link below): **Open page** shows it in Steam's browser in the dashboard.
 
 If you would like more Steam Frame ports, you can also [buy me a coffee](https://ko-fi.com/sana748653). It pays for the Claude API credits these ports are built with, spent as carefully as I can.
 
@@ -162,7 +162,7 @@ If you would like more Steam Frame ports, you can also [buy me a coffee](https:/
 - [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) by Sean Gilleece. Every in-headset module here is a port of it: screen layout, bar and menus, rooms, 3D, virtual surround. Its logo is the base of the app icon and the Steam artwork.
 - [Moonlight](https://github.com/moonlight-stream) by the Moonlight Game Streaming Project (Cameron Gutman, Diego Waxemberg, Aaron Neyer, Andrew Hennessy and contributors): [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) for the streaming protocol, and [moonlight-qt](https://github.com/moonlight-stream/moonlight-qt) for the flat window and the host client behaviour.
 - [OpenXR-SDK](https://github.com/KhronosGroup/OpenXR-SDK) from Khronos, [LiteRT](https://github.com/tensorflow/tensorflow) for the depth models, [ZipDepth](https://github.com/fabiotosi92/ZipDepth) by Fabio Tosi and [MiDaS](https://github.com/isl-org/MiDaS) by Intel ISL, KEMAR head-related transfer functions (MIT Media Lab), and Noto Sans.
-- The three rooms and the generic controller model are by Sean Gilleece / Woodford XR (CC BY 4.0).
+- The three rooms are by Sean Gilleece / Woodford XR (CC BY 4.0).
 - The Gun controller model is "[G17 Gen 5 Handgun + Olight - NSW Police Force](https://sketchfab.com/3d-models/g17-gen-5-handgun-olight-nsw-police-force-0200c248eba14385ad2bee8d4dc4e586)" by [8sianDude](https://sketchfab.com/haoliu95) (CC BY 4.0), converted and changed for the headset.
 
 [CREDITS.md](CREDITS.md) has the full list with licences and links.

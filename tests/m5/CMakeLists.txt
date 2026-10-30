@@ -35,8 +35,8 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/world_snapshot.c)
   set_tests_properties(m5_world_snapshot PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
-# The generic controller beside the Steam Frame's own (tools/frame-models) at
-# the same grips; run by hand: mlxr-model-snapshot OUTDIR FRAMEMODELSDIR
+# The Steam Frame's own controllers (tools/frame-models), painted and textured,
+# at the same grips; run by hand: mlxr-model-snapshot OUTDIR FRAMEMODELSDIR
 add_executable(mlxr-model-snapshot model_snapshot.c)
 target_link_libraries(mlxr-model-snapshot PRIVATE m5_gpu m4_scene)
 target_compile_definitions(mlxr-model-snapshot PRIVATE MLXR_ASSETS_DIR="${MLXR_ASSETS_DIR}")

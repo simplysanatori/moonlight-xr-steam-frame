@@ -33,41 +33,40 @@ static void testRaySwitch(void) {
 }
 
 static void testRayDrawn(void) {
-    // Every combination, against the rule written out: the beam shows while
-    // the switch is on, and while any panel is up whatever the switch says
+    // Every combination, against the rule written out: the full beam shows
+    // while the switch is on, and (lane fix-polish) a panel up no longer
+    // brings it back, so the cog's Ray row shows its choice while it is open
     for (int setting = 0; setting < 2; setting++) {
         for (int flipped = 0; flipped < 2; flipped++) {
             for (int panel = 0; panel < 2; panel++) {
                 int on = setting != flipped;
-                CHECK(rayDrawn(setting, flipped, panel) == (on || panel));
+                CHECK(rayDrawn(setting, flipped, panel) == on);
             }
         }
     }
 
-    // A session started with the setting off: hidden, back while the cog is
-    // open, hidden again once it closes
+    // A session started with the setting off: hidden, also while the cog is open
     CHECK(!rayDrawn(0, 0, 0));
-    CHECK(rayDrawn(0, 0, 1));
-    CHECK(!rayDrawn(0, 0, 0));
+    CHECK(!rayDrawn(0, 0, 1));
     // The bar button turns it on for the session, and a panel changes nothing
     CHECK(rayDrawn(0, 1, 0));
     CHECK(rayDrawn(0, 1, 1));
     // Started on and switched off from the bar, the same as the setting off
     CHECK(!rayDrawn(1, 1, 0));
-    CHECK(rayDrawn(1, 1, 1));
+    CHECK(!rayDrawn(1, 1, 1));
 }
 
 static void testRayBeamKind(void) {
     // Every combination against the rule written out: whatever rayDrawn
-    // allows is the full beam; otherwise the resting stub shows only with the
-    // dot off, no panel up and the controller over the bar's band
+    // allows is the full beam; otherwise the faint beam shows only with the
+    // dot off and either a panel up or the controller over the bar's band
     for (int setting = 0; setting < 2; setting++) {
         for (int flipped = 0; flipped < 2; flipped++) {
             for (int panel = 0; panel < 2; panel++) {
                 for (int dot = 0; dot < 2; dot++) {
                     for (int band = 0; band < 2; band++) {
                         int want = rayDrawn(setting, flipped, panel) ? RAY_BEAM_FULL
-                                 : (band && !dot && !panel) ? RAY_BEAM_RESTING : RAY_BEAM_NONE;
+                                 : ((band || panel) && !dot) ? RAY_BEAM_RESTING : RAY_BEAM_NONE;
                         CHECK(rayBeamKind(setting, flipped, panel, dot, band) == want);
                     }
                 }
@@ -75,16 +74,20 @@ static void testRayBeamKind(void) {
         }
     }
     // Ray Off, Dot Off (the cog's Off cell) from the start of a session:
-    // nothing away from the bar, the stub inside its band, nothing again once
-    // a panel opens (the full beam comes back there), and the full beam when
-    // the ray is on whatever the band says
+    // nothing away from the bar, the faint beam inside its band and while a
+    // panel is up (so the cog can be aimed at with the Off cell chosen), and
+    // the full beam when the ray is on whatever the band says
     CHECK(rayBeamKind(0, 0, 0, 0, 0) == RAY_BEAM_NONE);
     CHECK(rayBeamKind(0, 0, 0, 0, 1) == RAY_BEAM_RESTING);
-    CHECK(rayBeamKind(0, 0, 1, 0, 1) == RAY_BEAM_FULL);
+    CHECK(rayBeamKind(0, 0, 1, 0, 1) == RAY_BEAM_RESTING);
+    CHECK(rayBeamKind(0, 0, 1, 0, 0) == RAY_BEAM_RESTING);
     CHECK(rayBeamKind(1, 0, 0, 1, 0) == RAY_BEAM_FULL);
     CHECK(rayBeamKind(1, 0, 0, 1, 1) == RAY_BEAM_FULL);
-    // Ray Off with the Dot on: the dot shows where it points, so no stub
+    CHECK(rayBeamKind(1, 0, 1, 1, 0) == RAY_BEAM_FULL);
+    // Ray Off with the Dot on (the Dot cell): the dot shows where it points,
+    // so no beam, with or without a panel: the three cells look apart in the cog
     CHECK(rayBeamKind(0, 0, 0, 1, 1) == RAY_BEAM_NONE);
+    CHECK(rayBeamKind(0, 0, 1, 1, 0) == RAY_BEAM_NONE);
     // Switched off from the bar for the session: the same as the setting off
     CHECK(rayBeamKind(1, 1, 0, 0, 1) == RAY_BEAM_RESTING);
     CHECK(rayBeamKind(1, 1, 0, 0, 0) == RAY_BEAM_NONE);
@@ -321,14 +324,14 @@ static void testModelKind(void) {
     CHECK(controllerModelKind(0, CONTROLLER_MODEL_GUN) == CONTROLLER_MODEL_OFF);
     CHECK(controllerModelKind(1, 0) == CONTROLLER_MODEL_FRAME);
     CHECK(controllerModelKind(1, CONTROLLER_MODEL_FRAME) == CONTROLLER_MODEL_FRAME);
-    CHECK(controllerModelKind(1, CONTROLLER_MODEL_GENERIC) == CONTROLLER_MODEL_GENERIC);
     CHECK(controllerModelKind(1, CONTROLLER_MODEL_GUN) == CONTROLLER_MODEL_GUN);
     CHECK(controllerModelKind(1, CONTROLLER_MODEL_CUSTOM) == CONTROLLER_MODEL_CUSTOM);
     CHECK(controllerModelKind(1, CONTROLLER_MODEL_COUNT) == CONTROLLER_MODEL_FRAME);
     CHECK(controllerModelKind(1, -3) == CONTROLLER_MODEL_FRAME);
-    // The settings' order is the enum's
-    CHECK(CONTROLLER_MODEL_OFF == 0 && CONTROLLER_MODEL_FRAME == 1 && CONTROLLER_MODEL_GENERIC == 2 &&
-          CONTROLLER_MODEL_GUN == 3 && CONTROLLER_MODEL_CUSTOM == 4 && CONTROLLER_MODEL_COUNT == 5);
+    // The settings' order is the enum's (lane fix-polish: the generic controller that was 2 is gone)
+    CHECK(CONTROLLER_MODEL_OFF == 0 && CONTROLLER_MODEL_FRAME == 1 && CONTROLLER_MODEL_GUN == 2 &&
+          CONTROLLER_MODEL_CUSTOM == 3 && CONTROLLER_MODEL_COUNT == 4);
+    CHECK(strcmp(controllerModelKindName(CONTROLLER_MODEL_FRAME), "frame") == 0);
     CHECK(strcmp(controllerModelKindName(CONTROLLER_MODEL_GUN), "gun") == 0);
     CHECK(strcmp(controllerModelKindName(CONTROLLER_MODEL_CUSTOM), "custom") == 0);
     CHECK(strcmp(controllerModelKindName(9), "?") == 0);
@@ -338,8 +341,8 @@ static void testModelKind(void) {
     }
 }
 
-// Lists read "format:kind": format 1 textured pair, 2 textured one, 3 painted pair, 4 generic;
-// kind 1 the Frame's, 2 generic, 3 gun, 4 custom
+// Lists read "format:kind": format 1 textured pair, 2 textured one, 3 painted pair; kind 1 the
+// Frame's, 2 gun, 3 custom
 static void testModelCandidates(void) {
     char root[100], assets[600], user[600], models[700], got[200];
     scratch(root, assets, user);
@@ -349,101 +352,101 @@ static void testModelCandidates(void) {
     // Off has nothing to read
     CHECK(controllerModelCandidates(CONTROLLER_MODEL_OFF, assets, user, c) == 0);
 
-    // Nothing of the Frame's installed: the Frame kind is the generic controller, tried even if the
-    // file is gone (the loader says so)
+    // Nothing of the Frame's installed: the Frame kind has nothing to read (lane fix-polish: no
+    // generic controller to fall back on), so no controller is drawn
     listed(CONTROLLER_MODEL_FRAME, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "4:2") == 0);
-    CHECK(controllerModelCandidates(CONTROLLER_MODEL_FRAME, assets, user, c) == 1);
-    CHECK(endsWith(c[0].path[0], "/models/controller.room"));
+    CHECK(strcmp(got, "") == 0);
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_FRAME, assets, user, c) == 0);
+    // nor the gun or a custom model, whose files fall back on the Frame's
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_GUN, assets, user, c) == 0);
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_CUSTOM, assets, user, c) == 0);
+    // an old generic controller left in an install's models/ is not read
+    touch(models, "controller.room");
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_FRAME, assets, user, c) == 0);
 
     // The Frame's textured pair is first; one half there is still the pair (the loader refuses it)
     touch(models, "frame_controller_left.model");
     listed(CONTROLLER_MODEL_FRAME, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:1 4:2") == 0);
+    CHECK(strcmp(got, "1:1") == 0);
     touch(models, "frame_controller_right.model");
-    CHECK(controllerModelCandidates(CONTROLLER_MODEL_FRAME, assets, user, c) == 2);
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_FRAME, assets, user, c) == 1);
     CHECK(c[0].format == MODEL_FILES_TEXTURED_PAIR && endsWith(c[0].path[0], "frame_controller_left.model") &&
           endsWith(c[0].path[1], "frame_controller_right.model"));
 
     // The painted pair from an older converter needs both halves, and comes after the textured one
     touch(models, "frame_controller_left.room");
     listed(CONTROLLER_MODEL_FRAME, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:1 4:2") == 0);
+    CHECK(strcmp(got, "1:1") == 0);
     touch(models, "frame_controller_right.room");
     listed(CONTROLLER_MODEL_FRAME, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:1 3:1 4:2") == 0);
-
-    // Generic is the generic controller whatever the Frame's files are
-    listed(CONTROLLER_MODEL_GENERIC, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "4:2") == 0);
+    CHECK(strcmp(got, "1:1 3:1") == 0);
 
     // Gun: its pair, then the Frame's chain when it is missing or broken
     listed(CONTROLLER_MODEL_GUN, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:1 3:1 4:2") == 0);
+    CHECK(strcmp(got, "1:1 3:1") == 0);
     touch(models, "gun_left.model");
     touch(models, "gun_right.model");
     listed(CONTROLLER_MODEL_GUN, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:3 1:1 3:1 4:2") == 0);
-    CHECK(controllerModelCandidates(CONTROLLER_MODEL_GUN, assets, user, c) == 4);
+    CHECK(strcmp(got, "1:2 1:1 3:1") == 0);
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_GUN, assets, user, c) == 3);
     CHECK(endsWith(c[0].path[0], "/models/gun_left.model") && endsWith(c[0].path[1], "/models/gun_right.model"));
 
     // Custom with no folder, or an empty one: the Frame's chain
     listed(CONTROLLER_MODEL_CUSTOM, assets, NULL, got, sizeof(got));
-    CHECK(strcmp(got, "1:1 3:1 4:2") == 0);
+    CHECK(strcmp(got, "1:1 3:1") == 0);
     listed(CONTROLLER_MODEL_CUSTOM, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:1 3:1 4:2") == 0);
+    CHECK(strcmp(got, "1:1 3:1") == 0);
     // One half of a pair is not used
     touch(user, "custom_right.model");
     listed(CONTROLLER_MODEL_CUSTOM, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:1 3:1 4:2") == 0);
+    CHECK(strcmp(got, "1:1 3:1") == 0);
     touch(user, "custom_left.model");
     listed(CONTROLLER_MODEL_CUSTOM, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:4 1:1 3:1 4:2") == 0);
-    CHECK(controllerModelCandidates(CONTROLLER_MODEL_CUSTOM, assets, user, c) == 4);
+    CHECK(strcmp(got, "1:3 1:1 3:1") == 0);
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_CUSTOM, assets, user, c) == 3);
     CHECK(strstr(c[0].path[0], "/user/custom_left.model") != NULL &&
           strstr(c[0].path[1], "/user/custom_right.model") != NULL);
     // A single custom.model: the right hand's, mirrored. A pair beside it is tried first
     touch(user, "custom.model");
     listed(CONTROLLER_MODEL_CUSTOM, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:4 2:4 1:1 3:1 4:2") == 0);
-    CHECK(controllerModelCandidates(CONTROLLER_MODEL_CUSTOM, assets, user, c) == 5);
+    CHECK(strcmp(got, "1:3 2:3 1:1 3:1") == 0);
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_CUSTOM, assets, user, c) == 4);
     CHECK(c[1].format == MODEL_FILES_TEXTURED_ONE && endsWith(c[1].path[0], "/user/custom.model"));
     char gone[1200];
     snprintf(gone, sizeof(gone), "%.600s/custom_left.model", user);
     CHECK(remove(gone) == 0);
     listed(CONTROLLER_MODEL_CUSTOM, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "2:4 1:1 3:1 4:2") == 0);
+    CHECK(strcmp(got, "2:3 1:1 3:1") == 0);
     // The Frame kind never looks in the user's folder, nor the gun for custom files
     listed(CONTROLLER_MODEL_FRAME, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:1 3:1 4:2") == 0);
+    CHECK(strcmp(got, "1:1 3:1") == 0);
     listed(CONTROLLER_MODEL_GUN, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:3 1:1 3:1 4:2") == 0);
+    CHECK(strcmp(got, "1:2 1:1 3:1") == 0);
     // A gun of the user's own: both halves, then it comes before the bundled pair
     touch(user, "gun_right.model");
     listed(CONTROLLER_MODEL_GUN, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:3 1:1 3:1 4:2") == 0);
+    CHECK(strcmp(got, "1:2 1:1 3:1") == 0);
     touch(user, "gun_left.model");
     listed(CONTROLLER_MODEL_GUN, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:3 1:3 1:1 3:1 4:2") == 0);
-    CHECK(controllerModelCandidates(CONTROLLER_MODEL_GUN, assets, user, c) == 5);
+    CHECK(strcmp(got, "1:2 1:2 1:1 3:1") == 0);
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_GUN, assets, user, c) == 4);
     CHECK(strstr(c[0].path[0], "/user/gun_left.model") != NULL && strstr(c[0].path[1], "/user/gun_right.model") != NULL);
     CHECK(endsWith(c[1].path[0], "/models/gun_left.model") && strstr(c[1].path[0], "/user/") == NULL);
     // Without a user folder, or for the Frame kind, it is not read
     listed(CONTROLLER_MODEL_GUN, assets, NULL, got, sizeof(got));
-    CHECK(strcmp(got, "1:3 1:1 3:1 4:2") == 0);
+    CHECK(strcmp(got, "1:2 1:1 3:1") == 0);
     listed(CONTROLLER_MODEL_FRAME, assets, user, got, sizeof(got));
-    CHECK(strcmp(got, "1:1 3:1 4:2") == 0);
+    CHECK(strcmp(got, "1:1 3:1") == 0);
 
     // A kind out of range reads nothing
     CHECK(controllerModelCandidates(CONTROLLER_MODEL_COUNT, assets, user, c) == 0);
     CHECK(controllerModelCandidates(-1, assets, user, c) == 0);
     rmTree(root);
 
-    // The files the build ships: the gun's pair is where the loader looks for it
+    // The files the build ships: the gun's pair is where the loader looks for it, and nothing for
+    // the Frame's (made at install)
     listed(CONTROLLER_MODEL_GUN, MLXR_ASSETS_DIR, NULL, got, sizeof(got));
-    CHECK(strncmp(got, "1:3 ", 4) == 0);
-    listed(CONTROLLER_MODEL_GENERIC, MLXR_ASSETS_DIR, NULL, got, sizeof(got));
-    CHECK(strcmp(got, "4:2") == 0);
+    CHECK(strncmp(got, "1:2", 3) == 0);
 }
 
 static void testModelUserDir(void) {

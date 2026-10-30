@@ -92,9 +92,9 @@ class MlxrPrefs : public QObject
     // Native (lane wave4b-zoom, PLAN 4b.6): the zoom a stream starts at in the headset, percent, 100..400
     // ([display] zoom). The headset keeps the zoom and the pan per PC and app once they are set there
     Q_PROPERTY(int zoom MEMBER zoom NOTIFY changed)
-    // Which controller the headset draws in each hand: "off", "frame", "generic", "gun" or "custom"
-    // ([vr] controller_model). Custom (your own files in the models folder) is only chosen here and
-    // in the file; the headset's Display tab has a cell for the other four
+    // Which controller the headset draws in each hand: "off", "frame", "gun" or "custom"
+    // ([vr] controller_model; an old "generic" reads as "frame"). Custom (your own files in the models
+    // folder) is only chosen here and in the file; the headset's Display tab has a cell for the other three
     Q_PROPERTY(QString controllerModel MEMBER controllerModel NOTIFY changed)
     // Native (lane wave3-session): [stream] doff_disconnect (seconds with the headset off before the stream is
     // disconnected, the PC's app keeps running; 0 never, default 60) and idle_disconnect (minutes without input

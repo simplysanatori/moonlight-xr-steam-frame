@@ -59,10 +59,6 @@ void ui_fill_poly(UiCanvas* cv, const float* xy, int n, uint32_t argb);
 // (centred crop), through a rounded-rectangle mask of radius r.
 void ui_image_cover(UiCanvas* cv, const uint8_t* rgba, int iw, int ih, float x0, float y0,
                     float x1, float y1, float r);
-// Straight-alpha RGBA8 image stretched to the rectangle, unfiltered (nearest),
-// for the QR code
-void ui_image_nearest(UiCanvas* cv, const uint8_t* rgba, int iw, int ih, float x0, float y0,
-                      float x1, float y1);
 // Radial gradient disc: colour c0 at the centre fading linearly through
 // (stop, c1) to transparent c2 at the rim; used by the splash glow
 void ui_fill_radial(UiCanvas* cv, float cx, float cy, float r, uint32_t c0, uint32_t c1,

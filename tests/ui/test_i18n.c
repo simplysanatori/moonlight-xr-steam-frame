@@ -56,13 +56,16 @@ static void test_tables(void) {
                 CHECK(t == en);
             }
         }
-        // every language upstream completed has the 109 keys it shares with this port (111 less the two Ko-fi lines that drifted)
-        if (l > 0) CHECK(own == 109);
+        // every language upstream completed has the 106 keys it shares with this port (111 less the Ko-fi
+        // sheet's Not now and title, which drifted, and its scan line, its "free" line and the 3D tab's
+        // "harder on the eyes", which are gone)
+        if (l > 0) CHECK(own == 106);
     }
     // the strings written for this port are English everywhere (docs/dev/i18n.md lists them)
     CHECK(!translated_somewhere[UIS_NATIVE_PC_LIST_TITLE]);
     CHECK(!translated_somewhere[UIS_OK]);
     CHECK(!translated_somewhere[UIS_REPORT_SEND]);   // "Save" here, "Send" upstream
+    CHECK(!translated_somewhere[UIS_KOFI_TITLE]);    // this port's author's page here, upstream's there
     CHECK(translated_somewhere[UIS_CANCEL]);         // upstream's applist_menu_cancel
     CHECK(translated_somewhere[UIS_ROW_DISTANCE]);
 }

@@ -25,17 +25,17 @@ static void testArgv(void) {
     char* argv[4];
     CHECK(xrKofiBuildArgv(XR_KOFI_OPEN_STEAM, XR_KOFI_URL, buf, sizeof buf, argv) == 2);
     CHECK(strcmp(argv[0], "steam") == 0);
-    CHECK(strcmp(argv[1], "steam://openurl/https://ko-fi.com/moonlightxr") == 0);
+    CHECK(strcmp(argv[1], "steam://openurl/https://ko-fi.com/sana748653") == 0);
     CHECK(argv[2] == NULL);
     CHECK(xrKofiBuildArgv(XR_KOFI_OPEN_XDG, XR_KOFI_URL, buf, sizeof buf, argv) == 2);
-    CHECK(strcmp(argv[0], "xdg-open") == 0 && strcmp(argv[1], "https://ko-fi.com/moonlightxr") == 0);
+    CHECK(strcmp(argv[0], "xdg-open") == 0 && strcmp(argv[1], "https://ko-fi.com/sana748653") == 0);
     CHECK(xrKofiBuildArgv(XR_KOFI_OPEN_NONE, XR_KOFI_URL, buf, sizeof buf, argv) == 0);
     // a buffer too small is refused, never cut
     char tiny[32];
     CHECK(xrKofiBuildArgv(XR_KOFI_OPEN_STEAM, XR_KOFI_URL, tiny, sizeof tiny, argv) == 0);
     // what is not a web address never reaches the program
     CHECK(xrKofiUrlOk(XR_KOFI_URL) && xrKofiUrlOk("http://example.com/a?b=c&d=e"));
-    CHECK(!xrKofiUrlOk(NULL) && !xrKofiUrlOk("") && !xrKofiUrlOk("ko-fi.com/moonlightxr"));
+    CHECK(!xrKofiUrlOk(NULL) && !xrKofiUrlOk("") && !xrKofiUrlOk("ko-fi.com/sana748653"));
     CHECK(!xrKofiUrlOk("file:///etc/passwd") && !xrKofiUrlOk("steam://run/480"));
     CHECK(!xrKofiUrlOk("https://ko-fi.com/a b") && !xrKofiUrlOk("https://ko-fi.com/a\nb"));
     CHECK(!xrKofiUrlOk("https://ko-fi.com/\"x") && !xrKofiUrlOk("https://ko-fi.com/a'b"));

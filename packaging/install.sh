@@ -28,8 +28,8 @@
 #
 # The Steam Frame's own controller models are made here from the local SteamVR
 # install (frame-controller-models.py into DEST/assets/models) and are never
-# part of a release or of git; without SteamVR or GdkPixbuf the client keeps
-# drawing its generic controller and the install carries on.
+# part of a release or of git; without SteamVR or GdkPixbuf the client draws no
+# Frame controller and the install carries on.
 #
 # It never asks a question and never reads the terminal, so another program (the community installers
 # Frametanium and FrameDrop) can run it with no terminal and without Steam running. Everything it prints is
@@ -161,18 +161,18 @@ fi
 
 # The Steam Frame's own controller models, converted from the SteamVR on this
 # machine (Valve's files are read here and never redistributed). Optional: any
-# failure leaves the generic controller in use and the install going.
+# failure leaves no Frame model (the client draws none) and the install going.
 FM_SRC="${MLXR_FRAME_RENDERMODELS:-/opt/steamvr/drivers/frame_controller/resources/rendermodels}"
 rm -f "$DEST"/assets/models/frame_controller_* # remade each install, so a SteamVR that went away leaves none
 if [ ! -f "$FRAMEMODELS" ]; then
-    echo "Frame controller models: converter missing ($FRAMEMODELS), skipped (the generic controller is used)"
+    echo "Frame controller models: converter missing ($FRAMEMODELS), skipped (Show controllers Frame draws no model)"
 elif [ ! -d "$FM_SRC" ]; then
-    echo "Frame controller models: no SteamVR controller models at $FM_SRC, skipped (the generic controller is used)"
+    echo "Frame controller models: no SteamVR controller models at $FM_SRC, skipped (Show controllers Frame draws no model)"
 elif python3 -I "$FRAMEMODELS" "$DEST/assets/models" "$FM_SRC"; then
     echo "  Frame controller models (made from the local SteamVR; the Settings switch for controller models draws them)"
 else
     rm -f "$DEST"/assets/models/frame_controller_*
-    echo "Frame controller models: conversion failed (see above; GdkPixbuf for Python is needed), skipped (the generic controller is used)"
+    echo "Frame controller models: conversion failed (see above; GdkPixbuf for Python is needed), skipped (Show controllers Frame draws no model)"
 fi
 
 # Pairing: only when asked, and never over an existing identity.
