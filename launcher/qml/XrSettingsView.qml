@@ -203,6 +203,15 @@ Flickable {
         return motionSteps[0]
     }
 
+    // [3d] depth_scale and depth_global: the steps their rows go through, percent (100 is as made)
+    readonly property var depthSteps: [50, 75, 100, 125, 150, 200]
+    function nextDepthStep(v) {
+        for (var i = 0; i < depthSteps.length; i++) {
+            if (depthSteps[i] > v) return depthSteps[i]
+        }
+        return depthSteps[0]
+    }
+
     // [vr] controller_model: which controller the headset draws in each hand
     readonly property var modelValues: ["off", "frame", "generic", "gun", "custom"]
     readonly property var modelNames: [qsTr("Off"), qsTr("Steam Frame controller"), qsTr("Generic controller"), qsTr("Gun"), qsTr("Your own model")]
@@ -732,6 +741,26 @@ Flickable {
             summary: qsTr("For fast scenes: where the picture changes by more than this between two depth maps, the 3D stops smoothing the old depth into the new there, so moving edges leave no trail. Lower reacts to smaller changes; too low brings back flicker.")
             reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
             onClicked: if (enabled) MlxrPrefs.motionReset = settingsPage.nextMotion()
+        }
+
+        // Native (lane wave5-depth): upstream's depth scale, and the overall shape's gain beside it. Pressing a
+        // row steps 50, 75, 100, 125, 150, 200 percent ([3d] depth_scale, depth_global)
+        PrefRow {
+            objectName: "depthScaleRow"
+            title: qsTr("3D Depth Detail")
+            valueText: MlxrPrefs.depthScale + "%" + (MlxrPrefs.depthScale === 100 ? " " + qsTr("(as the model makes it)") : "")
+            summary: qsTr("The depth between things near each other, like a face in front of a wall. Higher makes them stand apart more, without pushing the whole picture further in or out.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            onClicked: if (enabled) MlxrPrefs.depthScale = settingsPage.nextDepthStep(MlxrPrefs.depthScale)
+        }
+
+        PrefRow {
+            objectName: "depthGlobalRow"
+            title: qsTr("3D Depth Shape")
+            valueText: MlxrPrefs.depthGlobal + "%" + (MlxrPrefs.depthGlobal === 100 ? " " + qsTr("(as the model makes it)") : "")
+            summary: qsTr("The depth of the picture as a whole, from the near ground to the far sky. Lower flattens it toward the screen, which is easier on the eyes, while Depth Detail keeps things standing apart.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            onClicked: if (enabled) MlxrPrefs.depthGlobal = settingsPage.nextDepthStep(MlxrPrefs.depthGlobal)
         }
 
         PrefSwitch {

@@ -80,6 +80,15 @@
 #define MOTION_RESET_MAX 50
 #define MOTION_RESET_DEFAULT 0
 
+// Native (lane wave5-depth, PLAN 5.6): upstream's depth scale preference
+// (vrDepthScale, percent: the local detail's gain around the overall shape)
+// as [3d] depth_scale, and the overall shape's own gain toward the screen
+// plane, which upstream fixes at 100, as [3d] depth_global. Both 100, the
+// defaults, leave the map as the model made it (the remap is skipped)
+#define DEPTH_SCALE_MIN 0
+#define DEPTH_SCALE_MAX 200
+#define DEPTH_SCALE_DEFAULT 100
+
 // Enough for a dozen lines of stats without being big enough to matter
 #define OVERLAY_WIDTH 768
 #define OVERLAY_HEIGHT 512

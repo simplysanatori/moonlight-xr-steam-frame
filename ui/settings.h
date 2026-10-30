@@ -123,6 +123,8 @@ typedef struct Settings {
     int stereo;            // native: the 3D switch as it was last left (0 off, 1 on)
     int edge_sharpness;    // native (PLAN 5.1): the Edge setting, EDGE_SHARPNESS_MIN..MAX; 0 is upstream's edges
     int motion_reset;      // native (PLAN 5.4): percent luma change that restarts a depth texel's average; 0 off
+    int depth_scale;       // PLAN 5.6, upstream vrDepthScale: percent gain on the depth's local detail (100 as made)
+    int depth_global;      // native (PLAN 5.6): percent gain on the depth's overall shape around the convergence (100 as made)
 
     // [screen] where the picture hangs (what the Screen tab moves)
     int screen_distance_cm;

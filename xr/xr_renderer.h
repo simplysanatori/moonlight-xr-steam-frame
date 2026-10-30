@@ -439,6 +439,11 @@ typedef struct XrCtx {
     // Native (lane wave5-depth, PLAN 5.4): [3d] motion_reset as a luma change
     // 0..1 that starts a depth texel's average again; 0 off
     float depthMotion;
+    // Native (lane wave5-depth, PLAN 5.6): [3d] depth_global and depth_scale
+    // as the engine's remap gains (upstream depthGlobal, depthLocal); 1 is
+    // the map as made
+    float depthGlobal;
+    float depthLocal;
     // The edge fixes, on apart from the cubic read. Pixels for the fade, 0 or
     // 1 for the rest.
     int srcInsetOn;

@@ -37,6 +37,8 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     // Native (lane wave5-depth, PLAN 5.2): on, as it fixes the fur on one
     // side of a subject in one eye (#36, #46)
     ctx->holeFill = 1;
+    ctx->depthGlobal = 1.0f;
+    ctx->depthLocal = 1.0f;
     // The warp's edges: sample held inside the frame, shift faded out over
     // the last few pixels each side, and each eye's rectangle a texel clear
     // of the seam between them. The cubic depth read is off for its cost.
@@ -344,6 +346,10 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     depthEdgeParams(s->edge_sharpness, &ctx->upsampleSigmaR, &ctx->depthSharp);
     // PLAN 5.4: the motion reset, percent of luma to a fraction; 0 off
     ctx->depthMotion = (float)s->motion_reset / 100.0f;
+    // PLAN 5.6: upstream's depth scale (depthLocal = vrDepthScale / 100) and
+    // the overall shape's gain
+    ctx->depthGlobal = (float)s->depth_global / 100.0f;
+    ctx->depthLocal = (float)s->depth_scale / 100.0f;
     xrSetDepthRate(ctx, s->depth_rate);
     // M6: the depth model or test pattern, and the 3D switch as last left
     xrDepthConfigure(ctx, s);

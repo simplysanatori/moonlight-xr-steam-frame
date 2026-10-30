@@ -19,8 +19,8 @@
 //             waits for a fresh map; FAILED (and a thread that never starts)
 //             stays flat with a toast and puts the switch away
 //   params    the 3D's tuning keys only config.ini and the launcher carry
-//             (edge_sharpness, motion_reset), into the context, the engine
-//             and the passes
+//             (edge_sharpness, motion_reset, depth_scale, depth_global), into
+//             the context, the engine and the passes
 //   budget    the layers of the busiest frames with the 3D on (two picture
 //             quads, one an eye, and the bar's 3D button), against SteamVR's 16
 // GPLv3.
@@ -637,6 +637,39 @@ static void testParams(void) {
         CHECK_NEAR(fakeLive->params.convergence, ctx->convergence, 1e-6);
     }
     m6_ctx_free(ctx);
+
+    // 5.6 Depth scale: 100 and 100, the map as made
+    settings_defaults(&s);
+    CHECK(s.depth_scale == DEPTH_SCALE_DEFAULT && s.depth_global == DEPTH_SCALE_DEFAULT && DEPTH_SCALE_DEFAULT == 100);
+    ctx = m6_ctx(&g, &FAKE, assets, &s);
+    fid = 0;
+    waitReady(ctx, &fid);
+    CHECK(fakeLive != NULL && fakeLive->params.global == 1.0f && fakeLive->params.local == 1.0f);
+    m6_ctx_free(ctx);
+    s.depth_scale = 150;
+    s.depth_global = 80;
+    CHECK(settings_save(&s, path) == 0);
+    settings_defaults(&back);
+    CHECK(settings_load(&back, path, NULL) == 0);
+    unlink(path);
+    CHECK(back.depth_scale == 150 && back.depth_global == 80);
+    ctx = m6_ctx(&g, &FAKE, assets, &back);
+    CHECK_NEAR(ctx->depthLocal, 1.5, 1e-6);
+    CHECK_NEAR(ctx->depthGlobal, 0.8, 1e-6);
+    fid = 0;
+    waitReady(ctx, &fid);
+    CHECK(fakeLive != NULL);
+    if (fakeLive != NULL) {
+        CHECK_NEAR(fakeLive->params.local, 1.5, 1e-6);
+        CHECK_NEAR(fakeLive->params.global, 0.8, 1e-6);
+        ctx->depthLocal = 0.5f;
+        frames(ctx, 1, &fid, 0);
+        CHECK_NEAR(fakeLive->params.local, 0.5, 1e-6);
+    }
+    m6_ctx_free(ctx);
+    settings_defaults(&bad);
+    settings_from_text(&bad, "[3d]\ndepth_scale = 900\ndepth_global = -4\n", NULL);
+    CHECK(bad.depth_scale == DEPTH_SCALE_MAX && bad.depth_global == DEPTH_SCALE_MIN);
 }
 
 // ---- states --------------------------------------------------------------------------------

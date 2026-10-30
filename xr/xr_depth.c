@@ -190,14 +190,14 @@ static void hostBufFree(XrCtx* ctx, HostBuf* b) {
 
 // The stage thread's knobs as the context has them: upstream's averages and
 // cut detector, the convergence, and (native, lane wave5-depth) the motion
-// reset, PLAN 5.4
+// reset and the depth scale, PLAN 5.4 and 5.6
 static void depthParamsOf(const XrCtx* ctx, MlxrDepthParams* p) {
     memset(p, 0, sizeof(*p));
     p->tauMs = DEPTH_TAU_DEFAULT_MS;
     p->rangeTauMs = DEPTH_RANGE_TAU_DEFAULT_MS;
     p->cutLevel = 1;
-    p->global = 1.0f;
-    p->local = 1.0f;
+    p->global = ctx->depthGlobal;
+    p->local = ctx->depthLocal;
     p->convergence = ctx->convergence;
     p->motion = ctx->depthMotion;
 }

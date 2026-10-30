@@ -5,7 +5,7 @@ target_compile_definitions(test_depth PRIVATE MLXR_DEPTH_ASSETS="${MLXR_DEPTH_AS
 target_compile_options(test_depth PRIVATE -O2 -Werror)
 target_include_directories(test_depth PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 mlxr_link_depth(test_depth)
-foreach(group spec order stable agree arith norm motion engine)
+foreach(group spec order stable agree arith norm motion scale engine)
   add_test(NAME depth_${group} COMMAND test_depth ${group})
   set_tests_properties(depth_${group} PROPERTIES LABELS depth TIMEOUT 300)
 endforeach()
