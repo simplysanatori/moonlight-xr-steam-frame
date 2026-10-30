@@ -1,6 +1,7 @@
 // Moonlight XR Native launcher: see mlxrprefs.h. GPLv3.
 #include "mlxrprefs.h"
 #include "mlxrhandoff.h"
+#include "backend/computermanager.h"
 #include "backend/nvcomputer.h"
 
 #include <QFile>
@@ -297,7 +298,6 @@ void MlxrPrefs::pcvrRefresh()
         qInfo().noquote() << "Steam CEF preflight:" << (ok ? "ok" : "NOT OK") << "-" << hint;
         if (!o.value("reachable").toBool() || !o.value("context").toBool()) {
             m_pcvrDevices.clear();
-            m_pcvrApps.clear();
             pcvrSay(hint, false);
             return;
         }
@@ -320,39 +320,13 @@ void MlxrPrefs::pcvrRefresh()
                 emit changed();
             }
             m_pcvrBase = (ok ? QObject::tr("Steam is ready.") : hint) + " " + QObject::tr("%n paired PC(s) found.", "", m_pcvrDevices.size());
-            pcvrSay(m_pcvrBase, true);
-            pcvrLoadApps();
+            pcvrSay(m_pcvrBase, false);
         });
-    });
-}
-
-void MlxrPrefs::pcvrLoadApps()
-{
-    QStringList args { "--apps" };
-    if (!pcvrClient.isEmpty()) {
-        args << "--client" << pcvrClient;
-    }
-    MlxrHandoff::runSteamCef(args, 30000, this, [this](int code, const QByteArray& out, const QString& err) {
-        const QJsonDocument doc = QJsonDocument::fromJson(out);
-        m_pcvrApps.clear();
-        if (code == 0 && doc.isArray()) {
-            for (const QJsonValue& v : doc.array()) {
-                QVariantMap m = v.toObject().toVariantMap();
-                m["appid"] = QString::number(static_cast<qlonglong>(v.toObject().value("appid").toDouble()));   // a whole number, not a double
-                m_pcvrApps << m;
-            }
-            pcvrSay(m_pcvrBase + " " + QObject::tr("%n game(s) on the PC.", "", m_pcvrApps.size()), false);
-        }
-        else {
-            pcvrSay(m_pcvrBase + " " + QObject::tr("Steam did not list the PC's games (%1): type a game's Steam app id instead.")
-                        .arg(err.isEmpty() ? QString::number(code) : err.simplified().left(200)), false);
-        }
     });
 }
 
 void MlxrPrefs::pcvrChooseDevice(int index)
 {
-    const QString before = pcvrClient;
     if (index >= 0 && index < m_pcvrDevices.size()) {
         const QVariantMap d = m_pcvrDevices[index].toMap();
         pcvrClient = d.value("clientId").toString();
@@ -363,37 +337,21 @@ void MlxrPrefs::pcvrChooseDevice(int index)
         pcvrClientName.clear();
     }
     emit changed();
-    if (pcvrClient != before && !m_pcvrBusy) {
-        pcvrSay(m_pcvrStatus, true);
-        pcvrLoadApps();
-    }
 }
 
-void MlxrPrefs::pcvrChooseApp(int index)
+void MlxrPrefs::startVr(QObject* computerManager, int computerIndex)
 {
-    if (index >= 0 && index < m_pcvrApps.size()) {
-        const QVariantMap a = m_pcvrApps[index].toMap();
-        pcvrApp = a.value("appid").toString();
-        pcvrAppName = a.value("name").toString();
+    ComputerManager* cm = qobject_cast<ComputerManager*>(computerManager);
+    if (cm == nullptr) {
+        qWarning() << "VR: no ComputerManager";
+        return;
     }
-    else {
-        pcvrApp.clear();
-        pcvrAppName.clear();
+    const QVector<NvComputer*> computers = cm->getComputers();
+    if (computerIndex < 0 || computerIndex >= computers.size()) {
+        qWarning() << "VR: no PC at" << computerIndex;
+        return;
     }
-    emit changed();
-}
-
-void MlxrPrefs::pcvrSetAppId(const QString& id)
-{
-    const QString t = id.trimmed();
-    pcvrApp = t;
-    pcvrAppName.clear();
-    for (const QVariant& a : m_pcvrApps) {
-        if (a.toMap().value("appid").toString() == t) {
-            pcvrAppName = a.toMap().value("name").toString();
-        }
-    }
-    emit changed();
+    MlxrHandoff::startVr(computers[computerIndex]);
 }
 
 QString MlxrPrefs::configIniPath() const
@@ -444,8 +402,6 @@ void MlxrPrefs::load()
     clipboardSync = s.value("mlxr/clipboard_sync", false).toBool();
     quickResume = s.value("mlxr/quick_resume", false).toBool();
     preflight = s.value("mlxr/preflight", true).toBool();
-    pcvrApp = s.value("mlxr/pcvr_app", "").toString().trimmed();
-    pcvrAppName = s.value("mlxr/pcvr_app_name", "").toString();
     pcvrClient = s.value("mlxr/pcvr_client", "").toString().trimmed();
     pcvrClientName = s.value("mlxr/pcvr_client_name", "").toString();
     // Native (lane launcher-bundle, PLAN 6.2, 6.4)
@@ -637,8 +593,9 @@ void MlxrPrefs::save()
     s.setValue("mlxr/clipboard_sync", clipboardSync);
     s.setValue("mlxr/quick_resume", quickResume);
     s.setValue("mlxr/preflight", preflight);
-    s.setValue("mlxr/pcvr_app", pcvrApp.trimmed());
-    s.setValue("mlxr/pcvr_app_name", pcvrAppName);
+    // lane pcvr-steamvr: VR is SteamVR, the per-game choice is gone
+    s.remove("mlxr/pcvr_app");
+    s.remove("mlxr/pcvr_app_name");
     s.setValue("mlxr/pcvr_client", pcvrClient.trimmed());
     s.setValue("mlxr/pcvr_client_name", pcvrClientName);
     s.setValue("mlxr/check_updates", checkUpdates);
