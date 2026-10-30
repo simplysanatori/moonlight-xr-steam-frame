@@ -90,6 +90,11 @@ typedef struct Settings {
     int click_sound;
     int notices;           // native: NOTICES_ALL, IMPORTANT, OFF (the toast's informational notices)
     int click_steadiness;  // native: CLICK_STEADY_OFF, NORMAL, STEADY (how still the cursor is held around a click)
+    int lightgun;          // native: LIGHTGUN_AUTO, ON, OFF (the lightgun pointer policy; auto follows the Gun model)
+    int lightgun_reload;   // native: with the policy on, a trigger pulled off the picture is a right click
+    int lightgun_recoil;   // native: with the policy on, a pulse in the controller on every shot
+    int pad_gyro;          // native: PAD_GYRO_OFF, CONTROLLER, HEAD (what turns the gamepad's gyro)
+    int pad_gyro_ratchet;  // native: PAD_GYRO_RATCHET_ALWAYS, STICK_TOUCH (when the gyro is sent)
     int scroll_speed;      // native: the thumbstick's wheel, percent of 7.5 notches a second (SCROLL_SPEED_MIN..MAX)
     int gaze;
     int hand_tracking;

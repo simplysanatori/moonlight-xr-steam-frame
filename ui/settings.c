@@ -14,6 +14,8 @@
 #include <unistd.h>
 
 #include "xr_shared.h"
+#include "xr_lightgun.h"
+#include "xr_padgyro.h"
 #include "xr_padmouse.h"
 
 // Where the tilt and rotate tracks clip to level, in radians (xr_renderer.h:
@@ -39,6 +41,13 @@ static const char* const PADGRIP_NAMES[] = { "bumpers", "none", "stick_clicks" }
 static const char* const PADMOUSECHORD_NAMES[] = { "start_hold", "start_back", "off" };
 static const char* const PADMOUSESCROLL_NAMES[] = { "right", "left", "none" };
 static const char* const PADARB_NAMES[] = { "pointer", "also_gamepad", "sleep" };
+// Native (lane wave2-lightgun-gyro): LIGHTGUN_ and PAD_GYRO_ in xr_lightgun.h and xr_padgyro.h
+static const char* const LIGHTGUN_NAMES[] = { "auto", "on", "off" };
+_Static_assert(sizeof(LIGHTGUN_NAMES) / sizeof(LIGHTGUN_NAMES[0]) == LIGHTGUN_COUNT, "lightgun names follow LIGHTGUN_");
+static const char* const PADGYRO_NAMES[] = { "off", "controller", "head" };
+_Static_assert(sizeof(PADGYRO_NAMES) / sizeof(PADGYRO_NAMES[0]) == PAD_GYRO_COUNT, "pad_gyro names follow PAD_GYRO_");
+static const char* const PADGYRO_RATCHET_NAMES[] = { "always", "stick_touch" };
+_Static_assert(sizeof(PADGYRO_RATCHET_NAMES) / sizeof(PADGYRO_RATCHET_NAMES[0]) == PAD_GYRO_RATCHET_COUNT, "pad_gyro_ratchet names follow PAD_GYRO_RATCHET_");
 static const char* const ENV_NAMES[] = { "auto", "passthrough", "void", "home_theater",
                                          "grand_cinema", "synthwave" };
 static const int ENV_IDS[] = { ENV_ID_NONE, ENV_ID_PASSTHROUGH, ENV_ID_VOID, ENV_ID_HOME_THEATER,
@@ -112,9 +121,14 @@ static const SettingDesc TABLE[] = {
     DE("vr", "pad_mouse_chord", pad_mouse_chord, PADMOUSECHORD_NAMES, 0, "native: what turns a physical gamepad into the PC's mouse (stick moves the pointer, A/B/X click, LB/RB back/forward, Y the VR keyboard, d-pad arrows): start_hold (hold Start for a second), start_back (hold Start and Back) or off; the same chord gives the pad back"),
     DE("vr", "pad_mouse_scroll", pad_mouse_scroll, PADMOUSESCROLL_NAMES, 0, "native: the stick that scrolls while a gamepad is a mouse: right (the left stick points), left (the right stick points) or none"),
     DE("vr", "pad_arbitration", pad_arbitration, PADARB_NAMES, 0, "native: when a physical gamepad is used while the Frame controllers are the gamepad: pointer (the controllers' pad is taken off the PC and they point again; gamepad mode off and on brings it back), also_gamepad (the PC sees both pads) or sleep (as pointer, and the controllers' pointer rests while the gamepad is in use)"),
+    DE("vr", "pad_gyro", pad_gyro, PADGYRO_NAMES, PAD_GYRO_OFF, "native: gyro for the PC from the headset: off (the controllers' gamepad has no motion), controller (the right controller's turn, the left one's when the right is not tracked) or head (your head's turn), sent as a PlayStation pad's gyroscope and accelerometer so the PC emulates a DualShock 4 and Steam Input can use it; gamepad mode only, read when gamepad mode turns on"),
+    DE("vr", "pad_gyro_ratchet", pad_gyro_ratchet, PADGYRO_RATCHET_NAMES, PAD_GYRO_RATCHET_ALWAYS, "native: when pad_gyro sends motion: always, or stick_touch (only while the right thumb touches the right stick; falls back to always where the controller's touch sensor is not read)"),
     DB("vr", "click_sound", click_sound, 1, "checkbox_vr_click_sound"),
     DE("vr", "notices", notices, NOTICES_NAMES, 0, "native: the toast notices (upstream #42): all, important (leaves out the display rate and 3D on/off; keeps mode changes and errors) or off"),
     DE("vr", "click_steadiness", click_steadiness, STEADY_NAMES, CLICK_STEADY_NORMAL, "native: Display tab Click steadiness, how still the cursor is held around a click: off (the aim as it is, for lightgun games), normal (the press sent from before the pull jolted the aim, and the double-click wait) or steady (and the cursor held from the first touch of the trigger); the MLXR_PRESS_STABILISE, MLXR_DOUBLE_CLICK_PX/_MS and MLXR_CLICK_HOLD_PX variables still override each part"),
+    DE("vr", "lightgun", lightgun, LIGHTGUN_NAMES, LIGHTGUN_AUTO, "native: the lightgun pointer policy: auto (on while the controller model is the gun), on or off. On: pointer sleep, the double-click wait, press stabilising and the click hold are off, the trigger never grabs the screen (the grip does), and a shot pulses the controller"),
+    DB("vr", "lightgun_reload", lightgun_reload, 0, "native: with the lightgun policy on, a trigger pulled off the picture is a right click for as long as it is held (reload)"),
+    DB("vr", "lightgun_recoil", lightgun_recoil, 1, "native: with the lightgun policy on, a short strong pulse in the controller on every shot"),
     DI("vr", "scroll_speed", scroll_speed, SCROLL_SPEED_MIN, SCROLL_SPEED_MAX, SCROLL_SPEED_DEFAULT, "native: how fast a thumbstick scrolls, percent (100 is 7.5 notches a second at full tilt); the wheel is smooth, and the stick's sideways tilt scrolls sideways"),
     DB("vr", "gaze", gaze, 0, "checkbox_vr_gaze: look to point (native default off: with it on a controller takes the pointer back only on a press)"),
     DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),
