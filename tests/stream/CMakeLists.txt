@@ -35,7 +35,9 @@ add_executable(test_vrkb_text test_vrkb_text.c)
 target_link_libraries(test_vrkb_text PRIVATE mlxr_stream)
 add_test(NAME stream_vrkb_text COMMAND test_vrkb_text)
 add_executable(test_servercmd test_servercmd.c)
-target_link_libraries(test_servercmd PRIVATE mlxr_stream)
+# stream_exec_server_cmd lives in session.c, which logs through xr/xr_log.c and starts the pad bridge
+# (xr/xr_pad_bridge.c): link mlxr_xr as test_evkbd does
+target_link_libraries(test_servercmd PRIVATE mlxr_stream mlxr_xr)
 target_compile_definitions(test_servercmd PRIVATE
   SERVERCMD_INC="${PROJECT_SOURCE_DIR}/stream/commonc_servercmd.inc")
 add_test(NAME stream_servercmd COMMAND test_servercmd)
