@@ -950,6 +950,22 @@ Flickable {
             }
         }
 
+        // Native (lane polish-3): the stream's bitrate, over the per-connection rows whose "Same as above" is
+        // this one (it was under Video Settings, below them)
+        PrefSlider {
+            objectName: "bitrateRow"
+            title: qsTr("Video bitrate")
+            summary: qsTr("Increase for better image quality. Decrease to improve performance on slower connections.") +
+                     " " + qsTr("Goes up to 500 Mbps, for a good 5 GHz Wi-Fi or a wired link.")
+            from: 0.5
+            to: 500
+            stepSize: 0.5
+            decimals: 1
+            suffix: " " + qsTr("Mbps")
+            value: StreamingPreferences.bitrateKbps / 1000.0
+            onMoved: function(v) { StreamingPreferences.bitrateKbps = Math.round(v * 1000) }
+        }
+
         PrefRow {
             objectName: "bitrateWifiRow"
             title: qsTr("Bitrate over Wi-Fi")
@@ -1078,19 +1094,6 @@ Flickable {
                     }
                 })
             }
-        }
-
-        PrefSlider {
-            title: qsTr("Video bitrate")
-            summary: qsTr("Increase for better image quality. Decrease to improve performance on slower connections.") +
-                     " " + qsTr("Goes up to 500 Mbps, for a good 5 GHz Wi-Fi or a wired link.")
-            from: 0.5
-            to: 500
-            stepSize: 0.5
-            decimals: 1
-            suffix: " " + qsTr("Mbps")
-            value: StreamingPreferences.bitrateKbps / 1000.0
-            onMoved: function(v) { StreamingPreferences.bitrateKbps = Math.round(v * 1000) }
         }
 
         PrefRow {
