@@ -51,6 +51,8 @@
 #include "xr_clickhold.h"
 #include "xr_pressfix.h"
 #include "xr_gamepad.h"
+#include "xr_bindrun.h"
+#include "xr_scroll.h"
 #include "xr_ray.h"
 #include "xr_raylog.h"
 #include "room_logic.h"
@@ -783,7 +785,9 @@ typedef struct XrCtx {
     int gripEdge[SRC_COUNT];
     int grabByTrigger;
     int buttonsDown;
-    float scrollCarry;
+    // Native (lane wave2-bind-wire): the stick's wheel, smooth and both ways
+    // (xr_scroll.h), in place of the whole notches it used to carry
+    ScrollAcc scroll;
     int64_t lastInputNs;
 
     EuroState filterU;
@@ -798,6 +802,11 @@ typedef struct XrCtx {
     PressFix pressFix;
     PressFixCfg pressCfg;
     int stickRightClick;
+    // Native (lane wave2-bind-wire): the Click steadiness level that set
+    // pressCfg and clickHoldPx (CLICK_STEADY_), and the stick's wheel speed in
+    // percent (scroll_speed)
+    int clickSteady;
+    int scrollSpeed;
     int64_t lastHitNs;
     int lastHand;
     // Native (lane av-latency): how far the smoothing holds the cursor behind
@@ -859,6 +868,46 @@ typedef struct XrCtx {
     PadChord padChord;
     int padGrip[HAND_COUNT];
     PadHand padRead[HAND_COUNT];
+    // Native (lane wave2-bind-wire): the controllers as the pad and the
+    // bindings read them, after the switch shortcut has held its parts back
+    PadHand padSeen[HAND_COUNT];
+    // Native (lane wave2-bind-wire): bindings.ini (xr/core/xr_bind.h) and the
+    // table for each mode with the host app's own lines over it (bindTable);
+    // the same with whole sticks spread over their directions and the Guide
+    // chord left to padGuideStep (bindRunTable), which is what runs
+    XrBindSet bindSet;
+    int bindLoaded;
+    int bindReady;
+    char bindApp[XR_BIND_APP_MAX];
+    XrBindTable bindTable[XR_BIND_MODES];
+    XrBindTable bindRunTable[XR_BIND_MODES];
+    // The gamepad table is not the defaults, so the pad's buttons, triggers
+    // and sticks come from it rather than padMapGrips; and its Guide is
+    // View with Menu held, which padGuideStep times
+    int bindPadCustom;
+    int bindGuideHold;
+    // What the controls hold (xr_bindrun.h), the mode it last ran in plus one
+    // (0 not yet), the controls down last frame for the hysteresis, and
+    // whether only app commands go (gamepad mode with a panel up)
+    XrBindRun bindRun;
+    int bindModeRan;
+    uint64_t bindRaw;
+    int bindAppsOnly;
+    // What they send this frame: the host mouse buttons pointer mode's table
+    // holds (VR_BUTTON_ bits, X1 8 and X2 16 included) and gamepad mode's,
+    // the wheel in 120ths of a notch, stick:mouse's motion in pixels
+    int bindMouse;
+    int bindPadMouse;
+    int bindWheelV;
+    int bindWheelH;
+    int bindMouseDX;
+    int bindMouseDY;
+    float bindMouseCarry[HAND_COUNT][2];
+    ScrollAcc padScroll;
+    int64_t bindPadNs;
+    // key: actions going down and up, for the session to send (dispatchInput)
+    int bindKeyCount;
+    XrBindKey bindKeys[XR_BIND_KEY_QUEUE];
     PadState pad;
     int padAttached;
     int padResting;
@@ -1228,6 +1277,10 @@ void xrSetShowRay(XrCtx* ctx, int on);
 void xrSetHeadAim(XrCtx* ctx, int on, int sensitivity, int deadZone);
 void xrSetGamepad(XrCtx* ctx, int shortcut, int deadzonePercent);
 void xrSetPadGrip(XrCtx* ctx, int mode);
+// Native (lane wave2-bind-wire): config.ini click_steadiness (CLICK_STEADY_)
+// and scroll_speed (percent)
+void xrSetClickSteadiness(XrCtx* ctx, int level);
+void xrSetScrollSpeed(XrCtx* ctx, int percent);
 void xrSetPicture(XrCtx* ctx, const int* values);
 
 // xr_assets.c: the UI atlas swapchain, the art drawn in code, and the

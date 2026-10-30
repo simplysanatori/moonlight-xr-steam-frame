@@ -351,6 +351,44 @@ static void sendKey(short vk, int down, char modifiers, void* user) {
         LiSendKeyboardEvent((short)(0x8000 | vk), down ? KEY_ACTION_DOWN : KEY_ACTION_UP, modifiers);
 }
 
+// Native (lane wave2-bind-wire): the controllers' bindings. The sideways wheel,
+// and a key: action held for as long as its control: its modifiers go down
+// first (the left Ctrl, Shift, Alt and Win keys) and come up last.
+static void hscrollHook(void* user, int amount) {
+    (void)user;
+    stream_hscroll(amount);
+}
+
+static void bindKeyHook(void* user, int vk, int mods, int down) {
+    (void)user;
+    static const struct { int bit; short vk; } MODS[] = {
+        { MODIFIER_CTRL, 0xA2 }, { MODIFIER_SHIFT, 0xA0 }, { MODIFIER_ALT, 0xA4 }, { MODIFIER_META, 0x5B },
+    };
+    const int n = (int)(sizeof(MODS) / sizeof(MODS[0]));
+    if (!stream_running()) return;
+    char held = 0;
+    if (down) {
+        for (int i = 0; i < n; i++) {
+            if (!(mods & MODS[i].bit)) continue;
+            held |= (char)MODS[i].bit;
+            sendKey(MODS[i].vk, 1, held, NULL);
+        }
+        char m = held;
+        if (vkExtended(vk & 0xff)) m |= MODIFIER_EXTENDED;
+        LiSendKeyboardEvent((short)(0x8000 | (vk & 0xff)), KEY_ACTION_DOWN, m);
+        return;
+    }
+    held = (char)(mods & (MODIFIER_CTRL | MODIFIER_SHIFT | MODIFIER_ALT | MODIFIER_META));
+    char m = held;
+    if (vkExtended(vk & 0xff)) m |= MODIFIER_EXTENDED;
+    LiSendKeyboardEvent((short)(0x8000 | (vk & 0xff)), KEY_ACTION_UP, m);
+    for (int i = n - 1; i >= 0; i--) {
+        if (!(mods & MODS[i].bit)) continue;
+        held &= (char)~MODS[i].bit;
+        sendKey(MODS[i].vk, 0, held, NULL);
+    }
+}
+
 // Every frame: the lists' presses and the exit to the launcher, its view back
 static void uiHook(void* user, const XrUiEvents* ev, XrUiLauncher* show) {
     (void)user;
@@ -905,6 +943,21 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst) {
     }
     atomic_store(&g_streaming, 1);
     xr_app_set_streaming(1);
+    // Native (lane wave2-bind-wire): the app's name, for its own lines in bindings.ini
+    {
+        char appName[96] = "";
+        pthread_mutex_lock(&g_lock);
+        for (int i = 0; i < g_launch.appCount; i++)
+            if (g_launch.apps[i].id == appId) snprintf(appName, sizeof(appName), "%s", g_launch.apps[i].name);
+        pthread_mutex_unlock(&g_lock);
+        if (!appName[0] && g_args.app) {
+            char* end = NULL;
+            strtol(g_args.app, &end, 10);
+            if (!end || *end) snprintf(appName, sizeof(appName), "%s", g_args.app); // a name, not an id
+        }
+        MLOG_I("bindings: host app \"%s\"", appName);
+        xr_app_set_host_app(appName);
+    }
     updateKeyboard();
     if (g_args.clipboardSync) clipboardToHost(n, s); // Native (lane artemis-settings)
     char toast[160];
@@ -926,6 +979,7 @@ static void stopStream(Net* n, int quitHost) {
     vrkb_release_all(&g_vrkb);
     atomic_store(&g_streaming, 0);
     xr_app_set_streaming(0);
+    xr_app_set_host_app(""); // native (lane wave2-bind-wire)
     updateKeyboard();
     // Native (lane netpath-quality): remember how this stream went on its network path
     StreamNetFigures nf;
@@ -1307,6 +1361,8 @@ int main(int argc, char** argv) {
                               statsHook, focusHook, uiHook };
     cfg.hooks.latency = latencyHook;
     cfg.hooks.headYaw = headYawHook;
+    cfg.hooks.hscroll = hscrollHook;
+    cfg.hooks.bindKey = bindKeyHook;
 
     FileSource* src = NULL;
     if (g_args.file) {

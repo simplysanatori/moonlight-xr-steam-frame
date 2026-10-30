@@ -226,12 +226,15 @@ static void tab_display(Dc* dc) {
     const Settings* s = v->settings;
     static const UiStr ROWS[COG_OPTION_COUNT] = { UIS_ROW_SHARPEN, UIS_ROW_SUPERSAMPLE, UIS_ROW_STATS,
         UIS_ROW_HEAD_LOCKED, UIS_ROW_HEAD_AIM, UIS_ROW_MODE, UIS_ROW_SHOW_CONTROLLERS, UIS_ROW_RAY,
-        UIS_ROW_POINTER_SLEEP, UIS_ROW_CLICK_SOUND, UIS_ROW_GLOW, UIS_ROW_SCREEN_LIGHT, UIS_ROW_NOTICES };
+        UIS_ROW_POINTER_SLEEP, UIS_ROW_CLICK_STEADY, UIS_ROW_CLICK_SOUND, UIS_ROW_GLOW, UIS_ROW_SCREEN_LIGHT,
+        UIS_ROW_NOTICES };
     static const UiStr OFFNQ[3] = { UIS_OFF, UIS_NORMAL, UIS_QUALITY };
     static const UiStr OFFON[2] = { UIS_OFF, UIS_ON };
     static const UiStr PADPTR[2] = { UIS_POINTER, UIS_GAMEPAD };
     // native: which notices the toast says
     static const UiStr NOTICES3[3] = { UIS_NOTICE_CELL_ALL, UIS_NOTICE_CELL_IMPORTANT, UIS_OFF };
+    // native: how still the cursor is held around a click
+    static const UiStr STEADY3[3] = { UIS_OFF, UIS_NORMAL, UIS_STEADY };
     // native: the ray row has a third cell, the dot without the ray
     static const UiStr POINTER3[3] = { UIS_OFF, UIS_NATIVE_DOT, UIS_NATIVE_RAY };
     float cell_half = COG_DISPLAY_CELL_HALF * dc->nh;
@@ -262,7 +265,8 @@ static void tab_display(Dc* dc) {
             continue;
         }
         const UiStr* names = row <= COG_OPTION_SUPERSAMPLE ? OFFNQ : row == COG_OPTION_GAMEPAD ? PADPTR
-                           : row == COG_OPTION_RAY ? POINTER3 : row == COG_OPTION_NOTICES ? NOTICES3 : OFFON;
+                           : row == COG_OPTION_RAY ? POINTER3 : row == COG_OPTION_NOTICES ? NOTICES3
+                           : row == COG_OPTION_CLICK_STEADY ? STEADY3 : OFFON;
         int n = ui_cog_row_cells(COG_TAB_DISPLAY, row);
         cells(dc, COG_TAB_DISPLAY, row, names, n, y, 1, cell_half, settings_option_cell(s, &v->session, row));
     }

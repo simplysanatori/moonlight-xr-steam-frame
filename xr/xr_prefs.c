@@ -98,6 +98,10 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     // Native (lane double-click): the double-click time, press to press
     ctx->pressCfg.doubleNs = (int64_t)(doubleClickMsFromEnv() * 1000000.0f);
     ctx->stickRightClick = stickRightClickFromEnv();
+    // Native (lane wave2-bind-wire): the variables above are the Normal level
+    // with any that is set taken in, until config.ini says otherwise
+    ctx->clickSteady = CLICK_STEADY_NORMAL;
+    ctx->scrollSpeed = SCROLL_SPEED_DEFAULT;
     pressFixReset(&ctx->pressFix);
     ctx->aimMinCutoff = NATIVE_AIM_MIN_CUTOFF;
     ctx->aimBeta = AIM_BETA;
@@ -303,6 +307,8 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     // default of 7 percent, the preference upstream hands down
     xrSetGamepad(ctx, s->gamepad_toggle, padDeadzonePercentFromLauncher(gamepadsGetDeadzone()));
     xrSetPadGrip(ctx, s->pad_grip);
+    xrSetClickSteadiness(ctx, s->click_steadiness);
+    xrSetScrollSpeed(ctx, s->scroll_speed);
     xrPadBridgeSetFlip(s->flip_face_buttons);
     xrPadBridgeSetRumble(s->rumble_mix, s->rumble_intensity);
     int picture[PICTURE_VALUES];
@@ -355,6 +361,8 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->controller_model = ctx->modelOn;
     s->click_sound = ctx->clickSoundOn;
     s->notices = ctx->notices.level;
+    s->click_steadiness = ctx->clickSteady;
+    s->scroll_speed = ctx->scrollSpeed;
     s->cog_tab = ctx->cogTab;
     s->pointer_dot = ctx->dotOn;
     s->keyboard_layout = ctx->kbLayout;
@@ -411,6 +419,7 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_POINTER_SLEEP: s->pointer_sleep = value != 0; break;
     case SETTING_CLICK_SOUND: s->click_sound = value != 0; break;
     case SETTING_NOTICES: s->notices = value; break;
+    case SETTING_CLICK_STEADY: s->click_steadiness = value; break;
     case SETTING_COG_TAB: s->cog_tab = value; break;
     case SETTING_CONTROLLER_MODEL: s->controller_model = value != 0; break;
     case SETTING_HEAD_AIM_SENSITIVITY: s->head_aim_sensitivity = value; break;

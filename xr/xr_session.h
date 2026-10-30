@@ -59,6 +59,13 @@ typedef struct XrAppHooks {
     // in radians (positive = turned left), which the virtual surround turns its
     // speakers by. May be NULL. Must not block.
     void (*headYaw)(void* user, float yawRadians);
+    // Native (lane wave2-bind-wire): the bindings. High-resolution horizontal
+    // scroll, 120 per notch, positive = right. A key: action going down
+    // (down 1) or up (0): a Windows virtual key and the modifiers it goes with
+    // (Moonlight's MODIFIER_ bits), held for as long as its control is. Either
+    // may be NULL.
+    void (*hscroll)(void* user, int amount);
+    void (*bindKey)(void* user, int vk, int mods, int down);
 } XrAppHooks;
 
 typedef struct XrAppConfig {
@@ -86,3 +93,7 @@ void xr_app_notice(const char* text);
 void xr_app_release_video(void);
 // Any thread: a stream is (or is no longer) the picture's source
 void xr_app_set_streaming(int on);
+// Native (lane wave2-bind-wire), any thread: the host app being streamed, its
+// name as the app list shows it ("" for none), which picks its own lines out
+// of bindings.ini
+void xr_app_set_host_app(const char* name);

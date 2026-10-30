@@ -133,7 +133,7 @@ static const char* const README_KEYS[] = {
     // VR Settings
     "pointer", "pointer_sleep", "show_ray", "controller_model", "head_aim",
     "head_aim_sensitivity", "head_aim_deadzone", "gamepad_toggle", "pad_grip", "rumble_mix", "rumble_intensity", "click_sound", "gaze",
-    "notices", "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
+    "notices", "click_steadiness", "scroll_speed", "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
     "picture_brightness", "picture_contrast", "picture_gamma", "picture_saturation",
     // VR Debugging
     "depth_rate", "depth_debug", "eye_swap", "file_log",
@@ -427,6 +427,27 @@ static void test_cog_tab(void) {
     free(text);
 }
 
+// Native (lane wave2-bind-wire): Click steadiness and the stick's wheel speed
+static void test_click_and_scroll(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.click_steadiness == CLICK_STEADY_NORMAL && s.scroll_speed == SCROLL_SPEED_DEFAULT);
+    settings_from_text(&s, "[vr]\nclick_steadiness = steady\nscroll_speed = 250\n", &info);
+    CHECK(s.click_steadiness == CLICK_STEADY_STEADY && s.scroll_speed == 250 && info.bad == 0);
+    settings_from_text(&s, "[vr]\nclick_steadiness = Off\n", &info);
+    CHECK(s.click_steadiness == CLICK_STEADY_OFF);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nclick_steadiness = off\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\nscroll_speed = 250\n") != NULL);
+    free(text);
+    SessionToggles t;
+    session_from_settings(&s, &t);
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_CLICK_STEADY) == CLICK_STEADY_OFF);
+    s.click_steadiness = CLICK_STEADY_STEADY;
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_CLICK_STEADY) == CLICK_STEADY_STEADY);
+}
+
 static void test_network_path(void) {
     Settings s;
     SettingsLoadInfo info;
@@ -695,6 +716,7 @@ int main(void) {
     test_removed_keys();
     test_bitrate_ceiling();
     test_notices();
+    test_click_and_scroll();
     test_cog_tab();
     test_files();
     test_sliders();

@@ -88,6 +88,16 @@ float doubleClickMsFromEnv(void);
 // switching the pointer on and off; anything else (or unset) makes it a right click
 int stickRightClickFromEnv(void);
 
+// Native (lane wave2-bind-wire): the Click steadiness setting's level
+// (CLICK_STEADY_ in xr_shared.h) as the press fix and the click hold
+// (xr_clickhold.h) take it. Off: no stabilisation, no double-click wait, no
+// hold. Normal: stabilisation and the 24 px / 500 ms wait, no hold (what every
+// session had before the setting). Steady: those and the hold at
+// CLICK_STEADY_HOLD_PX. With useEnv, each MLXR_ variable that is set (above)
+// still decides its own part.
+#define CLICK_STEADY_HOLD_PX 8.0f
+void clickSteadyConfig(int level, int useEnv, PressFixCfg* cfg, float* holdPx);
+
 // The host buttons the controllers ask for, as VR_BUTTON_* bits (1 left, 2
 // right, 4 middle). The trigger of either hand is the left button unless it was
 // spent on a panel; the right and middle buttons (A/B, d-pad) and the sticks'

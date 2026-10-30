@@ -7,7 +7,9 @@
 #include <stdlib.h>
 
 #include "check.h"
+#include "xr_clickhold.h"
 #include "xr_pressfix.h"
+#include "xr_shared.h"
 
 #define W 2560
 #define H 1440
@@ -530,6 +532,45 @@ static void testEnv(void) {
     unsetenv("MLXR_STICK_RIGHT_CLICK");
 }
 
+// Native (lane wave2-bind-wire): the Click steadiness row's three levels, and
+// the variables that still decide their own part when set
+static void testClickSteadiness(void) {
+    unsetenv("MLXR_PRESS_STABILISE");
+    unsetenv("MLXR_DOUBLE_CLICK_PX");
+    unsetenv("MLXR_DOUBLE_CLICK_MS");
+    unsetenv("MLXR_CLICK_HOLD_PX");
+    PressFixCfg cfg;
+    float hold = -1.0f;
+    clickSteadyConfig(CLICK_STEADY_OFF, 1, &cfg, &hold);
+    CHECK(cfg.stabilise == 0 && cfg.doublePx == 0.0f && cfg.doubleNs == 0 && hold == 0.0f);
+    // Normal is what the variables gave unset: every session's until now
+    clickSteadyConfig(CLICK_STEADY_NORMAL, 1, &cfg, &hold);
+    CHECK(cfg.stabilise == pressStabiliseFromEnv() && cfg.stabilise == 1);
+    CHECK(cfg.doublePx == doubleClickPxFromEnv());
+    CHECK(cfg.doubleNs == (int64_t)(doubleClickMsFromEnv() * 1000000.0f));
+    CHECK(cfg.doubleNs == 500000000LL);
+    CHECK(hold == clickHoldPixelsFromEnv() && hold == 0.0f);
+    clickSteadyConfig(CLICK_STEADY_STEADY, 1, &cfg, &hold);
+    CHECK(cfg.stabilise == 1 && cfg.doublePx == PRESSFIX_DOUBLE_DEFAULT_PX);
+    CHECK(hold == CLICK_STEADY_HOLD_PX);
+
+    // A variable that is set wins over the level, for its own part only
+    setenv("MLXR_CLICK_HOLD_PX", "3", 1);
+    setenv("MLXR_DOUBLE_CLICK_MS", "300", 1);
+    clickSteadyConfig(CLICK_STEADY_OFF, 1, &cfg, &hold);
+    CHECK(hold == 3.0f && cfg.doubleNs == 300000000LL);
+    CHECK(cfg.stabilise == 0 && cfg.doublePx == 0.0f);
+    // ...unless the variables are not asked
+    clickSteadyConfig(CLICK_STEADY_OFF, 0, &cfg, &hold);
+    CHECK(hold == 0.0f && cfg.doubleNs == 0);
+    setenv("MLXR_PRESS_STABILISE", "0", 1);
+    clickSteadyConfig(CLICK_STEADY_STEADY, 1, &cfg, &hold);
+    CHECK(cfg.stabilise == 0 && hold == 3.0f && cfg.doublePx == PRESSFIX_DOUBLE_DEFAULT_PX);
+    unsetenv("MLXR_PRESS_STABILISE");
+    unsetenv("MLXR_DOUBLE_CLICK_MS");
+    unsetenv("MLXR_CLICK_HOLD_PX");
+}
+
 int main(void) {
     testPassThrough();
     testPressStabilised();
@@ -549,5 +590,6 @@ int main(void) {
     testSlowClick();
     testButtonMapping();
     testEnv();
+    testClickSteadiness();
     return checksDone("xr_pressfix");
 }

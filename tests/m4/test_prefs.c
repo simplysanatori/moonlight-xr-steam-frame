@@ -35,6 +35,8 @@ static void roundTripChanged(void) {
     in.controller_model = 1;
     in.click_sound = 0;
     in.pad_grip = PAD_GRIP_NONE;
+    in.click_steadiness = CLICK_STEADY_STEADY;
+    in.scroll_speed = 175;
     in.rumble_mix = PAD_RUMBLE_MIX_SPLIT;
     in.rumble_intensity = 40;
     in.pointer_dot = 0;
@@ -436,6 +438,50 @@ static void restingBeam(void) {
     scene_free(sc);
 }
 
+// Native (lane wave2-bind-wire): the Display tab's Click steadiness row (Off /
+// Normal / Steady): applied to the press fix and the click hold, stored,
+// round-tripped, and Normal is what the session had before the row
+static void clickSteadyRow(void) {
+    Scene* first = scene_new();
+    PressFixCfg was = first->ctx->pressCfg;
+    float wasHold = first->ctx->clickHoldPx;
+    scene_free(first);
+    for (int cell = 0; cell < 3; cell++) {
+        Scene* sc = scene_new();
+        XrCtx* c = sc->ctx;
+        Settings s;
+        settings_defaults(&s);
+        float out[IN_SLOTS];
+        memset(out, 0, sizeof(out));
+        out[IN_SETTING] = -1;
+        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_CLICK_STEADY, cell, out);
+        CHECK((int)out[IN_SETTING] == SETTING_CLICK_STEADY && (int)out[IN_SETTING_VALUE] == cell);
+        CHECK(xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) == (cell != CLICK_STEADY_NORMAL));
+        CHECK(s.click_steadiness == cell && c->clickSteady == cell);
+        CHECK(cogOptionValue(c, COG_OPTION_CLICK_STEADY, 0) == cell);
+        CHECK(cogOptionCells(COG_OPTION_CLICK_STEADY) == 3);
+        if (cell == CLICK_STEADY_OFF) {
+            CHECK(c->pressCfg.stabilise == 0 && c->pressCfg.doubleNs == 0 && c->clickHoldPx == 0.0f);
+        }
+        else if (cell == CLICK_STEADY_NORMAL) {
+            CHECK(c->pressCfg.stabilise == was.stabilise && c->pressCfg.doubleNs == was.doubleNs
+                  && c->pressCfg.doublePx == was.doublePx && c->clickHoldPx == wasHold);
+        }
+        else {
+            CHECK(c->pressCfg.stabilise == 1 && c->clickHoldPx == CLICK_STEADY_HOLD_PX);
+        }
+        Settings back;
+        settings_defaults(&back);
+        xrSettingsFromCtx(c, &back);
+        CHECK(back.click_steadiness == cell);
+        Scene* next = scene_new();
+        xrApplySettings(next->ctx, &s);
+        CHECK(next->ctx->clickSteady == cell && next->ctx->clickHoldPx == c->clickHoldPx);
+        scene_free(next);
+        scene_free(sc);
+    }
+}
+
 // The Display tab: the cell lane U rings is the one xr_ui.c says is in force,
 // and the rows that come later are dead in both
 static void displayCells(void) {
@@ -519,6 +565,7 @@ int main(void) {
     storeSettings();
     rayRowSaved();
     noticesRow();
+    clickSteadyRow();
     cogTabKept();
     restingBeam();
     displayCells();

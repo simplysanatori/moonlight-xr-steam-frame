@@ -15,6 +15,9 @@
 #define SETTING_NOTICES 25
 // The cog's tab, COG_TAB_*: the next session opens the cog on it
 #define SETTING_COG_TAB 26
+// Native (lane wave2-bind-wire): how still the cursor is held around a click,
+// CLICK_STEADY_OFF 0, NORMAL 1 or STEADY 2
+#define SETTING_CLICK_STEADY 27
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 
@@ -207,6 +210,21 @@ int xrGrabStepStick(XrCtx* ctx, XrPosef aim, int trigger, int grip, XrVector2f s
 // points and of the hand whose ray is drawn. What it made of them is left in
 // ctx->rayRow, as the recorder writes it (tests/m4/test_replay.c).
 void xrPointerStep(XrCtx* ctx, int64_t now, int headLocked);
+
+// ---- Native (lane wave2-bind-wire): bindings.ini (xr_input.c) -------------
+// Reads bindings.ini (path NULL: xrBindDefaultPath, which is written with the
+// defaults the first time), logs its errors as warnings and what it changes
+// in one line, says "bindings.ini: N errors, see log" on the toast when it
+// has any, and makes the tables. Returns the number of errors.
+int xrBindLoad(XrCtx* ctx, const char* path);
+// The host app the stream shows (its name as the app list has it, "" none),
+// whose [app "Name"] lines go over the modes'
+void xrBindSetApp(XrCtx* ctx, const char* app);
+// For the tests: the bindings' part of a frame as xrUpdateInput runs it, off
+// ctx->padSeen, the triggers (triggerDown, triggerSwallowed) and the mode,
+// with the ray on the picture. In gamepad mode *pad comes in as padMapGrips
+// made it and goes out as the bindings leave it.
+void xrBindFrame(XrCtx* ctx, int64_t now, float dt, PadState* pad, float* out);
 
 // ---- the context's defaults (xr_prefs.c) -----------------------------------
 // What upstream's nativeInit set before any setter ran

@@ -124,6 +124,31 @@ void xr_app_notice(const char* text) {
 
 void xr_app_set_streaming(int on) { atomic_store(&g_streaming, on); }
 
+// Native (lane wave2-bind-wire): the host app's name for the bindings, taken
+// up by the frame loop when the serial moves
+static char g_hostApp[XR_BIND_APP_MAX];
+static unsigned g_hostAppSerial;
+
+void xr_app_set_host_app(const char* name) {
+    pthread_mutex_lock(&g_reqLock);
+    snprintf(g_hostApp, sizeof(g_hostApp), "%s", name != NULL ? name : "");
+    g_hostAppSerial++;
+    pthread_mutex_unlock(&g_reqLock);
+}
+
+// The frame loop's side: the bindings follow a new host app
+static void takeHostApp(XrCtx* ctx, unsigned* seen) {
+    char name[XR_BIND_APP_MAX];
+    pthread_mutex_lock(&g_reqLock);
+    int fresh = g_hostAppSerial != *seen;
+    *seen = g_hostAppSerial;
+    snprintf(name, sizeof(name), "%s", g_hostApp);
+    pthread_mutex_unlock(&g_reqLock);
+    if (fresh) {
+        xrBindSetApp(ctx, name);
+    }
+}
+
 void xr_app_release_video(void) {
     pthread_mutex_lock(&g_reqLock);
     if (!g_running) {
@@ -1420,18 +1445,32 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
     // A release always goes, so nothing sticks on the host
     int buttons = (int)in[IN_BUTTONS];
     int changed = buttons ^ h->heldButtons;
-    static const int MAP[3] = { 1, 3, 2 }; // VR_BUTTON_LEFT, RIGHT, MIDDLE -> BUTTON_*
-    for (int i = 0; i < 3; i++) {
+    // Native (lane wave2-bind-wire): VR_BUTTON_LEFT, RIGHT, MIDDLE and the
+    // bindings' X1 and X2 (bits 1 << 0..4) -> BUTTON_* 1, 3, 2, 4, 5
+    for (int i = 0; i < XR_BIND_MOUSE_BUTTONS; i++) {
         int mask = 1 << i;
         if ((changed & mask) && hk->button && (streaming || !(buttons & mask))) {
-            hk->button(hk->user, MAP[i], (buttons & mask) != 0);
+            hk->button(hk->user, xrBindHostButton(i), (buttons & mask) != 0);
         }
     }
     h->heldButtons = buttons;
-    int clicks = (int)in[IN_SCROLL];
-    if (clicks != 0 && streaming && hk->scroll) {
-        hk->scroll(hk->user, clicks * 120);
+    // Native (lane wave2-bind-wire): the wheel comes in 120ths of a notch
+    int wheel = (int)in[IN_SCROLL];
+    if (wheel != 0 && streaming && hk->scroll) {
+        hk->scroll(hk->user, wheel);
     }
+    int sideways = (int)in[IN_HSCROLL];
+    if (sideways != 0 && streaming && hk->hscroll) {
+        hk->hscroll(hk->user, sideways);
+    }
+    // The bindings' keys: a press only while streaming, a release always
+    for (int i = 0; i < ctx->bindKeyCount; i++) {
+        const XrBindKey* k = &ctx->bindKeys[i];
+        if (hk->bindKey && (streaming || !k->down)) {
+            hk->bindKey(hk->user, k->vk, k->mods, k->down);
+        }
+    }
+    ctx->bindKeyCount = 0;
     int key = (int)in[IN_KEY];
     if (key >= 0) {
         if (in[IN_REPORT_ZONE] >= 0.0f) {
@@ -1671,6 +1710,8 @@ int xr_app_run(const XrAppConfig* cfg) {
     xrWorldFindAssets(ctx);
     // The settings, as nativeInit's arguments and the setters handed them down
     xrApplySettings(ctx, cfg->settings);
+    // Native (lane wave2-bind-wire): bindings.ini, written the first time
+    xrBindLoad(ctx, NULL);
 
     if (!initXrInput(ctx)) {
         LOGW("controller input unavailable, pointer off");
@@ -1764,6 +1805,8 @@ int xr_app_run(const XrAppConfig* cfg) {
     double start = nowNs() / 1e9, lastStats = start;
     uint64_t frames = 0, framesWindow = 0, videoWindow = 0, videoFrames = 0;
     int64_t endNsSum = 0, endNsMax = 0;
+    // Native (lane wave2-bind-wire): the host app last handed to the bindings
+    unsigned hostAppSeen = 0;
     // Native (lane av-latency): the parts of the host cursor's delay that are
     // ours, per 5 s window: when the mouse move leaves after xrWaitFrame
     // returns, how far ahead of display the poses are, and how long a decoded
@@ -1848,6 +1891,7 @@ int xr_app_run(const XrAppConfig* cfg) {
 
         // ---- input (nativeUpdateInput) and what it decided (dispatchInput)
         host.live = *cfg->settings;
+        takeHostApp(ctx, &hostAppSeen);
         xrUpdateInput(ctx, host.distance, host.quadWidth, host.curvature, host.live.head_locked,
                       host.live.pointer, host.live.gaze && ctx->eyeGaze, host.live.pointer_sleep, host.out);
         if (cfg->hooks.headYaw) cfg->hooks.headYaw(cfg->hooks.user, host.out[IN_HEAD_YAW]);

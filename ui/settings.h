@@ -72,6 +72,8 @@ typedef struct Settings {
     int pad_grip;          // PAD_GRIP_* : what the grips are on gamepad mode's pad: 0 bumpers, 1 nothing, 2 stick clicks
     int click_sound;
     int notices;           // native: NOTICES_ALL, IMPORTANT, OFF (the toast's informational notices)
+    int click_steadiness;  // native: CLICK_STEADY_OFF, NORMAL, STEADY (how still the cursor is held around a click)
+    int scroll_speed;      // native: the thumbstick's wheel, percent of 7.5 notches a second (SCROLL_SPEED_MIN..MAX)
     int gaze;
     int hand_tracking;
     int passthrough;

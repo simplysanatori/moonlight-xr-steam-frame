@@ -40,6 +40,15 @@ typedef struct {
     XrBindAction released[XR_BIND_HELD_MAX];
 } XrBindEdges;
 
+// A key: action going down or up, as the session hands it to the host
+#define XR_BIND_KEY_QUEUE 32
+typedef struct {
+    int vk;
+    // XR_BIND_MOD_ bits
+    int mods;
+    int down;
+} XrBindKey;
+
 void xrBindRunReset(XrBindRun* r);
 
 // One frame of the table t with the controls down (xrBindSourcesDown's bits,

@@ -4,6 +4,9 @@
 #include <math.h>
 #include <stdlib.h>
 
+#include "xr_clickhold.h"
+#include "xr_shared.h"
+
 void pressFixReset(PressFix* p) {
     *p = (PressFix){ 0 };
 }
@@ -43,6 +46,34 @@ float doubleClickMsFromEnv(void) {
 int stickRightClickFromEnv(void) {
     const char* s = getenv("MLXR_STICK_RIGHT_CLICK");
     return !(s != NULL && s[0] == '0' && s[1] == '\0');
+}
+
+static int envSet(const char* name) {
+    const char* s = getenv(name);
+    return s != NULL && *s != '\0';
+}
+
+void clickSteadyConfig(int level, int useEnv, PressFixCfg* cfg, float* holdPx) {
+    int on = level != CLICK_STEADY_OFF;
+    cfg->stabilise = on;
+    cfg->doublePx = on ? PRESSFIX_DOUBLE_DEFAULT_PX : 0.0f;
+    cfg->doubleNs = on ? (int64_t)(PRESSFIX_DOUBLE_DEFAULT_MS * 1000000.0f) : 0;
+    *holdPx = level == CLICK_STEADY_STEADY ? CLICK_STEADY_HOLD_PX : 0.0f;
+    if (!useEnv) {
+        return;
+    }
+    if (envSet("MLXR_PRESS_STABILISE")) {
+        cfg->stabilise = pressStabiliseFromEnv();
+    }
+    if (envSet("MLXR_DOUBLE_CLICK_PX")) {
+        cfg->doublePx = doubleClickPxFromEnv();
+    }
+    if (envSet("MLXR_DOUBLE_CLICK_MS")) {
+        cfg->doubleNs = (int64_t)(doubleClickMsFromEnv() * 1000000.0f);
+    }
+    if (envSet("MLXR_CLICK_HOLD_PX")) {
+        *holdPx = clickHoldPixelsFromEnv();
+    }
 }
 
 int pointerButtonMask(const PointerButtons* b) {

@@ -7,12 +7,11 @@
 #ifndef XR_SCROLL_H
 #define XR_SCROLL_H
 
+// The scroll_speed setting's SCROLL_SPEED_ bounds
+#include "xr_shared.h"
+
 // One wheel notch in the host's high resolution units
 #define SCROLL_HIRES_NOTCH 120
-// The scroll_speed setting, percent of SCROLL_CLICKS_PER_SEC (xr_renderer.h)
-#define SCROLL_SPEED_MIN 25
-#define SCROLL_SPEED_MAX 400
-#define SCROLL_SPEED_DEFAULT 100
 
 typedef struct {
     // What did not make a whole unit yet, vertical then horizontal
