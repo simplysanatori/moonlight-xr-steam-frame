@@ -669,6 +669,15 @@ static float panelSharpenFor(int mode) {
     return mode == 2 ? 1.0f : (mode == 1 ? 0.5f : 0.0f);
 }
 
+// Native (lane polish-3): quality's pixels reach only half way to the
+// footprint's brightest or darkest read over high contrast, where it
+// shimmered on white text on black (tests/shaders text: the crawl of light
+// text on dark 0.61 to about Normal's 0.47, MTF50 still about a fifth past
+// Normal's)
+static float panelSharpenReachFor(int mode) {
+    return mode == 2 ? 0.5f : 0.0f;
+}
+
 // Native (lane text-clarity): a config.ini switch with its variable over it
 // (for a headset A/B from the shortcut's launch options; never saved)
 static int knobOr(const char* name, int setting) {
@@ -797,6 +806,7 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     // filter, and sharpened there (panel.frag)
     pp.pictureFilter = pictureFilterOn(ctx);
     pp.sharpen = panelSharpenFor(ctx->sharpenMode);
+    pp.sharpenReach = panelSharpenReachFor(ctx->sharpenMode);
     int said = 1 + pp.pictureFilter * 2 + ctx->sharpenMode * 4 + chromaFromLumaOn(ctx) * 16;
     if (cv->filterSaid != said) {
         cv->filterSaid = said;

@@ -25,12 +25,15 @@
 // mask against the next coarser level, held inside the range of the pixel's
 // own four reads so no edge rings past what the picture had there (see
 // sharpened below); SteamVR's own resample of the layer softens it again.
+// picture.z > 0: over high contrast the sharpened pixel reaches only that
+// share of the way to the reads' darkest or brightest (lane polish-3:
+// quality shimmered on white text on black); 0 reaches all the way.
 layout(push_constant) uniform PC {
     mat4 mvp;
     vec4 shape;
     vec4 uvRect;
     vec4 color;
-    vec4 picture;   // x filter (0 plain, 1 the picture's), y sharpen, zw spare
+    vec4 picture;   // x filter (0 plain, 1 the picture's), y sharpen, z its reach over high contrast, w spare
 } pc;
 
 #include "common.glsl"
@@ -39,15 +42,20 @@ layout(set = 0, binding = 0) uniform sampler2D u_texture;
 layout(location = 0) in vec2 v_uv;
 layout(location = 0) out vec4 fragColor;
 
-// The darkest and brightest of the reads the last footprint() made
-vec4 readLo, readHi;
+// The darkest and brightest luma of the reads the last footprint() made
+float readLo, readHi;
+
+const vec3 LUMA709 = vec3(0.2126, 0.7152, 0.0722);
+
+float luma(vec4 c) {
+    return dot(c.rgb, LUMA709);
+}
 
 // r: texels an eye pixel along the footprint's longer side
 vec4 footprint(vec2 uv, vec2 dx, vec2 dy, float r) {
     if (r <= 1.0) {
         vec4 c = textureLod(u_texture, uv, 0.0);
-        readLo = c;
-        readHi = c;
+        readLo = readHi = luma(c);
         return c;
     }
     // Each read spans half the footprint each way. Just past 1:1 the reads
@@ -60,8 +68,9 @@ vec4 footprint(vec2 uv, vec2 dx, vec2 dy, float r) {
     vec4 t1 = textureLod(u_texture, uv + a - b, lod);
     vec4 t2 = textureLod(u_texture, uv - a + b, lod);
     vec4 t3 = textureLod(u_texture, uv + a + b, lod);
-    readLo = min(min(t0, t1), min(t2, t3));
-    readHi = max(max(t0, t1), max(t2, t3));
+    vec4 y = vec4(luma(t0), luma(t1), luma(t2), luma(t3));
+    readLo = min(min(y.x, y.y), min(y.z, y.w));
+    readHi = max(max(y.x, y.y), max(y.z, y.w));
     return 0.25 * (t0 + t1 + t2 + t3);
 }
 
@@ -70,8 +79,16 @@ vec4 footprint(vec2 uv, vec2 dx, vec2 dy, float r) {
 // four reads' range. Magnified: against the four texels round it, held
 // inside their range and its own. Measured on lavapipe (tests/shaders text):
 // no overshoot on a slanted edge at either size.
-vec4 sharpened(vec4 c, vec2 uv, float r, float amount) {
+// Native (lane polish-3): on luma alone, the one change added to all three
+// channels, so the colour is the unsharpened picture's exactly (sharpening
+// each channel on its own raised the saturation of ClearType's fringes, 0.45
+// to 0.55 of the ideal's). With picture.z the clamp closes in as the reads'
+// range nears black to white: a bright stroke's pixel pulled all the way up
+// to its brightest read follows that read as the head moves, which is where
+// quality shimmered on white text on black.
+vec4 sharpened(vec4 c, vec2 uv, float r) {
     vec4 blur;
+    float y = luma(c);
     if (r > 1.0) {
         blur = textureLod(u_texture, uv, log2(r) + 1.0);
     } else {
@@ -81,10 +98,16 @@ vec4 sharpened(vec4 c, vec2 uv, float r, float amount) {
         vec4 n2 = textureLod(u_texture, uv - vec2(0.0, t.y), 0.0);
         vec4 n3 = textureLod(u_texture, uv + vec2(0.0, t.y), 0.0);
         blur = 0.25 * (n0 + n1 + n2 + n3);
-        readLo = min(c, min(min(n0, n1), min(n2, n3)));
-        readHi = max(c, max(max(n0, n1), max(n2, n3)));
+        vec4 n = vec4(luma(n0), luma(n1), luma(n2), luma(n3));
+        readLo = min(y, min(min(n.x, n.y), min(n.z, n.w)));
+        readHi = max(y, max(max(n.x, n.y), max(n.z, n.w)));
     }
-    return clamp(c + amount * (c - blur), readLo, readHi);
+    float reach = pc.picture.z > 0.0 ? mix(1.0, pc.picture.z, smoothstep(0.1, 0.6, readHi - readLo)) : 1.0;
+    float d = clamp(pc.picture.y * (y - luma(blur)), reach * (readLo - y), reach * (readHi - y));
+    // and no further than the brightest channel can rise or the darkest fall,
+    // so no channel clips and the colour stays as it was
+    d = clamp(d, -min(c.r, min(c.g, c.b)), 1.0 - max(c.r, max(c.g, c.b)));
+    return vec4(c.rgb + d, c.a);
 }
 
 void main() {
@@ -95,7 +118,7 @@ void main() {
         float r = max(length(dx * size), length(dy * size));
         c = footprint(v_uv, dx, dy, r);
         if (pc.picture.y > 0.0) {
-            c = sharpened(c, v_uv, r, pc.picture.y);
+            c = sharpened(c, v_uv, r);
         }
     }
     else {

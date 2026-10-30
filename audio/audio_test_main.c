@@ -6,10 +6,10 @@
 //                   [--level DB] [--seconds S] [--yaw DEG] [--dry]
 //
 // Each channel plays up to 1 s (default 0.8 s) at -20 dBFS (--level) with a
-// 0.25 s gap, and its name is printed as it starts. --surround renders 5.1/7.1
-// through the HRTF virtual surround (needs --hrtf-dir, default
+// 0.25 s gap, and its name is printed as it starts. --surround renders stereo,
+// 5.1 and 7.1 through the HRTF virtual surround (needs --hrtf-dir, default
 // assets/hrtf/kemar next to the source tree); without it 5.1/7.1 are
-// downmixed. By default the stream bypasses SteamOS's VR spatializer (see
+// downmixed and stereo passes through. By default the stream bypasses SteamOS's VR spatializer (see
 // opus_out.h); --system-spatializer lets the system process it, for A/B listening.
 // --dry decodes everything but discards the output (no sound server).
 #include "opus_layouts.h"
@@ -126,7 +126,7 @@ int main(int argc, char** argv) {
     mlxr_opus_out_set_pose((float) (yawDeg * M_PI / 180.0), 0.0f);
     printf("%s, %s%s, %.0f dBFS, %.1f s per channel\n",
            channels == 2 ? "stereo" : channels == 6 ? "5.1" : "7.1",
-           channels == 2 ? "passthrough" : surround ? "HRTF virtual surround" : "plain downmix",
+           surround ? "HRTF virtual surround" : channels == 2 ? "passthrough" : "plain downmix",
            dry ? " (dry run)" : "", level, seconds);
 
     const int fr = oc.samplesPerFrame;
