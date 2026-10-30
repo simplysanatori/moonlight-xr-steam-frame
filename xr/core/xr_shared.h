@@ -81,6 +81,41 @@
 #define DEPTH_RATE_DEFAULT 20
 #define DEPTH_RATE_GEN1 12
 
+// Native (lane wave5-depth, PLAN 5.1): the Edge setting, [3d] edge_sharpness,
+// 0..100. 0 is upstream's edges exactly (the upsample's colour match at sigma
+// 0.25 and no snap); higher tightens the colour match and snaps the depth to
+// the nearer side of a silhouette (depthEdgeParams in xr_depthmap.h)
+#define EDGE_SHARPNESS_MIN 0
+#define EDGE_SHARPNESS_MAX 100
+#define EDGE_SHARPNESS_DEFAULT 0
+
+// Native (lane wave5-depth, PLAN 5.4): [3d] motion_reset, percent of the
+// guide's luma a depth texel's colour may change by between two maps before
+// its average over time starts again there; 0, the default, never (the
+// average as upstream has it)
+#define MOTION_RESET_MIN 0
+#define MOTION_RESET_MAX 50
+#define MOTION_RESET_DEFAULT 0
+
+// Native (lane wave5-depth, PLAN 5.6): upstream's depth scale preference
+// (vrDepthScale, percent: the local detail's gain around the overall shape)
+// as [3d] depth_scale, and the overall shape's own gain toward the screen
+// plane, which upstream fixes at 100, as [3d] depth_global. Both 100, the
+// defaults, leave the map as the model made it (the remap is skipped)
+#define DEPTH_SCALE_MIN 0
+#define DEPTH_SCALE_MAX 200
+#define DEPTH_SCALE_DEFAULT 100
+
+// Native (lane wave5-depth, PLAN 5.5): [debug] depth_threads, the depth
+// model's XNNPACK threads counting the depth thread itself. 2 is upstream's
+// CPU route. 3 on the Frame (docs/dev/reports/depth.md): 33.4 maps a second
+// unlimited against 27 for 2, about 7 ms less a map (the report's summary
+// says up to 10 ms of latency), for another core; at the held 20 a second the
+// model took 37 ms against 38. MLXR_DEPTH_THREADS still wins.
+#define DEPTH_THREADS_MIN 1
+#define DEPTH_THREADS_MAX 4
+#define DEPTH_THREADS_DEFAULT 2
+
 // Enough for a dozen lines of stats without being big enough to matter
 #define OVERLAY_WIDTH 768
 #define OVERLAY_HEIGHT 512
