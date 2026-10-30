@@ -38,6 +38,7 @@ void mlxr_depth_params_default(MlxrDepthParams* p) {
     p->global = 1.0f;
     p->local = 1.0f;
     p->convergence = 0.5f;
+    p->motion = 0.0f;
 }
 
 // ---- normalisation: nativeUploadDepth's CPU half ----
@@ -49,6 +50,12 @@ struct MlxrDepthNorm {
     float* low;
     float* scratch;
     float* colSums;
+    // Native (lane wave5-depth, PLAN 5.4): the guide's luma now and at the
+    // last map, for the motion reset
+    float* luma;
+    float* lastLuma;
+    int lumaValid;
+    int motionResets;
     int tauValid;
     int64_t tauNs;
     DepthRange range;
@@ -68,7 +75,9 @@ MlxrDepthNorm* mlxr_depth_norm_create(int w, int h) {
     n->low = malloc(count * sizeof(float));
     n->scratch = malloc(count * sizeof(float));
     n->colSums = malloc((size_t)w * sizeof(float));
-    if (!n->tau || !n->norm || !n->low || !n->scratch || !n->colSums) {
+    n->luma = malloc(count * sizeof(float));
+    n->lastLuma = malloc(count * sizeof(float));
+    if (!n->tau || !n->norm || !n->low || !n->scratch || !n->colSums || !n->luma || !n->lastLuma) {
         mlxr_depth_norm_free(n);
         return NULL;
     }
@@ -84,12 +93,15 @@ void mlxr_depth_norm_free(MlxrDepthNorm* n) {
     free(n->low);
     free(n->scratch);
     free(n->colSums);
+    free(n->luma);
+    free(n->lastLuma);
     free(n);
 }
 
 static void normForget(MlxrDepthNorm* n) {
     n->tauValid = 0;
     n->range.valid = 0;
+    n->lumaValid = 0;
 }
 
 // depthTauMap: the per texel average over real time, ahead of the range
@@ -118,7 +130,24 @@ void mlxr_depth_norm_run(MlxrDepthNorm* n, const MlxrDepthParams* p, const float
     if (resets & DEPTH_RESET_RANGE) {
         n->range.valid = 0;
     }
+    // Native (lane wave5-depth, PLAN 5.4): where the picture moved since the
+    // last map the average starts again, so a moving edge leaves no ghost of
+    // its old depth behind; elsewhere it averages on as before
+    int averaging = n->tauValid && p->tauMs > 0;
     const float* src = tauMap(n, p->tauMs, raw, count, now);
+    n->motionResets = 0;
+    if (p->motion > 0.0f) {
+        depthGuideLuma(guide, n->luma, count);
+        if (averaging && n->lumaValid) {
+            n->motionResets = depthMotionReset(n->tau, raw, n->luma, n->lastLuma, count, p->motion);
+        }
+        float* t = n->lastLuma;
+        n->lastLuma = n->luma;
+        n->luma = t;
+        n->lumaValid = 1;
+    } else {
+        n->lumaValid = 0;
+    }
     float lo, hi;
     robustRange(src, count, &lo, &hi);
     depthRangeStep(&n->range, lo, hi, (float)(now - n->rangeNs) / 1e9f,
@@ -157,6 +186,14 @@ void mlxr_depth_norm_run(MlxrDepthNorm* n, const MlxrDepthParams* p, const float
             d[3] = (uint8_t)(v * 255.0f + 0.5f);
         }
     }
+}
+
+const float* mlxr_depth_norm_average(const MlxrDepthNorm* n) {
+    return n->tau;
+}
+
+int mlxr_depth_norm_motion_resets(const MlxrDepthNorm* n) {
+    return n->motionResets;
 }
 
 // ---- the engine ----
