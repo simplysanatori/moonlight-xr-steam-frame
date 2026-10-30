@@ -48,6 +48,7 @@
 #include "xr_keys.h"
 #include "xr_kbfull.h"
 #include "xr_hostkeys.h"
+#include "xr_splash.h"
 #include "xr_controller.h"
 #include "xr_headaim.h"
 #include "xr_clickhold.h"
@@ -55,6 +56,8 @@
 #include "xr_gamepad.h"
 #include "xr_bindrun.h"
 #include "xr_scroll.h"
+#include "xr_lightgun.h"
+#include "xr_padgyro.h"
 #include "xr_ray.h"
 #include "xr_raylog.h"
 #include "room_logic.h"
@@ -403,6 +406,13 @@ typedef struct XrCtx {
     // tab and leaves the bar's 3D button out)
     int stereoMode;
     int depthDebug;
+    // Native (PLAN 4.3): the 3D tab's 3D source (STEREO_SOURCE_*); anything
+    // but Depth makes stereoMode DEPTH_MODE_SBS, a pair the host drew, side by
+    // side or top and bottom, full size per eye with sbsFull. depthModeSet is
+    // the mode depth_source gave at the start, which Depth goes back to.
+    int stereoSource;
+    int sbsFull;
+    int depthModeSet;
     // The 3D switch on the bar and the 3D tab. Native: remembered in
     // config.ini ([3d] stereo) rather than starting on in every session
     int stereoLive;
@@ -511,6 +521,11 @@ typedef struct XrCtx {
     int glowRendered;
     int glowDrawnOn;
     float glowDrawnLevel;
+    // Native (lane wave3-visual): the Picture tab's Glow edge (GLOW_FEATHER_),
+    // and the one the glow image was last drawn with. Feathered, the glow is
+    // drawn over the picture rather than under it.
+    int glowFeather;
+    int glowDrawnFeather;
     int ambilightOn;
     float ambiIntensity;
     int ambiOverride;
@@ -520,6 +535,10 @@ typedef struct XrCtx {
     int pictureUnits[PICTURE_VALUES];
     int gradeOn;
     PictureGrade grade;
+    // Native (lane wave3-visual): Background dim in whole percent (BG_DIM_), and
+    // the void's colour as typed (sRGB 0..1; black when config.ini has none)
+    int bgDim;
+    float voidColor[3];
 
     // Which room the picker is on: 0 none, else one of the ROOM_STYLE_ values,
     // with a debug override (native: MLXR_ROOM in the environment)
@@ -586,6 +605,15 @@ typedef struct XrCtx {
     // SteamVR on the Steam Frame leaves the background opaque without one
     XrSwapchain passthroughSwapchain;
     int passthroughFailed;
+    // Native (lane wave3-visual): the same 16x16 layer is also the void's
+    // colour. Its images, and the colour (sRGB red, green, blue, alpha) the
+    // newest one was cleared to, so a change of dim or void colour clears
+    // another rather than making the swapchain again.
+    VkImage passthroughImages[8];
+    uint32_t passthroughImageCount;
+    float backdropDrawn[4];
+    int backdropDrawnValid;
+    float backdropWant[4];
     int roomHoldingScreen;
     XrPosef savedScreenPose;
     float savedScreenWidth;
@@ -624,6 +652,8 @@ typedef struct XrCtx {
 
     // The launch splash (native: not drawn, starts gone)
     Splash splash;
+    // Native (lane wave6-splash): the logo shown while a stream has no picture (xr_splash.c)
+    XrSplashState splashUi;
 
     // The toast
     NoticeBoard notices;
@@ -780,6 +810,13 @@ typedef struct XrCtx {
     XrAction menuAction;
     int menuBound;
     XrAction hapticAction;
+    // Native (lane wave2-lightgun-gyro, PLAN 2.9): the right thumbstick's touch sensor, for the gyro
+    // ratchet. Created with the Frame profile's actions and offered on the first rung of its binding
+    // ladder only (input/thumbstick/touch, which the probe found on both hands); stickTouchBound says
+    // a Frame profile took it. Where it is not bound, or the right hand is on another profile,
+    // stick_touch reads as always.
+    XrAction stickTouchAction;
+    int stickTouchBound;
     // The Steam Frame controller's own profile, offered when the runtime has
     // XR_VALVE_frame_controller_interaction, and the controls only it has
     XrAction padXAction;
@@ -862,6 +899,16 @@ typedef struct XrCtx {
     float pointerWake;
     float pointerSleep;
     int pointerSleepOn;
+    // Native (lane wave2-lightgun-gyro, PLAN 2.3): the lightgun pointer policy (xr_lightgun.h). The
+    // settings are config.ini's (lightgun, lightgun_reload, lightgun_recoil); lightgun is what they
+    // make with the model that is drawn, kept up to date every input frame, and the policy never
+    // writes into the settings above (pointerSleepOn is still the user's)
+    int lightgunSetting;
+    int lightgunReloadSetting;
+    int lightgunRecoilSetting;
+    LightgunPolicy lightgun;
+    LightgunReload lightgunReload;
+    long recoilPulses;
 
     // Laser and cursor (native: two slots of the UI atlas)
     int pointerArtReady;
@@ -949,6 +996,18 @@ typedef struct XrCtx {
     PadRumble rumble;
     int rumbleOn;
     long rumblePulses;
+    // Native (lane wave2-lightgun-gyro, PLAN 2.9): the pad_gyro setting (PAD_GYRO_), its ratchet
+    // (PAD_GYRO_RATCHET_), the orientation the last sample was taken at (for a runtime with no
+    // velocity), whose it was (-1 the head, else the hand), what the log has said, and how many
+    // samples went out
+    int padGyroSource;
+    int padGyroRatchet;
+    XrQuaternionf padGyroPrev;
+    int64_t padGyroPrevNs;
+    int padGyroPrevWho;
+    int padGyroSaidHz;
+    int padGyroSaidFallback;
+    long padGyroSamples;
     int rumbleResultSaid[HAND_COUNT];
     // The controller models (xr_model.c), at each hand's grip in a projection
     // layer of their own (native: rooms/room_gpu's MlxrModel, mlxr_pass_model)
@@ -1186,6 +1245,9 @@ typedef struct XrCtx {
     float prefCurvature;
     float panelSeparation;
     float separationCurrent;
+    // Native (lane wave3-visual): 3D Eye Balance, -1..1: the share of the
+    // disparity the left eye takes beyond an even split (eyeShares)
+    float eyeBalance;
     float defaultSeparation;
     float defaultConvergence;
     int presetUnits[COG_PRESET_CELLS];
@@ -1249,6 +1311,13 @@ void xrLogFlush(void);
 
 // xr_room.c: the 3d rooms
 int roomEffective(XrCtx* ctx);
+// Native (lane wave3-visual): the colour (sRGB red, green, blue, alpha) of the
+// backdrop behind the picture and the rooms, and whether there is one (a
+// passthrough that is dimmed or not, a void that is not black). The layer's
+// swapchain is cleared to it and the picture's own projection layer clears
+// to it when it stands in for that layer. passthroughNow: the cameras are
+// being blended in this frame.
+int xrBackdropColor(XrCtx* ctx, int passthroughNow, float out[4]);
 int roomResizable(int style);
 void roomLevelsFromTable(XrCtx* ctx);
 int roomScreenPercent(XrCtx* ctx, int style);
@@ -1266,6 +1335,10 @@ int initAmbilight(XrCtx* ctx);
 void ambiEffective(XrCtx* ctx, int* on, float* level);
 void runAmbiBarDetect(XrCtx* ctx, const struct MlxrVideo* video);
 void finishAmbiBarDetect(XrCtx* ctx);
+// Whether the letterbox detector runs and its crop applies: not on a
+// host-rendered stereo pair (native, PLAN 4.3), whose seam and halves are no
+// letterbox
+int ambiBarDetectOn(const XrCtx* ctx);
 void runFrameColorSample(XrCtx* ctx, const struct MlxrVideo* video);
 void runGlowRender(XrCtx* ctx);
 int glowStale(XrCtx* ctx);
@@ -1362,6 +1435,10 @@ void xrSetPadGrip(XrCtx* ctx, int mode);
 // and scroll_speed (percent)
 void xrSetClickSteadiness(XrCtx* ctx, int level);
 void xrSetScrollSpeed(XrCtx* ctx, int percent);
+// Native (lane wave2-lightgun-gyro): config.ini lightgun (LIGHTGUN_), lightgun_reload and
+// lightgun_recoil; pad_gyro (PAD_GYRO_) and pad_gyro_ratchet (PAD_GYRO_RATCHET_)
+void xrSetLightgun(XrCtx* ctx, int setting, int reload, int recoil);
+void xrSetPadGyro(XrCtx* ctx, int source, int ratchet);
 void xrSetPicture(XrCtx* ctx, const int* values);
 
 // xr_assets.c: the UI atlas swapchain, the art drawn in code, and the

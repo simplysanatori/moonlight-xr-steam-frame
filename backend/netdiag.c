@@ -3,10 +3,12 @@
 #include "netdiag.h"
 
 #include <ctype.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 
 #include "internal.h"
 #include "netpath.h"
@@ -135,6 +137,8 @@ bool mlxr_udp_parse(const char *snmp, mlxr_udp_counters *out)
             if (!strcmp(name, "InDatagrams")) out->in_datagrams = v;
             else if (!strcmp(name, "InErrors")) out->in_errors = v;
             else if (!strcmp(name, "RcvbufErrors")) { out->rcvbuf_errors = v; got_rcvbuf = true; }
+            else if (!strcmp(name, "MemErrors")) out->mem_errors = v;
+            else if (!strcmp(name, "InCsumErrors")) out->csum_errors = v;
         }
         out->valid = got_rcvbuf;
         return got_rcvbuf;
@@ -142,19 +146,33 @@ bool mlxr_udp_parse(const char *snmp, mlxr_udp_counters *out)
     return false;
 }
 
-bool mlxr_udp_read(mlxr_udp_counters *out)
+/* A proc file's text (they report size 0, so read until the end), NULL when unreadable. Caller frees. */
+static char *slurp_proc(const char *path, size_t max)
 {
-    memset(out, 0, sizeof *out);
-    FILE *f = fopen("/proc/net/snmp", "r");
-    if (!f) return false;
-    char *buf = malloc(16384);
-    if (!buf) { fclose(f); return false; }
-    size_t n = fread(buf, 1, 16383, f);
+    FILE *f = fopen(path, "r");
+    if (!f) return NULL;
+    char *buf = malloc(max + 1);
+    if (!buf) { fclose(f); return NULL; }
+    size_t n = 0, got;
+    while (n < max && (got = fread(buf + n, 1, max - n, f)) > 0) n += got;
     fclose(f);
     buf[n] = 0;
+    return buf;
+}
+
+static bool udp_read_at(const char *path, mlxr_udp_counters *out)
+{
+    memset(out, 0, sizeof *out);
+    char *buf = slurp_proc(path, 16383);
+    if (!buf) return false;
     bool ok = mlxr_udp_parse(buf, out);
     free(buf);
     return ok;
+}
+
+bool mlxr_udp_read(mlxr_udp_counters *out)
+{
+    return udp_read_at("/proc/net/snmp", out);
 }
 
 static unsigned long long counter_delta(uint64_t prev, uint64_t cur)
@@ -194,4 +212,154 @@ long long mlxr_rmem_max_read(void)
     fclose(f);
     b[n] = 0;
     return mlxr_rmem_max_parse(b);
+}
+
+/* ---------------------------------------------------------------- rx drop misc (lane wave1-burst) */
+
+bool mlxr_netdev_parse(const char *text, const char *ifname, uint64_t *errs, uint64_t *drop, uint64_t *fifo)
+{
+    if (!text || !ifname || !*ifname) return false;
+    size_t want = strlen(ifname);
+    for (const char *p = text; *p; p = next_line(p)) {
+        const char *colon = strchr(p, ':');
+        const char *nl = strchr(p, '\n');
+        if (!colon || (nl && colon > nl)) continue;              /* the two header lines */
+        const char *s = p;
+        while (*s == ' ' || *s == '\t') s++;
+        if ((size_t)(colon - s) != want || strncmp(s, ifname, want) != 0) continue;
+        /* bytes packets errs drop fifo frame compressed multicast | transmit ... */
+        unsigned long long v[5];
+        const char *q = colon + 1;
+        for (int k = 0; k < 5; k++) {
+            char *end = NULL;
+            v[k] = strtoull(q, &end, 10);
+            if (end == q) return false;
+            q = end;
+        }
+        *errs = v[2];
+        *drop = v[3];
+        *fifo = v[4];
+        return true;
+    }
+    return false;
+}
+
+int mlxr_udp_sock_drops_parse(const char *text, const unsigned long *inodes, int n, uint64_t *drops)
+{
+    if (!text || strstr(text, "local_address") == NULL) return -1;
+    int matched = 0;
+    for (const char *p = text; *p; p = next_line(p)) {
+        char tok[72];
+        /* "  sl  local_address ..." is the header; entries start "  123:" */
+        if (!token_at(p, 0, tok, sizeof tok) || tok[0] == 0 || tok[strlen(tok) - 1] != ':') continue;
+        char ino[32], dr[32];
+        /* sl local rem st tx:rx tr:tm retrnsmt uid timeout inode ref pointer drops */
+        if (!token_at(p, 9, ino, sizeof ino) || !token_at(p, 12, dr, sizeof dr)) continue;
+        unsigned long i = strtoul(ino, NULL, 10);
+        for (int k = 0; k < n; k++) {
+            if (inodes[k] != i || i == 0) continue;
+            *drops += strtoull(dr, NULL, 10);
+            matched++;
+            break;
+        }
+    }
+    return matched;
+}
+
+int mlxr_fd_socket_inodes(const char *fd_dir, unsigned long *out, int cap)
+{
+    DIR *d = opendir(fd_dir);
+    if (!d) return -1;
+    int n = 0;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL && n < cap) {
+        if (e->d_name[0] == '.') continue;
+        char path[512], link[64];
+        snprintf(path, sizeof path, "%s/%s", fd_dir, e->d_name);
+        ssize_t l = readlink(path, link, sizeof link - 1);
+        if (l <= 0) continue;
+        link[l] = 0;
+        unsigned long ino = 0;
+        if (sscanf(link, "socket:[%lu]", &ino) == 1 && ino) out[n++] = ino;
+    }
+    closedir(d);
+    return n;
+}
+
+void mlxr_rx_misc_read(const char *proc_root, const char *ifname, mlxr_rx_misc *out)
+{
+    memset(out, 0, sizeof *out);
+    char path[512];
+    if (ifname && *ifname) {
+        mlxr_strlcpy(out->ifname, ifname, sizeof out->ifname);
+        snprintf(path, sizeof path, "%s/net/dev", proc_root);
+        char *t = slurp_proc(path, 65535);
+        if (t) {
+            out->if_valid = mlxr_netdev_parse(t, ifname, &out->if_errs, &out->if_drop, &out->if_fifo);
+            free(t);
+        }
+    }
+    snprintf(path, sizeof path, "%s/net/snmp", proc_root);
+    mlxr_udp_counters u;
+    if (udp_read_at(path, &u)) {
+        out->udp_valid = true;
+        out->mem_errors = u.mem_errors;
+        out->csum_errors = u.csum_errors;
+    }
+    unsigned long ino[256];
+    snprintf(path, sizeof path, "%s/self/fd", proc_root);
+    int n = mlxr_fd_socket_inodes(path, ino, (int)(sizeof ino / sizeof ino[0]));
+    if (n < 0) return;
+    const char *tables[] = { "net/udp", "net/udp6" };
+    for (int k = 0; k < 2; k++) {
+        snprintf(path, sizeof path, "%s/%s", proc_root, tables[k]);
+        char *t = slurp_proc(path, 1 << 20);
+        if (!t) continue;
+        int m = mlxr_udp_sock_drops_parse(t, ino, n, &out->sock_drops);
+        free(t);
+        if (m < 0) continue;
+        out->sock_valid = true;
+        out->sockets += m;
+    }
+}
+
+void mlxr_rx_misc_delta_text(const mlxr_rx_misc *prev, const mlxr_rx_misc *cur, char *out, size_t cap)
+{
+    unsigned long long total = 0;
+    char ifp[96], udp[64], sock[64];
+    if (prev->if_valid && cur->if_valid && !strcmp(prev->ifname, cur->ifname)) {
+        unsigned long long dr = counter_delta(prev->if_drop, cur->if_drop), er = counter_delta(prev->if_errs, cur->if_errs),
+                           fi = counter_delta(prev->if_fifo, cur->if_fifo);
+        total += dr + er + fi;
+        snprintf(ifp, sizeof ifp, "%s drop +%llu err +%llu fifo +%llu", cur->ifname, dr, er, fi);
+    } else {
+        snprintf(ifp, sizeof ifp, "%s ?", cur->ifname[0] ? cur->ifname : "interface");
+    }
+    if (prev->udp_valid && cur->udp_valid) {
+        unsigned long long me = counter_delta(prev->mem_errors, cur->mem_errors), cs = counter_delta(prev->csum_errors, cur->csum_errors);
+        total += me + cs;
+        snprintf(udp, sizeof udp, "udp mem +%llu csum +%llu", me, cs);
+    } else {
+        snprintf(udp, sizeof udp, "udp mem ? csum ?");
+    }
+    if (prev->sock_valid && cur->sock_valid)
+        snprintf(sock, sizeof sock, "own sockets +%llu of %d", counter_delta(prev->sock_drops, cur->sock_drops), cur->sockets);
+    else
+        snprintf(sock, sizeof sock, "own sockets ?");
+    snprintf(out, cap, "rx drop misc +%llu (%s, %s, %s)", total, ifp, udp, sock);
+}
+
+bool mlxr_net_ifname_for(const char *addr, char *out, size_t cap)
+{
+    if (cap) out[0] = 0;
+    if (!addr || !*addr) return false;
+    mlxr_netifs *t = malloc(sizeof *t);
+    if (!t) return false;
+    mlxr_netifs_read(t);
+    const mlxr_netif *via = NULL;
+    mlxr_net_classify(t, addr, &via);
+    bool ok = via != NULL;
+    if (ok) mlxr_strlcpy(out, via->name, cap);
+    free(t);
+    return ok;
 }

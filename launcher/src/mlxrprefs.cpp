@@ -287,6 +287,23 @@ void MlxrPrefs::load()
     const int conv = iniValue(ini, "3d", "convergence", "-1").toInt();
     convergenceIsDefault = conv < 0;
     convergence = conv < 0 ? 50 : qBound(0, conv, 100);
+    // the VR client holds these to their ranges and takes anything else as its default
+    bool balanceOk = false;
+    const int balance = iniValue(ini, "3d", "eye_balance", "0").trimmed().toInt(&balanceOk);
+    eyeBalance = balanceOk ? qBound(-100, balance, 100) : 0;
+    bool dimOk = false;
+    const int dim = iniValue(ini, "vr", "background_dim", "0").trimmed().toInt(&dimOk);
+    backgroundDim = dimOk ? qBound(0, dim, 100) : 0;
+    voidColor = iniValue(ini, "vr", "void_color", "#000000").trimmed();
+    if (!QRegularExpression("^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$").match(voidColor).hasMatch()) {
+        voidColor = "#000000";
+    }
+    const QString gf = iniValue(ini, "display", "glow_feather", "off").trimmed().toLower();
+    glowFeather = (gf == "soft" || gf == "1") ? "soft" : (gf == "wide" || gf == "2") ? "wide" : "off";
+    // the VR client takes the name or its index; anything else is its default, depth
+    const QString src = iniValue(ini, "3d", "stereo_source", "depth").trimmed().toLower();
+    stereoSource = (src == "sbs" || src == "1") ? "sbs" : (src == "top-bottom" || src == "2") ? "top-bottom" : "depth";
+    sbsFull = iniBool(iniValue(ini, "3d", "sbs_full", "false"));
     // the VR client holds it to 0..100 and takes anything else as its default, 0
     bool edgeOk = false;
     const int edge = iniValue(ini, "3d", "edge_sharpness", "0").trimmed().toInt(&edgeOk);
@@ -318,6 +335,19 @@ void MlxrPrefs::load()
     // the VR client's limits, held to its range
     doffDisconnect = qBound(0, iniValue(ini, "stream", "doff_disconnect", "60").trimmed().toInt(), 3600);
     idleDisconnect = qBound(0, iniValue(ini, "stream", "idle_disconnect", "0").trimmed().toInt(), 1440);
+    // Native (lane wave4b-abr): the per-path start bitrates, the VR client's rule: 0, or 500..500000 kbps
+    auto pathBitrate = [&ini](const char* key) {
+        const int v = iniValue(ini, "stream", key, "0").trimmed().toInt();
+        return v <= 0 ? 0 : qBound(500, v, 500000);
+    };
+    bitrateWifi = pathBitrate("bitrate_wifi");
+    bitrateAdapter = pathBitrate("bitrate_adapter");
+    bitrateWired = pathBitrate("bitrate_wired");
+    bitrateUsb = pathBitrate("bitrate_usb");
+    // Native (lane wave1-burst): not a number is the VR client's default
+    bool idrOk = false;
+    const int idrMs = iniValue(ini, "stream", "rfi_idr_ms", "500").trimmed().toInt(&idrOk);
+    rfiIdrMs = idrOk ? qBound(0, idrMs, 5000) : 500;
 
     // the VR client's names, anything else is its default
     // the VR client holds it to 25..400 and takes anything else as its default, 100
@@ -336,6 +366,11 @@ void MlxrPrefs::load()
     if (padArbitration != "also_gamepad" && padArbitration != "sleep") {
         padArbitration = "pointer";
     }
+    // the VR client takes the name or its index, anything else is its default
+    const QString lg = iniValue(ini, "vr", "lightgun", "auto").trimmed().toLower();
+    lightgun = (lg == "on" || lg == "1") ? "on" : (lg == "off" || lg == "2") ? "off" : "auto";
+    const QString pg = iniValue(ini, "vr", "pad_gyro", "off").trimmed().toLower();
+    padGyro = (pg == "controller" || pg == "1") ? "controller" : (pg == "head" || pg == "2") ? "head" : "off";
 
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
@@ -343,6 +378,12 @@ void MlxrPrefs::load()
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniEyeBalance = eyeBalance;
+    m_iniBackgroundDim = backgroundDim;
+    m_iniVoidColor = voidColor;
+    m_iniGlowFeather = glowFeather;
+    m_iniStereoSource = stereoSource;
+    m_iniSbsFull = sbsFull;
     m_iniEdgeSharpness = edgeSharpness;
     m_iniMotionReset = motionReset;
     m_iniDepthScale = depthScale;
@@ -354,9 +395,16 @@ void MlxrPrefs::load()
     m_iniControllerModel = controllerModel;
     m_iniDoff = doffDisconnect;
     m_iniIdle = idleDisconnect;
+    m_iniBitrateWifi = bitrateWifi;
+    m_iniBitrateAdapter = bitrateAdapter;
+    m_iniBitrateWired = bitrateWired;
+    m_iniBitrateUsb = bitrateUsb;
+    m_iniRfiIdr = rfiIdrMs;
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
+    m_iniLightgun = lightgun;
+    m_iniPadGyro = padGyro;
 }
 
 void MlxrPrefs::save()
@@ -395,6 +443,24 @@ void MlxrPrefs::save()
     if (convergence != m_iniConvergence || convergenceIsDefault != m_iniConvergenceDefault) {
         setIniValue(ini, "3d", "convergence", convergenceIsDefault ? "-1" : QString::number(qBound(0, convergence, 100)));
     }
+    if (eyeBalance != m_iniEyeBalance) {
+        setIniValue(ini, "3d", "eye_balance", QString::number(qBound(-100, eyeBalance, 100)));
+    }
+    if (backgroundDim != m_iniBackgroundDim) {
+        setIniValue(ini, "vr", "background_dim", QString::number(qBound(0, backgroundDim, 100)));
+    }
+    if (voidColor != m_iniVoidColor) {
+        setIniValue(ini, "vr", "void_color", voidColor);
+    }
+    if (glowFeather != m_iniGlowFeather) {
+        setIniValue(ini, "display", "glow_feather", glowFeather);
+    }
+    if (stereoSource != m_iniStereoSource) {
+        setIniValue(ini, "3d", "stereo_source", stereoSource);
+    }
+    if (sbsFull != m_iniSbsFull) {
+        setIniValue(ini, "3d", "sbs_full", sbsFull ? "true" : "false");
+    }
     if (edgeSharpness != m_iniEdgeSharpness) {
         setIniValue(ini, "3d", "edge_sharpness", QString::number(qBound(0, edgeSharpness, 100)));
     }
@@ -428,6 +494,17 @@ void MlxrPrefs::save()
     if (idleDisconnect != m_iniIdle) {
         setIniValue(ini, "stream", "idle_disconnect", QString::number(qBound(0, idleDisconnect, 1440)));
     }
+    // Native (lane wave4b-abr)
+    const auto writeBitrate = [&ini](const char* key, int now, int was) {
+        if (now != was) setIniValue(ini, "stream", key, QString::number(now <= 0 ? 0 : qBound(500, now, 500000)));
+    };
+    writeBitrate("bitrate_wifi", bitrateWifi, m_iniBitrateWifi);
+    writeBitrate("bitrate_adapter", bitrateAdapter, m_iniBitrateAdapter);
+    writeBitrate("bitrate_wired", bitrateWired, m_iniBitrateWired);
+    writeBitrate("bitrate_usb", bitrateUsb, m_iniBitrateUsb);
+    if (rfiIdrMs != m_iniRfiIdr) {
+        setIniValue(ini, "stream", "rfi_idr_ms", QString::number(qBound(0, rfiIdrMs, 5000)));
+    }
     if (padMouseChord != m_iniPadMouseChord) {
         setIniValue(ini, "vr", "pad_mouse_chord", padMouseChord);
     }
@@ -437,12 +514,24 @@ void MlxrPrefs::save()
     if (padArbitration != m_iniPadArbitration) {
         setIniValue(ini, "vr", "pad_arbitration", padArbitration);
     }
+    if (lightgun != m_iniLightgun) {
+        setIniValue(ini, "vr", "lightgun", lightgun);
+    }
+    if (padGyro != m_iniPadGyro) {
+        setIniValue(ini, "vr", "pad_gyro", padGyro);
+    }
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniEyeBalance = eyeBalance;
+    m_iniBackgroundDim = backgroundDim;
+    m_iniVoidColor = voidColor;
+    m_iniGlowFeather = glowFeather;
+    m_iniStereoSource = stereoSource;
+    m_iniSbsFull = sbsFull;
     m_iniEdgeSharpness = edgeSharpness;
     m_iniMotionReset = motionReset;
     m_iniDepthScale = depthScale;
@@ -454,9 +543,16 @@ void MlxrPrefs::save()
     m_iniControllerModel = controllerModel;
     m_iniDoff = doffDisconnect;
     m_iniIdle = idleDisconnect;
+    m_iniBitrateWifi = bitrateWifi;
+    m_iniBitrateAdapter = bitrateAdapter;
+    m_iniBitrateWired = bitrateWired;
+    m_iniBitrateUsb = bitrateUsb;
+    m_iniRfiIdr = rfiIdrMs;
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
+    m_iniLightgun = lightgun;
+    m_iniPadGyro = padGyro;
 }
 
 int MlxrPrefs::headsetMaxFps() const

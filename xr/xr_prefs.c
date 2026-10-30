@@ -9,6 +9,16 @@
 #include "../input/gamepads.h"
 #include "xr_keyboard.h"
 #include "xr_depth.h"
+#include "mlxr_log.h"
+#include "xr_stream_prefs.h"
+
+#include <stdatomic.h>
+
+// Native (lane wave1-burst): [stream] rfi_idr_ms for the stream session (xr_stream_prefs.h)
+static atomic_int g_rfiIdrMs = MLXR_RFI_IDR_MS_DEFAULT;
+
+void xrStreamPrefsSetRfiIdrMs(int ms) { atomic_store(&g_rfiIdrMs, ms < 0 ? 0 : ms); }
+int xrStreamPrefsRfiIdrMs(void) { return atomic_load(&g_rfiIdrMs); }
 
 // ---- what nativeInit set ---------------------------------------------------
 
@@ -106,6 +116,9 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     // Native (lane double-click): the double-click time, press to press
     ctx->pressCfg.doubleNs = (int64_t)(doubleClickMsFromEnv() * 1000000.0f);
     ctx->stickRightClick = stickRightClickFromEnv();
+    // Native (lane wave2-lightgun-gyro): the recoil is on unless config.ini says otherwise
+    ctx->lightgunRecoilSetting = 1;
+    ctx->padGyroPrevWho = -2;
     // Native (lane wave2-bind-wire): the variables above are the Normal level
     // with any that is set taken in, until config.ini says otherwise
     ctx->clickSteady = CLICK_STEADY_NORMAL;
@@ -292,6 +305,10 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->supersampleMode = s->supersampling;
     ctx->ambilightOn = s->glow;
     ctx->ambiIntensity = (float)s->glow_level / 100.0f;
+    ctx->glowFeather = s->glow_feather;
+    ctx->bgDim = s->bg_dim;
+    settings_void_rgb(s, ctx->voidColor);
+    ctx->eyeBalance = (float)s->eye_balance / 100.0f;
     ctx->roomLightOn = s->screen_light;
     for (int style = ROOM_STYLE_FIRST; style <= ROOM_STYLE_LAST; style++) {
         const RoomSettings* r = &s->room[style - ROOM_STYLE_FIRST];
@@ -323,6 +340,9 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetGamepad(ctx, s->gamepad_toggle, padDeadzonePercentFromLauncher(gamepadsGetDeadzone()));
     xrSetPadGrip(ctx, s->pad_grip);
     xrSetClickSteadiness(ctx, s->click_steadiness);
+    // Native (lane wave2-lightgun-gyro): the lightgun pointer policy, and the gamepad's gyro
+    xrSetLightgun(ctx, s->lightgun, s->lightgun_reload, s->lightgun_recoil);
+    xrSetPadGyro(ctx, s->pad_gyro, s->pad_gyro_ratchet);
     xrSetScrollSpeed(ctx, s->scroll_speed);
     xrPadBridgeSetFlip(s->flip_face_buttons);
     // Native (lane wave2b-padmouse): the same switch for the physical pads, live (the stream start
@@ -331,6 +351,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     gamepadsSetPadMouse(s->pad_mouse_chord, s->pad_mouse_scroll);
     gamepadsSetArbitration(s->pad_arbitration);
     xrPadBridgeSetRumble(s->rumble_mix, s->rumble_intensity);
+    xrStreamPrefsSetRfiIdrMs(s->rfi_idr_ms); // Native (lane wave1-burst): read at the next stream start
     int picture[PICTURE_VALUES];
     for (int row = 0; row < PICTURE_VALUES; row++) {
         picture[row] = settings_picture_value(s, row);
@@ -381,6 +402,8 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->supersampling = ctx->supersampleMode;
     s->glow = ctx->ambilightOn;
     s->glow_level = iround(ctx->ambiIntensity * 100.0f);
+    s->glow_feather = ctx->glowFeather;
+    s->bg_dim = ctx->bgDim;
     s->screen_light = ctx->roomLightOn;
     for (int style = ROOM_STYLE_FIRST; style <= ROOM_STYLE_LAST; style++) {
         RoomSettings* r = &s->room[style - ROOM_STYLE_FIRST];
@@ -480,11 +503,14 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_SEPARATION: s->separation = value; break;
     case SETTING_CONVERGENCE: s->convergence = value; break;
     case SETTING_RESET_3D: settings_reset_3d(s); break;
+    case SETTING_STEREO_SOURCE: s->stereo_source = value; break;
     case SETTING_PICTURE_BRIGHTNESS: s->picture_brightness = value; break;
     case SETTING_PICTURE_CONTRAST: s->picture_contrast = value; break;
     case SETTING_PICTURE_GAMMA: s->picture_gamma = value; break;
     case SETTING_PICTURE_SATURATION: s->picture_saturation = value; break;
     case SETTING_RESET_PICTURE: settings_reset_picture(s); break;
+    case SETTING_BG_DIM: s->bg_dim = value; break;
+    case SETTING_GLOW_FEATHER: s->glow_feather = value; break;
     case SETTING_POINTER_DOT:
         // The Display tab's Ray row: both halves are saved. The bar's ray
         // button only flips the session (ctx->rayFlipped), which is not stored.
@@ -513,4 +539,16 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     }
     settings_clamp(s);
     return !settings_equal(&before, s);
+}
+
+// ---- the bitrate a stream starts with (Native, lane wave4b-abr) ----------------
+
+int xrStreamBitrate(const Settings* s, int pathKind, int launcherKbps) {
+    int overrides[MLXR_ABR_KINDS];
+    settings_abr_overrides(s, overrides);
+    MlxrAbrPick pick = mlxr_abr_pick(pathKind, launcherKbps, overrides);
+    char line[128];
+    mlxr_abr_line(pathKind, &pick, line, sizeof(line));
+    MLOG_I("%s", line);
+    return pick.kbps;
 }

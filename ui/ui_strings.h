@@ -66,6 +66,7 @@
     X(ROW_CONTRAST, "vr_panel_contrast", "Contrast") \
     X(ROW_GAMMA, "vr_panel_gamma", "Gamma") \
     X(ROW_SATURATION, "vr_panel_saturation", "Saturation") \
+    X(ROW_BACKGROUND, "native_background", "Background")     X(ROW_GLOW_EDGE, "native_glow_edge", "Glow edge")     X(FEATHER_SOFT, "native_feather_soft", "Soft")     X(FEATHER_WIDE, "native_feather_wide", "Wide") \
     X(VERSION, "vr_panel_version", "Version %s, commit %s") \
     X(VERSION_NO_COMMIT, "vr_panel_version_no_commit", "Version %s") \
     X(LOG_FILE, "vr_panel_log_file", "Log file: %s") \
@@ -189,6 +190,11 @@
     X(MODEL_FRAME, "native_model_frame", "Frame") \
     X(MODEL_GENERIC, "native_model_generic", "Generic") \
     X(MODEL_GUN, "native_model_gun", "Gun") \
+    X(ROW_3D_SOURCE, "native_3d_source", "3D source") \
+    X(SOURCE_DEPTH, "native_3d_source_depth", "Depth") \
+    X(SOURCE_SBS, "native_3d_source_sbs", "SBS") \
+    X(SOURCE_TB, "native_3d_source_tb", "Top-bottom") \
+    X(SBS_NO_DEPTH, "native_3d_sbs_no_depth", "the PC draws the depth") \
     X(NATIVE_EXIT_APP, "native_exit_app", "Quit Moonlight XR for Frame?") \
     X(NATIVE_PAIR_LATER, "native_pair_later", "Pairing from the headset comes later: pair with mlxr-cli") \
     X(NATIVE_NOT_PAIRED, "native_not_paired", "%s is not paired: pair it with mlxr-cli") \
@@ -201,6 +207,9 @@
     X(NATIVE_DISCONNECTED_KEYS, "native_disconnected_keys", "Disconnected: Ctrl+Alt+Shift+Q") \
     X(NATIVE_DISCONNECTED_BAR, "native_disconnected_bar", "Disconnected: the app is still running on the PC") \
     X(NATIVE_RECONNECTING, "native_reconnecting", "Connection lost, reconnecting (%d/%d)…") \
+    X(NATIVE_SPLASH_CONNECTING, "native_splash_connecting", "Connecting to %s…") \
+    X(NATIVE_SPLASH_CONNECTING_NOPC, "native_splash_connecting_nopc", "Connecting…") \
+    X(NATIVE_SPLASH_RECONNECTING, "native_splash_reconnecting", "Reconnecting…") \
     X(NATIVE_DISCONNECTED_DOFF, "native_disconnected_doff", "Disconnected while the headset was off: the app is still running on the PC") \
     X(NATIVE_DISCONNECTED_IDLE, "native_disconnected_idle", "Disconnected after no input for a while: the app is still running on the PC") \
     X(NATIVE_PCVR, "native_pcvr", "Switching to PC VR: the app is still running on the PC") \
