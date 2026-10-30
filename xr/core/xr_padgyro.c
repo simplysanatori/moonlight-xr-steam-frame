@@ -34,9 +34,17 @@ static float degS(float radS) {
     return d < -PAD_GYRO_MAX_DEG_S ? -PAD_GYRO_MAX_DEG_S : d;
 }
 
+// A reading that is not a number is no turn on that axis. It has to go before
+// the rotation: the rotation mixes the axes, and 0 * NaN is NaN, so one bad
+// axis would otherwise wipe out the other two even for a device at rest
+static float finiteOrZero(float v) {
+    return isfinite(v) ? v : 0.0f;
+}
+
 Vec3 padGyroFromVelocity(XrQuaternionf orientation, Vec3 radSBase) {
+    Vec3 base = { finiteOrZero(radSBase.x), finiteOrZero(radSBase.y), finiteOrZero(radSBase.z) };
     // The device's own axes: undo the device's orientation in the base space
-    Vec3 dev = quatRotate(quatConj(quatNorm(orientation)), radSBase);
+    Vec3 dev = quatRotate(quatConj(quatNorm(orientation)), base);
     Vec3 out = { degS(dev.x), degS(dev.y), degS(dev.z) };
     return out;
 }

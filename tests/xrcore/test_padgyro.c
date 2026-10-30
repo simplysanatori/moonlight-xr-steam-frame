@@ -112,6 +112,16 @@ static void testLimits(void) {
     g = padGyroFromVelocity(identity(), bad);
     CHECK(g.x == 0.0f && g.y == 0.0f);
     CHECK_NEAR(g.z, 0.5 * DEG, 1e-3);
+    // A bad axis must not spill into the good ones once the device is turned
+    // and the rotation mixes them: yawed 90 degrees left, a clean turn about
+    // the vertical is still a clean yaw
+    XrQuaternionf left90 = about(0.0f, 1.0f, 0.0f, (float)M_PI / 2.0f);
+    Vec3 badX = { NAN, 1.0f, 0.0f };
+    g = padGyroFromVelocity(left90, badX);
+    CHECK(isfinite(g.x) && isfinite(g.y) && isfinite(g.z));
+    CHECK_NEAR(g.x, 0.0, 1e-3);
+    CHECK_NEAR(g.y, DEG, 1e-3);
+    CHECK_NEAR(g.z, 0.0, 1e-3);
 }
 
 static void testFromTurn(void) {
