@@ -48,10 +48,8 @@ Four projects meet here. [Moonlight XR](https://github.com/Gilleece/moonlight-an
 | Needs an Apollo host | **Use virtual display** and **Resolution scale factor**; a refresh rate with decimals such as 59.94 (**Custom...**); **Smart clipboard sync**; the Host sheet's **Paste from PC**, **Send text to PC** and server commands; starting an app by its UUID; the permission part of **Check the PC before streaming**. |
 | New for the Steam Frame: platform and network | A native Linux Arm64 program on OpenXR and Vulkan, decoding H.264 and HEVC on the Frame's hardware decoder with no copy to the GPU. **Match headset** and 72 to 144 Hz, set in SteamVR before the stream. **Network connection** (Wi-Fi, Steam Frame Wireless Adapter, USB cable, **Automatic**) with a bitrate for each, switching links when video keeps breaking up, and VPN addresses only away from home. Reconnecting after a drop; disconnecting when the headset is off or idle. |
 | New for the Steam Frame: picture and 3D | **3D source** (side by side or top-bottom from the PC), Full-size SBS, 3D edge, motion reset, depth detail, depth shape and eye balance. Sharper small text and coloured text, zoom and pan, screen presets, Bring here, Remember per app, Follow, Angular-size lock, Background dim, Glow edge, Void colour. |
-| New for the Steam Frame: controls | Steam Frame controller models built from SteamVR's own files, the Gun and lightgun mode, controller bindings for every button with an editor, Click steadiness, Relative mouse, Head-look, opentrack head tracking, gyro from the headset, Bluetooth and USB gamepads passed through with rumble, gyro, touchpad and light bar, the gamepad card. The full keyboard, AZERTY and QWERTZ, media keys. The Host sheet with your own macros. The Accessibility tab. |
+| New for the Steam Frame: controls | Steam Frame controller models built from SteamVR's own files, the Gun and lightgun mode, controller bindings for every button with an editor, Click steadiness, Relative mouse, the head turning a first-person game's camera, opentrack head tracking, gyro from the headset, Bluetooth and USB gamepads passed through with rumble, gyro, touchpad and light bar, the gamepad card. The full keyboard, AZERTY and QWERTZ, media keys. The Host sheet with your own macros. The Accessibility tab: pointing with the head or the eyes, Dwell click, Dot size, Headset button clicks. |
 | New for the Steam Frame: menus and flat window | Notices, the HUD and Lite stats, the battery and slow-connection badge, the first-run card, Headset language. The Settings page's Connection rows and headset rows, search and jump list, Check the PC before streaming, On start, the update check. The installer, the Steam shortcut and artwork, and the bug report tool. |
-
-<!-- pending lane: accessibility round two (Eyes in the menu, dot size, hover texts, side-button clicks, radial dwell menu) -->
 
 ### How it works with Apollo
 
@@ -72,7 +70,7 @@ With Sunshine everything else works the same: streaming, pairing, apps, every he
 
 Version 1.1.0 is the current stable build. 1.0.0 was the first. It has been used on one Steam Frame (SteamOS 0.4.5, SteamVR 2.18) against one Windows PC with Sunshine and Apollo.
 
-The 1.1.0 build went through the full headset checklist on 30 October 2026, and everything tested there worked, except eye tracking, which did not reach the app on that Frame (the cause is under investigation). The cog's Accessibility tab shows whether SteamVR provides eye tracking, and offers the eyes as a pointer only then. <!-- pending lane: accessibility round two (eye tracking status) --> The USB cable connection was not tried. The [changelog](docs/CHANGELOG.md) lists everything new in 1.1.0; the [1.0.0 release notes](docs/RELEASE_NOTES_v1.0.0.md) describe the first release.
+The 1.1.0 build went through the full headset checklist on 30 October 2026, and everything tested there worked except eye tracking. That is fixed since: the app now asks SteamVR for eye tracking whenever it is offered, and eye gaze reaches it on the Steam Frame from the Accessibility tab (checked with a gaze probe on 30 October 2026). The USB cable connection was not tried. The [changelog](docs/CHANGELOG.md) lists everything new in 1.1.0; the [1.0.0 release notes](docs/RELEASE_NOTES_v1.0.0.md) describe the first release.
 
 ## Requirements
 
@@ -170,8 +168,7 @@ The bar under the screen shows its buttons while the ray is over it. From left t
 | 3D | Turns 3D on or off (shown when 3D can run). |
 | Host | Opens the Host sheet: Esc, Win, Alt+Enter and other keys, and your own macros. |
 
-The cog menu's **Accessibility** tab (early) lets you point with your head and click by resting the dot, with your eyes too when SteamVR provides eye tracking.
-<!-- pending lane: accessibility round two (Eyes in the menu, dot size, hover texts, side-button clicks, radial dwell menu) -->
+The cog menu's **Accessibility** tab (early) has **Pointer** (Controller, Head, Eyes), **Dwell click**, **Dot size** and **Headset button clicks**; eye tracking works on the Steam Frame. <!-- pending lane: radial dwell -->
 
 To change what a button does, edit `~/.config/moonlight-xr/bindings.ini` or use the flat window's **Controller bindings** page ([BINDINGS.md](docs/BINDINGS.md)); the mode switch, the disconnect chord and the grips' grab cannot be changed.
 
