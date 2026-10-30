@@ -103,6 +103,9 @@ typedef struct Settings {
     // Native (lane wave4-headinput): head and pointer input
     int head_look;         // native: PLAN 4.4, the head's turn as relative mouse motion in pointer mode (head locked or a room)
     int head_look_px_deg;  // native: head-look's pixels a degree (HEAD_AIM_SENSITIVITY_MIN..MAX)
+    int opentrack;         // native: PLAN 4.5, the head pose to opentrack on the PC over UDP while streaming
+    char opentrack_host[UI_STR_MAX]; // native: where it goes, "" the PC of the current stream
+    int opentrack_port;    // native: its UDP port (OPENTRACK_PORT_MIN..MAX, default 4242)
     int scroll_speed;      // native: the thumbstick's wheel, percent of 7.5 notches a second (SCROLL_SPEED_MIN..MAX)
     int gaze;
     int hand_tracking;

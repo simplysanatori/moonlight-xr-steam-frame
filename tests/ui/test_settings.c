@@ -136,7 +136,7 @@ static const char* const README_KEYS[] = {
     // VR Settings
     "pointer", "pointer_sleep", "show_ray", "controller_model", "head_aim",
     "head_aim_sensitivity", "head_aim_deadzone", "gamepad_toggle", "pad_grip", "rumble_mix", "rumble_intensity", "click_sound", "gaze",
-    "notices", "click_steadiness", "scroll_speed", "lightgun", "lightgun_reload", "lightgun_recoil", "pad_gyro", "pad_gyro_ratchet", "head_look", "head_look_px_deg", "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
+    "notices", "click_steadiness", "scroll_speed", "lightgun", "lightgun_reload", "lightgun_recoil", "pad_gyro", "pad_gyro_ratchet", "head_look", "head_look_px_deg", "opentrack", "opentrack_host", "opentrack_port", "hand_tracking", "passthrough", "environment", "depth_source", "env_res",
     "picture_brightness", "picture_contrast", "picture_gamma", "picture_saturation",
     // VR Debugging
     "depth_rate", "depth_debug", "eye_swap", "file_log",
@@ -590,6 +590,27 @@ static void test_head_look(void) {
     text = settings_to_text(&s);
     CHECK(text != NULL && strstr(text, "\n#head_look = false\n") != NULL);
     CHECK(text != NULL && strstr(text, "\n#head_look_px_deg = 8\n") != NULL);
+    free(text);
+}
+
+// Native (lane wave4-headinput, PLAN 4.5): the head pose to opentrack
+static void test_opentrack(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.opentrack == 0 && s.opentrack_host[0] == 0 && s.opentrack_port == 4242);
+    settings_from_text(&s, "[vr]\nopentrack = true\nopentrack_host = gaming-pc.local\nopentrack_port = 5555\n", &info);
+    CHECK(s.opentrack == 1 && strcmp(s.opentrack_host, "gaming-pc.local") == 0 && s.opentrack_port == 5555 && info.bad == 0);
+    settings_from_text(&s, "[vr]\nopentrack_port = 0\n", &info);
+    CHECK(s.opentrack_port >= 1 && s.opentrack_port <= 65535);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nopentrack = true\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\nopentrack_host = gaming-pc.local\n") != NULL);
+    free(text);
+    settings_defaults(&s);
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#opentrack = false\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\n#opentrack_port = 4242\n") != NULL);
     free(text);
 }
 
@@ -1243,6 +1264,7 @@ int main(void) {
     test_click_and_scroll();
     test_lightgun_and_gyro();
     test_head_look();
+    test_opentrack();
     test_controller_model();
     test_cog_tab();
     test_stereo_source();

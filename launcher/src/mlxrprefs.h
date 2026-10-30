@@ -120,6 +120,11 @@ class MlxrPrefs : public QObject
     // locked or a room up; head_look_px_deg its pixels a degree, 1..30 (default 8)
     Q_PROPERTY(bool headLook MEMBER headLook NOTIFY changed)
     Q_PROPERTY(int headLookPxDeg MEMBER headLookPxDeg NOTIFY changed)
+    // opentrack (PLAN 4.5): the head pose to opentrack on the PC over UDP while streaming; opentrack_host
+    // where to ("" the PC of the current stream), opentrack_port its UDP port, 1..65535 (default 4242)
+    Q_PROPERTY(bool opentrack MEMBER opentrack NOTIFY changed)
+    Q_PROPERTY(QString opentrackHost MEMBER opentrackHost NOTIFY changed)
+    Q_PROPERTY(int opentrackPort MEMBER opentrackPort NOTIFY changed)
     // ---- PC VR: Valve's Steam Link stream of the PC (lane wave4-pcvr, PLAN 4.1, 4.2, 4.9) ----
     // The Host sheet's PC VR button ends the stream and the launcher asks Steam to stream pcvrApp (a Steam
     // app id; empty: open Steam's library) from the Remote Play PC pcvrClient (a Remote Play client id; empty:
@@ -246,6 +251,9 @@ public:
     // Native (lane wave4-headinput)
     bool headLook = false;
     int headLookPxDeg = 8;
+    bool opentrack = false;
+    QString opentrackHost;
+    int opentrackPort = 4242;
     QString pcvrApp;
     QString pcvrAppName;
     QString pcvrClient;
@@ -272,6 +280,9 @@ private:
     // load and save of those keys (called from load() and save())
     bool m_iniHeadLook = false;
     int m_iniHeadLookPxDeg = 8;
+    bool m_iniOpentrack = false;
+    QString m_iniOpentrackHost;
+    int m_iniOpentrackPort = 4242;
     void loadHeadInput(const QString& ini);
     void saveHeadInput(const QString& ini);
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;

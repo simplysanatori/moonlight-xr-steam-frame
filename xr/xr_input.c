@@ -14,6 +14,7 @@
 #include "xr_keyboard.h"
 #include "xr_native.h"
 #include "xr_host.h"
+#include "opentrack.h"
 #include "../input/gamepads.h"
 
 // Native (lane ray-glitch): the ray recorder, switched on by MLXR_RAY_DEBUG=1
@@ -4774,6 +4775,57 @@ void xrSetHeadLook(XrCtx* ctx, int on, int pxDeg) {
           ctx->headLookPxDeg);
 }
 
+// Native (lane wave4-headinput, PLAN 4.5): see xr_native.h
+void xrSetOpentrack(XrCtx* ctx, int on, const char* host, int port) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->opentrackOn = on ? 1 : 0;
+    snprintf(ctx->opentrackHost, sizeof(ctx->opentrackHost), "%s", host != NULL ? host : "");
+    ctx->opentrackPort = opentrackPortClamp(port);
+    if (on) {
+        LOGEV("opentrack on: the head pose to %s, UDP port %d, while streaming",
+              ctx->opentrackHost[0] ? ctx->opentrackHost : "the stream's PC", ctx->opentrackPort);
+    }
+}
+
+// Native (lane wave4-headinput, PLAN 4.5): the head pose to opentrack, every frame while streaming.
+// The head in the local space at the frame's display time; a frame without a placed and turned head
+// sends nothing (opentrack holds the last pose). The send drops rather than waits.
+void xrOpentrackFrame(XrCtx* ctx) {
+    int want = ctx->opentrackOn && ctx->streaming && ctx->sessionRunning;
+    if (!want) {
+        if (ctx->opentrackLive) {
+            LOGEV("opentrack stopped after %ld packets", ctx->opentrackSent);
+            mlxr_opentrack_close();
+            ctx->opentrackLive = 0;
+            ctx->opentrackSent = 0;
+        }
+        return;
+    }
+    ctx->opentrackLive = 1;
+    const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT
+            | XR_SPACE_LOCATION_POSITION_VALID_BIT;
+    XrSpaceLocation head = { XR_TYPE_SPACE_LOCATION };
+    if (XR_FAILED(locateSpace(ctx, ctx->viewSpace, ctx->localSpace, ctx->predictedDisplayTime,
+                              &head))
+            || (head.locationFlags & needed) != needed) {
+        return;
+    }
+    OpentrackPose pose;
+    uint8_t pkt[OPENTRACK_PACKET_BYTES];
+    opentrackFromPose(head.pose, &pose);
+    opentrackPack(&pose, pkt);
+    if (mlxr_opentrack_send(ctx->opentrackHost, ctx->opentrackPort, pkt, sizeof(pkt)) == 1) {
+        if (ctx->opentrackSent == 0) {
+            char to[80];
+            mlxr_opentrack_target(to, sizeof(to));
+            LOGEV("opentrack: the head pose goes to %s every frame", to);
+        }
+        ctx->opentrackSent++;
+    }
+}
+
 // Native (lane wave4-headinput), for the tests: see xr_native.h
 void xrHeadMouseFrame(XrCtx* ctx, int headLocked, float* out) {
     ctx->inputFrames++;
@@ -5306,6 +5358,8 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
         // The same for head aim, which turns the game with the pointer off
         ctx->inputFrames++;
         updateHeadAim(ctx, headLocked, out);
+        // Native (lane wave4-headinput, PLAN 4.5): the head to opentrack, focused or not
+        xrOpentrackFrame(ctx);
     }
     // Zero is a real cell, so "nothing picked" has to be said explicitly. Every
     // early return below would otherwise read as a press on the first one. Same

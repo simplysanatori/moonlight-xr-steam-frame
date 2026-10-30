@@ -566,8 +566,16 @@ void MlxrPrefs::loadHeadInput(const QString& ini)
     bool pxOk = false;
     const int px = iniValue(ini, "vr", "head_look_px_deg", "8").trimmed().toInt(&pxOk);
     headLookPxDeg = pxOk ? qBound(1, px, 30) : 8;
+    opentrack = iniBool(iniValue(ini, "vr", "opentrack", "false"));
+    opentrackHost = iniValue(ini, "vr", "opentrack_host", "").trimmed();
+    bool portOk = false;
+    const int port = iniValue(ini, "vr", "opentrack_port", "4242").trimmed().toInt(&portOk);
+    opentrackPort = portOk && port >= 1 && port <= 65535 ? port : 4242;
     m_iniHeadLook = headLook;
     m_iniHeadLookPxDeg = headLookPxDeg;
+    m_iniOpentrack = opentrack;
+    m_iniOpentrackHost = opentrackHost;
+    m_iniOpentrackPort = opentrackPort;
 }
 
 void MlxrPrefs::saveHeadInput(const QString& ini)
@@ -578,8 +586,20 @@ void MlxrPrefs::saveHeadInput(const QString& ini)
     if (headLookPxDeg != m_iniHeadLookPxDeg) {
         setIniValue(ini, "vr", "head_look_px_deg", QString::number(qBound(1, headLookPxDeg, 30)));
     }
+    if (opentrack != m_iniOpentrack) {
+        setIniValue(ini, "vr", "opentrack", opentrack ? "true" : "false");
+    }
+    if (opentrackHost.trimmed() != m_iniOpentrackHost) {
+        setIniValue(ini, "vr", "opentrack_host", opentrackHost.trimmed());
+    }
+    if (opentrackPort != m_iniOpentrackPort) {
+        setIniValue(ini, "vr", "opentrack_port", QString::number(opentrackPort >= 1 && opentrackPort <= 65535 ? opentrackPort : 4242));
+    }
     m_iniHeadLook = headLook;
     m_iniHeadLookPxDeg = headLookPxDeg;
+    m_iniOpentrack = opentrack;
+    m_iniOpentrackHost = opentrackHost.trimmed();
+    m_iniOpentrackPort = opentrackPort;
 }
 
 int MlxrPrefs::headsetMaxFps() const
