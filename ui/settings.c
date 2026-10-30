@@ -204,6 +204,8 @@ static const SettingDesc TABLE[] = {
     DI("display", "zoom_y", zoom_y, 0, 100, 50, "native (PLAN 4b.6): where the zoomed part is centred down the picture, percent (0 the top edge, 100 the bottom)"),
     DE("display", "sharpening", sharpening, SHARP_NAMES, 0, "Display tab: sharpen (list_vr_sharpening; native default off, the owner's choice, upstream quality)"),
     DE("display", "supersampling", supersampling, SHARP_NAMES, 1, "Display tab: supersample (list_vr_supersampling; native default normal, the owner's choice, upstream off; never used with the 3D on)"),
+    DB("display", "picture_filter", picture_filter, 1, "native: sharper small text on the curved or 3D picture (MLXR_PICTURE_FILTER)"),
+    DB("display", "chroma_from_luma", chroma_from_luma, 1, "native: sharper coloured text, colour fitted to the luma (MLXR_CHROMA_FROM_LUMA)"),
     DB("display", "stats", stats, 0, "Display tab: show performance stats (true, false, or hud / lite to switch them on in that style)"),
     DE("display", "stats_style", stats_style, STATS_STYLE_NAMES, 0, "native: what the stats show: full (every line the session writes), hud (latency, network, decode and rate in a few lines) or lite (speed, latency, decode, loss and fps on one line); with stats on, a perf-<stamp>.csv next to vrtiming.log gets a row every 5 s"),
     DB("display", "glow", glow, 0, "Display tab: glow (checkbox_vr_ambilight; native default off, the owner's choice, upstream on)"),
