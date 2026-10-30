@@ -79,6 +79,10 @@ static void testWindow(void) {
     e.udpDrops += 5;
     CHECK(mlxr_hud_window(&d, &e, 1.0, 60.0, &f) == 1);
     CHECK(f.fecRecovered == 3 && f.fecFailed == 0 && f.udpDrops == 5);
+    // the started-with bitrate is carried, not differenced
+    CHECK(f.setKbps == 0);
+    e.setKbps = 98000;
+    CHECK(mlxr_hud_window(&d, &e, 1.0, 60.0, &f) == 1 && f.setKbps == 98000);
 }
 
 static MlxrHudFigures sample(void) {
@@ -130,6 +134,17 @@ static void testWords(void) {
     CHECK(strstr(buf, "\nHost 4.2, net 3.5, decode 3.1 ms\n") != NULL);
     CHECK(strstr(buf, "RTT 4 ms, loss 0.2%") != NULL);
     CHECK(strstr(buf, "\n54 Mb/s, 90 fps on 90 Hz") != NULL);
+    // Native (lane wave4b-abr): the bitrate the stream was started with shows beside the arriving rate
+    f.setKbps = 98000;
+    mlxr_hud_panel(&f, 0, NULL, 90.0, buf, sizeof(buf));
+    CHECK(strstr(buf, "\n54 of 98 Mb/s, 90 fps on 90 Hz") != NULL);
+    f.setKbps = 87500;
+    mlxr_hud_panel(&f, 0, NULL, 90.0, buf, sizeof(buf));
+    CHECK(strstr(buf, "\n54 of 88 Mb/s, 90 fps") != NULL || strstr(buf, "\n54 of 87 Mb/s, 90 fps") != NULL);
+    f.setKbps = 6500;
+    mlxr_hud_panel(&f, 0, NULL, 90.0, buf, sizeof(buf));
+    CHECK(strstr(buf, "\n54 of 6.5 Mb/s, 90 fps") != NULL);
+    f.setKbps = 0;
     CHECK(strstr(buf, "FEC") == NULL && strstr(buf, "UDP") == NULL && strstr(buf, "compositor") == NULL);
     CHECK(strstr(buf, "slow") == NULL);
     mlxr_hud_panel(&f, 1, NULL, 0.0, buf, sizeof(buf));
