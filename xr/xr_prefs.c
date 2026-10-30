@@ -275,6 +275,7 @@ int xrEnvironmentSetting(int cell) {
 
 void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->overlayVisible = s->stats;
+    ctx->statsStyle = s->stats_style >= STATS_STYLE_FULL && s->stats_style <= STATS_STYLE_LITE ? s->stats_style : STATS_STYLE_FULL;
     ctx->sharpenMode = s->sharpening;
     ctx->supersampleMode = s->supersampling;
     ctx->ambilightOn = s->glow;
@@ -339,6 +340,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
 
 void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->stats = ctx->overlayVisible;
+    s->stats_style = ctx->statsStyle;
     s->sharpening = ctx->sharpenMode;
     s->supersampling = ctx->supersampleMode;
     s->glow = ctx->ambilightOn;

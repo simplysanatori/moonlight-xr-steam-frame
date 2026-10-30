@@ -21,6 +21,7 @@
 #include "../backend/fps_cap.h"
 #include "au_gather.h"
 #include "cadence.h"
+#include "xr_hud.h"
 #include "hw_video.h"
 #include "rfi_watch.h"
 #include "sw_decoder.h"
@@ -56,6 +57,11 @@ static struct {
     double queueMsSum, queueMsMax;   // assembled to handed to our decoder
     uint64_t netLost, idrWaitDrops, rfiWaitDrops, idrRequests; // from common-c's log lines
 } g_lat;
+
+// Native (lane wave3-hud): the running totals the in-headset HUD and the slow connection badge take windows of
+// (xr_hud.h). Unlike g_lat they are never reset within a stream. Under g_latLock.
+static MlxrHudCum g_hud;
+static atomic_int g_poor;   // the connection status common-c last reported is "poor"
 
 // Native (lane netpath-quality): the whole stream's network figures. The window counters above are
 // reset at every latency line, so each window is folded in here first. Under g_latLock.
@@ -105,6 +111,14 @@ static void noteFrameLatency(const DECODE_UNIT* du) {
     double queue = now > du->enqueueTimeUs ? (now - du->enqueueTimeUs) / 1000.0 : 0.0;
     pthread_mutex_lock(&g_latLock);
     mlxr_cadence_add(&g_cadence, (uint32_t)du->frameNumber, du->rtpTimestamp, du->receiveTimeUs);
+    g_hud.frames++;
+    g_hud.bytes += du->fullLength > 0 ? (uint64_t)du->fullLength : 0;
+    g_hud.recvMsSum += recv;
+    g_hud.queueMsSum += queue;
+    if (du->frameHostProcessingLatency > 0) {
+        g_hud.hostN++;
+        g_hud.hostMsSum += du->frameHostProcessingLatency / 10.0;
+    }
     g_lat.frames++;
     g_lat.recvMsSum += recv;
     if (recv > g_lat.recvMsMax) g_lat.recvMsMax = recv;
@@ -292,7 +306,10 @@ static void clLog(const char* fmt, ...) {
         const char* d = strstr(buf, "Network dropped ");
         int lost = 0;
         pthread_mutex_lock(&g_latLock);
-        if (d && strstr(buf, " frame") && sscanf(d, "Network dropped %d frame", &lost) == 1) g_lat.netLost += (uint64_t)lost;
+        if (d && strstr(buf, " frame") && sscanf(d, "Network dropped %d frame", &lost) == 1) {
+            g_lat.netLost += (uint64_t)lost;
+            g_hud.lost += lost > 0 ? (uint64_t)lost : 0;
+        }
         else if (strstr(buf, "Waiting for IDR frame")) g_lat.idrWaitDrops++;
         else if (strstr(buf, "Waiting for RFI frame")) g_lat.rfiWaitDrops++;
         else if (strstr(buf, "IDR frame request sent")) g_lat.idrRequests++;
@@ -309,7 +326,10 @@ static void clLog(const char* fmt, ...) {
     }
     MLOG_I("common-c: %s", buf);
 }
-static void clStatus(int status) { MLOG_I("connection status: %s", status == CONN_STATUS_POOR ? "poor" : "okay"); }
+static void clStatus(int status) {
+    atomic_store(&g_poor, status == CONN_STATUS_POOR);
+    MLOG_I("connection status: %s", status == CONN_STATUS_POOR ? "poor" : "okay");
+}
 
 void stream_make_config(const StreamOptions* opt, STREAM_CONFIGURATION* cfg) {
     LiInitializeStreamConfiguration(cfg);
@@ -413,6 +433,8 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     pthread_mutex_lock(&g_latLock);
     memset(&g_cadence, 0, sizeof(g_cadence));
     mlxr_cadence_set_fps(&g_cadence, cfg->fps);
+    memset(&g_hud, 0, sizeof(g_hud));
+    atomic_store(&g_poor, 0);
     pthread_mutex_unlock(&g_latLock);
 
     AUDIO_RENDERER_CALLBACKS noAudio;
@@ -464,6 +486,32 @@ void stream_hscroll(int amount) {
 
 void stream_mouse_move(int dx, int dy) {
     if (atomic_load(&g_connected)) LiSendMouseMoveEvent((short)dx, (short)dy);
+}
+
+int stream_hud(MlxrHudCum* out) {
+    memset(out, 0, sizeof(*out));
+    if (!atomic_load(&g_connected)) return 0;
+    uint32_t rtt = 0, var = 0;
+    LiGetEstimatedRttInfo(&rtt, &var);
+    pthread_mutex_lock(&g_latLock);
+    *out = g_hud;
+    pthread_mutex_unlock(&g_latLock);
+    out->valid = 1;
+    out->rttMs = rtt;
+    out->rttVarMs = var;
+    out->poor = atomic_load(&g_poor);
+    const RTP_VIDEO_STATS* rs = LiGetRTPVideoStats();
+    if (rs != NULL) {
+        out->fecRecovered = rs->packetCountFecRecovered;
+        out->fecFailed = rs->packetCountFecFailed;
+    }
+    if (g_hw) {
+        HwVideoStats h;
+        hw_video_stats(g_hw, &h);
+        out->decodeN = h.takenTimed;
+        out->decodeMsSum = (double)h.decodeNsSum / 1e6;
+    }
+    return 1;
 }
 
 void stream_stats(char* buf, int len) {

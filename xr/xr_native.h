@@ -142,6 +142,16 @@ void xrPanelsReportKey(XrCtx* ctx, int code);
 void xrPanelsReportEvent(XrCtx* ctx, int event, const char* reportDir);
 void xrPanelsToast(XrCtx* ctx, int kind, int arg);
 void xrPanelsNotice(XrCtx* ctx, const char* text);
+// Native (lane wave3-hud): the same with a quieter second line (a path is cut from the middle)
+void xrPanelsNoticeMore(XrCtx* ctx, const char* text, const char* more);
+// Native (lane wave3-hud): the finished Save and zip run, if one ended, said on the toast and in the log (frame loop)
+void xrPanelsReportPoll(XrCtx* ctx);
+
+// ---- compositor timing (xr_metrics.c, XR_META_performance_metrics)
+void xrMetricsProbe(XrCtx* ctx);   // after the instance: the entry points; clears metricsSupported if missing
+void xrMetricsStart(XrCtx* ctx);   // once the session runs: lists the counters and switches them on
+void xrMetricsStop(XrCtx* ctx);
+int xrMetricsSample(XrCtx* ctx, MlxrCompositorMetrics* out);   // 1 when the runtime gave a reading
 
 // ---- the layers (xr_layers.c) ---------------------------------------------------------
 // Everything a frame carries, assembled in draw order (upstream's

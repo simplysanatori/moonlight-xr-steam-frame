@@ -92,6 +92,7 @@ typedef struct Settings {
     int sharpening;        // 0 off, 1 normal, 2 quality
     int supersampling;
     int stats;
+    int stats_style;       // native: what the Stats overlay shows: 0 full lines, 1 HUD, 2 Lite one-liner (xr_hud.h STATS_STYLE_)
     int glow;              // ambilight
     int glow_level;        // percent, five percent steps
     int screen_light;      // room light
