@@ -165,3 +165,22 @@ void pointerNudge(PointerNudge* n, int hand, float u, float v, long frame, int w
     n->u = u;
     n->v = v;
 }
+
+// Native (lane wave4-headinput, PLAN 4.4): head-look, see xr_headaim.h
+int headMouseWho(int aimOn, int lookOn, int pointerMode, int headLocked, int inRoom) {
+    if (aimOn && headLocked && !inRoom) {
+        return HEAD_MOUSE_AIM;
+    }
+    if (lookOn && pointerMode && (headLocked || inRoom)) {
+        return HEAD_MOUSE_LOOK;
+    }
+    return HEAD_MOUSE_OFF;
+}
+
+int headLookHeld(int boundHeld, int gripDownL, int gripFreeL, int gripDownR, int gripFreeR) {
+    return boundHeld || (gripDownL && gripFreeL) || (gripDownR && gripFreeR);
+}
+
+int headLookSensitivityClamp(int units) {
+    return clampUnits(units, HEAD_AIM_SENSITIVITY_MIN, HEAD_AIM_SENSITIVITY_MAX);
+}

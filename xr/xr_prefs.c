@@ -152,6 +152,10 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     headAimReset(&ctx->headAim);
     pointerNudgeReset(&ctx->headAimNudge);
     ctx->headAimSaid = -1;
+    ctx->headLookPxDeg = HEAD_AIM_SENSITIVITY_DEFAULT;
+    ctx->opentrackPort = OPENTRACK_PORT_DEFAULT;
+    ctx->dwellFraction = -1.0f;
+    ctx->gazeValid = -1;
     ctx->padDeadzone = PAD_STICK_DEADZONE_DEFAULT;
     ctx->padShortcut = PAD_SHORTCUT_MENU_GRIP;
     padToggleReset(&ctx->padToggle);
@@ -379,6 +383,10 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     // Native (lane wave2-lightgun-gyro): the lightgun pointer policy, and the gamepad's gyro
     xrSetLightgun(ctx, s->lightgun, s->lightgun_reload, s->lightgun_recoil);
     xrSetPadGyro(ctx, s->pad_gyro, s->pad_gyro_ratchet);
+    // Native (lane wave4-headinput): head-look (PLAN 4.4)
+    xrSetHeadLook(ctx, s->head_look, s->head_look_px_deg);
+    xrSetOpentrack(ctx, s->opentrack, s->opentrack_host, s->opentrack_port); // PLAN 4.5
+    xrSetPointerSource(ctx, s->pointer_source, s->head_dwell_ms);              // PLAN 6.5
     xrSetScrollSpeed(ctx, s->scroll_speed);
     xrPadBridgeSetFlip(s->flip_face_buttons);
     // Native (lane wave2b-padmouse): the same switch for the physical pads, live (the stream start

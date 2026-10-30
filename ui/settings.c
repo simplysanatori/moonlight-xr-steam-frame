@@ -16,6 +16,8 @@
 #include "xr_shared.h"
 #include "xr_cards.h"
 #include "xr_lightgun.h"
+#include "xr_opentrack.h"
+#include "xr_dwell.h"
 #include "xr_padgyro.h"
 #include "xr_padmouse.h"
 #include "ui_strings.h"
@@ -48,6 +50,9 @@ static const char* const PADARB_NAMES[] = { "pointer", "also_gamepad", "sleep" }
 static const char* const PADCARD_NAMES[] = { "auto", "on", "off" };
 _Static_assert(sizeof(PADCARD_NAMES) / sizeof(PADCARD_NAMES[0]) == PADCARD_MODES, "pad_card names follow PADCARD_");
 // Native (lane wave2-lightgun-gyro): LIGHTGUN_ and PAD_GYRO_ in xr_lightgun.h and xr_padgyro.h
+// Native (lane wave4-headinput): POINTER_SOURCE_ in xr_dwell.h
+static const char* const POINTER_SOURCE_NAMES[] = { "controller", "head", "gaze" };
+_Static_assert(sizeof(POINTER_SOURCE_NAMES) / sizeof(POINTER_SOURCE_NAMES[0]) == POINTER_SOURCE_COUNT, "pointer_source names follow POINTER_SOURCE_");
 static const char* const LIGHTGUN_NAMES[] = { "auto", "on", "off" };
 _Static_assert(sizeof(LIGHTGUN_NAMES) / sizeof(LIGHTGUN_NAMES[0]) == LIGHTGUN_COUNT, "lightgun names follow LIGHTGUN_");
 static const char* const PADGYRO_NAMES[] = { "off", "controller", "head" };
@@ -151,6 +156,16 @@ static const SettingDesc TABLE[] = {
     DE("vr", "lightgun", lightgun, LIGHTGUN_NAMES, LIGHTGUN_AUTO, "native: the lightgun pointer policy: auto (on while the controller model is the gun), on or off. On: pointer sleep, the double-click wait, press stabilising and the click hold are off, the trigger never grabs the screen (the grip does), and a shot pulses the controller"),
     DB("vr", "lightgun_reload", lightgun_reload, 0, "native: with the lightgun policy on, a trigger pulled off the picture is a right click for as long as it is held (reload)"),
     DB("vr", "lightgun_recoil", lightgun_recoil, 1, "native: with the lightgun policy on, a short strong pulse in the controller on every shot"),
+    // Native (lane wave4-headinput, PLAN 4.4): head-look
+    DB("vr", "head_look", head_look, 0, "native: experimental head-look: in pointer mode with the screen locked to the head or a room up, the head's turn moves the PC's mouse like a game's look control (for first-person games streamed in SBS); hold a grip bound to nothing, or a control bound to app:lookhold, to pause it; head_aim wins where both could act"),
+    DI("vr", "head_look_px_deg", head_look_px_deg, HEAD_AIM_SENSITIVITY_MIN, HEAD_AIM_SENSITIVITY_MAX, HEAD_AIM_SENSITIVITY_DEFAULT, "native: head-look's mouse pixels a degree of head turn; the dead zone is head_aim_deadzone"),
+    // Native (lane wave4-headinput, PLAN 4.5): the head pose to opentrack
+    DB("vr", "opentrack", opentrack, 0, "native: while streaming, send the head pose to opentrack on the PC every frame as its UDP packet (x, y, z in cm, yaw, pitch, roll in degrees); in opentrack pick the input \"UDP over network\" on the same port"),
+    DS("vr", "opentrack_host", opentrack_host, "", "native: where the opentrack packets go, an address or a name; empty sends them to the PC of the current stream"),
+    // Native (lane wave4-headinput, PLAN 6.5): head Point mode
+    DE("vr", "pointer_source", pointer_source, POINTER_SOURCE_NAMES, POINTER_SOURCE_CONTROLLER, "native: what points: controller (the controllers' rays, and the eyes when gaze is on), head (the head's own ray, smoothed, with either controller's trigger as the click; for accessibility) or gaze (the eye-gaze pointer, the same as gaze = true)"),
+    DI("vr", "head_dwell_ms", head_dwell_ms, 0, DWELL_MS_MAX, 0, "native: with pointer_source = head, resting the dot this long on one spot clicks it (400 to 2000 ms); 0 is off"),
+    DI("vr", "opentrack_port", opentrack_port, OPENTRACK_PORT_MIN, OPENTRACK_PORT_MAX, OPENTRACK_PORT_DEFAULT, "native: opentrack's UDP port, the one its UDP over network input listens on (4242 is its default)"),
     DI("vr", "scroll_speed", scroll_speed, SCROLL_SPEED_MIN, SCROLL_SPEED_MAX, SCROLL_SPEED_DEFAULT, "native: how fast a thumbstick scrolls, percent (100 is 7.5 notches a second at full tilt); the wheel is smooth, and the stick's sideways tilt scrolls sideways"),
     DB("vr", "gaze", gaze, 0, "checkbox_vr_gaze: look to point (native default off: with it on a controller takes the pointer back only on a press)"),
     DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),

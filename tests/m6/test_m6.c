@@ -503,7 +503,8 @@ static void testSettings(void) {
           && back.depth_rate == 15);
     CHECK(settings_equal(&s, &back));
     FILE* f = fopen(path, "r");
-    char text[16384] = "";
+    static char text[65536]; // the whole config.ini, which grows with every setting
+    text[0] = '\0';
     if (f) {
         size_t n = fread(text, 1, sizeof(text) - 1, f);
         text[n] = '\0';

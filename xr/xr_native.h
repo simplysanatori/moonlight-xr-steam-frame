@@ -297,6 +297,26 @@ int xrButtonsFrame(XrCtx* ctx, int wanted, int hover, int hit);
 // after the pad has gone to the host: plugged says the pad is on the host, live that it is being
 // read (no panel up). The sources go through the seams on the context (locateSpace, readBool).
 void xrPadGyroFrame(XrCtx* ctx, int plugged, int live, int64_t now);
+// Native (lane wave4-headinput, PLAN 4.4): head-look's setting and pixels a degree (held to head aim's
+// lane), handed down before the first frame
+void xrSetHeadLook(XrCtx* ctx, int on, int pxDeg);
+// Native (lane wave4-headinput), for the tests: the head's part of an input frame (head aim and
+// head-look), as xrUpdateInput runs it ahead of everything else: IN_HEAD_AIM, IN_MOUSE_DX and DY
+// into out. The head goes through the seam on the context (locateSpace).
+void xrHeadMouseFrame(XrCtx* ctx, int headLocked, float* out);
+// Native (lane wave4-headinput, PLAN 4.5): the opentrack setting, where to ("" or NULL: the PC of the
+// current stream) and the UDP port (held to 1..65535)
+void xrSetOpentrack(XrCtx* ctx, int on, const char* host, int port);
+// Native (lane wave4-headinput, PLAN 4.5): one frame of the opentrack sender, as xrUpdateInput runs
+// it every frame: while on and streaming, the head pose in the local space (through the locateSpace
+// seam) goes out as opentrack's packet; it never blocks. Public for the tests.
+void xrOpentrackFrame(XrCtx* ctx);
+// Native (lane wave4-headinput, PLAN 6.5): what points (POINTER_SOURCE_, out of range is the
+// controllers) and head Point mode's dwell click time (0 off, else held to 400..2000 ms)
+void xrSetPointerSource(XrCtx* ctx, int source, int dwellMs);
+// Native (lane wave4-headinput): the eyes this frame: -1 no eye gaze, 0 not usable, 1 usable
+// (XR_EXT_eye_gaze_interaction's location flags; one combined pose, no per-eye openness)
+int xrGazeValid(const XrCtx* ctx);
 
 // ---- Native (lane wave2-bind-wire): bindings.ini (xr_input.c) -------------
 // Reads bindings.ini (path NULL: xrBindDefaultPath, which is written with the
