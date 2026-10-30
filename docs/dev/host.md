@@ -36,9 +36,9 @@ One event a frame goes into `out[IN_KEY]` / `out[IN_KEY_MODS]` (the key slot the
 
 | Emit | `IN_KEY_MODS` | `vrkb_type` does |
 | --- | --- | --- |
-| tap of `vk` with `mods` | `mods | KBF_FLAG_CHORD` | holds `mods`, presses `vk`, lets go of the modifiers it brought (it never leaves one held, so no `IN_KB_MODS` bookkeeping is needed) |
-| `DOWN` / `UP` | `mods | KBF_FLAG_DOWN / UP` | the Full keyboard's path |
-| `HOLD` / `LET` | `bits | KBF_FLAG_HOLD / LET` | puts modifiers down / up on the host, no key |
+| tap of `vk` with `mods` | `mods` plus `KBF_FLAG_CHORD` | holds `mods`, presses `vk`, lets go of the modifiers it brought (it never leaves one held, so no `IN_KB_MODS` bookkeeping is needed) |
+| `DOWN` / `UP` | `mods` plus `KBF_FLAG_DOWN` or `KBF_FLAG_UP` | the Full keyboard's path |
+| `HOLD` / `LET` | `bits` plus `KBF_FLAG_HOLD` or `KBF_FLAG_LET` | puts modifiers down / up on the host, no key |
 
 `xrHostFrame` is called from the top of `xrKeyboardFrame` (end of each input pass), so macro playback needs no hook in `xr_input.c`.
 
