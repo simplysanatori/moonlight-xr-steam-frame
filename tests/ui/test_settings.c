@@ -460,36 +460,20 @@ static void test_session_limits(void) {
     settings_defaults(&s);
     CHECK(s.doff_disconnect == 60 && s.idle_disconnect == 0);   // a minute, and no idle limit
     CHECK(settings_find("stream.doff_disconnect") != NULL && settings_find("idle_disconnect") != NULL);
-    settings_from_text(&s, "[stream]
-doff_disconnect = 0
-idle_disconnect = 30
-", &info);
+    settings_from_text(&s, "[stream]\ndoff_disconnect = 0\nidle_disconnect = 30\n", &info);
     CHECK(s.doff_disconnect == 0 && s.idle_disconnect == 30 && info.applied == 2 && info.bad == 0);
-    settings_from_text(&s, "[stream]
-doff_disconnect = 999999
-idle_disconnect = -4
-", &info);   // held to the range
+    settings_from_text(&s, "[stream]\ndoff_disconnect = 999999\nidle_disconnect = -4\n", &info);   // held to the range
     CHECK(s.doff_disconnect == 3600 && s.idle_disconnect == 0);
-    settings_from_text(&s, "[stream]
-doff_disconnect = soon
-", &info);   // not a number: the last good one stays
+    settings_from_text(&s, "[stream]\ndoff_disconnect = soon\n", &info);   // not a number: the last good one stays
     CHECK(s.doff_disconnect == 3600 && info.bad == 1);
     settings_defaults(&s);
     char* text = settings_to_text(&s);
-    CHECK(text != NULL && strstr(text, "
-#doff_disconnect = 60
-") != NULL && strstr(text, "
-#idle_disconnect = 0
-") != NULL);
+    CHECK(text != NULL && strstr(text, "\n#doff_disconnect = 60\n") != NULL && strstr(text, "\n#idle_disconnect = 0\n") != NULL);
     free(text);
     s.doff_disconnect = 15;
     s.idle_disconnect = 45;
     text = settings_to_text(&s);
-    CHECK(text != NULL && strstr(text, "
-doff_disconnect = 15
-") != NULL && strstr(text, "
-idle_disconnect = 45
-") != NULL);
+    CHECK(text != NULL && strstr(text, "\ndoff_disconnect = 15\n") != NULL && strstr(text, "\nidle_disconnect = 45\n") != NULL);
     free(text);
 }
 
