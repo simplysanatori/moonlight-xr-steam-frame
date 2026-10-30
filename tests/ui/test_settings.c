@@ -70,7 +70,7 @@ static void test_defaults(void) {
     CHECK(geti(&s, "file_log") == FILE_LOG_BASIC);
     // the panel's rows
     CHECK(geti(&s, "head_locked") == 0);
-    CHECK(geti(&s, "sharpening") == 0);      // native: off (upstream quality)
+    CHECK(geti(&s, "sharpening") == 1);      // native: normal (upstream quality)
     CHECK(geti(&s, "supersampling") == 1);   // native: normal (upstream off)
     CHECK(geti(&s, "picture_filter") == 1);  // native (lane text-clarity): on, by measurement
     CHECK(geti(&s, "chroma_from_luma") == 1);
@@ -1073,7 +1073,7 @@ static void test_sliders(void) {
     settings_defaults(&s);
     SessionToggles t;
     session_from_settings(&s, &t);
-    CHECK(settings_option_cell(&s, &t, COG_OPTION_SHARPEN) == 0);
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_SHARPEN) == 1);   // native: normal
     CHECK(settings_option_cell(&s, &t, COG_OPTION_SUPERSAMPLE) == 1);
     CHECK(settings_option_cell(&s, &t, COG_OPTION_STATS) == 0);
     CHECK(settings_option_cell(&s, &t, COG_OPTION_GAMEPAD) == 0);   // every session starts as the pointer
