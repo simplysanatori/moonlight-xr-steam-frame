@@ -85,6 +85,13 @@ const PrefField kPrefFields[] = {
     { "sbsFull", KBool, 0, 0, nullptr },
     // lane wave1-burst: the cap on full-frame requests after lost video
     { "rfiIdrMs", KInt, 0, 5000, nullptr },
+    // lane wave3-visual: the 3D eye balance (the room's look, dim, void colour and glow, is not a stream setting)
+    { "eyeBalance", KInt, -100, 100, nullptr },
+    // lane wave4b-abr: the start bitrate per network path (0: the bitrate above)
+    { "bitrateWifi", KInt, 0, 500000, nullptr },
+    { "bitrateAdapter", KInt, 0, 500000, nullptr },
+    { "bitrateWired", KInt, 0, 500000, nullptr },
+    { "bitrateUsb", KInt, 0, 500000, nullptr },
     { "flipFaceButtons", KBool, 0, 0, nullptr },
     { "notices", KStr, 0, 0, "|all|important|off|" },
     { "scrollSpeed", KInt, 25, 400, nullptr },

@@ -337,7 +337,7 @@ pops() { MLXR_LAUNCHER_SELFTEST="profileops:$1" "$L" 2>"$t/stderr"; }
 pplan() { MLXR_LAUNCHER_DRYRUN=1 MLXR_NATIVE_CLIENT= MLXR_LAUNCHER_SELFTEST="plan:$1" "$L" 2>"$t/stderr"; }
 setconf width=2560 height=1440 fps=90 bitrate=80000 videocfg=0
 SECTION=mlxr setconf match_headset_fps=true virtual_display=false scale_factor=100 custom_refresh_rate=
-out="$(pops 'set|width|1920~set|height|1080~set|fps|60~set|bitrateKbps|20000~set|matchHeadsetFps|false~create|Desktop~set|width|3840~set|height|2160~set|fps|120~set|bitrateKbps|150000~set|virtualDisplay|true~set|scaleFactor|150~set|perfOverlay|true~set|notices|off~set|depthScale|150~set|stereoSource|sbs~set|networkPath|adapter~create|Game~create|desktop~create|Default~create|~duplicate|Game~rename|Game copy|Cinema~rename|Nope|X~assign|gaming-pc||Desktop~assign|gaming-pc|Desktop|Game~assign|gaming-pc|Desktop|Nope~dump')"
+out="$(pops 'set|width|1920~set|height|1080~set|fps|60~set|bitrateKbps|20000~set|matchHeadsetFps|false~create|Desktop~set|width|3840~set|height|2160~set|fps|120~set|bitrateKbps|150000~set|virtualDisplay|true~set|scaleFactor|150~set|perfOverlay|true~set|notices|off~set|depthScale|150~set|stereoSource|sbs~set|bitrateAdapter|60000~set|networkPath|adapter~create|Game~create|desktop~create|Default~create|~duplicate|Game~rename|Game copy|Cinema~rename|Nope|X~assign|gaming-pc||Desktop~assign|gaming-pc|Desktop|Game~assign|gaming-pc|Desktop|Nope~dump')"
 echo "$out" | sed 's/^/    /'
 expect "profiles: made from the settings in force" "$out" "create|Desktop -> ok"
 expect "profiles: a second one" "$out" "create|Game -> ok"
@@ -384,7 +384,8 @@ grep -q '^width=2560$' "$CONF" && grep -q '^virtual_display=false$' "$CONF" && o
 # a launcher killed during the stream: the config.ini keys go back at its next start, a key the headset changed is kept
 out="$(MLXR_LAUNCHER_TEST_PROFILE_CRASH=1 pplan "gaming-pc:Desktop")"
 grep -q '^stats = true$' "$ini" && grep -q '^notices = off$' "$ini" && grep -q '^depth_scale = 150$' "$ini" && grep -q '^stereo_source = sbs$' "$ini" \
-    && ok "profile: config.ini has the profile's keys during the stream (3D depth and source too)" || { fail "profile keys not written"; cat "$ini"; }
+    && grep -q '^bitrate_adapter = 60000$' "$ini" \
+    && ok "profile: config.ini has the profile's keys during the stream (3D depth and source, the adapter's bitrate)" || { fail "profile keys not written"; cat "$ini"; }
 out="$(pops 'dump')"
 cmp -s "$ini" "$t/ini.profile" && ok "profile: a killed launcher's config.ini is put back byte for byte at the next start" || { fail "not recovered"; diff "$t/ini.profile" "$ini"; }
 expect "profile: the recovery is logged" "$(cat "$t/stderr")" "put config.ini back as it was"
