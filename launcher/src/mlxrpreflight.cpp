@@ -47,6 +47,9 @@ Facts parseServerInfo(const QString& xml)
             cur = Mode();
             continue;
         }
+        if (n == QLatin1String("SupportedDisplayMode")) {
+            continue; // the list of DisplayMode elements: read them one by one
+        }
         const QString text = r.readElementText(QXmlStreamReader::SkipChildElements).trimmed();
         if (inMode) {
             if (n == QLatin1String("Width")) {
