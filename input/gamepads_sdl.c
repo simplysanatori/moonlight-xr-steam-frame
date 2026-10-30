@@ -157,7 +157,10 @@ static void* run(void* arg) {
     SDL_Event ev;
     while (!atomic_load(&g.stop)) {
         int nd = 0;
-        int got = SDL_WaitEventTimeout(&ev, 250);
+        // A pad that is a mouse (or a Start being held to make it one) is stepped about every
+        // PADMOUSE_TICK_MS: a stick held still sends no event, and the chord's second runs on the clock
+        int ticking = gamepadsWantsTick();
+        int got = SDL_WaitEventTimeout(&ev, ticking ? PADMOUSE_TICK_MS : 250);
         while (got) {
             switch (ev.type) {
             case SDL_CONTROLLERDEVICEADDED:
@@ -207,6 +210,7 @@ static void* run(void* arg) {
             got = SDL_PollEvent(&ev); // a burst of axis events is one state
         }
         for (int i = 0; i < nd; i++) sendState(dirty[i]);
+        if (ticking || gamepadsWantsTick()) gamepadsTick();
 
         struct timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);

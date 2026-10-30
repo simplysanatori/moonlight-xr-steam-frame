@@ -770,6 +770,11 @@ static void testBatteryTouchLed(void) {
 // The app-wide instance: before init everything is a no-op
 static void testGlobal(void) {
     CHECK(!gamepadsReady());
+    // Without the module gamepad mode is as it always was
+    CHECK(gamepadsFramePadAllowed(1) == 1 && gamepadsFramePadAllowed(0) == 0);
+    CHECK(!gamepadsPhysicalActive() && !gamepadsFrameControllersAsleep() && gamepadsGlyphSet() == GP_GLYPH_XBOX);
+    CHECK(!gamepadsWantsTick());
+    gamepadsTick();
     gamepadsHostMotionState(0, LI_MOTION_TYPE_GYRO, 250); // no instance yet: dropped
     gamepadsHostSetLed(0, 1, 2, 3);
     CHECK(gamepadsClaimFramePad() == 0 && gamepadsAnnouncedMask() == 0);
@@ -903,6 +908,422 @@ static void testStickOptions(void) {
     CHECK(gamepadsGetDeadzone() == 0);
 }
 
+
+// ---- Native (lane wave2b-padmouse): mouse emulation, pad arbitration, flip, glyphs ------------
+
+#define NS_MS 1000000LL
+static int64_t fakeNow;
+static int64_t fakeClock(void* user) {
+    (void)user;
+    return fakeNow;
+}
+
+// What the pad mouse sink heard
+typedef struct { int kind; int a; int b; } PmEv;
+enum { PM_MOVE = 1, PM_BUTTON, PM_SCROLL, PM_HSCROLL, PM_KEY, PM_KEYBOARD, PM_MODE };
+static PmEv pmEv[256];
+static int pmCount;
+static long pmDx, pmDy, pmScroll;
+
+static void pmRec(int kind, int a, int b) {
+    if (pmCount < 256) pmEv[pmCount++] = (PmEv){ kind, a, b };
+}
+static void pmMove(void* u, int dx, int dy) { (void)u; pmDx += dx; pmDy += dy; pmRec(PM_MOVE, dx, dy); }
+static void pmButton(void* u, int b, int down) { (void)u; pmRec(PM_BUTTON, b, down); }
+static void pmScrollHook(void* u, int a) { (void)u; pmScroll += a; pmRec(PM_SCROLL, a, 0); }
+static void pmHScroll(void* u, int a) { (void)u; pmRec(PM_HSCROLL, a, 0); }
+static void pmKey(void* u, int vk, int down) { (void)u; pmRec(PM_KEY, vk, down); }
+static void pmKeyboard(void* u) { (void)u; pmRec(PM_KEYBOARD, 0, 0); }
+static void pmMode(void* u, int on) { (void)u; pmRec(PM_MODE, on, 0); }
+
+static int pmCountOf(int kind) {
+    int n = 0;
+    for (int i = 0; i < pmCount; i++) n += pmEv[i].kind == kind;
+    return n;
+}
+static int pmHeard(int kind, int a, int b) {
+    for (int i = 0; i < pmCount; i++)
+        if (pmEv[i].kind == kind && pmEv[i].a == a && pmEv[i].b == b) return 1;
+    return 0;
+}
+static void pmClear(void) {
+    pmCount = 0;
+    pmDx = pmDy = pmScroll = 0;
+}
+
+static void padMouseSetup(Gamepads* g) {
+    reset(g);
+    fakeNow = 1000 * NS_MS;
+    gpSetClock(g, fakeClock, NULL);
+    PadMouseSink pms = { pmMove, pmButton, pmScrollHook, pmHScroll, pmKey, pmKeyboard, pmMode, NULL };
+    gpSetPadMouseSink(g, &pms);
+    gamepadsSetPadMouse(PAD_MOUSE_CHORD_START_HOLD, PAD_MOUSE_SCROLL_RIGHT);
+    gamepadsSetArbitration(PAD_ARB_POINTER);
+    pmClear();
+}
+
+// Start down, a second, up: the pad becomes a mouse (or a pad again)
+static void holdStart(Gamepads* g, int id) {
+    PadOutPacket p = pkt(PLAY_FLAG, 0, 0);
+    gpState(g, id, &p);
+    fakeNow += 1000 * NS_MS;
+    gpTick(g);
+    p = pkt(0, 0, 0);
+    gpState(g, id, &p);
+}
+
+static void testPadMouseConstants(void) {
+    // The pure module's numbers are Moonlight's
+    CHECK(PADMOUSE_BTN_LEFT == BUTTON_LEFT && PADMOUSE_BTN_MIDDLE == BUTTON_MIDDLE && PADMOUSE_BTN_RIGHT == BUTTON_RIGHT);
+    CHECK(PADMOUSE_BTN_X1 == BUTTON_X1 && PADMOUSE_BTN_X2 == BUTTON_X2);
+    CHECK(PAD_A == A_FLAG && PAD_B == B_FLAG && PAD_X == X_FLAG && PAD_Y == Y_FLAG);
+    CHECK(PAD_UP == UP_FLAG && PAD_DOWN == DOWN_FLAG && PAD_LEFT == LEFT_FLAG && PAD_RIGHT == RIGHT_FLAG);
+    CHECK(PAD_START == PLAY_FLAG && PAD_BACK == BACK_FLAG && PAD_LB == LB_FLAG && PAD_RB == RB_FLAG);
+    CHECK(PAD_LS_CLICK == LS_CLK_FLAG && PAD_RS_CLICK == RS_CLK_FLAG);
+}
+
+static void testPadMouse(void) {
+    Gamepads g;
+    padMouseSetup(&g);
+    GpInfo a = xbox("Pad A", "");
+    CHECK(gpAdd(&g, 1, &a) == 0);
+    gpStreamStart(&g);
+    gpSetActive(&g, 1);
+    eventCount = 0;
+    CHECK(!gpWantsTick(&g) && !gpIsPadMouse(&g, 0));
+
+    // Start goes to the game while the second runs
+    PadOutPacket p = pkt(PLAY_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(eventCount == 1 && events[0].pk.buttonFlags == PLAY_FLAG);
+    CHECK(gpWantsTick(&g));
+    fakeNow += 990 * NS_MS;
+    gpTick(&g);
+    CHECK(!gpIsPadMouse(&g, 0) && pmCountOf(PM_MODE) == 0 && eventCount == 1);
+    fakeNow += 10 * NS_MS;
+    gpTick(&g);
+    CHECK(gpIsPadMouse(&g, 0) && pmHeard(PM_MODE, 1, 0));
+    // The game gets the pad at rest from then on, Start let go
+    CHECK(eventCount == 2 && events[1].kind == 2 && events[1].pk.buttonFlags == 0);
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(eventCount == 2 && gpWantsTick(&g));
+
+    // The left stick is the pointer: a tick moves it with the stick held still, and the
+    // game sees neither the stick nor the buttons
+    p = pkt(0, 0, 32767);
+    gpState(&g, 1, &p);
+    pmClear();
+    for (int i = 0; i < 10; i++) {
+        fakeNow += 10 * NS_MS;
+        gpTick(&g);
+    }
+    CHECK(pmDx >= 178 && pmDx <= 182 && pmDy == 0);
+    CHECK(eventCount == 2);
+    // The right stick scrolls
+    p = pkt(0, 0, 0);
+    p.rightStickY = 32767;
+    gpState(&g, 1, &p);
+    pmClear();
+    for (int i = 0; i < 10; i++) {
+        fakeNow += 10 * NS_MS;
+        gpTick(&g);
+    }
+    CHECK(pmScroll >= 118 && pmScroll <= 122 && pmDx == 0 && eventCount == 2);
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+    // Buttons: A is the left button, d-pad up an arrow, Y the keyboard
+    pmClear();
+    p = pkt(A_FLAG | UP_FLAG | Y_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(pmHeard(PM_BUTTON, BUTTON_LEFT, 1) && pmHeard(PM_KEY, 0x26, 1) && pmCountOf(PM_KEYBOARD) == 1);
+    CHECK(eventCount == 2);
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(pmHeard(PM_BUTTON, BUTTON_LEFT, 0) && pmHeard(PM_KEY, 0x26, 0));
+
+    // The disconnect chord still works for a pad that is a mouse
+    int chord = PLAY_FLAG | BACK_FLAG | LB_FLAG | RB_FLAG;
+    p = pkt(PLAY_FLAG | BACK_FLAG | LB_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(hooks == 0);
+    p = pkt(chord, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(hooks == 1);
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+
+    // Start for a second gives the pad back; the Start that did it never reaches the game
+    pmClear();
+    p = pkt(PLAY_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    fakeNow += 1000 * NS_MS;
+    gpTick(&g);
+    CHECK(!gpIsPadMouse(&g, 0) && pmHeard(PM_MODE, 0, 0));
+    CHECK(eventCount == 2);   // the game still sees rest
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(eventCount == 2 && !gpWantsTick(&g));
+    p = pkt(A_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(eventCount == 3 && events[2].pk.buttonFlags == A_FLAG);
+    CHECK(pmCountOf(PM_BUTTON) == 0);   // an ordinary pad press again
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+
+    // Focus lost while a mouse: buttons let go, the mode ends quietly; back in focus it is a pad
+    holdStart(&g, 1);
+    CHECK(gpIsPadMouse(&g, 0));
+    pmClear();
+    p = pkt(B_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(pmHeard(PM_BUTTON, BUTTON_RIGHT, 1));
+    gpSetActive(&g, 0);
+    CHECK(pmHeard(PM_BUTTON, BUTTON_RIGHT, 0) && !gpIsPadMouse(&g, 0) && pmCountOf(PM_MODE) == 0);
+    CHECK(!gpWantsTick(&g));
+    gpSetActive(&g, 1);
+    CHECK(events[eventCount - 1].pk.buttonFlags == B_FLAG);
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+
+    // The stream ending and the pad going let go as well
+    holdStart(&g, 1);
+    pmClear();
+    p = pkt(X_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    gpStreamStop(&g);
+    CHECK(pmHeard(PM_BUTTON, BUTTON_MIDDLE, 0) && !gpIsPadMouse(&g, 0));
+    gpStreamStart(&g);
+    holdStart(&g, 1);
+    CHECK(gpIsPadMouse(&g, 0));
+    pmClear();
+    p = pkt(A_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    gpRemove(&g, 1);
+    CHECK(pmHeard(PM_BUTTON, BUTTON_LEFT, 0));
+
+    // Off: Start held for as long as you like does nothing
+    GpInfo b = xbox("Pad B", "");
+    gpAdd(&g, 2, &b);
+    gamepadsSetPadMouse(PAD_MOUSE_CHORD_OFF, PAD_MOUSE_SCROLL_RIGHT);
+    pmClear();
+    holdStart(&g, 2);
+    fakeNow += 5000 * NS_MS;
+    gpTick(&g);
+    CHECK(!gpIsPadMouse(&g, 0) && pmCountOf(PM_MODE) == 0);
+    // Start and Back
+    gamepadsSetPadMouse(PAD_MOUSE_CHORD_START_BACK, PAD_MOUSE_SCROLL_RIGHT);
+    holdStart(&g, 2);
+    CHECK(!gpIsPadMouse(&g, 0));
+    p = pkt(PLAY_FLAG | BACK_FLAG, 0, 0);
+    gpState(&g, 2, &p);
+    fakeNow += 1000 * NS_MS;
+    gpTick(&g);
+    CHECK(gpIsPadMouse(&g, 0));
+    gamepadsSetPadMouse(PAD_MOUSE_CHORD_START_HOLD, PAD_MOUSE_SCROLL_RIGHT);
+    gpDestroy(&g);
+}
+
+static void testPadMouseTwoPads(void) {
+    // Each pad is its own: one a mouse, the other a pad for the game
+    Gamepads g;
+    padMouseSetup(&g);
+    GpInfo a = xbox("Pad A", "");
+    GpInfo b = xbox("Pad B", "");
+    gpAdd(&g, 1, &a);
+    gpAdd(&g, 2, &b);
+    gpStreamStart(&g);
+    gpSetActive(&g, 1);
+    holdStart(&g, 1);
+    CHECK(gpIsPadMouse(&g, 0) && !gpIsPadMouse(&g, 1));
+    eventCount = 0;
+    PadOutPacket p = pkt(A_FLAG, 0, 0);
+    gpState(&g, 2, &p);
+    CHECK(eventCount == 1 && events[0].number == 1 && events[0].pk.buttonFlags == A_FLAG);
+    gpDestroy(&g);
+}
+
+static void testFlipPhysical(void) {
+    // The flip_face_buttons setting reaches the physical pads: A and B, X and Y trade places
+    Gamepads g;
+    reset(&g);
+    GpInfo a = xbox("Pad A", "");
+    gpAdd(&g, 1, &a);
+    gpStreamStart(&g);
+    gpSetActive(&g, 1);
+    eventCount = 0;
+    gamepadsSetFlipFaceButtons(1);
+    PadOutPacket p = pkt(A_FLAG | Y_FLAG | PLAY_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(eventCount == 1 && events[0].pk.buttonFlags == (B_FLAG | X_FLAG | PLAY_FLAG));
+    gamepadsSetFlipFaceButtons(0);
+    p = pkt(A_FLAG | Y_FLAG | PLAY_FLAG | UP_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(events[eventCount - 1].pk.buttonFlags == (A_FLAG | Y_FLAG | PLAY_FLAG | UP_FLAG));
+    gpDestroy(&g);
+}
+
+static void testArbitration(void) {
+    Gamepads g;
+    padMouseSetup(&g);
+    GpInfo a = xbox("Pad A", "");
+    gpAdd(&g, 1, &a);
+    gpStreamStart(&g);
+    gpSetActive(&g, 1);
+    CHECK(gpClaimFramePad(&g) == 1);   // gamepad mode's pad, number 1
+
+    // Nothing wanted, nothing allowed; wanted and no pad used: allowed
+    CHECK(gpFramePadAllowed(&g, 0) == 0);
+    CHECK(gpFramePadAllowed(&g, 1) == 1 && !gpPhysicalActive(&g));
+    // A stick nudge inside the dead zone is not use
+    PadOutPacket p = pkt(0, 0, 3000);
+    gpState(&g, 1, &p);
+    CHECK(gpFramePadAllowed(&g, 1) == 1 && !gpPhysicalActive(&g));
+    // A button: the Frame pad is retired and stays retired after the button is let go
+    p = pkt(A_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(gpFramePadAllowed(&g, 1) == 0 && gpPhysicalActive(&g));
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(gpFramePadAllowed(&g, 1) == 0);
+    // Gamepad mode off and on again asks for it back
+    CHECK(gpFramePadAllowed(&g, 0) == 0);
+    CHECK(gpFramePadAllowed(&g, 1) == 1);
+    // A trigger and a stick are use as well
+    p = pkt(0, 200, 0);
+    gpState(&g, 1, &p);
+    CHECK(gpFramePadAllowed(&g, 1) == 0);
+    gpFramePadAllowed(&g, 0);
+    p = pkt(0, 0, 20000);
+    gpState(&g, 1, &p);
+    CHECK(gpFramePadAllowed(&g, 1) == 0);
+    gpFramePadAllowed(&g, 0);
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+
+    // Not unless the Frame pad is on the host: a pad used before gamepad mode came on leaves it alone
+    gpReleaseFramePad(&g);
+    p = pkt(A_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(gpFramePadAllowed(&g, 1) == 1);
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+    gpClaimFramePad(&g);
+
+    // Also gamepad: both stay
+    gamepadsSetArbitration(PAD_ARB_ALSO_GAMEPAD);
+    p = pkt(A_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(gpFramePadAllowed(&g, 1) == 1 && gpPhysicalActive(&g) && !gpFrameControllersAsleep(&g));
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+    // Switched to pointer after a use in also: the next use retires
+    gamepadsSetArbitration(PAD_ARB_POINTER);
+    CHECK(gpFramePadAllowed(&g, 1) == 1);
+    p = pkt(B_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(gpFramePadAllowed(&g, 1) == 0 && !gpFrameControllersAsleep(&g));   // pointer does not sleep the pointer
+    gpFramePadAllowed(&g, 0);
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+
+    // Sleep: retired as pointer is, and the controllers' pointer rests for 20 s after the last input
+    gamepadsSetArbitration(PAD_ARB_SLEEP);
+    CHECK(gpFramePadAllowed(&g, 1) == 1);
+    p = pkt(A_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(gpFramePadAllowed(&g, 1) == 0 && gpFrameControllersAsleep(&g));
+    fakeNow += 19 * 1000 * NS_MS;
+    CHECK(gpFrameControllersAsleep(&g));
+    fakeNow += 2 * 1000 * NS_MS;
+    CHECK(!gpFrameControllersAsleep(&g) && !gpPhysicalActive(&g));
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+    p = pkt(A_FLAG, 0, 0);
+    gpState(&g, 1, &p);   // used again: the pointer rests again
+    CHECK(gpFrameControllersAsleep(&g));
+
+    // The pad going leaves nobody in use; a new stream starts clean
+    gpRemove(&g, 1);
+    CHECK(!gpPhysicalActive(&g) && !gpFrameControllersAsleep(&g));
+    GpInfo b = xbox("Pad B", "");
+    gpAdd(&g, 2, &b);
+    gamepadsSetArbitration(PAD_ARB_POINTER);
+    gpFramePadAllowed(&g, 0);
+    p = pkt(A_FLAG, 0, 0);
+    gpState(&g, 2, &p);
+    CHECK(gpFramePadAllowed(&g, 1) == 0);
+    gpStreamStop(&g);
+    CHECK(!gpPhysicalActive(&g));
+    CHECK(gpFramePadAllowed(&g, 1) == 1);
+    gpStreamStart(&g);
+    CHECK(!gpPhysicalActive(&g));
+
+    // Unfocused input is not use
+    gpSetActive(&g, 0);
+    p = pkt(0, 0, 0);
+    gpState(&g, 2, &p);
+    p = pkt(A_FLAG, 0, 0);
+    gpState(&g, 2, &p);
+    CHECK(!gpPhysicalActive(&g) && gpFramePadAllowed(&g, 1) == 1);
+    gpDestroy(&g);
+    gamepadsSetArbitration(PAD_ARB_POINTER);
+}
+
+static void testGlyphs(void) {
+    CHECK(gpGlyphSetForType(LI_CTYPE_XBOX) == GP_GLYPH_XBOX);
+    CHECK(gpGlyphSetForType(LI_CTYPE_PS) == GP_GLYPH_PLAYSTATION);
+    CHECK(gpGlyphSetForType(LI_CTYPE_NINTENDO) == GP_GLYPH_NINTENDO);
+    CHECK(gpGlyphSetForType(LI_CTYPE_STEAM) == GP_GLYPH_STEAM);
+    CHECK(gpGlyphSetForType(LI_CTYPE_UNKNOWN) == GP_GLYPH_XBOX && gpGlyphSetForType(99) == GP_GLYPH_XBOX);
+    CHECK(!strcmp(gpGlyphSetName(GP_GLYPH_XBOX), "Xbox") && !strcmp(gpGlyphSetName(GP_GLYPH_PLAYSTATION), "PlayStation"));
+    CHECK(!strcmp(gpGlyphSetName(GP_GLYPH_NINTENDO), "Nintendo") && !strcmp(gpGlyphSetName(GP_GLYPH_STEAM), "Steam"));
+    // Positional: the bottom button is A to the host whatever it says on the pad
+    CHECK(!strcmp(gpFaceLabel(GP_GLYPH_XBOX, GP_FACE_A, 0), "A") && !strcmp(gpFaceLabel(GP_GLYPH_XBOX, GP_FACE_Y, 0), "Y"));
+    CHECK(!strcmp(gpFaceLabel(GP_GLYPH_PLAYSTATION, GP_FACE_A, 0), "Cross"));
+    CHECK(!strcmp(gpFaceLabel(GP_GLYPH_PLAYSTATION, GP_FACE_B, 0), "Circle"));
+    CHECK(!strcmp(gpFaceLabel(GP_GLYPH_PLAYSTATION, GP_FACE_X, 0), "Square"));
+    CHECK(!strcmp(gpFaceLabel(GP_GLYPH_PLAYSTATION, GP_FACE_Y, 0), "Triangle"));
+    CHECK(!strcmp(gpFaceLabel(GP_GLYPH_NINTENDO, GP_FACE_A, 0), "B") && !strcmp(gpFaceLabel(GP_GLYPH_NINTENDO, GP_FACE_B, 0), "A"));
+    CHECK(!strcmp(gpFaceLabel(GP_GLYPH_NINTENDO, GP_FACE_X, 0), "Y") && !strcmp(gpFaceLabel(GP_GLYPH_NINTENDO, GP_FACE_Y, 0), "X"));
+    CHECK(!strcmp(gpFaceLabel(GP_GLYPH_STEAM, GP_FACE_A, 0), "A") && !strcmp(gpFaceLabel(GP_GLYPH_STEAM, GP_FACE_X, 0), "X"));
+    // Flipped: the host's A is on the right-hand button
+    CHECK(!strcmp(gpFaceLabel(GP_GLYPH_XBOX, GP_FACE_A, 1), "B") && !strcmp(gpFaceLabel(GP_GLYPH_XBOX, GP_FACE_B, 1), "A"));
+    CHECK(!strcmp(gpFaceLabel(GP_GLYPH_XBOX, GP_FACE_X, 1), "Y") && !strcmp(gpFaceLabel(GP_GLYPH_XBOX, GP_FACE_Y, 1), "X"));
+    CHECK(!strcmp(gpFaceLabel(GP_GLYPH_PLAYSTATION, GP_FACE_A, 1), "Circle") && !strcmp(gpFaceLabel(GP_GLYPH_PLAYSTATION, GP_FACE_Y, 1), "Square"));
+    CHECK(!strcmp(gpFaceLabel(GP_GLYPH_NINTENDO, GP_FACE_A, 1), "A") && !strcmp(gpFaceLabel(GP_GLYPH_NINTENDO, GP_FACE_B, 1), "B"));
+    // Out of range falls back rather than reading past the table
+    CHECK(gpFaceLabel((GpGlyphSet)9, (GpFaceButton)7, 0) != NULL);
+    // Every combination has a name
+    for (int set = 0; set < 4; set++)
+        for (int b = 0; b < 4; b++)
+            for (int f = 0; f < 2; f++) CHECK(strlen(gpFaceLabel((GpGlyphSet)set, (GpFaceButton)b, f)) > 0);
+
+    // The pad used last decides
+    Gamepads g;
+    reset(&g);
+    CHECK(gpGlyphSetInUse(&g) == GP_GLYPH_XBOX);
+    GpInfo ds = dualsense("DualSense", "");
+    GpInfo xb = xbox("Xbox", "");
+    gpAdd(&g, 1, &ds);
+    gpAdd(&g, 2, &xb);
+    gpStreamStart(&g);
+    gpSetActive(&g, 1);
+    PadOutPacket p = pkt(A_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(gpGlyphSetInUse(&g) == GP_GLYPH_PLAYSTATION);
+    gpState(&g, 2, &p);
+    CHECK(gpGlyphSetInUse(&g) == GP_GLYPH_XBOX);
+    p = pkt(0, 0, 0);
+    gpState(&g, 1, &p);
+    gpState(&g, 2, &p);
+    CHECK(gpGlyphSetInUse(&g) == GP_GLYPH_XBOX);   // letting go is not use
+    p = pkt(B_FLAG, 0, 0);
+    gpState(&g, 1, &p);
+    CHECK(gpGlyphSetInUse(&g) == GP_GLYPH_PLAYSTATION);
+    gpDestroy(&g);
+}
+
 int main(void) {
     testStickOptions();
     testArrivalAndState();
@@ -918,6 +1339,12 @@ int main(void) {
     testMotionGating();
     testMotionMirror();
     testBatteryTouchLed();
+    testPadMouseConstants();
+    testPadMouse();
+    testPadMouseTwoPads();
+    testFlipPhysical();
+    testArbitration();
+    testGlyphs();
     testThreads();
     testGlobal();
     return checksDone("input_gamepads");

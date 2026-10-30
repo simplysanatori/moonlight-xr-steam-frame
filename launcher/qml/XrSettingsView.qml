@@ -186,6 +186,13 @@ Flickable {
         var i = values.indexOf(current)
         return values[(i + 1) % values.length]   // a value typed into config.ini that is not listed steps to Never
     }
+    // Native (lane wave2b-padmouse): [vr] pad_mouse_chord, pad_mouse_scroll and pad_arbitration of the VR client
+    readonly property var padMouseChordValues: ["start_hold", "start_back", "off"]
+    readonly property var padMouseChordNames: [qsTr("Hold Start"), qsTr("Hold Start and Back"), qsTr("Off")]
+    readonly property var padMouseScrollValues: ["right", "left", "none"]
+    readonly property var padMouseScrollNames: [qsTr("Right stick"), qsTr("Left stick"), qsTr("None")]
+    readonly property var padArbitrationValues: ["pointer", "also_gamepad", "sleep"]
+    readonly property var padArbitrationNames: [qsTr("Pointer"), qsTr("Also gamepad"), qsTr("Sleep")]
 
     readonly property var audioNames: [qsTr("Stereo"), qsTr("5.1 Surround Sound"), qsTr("7.1 Surround Sound")]
 
@@ -713,6 +720,48 @@ Flickable {
             summary: qsTr("Switches the face buttons A/B and X/Y for gamepads and the headset's gamepad mode")
             isOn: MlxrPrefs.flipFaceButtons
             onSwitched: function(on) { MlxrPrefs.flipFaceButtons = on }
+        }
+
+        PrefRow {
+            objectName: "padMouseChordRow"
+            title: qsTr("Gamepad as mouse")
+            valueText: settingsPage.padMouseChordNames[Math.max(0, settingsPage.padMouseChordValues.indexOf(MlxrPrefs.padMouseChord))]
+            summary: qsTr("Hold the chord on a gamepad to make it the PC's mouse: the left stick points, A, B and X click, the shoulder buttons are back and forward, Y opens the headset keyboard and the d-pad is the arrow keys. Hold it again to give the gamepad back.")
+            onClicked: {
+                var e = []
+                for (var i = 0; i < settingsPage.padMouseChordNames.length; i++) e.push({ text: settingsPage.padMouseChordNames[i], reason: "" })
+                listDialog.show(title, e, settingsPage.padMouseChordValues.indexOf(MlxrPrefs.padMouseChord), function(i) {
+                    MlxrPrefs.padMouseChord = settingsPage.padMouseChordValues[i]
+                })
+            }
+        }
+
+        PrefRow {
+            objectName: "padMouseScrollRow"
+            title: qsTr("Gamepad mouse scroll stick")
+            valueText: settingsPage.padMouseScrollNames[Math.max(0, settingsPage.padMouseScrollValues.indexOf(MlxrPrefs.padMouseScroll))]
+            summary: qsTr("The stick that scrolls while a gamepad is the mouse. The other stick points.")
+            onClicked: {
+                var e = []
+                for (var i = 0; i < settingsPage.padMouseScrollNames.length; i++) e.push({ text: settingsPage.padMouseScrollNames[i], reason: "" })
+                listDialog.show(title, e, settingsPage.padMouseScrollValues.indexOf(MlxrPrefs.padMouseScroll), function(i) {
+                    MlxrPrefs.padMouseScroll = settingsPage.padMouseScrollValues[i]
+                })
+            }
+        }
+
+        PrefRow {
+            objectName: "padArbitrationRow"
+            title: qsTr("When a gamepad is connected")
+            valueText: settingsPage.padArbitrationNames[Math.max(0, settingsPage.padArbitrationValues.indexOf(MlxrPrefs.padArbitration))]
+            summary: qsTr("What the headset controllers do once you use a gamepad. Pointer: their gamepad mode steps aside so the PC never sees two gamepads. Also gamepad: the PC sees both. Sleep: as Pointer, and their pointer rests too.")
+            onClicked: {
+                var e = []
+                for (var i = 0; i < settingsPage.padArbitrationNames.length; i++) e.push({ text: settingsPage.padArbitrationNames[i], reason: "" })
+                listDialog.show(title, e, settingsPage.padArbitrationValues.indexOf(MlxrPrefs.padArbitration), function(i) {
+                    MlxrPrefs.padArbitration = settingsPage.padArbitrationValues[i]
+                })
+            }
         }
 
         PrefSwitch {

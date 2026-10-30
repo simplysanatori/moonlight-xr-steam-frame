@@ -415,6 +415,23 @@ static void sendKey(short vk, int down, char modifiers, void* user) {
     if (stream_running())
         LiSendKeyboardEvent((short)(0x8000 | vk), down ? KEY_ACTION_DOWN : KEY_ACTION_UP, modifiers);
 }
+static void pmKey(void* u, int vk, int down) { sendKey((short)vk, down, 0, u); }
+
+// Native (lane wave2b-padmouse): a physical gamepad as the host's mouse (xr/core/xr_padmouse.h), from the
+// gamepad thread. Its motion parks the controller ray like a real mouse's does.
+static void pmMove(void* u, int dx, int dy) {
+    (void)u;
+    evmouse_note_use_at(evmouse_now_ns());
+    stream_mouse_move(dx, dy);
+}
+static void pmButton(void* u, int b, int down) { (void)u; stream_button(b, down); }
+static void pmScroll(void* u, int a) { (void)u; stream_scroll(a); }
+static void pmHScroll(void* u, int a) { (void)u; stream_hscroll(a); }
+// The notice rides the toast path, so the Notices setting decides whether it is said
+static void pmMode(void* u, int on) {
+    (void)u;
+    xr_app_notice(padMouseNoticeText(on, g_settings.pad_mouse_chord));
+}
 
 // Every frame: the lists' presses and the exit to the launcher, its view back
 static void uiHook(void* user, const XrUiEvents* ev, XrUiLauncher* show) {
@@ -1568,6 +1585,14 @@ int main(int argc, char** argv) {
             evmouse_start(&ms, NULL);
         }
         // Native: physical gamepads (SDL2), Start+Select+L1+R1 leaves the stream like gamepad mode's chord
+        // Native (lane wave2b-padmouse): a pad as the mouse, its settings, and pad arbitration. The Y button's
+        // keyboard hook stays empty until the frame loop has something to toggle the VR keyboard with.
+        {
+            PadMouseSink pms = { pmMove, pmButton, pmScroll, pmHScroll, pmKey, NULL, pmMode, NULL };
+            gamepadsSetPadMouseSink(&pms);
+            gamepadsSetPadMouse(g_settings.pad_mouse_chord, g_settings.pad_mouse_scroll);
+            gamepadsSetArbitration(g_settings.pad_arbitration);
+        }
         gamepadsStart(padDisconnectHook, NULL);
     }
     pthread_t th;
