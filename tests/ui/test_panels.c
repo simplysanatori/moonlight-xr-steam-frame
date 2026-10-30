@@ -616,7 +616,6 @@ static void test_rows_read_settings(void) {
         { COG_TAB_SCREEN, "rotate_deg", 30 }, { COG_TAB_SCREEN, "curve", 40 }, { COG_TAB_SCREEN, "width_cm", 600 },
         { COG_TAB_SCREEN, "head_aim_sensitivity", 20 }, { COG_TAB_SCREEN, "head_aim_deadzone", 12 },
         { COG_TAB_SCREEN, "per_app", 0 }, { COG_TAB_SCREEN, "angular_lock", 0 },
-        { COG_TAB_DISPLAY, "head_follow", 1 },
         { COG_TAB_3D, "separation", 12 }, { COG_TAB_3D, "convergence", 20 },
         { COG_TAB_PICTURE, "picture_brightness", 20 }, { COG_TAB_PICTURE, "picture_contrast", 80 },
         { COG_TAB_PICTURE, "picture_gamma", 150 }, { COG_TAB_PICTURE, "picture_saturation", 20 },
@@ -637,6 +636,22 @@ static void test_rows_read_settings(void) {
         CHECK(memcmp(ga.px, gb.px, ga.size) != 0);
         free(ga.base);
         free(gb.base);
+    }
+    // Follow is the Head locked row's third cell: its ring moves off Off
+    {
+        Settings f0 = a, f1 = a;
+        f0.head_locked = f1.head_locked = 0;
+        f1.head_follow = 1;
+        UiView v0, v1;
+        ui_view_init(&v0, &f0);
+        ui_view_init(&v1, &f1);
+        v0.cog_tab = v1.cog_tab = COG_TAB_DISPLAY;
+        Guarded g0, g1;
+        draw(UI_PANEL_COG, &v0, 1.0f, &g0);
+        draw(UI_PANEL_COG, &v1, 1.0f, &g1);
+        CHECK(memcmp(g0.px, g1.px, g0.size) != 0);
+        free(g0.base);
+        free(g1.base);
     }
     // room values on the Room tab
     static const char* const ROOMKEYS[] = { "room_4_brightness", "room_4_glow", "room_4_light", "room_4_screen" };

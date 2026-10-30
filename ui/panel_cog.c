@@ -75,7 +75,10 @@ static void cells(Dc* dc, int face, int row, const UiStr* names, int n, float y,
         int hot = live && dc_hover(dc, UI_HIT_CELL, row, i);
         dc_fill_rrect(dc, x0, y - cell_half, x1, y + cell_half, 10.0f, live ? (hot ? 0x40FFFFFFu : 0x28FFFFFFu) : 0x10FFFFFFu);
         dc_stroke_rrect(dc, x0, y - cell_half, x1, y + cell_half, 10.0f, 2.0f, live ? 0x50FFFFFFu : 0x20FFFFFFu);
-        dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 19.0f, (x0 + x1) * 0.5f, y, (x1 - x0) - 8.0f, live ? WHITE : DIM, ui_str(names[i]));
+        // a long name (Bring here, in the Screen tab's four cells) shrinks to fit rather than being cut
+        float fit = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, 19.0f * dc->k, 12.0f * dc->k, ui_str(names[i]),
+                                     ((x1 - x0) - 8.0f) * dc->k) / dc->k;
+        dc_text_center(dc, UI_WEIGHT_REGULAR, fit, (x0 + x1) * 0.5f, y, live ? WHITE : DIM, ui_str(names[i]));
         if (live && i == mark) {
             // on the edge of the cell the sheet draws, inset the same way
             dc_stroke_rrect(dc, x0 + 1.5f, y - cell_half + 1.5f, x1 - 1.5f, y + cell_half - 1.5f, 10.0f, 3.0f, WHITE);
