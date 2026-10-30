@@ -108,6 +108,8 @@ typedef struct Settings {
     int depth_source;      // 0 ZipDepth, 1 MiDaS, 2 off (flat), 3..7 test patterns, 8 ZipDepth int8 (native)
     int env_res;           // ENV_RES_LOW..ULTRA
     int hand_hint_seen;
+    int first_run_shown;   // native: the first-run controls card has been shown (once per install)
+    int pad_card;          // native: PADCARD_*: the gamepad card in the lap: 0 auto (up while a pad is in use), 1 on, 2 off
     int picture_brightness, picture_contrast, picture_gamma, picture_saturation;
     int bg_dim;            // native: Picture tab Background, percent of the room, cameras or void taken away (BG_DIM_)
     char void_color[32];   // native: the void's colour, "#rrggbb" (config only; black unless set)

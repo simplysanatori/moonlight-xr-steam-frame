@@ -75,5 +75,7 @@ void panel_exit(Dc* dc);
 void panel_hint(Dc* dc);
 void panel_kofi(Dc* dc);
 void panel_host(Dc* dc);
+void panel_firstrun(Dc* dc);
+void panel_padcard(Dc* dc);
 
 #endif

@@ -1703,6 +1703,12 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
     if (xrLayoutFrame(ctx, s, nowNs())) {
         saveSettings(h, "app layout");
     }
+    // Native (lane wave3-cards): the first-run card and the pad card; the card shows once, so the
+    // frame it comes up is written down
+    if (xrCardsFrame(ctx, nowNs())) {
+        s->first_run_shown = 1;
+        saveSettings(h, "first-run card");
+    }
     // M6 (native): the 3D switch is remembered, unless the model failing
     // turned it off
     if (ctx->stereoMode != DEPTH_MODE_OFF && !ctx->depthFailed && s->stereo != ctx->stereoLive) {
