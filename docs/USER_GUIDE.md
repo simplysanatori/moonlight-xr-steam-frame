@@ -15,6 +15,7 @@ This guide covers version 1.0.1. For install, update and uninstall, see the [REA
 - [3D](#3d)
 - [Keyboards, mice and gamepads](#keyboards-mice-and-gamepads)
 - [Host: keys for the PC](#host-keys-for-the-pc)
+- [Language](#language)
 - [PC VR](#pc-vr)
 - [Ending a stream](#ending-a-stream)
 - [Recommended PC settings](#recommended-pc-settings)
@@ -117,8 +118,26 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 | Smart Clipboard Sync (Experimental) | on, off | off. Needs Apollo. |
 | Quick Resume | on, off | off. Selecting a running app resumes it at once. |
 | Enable Full Screen | on, off | Takes effect at the next start. |
+| Headset language | Automatic, English and 19 more | Automatic. The headset's own menus, see [Language](#language). The Language row above it is the flat window's. |
 
-### PC VR
+### Language
+
+The headset's menus, keyboard and notices can be in English or in one of 19 other languages:
+Czech, Danish, Dutch, Finnish, French, German, Italian, Japanese, Korean, Norwegian Bokmål, Polish,
+Portuguese (Brazil), Russian, Simplified Chinese, Spanish, Swedish, Traditional Chinese, Turkish and
+Ukrainian. Choose it with **Headset language** on the flat window's Settings page (at the end, under
+the flat window's own Language), or with `[ui] language` in `config.ini`. **Automatic** follows the
+system's language (`LC_ALL`, `LC_MESSAGES` or `LANG`) and is English when it has no translation.
+The language is read when the app starts, so a change shows the next time you start a stream from
+the flat window or start the app.
+
+The translations are Moonlight XR's, so the words this client added (the Host sheet, the PC and app
+lists' own lines, the newer Display rows and most notices) are still English in every language.
+Chinese, Japanese and Korean need the Noto Sans CJK fonts in the Frame's `/usr/share/fonts`; the app
+does not bring them. Without them those languages show English, and the log says
+`needs Noto Sans CJK`. The flat window has its own Language row, which does not change the headset's.
+
+## PC VR
 
 Four rows for the Host sheet's PC VR button: the check, the PC, the game and the game's Steam app id. They are described under [PC VR](#pc-vr).
 
@@ -568,6 +587,7 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | `[vr] scroll_speed` | 25 to 400 (%) | 100, which is 7.5 notches a second with the thumbstick pushed all the way. The flat window's Settings page has it too. |
 | `[vr] click_steadiness` | `off`, `normal`, `steady` | `normal`. The Display tab's Click steadiness row. |
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |
+| `[ui] language` | `auto`, `en`, `cs`, `da`, `de`, `es`, `fi`, `fr`, `it`, `nb`, `nl`, `pl`, `pt-BR`, `sv`, `tr`, `ru`, `uk`, `ja`, `ko`, `zh-CN`, `zh-TW` | `auto`. The headset's language, read at start; see [Language](#language). |
 | `[vr] keyboard_keymap` | `qwerty`, `azerty` (French), `qwertz` (German). What the headset keyboard's keys say. The PC must be on the matching Windows layout. | `qwerty` |
 | `[vr] depth_source` | `zipdepth`, `zipdepth-int8`, `midas` | `zipdepth` |
 | `[vr] hand_tracking` | `true`, `false` | `false`. Untested on the Frame. |
