@@ -952,8 +952,9 @@ static FurEdges furEdges(const uint8_t* row, uint32_t w, float dark, float brigh
 // beside its right edge. Without the fill the uncovered side is the bar's edge
 // stretched across the gap, a smear several pixels wide in one eye where the
 // other eye's edge is sharp: the reported "left eye fuzzy, right eye sharp".
-// With it both eyes' edges are as sharp as each other and the bar keeps most
-// of its width. The separation puts as many depth texels between the eyes as
+// With it the uncovered side in each eye is the picture's own edge, the same
+// in both eyes, the covered side stays upstream's, and the bar keeps most of
+// its width. The separation puts as many depth texels between the eyes as
 // the Frame's default 0.6 percent does on a 1920 wide stream (2.9).
 static void testWarpFur(void) {
     const uint32_t W = FUR_W, H = 16, MW = W / 4, MH = H / 4;
@@ -1008,11 +1009,17 @@ static void testWarpFur(void) {
           e[0][0].left, e[0][1].left);
     check(e[0][1].right >= e[0][0].right + 3, "fill off: the right eye's right edge smears (%d px, left eye %d)",
           e[0][1].right, e[0][0].right);
-    // With it each edge is as wide in one eye as in the other...
-    check(abs(e[1][0].left - e[1][1].left) <= 1, "fill on: left edge %d px left eye, %d right eye", e[1][0].left,
-          e[1][1].left);
-    check(abs(e[1][0].right - e[1][1].right) <= 1, "fill on: right edge %d px left eye, %d right eye",
-          e[1][0].right, e[1][1].right);
+    // With it the edge each eye uncovers is as wide as the one the other eye
+    // uncovers (the left eye's left edge against the right eye's right)...
+    check(abs(e[1][0].left - e[1][1].right) <= 1, "fill on: uncovered edges %d px left eye, %d right eye",
+          e[1][0].left, e[1][1].right);
+    // ...the side each eye covers is upstream's, untouched by the fill (its
+    // occlusion cut is harder than the picture's own edge, one pixel landing
+    // either side of the 90 percent mark between lavapipe builds, so it is
+    // held to upstream exactly rather than to the uncovered side's width)...
+    check(e[1][0].right == e[0][0].right && e[1][1].left == e[0][1].left,
+          "fill on: the covered edges as without it (left eye %d from %d, right eye %d from %d)", e[1][0].right,
+          e[0][0].right, e[1][1].left, e[0][1].left);
     // ...narrower than the smear was by two pixels or more...
     check(e[1][0].left <= e[0][0].left - 2 && e[1][1].right <= e[0][1].right - 2,
           "fill on: the uncovered edges narrower (left eye %d from %d, right eye %d from %d)", e[1][0].left,
