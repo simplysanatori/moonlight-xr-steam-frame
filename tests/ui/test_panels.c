@@ -177,6 +177,56 @@ static void test_cog_rows_present(void) {
     CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_ROW3D_CONVERGENCE, -1) >= 0);
     for (int c = 0; c < COG_STEREO_CELLS; c++) CHECK(ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SWITCH, c) >= 0);
     CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_RESET, -1) >= 0);
+    // native (PLAN 4.3): the 3D source row, Depth, SBS and Top-bottom, live
+    CHECK(ui_cog_row_cells(COG_TAB_3D, COG_ROW3D_SOURCE) == COG_SOURCE_CELLS);
+    CHECK(!ui_cog_row_is_track(COG_TAB_3D, COG_ROW3D_SOURCE));
+    for (int c = 0; c < COG_SOURCE_CELLS; c++) {
+        int i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SOURCE, c);
+        CHECK(i >= 0 && hits.hit[i].enabled);
+    }
+    CHECK(ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SOURCE, COG_SOURCE_CELLS) < 0);
+    {
+        // the PC's pair: the preset and depth rows greyed, convergence, the
+        // switch and the source live, and the panel not the Depth one
+        UiView vs = v;
+        vs.stereo_source = STEREO_SOURCE_SBS;
+        Guarded gs;
+        draw(UI_PANEL_COG, &vs, 1.0f, &gs);
+        check_hits_inside("3d sbs");
+        CHECK(memcmp(g.px, gs.px, g.size) != 0);
+        for (int c = 0; c < COG_PRESET_CELLS; c++) {
+            int i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_PRESET, c);
+            CHECK(i >= 0 && !hits.hit[i].enabled);
+        }
+        int i = ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_ROW3D_SEPARATION, -1);
+        CHECK(i >= 0 && !hits.hit[i].enabled);
+        i = ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_ROW3D_CONVERGENCE, -1);
+        CHECK(i >= 0 && hits.hit[i].enabled);
+        for (int c = 0; c < COG_STEREO_CELLS; c++) {
+            i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SWITCH, c);
+            CHECK(i >= 0 && hits.hit[i].enabled);
+        }
+        for (int c = 0; c < COG_SOURCE_CELLS; c++) {
+            i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SOURCE, c);
+            CHECK(i >= 0 && hits.hit[i].enabled);
+        }
+        for (int row = 0; row < COG_ROW3D_COUNT; row++) {
+            CHECK(ui_cog_row_live(&vs, COG_TAB_3D, row) == (row != COG_ROW3D_PRESET && row != COG_ROW3D_SEPARATION));
+        }
+        free(gs.base);
+        // the model off and Depth chosen: only the source row is live
+        vs.stereo_ok = 0;
+        vs.stereo_source = STEREO_SOURCE_DEPTH;
+        draw(UI_PANEL_COG, &vs, 1.0f, &gs);
+        i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SWITCH, 1);
+        CHECK(i >= 0 && !hits.hit[i].enabled);
+        i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SOURCE, STEREO_SOURCE_SBS);
+        CHECK(i >= 0 && hits.hit[i].enabled);
+        for (int row = 0; row < COG_ROW3D_COUNT; row++) {
+            CHECK(ui_cog_row_live(&vs, COG_TAB_3D, row) == (row == COG_ROW3D_SOURCE));
+        }
+        free(gs.base);
+    }
     free(g.base);
 
     // Picture
@@ -389,7 +439,33 @@ static void test_other_panels_hits(void) {
     CHECK(ui_hits_find(&hits, UI_HIT_BAR_BUTTON, BAR_SLOT_AIM, -1) < 0 && ui_hits_find(&hits, UI_HIT_BAR_BUTTON, BAR_SLOT_STEREO, -1) < 0);
     free(g.base);
 
-    // button atlas: the 13 cells of xr_layout, each with something in it
+    // native (PLAN 4.3): the 3D button says SBS or TB with the PC's pair on
+    {
+        Guarded g3d, gsbs;
+        v.bar_show_stereo = 1;
+        v.session.stereo_on = 1;
+        v.stereo_source = STEREO_SOURCE_DEPTH;
+        draw(UI_PANEL_BAR, &v, 1.0f, &g3d);
+        v.stereo_source = STEREO_SOURCE_SBS;
+        draw(UI_PANEL_BAR, &v, 1.0f, &gsbs);
+        CHECK(memcmp(g3d.px, gsbs.px, g3d.size) != 0);
+        free(gsbs.base);
+        // switched off, the same struck 3D whatever the source
+        v.session.stereo_on = 0;
+        draw(UI_PANEL_BAR, &v, 1.0f, &gsbs);
+        free(g3d.base);
+        v.stereo_source = STEREO_SOURCE_DEPTH;
+        draw(UI_PANEL_BAR, &v, 1.0f, &g3d);
+        CHECK(memcmp(g3d.px, gsbs.px, g3d.size) == 0);
+        free(g3d.base);
+        free(gsbs.base);
+        CHECK(barStereoCell(STEREO_SOURCE_DEPTH, 1) == BTN_CELL_STEREO + 1);
+        CHECK(barStereoCell(STEREO_SOURCE_SBS, 1) == BTN_CELL_STEREO_SBS);
+        CHECK(barStereoCell(STEREO_SOURCE_TB, 1) == BTN_CELL_STEREO_TB);
+        CHECK(barStereoCell(STEREO_SOURCE_TB, 0) == BTN_CELL_STEREO);
+    }
+
+    // button atlas: the cells of xr_layout, each with something in it
     draw(UI_PANEL_BUTTON_ATLAS, &v, 1.0f, &g);
     for (int cell = 0; cell < BTN_CELLS; cell++) {
         int x, y, n = 0;
@@ -810,11 +886,19 @@ static void test_host_sheet(void) {
     ui_view_init(&v, &s);
     CHECK(v.host_confirm == -1);
     Guarded g;
-    // no macros: Close, the 11 quick actions and Send keys
+    // no macros: Close, PC VR (PLAN 4.1), the 11 quick actions and Send keys
     draw(UI_PANEL_HOST, &v, 1.0f, &g);
     check_hits_inside("host");
-    CHECK(hits.count == 1 + XR_HOST_MACRO_FIRST);
+    CHECK(hits.count == 2 + XR_HOST_MACRO_FIRST);
     CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CLOSE, -1) >= 0);
+    {
+        int pc = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PCVR, -1);
+        CHECK(pc >= 0);
+        if (pc >= 0) {
+            CHECK(xrHostZoneAt((hits.hit[pc].u0 + hits.hit[pc].u1) * 0.5f, (hits.hit[pc].v0 + hits.hit[pc].v1) * 0.5f, 0, 0)
+                  == XR_HOST_ZONE_PCVR);
+        }
+    }
     free(g.base);
     // with macros (and more than the sheet has room for)
     for (int n = 1; n <= XR_HOST_MACRO_SLOTS + 3; n++) {
@@ -823,13 +907,15 @@ static void test_host_sheet(void) {
         draw(UI_PANEL_HOST, &v, 1.0f, &g);
         check_hits_inside("host macros");
         int shown = n < XR_HOST_MACRO_SLOTS ? n : XR_HOST_MACRO_SLOTS;
-        CHECK(hits.count == 1 + XR_HOST_MACRO_FIRST + shown);
+        CHECK(hits.count == 2 + XR_HOST_MACRO_FIRST + shown);
         for (int i = 0; i < hits.count; i++) {
             const UiHit* h = &hits.hit[i];
             float u = (h->u0 + h->u1) * 0.5f, w = (h->v0 + h->v1) * 0.5f;
             int zone = xrHostZoneAt(u, w, shown, 0);
             if (h->kind == UI_HIT_HOST_CELL) {
                 CHECK(zone == h->a && h->b == xrHostCellKind(h->a, shown));
+            } else if (h->a == UI_BTN_HOST_PCVR) {
+                CHECK(h->kind == UI_HIT_BUTTON && zone == XR_HOST_ZONE_PCVR);
             } else {
                 CHECK(h->kind == UI_HIT_BUTTON && h->a == UI_BTN_HOST_CLOSE && zone == XR_HOST_ZONE_CLOSE);
             }
@@ -851,6 +937,20 @@ static void test_host_sheet(void) {
         CHECK(xrHostZoneAt((hits.hit[cancel].u0 + hits.hit[cancel].u1) * 0.5f, (hits.hit[cancel].v0 + hits.hit[cancel].v1) * 0.5f, 2, 1)
               == XR_HOST_ZONE_CONFIRM_CANCEL);
     }
+    long sumKeys = 0;
+    for (size_t i = 0; i < g.size; i++) sumKeys += g.px[i];
+    free(g.base);
+    // asking before the switch to PC VR: the same two buttons, its own words
+    v.host_confirm = XR_HOST_CONFIRM_PCVR;
+    v.host_confirm_label[0] = '\0';
+    draw(UI_PANEL_HOST, &v, 1.0f, &g);
+    check_hits_inside("host pcvr confirm");
+    CHECK(hits.count == 2);
+    CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CONFIRM, -1) >= 0);
+    CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CANCEL, -1) >= 0);
+    long sumPcvr = 0;
+    for (size_t i = 0; i < g.size; i++) sumPcvr += g.px[i];
+    CHECK(sumPcvr != sumKeys);
     free(g.base);
     // a lit cell changes the drawing
     v.host_confirm = -1;

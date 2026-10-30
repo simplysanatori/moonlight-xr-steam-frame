@@ -114,6 +114,9 @@
     X(HOST_CONFIRM_Q, "native_host_confirm_q", "Send %s to the PC?") \
     X(HOST_CONFIRM_SEND, "native_host_confirm_send", "Send") \
     X(HOST_NO_MACROS, "native_host_no_macros", "Your own buttons go in macros.ini") \
+    X(HOST_PCVR, "native_host_pcvr", "PC VR") \
+    X(HOST_PCVR_Q, "native_host_pcvr_q", "Switch to PC VR? This stream ends and Steam Link takes over.") \
+    X(HOST_PCVR_GO, "native_host_pcvr_go", "Switch") \
     X(HOST_HINT_ESC, "native_host_hint_esc", "Escape") \
     X(HOST_HINT_WIN, "native_host_hint_win", "Start menu") \
     X(HOST_HINT_DESKTOP, "native_host_hint_desktop", "Show desktop") \
@@ -186,6 +189,11 @@
     X(MODEL_FRAME, "native_model_frame", "Frame") \
     X(MODEL_GENERIC, "native_model_generic", "Generic") \
     X(MODEL_GUN, "native_model_gun", "Gun") \
+    X(ROW_3D_SOURCE, "native_3d_source", "3D source") \
+    X(SOURCE_DEPTH, "native_3d_source_depth", "Depth") \
+    X(SOURCE_SBS, "native_3d_source_sbs", "SBS") \
+    X(SOURCE_TB, "native_3d_source_tb", "Top-bottom") \
+    X(SBS_NO_DEPTH, "native_3d_sbs_no_depth", "the PC draws the depth") \
     X(NATIVE_EXIT_APP, "native_exit_app", "Quit Moonlight XR for Frame?") \
     X(NATIVE_PAIR_LATER, "native_pair_later", "Pairing from the headset comes later: pair with mlxr-cli") \
     X(NATIVE_NOT_PAIRED, "native_not_paired", "%s is not paired: pair it with mlxr-cli") \
@@ -199,7 +207,9 @@
     X(NATIVE_DISCONNECTED_BAR, "native_disconnected_bar", "Disconnected: the app is still running on the PC") \
     X(NATIVE_RECONNECTING, "native_reconnecting", "Connection lost, reconnecting (%d/%d)…") \
     X(NATIVE_DISCONNECTED_DOFF, "native_disconnected_doff", "Disconnected while the headset was off: the app is still running on the PC") \
-    X(NATIVE_DISCONNECTED_IDLE, "native_disconnected_idle", "Disconnected after no input for a while: the app is still running on the PC")
+    X(NATIVE_DISCONNECTED_IDLE, "native_disconnected_idle", "Disconnected after no input for a while: the app is still running on the PC") \
+    X(NATIVE_PCVR, "native_pcvr", "Switching to PC VR: the app is still running on the PC") \
+    X(NATIVE_PCVR_NEEDS_LAUNCHER, "native_pcvr_needs_launcher", "PC VR needs the Moonlight XR launcher: start the stream from it")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

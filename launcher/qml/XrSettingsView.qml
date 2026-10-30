@@ -170,6 +170,13 @@ Flickable {
     // US keyboard's positions, so the PC has to be on the same layout
     readonly property var keymapValues: ["qwerty", "azerty", "qwertz"]
     readonly property var keymapNames: [qsTr("QWERTY (US)"), qsTr("AZERTY (French)"), qsTr("QWERTZ (German)")]
+    // Native (PLAN 4.3): [3d] stereo_source of the VR client's config.ini, where the 3D comes from
+    readonly property var stereoSourceValues: ["depth", "sbs", "top-bottom"]
+    readonly property var stereoSourceNames: [qsTr("Depth model"), qsTr("SBS from the PC"), qsTr("Top-bottom from the PC")]
+    function stereoSourceIndex() {
+        return Math.max(0, stereoSourceValues.indexOf(MlxrPrefs.stereoSource))
+    }
+
     // [vr] notices of the VR client's config.ini
     readonly property var noticeValues: ["all", "important", "off"]
     readonly property var noticeNames: [qsTr("All"), qsTr("Important only"), qsTr("Off")]
@@ -229,6 +236,11 @@ Flickable {
     function nextLimit(values, current) {
         var i = values.indexOf(current)
         return values[(i + 1) % values.length]   // a value typed into config.ini that is not listed steps to Never
+    }
+    // Native (lane wave1-burst): [stream] rfi_idr_ms of the VR client's config.ini: 0 is no limit
+    readonly property var idrCapValues: [0, 250, 500, 1000, 2000]
+    function idrCapText(v) {
+        return v === 0 ? qsTr("No limit") : (v + " ms")
     }
     // Native (lane wave2b-padmouse): [vr] pad_mouse_chord, pad_mouse_scroll and pad_arbitration of the VR client
     readonly property var padMouseChordValues: ["start_hold", "start_back", "off"]
@@ -813,6 +825,16 @@ Flickable {
             }
         }
 
+        // Native (lane wave1-burst): the cap on the headset's full-frame requests after lost video. Pressing
+        // the row steps No limit -> 250 -> 500 -> 1000 -> 2000 ms.
+        PrefRow {
+            objectName: "idrCapRow"
+            title: qsTr("Full-frame requests after lost video")
+            valueText: settingsPage.idrCapText(MlxrPrefs.rfiIdrMs)
+            summary: qsTr("At most one request for a full picture in this time when video is lost. A full picture is large; asked for again while the Wi-Fi is still losing packets, it makes the freeze longer. 500 ms suits most links.")
+            onClicked: MlxrPrefs.rfiIdrMs = settingsPage.nextLimit(settingsPage.idrCapValues, MlxrPrefs.rfiIdrMs)
+        }
+
         // ======== Stream profiles ========
         PrefCategory { text: qsTr("Stream profiles"); icon: "profiles" }
 
@@ -973,7 +995,8 @@ Flickable {
             title: qsTr("3D Effect Strength")
             summary: qsTr("Higher more effect, but maybe strain on eyes and unnatural. Lower, easier on eyes and smoother experience.") +
                      (MlxrPrefs.strengthIsDefault ? " " + qsTr("(Now: the depth model's own.)") : "")
-            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            reason: MlxrPrefs.renderMode !== 1 ? qsTr("Render Mode is Default 2D")
+                    : MlxrPrefs.stereoSource !== "depth" ? qsTr("3D source is the PC's own pair") : ""
             from: 1
             to: 100
             value: MlxrPrefs.strength
@@ -989,6 +1012,25 @@ Flickable {
             to: 100
             value: MlxrPrefs.convergence
             onMoved: function(v) { MlxrPrefs.convergence = Math.round(v); MlxrPrefs.convergenceIsDefault = false }
+        }
+
+        // Native (PLAN 4.3): the headset's 3D tab's 3D source row; pressing steps Depth -> SBS -> Top-bottom
+        PrefRow {
+            objectName: "stereoSourceRow"
+            title: qsTr("3D source")
+            valueText: settingsPage.stereoSourceNames[settingsPage.stereoSourceIndex()]
+            summary: qsTr("Depth model: the headset makes the 3D from a 2D stream. SBS or Top-bottom: the PC renders the two eyes itself (a 3D film, a game's own SBS mode, ReShade SuperDepth3D) and each eye sees its half; no depth model runs and Convergence moves the halves apart or together.") + " " +
+                     qsTr("(also on the headset's 3D tab)")
+            onClicked: MlxrPrefs.stereoSource = settingsPage.stereoSourceValues[(settingsPage.stereoSourceIndex() + 1) % settingsPage.stereoSourceValues.length]
+        }
+
+        PrefSwitch {
+            objectName: "sbsFullRow"
+            title: qsTr("Full-size SBS")
+            summary: qsTr("On: the PC's pair holds a full picture per eye (set a 3840x1080 Custom Resolution for two 1920x1080 eyes). Off: half-size, each eye squeezed into half of a 1920x1080 frame.")
+            reason: MlxrPrefs.stereoSource === "depth" ? qsTr("3D source is the depth model") : ""
+            isOn: MlxrPrefs.sbsFull
+            onSwitched: function(on) { MlxrPrefs.sbsFull = on }
         }
 
         // Native (lane wave5-depth): how closely the depth keeps to the edges in the picture. Pressing the
@@ -1270,6 +1312,62 @@ Flickable {
             valueText: settingsPage.limitText(MlxrPrefs.idleDisconnect, qsTr("minute"), qsTr("minutes"))
             summary: qsTr("Disconnect the stream after this long with no input from the controllers, hands, keyboard, mouse or pads. The app keeps running on the PC.")
             onClicked: MlxrPrefs.idleDisconnect = settingsPage.nextLimit(settingsPage.idleValues, MlxrPrefs.idleDisconnect)
+        }
+
+        // ======== PC VR (lane wave4-pcvr): Valve's Steam Link stream of the PC ========
+        PrefCategory { text: qsTr("PC VR") }
+
+        PrefRow {
+            objectName: "pcvrCheckRow"
+            title: qsTr("Switch to PC VR")
+            valueText: MlxrPrefs.pcvrBusy ? qsTr("Asking Steam...") : ""
+            summary: (MlxrPrefs.pcvrStatus !== "" ? MlxrPrefs.pcvrStatus + " " : "") +
+                     qsTr("The Host sheet's PC VR button ends the stream and has the headset's Steam stream a VR game from your PC. That is Valve's Steam Link, not Moonlight: its picture, its tracking and its limits. Press here to check Steam and list the PCs you paired with and their games.")
+            onClicked: MlxrPrefs.pcvrRefresh()
+        }
+
+        PrefRow {
+            objectName: "pcvrPcRow"
+            title: qsTr("PC to stream from")
+            valueText: MlxrPrefs.pcvrClientName !== "" ? MlxrPrefs.pcvrClientName : qsTr("The only paired PC")
+            summary: qsTr("A PC this headset is paired with in Steam (Remote Play). Press the first row above to list them.")
+            onClicked: {
+                var e = [{ text: qsTr("The only paired PC"), reason: "" }]
+                var cur = 0
+                var d = MlxrPrefs.pcvrDevices
+                for (var i = 0; i < d.length; i++) {
+                    e.push({ text: d[i].clientName + (d[i].streaming ? " " + qsTr("(streaming now)") : ""), reason: "" })
+                    if (d[i].clientId === MlxrPrefs.pcvrClient) cur = i + 1
+                }
+                listDialog.show(title, e, cur, function(i) { MlxrPrefs.pcvrChooseDevice(i - 1) })
+            }
+        }
+
+        PrefRow {
+            objectName: "pcvrAppRow"
+            title: qsTr("PC VR game")
+            valueText: MlxrPrefs.pcvrApp === "" ? qsTr("None: open Steam's library")
+                       : (MlxrPrefs.pcvrAppName !== "" ? MlxrPrefs.pcvrAppName : qsTr("Steam app %1").arg(MlxrPrefs.pcvrApp))
+            summary: qsTr("The game the PC VR button streams from the PC. With none, Steam's library opens and you press \"Stream from your PC\" on a game yourself.")
+            onClicked: {
+                var e = [{ text: qsTr("None: open Steam's library"), reason: "" }]
+                var cur = 0
+                var a = MlxrPrefs.pcvrApps
+                for (var i = 0; i < a.length; i++) {
+                    e.push({ text: a[i].name + (a[i].vr === true ? "  (VR)" : ""), reason: "" })
+                    if (a[i].appid === MlxrPrefs.pcvrApp) cur = i + 1
+                }
+                listDialog.show(title, e, cur, function(i) { MlxrPrefs.pcvrChooseApp(i - 1) })
+            }
+        }
+
+        PrefRow {
+            objectName: "pcvrAppIdRow"
+            title: qsTr("PC VR game: Steam app id")
+            valueText: MlxrPrefs.pcvrApp
+            summary: qsTr("The same choice typed by hand, for when Steam does not list the PC's games. Empty for none.")
+            onClicked: editDialog.show(title, qsTr("The game's Steam app id, digits only (it is in its store page address)."),
+                                       MlxrPrefs.pcvrApp, "^\\d{0,10}$", function(t) { MlxrPrefs.pcvrSetAppId(t) })
         }
 
         // ======== Advanced Settings ========
