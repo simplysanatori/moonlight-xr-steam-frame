@@ -1397,6 +1397,10 @@ static NvComputer* loadComputer(const QString& spec, NvApp* app, QString* why, b
     if (found->activeAddress.isNull()) {
         found->activeAddress = !found->manualAddress.isNull() ? found->manualAddress : found->localAddress;
     }
+    // A saved record has no HTTPS port until the PC has been polled; the UI's own records always have one
+    if (found->activeHttpsPort == 0) {
+        found->activeHttpsPort = DEFAULT_HTTPS_PORT;
+    }
     return found;
 }
 
