@@ -58,11 +58,11 @@ If you used the Moonlight flatpak on the Frame before, its PC list and pairing a
 
 ### Updates
 
-Once a day at most, the flat window asks GitHub for this project's latest release (`api.github.com`, nothing else). When it is newer than the installed version, an update button (the round arrow icon) appears at the top, with "Update available for Moonlight XR for Frame: Version N" for a few seconds; it opens the release page, in Steam's browser in Game Mode. Nothing is downloaded or installed: update as under "Update" in the readme. No information about you, the headset or your PCs is sent, and if GitHub cannot be reached nothing is shown (`moonlight-launcher.log` has one `MLXR_LAUNCHER_UPDATE: check failed` line). Between checks the last answer is used. Turn it off with **Check for updates** (General Settings).
+Once a day at most, the flat window asks GitHub for this project's latest release (`api.github.com`, nothing else). When it is newer than the installed version, an update button (the round arrow icon) appears at the top, with "Update available for Moonlight XR for Frame: Version N" for a few seconds; it opens the release page, in Steam's browser in Game Mode. Nothing is downloaded or installed: update as under "Update" in the readme. No information about you, the headset or your PCs is sent, and if GitHub cannot be reached nothing is shown (`moonlight-launcher.log` has one `MLXR_LAUNCHER_UPDATE: check failed` line). Between checks the last answer is used. Turn it off with **Check for updates** (General settings).
 
 ### Opening a stream by itself
 
-**On start** (General Settings) makes the flat window start a stream as soon as it opens and the PC answers, as if you had selected the app: **Last PC's Desktop** (the Desktop app of the PC you streamed from last) or **An app** (choose it in **App to open on start** from the apps of your PCs). The default is **Nothing**. It waits up to 2 minutes for the PC (and wakes it, as Moonlight's own command line does), then gives up quietly. If another app is already running on that PC, it does not start, so nothing of yours is quit. When the stream ends you are back in the PC list. `moonlight-launcher.log` has `MLXR_LAUNCHER_ONSTART:` lines for each step.
+**On start** (General settings) makes the flat window start a stream as soon as it opens and the PC answers, as if you had selected the app: **Last PC's Desktop** (the Desktop app of the PC you streamed from last) or **An app** (choose it in **App to open on start** from the apps of your PCs). The default is **Nothing**. It waits up to 2 minutes for the PC (and wakes it, as Moonlight's own command line does), then gives up quietly. If another app is already running on that PC, it does not start, so nothing of yours is quit. When the stream ends you are back in the PC list. `moonlight-launcher.log` has `MLXR_LAUNCHER_ONSTART:` lines for each step.
 
 The installer can add a second Steam shortcut, **Desktop in VR**, that goes straight to the Desktop: `./install.sh --desktop-shortcut` (see the readme). It runs `moonlight-xr-launcher.sh stream "PC" "Desktop"`, Moonlight's own command line. The flat window shows "Establishing connection to PC..." and closes when the stream ends. The PC is the one you streamed from last, or the only one, or `--desktop-pc "PC name"`. Run the installer again with another `--desktop-pc` to change it, or edit the shortcut's launch options in Steam.
 
@@ -83,14 +83,14 @@ The top of the page has a **Search settings** field and a row of buttons, one fo
 | Setting | Options | Notes |
 | --- | --- | --- |
 | Network connection | **Automatic**, **Wi-Fi (*network name*, *band*)**, **Steam Frame Wireless Adapter (6 GHz)**, **USB cable** | Automatic (the default) tries every link that is there when a stream starts (Wi-Fi, the adapter and a USB cable, see [USB cable](#usb-cable)) and uses the one with the lower latency and the fewer losses. It sends about 15 short probes down each link (about a second in all) and gives each link a score in milliseconds, lower is better: the median round trip, plus the jitter, plus how far the slowest probes run above the median, plus 50 ms for every probe that failed, plus a penalty from the last stream on that link. That penalty applies when the last stream lost more than 0.5 percent of its frames on the network: 20 ms for each percent, at most 150 ms. A link with no history gets no penalty. The lowest score wins. When two scores are within 3 ms of each other, the stronger signal and faster link rate break the tie, and Wi-Fi wins a tie after that. Signal and link rate no longer decide on their own. A link that does not answer is never used. The client keeps the last stream's numbers for each link in `netpath-history.ini` next to `config.ini` (frames received, frames lost, jitter, round trip and the time; no addresses or names). It writes them when a stream ends, after at least 500 frames. Delete the file to forget them. History older than 14 days is ignored. Wi-Fi streams over your home network. The adapter option streams over the Steam Frame Wireless Adapter plugged into your PC. The USB cable option streams over a USB data cable between the headset and your PC. Before it tries the adapter, the client checks that the adapter is there: the headset's own adapter network (`wlanap`) must be up and your PC must be connected to it. With no adapter found, Automatic uses Wi-Fi without trying the adapter, and if you chose the adapter the client uses Wi-Fi and shows a notice in the headset ("Steam Frame Wireless Adapter not reachable (no adapter found: ...). Using Wi-Fi."). If the chosen link does not answer, the client uses the other one and says so in the headset. The Steam Frame Wireless Adapter can have worse latency than a good 5 GHz network. Automatic measures latency and drops on each link before it chooses, so do not assume the adapter wins. |
-| Video bitrate | 0.5 to 500 Mbps | The stream's bitrate, and what **Same as above** in the four rows below it means. The default is twice Moonlight's own default for the size and rate you pick under Video Settings: 98 Mbps at 1440p and 90 Hz, 113 Mbps at 1440p and 120 Hz, 124 Mbps at 1440p and 144 Hz, 49 Mbps at 1080p and 90 Hz, 80 Mbps at 1440p and 60 Hz. With Match headset it is the 90 Hz figure. It is set again to this value whenever you change the resolution or the refresh rate, and the default itself tops out at 150 Mbps (4K). The slider goes up to 500 Mbps, for a good 5 GHz Wi-Fi or a wired link. A value you saved earlier, up to 500 Mbps, is kept until then. See [Recommended PC settings](#recommended-pc-settings). |
+| Video bitrate | 0.5 to 500 Mbps | The stream's bitrate, and what **Same as above** in the four rows below it means. The default is twice Moonlight's own default for the size and rate you pick under Video settings: 98 Mbps at 1440p and 90 Hz, 113 Mbps at 1440p and 120 Hz, 124 Mbps at 1440p and 144 Hz, 49 Mbps at 1080p and 90 Hz, 80 Mbps at 1440p and 60 Hz. With Match headset it is the 90 Hz figure. It is set again to this value whenever you change the resolution or the refresh rate, and the default itself tops out at 150 Mbps (4K). The slider goes up to 500 Mbps, for a good 5 GHz Wi-Fi or a wired link. A value you saved earlier, up to 500 Mbps, is kept until then. See [Recommended PC settings](#recommended-pc-settings). |
 | Bitrate over Wi-Fi | **Same as above**, then 10 to 500 Mbps in steps | The bitrate a stream starts with when it goes over Wi-Fi. **Same as above** uses the Video bitrate. Tap the row to step up; past 500 Mbps it goes back to Same as above. See [Bitrate for each connection](#bitrate-for-each-connection). |
 | Bitrate over the Steam Frame Wireless Adapter | the same | The same for the Steam Frame Wireless Adapter. |
 | Bitrate over a wired network | the same | The same for a wired network (the headset on ethernet). |
 | Bitrate over the USB cable | the same | The same for the [USB cable](#usb-cable). |
-| Full-frame requests after lost video | **No limit**, **250 ms**, **500 ms**, **1000 ms**, **2000 ms** | 500 ms (the default). When video is lost and the PC's quick repair does not come, the headset asks the PC for a full picture (an IDR frame). A full picture is large: asked for again while the Wi-Fi is still losing packets, it lands in the same bad moment and makes the freeze longer. This is the least time between two such requests of the headset's own. Pressing the row steps through the choices. It is `rfi_idr_ms` in `config.ini`'s `[stream]` section. |
+| Full-frame requests after lost video | **No limit**, **250 ms**, **500 ms**, **1 s**, **2 s** | 500 ms (the default). When video is lost and the PC's quick repair does not come, the headset asks the PC for a full picture (an IDR frame). A full picture is large: asked for again while the Wi-Fi is still losing packets, it lands in the same bad moment and makes the freeze longer. This is the least time between two such requests of the headset's own. Pressing the row steps through the choices. It is `rfi_idr_ms` in `config.ini`'s `[stream]` section. |
 | Switch network when video keeps breaking up | **Off**, **On** | Off (the default). With **On** and Network connection on **Automatic**, a stream that keeps losing video on its link moves to another link. See [Switching links when video keeps breaking up](#switching-links-when-video-keeps-breaking-up). It is `failover` in `config.ini`'s `[stream]` section. |
-| Video loss before switching | **1.5 s**, **3 s**, **5 s**, **8 s** | 3 s (the default). How much lost video within ten seconds makes the stream leave its link. Tapping the row steps through the choices. Used only when the switch above is on. It is `failover_burst_ms` in `config.ini` (500 to 9000 ms). |
+| Video loss before switching | **1.5 s**, **3 s**, **5 s**, **8 s** | 3 s (the default). How much lost video within ten seconds makes the stream leave its link. Tapping the row steps through the choices. Greyed while the switch above is off. It is `failover_burst_ms` in `config.ini` (500 to 9000 ms). |
 
 ### Switching links when video keeps breaking up
 
@@ -135,7 +135,7 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 
 ### Stream profiles
 
-A profile is a saved copy of the stream settings on this page, with a name. It holds the Connection rows (with the bitrate for each connection), every Video setting (with the 3D rows, the eye balance and where the 3D comes from), the sound, the gamepad and mouse rows (with the lightgun and the gamepad gyro), Optimize game settings, Play audio on PC, Smart Clipboard Sync, stats, the codec, full range, software decoding, and the headset's own rows on this page (notices, scroll speed, the disconnect times, gamepad as mouse). For example a desktop profile at 1080p and 60 Hz, and a game profile at 1440p and 120 Hz with Apollo's virtual display. Not in a profile: the room's look (background dim, void colour, glow edge), the headset keyboard layout, Show controllers, Quick Resume, Enable Full Screen, Language and Check the PC before streaming.
+A profile is a saved copy of the stream settings on this page, with a name. It holds the Connection rows (with the bitrate for each connection), every Video setting (with the 3D rows, the eye balance and where the 3D comes from), the sound, the gamepad and mouse rows (with the lightgun and the gamepad gyro), Optimize game settings, Play audio on PC, Smart clipboard sync, stats, the codec, full range, software decoding, and the headset's own rows on this page (notices, scroll speed, the disconnect times, gamepad as mouse). For example a desktop profile at 1080p and 60 Hz, and a game profile at 1440p and 120 Hz with Apollo's virtual display. Not in a profile: the room's look (background dim, void colour, glow edge), the headset keyboard layout, Show controllers, Quick resume, Enable full screen, Language and Check the PC before streaming.
 
 The **Profiles** row (or **Stream settings profile...** in an app's menu) opens the Stream profiles page:
 
@@ -145,89 +145,99 @@ The **Profiles** row (or **Stream settings profile...** in an app's menu) opens 
 
 When a stream starts, the profile of the app, or else of its PC, is in force for that stream: the flat window passes its values to the VR client, and writes the headset's settings it holds into `config.ini` for the stream. When the stream ends, the Settings page's own values are back and `config.ini` is as it was; a headset setting you changed in the cog during the stream keeps your change. If the flat window is closed or killed during a stream, `config.ini` is put back the next time it starts. `moonlight-launcher.log` has `MLXR_LAUNCHER_PROFILE: using <name> for <PC> / <app>` for each stream. A PC and an app are matched by name, case ignored, as the headset matches its per-app bindings. A stream started from the command line (`moonlight-xr-launcher stream PC App`) uses the profile too, over the command line's own options.
 
-### Video Settings
+### Video settings
 
 | Setting | Options | Default |
 | --- | --- | --- |
-| Video resolution | 360p, 480p, 720p, 1080p, 1440p, 4K, or a custom size | 1440p (2560x1440) |
-| Refresh rate | **Match headset**, 144 Hz, 120 Hz, 90 Hz, 72 Hz, 60 Hz, 30 Hz, Custom | Match headset. It uses the rate SteamVR runs the headset's display at for this app: 90 Hz unless you changed it in SteamVR's settings. Pick 72, 90, 120 or 144 Hz here to choose the headset's rate: when the stream starts, the launcher sets that rate in SteamVR's per-app video settings for this app, and the stream runs at it. 120 and 144 Hz need the stream and your PC to keep up: the PC has to render and encode that many frames a second, and the network has to carry the higher bitrate. The stream never goes above the rate the headset runs at, 144 Hz at most. If SteamVR still runs the app at its old rate, the log says so and the stream uses that rate; start the app again. Custom takes values such as 59.94 and needs Apollo. |
-| Video frame pacing | Prefer lowest latency, Balanced, Prefer smoothest video | Balanced |
-| Ultra Low Latency (experimental) | on, off | off. Runs the network and decoder threads at realtime priority. |
-| Use Virtual Display | on, off | off. Needs Apollo. Apollo makes a display that matches the stream. |
-| Resolution Scale Factor | 20 to 200 % | 100 %. Needs Apollo. |
-| Custom Resolution | width and height | |
-| Custom bitrate | 0.5 to 500 Mbps | |
-| Render Mode | Default 2D, AI SBS 3D | AI SBS 3D. This is the 3D switch; the headset can also change it. See [3D](#3d). |
-| 3D Effect Strength | 1 to 100 | The depth model's own value. Greyed in Default 2D, and with SBS or Top-bottom as the 3D source. |
-| 3D Convergence | 0 to 100 | 50. Greyed in Default 2D. With SBS or Top-bottom it moves the two halves apart or together. |
+| Video resolution | 360p, 480p, 720p, 1080p, 1440p, 4K, Custom... | 1440p (2560x1440). **Custom...** asks for any width x height, such as 3840x1080 for full-size SBS. |
+| Refresh rate | **Match headset**, 144 Hz, 120 Hz, 90 Hz, 72 Hz, 60 Hz, 30 Hz, Custom... | Match headset. It uses the rate SteamVR runs the headset's display at for this app: 90 Hz unless you changed it in SteamVR's settings. Pick 72, 90, 120 or 144 Hz here to choose the headset's rate: when the stream starts, the launcher sets that rate in SteamVR's per-app video settings for this app, and the stream runs at it. 120 and 144 Hz need the stream and your PC to keep up: the PC has to render and encode that many frames a second, and the network has to carry the higher bitrate. The stream never goes above the rate the headset runs at, 144 Hz at most. If SteamVR still runs the app at its old rate, the log says so and the stream uses that rate; start the app again. Custom takes values such as 59.94 and needs Apollo. |
+| Video frame pacing | Prefer lowest latency, Balanced, Prefer smoothest video | Balanced. Lowest latency shows the newest frame at once; smoothest shows every frame in turn, a frame or two later. |
+| Ultra low latency (experimental) | on, off | off. Runs the network and decoder threads at realtime priority. |
+| Use virtual display | on, off | off. Needs Apollo. Apollo makes a display that matches the stream. |
+| Resolution scale factor | 20 to 200 % | 100 %. Needs Apollo. The virtual display is made this much of the stream's size. |
+| Custom bitrate | 0.5 to 500 Mbps | The Video bitrate (Connection), typed in. |
+| 3D | on, off | on. This is the 3D switch; the bar's 3D button and the headset's 3D tab change it too. See [3D](#3d). |
 | 3D source | Depth model, SBS from the PC, Top-bottom from the PC | Depth model. Press to step through them. See [SBS 3D](#sbs-3d). The headset's 3D tab has the same row. |
 | Full-size SBS | on, off | off. On: the PC's pair has a full picture per eye (3840x1080 for two 1920x1080 eyes). Off: half-size, both eyes squeezed into one 1920x1080 frame. Greyed with the depth model. |
-| 3D Edge Sharpness | 0, 25, 50, 75, 100 (press to step) | 0. See [3D](#3d). Greyed in Default 2D. |
-| 3D Motion Reset | Off, 5, 10, 20, 30 % (press to step) | Off. See [3D](#3d). Greyed in Default 2D. |
-| 3D Depth Detail | 50 to 200 % (press to step) | 100 %. See [3D](#3d). Greyed in Default 2D. |
-| 3D Depth Shape | 50 to 200 % (press to step) | 100 %. See [3D](#3d). Greyed in Default 2D. |
-| Enable HDR (Experimental) | greyed | The Frame's video path is 8-bit SDR. |
+| Depth model | ZipDepth, ZipDepth lighter on the CPU, MiDaS (older), Off (2D only) | ZipDepth. Greyed with SBS or Top-bottom. In `config.ini`: `[vr] depth_source`. |
+| 3D depth | 1 to 100 | The depth model's own value. The headset's 3D tab calls it Depth. Greyed with the 3D off, and with SBS or Top-bottom as the 3D source. |
+| 3D convergence | 0 to 100 | 50. Greyed with the 3D off. With SBS or Top-bottom it moves the two halves apart or together. |
+| 3D edge | 0, 25, 50, 75, 100 (press to step) | 0. See [3D](#3d). Greyed with the 3D off. |
+| 3D motion reset | Off, 5, 10, 20, 30 % (press to step) | Off. See [3D](#3d). Greyed with the 3D off. |
+| 3D depth detail | 50 to 200 % (press to step) | 100 %. See [3D](#3d). Greyed with the 3D off. |
+| 3D depth shape | 50 to 200 % (press to step) | 100 %. See [3D](#3d). Greyed with the 3D off. |
+| 3D eye balance | Right eye 100 %, 50 %, Even, Left eye 50 %, 100 % (press to step) | Even. See `[3d] eye_balance` under [Advanced: config.ini](#advanced-configini). Greyed with the 3D off. |
+| Sharpen | Off, Normal, Quality | Normal. In `config.ini`: `[display] sharpening`. |
+| Supersample | Off, Normal, Quality | Normal. Not used while the 3D is on. In `config.ini`: `[display] supersampling`. |
+| Sharper small text, Sharper coloured text | on, off | on, on. On a curved or 3D screen. In `config.ini`: `[display] picture_filter`, `chroma_from_luma`. |
+| Picture brightness, contrast, gamma, saturation | -50 to 50; 50 to 150 %; 0.50 to 2.00; 0 to 200 % | 0, 100 %, 1.00, 100 %. In `config.ini`: `[vr] picture_brightness`, `picture_contrast`, `picture_gamma` (hundredths), `picture_saturation`. |
+
+The Frame's video is 8-bit SDR and the stream never goes above the headset's rate, so the page has no HDR switch and no "Unlock all possible frame rates" row.
 
 ### Audio, gamepad, input, host, general, UI
 
 | Setting | Options | Default |
 | --- | --- | --- |
-| Surround sound configuration | Stereo, 5.1 Surround Sound, 7.1 Surround Sound | Stereo |
-| Adjust analog stick deadzone | -20 to 20 % | 0 %. Above 0 it is also the dead zone of the Frame controllers in gamepad mode, which use 7 % at 0. |
+| Surround sound configuration | Stereo, 5.1 surround sound, 7.1 surround sound | Stereo. 5.1 and 7.1 are mixed down to stereo unless Virtual surround places them around you. |
+| Adjust analog stick dead zone | -20 to 20 % | 0 %. Above 0 it is also the dead zone of the Frame controllers in gamepad mode, which use 7 % at 0. |
 | Flip face buttons | on, off | off. Swaps A/B and X/Y. |
 | Back button as Guide (Accessibility) | on, off | off. In the headset's gamepad mode the View (Back) button is Guide, see [Gamepad mode](#gamepad-mode). |
 | Mouse mode (Accessibility) | Absolute, Relative | Absolute. See [Relative mouse](#relative-mouse). |
 | What points, Dwell click (Accessibility) | Controller, Head, Eyes; Off, 0.6, 0.9, 1.2, 1.5 s | Controller, Off. See [Accessibility](#accessibility). |
 | Headset keyboard layout | QWERTY (US), AZERTY (French), QWERTZ (German) | QWERTY. The PC must be on the same Windows layout, see [AZERTY and QWERTZ](#azerty-and-qwertz). |
-| Enable Rumble | on, off | on |
+| Enable rumble | on, off | on. Gamepads and the headset controllers. |
 | Enable forward/back mouse buttons | on, off | on |
-| Check the PC before streaming | on, off | on. See [Check before a stream](#check-before-a-stream). |
-| Optimize game settings | on, off | on |
-| Play audio on PC | on, off | off |
-| Smart Clipboard Sync (Experimental) | on, off | off. Needs Apollo. |
-| Quick Resume | on, off | off. Selecting a running app resumes it at once. |
-| Enable Full Screen | on, off | Takes effect at the next start. |
-| Headset language | Automatic, English and 19 more | Automatic. The headset's own menus, see [Language](#language). The Language row above it is the flat window's. |
+| Check the PC before streaming (Host) | on, off | on. See [Check before a stream](#check-before-a-stream). |
+| Optimize game settings (Host) | on, off | on. Lets the PC switch its display to the stream's resolution, where the host is set to. |
+| Play audio on PC (Host) | on, off | off |
+| Smart clipboard sync (experimental) (General) | on, off | off. Needs Apollo. |
 | On start (General) | Nothing, Last PC's Desktop, An app | Nothing. See [Opening a stream by itself](#opening-a-stream-by-itself). |
 | App to open on start (General) | the apps of your PCs | Shown with On start set to An app. |
 | Check for updates (General) | on, off | on. See [Updates](#updates). |
+| Controls card on the next stream (General) | on, off | off. Brings back the [first-run card](#the-first-run-card). |
+| Disconnect when the headset is off (General) | Never, 15 s, 30 s, 1 min, 2 min, 5 min (press to step) | 1 min. See [Ending a stream](#ending-a-stream). |
+| Disconnect when idle (General) | Never, 10 min, 30 min, 60 min, 120 min (press to step) | Never. |
+| Quick resume (UI) | on, off | off. Selecting a running app resumes it at once. |
+| Enable full screen (UI) | on, off | Takes effect at the next start. |
+| Language (Misc) | Automatic and 28 languages | Automatic. The flat window's own language. |
+| Headset language (Misc) | Automatic, English and 19 more | Automatic. The headset's own menus, see [Language](#language). |
 
 ### Headset settings on this page
 
-These rows change the headset's own settings in `config.ini`, the same ones its cog menu and the file have. Only a row you change is written; a change takes effect at the next stream (the 3D depth model and Room detail when the model or the room is loaded). They are not part of a stream profile.
+These rows change the headset's own settings in `config.ini`, the same ones its cog menu and the file have. Only a row you change is written; a change takes effect at the next stream (the depth model and Room detail when the model or the room is loaded). Which of them a stream profile holds is listed under [Stream profiles](#stream-profiles). Where the cog has the same setting, the row has the cog's name. The 3D and picture rows of the Video settings are in the table above.
 
 | Row (category) | Options | Default | `config.ini` |
 | --- | --- | --- | --- |
-| 3D depth model (Video) | ZipDepth, ZipDepth lighter on the CPU, MiDaS (older), Off (2D only) | ZipDepth | `[vr] depth_source` |
-| Sharpening (Video) | Off, Normal, Quality | Normal | `[display] sharpening` |
-| Supersampling (Video) | Off, Normal, Quality | Normal. Not used while the 3D is on. | `[display] supersampling` |
-| Sharper small text, Sharper coloured text (Video) | on, off | on, on | `[display] picture_filter`, `chroma_from_luma` |
-| Picture brightness, contrast, gamma, saturation (Video) | -50 to 50; 50 to 150 %; 0.50 to 2.00; 0 to 200 % | 0, 100 %, 1.00, 100 % | `[vr] picture_brightness`, `picture_contrast`, `picture_gamma` (hundredths), `picture_saturation` |
 | Virtual surround (Audio) | on, off | off. Works with Stereo as well as 5.1 and 7.1: stereo becomes two speakers in front of the screen, so turning your head moves the sound. | `[stream] virtual_surround` |
-| When the gyro is sent (Gamepad) | Always, While the thumb touches the right stick | Always | `[vr] pad_gyro_ratchet` |
-| Lightgun reload, Lightgun recoil (Gamepad) | on, off | off, on | `[vr] lightgun_reload`, `lightgun_recoil` |
-| Gamepad mode shortcut (Gamepad) | Left View and left grip, Click both sticks, Both triggers and both grips | Left View and left grip | `[vr] gamepad_toggle` |
+| Lightgun mode, Lightgun reload, Lightgun recoil (Gamepad) | Automatic, On, Off; on, off | Automatic, off, on. Reload and recoil are greyed with Lightgun mode Off. | `[vr] lightgun`, `lightgun_reload`, `lightgun_recoil` |
+| Gyro from the headset, When the gyro is sent (Gamepad) | Off, Controller, Head; Always, While the thumb touches the right stick | Off, Always. The second is greyed with the gyro Off. | `[vr] pad_gyro`, `pad_gyro_ratchet` |
+| Gamepad mode shortcut (Gamepad) | Left View and left grip, Click both thumbsticks, Both triggers and both grips | Left View and left grip | `[vr] gamepad_toggle` |
 | Grips in gamepad mode (Gamepad) | Bumpers (LB, RB), Nothing, Stick clicks (LS, RS) | Bumpers | `[vr] pad_grip` |
-| Rumble on the headset controllers (Gamepad) | Stronger motor in both hands, Low motor left, high motor right | Stronger motor in both hands | `[vr] rumble_mix` |
-| Rumble strength on the headset controllers (Gamepad) | 0 to 100 % | 100 % | `[vr] rumble_intensity` |
+| Rumble on the headset controllers (Gamepad) | Stronger motor in both hands, Low motor left, high motor right | Stronger motor in both hands. Greyed with Enable rumble off. | `[vr] rumble_mix` |
+| Rumble strength on the headset controllers (Gamepad) | 0 to 100 % | 100 %. Greyed with Enable rumble off. | `[vr] rumble_intensity` |
 | Headset keyboard size (Input) | Compact, Full (tenkeyless) | Compact | `[vr] keyboard_layout` |
-| Hold to lock Shift, Ctrl, Alt or Win (Input) | 200 to 1500 ms | 500 ms | `[vr] keyboard_hold_ms` |
+| Hold to lock Shift, Ctrl, Alt or Win (Input) | 200 to 1500 ms | 500 ms, on both keyboards | `[vr] keyboard_hold_ms` |
 | Controllers as a mouse (Input) | on, off | on | `[vr] pointer` |
-| Pause the pointer when the controller is still (Input) | on, off | on | `[vr] pointer_sleep` |
-| Show the ray, Show the dot where the ray lands (Input) | on, off | on, on | `[vr] show_ray`, `pointer_dot` |
+| Ray (Input) | Off, Dot, Ray | Ray. Dot shows only where the ray lands; the cog's Ray row. | `[vr] show_ray`, `pointer_dot` |
+| Pointer sleep (Input) | on, off | on. The pointer rests while the controller is still. | `[vr] pointer_sleep` |
 | Click steadiness (Input) | Off, Normal, Steady | Normal | `[vr] click_steadiness` |
 | Click sound (Input) | on, off | on | `[vr] click_sound` |
-| Head aims the mouse, Head aim speed, Head aim dead zone (Input) | on, off; 1 to 30 px/°; 0 to 20 °/s | off, 8, 2 | `[vr] head_aim`, `head_aim_sensitivity`, `head_aim_deadzone` |
+| Scroll speed (Input) | 50 to 300 % (press to step) | 100 %. The thumbstick's scroll in pointer mode. | `[vr] scroll_speed` |
+| Show controllers (Input) | Off, Frame, Gun, Your own model (press to step) | Off. See [Controllers](#controllers). | `[vr] controller_model` |
+| Head aim, Aim sensitivity, Aim dead zone (Input) | on, off; 1 to 30 px/°; 0 to 20 °/s | off, 8, 2 | `[vr] head_aim`, `head_aim_sensitivity`, `head_aim_deadzone` |
 | Look to point, Hand tracking (Input) | on, off | off, off. Look to point needs eye tracking from SteamVR; the Accessibility tab shows whether it reaches the app. | `[vr] gaze`, `hand_tracking` |
-| Environment (UI) | Automatic, Passthrough, Void, Home Theater, Grand Cinema, Synthwave | Automatic: the void, or the passthrough with Passthrough on | `[vr] environment` |
-| Passthrough (UI) | on, off | off | `[vr] passthrough` |
+| Head tracking to opentrack, opentrack address, opentrack port (Input) | on, off; address or name; 1 to 65535 | off, the streaming PC, 4242. See [opentrack](#head-tracking-for-pc-games-opentrack). | `[vr] opentrack`, `opentrack_host`, `opentrack_port` |
+| Environment (UI) | Automatic, Passthrough, Black void, Home Theater, Grand Cinema, Synthwave | Automatic: the black void, or the passthrough with the Passthrough switch on | `[vr] environment` |
+| Passthrough (UI) | on, off | off. Only Environment's Automatic reads it, so it is greyed with any other environment. | `[vr] passthrough` |
+| Void colour, Background dim (UI) | #rrggbb; 0 to 100 % (press to step) | #000000, 0 %. The cog's Picture tab has Background. | `[vr] void_color`, `background_dim` |
 | Room detail (UI) | Low, Standard, High, Ultra | Standard | `[vr] env_res` |
-| Screen light in rooms, Glow, Glow level (UI) | on, off; 0 to 100 % | on, off, 50 % | `[display] screen_light`, `glow`, `glow_level` |
-| Screen distance, Screen width, Screen curve (UI) | 20 to 800 cm; 80 to 800 cm; 0 to 100 % | 300 cm, 300 cm, 0 % | `[screen] distance_cm`, `width_cm`, `curve` |
-| Remember the screen per app (UI) | on, off | on. An app without its own place starts from the rows above. | `[screen] per_app` |
-| Keep the screen's size when pushing or pulling it (UI) | on, off | on | `[screen] angular_lock` |
-| Head-locked screen, Screen follows your head, Follow after turning (UI) | on, off; 10 to 60° | off, off, 25° | `[display] head_locked`, `head_follow`, `follow_leash_deg` |
-| Stats style (Performance Monitor) | Full, HUD, Lite | Full | `[display] stats_style` |
+| Screen light, Glow, Glow level, Glow edge (UI) | on, off; 0 to 100 %; Off, Soft, Wide | on, off, 50 %, Off. Glow level and Glow edge are greyed with the glow off. | `[display] screen_light`, `glow`, `glow_level`, `glow_feather` |
+| Screen distance, Screen size, Screen curve (UI) | 20 to 800 cm; 80 to 800 cm wide; 0 to 100 % | 300 cm, 300 cm, 0 % | `[screen] distance_cm`, `width_cm`, `curve` |
+| Zoom (UI) | 100 to 400 % (press to step) | 100 %. The zoom a stream starts at. | `[display] zoom` |
+| Remember per app (UI) | on, off | on. An app without its own place starts from the rows above. | `[screen] per_app` |
+| Angular-size lock (UI) | on, off | on. The screen looks the same size when you push it away or pull it closer. | `[screen] angular_lock` |
+| Head locked, Follow after turning (UI) | Off, On, Follow; 10 to 60° | Off, 25°. The cog's Head locked row; Follow after turning is greyed unless it is Follow. | `[display] head_locked`, `head_follow`, `follow_leash_deg` |
+| Notices (UI) | All, Important, Off (press to step) | All | `[vr] notices` |
 
 Left out on purpose: the `[debug]` keys, what the headset keeps by itself (the last PC and app, the cog's last tab, the zoom's centre, the hand hint), the screen's height, direction, tilt and rotation (set by grabbing the screen) and the place the bar's Bring here switch goes back to and each room's own brightness, glow, light and picture size (the cog's Room tab, while you look at the room).
 
@@ -253,8 +263,8 @@ does not bring them. Without them those languages show English, and the log says
 Just before a stream starts, the flat window asks the PC (serverinfo and the app list, about 2 seconds at most) what it would say about this stream, and shows what will go wrong as a message at the top of the "Starting ..." screen:
 
 - Apollo does not let this headset launch apps, view streams, or use its gamepad, mouse or keyboard input (Apollo's **Clients** page, the permissions of this client). Apollo gives a client paired after the first one only List Apps and View Streams.
-- Use Virtual Display is on, but the PC is not Apollo, cannot make a virtual display, or Apollo's virtual display driver is not ready.
-- Smart Clipboard Sync is on with a PC that is not Apollo, or without Apollo's clipboard permissions.
+- Use virtual display is on, but the PC is not Apollo, cannot make a virtual display, or Apollo's virtual display driver is not ready.
+- Smart clipboard sync is on with a PC that is not Apollo, or without Apollo's clipboard permissions.
 - The PC is already running another app (maybe for another client).
 - The resolution is not one the PC lists (GameStream PCs list them; Apollo and Sunshine do not), or Prefer HEVC is set and the PC has no HEVC.
 
@@ -262,15 +272,15 @@ The stream starts anyway. If it then fails, the error message repeats these unde
 
 The same question gives the app's UUID on Apollo. The flat window passes it to the VR client (`MLXR_APP_UUID`), which sends it with the launch request next to the app's number, as Artemis does, so Apollo finds the app by its UUID and knows when that app is already running.
 
-### Performance Monitor and Advanced Settings
+### Performance monitor and Advanced settings
 
 | Setting | Options | Default |
 | --- | --- | --- |
-| Show performance stats while streaming | on, off | off. Same as Stats in the headset's Display tab. In `config.ini`, `stats = hud` or `stats = lite` turns them on in that style (see Stats styles below). |
-| Change codec settings | Automatic (Recommended), Prefer HEVC, Prefer H.264 | Automatic. Prefer AV1 is greyed: the Frame decodes H.264 and HEVC only. |
-| Unlock all possible frame rates | greyed | The stream is capped at the rate the headset runs at, 144 Hz at most. |
-| Force full range video (Experimental) | on, off | off |
-| Force software decoding | on, off | off |
+| Stats | on, off | off. Same as Stats in the headset's Display tab. In `config.ini`, `stats = hud` or `stats = lite` turns them on in that style (see Stats styles below). |
+| Stats style | Full, HUD, Lite | Full. In `config.ini`: `[display] stats_style`. |
+| Change codec settings | Automatic (Recommended), Prefer HEVC, Prefer H.264 | Automatic: HEVC when the PC has it, else H.264. The Frame decodes H.264 and HEVC only, so there is no AV1 choice. |
+| Force full range video (experimental) | on, off | off. Hardware decoding only. |
+| Force software decoding | on, off | off. Slow; for troubleshooting. |
 
 The last line of the page says where the headset's own settings are saved (`~/.config/moonlight-xr/config.ini`).
 
@@ -385,7 +395,7 @@ The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the d
 | Background | 0 to 100 %, in steps of 5 | How far the surroundings are dimmed. In a room it turns the whole room down, its lighting and the light the picture throws on it too, to black at 100 %. In passthrough it lays a black layer of that strength over the cameras (100 % hides them). In the void it darkens the void's colour (`void_color`, below). 0 leaves all three as they were. The picture itself is not dimmed. |
 | Glow edge | Off, Soft, Wide | Fades the picture's outer edge into the glow around it, so the screen has no hard border. Soft fades the outer 6 % of the picture's width and height, Wide the outer 15 %. Off by default. It needs the glow on (Display tab), and it takes the glow's level: at a low glow level the edge fades toward a dim colour. |
 
-**Reset** puts all six rows back, and not the void's colour, which only the file has (or the launcher's Settings page: **Void colour**, under Performance Monitor, which also has **Dim the surroundings** and **Glow edge**; press a row to step it).
+**Reset** puts all six rows back, and not the void's colour, which only the file has (or the launcher's Settings page: **Void colour**, under UI settings, next to **Background dim** and **Glow edge**; press a row to step it).
 
 ### About
 
@@ -522,13 +532,13 @@ To turn back without turning the game, hold a **grip** (either one, as long as i
 
 ### Hand tracking
 
-`hand_tracking = true` in `config.ini` (or **Hand tracking** on the launcher's Settings page, under Input Settings; off by default) lets you point with your hands instead of the controllers. A hand's ray is the pointer, and a pinch of thumb and index finger is the trigger: a left click on the picture, a press on the bar and the menus.
+`hand_tracking = true` in `config.ini` (or **Hand tracking** on the launcher's Settings page, under Input settings; off by default) lets you point with your hands instead of the controllers. A hand's ray is the pointer, and a pinch of thumb and index finger is the trigger: a left click on the picture, a press on the bar and the menus.
 
 **The triple pinch** locks the hands out, so a stray pinch does not click: pinch three times quickly on one hand (the third within 0.9 seconds of the first). The headset shows "Hands locked"; locked hands have no ray and send no clicks. The same triple pinch unlocks them ("Hands unlocked"). The first two pinches are ordinary clicks, the third is never sent to the PC. Controllers are never locked. The first time a hand points in a session, a sheet explains this; **Don't show this again** keeps it away.
 
 ### Head tracking for PC games (opentrack)
 
-Games with head tracking (flight and racing simulators that take TrackIR or FreeTrack) can follow your real head through [opentrack](https://github.com/opentrack/opentrack) on the PC. With `opentrack = true` in `config.ini` (or **Head tracking to opentrack** on the launcher's Settings page, under Input Settings), the headset sends your head's position and turn to the PC every frame while a stream is running, as opentrack's "UDP over network" packet: x, y, z in centimetres, then yaw, pitch and roll in degrees. It goes to the PC you are streaming from unless `opentrack_host` names another address or name, on UDP port `opentrack_port` (4242, opentrack's own default). Sending never holds up a frame: a packet that cannot go out at once is dropped, and the next frame sends a newer one.
+Games with head tracking (flight and racing simulators that take TrackIR or FreeTrack) can follow your real head through [opentrack](https://github.com/opentrack/opentrack) on the PC. With `opentrack = true` in `config.ini` (or **Head tracking to opentrack** on the launcher's Settings page, under Input settings), the headset sends your head's position and turn to the PC every frame while a stream is running, as opentrack's "UDP over network" packet: x, y, z in centimetres, then yaw, pitch and roll in degrees. It goes to the PC you are streaming from unless `opentrack_host` names another address or name, on UDP port `opentrack_port` (4242, opentrack's own default). Sending never holds up a frame: a packet that cannot go out at once is dropped, and the next frame sends a newer one.
 
 **On the PC:** install opentrack and start it. Under **Input** choose **UDP over network** and press the hammer button next to it: the port must be the same as `opentrack_port` (4242). Under **Output** choose what the game reads: **freetrack 2.0 Enhanced** for most TrackIR and FreeTrack games, or **Virtual joystick** for games that take a joystick. Press **Start**; the octopus in opentrack's window turns with your head once the stream is up. Let Windows Firewall allow opentrack on private networks when it asks (or allow UDP port 4242 in). Press opentrack's **Center** key (set one under Options, Shortcuts) while you look straight at the screen; opentrack then measures from there. Yaw is positive turning left, pitch positive looking up and roll positive tilting your head to the left; if a game turns the wrong way, tick **Invert** for that axis on opentrack's Output tab. The curves under **Mapping** set how far the game turns for each degree. `moonlight.log` says `opentrack: the head pose goes to <address>:4242 every frame` once the first packet is out, and how many went when the stream stops.
 
@@ -616,7 +626,7 @@ The choice is remembered. Inside a room the bar's move pill does nothing, and th
 
 The headset turns the 2D stream into 3D with a depth model running on the Frame. It works with any game or video. It adds about 80 ms between the picture and its depth, so fast motion can show soft edges.
 
-- Turn it on or off with the bar's 3D button, the 3D tab, or Render Mode on the flat Settings page.
+- Turn it on or off with the bar's 3D button, the 3D tab, or the 3D switch on the flat Settings page.
 - Comfort, Balanced and Strong set the depth. Depth and Convergence fine-tune it.
 - 3D is on by default and remembered.
 - The default model is ZipDepth. `depth_source` in `config.ini` chooses `zipdepth`, `zipdepth-int8` (lighter on the CPU) or `midas`.
@@ -655,8 +665,8 @@ With the 3D switched off, you see the left eye's half on its own, as a flat pict
 
 **The Apollo virtual display.** With Apollo, the PC can make a display of exactly the stream's size:
 
-- Half-size (recommended): keep the stream at 1920x1080 (or 2560x1440). Turn on Use Virtual Display. Set the game or player to its SBS (or Top-bottom) mode, full screen.
-- Full-size: set Custom Resolution to 3840x1080 in the flat window's Settings page and turn on Use Virtual Display. Apollo makes a 3840x1080 display. Set the game to render side by side across it, and turn on Full-size SBS.
+- Half-size (recommended): keep the stream at 1920x1080 (or 2560x1440). Turn on Use virtual display. Set the game or player to its SBS (or Top-bottom) mode, full screen.
+- Full-size: set Video resolution to Custom... 3840x1080 in the flat window's Settings page and turn on Use virtual display. Apollo makes a 3840x1080 display. Set the game to render side by side across it, and turn on Full-size SBS.
 
 Do not use 4K (3840x2160) full-size SBS for now. The headset decodes 4K, but a test on a home network could not carry a 4K stream at 150 Mbps: the picture stalled and lost frames. 3840x1080 is half of that and is the largest pair to try.
 
@@ -672,7 +682,7 @@ The cog's **Display** tab has the controller rows together: **Mode**, **Show con
 | Mode | Pointer or Gamepad. Every session starts in pointer mode. |
 | Ray | Off, Dot or Ray: how the pointer shows. |
 
-**A model of your own.** `controller_model = custom` in `config.ini` (or the launcher's Settings page, under Input Settings, **Show controllers**: press the row until it says Your own model) draws the model you put in `~/.config/moonlight-xr/models/`. The cog has no cell for it. If the files are missing or cannot be read, the Frame controllers are drawn and `moonlight.log` says why. How to make the files: [Custom controller models](CUSTOM_MODELS.md). Older config files that say `controller_model = true` or `false` still work (Frame and Off), and `generic`, the plain controller earlier versions had, reads as Frame.
+**A model of your own.** `controller_model = custom` in `config.ini` (or the launcher's Settings page, under Input settings, **Show controllers**: press the row until it says Your own model) draws the model you put in `~/.config/moonlight-xr/models/`. The cog has no cell for it. If the files are missing or cannot be read, the Frame controllers are drawn and `moonlight.log` says why. How to make the files: [Custom controller models](CUSTOM_MODELS.md). Older config files that say `controller_model = true` or `false` still work (Frame and Off), and `generic`, the plain controller earlier versions had, reads as Frame.
 
 **Bar = this session, cog = saved.** The bar's Ray, Gamepad / Pointer and Head aim buttons change this session only. The cog's Ray row and Show controllers are kept for the next session.
 
@@ -718,7 +728,7 @@ The card is a flat drawing of the gamepad, picked from the type the pad announce
 
 ### AZERTY and QWERTZ
 
-The headset keyboard can show French (AZERTY) or German (QWERTZ) letters. Pick it in the launcher's Settings page under Input Settings ("Headset keyboard layout"), or set `[vr] keyboard_keymap` in `config.ini` to `qwerty` (the default), `azerty` or `qwertz`.
+The headset keyboard can show French (AZERTY) or German (QWERTZ) letters. Pick it in the launcher's Settings page under Input settings ("Headset keyboard layout"), or set `[vr] keyboard_keymap` in `config.ini` to `qwerty` (the default), `azerty` or `qwertz`.
 
 **The PC has to be on the matching Windows keyboard layout.** The keys do not send letters. Like a real keyboard, each one sends the position of a key on a US keyboard, and Windows turns that position into a character with the layout the PC is set to. This is the same for a Bluetooth keyboard. With AZERTY picked and the PC on a US layout, the key labelled "a" types "q". Pick the layout here that is active on the PC (Windows: Settings, Time & language, Language & region, Typing, and the language bar). The keyboard cannot see the PC's layout, so it does not switch by itself.
 
@@ -792,7 +802,7 @@ On the PC, in Apollo:
 - **Permissions.** Apollo gives each paired client its own permissions (the Clients page of its web UI). The Frame needs **Server Command** for the commands, **Clipboard Read** for Paste from PC and **Clipboard Set** for Send text to PC. The first client paired gets everything; a client paired later gets only View and List until you allow more. Apollo lists commands only to a client that has the Server Command permission, so with it off the page says the host has not allowed them.
 - **Apollo 0.2.4 or newer** has the clipboard. Older ones answer "Not supported by this host".
 
-The clipboard sync at the start and end of a stream (Smart Clipboard Sync on the Settings page) is separate and works as before.
+The clipboard sync at the start and end of a stream (Smart clipboard sync on the Settings page) is separate and works as before.
 
 ## Ending a stream
 
@@ -839,7 +849,7 @@ Apollo is the Sunshine fork this app is built against. Several of its options he
 
 ### Pin the display mode
 
-By default the virtual display is made at whatever resolution and rate the headset asks for ([Use Virtual Display](#video-settings) in the flat window). **Display Mode Override** takes that choice away from the client: in Apollo's web interface, on the client's entry, set a mode such as 2560x1440x90, and the display is made at that mode whatever the headset asks for.
+By default the virtual display is made at whatever resolution and rate the headset asks for ([Use virtual display](#video-settings) in the flat window). **Display Mode Override** takes that choice away from the client: in Apollo's web interface, on the client's entry, set a mode such as 2560x1440x90, and the display is made at that mode whatever the headset asks for.
 
 - Keep the rate the same as the headset's. A 90 Hz override with the headset at 90 Hz is on the grid; a 144 Hz desktop feeding a 72 or 90 Hz headset hands it frames it has to drop or repeat.
 - If you use **Always create virtual display** for this client (Apollo 0.3.7 and later), Windows remembers where the display sits for that client, so windows come back where you left them.
@@ -871,7 +881,7 @@ Do the A and B on the same link, at the same bitrate, in the same scene. A diffe
 | Bitrate | 40 to 60 Mbps over the Steam Frame Wireless Adapter. Higher rates lost packets on that link in testing. On a strong Wi-Fi connection 80 Mbps at 1440p worked. The default is higher (98 Mbps at 1440p and 90 Hz), so lower it in Settings if you see lost packets. |
 | Codec | Automatic or HEVC. HEVC recovers from lost packets without waiting for a full new frame. |
 | Display refresh rate on the PC | The stream's rate or higher (90 Hz for a 90 Hz stream, 120 or 144 Hz for those). A 60 Hz desktop gives a 60 fps stream. |
-| Apollo | Use Virtual Display. The virtual display is made at the stream's rate (90, 120 or 144 Hz), so it matches the stream. |
+| Apollo | Use virtual display. The virtual display is made at the stream's rate (90, 120 or 144 Hz), so it matches the stream. |
 | Sunshine or Apollo encoder | The fastest preset of your encoder (for NVENC, the lowest P number). |
 | FEC | Leave Sunshine's FEC Percentage at its default (20) or raise it a little on a weak link. |
 
