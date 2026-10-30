@@ -61,9 +61,16 @@ int xrBringScreenHere(XrCtx* ctx);
 // Native (lane bar-glare): whether Bring here can act at all, the screen in
 // the world and no room up. The bar's Bring here button shows only then.
 int xrBringHereCanAct(XrCtx* ctx);
-// Native (lane bar-glare): Bring here from the bar's button, where the eyes are
-// on the bar (layoutBringHereFromBar). Returns 1 when the screen moved.
-int xrBringScreenHereFromBar(XrCtx* ctx);
+// Native (lane bar-glare): the bar's Bring here button, a switch: from far
+// the screen comes round where the eyes are (on the bar) at the Desk preset's
+// distance and width, from near it goes back to the distance and width it had
+// before, or to the Cinema preset's (bringTogglePress). Says 1 when it went
+// near, 0 far, -1 when nothing moved (head locked, a room, no head pose).
+int xrBringHereToggle(XrCtx* ctx);
+// Native (lane bar-glare): the far placement it goes back to, into and out of
+// the settings ([screen] far_distance_cm, far_width_cm; 0 none)
+void xrBringFarToSettings(XrCtx* ctx, Settings* s);
+void xrBringFarFromSettings(XrCtx* ctx, const Settings* s);
 
 // ---- zoom and pan (xr_zoom.c, PLAN 4b.6) ------------------------------------
 // The step the app:zoomin, app:zoomout and app:zoomreset bindings take: +1 the
