@@ -14,6 +14,7 @@ import StreamingPreferences 1.0
 import SdlGamepadKeyNavigation 1.0
 import SystemProperties 1.0
 import MlxrPrefs 1.0
+import MlxrProfiles 1.0
 
 Flickable {
     id: settingsPage
@@ -333,15 +334,169 @@ Flickable {
         return 0
     }
 
+    // ---- search and the jump list (lane wave4-launcher) ----
+    // The sections, for the jump list: {title, icon, item, shown}; shown is false for a section the search left empty.
+    // A row is hidden through its searchHit (PrefRow, PrefCategory), so a row with a visible: of its own keeps it.
+    property var sections: []
+
+    function collectSections() {
+        var out = []
+        var kids = prefColumn.children
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i].isCategory === true) {
+                out.push({ title: kids[i].text, icon: kids[i].icon, item: kids[i], shown: true })
+            }
+        }
+        sections = out
+    }
+
+    function searchTerms() {
+        return searchField.text.toLowerCase().split(/\s+/).filter(function(t) { return t !== "" })
+    }
+
+    // Every word typed has to be in the row's title, its value, its summary or its section's name
+    function rowMatches(row, terms, sectionTitle) {
+        var hay = (row.title + "\n" + row.valueText + "\n" + row.summary + "\n" + sectionTitle).toLowerCase()
+        for (var i = 0; i < terms.length; i++) {
+            if (hay.indexOf(terms[i]) < 0) return false
+        }
+        return true
+    }
+
+    // Shows the rows that match and the sections that still have a row; nothing typed shows everything
+    function applySearch() {
+        var terms = searchTerms()
+        var kids = prefColumn.children
+        var titles = []
+        var cat = null
+        var catHas = false
+        for (var i = 0; i <= kids.length; i++) {
+            var it = i < kids.length ? kids[i] : null
+            if (it === null || it.isCategory === true) {
+                if (cat !== null) {
+                    cat.searchHit = terms.length === 0 || catHas
+                }
+                cat = it
+                catHas = false
+            }
+            else if (it.isPrefRow === true) {
+                var m = terms.length === 0 || rowMatches(it, terms, cat !== null ? cat.text : "")
+                it.searchHit = m
+                if (m && it.visible) {
+                    catHas = true
+                    titles.push(it.title)
+                }
+            }
+        }
+        var out = []
+        var names = []
+        for (var s = 0; s < sections.length; s++) {
+            var shown = sections[s].item.searchHit === true
+            out.push({ title: sections[s].title, icon: sections[s].icon, item: sections[s].item, shown: shown })
+            if (shown) names.push(sections[s].title)
+        }
+        sections = out
+        noMatchLabel.visible = terms.length > 0 && titles.length === 0
+        console.info("MLXR_SETTINGS_SEARCH: text=\"" + searchField.text + "\" rows=" + titles.length +
+                     " titles=" + titles.join("|") + " sections=" + names.join("|"))
+    }
+
+    function setSearch(text) {
+        searchField.text = text
+    }
+
+    function scrollTo(y) {
+        autoScrollAnimation.stop()
+        autoScrollAnimation.from = contentY
+        autoScrollAnimation.to = Math.max(0, Math.min(y, contentHeight - height))
+        autoScrollAnimation.start()
+    }
+
+    function jumpTo(item) {
+        if (!item) return
+        var y = item.mapToItem(contentItem, 0, 0).y - 12
+        console.info("MLXR_SETTINGS_JUMP: " + item.text + " y=" + Math.round(y))
+        scrollTo(y)
+        // the section's first row takes the focus, so a gamepad goes on from there
+        var kids = prefColumn.children
+        var seen = false
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i] === item) {
+                seen = true
+            }
+            else if (seen && kids[i].isPrefRow === true && kids[i].visible) {
+                kids[i].forceActiveFocus(Qt.TabFocus)
+                break
+            }
+        }
+    }
+
+    function jumpTop() {
+        scrollTo(0)
+        searchField.forceActiveFocus(Qt.TabFocus)
+    }
+
+    Component.onCompleted: collectSections()
+
     // ---- row types (Artemis's preference widgets) ----
-    component PrefCategory: Label {
+    // A section header: an icon (XrIcon.qml, loaded on its own so a Qt without QtQuick.Shapes only loses the
+    // pictures), its name and a button back to the top of the page. icon names the picture in XrIcon.qml.
+    component PrefCategory: Item {
+        id: category
+        property string text
+        property string icon
+        property bool showTop: true
+        property bool searchHit: true
+        readonly property bool isCategory: true
+        visible: searchHit
         Layout.fillWidth: true
         Layout.topMargin: 22
         Layout.leftMargin: 16
+        Layout.rightMargin: 8
         Layout.bottomMargin: 2
-        font.pointSize: 11
-        font.bold: true
-        color: settingsPage.accentColor
+        implicitHeight: categoryRow.implicitHeight
+        RowLayout {
+            id: categoryRow
+            anchors.left: parent.left
+            anchors.right: parent.right
+            spacing: 10
+            Loader {
+                Layout.alignment: Qt.AlignVCenter
+                source: category.icon !== "" ? "qrc:/gui/XrIcon.qml" : ""
+                onLoaded: {
+                    item.name = category.icon
+                    item.color = settingsPage.accentColor
+                    item.size = 22
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                text: category.text
+                font.pointSize: 11
+                font.bold: true
+                color: settingsPage.accentColor
+            }
+            ToolButton {
+                objectName: "top_" + (category.icon !== "" ? category.icon : category.text)
+                visible: category.showTop
+                focusPolicy: Qt.StrongFocus
+                activeFocusOnTab: true
+                implicitWidth: 40
+                implicitHeight: 40
+                ToolTip.text: qsTr("Back to the top")
+                ToolTip.visible: hovered
+                ToolTip.delay: 800
+                contentItem: Loader {
+                    source: "qrc:/gui/XrIcon.qml"
+                    onLoaded: {
+                        item.name = "top"
+                        item.color = settingsPage.summaryColor
+                        item.size = 20
+                    }
+                }
+                onClicked: settingsPage.jumpTop()
+            }
+        }
     }
 
     // A row: title, summary, an optional reason it is greyed, a control on the right
@@ -353,6 +508,10 @@ Flickable {
         property string valueText
         default property alias trailing: trailingSlot.data
         property alias extra: extraSlot.data
+        readonly property bool isPrefRow: true
+        // false while the search at the top of the page does not match this row
+        property bool searchHit: true
+        visible: searchHit
 
         Layout.fillWidth: true
         enabled: reason === ""
@@ -576,8 +735,108 @@ Flickable {
         x: Math.round((settingsPage.width - width) / 2)
         spacing: 0
 
+        // ======== Search and jump list ========
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 10
+            Layout.leftMargin: 16
+            Layout.rightMargin: 16
+            spacing: 8
+            TextField {
+                id: searchField
+                objectName: "searchField"
+                Layout.fillWidth: true
+                placeholderText: qsTr("Search settings")
+                inputMethodHints: Qt.ImhNoPredictiveText
+                selectByMouse: true
+                activeFocusOnTab: true
+                onTextChanged: settingsPage.applySearch()
+                Keys.onEscapePressed: text = ""
+            }
+            ToolButton {
+                objectName: "clearSearch"
+                visible: searchField.text !== ""
+                focusPolicy: Qt.StrongFocus
+                implicitWidth: 40
+                implicitHeight: 40
+                ToolTip.text: qsTr("Clear the search")
+                ToolTip.visible: hovered
+                ToolTip.delay: 800
+                contentItem: Loader {
+                    source: "qrc:/gui/XrIcon.qml"
+                    onLoaded: {
+                        item.name = "close"
+                        item.color = settingsPage.summaryColor
+                        item.size = 20
+                    }
+                }
+                onClicked: searchField.text = ""
+            }
+        }
+
+        Flow {
+            id: jumpList
+            objectName: "jumpList"
+            Layout.fillWidth: true
+            Layout.leftMargin: 12
+            Layout.rightMargin: 12
+            Layout.topMargin: 4
+            spacing: 4
+            Repeater {
+                model: settingsPage.sections
+                delegate: Button {
+                    required property var modelData
+                    objectName: "jump_" + (modelData.icon !== "" ? modelData.icon : modelData.title)
+                    visible: modelData.shown
+                    flat: true
+                    focusPolicy: Qt.StrongFocus
+                    activeFocusOnTab: true
+                    leftPadding: 10
+                    rightPadding: 12
+                    topPadding: 6
+                    bottomPadding: 6
+                    contentItem: Row {
+                        spacing: 7
+                        Item {
+                            width: 20
+                            height: 20
+                            anchors.verticalCenter: parent.verticalCenter
+                            Loader {
+                                anchors.fill: parent
+                                source: "qrc:/gui/XrIcon.qml"
+                                onLoaded: {
+                                    item.name = modelData.icon
+                                    item.color = settingsPage.accentColor
+                                    item.size = 20
+                                }
+                            }
+                        }
+                        Label {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: modelData.title
+                            font.pointSize: 10
+                        }
+                    }
+                    onClicked: settingsPage.jumpTo(modelData.item)
+                }
+            }
+        }
+
+        Label {
+            id: noMatchLabel
+            visible: false
+            Layout.fillWidth: true
+            Layout.topMargin: 24
+            Layout.leftMargin: 16
+            Layout.rightMargin: 16
+            text: qsTr("No setting matches \"%1\".").arg(searchField.text)
+            font.pointSize: 11
+            color: settingsPage.summaryColor
+            wrapMode: Text.Wrap
+        }
+
         // ======== Connection (the owner's: the first thing on the page) ========
-        PrefCategory { text: qsTr("Connection") }
+        PrefCategory { text: qsTr("Connection"); icon: "network"; showTop: false }
 
         PrefRow {
             id: networkRowItem
@@ -637,8 +896,19 @@ Flickable {
             onClicked: MlxrPrefs.rfiIdrMs = settingsPage.nextLimit(settingsPage.idrCapValues, MlxrPrefs.rfiIdrMs)
         }
 
+        // ======== Stream profiles ========
+        PrefCategory { text: qsTr("Stream profiles"); icon: "profiles" }
+
+        PrefRow {
+            objectName: "profilesRow"
+            title: qsTr("Profiles")
+            valueText: MlxrProfiles.names.length === 0 ? qsTr("None yet") : MlxrProfiles.names.join(", ")
+            summary: qsTr("Saved sets of these stream settings, such as a desktop profile at 1080p 60 Hz and a game profile at 1440p 120 Hz with a virtual display. A profile can be used for a PC or for one app: when its stream starts, the profile's settings are in force and the ones on this page come back afterwards.")
+            onClicked: settingsPage.StackView.view.push("qrc:/gui/XrProfilesView.qml")
+        }
+
         // ======== Video Settings ========
-        PrefCategory { text: qsTr("Video Settings") }
+        PrefCategory { text: qsTr("Video Settings"); icon: "video" }
 
         PrefRow {
             id: resolutionRow
@@ -876,7 +1146,7 @@ Flickable {
         }
 
         // ======== Audio Settings ========
-        PrefCategory { text: qsTr("Audio Settings") }
+        PrefCategory { text: qsTr("Audio Settings"); icon: "audio" }
 
         PrefRow {
             title: qsTr("Surround sound configuration")
@@ -890,7 +1160,7 @@ Flickable {
         }
 
         // ======== Gamepad Settings ========
-        PrefCategory { text: qsTr("Gamepad Settings") }
+        PrefCategory { text: qsTr("Gamepad Settings"); icon: "gamepad" }
 
         PrefSlider {
             title: qsTr("Adjust analog stick deadzone")
@@ -989,7 +1259,7 @@ Flickable {
         }
 
         // ======== Input Settings ========
-        PrefCategory { text: qsTr("Input Settings") }
+        PrefCategory { text: qsTr("Input Settings"); icon: "input" }
 
         PrefRow {
             objectName: "keymapRow"
@@ -1030,7 +1300,15 @@ Flickable {
         }
 
         // ======== Host Settings ========
-        PrefCategory { text: qsTr("Host Settings") }
+        PrefCategory { text: qsTr("Host Settings"); icon: "host" }
+
+        PrefSwitch {
+            objectName: "preflightRow"
+            title: qsTr("Check the PC before streaming")
+            summary: qsTr("Asks the PC just before a stream starts and says if something will go wrong: this client's Apollo permissions, a virtual display that is not ready, another app already running, a resolution the PC does not list. Not part of a profile.")
+            isOn: MlxrPrefs.preflight
+            onSwitched: function(on) { MlxrPrefs.preflight = on }
+        }
 
         PrefSwitch {
             title: qsTr("Optimize game settings")
@@ -1047,7 +1325,7 @@ Flickable {
         }
 
         // ======== General Settings ========
-        PrefCategory { text: qsTr("General Settings") }
+        PrefCategory { text: qsTr("General Settings"); icon: "general" }
 
         PrefSwitch {
             objectName: "clipboardRow"
@@ -1058,7 +1336,7 @@ Flickable {
         }
 
         // ======== UI Settings ========
-        PrefCategory { text: qsTr("UI Settings") }
+        PrefCategory { text: qsTr("UI Settings"); icon: "ui" }
 
         PrefSwitch {
             objectName: "quickResumeRow"
@@ -1078,7 +1356,7 @@ Flickable {
         }
 
         // ======== Performance Monitor ========
-        PrefCategory { text: qsTr("Performance Monitor") }
+        PrefCategory { text: qsTr("Performance Monitor"); icon: "performance" }
 
         PrefSwitch {
             objectName: "statsRow"
@@ -1232,7 +1510,7 @@ Flickable {
         }
 
         // ======== Advanced Settings ========
-        PrefCategory { text: qsTr("Advanced Settings") }
+        PrefCategory { text: qsTr("Advanced Settings"); icon: "advanced" }
 
         PrefRow {
             objectName: "codecRow"
@@ -1269,7 +1547,7 @@ Flickable {
         }
 
         // ======== MISC ========
-        PrefCategory { text: qsTr("MISC") }
+        PrefCategory { text: qsTr("MISC"); icon: "misc" }
 
         PrefRow {
             title: qsTr("Language")
