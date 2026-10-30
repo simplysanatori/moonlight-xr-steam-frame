@@ -56,27 +56,24 @@ static void pcPage(Dc* dc, int confirm) {
     for (int i = 0; i < XR_HOST_CELLS; i++) {
         int kind = xrHostPcCellKind(i, cmds);
         if (kind == XR_HOST_CELL_NONE) continue;
+        // Native (lane fix-polish): the cells say only their names
         const char* label;
-        const char* hint;
         uint32_t ink = INK;
         if (kind == XR_HOST_CELL_PASTE) {
             label = ui_str(UIS_HOST_PASTE);
-            hint = ui_str(UIS_HOST_PASTE_HINT);
             if (!info->clipRead) ink = DIM;
         } else if (kind == XR_HOST_CELL_COPY) {
             label = ui_str(UIS_HOST_COPY);
-            hint = ui_str(UIS_HOST_COPY_HINT);
             if (!info->clipSet) ink = DIM;
         } else {
             label = info->cmd[i - XR_HOST_PC_CMD_FIRST];
-            hint = ui_str(UIS_HOST_CMD_HINT);
         }
         // a label a little too long for the cell ("Send text to PC", a host's command name) gets smaller
         // before it is cut short
         xrHostCellRect(i, r);
         float room = (r[2] - r[0]) * dc->nw - 20.0f, size = 25.0f;
         while (size > 19.0f && dc_text_width(dc, UI_WEIGHT_REGULAR, size, label) > room) size -= 1.0f;
-        cell(dc, i, label, size, hint, ink, !confirm && dc_hover(dc, UI_HIT_HOST_CELL, i, -1));
+        cell(dc, i, label, size, NULL, ink, !confirm && dc_hover(dc, UI_HIT_HOST_CELL, i, -1));
         if (!confirm) {
             dc_hit_uv(dc, UI_HIT_HOST_CELL, i, kind, r[0], r[1], r[2], r[3], 1);
         }
@@ -159,14 +156,6 @@ void panel_host(Dc* dc) {
             dc_hit_uv(dc, UI_HIT_HOST_CELL, i, kind, r[0], r[1], r[2], r[3], 1);
         }
     }
-    if (macros == 0 && !pc) {
-        // where the macros would be
-        xrHostCellRect(XR_HOST_MACRO_FIRST + 3, r);
-        rectPx(dc, r, &x0, &y0, &x1, &y1);
-        dc_text_fit_left(dc, UI_WEIGHT_REGULAR, 21.0f, 34.0f, (y0 + y1) * 0.5f + 8.0f, dc->nw - 68.0f,
-                         0x80FFFFFFu, ui_str(UIS_HOST_NO_MACROS));
-    }
-
     if (!confirm) return;
 
     // The question: the grid dimmed, a box over it with Send and Cancel

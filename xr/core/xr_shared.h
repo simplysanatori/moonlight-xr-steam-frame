@@ -340,14 +340,15 @@
 
 // Which controller model is drawn, in the order the controller_model setting lists them. 1 is
 // what an old file's "true" meant, so those files keep the Frame's controllers: none, the Steam
-// Frame's own (converted at install), the bundled generic controller, the bundled pistol, or the
-// user's own files in the config folder's models/ (docs/CUSTOM_MODELS.md)
+// Frame's own (converted at install), the bundled pistol, or the user's own files in the config
+// folder's models/ (docs/CUSTOM_MODELS.md). Native (lane fix-polish): the bundled generic
+// controller that was 2 is gone; a file's "generic" reads as the Frame's, and so do the old
+// numbers, which ui/settings.c maps (2 generic, 3 gun, 4 custom then).
 #define CONTROLLER_MODEL_OFF 0
 #define CONTROLLER_MODEL_FRAME 1
-#define CONTROLLER_MODEL_GENERIC 2
-#define CONTROLLER_MODEL_GUN 3
-#define CONTROLLER_MODEL_CUSTOM 4
-#define CONTROLLER_MODEL_COUNT 5
+#define CONTROLLER_MODEL_GUN 2
+#define CONTROLLER_MODEL_CUSTOM 3
+#define CONTROLLER_MODEL_COUNT 4
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
@@ -719,9 +720,8 @@
 // every session and every room, since the grade only changes colours.
 
 // About tab: the app and its version, and no rows, only two buttons: the one
-// that opens the Ko-fi sheet with the page's QR code, with a line under it
-// saying it is optional, over the one that puts the panel away for the report
-// sheet. Where the buttons sit on the panel.
+// that opens the Ko-fi sheet over the one that puts the panel away for the
+// report sheet. Where the buttons sit on the panel.
 #define COG_KOFI_L 0.25f
 #define COG_KOFI_R 0.75f
 #define COG_KOFI_T 0.45f
@@ -769,9 +769,9 @@
 // Native (M4): three cells, off / the dot alone / the ray with its dot (the
 // owner asked to be able to hide the dot); upstream has two, off and on
 #define COG_RAY_CELLS 3
-// Show controllers: Off, Frame, Generic, Gun. Custom (a model of the user's own) is the fifth
-// kind and has no cell here: the config file and the launcher's page pick it
-#define COG_CONTROLLERS_CELLS 4
+// Show controllers: Off, Frame, Gun. Custom (a model of the user's own) is the fourth kind and
+// has no cell here: the config file and the launcher's page pick it
+#define COG_CONTROLLERS_CELLS 3
 #define COG_CLICK_SOUND_CELLS 2
 #define COG_AMBI_CELLS    2
 #define COG_ROOM_LIGHT_CELLS 2
@@ -921,25 +921,21 @@
 #define HINT_ZONE_OK    1
 #define HINT_ZONE_NEVER 2
 
-// The Ko-fi sheet the About tab's button opens, in the exit prompt's style:
-// the title, the page's QR code on the left, its address and a line on the
-// right, and two buttons, Open page and Not now. Drawn once in Java at the start of a session,
-// with the ring over the button a quad of its own. The code goes on a pixel
-// for a pixel, its quiet zone included, with its top left corner where these
-// say; the button sits where these say, all as fractions of the sheet.
+// The Ko-fi sheet the About tab's button opens, in the exit prompt's style: the title over two
+// buttons, Open page and Not now. Drawn once at the start of a session, with the ring over the
+// button a quad of its own. Native (lane fix-polish): no QR code and no lines of text any more,
+// so the sheet is half its old height. The buttons sit where these say, as fractions of the sheet.
 #define KOFI_TEX_W 1024
-#define KOFI_TEX_H 512
-#define KOFI_QR_PX 296
-#define KOFI_QR_L 0.05f
-#define KOFI_QR_T 0.22f
-#define KOFI_BTN_T 0.76f
-#define KOFI_BTN_B 0.92f
-// Two buttons side by side: "Open page" (runs Steam's browser on the Frame, xr_kofi.c) on the
-// left, "Not now" (KOFI_ZONE_CLOSE) on the right
-#define KOFI_OPEN_L  0.36f
-#define KOFI_OPEN_R  0.64f
-#define KOFI_CLOSE_L 0.67f
-#define KOFI_CLOSE_R 0.95f
+#define KOFI_TEX_H 256
+#define KOFI_TITLE_V 0.30f
+#define KOFI_BTN_T 0.52f
+#define KOFI_BTN_B 0.84f
+// Two buttons side by side under the title: "Open page" (runs Steam's browser on the Frame,
+// xr_kofi.c) on the left, "Not now" (KOFI_ZONE_CLOSE) on the right
+#define KOFI_OPEN_L  0.20f
+#define KOFI_OPEN_R  0.48f
+#define KOFI_CLOSE_L 0.52f
+#define KOFI_CLOSE_R 0.80f
 // Whether a point is on its button
 #define KOFI_ZONE_NONE  0
 #define KOFI_ZONE_CLOSE 1

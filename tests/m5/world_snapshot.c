@@ -256,6 +256,9 @@ int main(int argc, char** argv) {
     ctx->glowSwapchain = FAKE_GLOW;
     ctx->glowSwapchainFilled = 1;
     ctx->modelOn = 1;
+    // the gun, the one model the assets ship (lane fix-polish: the generic controller is gone, and
+    // the Frame's own are made at install)
+    ctx->modelKind = CONTROLLER_MODEL_GUN;
     m5_frame(&g, ctx, NULL, NULL); // the model loads
     ctx->modelShown[HAND_LEFT] = ctx->modelShown[HAND_RIGHT] = 1;
     Vec3 ax = { 1, 0, 0 };

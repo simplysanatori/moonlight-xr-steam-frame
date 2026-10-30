@@ -14,7 +14,7 @@ font and image caches.
 | `settings.h/.c` | `Settings` struct, descriptor table (key, section, type, range, default, doc), INI save/load, derived values, the Screen tab's slider maths. |
 | `ui_strings.h/.c` | English strings table, X-macro, ids `UIS_*`, keyed by the upstream resource name. (Named `ui_strings` because `<strings.h>` is a system header.) |
 | `panels.h` + `panels_common.c`, `panel_cog.c`, `panel_keyboard.c`, `panel_picker.c`, `panel_bar.c`, `icons.c`, `panel_dialogs.c`, `panel_misc.c` | The panel rasterisers and their hit regions. |
-| `third_party/` | `stb_truetype.h` 1.26, `stb_image_write.h` 1.16 (panel test PNGs), `stb_image.h` 2.30 (PNG/JPEG for the room thumbnails, Ko-fi QR and settings icon; **not in the brief**: vendored so the lane links nothing beyond libc and libm). Licence blocks are at the end of each header, `README.txt` lists them. |
+| `third_party/` | `stb_truetype.h` 1.26, `stb_image_write.h` 1.16 (panel test PNGs), `stb_image.h` 2.30 (PNG/JPEG for the room thumbnails and settings icon; **not in the brief**: vendored so the lane links nothing beyond libc and libm). Licence blocks are at the end of each header, `README.txt` lists them. |
 | `assets/fonts/` | `NotoSans-Regular.ttf`, `NotoSans-Medium.ttf` (Noto Sans 2.013, copied unchanged from `/usr/share/fonts/noto` on the Frame), `OFL.txt` (SIL OFL 1.1, from notofonts/latin-greek-cyrillic), `README.txt`. The SteamOS `noto-fonts` package licence file is Apache 2.0 text, but the font's own name table says OFL 1.1, so the OFL is what ships. |
 
 ### API in five lines
@@ -56,7 +56,7 @@ Line numbers are `app/src/main/java/com/limelight/binding/video/XrPanels.java` u
 | `BUTTON_ATLAS` 1536x128 | same buttons | The 12 `BTN_CELL_*` cells of `xr_layout.h` side by side, for a renderer that wants upstream's one quad per button. Rows are top-down; `buttonCellPut` flips them for GL, a Vulkan upload needs no flip. |
 | `EXIT` 512x256 | `buildExitPrompt` 2243 | Question, red Exit and white Cancel; hovering fills (`hover`), as upstream's three pre-drawn sheets. |
 | `HINT` 1024x448 | `buildHandHint` 2305 | Wrapped body shrinking 30 to 20 px to fit. |
-| `KOFI` 1024x512 | `buildKofiSheet` 2379 | `assets/images/kofi_qr.png` pixel for pixel on white (nearest), address `https://ko-fi.com/moonlightxr` (`UiView.kofi_url`). Two buttons since PLAN 6.14: Open page (`UI_BTN_KOFI_OPEN`, `KOFI_ZONE_OPEN`, runs `kofiOpenPage`, xr_kofi.c) and Not now (`UI_BTN_KOFI_CLOSE`). |
+| `KOFI` 1024x256 | `buildKofiSheet` 2379 | The title ("Support simplysanatori on Ko-fi") over two buttons since lane fix-polish took the QR code, the address and the lines of text out (it was 1024x512): Open page (`UI_BTN_KOFI_OPEN`, `KOFI_ZONE_OPEN`, runs `kofiOpenPage` with `XR_KOFI_URL`, https://ko-fi.com/sana748653, xr_kofi.c) and Not now (`UI_BTN_KOFI_CLOSE`). |
 | `REPORT` (`ui_draw_report`) 1024x640 | `ReportSheet` 1493 | Note (last wrapped lines, caret), what-goes text, Cancel/Send. |
 | `TOAST` (`ui_draw_toast`) 1024x160 | `Toast` 1127 | One or two lines; a path is cut from the middle. |
 | `CLOCK` (`ui_draw_clock`) 384x48 | `ClockStrip` 1091 | The caller formats "10:42   Battery 87%". |

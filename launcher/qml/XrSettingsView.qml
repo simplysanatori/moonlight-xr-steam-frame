@@ -245,8 +245,8 @@ Flickable {
     }
 
     // [vr] controller_model: which controller the headset draws in each hand
-    readonly property var modelValues: ["off", "frame", "generic", "gun", "custom"]
-    readonly property var modelNames: [qsTr("Off"), qsTr("Steam Frame controller"), qsTr("Generic controller"), qsTr("Gun"), qsTr("Your own model")]
+    readonly property var modelValues: ["off", "frame", "gun", "custom"]
+    readonly property var modelNames: [qsTr("Off"), qsTr("Steam Frame controller"), qsTr("Gun"), qsTr("Your own model")]
     function modelIndex() {
         return Math.max(0, modelValues.indexOf(MlxrPrefs.controllerModel))
     }
@@ -1554,13 +1554,13 @@ Flickable {
             suffix: " ms"
         }
 
-        // Pressing the row steps Off -> Steam Frame -> Generic -> Gun -> Your own model
+        // Pressing the row steps Off -> Steam Frame -> Gun -> Your own model
         PrefRow {
             objectName: "controllerModelRow"
             title: qsTr("Show controllers")
             valueText: settingsPage.modelNames[settingsPage.modelIndex()]
             summary: qsTr("The controllers drawn in the headset. Your own model reads custom_left.model and custom_right.model (or one custom.model, mirrored for the left hand) from the models folder next to the headset's config file, and falls back to the Steam Frame controllers when they are missing.") + " " +
-                     qsTr("(the headset's Display tab has the first four)")
+                     qsTr("(the headset's Display tab has the first three)")
             onClicked: MlxrPrefs.controllerModel = settingsPage.modelValues[(settingsPage.modelIndex() + 1) % settingsPage.modelValues.length]
         }
 

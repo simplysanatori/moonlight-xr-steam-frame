@@ -1046,7 +1046,7 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
         return settings_pointer_cell(raySwitchOn(ctx->raySetting, ctx->rayFlipped), ctx->dotOn);
     }
     if (option == COG_OPTION_CONTROLLERS) {
-        // Off, Frame, Generic, Gun; a custom model (the file's, the launcher's) has no cell
+        // Off, Frame, Gun; a custom model (the file's, the launcher's) has no cell
         return controllerModelKind(ctx->modelOn, ctx->modelKind);
     }
     if (option == COG_OPTION_CLICK_SOUND) {

@@ -305,7 +305,6 @@ void ui_view_init(UiView* v, const Settings* s) {
     v->bar_show_here = !s->head_locked;
     v->hover.kind = UI_HIT_NONE;
     v->kb_sheet = KB_STATE_LOWER;
-    v->kofi_url = "https://ko-fi.com/moonlightxr";
     v->env_live_cells = ENV_CELL_COUNT;
     v->host_confirm = -1;
 }

@@ -72,7 +72,7 @@ Source: PLAN 2.3, lane wave2-lightgun-gyro; USER_GUIDE "Lightgun mode".
 
 Cog, Display tab, Show controllers = Gun. With `lightgun = auto` (the default) that turns the lightgun policy on. Point at a game or the desktop cursor.
 
-- The ray never sleeps between shots (with Frame or Generic it retires after 5 s still). Clicks land at the dot with no wait. Every shot gives a short, strong buzz in that hand.
+- The ray never sleeps between shots (with Frame it retires after 5 s still). Clicks land at the dot with no wait. Every shot gives a short, strong buzz in that hand.
 - A trigger pull on the pill under the picture does not move the screen; a grip pull does.
 - Set `[vr] lightgun_reload = true` (config.ini, or the launcher's Input Settings) and restart the stream: a pull started off the picture is a right click while held (the reload); one started on the picture is a left click even if you swing off it.
 - Set `lightgun = off` with the Gun model still chosen: the old pointer behaviour is back (sleeping ray, click steadiness). Put it back to `auto`.
@@ -85,7 +85,7 @@ Record: ray stayed awake yes or no, click lag felt yes or no, buzz per shot (bot
 
 Source: PLAN 4b.6, lane wave4b-zoom; USER_GUIDE "Zoom and pan".
 
-With the bindings from item 0 (Y zoom in, X zoom out, left d-pad left reset), in pointer mode, Frame or Generic model:
+With the bindings from item 0 (Y zoom in, X zoom out, left d-pad left reset), in pointer mode, Frame model (or Off):
 
 - Each press is one rung: 100, 125, 150, 175, 200, 250, 300, 350, 400 %, smooth, and reset shows the whole picture again. The zoom is centred on where you point.
 - Point at the top-right corner of the desktop and zoom in four times: the corner fills the screen, the host cursor lands under the dot, and clicks hit what you see. Look at the edge pixels. The click-hold and double-click radii at 400 % may feel four times too wide: that is known (they are in host pixels), note whether it bothers you.
@@ -170,9 +170,9 @@ Record: N commands, paste with line break yes or no, Hide leaves the clipboard a
 
 Source: PLAN 6.14, lane wave6-kofi; USER_GUIDE "About".
 
-- Cog, About tab, press Ko-fi: the sheet shows the title, a QR code, the address, two text lines and the buttons Open page and Not now; the hover ring follows each; the text fits.
+- Cog, About tab, press **Support simplysanatori on Ko-fi**: the sheet shows only that title and the buttons Open page and Not now (no QR code, no address, no other lines; lane fix-polish); the hover ring follows each; the text fits.
 - Not now, or a press off the buttons: it closes and nothing opens.
-- Open page: the sheet closes and Steam's browser shows the Ko-fi page in the SteamVR dashboard within a few seconds. Press it twice quickly: one page only. Record whether the dashboard comes forward by itself, and what happens if Steam's browser was already open.
+- Open page: the sheet closes and Steam's browser shows ko-fi.com/sana748653 (this port's page, not upstream's) in the SteamVR dashboard within a few seconds. Press it twice quickly: one page only. Record whether the dashboard comes forward by itself, and what happens if Steam's browser was already open.
 
 Record: sheet readable yes or no, the page opened and after how long, one page for two presses yes or no, dashboard behaviour.
 

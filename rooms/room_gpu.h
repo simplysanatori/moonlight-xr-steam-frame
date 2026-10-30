@@ -103,11 +103,11 @@ int mlxr_room_rescale(const MlxrGpu* gpu, MlxrRoom* room, float scale, VkCommand
 void mlxr_room_fill(const MlxrRoom* room, MlxrRoomParams* out);
 
 // The controller model: vertices as the file has them, painted from their
-// colours. Moonlight XR Native: either the one generic controller
-// (assets/models/controller.room, mirrored for the left hand) or, when both
-// exist and parse, the Steam Frame's own pair that tools/frame-models makes
-// from the local SteamVR install, in each hand's grip space, not mirrored:
-// both meshes in the one pair of buffers. The pair is textured
+// colours. Moonlight XR Native: the Steam Frame's own pair that
+// tools/frame-models makes from the local SteamVR install, in each hand's grip
+// space, not mirrored: both meshes in the one pair of buffers (the gun and a
+// user's own model are the same files' kind; lane fix-polish took the bundled
+// generic controller out). The pair is textured
 // (frame_controller_{left,right}.model, MXFM: full meshes, per component
 // ranges and motions, colour + AO and normal + roughness images, mipped here
 // on the GPU) or, from an older converter, painted (frame_controller_{left,
@@ -190,8 +190,8 @@ typedef struct MlxrModel {
 } MlxrModel;
 
 // Tries the Frame pair under assetsDir/models first (textured, then painted);
-// a pair with a missing or unreadable half is skipped (on stderr) for the
-// generic controller. The same as mlxr_model_record_kind for the Frame kind.
+// a pair with a missing or unreadable half is skipped (on stderr), and with
+// neither it fails. The same as mlxr_model_record_kind for the Frame kind.
 int mlxr_model_record(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, MlxrModel** out);
 // Native: the model of a CONTROLLER_MODEL_* kind (not off), chosen by the kind rather than by
 // which files happen to be there: controllerModelCandidates (xr_controller.h) lists what to read

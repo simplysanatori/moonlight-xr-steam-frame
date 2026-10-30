@@ -100,8 +100,9 @@ with tempfile.TemporaryDirectory() as tmp:
 check(all(k not in [h for _, h, _ in header] or dict(gen.MAP)[k] is gen.NATIVE for k in gen.PENDING),
       "keys of lanes not merged yet are native")
 shared = [k for k, s in gen.MAP if s == gen.SAME]
-check(len(shared) + len([k for k, s in gen.MAP if s == gen.DRIFT]) == 111,
-      "111 keys shared with upstream (SAME + DRIFT)")
+# 111 until lane fix-polish took out three (harder on the eyes, the Ko-fi sheet's scan and free lines)
+check(len(shared) + len([k for k, s in gen.MAP if s == gen.DRIFT]) == 108,
+      "108 keys shared with upstream (SAME + DRIFT)")
 
 # the launcher's Headset language list is the same languages, in the same order
 qml = open(os.path.join(ROOT, "launcher", "qml", "XrSettingsView.qml"), encoding="utf-8").read()

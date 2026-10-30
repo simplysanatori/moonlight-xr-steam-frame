@@ -107,7 +107,6 @@ MAP = [
     ("vr_panel_strong", SAME),
     ("vr_panel_depth", SAME),
     ("vr_panel_convergence", SAME),
-    ("vr_panel_harder_on_eyes", SAME),
     ("vr_panel_3d_off_in_settings", SAME),
     ("vr_panel_contrast", SAME),
     ("vr_panel_gamma", SAME),
@@ -152,9 +151,7 @@ MAP = [
     ("vr_hand_hint_title", SAME),
     ("vr_hand_hint_body", SAME),
     ("vr_hand_hint_never", SAME),
-    ("vr_kofi_title", SAME),
-    ("vr_kofi_scan", DRIFT),
-    ("vr_kofi_free", SAME),
+    ("vr_kofi_title", DRIFT),
     ("vr_kofi_close", DRIFT),
     # the Host sheet
     ("native_host_title", NATIVE),
@@ -164,7 +161,6 @@ MAP = [
     ("native_host_close", "vr_kofi_close"),
     ("native_host_confirm_q", NATIVE),
     ("native_host_confirm_send", "bug_report_send_direct"),
-    ("native_host_no_macros", NATIVE),
     ("native_host_pcvr", NATIVE),
     ("native_host_pcvr_go", NATIVE),
     ("native_host_hint_esc", NATIVE),
@@ -251,7 +247,6 @@ MAP = [
     ("native_dot", NATIVE),
     ("native_ray", "vr_panel_ray"),
     ("native_model_frame", NATIVE),
-    ("native_model_generic", NATIVE),
     ("native_model_gun", NATIVE),
     ("native_exit_app", NATIVE),
     ("native_pair_later", NATIVE),
@@ -283,7 +278,7 @@ PENDING = [
     "native_firstrun_pad_menu_grip", "native_firstrun_pad_sticks", "native_firstrun_pad_triggers_grips",
     "native_firstrun_host_l", "native_firstrun_host", "native_firstrun_keys_l", "native_firstrun_keys",
     "native_firstrun_mouse_l", "native_firstrun_mouse", "native_firstrun_mouse_both",
-    "native_firstrun_mouse_off", "native_firstrun_foot", "native_padcard_xbox", "native_padcard_playstation",
+    "native_firstrun_mouse_off", "native_padcard_xbox", "native_padcard_playstation",
     "native_padcard_nintendo", "native_padcard_steam", "native_padcard_generic", "native_padcard_gyro",
     "native_padcard_touchpad", "native_padcard_hint", "native_padcard_start_menu",
     "native_padcard_start_options", "native_padcard_start_plus", "native_padcard_start_generic",
@@ -291,12 +286,10 @@ PENDING = [
     "native_padcard_back_generic",
     # wave4-apollo: the Host sheet's PC page
     "native_host_page_pc", "native_host_page_back", "native_host_pc_title", "native_host_paste",
-    "native_host_paste_hint", "native_host_copy", "native_host_copy_hint", "native_host_cmd_hint",
-    "native_host_confirm_run_q", "native_host_confirm_run", "native_host_pc_not_apollo",
+    "native_host_copy", "native_host_confirm_run_q", "native_host_confirm_run", "native_host_pc_not_apollo",
     "native_host_pc_no_permission", "native_host_pc_no_commands", "native_host_compose_prompt",
-    # wave6-kofi (it also rewords vr_kofi_scan and vr_kofi_close: --verify then asks whether they
-    # are DRIFT now)
-    "vr_kofi_here", "vr_kofi_open",
+    # wave6-kofi
+    "vr_kofi_open",
     # wave6-splash
     "native_splash_connecting", "native_splash_connecting_nopc", "native_splash_reconnecting",
 ]
