@@ -119,7 +119,7 @@ Normal gamepads connected to the Frame (Bluetooth or USB) reach the host as Moon
 - Disconnect: exactly Start+Select+L1+R1 on one physical pad (moonlight-qt's test, `NO_GAMEPAD_QUIT=1` turns it off) puts the pad at rest on the host and calls `padDisconnectHook`, the same path as the Frame pad's chord (`launcher_disconnect`, the host's session stays). The pad stays at rest until the four are let go.
 - Steam Input: Steam shows "Steam Virtual Gamepad" (28de:11ff) next to the real pad. It is not a second pad: SDL's copy joins the real pad that has none (either order), and the host sees the real pad while it is in use, else the copy while that is (Steam takes a pad over by silencing the real device; its echo of a real press is a little off and is ignored). Pads with the same serial, VID and PID are one pad. A virtual pad with no real pad to join is a pad of its own. With two real pads and two copies the pairing is by order, which may cross them. Verified with a uinput Xbox 360 pad on this Frame with Steam running (it did spawn a virtual copy). Controllers named "Frame" from Valve (28de) are skipped (SteamVR's own); `MLXR_GAMEPAD_IGNORE=<guid>,<guid>` skips others; `MLXR_GAMEPADS=0` turns the module off.
 - Logging: arrivals / removals / chord / dedup in `moonlight.log`; one line per 5 s ("N packets in 5 s ...") only while pads send.
-- Not done: the Frame's face-button flip setting is not applied to physical pads; DualSense adaptive triggers; Select+PS touchpad-click emulation; a second touchpad (`LI_CCAP_DUAL_TOUCHPAD`, Steam Controller).
+- Not done: DualSense adaptive triggers; Select+PS touchpad-click emulation; a second touchpad (`LI_CCAP_DUAL_TOUCHPAD`, Steam Controller).
 
 ## Tests
 `input_gamepads` (120 checks, also under ThreadSanitizer as `input_gamepads_tsan`): fake source and recording sink. Arrival then state, change-only sends, removal with the new mask, number reuse and the 16-pad limit, Frame pad claim / release against physical pads and masks, serial dedup, Steam copy (both orders, noise, real wins while used, copy carries a silenced pad, either one going), gating (unfocused, refocus, late arrival, stream end and restart), the chord (extra button, hold, re-arm, off switch), rumble routing and the Frame pad's number left alone, the app-wide instance, and 5 threads (state, rumble, focus, claims, hotplug) at once. Also checked with a throwaway uinput harness against the real SDL source on this Frame (no stream): arrival, state, unfocus and refocus, chord hook, Steam copy merge, unplug.
@@ -135,6 +135,44 @@ Motion, battery, touchpad and LED (same test, `testMotion*`, `testBatteryTouchLe
 6. Hold Start+Select+L1+R1 on the physical pad: the VR client leaves the stream and the host's session stays (flat UI shows Resume), same as the Frame pad's chord.
 7. `moonlight.log` has one `gamepad #N arrived: ...` line per pad (name, GUID, mapping, caps). If a pad does nothing, send that line.
 8. Gyro (DualSense over Bluetooth, Apollo or Sunshine on the PC): the arrival line has caps with 0x30 set (accelerometer and gyroscope, 0xff for a DualSense). Start a game or Steam's controller test on the PC, enable gyro there; `moonlight.log` has `the host asks for the gyroscope at N Hz`. Tilting the pad moves the PC's gyro; the PC must see a PlayStation pad (Apollo's DS4 emulation with ViGEmBus). Put the headset UI up or look away: motion keeps going while the VR client is focused and stops with focus. Pad numbers in the log tell which pad it is; the Frame controllers in gamepad mode never ask for or send motion.
+
+# Mouse emulation, pad arbitration, flip and glyphs (lane wave2b-padmouse, 2b.4, 2b.5, 2b.7)
+
+## Files
+| File | What |
+| --- | --- |
+| `xr/core/xr_padmouse.[ch]` | Pure core (library `mlxr_xrcore`, test `xrcore_padmouse`): the chord clock, the speed curve, the buttons / arrows / wheel / pointer while a pad is a mouse, the neutral verdict, release-all, the toast words. No SDL, no Limelight, no clock of its own. The PAD_ bits are numerically Moonlight's button flags, so a physical packet goes in as it is (checked in `input_gamepads`) |
+| `input/gamepads.[ch]` | Per-slot `PadMouse`, `gpTick`/`gpWantsTick`, the arbitration state and the glyph functions. `gpSetClock` lets a test own the clock |
+| `input/gamepads_sdl.c` | The SDL loop waits `PADMOUSE_TICK_MS` (8) instead of 250 while a pad is a mouse or a chord is being held (a stick held still sends no event), and calls `gamepadsTick` |
+| `xr/xr_pad_bridge.c` | `xrPadBridgeFrame` runs gamepad mode's `plugged` through `gamepadsFramePadAllowed` |
+| `xr/xr_prefs.c`, `ui/settings.[ch]` | Settings `pad_mouse_chord`, `pad_mouse_scroll`, `pad_arbitration` (config.ini and the launcher mirror, no cog row, so no golden images); `flip_face_buttons` now also reaches the physical pads live |
+| `app/main.c` | The sink: relative motion (also parks the controller ray like a real mouse), buttons, wheels, arrow keys, and the toast through `xr_app_notice` (Notices level honoured) |
+| `launcher/` | Rows on the Gamepad Settings page (Gamepad as mouse, scroll stick, When a gamepad is connected) writing the same `[vr]` keys |
+
+## 2b.4 behaviour
+- Chord (`pad_mouse_chord`): `start_hold` = the pad's buttons are exactly Start for 1 s; `start_back` = exactly Start and Back for 1 s; `off`. Any other button joining spoils the hold and restarts it; sticks and triggers do not. Start goes to the game until the second is up (the game may use Start); when the mode flips, the buttons held then are kept off both the game and the mouse until let go. The same chord ends the mode.
+- Mouse: the pointing stick goes through `60 t + 1740 t^2` px/s (t = travel past a 15 % dead zone, 1800 px/s at full tilt), sub-pixel remainders carried; a step after a pause counts as at most 50 ms. The scroll stick (right by default) scrolls on `1200 t^2` hi-res units/s (10 notches/s), whichever axis leans further. `pad_mouse_scroll` left makes the left stick scroll and the right one point; none leaves the right stick idle. A/B/X = left/right/middle, LB/RB = X1/X2 (Moonlight buttons 4/5), D-pad = arrow VKs, Y = `PadMouseSink.keyboard` (no-op until wired). Face buttons are the physical positions (before the flip setting).
+- The slot sends rest to the game while a mouse. The disconnect chord (Start+Select+L1+R1) is tested on the raw state and still works.
+- Release-all: toggle, focus loss, stream end, pad removal (`padMouseRelease`: buttons and keys up, mode off, quietly). Focus loss and stream end end the mode (it is not remembered) and raise no toast.
+- Toast: `padMouseNoticeText` through `xr_app_notice` (a TOAST_TEXT notice, which `noticeAllowed` drops at Notices = Off and keeps at Important).
+- Hooks run on the gamepad thread under the pad lock. The keyboard hook must only set a flag for the frame loop.
+
+## 2b.5 behaviour and the owner lane's calls
+- A physical input (button, trigger above 12, stick |x|+|y| above 8000 on a pad that is on the host) sets `frameRetired` when the setting is not `also_gamepad` and the Frame pad holds a number. The bridge then sees `plugged = 0`: neutral packet with the mask without it, unplug (`padOutFrame`), `gamepadsReleaseFramePad`. Gamepad mode off for a frame re-arms it; so does the stream starting or ending. `also_gamepad` ignores the flag.
+- `gamepadsPhysicalActive()` is true for 20 s after the last physical input (cleared when the last pad goes or the stream stops). `gamepadsFrameControllersAsleep()` = setting `sleep` and that.
+- One line for the xr_input.c owner, where `ctx->pointerAwake` is settled (after the `pointerSleepOn` block, about xr_input.c:2575): `if (gamepadsFrameControllersAsleep()) { ctx->pointerAwake = 0; }`. Y as the VR keyboard: `gamepadsSetPadMouseSink` takes a `PadMouseSink` whose `keyboard` hook the frame loop owner can fill (set an atomic flag there, toggle the keyboard next frame); app/main.c builds the sink with `NULL` today.
+
+## 2b.7
+- Flip: `xrApplySettings` now calls `gamepadsSetFlipFaceButtons(s->flip_face_buttons)` (it was only set at stream start by `main.c`), so the in-headset reload and the launcher agree; the swap is applied to what the host gets (`gpApplyStickOptions`), as the launcher's Artemis checkbox already did.
+- Glyphs (pure, tested): `gpGlyphSetForType(LI_CTYPE_*)` gives Xbox / PlayStation / Nintendo / Steam (unknown and the Frame pad are Xbox); `gpFaceLabel(set, hostButton, flipped)` is the name printed on the physical button that sends A/B/X/Y (positions fixed: PlayStation Cross/Circle/Square/Triangle, Nintendo B/A/Y/X, flip swaps A<->B and X<->Y); `gamepadsGlyphSet()` is the set of the physical pad used last, Xbox before any. The hint panels and the first-run card are another lane's: they call these.
+
+## Tests
+`xrcore_padmouse` (curve, chord timing and choices, neutral verdict, every button / key / wheel / pointer path, held-at-toggle, release-all, no-sink). `input_gamepads` additions: Moonlight constants vs the PAD_ numbers, a pad becoming a mouse and back on a fake clock (host sees rest, stick and buttons through the sink, disconnect chord, focus loss, stream end, pad gone, chord off / start_back), two pads independent, flip on a physical packet, arbitration (dead-zone nudge is not use, retire, re-arm, trigger and stick, also / pointer / sleep with the 20 s idle, no Frame pad to retire, unfocused input, stream restart), glyph tables and the pad used last. Also under TSan as `input_gamepads_tsan`.
+
+## Owner test with a Bluetooth pad (headset and PC)
+1. Pair a pad in SteamOS, start a stream, turn the Frame controllers to gamepad mode (the PC tester shows the Frame as a pad). Press a button on the Bluetooth pad: the Frame pad disappears from the tester and the Bluetooth pad is the only one (`moonlight.log`: "is in use: gamepad mode's pad ... is taken off the host"). Toggle gamepad mode off and on: the Frame pad is back until the pad is used again. Set `pad_arbitration = also_gamepad`: both stay.
+2. Hold Start on the Bluetooth pad for a second: the toast says the pad is a mouse, the PC cursor follows the left stick (feel: slow start, fast sweep), the right stick scrolls, A/B/X click, LB/RB back/forward, the d-pad is arrows, Y does nothing yet. The tester shows the pad at rest. Hold Start again: the toast says it is a gamepad again and the sticks work in a game. Take the headset off while a button is held: nothing stays pressed on the PC. With Notices = Off no toast.
+3. Set `flip_face_buttons = true`: A and B swap on the Bluetooth pad as well.
 
 # mlxr-gamepad-probe (lane wave2b-padprobe, 2026-10-29)
 

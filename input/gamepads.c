@@ -8,6 +8,7 @@
 #include <math.h>
 #include <stdatomic.h>
 #include <string.h>
+#include <time.h>
 
 #include "Limelight.h"
 #include "rumble.h"
@@ -172,6 +173,9 @@ void gpInit(Gamepads* g, const PadOutSink* sink, const GpHaptics* haptics, GpLog
     g->chordEnabled = 1;
     g->frameNumber = -1;
     atomic_init(&g->announcedMask, 0);
+    atomic_init(&g->frameRetired, 0);
+    atomic_init(&g->lastInputNs, 0);
+    atomic_init(&g->lastType, 0);
     g->ready = 1;
 }
 
@@ -201,17 +205,48 @@ void gpSetChordEnabled(Gamepads* g, int enabled) {
     pthread_mutex_unlock(&g->lock);
 }
 
+static int64_t monotonicNs(void* user) {
+    (void)user;
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
+
+void gpSetClock(Gamepads* g, int64_t (*fn)(void*), void* user) {
+    pthread_mutex_lock(&g->lock);
+    g->clock = fn;
+    g->clockUser = user;
+    pthread_mutex_unlock(&g->lock);
+}
+
+static int64_t nowNs(const Gamepads* g) { return g->clock ? g->clock(g->clockUser) : monotonicNs(NULL); }
+
+void gpSetPadMouseSink(Gamepads* g, const PadMouseSink* sink) {
+    pthread_mutex_lock(&g->lock);
+    memset(&g->pmSink, 0, sizeof(g->pmSink));
+    if (sink) g->pmSink = *sink;
+    pthread_mutex_unlock(&g->lock);
+}
+
 // ---- sends (lock held) ---------------------------------------------------
 
 static int live(const Gamepads* g) { return g->active && g->streaming; }
 
 // ---- Native (lane artemis-settings): Artemis's gamepad options -----------------
 static atomic_int gRumbleOff, gDeadzone, gFlip;
+// Native (lane wave2b-padmouse): pad_mouse_chord, pad_mouse_scroll, pad_arbitration
+static atomic_int gPmChord = PAD_MOUSE_CHORD_START_HOLD, gPmScroll = PAD_MOUSE_SCROLL_RIGHT;
+static atomic_int gArbMode = PAD_ARB_POINTER;
 
 void gamepadsSetRumbleEnabled(int enabled) { atomic_store(&gRumbleOff, !enabled); }
 void gamepadsSetDeadzone(int percent) { atomic_store(&gDeadzone, percent < -20 ? -20 : percent > 20 ? 20 : percent); }
 int gamepadsGetDeadzone(void) { return atomic_load(&gDeadzone); }
 void gamepadsSetFlipFaceButtons(int flip) { atomic_store(&gFlip, flip != 0); }
+void gamepadsSetPadMouse(int chord, int scroll) {
+    atomic_store(&gPmChord, padMouseChordClamp(chord));
+    atomic_store(&gPmScroll, padMouseScrollClamp(scroll));
+}
+void gamepadsSetArbitration(int mode) { atomic_store(&gArbMode, padArbitrationClamp(mode)); }
 
 static void stickDeadzone(short* x, short* y, int pct) {
     double fx = *x, fy = *y, m = sqrt(fx * fx + fy * fy);
@@ -332,6 +367,7 @@ static void announce(Gamepads* g, GpSlot* s) {
 static void unannounce(Gamepads* g, GpSlot* s) {
     if (!s->announced) return;
     atomic_fetch_and(&g->announcedMask, ~(1 << s->number));
+    padMouseRelease(&s->pm, &g->pmSink); // nothing stays pressed on the host
     sendRest(g, s);
     cancelTouches(g, s);
     s->announced = 0;
@@ -457,6 +493,7 @@ int gpAdd(Gamepads* g, int id, const GpInfo* info) {
     for (int i = 0; i < GP_MAX && !s; i++)
         if (!g->slot[i].used) s = &g->slot[i];
     memset(s, 0, sizeof(*s));
+    padMouseInit(&s->pm);
     s->used = 1;
     s->src[0].id = id;
     s->virtualOnly = info->mirror != 0;
@@ -472,10 +509,35 @@ done:
     return result;
 }
 
-// The slot's merged state changed or may have: send it, or handle the chord
-static void push(Gamepads* g, GpSlot* s, void (**fire)(void*), void** fireUser) {
+// A physical pad is being used: remember when and what it is, and (unless both pads
+// are wanted) retire gamepad mode's pad, which the pad bridge then takes out (lock held)
+static void noteInput(Gamepads* g, const GpSlot* s, int64_t now) {
+    atomic_store(&g->lastInputNs, now ? now : 1);
+    atomic_store(&g->lastType, (int)s->info.type + 1);
+    if (atomic_load(&gArbMode) != PAD_ARB_ALSO_GAMEPAD && g->frameNumber >= 0
+        && !atomic_load(&g->frameRetired)) {
+        atomic_store(&g->frameRetired, 1);
+        say(g, 'I', "gamepad #%d is in use: gamepad mode's pad #%d is taken off the host (pad_arbitration)",
+            s->number, g->frameNumber);
+    }
+}
+
+// The slot's merged state changed or may have, or (tick) time passed: send it, or handle the
+// chord. The mouse emulation sees the pad first and may turn what the host gets into rest.
+static void push(Gamepads* g, GpSlot* s, void (**fire)(void*), void** fireUser, int tick) {
     const PadOutPacket* pk = &s->cur;
     if (!live(g) || !s->announced) return;
+    int64_t now = nowNs(g);
+    if (!tick && inUse(pk)) noteInput(g, s, now);
+    PadMouseIn padIn = { pk->buttonFlags, pk->leftStickX, pk->leftStickY, pk->rightStickX, pk->rightStickY };
+    padMouseConfigure(&s->pm, atomic_load(&gPmChord), atomic_load(&gPmScroll));
+    int wasMouse = s->pm.on;
+    PadMouseOut mo = padMouseStep(&s->pm, &padIn, 1, now, &g->pmSink);
+    if (s->pm.on != wasMouse)
+        say(g, 'I', "gamepad #%d: mouse emulation %s", s->number, s->pm.on ? "on" : "off");
+    PadOutPacket eff = *pk;
+    if (mo.neutral) memset(&eff, 0, sizeof(eff));
+    else eff.buttonFlags &= ~mo.strip;
     if (s->latched) {
         // Let go of all four to arm it again; until then the host sees rest
         if (!(pk->buttonFlags & CHORD_BUTTONS)) s->latched = 0;
@@ -486,9 +548,9 @@ static void push(Gamepads* g, GpSlot* s, void (**fire)(void*), void** fireUser) 
         say(g, 'I', "gamepad #%d: Disconnected: Start+Select+L1+R1 (disconnect your session)", s->number);
         *fire = g->disconnect;
         *fireUser = g->disconnectUser;
-    } else if (!s->haveSent || memcmp(pk, &s->sent, sizeof(*pk)) != 0) {
-        sendPacket(g, s, pk);
-    } else {
+    } else if (!s->haveSent || memcmp(&eff, &s->sent, sizeof(eff)) != 0) {
+        sendPacket(g, s, &eff);
+    } else if (!tick) {
         g->drops++;
     }
 }
@@ -515,12 +577,15 @@ void gpRemove(Gamepads* g, int id) {
         s->hasMirror = 0;
         memset(&s->src[1], 0, sizeof(s->src[1]));
         merge(s);
-        push(g, s, &fire, &fireUser);
+        push(g, s, &fire, &fireUser, 0);
     } else if (s) {
         say(g, 'I', "gamepad #%d gone: %s", s->number, s->info.name);
         unannounce(g, s);
         applySensors(g, s); // announced is 0: off, while the device can still be told
         s->used = 0;
+        int left = 0;
+        for (int i = 0; i < GP_MAX; i++) left |= g->slot[i].used;
+        if (!left) atomic_store(&g->lastInputNs, 0); // no pad in use any more
     }
     pthread_mutex_unlock(&g->lock);
     if (fire) fire(fireUser);
@@ -535,7 +600,7 @@ void gpState(Gamepads* g, int id, const PadOutPacket* pk) {
     if (s) {
         s->src[which].pk = *pk;
         merge(s);
-        push(g, s, &fire, &fireUser);
+        push(g, s, &fire, &fireUser, 0);
     }
     pthread_mutex_unlock(&g->lock);
     if (fire) fire(fireUser); // outside the lock: it takes the launcher's
@@ -557,6 +622,7 @@ void gpSetActive(Gamepads* g, int active) {
                     else if (!s->latched && memcmp(&s->cur, &s->sent, sizeof(s->cur)) != 0) sendPacket(g, s, &s->cur);
                 } else if (s->announced) {
                     // Focus lost: nothing stays pressed or rumbling on the host
+                    padMouseRelease(&s->pm, &g->pmSink);
                     if (!s->haveSent || !isRest(&s->sent)) sendRest(g, s);
                     stopRumble(g, s);
                     cancelTouches(g, s);
@@ -572,8 +638,11 @@ void gpStreamStart(Gamepads* g) {
     pthread_mutex_lock(&g->lock);
     g->streaming = 1;
     atomic_store(&g->announcedMask, 0);
+    atomic_store(&g->frameRetired, 0);
+    atomic_store(&g->lastInputNs, 0);
     for (int i = 0; i < GP_MAX; i++) {
         GpSlot* s = &g->slot[i];
+        padMouseRelease(&s->pm, &g->pmSink);
         s->announced = s->haveSent = s->latched = 0;
         // A new host asks for its sensors again
         memset(s->motionHz, 0, sizeof(s->motionHz));
@@ -600,6 +669,8 @@ void gpStreamStop(Gamepads* g) {
         }
         g->streaming = 0;
     }
+    atomic_store(&g->frameRetired, 0);
+    atomic_store(&g->lastInputNs, 0);
     pthread_mutex_unlock(&g->lock);
 }
 
@@ -746,14 +817,111 @@ void gpTouch(Gamepads* g, int id, int eventType, uint32_t finger, float x, float
     pthread_mutex_unlock(&g->lock);
 }
 
+// ---- mouse emulation ticks ---------------------------------------------------
+
+int gpWantsTick(Gamepads* g) {
+    int want = 0;
+    pthread_mutex_lock(&g->lock);
+    if (live(g))
+        for (int i = 0; i < GP_MAX && !want; i++)
+            want = g->slot[i].used && g->slot[i].announced && padMouseWantsTick(&g->slot[i].pm);
+    pthread_mutex_unlock(&g->lock);
+    return want;
+}
+
+void gpTick(Gamepads* g) {
+    void (*fire)(void*) = NULL;
+    void* fireUser = NULL;
+    pthread_mutex_lock(&g->lock);
+    for (int i = 0; i < GP_MAX; i++) {
+        GpSlot* s = &g->slot[i];
+        if (s->used && s->announced && padMouseWantsTick(&s->pm)) push(g, s, &fire, &fireUser, 1);
+    }
+    pthread_mutex_unlock(&g->lock);
+    if (fire) fire(fireUser);
+}
+
+int gpIsPadMouse(Gamepads* g, int number) {
+    int on = 0;
+    pthread_mutex_lock(&g->lock);
+    for (int i = 0; i < GP_MAX; i++)
+        if (g->slot[i].used && g->slot[i].number == number) on = g->slot[i].pm.on;
+    pthread_mutex_unlock(&g->lock);
+    return on;
+}
+
+// ---- pad arbitration ----------------------------------------------------------
+
+int gpFramePadAllowed(Gamepads* g, int wanted) {
+    if (!wanted) {
+        atomic_store(&g->frameRetired, 0); // gamepad mode off and on again is asking for the pad back
+        return 0;
+    }
+    if (atomic_load(&gArbMode) == PAD_ARB_ALSO_GAMEPAD) return 1;
+    return !atomic_load(&g->frameRetired);
+}
+
+int gpPhysicalActive(Gamepads* g) {
+    int64_t last = atomic_load(&g->lastInputNs);
+    return last != 0 && nowNs(g) - last < GP_ARB_IDLE_NS;
+}
+
+int gpFrameControllersAsleep(Gamepads* g) {
+    return atomic_load(&gArbMode) == PAD_ARB_SLEEP && gpPhysicalActive(g);
+}
+
+// ---- glyphs --------------------------------------------------------------------
+
+GpGlyphSet gpGlyphSetForType(int ctype) {
+    switch (ctype) {
+    case LI_CTYPE_PS: return GP_GLYPH_PLAYSTATION;
+    case LI_CTYPE_NINTENDO: return GP_GLYPH_NINTENDO;
+    case LI_CTYPE_STEAM: return GP_GLYPH_STEAM;
+    default: return GP_GLYPH_XBOX;
+    }
+}
+
+const char* gpGlyphSetName(GpGlyphSet set) {
+    switch (set) {
+    case GP_GLYPH_PLAYSTATION: return "PlayStation";
+    case GP_GLYPH_NINTENDO: return "Nintendo";
+    case GP_GLYPH_STEAM: return "Steam";
+    default: return "Xbox";
+    }
+}
+
+const char* gpFaceLabel(GpGlyphSet set, GpFaceButton hostButton, int flipped) {
+    // By position: bottom, right, left, top (Moonlight's A, B, X, Y are positional)
+    static const char* const LABELS[4][4] = {
+        { "A", "B", "X", "Y" },                      // Xbox
+        { "Cross", "Circle", "Square", "Triangle" }, // PlayStation
+        { "B", "A", "Y", "X" },                      // Nintendo
+        { "A", "B", "X", "Y" },                      // Steam
+    };
+    int pos = (int)hostButton;
+    if (pos < 0 || pos > 3) pos = 0;
+    if (flipped) pos ^= 1; // A<->B and X<->Y
+    int row = (int)set;
+    if (row < 0 || row > 3) row = 0;
+    return LABELS[row][pos];
+}
+
+GpGlyphSet gpGlyphSetInUse(const Gamepads* g) {
+    int t = atomic_load(&g->lastType);
+    return t > 0 ? gpGlyphSetForType(t - 1) : GP_GLYPH_XBOX;
+}
+
 // ---- the one instance -------------------------------------------------------
 
 static Gamepads gGlobal;
 
 Gamepads* gamepadsGlobal(void) { return &gGlobal; }
 
+static PadMouseSink gPmSink; // set before gamepadsInit (the app wires it at start up)
+
 void gamepadsInit(const PadOutSink* sink, const GpHaptics* haptics, GpLog log, void* logUser) {
     gpInit(&gGlobal, sink, haptics, log, logUser);
+    gpSetPadMouseSink(&gGlobal, &gPmSink);
 }
 
 int gamepadsReady(void) { return gGlobal.ready; }
@@ -807,4 +975,29 @@ void gamepadsHostRumbleTriggers(uint16_t controllerNumber, uint16_t leftTriggerM
     if (atomic_load(&gRumbleOff) && (leftTriggerMotor || rightTriggerMotor)) return; // Native (lane artemis-settings)
     if (gGlobal.ready && gpRumbleTriggers(&gGlobal, controllerNumber, leftTriggerMotor, rightTriggerMotor)) return;
     rumbleTriggersCallback(controllerNumber, leftTriggerMotor, rightTriggerMotor);
+}
+
+// ---- Native (lane wave2b-padmouse) ------------------------------------------------
+
+void gamepadsSetPadMouseSink(const PadMouseSink* sink) {
+    memset(&gPmSink, 0, sizeof(gPmSink));
+    if (sink) gPmSink = *sink;
+    if (gGlobal.ready) gpSetPadMouseSink(&gGlobal, &gPmSink);
+}
+
+int gamepadsFramePadAllowed(int wanted) {
+    // No physical pads (the module is off): gamepad mode is as it always was
+    return gGlobal.ready ? gpFramePadAllowed(&gGlobal, wanted) : wanted != 0;
+}
+
+int gamepadsPhysicalActive(void) { return gGlobal.ready && gpPhysicalActive(&gGlobal); }
+
+int gamepadsFrameControllersAsleep(void) { return gGlobal.ready && gpFrameControllersAsleep(&gGlobal); }
+
+GpGlyphSet gamepadsGlyphSet(void) { return gGlobal.ready ? gpGlyphSetInUse(&gGlobal) : GP_GLYPH_XBOX; }
+
+int gamepadsWantsTick(void) { return gGlobal.ready && gpWantsTick(&gGlobal); }
+
+void gamepadsTick(void) {
+    if (gGlobal.ready) gpTick(&gGlobal);
 }
