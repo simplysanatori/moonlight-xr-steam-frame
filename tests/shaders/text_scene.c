@@ -245,3 +245,74 @@ int txs_build(float* rgb, const char* fontPath) {
     free(f.data);
     return 0;
 }
+
+// ---- the tone desktop (text_scene.h) ----
+
+static const float TONE_FLAT[8][3] = {
+    {0.5f, 0.5f, 0.5f},    {0.85f, 0.65f, 0.52f}, {0.36f, 0.6f, 0.9f},  {0.3f, 0.58f, 0.22f},
+    {0.88f, 0.12f, 0.1f},  {0.15f, 0.15f, 0.15f}, {0.95f, 0.85f, 0.2f}, {0.52f, 0.28f, 0.66f},
+};
+
+static float clamp01(float v) {
+    return v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+}
+
+void txs_build_tone(float* rgb) {
+    for (int y = 0; y < TXS_TILE_H; y++)
+        for (int x = 0; x < TXS_W; x++) put(rgb, x, y, TONE_FLAT[x / (TXS_W / 8)]);
+    // Soft blobs, as an out of focus background has them
+    enum { BLOBS = 14 };
+    float bx[BLOBS], by[BLOBS], bs[BLOBS], bc[BLOBS][3];
+    rng = 0x7f4a7c15u;
+    for (int i = 0; i < BLOBS; i++) {
+        bx[i] = (float)(nextRand() % TXS_W);
+        by[i] = (float)(TXS_TILE_H + nextRand() % (3 * TXS_TILE_H));
+        bs[i] = 30.0f + (float)(nextRand() % 90);
+        for (int c = 0; c < 3; c++) bc[i][c] = ((float)(nextRand() % 1000) / 1000.0f - 0.5f) * 0.6f;
+    }
+    // Fine texture: random sinusoids, periods 4 to 14 px, any direction (all
+    // of it below the eye's Nyquist at the default placement, 3.6 px, so the
+    // means do not depend on how it aliases)
+    enum { WAVES = 24 };
+    float wk[WAVES][2], wp[WAVES], wa[WAVES], wc[WAVES][3];
+    for (int i = 0; i < WAVES; i++) {
+        float period = 4.0f + 10.0f * (float)(nextRand() % 1000) / 1000.0f;
+        float ang = (float)M_PI * (float)(nextRand() % 1000) / 1000.0f;
+        wk[i][0] = 2.0f * (float)M_PI * cosf(ang) / period;
+        wk[i][1] = 2.0f * (float)M_PI * sinf(ang) / period;
+        wp[i] = 2.0f * (float)M_PI * (float)(nextRand() % 1000) / 1000.0f;
+        wa[i] = 0.035f;
+        for (int c = 0; c < 3; c++) wc[i][c] = 0.6f + 0.4f * (float)(nextRand() % 1000) / 1000.0f;
+    }
+    for (int y = TXS_TILE_H; y < TXS_H; y++)
+        for (int x = 0; x < TXS_W; x++) {
+            float u = (x + 0.5f) / TXS_W, v = (y - TXS_TILE_H + 0.5f) / (3.0f * TXS_TILE_H);
+            // sky above, warm ground below
+            float c[3] = {0.35f + 0.45f * v + 0.1f * u, 0.55f + 0.1f * v - 0.15f * u, 0.85f - 0.55f * v};
+            for (int i = 0; i < BLOBS; i++) {
+                float dx = x - bx[i], dy = y - by[i];
+                float g = expf(-(dx * dx + dy * dy) / (2.0f * bs[i] * bs[i]));
+                for (int k = 0; k < 3; k++) c[k] += g * bc[i][k];
+            }
+            if (y >= 3 * TXS_TILE_H) {
+                for (int i = 0; i < WAVES; i++) {
+                    float s = wa[i] * sinf(wk[i][0] * x + wk[i][1] * y + wp[i]);
+                    for (int k = 0; k < 3; k++) c[k] += s * wc[i][k];
+                }
+            }
+            for (int k = 0; k < 3; k++) c[k] = clamp01(c[k]);
+            put(rgb, x, y, c);
+        }
+}
+
+int txs_tone_class(float sx, float sy, float m) {
+    if (sx < m || sx > TXS_W - m || sy < m || sy > TXS_H - m) return -1;
+    if (sy < TXS_TILE_H) {
+        float in = fmodf(sx, (float)(TXS_W / 8));
+        if (in < m || in > TXS_W / 8 - m || sy > TXS_TILE_H - m) return -1;
+        return TXS_TONE_FLAT;
+    }
+    if (sy < TXS_TILE_H + m) return -1;
+    if (sy < 3 * TXS_TILE_H) return sy > 3 * TXS_TILE_H - m ? -1 : TXS_TONE_GRADIENT;
+    return sy < 3 * TXS_TILE_H + m ? -1 : TXS_TONE_TEXTURE;
+}

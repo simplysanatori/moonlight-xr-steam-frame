@@ -54,6 +54,7 @@
 #include "xr_headaim.h"
 #include "xr_opentrack.h"
 #include "xr_dwell.h"
+#include "xr_access.h"
 #include "xr_clickhold.h"
 #include "xr_pressfix.h"
 #include "xr_gamepad.h"
@@ -980,6 +981,22 @@ typedef struct XrCtx {
     // flags. The Frame has one combined gaze pose, no per-eye openness. xrGazeValid() reads it.
     int gazeValid;
     unsigned gazeFlags;
+    // Native (lane a11y-tab): what the session found out about eye gaze, for the Accessibility tab's
+    // eye tracking line (xr_access.h accessEyesState) and the log: the runtime offers the extension,
+    // the settings asked for it, the system's supportsEyeGazeInteraction (-1 not read), the gaze
+    // binding was taken, and a usable gaze pose has arrived this session (with when the pointer's
+    // eyes report was logged). gazeFall is the Eyes pointer's fallback to the head, eyesHold the
+    // last tracked gaze pose (local space), held through a blink.
+    int gazeOffered;
+    int gazeAsked;
+    int gazeSupportFlag;
+    int gazeBound;
+    int gazeSeen;
+    int gazeReported;
+    int64_t gazeWatchStartNs;
+    GazeFall gazeFall;
+    XrPosef eyesHold;
+    int eyesHoldValid;
     long inputFrames;
     // Gamepad mode (M3: the pad's state is worked out as upstream does, but
     // nothing sends it to the host yet)

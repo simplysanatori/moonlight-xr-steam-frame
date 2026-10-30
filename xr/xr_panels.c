@@ -695,6 +695,7 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->exit_question = ctx->launcher != LAUNCHER_NONE ? ui_str(UIS_NATIVE_EXIT_APP) : NULL;
     v->exit_disconnect = exitPromptHasDisconnect(ctx);
     v->pad = ctx->padLive;   // Native (lane wave3-cards): the pad card, and the first-run card's wording
+    v->access_eyes = xrAccessEyes(ctx);   // Native (lane a11y-tab): the Accessibility tab's eye line
 }
 
 // What the ray is on in the settings panel, as lane U's hover
@@ -731,6 +732,7 @@ typedef struct {
     int tab, curveOk, stereoOk, showAim, roomEnv;
     UiHover hover;
     unsigned later;
+    int accessEyes;
 } CogKey;
 
 static void updateCog(XrCtx* ctx, XrPanels* p, const UiView* base) {
@@ -750,6 +752,7 @@ static void updateCog(XrCtx* ctx, XrPanels* p, const UiView* base) {
     k.roomEnv = v.room_env;
     k.hover = v.hover;
     k.later = v.display_later;
+    k.accessEyes = v.access_eyes;
     if (!keyChanged(p, UI_PANEL_COG, &k, sizeof(k))) {
         return;
     }

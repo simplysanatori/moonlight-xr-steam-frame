@@ -587,7 +587,7 @@ if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
          vr.pad_mouse_chord vr.pad_mouse_scroll vr.pad_arbitration vr.pad_gyro vr.notices vr.lightgun vr.scroll_speed
          vr.background_dim vr.void_color vr.first_run_shown vr.pad_card display.zoom display.stats display.glow_feather
          3d.separation 3d.convergence 3d.stereo 3d.eye_balance 3d.stereo_source 3d.sbs_full 3d.edge_sharpness 3d.depth_scale
-         3d.depth_global 3d.motion_reset ui.language"
+         3d.depth_global 3d.motion_reset ui.language vr.head_dwell_ms"
     left="stream.host stream.app vr.hand_hint_seen display.cog_tab display.zoom_x display.zoom_y screen.height_cm
           screen.azimuth_deg screen.tilt_deg screen.rotate_deg screen.back_distance_cm screen.back_height_cm
           screen.back_azimuth_deg screen.back_tilt_deg screen.back_rotate_deg screen.back_curve screen.back_width_cm"
@@ -943,6 +943,32 @@ if [ -n "$SHOTS" ]; then
         expect "VR client keeps pointer_source on the controllers" "$dump" "vr.pointer_source = controller"
         expect "VR client keeps the dwell off" "$dump" "vr.head_dwell_ms = 0"
     fi
+    # lane a11y-tab: the Accessibility section. What points and Dwell click write their keys only when pressed
+    # (one press each: Head, 0.6 s), the section's rows are found by the settings search, and a page opened and
+    # saved without a press writes neither
+    printf '[vr]\nhead_aim = true\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='saveAll;setSearch:accessibility' \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-accessibility.png@3000" "$L" >"$t/acc0.out" 2>&1
+    uiout "$t/acc0.out" "accessibility section"
+    grep -Eq '^(pointer_source|head_dwell_ms) *=' "$ini" && { fail "opening the page wrote pointer_source or head_dwell_ms"; cat "$ini"; } || ok "the page opened and saved writes no accessibility key"
+    s="$(grep 'MLXR_SETTINGS_SEARCH: text="accessibility"' "$t/acc0.out")"
+    expect "search: the Accessibility section is found" "$s" "sections=Accessibility"
+    expect "search: with its rows" "$s" "What points|Dwell click|Head-look (experimental)|Head-look speed|Back button as Guide|Mouse mode"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=pointerSourceRow,headDwellRow \
+        MLXR_LAUNCHER_INVOKE='setSearch:dwell' MLXR_LAUNCHER_SCREENSHOT="$t/acc1.png@3000" "$L" >"$t/acc1.out" 2>&1
+    grep -q "no clickable" "$t/acc1.out" && fail "accessibility click hook: $(grep 'no clickable' "$t/acc1.out")"
+    grep -Eq "$QMLERR" "$t/acc1.out" && { fail "accessibility rows: QML errors"; grep -E "$QMLERR" "$t/acc1.out" | head -3; } || ok "accessibility rows load (no QML errors)"
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^pointer_source = head$' && ok "What points steps to Head and writes [vr] pointer_source = head" || { fail "pointer_source not written"; cat "$ini"; }
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^head_dwell_ms = 600$' && ok "Dwell click steps Off to 0.6 s and writes [vr] head_dwell_ms = 600" || { fail "head_dwell_ms not written"; cat "$ini"; }
+    grep -q '^head_aim = true$' "$ini" && ok "accessibility rows leave head_aim alone" || { fail "head_aim changed"; cat "$ini"; }
+    expect "search: one word finds the dwell row" "$(grep 'text="dwell"' "$t/acc1.out")" "titles=Dwell click sections=Accessibility"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads pointer_source" "$dump" "vr.pointer_source = head"
+        expect "VR client reads head_dwell_ms" "$dump" "vr.head_dwell_ms = 600"
+    fi
     # MLXR_HANDOFF=0: the stock probe runs again
     MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1
     grep -q "Unable to find working decoder\|Failed to initialize VAAPI" "$t/ui4.out" && ok "hand-off off: stock decoder probe runs" || fail "stock probe missing with MLXR_HANDOFF=0"
@@ -1178,6 +1204,20 @@ PY
     s="$(grep 'MLXR_SETTINGS_SEARCH: text=""' "$t/srch2.out")"
     expect "search: cleared, every section is back" "$s" "sections=Connection|Stream profiles|Video Settings|Audio Settings"
     expect "search: cleared, the last section too" "$s" "|MISC"
+    # lane polish-3: the Video bitrate slider is in Connection, right above the per-connection rows whose
+    # "Same as above" it is, and no longer under Video Settings
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='setSearch:bitrate;setSearch:video settings' \
+        MLXR_LAUNCHER_SCREENSHOT="$t/srch3.png@3000" "$L" >"$t/srch3.out" 2>&1
+    uiout "$t/srch3.out" "settings search 3"
+    s="$(grep 'MLXR_SETTINGS_SEARCH: text="bitrate"' "$t/srch3.out")"
+    expect "Video bitrate: first of the bitrate rows, right above the per-connection ones" "$s" \
+        "titles=Video bitrate|Bitrate over Wi-Fi|Bitrate over the Steam Frame Wireless Adapter|Bitrate over a wired network|Bitrate over the USB cable"
+    expect "Video bitrate: under the Connection heading" "$s" "sections=Connection|"
+    [ "$(echo "$s" | grep -o 'Video bitrate' | wc -l)" = 1 ] && ok "Video bitrate: one slider, not two" || fail "Video bitrate twice: $s"
+    s="$(grep 'MLXR_SETTINGS_SEARCH: text="video settings"' "$t/srch3.out")"
+    expect "search: Video Settings still finds its rows" "$s" "Video resolution|Refresh rate"
+    refute "Video bitrate: no longer under Video Settings" "$s" "Video bitrate"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=jump_audio \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-jump.png@3000" "$L" >"$t/jump.out" 2>&1
     grep -q "no clickable" "$t/jump.out" && fail "jump list: $(grep 'no clickable' "$t/jump.out")"

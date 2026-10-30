@@ -77,7 +77,7 @@ static const char* const NOTICES_NAMES[] = { "all", "important", "off" };
 static const char* const STEADY_NAMES[] = { "off", "normal", "steady" };
 static const char* const LOG_NAMES[] = { "off", "basic", "verbose" };
 static const char* const KBLAYOUT_NAMES[] = { "compact", "full" };
-static const char* const COGTAB_NAMES[] = { "screen", "display", "3d", "picture", "about" };
+static const char* const COGTAB_NAMES[] = { "screen", "display", "3d", "picture", "accessibility", "about" };
 _Static_assert(sizeof(COGTAB_NAMES) / sizeof(COGTAB_NAMES[0]) == COG_TAB_COUNT, "cog_tab names follow COG_TAB_");
 static const char* const KEYMAP_NAMES[] = { "qwerty", "azerty", "qwertz" };
 static const char* const STATS_STYLE_NAMES[] = { "full", "hud", "lite" };
@@ -120,7 +120,7 @@ static const SettingDesc TABLE[] = {
     DI("stream", "bitrate_kbps", bitrate_kbps, 0, MLXR_BITRATE_MAX_KBPS, 0, "seekbar_bitrate_kbps; 0 follows resolution and frame rate, else 500..500000 (the flat launcher's custom bitrate goes to 500 Mbps)"),
     DE("stream", "codec", codec, CODEC_NAMES, 0, "list_video_format: auto, av1, hevc, h264"),
     DE("stream", "audio_config", audio_config, AUDIO_NAMES, 0, "list_audio_config: stereo, 5.1, 7.1"),
-    DB("stream", "virtual_surround", virtual_surround, 0, "checkbox_vr_virtual_surround: place 5.1 and 7.1 speakers around you in stereo"),
+    DB("stream", "virtual_surround", virtual_surround, 0, "checkbox_vr_virtual_surround: place stereo, 5.1 and 7.1 speakers around you, held to the screen as you turn"),
     DE("stream", "frame_pacing", frame_pacing, PACING_NAMES, 0, "frame_pacing"),
     DE("stream", "network_path", network_path, NETWORK_NAMES, 0, "native: which link reaches the PC: auto (probe all), home (Wi-Fi), adapter (Steam Frame Wireless Adapter) or usb (a USB cable between the headset and the PC); the --network flag and MLXR_NETWORK override it"),
     DI("stream", "doff_disconnect", doff_disconnect, 0, 3600, 60, "native: seconds with the headset off before the stream is disconnected, leaving the host's app running; 0 never. The sound mutes and the input is let go the moment it comes off, and putting it back on within the time carries on"),
@@ -171,8 +171,8 @@ static const SettingDesc TABLE[] = {
     DB("vr", "opentrack", opentrack, 0, "native: while streaming, send the head pose to opentrack on the PC every frame as its UDP packet (x, y, z in cm, yaw, pitch, roll in degrees); in opentrack pick the input \"UDP over network\" on the same port"),
     DS("vr", "opentrack_host", opentrack_host, "", "native: where the opentrack packets go, an address or a name; empty sends them to the PC of the current stream"),
     // Native (lane wave4-headinput, PLAN 6.5): head Point mode
-    DE("vr", "pointer_source", pointer_source, POINTER_SOURCE_NAMES, POINTER_SOURCE_CONTROLLER, "native: what points: controller (the controllers' rays, and the eyes when gaze is on), head (the head's own ray, smoothed, with either controller's trigger as the click; for accessibility) or gaze (the eye-gaze pointer, the same as gaze = true)"),
-    DI("vr", "head_dwell_ms", head_dwell_ms, 0, DWELL_MS_MAX, 0, "native: with pointer_source = head, resting the dot this long on one spot clicks it (400 to 2000 ms); 0 is off"),
+    DE("vr", "pointer_source", pointer_source, POINTER_SOURCE_NAMES, POINTER_SOURCE_CONTROLLER, "native: what points (the cog's Accessibility tab sets it too): controller (the controllers' rays, and the eyes when gaze is on), head (the head's own ray, smoothed, with either controller's trigger as the click; for accessibility) or gaze (the Accessibility tab's Eyes: the head pointer driven by the eyes while SteamVR gives eye gaze, the head's ray while they are lost; asks for eye gaze as gaze = true does)"),
+    DI("vr", "head_dwell_ms", head_dwell_ms, 0, DWELL_MS_MAX, 0, "native: with pointer_source = head or gaze, resting the dot this long on one spot clicks it (400 to 2000 ms; the Accessibility tab offers 600, 900, 1200 and 1500); 0 is off"),
     // Native (lane headinput-finish, PLAN 4b.10)
     DE("vr", "mouse_mode", mouse_mode, MOUSE_MODE_NAMES, MOUSE_MODE_ABSOLUTE, "native: how the pointer moves the PC's mouse: absolute (the cursor goes where the ray lands, Moonlight's remote desktop mouse) or relative (the ray's movement goes as mouse motion, for games that capture the mouse)"),
     DB("vr", "back_as_guide", back_as_guide, 0, "native: in gamepad mode the Frame controllers' Back (View) button is the Guide (Xbox) button; with Start held it stays Back, so the Start and Back chords work as ever"),
@@ -206,7 +206,7 @@ static const SettingDesc TABLE[] = {
     DI("display", "zoom", zoom, 100, 400, 100, "native (PLAN 4b.6): zoom percent, 100 shows the whole picture and 400 a quarter of it across and down, filling the screen. The binding actions app:zoomin, app:zoomout and app:zoomreset step it, aimed at the controller's pointer. Remembered per PC and app with the layout (Remember per app)"),
     DI("display", "zoom_x", zoom_x, 0, 100, 50, "native (PLAN 4b.6): where the zoomed part is centred across the picture, percent (0 the left edge, 100 the right); held where the part still fits"),
     DI("display", "zoom_y", zoom_y, 0, 100, 50, "native (PLAN 4b.6): where the zoomed part is centred down the picture, percent (0 the top edge, 100 the bottom)"),
-    DE("display", "sharpening", sharpening, SHARP_NAMES, 0, "Display tab: sharpen (list_vr_sharpening; native default off, the owner's choice, upstream quality)"),
+    DE("display", "sharpening", sharpening, SHARP_NAMES, 1, "Display tab: sharpen (list_vr_sharpening; native default normal, the owner's choice after the 1.1.0 headset run, upstream quality)"),
     DE("display", "supersampling", supersampling, SHARP_NAMES, 1, "Display tab: supersample (list_vr_supersampling; native default normal, the owner's choice, upstream off; never used with the 3D on)"),
     DB("display", "picture_filter", picture_filter, 1, "native: sharper small text on the curved or 3D picture (MLXR_PICTURE_FILTER)"),
     DB("display", "chroma_from_luma", chroma_from_luma, 1, "native: sharper coloured text, colour fitted to the luma (MLXR_CHROMA_FROM_LUMA)"),
@@ -216,7 +216,7 @@ static const SettingDesc TABLE[] = {
     DI("display", "glow_level", glow_level, 0, 100, 50, "Display tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
     DE("display", "glow_feather", glow_feather, FEATHER_NAMES, GLOW_FEATHER_OFF, "native: Picture tab Glow edge: off, soft or wide. Feathers the picture's edge into the glow round it (needs the glow on)"),
     DB("display", "screen_light", screen_light, 1, "Display tab: screen light in rooms (checkbox_vr_room_light)"),
-    DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (room in a room), display, 3d, picture or about"),
+    DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (room in a room), display, 3d, picture, accessibility or about"),
     // 3d
     DI("3d", "separation", separation, -1, COG_SEP_STEPS, -1, "seekbar_vr_separation: tenths of a percent of frame width; -1 is the depth model's own (ZipDepth 6, MiDaS 5)"),
     DI("3d", "convergence", convergence, -1, 100, -1, "seekbar_vr_convergence: percent; -1 is the depth model's own (50)"),

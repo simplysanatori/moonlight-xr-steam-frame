@@ -419,7 +419,11 @@ static void testBadInputs(void) {
     CHECK(mlxr_surround_create(&p, err, sizeof err) == NULL);
     CHECK(strlen(err) > 0);
     p.hrtfDir = HRTF_DIR;
-    p.channels = 2;
+    p.channels = 4;
+    err[0] = 0;
+    CHECK(mlxr_surround_create(&p, err, sizeof err) == NULL);
+    CHECK(strlen(err) > 0);
+    p.channels = 1;
     err[0] = 0;
     CHECK(mlxr_surround_create(&p, err, sizeof err) == NULL);
     CHECK(strlen(err) > 0);
@@ -428,6 +432,127 @@ static void testBadInputs(void) {
     CHECK_NEAR(mlxr_surround_azimuth(6, 4), -135, 0);
     CHECK_NEAR(mlxr_surround_azimuth(8, 4), -150, 0);
     CHECK_NEAR(mlxr_surround_azimuth(8, 7), 90, 0);
+    CHECK_NEAR(mlxr_surround_azimuth(2, 0), -30, 0);
+    CHECK_NEAR(mlxr_surround_azimuth(2, 1), 30, 0);
+}
+
+// Stereo (lane polish-3): the two channels are the 5.1 set's front pair, two
+// speakers in front of the screen at -30 and 30 degrees, held to the screen
+// as the head turns like the 5.1 and 7.1 speakers
+static void testStereo(void) {
+    MlxrSurround* s = make(2, 0);
+    MlxrSurround* five = make(6, 0);
+    MlxrSurround* direct = make(2, 1);
+    if (s == NULL || five == NULL || direct == NULL) {
+        return;
+    }
+    CHECK(strcmp(mlxr_surround_kernel(s), "FFT") == 0);
+    Ears l = measure(s, 2, 0, 0), r = measure(s, 2, 1, 0);
+    printf("  stereo: L %.2f dB lag %d | R %.2f dB lag %d\n", 10 * log10(l.l / l.r), l.lag,
+           10 * log10(r.l / r.r), r.lag);
+    // Left speaker at -30: the left ear louder and first; the right its mirror
+    CHECK(l.l > 1.3 * l.r);
+    CHECK(l.lag >= 5 && l.lag <= 25);
+    CHECK(r.r > 1.3 * r.l);
+    CHECK(r.lag <= -5 && r.lag >= -25);
+    CHECK_NEAR(l.l / r.r, 1.0, 0.01);
+    CHECK(l.lag == -r.lag);
+    // Exactly the 5.1 set's front left and right, at any head yaw
+    const float yaws[3] = {0.0f, 50.0f, -120.0f};
+    for (int y = 0; y < 3; y++) {
+        for (int ch = 0; ch < 2; ch++) {
+            static float a[N], b[N];
+            impulse(s, 2, ch, RAD(yaws[y]));
+            memcpy(a, outL, sizeof a);
+            memcpy(b, outR, sizeof b);
+            impulse(five, 6, ch, RAD(yaws[y]));
+            double worst = 0;
+            for (int i = 0; i < N; i++) {
+                worst = fmax(worst, fabs(a[i] - outL[i]));
+                worst = fmax(worst, fabs(b[i] - outR[i]));
+            }
+            CHECK(worst < 1e-6);
+        }
+    }
+    // Held to the screen: the head turned 30 degrees left puts the left
+    // speaker straight ahead; turned 90 left, both are at the right ear, and
+    // 90 right, both at the left
+    Ears l30 = measure(s, 2, 0, 30);
+    CHECK_NEAR(10 * log10(l30.l / l30.r), 0.0, 1.0);
+    CHECK(abs(l30.lag) <= 1);
+    Ears lLeft = measure(s, 2, 0, 90), rLeft = measure(s, 2, 1, 90);
+    Ears lRight = measure(s, 2, 0, -90), rRight = measure(s, 2, 1, -90);
+    printf("  stereo, head 90 left: L %.2f dB R %.2f dB | head 90 right: L %.2f dB R %.2f dB\n",
+           10 * log10(lLeft.l / lLeft.r), 10 * log10(rLeft.l / rLeft.r), 10 * log10(lRight.l / lRight.r),
+           10 * log10(rRight.l / rRight.r));
+    CHECK(lLeft.r > 1.3 * lLeft.l && rLeft.r > 2.0 * rLeft.l);
+    CHECK(lRight.l > 2.0 * lRight.r && rRight.l > 1.3 * rRight.r);
+    CHECK(lLeft.lag < 0 && rLeft.lag < 0 && lRight.lag > 0 && rRight.lag > 0);
+    // Turning crossfades as for 5.1: the same signal on both channels (a
+    // phantom centre) swings from the middle to the right ear
+    {
+        static float in[BLOCK * 2], out[BLOCK * 2];
+        mlxr_surround_reset(s);
+        double l0 = 0, r0 = 0, l1 = 0, r1 = 0;
+        for (int b = 0; b < 12; b++) {
+            for (int f = 0; f < BLOCK; f++) {
+                in[2 * f] = in[2 * f + 1] = sig(b * BLOCK + f);
+            }
+            mlxr_surround_render_yaw(s, in, BLOCK, RAD(b < 6 ? 0.0f : 90.0f), out);
+            for (int f = 0; f < BLOCK && (b == 4 || b == 10); f++) {
+                double* el = b == 4 ? &l0 : &l1;
+                double* er = b == 4 ? &r0 : &r1;
+                *el += (double) out[2 * f] * out[2 * f];
+                *er += (double) out[2 * f + 1] * out[2 * f + 1];
+            }
+        }
+        printf("  stereo phantom centre: ahead %.2f dB, head 90 left %.2f dB\n", 10 * log10(l0 / r0),
+               10 * log10(l1 / r1));
+        CHECK_NEAR(10 * log10(l0 / r0), 0.0, 0.5);
+        CHECK(r1 > 2.0 * l1);
+    }
+    // Off: the stereo input comes through untouched
+    {
+        static float in[BLOCK * 2], out[BLOCK * 2];
+        mlxr_surround_set_enabled(s, false);
+        mlxr_surround_reset(s);
+        double worst = 0;
+        for (int b = 0; b < 3; b++) {
+            for (int i = 0; i < BLOCK * 2; i++) {
+                in[i] = 0.4f * sig(b * BLOCK * 2 + i * 3 + 1);
+            }
+            mlxr_surround_render_yaw(s, in, BLOCK, RAD(40.0f), out);
+            for (int i = 0; i < BLOCK * 2; i++) {
+                worst = fmax(worst, fabs(out[i] - in[i]));
+            }
+        }
+        CHECK(worst < 1e-7);
+        mlxr_surround_set_enabled(s, true);
+    }
+    // The FFT kernel agrees with the direct one
+    {
+        static float in[BLOCK * 2], a[BLOCK * 2], b[BLOCK * 2];
+        mlxr_surround_reset(s);
+        srand(9);
+        double worst = 0, peak = 0;
+        for (int block = 0; block < 6; block++) {
+            for (int i = 0; i < BLOCK * 2; i++) {
+                in[i] = 0.25f * (float) (rand() / (double) RAND_MAX * 2.0 - 1.0);
+            }
+            float yaw = RAD(block >= 3 ? 35.0f : 0.0f);
+            mlxr_surround_render_yaw(s, in, BLOCK, yaw, a);
+            mlxr_surround_render_yaw(direct, in, BLOCK, yaw, b);
+            for (int i = 0; i < BLOCK * 2; i++) {
+                worst = fmax(worst, fabs(a[i] - b[i]));
+                peak = fmax(peak, fabs(a[i]));
+            }
+        }
+        CHECK(worst < 1e-3);
+        CHECK(peak > 0.1);
+    }
+    mlxr_surround_destroy(s);
+    mlxr_surround_destroy(five);
+    mlxr_surround_destroy(direct);
 }
 
 int main(void) {
@@ -437,6 +562,8 @@ int main(void) {
     printf("7.1\n");
     testAzimuths(8);
     testHeadPose(8);
+    printf("2.0\n");
+    testStereo();
     testCrossfade();
     testToggle();
     testKernelsAgree();

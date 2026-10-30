@@ -10,7 +10,7 @@ add_library(mlxr_xrui STATIC
   xr_log.c xr_result.c xr_ui.c xr_input.c xr_layers.c xr_display.c
   xr_room.c xr_model.c xr_ambilight.c xr_world.c
   xr_assets.c xr_panels.c xr_prefs.c xr_vk.c xr_pad_bridge.c xr_bugzip.c xr_metrics.c xr_place.c
-  xr_splash.c)
+  xr_splash.c xr_assist.c)
 target_sources(mlxr_xrui PRIVATE xr_keyboard.c xr_depth.c xr_host.c xr_padcard.c xr_kofi.c)
 target_sources(mlxr_xrui PRIVATE xr_zoom.c)
 # M6: xr_depth.c reads depth/depth_engine.h's types only; the engine itself

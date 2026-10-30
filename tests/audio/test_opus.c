@@ -400,6 +400,61 @@ static void testHeadYawDirection(void) {
     closeStream(&s);
 }
 
+// Stereo with the virtual surround on (lane polish-3): the two channels are
+// speakers in front of the screen, so turning the head moves the sound. The
+// same tone on both (a phantom centre) is in the middle ahead and at the
+// opposite ear with the head turned; off, the stream passes through as sent.
+static float bothGen(int channel, long n, void* arg) {
+    (void) channel;
+    (void) arg;
+    return 0.4f * sinf(2.0f * (float) M_PI * 1000.0f * (float) n / RATE);
+}
+
+static double stereoBalanceDb(Stream* s, float yaw) {
+    mlxr_opus_out_set_pose(yaw, 0.0f);
+    int mark = rec.stereoFrames;
+    feed(s, 30, 240, bothGen, NULL);
+    int a = mark + (rec.stereoFrames - mark) / 2, n = rec.stereoFrames - a;
+    double l = toneRms(rec.stereo + (size_t) a * 2, n, 2, 1000.0, RATE);
+    double r = toneRms(rec.stereo + (size_t) a * 2 + 1, n, 2, 1000.0, RATE);
+    return db(l / r);
+}
+
+static void testStereoHeadYaw(void) {
+    Stream s;
+    recReset();
+    fed = 0;
+    if (openStream(&s, 2, 1, 1, 240) != 0) {
+        return;
+    }
+    const float quarter = 1.5707963f;
+    double ahead = stereoBalanceDb(&s, 0.0f);
+    double left = stereoBalanceDb(&s, quarter);
+    double right = stereoBalanceDb(&s, -quarter);
+    printf("  stereo, both channels: ahead %+.1f dB, head left 90 %+.1f dB, head right 90 %+.1f dB\n", ahead,
+           left, right);
+    CHECK_NEAR(ahead, 0.0, 0.5);
+    CHECK(left < -6.0);
+    CHECK(right > 6.0);
+    CHECK_NEAR(left, -right, 3.0);
+    MlxrOpusOutStats st;
+    mlxr_opus_out_stats(&st);
+    CHECK(st.surroundActive == 1);
+    CHECK(st.taps == 175);
+    // Off: what was decoded is what the sink gets, whatever the pose
+    mlxr_opus_out_set_surround_enabled(false);
+    mlxr_opus_out_set_pose(quarter, 0.0f);
+    int mark = rec.stereoFrames, tapMark = rec.tapFrames;
+    feed(&s, 10, 240, bothGen, NULL);
+    // the first packet after the switch fades from the surround; the rest is the decode as it is
+    int from = 240, n = rec.stereoFrames - mark - from;
+    CHECK(n > 0 && memcmp(rec.stereo + (size_t) (mark + from) * 2, rec.tap + (size_t) (tapMark + from) * 2,
+                          sizeof(float) * (size_t) n * 2) == 0);
+    mlxr_opus_out_set_surround_enabled(true);
+    mlxr_opus_out_set_pose(0.0f, 0.0f);
+    closeStream(&s);
+}
+
 // Headset off: nothing reaches the sink, and putting it on again restores the
 // sound at the level it had, with no spike. (There is no gain ramp: the stream is
 // corked and the decoder restarted, so the first packet starts from silence.)
@@ -511,12 +566,14 @@ int main(void) {
     testMapping(2);
     testMapping(6);
     testMapping(8);
+    testSurroundSolo(2);
     testSurroundSolo(6);
     testSurroundSolo(8);
     testStats();
     testTenMs();
     testRuntimeControls();
     testHeadYawDirection();
+    testStereoHeadYaw();
     testMuteRestores();
     testInitFailures();
     testNoServer();

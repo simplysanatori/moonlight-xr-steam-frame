@@ -1,6 +1,8 @@
-// Virtual surround: a decoded 5.1 or 7.1 block in, a stereo block of the same
-// length out. Port of Moonlight XR's BinauralRenderer/VirtualSurround/HeadYaw
-// (GPLv3) over xr_audio's C kernels.
+// Virtual surround: a decoded stereo, 5.1 or 7.1 block in, a stereo block of
+// the same length out. Port of Moonlight XR's BinauralRenderer/VirtualSurround/
+// HeadYaw (GPLv3) over xr_audio's C kernels. Native (lane polish-3): stereo
+// too, as two speakers in front of the screen at -30 and 30 degrees, so the
+// sound stays with the screen as the head turns.
 //
 // Each speaker but the LFE is convolved with the KEMAR filters for where it
 // stands around the listener and the lot is summed to a left and a right ear.
@@ -11,6 +13,7 @@
 // Every frame handed in comes back out of the same call: no block of latency.
 //
 // Input channel order (Moonlight / Opus decode order):
+//   2.0: FL FR                     (-30/30, as the 5.1 front pair)
 //   5.1: FL FR FC LFE BL BR        (BL/BR are the 110 degree surrounds, -135/135)
 //   7.1: FL FR FC LFE BL BR SL SR  (back -150/150, side -90/90)
 //
@@ -21,9 +24,10 @@
 //
 // Disabled: render() downmixes to stereo without HRTFs (L = FL + .707 (FC + LFE
 // + BL + SL), R likewise, as Android's own downmix has it) so the same
-// stereo stream carries the sound. The two are crossfaded over one block when
-// the flag changes. The convolution history keeps running while disabled so
-// re-enabling does not start from stale audio.
+// stereo stream carries the sound; a stereo input passes through as it is.
+// The two are crossfaded over one block when the flag changes. The
+// convolution history keeps running while disabled so re-enabling does not
+// start from stale audio.
 #ifndef MLXR_SURROUND_H
 #define MLXR_SURROUND_H
 
@@ -37,7 +41,7 @@ typedef struct MlxrSurround MlxrSurround;
 
 typedef struct {
     const char* hrtfDir;     // directory with the 37 KEMAR WAVs (assets/hrtf/kemar)
-    int channels;            // 6 or 8
+    int channels;            // 2, 6 or 8
     int sampleRate;          // 48000
     int maxBlockFrames;      // expected block (240 for 5 ms); larger blocks reallocate
     float rearDelayMs;       // 0 as upstream ships it; 0..20
@@ -79,7 +83,7 @@ void mlxr_surround_render(MlxrSurround* s, const float* in, int frames, float* o
 void mlxr_surround_render_yaw(MlxrSurround* s, const float* in, int frames, float yawRadians,
                               float* out);
 
-/** The stateless plain downmix (channels 6 or 8), unclamped, as used when disabled. */
+/** The stateless plain downmix (channels 2, 6 or 8; 2 is a copy), unclamped, as used when disabled. */
 void mlxr_downmix_to_stereo(int channels, const float* in, int frames, float* out);
 
 int mlxr_surround_taps(const MlxrSurround* s);

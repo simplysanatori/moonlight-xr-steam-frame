@@ -256,7 +256,30 @@
     X(PADCARD_BACK_VIEW, "native_padcard_back_view", "View") \
     X(PADCARD_BACK_CREATE, "native_padcard_back_create", "Create") \
     X(PADCARD_BACK_MINUS, "native_padcard_back_minus", "-") \
-    X(PADCARD_BACK_GENERIC, "native_padcard_back_generic", "Back")
+    X(PADCARD_BACK_GENERIC, "native_padcard_back_generic", "Back") \
+    /* native (lane a11y-tab): the Accessibility tab */ \
+    X(TAB_ACCESS, "native_tab_access", "Accessibility") \
+    X(ROW_POINTER_SOURCE, "native_row_pointer_source", "Pointer") \
+    X(CELL_CONTROLLER, "native_cell_controller", "Controller") \
+    X(CELL_HEAD, "native_cell_head", "Head") \
+    X(CELL_EYES, "native_cell_eyes", "Eyes") \
+    X(ROW_DWELL, "native_row_dwell", "Dwell click") \
+    X(DWELL_06, "native_dwell_06", "0.6 s") \
+    X(DWELL_09, "native_dwell_09", "0.9 s") \
+    X(DWELL_12, "native_dwell_12", "1.2 s") \
+    X(DWELL_15, "native_dwell_15", "1.5 s") \
+    X(ROW_HEAD_LOOK, "native_row_head_look", "Head-look") \
+    X(ROW_BACK_GUIDE, "native_row_back_guide", "Back as Guide") \
+    X(ROW_MOUSE_MODE, "native_row_mouse_mode", "Mouse mode") \
+    X(CELL_ABSOLUTE, "native_cell_absolute", "Absolute") \
+    X(CELL_RELATIVE, "native_cell_relative", "Relative") \
+    X(NEEDS_HEAD_POINTER, "native_needs_head_pointer", "needs the Head or Eyes pointer") \
+    X(EYES_READY, "native_eyes_ready", "Eye tracking: available") \
+    X(EYES_WAITING, "native_eyes_waiting", "Eye tracking: offered, but no gaze has arrived yet") \
+    X(EYES_NOT_ASKED, "native_eyes_not_asked", "Eye tracking: not asked for (gaze = true in config.ini)") \
+    X(EYES_UNAVAILABLE, "native_eyes_unavailable", "Eye tracking: not available to apps yet") \
+    X(ACCESS_HELP, "native_access_help", "Head: the dot follows the middle of your view, and either trigger clicks. Dwell click: hold the dot still on a button or on the picture and it clicks by itself. To turn it off, pick Controller here, or set pointer_source = controller in config.ini.") \
+    X(ACCESS_HELP_EYES, "native_access_help_eyes", "For Eyes: wear the headset, turn on SteamVR Settings > General > Eye Tracking, then restart the app.")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,
