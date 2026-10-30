@@ -766,6 +766,12 @@ void MlxrPrefs::loadHeadInput(const QString& ini)
     const int dwell = iniValue(ini, "vr", "head_dwell_ms", "0").trimmed().toInt(&dwellOk);
     headDwellMs = !dwellOk || dwell <= 0 ? 0 : qBound(400, dwell, 2000);
     m_iniHeadDwellMs = headDwellMs;
+    // Native (lane a11y-2): the head and eye pointer's dot size, as ui/settings.c reads it (50..300,
+    // anything unreadable the default, 100)
+    bool dotOk = false;
+    const int dot = iniValue(ini, "vr", "assist_dot_size", "100").trimmed().toInt(&dotOk);
+    assistDotSize = dotOk ? qBound(50, dot, 300) : 100;
+    m_iniAssistDotSize = assistDotSize;
 }
 
 void MlxrPrefs::saveHeadInput(const QString& ini)
@@ -806,6 +812,10 @@ void MlxrPrefs::saveHeadInput(const QString& ini)
         setIniValue(ini, "vr", "head_dwell_ms", QString::number(headDwellMs <= 0 ? 0 : qBound(400, headDwellMs, 2000)));
     }
     m_iniHeadDwellMs = headDwellMs;
+    if (assistDotSize != m_iniAssistDotSize) {
+        setIniValue(ini, "vr", "assist_dot_size", QString::number(qBound(50, assistDotSize, 300)));
+    }
+    m_iniAssistDotSize = assistDotSize;
 }
 
 int MlxrPrefs::headsetMaxFps() const

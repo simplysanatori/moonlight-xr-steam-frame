@@ -549,6 +549,10 @@ Flickable {
         property string summary
         property string reason   // non-empty: not available here, greyed, with this reason
         property string valueText
+        // Native (lane a11y-2): a one-sentence tip, shown while the pointer is over the row or the row has the
+        // keyboard's or a gamepad's focus (Game Mode); tipFocus is a control inside the row having that focus
+        property string tip
+        property bool tipFocus: false
         default property alias trailing: trailingSlot.data
         property alias extra: extraSlot.data
         readonly property bool isPrefRow: true
@@ -568,6 +572,10 @@ Flickable {
 
         Keys.onReturnPressed: clicked()
         Keys.onEnterPressed: clicked()
+
+        ToolTip.text: tip
+        ToolTip.visible: tip !== "" && searchHit && (hovered || visualFocus || tipFocus)
+        ToolTip.delay: visualFocus || tipFocus ? 0 : 500
 
         contentItem: RowLayout {
             spacing: 16
@@ -646,22 +654,47 @@ Flickable {
         property real value
         property string suffix
         property int decimals: 0
+        // Native (lane a11y-2): a tick mark under every step
+        property bool ticks: false
         signal moved(real v)
         focusPolicy: Qt.NoFocus
         activeFocusOnTab: false
+        tipFocus: slider.visualFocus
         extra: RowLayout {
             width: parent ? parent.width : 0
-            Slider {
-                id: slider
+            Item {
                 Layout.fillWidth: true
-                from: sliderRow.from
-                to: sliderRow.to
-                stepSize: sliderRow.stepSize
-                snapMode: Slider.SnapAlways
-                value: sliderRow.value
-                enabled: sliderRow.enabled
-                activeFocusOnTab: true
-                onMoved: sliderRow.moved(value)
+                implicitHeight: slider.implicitHeight
+                implicitWidth: slider.implicitWidth
+                Slider {
+                    id: slider
+                    anchors.fill: parent
+                    from: sliderRow.from
+                    to: sliderRow.to
+                    stepSize: sliderRow.stepSize
+                    snapMode: Slider.SnapAlways
+                    value: sliderRow.value
+                    enabled: sliderRow.enabled
+                    activeFocusOnTab: true
+                    onMoved: sliderRow.moved(value)
+                }
+                // under the track, one a step, the default's (or any value's) place easy to count
+                Repeater {
+                    id: tickMarks
+                    model: sliderRow.ticks && sliderRow.stepSize > 0
+                           ? Math.round((sliderRow.to - sliderRow.from) / sliderRow.stepSize) + 1 : 0
+                    Rectangle {
+                        readonly property real handleW: slider.handle ? slider.handle.width : 0
+                        width: 2
+                        height: 8
+                        radius: 1
+                        color: settingsPage.summaryColor
+                        opacity: sliderRow.enabled ? 0.9 : 0.35
+                        x: slider.leftPadding + handleW / 2
+                           + index / Math.max(1, tickMarks.count - 1) * (slider.availableWidth - handleW) - width / 2
+                        y: slider.topPadding + slider.availableHeight / 2 + 10
+                    }
+                }
             }
             Label {
                 text: slider.value.toFixed(sliderRow.decimals) + sliderRow.suffix
@@ -723,6 +756,23 @@ Flickable {
     }
     function vrSet(key, value) {
         MlxrPrefs.setVr(key, value)
+    }
+    // Native (lane a11y-2), tests: a row takes the focus as a gamepad gives it, and its tip is logged; and a
+    // MlxrPrefs property set as a row would
+    function showTip(name) {
+        var kids = prefColumn.children
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i].objectName === name) {
+                var row = kids[i]
+                row.forceActiveFocus(Qt.TabFocus)
+                console.info("MLXR_SETTINGS_TIP: " + name + " visible=" + row.ToolTip.visible + " text=\"" + row.ToolTip.text + "\"")
+                return
+            }
+        }
+        console.warn("showTip: no row " + name)
+    }
+    function setPref(name, value) {
+        MlxrPrefs[name] = Number(value)
     }
 
     // ---- shared dialogs ----
@@ -1370,6 +1420,15 @@ Flickable {
             onSwitched: function(on) { MlxrPrefs.flipFaceButtons = on }
         }
 
+        // Native (lane headinput-finish, PLAN 4b.10; back here from Accessibility, lane a11y-2)
+        PrefSwitch {
+            objectName: "backAsGuideRow"
+            title: qsTr("Back button as Guide")
+            summary: qsTr("In the headset's gamepad mode the controllers' View (Back) button is the Xbox Guide button. With Start held it stays Back, so the Start and Back chords still work.")
+            isOn: MlxrPrefs.backAsGuide
+            onSwitched: function(on) { MlxrPrefs.backAsGuide = on }
+        }
+
         PrefRow {
             objectName: "padMouseChordRow"
             title: qsTr("Gamepad as mouse")
@@ -1566,7 +1625,34 @@ Flickable {
         }
 
         // Native (lane wave4-headinput): head and pointer input of the VR client, every one off by default
-        // (native, lane a11y-tab: head-look, What points and the mouse mode are under Accessibility now)
+        // (native, lane a11y-tab: What points is under Accessibility; lane a11y-2: head-look and the mouse mode
+        // are back here, head-look named for what it does)
+        PrefSwitch {
+            objectName: "headLookRow"
+            title: qsTr("Head turns the game's camera (first-person games)")
+            summary: qsTr("Turning your head moves the PC's mouse like a game's look control, for first-person games streamed in side by side 3D. Works in pointer mode with the screen locked to your head or in a room. Hold a grip (one bound to nothing) to pause it while you turn back. Head aim wins where both are on. Experimental.")
+            isOn: MlxrPrefs.headLook
+            onSwitched: function(on) { MlxrPrefs.headLook = on }
+        }
+
+        // Pressing the row steps through the speeds; one typed into config.ini that is not listed steps to the first
+        PrefRow {
+            objectName: "headLookPxRow"
+            readonly property var steps: [4, 6, 8, 12, 16, 24, 30]
+            title: qsTr("Head camera speed")
+            valueText: qsTr("%1 px a degree").arg(MlxrPrefs.headLookPxDeg)
+            summary: qsTr("How far the mouse moves for each degree your head turns while the head turns the game's camera. Its dead zone is head aim's.")
+            onClicked: MlxrPrefs.headLookPxDeg = settingsPage.nextLimit(steps, MlxrPrefs.headLookPxDeg)
+        }
+
+        // Native (lane headinput-finish, PLAN 4b.10): pressing the row steps Absolute -> Relative
+        PrefRow {
+            objectName: "mouseModeRow"
+            title: qsTr("Mouse mode")
+            valueText: MlxrPrefs.mouseMode === "relative" ? qsTr("Relative") : qsTr("Absolute")
+            summary: qsTr("Absolute puts the PC's cursor where the pointer lands on the picture, as a remote desktop does. Relative sends how far the pointer moves instead, for games that capture the mouse and ignore where it is.")
+            onClicked: MlxrPrefs.mouseMode = MlxrPrefs.mouseMode === "relative" ? "absolute" : "relative"
+        }
         PrefSwitch {
             objectName: "opentrackRow"
             title: qsTr("Head tracking to opentrack")
@@ -1673,9 +1759,10 @@ Flickable {
             summary: qsTr("Not tested on the Steam Frame yet.")
         }
 
-        // ======== Native (lane a11y-tab): Accessibility ========
+        // ======== Native (lane a11y-tab, a11y-2): Accessibility ========
         // The same rows as the headset's Accessibility tab (cog), for the person setting it up. Nothing here
-        // turns on by itself: each row writes its key only when it is pressed.
+        // turns on by itself: each row writes its key only when it is pressed or moved. Each row's tip (hover,
+        // or the focus of a keyboard or a gamepad in Game Mode) is the sentence the headset's footer shows.
         PrefCategory { text: qsTr("Accessibility"); icon: "accessibility" }
 
         // Pressing the row steps Controller -> Head -> Eyes
@@ -1683,7 +1770,8 @@ Flickable {
             objectName: "pointerSourceRow"
             readonly property var values: ["controller", "head", "gaze"]
             readonly property var names: [qsTr("Controller"), qsTr("Head"), qsTr("Eyes")]
-            title: qsTr("What points")
+            title: qsTr("Pointer")
+            tip: qsTr("What moves the pointer: a controller, your head, or where you look.")
             valueText: names[Math.max(0, values.indexOf(MlxrPrefs.pointerSource))]
             summary: qsTr("For people who cannot use their hands or have limited mobility. Head: a dot follows the middle of your view and either controller's trigger clicks. Eyes: the dot follows your eyes while SteamVR gives eye tracking to apps (the headset's Accessibility tab says whether it does) and your head while it does not. Controller turns it off.")
             onClicked: MlxrPrefs.pointerSource = values[(Math.max(0, values.indexOf(MlxrPrefs.pointerSource)) + 1) % values.length]
@@ -1695,6 +1783,7 @@ Flickable {
             objectName: "headDwellRow"
             readonly property var steps: [0, 600, 900, 1200, 1500]
             title: qsTr("Dwell click")
+            tip: qsTr("Rest the dot this long on something to click it.")
             valueText: MlxrPrefs.headDwellMs <= 0 ? qsTr("Off") : qsTr("%1 s").arg((MlxrPrefs.headDwellMs / 1000).toFixed(1))
             summary: qsTr("With the Head or Eyes pointer: hold the dot still on a button or on the picture for this long and it clicks by itself; move away and back to click again. 0.9 s is a good start, 0.6 s once practised.")
             onClicked: {
@@ -1703,39 +1792,20 @@ Flickable {
             }
         }
 
-        PrefSwitch {
-            objectName: "headLookRow"
-            title: qsTr("Head-look (experimental)")
-            summary: qsTr("Turning your head moves the PC's mouse like a game's look control, for first-person games streamed in side by side 3D. Works in pointer mode with the screen locked to your head or in a room. Hold a grip (one bound to nothing) to pause it while you turn back. Head aim wins where both are on.")
-            isOn: MlxrPrefs.headLook
-            onSwitched: function(on) { MlxrPrefs.headLook = on }
-        }
-
-        // Pressing the row steps through the speeds; one typed into config.ini that is not listed steps to the first
-        PrefRow {
-            objectName: "headLookPxRow"
-            readonly property var steps: [4, 6, 8, 12, 16, 24, 30]
-            title: qsTr("Head-look speed")
-            valueText: qsTr("%1 px a degree").arg(MlxrPrefs.headLookPxDeg)
-            summary: qsTr("How far the mouse moves for each degree your head turns with head-look on. Its dead zone is head aim's.")
-            onClicked: MlxrPrefs.headLookPxDeg = settingsPage.nextLimit(steps, MlxrPrefs.headLookPxDeg)
-        }
-
-        PrefSwitch {
-            objectName: "backAsGuideRow"
-            title: qsTr("Back button as Guide")
-            summary: qsTr("In the headset's gamepad mode the controllers' View (Back) button is the Xbox Guide button. With Start held it stays Back, so the Start and Back chords still work.")
-            isOn: MlxrPrefs.backAsGuide
-            onSwitched: function(on) { MlxrPrefs.backAsGuide = on }
-        }
-
-        // Pressing the row steps Absolute -> Relative
-        PrefRow {
-            objectName: "mouseModeRow"
-            title: qsTr("Mouse mode")
-            valueText: MlxrPrefs.mouseMode === "relative" ? qsTr("Relative") : qsTr("Absolute")
-            summary: qsTr("Absolute puts the PC's cursor where the pointer lands on the picture, as a remote desktop does. Relative sends how far the pointer moves instead, for games that capture the mouse and ignore where it is.")
-            onClicked: MlxrPrefs.mouseMode = MlxrPrefs.mouseMode === "relative" ? "absolute" : "relative"
+        // Lane a11y-2: 50 to 300 % of the dot's usual size, in 25 % steps with a tick at each
+        PrefSlider {
+            id: dotSizeRow
+            objectName: "assistDotSizeRow"
+            title: qsTr("Dot size")
+            tip: qsTr("How big the dot is when you point with your head or eyes.")
+            summary: qsTr("The dot and the ring of the dwell click, with the Head or Eyes pointer. 100 % is the usual size.")
+            from: 50
+            to: 300
+            stepSize: 25
+            ticks: true
+            suffix: " %"
+            value: MlxrPrefs.assistDotSize
+            onMoved: function(v) { MlxrPrefs.assistDotSize = Math.round(v) }
         }
 
         // ======== Host Settings ========
