@@ -25,8 +25,8 @@ static void rectPx(const Dc* dc, const float r[4], float* x0, float* y0, float* 
     *y1 = r[3] * dc->nh;
 }
 
-// One cell: a rounded outline, the keys' name, and under it what they do
-static void cell(Dc* dc, int index, const char* label, const char* hint, uint32_t ink, int hot) {
+// One cell: a rounded outline, the keys' name (at size px), and under it what they do
+static void cell(Dc* dc, int index, const char* label, float size, const char* hint, uint32_t ink, int hot) {
     float r[4];
     float x0, y0, x1, y1;
     xrHostCellRect(index, r);
@@ -35,11 +35,13 @@ static void cell(Dc* dc, int index, const char* label, const char* hint, uint32_
     dc_stroke_rrect(dc, x0, y0, x1, y1, 14.0f, hot ? 4.0f : 2.5f, ink);
     float cx = (x0 + x1) * 0.5f, w = (x1 - x0) - 20.0f;
     if (hint != NULL && hint[0] != '\0') {
-        dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 25.0f, cx, y0 + (y1 - y0) * 0.38f, w, ink, label);
+        dc_text_fit_center(dc, UI_WEIGHT_REGULAR, size, cx, y0 + (y1 - y0) * 0.38f, w, ink, label);
+        // the hint is fainter than the label, also on a dimmed cell (the PC page's DIM)
+        uint32_t a = ink >> 24, ha = a >= 0xEEu ? 0x90u : a * 0x90u / 0xEEu;
         dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 17.0f, cx, y0 + (y1 - y0) * 0.74f, w,
-                           (ink & 0x00FFFFFFu) | 0x90000000u, hint);
+                           (ink & 0x00FFFFFFu) | (ha << 24), hint);
     } else {
-        dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 25.0f, cx, (y0 + y1) * 0.5f, w, ink, label);
+        dc_text_fit_center(dc, UI_WEIGHT_REGULAR, size, cx, (y0 + y1) * 0.5f, w, ink, label);
     }
 }
 
@@ -69,9 +71,13 @@ static void pcPage(Dc* dc, int confirm) {
             label = info->cmd[i - XR_HOST_PC_CMD_FIRST];
             hint = ui_str(UIS_HOST_CMD_HINT);
         }
-        cell(dc, i, label, hint, ink, !confirm && dc_hover(dc, UI_HIT_HOST_CELL, i, -1));
+        // a label a little too long for the cell ("Send text to PC", a host's command name) gets smaller
+        // before it is cut short
+        xrHostCellRect(i, r);
+        float room = (r[2] - r[0]) * dc->nw - 20.0f, size = 25.0f;
+        while (size > 19.0f && dc_text_width(dc, UI_WEIGHT_REGULAR, size, label) > room) size -= 1.0f;
+        cell(dc, i, label, size, hint, ink, !confirm && dc_hover(dc, UI_HIT_HOST_CELL, i, -1));
         if (!confirm) {
-            xrHostCellRect(i, r);
             dc_hit_uv(dc, UI_HIT_HOST_CELL, i, kind, r[0], r[1], r[2], r[3], 1);
         }
     }
@@ -140,7 +146,7 @@ void panel_host(Dc* dc) {
         } else {
             label = v->host_macro[i - XR_HOST_MACRO_FIRST];
         }
-        cell(dc, i, label, hint, ink, !confirm && dc_hover(dc, UI_HIT_HOST_CELL, i, -1));
+        cell(dc, i, label, 25.0f, hint, ink, !confirm && dc_hover(dc, UI_HIT_HOST_CELL, i, -1));
         if (!confirm) {
             xrHostCellRect(i, r);
             dc_hit_uv(dc, UI_HIT_HOST_CELL, i, kind, r[0], r[1], r[2], r[3], 1);

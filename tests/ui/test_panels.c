@@ -918,6 +918,20 @@ static void test_host_pc_page(void) {
         free(g.base);
     }
     CHECK(sums[0] != sums[1] && sums[1] != sums[2] && sums[0] != sums[2]);
+    // the page's own words are whole: the header button's at its 24 px, the clipboard cells' at the
+    // smallest size a cell label shrinks to before it is cut short (panel_host.c)
+    UiFont* font = ui_font_default();
+    CHECK(font != NULL);
+    if (font != NULL) {
+        float r[4];
+        xrHostPageRect(r);
+        CHECK(ui_text_width(font, UI_WEIGHT_REGULAR, 24.0f, ui_str(UIS_HOST_PAGE_PC), -1)
+              <= (r[2] - r[0]) * XR_HOST_TEX_W - 24.0f);
+        xrHostCellRect(XR_HOST_PC_PASTE, r);
+        float room = (r[2] - r[0]) * XR_HOST_TEX_W - 20.0f;
+        CHECK(ui_text_width(font, UI_WEIGHT_REGULAR, 19.0f, ui_str(UIS_HOST_PASTE), -1) <= room);
+        CHECK(ui_text_width(font, UI_WEIGHT_REGULAR, 19.0f, ui_str(UIS_HOST_COPY), -1) <= room);
+    }
     // asking about a command: the question names it, and the buttons are where the zones say
     v.host_info.apollo = 1;
     v.host_info.cmdCount = 2;

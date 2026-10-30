@@ -694,7 +694,8 @@ int xrHostChordKey(XrHostChord* c, int code, int* vk, int* mods) {
 // ---- the PC page ----------------------------------------------------------------------------------
 
 void xrHostPageRect(float r[4]) {
-    uv(560.0f, 22.0f, 826.0f, 70.0f, r);
+    // wide enough for "Clipboard, commands" at the header's 24 px, clear of the PC page's title
+    uv(540.0f, 22.0f, 826.0f, 70.0f, r);
 }
 
 int xrHostPcCellKind(int cell, int commands) {
