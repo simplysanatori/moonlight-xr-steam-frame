@@ -569,6 +569,9 @@ int initXrInput(XrCtx* ctx) {
                 ctx->gazeAction = XR_NULL_HANDLE;
                 ctx->eyeGaze = 0;
             }
+            else {
+                ctx->gazeBound = 1;   // native (lane a11y-tab): for the Accessibility tab's eye line
+            }
         }
         else {
             ctx->gazeAction = XR_NULL_HANDLE;
@@ -1727,9 +1730,30 @@ typedef struct {
 // controller's is; the controllers only click (either trigger) and never point,
 // nothing wakes or sleeps on their clocks, the dot is drawn where the head
 // points and the host's cursor follows it. Gamepad mode leaves it alone.
+// Native (lane a11y-tab): the Accessibility tab's Eyes pointer is the same mode
+// with the gaze's ray in the head's place while the eyes are tracked, and the
+// head's while they are lost (readSources, xr_access.h gazeFallStep), so
+// everything here holds for it, the dwell click included.
 static int headPointing(XrCtx* ctx) {
-    return ctx->pointerSource == POINTER_SOURCE_HEAD && ctx->viewSpace != XR_NULL_HANDLE
-            && !ctx->padMode;
+    return (ctx->pointerSource == POINTER_SOURCE_HEAD || ctx->pointerSource == POINTER_SOURCE_GAZE)
+            && ctx->viewSpace != XR_NULL_HANDLE && !ctx->padMode;
+}
+
+// Native (lane a11y-tab): whether the gaze action is driven, for the eye gaze log line
+static int gazeActionActive(XrCtx* ctx) {
+    if (ctx->gazeAction == XR_NULL_HANDLE) {
+        return 0;
+    }
+    if (ctx->poseActive != NULL) {
+        return ctx->poseActive(ctx, ctx->gazeAction, SRC_GAZE) != 0;
+    }
+    if (ctx->session == XR_NULL_HANDLE) {
+        return 0;
+    }
+    XrActionStateGetInfo get = { XR_TYPE_ACTION_STATE_GET_INFO };
+    get.action = ctx->gazeAction;
+    XrActionStatePose state = { XR_TYPE_ACTION_STATE_POSE };
+    return XR_SUCCEEDED(xrGetActionStatePose(ctx->session, &get, &state)) && state.isActive;
 }
 
 // Whether the eyes are what is doing the pointing. A controller in use takes
@@ -2213,6 +2237,27 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
     int gazeSpace = head || ctx->aimSpaces[SRC_GAZE] != XR_NULL_HANDLE;
     rayRowBegin(ctx, f);
     readGazeValid(ctx);
+    // Native (lane a11y-tab): the first gaze of the session, and the log line that says whether
+    // one came; then the Eyes pointer: the gaze while it is tracked, the head's ray once it has
+    // been lost for 200 ms, the gaze again after 300 ms tracked. A switch starts the smoothing
+    // afresh, so the dot jumps rather than sweeping across.
+    if (!ctx->gazeSeen || !ctx->gazeReported) {
+        xrGazeWatch(ctx, f->now, ctx->sessionState == XR_SESSION_STATE_FOCUSED,
+                    ctx->gazeReported ? 0 : gazeActionActive(ctx));
+    }
+    int eyesPoint = 0;
+    if (head && ctx->pointerSource == POINTER_SOURCE_GAZE) {
+        int switched = 0;
+        eyesPoint = !gazeFallStep(&ctx->gazeFall, ctx->aimSpaces[SRC_GAZE] != XR_NULL_HANDLE ? ctx->gazeValid : -1,
+                                  f->now, &switched);
+        if (switched) {
+            resetHeadPointFilter(ctx);
+            ctx->eyesHoldValid = 0;
+        }
+    }
+    else {
+        gazeFallReset(&ctx->gazeFall);
+    }
     // A controller that is the pad's points at nothing and presses nothing, so
     // it is never read here
     for (int h = 0; h < HAND_COUNT; h++) {
@@ -2302,8 +2347,9 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
         int handActions = onHandActions(ctx, h);
         XrSpace space = handActions ? ctx->handAimSpaces[h] : ctx->aimSpaces[h];
         // Native (lane wave4-headinput, PLAN 6.5): head Point mode's ray is the view's own
+        // (native, lane a11y-tab: the Eyes pointer's is the gaze while the eyes are tracked)
         if (h == SRC_GAZE && head) {
-            space = ctx->viewSpace;
+            space = eyesPoint ? ctx->aimSpaces[SRC_GAZE] : ctx->viewSpace;
         }
         // Native (lane ray-glitch): through the seam, and kept as the runtime
         // gave it for the recorder before the screen's frame moves it
@@ -2320,6 +2366,7 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             row->active = active;
             row->pose = loc.pose;
         }
+        XrPosef raw = loc.pose;
         int ok = found && intoFrame(&f->xform, &loc.pose);
         int located = ok && (loc.locationFlags & needed) == needed;
         if (h == SRC_GAZE) {
@@ -2328,6 +2375,18 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             located = ok && gazeUsable((unsigned)loc.locationFlags);
             f->gazeAsked = 1;
             f->gazeUsable = located;
+            // Native (lane a11y-tab): the Eyes pointer holds the last gaze through a blink,
+            // until the fallback hands the pointer to the head
+            if (eyesPoint) {
+                if (located) {
+                    ctx->eyesHold = raw;
+                    ctx->eyesHoldValid = 1;
+                }
+                else if (ctx->eyesHoldValid) {
+                    loc.pose = ctx->eyesHold;
+                    located = intoFrame(&f->xform, &loc.pose);
+                }
+            }
         }
         else {
             // A hand the runtime has lost still reports a last known pose, and
@@ -3192,8 +3251,8 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
         // up here changes tab and reaches nothing else.
         if (pv < COG_TAB_BAR_B) {
             if (ctx->triggerEdge[h]) {
-                int t = (int)(pu * COG_TAB_COUNT);
-                if (t >= COG_TAB_COUNT) t = COG_TAB_COUNT - 1;
+                // native (lane a11y-tab): the slots are of their own widths
+                int t = cogTabAt(pu);
                 ctx->cogTab = t;
                 // Kept: the cog opens on this tab next time, this session
                 // and the next. Skipped on the rare frame a slider drag
@@ -3227,7 +3286,8 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
 
         if (row >= 0 && !cogRowIsTrack(face, row)) {
             // Cells, so a press picks one rather than starting a drag
-            int cell = cogCellAt(pu, cogRowCells(face, row));
+            // native (lane a11y-tab): the Accessibility tab's pointer row shows Eyes only where it works
+            int cell = cogCellAt(pu, face == COG_TAB_ACCESS ? cogAccessCells(ctx, row) : cogRowCells(face, row));
             ctx->cogHoverSlider = cell >= 0 ? row : -1;
             ctx->cogHoverCell = cell;
             if (cell >= 0 && ctx->triggerEdge[h]) {
@@ -4919,10 +4979,11 @@ void xrSetPointerSource(XrCtx* ctx, int source, int dwellMs) {
     dwellReset(&ctx->dwell);
     ctx->dwellFraction = -1.0f;
     resetHeadPointFilter(ctx);
+    gazeFallReset(&ctx->gazeFall);
     if (ctx->pointerSource != POINTER_SOURCE_CONTROLLER) {
-        LOGEV("pointer source %s%s", ctx->pointerSource == POINTER_SOURCE_HEAD ? "head" : "gaze",
-              ctx->pointerSource == POINTER_SOURCE_HEAD && ctx->headDwellMs > 0 ? ", dwell click" : "");
-        if (ctx->pointerSource == POINTER_SOURCE_HEAD && ctx->headDwellMs > 0) {
+        LOGEV("pointer source %s%s", ctx->pointerSource == POINTER_SOURCE_HEAD ? "head" : "eyes (the head while they are lost)",
+              ctx->headDwellMs > 0 ? ", dwell click" : "");
+        if (ctx->headDwellMs > 0) {
             LOGEV("dwell click after %d ms resting within %.1f degrees", ctx->headDwellMs,
                   DWELL_TOLERANCE_DEG);
         }
@@ -5460,6 +5521,66 @@ static void beginPointerFrame(XrCtx* ctx, InputFrame* f, float* out, int headLoc
 // click is the left button on the picture or the head's press on our UI, both
 // from the next frame for DWELL_PRESS_NS. The handles (the move pill, a corner,
 // the keyboard's bar) are never dwelt on: a press there grabs.
+// Native (lane a11y-tab): the modal panel the head's (or the eyes') ray is on, for the dwell. The
+// panels take their presses after the pointer's pass, so the pass's hover names the picture behind
+// one instead (and a dwell there was a click on the hidden picture, which the open panel then
+// kept from the PC). -1 with no modal panel up, HOVER_NONE with the ray off it: a dwell never
+// lands beside a panel, where a press would put it away.
+static int dwellPanelHover(XrCtx* ctx, const InputFrame* f) {
+    XrPosef pose;
+    float w = 0.0f, h = 0.0f;
+    int kind;
+    if (ctx->pickerOpen) {
+        pose = pickerPose(ctx, &w, &h);
+        kind = HOVER_PICKER;
+    }
+    else if (ctx->cogOpen) {
+        pose = ctx->cogPose;
+        w = ctx->cogW;
+        h = ctx->cogH;
+        kind = HOVER_COGPANEL;
+    }
+    else if (ctx->exitConfirmOpen) {
+        pose = ctx->exitPose;
+        w = ctx->exitW;
+        h = ctx->exitH;
+        kind = HOVER_EXITPROMPT;
+    }
+    else if (ctx->reportOpen) {
+        pose = ctx->reportPose;
+        w = ctx->reportW;
+        h = ctx->reportH;
+        kind = HOVER_REPORT;
+    }
+    else if (ctx->hintOpen) {
+        pose = ctx->hintPose;
+        w = ctx->hintW;
+        h = ctx->hintH;
+        kind = HOVER_HINT;
+    }
+    else if (ctx->kofiOpen) {
+        pose = ctx->kofiPose;
+        w = ctx->kofiW;
+        h = ctx->kofiH;
+        kind = HOVER_KOFI;
+    }
+    else if (ctx->hostOpen) {
+        pose = ctx->hostPose;
+        w = ctx->hostW;
+        h = ctx->hostH;
+        kind = HOVER_HOST;
+    }
+    else {
+        return -1;
+    }
+    float u = -1.0f, v = -1.0f;
+    if (f->aimValid[SRC_GAZE] && screenProject(f->aimPoses[SRC_GAZE], pose, w, h, 0.0f, 0, &u, &v)
+            && u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f) {
+        return kind;
+    }
+    return HOVER_NONE;
+}
+
 static void updateDwell(XrCtx* ctx, InputFrame* f) {
     ctx->dwellUiEdge = 0;
     if (!headPointing(ctx) || ctx->headDwellMs <= 0) {
@@ -5467,7 +5588,8 @@ static void updateDwell(XrCtx* ctx, InputFrame* f) {
         ctx->dwellFraction = -1.0f;
         return;
     }
-    int hover = f->hand == SRC_GAZE ? f->hover : HOVER_NONE;
+    int panel = dwellPanelHover(ctx, f);
+    int hover = panel >= 0 ? panel : f->hand == SRC_GAZE ? f->hover : HOVER_NONE;
     int target = hover != HOVER_NONE && hover != HOVER_HALO && hover != HOVER_BAR
             && hover != HOVER_CORNER && hover != HOVER_KBBAR;
     int held = ctx->triggerDown[HAND_LEFT] || ctx->triggerDown[HAND_RIGHT]
@@ -5520,6 +5642,23 @@ void xrPointerStep(XrCtx* ctx, int64_t now, int headLocked) {
     pointerPass(ctx, &f);
 }
 
+// Native (lane a11y-tab), for the tests: see xr_native.h
+void xrPointerPanelStep(XrCtx* ctx, int64_t now, int headLocked, float* out) {
+    memset(out, 0, sizeof(float) * IN_SLOTS);
+    out[IN_PICKER_PICK] = -1.0f;
+    out[IN_SETTING] = -1.0f;
+    out[IN_KEY] = -1.0f;
+    out[IN_REPORT] = -1.0f;
+    InputFrame f;
+    beginPointerFrame(ctx, &f, out, headLocked, now);
+    pointerPass(ctx, &f);
+    clearHotState(ctx);
+    if (ctx->cogOpen) {
+        updateCogPanel(ctx, &f);
+    }
+    ctx->hoverKind = f.hover;
+}
+
 // Native (lane wave2-lightgun-gyro), for the tests: see xr_native.h
 int xrButtonsFrame(XrCtx* ctx, int wanted, int hover, int hit) {
     float out[IN_SLOTS];
@@ -5544,8 +5683,9 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     if (ctx != NULL) {
         // Native (lane wave4-headinput, PLAN 6.5): pointer_source = gaze is the gaze switch on;
         // head pointing leaves the eyes out of it
-        ctx->gazeEnabled = ctx->pointerSource == POINTER_SOURCE_HEAD ? 0
-                : (gazeEnabled || ctx->pointerSource == POINTER_SOURCE_GAZE);
+        // native (lane a11y-tab): and the Accessibility tab's Eyes is head Point mode with the
+        // gaze's ray (headPointing), so it leaves the controllers' gaze switch out too
+        ctx->gazeEnabled = ctx->pointerSource != POINTER_SOURCE_CONTROLLER ? 0 : gazeEnabled;
         ctx->pointerSleepOn = pointerSleep;
         ctx->headLockedPref = headLocked;
         // Before anything asks who is pointing, off the last frame's clocks and

@@ -150,6 +150,9 @@ int cogArt(XrCtx* ctx) {
     if (ctx->cogTab == COG_TAB_PICTURE) {
         return COG_ART_ROOM_PICTURE;
     }
+    if (ctx->cogTab == COG_TAB_ACCESS) {
+        return COG_ART_ROOM_ACCESS;
+    }
     if (ctx->cogTab == COG_TAB_ABOUT) {
         return COG_ART_ROOM_ABOUT;
     }
@@ -603,6 +606,10 @@ int cogTabRowCount(int face) {
     if (face == COG_TAB_PICTURE) {
         return PICTURE_TAB_ROWS;
     }
+    // Native (lane a11y-tab): the Accessibility tab's rows, all cells
+    if (face == COG_TAB_ACCESS) {
+        return COG_ACCESS_ROW_COUNT;
+    }
     if (face == COG_TAB_ABOUT) {
         return 0;
     }
@@ -618,6 +625,9 @@ int cogRowIsTrack(int face, int row) {
     }
     if (face == COG_TAB_DISPLAY) {
         return row == COG_DISPLAY_SLIDER_ROW;
+    }
+    if (face == COG_TAB_ACCESS) {
+        return 0;
     }
     if (face == COG_FACE_ROOM) {
         return row != COG_ROOM_ROW_GLOW && row != COG_ROOM_ROW_LIGHT;
@@ -638,6 +648,11 @@ int cogRowCells(int face, int row) {
     }
     if (face == COG_FACE_ROOM) {
         return COG_ROOM_SWITCH_CELLS;
+    }
+    // Native (lane a11y-tab): the most each row has; cogAccessCells is what it shows now
+    if (face == COG_TAB_ACCESS) {
+        return row == COG_ACCESS_ROW_POINTER ? COG_ACCESS_POINTER_CELLS
+                : row == COG_ACCESS_ROW_DWELL ? COG_ACCESS_DWELL_CELLS : COG_ACCESS_SWITCH_CELLS;
     }
     if (face == COG_TAB_3D) {
         return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS
@@ -675,6 +690,10 @@ int cogRowLive(XrCtx* ctx, int face, int row) {
     // A room built around its picture keeps it at the whole of its anchor
     if (face == COG_FACE_ROOM && row == COG_ROOM_ROW_SIZE) {
         return roomResizable(roomFaceStyle(ctx));
+    }
+    // Native (lane a11y-tab): the dwell click needs the head or the eyes pointing
+    if (face == COG_TAB_ACCESS) {
+        return cogAccessRowLive(ctx, row);
     }
     return 1;
 }
@@ -1331,6 +1350,10 @@ void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out) {
     }
     if (face == COG_TAB_3D) {
         cogApply3dCell(ctx, row, cell, out);
+        return;
+    }
+    if (face == COG_TAB_ACCESS) {
+        cogApplyAccessCell(ctx, row, cell, out);   // native (lane a11y-tab), xr_assist.c
         return;
     }
     int id = cogApplyOption(ctx, row, cell);
