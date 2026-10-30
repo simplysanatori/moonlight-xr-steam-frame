@@ -3337,6 +3337,7 @@ static void txRecWarp(VkCommandBuffer cmd, void* u) {
     MlxrWarpParams w = warpDefaults(&v);
     w.srcInset = 0.5f / TXS_W;
     w.sharpen = r->cfg->warpSharpen;
+    w.chromaGuided = r->cfg->chroma;
     MlxrTarget t;
     memset(&t, 0, sizeof(t));
     t.view = r->picL0;
@@ -3434,11 +3435,14 @@ static void testText(void) {
     targetMake(&r.eye, TX_EYE, TX_EYE, UNORM);
     uint8_t* eye = malloc((size_t)TX_EYE * TX_EYE * 4);
     uint8_t* moved = malloc((size_t)TX_EYE * TX_EYE * 4);
-    enum { BEFORE, BEFORE_CAS, FILTER, ROWS };
+    enum { BEFORE, BEFORE_CAS, FILTER, DEFAULT, NV12, BOUND, ROWS };
     static const TxCfg cfgs[ROWS] = {
         [BEFORE] = {"before: trilinear, bilinear chroma", 0.0f, 0, 0.0f, 0, 0, 1, 1},
         [BEFORE_CAS] = {"before, Sharpen quality (warp CAS)", 0.8f, 0, 0.0f, 0, 0, 0, 0},
         [FILTER] = {"+ footprint filter", 0.0f, 1, 0.0f, 0, 0, 1, 1},
+        [DEFAULT] = {"+ chroma from luma: new default", 0.0f, 1, 0.0f, 1, 0, 1, 1},
+        [NV12] = {"new default, NV12 (lavapipe's)", 0.0f, 1, 0.0f, 1, 1, 0, 0},
+        [BOUND] = {"new default, 4:4:4 frame (bound)", 0.0f, 1, 0.0f, 0, 2, 0, 0},
     };
     TxScore at[TX_GEOM_COUNT][ROWS][2];
     float crawl[TX_GEOM_COUNT][ROWS + 1];
@@ -3540,7 +3544,7 @@ static void testText(void) {
         VkCommandBuffer cmd = vkh_begin(&vk);
         vkh_layout(&vk, &r.eye.img, COLOR_ATT);
         vkh_submit(&vk);
-        const int timed[] = {BEFORE, FILTER};
+        const int timed[] = {BEFORE, DEFAULT};
         for (size_t i = 0; i < sizeof(timed) / sizeof(timed[0]); i++) {
             r.cfg = &cfgs[timed[i]];
             float wm = timeIt(txRecWarp, &r, 5);
@@ -3582,6 +3586,23 @@ static void testText(void) {
               fc->alias, bc->alias);
         check(crawl[0][FILTER + 1] <= crawl[0][0] + 0.5f, "text: crawl %.2f, the ideal's %.2f", crawl[0][FILTER + 1],
               crawl[0][0]);
+    }
+    // Chroma from luma: coloured text nearer the ideal everywhere, grey text
+    // untouched, crawl unchanged
+    {
+        for (int g = 0; g < TX_GEOM_COUNT; g++)
+            check(at[g][DEFAULT][0].chromaRms <= 0.8f * at[g][FILTER][0].chromaRms,
+                  "text: %s, chroma from luma's chroma RMS %.1f, bilinear %.1f", TX_GEOMS[g].name,
+                  at[g][DEFAULT][0].chromaRms, at[g][FILTER][0].chromaRms);
+        check(fabsf(at[0][DEFAULT][0].textRms - at[0][FILTER][0].textRms) < 0.5f,
+              "text: chroma from luma leaves grey text alone (%.1f, %.1f)", at[0][DEFAULT][0].textRms,
+              at[0][FILTER][0].textRms);
+        // lavapipe's NV12 conversion reads chroma on the even rows (the
+        // Frame's between two): it must still not make chroma worse
+        check(at[0][NV12][0].chromaRms <= at[0][FILTER][0].chromaRms + 0.5f, "text: NV12 chroma from luma %.1f",
+              at[0][NV12][0].chromaRms);
+        check(fabsf(crawl[0][DEFAULT + 1] - crawl[0][FILTER + 1]) < 0.1f, "text: chroma from luma crawl %.2f, %.2f",
+              crawl[0][DEFAULT + 1], crawl[0][FILTER + 1]);
     }
     free(moved);
     free(eye);

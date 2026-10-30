@@ -129,6 +129,7 @@ typedef struct Settings {
     int sharpening;        // 0 off, 1 normal, 2 quality
     int supersampling;
     int picture_filter;    // native (lane text-clarity): the curved or 3D picture's footprint filter
+    int chroma_from_luma;  // native (lane text-clarity): chroma sharpened from the luma in the warp
     int stats;
     int stats_style;       // native: what the Stats overlay shows: 0 full lines, 1 HUD, 2 Lite one-liner (xr_hud.h STATS_STYLE_)
     int glow;              // ambilight
