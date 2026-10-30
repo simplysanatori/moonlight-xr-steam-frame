@@ -444,6 +444,9 @@ typedef struct XrCtx {
     // the map as made
     float depthGlobal;
     float depthLocal;
+    // Native (lane wave5-depth, PLAN 5.5): [debug] depth_threads, read when
+    // the model starts (MLXR_DEPTH_THREADS overrides it)
+    int depthThreads;
     // The edge fixes, on apart from the cubic read. Pixels for the fade, 0 or
     // 1 for the rest.
     int srcInsetOn;

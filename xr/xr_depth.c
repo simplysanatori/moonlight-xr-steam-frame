@@ -624,8 +624,10 @@ static void engineStart(XrCtx* ctx, XrDepth* d) {
     memset(&cfg, 0, sizeof(cfg));
     cfg.modelPath = path;
     // Upstream's CPU route: two threads, and fp16 arithmetic on these cores
-    // (docs/dev/reports/depth.md: ZipDepth 512x288 27 maps/s at 2 threads in fp16)
-    cfg.threads = 2;
+    // (docs/dev/reports/depth.md: ZipDepth 512x288 27 maps/s at 2 threads in fp16).
+    // Native (lane wave5-depth, PLAN 5.5): [debug] depth_threads, 2 unless set
+    cfg.threads = ctx->depthThreads >= DEPTH_THREADS_MIN && ctx->depthThreads <= DEPTH_THREADS_MAX
+            ? ctx->depthThreads : DEPTH_THREADS_DEFAULT;
     const char* threads = getenv("MLXR_DEPTH_THREADS");
     if (threads != NULL && atoi(threads) > 0) cfg.threads = atoi(threads);
     cfg.flags = MLXR_DEPTH_FP16;

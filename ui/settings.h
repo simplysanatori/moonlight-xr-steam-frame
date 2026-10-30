@@ -102,6 +102,7 @@ typedef struct Settings {
 
     // [debug] VR Debugging table
     int depth_rate;
+    int depth_threads;     // native (PLAN 5.5): the depth model's threads, DEPTH_THREADS_MIN..MAX
     int depth_debug;
     int eye_swap;
     int file_log;          // 0 off, 1 warnings and errors, 2 verbose

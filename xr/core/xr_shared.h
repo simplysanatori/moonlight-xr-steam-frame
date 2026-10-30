@@ -89,6 +89,16 @@
 #define DEPTH_SCALE_MAX 200
 #define DEPTH_SCALE_DEFAULT 100
 
+// Native (lane wave5-depth, PLAN 5.5): [debug] depth_threads, the depth
+// model's XNNPACK threads counting the depth thread itself. 2 is upstream's
+// CPU route. 3 on the Frame (docs/dev/reports/depth.md): 33.4 maps a second
+// unlimited against 27 for 2, about 7 ms less a map (the report's summary
+// says up to 10 ms of latency), for another core; at the held 20 a second the
+// model took 37 ms against 38. MLXR_DEPTH_THREADS still wins.
+#define DEPTH_THREADS_MIN 1
+#define DEPTH_THREADS_MAX 4
+#define DEPTH_THREADS_DEFAULT 2
+
 // Enough for a dozen lines of stats without being big enough to matter
 #define OVERLAY_WIDTH 768
 #define OVERLAY_HEIGHT 512

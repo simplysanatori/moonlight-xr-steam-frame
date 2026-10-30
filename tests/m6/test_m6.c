@@ -19,8 +19,8 @@
 //             waits for a fresh map; FAILED (and a thread that never starts)
 //             stays flat with a toast and puts the switch away
 //   params    the 3D's tuning keys only config.ini and the launcher carry
-//             (edge_sharpness, motion_reset, depth_scale, depth_global), into
-//             the context, the engine and the passes
+//             (edge_sharpness, motion_reset, depth_scale, depth_global,
+//             depth_threads), into the context, the engine and the passes
 //   budget    the layers of the busiest frames with the 3D on (two picture
 //             quads, one an eye, and the bar's 3D button), against SteamVR's 16
 // GPLv3.
@@ -670,6 +670,27 @@ static void testParams(void) {
     settings_defaults(&bad);
     settings_from_text(&bad, "[3d]\ndepth_scale = 900\ndepth_global = -4\n", NULL);
     CHECK(bad.depth_scale == DEPTH_SCALE_MAX && bad.depth_global == DEPTH_SCALE_MIN);
+
+    // 5.5 the model's threads: 2 as upstream's CPU route, else as set (the
+    // variable, when the environment has it, wins over both)
+    if (getenv("MLXR_DEPTH_THREADS") == NULL) {
+        settings_defaults(&s);
+        CHECK(s.depth_threads == DEPTH_THREADS_DEFAULT && DEPTH_THREADS_DEFAULT == 2);
+        ctx = m6_ctx(&g, &FAKE, assets, &s);
+        fid = 0;
+        waitReady(ctx, &fid);
+        CHECK(fakeLive != NULL && fakeLive->threads == 2);
+        m6_ctx_free(ctx);
+        s.depth_threads = 3;
+        ctx = m6_ctx(&g, &FAKE, assets, &s);
+        fid = 0;
+        waitReady(ctx, &fid);
+        CHECK(fakeLive != NULL && fakeLive->threads == 3);
+        m6_ctx_free(ctx);
+    }
+    settings_defaults(&bad);
+    settings_from_text(&bad, "[debug]\ndepth_threads = 16\n", NULL);
+    CHECK(bad.depth_threads == DEPTH_THREADS_MAX);
 }
 
 // ---- states --------------------------------------------------------------------------------
