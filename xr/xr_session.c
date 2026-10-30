@@ -32,6 +32,8 @@
 #include "xr_vk.h"
 #include "xr_world.h"
 #include "xr_depth.h"
+#include "xr_battery.h"
+#include "xr_perflog.h"
 #include <dirent.h>
 
 // Native: the GPU time each Vulkan device in this process used since the last
@@ -1300,6 +1302,7 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
     ctx->frameInteraction = offered(exts, n, "XR_VALVE_frame_controller_interaction");
     ctx->refreshRateSupported = offered(exts, n, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
     ctx->perfSettingsSupported = offered(exts, n, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
+    ctx->metricsSupported = offered(exts, n, XR_META_PERFORMANCE_METRICS_EXTENSION_NAME);
     ctx->handInteraction = offered(exts, n, XR_EXT_HAND_INTERACTION_EXTENSION_NAME);
     ctx->msftHandInteraction = offered(exts, n, XR_MSFT_HAND_INTERACTION_EXTENSION_NAME);
     ctx->handTracking = offered(exts, n, XR_EXT_HAND_TRACKING_EXTENSION_NAME);
@@ -1329,6 +1332,7 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
     if (ctx->frameInteraction) enabled[ne++] = "XR_VALVE_frame_controller_interaction";
     if (ctx->refreshRateSupported) enabled[ne++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
     if (ctx->perfSettingsSupported) enabled[ne++] = XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME;
+    if (ctx->metricsSupported) enabled[ne++] = XR_META_PERFORMANCE_METRICS_EXTENSION_NAME;
     if (ctx->handInteraction) enabled[ne++] = XR_EXT_HAND_INTERACTION_EXTENSION_NAME;
     if (ctx->handTracking) enabled[ne++] = XR_EXT_HAND_TRACKING_EXTENSION_NAME;
     ctx->handAimOffered = ctx->handAimOffered && ctx->handTracking;
@@ -1349,6 +1353,7 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
         return 0;
     }
     probeDisplayExtensions(ctx);
+    xrMetricsProbe(ctx);
     g_xrTimeToTimespec = NULL;
     if (g_convertTimeOffered
         && XR_FAILED(xrGetInstanceProcAddr(ctx->instance, "xrConvertTimeToTimespecTimeKHR",
@@ -1438,6 +1443,20 @@ typedef struct Host {
     char statsText[1536]; // Native: was 512, which cut the last lines off once the app, perf and depth lines grew
     int64_t statsNs;
     char clockText[32];
+    // Native (lane wave3-hud): the headset battery (read every 30 s), the stream's figures a second at a time
+    // (the HUD, the slow connection badge), the compositor's timing, and the perf CSV
+    int64_t batteryNs, netNs;
+    char batteryDir[600];
+    MlxrHudCum hudPrev;
+    MlxrHudFigures fig;
+    uint64_t hudVideo;
+    MlxrSlowConn slow;
+    MlxrCompositorMetrics comp;
+    int metricsStarted;
+    FILE* perfFile;
+    int64_t perfNs, perfStartNs;
+    MlxrHudCum perfPrev;
+    uint64_t perfVideo;
 } Host;
 
 static void saveSettings(Host* h, const char* why) {
@@ -1578,18 +1597,184 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
     }
 }
 
+// Native (lane wave3-hud): the metrics counters are switched on once the session runs
+static void metricsEnsure(Host* h) {
+    if (!h->metricsStarted && h->ctx->sessionRunning && h->ctx->metricsSupported) {
+        h->metricsStarted = 1;
+        xrMetricsStart(h->ctx);
+    }
+}
+
+// Native (lane wave3-hud): the headset battery for the clock strip, every 30 s. A machine without
+// one (the desktop) shows nothing.
+static void updateBattery(Host* h, int64_t now) {
+    XrCtx* ctx = h->ctx;
+    if (h->batteryNs != 0 && now - h->batteryNs < 30000000000LL) {
+        return;
+    }
+    h->batteryNs = now;
+    MlxrBattery b;
+    memset(&b, 0, sizeof(b));
+    if (h->batteryDir[0] == '\0') {
+        mlxr_battery_find(NULL, h->batteryDir, sizeof(h->batteryDir));
+    }
+    if (h->batteryDir[0] != '\0' && !mlxr_battery_read(h->batteryDir, &b)) {
+        h->batteryDir[0] = '\0';   // gone: look again next time
+    }
+    if (b.present && !ctx->batteryPresent) {
+        LOGI("battery: %d%% (%s)", b.percent, b.charging ? "charging" : "not charging");
+    }
+    ctx->batteryPresent = b.present;
+    ctx->batteryPercent = b.percent;
+    ctx->batteryCharging = b.charging;
+}
+
+// perf-<stamp>.csv next to vrtiming.log: a row every 5 s while the stats are on and a stream is up
+static void perfClose(Host* h) {
+    if (h->perfFile != NULL) {
+        fclose(h->perfFile);
+        h->perfFile = NULL;
+    }
+}
+
+static void perfRow(Host* h, int64_t now, uint64_t videoFrames) {
+    XrCtx* ctx = h->ctx;
+    MlxrHudCum cum;
+    memset(&cum, 0, sizeof(cum));
+    if (!ctx->overlayVisible || !atomic_load(&g_streaming) || h->cfg->hooks.hud == NULL) {
+        perfClose(h);
+        h->perfNs = 0;
+        return;
+    }
+    if (h->perfNs != 0 && now - h->perfNs < 5000000000LL) {
+        return;
+    }
+    if (!h->cfg->hooks.hud(h->cfg->hooks.user, &cum)) {
+        perfClose(h);
+        h->perfNs = 0;
+        return;
+    }
+    if (h->perfNs == 0) {
+        h->perfNs = now;
+        h->perfPrev = cum;
+        h->perfVideo = videoFrames;
+        h->perfStartNs = now;
+        return;
+    }
+    double secs = (double)(now - h->perfNs) / 1e9;
+    MlxrHudFigures fig;
+    mlxr_hud_window(&h->perfPrev, &cum, secs, (double)(videoFrames - h->perfVideo) / secs, &fig);
+    h->perfPrev = cum;
+    h->perfNs = now;
+    h->perfVideo = videoFrames;
+    if (h->perfFile == NULL) {
+        const char* dir = getenv("MLXR_LOG_DIR");
+        const char* home = getenv("HOME");
+        char base[400], path[480];
+        if (dir != NULL && dir[0] != '\0') {
+            snprintf(base, sizeof(base), "%s", dir);
+        }
+        else {
+            snprintf(base, sizeof(base), "%s/Games/MoonlightXRNative", home != NULL ? home : ".");
+        }
+        time_t t = time(NULL);
+        struct tm tm;
+        localtime_r(&t, &tm);
+        if (!mlxr_perf_path(base, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
+                            path, sizeof(path))) {
+            return;
+        }
+        h->perfFile = fopen(path, "w");
+        if (h->perfFile == NULL) {
+            LOGW("perf csv: %s cannot be written", path);
+            return;
+        }
+        char head[512];
+        size_t hn = mlxr_perf_header(head, sizeof(head));
+        if (hn > 0) fwrite(head, 1, hn, h->perfFile);
+        h->perfStartNs = now - (int64_t)(secs * 1e9);
+        LOGEV("perf csv: a row every 5 s into %s", path);
+    }
+    const Settings* s = h->cfg->settings;
+    MlxrPerfRow r;
+    memset(&r, 0, sizeof(r));
+    r.tSec = (double)(now - h->perfStartNs) / 1e9;
+    r.width = ctx->videoWidth;
+    r.height = ctx->videoHeight;
+    r.streamFps = h->cfg->fps;
+    r.bitrateKbps = settings_bitrate_kbps(s) > 0 ? settings_bitrate_kbps(s)
+                                                  : settings_default_bitrate_kbps(r.width, r.height, r.streamFps);
+    r.codec = s->codec;
+    r.displayHz = xrGetDisplayRate(ctx);
+    r.stereo = ctx->stereoMode != DEPTH_MODE_OFF && ctx->stereoLive;
+    r.environment = s->environment;
+    r.sharpen = ctx->sharpenMode;
+    r.supersample = ctx->supersampleMode;
+    r.slow = ctx->slowConn;
+    r.fig = fig;
+    metricsEnsure(h);
+    xrMetricsSample(ctx, &r.comp);
+    char row[512];
+    size_t n = mlxr_perf_row(&r, row, sizeof(row));
+    if (n > 0) {
+        fwrite(row, 1, n, h->perfFile);
+        fflush(h->perfFile);
+    }
+}
+
 static void updateTexts(Host* h, int64_t now, uint64_t frames, uint64_t videoFrames) {
     XrCtx* ctx = h->ctx;
     time_t t = time(NULL);
     struct tm tm;
     localtime_r(&t, &tm);
     snprintf(h->clockText, sizeof(h->clockText), "%02d:%02d", tm.tm_hour, tm.tm_min);
+    updateBattery(h, now);
+    // The stream's figures a second at a time: the HUD, and the slow connection badge, which is up
+    // whether or not the stats are
+    if (h->netNs == 0 || now - h->netNs >= 1000000000LL) {
+        double netSecs = h->netNs > 0 ? (double)(now - h->netNs) / 1e9 : 1.0;
+        MlxrHudCum cum;
+        memset(&cum, 0, sizeof(cum));
+        int have = atomic_load(&g_streaming) && h->cfg->hooks.hud && h->cfg->hooks.hud(h->cfg->hooks.user, &cum);
+        if (have) {
+            mlxr_hud_window(&h->hudPrev, &cum, netSecs, (double)(videoFrames - h->hudVideo) / netSecs, &h->fig);
+            h->hudPrev = cum;
+        }
+        else {
+            memset(&h->fig, 0, sizeof(h->fig));
+            h->hudPrev.valid = 0;
+        }
+        h->hudVideo = videoFrames;
+        h->netNs = now;
+        int was = ctx->slowConn;
+        ctx->slowConn = mlxr_slow_update(&h->slow, now / 1000000LL, have ? &h->fig : NULL);
+        if (ctx->slowConn != was) {
+            LOGEV("slow connection badge %s (loss %.1f%%, rtt %.0f ms, status %s)", ctx->slowConn ? "up" : "down",
+                  h->fig.lossPct, h->fig.rttMs, h->fig.poor ? "poor" : "okay");
+        }
+    }
+    perfRow(h, now, videoFrames);
     if (!ctx->overlayVisible || now - h->statsNs < 1000000000LL) {
         return;
     }
     static uint64_t lastFrames, lastVideo;
     double secs = h->statsNs > 0 ? (now - h->statsNs) / 1e9 : 1.0;
     h->statsNs = now;
+    metricsEnsure(h);
+    xrMetricsSample(ctx, &h->comp);
+    // Native (lane wave3-hud): the HUD and Lite styles, while a stream gives figures
+    if (ctx->statsStyle != STATS_STYLE_FULL && h->fig.valid) {
+        if (ctx->statsStyle == STATS_STYLE_LITE) {
+            mlxr_hud_lite(&h->fig, ctx->slowConn, h->statsText, sizeof(h->statsText));
+        }
+        else {
+            mlxr_hud_panel(&h->fig, ctx->slowConn, &h->comp, xrGetDisplayRate(ctx), h->statsText,
+                           sizeof(h->statsText));
+        }
+        lastFrames = frames;
+        lastVideo = videoFrames;
+        return;
+    }
     char app[768] = "";
     if (h->cfg->hooks.stats) h->cfg->hooks.stats(h->cfg->hooks.user, app, sizeof(app));
     int n = snprintf(h->statsText, sizeof(h->statsText), "Display %.0f Hz, %.0f fps\nVideo %dx%d, %.0f fps\n",
@@ -1613,7 +1798,13 @@ static void updateTexts(Host* h, int64_t now, uint64_t frames, uint64_t videoFra
     char depth[320];
     xrDepthOverlay(ctx, depth, sizeof(depth));
     if (depth[0] && n < (int)sizeof(h->statsText) - 2) {
-        snprintf(h->statsText + n, sizeof(h->statsText) - (size_t)n, "\n%s", depth);
+        n += snprintf(h->statsText + n, sizeof(h->statsText) - (size_t)n, "\n%s", depth);
+    }
+    // Native (lane wave3-hud): what the compositor reports (XR_META_performance_metrics)
+    char comp[96];
+    mlxr_compositor_line(&h->comp, comp, sizeof(comp));
+    if (comp[0] && n < (int)sizeof(h->statsText) - 2) {
+        snprintf(h->statsText + n, sizeof(h->statsText) - (size_t)n, "\n%s", comp);
     }
 }
 
@@ -1688,6 +1879,7 @@ int xr_app_run(const XrAppConfig* cfg) {
     host.ctx = ctx;
     host.cfg = cfg;
     host.lastX = host.lastY = -1;
+    mlxr_slow_init(&host.slow);
     xrDefaultPlacement(&host.distance, &host.quadWidth, &host.curvature);
     xrCtxDefaults(ctx, cfg->videoWidth, cfg->videoHeight, cfg->fps);
 
@@ -2347,6 +2539,22 @@ int xr_app_run(const XrAppConfig* cfg) {
                   "image on %d; GPU by device in this process: %s",
                   framesWindow ? endNsSum / 1e6 / (double)framesWindow : 0.0, endNsMax / 1e6,
                   (unsigned long long)framesWindow, roomDrawn, roomStale, byDevice);
+            // Native (lane wave3-hud): the compositor's own frame times and drops, beside ours
+            {
+                MlxrCompositorMetrics cm;
+                char compLine[96];
+                metricsEnsure(&host);
+                if (xrMetricsSample(ctx, &cm)) {
+                    mlxr_compositor_line(&cm, compLine, sizeof(compLine));
+                    if (cm.haveApp) {
+                        LOGEV("xr: %s; app cpu %.2f ms, gpu %.2f ms (runtime's count)", compLine[0] ? compLine : "compositor: no figures",
+                              (double)cm.appCpuMs, (double)cm.appGpuMs);
+                    }
+                    else if (compLine[0]) {
+                        LOGEV("xr: %s", compLine);
+                    }
+                }
+            }
             // Native (lane av-latency): what of the host cursor's delay and of the
             // audio's underruns is ours, for the next owner run
             char appLat[1600] = "";
@@ -2448,6 +2656,8 @@ fail:
     destroyXrInput(ctx);
     if (ctx->viewSpace) xrDestroySpace(ctx->viewSpace);
     if (ctx->localSpace) xrDestroySpace(ctx->localSpace);
+    perfClose(&host);
+    xrMetricsStop(ctx);
     if (ctx->session) xrDestroySession(ctx->session);
     if (ctx->instance) xrDestroyInstance(ctx->instance);
     xr_vk_destroy(&vk);

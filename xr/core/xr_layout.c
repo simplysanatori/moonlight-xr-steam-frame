@@ -355,7 +355,7 @@ int cogKofiButtonAt(float pu, float pv) {
     return pu >= COG_KOFI_L && pu <= COG_KOFI_R && pv >= COG_KOFI_T && pv <= COG_KOFI_B;
 }
 
-// The note field across the sheet, then the two buttons side by side under it. Everything else on it is words.
+// The note field across the sheet, then the three buttons side by side under it. Everything else on it is words.
 int reportZone(float u, float v) {
     if (v >= REPORT_BTN_T && v <= REPORT_BTN_B) {
         if (u >= REPORT_CANCEL_L && u <= REPORT_CANCEL_R) {
@@ -363,6 +363,9 @@ int reportZone(float u, float v) {
         }
         if (u >= REPORT_SEND_L && u <= REPORT_SEND_R) {
             return REPORT_ZONE_SEND;
+        }
+        if (u >= REPORT_ZIP_L && u <= REPORT_ZIP_R) {
+            return REPORT_ZONE_ZIP;
         }
         return REPORT_ZONE_NONE;
     }

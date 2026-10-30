@@ -195,6 +195,10 @@ int render_all_panels(const char* dir) {
                         REPORT_ZONE_NOTE, REPORT_ZONE_SEND, 1 };
         ui_draw_report(&cv, &r2, NULL);
         save(dir, "report_filled", &cv, 0);
+        ui_cv_clear(&cv);
+        UiReport r3 = { "", REPORT_ZONE_NOTE, REPORT_ZONE_ZIP, 0 };
+        ui_draw_report(&cv, &r3, NULL);
+        save(dir, "report_zip_hot", &cv, 0);
         free(buf);
     }
     // toast
@@ -211,8 +215,18 @@ int render_all_panels(const char* dir) {
         save(dir, "toast_path", &cv, 0);
         free(buf);
         cv = make(&buf, UI_PANEL_CLOCK, 1.0f);
-        ui_draw_clock(&cv, "10:42   Battery 87%");
+        ui_draw_clock(&cv, "10:42");
         save(dir, "clock", &cv, 0);
+        // native (lane wave3-hud): with the headset's battery, charging, low, and the slow connection badge
+        static const UiClock STRIPS[] = { { "10:42", 87, 0, 0 }, { "10:42", 87, 1, 0 }, { "10:42", 8, 0, 0 },
+                                          { "10:42", 54, 1, 1 }, { "10:42", -1, 0, 1 } };
+        static const char* const STRIP_NAMES[] = { "clock_battery", "clock_charging", "clock_low", "clock_battery_slow",
+                                                   "clock_slow" };
+        for (int i = 0; i < 5; i++) {
+            ui_cv_clear(&cv);
+            ui_draw_clock_strip(&cv, &STRIPS[i]);
+            save(dir, STRIP_NAMES[i], &cv, 0);
+        }
         free(buf);
     }
     // lists

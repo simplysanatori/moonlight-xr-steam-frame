@@ -5,6 +5,8 @@
 
 #include "check.h"
 #include "../../stream/vr_keyboard.h"
+#include "xr_kbfull.h"
+#include "xr_keys.h"
 #include "xr_shared.h"
 
 static char g_log[2048];
@@ -54,5 +56,32 @@ int main(void) {
     g_log[0] = '\0';
     vrkb_release_all(&k);
     CHECK(strcmp(g_log, "-a4/2 -a2/0 ") == 0 && k.held == 0);
+
+    // The media keys row sends the host's own media keys, whole, with no modifier
+    VrKeyboard m;
+    vrkb_init(&m, sink);
+    for (int i = 0; i < KB_MEDIA_KEYS; i++) {
+        char want[32];
+        snprintf(want, sizeof(want), "+%x/0 -%x/0 ", kbMediaVk(i), kbMediaVk(i));
+        CHECK(strcmp(run(&m, kbMediaCode(i), 0), want) == 0);
+    }
+
+    // The Host sheet: a chord taps its key with the modifiers round it and
+    // nothing is left held afterwards
+    CHECK(strcmp(run(&m, KB_CODE_VK + 0x25, KBF_LWIN | KBF_LSHIFT | KBF_FLAG_CHORD),
+                 "+a0/1 +5b/9 +25/9 -25/9 -5b/1 -a0/0 ") == 0);
+    CHECK(m.held == 0);
+    CHECK(strcmp(run(&m, KB_CODE_VK + 0x1B, KBF_FLAG_CHORD), "+1b/0 -1b/0 ") == 0);
+    // ...and does not let go of a modifier that was already down
+    vrkb_hold(&m, KB_MOD_CTRL);
+    CHECK(strcmp(run(&m, KB_CODE_VK + 0x56, KB_MOD_CTRL | KBF_FLAG_CHORD), "+56/2 -56/2 ") == 0);
+    CHECK(m.held == KB_MOD_CTRL);
+    vrkb_release_all(&m);
+    // A macro's holds: the modifier goes down, a key is pressed and let go with it, the modifier comes up
+    CHECK(strcmp(run(&m, KB_CODE_VK, KB_MOD_ALT | KBF_FLAG_HOLD), "+a4/4 ") == 0);
+    CHECK(strcmp(run(&m, KB_CODE_VK + 0x09, KB_MOD_ALT | KBF_FLAG_DOWN), "+9/4 ") == 0);
+    CHECK(strcmp(run(&m, KB_CODE_VK + 0x09, KB_MOD_ALT | KBF_FLAG_UP), "-9/4 ") == 0);
+    CHECK(strcmp(run(&m, KB_CODE_VK, KB_MOD_ALT | KBF_FLAG_LET), "-a4/0 ") == 0);
+    CHECK(m.held == 0);
     return checksDone("m4 vrkb");
 }

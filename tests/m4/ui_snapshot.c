@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 
 #include "scene.h"
+#include "xr_host.h"
+#include "xr_keyboard.h"
 
 static const char* g_dir;
 static int g_over;
@@ -93,6 +95,21 @@ int main(int argc, char** argv) {
         snprintf(name, sizeof(name), "%02d-cog-%s", 4 + tab, TABS[tab]);
         shot(s, name, NULL);
     }
+
+    // Native (lane wave3-hud): the clock strip over the cog with the headset's battery (charging) and the
+    // slow connection badge
+    scene_reset(s);
+    c->cogOpen = 1;
+    c->cogTab = COG_TAB_DISPLAY;
+    c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
+    c->batteryPresent = 1;
+    c->batteryPercent = 87;
+    c->batteryCharging = 1;
+    c->slowConn = 1;
+    shot(s, "08b-cog-clock-battery", NULL);
+    c->batteryPresent = 0;
+    c->batteryCharging = 0;
+    c->slowConn = 0;
 
     scene_reset(s);
     c->kbOpen = 1;
@@ -196,6 +213,31 @@ int main(int argc, char** argv) {
         xrGrabStepAt(c, aim, 0, 0, 0.0f);
         c->statsMoved = 0;
     }
+    // Native (lane wave3-hud): the HUD and Lite styles, as the session writes them from the stream's figures
+    {
+        MlxrHudFigures f;
+        memset(&f, 0, sizeof(f));
+        f.valid = 1;
+        f.mbps = 54.2;
+        f.hostMs = 4.2;
+        f.recvMs = 1.1;
+        f.queueMs = 0.4;
+        f.decodeMs = 3.1;
+        f.rttMs = 4.0;
+        f.latencyMs = f.hostMs + f.rttMs * 0.5 + f.recvMs + f.queueMs + f.decodeMs;
+        f.lossPct = 0.2;
+        f.fps = 89.0;
+        MlxrCompositorMetrics m;
+        memset(&m, 0, sizeof(m));
+        mlxr_metric_set(&m, "compositor/cpu_frametime", 1.4f);
+        mlxr_metric_set(&m, "compositor/gpu_frametime", 3.2f);
+        mlxr_metric_set(&m, "compositor/dropped_frame_count", 0.0f);
+        char text[512];
+        mlxr_hud_panel(&f, 0, &m, 90.0, text, sizeof(text));
+        shot(s, "13c-stats-hud", text);
+        mlxr_hud_lite(&f, 0, text, sizeof(text));
+        shot(s, "13d-stats-lite", text);
+    }
     c->overlayVisible = 0;
 
     scene_reset(s);
@@ -244,6 +286,49 @@ int main(int argc, char** argv) {
     c->exitConfirmOpen = 1;
     c->exitPose = exitPromptPose(c, &c->exitW, &c->exitH);
     shot(s, "18-exit-launcher", NULL);
+
+    // Native (PLAN 4b.1): the Host sheet with two macros and a cell lit, then
+    // asking before it sends Alt+F4
+    scene_reset(s);
+    xrMacrosParse(&c->macros, "[macros]\nMute all = key:ctrl+alt+m\nSnip = win+shift+s\n");
+    c->hostOpen = 1;
+    c->hostReady = 1;
+    c->hostConfirm = -1;
+    c->hostPose = hostSheetPose(c, &c->hostW, &c->hostH);
+    c->hostHoverZone = 7;
+    shot(s, "19-host", NULL);
+    c->hostConfirm = 10;
+    c->hostHoverZone = XR_HOST_ZONE_CONFIRM_SEND;
+    shot(s, "20-host-confirm", NULL);
+    c->hostOpen = 0;
+    c->hostConfirm = -1;
+    c->hostHoverZone = XR_HOST_ZONE_NONE;
+    xrMacrosClear(&c->macros);
+
+    // Native (PLAN 3.11, 4b.1): the Full keyboard with its media row, waiting
+    // for a combo with Ctrl and Alt lit
+    scene_reset(s);
+    c->kbOpen = 1;
+    xrKeyboardSetLayout(c, NULL, KB_LAYOUT_FULL);
+    c->kbState = KB_STATE_LOWER;
+    c->kbMods = 0;
+    kbPlace(c);
+    xrHostChordStart(&c->hostChord);
+    c->hostChord.mods = KBF_LCTRL | KBF_LALT;
+    shot(s, "21-keyboard-full-chord", NULL);
+    xrHostChordStop(&c->hostChord);
+    xrKeyboardSetLayout(c, NULL, KB_LAYOUT_COMPACT);
+
+    // Native (PLAN 4b.13): the Compact keyboard with Ctrl held down to lock
+    scene_reset(s);
+    c->kbOpen = 1;
+    c->kbState = KB_STATE_FN;
+    c->kbMods = KB_MOD_CTRL;
+    c->kbSticky.locked = KB_MOD_CTRL;
+    kbPlace(c);
+    shot(s, "22-keyboard-locked", NULL);
+    c->kbSticky.locked = 0;
+    c->kbMods = 0;
 
     scene_free(s);
     if (g_over) {

@@ -105,6 +105,9 @@ void ui_draw_report(UiCanvas* cv, const UiReport* r, UiHits* hits) {
     dc_hit_uv(&dc, UI_HIT_FIELD, REPORT_ZONE_CANCEL, 0, REPORT_CANCEL_L, REPORT_BTN_T, REPORT_CANCEL_R, REPORT_BTN_B, 1);
     report_button(&dc, REPORT_SEND_L, REPORT_SEND_R, ui_str(UIS_REPORT_SEND), r->can_send, 1, r->hover == REPORT_ZONE_SEND);
     dc_hit_uv(&dc, UI_HIT_FIELD, REPORT_ZONE_SEND, 0, REPORT_SEND_L, REPORT_BTN_T, REPORT_SEND_R, REPORT_BTN_B, r->can_send);
+    // native: Save and zip, which needs no note: it saves the note if there is one and makes the masked zip
+    report_button(&dc, REPORT_ZIP_L, REPORT_ZIP_R, ui_str(UIS_NATIVE_REPORT_ZIP), 1, 0, r->hover == REPORT_ZONE_ZIP);
+    dc_hit_uv(&dc, UI_HIT_FIELD, REPORT_ZONE_ZIP, 0, REPORT_ZIP_L, REPORT_BTN_T, REPORT_ZIP_R, REPORT_BTN_B, 1);
 }
 
 // ---- toast and clock -----------------------------------------------------------------------------
@@ -133,14 +136,49 @@ void ui_draw_toast(UiCanvas* cv, const char* text, const char* more, int more_is
     dc_text(&dc, UI_WEIGHT_REGULAR, size, mid, TOAST_TEX_H * 0.78f, UI_ALIGN_CENTER, 0xB0FFFFFFu, cut);
 }
 
-void ui_draw_clock(UiCanvas* cv, const char* line) {
+// native (lane wave3-hud): the headset's battery at the left of the time (a cell filled to the
+// percentage, a bolt on it while it charges, the number), and at the right a "Slow connection"
+// pill while the stream is poor. Either is left out when there is nothing to say.
+static void clock_battery(Dc* dc, int percent, int charging) {
+    const float cy = COG_CLOCK_TEX_H * 0.5f, x0 = 16.0f, w = 30.0f, h = 16.0f;
+    uint32_t fill = percent <= 10 ? 0xFFF87171u : percent <= 20 ? 0xFFFFB74Du : 0xFFFFFFFFu;
+    dc_stroke_rrect(dc, x0, cy - h * 0.5f, x0 + w, cy + h * 0.5f, 3.5f, 2.0f, 0xB0FFFFFFu);
+    dc_fill_rrect(dc, x0 + w + 1.5f, cy - 3.0f, x0 + w + 4.0f, cy + 3.0f, 1.0f, 0xB0FFFFFFu);
+    float run = (w - 6.0f) * (float)(percent < 0 ? 0 : percent > 100 ? 100 : percent) / 100.0f;
+    if (run > 1.0f) dc_fill_rrect(dc, x0 + 3.0f, cy - h * 0.5f + 3.0f, x0 + 3.0f + run, cy + h * 0.5f - 3.0f, 1.5f, fill);
+    if (charging) {
+        // a bolt over the cell, dark on the fill and edged light so it reads on either
+        const float bx = x0 + w * 0.5f - 4.5f, by = cy - 7.0f;
+        const float bolt[12] = { bx + 5.5f, by, bx, by + 8.0f, bx + 4.0f, by + 8.0f, bx + 3.0f, by + 14.0f,
+                                 bx + 9.0f, by + 5.5f, bx + 5.0f, by + 5.5f };
+        dc_fill_poly(dc, bolt, 6, 0xFF141416u);
+        dc_polyline(dc, bolt, 6, 1.2f, 0xFFFFFFFFu, 1);
+    }
+    char text[16];
+    snprintf(text, sizeof text, "%d%%", percent);
+    dc_text_left_mid(dc, UI_WEIGHT_REGULAR, 20.0f, x0 + w + 12.0f, cy, 0xD0FFFFFFu, text);
+}
+
+void ui_draw_clock_strip(UiCanvas* cv, const UiClock* c) {
     UiView view;
     memset(&view, 0, sizeof view);
     Dc dc;
     dc_init(&dc, cv, NULL, &view, COG_CLOCK_TEX_W, COG_CLOCK_TEX_H);
-    if (!dc.font || !line) return;
+    if (!dc.font || !c || !c->time) return;
     dc_fill_rrect(&dc, 1.0f, 1.0f, COG_CLOCK_TEX_W - 1.0f, COG_CLOCK_TEX_H - 1.0f, 20.0f, 0xF0141416u);
-    dc_text_center(&dc, UI_WEIGHT_REGULAR, 26.0f, COG_CLOCK_TEX_W * 0.5f, COG_CLOCK_TEX_H * 0.5f, 0xD0FFFFFFu, line);
+    dc_text_center(&dc, UI_WEIGHT_REGULAR, 26.0f, COG_CLOCK_TEX_W * 0.5f, COG_CLOCK_TEX_H * 0.5f, 0xD0FFFFFFu, c->time);
+    if (c->battery >= 0) clock_battery(&dc, c->battery, c->charging);
+    if (c->slow) {
+        const float x0 = 234.0f, x1 = COG_CLOCK_TEX_W - 10.0f, y0 = 9.0f, y1 = COG_CLOCK_TEX_H - 9.0f;
+        dc_fill_rrect(&dc, x0, y0, x1, y1, (y1 - y0) * 0.5f, 0xFFFFB74Du);
+        dc_text_fit_center(&dc, UI_WEIGHT_REGULAR, 15.0f, (x0 + x1) * 0.5f, COG_CLOCK_TEX_H * 0.5f, (x1 - x0) - 12.0f,
+                           0xFF141416u, ui_str(UIS_NATIVE_SLOW_CONN));
+    }
+}
+
+void ui_draw_clock(UiCanvas* cv, const char* line) {
+    UiClock c = { line, -1, 0, 0 };
+    ui_draw_clock_strip(cv, &c);
 }
 
 // ---- launcher lists ------------------------------------------------------------------------------------

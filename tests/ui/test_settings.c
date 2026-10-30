@@ -143,7 +143,7 @@ static const char* const README_KEYS[] = {
     "host", "app", "resolution", "fps", "bitrate_kbps", "codec", "audio_config", "frame_pacing",
     // the panel: Screen, Display, 3D, Room
     "distance_cm", "height_cm", "tilt_deg", "rotate_deg", "curve", "width_cm", "azimuth_deg",
-    "head_locked", "sharpening", "supersampling", "stats", "glow", "glow_level", "screen_light",
+    "head_locked", "sharpening", "supersampling", "stats", "stats_style", "glow", "glow_level", "screen_light",
     "separation", "convergence",
     "room_4_brightness", "room_4_glow", "room_4_light", "room_4_screen",
     "room_5_brightness", "room_5_glow", "room_5_light", "room_5_screen",
@@ -727,8 +727,50 @@ static void test_input_row_wording(void) {
     CHECK(strstr(ui_str(UIS_ROW_MODE), "Controller") == NULL);
 }
 
+// Native (lane wave3-hud): the Stats overlay's style, and `stats = hud` as stats on in that style
+static void test_stats_style(void) {
+    Settings s;
+    settings_defaults(&s);
+    CHECK(s.stats == 0 && s.stats_style == 0);
+    CHECK(geti(&s, "stats_style") == 0);
+    settings_from_text(&s, "[display]\nstats = hud\n", NULL);
+    CHECK(s.stats == 1 && s.stats_style == 1);
+    settings_from_text(&s, "[display]\nstats = lite\n", NULL);
+    CHECK(s.stats == 1 && s.stats_style == 2);
+    settings_from_text(&s, "[display]\nstats = full\n", NULL);
+    CHECK(s.stats == 1 && s.stats_style == 0);
+    // the plain forms are as they were
+    settings_from_text(&s, "[display]\nstats = false\nstats_style = hud\n", NULL);
+    CHECK(s.stats == 0 && s.stats_style == 1);
+    settings_from_text(&s, "[display]\nstats = true\n", NULL);
+    CHECK(s.stats == 1 && s.stats_style == 1);   // the style stays as it was set
+    settings_from_text(&s, "[display]\nstats_style = lite\n", NULL);
+    CHECK(s.stats_style == 2);
+    SettingsLoadInfo info;
+    settings_from_text(&s, "[display]\nstats_style = nonsense\n", &info);
+    CHECK(info.bad == 1 && s.stats_style == 2);
+    // `hud` means nothing to the other on/off keys
+    settings_from_text(&s, "[display]\nglow = hud\n", &info);
+    CHECK(info.bad == 1);
+    // the file keeps both and reads them back
+    s.stats = 1;
+    s.stats_style = 1;
+    char* text = settings_to_text(&s);
+    Settings back;
+    settings_defaults(&back);
+    settings_from_text(&back, text, NULL);
+    CHECK(back.stats == 1 && back.stats_style == 1);
+    CHECK(strstr(text, "\nstats_style = hud\n") != NULL);
+    free(text);
+    // the cog row shows on or off for every style
+    SessionToggles t;
+    session_from_settings(&s, &t);
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_STATS) == 1);
+}
+
 int main(void) {
     test_defaults();
+    test_stats_style();
     test_shortcut_wording();
     test_input_row_wording();
     test_table_covers_readme();
