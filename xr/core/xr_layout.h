@@ -143,8 +143,12 @@ int barSlotHit(int slot, float u, float v, float width, float height);
 #define BTN_CELL_AIM    8
 #define BTN_CELL_PAD    10
 #define BTN_CELL_HOST   12
-#define BTN_CELLS       13
-#define BTN_ATLAS_COLS  13
+// Native (PLAN 4.3): the 3D button's on face with a host-rendered pair, which
+// says SBS or TB in place of 3D (its off face is the 3D button's own)
+#define BTN_CELL_STEREO_SBS 13
+#define BTN_CELL_STEREO_TB  14
+#define BTN_CELLS       15
+#define BTN_ATLAS_COLS  15
 #define BTN_ATLAS_ROWS  1
 #define BTN_ATLAS_W     (BTN_ATLAS_COLS * BUTTON_TEX)
 #define BTN_ATLAS_H     (BTN_ATLAS_ROWS * BUTTON_TEX)
@@ -153,6 +157,10 @@ int barSlotHit(int slot, float u, float v, float width, float height);
 // its first row as uploaded, which is the image rect's offset. 0 for a cell
 // past the strip.
 int buttonCellOrigin(int cell, int* outX, int* outY);
+
+// The 3D button's face: its off face, or the on face for the 3D source in
+// force (STEREO_SOURCE_*: Depth shows 3D, SBS and Top-bottom their own)
+int barStereoCell(int source, int on);
 
 // Writes one face, BUTTON_TEX square RGBA rows running top down the way a
 // Bitmap does, into its cell of a copy of the whole texture kept in upload
@@ -243,6 +251,30 @@ float separationOf(int units);
 // default near an end that clamps another preset onto it still reads as
 // Balanced.
 int cogPresetAt(int units, const int presets[COG_PRESET_CELLS]);
+
+// Native (PLAN 4.3): whether a 3D tab row can act. The 3D source row always
+// can; the others need a stereo mode (stereoOk); and with a host-rendered pair
+// (source not STEREO_SOURCE_DEPTH) the preset and depth rows have no depth to
+// set, so only the convergence track and the switch act.
+int cog3dRowLive(int stereoOk, int source, int row);
+
+// Native (PLAN 4.3): the host-rendered pair's plain arithmetic, apart from the
+// session so a desktop test can hold it. The eye shown for each view: eye 0 the
+// left (or top) half, eye 1 the right (or bottom), and with eye_swap on the
+// halves exchanged (0 and 1 only; anything else is eye 0).
+int sbsEyeHalf(int eye, int swap);
+// What one eye sees of a decoded frame of frameW x frameH: the whole frame for
+// a half size pair (stretched back to the frame's shape), one eye's half for a
+// full size one (side by side halves the width, top-bottom the height).
+void sbsPictureSize(int source, int full, int frameW, int frameH, int* w, int* h);
+// A point on the picture (0..1 each way) onto the left (top) eye's half of the
+// frame, where the PC's pointer lives
+void sbsPointerUv(int source, float* u, float* v);
+// The pixel rectangle of an eye's half in the decoded frame (x, y, w, h)
+void sbsHalfRect(int source, int half, int frameW, int frameH, int rect[4]);
+// Whether the letterbox detector runs and its crop applies: not on a
+// host-rendered pair (stereoMode DEPTH_MODE_SBS), whose seam is no letterbox
+int ambiBarDetectApplies(int detectSetting, int stereoMode);
 
 // How much of a room's screen the picture hangs at, in whole percent: inside
 // the size row's lane where the room may be resized, and all of it where not
