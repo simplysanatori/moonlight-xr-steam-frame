@@ -533,13 +533,20 @@ static void testTheRowsFit(void) {
     // than the rows are apart
     CHECK(cogRowV(COG_TAB_DISPLAY, 0) - cogRowHalf(COG_TAB_DISPLAY) >= COG_TAB_BAR_B);
     CHECK(2.0f * cogCellHalf(COG_TAB_DISPLAY) < COG_DISPLAY_ROW_STEP);
-    // The screen tab's eight, head aim's two last, all clear of the reset
-    // button, with chevrons and ticks shallower than the rows are apart
-    CHECK(COG_SCREEN_ROW_COUNT == 8);
+    // The screen tab's eleven, head aim's two after the six tracks and the
+    // three rows of cells last, all clear of the reset button, with chevrons
+    // and ticks shallower than the rows are apart
+    CHECK(COG_SCREEN_ROW_COUNT == 11);
+    CHECK(COG_SCREEN_TRACK_ROWS == COG_SLIDER_AIM_DEADZONE + 1);
+    CHECK(COG_SCREEN_ROW_PRESET == COG_SCREEN_TRACK_ROWS);
+    CHECK(COG_SCREEN_ROW_PER_APP == COG_SCREEN_ROW_PRESET + 1);
+    CHECK(COG_SCREEN_ROW_LOCK == COG_SCREEN_ROW_PER_APP + 1);
+    CHECK(COG_SCREEN_ROW_COUNT == COG_SCREEN_ROW_LOCK + 1);
     CHECK(COG_SLIDER_AIM_SENSITIVITY == COG_SLIDER_COUNT);
     CHECK(COG_SLIDER_AIM_DEADZONE == COG_SLIDER_COUNT + 1);
-    CHECK_NEAR(cogRowV(COG_TAB_SCREEN, 0), 0.22, 1e-6);
-    CHECK_NEAR(cogRowV(COG_TAB_SCREEN, COG_SLIDER_AIM_DEADZONE), 0.815, 1e-5);
+    CHECK_NEAR(cogRowV(COG_TAB_SCREEN, 0), 0.2, 1e-6);
+    CHECK_NEAR(cogRowV(COG_TAB_SCREEN, COG_SLIDER_AIM_DEADZONE), 0.6375, 1e-5);
+    CHECK_NEAR(cogRowV(COG_TAB_SCREEN, COG_SCREEN_ROW_LOCK), 0.825, 1e-5);
     CHECK(cogRowV(COG_TAB_SCREEN, COG_SCREEN_ROW_COUNT - 1) + cogRowHalf(COG_TAB_SCREEN)
           < COG_RESET_T);
     CHECK(2.0f * cogCellHalf(COG_TAB_SCREEN) < COG_SCREEN_ROW_STEP);
@@ -632,10 +639,13 @@ static void testTheStepsLandOnTheGrid(void) {
 }
 
 static void testEveryTrackHasItsSteps(void) {
-    for (int row = 0; row < COG_SCREEN_ROW_COUNT; row++) {
+    for (int row = 0; row < COG_SCREEN_TRACK_ROWS; row++) {
         CHECK(cogTrackSteps(COG_TAB_SCREEN, row) > 0);
     }
-    CHECK(cogTrackSteps(COG_TAB_SCREEN, COG_SCREEN_ROW_COUNT) == 0);
+    // The cell rows under them are not tracks
+    for (int row = COG_SCREEN_TRACK_ROWS; row <= COG_SCREEN_ROW_COUNT; row++) {
+        CHECK(cogTrackSteps(COG_TAB_SCREEN, row) == 0);
+    }
 
     // Head aim's two step a whole unit a press, and each default, where its
     // tick is, is a step
@@ -899,7 +909,283 @@ static void testTheButtonCells(void) {
     free(atlas);
 }
 
+static XrQuaternionf yawPitch(float yaw, float pitch) {
+    Vec3 up = { 0.0f, 1.0f, 0.0f };
+    Vec3 right = { 1.0f, 0.0f, 0.0f };
+    return quatNorm(quatMul(axisAngleQuat(up, yaw), axisAngleQuat(right, pitch)));
+}
+
+static float degrees(float rad) {
+    return rad * 180.0f / (float)M_PI;
+}
+
+static float radians(float deg) {
+    return deg * (float)M_PI / 180.0f;
+}
+
+// Desk, Couch and Cinema, and the ring that says which one is in force
+static void testThePresets(void) {
+    LayoutPreset desk = layoutPresetOf(LAYOUT_PRESET_DESK);
+    LayoutPreset couch = layoutPresetOf(LAYOUT_PRESET_COUCH);
+    LayoutPreset cinema = layoutPresetOf(LAYOUT_PRESET_CINEMA);
+    CHECK(desk.distanceCm == 120 && desk.widthCm == 160);
+    CHECK(couch.distanceCm == 250 && couch.widthCm == 260);
+    CHECK(cinema.distanceCm == 400 && cinema.widthCm == 500);
+    // Nearer, smaller to larger, further, and inside what the tracks reach
+    CHECK(desk.distanceCm < couch.distanceCm && couch.distanceCm < cinema.distanceCm);
+    CHECK(desk.widthCm < couch.widthCm && couch.widthCm < cinema.widthCm);
+    for (int i = 0; i < LAYOUT_PRESETS; i++) {
+        LayoutPreset p = layoutPresetOf(i);
+        CHECK(p.distanceCm >= 20 && p.distanceCm <= 800 && p.widthCm >= 80 && p.widthCm <= 800);
+        CHECK(layoutPresetAt(p.distanceCm, p.widthCm) == i);
+        // A centimetre of float on the way to the file is still that preset
+        CHECK(layoutPresetAt(p.distanceCm + 1, p.widthCm - 1) == i);
+        // A hand's worth off is nothing
+        CHECK(layoutPresetAt(p.distanceCm + 10, p.widthCm) == -1);
+        CHECK(layoutPresetAt(p.distanceCm, p.widthCm + 10) == -1);
+    }
+    CHECK(layoutPresetAt(300, 300) == -1);
+}
+
+// The gaze, held to a pitch a glance up or down cannot pass
+static void testTheGaze(void) {
+    Vec3 g = layoutGazeDir(yawPitch(0.0f, 0.0f));
+    CHECK_NEAR(g.x, 0.0, 1e-5);
+    CHECK_NEAR(g.y, 0.0, 1e-5);
+    CHECK_NEAR(g.z, -1.0, 1e-5);
+    // Turned left by 30 degrees, a positive turn about +y
+    g = layoutGazeDir(yawPitch(radians(30.0f), 0.0f));
+    CHECK_NEAR(g.x, -sinf(radians(30.0f)), 1e-5);
+    CHECK_NEAR(g.z, -cosf(radians(30.0f)), 1e-5);
+    // Looking up 20 degrees is kept, 80 is held to the limit with the heading kept
+    g = layoutGazeDir(yawPitch(0.0f, radians(20.0f)));
+    CHECK_NEAR(degrees(asinf(g.y)), 20.0, 1e-3);
+    g = layoutGazeDir(yawPitch(radians(30.0f), radians(80.0f)));
+    CHECK_NEAR(degrees(asinf(g.y)), LAYOUT_GAZE_PITCH_MAX_DEG, 1e-3);
+    CHECK_NEAR(sqrtf(vecDot(g, g)), 1.0, 1e-5);
+    CHECK_NEAR(degrees(atan2f(-g.x, -g.z)), 30.0, 1e-2);
+    g = layoutGazeDir(yawPitch(0.0f, radians(-85.0f)));
+    CHECK_NEAR(degrees(asinf(g.y)), -LAYOUT_GAZE_PITCH_MAX_DEG, 1e-3);
+    // Straight up has no heading and still answers
+    g = layoutGazeDir(yawPitch(0.0f, radians(90.0f)));
+    CHECK_NEAR(sqrtf(vecDot(g, g)), 1.0, 1e-5);
+    CHECK_NEAR(degrees(asinf(g.y)), LAYOUT_GAZE_PITCH_MAX_DEG, 1e-3);
+}
+
+// Bring here: where the head looks, as far off as it was, facing the head,
+// tilt and roll as they were
+static void testBringHere(void) {
+    // A screen 3 m ahead at head height, tipped back 10 degrees and rolled 5
+    Vec3 back = { 0.0f, 0.0f, 1.0f };
+    XrPosef screen;
+    memset(&screen, 0, sizeof(screen));
+    screen.position.z = -3.0f;
+    Vec3 right = { 1.0f, 0.0f, 0.0f };
+    XrQuaternionf tilt = axisAngleQuat(right, radians(-10.0f));
+    XrQuaternionf roll = axisAngleQuat(back, radians(5.0f));
+    screen.orientation = quatNorm(quatMul(tilt, roll));
+    Vec3 fwd0 = quatRotate(screen.orientation, back);
+
+    // The head at the origin turned 90 degrees to the left and 15 up
+    XrPosef head;
+    memset(&head, 0, sizeof(head));
+    head.orientation = yawPitch(radians(90.0f), radians(15.0f));
+    XrPosef out = layoutBringHere(screen, head);
+    Vec3 gaze = layoutGazeDir(head.orientation);
+    CHECK_NEAR(out.position.x, gaze.x * 3.0, 1e-4);
+    CHECK_NEAR(out.position.y, gaze.y * 3.0, 1e-4);
+    CHECK_NEAR(out.position.z, gaze.z * 3.0, 1e-4);
+    Vec3 p = { out.position.x, out.position.y, out.position.z };
+    CHECK_NEAR(sqrtf(vecDot(p, p)), 3.0, 1e-4);
+    // It faces the head: its forward axis points back along the heading
+    Vec3 fwd = quatRotate(out.orientation, back);
+    CHECK_NEAR(atan2f(fwd.x, fwd.z), atan2f(-p.x, -p.z), 1e-4);
+    // And the tilt is the tilt it had
+    CHECK_NEAR(asinf(fwd.y), asinf(fwd0.y), 1e-4);
+
+    // The head not at the seat: the screen goes to the head, not the seat
+    head.position.x = 1.0f;
+    head.position.z = 0.5f;
+    head.orientation = yawPitch(0.0f, 0.0f);
+    out = layoutBringHere(screen, head);
+    // Its distance from the head is the distance it had from the head
+    Vec3 d0 = { screen.position.x - head.position.x, screen.position.y - head.position.y,
+                screen.position.z - head.position.z };
+    Vec3 d1 = { out.position.x - head.position.x, out.position.y - head.position.y,
+                out.position.z - head.position.z };
+    CHECK_NEAR(sqrtf(vecDot(d1, d1)), sqrtf(vecDot(d0, d0)), 1e-4);
+    CHECK_NEAR(out.position.x, 1.0, 1e-4);
+    CHECK_NEAR(out.position.z, 0.5 - sqrtf(vecDot(d0, d0)), 1e-4);
+
+    // Right over the head there is nothing to face: the orientation stays
+    Vec3 above = { 1.0f, 2.0f, 0.5f };
+    Vec3 headAt = { 1.0f, 0.0f, 0.5f };
+    XrQuaternionf same = layoutFaceHead(screen.orientation, above, headAt);
+    CHECK_NEAR(same.w, screen.orientation.w, 1e-6);
+    CHECK_NEAR(same.x, screen.orientation.x, 1e-6);
+}
+
+// The leash: past it in yaw or in pitch and not before
+static void testTheLeash(void) {
+    float leash = radians(25.0f);
+    Vec3 ahead = layoutGazeDir(yawPitch(0.0f, 0.0f));
+    CHECK(!followOutsideLeash(ahead, ahead, leash));
+    CHECK(!followOutsideLeash(ahead, layoutGazeDir(yawPitch(radians(24.0f), 0.0f)), leash));
+    CHECK(followOutsideLeash(ahead, layoutGazeDir(yawPitch(radians(26.0f), 0.0f)), leash));
+    CHECK(followOutsideLeash(ahead, layoutGazeDir(yawPitch(radians(-26.0f), 0.0f)), leash));
+    CHECK(!followOutsideLeash(ahead, layoutGazeDir(yawPitch(0.0f, radians(24.0f))), leash));
+    CHECK(followOutsideLeash(ahead, layoutGazeDir(yawPitch(0.0f, radians(26.0f))), leash));
+    CHECK(followOutsideLeash(ahead, layoutGazeDir(yawPitch(0.0f, radians(-26.0f))), leash));
+    // Both at once, each inside it: still inside
+    CHECK(!followOutsideLeash(ahead, layoutGazeDir(yawPitch(radians(20.0f), radians(20.0f))), leash));
+    // The short way round: a screen at 170 left and a gaze at 170 right are 20 apart
+    Vec3 left = layoutGazeDir(yawPitch(radians(170.0f), 0.0f));
+    Vec3 rightish = layoutGazeDir(yawPitch(radians(-170.0f), 0.0f));
+    CHECK(!followOutsideLeash(left, rightish, leash));
+    // A tighter and a looser leash move the line
+    CHECK(followOutsideLeash(ahead, layoutGazeDir(yawPitch(radians(12.0f), 0.0f)), radians(10.0f)));
+    CHECK(!followOutsideLeash(ahead, layoutGazeDir(yawPitch(radians(50.0f), 0.0f)), radians(60.0f)));
+}
+
+// Inside the leash the screen does not move at all; past it, it eases to the
+// gaze over FOLLOW_EASE_SEC, monotonically, and then stays
+static void testTheEase(void) {
+    float leash = radians(25.0f);
+    FollowState st;
+    followReset(&st);
+    Vec3 ahead = layoutGazeDir(yawPitch(0.0f, 0.0f));
+    // A head that wanders inside the leash for a long time moves nothing
+    for (int i = 0; i < 200; i++) {
+        float a = radians(20.0f) * sinf(0.1f * (float)i);
+        Vec3 out = followStep(&st, ahead, layoutGazeDir(yawPitch(a, 0.0f)), 1.0f / 90.0f, leash);
+        CHECK(out.x == ahead.x && out.y == ahead.y && out.z == ahead.z);
+        CHECK(!st.easing);
+    }
+    // Out to 60 degrees and held there
+    Vec3 gaze = layoutGazeDir(yawPitch(radians(60.0f), 0.0f));
+    Vec3 dir = ahead;
+    float dt = 1.0f / 90.0f;
+    float lastGap = 1e9f;
+    int frames = 0;
+    int landed = 0;
+    for (int i = 0; i < 200; i++) {
+        dir = followStep(&st, dir, gaze, dt, leash);
+        frames++;
+        float gap = acosf(fminf(1.0f, vecDot(dir, gaze)));
+        CHECK(gap <= lastGap + 1e-5f);
+        lastGap = gap;
+        CHECK_NEAR(sqrtf(vecDot(dir, dir)), 1.0, 1e-4);
+        if (!st.easing) {
+            landed = 1;
+            break;
+        }
+    }
+    CHECK(landed);
+    // About 0.6 s of frames, give or take the one that crosses the line
+    CHECK(frames >= (int)(FOLLOW_EASE_SEC / dt) - 1 && frames <= (int)(FOLLOW_EASE_SEC / dt) + 2);
+    CHECK_NEAR(vecDot(dir, gaze), 1.0, 1e-5);
+    // Landed means world locked again: no more movement while the gaze stays
+    Vec3 held = followStep(&st, dir, gaze, dt, leash);
+    CHECK(held.x == dir.x && held.y == dir.y && held.z == dir.z);
+    // The way is a great circle at a steady yaw: halfway in time is halfway
+    // round (smoothstep is 0.5 at the middle)
+    followReset(&st);
+    dir = ahead;
+    float total = acosf(vecDot(ahead, gaze));
+    int half = (int)(0.5f * FOLLOW_EASE_SEC / dt);
+    for (int i = 0; i < half; i++) {
+        dir = followStep(&st, dir, gaze, dt, leash);
+    }
+    float done = acosf(vecDot(ahead, dir)) / total;
+    CHECK(done > 0.4f && done < 0.6f);
+    // It starts slow: the first frame covers a fraction of an even pace
+    followReset(&st);
+    Vec3 first = followStep(&st, ahead, gaze, dt, leash);
+    CHECK(acosf(vecDot(ahead, first)) < total * dt / FOLLOW_EASE_SEC);
+    // A zero or negative step does not run the ease backwards or forwards
+    followReset(&st);
+    Vec3 none = followStep(&st, ahead, gaze, 0.0f, leash);
+    CHECK_NEAR(vecDot(none, ahead), 1.0, 1e-6);
+}
+
+// A gaze that moves on during the ease is chased, from where the screen is
+static void testTheEaseChasesTheGaze(void) {
+    float leash = radians(25.0f);
+    float dt = 1.0f / 90.0f;
+    FollowState st;
+    followReset(&st);
+    Vec3 ahead = layoutGazeDir(yawPitch(0.0f, 0.0f));
+    Vec3 gazeA = layoutGazeDir(yawPitch(radians(50.0f), 0.0f));
+    Vec3 gazeB = layoutGazeDir(yawPitch(radians(-50.0f), 0.0f));
+    Vec3 dir = ahead;
+    for (int i = 0; i < 20; i++) {
+        dir = followStep(&st, dir, gazeA, dt, leash);
+    }
+    CHECK(st.easing);
+    Vec3 mid = dir;
+    // The head swings the other way: the ease restarts from here, not from ahead
+    dir = followStep(&st, dir, gazeB, dt, leash);
+    CHECK(st.easing);
+    CHECK(acosf(fminf(1.0f, vecDot(dir, mid))) < radians(2.0f));
+    for (int i = 0; i < 100 && st.easing; i++) {
+        dir = followStep(&st, dir, gazeB, dt, leash);
+    }
+    CHECK(!st.easing);
+    CHECK_NEAR(vecDot(dir, gazeB), 1.0, 1e-5);
+    // A gaze that stays near where the ease is headed (inside half a leash)
+    // does not restart it
+    followReset(&st);
+    dir = ahead;
+    for (int i = 0; i < 20; i++) {
+        dir = followStep(&st, dir, gazeA, dt, leash);
+    }
+    float t = st.t;
+    dir = followStep(&st, dir, layoutGazeDir(yawPitch(radians(55.0f), 0.0f)), dt, leash);
+    CHECK(st.t > t);
+}
+
+// The screen along a direction from the head, facing it, as far as it was
+static void testTheScreenAlong(void) {
+    XrPosef screen;
+    memset(&screen, 0, sizeof(screen));
+    screen.orientation.w = 1.0f;
+    screen.position.z = -2.0f;
+    Vec3 head = { 0.0f, 0.0f, 0.0f };
+    Vec3 dir = layoutGazeDir(yawPitch(radians(45.0f), 0.0f));
+    XrPosef out = layoutScreenAlong(screen, head, dir);
+    CHECK_NEAR(out.position.x, dir.x * 2.0, 1e-5);
+    CHECK_NEAR(out.position.z, dir.z * 2.0, 1e-5);
+    Vec3 back = { 0.0f, 0.0f, 1.0f };
+    Vec3 fwd = quatRotate(out.orientation, back);
+    // Facing back at the head: along minus the direction it sits in
+    CHECK_NEAR(fwd.x, -dir.x, 1e-4);
+    CHECK_NEAR(fwd.z, -dir.z, 1e-4);
+}
+
+// The width that keeps a screen the same size in the view
+static void testAngularWidth(void) {
+    // Pushed from 2 m to 4 m, twice as wide; pulled to 1 m, half as wide
+    CHECK_NEAR(layoutAngularWidth(2.0f, 2.0f, 4.0f, 0.8f, 8.0f), 4.0, 1e-6);
+    CHECK_NEAR(layoutAngularWidth(2.0f, 2.0f, 1.0f, 0.8f, 8.0f), 1.0, 1e-6);
+    // The angle it covers is the same: width over distance
+    CHECK_NEAR(layoutAngularWidth(3.0f, 3.0f, 5.0f, 0.8f, 8.0f) / 5.0f, 3.0f / 3.0f, 1e-6);
+    // Held to the widths a screen may have
+    CHECK_NEAR(layoutAngularWidth(2.0f, 1.0f, 8.0f, 0.8f, 8.0f), 8.0, 1e-6);
+    CHECK_NEAR(layoutAngularWidth(1.0f, 4.0f, 1.0f, 0.8f, 8.0f), 0.8, 1e-6);
+    // Nothing to go by: untouched
+    CHECK_NEAR(layoutAngularWidth(2.0f, 0.0f, 4.0f, 0.8f, 8.0f), 2.0, 1e-6);
+    CHECK_NEAR(layoutAngularWidth(2.0f, 2.0f, 0.0f, 0.8f, 8.0f), 2.0, 1e-6);
+}
+
 int main(void) {
+    testThePresets();
+    testTheGaze();
+    testBringHere();
+    testTheLeash();
+    testTheEase();
+    testTheEaseChasesTheGaze();
+    testTheScreenAlong();
+    testAngularWidth();
     testTheButtonCells();
     testTheRowsFit();
     testTheReportParts();

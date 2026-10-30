@@ -2,6 +2,7 @@
 // in a room, where the bar's row hangs under the picture, and the settings
 // panel's tracks and presets. No GL and no context, so the host tests reach
 // all of it.
+#include <stdlib.h>
 #include <string.h>
 
 #include "xr_layout.h"
@@ -257,11 +258,11 @@ float cogCellHalf(int tab) {
             : tab == COG_TAB_SCREEN ? COG_SCREEN_CELL_HALF : COG_CELL_HALF;
 }
 
-// The screen tab's eight tracks sit closer than a full size thumb, so its
-// thumbs are a little smaller and two at the same place on neighbouring rows
-// stay apart. The display tab has only the one.
+// The screen tab's rows sit closer than a full size thumb, so its thumbs are
+// a little smaller and two at the same place on neighbouring rows stay apart.
+// The display tab has only the one.
 float cogThumbSize(int tab) {
-    return tab == COG_TAB_SCREEN ? 0.075f : 0.085f;
+    return tab == COG_TAB_SCREEN ? 0.06f : 0.085f;
 }
 
 int cogTrackPart(float pu) {
@@ -302,13 +303,14 @@ int cogTrackSteps(int tab, int row) {
         // Tenths of a metre out, five centimetres up, two and a half degrees
         // of tilt and six of roll, which both step clear of the snap to level
         // either side of it, a twentieth of the curve, tenths of a metre wide,
-        // then head aim's two in their own whole units
-        static const int SCREEN_STEPS[COG_SCREEN_ROW_COUNT] = {
+        // then head aim's two in their own whole units. The rows after those
+        // are cells and have no steps.
+        static const int SCREEN_STEPS[COG_SCREEN_TRACK_ROWS] = {
             78, 80, 32, 30, 20, 72,
             HEAD_AIM_SENSITIVITY_MAX - HEAD_AIM_SENSITIVITY_MIN,
             HEAD_AIM_DEADZONE_MAX - HEAD_AIM_DEADZONE_MIN
         };
-        return row >= 0 && row < COG_SCREEN_ROW_COUNT ? SCREEN_STEPS[row] : 0;
+        return row >= 0 && row < COG_SCREEN_TRACK_ROWS ? SCREEN_STEPS[row] : 0;
     }
     if (tab == COG_TAB_DISPLAY) {
         // The glow level's five percent steps
@@ -394,4 +396,196 @@ int handHintZone(float u, float v) {
         return HINT_ZONE_NEVER;
     }
     return HINT_ZONE_NONE;
+}
+
+// ---- screen presets, bringing the screen here, lazy follow ----------------------------
+
+// Desk is an arm's length or so with a monitor's worth of width, Couch a
+// living room screen, Cinema the far wall of a theatre
+LayoutPreset layoutPresetOf(int preset) {
+    static const LayoutPreset PRESETS[LAYOUT_PRESETS] = {
+        { 120, 160 }, { 250, 260 }, { 400, 500 }
+    };
+    if (preset < 0 || preset >= LAYOUT_PRESETS) {
+        preset = LAYOUT_PRESET_COUCH;
+    }
+    return PRESETS[preset];
+}
+
+int layoutPresetAt(int distanceCm, int widthCm) {
+    for (int i = 0; i < LAYOUT_PRESETS; i++) {
+        LayoutPreset p = layoutPresetOf(i);
+        if (abs(distanceCm - p.distanceCm) <= 2 && abs(widthCm - p.widthCm) <= 2) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+Vec3 layoutGazeDir(XrQuaternionf head) {
+    Vec3 forward = { 0.0f, 0.0f, -1.0f };
+    Vec3 g = quatRotate(head, forward);
+    float len = sqrtf(vecDot(g, g));
+    if (len < 1e-4f) {
+        return forward;
+    }
+    g.x /= len;
+    g.y /= len;
+    g.z /= len;
+    float limit = sinf(LAYOUT_GAZE_PITCH_MAX_DEG * (float)M_PI / 180.0f);
+    if (fabsf(g.y) > limit) {
+        // Keep the heading, flatten the pitch to the limit
+        float flat = sqrtf(g.x * g.x + g.z * g.z);
+        float want = sqrtf(1.0f - limit * limit);
+        float y = g.y > 0.0f ? limit : -limit;
+        if (flat < 1e-4f) {
+            g.x = 0.0f;
+            g.z = -want;
+        }
+        else {
+            g.x *= want / flat;
+            g.z *= want / flat;
+        }
+        g.y = y;
+    }
+    return g;
+}
+
+XrQuaternionf layoutFaceHead(XrQuaternionf orientation, Vec3 screenPos, Vec3 headPos) {
+    Vec3 back = { 0.0f, 0.0f, 1.0f };
+    Vec3 up = { 0.0f, 1.0f, 0.0f };
+    float hx = headPos.x - screenPos.x;
+    float hz = headPos.z - screenPos.z;
+    // Directly over or under the head there is no way to face it that is not
+    // noise
+    if (hx * hx + hz * hz <= 0.0025f) {
+        return orientation;
+    }
+    Vec3 fwd = quatRotate(orientation, back);
+    float yaw = atan2f(fwd.x, fwd.z);
+    float want = atan2f(hx, hz);
+    return quatNorm(quatMul(axisAngleQuat(up, want - yaw), orientation));
+}
+
+XrPosef layoutScreenAlong(XrPosef screen, Vec3 headPos, Vec3 dir) {
+    Vec3 d = { screen.position.x - headPos.x, screen.position.y - headPos.y,
+               screen.position.z - headPos.z };
+    float dist = sqrtf(vecDot(d, d));
+    // No nearer than a screen can be pushed
+    if (dist < 0.3f) {
+        dist = 0.3f;
+    }
+    XrPosef out = screen;
+    out.position.x = headPos.x + dir.x * dist;
+    out.position.y = headPos.y + dir.y * dist;
+    out.position.z = headPos.z + dir.z * dist;
+    Vec3 at = { out.position.x, out.position.y, out.position.z };
+    out.orientation = layoutFaceHead(screen.orientation, at, headPos);
+    return out;
+}
+
+XrPosef layoutBringHere(XrPosef screen, XrPosef head) {
+    Vec3 hp = { head.position.x, head.position.y, head.position.z };
+    return layoutScreenAlong(screen, hp, layoutGazeDir(head.orientation));
+}
+
+void followReset(FollowState* st) {
+    memset(st, 0, sizeof(*st));
+}
+
+static float dirPitch(Vec3 d) {
+    float y = d.y < -1.0f ? -1.0f : (d.y > 1.0f ? 1.0f : d.y);
+    return asinf(y);
+}
+
+static float wrapPi(float a) {
+    while (a > (float)M_PI) {
+        a -= 2.0f * (float)M_PI;
+    }
+    while (a <= -(float)M_PI) {
+        a += 2.0f * (float)M_PI;
+    }
+    return a;
+}
+
+int followOutsideLeash(Vec3 screenDir, Vec3 gazeDir, float leashRad) {
+    float pa = dirPitch(screenDir), pb = dirPitch(gazeDir);
+    if (fabsf(pa - pb) > leashRad) {
+        return 1;
+    }
+    // Near straight up or down the heading means nothing
+    if (fabsf(pa) < 1.4f && fabsf(pb) < 1.4f) {
+        float ya = atan2f(-screenDir.x, -screenDir.z);
+        float yb = atan2f(-gazeDir.x, -gazeDir.z);
+        if (fabsf(wrapPi(ya - yb)) > leashRad) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Along the great circle from a to b, t of the way
+static Vec3 dirSlerp(Vec3 a, Vec3 b, float t) {
+    float dot = vecDot(a, b);
+    dot = dot < -1.0f ? -1.0f : (dot > 1.0f ? 1.0f : dot);
+    float omega = acosf(dot);
+    Vec3 out;
+    if (omega < 1e-4f) {
+        out = b;
+    }
+    else if (omega > (float)M_PI - 1e-3f) {
+        // Straight behind: turn about the vertical, the way a head would
+        Vec3 up = { 0.0f, 1.0f, 0.0f };
+        out = quatRotate(axisAngleQuat(up, t * (float)M_PI), a);
+    }
+    else {
+        float s = sinf(omega);
+        float ka = sinf((1.0f - t) * omega) / s;
+        float kb = sinf(t * omega) / s;
+        out.x = a.x * ka + b.x * kb;
+        out.y = a.y * ka + b.y * kb;
+        out.z = a.z * ka + b.z * kb;
+    }
+    return vecNorm(out);
+}
+
+Vec3 followStep(FollowState* st, Vec3 screenDir, Vec3 gazeDir, float dt, float leashRad) {
+    if (!st->easing) {
+        if (!followOutsideLeash(screenDir, gazeDir, leashRad)) {
+            return screenDir;
+        }
+        st->easing = 1;
+        st->t = 0.0f;
+        st->from = screenDir;
+        st->to = gazeDir;
+    }
+    else {
+        // The gaze has moved on since the ease began: chase it from here
+        float dot = vecDot(st->to, gazeDir);
+        dot = dot < -1.0f ? -1.0f : (dot > 1.0f ? 1.0f : dot);
+        if (acosf(dot) > leashRad * 0.5f) {
+            st->from = screenDir;
+            st->to = gazeDir;
+            st->t = 0.0f;
+        }
+    }
+    if (dt > 0.0f) {
+        st->t += dt / FOLLOW_EASE_SEC;
+    }
+    if (st->t >= 1.0f) {
+        st->easing = 0;
+        st->t = 0.0f;
+        return st->to;
+    }
+    // Slow out of the start and into the end, so it does not lurch
+    float e = st->t * st->t * (3.0f - 2.0f * st->t);
+    return dirSlerp(st->from, st->to, e);
+}
+
+float layoutAngularWidth(float width, float distFrom, float distNow, float minWidth, float maxWidth) {
+    if (distFrom < 0.01f || distNow < 0.01f) {
+        return width;
+    }
+    float w = width * distNow / distFrom;
+    return w < minWidth ? minWidth : (w > maxWidth ? maxWidth : w);
 }
