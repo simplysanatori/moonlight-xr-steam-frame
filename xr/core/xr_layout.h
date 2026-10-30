@@ -240,6 +240,11 @@ int cogTrackSteps(int tab, int row);
 // Whether a point on the settings panel is on the About tab's report button,
 // or its Ko-fi button
 int cogReportButtonAt(float pu, float pv);
+// Native (lane a11y-tab): the tab bar's slots (COG_TAB_EDGE_*): the tab under a point across the
+// panel (0..1; outside goes to the nearest end), and where a tab's slot starts and ends
+int cogTabAt(float pu);
+float cogTabLeft(int tab);
+float cogTabRight(int tab);
 int cogKofiButtonAt(float pu, float pv);
 
 // Which part of the report sheet a point on it is over, one of the
