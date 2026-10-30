@@ -1,12 +1,13 @@
 // The first-run controls card (PLAN 3.9): one sheet on the first stream that says where the
 // bar is, what opens the cog and the keyboard, how to switch to gamepad mode (worded for the
 // shortcut config.ini has), the Host button, the keyboard chord that disconnects, and the
-// gamepad-as-mouse chord worded for the pad in use. No buttons: it goes by itself (see
-// xr_cards.h) or when a menu opens. Native, no upstream counterpart. GPLv3.
+// gamepad-as-mouse chord worded for pad_mouse_chord and the pad in use. No buttons: it goes
+// by itself (see xr_cards.h) or when a menu opens. Native, no upstream counterpart. GPLv3.
 #include <stdio.h>
 #include <string.h>
 
 #include "panels_int.h"
+#include "xr_padmouse.h"
 
 #define FIRSTRUN_ROWS 7
 
@@ -28,8 +29,17 @@ void panel_firstrun(Dc* dc) {
         default: break;
         }
     }
+    // the gamepad-as-mouse chord as config.ini's pad_mouse_chord has it, in the pad's own names
     char mouse[160];
-    snprintf(mouse, sizeof mouse, ui_str(UIS_FIRSTRUN_MOUSE), ui_pad_start_name(dc->v->pad.style));
+    int chord = dc->v->settings ? dc->v->settings->pad_mouse_chord : PAD_MOUSE_CHORD_START_HOLD;
+    if (chord == PAD_MOUSE_CHORD_OFF) {
+        snprintf(mouse, sizeof mouse, "%s", ui_str(UIS_FIRSTRUN_MOUSE_OFF));
+    } else if (chord == PAD_MOUSE_CHORD_START_BACK) {
+        snprintf(mouse, sizeof mouse, ui_str(UIS_FIRSTRUN_MOUSE_BOTH), ui_pad_start_name(dc->v->pad.style),
+                 ui_pad_back_name(dc->v->pad.style));
+    } else {
+        snprintf(mouse, sizeof mouse, ui_str(UIS_FIRSTRUN_MOUSE), ui_pad_start_name(dc->v->pad.style));
+    }
 
     struct { UiStr label; const char* text; } rows[FIRSTRUN_ROWS] = {
         { UIS_FIRSTRUN_BAR_L, ui_str(UIS_FIRSTRUN_BAR) },

@@ -6,6 +6,7 @@
 
 #include "check.h"
 #include "panels.h"
+#include "xr_padmouse.h"
 
 #define GUARD 256
 
@@ -954,7 +955,19 @@ static void test_cards(void) {
     float lastTop = 112.0f + 6 * 56.0f;   // the pad-as-mouse row, the last
     CHECK(n > 0 && box[1] >= (int)lastTop && box[3] <= (int)(lastTop + 56.0f));
     free(b.base);
+    // the gamepad-as-mouse row follows pad_mouse_chord: Start and Back held, or off
+    for (int chord = PAD_MOUSE_CHORD_START_BACK; chord <= PAD_MOUSE_CHORD_OFF; chord++) {
+        Settings ch = s;
+        ch.pad_mouse_chord = chord;
+        ui_view_init(&vs, &ch);
+        draw(UI_PANEL_FIRSTRUN, &vs, 1.0f, &b);
+        n = diff_box(&a, &b, box);
+        CHECK(n > 0 && box[1] >= (int)lastTop && box[3] <= (int)(lastTop + 56.0f));
+        free(b.base);
+    }
     free(a.base);
+    CHECK(strcmp(ui_pad_back_name(PADSTYLE_XBOX), "View") == 0 && strcmp(ui_pad_back_name(PADSTYLE_PLAYSTATION), "Create") == 0 &&
+          strcmp(ui_pad_back_name(PADSTYLE_NINTENDO), "-") == 0 && strcmp(ui_pad_back_name(PADSTYLE_GENERIC), "Back") == 0);
     CHECK(strcmp(ui_pad_start_name(PADSTYLE_XBOX), "Menu") == 0 && strcmp(ui_pad_start_name(PADSTYLE_PLAYSTATION), "Options") == 0 &&
           strcmp(ui_pad_start_name(PADSTYLE_NINTENDO), "+") == 0 && strcmp(ui_pad_start_name(PADSTYLE_GENERIC), "Start") == 0);
 

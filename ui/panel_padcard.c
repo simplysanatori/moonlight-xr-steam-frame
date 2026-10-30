@@ -24,6 +24,16 @@ const char* ui_pad_start_name(int style) {
     }
 }
 
+const char* ui_pad_back_name(int style) {
+    switch (style) {
+    case PADSTYLE_PLAYSTATION: return ui_str(UIS_PADCARD_BACK_CREATE);
+    case PADSTYLE_NINTENDO: return ui_str(UIS_PADCARD_BACK_MINUS);
+    case PADSTYLE_XBOX:
+    case PADSTYLE_STEAM: return ui_str(UIS_PADCARD_BACK_VIEW);
+    default: return ui_str(UIS_PADCARD_BACK_GENERIC);
+    }
+}
+
 static const char* style_name(int style) {
     switch (style) {
     case PADSTYLE_PLAYSTATION: return ui_str(UIS_PADCARD_PLAYSTATION);

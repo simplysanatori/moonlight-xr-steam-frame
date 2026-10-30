@@ -218,6 +218,8 @@
     X(FIRSTRUN_KEYS, "native_firstrun_keys", "Ctrl+Alt+Shift+Q on a keyboard: disconnect") \
     X(FIRSTRUN_MOUSE_L, "native_firstrun_mouse_l", "Pad") \
     X(FIRSTRUN_MOUSE, "native_firstrun_mouse", "Hold %s on a gamepad: the PC's mouse") \
+    X(FIRSTRUN_MOUSE_BOTH, "native_firstrun_mouse_both", "Hold %s and %s on a gamepad: the PC's mouse") \
+    X(FIRSTRUN_MOUSE_OFF, "native_firstrun_mouse_off", "Gamepad as the PC's mouse is off (pad_mouse_chord)") \
     X(FIRSTRUN_FOOT, "native_firstrun_foot", "Shown once. It goes by itself, or when you open a menu.") \
     /* the pad card (PLAN 2b.6) */ \
     X(PADCARD_XBOX, "native_padcard_xbox", "Xbox gamepad") \
@@ -231,7 +233,11 @@
     X(PADCARD_START_MENU, "native_padcard_start_menu", "Menu") \
     X(PADCARD_START_OPTIONS, "native_padcard_start_options", "Options") \
     X(PADCARD_START_PLUS, "native_padcard_start_plus", "+") \
-    X(PADCARD_START_GENERIC, "native_padcard_start_generic", "Start")
+    X(PADCARD_START_GENERIC, "native_padcard_start_generic", "Start") \
+    X(PADCARD_BACK_VIEW, "native_padcard_back_view", "View") \
+    X(PADCARD_BACK_CREATE, "native_padcard_back_create", "Create") \
+    X(PADCARD_BACK_MINUS, "native_padcard_back_minus", "-") \
+    X(PADCARD_BACK_GENERIC, "native_padcard_back_generic", "Back")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

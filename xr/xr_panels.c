@@ -870,13 +870,14 @@ static void updateOnce(XrCtx* ctx, XrPanels* p, const UiView* base, int slot, in
 }
 
 // Native (lane wave3-cards): the first-run card, drawn when it comes up (and again if the
-// gamepad shortcut or the pad's style it words changes), and the pad card, drawn again when
-// what you could see of the pad changes
+// gamepad shortcut, the gamepad-as-mouse chord or the pad's style it words changes), and the
+// pad card, drawn again when what you could see of the pad changes
 static void updateCards(XrCtx* ctx, XrPanels* p, const UiView* base) {
     if (ctx->firstRunUp) {
-        struct { int toggle, style; } k;
+        struct { int toggle, chord, style; } k;
         memset(&k, 0, sizeof(k));
         k.toggle = base->settings->gamepad_toggle;
+        k.chord = base->settings->pad_mouse_chord;
         k.style = base->pad.style;
         if (keyChanged(p, UI_PANEL_FIRSTRUN, &k, sizeof(k))) {
             UiView v = *base;

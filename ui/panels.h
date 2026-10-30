@@ -245,6 +245,8 @@ void ui_draw_app_list(UiCanvas* cv, const UiAppList* l, UiHits* hits);
 
 // What a pad of this style (PADSTYLE_*) calls its Start button: Menu, Options, + or Start
 const char* ui_pad_start_name(int style);
+// And its Back button: View, Create, - or Back
+const char* ui_pad_back_name(int style);
 
 // ---- helpers for the orchestrator -----------------------------------------------------------------------
 // Keyboard layout, shared by every sheet: how many keys, each key's rectangle
