@@ -91,6 +91,7 @@ jobs:
           name: ci-build-ubuntu24.04-arm64-not-for-the-frame
           path: |
             dist/*.tar.gz
+            dist/*.zip
             dist/SHA256SUMS
           if-no-files-found: error
 
@@ -233,6 +234,7 @@ jobs:
           name: moonlight-xr-steam-frame-frame-arm64
           path: |
             dist/*.tar.gz
+            dist/*.zip
             dist/SHA256SUMS
           if-no-files-found: error
 
