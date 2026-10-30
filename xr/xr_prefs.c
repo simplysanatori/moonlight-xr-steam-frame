@@ -34,6 +34,9 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     ctx->upsampleSigmaR = 0.25f;
     ctx->upsampleEnabled = 1;
     ctx->occlusionEnabled = 1;
+    // Native (lane wave5-depth, PLAN 5.2): on, as it fixes the fur on one
+    // side of a subject in one eye (#36, #46)
+    ctx->holeFill = 1;
     // The warp's edges: sample held inside the frame, shift faded out over
     // the last few pixels each side, and each eye's rectangle a texel clear
     // of the seam between them. The cubic depth read is off for its cost.
@@ -46,7 +49,7 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     ctx->separationPref = 0.006f;
     // Native: upstream's debug properties as environment variables
     // (MLXR_SEPARATION in tenths of a percent, MLXR_DEPTH_CUBIC,
-    // MLXR_OCCLUSION, MLXR_UPSAMPLE, MLXR_EDGE_FADE in pixels)
+    // MLXR_OCCLUSION, MLXR_UPSAMPLE, MLXR_EDGE_FADE in pixels, MLXR_HOLE_FILL)
     const char* knob = getenv("MLXR_SEPARATION");
     if (knob != NULL && *knob) ctx->separationOverride = (float)atof(knob) / 1000.0f;
     knob = getenv("MLXR_DEPTH_CUBIC");
@@ -55,6 +58,8 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     if (knob != NULL && *knob) ctx->occlusionEnabled = atoi(knob) != 0;
     knob = getenv("MLXR_UPSAMPLE");
     if (knob != NULL && *knob) ctx->upsampleEnabled = atoi(knob) != 0;
+    knob = getenv("MLXR_HOLE_FILL");
+    if (knob != NULL && *knob) ctx->holeFill = atoi(knob) != 0;
     knob = getenv("MLXR_EDGE_FADE");
     if (knob != NULL && *knob) {
         int px = atoi(knob);

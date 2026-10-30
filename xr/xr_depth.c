@@ -976,6 +976,7 @@ void xrDepthPicture(XrCtx* ctx, const MlxrVideo* video, int newFrame, uint64_t f
         op.depth = d->upsample.view;
         op.dispTexels = separation * (float)d->upsample.width;
         op.convergence = ctx->convergence;
+        op.holeStretch = ctx->holeFill ? MLXR_HOLE_STRETCH : 0.0f;
         mlxr_pass_offset(ctx->passes, cmd, &t, &op);
         xrVkImageTo(ctx, &d->offsets, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         xrGpuTimeEnd(ctx, GPU_OFFSET);

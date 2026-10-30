@@ -585,6 +585,8 @@ static void testParams(void) {
     CHECK(s.edge_sharpness == EDGE_SHARPNESS_DEFAULT && EDGE_SHARPNESS_DEFAULT == 0);
     XrCtx* ctx = m6_ctx(&g, &FAKE, assets, &s);
     CHECK(ctx->upsampleSigmaR == 0.25f && ctx->depthSharp == 0.0f);
+    // 5.2: the hole fill is on (MLXR_HOLE_FILL=0 is the way back)
+    CHECK(ctx->holeFill == 1 || getenv("MLXR_HOLE_FILL") != NULL);
     m6_ctx_free(ctx);
     s.edge_sharpness = 60;
     CHECK(settings_save(&s, path) == 0);

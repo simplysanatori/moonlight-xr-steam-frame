@@ -432,6 +432,10 @@ typedef struct XrCtx {
     int upsampleEnabled;
     float upsampleSigmaR;
     int occlusionEnabled;
+    // Native (lane wave5-depth, PLAN 5.2): the gaps the shift opens filled
+    // from the background side rather than by stretching the nearer edge
+    // (MLXR_HOLE_STRETCH; on, MLXR_HOLE_FILL=0 turns it off)
+    int holeFill;
     // The edge fixes, on apart from the cubic read. Pixels for the fade, 0 or
     // 1 for the rest.
     int srcInsetOn;
