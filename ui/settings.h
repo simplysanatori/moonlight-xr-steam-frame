@@ -121,6 +121,7 @@ typedef struct Settings {
     int separation;        // tenths of a percent of frame width; -1 = the depth model's own
     int convergence;       // percent; -1 = the depth model's own
     int stereo;            // native: the 3D switch as it was last left (0 off, 1 on)
+    int edge_sharpness;    // native (PLAN 5.1): the Edge setting, EDGE_SHARPNESS_MIN..MAX; 0 is upstream's edges
 
     // [screen] where the picture hangs (what the Screen tab moves)
     int screen_distance_cm;

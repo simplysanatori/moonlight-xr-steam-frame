@@ -334,6 +334,9 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->separationPref = separationOf(settings_separation_units(s));
     ctx->separationCurrent = ctx->separationPref;
     ctx->convergence = (float)settings_convergence_percent(s) / 100.0f;
+    // Native (lane wave5-depth, PLAN 5.1): the Edge setting is the upsample's
+    // two knobs; 0 leaves them as upstream has them
+    depthEdgeParams(s->edge_sharpness, &ctx->upsampleSigmaR, &ctx->depthSharp);
     xrSetDepthRate(ctx, s->depth_rate);
     // M6: the depth model or test pattern, and the 3D switch as last left
     xrDepthConfigure(ctx, s);

@@ -129,6 +129,10 @@ void MlxrPrefs::load()
     const int conv = iniValue(ini, "3d", "convergence", "-1").toInt();
     convergenceIsDefault = conv < 0;
     convergence = conv < 0 ? 50 : qBound(0, conv, 100);
+    // the VR client holds it to 0..100 and takes anything else as its default, 0
+    bool edgeOk = false;
+    const int edge = iniValue(ini, "3d", "edge_sharpness", "0").trimmed().toInt(&edgeOk);
+    edgeSharpness = edgeOk ? qBound(0, edge, 100) : 0;
     flipFaceButtons = iniBool(iniValue(ini, "vr", "flip_face_buttons", "false"));
     keyboardKeymap = iniValue(ini, "vr", "keyboard_keymap", "qwerty").trimmed().toLower();
     if (keyboardKeymap != "azerty" && keyboardKeymap != "qwertz") {
@@ -171,6 +175,7 @@ void MlxrPrefs::load()
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniEdgeSharpness = edgeSharpness;
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
@@ -215,6 +220,9 @@ void MlxrPrefs::save()
     if (convergence != m_iniConvergence || convergenceIsDefault != m_iniConvergenceDefault) {
         setIniValue(ini, "3d", "convergence", convergenceIsDefault ? "-1" : QString::number(qBound(0, convergence, 100)));
     }
+    if (edgeSharpness != m_iniEdgeSharpness) {
+        setIniValue(ini, "3d", "edge_sharpness", QString::number(qBound(0, edgeSharpness, 100)));
+    }
     if (flipFaceButtons != m_iniFlip) {
         setIniValue(ini, "vr", "flip_face_buttons", flipFaceButtons ? "true" : "false");
     }
@@ -251,6 +259,7 @@ void MlxrPrefs::save()
     m_iniStrengthDefault = strengthIsDefault;
     m_iniConvergence = convergence;
     m_iniConvergenceDefault = convergenceIsDefault;
+    m_iniEdgeSharpness = edgeSharpness;
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;

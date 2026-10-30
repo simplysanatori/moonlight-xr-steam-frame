@@ -185,6 +185,15 @@ Flickable {
         return scrollSpeedSteps[0]
     }
 
+    // [3d] edge_sharpness: the steps the Edge row goes through (0 is the 3D's own soft edges)
+    readonly property var edgeSteps: [0, 25, 50, 75, 100]
+    function nextEdge() {
+        for (var i = 0; i < edgeSteps.length; i++) {
+            if (edgeSteps[i] > MlxrPrefs.edgeSharpness) return edgeSteps[i]
+        }
+        return edgeSteps[0]
+    }
+
     // [vr] controller_model: which controller the headset draws in each hand
     readonly property var modelValues: ["off", "frame", "generic", "gun", "custom"]
     readonly property var modelNames: [qsTr("Off"), qsTr("Steam Frame controller"), qsTr("Generic controller"), qsTr("Gun"), qsTr("Your own model")]
@@ -692,6 +701,17 @@ Flickable {
             to: 100
             value: MlxrPrefs.convergence
             onMoved: function(v) { MlxrPrefs.convergence = Math.round(v); MlxrPrefs.convergenceIsDefault = false }
+        }
+
+        // Native (lane wave5-depth): how closely the depth keeps to the edges in the picture. Pressing the
+        // row steps 0, 25, 50, 75, 100 ([3d] edge_sharpness of the VR client's config.ini)
+        PrefRow {
+            objectName: "edgeRow"
+            title: qsTr("3D Edge Sharpness")
+            valueText: MlxrPrefs.edgeSharpness === 0 ? qsTr("0 (soft, the default)") : ("" + MlxrPrefs.edgeSharpness)
+            summary: qsTr("Higher keeps hair, outlines and thin text on their own depth instead of blending them into what is behind. Too high can make edges look cut out.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            onClicked: if (enabled) MlxrPrefs.edgeSharpness = settingsPage.nextEdge()
         }
 
         PrefSwitch {

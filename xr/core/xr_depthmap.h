@@ -81,6 +81,16 @@ void depthRangeStep(DepthRange* r, float lo, float hi, float dtSec, float tauSec
 // the map NaN
 float depthRangeScale(const DepthRange* r);
 
+// Native (lane wave5-depth, PLAN 5.1): the Edge setting (EDGE_SHARPNESS_MIN..
+// MAX, xr_shared.h) as the upsample's two knobs. sigmaR, the colour distance
+// a neighbour may be off by and still lend its depth, falls from upstream's
+// 0.25 at 0 to 0.10 at 100, so the depth edge keeps to the colour edge; sharp,
+// how far each texel is pushed to the nearer side of its neighbourhood's
+// range, rises from 0 (off, upstream) to 1. Out of range values are held to it.
+#define EDGE_SIGMA_R_SOFT 0.25f
+#define EDGE_SIGMA_R_SHARP 0.10f
+void depthEdgeParams(int sharpness, float* sigmaR, float* sharp);
+
 // Scene cuts, found on the model input before the model runs. Each capture is
 // boiled down to a grid of box averaged luma and a coarse luma histogram, and
 // compared with the captures before it.

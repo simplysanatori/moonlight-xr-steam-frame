@@ -165,6 +165,14 @@ void depthTauBlend(float* avg, const float* v, int count, float alpha, int seed)
     }
 }
 
+void depthEdgeParams(int sharpness, float* sigmaR, float* sharp) {
+    int s = sharpness < EDGE_SHARPNESS_MIN ? EDGE_SHARPNESS_MIN
+            : (sharpness > EDGE_SHARPNESS_MAX ? EDGE_SHARPNESS_MAX : sharpness);
+    float t = (float)(s - EDGE_SHARPNESS_MIN) / (float)(EDGE_SHARPNESS_MAX - EDGE_SHARPNESS_MIN);
+    *sigmaR = EDGE_SIGMA_R_SOFT + t * (EDGE_SIGMA_R_SHARP - EDGE_SIGMA_R_SOFT);
+    *sharp = t;
+}
+
 void depthRangeStep(DepthRange* r, float lo, float hi, float dtSec, float tauSec) {
     if (!r->valid || !(tauSec > 0.0f)) {
         r->lo = lo;

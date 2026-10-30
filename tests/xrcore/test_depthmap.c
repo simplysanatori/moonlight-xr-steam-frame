@@ -781,6 +781,36 @@ static void testResetsInPipeline(void) {
     CHECK(got[5] == 0 && got[6] == 0);
 }
 
+// Native (lane wave5-depth, PLAN 5.1): the Edge setting as the upsample's
+// knobs. 0 is upstream's exactly, 100 the tightest, held to the range, and
+// both knobs move one way all along
+static void testEdgeParams(void) {
+    float sigma = -1.0f, sharp = -1.0f;
+    depthEdgeParams(EDGE_SHARPNESS_DEFAULT, &sigma, &sharp);
+    CHECK(EDGE_SHARPNESS_DEFAULT == 0);
+    CHECK(sigma == 0.25f && sharp == 0.0f);
+    depthEdgeParams(EDGE_SHARPNESS_MAX, &sigma, &sharp);
+    CHECK_NEAR(sigma, 0.10, 1e-6);
+    CHECK_NEAR(sharp, 1.0, 1e-6);
+    depthEdgeParams(50, &sigma, &sharp);
+    CHECK_NEAR(sigma, 0.175, 1e-6);
+    CHECK_NEAR(sharp, 0.5, 1e-6);
+    depthEdgeParams(-20, &sigma, &sharp);
+    CHECK(sigma == 0.25f && sharp == 0.0f);
+    depthEdgeParams(250, &sigma, &sharp);
+    CHECK_NEAR(sigma, 0.10, 1e-6);
+    CHECK_NEAR(sharp, 1.0, 1e-6);
+    float lastSigma = 1.0f, lastSharp = -1.0f;
+    int monotonic = 1;
+    for (int s = EDGE_SHARPNESS_MIN; s <= EDGE_SHARPNESS_MAX; s++) {
+        depthEdgeParams(s, &sigma, &sharp);
+        monotonic &= sigma < lastSigma && sharp > lastSharp && sigma > 0.0f;
+        lastSigma = sigma;
+        lastSharp = sharp;
+    }
+    CHECK(monotonic);
+}
+
 int main(void) {
     testRobustRange();
     testLowPass();
@@ -799,5 +829,6 @@ int main(void) {
     testCutPictures();
     testResets();
     testResetsInPipeline();
+    testEdgeParams();
     return checksDone("xr_depthmap");
 }

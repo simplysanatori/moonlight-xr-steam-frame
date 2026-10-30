@@ -64,6 +64,14 @@
 #define DEPTH_RATE_DEFAULT 20
 #define DEPTH_RATE_GEN1 12
 
+// Native (lane wave5-depth, PLAN 5.1): the Edge setting, [3d] edge_sharpness,
+// 0..100. 0 is upstream's edges exactly (the upsample's colour match at sigma
+// 0.25 and no snap); higher tightens the colour match and snaps the depth to
+// the nearer side of a silhouette (depthEdgeParams in xr_depthmap.h)
+#define EDGE_SHARPNESS_MIN 0
+#define EDGE_SHARPNESS_MAX 100
+#define EDGE_SHARPNESS_DEFAULT 0
+
 // Enough for a dozen lines of stats without being big enough to matter
 #define OVERLAY_WIDTH 768
 #define OVERLAY_HEIGHT 512

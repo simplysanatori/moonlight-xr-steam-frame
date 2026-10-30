@@ -18,6 +18,8 @@
 //             LOADING -> READY, off stops the captures, back on resets and
 //             waits for a fresh map; FAILED (and a thread that never starts)
 //             stays flat with a toast and puts the switch away
+//   params    the 3D's tuning keys only config.ini and the launcher carry
+//             (edge_sharpness), into the context, the engine and the passes
 //   budget    the layers of the busiest frames with the 3D on (two picture
 //             quads, one an eye, and the bar's 3D button), against SteamVR's 16
 // GPLv3.
@@ -569,6 +571,38 @@ static void testSettings(void) {
     m6_ctx_free(ctx);
 }
 
+// ---- params --------------------------------------------------------------------------------
+
+// Native (lane wave5-depth, PLAN 5.x): the 3D's tuning keys that only config.ini
+// and the flat launcher carry, through the file into the context and on to
+// the engine and the passes; at their defaults everything is as it was
+static void testParams(void) {
+    char path[300];
+    snprintf(path, sizeof(path), "%s/config.ini", assets);
+    Settings s;
+    settings_defaults(&s);
+    // 5.1 Edge: 0 is upstream's upsample (sigma 0.25, no snap)
+    CHECK(s.edge_sharpness == EDGE_SHARPNESS_DEFAULT && EDGE_SHARPNESS_DEFAULT == 0);
+    XrCtx* ctx = m6_ctx(&g, &FAKE, assets, &s);
+    CHECK(ctx->upsampleSigmaR == 0.25f && ctx->depthSharp == 0.0f);
+    m6_ctx_free(ctx);
+    s.edge_sharpness = 60;
+    CHECK(settings_save(&s, path) == 0);
+    Settings back;
+    settings_defaults(&back);
+    CHECK(settings_load(&back, path, NULL) == 0);
+    CHECK(back.edge_sharpness == 60);
+    unlink(path);
+    ctx = m6_ctx(&g, &FAKE, assets, &back);
+    CHECK_NEAR(ctx->upsampleSigmaR, 0.16, 1e-6);
+    CHECK_NEAR(ctx->depthSharp, 0.6, 1e-6);
+    m6_ctx_free(ctx);
+    Settings bad;
+    settings_defaults(&bad);
+    settings_from_text(&bad, "[3d]\nedge_sharpness = 400\n", NULL);
+    CHECK(bad.edge_sharpness == EDGE_SHARPNESS_MAX);
+}
+
 // ---- states --------------------------------------------------------------------------------
 
 static void testStates(void) {
@@ -772,6 +806,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(group, "settings")) testSettings();
     if (all || !strcmp(group, "states")) testStates();
     if (all || !strcmp(group, "budget")) testBudget();
+    if (all || !strcmp(group, "params")) testParams();
     vkDeviceWaitIdle(g.vk.device);
     for (int i = 0; i < VIDEOS; i++) m5_video_free(&tmp, &videos[i]);
     m5_image_free(&tmp, &target);
