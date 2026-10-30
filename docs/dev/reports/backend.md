@@ -84,7 +84,7 @@ mlxr-cli launch <host> <appid> <WxHxFPS> [--hdr]     # resume if a game is alrea
 mlxr-cli quit <host>
 ```
 `<host>` = `addr[:httpport]`, `[v6]:port`, or a saved host's name/uuid. An address that is not in `hosts.ini` is probed over
-HTTP and matched to a saved host by uuid, so `apps 192.168.1.10` works even if the import recorded the Tailscale address.
+HTTP and matched to a saved host by uuid, so `apps 192.168.1.10` works even if the import recorded a VPN address.
 Exit codes: 0 ok, 1 usage, 2 error, 3 network/timeout, 4 not paired. `MLXR_VERBOSE=1` logs requests (never secrets).
 `launch` prints the rtsp URL and rikeyid only, never the key. `identity` creates `client.pem client.key uniqueid`
 (`hosts.ini` appears with the first saved host).
@@ -105,8 +105,8 @@ $ bash /dev/tcp probes of 47989 47984 47990 48010 -> No route to host (no ARP an
 $ avahi-browse -rtp _nvstream._tcp -> nothing advertised
 ```
 The MAC `02:f0:2c:5d:a5:10` is not in the Frame's neighbour table either. So `serverinfo` (HTTP and HTTPS), `apps`
-against the real Sunshine/Apollo have not run. I did not send Wake-on-LAN (not asked). I did not start Tailscale.
-The imported record's `address` is `100.64.0.5` (a Tailscale IP, see below), which also needs Tailscale up.
+against the real Sunshine/Apollo have not run. I did not send Wake-on-LAN (not asked).
+The imported record's `address` is `100.64.0.5`, a VPN address (see below), which needs the VPN up.
 Retry when the PC is on: `MLXR_CONFIG_DIR=<seeded dir> mlxr-cli serverinfo 192.168.1.10` then `... apps 192.168.1.10`.
 
 ### Live-adjacent: the real Moonlight Qt config, imported into a temp dir (read-only on the source)
@@ -121,8 +121,8 @@ $ mlxr-cli identity     -> loads without regenerating, cert sha256 <fingerprint>
 ```
 Findings about the real file: one host `gaming-pc`, paired (has `srvcert`), 91 cached apps, no `uniqueid` stored
 (Moonlight Qt here never persisted one, so a new random one is created; Sunshine identifies the client by certificate,
-so the existing pairing carries over). Qt's stored addresses were rewritten for the Tailscale setup:
-`manualaddress=127.0.0.1` (dropped as loopback), `localaddress=100.64.0.5` (Tailscale), `remoteaddress=203.0.113.50`.
+so the existing pairing carries over). Qt's stored addresses were rewritten for a VPN setup:
+`manualaddress=127.0.0.1` (dropped as loopback), `localaddress=100.64.0.5` (a VPN address), `remoteaddress=203.0.113.50`.
 The LAN address 192.168.1.10 is not stored anywhere, hence the uuid-matching in the CLI. The temp dir (which holds a copy of the
 client key) was deleted after the run. To import for real: `backend/seed-from-moonlight-qt.sh` (no env), `--force` to replace an
 existing identity. Note: while exploring I printed the first 150 characters of two config lines, which included the standard
@@ -166,12 +166,12 @@ ldd audit ok: build-backend/backend/mlxr-cli
 
 ## Open questions / notes for the orchestrator
 
-1. **Host address**: Qt's saved addresses are Tailscale ones; the LAN `192.168.1.10` is only in the owner's head. The CLI copes (uuid match);
+1. **Host address**: Qt's saved addresses are VPN ones; the LAN address is not stored. The CLI copes (uuid match);
    the app UI needs "add host by address" and should store the working address in `hosts.ini` via `mlxr_host_record_from_computer`.
 2. **PIN stage UX**: `mlxr_pair` blocks (up to `timeout_ms`, default 5 min) in the caller's thread; run it on a worker thread and show the PIN from
    `mlxr_pair_generate_pin`. Sunshine/Apollo web UI is `https://<host>:<http_port+1>/pin` (47990).
 3. **Apollo extras** (virtual display / `phone mode`, per-client permissions) are not implemented; plain Sunshine protocol only. Say so if wanted.
-4. **`sessionUrl0` host**: Sunshine builds it from the address the request arrived on. If the Frame reaches the PC over Tailscale or NAT and the URL
+4. **`sessionUrl0` host**: Sunshine builds it from the address the request arrived on. If the Frame reaches the PC over a VPN or NAT and the URL
    host is not routable, pass the address you connected to as `SERVER_INFORMATION.address` (done by `mlxr_fill_server_info`) and check what common-c uses.
 5. **Unique id**: new random 16-hex id when none imported. If Sunshine ever keys sessions on it, `mlxr-cli quit` after a launch from a different client
    would hit 599; unchanged identity => no problem.
