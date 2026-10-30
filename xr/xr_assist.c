@@ -38,15 +38,20 @@ void cogApplyAccessCell(XrCtx* ctx, int row, int cell, float* out) {
     int value = cell;
     switch (row) {
     case COG_ACCESS_ROW_POINTER:
-        // the cells are POINTER_SOURCE_ in order; the dwell time stays as it is
-        xrSetPointerSource(ctx, cell, ctx->headDwellMs);
+        // the cells are POINTER_SOURCE_ in order; the dwell time stays as it is. The one in force
+        // pressed again (a dwell resting on it) leaves the pointer and its dwell as they are, so the
+        // dwell's "look away before clicking again" holds.
+        if (cell != ctx->pointerSource) {
+            xrSetPointerSource(ctx, cell, ctx->headDwellMs);
+        }
         setting = SETTING_POINTER_SOURCE;
         LOGEV("pointer %s from the Accessibility tab",
               cell == POINTER_SOURCE_HEAD ? "head" : cell == POINTER_SOURCE_GAZE ? "eyes" : "controller");
         break;
     case COG_ACCESS_ROW_DWELL:
         value = accessDwellMs(cell);
-        xrSetPointerSource(ctx, ctx->pointerSource, value);
+        // only the time: the dwell that clicked this cell stays spent until the dot leaves it
+        ctx->headDwellMs = dwellMsClamp(value);
         setting = SETTING_HEAD_DWELL;
         LOGEV("dwell click %d ms from the Accessibility tab", value);
         break;
