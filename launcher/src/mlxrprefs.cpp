@@ -385,6 +385,7 @@ void MlxrPrefs::load()
     lightgun = (lg == "on" || lg == "1") ? "on" : (lg == "off" || lg == "2") ? "off" : "auto";
     const QString pg = iniValue(ini, "vr", "pad_gyro", "off").trimmed().toLower();
     padGyro = (pg == "controller" || pg == "1") ? "controller" : (pg == "head" || pg == "2") ? "head" : "off";
+    loadHeadInput(ini); // Native (lane wave4-headinput)
 
     // the VR client's spelling; anything else is its default, auto
     headsetLanguage = normalizeLanguage(iniValue(ini, "ui", "language", "auto"));
@@ -562,6 +563,7 @@ void MlxrPrefs::save()
     if (padGyro != m_iniPadGyro) {
         setIniValue(ini, "vr", "pad_gyro", padGyro);
     }
+    saveHeadInput(ini); // Native (lane wave4-headinput)
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
@@ -651,6 +653,72 @@ QVector<MlxrPrefs::IniEntry> MlxrPrefs::profileIniEntries() const
         { "vr", "pad_mouse_scroll", padMouseScroll },
         { "vr", "pad_arbitration", padArbitration },
     };
+}
+
+// Native (lane wave4-headinput): the head and pointer input keys, read as the VR client reads them
+// (ui/settings.c: a switch takes true/1/on/yes, a number is held to its range and anything else is
+// its default) and written only when this page changed them
+void MlxrPrefs::loadHeadInput(const QString& ini)
+{
+    headLook = iniBool(iniValue(ini, "vr", "head_look", "false"));
+    bool pxOk = false;
+    const int px = iniValue(ini, "vr", "head_look_px_deg", "8").trimmed().toInt(&pxOk);
+    headLookPxDeg = pxOk ? qBound(1, px, 30) : 8;
+    opentrack = iniBool(iniValue(ini, "vr", "opentrack", "false"));
+    opentrackHost = iniValue(ini, "vr", "opentrack_host", "").trimmed();
+    bool portOk = false;
+    const int port = iniValue(ini, "vr", "opentrack_port", "4242").trimmed().toInt(&portOk);
+    opentrackPort = portOk && port >= 1 && port <= 65535 ? port : 4242;
+    m_iniHeadLook = headLook;
+    m_iniHeadLookPxDeg = headLookPxDeg;
+    m_iniOpentrack = opentrack;
+    m_iniOpentrackHost = opentrackHost;
+    m_iniOpentrackPort = opentrackPort;
+    const QString ps = iniValue(ini, "vr", "pointer_source", "controller").trimmed().toLower();
+    pointerSource = (ps == "head" || ps == "1") ? "head" : (ps == "gaze" || ps == "2") ? "gaze" : "controller";
+    m_iniPointerSource = pointerSource;
+    // Native (lane headinput-finish, PLAN 4b.10)
+    const QString mm = iniValue(ini, "vr", "mouse_mode", "absolute").trimmed().toLower();
+    mouseMode = (mm == "relative" || mm == "1") ? "relative" : "absolute";
+    m_iniMouseMode = mouseMode;
+    backAsGuide = iniBool(iniValue(ini, "vr", "back_as_guide", "false"));
+    m_iniBackAsGuide = backAsGuide;
+}
+
+void MlxrPrefs::saveHeadInput(const QString& ini)
+{
+    if (headLook != m_iniHeadLook) {
+        setIniValue(ini, "vr", "head_look", headLook ? "true" : "false");
+    }
+    if (headLookPxDeg != m_iniHeadLookPxDeg) {
+        setIniValue(ini, "vr", "head_look_px_deg", QString::number(qBound(1, headLookPxDeg, 30)));
+    }
+    if (opentrack != m_iniOpentrack) {
+        setIniValue(ini, "vr", "opentrack", opentrack ? "true" : "false");
+    }
+    if (opentrackHost.trimmed() != m_iniOpentrackHost) {
+        setIniValue(ini, "vr", "opentrack_host", opentrackHost.trimmed());
+    }
+    if (opentrackPort != m_iniOpentrackPort) {
+        setIniValue(ini, "vr", "opentrack_port", QString::number(opentrackPort >= 1 && opentrackPort <= 65535 ? opentrackPort : 4242));
+    }
+    m_iniHeadLook = headLook;
+    m_iniHeadLookPxDeg = headLookPxDeg;
+    m_iniOpentrack = opentrack;
+    m_iniOpentrackHost = opentrackHost.trimmed();
+    m_iniOpentrackPort = opentrackPort;
+    if (pointerSource != m_iniPointerSource) {
+        setIniValue(ini, "vr", "pointer_source", pointerSource);
+    }
+    m_iniPointerSource = pointerSource;
+    if (mouseMode != m_iniMouseMode) {
+        setIniValue(ini, "vr", "mouse_mode", mouseMode == "relative" ? "relative" : "absolute");
+    }
+    m_iniMouseMode = mouseMode;
+    if (backAsGuide != m_iniBackAsGuide) {
+        setIniValue(ini, "vr", "back_as_guide", backAsGuide ? "true" : "false");
+    }
+    m_iniBackAsGuide = backAsGuide;
 }
 
 int MlxrPrefs::headsetMaxFps() const

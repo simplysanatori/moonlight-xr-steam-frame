@@ -116,4 +116,43 @@ void pointerNudgeReset(PointerNudge* n);
 void pointerNudge(PointerNudge* n, int hand, float u, float v, long frame, int width, int height,
                   int* outDx, int* outDy);
 
+// Native (lane wave4-headinput, PLAN 4.4): head-look, head aim's experimental
+// cousin for first-person games streamed in SBS. Its setting on, in pointer
+// mode, with the screen locked to the head or a room up, the head's turn goes
+// to the host as relative mouse motion through headAimStep, at its own pixels
+// a degree and head aim's dead zone, and the ray nudges the cursor through
+// pointerNudge as it does under head aim. Holding a pause button (app:lookhold,
+// or a grip bound to nothing) stops it, the way a mouse is lifted to re-centre.
+#define HEAD_MOUSE_OFF  0
+// Head aim drives it: its switch on, the screen locked to the head, no room
+#define HEAD_MOUSE_AIM  1
+// Head-look drives it
+#define HEAD_MOUSE_LOOK 2
+
+// Which of the two turns the host's mouse with the head this frame. Head aim
+// wins where both could, so its own behaviour never changes with head-look on.
+int headMouseWho(int aimOn, int lookOn, int pointerMode, int headLocked, int inRoom);
+
+// Whether head-look's pause is held: a control bound to app:lookhold, or a
+// grip held while it is bound to nothing (the pointer-mode default), either hand
+int headLookHeld(int boundHeld, int gripDownL, int gripFreeL, int gripDownR, int gripFreeR);
+
+// head_look_px_deg held to head aim's lane (HEAD_AIM_SENSITIVITY_MIN..MAX)
+int headLookSensitivityClamp(int units);
+
+// Native (lane headinput-finish, PLAN 4b.10): [vr] mouse_mode. Absolute (the
+// default, Moonlight's remote desktop mouse) puts the host's cursor where the
+// ray lands on the picture. Relative sends how far the ray's point moved, in
+// stream pixels, through pointerNudge, for games that capture the mouse and
+// read only its motion (a first-person game's look, a strategy game's edge
+// scroll held by the cursor).
+#define MOUSE_MODE_ABSOLUTE 0
+#define MOUSE_MODE_RELATIVE 1
+#define MOUSE_MODE_COUNT    2
+
+// Whether the ray's point goes to the host as motion (1) rather than a
+// position (0): under head aim or head-look (the head is turning the mouse),
+// or with mouse_mode relative. Out of range is absolute.
+int pointerAsMotion(int headMouseActive, int mouseMode);
+
 #endif

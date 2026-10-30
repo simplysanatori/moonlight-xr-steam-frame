@@ -396,6 +396,61 @@ static void testTheNudge(void) {
     CHECK(dx == 0 && dy == 0);
 }
 
+// Native (lane wave4-headinput, PLAN 4.4): which of head aim and head-look
+// turns the mouse, head-look's pause and its sensitivity's lane
+static void testHeadLook(void) {
+    // head aim alone: head locked and no room, either mode, as it always was
+    CHECK(headMouseWho(1, 0, 1, 1, 0) == HEAD_MOUSE_AIM);
+    CHECK(headMouseWho(1, 0, 0, 1, 0) == HEAD_MOUSE_AIM);
+    CHECK(headMouseWho(1, 0, 1, 0, 0) == HEAD_MOUSE_OFF);
+    CHECK(headMouseWho(1, 0, 1, 1, 1) == HEAD_MOUSE_OFF);
+    // head-look alone: pointer mode, head locked or a room
+    CHECK(headMouseWho(0, 1, 1, 1, 0) == HEAD_MOUSE_LOOK);
+    CHECK(headMouseWho(0, 1, 1, 0, 1) == HEAD_MOUSE_LOOK);
+    CHECK(headMouseWho(0, 1, 1, 1, 1) == HEAD_MOUSE_LOOK);
+    CHECK(headMouseWho(0, 1, 1, 0, 0) == HEAD_MOUSE_OFF);   // a screen placed in the world, no room
+    CHECK(headMouseWho(0, 1, 0, 1, 0) == HEAD_MOUSE_OFF);   // gamepad mode
+    CHECK(headMouseWho(0, 1, 0, 0, 1) == HEAD_MOUSE_OFF);
+    // both: head aim where it can act, head-look in a room
+    CHECK(headMouseWho(1, 1, 1, 1, 0) == HEAD_MOUSE_AIM);
+    CHECK(headMouseWho(1, 1, 1, 0, 1) == HEAD_MOUSE_LOOK);
+    CHECK(headMouseWho(1, 1, 0, 0, 1) == HEAD_MOUSE_OFF);
+    CHECK(headMouseWho(0, 0, 1, 1, 1) == HEAD_MOUSE_OFF);
+
+    // the pause: a bound control, or a free grip
+    CHECK(headLookHeld(0, 0, 1, 0, 1) == 0);
+    CHECK(headLookHeld(1, 0, 0, 0, 0) == 1);
+    CHECK(headLookHeld(0, 1, 1, 0, 0) == 1);
+    CHECK(headLookHeld(0, 0, 0, 1, 1) == 1);
+    CHECK(headLookHeld(0, 1, 0, 1, 0) == 0);   // both grips bound to something of their own
+    CHECK(headLookHeld(0, 1, 0, 0, 1) == 0);
+
+    // the sensitivity shares head aim's lane and default
+    CHECK(headLookSensitivityClamp(HEAD_AIM_SENSITIVITY_DEFAULT) == 8);
+    CHECK(headLookSensitivityClamp(0) == HEAD_AIM_SENSITIVITY_MIN);
+    CHECK(headLookSensitivityClamp(500) == HEAD_AIM_SENSITIVITY_MAX);
+    CHECK(headLookSensitivityClamp(12) == 12);
+
+    // a 10 degree turn to the right at the default 8 px a degree, dead zone
+    // off, is 80 px right, through the same step head aim uses
+    int sx, sy, frames;
+    turn(0.0f, 0.0f, -10.0f, 0.0f, 20, 8.0f, 0.0f, &sx, &sy, &frames);
+    CHECK(abs(sx - 80) <= 1 && sy == 0 && frames == 20);
+}
+
+// Native (lane headinput-finish, PLAN 4b.10): mouse_mode, and what sends the ray's point as motion
+static void testMouseMode(void) {
+    CHECK(MOUSE_MODE_ABSOLUTE == 0 && MOUSE_MODE_RELATIVE == 1 && MOUSE_MODE_COUNT == 2);
+    // absolute, the default: a position, unless the head turns the mouse
+    CHECK(pointerAsMotion(0, MOUSE_MODE_ABSOLUTE) == 0);
+    CHECK(pointerAsMotion(1, MOUSE_MODE_ABSOLUTE) == 1);
+    // relative: motion either way
+    CHECK(pointerAsMotion(0, MOUSE_MODE_RELATIVE) == 1);
+    CHECK(pointerAsMotion(1, MOUSE_MODE_RELATIVE) == 1);
+    // out of range is absolute
+    CHECK(pointerAsMotion(0, 7) == 0 && pointerAsMotion(0, -1) == 0);
+}
+
 int main(void) {
     testTheSwitch();
     testTheLanes();
@@ -409,5 +464,7 @@ int main(void) {
     testTheDrops();
     testNearVertical();
     testTheNudge();
+    testHeadLook();
+    testMouseMode();
     return checksDone("xr_headaim");
 }
