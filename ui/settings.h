@@ -66,6 +66,7 @@ typedef struct Settings {
     int network_path;      // 0 auto, 1 home (Wi-Fi), 2 adapter (Steam Frame Wireless Adapter), 3 usb (USB cable)
     int doff_disconnect;   // native: seconds with the headset off before the stream disconnects (the host's app stays); 0 never
     int idle_disconnect;   // native: minutes without input before the same; 0 never
+    int rfi_idr_ms;        // native (lane wave1-burst): at most one IDR frame request of the client's own per this many ms; 0 no cap
 
     // [vr] VR Settings table
     int pointer;           // Controllers as a mouse

@@ -229,6 +229,11 @@ Flickable {
         var i = values.indexOf(current)
         return values[(i + 1) % values.length]   // a value typed into config.ini that is not listed steps to Never
     }
+    // Native (lane wave1-burst): [stream] rfi_idr_ms of the VR client's config.ini: 0 is no limit
+    readonly property var idrCapValues: [0, 250, 500, 1000, 2000]
+    function idrCapText(v) {
+        return v === 0 ? qsTr("No limit") : (v + " ms")
+    }
     // Native (lane wave2b-padmouse): [vr] pad_mouse_chord, pad_mouse_scroll and pad_arbitration of the VR client
     readonly property var padMouseChordValues: ["start_hold", "start_back", "off"]
     readonly property var padMouseChordNames: [qsTr("Hold Start"), qsTr("Hold Start and Back"), qsTr("Off")]
@@ -557,6 +562,16 @@ Flickable {
                     MlxrPrefs.networkPath = settingsPage.networkValues[i]
                 })
             }
+        }
+
+        // Native (lane wave1-burst): the cap on the headset's full-frame requests after lost video. Pressing
+        // the row steps No limit -> 250 -> 500 -> 1000 -> 2000 ms.
+        PrefRow {
+            objectName: "idrCapRow"
+            title: qsTr("Full-frame requests after lost video")
+            valueText: settingsPage.idrCapText(MlxrPrefs.rfiIdrMs)
+            summary: qsTr("At most one request for a full picture in this time when video is lost. A full picture is large; asked for again while the Wi-Fi is still losing packets, it makes the freeze longer. 500 ms suits most links.")
+            onClicked: MlxrPrefs.rfiIdrMs = settingsPage.nextLimit(settingsPage.idrCapValues, MlxrPrefs.rfiIdrMs)
         }
 
         // ======== Video Settings ========
