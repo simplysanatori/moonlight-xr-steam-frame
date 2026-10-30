@@ -711,7 +711,7 @@ void mlxr_pass_offset(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, c
     VkPipeline pipe = pipeline(p, MLXR_PASS_OFFSET, MLXR_VIDEO_YUV420P, t->format, VK_FORMAT_UNDEFINED);
     if (!pipe) return;
     VkPipelineLayout layout = p->layout[PL_VIDEO];
-    float pc[4] = {o->dispTexels, o->convergence, 0.0f, 0.0f};
+    float pc[4] = {o->dispTexels, o->convergence, o->holeStretch, 0.0f};
     beginRender(p, cmd, t, 1, VK_NULL_HANDLE, t->clear);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
     pushVideoSet(p, cmd, layout, NULL, o->depth, VK_NULL_HANDLE, 1);
