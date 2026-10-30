@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Thu, 29 Oct 2026 21:08:56 -0400
+Subject: [PATCH] Controller bindings page: build the binding core and
+ MlxrBindings, register the page
+
+---
+ app/app.pro  | 7 +++++++
+ app/main.cpp | 7 +++++++
+ app/qml.qrc  | 1 +
+ 3 files changed, 15 insertions(+)
+
+diff --git a/app/app.pro b/app/app.pro
+index 4ceac67..cbb298d 100644
+--- a/app/app.pro
++++ b/app/app.pro
+@@ -197,6 +197,9 @@ SOURCES += \
+     streaming/session.cpp \
+     streaming/mlxrhandoff.cpp \
+     streaming/mlxrprefs.cpp \
++    streaming/mlxrbindings.cpp \
++    streaming/xr_bind.c \
++    streaming/xr_gamepad.c \
+     streaming/audio/audio.cpp \
+     streaming/audio/renderers/sdlaud.cpp \
+     gui/computermodel.cpp \
+@@ -234,6 +237,10 @@ HEADERS += \
+     streaming/session.h \
+     streaming/mlxrhandoff.h \
+     streaming/mlxrprefs.h \
++    streaming/mlxrbindings.h \
++    streaming/xr_bind.h \
++    streaming/xr_gamepad.h \
++    streaming/xr_shared.h \
+     streaming/audio/renderers/renderer.h \
+     streaming/audio/renderers/sdl.h \
+     gui/computermodel.h \
+diff --git a/app/main.cpp b/app/main.cpp
+index 6e7faa2..647dbba 100644
+--- a/app/main.cpp
++++ b/app/main.cpp
+@@ -49,6 +49,7 @@
+ #include "gui/sdlgamepadkeynavigation.h"
+ #include "streaming/mlxrhandoff.h"
+ #include "streaming/mlxrprefs.h"
++#include "streaming/mlxrbindings.h"
+ 
+ #if defined(Q_OS_WIN32)
+ #define IS_UNSPECIFIED_HANDLE(x) ((x) == INVALID_HANDLE_VALUE || (x) == NULL)
+@@ -726,6 +727,12 @@ int main(int argc, char *argv[])
+                                             (void)qmlEngine;
+                                             return MlxrPrefs::get();
+                                         });
++    // Moonlight XR Native: the Controller bindings page's data (launcher/src/mlxrbindings.h)
++    qmlRegisterSingletonType<MlxrBindings>("MlxrBindings", 1, 0, "MlxrBindings",
++                                           [](QQmlEngine*, QJSEngine*) -> QObject* {
++                                               QQmlEngine::setObjectOwnership(MlxrBindings::get(), QQmlEngine::CppOwnership);
++                                               return MlxrBindings::get();
++                                           });
+     qmlRegisterSingletonType<StreamingPreferences>("StreamingPreferences", 1, 0,
+                                                    "StreamingPreferences",
+                                                    [](QQmlEngine* qmlEngine, QJSEngine*) -> QObject* {
+diff --git a/app/qml.qrc b/app/qml.qrc
+index 5e89302..80f353b 100644
+--- a/app/qml.qrc
++++ b/app/qml.qrc
+@@ -5,6 +5,7 @@
+         <file>gui/AppView.qml</file>
+         <file>gui/SettingsView.qml</file>
+         <file>gui/XrSettingsView.qml</file>
++        <file>gui/XrBindingsView.qml</file>
+         <file>gui/StreamSegue.qml</file>
+         <file>gui/GamepadMapper.qml</file>
+         <file>gui/QuitSegue.qml</file>
