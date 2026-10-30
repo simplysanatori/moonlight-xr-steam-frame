@@ -7,12 +7,12 @@ It is a native Linux Arm64 program written in C, using OpenXR and Vulkan. You do
 What it does:
 
 - Decodes H.264 and HEVC on the Frame's hardware video decoder.
-- Runs at the headset's refresh rate (90 Hz, or 72 Hz when SteamVR runs at 72).
+- Runs at the headset's refresh rate. **Match headset** (the default) uses the rate SteamVR runs the app at, 90 Hz unless you changed it; picking 72, 90, 120 or 144 Hz in Settings sets SteamVR's rate for the app before the stream starts. The stream never runs faster than the headset.
 - Shows the stream on a flat or curved screen, in a black void, in passthrough or in one of three rooms.
-- Turns 2D games into 3D on the headset with a depth model (ZipDepth or MiDaS).
-- Uses the Frame controllers as a mouse pointer or as an Xbox gamepad.
+- Turns 2D games into 3D on the headset with a depth model (ZipDepth or MiDaS), or shows the side-by-side or top-bottom 3D a PC game or film renders itself.
+- Uses the Frame controllers as a mouse pointer or as an Xbox gamepad, and every button can be remapped (see [Controls](#controls)).
 - Forwards Bluetooth keyboards, mice and gamepads connected to the Frame.
-- Can stream over your Wi-Fi or over the Steam Frame Wireless Adapter. It looks for the adapter first, and Automatic picks the path with the lower latency and fewer losses.
+- Can stream over your Wi-Fi, over the Steam Frame Wireless Adapter or over a USB cable. **Automatic** measures every link that is there before each stream and picks the one with the lower latency and fewer losses.
 
 ## What this adds to Moonlight XR
 
@@ -22,8 +22,10 @@ Sean Gilleece's Moonlight XR is an Android app for headsets like the Quest. This
 - Video is decoded on the Frame's Qualcomm decoder (H.264 and HEVC) and handed to the GPU without a copy.
 - Before the stream you get Moonlight's own PC list, pairing and app list (a patched moonlight-qt), shown flat in the headset, with an Artemis-style settings page.
 - Apollo options are in that settings page: virtual display, resolution scale factor, custom refresh rate and clipboard sync.
-- A Network connection setting for Wi-Fi or the Steam Frame Wireless Adapter. It detects the adapter, and Automatic chooses by latency and drops.
-- A full tenkeyless keyboard with Ctrl, Alt, Shift and Win and key repeat, next to the compact one, with a move bar.
+- A Network connection setting for Wi-Fi, the Steam Frame Wireless Adapter or a USB cable, with a start bitrate for each. Automatic chooses by latency and drops.
+- A full tenkeyless keyboard with Ctrl, Alt, Shift and Win and key repeat, next to the compact one, with a move bar, AZERTY and QWERTZ layouts and a row of media keys.
+- A Host sheet on the bar for keys that are awkward to reach (Esc, Win, Alt+Enter and more) and your own macros.
+- Controller bindings for every button, for every app or one app, with an editor in the flat window.
 - Steam Frame controller models built at install time from SteamVR's own render models, with moving buttons and sticks.
 - Frame pacing ported from Moonlight on a PC, with a low-latency default.
 - A texture per eye for the curved and 3D picture and the rooms, so SteamVR's size limit does not shrink them.
@@ -37,12 +39,12 @@ The rooms, 3D mode, glow and virtual surround come from Moonlight XR and are kep
 
 Version 1.1.0 is the current stable build. 1.0.0 was the first. It has been used on one Steam Frame (SteamOS 0.4.5, SteamVR 2.18) against one Windows PC with Sunshine and Apollo.
 
-Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz, sound, the pointer, the Exit button that brings the flat window back, the in-headset bar and menus, rooms, the controller models and the Start+Select+L1+R1 disconnect. Tested only on the desktop or by automated tests: physical gamepads, the Network connection setting, the Apollo options, virtual surround and hand tracking. See the [1.0.0 release notes](docs/RELEASE_NOTES_v1.0.0.md) for the full list and the [1.0.1 release notes](docs/RELEASE_NOTES_v1.0.1.md) for the latest fix.
+The 1.1.0 build went through the full headset checklist on 30 October 2026, and everything tested there worked, except eye tracking (**Look to point**), which did not work on that Frame. The USB cable connection was not tried. The [changelog](docs/CHANGELOG.md) lists everything new in 1.1.0; the [1.0.0 release notes](docs/RELEASE_NOTES_v1.0.0.md) describe the first release.
 
 ## Requirements
 
 - A Steam Frame with SteamOS and SteamVR.
-- A PC with Sunshine or Apollo, on the same network as the Frame or connected to it through the Steam Frame Wireless Adapter.
+- A PC with Sunshine or Apollo, on the same network as the Frame, connected to it through the Steam Frame Wireless Adapter, or connected to it with a USB data cable (the headset in developer mode; see [USB cable](docs/USER_GUIDE.md#usb-cable)).
 - About 250 MB free on the Frame.
 - A terminal on the Frame for the install: SSH, or Konsole from the desktop (SteamVR dashboard, Launch a program, Desktop).
 - Steam running on the Frame while you install, so the installer can add the library entry.
@@ -69,7 +71,7 @@ Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz,
 
 The installer changes nothing outside the folders listed under [Files](#files), the Steam shortcut and SteamVR's settings for that shortcut. `./install.sh --help` lists its options.
 
-Releases after 1.0.1 also carry the same files as a `.zip` (`moonlight-xr-steam-frame-<version>-linux-arm64.zip`). The community installers [Frametanium](https://github.com/Cogential/frametanium) and FrameDrop can install the release from there; they run `install.sh` without a terminal. If Steam is not running then, the files are installed and the Steam shortcut is skipped; the installer says so (the last lines of its output, and `~/Games/MoonlightXRNative/install.log`), and running `install.sh` again with Steam up adds it.
+From 1.1.0 on, releases also carry the same files as a `.zip` (`moonlight-xr-steam-frame-<version>-linux-arm64.zip`). The community installers [Frametanium](https://github.com/Cogential/frametanium) and FrameDrop can install the release from there; they run `install.sh` without a terminal. If Steam is not running then, the files are installed and the Steam shortcut is skipped; the installer says so (the last lines of its output, and `~/Games/MoonlightXRNative/install.log`), and running `install.sh` again with Steam up adds it.
 
 The icon in the SteamVR dock stays grey until Steam has been restarted once after the first install.
 
@@ -91,6 +93,51 @@ Otherwise:
 The stream opens in the headset. When it ends, the flat Moonlight window comes back.
 
 The [user guide](docs/USER_GUIDE.md) explains the settings, the controls and the in-headset menus.
+
+## Controls
+
+Every stream starts in pointer mode: the ray from either controller is the PC's mouse. In gamepad mode the two controllers are one Xbox controller on the PC.
+
+| Control | Pointer mode | Gamepad mode |
+| --- | --- | --- |
+| Trigger | Left click, hold to drag | LT, RT |
+| Grip | Grabs the move pill, a corner of the screen, the keyboard's bar or the stats window | LB, RB (**Grips in gamepad mode**: Bumpers, Nothing or Stick clicks) |
+| Bumpers | Back (left) and Forward (right), the mouse's side buttons | LB, RB |
+| Thumbstick | Scroll, while the ray is on the picture | Left and right stick |
+| Thumbstick click | Right click | LS, RS |
+| A | Right click | A |
+| B | Middle click | B |
+| X | 3D on or off | X |
+| Y | Show or hide the headset keyboard | Y |
+| Menu (right) | Open or close the cog menu | Start |
+| View (left) | Nothing on its own | Back |
+| D-pad up | Recentre: the screen comes round to where you face | D-pad up |
+| D-pad down, right, left | Right click, middle click, nothing | D-pad |
+
+| Shortcut | What it does |
+| --- | --- |
+| Hold left View and left grip for half a second | Switches between pointer and gamepad mode, both ways. **Gamepad mode shortcut** in Settings can make it a click of both thumbsticks, or both triggers and both grips squeezed, instead; only the chosen one works. In pointer mode the bar's Gamepad / Pointer button and the cog's Display tab **Mode** row switch too. |
+| Hold left View and right Menu for a quarter of a second | Guide, the Xbox button (gamepad mode). |
+| Hold right Menu, left View and both bumpers (Start+Select+L1+R1) | Disconnects; the game keeps running on the PC (gamepad mode, or the same buttons on a Bluetooth or USB gamepad). With the default **Grips in gamepad mode** the grips count as the bumpers. |
+| Ctrl+Alt+Shift+Q on a keyboard connected to the Frame | Disconnects; the game keeps running on the PC. |
+| Pinch thumb and index finger | With **Hand tracking** on (off by default): the trigger. Three quick pinches on one hand lock the hands out, so a stray pinch does not click; three more unlock them. |
+
+The bar under the screen shows its buttons while the ray is over it. From left to right:
+
+| Button | What it does |
+| --- | --- |
+| Head aim or Bring here | Head aim (with the screen head locked): your head moves the mouse. Bring here (with the screen in the world): switches the screen between the **Desk** preset and where it was before. |
+| Gamepad / Pointer | Switches the mode for this session. |
+| Exit | Asks **Quit app**, **Disconnect** (the game keeps running) or **Cancel**. |
+| Environment | Opens the Rooms picker. |
+| Move pill | Grip it to move the screen; push or pull with the thumbstick while you hold it. |
+| Cog | Opens the cog menu. |
+| Keyboard | Shows or hides the headset keyboard. |
+| Ray | Shows or hides the ray for this session. |
+| 3D | Turns 3D on or off (shown when 3D can run). |
+| Host | Opens the Host sheet: Esc, Win, Alt+Enter and other keys, and your own macros. |
+
+To change what a button does, edit `~/.config/moonlight-xr/bindings.ini` or use the flat window's **Controller bindings** page ([BINDINGS.md](docs/BINDINGS.md)); the mode switch, the disconnect chord and the grips' grab cannot be changed.
 
 ## Update
 
@@ -116,6 +163,7 @@ The flat window checks once a day whether a newer release is out and then shows 
 | --- | --- |
 | Program | `~/Games/MoonlightXRNative/app` |
 | Headset settings, pairing keys, saved PCs | `~/.config/moonlight-xr` (`config.ini`, `hosts.ini`, `client.pem`, `client.key`, `servercerts/`) |
+| Controller bindings, Host sheet macros, your own controller models | `~/.config/moonlight-xr` (`bindings.ini`, `macros.ini`, `models/`) |
 | Flat window settings and PC list | `~/.config/Moonlight XR Native/Moonlight XR Native.conf` |
 | Logs | `~/Games/MoonlightXRNative/moonlight.log`, `moonlight-launcher.log`, `moonlight-console.log`, `vrtiming.log` |
 | Bug reports | `~/Games/MoonlightXRNative/reports` |
