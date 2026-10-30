@@ -546,6 +546,29 @@ static void test_session_limits(void) {
     free(text);
 }
 
+// Native (lane wave1-burst): [stream] rfi_idr_ms, the cap on the client's own IDR frame requests
+static void test_rfi_idr_ms(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.rfi_idr_ms == 500);
+    CHECK(settings_find("stream.rfi_idr_ms") != NULL && settings_find("rfi_idr_ms") != NULL);
+    settings_from_text(&s, "[stream]\nrfi_idr_ms = 0\n", &info);   // 0: no cap
+    CHECK(s.rfi_idr_ms == 0 && info.applied == 1 && info.bad == 0);
+    settings_from_text(&s, "[stream]\nrfi_idr_ms = 90000\n", &info);   // held to the range
+    CHECK(s.rfi_idr_ms == 5000);
+    settings_from_text(&s, "[stream]\nrfi_idr_ms = -1\n", &info);
+    CHECK(s.rfi_idr_ms == 0);
+    settings_defaults(&s);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#rfi_idr_ms = 500\n") != NULL);
+    free(text);
+    s.rfi_idr_ms = 1000;
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nrfi_idr_ms = 1000\n") != NULL);
+    free(text);
+}
+
 static void test_tolerant(void) {
     Settings s;
     settings_defaults(&s);
@@ -991,6 +1014,7 @@ int main(void) {
     test_clamping();
     test_network_path();
     test_session_limits();
+    test_rfi_idr_ms();
     test_tolerant();
     test_removed_keys();
     test_bitrate_ceiling();

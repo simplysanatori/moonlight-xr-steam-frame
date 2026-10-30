@@ -63,5 +63,6 @@ What the developer asked the owner to check in the headset after a session.
 | [reports/grab-pull.md](reports/grab-pull.md) | Pulling the held picture closer with the stick |
 | [reports/eye-swapchains.md](reports/eye-swapchains.md) | One swapchain per eye for every projection layer |
 | [reports/refresh.md](reports/refresh.md) | Refresh rates up to 144 Hz |
+| [reports/burst.md](reports/burst.md) | Burst loss: the adaptive RFI wait, the IDR request cap, the burst summary line, `rx drop misc` |
 
 The platform probe from the first session is in [docs/probe](../probe/SUMMARY.md).
