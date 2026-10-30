@@ -213,4 +213,35 @@ const char* ui_str(UiStr id);
 // The upstream resource name an id maps to
 const char* ui_str_key(UiStr id);
 
+// ---- languages (PLAN 6.1; docs/dev/i18n.md) ---------------------------------------------------
+// Language 0 is English, the table above; the others are ui_strings_i18n.inc, generated from
+// upstream's translations by tools/ui/gen_strings.py. A string a language has no text for is
+// the English one. ui_str answers in the language set with ui_str_set_lang (English until then).
+typedef enum {
+    UI_SCRIPT_LATIN = 0,   // Latin, Latin Extended: the bundled Noto Sans
+    UI_SCRIPT_CYRILLIC,    // the bundled Noto Sans
+    UI_SCRIPT_GREEK,       // the bundled Noto Sans
+    UI_SCRIPT_CJK_JA,      // the rest need a system font (text.h ui_font_find_cjk)
+    UI_SCRIPT_CJK_KO,
+    UI_SCRIPT_CJK_SC,
+    UI_SCRIPT_CJK_TC
+} UiScript;
+
+int ui_lang_count(void);                 // English included
+const char* ui_lang_code(int lang);      // "en", "de", "pt-BR", ... ("" out of range)
+const char* ui_lang_name(int lang);      // in its own language: "Deutsch"
+int ui_lang_script(int lang);            // UiScript
+// A setting code ("de", "pt-BR"; case and '-' or '_' do not matter), or -1
+int ui_lang_find(const char* code);
+// A POSIX locale ("de_DE.UTF-8", "pt_BR", "zh_HK", "C") to a language; 0 (English) when none fits
+int ui_lang_from_locale(const char* locale);
+// The locale of the process's environment: LC_ALL, else LC_MESSAGES, else LANG
+int ui_lang_from_env(void);
+// The text of an id in a language, English where it has none (never NULL)
+const char* ui_str_lang(int lang, UiStr id);
+// 1 when the language has its own text for the id (0 for English and for a fallback)
+int ui_str_translated(int lang, UiStr id);
+void ui_str_set_lang(int lang);          // out of range means English
+int ui_str_lang_current(void);
+
 #endif
