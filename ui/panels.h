@@ -194,6 +194,9 @@ typedef struct {
     // Native (lane a11y-tab): what the Accessibility tab's eye tracking line says (ACCESS_EYES_*,
     // xr_access.h), which also decides whether its pointer row has the Eyes cell
     int access_eyes;
+    // Native (lane a11y-2): the Accessibility tab's row under the pointer (COG_ACCESS_ROW_*), whose
+    // one-line description the tab's footer shows, or -1
+    int access_row;
 } UiView;
 
 // Fills the view's defaults from settings (session toggles included)
@@ -287,9 +290,10 @@ int ui_cog_row_count(int face);
 int ui_cog_row_is_track(int face, int row);
 int ui_cog_row_cells(int face, int row);
 int ui_cog_row_live(const UiView* v, int face, int row);
-// Native (lane a11y-tab): the cells an Accessibility row shows (the pointer row's Eyes only where
-// it can work, xr_access.h accessPointerCells)
+// Native (lane a11y-tab, a11y-2): the cells an Accessibility row has, and whether one takes a press
+// (the pointer row's Eyes is dimmed where the runtime has no eye gaze, xr_access.h accessEyesCellLive)
 int ui_cog_access_cells(const UiView* v, int row);
+int ui_cog_access_cell_live(const UiView* v, int row, int cell);
 
 // Preset separations (units of the track) for the 3D tab, in cell order
 void ui_presets_for(const Settings* s, int presets[COG_PRESET_CELLS]);

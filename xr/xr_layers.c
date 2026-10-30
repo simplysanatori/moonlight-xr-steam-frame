@@ -901,7 +901,8 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
                                || dwellRing > 0.0f)) {
             Vec3 toHead2 = vecSub(head, end);
             float away = sqrtf(vecDot(toHead2, toHead2));
-            float dotSize = pointerDotSize(away);
+            // native (lane a11y-2): the head and eye pointer's dot, and its ring, at the Dot size
+            float dotSize = pointerDotSize(away) * xrAssistDotScale(ctx);
             if (fabsf(dotSize - ctx->dotSizeSaid) > 0.2f * ctx->dotSizeSaid) {
                 LOGI("cursor dot %.1f cm across at %.2f m", dotSize * 100.0f, away);
                 ctx->dotSizeSaid = dotSize;

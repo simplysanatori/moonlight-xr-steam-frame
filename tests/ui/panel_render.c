@@ -7,6 +7,7 @@
 
 #include "panels.h"
 #include "xr_headaim.h"
+#include "xr_access.h"
 #include "panel_render.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -105,24 +106,31 @@ int render_all_panels(const char* dir) {
         snprintf(name, sizeof name, "cog_%s_locked", TABS[tab]);
         panel_to_png(dir, name, UI_PANEL_COG, &vl, 1.0f);
     }
-    // Native (lane a11y-tab): the Accessibility tab with the head pointing and a dwell, and with
-    // the eyes ready
+    // Native (lane a11y-tab, a11y-2): the Accessibility tab with the head pointing, a dwell, a larger
+    // dot and the pointer on Dot size; with the eyes ready; and with no eye gaze offered (Eyes dimmed)
     {
         Settings a = s;
         a.pointer_source = POINTER_SOURCE_HEAD;
         a.head_dwell_ms = 900;
+        a.assist_dot_size = 175;
         UiView va;
         ui_view_init(&va, &a);
         va.cog_tab = COG_TAB_ACCESS;
-        va.access_eyes = ACCESS_EYES_NOT_ASKED;
+        va.access_eyes = ACCESS_EYES_WAITING;
+        va.access_row = COG_ACCESS_ROW_DOT;
         panel_to_png(dir, "cog_accessibility_head", UI_PANEL_COG, &va, 1.0f);
         a.pointer_source = POINTER_SOURCE_GAZE;
-        a.mouse_mode = MOUSE_MODE_RELATIVE;
-        a.head_look = 1;
         ui_view_init(&va, &a);
         va.cog_tab = COG_TAB_ACCESS;
         va.access_eyes = ACCESS_EYES_READY;
+        va.hover.kind = UI_HIT_CELL;
+        va.hover.a = COG_ACCESS_ROW_POINTER;
+        va.hover.b = 2;
         panel_to_png(dir, "cog_accessibility_eyes", UI_PANEL_COG, &va, 1.0f);
+        ui_view_init(&va, &s);
+        va.cog_tab = COG_TAB_ACCESS;
+        va.access_eyes = ACCESS_EYES_UNAVAILABLE;
+        panel_to_png(dir, "cog_accessibility_no_eyes", UI_PANEL_COG, &va, 1.0f);
     }
     // rooms
     static const int ENVS[3] = { ENV_ID_HOME_THEATER, ENV_ID_GRAND_CINEMA, ENV_ID_SYNTHWAVE };

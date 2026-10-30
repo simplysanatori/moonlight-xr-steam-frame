@@ -1419,15 +1419,14 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
         ctx->handAimOffered = 0;
         LOGI("hand tracking off by preference");
     }
-    // Native: the gaze extension only when the setting wants it, so a runtime
-    // that would ask for eye tracking does not ask for nothing. Native (lane
-    // a11y-tab): pointer_source = gaze (the Accessibility tab's Eyes) asks for
-    // it too, as gaze = true does.
+    // Native (lane a11y-2): the gaze extension whenever the runtime offers it,
+    // and the gaze action with it (xr_input.c), so the Accessibility tab can say
+    // whether eye gaze arrives and its Eyes cell works without config.ini.
+    // Reading the gaze points nothing: the eyes point only with gaze = true or
+    // pointer_source = gaze (gazeEnabled, headPointing). gazeAsked says, for
+    // the log, whether the settings wanted it for themselves.
     ctx->gazeOffered = ctx->eyeGaze;
     ctx->gazeAsked = s->gaze || s->pointer_source == POINTER_SOURCE_GAZE;
-    if (!ctx->gazeAsked) {
-        ctx->eyeGaze = 0;
-    }
     free(exts);
 
     const char* enabled[16];
@@ -1520,12 +1519,11 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
         LOGEV("eye gaze: the runtime does not offer XR_EXT_eye_gaze_interaction to apps%s",
               ctx->gazeAsked ? " (asked for by the settings)" : "");
     }
-    else if (!ctx->gazeAsked) {
-        LOGEV("eye gaze: XR_EXT_eye_gaze_interaction offered, not asked for (gaze = false, pointer_source is not gaze)");
-    }
     else {
-        LOGEV("eye gaze: XR_EXT_eye_gaze_interaction enabled (asked by %s), supportsEyeGazeInteraction %d%s",
-              s->gaze ? "gaze = true" : "pointer_source = gaze", ctx->gazeSupportFlag,
+        LOGEV("eye gaze: XR_EXT_eye_gaze_interaction enabled (%s), supportsEyeGazeInteraction %d%s",
+              s->gaze ? "gaze = true points with the eyes" : s->pointer_source == POINTER_SOURCE_GAZE
+              ? "pointer_source = gaze" : "watched for the Accessibility tab, pointing with it is off",
+              ctx->gazeSupportFlag,
               ctx->gazeSupportFlag == 0 ? ": the system says no eye gaze, the gaze action is kept to see" : "");
     }
     if (g_presenceOffered) {

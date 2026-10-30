@@ -606,7 +606,7 @@ int cogTabRowCount(int face) {
     if (face == COG_TAB_PICTURE) {
         return PICTURE_TAB_ROWS;
     }
-    // Native (lane a11y-tab): the Accessibility tab's rows, all cells
+    // Native (lane a11y-tab): the Accessibility tab's rows
     if (face == COG_TAB_ACCESS) {
         return COG_ACCESS_ROW_COUNT;
     }
@@ -626,8 +626,9 @@ int cogRowIsTrack(int face, int row) {
     if (face == COG_TAB_DISPLAY) {
         return row == COG_DISPLAY_SLIDER_ROW;
     }
+    // Native (lane a11y-2): the Accessibility tab's Dot size is a track, the rest cells
     if (face == COG_TAB_ACCESS) {
-        return 0;
+        return row == COG_ACCESS_ROW_DOT;
     }
     if (face == COG_FACE_ROOM) {
         return row != COG_ROOM_ROW_GLOW && row != COG_ROOM_ROW_LIGHT;
@@ -649,10 +650,9 @@ int cogRowCells(int face, int row) {
     if (face == COG_FACE_ROOM) {
         return COG_ROOM_SWITCH_CELLS;
     }
-    // Native (lane a11y-tab): the most each row has; cogAccessCells is what it shows now
+    // Native (lane a11y-tab): the Accessibility tab's cell rows (xr_assist.c)
     if (face == COG_TAB_ACCESS) {
-        return row == COG_ACCESS_ROW_POINTER ? COG_ACCESS_POINTER_CELLS
-                : row == COG_ACCESS_ROW_DWELL ? COG_ACCESS_DWELL_CELLS : COG_ACCESS_SWITCH_CELLS;
+        return cogAccessCells(NULL, row);
     }
     if (face == COG_TAB_3D) {
         return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS
@@ -752,6 +752,9 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
             t = lanePlace((int)lroundf(ctx->eyeBalance * 100.0f), EYE_BALANCE_MIN, EYE_BALANCE_MAX);
         }
     }
+    else if (face == COG_TAB_ACCESS) {
+        t = cogAccessSliderValue(ctx, slider);   // native (lane a11y-2): Dot size
+    }
     else if (face == COG_TAB_PICTURE) {
         if (slider >= 0 && slider < PICTURE_VALUES) {
             t = lanePlace(ctx->pictureUnits[slider], pictureMin(slider), pictureMax(slider));
@@ -834,6 +837,12 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
         // will be written with when the drag ends
         int units = (int)roundf(t * 20.0f) * 5;
         ctx->ambiIntensity = units / 100.0f;
+        return;
+    }
+
+    // Native (lane a11y-2): the Accessibility tab's Dot size, in its 25 % steps (xr_assist.c)
+    if (face == COG_TAB_ACCESS) {
+        cogApplyAccessSlider(ctx, slider, t);
         return;
     }
 
@@ -1461,6 +1470,9 @@ void cogDragEnded(XrCtx* ctx, float* out) {
             out[IN_SETTING] = (float)SETTING_EYE_BALANCE;
             out[IN_SETTING_VALUE] = roundf(ctx->eyeBalance * 100.0f);
         }
+    }
+    else if (face == COG_TAB_ACCESS) {
+        cogAccessDragEnded(ctx, slider, out);   // native (lane a11y-2): Dot size
     }
     else if (face == COG_TAB_DISPLAY) {
         out[IN_SETTING] = (float)SETTING_AMBI_LEVEL;

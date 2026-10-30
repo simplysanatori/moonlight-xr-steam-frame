@@ -607,29 +607,31 @@
 #define COG_TAB_EDGE_4 0.595f
 #define COG_TAB_EDGE_5 0.845f
 
-// Native (lane a11y-tab): Accessibility tab rows, all cells: what points
-// (Controller, Head, and Eyes where the runtime gives eye gaze), the dwell
-// click (Off and four times), head-look, Back as Guide and the mouse mode. Under
-// them a line says whether eye tracking reaches the app, and a few short lines
-// say how to use it and how to turn it off.
+// Native (lane a11y-tab, a11y-2): Accessibility tab rows: what points
+// (Controller, Head and Eyes; Eyes dimmed only where the runtime does not
+// offer eye gaze), the dwell click (Off and four times) and the size of the
+// head and eye pointer's dot, a track of 25 % steps. Under them a line says
+// whether eye tracking reaches the app and a few short lines say how to use
+// it and how to turn it off; the footer under those says what the row under
+// the pointer does.
 #define COG_ACCESS_ROW_POINTER 0
 #define COG_ACCESS_ROW_DWELL 1
-#define COG_ACCESS_ROW_HEAD_LOOK 2
-#define COG_ACCESS_ROW_BACK_GUIDE 3
-#define COG_ACCESS_ROW_MOUSE 4
-#define COG_ACCESS_ROW_COUNT 5
-// Controller, Head, Eyes; Eyes is only drawn (and only hit) where it can work
+#define COG_ACCESS_ROW_DOT 2
+#define COG_ACCESS_ROW_COUNT 3
+// Controller, Head, Eyes (POINTER_SOURCE_ order)
 #define COG_ACCESS_POINTER_CELLS 3
 // Off, 0.6 s, 0.9 s, 1.2 s, 1.5 s (xr/core/xr_access.h accessDwellMs)
 #define COG_ACCESS_DWELL_CELLS 5
-#define COG_ACCESS_SWITCH_CELLS 2
 #define COG_ACCESS_ROW_V0 0.215f
 #define COG_ACCESS_ROW_STEP 0.07f
 #define COG_ACCESS_ROW_HALF 0.035f
 #define COG_ACCESS_CELL_HALF 0.029f
-// The eye tracking line and the instructions under the rows
-#define COG_ACCESS_STATUS_V 0.575f
-#define COG_ACCESS_HELP_T 0.645f
+// The eye tracking line, the instructions under the rows, and the footer
+// (its rule, then the description's first baseline)
+#define COG_ACCESS_STATUS_V 0.445f
+#define COG_ACCESS_HELP_T 0.515f
+#define COG_ACCESS_FOOTER_RULE 0.845f
+#define COG_ACCESS_FOOTER_T 0.9f
 
 // Screen tab rows, in the order they are drawn: the six that place the
 // screen, which the reset button under them puts back, then head aim's two,

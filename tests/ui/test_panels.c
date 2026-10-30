@@ -7,6 +7,7 @@
 #include "check.h"
 #include "panels.h"
 #include "xr_padmouse.h"
+#include "text.h"
 
 #define GUARD 256
 
@@ -69,6 +70,101 @@ static void check_hits_inside(const char* what) {
         CHECK(h->u1 > h->u0 && h->v1 > h->v0);
         CHECK(h->kind != UI_HIT_NONE);
     }
+}
+
+// Native (lane a11y-2): the Accessibility tab. The footer says what the row under the pointer does
+// (the dot's row, a cell's row through the hover, or a hint while nothing is pointed at), Eyes is
+// always on the pointer row and dimmed alone where the runtime offers no eye gaze, and Dot size is
+// a track with its readout
+#define ACCESS_TEXTS 96
+static char access_texts[ACCESS_TEXTS][160];
+static int access_ntexts;
+
+static void access_on_text(const UiTextTraceEvent* e, void* user) {
+    (void)user;
+    if (e->kind != UI_TEXT_TRACE_DRAW || access_ntexts >= ACCESS_TEXTS) return;
+    int n = e->len < 159 ? e->len : 159;
+    memcpy(access_texts[access_ntexts], e->text, (size_t)n);
+    access_texts[access_ntexts][n] = 0;
+    access_ntexts++;
+}
+
+static int access_drawn(const UiView* v, const char* text) {
+    Guarded g;
+    access_ntexts = 0;
+    ui_text_set_trace(access_on_text, NULL);
+    draw(UI_PANEL_COG, v, 1.0f, &g);
+    ui_text_set_trace(NULL, NULL);
+    CHECK(guard_ok(&g));
+    free(g.base);
+    for (int i = 0; i < access_ntexts; i++) {
+        if (strcmp(access_texts[i], text) == 0) return 1;
+    }
+    return 0;
+}
+
+static const UiHit* access_hit(int kind, int a, int b) {
+    for (int i = 0; i < hits.count; i++) {
+        if (hits.hit[i].kind == kind && hits.hit[i].a == a && hits.hit[i].b == b) return &hits.hit[i];
+    }
+    return NULL;
+}
+
+static void test_access_tab(void) {
+    Settings s;
+    settings_defaults(&s);
+    s.pointer_source = POINTER_SOURCE_HEAD;
+    s.assist_dot_size = 175;
+    UiView v;
+    ui_view_init(&v, &s);
+    v.cog_tab = COG_TAB_ACCESS;
+    v.access_eyes = ACCESS_EYES_WAITING;
+    static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL, UIS_ACCESS_DESC_DOT };
+    // nothing pointed at: the hint, and no row's sentence
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_NONE)));
+    for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) CHECK(!access_drawn(&v, ui_str(DESC[row])));
+    // the footer follows the row under the pointer
+    for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) {
+        v.access_row = row;
+        CHECK(access_drawn(&v, ui_str(DESC[row])));
+        CHECK(!access_drawn(&v, ui_str(UIS_ACCESS_DESC_NONE)));
+        CHECK(!access_drawn(&v, ui_str(DESC[(row + 1) % COG_ACCESS_ROW_COUNT])));
+    }
+    // or the cell under it, when the view has only the hover
+    v.access_row = -1;
+    v.hover.kind = UI_HIT_CELL;
+    v.hover.a = COG_ACCESS_ROW_DWELL;
+    v.hover.b = 2;
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_DWELL)));
+    v.hover.kind = UI_HIT_NONE;
+    // the instructions stay, the readout says the dot's percent
+    CHECK(access_drawn(&v, "175%"));
+    CHECK(access_drawn(&v, ui_str(UIS_EYES_WAITING)));
+    // Eyes is there and takes a press where eye gaze is offered, before any has arrived
+    const UiHit* eyes = access_hit(UI_HIT_CELL, COG_ACCESS_ROW_POINTER, 2);
+    CHECK(eyes != NULL && eyes->enabled);
+    CHECK(access_drawn(&v, ui_str(UIS_CELL_EYES)));
+    // the Dot size track: step buttons and run, live with the head pointing
+    const UiHit* run = access_hit(UI_HIT_TRACK_RUN, COG_ACCESS_ROW_DOT, 0);
+    CHECK(run != NULL && run->enabled && access_hit(UI_HIT_TRACK_UP, COG_ACCESS_ROW_DOT, 0) != NULL);
+    // no eye gaze offered: Eyes is drawn, dimmed and dead, and the line says why
+    v.access_eyes = ACCESS_EYES_UNAVAILABLE;
+    CHECK(access_drawn(&v, ui_str(UIS_CELL_EYES)));
+    CHECK(access_drawn(&v, ui_str(UIS_EYES_UNAVAILABLE)));
+    eyes = access_hit(UI_HIT_CELL, COG_ACCESS_ROW_POINTER, 2);
+    CHECK(eyes != NULL && !eyes->enabled);
+    CHECK(access_hit(UI_HIT_CELL, COG_ACCESS_ROW_POINTER, 1)->enabled);
+    // ... unless Eyes is the setting already
+    s.pointer_source = POINTER_SOURCE_GAZE;
+    access_drawn(&v, "");
+    CHECK(access_hit(UI_HIT_CELL, COG_ACCESS_ROW_POINTER, 2)->enabled);
+    // the controllers pointing: the dwell and the dot are greyed, with no readout
+    s.pointer_source = POINTER_SOURCE_CONTROLLER;
+    CHECK(!access_drawn(&v, "175%"));
+    run = access_hit(UI_HIT_TRACK_RUN, COG_ACCESS_ROW_DOT, 0);
+    CHECK(run != NULL && !run->enabled);
+    v.access_row = COG_ACCESS_ROW_DOT;
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_DOT)));
 }
 
 // Every pixel of a panel is within its buffer at every scale, and the output is sane
@@ -1275,6 +1371,7 @@ int main(void) {
     test_state_sweep();
     test_rows_read_settings();
     test_atlas();
+    test_access_tab();
     ui_panels_shutdown();
     return checksDone(
 #ifdef UI_ASAN

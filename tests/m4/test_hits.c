@@ -148,19 +148,21 @@ static void cogRows(Scene* s) {
                 }
                 const UiHit* hit = &hits.hit[i];
                 CHECK(hit->a == row);
-                CHECK(hit->enabled == live);
+                // native (lane a11y-2): the pointer row's Eyes is dimmed alone where there is no eye gaze
+                int cellLive = live && (face != COG_TAB_ACCESS || track || cogAccessCellLive(c, row, cell));
+                CHECK(hit->enabled == cellLive);
                 if (track) {
                     CHECK(hit->kind == UI_HIT_TRACK_RUN);
                     CHECK(cogTrackPart(u) == TRACK_PART_RUN);
                 }
                 else {
                     CHECK(hit->kind == UI_HIT_CELL);
-                    if (live) {
+                    if (cellLive) {
                         CHECK(hit->b == cell);
                         CHECK(cogCellAt(u, cells) == cell);
                     }
                 }
-                if (hit->a != row || hit->enabled != live)
+                if (hit->a != row || hit->enabled != cellLive)
                     fprintf(stderr, "  tab %d row %d cell %d: hit kind %d a %d b %d enabled %d, live %d\n", tab, row,
                             cell, hit->kind, hit->a, hit->b, hit->enabled, live);
             }
