@@ -73,6 +73,8 @@ Releases after 1.0.1 also carry the same files as a `.zip` (`moonlight-xr-steam-
 
 The icon in the SteamVR dock stays grey until Steam has been restarted once after the first install.
 
+To get a second shortcut, **Desktop in VR**, that opens your PC's Desktop in the headset straight away, run `./install.sh --desktop-shortcut` after you have streamed once from the flat window. It uses the PC you streamed from last (or the only one); `--desktop-pc "PC name"` picks another. When the stream ends, that shortcut closes.
+
 ## First run and pairing
 
 The first screen is Moonlight's PC list, shown flat in the headset.
@@ -94,9 +96,11 @@ The [user guide](docs/USER_GUIDE.md) explains the settings, the controls and the
 
 Download the new tarball, unpack it and run `./install.sh` again. Your settings, your pairing and the Steam shortcut are kept.
 
+The flat window checks once a day whether a newer release is out and then shows an update button at the top that opens its release page. It asks GitHub only, sends nothing about you or your headset, and downloads nothing. Turn it off with **Check for updates** in Settings (General Settings).
+
 ## Uninstall
 
-1. In Steam, remove the **Moonlight XR for Frame** shortcut (Manage, Remove non-Steam game from your library).
+1. In Steam, remove the **Moonlight XR for Frame** shortcut (Manage, Remove non-Steam game from your library), and **Desktop in VR** if you added it.
 2. Remove the SteamVR dock entry: `python3 MoonlightXRNative/dock_icon.py remove ~/Games/MoonlightXRNative/app` from the unpacked release.
 3. Delete the files:
 

@@ -13,7 +13,9 @@
 // StreamingPreferences under their stock keys, so existing configs keep working.
 #pragma once
 
+#include <QMap>
 #include <QObject>
+#include <QVariantMap>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -169,6 +171,23 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(bool pcvrBusy READ pcvrBusy NOTIFY pcvrChanged)
     Q_PROPERTY(QVariantList pcvrDevices READ pcvrDevices NOTIFY pcvrChanged)
     Q_PROPERTY(QVariantList pcvrApps READ pcvrApps NOTIFY pcvrChanged)
+    // ---- Native (lane launcher-bundle, PLAN 6.7): the rest of the VR client's config.ini ----
+    // Every key of ui/settings.c that a user would set and that had no row of its own: picture, pointer,
+    // keyboard, gamepad mode, the screen and its surroundings (the table is kVrKeys in mlxrprefs.cpp; tests
+    // check it against the VR client's own table). vr["section.key"] is the value as the VR client reads it:
+    // a bool, an int, or an enum's name. setVr() takes the same (or text) and holds it to the key's range;
+    // save() writes only the keys changed here. Not part of a settings profile.
+    Q_PROPERTY(QVariantMap vr READ vr NOTIFY changed)
+    // ---- Native (lane launcher-bundle, PLAN 6.2 and 6.4) ----
+    // Once a day at most, ask GitHub for the latest release (mlxrupdate.h); on by default. Key mlxr/check_updates.
+    Q_PROPERTY(bool checkUpdates MEMBER checkUpdates NOTIFY changed)
+    // What the launcher does once a PC is online after it starts (mlxronstart.h): "none" (default), "desktop" (the
+    // Desktop app of the PC the last stream went to) or "app" (onStartApp on onStartPc). Keys mlxr/on_start,
+    // mlxr/on_start_pc, mlxr/on_start_app; the last stream's PC is mlxr/last_pc (written by the hand-off)
+    Q_PROPERTY(QString onStart MEMBER onStart NOTIFY changed)
+    Q_PROPERTY(QString onStartPc MEMBER onStartPc NOTIFY changed)
+    Q_PROPERTY(QString onStartApp MEMBER onStartApp NOTIFY changed)
+    Q_PROPERTY(QString lastPc READ lastPc NOTIFY changed)
     // ---- facts ----
     // Native (lane wave4c-usb): a USB data cable to the PC is up, i.e. the headset's USB network
     // interface (usb*, or a gadget device) has carrier. Rescanned every 10 s while the app is open.
@@ -231,6 +250,21 @@ public:
     // The name of the first USB network interface under netRoot that has carrier ("1" in its carrier
     // file), "" when none. USB means the name starts with "usb" or uevent says DEVTYPE=gadget.
     static QString usbCableInterface(const QString& netRoot);
+
+    // PLAN 6.7: see the vr property
+    QVariantMap vr() const;
+    Q_INVOKABLE void setVr(const QString& id, const QVariant& value);
+    // One line per key of kVrKeys, "section.key kind default min max names" (kind b, i or e; names joined by |,
+    // "-" for none), the format of `mlxr-settings-dump --table`, which prints the VR client's own
+    // (MLXR_LAUNCHER_SELFTEST=vrkeys)
+    static QStringList vrKeyTable();
+    // The value text the VR client would read from raw for that key: a bool as true or false, an int held to its
+    // range, an enum's name (by name or index); anything it would not take is the key's default. "" for an unknown id.
+    static QString vrNormalize(const QString& id, const QString& raw);
+
+    // PLAN 6.4: the PCs and apps the launcher knows (from its saved PC list), [{pc, app}], for the On start row
+    Q_INVOKABLE QVariantList onStartChoices() const;
+    QString lastPc() const;
 
     // config.ini access (exposed for tests): the active value of section.key, else the commented
     // default line's, else def
@@ -297,6 +331,10 @@ public:
     bool firstRunShown = false;
     QString lightgun;
     QString padGyro;
+    bool checkUpdates = true;
+    QString onStart = QStringLiteral("none");
+    QString onStartPc;
+    QString onStartApp;
     // Native (lane wave4-headinput)
     bool headLook = false;
     int headLookPxDeg = 8;
@@ -358,6 +396,8 @@ private:
     QVariantList m_pcvrDevices, m_pcvrApps;
     void pcvrLoadApps();
     void pcvrSay(const QString& status, bool busy);
+    // PLAN 6.7: kVrKeys' values now and as config.ini held them at load(), as the VR client's text
+    QMap<QString, QString> m_vr, m_iniVr;
     QString m_iniKeymap = QStringLiteral("qwerty");
     QString m_iniHeadsetLanguage = QStringLiteral("auto");
 };
