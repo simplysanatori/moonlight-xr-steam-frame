@@ -1722,17 +1722,28 @@ typedef struct {
     PickIn pick;
 } InputFrame;
 
+// Native (lane wave4-headinput, PLAN 6.5): head Point mode. The gaze source's
+// slot carries the view's own ray instead of the eyes', One Euro filtered as a
+// controller's is; the controllers only click (either trigger) and never point,
+// nothing wakes or sleeps on their clocks, the dot is drawn where the head
+// points and the host's cursor follows it. Gamepad mode leaves it alone.
+static int headPointing(XrCtx* ctx) {
+    return ctx->pointerSource == POINTER_SOURCE_HEAD && ctx->viewSpace != XR_NULL_HANDLE
+            && !ctx->padMode;
+}
+
 // Whether the eyes are what is doing the pointing. A controller in use takes
-// it, and so do the hands while the eyes are missing.
+// it, and so do the hands while the eyes are missing. Native (lane
+// wave4-headinput): or the head, which nothing takes it from.
 static int gazePointing(XrCtx* ctx) {
-    return ctx->eyeGaze && ctx->gazeEnabled && !ctx->controllerAwake
-            && !ctx->gazeBridge.bridged;
+    return headPointing(ctx) || (ctx->eyeGaze && ctx->gazeEnabled && !ctx->controllerAwake
+                                 && !ctx->gazeBridge.bridged);
 }
 
 // Whether the eyes would be pointing but for the bridge, which is when the
 // gaze is still asked for: the bridge has to see them come back
 static int gazeWanted(XrCtx* ctx) {
-    return ctx->eyeGaze && ctx->gazeEnabled && !ctx->controllerAwake;
+    return headPointing(ctx) || (ctx->eyeGaze && ctx->gazeEnabled && !ctx->controllerAwake);
 }
 
 static int handInUse(XrCtx* ctx, int h) {
@@ -1821,7 +1832,7 @@ static int canPoint(XrCtx* ctx, const InputFrame* f, int h) {
     if (h >= HAND_COUNT) {
         return 1;
     }
-    return !f->pinchOnly[h] && !(gazePointing(ctx) && !handInUse(ctx, h));
+    return !f->pinchOnly[h] && !(gazePointing(ctx) && (headPointing(ctx) || !handInUse(ctx, h)));
 }
 
 // Gaze has no button of its own, so a pinch from either hand clicks wherever
@@ -1830,6 +1841,11 @@ static void gazeTrigger(XrCtx* ctx, const InputFrame* f) {
     if (f->aimValid[SRC_GAZE]) {
         ctx->triggerDown[SRC_GAZE] = ctx->triggerDown[HAND_LEFT] || ctx->triggerDown[HAND_RIGHT];
         ctx->triggerEdge[SRC_GAZE] = ctx->triggerEdge[HAND_LEFT] || ctx->triggerEdge[HAND_RIGHT];
+        // Native (lane wave4-headinput, PLAN 6.5): a dwell click on our UI is the head's press
+        if (headPointing(ctx) && f->now < ctx->dwellUiUntil) {
+            ctx->triggerDown[SRC_GAZE] = 1;
+            ctx->triggerEdge[SRC_GAZE] |= ctx->dwellUiEdge;
+        }
         ctx->usingHands[SRC_GAZE] = 1;
     }
     else {
@@ -1843,6 +1859,11 @@ static void gazeTrigger(XrCtx* ctx, const InputFrame* f) {
 static void releaseInput(XrCtx* ctx, float* out) {
     ctx->buttonsDown = 0;
     ctx->beamVisible = 0;
+    // Native (lane wave4-headinput, PLAN 6.5): no dwell survives the pointer going unwatched
+    dwellReset(&ctx->dwell);
+    ctx->dwellFraction = -1.0f;
+    ctx->dwellHostUntil = 0;
+    ctx->dwellUiUntil = 0;
     // Nothing is being read, so last frame's answer must not stand
     ctx->aimTracked[HAND_LEFT] = 0;
     ctx->aimTracked[HAND_RIGHT] = 0;
@@ -2158,10 +2179,39 @@ static void resetAimFilter(XrCtx* ctx, int h) {
     ctx->aimFilterRot[h].valid = 0;
 }
 
+// Native (lane wave4-headinput, PLAN 6.5): the head ray's filters forget it
+static void resetHeadPointFilter(XrCtx* ctx) {
+    ctx->headPointFilterPos[0].valid = 0;
+    ctx->headPointFilterPos[1].valid = 0;
+    ctx->headPointFilterPos[2].valid = 0;
+    ctx->headPointFilterRot.valid = 0;
+}
+
+// Native (lane wave4-headinput): the eyes this frame, whatever is pointing, for
+// xrGazeValid (a later lane reads both eyes shut off it)
+static void readGazeValid(XrCtx* ctx) {
+    if (!ctx->eyeGaze || ctx->aimSpaces[SRC_GAZE] == XR_NULL_HANDLE) {
+        ctx->gazeValid = -1;
+        ctx->gazeFlags = 0;
+        return;
+    }
+    XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
+    int ok = XR_SUCCEEDED(locateSpace(ctx, ctx->aimSpaces[SRC_GAZE], ctx->localSpace,
+                                      ctx->predictedDisplayTime, &loc));
+    ctx->gazeFlags = ok ? (unsigned)loc.locationFlags : 0u;
+    ctx->gazeValid = ok && gazeUsable(ctx->gazeFlags);
+}
+
+int xrGazeValid(const XrCtx* ctx) {
+    return ctx != NULL ? ctx->gazeValid : -1;
+}
+
 // Reads every source: the triggers, the aim poses and where each ray lands
 static void readSources(XrCtx* ctx, InputFrame* f) {
-    int gazeSpace = ctx->aimSpaces[SRC_GAZE] != XR_NULL_HANDLE;
+    int head = headPointing(ctx);
+    int gazeSpace = head || ctx->aimSpaces[SRC_GAZE] != XR_NULL_HANDLE;
     rayRowBegin(ctx, f);
+    readGazeValid(ctx);
     // A controller that is the pad's points at nothing and presses nothing, so
     // it is never read here
     for (int h = 0; h < HAND_COUNT; h++) {
@@ -2250,6 +2300,10 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
         // wherever the controller was put down
         int handActions = onHandActions(ctx, h);
         XrSpace space = handActions ? ctx->handAimSpaces[h] : ctx->aimSpaces[h];
+        // Native (lane wave4-headinput, PLAN 6.5): head Point mode's ray is the view's own
+        if (h == SRC_GAZE && head) {
+            space = ctx->viewSpace;
+        }
         // Native (lane ray-glitch): through the seam, and kept as the runtime
         // gave it for the recorder before the screen's frame moves it
         int found = space != XR_NULL_HANDLE
@@ -2317,6 +2371,9 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             }
         }
         else if (!located) {
+            if (head) {
+                resetHeadPointFilter(ctx);
+            }
             continue;
         }
         // The eyes are back but the bridge keeps the pointer with the hands
@@ -2343,6 +2400,20 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             if (ctx->aimSrc[h] == AIM_POSE) {
                 poseHoldKeep(&ctx->aimHold[h], filtered);
             }
+        }
+        else if (head) {
+            // Native (lane wave4-headinput, PLAN 6.5): the head's ray is smoothed as a
+            // controller's, since a head held still still trembles
+            XrPosef filtered = loc.pose;
+            filtered.position.x = euroFilter(&ctx->headPointFilterPos[0], filtered.position.x,
+                                             f->dt, ctx->aimMinCutoff, ctx->aimBeta);
+            filtered.position.y = euroFilter(&ctx->headPointFilterPos[1], filtered.position.y,
+                                             f->dt, ctx->aimMinCutoff, ctx->aimBeta);
+            filtered.position.z = euroFilter(&ctx->headPointFilterPos[2], filtered.position.z,
+                                             f->dt, ctx->aimMinCutoff, ctx->aimBeta);
+            filtered.orientation = euroFilterQuat(&ctx->headPointFilterRot, filtered.orientation,
+                                                  f->dt, ctx->aimMinCutoff, ctx->aimBeta);
+            f->aimPoses[h] = filtered;
         }
         else {
             f->aimPoses[h] = loc.pose;
@@ -2387,7 +2458,7 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
         // A tracked hand's ray is a guess drawn from the shoulder through the
         // knuckle, so left pointing while the eyes do it would claim every
         // press they aimed and drag whatever it lay across
-        if (gazeMode && h < HAND_COUNT && (ctx->usingHands[h] || fromJoints)) {
+        if (gazeMode && h < HAND_COUNT && (ctx->usingHands[h] || fromJoints || head)) {
             f->pinchOnly[h] = 1;
             continue;
         }
@@ -2510,7 +2581,9 @@ static void updateControllerClocks(XrCtx* ctx, InputFrame* f) {
     for (int h = 0; h < HAND_COUNT; h++) {
         // The pad's controllers are never in use as pointers, so the eyes keep
         // the pointer however the buttons are pressed
-        if (ctx->profileKind[h] != PROFILE_CONTROLLER || padHand(ctx, h)) {
+        // Native (lane wave4-headinput, PLAN 6.5): with the head pointing a controller is
+        // only a clicker, and a press must never be spent waking it
+        if (ctx->profileKind[h] != PROFILE_CONTROLLER || padHand(ctx, h) || headPointing(ctx)) {
             controllerClockReset(&ctx->aimClock[h]);
             continue;
         }
@@ -2624,6 +2697,11 @@ static void updatePointerWake(XrCtx* ctx, InputFrame* f) {
         ctx->pointerAwake = 1;
         ctx->stillFor = 0.0f;
     }
+    // Native (lane wave4-headinput, PLAN 6.5): the head is always in use
+    if (headPointing(ctx)) {
+        ctx->pointerAwake = 1;
+        ctx->stillFor = 0.0f;
+    }
     // Native (lane wave2b-padmouse): with pad_arbitration = sleep a physical
     // pad in use rests the Frame controllers' pointer
     if (gamepadsFrameControllersAsleep()) {
@@ -2652,7 +2730,7 @@ static void pickPointingSource(XrCtx* ctx, InputFrame* f) {
     // across a button it lit the button and ate every pinch aimed elsewhere.
     if (gazePointing(ctx)) {
         for (int h = 0; h < HAND_COUNT; h++) {
-            if (!handInUse(ctx, h)) {
+            if (headPointing(ctx) || !handInUse(ctx, h)) {
                 f->hovers[h] = HOVER_NONE;
             }
         }
@@ -4509,6 +4587,10 @@ static void recoilPulse(XrCtx* ctx, const InputFrame* f) {
 // Works out which host buttons are down, and logs each trigger transition
 static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
     int mask = pointerButtonsWanted(ctx);
+    // Native (lane wave4-headinput, PLAN 6.5): a dwell click on the picture is the left button
+    if (headPointing(ctx) && f->now < ctx->dwellHostUntil) {
+        mask |= VR_BUTTON_LEFT;
+    }
     int prevButtons = ctx->buttonsDown;
     // A press only counts while aimed at the screen, but a release always
     // does, so walking the pointer off the edge mid drag still lets go
@@ -4596,12 +4678,21 @@ static void updateScroll(XrCtx* ctx, InputFrame* f, int hit) {
     f->out[IN_HSCROLL] = (float)side;
 }
 
+// Native (lane wave4-headinput, PLAN 6.5): a beam out of the face would be seen
+// end on, so the head's pointer is the dot alone: the beam starts where it ends
+static void headBeamDotOnly(XrCtx* ctx, int hand) {
+    if (headPointing(ctx) && hand == SRC_GAZE) {
+        ctx->beamStart = ctx->beamEnd;
+    }
+}
+
 // Aimed at nothing at all, so the ray runs off into the room rather than
 // blinking out. A laser that comes and goes is harder to aim than one that
 // always shows where the hand is looking, so the only thing that retires it
 // is the controller being put down.
 static void beamIntoRoom(XrCtx* ctx, InputFrame* f) {
-    if (!ctx->beamVisible && ctx->pointerAwake && f->headValid && !ctx->beamGaze) {
+    if (!ctx->beamVisible && ctx->pointerAwake && f->headValid && !ctx->beamGaze
+            && !headPointing(ctx)) {
         int free = f->hand;
         if (free < 0) {
             // Native (lane ray-glitch): the one that pointed last
@@ -4773,6 +4864,27 @@ void xrSetHeadLook(XrCtx* ctx, int on, int pxDeg) {
     ctx->headLookPxDeg = headLookSensitivityClamp(pxDeg);
     LOGEV("head-look %s at the start of the session, %d px a degree", on ? "on" : "off",
           ctx->headLookPxDeg);
+}
+
+// Native (lane wave4-headinput, PLAN 6.5): see xr_native.h
+void xrSetPointerSource(XrCtx* ctx, int source, int dwellMs) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->pointerSource = source >= 0 && source < POINTER_SOURCE_COUNT ? source
+                                                                      : POINTER_SOURCE_CONTROLLER;
+    ctx->headDwellMs = dwellMsClamp(dwellMs);
+    dwellReset(&ctx->dwell);
+    ctx->dwellFraction = -1.0f;
+    resetHeadPointFilter(ctx);
+    if (ctx->pointerSource != POINTER_SOURCE_CONTROLLER) {
+        LOGEV("pointer source %s%s", ctx->pointerSource == POINTER_SOURCE_HEAD ? "head" : "gaze",
+              ctx->pointerSource == POINTER_SOURCE_HEAD && ctx->headDwellMs > 0 ? ", dwell click" : "");
+        if (ctx->pointerSource == POINTER_SOURCE_HEAD && ctx->headDwellMs > 0) {
+            LOGEV("dwell click after %d ms resting within %.1f degrees", ctx->headDwellMs,
+                  DWELL_TOLERANCE_DEG);
+        }
+    }
 }
 
 // Native (lane wave4-headinput, PLAN 4.5): see xr_native.h
@@ -5300,6 +5412,50 @@ static void beginPointerFrame(XrCtx* ctx, InputFrame* f, float* out, int headLoc
 
 // The sources read, the pointer woken or retired and the pointing source
 // picked, and the recorder's row for the frame finished
+// Native (lane wave4-headinput, PLAN 6.5): head Point mode's dwell click, at the
+// end of the pointer's pass with the source and what it is over settled. The
+// head resting on something a click lands on, nothing held, charges it; the
+// click is the left button on the picture or the head's press on our UI, both
+// from the next frame for DWELL_PRESS_NS. The handles (the move pill, a corner,
+// the keyboard's bar) are never dwelt on: a press there grabs.
+static void updateDwell(XrCtx* ctx, InputFrame* f) {
+    ctx->dwellUiEdge = 0;
+    if (!headPointing(ctx) || ctx->headDwellMs <= 0) {
+        dwellReset(&ctx->dwell);
+        ctx->dwellFraction = -1.0f;
+        return;
+    }
+    int hover = f->hand == SRC_GAZE ? f->hover : HOVER_NONE;
+    int target = hover != HOVER_NONE && hover != HOVER_HALO && hover != HOVER_BAR
+            && hover != HOVER_CORNER && hover != HOVER_KBBAR;
+    int held = ctx->triggerDown[HAND_LEFT] || ctx->triggerDown[HAND_RIGHT]
+            || ctx->triggerDown[SRC_GAZE] || ctx->grabMode != GRAB_NONE
+            || f->now < ctx->dwellHostUntil || f->now < ctx->dwellUiUntil;
+    int valid = target && !held && f->aimValid[SRC_GAZE]
+            && (hover != HOVER_SCREEN || ctx->pointerOn);
+    float yaw = 0.0f, pitch = 0.0f;
+    if (valid) {
+        headAimAngles(f->aimPoses[SRC_GAZE].orientation, &yaw, &pitch);
+    }
+    // Degrees across the view: yaw narrows toward straight up
+    const float deg = 57.2957795f;
+    float x = yaw * deg * cosf(pitch), y = pitch * deg;
+    int what = dwellStep(&ctx->dwell, valid, x, y, f->now, ctx->headDwellMs, DWELL_TOLERANCE_DEG,
+                         &ctx->dwellFraction);
+    if (what == DWELL_CLICK) {
+        if (hover == HOVER_SCREEN) {
+            ctx->dwellHostUntil = f->now + DWELL_PRESS_NS;
+        }
+        else {
+            ctx->dwellUiUntil = f->now + DWELL_PRESS_NS;
+            ctx->dwellUiEdge = 1;
+        }
+        ctx->dwellClicks++;
+        LOGI("dwell click %ld on %s", ctx->dwellClicks,
+             hover == HOVER_SCREEN ? "the picture" : "our UI");
+    }
+}
+
 static void pointerPass(XrCtx* ctx, InputFrame* f) {
     statsPlace(ctx);
     readSources(ctx, f);
@@ -5309,6 +5465,7 @@ static void pointerPass(XrCtx* ctx, InputFrame* f) {
     updatePointerWake(ctx, f);
     pickPointingSource(ctx, f);
     rayRowEnd(ctx, f);
+    updateDwell(ctx, f);
 }
 
 // Native (lane ray-glitch), for the tests: the pointer's part of one input
@@ -5343,7 +5500,10 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
                    int pointerEnabled, int gazeEnabled, int pointerSleep, float* out) {
     memset(out, 0, sizeof(float) * IN_SLOTS);
     if (ctx != NULL) {
-        ctx->gazeEnabled = gazeEnabled;
+        // Native (lane wave4-headinput, PLAN 6.5): pointer_source = gaze is the gaze switch on;
+        // head pointing leaves the eyes out of it
+        ctx->gazeEnabled = ctx->pointerSource == POINTER_SOURCE_HEAD ? 0
+                : (gazeEnabled || ctx->pointerSource == POINTER_SOURCE_GAZE);
         ctx->pointerSleepOn = pointerSleep;
         ctx->headLockedPref = headLocked;
         // Before anything asks who is pointing, off the last frame's clocks and
@@ -5517,9 +5677,15 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     // A grab the eyes started counts as theirs though a hand carries it
     ctx->beamGaze = ctx->grabMode != GRAB_NONE
             ? (ctx->grabByGaze || ctx->grabHand == SRC_GAZE) : f.hand == SRC_GAZE;
+    // Native (lane wave4-headinput, PLAN 6.5): the head's pointer is drawn, as the dot alone
+    // (headBeamDotOnly), so its rest can be seen and its dwell ring with it
+    if (headPointing(ctx)) {
+        ctx->beamGaze = 0;
+    }
 
     if (ctx->grabMode != GRAB_NONE) {
         beamToHandle(ctx, &f);
+        headBeamDotOnly(ctx, f.hand);
         writeInputPose(ctx, out);
         handBack(ctx, out);
         return;
@@ -5531,6 +5697,7 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
         if (f.hand >= 0 && f.hover != HOVER_NONE && f.hover != HOVER_SCREEN) {
             beamToFurniture(ctx, &f);
         }
+        headBeamDotOnly(ctx, f.hand);
         ctx->buttonsDown = 0;
         writeInputPose(ctx, out);
         handBack(ctx, out);
@@ -5539,7 +5706,8 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
 
     // The bar, the button and the picker all sit off the picture, so pointing
     // at them must not drag the host cursor to the edge
-    int hit = (f.hover == HOVER_SCREEN || f.hover == HOVER_CORNER) && f.hand != SRC_GAZE;
+    int hit = (f.hover == HOVER_SCREEN || f.hover == HOVER_CORNER)
+            && (f.hand != SRC_GAZE || headPointing(ctx));
     if ((f.hover == HOVER_BAR || f.hover == HOVER_ENVBUTTON || f.hover == HOVER_PICKER
             || f.hover == HOVER_HINT || f.hover == HOVER_HALO || f.hover == HOVER_COGBUTTON
             || f.hover == HOVER_COGPANEL || f.hover == HOVER_KBBUTTON
@@ -5555,6 +5723,7 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     updateButtons(ctx, &f, hit);
     updateScroll(ctx, &f, hit);
     beamIntoRoom(ctx, &f);
+    headBeamDotOnly(ctx, f.hand);
 
     writeInputPose(ctx, out);
     out[IN_PICKER_PICK] = (float)ctx->pickerPick;

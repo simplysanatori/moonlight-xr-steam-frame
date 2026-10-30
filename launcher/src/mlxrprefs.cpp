@@ -576,6 +576,9 @@ void MlxrPrefs::loadHeadInput(const QString& ini)
     m_iniOpentrack = opentrack;
     m_iniOpentrackHost = opentrackHost;
     m_iniOpentrackPort = opentrackPort;
+    const QString ps = iniValue(ini, "vr", "pointer_source", "controller").trimmed().toLower();
+    pointerSource = (ps == "head" || ps == "1") ? "head" : (ps == "gaze" || ps == "2") ? "gaze" : "controller";
+    m_iniPointerSource = pointerSource;
 }
 
 void MlxrPrefs::saveHeadInput(const QString& ini)
@@ -600,6 +603,10 @@ void MlxrPrefs::saveHeadInput(const QString& ini)
     m_iniOpentrack = opentrack;
     m_iniOpentrackHost = opentrackHost.trimmed();
     m_iniOpentrackPort = opentrackPort;
+    if (pointerSource != m_iniPointerSource) {
+        setIniValue(ini, "vr", "pointer_source", pointerSource);
+    }
+    m_iniPointerSource = pointerSource;
 }
 
 int MlxrPrefs::headsetMaxFps() const

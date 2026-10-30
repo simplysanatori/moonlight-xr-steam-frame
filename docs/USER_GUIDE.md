@@ -343,6 +343,10 @@ The gyro is in degrees per second about the controller's own axes, the way a Dua
 
 To turn back without turning the game, hold a **grip** (either one, as long as it is bound to nothing, which it is by default in pointer mode) and turn your head; let go and it carries on from there, like lifting a mouse off the desk. Any other control can be the pause too: bind it to `app:lookhold` in `bindings.ini`. A panel opening (cog, keyboard, Host sheet) also pauses it. Head aim (the bar's button and the Display tab's row) wins where both could act, so with the screen head locked and Head aim on, Head aim's speed is used; in a room Head aim cannot act and head-look takes over. `moonlight.log` says `head-look on`, `head-look paused while its hold is down` and how far it moved the mouse every few seconds.
 
+### Pointing with your head
+
+`pointer_source = head` in `config.ini` (or **What points** on the launcher's Settings page, under Input Settings) points with the middle of your view instead of a controller, for when holding a controller up is hard. A dot shows where you point (the beam would run out of your face, so there is none), smoothed so a still head holds it still; the PC's cursor follows it. Either controller's trigger clicks, on the picture and on the headset's own menus. With `head_dwell_ms` set (400 to 2000; 0, the default, is off), resting the dot on one spot for that long clicks it: a square ring closes in on the dot while it counts, and moving it more than about a degree starts the count again. After a click, move the dot away and back to click again. Dwell never clicks the move pill, the corners or the keyboard's bar (a press there would grab them). Gamepad mode is unchanged. `pointer_source = gaze` is the eye-gaze pointer, the same as `gaze = true`.
+
 ### Head tracking for PC games (opentrack)
 
 Games with head tracking (flight and racing simulators that take TrackIR or FreeTrack) can follow your real head through [opentrack](https://github.com/opentrack/opentrack) on the PC. With `opentrack = true` in `config.ini` (or **Head tracking to opentrack** on the launcher's Settings page, under Input Settings), the headset sends your head's position and turn to the PC every frame while a stream is running, as opentrack's "UDP over network" packet: x, y, z in centimetres, then yaw, pitch and roll in degrees. It goes to the PC you are streaming from unless `opentrack_host` names another address or name, on UDP port `opentrack_port` (4242, opentrack's own default). Sending never holds up a frame: a packet that cannot go out at once is dropped, and the next frame sends a newer one.
@@ -671,6 +675,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] opentrack` | `true`, `false`. While streaming, the head pose goes to opentrack on the PC every frame. See [Head tracking for PC games](#head-tracking-for-pc-games-opentrack); the launcher has it too. | `false` |
 | `[vr] opentrack_host` | An address or a name | Empty: the PC you are streaming from. |
 | `[vr] opentrack_port` | 1 to 65535 | 4242, opentrack's UDP over network default. |
+| `[vr] pointer_source` | `controller`, `head`, `gaze`. What points. See [Pointing with your head](#pointing-with-your-head). | `controller` |
+| `[vr] head_dwell_ms` | 0, or 400 to 2000 | 0 (off). With `pointer_source = head`, resting the dot this long clicks. |
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
 | `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
 | `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |

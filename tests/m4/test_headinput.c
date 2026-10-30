@@ -379,6 +379,36 @@ static void opentrackWired(Scene* s) {
     close(fd);
 }
 
+// ---- head Point mode (PLAN 6.5) -----------------------------------------------------------------------------
+
+static void headPointWired(Scene* s) {
+    XrCtx* c = s->ctx;
+    Settings st;
+    settings_defaults(&st);
+    xrApplySettings(c, &st);
+    CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER && c->headDwellMs == 0);
+    st.pointer_source = POINTER_SOURCE_HEAD;
+    st.head_dwell_ms = 100;
+    xrApplySettings(c, &st);
+    CHECK(c->pointerSource == POINTER_SOURCE_HEAD && c->headDwellMs == DWELL_MS_MIN);
+    xrSetPointerSource(c, 9, 5000);
+    CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER && c->headDwellMs == DWELL_MS_MAX);
+    // no eye gaze in this context: the getter says so
+    CHECK(xrGazeValid(c) == -1 && xrGazeValid(NULL) == -1);
+    // a dwell click on the picture is the host's left button while it is held, head pointing only
+    headSetUp(c);
+    xrSetPointerSource(c, POINTER_SOURCE_HEAD, 800);
+    c->dwellHostUntil = 1;   // xrButtonsFrame's frame is at time 0
+    CHECK((xrButtonsFrame(c, 0, HOVER_SCREEN, 1) & VR_BUTTON_LEFT) != 0);
+    c->dwellHostUntil = 0;
+    CHECK((xrButtonsFrame(c, 0, HOVER_SCREEN, 1) & VR_BUTTON_LEFT) == 0);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+    c->dwellHostUntil = 1;
+    CHECK((xrButtonsFrame(c, 0, HOVER_SCREEN, 1) & VR_BUTTON_LEFT) == 0);
+    c->dwellHostUntil = 0;
+    xrButtonsFrame(c, 0, HOVER_NONE, 0);
+}
+
 int main(void) {
     snprintf(g_dir, sizeof(g_dir), "/tmp/mlxr-headinput-XXXXXX");
     if (mkdtemp(g_dir) == NULL) {
@@ -392,6 +422,7 @@ int main(void) {
     headLookAndAim(s);
     headLookHold(s);
     opentrackWired(s);
+    headPointWired(s);
     scene_free(s);
     unlink(g_path);
     rmdir(g_dir);

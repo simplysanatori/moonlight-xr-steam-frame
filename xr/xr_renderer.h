@@ -51,6 +51,7 @@
 #include "xr_controller.h"
 #include "xr_headaim.h"
 #include "xr_opentrack.h"
+#include "xr_dwell.h"
 #include "xr_clickhold.h"
 #include "xr_pressfix.h"
 #include "xr_gamepad.h"
@@ -946,6 +947,27 @@ typedef struct XrCtx {
     int opentrackPort;
     int opentrackLive;
     long opentrackSent;
+    // Native (lane wave4-headinput, PLAN 6.5): head Point mode (xr_dwell.h). The pointer source
+    // (POINTER_SOURCE_), the dwell click's time (0 off), the head ray's One Euro filters, the dwell
+    // and how far it has charged (-1 none, which the dot's ring is drawn from), the click it makes
+    // (the host's left button, or the head source's press on our UI, held until those times; the
+    // press's edge for the frame after), and the clicks made
+    int pointerSource;
+    int headDwellMs;
+    EuroState headPointFilterPos[3];
+    EuroQuatState headPointFilterRot;
+    Dwell dwell;
+    float dwellFraction;
+    int64_t dwellHostUntil;
+    int64_t dwellUiUntil;
+    int dwellUiEdge;
+    long dwellClicks;
+    // Native (lane wave4-headinput): the eyes this frame, whatever points: -1 when there is no eye
+    // gaze (the extension or its binding missing), else whether XR_EXT_eye_gaze_interaction's pose
+    // came back usable (position and orientation valid, orientation tracked), with its raw location
+    // flags. The Frame has one combined gaze pose, no per-eye openness. xrGazeValid() reads it.
+    int gazeValid;
+    unsigned gazeFlags;
     long inputFrames;
     // Gamepad mode (M3: the pad's state is worked out as upstream does, but
     // nothing sends it to the host yet)

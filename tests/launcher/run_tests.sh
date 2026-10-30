@@ -597,7 +597,7 @@ if [ -n "$SHOTS" ]; then
     # lane wave4-headinput: the head and pointer input rows under Input Settings write only their keys
     printf '[vr]\nhead_aim = true\nopentrack_host = gaming-pc.local\nopentrack_port = 5555\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
-        MLXR_LAUNCHER_CLICK=headLookRow,headLookPxRow,opentrackRow \
+        MLXR_LAUNCHER_CLICK=headLookRow,headLookPxRow,opentrackRow,pointerSourceRow \
         MLXR_LAUNCHER_SCREENSHOT="$t/settings-headinput.png@3000" "$L" >"$t/ui13.out" 2>&1
     grep -q "no clickable" "$t/ui13.out" && fail "head input click hook: $(grep 'no clickable' "$t/ui13.out")"
     grep -Eq "$QMLERR" "$t/ui13.out" && { fail "head input rows: QML errors"; grep -E "$QMLERR" "$t/ui13.out" | head -3; } || ok "head input rows load (no QML errors)"
@@ -613,6 +613,7 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads opentrack" "$dump" "vr.opentrack = true"
         expect "VR client reads opentrack_host" "$dump" "vr.opentrack_host = gaming-pc.local"
         expect "VR client reads opentrack_port" "$dump" "vr.opentrack_port = 5555"
+        expect "VR client reads pointer_source" "$dump" "vr.pointer_source = head"
     fi
     # MLXR_HANDOFF=0: the stock probe runs again
     MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1

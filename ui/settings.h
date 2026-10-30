@@ -106,6 +106,8 @@ typedef struct Settings {
     int opentrack;         // native: PLAN 4.5, the head pose to opentrack on the PC over UDP while streaming
     char opentrack_host[UI_STR_MAX]; // native: where it goes, "" the PC of the current stream
     int opentrack_port;    // native: its UDP port (OPENTRACK_PORT_MIN..MAX, default 4242)
+    int pointer_source;    // native: PLAN 6.5, POINTER_SOURCE_CONTROLLER, HEAD, GAZE (what points)
+    int head_dwell_ms;     // native: head Point mode's dwell click, 0 off, else DWELL_MS_MIN..MAX
     int scroll_speed;      // native: the thumbstick's wheel, percent of 7.5 notches a second (SCROLL_SPEED_MIN..MAX)
     int gaze;
     int hand_tracking;

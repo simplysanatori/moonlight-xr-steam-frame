@@ -125,6 +125,8 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(bool opentrack MEMBER opentrack NOTIFY changed)
     Q_PROPERTY(QString opentrackHost MEMBER opentrackHost NOTIFY changed)
     Q_PROPERTY(int opentrackPort MEMBER opentrackPort NOTIFY changed)
+    // pointer_source (PLAN 6.5): "controller" (default), "head" or "gaze"
+    Q_PROPERTY(QString pointerSource MEMBER pointerSource NOTIFY changed)
     // ---- PC VR: Valve's Steam Link stream of the PC (lane wave4-pcvr, PLAN 4.1, 4.2, 4.9) ----
     // The Host sheet's PC VR button ends the stream and the launcher asks Steam to stream pcvrApp (a Steam
     // app id; empty: open Steam's library) from the Remote Play PC pcvrClient (a Remote Play client id; empty:
@@ -254,6 +256,7 @@ public:
     bool opentrack = false;
     QString opentrackHost;
     int opentrackPort = 4242;
+    QString pointerSource = QStringLiteral("controller");
     QString pcvrApp;
     QString pcvrAppName;
     QString pcvrClient;
@@ -283,6 +286,7 @@ private:
     bool m_iniOpentrack = false;
     QString m_iniOpentrackHost;
     int m_iniOpentrackPort = 4242;
+    QString m_iniPointerSource = QStringLiteral("controller");
     void loadHeadInput(const QString& ini);
     void saveHeadInput(const QString& ini);
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;

@@ -1040,6 +1040,17 @@ Flickable {
             onClicked: MlxrPrefs.headLookPxDeg = settingsPage.nextLimit(steps, MlxrPrefs.headLookPxDeg)
         }
 
+        // Pressing the row steps Controller -> Head -> Eyes
+        PrefRow {
+            objectName: "pointerSourceRow"
+            readonly property var values: ["controller", "head", "gaze"]
+            readonly property var names: [qsTr("Controller"), qsTr("Head"), qsTr("Eyes")]
+            title: qsTr("What points")
+            valueText: names[Math.max(0, values.indexOf(MlxrPrefs.pointerSource))]
+            summary: qsTr("Head points with the middle of your view, smoothed, and either controller's trigger clicks; head_dwell_ms in config.ini adds a click by resting the dot. Eyes is the eye-gaze pointer.")
+            onClicked: MlxrPrefs.pointerSource = values[(Math.max(0, values.indexOf(MlxrPrefs.pointerSource)) + 1) % values.length]
+        }
+
         PrefSwitch {
             objectName: "opentrackRow"
             title: qsTr("Head tracking to opentrack")
