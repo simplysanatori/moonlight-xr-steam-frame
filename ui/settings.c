@@ -47,6 +47,9 @@ static const int ENV_IDS[] = { ENV_ID_NONE, ENV_ID_PASSTHROUGH, ENV_ID_VOID, ENV
                                ENV_ID_GRAND_CINEMA, ENV_ID_SYNTHWAVE };
 static const char* const DEPTH_NAMES[] = { "zipdepth", "midas", "off", "flat", "ramp", "blob",
                                            "eyetest", "shifttest", "zipdepth-int8" };
+// STEREO_SOURCE_*
+static const char* const SOURCE3D_NAMES[] = { "depth", "sbs", "top-bottom" };
+_Static_assert(sizeof(SOURCE3D_NAMES) / sizeof(SOURCE3D_NAMES[0]) == STEREO_SOURCE_COUNT, "stereo_source names follow STEREO_SOURCE_");
 static const char* const ENVRES_NAMES[] = { "low", "standard", "high", "ultra" };
 static const char* const NOTICES_NAMES[] = { "all", "important", "off" };
 static const char* const STEADY_NAMES[] = { "off", "normal", "steady" };
@@ -61,6 +64,8 @@ static const char* const STATS_STYLE_NAMES[] = { "full", "hud", "lite" };
 static const char* const LANGUAGE_NAMES[] = { "auto", "en", UI_I18N_LANGS(LANG_NAME) };
 #undef LANG_NAME
 static const char* const SHARP_NAMES[] = { "off", "normal", "quality" };
+static const char* const FEATHER_NAMES[] = { "off", "soft", "wide" };
+_Static_assert(sizeof(FEATHER_NAMES) / sizeof(FEATHER_NAMES[0]) == GLOW_FEATHER_COUNT, "glow_feather names follow GLOW_FEATHER_");
 // CONTROLLER_MODEL_*: 1 is what the old on/off switch's true meant
 static const char* const MODEL_NAMES[] = { "off", "frame", "generic", "gun", "custom" };
 _Static_assert(sizeof(MODEL_NAMES) / sizeof(MODEL_NAMES[0]) == CONTROLLER_MODEL_COUNT, "controller_model names follow CONTROLLER_MODEL_");
@@ -94,6 +99,7 @@ static const SettingDesc TABLE[] = {
     DE("stream", "network_path", network_path, NETWORK_NAMES, 0, "native: which link reaches the PC: auto (probe all), home (Wi-Fi), adapter (Steam Frame Wireless Adapter) or usb (a USB cable between the headset and the PC); the --network flag and MLXR_NETWORK override it"),
     DI("stream", "doff_disconnect", doff_disconnect, 0, 3600, 60, "native: seconds with the headset off before the stream is disconnected, leaving the host's app running; 0 never. The sound mutes and the input is let go the moment it comes off, and putting it back on within the time carries on"),
     DI("stream", "idle_disconnect", idle_disconnect, 0, 1440, 0, "native: minutes without any input (controllers, hands, keyboard, mouse, pads) before the stream is disconnected, leaving the host's app running; 0 never"),
+    DI("stream", "rfi_idr_ms", rfi_idr_ms, 0, 5000, 500, "native: after lost video, the headset asks the PC for a full (IDR) frame at most once in this many ms; a full frame is large, and asked for again while the Wi-Fi is still losing packets it makes the stall longer. 0 no limit"),
     // TODO(PLAN 6.4): auto_desktop (open the host's Desktop app without the app list) comes
     // back when something reads it. Dropped with vr_mode, check_updates, language and
     // doff_grace, which were written with descriptions and read by nothing; old files that
@@ -127,6 +133,8 @@ static const SettingDesc TABLE[] = {
     DB("vr", "passthrough", passthrough, 0, "checkbox_vr_passthrough"),
     DE("vr", "environment", environment, ENV_NAMES, 0, "list_vr_environment: auto = black void, or passthrough with passthrough on"),
     DE("vr", "depth_source", depth_source, DEPTH_NAMES, 0, "list_vr_depth_source: Realtime 3D mode (zipdepth recommended, midas older, zipdepth-int8 lighter on the CPU, off streams flat; flat, ramp, blob, eyetest, shifttest are test patterns)"),
+    DI("vr", "background_dim", bg_dim, BG_DIM_MIN, BG_DIM_MAX, BG_DIM_DEFAULT, "native: Picture tab Background, percent the room, the passthrough cameras or the void are dimmed (a black layer over passthrough, the room's lighting turned down, the void colour darkened); 0 leaves them as they are"),
+    DS("vr", "void_color", void_color, "#000000", "native: the colour of the void environment, #rrggbb; black by default. Dimmed by background_dim"),
     DE("vr", "env_res", env_res, ENVRES_NAMES, 1, "list_vr_env_res: Environment Res, how sharp the rooms are drawn: low (half the headset's recommended eye size), standard, high or ultra (the runtime's largest); read when the rooms are built at the start of a stream"),
     DB("vr", "hand_hint_seen", hand_hint_seen, 0, "the hand lock hint was put away for good"),
     DI("vr", "picture_brightness", picture_brightness, PICTURE_BRIGHTNESS_MIN, PICTURE_BRIGHTNESS_MAX, PICTURE_BRIGHTNESS_DEFAULT, "seekbar_vr_picture_brightness: -50..50"),
@@ -149,12 +157,16 @@ static const SettingDesc TABLE[] = {
     DE("display", "stats_style", stats_style, STATS_STYLE_NAMES, 0, "native: what the stats show: full (every line the session writes), hud (latency, network, decode and rate in a few lines) or lite (speed, latency, decode, loss and fps on one line); with stats on, a perf-<stamp>.csv next to vrtiming.log gets a row every 5 s"),
     DB("display", "glow", glow, 0, "Display tab: glow (checkbox_vr_ambilight; native default off, the owner's choice, upstream on)"),
     DI("display", "glow_level", glow_level, 0, 100, 50, "Display tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
+    DE("display", "glow_feather", glow_feather, FEATHER_NAMES, GLOW_FEATHER_OFF, "native: Picture tab Glow edge: off, soft or wide. Feathers the picture's edge into the glow round it (needs the glow on)"),
     DB("display", "screen_light", screen_light, 1, "Display tab: screen light in rooms (checkbox_vr_room_light)"),
     DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (room in a room), display, 3d, picture or about"),
     // 3d
     DI("3d", "separation", separation, -1, COG_SEP_STEPS, -1, "seekbar_vr_separation: tenths of a percent of frame width; -1 is the depth model's own (ZipDepth 6, MiDaS 5)"),
     DI("3d", "convergence", convergence, -1, 100, -1, "seekbar_vr_convergence: percent; -1 is the depth model's own (50)"),
     DB("3d", "stereo", stereo, 1, "native: the 3D switch (bar button, 3D tab) as it was last left; on to begin with, as upstream started every session"),
+    DI("3d", "eye_balance", eye_balance, EYE_BALANCE_MIN, EYE_BALANCE_MAX, EYE_BALANCE_DEFAULT, "native: 3D Eye Balance, percent. How the depth shift is shared by the eyes: 0 evenly, +100 all in the left eye (the right eye keeps the picture as streamed), -100 all in the right. The total between the eyes does not change"),
+    DE("3d", "stereo_source", stereo_source, SOURCE3D_NAMES, STEREO_SOURCE_DEPTH, "native: the 3D tab's 3D source: depth (the depth model makes the 3D from a 2D stream), sbs (the PC renders a side by side pair, left eye in the left half: a 3D film, a game's own SBS mode, ReShade SuperDepth3D) or top-bottom (left eye in the top half); with sbs and top-bottom no depth model runs, the convergence track moves the halves apart or together, and [debug] eye_swap swaps them"),
+    DB("3d", "sbs_full", sbs_full, 0, "native: an sbs or top-bottom stream carries a full size picture per eye (3840x1080 for two 1920x1080 eyes, shown 16:9); false: half size, each eye squeezed to half the width or height (1920x1080 for both eyes, stretched back to 16:9)"),
     DI("3d", "edge_sharpness", edge_sharpness, EDGE_SHARPNESS_MIN, EDGE_SHARPNESS_MAX, EDGE_SHARPNESS_DEFAULT, "native: Edge, how closely the 3D's depth keeps to the edges in the picture, 0..100; 0 is Moonlight XR's own soft edges, higher keeps hair and thin outlines on their own depth (the upsample's colour match tightens from 0.25 to 0.10 and the snap to the nearer side rises from off to full)"),
     DI("3d", "depth_scale", depth_scale, DEPTH_SCALE_MIN, DEPTH_SCALE_MAX, DEPTH_SCALE_DEFAULT, "seekbar_vr_depth_scale: Depth detail, percent; the depth between neighbouring things (a face in front of a wall, the folds of a coat) scaled around the picture's overall shape. 100 is the depth as the model makes it, higher pops the detail out more"),
     DI("3d", "depth_global", depth_global, DEPTH_SCALE_MIN, DEPTH_SCALE_MAX, DEPTH_SCALE_DEFAULT, "native: Depth shape, percent; the picture's overall depth (near at the bottom, far at the top) scaled around the screen plane. 100 is as the model makes it, lower flattens the whole toward the screen while depth_scale keeps the detail"),
@@ -950,6 +962,49 @@ void settings_reset_picture(Settings* s) {
     s->picture_contrast = PICTURE_CONTRAST_DEFAULT;
     s->picture_gamma = PICTURE_GAMMA_DEFAULT;
     s->picture_saturation = PICTURE_SATURATION_DEFAULT;
+    // The two rows under the grade on the same tab. The void colour has no row.
+    s->bg_dim = BG_DIM_DEFAULT;
+    s->glow_feather = GLOW_FEATHER_OFF;
+}
+
+int settings_parse_hex_rgb(const char* text, float rgb[3]) {
+    if (!text) return 0;
+    while (*text == ' ' || *text == '\t') text++;
+    if (*text == '#') text++;
+    char digits[8];
+    size_t n = 0;
+    while (text[n] && n < 7 && isxdigit((unsigned char)text[n])) {
+        digits[n] = text[n];
+        n++;
+    }
+    digits[n] = 0;
+    const char* rest = text + n;
+    while (*rest == ' ' || *rest == '\t' || *rest == '\r' || *rest == '\n') rest++;
+    if (*rest || (n != 3 && n != 6)) return 0;
+    int v[3];
+    for (int i = 0; i < 3; i++) {
+        char pair[3];
+        if (n == 3) {
+            pair[0] = pair[1] = digits[i];
+        } else {
+            pair[0] = digits[i * 2];
+            pair[1] = digits[i * 2 + 1];
+        }
+        pair[2] = 0;
+        v[i] = (int)strtol(pair, NULL, 16);
+    }
+    for (int i = 0; i < 3; i++) rgb[i] = (float)v[i] / 255.0f;
+    return 1;
+}
+
+int settings_void_rgb(const Settings* s, float rgb[3]) {
+    float out[3];
+    if (settings_parse_hex_rgb(s->void_color, out)) {
+        memcpy(rgb, out, sizeof(out));
+        return 1;
+    }
+    rgb[0] = rgb[1] = rgb[2] = 0.0f;
+    return 0;
 }
 
 int* settings_picture_ptr(Settings* s, int row) {

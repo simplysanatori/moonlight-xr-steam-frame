@@ -26,6 +26,7 @@
 // right eye's pixel is a hole (the warp then takes the offset as it is).
 layout(push_constant) uniform PC {
     vec4 params;   // u_dispTexels, u_convergence, u_holeStretch, spare
+    vec2 share;    // the left and the right eye's share of the larger eye's shift (3D Eye Balance)
 } pc;
 
 layout(set = 0, binding = 3) uniform sampler2D u_depth;
@@ -62,7 +63,9 @@ void main() {
     vec2 result = vec2(0.0);
     vec2 holes = vec2(0.0);
     for (int eye = 0; eye < 2; eye++) {
-        float disp = (eye == 0) ? u_dispTexels : -u_dispTexels;
+        // Each eye's share of the larger eye's shift: 1 and 1 when the eyes
+        // are balanced, and so exactly as before
+        float disp = (eye == 0) ? u_dispTexels * pc.share.x : -u_dispTexels * pc.share.y;
         float here = depthAt(0);
         float bestD = -1.0;
         float bestOff = -disp * (here - u_convergence);

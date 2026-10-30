@@ -351,26 +351,54 @@ static void tab_display(Dc* dc) {
     track_hits(dc, COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW, 1);
 }
 
+// Native (PLAN 4.3): a row with nothing to set while the PC draws the pair,
+// greyed with the reason across it and its hits disabled
+static void host_drawn_row(Dc* dc, int row, int n, int track) {
+    float y = row_y(dc, COG_TAB_3D, row);
+    greyed_reason(dc, y, ui_str(UIS_SBS_NO_DEPTH));
+    if (track) {
+        track_hits(dc, COG_TAB_3D, row, 0);
+        return;
+    }
+    float rv = cogRowV(COG_TAB_3D, row), half = cogRowHalf(COG_TAB_3D);
+    for (int c = 0; c < n; c++) {
+        dc_hit_uv(dc, UI_HIT_CELL, row, c, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)c / (float)n, rv - half,
+                  COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)(c + 1) / (float)n, rv + half, 0);
+    }
+}
+
 static void tab_3d(Dc* dc) {
     const UiView* v = dc->v;
     const Settings* s = v->settings;
     int ok = v->stereo_ok;
+    int src = v->stereo_source >= 0 && v->stereo_source < STEREO_SOURCE_COUNT ? v->stereo_source : STEREO_SOURCE_DEPTH;
+    // native (PLAN 4.3): the PC draws the pair, so only convergence and the switch act
+    int host_drawn = ok && src != STEREO_SOURCE_DEPTH;
     static const UiStr PRESETS[COG_PRESET_CELLS] = { UIS_COMFORT, UIS_BALANCED, UIS_STRONG };
     static const UiStr SW[2] = { UIS_OFF, UIS_ON };
+    static const UiStr SOURCES[COG_SOURCE_CELLS] = { UIS_SOURCE_DEPTH, UIS_SOURCE_SBS, UIS_SOURCE_TB };
     float tick_half = COG_CELL_HALF * dc->nh;
     int presets[COG_PRESET_CELLS];
     ui_presets_for(s, presets);
     int sep = settings_separation_units(s);
 
     float y = row_y(dc, COG_TAB_3D, COG_ROW3D_PRESET);
-    label(dc, ui_str(UIS_ROW_PRESET), y, ok);
-    cells(dc, COG_TAB_3D, COG_ROW3D_PRESET, PRESETS, COG_PRESET_CELLS, y, ok, tick_half, ok ? cogPresetAt(sep, presets) : -1);
+    label(dc, ui_str(UIS_ROW_PRESET), y, ok && !host_drawn);
+    if (host_drawn) {
+        host_drawn_row(dc, COG_ROW3D_PRESET, COG_PRESET_CELLS, 0);
+    } else {
+        cells(dc, COG_TAB_3D, COG_ROW3D_PRESET, PRESETS, COG_PRESET_CELLS, y, ok, tick_half, ok ? cogPresetAt(sep, presets) : -1);
+    }
 
     int def_sep = settings_model_default_separation(s);
     for (int i = 0; i < 2; i++) {
         int row = COG_ROW3D_SEPARATION + i;
         y = row_y(dc, COG_TAB_3D, row);
-        label(dc, ui_str(i == 0 ? UIS_ROW_DEPTH : UIS_ROW_CONVERGENCE), y, ok);
+        label(dc, ui_str(i == 0 ? UIS_ROW_DEPTH : UIS_ROW_CONVERGENCE), y, ok && (i == 1 || !host_drawn));
+        if (i == 0 && host_drawn) {
+            host_drawn_row(dc, row, 0, 1);
+            continue;
+        }
         float mark_t = row == COG_ROW3D_SEPARATION ? (float)def_sep / COG_SEP_STEPS : 0.5f;
         float mark_x = (COG_RUN_L + mark_t * (COG_RUN_R - COG_RUN_L)) * dc->nw;
         if (row == COG_ROW3D_SEPARATION) {
@@ -394,6 +422,10 @@ static void tab_3d(Dc* dc) {
     y = row_y(dc, COG_TAB_3D, COG_ROW3D_SWITCH);
     label(dc, ui_str(UIS_TAB_3D), y, ok);
     cells(dc, COG_TAB_3D, COG_ROW3D_SWITCH, SW, 2, y, ok, tick_half, ok ? (v->session.stereo_on ? 1 : 0) : -1);
+    // native (PLAN 4.3): where the 3D comes from, live whatever else is
+    y = row_y(dc, COG_TAB_3D, COG_ROW3D_SOURCE);
+    label(dc, ui_str(UIS_ROW_3D_SOURCE), y, 1);
+    cells(dc, COG_TAB_3D, COG_ROW3D_SOURCE, SOURCES, COG_SOURCE_CELLS, y, 1, tick_half, src);
     reset_button(dc);
     if (!ok) {
         dc_text(dc, UI_WEIGHT_REGULAR, 17.0f, dc->nw * 0.5f, (COG_ROW_V0 + COG_ROW3D_COUNT * COG_ROW_STEP) * dc->nh,
@@ -412,21 +444,36 @@ static void picture_text(int row, int units, char* out, size_t cap) {
 
 static void tab_picture(Dc* dc) {
     const Settings* s = dc->v->settings;
-    static const UiStr ROWS[PICTURE_VALUES] = { UIS_ROW_BRIGHTNESS, UIS_ROW_CONTRAST, UIS_ROW_GAMMA, UIS_ROW_SATURATION };
-    static const int MIN[PICTURE_VALUES] = { PICTURE_BRIGHTNESS_MIN, PICTURE_CONTRAST_MIN, PICTURE_GAMMA_MIN, PICTURE_SATURATION_MIN };
-    static const int MAX[PICTURE_VALUES] = { PICTURE_BRIGHTNESS_MAX, PICTURE_CONTRAST_MAX, PICTURE_GAMMA_MAX, PICTURE_SATURATION_MAX };
-    static const int DEF[PICTURE_VALUES] = { PICTURE_BRIGHTNESS_DEFAULT, PICTURE_CONTRAST_DEFAULT, PICTURE_GAMMA_DEFAULT, PICTURE_SATURATION_DEFAULT };
+    // The four grade values, then Background (percent dimmed) and Glow edge
+    // (off, soft, wide on a three place track)
+    static const UiStr ROWS[PICTURE_TAB_ROWS] = { UIS_ROW_BRIGHTNESS, UIS_ROW_CONTRAST, UIS_ROW_GAMMA, UIS_ROW_SATURATION,
+                                                  UIS_ROW_BACKGROUND, UIS_ROW_GLOW_EDGE };
+    static const int MIN[PICTURE_TAB_ROWS] = { PICTURE_BRIGHTNESS_MIN, PICTURE_CONTRAST_MIN, PICTURE_GAMMA_MIN, PICTURE_SATURATION_MIN,
+                                               BG_DIM_MIN, GLOW_FEATHER_OFF };
+    static const int MAX[PICTURE_TAB_ROWS] = { PICTURE_BRIGHTNESS_MAX, PICTURE_CONTRAST_MAX, PICTURE_GAMMA_MAX, PICTURE_SATURATION_MAX,
+                                               BG_DIM_MAX, GLOW_FEATHER_COUNT - 1 };
+    static const int DEF[PICTURE_TAB_ROWS] = { PICTURE_BRIGHTNESS_DEFAULT, PICTURE_CONTRAST_DEFAULT, PICTURE_GAMMA_DEFAULT, PICTURE_SATURATION_DEFAULT,
+                                               BG_DIM_DEFAULT, GLOW_FEATHER_OFF };
+    static const UiStr FEATHER[GLOW_FEATHER_COUNT] = { UIS_OFF, UIS_FEATHER_SOFT, UIS_FEATHER_WIDE };
     float tick_half = COG_CELL_HALF * dc->nh;
-    for (int row = 0; row < PICTURE_VALUES; row++) {
+    for (int row = 0; row < PICTURE_TAB_ROWS; row++) {
         float y = row_y(dc, COG_TAB_PICTURE, row);
         label(dc, ui_str(ROWS[row]), y, 1);
         track_line(dc, y, 0x66FFFFFFu);
         chevrons(dc, y, 1, tick_half);
         tick(dc, cogRunU(lanePlace(DEF[row], MIN[row], MAX[row])) * dc->nw, y, tick_half, 1);
-        int units = settings_picture_value(s, row);
+        int units = row == PICTURE_ROW_BACKGROUND ? s->bg_dim
+                  : row == PICTURE_ROW_GLOW_EDGE ? s->glow_feather
+                  : settings_picture_value(s, row);
         thumb(dc, COG_TAB_PICTURE, row, y, lanePlace(units, MIN[row], MAX[row]));
         char buf[24];
-        picture_text(row, units, buf, sizeof buf);
+        if (row == PICTURE_ROW_BACKGROUND) {
+            snprintf(buf, sizeof buf, "%d%%", units);
+        } else if (row == PICTURE_ROW_GLOW_EDGE) {
+            snprintf(buf, sizeof buf, "%s", ui_str(FEATHER[units < 0 ? 0 : (units >= GLOW_FEATHER_COUNT ? GLOW_FEATHER_COUNT - 1 : units)]));
+        } else {
+            picture_text(row, units, buf, sizeof buf);
+        }
         readout(dc, cogRowV(COG_TAB_PICTURE, row), buf);
         track_hits(dc, COG_TAB_PICTURE, row, 1);
     }
