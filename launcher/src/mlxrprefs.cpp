@@ -775,6 +775,10 @@ void MlxrPrefs::loadHeadInput(const QString& ini)
     m_iniAssistDotSize = assistDotSize;
     assistHeadsetButton = iniBool(iniValue(ini, "vr", "assist_headset_button", "false"));
     m_iniAssistHeadsetButton = assistHeadsetButton;
+    // Native (lane radial-dwell): the dwell click's style, as ui/settings.c reads it (a name or its index)
+    const QString ds = iniValue(ini, "vr", "assist_dwell_style", "simple").trimmed().toLower();
+    assistDwellStyle = (ds == "radial" || ds == "1") ? "radial" : "simple";
+    m_iniAssistDwellStyle = assistDwellStyle;
 }
 
 void MlxrPrefs::saveHeadInput(const QString& ini)
@@ -823,6 +827,10 @@ void MlxrPrefs::saveHeadInput(const QString& ini)
         setIniValue(ini, "vr", "assist_headset_button", assistHeadsetButton ? "true" : "false");
     }
     m_iniAssistHeadsetButton = assistHeadsetButton;
+    if (assistDwellStyle != m_iniAssistDwellStyle) {
+        setIniValue(ini, "vr", "assist_dwell_style", assistDwellStyle == "radial" ? "radial" : "simple");
+    }
+    m_iniAssistDwellStyle = assistDwellStyle;
 }
 
 int MlxrPrefs::headsetMaxFps() const

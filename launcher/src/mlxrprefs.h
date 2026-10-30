@@ -160,6 +160,8 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(int headDwellMs MEMBER headDwellMs NOTIFY changed)
     Q_PROPERTY(int assistDotSize MEMBER assistDotSize NOTIFY changed)   // native (lane a11y-2)
     Q_PROPERTY(bool assistHeadsetButton MEMBER assistHeadsetButton NOTIFY changed)
+    // Native (lane radial-dwell): assist_dwell_style, "simple" (default) or "radial" (the dwell's radial menu)
+    Q_PROPERTY(QString assistDwellStyle MEMBER assistDwellStyle NOTIFY changed)
     // ---- Native (lane launcher-bundle, PLAN 6.7): the rest of the VR client's config.ini ----
     // Every key of ui/settings.c that a user would set and that had no row of its own: picture, pointer,
     // keyboard, gamepad mode, the screen and its surroundings (the table is kVrKeys in mlxrprefs.cpp; tests
@@ -321,6 +323,7 @@ public:
     int headDwellMs = 0;   // native (lane a11y-tab)
     int assistDotSize = 100;   // native (lane a11y-2): [vr] assist_dot_size, percent, 50..300
     bool assistHeadsetButton = false;                // [vr] assist_headset_button
+    QString assistDwellStyle = QStringLiteral("simple");   // [vr] assist_dwell_style (lane radial-dwell)
 
 signals:
     void changed();
@@ -356,6 +359,7 @@ private:
     int m_iniHeadDwellMs = 0;   // native (lane a11y-tab)
     int m_iniAssistDotSize = 100;   // native (lane a11y-2)
     bool m_iniAssistHeadsetButton = false;
+    QString m_iniAssistDwellStyle = QStringLiteral("simple");
     void loadHeadInput(const QString& ini);
     void saveHeadInput(const QString& ini);
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;

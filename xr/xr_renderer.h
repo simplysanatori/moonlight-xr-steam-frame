@@ -56,6 +56,7 @@
 #include "xr_dwell.h"
 #include "xr_access.h"
 #include "xr_assistclick.h"
+#include "xr_radial.h"
 #include "auxbutton.h"
 #include "xr_clickhold.h"
 #include "xr_pressfix.h"
@@ -1029,6 +1030,31 @@ typedef struct XrCtx {
     int assistButtons;
     int assistPress;
     int assistUi;
+    // Native (lane radial-dwell): the dwell click's style ([vr] assist_dwell_style, DWELL_STYLE_) and
+    // its radial menu (xr_dwellmenu.c): the state machine over ctx->dwell, what its last step left
+    // for the drawing, where the dwell started (the host's point and the point in the space, while
+    // dwellAnchorValid: the dwell began on the picture), the host's cursor held there (while the
+    // menu is up, and until dwellHoldUntil after a click so its presses land there), a drag the menu
+    // started (the left button held from dwellDragU, V, shown by a mark at dwellDragAt and the dot
+    // drawn hollow), and the circle of a dropped dwell fading out
+    int assistDwellStyle;
+    RadialDwell radial;
+    RadialView radialView;
+    int dwellAnchorValid;
+    float dwellAnchorU, dwellAnchorV;
+    XrVector3f dwellAnchorAt;
+    float dwellHoldU, dwellHoldV;
+    int64_t dwellHoldUntil;
+    int dwellDrag;
+    float dwellDragX, dwellDragY;
+    float dwellDragU, dwellDragV;
+    XrVector3f dwellDragAt;
+    int dwellRingShown;
+    float dwellRingWas;
+    float dwellFadeFrom;
+    int64_t dwellFadeNs;
+    int64_t dwellArtNs;
+    long dwellMenuPicks;
     long inputFrames;
     // Gamepad mode (M3: the pad's state is worked out as upstream does, but
     // nothing sends it to the host yet)

@@ -22,6 +22,7 @@ int cogAccessCells(XrCtx* ctx, int row) {
     (void)ctx;
     return row == COG_ACCESS_ROW_POINTER ? COG_ACCESS_POINTER_CELLS
          : row == COG_ACCESS_ROW_DWELL ? COG_ACCESS_DWELL_CELLS
+         : row == COG_ACCESS_ROW_STYLE ? COG_ACCESS_STYLE_CELLS
          : row == COG_ACCESS_ROW_BUTTON ? COG_ACCESS_BUTTON_CELLS : 0;
 }
 
@@ -69,6 +70,13 @@ void cogApplyAccessCell(XrCtx* ctx, int row, int cell, float* out) {
         ctx->headDwellMs = dwellMsClamp(value);
         setting = SETTING_HEAD_DWELL;
         LOGEV("dwell click %d ms from the Accessibility tab", value);
+        break;
+    case COG_ACCESS_ROW_STYLE:
+        // native (lane radial-dwell): read by the next dwell; one under way keeps its style
+        value = cell == DWELL_STYLE_RADIAL ? DWELL_STYLE_RADIAL : DWELL_STYLE_SIMPLE;
+        ctx->assistDwellStyle = value;
+        setting = SETTING_ASSIST_DWELL_STYLE;
+        LOGEV("dwell click style %s from the Accessibility tab", value == DWELL_STYLE_RADIAL ? "radial menu" : "simple");
         break;
     case COG_ACCESS_ROW_BUTTON:
         // native (lane a11y-2): the next frame takes the button, or gives it back

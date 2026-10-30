@@ -21,6 +21,7 @@
 #include "text.h"
 #include "ui_strings.h"
 #include "xr_access.h"
+#include "xr_radial.h"
 #include "xr_cards.h"
 #include "xr_hostkeys.h"
 #include "xr_keys.h"

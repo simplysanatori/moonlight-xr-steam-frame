@@ -36,6 +36,8 @@ typedef struct {
     int taps;          // short presses waiting for the multi-press window to close
     int dragging;      // this press is holding the left button
     int escaped;       // this press has asked for the escape; its release does nothing
+    int spent;         // native (lane radial-dwell): this press did something else (let a drag go):
+                       // no click and no drag of its own; a 3 s hold still escapes
 } AuxClick;
 
 void auxClickReset(AuxClick* g);
@@ -43,6 +45,9 @@ void auxClickReset(AuxClick* g);
 int auxClickEdge(AuxClick* g, int down, int64_t t);
 // Once a frame: the hold, the escape and the end of the multi-press window
 int auxClickTick(AuxClick* g, int64_t now);
+// Native (lane radial-dwell): the press that is down now was used for something else: its release
+// and its hold come to nothing (the taps before it are dropped too)
+void auxClickSpend(AuxClick* g);
 // A name for the log
 const char* assistActionName(int action);
 

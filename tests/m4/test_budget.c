@@ -74,6 +74,22 @@ int main(void) {
     c->hoverKind = HOVER_BAR;
     scene_frame(s, "stats");
     CHECK(s->out.count + 1 <= 16);
+    // Native (lane radial-dwell): the head pointing (no beam) with the dwell's radial menu up and its
+    // circle round the dot: the menu takes the beam's place, so the busiest frame is no fuller
+    unsigned withRay = s->out.count;
+    xrSetPointerSource(c, POINTER_SOURCE_HEAD, 900);
+    scene_ray_to(s, at, at);
+    c->dwellFraction = 0.8f;
+    c->dwellAnchorValid = 1;
+    c->dwellAnchorAt = (XrVector3f){ at.x, at.y, at.z };
+    c->radialView.open = 1;
+    c->radialView.menu = 1.0f;
+    c->radialView.sector = RADIAL_NONE;
+    scene_frame(s, "stats");
+    printf("bar, stats, toast, the head's dot in its circle and the radial menu: %u layers (+1 passthrough)\n",
+           s->out.count);
+    CHECK(s->out.count <= withRay && s->out.count + 1 <= 16);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
     scene_free(s);
     return checksDone("m4 budget");
 }
