@@ -55,6 +55,11 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(QString keyboardKeymap MEMBER keyboardKeymap NOTIFY changed)
     // Which notices the headset's toast says: "all", "important" or "off" ([vr] notices)
     Q_PROPERTY(QString notices MEMBER notices NOTIFY changed)
+    // Native (lane wave3-session): [stream] doff_disconnect (seconds with the headset off before the stream is
+    // disconnected, the PC's app keeps running; 0 never, default 60) and idle_disconnect (minutes without input
+    // before the same; 0 never, default 0)
+    Q_PROPERTY(int doffDisconnect MEMBER doffDisconnect NOTIFY changed)
+    Q_PROPERTY(int idleDisconnect MEMBER idleDisconnect NOTIFY changed)
     // ---- facts ----
     // Native (lane wave4c-usb): a USB data cable to the PC is up, i.e. the headset's USB network
     // interface (usb*, or a gadget device) has carrier. Rescanned every 10 s while the app is open.
@@ -125,6 +130,8 @@ public:
     bool flipFaceButtons;
     QString keyboardKeymap;
     QString notices;
+    int doffDisconnect = 60;
+    int idleDisconnect = 0;
 
 signals:
     void changed();
@@ -135,6 +142,7 @@ private:
     // what config.ini held at load(), to write only what this page changed
     bool m_iniPerfOverlay = false, m_iniFlip = false;
     QString m_iniNotices = "all";
+    int m_iniDoff = 60, m_iniIdle = 0;
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
     bool m_usbCable = false, m_usbScanned = false;
