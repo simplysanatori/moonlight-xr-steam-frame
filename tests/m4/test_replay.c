@@ -146,10 +146,12 @@ static void setUp(XrCtx* c) {
     c->eyeGaze = 0;
 }
 
-int main(void) {
-    FILE* in = fopen(MLXR_REPLAY_CSV, "r");
+int main(int argc, char** argv) {
+    // Native (lane bar-glare): another CSV can be named, so each path has a test of its own
+    const char* path = argc > 1 ? argv[1] : MLXR_REPLAY_CSV;
+    FILE* in = fopen(path, "r");
     if (in == NULL) {
-        fprintf(stderr, "replay: cannot read %s\n", MLXR_REPLAY_CSV);
+        fprintf(stderr, "replay: cannot read %s\n", path);
         return 1;
     }
     Scene* s = scene_new();
@@ -204,7 +206,7 @@ int main(void) {
     fclose(in);
     // The whole file was read
     CHECK(rows >= 300);
-    printf("replay: %d rows from %s\n", rows, MLXR_REPLAY_CSV);
+    printf("replay: %d rows from %s\n", rows, path);
     scene_free(s);
     return checksDone("m4_replay");
 }

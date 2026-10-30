@@ -424,40 +424,49 @@ static void test_other_panels_hits(void) {
     free(b.base);
     v.kb_mods = 0;
 
-    // bar: every slot has a hit that stays inside its neighbours' pitch, move pill in the middle
-    v.bar_show_aim = 1;
-    v.bar_show_stereo = 1;
-    draw(UI_PANEL_BAR, &v, 1.0f, &g);
-    check_hits_inside("bar");
-    CHECK(hits.count == BAR_SLOTS + 1);
-    int pill = ui_hits_find(&hits, UI_HIT_BAR_MOVE, 0, -1);
-    CHECK(pill >= 0 && fabsf((hits.hit[pill].u0 + hits.hit[pill].u1) * 0.5f - 0.5f) < 1e-4);
-    for (int slot = 0; slot < BAR_SLOTS; slot++) {
-        int i = ui_hits_find(&hits, UI_HIT_BAR_BUTTON, slot, -1);
-        CHECK(i >= 0);
-        if (i < 0) continue;
-        // the centre agrees with xr_layout's placement of that slot (strip is 0.86 of the frame wide)
-        Vec3 local;
-        float side;
-        barSlotPlacement(slot, 1.0f, 1.0f, &local, &side);
-        CHECK_NEAR((hits.hit[i].u0 + hits.hit[i].u1) * 0.5f, 0.5f + local.x / 0.86f, 1e-3);
-        // and xr_layout's barSlotHit accepts the hit's middle (in the frame coordinates)
-        float fu = 0.5f + local.x, fv = 0.5f - local.y / 1.0f;
-        (void)fu; (void)fv;
-        CHECK(barSlotHit(slot, 0.5f + local.x, 0.5f - local.y, 1.0f, 1.0f));
-    }
-    for (int i = 0; i < hits.count; i++)
-        for (int j = i + 1; j < hits.count; j++) {
-            if (hits.hit[i].kind == UI_HIT_BAR_MOVE || hits.hit[j].kind == UI_HIT_BAR_MOVE) continue;
-            CHECK(hits.hit[i].u1 <= hits.hit[j].u0 + 1e-6 || hits.hit[j].u1 <= hits.hit[i].u0 + 1e-6);
+    // bar: every slot has a hit that stays inside its neighbours' pitch, move pill in the middle.
+    // Native (lane bar-glare): Bring here shares head aim's place and never shows with it, so
+    // the row is drawn once with head aim and once with Bring here.
+    for (int here = 0; here < 2; here++) {
+        v.bar_show_aim = !here;
+        v.bar_show_here = here;
+        v.bar_show_stereo = 1;
+        draw(UI_PANEL_BAR, &v, 1.0f, &g);
+        check_hits_inside("bar");
+        CHECK(hits.count == BAR_SLOTS);
+        CHECK(ui_hits_find(&hits, UI_HIT_BAR_BUTTON, here ? BAR_SLOT_AIM : BAR_SLOT_HERE, -1) < 0);
+        int pill = ui_hits_find(&hits, UI_HIT_BAR_MOVE, 0, -1);
+        CHECK(pill >= 0 && fabsf((hits.hit[pill].u0 + hits.hit[pill].u1) * 0.5f - 0.5f) < 1e-4);
+        for (int slot = 0; slot < BAR_SLOTS; slot++) {
+            if (slot == (here ? BAR_SLOT_AIM : BAR_SLOT_HERE)) continue;
+            int i = ui_hits_find(&hits, UI_HIT_BAR_BUTTON, slot, -1);
+            CHECK(i >= 0);
+            if (i < 0) continue;
+            // the centre agrees with xr_layout's placement of that slot (strip is 0.86 of the frame wide)
+            Vec3 local;
+            float side;
+            barSlotPlacement(slot, 1.0f, 1.0f, &local, &side);
+            CHECK_NEAR((hits.hit[i].u0 + hits.hit[i].u1) * 0.5f, 0.5f + local.x / 0.86f, 1e-3);
+            // and xr_layout's barSlotHit accepts the hit's middle (in the frame coordinates)
+            float fu = 0.5f + local.x, fv = 0.5f - local.y / 1.0f;
+            (void)fu; (void)fv;
+            CHECK(barSlotHit(slot, 0.5f + local.x, 0.5f - local.y, 1.0f, 1.0f));
         }
-    free(g.base);
+        for (int i = 0; i < hits.count; i++)
+            for (int j = i + 1; j < hits.count; j++) {
+                if (hits.hit[i].kind == UI_HIT_BAR_MOVE || hits.hit[j].kind == UI_HIT_BAR_MOVE) continue;
+                CHECK(hits.hit[i].u1 <= hits.hit[j].u0 + 1e-6 || hits.hit[j].u1 <= hits.hit[i].u0 + 1e-6);
+            }
+        free(g.base);
+    }
     // absent buttons are not drawn and have no hit
     v.bar_show_aim = 0;
     v.bar_show_stereo = 0;
+    v.bar_show_here = 0;
     draw(UI_PANEL_BAR, &v, 1.0f, &g);
-    CHECK(hits.count == BAR_SLOTS - 1);
+    CHECK(hits.count == BAR_SLOTS - 2);
     CHECK(ui_hits_find(&hits, UI_HIT_BAR_BUTTON, BAR_SLOT_AIM, -1) < 0 && ui_hits_find(&hits, UI_HIT_BAR_BUTTON, BAR_SLOT_STEREO, -1) < 0);
+    CHECK(ui_hits_find(&hits, UI_HIT_BAR_BUTTON, BAR_SLOT_HERE, -1) < 0);
     free(g.base);
 
     // native (PLAN 4.3): the 3D button says SBS or TB with the PC's pair on

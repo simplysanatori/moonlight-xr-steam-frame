@@ -31,12 +31,13 @@ static const Vec3 HAND = { 0.2f, -0.3f, -0.25f };
 static void barButtons(Scene* s) {
     XrCtx* c = s->ctx;
     static const int SLOTS[] = { BAR_SLOT_ENV, BAR_SLOT_COG, BAR_SLOT_KB, BAR_SLOT_EXIT, BAR_SLOT_RAY, BAR_SLOT_AIM,
-                                 BAR_SLOT_PAD, BAR_SLOT_STEREO };
+                                 BAR_SLOT_PAD, BAR_SLOT_STEREO, BAR_SLOT_HOST, BAR_SLOT_HERE };
     static const int HOVERS[] = { HOVER_ENVBUTTON, HOVER_COGBUTTON, HOVER_KBBUTTON, HOVER_EXITBUTTON, HOVER_RAYBUTTON,
-                                  HOVER_AIMBUTTON, HOVER_PADBUTTON, HOVER_STEREOBUTTON };
+                                  HOVER_AIMBUTTON, HOVER_PADBUTTON, HOVER_STEREOBUTTON, HOVER_HOSTBUTTON,
+                                  HOVER_HEREBUTTON };
     for (int headLocked = 0; headLocked < 2; headLocked++) {
         c->headLockedPref = headLocked;
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 10; i++) {
             BarFrame f = barFrame(c);
             Vec3 local;
             float side;
@@ -46,15 +47,21 @@ static void barButtons(Scene* s) {
             // From the eye and from a hand off to the side
             for (int from = 0; from < 2; from++) {
                 int hover = xrHoverAt(c, aimAt(from ? HAND : EYE, p), NULL, NULL, NULL);
+                // Native (lane bar-glare): Bring here in head aim's place, with
+                // the screen in the world where head aim is not
                 int shown = SLOTS[i] == BAR_SLOT_AIM ? headLocked
+                          : SLOTS[i] == BAR_SLOT_HERE ? !headLocked
                           : SLOTS[i] == BAR_SLOT_STEREO ? 0 : 1; // pad shown since M3
                 if (shown) {
                     CHECK(hover == HOVERS[i]);
                     if (hover != HOVERS[i]) fprintf(stderr, "  slot %d head locked %d from %d: hover %d\n", SLOTS[i], headLocked, from, hover);
                 }
                 else {
-                    // Not on the bar (3D until M6): the ray falls through to the bar's halo
+                    // Not on the bar (3D until M6): the ray falls through to the
+                    // bar's own zone (lane bar-glare: the whole row is the bar),
+                    // or to the button that shares the place
                     CHECK(hover != HOVERS[i]);
+                    CHECK(hover == HOVER_BAR || hover == HOVER_AIMBUTTON || hover == HOVER_HEREBUTTON);
                 }
             }
         }
@@ -357,10 +364,67 @@ static void curvedPicture(Scene* s) {
     c->panelCurve = -1.0f;
 }
 
+// The quad showing one face of the bar's button strip, or NULL
+static const XrCompositionLayerQuad* faceQuad(const Scene* s, int cell) {
+    UiRectPx strip = xrAtlasRect(UI_PANEL_BUTTON_ATLAS);
+    int cx, cy;
+    buttonCellOrigin(cell, &cx, &cy);
+    for (uint32_t i = 0; i < s->out.count; i++) {
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)s->out.order[i];
+        if (q->type == XR_TYPE_COMPOSITION_LAYER_QUAD && q->subImage.imageRect.offset.x == strip.x + cx
+                && q->subImage.imageRect.offset.y == strip.y + cy) {
+            return q;
+        }
+    }
+    return NULL;
+}
+
+// Native (lane bar-glare): the bar's Bring here button is drawn with the rest
+// of the row, in head aim's place, only with the screen in the world and no
+// room, and grows under the ray like the others
+static void bringHereButton(Scene* s) {
+    XrCtx* c = s->ctx;
+    scene_reset(s);
+    c->headLockedPref = 0;
+    c->hoverKind = HOVER_NONE;
+    scene_frame(s, NULL);
+    CHECK(faceQuad(s, BTN_CELL_HERE) == NULL);
+    c->hoverKind = HOVER_BAR;
+    scene_frame(s, NULL);
+    const XrCompositionLayerQuad* q = faceQuad(s, BTN_CELL_HERE);
+    CHECK(q != NULL);
+    if (q != NULL) {
+        BarFrame f = barFrame(c);
+        Vec3 local;
+        float side;
+        barSlotPlacement(BAR_SLOT_HERE, f.width, f.height, &local, &side);
+        Vec3 off = quatRotate(f.pose.orientation, local);
+        CHECK_NEAR(q->pose.position.x, f.pose.position.x + off.x, 1e-4);
+        CHECK_NEAR(q->pose.position.y, f.pose.position.y + off.y, 1e-4);
+        CHECK_NEAR(q->size.width, side, 1e-5);
+        CHECK(q->pose.position.x < f.pose.position.x);
+    }
+    // Under the ray it grows, as the others do
+    c->hoverKind = HOVER_HEREBUTTON;
+    scene_frame(s, NULL);
+    q = faceQuad(s, BTN_CELL_HERE);
+    CHECK(q != NULL && q->size.width > c->screenWidth * COG_BUTTON_FRAC * 1.1f);
+    // Head aim's face instead with the screen on the head, which Bring here
+    // cannot move, and never both
+    c->headLockedPref = 1;
+    c->hoverKind = HOVER_BAR;
+    scene_frame(s, NULL);
+    CHECK(faceQuad(s, BTN_CELL_HERE) == NULL);
+    CHECK(faceQuad(s, BTN_CELL_AIM) != NULL || faceQuad(s, BTN_CELL_AIM + 1) != NULL);
+    c->headLockedPref = 0;
+    scene_reset(s);
+}
+
 int main(void) {
     Scene* s = scene_new();
     curvedPicture(s);
     barButtons(s);
+    bringHereButton(s);
     cogRows(s);
     exitAndKeys(s);
     launcherList(s);
