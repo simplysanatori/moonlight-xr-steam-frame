@@ -153,14 +153,15 @@ static int isDepth(VkFormat f) {
            f == VK_FORMAT_D32_SFLOAT_S8_UINT;
 }
 
-static int makeImage(Vkh* v, uint32_t w, uint32_t h, VkFormat format, VkFormat viewFormat, VkhImage* img) {
+static int makeImage(Vkh* v, uint32_t w, uint32_t h, VkFormat format, VkFormat viewFormat, uint32_t mips,
+                     VkhImage* img) {
     memset(img, 0, sizeof(*img));
     int planar = format == VK_FORMAT_G8_B8R8_2PLANE_420_UNORM;
     VkImageCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     ci.imageType = VK_IMAGE_TYPE_2D;
     ci.format = format;
     ci.extent = (VkExtent3D){w, h, 1};
-    ci.mipLevels = 1;
+    ci.mipLevels = mips;
     ci.arrayLayers = 1;
     ci.samples = VK_SAMPLE_COUNT_1_BIT;
     ci.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -183,7 +184,7 @@ static int makeImage(Vkh* v, uint32_t w, uint32_t h, VkFormat format, VkFormat v
     img->format = viewFormat;
     img->width = w;
     img->height = h;
-    img->mips = 1;
+    img->mips = mips;
     img->layout = VK_IMAGE_LAYOUT_UNDEFINED;
     if (planar) return 0;
     VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -191,16 +192,26 @@ static int makeImage(Vkh* v, uint32_t w, uint32_t h, VkFormat format, VkFormat v
     vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
     vi.format = viewFormat;
     vi.subresourceRange =
-        (VkImageSubresourceRange){isDepth(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        (VkImageSubresourceRange){isDepth(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, 0, 1};
     return vkCreateImageView(v->device, &vi, NULL, &img->view) == VK_SUCCESS ? 0 : -1;
 }
 
 int vkh_image(Vkh* v, uint32_t w, uint32_t h, VkFormat format, VkhImage* img) {
-    return makeImage(v, w, h, format, format, img);
+    return makeImage(v, w, h, format, format, 1, img);
 }
 
 int vkh_image_mutable(Vkh* v, uint32_t w, uint32_t h, VkFormat format, VkFormat viewFormat, VkhImage* img) {
-    return makeImage(v, w, h, format, viewFormat, img);
+    return makeImage(v, w, h, format, viewFormat, 1, img);
+}
+
+int vkh_image_mips(Vkh* v, uint32_t w, uint32_t h, VkFormat format, uint32_t mips, VkhImage* img, VkImageView* level0) {
+    if (makeImage(v, w, h, format, format, mips, img)) return -1;
+    VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = img->image;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = format;
+    vi.subresourceRange = (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    return vkCreateImageView(v->device, &vi, NULL, level0) == VK_SUCCESS ? 0 : -1;
 }
 
 void vkh_image_free(Vkh* v, VkhImage* img) {
