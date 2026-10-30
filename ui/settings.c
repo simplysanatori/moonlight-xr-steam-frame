@@ -14,6 +14,8 @@
 #include <unistd.h>
 
 #include "xr_shared.h"
+#include "xr_lightgun.h"
+#include "xr_padgyro.h"
 #include "xr_padmouse.h"
 
 // Where the tilt and rotate tracks clip to level, in radians (xr_renderer.h:
@@ -39,12 +41,22 @@ static const char* const PADGRIP_NAMES[] = { "bumpers", "none", "stick_clicks" }
 static const char* const PADMOUSECHORD_NAMES[] = { "start_hold", "start_back", "off" };
 static const char* const PADMOUSESCROLL_NAMES[] = { "right", "left", "none" };
 static const char* const PADARB_NAMES[] = { "pointer", "also_gamepad", "sleep" };
+// Native (lane wave2-lightgun-gyro): LIGHTGUN_ and PAD_GYRO_ in xr_lightgun.h and xr_padgyro.h
+static const char* const LIGHTGUN_NAMES[] = { "auto", "on", "off" };
+_Static_assert(sizeof(LIGHTGUN_NAMES) / sizeof(LIGHTGUN_NAMES[0]) == LIGHTGUN_COUNT, "lightgun names follow LIGHTGUN_");
+static const char* const PADGYRO_NAMES[] = { "off", "controller", "head" };
+_Static_assert(sizeof(PADGYRO_NAMES) / sizeof(PADGYRO_NAMES[0]) == PAD_GYRO_COUNT, "pad_gyro names follow PAD_GYRO_");
+static const char* const PADGYRO_RATCHET_NAMES[] = { "always", "stick_touch" };
+_Static_assert(sizeof(PADGYRO_RATCHET_NAMES) / sizeof(PADGYRO_RATCHET_NAMES[0]) == PAD_GYRO_RATCHET_COUNT, "pad_gyro_ratchet names follow PAD_GYRO_RATCHET_");
 static const char* const ENV_NAMES[] = { "auto", "passthrough", "void", "home_theater",
                                          "grand_cinema", "synthwave" };
 static const int ENV_IDS[] = { ENV_ID_NONE, ENV_ID_PASSTHROUGH, ENV_ID_VOID, ENV_ID_HOME_THEATER,
                                ENV_ID_GRAND_CINEMA, ENV_ID_SYNTHWAVE };
 static const char* const DEPTH_NAMES[] = { "zipdepth", "midas", "off", "flat", "ramp", "blob",
                                            "eyetest", "shifttest", "zipdepth-int8" };
+// STEREO_SOURCE_*
+static const char* const SOURCE3D_NAMES[] = { "depth", "sbs", "top-bottom" };
+_Static_assert(sizeof(SOURCE3D_NAMES) / sizeof(SOURCE3D_NAMES[0]) == STEREO_SOURCE_COUNT, "stereo_source names follow STEREO_SOURCE_");
 static const char* const ENVRES_NAMES[] = { "low", "standard", "high", "ultra" };
 static const char* const NOTICES_NAMES[] = { "all", "important", "off" };
 static const char* const STEADY_NAMES[] = { "off", "normal", "steady" };
@@ -55,6 +67,8 @@ _Static_assert(sizeof(COGTAB_NAMES) / sizeof(COGTAB_NAMES[0]) == COG_TAB_COUNT, 
 static const char* const KEYMAP_NAMES[] = { "qwerty", "azerty", "qwertz" };
 static const char* const STATS_STYLE_NAMES[] = { "full", "hud", "lite" };
 static const char* const SHARP_NAMES[] = { "off", "normal", "quality" };
+static const char* const FEATHER_NAMES[] = { "off", "soft", "wide" };
+_Static_assert(sizeof(FEATHER_NAMES) / sizeof(FEATHER_NAMES[0]) == GLOW_FEATHER_COUNT, "glow_feather names follow GLOW_FEATHER_");
 // CONTROLLER_MODEL_*: 1 is what the old on/off switch's true meant
 static const char* const MODEL_NAMES[] = { "off", "frame", "generic", "gun", "custom" };
 _Static_assert(sizeof(MODEL_NAMES) / sizeof(MODEL_NAMES[0]) == CONTROLLER_MODEL_COUNT, "controller_model names follow CONTROLLER_MODEL_");
@@ -88,6 +102,11 @@ static const SettingDesc TABLE[] = {
     DE("stream", "network_path", network_path, NETWORK_NAMES, 0, "native: which link reaches the PC: auto (probe all), home (Wi-Fi), adapter (Steam Frame Wireless Adapter) or usb (a USB cable between the headset and the PC); the --network flag and MLXR_NETWORK override it"),
     DI("stream", "doff_disconnect", doff_disconnect, 0, 3600, 60, "native: seconds with the headset off before the stream is disconnected, leaving the host's app running; 0 never. The sound mutes and the input is let go the moment it comes off, and putting it back on within the time carries on"),
     DI("stream", "idle_disconnect", idle_disconnect, 0, 1440, 0, "native: minutes without any input (controllers, hands, keyboard, mouse, pads) before the stream is disconnected, leaving the host's app running; 0 never"),
+    DI("stream", "bitrate_wifi", bitrate_wifi, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: start bitrate in kbps when the stream goes over Wi-Fi; 0 uses the launcher's bitrate, else 500..500000 (a stream's bitrate cannot change once it runs, so this is chosen at the start, for the path Automatic or the Network connection setting picked)"),
+    DI("stream", "bitrate_adapter", bitrate_adapter, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: the same for the Steam Frame Wireless Adapter; 0 uses the launcher's bitrate"),
+    DI("stream", "bitrate_wired", bitrate_wired, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: the same for a wired network (the headset's ethernet); 0 uses the launcher's bitrate"),
+    DI("stream", "bitrate_usb", bitrate_usb, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: the same for the USB cable; 0 uses the launcher's bitrate"),
+    DI("stream", "rfi_idr_ms", rfi_idr_ms, 0, 5000, 500, "native: after lost video, the headset asks the PC for a full (IDR) frame at most once in this many ms; a full frame is large, and asked for again while the Wi-Fi is still losing packets it makes the stall longer. 0 no limit"),
     // TODO(PLAN 6.4): auto_desktop (open the host's Desktop app without the app list) comes
     // back when something reads it. Dropped with vr_mode, check_updates, language and
     // doff_grace, which were written with descriptions and read by nothing; old files that
@@ -112,15 +131,22 @@ static const SettingDesc TABLE[] = {
     DE("vr", "pad_mouse_chord", pad_mouse_chord, PADMOUSECHORD_NAMES, 0, "native: what turns a physical gamepad into the PC's mouse (stick moves the pointer, A/B/X click, LB/RB back/forward, Y the VR keyboard, d-pad arrows): start_hold (hold Start for a second), start_back (hold Start and Back) or off; the same chord gives the pad back"),
     DE("vr", "pad_mouse_scroll", pad_mouse_scroll, PADMOUSESCROLL_NAMES, 0, "native: the stick that scrolls while a gamepad is a mouse: right (the left stick points), left (the right stick points) or none"),
     DE("vr", "pad_arbitration", pad_arbitration, PADARB_NAMES, 0, "native: when a physical gamepad is used while the Frame controllers are the gamepad: pointer (the controllers' pad is taken off the PC and they point again; gamepad mode off and on brings it back), also_gamepad (the PC sees both pads) or sleep (as pointer, and the controllers' pointer rests while the gamepad is in use)"),
+    DE("vr", "pad_gyro", pad_gyro, PADGYRO_NAMES, PAD_GYRO_OFF, "native: gyro for the PC from the headset: off (the controllers' gamepad has no motion), controller (the right controller's turn, the left one's when the right is not tracked) or head (your head's turn), sent as a PlayStation pad's gyroscope and accelerometer so the PC emulates a DualShock 4 and Steam Input can use it; gamepad mode only, read when gamepad mode turns on"),
+    DE("vr", "pad_gyro_ratchet", pad_gyro_ratchet, PADGYRO_RATCHET_NAMES, PAD_GYRO_RATCHET_ALWAYS, "native: when pad_gyro sends motion: always, or stick_touch (only while the right thumb touches the right stick; falls back to always where the controller's touch sensor is not read)"),
     DB("vr", "click_sound", click_sound, 1, "checkbox_vr_click_sound"),
     DE("vr", "notices", notices, NOTICES_NAMES, 0, "native: the toast notices (upstream #42): all, important (leaves out the display rate and 3D on/off; keeps mode changes and errors) or off"),
     DE("vr", "click_steadiness", click_steadiness, STEADY_NAMES, CLICK_STEADY_NORMAL, "native: Display tab Click steadiness, how still the cursor is held around a click: off (the aim as it is, for lightgun games), normal (the press sent from before the pull jolted the aim, and the double-click wait) or steady (and the cursor held from the first touch of the trigger); the MLXR_PRESS_STABILISE, MLXR_DOUBLE_CLICK_PX/_MS and MLXR_CLICK_HOLD_PX variables still override each part"),
+    DE("vr", "lightgun", lightgun, LIGHTGUN_NAMES, LIGHTGUN_AUTO, "native: the lightgun pointer policy: auto (on while the controller model is the gun), on or off. On: pointer sleep, the double-click wait, press stabilising and the click hold are off, the trigger never grabs the screen (the grip does), and a shot pulses the controller"),
+    DB("vr", "lightgun_reload", lightgun_reload, 0, "native: with the lightgun policy on, a trigger pulled off the picture is a right click for as long as it is held (reload)"),
+    DB("vr", "lightgun_recoil", lightgun_recoil, 1, "native: with the lightgun policy on, a short strong pulse in the controller on every shot"),
     DI("vr", "scroll_speed", scroll_speed, SCROLL_SPEED_MIN, SCROLL_SPEED_MAX, SCROLL_SPEED_DEFAULT, "native: how fast a thumbstick scrolls, percent (100 is 7.5 notches a second at full tilt); the wheel is smooth, and the stick's sideways tilt scrolls sideways"),
     DB("vr", "gaze", gaze, 0, "checkbox_vr_gaze: look to point (native default off: with it on a controller takes the pointer back only on a press)"),
     DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),
     DB("vr", "passthrough", passthrough, 0, "checkbox_vr_passthrough"),
     DE("vr", "environment", environment, ENV_NAMES, 0, "list_vr_environment: auto = black void, or passthrough with passthrough on"),
     DE("vr", "depth_source", depth_source, DEPTH_NAMES, 0, "list_vr_depth_source: Realtime 3D mode (zipdepth recommended, midas older, zipdepth-int8 lighter on the CPU, off streams flat; flat, ramp, blob, eyetest, shifttest are test patterns)"),
+    DI("vr", "background_dim", bg_dim, BG_DIM_MIN, BG_DIM_MAX, BG_DIM_DEFAULT, "native: Picture tab Background, percent the room, the passthrough cameras or the void are dimmed (a black layer over passthrough, the room's lighting turned down, the void colour darkened); 0 leaves them as they are"),
+    DS("vr", "void_color", void_color, "#000000", "native: the colour of the void environment, #rrggbb; black by default. Dimmed by background_dim"),
     DE("vr", "env_res", env_res, ENVRES_NAMES, 1, "list_vr_env_res: Environment Res, how sharp the rooms are drawn: low (half the headset's recommended eye size), standard, high or ultra (the runtime's largest); read when the rooms are built at the start of a stream"),
     DB("vr", "hand_hint_seen", hand_hint_seen, 0, "the hand lock hint was put away for good"),
     DI("vr", "picture_brightness", picture_brightness, PICTURE_BRIGHTNESS_MIN, PICTURE_BRIGHTNESS_MAX, PICTURE_BRIGHTNESS_DEFAULT, "seekbar_vr_picture_brightness: -50..50"),
@@ -129,6 +155,7 @@ static const SettingDesc TABLE[] = {
     DI("vr", "picture_saturation", picture_saturation, PICTURE_SATURATION_MIN, PICTURE_SATURATION_MAX, PICTURE_SATURATION_DEFAULT, "seekbar_vr_picture_saturation: percent, 0..200"),
     // debug
     DI("debug", "depth_rate", depth_rate, DEPTH_RATE_MIN, DEPTH_RATE_MAX, DEPTH_RATE_DEFAULT, "seekbar_vr_inference_cadence: the most depth maps made per second (the 3D picture follows the video; fewer saves the CPU)"),
+    DI("debug", "depth_threads", depth_threads, DEPTH_THREADS_MIN, DEPTH_THREADS_MAX, DEPTH_THREADS_DEFAULT, "native: the CPU threads the depth model runs on in 3D, 1..4; 2 as Moonlight XR runs it, 3 makes each depth map a few milliseconds sooner (up to about 10) for another core's worth of CPU (the MLXR_DEPTH_THREADS variable overrides it); read when the model starts"),
     DB("debug", "depth_debug", depth_debug, 0, "checkbox_vr_depth_debug: show the depth map in place of the picture"),
     DB("debug", "eye_swap", eye_swap, 0, "checkbox_vr_eye_swap: swap the left and right eye of the 3D picture (for a wrong-way test pattern)"),
     DE("debug", "file_log", file_log, LOG_NAMES, 1, "list_vr_file_log: off, basic (warnings and errors), verbose"),
@@ -142,12 +169,20 @@ static const SettingDesc TABLE[] = {
     DE("display", "stats_style", stats_style, STATS_STYLE_NAMES, 0, "native: what the stats show: full (every line the session writes), hud (latency, network, decode and rate in a few lines) or lite (speed, latency, decode, loss and fps on one line); with stats on, a perf-<stamp>.csv next to vrtiming.log gets a row every 5 s"),
     DB("display", "glow", glow, 0, "Display tab: glow (checkbox_vr_ambilight; native default off, the owner's choice, upstream on)"),
     DI("display", "glow_level", glow_level, 0, 100, 50, "Display tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
+    DE("display", "glow_feather", glow_feather, FEATHER_NAMES, GLOW_FEATHER_OFF, "native: Picture tab Glow edge: off, soft or wide. Feathers the picture's edge into the glow round it (needs the glow on)"),
     DB("display", "screen_light", screen_light, 1, "Display tab: screen light in rooms (checkbox_vr_room_light)"),
     DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (room in a room), display, 3d, picture or about"),
     // 3d
     DI("3d", "separation", separation, -1, COG_SEP_STEPS, -1, "seekbar_vr_separation: tenths of a percent of frame width; -1 is the depth model's own (ZipDepth 6, MiDaS 5)"),
     DI("3d", "convergence", convergence, -1, 100, -1, "seekbar_vr_convergence: percent; -1 is the depth model's own (50)"),
     DB("3d", "stereo", stereo, 1, "native: the 3D switch (bar button, 3D tab) as it was last left; on to begin with, as upstream started every session"),
+    DI("3d", "eye_balance", eye_balance, EYE_BALANCE_MIN, EYE_BALANCE_MAX, EYE_BALANCE_DEFAULT, "native: 3D Eye Balance, percent. How the depth shift is shared by the eyes: 0 evenly, +100 all in the left eye (the right eye keeps the picture as streamed), -100 all in the right. The total between the eyes does not change"),
+    DE("3d", "stereo_source", stereo_source, SOURCE3D_NAMES, STEREO_SOURCE_DEPTH, "native: the 3D tab's 3D source: depth (the depth model makes the 3D from a 2D stream), sbs (the PC renders a side by side pair, left eye in the left half: a 3D film, a game's own SBS mode, ReShade SuperDepth3D) or top-bottom (left eye in the top half); with sbs and top-bottom no depth model runs, the convergence track moves the halves apart or together, and [debug] eye_swap swaps them"),
+    DB("3d", "sbs_full", sbs_full, 0, "native: an sbs or top-bottom stream carries a full size picture per eye (3840x1080 for two 1920x1080 eyes, shown 16:9); false: half size, each eye squeezed to half the width or height (1920x1080 for both eyes, stretched back to 16:9)"),
+    DI("3d", "edge_sharpness", edge_sharpness, EDGE_SHARPNESS_MIN, EDGE_SHARPNESS_MAX, EDGE_SHARPNESS_DEFAULT, "native: Edge, how closely the 3D's depth keeps to the edges in the picture, 0..100; 0 is Moonlight XR's own soft edges, higher keeps hair and thin outlines on their own depth (the upsample's colour match tightens from 0.25 to 0.10 and the snap to the nearer side rises from off to full)"),
+    DI("3d", "depth_scale", depth_scale, DEPTH_SCALE_MIN, DEPTH_SCALE_MAX, DEPTH_SCALE_DEFAULT, "seekbar_vr_depth_scale: Depth detail, percent; the depth between neighbouring things (a face in front of a wall, the folds of a coat) scaled around the picture's overall shape. 100 is the depth as the model makes it, higher pops the detail out more"),
+    DI("3d", "depth_global", depth_global, DEPTH_SCALE_MIN, DEPTH_SCALE_MAX, DEPTH_SCALE_DEFAULT, "native: Depth shape, percent; the picture's overall depth (near at the bottom, far at the top) scaled around the screen plane. 100 is as the model makes it, lower flattens the whole toward the screen while depth_scale keeps the detail"),
+    DI("3d", "motion_reset", motion_reset, MOTION_RESET_MIN, MOTION_RESET_MAX, MOTION_RESET_DEFAULT, "native: Motion reset, percent the picture's brightness at a spot may change by between two depth maps before the depth there stops being averaged with the old ones, so a moving edge leaves no trail of its old depth; 0 never (the smoothing as it always was), about 10 for fast scenes"),
     // screen
     DI("screen", "distance_cm", screen_distance_cm, 20, 800, 300, "Screen tab: distance in centimetres"),
     DI("screen", "height_cm", screen_height_cm, -200, 200, 0, "Screen tab: height of the centre above eye level, centimetres"),
@@ -286,6 +321,11 @@ void settings_clamp(Settings* s) {
     }
     // a bitrate is 0 (follow resolution and rate) or 500..MLXR_BITRATE_MAX_KBPS kbps
     if (s->bitrate_kbps > 0 && s->bitrate_kbps < 500) s->bitrate_kbps = 500;
+    // the same for each path's start bitrate (native, lane wave4b-abr)
+    int* const pathRates[] = { &s->bitrate_wifi, &s->bitrate_adapter, &s->bitrate_wired, &s->bitrate_usb };
+    for (int i = 0; i < 4; i++) {
+        if (*pathRates[i] > 0 && *pathRates[i] < 500) *pathRates[i] = 500;
+    }
     // glow level moves in five percent steps
     s->glow_level = (s->glow_level + 2) / 5 * 5;
     for (int r = 0; r < ROOM_COUNT; r++) {
@@ -836,6 +876,13 @@ int settings_bitrate_kbps(const Settings* s) {
     return settings_default_bitrate_kbps(w, h, settings_fps_value(s));
 }
 
+void settings_abr_overrides(const Settings* s, int out[4]) {
+    out[0] = s->bitrate_wifi;
+    out[1] = s->bitrate_adapter;
+    out[2] = s->bitrate_wired;
+    out[3] = s->bitrate_usb;
+}
+
 int settings_environment_id(const Settings* s) {
     int e = ENV_IDS[clamp_int(s->environment, 0, 5)];
     if (e == ENV_ID_NONE) return s->passthrough ? ENV_ID_PASSTHROUGH : ENV_ID_VOID;
@@ -930,6 +977,49 @@ void settings_reset_picture(Settings* s) {
     s->picture_contrast = PICTURE_CONTRAST_DEFAULT;
     s->picture_gamma = PICTURE_GAMMA_DEFAULT;
     s->picture_saturation = PICTURE_SATURATION_DEFAULT;
+    // The two rows under the grade on the same tab. The void colour has no row.
+    s->bg_dim = BG_DIM_DEFAULT;
+    s->glow_feather = GLOW_FEATHER_OFF;
+}
+
+int settings_parse_hex_rgb(const char* text, float rgb[3]) {
+    if (!text) return 0;
+    while (*text == ' ' || *text == '\t') text++;
+    if (*text == '#') text++;
+    char digits[8];
+    size_t n = 0;
+    while (text[n] && n < 7 && isxdigit((unsigned char)text[n])) {
+        digits[n] = text[n];
+        n++;
+    }
+    digits[n] = 0;
+    const char* rest = text + n;
+    while (*rest == ' ' || *rest == '\t' || *rest == '\r' || *rest == '\n') rest++;
+    if (*rest || (n != 3 && n != 6)) return 0;
+    int v[3];
+    for (int i = 0; i < 3; i++) {
+        char pair[3];
+        if (n == 3) {
+            pair[0] = pair[1] = digits[i];
+        } else {
+            pair[0] = digits[i * 2];
+            pair[1] = digits[i * 2 + 1];
+        }
+        pair[2] = 0;
+        v[i] = (int)strtol(pair, NULL, 16);
+    }
+    for (int i = 0; i < 3; i++) rgb[i] = (float)v[i] / 255.0f;
+    return 1;
+}
+
+int settings_void_rgb(const Settings* s, float rgb[3]) {
+    float out[3];
+    if (settings_parse_hex_rgb(s->void_color, out)) {
+        memcpy(rgb, out, sizeof(out));
+        return 1;
+    }
+    rgb[0] = rgb[1] = rgb[2] = 0.0f;
+    return 0;
 }
 
 int* settings_picture_ptr(Settings* s, int row) {

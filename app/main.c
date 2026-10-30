@@ -10,7 +10,9 @@
 //                      session and then the process, instead of showing the VR app list.
 //                      Exit code 0 is normal; otherwise the last stderr line starting
 //                      "MLXR_ERROR: " is the message (codes below, EXIT_*). 11 = left with
-//                      the disconnect chord (host session kept): not an error.
+//                      the disconnect chord (host session kept): not an error. 12 = the Host
+//                      sheet's Switch to PC VR (host session kept): the launcher hands the
+//                      headset to Valve's Steam Link stream.
 //   --packet-size N    video packet size (bytes, local network), 0/absent = 1392
 //   --audio stereo|51|71   the audio channel layout to ask the host for
 // Native (lane artemis-settings): the flat launcher's Artemis-style Settings page adds
@@ -74,7 +76,9 @@
 #include "../xr/mlxr_log.h"
 #include "../xr/xr_pad_bridge.h"
 #include "../xr/xr_renderer.h"
+#include "../xr/xr_native.h"
 #include "../xr/xr_session.h"
+#include "../xr/xr_stream_prefs.h"
 #include "launcher.h"
 #include "panels.h"
 #include "settings.h"
@@ -108,7 +112,8 @@ enum {
     EXIT_NO_APP = 5,
     EXIT_LAUNCH_FAILED = 6,  // the host refused the launch/resume, or the stream would not connect
     EXIT_STREAM_ENDED = 10,  // the stream ended by itself (the host closed it, or the network dropped)
-    EXIT_DISCONNECTED = 11   // left with the disconnect chord: not an error, the host's session still runs
+    EXIT_DISCONNECTED = 11,  // left with the disconnect chord: not an error, the host's session still runs
+    EXIT_PCVR = 12           // the Host sheet's Switch to PC VR: like 11, and the launcher hands the headset to Steam Link
 };
 static atomic_int g_exitCode;
 static char g_exitMsg[256];
@@ -500,6 +505,17 @@ static void uiHook(void* user, const XrUiEvents* ev, XrUiLauncher* show) {
         MLOG_I("disconnect confirmed in %s: leaving the stream, the host's session stays", launcher_state_name(g_launch.state));
         launcher_disconnect_bar(&g_launch);
         poke = 1;
+    }
+    if (ev->pcvrConfirmed) {
+        // The Host sheet's Switch to PC VR: only the flat launcher can run Steam's side of it (it
+        // reads the code), so without --exit-to-caller the stream carries on
+        if (g_args.exitToCaller) {
+            MLOG_I("PC VR confirmed in %s: leaving the stream for Steam Link, the host's session stays", launcher_state_name(g_launch.state));
+            launcher_pcvr(&g_launch);
+            poke = 1;
+        } else {
+            xr_app_notice(ui_str(UIS_NATIVE_PCVR_NEEDS_LAUNCHER));
+        }
     }
     if (ev->listKind != 0) {
         launcher_press(&g_launch, ev->listKind, ev->listA, ev->listB);
@@ -1031,6 +1047,8 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     mlxr_fill_stream_config(&g_job.cfg, &lp);
     int bitrate = g_args.bitrate > 0 ? g_args.bitrate : settings_default_bitrate_kbps(w, h, fps);
     if (!g_args.bitrate && g_settings.bitrate_kbps > 0) bitrate = settings_bitrate_kbps(&g_settings);
+    // Native (lane wave4b-abr): the bitrate for the network path this stream goes over, if that path has its own
+    bitrate = xrStreamBitrate(&g_settings, mlxr_net_kind_for_address(n->address[pc]), bitrate);
     g_job.cfg.bitrate = bitrate;
     g_job.cfg.packetSize = 1392;
     g_job.cfg.streamingRemotely = STREAM_CFG_AUTO;
@@ -1404,7 +1422,7 @@ static void* worker(void* arg) {
             pthread_mutex_unlock(&g_lock);
             // The bar's exit (the host's session is ended) or the disconnect chord (it stays, so the
             // caller shows the app as running, as Moonlight does after a disconnect)
-            if (g_args.exitToCaller) endForCaller(c.quitHost ? EXIT_OK : EXIT_DISCONNECTED, NULL);
+            if (g_args.exitToCaller) endForCaller(c.pcvr ? EXIT_PCVR : c.quitHost ? EXIT_OK : EXIT_DISCONNECTED, NULL);
             break;
         case LCMD_WAKE:
             if (c.pc >= 0 && c.pc < (int)n->hosts.n) {
@@ -1591,6 +1609,7 @@ int main(int argc, char** argv) {
     settings_defaults(&g_settings);
     SettingsLoadInfo info;
     int lr = settings_load(&g_settings, NULL, &info);
+    xrStreamPrefsSetRfiIdrMs(g_settings.rfi_idr_ms); // Native (lane wave1-burst): the stream session reads it at its start
     openLog();
     char cfgPath[512];
     settings_default_path(cfgPath, sizeof(cfgPath));

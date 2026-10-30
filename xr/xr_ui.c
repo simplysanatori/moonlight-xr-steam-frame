@@ -10,6 +10,7 @@
 #include "xr_renderer.h"
 #include "xr_native.h"
 #include "xr_keyboard.h"
+#include "xr_depth.h"
 
 // Whether the panels hang against the stand in screen rather than the
 // picture, which they do whenever a room is up. The picker, the settings
@@ -596,7 +597,7 @@ int cogTabRowCount(int face) {
         return COG_ROOM_ROW_COUNT;
     }
     if (face == COG_TAB_PICTURE) {
-        return PICTURE_VALUES;
+        return PICTURE_TAB_ROWS;
     }
     if (face == COG_TAB_ABOUT) {
         return 0;
@@ -634,7 +635,8 @@ int cogRowCells(int face, int row) {
         return COG_ROOM_SWITCH_CELLS;
     }
     if (face == COG_TAB_3D) {
-        return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS : COG_STEREO_CELLS;
+        return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS
+                : row == COG_ROW3D_SOURCE ? COG_SOURCE_CELLS : COG_STEREO_CELLS;
     }
     return cogOptionCells(row);
 }
@@ -659,9 +661,11 @@ int cogRowLive(XrCtx* ctx, int face, int row) {
     if (face == COG_TAB_DISPLAY && row == COG_OPTION_HEAD_AIM) {
         return headAimCanAct(ctx);
     }
-    // With stereo off there is nothing for any 3D row to move or switch
+    // With stereo off there is nothing for any 3D row to move or switch.
+    // Native (PLAN 4.3): but the 3D source row, which can bring it; and a
+    // pair the PC drew has no depth for the preset and depth rows to set.
     if (face == COG_TAB_3D) {
-        return ctx->stereoMode != DEPTH_MODE_OFF;
+        return cog3dRowLive(ctx->stereoMode != DEPTH_MODE_OFF, ctx->stereoSource, row);
     }
     // A room built around its picture keeps it at the whole of its anchor
     if (face == COG_FACE_ROOM && row == COG_ROOM_ROW_SIZE) {
@@ -712,6 +716,12 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
     else if (face == COG_TAB_PICTURE) {
         if (slider >= 0 && slider < PICTURE_VALUES) {
             t = lanePlace(ctx->pictureUnits[slider], pictureMin(slider), pictureMax(slider));
+        }
+        else if (slider == PICTURE_ROW_BACKGROUND) {
+            t = lanePlace(ctx->bgDim, BG_DIM_MIN, BG_DIM_MAX);
+        }
+        else if (slider == PICTURE_ROW_GLOW_EDGE) {
+            t = lanePlace(ctx->glowFeather, GLOW_FEATHER_OFF, GLOW_FEATHER_COUNT - 1);
         }
     }
     else if (slider == COG_SLIDER_DISTANCE) {
@@ -788,6 +798,13 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
         // picture changes under the thumb.
         if (slider >= 0 && slider < PICTURE_VALUES) {
             pictureSet(ctx, slider, laneUnits(t, pictureMin(slider), pictureMax(slider)));
+        }
+        else if (slider == PICTURE_ROW_BACKGROUND) {
+            // Five percent steps, the ones the step buttons move by
+            ctx->bgDim = bgDimClamp(laneUnits(t, BG_DIM_MIN, BG_DIM_MAX));
+        }
+        else if (slider == PICTURE_ROW_GLOW_EDGE) {
+            ctx->glowFeather = laneUnits(t, GLOW_FEATHER_OFF, GLOW_FEATHER_COUNT - 1);
         }
         return;
     }
@@ -1160,6 +1177,9 @@ int cogCellInForce(XrCtx* ctx, int face, int row) {
     if (face == COG_TAB_3D && row == COG_ROW3D_SWITCH) {
         return ctx->stereoLive ? 1 : 0;
     }
+    if (face == COG_TAB_3D && row == COG_ROW3D_SOURCE) {
+        return ctx->stereoSource;
+    }
     return -1;
 }
 
@@ -1173,6 +1193,15 @@ static void cogApply3dCell(XrCtx* ctx, int row, int cell, float* out) {
     };
     if (row == COG_ROW3D_SWITCH) {
         setStereoLive(ctx, cell != 0, "the 3D tab");
+        return;
+    }
+    // Native (PLAN 4.3): where the 3D comes from, at once, and stored
+    if (row == COG_ROW3D_SOURCE) {
+        if (cell >= 0 && cell < COG_SOURCE_CELLS) {
+            xrDepthSetSource(ctx, cell);
+            out[IN_SETTING] = (float)SETTING_STEREO_SOURCE;
+            out[IN_SETTING_VALUE] = (float)cell;
+        }
         return;
     }
     if (row != COG_ROW3D_PRESET || cell < 0 || cell >= COG_PRESET_CELLS) {
@@ -1344,6 +1373,16 @@ void cogDragEnded(XrCtx* ctx, float* out) {
         out[IN_SETTING_VALUE] = (float)ctx->pictureUnits[slider];
         LOGEV("picture %s %d from the panel, grade %s", PICTURE_NAMES[slider],
               ctx->pictureUnits[slider], ctx->gradeOn ? "on" : "off");
+    }
+    else if (face == COG_TAB_PICTURE && slider == PICTURE_ROW_BACKGROUND) {
+        out[IN_SETTING] = (float)SETTING_BG_DIM;
+        out[IN_SETTING_VALUE] = (float)ctx->bgDim;
+        LOGEV("background dim %d%% from the panel", ctx->bgDim);
+    }
+    else if (face == COG_TAB_PICTURE && slider == PICTURE_ROW_GLOW_EDGE) {
+        out[IN_SETTING] = (float)SETTING_GLOW_FEATHER;
+        out[IN_SETTING_VALUE] = (float)ctx->glowFeather;
+        LOGEV("glow edge %d from the panel", ctx->glowFeather);
     }
 }
 
@@ -1559,6 +1598,9 @@ void pictureReset(XrCtx* ctx) {
     for (int row = 0; row < PICTURE_VALUES; row++) {
         pictureSet(ctx, row, pictureDefault(row));
     }
+    // Native (lane wave3-visual): and the tab's two rows under the grade
+    ctx->bgDim = BG_DIM_DEFAULT;
+    ctx->glowFeather = GLOW_FEATHER_OFF;
     LOGEV("picture reset from the panel, grade %s", ctx->gradeOn ? "on" : "off");
 }
 

@@ -44,6 +44,8 @@ typedef struct HwVideoStats {
 // one IDR request per MLXR_VIDEO_IDR_MIN_MS (100 ms by default, 0: no limit).
 // Each request makes the host send a frame at once, so an unlimited request
 // per error fed a storm of frames that all failed again.
+// Native (lane wave1-burst): the session passes a requestIdr that holds asks to one per [stream]
+// rfi_idr_ms (stream/rfi_watch.h, MlxrIdrCap); DR_NEED_IDR goes through common-c and is not held.
 HwVideo* hw_video_open(mlxr_codec codec, uint32_t width, uint32_t height, void (*requestIdr)(void));
 // Stream receive thread: one access unit in pieces. Returns 0, or -1 when the
 // session should answer DR_NEED_IDR (a decoder error and an IDR request is

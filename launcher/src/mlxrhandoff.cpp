@@ -22,6 +22,8 @@
 #include <QFileInfo>
 #include <QJSValue>
 #include <QPlatformSurfaceEvent>
+#include <QPointer>
+#include <memory>
 #include <QProcess>
 #include <QDesktopServices>
 #include <QStandardPaths>
@@ -539,10 +541,136 @@ static bool inGameMode()
     return qEnvironmentVariable("XDG_CURRENT_DESKTOP") == "gamescope";
 }
 
+// ---- Moonlight XR Native (lane wave4-pcvr): PC VR, Valve's Steam Link stream --------------------
+// steam_cef.py is the same script the installer and tools/frame-deploy.sh drive Steam with; PLAN 4.1
+// (the hand-off), 4.2 (the picker's lists, MlxrPrefs) and 4.9 (the preflight, MlxrPrefs::pcvrProbe).
+
+static QPointer<QProcess> s_pcvrProcess;
+static QElapsedTimer s_pcvrSince;
+static bool s_pcvrStarted = false;
+
+QString steamCefPath()
+{
+    const QString p = qEnvironmentVariable("MLXR_STEAM_CEF");
+    return p.isEmpty() ? QCoreApplication::applicationDirPath() + "/steam_cef.py" : p;
+}
+
+QProcess* runSteamCef(const QStringList& args, int timeoutMs, QObject* context,
+                      const std::function<void(int, const QByteArray&, const QString&)>& done)
+{
+    QObject* owner = context ? context : static_cast<QObject*>(qApp);
+    const QString cef = steamCefPath();
+    if (!QFileInfo::exists(cef)) {
+        const QString why = QObject::tr("steam_cef.py was not found (%1)").arg(cef);
+        QTimer::singleShot(0, owner, [done, why]() { done(-1, QByteArray(), why); });
+        return nullptr;
+    }
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.remove("LD_LIBRARY_PATH");   // the Steam launch options' libraries are not python's
+    QProcess* p = new QProcess(owner);
+    p->setProcessEnvironment(env);
+    auto finished = std::make_shared<bool>(false);   // done() runs once: finished, failed to start or timed out
+    auto timedOut = std::make_shared<bool>(false);
+    QTimer* timer = new QTimer(p);
+    timer->setSingleShot(true);
+    QObject::connect(timer, &QTimer::timeout, p, [p, timedOut]() {
+        *timedOut = true;
+        p->kill();
+    });
+    QObject::connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), p,
+                     [p, done, finished, timedOut](int code, QProcess::ExitStatus status) {
+        if (*finished) {
+            return;
+        }
+        *finished = true;
+        const QByteArray out = p->readAllStandardOutput();
+        const QString err = QString::fromUtf8(p->readAllStandardError()).trimmed();
+        done(*timedOut ? -2 : status == QProcess::NormalExit ? code : -1, out, err);
+        p->deleteLater();
+    });
+    QObject::connect(p, &QProcess::errorOccurred, p, [p, done, finished](QProcess::ProcessError e) {
+        if (e != QProcess::FailedToStart || *finished) {
+            return;
+        }
+        *finished = true;
+        done(-1, QByteArray(), QObject::tr("python3 could not be started: %1").arg(p->errorString()));
+        p->deleteLater();
+    });
+    p->start("python3", QStringList { "-I", cef } + args);
+    timer->start(timeoutMs);
+    return p;
+}
+
+QStringList pcvrArguments(const QString& app, const QString& client)
+{
+    QStringList a { "--pcvr" };
+    if (!app.trimmed().isEmpty()) {
+        a << "--app" << app.trimmed();
+    }
+    if (!client.trimmed().isEmpty()) {
+        a << "--client" << client.trimmed();
+    }
+    return a;
+}
+
+void startPcvr()
+{
+    QSettings s;
+    const QString app = s.value("mlxr/pcvr_app").toString();
+    const QString client = s.value("mlxr/pcvr_client").toString();
+    const QStringList args = pcvrArguments(app, client);
+    s_pcvrStarted = true;
+    s_pcvrSince.start();
+    const QString line = "MLXR_PCVR: python3 -I steam_cef.py " + args.join(' ');
+    if (!qEnvironmentVariable("MLXR_LAUNCHER_DRYRUN").isEmpty()) {
+        QTextStream(stdout) << line << Qt::endl;
+        qInfo().noquote() << line;
+        const QString outPath = qEnvironmentVariable("MLXR_LAUNCHER_DRYRUN_OUT");
+        if (!outPath.isEmpty()) {
+            QFile f(outPath);
+            if (f.open(QIODevice::Append | QIODevice::Text)) {
+                f.write((line + "\n").toUtf8());
+            }
+        }
+        return;
+    }
+    qInfo().noquote() << "Handing the headset to PC VR (Steam Link):" << args.join(' ')
+                      << (app.isEmpty() ? "(no game chosen: Steam's library opens)" : "");
+    s_pcvrProcess = runSteamCef(args, 40000, qApp, [](int code, const QByteArray& out, const QString& err) {
+        if (code == 0) {
+            qInfo().noquote() << "Asked Steam for PC VR: done" << QString::fromUtf8(out).trimmed();
+        }
+        else {
+            qWarning().noquote() << QString("Asked Steam for PC VR: failed (exit %1): %2 %3; run steam_cef.py --probe for the "
+                                            "Steam port").arg(code).arg(err.left(300), QString::fromUtf8(out).left(200));
+        }
+    });
+}
+
+bool pcvrHeldOff()
+{
+    return s_pcvrStarted && s_pcvrSince.isValid() && s_pcvrSince.elapsed() < 20000;
+}
+
+void waitForPcvr(int ms)
+{
+    if (!s_pcvrProcess || s_pcvrProcess->state() == QProcess::NotRunning) {
+        return;
+    }
+    QEventLoop loop;
+    QObject::connect(s_pcvrProcess.data(), QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), &loop, &QEventLoop::quit);
+    QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+    loop.exec();
+}
+
 // Moonlight XR Native (lane launcher-return): one request, logged with `when`; also used by the
 // flat window watch below once the window has drawn again
 static void askSteamForFlatScreen(const QString& when)
 {
+    if (pcvrHeldOff()) {
+        qInfo().noquote() << "Not asking Steam for the flat screen" << when + ": the headset was handed to PC VR";
+        return;
+    }
     const QString appId = qEnvironmentVariable("SteamAppId");
     const QString cef = QCoreApplication::applicationDirPath() + "/steam_cef.py";
     if (!inGameMode() || appId.isEmpty() || !QFileInfo::exists(cef)) {
@@ -889,6 +1017,7 @@ static void clipboardAfterStream()
 Result run(const Plan& plan, const std::function<void()>& onStarted, const std::function<void()>& onStreaming)
 {
     Result r;
+    s_pcvrStarted = false;   // a new hand-off: the flat screen is asked for again after it
     // Native (lane refresh): before the VR client's session starts, so SteamVR runs it at that rate
     if (plan.steamVrRefreshRate > 0) {
         setSteamVrRefreshRate(plan.steamVrRefreshRate);
@@ -921,6 +1050,11 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
             const QStringList p = dry.split(':');
             r.exitCode = p.value(1, "1").toInt();
             r.message = p.mid(2).join(':');
+            if (r.exitCode == kExitPcvr) {
+                r.disconnected = r.pcvr = true;
+                r.message.clear();
+                startPcvr();
+            }
         }
         return r;
     }
@@ -1007,6 +1141,9 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
         if (r.exitCode == 11) {
             r.disconnected = true; // not an error: no dialog, the app list shows the app as running
         }
+        else if (r.exitCode == kExitPcvr) {
+            r.disconnected = r.pcvr = true; // the same, and Steam is asked to stream the PC below
+        }
         else if (r.exitCode != 0) {
             r.message = lastErrorLine(tail);
             if (r.message.isEmpty()) {
@@ -1015,7 +1152,12 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
         }
     }
     log.write(QString("\n== VR client exited: code %1%2\n").arg(r.exitCode).arg(r.crashed ? " (crashed)" : "").toUtf8());
-    reopenFlatScreen();
+    if (r.pcvr) {
+        startPcvr();   // not the flat screen: the headset goes to Valve's stream
+    }
+    else {
+        reopenFlatScreen();
+    }
     qInfo().noquote() << "The VR client exited with" << r.exitCode << r.message;
     return r;
 }
@@ -1235,8 +1377,52 @@ static int selfTestValue(const QString& spec)
     return 0;
 }
 
+// "pcvr:probe", "pcvr:devices", "pcvr:apps[:CLIENT]", "pcvr:go" for tests/launcher: no UI
+static int selfTestPcvr(const QString& spec)
+{
+    const QStringList p = spec.split(':');
+    const QString what = p.value(1);
+    if (what == "go") {
+        startPcvr();
+        waitForPcvr(20000);
+        return 0;
+    }
+    QStringList args;
+    if (what == "probe") {
+        args << "--probe";
+    }
+    else if (what == "devices") {
+        args << "--devices" << "--seconds" << "1";
+    }
+    else if (what == "apps") {
+        args << "--apps";
+        if (!p.value(2).isEmpty()) {
+            args << "--client" << p.value(2);
+        }
+    }
+    else {
+        QTextStream(stderr) << "SELFTEST: pcvr:probe|devices|apps[:CLIENT]|go" << Qt::endl;
+        return 20;
+    }
+    int rc = -3;
+    QByteArray out;
+    QString err;
+    QEventLoop loop;
+    runSteamCef(args, 30000, qApp, [&](int c, const QByteArray& o, const QString& e) { rc = c; out = o; err = e; loop.quit(); });
+    loop.exec();
+    QTextStream(stdout) << "SELFTEST: pcvr " << what << " rc=" << rc << " " << QString::fromUtf8(out).trimmed() << " "
+                        << err.simplified().left(300) << Qt::endl;
+    return 0;
+}
+
 int selfTest(const QString& spec)
 {
+    if (spec.startsWith("pcvr:")) {
+        const int rc = selfTestPcvr(spec);
+        fflush(stdout);
+        fflush(stderr);
+        _exit(rc);
+    }
     if (spec == "scale" || spec.startsWith("bitrate:") || spec.startsWith("openurl:")) {
         const int rc = selfTestValue(spec);
         fflush(stdout);
@@ -1267,6 +1453,7 @@ int selfTest(const QString& spec)
     }
     QTextStream(stdout) << "SELFTEST: started=" << (started.isEmpty() ? "no" : "yes") << " finished="
                         << (finished ? "yes" : "no") << " error=" << (err.isEmpty() ? "none" : err) << Qt::endl;
+    waitForPcvr(20000);   // the PC VR hand-off (exit code 12) asked Steam from run(); let it finish before _exit
     // Leave without static destructors: a test hook, and some library thread (D-Bus) can hold exit up
     const int code = err.isEmpty() ? 0 : 1;
     fflush(stdout);
@@ -1279,6 +1466,12 @@ int selfTest(const QString& spec)
 
 void installTestHooks(QQmlApplicationEngine& engine)
 {
+    // Moonlight XR Native (lane wave4-pcvr, PLAN 4.9): in Game Mode, does Steam's debugging port answer?
+    // The PC VR hand-off and the flat screen's return depend on it; the result is logged and, on the
+    // Settings page, shown with a hint. MLXR_PCVR_PREFLIGHT=1 asks anywhere (tests).
+    if ((inGameMode() && enabled()) || !qEnvironmentVariable("MLXR_PCVR_PREFLIGHT").isEmpty()) {
+        MlxrPrefs::get()->pcvrProbe();
+    }
     QObject* root = engine.rootObjects().value(0);
     if (!root) {
         return;

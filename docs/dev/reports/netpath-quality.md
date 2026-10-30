@@ -100,3 +100,30 @@ server on 127.0.0.2 (adapter), with no history, a lossy Wi-Fi, a lossy adapter a
 - Jitter is the cadence figure (arrival interval spread), not the probe jitter. Only the probe jitter is in
   the score; the stored jitter is for the log.
 - The loss counter comes from common-c's "Network dropped N frames" messages, as the stats line does.
+
+## A start bitrate for each path (lane wave4b-abr, PLAN 4b.8 "ABR-lite")
+
+Apollo and Sunshine cannot change the bitrate of a running stream, so the only lever is the bitrate at the start,
+and by then the path is known (Automatic has decided). Four settings, `[stream] bitrate_wifi`, `bitrate_adapter`,
+`bitrate_wired`, `bitrate_usb` (kbps, 0 = the launcher's bitrate, else 500..500000), each replace the launcher's
+bitrate for a stream that goes over that path.
+
+- Decision: `xr/core/xr_abr.c`, `mlxr_abr_pick(kind, launcherKbps, overrides[4])`. A kind outside 0..3 or an override
+  of 0 gives the launcher's figure; an override and a launcher figure above 0 are held to 500 kbps .. 500 Mbps.
+  Test: `tests/xrcore/test_abr.c`.
+- Path kind: `mlxr_net_bitrate_kind(path, link)` (`backend/netpath.c`). The home path is Wi-Fi unless the interface it
+  went through is not a Wi-Fi one (the test behind the "Wired network" description), then wired. The adapter and the
+  cable are their own kinds. `mlxr_net_select` notes the kind for the chosen address (last 8 addresses), and
+  `mlxr_net_kind_for_address()` finds it at stream start, when the plan is gone. A forced adapter that fell back to
+  Wi-Fi is Wi-Fi: the path that carries the stream decides, not the setting. No choice made (a failed probe, the
+  sequential fallback) gives -1 and the launcher's bitrate.
+- Applying: `xrStreamBitrate(settings, kind, launcherKbps)` (`xr/xr_prefs.c`) logs
+  `bitrate for <path>: N kbps (override|launcher)` and returns the bitrate. The one call is in `app/main.c` where
+  `g_job.cfg.bitrate` is set (see the lane report for the line).
+- Shown: `stream_start` keeps the bitrate it was given; the HUD style's rate line reads "54 of 98 Mb/s" (arriving of
+  started with), the full stats' stream line begins "bitrate set N kbps", and the perf CSV's bitrate column follows it.
+- The flat launcher mirrors the four keys as stepped rows under Network connection ("Same as above" at 0). The launcher
+  needs no new argument: the client reads config.ini when the stream starts.
+- Not done: raising or lowering the bitrate while a stream runs (not possible on the host), and learning a good
+  bitrate from the history. The history already penalises a lossy path in Automatic's score; a lossy path now also
+  has a knob.

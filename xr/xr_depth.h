@@ -75,6 +75,24 @@ const char* xrDepthModelPath(XrCtx* ctx);
 // for a picture this wide: double with a stereo mode, as upstream's chain
 int xrDepthChainWidth(XrCtx* ctx, int pictureWidth);
 
+// Native (PLAN 4.3): the 3D tab's 3D source row (STEREO_SOURCE_*), live.
+// SBS and Top-bottom make the mode DEPTH_MODE_SBS (no model runs), Depth
+// goes back to what depth_source gave (off if the model gave up). Any change
+// switches the 3D on, as a preset does. 1 when something changed.
+int xrDepthSetSource(XrCtx* ctx, int source);
+// The picture one eye sees from a decoded frame this size: half the frame
+// for a full size pair (ctx->sbsFull: 3840x1080 side by side is 1920x1080),
+// else the frame (a half size pair is stretched back to the frame's shape)
+void xrDepthPictureSize(XrCtx* ctx, int frameW, int frameH, int* w, int* h);
+// How far the convergence track moves the left eye's half sideways, as a
+// fraction of its width (the right eye's the other way): 0 at 0.5, up to
+// SBS_SHIFT_MAX at either end, positive (behind the screen) above 0.5
+float xrDepthSbsShift(float convergence);
+// Where a point on the picture (u, v, 0..1 from the top left) is on the PC's
+// desktop, as a fraction of it: with a host-rendered pair the desktop holds
+// both eyes, and the pointer goes to the left (or top) eye's half
+void xrDepthPointerUv(XrCtx* ctx, float* u, float* v);
+
 // Once a display frame on the frame loop, after the input pass and before a
 // picture is drawn. With ctx->frameCmd recording, a new map goes into the
 // next depth texture.

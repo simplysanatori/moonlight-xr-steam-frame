@@ -18,10 +18,23 @@
 //             LOADING -> READY, off stops the captures, back on resets and
 //             waits for a fresh map; FAILED (and a thread that never starts)
 //             stays flat with a toast and puts the switch away
+//   eyebalance  3D Eye Balance: the per eye disparity at several balances
+//   params    the 3D's tuning keys only config.ini and the launcher carry
+//             (edge_sharpness, motion_reset, depth_scale, depth_global,
+//             depth_threads), into the context, the engine and the passes
 //   budget    the layers of the busiest frames with the 3D on (two picture
 //             quads, one an eye, and the bar's 3D button), against SteamVR's 16
+//   sbs       PLAN 4.3, a pair the PC drew: no engine, no capture and no
+//             depth pass, each eye its own half, the convergence track's
+//             shift, off is the left half flat; the 3D source row switches to
+//             top-bottom, back to the model (which starts, captures and
+//             upsamples again) and back, stored as it goes; full size halves
+//             the picture, the pointer goes to the left half, the letterbox
+//             detector stands down; a session with the model off still gets
+//             SBS from the row
 // GPLv3.
 #define _GNU_SOURCE
+#include <math.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -52,6 +65,8 @@ struct MlxrDepthEngine {
     int newest, held;
     // what the tests read
     int resets, rateCalls, paramsCalls;
+    MlxrDepthParams params;   // as started, then as last set
+    int threads;
     long submits, contentBad, orderBad;
     uint64_t lastFrameId;
     int haveLast;
@@ -83,6 +98,8 @@ static MlxrDepthEngine* fStart(const MlxrDepthConfig* cfg) {
     e->fail = fakeFailNext;
     fakeFailNext = 0;
     e->rate = cfg->perSecond;
+    e->params = cfg->params;
+    e->threads = cfg->threads;
     e->held = -1;
     e->newest = -1;
     fakeLive = e;
@@ -115,7 +132,7 @@ static void fRate(MlxrDepthEngine* e, int r) {
     pthread_mutex_unlock(&e->lock);
 }
 static void fParams(MlxrDepthEngine* e, const MlxrDepthParams* p) {
-    (void)p;
+    e->params = *p;
     e->paramsCalls++;
 }
 static void fReset(MlxrDepthEngine* e) {
@@ -261,11 +278,15 @@ typedef struct {
     int eyes;
 } Pic;
 
+// The newest frame's draw: what the last picture's warp was asked for (the eyebalance and sbs groups read it)
+static XrDepthDraw lastDraw;
+
 static void drawPicture(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
     Pic* p = user;
     const MlxrVideo* v = &videos[p->frameId % VIDEOS].video;
     XrDepthDraw dd;
     xrDepthPicture(ctx, v, p->newFrame, p->frameId, nowNs(), &dd);
+    lastDraw = dd;
     xrVkImageTo(ctx, &target.img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     MlxrTarget t;
     memset(&t, 0, sizeof(t));
@@ -280,6 +301,7 @@ static void drawPicture(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
     xrVkImageTo(ctx, &target.img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     ctx->drawnEyes = dd.eyes;
     p->eyes = dd.eyes;
+    lastDraw = dd;
 }
 
 static void frames(XrCtx* ctx, int n, uint64_t* frameId, int inFlight) {
@@ -569,7 +591,180 @@ static void testSettings(void) {
     m6_ctx_free(ctx);
 }
 
+// ---- params --------------------------------------------------------------------------------
+
+// Native (lane wave5-depth, PLAN 5.x): the 3D's tuning keys that only config.ini
+// and the flat launcher carry, through the file into the context and on to
+// the engine and the passes; at their defaults everything is as it was
+static void testParams(void) {
+    char path[300];
+    snprintf(path, sizeof(path), "%s/config.ini", assets);
+    Settings s;
+    settings_defaults(&s);
+    // 5.1 Edge: 0 is upstream's upsample (sigma 0.25, no snap)
+    CHECK(s.edge_sharpness == EDGE_SHARPNESS_DEFAULT && EDGE_SHARPNESS_DEFAULT == 0);
+    XrCtx* ctx = m6_ctx(&g, &FAKE, assets, &s);
+    CHECK(ctx->upsampleSigmaR == 0.25f && ctx->depthSharp == 0.0f);
+    // 5.2: the hole fill is on (MLXR_HOLE_FILL=0 is the way back)
+    CHECK(ctx->holeFill == 1 || getenv("MLXR_HOLE_FILL") != NULL);
+    m6_ctx_free(ctx);
+    s.edge_sharpness = 60;
+    CHECK(settings_save(&s, path) == 0);
+    Settings back;
+    settings_defaults(&back);
+    CHECK(settings_load(&back, path, NULL) == 0);
+    CHECK(back.edge_sharpness == 60);
+    unlink(path);
+    ctx = m6_ctx(&g, &FAKE, assets, &back);
+    CHECK_NEAR(ctx->upsampleSigmaR, 0.16, 1e-6);
+    CHECK_NEAR(ctx->depthSharp, 0.6, 1e-6);
+    m6_ctx_free(ctx);
+    Settings bad;
+    settings_defaults(&bad);
+    settings_from_text(&bad, "[3d]\nedge_sharpness = 400\nmotion_reset = 99\n", NULL);
+    CHECK(bad.edge_sharpness == EDGE_SHARPNESS_MAX);
+    CHECK(bad.motion_reset == MOTION_RESET_MAX);
+
+    // 5.4 Motion reset: off by default, so the engine averages as upstream's
+    settings_defaults(&s);
+    CHECK(s.motion_reset == MOTION_RESET_DEFAULT && MOTION_RESET_DEFAULT == 0);
+    ctx = m6_ctx(&g, &FAKE, assets, &s);
+    uint64_t fid = 0;
+    waitReady(ctx, &fid);
+    CHECK(fakeLive != NULL && fakeLive->params.motion == 0.0f && fakeLive->params.tauMs == DEPTH_TAU_DEFAULT_MS);
+    m6_ctx_free(ctx);
+    // set: the engine starts with it, and a change reaches it at the next frame
+    s.motion_reset = 12;
+    ctx = m6_ctx(&g, &FAKE, assets, &s);
+    CHECK_NEAR(ctx->depthMotion, 0.12, 1e-6);
+    fid = 0;
+    waitReady(ctx, &fid);
+    CHECK(fakeLive != NULL);
+    if (fakeLive != NULL) {
+        CHECK_NEAR(fakeLive->params.motion, 0.12, 1e-6);
+        int calls = fakeLive->paramsCalls;
+        frames(ctx, 1, &fid, 0);
+        CHECK(fakeLive->paramsCalls == calls);   // nothing changed, nothing sent
+        ctx->depthMotion = 0.2f;
+        frames(ctx, 1, &fid, 0);
+        CHECK(fakeLive->paramsCalls == calls + 1);
+        CHECK_NEAR(fakeLive->params.motion, 0.2, 1e-6);
+        CHECK_NEAR(fakeLive->params.convergence, ctx->convergence, 1e-6);
+    }
+    m6_ctx_free(ctx);
+
+    // 5.6 Depth scale: 100 and 100, the map as made
+    settings_defaults(&s);
+    CHECK(s.depth_scale == DEPTH_SCALE_DEFAULT && s.depth_global == DEPTH_SCALE_DEFAULT && DEPTH_SCALE_DEFAULT == 100);
+    ctx = m6_ctx(&g, &FAKE, assets, &s);
+    fid = 0;
+    waitReady(ctx, &fid);
+    CHECK(fakeLive != NULL && fakeLive->params.global == 1.0f && fakeLive->params.local == 1.0f);
+    m6_ctx_free(ctx);
+    s.depth_scale = 150;
+    s.depth_global = 80;
+    CHECK(settings_save(&s, path) == 0);
+    settings_defaults(&back);
+    CHECK(settings_load(&back, path, NULL) == 0);
+    unlink(path);
+    CHECK(back.depth_scale == 150 && back.depth_global == 80);
+    ctx = m6_ctx(&g, &FAKE, assets, &back);
+    CHECK_NEAR(ctx->depthLocal, 1.5, 1e-6);
+    CHECK_NEAR(ctx->depthGlobal, 0.8, 1e-6);
+    fid = 0;
+    waitReady(ctx, &fid);
+    CHECK(fakeLive != NULL);
+    if (fakeLive != NULL) {
+        CHECK_NEAR(fakeLive->params.local, 1.5, 1e-6);
+        CHECK_NEAR(fakeLive->params.global, 0.8, 1e-6);
+        ctx->depthLocal = 0.5f;
+        frames(ctx, 1, &fid, 0);
+        CHECK_NEAR(fakeLive->params.local, 0.5, 1e-6);
+    }
+    m6_ctx_free(ctx);
+    settings_defaults(&bad);
+    settings_from_text(&bad, "[3d]\ndepth_scale = 900\ndepth_global = -4\n", NULL);
+    CHECK(bad.depth_scale == DEPTH_SCALE_MAX && bad.depth_global == DEPTH_SCALE_MIN);
+
+    // 5.5 the model's threads: 2 as upstream's CPU route, else as set (the
+    // variable, when the environment has it, wins over both)
+    if (getenv("MLXR_DEPTH_THREADS") == NULL) {
+        settings_defaults(&s);
+        CHECK(s.depth_threads == DEPTH_THREADS_DEFAULT && DEPTH_THREADS_DEFAULT == 2);
+        ctx = m6_ctx(&g, &FAKE, assets, &s);
+        fid = 0;
+        waitReady(ctx, &fid);
+        CHECK(fakeLive != NULL && fakeLive->threads == 2);
+        m6_ctx_free(ctx);
+        s.depth_threads = 3;
+        ctx = m6_ctx(&g, &FAKE, assets, &s);
+        fid = 0;
+        waitReady(ctx, &fid);
+        CHECK(fakeLive != NULL && fakeLive->threads == 3);
+        m6_ctx_free(ctx);
+    }
+    settings_defaults(&bad);
+    settings_from_text(&bad, "[debug]\ndepth_threads = 16\n", NULL);
+    CHECK(bad.depth_threads == DEPTH_THREADS_MAX);
+}
+
 // ---- states --------------------------------------------------------------------------------
+
+// 3D Eye Balance (native, lane wave3-visual): how the warp's per eye
+// disparity is shared. Even, the left eye is shifted by one separation and the
+// right by minus one. At a balance b the left is 1 + b separations and the
+// right is -(1 - b), so the two always differ by two separations, and the
+// window the searches reach over is sized for the larger.
+static void testEyeBalance(void) {
+    expectRed = expectRedFor;
+    XrCtx* ctx = newCtx(0, 1);
+    uint64_t fid = 0;
+    waitReady(ctx, &fid);
+    for (int i = 0; i < 60 && ctx->drawnEyes != 2; i++) {
+        frames(ctx, 1, &fid, 0);
+        usleep(5000);
+    }
+    CHECK(ctx->drawnEyes == 2);
+    CHECK(ctx->eyeBalance == 0.0f);
+    frames(ctx, 1, &fid, 0);
+    CHECK(lastDraw.eyes == 2);
+    float sep = ctx->separationCurrent;
+    CHECK(sep > 0.0f);
+    CHECK_NEAR(lastDraw.eye[0].disparity, sep, 1e-7);
+    CHECK_NEAR(lastDraw.eye[1].disparity, -sep, 1e-7);
+    float even = lastDraw.eye[0].dispTexels;
+    CHECK(even > 0.0f && lastDraw.eye[1].dispTexels == even);
+    static const float BALANCES[] = { 0.5f, -0.5f, 1.0f, -1.0f, 0.25f };
+    for (size_t i = 0; i < sizeof(BALANCES) / sizeof(BALANCES[0]); i++) {
+        float b = BALANCES[i];
+        ctx->eyeBalance = b;
+        frames(ctx, 1, &fid, 0);
+        CHECK(lastDraw.eyes == 2);
+        CHECK_NEAR(lastDraw.eye[0].disparity, sep * (1.0f + b), 1e-6);
+        CHECK_NEAR(lastDraw.eye[1].disparity, -sep * (1.0f - b), 1e-6);
+        // the total between the eyes is the same at every balance
+        CHECK_NEAR(lastDraw.eye[0].disparity - lastDraw.eye[1].disparity, 2.0 * sep, 1e-6);
+        // the larger share sizes the search window, the same for both eyes
+        CHECK_NEAR(lastDraw.eye[0].dispTexels, even * (1.0f + fabsf(b)), even * 1e-5);
+        CHECK(lastDraw.eye[1].dispTexels == lastDraw.eye[0].dispTexels);
+    }
+    // all the way: the other eye is the picture as streamed
+    ctx->eyeBalance = 1.0f;
+    frames(ctx, 1, &fid, 0);
+    CHECK_NEAR(lastDraw.eye[0].disparity, 2.0 * sep, 1e-6);
+    CHECK(lastDraw.eye[1].disparity == 0.0f || lastDraw.eye[1].disparity == -0.0f);
+    ctx->eyeBalance = -1.0f;
+    frames(ctx, 1, &fid, 0);
+    CHECK(lastDraw.eye[0].disparity == 0.0f);
+    CHECK_NEAR(lastDraw.eye[1].disparity, -2.0 * sep, 1e-6);
+    // and back to even
+    ctx->eyeBalance = 0.0f;
+    frames(ctx, 1, &fid, 0);
+    CHECK_NEAR(lastDraw.eye[0].disparity, sep, 1e-7);
+    CHECK_NEAR(lastDraw.eye[1].disparity, -sep, 1e-7);
+    CHECK(lastDraw.eye[0].dispTexels == even);
+    m6_ctx_free(ctx);
+}
 
 static void testStates(void) {
     int starts = fakeStarts;
@@ -657,6 +852,170 @@ static void testStates(void) {
 }
 
 
+
+// ---- sbs (PLAN 4.3) ------------------------------------------------------------------------
+
+static void sourceCell(XrCtx* ctx, int source, float* out) {
+    for (int i = 0; i < IN_SLOTS; i++) out[i] = -1.0f;
+    cogApplyCell(ctx, COG_TAB_3D, COG_ROW3D_SOURCE, source, out);
+}
+
+static void testSbs(void) {
+    int starts = fakeStarts;
+    Settings s;
+    settings_defaults(&s);
+    s.stereo_source = STEREO_SOURCE_SBS;
+    s.stereo = 1;
+    XrCtx* ctx = m6_ctx(&g, &FAKE, assets, &s);
+    CHECK(ctx->stereoMode == DEPTH_MODE_SBS && ctx->stereoLive == 1);
+    CHECK(ctx->depthModeSet == DEPTH_MODE_MODEL && ctx->stereoSource == STEREO_SOURCE_SBS && ctx->sbsFull == 0);
+    uint64_t fid = 0;
+    frames(ctx, 5, &fid, 0);
+    // No model, no capture, no depth pass: both eyes, each its own half
+    CHECK(fakeStarts == starts);
+    XrDepthInfo info;
+    xrDepthGetInfo(ctx, &info);
+    CHECK(info.engineState == -1 && info.captures == 0);
+    CHECK(info.upsampleImage == VK_NULL_HANDLE && info.offsetImage == VK_NULL_HANDLE);
+    CHECK(info.downscaleImage == VK_NULL_HANDLE);
+    CHECK(ctx->drawnEyes == 2);
+    CHECK(lastDraw.eyes == 2 && !lastDraw.upsampled && !lastDraw.occluded);
+    for (int e = 0; e < 2; e++) {
+        CHECK(lastDraw.eye[e].split == MLXR_SPLIT_SBS && lastDraw.eye[e].half == e && lastDraw.eye[e].eye == e);
+        CHECK(lastDraw.eye[e].depth == VK_NULL_HANDLE && lastDraw.eye[e].offsets == VK_NULL_HANDLE);
+        CHECK(lastDraw.eye[e].disparity == 0.0f && !lastDraw.eye[e].occlusion && !lastDraw.eye[e].showDepth);
+    }
+    // Convergence 0.5 is the pair as drawn; above it the halves move apart
+    CHECK_NEAR(lastDraw.eye[0].shift, 0.0, 1e-6);
+    CHECK_NEAR(xrDepthSbsShift(0.5f), 0.0, 1e-6);
+    CHECK_NEAR(xrDepthSbsShift(1.0f), SBS_SHIFT_MAX, 1e-6);
+    CHECK_NEAR(xrDepthSbsShift(0.0f), -SBS_SHIFT_MAX, 1e-6);
+    float out[IN_SLOTS];
+    cogApplySlider(ctx, COG_TAB_3D, COG_ROW3D_CONVERGENCE, cogRunU(0.75f));
+    frames(ctx, 1, &fid, 0);
+    CHECK(lastDraw.eye[0].shift > 0.0f && lastDraw.eye[1].shift < 0.0f);
+    CHECK_NEAR(lastDraw.eye[0].shift, xrDepthSbsShift(ctx->convergence), 1e-6);
+    CHECK_NEAR(lastDraw.eye[1].shift, -lastDraw.eye[0].shift, 1e-6);
+    // The rows: nothing for the preset and depth rows to set
+    CHECK(!cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_PRESET) && !cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_SEPARATION));
+    CHECK(cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_CONVERGENCE) && cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_SWITCH));
+    CHECK(cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_SOURCE));
+    CHECK(cogCellInForce(ctx, COG_TAB_3D, COG_ROW3D_SOURCE) == STEREO_SOURCE_SBS);
+    CHECK(cogRowCells(COG_TAB_3D, COG_ROW3D_SOURCE) == COG_SOURCE_CELLS && !cogRowIsTrack(COG_TAB_3D, COG_ROW3D_SOURCE));
+    CHECK(barStereoCell(ctx->stereoSource, 1) == BTN_CELL_STEREO_SBS && barStereoCell(ctx->stereoSource, 0) == BTN_CELL_STEREO);
+    // Off: the left eye's half alone, flat
+    setStereoLive(ctx, 0, "test");
+    frames(ctx, 1, &fid, 0);
+    CHECK(ctx->drawnEyes == 1 && lastDraw.eyes == 1);
+    CHECK(lastDraw.eye[0].split == MLXR_SPLIT_SBS && lastDraw.eye[0].half == 0 && lastDraw.eye[0].shift == 0.0f);
+    setStereoLive(ctx, 1, "test");
+    frames(ctx, 1, &fid, 0);
+    CHECK(ctx->drawnEyes == 2);
+    // The picture: a half size pair keeps the frame's shape, a full size one
+    // is one eye's half; the pointer goes to the left eye's half
+    int pw = 0, ph = 0;
+    xrDepthPictureSize(ctx, 1920, 1080, &pw, &ph);
+    CHECK(pw == 1920 && ph == 1080);
+    ctx->sbsFull = 1;
+    xrDepthPictureSize(ctx, 3840, 1080, &pw, &ph);
+    CHECK(pw == 1920 && ph == 1080);
+    float pu = 0.5f, pv = 0.4f;
+    xrDepthPointerUv(ctx, &pu, &pv);
+    CHECK_NEAR(pu, 0.25, 1e-6);
+    CHECK_NEAR(pv, 0.4, 1e-6);
+    // No letterbox detection on a pair
+    ctx->ambiBarDetect = 1;
+    CHECK(!ambiBarDetectOn(ctx));
+    char line[600];
+    xrDepthStatsLine(ctx, line, sizeof(line));
+    printf("stats line: %s\n", line);
+    CHECK(strstr(line, "host-rendered") != NULL && strstr(line, "side by side, full size") != NULL);
+    xrDepthOverlay(ctx, line, sizeof(line));
+    CHECK(strstr(line, "from the PC") != NULL);
+
+    // Top-bottom from the row: at once, and stored
+    sourceCell(ctx, STEREO_SOURCE_TB, out);
+    CHECK((int)out[IN_SETTING] == SETTING_STEREO_SOURCE && (int)out[IN_SETTING_VALUE] == STEREO_SOURCE_TB);
+    Settings back = s;
+    CHECK(xrStoreSetting(ctx, &back, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) == 1);
+    CHECK(back.stereo_source == STEREO_SOURCE_TB);
+    CHECK(ctx->stereoMode == DEPTH_MODE_SBS && ctx->stereoLive == 1);
+    frames(ctx, 1, &fid, 0);
+    CHECK(lastDraw.eyes == 2 && lastDraw.eye[0].split == MLXR_SPLIT_TB && lastDraw.eye[1].half == 1);
+    xrDepthPictureSize(ctx, 1920, 2160, &pw, &ph);
+    CHECK(pw == 1920 && ph == 1080);
+    pu = 0.5f;
+    pv = 0.4f;
+    xrDepthPointerUv(ctx, &pu, &pv);
+    CHECK_NEAR(pu, 0.5, 1e-6);
+    CHECK_NEAR(pv, 0.2, 1e-6);
+    CHECK(barStereoCell(ctx->stereoSource, 1) == BTN_CELL_STEREO_TB);
+
+    // Back to Depth: the model starts, captures and the depth passes come back
+    sourceCell(ctx, STEREO_SOURCE_DEPTH, out);
+    CHECK((int)out[IN_SETTING_VALUE] == STEREO_SOURCE_DEPTH);
+    CHECK(ctx->stereoMode == DEPTH_MODE_MODEL && ctx->stereoLive == 1 && ctx->stereoWaiting == 1);
+    CHECK(ambiBarDetectOn(ctx));
+    pu = 0.5f;
+    xrDepthPointerUv(ctx, &pu, &pv);
+    CHECK_NEAR(pu, 0.5, 1e-6);
+    xrDepthPictureSize(ctx, 3840, 1080, &pw, &ph);
+    CHECK(pw == 3840 && ph == 1080);
+    waitReady(ctx, &fid);
+    CHECK(fakeStarts == starts + 1);
+    for (int i = 0; i < 40 && ctx->drawnEyes != 2; i++) {
+        frames(ctx, 1, &fid, 0);
+        usleep(5000);
+    }
+    frames(ctx, 1, &fid, 0);
+    xrDepthGetInfo(ctx, &info);
+    CHECK(ctx->drawnEyes == 2 && info.captures > 0);
+    CHECK(lastDraw.upsampled == 1 && lastDraw.eye[0].split == MLXR_SPLIT_NONE && lastDraw.eye[1].split == MLXR_SPLIT_NONE);
+    CHECK(info.upsampleImage != VK_NULL_HANDLE);
+    CHECK(cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_PRESET) && cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_SEPARATION));
+
+    // SBS again: the captures stop and no depth pass is recorded; the model idles
+    sourceCell(ctx, STEREO_SOURCE_SBS, out);
+    frames(ctx, 2, &fid, 0);
+    xrDepthGetInfo(ctx, &info);
+    uint64_t caps = info.captures;
+    frames(ctx, 10, &fid, 0);
+    xrDepthGetInfo(ctx, &info);
+    CHECK(info.captures == caps);
+    CHECK(ctx->drawnEyes == 2 && !lastDraw.upsampled && lastDraw.eye[0].split == MLXR_SPLIT_SBS);
+    CHECK(fakeStarts == starts + 1 && fakeLive != NULL);
+    // and Depth again: as if switched back on, a reset and a capture at once
+    int resets = fakeLive != NULL ? fakeLive->resets : -1;
+    sourceCell(ctx, STEREO_SOURCE_DEPTH, out);
+    frames(ctx, 1, &fid, 0);
+    xrDepthGetInfo(ctx, &info);
+    CHECK(fakeLive != NULL && fakeLive->resets == resets + 1);
+    CHECK(info.captures == caps + 1);
+    // The same cell again changes nothing
+    CHECK(xrDepthSetSource(ctx, STEREO_SOURCE_DEPTH) == 0);
+    m6_ctx_free(ctx);
+
+    // The model off in settings: the 3D tab is dead but for the source row,
+    // which still brings the PC's pair, and the bar's button with it
+    s.depth_source = 2;
+    s.stereo_source = STEREO_SOURCE_DEPTH;
+    ctx = m6_ctx(&g, &FAKE, assets, &s);
+    CHECK(ctx->stereoMode == DEPTH_MODE_OFF && ctx->stereoLive == 0);
+    CHECK(cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_SOURCE) && !cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_SWITCH));
+    CHECK(!cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_CONVERGENCE));
+    ctx->stereoButtonReady = 0;
+    sourceCell(ctx, STEREO_SOURCE_SBS, out);
+    CHECK(ctx->stereoMode == DEPTH_MODE_SBS && ctx->stereoLive == 1 && ctx->stereoButtonReady == 1);
+    CHECK(xrDepthChainWidth(ctx, 1920) == 3840);
+    frames(ctx, 2, &fid, 0);
+    CHECK(ctx->drawnEyes == 2);
+    sourceCell(ctx, STEREO_SOURCE_DEPTH, out);
+    CHECK(ctx->stereoMode == DEPTH_MODE_OFF && ctx->stereoLive == 0 && ctx->stereoButtonReady == 0);
+    frames(ctx, 1, &fid, 0);
+    CHECK(ctx->drawnEyes == 1);
+    CHECK(fakeStarts == starts + 1);
+    m6_ctx_free(ctx);
+}
 
 // ---- budget --------------------------------------------------------------------------------
 
@@ -771,7 +1130,10 @@ int main(int argc, char** argv) {
     if (all || !strcmp(group, "governor")) testGovernor();
     if (all || !strcmp(group, "settings")) testSettings();
     if (all || !strcmp(group, "states")) testStates();
+    if (all || !strcmp(group, "eyebalance")) testEyeBalance();
     if (all || !strcmp(group, "budget")) testBudget();
+    if (all || !strcmp(group, "sbs")) testSbs();
+    if (all || !strcmp(group, "params")) testParams();
     vkDeviceWaitIdle(g.vk.device);
     for (int i = 0; i < VIDEOS; i++) m5_video_free(&tmp, &videos[i]);
     m5_image_free(&tmp, &target);

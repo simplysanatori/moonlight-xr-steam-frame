@@ -41,6 +41,23 @@
 #define DEPTH_MODE_SHIFTTEST 5
 // Real depth from a model, ZipDepth or MiDaS, run in Java on LiteRT
 #define DEPTH_MODE_MODEL 6
+// Native (PLAN 4.3): the host renders the stereo pair itself, side by side or
+// top and bottom in the one video frame. Each eye is given its half and none
+// of the depth passes run.
+#define DEPTH_MODE_SBS 7
+
+// Native (PLAN 4.3): where the 3D comes from, the [3d] stereo_source setting
+// and the 3D tab's 3D source row in this order: the depth model (or the test
+// pattern depth_source names), a side by side frame (left eye in the left
+// half), or a top and bottom one (left eye in the top half)
+#define STEREO_SOURCE_DEPTH 0
+#define STEREO_SOURCE_SBS 1
+#define STEREO_SOURCE_TB 2
+#define STEREO_SOURCE_COUNT 3
+// How far the convergence track moves each eye's half sideways at either
+// end, as a fraction of the eye's picture width; the middle is the pair as
+// the host drew it
+#define SBS_SHIFT_MAX 0.02f
 
 // The depth map is the size of the model input it is made from, which Java
 // picks per session from the model and the headset and hands to nativeInit:
@@ -63,6 +80,41 @@
 #define DEPTH_RATE_MAX 45
 #define DEPTH_RATE_DEFAULT 20
 #define DEPTH_RATE_GEN1 12
+
+// Native (lane wave5-depth, PLAN 5.1): the Edge setting, [3d] edge_sharpness,
+// 0..100. 0 is upstream's edges exactly (the upsample's colour match at sigma
+// 0.25 and no snap); higher tightens the colour match and snaps the depth to
+// the nearer side of a silhouette (depthEdgeParams in xr_depthmap.h)
+#define EDGE_SHARPNESS_MIN 0
+#define EDGE_SHARPNESS_MAX 100
+#define EDGE_SHARPNESS_DEFAULT 0
+
+// Native (lane wave5-depth, PLAN 5.4): [3d] motion_reset, percent of the
+// guide's luma a depth texel's colour may change by between two maps before
+// its average over time starts again there; 0, the default, never (the
+// average as upstream has it)
+#define MOTION_RESET_MIN 0
+#define MOTION_RESET_MAX 50
+#define MOTION_RESET_DEFAULT 0
+
+// Native (lane wave5-depth, PLAN 5.6): upstream's depth scale preference
+// (vrDepthScale, percent: the local detail's gain around the overall shape)
+// as [3d] depth_scale, and the overall shape's own gain toward the screen
+// plane, which upstream fixes at 100, as [3d] depth_global. Both 100, the
+// defaults, leave the map as the model made it (the remap is skipped)
+#define DEPTH_SCALE_MIN 0
+#define DEPTH_SCALE_MAX 200
+#define DEPTH_SCALE_DEFAULT 100
+
+// Native (lane wave5-depth, PLAN 5.5): [debug] depth_threads, the depth
+// model's XNNPACK threads counting the depth thread itself. 2 is upstream's
+// CPU route. 3 on the Frame (docs/dev/reports/depth.md): 33.4 maps a second
+// unlimited against 27 for 2, about 7 ms less a map (the report's summary
+// says up to 10 ms of latency), for another core; at the held 20 a second the
+// model took 37 ms against 38. MLXR_DEPTH_THREADS still wins.
+#define DEPTH_THREADS_MIN 1
+#define DEPTH_THREADS_MAX 4
+#define DEPTH_THREADS_DEFAULT 2
 
 // Enough for a dozen lines of stats without being big enough to matter
 #define OVERLAY_WIDTH 768
@@ -330,6 +382,11 @@
 // HEAD_AIM_ lanes below
 #define SETTING_HEAD_AIM_SENSITIVITY 22
 #define SETTING_HEAD_AIM_DEADZONE 23
+// Native (lane wave3-visual): the Picture tab's Background dim in whole
+// percent, and its Glow edge cell (GLOW_FEATHER_). Numbered clear of the ids
+// the neighbouring lanes add.
+#define SETTING_BG_DIM 40
+#define SETTING_GLOW_FEATHER 41
 // The Head locked row's three cells: Off 0, On 1 and Follow 2 (the screen
 // stays where it is until the head turns past the leash, then eases after the
 // gaze). SETTING_HEAD_LOCK takes the cell.
@@ -389,6 +446,44 @@
 #define PICTURE_GAMMA 2
 #define PICTURE_SATURATION 3
 #define PICTURE_VALUES 4
+// Native (lane wave3-visual): the Picture tab's two rows under the grade. They
+// are tracks like the grade's but belong to the surroundings rather than the
+// colours: Background, how far the room, the passthrough or the void is dimmed,
+// and Glow edge, whether the picture's edge is feathered into the glow. They
+// follow the four grade values in the tab, so the tab has PICTURE_TAB_ROWS.
+#define PICTURE_ROW_BACKGROUND 4
+#define PICTURE_ROW_GLOW_EDGE 5
+#define PICTURE_TAB_ROWS 6
+
+// Background dim, whole percent of the environment taken away: 0 leaves the
+// room, the cameras or the void as they are, 100 is black. The track moves in
+// five percent steps.
+#define BG_DIM_MIN 0
+#define BG_DIM_MAX 100
+#define BG_DIM_DEFAULT 0
+#define BG_DIM_STEP 5
+
+// Glow edge, how the picture's border is softened into the glow round it. Off
+// leaves the hard edge, Soft and Wide fade the outer GLOW_FEATHER_SOFT_FRAC or
+// GLOW_FEATHER_WIDE_FRAC of the picture's width and height into the glow's
+// colour (the fade a picture's own alpha edge would give, upstream pull request
+// 35, 0.15 being its figure). Off by default.
+#define GLOW_FEATHER_OFF 0
+#define GLOW_FEATHER_SOFT 1
+#define GLOW_FEATHER_WIDE 2
+#define GLOW_FEATHER_COUNT 3
+#define GLOW_FEATHER_SOFT_FRAC 0.06f
+#define GLOW_FEATHER_WIDE_FRAC 0.15f
+
+// 3D Eye Balance, in whole percent: how the depth's disparity is shared by the
+// two eyes. 0 splits it evenly (the left eye shifts one separation one way,
+// the right eye one separation the other); +100 puts all of it in the left eye
+// and leaves the right eye's picture as streamed, -100 the other way round.
+// The total between the eyes is the same at every balance. Config only: the 3D
+// tab has no row for it yet.
+#define EYE_BALANCE_MIN -100
+#define EYE_BALANCE_MAX 100
+#define EYE_BALANCE_DEFAULT 0
 
 // Head aim, in the whole units its preferences hold: how far the mouse moves
 // for a degree the head turns, in pixels, and how slowly the head can turn,
@@ -561,14 +656,20 @@
 // 3D tab rows, in the order they are drawn: a row of preset cells over two
 // sliders like the screen tab's, then the switch the bar's 3D button also
 // works. Only values that take effect the moment they move belong here: the
-// depth source itself is settled when the session starts, so it stays in the
+// depth model itself is settled when the session starts, so it stays in the
 // 2d settings, and the switch only pauses a session that started with 3D.
+// Native (PLAN 4.3): last, the 3D source (Depth, SBS, Top-bottom), live in
+// every session, which switches between the model and a host-rendered pair
+// at once; with a host-rendered pair the preset and depth rows are dead and
+// the convergence track moves the two halves apart or together.
 #define COG_ROW3D_PRESET 0
 #define COG_ROW3D_SEPARATION 1
 #define COG_ROW3D_CONVERGENCE 2
 #define COG_ROW3D_SWITCH 3
-#define COG_ROW3D_COUNT 4
+#define COG_ROW3D_SOURCE 4
+#define COG_ROW3D_COUNT 5
 #define COG_STEREO_CELLS 2
+#define COG_SOURCE_CELLS STEREO_SOURCE_COUNT
 // The presets, in the order their cells are drawn. Each is a separation on the
 // depth track: Balanced is the running model's default, and Comfort and Strong
 // are this many steps of the track under and over it, kept on the track.
