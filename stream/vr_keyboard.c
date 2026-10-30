@@ -3,6 +3,7 @@
 
 #include <Limelight.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "xr_kbfull.h"
 #include "xr_shared.h"
@@ -111,6 +112,72 @@ static void pressShifted(VrKeyboard* k, short vk, char modifiers) {
     k->sink.key(k->sink.user, VK_SHIFT, KEY_ACTION_DOWN, modifiers);
     press(k, vk, (char)(modifiers | MODIFIER_SHIFT));
     k->sink.key(k->sink.user, VK_SHIFT, KEY_ACTION_UP, modifiers);
+}
+
+// The bytes of the UTF-8 character at s (1 to 4) if all of it is there and well formed, else 0
+static size_t utf8Length(const unsigned char* s, size_t left) {
+    size_t n = s[0] < 0x80 ? 1 : (s[0] >> 5) == 0x6 ? 2 : (s[0] >> 4) == 0xE ? 3 : (s[0] >> 3) == 0x1E ? 4 : 0;
+    if (n == 0 || n > left) {
+        return 0;
+    }
+    for (size_t i = 1; i < n; i++) {
+        if ((s[i] & 0xC0) != 0x80) {
+            return 0;
+        }
+    }
+    return n;
+}
+
+size_t vrkb_type_text(VrKeyboard* k, const char* utf8, size_t maxBytes) {
+    char chunk[VRKB_TEXT_CHUNK + 1];
+    size_t have = 0, used = 0;
+    if (utf8 == NULL) {
+        return 0;
+    }
+    size_t total = strlen(utf8);
+    while (used < total && used < maxBytes) {
+        const unsigned char* c = (const unsigned char*)utf8 + used;
+        size_t left = total - used;
+        size_t n = utf8Length(c, left);
+        if (n == 0) {
+            used++;      // not UTF-8: left out
+            continue;
+        }
+        if (used + n > maxBytes) {
+            break;       // the next character does not fit
+        }
+        if (n == 1 && (c[0] == '\n' || c[0] == '\r' || c[0] == '\t')) {
+            if (have > 0) {
+                chunk[have] = '\0';
+                k->sink.text(k->sink.user, chunk);
+                have = 0;
+            }
+            used++;
+            // CR LF is one line end: the LF is the Enter key
+            if (c[0] == '\r' && left > 1 && c[1] == '\n') {
+                continue;
+            }
+            press(k, c[0] == '\t' ? 0x09 : 0x0D, 0);
+            continue;
+        }
+        if (n == 1 && c[0] < 0x20) {
+            used++;      // another control character
+            continue;
+        }
+        if (have + n > VRKB_TEXT_CHUNK) {
+            chunk[have] = '\0';
+            k->sink.text(k->sink.user, chunk);
+            have = 0;
+        }
+        memcpy(chunk + have, c, n);
+        have += n;
+        used += n;
+    }
+    if (have > 0) {
+        chunk[have] = '\0';
+        k->sink.text(k->sink.user, chunk);
+    }
+    return used;
 }
 
 void vrkb_type(VrKeyboard* k, int code, int mods) {

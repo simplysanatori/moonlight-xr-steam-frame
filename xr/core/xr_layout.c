@@ -152,6 +152,9 @@ int cog3dRowLive(int stereoOk, int source, int row) {
         return 0;
     }
     if (source != STEREO_SOURCE_DEPTH) {
+        // A pair the PC drew has no depth model behind it: the preset, the
+        // depth track and the five depth-model rows (Edge, Depth detail,
+        // Depth shape, Motion reset, Eye balance) have nothing to set
         return row == COG_ROW3D_CONVERGENCE || row == COG_ROW3D_SWITCH;
     }
     return 1;
@@ -480,24 +483,29 @@ float cogRowV(int tab, int row) {
     if (tab == COG_TAB_SCREEN) {
         return COG_SCREEN_ROW_V0 + row * COG_SCREEN_ROW_STEP;
     }
+    if (tab == COG_TAB_3D) {
+        return COG_3D_ROW_V0 + row * COG_3D_ROW_STEP;
+    }
     return COG_ROW_V0 + row * COG_ROW_STEP;
 }
 
 float cogRowHalf(int tab) {
     return tab == COG_TAB_DISPLAY ? COG_DISPLAY_ROW_HALF
-            : tab == COG_TAB_SCREEN ? COG_SCREEN_ROW_HALF : COG_ROW_HALF;
+            : tab == COG_TAB_SCREEN ? COG_SCREEN_ROW_HALF
+            : tab == COG_TAB_3D ? COG_3D_ROW_HALF : COG_ROW_HALF;
 }
 
 float cogCellHalf(int tab) {
     return tab == COG_TAB_DISPLAY ? COG_DISPLAY_CELL_HALF
-            : tab == COG_TAB_SCREEN ? COG_SCREEN_CELL_HALF : COG_CELL_HALF;
+            : tab == COG_TAB_SCREEN ? COG_SCREEN_CELL_HALF
+            : tab == COG_TAB_3D ? COG_3D_CELL_HALF : COG_CELL_HALF;
 }
 
-// The screen tab's rows sit closer than a full size thumb, so its thumbs are
-// a little smaller and two at the same place on neighbouring rows stay apart.
-// The display tab has only the one.
+// The screen and 3D tabs' rows sit closer than a full size thumb, so their
+// thumbs are a little smaller and two at the same place on neighbouring rows
+// stay apart. The display tab has only the one.
 float cogThumbSize(int tab) {
-    return tab == COG_TAB_SCREEN ? 0.06f : 0.085f;
+    return tab == COG_TAB_SCREEN || tab == COG_TAB_3D ? 0.06f : 0.085f;
 }
 
 int cogTrackPart(float pu) {
@@ -553,9 +561,18 @@ int cogTrackSteps(int tab, int row) {
     }
     if (tab == COG_TAB_3D) {
         // The tenths of a percent the depth is kept in, whole percent of
-        // convergence
-        return row == COG_ROW3D_SEPARATION ? COG_SEP_STEPS
-                : row == COG_ROW3D_CONVERGENCE ? 100 : 0;
+        // convergence, then the depth model's five in the steps they are
+        // stored in (COG_EDGE_STEP and the others)
+        switch (row) {
+        case COG_ROW3D_SEPARATION: return COG_SEP_STEPS;
+        case COG_ROW3D_CONVERGENCE: return 100;
+        case COG_ROW3D_EDGE: return COG_EDGE_STEPS;
+        case COG_ROW3D_DETAIL:
+        case COG_ROW3D_SHAPE: return COG_DEPTH_STEPS;
+        case COG_ROW3D_MOTION: return COG_MOTION_STEPS;
+        case COG_ROW3D_BALANCE: return COG_BALANCE_STEPS;
+        default: return 0;
+        }
     }
     if (tab == COG_TAB_ABOUT) {
         // No rows at all, only the button

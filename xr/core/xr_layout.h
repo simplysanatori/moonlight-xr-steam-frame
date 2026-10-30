@@ -187,7 +187,7 @@ int lanePercent(int units, int min, int max);
 
 // Where a row sits down the settings panel, as a fraction of its height, how
 // far either side of that the row's hit band reaches, and how tall a row of
-// cells is drawn, half of it. The display and screen tabs pack their rows
+// cells is drawn, half of it. The display, screen and 3D tabs pack their rows
 // closer than the rest. tab is one of the COG_TAB_ values, or anything past
 // them for a face that is not a tab.
 float cogRowV(int tab, int row);
@@ -287,8 +287,9 @@ int cogPresetAt(int units, const int presets[COG_PRESET_CELLS]);
 
 // Native (PLAN 4.3): whether a 3D tab row can act. The 3D source row always
 // can; the others need a stereo mode (stereoOk); and with a host-rendered pair
-// (source not STEREO_SOURCE_DEPTH) the preset and depth rows have no depth to
-// set, so only the convergence track and the switch act.
+// (source not STEREO_SOURCE_DEPTH) the preset, the depth track and the depth
+// model's five (Edge, Depth detail, Depth shape, Motion reset, Eye balance)
+// have no depth to set, so only the convergence track and the switch act.
 int cog3dRowLive(int stereoOk, int source, int row);
 
 // Native (PLAN 4.3): the host-rendered pair's plain arithmetic, apart from the

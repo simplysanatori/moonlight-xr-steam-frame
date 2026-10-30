@@ -46,6 +46,28 @@ mlxr_server *mlxr_server_new(const mlxr_identity *id, const char *address, uint1
     return s;
 }
 
+mlxr_server *mlxr_server_clone(const mlxr_server *s)
+{
+    if (!s) return NULL;
+    mlxr_server *c = calloc(1, sizeof *c);
+    if (!c) return NULL;
+    mlxr_strlcpy(c->address, s->address, sizeof c->address);
+    c->http_port = s->http_port;
+    c->https_port = s->https_port;
+    c->is_gfe = s->is_gfe;
+    mlxr_strlcpy(c->unique_id, s->unique_id, sizeof c->unique_id);
+    c->client_cert = s->client_cert ? strdup(s->client_cert) : NULL;
+    c->client_key = s->client_key ? strdup(s->client_key) : NULL;
+    c->pinned_pem = s->pinned_pem ? strdup(s->pinned_pem) : NULL;
+    c->pinned_pin = s->pinned_pin ? strdup(s->pinned_pin) : NULL;
+    if ((s->client_cert && !c->client_cert) || (s->client_key && !c->client_key) ||
+        (s->pinned_pem && !c->pinned_pem) || (s->pinned_pin && !c->pinned_pin)) {
+        mlxr_server_free(c);
+        return NULL;
+    }
+    return c;
+}
+
 void mlxr_server_free(mlxr_server *s)
 {
     if (!s) return;
