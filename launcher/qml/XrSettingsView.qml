@@ -728,6 +728,13 @@ Flickable {
             }
         }
 
+        PrefRow {
+            objectName: "bindingsRow"
+            title: qsTr("Controller bindings")
+            summary: qsTr("What each button on the Frame's controllers does, in pointer mode and in gamepad mode, for every app or for one app. Saved in bindings.ini; takes effect when the next stream starts.")
+            onClicked: settingsPage.StackView.view.push("qrc:/gui/XrBindingsView.qml")
+        }
+
         PrefSwitch {
             title: qsTr("Enable forward/back mouse buttons")
             summary: qsTr("Sends a physical mouse's back and forward buttons to the PC")
