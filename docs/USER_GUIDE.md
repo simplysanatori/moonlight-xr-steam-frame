@@ -13,6 +13,7 @@ This guide covers version 1.0.1. For install, update and uninstall, see the [REA
 - [Moving and sizing the screen](#moving-and-sizing-the-screen)
 - [Rooms and passthrough](#rooms-and-passthrough)
 - [3D](#3d)
+- [SBS 3D](#sbs-3d)
 - [Keyboards, mice and gamepads](#keyboards-mice-and-gamepads)
 - [Host: keys for the PC](#host-keys-for-the-pc)
 - [PC VR](#pc-vr)
@@ -109,8 +110,10 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 | Custom Resolution | width and height | |
 | Custom bitrate | 0.5 to 500 Mbps | |
 | Render Mode | Default 2D, AI SBS 3D | AI SBS 3D. This is the 3D switch; the headset can also change it. See [3D](#3d). |
-| 3D Effect Strength | 1 to 100 | The depth model's own value. Greyed in Default 2D. |
-| 3D Convergence | 0 to 100 | 50. Greyed in Default 2D. |
+| 3D Effect Strength | 1 to 100 | The depth model's own value. Greyed in Default 2D, and with SBS or Top-bottom as the 3D source. |
+| 3D Convergence | 0 to 100 | 50. Greyed in Default 2D. With SBS or Top-bottom it moves the two halves apart or together. |
+| 3D source | Depth model, SBS from the PC, Top-bottom from the PC | Depth model. Press to step through them. See [SBS 3D](#sbs-3d). The headset's 3D tab has the same row. |
+| Full-size SBS | on, off | off. On: the PC's pair has a full picture per eye (3840x1080 for two 1920x1080 eyes). Off: half-size, both eyes squeezed into one 1920x1080 frame. Greyed with the depth model. |
 | 3D Edge Sharpness | 0, 25, 50, 75, 100 (press to step) | 0. See [3D](#3d). Greyed in Default 2D. |
 | 3D Motion Reset | Off, 5, 10, 20, 30 % (press to step) | Off. See [3D](#3d). Greyed in Default 2D. |
 | 3D Depth Detail | 50 to 200 % (press to step) | 100 %. See [3D](#3d). Greyed in Default 2D. |
@@ -163,7 +166,7 @@ The bar sits under the screen and shows its buttons only while the ray is over i
 | Cog | Opens the cog menu. |
 | Keyboard | Opens or closes the headset keyboard. |
 | Ray | Shows or hides the controller ray for this session only. The cog's Ray row is the saved one. |
-| 3D | Only shown when the depth model is ready. Turns 3D on or off. |
+| 3D | Only shown when the depth model is ready, or when the 3D source is SBS or Top-bottom. Turns 3D on or off. With the PC's own pair it reads **SBS** or **TB** while on. |
 | Host | Opens the Host sheet: Esc, Win, Alt+Enter and the other keys that are awkward to reach, plus your own macros. A button can open it too: `app:host` in `bindings.ini`. See [Host: keys for the PC](#host-keys-for-the-pc). |
 
 ## The cog menu
@@ -226,15 +229,25 @@ The presets and Bring here also work from a controller button: bind `app:bringhe
 | --- | --- |
 | Preset | Comfort, Balanced, Strong. |
 | Depth | How far apart the eyes' pictures are. The part of the track past the model's default is marked "harder on the eyes". |
-| Convergence | Where the screen plane sits in depth. Default 50. |
+| Convergence | Where the screen plane sits in depth. Default 50. With SBS or Top-bottom it moves the two halves apart (above 50, the picture goes behind the screen) or together (below 50, it comes out). |
 | 3D | On or Off. Remembered between sessions. |
+| 3D source | Depth, SBS, Top-bottom. Where the 3D comes from: the depth model, or a pair the PC renders itself. Takes effect at once and is remembered. See [SBS 3D](#sbs-3d). |
 | Reset | Back to the model's values. |
 
-The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the depth model is not installed, or it did not load.
+The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the depth model is not installed, or it did not load. The 3D source row stays live, so SBS and Top-bottom work without the depth model. With SBS or Top-bottom, Preset and Depth are greyed ("the PC draws the depth").
 
 ### Picture
 
-Brightness (-50 to 50), Contrast (50 to 150 %), Gamma (0.50 to 2.00) and Saturation (0 to 200 %), with **Reset**.
+| Row | Values | Notes |
+| --- | --- | --- |
+| Brightness | -50 to 50 | |
+| Contrast | 50 to 150 % | |
+| Gamma | 0.50 to 2.00 | |
+| Saturation | 0 to 200 % | |
+| Background | 0 to 100 %, in steps of 5 | How far the surroundings are dimmed. In a room it turns the whole room down, its lighting and the light the picture throws on it too, to black at 100 %. In passthrough it lays a black layer of that strength over the cameras (100 % hides them). In the void it darkens the void's colour (`void_color`, below). 0 leaves all three as they were. The picture itself is not dimmed. |
+| Glow edge | Off, Soft, Wide | Fades the picture's outer edge into the glow around it, so the screen has no hard border. Soft fades the outer 6 % of the picture's width and height, Wide the outer 15 %. Off by default. It needs the glow on (Display tab), and it takes the glow's level: at a low glow level the edge fades toward a dim colour. |
+
+**Reset** puts all six rows back, and not the void's colour, which only the file has (or the launcher's Settings page: **Void colour**, under Performance Monitor, which also has **Dim the surroundings** and **Glow edge**; press a row to step it).
 
 ### About
 
@@ -376,6 +389,32 @@ These four are on the flat window's Settings page and in `config.ini` (`[3d]`). 
 | Depth Shape | `depth_global` | 0 to 200 (%) | 100. The depth of the picture as a whole, from the near ground to the far sky, scaled toward the screen plane. Lower is easier on the eyes; Depth Detail keeps things standing apart. |
 
 At their defaults all four leave the picture as before.
+
+## SBS 3D
+
+If the PC renders the 3D itself, the headset can show it instead of making its own. This is for 3D films, games with their own side-by-side (SBS) mode, and games run through ReShade's SuperDepth3D or a similar 3D shader. Each eye sees its own half of the stream. The depth model does not run, so there is no 80 ms depth lag and no soft edges, and the CPU is free.
+
+This is "3D cinema", not PC VR: the picture stays on the screen in front of you and does not follow your head. For PC VR games, use Steam Link.
+
+Turn it on:
+
+1. On the cog's 3D tab, set **3D source** to **SBS** (left eye in the left half) or **Top-bottom** (left eye in the top half). The flat window's Settings page has the same row. The bar's 3D button then reads SBS or TB.
+2. Make the PC send the pair (see below).
+3. If the depth looks inside out, the PC's pair has the right eye first: set `[debug] eye_swap = true` in `config.ini`.
+4. **Convergence** moves the two halves apart or together. 50 is the pair as the PC drew it.
+
+With the 3D switched off, you see the left eye's half on its own, as a flat picture.
+
+**Half-size or full-size.** A half-size pair squeezes both eyes into one normal frame, so each eye has half the width (SBS) or half the height (Top-bottom). The headset stretches each half back to 16:9. This is what most 3D films and ReShade use, and it needs no change on the PC. A full-size pair puts two whole pictures side by side, for example 3840x1080 for two 1920x1080 eyes. It is sharper, but the stream is twice as large. Turn on `[3d] sbs_full` (Full-size SBS on the Settings page) for it. The screen still shows a 16:9 picture.
+
+**The Apollo virtual display.** With Apollo, the PC can make a display of exactly the stream's size:
+
+- Half-size (recommended): keep the stream at 1920x1080 (or 2560x1440). Turn on Use Virtual Display. Set the game or player to its SBS (or Top-bottom) mode, full screen.
+- Full-size: set Custom Resolution to 3840x1080 in the flat window's Settings page and turn on Use Virtual Display. Apollo makes a 3840x1080 display. Set the game to render side by side across it, and turn on Full-size SBS.
+
+Do not use 4K (3840x2160) full-size SBS for now. The headset decodes 4K, but a test on a home network could not carry a 4K stream at 150 Mbps: the picture stalled and lost frames. 3840x1080 is half of that and is the largest pair to try.
+
+The mouse pointer lands on the left eye's half of the PC's desktop. The ambient glow keeps the whole frame: the black-bar detection is off in this mode, since the seam between the halves is not a letterbox.
 
 ## Controllers
 
@@ -581,11 +620,17 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] pad_mouse_chord` | `start_hold` (hold Start for a second), `start_back` (hold Start and Back), `off`. Turns a physical gamepad into the PC's mouse and back. | `start_hold` |
 | `[vr] pad_mouse_scroll` | `right`, `left`, `none`. The stick that scrolls while a gamepad is a mouse; the other stick points. | `right` |
 | `[vr] pad_arbitration` | `pointer` (a used gamepad takes the Frame controllers' gamepad off the PC), `also_gamepad` (both), `sleep` (pointer, and the controllers' pointer rests) | `pointer` |
+| `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
+| `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
+| `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |
+| `[3d] eye_balance` | -100 to 100 | 0. 3D Eye Balance: how the 3D's shift is shared by the two eyes. 0 shifts each eye by the same amount in opposite directions. +100 puts all of it in the left eye and leaves the right eye's picture as streamed, -100 the other way round, and in between the left eye takes (100 + n) / 2 percent of the total and the right eye (100 - n) / 2. The total difference between the eyes, so the depth you see, is the same at every setting. Useful with a dominant eye. The 3D tab has no row for it yet; the launcher's Settings page has **3D eye balance**, which steps -100, -50, 0, 50, 100. |
 | `[vr] scroll_speed` | 25 to 400 (%) | 100, which is 7.5 notches a second with the thumbstick pushed all the way. The flat window's Settings page has it too. |
 | `[vr] click_steadiness` | `off`, `normal`, `steady` | `normal`. The Display tab's Click steadiness row. |
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |
 | `[vr] keyboard_keymap` | `qwerty`, `azerty` (French), `qwertz` (German). What the headset keyboard's keys say. The PC must be on the matching Windows layout. | `qwerty` |
 | `[vr] depth_source` | `zipdepth`, `zipdepth-int8`, `midas` | `zipdepth` |
+| `[3d] stereo_source` | `depth`, `sbs`, `top-bottom` | `depth`. The 3D tab's 3D source row. See [SBS 3D](#sbs-3d). |
+| `[3d] sbs_full` | `true`, `false` | `false`. The PC's pair has a full-size picture per eye (3840x1080 side by side, 1920x2160 top-bottom). |
 | `[vr] hand_tracking` | `true`, `false` | `false`. Untested on the Frame. |
 | `[vr] gaze` | `true`, `false` | `false`. Untested on the Frame. |
 | `[vr] pointer` | `true`, `false` | `true`. `false` turns the controllers' pointer off, so only the switch to gamepad mode is read. |
@@ -594,7 +639,7 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[debug] depth_threads` | 1 to 4 | 2. CPU threads the depth model runs on. 3 makes each depth map a few milliseconds sooner (up to about 10) and uses another core. `MLXR_DEPTH_THREADS` overrides it. Read when the model starts. |
 | `[3d] edge_sharpness`, `motion_reset`, `depth_scale`, `depth_global` | see [3D](#edges) | 0, 0, 100, 100 |
 | `[debug] depth_debug` | `true`, `false` | `false`. Shows the depth map in place of the picture. |
-| `[debug] eye_swap` | `true`, `false` | `false`. Swaps the left and right eye in 3D. For checking a wrong-way picture. |
+| `[debug] eye_swap` | `true`, `false` | `false`. Swaps the left and right eye in 3D. For checking a wrong-way picture, and for an SBS or Top-bottom pair with the right eye first. |
 | `[stream] bitrate_kbps` | 0, or 500 to 500000 | 0, which follows the resolution and refresh rate. A bitrate the flat window passes for a stream overrides it. The flat window's Custom bitrate goes up to 500 Mbps, and so does this. |
 | `[stream] bitrate_wifi` | 0, or 500 to 500000 | 0, which uses `bitrate_kbps` or the bitrate the flat window passes. The bitrate in kbps a stream starts with when it goes over Wi-Fi. See [Bitrate for each connection](#bitrate-for-each-connection). |
 | `[stream] bitrate_adapter` | 0, or 500 to 500000 | 0. The same for the Steam Frame Wireless Adapter. |

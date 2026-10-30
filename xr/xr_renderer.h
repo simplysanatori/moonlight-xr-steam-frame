@@ -403,6 +403,13 @@ typedef struct XrCtx {
     // tab and leaves the bar's 3D button out)
     int stereoMode;
     int depthDebug;
+    // Native (PLAN 4.3): the 3D tab's 3D source (STEREO_SOURCE_*); anything
+    // but Depth makes stereoMode DEPTH_MODE_SBS, a pair the host drew, side by
+    // side or top and bottom, full size per eye with sbsFull. depthModeSet is
+    // the mode depth_source gave at the start, which Depth goes back to.
+    int stereoSource;
+    int sbsFull;
+    int depthModeSet;
     // The 3D switch on the bar and the 3D tab. Native: remembered in
     // config.ini ([3d] stereo) rather than starting on in every session
     int stereoLive;
@@ -511,6 +518,11 @@ typedef struct XrCtx {
     int glowRendered;
     int glowDrawnOn;
     float glowDrawnLevel;
+    // Native (lane wave3-visual): the Picture tab's Glow edge (GLOW_FEATHER_),
+    // and the one the glow image was last drawn with. Feathered, the glow is
+    // drawn over the picture rather than under it.
+    int glowFeather;
+    int glowDrawnFeather;
     int ambilightOn;
     float ambiIntensity;
     int ambiOverride;
@@ -520,6 +532,10 @@ typedef struct XrCtx {
     int pictureUnits[PICTURE_VALUES];
     int gradeOn;
     PictureGrade grade;
+    // Native (lane wave3-visual): Background dim in whole percent (BG_DIM_), and
+    // the void's colour as typed (sRGB 0..1; black when config.ini has none)
+    int bgDim;
+    float voidColor[3];
 
     // Which room the picker is on: 0 none, else one of the ROOM_STYLE_ values,
     // with a debug override (native: MLXR_ROOM in the environment)
@@ -586,6 +602,15 @@ typedef struct XrCtx {
     // SteamVR on the Steam Frame leaves the background opaque without one
     XrSwapchain passthroughSwapchain;
     int passthroughFailed;
+    // Native (lane wave3-visual): the same 16x16 layer is also the void's
+    // colour. Its images, and the colour (sRGB red, green, blue, alpha) the
+    // newest one was cleared to, so a change of dim or void colour clears
+    // another rather than making the swapchain again.
+    VkImage passthroughImages[8];
+    uint32_t passthroughImageCount;
+    float backdropDrawn[4];
+    int backdropDrawnValid;
+    float backdropWant[4];
     int roomHoldingScreen;
     XrPosef savedScreenPose;
     float savedScreenWidth;
@@ -1186,6 +1211,9 @@ typedef struct XrCtx {
     float prefCurvature;
     float panelSeparation;
     float separationCurrent;
+    // Native (lane wave3-visual): 3D Eye Balance, -1..1: the share of the
+    // disparity the left eye takes beyond an even split (eyeShares)
+    float eyeBalance;
     float defaultSeparation;
     float defaultConvergence;
     int presetUnits[COG_PRESET_CELLS];
@@ -1249,6 +1277,13 @@ void xrLogFlush(void);
 
 // xr_room.c: the 3d rooms
 int roomEffective(XrCtx* ctx);
+// Native (lane wave3-visual): the colour (sRGB red, green, blue, alpha) of the
+// backdrop behind the picture and the rooms, and whether there is one (a
+// passthrough that is dimmed or not, a void that is not black). The layer's
+// swapchain is cleared to it and the picture's own projection layer clears
+// to it when it stands in for that layer. passthroughNow: the cameras are
+// being blended in this frame.
+int xrBackdropColor(XrCtx* ctx, int passthroughNow, float out[4]);
 int roomResizable(int style);
 void roomLevelsFromTable(XrCtx* ctx);
 int roomScreenPercent(XrCtx* ctx, int style);
@@ -1266,6 +1301,10 @@ int initAmbilight(XrCtx* ctx);
 void ambiEffective(XrCtx* ctx, int* on, float* level);
 void runAmbiBarDetect(XrCtx* ctx, const struct MlxrVideo* video);
 void finishAmbiBarDetect(XrCtx* ctx);
+// Whether the letterbox detector runs and its crop applies: not on a
+// host-rendered stereo pair (native, PLAN 4.3), whose seam and halves are no
+// letterbox
+int ambiBarDetectOn(const XrCtx* ctx);
 void runFrameColorSample(XrCtx* ctx, const struct MlxrVideo* video);
 void runGlowRender(XrCtx* ctx);
 int glowStale(XrCtx* ctx);

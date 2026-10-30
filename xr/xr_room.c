@@ -626,6 +626,8 @@ void xrRoomRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, c
     rp.ambi = ctx->ambiTexture.view;
     rp.spillGain = roomSpillGainFor(lit, built, ctx->roomSpillGain, ctx->roomLightLevel);
     rp.dim = roomDim(ctx);
+    // Native (lane wave3-visual): the Picture tab's Background dim
+    rp.bgDim = 1.0f - bgDimKeep(ctx->bgDim);
     rp.depth = target->depthView;
     rp.depthFormat = VK_FORMAT_D32_SFLOAT;
     float viewProj[ROOM_EYES][16];

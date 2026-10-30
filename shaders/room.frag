@@ -10,7 +10,7 @@
 // binds the 1x1 white the library keeps. Spec constant 0: OUT_LINEAR.
 layout(push_constant) uniform PC {
     mat4 viewproj;
-    vec4 params;     // u_spillGain, u_texMix, u_dim, spare
+    vec4 params;     // u_spillGain, u_texMix, u_dim, u_keep
 } pc;
 
 #include "common.glsl"
@@ -23,5 +23,8 @@ layout(location = 0) out vec4 fragColor;
 
 void main() {
     vec3 base = mix(v_color, texture(u_room, v_uv).rgb, pc.params.y) * pc.params.z;
-    fragColor = encodeOut(vec4(base + v_wash, 1.0));
+    // u_keep is what the Picture tab's Background dim leaves of the room, 1
+    // for none taken: the whole of what the room shows, the wash of the
+    // picture's light as well, goes down together to black at 0
+    fragColor = encodeOut(vec4((base + v_wash) * pc.params.w, 1.0));
 }
