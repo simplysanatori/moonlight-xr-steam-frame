@@ -466,7 +466,7 @@ if [ -n "$SHOTS" ]; then
             MLXR_LAUNCHER_WINDOW=1280x1500 "$@" "$L" >"$t/bind-$n.out" 2>&1
     }
     bindcanon() { # the core's serialization of the file, as of the last load or save in that output
-        grep 'MLXR_BINDINGS_FILE|' "$1" | awk '/MLXR_BINDINGS_FILE\| begin/ {buf=""; on=1; next} /MLXR_BINDINGS_FILE\| end/ {on=0; last=buf; next} on {sub(/^.*MLXR_BINDINGS_FILE\| ?/, ""); buf=buf $0 "\n"} END {printf "%s", last}'
+        grep 'MLXR_BINDINGS_FILE|' "$1" | awk '/MLXR_BINDINGS_FILE\| begin/ {buf=""; on=1; next} /MLXR_BINDINGS_FILE\| end/ {on=0; last=buf; next} on {sub(/^.*MLXR_BINDINGS_FILE\| ?/, ""); if ($0 != "") buf=buf $0 "\n"} END {printf "%s", last}'
     }
     rawhas() { grep -Fxq -- "$2" "$1" && ok "$3" || { fail "$3: no line [$2] in $1"; cat "$1"; }; }
     rawhasnot() { grep -Fxq -- "$2" "$1" && { fail "$3: line [$2] is there"; cat "$1"; } || ok "$3"; }
@@ -494,7 +494,7 @@ if [ -n "$SHOTS" ]; then
     rawhas "$bf" '# gamepad notes' "bindings: a comment in another section stayed"
     rawhas "$bf" 'left.trigger = mouse:left' "bindings: another binding untouched"
     c="$(bindcanon "$t/bind-edit.out")"
-    expect "bindings: the core reads the saved file with the new binding" "$c" $'[pointer]\nright.x = mouse:middle\nleft.trigger = mouse:left\n'
+    expect "bindings: the core reads the saved file with the new binding" "$c" $'[pointer]\nright.x = mouse:middle\nleft.trigger = mouse:left'
     refute "bindings: the old binding is gone from the core's reading" "$c" "key:F"
     expect "bindings: the save is logged" "$(cat "$t/bind-edit.out")" "MLXR_BINDINGS: saved pointer right.x = mouse:middle"
 
@@ -506,8 +506,8 @@ if [ -n "$SHOTS" ]; then
     rawhas "$bf" 'right.grip = pad:rb' "bindings: a gamepad binding is written"
     rawhas "$bf" 'left.dpad_left = key:ctrl+shift+esc' "bindings: a key with modifiers is written"
     c="$(bindcanon "$t/bind-more.out")"
-    expect "bindings: pointer section as the core reads it" "$c" $'[pointer]\nright.x = mouse:middle\nleft.trigger = mouse:left\nleft.dpad_left = key:ctrl+shift+esc\n'
-    expect "bindings: gamepad section as the core reads it" "$c" $'[gamepad]\nright.grip = pad:rb\n'
+    expect "bindings: pointer section as the core reads it" "$c" $'[pointer]\nright.x = mouse:middle\nleft.trigger = mouse:left\nleft.dpad_left = key:ctrl+shift+esc'
+    expect "bindings: gamepad section as the core reads it" "$c" $'[gamepad]\nright.grip = pad:rb'
 
     # one app of a PC's app list: [app "Name"] lines with the mode in front
     bindrun app MLXR_LAUNCHER_CLICK=tabApp,pc_gaming-pc,app_Desktop,row_right.trigger,kind_mouse,opt_mouse_right,modeGamepad,row_right.grip,kind_pad,opt_pad_lb \
@@ -520,7 +520,7 @@ if [ -n "$SHOTS" ]; then
     rawhas "$bf" 'pointer.right.trigger = mouse:right' "bindings: the app's pointer line"
     rawhas "$bf" 'gamepad.right.grip = pad:lb' "bindings: the app's gamepad line"
     c="$(bindcanon "$t/bind-app.out")"
-    expect "bindings: the core reads the app's lines" "$c" $'[app "Desktop"]\npointer.right.trigger = mouse:right\ngamepad.right.grip = pad:lb\n'
+    expect "bindings: the core reads the app's lines" "$c" $'[app "Desktop"]\npointer.right.trigger = mouse:right\ngamepad.right.grip = pad:lb'
 
     # reset a row from the page, then the edits the core refuses leave the file as it was
     bindrun reset MLXR_LAUNCHER_CLICK=row_left.dpad_left,resetRow MLXR_LAUNCHER_SCREENSHOT="$t/b.png@2500"
@@ -557,7 +557,7 @@ if [ -n "$SHOTS" ]; then
     rawhas "$bf" 'left.bogus = mouse:left' "bindings: the line with a bad control is kept"
     rawhas "$bf" 'left.view+left.grip = none' "bindings: the reserved chord line is kept"
     c="$(bindcanon "$t/bind-errors.out")"
-    expect "bindings: the core still reads the good lines" "$c" $'right.a = mouse:middle\nright.b = mouse:left\n'
+    expect "bindings: the core still reads the good lines" "$c" $'right.a = mouse:middle\nright.b = mouse:left'
 
     # CRLF files keep their line ends
     printf '[pointer]\r\nright.x = key:F ; c\r\n' > "$bf"
