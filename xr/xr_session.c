@@ -2568,6 +2568,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         if (fs.shouldRender) {
             xrBuildLayers(ctx, &fin, &fout);
         }
+        xrSplashLayers(ctx, &fout, nowNs()); // Native (lane wave6-splash): the logo until the first frame, while it reconnects
         if (fr.recording) {
             // xrBuildLayers made the passthrough swapchain this frame
             vkEndCommandBuffer(fr.cmd);

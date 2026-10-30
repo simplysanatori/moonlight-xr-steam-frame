@@ -258,6 +258,7 @@ int main(int argc, char** argv) {
     // The launcher: the lists in the picture's place
     scene_reset(s);
     c->videoShown = 0;
+    c->streaming = 0; // the lists are what is shown when no stream is up (and the splash waits on one)
     const char* pcNames[3] = { "gaming-pc", "Living room PC", "Office laptop" };
     for (int i = 0; i < 3; i++) {
         memset(&s->pcs[i], 0, sizeof(s->pcs[i]));
@@ -368,6 +369,16 @@ int main(int argc, char** argv) {
     c->padCardUp = 0;
     c->headPoseValid = 0;
     memset(&c->padLive, 0, sizeof(c->padLive));
+
+    // Native (PLAN 6.3): a stream is starting and no frame has come yet, so the logo and its line
+    // hang in front of the eyes
+    scene_reset(s);
+    xrSetStreamIdentity("Desk PC", "Desktop");
+    memset(&c->splashUi, 0, sizeof(c->splashUi)); // the pictures before were the same stream's: this is a new one
+    c->streaming = 1;
+    c->videoShown = 0;
+    shot(s, "23-splash", NULL);
+    c->videoShown = 1;
 
     scene_free(s);
     if (g_over) {
