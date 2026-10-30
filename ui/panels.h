@@ -82,7 +82,7 @@ typedef enum {
     UI_BTN_EXIT_DISCONNECT,  // exit prompt during a stream (EXIT_ZONE_DISCONNECT)
     UI_BTN_HINT_OK,          // hint (HINT_ZONE_OK)
     UI_BTN_HINT_NEVER,       // hint (HINT_ZONE_NEVER)
-    UI_BTN_KOFI_CLOSE,       // Ko-fi sheet (KOFI_ZONE_CLOSE)
+    UI_BTN_KOFI_CLOSE,       // Ko-fi sheet, "Not now" (KOFI_ZONE_CLOSE)
     UI_BTN_REPORT_CANCEL,    // report sheet (REPORT_ZONE_CANCEL)
     UI_BTN_REPORT_SEND,      // report sheet (REPORT_ZONE_SEND)
     UI_BTN_LIST_ADD,         // PC list: add a PC by address
@@ -94,6 +94,7 @@ typedef enum {
     UI_BTN_HOST_CONFIRM,     // Host sheet's confirmation: send (XR_HOST_ZONE_CONFIRM_SEND)
     UI_BTN_HOST_CANCEL,      // Host sheet's confirmation: cancel (XR_HOST_ZONE_CONFIRM_CANCEL)
     UI_BTN_HOST_PCVR,        // Host sheet: Switch to PC VR (XR_HOST_ZONE_PCVR)
+    UI_BTN_KOFI_OPEN,        // Ko-fi sheet, "Open page" (KOFI_ZONE_OPEN)
     UI_BTN_HOST_PAGE         // Host sheet: the header button between its pages (XR_HOST_ZONE_PAGE)
 } UiButton;
 

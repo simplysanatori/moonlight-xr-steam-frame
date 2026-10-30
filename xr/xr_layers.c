@@ -694,11 +694,14 @@ static void addKofiLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers
     atlasQuad(ctx, &layers->kofi, fadeNext(ctx, layers, FADE_KOFI, 1, level), UI_PANEL_KOFI,
               view->space, ctx->kofiPose, ctx->kofiW, ctx->kofiH);
     pushLayer(ctx, layers, &layers->kofi);
-    if (!ctx->kofiOpen || ctx->kofiHoverZone != KOFI_ZONE_CLOSE || !ctx->outlineReady) {
+    int zone = ctx->kofiHoverZone;
+    if (!ctx->kofiOpen || (zone != KOFI_ZONE_CLOSE && zone != KOFI_ZONE_OPEN) || !ctx->outlineReady) {
         return;
     }
+    int open = zone == KOFI_ZONE_OPEN;
     addRing(ctx, layers, &layers->cogMark[COG_OPTION_COUNT], view->space, ctx->kofiPose, ctx->kofiW,
-            ctx->kofiH, KOFI_CLOSE_L, KOFI_BTN_T, KOFI_CLOSE_R, KOFI_BTN_B, 1.04f, 1.12f);
+            ctx->kofiH, open ? KOFI_OPEN_L : KOFI_CLOSE_L, KOFI_BTN_T, open ? KOFI_OPEN_R : KOFI_CLOSE_R,
+            KOFI_BTN_B, 1.04f, 1.12f);
 }
 
 // Native: the Host sheet, over the middle of the picture; the hovered cell is

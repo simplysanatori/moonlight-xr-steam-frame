@@ -48,6 +48,7 @@
 #include "xr_keys.h"
 #include "xr_kbfull.h"
 #include "xr_hostkeys.h"
+#include "xr_splash.h"
 #include "xr_controller.h"
 #include "xr_headaim.h"
 #include "xr_clickhold.h"
@@ -55,6 +56,8 @@
 #include "xr_gamepad.h"
 #include "xr_bindrun.h"
 #include "xr_scroll.h"
+#include "xr_lightgun.h"
+#include "xr_padgyro.h"
 #include "xr_ray.h"
 #include "xr_raylog.h"
 #include "room_logic.h"
@@ -649,6 +652,8 @@ typedef struct XrCtx {
 
     // The launch splash (native: not drawn, starts gone)
     Splash splash;
+    // Native (lane wave6-splash): the logo shown while a stream has no picture (xr_splash.c)
+    XrSplashState splashUi;
 
     // The toast
     NoticeBoard notices;
@@ -805,6 +810,13 @@ typedef struct XrCtx {
     XrAction menuAction;
     int menuBound;
     XrAction hapticAction;
+    // Native (lane wave2-lightgun-gyro, PLAN 2.9): the right thumbstick's touch sensor, for the gyro
+    // ratchet. Created with the Frame profile's actions and offered on the first rung of its binding
+    // ladder only (input/thumbstick/touch, which the probe found on both hands); stickTouchBound says
+    // a Frame profile took it. Where it is not bound, or the right hand is on another profile,
+    // stick_touch reads as always.
+    XrAction stickTouchAction;
+    int stickTouchBound;
     // The Steam Frame controller's own profile, offered when the runtime has
     // XR_VALVE_frame_controller_interaction, and the controls only it has
     XrAction padXAction;
@@ -887,6 +899,16 @@ typedef struct XrCtx {
     float pointerWake;
     float pointerSleep;
     int pointerSleepOn;
+    // Native (lane wave2-lightgun-gyro, PLAN 2.3): the lightgun pointer policy (xr_lightgun.h). The
+    // settings are config.ini's (lightgun, lightgun_reload, lightgun_recoil); lightgun is what they
+    // make with the model that is drawn, kept up to date every input frame, and the policy never
+    // writes into the settings above (pointerSleepOn is still the user's)
+    int lightgunSetting;
+    int lightgunReloadSetting;
+    int lightgunRecoilSetting;
+    LightgunPolicy lightgun;
+    LightgunReload lightgunReload;
+    long recoilPulses;
 
     // Laser and cursor (native: two slots of the UI atlas)
     int pointerArtReady;
@@ -974,6 +996,18 @@ typedef struct XrCtx {
     PadRumble rumble;
     int rumbleOn;
     long rumblePulses;
+    // Native (lane wave2-lightgun-gyro, PLAN 2.9): the pad_gyro setting (PAD_GYRO_), its ratchet
+    // (PAD_GYRO_RATCHET_), the orientation the last sample was taken at (for a runtime with no
+    // velocity), whose it was (-1 the head, else the hand), what the log has said, and how many
+    // samples went out
+    int padGyroSource;
+    int padGyroRatchet;
+    XrQuaternionf padGyroPrev;
+    int64_t padGyroPrevNs;
+    int padGyroPrevWho;
+    int padGyroSaidHz;
+    int padGyroSaidFallback;
+    long padGyroSamples;
     int rumbleResultSaid[HAND_COUNT];
     // The controller models (xr_model.c), at each hand's grip in a projection
     // layer of their own (native: rooms/room_gpu's MlxrModel, mlxr_pass_model)
@@ -1380,6 +1414,9 @@ int exitPromptHasDisconnect(const XrCtx* ctx);
 XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);
 XrPosef handHintPose(XrCtx* ctx, float* outWidth, float* outHeight);
 XrPosef kofiSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);
+// xr_kofi.c: runs Steam's browser on the Frame for the Ko-fi page (NULL: the default address).
+// Once per press, never blocks. 1 when a program was started.
+int kofiOpenPage(const char* url);
 int cogTabRowCount(int face);
 int cogRowIsTrack(int face, int row);
 int cogRowLive(XrCtx* ctx, int face, int row);
@@ -1410,6 +1447,10 @@ void xrSetPadGrip(XrCtx* ctx, int mode);
 // and scroll_speed (percent)
 void xrSetClickSteadiness(XrCtx* ctx, int level);
 void xrSetScrollSpeed(XrCtx* ctx, int percent);
+// Native (lane wave2-lightgun-gyro): config.ini lightgun (LIGHTGUN_), lightgun_reload and
+// lightgun_recoil; pad_gyro (PAD_GYRO_) and pad_gyro_ratchet (PAD_GYRO_RATCHET_)
+void xrSetLightgun(XrCtx* ctx, int setting, int reload, int recoil);
+void xrSetPadGyro(XrCtx* ctx, int source, int ratchet);
 void xrSetPicture(XrCtx* ctx, const int* values);
 
 // xr_assets.c: the UI atlas swapchain, the art drawn in code, and the
