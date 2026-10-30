@@ -208,8 +208,8 @@ static void testFile(void) {
     setenv("MLXR_CONFIG_DIR", "/cfg", 1);
     CHECK(strcmp(xrMacrosDefaultPath(buf, sizeof(buf)), "/cfg/macros.ini") == 0);
     unsetenv("MLXR_CONFIG_DIR");
-    setenv("HOME", "/home/test", 1);
-    CHECK(strcmp(xrMacrosDefaultPath(buf, sizeof(buf)), "/home/test/.config/moonlight-xr/macros.ini") == 0);
+    setenv("HOME", "/tmp/hh", 1);
+    CHECK(strcmp(xrMacrosDefaultPath(buf, sizeof(buf)), "/tmp/hh/.config/moonlight-xr/macros.ini") == 0);
 }
 
 // ---- the runner ---------------------------------------------------------------------------------------

@@ -13,12 +13,12 @@
 
 // ---- the grid ---------------------------------------------------------------------------------
 
-#define PAD_X 34.0f
-#define TOP 96.0f
-#define CELL_W 180.0f
-#define CELL_H 72.0f
-#define GAP_X 14.0f
-#define GAP_Y 12.0f
+#define HOSTCELL_PAD_X 34.0f
+#define HOSTCELL_TOP 96.0f
+#define HOSTCELL_W 180.0f
+#define HOSTCELL_H 72.0f
+#define HOSTCELL_GAP_X 14.0f
+#define HOSTCELL_GAP_Y 12.0f
 
 static void uv(float x0, float y0, float x1, float y1, float r[4]) {
     r[0] = x0 / (float)XR_HOST_TEX_W;
@@ -34,9 +34,9 @@ void xrHostCellRect(int cell, float r[4]) {
     }
     int col = cell % XR_HOST_COLS;
     int row = cell / XR_HOST_COLS;
-    float x = PAD_X + (float)col * (CELL_W + GAP_X);
-    float y = TOP + (float)row * (CELL_H + GAP_Y);
-    uv(x, y, x + CELL_W, y + CELL_H, r);
+    float x = HOSTCELL_PAD_X + (float)col * (HOSTCELL_W + HOSTCELL_GAP_X);
+    float y = HOSTCELL_TOP + (float)row * (HOSTCELL_H + HOSTCELL_GAP_Y);
+    uv(x, y, x + HOSTCELL_W, y + HOSTCELL_H, r);
 }
 
 void xrHostCloseRect(float r[4]) {
