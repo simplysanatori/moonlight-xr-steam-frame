@@ -52,6 +52,8 @@ typedef struct Settings {
     int virtual_surround;  // HRTF virtual surround for headsets
     int frame_pacing;      // 0 latency, 1 balanced, 2 cap fps, 3 smoothness
     int network_path;      // 0 auto, 1 home (Wi-Fi), 2 adapter (Steam Frame Wireless Adapter), 3 usb (USB cable)
+    int doff_disconnect;   // native: seconds with the headset off before the stream disconnects (the host's app stays); 0 never
+    int idle_disconnect;   // native: minutes without input before the same; 0 never
 
     // [vr] VR Settings table
     int pointer;           // Controllers as a mouse

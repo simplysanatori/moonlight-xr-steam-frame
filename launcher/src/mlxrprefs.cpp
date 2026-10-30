@@ -137,6 +137,9 @@ void MlxrPrefs::load()
     // the VR client takes the name or its index; anything else is its default, all
     const QString nt = iniValue(ini, "vr", "notices", "all").trimmed().toLower();
     notices = (nt == "important" || nt == "1") ? "important" : (nt == "off" || nt == "2") ? "off" : "all";
+    // the VR client's limits, held to its range
+    doffDisconnect = qBound(0, iniValue(ini, "stream", "doff_disconnect", "60").trimmed().toInt(), 3600);
+    idleDisconnect = qBound(0, iniValue(ini, "stream", "idle_disconnect", "0").trimmed().toInt(), 1440);
 
     // the VR client's names, anything else is its default
     padMouseChord = iniValue(ini, "vr", "pad_mouse_chord", "start_hold").trimmed().toLower();
@@ -161,6 +164,8 @@ void MlxrPrefs::load()
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
+    m_iniDoff = doffDisconnect;
+    m_iniIdle = idleDisconnect;
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
@@ -207,6 +212,12 @@ void MlxrPrefs::save()
     if (notices != m_iniNotices) {
         setIniValue(ini, "vr", "notices", notices);
     }
+    if (doffDisconnect != m_iniDoff) {
+        setIniValue(ini, "stream", "doff_disconnect", QString::number(qBound(0, doffDisconnect, 3600)));
+    }
+    if (idleDisconnect != m_iniIdle) {
+        setIniValue(ini, "stream", "idle_disconnect", QString::number(qBound(0, idleDisconnect, 1440)));
+    }
     if (padMouseChord != m_iniPadMouseChord) {
         setIniValue(ini, "vr", "pad_mouse_chord", padMouseChord);
     }
@@ -225,6 +236,8 @@ void MlxrPrefs::save()
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
+    m_iniDoff = doffDisconnect;
+    m_iniIdle = idleDisconnect;
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
