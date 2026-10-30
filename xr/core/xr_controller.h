@@ -102,7 +102,8 @@ typedef struct ModelCandidate {
 
 // The candidates for a kind, assetsDir/models/ holding the bundled files and the Frame's (made at
 // install), userDir the folder the user's own are read from (the config folder's models/, NULL for
-// none). kind off gives none. A user's pair needs both halves; one half alone is not used. Returns
+// none: custom_*.model for the custom kind, and gun_*.model, before the bundled pair, for the gun).
+// kind off gives none. A user's pair needs both halves; one half alone is not used. Returns
 // how many were written to out, which holds MODEL_CANDIDATES_MAX.
 int controllerModelCandidates(int kind, const char* assetsDir, const char* userDir, ModelCandidate* out);
 
