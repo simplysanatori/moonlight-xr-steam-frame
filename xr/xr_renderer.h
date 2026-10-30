@@ -42,10 +42,12 @@
 #include "xr_gate.h"
 #include "xr_pinch.h"
 #include "xr_notice.h"
+#include "xr_hud.h"
 #include "xr_glow.h"
 #include "xr_grade.h"
 #include "xr_keys.h"
 #include "xr_kbfull.h"
+#include "xr_hostkeys.h"
 #include "xr_controller.h"
 #include "xr_headaim.h"
 #include "xr_clickhold.h"
@@ -233,6 +235,10 @@ static inline float nativePointerTunable(const char* env, float def) {
 // The Ko-fi sheet, over the middle of the picture like the hint and as wide
 #define KOFI_WIDTH_FRAC 0.40f
 
+// Native: the Host sheet, over the middle of the picture, a little wider as it
+// has a grid of twenty cells
+#define HOST_WIDTH_FRAC 0.46f
+
 // The panels that fade in and out, each with a fade of its own
 #define FADE_COG 0
 #define FADE_PICKER 1
@@ -241,7 +247,8 @@ static inline float nativePointerTunable(const char* env, float def) {
 #define FADE_REPORT 4
 #define FADE_HINT 5
 #define FADE_KOFI 6
-#define FADE_PANELS 7
+#define FADE_HOST 7
+#define FADE_PANELS 8
 #define FADE_SLOT_SPLASH FADE_PANELS
 #define FADE_SLOT_TOAST (FADE_PANELS + 1)
 #define FADE_SLOTS (FADE_PANELS + 2)
@@ -356,6 +363,14 @@ typedef struct XrCtx {
     // of the UI atlas, drawn from the session's stats line)
     int overlayHasContent;
     int overlayVisible;
+    // Native (lane wave3-hud): what the overlay shows (STATS_STYLE_ from xr_hud.h: full lines, HUD,
+    // Lite), and what the clock strip over the cog shows beside the time: the headset battery
+    // (present, percent, charging; a machine with none shows nothing) and the slow connection badge
+    int statsStyle;
+    int batteryPresent;
+    int batteryPercent;
+    int batteryCharging;
+    int slowConn;
     // Native (owner's request): the stats window is movable. overlayW/H are the
     // pixels of its slot the drawing used (xr_panels.c lays the lines out to fit);
     // statsPose and statsW/H are where it is and how big, metres (statsPlace).
@@ -638,6 +653,8 @@ typedef struct XrCtx {
     int perfSettingsSupported;
     PFN_xrPerfSettingsSetPerformanceLevelEXT pfnPerfSettingsSetPerformanceLevel;
     int perfLevel;
+    // Native (lane wave3-hud): XR_META_performance_metrics offered (xr_metrics.c reads the compositor's times)
+    int metricsSupported;
 
     int virtualKeyboardSupported;
     int maxLayerCount;
@@ -1057,6 +1074,23 @@ typedef struct XrCtx {
     int kofiHoverZone;
     XrPosef kofiPose;
     float kofiW, kofiH;
+
+    // Native: the Host sheet (xr_host.c). hostConfirm is the cell asking for a
+    // yes, or -1. macros is macros.ini as last read; hostRun plays the
+    // sequence a cell chose, a key a frame; hostChord is "Send keys" waiting
+    // for a combo on the keyboard.
+    int hostOpen;
+    int hostReady;
+    int hostHoverZone;
+    int hostConfirm;
+    XrPosef hostPose;
+    float hostW, hostH;
+    XrMacros macros;
+    XrHostRun hostRun;
+    XrHostChord hostChord;
+    // Native: the Compact keyboard's locked modifiers, and the hand holding the key
+    KbSticky kbSticky;
+    int kbStickyHand;
 
     float panelCurve;
     float prefCurvature;

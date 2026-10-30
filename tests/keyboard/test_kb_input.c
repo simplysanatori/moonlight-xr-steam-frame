@@ -92,7 +92,7 @@ static void everyKey(Scene* s, int layout, int expectKeys) {
             CHECK(rayKey(c, ku, kv) == k);
             seen++;
         }
-        CHECK(layout == KB_LAYOUT_FULL ? seen == 88 : seen == (sheet == KB_STATE_FN ? 35 : 44));
+        CHECK(layout == KB_LAYOUT_FULL ? seen == 88 + KB_MEDIA_KEYS : seen == (sheet == KB_STATE_FN ? 35 : 44) + KB_MEDIA_KEYS);
         // the gaps between rows hit nothing
         CHECK(kbKeyAt(c, 0.5f, 0.001f) == -1);
         CHECK(kbKeyAt(c, 0.001f, 0.5f) == -1);
@@ -123,9 +123,9 @@ int main(void) {
     XrCtx* c = s->ctx;
     float out[IN_SLOTS];
 
-    // Compact is the default and is as it was: 44 keys, hit tables and all
+    // Compact is the default and is as it was: 44 keys, hit tables and all, and the media row under them
     CHECK(c->kbLayout == KB_LAYOUT_COMPACT);
-    everyKey(s, KB_LAYOUT_COMPACT, 44);
+    everyKey(s, KB_LAYOUT_COMPACT, 44 + KB_MEDIA_KEYS);
     float compactW = c->kbW;
 
     // The layout key on the Compact keyboard flips to Full and asks for it to be stored
@@ -133,7 +133,7 @@ int main(void) {
     CHECK(xrKeyboardPress(c, out, KB_KEY_LAYOUT, 0, 0) == 1);
     CHECK(c->kbLayout == KB_LAYOUT_FULL && xrKeyboardLayout(c) == KB_LAYOUT_FULL);
     CHECK((int)out[IN_SETTING] == SETTING_KEYBOARD_LAYOUT && (int)out[IN_SETTING_VALUE] == KB_LAYOUT_FULL);
-    CHECK(c->kbKeyCount == KBF_KEY_COUNT);
+    CHECK(c->kbKeyCount == KBF_KEY_COUNT_ALL);
     CHECK(c->kbW > compactW * 1.1f);                 // hangs larger
     CHECK(out[IN_KEY] < 0.0f);                        // no key went to the host
 
@@ -174,14 +174,14 @@ int main(void) {
     free(text);
 
     // Full: every key reached
-    everyKey(s, KB_LAYOUT_FULL, KBF_KEY_COUNT);
+    everyKey(s, KB_LAYOUT_FULL, KBF_KEY_COUNT_ALL);
 
     // The layout key inside Full flips back and stores it
     int lk = -1;
     for (int i = 0; i < KBF_KEY_COUNT; i++) if (kbfKey(i)->kind == KBF_LAYOUT) lk = i;
     fresh(out);
     CHECK(xrKeyboardPress(c, out, lk, 0, 0) == 1);
-    CHECK(c->kbLayout == KB_LAYOUT_COMPACT && c->kbKeyCount == 44 && (int)out[IN_SETTING_VALUE] == 0);
+    CHECK(c->kbLayout == KB_LAYOUT_COMPACT && c->kbKeyCount == 44 + KB_MEDIA_KEYS && (int)out[IN_SETTING_VALUE] == 0);
     CHECK_NEAR(c->kbW, compactW, 1e-4);
     // a Compact letter is left to pressKey
     fresh(out);
@@ -301,13 +301,13 @@ int main(void) {
     c->reportOpen = 1;
     fresh(out);
     xrKeyboardFrame(c, out, now, 1);
-    CHECK(xrKeyboardLayout(c) == KB_LAYOUT_COMPACT && c->kbKeyCount == 44);
+    CHECK(xrKeyboardLayout(c) == KB_LAYOUT_COMPACT && c->kbKeyCount == 44 + KB_MEDIA_KEYS);
     CHECK(c->kbCodes[0][KB_KEY_LAYOUT] == 0);        // no layout chip over the report
     CHECK(c->kbLayout == KB_LAYOUT_FULL);            // the choice is kept
     c->reportOpen = 0;
     fresh(out);
     xrKeyboardFrame(c, out, now, 1);
-    CHECK(c->kbKeyCount == KBF_KEY_COUNT);
+    CHECK(c->kbKeyCount == KBF_KEY_COUNT_ALL);
 
     // AZERTY and QWERTZ (keyboard_keymap): the context takes the map from the settings, the hit
     // tables are the map's, the report sheet's note field stays QWERTY (it reads a code as the
@@ -318,9 +318,9 @@ int main(void) {
         xrApplySettings(c, &s->settings);
         CHECK(c->kbMap == map);
         openKeyboard(s);
-        CHECK(xrKeyboardMap(c) == map && c->kbKeyCount == 44);
+        CHECK(xrKeyboardMap(c) == map && c->kbKeyCount == 44 + KB_MEDIA_KEYS);
         for (int sheet = 0; sheet < KB_STATE_COUNT; sheet++) {
-            for (int k = 0; k < 44; k++) CHECK(c->kbCodes[sheet][k] == ui_kb_map_key_code(map, sheet, k));
+            for (int k = 0; k < 44 + KB_MEDIA_KEYS; k++) CHECK(c->kbCodes[sheet][k] == ui_kb_map_key_code(map, sheet, k));
         }
         CHECK(c->kbCodes[KB_STATE_LOWER][10] == ui_kb_map_key_code(map, KB_STATE_LOWER, 10));
         c->reportOpen = 1;
@@ -328,7 +328,7 @@ int main(void) {
         xrKeyboardFrame(c, out, now, 1);
         CHECK(xrKeyboardMap(c) == KB_MAP_QWERTY);
         for (int sheet = 0; sheet < KB_STATE_COUNT; sheet++) {
-            for (int k = 0; k < 44; k++) CHECK(c->kbCodes[sheet][k] == ui_kb_key_code(sheet, k));
+            for (int k = 0; k < 44 + KB_MEDIA_KEYS; k++) CHECK(c->kbCodes[sheet][k] == ui_kb_key_code(sheet, k));
         }
         c->reportOpen = 0;
         fresh(out);
@@ -359,7 +359,7 @@ int main(void) {
     s->settings.keyboard_keymap = KB_MAP_QWERTY;
     xrApplySettings(c, &s->settings);
     openKeyboard(s);
-    CHECK(c->kbKeyCount == 44 && c->kbCodes[KB_STATE_LOWER][11] == 'w');
+    CHECK(c->kbKeyCount == 44 + KB_MEDIA_KEYS && c->kbCodes[KB_STATE_LOWER][11] == 'w');
 
     // The panel draws: the Full keyboard in its states differs from plain
     scene_frame(s, NULL);

@@ -103,11 +103,36 @@
     X(KOFI_SCAN, "vr_kofi_scan", "Scan it with your phone.") \
     X(KOFI_FREE, "vr_kofi_free", "Optional: Moonlight XR is free and stays free.") \
     X(KOFI_CLOSE, "vr_kofi_close", "Close") \
+    /* the Host sheet (PLAN 4b.1) */ \
+    X(HOST_TITLE, "native_host_title", "Host") \
+    X(HOST_SEND_KEYS, "native_host_send_keys", "Send keys…") \
+    X(HOST_SEND_KEYS_HINT, "native_host_send_keys_hint", "type a combo") \
+    X(HOST_SEND_KEYS_SHORT, "native_host_send_keys_short", "Send keys") \
+    X(HOST_CLOSE, "native_host_close", "Close") \
+    X(HOST_CONFIRM_Q, "native_host_confirm_q", "Send %s to the PC?") \
+    X(HOST_CONFIRM_SEND, "native_host_confirm_send", "Send") \
+    X(HOST_NO_MACROS, "native_host_no_macros", "Your own buttons go in macros.ini") \
+    X(HOST_HINT_ESC, "native_host_hint_esc", "Escape") \
+    X(HOST_HINT_WIN, "native_host_hint_win", "Start menu") \
+    X(HOST_HINT_DESKTOP, "native_host_hint_desktop", "Show desktop") \
+    X(HOST_HINT_FULLSCREEN, "native_host_hint_fullscreen", "Full screen") \
+    X(HOST_HINT_SWITCHER, "native_host_hint_switcher", "App switcher") \
+    X(HOST_HINT_STEAM, "native_host_hint_steam", "Steam overlay") \
+    X(HOST_HINT_GAMEBAR, "native_host_hint_gamebar", "Game bar") \
+    X(HOST_HINT_MOVE, "native_host_hint_move", "Move window") \
+    X(HOST_HINT_PASTE, "native_host_hint_paste", "Paste") \
+    X(HOST_HINT_TASKMGR, "native_host_hint_taskmgr", "Task manager") \
+    X(HOST_HINT_CLOSE_WINDOW, "native_host_hint_close_window", "Close window") \
     X(REPORT_TITLE, "title_bug_report", "Report a problem") \
     X(REPORT_NOTE_LABEL, "bug_report_message_hint", "What happened?") \
     X(REPORT_NOTE_HINT, "vr_report_note_hint", "What were you doing when it went wrong?") \
-    X(REPORT_GOES, "vr_report_sends", "Saved on the Frame in ~/Games/MoonlightXRNative/reports. To report it, run bug-report.sh and open an issue on GitHub with the zip. Nothing is sent from the headset.") \
+    X(REPORT_GOES, "vr_report_sends", "Save keeps your note on the Frame in ~/Games/MoonlightXRNative/reports. Save and zip also makes the masked zip there, to attach to an issue on GitHub. Nothing is sent from the headset.") \
     X(REPORT_SEND, "bug_report_send_direct", "Save") \
+    X(NATIVE_REPORT_ZIP, "native_report_zip", "Save and zip") \
+    X(NATIVE_REPORT_ZIP_DONE, "native_report_zip_done", "Report zip saved") \
+    X(NATIVE_REPORT_ZIP_FAIL, "native_report_zip_fail", "The report zip could not be made") \
+    X(NATIVE_REPORT_ZIP_BUSY, "native_report_zip_busy", "The report zip is still being made") \
+    X(NATIVE_SLOW_CONN, "native_slow_conn", "Slow connection") \
     /* toasts */ \
     X(TOAST_RATE, "vr_toast_rate", "Display %d Hz") \
     X(TOAST_HANDS_LOCKED, "vr_toast_hands_locked", "Hands locked") \

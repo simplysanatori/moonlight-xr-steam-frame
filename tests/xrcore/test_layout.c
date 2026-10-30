@@ -764,9 +764,12 @@ static void testTheReportParts(void) {
     float btn = (REPORT_BTN_T + REPORT_BTN_B) * 0.5f;
     CHECK(reportZone((REPORT_CANCEL_L + REPORT_CANCEL_R) * 0.5f, btn) == REPORT_ZONE_CANCEL);
     CHECK(reportZone((REPORT_SEND_L + REPORT_SEND_R) * 0.5f, btn) == REPORT_ZONE_SEND);
+    CHECK(reportZone((REPORT_ZIP_L + REPORT_ZIP_R) * 0.5f, btn) == REPORT_ZONE_ZIP);
+    CHECK(REPORT_CANCEL_R < REPORT_SEND_L && REPORT_SEND_R < REPORT_ZIP_L && REPORT_ZIP_R <= REPORT_FIELD_R);
     // The gap between the buttons, the gap above the buttons, the title
     // and the margins are nothing
-    CHECK(reportZone(0.5f, btn) == REPORT_ZONE_NONE);
+    CHECK(reportZone((REPORT_CANCEL_R + REPORT_SEND_L) * 0.5f, btn) == REPORT_ZONE_NONE);
+    CHECK(reportZone((REPORT_SEND_R + REPORT_ZIP_L) * 0.5f, btn) == REPORT_ZONE_NONE);
     CHECK(reportZone(mid, (REPORT_NOTE_B + REPORT_BTN_T) * 0.5f) == REPORT_ZONE_NONE);
     CHECK(reportZone(mid, 0.05f) == REPORT_ZONE_NONE);
     CHECK(reportZone(0.02f, (REPORT_NOTE_T + REPORT_NOTE_B) * 0.5f) == REPORT_ZONE_NONE);

@@ -52,6 +52,7 @@ static const char* const KBLAYOUT_NAMES[] = { "compact", "full" };
 static const char* const COGTAB_NAMES[] = { "screen", "display", "3d", "picture", "about" };
 _Static_assert(sizeof(COGTAB_NAMES) / sizeof(COGTAB_NAMES[0]) == COG_TAB_COUNT, "cog_tab names follow COG_TAB_");
 static const char* const KEYMAP_NAMES[] = { "qwerty", "azerty", "qwertz" };
+static const char* const STATS_STYLE_NAMES[] = { "full", "hud", "lite" };
 static const char* const SHARP_NAMES[] = { "off", "normal", "quality" };
 // CONTROLLER_MODEL_*: 1 is what the old on/off switch's true meant
 static const char* const MODEL_NAMES[] = { "off", "frame", "generic", "gun", "custom" };
@@ -132,7 +133,8 @@ static const SettingDesc TABLE[] = {
     DB("display", "head_locked", head_locked, 0, "Display tab: head locked screen (checkbox_vr_head_locked)"),
     DE("display", "sharpening", sharpening, SHARP_NAMES, 0, "Display tab: sharpen (list_vr_sharpening; native default off, the owner's choice, upstream quality)"),
     DE("display", "supersampling", supersampling, SHARP_NAMES, 1, "Display tab: supersample (list_vr_supersampling; native default normal, the owner's choice, upstream off; never used with the 3D on)"),
-    DB("display", "stats", stats, 0, "Display tab: show performance stats"),
+    DB("display", "stats", stats, 0, "Display tab: show performance stats (true, false, or hud / lite to switch them on in that style)"),
+    DE("display", "stats_style", stats_style, STATS_STYLE_NAMES, 0, "native: what the stats show: full (every line the session writes), hud (latency, network, decode and rate in a few lines) or lite (speed, latency, decode, loss and fps on one line); with stats on, a perf-<stamp>.csv next to vrtiming.log gets a row every 5 s"),
     DB("display", "glow", glow, 0, "Display tab: glow (checkbox_vr_ambilight; native default off, the owner's choice, upstream on)"),
     DI("display", "glow_level", glow_level, 0, 100, 50, "Display tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
     DB("display", "screen_light", screen_light, 1, "Display tab: screen light in rooms (checkbox_vr_room_light)"),
@@ -405,6 +407,12 @@ static int apply_value(Settings* s, const SettingDesc* d, const char* v, Setting
         return 1;
     }
     int x = 0;
+    if (d->type == SET_BOOL && strcmp(d->key, "stats") == 0 && (streq_ci(v, "hud") || streq_ci(v, "lite") || streq_ci(v, "full"))) {
+        // native: `stats = hud` is stats on, in the HUD style
+        s->stats = 1;
+        s->stats_style = streq_ci(v, "hud") ? 1 : streq_ci(v, "lite") ? 2 : 0;
+        return 1;
+    }
     if (d->type == SET_BOOL) {
         if (!parse_bool(v, &x)) return 0;
     } else if (d->type == SET_ENUM) {

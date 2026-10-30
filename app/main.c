@@ -215,6 +215,15 @@ static void statsHook(void* user, char* buf, int len) {
              a[0] ? "; " : "", a);
 }
 
+// Native (lane wave3-hud): the HUD's and the slow connection badge's figures, about once a second
+static int hudHook(void* user, MlxrHudCum* out) {
+    (void)user;
+    if (g_args.file || !stream_hud(out)) return 0;
+    mlxr_udp_counters udp;
+    if (mlxr_udp_read(&udp) && udp.valid) out->udpDrops = udp.rcvbuf_errors;
+    return 1;
+}
+
 // Native (lane av-latency): every 5 s from the log while streaming. What the
 // host and network add to the picture (and so to the host cursor), and the
 // audio per window: underruns split by cause (late data vs the host going
@@ -1559,6 +1568,7 @@ int main(int argc, char** argv) {
     cfg.hooks = (XrAppHooks){ NULL, pointerHook, mouseMoveHook, buttonHook, scrollHook, keyHook, modifiersHook,
                               statsHook, focusHook, uiHook };
     cfg.hooks.latency = latencyHook;
+    cfg.hooks.hud = hudHook;
     cfg.hooks.headYaw = headYawHook;
     cfg.hooks.presence = presenceHook;
 

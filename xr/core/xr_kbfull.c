@@ -3,6 +3,8 @@
 
 #include <string.h>
 
+#include "xr_keys.h"
+
 #define PAD_U 0.012f
 #define PAD_V 0.030f
 #define GAP_U 0.004f
@@ -81,6 +83,14 @@ static const KbfKey KEYS[KBF_KEY_COUNT] = {
     N("@right", NULL, 0x27, 1, 17.25f, R5, 1.0f),
 };
 
+// The media keys row (xr_keys.h): only the vk and the label matter, the
+// rectangle is the row's own (kbMediaRect). The labels are drawn as shapes.
+#define MEDIA(l, vk) { l, NULL, vk, 0, KBF_NORMAL, 0, 0, 0.0f, 0.0f, 1.0f, 1.0f }
+static const KbfKey MEDIA_KEYS[KBF_MEDIA_COUNT] = {
+    MEDIA("@prev", 0xB1), MEDIA("@play", 0xB3), MEDIA("@next", 0xB0),
+    MEDIA("@mute", 0xAD), MEDIA("@voldown", 0xAE), MEDIA("@volup", 0xAF),
+};
+
 // The key the French and German boards have between the left Shift and Z
 static const KbfKey ISO_KEY = N("<", ">", 0xE2, 0, 1.25f, R4, 1.0f);
 #define ISO_SHIFT_W 1.25f
@@ -142,10 +152,13 @@ static int isoMap(int map) { return map == KB_MAP_AZERTY || map == KB_MAP_QWERTZ
 
 const KbfKey* kbfKey(int index) {
     if (index == KBF_ISO_KEY) return &ISO_KEY;
+    if (index >= KBF_MEDIA_FIRST && index < KBF_MEDIA_FIRST + KBF_MEDIA_COUNT) {
+        return &MEDIA_KEYS[index - KBF_MEDIA_FIRST];
+    }
     return index >= 0 && index < KBF_KEY_COUNT ? &KEYS[index] : NULL;
 }
 
-int kbfKeyCountFor(int map) { return isoMap(map) ? KBF_KEY_COUNT_MAX : KBF_KEY_COUNT; }
+int kbfKeyCountFor(int map) { return isoMap(map) ? KBF_KEY_COUNT_MAX : KBF_KEY_COUNT_ALL; }
 
 void kbfKeyRectFor(int map, int index, float r[4]) {
     const KbfKey* k = kbfKey(index);
@@ -153,14 +166,18 @@ void kbfKeyRectFor(int map, int index, float r[4]) {
         r[0] = r[1] = r[2] = r[3] = 0.0f;
         return;
     }
+    if (index >= KBF_MEDIA_FIRST && index < KBF_MEDIA_FIRST + KBF_MEDIA_COUNT) {
+        kbMediaRect(index - KBF_MEDIA_FIRST, r);
+        return;
+    }
     float w = k->w;
     if (isoMap(map) && k->kind == KBF_MOD && k->modBit == KBF_LSHIFT) w = ISO_SHIFT_W;
     float uw = (1.0f - 2.0f * PAD_U) / KBF_UNITS_W;
     float uh = (1.0f - 2.0f * PAD_V) / KBF_UNITS_H;
     r[0] = PAD_U + k->x * uw + GAP_U * 0.5f;
-    r[1] = PAD_V + k->y * uh + GAP_V * 0.5f;
+    r[1] = kbMainV(PAD_V + k->y * uh + GAP_V * 0.5f);
     r[2] = PAD_U + (k->x + w) * uw - GAP_U * 0.5f;
-    r[3] = PAD_V + (k->y + k->h) * uh - GAP_V * 0.5f;
+    r[3] = kbMainV(PAD_V + (k->y + k->h) * uh - GAP_V * 0.5f);
 }
 
 void kbfKeyRect(int index, float r[4]) { kbfKeyRectFor(KB_MAP_QWERTY, index, r); }
@@ -174,6 +191,9 @@ int kbfKeyCode(int index) {
 int kbfFindVk(int vk) {
     for (int i = 0; i < KBF_KEY_COUNT; i++) {
         if (KEYS[i].vk == vk && KEYS[i].kind != KBF_LAYOUT) return i;
+    }
+    for (int i = 0; i < KBF_MEDIA_COUNT; i++) {
+        if (MEDIA_KEYS[i].vk == vk) return KBF_MEDIA_FIRST + i;
     }
     return -1;
 }

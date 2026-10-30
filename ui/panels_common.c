@@ -43,6 +43,7 @@ void ui_panel_native_size(UiPanelId id, int* w, int* h) {
         { COG_CLOCK_TEX_W, COG_CLOCK_TEX_H },
         { 1024, 640 },                  // pc list
         { 1024, 640 },                  // app list
+        { XR_HOST_TEX_W, XR_HOST_TEX_H }, // host sheet
     };
     if ((unsigned)id >= UI_PANEL_COUNT) {
         *w = *h = 0;
@@ -54,13 +55,14 @@ void ui_panel_native_size(UiPanelId id, int* w, int* h) {
 
 const char* ui_panel_name(UiPanelId id) {
     static const char* const N[UI_PANEL_COUNT] = { "cog", "picker", "keyboard", "bar",
-        "button_atlas", "exit", "hint", "kofi", "report", "toast", "clock", "pc_list", "app_list" };
+        "button_atlas", "exit", "hint", "kofi", "report", "toast", "clock", "pc_list", "app_list", "host" };
     return (unsigned)id < UI_PANEL_COUNT ? N[id] : "?";
 }
 
 // Shelves, widest first where it matters: A cog | report, B pc list | app list,
-// C kofi | hint, D keyboard | exit, clock, E picker, then the toast, the bar
-// strip and the button strip, one to a row
+// C kofi | hint, D host sheet | exit, clock, E picker, then the toast, the bar
+// strip and the button strip, one to a row, and last the keyboard (its media
+// row made it taller than the shelf)
 UiRectPx ui_atlas_rect(UiPanelId id) {
     static const UiRectPx R[UI_PANEL_COUNT] = {
         [UI_PANEL_COG] = { 0, 0, COG_TEX_W, COG_TEX_H },
@@ -69,7 +71,8 @@ UiRectPx ui_atlas_rect(UiPanelId id) {
         [UI_PANEL_APP_LIST] = { 1024, 640, 1024, 640 },
         [UI_PANEL_KOFI] = { 0, 1280, KOFI_TEX_W, KOFI_TEX_H },
         [UI_PANEL_HINT] = { 1024, 1280, HINT_TEX_W, HINT_TEX_H },
-        [UI_PANEL_KEYBOARD] = { 0, 1792, KB_TEX_W, KB_TEX_H },
+        [UI_PANEL_HOST] = { 0, 1792, XR_HOST_TEX_W, XR_HOST_TEX_H },
+        [UI_PANEL_KEYBOARD] = { 0, 2960, KB_TEX_W, KB_TEX_H },
         [UI_PANEL_EXIT] = { 1120, 1792, EXIT_TEX_W, EXIT_TEX_H },
         [UI_PANEL_CLOCK] = { 1632, 1792, COG_CLOCK_TEX_W, COG_CLOCK_TEX_H },
         [UI_PANEL_PICKER] = { 0, 2240, PICKER_TEX_W, PICKER_TEX_H },
@@ -295,6 +298,7 @@ void ui_view_init(UiView* v, const Settings* s) {
     v->kb_sheet = KB_STATE_LOWER;
     v->kofi_url = "https://ko-fi.com/moonlightxr";
     v->env_live_cells = ENV_CELL_COUNT;
+    v->host_confirm = -1;
 }
 
 int ui_cog_face(const UiView* v) {
@@ -373,6 +377,7 @@ void ui_draw_panel(UiPanelId id, UiCanvas* cv, const UiView* v, UiHits* hits) {
     case UI_PANEL_EXIT: panel_exit(&dc); break;
     case UI_PANEL_HINT: panel_hint(&dc); break;
     case UI_PANEL_KOFI: panel_kofi(&dc); break;
+    case UI_PANEL_HOST: panel_host(&dc); break;
     default: break;
     }
 }

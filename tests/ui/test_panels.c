@@ -293,7 +293,7 @@ static void test_other_panels_hits(void) {
         int expect = 0;
         for (int i = 0; i < ui_kb_key_count(); i++) expect += ui_kb_key_label(sheet, i) != NULL;
         CHECK(hits.count == expect);
-        CHECK(sheet == KB_STATE_FN ? expect == 35 : expect == 44);
+        CHECK(sheet == KB_STATE_FN ? expect == 35 + KB_MEDIA_KEYS : expect == 44 + KB_MEDIA_KEYS);
         for (int i = 0; i < hits.count; i++) {
             float r[4];
             ui_kb_key_rect(hits.hit[i].a, r);
@@ -426,6 +426,76 @@ static void test_other_panels_hits(void) {
     free(g.base);
 }
 
+// Native (lane wave3-hud): the clock strip beside the time. Pixels that differ between two drawings, in columns [x0, x1)
+static int strip_diff(const Guarded* a, const Guarded* b, int x0, int x1) {
+    int n = 0;
+    for (int y = 0; y < a->h; y++) {
+        for (int x = x0; x < x1 && x < a->w; x++) {
+            const uint8_t* p = a->px + ((size_t)y * (size_t)a->w + (size_t)x) * 4;
+            const uint8_t* q = b->px + ((size_t)y * (size_t)b->w + (size_t)x) * 4;
+            n += memcmp(p, q, 4) != 0;
+        }
+    }
+    return n;
+}
+
+static void strip_draw(Guarded* g, const char* time, int battery, int charging, int slow) {
+    int w, h;
+    ui_panel_native_size(UI_PANEL_CLOCK, &w, &h);
+    *g = guarded(w, h);
+    UiCanvas cv;
+    ui_cv_init(&cv, g->px, w, h);
+    UiClock c = { time, battery, charging, slow };
+    ui_draw_clock_strip(&cv, &c);
+    CHECK(guard_ok(g) && premultiplied_ok(g));
+}
+
+static void test_clock_strip(void) {
+    Guarded plain, bat, chg, low, slow, both, old;
+    strip_draw(&plain, "10:42", -1, 0, 0);
+    strip_draw(&bat, "10:42", 87, 0, 0);
+    strip_draw(&chg, "10:42", 87, 1, 0);
+    strip_draw(&low, "10:42", 8, 0, 0);
+    strip_draw(&slow, "10:42", -1, 0, 1);
+    strip_draw(&both, "10:42", 87, 1, 1);
+    int w, h;
+    ui_panel_native_size(UI_PANEL_CLOCK, &w, &h);
+    old = guarded(w, h);
+    UiCanvas cv;
+    ui_cv_init(&cv, old.px, w, h);
+    ui_draw_clock(&cv, "10:42");
+    // the old call is the strip with nothing beside the time
+    CHECK(strip_diff(&plain, &old, 0, w) == 0);
+    // the battery is at the left only: the time in the middle and the right are as they were
+    CHECK(strip_diff(&plain, &bat, 0, 150) > 200);
+    CHECK(strip_diff(&plain, &bat, 150, w) == 0);
+    // charging adds the bolt to the same place; a low cell fills less, in another colour
+    CHECK(strip_diff(&bat, &chg, 0, 150) > 20);
+    CHECK(strip_diff(&bat, &chg, 150, w) == 0);
+    CHECK(strip_diff(&bat, &low, 0, 150) > 50);
+    // the slow connection pill is at the right only, and with the battery they do not touch
+    CHECK(strip_diff(&plain, &slow, 232, w) > 1000);
+    CHECK(strip_diff(&plain, &slow, 0, 232) == 0);
+    CHECK(strip_diff(&chg, &both, 0, 232) == 0);
+    CHECK(strip_diff(&chg, &both, 232, w) > 1000);
+    // a bare time and a missing one
+    UiCanvas cv2;
+    ui_cv_init(&cv2, plain.px, w, h);
+    ui_draw_clock_strip(&cv2, NULL);
+    UiClock none = { NULL, 50, 1, 1 };
+    ui_draw_clock_strip(&cv2, &none);
+    CHECK(guard_ok(&plain));
+    // a percentage out of range is clamped, not drawn outside the cell
+    free(low.base);
+    strip_draw(&low, "10:42", 100, 0, 0);
+    free(low.base);
+    strip_draw(&low, "10:42", 0, 1, 0);
+    free(low.base);
+    strip_draw(&low, "10:42", 150, 1, 0);
+    Guarded* all[] = { &plain, &bat, &chg, &low, &slow, &both, &old };
+    for (size_t i = 0; i < sizeof all / sizeof all[0]; i++) free(all[i]->base);
+}
+
 static void test_report_toast_lists(void) {
     Guarded g;
     int w, h;
@@ -438,8 +508,8 @@ static void test_report_toast_lists(void) {
     ui_draw_report(&cv, &r, &hits);
     CHECK(guard_ok(&g) && ink_pixels(&g) > 1000);
     check_hits_inside("report");
-    static const int ZONES[] = { REPORT_ZONE_NOTE, REPORT_ZONE_CANCEL, REPORT_ZONE_SEND };
-    for (size_t i = 0; i < 3; i++) {
+    static const int ZONES[] = { REPORT_ZONE_NOTE, REPORT_ZONE_CANCEL, REPORT_ZONE_SEND, REPORT_ZONE_ZIP };
+    for (size_t i = 0; i < 4; i++) {
         int k = ui_hits_find(&hits, UI_HIT_FIELD, ZONES[i], -1);
         CHECK(k >= 0);
         if (k >= 0) CHECK(reportZone((hits.hit[k].u0 + hits.hit[k].u1) / 2, (hits.hit[k].v0 + hits.hit[k].v1) / 2) == ZONES[i]);
@@ -476,6 +546,7 @@ static void test_report_toast_lists(void) {
     CHECK(ink_pixels(&g) > 500 && guard_ok(&g));
     ui_draw_clock(&cv, NULL);
     free(g.base);
+    test_clock_strip();
 
     // lists
     static UiPcItem pcs[12];
@@ -701,8 +772,74 @@ static void test_atlas(void) {
     free(atlas);
 }
 
+// The Host sheet (PLAN 4b.1): what is drawn is what xr_hostkeys.c says the ray hits
+static void test_host_sheet(void) {
+    Settings s;
+    settings_defaults(&s);
+    UiView v;
+    ui_view_init(&v, &s);
+    CHECK(v.host_confirm == -1);
+    Guarded g;
+    // no macros: Close, the 11 quick actions and Send keys
+    draw(UI_PANEL_HOST, &v, 1.0f, &g);
+    check_hits_inside("host");
+    CHECK(hits.count == 1 + XR_HOST_MACRO_FIRST);
+    CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CLOSE, -1) >= 0);
+    free(g.base);
+    // with macros (and more than the sheet has room for)
+    for (int n = 1; n <= XR_HOST_MACRO_SLOTS + 3; n++) {
+        v.host_macros = n;
+        for (int i = 0; i < XR_HOST_MACRO_SLOTS; i++) snprintf(v.host_macro[i], sizeof v.host_macro[i], "Macro %d", i + 1);
+        draw(UI_PANEL_HOST, &v, 1.0f, &g);
+        check_hits_inside("host macros");
+        int shown = n < XR_HOST_MACRO_SLOTS ? n : XR_HOST_MACRO_SLOTS;
+        CHECK(hits.count == 1 + XR_HOST_MACRO_FIRST + shown);
+        for (int i = 0; i < hits.count; i++) {
+            const UiHit* h = &hits.hit[i];
+            float u = (h->u0 + h->u1) * 0.5f, w = (h->v0 + h->v1) * 0.5f;
+            int zone = xrHostZoneAt(u, w, shown, 0);
+            if (h->kind == UI_HIT_HOST_CELL) {
+                CHECK(zone == h->a && h->b == xrHostCellKind(h->a, shown));
+            } else {
+                CHECK(h->kind == UI_HIT_BUTTON && h->a == UI_BTN_HOST_CLOSE && zone == XR_HOST_ZONE_CLOSE);
+            }
+        }
+        free(g.base);
+    }
+    // asking first: only its two buttons, where the zones say
+    v.host_macros = 2;
+    v.host_confirm = 10;
+    snprintf(v.host_confirm_label, sizeof v.host_confirm_label, "Alt+F4");
+    draw(UI_PANEL_HOST, &v, 1.0f, &g);
+    CHECK(hits.count == 2);
+    int send = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CONFIRM, -1);
+    int cancel = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CANCEL, -1);
+    CHECK(send >= 0 && cancel >= 0);
+    if (send >= 0 && cancel >= 0) {
+        CHECK(xrHostZoneAt((hits.hit[send].u0 + hits.hit[send].u1) * 0.5f, (hits.hit[send].v0 + hits.hit[send].v1) * 0.5f, 2, 1)
+              == XR_HOST_ZONE_CONFIRM_SEND);
+        CHECK(xrHostZoneAt((hits.hit[cancel].u0 + hits.hit[cancel].u1) * 0.5f, (hits.hit[cancel].v0 + hits.hit[cancel].v1) * 0.5f, 2, 1)
+              == XR_HOST_ZONE_CONFIRM_CANCEL);
+    }
+    free(g.base);
+    // a lit cell changes the drawing
+    v.host_confirm = -1;
+    draw(UI_PANEL_HOST, &v, 1.0f, &g);
+    int plain = ink_pixels(&g);
+    long sumPlain = 0;
+    for (size_t i = 0; i < g.size; i++) sumPlain += g.px[i];
+    free(g.base);
+    v.hover = (UiHover){ UI_HIT_HOST_CELL, 3, 0 };
+    draw(UI_PANEL_HOST, &v, 1.0f, &g);
+    long sumHot = 0;
+    for (size_t i = 0; i < g.size; i++) sumHot += g.px[i];
+    CHECK(plain == ink_pixels(&g) && sumHot != sumPlain);
+    free(g.base);
+}
+
 int main(void) {
     ui_panels_set_assets_dir(MLXR_ASSETS_DIR);
+    test_host_sheet();
     test_all_panels_scales();
     test_cog_rows_present();
     test_cog_hits_agree_with_xr_layout();

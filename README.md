@@ -128,6 +128,7 @@ It writes a zip to `~/Games/MoonlightXRNative/reports` and lists every file in i
 
 - The app logs: `moonlight.log`, `moonlight.log.1`, `moonlight-console.log`, `moonlight-launcher.log` and `vrtiming.log`, the last 20000 lines of each.
 - Your note from the headset, if you wrote one.
+- `ray.csv`, the ray recorder's file (header and its last 20000 rows, numbers only), if `MLXR_RAY_DEBUG=1` made one.
 - `config.ini`, with only the settings you changed. Numbers, on and off, and fixed choices stay. Any key that looks like an address, host, id, name, path, key, token or certificate is dropped.
 - `VERSION` and `system.txt`: the SteamOS, SteamVR and Mesa (Turnip) versions, the kernel release and the display refresh rate.
 
@@ -137,7 +138,7 @@ Left out completely: `hosts.ini`, pairing keys and certificates, the flat window
 
 Have a look inside before you share it. Then attach the zip to an [issue](https://github.com/simplysanatori/moonlight-xr-steam-frame/issues). Say what you did, what you expected and what happened.
 
-You can also write a note in the headset (cog, About, Report a problem). It is saved on the Frame, nothing is sent from the headset, and the next `bug-report.sh` run includes it. Open an issue on GitHub with the zip.
+You can also write a note in the headset (cog, About, Report a problem). **Save** keeps it on the Frame, and the next `bug-report.sh` run includes it. **Save and zip** runs `bug-report.sh` for you and shows where the zip is. Nothing is sent from the headset. Open an issue on GitHub with the zip.
 
 ## Build from source
 

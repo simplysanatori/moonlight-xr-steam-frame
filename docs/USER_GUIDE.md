@@ -14,6 +14,7 @@ This guide covers version 1.0.1. For install, update and uninstall, see the [REA
 - [Rooms and passthrough](#rooms-and-passthrough)
 - [3D](#3d)
 - [Keyboards, mice and gamepads](#keyboards-mice-and-gamepads)
+- [Host: keys for the PC](#host-keys-for-the-pc)
 - [Ending a stream](#ending-a-stream)
 - [Recommended PC settings](#recommended-pc-settings)
 - [Troubleshooting](#troubleshooting)
@@ -116,7 +117,7 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 
 | Setting | Options | Default |
 | --- | --- | --- |
-| Show performance stats while streaming | on, off | off. Same as Stats in the headset's Display tab. |
+| Show performance stats while streaming | on, off | off. Same as Stats in the headset's Display tab. In `config.ini`, `stats = hud` or `stats = lite` turns them on in that style (see Stats styles below). |
 | Change codec settings | Automatic (Recommended), Prefer HEVC, Prefer H.264 | Automatic. Prefer AV1 is greyed: the Frame decodes H.264 and HEVC only. |
 | Unlock all possible frame rates | greyed | The stream is capped at the rate the headset runs at, 144 Hz at most. |
 | Force full range video (Experimental) | on, off | off |
@@ -137,6 +138,7 @@ The bar sits under the screen and shows its buttons only while the ray is over i
 | Move pill | Grab it to move the screen. See [Moving and sizing the screen](#moving-and-sizing-the-screen). |
 | Cog | Opens the cog menu. |
 | Keyboard | Opens or closes the headset keyboard. |
+| Host | Opens the Host sheet: Esc, Win, Alt+Enter and the other keys that are awkward to reach, plus your own macros. See [Host: keys for the PC](#host-keys-for-the-pc). |
 | Ray | Shows or hides the controller ray for this session only. The cog's Ray row is the saved one. |
 | 3D | Only shown when the depth model is ready. Turns 3D on or off. |
 
@@ -206,7 +208,13 @@ Brightness (-50 to 50), Contrast (50 to 150 %), Gamma (0.50 to 2.00) and Saturat
 
 ### About
 
-The version, the log file, a link to support Moonlight XR on Ko-fi, and **Report a problem**. The report sheet saves your note on the Frame in `~/Games/MoonlightXRNative/reports`. Nothing leaves the headset. To report it, run `bug-report.sh` and open an issue on GitHub with the zip. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
+The version, the log file, a link to support Moonlight XR on Ko-fi, and **Report a problem**. The report sheet has three buttons. **Save** keeps your note on the Frame in `~/Games/MoonlightXRNative/reports`. **Save and zip** does that and also runs `bug-report.sh` in the background, so the masked zip is made without leaving the headset. A notice shows where the zip is (`~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip`) and the log says so too. A note is not needed for the zip. Nothing leaves the headset: copy the zip off the Frame and open an issue on GitHub with it. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
+
+### Stats styles, battery and the slow connection badge
+
+The Stats row turns the overlay on and off. What it shows is `stats_style` in `config.ini` (`[display]`): `full` is every line the session writes, `hud` is a few lines (latency with its parts, round trip, loss, bit rate, frame rate, and the compositor's frame times and dropped frames when SteamVR reports them), and `lite` is one line: `54 Mb/s | 11 ms | dec 3.1 | loss 0.2% | 90 fps` (speed, latency from the host's capture to the end of decoding, decode time, frames lost on the network, pictures drawn a second). `stats = hud` in the file means stats on in the HUD style. While stats are on and a stream is up, `perf-<date>-<time>.csv` next to `vrtiming.log` gets a row every 5 seconds with the figures and the settings they were measured in (size, rate, bit rate, codec, display rate, 3D, room, sharpening), for comparing runs.
+
+Over the cog the clock strip also shows the headset's battery (a cell, the percentage, a bolt while it charges; read every 30 seconds, nothing on a PC with no battery) and a **Slow connection** badge once the connection has been poor, or more than 1.5 % of frames lost, for 5 seconds on end. The badge goes when it has been fine for 5 seconds. The HUD line starts with `!` or says slow connection while it is up.
 
 ## Controllers
 
@@ -313,7 +321,7 @@ The bar is hidden until the ray is over it. With **Ray** set to **Off** (no beam
 
 | Device | Notes |
 | --- | --- |
-| Headset keyboard | The bar's Keyboard button. **Compact** has letter, symbol and function sheets. **Full** is a tenkeyless layout: tap a modifier for one key press, hold it half a second to lock it. The key at the right switches between them. Hide, the bar button or a press elsewhere closes it. |
+| Headset keyboard | The bar's Keyboard button. **Compact** has letter, symbol and function sheets. **Full** is a tenkeyless layout. On both, tap a modifier (Shift, Ctrl, Alt, Win) for one key press, hold it half a second to lock it (a locked key turns blue; tap it again to let it go). On Compact, a locked Shift keeps the capitals on. The key at the right switches between the layouts. Under the keys, on both layouts, every sheet and every keyboard map, a row of media keys: previous, play/pause, next, mute, volume down and volume up. They press the PC's own media keys, so they change the PC's volume and the PC's player, not the stream's. Hide, the bar button or a press elsewhere closes it. |
 | Bluetooth keyboard | Pair it in SteamOS. Keys go to the PC while the stream is in front. The app takes the keyboard for itself during the stream. |
 | Bluetooth mouse | Same as the keyboard. While you use the mouse, the controller ray does not move the cursor. |
 | Bluetooth gamepad | Pair it in SteamOS. It shows up as a gamepad on the PC; once you use it the Frame controllers' gamepad steps aside ([below](#frame-controllers-and-a-gamepad-together)). The Steam Virtual Gamepad copy of the same pad is ignored. Hold Start for a second and it becomes the PC's mouse ([below](#a-gamepad-as-the-pcs-mouse)). Start+Select+L1+R1 disconnects. |
@@ -349,6 +357,51 @@ The headset keyboard can show French (AZERTY) or German (QWERTZ) letters. Pick i
 - **QWERTZ** matches Windows "German (Germany)". The Compact keyboard has `ä ö ü ß` and the capitals on the symbols sheet, and the brackets `[ ] { } \ |`, `<` and `>` on the Fn sheet. `^` and the acute accent are dead keys on the Full keyboard, as on a real German keyboard: press a letter after them, or space for the accent alone.
 - The Full keyboard grows the extra key that French and German keyboards have beside the left Shift (`<` and `>`), so the left Shift is shorter. For the characters on AltGr (`@`, `#`, `{`, `[`, `|`, `\`, `€`), tap the right Alt: Windows reads it as AltGr on these layouts. The Compact keyboard types those characters as text, which works on any layout.
 - The report sheet's note field always shows the QWERTY keys.
+
+## Host: keys for the PC
+
+The **Host** sheet is a grid of keys to send to the PC, for the ones a headset keyboard makes awkward to reach. Press a cell and it is sent once, and the sheet closes. Every key goes the way the headset keyboard's keys go.
+
+| Cell | Sends | Handy for |
+| --- | --- | --- |
+| Esc | Esc | |
+| Win | The Windows key | Start menu |
+| Win+D | Win+D | Show the desktop |
+| Alt+Enter | Alt+Enter | Full screen in many games |
+| Ctrl+Alt+Tab | Ctrl+Alt+Tab | App switcher that stays up |
+| Shift+Tab | Shift+Tab | Steam overlay |
+| Win+G | Win+G | Xbox Game bar |
+| Win+Shift+Left | Win+Shift+Left | Move a window to the other monitor |
+| Ctrl+V | Ctrl+V | Paste |
+| Ctrl+Shift+Esc | Ctrl+Shift+Esc | Task manager |
+| Alt+F4 | Alt+F4 | Close the window. It asks first: **Send** or **Cancel**. |
+| Send keys... | Whatever you type next | Opens the headset keyboard waiting for one combo. Tap the modifiers (Ctrl, Alt, Win, Shift), then the key: the whole combo goes once. Hide cancels. |
+
+After those come your own macros, up to eight.
+
+### Macros
+
+Macros live in `macros.ini` next to `config.ini` (`~/.config/moonlight-xr/macros.ini`, or `$MLXR_CONFIG_DIR/macros.ini`). The Host sheet reads it each time it opens, so you can edit it and open the sheet again without restarting. A line is `name = steps`. The steps are separated by spaces or commas:
+
+| Step | Does |
+| --- | --- |
+| `ctrl+shift+esc` | Taps that key with those modifiers held. Names are the same as in `bindings.ini` (`key:` names): letters, digits, `F1` to `F24`, `esc`, `tab`, `enter`, `space`, arrows, `volumeup` and so on, or a Windows virtual key as `0x41`. Modifiers are `ctrl`, `shift`, `alt` and `win`. |
+| `down:alt` and `up:alt` | Presses a key and leaves it down, and lets it go. For when the order matters, like holding Alt while tapping Tab twice. A macro that ends with something still down lets it go. |
+| `wait:200` | Waits that many milliseconds (1 to 5000) before the next step. |
+
+A `!` in front of the first step makes the macro ask first, like Alt+F4 does. A line starting with `#` or `;` is a comment, and so is the end of a line after ` ;` or ` #`. `[macros]` as a section heading is allowed and not needed.
+
+```ini
+[macros]
+Task manager = ctrl+shift+esc
+Alt-Tab twice = down:alt, tab, tab, up:alt
+Snip = win+shift+s
+Mute mic = ctrl+alt+m
+Paste and send = ctrl+v, wait:150, enter
+Lock PC = !win+l
+```
+
+A line that is not right is left out, the rest still work, and `moonlight.log` names the first one and why. Up to 16 macros of 32 steps each; the sheet shows the first eight.
 
 ## Ending a stream
 

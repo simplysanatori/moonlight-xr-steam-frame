@@ -65,6 +65,7 @@ typedef struct {
     XrCompositionLayerQuad report;
     XrCompositionLayerQuad hint;
     XrCompositionLayerQuad kofi;
+    XrCompositionLayerQuad host;
     XrCompositionLayerQuad picker;
     XrCompositionLayerQuad outline[2];
     XrCompositionLayerQuad cogPanel;
@@ -663,6 +664,18 @@ static void addKofiLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers
             ctx->kofiH, KOFI_CLOSE_L, KOFI_BTN_T, KOFI_CLOSE_R, KOFI_BTN_B, 1.04f, 1.12f);
 }
 
+// Native: the Host sheet, over the middle of the picture; the hovered cell is
+// drawn into it
+static void addHostLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    float level = ctx->panelFades[FADE_HOST].level;
+    if (level <= 0.0f || !ctx->hostReady) {
+        return;
+    }
+    atlasQuad(ctx, &layers->host, fadeNext(ctx, layers, FADE_HOST, 1, level), UI_PANEL_HOST,
+              view->space, ctx->hostPose, ctx->hostW, ctx->hostH);
+    pushLayer(ctx, layers, &layers->host);
+}
+
 // The environment grid and the rings on its hovered and chosen cells
 static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     float level = ctx->panelFades[FADE_PICKER].level;
@@ -843,10 +856,10 @@ static void addToastLayer(XrCtx* ctx, FrameLayers* layers, int64_t now) {
 static void stepPanelFades(XrCtx* ctx, int64_t now) {
     static const char* const NAMES[FADE_PANELS] = {
         "settings panel", "picker", "keyboard", "exit prompt", "report sheet", "hand lock hint",
-        "Ko-fi sheet"
+        "Ko-fi sheet", "Host sheet"
     };
     int modal = ctx->pickerOpen || ctx->cogOpen || ctx->exitConfirmOpen || ctx->reportOpen
-            || ctx->hintOpen || ctx->kofiOpen;
+            || ctx->hintOpen || ctx->kofiOpen || ctx->hostOpen;
     int shown[FADE_PANELS];
     shown[FADE_COG] = ctx->cogOpen;
     shown[FADE_PICKER] = ctx->pickerOpen;
@@ -855,6 +868,7 @@ static void stepPanelFades(XrCtx* ctx, int64_t now) {
     shown[FADE_REPORT] = ctx->reportOpen;
     shown[FADE_HINT] = ctx->hintOpen;
     shown[FADE_KOFI] = ctx->kofiOpen;
+    shown[FADE_HOST] = ctx->hostOpen;
     ctx->panelFadingOut = 0;
     for (int p = 0; p < FADE_PANELS; p++) {
         Fade* fade = &ctx->panelFades[p];
@@ -915,7 +929,7 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
     stepPanelFades(ctx, frameNs);
     view.barArea = !ctx->pickerOpen && !ctx->cogOpen && !ctx->kbOpen
             && !ctx->exitConfirmOpen && !ctx->reportOpen && !ctx->hintOpen && !ctx->kofiOpen
-            && !ctx->panelFadingOut
+            && !ctx->hostOpen && !ctx->panelFadingOut
             && (ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON
                 || ctx->hoverKind == HOVER_COGBUTTON
                 || ctx->hoverKind == HOVER_KBBUTTON
@@ -962,6 +976,7 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
         addReportLayer(ctx, &view, layers);
         addHandHintLayers(ctx, &view, layers);
         addKofiLayers(ctx, &view, layers);
+        addHostLayers(ctx, &view, layers);
         addKeyboardLayers(ctx, &view, layers);
         addModelLayer(ctx, layers);
         addPointerLayers(ctx, &view, layers);
