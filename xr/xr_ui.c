@@ -71,6 +71,10 @@ static int barSlotShown(XrCtx* ctx, int slot) {
             return ctx->rayButtonReady;
         case BAR_SLOT_STEREO:
             return ctx->stereoButtonReady;
+        // Native (lane bar-glare): from the keyboard's strip like the Host
+        // button, and only while it can act, which is the only time it is drawn
+        case BAR_SLOT_HERE:
+            return ctx->kbButtonReady && xrBringHereCanAct(ctx);
         default:
             return 1;
     }
