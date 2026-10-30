@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 
 #include "panels.h"
+#include "xr_headaim.h"
 #include "panel_render.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -74,7 +75,7 @@ int render_all_panels(const char* dir) {
     ui_view_init(&v, &s);
     char name[96];
 
-    static const char* const TABS[COG_TAB_COUNT] = { "screen", "display", "3d", "picture", "about" };
+    static const char* const TABS[COG_TAB_COUNT] = { "screen", "display", "3d", "picture", "accessibility", "about" };
     v.version = "0.1.0";
     v.commit = "b7a431a";
     v.log_path = "/home/steamos/Games/MoonlightXRNative/moonlight.log";
@@ -103,6 +104,25 @@ int render_all_panels(const char* dir) {
         vl.cog_tab = tab;
         snprintf(name, sizeof name, "cog_%s_locked", TABS[tab]);
         panel_to_png(dir, name, UI_PANEL_COG, &vl, 1.0f);
+    }
+    // Native (lane a11y-tab): the Accessibility tab with the head pointing and a dwell, and with
+    // the eyes ready
+    {
+        Settings a = s;
+        a.pointer_source = POINTER_SOURCE_HEAD;
+        a.head_dwell_ms = 900;
+        UiView va;
+        ui_view_init(&va, &a);
+        va.cog_tab = COG_TAB_ACCESS;
+        va.access_eyes = ACCESS_EYES_NOT_ASKED;
+        panel_to_png(dir, "cog_accessibility_head", UI_PANEL_COG, &va, 1.0f);
+        a.pointer_source = POINTER_SOURCE_GAZE;
+        a.mouse_mode = MOUSE_MODE_RELATIVE;
+        a.head_look = 1;
+        ui_view_init(&va, &a);
+        va.cog_tab = COG_TAB_ACCESS;
+        va.access_eyes = ACCESS_EYES_READY;
+        panel_to_png(dir, "cog_accessibility_eyes", UI_PANEL_COG, &va, 1.0f);
     }
     // rooms
     static const int ENVS[3] = { ENV_ID_HOME_THEATER, ENV_ID_GRAND_CINEMA, ENV_ID_SYNTHWAVE };

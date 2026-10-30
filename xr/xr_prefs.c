@@ -156,6 +156,8 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     ctx->opentrackPort = OPENTRACK_PORT_DEFAULT;
     ctx->dwellFraction = -1.0f;
     ctx->gazeValid = -1;
+    ctx->gazeSupportFlag = -1;
+    gazeFallReset(&ctx->gazeFall);
     ctx->padDeadzone = PAD_STICK_DEADZONE_DEFAULT;
     ctx->padShortcut = PAD_SHORTCUT_MENU_GRIP;
     padToggleReset(&ctx->padToggle);
@@ -572,6 +574,14 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_DEPTH_SHAPE: s->depth_global = value; break;
     case SETTING_MOTION_RESET: s->motion_reset = value; break;
     case SETTING_EYE_BALANCE: s->eye_balance = value; break;
+    // Native (lane a11y-tab): the Accessibility tab
+    case SETTING_POINTER_SOURCE:
+        s->pointer_source = value >= 0 && value < POINTER_SOURCE_COUNT ? value : POINTER_SOURCE_CONTROLLER;
+        break;
+    case SETTING_HEAD_DWELL: s->head_dwell_ms = dwellMsClamp(value); break;
+    case SETTING_HEAD_LOOK: s->head_look = value != 0; break;
+    case SETTING_BACK_AS_GUIDE: s->back_as_guide = value != 0; break;
+    case SETTING_MOUSE_MODE: s->mouse_mode = value == MOUSE_MODE_RELATIVE ? MOUSE_MODE_RELATIVE : MOUSE_MODE_ABSOLUTE; break;
     case SETTING_PICTURE_BRIGHTNESS: s->picture_brightness = value; break;
     case SETTING_PICTURE_CONTRAST: s->picture_contrast = value; break;
     case SETTING_PICTURE_GAMMA: s->picture_gamma = value; break;
