@@ -10,6 +10,8 @@
 #include "streaming/uihooks.h"
 #include "streaming/mlxrprefs.h"
 #include "streaming/mlxrpreflight.h"
+#include "streaming/mlxronstart.h"
+#include "streaming/mlxrupdate.h"
 #include "backend/computermanager.h"
 #include "backend/nvhttp.h"
 
@@ -206,6 +208,10 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
         QReadLocker lock(&c.lock);
         uuid = c.uuid;
         pcName = c.name;
+    }
+    // Native (lane launcher-bundle, PLAN 6.4): the PC of the last stream, for the On start setting's "Last PC's Desktop"
+    if (!pcName.isEmpty()) {
+        QSettings().setValue("mlxr/last_pc", pcName);
     }
     // Native (lane wave4-launcher): the PC's or the app's settings profile, if it has one, is in force from here until
     // the Plan is gone (mlxrprofiles.h); everything below reads the settings in force
@@ -1468,6 +1474,13 @@ static int selfTestValue(const QString& spec)
         QTextStream(stdout) << "SELFTEST: openurl=" << (cmd.isEmpty() ? QString("qt ") + url : cmd.join(' ')) << Qt::endl;
         return 0;
     }
+    // Native (lane launcher-bundle, PLAN 6.7): the config.ini keys the Settings page shows through MlxrPrefs.vr
+    if (spec == "vrkeys") {
+        for (const QString& line : MlxrPrefs::vrKeyTable()) {
+            QTextStream(stdout) << line << Qt::endl;
+        }
+        return 0;
+    }
     if (spec == "scale") {
         QTextStream(stdout) << "SELFTEST: scale=" << QByteArray::number(gameModeScale(), 'g', 4)
                             << " QT_SCALE_FACTOR=" << qEnvironmentVariable("QT_SCALE_FACTOR") << Qt::endl;
@@ -1598,13 +1611,20 @@ int selfTest(const QString& spec)
         fflush(stderr);
         _exit(0);
     }
+    // Native (lane launcher-bundle, PLAN 6.2 and 6.4)
+    if (spec == "update" || spec == "onstart" || spec.startsWith("onstart:")) {
+        const int rc = spec == "update" ? MlxrUpdate::selfTest() : MlxrOnStart::selfTest(spec);
+        fflush(stdout);
+        fflush(stderr);
+        _exit(rc);
+    }
     if (spec.startsWith("pcvr:")) {
         const int rc = selfTestPcvr(spec);
         fflush(stdout);
         fflush(stderr);
         _exit(rc);
     }
-    if (spec == "scale" || spec.startsWith("bitrate:") || spec.startsWith("openurl:")) {
+    if (spec == "scale" || spec == "vrkeys" || spec.startsWith("bitrate:") || spec.startsWith("openurl:")) {
         const int rc = selfTestValue(spec);
         fflush(stdout);
         fflush(stderr);

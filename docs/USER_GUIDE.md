@@ -56,6 +56,16 @@ The **Help** button (the question mark at the top) opens this project's readme: 
 
 If you used the Moonlight flatpak on the Frame before, its PC list and pairing are copied the first time the flat window starts. The flatpak's own files are not changed.
 
+### Updates
+
+Once a day at most, the flat window asks GitHub for this project's latest release (`api.github.com`, nothing else). When it is newer than the installed version, an update button (the round arrow icon) appears at the top, with "Update available for Moonlight XR for Frame: Version N" for a few seconds; it opens the release page, in Steam's browser in Game Mode. Nothing is downloaded or installed: update as under "Update" in the readme. No information about you, the headset or your PCs is sent, and if GitHub cannot be reached nothing is shown (`moonlight-launcher.log` has one `MLXR_LAUNCHER_UPDATE: check failed` line). Between checks the last answer is used. Turn it off with **Check for updates** (General Settings).
+
+### Opening a stream by itself
+
+**On start** (General Settings) makes the flat window start a stream as soon as it opens and the PC answers, as if you had selected the app: **Last PC's Desktop** (the Desktop app of the PC you streamed from last) or **An app** (choose it in **App to open on start** from the apps of your PCs). The default is **Nothing**. It waits up to 2 minutes for the PC (and wakes it, as Moonlight's own command line does), then gives up quietly. If another app is already running on that PC, it does not start, so nothing of yours is quit. When the stream ends you are back in the PC list. `moonlight-launcher.log` has `MLXR_LAUNCHER_ONSTART:` lines for each step.
+
+The installer can add a second Steam shortcut, **Desktop in VR**, that goes straight to the Desktop: `./install.sh --desktop-shortcut` (see the readme). It runs `moonlight-xr-launcher.sh stream "PC" "Desktop"`, Moonlight's own command line. The flat window shows "Establishing connection to PC..." and closes when the stream ends. The PC is the one you streamed from last, or the only one, or `--desktop-pc "PC name"`. Run the installer again with another `--desktop-pc` to change it, or edit the shortcut's launch options in Steam.
+
 ## Settings page
 
 The page has the categories below, in this order. A greyed row shows "Not available:" and the reason. Settings are saved when you leave the page.
@@ -165,6 +175,8 @@ When a stream starts, the profile of the app, or else of its PC, is in force for
 | Surround sound configuration | Stereo, 5.1 Surround Sound, 7.1 Surround Sound | Stereo |
 | Adjust analog stick deadzone | -20 to 20 % | 0 %. Above 0 it is also the dead zone of the Frame controllers in gamepad mode, which use 7 % at 0. |
 | Flip face buttons | on, off | off. Swaps A/B and X/Y. |
+| Back button as Guide | on, off | off. In the headset's gamepad mode the View (Back) button is Guide, see [Gamepad mode](#gamepad-mode). |
+| Mouse mode | Absolute, Relative | Absolute. See [Relative mouse](#relative-mouse). |
 | Headset keyboard layout | QWERTY (US), AZERTY (French), QWERTZ (German) | QWERTY. The PC must be on the same Windows layout, see [AZERTY and QWERTZ](#azerty-and-qwertz). |
 | Enable Rumble | on, off | on |
 | Enable forward/back mouse buttons | on, off | on |
@@ -175,6 +187,48 @@ When a stream starts, the profile of the app, or else of its PC, is in force for
 | Quick Resume | on, off | off. Selecting a running app resumes it at once. |
 | Enable Full Screen | on, off | Takes effect at the next start. |
 | Headset language | Automatic, English and 19 more | Automatic. The headset's own menus, see [Language](#language). The Language row above it is the flat window's. |
+| On start (General) | Nothing, Last PC's Desktop, An app | Nothing. See [Opening a stream by itself](#opening-a-stream-by-itself). |
+| App to open on start (General) | the apps of your PCs | Shown with On start set to An app. |
+| Check for updates (General) | on, off | on. See [Updates](#updates). |
+
+### Headset settings on this page
+
+These rows change the headset's own settings in `config.ini`, the same ones its cog menu and the file have. Only a row you change is written; a change takes effect at the next stream (the 3D depth model and Room detail when the model or the room is loaded). They are not part of a stream profile.
+
+| Row (category) | Options | Default | `config.ini` |
+| --- | --- | --- | --- |
+| 3D depth model (Video) | ZipDepth, ZipDepth lighter on the CPU, MiDaS (older), Off (2D only) | ZipDepth | `[vr] depth_source` |
+| Sharpening (Video) | Off, Normal, Quality | Off | `[display] sharpening` |
+| Supersampling (Video) | Off, Normal, Quality | Normal. Not used while the 3D is on. | `[display] supersampling` |
+| Sharper small text, Sharper coloured text (Video) | on, off | on, on | `[display] picture_filter`, `chroma_from_luma` |
+| Picture brightness, contrast, gamma, saturation (Video) | -50 to 50; 50 to 150 %; 0.50 to 2.00; 0 to 200 % | 0, 100 %, 1.00, 100 % | `[vr] picture_brightness`, `picture_contrast`, `picture_gamma` (hundredths), `picture_saturation` |
+| Virtual surround (Audio) | on, off | off | `[stream] virtual_surround` |
+| When the gyro is sent (Gamepad) | Always, While the thumb touches the right stick | Always | `[vr] pad_gyro_ratchet` |
+| Lightgun reload, Lightgun recoil (Gamepad) | on, off | off, on | `[vr] lightgun_reload`, `lightgun_recoil` |
+| Gamepad mode shortcut (Gamepad) | Left View and left grip, Click both sticks, Both triggers and both grips | Left View and left grip | `[vr] gamepad_toggle` |
+| Grips in gamepad mode (Gamepad) | Bumpers (LB, RB), Nothing, Stick clicks (LS, RS) | Bumpers | `[vr] pad_grip` |
+| Rumble on the headset controllers (Gamepad) | Stronger motor in both hands, Low motor left, high motor right | Stronger motor in both hands | `[vr] rumble_mix` |
+| Rumble strength on the headset controllers (Gamepad) | 0 to 100 % | 100 % | `[vr] rumble_intensity` |
+| Headset keyboard size (Input) | Compact, Full (tenkeyless) | Compact | `[vr] keyboard_layout` |
+| Hold to lock Shift, Ctrl, Alt or Win (Input) | 200 to 1500 ms | 500 ms | `[vr] keyboard_hold_ms` |
+| Controllers as a mouse (Input) | on, off | on | `[vr] pointer` |
+| Pause the pointer when the controller is still (Input) | on, off | on | `[vr] pointer_sleep` |
+| Show the ray, Show the dot where the ray lands (Input) | on, off | on, on | `[vr] show_ray`, `pointer_dot` |
+| Click steadiness (Input) | Off, Normal, Steady | Normal | `[vr] click_steadiness` |
+| Click sound (Input) | on, off | on | `[vr] click_sound` |
+| Head aims the mouse, Head aim speed, Head aim dead zone (Input) | on, off; 1 to 30 px/°; 0 to 20 °/s | off, 8, 2 | `[vr] head_aim`, `head_aim_sensitivity`, `head_aim_deadzone` |
+| Look to point, Hand tracking (Input) | on, off | off, off. Not tested on the Steam Frame yet. | `[vr] gaze`, `hand_tracking` |
+| Environment (UI) | Automatic, Passthrough, Void, Home Theater, Grand Cinema, Synthwave | Automatic: the void, or the passthrough with Passthrough on | `[vr] environment` |
+| Passthrough (UI) | on, off | off | `[vr] passthrough` |
+| Room detail (UI) | Low, Standard, High, Ultra | Standard | `[vr] env_res` |
+| Screen light in rooms, Glow, Glow level (UI) | on, off; 0 to 100 % | on, off, 50 % | `[display] screen_light`, `glow`, `glow_level` |
+| Screen distance, Screen width, Screen curve (UI) | 20 to 800 cm; 80 to 800 cm; 0 to 100 % | 300 cm, 300 cm, 0 % | `[screen] distance_cm`, `width_cm`, `curve` |
+| Remember the screen per app (UI) | on, off | on. An app without its own place starts from the rows above. | `[screen] per_app` |
+| Keep the screen's size when pushing or pulling it (UI) | on, off | on | `[screen] angular_lock` |
+| Head-locked screen, Screen follows your head, Follow after turning (UI) | on, off; 10 to 60° | off, off, 25° | `[display] head_locked`, `head_follow`, `follow_leash_deg` |
+| Stats style (Performance Monitor) | Full, HUD, Lite | Full | `[display] stats_style` |
+
+Left out on purpose: the `[debug]` keys, what the headset keeps by itself (the last PC and app, the cog's last tab, the zoom's centre, the hand hint), the screen's height, direction, tilt and rotation (set by grabbing the screen) and the place the bar's Bring here switch goes back to and each room's own brightness, glow, light and picture size (the cog's Room tab, while you look at the room).
 
 ### Language
 
@@ -404,6 +458,8 @@ The two controllers become one Xbox controller on the PC.
 
 Start and Back reach the PC as you press them. If you keep both down for a quarter of a second they turn into Guide, which stays down while you hold them, and neither of them is sent after that until you let go of both. The Start and Back button presses of the first quarter of a second still reach the game. If you also press both bumpers (Start, Back, LB and RB is the disconnect chord) it is the disconnect chord and not Guide.
 
+`back_as_guide = true` in `config.ini` (or **Back button as Guide** on the launcher's Settings page) makes the left View (Back) button the Guide button on its own, for games and Steam's Big Picture that want Guide often. The PC then gets no Back from it, except while Start is held: Start with View stays Start and Back, so the quarter-second Guide hold and the disconnect chord work as before. Pressing View first and Start after sends a short Guide before the chord; press Start first if that matters.
+
 The stick dead zone is 7 % of the way out. Move the launcher's **Adjust analog stick deadzone** slider above 0 and the controllers use that value instead (1 to 20 %). Values below 0 are dead zone compensation, which only physical gamepads use.
 
 The PC's rumble drives the controllers in gamepad mode. By default both controllers get the stronger of the PC's two motors, so a game that uses one motor is felt in both hands; the trigger motors (when the PC sends them) add to the controller on their side. `rumble_mix` and `rumble_intensity` in `config.ini` change this (see [below](#advanced-configini)). If you feel nothing, `moonlight.log` has `rumble: the host's first request` when the PC's first rumble arrives, and `rumble on the left controller ... runtime said` for what the headset's runtime did with it. No first-request line means the PC sent no rumble (check Enable Rumble in the launcher and the PC's gamepad type).
@@ -424,6 +480,26 @@ The gyro is in degrees per second about the controller's own axes, the way a Dua
 
 **On the PC**, this needs a host that emulates a DualShock 4 for a PlayStation pad: Apollo (or Sunshine) with ViGEmBus installed and the gamepad type left on Automatic (or set to DS4). Steam Input only sees native gyro from that DualShock 4, so on a host that always makes an Xbox 360 pad the gyro cannot arrive.
 
+### Head-look (experimental)
+
+`head_look = true` in `config.ini` (or **Head-look (experimental)** on the launcher's Settings page, under Input Settings) makes your head the mouse for first-person games, the way a game's look control works: turn your head right and the PC's mouse moves right, look up and it moves up. It is meant for games streamed in side by side 3D in a room, where the screen stays put and you look around inside the game. It only works in pointer mode, and only with the screen locked to your head (**Head locked**) or with a room up; a screen placed in the world without a room is left alone. The speed is `head_look_px_deg` (pixels a degree, 1 to 30, default 8; the launcher's **Head-look speed** row steps through it), and the dead zone is Head aim's (`head_aim_deadzone`, degrees a second: a slower drift sends nothing). It is 3DoF: only turning counts, not leaning. The ray keeps working on top: while head-look is on, moving the ray nudges the cursor by how far its point moves instead of placing it.
+
+To turn back without turning the game, hold a **grip** (either one, as long as it is bound to nothing, which it is by default in pointer mode) and turn your head; let go and it carries on from there, like lifting a mouse off the desk. Any other control can be the pause too: bind it to `app:lookhold` in `bindings.ini`. A panel opening (cog, keyboard, Host sheet) also pauses it. Head aim (the bar's button and the Display tab's row) wins where both could act, so with the screen head locked and Head aim on, Head aim's speed is used; in a room Head aim cannot act and head-look takes over. `moonlight.log` says `head-look on`, `head-look paused while its hold is down` and how far it moved the mouse every few seconds.
+
+### Relative mouse
+
+`mouse_mode = relative` in `config.ini` (or **Mouse mode** on the launcher's Settings page, under Input Settings) sends how far the pointer moves on the picture instead of where it is, the way a real mouse does. Use it for games that capture the mouse and ignore its position: first-person games, and games whose cursor jumps or sticks to an edge with the default. Moving the ray across the picture moves the PC's mouse by the same number of stream pixels; the dot still shows where the ray lands, but the game's own cursor (if it draws one) goes its own way. Taking the ray off the picture and back somewhere else does not throw the mouse. `absolute` (the default) puts the PC's cursor where the ray lands, Moonlight's remote desktop mouse, which is what desktops and menus want. Head aim and head-look already move the mouse this way while they are on.
+
+### Pointing with your head
+
+`pointer_source = head` in `config.ini` (or **What points** on the launcher's Settings page, under Input Settings) points with the middle of your view instead of a controller, for when holding a controller up is hard. A dot shows where you point (the beam would run out of your face, so there is none), smoothed so a still head holds it still; the PC's cursor follows it. Either controller's trigger clicks, on the picture and on the headset's own menus. With `head_dwell_ms` set (400 to 2000; 0, the default, is off), resting the dot on one spot for that long clicks it: a square ring closes in on the dot while it counts, and moving it more than about a degree starts the count again. After a click, move the dot away and back to click again. Dwell never clicks the move pill, the corners or the keyboard's bar (a press there would grab them). Gamepad mode is unchanged. `pointer_source = gaze` is the eye-gaze pointer, the same as `gaze = true`.
+
+### Head tracking for PC games (opentrack)
+
+Games with head tracking (flight and racing simulators that take TrackIR or FreeTrack) can follow your real head through [opentrack](https://github.com/opentrack/opentrack) on the PC. With `opentrack = true` in `config.ini` (or **Head tracking to opentrack** on the launcher's Settings page, under Input Settings), the headset sends your head's position and turn to the PC every frame while a stream is running, as opentrack's "UDP over network" packet: x, y, z in centimetres, then yaw, pitch and roll in degrees. It goes to the PC you are streaming from unless `opentrack_host` names another address or name, on UDP port `opentrack_port` (4242, opentrack's own default). Sending never holds up a frame: a packet that cannot go out at once is dropped, and the next frame sends a newer one.
+
+**On the PC:** install opentrack and start it. Under **Input** choose **UDP over network** and press the hammer button next to it: the port must be the same as `opentrack_port` (4242). Under **Output** choose what the game reads: **freetrack 2.0 Enhanced** for most TrackIR and FreeTrack games, or **Virtual joystick** for games that take a joystick. Press **Start**; the octopus in opentrack's window turns with your head once the stream is up. Let Windows Firewall allow opentrack on private networks when it asks (or allow UDP port 4242 in). Press opentrack's **Center** key (set one under Options, Shortcuts) while you look straight at the screen; opentrack then measures from there. Yaw is positive turning left, pitch positive looking up and roll positive tilting your head to the left; if a game turns the wrong way, tick **Invert** for that axis on opentrack's Output tab. The curves under **Mapping** set how far the game turns for each degree. `moonlight.log` says `opentrack: the head pose goes to <address>:4242 every frame` once the first packet is out, and how many went when the stream stops.
+
 ### Changing the buttons
 
 `~/.config/moonlight-xr/bindings.ini` says what each control does. The first start writes it with every default as a line that starts with `#`, so it changes nothing until you take the `#` off a line and edit it. For example:
@@ -440,7 +516,7 @@ right.grip = key:R             ; the right grip presses R instead of RB
 pointer.right.trigger = mouse:left
 ```
 
-An action is `key:` (a key, with `ctrl+`, `shift+`, `alt+`, `win+` in front), `mouse:left|right|middle|x1|x2`, `wheel:up|down|left|right`, `pad:` (a gamepad button, gamepad mode only), `stick:` (what a whole thumbstick does: `scroll`, `mouse`, `wasd`, `arrows`, `dpad`) or `app:keyboard|ray|recentre|cog|3d|gamepad|bringhere|host|zoomin|zoomout|zoomreset` (the last three are [Zoom and pan](#zoom-and-pan)). A line that is not right is left out: `moonlight.log` says which line and why, and the headset shows "bindings.ini: N errors, see log". The mode switch shortcuts, the disconnect chord and the grips' grab over the bar and corners cannot be changed. The full list is in the file itself. The flat launcher's **Controller bindings** page edits the same file ([BINDINGS.md](BINDINGS.md)). The headset reads the file when a stream starts, so a change takes effect at the next stream start.
+An action is `key:` (a key, with `ctrl+`, `shift+`, `alt+`, `win+` in front), `mouse:left|right|middle|x1|x2`, `wheel:up|down|left|right`, `pad:` (a gamepad button, gamepad mode only), `stick:` (what a whole thumbstick does: `scroll`, `mouse`, `wasd`, `arrows`, `dpad`) or `app:keyboard|ray|recentre|cog|3d|gamepad|bringhere|host|zoomin|zoomout|zoomreset|lookhold` (`zoomin`, `zoomout` and `zoomreset` are [Zoom and pan](#zoom-and-pan); `lookhold` pauses head-look while held). A line that is not right is left out: `moonlight.log` says which line and why, and the headset shows "bindings.ini: N errors, see log". The mode switch shortcuts, the disconnect chord and the grips' grab over the bar and corners cannot be changed. The full list is in the file itself. The flat launcher's **Controller bindings** page edits the same file ([BINDINGS.md](BINDINGS.md)). The headset reads the file when a stream starts, so a change takes effect at the next stream start.
 
 ### Switching between the modes
 
@@ -833,6 +909,15 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] lightgun_recoil` | `true`, `false`. In lightgun mode, a short strong pulse in the controller on every shot. | `true` |
 | `[vr] pad_gyro` | `off`, `controller`, `head`. Sends the right controller's (or the head's) turn to the PC as the gyro of a PlayStation gamepad in gamepad mode. See [Gyro in gamepad mode](#gyro-in-gamepad-mode); the launcher has it too (**Gyro from the headset**). Read when gamepad mode turns on. | `off` |
 | `[vr] pad_gyro_ratchet` | `always`, `stick_touch` (only while the right thumb touches the right thumbstick of a Steam Frame controller; the same as `always` where that touch is not read). | `always` |
+| `[vr] head_look` | `true`, `false`. Experimental: your head's turn moves the PC's mouse in pointer mode with the screen head locked or a room up. See [Head-look](#head-look-experimental); the launcher has it too. | `false` |
+| `[vr] head_look_px_deg` | 1 to 30. Head-look's mouse pixels for each degree the head turns. | 8 |
+| `[vr] opentrack` | `true`, `false`. While streaming, the head pose goes to opentrack on the PC every frame. See [Head tracking for PC games](#head-tracking-for-pc-games-opentrack); the launcher has it too. | `false` |
+| `[vr] opentrack_host` | An address or a name | Empty: the PC you are streaming from. |
+| `[vr] opentrack_port` | 1 to 65535 | 4242, opentrack's UDP over network default. |
+| `[vr] pointer_source` | `controller`, `head`, `gaze`. What points. See [Pointing with your head](#pointing-with-your-head). | `controller` |
+| `[vr] head_dwell_ms` | 0, or 400 to 2000 | 0 (off). With `pointer_source = head`, resting the dot this long clicks. |
+| `[vr] mouse_mode` | `absolute`, `relative`. Where the ray lands, or how far it moves. See [Relative mouse](#relative-mouse); the launcher has it too. | `absolute` |
+| `[vr] back_as_guide` | `true`, `false`. Gamepad mode's View (Back) button is Guide, except with Start held. The launcher has it too. | `false` |
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
 | `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
 | `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |
@@ -907,6 +992,7 @@ The four click variables above override the Click steadiness row for their own p
 | `MLXR_VRTIMING` | 1 | 0 stops the flat window from logging SteamVR's frame timing to `vrtiming.log`. |
 | `MLXR_HANDOFF` | 1 | 0 makes the flat window stream flat, as stock Moonlight. |
 | `MLXR_LAUNCHER_PREFLIGHT` | 1 | 0 stops the flat window from asking the PC before a stream (the check and the app's UUID). |
+| `MLXR_LAUNCHER_UPDATE` | 1 | 0 stops the flat window's daily update check, whatever **Check for updates** says. |
 | `MLXR_APP_UUID` | | Set by the flat window for the VR client: the app's UUID on Apollo, sent in the launch request as `appuuid`. Anything that is not a UUID is ignored. |
 | `MLXR_LAUNCHER_SCALE` | 1.5 | How much larger the flat window is drawn in Game Mode (1.0 to 2.5). A `QT_SCALE_FACTOR` you set yourself is used when this is not set. |
 | `MLXR_LAUNCHER_FADE_WINDOW` | 1 | In Game Mode the flat window fades to opacity 0 during a stream and stays mapped, so gamescope keeps a window for keyboard focus. 0 hides the window instead, which can crash gamescope on a volume key press. |
