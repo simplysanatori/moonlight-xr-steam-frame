@@ -169,9 +169,9 @@ void ui_draw_clock_strip(UiCanvas* cv, const UiClock* c) {
     dc_text_center(&dc, UI_WEIGHT_REGULAR, 26.0f, COG_CLOCK_TEX_W * 0.5f, COG_CLOCK_TEX_H * 0.5f, 0xD0FFFFFFu, c->time);
     if (c->battery >= 0) clock_battery(&dc, c->battery, c->charging);
     if (c->slow) {
-        const float x0 = 238.0f, x1 = COG_CLOCK_TEX_W - 10.0f, y0 = 9.0f, y1 = COG_CLOCK_TEX_H - 9.0f;
+        const float x0 = 234.0f, x1 = COG_CLOCK_TEX_W - 10.0f, y0 = 9.0f, y1 = COG_CLOCK_TEX_H - 9.0f;
         dc_fill_rrect(&dc, x0, y0, x1, y1, (y1 - y0) * 0.5f, 0xFFFFB74Du);
-        dc_text_fit_center(&dc, UI_WEIGHT_REGULAR, 17.0f, (x0 + x1) * 0.5f, COG_CLOCK_TEX_H * 0.5f, (x1 - x0) - 16.0f,
+        dc_text_fit_center(&dc, UI_WEIGHT_REGULAR, 15.0f, (x0 + x1) * 0.5f, COG_CLOCK_TEX_H * 0.5f, (x1 - x0) - 12.0f,
                            0xFF141416u, ui_str(UIS_NATIVE_SLOW_CONN));
     }
 }

@@ -313,8 +313,8 @@ static void testStrip(Scene* s) {
     c->slowConn = 1;
     scene_frame(s, NULL);
     uint8_t* slow = copyStrip(c, r);
-    CHECK(stripDiff(lower, slow, r, 235, r.w) > 1000);
-    CHECK(stripDiff(lower, slow, r, 0, 235) == 0);
+    CHECK(stripDiff(lower, slow, r, 232, r.w) > 1000);
+    CHECK(stripDiff(lower, slow, r, 0, 232) == 0);
 
     // no battery (the desktop): back to the bare strip, badge or not
     c->batteryPresent = 0;

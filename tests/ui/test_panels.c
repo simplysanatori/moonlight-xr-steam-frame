@@ -474,10 +474,10 @@ static void test_clock_strip(void) {
     CHECK(strip_diff(&bat, &chg, 150, w) == 0);
     CHECK(strip_diff(&bat, &low, 0, 150) > 50);
     // the slow connection pill is at the right only, and with the battery they do not touch
-    CHECK(strip_diff(&plain, &slow, 235, w) > 1000);
-    CHECK(strip_diff(&plain, &slow, 0, 235) == 0);
-    CHECK(strip_diff(&chg, &both, 0, 235) == 0);
-    CHECK(strip_diff(&chg, &both, 235, w) > 1000);
+    CHECK(strip_diff(&plain, &slow, 232, w) > 1000);
+    CHECK(strip_diff(&plain, &slow, 0, 232) == 0);
+    CHECK(strip_diff(&chg, &both, 0, 232) == 0);
+    CHECK(strip_diff(&chg, &both, 232, w) > 1000);
     // a bare time and a missing one
     UiCanvas cv2;
     ui_cv_init(&cv2, plain.px, w, h);
