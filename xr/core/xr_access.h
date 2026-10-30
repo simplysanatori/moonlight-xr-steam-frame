@@ -55,6 +55,14 @@ int accessDotClamp(int percent);
 // the controllers (their dot is not this setting's)
 float accessDotScale(int percent, int pointerSource);
 
+// ---- the headset button's device, as the tab shows it (lane a11y-2) ----------------------------------
+#define ACCESS_BUTTON_UNKNOWN 0     // not looked for yet
+#define ACCESS_BUTTON_OK 1          // found and readable
+#define ACCESS_BUTTON_MISSING 2     // no gpio-keys device with KEY_SELECT
+#define ACCESS_BUTTON_UNREADABLE 3  // found, but this user cannot read it
+// Whether the tab greys its row for the device: missing or unreadable (unknown is live)
+int accessButtonGreyed(int state);
+
 // ---- the tab's rows (lane a11y-2) ------------------------------------------------------------------
 // The row of the tab a point at v (0 top, 1 bottom of the panel) is on, live or greyed, label or
 // cells, or -1 between and past them: the row the footer describes

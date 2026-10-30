@@ -599,10 +599,13 @@ static float access_wrap(Dc* dc, const char* text, float left, float baseline, f
 static void tab_access(Dc* dc) {
     const UiView* v = dc->v;
     const Settings* s = v->settings;
-    static const UiStr ROWS[COG_ACCESS_ROW_COUNT] = { UIS_ROW_POINTER_SOURCE, UIS_ROW_DWELL, UIS_ROW_DOT_SIZE };
+    static const UiStr ROWS[COG_ACCESS_ROW_COUNT] = { UIS_ROW_POINTER_SOURCE, UIS_ROW_DWELL, UIS_ROW_DOT_SIZE,
+                                                      UIS_ROW_HEADSET_BUTTON };
     static const UiStr POINTER[COG_ACCESS_POINTER_CELLS] = { UIS_CELL_CONTROLLER, UIS_CELL_HEAD, UIS_CELL_EYES };
     static const UiStr DWELL[COG_ACCESS_DWELL_CELLS] = { UIS_OFF, UIS_DWELL_06, UIS_DWELL_09, UIS_DWELL_12, UIS_DWELL_15 };
-    static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL, UIS_ACCESS_DESC_DOT };
+    static const UiStr OFFON[COG_ACCESS_BUTTON_CELLS] = { UIS_OFF, UIS_ON };
+    static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL, UIS_ACCESS_DESC_DOT,
+                                                      UIS_ACCESS_DESC_BUTTON };
     static const UiStr EYES[ACCESS_EYES_COUNT] = { UIS_EYES_READY, UIS_EYES_WAITING, UIS_EYES_NO_ACTION,
                                                    UIS_EYES_UNAVAILABLE };
     float cell_half = COG_ACCESS_CELL_HALF * dc->nh;
@@ -622,7 +625,11 @@ static void tab_access(Dc* dc) {
         }
         int n = ui_cog_access_cells(v, row);
         if (!live) {
-            greyed_reason(dc, y, ui_str(UIS_NEEDS_HEAD_POINTER));
+            // the headset button's row says what is wrong with its device first
+            int device = row == COG_ACCESS_ROW_BUTTON && accessButtonGreyed(v->access_button);
+            greyed_reason(dc, y, ui_str(!device ? UIS_NEEDS_HEAD_POINTER
+                                        : v->access_button == ACCESS_BUTTON_MISSING ? UIS_BUTTON_MISSING
+                                                                                     : UIS_BUTTON_UNREADABLE));
             float rv = cogRowV(COG_TAB_ACCESS, row), half = cogRowHalf(COG_TAB_ACCESS);
             for (int c = 0; c < n; c++) {
                 dc_hit_uv(dc, UI_HIT_CELL, row, c, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)c / (float)n, rv - half,
@@ -632,8 +639,10 @@ static void tab_access(Dc* dc) {
         }
         if (row == COG_ACCESS_ROW_POINTER) {
             access_cells(dc, row, POINTER, n, y, 1, cell_half, s->pointer_source < n ? s->pointer_source : -1);
-        } else {
+        } else if (row == COG_ACCESS_ROW_DWELL) {
             cells(dc, COG_TAB_ACCESS, row, DWELL, n, y, 1, cell_half, accessDwellCell(s->head_dwell_ms));
+        } else {
+            cells(dc, COG_TAB_ACCESS, row, OFFON, n, y, 1, cell_half, s->assist_headset_button ? 1 : 0);
         }
     }
     label_flush(dc, label_right(dc));
@@ -658,6 +667,10 @@ static void tab_access(Dc* dc) {
     }
     dc_fill_rrect(dc, 20.0f, footer, dc->nw - 20.0f, footer + 2.0f, 0.0f, 0x30FFFFFFu);
     const char* desc = hover >= 0 && hover < COG_ACCESS_ROW_COUNT ? ui_str(DESC[hover]) : ui_str(UIS_ACCESS_DESC_NONE);
+    // the headset button's device unreadable: the reason, and where to read what to do
+    if (hover == COG_ACCESS_ROW_BUTTON && v->access_button == ACCESS_BUTTON_UNREADABLE) {
+        desc = ui_str(UIS_ACCESS_DESC_BUTTON_UNREADABLE);
+    }
     access_wrap(dc, desc, left, COG_ACCESS_FOOTER_T * dc->nh, room, step, 2,
                 hover >= 0 && hover < COG_ACCESS_ROW_COUNT ? 0xF0FFFFFFu : 0x70FFFFFFu);
 }

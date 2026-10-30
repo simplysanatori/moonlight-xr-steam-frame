@@ -157,6 +157,22 @@ static void build_states(void) {
     st = add("cog-access-no-eyes", UI_PANEL_COG, &s);
     st->v.cog_tab = COG_TAB_ACCESS;
     st->v.access_eyes = ACCESS_EYES_UNAVAILABLE;
+    // the headset button on, the footer on the button's two lines; the button's device unreadable
+    // and missing
+    Settings radial = head;
+    radial.assist_headset_button = 1;
+    st = add("cog-access-button", UI_PANEL_COG, &radial);
+    st->v.cog_tab = COG_TAB_ACCESS;
+    st->v.access_eyes = ACCESS_EYES_READY;
+    st->v.access_row = COG_ACCESS_ROW_BUTTON;
+    st = add("cog-access-button-unreadable", UI_PANEL_COG, &radial);
+    st->v.cog_tab = COG_TAB_ACCESS;
+    st->v.access_button = ACCESS_BUTTON_UNREADABLE;
+    st->v.access_row = COG_ACCESS_ROW_BUTTON;
+    st = add("cog-access-button-missing", UI_PANEL_COG, &radial);
+    st->v.cog_tab = COG_TAB_ACCESS;
+    st->v.access_button = ACCESS_BUTTON_MISSING;
+    st->v.access_row = COG_ACCESS_ROW_DWELL;
     st = add("cog-about-nolog", UI_PANEL_COG, &s);
     st->v.cog_tab = COG_TAB_ABOUT;
     st->v.log_path = NULL;

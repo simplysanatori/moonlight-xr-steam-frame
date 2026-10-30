@@ -2280,6 +2280,9 @@ int xr_app_run(const XrAppConfig* cfg) {
         if (atomic_exchange(&g_kbToggle, 0)) {
             xrKeyboardToggle(ctx, "a gamepad's Y");
         }
+        // native (lane a11y-2): the headset button, taken from SteamVR only while it may be
+        xrAuxButtonFrame(ctx, nowNs(), ctx->sessionState == XR_SESSION_STATE_FOCUSED,
+                         atomic_load(&g_streaming));
         xrUpdateInput(ctx, host.distance, host.quadWidth, host.curvature, host.live.head_locked,
                       host.live.pointer, host.live.gaze && ctx->eyeGaze, host.live.pointer_sleep, host.out);
         if (cfg->hooks.headYaw) cfg->hooks.headYaw(cfg->hooks.user, host.out[IN_HEAD_YAW]);
@@ -2817,6 +2820,7 @@ fail:
     if (ctx->localSpace) xrDestroySpace(ctx->localSpace);
     perfClose(&host);
     xrMetricsStop(ctx);
+    xrAuxButtonRelease(ctx, "the session ended");   // native (lane a11y-2)
     if (ctx->session) xrDestroySession(ctx->session);
     if (ctx->instance) xrDestroyInstance(ctx->instance);
     xr_vk_destroy(&vk);

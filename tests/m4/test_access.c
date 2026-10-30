@@ -10,6 +10,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <linux/input.h>
+
 #include "check.h"
 #include "scene.h"
 
@@ -148,6 +154,7 @@ static void frames(XrCtx* c, int n) {
     for (int i = 0; i < n; i++) {
         g_now += FRAME_NS;
         c->predictedDisplayTime = (XrTime)g_now;
+        xrAssistFrame(c, g_now);   // as the session does before the input pass (lane a11y-2)
         xrPointerPanelStep(c, g_now, 0, out);
         if (out[IN_SETTING] >= 0.0f) {
             g_settingsOut++;
@@ -487,6 +494,165 @@ static void dotScales(Scene* s) {
     c->beamVisible = 0;
 }
 
+// Lane a11y-2: the headset button's clicks land where the dot is: on our menus as a press, on the
+// picture as the mouse buttons; a drag holds the left button
+static void assistClicks(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 0);
+    float out[IN_SLOTS];
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_HEAD, out);
+    g_head = cellAt(c, COG_ACCESS_ROW_DWELL, 3);
+    frames(c, 20);
+    g_settingsOut = 0;
+    xrAssistAction(c, ASSIST_LEFT, g_now);
+    CHECK(c->assistUi == 1);
+    frames(c, 10);
+    CHECK(c->headDwellMs == 1200 && g_settingsOut == 1 && g_lastSetting == SETTING_HEAD_DWELL);
+    // a right click on our menus is one press
+    g_head = cellAt(c, COG_ACCESS_ROW_DWELL, 1);
+    frames(c, 20);
+    xrAssistAction(c, ASSIST_RIGHT, g_now);
+    frames(c, 10);
+    CHECK(c->headDwellMs == 600);
+    // on the picture: the cog shut, the dot on the screen
+    c->cogOpen = 0;
+    g_head = (Vec3){ 0.0f, 0.0f, -1.0f };
+    frames(c, 20);
+    CHECK(c->hoverKind == HOVER_SCREEN);
+    int sawLeft = 0, sawRight = 0;
+    xrAssistAction(c, ASSIST_RIGHT, g_now);
+    CHECK(c->assistUi == 0);
+    for (int i = 0; i < 12; i++) {
+        g_now += FRAME_NS;
+        c->predictedDisplayTime = (XrTime)g_now;
+        xrAssistFrame(c, g_now);
+        int b = xrButtonsFrame(c, 0, HOVER_SCREEN, 1);   // the buttons part of the frame, on the picture
+        sawRight |= (b & VR_BUTTON_RIGHT) != 0;
+        sawLeft |= (b & VR_BUTTON_LEFT) != 0;
+    }
+    CHECK(sawRight && !sawLeft);
+    // a drag: the left button stays down until it is let go
+    xrAssistAction(c, ASSIST_DRAG_DOWN, g_now);
+    int held = 0;
+    for (int i = 0; i < 60; i++) {
+        g_now += FRAME_NS;
+        c->predictedDisplayTime = (XrTime)g_now;
+        xrAssistFrame(c, g_now);
+        held += (xrButtonsFrame(c, 0, HOVER_SCREEN, 1) & VR_BUTTON_LEFT) != 0;
+    }
+    CHECK(held == 60);
+    xrAssistAction(c, ASSIST_DRAG_UP, g_now);
+    xrAssistFrame(c, g_now);
+    CHECK(c->assistButtons == 0 && (xrButtonsFrame(c, 0, HOVER_SCREEN, 1) & VR_BUTTON_LEFT) == 0);
+    c->cogOpen = 1;
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
+// Lane a11y-2: the headset button's device through xrAuxButtonFrame, a FIFO standing in for it: taken
+// (grabbed) only while on, focused and streaming with the head pointing; given back on focus loss,
+// with the setting off, and for 15 s after a 3 s hold (with a toast)
+static int g_grabs[16], g_ngrabs;
+static int fakeGrab(int fd, int on) {
+    (void)fd;
+    if (g_ngrabs < 16) g_grabs[g_ngrabs++] = on;
+    return 0;
+}
+
+static void auxFrames(XrCtx* c, int n, int focused, int streaming) {
+    for (int i = 0; i < n; i++) {
+        g_now += FRAME_NS;
+        xrAuxButtonFrame(c, g_now, focused, streaming);
+    }
+}
+
+static void putKey(int fd, int value) {
+    struct input_event e;
+    memset(&e, 0, sizeof e);
+    e.type = EV_KEY;
+    e.code = KEY_SELECT;
+    e.value = value;
+    CHECK(write(fd, &e, sizeof e) == (ssize_t)sizeof e);
+}
+
+static void auxGrab(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 0);
+    signal(SIGPIPE, SIG_IGN);
+    char dir[] = "/tmp/mlxr-auxfifo-XXXXXX";
+    CHECK(mkdtemp(dir) != NULL);
+    char fifo[600];
+    snprintf(fifo, sizeof fifo, "%s/event7", dir);
+    CHECK(mkfifo(fifo, 0600) == 0);
+    int w = open(fifo, O_RDWR | O_NONBLOCK);   // a writer for as long as the test runs: no EOF
+    CHECK(w >= 0);
+    c->auxState = ACCESS_BUTTON_OK;
+    c->auxInfo.found = c->auxInfo.readable = 1;
+    snprintf(c->auxInfo.path, sizeof c->auxInfo.path, "%s", fifo);
+    c->auxLookNs = g_now;
+    c->auxDev.grab = fakeGrab;
+    g_ngrabs = 0;
+    // off by default: nothing taken
+    xrSetPointerSource(c, POINTER_SOURCE_HEAD, 0);
+    auxFrames(c, 3, 1, 1);
+    CHECK(c->auxDev.fd < 0 && g_ngrabs == 0);
+    // on, but a controller pointing, or not focused, or no stream: still nothing
+    float out[IN_SLOTS];
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_BUTTON, 1, out);
+    CHECK((int)out[IN_SETTING] == SETTING_ASSIST_HEADSET_BUTTON && (int)out[IN_SETTING_VALUE] == 1 && c->assistHeadsetButton);
+    auxFrames(c, 3, 0, 1);
+    auxFrames(c, 3, 1, 0);
+    CHECK(c->auxDev.fd < 0 && g_ngrabs == 0);
+    // taken
+    auxFrames(c, 2, 1, 1);
+    CHECK(c->auxDev.fd >= 0 && c->auxDev.grabbed && g_ngrabs == 1 && g_grabs[0] == 1);
+    // one press: a click after the multi-press window
+    putKey(w, 1);
+    auxFrames(c, 3, 1, 1);
+    putKey(w, 0);
+    int clicked = 0;
+    for (int i = 0; i < 60; i++) {
+        auxFrames(c, 1, 1, 1);
+        clicked |= c->assistButtons != 0;
+    }
+    CHECK(clicked);
+    // focus lost: given back at once
+    auxFrames(c, 1, 0, 1);
+    CHECK(c->auxDev.fd < 0 && g_ngrabs == 2 && g_grabs[1] == 0);
+    // focus back: taken again; held 3 s: the drag let go, given back for 15 s with a toast
+    auxFrames(c, 1, 1, 1);
+    CHECK(c->auxDev.fd >= 0 && g_ngrabs == 3);
+    putKey(w, 1);
+    int dragged = 0;
+    for (int i = 0; i < 300; i++) {   // 3.3 s
+        auxFrames(c, 1, 1, 1);
+        dragged |= c->assistPlay.dragging;
+    }
+    CHECK(dragged && !c->assistPlay.dragging && c->assistButtons == 0);
+    CHECK(c->auxDev.fd < 0 && g_ngrabs == 4 && g_grabs[3] == 0);
+    CHECK(c->auxEscapeUntilNs > g_now + 14000000000LL);
+    putKey(w, 0);
+    auxFrames(c, 900, 1, 1);   // 10 s: still SteamVR's
+    CHECK(c->auxDev.fd < 0);
+    auxFrames(c, 500, 1, 1);   // past 15 s: taken again
+    CHECK(c->auxDev.fd >= 0 && c->auxDev.grabbed);
+    // the setting off: given back
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_BUTTON, 0, out);
+    auxFrames(c, 1, 1, 1);
+    CHECK(c->auxDev.fd < 0 && !c->auxDev.grabbed);
+    // an unreadable device greys the row; the cell takes no press
+    c->auxState = ACCESS_BUTTON_UNREADABLE;
+    CHECK(!cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_BUTTON));
+    out[IN_SETTING] = -1.0f;
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_BUTTON, 1, out);
+    CHECK(out[IN_SETTING] == -1.0f && !c->assistHeadsetButton);
+    c->auxState = ACCESS_BUTTON_UNKNOWN;
+    c->auxDev.grab = NULL;
+    close(w);
+    unlink(fifo);
+    rmdir(dir);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
 int main(void) {
     Scene* s = scene_new();
     presses(s);
@@ -496,6 +662,8 @@ int main(void) {
     eyesLine(s);
     footer(s);
     dotScales(s);
+    assistClicks(s);
+    auxGrab(s);
     scene_free(s);
     return checksDone("m4_access");
 }

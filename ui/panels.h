@@ -197,6 +197,8 @@ typedef struct {
     // Native (lane a11y-2): the Accessibility tab's row under the pointer (COG_ACCESS_ROW_*), whose
     // one-line description the tab's footer shows, or -1
     int access_row;
+    // and what was found of the headset button's device (ACCESS_BUTTON_*), which greys its row
+    int access_button;
 } UiView;
 
 // Fills the view's defaults from settings (session toggles included)

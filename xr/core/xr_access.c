@@ -41,6 +41,10 @@ int accessEyesCellLive(int eyesState, int pointerSource) {
     return eyesState != ACCESS_EYES_UNAVAILABLE || pointerSource == POINTER_SOURCE_GAZE;
 }
 
+int accessButtonGreyed(int state) {
+    return state == ACCESS_BUTTON_MISSING || state == ACCESS_BUTTON_UNREADABLE;
+}
+
 int accessDotClamp(int percent) {
     return percent < ACCESS_DOT_MIN ? ACCESS_DOT_MIN : percent > ACCESS_DOT_MAX ? ACCESS_DOT_MAX : percent;
 }

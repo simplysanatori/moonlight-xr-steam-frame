@@ -207,7 +207,7 @@ When a stream starts, the profile of the app, or else of its PC, is in force for
 | Back button as Guide (Gamepad) | on, off | off. In the headset's gamepad mode the View (Back) button is Guide, see [Gamepad mode](#gamepad-mode). |
 | Mouse mode (Input) | Absolute, Relative | Absolute. See [Relative mouse](#relative-mouse). |
 | Head turns the game's camera (first-person games), Head camera speed (Input) | on, off; 4 to 30 px a degree | off, 8. See [Head-look](#head-look-experimental). |
-| Pointer, Dwell click, Dot size (Accessibility) | Controller, Head, Eyes; Off, 0.6, 0.9, 1.2, 1.5 s; 50 to 300 % | Controller, Off, 100 %. See [Accessibility](#accessibility). Pointing at a row (or giving it a gamepad's focus) shows what it does. |
+| Pointer, Dwell click, Dot size, Headset button clicks (Accessibility) | Controller, Head, Eyes; Off, 0.6, 0.9, 1.2, 1.5 s; 50 to 300 %; on, off | Controller, Off, 100 %, off. See [Accessibility](#accessibility). Pointing at a row (or giving it a gamepad's focus) shows what it does. |
 | Headset keyboard layout | QWERTY (US), AZERTY (French), QWERTZ (German) | QWERTY. The PC must be on the same Windows layout, see [AZERTY and QWERTZ](#azerty-and-qwertz). |
 | Enable Rumble | on, off | on |
 | Enable forward/back mouse buttons | on, off | on |
@@ -438,10 +438,27 @@ For people who cannot use their hands, or can use them only a little. The cog's 
 | Pointer | Controller, Head, Eyes | What moves the pointer: a controller, your head, or where you look. **Eyes** is always there; it is dimmed only when SteamVR does not offer eye tracking to apps at all. `[vr] pointer_source` |
 | Dwell click | Off, 0.6 s, 0.9 s, 1.2 s, 1.5 s | Rest the dot this long on something to click it. Greyed while a controller points. `[vr] head_dwell_ms` |
 | Dot size | 50 % to 300 %, in steps of 25 % | How big the dot is when you point with your head or eyes; the dwell ring grows with it. 100 % is the usual size. A slider with a tick at every step: drag it, or press its arrows for one step. Greyed while a controller points. `[vr] assist_dot_size` |
+| Headset button clicks | Off, On | The headset's side button clicks where the dot is instead of opening the Steam home (see below). Off by default. Greyed while a controller points, and when the app may not read the button (the tab says why). `[vr] assist_headset_button` |
 
 Under the rows a line says whether eye tracking reaches the app and a few lines say how to use the tab. At the bottom, the tab says in one sentence what the row under the pointer (or the dot) does. On the flat window the same sentence shows as a tip when the mouse rests on a row, or when a row has the keyboard's or a gamepad's focus (Game Mode).
 
 **For the person using it.** A dot sits in the middle of your view; turn your head to move it. Hold it still on a button, a cell of the cog or a spot on the picture, and a ring closes in on the dot: when it closes, that is a click (the left mouse button on the picture). To click the same spot again, look away and back. A controller's trigger, if someone is holding one, clicks too. The dwell never clicks beside an open menu, so a look away cannot close it.
+
+**The headset's side button.** With **Headset button clicks** on and the head or the eyes pointing, the button on the right side of the headset (the one that normally opens the Steam home) clicks where the dot is:
+
+| Press | What it does |
+| --- | --- |
+| Once | A left click |
+| Twice, quickly | A double click |
+| Three times, quickly | A right click |
+| Hold (longer than 0.4 s) | Holds the left button down to drag; let go to drop |
+| Hold 3 seconds | Gives the button back to SteamVR for 15 seconds (a message says so), so the next press opens the Steam home as usual. A drag under way is let go first. |
+
+While it clicks, the app holds the button for itself, so SteamVR does not see it. It gives the button back whenever the app loses focus (the Steam home or the dashboard is up), the stream ends, a controller points, you turn the row off or the app closes; if the app stops for any reason, the system gets the button back by itself. A single click waits about a third of a second to see whether a second press follows.
+
+The app reads the button from its input device (`gpio-keys`, the device Linux reports the button on). It never changes permissions itself. If your user may not read that device, the row is greyed with "cannot read the button" and `moonlight.log` says `headset button: ... not readable`. What you can do, if you choose to (an advanced, optional step, at your own risk): give your user read access to that one device with a udev rule, for example a file `/etc/udev/rules.d/70-mlxr-headset-button.rules` holding `SUBSYSTEM=="input", ATTRS{name}=="gpio-keys", TAG+="uaccess"`, then reboot. This lets programs you run read the headset's volume and side buttons; it changes nothing else, and deleting the file undoes it. Making the file needs root (`sudo`); a SteamOS update may undo it.
+
+`mlxr-hello --button-probe` (see [docs/dev/accessibility.md](dev/accessibility.md)) says whether the button reaches the app on your headset.
 
 **Turning it off.** Open the cog's Accessibility tab and rest the dot on **Controller** (or press it with a trigger). Or set `pointer_source = controller` in `config.ini` (`~/.config/moonlight-xr/`), or **Pointer: Controller** on the flat window's Settings page.
 
@@ -961,6 +978,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] pointer_source` | `controller`, `head`, `gaze`. What points; `gaze` is the Accessibility tab's Eyes. The app asks SteamVR for eye tracking whenever it is offered, whatever this says. See [Accessibility](#accessibility). | `controller` |
 | `[vr] head_dwell_ms` | 0, or 400 to 2000 | 0 (off). With `pointer_source = head` or `gaze`, resting the dot this long clicks. The Accessibility tab offers 600, 900, 1200 and 1500. |
 | `[vr] assist_dot_size` | 50 to 300 (%) | 100. With `pointer_source = head` or `gaze`, the dot's size (and its dwell ring's) against the usual. The Accessibility tab's **Dot size** slider steps by 25. |
+| `[vr] assist_headset_button` | `true`, `false` | `false`. With `pointer_source = head` or `gaze`, the headset's side button clicks (once a click, twice a double click, three times a right click, held a drag) instead of opening the Steam home; held 3 s it goes back to SteamVR for 15 s. See [Accessibility](#accessibility). |
+| `[vr] assist_click_path` | `<interaction profile> <input path>` | Empty (off). An OpenXR button that clicks for the head and eye pointer the same way, for one that `mlxr-hello --button-probe` reports. |
 | `[vr] mouse_mode` | `absolute`, `relative`. Where the ray lands, or how far it moves. See [Relative mouse](#relative-mouse); the launcher has it too. | `absolute` |
 | `[vr] back_as_guide` | `true`, `false`. Gamepad mode's View (Back) button is Guide, except with Start held. The launcher has it too. | `false` |
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |

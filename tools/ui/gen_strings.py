@@ -284,6 +284,12 @@ MAP = [
     ("native_access_desc_dot", NATIVE),
     ("native_access_desc_none", NATIVE),
     ("native_eyes_no_action", NATIVE),
+    ("native_row_headset_button", NATIVE),
+    ("native_access_desc_button", NATIVE),
+    ("native_button_missing", NATIVE),
+    ("native_button_unreadable", NATIVE),
+    ("native_access_desc_button_unreadable", NATIVE),
+    ("native_aux_returned", NATIVE),
 ]
 
 # Keys of lanes not merged into main yet, all written for this port: listed so that their merges

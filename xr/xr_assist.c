@@ -21,7 +21,8 @@ int xrAccessEyes(const XrCtx* ctx) {
 int cogAccessCells(XrCtx* ctx, int row) {
     (void)ctx;
     return row == COG_ACCESS_ROW_POINTER ? COG_ACCESS_POINTER_CELLS
-         : row == COG_ACCESS_ROW_DWELL ? COG_ACCESS_DWELL_CELLS : 0;
+         : row == COG_ACCESS_ROW_DWELL ? COG_ACCESS_DWELL_CELLS
+         : row == COG_ACCESS_ROW_BUTTON ? COG_ACCESS_BUTTON_CELLS : 0;
 }
 
 int cogAccessCellLive(XrCtx* ctx, int row, int cell) {
@@ -33,8 +34,15 @@ int cogAccessCellLive(XrCtx* ctx, int row, int cell) {
 }
 
 int cogAccessRowLive(XrCtx* ctx, int row) {
-    // the dwell click and the dot only act with the head or the eyes pointing
-    return (row != COG_ACCESS_ROW_DWELL && row != COG_ACCESS_ROW_DOT) || ctx->pointerSource != POINTER_SOURCE_CONTROLLER;
+    // every row but the pointer's acts only with the head or the eyes pointing; the headset button
+    // also needs a device this app may read (unknown until the session has looked: live)
+    if (row == COG_ACCESS_ROW_POINTER) {
+        return 1;
+    }
+    if (row == COG_ACCESS_ROW_BUTTON && accessButtonGreyed(ctx->auxState)) {
+        return 0;
+    }
+    return ctx->pointerSource != POINTER_SOURCE_CONTROLLER;
 }
 
 void cogApplyAccessCell(XrCtx* ctx, int row, int cell, float* out) {
@@ -61,6 +69,14 @@ void cogApplyAccessCell(XrCtx* ctx, int row, int cell, float* out) {
         ctx->headDwellMs = dwellMsClamp(value);
         setting = SETTING_HEAD_DWELL;
         LOGEV("dwell click %d ms from the Accessibility tab", value);
+        break;
+    case COG_ACCESS_ROW_BUTTON:
+        // native (lane a11y-2): the next frame takes the button, or gives it back
+        value = cell != 0;
+        ctx->assistHeadsetButton = value;
+        ctx->auxEscapeUntilNs = 0;
+        setting = SETTING_ASSIST_HEADSET_BUTTON;
+        LOGEV("headset button clicks %s from the Accessibility tab", value ? "on" : "off");
         break;
     default:
         return;
