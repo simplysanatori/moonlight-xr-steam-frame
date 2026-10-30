@@ -931,6 +931,13 @@ typedef struct XrCtx {
     long headAimSentX;
     long headAimSentY;
     XrTime headAimCountNs;
+    // Native (lane wave4-headinput, PLAN 4.4): head-look (xr_headaim.h headMouseWho), its setting
+    // and pixels a degree; which of head aim and head-look turned the mouse last frame
+    // (HEAD_MOUSE_); its pause held, as the bindings read it last frame
+    int headLookOn;
+    int headLookPxDeg;
+    int headMouseWho;
+    int headLookHold;
     long inputFrames;
     // Gamepad mode (M3: the pad's state is worked out as upstream does, but
     // nothing sends it to the host yet)

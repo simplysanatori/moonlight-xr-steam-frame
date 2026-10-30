@@ -45,7 +45,7 @@ Written `left.trigger`, `right.a_touch` and so on. `left.stick` and `right.stick
 | `wheel:up\|down\|left\|right` | One wheel notch per press |
 | `pad:<button>` | `a b x y lb rb lt rt ls rs start back guide dpad_up dpad_down dpad_left dpad_right`. Gamepad mode only. Codes are the `PAD_` bits; `lt`/`rt` are `PAD_HELD_LT`/`RT` (a trigger bound to them stays analogue, a button pulls them full) |
 | `stick:<use>` | `scroll mouse wasd arrows dpad pad_left pad_right`, whole sticks only. `pad_left`/`pad_right` are gamepad mode only |
-| `app:<command>` | `keyboard` (show or hide), `ray` (step Off/Dot/Ray), `recentre` (what SteamVR's recentre does: the screen comes round to where you face), `cog` (open or close the cog panel), `3d` (on or off), `gamepad` (switch modes at once, no hold), `bringhere` (the screen comes to where you look, the same size and as far from you as it was; built in PLAN 3.1, `xrBringScreenHere` in `xr/xr_place.c`), `host` (open or close the Host sheet, keys for the PC), `none` |
+| `app:<command>` | `keyboard` (show or hide), `ray` (step Off/Dot/Ray), `recentre` (what SteamVR's recentre does: the screen comes round to where you face), `cog` (open or close the cog panel), `3d` (on or off), `gamepad` (switch modes at once, no hold), `bringhere` (the screen comes to where you look, the same size and as far from you as it was; built in PLAN 3.1, `xrBringScreenHere` in `xr/xr_place.c`), `host` (open or close the Host sheet, keys for the PC), `lookhold` (held, head-look pauses; nothing on the press. Lane wave4-headinput, PLAN 4.4: a grip bound to nothing pauses it too), `none` |
 | `none` | Nothing |
 
 ### Never bindable (refused with an error, or kept working whatever is bound)
@@ -103,7 +103,7 @@ The whole default file (`xrBindDefaultText`; `test_bind.c` checks this block aga
 #                                                    a gamepad button (gamepad mode only)
 #   stick:scroll|mouse|wasd|arrows|dpad|pad_left|pad_right
 #                                                    a whole stick (left.stick, right.stick)
-#   app:keyboard|ray|recentre|cog|3d|gamepad|bringhere|host
+#   app:keyboard|ray|recentre|cog|3d|gamepad|bringhere|host|lookhold
 #   none                                             nothing
 #
 # [pointer] is pointer mode and [gamepad] gamepad mode, for every app. An

@@ -161,7 +161,10 @@ int xrBindSourceIsStick(int src);
 #define XR_BIND_APP_BRINGHERE 6
 // Open or close the Host sheet (keys for the PC, PLAN 4b.1)
 #define XR_BIND_APP_HOST 7
-#define XR_BIND_APP_COUNT 8
+// Native (lane wave4-headinput, PLAN 4.4): held, head-look pauses (a mouse
+// lifted off the desk); nothing happens on the press itself
+#define XR_BIND_APP_LOOKHOLD 8
+#define XR_BIND_APP_COUNT 9
 
 typedef struct {
     // XR_BIND_ACT_

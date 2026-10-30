@@ -4051,6 +4051,7 @@ static void bindLetGo(XrCtx* ctx, uint64_t down, float* out) {
     ctx->bindPadMouse = 0;
     scrollAccReset(&ctx->padScroll);
     memset(ctx->bindMouseCarry, 0, sizeof(ctx->bindMouseCarry));
+    ctx->headLookHold = 0;
 }
 
 // Nothing is read this frame (focus gone, the pointer switched off): let go
@@ -4159,6 +4160,16 @@ static void bindPointerStep(XrCtx* ctx, const InputFrame* f, float* out) {
     ctx->bindAppsOnly = 0;
     XrBindEdges e;
     xrBindRunStep(&ctx->bindRun, t, down, &e);
+    // Native (lane wave4-headinput, PLAN 4.4): head-look's pause, read by the next frame's head
+    int lookBound = 0;
+    for (int i = 0; i < e.heldCount; i++) {
+        lookBound |= e.held[i].kind == XR_BIND_ACT_APP && e.held[i].code == XR_BIND_APP_LOOKHOLD;
+    }
+    ctx->headLookHold = headLookHeld(
+            lookBound, (down & XR_BIND_BIT(XR_BIND_SRC_LEFT_GRIP)) != 0,
+            t->single[XR_BIND_SRC_LEFT_GRIP].kind == XR_BIND_ACT_NONE,
+            (down & XR_BIND_BIT(XR_BIND_SRC_RIGHT_GRIP)) != 0,
+            t->single[XR_BIND_SRC_RIGHT_GRIP].kind == XR_BIND_ACT_NONE);
     int mask = xrBindEdgesMouse(&e);
     // A hand without a controller pinches the left button, as ever
     for (int h = 0; h < HAND_COUNT; h++) {
@@ -4638,18 +4649,28 @@ static int headAimDoing(int what) {
             ? what : HEAD_AIM_SENT;
 }
 
+// Native (lane wave4-headinput, PLAN 4.4): the log's name for what turns the mouse
+static const char* headMouseName(int who) {
+    return who == HEAD_MOUSE_LOOK ? "head-look" : "head aim";
+}
+
 // Head aim: with the screen locked to the head, the head's turn since the last
 // frame goes to the host as relative mouse motion, in IN_MOUSE_DX and DY.
 // Measured off the head in the local space, since the screen turns with it.
 // Ahead of the early returns in the input pass, as it needs neither the
 // pointer nor the controllers, but paused while a panel is up, so the panel
 // can be looked at without turning the game, and while the session is not
-// focused or the splash is up.
+// focused or the splash is up. Native (lane wave4-headinput, PLAN 4.4):
+// head-look runs through the same step in pointer mode with the screen locked
+// to the head or a room up (headMouseWho; head aim wins where both could), at
+// its own pixels a degree, and pauses while its hold is down.
 static void updateHeadAim(XrCtx* ctx, int headLocked, float* out) {
-    int active = headAimSwitchOn(ctx->headAimSetting, ctx->headAimFlipped) && headLocked
-            && roomEffective(ctx) <= 0;
+    int who = headMouseWho(headAimSwitchOn(ctx->headAimSetting, ctx->headAimFlipped),
+                           ctx->headLookOn, !ctx->padMode, headLocked, roomEffective(ctx) > 0);
+    int active = who != HEAD_MOUSE_OFF;
     int paused = !ctx->sessionRunning || ctx->sessionState != XR_SESSION_STATE_FOCUSED
-            || ctx->splash.phase != SPLASH_GONE || !ctx->placementValid || panelUp(ctx);
+            || ctx->splash.phase != SPLASH_GONE || !ctx->placementValid || panelUp(ctx)
+            || (who == HEAD_MOUSE_LOOK && ctx->headLookHold);
     int tracked = 0;
     float yaw = 0.0f;
     float pitch = 0.0f;
@@ -4659,8 +4680,8 @@ static void updateHeadAim(XrCtx* ctx, int headLocked, float* out) {
         const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT
                 | XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT;
         XrSpaceLocation head = { XR_TYPE_SPACE_LOCATION };
-        tracked = XR_SUCCEEDED(xrLocateSpace(ctx->viewSpace, ctx->localSpace,
-                                             ctx->predictedDisplayTime, &head))
+        tracked = XR_SUCCEEDED(locateSpace(ctx, ctx->viewSpace, ctx->localSpace,
+                                           ctx->predictedDisplayTime, &head))
                 && (head.locationFlags & needed) == needed;
         if (tracked) {
             headAimAngles(head.pose.orientation, &yaw, &pitch);
@@ -4672,14 +4693,25 @@ static void updateHeadAim(XrCtx* ctx, int headLocked, float* out) {
     if (recentred && ctx->predictedDisplayTime >= ctx->headAimRecentreAt) {
         ctx->headAimRecentring = 0;
     }
+    // A switch between the two starts afresh, so one's pixels owed never go
+    // out at the other's rate
+    if (active && ctx->headMouseWho != HEAD_MOUSE_OFF && who != ctx->headMouseWho) {
+        headAimReset(&ctx->headAim);
+    }
 
     int dx = 0;
     int dy = 0;
+    float sensitivity = (float)(who == HEAD_MOUSE_LOOK ? ctx->headLookPxDeg
+                                                       : ctx->headAimSensitivity);
     int what = headAimStep(&ctx->headAim, headAimBlocked(active, paused, tracked, recentred),
                            yaw, pitch, ctx->predictedDisplayTime,
-                           (float)ctx->headAimSensitivity, (float)ctx->headAimDeadZone,
+                           sensitivity, (float)ctx->headAimDeadZone,
                            &dx, &dy);
+    int whoWas = ctx->headMouseWho;
     ctx->headAimActive = active;
+    if (active) {
+        ctx->headMouseWho = who;
+    }
     out[IN_HEAD_AIM] = active ? 1.0f : 0.0f;
     out[IN_MOUSE_DX] = (float)dx;
     out[IN_MOUSE_DY] = (float)dy;
@@ -4687,21 +4719,24 @@ static void updateHeadAim(XrCtx* ctx, int headLocked, float* out) {
     // On and off go in the file, the comings and goings in between only to
     // logcat, since a panel opening pauses it every time
     int doing = headAimDoing(what);
-    if (doing != ctx->headAimSaid) {
+    if (doing != ctx->headAimSaid || (active && who != whoWas)) {
         int wasOn = ctx->headAimSaid >= 0 && ctx->headAimSaid != HEAD_AIM_OFF;
         if (doing == HEAD_AIM_OFF) {
             if (wasOn) {
-                LOGEV("head aim off");
+                LOGEV("%s off", headMouseName(whoWas));
             }
+            ctx->headMouseWho = HEAD_MOUSE_OFF;
         }
         else {
-            if (!wasOn) {
-                LOGEV("head aim on: %d px a degree, dead zone %d deg/s",
-                      ctx->headAimSensitivity, ctx->headAimDeadZone);
+            if (!wasOn || who != whoWas) {
+                LOGEV("%s on: %d px a degree, dead zone %d deg/s", headMouseName(who),
+                      (int)sensitivity, ctx->headAimDeadZone);
             }
-            LOGI("head aim %s", doing == HEAD_AIM_SENT ? "measuring the head"
+            LOGI("%s %s", headMouseName(who), doing == HEAD_AIM_SENT ? "measuring the head"
                                 : doing == HEAD_AIM_PAUSED
-                                ? "paused while a panel is up or the session is not focused"
+                                ? (who == HEAD_MOUSE_LOOK && ctx->headLookHold
+                                   ? "paused while its hold is down"
+                                   : "paused while a panel is up or the session is not focused")
                                 : "waiting for the head to be tracked");
         }
         ctx->headAimSaid = doing;
@@ -4710,15 +4745,15 @@ static void updateHeadAim(XrCtx* ctx, int headLocked, float* out) {
         ctx->headAimCountNs = ctx->predictedDisplayTime;
     }
     if (what == HEAD_AIM_JUMPED) {
-        LOGI("head aim dropped a frame turning faster than a head can");
+        LOGI("%s dropped a frame turning faster than a head can", headMouseName(who));
     }
     if (doing == HEAD_AIM_SENT) {
         ctx->headAimSentX += dx;
         ctx->headAimSentY += dy;
         if (ctx->predictedDisplayTime - ctx->headAimCountNs >= HEAD_AIM_COUNT_NS) {
             if (ctx->headAimSentX != 0 || ctx->headAimSentY != 0) {
-                LOGI("head aim moved the mouse %ld, %ld px in %.0f s", ctx->headAimSentX,
-                     ctx->headAimSentY,
+                LOGI("%s moved the mouse %ld, %ld px in %.0f s", headMouseName(who),
+                     ctx->headAimSentX, ctx->headAimSentY,
                      (ctx->predictedDisplayTime - ctx->headAimCountNs) / 1e9);
             }
             ctx->headAimSentX = 0;
@@ -4726,6 +4761,23 @@ static void updateHeadAim(XrCtx* ctx, int headLocked, float* out) {
             ctx->headAimCountNs = ctx->predictedDisplayTime;
         }
     }
+}
+
+// Native (lane wave4-headinput, PLAN 4.4): see xr_native.h
+void xrSetHeadLook(XrCtx* ctx, int on, int pxDeg) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->headLookOn = on ? 1 : 0;
+    ctx->headLookPxDeg = headLookSensitivityClamp(pxDeg);
+    LOGEV("head-look %s at the start of the session, %d px a degree", on ? "on" : "off",
+          ctx->headLookPxDeg);
+}
+
+// Native (lane wave4-headinput), for the tests: see xr_native.h
+void xrHeadMouseFrame(XrCtx* ctx, int headLocked, float* out) {
+    ctx->inputFrames++;
+    updateHeadAim(ctx, headLocked, out);
 }
 
 // One controller as the pad reads it, all zero for a hand without one. Read

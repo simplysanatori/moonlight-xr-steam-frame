@@ -115,6 +115,11 @@ class MlxrPrefs : public QObject
     // pad_gyro_ratchet) are in the file only
     Q_PROPERTY(QString lightgun MEMBER lightgun NOTIFY changed)
     Q_PROPERTY(QString padGyro MEMBER padGyro NOTIFY changed)
+    // Native (lane wave4-headinput): head and pointer input of the VR client, all [vr] and off by default.
+    // head_look (PLAN 4.4): the head's turn moves the PC's mouse in pointer mode with the screen head
+    // locked or a room up; head_look_px_deg its pixels a degree, 1..30 (default 8)
+    Q_PROPERTY(bool headLook MEMBER headLook NOTIFY changed)
+    Q_PROPERTY(int headLookPxDeg MEMBER headLookPxDeg NOTIFY changed)
     // ---- PC VR: Valve's Steam Link stream of the PC (lane wave4-pcvr, PLAN 4.1, 4.2, 4.9) ----
     // The Host sheet's PC VR button ends the stream and the launcher asks Steam to stream pcvrApp (a Steam
     // app id; empty: open Steam's library) from the Remote Play PC pcvrClient (a Remote Play client id; empty:
@@ -238,6 +243,9 @@ public:
     QString padArbitration;
     QString lightgun;
     QString padGyro;
+    // Native (lane wave4-headinput)
+    bool headLook = false;
+    int headLookPxDeg = 8;
     QString pcvrApp;
     QString pcvrAppName;
     QString pcvrClient;
@@ -260,6 +268,12 @@ private:
     int m_iniRfiIdr = 500;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
     QString m_iniLightgun = "auto", m_iniPadGyro = "off";
+    // Native (lane wave4-headinput): what config.ini held for the head and pointer input keys, and the
+    // load and save of those keys (called from load() and save())
+    bool m_iniHeadLook = false;
+    int m_iniHeadLookPxDeg = 8;
+    void loadHeadInput(const QString& ini);
+    void saveHeadInput(const QString& ini);
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     int m_iniEyeBalance = 0, m_iniBackgroundDim = 0;
     QString m_iniVoidColor = QStringLiteral("#000000"), m_iniGlowFeather = QStringLiteral("off");

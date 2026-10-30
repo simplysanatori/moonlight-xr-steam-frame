@@ -1021,6 +1021,25 @@ Flickable {
             onClicked: settingsPage.StackView.view.push("qrc:/gui/XrBindingsView.qml")
         }
 
+        // Native (lane wave4-headinput): head and pointer input of the VR client, every one off by default
+        PrefSwitch {
+            objectName: "headLookRow"
+            title: qsTr("Head-look (experimental)")
+            summary: qsTr("Turning your head moves the PC's mouse like a game's look control, for first-person games streamed in side by side 3D. Works in pointer mode with the screen locked to your head or in a room. Hold a grip (one bound to nothing) to pause it while you turn back. Head aim wins where both are on.")
+            isOn: MlxrPrefs.headLook
+            onSwitched: function(on) { MlxrPrefs.headLook = on }
+        }
+
+        // Pressing the row steps through the speeds; one typed into config.ini that is not listed steps to the first
+        PrefRow {
+            objectName: "headLookPxRow"
+            readonly property var steps: [4, 6, 8, 12, 16, 24, 30]
+            title: qsTr("Head-look speed")
+            valueText: qsTr("%1 px a degree").arg(MlxrPrefs.headLookPxDeg)
+            summary: qsTr("How far the mouse moves for each degree your head turns with head-look on. Its dead zone is head aim's.")
+            onClicked: MlxrPrefs.headLookPxDeg = settingsPage.nextLimit(steps, MlxrPrefs.headLookPxDeg)
+        }
+
         PrefSwitch {
             title: qsTr("Enable forward/back mouse buttons")
             summary: qsTr("Sends a physical mouse's back and forward buttons to the PC")
