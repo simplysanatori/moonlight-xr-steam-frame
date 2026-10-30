@@ -3363,6 +3363,7 @@ static void txRecPanel(VkCommandBuffer cmd, void* u) {
     pp.segments = 96;
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
     pp.pictureFilter = r->cfg->pictureFilter;
+    pp.sharpen = r->cfg->sharpen;
     MlxrTarget t = r->eye.t;
     t.clear = 1;
     mlxr_pass_panel(P, cmd, &t, &pp);
@@ -3435,12 +3436,14 @@ static void testText(void) {
     targetMake(&r.eye, TX_EYE, TX_EYE, UNORM);
     uint8_t* eye = malloc((size_t)TX_EYE * TX_EYE * 4);
     uint8_t* moved = malloc((size_t)TX_EYE * TX_EYE * 4);
-    enum { BEFORE, BEFORE_CAS, FILTER, DEFAULT, NV12, BOUND, ROWS };
+    enum { BEFORE, BEFORE_CAS, FILTER, DEFAULT, SHARP_N, SHARP_Q, NV12, BOUND, ROWS };
     static const TxCfg cfgs[ROWS] = {
         [BEFORE] = {"before: trilinear, bilinear chroma", 0.0f, 0, 0.0f, 0, 0, 1, 1},
         [BEFORE_CAS] = {"before, Sharpen quality (warp CAS)", 0.8f, 0, 0.0f, 0, 0, 0, 0},
         [FILTER] = {"+ footprint filter", 0.0f, 1, 0.0f, 0, 0, 1, 1},
         [DEFAULT] = {"+ chroma from luma: new default", 0.0f, 1, 0.0f, 1, 0, 1, 1},
+        [SHARP_N] = {"new, Sharpen normal (eye scale)", 0.0f, 1, 0.5f, 1, 0, 1, 1},
+        [SHARP_Q] = {"new, Sharpen quality (eye scale)", 0.0f, 1, 1.0f, 1, 0, 1, 0},
         [NV12] = {"new default, NV12 (lavapipe's)", 0.0f, 1, 0.0f, 1, 1, 0, 0},
         [BOUND] = {"new default, 4:4:4 frame (bound)", 0.0f, 1, 0.0f, 0, 2, 0, 0},
     };
@@ -3544,7 +3547,7 @@ static void testText(void) {
         VkCommandBuffer cmd = vkh_begin(&vk);
         vkh_layout(&vk, &r.eye.img, COLOR_ATT);
         vkh_submit(&vk);
-        const int timed[] = {BEFORE, DEFAULT};
+        const int timed[] = {BEFORE, DEFAULT, SHARP_N};
         for (size_t i = 0; i < sizeof(timed) / sizeof(timed[0]); i++) {
             r.cfg = &cfgs[timed[i]];
             float wm = timeIt(txRecWarp, &r, 5);
@@ -3603,6 +3606,20 @@ static void testText(void) {
               at[0][NV12][0].chromaRms);
         check(fabsf(crawl[0][DEFAULT + 1] - crawl[0][FILTER + 1]) < 0.1f, "text: chroma from luma crawl %.2f, %.2f",
               crawl[0][DEFAULT + 1], crawl[0][FILTER + 1]);
+    }
+    // Sharpen at the eye's pixels: sharper after the compositor, and no ring
+    // past a slanted edge at any placement
+    {
+        for (int k = SHARP_N; k <= SHARP_Q; k++) {
+            for (int g = 0; g < TX_GEOM_COUNT; g++)
+                if (g == 0 || cfgs[k].everywhere)
+                    check(at[g][k][0].overshoot <= 1.0f, "text: %s, %s rings %.1f%%", TX_GEOMS[g].name, cfgs[k].name,
+                          at[g][k][0].overshoot);
+            for (int e = 0; e < 2; e++)
+                check(at[0][k][1].mtf50[e] >= 1.05f * at[0][DEFAULT][1].mtf50[e],
+                      "text: %s after the compositor MTF50 %.3f, unsharpened %.3f", cfgs[k].name, at[0][k][1].mtf50[e],
+                      at[0][DEFAULT][1].mtf50[e]);
+        }
     }
     free(moved);
     free(eye);

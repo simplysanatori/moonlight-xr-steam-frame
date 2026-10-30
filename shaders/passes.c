@@ -1010,7 +1010,7 @@ void mlxr_pass_panel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, co
     pc[19] = (float)segments;
     memcpy(&pc[24], pp->color, sizeof(pp->color));
     pc[28] = pp->pictureFilter ? 1.0f : 0.0f;
-    pc[29] = 0.0f;
+    pc[29] = pp->pictureFilter ? pp->sharpen : 0.0f;
     pc[30] = 0.0f;
     pc[31] = 0.0f;
     for (int e = 0; e < eyes; e++) {
