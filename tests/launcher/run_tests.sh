@@ -306,12 +306,30 @@ expect "desktop: stock, QT_SCALE_FACTOR untouched" "$(scale XDG_CURRENT_DESKTOP=
 refute "desktop: no QT_SCALE_FACTOR set" "$(scale XDG_CURRENT_DESKTOP=KDE MLXR_LAUNCHER_SCALE=2)" "QT_SCALE_FACTOR=2"
 expect "Game Mode: the owner's QT_SCALE_FACTOR is kept" "$(env XDG_CURRENT_DESKTOP=gamescope QT_SCALE_FACTOR=1.25 MLXR_LAUNCHER_SELFTEST=scale "$L" 2>/dev/null)" "QT_SCALE_FACTOR=1.25"
 
+# Opening a page for the headset's user (patch 0014, lane wave6-kofi): in Game Mode with steam on PATH it is
+# `steam steam://openurl/<url>`, else the normal openUrl. The self-test prints the choice without running it.
+kofi_url="https://ko-fi.com/moonlightxr"
+fakebin="$(mktemp -d)"; printf '#!/bin/sh\nexit 0\n' > "$fakebin/steam"; chmod +x "$fakebin/steam"
+nobin="$(mktemp -d)"
+openurl() { # PATHDIR DESKTOP URL -> "steam steam://openurl/URL" or "qt URL"
+    env PATH="$1:/usr/bin:/bin" XDG_CURRENT_DESKTOP="$2" MLXR_LAUNCHER_SELFTEST="openurl:$3" "$L" 2>/dev/null | sed -n 's/^SELFTEST: openurl=//p'
+}
+if command -v steam >/dev/null 2>&1; then
+    echo "skip: a real steam is on this PATH (openurl checks)"
+else
+    expect "Game Mode with steam: the Steam URL" "$(openurl "$fakebin" gamescope "$kofi_url")" "steam steam://openurl/$kofi_url"
+    expect "Game Mode without steam: the normal openUrl" "$(openurl "$nobin" gamescope "$kofi_url")" "qt $kofi_url"
+    expect "desktop with steam: the normal openUrl" "$(openurl "$fakebin" KDE "$kofi_url")" "qt $kofi_url"
+    expect "Game Mode: a non-web address is not handed to steam" "$(openurl "$fakebin" gamescope "file:///etc/passwd")" "qt file:///etc/passwd"
+fi
+rm -rf "$fakebin" "$nobin"
+
 # The Help button (patch 0011): this app's readme in hand-off mode, stock's Setup-Guide otherwise. The QML is
 # compiled into the binary, so this reads the patched main.qml that launcher/build.sh left next to it.
 mq="$(dirname "$L")/src/app/gui/main.qml"
 if [ -f "$mq" ]; then
-    grep -q 'SystemProperties.nativeVrHandoff ?' "$mq" && grep -q '"https://github.com/simplysanatori/moonlight-xr-steam-frame#readme" :' "$mq" \
-        && grep -q '"https://github.com/moonlight-stream/moonlight-docs/wiki/Setup-Guide");' "$mq" \
+    grep -q 'SystemProperties.nativeVrHandoff ?' "$mq" && grep -q 'SystemProperties.openExternalUrl("https://github.com/simplysanatori/moonlight-xr-steam-frame#readme") :' "$mq" \
+        && grep -q 'Qt.openUrlExternally("https://github.com/moonlight-stream/moonlight-docs/wiki/Setup-Guide");' "$mq" \
         && ok "Help: readme in hand-off mode, stock Setup-Guide otherwise" || fail "Help button links"
     [ "$(grep -c 'moonlight-docs/wiki/Fixing-Hardware-Decoding-Problems' "$mq")" = 2 ] && ok "Help: the other stock links are unchanged" || fail "other stock links changed"
 else

@@ -129,6 +129,16 @@ double gameModeScale();
 // An existing QT_SCALE_FACTOR is kept unless MLXR_LAUNCHER_SCALE is set.
 void applyGameModeScale();
 
+// Moonlight XR Native (lane wave6-kofi): opens a web page for the person using the headset.
+// QDesktopServices may not reach a browser in Game Mode (gamescope), so there the page opens in
+// Steam's own browser, which SteamVR shows in the dashboard: `steam steam://openurl/<url>`,
+// started detached, logged. Elsewhere (or when `steam` is not on PATH) it is the normal openUrl.
+// Same page, same Steam URL as the headset's Ko-fi sheet (xr/core/xr_kofi.c).
+// openExternalCommand is the choice by itself: {"steam", "steam://openurl/<url>"}, or empty for
+// QDesktopServices (not a web address, not Game Mode, or no steam).
+QStringList openExternalCommand(const QString& url, bool gameMode, bool steamOnPath);
+void openExternalUrl(const QString& url);
+
 // Test hooks for the UI, called after main.qml loaded:
 //   MLXR_LAUNCHER_SCREENSHOT, MLXR_LAUNCHER_PAGE: see uihooks.h (QT_QPA_PLATFORM=offscreen
 //                           QT_QUICK_BACKEND=software to run headless)
