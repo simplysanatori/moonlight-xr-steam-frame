@@ -137,6 +137,12 @@ void MlxrPrefs::load()
     // the VR client takes the name or its index; anything else is its default, all
     const QString nt = iniValue(ini, "vr", "notices", "all").trimmed().toLower();
     notices = (nt == "important" || nt == "1") ? "important" : (nt == "off" || nt == "2") ? "off" : "all";
+    // the VR client takes the name, its index, or the true and false the key was a switch with
+    const QString cm = iniValue(ini, "vr", "controller_model", "off").trimmed().toLower();
+    controllerModel = (cm == "frame" || cm == "1" || cm == "true" || cm == "on" || cm == "yes" || cm == "y") ? "frame"
+                    : (cm == "generic" || cm == "2") ? "generic"
+                    : (cm == "gun" || cm == "3") ? "gun"
+                    : (cm == "custom" || cm == "4") ? "custom" : "off";
 
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
@@ -147,6 +153,7 @@ void MlxrPrefs::load()
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
+    m_iniControllerModel = controllerModel;
 }
 
 void MlxrPrefs::save()
@@ -190,6 +197,9 @@ void MlxrPrefs::save()
     if (notices != m_iniNotices) {
         setIniValue(ini, "vr", "notices", notices);
     }
+    if (controllerModel != m_iniControllerModel) {
+        setIniValue(ini, "vr", "controller_model", controllerModel);
+    }
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
@@ -199,6 +209,7 @@ void MlxrPrefs::save()
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
+    m_iniControllerModel = controllerModel;
 }
 
 int MlxrPrefs::headsetMaxFps() const

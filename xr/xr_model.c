@@ -163,8 +163,19 @@ static void readModelInput(XrCtx* ctx, int h, MlxrModelInput* in) {
 // are synced here.
 void updateControllerModels(XrCtx* ctx) {
     int shown[HAND_COUNT] = { 0, 0 };
+    // Native: the pose the model is drawn at, its record's say: the grip, or (the gun) the aim
+    // pose, which is where the ray leaves, with the barrel along its -z
+    int aim = ctx->model != NULL && ctx->model->space == MODEL_SPACE_AIM;
+    XrAction poseAction = aim ? ctx->aimAction : ctx->gripAction;
+    if (aim != ctx->modelAimDrawn) {
+        // What a hold kept is the other pose
+        ctx->modelAimDrawn = aim;
+        for (int h = 0; h < HAND_COUNT; h++) {
+            poseHoldReset(&ctx->gripHold[h]);
+        }
+    }
     int live = ctx->modelOn && ctx->modelReady && !ctx->modelPassFailed && ctx->inputReady
-            && ctx->gripAction != XR_NULL_HANDLE && !ctx->passthrough && ctx->shouldRender
+            && poseAction != XR_NULL_HANDLE && !ctx->passthrough && ctx->shouldRender
             && ctx->sessionState == XR_SESSION_STATE_FOCUSED
             && ctx->splash.phase == SPLASH_GONE;
     if (live && !ctx->actionsSynced) {
@@ -179,11 +190,12 @@ void updateControllerModels(XrCtx* ctx) {
     ctx->actionsSynced = 0;
 
     for (int h = 0; live && h < HAND_COUNT; h++) {
-        if (ctx->gripSpaces[h] == XR_NULL_HANDLE) {
+        XrSpace poseSpace = aim ? ctx->aimSpaces[h] : ctx->gripSpaces[h];
+        if (poseSpace == XR_NULL_HANDLE) {
             continue;
         }
         XrActionStateGetInfo get = { XR_TYPE_ACTION_STATE_GET_INFO };
-        get.action = ctx->gripAction;
+        get.action = poseAction;
         get.subactionPath = ctx->handPaths[h];
         XrActionStatePose state = { XR_TYPE_ACTION_STATE_POSE };
         int active = XR_SUCCEEDED(xrGetActionStatePose(ctx->session, &get, &state))
@@ -191,7 +203,7 @@ void updateControllerModels(XrCtx* ctx) {
         // In the space the models' layer is drawn in, whatever the picture is
         // locked to: a controller is in the room, not on the head
         XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
-        int placed = active && XR_SUCCEEDED(xrLocateSpace(ctx->gripSpaces[h], ctx->localSpace,
+        int placed = active && XR_SUCCEEDED(xrLocateSpace(poseSpace, ctx->localSpace,
                                                           ctx->predictedDisplayTime, &loc));
         // Native (lane ray-glitch): the ray's rule (controllerPoseLive, which
         // controllerModelShown goes by) and the ray's hold, so a short loss of
@@ -281,8 +293,9 @@ static void modelRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* tar
     for (int h = 0; h < HAND_COUNT; h++) {
         mp.shown[h] = ctx->modelShown[h];
         if (ctx->modelShown[h]) {
-            // Native: only the generic one is mirrored; the Frame's left is its own mesh
-            controllerModelMatrix(ctx->modelGrip[h], h == HAND_LEFT && !ctx->model->perHand, mp.model[h]);
+            // Native: only a model with one mesh for both hands is mirrored (the generic
+            // controller, a single custom file); the Frame's and the gun's left is its own
+            controllerModelMatrix(ctx->modelGrip[h], h == HAND_LEFT && ctx->model->mirrorLeft, mp.model[h]);
         }
     }
     // Native: the textured Frame models' moving parts (a hand that is not shown

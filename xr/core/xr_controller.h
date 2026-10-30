@@ -6,7 +6,10 @@
 #ifndef XR_CONTROLLER_H
 #define XR_CONTROLLER_H
 
+#include <stddef.h>
+
 #include "xr_math.h"
+#include "xr_shared.h"
 
 // Whether the ray is switched on for the session: the setting the session
 // started from, turned over each time the bar button or the Display tab's row
@@ -65,5 +68,46 @@ void controllerModelMatrix(XrPosef grip, int leftHand, float* out16);
 // Where a point of the model lands, the same placement worked without the
 // matrix
 Vec3 controllerModelPoint(XrPosef grip, int leftHand, Vec3 local);
+
+// ---- which model, and from which files --------------------------------------------------------
+// The kind the session draws, from the on switch and the stored kind: off is 0, a kind out of range
+// (or a switch on with no kind yet, the way the first version of the row set it) is the Frame's
+int controllerModelKind(int on, int kind);
+
+// Where a kind's model is placed: at the hand's grip (the Frame's, the generic and a user's own,
+// all authored for the grip), or at its aim pose with the barrel along -z (the gun, so its muzzle
+// is on the ray and the dot)
+#define MODEL_SPACE_GRIP 0
+#define MODEL_SPACE_AIM 1
+int controllerModelSpace(int kind);
+
+// "off", "frame", "generic", "gun", "custom" (the names the setting is written with)
+const char* controllerModelKindName(int kind);
+
+// What the loader reads, in the order it tries. The first that loads is the model; one that is
+// missing is left out, one that is there but unusable is skipped by the loader with the reason on
+// stderr. kind is what the candidate gives, which is not the kind asked for when it fell back
+// (a gun without its files is the Frame's, the Frame's without its files the generic one).
+#define MODEL_FILES_TEXTURED_PAIR 1   // two MXFM files, path[0] the left hand's and path[1] the right's
+#define MODEL_FILES_TEXTURED_ONE 2    // one MXFM file, path[0], the right hand's, mirrored for the left
+#define MODEL_FILES_PAINTED_PAIR 3    // two painted .room files, as the pair
+#define MODEL_FILES_GENERIC 4         // the bundled controller.room, path[0], mirrored for the left
+#define MODEL_CANDIDATES_MAX 6
+#define MODEL_PATH_MAX 1024
+typedef struct ModelCandidate {
+    int format;                       // MODEL_FILES_*
+    int kind;                         // CONTROLLER_MODEL_* it is
+    char path[2][MODEL_PATH_MAX];
+} ModelCandidate;
+
+// The candidates for a kind, assetsDir/models/ holding the bundled files and the Frame's (made at
+// install), userDir the folder the user's own are read from (the config folder's models/, NULL for
+// none). kind off gives none. A user's pair needs both halves; one half alone is not used. Returns
+// how many were written to out, which holds MODEL_CANDIDATES_MAX.
+int controllerModelCandidates(int kind, const char* assetsDir, const char* userDir, ModelCandidate* out);
+
+// Where the user's own models are read from: $MLXR_CONFIG_DIR/models, else
+// ~/.config/moonlight-xr/models. Written into buf; returns buf, or NULL when there is neither
+const char* controllerModelUserDir(char* buf, size_t cap);
 
 #endif

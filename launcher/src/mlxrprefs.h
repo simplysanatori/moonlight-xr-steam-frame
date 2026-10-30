@@ -55,6 +55,10 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(QString keyboardKeymap MEMBER keyboardKeymap NOTIFY changed)
     // Which notices the headset's toast says: "all", "important" or "off" ([vr] notices)
     Q_PROPERTY(QString notices MEMBER notices NOTIFY changed)
+    // Which controller the headset draws in each hand: "off", "frame", "generic", "gun" or "custom"
+    // ([vr] controller_model). Custom (your own files in the models folder) is only chosen here and
+    // in the file; the headset's Display tab has a cell for the other four
+    Q_PROPERTY(QString controllerModel MEMBER controllerModel NOTIFY changed)
     // ---- facts ----
     // Native (lane wave4c-usb): a USB data cable to the PC is up, i.e. the headset's USB network
     // interface (usb*, or a gadget device) has carrier. Rescanned every 10 s while the app is open.
@@ -125,6 +129,7 @@ public:
     bool flipFaceButtons;
     QString keyboardKeymap;
     QString notices;
+    QString controllerModel;
 
 signals:
     void changed();
@@ -135,6 +140,7 @@ private:
     // what config.ini held at load(), to write only what this page changed
     bool m_iniPerfOverlay = false, m_iniFlip = false;
     QString m_iniNotices = "all";
+    QString m_iniControllerModel = "off";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
     bool m_usbCable = false, m_usbScanned = false;

@@ -268,6 +268,17 @@
 #define PAD_GRIP_NONE 1
 #define PAD_GRIP_STICK_CLICKS 2
 
+// Which controller model is drawn, in the order the controller_model setting lists them. 1 is
+// what an old file's "true" meant, so those files keep the Frame's controllers: none, the Steam
+// Frame's own (converted at install), the bundled generic controller, the bundled pistol, or the
+// user's own files in the config folder's models/ (docs/CUSTOM_MODELS.md)
+#define CONTROLLER_MODEL_OFF 0
+#define CONTROLLER_MODEL_FRAME 1
+#define CONTROLLER_MODEL_GENERIC 2
+#define CONTROLLER_MODEL_GUN 3
+#define CONTROLLER_MODEL_CUSTOM 4
+#define CONTROLLER_MODEL_COUNT 5
+
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
 #define SETTING_STATS   1
@@ -580,7 +591,9 @@
 // Native (M4): three cells, off / the dot alone / the ray with its dot (the
 // owner asked to be able to hide the dot); upstream has two, off and on
 #define COG_RAY_CELLS 3
-#define COG_CONTROLLERS_CELLS 2
+// Show controllers: Off, Frame, Generic, Gun. Custom (a model of the user's own) is the fifth
+// kind and has no cell here: the config file and the launcher's page pick it
+#define COG_CONTROLLERS_CELLS 4
 #define COG_CLICK_SOUND_CELLS 2
 #define COG_AMBI_CELLS    2
 #define COG_ROOM_LIGHT_CELLS 2
