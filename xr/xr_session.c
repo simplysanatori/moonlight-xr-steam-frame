@@ -510,6 +510,7 @@ typedef struct XrCurve {
     int eyeW, eyeH;
     int failed;
     int layerSaid;
+    int filterSaid;            // native (lane text-clarity): the filter last logged
     // What a warp into this image counts as for videoStale: 1 the curve, 2 + 4
     // x width the supersampled picture (M5)
     int mode;
@@ -654,6 +655,17 @@ static int curveSwapchain(XrCtx* ctx, XrCurve* cv, int64_t format) {
     return 0;
 }
 
+// Native (lane text-clarity): a config.ini switch with its variable over it
+// (for a headset A/B from the shortcut's launch options; never saved)
+static int knobOr(const char* name, int setting) {
+    const char* v = getenv(name);
+    return v != NULL && *v ? atoi(v) != 0 : setting != 0;
+}
+
+static int pictureFilterOn(XrCtx* ctx) {
+    return knobOr("MLXR_PICTURE_FILTER", ctx->pictureFilter);
+}
+
 // One display frame of the curved picture: both eyes drawn from where they
 // are now. Fills the layer and returns the acquired images' release duty.
 static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuffer cmd, int64_t format,
@@ -763,6 +775,13 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     xrCurveShape(ctx, &pp.width, &pp.height, &pp.radius);
     pp.segments = 96;
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
+    // Native (lane text-clarity): shrunk into the eye through the footprint
+    // filter (panel.frag)
+    pp.pictureFilter = pictureFilterOn(ctx);
+    if (cv->filterSaid != 1 + pp.pictureFilter) {
+        cv->filterSaid = 1 + pp.pictureFilter;
+        LOGEV("curved picture: %s", pp.pictureFilter ? "footprint filter" : "one trilinear read (picture_filter off)");
+    }
     memset(&cv->layer, 0, sizeof(cv->layer));
     VkImageView src[ROOM_EYES];
     for (int e = 0; e < 2; e++) {

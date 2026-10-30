@@ -338,6 +338,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->statsStyle = s->stats_style >= STATS_STYLE_FULL && s->stats_style <= STATS_STYLE_LITE ? s->stats_style : STATS_STYLE_FULL;
     ctx->sharpenMode = s->sharpening;
     ctx->supersampleMode = s->supersampling;
+    ctx->pictureFilter = s->picture_filter;
     ctx->ambilightOn = s->glow;
     ctx->ambiIntensity = (float)s->glow_level / 100.0f;
     ctx->glowFeather = s->glow_feather;
@@ -439,6 +440,7 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->stats_style = ctx->statsStyle;
     s->sharpening = ctx->sharpenMode;
     s->supersampling = ctx->supersampleMode;
+    s->picture_filter = ctx->pictureFilter;
     s->glow = ctx->ambilightOn;
     s->glow_level = iround(ctx->ambiIntensity * 100.0f);
     s->glow_feather = ctx->glowFeather;

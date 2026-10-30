@@ -395,6 +395,10 @@ typedef struct XrCtx {
     // sharpen, SteamVR has no layer settings) and supersampling (stored only)
     int sharpenMode;
     int supersampleMode;
+    // Native (lane text-clarity): [display] picture_filter as config.ini has
+    // it (MLXR_PICTURE_FILTER overrides it where it is used, xr_session.c,
+    // and is never saved)
+    int pictureFilter;
     int layerFlagsLogged;
 
     int videoWidth;

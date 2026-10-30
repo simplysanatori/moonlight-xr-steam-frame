@@ -345,6 +345,10 @@ typedef struct MlxrPanelParams {
     float width, height, radius;
     int segments;          // across; 1 is enough for a flat one
     float color[4];        // premultiplied multiplier, {1, 1, 1, 1} normally
+    // New (lane text-clarity), for the curved or 3D picture's own image (with
+    // its mip chain): 1 the picture's footprint filter (panel.frag), 0 one
+    // trilinear read as for the glow and the panels
+    int pictureFilter;
 } MlxrPanelParams;
 void mlxr_pass_panel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrPanelParams* pp);
 

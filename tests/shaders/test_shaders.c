@@ -3361,6 +3361,7 @@ static void txRecPanel(VkCommandBuffer cmd, void* u) {
     pp.radius = r->surf.R;
     pp.segments = 96;
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
+    pp.pictureFilter = r->cfg->pictureFilter;
     MlxrTarget t = r->eye.t;
     t.clear = 1;
     mlxr_pass_panel(P, cmd, &t, &pp);
@@ -3433,10 +3434,11 @@ static void testText(void) {
     targetMake(&r.eye, TX_EYE, TX_EYE, UNORM);
     uint8_t* eye = malloc((size_t)TX_EYE * TX_EYE * 4);
     uint8_t* moved = malloc((size_t)TX_EYE * TX_EYE * 4);
-    enum { BEFORE, BEFORE_CAS, ROWS };
+    enum { BEFORE, BEFORE_CAS, FILTER, ROWS };
     static const TxCfg cfgs[ROWS] = {
         [BEFORE] = {"before: trilinear, bilinear chroma", 0.0f, 0, 0.0f, 0, 0, 1, 1},
         [BEFORE_CAS] = {"before, Sharpen quality (warp CAS)", 0.8f, 0, 0.0f, 0, 0, 0, 0},
+        [FILTER] = {"+ footprint filter", 0.0f, 1, 0.0f, 0, 0, 1, 1},
     };
     TxScore at[TX_GEOM_COUNT][ROWS][2];
     float crawl[TX_GEOM_COUNT][ROWS + 1];
@@ -3538,7 +3540,7 @@ static void testText(void) {
         VkCommandBuffer cmd = vkh_begin(&vk);
         vkh_layout(&vk, &r.eye.img, COLOR_ATT);
         vkh_submit(&vk);
-        const int timed[] = {BEFORE};
+        const int timed[] = {BEFORE, FILTER};
         for (size_t i = 0; i < sizeof(timed) / sizeof(timed[0]); i++) {
             r.cfg = &cfgs[timed[i]];
             float wm = timeIt(txRecWarp, &r, 5);
@@ -3548,6 +3550,38 @@ static void testText(void) {
             float pm = timeIt(txRecPanel, &r, 5);
             note("time (report only, %s): warp + mips %.2f ms, panel into one eye %.2f ms", cfgs[timed[i]].name, wm, pm);
         }
+    }
+    // What the default placement (and the others where it says) must keep;
+    // lavapipe here, the arm64 runner in CI, with margins for the two
+    const TxScore* b0 = &at[0][BEFORE][0];
+    const TxScore* bc = &at[0][BEFORE][1];
+    // The footprint filter: sharper and nearer the ideal at the default
+    // placement, no softer anywhere after the compositor, crawl within the
+    // ideal's own
+    {
+        const TxScore* f0 = &at[0][FILTER][0];
+        const TxScore* fc = &at[0][FILTER][1];
+        for (int e = 0; e < 2; e++) {
+            check(f0->mtf50[e] >= 1.15f * b0->mtf50[e], "text: footprint filter MTF50 %.3f, before %.3f", f0->mtf50[e],
+                  b0->mtf50[e]);
+            check(fc->mtf50[e] >= 1.08f * bc->mtf50[e], "text: after the compositor MTF50 %.3f, before %.3f",
+                  fc->mtf50[e], bc->mtf50[e]);
+            for (int g = 1; g < TX_GEOM_COUNT; g++)
+                check(at[g][FILTER][1].mtf50[e] >= 0.97f * at[g][BEFORE][1].mtf50[e],
+                      "text: %s, after the compositor MTF50 %.3f, before %.3f", TX_GEOMS[g].name,
+                      at[g][FILTER][1].mtf50[e], at[g][BEFORE][1].mtf50[e]);
+        }
+        for (int g = 1; g < TX_GEOM_COUNT; g++)
+            check(at[g][FILTER][1].textRms <= at[g][BEFORE][1].textRms + 0.5f,
+                  "text: %s, after the compositor text RMS %.1f, before %.1f", TX_GEOMS[g].name,
+                  at[g][FILTER][1].textRms, at[g][BEFORE][1].textRms);
+        check(f0->lines[0] >= b0->lines[0] + 0.1f, "text: 3 px lines %.2f, before %.2f", f0->lines[0], b0->lines[0]);
+        check(f0->textRms <= 0.5f * b0->textRms, "text: text RMS %.1f, before %.1f", f0->textRms, b0->textRms);
+        check(f0->overshoot <= 1.0f, "text: the footprint filter rings %.1f%%", f0->overshoot);
+        check(fc->alias <= bc->alias + 1.0f, "text: after the compositor the zone plate aliases %.1f, before %.1f",
+              fc->alias, bc->alias);
+        check(crawl[0][FILTER + 1] <= crawl[0][0] + 0.5f, "text: crawl %.2f, the ideal's %.2f", crawl[0][FILTER + 1],
+              crawl[0][0]);
     }
     free(moved);
     free(eye);
