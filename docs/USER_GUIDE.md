@@ -46,6 +46,8 @@ It works like Moonlight on a PC.
 
 While a stream starts, the window shows a tip: "Tip: Press Start+Select+L1+R1 to disconnect your session". With no gamepad connected it names Ctrl+Alt+Shift+Q instead.
 
+In the headset, the Moonlight XR logo with "Connecting to *PC name*..." under it hangs in front of you from the moment a stream is the picture's source until the first frame arrives, then fades out over about a third of a second. It shows again, as "Reconnecting...", while the headset reconnects after a dropped link (see When the connection drops). It has no setting and is not shown once a picture is there.
+
 In the headset (Game Mode) the window is drawn 1.5 times larger than on a desktop, so the text is easier to read. Set `MLXR_LAUNCHER_SCALE` to change it, for example `MLXR_LAUNCHER_SCALE=1.25`. It takes 1.0 (no scaling) to 2.5. On a desktop the window is not scaled.
 
 The **Help** button (the question mark at the top) opens this project's readme: <https://github.com/simplysanatori/moonlight-xr-steam-frame#readme>.
