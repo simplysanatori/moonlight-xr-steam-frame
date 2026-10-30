@@ -176,3 +176,49 @@ never left.
   gap and the 2 h age limit are constants in `backend/failover.h`. The first run with the 6 GHz link in the bad spot
   and the adapter or 5 GHz as the other candidate is the data (`HEADSET_TEST` list in the lane report). Other
   candidates are not re-probed mid-stream; a stream older than 2 h will not switch.
+
+## VPN addresses only away from home (lane vpn-fallback)
+
+Request: a PC that is also reachable through a VPN should be streamed over the VPN only when the headset is not
+on the PC's network. Before this lane a VPN address was one more candidate on the Wi-Fi path. It answered at home
+too (an overlay VPN routes its peers' addresses through the tunnel even on the same LAN) and could score lower
+than the LAN address, so streams at home went through the tunnel, with dropped audio and a low frame rate.
+
+- Classification (`mlxr_net_addr_is_vpn`, pure; `mlxr_net_plan_classify` fills `cand.vpn` and `cand.vpn_why`):
+  VPN is an IPv4 address in 100.64.0.0/10 (the shared CGNAT range overlay VPNs use), IPv6 in fd7a:115c:a1e0::/48,
+  loopback (a local port forward into a user-space VPN), or an address reached through an interface named
+  `tailscale*`, `wg*`, `tun*`, `tap*`, `zt*`, `utun*`. "Reached through" is the interface table's subnet or
+  default-route interface, and when `mlxr_net_select` reads the system's table itself (`plan.route_lookup`) also
+  the kernel's own route lookup (`mlxr_net_route_ifname`: a UDP socket connected to the address, nothing sent, its
+  source address matched to an interface), which sees policy routing and /32 tunnel addresses. Everything else is
+  direct. The path is unchanged (a VPN peer is normally on the Wi-Fi path); `vpn` is a flag beside it.
+- Choice (`[stream] vpn_only_away`, default true, `plan.vpn_only_away`): all candidates are probed as before, but
+  while any direct candidate answered, VPN candidates are set aside in every rule (best per path, a path set by
+  hand, the fallback to other paths). Probing: Automatic's 700 ms grace after the first answer starts only with a
+  direct answer, or once every direct candidate has finished without one, so away from home the choice waits for
+  the full budget (1.5 s) before it takes the VPN; a path set by hand (first answer in address order wins) lets a
+  VPN candidate win only after every direct one has finished. False restores best-score-wins.
+- One log line (`plan.vpn_note`, after the reason): `the PC answered on the home network (Wi-Fi 192.168.1.10);
+  its VPN address 100.64.0.5 is not used`, `the PC did not answer on the home network; using its VPN address
+  100.64.0.5 (score 38.2 ms)`, and with the setting off `... scored better than the VPN address ...` or
+  `using the VPN address ... on its score`. The candidate list marks each VPN address (`VPN: 100.64.0.0/10`,
+  `VPN: wg0`); the stats summary adds `, VPN`.
+- Failover: `mlxr_net_quality` carries `chosen_vpn`, `vpn_only_away` and per path `vpn` (the path's figure is its
+  best direct candidate when one answered, and the chosen path's figure is the chosen candidate's, which it was
+  not always before). `mlxr_failover_decide` never moves a stream from a direct address to a path whose figure is
+  VPN; from VPN to direct it may.
+- Learning (`mlxr_net_learn_addresses`, replacing `rememberAddresses`' loop in `app/main.c`): every direct
+  candidate that answered as the PC (above all the ones ARP and mDNS found) and serverinfo's LocalIP (only for a
+  direct choice: over a VPN it is the PC's VPN side) are appended to the record's `extra_addresses`; VPN, loopback
+  and USB cable addresses are not; nothing is removed. Next time at home the LAN address is a candidate from the
+  start (and mDNS no longer has to find it; its 400 ms wait is skipped once every up interface has a candidate).
+- History: `mlxr_nethist_record_stream` leaves a stream over a VPN address out; its losses say nothing about the
+  link it would be filed under (Wi-Fi).
+- Tests (`tests/backend/test_netpath.c`): the classification table (ranges by number, interface names, IPv6,
+  zones, a VPN default route), the choice as a table (both answer, direct wins with a higher score; only the VPN
+  answers; the setting off; a path set by hand; the fallback; nothing answers; no VPN address), the failover table
+  (never direct to VPN, VPN to direct, the setting off), the learning (what is kept, nothing removed, a full list,
+  the next plan has it), the probe ordering with two real loopback servers, and the failover table after a real
+  select. The launcher test clicks the row and reads `vpn_only_away` back through the client's parser.
+- Not covered: a VPN that uses none of these ranges or names (a company VPN handing out 10.x addresses on an
+  interface with another name) is direct; the setting cannot tell it from the LAN.

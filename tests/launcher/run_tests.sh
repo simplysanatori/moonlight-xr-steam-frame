@@ -1279,6 +1279,24 @@ PY
     expect "search: one word finds its row" "$(grep 'text="steadiness"' "$t/vrk2.out")" "rows=1 titles=Click steadiness sections=Input Settings"
     SECTION=mlxr setconf on_start=none
 
+    # --- lane vpn-fallback: Connection's "Use VPN addresses only away from home" is on by default (nothing in the
+    # file); a click writes [stream] vpn_only_away = false, which the VR client reads, and a second start reads it back
+    printf '[stream]\nfailover = on\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=stream.vpn_only_away \
+        MLXR_LAUNCHER_INVOKE='setSearch:vpn' MLXR_LAUNCHER_SCREENSHOT="$t/vpn.png@3000" "$L" >"$t/vpn.out" 2>&1
+    grep -q "no clickable" "$t/vpn.out" && fail "VPN row: $(grep 'no clickable' "$t/vpn.out")"
+    uiout "$t/vpn.out" "VPN row"
+    expect "VPN row: a click turns it off, written to [stream]" "$(sec stream)" "vpn_only_away = false"
+    expect "VPN row: other keys untouched" "$(sec stream)" "failover = on"
+    expect "VPN row: search finds it under Connection" "$(grep 'text="vpn"' "$t/vpn.out")" "titles=Use VPN addresses only away from home sections=Connection"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        expect "VR client reads stream.vpn_only_away = false" "$("$MLXR_SETTINGS_DUMP" "$ini")" "stream.vpn_only_away = false"
+        expect "VR client: on by default" "$("$MLXR_SETTINGS_DUMP" --table)" "stream.vpn_only_away b true"
+    fi
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=stream.vpn_only_away \
+        MLXR_LAUNCHER_SCREENSHOT="$t/vpn2.png@3000" "$L" >"$t/vpn2.out" 2>&1
+    expect "VPN row: read back off, a click turns it on again" "$(sec stream)" "vpn_only_away = true"
+
     # --- PLAN 6.2: the update notice in the toolbar (stock's update button) with this project's version
     rel v999.0.0
     MLXR_LAUNCHER_UPDATE=1 MLXR_LAUNCHER_UPDATE_JSON="$t/rel.json" MLXR_NATIVE_CLIENT="$fake" \

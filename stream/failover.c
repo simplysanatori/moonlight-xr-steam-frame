@@ -46,6 +46,7 @@ int mlxr_failover_step(MlxrFailover* f, MlxrReconnect* rc, const MlxrFailoverOps
         c->present = q.p[path].present;
         c->score_ms = q.p[path].score_ms;
         c->probed_ms = q.p[path].probed_ms;
+        c->vpn = q.p[path].vpn;   // Native (lane vpn-fallback)
     }
     mlxr_failover_in in;
     memset(&in, 0, sizeof(in));
@@ -61,6 +62,8 @@ int mlxr_failover_step(MlxrFailover* f, MlxrReconnect* rc, const MlxrFailoverOps
     in.loss = loss;
     in.cand = cand;
     in.n_cand = n;
+    in.vpn_only_away = q.vpn_only_away; // Native (lane vpn-fallback): a direct path is never left for a VPN one
+    in.cur_vpn = q.chosen_vpn;
     mlxr_failover_out out = mlxr_failover_decide(&in);
     if (!out.sw) {
         snprintf(f->lastWhy, sizeof(f->lastWhy), "%s", mlxr_failover_reason_text(out.reason));
