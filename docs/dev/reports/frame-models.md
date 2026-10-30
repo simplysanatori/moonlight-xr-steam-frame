@@ -15,6 +15,40 @@ model loads nothing and draws no controller, and the log says why once
 (`controller model (frame): no model files under .../models ...`). The generic rows of the sections
 below are history. The painted tests that drew it now draw a painted box pair written by the test.
 
+## The Gun model: a G17 (lane/gun-guncon)
+
+- **Source.** "G17 Gen 5 Handgun + Olight - NSW Police Force" by 8sianDude (Sketchfab haoliu95), CC BY 4.0,
+  chosen by the owner in place of the original procedural pistol (and of the GunCon scans, which have no
+  licence). Credit and the list of changes: `assets/licenses/README.md` (and CREDITS.md, README.md). The
+  source (glTF + 3.6 MB bin + 20 MB of textures) is not in the repository; `tools/xr/make_gun.py` converts it:
+  `python3 tools/xr/make_gun.py --in scene.gltf assets/models` (deterministic: the committed files are
+  byte for byte what it writes from the download).
+- **What is kept.** Nodes `g17_gen5` (frame 7642 triangles, slide 13302) and `body_low` (the light 5196, its
+  lens 170); of `mag_full` (the magazine in the grip, 22470) its three largest pieces, 2840 triangles (body,
+  inner wall, base plate; the 34 cartridges inside it cannot be seen). Dropped: `mag_full.001` (21390) and
+  `mag_empty` (3030), the spare magazines behind the pistol. 73200 in, 29150 out a hand (28754 body + 396
+  trigger), 32451 vertices; under the 30000 budget, so nothing is simplified (the tool can, with pyfqmr).
+- **Pose.** Turned (+z forward, +y up in the scene), scaled 0.11176 (the light's front to the frame's back
+  0.2135 m, the slide 0.186 m, 0.138 m tall: a real G17 Gen 5), the bore (the barrel's front ring centre, 9 mm
+  across) on the z axis, then slid along it until the grip's centre line at mid height crosses the old
+  pistol's grip line (22 degree rake through y -0.0525, z 0.043; the G17's own grip rakes about 25 degrees).
+  The barrel's front is at z -0.108, the light's at -0.121, the grip's bottom at y -0.124.
+- **Trigger.** The frame mesh's trigger and its safety blade (and a pin through them), split out by
+  connected pieces inside a box: 396 triangles, hinged at their top front (0, -0.020, -0.013), 22 degrees back
+  at a full pull, as the old pistol's.
+- **Colours.** Each triangle's base colour texture sampled at five points, reduced to 16 colours (k-means in
+  linear light) on a 16x1 palette: black polymer, the grey slide, the FDE magazine base plate, the light;
+  the lens set pale. Normals are the model's own.
+- **Cost.** 1.9 MB a hand on disk and in GPU buffers (the Frame's own textured models: 34 MB a hand), about
+  twice the Frame controllers' triangles; the models pass was 0.16 to 0.21 ms for those. Not measured on
+  the Frame.
+- **A gun of your own.** The Gun kind reads `gun_left.model` + `gun_right.model` from the user's models
+  folder first (both halves; `xr/core/xr_controller.c`), then the bundled pair, then the Frame chain;
+  the log says `the gun is your own` or `the gun is the bundled one`.
+- **Preview** (headless, a small software render of the MXFM files, not the client's shader): procedural
+  pistol and G17 side by side from five sides with the aim ray, and the trigger at rest and pulled. Nobody
+  has held it in the headset yet.
+
 ## v3: moving parts and a matte finish (lane/model-anim)
 
 - **Animation.** `xr_model.c` reads each hand's controls once a frame (trigger, grip, thumbstick x/y and

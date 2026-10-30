@@ -74,6 +74,22 @@ Example with everything given: `--component trigger=Trigger,input=/input/trigger
 
 Components are written in this order: `body` (everything not named), then your components in the order given, at most 31.
 
+## The Gun model
+
+The **Gun** kind of Show controllers draws a Glock 17 Gen 5 with an Olight weapon light: "[G17 Gen 5 Handgun + Olight - NSW Police Force](https://sketchfab.com/3d-models/g17-gen-5-handgun-olight-nsw-police-force-0200c248eba14385ad2bee8d4dc4e586)" by [8sianDude](https://sketchfab.com/haoliu95), licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). The project changed it to fit the headset (the spare magazines left out, real size, placed at the aim pose, the textures baked into flat colours, the trigger made a moving part, mirrored for the left hand); `assets/licenses/README.md` has the full credit. Unlike the grip-placed models above, it is drawn at the controller's *aim* pose: the barrel runs along the ray and the dot sits in front of the muzzle.
+
+`assets/models/gun_right.model` and `gun_left.model` were made with `tools/xr/make_gun.py` from the Sketchfab download (glTF, unzipped):
+
+```
+python3 tools/xr/make_gun.py --in scene.gltf assets/models
+```
+
+It needs Pillow for the textures (or reads PNGs slowly without it), and numpy and pyfqmr only if a model is over its triangle budget (30,000 a hand; the G17 is 29,150 once the spare magazines are left out, so it is not simplified). `--inspect` prints a model's nodes and their bounds, and `--profile FILE.json` converts another pistol with its own numbers (the keys are at the top of the script).
+
+### Your own gun
+
+Put a `gun_left.model` and `gun_right.model` of your own in `~/.config/moonlight-xr/models/` (or `$MLXR_CONFIG_DIR/models/`) and the Gun kind draws them instead of the bundled pair. Both halves must be there; if they cannot be read, the bundled gun is drawn. `moonlight.log` says which: `the gun is your own` or `the gun is the bundled one`. Author it like the Gun model: metres, +x right, +y up, the barrel along -z with the origin on the bore (the aim ray leaves the muzzle), a part named for `--component trigger=...,input=/input/trigger`, and the left hand's file made with `--mirror`.
+
 ## Look at the result
 
 The converter prints the vertex and triangle count, the number of components and the model's size. The size should read like a hand-held object (centimetres to a few tens of centimetres, as metres). If it is 100 times too big or small, adjust `--scale`.

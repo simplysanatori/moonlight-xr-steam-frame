@@ -417,11 +417,26 @@ static void testModelCandidates(void) {
     CHECK(remove(gone) == 0);
     listed(CONTROLLER_MODEL_CUSTOM, assets, user, got, sizeof(got));
     CHECK(strcmp(got, "2:3 1:1 3:1") == 0);
-    // The other kinds never look in the user's folder
+    // The Frame kind never looks in the user's folder, nor the gun for custom files
     listed(CONTROLLER_MODEL_FRAME, assets, user, got, sizeof(got));
     CHECK(strcmp(got, "1:1 3:1") == 0);
     listed(CONTROLLER_MODEL_GUN, assets, user, got, sizeof(got));
     CHECK(strcmp(got, "1:2 1:1 3:1") == 0);
+    // A gun of the user's own: both halves, then it comes before the bundled pair
+    touch(user, "gun_right.model");
+    listed(CONTROLLER_MODEL_GUN, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:2 1:1 3:1") == 0);
+    touch(user, "gun_left.model");
+    listed(CONTROLLER_MODEL_GUN, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:2 1:2 1:1 3:1") == 0);
+    CHECK(controllerModelCandidates(CONTROLLER_MODEL_GUN, assets, user, c) == 4);
+    CHECK(strstr(c[0].path[0], "/user/gun_left.model") != NULL && strstr(c[0].path[1], "/user/gun_right.model") != NULL);
+    CHECK(endsWith(c[1].path[0], "/models/gun_left.model") && strstr(c[1].path[0], "/user/") == NULL);
+    // Without a user folder, or for the Frame kind, it is not read
+    listed(CONTROLLER_MODEL_GUN, assets, NULL, got, sizeof(got));
+    CHECK(strcmp(got, "1:2 1:1 3:1") == 0);
+    listed(CONTROLLER_MODEL_FRAME, assets, user, got, sizeof(got));
+    CHECK(strcmp(got, "1:1 3:1") == 0);
 
     // A kind out of range reads nothing
     CHECK(controllerModelCandidates(CONTROLLER_MODEL_COUNT, assets, user, c) == 0);

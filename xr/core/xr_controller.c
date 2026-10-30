@@ -154,6 +154,10 @@ int controllerModelCandidates(int kind, const char* assetsDir, const char* userD
         addFrameChain(out, &n, assetsDir);
         break;
     case CONTROLLER_MODEL_GUN:
+        // A gun of the user's own (both halves) wins over the bundled one
+        if (userDir != NULL && *userDir != '\0') {
+            addModelPair(out, &n, CONTROLLER_MODEL_GUN, userDir, "gun", 1);
+        }
         addModelPair(out, &n, CONTROLLER_MODEL_GUN, dir, "gun", 0);
         addFrameChain(out, &n, assetsDir);
         break;
