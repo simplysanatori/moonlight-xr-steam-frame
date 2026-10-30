@@ -1147,6 +1147,87 @@ static void testBringHereFromTheBar(void) {
     CHECK_NEAR(atan2f(-p.x, -p.z), radians(30.0f), 1e-3);
 }
 
+// Native (lane bar-glare): the bar's Bring here as a switch. Near is the
+// Desk preset, far is where it was before (or the Cinema preset); which one
+// it is at is read off the placement.
+static void testTheBringSwitch(void) {
+    LayoutPreset desk = layoutPresetOf(LAYOUT_PRESET_DESK);
+    LayoutPreset cinema = layoutPresetOf(LAYOUT_PRESET_CINEMA);
+    const float aspect = 9.0f / 16.0f;
+    float w = 3.0f;
+    XrPosef screen;
+    memset(&screen, 0, sizeof(screen));
+    screen.orientation.w = 1.0f;
+    screen.position.z = -3.0f;
+    // Looking down at the bar of the far screen, turned 25 degrees left
+    float down = atan2f(w * aspect * 0.5f + w * BAR_DROP_FRAC, 3.0f);
+    XrPosef head;
+    memset(&head, 0, sizeof(head));
+    head.orientation = yawPitch(radians(25.0f), -down);
+    Vec3 gaze = layoutGazeDir(head.orientation);
+    BringToggle t;
+    memset(&t, 0, sizeof(t));
+    CHECK(!bringToggleNear(&t, screen, w, head));
+
+    // Far to near: the Desk preset, with its bar where the eyes are
+    CHECK(bringTogglePress(&t, &screen, &w, aspect, head) == 1);
+    CHECK_NEAR(w, desk.widthCm / 100.0f, 1e-5);
+    Vec3 p = { screen.position.x, screen.position.y, screen.position.z };
+    CHECK_NEAR(sqrtf(vecDot(p, p)), desk.distanceCm / 100.0f, 1e-4);
+    Vec3 barLocal = { 0.0f, -(w * aspect * 0.5f + w * BAR_DROP_FRAC), 0.0f };
+    Vec3 barOff = quatRotate(screen.orientation, barLocal);
+    Vec3 bar = vecNorm((Vec3){ p.x + barOff.x, p.y + barOff.y, p.z + barOff.z });
+    CHECK(acosf(fminf(1.0f, vecDot(bar, gaze))) * 180.0f / (float)M_PI < 1.0f);
+    CHECK(t.farValid && fabsf(t.farDistance - 3.0f) < 1e-4f && fabsf(t.farWidth - 3.0f) < 1e-5f);
+    CHECK(bringToggleNear(&t, screen, w, head));
+
+    // Near to far: as it was, centred where the head looks now
+    head.orientation = yawPitch(radians(-15.0f), -down);
+    CHECK(bringTogglePress(&t, &screen, &w, aspect, head) == 0);
+    CHECK_NEAR(w, 3.0, 1e-5);
+    p = (Vec3){ screen.position.x, screen.position.y, screen.position.z };
+    CHECK_NEAR(sqrtf(vecDot(p, p)), 3.0, 1e-4);
+    CHECK_NEAR(atan2f(-p.x, -p.z), radians(-15.0f), 1e-3);
+    CHECK_NEAR(p.y, 0.0, 1e-3);
+    CHECK(!bringToggleNear(&t, screen, w, head));
+
+    // Near again, then moved while near: the next press brings it near again,
+    // and the one after goes to the Cinema preset, the far one forgotten
+    CHECK(bringTogglePress(&t, &screen, &w, aspect, head) == 1);
+    screen.position.x += 0.1f;
+    CHECK(!bringToggleNear(&t, screen, w, head));
+    CHECK(bringTogglePress(&t, &screen, &w, aspect, head) == 1);
+    CHECK(!t.farValid);
+    CHECK(bringTogglePress(&t, &screen, &w, aspect, head) == 0);
+    CHECK_NEAR(w, cinema.widthCm / 100.0f, 1e-5);
+    p = (Vec3){ screen.position.x, screen.position.y, screen.position.z };
+    CHECK_NEAR(sqrtf(vecDot(p, p)), cinema.distanceCm / 100.0f, 1e-4);
+    // Resized while near does the same
+    CHECK(bringTogglePress(&t, &screen, &w, aspect, head) == 1);
+    w += 0.05f;
+    CHECK(!bringToggleNear(&t, screen, w, head));
+
+    // A restart while near (nothing brought near this session): the Desk
+    // preset's width at its distance reads as near; with no far kept, the
+    // press goes to the Cinema preset
+    BringToggle fresh;
+    memset(&fresh, 0, sizeof(fresh));
+    w = desk.widthCm / 100.0f;
+    screen.position = (XrVector3f){ 0.0f, 0.03f, -desk.distanceCm / 100.0f + 0.05f };
+    CHECK(bringToggleNear(&fresh, screen, w, head));
+    CHECK(bringTogglePress(&fresh, &screen, &w, aspect, head) == 0);
+    CHECK_NEAR(w, cinema.widthCm / 100.0f, 1e-5);
+    // and with one kept (from the file), back to it
+    memset(&fresh, 0, sizeof(fresh));
+    fresh.farValid = 1;
+    fresh.farDistance = 2.2f;
+    fresh.farWidth = 2.4f;
+    w = desk.widthCm / 100.0f;
+    screen.position = (XrVector3f){ 0.0f, 0.0f, -desk.distanceCm / 100.0f };
+    CHECK(bringTogglePress(&fresh, &screen, &w, aspect, head) == 0);
+    CHECK_NEAR(w, 2.4, 1e-5);
+}
+
 // Bring here: where the head looks, as far off as it was, facing the head,
 // tilt and roll as they were
 static void testBringHere(void) {
@@ -1738,6 +1819,7 @@ int main(void) {
     testTheBarOnACurvedPicture();
     testTheRowsOrder();
     testTheWholeRowIsTheBar();
+    testTheBringSwitch();
     testBringHereFromTheBar();
     testRoomCornersLookTheSameEverywhere();
     testLanes();

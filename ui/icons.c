@@ -138,14 +138,18 @@ static void face_host(Face* f) {
     f_rr(f, 68, 44, 94, 66, 4, INK_ON);
 }
 
-// Native (lane bar-glare): Bring here, the screen coming to where you are: a
-// PC screen, an arrow down from it, and you under the arrow
+// Native (lane bar-glare): Bring here, the screen coming near and going back
+// far: a PC screen, an arrow both ways, and you under it. One face for both
+// ways, as the button strip fills the atlas's width with its sixteen cells.
 static void face_here(Face* f) {
-    f_srr(f, 18, 6, 110, 52, 9, 6, INK_ON);
-    f_line(f, 48, 59, 64, 72, 6, INK_ON);
-    f_line(f, 80, 59, 64, 72, 6, INK_ON);
-    f_fc(f, 64, 87, 11, INK_ON);
-    f_rr(f, 38, 102, 90, 126, 12, INK_ON);
+    f_srr(f, 20, 4, 108, 42, 8, 6, INK_ON);
+    f_line(f, 64, 50, 64, 78, 6, INK_ON);
+    f_line(f, 53, 60, 64, 49, 6, INK_ON);
+    f_line(f, 75, 60, 64, 49, 6, INK_ON);
+    f_line(f, 53, 68, 64, 79, 6, INK_ON);
+    f_line(f, 75, 68, 64, 79, 6, INK_ON);
+    f_fc(f, 64, 95, 9, INK_ON);
+    f_rr(f, 42, 107, 86, 126, 10, INK_ON);
 }
 
 void dc_button_face(Dc* dc, int cell, float ox, float oy, float size) {
