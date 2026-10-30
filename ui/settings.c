@@ -80,7 +80,11 @@ static const char* const SHARP_NAMES[] = { "off", "normal", "quality" };
 static const char* const FEATHER_NAMES[] = { "off", "soft", "wide" };
 _Static_assert(sizeof(FEATHER_NAMES) / sizeof(FEATHER_NAMES[0]) == GLOW_FEATHER_COUNT, "glow_feather names follow GLOW_FEATHER_");
 // CONTROLLER_MODEL_*: 1 is what the old on/off switch's true meant
-static const char* const MODEL_NAMES[] = { "off", "frame", "generic", "gun", "custom" };
+static const char* const MODEL_NAMES[] = { "off", "frame", "gun", "custom" };
+// Native (lane fix-polish): the numbers controller_model had before the generic controller went:
+// 0 off, 1 frame, 2 generic (now the Frame's), 3 gun, 4 custom. A file that says a number means these.
+static const int MODEL_OLD_INDEX[] = { CONTROLLER_MODEL_OFF, CONTROLLER_MODEL_FRAME, CONTROLLER_MODEL_FRAME,
+                                       CONTROLLER_MODEL_GUN, CONTROLLER_MODEL_CUSTOM };
 _Static_assert(sizeof(MODEL_NAMES) / sizeof(MODEL_NAMES[0]) == CONTROLLER_MODEL_COUNT, "controller_model names follow CONTROLLER_MODEL_");
 
 #define NAMES(a) (a), (int)(sizeof(a) / sizeof((a)[0]))
@@ -131,7 +135,7 @@ static const SettingDesc TABLE[] = {
     DE("vr", "keyboard_layout", keyboard_layout, KBLAYOUT_NAMES, 0, "native: the headset keyboard, compact (Moonlight XR's) or full (tenkeyless); the key on each keyboard flips it"),
     DE("vr", "keyboard_keymap", keyboard_keymap, KEYMAP_NAMES, 0, "native: what the headset keyboard's keys say, qwerty, azerty (French) or qwertz (German); the keys send the US keyboard's positions, so the PC must be on the matching Windows layout"),
     DI("vr", "keyboard_hold_ms", keyboard_hold_ms, 200, 1500, 500, "native: milliseconds a Shift, Ctrl, Alt or Win key is held on the full keyboard to lock it down (a tap lights it for the next key)"),
-    DE("vr", "controller_model", controller_model, MODEL_NAMES, 0, "checkbox_vr_controller_model: which controller is drawn in each hand; custom reads your own files from the models folder beside this file (true reads as frame, false as off)"),
+    DE("vr", "controller_model", controller_model, MODEL_NAMES, 0, "checkbox_vr_controller_model: which controller is drawn in each hand; custom reads your own files from the models folder beside this file (true reads as frame, false as off; generic, which earlier versions drew, as frame)"),
     DB("vr", "head_aim", head_aim, 0, "checkbox_vr_head_aim: head aims the mouse (screen head locked, outside a room)"),
     DI("vr", "head_aim_sensitivity", head_aim_sensitivity, HEAD_AIM_SENSITIVITY_MIN, HEAD_AIM_SENSITIVITY_MAX, HEAD_AIM_SENSITIVITY_DEFAULT, "seekbar_vr_head_aim_sensitivity: pixels per degree"),
     DI("vr", "head_aim_deadzone", head_aim_deadzone, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX, HEAD_AIM_DEADZONE_DEFAULT, "seekbar_vr_head_aim_deadzone: degrees per second"),
@@ -652,6 +656,11 @@ static int apply_value(Settings* s, const SettingDesc* d, const char* v, Setting
             if (strcmp(d->key, "controller_model") == 0 && parse_bool(v, &b)) {
                 // Native: the key was a switch (true/false) before it was a kind
                 found = b ? CONTROLLER_MODEL_FRAME : CONTROLLER_MODEL_OFF;
+            } else if (strcmp(d->key, "controller_model") == 0 && (streq_ci(v, "generic")
+                       || (end != v && !*end && n >= 0 && n < (long)(sizeof(MODEL_OLD_INDEX) / sizeof(MODEL_OLD_INDEX[0]))))) {
+                // Native (lane fix-polish): the generic controller is gone, its name reads as the
+                // Frame's, and a number is the kind it was before
+                found = streq_ci(v, "generic") ? CONTROLLER_MODEL_FRAME : MODEL_OLD_INDEX[n];
             } else {
                 if (end == v || *end || n < 0 || n >= d->nnames) return 0;
                 found = (int)n;

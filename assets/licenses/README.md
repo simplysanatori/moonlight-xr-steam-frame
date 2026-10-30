@@ -2,7 +2,7 @@
 
 This directory holds the licence texts that have no better home. The complete list of what the project contains or uses is the table below (also in `CREDITS.md` at the top of the repository and in the install directory). Licence texts for the assets sit next to them: `assets/depth/`, `assets/fonts/OFL.txt`, `assets/hrtf/kemar/LICENSE.txt`.
 
-Files in this directory: `CC-BY-4.0.txt` (rooms, controller model), `moonlight-common-c_LICENSE.txt`, `enet_LICENSE.txt`, `nanors_LICENSE.txt`, `openxr-sdk_LICENSE.txt`, `jsoncpp_LICENSE.txt`, `zipdepth_LICENSE.txt`.
+Files in this directory: `CC-BY-4.0.txt` (rooms), `moonlight-common-c_LICENSE.txt`, `enet_LICENSE.txt`, `nanors_LICENSE.txt`, `openxr-sdk_LICENSE.txt`, `jsoncpp_LICENSE.txt`, `zipdepth_LICENSE.txt`.
 
 The room and controller notices as upstream words them: Copyright (c) 2026 Sean Gilleece / Woodford XR, Creative Commons Attribution 4.0, attribution to Sean Gilleece / Woodford XR (first made for Depthray, Woodford XR's VR video player). KEMAR: Copyright 1994 MIT Media Laboratory, "provided free with no restrictions on use, provided the authors are cited when the data is used in any research or commercial application"; citation: Bill Gardner and Keith Martin, "HRTF Measurements of a KEMAR Dummy-Head Microphone", MIT Media Lab Perceptual Computing Technical Report #280, May 1994.
 
@@ -50,14 +50,12 @@ The room and controller notices as upstream words them: Copyright (c) 2026 Sean 
 | KEMAR HRTF measurements, Bill Gardner and Keith Martin, MIT Media Lab, 1994 | Virtual surround (37 elevation-0 files, unchanged) | Free to use, authors must be cited | https://sound.media.mit.edu/resources/KEMAR.html | `assets/hrtf/kemar/LICENSE.txt` |
 | **Art and fonts** | | | | |
 | Home Theater, Grand Cinema and Synthwave environments (`.room`, `.atlas`, `thumbs/`), Sean Gilleece / Woodford XR | Viewing rooms | CC BY 4.0 | https://github.com/Gilleece/moonlight-android-xr | `assets/licenses/CC-BY-4.0.txt` |
-| Controller model (`assets/models/controller.room`), Sean Gilleece / Woodford XR | Controller drawn in the headset | CC BY 4.0 | https://github.com/Gilleece/moonlight-android-xr | `assets/licenses/CC-BY-4.0.txt` |
 | `assets/branding/`: Moonlight XR logo (`moonlight-xr-logo-transparent.png`), Sean Gilleece; the icon and the Steam images are made from it by `tools/branding/make-art.py` | App and window icon, Steam shortcut icon and library images | GPLv3 | https://github.com/Gilleece/moonlight-android-xr | `LICENSE.txt` |
 | Noto Sans 2.013 (Regular, Medium), The Noto Project Authors | All interface text | SIL OFL 1.1 | https://github.com/notofonts/latin-greek-cyrillic | `assets/fonts/OFL.txt` |
 | Noto Sans CJK, Adobe and Google (not shipped: read from the system's `/usr/share/fonts` when there) | Chinese, Japanese and Korean interface text | SIL OFL 1.1 | https://github.com/notofonts/noto-cjk | the system's copy |
-| `settings_icon.png`, `kofi_qr.png` | Settings button, support sheet | Upstream states no separate licence; shipped under GPLv3 | https://github.com/Gilleece/moonlight-android-xr | |
+| `settings_icon.png` | Settings button | Upstream states no separate licence; shipped under GPLv3 | https://github.com/Gilleece/moonlight-android-xr | |
 | **Build-time tools (nothing from them ships)** | | | | |
 | astc-encoder (Arm) | Compresses the room textures | Apache-2.0 | https://github.com/ARM-software/astc-encoder | |
-| Python `qrcode` and Pillow | Made `kofi_qr.png` once | BSD / HPND | | |
 | **Programs this one talks to (not shipped)** | | | | |
 | Sunshine, Apollo | The streaming host | GPLv3 | https://github.com/LizardByte/Sunshine, https://github.com/ClassicOldSong/Apollo | |
 | SteamVR (OpenXR runtime on the Frame) | Compositor and tracking | Valve, proprietary | | |

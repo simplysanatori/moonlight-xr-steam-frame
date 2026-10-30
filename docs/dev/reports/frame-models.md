@@ -1,8 +1,19 @@
 # Steam Frame controller models
 
 The client can draw a model at each hand's grip (Settings, controller model; off by default as
-upstream). It ships one generic Quest-style controller. On a Frame it draws the Frame's own
-controllers instead, when they have been made from the local SteamVR install.
+upstream). On a Frame it draws the Frame's own controllers, when they have been made from the local
+SteamVR install.
+
+## Lane fix-polish: no generic controller
+
+The owner asked for the generic Quest-style controller to go ("they're not even mapped correctly"):
+`assets/models/controller.room` is deleted, Show controllers is Off / Frame / Gun (Custom from the
+file or the launcher), and `controller_model = generic` (or the old number 2) reads as `frame`. The
+kinds are renumbered (off 0, frame 1, gun 2, custom 3); a file's old numbers 3 and 4 still mean gun
+and custom. Frame (and Gun or Custom falling back to the Frame's chain) with no converted Frame
+model loads nothing and draws no controller, and the log says why once
+(`controller model (frame): no model files under .../models ...`). The generic rows of the sections
+below are history. The painted tests that drew it now draw a painted box pair written by the test.
 
 ## v3: moving parts and a matte finish (lane/model-anim)
 

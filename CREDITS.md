@@ -4,7 +4,7 @@ Moonlight XR for Frame is licensed under the GNU General Public License v3 (`LIC
 
 Built by [simplysanatori](https://github.com/simplysanatori), who also made the Steam Frame fork of Moonlight XR that this client follows.
 
-It is based on [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) by Sean Gilleece (GPLv3). The layout, comfort, depth, audio and interface modules come from there; this project ports them from Java/GLES to C/Vulkan and replaces the Android parts (decoder, input, windowing). The viewing rooms and the controller model are his too (Copyright (c) 2026 Sean Gilleece / Woodford XR, CC BY 4.0), and so is the logo the app's icon and Steam art are made from.
+It is based on [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) by Sean Gilleece (GPLv3). The layout, comfort, depth, audio and interface modules come from there; this project ports them from Java/GLES to C/Vulkan and replaces the Android parts (decoder, input, windowing). The viewing rooms are his too (Copyright (c) 2026 Sean Gilleece / Woodford XR, CC BY 4.0), and so is the logo the app's icon and Steam art are made from.
 
 Moonlight XR is itself a fork of [Moonlight for Android](https://github.com/moonlight-stream/moonlight-android), and Moonlight is the work of the Moonlight Game Streaming Project ([moonlight-stream](https://github.com/moonlight-stream)): Cameron Gutman, Diego Waxemberg, Aaron Neyer, Andrew Hennessy and the other contributors. The streaming protocol is [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c), and the way the client talks to Sunshine and Apollo follows [moonlight-qt](https://github.com/moonlight-stream/moonlight-qt) by Cameron Gutman and contributors. The flat launcher is moonlight-qt 6.1.0 with a few patches.
 
@@ -58,14 +58,12 @@ Every third-party component and asset is listed below. The same table is in `ass
 | KEMAR HRTF measurements, Bill Gardner and Keith Martin, MIT Media Lab, 1994 | Virtual surround (37 elevation-0 files, unchanged) | Free to use, authors must be cited | https://sound.media.mit.edu/resources/KEMAR.html | `assets/hrtf/kemar/LICENSE.txt` |
 | **Art and fonts** | | | | |
 | Home Theater, Grand Cinema and Synthwave environments (`.room`, `.atlas`, `thumbs/`), Sean Gilleece / Woodford XR | Viewing rooms | CC BY 4.0 | https://github.com/Gilleece/moonlight-android-xr | `assets/licenses/CC-BY-4.0.txt` |
-| Controller model (`assets/models/controller.room`), Sean Gilleece / Woodford XR | Controller drawn in the headset | CC BY 4.0 | https://github.com/Gilleece/moonlight-android-xr | `assets/licenses/CC-BY-4.0.txt` |
 | `assets/branding/`: Moonlight XR logo (`moonlight-xr-logo-transparent.png`), Sean Gilleece; the icon and the Steam images are made from it by `tools/branding/make-art.py` | App and window icon, Steam shortcut icon and library images | GPLv3 | https://github.com/Gilleece/moonlight-android-xr | `LICENSE.txt` |
 | Noto Sans 2.013 (Regular, Medium), The Noto Project Authors | All interface text | SIL OFL 1.1 | https://github.com/notofonts/latin-greek-cyrillic | `assets/fonts/OFL.txt` |
 | Noto Sans CJK, Adobe and Google (not shipped: read from the system's `/usr/share/fonts` when there) | Chinese, Japanese and Korean interface text | SIL OFL 1.1 | https://github.com/notofonts/noto-cjk | the system's copy |
-| `settings_icon.png`, `kofi_qr.png` | Settings button, support sheet | Upstream states no separate licence; shipped under GPLv3 | https://github.com/Gilleece/moonlight-android-xr | |
+| `settings_icon.png` | Settings button | Upstream states no separate licence; shipped under GPLv3 | https://github.com/Gilleece/moonlight-android-xr | |
 | **Build-time tools (nothing from them ships)** | | | | |
 | astc-encoder (Arm) | Compresses the room textures | Apache-2.0 | https://github.com/ARM-software/astc-encoder | |
-| Python `qrcode` and Pillow | Made `kofi_qr.png` once | BSD / HPND | | |
 | **Programs this one talks to (not shipped)** | | | | |
 | Sunshine, Apollo | The streaming host | GPLv3 | https://github.com/LizardByte/Sunshine, https://github.com/ClassicOldSong/Apollo | |
 | SteamVR (OpenXR runtime on the Frame) | Compositor and tracking | Valve, proprietary | | |

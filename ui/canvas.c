@@ -303,19 +303,6 @@ void ui_image_cover(UiCanvas* cv, const uint8_t* rgba, int iw, int ih, float x0,
     }
 }
 
-void ui_image_nearest(UiCanvas* cv, const uint8_t* rgba, int iw, int ih, float x0, float y0,
-                      float x1, float y1) {
-    if (!rgba || iw < 1 || ih < 1 || x1 <= x0 || y1 <= y0) return;
-    BOX_LOOP(x0, y0, x1, y1, 0.0f) {
-        float fx = (float)px + 0.5f, fy = (float)py + 0.5f;
-        if (fx < x0 || fx >= x1 || fy < y0 || fy >= y1) continue;
-        int ix = imin((int)((fx - x0) / (x1 - x0) * (float)iw), iw - 1);
-        int iy = imin((int)((fy - y0) / (y1 - y0) * (float)ih), ih - 1);
-        const uint8_t* p = rgba + ((size_t)iy * iw + ix) * 4;
-        ui_cv_over(cv, px, py, UI_ARGB(p[3], p[0], p[1], p[2]), 1.0f);
-    }
-}
-
 void ui_fill_radial(UiCanvas* cv, float cx, float cy, float r, uint32_t c0, uint32_t c1,
                     float stop, uint32_t c2) {
     BOX_LOOP(cx - r, cy - r, cx + r, cy + r, 1.0f) {

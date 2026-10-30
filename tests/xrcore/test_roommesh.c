@@ -281,10 +281,12 @@ static void testShipped(void) {
     checkShipped("grand_cinema.room", 43670, 17790, 1, 0, 1);
     // The sofa off the atlas, and the rest painted from its colours
     checkShipped("synthwave.room", 26169, 12958, 2, 1, 1);
-    // The controller model, one part painted from its colours with no atlas,
-    // which is the only kind the renderer draws it as, and under the 2,000
-    // triangles a pair of them may cost
-    checkShippedIn(MODELS, "controller.room", 890, 1592, 1, 1, 0);
+    // lane fix-polish: the bundled generic controller (models/controller.room) is gone
+    char gone[512];
+    snprintf(gone, sizeof gone, "%scontroller.room", MODELS);
+    FILE* f = fopen(gone, "rb");
+    CHECK(f == NULL);
+    if (f) fclose(f);
 }
 
 int main(void) {

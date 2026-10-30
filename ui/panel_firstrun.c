@@ -61,6 +61,4 @@ void panel_firstrun(Dc* dc) {
         dc_text_fit_left(dc, UI_WEIGHT_MEDIUM, 26.0f, left, base, labelW, 0xFF8CC8FFu, ui_str(rows[i].label));
         dc_text_fit_left(dc, UI_WEIGHT_REGULAR, 26.0f, textX, base, textW, 0xEEFFFFFFu, rows[i].text);
     }
-    dc_text_fit_left(dc, UI_WEIGHT_REGULAR, 22.0f, left, dc->nh - 26.0f, dc->nw - 2.0f * left, 0x99FFFFFFu,
-                     ui_str(UIS_FIRSTRUN_FOOT));
 }

@@ -743,6 +743,54 @@ static unsigned char* readAll(const char* path, size_t* n) {
     return d;
 }
 
+// Native (lane fix-polish): the bundled generic controller is gone, so the painted model tests draw
+// a made-up painted pair instead: a box the size of a controller (6 x 5 x 14 cm), each face its
+// own normal so it shades, written as both hands' .room (MXR3) under dir/models the way an older
+// tools/frame-models wrote the Frame's. Both windings of every face, so culling never matters.
+#define BOX_VERTICES 24
+#define BOX_INDICES 72
+static void writeBoxRoom(const char* path) {
+    FILE* f = fopen(path, "wb");
+    if (!f) return;
+    uint32_t head[5] = {0x3352584d /* 'MXR3' */, BOX_VERTICES, BOX_INDICES, 1, 0};
+    fwrite(head, 4, 5, f);
+    uint32_t part[3] = {0, BOX_INDICES, 0xffffffffu};
+    fwrite(part, 4, 3, f);
+    uint32_t channels = 0;
+    fwrite(&channels, 4, 1, f);
+    const float h[3] = {0.03f, 0.025f, 0.07f};
+    for (int axis = 0; axis < 3; axis++)
+        for (int sign = -1; sign <= 1; sign += 2) {
+            int u = (axis + 1) % 3, w = (axis + 2) % 3;
+            const float corner[4][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
+            for (int c = 0; c < 4; c++) {
+                float v[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0.55f, 0.6f, 0.65f};
+                v[axis] = (float)sign * h[axis];
+                v[u] = corner[c][0] * h[u];
+                v[w] = corner[c][1] * h[w];
+                v[3 + axis] = (float)sign;
+                fwrite(v, 4, 11, f);
+            }
+        }
+    for (uint32_t face = 0; face < 6; face++) {
+        uint32_t b = face * 4;
+        uint32_t idx[12] = {b, b + 1, b + 2, b, b + 2, b + 3, b, b + 2, b + 1, b, b + 3, b + 2};
+        fwrite(idx, 4, 12, f);
+    }
+    fclose(f);
+}
+
+// A scratch assets dir holding only the painted box as the Frame's pair
+static void stageBoxPair(const char* dir) {
+    char cmd[1400], path[700];
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models'", dir, dir);
+    check(system(cmd) == 0, "stage %s", dir);
+    snprintf(path, sizeof(path), "%s/models/frame_controller_left.room", dir);
+    writeBoxRoom(path);
+    snprintf(path, sizeof(path), "%s/models/frame_controller_right.room", dir);
+    writeBoxRoom(path);
+}
+
 static MlxrRoom* loadRoom(int style, int low, float scale) {
     MlxrRoomLoadInfo li = {MLXR_ASSETS_DIR, style, scale, low};
     MlxrRoom* r = NULL;
@@ -846,28 +894,6 @@ static void testLoad(void) {
     check(mlxr_room_load(&gpu, &bad, &r) != 0 && r == NULL, "a missing assets dir is an error");
     MlxrRoomLoadInfo bad2 = {MLXR_ASSETS_DIR, 0, 0, 0};
     check(mlxr_room_load(&gpu, &bad2, &r) != 0 && r == NULL, "style 0 is no room");
-    // The controller model
-    MlxrModel* m = NULL;
-    check(mlxr_model_load(&gpu, MLXR_ASSETS_DIR, &m) == 0 && m, "load the controller model");
-    if (m) {
-        char path[512];
-        snprintf(path, sizeof(path), "%s/models/controller.room", MLXR_ASSETS_DIR);
-        size_t n;
-        unsigned char* file = readAll(path, &n);
-        RoomMeshInfo mi;
-        check(file && roomMeshParse(file, n, &mi), "parse the model");
-        check(m->vertexCount == mi.vertexCount && m->indexCount == mi.indexCount, "model counts");
-        void* gv = readBuffer(m->vertices, m->vertexBytes);
-        void* gi = readBuffer(m->indices, m->indexBytes);
-        check(memcmp(gv, file + mi.vertexOffset, m->vertexBytes) == 0 && memcmp(gi, file + mi.indexOffset, m->indexBytes) == 0,
-              "model buffers equal the file");
-        note("controller    load %7.1f ms: %u vertices, %u triangles, %.3f MB on the GPU", m->loadMs, m->vertexCount, m->indexCount / 3,
-             m->gpuBytes / 1048576.0);
-        free(gv);
-        free(gi);
-        free(file);
-        mlxr_model_unload(&gpu, m);
-    }
 }
 
 static void testRescale(void) {
@@ -1056,7 +1082,7 @@ static int renderModelsAt(const MlxrModel* m, uint32_t eyeW, uint32_t eyeH, cons
         eyeView(e, ROOM_FAR_MIN_M, mp.viewProj[e]);
         mp.eyeRect[e] = (VkRect2D){{(int32_t)(e * eyeW), 0}, {eyeW, eyeH}};
     }
-    // Native: only a one-mesh model (the generic controller, a single custom file) is mirrored for the left hand
+    // Native: only a one-mesh model (a single custom file) is mirrored for the left hand
     controllerModelMatrix(pose->grip[0], m->mirrorLeft, mp.model[0]);
     controllerModelMatrix(pose->grip[1], 0, mp.model[1]);
     mp.shown[0] = pose->shown[0];
@@ -1119,9 +1145,49 @@ static void compositeOver(const uint8_t* top, const uint8_t* under, uint8_t* out
     }
 }
 
-static void testModel(void) {
+// The controller model as loaded (native, lane fix-polish: was the generic controller's part of
+// the load group, which needs ASTC for its rooms; this needs nothing of the kind)
+static void testModelLoad(void) {
+    // The controller model. The shipped assets have none of the Frame's (the install makes them from
+    // SteamVR's) and, since lane fix-polish, no generic controller either: nothing loads
     MlxrModel* m = NULL;
-    check(mlxr_model_load(&gpu, MLXR_ASSETS_DIR, &m) == 0, "load the controller model");
+    check(mlxr_model_load(&gpu, MLXR_ASSETS_DIR, &m) != 0 && m == NULL, "no controller model in the shipped assets");
+    if (m) mlxr_model_unload(&gpu, m);
+    // A painted pair: both files' vertices and indices, one after the other, in the buffers
+    static const char* const boxDir = "/tmp/mlxr-rooms-box-load";
+    stageBoxPair(boxDir);
+    m = NULL;
+    check(mlxr_model_load(&gpu, boxDir, &m) == 0 && m, "load the painted pair");
+    if (m) {
+        char path[512];
+        snprintf(path, sizeof(path), "%s/models/frame_controller_left.room", boxDir);
+        size_t n;
+        unsigned char* file = readAll(path, &n);
+        RoomMeshInfo mi;
+        check(file && roomMeshParse(file, n, &mi), "parse the model");
+        check(m->perHand && !m->mirrorLeft && m->vertexCount == 2 * mi.vertexCount && m->indexCount == 2 * mi.indexCount,
+              "model counts: the two hands' meshes");
+        unsigned char* gv = readBuffer(m->vertices, m->vertexBytes);
+        unsigned char* gi = readBuffer(m->indices, m->indexBytes);
+        size_t vb = m->vertexBytes / 2, ib = m->indexBytes / 2;
+        check(memcmp(gv, file + mi.vertexOffset, vb) == 0 && memcmp(gv + vb, file + mi.vertexOffset, vb) == 0 &&
+                  memcmp(gi, file + mi.indexOffset, ib) == 0 && memcmp(gi + ib, file + mi.indexOffset, ib) == 0,
+              "model buffers equal the files");
+        note("controller    load %7.1f ms: %u vertices, %u triangles, %.3f MB on the GPU", m->loadMs, m->vertexCount, m->indexCount / 3,
+             m->gpuBytes / 1048576.0);
+        free(gv);
+        free(gi);
+        free(file);
+        mlxr_model_unload(&gpu, m);
+    }
+}
+
+static void testModel(void) {
+    testModelLoad();
+    MlxrModel* m = NULL;
+    static const char* const boxDir = "/tmp/mlxr-rooms-box-model";
+    stageBoxPair(boxDir);
+    check(mlxr_model_load(&gpu, boxDir, &m) == 0, "load the controller model (the painted box pair)");
     if (!m) return;
     const uint32_t EW = 640, EH = 640;
     Frame f;
@@ -1157,8 +1223,7 @@ static void testModel(void) {
             if (l > maxL) maxL = l;
         }
     check(maxL > minL + 20, "the model is shaded (%d..%d)", minL, maxL);
-    // Mirrored: the left hand is the right hand's reflection, so the left
-    // half of the left eye holds as much model as the right half of the right
+    // Both hands, each its own mesh at its own grip, show in the left eye
     size_t l = 0, r = 0;
     for (uint32_t y = 0; y < EH; y++)
         for (uint32_t x = 0; x < EW; x++) {
@@ -1256,11 +1321,10 @@ static void writeTriRoom(const char* path) {
 
 static const char* const kTexDir = "/tmp/mlxr-rooms-textured-test";
 
-// A scratch assets dir with the generic controller only
+// An empty scratch assets dir (lane fix-polish: there is no generic controller to put in it)
 static void stageModels(void) {
     char cmd[1400];
-    snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models' && cp '%s/models/controller.room' '%s/models/'", kTexDir,
-             kTexDir, MLXR_ASSETS_DIR, kTexDir);
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s' && mkdir -p '%s/models'", kTexDir, kTexDir);
     check(system(cmd) == 0, "stage %s", kTexDir);
 }
 
@@ -1820,30 +1884,27 @@ static void testModelPose(void) {
 }
 
 // What loads when the files are missing or broken: the textured pair first,
-// then the painted pair, then the generic controller
+// then the painted pair, then (lane fix-polish: no generic controller) nothing
 static void testModelFallback(void) {
-    char tl[700], tr[700], pl[700], pr[700], gen[700];
+    char tl[700], tr[700], pl[700], pr[700];
     modelPath(tl, sizeof(tl), "frame_controller_left.model");
     modelPath(tr, sizeof(tr), "frame_controller_right.model");
     modelPath(pl, sizeof(pl), "frame_controller_left.room");
     modelPath(pr, sizeof(pr), "frame_controller_right.room");
-    modelPath(gen, sizeof(gen), "controller.room");
     struct {
         const char* what;
         int left, right; // the .model halves: 0 none, 1 good, 2 cut short, 3 another version
         int painted;     // the .room pair
-        int generic;     // controller.room
-        int want;        // 0 generic, 1 painted pair, 2 textured pair, -1 nothing loads
+        int want;        // 1 painted pair, 2 textured pair, -1 nothing loads
     } cases[] = {
-        {"nothing of the Frame's", 0, 0, 0, 1, 0},
-        {"the textured pair", 1, 1, 0, 1, 2},
-        {"the textured pair over the painted one", 1, 1, 1, 1, 2},
-        {"the textured pair without the generic controller", 1, 1, 0, 0, 2},
-        {"one textured half, the painted pair", 1, 0, 1, 1, 1},
-        {"one textured half", 0, 1, 0, 1, 0},
-        {"a textured half cut short", 1, 2, 0, 1, 0},
-        {"a textured half of an unknown version, the painted pair", 3, 1, 1, 1, 1},
-        {"a textured half cut short, nothing else", 2, 1, 0, 0, -1},
+        {"nothing of the Frame's", 0, 0, 0, -1},
+        {"the textured pair", 1, 1, 0, 2},
+        {"the textured pair over the painted one", 1, 1, 1, 2},
+        {"one textured half, the painted pair", 1, 0, 1, 1},
+        {"one textured half", 0, 1, 0, -1},
+        {"a textured half cut short", 1, 2, 0, -1},
+        {"a textured half of an unknown version, the painted pair", 3, 1, 1, 1},
+        {"a textured half cut short, the painted pair", 2, 1, 1, 1},
     };
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         stageModels();
@@ -1853,12 +1914,11 @@ static void testModelFallback(void) {
             writeTriRoom(pl);
             writeTriRoom(pr);
         }
-        if (!cases[i].generic) remove(gen);
         MlxrModel* m = NULL;
         int rc = mlxr_model_load(&gpu, kTexDir, &m);
         int got = rc != 0 || !m ? -1 : m->textured ? 2 : m->perHand ? 1 : 0;
         note("fallback     %-55s -> %s", cases[i].what,
-             got == 2 ? "textured pair" : got == 1 ? "painted pair" : got == 0 ? "generic" : "nothing");
+             got == 2 ? "textured pair" : got == 1 ? "painted pair" : got == 0 ? "a mirrored mesh" : "nothing");
         check(got == cases[i].want, "%s: got %d, want %d", cases[i].what, got, cases[i].want);
         if (m) {
             // whatever loaded draws
@@ -1937,20 +1997,17 @@ static void testModelKind(void) {
         mlxr_model_unload(&gpu, m);
     }
 
-    // Generic: the bundled controller, whatever the Frame's files are, mirrored for the left hand
+    // Frame, nothing of its files there: nothing loads (lane fix-polish: no generic controller)
     stageUser();
+    m = NULL;
+    check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_FRAME, &m) != 0 && m == NULL,
+          "Frame without its files: nothing loads, no controller is drawn");
+    if (m) mlxr_model_unload(&gpu, m);
+    // Frame: the pair that is there
     modelPath(p, sizeof(p), "frame_controller_left.model");
     writeQuadModel(p, 0.0f, 0, 1);
     modelPath(p, sizeof(p), "frame_controller_right.model");
     writeQuadModel(p, 0.0f, 0, 1);
-    m = NULL;
-    check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_GENERIC, &m) == 0 && m, "load the generic controller");
-    if (m) {
-        check(m->kind == CONTROLLER_MODEL_GENERIC && m->space == MODEL_SPACE_GRIP && !m->textured && !m->perHand && m->mirrorLeft,
-              "generic: not the Frame's pair that is there, one mesh, mirrored, at the grip");
-        mlxr_model_unload(&gpu, m);
-    }
-    // Frame: the pair that is there
     m = NULL;
     check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_FRAME, &m) == 0 && m, "load the Frame kind");
     if (m) {
@@ -1963,33 +2020,31 @@ static void testModelKind(void) {
     check(mlxr_model_load(&gpu, kTexDir, &m) == 0 && m && m->kind == CONTROLLER_MODEL_FRAME && m->textured, "mlxr_model_load is the Frame kind");
     if (m) mlxr_model_unload(&gpu, m);
 
-    // Gun without its files (an assets folder that has only the generic one): the Frame's, here the pair that is there
+    // Gun without its files (an assets folder without them): the Frame's, here the pair that is there
     m = NULL;
     check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_GUN, &m) == 0 && m, "gun without its files still loads");
     if (m) {
         check(m->kind == CONTROLLER_MODEL_FRAME && m->space == MODEL_SPACE_GRIP, "gun missing: the Frame's, at the grip (kind %d)", m->kind);
         mlxr_model_unload(&gpu, m);
     }
-    // Frame models gone as well: the generic controller
+    // Frame models gone as well: nothing loads
     modelPath(p, sizeof(p), "frame_controller_left.model");
     remove(p);
     modelPath(p, sizeof(p), "frame_controller_right.model");
     remove(p);
     m = NULL;
-    check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_GUN, &m) == 0 && m && m->kind == CONTROLLER_MODEL_GENERIC &&
-              m->space == MODEL_SPACE_GRIP,
-          "gun and Frame missing: the generic controller");
+    check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_GUN, &m) != 0 && m == NULL,
+          "gun and Frame missing: nothing loads");
     if (m) mlxr_model_unload(&gpu, m);
 
-    // Custom, nothing in the folder (or no folder): the same fall back
+    // Custom, nothing in the folder (or no folder): the same fall back, here to nothing
     m = NULL;
-    check(mlxr_model_load_kind(&gpu, kTexDir, userModelsDir(), CONTROLLER_MODEL_CUSTOM, &m) == 0 && m &&
-              m->kind == CONTROLLER_MODEL_GENERIC,
-          "custom with an empty folder falls back");
+    check(mlxr_model_load_kind(&gpu, kTexDir, userModelsDir(), CONTROLLER_MODEL_CUSTOM, &m) != 0 && m == NULL,
+          "custom with an empty folder falls back (to nothing here)");
     if (m) mlxr_model_unload(&gpu, m);
     m = NULL;
-    check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_CUSTOM, &m) == 0 && m && m->kind == CONTROLLER_MODEL_GENERIC,
-          "custom with no folder falls back");
+    check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_CUSTOM, &m) != 0 && m == NULL,
+          "custom with no folder falls back (to nothing here)");
     if (m) mlxr_model_unload(&gpu, m);
 
     // Custom, one file: the right hand's, mirrored for the left, one set of images, the parts shared
@@ -2058,16 +2113,21 @@ static void testModelKind(void) {
         fputs("not a model", junk);
         fclose(junk);
     }
+    // with the Frame's painted pair there, that is the fall back
+    modelPath(p, sizeof(p), "frame_controller_left.room");
+    writeBoxRoom(p);
+    modelPath(p, sizeof(p), "frame_controller_right.room");
+    writeBoxRoom(p);
     m = NULL;
-    check(mlxr_model_load_kind(&gpu, kTexDir, userModelsDir(), CONTROLLER_MODEL_CUSTOM, &m) == 0 && m && m->kind == CONTROLLER_MODEL_GENERIC &&
+    check(mlxr_model_load_kind(&gpu, kTexDir, userModelsDir(), CONTROLLER_MODEL_CUSTOM, &m) == 0 && m && m->kind == CONTROLLER_MODEL_FRAME &&
               !m->textured,
-          "everything custom broken: the fall back to the Frame's chain (here the generic controller)");
+          "everything custom broken: the fall back to the Frame's chain (here its painted pair)");
     if (m) mlxr_model_unload(&gpu, m);
     // one half alone is not a pair and is not used
     userPath(p, sizeof(p), "custom.model");
     remove(p);
     m = NULL;
-    check(mlxr_model_load_kind(&gpu, kTexDir, userModelsDir(), CONTROLLER_MODEL_CUSTOM, &m) == 0 && m && m->kind == CONTROLLER_MODEL_GENERIC,
+    check(mlxr_model_load_kind(&gpu, kTexDir, userModelsDir(), CONTROLLER_MODEL_CUSTOM, &m) == 0 && m && m->kind == CONTROLLER_MODEL_FRAME,
           "a lone custom half falls back");
     if (m) mlxr_model_unload(&gpu, m);
 
@@ -2079,8 +2139,14 @@ static void testModelKind(void) {
 static void testOverlay(void) {
     MlxrRoom* r = loadRoom(ROOM_STYLE_THEATER, 0, 0.0f);
     MlxrModel* m = NULL;
-    mlxr_model_load(&gpu, MLXR_ASSETS_DIR, &m);
-    if (!r || !m) return;
+    static const char* const boxDir = "/tmp/mlxr-rooms-box-overlay";
+    stageBoxPair(boxDir);
+    check(mlxr_model_load(&gpu, boxDir, &m) == 0 && m, "load the painted box pair");
+    if (!r || !m) {
+        if (r) mlxr_room_unload(&gpu, r);
+        if (m) mlxr_model_unload(&gpu, m);
+        return;
+    }
     Frame room, hands;
     const uint32_t EW = 1024, EH = 1024;
     check(renderRoom(r, EW, EH, 2, 1, 1, &room) == 0 && renderModels(m, EW, EH, &hands) == 0, "render room and models at one size");

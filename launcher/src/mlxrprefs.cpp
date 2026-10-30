@@ -327,10 +327,11 @@ void MlxrPrefs::load()
     // the VR client takes the name or its index; anything else is its default, all
     const QString nt = iniValue(ini, "vr", "notices", "all").trimmed().toLower();
     notices = (nt == "important" || nt == "1") ? "important" : (nt == "off" || nt == "2") ? "off" : "all";
-    // the VR client takes the name, its index, or the true and false the key was a switch with
+    // the VR client takes the name, its old index, or the true and false the key was a switch with;
+    // generic (2), the controller lane fix-polish took out, is the Frame's there and here
     const QString cm = iniValue(ini, "vr", "controller_model", "off").trimmed().toLower();
-    controllerModel = (cm == "frame" || cm == "1" || cm == "true" || cm == "on" || cm == "yes" || cm == "y") ? "frame"
-                    : (cm == "generic" || cm == "2") ? "generic"
+    controllerModel = (cm == "frame" || cm == "1" || cm == "true" || cm == "on" || cm == "yes" || cm == "y"
+                       || cm == "generic" || cm == "2") ? "frame"
                     : (cm == "gun" || cm == "3") ? "gun"
                     : (cm == "custom" || cm == "4") ? "custom" : "off";
     // the VR client's limits, held to its range
