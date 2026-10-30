@@ -8,12 +8,15 @@
 //   run()            runs it, keeps the Qt UI alive meanwhile, reports how it ended
 //   seedLauncherConfig()   first run only: copies Moonlight Qt's (flatpak) config
 //   (lane artemis-settings) the Artemis-style Settings page's own settings: mlxrprefs.h
+//   (lane wave4-pcvr) startPcvr()  exit code 12: hands the headset to Valve's Steam Link stream of the PC
 #pragma once
 
 #include <QString>
 #include <QStringList>
 #include <functional>
 
+class QObject;
+class QProcess;
 class QQmlApplicationEngine;
 class QWindow;
 class NvComputer;
@@ -39,6 +42,8 @@ struct Result {
     bool crashed = false;      // killed by a signal
     bool dryRun = false;
     bool disconnected = false; // left with the disconnect chord: the host's app still runs (exit code 11)
+    bool pcvr = false;         // left with the Host sheet's Switch to PC VR (exit code 12): run() has started Steam's side
+                               // of it (startPcvr()); the host's app still runs, so disconnected is set too
     bool ok() const { return exitCode == 0 || disconnected; }
     QString message;           // for the error dialog; empty when exitCode == 0
 };
@@ -88,6 +93,33 @@ void flatWindowReturn(QWindow* window);
 bool fadesFlatWindow();
 void fadeFlatWindow(QWindow* window, bool out);
 
+// ---- Moonlight XR Native (lane wave4-pcvr): PC VR, Valve's Steam Link stream (PLAN 4.1, 4.2, 4.9) ----
+// The VR client's "Switch to PC VR" (Host sheet) ends its session with this exit code. The host's
+// session keeps running, as after the disconnect chord. run() then asks Steam, through its debugging
+// port (packaging/steam_cef.py), to stream the chosen game from the PC: Apps.StreamGame(app, client, 0),
+// or, with no game chosen, to open the library to press "Stream from your PC" there. This is Valve's
+// stream, not Moonlight's; when it ends Steam brings this window back.
+constexpr int kExitPcvr = 12;
+// MLXR_STEAM_CEF (tests), else <dir of this binary>/steam_cef.py
+QString steamCefPath();
+// Runs `python3 -I steam_cef.py <args>` without blocking the UI. done(code, stdout, stderr) is called once
+// on the GUI thread: code is the script's exit code (0 ok, 1 Steam refused, 2 usage, 3 the CEF port does
+// not answer, 4 a call is missing), -1 when python or the script could not be started, -2 on a timeout.
+// context owns the process (the application when null). Returns the process (null when it was not started).
+QProcess* runSteamCef(const QStringList& args, int timeoutMs, QObject* context,
+                      const std::function<void(int, const QByteArray&, const QString&)>& done);
+// steam_cef.py's arguments for the hand-off: --pcvr [--app APP] [--client CLIENT]
+QStringList pcvrArguments(const QString& app, const QString& client);
+// The hand-off itself: reads the chosen game (mlxr/pcvr_app) and PC (mlxr/pcvr_client) from the launcher's
+// settings and starts steam_cef.py --pcvr. A dry run (MLXR_LAUNCHER_DRYRUN) prints "MLXR_PCVR: ..." and
+// starts nothing.
+void startPcvr();
+// True for 20 s after startPcvr(): the flat screen is not asked for again then (it would pull the dashboard
+// back to the flat window over Valve's stream)
+bool pcvrHeldOff();
+// Tests: waits (up to ms) for the process startPcvr() started
+void waitForPcvr(int ms);
+
 // Copies Moonlight Qt's config into this launcher's on its first run (no-op later).
 // Call after the application and organization names are set, before any QSettings use.
 void seedLauncherConfig();
@@ -96,6 +128,8 @@ void seedLauncherConfig();
 // from the saved hosts and exits with the hand-off's result. For tests/launcher.
 // Also (lane launcher2): "bitrate:<W>x<H>x<FPS>[x444]" prints the default bitrate
 // StreamingPreferences::getDefaultBitrate gives, "scale" prints the Game Mode UI scale.
+// (lane wave4-pcvr) "pcvr:probe", "pcvr:devices", "pcvr:apps[:CLIENT]" run that steam_cef.py command and print
+// "SELFTEST: pcvr <what> rc=N <its output>"; "pcvr:go" runs the hand-off with the saved settings.
 int selfTest(const QString& spec);
 
 // Moonlight XR Native (lane refresh): the Steam Frame's display rates. The VR client never streams

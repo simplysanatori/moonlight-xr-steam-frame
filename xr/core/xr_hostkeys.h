@@ -34,6 +34,10 @@
 #define XR_HOST_ZONE_CLOSE 100
 #define XR_HOST_ZONE_CONFIRM_SEND 101
 #define XR_HOST_ZONE_CONFIRM_CANCEL 102
+// Native (PLAN 4.1): "PC VR" in the header, left of Close. Its confirmation uses the same box with
+// hostConfirm set to XR_HOST_CONFIRM_PCVR (no cell asks for it, so it is out of the cell range).
+#define XR_HOST_ZONE_PCVR 103
+#define XR_HOST_CONFIRM_PCVR 200
 
 // What a cell is
 #define XR_HOST_CELL_NONE (-1)
@@ -45,6 +49,7 @@
 // used; zeros out of range
 void xrHostCellRect(int cell, float r[4]);
 void xrHostCloseRect(float r[4]);
+void xrHostPcvrRect(float r[4]);
 // The confirmation box, and its two buttons
 void xrHostConfirmBox(float r[4]);
 void xrHostConfirmSendRect(float r[4]);

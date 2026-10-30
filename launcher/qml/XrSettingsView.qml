@@ -202,6 +202,33 @@ Flickable {
         return scrollSpeedSteps[0]
     }
 
+    // [3d] edge_sharpness: the steps the Edge row goes through (0 is the 3D's own soft edges)
+    readonly property var edgeSteps: [0, 25, 50, 75, 100]
+    function nextEdge() {
+        for (var i = 0; i < edgeSteps.length; i++) {
+            if (edgeSteps[i] > MlxrPrefs.edgeSharpness) return edgeSteps[i]
+        }
+        return edgeSteps[0]
+    }
+
+    // [3d] motion_reset: the steps the Motion row goes through (0 is off)
+    readonly property var motionSteps: [0, 5, 10, 20, 30]
+    function nextMotion() {
+        for (var i = 0; i < motionSteps.length; i++) {
+            if (motionSteps[i] > MlxrPrefs.motionReset) return motionSteps[i]
+        }
+        return motionSteps[0]
+    }
+
+    // [3d] depth_scale and depth_global: the steps their rows go through, percent (100 is as made)
+    readonly property var depthSteps: [50, 75, 100, 125, 150, 200]
+    function nextDepthStep(v) {
+        for (var i = 0; i < depthSteps.length; i++) {
+            if (depthSteps[i] > v) return depthSteps[i]
+        }
+        return depthSteps[0]
+    }
+
     // [vr] controller_model: which controller the headset draws in each hand
     readonly property var modelValues: ["off", "frame", "generic", "gun", "custom"]
     readonly property var modelNames: [qsTr("Off"), qsTr("Steam Frame controller"), qsTr("Generic controller"), qsTr("Gun"), qsTr("Your own model")]
@@ -744,6 +771,48 @@ Flickable {
             onMoved: function(v) { MlxrPrefs.convergence = Math.round(v); MlxrPrefs.convergenceIsDefault = false }
         }
 
+        // Native (lane wave5-depth): how closely the depth keeps to the edges in the picture. Pressing the
+        // row steps 0, 25, 50, 75, 100 ([3d] edge_sharpness of the VR client's config.ini)
+        PrefRow {
+            objectName: "edgeRow"
+            title: qsTr("3D Edge Sharpness")
+            valueText: MlxrPrefs.edgeSharpness === 0 ? qsTr("0 (soft, the default)") : ("" + MlxrPrefs.edgeSharpness)
+            summary: qsTr("Higher keeps hair, outlines and thin text on their own depth instead of blending them into what is behind. Too high can make edges look cut out.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            onClicked: if (enabled) MlxrPrefs.edgeSharpness = settingsPage.nextEdge()
+        }
+
+        // Native (lane wave5-depth): the depth's smoothing over time restarts where the picture moved, so a
+        // fast edge leaves no trail. Pressing the row steps Off, 5, 10, 20, 30 percent ([3d] motion_reset)
+        PrefRow {
+            objectName: "motionRow"
+            title: qsTr("3D Motion Reset")
+            valueText: MlxrPrefs.motionReset === 0 ? qsTr("Off (the default)") : (MlxrPrefs.motionReset + "%")
+            summary: qsTr("For fast scenes: where the picture changes by more than this between two depth maps, the 3D stops smoothing the old depth into the new there, so moving edges leave no trail. Lower reacts to smaller changes; too low brings back flicker.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            onClicked: if (enabled) MlxrPrefs.motionReset = settingsPage.nextMotion()
+        }
+
+        // Native (lane wave5-depth): upstream's depth scale, and the overall shape's gain beside it. Pressing a
+        // row steps 50, 75, 100, 125, 150, 200 percent ([3d] depth_scale, depth_global)
+        PrefRow {
+            objectName: "depthScaleRow"
+            title: qsTr("3D Depth Detail")
+            valueText: MlxrPrefs.depthScale + "%" + (MlxrPrefs.depthScale === 100 ? " " + qsTr("(as the model makes it)") : "")
+            summary: qsTr("The depth between things near each other, like a face in front of a wall. Higher makes them stand apart more, without pushing the whole picture further in or out.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            onClicked: if (enabled) MlxrPrefs.depthScale = settingsPage.nextDepthStep(MlxrPrefs.depthScale)
+        }
+
+        PrefRow {
+            objectName: "depthGlobalRow"
+            title: qsTr("3D Depth Shape")
+            valueText: MlxrPrefs.depthGlobal + "%" + (MlxrPrefs.depthGlobal === 100 ? " " + qsTr("(as the model makes it)") : "")
+            summary: qsTr("The depth of the picture as a whole, from the near ground to the far sky. Lower flattens it toward the screen, which is easier on the eyes, while Depth Detail keeps things standing apart.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            onClicked: if (enabled) MlxrPrefs.depthGlobal = settingsPage.nextDepthStep(MlxrPrefs.depthGlobal)
+        }
+
         PrefSwitch {
             objectName: "hdrRow"
             title: qsTr("Enable HDR (Experimental)")
@@ -973,6 +1042,62 @@ Flickable {
             valueText: settingsPage.limitText(MlxrPrefs.idleDisconnect, qsTr("minute"), qsTr("minutes"))
             summary: qsTr("Disconnect the stream after this long with no input from the controllers, hands, keyboard, mouse or pads. The app keeps running on the PC.")
             onClicked: MlxrPrefs.idleDisconnect = settingsPage.nextLimit(settingsPage.idleValues, MlxrPrefs.idleDisconnect)
+        }
+
+        // ======== PC VR (lane wave4-pcvr): Valve's Steam Link stream of the PC ========
+        PrefCategory { text: qsTr("PC VR") }
+
+        PrefRow {
+            objectName: "pcvrCheckRow"
+            title: qsTr("Switch to PC VR")
+            valueText: MlxrPrefs.pcvrBusy ? qsTr("Asking Steam...") : ""
+            summary: (MlxrPrefs.pcvrStatus !== "" ? MlxrPrefs.pcvrStatus + " " : "") +
+                     qsTr("The Host sheet's PC VR button ends the stream and has the headset's Steam stream a VR game from your PC. That is Valve's Steam Link, not Moonlight: its picture, its tracking and its limits. Press here to check Steam and list the PCs you paired with and their games.")
+            onClicked: MlxrPrefs.pcvrRefresh()
+        }
+
+        PrefRow {
+            objectName: "pcvrPcRow"
+            title: qsTr("PC to stream from")
+            valueText: MlxrPrefs.pcvrClientName !== "" ? MlxrPrefs.pcvrClientName : qsTr("The only paired PC")
+            summary: qsTr("A PC this headset is paired with in Steam (Remote Play). Press the first row above to list them.")
+            onClicked: {
+                var e = [{ text: qsTr("The only paired PC"), reason: "" }]
+                var cur = 0
+                var d = MlxrPrefs.pcvrDevices
+                for (var i = 0; i < d.length; i++) {
+                    e.push({ text: d[i].clientName + (d[i].streaming ? " " + qsTr("(streaming now)") : ""), reason: "" })
+                    if (d[i].clientId === MlxrPrefs.pcvrClient) cur = i + 1
+                }
+                listDialog.show(title, e, cur, function(i) { MlxrPrefs.pcvrChooseDevice(i - 1) })
+            }
+        }
+
+        PrefRow {
+            objectName: "pcvrAppRow"
+            title: qsTr("PC VR game")
+            valueText: MlxrPrefs.pcvrApp === "" ? qsTr("None: open Steam's library")
+                       : (MlxrPrefs.pcvrAppName !== "" ? MlxrPrefs.pcvrAppName : qsTr("Steam app %1").arg(MlxrPrefs.pcvrApp))
+            summary: qsTr("The game the PC VR button streams from the PC. With none, Steam's library opens and you press \"Stream from your PC\" on a game yourself.")
+            onClicked: {
+                var e = [{ text: qsTr("None: open Steam's library"), reason: "" }]
+                var cur = 0
+                var a = MlxrPrefs.pcvrApps
+                for (var i = 0; i < a.length; i++) {
+                    e.push({ text: a[i].name + (a[i].vr === true ? "  (VR)" : ""), reason: "" })
+                    if (a[i].appid === MlxrPrefs.pcvrApp) cur = i + 1
+                }
+                listDialog.show(title, e, cur, function(i) { MlxrPrefs.pcvrChooseApp(i - 1) })
+            }
+        }
+
+        PrefRow {
+            objectName: "pcvrAppIdRow"
+            title: qsTr("PC VR game: Steam app id")
+            valueText: MlxrPrefs.pcvrApp
+            summary: qsTr("The same choice typed by hand, for when Steam does not list the PC's games. Empty for none.")
+            onClicked: editDialog.show(title, qsTr("The game's Steam app id, digits only (it is in its store page address)."),
+                                       MlxrPrefs.pcvrApp, "^\\d{0,10}$", function(t) { MlxrPrefs.pcvrSetAppId(t) })
         }
 
         // ======== Advanced Settings ========

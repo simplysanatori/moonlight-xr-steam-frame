@@ -62,6 +62,16 @@ float depthTauAlpha(float dtSec, float tauSec);
 // takes the next value that is, so one NaN out of the model cannot stay.
 void depthTauBlend(float* avg, const float* v, int count, float alpha, int seed);
 
+// Native (lane wave5-depth, PLAN 5.4): motion-aware averaging. The per texel
+// average trails a moving edge by its time constant plus the map's age, a
+// ghost of the old depth where the picture has moved on. Where the guide's
+// luma at a texel changed by more than threshold (0..1) since the last map,
+// the average there takes the new value as it is (a finite one; a NaN leaves
+// the texel alone). Returns how many texels started again.
+void depthGuideLuma(const float* rgb, float* luma, int count);
+int depthMotionReset(float* avg, const float* v, const float* luma, const float* lastLuma, int count,
+                     float threshold);
+
 // The range the map is normalised against, smoothed the same way. A relative
 // depth model re-normalises every frame, so without this the whole scene's
 // depth breathes with whatever happens to be nearest and furthest in shot,
@@ -80,6 +90,16 @@ void depthRangeStep(DepthRange* r, float lo, float hi, float dtSec, float tauSec
 // smoothed apart, and a span that rounds to nothing would make every texel of
 // the map NaN
 float depthRangeScale(const DepthRange* r);
+
+// Native (lane wave5-depth, PLAN 5.1): the Edge setting (EDGE_SHARPNESS_MIN..
+// MAX, xr_shared.h) as the upsample's two knobs. sigmaR, the colour distance
+// a neighbour may be off by and still lend its depth, falls from upstream's
+// 0.25 at 0 to 0.10 at 100, so the depth edge keeps to the colour edge; sharp,
+// how far each texel is pushed to the nearer side of its neighbourhood's
+// range, rises from 0 (off, upstream) to 1. Out of range values are held to it.
+#define EDGE_SIGMA_R_SOFT 0.25f
+#define EDGE_SIGMA_R_SHARP 0.10f
+void depthEdgeParams(int sharpness, float* sigmaR, float* sharp);
 
 // Scene cuts, found on the model input before the model runs. Each capture is
 // boiled down to a grid of box averaged luma and a coarse luma histogram, and
