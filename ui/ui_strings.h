@@ -186,6 +186,11 @@
     X(MODEL_FRAME, "native_model_frame", "Frame") \
     X(MODEL_GENERIC, "native_model_generic", "Generic") \
     X(MODEL_GUN, "native_model_gun", "Gun") \
+    X(ROW_3D_SOURCE, "native_3d_source", "3D source") \
+    X(SOURCE_DEPTH, "native_3d_source_depth", "Depth") \
+    X(SOURCE_SBS, "native_3d_source_sbs", "SBS") \
+    X(SOURCE_TB, "native_3d_source_tb", "Top-bottom") \
+    X(SBS_NO_DEPTH, "native_3d_sbs_no_depth", "the PC draws the depth") \
     X(NATIVE_EXIT_APP, "native_exit_app", "Quit Moonlight XR for Frame?") \
     X(NATIVE_PAIR_LATER, "native_pair_later", "Pairing from the headset comes later: pair with mlxr-cli") \
     X(NATIVE_NOT_PAIRED, "native_not_paired", "%s is not paired: pair it with mlxr-cli") \

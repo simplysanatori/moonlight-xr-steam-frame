@@ -841,12 +841,16 @@ static void testTheKofiButton(void) {
 // offsets in y, and a face written in lands in its cell the right way up for
 // a texture uploaded bottom row first, touching nothing else.
 static void testTheButtonCells(void) {
-    CHECK(BTN_ATLAS_W == 1664 && BTN_ATLAS_H == BUTTON_TEX);
+    CHECK(BTN_ATLAS_W == 1920 && BTN_ATLAS_H == BUTTON_TEX);
     // Every switch has its on face in the cell after its off face; the Host
-    // sheet's button (native) has one face, the last cell
+    // sheet's button (native) has one face; the 3D button's on faces for the
+    // PC's own pair (native, PLAN 4.3) are the last two cells
     CHECK(BTN_CELL_STEREO + 1 < BTN_CELL_RAY && BTN_CELL_RAY + 1 < BTN_CELL_AIM);
     CHECK(BTN_CELL_AIM + 1 < BTN_CELL_PAD && BTN_CELL_PAD + 1 < BTN_CELL_HOST);
-    CHECK(BTN_CELL_HOST == BTN_CELLS - 1);
+    CHECK(BTN_CELL_HOST + 1 == BTN_CELL_STEREO_SBS && BTN_CELL_STEREO_TB == BTN_CELLS - 1);
+    CHECK(barStereoCell(STEREO_SOURCE_DEPTH, 0) == BTN_CELL_STEREO && barStereoCell(STEREO_SOURCE_SBS, 0) == BTN_CELL_STEREO);
+    CHECK(barStereoCell(STEREO_SOURCE_DEPTH, 1) == BTN_CELL_STEREO + 1);
+    CHECK(barStereoCell(STEREO_SOURCE_SBS, 1) == BTN_CELL_STEREO_SBS && barStereoCell(STEREO_SOURCE_TB, 1) == BTN_CELL_STEREO_TB);
 
     int seen[BTN_ATLAS_COLS * BTN_ATLAS_ROWS] = { 0 };
     for (int cell = 0; cell < BTN_CELLS; cell++) {
