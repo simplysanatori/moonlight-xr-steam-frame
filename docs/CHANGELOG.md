@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The release is also written as a `.zip` with the same files and modes as the `.tar.gz`, for the community installers Frametanium and FrameDrop. `install.sh` now keeps a log in `~/Games/MoonlightXRNative/install.log`, never waits for input, and when Steam is not running it installs the files, says that the Steam shortcut was skipped and exits 0.
+
 ## 1.0.1 (October 2026)
 
 ### Fixed
