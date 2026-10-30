@@ -233,7 +233,7 @@ void detectAmbiBars(XrCtx* ctx, const unsigned char* rgba) {
 }
 
 int ambiBarDetectOn(const XrCtx* ctx) {
-    return ctx->ambiBarDetect && ctx->stereoMode != DEPTH_MODE_SBS;
+    return ambiBarDetectApplies(ctx->ambiBarDetect, ctx->stereoMode);
 }
 
 // Draws the frame uncropped into the detector's target and asks for it back

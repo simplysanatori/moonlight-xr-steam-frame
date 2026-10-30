@@ -308,28 +308,18 @@ void xrDepthPointerUv(XrCtx* ctx, float* u, float* v) {
     if (ctx->stereoMode != DEPTH_MODE_SBS) {
         return;
     }
-    if (ctx->stereoSource == STEREO_SOURCE_TB) {
-        *v *= 0.5f;
-    }
-    else {
-        *u *= 0.5f;
-    }
+    sbsPointerUv(ctx->stereoSource, u, v);
 }
 
 void xrDepthPictureSize(XrCtx* ctx, int frameW, int frameH, int* w, int* h) {
-    *w = frameW;
-    *h = frameH;
-    if (ctx->stereoMode != DEPTH_MODE_SBS || !ctx->sbsFull) {
+    if (ctx->stereoMode != DEPTH_MODE_SBS) {
+        *w = frameW;
+        *h = frameH;
         return;
     }
     // A full size pair: one eye's half is the picture (3840x1080 shows as a
     // 1920x1080 screen); a half size one is stretched back to the frame's shape
-    if (ctx->stereoSource == STEREO_SOURCE_TB) {
-        *h = frameH / 2 > 0 ? frameH / 2 : 1;
-    }
-    else {
-        *w = frameW / 2 > 0 ? frameW / 2 : 1;
-    }
+    sbsPictureSize(ctx->stereoSource, ctx->sbsFull, frameW, frameH, w, h);
 }
 
 int xrDepthChainWidth(XrCtx* ctx, int pictureWidth) {

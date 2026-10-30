@@ -157,6 +157,56 @@ int cog3dRowLive(int stereoOk, int source, int row) {
     return 1;
 }
 
+int sbsEyeHalf(int eye, int swap) {
+    int e = eye == 1 ? 1 : 0;
+    return swap ? 1 - e : e;
+}
+
+void sbsPictureSize(int source, int full, int frameW, int frameH, int* w, int* h) {
+    *w = frameW;
+    *h = frameH;
+    if (!full) {
+        return;
+    }
+    if (source == STEREO_SOURCE_TB) {
+        *h = frameH / 2 > 0 ? frameH / 2 : 1;
+    }
+    else {
+        *w = frameW / 2 > 0 ? frameW / 2 : 1;
+    }
+}
+
+void sbsPointerUv(int source, float* u, float* v) {
+    if (source == STEREO_SOURCE_TB) {
+        *v *= 0.5f;
+    }
+    else {
+        *u *= 0.5f;
+    }
+}
+
+void sbsHalfRect(int source, int half, int frameW, int frameH, int rect[4]) {
+    int h = half == 1 ? 1 : 0;
+    if (source == STEREO_SOURCE_TB) {
+        int eh = frameH / 2;
+        rect[0] = 0;
+        rect[1] = h * eh;
+        rect[2] = frameW;
+        rect[3] = eh;
+    }
+    else {
+        int ew = frameW / 2;
+        rect[0] = h * ew;
+        rect[1] = 0;
+        rect[2] = ew;
+        rect[3] = frameH;
+    }
+}
+
+int ambiBarDetectApplies(int detectSetting, int stereoMode) {
+    return detectSetting && stereoMode != DEPTH_MODE_SBS;
+}
+
 int barStereoCell(int source, int on) {
     if (!on) {
         return BTN_CELL_STEREO;

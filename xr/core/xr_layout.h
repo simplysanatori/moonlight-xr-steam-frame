@@ -258,6 +258,24 @@ int cogPresetAt(int units, const int presets[COG_PRESET_CELLS]);
 // set, so only the convergence track and the switch act.
 int cog3dRowLive(int stereoOk, int source, int row);
 
+// Native (PLAN 4.3): the host-rendered pair's plain arithmetic, apart from the
+// session so a desktop test can hold it. The eye shown for each view: eye 0 the
+// left (or top) half, eye 1 the right (or bottom), and with eye_swap on the
+// halves exchanged (0 and 1 only; anything else is eye 0).
+int sbsEyeHalf(int eye, int swap);
+// What one eye sees of a decoded frame of frameW x frameH: the whole frame for
+// a half size pair (stretched back to the frame's shape), one eye's half for a
+// full size one (side by side halves the width, top-bottom the height).
+void sbsPictureSize(int source, int full, int frameW, int frameH, int* w, int* h);
+// A point on the picture (0..1 each way) onto the left (top) eye's half of the
+// frame, where the PC's pointer lives
+void sbsPointerUv(int source, float* u, float* v);
+// The pixel rectangle of an eye's half in the decoded frame (x, y, w, h)
+void sbsHalfRect(int source, int half, int frameW, int frameH, int rect[4]);
+// Whether the letterbox detector runs and its crop applies: not on a
+// host-rendered pair (stereoMode DEPTH_MODE_SBS), whose seam is no letterbox
+int ambiBarDetectApplies(int detectSetting, int stereoMode);
+
 // How much of a room's screen the picture hangs at, in whole percent: inside
 // the size row's lane where the room may be resized, and all of it where not
 int roomScreenClamp(int percent, int resizable);

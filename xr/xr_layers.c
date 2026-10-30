@@ -381,7 +381,7 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
     for (int eye = 0; eye < viewCount; eye++) {
         XrSwapchainSubImage subImage;
         subImage.swapchain = ctx->swapchain;
-        int half = viewCount == 2 && view->eyeSwap ? (1 - eye) : eye;
+        int half = viewCount == 2 ? sbsEyeHalf(eye, view->eyeSwap) : eye;
         int x = view->stereo ? half * ctx->videoWidth : 0;
         int w = ctx->videoWidth;
         if (view->stereo && ctx->seamInset && w > 2 * SEAM_INSET_TEXELS) {

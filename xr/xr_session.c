@@ -728,7 +728,7 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         // layers' subImage per eye); flat, both eyes the one. Native (lane
         // eye-swapchains): an image per eye in 3D, so no seam to keep clear of
         // (the double wide image needed SEAM_INSET_TEXELS at each side).
-        int half = ctx->drawnEyes == 2 && cv->pics > 1 ? (eyeSwap ? 1 - e : e) : 0;
+        int half = ctx->drawnEyes == 2 && cv->pics > 1 ? sbsEyeHalf(e, eyeSwap) : 0;
         src[e] = cv->pic[half].view;
         pp.uvRect[e][0] = 0.0f;
         pp.uvRect[e][1] = 0.0f;

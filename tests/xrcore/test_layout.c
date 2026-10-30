@@ -1192,6 +1192,85 @@ static void testAngularWidth(void) {
     CHECK_NEAR(layoutAngularWidth(2.0f, 2.0f, 0.0f, 0.8f, 8.0f), 2.0, 1e-6);
 }
 
+// PLAN 4.3, the host-rendered pair's arithmetic: which half each eye shows
+// (and the swap), the picture a half size and a full size pair makes, where
+// the pointer goes, each half's rectangle, and the letterbox detector standing
+// down for a pair.
+static void testTheSbsPair(void) {
+    // Eye 0 the left (top) half, eye 1 the right (bottom); swapped, exchanged
+    CHECK(sbsEyeHalf(0, 0) == 0 && sbsEyeHalf(1, 0) == 1);
+    CHECK(sbsEyeHalf(0, 1) == 1 && sbsEyeHalf(1, 1) == 0);
+    CHECK(sbsEyeHalf(2, 0) == 0 && sbsEyeHalf(-1, 1) == 1);
+    // The two eyes never read the same half, swapped or not
+    for (int swap = 0; swap < 2; swap++) {
+        CHECK(sbsEyeHalf(0, swap) != sbsEyeHalf(1, swap));
+    }
+    // Swapping twice is the identity
+    for (int eye = 0; eye < 2; eye++) {
+        CHECK(sbsEyeHalf(sbsEyeHalf(eye, 1), 1) == eye);
+    }
+
+    int w, h;
+    // Half size: the frame's own shape, whatever the layout
+    sbsPictureSize(STEREO_SOURCE_SBS, 0, 1920, 1080, &w, &h);
+    CHECK(w == 1920 && h == 1080);
+    sbsPictureSize(STEREO_SOURCE_TB, 0, 1920, 1080, &w, &h);
+    CHECK(w == 1920 && h == 1080);
+    // Full size: one eye's half is the picture
+    sbsPictureSize(STEREO_SOURCE_SBS, 1, 3840, 1080, &w, &h);
+    CHECK(w == 1920 && h == 1080);
+    sbsPictureSize(STEREO_SOURCE_TB, 1, 1920, 2160, &w, &h);
+    CHECK(w == 1920 && h == 1080);
+    sbsPictureSize(STEREO_SOURCE_SBS, 1, 1, 1, &w, &h);
+    CHECK(w == 1 && h == 1);
+    sbsPictureSize(STEREO_SOURCE_TB, 1, 1, 1, &w, &h);
+    CHECK(w == 1 && h == 1);
+
+    // The pointer lands on the left (top) eye's half, the other axis whole
+    float u = 0.5f, v = 0.4f;
+    sbsPointerUv(STEREO_SOURCE_SBS, &u, &v);
+    CHECK_NEAR(u, 0.25, 1e-6);
+    CHECK_NEAR(v, 0.4, 1e-6);
+    u = 1.0f;
+    v = 1.0f;
+    sbsPointerUv(STEREO_SOURCE_SBS, &u, &v);
+    CHECK_NEAR(u, 0.5, 1e-6);
+    CHECK_NEAR(v, 1.0, 1e-6);
+    u = 0.5f;
+    v = 0.4f;
+    sbsPointerUv(STEREO_SOURCE_TB, &u, &v);
+    CHECK_NEAR(u, 0.5, 1e-6);
+    CHECK_NEAR(v, 0.2, 1e-6);
+
+    // Each half's rectangle: side by side, left then right; top-bottom, top
+    // then bottom; together they tile the frame with no overlap and no gap
+    int r[4];
+    sbsHalfRect(STEREO_SOURCE_SBS, 0, 3840, 1080, r);
+    CHECK(r[0] == 0 && r[1] == 0 && r[2] == 1920 && r[3] == 1080);
+    sbsHalfRect(STEREO_SOURCE_SBS, 1, 3840, 1080, r);
+    CHECK(r[0] == 1920 && r[1] == 0 && r[2] == 1920 && r[3] == 1080);
+    sbsHalfRect(STEREO_SOURCE_TB, 0, 1920, 2160, r);
+    CHECK(r[0] == 0 && r[1] == 0 && r[2] == 1920 && r[3] == 1080);
+    sbsHalfRect(STEREO_SOURCE_TB, 1, 1920, 2160, r);
+    CHECK(r[0] == 0 && r[1] == 1080 && r[2] == 1920 && r[3] == 1080);
+    // A half size pair's halves are half the frame the same way
+    sbsHalfRect(STEREO_SOURCE_SBS, 1, 1920, 1080, r);
+    CHECK(r[0] == 960 && r[2] == 960 && r[3] == 1080);
+    sbsHalfRect(STEREO_SOURCE_TB, 1, 1920, 1080, r);
+    CHECK(r[1] == 540 && r[2] == 1920 && r[3] == 540);
+    // The half's size is the full size picture's
+    sbsPictureSize(STEREO_SOURCE_SBS, 1, 3840, 1080, &w, &h);
+    sbsHalfRect(STEREO_SOURCE_SBS, 0, 3840, 1080, r);
+    CHECK(r[2] == w && r[3] == h);
+
+    // The letterbox detector: on for the model and the test patterns, never
+    // for a host-rendered pair; off stays off
+    CHECK(ambiBarDetectApplies(1, DEPTH_MODE_MODEL) && ambiBarDetectApplies(1, DEPTH_MODE_OFF));
+    CHECK(ambiBarDetectApplies(1, DEPTH_MODE_FLAT) && ambiBarDetectApplies(1, DEPTH_MODE_SHIFTTEST));
+    CHECK(!ambiBarDetectApplies(1, DEPTH_MODE_SBS));
+    CHECK(!ambiBarDetectApplies(0, DEPTH_MODE_MODEL) && !ambiBarDetectApplies(0, DEPTH_MODE_SBS));
+}
+
 int main(void) {
     testThePresets();
     testTheGaze();
@@ -1223,5 +1302,6 @@ int main(void) {
     testTheTrackParts();
     testTheStepsLandOnTheGrid();
     testEveryTrackHasItsSteps();
+    testTheSbsPair();
     return checksDone("xr_layout");
 }
