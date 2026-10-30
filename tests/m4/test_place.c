@@ -569,10 +569,73 @@ static void zoomMemory(void) {
     scene_free(sc);
 }
 
+// Native (lane bar-glare): the bar's Bring here button, as its press calls
+// it: near at the Desk preset, back to the far placement it had, the far one
+// kept in the settings, and nothing in a room or head locked
+static void bringHereSwitch(void) {
+    Scene* s = scene_new();
+    XrCtx* c = s->ctx;
+    LayoutPreset desk = layoutPresetOf(LAYOUT_PRESET_DESK);
+    float width0 = c->screenWidth;
+    float dist0 = distFromSeat(c);
+    float radius0 = c->screenRadius;
+    c->headPoseValid = 0;
+    CHECK(xrBringHereToggle(c) == -1);
+    // Looking down at the bar, turned 30 degrees left
+    BarFrame f = barFrame(c);
+    float down = atan2f(f.height * 0.5f + f.width * BAR_DROP_FRAC, dist0) * 180.0f / (float)M_PI;
+    setHead(c, 30.0f, -down);
+
+    c->poseDirty = 0;
+    CHECK(xrBringHereToggle(c) == 1);
+    CHECK(c->poseDirty);
+    CHECK_NEAR(c->screenWidth, desk.widthCm / 100.0f, 1e-4);
+    CHECK_NEAR(distFromSeat(c), desk.distanceCm / 100.0f, 1e-3);
+    CHECK_NEAR(c->screenRadius, radius0 * (desk.distanceCm / 100.0f / dist0) * (desk.widthCm / 100.0f / width0),
+               1e-3);
+    // round to the left, where the head looks
+    CHECK(c->screenPose.position.x < 0.0f);
+    CHECK(bringToggleNear(&c->bringToggle, c->screenPose, c->screenWidth, c->headPose));
+    // the far placement goes into the settings with the screen's
+    Settings st = s->settings;
+    xrSettingsFromCtx(c, &st);
+    CHECK(st.screen_far_distance_cm == (int)lroundf(dist0 * 100.0f));
+    CHECK(st.screen_far_width_cm == (int)lroundf(width0 * 100.0f));
+    CHECK(st.screen_distance_cm == desk.distanceCm && st.screen_width_cm == desk.widthCm);
+
+    // and back far, as it was, centred where the head looks now
+    setHead(c, -20.0f, -down);
+    CHECK(xrBringHereToggle(c) == 0);
+    CHECK_NEAR(c->screenWidth, width0, 1e-4);
+    CHECK_NEAR(distFromSeat(c), dist0, 1e-3);
+    CHECK_NEAR(c->screenRadius, radius0, 1e-3);
+    CHECK(c->screenPose.position.x > 0.0f);
+
+    // A restart while near: the far placement comes back from the file, and
+    // the screen at the Desk preset reads as near, so the press goes far
+    CHECK(xrBringHereToggle(c) == 1);
+    xrSettingsFromCtx(c, &st);
+    memset(&c->bringToggle, 0, sizeof(c->bringToggle));
+    xrBringFarFromSettings(c, &st);
+    CHECK(c->bringToggle.farValid);
+    CHECK(xrBringHereToggle(c) == 0);
+    CHECK_NEAR(c->screenWidth, width0, 1e-2);
+    CHECK_NEAR(distFromSeat(c), dist0, 1e-2);
+
+    // Nothing in a room's place or head locked
+    c->headLockedPref = 1;
+    XrPosef was = c->screenPose;
+    CHECK(xrBringHereToggle(c) == -1);
+    CHECK(c->screenPose.position.x == was.position.x && c->screenPose.position.z == was.position.z);
+    c->headLockedPref = 0;
+    scene_free(s);
+}
+
 int main(void) {
     rowsAreCells();
     presets();
     bringHere();
+    bringHereSwitch();
     switchesAndStore();
     follow();
     angularLock();
