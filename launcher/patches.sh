@@ -22,6 +22,7 @@ workdir)
     cd "$WORK"
     "${GIT[@]}" init -q && "${GIT[@]}" add -A >/dev/null && "${GIT[@]}" commit -qm "pristine $(git -C "$SUB" describe --tags --always)"
     cp "$ROOT"/launcher/src/* app/streaming/
+    (cd "$ROOT" && cp xr/core/xr_bind.c xr/core/xr_bind.h xr/core/xr_gamepad.c xr/core/xr_gamepad.h xr/core/xr_shared.h "$WORK/app/streaming/")
     cp "$ROOT"/launcher/qml/*.qml app/gui/
     "${GIT[@]}" add -A >/dev/null && "${GIT[@]}" commit -qm "launcher sources (not exported as a patch)"
     git branch -f base HEAD
