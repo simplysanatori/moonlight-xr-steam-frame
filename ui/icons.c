@@ -138,6 +138,16 @@ static void face_host(Face* f) {
     f_rr(f, 68, 44, 94, 66, 4, INK_ON);
 }
 
+// Native (lane bar-glare): Bring here, the screen coming to where you are: a
+// PC screen, an arrow down from it, and you under the arrow
+static void face_here(Face* f) {
+    f_srr(f, 18, 6, 110, 52, 9, 6, INK_ON);
+    f_line(f, 48, 59, 64, 72, 6, INK_ON);
+    f_line(f, 80, 59, 64, 72, 6, INK_ON);
+    f_fc(f, 64, 87, 11, INK_ON);
+    f_rr(f, 38, 102, 90, 126, 12, INK_ON);
+}
+
 void dc_button_face(Dc* dc, int cell, float ox, float oy, float size) {
     Face f = { dc, ox, oy, size / (float)BUTTON_TEX };
     switch (cell) {
@@ -156,6 +166,7 @@ void dc_button_face(Dc* dc, int cell, float ox, float oy, float size) {
     case BTN_CELL_PAD: face_pad(&f, 0); break;
     case BTN_CELL_PAD + 1: face_pad(&f, 1); break;
     case BTN_CELL_HOST: face_host(&f); break;
+    case BTN_CELL_HERE: face_here(&f); break;
     default: break;
     }
 }
