@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 
 #include "scene.h"
+#include "xr_host.h"
+#include "xr_keyboard.h"
 
 static const char* g_dir;
 static int g_over;
@@ -244,6 +246,49 @@ int main(int argc, char** argv) {
     c->exitConfirmOpen = 1;
     c->exitPose = exitPromptPose(c, &c->exitW, &c->exitH);
     shot(s, "18-exit-launcher", NULL);
+
+    // Native (PLAN 4b.1): the Host sheet with two macros and a cell lit, then
+    // asking before it sends Alt+F4
+    scene_reset(s);
+    xrMacrosParse(&c->macros, "[macros]\nMute all = key:ctrl+alt+m\nSnip = win+shift+s\n");
+    c->hostOpen = 1;
+    c->hostReady = 1;
+    c->hostConfirm = -1;
+    c->hostPose = hostSheetPose(c, &c->hostW, &c->hostH);
+    c->hostHoverZone = 7;
+    shot(s, "19-host", NULL);
+    c->hostConfirm = 10;
+    c->hostHoverZone = XR_HOST_ZONE_CONFIRM_SEND;
+    shot(s, "20-host-confirm", NULL);
+    c->hostOpen = 0;
+    c->hostConfirm = -1;
+    c->hostHoverZone = XR_HOST_ZONE_NONE;
+    xrMacrosClear(&c->macros);
+
+    // Native (PLAN 3.11, 4b.1): the Full keyboard with its media row, waiting
+    // for a combo with Ctrl and Alt lit
+    scene_reset(s);
+    c->kbOpen = 1;
+    xrKeyboardSetLayout(c, NULL, KB_LAYOUT_FULL);
+    c->kbState = KB_STATE_LOWER;
+    c->kbMods = 0;
+    kbPlace(c);
+    xrHostChordStart(&c->hostChord);
+    c->hostChord.mods = KBF_LCTRL | KBF_LALT;
+    shot(s, "21-keyboard-full-chord", NULL);
+    xrHostChordStop(&c->hostChord);
+    xrKeyboardSetLayout(c, NULL, KB_LAYOUT_COMPACT);
+
+    // Native (PLAN 4b.13): the Compact keyboard with Ctrl held down to lock
+    scene_reset(s);
+    c->kbOpen = 1;
+    c->kbState = KB_STATE_FN;
+    c->kbMods = KB_MOD_CTRL;
+    c->kbSticky.locked = KB_MOD_CTRL;
+    kbPlace(c);
+    shot(s, "22-keyboard-locked", NULL);
+    c->kbSticky.locked = 0;
+    c->kbMods = 0;
 
     scene_free(s);
     if (g_over) {

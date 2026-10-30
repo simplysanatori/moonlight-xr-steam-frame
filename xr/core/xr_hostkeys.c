@@ -513,6 +513,7 @@ int xrHostRunStart(XrHostRun* r, const XrHostSeq* seq) {
     for (int i = 0; i < downCount; i++) {
         r->downKeys[i] = downKeys[i];
     }
+    r->flush = heldMods != 0 || downCount > 0;
     return 1;
 }
 
@@ -522,26 +523,39 @@ static void emit(XrHostEmit* e, int kind, int vk, int mods) {
     e->mods = mods;
 }
 
+// One held key or modifier let go: keys first, then the modifiers. 0 if none is held.
+static int releaseOne(XrHostRun* r, XrHostEmit* e) {
+    if (r->downCount > 0) {
+        int vk = r->downKeys[--r->downCount];
+        emit(e, XR_HOST_EMIT_UP, vk, r->heldMods);
+        return 1;
+    }
+    if (r->heldMods != 0) {
+        int bit = r->heldMods & -r->heldMods;
+        r->heldMods &= ~bit;
+        emit(e, XR_HOST_EMIT_LET, 0, bit);
+        return 1;
+    }
+    return 0;
+}
+
 int xrHostRunStep(XrHostRun* r, long long nowNs, XrHostEmit* e) {
     if (!r->active) {
         return 0;
     }
     for (;;) {
-        if (r->aborting || r->pos >= r->seq.count) {
-            // Finished or cut short: keys come up, then the modifiers
-            if (r->downCount > 0) {
-                int vk = r->downKeys[--r->downCount];
-                emit(e, XR_HOST_EMIT_UP, vk, r->heldMods);
+        if (r->flush || r->aborting || r->pos >= r->seq.count) {
+            // What a run before this one held, or what this one holds when it is
+            // finished or cut short, is let go of
+            if (releaseOne(r, e)) {
                 return 1;
             }
-            if (r->heldMods != 0) {
-                int bit = r->heldMods & -r->heldMods;
-                r->heldMods &= ~bit;
-                emit(e, XR_HOST_EMIT_LET, 0, bit);
-                return 1;
+            if (!r->flush) {
+                r->active = 0;
+                return 0;
             }
-            r->active = 0;
-            return 0;
+            r->flush = 0;
+            continue;
         }
         const XrHostStep* st = &r->seq.step[r->pos];
         if (st->kind == XR_HOST_STEP_WAIT) {

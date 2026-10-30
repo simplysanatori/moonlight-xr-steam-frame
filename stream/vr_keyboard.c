@@ -114,8 +114,26 @@ static void pressShifted(VrKeyboard* k, short vk, char modifiers) {
 }
 
 void vrkb_type(VrKeyboard* k, int code, int mods) {
-    int flags = mods & (KBF_FLAG_DOWN | KBF_FLAG_UP);
+    int flags = mods & (KBF_FLAG_DOWN | KBF_FLAG_UP | KBF_FLAG_CHORD | KBF_FLAG_HOLD | KBF_FLAG_LET);
     mods &= KBF_MOD_MASK;
+    // Native (the Host sheet and macros): HOLD and LET change the modifiers
+    // down on the host and nothing else; CHORD taps a key with modifiers round
+    // it and lets go of the ones it brought, so nothing is left held
+    if (flags & KBF_FLAG_HOLD) {
+        vrkb_hold(k, k->held | mods);
+        return;
+    }
+    if (flags & KBF_FLAG_LET) {
+        vrkb_hold(k, k->held & ~mods);
+        return;
+    }
+    if ((flags & KBF_FLAG_CHORD) && code >= KB_CODE_VK) {
+        int before = k->held;
+        vrkb_hold(k, before | mods);
+        press(k, (short)(code - KB_CODE_VK), modifierByte(k->held));
+        vrkb_hold(k, before);
+        return;
+    }
     if (flags != 0 && code >= KB_CODE_VK) {
         // The Full keyboard: one event of a key held like a real one
         short vk = (short)(code - KB_CODE_VK);

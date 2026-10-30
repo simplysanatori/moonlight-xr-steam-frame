@@ -293,7 +293,7 @@ static void test_other_panels_hits(void) {
         int expect = 0;
         for (int i = 0; i < ui_kb_key_count(); i++) expect += ui_kb_key_label(sheet, i) != NULL;
         CHECK(hits.count == expect);
-        CHECK(sheet == KB_STATE_FN ? expect == 35 : expect == 44);
+        CHECK(sheet == KB_STATE_FN ? expect == 35 + KB_MEDIA_KEYS : expect == 44 + KB_MEDIA_KEYS);
         for (int i = 0; i < hits.count; i++) {
             float r[4];
             ui_kb_key_rect(hits.hit[i].a, r);
@@ -700,8 +700,74 @@ static void test_atlas(void) {
     free(atlas);
 }
 
+// The Host sheet (PLAN 4b.1): what is drawn is what xr_hostkeys.c says the ray hits
+static void test_host_sheet(void) {
+    Settings s;
+    settings_defaults(&s);
+    UiView v;
+    ui_view_init(&v, &s);
+    CHECK(v.host_confirm == -1);
+    Guarded g;
+    // no macros: Close, the 11 quick actions and Send keys
+    draw(UI_PANEL_HOST, &v, 1.0f, &g);
+    check_hits_inside("host");
+    CHECK(hits.count == 1 + XR_HOST_MACRO_FIRST);
+    CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CLOSE, -1) >= 0);
+    free(g.base);
+    // with macros (and more than the sheet has room for)
+    for (int n = 1; n <= XR_HOST_MACRO_SLOTS + 3; n++) {
+        v.host_macros = n;
+        for (int i = 0; i < XR_HOST_MACRO_SLOTS; i++) snprintf(v.host_macro[i], sizeof v.host_macro[i], "Macro %d", i + 1);
+        draw(UI_PANEL_HOST, &v, 1.0f, &g);
+        check_hits_inside("host macros");
+        int shown = n < XR_HOST_MACRO_SLOTS ? n : XR_HOST_MACRO_SLOTS;
+        CHECK(hits.count == 1 + XR_HOST_MACRO_FIRST + shown);
+        for (int i = 0; i < hits.count; i++) {
+            const UiHit* h = &hits.hit[i];
+            float u = (h->u0 + h->u1) * 0.5f, w = (h->v0 + h->v1) * 0.5f;
+            int zone = xrHostZoneAt(u, w, shown, 0);
+            if (h->kind == UI_HIT_HOST_CELL) {
+                CHECK(zone == h->a && h->b == xrHostCellKind(h->a, shown));
+            } else {
+                CHECK(h->kind == UI_HIT_BUTTON && h->a == UI_BTN_HOST_CLOSE && zone == XR_HOST_ZONE_CLOSE);
+            }
+        }
+        free(g.base);
+    }
+    // asking first: only its two buttons, where the zones say
+    v.host_macros = 2;
+    v.host_confirm = 10;
+    snprintf(v.host_confirm_label, sizeof v.host_confirm_label, "Alt+F4");
+    draw(UI_PANEL_HOST, &v, 1.0f, &g);
+    CHECK(hits.count == 2);
+    int send = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CONFIRM, -1);
+    int cancel = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CANCEL, -1);
+    CHECK(send >= 0 && cancel >= 0);
+    if (send >= 0 && cancel >= 0) {
+        CHECK(xrHostZoneAt((hits.hit[send].u0 + hits.hit[send].u1) * 0.5f, (hits.hit[send].v0 + hits.hit[send].v1) * 0.5f, 2, 1)
+              == XR_HOST_ZONE_CONFIRM_SEND);
+        CHECK(xrHostZoneAt((hits.hit[cancel].u0 + hits.hit[cancel].u1) * 0.5f, (hits.hit[cancel].v0 + hits.hit[cancel].v1) * 0.5f, 2, 1)
+              == XR_HOST_ZONE_CONFIRM_CANCEL);
+    }
+    free(g.base);
+    // a lit cell changes the drawing
+    v.host_confirm = -1;
+    draw(UI_PANEL_HOST, &v, 1.0f, &g);
+    int plain = ink_pixels(&g);
+    long sumPlain = 0;
+    for (size_t i = 0; i < g.size; i++) sumPlain += g.px[i];
+    free(g.base);
+    v.hover = (UiHover){ UI_HIT_HOST_CELL, 3, 0 };
+    draw(UI_PANEL_HOST, &v, 1.0f, &g);
+    long sumHot = 0;
+    for (size_t i = 0; i < g.size; i++) sumHot += g.px[i];
+    CHECK(plain == ink_pixels(&g) && sumHot != sumPlain);
+    free(g.base);
+}
+
 int main(void) {
     ui_panels_set_assets_dir(MLXR_ASSETS_DIR);
+    test_host_sheet();
     test_all_panels_scales();
     test_cog_rows_present();
     test_cog_hits_agree_with_xr_layout();

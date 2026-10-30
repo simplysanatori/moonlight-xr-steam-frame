@@ -20,6 +20,7 @@
 #include "settings.h"
 #include "text.h"
 #include "ui_strings.h"
+#include "xr_hostkeys.h"
 #include "xr_keys.h"
 #include "xr_layout.h"
 #include "xr_shared.h"
@@ -38,6 +39,7 @@ typedef enum {
     UI_PANEL_CLOCK,        // time and battery strip over the settings panel
     UI_PANEL_PC_LIST,      // native launcher: computers
     UI_PANEL_APP_LIST,     // native launcher: apps of one computer
+    UI_PANEL_HOST,         // the Host sheet: quick actions, macros, Send keys (see UiView.host_*)
     UI_PANEL_COUNT
 } UiPanelId;
 
@@ -49,7 +51,7 @@ const char* ui_panel_name(UiPanelId id);
 // through its XrSwapchainSubImage.imageRect. Draw a panel into its slot with
 // ui_cv_sub (canvas.h); upload only the rectangles that changed.
 #define UI_ATLAS_W 2048
-#define UI_ATLAS_H 2960
+#define UI_ATLAS_H 3472
 typedef struct { int x, y, w, h; } UiRectPx;
 UiRectPx ui_atlas_rect(UiPanelId id);
 
@@ -67,7 +69,8 @@ typedef enum {
     UI_HIT_BAR_BUTTON,  // a = BAR_SLOT_*
     UI_HIT_BAR_MOVE,    // the move pill
     UI_HIT_LIST_ITEM,   // a = index into the whole list, b = 0
-    UI_HIT_FIELD        // report sheet: a = REPORT_ZONE_*
+    UI_HIT_FIELD,       // report sheet: a = REPORT_ZONE_*
+    UI_HIT_HOST_CELL    // Host sheet: a = cell (xr_hostkeys.h), b = XR_HOST_CELL_ kind
 } UiHitKind;
 
 typedef enum {
@@ -86,7 +89,10 @@ typedef enum {
     UI_BTN_LIST_PAGE_UP,
     UI_BTN_LIST_PAGE_DOWN,
     UI_BTN_LIST_BACK,        // app list: back to the PC list
-    UI_BTN_KB_LAYOUT         // Compact keyboard: the chip that flips to the Full one (needs UiView.kb_chip)
+    UI_BTN_KB_LAYOUT,        // Compact keyboard: the chip that flips to the Full one (needs UiView.kb_chip)
+    UI_BTN_HOST_CLOSE,       // Host sheet (XR_HOST_ZONE_CLOSE)
+    UI_BTN_HOST_CONFIRM,     // Host sheet's confirmation: send (XR_HOST_ZONE_CONFIRM_SEND)
+    UI_BTN_HOST_CANCEL       // Host sheet's confirmation: cancel (XR_HOST_ZONE_CONFIRM_CANCEL)
 } UiButton;
 
 typedef struct {
@@ -136,6 +142,17 @@ typedef struct {
     int kb_oneshot, kb_locked;
     int kb_caps;
     int kb_chip;
+    // Native: "Send keys" is waiting for a combo (kb_chord), with the KBF_
+    // modifiers lit so far, which the space bar says
+    int kb_chord;
+    int kb_chord_mods;
+    // Native: the Host sheet (UI_PANEL_HOST). host_macros is how many of the
+    // user's macros there are (names in host_macro, at most XR_HOST_MACRO_SLOTS
+    // shown); host_confirm is the cell waiting for a yes, or -1 for none
+    int host_macros;
+    char host_macro[XR_HOST_MACRO_SLOTS][XR_MACRO_NAME];
+    int host_confirm;
+    char host_confirm_label[XR_MACRO_NAME];
     const char* version;         // About tab ("0.1.0"), NULL for none
     const char* commit;          // may be NULL
     const char* log_path;        // shown shortened; NULL means the log is off

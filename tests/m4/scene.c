@@ -41,7 +41,9 @@ void scene_free(Scene* s) {
 
 void scene_reset(Scene* s) {
     XrCtx* c = s->ctx;
-    c->cogOpen = c->kbOpen = c->exitConfirmOpen = c->pickerOpen = c->reportOpen = c->hintOpen = c->kofiOpen = 0;
+    c->cogOpen = c->kbOpen = c->exitConfirmOpen = c->pickerOpen = c->reportOpen = c->hintOpen = c->kofiOpen = c->hostOpen = 0;
+    c->hostConfirm = -1;
+    c->hostHoverZone = XR_HOST_ZONE_NONE;
     for (int i = 0; i < FADE_PANELS; i++) {
         c->panelFades[i].level = 0.0f;
     }

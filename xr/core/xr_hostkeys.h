@@ -160,6 +160,8 @@ typedef struct {
     int downKeys[4];
     int downCount;
     int aborting;
+    // a run started over one that still held keys: they come up first
+    int flush;
 } XrHostRun;
 
 void xrHostRunInit(XrHostRun* r);

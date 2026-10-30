@@ -25,6 +25,9 @@ void vrkb_type(VrKeyboard* k, int code, int mods);
 // A code of KB_CODE_VK + vk with KBF_FLAG_DOWN or KBF_FLAG_UP in mods (the Full
 // keyboard) is that one event, so a key can be held and repeat like a real one.
 // mods then are the KBF_* modifiers down with it.
+// KBF_FLAG_CHORD taps the key with mods held round it and lets the ones it
+// brought go after it; KBF_FLAG_HOLD and KBF_FLAG_LET (no key of their own)
+// put the mods down on the host and take them up (the Host sheet's macros).
 // Shift, Ctrl, Alt and Win, either side, as lit on the keyboard now (KBF_* bits,
 // which for the left Ctrl, Alt and Win are the old KB_MOD_* bits)
 void vrkb_hold(VrKeyboard* k, int mods);
