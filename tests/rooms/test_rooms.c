@@ -1033,8 +1033,8 @@ static int renderModelsAt(const MlxrModel* m, uint32_t eyeW, uint32_t eyeH, cons
         eyeView(e, ROOM_FAR_MIN_M, mp.viewProj[e]);
         mp.eyeRect[e] = (VkRect2D){{(int32_t)(e * eyeW), 0}, {eyeW, eyeH}};
     }
-    // Native: only the generic model is mirrored for the left hand
-    controllerModelMatrix(pose->grip[0], !m->perHand, mp.model[0]);
+    // Native: only a one-mesh model (the generic controller, a single custom file) is mirrored for the left hand
+    controllerModelMatrix(pose->grip[0], m->mirrorLeft, mp.model[0]);
     controllerModelMatrix(pose->grip[1], 0, mp.model[1]);
     mp.shown[0] = pose->shown[0];
     mp.shown[1] = pose->shown[1];
@@ -1847,6 +1847,212 @@ static void testModelFallback(void) {
     }
 }
 
+// ---- Native: the model by kind (Show controllers) ----------------------------------------------
+// What each CONTROLLER_MODEL_* loads from a made-up file set, and what it falls back to
+
+static const char* userModelsDir(void) {
+    static char dir[700];
+    snprintf(dir, sizeof(dir), "%s/user", kTexDir);
+    return dir;
+}
+
+static void stageUser(void) {
+    stageModels();
+    char cmd[800];
+    snprintf(cmd, sizeof(cmd), "mkdir -p '%s'", userModelsDir());
+    check(system(cmd) == 0, "stage %s", userModelsDir());
+}
+
+static void userPath(char* out, size_t n, const char* name) {
+    snprintf(out, n, "%s/%s", userModelsDir(), name);
+}
+
+static int componentIndex(const MlxrModel* m, int hand, const char* name) {
+    for (uint32_t c = 0; c < m->componentCount[hand]; c++)
+        if (!strcmp(m->components[hand][c].name, name)) return (int)c;
+    return -1;
+}
+
+static void testModelKind(void) {
+    char p[700];
+
+    // Gun: the bundled pistol, a real pair, drawn at the aim pose, its trigger a rotating part
+    MlxrModel* m = NULL;
+    check(mlxr_model_load_kind(&gpu, MLXR_ASSETS_DIR, NULL, CONTROLLER_MODEL_GUN, &m) == 0 && m, "load the gun");
+    if (m) {
+        note("kind         gun: %s, %u vertices, %u triangles, %.0f KB", m->source, m->vertexCount, m->indexCount / 3,
+             m->gpuBytes / 1024.0);
+        check(m->kind == CONTROLLER_MODEL_GUN && m->space == MODEL_SPACE_AIM, "the gun is the gun kind, at the aim pose");
+        check(m->textured && m->perHand && !m->mirrorLeft, "a textured pair, the left hand its own mesh");
+        check(m->handIndexCount[0] == m->handIndexCount[1] && m->handIndexCount[0] % 3 == 0 && m->handIndexCount[0] > 600 &&
+                  m->handFirstIndex[1] == m->handIndexCount[0],
+              "both hands a pistol of the same size (%u indices)", m->handIndexCount[0]);
+        for (int h = 0; h < 2; h++) {
+            int t = componentIndex(m, h, "trigger");
+            check(t >= 0 && !strcmp(m->components[h][t].path, "/input/trigger") && m->components[h][t].input == MLXR_IN_TRIGGER &&
+                      m->components[h][t].motionType == MLXR_MOTION_ROTATE,
+                  "hand %d: a trigger component on /input/trigger that rotates", h);
+            if (t < 0) continue;
+            MlxrModelPart parts[MLXR_MODEL_COMPONENTS_MAX];
+            MlxrModelInput in;
+            memset(&in, 0, sizeof(in));
+            uint32_t rest = mlxr_model_pose(m, h, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
+            in.v[MLXR_IN_TRIGGER] = 1.0f;
+            uint32_t pulled = mlxr_model_pose(m, h, &in, parts, MLXR_MODEL_COMPONENTS_MAX);
+            check(rest == 1 && pulled >= 2, "hand %d: the trigger moves only when pulled (%u parts at rest, %u pulled)", h, rest,
+                  pulled);
+            int moved = 0;
+            for (uint32_t i = 0; i < pulled; i++)
+                if (parts[i].firstIndex == m->components[h][t].firstIndex &&
+                    (fabsf(parts[i].transform[6]) > 1e-4f || fabsf(parts[i].transform[9]) > 1e-4f))
+                    moved = 1;
+            check(moved, "hand %d: the pulled trigger part is turned", h);
+        }
+        Frame f;
+        check(renderModels(m, 128, 128, &f) == 0, "the gun draws");
+        frameFree(&f);
+        mlxr_model_unload(&gpu, m);
+    }
+
+    // Generic: the bundled controller, whatever the Frame's files are, mirrored for the left hand
+    stageUser();
+    modelPath(p, sizeof(p), "frame_controller_left.model");
+    writeQuadModel(p, 0.0f, 0, 1);
+    modelPath(p, sizeof(p), "frame_controller_right.model");
+    writeQuadModel(p, 0.0f, 0, 1);
+    m = NULL;
+    check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_GENERIC, &m) == 0 && m, "load the generic controller");
+    if (m) {
+        check(m->kind == CONTROLLER_MODEL_GENERIC && m->space == MODEL_SPACE_GRIP && !m->textured && !m->perHand && m->mirrorLeft,
+              "generic: not the Frame's pair that is there, one mesh, mirrored, at the grip");
+        mlxr_model_unload(&gpu, m);
+    }
+    // Frame: the pair that is there
+    m = NULL;
+    check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_FRAME, &m) == 0 && m, "load the Frame kind");
+    if (m) {
+        check(m->kind == CONTROLLER_MODEL_FRAME && m->textured && m->perHand && !m->mirrorLeft && m->space == MODEL_SPACE_GRIP,
+              "frame: the textured pair, each hand its own, at the grip");
+        mlxr_model_unload(&gpu, m);
+    }
+    // The old entry points are the Frame kind
+    m = NULL;
+    check(mlxr_model_load(&gpu, kTexDir, &m) == 0 && m && m->kind == CONTROLLER_MODEL_FRAME && m->textured, "mlxr_model_load is the Frame kind");
+    if (m) mlxr_model_unload(&gpu, m);
+
+    // Gun without its files (an assets folder that has only the generic one): the Frame's, here the pair that is there
+    m = NULL;
+    check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_GUN, &m) == 0 && m, "gun without its files still loads");
+    if (m) {
+        check(m->kind == CONTROLLER_MODEL_FRAME && m->space == MODEL_SPACE_GRIP, "gun missing: the Frame's, at the grip (kind %d)", m->kind);
+        mlxr_model_unload(&gpu, m);
+    }
+    // Frame models gone as well: the generic controller
+    modelPath(p, sizeof(p), "frame_controller_left.model");
+    remove(p);
+    modelPath(p, sizeof(p), "frame_controller_right.model");
+    remove(p);
+    m = NULL;
+    check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_GUN, &m) == 0 && m && m->kind == CONTROLLER_MODEL_GENERIC &&
+              m->space == MODEL_SPACE_GRIP,
+          "gun and Frame missing: the generic controller");
+    if (m) mlxr_model_unload(&gpu, m);
+
+    // Custom, nothing in the folder (or no folder): the same fall back
+    m = NULL;
+    check(mlxr_model_load_kind(&gpu, kTexDir, userModelsDir(), CONTROLLER_MODEL_CUSTOM, &m) == 0 && m &&
+              m->kind == CONTROLLER_MODEL_GENERIC,
+          "custom with an empty folder falls back");
+    if (m) mlxr_model_unload(&gpu, m);
+    m = NULL;
+    check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_CUSTOM, &m) == 0 && m && m->kind == CONTROLLER_MODEL_GENERIC,
+          "custom with no folder falls back");
+    if (m) mlxr_model_unload(&gpu, m);
+
+    // Custom, one file: the right hand's, mirrored for the left, one set of images, the parts shared
+    userPath(p, sizeof(p), "custom.model");
+    writeQuadModel(p, 0.0f, 0, 1);
+    m = NULL;
+    check(mlxr_model_load_kind(&gpu, kTexDir, userModelsDir(), CONTROLLER_MODEL_CUSTOM, &m) == 0 && m, "load a single custom model");
+    if (m) {
+        note("kind         custom (one file): %s", m->source);
+        check(m->kind == CONTROLLER_MODEL_CUSTOM && m->space == MODEL_SPACE_GRIP && m->textured && m->perHand && m->mirrorLeft,
+              "custom: textured, mirrored for the left, at the grip");
+        check(m->vertexCount == 4 && m->indexCount == 6, "the mesh is in the buffers once (%u vertices, %u indices)", m->vertexCount,
+              m->indexCount);
+        check(m->handFirstIndex[0] == m->handFirstIndex[1] && m->handIndexCount[0] == m->handIndexCount[1] &&
+                  m->handVertexOffset[0] == m->handVertexOffset[1],
+              "both hands the same range");
+        check(m->componentCount[0] == 2 && m->componentCount[1] == 2 && !strcmp(m->components[1][1].name, "trigger") &&
+                  m->components[1][1].firstIndex == m->components[0][1].firstIndex,
+              "both hands the same parts");
+        MlxrModelParams mp;
+        memset(&mp, 0, sizeof(mp));
+        mlxr_model_fill(m, &mp);
+        check(mp.handColour[0] != VK_NULL_HANDLE && mp.handColour[0] == mp.handColour[1] && mp.handSurface[0] == mp.handSurface[1],
+              "both hands sample the one set of images");
+        Frame f;
+        check(renderModels(m, 128, 128, &f) == 0, "the mirrored custom model draws");
+        // Each eye has the hands in it (the pixels drawn, by eye)
+        size_t left = 0, right = 0;
+        const size_t W = (size_t)f.eyeW * 2;
+        for (uint32_t y = 0; y < f.eyeH; y++)
+            for (uint32_t x = 0; x < f.eyeW * 2; x++)
+                if (f.rgba[((size_t)y * W + x) * 4 + 3] != 0) {
+                    if (x < f.eyeW) left++;
+                    else right++;
+                }
+        check(left > 200 && right > 200, "something is drawn in each eye (%zu, %zu)", left, right);
+        frameFree(&f);
+        mlxr_model_unload(&gpu, m);
+    }
+
+    // Custom, a pair beside it: the pair wins, each hand its own
+    userPath(p, sizeof(p), "custom_left.model");
+    writeQuadModel(p, -0.1f, 0, 1);
+    userPath(p, sizeof(p), "custom_right.model");
+    writeQuadModel(p, 0.1f, 0, 1);
+    m = NULL;
+    check(mlxr_model_load_kind(&gpu, kTexDir, userModelsDir(), CONTROLLER_MODEL_CUSTOM, &m) == 0 && m, "load a custom pair");
+    if (m) {
+        check(m->kind == CONTROLLER_MODEL_CUSTOM && m->textured && m->perHand && !m->mirrorLeft && m->vertexCount == 8 &&
+                  m->handFirstIndex[1] == 6,
+              "a custom pair: each hand its own mesh, not mirrored");
+        mlxr_model_unload(&gpu, m);
+    }
+
+    // Custom files that do not parse: said, and the next candidate (the single file, then the fall back)
+    userPath(p, sizeof(p), "custom_right.model");
+    writeQuadModel(p, 0.1f, 1, 1); // cut short
+    m = NULL;
+    check(mlxr_model_load_kind(&gpu, kTexDir, userModelsDir(), CONTROLLER_MODEL_CUSTOM, &m) == 0 && m && m->kind == CONTROLLER_MODEL_CUSTOM &&
+              m->mirrorLeft,
+          "a broken custom pair gives way to the single file");
+    if (m) mlxr_model_unload(&gpu, m);
+    userPath(p, sizeof(p), "custom.model");
+    FILE* junk = fopen(p, "wb");
+    if (junk) {
+        fputs("not a model", junk);
+        fclose(junk);
+    }
+    m = NULL;
+    check(mlxr_model_load_kind(&gpu, kTexDir, userModelsDir(), CONTROLLER_MODEL_CUSTOM, &m) == 0 && m && m->kind == CONTROLLER_MODEL_GENERIC &&
+              !m->textured,
+          "everything custom broken: the fall back to the Frame's chain (here the generic controller)");
+    if (m) mlxr_model_unload(&gpu, m);
+    // one half alone is not a pair and is not used
+    userPath(p, sizeof(p), "custom.model");
+    remove(p);
+    m = NULL;
+    check(mlxr_model_load_kind(&gpu, kTexDir, userModelsDir(), CONTROLLER_MODEL_CUSTOM, &m) == 0 && m && m->kind == CONTROLLER_MODEL_GENERIC,
+          "a lone custom half falls back");
+    if (m) mlxr_model_unload(&gpu, m);
+
+    // Off is not a kind that loads
+    m = NULL;
+    check(mlxr_model_load_kind(&gpu, kTexDir, NULL, CONTROLLER_MODEL_OFF, &m) != 0 && m == NULL, "off loads nothing");
+}
+
 static void testOverlay(void) {
     MlxrRoom* r = loadRoom(ROOM_STYLE_THEATER, 0, 0.0f);
     MlxrModel* m = NULL;
@@ -1900,6 +2106,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(group, "model_textured")) { testModelTextured(); did = 1; }
     if (all || !strcmp(group, "model_pose")) { testModelPose(); did = 1; }
     if (all || !strcmp(group, "model_fallback")) { testModelFallback(); did = 1; }
+    if (all || !strcmp(group, "model_kind")) { testModelKind(); did = 1; }
     if (!did) {
         fprintf(stderr, "unknown group %s\n", group);
         return 2;

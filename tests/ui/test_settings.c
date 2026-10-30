@@ -396,6 +396,54 @@ static void test_notices(void) {
     CHECK(settings_option_cell(&s, &t, COG_OPTION_NOTICES) == NOTICES_OFF);
 }
 
+// Show controllers is a kind: off, frame, generic, gun, custom. Files from before it was a switch
+// say true and false (or 0 and 1) and keep their meaning: the Frame's controllers, or none
+static void test_controller_model(void) {
+    static const struct { const char* text; int want; } OK[] = {
+        { "off", CONTROLLER_MODEL_OFF }, { "frame", CONTROLLER_MODEL_FRAME }, { "generic", CONTROLLER_MODEL_GENERIC },
+        { "gun", CONTROLLER_MODEL_GUN }, { "custom", CONTROLLER_MODEL_CUSTOM }, { "Gun", CONTROLLER_MODEL_GUN },
+        { "0", CONTROLLER_MODEL_OFF }, { "1", CONTROLLER_MODEL_FRAME }, { "2", CONTROLLER_MODEL_GENERIC },
+        { "3", CONTROLLER_MODEL_GUN }, { "4", CONTROLLER_MODEL_CUSTOM },
+        { "true", CONTROLLER_MODEL_FRAME }, { "false", CONTROLLER_MODEL_OFF }, { "on", CONTROLLER_MODEL_FRAME },
+    };
+    for (size_t i = 0; i < sizeof OK / sizeof OK[0]; i++) {
+        Settings s;
+        SettingsLoadInfo info;
+        char text[64];
+        settings_defaults(&s);
+        s.controller_model = CONTROLLER_MODEL_GUN;   // so a value that does not apply is seen
+        snprintf(text, sizeof text, "[vr]\ncontroller_model = %s\n", OK[i].text);
+        settings_from_text(&s, text, &info);
+        CHECK(s.controller_model == OK[i].want && info.applied == 1 && info.bad == 0);
+    }
+    // Not a kind: the last good one stays, and it is counted
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    s.controller_model = CONTROLLER_MODEL_GENERIC;
+    settings_from_text(&s, "[vr]\ncontroller_model = 5\n", &info);
+    CHECK(s.controller_model == CONTROLLER_MODEL_GENERIC && info.bad == 1);
+    settings_from_text(&s, "[vr]\ncontroller_model = knife\n", &info);
+    CHECK(s.controller_model == CONTROLLER_MODEL_GENERIC && info.bad == 1);
+    // Written by name, the default commented out
+    s.controller_model = CONTROLLER_MODEL_CUSTOM;
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\ncontroller_model = custom\n") != NULL);
+    free(text);
+    settings_defaults(&s);
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#controller_model = off\n") != NULL);
+    free(text);
+    // The Display tab's row: a cell for each kind but custom, which marks none of them
+    SessionToggles t;
+    session_from_settings(&s, &t);
+    for (int k = CONTROLLER_MODEL_OFF; k < CONTROLLER_MODEL_COUNT; k++) {
+        s.controller_model = k;
+        CHECK(settings_option_cell(&s, &t, COG_OPTION_CONTROLLERS) == k);
+    }
+    CHECK(COG_CONTROLLERS_CELLS == CONTROLLER_MODEL_CUSTOM);
+}
+
 // The cog opens on the tab it was last left on: [display] cog_tab, the tab
 // names in COG_TAB_ order, screen to start with
 static void test_cog_tab(void) {
@@ -695,6 +743,7 @@ int main(void) {
     test_removed_keys();
     test_bitrate_ceiling();
     test_notices();
+    test_controller_model();
     test_cog_tab();
     test_files();
     test_sliders();
