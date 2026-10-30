@@ -11,9 +11,13 @@
 //   (lane wave4-pcvr) startPcvr()  exit code 12: hands the headset to Valve's Steam Link stream of the PC
 #pragma once
 
+#include <QMap>
 #include <QString>
 #include <QStringList>
 #include <functional>
+#include <memory>
+
+#include "mlxrprofiles.h"
 
 class QObject;
 class QProcess;
@@ -34,6 +38,14 @@ struct Plan {
     // run() sets as SteamVR's per-app preferredRefreshRate before the client starts; 0 leaves it
     // ("Match headset", a custom rate, 30 or 60 fps)
     int steamVrRefreshRate = 0;
+    // Native (lane wave4-launcher): the settings profile in force for this stream (mlxrprofiles.h); the settings
+    // go back when the last copy of the Plan is gone. Null for the Default.
+    std::shared_ptr<MlxrProfiles::Applied> profile;
+    // What the check before the stream found (mlxrpreflight.h), one hint to a line; shown as a toast and added to an
+    // error dialog if the stream fails
+    QStringList hints;
+    // More environment for the VR client: MLXR_APP_UUID, the app's UUID from an Apollo host (launch by appuuid)
+    QMap<QString, QString> extraEnv;
 };
 
 struct Result {

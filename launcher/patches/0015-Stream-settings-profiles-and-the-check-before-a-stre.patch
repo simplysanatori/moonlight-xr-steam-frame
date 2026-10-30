@@ -1,0 +1,127 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Thu, 29 Oct 2026 22:41:06 -0400
+Subject: [PATCH] Stream settings profiles and the check before a stream: build
+ and register them, app menu entry, hints on the segue
+
+---
+ app/app.pro               |  4 ++++
+ app/gui/AppView.qml       | 12 ++++++++++++
+ app/main.cpp              |  9 +++++++++
+ app/qml.qrc               |  2 ++
+ app/streaming/session.cpp |  8 +++++++-
+ 5 files changed, 34 insertions(+), 1 deletion(-)
+
+diff --git a/app/app.pro b/app/app.pro
+--- a/app/app.pro
++++ b/app/app.pro
+@@ -197,6 +197,8 @@ SOURCES += \
+     streaming/session.cpp \
+     streaming/mlxrhandoff.cpp \
+     streaming/mlxrprefs.cpp \
++    streaming/mlxrprofiles.cpp \
++    streaming/mlxrpreflight.cpp \
+     streaming/mlxrbindings.cpp \
+     streaming/xr_bind.c \
+     streaming/xr_gamepad.c \
+@@ -237,6 +239,8 @@ HEADERS += \
+     streaming/session.h \
+     streaming/mlxrhandoff.h \
+     streaming/mlxrprefs.h \
++    streaming/mlxrprofiles.h \
++    streaming/mlxrpreflight.h \
+     streaming/mlxrbindings.h \
+     streaming/xr_bind.h \
+     streaming/xr_gamepad.h \
+diff --git a/app/gui/AppView.qml b/app/gui/AppView.qml
+--- a/app/gui/AppView.qml
++++ b/app/gui/AppView.qml
+@@ -6,6 +6,7 @@ import AppModel 1.0
+ import ComputerManager 1.0
+ import SdlGamepadKeyNavigation 1.0
+ import MlxrPrefs 1.0
++import SystemProperties 1.0
+ 
+ CenteredGridView {
+     property int computerIndex
+@@ -334,6 +335,17 @@ CenteredGridView {
+                     ToolTip.timeout: 3000
+                     ToolTip.visible: hovered
+                 }
++                NavigableMenuItem {
++                    parentMenu: appContextMenu
++                    text: qsTr("Stream settings profile...")
++                    visible: SystemProperties.nativeVrHandoff
++                    onTriggered: stackView.push("qrc:/gui/XrProfilesView.qml", {"initialPcIndex": appGrid.computerIndex, "initialApp": model.name})
++
++                    ToolTip.text: qsTr("Choose the saved stream settings (resolution, refresh rate, bitrate, virtual display ...) this app streams with.")
++                    ToolTip.delay: 1000
++                    ToolTip.timeout: 4000
++                    ToolTip.visible: hovered
++                }
+                 NavigableMenuItem {
+                     parentMenu: appContextMenu
+                     checkable: true
+diff --git a/app/main.cpp b/app/main.cpp
+--- a/app/main.cpp
++++ b/app/main.cpp
+@@ -50,6 +50,7 @@
+ #include "streaming/mlxrhandoff.h"
+ #include "streaming/mlxrprefs.h"
+ #include "streaming/mlxrbindings.h"
++#include "streaming/mlxrprofiles.h"
+ 
+ #if defined(Q_OS_WIN32)
+ #define IS_UNSPECIFIED_HANDLE(x) ((x) == INVALID_HANDLE_VALUE || (x) == NULL)
+@@ -733,6 +734,14 @@ int main(int argc, char *argv[])
+                                                QQmlEngine::setObjectOwnership(MlxrBindings::get(), QQmlEngine::CppOwnership);
+                                                return MlxrBindings::get();
+                                            });
++    // Moonlight XR Native: stream settings profiles (launcher/src/mlxrprofiles.h); made here so that config.ini
++    // keys a killed launcher left changed by a profile are put back now
++    MlxrProfiles::get();
++    qmlRegisterSingletonType<MlxrProfiles>("MlxrProfiles", 1, 0, "MlxrProfiles",
++                                           [](QQmlEngine*, QJSEngine*) -> QObject* {
++                                               QQmlEngine::setObjectOwnership(MlxrProfiles::get(), QQmlEngine::CppOwnership);
++                                               return MlxrProfiles::get();
++                                           });
+     qmlRegisterSingletonType<StreamingPreferences>("StreamingPreferences", 1, 0,
+                                                    "StreamingPreferences",
+                                                    [](QQmlEngine* qmlEngine, QJSEngine*) -> QObject* {
+diff --git a/app/qml.qrc b/app/qml.qrc
+--- a/app/qml.qrc
++++ b/app/qml.qrc
+@@ -6,6 +6,8 @@
+         <file>gui/SettingsView.qml</file>
+         <file>gui/XrSettingsView.qml</file>
+         <file>gui/XrBindingsView.qml</file>
++        <file>gui/XrProfilesView.qml</file>
++        <file>gui/XrIcon.qml</file>
+         <file>gui/StreamSegue.qml</file>
+         <file>gui/GamepadMapper.qml</file>
+         <file>gui/QuitSegue.qml</file>
+diff --git a/app/streaming/session.cpp b/app/streaming/session.cpp
+--- a/app/streaming/session.cpp
++++ b/app/streaming/session.cpp
+@@ -1712,6 +1712,10 @@ void Session::execVr(QWindow* qtWindow)
+     }
+     else {
+         const MlxrHandoff::Plan plan = MlxrHandoff::makePlan(*m_Computer, m_App, *m_Preferences);
++        // Moonlight XR Native: what the check before the stream found, as a toast on the flat screen
++        if (!plan.hints.isEmpty()) {
++            emit displayLaunchWarning(plan.hints.join("\n"));
++        }
+         const bool hideWindow = qEnvironmentVariable("MLXR_LAUNCHER_HIDE_WINDOW") == "1";
+         const MlxrHandoff::Result result = MlxrHandoff::run(plan, [this]() {
+             emit vrStreamStarted();
+@@ -1727,7 +1731,9 @@ void Session::execVr(QWindow* qtWindow)
+             }
+         });
+         if (!result.ok()) {
+-            emit displayLaunchError(result.message);
++            // Moonlight XR Native: what the check before the stream found may be why it failed
++            emit displayLaunchError(plan.hints.isEmpty() ? result.message
++                                                         : result.message + "\n\n" + tr("Found before the stream started:") + "\n" + plan.hints.join("\n"));
+         }
+     }
+     MlxrHandoff::fadeFlatWindow(m_QtWindow, false);
