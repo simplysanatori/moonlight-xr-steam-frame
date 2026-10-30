@@ -108,19 +108,26 @@ void panel_kofi(Dc* dc) {
     dc_text_fit_left(dc, UI_WEIGHT_REGULAR, 30.0f, column, qr_top + 36.0f, width, 0xFFFFFFFFu, url);
 
     char said[512];
-    snprintf(said, sizeof said, "%s\n%s", ui_str(UIS_KOFI_SCAN), ui_str(UIS_KOFI_FREE));
+    snprintf(said, sizeof said, "%s\n%s\n%s", ui_str(UIS_KOFI_SCAN), ui_str(UIS_KOFI_HERE),
+             ui_str(UIS_KOFI_FREE));
     float top = qr_top + 72.0f;
     float room = (KOFI_BTN_T - 0.04f) * dc->nh - top;
     UiTextLine lines[12];
     int n;
     float size = fit_lines(dc, said, width, room, 28.0f, 20.0f, lines, &n);
     UiTextLine scan_lines[12];
-    int scan = ui_text_wrap(dc->font, UI_WEIGHT_REGULAR, size * dc->k, ui_str(UIS_KOFI_SCAN),
-                            width * dc->k, scan_lines, 12);
+    // the first two paragraphs are the ways to open it, the third the aside
+    char how[384];
+    snprintf(how, sizeof how, "%s\n%s", ui_str(UIS_KOFI_SCAN), ui_str(UIS_KOFI_HERE));
+    int scan = ui_text_wrap(dc->font, UI_WEIGHT_REGULAR, size * dc->k, how, width * dc->k, scan_lines, 12);
     for (int i = 0; i < n; i++) {
         draw_line(dc, size, column, top + size + (float)i * size * 1.3f,
                   i < scan ? 0xDDFFFFFFu : 0x99FFFFFFu, said, &lines[i]);
     }
+    int hotOpen = dc_hover(dc, UI_HIT_BUTTON, UI_BTN_KOFI_OPEN, -1);
+    dc_button(dc, KOFI_OPEN_L * dc->nw, KOFI_BTN_T * dc->nh, KOFI_OPEN_R * dc->nw, KOFI_BTN_B * dc->nh,
+              16.0f, 3.0f, 0xEEFFFFFFu, ui_str(UIS_KOFI_OPEN), 30.0f, hotOpen);
+    dc_hit_uv(dc, UI_HIT_BUTTON, UI_BTN_KOFI_OPEN, 0, KOFI_OPEN_L, KOFI_BTN_T, KOFI_OPEN_R, KOFI_BTN_B, 1);
     int hot = dc_hover(dc, UI_HIT_BUTTON, UI_BTN_KOFI_CLOSE, -1);
     dc_button(dc, KOFI_CLOSE_L * dc->nw, KOFI_BTN_T * dc->nh, KOFI_CLOSE_R * dc->nw, KOFI_BTN_B * dc->nh,
               16.0f, 3.0f, 0xEEFFFFFFu, ui_str(UIS_KOFI_CLOSE), 30.0f, hot);
