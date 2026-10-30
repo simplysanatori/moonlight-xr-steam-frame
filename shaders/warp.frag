@@ -22,6 +22,13 @@
 //            before the grade). Upstream asked the compositor for this
 //            through XR_FB_composition_layer_settings, which SteamVR on the
 //            Frame does not offer.
+//   extra.y  split (PLAN 4.3): 0 the whole picture; 1 side by side or 2 top
+//            and bottom, a stereo pair the host rendered into the one frame
+//   extra.z  which half this eye reads: 0 left or top, 1 right or bottom
+//   extra.w  the half's sideways shift, a fraction of its width (the 3D
+//            tab's convergence track, signed per eye)
+// With a split the depth inputs are not read and no disparity is applied:
+// the host already drew each eye.
 layout(push_constant) uniform PC {
     vec4 vidRect;
     vec4 vidChroma;
@@ -30,7 +37,7 @@ layout(push_constant) uniform PC {
     vec4 dispA;    // u_disparity, u_eyeIndex, u_convergence, u_dispTexels
     vec4 dispB;    // u_lowResWidth, u_frameWidth, u_srcInset, u_edgeFade
     vec4 modes;    // u_occlusion, u_depthCubic, u_showDepth, u_barTest
-    vec4 extra;    // x sharpen, yzw spare
+    vec4 extra;    // x sharpen, y split, z half, w shift
 } pc;
 
 #include "common.glsl"
@@ -55,6 +62,9 @@ layout(location = 0) out vec4 fragColor;
 #define u_depthCubic pc.modes.y
 #define u_showDepth pc.modes.z
 #define u_barTest pc.modes.w
+#define u_split pc.extra.y
+#define u_half pc.extra.z
+#define u_shift pc.extra.w
 
 // The depth here is a quarter of the frame wide, so a texel of it spans
 // four pixels, and a bilinear read joins texels with straight segments.
@@ -105,6 +115,24 @@ vec3 sharpened(vec2 tc, vec3 c) {
     return clamp((c + wt * (n + s + w + e)) / (1.0 + 4.0 * wt), 0.0, 1.0);
 }
 
+// Native (PLAN 4.3): a host-rendered pair. The eye's half of the picture's
+// rectangle (left eye left, or left eye top), uv spread over it, held a texel
+// and a half clear of the half's edges, so neither the bilinear tap nor the
+// half resolution chroma under it reaches into the other eye's half
+vec2 halfTc(vec2 uv) {
+    vec4 r = pc.vidRect;
+    if (u_split < 1.5) {
+        r.z *= 0.5;
+        r.x += u_half * r.z;
+    }
+    else {
+        r.w *= 0.5;
+        r.y += u_half * r.w;
+    }
+    vec2 hold = 1.5 * pc.vidChroma.zw;
+    return clamp(r.xy + uv * r.zw, r.xy + hold, r.xy + r.zw - hold);
+}
+
 void main() {
     if (u_depthCubic > 0.5) {
         depthSize = vec2(textureSize(u_depth, 0));
@@ -122,7 +150,11 @@ void main() {
     // nothing asks to leave the frame and the edge column is not smeared
     float edgeW = smoothstep(0.0, max(u_edgeFade, 1e-6), min(v_plain.x, 1.0 - v_plain.x));
     float disp = edgeW * u_disparity;
-    if (u_occlusion > 0.5) {
+    if (u_split > 0.5) {
+        // Native: the host drew this eye; only the convergence track's shift
+        tc.x += u_shift;
+    }
+    else if (u_occlusion > 0.5) {
         // The offset map already picked the right surface; two Newton steps
         // against the full resolution depth settle the position on it
         int reach = int(ceil(abs(u_dispTexels) * max(u_convergence, 1.0 - u_convergence))) + 2;
@@ -152,7 +184,7 @@ void main() {
     // Held half a texel inside, so the bilinear tap never reaches past the
     // picture's edge whatever the shift did
     tc.x = clamp(tc.x, u_srcInset, 1.0 - u_srcInset);
-    vec2 vtc = videoTc(tc);
+    vec2 vtc = u_split > 0.5 ? halfTc(tc) : videoTc(tc);
     fragColor = vec4(videoAt(vtc), 1.0);
     if (pc.extra.x > 0.0) {
         fragColor.rgb = sharpened(vtc, fragColor.rgb);
