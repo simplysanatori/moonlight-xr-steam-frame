@@ -14,6 +14,24 @@ PLAN.md Wave 4b rows 4b.1, 4b.2 (data half), 4b.13 and 3.11. User side: USER_GUI
 | Sticky modifiers on Compact | `KbSticky` in `xr/core/xr_keys.[ch]`; `compactSticky` and `xrKeyboardPress` in `xr/xr_keyboard.c` |
 | New key flags for the host path | `KBF_FLAG_CHORD/HOLD/LET` in `xr/core/xr_kbfull.h`, handled in `stream/vr_keyboard.c` |
 
+## The PC page (lane wave4-apollo: PLAN 4.6, 4b.4, 4b.5)
+
+A second page of the same sheet, reached by `XR_HOST_ZONE_PAGE` (a header button beside Close; the label flips to Back). `ctx->hostPage` is the page showing, `xrHostOpen` starts on the main one. Geometry and cell kinds are in the "PC page" block at the end of `xr/core/xr_hostkeys.[ch]` (`xrHostZoneAtPage`, `xrHostPcCellKind`), so it stays apart from the main page's entries: cells 0 and 1 are Paste and Send text, cells 5..12 are the host's commands. A command cell always asks first (the same confirmation box; `UiView.host_confirm_cmd` makes it say Run and name the command).
+
+| What | Where |
+| --- | --- |
+| What the host offers (`XrHostInfo`: Apollo or not, clipboard read/set, command names, why none) | filled by `hostInfoFrom` in `app/main.c` from serverinfo (`mlxr_clipboard_gate`, `mlxr_server_cmd_gate` in `backend/hostcmd.c`) when a stream starts, `xr_app_set_host_info` (any thread) to `ctx->hostInfo` |
+| A press on the page | `pcPress` in `xr/xr_host.c` sets `ctx->hostActKind` (`XR_HOSTACT_PASTE`, `_COPY` with `hostActText`, `_CMD` with `hostActArg`); `dispatchInput` in `xr/xr_session.c` hands it once to `XrAppHooks.hostAction` (or toasts "Not streaming") |
+| The app's side | `hostActionHook` in `app/main.c`: a command goes at once (`stream_exec_server_cmd`); the two clipboard calls run on a thread each over `mlxr_server_clone` of the stream's server handle, one at a time. Results come back as `xr_app_notice` toasts |
+| Paste from PC | `mlxr_server_get_clipboard`, then `vrkb_type_text` (stream/vr_keyboard.c) on a local `VrKeyboard`: the keyboard's own text sink, pieces of 64 bytes between characters, Enter and Tab as keys, at most 4096 bytes |
+| Send text to PC | `XrHostCompose` (`xr_hostkeys.c`): the keyboard is forced to Compact/QWERTY like for the report sheet (`textEntry` in `xr/xr_keyboard.c`), the characters the input pass emits in `IN_KEY` are taken by `xrHostComposeFeed` in `dispatchInput` instead of `hk->key` (and no modifiers are held on the host meanwhile), Enter makes `XR_HOSTACT_COPY`, `mlxr_server_set_clipboard` does the upload. The space bar shows the tail (`UiView.kb_compose_text`) |
+
+The report sheet's note field is the only other text field there is; there is no field on the VR keyboard itself, so "Paste from PC" cannot insert into one: it types on the PC. `xr_input.c` is untouched, which is why there are no `app:paste_pc` / `app:copy_pc` binding actions: `bindAppCommand` there is the only dispatcher for `app:` codes, so adding them needs its `switch` extended (two cases that set `hostActKind` as `pcPress` does) and `APP_NAMES` in `xr/core/xr_bind.c`.
+
+### Server commands on the wire
+
+Apollo runs a command when it gets a reliable 4-byte control packet `{index, 0, 0, 0}` of type `0x3000` on the encrypted control stream (ClassicOldSong's `LiSendExecServerCmd`; types `0x3001` set clipboard and `0x3002` file transfer nonce are in the same table). The vendored moonlight-common-c is upstream's and has none of it, and only `ControlStream.c` can send on that stream, so `stream/CMakeLists.txt` builds that one file through a generated wrapper that includes it and then `stream/commonc_servercmd.inc`, which defines `mlxrSendExecServerCmd` (declared in `stream/commonc_ext.h`). The submodule is not touched; configure stops with a message if upstream renames what the `.inc` uses. `index` is the command's place in serverinfo's `<ServerCommand>` list (the order Apollo gave). The host sends no answer. `tests/stream/test_servercmd.c` holds the packet's shape and that nothing is sent without a connection; `tests/backend` has the list and the gating against the fake Apollo (`more_cmds`, `cmd_denied`, `clipboard_404`).
+
 ## `macros.ini`
 
 `app:macro:<name>` is **not** reserved by the binding core (`docs/dev/bindings.md` lists `keyboard ray recentre cog 3d gamepad bringhere`), so the macros have their own file: `$MLXR_CONFIG_DIR/macros.ini`, else `~/.config/moonlight-xr/macros.ini`. Nothing is written on first run. When `app:macro` is added to `bindings.ini`, `xrMacrosParse` is the thing to call for the names; the `[macros]` section here uses the same key syntax (`xrBindActionParse("key:...")`) so the two can merge.
