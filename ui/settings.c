@@ -208,6 +208,8 @@ static const SettingDesc TABLE[] = {
     DI("screen", "rotate_deg", screen_rotate_deg, -90, 90, 0, "Screen tab: rotate, degrees clockwise"),
     DI("screen", "curve", screen_curve, 0, 100, 0, "Screen tab: curve, percent (seekbar_vr_curvature)"),
     DI("screen", "width_cm", screen_width_cm, 80, 800, 300, "Screen tab: size, picture width in centimetres (seekbar_vr_screen_size)"),
+    DI("screen", "far_distance_cm", screen_far_distance_cm, 0, 800, 0, "native: the bar's Bring here switch, the distance from the head the screen goes back to from near, centimetres; 0 none (the Cinema preset)"),
+    DI("screen", "far_width_cm", screen_far_width_cm, 0, 800, 0, "native: the bar's Bring here switch, the width it goes back to, centimetres; 0 none"),
     DB("screen", "per_app", per_app, 1, "native: Screen tab, Remember per app: each PC and app keeps its own placement, head lock and 3D state in a [screen.<hash>] section; an app with none starts from the settings in force"),
     DB("screen", "angular_lock", angular_lock, 1, "native: Screen tab, Angular-size lock: pushing or pulling the held screen with the thumbsticks resizes it to look the same size"),
     // ui (lane wave6-i18n)

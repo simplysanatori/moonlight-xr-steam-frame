@@ -803,6 +803,90 @@ XrPosef layoutBringHereFromBar(XrPosef screen, float width, float height, XrPose
     return layoutScreenAlong(screen, hp, gaze);
 }
 
+XrPosef layoutBringHereFromBarAt(XrPosef screen, XrPosef head, float dist, float width,
+                                 float height) {
+    Vec3 hp = { head.position.x, head.position.y, head.position.z };
+    Vec3 gaze = layoutGazeDir(head.orientation);
+    if (dist < 0.3f) {
+        dist = 0.3f;
+    }
+    Vec3 up = { 0.0f, 1.0f, 0.0f };
+    Vec3 axis = vecCross(gaze, up);
+    float la = sqrtf(vecDot(axis, axis));
+    if (la > 1e-4f) {
+        float lift = atan2f(height * 0.5f + width * BAR_DROP_FRAC, dist);
+        Vec3 a = { axis.x / la, axis.y / la, axis.z / la };
+        gaze = vecNorm(quatRotate(axisAngleQuat(a, lift), gaze));
+    }
+    XrPosef out = screen;
+    out.position.x = hp.x + gaze.x * dist;
+    out.position.y = hp.y + gaze.y * dist;
+    out.position.z = hp.z + gaze.z * dist;
+    Vec3 at = { out.position.x, out.position.y, out.position.z };
+    out.orientation = layoutFaceHead(screen.orientation, at, hp);
+    return out;
+}
+
+int bringToggleNear(const BringToggle* t, XrPosef screen, float width, XrPosef head) {
+    if (t->nearValid) {
+        Vec3 d = { screen.position.x - t->nearPose.position.x, screen.position.y - t->nearPose.position.y,
+                   screen.position.z - t->nearPose.position.z };
+        XrQuaternionf a = screen.orientation, b = t->nearPose.orientation;
+        float dot = fabsf(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w);
+        float turn = 2.0f * acosf(dot > 1.0f ? 1.0f : dot) * 180.0f / (float)M_PI;
+        return sqrtf(vecDot(d, d)) <= BRING_NEAR_TOL_M && turn <= BRING_NEAR_TOL_DEG
+                && fabsf(width - t->nearWidth) <= BRING_NEAR_TOL_M;
+    }
+    // Nothing brought near this session (a restart): the Desk preset is near
+    LayoutPreset desk = layoutPresetOf(LAYOUT_PRESET_DESK);
+    Vec3 p = { screen.position.x - head.position.x, screen.position.y - head.position.y,
+               screen.position.z - head.position.z };
+    return fabsf(width - (float)desk.widthCm / 100.0f) <= BRING_NEAR_TOL_M
+            && fabsf(sqrtf(vecDot(p, p)) - (float)desk.distanceCm / 100.0f) <= BRING_DESK_TOL_M;
+}
+
+int bringTogglePress(BringToggle* t, XrPosef* screen, float* width, float aspect, XrPosef head) {
+    int wasNear = bringToggleNear(t, *screen, *width, head);
+    float dist, w;
+    if (wasNear) {
+        if (t->farValid) {
+            dist = t->farDistance;
+            w = t->farWidth;
+        }
+        else {
+            LayoutPreset far = layoutPresetOf(LAYOUT_PRESET_CINEMA);
+            dist = (float)far.distanceCm / 100.0f;
+            w = (float)far.widthCm / 100.0f;
+        }
+        t->nearValid = 0;
+    }
+    else {
+        if (t->nearValid) {
+            // Moved or resized while near: that is no far placement of the
+            // user's, so the way back is the Cinema preset
+            t->farValid = 0;
+        }
+        else {
+            Vec3 d = { screen->position.x - head.position.x, screen->position.y - head.position.y,
+                       screen->position.z - head.position.z };
+            t->farValid = 1;
+            t->farDistance = sqrtf(vecDot(d, d));
+            t->farWidth = *width;
+        }
+        LayoutPreset nearP = layoutPresetOf(LAYOUT_PRESET_DESK);
+        dist = (float)nearP.distanceCm / 100.0f;
+        w = (float)nearP.widthCm / 100.0f;
+    }
+    *screen = layoutBringHereFromBarAt(*screen, head, dist, w, w * aspect);
+    *width = w;
+    if (!wasNear) {
+        t->nearValid = 1;
+        t->nearPose = *screen;
+        t->nearWidth = w;
+    }
+    return !wasNear;
+}
+
 void followReset(FollowState* st) {
     memset(st, 0, sizeof(*st));
 }

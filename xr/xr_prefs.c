@@ -342,6 +342,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->ambiIntensity = (float)s->glow_level / 100.0f;
     ctx->glowFeather = s->glow_feather;
     xrZoomFromSettings(ctx, s);
+    xrBringFarFromSettings(ctx, s); // native (lane bar-glare)
     ctx->bgDim = s->bg_dim;
     settings_void_rgb(s, ctx->voidColor);
     ctx->eyeBalance = (float)s->eye_balance / 100.0f;
@@ -504,6 +505,7 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
         pose[9] = ctx->panelCurve;
         xrPoseToSettings(pose, xrCurveSetting(ctx), s);
     }
+    xrBringFarToSettings(ctx, s); // native (lane bar-glare)
     settings_clamp(s);
 }
 
