@@ -1273,6 +1273,17 @@ Flickable {
             names: [qsTr("Off"), qsTr("Normal"), qsTr("Quality")]
         }
 
+        VrSwitch {
+            key: "display.picture_filter"
+            title: qsTr("Sharper small text")
+            summary: qsTr("On a curved or 3D screen.")
+        }
+
+        VrSwitch {
+            key: "display.chroma_from_luma"
+            title: qsTr("Sharper coloured text")
+        }
+
         VrSlider {
             key: "vr.picture_brightness"
             title: qsTr("Picture brightness")
