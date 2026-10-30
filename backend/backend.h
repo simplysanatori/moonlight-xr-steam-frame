@@ -133,6 +133,32 @@ typedef struct {
 /* Apollo: <VirtualDisplayCapable> or <Permission> is only sent by Apollo (plain Sunshine has neither) */
 static inline bool mlxr_computer_is_apollo(const mlxr_computer *c) { return c->vdisplay_capable || c->permission >= 0; }
 
+/* Native (lane wave4-apollo): what the Host sheet may offer on this host. Server commands and the
+ * clipboard are Apollo's; Apollo lists commands only to a client holding the Server Command
+ * permission, so a plain Sunshine host (or GFE) has neither. */
+typedef enum {
+    MLXR_HOSTFEAT_OK = 0,
+    MLXR_HOSTFEAT_NOT_APOLLO,       /* the host reports none of Apollo's fields: not supported by this host */
+    MLXR_HOSTFEAT_NO_PERMISSION,    /* Apollo, but this client lacks the permission bit */
+    MLXR_HOSTFEAT_NONE_CONFIGURED,  /* Apollo, permitted, but no server command is set up */
+    MLXR_HOSTFEAT_BAD_INDEX         /* no such command */
+} mlxr_hostfeat;
+/* May command `index` (into c->server_cmds, which is also its number on the control stream) run?
+ * index -1 asks only whether the host offers commands to this client at all. */
+mlxr_hostfeat mlxr_server_cmd_gate(const mlxr_computer *c, int index);
+/* The index of the command called `name` (case-insensitive), or -1 */
+int mlxr_server_cmd_find(const mlxr_computer *c, const char *name);
+/* Command `name`, resolved and gated: OK with *index set, else why not */
+mlxr_hostfeat mlxr_server_cmd_resolve(const mlxr_computer *c, const char *name, int *index);
+/* May this client read (write == false) or set (write == true) the host's clipboard? A host older than
+ * Apollo 0.2.4 passes this and answers 404 at the call (mlxr_hostfeat_http_text). */
+mlxr_hostfeat mlxr_clipboard_gate(const mlxr_computer *c, bool write);
+/* A short, toast-sized reason ("Not supported by this host"); "" for MLXR_HOSTFEAT_OK */
+const char *mlxr_hostfeat_text(mlxr_hostfeat f);
+/* The reason when the host answered a clipboard call with HTTP `status`: 401 permission, 403 not
+ * streaming, 404 not supported; NULL for any other status */
+const char *mlxr_hostfeat_http_text(int status);
+
 /* Parse a serverinfo response (checks <root status_code>). http_port is what
  * the request used (stored in out->http_port). */
 mlxr_status mlxr_computer_parse(const char *xml, size_t len, uint16_t http_port,
@@ -149,6 +175,9 @@ typedef struct mlxr_server mlxr_server;
 /* address: hostname, IPv4 or IPv6 literal (no brackets). The identity is copied. */
 mlxr_server *mlxr_server_new(const mlxr_identity *id, const char *address, uint16_t http_port);
 void mlxr_server_free(mlxr_server *s);
+/* Native (lane wave4-apollo): a copy with its own identity and pinned certificate, for a thread that
+ * must not share the original's handle. NULL on failure. */
+mlxr_server *mlxr_server_clone(const mlxr_server *s);
 void mlxr_server_set_https_port(mlxr_server *s, uint16_t port);
 uint16_t mlxr_server_https_port(const mlxr_server *s);
 /* Pin the host's self-signed certificate (PEM). HTTPS is refused until set.
