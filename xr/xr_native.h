@@ -59,6 +59,20 @@ void xrStreamIdentityHost(char* out, size_t cap);
 // room, not head locked, a head pose to go by).
 int xrBringScreenHere(XrCtx* ctx);
 
+// ---- zoom and pan (xr_zoom.c, PLAN 4b.6) ------------------------------------
+// The step the app:zoomin, app:zoomout and app:zoomreset bindings take: +1 the
+// next zoom rung up, -1 down, 0 back to the whole picture. Zooming is aimed:
+// the picture point under the controller's pointer stays under it. Returns 1
+// when the zoom or the pan moved. The change is kept (and put in the app's
+// layout) by xrLayoutFrame.
+int xrZoomStep(XrCtx* ctx, int dir);
+// (xrZoomRect and xrZoomPointer, the part shown and the pointer through it, are in xr_renderer.h)
+// The settings -> the context (a layout put in force), the context -> the
+// settings, and the sync xrLayoutFrame runs (1 when it changed the settings)
+void xrZoomFromSettings(XrCtx* ctx, const Settings* s);
+void xrZoomToSettings(const XrCtx* ctx, Settings* s);
+int xrZoomSync(XrCtx* ctx, Settings* s);
+
 // ---- rows the native client cannot act on yet (xr_prefs.c) ----------------
 // 0 when the row is live as far as the native client goes, else the reason's
 // UiStr. None on the Display tab since M5. The 3D tab is dead through

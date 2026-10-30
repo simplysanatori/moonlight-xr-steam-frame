@@ -949,6 +949,21 @@ static void testSbs(void) {
     xrDepthPointerUv(ctx, &pu, &pv);
     CHECK_NEAR(pu, 0.5, 1e-6);
     CHECK_NEAR(pv, 0.2, 1e-6);
+    // PLAN 4b.6: the zoom is inside the half. 200% about the middle: the screen's
+    // corners are a quarter and three quarters into the eye's half, which is the top half
+    ctx->zoomPct = 200;
+    ctx->zoomX = ctx->zoomY = 50;
+    pu = 0.0f;
+    pv = 0.0f;
+    xrDepthPointerUv(ctx, &pu, &pv);
+    CHECK_NEAR(pu, 0.25, 1e-6);
+    CHECK_NEAR(pv, 0.125, 1e-6);
+    pu = 1.0f;
+    pv = 1.0f;
+    xrDepthPointerUv(ctx, &pu, &pv);
+    CHECK_NEAR(pu, 0.75, 1e-6);
+    CHECK_NEAR(pv, 0.375, 1e-6);
+    ctx->zoomPct = 100;
     CHECK(barStereoCell(ctx->stereoSource, 1) == BTN_CELL_STEREO_TB);
 
     // Back to Depth: the model starts, captures and the depth passes come back

@@ -158,6 +158,13 @@ typedef struct MlxrWarpParams {
     int split;
     int half;
     float shift;
+    // New (PLAN 4b.6): the part of the picture that fills the target, the
+    // zoom's rectangle in the picture's uv: x0, y0, and the side (the picture's
+    // shape, so one number). The picture is the whole frame, or with a split
+    // the eye's half. 0 for size is the whole picture, so zeroed params are
+    // as they were. The depth maps are in frame space, and are read at the
+    // zoomed position.
+    float zoomX, zoomY, zoomSize;
 } MlxrWarpParams;
 #define MLXR_SPLIT_NONE 0
 #define MLXR_SPLIT_SBS 1
