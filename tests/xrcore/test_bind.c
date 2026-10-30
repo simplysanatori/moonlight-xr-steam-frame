@@ -80,6 +80,7 @@ static void testNames(void) {
         "mouse:x1", "mouse:x2", "wheel:up", "wheel:right", "pad:a", "pad:lt", "pad:guide",
         "pad:dpad_left", "stick:scroll", "stick:wasd", "stick:pad_right", "app:keyboard",
         "app:ray", "app:recentre", "app:cog", "app:3d", "app:gamepad", "app:bringhere", "app:host",
+        "app:zoomin", "app:zoomout", "app:zoomreset",
     };
     for (size_t i = 0; i < sizeof(TEXTS) / sizeof(TEXTS[0]); i++) {
         XrBindAction a, b;
@@ -95,6 +96,15 @@ static void testNames(void) {
     int col = -1;
     CHECK(xrBindActionParse("KEY:Alt+F4", &a, err, sizeof(err), &col));
     CHECK(actIs(&a, XR_BIND_ACT_KEY, 0x73, XR_BIND_MOD_ALT));
+    // PLAN 4b.6: the zoom actions, the codes xr_input.c's bindAppCommand switches on
+    CHECK(xrBindActionParse("app:zoomin", &a, err, sizeof(err), &col));
+    CHECK(actIs(&a, XR_BIND_ACT_APP, XR_BIND_APP_ZOOMIN, 0));
+    CHECK(xrBindActionParse("APP:ZoomOut", &a, err, sizeof(err), &col));
+    CHECK(actIs(&a, XR_BIND_ACT_APP, XR_BIND_APP_ZOOMOUT, 0));
+    CHECK(xrBindActionParse("app:zoomreset", &a, err, sizeof(err), &col));
+    CHECK(actIs(&a, XR_BIND_ACT_APP, XR_BIND_APP_ZOOMRESET, 0));
+    CHECK(!xrBindActionParse("app:zoom", &a, err, sizeof(err), &col));
+    CHECK(strstr(err, "zoomreset") != NULL);
     CHECK(xrBindActionParse("app:none", &a, err, sizeof(err), &col));
     CHECK(a.kind == XR_BIND_ACT_NONE);
     CHECK(!xrBindActionParse("key:F+ctrl", &a, err, sizeof(err), &col));

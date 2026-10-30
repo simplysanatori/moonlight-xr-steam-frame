@@ -27,6 +27,7 @@
 #include <stdint.h>
 
 #include "pad_out.h"
+#include "xr_cards.h"
 #include "xr_padmouse.h"
 
 #define GP_MAX 16
@@ -130,6 +131,12 @@ typedef struct {
     uint8_t batteryHost[2]; // what the host was last told
     int batterySent;
     uint32_t touchDown;   // fingers (by id, below 32) the host has down
+    // What the pad card shows (PLAN 2b.6): when this pad was last used, when a gyro sample last
+    // went to the host, and the last finger on the touchpad
+    int64_t liveNs;
+    int64_t gyroNs;
+    int touching;
+    float touchX, touchY;
     GpInfo info;
     PadOutPacket cur;  // the sources merged
     PadOutPacket sent; // what the host was last sent (the mouse emulation's neutral state included)
@@ -299,6 +306,13 @@ const char* gpFaceLabel(GpGlyphSet set, GpFaceButton hostButton, int flipped);
 // The set of the physical pad used last, Xbox until one was
 GpGlyphSet gpGlyphSetInUse(const Gamepads* g);
 
+// ---- the pad card (2b.6) ----------------------------------------------------------------
+// The physical pad used last as the pad card draws it: its style (from the type it announced), the
+// buttons, triggers and sticks as it stands now, a finger on its touchpad, whether gyro is reaching
+// the host, and how long ago it was used. out->present is gpPhysicalActive. Zeroed (style generic
+// until a pad has been used) when no pad has been used.
+void gpLiveState(Gamepads* g, PadLive* out);
+
 // ---- classification (no SDL): what a pad is, from the facts a source has ----
 // gamepads_sdl.c fills a GpInfo from SDL and finishes it with gpClassify();
 // the pad probe (padprobe.h) and the tests do the same with made-up facts.
@@ -378,6 +392,8 @@ int gamepadsPhysicalActive(void);
 int gamepadsFrameControllersAsleep(void);
 // The glyph set for hints: the pad used last, Xbox until a physical pad was used
 GpGlyphSet gamepadsGlyphSet(void);
+// The pad card's view of the pad used last (gpLiveState); zeroed, present 0, before gamepadsInit
+void gamepadsLiveState(PadLive* out);
 // For the source's loop (gamepads_sdl.c)
 int gamepadsWantsTick(void);
 void gamepadsTick(void);

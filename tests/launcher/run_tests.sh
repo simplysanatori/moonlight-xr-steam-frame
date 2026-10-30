@@ -718,7 +718,7 @@ if [ -n "$SHOTS" ]; then
     ini="$MLXR_CONFIG_DIR/config.ini"
     printf '# Moonlight XR settings\n[display]\n# Display tab: show performance stats [true | false] (default false)\n#stats = false\nglow = true\n\n[3d]\nseparation = 9\nstereo = false\n' > "$ini"
     cp "$ini" "$t/ini.before"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,scrollSpeedRow,doffRow,idleRow,controllerModelRow,hdrRow,stereoSourceRow,sbsFullRow,idrCapRow,pathFailoverRow,failoverBurstRow \
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,scrollSpeedRow,doffRow,idleRow,controllerModelRow,hdrRow,stereoSourceRow,sbsFullRow,idrCapRow,padCardRow,firstRunRow,pathFailoverRow,failoverBurstRow \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-clicked.png@3000" "$L" >"$t/ui6.out" 2>&1
     grep -q "no clickable" "$t/ui6.out" && fail "click hook: $(grep 'no clickable' "$t/ui6.out")"
     grep -q '^stats = true$' "$ini" && ok "stats overlay row writes [display] stats = true" || { fail "stats not written"; cat "$ini"; }
@@ -734,6 +734,9 @@ if [ -n "$SHOTS" ]; then
     grep -A6 '^\[3d\]' "$ini" | grep -q '^sbs_full = true$' && ok "full-size SBS switch writes [3d] sbs_full = true" || { fail "sbs_full not written"; cat "$ini"; }
     # lane wave1-burst: the full-frame request cap steps 500 ms to 1000 ms
     grep -A4 '^\[stream\]' "$ini" | grep -q '^rfi_idr_ms = 1000$' && ok "full-frame request row steps 500 ms to 1000 ms and writes [stream] rfi_idr_ms" || { fail "rfi_idr_ms not written"; cat "$ini"; }
+    # lane wave3-cards: the gamepad card's row steps Auto to On, the controls card's switch (on: not shown yet) turns off
+    sed -n '/^\[vr\]/,/^\[/p' "$ini" | grep -q '^pad_card = on$' && ok "gamepad card row steps Auto to On and writes [vr] pad_card" || { fail "pad_card not written"; cat "$ini"; }
+    sed -n '/^\[vr\]/,/^\[/p' "$ini" | grep -q '^first_run_shown = true$' && ok "controls card switch off writes [vr] first_run_shown = true" || { fail "first_run_shown not written"; cat "$ini"; }
     # lane wave1-failover: the path failover switch turns on, its loss length steps 3 s to 5 s
     grep -A8 '^\[stream\]' "$ini" | grep -q '^failover = on$' && ok "path failover switch writes [stream] failover = on" || { fail "failover not written"; cat "$ini"; }
     grep -A8 '^\[stream\]' "$ini" | grep -q '^failover_burst_ms = 5000$' && ok "loss length row steps 3 s to 5 s and writes [stream] failover_burst_ms" || { fail "failover_burst_ms not written"; cat "$ini"; }
@@ -801,6 +804,8 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads stereo_source" "$dump" "3d.stereo_source = sbs"
         expect "VR client reads sbs_full" "$dump" "3d.sbs_full = true"
         expect "VR client reads rfi_idr_ms" "$dump" "stream.rfi_idr_ms = 1000"
+        expect "VR client reads pad_card" "$dump" "vr.pad_card = on"
+        expect "VR client reads first_run_shown" "$dump" "vr.first_run_shown = true"
         expect "VR client reads failover" "$dump" "stream.failover = on"
         expect "VR client reads failover_burst_ms" "$dump" "stream.failover_burst_ms = 5000"
     fi
@@ -824,13 +829,15 @@ if [ -n "$SHOTS" ]; then
     fi
     # lane wave5-depth: the 3D rows that only the file and this page carry (3D on, so they are live)
     printf '[3d]\nstereo = true\nseparation = 9\n' > "$ini"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=edgeRow,motionRow,depthScaleRow,depthGlobalRow \
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=edgeRow,motionRow,depthScaleRow,depthGlobalRow,zoomRow \
         MLXR_LAUNCHER_SCREENSHOT="$t/settings-3d.png@3000" "$L" >"$t/ui9.out" 2>&1
     grep -q "no clickable" "$t/ui9.out" && fail "3d click hook: $(grep 'no clickable' "$t/ui9.out")"
     grep -A4 '^\[3d\]' "$ini" | grep -q '^edge_sharpness = 25$' && ok "edge row steps 0 to 25 and writes [3d] edge_sharpness" || { fail "edge_sharpness not written"; cat "$ini"; }
     grep -A4 '^\[3d\]' "$ini" | grep -q '^motion_reset = 5$' && ok "motion row steps off to 5 and writes [3d] motion_reset" || { fail "motion_reset not written"; cat "$ini"; }
     grep -A6 '^\[3d\]' "$ini" | grep -q '^depth_scale = 125$' && ok "depth detail row steps 100 to 125 and writes [3d] depth_scale" || { fail "depth_scale not written"; cat "$ini"; }
     grep -A6 '^\[3d\]' "$ini" | grep -q '^depth_global = 125$' && ok "depth shape row steps 100 to 125 and writes [3d] depth_global" || { fail "depth_global not written"; cat "$ini"; }
+    # lane wave4b-zoom (PLAN 4b.6): the zoom row steps 100 to 125 and writes [display] zoom
+    grep -A2 '^\[display\]' "$ini" | grep -q '^zoom = 125$' && ok "zoom row steps 100 to 125 and writes [display] zoom" || { fail "zoom not written"; cat "$ini"; }
     grep -q '^separation = 9$' "$ini" && grep -q '^stereo = true$' "$ini" && ok "3d rows leave the other [3d] keys alone" || { fail "[3d] keys changed"; cat "$ini"; }
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
@@ -838,6 +845,7 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads motion_reset" "$dump" "3d.motion_reset = 5"
         expect "VR client reads depth_scale" "$dump" "3d.depth_scale = 125"
         expect "VR client reads depth_global" "$dump" "3d.depth_global = 125"
+        expect "VR client reads zoom" "$dump" "display.zoom = 125"
     fi
     # MLXR_HANDOFF=0: the stock probe runs again
     MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1

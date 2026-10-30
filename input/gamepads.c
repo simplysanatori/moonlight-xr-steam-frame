@@ -511,7 +511,8 @@ done:
 
 // A physical pad is being used: remember when and what it is, and (unless both pads
 // are wanted) retire gamepad mode's pad, which the pad bridge then takes out (lock held)
-static void noteInput(Gamepads* g, const GpSlot* s, int64_t now) {
+static void noteInput(Gamepads* g, GpSlot* s, int64_t now) {
+    s->liveNs = now ? now : 1;
     atomic_store(&g->lastInputNs, now ? now : 1);
     atomic_store(&g->lastType, (int)s->info.type + 1);
     if (atomic_load(&gArbMode) != PAD_ARB_ALSO_GAMEPAD && g->frameNumber >= 0
@@ -778,6 +779,10 @@ void gpMotion(Gamepads* g, int id, int motionType, float x, float y, float z, ui
             memcpy(s->lastMotion[t], v, sizeof(v));
             s->motionMs[t] = timestampMs;
             s->haveMotion[t] = 1;
+            if (t == 1) {
+                int64_t at = nowNs(g);
+                s->gyroNs = at ? at : 1;
+            }
             float k = t ? RAD_TO_DEG : 1.0f;
             if (g->extra.motion)
                 g->extra.motion(g->extra.user, (uint8_t)s->number, (uint8_t)motionType, x * k, y * k, z * k);
@@ -810,6 +815,13 @@ void gpTouch(Gamepads* g, int id, int eventType, uint32_t finger, float x, float
         if (finger < 32) {
             if (eventType == LI_TOUCH_EVENT_DOWN) s->touchDown |= 1u << finger;
             else if (eventType == LI_TOUCH_EVENT_UP || eventType == LI_TOUCH_EVENT_CANCEL) s->touchDown &= ~(1u << finger);
+        }
+        if (eventType == LI_TOUCH_EVENT_UP || eventType == LI_TOUCH_EVENT_CANCEL) {
+            s->touching = 0;
+        } else {
+            s->touching = 1;
+            s->touchX = x;
+            s->touchY = y;
         }
         if (g->extra.touch)
             g->extra.touch(g->extra.user, (uint8_t)s->number, (uint8_t)eventType, finger, x, y, pressure);
@@ -911,6 +923,37 @@ GpGlyphSet gpGlyphSetInUse(const Gamepads* g) {
     return t > 0 ? gpGlyphSetForType(t - 1) : GP_GLYPH_XBOX;
 }
 
+void gpLiveState(Gamepads* g, PadLive* out) {
+    memset(out, 0, sizeof(*out));
+    int type = atomic_load(&g->lastType);
+    pthread_mutex_lock(&g->lock);
+    const GpSlot* best = NULL;
+    for (int i = 0; i < GP_MAX; i++) {
+        const GpSlot* s = &g->slot[i];
+        if (s->used && s->liveNs != 0 && (!best || s->liveNs > best->liveNs)) best = s;
+    }
+    if (best) {
+        int64_t now = nowNs(g);
+        type = (int)best->info.type + 1;
+        out->buttons = best->cur.buttonFlags;
+        out->lt = best->cur.leftTrigger;
+        out->rt = best->cur.rightTrigger;
+        out->lx = best->cur.leftStickX;
+        out->ly = best->cur.leftStickY;
+        out->rx = best->cur.rightStickX;
+        out->ry = best->cur.rightStickY;
+        out->touching = best->touching;
+        out->touchX = best->touchX;
+        out->touchY = best->touchY;
+        out->gyro = best->gyroNs != 0 && now - best->gyroNs < PADLIVE_MOTION_NS;
+        out->ageNs = inUse(&best->cur) ? 0 : now - best->liveNs;
+    }
+    pthread_mutex_unlock(&g->lock);
+    int ctype = type > 0 ? type - 1 : LI_CTYPE_UNKNOWN;
+    out->style = padStyleFor((int)gpGlyphSetForType(ctype), ctype != LI_CTYPE_UNKNOWN);
+    out->present = gpPhysicalActive(g);
+}
+
 // ---- the one instance -------------------------------------------------------
 
 static Gamepads gGlobal;
@@ -1004,6 +1047,15 @@ int gamepadsPhysicalActive(void) { return gGlobal.ready && gpPhysicalActive(&gGl
 int gamepadsFrameControllersAsleep(void) { return gGlobal.ready && gpFrameControllersAsleep(&gGlobal); }
 
 GpGlyphSet gamepadsGlyphSet(void) { return gGlobal.ready ? gpGlyphSetInUse(&gGlobal) : GP_GLYPH_XBOX; }
+
+void gamepadsLiveState(PadLive* out) {
+    if (gGlobal.ready) {
+        gpLiveState(&gGlobal, out);
+    } else {
+        memset(out, 0, sizeof(*out));
+        out->style = PADSTYLE_GENERIC;
+    }
+}
 
 int gamepadsWantsTick(void) { return gGlobal.ready && gpWantsTick(&gGlobal); }
 

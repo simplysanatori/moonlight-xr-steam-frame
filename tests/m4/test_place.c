@@ -7,6 +7,7 @@
 
 #include "check.h"
 #include "scene.h"
+#include "xr_depth.h"
 
 static float rad(float deg) { return deg * (float)M_PI / 180.0f; }
 
@@ -459,6 +460,115 @@ static void perApp(void) {
     scene_free(sc);
 }
 
+// PLAN 4b.6: the zoom and the pan are part of the layout kept per PC and app
+static void zoomMemory(void) {
+    Scene* sc = scene_new();
+    XrCtx* c = sc->ctx;
+    Settings* s = &sc->settings;
+    int64_t now = 5000000000LL;
+    scene_frame(sc, NULL);
+    CHECK(c->zoomPct == 100 && c->zoomX == 50 && c->zoomY == 50);
+
+    xrSetStreamIdentity("Desk PC", "Desktop");
+    CHECK(xrLayoutFrame(c, s, now) == 0);
+    // Zoom in on the top right corner of the desktop, three presses aimed at it
+    c->zoomHitValid = 1;
+    c->zoomHitU = 1.0f;
+    c->zoomHitV = 0.0f;
+    for (int i = 0; i < 4; i++) CHECK(xrZoomStep(c, 1) == 1);
+    CHECK(c->zoomPct == 200 && c->zoomX == 100 && c->zoomY == 0);
+    // The settings take it on the next frame (and want saving), then it is kept after the debounce
+    now += 100000000LL;
+    CHECK(xrLayoutFrame(c, s, now) == 1);
+    CHECK(s->zoom == 200 && s->zoom_x == 100 && s->zoom_y == 0);
+    now += 100000000LL;
+    CHECK(xrLayoutFrame(c, s, now) == 0);
+    now += 900000000LL;
+    CHECK(xrLayoutFrame(c, s, now) == 1 && s->layout_count == 1);
+    const AppLayout* kept = settings_layout_find(s, c->layoutHash);
+    CHECK(kept != NULL && kept->zoom == 200 && kept->zoom_x == 100 && kept->zoom_y == 0);
+    // The pointer at the screen's corner is the desktop's corner, and the middle is the middle of that corner part
+    float u = 1.0f, v = 0.0f;
+    xrDepthPointerUv(c, &u, &v);
+    CHECK_NEAR(u, 1.0, 1e-5);
+    CHECK_NEAR(v, 0.0, 1e-5);
+    u = 0.5f;
+    v = 0.5f;
+    xrDepthPointerUv(c, &u, &v);
+    CHECK_NEAR(u, 0.75, 1e-5);
+    CHECK_NEAR(v, 0.25, 1e-5);
+    // The file has it, and reads back the same
+    char* text = settings_to_text(s);
+    CHECK(strstr(text, "zoom = 200") != NULL && strstr(text, "zoom_x = 100") != NULL);
+    Settings back;
+    settings_defaults(&back);
+    settings_from_text(&back, text, NULL);
+    free(text);
+    const AppLayout* again = settings_layout_find(&back, c->layoutHash);
+    CHECK(again != NULL && again->zoom == 200 && again->zoom_x == 100 && again->zoom_y == 0);
+    CHECK(back.zoom == 200 && back.zoom_x == 100 && back.zoom_y == 0);
+
+    // Another app: it starts from what is in force; zoomed back out it is kept as the whole picture
+    xrSetStreamIdentity("Desk PC", "Video Player");
+    now += 100000000LL;
+    xrLayoutFrame(c, s, now);
+    CHECK(c->zoomPct == 200);
+    CHECK(xrZoomStep(c, 0) == 1);
+    now += 100000000LL;
+    xrLayoutFrame(c, s, now);
+    now += 900000000LL;
+    CHECK(xrLayoutFrame(c, s, now) == 1 && s->layout_count == 2);
+    CHECK(settings_layout_find(s, c->layoutHash)->zoom == 100);
+    CHECK(c->zoomPct == 100 && s->zoom == 100);
+
+    // Back to the desktop: its zoom and place are put back in the settings and the context, and the picture
+    xrSetStreamIdentity("Desk PC", "Desktop");
+    now += 100000000LL;
+    CHECK(xrLayoutFrame(c, s, now) == 1);
+    CHECK(c->zoomPct == 200 && c->zoomX == 100 && c->zoomY == 0);
+    CHECK(s->zoom == 200 && s->zoom_x == 100 && s->zoom_y == 0);
+    now += 2000000000LL;
+    CHECK(xrLayoutFrame(c, s, now) == 0 && s->layout_count == 2);   // not kept again for having been put back
+
+    // Quitting right after a press still keeps it: the next app's identity writes what was pending
+    CHECK(xrZoomStep(c, 1) == 1 && c->zoomPct == 250);
+    now += 100000000LL;
+    xrLayoutFrame(c, s, now);
+    xrSetStreamIdentity("Desk PC", "Video Player");
+    now += 100000000LL;
+    xrLayoutFrame(c, s, now);
+    CHECK(settings_layout_find(s, settings_app_hash("Desk PC", "Desktop"))->zoom == 250);
+    CHECK(c->zoomPct == 100);
+
+    // Forget drops the app's entry and the zoom stays in force; per app off keeps nothing and puts nothing back
+    CHECK(xrStoreSetting(c, s, SETTING_FORGET_LAYOUT, 0));
+    CHECK(s->layout_count == 1 && c->zoomPct == 100);
+    s->per_app = 0;
+    xrSetStreamIdentity("Desk PC", "Desktop");
+    now += 100000000LL;
+    xrLayoutFrame(c, s, now);
+    CHECK(c->zoomPct == 100);
+    xrZoomStep(c, 1);
+    now += 2000000000LL;
+    xrLayoutFrame(c, s, now);
+    now += 2000000000LL;
+    CHECK(xrLayoutFrame(c, s, now) == 0 && s->layout_count == 1 && s->zoom == 125);
+    s->per_app = 1;
+
+    // The settings' limits: the file's values are held to range
+    Settings wild;
+    settings_defaults(&wild);
+    settings_from_text(&wild, "[display]\nzoom = 900\nzoom_x = -5\nzoom_y = 300\n", NULL);
+    CHECK(wild.zoom == 400 && wild.zoom_x == 0 && wild.zoom_y == 100);
+    xrApplySettings(c, &wild);
+    CHECK(c->zoomPct == 400 && c->zoomX == 0 && c->zoomY == 100);
+    Settings out = wild;
+    out.zoom = 100;
+    xrSettingsFromCtx(c, &out);
+    CHECK(out.zoom == 400 && out.zoom_x == 0 && out.zoom_y == 100);
+    scene_free(sc);
+}
+
 int main(void) {
     rowsAreCells();
     presets();
@@ -467,5 +577,6 @@ int main(void) {
     follow();
     angularLock();
     perApp();
+    zoomMemory();
     return checksDone("m4 place");
 }

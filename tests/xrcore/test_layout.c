@@ -1399,6 +1399,212 @@ static void testTheSbsPair(void) {
     CHECK(!ambiBarDetectApplies(0, DEPTH_MODE_MODEL) && !ambiBarDetectApplies(0, DEPTH_MODE_SBS));
 }
 
+// ---- zoom and pan (PLAN 4b.6): the part of the picture shown, inside the eye's half ----------
+
+static void rectNear(const float r[4], double x0, double y0, double w, double h) {
+    CHECK_NEAR(r[0], x0, 1e-5);
+    CHECK_NEAR(r[1], y0, 1e-5);
+    CHECK_NEAR(r[2], w, 1e-5);
+    CHECK_NEAR(r[3], h, 1e-5);
+}
+
+static void testTheZoom(void) {
+    float r[4];
+    // 100 shows it all, whatever the centre says
+    zoomRect(100, 0, 100, r);
+    rectNear(r, 0, 0, 1, 1);
+    zoomRect(100, 50, 50, r);
+    rectNear(r, 0, 0, 1, 1);
+    // 200 about the middle is the middle quarter; 400 a sixteenth of the area
+    zoomRect(200, 50, 50, r);
+    rectNear(r, 0.25, 0.25, 0.5, 0.5);
+    zoomRect(400, 50, 50, r);
+    rectNear(r, 0.375, 0.375, 0.25, 0.25);
+    // A centre near an edge is held where the part still fits (the zoom's w
+    // and h stay, the part slides in)
+    zoomRect(200, 0, 100, r);
+    rectNear(r, 0, 0.5, 0.5, 0.5);
+    zoomRect(200, 100, 0, r);
+    rectNear(r, 0.5, 0, 0.5, 0.5);
+    zoomRect(400, 10, 95, r);
+    rectNear(r, 0, 0.75, 0.25, 0.25);
+    zoomRect(200, 30, 70, r);
+    rectNear(r, 0.05, 0.45, 0.5, 0.5);
+    // Out of range values are held to the range
+    zoomRect(50, 50, 50, r);
+    rectNear(r, 0, 0, 1, 1);
+    zoomRect(900, -20, 300, r);
+    rectNear(r, 0, 0.75, 0.25, 0.25);
+    // Whatever the settings, the part is the picture's shape and inside it
+    for (int pct = 100; pct <= 400; pct += 7) {
+        for (int c = 0; c <= 100; c += 5) {
+            zoomRect(pct, c, 100 - c, r);
+            CHECK(r[0] >= 0.0f && r[1] >= 0.0f && r[0] + r[2] <= 1.0f + 1e-6f && r[1] + r[3] <= 1.0f + 1e-6f);
+            CHECK_NEAR(r[2], 100.0 / pct, 1e-5);
+            CHECK(r[2] == r[3]);
+        }
+    }
+
+    // The rungs: up, down, the ends, and a value between them
+    CHECK(zoomStepPct(100, 1) == 125 && zoomStepPct(125, 1) == 150 && zoomStepPct(175, 1) == 200);
+    CHECK(zoomStepPct(200, 1) == 250 && zoomStepPct(350, 1) == 400 && zoomStepPct(400, 1) == 400);
+    CHECK(zoomStepPct(400, -1) == 350 && zoomStepPct(250, -1) == 200 && zoomStepPct(125, -1) == 100);
+    CHECK(zoomStepPct(100, -1) == 100);
+    CHECK(zoomStepPct(160, 1) == 175 && zoomStepPct(160, -1) == 150);
+    CHECK(zoomStepPct(300, 0) == 100 && zoomStepPct(100, 0) == 100);
+    // Every rung is inside the setting's range, and going up from the bottom reaches the top
+    int pct = ZOOM_MIN_PCT, steps = 0;
+    while (zoomStepPct(pct, 1) != pct) {
+        pct = zoomStepPct(pct, 1);
+        steps++;
+    }
+    CHECK(pct == ZOOM_MAX_PCT && steps == 8);
+
+    // The pointer through the part shown, and back: the corners of the screen
+    // are the corners of the part, and the middle its middle
+    zoomRect(200, 100, 0, r);
+    float u = 0.0f, v = 0.0f;
+    zoomPointerUv(r, &u, &v);
+    CHECK_NEAR(u, 0.5, 1e-6);
+    CHECK_NEAR(v, 0.0, 1e-6);
+    u = 1.0f;
+    v = 1.0f;
+    zoomPointerUv(r, &u, &v);
+    CHECK_NEAR(u, 1.0, 1e-6);
+    CHECK_NEAR(v, 0.5, 1e-6);
+    for (int pct = 100; pct <= 400; pct += 25) {
+        for (int c = 0; c <= 100; c += 25) {
+            zoomRect(pct, c, 100 - c, r);
+            for (int i = 0; i <= 4; i++) {
+                for (int j = 0; j <= 4; j++) {
+                    float a = i / 4.0f, b = j / 4.0f, x = a, y = b;
+                    zoomPointerUv(r, &x, &y);
+                    CHECK(x >= -1e-6f && x <= 1.0f + 1e-6f && y >= -1e-6f && y <= 1.0f + 1e-6f);
+                    zoomScreenUv(r, &x, &y);
+                    CHECK_NEAR(x, a, 1e-5);
+                    CHECK_NEAR(y, b, 1e-5);
+                }
+            }
+        }
+    }
+    // A picture point outside the part is off the screen
+    zoomRect(200, 50, 50, r);
+    u = 0.1f;
+    v = 0.9f;
+    zoomScreenUv(r, &u, &v);
+    CHECK(u < 0.0f && v > 1.0f);
+
+    // Zooming about the pointer: the picture point under it stays put
+    int cx, cy;
+    zoomAnchorCentre(100, 50, 50, 200, 0.8f, 0.2f, &cx, &cy);
+    zoomRect(200, cx, cy, r);
+    u = 0.8f;
+    v = 0.2f;
+    zoomPointerUv(r, &u, &v);
+    CHECK_NEAR(u, 0.8, 0.01);
+    CHECK_NEAR(v, 0.2, 0.01);
+    // At the corner it is the corner part
+    zoomAnchorCentre(100, 50, 50, 400, 1.0f, 0.0f, &cx, &cy);
+    zoomRect(400, cx, cy, r);
+    rectNear(r, 0.75, 0, 0.25, 0.25);
+    CHECK(cx == ZOOM_PAN_MAX && cy == ZOOM_PAN_MIN);
+    // In twice at the same spot and out once: still the point under the pointer
+    float hu = 0.7f, hv = 0.35f;
+    int z = 100, zx = 50, zy = 50;
+    float want[2];
+    {
+        float q[4];
+        zoomRect(z, zx, zy, q);
+        want[0] = q[0] + hu * q[2];
+        want[1] = q[1] + hv * q[3];
+    }
+    int path[3] = { 150, 250, 200 };
+    for (int i = 0; i < 3; i++) {
+        zoomAnchorCentre(z, zx, zy, path[i], hu, hv, &zx, &zy);
+        z = path[i];
+        zoomRect(z, zx, zy, r);
+        CHECK_NEAR(r[0] + hu * r[2], want[0], 0.012);
+        CHECK_NEAR(r[1] + hv * r[3], want[1], 0.012);
+    }
+    // Out to the whole picture is the middle again, wherever the pointer was
+    zoomAnchorCentre(z, zx, zy, 100, 0.1f, 0.9f, &cx, &cy);
+    CHECK(cx == 50 && cy == 50);
+    // A pointer at the middle of the view leaves a centred zoom centred
+    zoomAnchorCentre(100, 50, 50, 300, 0.5f, 0.5f, &cx, &cy);
+    CHECK(cx == 50 && cy == 50);
+
+    // Inside the eye's half. Not zoomed, the picture is the half (the whole
+    // frame for a flat one); zoomed, the part sits inside it and never crosses the seam
+    videoShownRect(STEREO_SOURCE_DEPTH, NULL, r);
+    rectNear(r, 0, 0, 1, 1);
+    videoShownRect(STEREO_SOURCE_SBS, NULL, r);
+    rectNear(r, 0, 0, 0.5, 1);
+    videoShownRect(STEREO_SOURCE_TB, NULL, r);
+    rectNear(r, 0, 0, 1, 0.5);
+    float z4[4];
+    zoomRect(200, 50, 50, z4);
+    videoShownRect(STEREO_SOURCE_DEPTH, z4, r);
+    rectNear(r, 0.25, 0.25, 0.5, 0.5);
+    videoShownRect(STEREO_SOURCE_SBS, z4, r);
+    rectNear(r, 0.125, 0.25, 0.25, 0.5);
+    videoShownRect(STEREO_SOURCE_TB, z4, r);
+    rectNear(r, 0.25, 0.125, 0.5, 0.25);
+    for (int src = STEREO_SOURCE_SBS; src <= STEREO_SOURCE_TB; src++) {
+        for (int pct = 100; pct <= 400; pct += 50) {
+            for (int c = 0; c <= 100; c += 25) {
+                zoomRect(pct, c, 100 - c, z4);
+                videoShownRect(src, z4, r);
+                float halfW = src == STEREO_SOURCE_SBS ? 0.5f : 1.0f, halfH = src == STEREO_SOURCE_TB ? 0.5f : 1.0f;
+                CHECK(r[0] >= -1e-6f && r[1] >= -1e-6f && r[0] + r[2] <= halfW + 1e-6f && r[1] + r[3] <= halfH + 1e-6f);
+            }
+        }
+    }
+    // The pointer: through the zoom, then onto the left (top) half, is the same
+    // as the shown part's own mapping into the frame, for every point
+    for (int src = STEREO_SOURCE_SBS; src <= STEREO_SOURCE_TB; src++) {
+        zoomRect(300, 85, 20, z4);
+        videoShownRect(src, z4, r);
+        for (int i = 0; i <= 4; i++) {
+            for (int j = 0; j <= 4; j++) {
+                float a = i / 4.0f, b = j / 4.0f, x = a, y = b;
+                zoomPointerUv(z4, &x, &y);
+                sbsPointerUv(src, &x, &y);
+                CHECK_NEAR(x, r[0] + a * r[2], 1e-5);
+                CHECK_NEAR(y, r[1] + b * r[3], 1e-5);
+            }
+        }
+    }
+    // Corner of a desktop at 400: the pointer at the screen's corner is the
+    // desktop's corner pixel
+    zoomRect(400, 100, 100, z4);
+    u = 1.0f;
+    v = 1.0f;
+    zoomPointerUv(z4, &u, &v);
+    CHECK_NEAR(u, 1.0, 1e-6);
+    CHECK_NEAR(v, 1.0, 1e-6);
+
+    // The glow's part: what is shown, narrowed to the content inside the bars
+    float shown[4] = { 0.25f, 0.25f, 0.5f, 0.5f }, crop[4] = { 0.0f, 0.125f, 1.0f, 0.75f };
+    videoGlowRect(shown, crop, r);
+    rectNear(r, 0.25, 0.25, 0.5, 0.5);
+    float crop2[4] = { 0.0f, 0.4f, 1.0f, 0.2f };
+    videoGlowRect(shown, crop2, r);
+    rectNear(r, 0.25, 0.4, 0.5, 0.2);
+    // Not zoomed: the crop itself, as the glow always sampled
+    float whole[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+    videoGlowRect(whole, crop, r);
+    rectNear(r, 0.0, 0.125, 1.0, 0.75);
+    // Zoomed to a place that is all bar: nothing to take, so the part itself
+    float corner[4] = { 0.0f, 0.0f, 0.25f, 0.1f };
+    videoGlowRect(corner, crop, r);
+    rectNear(r, 0, 0, 0.25, 0.1);
+    // A host-rendered pair at 200 about the middle: the glow is of the left eye's inner part
+    zoomRect(200, 50, 50, z4);
+    videoShownRect(STEREO_SOURCE_SBS, z4, shown);
+    videoGlowRect(shown, whole, r);
+    rectNear(r, 0.125, 0.25, 0.25, 0.5);
+}
+
 int main(void) {
     testTheSurroundings();
     testThePresets();
@@ -1432,5 +1638,6 @@ int main(void) {
     testTheStepsLandOnTheGrid();
     testEveryTrackHasItsSteps();
     testTheSbsPair();
+    testTheZoom();
     return checksDone("xr_layout");
 }
