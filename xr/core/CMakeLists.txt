@@ -4,7 +4,7 @@ add_library(mlxr_xrcore STATIC
   xr_atlas.c xr_controller.c xr_depthmap.c xr_gamepad.c xr_gate.c xr_glow.c
   xr_grade.c xr_headaim.c xr_keys.c xr_layout.c xr_math.c xr_notice.c
   xr_pinch.c xr_rate.c xr_roommesh.c xr_audio.c xr_padexit.c xr_kbfull.c xr_clickhold.c xr_pressfix.c xr_ray.c xr_raylog.c
-  xr_bind.c)
+  xr_bind.c xr_hud.c xr_battery.c xr_perflog.c)
 target_include_directories(mlxr_xrcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(mlxr_xrcore PUBLIC OpenXR::headers PRIVATE m)
 set_target_properties(mlxr_xrcore PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
