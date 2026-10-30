@@ -1015,8 +1015,11 @@ static void test_cards(void) {
         CHECK(pad_diff(&off, &on, box) > 20);
         CHECK(box[3] < 70);
     }
-    // a finger on the touchpad: a dot on the PlayStation pad's pad and on the Steam pad's right trackpad
+    // a finger on the touchpad: a dot on the PlayStation pad's pad and on the Steam pad's right trackpad,
+    // and the Touchpad word under the pad lights with it
     for (int st = PADSTYLE_PLAYSTATION; st <= PADSTYLE_STEAM; st += 2) {
+        float px = st == PADSTYLE_PLAYSTATION ? 384.0f : 506.0f, py = st == PADSTYLE_PLAYSTATION ? 186.0f : 286.0f;
+        float hx = st == PADSTYLE_PLAYSTATION ? 80.0f : 54.0f, hy = st == PADSTYLE_PLAYSTATION ? 44.0f : 54.0f;
         PadLive off, on;
         memset(&off, 0, sizeof off);
         off.style = st;
@@ -1026,11 +1029,14 @@ static void test_cards(void) {
         on.touchX = 0.5f;
         on.touchY = 0.5f;
         CHECK(pad_diff(&off, &on, box) > 50);
-        if (st == PADSTYLE_PLAYSTATION) {
-            CHECK(box_within(box, 384.0f, 186.0f, 80.0f, 44.0f));
-        } else {
-            CHECK(box_within(box, 506.0f, 286.0f, 54.0f, 54.0f));
-        }
+        // from the pad's top down to the word's line (baseline 418), and from the word's left edge
+        CHECK(box[1] >= (int)(py - hy) && box[3] >= 400 && box[3] <= 428 && box[0] >= 30 && box[2] <= (int)(px + hx));
+        // the finger moves: only the dot moves, inside the pad
+        PadLive moved = on;
+        on.touchX = 0.2f;
+        moved.touchX = 0.8f;
+        CHECK(pad_diff(&on, &moved, box) > 50);
+        CHECK(box_within(box, px, py, hx, hy));
     }
     // the same pad, drawn twice, is the same bytes
     {

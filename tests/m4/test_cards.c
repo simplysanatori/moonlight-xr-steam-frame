@@ -333,6 +333,15 @@ static void test_pad_card_through_the_frame(void) {
     scene_free(s);
 }
 
+// Every layer of `before` is in `after`, in the same order
+static int keeps_all(const XrFrameOut* after, const XrFrameOut* before) {
+    unsigned j = 0;
+    for (unsigned i = 0; i < after->count && j < before->count; i++) {
+        if (after->order[i] == before->order[j]) j++;
+    }
+    return j == before->count;
+}
+
 // The cards take the room the rest of the frame leaves and no more: the frames that were full are
 // as full as they were, and the models, ray, dot and toast keep their places
 static void test_cards_yield(void) {
@@ -349,6 +358,7 @@ static void test_cards_yield(void) {
     if (noticeAdvance(&c->notices, nowNs(), 0, &up)) xrPanelsToast(c, up.kind, up.arg);
     scene_frame(s, "stats");
     unsigned full = s->out.count;
+    XrFrameOut before = s->out;
     c->firstRunUp = 1;
     c->padCardUp = 1;
     c->padLive.present = 1;
@@ -358,8 +368,27 @@ static void test_cards_yield(void) {
     scene_frame(s, "stats");   // the art lands (drawn in the first, ready for the second)
     printf("the fullest bar frame: %u layers, with both cards wanted: %u\n", full, s->out.count);
     CHECK(s->out.count + 1 <= 16);
-    if (full + 1 + CARD_RESERVE_FOR_TEST > 16) CHECK(s->out.count == full);   // no room: neither card is drawn
     CHECK(s->out.count <= full + 2);
+    // every layer of the frame without the cards is still there, in the same order (the models,
+    // ray, dot and toast after the cards included), and the runtime's limit holds
+    CHECK(keeps_all(&s->out, &before));
+    CHECK(s->out.count <= (unsigned)c->maxLayerCount);
+    // tighter limits: no room at all draws neither card and leaves the frame as it was; a little room
+    // never costs a later layer its place (a card keeps CARD_RESERVE_FOR_TEST layers back for them)
+    {
+        int cap = c->maxLayerCount;
+        for (int extra = 0; extra <= CARD_RESERVE_FOR_TEST; extra++) {
+            c->maxLayerCount = (int)full + extra;
+            scene_frame(s, "stats");
+            CHECK(keeps_all(&s->out, &before));
+            CHECK(s->out.count <= (unsigned)c->maxLayerCount);
+            if (extra == 0) {
+                CHECK(s->out.count == full);
+                CHECK(find_quad(s, UI_PANEL_FIRSTRUN) == NULL && find_quad(s, UI_PANEL_PADCARD) == NULL);
+            }
+        }
+        c->maxLayerCount = cap;
+    }
     // a frame with room takes both
     c->hoverKind = HOVER_NONE;
     c->overlayVisible = 0;
