@@ -1,11 +1,27 @@
 /* GPLv3 */
 #include "backend_limelight.h"
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+const char *mlxr_appuuid_query(const char *base, const char *uuid, char *out, size_t cap)
+{
+    if (!base) base = "";
+    if (!uuid || strlen(uuid) != 36) return base;
+    for (int i = 0; i < 36; i++) {
+        bool dash = i == 8 || i == 13 || i == 18 || i == 23;
+        if (dash ? uuid[i] != '-' : !isxdigit((unsigned char)uuid[i])) return base;
+    }
+    int n = snprintf(out, cap, "%s&appuuid=%s", base, uuid);
+    return (n > 0 && (size_t)n < cap) ? out : base;
+}
 
 mlxr_status mlxr_launch_params_init_ll(mlxr_launch_params *p)
 {
+    static char query[128];
     mlxr_status st = mlxr_launch_params_init(p);
-    p->extra_query = LiGetLaunchUrlQueryParameters();
+    p->extra_query = mlxr_appuuid_query(LiGetLaunchUrlQueryParameters(), getenv("MLXR_APP_UUID"), query, sizeof query);
     return st;
 }
 

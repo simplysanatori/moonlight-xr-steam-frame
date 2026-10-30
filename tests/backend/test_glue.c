@@ -12,6 +12,28 @@ int main(void)
     mlxr_launch_params p;
     CHECK_OK(mlxr_launch_params_init_ll(&p));
     CHECK(p.extra_query && strstr(p.extra_query, "corever=") != NULL);
+    CHECK(strstr(p.extra_query, "appuuid") == NULL);
+
+    /* lane wave4-launcher: launch by app UUID (Apollo), from the flat launcher's MLXR_APP_UUID */
+    char q[128];
+    CHECK_EQ_STR(mlxr_appuuid_query("&corever=1", "8C3F5D2A-1B2C-4D3E-9F40-0A1B2C3D4E5F", q, sizeof q),
+                 "&corever=1&appuuid=8C3F5D2A-1B2C-4D3E-9F40-0A1B2C3D4E5F");
+    CHECK_EQ_STR(mlxr_appuuid_query("&corever=1", "not-a-uuid", q, sizeof q), "&corever=1");
+    CHECK_EQ_STR(mlxr_appuuid_query("&corever=1", "8C3F5D2A-1B2C-4D3E-9F40-0A1B2C3D4E5F&x=1", q, sizeof q), "&corever=1");
+    CHECK_EQ_STR(mlxr_appuuid_query("&corever=1", "8C3F5D2A+1B2C-4D3E-9F40-0A1B2C3D4E5F", q, sizeof q), "&corever=1");
+    CHECK_EQ_STR(mlxr_appuuid_query("&corever=1", "", q, sizeof q), "&corever=1");
+    CHECK_EQ_STR(mlxr_appuuid_query("&corever=1", NULL, q, sizeof q), "&corever=1");
+    CHECK_EQ_STR(mlxr_appuuid_query("&corever=1", "8C3F5D2A-1B2C-4D3E-9F40-0A1B2C3D4E5F", q, 20), "&corever=1");
+    setenv("MLXR_APP_UUID", "8c3f5d2a-1b2c-4d3e-9f40-0a1b2c3d4e5f", 1);
+    mlxr_launch_params pu;
+    CHECK_OK(mlxr_launch_params_init_ll(&pu));
+    CHECK(strstr(pu.extra_query, "corever=") != NULL);
+    CHECK(strstr(pu.extra_query, "&appuuid=8c3f5d2a-1b2c-4d3e-9f40-0a1b2c3d4e5f") != NULL);
+    char lq[1024];
+    CHECK_OK(mlxr_launch_query(881448767, &pu, lq, sizeof lq));
+    CHECK(strstr(lq, "appid=881448767&") != NULL);
+    CHECK(strstr(lq, "&appuuid=8c3f5d2a-1b2c-4d3e-9f40-0a1b2c3d4e5f") != NULL);
+    unsetenv("MLXR_APP_UUID");
     p.width = 3200; p.height = 1800; p.fps = 90; p.audio_configuration = MLXR_AUDIO_51;
 
     STREAM_CONFIGURATION cfg;
