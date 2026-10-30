@@ -10,8 +10,15 @@
 extern "C" {
 #endif
 
-/* mlxr_launch_params_init + extra_query = LiGetLaunchUrlQueryParameters() ("&corever=N"). */
+/* mlxr_launch_params_init + extra_query = LiGetLaunchUrlQueryParameters() ("&corever=N").
+ * Native (lane wave4-launcher): plus "&appuuid=<uuid>" when MLXR_APP_UUID holds a UUID (below). */
 mlxr_status mlxr_launch_params_init_ll(mlxr_launch_params *p);
+
+/* Launch by app UUID (Apollo): `base` followed by "&appuuid=<uuid>" in `out` when `uuid` is a UUID
+ * (8-4-4-4-12 hex digits), else `base` itself. The flat launcher reads the app's UUID from an Apollo
+ * host's app list just before the stream and passes it in MLXR_APP_UUID; Apollo matches the app by
+ * appid or appuuid and tells the running app by its UUID, other hosts ignore the field. */
+const char *mlxr_appuuid_query(const char *base, const char *uuid, char *out, size_t cap);
 
 /* Copy the launch-time choices into STREAM_CONFIGURATION: width/height/fps,
  * audioConfiguration and remoteInputAesKey/Iv (identical to the rikey/rikeyid
