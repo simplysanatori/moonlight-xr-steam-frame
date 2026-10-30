@@ -3709,7 +3709,12 @@ static void bindResolve(XrCtx* ctx) {
     }
     XrBindTable def;
     xrBindResolve(NULL, XR_BIND_MODE_GAMEPAD, NULL, &def);
-    ctx->bindPadCustom = !xrBindTableSame(&ctx->bindTable[XR_BIND_MODE_GAMEPAD], &def);
+    // A grip the file names is the file's, even as pad:lb or pad:rb, which
+    // takes it from pad_grip, so that table is not the defaults' either
+    const XrBindTable* pad = &ctx->bindTable[XR_BIND_MODE_GAMEPAD];
+    ctx->bindPadCustom = !xrBindTableSame(pad, &def)
+            || pad->from[XR_BIND_SRC_LEFT_GRIP] != XR_BIND_FROM_DEFAULT
+            || pad->from[XR_BIND_SRC_RIGHT_GRIP] != XR_BIND_FROM_DEFAULT;
     ctx->bindGuideHold = xrBindTableGuideHold(&ctx->bindRunTable[XR_BIND_MODE_GAMEPAD]);
     ctx->bindReady = 1;
 }

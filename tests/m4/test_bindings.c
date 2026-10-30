@@ -278,6 +278,34 @@ static void gamepadDefaults(void) {
     scene_free(sc);
 }
 
+// A grip the file binds is the file's, pad:rb included: pad_grip no longer
+// applies to it, while the other grip (left alone) still follows pad_grip
+static void explicitGrip(void) {
+    Scene* sc = scene_new();
+    XrCtx* c = sc->ctx;
+    writeFile("[gamepad]\nright.grip = pad:rb\n");
+    CHECK(xrBindLoad(c, g_path) == 0);
+    CHECK(c->bindPadCustom == 1);
+    CHECK(c->bindTable[XR_BIND_MODE_GAMEPAD].from[XR_BIND_SRC_RIGHT_GRIP] == XR_BIND_FROM_MODE);
+    rest(c);
+    c->padMode = 1;
+    c->padGripMode = PAD_GRIP_NONE;
+    c->padSeen[HAND_RIGHT].grip = 1.0f;
+    c->padSeen[HAND_LEFT].grip = 1.0f;
+    c->padGrip[HAND_LEFT] = 1;
+    c->padGrip[HAND_RIGHT] = 1;
+    PadState s;
+    padRest(&s);
+    memset(g_out, 0, sizeof(g_out));
+    xrBindFrame(c, 1000000000LL, 1.0f / 90.0f, &s, g_out);
+    CHECK(s.buttons == PAD_RB);
+    c->padGripMode = PAD_GRIP_STICK_CLICKS;
+    padRest(&s);
+    xrBindFrame(c, 1011111111LL, 1.0f / 90.0f, &s, g_out);
+    CHECK(s.buttons == (PAD_RB | PAD_LS_CLICK));
+    scene_free(sc);
+}
+
 // Mistakes in the file: each a warning in the log, and one toast for them all
 static void fileWithErrors(void) {
     Scene* sc = scene_new();
@@ -306,6 +334,7 @@ int main(void) {
     defaultsFile();
     sampleFile();
     gamepadDefaults();
+    explicitGrip();
     fileWithErrors();
     unlink(g_path);
     rmdir(g_dir);

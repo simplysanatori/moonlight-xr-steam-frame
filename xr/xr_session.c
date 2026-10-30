@@ -140,7 +140,9 @@ static atomic_int g_kbToggle;
 
 void xr_app_toggle_keyboard(void) { atomic_store(&g_kbToggle, 1); }
 
-// The frame loop's side: the bindings follow a new host app
+// The frame loop's side: the bindings follow a new host app, and a stream
+// starting reads bindings.ini again, so a change made in the launcher's editor
+// counts from the next stream
 static void takeHostApp(XrCtx* ctx, unsigned* seen) {
     char name[XR_BIND_APP_MAX];
     pthread_mutex_lock(&g_reqLock);
@@ -149,6 +151,9 @@ static void takeHostApp(XrCtx* ctx, unsigned* seen) {
     snprintf(name, sizeof(name), "%s", g_hostApp);
     pthread_mutex_unlock(&g_reqLock);
     if (fresh) {
+        if (name[0] != '\0') {
+            xrBindLoad(ctx, NULL);
+        }
         xrBindSetApp(ctx, name);
     }
 }

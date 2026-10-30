@@ -274,7 +274,7 @@ right.grip = key:R             ; the right grip presses R instead of RB
 pointer.right.trigger = mouse:left
 ```
 
-An action is `key:` (a key, with `ctrl+`, `shift+`, `alt+`, `win+` in front), `mouse:left|right|middle|x1|x2`, `wheel:up|down|left|right`, `pad:` (a gamepad button, gamepad mode only), `stick:` (what a whole thumbstick does: `scroll`, `mouse`, `wasd`, `arrows`, `dpad`) or `app:keyboard|ray|recentre|cog|3d|gamepad`. A line that is not right is left out: `moonlight.log` says which line and why, and the headset shows "bindings.ini: N errors, see log". The mode switch shortcuts, the disconnect chord and the grips' grab over the bar and corners cannot be changed. The full list is in the file itself.
+An action is `key:` (a key, with `ctrl+`, `shift+`, `alt+`, `win+` in front), `mouse:left|right|middle|x1|x2`, `wheel:up|down|left|right`, `pad:` (a gamepad button, gamepad mode only), `stick:` (what a whole thumbstick does: `scroll`, `mouse`, `wasd`, `arrows`, `dpad`) or `app:keyboard|ray|recentre|cog|3d|gamepad`. A line that is not right is left out: `moonlight.log` says which line and why, and the headset shows "bindings.ini: N errors, see log". The mode switch shortcuts, the disconnect chord and the grips' grab over the bar and corners cannot be changed. The full list is in the file itself. The flat launcher's **Controller bindings** page edits the same file ([BINDINGS.md](BINDINGS.md)). The headset reads the file when a stream starts, so a change takes effect at the next stream start.
 
 ### Switching between the modes
 
@@ -354,7 +354,7 @@ Hold **Start** on a Bluetooth or USB gamepad for a second and the gamepad become
 | Right stick | Scrolls (up and down, or sideways, whichever way you lean) |
 | A, B, X | Left, right and middle click |
 | LB, RB | Back and forward (the mouse's side buttons) |
-| Y | The headset keyboard (not wired up yet: it does nothing for now) |
+| Y | Show or hide the headset keyboard |
 | D-pad | The arrow keys |
 
 Everything the PC had down is let go when the mode ends, when the stream goes out of focus (the dashboard, taking the headset off) and when the stream ends; the gamepad is a gamepad again after any of them. `pad_mouse_chord` in `config.ini` (or **Gamepad as mouse** on the launcher's Settings page) picks the chord: Start held, Start and Back held, or off. `pad_mouse_scroll` picks the scrolling stick (the other one points). The notice follows the **Notices** setting and is left out when that is **Off**.

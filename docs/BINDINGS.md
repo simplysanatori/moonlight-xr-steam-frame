@@ -1,6 +1,6 @@
 # Controller bindings
 
-> **The headset side is not wired in yet.** The launcher's editor below is ready and saves the file, but the headset's client does not read `bindings.ini` yet; until it does, the controls work as [USER_GUIDE.md](USER_GUIDE.md#controllers) describes. When it does, a change takes effect after the next stream start. This section moves into the user guide then.
+> The headset reads `bindings.ini` each time a stream starts, so a change takes effect at the next stream start. A line it cannot use is left out, `moonlight.log` says which and why, and the headset shows "bindings.ini: N errors, see log".
 
 You can change what each Frame controller button does, for pointer mode, for gamepad mode, and for one PC app at a time, in `~/.config/moonlight-xr/bindings.ini`, from the launcher's **Controller bindings** page or by editing the file. The file is written the first time either one runs, with every default listed and commented out. The format is in [dev/bindings.md](dev/bindings.md).
 
