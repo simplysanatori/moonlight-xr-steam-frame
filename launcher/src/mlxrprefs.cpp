@@ -349,6 +349,11 @@ void MlxrPrefs::load()
     bool idrOk = false;
     const int idrMs = iniValue(ini, "stream", "rfi_idr_ms", "500").trimmed().toInt(&idrOk);
     rfiIdrMs = idrOk ? qBound(0, idrMs, 5000) : 500;
+    // Native (lane wave1-failover): off unless the file says on; a length that is not a number is the default
+    pathFailover = iniBool(iniValue(ini, "stream", "failover", "off"));
+    bool foOk = false;
+    const int foMs = iniValue(ini, "stream", "failover_burst_ms", "3000").trimmed().toInt(&foOk);
+    failoverBurstMs = foOk ? qBound(500, foMs, 9000) : 3000;
 
     // the VR client's names, anything else is its default
     // the VR client holds it to 25..400 and takes anything else as its default, 100
@@ -410,6 +415,8 @@ void MlxrPrefs::load()
     m_iniBitrateWired = bitrateWired;
     m_iniBitrateUsb = bitrateUsb;
     m_iniRfiIdr = rfiIdrMs;
+    m_iniFailover = pathFailover;
+    m_iniFailoverBurst = failoverBurstMs;
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
@@ -521,6 +528,12 @@ void MlxrPrefs::save()
     if (rfiIdrMs != m_iniRfiIdr) {
         setIniValue(ini, "stream", "rfi_idr_ms", QString::number(qBound(0, rfiIdrMs, 5000)));
     }
+    if (pathFailover != m_iniFailover) {
+        setIniValue(ini, "stream", "failover", pathFailover ? "on" : "off");
+    }
+    if (failoverBurstMs != m_iniFailoverBurst) {
+        setIniValue(ini, "stream", "failover_burst_ms", QString::number(qBound(500, failoverBurstMs, 9000)));
+    }
     if (padMouseChord != m_iniPadMouseChord) {
         setIniValue(ini, "vr", "pad_mouse_chord", padMouseChord);
     }
@@ -571,6 +584,8 @@ void MlxrPrefs::save()
     m_iniBitrateWired = bitrateWired;
     m_iniBitrateUsb = bitrateUsb;
     m_iniRfiIdr = rfiIdrMs;
+    m_iniFailover = pathFailover;
+    m_iniFailoverBurst = failoverBurstMs;
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
