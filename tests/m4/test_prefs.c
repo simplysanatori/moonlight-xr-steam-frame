@@ -46,6 +46,10 @@ static void roundTripChanged(void) {
     in.picture_contrast = 120;
     in.picture_gamma = 90;
     in.picture_saturation = 140;
+    in.bg_dim = 45;
+    in.glow_feather = GLOW_FEATHER_WIDE;
+    in.eye_balance = -30;
+    settings_set_str(&in, settings_find("void_color"), "#336699");
     in.screen_distance_cm = 250;
     in.screen_height_cm = 30;
     in.screen_azimuth_deg = 20;
@@ -86,6 +90,11 @@ static void roundTripChanged(void) {
     CHECK(ctx->sharpenMode == 1 && ctx->supersampleMode == 2 && ctx->overlayVisible == 1);
     CHECK(ctx->dotOn == 0 && ctx->pointerSleepOn == 0 && ctx->modelOn == 1 && ctx->clickSoundOn == 0);
     CHECK(ctx->gradeOn == 1);
+    CHECK(ctx->bgDim == 45 && ctx->glowFeather == GLOW_FEATHER_WIDE);
+    CHECK_NEAR(ctx->eyeBalance, -0.30, 1e-6);
+    CHECK_NEAR(ctx->voidColor[0], 0.2, 1e-6);
+    CHECK_NEAR(ctx->voidColor[1], 0.4, 1e-6);
+    CHECK_NEAR(ctx->voidColor[2], 0.6, 1e-6);
     CHECK_NEAR(ctx->ambiIntensity, 0.35, 1e-5);
     CHECK_NEAR(effectiveCurvature(ctx), 0.40, 1e-5);
     CHECK_NEAR(ctx->screenWidth, 4.0, 1e-5);
@@ -110,7 +119,109 @@ static void roundTripChanged(void) {
     CHECK(back.screen_tilt_deg == -10 && back.screen_rotate_deg == 15 && back.screen_curve == 40
           && back.screen_width_cm == 400);
     CHECK(back.room[1].brightness == 80);
+    CHECK(back.bg_dim == 45 && back.glow_feather == GLOW_FEATHER_WIDE);
     free(ctx);
+}
+
+// Native (lane wave3-visual): the Picture tab's Background and Glow edge rows
+// through the panel's own code (drag, step, reset) and config.ini, and what the
+// backdrop behind the picture comes to
+static void surroundingsRows(void) {
+    Scene* sc = scene_new();
+    XrCtx* c = sc->ctx;
+    float out[IN_SLOTS];
+    CHECK(cogTabRowCount(COG_TAB_PICTURE) == PICTURE_TAB_ROWS);
+    CHECK(cogRowIsTrack(COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND) && cogRowIsTrack(COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE));
+    CHECK(c->bgDim == 0 && c->glowFeather == GLOW_FEATHER_OFF && c->eyeBalance == 0.0f);
+
+    // Background: whole five percent steps, the thumb and the file agree
+    for (int step = 0; step <= 20; step++) {
+        cogApplySlider(c, COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND, cogRunU(step / 20.0f));
+        CHECK(c->bgDim == step * 5);
+        CHECK_NEAR(cogSliderValue(c, COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND), step / 20.0, 1e-5);
+        Settings live = sc->settings;
+        xrSettingsFromCtx(c, &live);
+        CHECK(live.bg_dim == step * 5);
+    }
+    // between two steps it lands on the nearer
+    cogApplySlider(c, COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND, cogRunU(0.31f));
+    CHECK(c->bgDim == 30);
+    // letting go hands the value to the file
+    memset(out, 0, sizeof(out));
+    out[IN_SETTING] = -1;
+    c->cogDragSlider = PICTURE_ROW_BACKGROUND;
+    c->cogDragFace = COG_TAB_PICTURE;
+    cogDragEnded(c, out);
+    CHECK((int)out[IN_SETTING] == SETTING_BG_DIM && (int)out[IN_SETTING_VALUE] == 30);
+    Settings s;
+    settings_defaults(&s);
+    CHECK(xrStoreSetting(c, &s, SETTING_BG_DIM, 30) == 1 && s.bg_dim == 30);
+    CHECK(xrStoreSetting(c, &s, SETTING_BG_DIM, 30) == 0);
+    CHECK(xrStoreSetting(c, &s, SETTING_BG_DIM, 900) == 1 && s.bg_dim == 100);
+
+    // a press on a step button moves it five percent and writes it
+    memset(out, 0, sizeof(out));
+    out[IN_SETTING] = -1;
+    cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND, 1, out);
+    CHECK(c->bgDim == 35 && (int)out[IN_SETTING] == SETTING_BG_DIM && (int)out[IN_SETTING_VALUE] == 35);
+    cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND, -1, out);
+    CHECK(c->bgDim == 30);
+
+    // Glow edge: three places, off, soft, wide
+    for (int mode = 0; mode < GLOW_FEATHER_COUNT; mode++) {
+        cogApplySlider(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE, cogRunU((float)mode / (GLOW_FEATHER_COUNT - 1)));
+        CHECK(c->glowFeather == mode);
+        CHECK_NEAR(cogSliderValue(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE), (double)mode / (GLOW_FEATHER_COUNT - 1), 1e-5);
+    }
+    memset(out, 0, sizeof(out));
+    out[IN_SETTING] = -1;
+    cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE, -1, out);
+    CHECK(c->glowFeather == GLOW_FEATHER_SOFT && (int)out[IN_SETTING] == SETTING_GLOW_FEATHER
+          && (int)out[IN_SETTING_VALUE] == GLOW_FEATHER_SOFT);
+    CHECK(xrStoreSetting(c, &s, SETTING_GLOW_FEATHER, GLOW_FEATHER_SOFT) == 1 && s.glow_feather == GLOW_FEATHER_SOFT);
+    // the glow's image is redrawn when the mode moves (it was drawn as off)
+    c->ambilightOn = 1;
+    c->glowDrawnOn = 1;
+    c->glowDrawnFeather = GLOW_FEATHER_OFF;
+    c->glowDrawnLevel = c->ambiIntensity;
+    CHECK(glowStale(c) == 1);
+    c->glowDrawnFeather = c->glowFeather;
+    CHECK(glowStale(c) == 0);
+
+    // Reset takes both back, with the grade
+    pictureReset(c);
+    CHECK(c->bgDim == BG_DIM_DEFAULT && c->glowFeather == GLOW_FEATHER_OFF);
+    s.bg_dim = 60;
+    s.glow_feather = GLOW_FEATHER_WIDE;
+    CHECK(xrStoreSetting(c, &s, SETTING_RESET_PICTURE, 0) == 1);
+    CHECK(s.bg_dim == 0 && s.glow_feather == GLOW_FEATHER_OFF);
+
+    // Not rows past the end
+    cogApplySlider(c, COG_TAB_PICTURE, PICTURE_TAB_ROWS, cogRunU(1.0f));
+    CHECK(c->bgDim == 0 && c->glowFeather == GLOW_FEATHER_OFF);
+
+    // The backdrop: a dimmed passthrough's black, a coloured void's colour
+    Settings in;
+    settings_defaults(&in);
+    in.bg_dim = 40;
+    settings_set_str(&in, settings_find("void_color"), "#ff0000");
+    xrApplySettings(c, &in);
+    float bd[4];
+    c->passthrough = 1;
+    CHECK(xrBackdropColor(c, 1, bd) == 1 && bd[0] == 0.0f && bd[3] > 0.39f && bd[3] < 0.41f);
+    c->passthrough = 0;
+    c->roomOverride = -1;
+    CHECK(roomEffective(c) <= 0);
+    CHECK(xrBackdropColor(c, 0, bd) == 1);
+    CHECK_NEAR(bd[0], 0.6, 1e-6);
+    CHECK(bd[1] == 0.0f && bd[2] == 0.0f && bd[3] == 1.0f);
+    in.bg_dim = 100;
+    xrApplySettings(c, &in);
+    CHECK(xrBackdropColor(c, 0, bd) == 0);   // all the way down is black
+    settings_defaults(&in);
+    xrApplySettings(c, &in);
+    CHECK(xrBackdropColor(c, 0, bd) == 0);   // the default black void has no layer
+    scene_free(sc);
 }
 
 // The placement as config.ini holds it, against random poses built the way
@@ -634,6 +745,7 @@ int main(void) {
     roundTripChanged();
     poseRoundTrips();
     thumbsAgree();
+    surroundingsRows();
     storeSettings();
     rayRowSaved();
     noticesRow();

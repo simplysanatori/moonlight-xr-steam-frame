@@ -18,6 +18,7 @@
 //             LOADING -> READY, off stops the captures, back on resets and
 //             waits for a fresh map; FAILED (and a thread that never starts)
 //             stays flat with a toast and puts the switch away
+//   eyebalance  3D Eye Balance: the per eye disparity at several balances
 //   params    the 3D's tuning keys only config.ini and the launcher carry
 //             (edge_sharpness, motion_reset, depth_scale, depth_global,
 //             depth_threads), into the context, the engine and the passes
@@ -33,6 +34,7 @@
 //             SBS from the row
 // GPLv3.
 #define _GNU_SOURCE
+#include <math.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -276,7 +278,7 @@ typedef struct {
     int eyes;
 } Pic;
 
-// What the last picture's warp was asked for (the sbs group reads it)
+// The newest frame's draw: what the last picture's warp was asked for (the eyebalance and sbs groups read it)
 static XrDepthDraw lastDraw;
 
 static void drawPicture(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
@@ -284,6 +286,7 @@ static void drawPicture(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
     const MlxrVideo* v = &videos[p->frameId % VIDEOS].video;
     XrDepthDraw dd;
     xrDepthPicture(ctx, v, p->newFrame, p->frameId, nowNs(), &dd);
+    lastDraw = dd;
     xrVkImageTo(ctx, &target.img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     MlxrTarget t;
     memset(&t, 0, sizeof(t));
@@ -707,6 +710,62 @@ static void testParams(void) {
 
 // ---- states --------------------------------------------------------------------------------
 
+// 3D Eye Balance (native, lane wave3-visual): how the warp's per eye
+// disparity is shared. Even, the left eye is shifted by one separation and the
+// right by minus one. At a balance b the left is 1 + b separations and the
+// right is -(1 - b), so the two always differ by two separations, and the
+// window the searches reach over is sized for the larger.
+static void testEyeBalance(void) {
+    expectRed = expectRedFor;
+    XrCtx* ctx = newCtx(0, 1);
+    uint64_t fid = 0;
+    waitReady(ctx, &fid);
+    for (int i = 0; i < 60 && ctx->drawnEyes != 2; i++) {
+        frames(ctx, 1, &fid, 0);
+        usleep(5000);
+    }
+    CHECK(ctx->drawnEyes == 2);
+    CHECK(ctx->eyeBalance == 0.0f);
+    frames(ctx, 1, &fid, 0);
+    CHECK(lastDraw.eyes == 2);
+    float sep = ctx->separationCurrent;
+    CHECK(sep > 0.0f);
+    CHECK_NEAR(lastDraw.eye[0].disparity, sep, 1e-7);
+    CHECK_NEAR(lastDraw.eye[1].disparity, -sep, 1e-7);
+    float even = lastDraw.eye[0].dispTexels;
+    CHECK(even > 0.0f && lastDraw.eye[1].dispTexels == even);
+    static const float BALANCES[] = { 0.5f, -0.5f, 1.0f, -1.0f, 0.25f };
+    for (size_t i = 0; i < sizeof(BALANCES) / sizeof(BALANCES[0]); i++) {
+        float b = BALANCES[i];
+        ctx->eyeBalance = b;
+        frames(ctx, 1, &fid, 0);
+        CHECK(lastDraw.eyes == 2);
+        CHECK_NEAR(lastDraw.eye[0].disparity, sep * (1.0f + b), 1e-6);
+        CHECK_NEAR(lastDraw.eye[1].disparity, -sep * (1.0f - b), 1e-6);
+        // the total between the eyes is the same at every balance
+        CHECK_NEAR(lastDraw.eye[0].disparity - lastDraw.eye[1].disparity, 2.0 * sep, 1e-6);
+        // the larger share sizes the search window, the same for both eyes
+        CHECK_NEAR(lastDraw.eye[0].dispTexels, even * (1.0f + fabsf(b)), even * 1e-5);
+        CHECK(lastDraw.eye[1].dispTexels == lastDraw.eye[0].dispTexels);
+    }
+    // all the way: the other eye is the picture as streamed
+    ctx->eyeBalance = 1.0f;
+    frames(ctx, 1, &fid, 0);
+    CHECK_NEAR(lastDraw.eye[0].disparity, 2.0 * sep, 1e-6);
+    CHECK(lastDraw.eye[1].disparity == 0.0f || lastDraw.eye[1].disparity == -0.0f);
+    ctx->eyeBalance = -1.0f;
+    frames(ctx, 1, &fid, 0);
+    CHECK(lastDraw.eye[0].disparity == 0.0f);
+    CHECK_NEAR(lastDraw.eye[1].disparity, -2.0 * sep, 1e-6);
+    // and back to even
+    ctx->eyeBalance = 0.0f;
+    frames(ctx, 1, &fid, 0);
+    CHECK_NEAR(lastDraw.eye[0].disparity, sep, 1e-7);
+    CHECK_NEAR(lastDraw.eye[1].disparity, -sep, 1e-7);
+    CHECK(lastDraw.eye[0].dispTexels == even);
+    m6_ctx_free(ctx);
+}
+
 static void testStates(void) {
     int starts = fakeStarts;
     XrCtx* ctx = newCtx(0, 0);
@@ -1071,6 +1130,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(group, "governor")) testGovernor();
     if (all || !strcmp(group, "settings")) testSettings();
     if (all || !strcmp(group, "states")) testStates();
+    if (all || !strcmp(group, "eyebalance")) testEyeBalance();
     if (all || !strcmp(group, "budget")) testBudget();
     if (all || !strcmp(group, "sbs")) testSbs();
     if (all || !strcmp(group, "params")) testParams();
