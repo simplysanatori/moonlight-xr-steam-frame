@@ -127,6 +127,13 @@ void panel_host(Dc* dc) {
               !confirm && dc_hover(dc, UI_HIT_BUTTON, UI_BTN_HOST_PAGE, -1));
     if (!confirm) dc_hit_uv(dc, UI_HIT_BUTTON, UI_BTN_HOST_PAGE, 0, r[0], r[1], r[2], r[3], 1);
 
+    // PC VR (PLAN 4.1), left of Close on both pages: hands the headset to Steam Link, after asking
+    xrHostPcvrRect(r);
+    rectPx(dc, r, &x0, &y0, &x1, &y1);
+    dc_button(dc, x0, y0, x1, y1, 14.0f, 3.0f, INK, ui_str(UIS_HOST_PCVR), 24.0f,
+              !confirm && dc_hover(dc, UI_HIT_BUTTON, UI_BTN_HOST_PCVR, -1));
+    if (!confirm) dc_hit_uv(dc, UI_HIT_BUTTON, UI_BTN_HOST_PCVR, 0, r[0], r[1], r[2], r[3], 1);
+
     if (pc) {
         pcPage(dc, confirm);
     }
@@ -169,15 +176,17 @@ void panel_host(Dc* dc) {
     dc_fill_rrect(dc, x0, y0, x1, y1, 24.0f, 0xFF232328u);
     dc_stroke_rrect(dc, x0, y0, x1, y1, 24.0f, 3.0f, 0xFFB0B0B8u);
     char q[160];
-    snprintf(q, sizeof q, ui_str(v->host_confirm_cmd ? UIS_HOST_CONFIRM_RUN_Q : UIS_HOST_CONFIRM_Q),
-             v->host_confirm_label);
+    int pcvr = v->host_confirm == XR_HOST_CONFIRM_PCVR;
+    if (pcvr) snprintf(q, sizeof q, "%s", ui_str(UIS_HOST_PCVR_Q));
+    else snprintf(q, sizeof q, ui_str(v->host_confirm_cmd ? UIS_HOST_CONFIRM_RUN_Q : UIS_HOST_CONFIRM_Q),
+                  v->host_confirm_label);
     dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 32.0f, (x0 + x1) * 0.5f, y0 + (y1 - y0) * 0.30f,
                        (x1 - x0) - 48.0f, 0xFFFFFFFFu, q);
 
     xrHostConfirmSendRect(r);
     rectPx(dc, r, &x0, &y0, &x1, &y1);
     dc_button(dc, x0, y0, x1, y1, 16.0f, 3.0f, DANGER,
-              ui_str(v->host_confirm_cmd ? UIS_HOST_CONFIRM_RUN : UIS_HOST_CONFIRM_SEND), 28.0f,
+              ui_str(pcvr ? UIS_HOST_PCVR_GO : v->host_confirm_cmd ? UIS_HOST_CONFIRM_RUN : UIS_HOST_CONFIRM_SEND), 28.0f,
               dc_hover(dc, UI_HIT_BUTTON, UI_BTN_HOST_CONFIRM, -1));
     dc_hit_uv(dc, UI_HIT_BUTTON, UI_BTN_HOST_CONFIRM, 0, r[0], r[1], r[2], r[3], 1);
 

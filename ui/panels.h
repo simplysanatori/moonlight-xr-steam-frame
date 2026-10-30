@@ -93,6 +93,7 @@ typedef enum {
     UI_BTN_HOST_CLOSE,       // Host sheet (XR_HOST_ZONE_CLOSE)
     UI_BTN_HOST_CONFIRM,     // Host sheet's confirmation: send (XR_HOST_ZONE_CONFIRM_SEND)
     UI_BTN_HOST_CANCEL,      // Host sheet's confirmation: cancel (XR_HOST_ZONE_CONFIRM_CANCEL)
+    UI_BTN_HOST_PCVR,        // Host sheet: Switch to PC VR (XR_HOST_ZONE_PCVR)
     UI_BTN_HOST_PAGE         // Host sheet: the header button between its pages (XR_HOST_ZONE_PAGE)
 } UiButton;
 
@@ -150,6 +151,7 @@ typedef struct {
     // Native: the Host sheet (UI_PANEL_HOST). host_macros is how many of the
     // user's macros there are (names in host_macro, at most XR_HOST_MACRO_SLOTS
     // shown); host_confirm is the cell waiting for a yes, or -1 for none
+    // (XR_HOST_CONFIRM_PCVR: the PC VR switch is asking)
     int host_macros;
     char host_macro[XR_HOST_MACRO_SLOTS][XR_MACRO_NAME];
     int host_confirm;
