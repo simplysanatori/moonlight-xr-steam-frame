@@ -24,6 +24,7 @@
 #include "xr_hud.h"
 #include "hw_video.h"
 #include "rfi_watch.h"
+#include "log_throttle.h"
 #include "sw_decoder.h"
 
 static FrameSlot* g_video;
@@ -47,6 +48,9 @@ static MlxrRfiWatch g_rfiWatch;
 static MlxrRfiWatch g_rfiPrev; // counters at the last latency line
 static MlxrPrioMode g_videoPrio = MLXR_PRIO_NICE;
 static MlxrCadence g_cadence; // Native (lane perf): the host's frame intervals, under g_latLock
+// Native (lane deploy-res-fix): about one "Unrecoverable frame" line a second reaches moonlight.log
+// (log_throttle.h); the loss counters and the watchdog still see every line. Under g_latLock.
+static MlxrLogThrottle g_logThrottle;
 
 // Native (lane av-latency): video latency parts per stats window, written by
 // common-c's decoder thread (drSubmit), read and reset by the log
@@ -106,6 +110,12 @@ int stream_network_figures(StreamNetFigures* out) {
     return frames + lost > 0;
 }
 
+static uint64_t mlxr_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+}
+
 static void noteFrameLatency(const DECODE_UNIT* du) {
     uint64_t now = LiGetMicroseconds();
     double recv = du->enqueueTimeUs > du->receiveTimeUs ? (du->enqueueTimeUs - du->receiveTimeUs) / 1000.0 : 0.0;
@@ -139,6 +149,9 @@ void stream_latency_line(char* buf, int len) {
     LiGetEstimatedRttInfo(&rtt, &var);
     pthread_mutex_lock(&g_latLock);
     foldNetWindow(g_lat.frames, g_lat.netLost, &g_cadence, rtt); // Native (lane netpath-quality)
+    // Native (lane deploy-res-fix): the lines the log no longer holds are counted here
+    uint64_t unrec = mlxr_log_throttle_window(&g_logThrottle);
+    uint64_t unrecTail = mlxr_log_throttle_flush(&g_logThrottle, mlxr_now_ms());
     char cad[360];
     mlxr_cadence_line(&g_cadence, cad, sizeof(cad));
     double n = g_lat.frames ? (double)g_lat.frames : 1.0;
@@ -146,7 +159,8 @@ void stream_latency_line(char* buf, int len) {
              "host encode %.1f ms (max %.1f), frame received over %.1f ms (max %.1f), queued %.1f ms (max %.1f), "
              "rtt %u ms (variance %u), frames lost on the network %llu, dropped waiting for IDR %llu / RFI %llu, "
              "IDR requests %llu; RFI waits %llu (%llu ended by the host's recovery frame), %.0f ms avg (max %llu), "
-             "IDR asked by the RFI watchdog %llu (after %d ms, MLXR_VIDEO_RFI_IDR_MS); %s",
+             "IDR asked by the RFI watchdog %llu (after %d ms, MLXR_VIDEO_RFI_IDR_MS); "
+             "unrecoverable-frame lines %llu; %s",
              g_lat.hostN ? g_lat.hostMsSum / g_lat.hostN : 0.0, g_lat.hostMsMax, g_lat.recvMsSum / n, g_lat.recvMsMax,
              g_lat.queueMsSum / n, g_lat.queueMsMax, rtt, var, (unsigned long long)g_lat.netLost,
              (unsigned long long)g_lat.idrWaitDrops, (unsigned long long)g_lat.rfiWaitDrops,
@@ -156,11 +170,12 @@ void stream_latency_line(char* buf, int len) {
                  ? (double)(g_rfiWatch.waitMsSum - g_rfiPrev.waitMsSum) / (double)(g_rfiWatch.closed - g_rfiPrev.closed)
                  : 0.0,
              (unsigned long long)g_rfiWatch.waitMsMax, (unsigned long long)(g_rfiWatch.idrAsked - g_rfiPrev.idrAsked),
-             g_rfiWatch.timeoutMs, cad);
+             g_rfiWatch.timeoutMs, (unsigned long long)unrec, cad);
     g_rfiPrev = g_rfiWatch;
     g_rfiWatch.waitMsMax = 0;
     memset(&g_lat, 0, sizeof(g_lat));
     pthread_mutex_unlock(&g_latLock);
+    if (unrecTail) MLOG_I("common-c: Unrecoverable frame ... (+%llu more)", (unsigned long long)unrecTail);
 }
 
 // ---- video callbacks (decoder thread of moonlight-common-c)
@@ -303,6 +318,8 @@ static void clLog(const char* fmt, ...) {
     va_end(ap);
     size_t n = strlen(buf);
     while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) buf[--n] = 0;
+    char shown[sizeof(buf) + 32]; // buf plus " ... (+N more)"
+    int toLog = 1;
     // Native (lane av-latency): count where frames go, for the latency line
     {
         const char* d = strstr(buf, "Network dropped ");
@@ -316,17 +333,17 @@ static void clLog(const char* fmt, ...) {
         else if (strstr(buf, "Waiting for RFI frame")) g_lat.rfiWaitDrops++;
         else if (strstr(buf, "IDR frame request sent")) g_lat.idrRequests++;
         // Native (lane perf): an RFI wait that drags on asks for an IDR frame
-        struct timespec ts;
-        clock_gettime(CLOCK_MONOTONIC, &ts);
-        uint64_t nowMs = (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+        uint64_t nowMs = mlxr_now_ms();
         int askIdr = g_rfi && mlxr_rfi_watch_line(&g_rfiWatch, buf, nowMs);
+        // Native (lane deploy-res-fix): only after the parsers above; decides what reaches the log
+        toLog = mlxr_log_throttle_line(&g_logThrottle, buf, nowMs, shown, sizeof(shown));
         pthread_mutex_unlock(&g_latLock);
         if (askIdr) {
             MLOG_I("video: RFI recovery not here after %d ms, asking for an IDR frame", g_rfiWatch.timeoutMs);
             LiRequestIdrFrame();
         }
     }
-    MLOG_I("common-c: %s", buf);
+    if (toLog) MLOG_I("common-c: %s", shown);
 }
 static void clStatus(int status) {
     atomic_store(&g_poor, status == CONN_STATUS_POOR);
@@ -409,6 +426,7 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     pthread_mutex_lock(&g_latLock);
     mlxr_rfi_watch_init(&g_rfiWatch, idrMs < 0 ? 0 : idrMs, 3, 300);
     g_rfiPrev = g_rfiWatch;
+    mlxr_log_throttle_init(&g_logThrottle, 1000); // Native (lane deploy-res-fix)
     // Native (lane netpath-quality): this stream's network totals start at zero
     memset(&g_netTot, 0, sizeof(g_netTot));
     memset(&g_lat, 0, sizeof(g_lat));
