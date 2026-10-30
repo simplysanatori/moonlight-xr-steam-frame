@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "check.h"
+#include "settings.h"
 #include "ui_strings.h"
 
 // The printf conversions of a string, %% left out, as a string of their letters ("sd")
@@ -113,8 +114,54 @@ static void test_lookup(void) {
     CHECK(ui_str_lang_current() == 0);
 }
 
+// [ui] language in config.ini: auto, en, then the languages in ui_strings.h's order
+static void test_setting(void) {
+    const SettingDesc* d = settings_find("ui.language");
+    CHECK(d != NULL && d->type == SET_ENUM);
+    if (!d) return;
+    CHECK(d->nnames == 1 + ui_lang_count());
+    CHECK(strcmp(d->names[0], "auto") == 0);
+    for (int l = 0; l < ui_lang_count() && l + 1 < d->nnames; l++) CHECK(strcmp(d->names[l + 1], ui_lang_code(l)) == 0);
+    Settings s;
+    settings_defaults(&s);
+    CHECK(s.language == 0 && d->def == 0);
+    // written commented out at its default, in its own [ui] section
+    char* text = settings_to_text(&s);
+    CHECK(text && strstr(text, "\n[ui]\n") && strstr(text, "\n#language = auto\n"));
+    free(text);
+    SettingsLoadInfo info;
+    settings_from_text(&s, "[ui]\nlanguage = de\n", &info);
+    CHECK(info.applied == 1 && settings_ui_language(&s) == ui_lang_find("de"));
+    text = settings_to_text(&s);
+    CHECK(text && strstr(text, "\nlanguage = de\n"));
+    Settings back;
+    settings_defaults(&back);
+    settings_from_text(&back, text, NULL);
+    CHECK(settings_equal(&s, &back));
+    free(text);
+    // the locale's spelling and any case
+    settings_from_text(&s, "[ui]\nlanguage = pt_BR\n", &info);
+    CHECK(info.bad == 0 && settings_ui_language(&s) == ui_lang_find("pt-BR"));
+    settings_from_text(&s, "[ui]\nlanguage = ZH-tw\n", &info);
+    CHECK(info.bad == 0 && settings_ui_language(&s) == ui_lang_find("zh-TW"));
+    settings_from_text(&s, "[ui]\nlanguage = en\n", &info);
+    CHECK(s.language == 1 && settings_ui_language(&s) == 0);
+    // an unknown one is not read: the value stays
+    settings_from_text(&s, "[ui]\nlanguage = klingon\n", &info);
+    CHECK(info.bad == 1 && s.language == 1);
+    // auto follows the locale
+    settings_from_text(&s, "[ui]\nlanguage = auto\n", &info);
+    setenv("LANG", "sv_SE.UTF-8", 1);
+    unsetenv("LC_ALL");
+    unsetenv("LC_MESSAGES");
+    CHECK(settings_ui_language(&s) == ui_lang_find("sv"));
+    unsetenv("LANG");
+    CHECK(settings_ui_language(&s) == 0);
+}
+
 int main(void) {
     test_tables();
     test_lookup();
+    test_setting();
     return checksDone("ui_i18n");
 }

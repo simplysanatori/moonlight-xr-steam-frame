@@ -89,5 +89,17 @@ shared = [k for k, s in gen.MAP if s == gen.SAME]
 check(len(shared) + len([k for k, s in gen.MAP if s == gen.DRIFT]) == 111,
       "111 keys shared with upstream (SAME + DRIFT)")
 
+# the launcher's Headset language list is the same languages, in the same order
+qml = open(os.path.join(ROOT, "launcher", "qml", "XrSettingsView.qml"), encoding="utf-8").read()
+m = re.search(r"readonly property var headsetLanguageValues: \[([^\]]*)\]", qml)
+n = re.search(r"readonly property var headsetLanguageNames: \[(.*)\]\n", qml)
+check(m is not None and n is not None, "XrSettingsView.qml has headsetLanguageValues and headsetLanguageNames")
+if m and n:
+    codes = re.findall(r'"([^"]+)"', m.group(1))
+    want = ["auto", "en"] + [c for c, _, _, _ in gen.LANGS]
+    check(codes == want, "launcher codes %s == %s" % (codes, want))
+    names = re.findall(r'"([^"]+)"', n.group(1))
+    check(names[1:] == ["English"] + [nm for _, _, nm, _ in gen.LANGS], "launcher names %s" % names)
+
 print("test_i18n_gen: %d checks, %d failed" % (checks, fails))
 sys.exit(1 if fails else 0)

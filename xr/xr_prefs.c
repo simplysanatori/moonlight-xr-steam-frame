@@ -277,7 +277,22 @@ int xrEnvironmentSetting(int cell) {
     }
 }
 
+// Native (lane wave6-i18n): the headset UI's language ([ui] language, PLAN 6.1). Read once, at
+// the first xrApplySettings of the process (the session's start), so every panel is drawn in one
+// language; a change in config.ini or the launcher takes effect at the next start.
+static void applyLanguageOnce(const Settings* s) {
+    static int done;
+    if (done) {
+        return;
+    }
+    done = 1;
+    int lang = settings_ui_language(s);
+    ui_str_set_lang(lang);
+    LOGI("UI language %s (%s)", ui_lang_code(lang), s->language == 0 ? "auto: the locale" : "[ui] language");
+}
+
 void xrApplySettings(XrCtx* ctx, const Settings* s) {
+    applyLanguageOnce(s);
     ctx->overlayVisible = s->stats;
     ctx->statsStyle = s->stats_style >= STATS_STYLE_FULL && s->stats_style <= STATS_STYLE_LITE ? s->stats_style : STATS_STYLE_FULL;
     ctx->sharpenMode = s->sharpening;

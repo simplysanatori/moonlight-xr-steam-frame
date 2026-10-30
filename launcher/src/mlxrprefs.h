@@ -74,6 +74,10 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(QString padMouseChord MEMBER padMouseChord NOTIFY changed)
     Q_PROPERTY(QString padMouseScroll MEMBER padMouseScroll NOTIFY changed)
     Q_PROPERTY(QString padArbitration MEMBER padArbitration NOTIFY changed)
+    // Native (lane wave6-i18n): [ui] language, the headset UI's language: "auto" (default, the headset's
+    // locale), "en", or a code of tools/ui/gen_strings.py's list ("de", "pt-BR", ...). Read by the VR
+    // client when it starts
+    Q_PROPERTY(QString headsetLanguage MEMBER headsetLanguage NOTIFY changed)
     // ---- facts ----
     // Native (lane wave4c-usb): a USB data cable to the PC is up, i.e. the headset's USB network
     // interface (usb*, or a gadget device) has carrier. Rescanned every 10 s while the app is open.
@@ -151,6 +155,11 @@ public:
     QString padMouseChord;
     QString padMouseScroll;
     QString padArbitration;
+    QString headsetLanguage;
+
+    // A [ui] language value as the VR client spells it: "auto" for an empty or malformed one,
+    // else lower case with the region upper case ("pt_br" -> "pt-BR")
+    static QString normalizeLanguage(const QString& v);
 
 signals:
     void changed();
@@ -169,4 +178,5 @@ private:
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
     bool m_usbCable = false, m_usbScanned = false;
     QString m_iniKeymap = QStringLiteral("qwerty");
+    QString m_iniHeadsetLanguage = QStringLiteral("auto");
 };

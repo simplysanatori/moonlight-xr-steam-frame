@@ -15,6 +15,8 @@
 
 #include "xr_shared.h"
 #include "xr_padmouse.h"
+#include "ui_strings.h"
+#include "ui_strings_i18n.inc"   // UI_I18N_LANGS only (the tables are ui_strings.c's)
 
 // Where the tilt and rotate tracks clip to level, in radians (xr_renderer.h:
 // COG_TILT_SNAP, COG_ROLL_SNAP)
@@ -54,6 +56,10 @@ static const char* const COGTAB_NAMES[] = { "screen", "display", "3d", "picture"
 _Static_assert(sizeof(COGTAB_NAMES) / sizeof(COGTAB_NAMES[0]) == COG_TAB_COUNT, "cog_tab names follow COG_TAB_");
 static const char* const KEYMAP_NAMES[] = { "qwerty", "azerty", "qwertz" };
 static const char* const STATS_STYLE_NAMES[] = { "full", "hud", "lite" };
+// [ui] language: auto, then ui_strings.h's languages in their order (English first)
+#define LANG_NAME(ident, code, name, script) code,
+static const char* const LANGUAGE_NAMES[] = { "auto", "en", UI_I18N_LANGS(LANG_NAME) };
+#undef LANG_NAME
 static const char* const SHARP_NAMES[] = { "off", "normal", "quality" };
 // CONTROLLER_MODEL_*: 1 is what the old on/off switch's true meant
 static const char* const MODEL_NAMES[] = { "off", "frame", "generic", "gun", "custom" };
@@ -158,6 +164,8 @@ static const SettingDesc TABLE[] = {
     DI("screen", "width_cm", screen_width_cm, 80, 800, 300, "Screen tab: size, picture width in centimetres (seekbar_vr_screen_size)"),
     DB("screen", "per_app", per_app, 1, "native: Screen tab, Remember per app: each PC and app keeps its own placement, head lock and 3D state in a [screen.<hash>] section; an app with none starts from the settings in force"),
     DB("screen", "angular_lock", angular_lock, 1, "native: Screen tab, Angular-size lock: pushing or pulling the held screen with the thumbsticks resizes it to look the same size"),
+    // ui (lane wave6-i18n)
+    DE("ui", "language", language, LANGUAGE_NAMES, 0, "native: the headset's menus, keyboard and notices in a language: auto (the system's, from LC_ALL, LC_MESSAGES or LANG; English when it has no translation), en, or one of the codes listed; read when the app starts, so a change takes effect at the next start. Chinese, Japanese and Korean need the headset's Noto Sans CJK fonts, else English. The flat launcher has its own Language setting"),
     // rooms
     ROOMF(0, 4),
     ROOMF(1, 5),
@@ -581,6 +589,10 @@ static int apply_value(Settings* s, const SettingDesc* d, const char* v, Setting
         for (int i = 0; i < d->nnames; i++) {
             if (streq_ci(v, d->names[i])) { found = i; break; }
         }
+        if (found < 0 && d->names == LANGUAGE_NAMES && ui_lang_find(v) >= 0) {
+            // pt_BR as the locale spells it, for pt-BR
+            found = 1 + ui_lang_find(v);
+        }
         if (found < 0) {
             char* end;
             long n = strtol(v, &end, 10);
@@ -692,6 +704,9 @@ void settings_from_text(Settings* s, const char* text, SettingsLoadInfo* info) {
             if (streq_ci(TABLE[i].section, section) && streq_ci(TABLE[i].key, key)) d = &TABLE[i];
         }
         if (!d) d = settings_find(key);   // moved to another section: still the same setting
+        // native (lane wave6-i18n): [ui] language is new; the [stream] language old files may
+        // carry was a dead key with other values ("default"), so it stays unknown
+        if (d && d->names == LANGUAGE_NAMES && !streq_ci(section, "ui")) d = NULL;
         if (!d) { info->unknown++; continue; }
         if (apply_value(s, d, val, info)) info->applied++;
         else info->bad++;
@@ -983,4 +998,11 @@ int settings_pointer_cell(int ray, int dot) {
 void settings_pointer_from_cell(int cell, int* ray, int* dot) {
     *ray = cell >= 2;
     *dot = cell >= 1;
+}
+
+int settings_ui_language(const Settings* s) {
+    _Static_assert(sizeof(LANGUAGE_NAMES) / sizeof(LANGUAGE_NAMES[0]) >= 2, "auto and English");
+    if (s->language <= 0) return ui_lang_from_env();
+    int lang = s->language - 1;
+    return lang < ui_lang_count() ? lang : 0;
 }
