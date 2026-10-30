@@ -77,6 +77,8 @@ static const SettingDesc TABLE[] = {
     DB("stream", "virtual_surround", virtual_surround, 0, "checkbox_vr_virtual_surround: place 5.1 and 7.1 speakers around you in stereo"),
     DE("stream", "frame_pacing", frame_pacing, PACING_NAMES, 0, "frame_pacing"),
     DE("stream", "network_path", network_path, NETWORK_NAMES, 0, "native: which link reaches the PC: auto (probe all), home (Wi-Fi), adapter (Steam Frame Wireless Adapter) or usb (a USB cable between the headset and the PC); the --network flag and MLXR_NETWORK override it"),
+    DI("stream", "doff_disconnect", doff_disconnect, 0, 3600, 60, "native: seconds with the headset off before the stream is disconnected, leaving the host's app running; 0 never. The sound mutes and the input is let go the moment it comes off, and putting it back on within the time carries on"),
+    DI("stream", "idle_disconnect", idle_disconnect, 0, 1440, 0, "native: minutes without any input (controllers, hands, keyboard, mouse, pads) before the stream is disconnected, leaving the host's app running; 0 never"),
     // TODO(PLAN 6.4): auto_desktop (open the host's Desktop app without the app list) comes
     // back when something reads it. Dropped with vr_mode, check_updates, language and
     // doff_grace, which were written with descriptions and read by nothing; old files that
