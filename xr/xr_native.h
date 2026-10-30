@@ -51,6 +51,8 @@ int xrLayoutFrame(XrCtx* ctx, Settings* s, int64_t nowNs);
 // The PC and app now streaming, as the names the layout is keyed by (the
 // worker thread calls this when a stream starts). NULL or empty app: none.
 void xrSetStreamIdentity(const char* host, const char* app);
+// Native (lane wave6-splash): the PC's name as set above ("" before any stream)
+void xrStreamIdentityHost(char* out, size_t cap);
 // "Bring here": the screen comes to where the head looks, the same size and
 // as far from the head as it was. This is what the app:bringhere binding and
 // the Screen tab's button call. Returns 1 when the screen moved (not in a
@@ -103,6 +105,7 @@ enum {
     ATLAS_HANDLE,
     ATLAS_OVERLAY,
     ATLAS_BEAM_FAINT,
+    ATLAS_SPLASH,
     ATLAS_SLOTS
 };
 // Native: 416 x 400, the whole free corner under the clock strip (x 1632..2048,
@@ -113,6 +116,10 @@ enum {
 // of the beam's art at a third of its strength, stretched along the beam
 // (x 1280..1344, y 2496..2536, under the beam's own slot)
 #define ATLAS_BEAM_FAINT_H 40
+// Native (lane wave6-splash): the logo and its line (xr_splash.c), in the free
+// corner right of the keyboard (x 1408..2048, y 3072..3432)
+#define ATLAS_SPLASH_W 640
+#define ATLAS_SPLASH_H 360
 #define BEAM_FAINT_LEVEL 0.30f
 UiRectPx xrAtlasRect(int slot);
 // The CPU copy the panels draw into (RGBA8 premultiplied, UI_ATLAS_W wide)
@@ -176,6 +183,9 @@ void xrPanelsFlush(XrCtx* ctx);
 void xrPanelsReportKey(XrCtx* ctx, int code);
 void xrPanelsReportEvent(XrCtx* ctx, int event, const char* reportDir);
 void xrPanelsToast(XrCtx* ctx, int kind, int arg);
+// Native (lane wave6-splash): the splash's art (xr_splash.c) drawn into ATLAS_SPLASH: the words, a key that names
+// them, the fade step (1..SPLASH_STEPS) and the alpha (0..255) it is drawn at
+void xrPanelsSplash(XrCtx* ctx, const char* line, unsigned key, int step, int alpha);
 void xrPanelsNotice(XrCtx* ctx, const char* text);
 // Native (lane wave3-hud): the same with a quieter second line (a path is cut from the middle)
 void xrPanelsNoticeMore(XrCtx* ctx, const char* text, const char* more);
