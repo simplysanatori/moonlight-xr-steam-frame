@@ -166,7 +166,6 @@ MAP = [
     ("native_host_confirm_send", "bug_report_send_direct"),
     ("native_host_no_macros", NATIVE),
     ("native_host_pcvr", NATIVE),
-    ("native_host_pcvr_q", NATIVE),
     ("native_host_pcvr_go", NATIVE),
     ("native_host_hint_esc", NATIVE),
     ("native_host_hint_win", NATIVE),
@@ -270,6 +269,9 @@ MAP = [
     ("native_disconnected_idle", NATIVE),
     ("native_pcvr", NATIVE),
     ("native_pcvr_needs_launcher", NATIVE),
+    # lane pcvr-steamvr: the app list's VR entry and the Host sheet's question
+    ("native_app_vr", NATIVE),
+    ("native_host_vr_q", NATIVE),
 ]
 
 # Keys of lanes not merged into main yet, all written for this port: listed so that their merges

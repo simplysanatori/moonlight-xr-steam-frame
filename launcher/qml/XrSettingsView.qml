@@ -1522,17 +1522,17 @@ Flickable {
             title: qsTr("Switch to PC VR")
             valueText: MlxrPrefs.pcvrBusy ? qsTr("Asking Steam...") : ""
             summary: (MlxrPrefs.pcvrStatus !== "" ? MlxrPrefs.pcvrStatus + " " : "") +
-                     qsTr("The Host sheet's PC VR button ends the stream and has the headset's Steam stream SteamVR, or the game chosen below, from your PC. That is Valve's Steam Link, not Moonlight: its picture, its tracking and its limits. Press here to check Steam and list the PCs you paired with and their games.")
+                     qsTr("VR, first in a PC's apps, and the Host sheet's PC VR close what runs on the PC and have the headset's Steam stream SteamVR from it. That is Valve's Steam Link, not Moonlight: its picture, its tracking and its limits. Press here to check Steam and list the PCs you paired with.")
             onClicked: MlxrPrefs.pcvrRefresh()
         }
 
         PrefRow {
             objectName: "pcvrPcRow"
             title: qsTr("PC to stream from")
-            valueText: MlxrPrefs.pcvrClientName !== "" ? MlxrPrefs.pcvrClientName : qsTr("The only paired PC")
-            summary: qsTr("A PC this headset is paired with in Steam (Remote Play). Press the first row above to list them.")
+            valueText: MlxrPrefs.pcvrClientName !== "" ? MlxrPrefs.pcvrClientName : qsTr("Automatic")
+            summary: qsTr("A PC this headset is paired with in Steam (Remote Play). Automatic is the one with the Moonlight PC's name, else the only one. Press the first row above to list them.")
             onClicked: {
-                var e = [{ text: qsTr("The only paired PC"), reason: "" }]
+                var e = [{ text: qsTr("Automatic"), reason: "" }]
                 var cur = 0
                 var d = MlxrPrefs.pcvrDevices
                 for (var i = 0; i < d.length; i++) {
@@ -1541,33 +1541,6 @@ Flickable {
                 }
                 listDialog.show(title, e, cur, function(i) { MlxrPrefs.pcvrChooseDevice(i - 1) })
             }
-        }
-
-        PrefRow {
-            objectName: "pcvrAppRow"
-            title: qsTr("PC VR game")
-            valueText: MlxrPrefs.pcvrApp === "" ? "SteamVR"
-                       : (MlxrPrefs.pcvrAppName !== "" ? MlxrPrefs.pcvrAppName : qsTr("Steam app %1").arg(MlxrPrefs.pcvrApp))
-            summary: qsTr("SteamVR starts SteamVR Home on the PC, where you pick any game. A game chosen here is offered in the headset next to SteamVR.")
-            onClicked: {
-                var e = [{ text: "SteamVR", reason: "" }]
-                var cur = 0
-                var a = MlxrPrefs.pcvrApps
-                for (var i = 0; i < a.length; i++) {
-                    e.push({ text: a[i].name + (a[i].vr === true ? "  (VR)" : ""), reason: "" })
-                    if (a[i].appid === MlxrPrefs.pcvrApp) cur = i + 1
-                }
-                listDialog.show(title, e, cur, function(i) { MlxrPrefs.pcvrChooseApp(i - 1) })
-            }
-        }
-
-        PrefRow {
-            objectName: "pcvrAppIdRow"
-            title: qsTr("PC VR game: Steam app id")
-            valueText: MlxrPrefs.pcvrApp
-            summary: qsTr("The same choice typed by hand, for when Steam does not list the PC's games. Empty for SteamVR.")
-            onClicked: editDialog.show(title, qsTr("The game's Steam app id, digits only (it is in its store page address)."),
-                                       MlxrPrefs.pcvrApp, "^\\d{0,10}$", function(t) { MlxrPrefs.pcvrSetAppId(t) })
         }
 
         // ======== Advanced Settings ========

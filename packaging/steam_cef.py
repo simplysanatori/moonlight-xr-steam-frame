@@ -13,11 +13,12 @@ PC VR (Valve's Steam Link stream, see docs/USER_GUIDE.md "PC VR"):
                                        the paired Remote Play PCs (RemotePlay.RegisterForDevicesChanges,
                                        collected for N seconds, default 4): JSON [{clientId, clientName, ...}]
     steam_cef.py --apps [--client ID]  the library's apps installed on that PC (all PCs when no id): JSON
-    steam_cef.py --pcvr [--app ID|steamvr] [--client ID] [--confirm N] [--dry-run]
-                                       the hand-off: Apps.StreamGame(app, client, 0) streams the app from
+    steam_cef.py --pcvr [--pc NAME] [--client ID] [--app ID|steamvr] [--confirm N] [--dry-run]
+                                       the VR hand-off: Apps.StreamGame(app, client, 0) streams the app from
                                        the PC to this headset. Without --app the app is SteamVR itself
                                        (250820: SteamVR Home on the PC, any game from there). Without
-                                       --client the only paired PC is used. Steam refusing the call opens
+                                       --client the paired PC whose name is NAME (Moonlight's name for it,
+                                       any case) is used, else the only paired PC. Steam refusing the call opens
                                        the app's page instead (press Stream there); several paired PCs and
                                        none chosen open that page too; no paired PC at all opens the
                                        library. The JSON says which path was taken ("path") and why.
@@ -377,9 +378,10 @@ def apps(client=None):
     return parse_apps(got, client)
 
 
-def plan_pcvr(app=None, client=None, found=None):
+def plan_pcvr(app=None, client=None, found=None, pc_name=None):
     """The hand-off's decision (pure: unit-tested with made-up device lists). app None is SteamVR. found is
-    the paired PCs (parse_devices' list; only looked at when client is None). Returns {path, target, app,
+    the paired PCs (parse_devices' list; only looked at when client is None); pc_name picks the one Steam
+    calls by that name (Moonlight's name for the PC, any case) when there is one. Returns {path, target, app,
     appName, client, js, fallback, reason}: path "stream" calls StreamGame (fallback: the app's page if
     Steam refuses), "app-page" opens the app's page (several PCs, none chosen), "library" opens the library
     (no paired PC)."""
@@ -393,15 +395,20 @@ def plan_pcvr(app=None, client=None, found=None):
         out["reason"] = "the PC chosen in the launcher's Settings"
     else:
         found = [d for d in (found or []) if isinstance(d, dict) and d.get("clientId")]
-        if len(found) == 1:
+        name = str(pc_name or "").strip().casefold()
+        named = [d for d in found if name and str(d.get("clientName", "")).strip().casefold() == name]
+        if len(named) == 1:
+            out["client"] = _client_id(named[0]["clientId"])
+            out["reason"] = f"the paired PC named {named[0].get('clientName')}"
+        elif len(found) == 1:
             out["client"] = _client_id(found[0]["clientId"])
             out["reason"] = "the only paired PC"
         elif len(found) > 1:
             out["path"] = "app-page"
             out["js"] = js_app_page(app)
             out["reason"] = ("several Remote Play PCs are paired (" + ", ".join(d.get("clientName", d["clientId"])
-                             for d in found) + ") and none is chosen in the launcher's Settings: the app's page "
-                             "opens, press Stream there")
+                             for d in found) + ") and none is the Moonlight PC by name or chosen in the launcher's "
+                             "Settings: the app's page opens, press Stream there")
             return out
         else:
             out["path"] = "library"
@@ -423,7 +430,7 @@ def stream_state(found, client):
     return None
 
 
-def pcvr(app=None, client=None, dry_run=False, confirm=0, ev=None, list_devices=None):
+def pcvr(app=None, client=None, dry_run=False, confirm=0, ev=None, list_devices=None, pc_name=None):
     """The hand-off. Asks Steam for what plan_pcvr() decides and returns the plan with what happened:
     {action (= path), path, target, app, appName, client, js (the call made), tried: [{js, error}], reason,
     returned, streaming (with confirm), dryRun}. ev and list_devices stand in for evaluate() and devices()
@@ -438,7 +445,7 @@ def pcvr(app=None, client=None, dry_run=False, confirm=0, ev=None, list_devices=
             raise
         except CefError as e:   # the list call is missing or threw: nothing to stream to
             found, why_none = [], str(e)
-    plan = plan_pcvr(app, client, found)
+    plan = plan_pcvr(app, client, found, pc_name)
     if why_none:
         plan["reason"] += " (" + why_none + ")"
     plan["tried"] = []
@@ -505,7 +512,8 @@ def main(argv):
             confirm = float(_opt(argv, "--confirm", 0))
             if not 0 <= confirm <= MAX_SECONDS:
                 raise ValueError(f"--confirm takes 0 to {MAX_SECONDS} seconds")
-            print(json.dumps(pcvr(_opt(argv, "--app"), _opt(argv, "--client"), "--dry-run" in argv, confirm)))
+            print(json.dumps(pcvr(_opt(argv, "--app"), _opt(argv, "--client"), "--dry-run" in argv, confirm,
+                                  pc_name=_opt(argv, "--pc"))))
             return 0
         if cmd.startswith("--"):
             sys.stderr.write(__doc__)

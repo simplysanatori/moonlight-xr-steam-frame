@@ -212,6 +212,10 @@ with FakeCef([("RegisterForDevicesChanges", devs), ("appStore", apps_raw), ("Str
 two = {"devices": devs["devices"] + [{"clientId": "9002", "clientName": "laptop"}]}
 with FakeCef([("RegisterForDevicesChanges", two), ("ExecuteSteamURL", True)]) as cef:
     os.environ["STEAM_CEF_PORT"] = str(cef.port)
+    c, out, err = cli(cef.port, "--pcvr", "--pc", "LAPTOP", "--dry-run")
+    r = json.loads(out) if c == 0 else {}
+    check(c == 0 and r.get("client") == "9002" and r.get("js") == 'SteamClient.Apps.StreamGame(250820, "9002", 0)',
+          "--pcvr --pc NAME --dry-run: the paired PC of that name, SteamVR")
     c, out, err = cli(cef.port, "--pcvr", "--app", "5")
     r = json.loads(out) if c == 0 else {}
     check(c == 0 and r.get("path") == "app-page" and "gaming-pc" in r.get("reason", "") and "laptop" in r["reason"]
@@ -257,6 +261,16 @@ check(p["path"] == "stream" and p["target"] == "game" and p["js"] == 'SteamClien
       "plan: a chosen game and PC")
 p = sc.plan_pcvr(None, None, one + [{"clientId": "9002", "clientName": "laptop"}])
 check(p["path"] == "app-page" and p["js"].endswith("details/250820')") and p["fallback"] is None, "plan: two PCs")
+two_pcs = one + [{"clientId": "9002", "clientName": "Laptop"}]
+p = sc.plan_pcvr(None, None, two_pcs, "laptop")
+check(p["path"] == "stream" and p["client"] == "9002" and "Laptop" in p["reason"],
+      "plan: two PCs, the one with the Moonlight PC's name (any case)")
+p = sc.plan_pcvr(None, None, two_pcs, "elsewhere")
+check(p["path"] == "app-page", "plan: two PCs, neither with that name -> the app's page")
+p = sc.plan_pcvr(None, None, one, "elsewhere")
+check(p["path"] == "stream" and p["client"] == "9001", "plan: one PC, another name -> still the only one")
+p = sc.plan_pcvr(None, "42", two_pcs, "laptop")
+check(p["client"] == "42", "plan: a chosen client wins over the name")
 p = sc.plan_pcvr(None, None, [])
 check(p["path"] == "library" and p["js"] == sc.js_library(), "plan: no PC -> the library, last")
 p = sc.plan_pcvr(None, None, [{"clientName": "no id"}])
