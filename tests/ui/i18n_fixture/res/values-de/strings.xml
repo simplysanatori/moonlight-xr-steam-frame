@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="vr_panel_distance">
+        Abstand
+    </string>
+    <string name="vr_panel_version">Version <xliff:g id="v">%1$s</xliff:g>, Commit %2$s</string>
+    <string name="vr_panel_report_sends">Sendet eine Nachricht mit Headset, Einstellungen und Log</string>
+    <string name="applist_menu_cancel">Abbrechen</string>
+    <string name="vr_hand_hint_never">Nicht \"mehr\" anzeigen\?\?</string>
+    <string name="vr_kofi_close">"  Schließen  "</string>
+    <string name="vr_toast_rate">Anzeige %1$d Hz</string>
+    <string name="vr_battery">Akku %1$d %%</string>
+    <string name="vr_key_space">Leer­taste\nzwei</string>
+</resources>
