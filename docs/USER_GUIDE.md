@@ -226,7 +226,7 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Head-locked screen, Screen follows your head, Follow after turning (UI) | on, off; 10 to 60° | off, off, 25° | `[display] head_locked`, `head_follow`, `follow_leash_deg` |
 | Stats style (Performance Monitor) | Full, HUD, Lite | Full | `[display] stats_style` |
 
-Left out on purpose: the `[debug]` keys, what the headset keeps by itself (the last PC and app, the cog's last tab, the zoom's centre, the hand hint), the screen's height, direction, tilt and rotation (set by grabbing the screen) and each room's own brightness, glow, light and picture size (the cog's Room tab, while you look at the room).
+Left out on purpose: the `[debug]` keys, what the headset keeps by itself (the last PC and app, the cog's last tab, the zoom's centre, the hand hint), the screen's height, direction, tilt and rotation (set by grabbing the screen) and the place the bar's Bring here switch goes back to and each room's own brightness, glow, light and picture size (the cog's Room tab, while you look at the room).
 
 ### Language
 
