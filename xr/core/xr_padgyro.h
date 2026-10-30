@@ -44,6 +44,8 @@
 // The DualShock 4's gyro tops out at 2000 deg/s; anything past it is a glitch
 #define PAD_GYRO_MAX_DEG_S 2000.0f
 #define PAD_GYRO_GRAVITY 9.80665f
+// padGyroFromTurn: the sine of half the turn below which two orientations are the same one
+#define PAD_GYRO_MIN_TURN 1e-6f
 
 int padGyroSourceClamp(int source);
 int padGyroRatchetClamp(int ratchet);
@@ -63,7 +65,7 @@ Vec3 padGyroFromVelocity(XrQuaternionf orientation, Vec3 radSBase);
 
 // The same from two orientations dt seconds apart, for a runtime that gives no
 // velocity: the turn from one to the other about the device's axes. dt of zero
-// or less is no turn.
+// or less, or a turn below float rounding (PAD_GYRO_MIN_TURN), is no turn.
 Vec3 padGyroFromTurn(XrQuaternionf was, XrQuaternionf now, float dt);
 
 // Gravity as the device's accelerometer reads it, m/s^2

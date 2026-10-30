@@ -148,9 +148,15 @@ static void testFromTurn(void) {
     neg.w = -neg.w;
     Vec3 h = padGyroFromTurn(was, neg, DT);
     CHECK_NEAR(h.z, g.z, 1e-3);
-    // not turned, no time, or time running backwards: no turn
+    // not turned, no time, or time running backwards: no turn. Not turned is exactly zero even
+    // where the compiler fuses the multiply-adds of the product and leaves rounding in it
     g = padGyroFromTurn(was, was, DT);
     CHECK(g.x == 0.0f && g.y == 0.0f && g.z == 0.0f);
+    // a slow real turn is still a turn: 1e-4 rad in a frame, 0.5 deg/s, eight DualShock 4 steps
+    now = quatMul(was, about(0.0f, 1.0f, 0.0f, 1e-4f));
+    g = padGyroFromTurn(was, now, DT);
+    CHECK_NEAR(g.y, 1e-4 / DT * DEG, 0.05);
+    CHECK(g.y > 0.0f);
     g = padGyroFromTurn(was, now, 0.0f);
     CHECK(g.x == 0.0f && g.y == 0.0f && g.z == 0.0f);
     g = padGyroFromTurn(was, now, -1.0f);

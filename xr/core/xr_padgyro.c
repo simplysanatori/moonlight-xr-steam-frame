@@ -64,8 +64,15 @@ Vec3 padGyroFromTurn(XrQuaternionf was, XrQuaternionf now, float dt) {
         turn.w = -turn.w;
     }
     float s = sqrtf(turn.x * turn.x + turn.y * turn.y + turn.z * turn.z);
+    // A turn this small (2e-6 rad, 0.01 deg/s at 90 Hz) is the rounding of the product above, not a
+    // turn: an unchanged orientation leaves a few 1e-8 in x, y and z where the compiler fuses the
+    // multiply-adds (arm64), and the host must see a still pad as exactly still. It is also below one
+    // step of the DualShock 4's gyro (2000/32768 deg/s), so nothing real is lost
+    if (s < PAD_GYRO_MIN_TURN) {
+        return none;
+    }
     // angle = 2 atan2(s, w) about the unit axis (x, y, z) / s
-    float k = s < 1e-6f ? 2.0f / (turn.w > 1e-6f ? turn.w : 1.0f) : 2.0f * atan2f(s, turn.w) / s;
+    float k = 2.0f * atan2f(s, turn.w) / s;
     Vec3 out = { degS(turn.x * k / dt), degS(turn.y * k / dt), degS(turn.z * k / dt) };
     return out;
 }
