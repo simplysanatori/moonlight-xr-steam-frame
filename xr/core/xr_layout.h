@@ -129,6 +129,12 @@ void barSlotPlacement(int slot, float width, float height, Vec3* outLocal, float
 // a button, which reaches a little further than it draws
 int barSlotHit(int slot, float u, float v, float width, float height);
 
+// Native (lane bar-glare): whether it is anywhere in the bar's row, from the
+// outer edge of the leftmost button's zone to the rightmost's and from the
+// frame's bottom edge as deep as the buttons' zones reach. hoverTest gives all
+// of that no button claims to the move bar's zone, so the row is one target.
+int barRowHolds(float u, float v, float width, float height);
+
 // Every face of every button along the bar shares one texture, a strip of
 // BUTTON_TEX cells side by side, so the row costs one swapchain rather than
 // one a face. One row, so a cell is picked by its x offset alone and never

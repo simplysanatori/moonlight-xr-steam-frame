@@ -244,7 +244,7 @@ The bar sits under the screen and shows its buttons only while the ray is over i
 
 The bar is not drawn all the time. Its buttons and the move pill appear only while the ray is over the strip under the picture, and they go again when it leaves. That keeps the picture clear, but it means you have to point at the strip before the bar is there.
 
-- Point either controller just below the picture. The buttons appear, the one under the ray grows a little, and a press lands on it.
+- Point either controller just below the picture. The buttons appear, the one under the ray grows a little, and a press lands on it. The whole row counts as the bar, gaps and all, so the buttons stay up while the ray moves along it and the pointer stays with that controller even when the other one is pointing at the picture.
 - With **Ray** on Off (no beam and no dot), a faint beam shows only while the controller points into that strip, so the bar can still be found. Anywhere else nothing extra is drawn. With a menu open the beam comes back anyway.
 - In gamepad mode the controllers are not pointers, so there is nothing to point at the bar with: switch back to pointer mode first (see [Switching between the modes](#switching-between-the-modes)).
 - Everything on the bar can also go on a controller button without the bar: `app:cog`, `app:keyboard`, `app:gamepad`, `app:host`, `app:3d`, `app:ray`, `app:recentre` and `app:bringhere` in `bindings.ini` ([Changing the buttons](#changing-the-buttons)).

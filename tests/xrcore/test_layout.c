@@ -353,6 +353,62 @@ static void testTheRowsOrder(void) {
     }
 }
 
+// Native (lane bar-glare): the whole of the bar's row is the bar. Where no
+// button claims it (under the pill, under and between the buttons, a hidden
+// button's place) it is the move bar's zone, not the picture's margin, so the
+// ray along the bar is on something all the way and no other controller takes
+// the pointer off it. Past the row's ends and under it is the margin still.
+static void testTheWholeRowIsTheBar(void) {
+    const float w = 2.4f, h = w * 9.0f / 16.0f;
+    int corner = -1;
+    float side = CORNER_FRAC * w;
+    float rowV = 0.5f + (h * 0.5f + w * BAR_DROP_FRAC) / h;
+    // Under the pill, past the reach its own zone had and within the buttons'
+    float pillBottom = 1.0f + (BAR_GAP_FRAC + BAR_HEIGHT_FRAC * 3.0f) * w / h;
+    float buttonBottom = rowV + COG_BUTTON_FRAC * HOVER_MARGIN * 0.5f * w / h;
+    CHECK(pillBottom < buttonBottom);
+    float under = (pillBottom + buttonBottom) * 0.5f;
+    for (float u = 0.45f; u <= 0.55f; u += 0.01f) {
+        CHECK(hoverTest(u, under, w, h, side, &corner) == HOVER_BAR);
+    }
+    // Every slot's place, shown or not, in the row's middle and at its foot
+    for (int slot = 0; slot < BAR_SLOTS; slot++) {
+        Vec3 local;
+        float s;
+        barSlotPlacement(slot, w, h, &local, &s);
+        float u = 0.5f + local.x / w;
+        CHECK(hoverTest(u, rowV, w, h, side, &corner) == HOVER_BAR);
+        CHECK(hoverTest(u, buttonBottom - 0.002f, w, h, side, &corner) == HOVER_BAR);
+        CHECK(barRowHolds(u, rowV, w, h));
+    }
+    // Between every pair of neighbours along the row
+    for (float u = 0.12f; u <= 0.88f; u += 0.005f) {
+        if (barRowHolds(u, rowV, w, h)) {
+            CHECK(hoverTest(u, rowV, w, h, side, &corner) == HOVER_BAR);
+        }
+    }
+    CHECK(barRowHolds(0.2f, rowV, w, h) && barRowHolds(0.85f, rowV, w, h));
+    // Past its ends, under it and on the picture it is not
+    float leftEnd = 0.5f, rightEnd = 0.5f;
+    for (int slot = 0; slot < BAR_SLOTS; slot++) {
+        Vec3 local;
+        float s;
+        barSlotPlacement(slot, w, h, &local, &s);
+        leftEnd = fminf(leftEnd, 0.5f + (local.x - s * HOVER_MARGIN * 0.5f) / w);
+        rightEnd = fmaxf(rightEnd, 0.5f + (local.x + s * HOVER_MARGIN * 0.5f) / w);
+    }
+    CHECK(hoverTest(rightEnd + 0.01f, rowV, w, h, side, &corner) == HOVER_HALO);
+    CHECK(hoverTest(leftEnd - 0.01f, rowV, w, h, side, &corner) == HOVER_HALO);
+    CHECK(hoverTest(0.5f, buttonBottom + 0.01f, w, h, side, &corner) == HOVER_HALO);
+    CHECK(hoverTest(0.3f, buttonBottom + 0.01f, w, h, side, &corner) == HOVER_HALO);
+    CHECK(hoverTest(0.3f, 0.99f, w, h, side, &corner) == HOVER_SCREEN);
+    CHECK(!barRowHolds(0.3f, 0.99f, w, h));
+    // The bottom corners' brackets keep their zones
+    float outU = side * 0.5f / w, outV = side * 0.5f / h;
+    CHECK(hoverTest(1.0f + outU, 1.0f + outV, w, h, side, &corner) == HOVER_CORNER && corner == 3);
+    CHECK(hoverTest(-outU, 1.0f + outV, w, h, side, &corner) == HOVER_CORNER && corner == 2);
+}
+
 static void testRoomCornersLookTheSameEverywhere(void) {
     // At the stand in's distance a bracket is the size one is on a 3 m screen
     CHECK_NEAR(roomCornerSide(STAND_IN_DISTANCE_M), CORNER_FRAC * STAND_IN_WIDTH_M, 1e-6);
@@ -1628,6 +1684,7 @@ int main(void) {
     testTheBarUnderATurnedPicture();
     testTheBarOnACurvedPicture();
     testTheRowsOrder();
+    testTheWholeRowIsTheBar();
     testRoomCornersLookTheSameEverywhere();
     testLanes();
     testTheSizeClamp();
