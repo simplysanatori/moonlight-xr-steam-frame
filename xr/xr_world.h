@@ -55,6 +55,7 @@ typedef struct XrEyeTargets {
     int eyeW, eyeH;
     VkFormat format;
     int clear;                    // the next panel pass clears each eye's rect first
+    float clearColor[4];          // to this (premultiplied), nothing when zeroed (native, lane wave3-visual)
     // The depth the room's and the models' passes clear and use: eyeW x eyeH
     // at least for an image per eye, 2 eyeW x eyeH side by side
     VkImage depthImage;
