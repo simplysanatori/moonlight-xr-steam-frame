@@ -83,6 +83,7 @@ The top of the page has a **Search settings** field and a row of buttons, one fo
 | Setting | Options | Notes |
 | --- | --- | --- |
 | Network connection | **Automatic**, **Wi-Fi (*network name*, *band*)**, **Steam Frame Wireless Adapter (6 GHz)**, **USB cable** | Automatic (the default) tries every link that is there when a stream starts (Wi-Fi, the adapter and a USB cable, see [USB cable](#usb-cable)) and uses the one with the lower latency and the fewer losses. It sends about 15 short probes down each link (about a second in all) and gives each link a score in milliseconds, lower is better: the median round trip, plus the jitter, plus how far the slowest probes run above the median, plus 50 ms for every probe that failed, plus a penalty from the last stream on that link. That penalty applies when the last stream lost more than 0.5 percent of its frames on the network: 20 ms for each percent, at most 150 ms. A link with no history gets no penalty. The lowest score wins. When two scores are within 3 ms of each other, the stronger signal and faster link rate break the tie, and Wi-Fi wins a tie after that. Signal and link rate no longer decide on their own. A link that does not answer is never used. The client keeps the last stream's numbers for each link in `netpath-history.ini` next to `config.ini` (frames received, frames lost, jitter, round trip and the time; no addresses or names). It writes them when a stream ends, after at least 500 frames. Delete the file to forget them. History older than 14 days is ignored. Wi-Fi streams over your home network. The adapter option streams over the Steam Frame Wireless Adapter plugged into your PC. The USB cable option streams over a USB data cable between the headset and your PC. Before it tries the adapter, the client checks that the adapter is there: the headset's own adapter network (`wlanap`) must be up and your PC must be connected to it. With no adapter found, Automatic uses Wi-Fi without trying the adapter, and if you chose the adapter the client uses Wi-Fi and shows a notice in the headset ("Steam Frame Wireless Adapter not reachable (no adapter found: ...). Using Wi-Fi."). If the chosen link does not answer, the client uses the other one and says so in the headset. The Steam Frame Wireless Adapter can have worse latency than a good 5 GHz network. Automatic measures latency and drops on each link before it chooses, so do not assume the adapter wins. |
+| Use VPN addresses only away from home | **On**, **Off** | On (the default). When your PC also has a VPN address, the headset uses it only when the PC does not answer on your home network. **Off**: whichever address answers fastest. See [Streaming away from home through a VPN](#streaming-away-from-home-through-a-vpn). It is `vpn_only_away` in `config.ini`'s `[stream]` section. |
 | Video bitrate | 0.5 to 500 Mbps | The stream's bitrate, and what **Same as above** in the four rows below it means. The default is twice Moonlight's own default for the size and rate you pick under Video Settings: 98 Mbps at 1440p and 90 Hz, 113 Mbps at 1440p and 120 Hz, 124 Mbps at 1440p and 144 Hz, 49 Mbps at 1080p and 90 Hz, 80 Mbps at 1440p and 60 Hz. With Match headset it is the 90 Hz figure. It is set again to this value whenever you change the resolution or the refresh rate, and the default itself tops out at 150 Mbps (4K). The slider goes up to 500 Mbps, for a good 5 GHz Wi-Fi or a wired link. A value you saved earlier, up to 500 Mbps, is kept until then. See [Recommended PC settings](#recommended-pc-settings). |
 | Bitrate over Wi-Fi | **Same as above**, then 10 to 500 Mbps in steps | The bitrate a stream starts with when it goes over Wi-Fi. **Same as above** uses the Video bitrate. Tap the row to step up; past 500 Mbps it goes back to Same as above. See [Bitrate for each connection](#bitrate-for-each-connection). |
 | Bitrate over the Steam Frame Wireless Adapter | the same | The same for the Steam Frame Wireless Adapter. |
@@ -102,6 +103,34 @@ The client picks one link when a stream starts, and the PC sends the video to th
 - The stream has run for at least 20 seconds and the last switch was at least 5 minutes ago, so it cannot flap between two bad links.
 
 Then the client writes `network path: switching from Wi-Fi to Steam Frame Wireless Adapter after 3450 ms of loss` to `moonlight.log`, shows a notice with the new link's name (the Notices setting decides whether you see it), and reconnects like after a dropped connection: the room, the screen's place and the 3D state stay, the PC resumes the same app, and the picture is back in a few seconds. The loss burst it left is written to the log with `network path switched from X to Y` at its end. The link it left is tried again only at the next stream start, when Automatic measures every link again. If the new link does not answer, the client falls back to whatever answers, and no new switch is tried for 5 minutes. It is off by default because it has not been measured on the Frame yet.
+
+### Streaming away from home through a VPN
+
+A VPN (Tailscale, WireGuard, ZeroTier or similar) lets the headset reach your PC from anywhere. At home the PC answers on its VPN address too, sometimes even faster on the first probe, but a stream through the VPN is worse than one over your home network: it can drop audio and frames and run at a lower frame rate. So the headset sorts every address it knows for the PC into two kinds. A VPN address is one in `100.64.0.0/10` (the range most VPNs of this kind hand out), one in `fd7a:115c:a1e0::/48`, or one reached through a VPN network interface (a name starting with `tailscale`, `wg`, `tun`, `tap`, `zt` or `utun`). Every other address is direct: your home Wi-Fi or ethernet, the Steam Frame Wireless Adapter, the USB cable.
+
+What **Use VPN addresses only away from home** does (Settings, Connection; on by default):
+
+- **On**: the headset still tries every address of the PC when a stream starts. If the PC answers on any direct address, that one is used and the VPN address is ignored, however fast it answered. Only when no direct address answers (you are away from home) is the VPN address used. This holds for Automatic and for a connection you chose yourself. **Switch network when video keeps breaking up** never moves a stream from a direct link to the VPN; from the VPN to a direct link it may.
+- **Off**: the VPN address competes like any other, and whichever address scores best (answers fastest, with the fewest losses) is used.
+
+How to give the headset your PC's VPN address:
+
+1. Set up the VPN on the PC and on the headset as its instructions say, and check that it is connected on both.
+2. In the flat window, press **+** (Add PC manually) and type the PC's VPN address. Moonlight recognises the PC you already paired, so there is nothing to pair again. It keeps the address with that PC.
+3. Start a stream from the flat window once. The headset saves the address with the PC (in `~/.config/moonlight-xr/hosts.ini`).
+
+Instead of steps 2 and 3 you can add the address by hand: open `~/.config/moonlight-xr/hosts.ini`, find your PC's section (its `name =` line) and add the VPN address to its `extra_addresses` line, commas between addresses, for example `extra_addresses = 192.168.1.10,100.64.0.5`. If there is no such line, add one. The flat window keeps what you add when it updates the file.
+
+The home address is learned by itself. The first time the PC answers on your home network (found by its name or its network card), the headset adds that address to `extra_addresses` too, so at home the next stream tries it straight away. Addresses are only ever added, never removed: the VPN address you saved stays.
+
+What `moonlight.log` says when a stream starts, on a line beginning `network path:`:
+
+- At home: `the PC answered on the home network (Wi-Fi 192.168.1.10); its VPN address 100.64.0.5 is not used`.
+- Away: `the PC did not answer on the home network; using its VPN address 100.64.0.5 (score 38.2 ms)`.
+- With the setting off: `Wi-Fi 192.168.1.10 scored better than the VPN address 100.64.0.5`, or `using the VPN address 100.64.0.5 on its score (...): VPN addresses only away from home is off`.
+- When a home address is learned: `network path: learned address 192.168.1.10 of <your PC>`.
+
+A stream over a VPN address is not counted in the per-link history (`netpath-history.ini`), so it does not count against your home Wi-Fi next time.
 
 ### Bitrate for each connection
 
