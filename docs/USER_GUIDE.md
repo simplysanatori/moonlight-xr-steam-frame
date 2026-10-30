@@ -158,8 +158,13 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Size | 0.8 to 8 m wide | 3 m |
 | Aim sensitivity | 1 to 30 | 8. Greyed unless Head locked is on. |
 | Aim dead zone | 0 to 20 | 2. Greyed unless Head locked is on. |
+| Preset | Desk, Couch, Cinema, Bring here | Desk is 1.2 m away and 1.6 m wide, Couch 2.5 m and 2.6 m, Cinema 4 m and 5 m. A preset sets only the distance and the width: the way the screen sits, its tilt, roll and curve stay as they were. **Bring here** puts the screen where you are looking, as far from you as it was and the same size. It does nothing in a room or with Head locked on. |
+| Remember per app | Off, On, Forget | On. Each PC and app keeps its own placement, head lock and 3D state, and gets them back the next time it streams. An app that has none starts from what is in force. **Forget** drops what is kept for the app now streaming. |
+| Angular-size lock | Off, On | On. Pushing or pulling the held screen with the thumbsticks resizes it with its distance, so it keeps the same size in your view. Off, a pushed screen gets smaller as it goes away. |
 
 **Reset** puts the screen back to the defaults.
+
+The presets and Bring here also work from a controller button: bind `app:bringhere` in `bindings.ini` (see [the binding notes](dev/bindings.md)).
 
 ### Room
 
@@ -178,7 +183,7 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Sharpen | Off, Normal, Quality | Off |
 | Supersample | Off, Normal, Quality | Normal. Not used while the screen is curved or 3D is on. |
 | Stats | Off, On | Off |
-| Head locked | Off, On | Off. The screen follows your head. |
+| Head locked | Off, On, Follow | Off. On: the screen is fixed to your head. Follow: the screen stays where it is until your head has turned more than the leash (25° by default, `follow_leash_deg`) away from it, in yaw or in pitch, then it eases after where you look over about half a second and stays there. See [Follow and comfort](#follow-and-comfort). |
 | Head aim | Off, On | Off. Needs Head locked; not in a room. |
 | Mode | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
 | Show controllers | Off, On | Off |
@@ -303,6 +308,12 @@ The headset shows "Gamepad mode" or "Pointer mode". In gamepad mode the menus cl
 | Move the headset keyboard | Grip or trigger on the keyboard's bar. The thumbstick pushes and pulls it the same way. |
 | Move the stats window | Grip anywhere on it and drag. |
 | Reset | Screen tab, Reset. |
+
+### Follow and comfort
+
+Follow is a lazy head lock. A screen fixed to the head never leaves your view, which some people find tiring or queasy; a screen fixed in the world makes you turn all the way round to find it again. Follow sits between: look around inside the leash and the screen holds still, look further and it glides after you (a slerp over 0.6 s, slow at the start and the end) and stops. It keeps its distance from you, its size and its tilt, and it waits while a menu is open, while you hold the screen, in a room and in the launcher's lists.
+
+If it makes you uneasy, make the leash larger (up to 60°) so it moves less often, or use Off or On. Sit still for the first try: a screen that moves while you turn your head is the most noticeable thing to get used to. Following is a world-locked mode, so Head aim (which needs Head locked) is off while it is.
 
 ## Rooms and passthrough
 
@@ -490,6 +501,11 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 
 | Section, key | Values | Default |
 | --- | --- | --- |
+| `[display] head_follow` | `true`, `false` | `false`. The Head locked row's Follow cell. Head locked wins when both are on. |
+| `[display] follow_leash_deg` | 10 to 60 | 25. How far, in degrees of yaw or pitch, your head turns from a followed screen before it eases after you. |
+| `[screen] per_app` | `true`, `false` | `true`. Remember the layout per PC and app. |
+| `[screen] angular_lock` | `true`, `false` | `true`. Pushing or pulling the held screen keeps its size in your view. |
+| `[screen.<hash>]` | the `[screen]` keys, `head_locked`, `head_follow`, `stereo`, `separation`, `convergence` | One section for each remembered PC and app, named by a hash of their names. The program writes them (up to 32, the oldest dropped); delete a section to forget the app. |
 | `[vr] gamepad_toggle` | `menu_grip` (left View + left grip), `sticks` (click both sticks), `triggers_grips` (both triggers and both grips) | `menu_grip` |
 | `[vr] rumble_mix` | `both` (each controller gets the stronger of the PC's two motors), `split` (low frequency motor on the left, high frequency motor on the right) | `both` |
 | `[vr] rumble_intensity` | 0 to 100 (%), the scale on the PC's rumble on the controllers | 100 |

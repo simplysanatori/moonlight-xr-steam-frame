@@ -319,6 +319,9 @@
 // HEAD_AIM_ lanes below
 #define SETTING_HEAD_AIM_SENSITIVITY 22
 #define SETTING_HEAD_AIM_DEADZONE 23
+// The Head locked row's three cells: Off 0, On 1 and Follow 2 (the screen
+// stays where it is until the head turns past the leash, then eases after the
+// gaze). SETTING_HEAD_LOCK takes the cell.
 
 // The lanes the Room tab's rows move along, in the units the preferences
 // hold. Brightness is the room's own in hundredths of the room as baked, from
@@ -386,6 +389,13 @@
 #define HEAD_AIM_DEADZONE_MIN 0
 #define HEAD_AIM_DEADZONE_MAX 20
 #define HEAD_AIM_DEADZONE_DEFAULT 2
+
+// Follow mode (the Head locked row's third cell): the screen stays in the
+// world until the head has turned this far from it, in degrees, in yaw or in
+// pitch, then eases after the gaze
+#define FOLLOW_LEASH_MIN_DEG 10
+#define FOLLOW_LEASH_MAX_DEG 60
+#define FOLLOW_LEASH_DEFAULT_DEG 25
 
 // Which Environment Res tier the room draws at
 #define ENV_RES_LOW 0
@@ -480,7 +490,9 @@
 
 // Screen tab rows, in the order they are drawn: the six that place the
 // screen, which the reset button under them puts back, then head aim's two,
-// live only with the screen locked to the head
+// live only with the screen locked to the head, then three rows of cells: the
+// presets with "bring here", remembering the layout per app, and the
+// angular-size lock
 #define COG_SLIDER_DISTANCE 0
 #define COG_SLIDER_HEIGHT   1
 #define COG_SLIDER_TILT     2
@@ -490,14 +502,29 @@
 #define COG_SLIDER_COUNT    6
 #define COG_SLIDER_AIM_SENSITIVITY 6
 #define COG_SLIDER_AIM_DEADZONE 7
-#define COG_SCREEN_ROW_COUNT 8
-// Eight rows over the reset button, so they start higher and sit closer
+// The rows past the tracks are cells. Preset: Desk, Couch, Cinema and a press
+// that brings the screen to where you are looking. Per app: Off, On and a
+// press that forgets what was remembered for the app now streaming. Lock:
+// Off, On.
+#define COG_SCREEN_ROW_PRESET 8
+#define COG_SCREEN_ROW_PER_APP 9
+#define COG_SCREEN_ROW_LOCK 10
+#define COG_SCREEN_TRACK_ROWS 8
+#define COG_SCREEN_ROW_COUNT 11
+#define COG_SCREEN_PRESET_CELLS 4
+#define COG_SCREEN_PER_APP_CELLS 3
+#define COG_SCREEN_LOCK_CELLS 2
+// The preset row's cells: three presets, then the bring-here press
+#define COG_SCREEN_CELL_BRING 3
+// The per app row's cells: the switch's two, then the forget press
+#define COG_SCREEN_CELL_FORGET 2
+// Eleven rows over the reset button, so they start higher and sit closer
 // together than the other tabs' with shallower cells. The last row's band
-// ends at 0.8575, clear of the reset button.
-#define COG_SCREEN_ROW_V0 0.22f
-#define COG_SCREEN_ROW_STEP 0.085f
-#define COG_SCREEN_ROW_HALF 0.0425f
-#define COG_SCREEN_CELL_HALF 0.036f
+// ends at 0.85625, clear of the reset button.
+#define COG_SCREEN_ROW_V0 0.2f
+#define COG_SCREEN_ROW_STEP 0.0625f
+#define COG_SCREEN_ROW_HALF 0.03125f
+#define COG_SCREEN_CELL_HALF 0.027f
 
 // Room tab rows, in the order they are drawn: a track, two rows of cells and
 // two more tracks, with the screen light's level under its switch. Only in a
@@ -594,7 +621,8 @@
 #define COG_SHARPEN_CELLS 3
 #define COG_SUPERSAMPLE_CELLS 3
 #define COG_STATS_CELLS   2
-#define COG_HEAD_LOCK_CELLS 2
+// Off, On and Follow
+#define COG_HEAD_LOCK_CELLS 3
 #define COG_HEAD_AIM_CELLS 2
 #define COG_GAMEPAD_CELLS 2
 #define COG_POINTER_SLEEP_CELLS 2

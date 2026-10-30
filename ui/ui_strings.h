@@ -55,7 +55,7 @@
     X(SHORTCUT_MENU_GRIP, "vr_panel_shortcut_menu_grip", "Shortcut: left View + grip") \
     X(SHORTCUT_STICKS, "vr_panel_shortcut_sticks", "Shortcut: both thumbsticks") \
     X(SHORTCUT_TRIGGERS_GRIPS, "vr_panel_shortcut_triggers_grips", "Shortcut: triggers + grips") \
-    X(ROW_PRESET, "vr_panel_preset", "Preset") \
+    X(ROW_PRESET, "vr_panel_preset", "Preset")     X(PRESET_DESK, "native_preset_desk", "Desk")     X(PRESET_COUCH, "native_preset_couch", "Couch")     X(PRESET_CINEMA, "native_preset_cinema", "Cinema")     X(BRING_HERE, "native_bring_here", "Bring here")     X(ROW_PER_APP, "native_per_app", "Remember per app")     X(FORGET, "native_forget", "Forget")     X(ROW_ANGULAR_LOCK, "native_angular_lock", "Angular-size lock")     X(FOLLOW, "native_follow", "Follow") \
     X(COMFORT, "vr_panel_comfort", "Comfort") \
     X(BALANCED, "vr_panel_balanced", "Balanced") \
     X(STRONG, "vr_panel_strong", "Strong") \

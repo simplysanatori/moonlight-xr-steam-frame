@@ -131,6 +131,8 @@ static const SettingDesc TABLE[] = {
     DE("debug", "file_log", file_log, LOG_NAMES, 1, "list_vr_file_log: off, basic (warnings and errors), verbose"),
     // display tab
     DB("display", "head_locked", head_locked, 0, "Display tab: head locked screen (checkbox_vr_head_locked)"),
+    DB("display", "head_follow", head_follow, 0, "native: Display tab, Head locked row's Follow cell: the screen stays in the world until the head turns past the leash, then eases after the gaze (head_locked wins when both are on)"),
+    DI("display", "follow_leash_deg", follow_leash_deg, FOLLOW_LEASH_MIN_DEG, FOLLOW_LEASH_MAX_DEG, FOLLOW_LEASH_DEFAULT_DEG, "native: Follow mode's leash, degrees of head yaw or pitch away from the screen before it eases after the gaze"),
     DE("display", "sharpening", sharpening, SHARP_NAMES, 0, "Display tab: sharpen (list_vr_sharpening; native default off, the owner's choice, upstream quality)"),
     DE("display", "supersampling", supersampling, SHARP_NAMES, 1, "Display tab: supersample (list_vr_supersampling; native default normal, the owner's choice, upstream off; never used with the 3D on)"),
     DB("display", "stats", stats, 0, "Display tab: show performance stats (true, false, or hud / lite to switch them on in that style)"),
@@ -151,6 +153,8 @@ static const SettingDesc TABLE[] = {
     DI("screen", "rotate_deg", screen_rotate_deg, -90, 90, 0, "Screen tab: rotate, degrees clockwise"),
     DI("screen", "curve", screen_curve, 0, 100, 0, "Screen tab: curve, percent (seekbar_vr_curvature)"),
     DI("screen", "width_cm", screen_width_cm, 80, 800, 300, "Screen tab: size, picture width in centimetres (seekbar_vr_screen_size)"),
+    DB("screen", "per_app", per_app, 1, "native: Screen tab, Remember per app: each PC and app keeps its own placement, head lock and 3D state in a [screen.<hash>] section; an app with none starts from the settings in force"),
+    DB("screen", "angular_lock", angular_lock, 1, "native: Screen tab, Angular-size lock: pushing or pulling the held screen with the thumbsticks resizes it to look the same size"),
     // rooms
     ROOMF(0, 4),
     ROOMF(1, 5),
@@ -228,6 +232,7 @@ static int default_of(const SettingDesc* d) {
 // ---- field access ----------------------------------------------------------------------
 
 static int clamp_int(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
+static void layout_clamp(AppLayout* l);
 
 int settings_get(const Settings* s, const SettingDesc* d) {
     return *(const int*)((const char*)s + d->offset);
@@ -283,6 +288,10 @@ void settings_clamp(Settings* s) {
     for (int r = 0; r < ROOM_COUNT; r++) {
         if (!ROOM_RESIZABLE[r]) s->room[r].screen = ROOM_SCREEN_MAX;
     }
+    // locked to the head wins over following it
+    if (s->head_locked) s->head_follow = 0;
+    s->layout_count = clamp_int(s->layout_count, 0, APP_LAYOUT_MAX);
+    for (int i = 0; i < s->layout_count; i++) layout_clamp(&s->layouts[i]);
 }
 
 int settings_equal(const Settings* a, const Settings* b) {
@@ -294,7 +303,140 @@ int settings_equal(const Settings* a, const Settings* b) {
             return 0;
         }
     }
+    if (a->layout_count != b->layout_count) return 0;
+    return memcmp(a->layouts, b->layouts, sizeof(AppLayout) * (size_t)clamp_int(a->layout_count, 0, APP_LAYOUT_MAX)) == 0;
+}
+
+// ---- per PC and app layouts -----------------------------------------------------------------
+// One [screen.<hash>] section each. The keys are the settings' own, found by
+// their section and name so the range and kind of each is the table's.
+
+typedef struct {
+    const char* key;
+    size_t offset;          // into AppLayout
+    const char* setting;    // the Settings field it remembers, "section.key"
+} LayoutKey;
+
+#define LK(k, g) { #k, offsetof(AppLayout, k), g }
+static const LayoutKey LAYOUT_KEYS[] = {
+    LK(distance_cm, "screen.distance_cm"), LK(height_cm, "screen.height_cm"),
+    LK(azimuth_deg, "screen.azimuth_deg"), LK(tilt_deg, "screen.tilt_deg"),
+    LK(rotate_deg, "screen.rotate_deg"), LK(curve, "screen.curve"), LK(width_cm, "screen.width_cm"),
+    LK(head_locked, "display.head_locked"), LK(head_follow, "display.head_follow"),
+    LK(stereo, "3d.stereo"), LK(separation, "3d.separation"), LK(convergence, "3d.convergence"),
+};
+#define LAYOUT_KEY_COUNT ((int)(sizeof(LAYOUT_KEYS) / sizeof(LAYOUT_KEYS[0])))
+
+static const SettingDesc* layout_desc(int i) {
+    static const SettingDesc* cache[sizeof(LAYOUT_KEYS) / sizeof(LAYOUT_KEYS[0])];
+    if (!cache[i]) cache[i] = settings_find(LAYOUT_KEYS[i].setting);
+    return cache[i];
+}
+
+static int* layout_field(AppLayout* l, int i) { return (int*)((char*)l + LAYOUT_KEYS[i].offset); }
+static const int* layout_cfield(const AppLayout* l, int i) { return (const int*)((const char*)l + LAYOUT_KEYS[i].offset); }
+
+static void layout_clamp(AppLayout* l) {
+    for (int i = 0; i < LAYOUT_KEY_COUNT; i++) {
+        const SettingDesc* d = layout_desc(i);
+        *layout_field(l, i) = clamp_int(*layout_field(l, i), d->min, d->max);
+    }
+    if (l->head_locked) l->head_follow = 0;
+}
+
+unsigned settings_app_hash(const char* host, const char* app) {
+    if (!app || !*app) return 0;
+    unsigned h = 2166136261u;   // FNV-1a over the names, lower case, a newline between
+    for (const char* p = host ? host : ""; *p; p++) {
+        h = (h ^ (unsigned)tolower((unsigned char)*p)) * 16777619u;
+    }
+    h = (h ^ (unsigned)'\n') * 16777619u;
+    for (const char* p = app; *p; p++) {
+        h = (h ^ (unsigned)tolower((unsigned char)*p)) * 16777619u;
+    }
+    return h ? h : 1u;
+}
+
+const AppLayout* settings_layout_find(const Settings* s, unsigned hash) {
+    if (!hash) return NULL;
+    for (int i = 0; i < s->layout_count && i < APP_LAYOUT_MAX; i++) {
+        if (s->layouts[i].hash == hash) return &s->layouts[i];
+    }
+    return NULL;
+}
+
+void settings_layout_snapshot(const Settings* s, AppLayout* out) {
+    memset(out, 0, sizeof(*out));
+    for (int i = 0; i < LAYOUT_KEY_COUNT; i++) {
+        *layout_field(out, i) = settings_get(s, layout_desc(i));
+    }
+    layout_clamp(out);
+}
+
+void settings_layout_apply(Settings* s, const AppLayout* l) {
+    for (int i = 0; i < LAYOUT_KEY_COUNT; i++) {
+        settings_set(s, layout_desc(i), *layout_cfield(l, i));
+    }
+    settings_clamp(s);
+}
+
+int settings_layout_same(const AppLayout* a, const AppLayout* b) {
+    for (int i = 0; i < LAYOUT_KEY_COUNT; i++) {
+        if (*layout_cfield(a, i) != *layout_cfield(b, i)) return 0;
+    }
     return 1;
+}
+
+static void layout_remove_at(Settings* s, int at) {
+    for (int i = at; i + 1 < s->layout_count; i++) s->layouts[i] = s->layouts[i + 1];
+    s->layout_count--;
+    memset(&s->layouts[s->layout_count], 0, sizeof(AppLayout));
+}
+
+// A slot at the end for a hash, the oldest dropped to make room
+static AppLayout* layout_add(Settings* s, unsigned hash) {
+    if (s->layout_count >= APP_LAYOUT_MAX) layout_remove_at(s, 0);
+    AppLayout* l = &s->layouts[s->layout_count++];
+    memset(l, 0, sizeof(*l));
+    l->hash = hash;
+    return l;
+}
+
+int settings_layout_store(Settings* s, unsigned hash, const AppLayout* l) {
+    if (!hash) return 0;
+    AppLayout copy = *l;
+    copy.hash = hash;
+    layout_clamp(&copy);
+    for (int i = 0; i < s->layout_count && i < APP_LAYOUT_MAX; i++) {
+        if (s->layouts[i].hash != hash) continue;
+        if (settings_layout_same(&s->layouts[i], &copy)) return 0;
+        layout_remove_at(s, i);
+        break;
+    }
+    *layout_add(s, hash) = copy;
+    return 1;
+}
+
+int settings_layout_forget(Settings* s, unsigned hash) {
+    for (int i = 0; i < s->layout_count && i < APP_LAYOUT_MAX; i++) {
+        if (s->layouts[i].hash == hash && hash) {
+            layout_remove_at(s, i);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int settings_head_lock_cell(const Settings* s) {
+    return s->head_locked ? 1 : (s->head_follow ? 2 : 0);
+}
+
+// "screen.<hex>", the section of one remembered layout. 0 when it is not one.
+static unsigned layout_section_hash(const char* section) {
+    if (strncasecmp(section, "screen.", 7) != 0 || !section[7]) return 0;
+    char* end;
+    unsigned long v = strtoul(section + 7, &end, 16);
+    return *end || v == 0 || v > 0xFFFFFFFFul ? 0 : (unsigned)v;
 }
 
 // ---- text form -------------------------------------------------------------------------
@@ -380,6 +522,22 @@ char* settings_to_text(const Settings* s) {
         buf_add(&b, "# %s%s (default %s)\n", d->doc, range, def[0] ? def : "empty");
         buf_add(&b, "%s%s = %s\n", settings_is_default(s, d) ? "#" : "", d->key, val);
     }
+    for (int n = 0; n < s->layout_count && n < APP_LAYOUT_MAX; n++) {
+        const AppLayout* l = &s->layouts[n];
+        buf_add(&b, "\n[screen.%08x]\n", l->hash);
+        if (n == 0) {
+            buf_add(&b, "# Remembered layouts, one section for each PC and app (Remember per app on the Screen\n"
+                        "# tab). The name is a hash of the PC's and the app's names. The keys are the\n"
+                        "# settings' own: screen placement, head lock and the 3D state. Delete a section\n"
+                        "# to forget the app, or use Forget on the Screen tab while it streams.\n");
+        }
+        for (int i = 0; i < LAYOUT_KEY_COUNT; i++) {
+            const SettingDesc* d = layout_desc(i);
+            int v = *layout_cfield(l, i);
+            if (d->type == SET_BOOL) buf_add(&b, "%s = %s\n", LAYOUT_KEYS[i].key, v ? "true" : "false");
+            else buf_add(&b, "%s = %d\n", LAYOUT_KEYS[i].key, v);
+        }
+    }
     return b.p ? b.p : strdup("");
 }
 
@@ -450,6 +608,8 @@ void settings_from_text(Settings* s, const char* text, SettingsLoadInfo* info) {
     if (!info) info = &local;
     memset(info, 0, sizeof(*info));
     char section[64] = "";
+    AppLayout* layout = NULL;   // the slot a [screen.<hash>] section fills
+    int in_layout = 0;
     if (!text) return;
     if (strncmp(text, "\xEF\xBB\xBF", 3) == 0) text += 3;   // a byte order mark from an editor
     const char* p = text;
@@ -468,6 +628,23 @@ void settings_from_text(Settings* s, const char* text, SettingsLoadInfo* info) {
             if (!close) { info->bad++; continue; }
             *close = 0;
             snprintf(section, sizeof section, "%s", trim(l + 1));
+            layout = NULL;
+            in_layout = strncasecmp(section, "screen.", 7) == 0 && section[7];
+            if (in_layout) {
+                unsigned hash = layout_section_hash(section);
+                if (hash) {
+                    layout = (AppLayout*)settings_layout_find(s, hash);
+                    if (!layout) {
+                        Settings dflt;
+                        settings_defaults(&dflt);
+                        layout = layout_add(s, hash);
+                        AppLayout base;
+                        settings_layout_snapshot(&dflt, &base);
+                        base.hash = hash;
+                        *layout = base;
+                    }
+                }
+            }
             continue;
         }
         char* eq = strchr(l, '=');
@@ -477,6 +654,30 @@ void settings_from_text(Settings* s, const char* text, SettingsLoadInfo* info) {
         char* val = trim(eq + 1);
         size_t vl = strlen(val);
         if (vl >= 2 && val[0] == '"' && val[vl - 1] == '"') { val[vl - 1] = 0; val++; }
+        if (in_layout) {
+            // a remembered layout's key: never one of the settings in force
+            int found = -1;
+            for (int i = 0; i < LAYOUT_KEY_COUNT && found < 0; i++) {
+                if (layout && streq_ci(LAYOUT_KEYS[i].key, key)) found = i;
+            }
+            if (found < 0) { info->unknown++; continue; }
+            const SettingDesc* ld = layout_desc(found);
+            int x = 0;
+            if (ld->type == SET_BOOL) {
+                if (!parse_bool(val, &x)) { info->bad++; continue; }
+            } else {
+                char* end;
+                errno = 0;
+                long n = strtol(val, &end, 10);
+                if (end == val || *end) { info->bad++; continue; }
+                if (errno == ERANGE || n > 1000000000L || n < -1000000000L) n = n < 0 ? ld->min : ld->max;
+                if (n < ld->min || n > ld->max) info->clamped++;
+                x = (int)n;
+            }
+            *layout_field(layout, found) = clamp_int(x, ld->min, ld->max);
+            info->applied++;
+            continue;
+        }
         const SettingDesc* d = NULL;
         for (int i = 0; i < TABLE_COUNT && !d; i++) {
             if (streq_ci(TABLE[i].section, section) && streq_ci(TABLE[i].key, key)) d = &TABLE[i];
@@ -751,7 +952,7 @@ int settings_option_cell(const Settings* s, const SessionToggles* t, int option)
     case COG_OPTION_SHARPEN: return clamp_int(s->sharpening, 0, 2);
     case COG_OPTION_SUPERSAMPLE: return clamp_int(s->supersampling, 0, 2);
     case COG_OPTION_STATS: return s->stats;
-    case COG_OPTION_HEAD_LOCK: return s->head_locked;
+    case COG_OPTION_HEAD_LOCK: return settings_head_lock_cell(s);
     case COG_OPTION_HEAD_AIM: return t->head_aim;
     case COG_OPTION_GAMEPAD: return t->pad_mode;
     case COG_OPTION_POINTER_SLEEP: return s->pointer_sleep;

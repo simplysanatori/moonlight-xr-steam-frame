@@ -1008,6 +1008,19 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     }
     MLOG_I("%s app %d on %s, rtsp %s", comp->current_game ? "resumed" : "launched", appId, n->hosts.v[pc].name,
            n->rtsp ? n->rtsp : "(none)");
+    {
+        // The PC and app this stream is of, which the Screen tab keys the layout it remembers by
+        char appName[96] = "";
+        pthread_mutex_lock(&g_lock);
+        for (int i = 0; i < g_launch.appCount; i++) {
+            if (g_launch.apps[i].id == appId) {
+                snprintf(appName, sizeof(appName), "%s", g_launch.apps[i].name);
+                break;
+            }
+        }
+        pthread_mutex_unlock(&g_lock);
+        xrSetStreamIdentity(n->hosts.v[pc].name, appName);
+    }
     memset(&g_job, 0, sizeof(g_job));
     mlxr_fill_server_info(&g_job.si, n->address[pc], comp, n->rtsp);
     StreamHost host = { g_job.si.address, g_job.si.serverInfoAppVersion, g_job.si.serverInfoGfeVersion,

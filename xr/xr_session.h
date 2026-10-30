@@ -109,3 +109,6 @@ void xr_app_set_host_app(const char* name);
 // Native, any thread: show or hide the in-world keyboard on the next frame (a
 // physical pad's Y in mouse mode, lane wave2b-padmouse)
 void xr_app_toggle_keyboard(void);
+// The PC and app now streaming (names), which the layout kept per app is keyed
+// by. Same function as xr_native.h's.
+void xrSetStreamIdentity(const char* host, const char* app);
