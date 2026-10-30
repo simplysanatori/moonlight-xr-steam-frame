@@ -589,7 +589,8 @@ if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
          3d.separation 3d.convergence 3d.stereo 3d.eye_balance 3d.stereo_source 3d.sbs_full 3d.edge_sharpness 3d.depth_scale
          3d.depth_global 3d.motion_reset ui.language"
     left="stream.host stream.app vr.hand_hint_seen display.cog_tab display.zoom_x display.zoom_y screen.height_cm
-          screen.azimuth_deg screen.tilt_deg screen.rotate_deg screen.far_distance_cm screen.far_width_cm"
+          screen.azimuth_deg screen.tilt_deg screen.rotate_deg screen.back_distance_cm screen.back_height_cm
+          screen.back_azimuth_deg screen.back_tilt_deg screen.back_rotate_deg screen.back_curve screen.back_width_cm"
     for k in $(cut -d' ' -f1 "$t/client-table"); do
         case "$k" in debug.*|rooms.*) continue;; esac
         case " $(echo $own $left) " in *" $k "*) continue;; esac
@@ -703,7 +704,6 @@ case "${FAKE_MODE:-ok}" in
   err) echo "some log line"; echo "MLXR_ERROR: The host is on fire" >&2; exit 6;;
   silent) exit 3;;
   disc) exit 11;;
-  pcvr) exit 12;;
   crash) kill -SEGV $$;;
 esac
 FAKE
@@ -730,107 +730,6 @@ MLXR_LAUNCHER_DRYRUN="fail:5:no such app" selftest "gaming-pc:Desktop" >"$t/stdo
 selftest "nosuch:Desktop" >/dev/null 2>&1; [ $? = 20 ] && ok "unknown PC is reported" || fail "unknown PC"
 # a PC without that app
 selftest "laptop:1" >/dev/null 2>&1; [ $? = 21 ] && ok "unknown app is reported" || fail "unknown app"
-
-# --- 4b. lane wave4-pcvr: exit code 12 (the Host sheet's Switch to PC VR) hands the headset to Valve's
-# Steam Link stream through steam_cef.py. A fake CEF endpoint (tests/tools/fake_cef.py) stands in for
-# Steam; it logs every expression it is asked to evaluate.
-SC="$here/../../packaging/steam_cef.py"
-FC="$here/../tools/fake_cef.py"
-if [ -f "$SC" ] && [ -f "$FC" ]; then
-    read -r CEFPORT DEADPORT < <(python3 -I -c 'import socket
-a=socket.socket(); a.bind(("127.0.0.1",0)); b=socket.socket(); b.bind(("127.0.0.1",0))
-print(a.getsockname()[1], b.getsockname()[1])')
-    cat >"$t/cef-rules.json" <<'JSON'
-[
- ["navigator.userAgent", {"StreamGame":"function","RunGame":"function","RegisterForDevicesChanges":"function","ExecuteSteamURL":"function","ShowDashboard":"function","userAgent":"Steam/test"}],
- ["RegisterForDevicesChanges", {"devices":[{"clientId":"76561198000000001","clientName":"gaming-pc","unStreamingSessionID":0}]}],
- ["appStore", {"apps":[
-   {"appid":620980,"name":"Beat Saber","categories":[53],"perClient":[{"clientid":"76561198000000001","installed":true}]},
-   {"appid":440,"name":"Team Fortress 2","categories":[1],"perClient":[{"clientid":"76561198000000001","installed":true}]}]}],
- ["StreamGame", true],
- ["ExecuteSteamURL", true]
-]
-JSON
-    : > "$t/cef.log"
-    python3 -I "$FC" "$CEFPORT" "$t/cef-rules.json" "$t/cef.log" >"$t/cef.out" 2>&1 &
-    CEFPID=$!
-    trap 'kill $CEFPID ${fakepc:-} 2>/dev/null; rm -rf "$t"' EXIT   # (lane wave4-launcher: and the fake PC of 3e)
-    for _ in $(seq 1 50); do grep -q "fake CEF on" "$t/cef.out" 2>/dev/null && break; sleep 0.1; done
-    export MLXR_STEAM_CEF="$SC" STEAM_CEF_PORT="$CEFPORT" STEAM_CEF_FLAG_FILE="$t/no-flag"
-    pcvrsay() { MLXR_LAUNCHER_SELFTEST="$1" "$L" 2>"$t/stderr"; }
-
-    # the exit code, as a dry run: the launcher treats 12 like 11 (no dialog) and prints what it asks Steam
-    unset FAKE_MODE
-    MLXR_LAUNCHER_DRYRUN="fail:12:" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
-    [ $rc = 0 ] && ok "exit 12 (Switch to PC VR) is not an error" || fail "exit 12 gave $rc"
-    expect "exit 12: no error dialog" "$(cat "$t/stdout")" "error=none"
-    # lane pcvr-steamvr: SteamVR from the PC of that name, never a game
-    expect "exit 12: SteamVR from the stream's PC, by name" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --pc gaming-pc --confirm 10"
-    refute "exit 12: no --app" "$(grep '^MLXR_PCVR' "$t/stdout")" "--app"
-    SECTION=mlxr setconf pcvr_app=620980 pcvr_client=76561198000000001
-    MLXR_LAUNCHER_DRYRUN="fail:12:" selftest "gaming-pc:Desktop" >"$t/stdout"
-    expect "exit 12 with a PC chosen in Settings" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --pc gaming-pc --client 76561198000000001 --confirm 10"
-    refute "exit 12: an old saved game is not streamed" "$(grep '^MLXR_PCVR' "$t/stdout")" "--app"
-    MLXR_LAUNCHER_DRYRUN="fail:11:" selftest "gaming-pc:Desktop" >"$t/stdout"
-    refute "exit 11 (disconnect) does not hand off to PC VR" "$(cat "$t/stdout")" "MLXR_PCVR"
-    MLXR_LAUNCHER_DRYRUN="fail:6:no" selftest "gaming-pc:Desktop" >"$t/stdout"
-    refute "a failing client does not hand off to PC VR" "$(cat "$t/stdout")" "MLXR_PCVR"
-
-    # for real: a client that exits 12, Steam's side played by the fake endpoint
-    : > "$t/cef.log"
-    FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
-    [ $rc = 0 ] && ok "client exit 12 -> success" || fail "client exit 12 gave $rc"
-    expect "client exit 12: finished without an error" "$(cat "$t/stdout")" "started=yes finished=yes error=none"
-    expect "client exit 12: Steam is asked to StreamGame SteamVR from the chosen PC" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(250820, "76561198000000001", 0)'
-    refute "client exit 12: the flat screen is not asked for" "$(cat "$t/cef.log")" "ShowDashboard"
-    refute "client exit 12: no Steam page, no library" "$(cat "$t/cef.log")" "ExecuteSteamURL"
-    expect "client exit 12: the log names the path taken" "$(cat "$t/stderr")" "Asked Steam for PC VR: stream (the PC chosen"
-    # no PC chosen: Steam's paired PC with the Moonlight PC's name (the script asks Steam for the list first)
-    : > "$t/cef.log"
-    SECTION=mlxr setconf pcvr_client=
-    FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"
-    expect "no PC chosen: Steam is asked for the paired PCs" "$(cat "$t/cef.log")" "RegisterForDevicesChanges"
-    expect "no PC chosen: the paired PC of that name is streamed from" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(250820, "76561198000000001", 0)'
-    expect "no PC chosen: the log says it was found by name" "$(cat "$t/stderr")" "the paired PC named gaming-pc"
-    # the app grid's VR (vr:<PC>): a dry run ends nothing and asks Steam nothing, and shows the call
-    : > "$t/cef.log"
-    MLXR_LAUNCHER_DRYRUN=1 selftest "vr:gaming-pc" >"$t/stdout"; rc=$?
-    [ $rc = 0 ] && ok "vr: dry run" || fail "vr: dry run gave $rc: $(cat "$t/stderr")"
-    expect "vr dry run: the hand-off it would start" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --pc gaming-pc --confirm 10"
-    expect "vr dry run: steam_cef.py's call" "$(cat "$t/stdout")" 'SELFTEST: vr steam rc=0'
-    expect "vr dry run: SteamVR from the paired PC" "$(cat "$t/stdout")" 'StreamGame(250820, \"76561198000000001\", 0)'
-    refute "vr dry run: Steam was not asked to stream" "$(cat "$t/cef.log")" "StreamGame"
-    # for real against the fake Steam (the saved PC does not answer here: it says so and asks Steam anyway)
-    : > "$t/cef.log"
-    selftest "vr:gaming-pc" >"$t/stdout"; rc=$?
-    [ $rc = 0 ] && ok "vr: runs" || fail "vr gave $rc"
-    expect "vr: Steam is asked for SteamVR from the PC" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(250820, "76561198000000001", 0)'
-    expect "vr: the log says what it did about the PC's app" "$(cat "$t/stderr")" "VR: "
-    selftest "vr:nosuch" >/dev/null 2>&1; [ $? = 20 ] && ok "vr: an unknown PC is reported" || fail "vr: unknown PC"
-    # Steam's port does not answer: the hand-off fails quietly (logged), the launcher carries on
-    SECTION=mlxr setconf pcvr_client=76561198000000001
-    STEAM_CEF_PORT="$DEADPORT" FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
-    [ $rc = 0 ] && expect "Steam port dead: no error dialog" "$(cat "$t/stdout")" "error=none" || fail "dead port gave $rc"
-    expect "Steam port dead: logged with the way to check" "$(cat "$t/stderr")" "steam_cef.py --probe"
-
-    # the preflight and the lists (steam_cef.py through the launcher)
-    out="$(pcvrsay pcvr:probe)"
-    expect "preflight: port answers, calls present" "$out" "SELFTEST: pcvr probe rc=0"
-    expect "preflight: reports ok" "$out" '"ok": true'
-    out="$(STEAM_CEF_PORT="$DEADPORT" pcvrsay pcvr:probe)"
-    expect "preflight: a dead port is exit 3" "$out" "SELFTEST: pcvr probe rc=3"
-    expect "preflight: with a hint" "$out" "does not answer"
-    out="$(pcvrsay pcvr:devices)"
-    expect "paired PCs are listed" "$out" '"clientName": "gaming-pc"'
-    out="$(pcvrsay pcvr:apps:76561198000000001)"
-    expect "the PC's games are listed" "$out" '"name": "Beat Saber"'
-    expect "VR games first" "$out" '[{"appid": 620980'
-    out="$(pcvrsay pcvr:bogus)"; [ $? = 20 ] && ok "a bad pcvr self-test is reported" || fail "bad pcvr self-test"
-    unset MLXR_STEAM_CEF STEAM_CEF_PORT STEAM_CEF_FLAG_FILE
-    SECTION=mlxr setconf pcvr_app= pcvr_client=
-else
-    ok "(PC VR tests skipped: no packaging/steam_cef.py or tests/tools/fake_cef.py)"
-fi
 
 # --- 5. the whole app starts headless, shows the seeded PCs, and leaves cleanly
 if [ -n "$SHOTS" ]; then
@@ -907,24 +806,12 @@ if [ -n "$SHOTS" ]; then
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=bitrateWifiRow \
         MLXR_LAUNCHER_SCREENSHOT="$t/path-bitrates-2.png@3000" "$L" >"$t/uiabr2.out" 2>&1
     grep -q '^bitrate_wifi = 100000$' "$ini" && ok "path bitrates are read back from config.ini (80000 steps to 100000)" || { fail "bitrate_wifi not read back"; cat "$ini"; }
-    # lane wave4-pcvr: the Settings page's PC VR rows and the startup preflight
-    if [ -n "${CEFPID:-}" ]; then
-        # preflight at start (MLXR_PCVR_PREFLIGHT stands in for Game Mode): logged as ok
-        MLXR_STEAM_CEF="$SC" STEAM_CEF_PORT="$CEFPORT" STEAM_CEF_FLAG_FILE="$t/no-flag" MLXR_PCVR_PREFLIGHT=1 MLXR_LAUNCHER_IW_FILE=/dev/null \
-            MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_SCREENSHOT="$t/pcvr-pre.png@3000" "$L" >"$t/ui10.out" 2>&1
-        expect "preflight at start: Steam's port is fine" "$(grep 'Steam CEF preflight' "$t/ui10.out")" "Steam CEF preflight: ok"
-        MLXR_STEAM_CEF="$SC" STEAM_CEF_PORT="$DEADPORT" STEAM_CEF_FLAG_FILE="$t/no-flag" MLXR_PCVR_PREFLIGHT=1 MLXR_LAUNCHER_IW_FILE=/dev/null \
-            MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_SCREENSHOT="$t/pcvr-dead.png@3000" "$L" >"$t/ui11.out" 2>&1
-        expect "preflight at start: a dead port is logged with the hint" "$(grep 'Steam CEF preflight' "$t/ui11.out")" "NOT OK - Steam's debugging port $DEADPORT does not answer"
-        # the Settings page: the rows load without QML errors, and the first one asks Steam for the lists
-        MLXR_STEAM_CEF="$SC" STEAM_CEF_PORT="$CEFPORT" STEAM_CEF_FLAG_FILE="$t/no-flag" MLXR_LAUNCHER_IW_FILE=/dev/null \
-            MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_SCROLL=1500 MLXR_LAUNCHER_CLICK=pcvrCheckRow \
-            MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-pcvr.png@4500" "$L" >"$t/ui12.out" 2>&1
-        grep -Eq "$QMLERR" "$t/ui12.out" && { fail "PC VR rows: QML errors"; grep -E "$QMLERR" "$t/ui12.out" | head -3; } || ok "settings page with the PC VR rows loads (no QML errors)"
-        grep -q "no clickable" "$t/ui12.out" && fail "PC VR click hook: $(grep 'no clickable' "$t/ui12.out")"
-        expect "PC VR check row: asks Steam" "$(grep 'Steam CEF preflight' "$t/ui12.out")" "Steam CEF preflight: ok"
-        SECTION=mlxr setconf pcvr_app= pcvr_client=
-    fi
+    # PC VR was taken out: the keys an older version saved for it load without trouble and are dropped
+    SECTION=mlxr setconf pcvr_client=76561198000000001 pcvr_client_name=gaming-pc pcvr_app=620980 "pcvr_app_name=Beat Saber"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_SCREENSHOT="$t/old-pcvr.png@3000" "$L" >"$t/uipcvr.out" 2>&1
+    grep -Eq "$QMLERR" "$t/uipcvr.out" && { fail "old PC VR keys: QML errors"; grep -E "$QMLERR" "$t/uipcvr.out" | head -3; } || ok "settings page loads with an old config's PC VR keys (no QML errors)"
+    grep -q '^pcvr_' "$CONF" && fail "old PC VR keys kept after a save: $(grep '^pcvr_' "$CONF" | tr '\n' ' ')" || ok "old PC VR keys are dropped"
     # what the VR client's own parser makes of it
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"

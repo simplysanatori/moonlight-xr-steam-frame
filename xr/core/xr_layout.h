@@ -407,52 +407,21 @@ XrQuaternionf layoutFaceHead(XrQuaternionf orientation, Vec3 screenPos, Vec3 hea
 // was, facing it, the same size. Only its pose; the width is not touched.
 XrPosef layoutBringHere(XrPosef screen, XrPosef head);
 
-// Native (lane bar-glare): the same from the bar's Bring here button. The eyes
-// are on the bar then, not on the picture, so the gaze is lifted by the angle
-// the middle of the bar's row hangs under the picture's middle as the head
-// sees it now (a frame width x height, the bar under it as barSlotPlacement
-// hangs it): the picture comes round with its bar where the eyes were, and a
-// second press leaves it where it is rather than walking it down.
-XrPosef layoutBringHereFromBar(XrPosef screen, float width, float height, XrPosef head);
-
-// Native (lane bar-glare): the same rule at a distance from the head and a
-// size of its own: dist along the gaze lifted by the angle a picture that wide
-// and high at that distance hangs its bar's row under its middle, so the new
-// picture's bar is where the eyes were, facing the head with its tilt and roll
-// kept
-XrPosef layoutBringHereFromBarAt(XrPosef screen, XrPosef head, float dist, float width,
-                                 float height);
-
-// Native (lane bar-glare): the bar's Bring here, a switch between near and
-// far. Near is the Desk preset's distance and width; far is the distance from
-// the head and the width the screen had before the last press that brought it
-// near, else the Cinema preset's. Which one the screen is at is read off the
-// placement, not kept as a flag: it is near while it still sits where the
-// last near press put it (BRING_NEAR_TOL_M, BRING_NEAR_TOL_DEG, and the width
-// within BRING_NEAR_TOL_M), or, with no such press this session (a restart
-// while near), when it is the Desk preset's width and within
-// BRING_DESK_TOL_M of the Desk preset's distance from the head. A move or
-// resize while near makes the next press bring it near again, and forgets the
-// far one.
-#define BRING_NEAR_TOL_M 0.02f
-#define BRING_NEAR_TOL_DEG 1.0f
-#define BRING_DESK_TOL_M 0.10f
-typedef struct {
-    int nearValid;
-    XrPosef nearPose;
-    float nearWidth;
-    int farValid;
-    float farDistance;
-    float farWidth;
-} BringToggle;
-
-// Whether the screen is at the near placement, so a press sends it far
-int bringToggleNear(const BringToggle* t, XrPosef screen, float width, XrPosef head);
-
-// One press: the screen's new pose and width for a picture of that shape
-// (height over width), round where the head looks with the eyes on the bar.
-// Says 1 when it went near, 0 when it went far.
-int bringTogglePress(BringToggle* t, XrPosef* screen, float* width, float aspect, XrPosef head);
+// The bar's Bring here button, a switch between the Screen tab's Desk preset
+// and the placement the screen had before it went there. It never follows the
+// head or the gaze: Desk and Cinema are applied exactly as the Screen tab's
+// cells apply them, and "back" is the placement remembered, as it was. Which
+// press comes next is read off the screen: at the Desk preset (the Desk cell
+// shows its ring) the press goes back to the remembered placement, or to the
+// Cinema preset when none is remembered; anywhere else the press remembers
+// where the screen is and goes to Desk. So a move or resize while at Desk that
+// takes it off the preset makes the next press remember that new placement.
+#define BRING_TO_DESK 0
+#define BRING_BACK 1
+#define BRING_TO_CINEMA 2
+// presetNow is layoutPresetAt of the screen as it is (-1 none); backValid
+// whether a placement is remembered
+int bringSwitchNext(int presetNow, int backValid);
 
 // Where the screen is when it sits dir from the head, as far from it as it
 // was, facing it with its tilt and roll kept

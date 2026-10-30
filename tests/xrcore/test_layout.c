@@ -1114,118 +1114,32 @@ static void testTheGaze(void) {
     CHECK_NEAR(degrees(asinf(g.y)), LAYOUT_GAZE_PITCH_MAX_DEG, 1e-3);
 }
 
-// Native (lane bar-glare): Bring here from the bar, pressed with the eyes on
-// the bar's row. Looking straight at the bar of a screen ahead leaves it where
-// it is (the panel's Bring here would have dropped it to put its middle there),
-// and with the head turned it comes round at the height it had.
-static void testBringHereFromTheBar(void) {
-    const float w = 3.0f, h = w * 9.0f / 16.0f;
-    XrPosef screen;
-    memset(&screen, 0, sizeof(screen));
-    screen.orientation.w = 1.0f;
-    screen.position.z = -3.0f;
-    float barY = -(h * 0.5f + w * BAR_DROP_FRAC);
-    float down = atan2f(-barY, 3.0f);
-    XrPosef head;
-    memset(&head, 0, sizeof(head));
-    head.orientation = yawPitch(0.0f, -down);
-    XrPosef out = layoutBringHereFromBar(screen, w, h, head);
-    CHECK_NEAR(out.position.x, 0.0, 1e-3);
-    CHECK_NEAR(out.position.y, 0.0, 1e-3);
-    CHECK_NEAR(out.position.z, -3.0, 1e-3);
-    XrPosef plain = layoutBringHere(screen, head);
-    CHECK(plain.position.y < barY * 0.9f);
-    // Twice is once
-    XrPosef again = layoutBringHereFromBar(out, w, h, head);
-    CHECK_NEAR(again.position.y, out.position.y, 1e-3);
-    // Turned 30 degrees to the left, eyes on where the bar would be
-    head.orientation = yawPitch(radians(30.0f), -down);
-    out = layoutBringHereFromBar(screen, w, h, head);
-    Vec3 p = { out.position.x, out.position.y, out.position.z };
-    CHECK_NEAR(sqrtf(vecDot(p, p)), 3.0, 1e-3);
-    CHECK_NEAR(out.position.y, 0.0, 1e-3);
-    CHECK_NEAR(atan2f(-p.x, -p.z), radians(30.0f), 1e-3);
-}
-
-// Native (lane bar-glare): the bar's Bring here as a switch. Near is the
-// Desk preset, far is where it was before (or the Cinema preset); which one
-// it is at is read off the placement.
+// The bar's Bring here, a switch between Desk and the placement it left (or
+// Cinema): anything not at the Desk preset goes to Desk, Desk goes back, or to
+// Cinema with nothing remembered. Only the Desk preset counts as Desk: a
+// screen at Couch or Cinema, or between presets, goes to Desk.
 static void testTheBringSwitch(void) {
     LayoutPreset desk = layoutPresetOf(LAYOUT_PRESET_DESK);
+    LayoutPreset couch = layoutPresetOf(LAYOUT_PRESET_COUCH);
     LayoutPreset cinema = layoutPresetOf(LAYOUT_PRESET_CINEMA);
-    const float aspect = 9.0f / 16.0f;
-    float w = 3.0f;
-    XrPosef screen;
-    memset(&screen, 0, sizeof(screen));
-    screen.orientation.w = 1.0f;
-    screen.position.z = -3.0f;
-    // Looking down at the bar of the far screen, turned 25 degrees left
-    float down = atan2f(w * aspect * 0.5f + w * BAR_DROP_FRAC, 3.0f);
-    XrPosef head;
-    memset(&head, 0, sizeof(head));
-    head.orientation = yawPitch(radians(25.0f), -down);
-    Vec3 gaze = layoutGazeDir(head.orientation);
-    BringToggle t;
-    memset(&t, 0, sizeof(t));
-    CHECK(!bringToggleNear(&t, screen, w, head));
-
-    // Far to near: the Desk preset, with its bar where the eyes are
-    CHECK(bringTogglePress(&t, &screen, &w, aspect, head) == 1);
-    CHECK_NEAR(w, desk.widthCm / 100.0f, 1e-5);
-    Vec3 p = { screen.position.x, screen.position.y, screen.position.z };
-    CHECK_NEAR(sqrtf(vecDot(p, p)), desk.distanceCm / 100.0f, 1e-4);
-    Vec3 barLocal = { 0.0f, -(w * aspect * 0.5f + w * BAR_DROP_FRAC), 0.0f };
-    Vec3 barOff = quatRotate(screen.orientation, barLocal);
-    Vec3 bar = vecNorm((Vec3){ p.x + barOff.x, p.y + barOff.y, p.z + barOff.z });
-    CHECK(acosf(fminf(1.0f, vecDot(bar, gaze))) * 180.0f / (float)M_PI < 1.0f);
-    CHECK(t.farValid && fabsf(t.farDistance - 3.0f) < 1e-4f && fabsf(t.farWidth - 3.0f) < 1e-5f);
-    CHECK(bringToggleNear(&t, screen, w, head));
-
-    // Near to far: as it was, centred where the head looks now
-    head.orientation = yawPitch(radians(-15.0f), -down);
-    CHECK(bringTogglePress(&t, &screen, &w, aspect, head) == 0);
-    CHECK_NEAR(w, 3.0, 1e-5);
-    p = (Vec3){ screen.position.x, screen.position.y, screen.position.z };
-    CHECK_NEAR(sqrtf(vecDot(p, p)), 3.0, 1e-4);
-    CHECK_NEAR(atan2f(-p.x, -p.z), radians(-15.0f), 1e-3);
-    CHECK_NEAR(p.y, 0.0, 1e-3);
-    CHECK(!bringToggleNear(&t, screen, w, head));
-
-    // Near again, then moved while near: the next press brings it near again,
-    // and the one after goes to the Cinema preset, the far one forgotten
-    CHECK(bringTogglePress(&t, &screen, &w, aspect, head) == 1);
-    screen.position.x += 0.1f;
-    CHECK(!bringToggleNear(&t, screen, w, head));
-    CHECK(bringTogglePress(&t, &screen, &w, aspect, head) == 1);
-    CHECK(!t.farValid);
-    CHECK(bringTogglePress(&t, &screen, &w, aspect, head) == 0);
-    CHECK_NEAR(w, cinema.widthCm / 100.0f, 1e-5);
-    p = (Vec3){ screen.position.x, screen.position.y, screen.position.z };
-    CHECK_NEAR(sqrtf(vecDot(p, p)), cinema.distanceCm / 100.0f, 1e-4);
-    // Resized while near does the same
-    CHECK(bringTogglePress(&t, &screen, &w, aspect, head) == 1);
-    w += 0.05f;
-    CHECK(!bringToggleNear(&t, screen, w, head));
-
-    // A restart while near (nothing brought near this session): the Desk
-    // preset's width at its distance reads as near; with no far kept, the
-    // press goes to the Cinema preset
-    BringToggle fresh;
-    memset(&fresh, 0, sizeof(fresh));
-    w = desk.widthCm / 100.0f;
-    screen.position = (XrVector3f){ 0.0f, 0.03f, -desk.distanceCm / 100.0f + 0.05f };
-    CHECK(bringToggleNear(&fresh, screen, w, head));
-    CHECK(bringTogglePress(&fresh, &screen, &w, aspect, head) == 0);
-    CHECK_NEAR(w, cinema.widthCm / 100.0f, 1e-5);
-    // and with one kept (from the file), back to it
-    memset(&fresh, 0, sizeof(fresh));
-    fresh.farValid = 1;
-    fresh.farDistance = 2.2f;
-    fresh.farWidth = 2.4f;
-    w = desk.widthCm / 100.0f;
-    screen.position = (XrVector3f){ 0.0f, 0.0f, -desk.distanceCm / 100.0f };
-    CHECK(bringTogglePress(&fresh, &screen, &w, aspect, head) == 0);
-    CHECK_NEAR(w, 2.4, 1e-5);
+    for (int back = 0; back <= 1; back++) {
+        CHECK(bringSwitchNext(-1, back) == BRING_TO_DESK);
+        CHECK(bringSwitchNext(LAYOUT_PRESET_COUCH, back) == BRING_TO_DESK);
+        CHECK(bringSwitchNext(LAYOUT_PRESET_CINEMA, back) == BRING_TO_DESK);
+    }
+    CHECK(bringSwitchNext(LAYOUT_PRESET_DESK, 1) == BRING_BACK);
+    CHECK(bringSwitchNext(LAYOUT_PRESET_DESK, 0) == BRING_TO_CINEMA);
+    // The presets themselves, as the cells and this switch read them
+    CHECK(layoutPresetAt(desk.distanceCm, desk.widthCm) == LAYOUT_PRESET_DESK);
+    CHECK(layoutPresetAt(desk.distanceCm + 2, desk.widthCm - 1) == LAYOUT_PRESET_DESK);
+    CHECK(layoutPresetAt(desk.distanceCm + 5, desk.widthCm) == -1);
+    CHECK(layoutPresetAt(couch.distanceCm, couch.widthCm) == LAYOUT_PRESET_COUCH);
+    CHECK(layoutPresetAt(cinema.distanceCm, cinema.widthCm) == LAYOUT_PRESET_CINEMA);
+    // Desk then Cinema, the order the owner asked for, from nothing remembered
+    int next = bringSwitchNext(layoutPresetAt(300, 300), 0);
+    CHECK(next == BRING_TO_DESK);
+    next = bringSwitchNext(layoutPresetAt(desk.distanceCm, desk.widthCm), 1);
+    CHECK(next == BRING_BACK);
 }
 
 // Bring here: where the head looks, as far off as it was, facing the head,
@@ -1820,7 +1734,6 @@ int main(void) {
     testTheRowsOrder();
     testTheWholeRowIsTheBar();
     testTheBringSwitch();
-    testBringHereFromTheBar();
     testRoomCornersLookTheSameEverywhere();
     testLanes();
     testTheSizeClamp();

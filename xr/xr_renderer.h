@@ -1191,9 +1191,15 @@ typedef struct XrCtx {
     int64_t followNs;
     XrPosef headPose;
     int headPoseValid;
-    // Native (lane bar-glare): the bar's Bring here switch, near and far
-    // (xr/core/xr_layout.h); the far placement is kept in config.ini
-    BringToggle bringToggle;
+    // The bar's Bring here switch between Desk and the placement the screen
+    // left for it (xr/core/xr_layout.h bringSwitchNext): that placement as
+    // it was, pose, width, cylinder radius and the panel's curve (-1 the
+    // preference's); kept in config.ini ([screen] back_*)
+    int bringBackValid;
+    XrPosef bringBackPose;
+    float bringBackWidth;
+    float bringBackRadius;
+    float bringBackCurve;
     int perAppOn;
     int angularLockOn;
     int lockActive;
@@ -1304,9 +1310,6 @@ typedef struct XrCtx {
     int padCardUp;
     int padCardReady;
     PadLive padLive;
-    // Native (PLAN 4.1): the Host sheet's "Switch to PC VR" was confirmed; xr_session.c turns it into
-    // XrUiEvents.pcvrConfirmed once and clears it
-    int pcvrRequest;
     // Native (lane wave4-apollo): the Host sheet's PC page. hostPage is the page showing; hostInfo what the
     // host offers (xr_app_set_host_info); hostCompose "Send text to PC" having the keyboard; and
     // hostActKind (XR_HOSTACT_*, with hostActArg and hostActText) the thing a press chose, which the
@@ -1506,6 +1509,10 @@ int cogRoomCellValue(XrCtx* ctx, int row);
 void cogApplyRoomCell(XrCtx* ctx, int row, int cell, float* out);
 int cogCellInForce(XrCtx* ctx, int face, int row);
 void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out);
+// The Screen tab's preset rows: which preset the screen is at now (-1 none, the
+// one whose cell shows its ring), and a preset put in force as its cell does
+int xrScreenPresetNow(XrCtx* ctx);
+void xrScreenApplyPreset(XrCtx* ctx, int preset);
 void cogDragEnded(XrCtx* ctx, float* out);
 void cogStepTrack(XrCtx* ctx, int face, int row, int dir, float* out);
 int cogCellAt(float pu, int cells);
