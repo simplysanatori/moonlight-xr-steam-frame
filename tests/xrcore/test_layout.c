@@ -866,6 +866,13 @@ static void testTheHintButtons(void) {
 static void testTheKofiButton(void) {
     float btn = (KOFI_BTN_T + KOFI_BTN_B) * 0.5f;
     CHECK(kofiSheetZone((KOFI_CLOSE_L + KOFI_CLOSE_R) * 0.5f, btn) == KOFI_ZONE_CLOSE);
+    // "Open page" beside it, the two never overlapping
+    CHECK(kofiSheetZone((KOFI_OPEN_L + KOFI_OPEN_R) * 0.5f, btn) == KOFI_ZONE_OPEN);
+    CHECK(KOFI_OPEN_R < KOFI_CLOSE_L && KOFI_OPEN_L > KOFI_QR_L + (float)KOFI_QR_PX / KOFI_TEX_W);
+    CHECK(kofiSheetZone(KOFI_OPEN_L - 0.01f, btn) == KOFI_ZONE_NONE);
+    CHECK(kofiSheetZone((KOFI_OPEN_R + KOFI_CLOSE_L) * 0.5f, btn) == KOFI_ZONE_NONE);
+    CHECK(kofiSheetZone((KOFI_OPEN_L + KOFI_OPEN_R) * 0.5f, KOFI_BTN_T - 0.01f) == KOFI_ZONE_NONE);
+    CHECK(kofiSheetZone((KOFI_OPEN_L + KOFI_OPEN_R) * 0.5f, KOFI_BTN_B + 0.01f) == KOFI_ZONE_NONE);
     CHECK(kofiSheetZone(KOFI_CLOSE_L - 0.01f, btn) == KOFI_ZONE_NONE);
     CHECK(kofiSheetZone(KOFI_CLOSE_R + 0.01f, btn) == KOFI_ZONE_NONE);
     CHECK(kofiSheetZone((KOFI_CLOSE_L + KOFI_CLOSE_R) * 0.5f, KOFI_BTN_T - 0.01f)

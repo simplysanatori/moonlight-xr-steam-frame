@@ -532,6 +532,9 @@ static void test_other_panels_hits(void) {
     check_hits_inside("kofi");
     int cl = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_KOFI_CLOSE, -1);
     CHECK(cl >= 0 && kofiSheetZone((hits.hit[cl].u0 + hits.hit[cl].u1) / 2, (hits.hit[cl].v0 + hits.hit[cl].v1) / 2) == KOFI_ZONE_CLOSE);
+    int op = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_KOFI_OPEN, -1);
+    CHECK(op >= 0 && kofiSheetZone((hits.hit[op].u0 + hits.hit[op].u1) / 2, (hits.hit[op].v0 + hits.hit[op].v1) / 2) == KOFI_ZONE_OPEN);
+    CHECK(strcmp(ui_str(UIS_KOFI_OPEN), "Open page") == 0 && strcmp(ui_str(UIS_KOFI_CLOSE), "Not now") == 0);
     free(g.base);
 }
 
