@@ -924,20 +924,13 @@ static void test_host_sheet(void) {
     ui_view_init(&v, &s);
     CHECK(v.host_confirm == -1);
     Guarded g;
-    // no macros: Close, PC VR (PLAN 4.1), the button to the PC page, the 11 quick actions and Send keys
+    // no macros: Close, the button to the PC page, the 11 quick actions and Send keys (no PC VR: it was
+    // taken out, the header has only these two buttons)
     draw(UI_PANEL_HOST, &v, 1.0f, &g);
     check_hits_inside("host");
-    CHECK(hits.count == 3 + XR_HOST_MACRO_FIRST);
+    CHECK(hits.count == 2 + XR_HOST_MACRO_FIRST);
     CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CLOSE, -1) >= 0);
     CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PAGE, -1) >= 0);
-    {
-        int pc = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PCVR, -1);
-        CHECK(pc >= 0);
-        if (pc >= 0) {
-            CHECK(xrHostZoneAt((hits.hit[pc].u0 + hits.hit[pc].u1) * 0.5f, (hits.hit[pc].v0 + hits.hit[pc].v1) * 0.5f, 0, 0)
-                  == XR_HOST_ZONE_PCVR);
-        }
-    }
     free(g.base);
     // with macros (and more than the sheet has room for)
     for (int n = 1; n <= XR_HOST_MACRO_SLOTS + 3; n++) {
@@ -946,15 +939,13 @@ static void test_host_sheet(void) {
         draw(UI_PANEL_HOST, &v, 1.0f, &g);
         check_hits_inside("host macros");
         int shown = n < XR_HOST_MACRO_SLOTS ? n : XR_HOST_MACRO_SLOTS;
-        CHECK(hits.count == 3 + XR_HOST_MACRO_FIRST + shown);
+        CHECK(hits.count == 2 + XR_HOST_MACRO_FIRST + shown);
         for (int i = 0; i < hits.count; i++) {
             const UiHit* h = &hits.hit[i];
             float u = (h->u0 + h->u1) * 0.5f, w = (h->v0 + h->v1) * 0.5f;
             int zone = xrHostZoneAtPage(u, w, XR_HOST_PAGE_MAIN, shown, 0, 0);
             if (h->kind == UI_HIT_HOST_CELL) {
                 CHECK(zone == h->a && h->b == xrHostCellKind(h->a, shown));
-            } else if (h->a == UI_BTN_HOST_PCVR) {
-                CHECK(h->kind == UI_HIT_BUTTON && zone == XR_HOST_ZONE_PCVR);
             } else if (h->kind == UI_HIT_BUTTON && h->a == UI_BTN_HOST_PAGE) {
                 CHECK(zone == XR_HOST_ZONE_PAGE);
             } else {
@@ -978,20 +969,6 @@ static void test_host_sheet(void) {
         CHECK(xrHostZoneAt((hits.hit[cancel].u0 + hits.hit[cancel].u1) * 0.5f, (hits.hit[cancel].v0 + hits.hit[cancel].v1) * 0.5f, 2, 1)
               == XR_HOST_ZONE_CONFIRM_CANCEL);
     }
-    long sumKeys = 0;
-    for (size_t i = 0; i < g.size; i++) sumKeys += g.px[i];
-    free(g.base);
-    // asking before the switch to PC VR: the same two buttons, its own words
-    v.host_confirm = XR_HOST_CONFIRM_PCVR;
-    v.host_confirm_label[0] = '\0';
-    draw(UI_PANEL_HOST, &v, 1.0f, &g);
-    check_hits_inside("host pcvr confirm");
-    CHECK(hits.count == 2);
-    CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CONFIRM, -1) >= 0);
-    CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CANCEL, -1) >= 0);
-    long sumPcvr = 0;
-    for (size_t i = 0; i < g.size; i++) sumPcvr += g.px[i];
-    CHECK(sumPcvr != sumKeys);
     free(g.base);
     // a lit cell changes the drawing
     v.host_confirm = -1;
@@ -1220,10 +1197,9 @@ static void test_host_pc_page(void) {
         draw(UI_PANEL_HOST, &v, 1.0f, &g);
         check_hits_inside("host pc");
         int shown = n < XR_HOST_CMD_SLOTS ? n : XR_HOST_CMD_SLOTS;
-        // Close, PC VR, the page button, Paste, Send text and the commands
-        CHECK(hits.count == 3 + 2 + shown);
+        // Close, the page button, Paste, Send text and the commands
+        CHECK(hits.count == 2 + 2 + shown);
         CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PAGE, -1) >= 0);
-        CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PCVR, -1) >= 0);
         for (int i = 0; i < hits.count; i++) {
             const UiHit* h = &hits.hit[i];
             float u = (h->u0 + h->u1) * 0.5f, w = (h->v0 + h->v1) * 0.5f;
@@ -1232,8 +1208,6 @@ static void test_host_pc_page(void) {
                 CHECK(zone == h->a && h->b == xrHostPcCellKind(h->a, shown));
             } else if (h->a == UI_BTN_HOST_PAGE) {
                 CHECK(h->kind == UI_HIT_BUTTON && zone == XR_HOST_ZONE_PAGE);
-            } else if (h->a == UI_BTN_HOST_PCVR) {
-                CHECK(h->kind == UI_HIT_BUTTON && zone == XR_HOST_ZONE_PCVR);
             } else {
                 CHECK(h->kind == UI_HIT_BUTTON && h->a == UI_BTN_HOST_CLOSE && zone == XR_HOST_ZONE_CLOSE);
             }

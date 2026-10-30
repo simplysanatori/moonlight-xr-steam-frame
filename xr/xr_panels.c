@@ -847,7 +847,7 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
     for (int i = 0; i < k.count; i++) {
         snprintf(k.names[i], sizeof(k.names[i]), "%s", ctx->macros.macro[i].name);
     }
-    if (k.confirm >= 0 && k.confirm != XR_HOST_CONFIRM_PCVR && k.page == XR_HOST_PAGE_PC) {
+    if (k.confirm >= 0 && k.page == XR_HOST_PAGE_PC) {
         // a command: its name is the question
         int n = k.confirm - XR_HOST_PC_CMD_FIRST;
         if (n >= 0 && n < XR_HOST_CMD_SLOTS) {
@@ -871,11 +871,9 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
         v.hover.a = k.zone;
     }
     else if (k.zone == XR_HOST_ZONE_CLOSE || k.zone == XR_HOST_ZONE_CONFIRM_SEND
-             || k.zone == XR_HOST_ZONE_CONFIRM_CANCEL || k.zone == XR_HOST_ZONE_PCVR
-             || k.zone == XR_HOST_ZONE_PAGE) {
+             || k.zone == XR_HOST_ZONE_CONFIRM_CANCEL || k.zone == XR_HOST_ZONE_PAGE) {
         v.hover.kind = UI_HIT_BUTTON;
         v.hover.a = k.zone == XR_HOST_ZONE_CLOSE ? UI_BTN_HOST_CLOSE
-                  : k.zone == XR_HOST_ZONE_PCVR ? UI_BTN_HOST_PCVR
                   : k.zone == XR_HOST_ZONE_PAGE ? UI_BTN_HOST_PAGE
                   : k.zone == XR_HOST_ZONE_CONFIRM_SEND ? UI_BTN_HOST_CONFIRM : UI_BTN_HOST_CANCEL;
     }
@@ -887,7 +885,7 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
     snprintf(v.host_confirm_label, sizeof(v.host_confirm_label), "%s", k.label);
     v.host_page = k.page;
     v.host_info = k.info;
-    v.host_confirm_cmd = k.page == XR_HOST_PAGE_PC && k.confirm != XR_HOST_CONFIRM_PCVR;
+    v.host_confirm_cmd = k.page == XR_HOST_PAGE_PC;
     PanelJob j;
     jobPanel(&j, UI_PANEL_HOST, &v);
     submit(ctx, p, &j);

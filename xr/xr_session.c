@@ -1652,10 +1652,6 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
         ctx->hostActKind = XR_HOSTACT_NONE;
         ctx->hostActText[0] = '\0';
     }
-    if (ctx->pcvrRequest) {
-        ctx->pcvrRequest = 0;
-        ev->pcvrConfirmed = 1;
-    }
     if ((int)in[IN_EXIT] == EXIT_SLOT_DISCONNECT) {
         ev->disconnectConfirmed = 1;
     }
@@ -1673,7 +1669,7 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
     Settings* s = h->cfg->settings;
     if (in[IN_POSE_DIRTY] != 0.0f) {
         xrPoseToSettings(&in[IN_POSE], xrCurveSetting(ctx), s);
-        xrBringFarToSettings(ctx, s); // native (lane bar-glare): the bar's Bring here's far placement
+        xrBringBackToSettings(ctx, s); // the bar's Bring here: the placement it goes back to
         saveSettings(h, "screen placement");
     }
     int pick = (int)in[IN_PICKER_PICK];
@@ -2284,7 +2280,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         XrUiLauncher show;
         memset(&show, 0, sizeof(show));
         if (cfg->hooks.ui) cfg->hooks.ui(cfg->hooks.user, &ev, &show);
-        else if (ev.exitConfirmed || ev.disconnectConfirmed || ev.pcvrConfirmed) atomic_store(&g_quit, 1);
+        else if (ev.exitConfirmed || ev.disconnectConfirmed) atomic_store(&g_quit, 1);
         XrLauncherView lv;
         memset(&lv, 0, sizeof(lv));
         lv.mode = show.mode;

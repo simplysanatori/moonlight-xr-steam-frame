@@ -2014,35 +2014,6 @@ Flickable {
             onClicked: MlxrPrefs.idleDisconnect = settingsPage.nextLimit(settingsPage.idleValues, MlxrPrefs.idleDisconnect)
         }
 
-        // ======== PC VR (lane wave4-pcvr): Valve's Steam Link stream of the PC ========
-        PrefCategory { text: qsTr("PC VR") }
-
-        PrefRow {
-            objectName: "pcvrCheckRow"
-            title: qsTr("Switch to PC VR")
-            valueText: MlxrPrefs.pcvrBusy ? qsTr("Asking Steam...") : ""
-            summary: (MlxrPrefs.pcvrStatus !== "" ? MlxrPrefs.pcvrStatus + " " : "") +
-                     qsTr("VR, first in a PC's apps, and the Host sheet's PC VR close what runs on the PC and have the headset's Steam stream SteamVR from it. That is Valve's Steam Link, not Moonlight: its picture, its tracking and its limits. Press here to check Steam and list the PCs you paired with.")
-            onClicked: MlxrPrefs.pcvrRefresh()
-        }
-
-        PrefRow {
-            objectName: "pcvrPcRow"
-            title: qsTr("PC to stream from")
-            valueText: MlxrPrefs.pcvrClientName !== "" ? MlxrPrefs.pcvrClientName : qsTr("Automatic")
-            summary: qsTr("A PC this headset is paired with in Steam (Remote Play). Automatic is the one with the Moonlight PC's name, else the only one. Press the first row above to list them.")
-            onClicked: {
-                var e = [{ text: qsTr("Automatic"), reason: "" }]
-                var cur = 0
-                var d = MlxrPrefs.pcvrDevices
-                for (var i = 0; i < d.length; i++) {
-                    e.push({ text: d[i].clientName + (d[i].streaming ? " " + qsTr("(streaming now)") : ""), reason: "" })
-                    if (d[i].clientId === MlxrPrefs.pcvrClient) cur = i + 1
-                }
-                listDialog.show(title, e, cur, function(i) { MlxrPrefs.pcvrChooseDevice(i - 1) })
-            }
-        }
-
         // ======== Advanced Settings ========
         PrefCategory { text: qsTr("Advanced Settings"); icon: "advanced" }
 

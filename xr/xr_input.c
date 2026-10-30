@@ -3748,13 +3748,13 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
         }
     }
     else if (f->hover == HOVER_HEREBUTTON) {
-        // Native (lane bar-glare): Bring here, near and back far, with the
-        // eyes on the bar (xr_place.c). The screen comes round under the ray,
-        // so the press is held back from the PC. Lit off hoverKind
-        // (xr_layers.c), so no hot flag.
+        // Bring here, a switch between the Desk preset and where the screen
+        // was before it (xr_place.c). The screen moves under the ray, so the
+        // press is held back from the PC. Lit off hoverKind (xr_layers.c), so
+        // no hot flag.
         if (ctx->triggerEdge[f->hand]) {
             if (xrBringHereToggle(ctx) < 0) {
-                LOGI("bring here from the bar: nothing moved (a room, head locked, or no head pose yet)");
+                LOGI("bring here from the bar: nothing moved (a room, head locked, or no placement yet)");
             }
             swallowTrigger(ctx, f->hand);
         }
