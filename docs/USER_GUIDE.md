@@ -58,6 +58,7 @@ The page has the categories below, in this order. A greyed row shows "Not availa
 | Setting | Options | Notes |
 | --- | --- | --- |
 | Network connection | **Automatic**, **Wi-Fi (*network name*, *band*)**, **Steam Frame Wireless Adapter (6 GHz)**, **USB cable** | Automatic (the default) tries every link that is there when a stream starts (Wi-Fi, the adapter and a USB cable, see [USB cable](#usb-cable)) and uses the one with the lower latency and the fewer losses. It sends about 15 short probes down each link (about a second in all) and gives each link a score in milliseconds, lower is better: the median round trip, plus the jitter, plus how far the slowest probes run above the median, plus 50 ms for every probe that failed, plus a penalty from the last stream on that link. That penalty applies when the last stream lost more than 0.5 percent of its frames on the network: 20 ms for each percent, at most 150 ms. A link with no history gets no penalty. The lowest score wins. When two scores are within 3 ms of each other, the stronger signal and faster link rate break the tie, and Wi-Fi wins a tie after that. Signal and link rate no longer decide on their own. A link that does not answer is never used. The client keeps the last stream's numbers for each link in `netpath-history.ini` next to `config.ini` (frames received, frames lost, jitter, round trip and the time; no addresses or names). It writes them when a stream ends, after at least 500 frames. Delete the file to forget them. History older than 14 days is ignored. Wi-Fi streams over your home network. The adapter option streams over the Steam Frame Wireless Adapter plugged into your PC. The USB cable option streams over a USB data cable between the headset and your PC. Before it tries the adapter, the client checks that the adapter is there: the headset's own adapter network (`wlanap`) must be up and your PC must be connected to it. With no adapter found, Automatic uses Wi-Fi without trying the adapter, and if you chose the adapter the client uses Wi-Fi and shows a notice in the headset ("Steam Frame Wireless Adapter not reachable (no adapter found: ...). Using Wi-Fi."). If the chosen link does not answer, the client uses the other one and says so in the headset. |
+| Full-frame requests after lost video | **No limit**, **250 ms**, **500 ms**, **1000 ms**, **2000 ms** | 500 ms (the default). When video is lost and the PC's quick repair does not come, the headset asks the PC for a full picture (an IDR frame). A full picture is large: asked for again while the Wi-Fi is still losing packets, it lands in the same bad moment and makes the freeze longer. This is the least time between two such requests of the headset's own. Pressing the row steps through the choices. It is `rfi_idr_ms` in `config.ini`'s `[stream]` section. |
 
 ### USB cable
 
@@ -484,6 +485,7 @@ This uses the headset sensor through `XR_EXT_user_presence`. `moonlight.log` has
 
 | Problem | What to check |
 | --- | --- |
+| The picture freezes or drops to a few frames a second for a moment, the sound lags | Packets are lost in bursts. `moonlight.log` has one `video: burst at <time> for <N> ms: ...` line when such a burst ends: how many frames were lost on the network, how many whole frames were thrown away waiting for a repair (`dropped waiting for RFI / IDR`), how many full frames were asked for (`IDR requests sent`, `asked here`, `held back ... by rfi_idr_ms`) and whether the picture came back by the quick repair (`recovered by RFI`), by a full frame (`recovered by IDR`) or neither. During the burst the per-frame lines (`Waiting for RFI frame` and the like) are written once each and then only counted. Many bursts with `recovered by IDR` and several `IDR requests sent` each: try a larger `rfi_idr_ms`, a lower bitrate or another link. The 5 s line in the log adds `rx drop misc`: packets the headset's network interface or the system threw away before the app could read them (`drop`, `err`, `fifo` on the interface, `udp mem` and `csum`); they are not the network's losses. `own sockets` says how many of the receive-buffer drops were this app's. |
 | Judder or stutter | Turn on Stats (Display tab). `Display 90 Hz, 90 fps` means the headset draws every frame. If `Video ... fps` is low, the PC is sending fewer frames: check the PC's display rate. If `idr requests` keeps rising, packets are being lost: lower the bitrate or try the other link. `vrtiming.log` shows SteamVR's dropped and reprojected frames. |
 | Crackling sound | The stats line `audio ... underruns, ... lost` counts gaps. Lost packets are the network. On the adapter link, lower the bitrate. |
 | Which link is in use | `moonlight.log` has `network path: using Wi-Fi (...)` or the adapter, when the stream starts. The line before it, `network path: chose ...`, gives both scores and what decided it (latency, failed probes or the last stream's losses), and `network path: history: ...` shows what the last stream on each link lost. The headset shows a notice when it falls back to the other link. |
@@ -495,7 +497,7 @@ This uses the headset sensor through `XR_EXT_user_presence`. `moonlight.log` has
 | 3D tab greyed | The tab says why. If the depth model did not load, the log has the error. |
 | The stream did not start | The flat window shows the client's error. `moonlight-console.log` has the details. |
 
-Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use the zip from `bug-report.sh`. It holds the logs, your headset note, the settings you changed and a short version summary, all masked, and nothing else. It leaves out `hosts.ini`, keys and certificates. Look inside before you share it.
+Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report freezes or stutter, say roughly when they happened: `moonlight.log`'s `video: burst at` lines carry the time, and the line written every 5 seconds has the round trip, the frames lost and dropped, `bursts N (longest N ms)`, `udp rcvbuf errors` and `rx drop misc` for those 5 seconds. To share them, use the zip from `bug-report.sh`. It holds the logs, your headset note, the settings you changed and a short version summary, all masked, and nothing else. It leaves out `hosts.ini`, keys and certificates. Look inside before you share it.
 
 ## Advanced: config.ini
 
@@ -530,6 +532,7 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | `[stream] bitrate_kbps` | 0, or 500 to 500000 | 0, which follows the resolution and refresh rate. A bitrate the flat window passes for a stream overrides it. The flat window's Custom bitrate goes up to 500 Mbps, and so does this. |
 | `[stream] doff_disconnect` | 0 to 3600 (seconds) | 60. How long the headset can stay off before the stream is disconnected (the game keeps running on the PC). 0 never. |
 | `[stream] idle_disconnect` | 0 to 1440 (minutes) | 0 (off). Disconnects the stream after this long with no input. |
+| `[stream] rfi_idr_ms` | 0 to 5000 (ms) | 500. After lost video, the headset asks the PC for a full (IDR) frame at most once in this time. 0 no limit. The PC's own requests from the streaming library cannot be held back; the log counts them. The flat window's Settings page has the same choice under Connection. |
 | `[stream] virtual_surround` | `true`, `false` | `false`. Places 5.1 and 7.1 speakers around you in stereo. |
 | `[debug] file_log` | `off`, `basic`, `verbose` | `basic` |
 
@@ -545,7 +548,8 @@ These are for testing and debugging. Most users never need them. Put them in fro
 | `MLXR_VIDEO_PACING` | 2 | 2 low latency, 1 smooth, 0 always the newest frame. |
 | `MLXR_VIDEO_PRIORITY` | `nice` | `off`, `nice` or `rt` for the video threads. |
 | `MLXR_VIDEO_RFI` | 1 | 0 turns off reference frame invalidation (HEVC loss recovery). |
-| `MLXR_VIDEO_RFI_IDR_MS` | 100 | How long a recovery may take before a full frame is asked for. |
+| `MLXR_VIDEO_RFI_IDR_MS` | 100 | The shortest time a recovery may take before a full frame is asked for. The wait grows to three round trips on a slow link, and while the link is still losing frames it lasts until the link has been clean that long. |
+| `MLXR_VIDEO_RFI_IDR_MAX_MS` | 1000 | The longest that wait grows to: after it a full frame is asked for even if frames are still being lost. |
 | `MLXR_VIDEO_IDR_MIN_MS` | 100 | After a decoder error, a full frame is asked for at most this often (0: no limit). |
 | `MLXR_PACER_CUSHION` | 3 | Decoded frames held for pacing (2 or 3). |
 | `MLXR_VIDEO_LATCH_MS` | 4 | 0 to 8 ms the pacer waits for a frame in decode. |
