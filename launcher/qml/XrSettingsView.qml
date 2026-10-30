@@ -176,6 +176,15 @@ Flickable {
         return Math.max(0, noticeValues.indexOf(MlxrPrefs.notices))
     }
 
+    // [vr] scroll_speed: the steps the row goes through, percent
+    readonly property var scrollSpeedSteps: [50, 75, 100, 150, 200, 300]
+    function nextScrollSpeed() {
+        for (var i = 0; i < scrollSpeedSteps.length; i++) {
+            if (scrollSpeedSteps[i] > MlxrPrefs.scrollSpeed) return scrollSpeedSteps[i]
+        }
+        return scrollSpeedSteps[0]
+    }
+
     // Native (lane wave2b-padmouse): [vr] pad_mouse_chord, pad_mouse_scroll and pad_arbitration of the VR client
     readonly property var padMouseChordValues: ["start_hold", "start_back", "off"]
     readonly property var padMouseChordNames: [qsTr("Hold Start"), qsTr("Hold Start and Back"), qsTr("Off")]
@@ -853,6 +862,15 @@ Flickable {
             summary: qsTr("The small pop-ups in the headset. Important leaves out the display rate and 3D on/off and keeps mode changes and errors.") + " " +
                      qsTr("(also on its Display tab)")
             onClicked: MlxrPrefs.notices = settingsPage.noticeValues[(settingsPage.noticeIndex() + 1) % settingsPage.noticeValues.length]
+        }
+
+        // The controllers' thumbstick wheel in the headset: pressing the row steps the speed
+        PrefRow {
+            objectName: "scrollSpeedRow"
+            title: qsTr("Headset scroll speed")
+            valueText: MlxrPrefs.scrollSpeed + "%"
+            summary: qsTr("How fast a controller's thumbstick scrolls in pointer mode. Tilt it sideways to scroll sideways.")
+            onClicked: MlxrPrefs.scrollSpeed = settingsPage.nextScrollSpeed()
         }
 
         // ======== Advanced Settings ========

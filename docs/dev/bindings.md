@@ -1,6 +1,6 @@
 # Controller bindings: `bindings.ini` and `xr/core/xr_bind`
 
-PLAN.md Wave 2 row 2.5 (research report 15, section a). This is the binding core: a pure module (no OpenXR, no GL, no context) that reads `~/.config/moonlight-xr/bindings.ini`, layers it over built in defaults and answers "what does this control do now". It is **not wired into `xr/xr_input.c` yet**; that is the follow-up integration lane (notes at the end). Tests: `tests/xrcore/test_bind.c` (`xrcore_bind`).
+PLAN.md Wave 2 row 2.5 (research report 15, section a). This is the binding core: a pure module (no OpenXR, no GL, no context) that reads `~/.config/moonlight-xr/bindings.ini`, layers it over built in defaults and answers "what does this control do now". The input pass uses it (lane wave2-bind-wire, "How the input pass uses it" at the end). Tests: `tests/xrcore/test_bind.c` (`xrcore_bind`), `tests/xrcore/test_bindrun.c` and `tests/m4/test_bindings.c`.
 
 ## The file
 
@@ -230,7 +230,19 @@ int xrBindPadButtons(const XrBindTable* t, uint64_t down);  // PAD_ bits
 
 `XrBindSet` is about 12 KB and `XrBindTable` about 1 KB; keep the set in the context or a static, not on a small stack.
 
-## Notes for the integration lane
+## How the input pass uses it
+
+Lane wave2-bind-wire. `xr/core/xr_bindrun.h` is the table at work frame to frame (pure, `tests/xrcore/test_bindrun.c`); `xr/xr_input.c` ("bindings.ini at work") feeds it; `tests/m4/test_bindings.c` drives the whole thing through `xrBindFrame`.
+
+- **Start.** `xr_session.c` calls `xrBindLoad(ctx, NULL)` after the settings: the file is read (written the first time), each error goes to the log as `bindings: <file>:<line>:<col>: what` (a warning), the toast says `bindings.ini: N errors, see log` (a message, so Notices Off silences it), and one line says what differs from the defaults (`bindings: pointer mode right.y = key:F; gamepad mode as the defaults`, or `bindings: the defaults`).
+- **The host app.** `app/main.c` names the app when a stream starts (`xr_app_set_host_app`, the name from the app list, or `--app` when that is a name) and clears it when the stream stops; the frame loop hands it to `xrBindSetApp`, which lets go of whatever is held and resolves both tables again.
+- **Pointer mode** (`bindPointerStep`, after the panels have taken their presses): the controls are `xrBindSourcesDown` over the pad's view of the controllers (after the switch shortcut's hold-back), with the triggers replaced by `triggerDown` less `triggerSwallowed` (press stabilisation and presses spent on our UI), the grips taken out while a grab is on or the ray is on the move pill, a corner, the keyboard's bar or the stats window, and the stick clicks taken out while they are at their default and `MLXR_STICK_RIGHT_CLICK=0`. `xrBindEdgesMouse` replaces `pointerButtonMask` (a hand without a controller still pinches the left button); `dispatchInput` maps five bits through `xrBindHostButton`. Left View stays unbound.
+- **Gamepad mode** (`bindPadStep`, in `updatePad`): while the table is the defaults (`xrBindTableSame`), `padMapGrips` and `padGuideStep` make the pad exactly as before. Once it differs, the buttons come from the table (`xrBindEdgesPad`), a trigger on its own `pad:lt`/`pad:rt` stays analogue and a button on one pulls it all the way, sticks on `stick:pad_left`/`pad_right` go through `padStick`, grips at their default follow `pad_grip`, and the View+Menu Guide chord keeps its quarter-second hold through `padGuideStep` while it is still `pad:guide` over Back and Start (`xrBindTableGuideHold`); bound to anything else it fires at once. A panel up (or no controller held) lets go of everything and lets only `app:` commands through.
+- **Edges.** `key:` goes down and up through `XrAppHooks.bindKey` (`app/main.c` presses the modifier keys around it); `wheel:` adds a notch on the press; `app:` runs on the press (`keyboard`, `ray` steps Off/Dot/Ray and saves it as the Display tab does, `recentre` brings the screen round to the head's heading with `poseRecentredTo`, `cog`, `3d`, `gamepad`; `bringhere` only logs until PLAN 3.6). Everything held is let go on a mode switch (the controls still down stay out until let go), focus loss, the pointer being switched off, a host app change, and in gamepad mode a panel.
+- **Sticks.** `stick:scroll` is the smooth wheel (`xr/core/xr_scroll.h`, both axes, `scroll_speed`); `stick:mouse` moves the host mouse; `wasd`, `arrows` and `dpad` are spread over the four directions where those are bound to nothing (`xrBindTableExpandSticks`); a direction bound to something of its own is taken out of the stick's scroll or pad stick.
+- **Not yet:** the touch controls (no OpenXR actions for them), an in-headset editor (lane wave2-bind-editor).
+
+## Notes the core lane left for the integration (kept for reference)
 
 - **Load** once at start (`xrBindLoadFile(&set, NULL, &errs)`), log every `errs.errors[i].text` with the file name, and resolve a table per mode when the session starts, when the host app is known (`Settings.app`) and on a mode switch.
 - **Inputs:** the two `PadHand`s after `padChordApply` (so the switch shortcut's parts are already held back), through `xrBindSourcesDown` with last frame's bits. For the triggers use `ctx->triggerDown` with `triggerSwallowed` taken out instead of the plain hysteresis, so press stabilisation keeps working. Take the grips out while the ray is on our UI. Touch bits come in once the touch actions are bound.

@@ -182,6 +182,7 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Show controllers | Off, On | Off |
 | Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. Bar = this session, cog = saved: the choice here is kept for the next session, the bar's Ray button is not. |
 | Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
+| Click steadiness | Off, Normal, Steady | Normal. How still the PC's cursor is held around a click. Normal sends a click where you aimed before the trigger pull moved the controller, and holds the cursor for a double click. Steady also keeps the cursor still from the moment you touch the trigger until you aim a few pixels away. Off sends the aim as it is, for light gun games and fast clicking. |
 | Click sound | Off, On | On |
 | Glow | Off, On | Off |
 | Screen light | Off, On | On |
@@ -222,11 +223,18 @@ This is the default. The ray from either controller is the mouse.
 | A, or d-pad down | Right click |
 | B, or d-pad right | Middle click |
 | Thumbstick click | Right click |
-| Thumbstick up or down | Scroll, while the ray is on the picture |
+| Thumbstick | Scroll, while the ray is on the picture: up and down, and sideways. The scroll is smooth; `scroll_speed` in `config.ini` sets how fast. |
 | Grip | Grab the move pill, a corner of the screen, the keyboard's bar or the stats window |
-| X, Y, d-pad up and left, bumpers, menu | Nothing in pointer mode |
+| Left bumper, right bumper | Back and Forward (the mouse's side buttons, as in a web browser) |
+| Y | Show or hide the keyboard |
+| X | 3D on or off |
+| d-pad up | Recentre: the screen comes round to where you face |
+| Menu (right) | Open or close the cog menu |
+| d-pad left, View | Nothing (View with the left grip is the mode switch) |
 
-A click is sent at the point you aimed at before the trigger pull moved the controller. After a click the cursor waits for half a second while you keep aiming near it, so the second click of a double click lands on the first one. Move the ray away and the cursor follows at once.
+Every button can be changed in `bindings.ini`, for every app or for one app. See [Changing the buttons](#changing-the-buttons).
+
+A click is sent at the point you aimed at before the trigger pull moved the controller. After a click the cursor waits for half a second while you keep aiming near it, so the second click of a double click lands on the first one. Move the ray away and the cursor follows at once. The Display tab's **Click steadiness** row turns this off or makes it stronger.
 
 ### Gamepad mode
 
@@ -249,6 +257,24 @@ Start and Back reach the PC as you press them. If you keep both down for a quart
 The stick dead zone is 7 % of the way out. Move the launcher's **Adjust analog stick deadzone** slider above 0 and the controllers use that value instead (1 to 20 %). Values below 0 are dead zone compensation, which only physical gamepads use.
 
 The PC's rumble drives the controllers in gamepad mode. By default both controllers get the stronger of the PC's two motors, so a game that uses one motor is felt in both hands; the trigger motors (when the PC sends them) add to the controller on their side. `rumble_mix` and `rumble_intensity` in `config.ini` change this (see [below](#advanced-configini)). If you feel nothing, `moonlight.log` has `rumble: the host's first request` when the PC's first rumble arrives, and `rumble on the left controller ... runtime said` for what the headset's runtime did with it. No first-request line means the PC sent no rumble (check Enable Rumble in the launcher and the PC's gamepad type).
+
+### Changing the buttons
+
+`~/.config/moonlight-xr/bindings.ini` says what each control does. The first start writes it with every default as a line that starts with `#`, so it changes nothing until you take the `#` off a line and edit it. For example:
+
+```ini
+[pointer]
+right.y = key:F                ; Y presses F on the PC
+left.dpad_left = key:ctrl+shift+esc
+
+[gamepad]
+right.grip = key:R             ; the right grip presses R instead of RB
+
+[app "Time Crisis 2"]          ; only while this app (its name in the app list) is streamed
+pointer.right.trigger = mouse:left
+```
+
+An action is `key:` (a key, with `ctrl+`, `shift+`, `alt+`, `win+` in front), `mouse:left|right|middle|x1|x2`, `wheel:up|down|left|right`, `pad:` (a gamepad button, gamepad mode only), `stick:` (what a whole thumbstick does: `scroll`, `mouse`, `wasd`, `arrows`, `dpad`) or `app:keyboard|ray|recentre|cog|3d|gamepad`. A line that is not right is left out: `moonlight.log` says which line and why, and the headset shows "bindings.ini: N errors, see log". The mode switch shortcuts, the disconnect chord and the grips' grab over the bar and corners cannot be changed. The full list is in the file itself.
 
 ### Switching between the modes
 
@@ -295,7 +321,7 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 
 ## Controllers
 
-The cog's **Display** tab has the controller rows together: **Mode**, **Show controllers**, **Ray**, **Pointer sleep** and **Click sound**.
+The cog's **Display** tab has the controller rows together: **Mode**, **Show controllers**, **Ray**, **Pointer sleep**, **Click steadiness** and **Click sound**.
 
 | Row | What it does |
 | --- | --- |
@@ -401,6 +427,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | `[vr] pad_mouse_chord` | `start_hold` (hold Start for a second), `start_back` (hold Start and Back), `off`. Turns a physical gamepad into the PC's mouse and back. | `start_hold` |
 | `[vr] pad_mouse_scroll` | `right`, `left`, `none`. The stick that scrolls while a gamepad is a mouse; the other stick points. | `right` |
 | `[vr] pad_arbitration` | `pointer` (a used gamepad takes the Frame controllers' gamepad off the PC), `also_gamepad` (both), `sleep` (pointer, and the controllers' pointer rests) | `pointer` |
+| `[vr] scroll_speed` | 25 to 400 (%) | 100, which is 7.5 notches a second with the thumbstick pushed all the way. The flat window's Settings page has it too. |
+| `[vr] click_steadiness` | `off`, `normal`, `steady` | `normal`. The Display tab's Click steadiness row. |
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |
 | `[vr] keyboard_keymap` | `qwerty`, `azerty` (French), `qwertz` (German). What the headset keyboard's keys say. The PC must be on the matching Windows layout. | `qwerty` |
 | `[vr] depth_source` | `zipdepth`, `zipdepth-int8`, `midas` | `zipdepth` |
@@ -442,6 +470,8 @@ These are for testing and debugging. Most users never need them. Put them in fro
 | `MLXR_DOUBLE_CLICK_MS` | 500 | How long that wait can last, from the first press. Match it to the PC's double-click speed. 0 turns it off. |
 | `MLXR_PRESS_STABILISE` | 1 | 0 sends a click where the ray is at the moment of the press. |
 | `MLXR_CLICK_HOLD_PX` | 0 | Hold the cursor still from the trigger touch until the aim moves this many pixels. |
+
+The four click variables above override the Click steadiness row for their own part when they are set.
 | `MLXR_DEPTH_THREADS` | 2 | Threads for the depth model. |
 | `MLXR_FRAME_MODEL_GAIN` | 1 | Brightens the Steam Frame controller models (set at install). |
 | `MLXR_CONFIG_DIR` | `~/.config/moonlight-xr` | Where settings and pairing live. |

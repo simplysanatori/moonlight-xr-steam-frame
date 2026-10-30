@@ -55,6 +55,9 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(QString keyboardKeymap MEMBER keyboardKeymap NOTIFY changed)
     // Which notices the headset's toast says: "all", "important" or "off" ([vr] notices)
     Q_PROPERTY(QString notices MEMBER notices NOTIFY changed)
+    // How fast a controller thumbstick scrolls in the headset, percent of 7.5 notches a
+    // second, 25..400 ([vr] scroll_speed)
+    Q_PROPERTY(int scrollSpeed MEMBER scrollSpeed NOTIFY changed)
     // Native (lane wave2b-padmouse): physical gamepads in the headset. [vr] pad_mouse_chord: what turns a pad
     // into the PC's mouse, "start_hold" (default), "start_back" or "off"; [vr] pad_mouse_scroll: the stick that
     // scrolls then, "right" (default), "left" or "none"; [vr] pad_arbitration: what a used pad does to the
@@ -132,6 +135,7 @@ public:
     bool flipFaceButtons;
     QString keyboardKeymap;
     QString notices;
+    int scrollSpeed;
     QString padMouseChord;
     QString padMouseScroll;
     QString padArbitration;
@@ -145,6 +149,7 @@ private:
     // what config.ini held at load(), to write only what this page changed
     bool m_iniPerfOverlay = false, m_iniFlip = false;
     QString m_iniNotices = "all";
+    int m_iniScrollSpeed = 100;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;

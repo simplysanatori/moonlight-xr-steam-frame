@@ -139,6 +139,10 @@ void MlxrPrefs::load()
     notices = (nt == "important" || nt == "1") ? "important" : (nt == "off" || nt == "2") ? "off" : "all";
 
     // the VR client's names, anything else is its default
+    // the VR client holds it to 25..400 and takes anything else as its default, 100
+    bool speedOk = false;
+    const int speed = iniValue(ini, "vr", "scroll_speed", "100").trimmed().toInt(&speedOk);
+    scrollSpeed = speedOk ? qBound(25, speed, 400) : 100;
     padMouseChord = iniValue(ini, "vr", "pad_mouse_chord", "start_hold").trimmed().toLower();
     if (padMouseChord != "start_back" && padMouseChord != "off") {
         padMouseChord = "start_hold";
@@ -161,6 +165,7 @@ void MlxrPrefs::load()
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
+    m_iniScrollSpeed = scrollSpeed;
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
@@ -207,6 +212,9 @@ void MlxrPrefs::save()
     if (notices != m_iniNotices) {
         setIniValue(ini, "vr", "notices", notices);
     }
+    if (scrollSpeed != m_iniScrollSpeed) {
+        setIniValue(ini, "vr", "scroll_speed", QString::number(qBound(25, scrollSpeed, 400)));
+    }
     if (padMouseChord != m_iniPadMouseChord) {
         setIniValue(ini, "vr", "pad_mouse_chord", padMouseChord);
     }
@@ -225,6 +233,7 @@ void MlxrPrefs::save()
     m_iniFlip = flipFaceButtons;
     m_iniKeymap = keyboardKeymap;
     m_iniNotices = notices;
+    m_iniScrollSpeed = scrollSpeed;
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
