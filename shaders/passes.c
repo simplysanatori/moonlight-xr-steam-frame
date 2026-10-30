@@ -994,12 +994,16 @@ void mlxr_pass_panel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, co
     VkWriteDescriptorSet wr = imageWrite(0, &ii);
     p->pushDescriptors(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &wr);
     int eyes = pp->eyes < 1 ? 1 : (pp->eyes > 2 ? 2 : pp->eyes);
-    float pc[28];
+    float pc[32];
     pc[16] = pp->width;
     pc[17] = pp->height;
     pc[18] = pp->radius;
     pc[19] = (float)segments;
     memcpy(&pc[24], pp->color, sizeof(pp->color));
+    pc[28] = pp->pictureFilter ? 1.0f : 0.0f;
+    pc[29] = 0.0f;
+    pc[30] = 0.0f;
+    pc[31] = 0.0f;
     for (int e = 0; e < eyes; e++) {
         setRect(cmd, pp->eyeRect[e]);
         memcpy(pc, pp->mvp[e], 16 * sizeof(float));
