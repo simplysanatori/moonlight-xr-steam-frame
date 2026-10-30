@@ -127,3 +127,52 @@ bitrate for a stream that goes over that path.
 - Not done: raising or lowering the bitrate while a stream runs (not possible on the host), and learning a good
   bitrate from the history. The history already penalises a lossy path in Automatic's score; a lossy path now also
   has a knob.
+
+## Failover to another path on persistent burst loss (lane wave1-failover)
+
+The path is chosen once, at stream start; Apollo and Sunshine send one UDP flow to one client address, so there is
+no multipath. A path can still go bad mid-stream (the 6 GHz link in one corner, loss in bursts of seconds, see
+`burst.md`). `[stream] failover = off|on` (default off: unmeasured on the Frame) and `failover_burst_ms` (500..9000,
+default 3000) let the client leave it. Automatic only: a path set by hand (setting, `--network`, `MLXR_NETWORK`) is
+never left.
+
+- **Policy** (`backend/failover.c`, pure; table-driven test `tests/backend/test_failover.c`).
+  `mlxr_failover_decide(in)` gives "stay" with a reason or "switch to <path>". All must hold: the setting is on and
+  the path setting Automatic; the stream is at least 20 s old; the last switch at least 5 min ago (no flapping);
+  the loss bursts of the last 10 s add up to `failover_burst_ms`; another path is `present` (it answered the probe;
+  an adapter without a station and a cable that was not up are never candidates, a path the stream already left
+  is not) with a measurement no older than 2 h; and its score is at least 15 ms below the current path's score
+  plus what the live loss costs it. The loss cost is the history penalty's own: 20 ms per percent of frames lost
+  over the last 10 s once over 0.5 percent, at most 150 ms. So the adapter at +16 ms against a good link loses
+  to it until the link really drops frames, and then wins; a path never wins by name. Unknown loss costs nothing;
+  no frame at all in the window counts as 100 percent.
+- **History**: `mlxr_failover_history` (closed bursts, ring of 32, plus the open one) sums the time inside the
+  window; `mlxr_failover_samples` keeps frame counts about once a second for the percent. The session
+  (`stream/session.c`) adds each closed burst in `logBurst`, and reads the open one through
+  `mlxr_burst_open` (new, read only, `rfi_watch.c`). Accessors: `stream_connected_ms`, `stream_loss_window`.
+- **Measurements** (`backend/netpath.c`): `mlxr_net_select` leaves the best answering candidate's score and time per
+  path in `mlxr_net_quality` (`mlxr_net_quality_get`). An unforced choice (stream start, reconnect after a drop)
+  rebuilds it; a forced one only updates the paths it probed, so the cable measured at the start survives a move to
+  the adapter. `mlxr_net_quality_abandon(path)` drops the path the stream left until the next unforced choice,
+  which is the "re-probe the abandoned path only at the next stream start" rule.
+- **Forcing**: `mlxr_net_force_path(path)` makes the next `mlxr_net_select` (within 60 s, one shot) go for that
+  path as if it were set by hand, with `retry_ms` 0, so a path that does not answer costs the probe and nothing
+  else, and the other paths are tried at once (the usual fell-back toast, suppressed on a reconnect). The history
+  of the path being left is recorded by the reconnect's teardown as for any drop, so the next Automatic choice
+  charges it.
+- **Loop** (`stream/failover.c`, once a second from the worker; test `tests/stream/test_failover.c` against a fake
+  session): samples, asks the policy, and on "switch" logs
+  `network path: switching from X to Y after N ms of loss (...)`, writes the open burst line with
+  `network path switched from X to Y` at its end (`stream_note_path_switch`; the tracker restarts so it is written
+  once), forces and abandons, schedules the reconnect (`mlxr_reconnect_switch`: a fresh series, first try after
+  500 ms, same app, scene kept) and shows a notice that names the new path. `failover_session.c` binds it to the
+  real session, netpath and settings (`xrStreamPrefsFailover`, set by `xrApplySettings`; read every second).
+- **Hook the app must call** (`app/main.c`, not edited by this lane): in the worker loop, after the existing
+  `stream_failed()` and reconnect branches, `else if (state == LAUNCH_STREAMING && atomic_load(&g_streaming) &&
+  !atomic_load(&g_linkDown) && !g_args.file && n->streamPc >= 0 && n->streamApp > 0 &&
+  mlxr_failover_poll(&g_fo, &g_rc, monoMs(), xr_app_notice)) teardownForRetry(n);` with `static MlxrFailover g_fo;`
+  (all zero is its start state) and `#include "../stream/failover.h"`. Without it the setting does nothing.
+- **Not measured**: the thresholds are reasoned, not measured on the Frame. The 15 ms margin, 20 s settle, 5 min
+  gap and the 2 h age limit are constants in `backend/failover.h`. The first run with the 6 GHz link in the bad spot
+  and the adapter or 5 GHz as the other candidate is the data (`HEADSET_TEST` list in the lane report). Other
+  candidates are not re-probed mid-stream; a stream older than 2 h will not switch.

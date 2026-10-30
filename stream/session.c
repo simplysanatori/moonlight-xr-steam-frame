@@ -19,6 +19,7 @@
 #include "../input/rumble.h"
 #include "../xr/xr_pad_bridge.h"
 #include "../backend/fps_cap.h"
+#include "../backend/failover.h"
 #include "../backend/netdiag.h"
 #include "../xr/xr_stream_prefs.h"
 #include "au_gather.h"
@@ -61,6 +62,10 @@ static MlxrIdrCap g_idrCap, g_idrCapPrev;
 static MlxrBurst g_burst, g_burstPrev;
 static char g_rxIf[16];
 static mlxr_rx_misc g_rxPrev;
+// Native (lane wave1-failover): the closed bursts of this stream for the path failover, under g_latLock, and when
+// the stream connected
+static mlxr_failover_history g_foHist;
+static atomic_uint_fast64_t g_connectedMs;
 
 // Native (lane av-latency): video latency parts per stats window, written by
 // common-c's decoder thread (drSubmit), read and reset by the log
@@ -129,7 +134,7 @@ static uint64_t mlxr_now_ms(void) {
 
 // Native (lane wave1-burst): a closed burst's summary line. The tracker keeps monotonic ms; the line
 // names the wall time it started at, as the log's own timestamps do.
-static void logBurst(const MlxrBurstSummary* b, int capMs) {
+static void logBurstNote(const MlxrBurstSummary* b, int capMs, const char* note) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     uint64_t wallMs = (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
@@ -142,7 +147,15 @@ static void logBurst(const MlxrBurstSummary* b, int capMs) {
     snprintf(start, sizeof(start), "%02d:%02d:%02d.%03u", tmv.tm_hour, tmv.tm_min, tmv.tm_sec, (unsigned)(at % 1000u));
     char line[512];
     mlxr_burst_text(b, start, capMs, line, sizeof(line));
-    MLOG_I("video: %s", line);
+    MLOG_I("video: %s%s%s", line, note ? "; " : "", note ? note : "");
+}
+
+static void logBurst(const MlxrBurstSummary* b, int capMs) {
+    // Native (lane wave1-failover): the path failover sums the closed bursts of the last 10 s
+    pthread_mutex_lock(&g_latLock);
+    mlxr_failover_history_add(&g_foHist, b->startMs, b->startMs + b->durMs, b->netLost);
+    pthread_mutex_unlock(&g_latLock);
+    logBurstNote(b, capMs, NULL);
 }
 
 // Native (lane wave1-burst): every IDR frame request of ours goes through here: the RFI watchdog's
@@ -372,6 +385,7 @@ static void raiseVideoThreads(void) {
 
 static void clStarted(void) {
     MLOG_I("stream connected");
+    atomic_store(&g_connectedMs, mlxr_now_ms()); // Native (lane wave1-failover)
     atomic_store(&g_connected, 1);
     raiseVideoThreads();
 }
@@ -521,6 +535,7 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     g_idrCapPrev = g_idrCap;
     mlxr_burst_init(&g_burst, 1000);
     g_burstPrev = g_burst;
+    mlxr_failover_history_init(&g_foHist); // Native (lane wave1-failover)
     mlxr_log_throttle_init(&g_logThrottle, 1000); // Native (lane deploy-res-fix)
     // Native (lane netpath-quality): this stream's network totals start at zero
     memset(&g_netTot, 0, sizeof(g_netTot));
@@ -589,6 +604,42 @@ void stream_stop(void) {
     xrPadBridgeStop(); // the host hears the pad unplugged before the connection goes
     LiStopConnection();
     atomic_store(&g_connected, 0);
+    atomic_store(&g_connectedMs, 0);
+}
+
+// Native (lane wave1-failover)
+uint64_t stream_connected_ms(void) { return atomic_load(&g_connected) ? atomic_load(&g_connectedMs) : 0; }
+
+int stream_loss_window(uint64_t windowMs, struct mlxr_failover_window* out) {
+    if (!atomic_load(&g_connected)) return 0;
+    uint64_t now = mlxr_now_ms();
+    pthread_mutex_lock(&g_latLock);
+    MlxrBurstSummary open;
+    int isOpen = mlxr_burst_open(&g_burst, &open);
+    mlxr_failover_burst ob = { open.startMs, open.startMs + open.durMs, open.netLost };
+    mlxr_failover_history_window(&g_foHist, isOpen ? &ob : NULL, now, windowMs, out);
+    pthread_mutex_unlock(&g_latLock);
+    return 1;
+}
+
+void stream_note_path_switch(const char* from, const char* to) {
+    char note[160];
+    snprintf(note, sizeof(note), "network path switched from %s to %s", from ? from : "?", to ? to : "?");
+    MlxrBurstSummary open;
+    pthread_mutex_lock(&g_latLock);
+    int isOpen = mlxr_burst_open(&g_burst, &open);
+    int capMs = g_idrCap.minGapMs;
+    if (isOpen) {
+        // the stream goes away: the burst is written here and the tracker starts over, so the 5 s line or a
+        // late frame does not write it a second time
+        open.stillBroken = 1;
+        mlxr_failover_history_add(&g_foHist, open.startMs, open.startMs + open.durMs, open.netLost);
+        mlxr_burst_init(&g_burst, 1000);
+        g_burstPrev = g_burst;
+    }
+    pthread_mutex_unlock(&g_latLock);
+    if (isOpen) logBurstNote(&open, capMs, note);
+    else MLOG_I("video: %s (no loss burst was open)", note);
 }
 
 int stream_running(void) { return atomic_load(&g_connected); }

@@ -20,6 +20,16 @@ static atomic_int g_rfiIdrMs = MLXR_RFI_IDR_MS_DEFAULT;
 void xrStreamPrefsSetRfiIdrMs(int ms) { atomic_store(&g_rfiIdrMs, ms < 0 ? 0 : ms); }
 int xrStreamPrefsRfiIdrMs(void) { return atomic_load(&g_rfiIdrMs); }
 
+// Native (lane wave1-failover): [stream] failover and failover_burst_ms (off, 3000 ms until the settings are applied)
+static atomic_int g_failover = 0, g_failoverBurstMs = 3000;
+
+void xrStreamPrefsSetFailover(int on, int burstMs) {
+    atomic_store(&g_failover, on != 0);
+    atomic_store(&g_failoverBurstMs, burstMs);
+}
+int xrStreamPrefsFailover(void) { return atomic_load(&g_failover); }
+int xrStreamPrefsFailoverBurstMs(void) { return atomic_load(&g_failoverBurstMs); }
+
 // ---- what nativeInit set ---------------------------------------------------
 
 void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
@@ -352,6 +362,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     gamepadsSetArbitration(s->pad_arbitration);
     xrPadBridgeSetRumble(s->rumble_mix, s->rumble_intensity);
     xrStreamPrefsSetRfiIdrMs(s->rfi_idr_ms); // Native (lane wave1-burst): read at the next stream start
+    xrStreamPrefsSetFailover(s->failover, s->failover_burst_ms); // Native (lane wave1-failover): read every second
     int picture[PICTURE_VALUES];
     for (int row = 0; row < PICTURE_VALUES; row++) {
         picture[row] = settings_picture_value(s, row);

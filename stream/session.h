@@ -60,6 +60,16 @@ typedef struct StreamNetFigures {
     uint32_t rttMs;
 } StreamNetFigures;
 int stream_network_figures(StreamNetFigures* out);
+// Native (lane wave1-failover): what the path failover (stream/failover.h) reads. The monotonic millisecond
+// (CLOCK_MONOTONIC) at which the running stream connected, 0 when none is.
+uint64_t stream_connected_ms(void);
+// The loss bursts of the last windowMs, closed ones and the one still open (backend/failover.h). 1 while a stream
+// runs, else 0.
+struct mlxr_failover_window;
+int stream_loss_window(uint64_t windowMs, struct mlxr_failover_window* out);
+// The stream is about to move from one network path to another: the burst still open is written to the log now,
+// with the move named at its end ("... ; network path switched from Wi-Fi to the USB cable"), and not again.
+void stream_note_path_switch(const char* from, const char* to);
 // Native (lane wave3-hud): the stream's running totals for the in-headset HUD and the slow connection badge
 // (xr_hud.h). Unlike stream_latency_line it resets nothing, so any number of readers can take windows of it.
 // 1 with *out filled while connected, else 0 (udpDrops is left for the caller: it is the kernel's counter).

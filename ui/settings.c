@@ -34,6 +34,7 @@ static const char* const FPS_NAMES[] = { "30", "60", "72", "90", "120", "144" };
 static const char* const CODEC_NAMES[] = { "auto", "av1", "hevc", "h264" };
 static const char* const AUDIO_NAMES[] = { "stereo", "5.1", "7.1" };
 static const char* const NETWORK_NAMES[] = { "auto", "home", "adapter", "usb" };
+static const char* const FAILOVER_NAMES[] = { "off", "on" };
 static const char* const PACING_NAMES[] = { "latency", "balanced", "cap-fps", "smoothness" };
 static const char* const TOGGLE_NAMES[] = { "menu_grip", "sticks", "triggers_grips" };
 static const char* const RUMBLEMIX_NAMES[] = { "both", "split" };
@@ -107,6 +108,8 @@ static const SettingDesc TABLE[] = {
     DI("stream", "bitrate_wired", bitrate_wired, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: the same for a wired network (the headset's ethernet); 0 uses the launcher's bitrate"),
     DI("stream", "bitrate_usb", bitrate_usb, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: the same for the USB cable; 0 uses the launcher's bitrate"),
     DI("stream", "rfi_idr_ms", rfi_idr_ms, 0, 5000, 500, "native: after lost video, the headset asks the PC for a full (IDR) frame at most once in this many ms; a full frame is large, and asked for again while the Wi-Fi is still losing packets it makes the stall longer. 0 no limit"),
+    DE("stream", "failover", failover, FAILOVER_NAMES, 0, "native: on = when the video keeps losing packets on the link it started on, move the stream to another link that measured clearly better at its start (never to one that was not there, at most once in 5 minutes, only when network_path is auto). Off by default: it is not measured on the Frame yet"),
+    DI("stream", "failover_burst_ms", failover_burst_ms, 500, 9000, 3000, "native: with failover on, how many ms of lost video within 10 s make the stream leave its link (3000)"),
     // TODO(PLAN 6.4): auto_desktop (open the host's Desktop app without the app list) comes
     // back when something reads it. Dropped with vr_mode, check_updates, language and
     // doff_grace, which were written with descriptions and read by nothing; old files that

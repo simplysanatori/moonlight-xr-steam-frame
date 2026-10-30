@@ -478,7 +478,7 @@ if [ -n "$SHOTS" ]; then
     ini="$MLXR_CONFIG_DIR/config.ini"
     printf '# Moonlight XR settings\n[display]\n# Display tab: show performance stats [true | false] (default false)\n#stats = false\nglow = true\n\n[3d]\nseparation = 9\nstereo = false\n' > "$ini"
     cp "$ini" "$t/ini.before"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,scrollSpeedRow,doffRow,idleRow,controllerModelRow,hdrRow,stereoSourceRow,sbsFullRow,idrCapRow \
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,scrollSpeedRow,doffRow,idleRow,controllerModelRow,hdrRow,stereoSourceRow,sbsFullRow,idrCapRow,pathFailoverRow,failoverBurstRow \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-clicked.png@3000" "$L" >"$t/ui6.out" 2>&1
     grep -q "no clickable" "$t/ui6.out" && fail "click hook: $(grep 'no clickable' "$t/ui6.out")"
     grep -q '^stats = true$' "$ini" && ok "stats overlay row writes [display] stats = true" || { fail "stats not written"; cat "$ini"; }
@@ -494,6 +494,9 @@ if [ -n "$SHOTS" ]; then
     grep -A6 '^\[3d\]' "$ini" | grep -q '^sbs_full = true$' && ok "full-size SBS switch writes [3d] sbs_full = true" || { fail "sbs_full not written"; cat "$ini"; }
     # lane wave1-burst: the full-frame request cap steps 500 ms to 1000 ms
     grep -A4 '^\[stream\]' "$ini" | grep -q '^rfi_idr_ms = 1000$' && ok "full-frame request row steps 500 ms to 1000 ms and writes [stream] rfi_idr_ms" || { fail "rfi_idr_ms not written"; cat "$ini"; }
+    # lane wave1-failover: the path failover switch turns on, its loss length steps 3 s to 5 s
+    grep -A8 '^\[stream\]' "$ini" | grep -q '^failover = on$' && ok "path failover switch writes [stream] failover = on" || { fail "failover not written"; cat "$ini"; }
+    grep -A8 '^\[stream\]' "$ini" | grep -q '^failover_burst_ms = 5000$' && ok "loss length row steps 3 s to 5 s and writes [stream] failover_burst_ms" || { fail "failover_burst_ms not written"; cat "$ini"; }
     grep -q '^glow = true$' "$ini" && grep -q '^separation = 9$' "$ini" && grep -q '^stereo = false$' "$ini" && ok "other config.ini keys untouched" || { fail "config.ini keys changed"; diff "$t/ini.before" "$ini"; }
     grep -q -i hdr "$ini" && fail "greyed HDR row changed something" || ok "greyed HDR row is inert"
     grep -q "MLXR_LAUNCHER_WIFI: Wi-Fi$" "$t/ui6.out" && ok "Network connection: plain Wi-Fi when unknown" || fail "wifi fallback: $(grep MLXR_LAUNCHER_WIFI "$t/ui6.out")"
@@ -558,6 +561,8 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads stereo_source" "$dump" "3d.stereo_source = sbs"
         expect "VR client reads sbs_full" "$dump" "3d.sbs_full = true"
         expect "VR client reads rfi_idr_ms" "$dump" "stream.rfi_idr_ms = 1000"
+        expect "VR client reads failover" "$dump" "stream.failover = on"
+        expect "VR client reads failover_burst_ms" "$dump" "stream.failover_burst_ms = 5000"
     fi
     # lane wave3-visual: the surroundings rows (Picture tab's Background and Glow edge, 3D eye balance) step
     # from the file's values and write only their keys; the void colour is read as typed and kept

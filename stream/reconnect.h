@@ -68,6 +68,16 @@ int mlxr_reconnect_due(MlxrReconnect* r, int64_t nowMs);
 // series is over (it worked, was fatal, or there are no tries left): idle.
 int mlxr_reconnect_result(MlxrReconnect* r, MlxrReconnectOutcome outcome, int64_t nowMs);
 
+// Native (lane wave1-failover): the stream is still up but leaves its network path for another one (the path
+// failover, backend/failover.h; the caller has forced the path with mlxr_net_force_path). A try is scheduled
+// MLXR_RECONNECT_SWITCH_DELAY_MS from now, as a fresh series of tries (a deliberate move is not a failure,
+// the tries are all there) and the connect picks the path again, as every try does. Returns 1 when it was
+// scheduled, 0 when a series is already waiting or under way. The caller tears the stream down as for a drop
+// (the scene stays); lastCode is MLXR_RC_CODE_SWITCH.
+#define MLXR_RECONNECT_SWITCH_DELAY_MS 500
+#define MLXR_RC_CODE_SWITCH (-1000)
+int mlxr_reconnect_switch(MlxrReconnect* r, int64_t nowMs);
+
 // The user left (exit, disconnect): whatever was scheduled is dropped
 void mlxr_reconnect_cancel(MlxrReconnect* r);
 

@@ -136,6 +136,9 @@ void mlxr_burst_init(MlxrBurst* b, int gapMs);
  *  burst folds it (a per-frame kind already written once in this burst). A burst whose gap had
  *  passed is closed first: *closed is filled and 1 stored in *didClose (else 0). */
 int mlxr_burst_line(MlxrBurst* b, const char* line, uint64_t nowMs, MlxrBurstSummary* closed, int* didClose);
+/** Native (lane wave1-failover): the burst that has not closed, as it stands (startMs, durMs up to its last
+ *  lost frame, the counters): 1 with *out filled, 0 when none is open. Read only. */
+int mlxr_burst_open(const MlxrBurst* b, MlxrBurstSummary* out);
 /** An IDR frame reached the decoder (drSubmit): the picture is whole again. */
 void mlxr_burst_idr_frame(MlxrBurst* b);
 /** An IDR ask of ours: passed (1) or held back by the cap (0). */

@@ -62,6 +62,16 @@ int mlxr_reconnect_drop(MlxrReconnect* r, int termCode, int64_t nowMs) {
     return 1;
 }
 
+int mlxr_reconnect_switch(MlxrReconnect* r, int64_t nowMs) {
+    if (r->state != MLXR_RC_IDLE) return 0;
+    r->used = 0;
+    r->lastCode = MLXR_RC_CODE_SWITCH;
+    r->attempt = 1;
+    r->dueMs = nowMs + MLXR_RECONNECT_SWITCH_DELAY_MS;
+    r->state = MLXR_RC_WAITING;
+    return 1;
+}
+
 int mlxr_reconnect_due(MlxrReconnect* r, int64_t nowMs) {
     if (r->state != MLXR_RC_WAITING || nowMs < r->dueMs) return 0;
     r->state = MLXR_RC_TRYING;

@@ -264,6 +264,16 @@ Flickable {
     function idrCapText(v) {
         return v === 0 ? qsTr("No limit") : (v + " ms")
     }
+    // Native (lane wave1-failover): [stream] failover_burst_ms of the VR client's config.ini
+    readonly property var failoverBurstValues: [1500, 3000, 5000, 8000]
+    function failoverBurstText(v) {
+        return (v / 1000) + " s"
+    }
+    function nextFailoverBurst(current) {
+        for (var i = 0; i < failoverBurstValues.length; i++)
+            if (failoverBurstValues[i] > current) return failoverBurstValues[i]
+        return failoverBurstValues[0]   // past the last (or typed into config.ini above it): back to the shortest
+    }
     // Native (lane wave2b-padmouse): [vr] pad_mouse_chord, pad_mouse_scroll and pad_arbitration of the VR client
     readonly property var padMouseChordValues: ["start_hold", "start_back", "off"]
     readonly property var padMouseChordNames: [qsTr("Hold Start"), qsTr("Hold Start and Back"), qsTr("Off")]
@@ -634,6 +644,24 @@ Flickable {
             valueText: settingsPage.idrCapText(MlxrPrefs.rfiIdrMs)
             summary: qsTr("At most one request for a full picture in this time when video is lost. A full picture is large; asked for again while the Wi-Fi is still losing packets, it makes the freeze longer. 500 ms suits most links.")
             onClicked: MlxrPrefs.rfiIdrMs = settingsPage.nextLimit(settingsPage.idrCapValues, MlxrPrefs.rfiIdrMs)
+        }
+
+        // Native (lane wave1-failover): leave a link that keeps losing video for another one. Off until measured
+        // on the Frame. The second row is the loss that counts, within 10 s.
+        PrefSwitch {
+            objectName: "pathFailoverRow"
+            title: qsTr("Switch network when video keeps breaking up")
+            summary: qsTr("With Automatic network connection: if the link the stream started on keeps losing video, move the stream to another link that measured clearly better when it started (the Steam Frame Wireless Adapter, Wi-Fi or the USB cable). It never goes to a link that was not there, and at most once in five minutes. The picture freezes for a few seconds while it reconnects.")
+            isOn: MlxrPrefs.pathFailover
+            onSwitched: function(on) { MlxrPrefs.pathFailover = on }
+        }
+
+        PrefRow {
+            objectName: "failoverBurstRow"
+            title: qsTr("Video loss before switching")
+            valueText: settingsPage.failoverBurstText(MlxrPrefs.failoverBurstMs)
+            summary: qsTr("How much lost video within ten seconds makes the stream leave its link. 3 s suits most places; shorter switches sooner, longer waits out brief dropouts. Used only when switching is on.")
+            onClicked: MlxrPrefs.failoverBurstMs = settingsPage.nextFailoverBurst(MlxrPrefs.failoverBurstMs)
         }
 
         // ======== Video Settings ========
