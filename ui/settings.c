@@ -134,6 +134,7 @@ static const SettingDesc TABLE[] = {
     DI("vr", "picture_saturation", picture_saturation, PICTURE_SATURATION_MIN, PICTURE_SATURATION_MAX, PICTURE_SATURATION_DEFAULT, "seekbar_vr_picture_saturation: percent, 0..200"),
     // debug
     DI("debug", "depth_rate", depth_rate, DEPTH_RATE_MIN, DEPTH_RATE_MAX, DEPTH_RATE_DEFAULT, "seekbar_vr_inference_cadence: the most depth maps made per second (the 3D picture follows the video; fewer saves the CPU)"),
+    DI("debug", "depth_threads", depth_threads, DEPTH_THREADS_MIN, DEPTH_THREADS_MAX, DEPTH_THREADS_DEFAULT, "native: the CPU threads the depth model runs on in 3D, 1..4; 2 as Moonlight XR runs it, 3 makes each depth map a few milliseconds sooner (up to about 10) for another core's worth of CPU (the MLXR_DEPTH_THREADS variable overrides it); read when the model starts"),
     DB("debug", "depth_debug", depth_debug, 0, "checkbox_vr_depth_debug: show the depth map in place of the picture"),
     DB("debug", "eye_swap", eye_swap, 0, "checkbox_vr_eye_swap: swap the left and right eye of the 3D picture (for a wrong-way test pattern)"),
     DE("debug", "file_log", file_log, LOG_NAMES, 1, "list_vr_file_log: off, basic (warnings and errors), verbose"),
@@ -153,6 +154,10 @@ static const SettingDesc TABLE[] = {
     DI("3d", "separation", separation, -1, COG_SEP_STEPS, -1, "seekbar_vr_separation: tenths of a percent of frame width; -1 is the depth model's own (ZipDepth 6, MiDaS 5)"),
     DI("3d", "convergence", convergence, -1, 100, -1, "seekbar_vr_convergence: percent; -1 is the depth model's own (50)"),
     DB("3d", "stereo", stereo, 1, "native: the 3D switch (bar button, 3D tab) as it was last left; on to begin with, as upstream started every session"),
+    DI("3d", "edge_sharpness", edge_sharpness, EDGE_SHARPNESS_MIN, EDGE_SHARPNESS_MAX, EDGE_SHARPNESS_DEFAULT, "native: Edge, how closely the 3D's depth keeps to the edges in the picture, 0..100; 0 is Moonlight XR's own soft edges, higher keeps hair and thin outlines on their own depth (the upsample's colour match tightens from 0.25 to 0.10 and the snap to the nearer side rises from off to full)"),
+    DI("3d", "depth_scale", depth_scale, DEPTH_SCALE_MIN, DEPTH_SCALE_MAX, DEPTH_SCALE_DEFAULT, "seekbar_vr_depth_scale: Depth detail, percent; the depth between neighbouring things (a face in front of a wall, the folds of a coat) scaled around the picture's overall shape. 100 is the depth as the model makes it, higher pops the detail out more"),
+    DI("3d", "depth_global", depth_global, DEPTH_SCALE_MIN, DEPTH_SCALE_MAX, DEPTH_SCALE_DEFAULT, "native: Depth shape, percent; the picture's overall depth (near at the bottom, far at the top) scaled around the screen plane. 100 is as the model makes it, lower flattens the whole toward the screen while depth_scale keeps the detail"),
+    DI("3d", "motion_reset", motion_reset, MOTION_RESET_MIN, MOTION_RESET_MAX, MOTION_RESET_DEFAULT, "native: Motion reset, percent the picture's brightness at a spot may change by between two depth maps before the depth there stops being averaged with the old ones, so a moving edge leaves no trail of its old depth; 0 never (the smoothing as it always was), about 10 for fast scenes"),
     // screen
     DI("screen", "distance_cm", screen_distance_cm, 20, 800, 300, "Screen tab: distance in centimetres"),
     DI("screen", "height_cm", screen_height_cm, -200, 200, 0, "Screen tab: height of the centre above eye level, centimetres"),
