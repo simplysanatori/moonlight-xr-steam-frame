@@ -156,7 +156,7 @@ The bar is not drawn all the time. Its buttons and the move pill appear only whi
 
 The first time you stream after installing, a card appears over the middle of the picture and lists the controls: where the bar is, what opens the cog and the keyboard, the shortcut for gamepad mode (worded for your `gamepad_toggle`), the Host button, the keyboard chord that disconnects, and how a Bluetooth gamepad becomes the PC's mouse (worded for the gamepad you have used: Menu, Options or +).
 
-It has no buttons. It goes by itself after 20 seconds, or the moment you open any menu, and it does not come back: `first_run_shown = true` is written to `config.ini` as it appears. Set it to `false` there to see the card again.
+It has no buttons. It goes by itself after 20 seconds, or the moment you open any menu, and it does not come back: `first_run_shown = true` is written to `config.ini` as it appears. Set it to `false` there, or switch on **Controls card on the next stream** on the flat window's Settings page, to see the card again.
 
 ## The cog menu
 
@@ -406,7 +406,7 @@ While a Bluetooth or USB gamepad is in use, a small card hangs in your lap: 45 c
 
 The card is a flat drawing of the gamepad, picked from the type the pad announces: Xbox, PlayStation, Nintendo, Steam Controller, or a plain generic pad. Whatever you do on the real pad lights up on the drawing: buttons and d-pad, bumpers, a trigger (a bar fills as you pull), a thumbstick (its cap follows the stick, and the ring lights when it is pulled or clicked) and the touchpad (a dot where your finger is). A **Gyro** mark lights while motion data from the pad is reaching the PC, which is the quick way to see that gyro works. Use it to learn which button is which, or to see that a pad is working at all.
 
-`pad_card` in `config.ini` (there is no cog row) decides when it shows: `auto` (default) shows it when you use the gamepad and takes it away 4 seconds after the last input; `on` keeps it up for as long as the gamepad counts as in use (20 seconds after its last input); `off` never shows it. It is for physical gamepads only: the Frame controllers in gamepad mode do not get one.
+**Gamepad card in the headset** on the flat window's Settings page (pressing the row steps it), or `pad_card` in `config.ini`, decides when it shows (the cog has no row for it: its Display tab is full): `auto` (default) shows it when you use the gamepad and takes it away 4 seconds after the last input; `on` keeps it up for as long as the gamepad counts as in use (20 seconds after its last input); `off` never shows it. It is for physical gamepads only: the Frame controllers in gamepad mode do not get one.
 
 ### AZERTY and QWERTZ
 

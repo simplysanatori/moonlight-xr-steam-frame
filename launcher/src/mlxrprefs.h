@@ -74,6 +74,11 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(QString padMouseChord MEMBER padMouseChord NOTIFY changed)
     Q_PROPERTY(QString padMouseScroll MEMBER padMouseScroll NOTIFY changed)
     Q_PROPERTY(QString padArbitration MEMBER padArbitration NOTIFY changed)
+    // Native (lane wave3-cards): [vr] pad_card: the gamepad card in the headset's lap, "auto" (default: up while
+    // a gamepad is in use, gone 4 s after the last input), "on" or "off"; [vr] first_run_shown: the first-run
+    // controls card has been shown (false brings it back on the next stream)
+    Q_PROPERTY(QString padCard MEMBER padCard NOTIFY changed)
+    Q_PROPERTY(bool firstRunShown MEMBER firstRunShown NOTIFY changed)
     // ---- facts ----
     // Native (lane wave4c-usb): a USB data cable to the PC is up, i.e. the headset's USB network
     // interface (usb*, or a gadget device) has carrier. Rescanned every 10 s while the app is open.
@@ -151,6 +156,8 @@ public:
     QString padMouseChord;
     QString padMouseScroll;
     QString padArbitration;
+    QString padCard;
+    bool firstRunShown = false;
 
 signals:
     void changed();
@@ -165,6 +172,8 @@ private:
     QString m_iniControllerModel = "off";
     int m_iniDoff = 60, m_iniIdle = 0;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
+    QString m_iniPadCard = "auto";
+    bool m_iniFirstRunShown = false;
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
     bool m_usbCable = false, m_usbScanned = false;

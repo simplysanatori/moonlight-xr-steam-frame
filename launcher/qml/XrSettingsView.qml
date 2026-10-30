@@ -209,6 +209,12 @@ Flickable {
     readonly property var padMouseScrollNames: [qsTr("Right stick"), qsTr("Left stick"), qsTr("None")]
     readonly property var padArbitrationValues: ["pointer", "also_gamepad", "sleep"]
     readonly property var padArbitrationNames: [qsTr("Pointer"), qsTr("Also gamepad"), qsTr("Sleep")]
+    // Native (lane wave3-cards): [vr] pad_card of the VR client, stepped by pressing its row
+    readonly property var padCardValues: ["auto", "on", "off"]
+    readonly property var padCardNames: [qsTr("Auto"), qsTr("On"), qsTr("Off")]
+    function padCardIndex() {
+        return Math.max(0, padCardValues.indexOf(MlxrPrefs.padCard))
+    }
 
     readonly property var audioNames: [qsTr("Stereo"), qsTr("5.1 Surround Sound"), qsTr("7.1 Surround Sound")]
 
@@ -778,6 +784,24 @@ Flickable {
                     MlxrPrefs.padArbitration = settingsPage.padArbitrationValues[i]
                 })
             }
+        }
+
+        // Native (lane wave3-cards): the gamepad card in the headset's lap; pressing the row steps the mode
+        PrefRow {
+            objectName: "padCardRow"
+            title: qsTr("Gamepad card in the headset")
+            valueText: settingsPage.padCardNames[settingsPage.padCardIndex()]
+            summary: qsTr("A picture of the gamepad you are playing with, in your lap, that lights up as you press it. Auto: up while you play, gone 4 seconds after you stop. On: up while a gamepad is in use. Off: never.")
+            onClicked: MlxrPrefs.padCard = settingsPage.padCardValues[(settingsPage.padCardIndex() + 1) % settingsPage.padCardValues.length]
+        }
+
+        // Native (lane wave3-cards): the first-run controls card comes up once; this brings it back
+        PrefSwitch {
+            objectName: "firstRunRow"
+            title: qsTr("Controls card on the next stream")
+            summary: qsTr("The card that shows the headset's controls when a stream starts. It comes up once by itself; switch this on to see it again.")
+            isOn: !MlxrPrefs.firstRunShown
+            onSwitched: function(on) { MlxrPrefs.firstRunShown = !on }
         }
 
         PrefSwitch {

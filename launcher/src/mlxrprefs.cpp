@@ -164,6 +164,10 @@ void MlxrPrefs::load()
     if (padArbitration != "also_gamepad" && padArbitration != "sleep") {
         padArbitration = "pointer";
     }
+    // the VR client takes the name or its index; anything else is its default, auto
+    const QString pc = iniValue(ini, "vr", "pad_card", "auto").trimmed().toLower();
+    padCard = (pc == "on" || pc == "1") ? "on" : (pc == "off" || pc == "2") ? "off" : "auto";
+    firstRunShown = iniBool(iniValue(ini, "vr", "first_run_shown", "false"));
 
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
@@ -181,6 +185,8 @@ void MlxrPrefs::load()
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
+    m_iniPadCard = padCard;
+    m_iniFirstRunShown = firstRunShown;
 }
 
 void MlxrPrefs::save()
@@ -245,6 +251,12 @@ void MlxrPrefs::save()
     if (padArbitration != m_iniPadArbitration) {
         setIniValue(ini, "vr", "pad_arbitration", padArbitration);
     }
+    if (padCard != m_iniPadCard) {
+        setIniValue(ini, "vr", "pad_card", padCard);
+    }
+    if (firstRunShown != m_iniFirstRunShown) {
+        setIniValue(ini, "vr", "first_run_shown", firstRunShown ? "true" : "false");
+    }
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
@@ -261,6 +273,8 @@ void MlxrPrefs::save()
     m_iniPadMouseChord = padMouseChord;
     m_iniPadMouseScroll = padMouseScroll;
     m_iniPadArbitration = padArbitration;
+    m_iniPadCard = padCard;
+    m_iniFirstRunShown = firstRunShown;
 }
 
 int MlxrPrefs::headsetMaxFps() const
