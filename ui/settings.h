@@ -158,6 +158,8 @@ typedef struct Settings {
     int screen_rotate_deg;    // clockwise positive as the viewer sees it
     int screen_curve;         // percent
     int screen_width_cm;
+    int screen_far_distance_cm; // native (lane bar-glare): where the bar's Bring here goes back to, 0 none
+    int screen_far_width_cm;
     int per_app;              // native: remember the layout per PC and app
     int angular_lock;         // native: pushing or pulling the held screen keeps its size in the view
 

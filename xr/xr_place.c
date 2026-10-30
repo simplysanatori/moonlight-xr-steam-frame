@@ -62,39 +62,66 @@ int xrBringHereCanAct(XrCtx* ctx) {
     return ctx != NULL && !ctx->headLockedPref && roomEffective(ctx) <= 0;
 }
 
-// Native (lane bar-glare): the move itself, from the panel and the binding
-// (fromBar 0) or from the bar's button (1)
-static int bringHere(XrCtx* ctx, int fromBar) {
+int xrBringScreenHere(XrCtx* ctx) {
     if (ctx == NULL || !ctx->placementValid || !ctx->headPoseValid) {
         return 0;
     }
     if (!xrBringHereCanAct(ctx)) {
         return 0;
     }
-    if (fromBar) {
-        BarFrame frame = barFrame(ctx);
-        ctx->screenPose = layoutBringHereFromBar(ctx->screenPose, frame.width, frame.height, ctx->headPose);
-    }
-    else {
-        ctx->screenPose = layoutBringHere(ctx->screenPose, ctx->headPose);
-    }
+    ctx->screenPose = layoutBringHere(ctx->screenPose, ctx->headPose);
     ctx->grabMode = GRAB_NONE;
     followReset(&ctx->follow);
     ctx->poseDirty = 1;
     Vec3 d = { ctx->screenPose.position.x - ctx->headPose.position.x,
                ctx->screenPose.position.y - ctx->headPose.position.y,
                ctx->screenPose.position.z - ctx->headPose.position.z };
-    LOGEV("screen brought here%s: %.2f m away, %.2f m wide", fromBar ? " from the bar" : "",
-          sqrtf(vecDot(d, d)), ctx->screenWidth);
+    LOGEV("screen brought here: %.2f m away, %.2f m wide", sqrtf(vecDot(d, d)), ctx->screenWidth);
     return 1;
 }
 
-int xrBringScreenHere(XrCtx* ctx) {
-    return bringHere(ctx, 0);
+// Native (lane bar-glare): the bar's button, near (Desk) and back far
+// (bringTogglePress). The curve keeps its shape as the Screen tab's presets
+// keep it: the radius goes with the distance and with the width.
+int xrBringHereToggle(XrCtx* ctx) {
+    if (ctx == NULL || !ctx->placementValid || !ctx->headPoseValid || !xrBringHereCanAct(ctx)) {
+        return -1;
+    }
+    Vec3 h = { ctx->headPose.position.x, ctx->headPose.position.y, ctx->headPose.position.z };
+    Vec3 was = { ctx->screenPose.position.x - h.x, ctx->screenPose.position.y - h.y,
+                 ctx->screenPose.position.z - h.z };
+    float wasDist = sqrtf(vecDot(was, was));
+    float wasWidth = ctx->screenWidth;
+    float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
+    int nearNow = bringTogglePress(&ctx->bringToggle, &ctx->screenPose, &ctx->screenWidth, aspect,
+                                   ctx->headPose);
+    Vec3 now = { ctx->screenPose.position.x - h.x, ctx->screenPose.position.y - h.y,
+                 ctx->screenPose.position.z - h.z };
+    float dist = sqrtf(vecDot(now, now));
+    if (wasDist > 0.01f && wasWidth > 0.01f) {
+        ctx->screenRadius *= (dist / wasDist) * (ctx->screenWidth / wasWidth);
+    }
+    ctx->grabMode = GRAB_NONE;
+    followReset(&ctx->follow);
+    ctx->poseDirty = 1;
+    LOGEV("screen brought %s from the bar: %.2f m away, %.2f m wide%s", nearNow ? "near" : "far", dist,
+          ctx->screenWidth, nearNow ? "" : (ctx->bringToggle.farValid ? " (as it was)" : " (Cinema)"));
+    return nearNow;
 }
 
-int xrBringScreenHereFromBar(XrCtx* ctx) {
-    return bringHere(ctx, 1);
+// Native (lane bar-glare): the far placement into and out of config.ini,
+// [screen] far_distance_cm and far_width_cm, 0 for none
+void xrBringFarToSettings(XrCtx* ctx, Settings* s) {
+    const BringToggle* t = &ctx->bringToggle;
+    s->screen_far_distance_cm = t->farValid ? (int)lroundf(t->farDistance * 100.0f) : 0;
+    s->screen_far_width_cm = t->farValid ? (int)lroundf(t->farWidth * 100.0f) : 0;
+}
+
+void xrBringFarFromSettings(XrCtx* ctx, const Settings* s) {
+    BringToggle* t = &ctx->bringToggle;
+    t->farValid = s->screen_far_distance_cm > 0 && s->screen_far_width_cm > 0;
+    t->farDistance = (float)s->screen_far_distance_cm / 100.0f;
+    t->farWidth = (float)s->screen_far_width_cm / 100.0f;
 }
 
 // ---- Follow -------------------------------------------------------------------------------------------
