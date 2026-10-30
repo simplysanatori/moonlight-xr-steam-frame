@@ -305,9 +305,31 @@ int main(int argc, char** argv) {
     c->hostConfirm = XR_HOST_CONFIRM_PCVR;
     c->hostHoverZone = XR_HOST_ZONE_CONFIRM_SEND;
     shot(s, "20b-host-pcvr-confirm", NULL);
+    // Native (lane wave4-apollo): the PC page on an Apollo host with three commands, asking before one
+    // runs, and on a host that is not Apollo
+    c->hostConfirm = -1;
+    c->hostPage = XR_HOST_PAGE_PC;
+    c->hostInfo.apollo = 1;
+    c->hostInfo.clipRead = c->hostInfo.clipSet = 1;
+    c->hostInfo.cmdCount = 3;
+    snprintf(c->hostInfo.cmd[0], XR_HOST_CMD_NAME, "Bubbles");
+    snprintf(c->hostInfo.cmd[1], XR_HOST_CMD_NAME, "Sleep PC");
+    snprintf(c->hostInfo.cmd[2], XR_HOST_CMD_NAME, "Lock PC");
+    c->hostHoverZone = XR_HOST_PC_CMD_FIRST + 1;
+    shot(s, "23-host-pc", NULL);
+    c->hostConfirm = XR_HOST_PC_CMD_FIRST + 1;
+    c->hostHoverZone = XR_HOST_ZONE_CONFIRM_SEND;
+    shot(s, "24-host-pc-confirm", NULL);
+    c->hostConfirm = -1;
+    memset(&c->hostInfo, 0, sizeof(c->hostInfo));
+    c->hostInfo.cmdWhy = XR_HOSTINFO_NOT_APOLLO;
+    c->hostHoverZone = XR_HOST_ZONE_NONE;
+    shot(s, "25-host-pc-sunshine", NULL);
     c->hostOpen = 0;
+    c->hostPage = XR_HOST_PAGE_MAIN;
     c->hostConfirm = -1;
     c->hostHoverZone = XR_HOST_ZONE_NONE;
+    memset(&c->hostInfo, 0, sizeof(c->hostInfo));
     xrMacrosClear(&c->macros);
 
     // Native (PLAN 3.11, 4b.1): the Full keyboard with its media row, waiting
@@ -323,6 +345,19 @@ int main(int argc, char** argv) {
     shot(s, "21-keyboard-full-chord", NULL);
     xrHostChordStop(&c->hostChord);
     xrKeyboardSetLayout(c, NULL, KB_LAYOUT_COMPACT);
+
+    // Native (lane wave4-apollo): "Send text to PC" has the keyboard, and has been typed a line
+    scene_reset(s);
+    c->kbOpen = 1;
+    c->kbState = KB_STATE_LOWER;
+    c->kbMods = 0;
+    xrHostComposeStart(&c->hostCompose);
+    for (const char* t = "Meet at the usual place at noon"; *t; t++) xrHostComposeKey(&c->hostCompose, *t);
+    xrKeyboardSync(c, NULL);
+    kbPlace(c);
+    shot(s, "26-keyboard-compose", NULL);
+    xrHostComposeStop(&c->hostCompose);
+    xrKeyboardSync(c, NULL);
 
     // Native (PLAN 4b.13): the Compact keyboard with Ctrl held down to lock
     scene_reset(s);

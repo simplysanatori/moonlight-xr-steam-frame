@@ -22,6 +22,10 @@ int xrHostZone(XrCtx* ctx, float u, float v);
 // keys puts the keyboard up in chord mode, Close puts the sheet away. 1 in
 // *tick if the press is one to click for.
 int xrHostPress(XrCtx* ctx, float u, float v, int* tick);
+// Native (lane wave4-apollo, PC page): a key the keyboard typed, by its table code, while "Send text to
+// PC" has it. Returns 1 if the field took it (so it does not go to the host), 0 when nothing is
+// composing. Enter sends what was typed (hostActKind XR_HOSTACT_COPY) and puts the keyboard away.
+int xrHostComposeFeed(XrCtx* ctx, int code);
 // Once an input pass: lets the sequence playing put its next event in the key
 // slot of out. live is 0 when nothing is being read, which lets go of it.
 void xrHostFrame(XrCtx* ctx, float* out, int64_t now, int live);
