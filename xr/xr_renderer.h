@@ -1175,6 +1175,9 @@ typedef struct XrCtx {
     XrMacros macros;
     XrHostRun hostRun;
     XrHostChord hostChord;
+    // Native (PLAN 4.1): the Host sheet's "Switch to PC VR" was confirmed; xr_session.c turns it into
+    // XrUiEvents.pcvrConfirmed once and clears it
+    int pcvrRequest;
     // Native: the Compact keyboard's locked modifiers, and the hand holding the key
     KbSticky kbSticky;
     int kbStickyHand;
