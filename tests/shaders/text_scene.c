@@ -270,11 +270,13 @@ void txs_build_tone(float* rgb) {
         bs[i] = 30.0f + (float)(nextRand() % 90);
         for (int c = 0; c < 3; c++) bc[i][c] = ((float)(nextRand() % 1000) / 1000.0f - 0.5f) * 0.6f;
     }
-    // Fine texture: random sinusoids, periods 2.5 to 12 px, any direction
+    // Fine texture: random sinusoids, periods 4 to 14 px, any direction (all
+    // of it below the eye's Nyquist at the default placement, 3.6 px, so the
+    // means do not depend on how it aliases)
     enum { WAVES = 24 };
     float wk[WAVES][2], wp[WAVES], wa[WAVES], wc[WAVES][3];
     for (int i = 0; i < WAVES; i++) {
-        float period = 2.5f + 9.5f * (float)(nextRand() % 1000) / 1000.0f;
+        float period = 4.0f + 10.0f * (float)(nextRand() % 1000) / 1000.0f;
         float ang = (float)M_PI * (float)(nextRand() % 1000) / 1000.0f;
         wk[i][0] = 2.0f * (float)M_PI * cosf(ang) / period;
         wk[i][1] = 2.0f * (float)M_PI * sinf(ang) / period;

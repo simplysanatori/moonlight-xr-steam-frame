@@ -130,7 +130,7 @@ to make sure I'm not tripping. Quality does have shimmering with white text on b
 
 `ctest -R shaders_text` now also scores brightness and colour, each eye pixel against its ideal, over three kinds of
 text in the text desktop and over a second desktop of eight flat colour patches, a photo-like gradient with soft
-blobs of colour, and the same with fine (2 to 12 px) texture over it. Default placement:
+blobs of colour, and the same with fine (4 to 14 px) texture over it. Default placement, every eye pixel:
 
 | Score | What |
 | --- | --- |
@@ -144,21 +144,23 @@ Before (each channel sharpened on its own; quality clamped to the reads' full ra
 
 | | dark text on light: luma, light, chroma, sat | light text on dark | coloured text | photo-like texture |
 | --- | --- | --- | --- | --- |
-| Off | -0.01, -5.2 %, 5.30, 0.451 | -0.01, -25.0 %, 4.02, 0.535 | -0.22, -5.7 %, 3.49, 0.880 | +0.08, -1.1 %, 1.05, 0.998 |
-| Normal | -3.14, -5.2 %, 5.50, 0.546 | +2.11, -9.0 %, 4.32, 0.667 | -0.78, -5.3 %, 2.89, 0.946 | -0.35, -0.5 %, 1.08, 0.998 |
-| Quality | -5.26, -5.4 %, 5.72, 0.607 | +3.65, +1.5 %, 4.63, 0.747 | -1.12, -5.1 %, 3.39, 0.988 | -0.50, -0.1 %, 1.23, 0.998 |
+| Off | -0.01, -5.2 %, 5.36, 0.451 | +0.00, -25.1 %, 4.01, 0.525 | -0.22, -5.8 %, 3.51, 0.882 | +0.08, -0.7 %, 0.90, 0.999 |
+| Normal | -3.11, -5.2 %, 5.57, 0.546 | +2.07, -9.2 %, 4.28, 0.655 | -0.82, -5.4 %, 2.90, 0.949 | -0.33, -0.1 %, 0.93, 0.998 |
+| Quality | -5.18, -5.4 %, 5.80, 0.607 | +3.60, +1.2 %, 4.58, 0.734 | -1.19, -5.2 %, 3.40, 0.992 | -0.44, +0.3 %, 1.09, 0.998 |
 
-Flat patches and the smooth gradient: the same for all three to 0.1/255 and 0.2 %.
+Flat patches and the smooth gradient: the same for all three to 0.1/255 and 0.2 %. (The texture was first made
+with 2.5 px detail, past the eye's Nyquist; its means then moved with how it aliased, 1/255 between lavapipe on x86 and
+on the arm64 runner, so it is kept below.)
 
 What that says:
 - **Brightness.** On pictures Sharpen moves nothing. On text it makes strokes bolder: the clamp to the footprint's
   range keeps the push on the stroke and cuts the halo the unsharp mask would put on the paper beside it (that halo is
   the ringing the clamp is there to stop). Measured in light, which is what the eye adds up, Off is the one that is
   off: the footprint filter averages encoded values, which loses a quarter of the light of thin bright strokes, and
-  Normal gives back two thirds of it. On dark text on light the light is the same with or without. So the owner's
+  Normal gives back two thirds of it (-9.2 %). On dark text on light the light is the same with or without. So the owner's
   "Off darkens" is real, on a dark theme, and it is Off that is darker than the desktop.
 - **Colour.** On pictures, none. On text, sharpening each channel on its own raised the saturation of ClearType's
-  fringes (0.45 to 0.55 of the ideal's) and of coloured text. That is the colour difference.
+  fringes (0.45 to 0.55 of the ideal's) and of coloured text (0.88 to 0.95). That is the colour difference.
 - **Encoded or linear.** Sharpening in linear light instead: MTF50 0.412 against 0.393, light text on dark -13.8 %
   against -9.0 %, crawl 2.75 against 2.29. No better, so it stays on encoded values.
 - **Quality's shimmer.** On a bright stroke the clamp holds a pixel at the brightest of its four reads, and that read
@@ -183,15 +185,16 @@ After, default placement:
 
 | | dark text on light: luma, light, chroma, sat | light text on dark | coloured text | photo-like texture |
 | --- | --- | --- | --- | --- |
-| Normal after | -3.22, -5.3 %, 5.30, 0.450 | +2.13, -9.1 %, 4.02, 0.532 | -1.17, -6.2 %, 3.49, 0.880 | -0.45, -0.7 %, 1.05, 0.998 |
-| Quality after | -3.88, -5.3 %, 5.30, 0.450 | +3.03, -3.1 %, 4.02, 0.532 | -1.36, -6.4 %, 3.49, 0.880 | -0.65, -0.4 %, 1.05, 0.998 |
+| Normal after | -3.19, -5.3 %, 5.36, 0.450 | +2.09, -9.3 %, 4.01, 0.523 | -1.22, -6.3 %, 3.51, 0.882 | -0.44, -0.3 %, 0.90, 0.998 |
+| Quality after | -3.81, -5.3 %, 5.36, 0.450 | +2.98, -3.2 %, 4.01, 0.523 | -1.42, -6.5 %, 3.51, 0.882 | -0.60, -0.0 %, 0.90, 0.998 |
 
 Normal is as sharp as before, its colour is now Off's, and its light is as before (nearer the desktop's than Off's).
 Quality is still about a fifth sharper than normal (MTF50 +21 %, 3 px lines 0.59 against 0.55) and shimmers on
-light text on dark about as much as normal does (0.50 against 0.47). Coloured text keeps Off's chroma error (3.49);
-per channel sharpening had brought it to 2.89 while making grey text's fringes worse, and the owner's eye preferred
-Off's colour. The test holds all of this (`text:` checks: colour within 0.15 and 0.03 of Off's, light no further from
-the ideal than Off's, quality at least 12 % sharper than normal with crawl on light text within 12 % of normal's).
+light text on dark about as much as normal does (0.50 against 0.47). Coloured text keeps Off's chroma error (3.51);
+per channel sharpening had brought it to 2.90 while making grey text's fringes worse, and the owner's eye preferred
+Off's colour. The test holds all of this (`text:` checks: colour within 0.15 and 0.03 of Off's, pictures within
+1/255, 1 % and 0.15 of Off's, light no further from the ideal than Off's, quality at least 12 % sharper than normal
+with crawl on light text within 12 % of normal's).
 
 The flat picture's Sharpen (the warp's CAS) was measured too: no change on pictures, and on text it is near Off's
 (light text on dark -19.5 %, luma +0.01), as CAS barely touches text. It was left alone.

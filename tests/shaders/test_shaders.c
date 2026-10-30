@@ -3431,8 +3431,8 @@ static void txTone(const TxSurf* s, const uint8_t* img, int (*cls)(float, float)
     double n[8] = {0}, yo[8] = {0}, yi[8] = {0}, lo[8] = {0}, li[8] = {0}, csq[8] = {0}, mo[8] = {0}, mi[8] = {0};
     int x0, y0, x1, y1;
     txBox(s, &x0, &y0, &x1, &y1);
-    for (int y = y0; y < y1; y += 2)
-        for (int x = x0; x < x1; x += 2) {
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
             float sx, sy;
             if (!txMap(s, x + 0.5f, y + 0.5f, &sx, &sy)) continue;
             int c = cls(sx, sy);
@@ -3788,7 +3788,7 @@ static void testText(void) {
                       toneText[t][c].light, toneText[0][c].light);
             }
             for (int c = 0; c < TXS_TONE_CLASSES; c++)
-                check(fabsf(tonePhoto[t][c].luma - tonePhoto[0][c].luma) <= 0.75f &&
+                check(fabsf(tonePhoto[t][c].luma - tonePhoto[0][c].luma) <= 1.0f &&
                           fabsf(tonePhoto[t][c].light - tonePhoto[0][c].light) <= 1.0f &&
                           fabsf(tonePhoto[t][c].chroma - tonePhoto[0][c].chroma) <= 0.15f &&
                           fabsf(tonePhoto[t][c].sat - tonePhoto[0][c].sat) <= 0.01f,
