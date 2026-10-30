@@ -48,6 +48,8 @@
     X(GAMEPAD, "vr_panel_gamepad", "Gamepad") \
     X(ROW_GLOW_LEVEL, "vr_panel_glow_level", "Glow level") \
     X(ROW_NOTICES, "vr_panel_notices", "Notices") \
+    X(ROW_CLICK_STEADY, "vr_panel_click_steadiness", "Click steadiness") \
+    X(STEADY, "vr_panel_steady", "Steady") \
     X(NOTICE_CELL_ALL, "vr_panel_notices_all", "All") \
     X(NOTICE_CELL_IMPORTANT, "vr_panel_notices_important", "Important") \
     X(SHORTCUT_MENU_GRIP, "vr_panel_shortcut_menu_grip", "Shortcut: left View + grip") \

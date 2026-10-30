@@ -89,6 +89,20 @@ XrPosef poseRecentred(XrPosef screen) {
     return out;
 }
 
+XrPosef poseRecentredTo(XrPosef screen, float yaw) {
+    Vec3 up = { 0.0f, 1.0f, 0.0f };
+    XrPosef ahead = poseRecentred(screen);
+    XrQuaternionf turn = axisAngleQuat(up, yaw);
+    Vec3 p = { ahead.position.x, ahead.position.y, ahead.position.z };
+    Vec3 q = quatRotate(turn, p);
+    XrPosef out;
+    out.orientation = quatNorm(quatMul(turn, ahead.orientation));
+    out.position.x = q.x;
+    out.position.y = q.y;
+    out.position.z = q.z;
+    return out;
+}
+
 // The virtual surround turns its speakers by this. Forward is -z, and a
 // positive turn about +y swings it toward -x, which is the viewer's left, so a
 // facing's heading is atan2(-x, -z). Only the heading is compared, so looking

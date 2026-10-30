@@ -55,6 +55,9 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(QString keyboardKeymap MEMBER keyboardKeymap NOTIFY changed)
     // Which notices the headset's toast says: "all", "important" or "off" ([vr] notices)
     Q_PROPERTY(QString notices MEMBER notices NOTIFY changed)
+    // How fast a controller thumbstick scrolls in the headset, percent of 7.5 notches a
+    // second, 25..400 ([vr] scroll_speed)
+    Q_PROPERTY(int scrollSpeed MEMBER scrollSpeed NOTIFY changed)
     // Which controller the headset draws in each hand: "off", "frame", "generic", "gun" or "custom"
     // ([vr] controller_model). Custom (your own files in the models folder) is only chosen here and
     // in the file; the headset's Display tab has a cell for the other four
@@ -141,6 +144,7 @@ public:
     bool flipFaceButtons;
     QString keyboardKeymap;
     QString notices;
+    int scrollSpeed;
     QString controllerModel;
     int doffDisconnect = 60;
     int idleDisconnect = 0;
@@ -157,6 +161,7 @@ private:
     // what config.ini held at load(), to write only what this page changed
     bool m_iniPerfOverlay = false, m_iniFlip = false;
     QString m_iniNotices = "all";
+    int m_iniScrollSpeed = 100;
     QString m_iniControllerModel = "off";
     int m_iniDoff = 60, m_iniIdle = 0;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";

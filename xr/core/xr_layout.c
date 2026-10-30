@@ -103,10 +103,11 @@ BarFrame roomBarFrame(XrPosef picture, float pictureHeight, float aspect) {
 
 // Out from the middle in the order the buttons are added, the pill between
 // the first pair: the picker and the cog, then the exit and keyboard
-// buttons, then gamepad mode and the ray, then head aim and the 3D
+// buttons, then gamepad mode and the ray, then head aim and the 3D, and on
+// the right past the 3D the Host sheet's
 void barSlotPlacement(int slot, float width, float height, Vec3* outLocal, float* outSide) {
-    static const int OUT[BAR_SLOTS] = { 0, 0, 1, 1, 2, 3, 2, 3 };
-    static const int LEFT[BAR_SLOTS] = { 1, 0, 0, 1, 1, 1, 0, 0 };
+    static const int OUT[BAR_SLOTS] = { 0, 0, 1, 1, 2, 3, 2, 3, 4 };
+    static const int LEFT[BAR_SLOTS] = { 1, 0, 0, 1, 1, 1, 0, 0, 0 };
     if (slot < 0 || slot >= BAR_SLOTS) {
         slot = BAR_SLOT_ENV;
     }

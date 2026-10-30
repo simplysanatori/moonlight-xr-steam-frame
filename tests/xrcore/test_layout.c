@@ -338,6 +338,12 @@ static void testTheRowsOrder(void) {
         lastL = l.x - sideL * 0.5f;
         lastR = r.x + sideR * 0.5f;
     }
+    // Native (lane wave2-bind-wire): the Host sheet's past the 3D, on the right
+    Vec3 host;
+    float hostSide;
+    barSlotPlacement(BAR_SLOT_HOST, w, h, &host, &hostSide);
+    CHECK(host.x - hostSide * 0.5f > lastR);
+    CHECK_NEAR(host.y, -(h * 0.5f + w * BAR_DROP_FRAC), 1e-6);
     // Every button is clear of the frame's bottom edge
     for (int slot = 0; slot < BAR_SLOTS; slot++) {
         Vec3 p;
@@ -512,23 +518,24 @@ static void testTheRowsFit(void) {
         CHECK(last + 0.0425f < 1.0f - 0.03f);
         CHECK(last + half <= 1.0f);
     }
-    // The display tab's fourteen rows, head aim's after head locked and the
+    // The display tab's fifteen rows, head aim's after head locked and the
     // input rows (Mode first) after that, the notices row after the screen
     // light, the glow level track last
-    CHECK(COG_DISPLAY_SLIDER_ROW == 13);
+    CHECK(COG_DISPLAY_SLIDER_ROW == 14);
     CHECK(COG_OPTION_NOTICES == COG_OPTION_ROOM_LIGHT + 1 && COG_OPTION_COUNT == COG_OPTION_NOTICES + 1);
     CHECK(COG_DISPLAY_SLIDER_ROW == COG_OPTION_COUNT);
     CHECK(MARK_VALUES == COG_OPTION_COUNT);
     CHECK(COG_OPTION_HEAD_AIM == COG_OPTION_HEAD_LOCK + 1);
     CHECK(COG_OPTION_GAMEPAD == COG_OPTION_HEAD_AIM + 1);
     // The input rows sit together, in the order a person reaches for them:
-    // Mode, Show controllers, Ray, Pointer sleep, Click sound
+    // Mode, Show controllers, Ray, Pointer sleep, Click steadiness, Click sound
     CHECK(COG_OPTION_CONTROLLERS == COG_OPTION_GAMEPAD + 1);
     CHECK(COG_OPTION_RAY == COG_OPTION_CONTROLLERS + 1);
     CHECK(COG_OPTION_POINTER_SLEEP == COG_OPTION_RAY + 1);
-    CHECK(COG_OPTION_CLICK_SOUND == COG_OPTION_POINTER_SLEEP + 1);
+    CHECK(COG_OPTION_CLICK_STEADY == COG_OPTION_POINTER_SLEEP + 1);
+    CHECK(COG_OPTION_CLICK_SOUND == COG_OPTION_CLICK_STEADY + 1);
     CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, 0), 0.197, 1e-6);
-    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW), 0.9172, 1e-5);
+    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW), 0.9166, 1e-5);
     // Its first band starts under the tab bar, and its cells are shallower
     // than the rows are apart
     CHECK(cogRowV(COG_TAB_DISPLAY, 0) - cogRowHalf(COG_TAB_DISPLAY) >= COG_TAB_BAR_B);
@@ -834,11 +841,12 @@ static void testTheKofiButton(void) {
 // offsets in y, and a face written in lands in its cell the right way up for
 // a texture uploaded bottom row first, touching nothing else.
 static void testTheButtonCells(void) {
-    CHECK(BTN_ATLAS_W == 1536 && BTN_ATLAS_H == BUTTON_TEX);
-    // Every switch has its on face in the cell after its off face, and the
-    // last switch's on face is the last cell
+    CHECK(BTN_ATLAS_W == 1664 && BTN_ATLAS_H == BUTTON_TEX);
+    // Every switch has its on face in the cell after its off face; the Host
+    // sheet's button (native) has one face, the last cell
     CHECK(BTN_CELL_STEREO + 1 < BTN_CELL_RAY && BTN_CELL_RAY + 1 < BTN_CELL_AIM);
-    CHECK(BTN_CELL_AIM + 1 < BTN_CELL_PAD && BTN_CELL_PAD + 1 == BTN_CELLS - 1);
+    CHECK(BTN_CELL_AIM + 1 < BTN_CELL_PAD && BTN_CELL_PAD + 1 < BTN_CELL_HOST);
+    CHECK(BTN_CELL_HOST == BTN_CELLS - 1);
 
     int seen[BTN_ATLAS_COLS * BTN_ATLAS_ROWS] = { 0 };
     for (int cell = 0; cell < BTN_CELLS; cell++) {

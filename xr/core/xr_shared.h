@@ -113,12 +113,29 @@
 #define NOTICES_ALL 0
 #define NOTICES_IMPORTANT 1
 #define NOTICES_OFF 2
+// Native (lane wave2-bind-wire): the thumbstick's wheel speed (config.ini
+// scroll_speed), percent of the 7.5 notches a second it always scrolled at
+#define SCROLL_SPEED_MIN 25
+#define SCROLL_SPEED_MAX 400
+#define SCROLL_SPEED_DEFAULT 100
+// Native (lane wave2-bind-wire): how much the cursor is held still around a
+// click (config.ini click_steadiness, the Display tab's Click steadiness row).
+// Off sends the aim as it is; Normal is what every session had: the press
+// sent where the aim was before the pull jolted it, and the double-click wait
+// (24 px, 500 ms); Steady adds the click hold (8 px), the cursor kept still
+// from the first touch of the trigger. The MLXR_ variables still override
+// each part.
+#define CLICK_STEADY_OFF 0
+#define CLICK_STEADY_NORMAL 1
+#define CLICK_STEADY_STEADY 2
 
 // Slots in the float array handed back to Java each frame
 #define IN_HIT      0
 #define IN_U        1
 #define IN_V        2
 #define IN_BUTTONS  3
+// Native (lane wave2-bind-wire): the host wheel this frame in 120ths of a
+// notch (it was whole notches), up positive; IN_HSCROLL is the sideways one
 #define IN_SCROLL   4
 #define IN_POINTER  5
 #define IN_POSE_DIRTY 6
@@ -177,7 +194,7 @@
 // up, and -1 for a row greyed where it can do nothing. Every frame. As many as
 // COG_OPTION_COUNT below, which the native side checks when it builds.
 #define IN_MARKS    (IN_CLICK + 1)
-#define MARK_VALUES 13
+#define MARK_VALUES 14
 // 1 while the settings panel is up, fading out included, so Java keeps the
 // clock line over it up to the minute
 #define IN_COG_OPEN (IN_MARKS + MARK_VALUES)
@@ -220,7 +237,8 @@
 // Set to 1 the frame the hand lock hint is put away with "Don't show this
 // again", which Java stores so later sessions skip it. 0 otherwise.
 #define IN_HINT     (IN_PAD_RY + 1)
-#define IN_SLOTS    (IN_HINT + 1)
+#define IN_HSCROLL  (IN_HINT + 1)
+#define IN_SLOTS    (IN_HSCROLL + 1)
 
 // Gamepad mode's buttons, in the bits Moonlight's controller packet carries
 // them in, which are ControllerPacket's flags: the four face buttons, the
@@ -602,12 +620,15 @@
 #define COG_OPTION_CONTROLLERS 6
 #define COG_OPTION_RAY 7
 #define COG_OPTION_POINTER_SLEEP 8
-#define COG_OPTION_CLICK_SOUND 9
-#define COG_OPTION_AMBILIGHT 10
-#define COG_OPTION_ROOM_LIGHT 11
+// Native (lane wave2-bind-wire): how still the cursor is held around a click
+// (Off, Normal, Steady: the CLICK_STEADY_ levels), with the other input rows
+#define COG_OPTION_CLICK_STEADY 9
+#define COG_OPTION_CLICK_SOUND 10
+#define COG_OPTION_AMBILIGHT 11
+#define COG_OPTION_ROOM_LIGHT 12
 // Native: which notices the toast says (All, Important, Off)
-#define COG_OPTION_NOTICES 12
-#define COG_OPTION_COUNT   13
+#define COG_OPTION_NOTICES 13
+#define COG_OPTION_COUNT   14
 #define COG_SHARPEN_CELLS 3
 #define COG_SUPERSAMPLE_CELLS 3
 #define COG_STATS_CELLS   2
@@ -616,6 +637,7 @@
 #define COG_HEAD_AIM_CELLS 2
 #define COG_GAMEPAD_CELLS 2
 #define COG_POINTER_SLEEP_CELLS 2
+#define COG_CLICK_STEADY_CELLS 3
 // Native (M4): three cells, off / the dot alone / the ray with its dot (the
 // owner asked to be able to hide the dot); upstream has two, off and on
 #define COG_RAY_CELLS 3
@@ -629,17 +651,18 @@
 // The one row on this tab that is a track rather than cells, under the option
 // rows, so the glow can be turned down without leaving the tab it lives on.
 // This tab has no reset button for it to land on.
-#define COG_DISPLAY_SLIDER_ROW 13
-// Fourteen rows on this tab (thirteen of cells, native added Notices, and the glow level track), so its
+#define COG_DISPLAY_SLIDER_ROW 14
+// Fifteen rows on this tab (fourteen of cells, native added Notices and Click
+// steadiness, and the glow level track), so its
 // rows start a little higher and sit closer together than the other tabs',
 // with shallower cells to keep a gap between them. The last is centred at
-// 0.9172 and its thumb still clears the bottom
+// 0.9166 and its thumb still clears the bottom
 // edge, grown or not. The hit band is half the pitch, so neighbouring bands
 // meet without overlapping, and the first starts just under the tab bar.
 #define COG_DISPLAY_ROW_V0 0.197f
-#define COG_DISPLAY_ROW_STEP 0.0554f
-#define COG_DISPLAY_ROW_HALF 0.0277f
-#define COG_DISPLAY_CELL_HALF 0.0235f
+#define COG_DISPLAY_ROW_STEP 0.0514f
+#define COG_DISPLAY_ROW_HALF 0.0257f
+#define COG_DISPLAY_CELL_HALF 0.0218f
 // The marks on the display tab's cells, which of each row's cells is in
 // force, drawn in Java as one strip over the column of cells rather than a
 // ring each, so the tab costs one layer for them however many rows it has.

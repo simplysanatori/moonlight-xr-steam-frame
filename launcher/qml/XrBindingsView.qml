@@ -258,7 +258,8 @@ Flickable {
             "app": { "keyboard": qsTr("Show or hide the keyboard"), "ray": qsTr("Step the ray (off, dot, ray)"),
                      "recentre": qsTr("Recentre the screen"), "cog": qsTr("Open or close the cog panel"),
                      "3d": qsTr("3D on or off"), "gamepad": qsTr("Switch pointer and gamepad mode"),
-                     "bringhere": qsTr("Bring the screen here (not built yet)") }
+                     "bringhere": qsTr("Bring the screen here"),
+                     "host": qsTr("Open or close the Host sheet") }
         }
         var m = maps[kind]
         return m && m[value] !== undefined ? m[value] : value

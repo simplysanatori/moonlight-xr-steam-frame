@@ -382,14 +382,15 @@ if [ -n "$SHOTS" ]; then
     ini="$MLXR_CONFIG_DIR/config.ini"
     printf '# Moonlight XR settings\n[display]\n# Display tab: show performance stats [true | false] (default false)\n#stats = false\nglow = true\n\n[3d]\nseparation = 9\nstereo = false\n' > "$ini"
     cp "$ini" "$t/ini.before"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,doffRow,idleRow,controllerModelRow,hdrRow \
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,scrollSpeedRow,doffRow,idleRow,controllerModelRow,hdrRow \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-clicked.png@3000" "$L" >"$t/ui6.out" 2>&1
     grep -q "no clickable" "$t/ui6.out" && fail "click hook: $(grep 'no clickable' "$t/ui6.out")"
     grep -q '^stats = true$' "$ini" && ok "stats overlay row writes [display] stats = true" || { fail "stats not written"; cat "$ini"; }
     grep -q '^#stats' "$ini" && fail "commented stats line left as well" || ok "the commented default line was replaced"
     grep -A1 '^\[vr\]' "$ini" | grep -q '^flip_face_buttons = true$' && ok "flip row adds [vr] flip_face_buttons = true" || { fail "flip not written"; cat "$ini"; }
     grep -A2 '^\[vr\]' "$ini" | grep -q '^notices = important$' && ok "notices row steps All to Important and writes [vr] notices" || { fail "notices not written"; cat "$ini"; }
-    grep -A3 '^\[vr\]' "$ini" | grep -q '^controller_model = frame$' && ok "controller row steps Off to Steam Frame and writes [vr] controller_model" || { fail "controller_model not written"; cat "$ini"; }
+    grep -A6 '^\[vr\]' "$ini" | grep -q '^scroll_speed = 150$' && ok "scroll speed row steps 100 to 150 and writes [vr] scroll_speed" || { fail "scroll_speed not written"; cat "$ini"; }
+    grep -A6 '^\[vr\]' "$ini" | grep -q '^controller_model = frame$' && ok "controller row steps Off to Steam Frame and writes [vr] controller_model" || { fail "controller_model not written"; cat "$ini"; }
     grep -A3 '^\[stream\]' "$ini" | grep -q '^doff_disconnect = 120$' && ok "headset-off row steps 60 s to 120 s and writes [stream] doff_disconnect" || { fail "doff_disconnect not written"; cat "$ini"; }
     grep -A3 '^\[stream\]' "$ini" | grep -q '^idle_disconnect = 10$' && ok "idle row steps Never to 10 minutes and writes [stream] idle_disconnect" || { fail "idle_disconnect not written"; cat "$ini"; }
     grep -q '^glow = true$' "$ini" && grep -q '^separation = 9$' "$ini" && grep -q '^stereo = false$' "$ini" && ok "other config.ini keys untouched" || { fail "config.ini keys changed"; diff "$t/ini.before" "$ini"; }
@@ -412,6 +413,7 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads stats" "$dump" "display.stats = true"
         expect "VR client reads flip" "$dump" "vr.flip_face_buttons = true"
         expect "VR client reads notices" "$dump" "vr.notices = important"
+        expect "VR client reads scroll speed" "$dump" "vr.scroll_speed = 150"
         expect "VR client reads controller_model" "$dump" "vr.controller_model = frame"
         expect "VR client reads doff_disconnect" "$dump" "stream.doff_disconnect = 120"
         expect "VR client reads idle_disconnect" "$dump" "stream.idle_disconnect = 10"

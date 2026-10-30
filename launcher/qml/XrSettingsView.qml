@@ -176,6 +176,15 @@ Flickable {
         return Math.max(0, noticeValues.indexOf(MlxrPrefs.notices))
     }
 
+    // [vr] scroll_speed: the steps the row goes through, percent
+    readonly property var scrollSpeedSteps: [50, 75, 100, 150, 200, 300]
+    function nextScrollSpeed() {
+        for (var i = 0; i < scrollSpeedSteps.length; i++) {
+            if (scrollSpeedSteps[i] > MlxrPrefs.scrollSpeed) return scrollSpeedSteps[i]
+        }
+        return scrollSpeedSteps[0]
+    }
+
     // [vr] controller_model: which controller the headset draws in each hand
     readonly property var modelValues: ["off", "frame", "generic", "gun", "custom"]
     readonly property var modelNames: [qsTr("Off"), qsTr("Steam Frame controller"), qsTr("Generic controller"), qsTr("Gun"), qsTr("Your own model")]
@@ -887,6 +896,15 @@ Flickable {
             summary: qsTr("The small pop-ups in the headset. Important leaves out the display rate and 3D on/off and keeps mode changes and errors.") + " " +
                      qsTr("(also on its Display tab)")
             onClicked: MlxrPrefs.notices = settingsPage.noticeValues[(settingsPage.noticeIndex() + 1) % settingsPage.noticeValues.length]
+        }
+
+        // The controllers' thumbstick wheel in the headset: pressing the row steps the speed
+        PrefRow {
+            objectName: "scrollSpeedRow"
+            title: qsTr("Headset scroll speed")
+            valueText: MlxrPrefs.scrollSpeed + "%"
+            summary: qsTr("How fast a controller's thumbstick scrolls in pointer mode. Tilt it sideways to scroll sideways.")
+            onClicked: MlxrPrefs.scrollSpeed = settingsPage.nextScrollSpeed()
         }
 
         // The headset coming off: the sound mutes and the input is let go at once; after the time the stream

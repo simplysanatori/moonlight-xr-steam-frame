@@ -13,6 +13,8 @@
 #include "xr_renderer.h"
 #include "xr_keyboard.h"
 #include "xr_native.h"
+#include "xr_host.h"
+#include "../input/gamepads.h"
 
 // Native (lane ray-glitch): the ray recorder, switched on by MLXR_RAY_DEBUG=1
 // in the environment (docs/dev/ray-debug.md). A CSV row per input frame of
@@ -1282,7 +1284,7 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         int statsGrab = !kbBar && hand >= 0 && hand < HAND_COUNT && ctx->statsOver
                 && ctx->gripEdge[hand] && statsShown(ctx) && hover != HOVER_KBPANEL
                 && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen && !ctx->reportOpen
-                && !ctx->hintOpen && !ctx->kofiOpen;
+                && !ctx->hintOpen && !ctx->kofiOpen && !ctx->hostOpen;
         int winGrab = kbBar || statsGrab;
         if (!winGrab && roomStyle > 0 && (hover != HOVER_CORNER || !roomResizable(roomStyle))) {
             return;
@@ -1549,7 +1551,8 @@ static int onFurniture(int hover) {
     return hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_COGBUTTON
             || hover == HOVER_KBBUTTON || hover == HOVER_EXITBUTTON
             || hover == HOVER_STEREOBUTTON || hover == HOVER_RAYBUTTON
-            || hover == HOVER_AIMBUTTON || hover == HOVER_PADBUTTON;
+            || hover == HOVER_AIMBUTTON || hover == HOVER_PADBUTTON
+            || hover == HOVER_HOSTBUTTON;
 }
 
 // Where the ray lands on furniture rather than on the picture. The grid and the
@@ -1582,6 +1585,9 @@ static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef scre
     }
     if (hover == HOVER_KOFI) {
         return screenPoint(u, v, ctx->kofiPose, ctx->kofiW, ctx->kofiH, 0.0f, 0);
+    }
+    if (hover == HOVER_HOST) {
+        return screenPoint(u, v, ctx->hostPose, ctx->hostW, ctx->hostH, 0.0f, 0);
     }
     return screenPoint(u, v, screenPose, ctx->screenWidth, height, radius, curved);
 }
@@ -1830,15 +1836,17 @@ static int furnitureHover(XrCtx* ctx, int hover, float u, float v, const BarFram
     // The rest sit further out, past the ends of the bar's zone entirely.
     // That is halo ground, so each has to claim the halo back or the ray
     // never reaches it: the keyboard and the exit button one place out, then
-    // gamepad mode and the ray's switch, then head aim and the 3D switch.
-    static const int OUTER[6] = {
-        BAR_SLOT_KB, BAR_SLOT_EXIT, BAR_SLOT_PAD, BAR_SLOT_AIM, BAR_SLOT_RAY, BAR_SLOT_STEREO
+    // gamepad mode and the ray's switch, then head aim and the 3D switch, and
+    // last the Host sheet's (native, lane wave2-bind-wire).
+    static const int OUTER[7] = {
+        BAR_SLOT_KB, BAR_SLOT_EXIT, BAR_SLOT_PAD, BAR_SLOT_AIM, BAR_SLOT_RAY, BAR_SLOT_STEREO,
+        BAR_SLOT_HOST
     };
-    static const int HOVERS[6] = {
+    static const int HOVERS[7] = {
         HOVER_KBBUTTON, HOVER_EXITBUTTON, HOVER_PADBUTTON, HOVER_AIMBUTTON, HOVER_RAYBUTTON,
-        HOVER_STEREOBUTTON
+        HOVER_STEREOBUTTON, HOVER_HOSTBUTTON
     };
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 7; i++) {
         if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
                 && barButtonHit(ctx, OUTER[i], u, v, bar)) {
             hover = HOVERS[i];
@@ -2569,11 +2577,16 @@ static void updatePointerWake(XrCtx* ctx, InputFrame* f) {
         ctx->pointerAwake = 1;
         ctx->stillFor = 0.0f;
     }
+    // Native (lane wave2b-padmouse): with pad_arbitration = sleep a physical
+    // pad in use rests the Frame controllers' pointer
+    if (gamepadsFrameControllersAsleep()) {
+        ctx->pointerAwake = 0;
+    }
 
     // The hand lock hint and the Ko-fi sheet wait on a press, so the pointer
     // stays up under them. Retiring there would cost the press that puts one
     // away as a waking pinch.
-    if (ctx->hintOpen || ctx->kofiOpen) {
+    if (ctx->hintOpen || ctx->kofiOpen || ctx->hostOpen) {
         ctx->pointerAwake = 1;
         ctx->stillFor = 0.0f;
     }
@@ -2784,6 +2797,7 @@ static void clearHotState(XrCtx* ctx) {
     ctx->rayButtonHot = 0;
     ctx->aimButtonHot = 0;
     ctx->padButtonHot = 0;
+    ctx->hostButtonHot = 0;
     ctx->reportHoverZone = REPORT_ZONE_NONE;
     ctx->cogReportHot = 0;
     ctx->cogKofiHot = 0;
@@ -3451,6 +3465,61 @@ static void updateKofiSheet(XrCtx* ctx, InputFrame* f) {
     }
 }
 
+// Native (lane wave2-bind-wire): the Host sheet is modal like the Ko-fi
+// sheet. The ray is on its cells; a press on one does what it says
+// (xrHostPress: plays its keys, asks first, or puts the keyboard up for Send
+// keys), and a press off the sheet puts it away.
+static void updateHostSheet(XrCtx* ctx, InputFrame* f) {
+    f->hover = HOVER_HOST;
+    f->hand = -1;
+    int zone = XR_HOST_ZONE_NONE;
+    for (int h = 0; h < SRC_COUNT; h++) {
+        float pu, pv;
+        if (!canPoint(ctx, f, h)) {
+            continue;
+        }
+        if (!screenProject(f->aimPoses[h], ctx->hostPose, ctx->hostW, ctx->hostH, 0.0f, 0, &pu,
+                           &pv)) {
+            continue;
+        }
+        if (pu < 0.0f || pu > 1.0f || pv < 0.0f || pv > 1.0f) {
+            continue;
+        }
+        f->hand = h;
+        f->hitU[h] = pu;
+        f->hitV[h] = pv;
+        zone = xrHostZone(ctx, pu, pv);
+        break;
+    }
+    ctx->hostHoverZone = zone;
+
+    int pressed = -1;
+    for (int h = 0; h < SRC_COUNT && pressed < 0; h++) {
+        if (ctx->triggerEdge[h]) {
+            pressed = h;
+        }
+    }
+    if (pressed < 0) {
+        return;
+    }
+    if (pressed == f->hand) {
+        int tick = 0;
+        xrHostPress(ctx, f->hitU[pressed], f->hitV[pressed], &tick);
+        if (tick) {
+            ctx->clickPending = 1;
+        }
+    }
+    else {
+        xrHostClose(ctx);
+        LOGEV("host sheet put away by a press off it");
+    }
+    for (int h = 0; h < SRC_COUNT; h++) {
+        if (ctx->triggerEdge[h]) {
+            swallowTrigger(ctx, h);
+        }
+    }
+}
+
 // Lights whichever piece of furniture the ray is on, and acts on a press there.
 // A press on any of them, a key included, ticks.
 static void updateFurniture(XrCtx* ctx, InputFrame* f) {
@@ -3459,6 +3528,7 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
             || f->hover == HOVER_KBBUTTON || f->hover == HOVER_EXITBUTTON
             || f->hover == HOVER_STEREOBUTTON || f->hover == HOVER_RAYBUTTON
             || f->hover == HOVER_AIMBUTTON || f->hover == HOVER_PADBUTTON
+            || f->hover == HOVER_HOSTBUTTON
             || (f->hover == HOVER_KBPANEL
                 && kbKeyAt(ctx, f->hitU[f->hand], f->hitV[f->hand]) >= 0))) {
         ctx->clickPending = 1;
@@ -3540,6 +3610,15 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
             setPadMode(ctx, !ctx->padMode, "the bar button");
         }
     }
+    else if (f->hover == HOVER_HOSTBUTTON) {
+        // Native (lane wave2-bind-wire): the Host sheet (docs/dev/host.md)
+        ctx->hostButtonHot = 1;
+        if (ctx->triggerEdge[f->hand]) {
+            xrHostOpen(ctx);
+            // The press belonged to the button, not to the host behind it
+            swallowTrigger(ctx, f->hand);
+        }
+    }
     else if (f->hover == HOVER_KBPANEL) {
         int key = kbKeyAt(ctx, f->hitU[f->hand], f->hitV[f->hand]);
         ctx->kbHoverKey = key;
@@ -3579,7 +3658,7 @@ static void updateLauncher(XrCtx* ctx, InputFrame* f) {
 // dismiss it while the first is still on the screen.
 static void dismissKeyboard(XrCtx* ctx, InputFrame* f) {
     if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen
-            && !ctx->reportOpen && !ctx->hintOpen && !ctx->kofiOpen) {
+            && !ctx->reportOpen && !ctx->hintOpen && !ctx->kofiOpen && !ctx->hostOpen) {
         for (int h = 0; h < SRC_COUNT; h++) {
             if (!canPoint(ctx, f, h) || !ctx->triggerEdge[h]) {
                 continue;
@@ -3615,7 +3694,7 @@ static void logInputSnapshot(XrCtx* ctx, InputFrame* f) {
 // being held rather than wherever it is now pointing
 static void beamToHandle(XrCtx* ctx, InputFrame* f) {
     ctx->buttonsDown = 0;
-    ctx->scrollCarry = 0.0f;
+    scrollAccReset(&ctx->scroll);
     ctx->filterU.valid = 0;
     ctx->filterV.valid = 0;
 
@@ -3675,12 +3754,542 @@ static void beamToFurniture(XrCtx* ctx, InputFrame* f) {
     ctx->beamVisible = f->headValid;
 }
 
+// ---- Native (lane wave2-bind-wire): bindings.ini at work -------------------
+// The table (xr/core/xr_bind.h) for the mode the controllers are in and the
+// host app on the screen. Pointer mode's mouse buttons go through
+// pointerButtonsWanted as the trigger always did; gamepad mode's pad buttons
+// through updatePad once the table is not the defaults (the defaults keep
+// padMapGrips and padGuideStep exactly as they were); keys, wheel notches and
+// app commands go out on the press and, for keys, the release. docs/dev/
+// bindings.md has the file and what can never be bound.
+
+// stick:mouse, pixels a second at full tilt, and its own small dead zone
+#define BIND_STICK_MOUSE_PX_PER_SEC 1200.0f
+#define BIND_STICK_MOUSE_DEADZONE 0.15f
+
+#define BIND_SRC_TRIGGER(h) ((h) == HAND_LEFT ? XR_BIND_SRC_LEFT_TRIGGER : XR_BIND_SRC_RIGHT_TRIGGER)
+#define BIND_SRC_GRIP(h) ((h) == HAND_LEFT ? XR_BIND_SRC_LEFT_GRIP : XR_BIND_SRC_RIGHT_GRIP)
+#define BIND_SRC_STICK(h) ((h) == HAND_LEFT ? XR_BIND_SRC_LEFT_STICK : XR_BIND_SRC_RIGHT_STICK)
+#define BIND_SRC_CLICK(h) ((h) == HAND_LEFT ? XR_BIND_SRC_LEFT_STICK_CLICK : XR_BIND_SRC_RIGHT_STICK_CLICK)
+
+// The tables for both modes from the file and the host app
+static void bindResolve(XrCtx* ctx) {
+    const XrBindSet* set = ctx->bindLoaded ? &ctx->bindSet : NULL;
+    for (int m = 0; m < XR_BIND_MODES; m++) {
+        xrBindResolve(set, m, ctx->bindApp, &ctx->bindTable[m]);
+        ctx->bindRunTable[m] = ctx->bindTable[m];
+        xrBindTableExpandSticks(&ctx->bindRunTable[m]);
+    }
+    XrBindTable def;
+    xrBindResolve(NULL, XR_BIND_MODE_GAMEPAD, NULL, &def);
+    // A grip the file names is the file's, even as pad:lb or pad:rb, which
+    // takes it from pad_grip, so that table is not the defaults' either
+    const XrBindTable* pad = &ctx->bindTable[XR_BIND_MODE_GAMEPAD];
+    ctx->bindPadCustom = !xrBindTableSame(pad, &def)
+            || pad->from[XR_BIND_SRC_LEFT_GRIP] != XR_BIND_FROM_DEFAULT
+            || pad->from[XR_BIND_SRC_RIGHT_GRIP] != XR_BIND_FROM_DEFAULT;
+    ctx->bindGuideHold = xrBindTableGuideHold(&ctx->bindRunTable[XR_BIND_MODE_GAMEPAD]);
+    ctx->bindReady = 1;
+}
+
+// What differs from the defaults, one line for the log
+static void bindLogTables(XrCtx* ctx, const char* why) {
+    char modes[XR_BIND_MODES][1024];
+    int n = 0;
+    for (int m = 0; m < XR_BIND_MODES; m++) {
+        n += xrBindSummary(&ctx->bindTable[m], modes[m], sizeof(modes[m]));
+    }
+    if (n == 0) {
+        LOGI("bindings%s%s%s: the defaults", why, ctx->bindApp[0] ? " for " : "", ctx->bindApp);
+        return;
+    }
+    LOGI("bindings%s%s%s: pointer mode %s; gamepad mode %s", why, ctx->bindApp[0] ? " for " : "",
+         ctx->bindApp, modes[0][0] ? modes[0] : "as the defaults",
+         modes[1][0] ? modes[1] : "as the defaults");
+}
+
+int xrBindLoad(XrCtx* ctx, const char* path) {
+    if (ctx == NULL) {
+        return 0;
+    }
+    static XrBindErrors errs;
+    char where[1024];
+    const char* file = path != NULL ? path : xrBindDefaultPath(where, sizeof(where));
+    int r = xrBindLoadFile(&ctx->bindSet, file, &errs);
+    // Read, written or not, the set is good: the defaults alone at worst
+    ctx->bindLoaded = 1;
+    if (r == 1) {
+        LOGI("bindings: wrote %s, every line in it commented out (the defaults)", file);
+    }
+    else if (r == 0) {
+        LOGI("bindings: read %s", file);
+    }
+    int kept = errs.count < XR_BIND_MAX_ERRORS ? errs.count : XR_BIND_MAX_ERRORS;
+    for (int i = 0; i < kept; i++) {
+        LOGW("bindings: %s:%s", file, errs.errors[i].text);
+    }
+    if (errs.count > kept) {
+        LOGW("bindings: %d more errors in %s", errs.count - kept, file);
+    }
+    if (errs.count > 0) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "bindings.ini: %d error%s, see log", errs.count,
+                 errs.count == 1 ? "" : "s");
+        xrPanelsNotice(ctx, msg);
+    }
+    bindResolve(ctx);
+    bindLogTables(ctx, "");
+    return errs.count;
+}
+
+// A key: action going down or up, for dispatchInput to send. A full queue
+// drops a press, never a release.
+static void bindQueueKey(XrCtx* ctx, const XrBindAction* a, int down) {
+    if (ctx->bindKeyCount >= XR_BIND_KEY_QUEUE) {
+        if (down) {
+            return;
+        }
+        // Make room for the release over the oldest press
+        for (int i = 0; i < ctx->bindKeyCount; i++) {
+            if (ctx->bindKeys[i].down) {
+                ctx->bindKeys[i] = ctx->bindKeys[--ctx->bindKeyCount];
+                break;
+            }
+        }
+        if (ctx->bindKeyCount >= XR_BIND_KEY_QUEUE) {
+            return;
+        }
+    }
+    XrBindKey* k = &ctx->bindKeys[ctx->bindKeyCount++];
+    k->vk = a->code;
+    k->mods = a->mods;
+    k->down = down;
+}
+
+void xrKeyboardToggle(XrCtx* ctx, const char* from) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->kbOpen = !ctx->kbOpen;
+    if (ctx->kbOpen) {
+        // Up in lowercase, as from the bar's button
+        ctx->kbState = KB_STATE_LOWER;
+        kbPlace(ctx);
+    }
+    LOGI("keyboard %s from %s", ctx->kbOpen ? "open" : "closed", from);
+}
+
+// app:recentre: what SteamVR's recentre does, the screen brought round to
+// where the head faces. A screen locked to the head comes straight ahead.
+static void bindRecentre(XrCtx* ctx) {
+    int placed = ctx->placementValid;
+    recentreScreen(ctx);
+    if (!placed) {
+        return;
+    }
+    // The head's heading off its right hand side, which the frame keeps
+    // (straight ahead with the screen locked to the head)
+    float yaw = atan2f(-ctx->headRight.z, ctx->headRight.x);
+    XrPosef* pose = ctx->roomHoldingScreen ? &ctx->savedScreenPose : &ctx->screenPose;
+    *pose = poseRecentredTo(*pose, yaw);
+    LOGEV("recentred from a binding, to the head's heading %.1f deg",
+          yaw * 180.0f / (float)M_PI);
+}
+
+static void bindAppCommand(XrCtx* ctx, int code, float* out) {
+    switch (code) {
+        case XR_BIND_APP_KEYBOARD:
+            xrKeyboardToggle(ctx, "a binding");
+            break;
+        case XR_BIND_APP_RAY: {
+            // Off, Dot, Ray and round again, saved as the Display tab's row is
+            int cell = (cogOptionValue(ctx, COG_OPTION_RAY, ctx->headLockedPref) + 1) % COG_RAY_CELLS;
+            if (out != NULL && out[IN_SETTING] < 0.0f) {
+                cogApplyCell(ctx, COG_TAB_DISPLAY, COG_OPTION_RAY, cell, out);
+            }
+            else {
+                cogApplyOption(ctx, COG_OPTION_RAY, cell);
+            }
+            LOGI("ray %s from a binding", cell == 0 ? "off" : cell == 1 ? "dot only" : "on");
+            break;
+        }
+        case XR_BIND_APP_RECENTRE:
+            bindRecentre(ctx);
+            break;
+        case XR_BIND_APP_COG:
+            ctx->cogOpen = !ctx->cogOpen;
+            if (ctx->cogOpen) {
+                ctx->cogPose = cogPanelPose(ctx, &ctx->cogW, &ctx->cogH);
+            }
+            LOGI("cog panel %s from a binding", ctx->cogOpen ? "open" : "closed");
+            break;
+        case XR_BIND_APP_3D:
+            if (ctx->stereoMode == DEPTH_MODE_OFF) {
+                LOGI("3d from a binding: no 3D mode in this session");
+                break;
+            }
+            setStereoLive(ctx, !ctx->stereoLive, "a binding");
+            noticePush(&ctx->notices, ctx->stereoLive ? TOAST_3D_ON : TOAST_3D_OFF, 0);
+            break;
+        case XR_BIND_APP_GAMEPAD:
+            setPadMode(ctx, !ctx->padMode, "a binding");
+            break;
+        case XR_BIND_APP_BRINGHERE:
+            if (!xrBringScreenHere(ctx)) {
+                LOGI("bring here from a binding: nothing moved (a room, head locked, or no head pose yet)");
+            }
+            break;
+        case XR_BIND_APP_HOST:
+            if (ctx->hostOpen) {
+                xrHostClose(ctx);
+            }
+            else {
+                xrHostOpen(ctx);
+            }
+            LOGI("host sheet %s from a binding", ctx->hostOpen ? "open" : "closed");
+            break;
+        default:
+            break;
+    }
+}
+
+// The presses and releases out: keys both ways, a wheel notch and an app
+// command on the press. appsOnly lets only app commands through (a panel up
+// in gamepad mode); releases always go, so nothing sticks on the host.
+static void bindApply(XrCtx* ctx, const XrBindEdges* e, int appsOnly, float* out) {
+    for (int i = 0; i < e->releasedCount; i++) {
+        if (e->released[i].kind == XR_BIND_ACT_KEY) {
+            bindQueueKey(ctx, &e->released[i], 0);
+        }
+    }
+    for (int i = 0; i < e->pressedCount; i++) {
+        const XrBindAction* a = &e->pressed[i];
+        if (a->kind == XR_BIND_ACT_APP) {
+            bindAppCommand(ctx, a->code, out);
+        }
+        else if (appsOnly) {
+            continue;
+        }
+        else if (a->kind == XR_BIND_ACT_KEY) {
+            bindQueueKey(ctx, a, 1);
+        }
+        else if (a->kind == XR_BIND_ACT_WHEEL) {
+            int notch = a->code == XR_BIND_WHEEL_DOWN || a->code == XR_BIND_WHEEL_LEFT
+                    ? -SCROLL_HIRES_NOTCH : SCROLL_HIRES_NOTCH;
+            if (a->code == XR_BIND_WHEEL_LEFT || a->code == XR_BIND_WHEEL_RIGHT) {
+                ctx->bindWheelH += notch;
+            }
+            else {
+                ctx->bindWheelV += notch;
+            }
+        }
+    }
+}
+
+// The controls down this frame as the pad reads them, with last frame's for
+// the hysteresis
+static uint64_t bindControlsDown(XrCtx* ctx) {
+    uint64_t down = xrBindSourcesDown(&ctx->padSeen[HAND_LEFT], &ctx->padSeen[HAND_RIGHT],
+                                      ctx->bindRaw);
+    ctx->bindRaw = down;
+    return down;
+}
+
+// Everything held let go: released on the host, and the controls still down
+// kept off until let go
+static void bindLetGo(XrCtx* ctx, uint64_t down, float* out) {
+    XrBindEdges e;
+    xrBindRunLetGo(&ctx->bindRun, down, &e);
+    bindApply(ctx, &e, 1, out);
+    ctx->bindMouse = 0;
+    ctx->bindPadMouse = 0;
+    scrollAccReset(&ctx->padScroll);
+    memset(ctx->bindMouseCarry, 0, sizeof(ctx->bindMouseCarry));
+}
+
+// Nothing is read this frame (focus gone, the pointer switched off): let go
+static void bindRest(XrCtx* ctx, float* out) {
+    if (ctx->bindModeRan != 0) {
+        bindLetGo(ctx, ctx->bindRaw, out);
+    }
+}
+
+// A frame in another mode from the last lets go of the last mode's actions;
+// the press that switched (still down) belongs to neither
+static void bindModeFrame(XrCtx* ctx, int mode, uint64_t down, float* out) {
+    if (ctx->bindModeRan == mode + 1) {
+        return;
+    }
+    if (ctx->bindModeRan != 0) {
+        bindLetGo(ctx, down, out);
+    }
+    ctx->bindModeRan = mode + 1;
+    scrollAccReset(&ctx->scroll);
+}
+
+// A whole stick bound to use (stick:scroll, stick:mouse), its tilt added to
+// x and y, less the directions bound to something of their own
+static void bindStickTilt(const XrBindTable* t, int h, const PadHand* p, int use, float* x,
+                          float* y) {
+    int src = BIND_SRC_STICK(h);
+    const XrBindAction* a = &t->single[src];
+    if (a->kind != XR_BIND_ACT_STICK || a->code != use) {
+        return;
+    }
+    float sx = p->stickX, sy = p->stickY;
+    // The four directions follow the stick: up, down, left, right
+    if (t->single[src + 1].kind != XR_BIND_ACT_NONE && sy > 0.0f) {
+        sy = 0.0f;
+    }
+    if (t->single[src + 2].kind != XR_BIND_ACT_NONE && sy < 0.0f) {
+        sy = 0.0f;
+    }
+    if (t->single[src + 3].kind != XR_BIND_ACT_NONE && sx < 0.0f) {
+        sx = 0.0f;
+    }
+    if (t->single[src + 4].kind != XR_BIND_ACT_NONE && sx > 0.0f) {
+        sx = 0.0f;
+    }
+    *x += sx;
+    *y += sy;
+}
+
+static float clampUnit(float v) {
+    return v < -1.0f ? -1.0f : (v > 1.0f ? 1.0f : v);
+}
+
+// stick:mouse, either mode: the host's mouse moved by the stick
+static void bindStickMouse(XrCtx* ctx, const XrBindTable* t, float dt) {
+    for (int h = 0; h < HAND_COUNT; h++) {
+        float x = 0.0f, y = 0.0f;
+        bindStickTilt(t, h, &ctx->padSeen[h], XR_BIND_STICK_MOUSE, &x, &y);
+        ctx->bindMouseDX += stickWind(&ctx->bindMouseCarry[h][0], x, dt,
+                                      BIND_STICK_MOUSE_PX_PER_SEC, BIND_STICK_MOUSE_DEADZONE);
+        // Up the stick is up the screen, which is negative for the host
+        ctx->bindMouseDY -= stickWind(&ctx->bindMouseCarry[h][1], y, dt,
+                                      BIND_STICK_MOUSE_PX_PER_SEC, BIND_STICK_MOUSE_DEADZONE);
+    }
+}
+
+// Whether a stick's click does anything in pointer mode: its binding, unless
+// that is still the default and MLXR_STICK_RIGHT_CLICK=0 gave the click back
+// its old job of switching the pointer
+static int bindPointerClickLive(XrCtx* ctx, int h) {
+    const XrBindTable* t = &ctx->bindRunTable[XR_BIND_MODE_POINTER];
+    int src = BIND_SRC_CLICK(h);
+    if (t->from[src] == XR_BIND_FROM_DEFAULT && !ctx->stickRightClick) {
+        return 0;
+    }
+    return t->single[src].kind != XR_BIND_ACT_NONE;
+}
+
+// Pointer mode's frame, after the pointer has read the controllers and the
+// panels have taken their presses: the triggers as the pointer reads them
+// (press stabilisation's hysteresis, less a press spent on our UI), the grips
+// out while they may grab our UI, the stick clicks as MLXR_STICK_RIGHT_CLICK
+// leaves them
+static void bindPointerStep(XrCtx* ctx, const InputFrame* f, float* out) {
+    if (!ctx->bindReady) {
+        bindResolve(ctx);
+    }
+    const XrBindTable* t = &ctx->bindRunTable[XR_BIND_MODE_POINTER];
+    uint64_t down = bindControlsDown(ctx);
+    for (int h = 0; h < HAND_COUNT; h++) {
+        uint64_t trig = XR_BIND_BIT(BIND_SRC_TRIGGER(h));
+        down &= ~trig;
+        if (ctx->profileKind[h] == PROFILE_CONTROLLER && ctx->triggerDown[h]
+                && !ctx->triggerSwallowed[h]) {
+            down |= trig;
+        }
+        if (t->from[BIND_SRC_CLICK(h)] == XR_BIND_FROM_DEFAULT && !ctx->stickRightClick) {
+            down &= ~XR_BIND_BIT(BIND_SRC_CLICK(h));
+        }
+    }
+    if (ctx->grabMode != GRAB_NONE || ctx->statsOver || f->hover == HOVER_BAR
+            || f->hover == HOVER_CORNER || f->hover == HOVER_KBBAR) {
+        down &= ~(XR_BIND_BIT(XR_BIND_SRC_LEFT_GRIP) | XR_BIND_BIT(XR_BIND_SRC_RIGHT_GRIP));
+    }
+    bindModeFrame(ctx, XR_BIND_MODE_POINTER, down, out);
+    ctx->bindAppsOnly = 0;
+    XrBindEdges e;
+    xrBindRunStep(&ctx->bindRun, t, down, &e);
+    int mask = xrBindEdgesMouse(&e);
+    // A hand without a controller pinches the left button, as ever
+    for (int h = 0; h < HAND_COUNT; h++) {
+        if (ctx->profileKind[h] != PROFILE_CONTROLLER && ctx->triggerDown[h]
+                && !ctx->triggerSwallowed[h]) {
+            mask |= VR_BUTTON_LEFT;
+        }
+    }
+    ctx->bindMouse = mask;
+    ctx->bindPadMouse = 0;
+    bindApply(ctx, &e, 0, out);
+    bindStickMouse(ctx, t, f->dt);
+}
+
+// Whether a control is part of any chord in t
+static int bindInChord(const XrBindTable* t, int src) {
+    for (int i = 0; i < t->chordCount; i++) {
+        if (t->chords[i].parts & XR_BIND_BIT(src)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Gamepad mode's frame, s already padMapGrips's. Keys, wheel, mouse and app
+// commands from the table whatever it is; the pad itself from the table only
+// once it is not the defaults. appsOnly: a panel is up or no controller is
+// held, so the pad rests and only app commands go.
+static void bindPadStep(XrCtx* ctx, int startOk, int appsOnly, int64_t now, PadState* s,
+                        float* out) {
+    if (!ctx->bindReady) {
+        bindResolve(ctx);
+    }
+    const XrBindTable* t = &ctx->bindRunTable[XR_BIND_MODE_GAMEPAD];
+    const PadHand* seen = ctx->padSeen;
+    float dt = ctx->bindPadNs != 0 ? (float)(now - ctx->bindPadNs) / 1e9f : 0.0f;
+    ctx->bindPadNs = now;
+    if (dt > 0.1f) {
+        dt = 0.1f;
+    }
+    uint64_t down = bindControlsDown(ctx);
+    // The menu button is the switch's while it is held with the left grip
+    if (!startOk) {
+        down &= ~XR_BIND_BIT(XR_BIND_SRC_LEFT_VIEW);
+    }
+    // A grip at its default is the pad_grip setting's, applied below; a
+    // trigger on its own pad trigger goes on as it reads, not as a button
+    uint64_t analogue = 0;
+    for (int h = 0; h < HAND_COUNT; h++) {
+        int g = BIND_SRC_GRIP(h), tr = BIND_SRC_TRIGGER(h);
+        if (t->from[g] == XR_BIND_FROM_DEFAULT) {
+            down &= ~XR_BIND_BIT(g);
+        }
+        const XrBindAction* a = &t->single[tr];
+        if (a->kind == XR_BIND_ACT_PAD && (a->code & (PAD_HELD_LT | PAD_HELD_RT)) != 0
+                && !bindInChord(t, tr)) {
+            analogue |= XR_BIND_BIT(tr);
+        }
+    }
+    bindModeFrame(ctx, XR_BIND_MODE_GAMEPAD, down, out);
+    if (appsOnly && !ctx->bindAppsOnly) {
+        bindLetGo(ctx, down, out);
+    }
+    ctx->bindAppsOnly = appsOnly;
+    XrBindEdges e;
+    xrBindRunStep(&ctx->bindRun, t, down & ~analogue, &e);
+    bindApply(ctx, &e, appsOnly, out);
+    ctx->bindMouse = 0;
+    ctx->bindPadMouse = appsOnly ? 0 : xrBindEdgesMouse(&e);
+    if (appsOnly) {
+        scrollAccReset(&ctx->padScroll);
+        return;
+    }
+    bindStickMouse(ctx, t, dt);
+    // stick:scroll in gamepad mode scrolls wherever the cursor was left
+    float sx = 0.0f, sy = 0.0f;
+    for (int h = 0; h < HAND_COUNT; h++) {
+        bindStickTilt(t, h, &seen[h], XR_BIND_STICK_SCROLL, &sx, &sy);
+    }
+    int wv = 0, wh = 0;
+    scrollAccStep(&ctx->padScroll, clampUnit(sx), clampUnit(sy), dt,
+                  scrollNotchesPerSec(ctx->scrollSpeed, SCROLL_CLICKS_PER_SEC), SCROLL_DEADZONE,
+                  &wv, &wh);
+    ctx->bindWheelV += wv;
+    ctx->bindWheelH += wh;
+    if (!ctx->bindPadCustom) {
+        return;
+    }
+
+    // The pad from the table
+    int pulled = 0;
+    int buttons = xrBindEdgesPad(&e, &pulled);
+    for (int h = 0; h < HAND_COUNT; h++) {
+        if (t->from[BIND_SRC_GRIP(h)] != XR_BIND_FROM_DEFAULT || !ctx->padGrip[h]) {
+            continue;
+        }
+        if (ctx->padGripMode == PAD_GRIP_BUMPERS) {
+            buttons |= h == HAND_LEFT ? PAD_LB : PAD_RB;
+        }
+        else if (ctx->padGripMode == PAD_GRIP_STICK_CLICKS) {
+            buttons |= h == HAND_LEFT ? PAD_LS_CLICK : PAD_RS_CLICK;
+        }
+    }
+    s->buttons = buttons;
+    s->leftTrigger = (pulled & PAD_HELD_LT) ? PAD_TRIGGER_FULL : 0;
+    s->rightTrigger = (pulled & PAD_HELD_RT) ? PAD_TRIGGER_FULL : 0;
+    int sticks[2][2] = { { 0, 0 }, { 0, 0 } };
+    for (int h = 0; h < HAND_COUNT; h++) {
+        const XrBindAction* a = &t->single[BIND_SRC_TRIGGER(h)];
+        if (analogue & XR_BIND_BIT(BIND_SRC_TRIGGER(h))) {
+            int v = padTrigger(seen[h].trigger);
+            int* side = (a->code & PAD_HELD_LT) ? &s->leftTrigger : &s->rightTrigger;
+            if (v > *side) {
+                *side = v;
+            }
+        }
+        for (int pad = 0; pad < 2; pad++) {
+            float x = 0.0f, y = 0.0f;
+            bindStickTilt(t, h, &seen[h], pad == 0 ? XR_BIND_STICK_PAD_LEFT : XR_BIND_STICK_PAD_RIGHT,
+                          &x, &y);
+            int px = 0, py = 0;
+            padStick(x, y, ctx->padDeadzone, &px, &py);
+            // Two sticks on one: the one pushed further
+            if (abs(px) + abs(py) > abs(sticks[pad][0]) + abs(sticks[pad][1])) {
+                sticks[pad][0] = px;
+                sticks[pad][1] = py;
+            }
+        }
+    }
+    s->leftX = sticks[0][0];
+    s->leftY = sticks[0][1];
+    s->rightX = sticks[1][0];
+    s->rightY = sticks[1][1];
+}
+
+void xrBindFrame(XrCtx* ctx, int64_t now, float dt, PadState* pad, float* out) {
+    if (ctx->padMode) {
+        bindPadStep(ctx, 1, 0, now, pad, out);
+        return;
+    }
+    InputFrame f;
+    memset(&f, 0, sizeof(f));
+    f.out = out;
+    f.dt = dt;
+    f.hover = HOVER_SCREEN;
+    bindPointerStep(ctx, &f, out);
+}
+
+// The session's host app, whose own lines go over the modes' (an empty name:
+// none). Whatever is held is let go first.
+void xrBindSetApp(XrCtx* ctx, const char* app) {
+    if (ctx == NULL) {
+        return;
+    }
+    if (app == NULL) {
+        app = "";
+    }
+    if (ctx->bindReady && strcmp(app, ctx->bindApp) == 0) {
+        return;
+    }
+    bindRest(ctx, NULL);
+    snprintf(ctx->bindApp, sizeof(ctx->bindApp), "%s", app);
+    bindResolve(ctx);
+    bindLogTables(ctx, " now");
+}
+
 // Native (lane pointer-clicks): the host buttons the controllers ask for this
 // frame, VR_BUTTON_* bits, before the pointer being on the picture is asked.
-// In pointer mode a click on either thumbstick is a right click.
+// In pointer mode a click on either thumbstick is a right click. Native (lane
+// wave2-bind-wire): pointer mode's are the bindings' (bindPointerStep), which
+// by default are these and X1 and X2 on the bumpers.
 _Static_assert(VR_BUTTON_LEFT == 1 && VR_BUTTON_RIGHT == 2 && VR_BUTTON_MIDDLE == 4,
                "pointerButtonMask returns VR_BUTTON_ bits");
 static int pointerButtonsWanted(XrCtx* ctx) {
+    if (!ctx->padMode) {
+        return ctx->bindMouse;
+    }
     PointerButtons b;
     memset(&b, 0, sizeof(b));
     for (int h = 0; h < HAND_COUNT; h++) {
@@ -3836,35 +4445,41 @@ static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
     }
 }
 
-// Winds the thumbstick into scroll clicks while the pointer is on the picture.
+// Winds the thumbstick into the wheel while the pointer is on the picture.
 // With the pause off it scrolls with the ray off the picture as well, wherever
 // the host's cursor was left, the way a wheel does, as long as the ray is not
-// on something of ours.
+// on something of ours. Native (lane wave2-bind-wire): smooth, in 120ths of a
+// notch every frame, sideways too, at the scroll_speed setting, from each
+// stick bound to stick:scroll (both by default).
 static void updateScroll(XrCtx* ctx, InputFrame* f, int hit) {
     // The sticks are the pad's in gamepad mode, and pressed in for the
     // gamepad shortcut they scroll nothing
-    XrVector2f stick = { 0.0f, 0.0f };
+    float x = 0.0f, y = 0.0f;
     if (!ctx->padMode && !chordHasStickClick(ctx)) {
-        stick = actionVec2(ctx, ctx->scrollAction, -1);
+        const XrBindTable* t = &ctx->bindRunTable[XR_BIND_MODE_POINTER];
         // Native (lane pointer-clicks): pressing a stick in tilts it, which
-        // must not scroll the page under the right click
-        if (ctx->stickRightClick && (actionBool(ctx, ctx->toggleAction, -1))) {
-            stick.x = 0.0f;
-            stick.y = 0.0f;
+        // must not scroll the page under the click
+        int clicking = 0;
+        for (int h = 0; h < HAND_COUNT; h++) {
+            clicking |= ctx->padSeen[h].stickClick && bindPointerClickLive(ctx, h);
+        }
+        for (int h = 0; h < HAND_COUNT && !clicking; h++) {
+            bindStickTilt(t, h, &ctx->padSeen[h], XR_BIND_STICK_SCROLL, &x, &y);
         }
     }
     int offPicture = !ctx->pointerSleepOn
             && (f->hover == HOVER_NONE || f->hover == HOVER_HALO);
-    if ((hit || offPicture) && fabsf(stick.y) > SCROLL_DEADZONE) {
-        float past = (fabsf(stick.y) - SCROLL_DEADZONE) / (1.0f - SCROLL_DEADZONE);
-        ctx->scrollCarry += copysignf(past * SCROLL_CLICKS_PER_SEC * f->dt, stick.y);
+    int v = 0, side = 0;
+    if (hit || offPicture) {
+        scrollAccStep(&ctx->scroll, clampUnit(x), clampUnit(y), f->dt,
+                      scrollNotchesPerSec(ctx->scrollSpeed, SCROLL_CLICKS_PER_SEC), SCROLL_DEADZONE,
+                      &v, &side);
     }
     else {
-        ctx->scrollCarry = 0.0f;
+        scrollAccReset(&ctx->scroll);
     }
-    float clicks = truncf(ctx->scrollCarry);
-    ctx->scrollCarry -= clicks;
-    f->out[IN_SCROLL] = clicks;
+    f->out[IN_SCROLL] = (float)v;
+    f->out[IN_HSCROLL] = (float)side;
 }
 
 // Aimed at nothing at all, so the ray runs off into the room rather than
@@ -4100,6 +4715,8 @@ static void restPad(XrCtx* ctx, const char* why) {
     padChordReset(&ctx->padChord, ctx->padChord.parts);
     padGuideReset(&ctx->padGuide);
     settlePad(ctx, padPlugged(ctx), 0, &s, why);
+    // Native (lane wave2-bind-wire): and the bindings let go of their keys
+    bindRest(ctx, NULL);
 }
 
 // One controller's vibration as the frame asks: a pulse at the host's level,
@@ -4224,7 +4841,7 @@ static void logChord(XrCtx* ctx, int event, const PadState* rawPad) {
 // controllers become the pad, which rests while a panel is up: the
 // controllers cannot reach one, and whatever reaches it must not land in the
 // game.
-static void updatePad(XrCtx* ctx) {
+static void updatePad(XrCtx* ctx, float* out) {
     PadHand* raw = ctx->padRead;
     for (int h = 0; h < HAND_COUNT; h++) {
         readPadHand(ctx, h, &raw[h]);
@@ -4238,7 +4855,8 @@ static void updatePad(XrCtx* ctx) {
     }
     int64_t now = nowNs();
     int chord = padChordStep(&ctx->padChord, &raw[HAND_LEFT], &raw[HAND_RIGHT], now);
-    PadHand seen[HAND_COUNT];
+    // Native (lane wave2-bind-wire): kept for the bindings
+    PadHand* seen = ctx->padSeen;
     padChordApply(&ctx->padChord, &raw[HAND_LEFT], &raw[HAND_RIGHT], &seen[HAND_LEFT],
                   &seen[HAND_RIGHT]);
     for (int h = 0; h < HAND_COUNT; h++) {
@@ -4266,9 +4884,16 @@ static void updatePad(XrCtx* ctx) {
     PadState s;
     padMapGrips(&seen[HAND_LEFT], &seen[HAND_RIGHT], ctx->padGrip, startOk, ctx->padDeadzone,
                 ctx->padGripMode, &s);
-    // The Guide chord, left View with right Menu: only the pad's, so the pointer's frames
-    // neither start nor log one
+    int plugged = padPlugged(ctx);
+    // Native (lane wave2-bind-wire): the bindings' keys and app commands, and
+    // the pad itself from them once they are not the defaults
     if (ctx->padMode) {
+        bindPadStep(ctx, startOk, !plugged || panelUp(ctx), now, &s, out);
+    }
+    // The Guide chord, left View with right Menu: only the pad's, so the pointer's frames
+    // neither start nor log one. Native (lane wave2-bind-wire): unless the
+    // bindings took the chord away or gave it another meaning
+    if (ctx->padMode && (!ctx->bindPadCustom || ctx->bindGuideHold)) {
         if (padGuideStep(&ctx->padGuide, &s, now)) {
             LOGI("gamepad: Guide button (left View + right Menu held %ld ms), Start and Back "
                  "kept off until let go", (long)(PAD_GUIDE_HOLD_NS / 1000000L));
@@ -4277,7 +4902,6 @@ static void updatePad(XrCtx* ctx) {
     else {
         padGuideReset(&ctx->padGuide);
     }
-    int plugged = padPlugged(ctx);
     settlePad(ctx, plugged, plugged && !panelUp(ctx), &s, "a panel is up");
 }
 
@@ -4306,6 +4930,7 @@ static void padPutPanelsAway(XrCtx* ctx, float* out) {
     ctx->reportOpen = 0;
     ctx->hintOpen = 0;
     ctx->kofiOpen = 0;
+    ctx->hostOpen = 0;
     ctx->buttonsDown = 0;
 }
 
@@ -4344,6 +4969,19 @@ static void handBack(XrCtx* ctx, float* out) {
     out[IN_KB_SHEET] = -1.0f;
     out[IN_REPORT_ZONE] = -1.0f;
     if (ctx != NULL) {
+        // Native (lane wave2-bind-wire): the bindings' wheel notches and
+        // stick:mouse on top of the pointer's, and gamepad mode's mouse buttons
+        out[IN_SCROLL] += (float)ctx->bindWheelV;
+        out[IN_HSCROLL] += (float)ctx->bindWheelH;
+        out[IN_MOUSE_DX] += (float)ctx->bindMouseDX;
+        out[IN_MOUSE_DY] += (float)ctx->bindMouseDY;
+        ctx->bindWheelV = 0;
+        ctx->bindWheelH = 0;
+        ctx->bindMouseDX = 0;
+        ctx->bindMouseDY = 0;
+        if (ctx->padMode && ctx->bindPadMouse != 0) {
+            out[IN_BUTTONS] = (float)((int)out[IN_BUTTONS] | ctx->bindPadMouse);
+        }
         out[IN_PAD] = ctx->padAttached ? 1.0f : 0.0f;
         out[IN_PAD_BUTTONS] = (float)ctx->pad.buttons;
         out[IN_PAD_LT] = (float)ctx->pad.leftTrigger;
@@ -4544,11 +5182,14 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
 
     // The pad before anything points, so a switch between the two lands
     // before the controllers are read for the pointer
-    updatePad(ctx);
+    updatePad(ctx, out);
     updateRumble(ctx, 1);
     if (!pointerEnabled) {
         // The pointer is switched off in the settings, so only the pad and
         // the switch to it are read
+        if (!ctx->padMode) {
+            bindRest(ctx, out);
+        }
         releaseInput(ctx, out);
         padPutPanelsAway(ctx, out);
         handBack(ctx, out);
@@ -4593,6 +5234,9 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     else if (ctx->kofiOpen) {
         updateKofiSheet(ctx, &f);
     }
+    else if (ctx->hostOpen) {
+        updateHostSheet(ctx, &f);
+    }
     else {
         updateFurniture(ctx, &f);
         // Native: the launcher's list stands where the picture would
@@ -4602,6 +5246,11 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     // Gamepad mode just came on, from the switch, the bar or the Display tab
     padPutPanelsAway(ctx, out);
     logInputSnapshot(ctx, &f);
+    // Native (lane wave2-bind-wire): pointer mode's bindings, once the panels
+    // have taken their presses
+    if (!ctx->padMode) {
+        bindPointerStep(ctx, &f, out);
+    }
 
     // Where the handle is clear of the picture, so a trigger press there cannot
     // have been meant as a click
@@ -4671,7 +5320,8 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
             || f.hover == HOVER_KBPANEL || f.hover == HOVER_KBBAR || f.hover == HOVER_EXITBUTTON
             || f.hover == HOVER_EXITPROMPT || f.hover == HOVER_STEREOBUTTON
             || f.hover == HOVER_RAYBUTTON || f.hover == HOVER_AIMBUTTON
-            || f.hover == HOVER_PADBUTTON || f.hover == HOVER_REPORT || f.hover == HOVER_KOFI)
+            || f.hover == HOVER_PADBUTTON || f.hover == HOVER_REPORT || f.hover == HOVER_KOFI
+            || f.hover == HOVER_HOSTBUTTON || f.hover == HOVER_HOST)
             && f.headValid && f.hand >= 0) {
         beamToFurniture(ctx, &f);
     }

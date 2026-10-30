@@ -2,7 +2,7 @@
 # Each prints "<module>: N checks, 0 failed" and exits non-zero on a failure.
 set(XRCORE_TESTS math depthmap atlas roommesh layout audio rate gate pinch notice
                  glow grade keys controller headaim gamepad gamepad_frame clickhold pressfix
-                 gamepad_guide gamepad_rumble ray bind padmouse presence hud battery
+                 gamepad_guide gamepad_rumble ray bind bindrun scroll padmouse presence hud battery
                  hostkeys)
 foreach(t ${XRCORE_TESTS})
   add_executable(test_${t} test_${t}.c)

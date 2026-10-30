@@ -381,6 +381,9 @@ static int vkExtended(int vk) {
     case 0x5B: case 0x5C: case 0x5D:                                                         // Win Win Menu
     case 0xA3: case 0xA5:                                                                    // RCtrl RAlt
     case 0x6F: case 0x90:                                                                    // Divide NumLock
+    case 0xA6: case 0xA7: case 0xA8: case 0xA9: case 0xAA: case 0xAB: case 0xAC:             // Browser keys
+    case 0xAD: case 0xAE: case 0xAF:                                                         // Mute Vol- Vol+
+    case 0xB0: case 0xB1: case 0xB2: case 0xB3:                                              // Next Prev Stop Play
         return 1;
     default:
         return 0;
@@ -436,10 +439,50 @@ static void pmMove(void* u, int dx, int dy) {
 static void pmButton(void* u, int b, int down) { (void)u; stream_button(b, down); }
 static void pmScroll(void* u, int a) { (void)u; stream_scroll(a); }
 static void pmHScroll(void* u, int a) { (void)u; stream_hscroll(a); }
+// Y in mouse mode: the VR keyboard, toggled by the frame loop on its next frame
+static void pmKeyboard(void* u) { (void)u; xr_app_toggle_keyboard(); }
 // The notice rides the toast path, so the Notices setting decides whether it is said
 static void pmMode(void* u, int on) {
     (void)u;
     xr_app_notice(padMouseNoticeText(on, g_settings.pad_mouse_chord));
+}
+
+// Native (lane wave2-bind-wire): the controllers' bindings. The sideways wheel,
+// and a key: action held for as long as its control: its modifiers go down
+// first (the left Ctrl, Shift, Alt and Win keys) and come up last.
+static void hscrollHook(void* user, int amount) {
+    (void)user;
+    stream_hscroll(amount);
+}
+
+static void bindKeyHook(void* user, int vk, int mods, int down) {
+    (void)user;
+    static const struct { int bit; short vk; } MODS[] = {
+        { MODIFIER_CTRL, 0xA2 }, { MODIFIER_SHIFT, 0xA0 }, { MODIFIER_ALT, 0xA4 }, { MODIFIER_META, 0x5B },
+    };
+    const int n = (int)(sizeof(MODS) / sizeof(MODS[0]));
+    if (!stream_running()) return;
+    char held = 0;
+    if (down) {
+        for (int i = 0; i < n; i++) {
+            if (!(mods & MODS[i].bit)) continue;
+            held |= (char)MODS[i].bit;
+            sendKey(MODS[i].vk, 1, held, NULL);
+        }
+        char m = held;
+        if (vkExtended(vk & 0xff)) m |= MODIFIER_EXTENDED;
+        LiSendKeyboardEvent((short)(0x8000 | (vk & 0xff)), KEY_ACTION_DOWN, m);
+        return;
+    }
+    held = (char)(mods & (MODIFIER_CTRL | MODIFIER_SHIFT | MODIFIER_ALT | MODIFIER_META));
+    char m = held;
+    if (vkExtended(vk & 0xff)) m |= MODIFIER_EXTENDED;
+    LiSendKeyboardEvent((short)(0x8000 | (vk & 0xff)), KEY_ACTION_UP, m);
+    for (int i = n - 1; i >= 0; i--) {
+        if (!(mods & MODS[i].bit)) continue;
+        held &= (char)~MODS[i].bit;
+        sendKey(MODS[i].vk, 0, held, NULL);
+    }
 }
 
 // Every frame: the lists' presses and the exit to the launcher, its view back
@@ -1040,6 +1083,21 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     }
     atomic_store(&g_streaming, 1);
     xr_app_set_streaming(1);
+    // Native (lane wave2-bind-wire): the app's name, for its own lines in bindings.ini
+    {
+        char appName[96] = "";
+        pthread_mutex_lock(&g_lock);
+        for (int i = 0; i < g_launch.appCount; i++)
+            if (g_launch.apps[i].id == appId) snprintf(appName, sizeof(appName), "%s", g_launch.apps[i].name);
+        pthread_mutex_unlock(&g_lock);
+        if (!appName[0] && g_args.app) {
+            char* end = NULL;
+            strtol(g_args.app, &end, 10);
+            if (!end || *end) snprintf(appName, sizeof(appName), "%s", g_args.app); // a name, not an id
+        }
+        MLOG_I("bindings: host app \"%s\"", appName);
+        xr_app_set_host_app(appName);
+    }
     updateKeyboard();
     if (g_args.clipboardSync) clipboardToHost(n, s); // Native (lane artemis-settings)
     char toast[160];
@@ -1068,6 +1126,7 @@ static void stopStream(Net* n, int quitHost) {
     vrkb_release_all(&g_vrkb);
     atomic_store(&g_streaming, 0);
     xr_app_set_streaming(0);
+    xr_app_set_host_app(""); // native (lane wave2-bind-wire)
     updateKeyboard();
     if (!linkDown) {
         // Native (lane netpath-quality): remember how this stream went on its network path
@@ -1583,6 +1642,8 @@ int main(int argc, char** argv) {
     cfg.hooks.latency = latencyHook;
     cfg.hooks.hud = hudHook;
     cfg.hooks.headYaw = headYawHook;
+    cfg.hooks.hscroll = hscrollHook;
+    cfg.hooks.bindKey = bindKeyHook;
     cfg.hooks.presence = presenceHook;
 
     FileSource* src = NULL;
@@ -1611,7 +1672,7 @@ int main(int argc, char** argv) {
         // Native (lane wave2b-padmouse): a pad as the mouse, its settings, and pad arbitration. The Y button's
         // keyboard hook stays empty until the frame loop has something to toggle the VR keyboard with.
         {
-            PadMouseSink pms = { pmMove, pmButton, pmScroll, pmHScroll, pmKey, NULL, pmMode, NULL };
+            PadMouseSink pms = { pmMove, pmButton, pmScroll, pmHScroll, pmKey, pmKeyboard, pmMode, NULL };
             gamepadsSetPadMouseSink(&pms);
             gamepadsSetPadMouse(g_settings.pad_mouse_chord, g_settings.pad_mouse_scroll);
             gamepadsSetArbitration(g_settings.pad_arbitration);

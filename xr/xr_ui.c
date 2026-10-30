@@ -436,7 +436,7 @@ void setRayOn(XrCtx* ctx, int on, const char* from) {
 // sheet. The ray comes back for them while it is switched off.
 int panelUp(XrCtx* ctx) {
     return ctx->cogOpen || ctx->pickerOpen || ctx->kbOpen || ctx->exitConfirmOpen
-            || ctx->reportOpen || ctx->hintOpen || ctx->kofiOpen;
+            || ctx->reportOpen || ctx->hintOpen || ctx->kofiOpen || ctx->hostOpen;
 }
 
 // The 3D on or off for the rest of the session, from the bar or the 3D tab.
@@ -928,6 +928,9 @@ int cogOptionCells(int option) {
     if (option == COG_OPTION_POINTER_SLEEP) {
         return COG_POINTER_SLEEP_CELLS;
     }
+    if (option == COG_OPTION_CLICK_STEADY) {
+        return COG_CLICK_STEADY_CELLS;
+    }
     if (option == COG_OPTION_RAY) {
         return COG_RAY_CELLS;
     }
@@ -996,6 +999,9 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
     }
     if (option == COG_OPTION_NOTICES) {
         return ctx->notices.level;
+    }
+    if (option == COG_OPTION_CLICK_STEADY) {
+        return ctx->clickSteady;
     }
     return ctx->overlayVisible ? 1 : 0;
 }
@@ -1103,6 +1109,11 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         LOGEV("notices %s from the panel", cell == NOTICES_OFF ? "off"
               : cell == NOTICES_IMPORTANT ? "important only" : "all");
         return SETTING_NOTICES;
+    }
+    if (option == COG_OPTION_CLICK_STEADY) {
+        // Native (lane wave2-bind-wire): from the next click
+        xrSetClickSteadiness(ctx, cell);
+        return SETTING_CLICK_STEADY;
     }
     return -1;
 }
@@ -1496,6 +1507,31 @@ void xrSetGamepad(XrCtx* ctx, int shortcut, int deadzonePercent) {
 }
 
 // What the grips are on the pad, a PAD_GRIP_ mode (the pad_grip setting)
+// Native (lane wave2-bind-wire): the press fix and the click hold as the
+// level has them, with any MLXR_ variable that is set still deciding its part
+void xrSetClickSteadiness(XrCtx* ctx, int level) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->clickSteady = level < CLICK_STEADY_OFF ? CLICK_STEADY_OFF
+                     : level > CLICK_STEADY_STEADY ? CLICK_STEADY_STEADY : level;
+    clickSteadyConfig(ctx->clickSteady, 1, &ctx->pressCfg, &ctx->clickHoldPx);
+    pressFixReset(&ctx->pressFix);
+    clickHoldReset(&ctx->clickHold);
+    LOGEV("click steadiness %s: press stabilise %d, double click %.0f px %lld ms, click hold %.0f px",
+          ctx->clickSteady == CLICK_STEADY_OFF ? "off"
+          : ctx->clickSteady == CLICK_STEADY_STEADY ? "steady" : "normal",
+          ctx->pressCfg.stabilise, ctx->pressCfg.doublePx,
+          (long long)(ctx->pressCfg.doubleNs / 1000000LL), ctx->clickHoldPx);
+}
+
+void xrSetScrollSpeed(XrCtx* ctx, int percent) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->scrollSpeed = scrollSpeedClamp(percent);
+}
+
 void xrSetPadGrip(XrCtx* ctx, int mode) {
     if (ctx == NULL) {
         return;

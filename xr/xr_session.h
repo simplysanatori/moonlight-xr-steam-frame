@@ -61,6 +61,13 @@ typedef struct XrAppHooks {
     // in radians (positive = turned left), which the virtual surround turns its
     // speakers by. May be NULL. Must not block.
     void (*headYaw)(void* user, float yawRadians);
+    // Native (lane wave2-bind-wire): the bindings. High-resolution horizontal
+    // scroll, 120 per notch, positive = right. A key: action going down
+    // (down 1) or up (0): a Windows virtual key and the modifiers it goes with
+    // (Moonlight's MODIFIER_ bits), held for as long as its control is. Either
+    // may be NULL.
+    void (*hscroll)(void* user, int amount);
+    void (*bindKey)(void* user, int vk, int mods, int down);
     // Native (lane wave3-hud): about once a second from the frame loop, the stream's running totals for the HUD and
     // the slow connection badge. 1 with *out filled while a stream is up, else 0. May be NULL. Must not block.
     int (*hud)(void* user, struct MlxrHudCum* out);
@@ -95,6 +102,13 @@ void xr_app_notice(const char* text);
 void xr_app_release_video(void);
 // Any thread: a stream is (or is no longer) the picture's source
 void xr_app_set_streaming(int on);
+// Native (lane wave2-bind-wire), any thread: the host app being streamed, its
+// name as the app list shows it ("" for none), which picks its own lines out
+// of bindings.ini
+void xr_app_set_host_app(const char* name);
+// Native, any thread: show or hide the in-world keyboard on the next frame (a
+// physical pad's Y in mouse mode, lane wave2b-padmouse)
+void xr_app_toggle_keyboard(void);
 // The PC and app now streaming (names), which the layout kept per app is keyed
 // by. Same function as xr_native.h's.
 void xrSetStreamIdentity(const char* host, const char* app);

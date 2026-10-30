@@ -365,11 +365,11 @@ static void test_other_panels_hits(void) {
         int i = ui_hits_find(&hits, UI_HIT_BAR_BUTTON, slot, -1);
         CHECK(i >= 0);
         if (i < 0) continue;
-        // the centre agrees with xr_layout's placement of that slot (strip is 0.72 of the frame wide)
+        // the centre agrees with xr_layout's placement of that slot (strip is 0.86 of the frame wide)
         Vec3 local;
         float side;
         barSlotPlacement(slot, 1.0f, 1.0f, &local, &side);
-        CHECK_NEAR((hits.hit[i].u0 + hits.hit[i].u1) * 0.5f, 0.5f + local.x / 0.72f, 1e-3);
+        CHECK_NEAR((hits.hit[i].u0 + hits.hit[i].u1) * 0.5f, 0.5f + local.x / 0.86f, 1e-3);
         // and xr_layout's barSlotHit accepts the hit's middle (in the frame coordinates)
         float fu = 0.5f + local.x, fv = 0.5f - local.y / 1.0f;
         (void)fu; (void)fv;
@@ -389,7 +389,7 @@ static void test_other_panels_hits(void) {
     CHECK(ui_hits_find(&hits, UI_HIT_BAR_BUTTON, BAR_SLOT_AIM, -1) < 0 && ui_hits_find(&hits, UI_HIT_BAR_BUTTON, BAR_SLOT_STEREO, -1) < 0);
     free(g.base);
 
-    // button atlas: the 12 cells of xr_layout, each with something in it
+    // button atlas: the 13 cells of xr_layout, each with something in it
     draw(UI_PANEL_BUTTON_ATLAS, &v, 1.0f, &g);
     for (int cell = 0; cell < BTN_CELLS; cell++) {
         int x, y, n = 0;

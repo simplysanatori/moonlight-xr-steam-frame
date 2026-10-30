@@ -40,7 +40,8 @@ static const char* const WHEEL_NAMES[] = { "up", "down", "left", "right" };
 static const char* const STICK_NAMES[] = { "scroll", "mouse", "wasd", "arrows", "dpad",
                                            "pad_left", "pad_right" };
 static const char* const APP_NAMES[] = { "keyboard", "ray", "recentre", "cog", "3d", "gamepad",
-                                         "bringhere" };
+                                         "bringhere", "host" };
+_Static_assert(sizeof(APP_NAMES) / sizeof(APP_NAMES[0]) == XR_BIND_APP_COUNT, "an app name a code");
 
 typedef struct {
     const char* name;
@@ -378,11 +379,11 @@ int xrBindActionParse(const char* text, XrBindAction* out, char* err, size_t cap
             if (ieqn(v, vn, "none")) {
                 break;
             }
-            i = findName(APP_NAMES, 7, v, vn);
+            i = findName(APP_NAMES, XR_BIND_APP_COUNT, v, vn);
             if (i < 0) {
                 setErr(err, cap, col, vcol,
                        "unknown app command '%.*s' (keyboard, ray, recentre, cog, 3d, gamepad, "
-                       "bringhere or none)", (int)vn, v);
+                       "bringhere, host or none)", (int)vn, v);
                 return 0;
             }
             a.kind = kind;
@@ -430,7 +431,7 @@ int xrBindActionFormat(const XrBindAction* a, char* out, size_t cap) {
             }
             break;
         case XR_BIND_ACT_APP:
-            if (a->code >= 0 && a->code < 7) {
+            if (a->code >= 0 && a->code < XR_BIND_APP_COUNT) {
                 return snprintf(out, cap, "app:%s", APP_NAMES[a->code]);
             }
             break;
@@ -603,7 +604,7 @@ int xrBindDefaultText(char* out, size_t cap) {
         "#                                                    a gamepad button (gamepad mode only)\n"
         "#   stick:scroll|mouse|wasd|arrows|dpad|pad_left|pad_right\n"
         "#                                                    a whole stick (left.stick, right.stick)\n"
-        "#   app:keyboard|ray|recentre|cog|3d|gamepad|bringhere\n"
+        "#   app:keyboard|ray|recentre|cog|3d|gamepad|bringhere|host\n"
         "#   none                                             nothing\n"
         "#\n"
         "# [pointer] is pointer mode and [gamepad] gamepad mode, for every app. An\n"
