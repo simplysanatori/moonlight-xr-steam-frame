@@ -1906,6 +1906,7 @@ static void releaseInput(XrCtx* ctx, float* out) {
     ctx->dwellFraction = -1.0f;
     ctx->dwellHostUntil = 0;
     ctx->dwellUiUntil = 0;
+    xrDwellMenuReset(ctx);   // native (lane radial-dwell): nor its menu, nor a drag it holds
     // Nothing is being read, so last frame's answer must not stand
     ctx->aimTracked[HAND_LEFT] = 0;
     ctx->aimTracked[HAND_RIGHT] = 0;
@@ -4572,6 +4573,8 @@ void xrPointerToHost(XrCtx* ctx, int hand, float u, float v, float* out) {
 // Smooths the hit point, hands it to Java and ends the ray on it
 static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
     if (!hit) {
+        // Native (lane radial-dwell): the dwell's start, while its radial menu has the dot off the picture
+        xrDwellMenuSendHeld(ctx, f->hand, f->now, f->out);
         return;
     }
     // Filtering across a gap or a change of hands would slide the cursor
@@ -4639,7 +4642,11 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
                      pointerButtonsWanted(ctx) != 0, u, v, ctx->videoWidth, ctx->videoHeight,
                      pressCfg, f->now, &u, &v);
     }
-    xrPointerToHost(ctx, f->hand, u, v, f->out);
+    // Native (lane radial-dwell): the host's cursor stays on the dwell's start while its radial menu
+    // is up and its click plays; the dot goes on following the head
+    float hostU = u, hostV = v;
+    xrDwellMenuHostPoint(ctx, f->now, &hostU, &hostV);
+    xrPointerToHost(ctx, f->hand, hostU, hostV, f->out);
 
     // The ray is only drawn when it lands on something, which is what
     // makes a laser readable rather than a light show
@@ -5004,6 +5011,7 @@ void xrSetPointerSource(XrCtx* ctx, int source, int dwellMs) {
     ctx->headDwellMs = dwellMsClamp(dwellMs);
     dwellReset(&ctx->dwell);
     ctx->dwellFraction = -1.0f;
+    xrDwellMenuReset(ctx);   // native (lane radial-dwell)
     resetHeadPointFilter(ctx);
     gazeFallReset(&ctx->gazeFall);
     if (ctx->pointerSource != POINTER_SOURCE_CONTROLLER) {
@@ -5612,6 +5620,7 @@ static void updateDwell(XrCtx* ctx, InputFrame* f) {
     if (!headPointing(ctx) || ctx->headDwellMs <= 0) {
         dwellReset(&ctx->dwell);
         ctx->dwellFraction = -1.0f;
+        xrDwellMenuReset(ctx);   // native (lane radial-dwell)
         return;
     }
     // Native (lane a11y-tab): the dwell's own click is waited out with the dwell as it is, so the
@@ -5632,14 +5641,24 @@ static void updateDwell(XrCtx* ctx, InputFrame* f) {
     int valid = target && !held && f->aimValid[SRC_GAZE]
             && (hover != HOVER_SCREEN || ctx->pointerOn);
     float yaw = 0.0f, pitch = 0.0f;
-    if (valid) {
+    if (f->aimValid[SRC_GAZE]) {
         headAimAngles(f->aimPoses[SRC_GAZE].orientation, &yaw, &pitch);
     }
     // Degrees across the view: yaw narrows toward straight up
     const float deg = 57.2957795f;
     float x = yaw * deg * cosf(pitch), y = pitch * deg;
-    int what = dwellStep(&ctx->dwell, valid, x, y, f->now, ctx->headDwellMs, DWELL_TOLERANCE_DEG,
-                         &ctx->dwellFraction);
+    // Native (lane radial-dwell): the dwell goes through its radial menu (xr_dwellmenu.c), which plays
+    // the menu's clicks itself and answers DWELL_CLICK for a plain one only. The open menu needs only
+    // a pointer (the dot may leave the picture to pick); where on the picture the dwell started is
+    // where its clicks land.
+    XrVector3f at = { 0.0f, 0.0f, 0.0f };
+    if (hover == HOVER_SCREEN) {
+        Vec3 p = screenPoint(f->hitU[SRC_GAZE], f->hitV[SRC_GAZE], f->screenPose, ctx->screenWidth, f->height,
+                             f->radius, f->curved);
+        at = (XrVector3f){ p.x, p.y, p.z };
+    }
+    int what = xrDwellMenuStep(ctx, valid, !held && f->aimValid[SRC_GAZE], x, y, f->now, hover == HOVER_SCREEN,
+                               f->hitU[SRC_GAZE], f->hitV[SRC_GAZE], at);
     if (what == DWELL_CLICK) {
         if (hover == HOVER_SCREEN) {
             ctx->dwellHostUntil = f->now + DWELL_PRESS_NS;
@@ -5937,7 +5956,9 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
         beamToFurniture(ctx, &f);
     }
     sendPointer(ctx, &f, hit);
-    updateButtons(ctx, &f, hit);
+    // Native (lane radial-dwell): a click the dwell's menu chose lands on the dwell's start, with the
+    // host's cursor held there, wherever the dot went to pick it
+    updateButtons(ctx, &f, hit || xrDwellMenuHostPoint(ctx, f.now, &(float){ 0 }, &(float){ 0 }));
     updateScroll(ctx, &f, hit);
     beamIntoRoom(ctx, &f);
     headBeamDotOnly(ctx, f.hand);

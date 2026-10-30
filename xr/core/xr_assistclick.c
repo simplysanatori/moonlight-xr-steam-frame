@@ -10,6 +10,14 @@ void auxClickReset(AuxClick* g) {
     g->taps = 0;
     g->dragging = 0;
     g->escaped = 0;
+    g->spent = 0;
+}
+
+void auxClickSpend(AuxClick* g) {
+    if (g->down) {
+        g->spent = 1;
+        g->taps = 0;
+    }
 }
 
 static int tapsAction(int taps) {
@@ -25,14 +33,16 @@ int auxClickEdge(AuxClick* g, int down, int64_t t) {
         g->downNs = t;
         g->dragging = 0;
         g->escaped = 0;
+        g->spent = 0;
         return ASSIST_NONE;
     }
     if (!g->down) {
         return ASSIST_NONE;
     }
     g->down = 0;
-    if (g->escaped) {
+    if (g->escaped || g->spent) {
         g->escaped = 0;
+        g->spent = 0;
         return ASSIST_NONE;
     }
     if (g->dragging) {
@@ -58,7 +68,7 @@ int auxClickTick(AuxClick* g, int64_t now) {
             g->taps = 0;
             return ASSIST_ESCAPE;
         }
-        if (!g->dragging && !g->escaped && held >= AUXCLICK_HOLD_NS) {
+        if (!g->dragging && !g->escaped && !g->spent && held >= AUXCLICK_HOLD_NS) {
             // the taps before a hold are dropped: tap and hold is a drag, not a click and a drag
             g->dragging = 1;
             g->taps = 0;

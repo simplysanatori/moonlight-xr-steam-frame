@@ -125,7 +125,8 @@ static void test_access_tab(void) {
     ui_view_init(&v, &s);
     v.cog_tab = COG_TAB_ACCESS;
     v.access_eyes = ACCESS_EYES_WAITING;
-    static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL, UIS_ACCESS_DESC_DOT,
+    static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL,
+                                                      UIS_ACCESS_DESC_DWELL_STYLE, UIS_ACCESS_DESC_DOT,
                                                       UIS_ACCESS_DESC_BUTTON };
     // nothing pointed at: the hint, and no row's sentence
     CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_NONE)));
@@ -184,6 +185,16 @@ static void test_access_tab(void) {
     CHECK(!access_hit(UI_HIT_CELL, COG_ACCESS_ROW_BUTTON, 1)->enabled);
     v.access_button = ACCESS_BUTTON_MISSING;
     CHECK(access_drawn(&v, ui_str(UIS_BUTTON_MISSING)));
+    // lane radial-dwell: the dwell's style, Simple and Radial menu, live with the head pointing and
+    // greyed with the controllers
+    v.access_button = ACCESS_BUTTON_OK;
+    v.access_row = COG_ACCESS_ROW_STYLE;
+    CHECK(access_drawn(&v, ui_str(UIS_ROW_DWELL_STYLE)) && access_drawn(&v, ui_str(UIS_CELL_DWELL_SIMPLE)));
+    CHECK(access_drawn(&v, ui_str(UIS_CELL_DWELL_RADIAL)));
+    CHECK(access_hit(UI_HIT_CELL, COG_ACCESS_ROW_STYLE, 1) != NULL && access_hit(UI_HIT_CELL, COG_ACCESS_ROW_STYLE, 1)->enabled);
+    s.pointer_source = POINTER_SOURCE_CONTROLLER;
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_DWELL_STYLE)) && access_drawn(&v, ui_str(UIS_NEEDS_HEAD_POINTER)));
+    CHECK(!access_hit(UI_HIT_CELL, COG_ACCESS_ROW_STYLE, 1)->enabled);
 }
 
 // Every pixel of a panel is within its buffer at every scale, and the output is sane

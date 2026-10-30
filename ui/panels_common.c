@@ -353,6 +353,7 @@ int ui_cog_row_cells(int face, int row) {
     if (face == COG_TAB_ACCESS) {
         return row == COG_ACCESS_ROW_POINTER ? COG_ACCESS_POINTER_CELLS
              : row == COG_ACCESS_ROW_DWELL ? COG_ACCESS_DWELL_CELLS
+             : row == COG_ACCESS_ROW_STYLE ? COG_ACCESS_STYLE_CELLS
              : row == COG_ACCESS_ROW_BUTTON ? COG_ACCESS_BUTTON_CELLS : 0;
     }
     if (face == COG_TAB_3D) {

@@ -19,6 +19,7 @@
 #include "xr_opentrack.h"
 #include "xr_dwell.h"
 #include "xr_access.h"
+#include "xr_radial.h"
 #include "xr_headaim.h"
 #include "xr_padgyro.h"
 #include "xr_padmouse.h"
@@ -56,6 +57,10 @@ _Static_assert(sizeof(PADCARD_NAMES) / sizeof(PADCARD_NAMES[0]) == PADCARD_MODES
 static const char* const POINTER_SOURCE_NAMES[] = { "controller", "head", "gaze" };
 _Static_assert(sizeof(POINTER_SOURCE_NAMES) / sizeof(POINTER_SOURCE_NAMES[0]) == POINTER_SOURCE_COUNT, "pointer_source names follow POINTER_SOURCE_");
 // Native (lane headinput-finish): MOUSE_MODE_ in xr_headaim.h
+// Native (lane radial-dwell): [vr] assist_dwell_style
+static const char* const DWELL_STYLE_NAMES[] = { "simple", "radial" };
+_Static_assert(sizeof(DWELL_STYLE_NAMES) / sizeof(DWELL_STYLE_NAMES[0]) == DWELL_STYLE_COUNT, "assist_dwell_style names follow DWELL_STYLE_");
+
 static const char* const MOUSE_MODE_NAMES[] = { "absolute", "relative" };
 _Static_assert(sizeof(MOUSE_MODE_NAMES) / sizeof(MOUSE_MODE_NAMES[0]) == MOUSE_MODE_COUNT, "mouse_mode names follow MOUSE_MODE_");
 static const char* const LIGHTGUN_NAMES[] = { "auto", "on", "off" };
@@ -177,6 +182,8 @@ static const SettingDesc TABLE[] = {
     DI("vr", "head_dwell_ms", head_dwell_ms, 0, DWELL_MS_MAX, 0, "native: with pointer_source = head or gaze, resting the dot this long on one spot clicks it (400 to 2000 ms; the Accessibility tab offers 600, 900, 1200 and 1500); 0 is off"),
     // Native (lane a11y-2): the Accessibility tab's Dot size
     DI("vr", "assist_dot_size", assist_dot_size, ACCESS_DOT_MIN, ACCESS_DOT_MAX, ACCESS_DOT_DEFAULT, "native: with pointer_source = head or gaze, the size of the dot (and of its dwell ring) in percent of its usual size, 50 to 300 (the Accessibility tab's Dot size slider steps by 25); 100 is the usual size"),
+    // Native (lane radial-dwell): the Accessibility tab's Dwell click style
+    DE("vr", "assist_dwell_style", assist_dwell_style, DWELL_STYLE_NAMES, DWELL_STYLE_SIMPLE, "native: with pointer_source = head or gaze and a dwell click on, what a dwell on the picture does: simple (a left click) or radial (near the end of the dwell a small menu opens round the dot: look left for a double click, down to drag, right for a right click, keep still for a left click, look well away to cancel; every click lands where the dwell started). Our own menus always get a plain click"),
     DB("vr", "assist_headset_button", assist_headset_button, 0, "native: with pointer_source = head or gaze, the headset's side button clicks where the dot is (once a click, twice a double click, three times a right click, held a drag) instead of opening the Steam home; held 3 s it goes back to SteamVR for 15 s. Needs read access to the button's input device (gpio-keys); the Accessibility tab's Headset button"),
     DS("vr", "assist_click_path", assist_click_path, "", "native: an OpenXR button that clicks for the head and eye pointer as the headset button does, as \"<interaction profile> <input path>\" (for example the one mlxr-hello --button-probe reports); empty is off"),
     // Native (lane headinput-finish, PLAN 4b.10)

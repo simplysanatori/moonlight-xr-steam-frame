@@ -290,6 +290,11 @@ MAP = [
     ("native_button_unreadable", NATIVE),
     ("native_access_desc_button_unreadable", NATIVE),
     ("native_aux_returned", NATIVE),
+    # native (lane radial-dwell): the dwell click's style
+    ("native_row_dwell_style", NATIVE),
+    ("native_cell_dwell_simple", NATIVE),
+    ("native_cell_dwell_radial", NATIVE),
+    ("native_access_desc_dwell_style", NATIVE),
 ]
 
 # Keys of lanes not merged into main yet, all written for this port: listed so that their merges

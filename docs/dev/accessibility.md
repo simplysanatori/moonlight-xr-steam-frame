@@ -1,13 +1,14 @@
 # Accessibility: the cog tab, the eyes, and the gaze probe
 
-Lanes a11y-tab and a11y-2 (2026-10-30). What the user sees is in [USER_GUIDE.md](../USER_GUIDE.md#accessibility). This page is
+Lanes a11y-tab, a11y-2 and radial-dwell (2026-10-30). What the user sees is in [USER_GUIDE.md](../USER_GUIDE.md#accessibility). This page is
 for whoever works on it next.
 
 ## The tab
 
 The cog's fifth tab, `COG_TAB_ACCESS` (4; About moved to 5, `cog_tab` is kept by name so old files still open on the
-right tab). Four rows, each the `[vr]` key it shows: Pointer (`pointer_source`: Controller, Head, Eyes), Dwell
-click (`head_dwell_ms`: Off, 600, 900, 1200, 1500), Dot size (`assist_dot_size`, a track of 50 to 300 % in 25 %
+right tab). Five rows, each the `[vr]` key it shows: Pointer (`pointer_source`: Controller, Head, Eyes), Dwell
+click (`head_dwell_ms`: Off, 600, 900, 1200, 1500), Dwell click style (`assist_dwell_style`: Simple, Radial menu;
+lane radial-dwell, below), Dot size (`assist_dot_size`, a track of 50 to 300 % in 25 %
 steps, a tick at each, the thumb's percent as its readout) and Headset button clicks (`assist_headset_button`, below). Under them the eye tracking line and the instructions
 (`UIS_ACCESS_HELP`, plus `UIS_ACCESS_HELP_EYES` while the eyes are not ready), and at the bottom a footer with one
 sentence on the row under the pointer (`UIS_ACCESS_DESC_*`; `UIS_ACCESS_DESC_NONE` while it is on none).
@@ -26,7 +27,7 @@ their slot when a translation is long.
 | `xr/core/xr_access.c` | Pure: the dwell row's times, the eye line's state (`accessEyesState`), whether the Eyes cell takes a press (`accessEyesCellLive`: always, unless the runtime does not offer eye gaze), the dot's scale (`accessDotScale`), the row at a point of the panel (`accessRowAt`, for the footer), the Eyes pointer's fallback to the head (`gazeFallStep`: the head after 200 ms lost, the eyes again after 300 ms tracked). `tests/xrcore/test_access.c` |
 | `xr/xr_assist.c` | The tab on the XR side: the cells a row has, a press (applied to the context now, handed back as `SETTING_POINTER_SOURCE`, `SETTING_HEAD_DWELL`, `SETTING_ASSIST_DOT_SIZE`, 42 to 44, and stored by `xrStoreSetting`), the Dot size track (`cogAccessSliderValue`, `cogApplyAccessSlider`, `cogAccessDragEnded`, called from `xr/xr_ui.c`'s slider code), the footer's row (`xrAccessHoverRow` from `ctx->cogPointV`, which `xr/xr_input.c` sets wherever the pointer is on the cog, labels and greyed rows included), the dot's scale for `xr/xr_layers.c` (`xrAssistDotScale`), the eye line from what the session found, and `xrGazeWatch`, the once-a-session log line |
 | `ui/panel_cog.c` `tab_access` | The drawing; `UiView.access_eyes` carries the eye line's state and `UiView.access_row` the footer's row (`xr/xr_panels.c` puts both in the cog's redraw key; the key's room went from 2 KB to 4 KB, since the whole `Settings` in it had grown past 2 KB and cut off everything after it) |
-| `xr/xr_layers.c` | The pointer's dot and the dwell ring drawn at `pointerDotSize(distance) * xrAssistDotScale(ctx)`: `assist_dot_size` with the head or the eyes pointing, today's size with a controller |
+| `xr/xr_layers.c` | The pointer's dot and the dwell's circle drawn at `pointerDotSize(distance) * xrAssistDotScale(ctx)`: `assist_dot_size` with the head or the eyes pointing, today's size with a controller |
 | `xr/xr_input.c` | `headPointing` covers `POINTER_SOURCE_GAZE`: Eyes is head Point mode with the gaze's ray while the eyes are tracked (`readSources`), held through a blink. `dwellPanelHover`: with a menu open the dwell aims at the menu (before, the pass's hover named the picture behind it, so a dwell on a cog cell was a click on the hidden picture) |
 | `xr/xr_session.c` | Lane a11y-2: the gaze extension is enabled, and the gaze action attached (`xr/xr_input.c`), whenever the runtime offers `XR_EXT_eye_gaze_interaction`, so the eye line can say whether gaze arrives and Eyes works without `config.ini`. Reading the gaze points nothing: the eyes point only with `gaze = true` (`gazeEnabled`) or `pointer_source = gaze` (`headPointing`). `supportsEyeGazeInteraction` is logged but plays no part: SteamVR's flag has read 0 on systems that gave gaze, so a pose arriving is the signal |
 | `tests/m4/test_access.c` | Through the input pass's seams: presses (Eyes dimmed and dead with no eye gaze offered, live as soon as it is offered), the Dot size's steps and drag, nothing changing while the head and the eyes rest on every cell and step button for 3 s with the controllers pointing, the gaze read but pointing at nothing by default, the head alone turning Head off with a dwell on Controller, the eyes' dwell, a blink, the fallback to the head, the footer's row (labels, cells, greyed rows), and the dot and ring's sizes in the frame's layers |
@@ -121,11 +122,11 @@ the action never active points at the headset's own setting (SteamVR Settings > 
 report, see the user guide); active with no tracked pose means the eyes are not seen. Run it once, toggle the setting,
 run it again.
 
-## Design and research: the dwell's click types (radial menu, not built yet)
+## Design and research: the dwell's click types (the radial menu)
 
 The owner asked for a dwell that can also double click, right click and drag, and for the dwell's square ring to
-become a circle. This is the design for the next step on this lane; nothing of it is in the app yet (the tab has no
-Dwell style row until it is).
+become a circle. Lane radial-dwell built it (2026-10-30); the survey that led to it comes first, then what was built
+and its numbers.
 
 **What others do** (survey 2026-10-30; links as found):
 
@@ -159,29 +160,44 @@ mode to forget. Pick the action first (OptiKey): robust drags, slow for the comm
 the dwell (eViacam's gesture, Mousetweaks' gesture mode): the left click stays one dwell, the others one glance more.
 The owner's request is the last; it costs nothing to someone who only wants left clicks.
 
-**The design.** A circle round the dot sweeps clockwise as the dwell charges (an arc in the dot's colour) and shrinks
-to the dot's size; when it reaches the dot, the click fires. It scales with Dot size and fades out if the dot leaves.
-A **Dwell style** row (Simple, Radial menu; Simple the default) chooses: Simple is today's left click. Radial: from 75 %
-of the dwell a small menu fades in round the dot, just outside the ring and outside the central fixation zone, with
-three segments: left a double click, down a drag, right a right click; up is an empty gap, so a stray upward glance
-never picks. Keeping still to the end is a left click. Moving the dot into a segment and holding it there picks it;
-leaving the menu's outer circle cancels. The click lands where the dwell started, not where the dot went to pick
-(the host's cursor holds there while the menu is up). Drag: the left button goes down at the start point, the dot
-moves freely, the next dwell anywhere (or a press of the headset button) lets go there; resting on the start point
-again lets go without moving. A small filled mark stays at the start point and the dot is drawn hollow while the
-button is held. On our own menus a dwell stays a plain click (they have only a press).
+**What was built.** The dwell's ring is a circle: a thin arc in the dot's colour (white, with a soft dark rim so it
+shows on a bright picture) sweeps clockwise from the top over a faint full circle while the circle shrinks from
+0.86 of its quad's half side to just round the dot (0.27, the dot's edge being 0.2); the click fires as it meets the
+dot. It shows from 10 % of the dwell on (a dot passing over things does not flicker circles), and a dwell dropped
+before its click fades out over 150 ms. It is the head and eye pointer's only (the controllers' dwell-less dot is
+unchanged) and scales with Dot size: the dot is drawn into every picture of the circle, so the two are one quad of
+three times the dot's side.
 
-**Parameters to start from** (tune in the headset): menu from 75 % of the dwell; a centre dead zone of 2.5 degrees
-where no direction is computed; three 90-degree sectors (left, down, right), up a gap; a sector must be held 250 ms
-to fire, the segment highlighting as it fills; the outer cancel edge at 1.5 times the sector ring's radius; the menu
-fades in over about 120 ms.
+A **Dwell click style** row (`[vr] assist_dwell_style = simple | radial`, Simple by default; cog and launcher, with
+the footer sentence and the launcher tip "Radial menu: near the end of the dwell, look left for double click, down to
+drag, right for right click.") picks the radial menu. It acts on the picture only: a dwell on our own menus stays a
+plain press. From 75 % of the dwell a menu fades in round the point the dwell started on: three segments outside a
+dead zone, left a double click, down a drag, right a right click, up an empty gap. Keeping the dot in the middle (or
+in the gap) until the dwell ends is a left click; moving it into a segment and holding it there picks that segment
+(it lights from its inner edge outward as the hold runs); past the outer edge the dwell is cancelled. Every click
+lands on the dwell's start: the host's cursor is held there while the menu is up and while the chosen click's presses
+play, and the buttons count there even when the dot has left the picture to pick. A drag holds the left button from
+the start; the cursor then follows the dot, the dot is drawn hollow and a small mark stays on the start; the next
+dwell anywhere (no menu while a drag is held) lets go there, a dwell back inside the dead zone round the start lets
+go on the start itself (nothing moves), and so does a press of the headset button when that row is on (the press does
+nothing else). Losing focus, the stream or the head pointer lets a drag go too.
 
-**How it will be built.** A pure state machine in `xr/core` (open at 75 %, the dead zone, the sector with its
-250 ms, the outer cancel, left on completion in the centre), table tested (staying is a left click; each sector after
-the confirm; outside cancels; jitter in the dead zone picks nothing; the menu only in the last quarter). The actions
-go through `AssistPlay` (`xr/core/xr_assistclick.c`) as the headset button's do. The art (ring sweep steps and the
-three segments with their icons) drawn once into the atlas by the panel worker, so a frame only moves quads; goldens
-of the ring at 25, 50 and 75 % and of the menu with a segment lit.
+**The numbers** (`xr/core/xr_radial.h`; to tune in the headset): menu from 75 % of the dwell; dead zone 2.5 degrees
+round the start, a segment held until the dot is back inside 2.2 (0.3 degrees of slack, so a dot resting on the edge
+does not restart the hold); the segments' outer edge drawn at 4.5 degrees and the cancel edge at 1.5 times that, 6.75
+(the overshoot room the research asks for: a dot past the drawn segment but inside 6.75 still picks it); four quarters
+with their edges on the diagonals, up the gap; a segment's hold 250 ms; the menu's fade in 120 ms in three steps while
+it grows from 92 % to its full size. The menu is drawn 4.8 degrees round its middle whatever the Dot size; at 300 % the
+circle's start (1.6 degrees) is still inside the dead zone.
+
+| Where | What |
+| --- | --- |
+| `xr/core/xr_radial.c` | Pure. `radialStep` over the dwell (`xr_dwell.c`): opens the menu at 75 %, then the dead zone, the segments and their hold, the outer cancel, the left click at the end; leaves the dwell spent where the dot is after a choice. `radialSectorAt`, and the art's frames (`radialRingFrame`, `radialFadeFrame`, `radialMenuFrame`). `tests/xrcore/test_radial.c`, table driven |
+| `xr/xr_dwellmenu.c` | The XR side. `xrDwellMenuStep` from `updateDwell` (`xr/xr_input.c`): the dwell's start on the picture (u, v and the point in the space), the cursor held there (`xrDwellMenuHostPoint`, used by `sendPointer`, and for the buttons' `hit`), the choices played through `xrAssistActionAt` (`xr/xr_auxbutton.c`, the headset button's player), the drag and its release, the circle's fade. `xrDwellMenuArt` picks the frames for `xr/xr_layers.c`; `xrDrawDwellArt` draws them all once into the atlas with the rest of the code drawn art |
+| `xr/xr_layers.c` | The dot's quad shows a frame of the circle (or the hollow dot); the menu, or a drag's mark, is one more quad at the dwell's start (`dwellMark`, under the dot). The head and eye pointer never draw the beam, so the busiest frame is no fuller (`tests/m4/test_budget.c`) |
+| Atlas | `ATLAS_DWELL_RING` (64 px frames: 40 steps of the sweep, 5 x 3 fades, the hollow dot, the mark) under the Ko-fi sheet, `ATLAS_DWELL_HOLLOW` (20 steps round a hollow dot) right of the pad card, `ATLAS_DWELL_MENU_A` to `C` (15 frames of 160 px: 3 of the fade in, 4 of each segment's hold) in three free corners |
+| `tests/m4/test_access.c` | `stylePresses`, `radialMenu`, `radialDrag`: through the input pass's seams, the row's press, a dwell on the tab staying a press, staying, each direction, jitter and the gap, the cancel, the simple style, the cursor held on the start, the drag's start, its release by a dwell, on its start, by the headset button and on focus loss, and the quads the frame shows |
+| Goldens | `31-dwell-ring-25`, `31b-dwell-ring-50`, `31c-dwell-ring-75` (Dot size 300 %), `32-dwell-radial-menu` (right segment lit, the dot on it) |
 
 ## Later: eye gestures (not built)
 
