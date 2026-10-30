@@ -607,6 +607,10 @@ int cogTabRowCount(int face) {
 
 // Whether a row is a track to drag rather than a row of cells to press
 int cogRowIsTrack(int face, int row) {
+    if (face == COG_TAB_SCREEN) {
+        // The rows past the placement and head aim tracks are cells
+        return row < COG_SCREEN_TRACK_ROWS;
+    }
     if (face == COG_TAB_DISPLAY) {
         return row == COG_DISPLAY_SLIDER_ROW;
     }
@@ -621,6 +625,11 @@ int cogRowIsTrack(int face, int row) {
 
 // How many cells a row of cells has, on whichever face it is
 int cogRowCells(int face, int row) {
+    if (face == COG_TAB_SCREEN) {
+        return row == COG_SCREEN_ROW_PRESET ? COG_SCREEN_PRESET_CELLS
+                : row == COG_SCREEN_ROW_PER_APP ? COG_SCREEN_PER_APP_CELLS
+                : row == COG_SCREEN_ROW_LOCK ? COG_SCREEN_LOCK_CELLS : 0;
+    }
     if (face == COG_FACE_ROOM) {
         return COG_ROOM_SWITCH_CELLS;
     }
@@ -951,7 +960,9 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
         return ctx->supersampleMode;
     }
     if (option == COG_OPTION_HEAD_LOCK) {
-        return headLocked ? 1 : 0;
+        // Off, On or Follow, which is not locked and has the screen come after
+        // the head
+        return headLocked ? 1 : (ctx->followOn ? 2 : 0);
     }
     if (option == COG_OPTION_HEAD_AIM) {
         // The switch as it stands, whether or not it can act just now
@@ -1010,7 +1021,11 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         // Left live inside a room like the screen light row, since the picker
         // can drop the room at any moment. In one the wall wins and the screen
         // stays put whatever this says.
-        LOGEV("head lock %s from the panel", cell != 0 ? "on" : "off");
+        ctx->followOn = cell == 2;
+        if (!ctx->followOn) {
+            followReset(&ctx->follow);
+        }
+        LOGEV("head lock %s from the panel", cell == 2 ? "follow" : cell != 0 ? "on" : "off");
         return SETTING_HEAD_LOCK;
     }
     if (option == COG_OPTION_HEAD_AIM) {
@@ -1114,6 +1129,17 @@ int cogCellInForce(XrCtx* ctx, int face, int row) {
     if (face == COG_FACE_ROOM) {
         return cogRoomCellValue(ctx, row);
     }
+    if (face == COG_TAB_SCREEN && row == COG_SCREEN_ROW_PRESET) {
+        XrVector3f p = ctx->screenPose.position;
+        float d = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
+        return layoutPresetAt((int)lroundf(d * 100.0f), (int)lroundf(ctx->screenWidth * 100.0f));
+    }
+    if (face == COG_TAB_SCREEN && row == COG_SCREEN_ROW_PER_APP) {
+        return ctx->perAppOn ? 1 : 0;
+    }
+    if (face == COG_TAB_SCREEN && row == COG_SCREEN_ROW_LOCK) {
+        return ctx->angularLockOn ? 1 : 0;
+    }
     if (face == COG_TAB_3D && row == COG_ROW3D_PRESET) {
         return cogPresetAt(separationUnits(ctx->separationCurrent), ctx->presetUnits);
     }
@@ -1147,9 +1173,59 @@ static void cogApply3dCell(XrCtx* ctx, int row, int cell, float* out) {
     setStereoLive(ctx, 1, "a preset");
 }
 
+// The Screen tab's cells. A preset puts the distance and the width where it
+// says, by the same sums the two tracks use, keeping the direction, height,
+// tilt and curve, and is saved with the placement. Bring here goes to
+// xrBringScreenHere. The switches go to Java to store like the Display tab's.
+static void cogApplyScreenCell(XrCtx* ctx, int row, int cell, float* out) {
+    static const char* const PRESET_NAMES[LAYOUT_PRESETS] = { "Desk", "Couch", "Cinema" };
+    if (row == COG_SCREEN_ROW_PRESET) {
+        if (cell == COG_SCREEN_CELL_BRING) {
+            LOGEV("bring here from the panel: %s", xrBringScreenHere(ctx) ? "moved" : "nothing to move");
+            return;
+        }
+        if (cell < 0 || cell >= LAYOUT_PRESETS) {
+            return;
+        }
+        LayoutPreset preset = layoutPresetOf(cell);
+        float d = (float)preset.distanceCm / 100.0f;
+        float w = (float)preset.widthCm / 100.0f;
+        cogApplySlider(ctx, COG_TAB_SCREEN, COG_SLIDER_DISTANCE,
+                       cogRunU((d - COG_DIST_MIN) / (COG_DIST_MAX - COG_DIST_MIN)));
+        cogApplySlider(ctx, COG_TAB_SCREEN, COG_SLIDER_SIZE,
+                       cogRunU((w - SCREEN_MIN_WIDTH) / (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH)));
+        ctx->poseDirty = 1;
+        LOGEV("screen preset %s from the panel: %.2f m away, %.2f m wide", PRESET_NAMES[cell], d, w);
+        return;
+    }
+    if (row == COG_SCREEN_ROW_PER_APP) {
+        if (cell == COG_SCREEN_CELL_FORGET) {
+            out[IN_SETTING] = (float)SETTING_FORGET_LAYOUT;
+            out[IN_SETTING_VALUE] = 0.0f;
+            LOGEV("forget the remembered layout from the panel");
+            return;
+        }
+        ctx->perAppOn = cell != 0;
+        out[IN_SETTING] = (float)SETTING_PER_APP;
+        out[IN_SETTING_VALUE] = (float)cell;
+        LOGEV("remember per app %s from the panel", cell != 0 ? "on" : "off");
+        return;
+    }
+    if (row == COG_SCREEN_ROW_LOCK) {
+        ctx->angularLockOn = cell != 0;
+        out[IN_SETTING] = (float)SETTING_ANGULAR_LOCK;
+        out[IN_SETTING_VALUE] = (float)cell;
+        LOGEV("angular-size lock %s from the panel", cell != 0 ? "on" : "off");
+    }
+}
+
 // A press on a cell, whichever tab it is on, applied here and now and handed
 // to Java to store in the same frame
 void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out) {
+    if (face == COG_TAB_SCREEN) {
+        cogApplyScreenCell(ctx, row, cell, out);
+        return;
+    }
     if (face == COG_FACE_ROOM) {
         cogApplyRoomCell(ctx, row, cell, out);
         return;

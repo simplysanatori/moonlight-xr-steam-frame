@@ -989,6 +989,27 @@ typedef struct XrCtx {
     int clickSoundOn;
     int clickPending;
     int headLockedPref;
+    // Native (lane layout): Follow, the angular-size lock and the layout kept
+    // per PC and app (xr_place.c). The head's pose in the local space as last
+    // located; layoutSeen is an AppLayout kept as ints, since settings.h comes
+    // after this header.
+    int followOn;
+    int followLeashDeg;
+    FollowState follow;
+    int64_t followNs;
+    XrPosef headPose;
+    int headPoseValid;
+    int perAppOn;
+    int angularLockOn;
+    int lockActive;
+    float lockBaseWidth;
+    float lockBaseRadius;
+    unsigned layoutHash;
+    unsigned identityGen;
+    int layoutSeen[13];
+    int layoutSeenValid;
+    int layoutPending;
+    int64_t layoutDirtyNs;
     int cogHoverSlider;
     int cogHoverCell;
     int cogHoverStep;

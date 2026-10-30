@@ -121,7 +121,20 @@ static void test_cog_rows_present(void) {
     Guarded g;
     draw(UI_PANEL_COG, &v, 1.0f, &g);
     check_hits_inside("screen");
-    for (int row = 0; row < COG_SCREEN_ROW_COUNT; row++) {
+    // The three rows of cells under the tracks: Desk, Couch, Cinema and Bring
+    // here; Off, On and Forget; Off and On
+    for (int row = COG_SCREEN_TRACK_ROWS; row < COG_SCREEN_ROW_COUNT; row++) {
+        int cells = ui_cog_row_cells(COG_TAB_SCREEN, row);
+        CHECK(!ui_cog_row_is_track(COG_TAB_SCREEN, row));
+        CHECK(cells == (row == COG_SCREEN_ROW_PRESET ? 4 : row == COG_SCREEN_ROW_PER_APP ? 3 : 2));
+        for (int cell = 0; cell < cells; cell++) {
+            int i = ui_hits_find(&hits, UI_HIT_CELL, row, cell);
+            CHECK(i >= 0 && hits.hit[i].enabled);
+            CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1) < 0);
+        }
+        CHECK(ui_hits_find(&hits, UI_HIT_CELL, row, cells) < 0);
+    }
+    for (int row = 0; row < COG_SCREEN_TRACK_ROWS; row++) {
         CHECK(ui_hits_find(&hits, UI_HIT_TRACK_DOWN, row, -1) >= 0);
         CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1) >= 0);
         CHECK(ui_hits_find(&hits, UI_HIT_TRACK_UP, row, -1) >= 0);
@@ -602,6 +615,8 @@ static void test_rows_read_settings(void) {
         { COG_TAB_SCREEN, "distance_cm", 100 }, { COG_TAB_SCREEN, "height_cm", 100 }, { COG_TAB_SCREEN, "tilt_deg", 20 },
         { COG_TAB_SCREEN, "rotate_deg", 30 }, { COG_TAB_SCREEN, "curve", 40 }, { COG_TAB_SCREEN, "width_cm", 600 },
         { COG_TAB_SCREEN, "head_aim_sensitivity", 20 }, { COG_TAB_SCREEN, "head_aim_deadzone", 12 },
+        { COG_TAB_SCREEN, "per_app", 0 }, { COG_TAB_SCREEN, "angular_lock", 0 },
+        { COG_TAB_DISPLAY, "head_follow", 1 },
         { COG_TAB_3D, "separation", 12 }, { COG_TAB_3D, "convergence", 20 },
         { COG_TAB_PICTURE, "picture_brightness", 20 }, { COG_TAB_PICTURE, "picture_contrast", 80 },
         { COG_TAB_PICTURE, "picture_gamma", 150 }, { COG_TAB_PICTURE, "picture_saturation", 20 },

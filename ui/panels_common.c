@@ -312,6 +312,7 @@ int ui_cog_row_count(int face) {
 }
 
 int ui_cog_row_is_track(int face, int row) {
+    if (face == COG_TAB_SCREEN) return row < COG_SCREEN_TRACK_ROWS;
     if (face == COG_TAB_DISPLAY) return row == COG_DISPLAY_SLIDER_ROW;
     if (face == COG_FACE_ROOM) return row != COG_ROOM_ROW_GLOW && row != COG_ROOM_ROW_LIGHT;
     if (face == COG_TAB_3D) return row == COG_ROW3D_SEPARATION || row == COG_ROW3D_CONVERGENCE;
@@ -327,6 +328,11 @@ static int option_cells(int option) {
 }
 
 int ui_cog_row_cells(int face, int row) {
+    if (face == COG_TAB_SCREEN) {
+        return row == COG_SCREEN_ROW_PRESET ? COG_SCREEN_PRESET_CELLS
+             : row == COG_SCREEN_ROW_PER_APP ? COG_SCREEN_PER_APP_CELLS
+             : row == COG_SCREEN_ROW_LOCK ? COG_SCREEN_LOCK_CELLS : 0;
+    }
     if (face == COG_FACE_ROOM) return COG_ROOM_SWITCH_CELLS;
     if (face == COG_TAB_3D) return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS : COG_STEREO_CELLS;
     return option_cells(row);

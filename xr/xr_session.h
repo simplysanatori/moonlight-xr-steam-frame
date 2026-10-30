@@ -86,3 +86,6 @@ void xr_app_notice(const char* text);
 void xr_app_release_video(void);
 // Any thread: a stream is (or is no longer) the picture's source
 void xr_app_set_streaming(int on);
+// The PC and app now streaming (names), which the layout kept per app is keyed
+// by. Same function as xr_native.h's.
+void xrSetStreamIdentity(const char* host, const char* app);
