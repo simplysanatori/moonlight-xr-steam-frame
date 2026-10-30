@@ -383,7 +383,7 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
     for (int eye = 0; eye < viewCount; eye++) {
         XrSwapchainSubImage subImage;
         subImage.swapchain = ctx->swapchain;
-        int half = viewCount == 2 && view->eyeSwap ? (1 - eye) : eye;
+        int half = viewCount == 2 ? sbsEyeHalf(eye, view->eyeSwap) : eye;
         int x = view->stereo ? half * ctx->videoWidth : 0;
         int w = ctx->videoWidth;
         if (view->stereo && ctx->seamInset && w > 2 * SEAM_INSET_TEXELS) {
@@ -595,7 +595,7 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     }
     if (ctx->stereoButtonReady && view->barArea) {
         addBarButton(ctx, view, layers, &layers->stereoButton,
-                     BTN_CELL_STEREO + (ctx->stereoLive ? 1 : 0),
+                     barStereoCell(ctx->stereoSource, ctx->stereoLive),
                      BAR_SLOT_STEREO, ctx->stereoButtonHot, NULL);
     }
     // Native (lane wave2-bind-wire): the Host sheet's, from the same strip

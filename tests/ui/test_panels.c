@@ -178,6 +178,56 @@ static void test_cog_rows_present(void) {
     CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_ROW3D_CONVERGENCE, -1) >= 0);
     for (int c = 0; c < COG_STEREO_CELLS; c++) CHECK(ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SWITCH, c) >= 0);
     CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_RESET, -1) >= 0);
+    // native (PLAN 4.3): the 3D source row, Depth, SBS and Top-bottom, live
+    CHECK(ui_cog_row_cells(COG_TAB_3D, COG_ROW3D_SOURCE) == COG_SOURCE_CELLS);
+    CHECK(!ui_cog_row_is_track(COG_TAB_3D, COG_ROW3D_SOURCE));
+    for (int c = 0; c < COG_SOURCE_CELLS; c++) {
+        int i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SOURCE, c);
+        CHECK(i >= 0 && hits.hit[i].enabled);
+    }
+    CHECK(ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SOURCE, COG_SOURCE_CELLS) < 0);
+    {
+        // the PC's pair: the preset and depth rows greyed, convergence, the
+        // switch and the source live, and the panel not the Depth one
+        UiView vs = v;
+        vs.stereo_source = STEREO_SOURCE_SBS;
+        Guarded gs;
+        draw(UI_PANEL_COG, &vs, 1.0f, &gs);
+        check_hits_inside("3d sbs");
+        CHECK(memcmp(g.px, gs.px, g.size) != 0);
+        for (int c = 0; c < COG_PRESET_CELLS; c++) {
+            int i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_PRESET, c);
+            CHECK(i >= 0 && !hits.hit[i].enabled);
+        }
+        int i = ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_ROW3D_SEPARATION, -1);
+        CHECK(i >= 0 && !hits.hit[i].enabled);
+        i = ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_ROW3D_CONVERGENCE, -1);
+        CHECK(i >= 0 && hits.hit[i].enabled);
+        for (int c = 0; c < COG_STEREO_CELLS; c++) {
+            i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SWITCH, c);
+            CHECK(i >= 0 && hits.hit[i].enabled);
+        }
+        for (int c = 0; c < COG_SOURCE_CELLS; c++) {
+            i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SOURCE, c);
+            CHECK(i >= 0 && hits.hit[i].enabled);
+        }
+        for (int row = 0; row < COG_ROW3D_COUNT; row++) {
+            CHECK(ui_cog_row_live(&vs, COG_TAB_3D, row) == (row != COG_ROW3D_PRESET && row != COG_ROW3D_SEPARATION));
+        }
+        free(gs.base);
+        // the model off and Depth chosen: only the source row is live
+        vs.stereo_ok = 0;
+        vs.stereo_source = STEREO_SOURCE_DEPTH;
+        draw(UI_PANEL_COG, &vs, 1.0f, &gs);
+        i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SWITCH, 1);
+        CHECK(i >= 0 && !hits.hit[i].enabled);
+        i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SOURCE, STEREO_SOURCE_SBS);
+        CHECK(i >= 0 && hits.hit[i].enabled);
+        for (int row = 0; row < COG_ROW3D_COUNT; row++) {
+            CHECK(ui_cog_row_live(&vs, COG_TAB_3D, row) == (row == COG_ROW3D_SOURCE));
+        }
+        free(gs.base);
+    }
     free(g.base);
 
     // Picture
@@ -390,7 +440,33 @@ static void test_other_panels_hits(void) {
     CHECK(ui_hits_find(&hits, UI_HIT_BAR_BUTTON, BAR_SLOT_AIM, -1) < 0 && ui_hits_find(&hits, UI_HIT_BAR_BUTTON, BAR_SLOT_STEREO, -1) < 0);
     free(g.base);
 
-    // button atlas: the 13 cells of xr_layout, each with something in it
+    // native (PLAN 4.3): the 3D button says SBS or TB with the PC's pair on
+    {
+        Guarded g3d, gsbs;
+        v.bar_show_stereo = 1;
+        v.session.stereo_on = 1;
+        v.stereo_source = STEREO_SOURCE_DEPTH;
+        draw(UI_PANEL_BAR, &v, 1.0f, &g3d);
+        v.stereo_source = STEREO_SOURCE_SBS;
+        draw(UI_PANEL_BAR, &v, 1.0f, &gsbs);
+        CHECK(memcmp(g3d.px, gsbs.px, g3d.size) != 0);
+        free(gsbs.base);
+        // switched off, the same struck 3D whatever the source
+        v.session.stereo_on = 0;
+        draw(UI_PANEL_BAR, &v, 1.0f, &gsbs);
+        free(g3d.base);
+        v.stereo_source = STEREO_SOURCE_DEPTH;
+        draw(UI_PANEL_BAR, &v, 1.0f, &g3d);
+        CHECK(memcmp(g3d.px, gsbs.px, g3d.size) == 0);
+        free(g3d.base);
+        free(gsbs.base);
+        CHECK(barStereoCell(STEREO_SOURCE_DEPTH, 1) == BTN_CELL_STEREO + 1);
+        CHECK(barStereoCell(STEREO_SOURCE_SBS, 1) == BTN_CELL_STEREO_SBS);
+        CHECK(barStereoCell(STEREO_SOURCE_TB, 1) == BTN_CELL_STEREO_TB);
+        CHECK(barStereoCell(STEREO_SOURCE_TB, 0) == BTN_CELL_STEREO);
+    }
+
+    // button atlas: the cells of xr_layout, each with something in it
     draw(UI_PANEL_BUTTON_ATLAS, &v, 1.0f, &g);
     for (int cell = 0; cell < BTN_CELLS; cell++) {
         int x, y, n = 0;
