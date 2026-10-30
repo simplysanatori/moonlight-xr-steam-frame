@@ -118,7 +118,7 @@
     X(HOST_CONFIRM_SEND, "native_host_confirm_send", "Send") \
     X(HOST_NO_MACROS, "native_host_no_macros", "Your own buttons go in macros.ini") \
     X(HOST_PCVR, "native_host_pcvr", "PC VR") \
-    X(HOST_PCVR_Q, "native_host_pcvr_q", "Switch to PC VR? This stream ends and Steam Link takes over.") \
+    X(HOST_PCVR_Q, "native_host_pcvr_q", "Switch to PC VR? This stream ends.") \
     X(HOST_PCVR_GO, "native_host_pcvr_go", "Switch") \
     X(HOST_HINT_ESC, "native_host_hint_esc", "Escape") \
     X(HOST_HINT_WIN, "native_host_hint_win", "Start menu") \
@@ -197,6 +197,7 @@
     X(SOURCE_SBS, "native_3d_source_sbs", "SBS") \
     X(SOURCE_TB, "native_3d_source_tb", "Top-bottom") \
     X(SBS_NO_DEPTH, "native_3d_sbs_no_depth", "the PC draws the depth") \
+    X(ROW_EDGE, "native_row_edge", "Edge")     X(ROW_DEPTH_DETAIL, "native_row_depth_detail", "Depth detail")     X(ROW_DEPTH_SHAPE, "native_row_depth_shape", "Depth shape")     X(ROW_MOTION_RESET, "native_row_motion_reset", "Motion reset")     X(ROW_EYE_BALANCE, "native_row_eye_balance", "Eye balance") \
     X(NATIVE_EXIT_APP, "native_exit_app", "Quit Moonlight XR for Frame?") \
     X(NATIVE_PAIR_LATER, "native_pair_later", "Pairing from the headset comes later: pair with mlxr-cli") \
     X(NATIVE_NOT_PAIRED, "native_not_paired", "%s is not paired: pair it with mlxr-cli") \
