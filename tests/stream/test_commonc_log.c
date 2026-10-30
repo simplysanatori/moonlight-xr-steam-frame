@@ -37,6 +37,9 @@ static const Contract contracts[] = {
     {"ControlStream.c", "Invalidate reference frame request sent (%d to %d)", "Invalidate reference frame request", "rfi_watch.c"},
     {"VideoDepacketizer.c", "Sending speculative RFI request for predicted loss of frame %d", "RFI request", "rfi_watch.c"},
     {"VideoDepacketizer.c", "Sending RFI request for unrecoverable frame %d", "RFI request", "rfi_watch.c"},
+    // log_throttle.c: the lines written at most about once a second (the parsers above still see all)
+    {"RtpVideoQueue.c", "Unrecoverable frame %d: %d+%d=%d received < %d needed", "Unrecoverable frame", "log_throttle.c"},
+    {"RtpVideoQueue.c", "Unrecoverable frame %d: lost FEC blocks %d to %d", "Unrecoverable frame", "log_throttle.c"},
 };
 
 static char* slurp(const char* path) {
@@ -58,9 +61,10 @@ static char* slurp(const char* path) {
 }
 
 int main(void) {
-    const char* files[] = {"VideoDepacketizer.c", "ControlStream.c"};
-    char* src[2] = {NULL, NULL};
-    for (int i = 0; i < 2; i++) {
+    const char* files[] = {"VideoDepacketizer.c", "ControlStream.c", "RtpVideoQueue.c"};
+    enum { NFILES = sizeof(files) / sizeof(files[0]) };
+    char* src[NFILES] = {NULL};
+    for (int i = 0; i < NFILES; i++) {
         char path[1024];
         snprintf(path, sizeof(path), "%s/%s", COMMONC_SRC_DIR, files[i]);
         src[i] = slurp(path);
@@ -70,7 +74,9 @@ int main(void) {
 
     for (size_t c = 0; c < sizeof(contracts) / sizeof(contracts[0]); c++) {
         const Contract* k = &contracts[c];
-        const char* text = strcmp(k->file, files[0]) == 0 ? src[0] : src[1];
+        const char* text = NULL;
+        for (int i = 0; i < NFILES; i++)
+            if (strcmp(k->file, files[i]) == 0) text = src[i];
         if (!text) continue;
         // the format is emitted through Limelog("<format>\n"...)
         char needle[512];
@@ -91,7 +97,6 @@ int main(void) {
     const char* d = strstr(line, "Network dropped ");
     CHECK(d && strstr(line, " frame") && sscanf(d, "Network dropped %d frame", &lost) == 1 && lost == 3);
 
-    free(src[0]);
-    free(src[1]);
+    for (int i = 0; i < NFILES; i++) free(src[i]);
     return checksDone("commonc_log");
 }
