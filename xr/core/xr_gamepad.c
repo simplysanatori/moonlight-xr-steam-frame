@@ -282,6 +282,14 @@ int padGuideStep(PadGuide* g, PadState* s, int64_t nowNs) {
     return fired;
 }
 
+int padBackAsGuide(PadState* s) {
+    if ((s->buttons & PAD_BACK) == 0 || (s->buttons & PAD_START) != 0) {
+        return 0;
+    }
+    s->buttons = (s->buttons & ~PAD_BACK) | PAD_GUIDE;
+    return 1;
+}
+
 int padChordParts(int shortcut) {
     if (shortcut == PAD_SHORTCUT_STICKS) {
         return PAD_PART_LS | PAD_PART_RS;
