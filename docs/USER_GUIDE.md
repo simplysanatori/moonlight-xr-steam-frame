@@ -73,7 +73,7 @@ How to use it:
 - Choose **USB cable** in Settings, Connection, Network connection, or leave **Automatic**. Automatic probes the cable like the other links and uses it when its score is the lowest, which it normally is. The row says whether a cable is detected; it looks again every 10 seconds, so you can plug the cable in after starting the app.
 - The same choice in `config.ini` is `network_path = usb` in the `[stream]` section. On the command line it is `--network usb`, and `MLXR_NETWORK=usb` overrides both.
 - If you choose USB cable and no cable is there, the stream uses the other link and the headset shows a notice, for example "USB cable not reachable (no USB cable found: usb0 down (no cable, or the PC end is not up)). Using Wi-Fi." If the cable is in and the PC does not answer on it, the notice names the address that failed.
-- Pulling the cable out during a stream ends the stream the same way a lost connection does, and the flat window comes back. `moonlight.log` has `USB cable link lost`. Reconnecting by itself is not done yet.
+- Pulling the cable out during a stream is a lost connection: the headset tries to reconnect twice (see Ending a stream, When the connection drops) before the flat window comes back. `moonlight.log` has `USB cable link lost`.
 - Power: over the cable the headset draws from the PC's USB port, which gives far less than the headset uses while streaming, so the battery may still drain slowly. Whether a hub with USB Power Delivery pass-through fixes that has not been tested.
 
 If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/reports/usb-cable.md`) have the details.
@@ -325,9 +325,28 @@ The bar is hidden until the ray is over it. With **Ray** set to **Off** (no beam
 | Headset keyboard | The bar's Keyboard button. **Compact** has letter, symbol and function sheets. **Full** is a tenkeyless layout: tap a modifier for one key press, hold it half a second to lock it. The key at the right switches between them. Hide, the bar button or a press elsewhere closes it. |
 | Bluetooth keyboard | Pair it in SteamOS. Keys go to the PC while the stream is in front. The app takes the keyboard for itself during the stream. |
 | Bluetooth mouse | Same as the keyboard. While you use the mouse, the controller ray does not move the cursor. |
-| Bluetooth gamepad | Pair it in SteamOS. It shows up as a gamepad on the PC, next to the Frame controllers. The Steam Virtual Gamepad copy of the same pad is ignored. Start+Select+L1+R1 disconnects. |
+| Bluetooth gamepad | Pair it in SteamOS. It shows up as a gamepad on the PC; once you use it the Frame controllers' gamepad steps aside ([below](#frame-controllers-and-a-gamepad-together)). The Steam Virtual Gamepad copy of the same pad is ignored. Hold Start for a second and it becomes the PC's mouse ([below](#a-gamepad-as-the-pcs-mouse)). Start+Select+L1+R1 disconnects. |
 
 Gyro from Bluetooth pads reaches the PC as a DualSense-class pad. A pad with a gyroscope (a DualSense, DualShock 4 or Switch Pro pad, for example) tells the PC so when it arrives, and the PC asks for the motion data only when a game or Steam Input wants it. This needs Apollo or Sunshine with DS4 emulation on the PC (Apollo: ViGEmBus installed). The Frame controllers in gamepad mode are an Xbox pad and never send motion. The same pad's battery level, touchpad (DualSense) and light bar colour are passed on too.
+
+### A gamepad as the PC's mouse
+
+Hold **Start** on a Bluetooth or USB gamepad for a second and the gamepad becomes the PC's mouse, for the desktop, launchers and menus a game pad cannot reach. A notice in the headset says so. The game sees that gamepad at rest for as long as it is a mouse. Hold Start again for a second to give it back.
+
+| Control | While it is a mouse |
+| --- | --- |
+| Left stick | Moves the pointer, slowly at first and faster the further you push |
+| Right stick | Scrolls (up and down, or sideways, whichever way you lean) |
+| A, B, X | Left, right and middle click |
+| LB, RB | Back and forward (the mouse's side buttons) |
+| Y | The headset keyboard (not wired up yet: it does nothing for now) |
+| D-pad | The arrow keys |
+
+Everything the PC had down is let go when the mode ends, when the stream goes out of focus (the dashboard, taking the headset off) and when the stream ends; the gamepad is a gamepad again after any of them. `pad_mouse_chord` in `config.ini` (or **Gamepad as mouse** on the launcher's Settings page) picks the chord: Start held, Start and Back held, or off. `pad_mouse_scroll` picks the scrolling stick (the other one points). The notice follows the **Notices** setting and is left out when that is **Off**.
+
+### Frame controllers and a gamepad together
+
+With the Frame controllers in gamepad mode and a Bluetooth gamepad in use, the PC would see two gamepads. `pad_arbitration` (or **When a gamepad is connected** in the launcher) decides: **pointer** (default) takes the controllers' gamepad off the PC the moment the gamepad is first used, so they point again; turn gamepad mode off and on to bring it back. **also_gamepad** leaves both. **sleep** is pointer, and the controllers' pointer rests while the gamepad was used in the last 20 seconds.
 
 ### AZERTY and QWERTZ
 
@@ -348,9 +367,26 @@ The headset keyboard can show French (AZERTY) or German (QWERTZ) letters. Pick i
 | Bar, Exit, then Disconnect | The stream ends. The game keeps running on the PC. Use **Resume Game** in the flat window to go back. |
 | Start+Select+L1+R1 (gamepad mode, or a Bluetooth gamepad) | The stream ends. The game keeps running on the PC. Use **Resume Game** in the flat window to go back. |
 | Ctrl+Alt+Shift+Q on a Bluetooth keyboard | Same as Start+Select+L1+R1. |
-| The PC ends the stream, or the network drops | The flat window comes back. |
+| The PC ends the stream | The flat window comes back. |
+| The network drops | The headset keeps the room and the screen where they were and tries the same app again, twice (after 2 seconds, then 5 seconds later). The flat window comes back if both tries fail. |
+| The headset stays off | After `doff_disconnect` seconds (60 by default) the stream ends. The game keeps running on the PC. |
+| Nothing is touched for `idle_disconnect` minutes (off by default) | The stream ends. The game keeps running on the PC. |
 
 On the Frame controllers, Start is the right menu button, Select is the left View button, and L1 and R1 are the bumpers. Hold all four.
+
+### When the connection drops
+
+If the stream ends because the link was lost (a Wi-Fi dropout, the USB cable pulled out, the PC not answering), the headset says "Connection lost, reconnecting (1/2)..." (the Notices setting decides whether you see it), keeps the room, the screen's place and the 3D state, and asks the PC to resume the app that was running. The first try comes 2 seconds after the drop and the second 5 seconds after the first one fails. When one works the picture comes back and nothing more is said. The tries choose the network link again, so a stream that was on Wi-Fi can come back on the USB cable.
+
+It does not start the app a second time: if the app is no longer running on the PC (it was closed there, or the PC restarted), or the PC refuses the headset, it gives up at once. It also does not try when the PC ended the stream on purpose (you quit the app on the PC, or it exited). Pressing Exit or Disconnect while it is trying stops the tries. When the tries are over the flat window comes back, as before. `moonlight.log` has a line for each step, starting with `reconnect:`.
+
+### Taking the headset off
+
+When the headset comes off, the sound mutes at once and everything held down on the PC is let go (keys of the headset keyboard, the controllers' mouse buttons, the Frame's gamepad). Put it back on and the sound returns and the stream carries on. If it stays off for `doff_disconnect` seconds (60 by default, in the `[stream]` section of `config.ini`, 0 means never) the stream is disconnected, leaving the game running on the PC, and the flat window comes back; **Resume Game** goes back in. The Settings page has the same choice under **Disconnect when the headset is off**.
+
+`idle_disconnect` (minutes, 0 by default which is off; **Disconnect when idle** on the Settings page) does the same when nothing has been pressed or moved for that long: the controllers' ray or buttons, the headset keyboard, a physical keyboard or mouse, or a gamepad. The clock starts over when the headset goes back on or the dashboard is closed. Opening the dashboard also mutes the sound, as it always did.
+
+This uses the headset sensor through `XR_EXT_user_presence`. `moonlight.log` has `presence:` lines: `headset off`, `headset back on after N s`, and the disconnect. If the runtime does not offer the extension, the log says so and none of this happens.
 
 ## Recommended PC settings
 
@@ -395,6 +431,9 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | `[vr] rumble_mix` | `both` (each controller gets the stronger of the PC's two motors), `split` (low frequency motor on the left, high frequency motor on the right) | `both` |
 | `[vr] rumble_intensity` | 0 to 100 (%), the scale on the PC's rumble on the controllers | 100 |
 | `[vr] pad_grip` | `bumpers` (the grips are LB and RB), `none` (the grips do nothing in gamepad mode), `stick_clicks` (the grips are LS and RS) | `bumpers` |
+| `[vr] pad_mouse_chord` | `start_hold` (hold Start for a second), `start_back` (hold Start and Back), `off`. Turns a physical gamepad into the PC's mouse and back. | `start_hold` |
+| `[vr] pad_mouse_scroll` | `right`, `left`, `none`. The stick that scrolls while a gamepad is a mouse; the other stick points. | `right` |
+| `[vr] pad_arbitration` | `pointer` (a used gamepad takes the Frame controllers' gamepad off the PC), `also_gamepad` (both), `sleep` (pointer, and the controllers' pointer rests) | `pointer` |
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |
 | `[vr] keyboard_keymap` | `qwerty`, `azerty` (French), `qwertz` (German). What the headset keyboard's keys say. The PC must be on the matching Windows layout. | `qwerty` |
 | `[vr] depth_source` | `zipdepth`, `zipdepth-int8`, `midas` | `zipdepth` |
@@ -406,6 +445,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | `[debug] depth_debug` | `true`, `false` | `false`. Shows the depth map in place of the picture. |
 | `[debug] eye_swap` | `true`, `false` | `false`. Swaps the left and right eye in 3D. For checking a wrong-way picture. |
 | `[stream] bitrate_kbps` | 0, or 500 to 500000 | 0, which follows the resolution and refresh rate. A bitrate the flat window passes for a stream overrides it. The flat window's Custom bitrate goes up to 500 Mbps, and so does this. |
+| `[stream] doff_disconnect` | 0 to 3600 (seconds) | 60. How long the headset can stay off before the stream is disconnected (the game keeps running on the PC). 0 never. |
+| `[stream] idle_disconnect` | 0 to 1440 (minutes) | 0 (off). Disconnects the stream after this long with no input. |
 | `[stream] virtual_surround` | `true`, `false` | `false`. Places 5.1 and 7.1 speakers around you in stereo. |
 | `[debug] file_log` | `off`, `basic`, `verbose` | `basic` |
 

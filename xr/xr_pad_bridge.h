@@ -12,6 +12,10 @@ void xrPadBridgeSetFlip(int flip);          // settings: swap A/B and X/Y
 void xrPadBridgeStart(void);                // stream start, before LiStartConnection
 void xrPadBridgeFrame(int plugged, const PadState* s, int64_t nowNs); // each input frame
 void xrPadBridgeStop(void);                 // before LiStopConnection: unplug the pad, stop rumble
+// Native (lane wave3-session): the headset came off. The pad goes to the host at rest at once (it stays
+// plugged in), so no button or stick is left held there; the next frame's state replaces it. A no-op when
+// the pad is not plugged in.
+void xrPadBridgeRest(void);
 
 // The disconnect chord: Start + Select (Back) + both triggers past 80 percent,
 // held together in gamepad mode. On the frame it completes the pad goes to the

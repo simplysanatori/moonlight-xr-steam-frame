@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include "xr_shared.h"
+#include "xr_padmouse.h"
 
 // Where the tilt and rotate tracks clip to level, in radians (xr_renderer.h:
 // COG_TILT_SNAP, COG_ROLL_SNAP)
@@ -35,6 +36,9 @@ static const char* const PACING_NAMES[] = { "latency", "balanced", "cap-fps", "s
 static const char* const TOGGLE_NAMES[] = { "menu_grip", "sticks", "triggers_grips" };
 static const char* const RUMBLEMIX_NAMES[] = { "both", "split" };
 static const char* const PADGRIP_NAMES[] = { "bumpers", "none", "stick_clicks" };
+static const char* const PADMOUSECHORD_NAMES[] = { "start_hold", "start_back", "off" };
+static const char* const PADMOUSESCROLL_NAMES[] = { "right", "left", "none" };
+static const char* const PADARB_NAMES[] = { "pointer", "also_gamepad", "sleep" };
 static const char* const ENV_NAMES[] = { "auto", "passthrough", "void", "home_theater",
                                          "grand_cinema", "synthwave" };
 static const int ENV_IDS[] = { ENV_ID_NONE, ENV_ID_PASSTHROUGH, ENV_ID_VOID, ENV_ID_HOME_THEATER,
@@ -77,6 +81,8 @@ static const SettingDesc TABLE[] = {
     DB("stream", "virtual_surround", virtual_surround, 0, "checkbox_vr_virtual_surround: place 5.1 and 7.1 speakers around you in stereo"),
     DE("stream", "frame_pacing", frame_pacing, PACING_NAMES, 0, "frame_pacing"),
     DE("stream", "network_path", network_path, NETWORK_NAMES, 0, "native: which link reaches the PC: auto (probe all), home (Wi-Fi), adapter (Steam Frame Wireless Adapter) or usb (a USB cable between the headset and the PC); the --network flag and MLXR_NETWORK override it"),
+    DI("stream", "doff_disconnect", doff_disconnect, 0, 3600, 60, "native: seconds with the headset off before the stream is disconnected, leaving the host's app running; 0 never. The sound mutes and the input is let go the moment it comes off, and putting it back on within the time carries on"),
+    DI("stream", "idle_disconnect", idle_disconnect, 0, 1440, 0, "native: minutes without any input (controllers, hands, keyboard, mouse, pads) before the stream is disconnected, leaving the host's app running; 0 never"),
     // TODO(PLAN 6.4): auto_desktop (open the host's Desktop app without the app list) comes
     // back when something reads it. Dropped with vr_mode, check_updates, language and
     // doff_grace, which were written with descriptions and read by nothing; old files that
@@ -98,6 +104,9 @@ static const SettingDesc TABLE[] = {
     DE("vr", "rumble_mix", rumble_mix, RUMBLEMIX_NAMES, 0, "native: the host's rumble on the controllers in gamepad mode: both (each hand gets the stronger motor) or split (low frequency motor left, high frequency motor right)"),
     DI("vr", "rumble_intensity", rumble_intensity, 0, 100, 100, "native: percent, the scale on the host's rumble on the controllers in gamepad mode"),
     DE("vr", "pad_grip", pad_grip, PADGRIP_NAMES, 0, "native: what the grips are in gamepad mode: bumpers (LB and RB, as the bumpers), none, or stick_clicks (LS and RS)"),
+    DE("vr", "pad_mouse_chord", pad_mouse_chord, PADMOUSECHORD_NAMES, 0, "native: what turns a physical gamepad into the PC's mouse (stick moves the pointer, A/B/X click, LB/RB back/forward, Y the VR keyboard, d-pad arrows): start_hold (hold Start for a second), start_back (hold Start and Back) or off; the same chord gives the pad back"),
+    DE("vr", "pad_mouse_scroll", pad_mouse_scroll, PADMOUSESCROLL_NAMES, 0, "native: the stick that scrolls while a gamepad is a mouse: right (the left stick points), left (the right stick points) or none"),
+    DE("vr", "pad_arbitration", pad_arbitration, PADARB_NAMES, 0, "native: when a physical gamepad is used while the Frame controllers are the gamepad: pointer (the controllers' pad is taken off the PC and they point again; gamepad mode off and on brings it back), also_gamepad (the PC sees both pads) or sleep (as pointer, and the controllers' pointer rests while the gamepad is in use)"),
     DB("vr", "click_sound", click_sound, 1, "checkbox_vr_click_sound"),
     DE("vr", "notices", notices, NOTICES_NAMES, 0, "native: the toast notices (upstream #42): all, important (leaves out the display rate and 3D on/off; keeps mode changes and errors) or off"),
     DB("vr", "gaze", gaze, 0, "checkbox_vr_gaze: look to point (native default off: with it on a controller takes the pointer back only on a press)"),

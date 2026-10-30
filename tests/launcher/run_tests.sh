@@ -382,13 +382,15 @@ if [ -n "$SHOTS" ]; then
     ini="$MLXR_CONFIG_DIR/config.ini"
     printf '# Moonlight XR settings\n[display]\n# Display tab: show performance stats [true | false] (default false)\n#stats = false\nglow = true\n\n[3d]\nseparation = 9\nstereo = false\n' > "$ini"
     cp "$ini" "$t/ini.before"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,hdrRow \
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,doffRow,idleRow,hdrRow \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-clicked.png@3000" "$L" >"$t/ui6.out" 2>&1
     grep -q "no clickable" "$t/ui6.out" && fail "click hook: $(grep 'no clickable' "$t/ui6.out")"
     grep -q '^stats = true$' "$ini" && ok "stats overlay row writes [display] stats = true" || { fail "stats not written"; cat "$ini"; }
     grep -q '^#stats' "$ini" && fail "commented stats line left as well" || ok "the commented default line was replaced"
     grep -A1 '^\[vr\]' "$ini" | grep -q '^flip_face_buttons = true$' && ok "flip row adds [vr] flip_face_buttons = true" || { fail "flip not written"; cat "$ini"; }
     grep -A2 '^\[vr\]' "$ini" | grep -q '^notices = important$' && ok "notices row steps All to Important and writes [vr] notices" || { fail "notices not written"; cat "$ini"; }
+    grep -A3 '^\[stream\]' "$ini" | grep -q '^doff_disconnect = 120$' && ok "headset-off row steps 60 s to 120 s and writes [stream] doff_disconnect" || { fail "doff_disconnect not written"; cat "$ini"; }
+    grep -A3 '^\[stream\]' "$ini" | grep -q '^idle_disconnect = 10$' && ok "idle row steps Never to 10 minutes and writes [stream] idle_disconnect" || { fail "idle_disconnect not written"; cat "$ini"; }
     grep -q '^glow = true$' "$ini" && grep -q '^separation = 9$' "$ini" && grep -q '^stereo = false$' "$ini" && ok "other config.ini keys untouched" || { fail "config.ini keys changed"; diff "$t/ini.before" "$ini"; }
     grep -q -i hdr "$ini" && fail "greyed HDR row changed something" || ok "greyed HDR row is inert"
     grep -q "MLXR_LAUNCHER_WIFI: Wi-Fi$" "$t/ui6.out" && ok "Network connection: plain Wi-Fi when unknown" || fail "wifi fallback: $(grep MLXR_LAUNCHER_WIFI "$t/ui6.out")"
@@ -409,6 +411,8 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads stats" "$dump" "display.stats = true"
         expect "VR client reads flip" "$dump" "vr.flip_face_buttons = true"
         expect "VR client reads notices" "$dump" "vr.notices = important"
+        expect "VR client reads doff_disconnect" "$dump" "stream.doff_disconnect = 120"
+        expect "VR client reads idle_disconnect" "$dump" "stream.idle_disconnect = 10"
     fi
     # MLXR_HANDOFF=0: the stock probe runs again
     MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1
@@ -456,6 +460,125 @@ if [ -n "$SHOTS" ]; then
     refute "Game Mode: never hidden (unmapped)" "$r" "flat window hidden"
     order="$(echo "$r" | grep -n "faded out for the stream\|VR client exited with 0\|faded back in\|exposed after" | cut -d: -f2- | sed 's/ - Qt Info//' | tr '\n' '|')"
     case "$order" in *"faded out for the stream"*"VR client exited with 0"*"faded back in"*"exposed after"*) ok "Game Mode: fade out, exit, fade in, exposed: in that order";; *) fail "Game Mode order: $order";; esac
+    # lane wave2-bind-editor: the Controller bindings page. The launcher has xr/core/xr_bind.c compiled in, so
+    # the file is read, checked and its lines found by the headset's own parser; MLXR_LAUNCHER_BIND_DUMP prints
+    # the core's serializer output for the file after every load and save, which is what is compared here.
+    bf="$MLXR_CONFIG_DIR/bindings.ini"
+    bindrun() { # name, then env assignments: opens the page, output in $t/bind-<name>.out
+        local n="$1"; shift
+        env MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=bindings MLXR_LAUNCHER_BIND_DUMP=1 \
+            MLXR_LAUNCHER_WINDOW=1280x1500 "$@" "$L" >"$t/bind-$n.out" 2>&1
+    }
+    bindcanon() { # the core's serialization of the file, as of the last load or save in that output
+        grep 'MLXR_BINDINGS_FILE|' "$1" | awk '/MLXR_BINDINGS_FILE\| begin/ {buf=""; on=1; next} /MLXR_BINDINGS_FILE\| end/ {on=0; last=buf; next} on {sub(/^.*MLXR_BINDINGS_FILE\| ?/, ""); if ($0 != "") buf=buf $0 "\n"} END {printf "%s", last}'
+    }
+    rawhas() { grep -Fxq -- "$2" "$1" && ok "$3" || { fail "$3: no line [$2] in $1"; cat "$1"; }; }
+    rawhasnot() { grep -Fxq -- "$2" "$1" && { fail "$3: line [$2] is there"; cat "$1"; } || ok "$3"; }
+    bindqml() { grep -Eq "$QMLERR" "$1" && { fail "$2: QML errors"; grep -E "$QMLERR" "$1" | head -3; } || ok "$2: no QML errors"; }
+
+    # first open: the default file is written (by the core), nothing is wrong with it
+    rm -f "$bf"
+    bindrun first MLXR_LAUNCHER_SCREENSHOT="$SHOTS/bindings.png@3500"
+    bindqml "$t/bind-first.out" "bindings page"
+    expect "bindings: the lists the page offers are what the core accepts" "$(cat "$t/bind-first.out")" "MLXR_BINDINGS: choices ok"
+    refute "bindings: no choice refused by the core" "$(cat "$t/bind-first.out")" "not accepted by the core"
+    [ -f "$bf" ] && ok "bindings: the default file is written on the first open" || fail "no bindings.ini"
+    grep -q '^# Moonlight XR controller bindings' "$bf" && grep -q '^\[pointer\]' "$bf" && ok "bindings: it is the core's commented default file" || fail "default file"
+    expect "bindings: no errors, no strip, the PCs are listed" "$(cat "$t/bind-first.out")" "errors=0 strip=false pcs="
+    expect "bindings: the PC list has the seeded PC" "$(grep MLXR_BINDINGS_UI "$t/bind-first.out")" "gaming-pc"
+    grep -q "bindings.png\" QSize.* saved" "$t/bind-first.out" && ok "bindings page rendered" || fail "no bindings screenshot"
+
+    # change one binding: the value on its line is replaced, the comment after it and every other line stay
+    printf '# my notes\n[pointer]\nright.x = key:F   ; keep this comment\nleft.trigger = mouse:left\n\n[gamepad]\n# gamepad notes\n' > "$bf"
+    bindrun edit MLXR_LAUNCHER_CLICK=row_right.x,kind_mouse,opt_mouse_middle MLXR_LAUNCHER_SCREENSHOT="$SHOTS/bindings-edit.png@3500"
+    bindqml "$t/bind-edit.out" "bindings edit"
+    grep -q "no clickable" "$t/bind-edit.out" && fail "bindings click hook: $(grep 'no clickable' "$t/bind-edit.out")"
+    rawhas "$bf" 'right.x = mouse:middle   ; keep this comment' "bindings: the value changed, the comment after it stayed"
+    rawhas "$bf" '# my notes' "bindings: a comment above stayed"
+    rawhas "$bf" '# gamepad notes' "bindings: a comment in another section stayed"
+    rawhas "$bf" 'left.trigger = mouse:left' "bindings: another binding untouched"
+    c="$(bindcanon "$t/bind-edit.out")"
+    expect "bindings: the core reads the saved file with the new binding" "$c" $'[pointer]\nright.x = mouse:middle\nleft.trigger = mouse:left'
+    refute "bindings: the old binding is gone from the core's reading" "$c" "key:F"
+    expect "bindings: the save is logged" "$(cat "$t/bind-edit.out")" "MLXR_BINDINGS: saved pointer right.x = mouse:middle"
+
+    # a binding in the other mode (a new section at the end), a key with modifiers (after its section's last line)
+    bindrun more MLXR_LAUNCHER_CLICK=modeGamepad,row_right.grip,kind_pad,opt_pad_rb,modePointer,row_left.dpad_left,kind_key,mod_ctrl,mod_shift,key_esc \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/bindings-key.png@3500"
+    bindqml "$t/bind-more.out" "bindings more"
+    grep -q "no clickable" "$t/bind-more.out" && fail "bindings click hook: $(grep 'no clickable' "$t/bind-more.out")"
+    rawhas "$bf" 'right.grip = pad:rb' "bindings: a gamepad binding is written"
+    rawhas "$bf" 'left.dpad_left = key:ctrl+shift+esc' "bindings: a key with modifiers is written"
+    c="$(bindcanon "$t/bind-more.out")"
+    expect "bindings: pointer section as the core reads it" "$c" $'[pointer]\nright.x = mouse:middle\nleft.trigger = mouse:left\nleft.dpad_left = key:ctrl+shift+esc'
+    expect "bindings: gamepad section as the core reads it" "$c" $'[gamepad]\nright.grip = pad:rb'
+
+    # one app of a PC's app list: [app "Name"] lines with the mode in front
+    bindrun app MLXR_LAUNCHER_CLICK=tabApp,pc_gaming-pc,app_Desktop,row_right.trigger,kind_mouse,opt_mouse_right,modeGamepad,row_right.grip,kind_pad,opt_pad_lb \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/bindings-app.png@3500"
+    bindqml "$t/bind-app.out" "bindings per app"
+    grep -q "no clickable" "$t/bind-app.out" && fail "bindings click hook: $(grep 'no clickable' "$t/bind-app.out")"
+    expect "bindings: the PC's apps are the app list" "$(grep 'MLXR_BINDINGS_UI: apps pc=gaming-pc' "$t/bind-app.out")" "Desktop"
+    expect "bindings: the PC's apps are the app list (2)" "$(grep 'MLXR_BINDINGS_UI: apps pc=gaming-pc' "$t/bind-app.out")" "Assassin's Creed Origins"
+    rawhas "$bf" '[app "Desktop"]' "bindings: the app's section is added"
+    rawhas "$bf" 'pointer.right.trigger = mouse:right' "bindings: the app's pointer line"
+    rawhas "$bf" 'gamepad.right.grip = pad:lb' "bindings: the app's gamepad line"
+    c="$(bindcanon "$t/bind-app.out")"
+    expect "bindings: the core reads the app's lines" "$c" $'[app "Desktop"]\npointer.right.trigger = mouse:right\ngamepad.right.grip = pad:lb'
+
+    # reset a row from the page, then the edits the core refuses leave the file as it was
+    bindrun reset MLXR_LAUNCHER_CLICK=row_left.dpad_left,resetRow MLXR_LAUNCHER_SCREENSHOT="$t/b.png@2500"
+    rawhasnot "$bf" 'left.dpad_left = key:ctrl+shift+esc' "bindings: Reset row takes the line out"
+    rawhas "$bf" 'left.trigger = mouse:left' "bindings: Reset row leaves the other lines"
+    cp "$bf" "$t/bind.before"
+    bindrun refuse MLXR_LAUNCHER_SCREENSHOT="$t/b.png@2500" \
+        MLXR_LAUNCHER_BIND_OPS='set|-|pointer|left.view+left.grip|key:F~set|-|pointer|right.x|key:nosuchkey~set|-|pointer|right.a+right.b+left.grip|mouse:left~set|-|gamepad|left.view+right.menu+left.bumper+right.bumper|none~set|-|pointer|left.stick|mouse:left'
+    [ "$(grep -c 'MLXR_BINDINGS_OP:.*-> error:' "$t/bind-refuse.out")" = 5 ] && ok "bindings: reserved chords, an unknown key and a button action on a whole stick are refused with the core's error" || { fail "refusals"; grep MLXR_BINDINGS_OP "$t/bind-refuse.out"; }
+    expect "bindings: the switch chord's error" "$(cat "$t/bind-refuse.out")" "pointer/gamepad switch shortcut"
+    cmp -s "$bf" "$t/bind.before" && ok "bindings: refused edits leave the file byte for byte" || { fail "file changed by refused edits"; diff "$t/bind.before" "$bf"; }
+
+    # a chord, Reset all for an app and for every app: comments and section headers stay
+    bindrun chords MLXR_LAUNCHER_SCREENSHOT="$t/b.png@2500" \
+        MLXR_LAUNCHER_BIND_OPS='set|-|gamepad|left.view+right.menu|none~set|-|gamepad|right.a+right.b|pad:guide~resetall|Desktop'
+    [ "$(grep -c 'MLXR_BINDINGS_OP:.*-> ok' "$t/bind-chords.out")" = 3 ] && ok "bindings: chord edits and Reset all for an app are accepted" || { fail "chord ops"; grep MLXR_BINDINGS_OP "$t/bind-chords.out"; }
+    rawhas "$bf" 'left.view+right.menu = none' "bindings: the Guide chord switched off is a line"
+    rawhas "$bf" 'right.a+right.b = pad:guide' "bindings: a new chord is a line"
+    rawhasnot "$bf" 'pointer.right.trigger = mouse:right' "bindings: Reset all for an app takes its lines out"
+    rawhas "$bf" '[app "Desktop"]' "bindings: its section header stays"
+    bindrun resetall MLXR_LAUNCHER_SCREENSHOT="$t/b.png@2500" MLXR_LAUNCHER_BIND_OPS='resetall|-'
+    c="$(bindcanon "$t/bind-resetall.out")"
+    refute "bindings: Reset all (every app) leaves no rules" "$c" " = "
+    rawhas "$bf" '# my notes' "bindings: Reset all keeps the comments"
+    rawhas "$bf" '# gamepad notes' "bindings: Reset all keeps the other comments"
+
+    # a file with mistakes: the strip lists the core's errors, the bad lines stay through an edit
+    printf '[pointer]\nright.x = key:nonsense\nleft.bogus = mouse:left\nright.a = mouse:middle   ; fine\n[gamepad]\nleft.view+left.grip = none\n' > "$bf"
+    bindrun errors MLXR_LAUNCHER_CLICK=row_right.b,kind_mouse,opt_mouse_left MLXR_LAUNCHER_SCREENSHOT="$SHOTS/bindings-errors.png@3500"
+    bindqml "$t/bind-errors.out" "bindings with errors"
+    expect "bindings: the strip is shown for 3 errors" "$(grep MLXR_BINDINGS_UI "$t/bind-errors.out")" "errors=3 strip=true"
+    rawhas "$bf" 'right.b = mouse:left' "bindings: an edit works in a file that has errors"
+    rawhas "$bf" 'right.x = key:nonsense' "bindings: the line with a bad key is kept for the user to fix"
+    rawhas "$bf" 'left.bogus = mouse:left' "bindings: the line with a bad control is kept"
+    rawhas "$bf" 'left.view+left.grip = none' "bindings: the reserved chord line is kept"
+    c="$(bindcanon "$t/bind-errors.out")"
+    expect "bindings: the core still reads the good lines" "$c" $'right.a = mouse:middle\nright.b = mouse:left'
+
+    # CRLF files keep their line ends
+    printf '[pointer]\r\nright.x = key:F ; c\r\n' > "$bf"
+    bindrun crlf MLXR_LAUNCHER_SCREENSHOT="$t/b.png@2500" MLXR_LAUNCHER_BIND_OPS='set|-|pointer|right.x|mouse:left~set|-|pointer|left.trigger|key:space~set|-|gamepad|left.grip|none'
+    python3 -I - "$bf" <<'PY' && ok "bindings: a CRLF file stays CRLF and keeps its comment" || { fail "CRLF file"; od -c "$bf" | head; }
+import sys
+b = open(sys.argv[1], 'rb').read()
+assert b == b'[pointer]\r\nright.x = mouse:left ; c\r\nleft.trigger = key:space\r\n\r\n[gamepad]\r\nleft.grip = none\r\n', b
+PY
+
+    # the Settings page opens it
+    rm -f "$bf"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=bindingsRow \
+        MLXR_LAUNCHER_SCREENSHOT="$t/via-settings.png@3000" "$L" >"$t/bind-via.out" 2>&1
+    grep -q "no clickable" "$t/bind-via.out" && fail "bindings row: $(grep 'no clickable' "$t/bind-via.out")"
+    expect "bindings: the Settings page's row opens the Controller bindings page" "$(cat "$t/bind-via.out")" "MLXR_BINDINGS_UI:"
+    bindqml "$t/bind-via.out" "bindings via Settings"
     # lane launcher2: the Game Mode scale (1.5) on a 1920x1080 window. The offscreen screen is
     # 800x800, so this uses QT_SCALE_FACTOR (what the launcher sets in Game Mode) with the window
     # at 1920/1.5 x 1080/1.5 = 1280x720 logical and a windowed UI; the grab is in device pixels.

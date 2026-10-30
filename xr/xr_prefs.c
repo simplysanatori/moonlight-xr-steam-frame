@@ -309,6 +309,11 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetGamepad(ctx, s->gamepad_toggle, padDeadzonePercentFromLauncher(gamepadsGetDeadzone()));
     xrSetPadGrip(ctx, s->pad_grip);
     xrPadBridgeSetFlip(s->flip_face_buttons);
+    // Native (lane wave2b-padmouse): the same switch for the physical pads, live (the stream start
+    // sets it too), and the pad-as-mouse and pad arbitration settings
+    gamepadsSetFlipFaceButtons(s->flip_face_buttons);
+    gamepadsSetPadMouse(s->pad_mouse_chord, s->pad_mouse_scroll);
+    gamepadsSetArbitration(s->pad_arbitration);
     xrPadBridgeSetRumble(s->rumble_mix, s->rumble_intensity);
     int picture[PICTURE_VALUES];
     for (int row = 0; row < PICTURE_VALUES; row++) {

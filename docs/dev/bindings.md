@@ -230,6 +230,17 @@ int xrBindPadButtons(const XrBindTable* t, uint64_t down);  // PAD_ bits
 
 `XrBindSet` is about 12 KB and `XrBindTable` about 1 KB; keep the set in the context or a static, not on a small stack.
 
+## The launcher's editor (PLAN 2.6)
+
+`launcher/qml/XrBindingsView.qml` (the page) over `launcher/src/mlxrbindings.{h,cpp}` (`MlxrBindings`, a QML singleton). `launcher/build.sh` copies `xr/core/xr_bind.c`, `xr_bind.h`, `xr_gamepad.c`, `xr_gamepad.h` and `xr_shared.h` next to the launcher sources and `launcher/patches/0013-*.patch` builds them with qmake, so the launcher has no parser of its own: it calls `xrBindLoadFile` (which writes the default file on the first open), `xrBindParse` (rules with their line numbers, errors), `xrBindActionParse`/`Format`, `xrBindResolve` (what a control does for an app and the layer it came from), `xrBindSourceFind`/`KeyName`, and `xrBindSerialize` (for the tests).
+
+Saving never calls `xrBindSerialize` (it drops comments). `MlxrBindings` edits the file text on the lines `XrBindRule.line` names: replace the value after `=` keeping any trailing comment, delete the line, or insert after the last line of the same section (`[pointer]`/`[gamepad]` by mode, `[app "Name"]` by app index), else append a new section block (`
+[mode]
+line`). The result is parsed again and written (`QSaveFile`) only if the rule is in it with the action asked for; otherwise the core's error for that line is returned and nothing is written. Lines are split on `
+` and joined unchanged, so CRLF files stay CRLF.
+
+Tests (`tests/launcher/run_tests.sh`): `MLXR_LAUNCHER_PAGE=bindings` opens the page, `MLXR_LAUNCHER_CLICK=` presses rows, kind and value buttons by `objectName` (`row_<control>`, `kind_<kind>`, `opt_<kind>_<value>`, `key_<name>`, `mod_<ctrl|shift|alt|win>`, `resetRow`, `tabApp`, `pc_<PC>`, `app_<App>`, `modeGamepad`), `MLXR_LAUNCHER_BIND_OPS='set|<app or ->|<pointer|gamepad>|<control or chord>|<action>~reset|...~resetall|...'` edits at start without the UI, and `MLXR_LAUNCHER_BIND_DUMP=1` logs the core's `xrBindSerialize` of the file after every load and save. At start the launcher also checks that every choice it offers is accepted by the core and every reserved chord refused (`MLXR_BINDINGS: choices ok`).
+
 ## Notes for the integration lane
 
 - **Load** once at start (`xrBindLoadFile(&set, NULL, &errs)`), log every `errs.errors[i].text` with the file name, and resolve a table per mode when the session starts, when the host app is known (`Settings.app`) and on a mode switch.

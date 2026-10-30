@@ -22,3 +22,7 @@ add_executable(test_commonc_log test_commonc_log.c)
 target_compile_definitions(test_commonc_log PRIVATE
   COMMONC_SRC_DIR="${PROJECT_SOURCE_DIR}/third_party/moonlight-common-c/src")
 add_test(NAME stream_commonc_log COMMAND test_commonc_log)
+# Lane wave3-session: auto-reconnect policy and its retry loop, driven by a fake session
+add_executable(test_reconnect test_reconnect.c)
+target_link_libraries(test_reconnect PRIVATE mlxr_stream)
+add_test(NAME stream_reconnect COMMAND test_reconnect)

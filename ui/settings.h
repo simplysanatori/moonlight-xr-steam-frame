@@ -64,6 +64,8 @@ typedef struct Settings {
     int virtual_surround;  // HRTF virtual surround for headsets
     int frame_pacing;      // 0 latency, 1 balanced, 2 cap fps, 3 smoothness
     int network_path;      // 0 auto, 1 home (Wi-Fi), 2 adapter (Steam Frame Wireless Adapter), 3 usb (USB cable)
+    int doff_disconnect;   // native: seconds with the headset off before the stream disconnects (the host's app stays); 0 never
+    int idle_disconnect;   // native: minutes without input before the same; 0 never
 
     // [vr] VR Settings table
     int pointer;           // Controllers as a mouse
@@ -82,6 +84,9 @@ typedef struct Settings {
     int rumble_mix;        // PAD_RUMBLE_MIX_* : 0 both controllers get the stronger motor, 1 low motor left and high motor right
     int rumble_intensity;  // percent, 0..100: the scale on the host's rumble on the controllers
     int pad_grip;          // PAD_GRIP_* : what the grips are on gamepad mode's pad: 0 bumpers, 1 nothing, 2 stick clicks
+    int pad_mouse_chord;   // native: PAD_MOUSE_CHORD_* : what turns a physical pad into the host's mouse: 0 hold Start, 1 hold Start and Back, 2 never
+    int pad_mouse_scroll;  // native: PAD_MOUSE_SCROLL_* : the stick that scrolls while a pad is a mouse: 0 right, 1 left, 2 none
+    int pad_arbitration;   // native: PAD_ARB_* : when a physical pad is used: 0 the Frame pad is retired and the controllers stay pointers, 1 both, 2 as 0 and the pointer sleeps
     int click_sound;
     int notices;           // native: NOTICES_ALL, IMPORTANT, OFF (the toast's informational notices)
     int gaze;
