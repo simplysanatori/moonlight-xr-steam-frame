@@ -45,7 +45,9 @@ void panel_bar(Dc* dc) {
         if (dc_hover(dc, UI_HIT_BAR_BUTTON, slot, -1)) {
             dc_fill_rrect(dc, cx - sp * 0.5f, cy - sp * 0.5f, cx + sp * 0.5f, cy + sp * 0.5f, sp * 0.17f, 0x30FFFFFFu);
         }
-        dc_button_face(dc, cell + on, cx - sp * 0.5f, cy - sp * 0.5f, sp);
+        // native (PLAN 4.3): the 3D button says which pair it shows (3D, SBS, TB)
+        if (slot == BAR_SLOT_STEREO) dc_button_face(dc, barStereoCell(v->stereo_source, on), cx - sp * 0.5f, cy - sp * 0.5f, sp);
+        else dc_button_face(dc, cell + on, cx - sp * 0.5f, cy - sp * 0.5f, sp);
 
         // reaches a little past the art like barSlotHit, but never into a neighbour
         float half = side * HOVER_MARGIN * 0.5f;

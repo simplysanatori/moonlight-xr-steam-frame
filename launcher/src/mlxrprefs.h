@@ -51,6 +51,11 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(bool strengthIsDefault MEMBER strengthIsDefault NOTIFY changed)
     Q_PROPERTY(int convergence MEMBER convergence NOTIFY changed)            // [3d] convergence, 0..100
     Q_PROPERTY(bool convergenceIsDefault MEMBER convergenceIsDefault NOTIFY changed)
+    // Native (PLAN 4.3): [3d] stereo_source, where the 3D comes from: "depth" (default, the depth model),
+    // "sbs" (the PC renders a side by side pair) or "top-bottom"; [3d] sbs_full: that pair holds a full
+    // size picture per eye (3840x1080) rather than two squeezed halves (1920x1080)
+    Q_PROPERTY(QString stereoSource MEMBER stereoSource NOTIFY changed)
+    Q_PROPERTY(bool sbsFull MEMBER sbsFull NOTIFY changed)
     // Native (lane wave5-depth, PLAN 5.1): [3d] edge_sharpness, the Edge setting, 0..100 (0, the
     // default, is the soft edges the 3D always had)
     Q_PROPERTY(int edgeSharpness MEMBER edgeSharpness NOTIFY changed)
@@ -77,6 +82,9 @@ class MlxrPrefs : public QObject
     // before the same; 0 never, default 0)
     Q_PROPERTY(int doffDisconnect MEMBER doffDisconnect NOTIFY changed)
     Q_PROPERTY(int idleDisconnect MEMBER idleDisconnect NOTIFY changed)
+    // Native (lane wave1-burst): [stream] rfi_idr_ms, at most one full-frame (IDR) request of the headset's
+    // own per this many ms after lost video (0 no limit, default 500, 0..5000)
+    Q_PROPERTY(int rfiIdrMs MEMBER rfiIdrMs NOTIFY changed)
     // Native (lane wave2b-padmouse): physical gamepads in the headset. [vr] pad_mouse_chord: what turns a pad
     // into the PC's mouse, "start_hold" (default), "start_back" or "off"; [vr] pad_mouse_scroll: the stick that
     // scrolls then, "right" (default), "left" or "none"; [vr] pad_arbitration: what a used pad does to the
@@ -183,6 +191,8 @@ public:
     bool strengthIsDefault;
     int convergence;
     bool convergenceIsDefault;
+    QString stereoSource;
+    bool sbsFull = false;
     int edgeSharpness = 0;
     int motionReset = 0;
     int depthScale = 100;
@@ -194,6 +204,7 @@ public:
     QString controllerModel;
     int doffDisconnect = 60;
     int idleDisconnect = 0;
+    int rfiIdrMs = 500;
     QString padMouseChord;
     QString padMouseScroll;
     QString padArbitration;
@@ -215,9 +226,12 @@ private:
     int m_iniScrollSpeed = 100;
     QString m_iniControllerModel = "off";
     int m_iniDoff = 60, m_iniIdle = 0;
+    int m_iniRfiIdr = 500;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
+    QString m_iniStereoSource = QStringLiteral("depth");
+    bool m_iniSbsFull = false;
     int m_iniEdgeSharpness = 0, m_iniMotionReset = 0, m_iniDepthScale = 100, m_iniDepthGlobal = 100;
     bool m_usbCable = false, m_usbScanned = false;
     QString m_pcvrStatus, m_pcvrBase;

@@ -750,7 +750,8 @@ void xrWorldVideoFrame(XrCtx* ctx, const MlxrVideo* video) {
     // Letterbox detection, once every so many frames the colour sample ran:
     // last time's readback first (its frame has finished), then this frame's
     // request if it is due
-    if (sampled && ctx->ambiBarDetect) {
+    // (native, PLAN 4.3: not on a host-rendered pair)
+    if (sampled && ambiBarDetectOn(ctx)) {
         finishAmbiBarDetect(ctx);
         ctx->ambiBarCounter++;
         if (ctx->ambiBarCounter >= AMBI_BAR_PERIOD) {
