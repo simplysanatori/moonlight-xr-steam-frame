@@ -1,8 +1,10 @@
 #!/bin/bash
-# Builds the release tarball and checks it. GPLv3.
+# Builds the release tarball and zip and checks them. GPLv3.
 #   tools/release.sh
-# Writes moonlight-xr-steam-frame-<version>-linux-arm64.tar.gz and SHA256SUMS into
-# $OUT (default ~/Games/MoonlightXRNative/releases). The tarball unpacks to
+# Writes moonlight-xr-steam-frame-<version>-linux-arm64.tar.gz, the same tree as
+# moonlight-xr-steam-frame-<version>-linux-arm64.zip (same files, same modes; for the community
+# installers Frametanium and FrameDrop, see docs/dev/reports/packaging.md) and SHA256SUMS into
+# $OUT (default ~/Games/MoonlightXRNative/releases). Both archives unpack to
 # MoonlightXRNative/ holding install.sh, steam_cef.py, dock_icon.py, README.md, docs/ (user guide,
 # changelog, building, privacy audit), the licence files and
 # app/ (binaries incl. mlxr-gamepad-probe, launcher, assets, the Moonlight Qt import script) and the
@@ -12,7 +14,7 @@
 # When HEAD carries a v* tag it must match VERSION.
 #
 # Expects a finished build (./build.sh). Unless NO_VERIFY=1 it then unpacks the
-# tarball into a temporary directory, runs its install.sh there (NO_SHORTCUT=1,
+# tarball (and the zip, which must give the same tree) into a temporary directory, runs its install.sh there (NO_SHORTCUT=1,
 # a temporary DEST and config dir), compares every installed file with the
 # tarball, and runs the ldd audit on the unpacked binaries (skipped on hosts
 # without pacman).
@@ -81,12 +83,50 @@ echo "$VER" > "$ROOT/VERSION"; cp "$ROOT/VERSION" "$ROOT/app/VERSION"
 EPOCH="$(git log -1 --format=%ct)"
 ( cd "$TMP/stage" && tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$EPOCH" -cf - MoonlightXRNative ) \
     | gzip -9n > "$OUT/$NAME.tar.gz"
-( cd "$OUT" && { grep -v " $NAME.tar.gz\$" SHA256SUMS 2>/dev/null || true; sha256sum "$NAME.tar.gz"; } > SHA256SUMS.new && mv SHA256SUMS.new SHA256SUMS )
-echo "built $OUT/$NAME.tar.gz ($(du -h "$OUT/$NAME.tar.gz" | cut -f1))"
+# The same staged tree as a zip. Python's zipfile (the Frame has no promise of a zip tool): sorted names,
+# commit time, and the Unix mode of every entry in external_attr, which is what keeps install.sh and the
+# binaries executable when Frametanium, FrameDrop or unzip unpack it.
+rm -f "$OUT/$NAME.zip"
+python3 -I - "$TMP/stage" "$OUT/$NAME.zip" "$EPOCH" <<'PY'
+import os, stat, sys, time, zipfile
+stage, out, epoch = sys.argv[1], sys.argv[2], int(sys.argv[3])
+when = time.gmtime(max(epoch, 315532800))[:6]          # a zip cannot date before 1980
+names = []
+for dirpath, dirs, files in os.walk(stage):
+    dirs.sort()
+    for n in dirs + files:
+        names.append(os.path.relpath(os.path.join(dirpath, n), stage))
+names.sort()
+with zipfile.ZipFile(out + ".part", "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+    for rel in names:
+        path = os.path.join(stage, rel)
+        st = os.lstat(path)
+        mode = stat.S_IMODE(st.st_mode)
+        if stat.S_ISDIR(st.st_mode):
+            info = zipfile.ZipInfo(rel + "/", when)
+            info.external_attr = ((stat.S_IFDIR | mode) << 16) | 0x10
+            z.writestr(info, b"")
+        elif stat.S_ISLNK(st.st_mode):
+            info = zipfile.ZipInfo(rel, when)
+            info.external_attr = (stat.S_IFLNK | 0o777) << 16
+            z.writestr(info, os.readlink(path))
+        else:
+            info = zipfile.ZipInfo(rel, when)
+            info.external_attr = (stat.S_IFREG | mode) << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            with open(path, "rb") as f:
+                z.writestr(info, f.read(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+os.replace(out + ".part", out)
+PY
+( cd "$OUT" && { grep -v -e " $NAME.tar.gz\$" -e " $NAME.zip\$" SHA256SUMS 2>/dev/null || true; sha256sum "$NAME.tar.gz" "$NAME.zip"; } > SHA256SUMS.new && mv SHA256SUMS.new SHA256SUMS )
+echo "built $OUT/$NAME.tar.gz ($(du -h "$OUT/$NAME.tar.gz" | cut -f1)) and $NAME.zip ($(du -h "$OUT/$NAME.zip" | cut -f1))"
 cat "$OUT/SHA256SUMS"
 
-# personal data (tools/privacy-check.sh; your own values come from its local pattern list)
+# personal data (tools/privacy-check.sh; your own values come from its local pattern list). It reads a
+# tarball or a directory, so the zip is checked unpacked.
 ./tools/privacy-check.sh "$OUT/$NAME.tar.gz" || { echo "privacy check failed: $OUT/$NAME.tar.gz must not be published"; exit 1; }
+python3 -I -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$OUT/$NAME.zip" "$TMP/zipcheck"
+./tools/privacy-check.sh "$TMP/zipcheck" || { echo "privacy check failed: $OUT/$NAME.zip must not be published"; exit 1; }
 
 [ "${NO_VERIFY:-0}" = 1 ] && exit 0
 echo "== verify: unpack, install into a temporary prefix, audit"
@@ -95,9 +135,24 @@ mkdir -p "$TMP/unpack" "$TMP/home"
 tar -xzf "$OUT/$NAME.tar.gz" -C "$TMP/unpack"
 U="$TMP/unpack/MoonlightXRNative"
 [ "$(cat "$U/VERSION")" = "$VER" ] || { echo "VERSION mismatch"; exit 1; }
+# the zip holds the same tree, with install.sh and the binaries still executable after unpacking
+mkdir -p "$TMP/unzip"
+python3 -I - "$OUT/$NAME.zip" "$TMP/unzip" <<'PY'
+import os, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    for i in z.infolist():
+        z.extract(i, sys.argv[2])
+        m = (i.external_attr >> 16) & 0o7777
+        if m and not i.is_dir():
+            os.chmod(os.path.join(sys.argv[2], i.filename), m)
+PY
+diff -r "$U" "$TMP/unzip/MoonlightXRNative" >/dev/null || { echo "the zip differs from the tarball"; diff -rq "$U" "$TMP/unzip/MoonlightXRNative" | head; exit 1; }
+for f in install.sh app/moonlight-xr app/mlxr-cli app/moonlight-xr.sh; do
+    [ -x "$TMP/unzip/MoonlightXRNative/$f" ] || { echo "$f is not executable in the zip"; exit 1; }
+done
 # twice: the second run must change nothing and still succeed
 for i in 1 2; do
-    DEST="$TMP/inst/app" NO_SHORTCUT=1 MLXR_CONFIG_DIR="$TMP/cfg" "$U/install.sh" > "$TMP/install.$i.log"
+    DEST="$TMP/inst/app" NO_SHORTCUT=1 MLXR_CONFIG_DIR="$TMP/cfg" MLXR_INSTALL_LOG="$TMP/install.log" "$U/install.sh" > "$TMP/install.$i.log"
 done
 tail -n 4 "$TMP/install.2.log"
 # (install.sh makes the Frame controller models from the local SteamVR, so the install may have them and the tarball never does)
@@ -115,4 +170,4 @@ if command -v pacman >/dev/null; then
 else
     echo "no pacman: ldd audit skipped"
 fi
-echo "release ok: $OUT/$NAME.tar.gz"
+echo "release ok: $OUT/$NAME.tar.gz and $OUT/$NAME.zip"

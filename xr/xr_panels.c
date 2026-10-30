@@ -29,6 +29,7 @@
 //   report sheet       UI_PANEL_REPORT from the native report form
 //   toast              UI_PANEL_TOAST per notice
 //   stats              ATLAS_OVERLAY, the session's stats lines
+//   splash             ATLAS_SPLASH, the logo and its line (xr_splash.c)
 //   launcher lists     UI_PANEL_PC_LIST / UI_PANEL_APP_LIST, with the hover
 // GPLv3.
 #define _GNU_SOURCE // pthread_setname_np
@@ -47,7 +48,7 @@
 
 // ---- a panel drawing, as the worker gets it ------------------------------------------
 
-typedef enum { JOB_PANEL, JOB_CLOCK, JOB_REPORT, JOB_TOAST, JOB_OVERLAY, JOB_PC_LIST, JOB_APP_LIST } JobKind;
+typedef enum { JOB_PANEL, JOB_CLOCK, JOB_REPORT, JOB_TOAST, JOB_OVERLAY, JOB_PC_LIST, JOB_APP_LIST, JOB_SPLASH } JobKind;
 
 // Everything a panel is drawn from, by value: the worker never reads the
 // context. view.settings and view.stereo_reason are pointed at this job's own
@@ -64,6 +65,8 @@ typedef struct {
     char note[512];   // report form
     int focus, hover, canSend;
     int toastKind, toastArg;
+    unsigned splashKey;   // native (lane wave6-splash): names the words drawn
+    int splashStep, splashAlpha;
     int clockBattery, clockCharging, clockSlow;   // native (lane wave3-hud): the clock strip's extras
     UiPcItem* pcs;    // launcher lists, owned by the job
     UiAppItem* apps;
@@ -390,6 +393,7 @@ static int jobDraw(XrPanels* p, PanelJob* j, UiCanvas* cv, UiHits* hits) {
         break;
     }
     case JOB_TOAST: ui_draw_toast(cv, j->text, j->more, j->more[0] == '/' || j->more[0] == '~'); break;
+    case JOB_SPLASH: xrSplashDraw(cv, j->text, j->splashAlpha); break;
     case JOB_OVERLAY: {
         if (p->font == NULL) {
             p->font = ui_font_default();
@@ -447,6 +451,11 @@ static void jobLand(XrCtx* ctx, XrPanels* p, const PanelJob* j, const UiHits* hi
         ctx->toastDrawnKind = j->toastKind;
         ctx->toastDrawnArg = j->toastArg;
         ctx->toastArtReady = 1;
+        break;
+    case JOB_SPLASH:
+        ctx->splashUi.drawnKey = j->splashKey;
+        ctx->splashUi.drawnStep = j->splashStep;
+        ctx->splashUi.artReady = 1;
         break;
     case JOB_OVERLAY:
         ctx->overlayW = j->outW;
@@ -1073,6 +1082,23 @@ void xrPanelsToast(XrCtx* ctx, int kind, int arg) {
     // (xr_layers shows the toast once the art drawn is this notice's kind
     // and argument, so the last toast's art never stands in while the worker
     // draws this one)
+    submit(ctx, p, &j);
+}
+
+// Native (lane wave6-splash): the splash's art (xr_splash.c), the logo and a line under it
+void xrPanelsSplash(XrCtx* ctx, const char* line, unsigned key, int step, int alpha) {
+    XrPanels* p = ctx->panels;
+    if (p == NULL || xrAtlasPixels(ctx) == NULL) {
+        return;
+    }
+    PanelJob j;
+    memset(&j, 0, sizeof(j));
+    j.kind = JOB_SPLASH;
+    j.slot = ATLAS_SPLASH;
+    snprintf(j.text, sizeof(j.text), "%s", line != NULL ? line : "");
+    j.splashKey = key;
+    j.splashStep = step;
+    j.splashAlpha = alpha;
     submit(ctx, p, &j);
 }
 
