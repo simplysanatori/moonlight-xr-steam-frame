@@ -51,6 +51,9 @@ void vkh_buffer_free(Vkh* v, VkhBuffer* b);
 int vkh_image(Vkh* v, uint32_t w, uint32_t h, VkFormat format, VkhImage* img);
 // The same with a view in another format of the same image (MUTABLE_FORMAT)
 int vkh_image_mutable(Vkh* v, uint32_t w, uint32_t h, VkFormat format, VkFormat viewFormat, VkhImage* img);
+// A colour image with a mip chain: img->view covers every level, *level0
+// (the caller destroys it) the first alone, to render into
+int vkh_image_mips(Vkh* v, uint32_t w, uint32_t h, VkFormat format, uint32_t mips, VkhImage* img, VkImageView* level0);
 void vkh_image_free(Vkh* v, VkhImage* img);
 // Moves the image to the layout (records into v->cmd, which must be begun)
 void vkh_layout(Vkh* v, VkhImage* img, VkImageLayout to);
