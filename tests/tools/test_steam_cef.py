@@ -181,8 +181,25 @@ with FakeCef([("RegisterForDevicesChanges", devs), ("appStore", apps_raw), ("Str
           "pcvr without a client asks for the paired PCs and uses the only one")
     cef.expressions.clear()
     res = sc.pcvr()
-    check(cef.expressions == ["SteamClient.URL.ExecuteSteamURL('steam://nav/games')"] and res["action"] == "library",
-          "pcvr without an app opens the library page")
+    check(len(cef.expressions) == 2 and cef.expressions[1] == 'SteamClient.Apps.StreamGame(250820, "9001", 0)'
+          and res["action"] == "stream" and res["target"] == "steamvr" and res["appName"] == "SteamVR",
+          "pcvr without an app streams SteamVR itself (250820) from the only paired PC")
+    cef.expressions.clear()
+    res = sc.pcvr(None, "9001", confirm=1)
+    check(res["streaming"] is False and len(cef.expressions) == 2 and "RegisterForDevicesChanges" in cef.expressions[1],
+          "pcvr --confirm reads the PC's Remote Play state after the call")
+    cef.expressions.clear()
+    c, out, err = cli(cef.port, "--pcvr", "--dry-run", "--client", "9001")
+    check(c == 0 and cef.expressions == [] and json.loads(out)["js"] == 'SteamClient.Apps.StreamGame(250820, "9001", 0)'
+          and json.loads(out)["dryRun"] is True, "--pcvr --dry-run --client: prints the SteamVR call, asks Steam nothing")
+    c, out, err = cli(cef.port, "--pcvr", "--dry-run")
+    check(c == 0 and len(cef.expressions) == 1 and "RegisterForDevicesChanges" in cef.expressions[0]
+          and json.loads(out)["client"] == "9001" and "StreamGame(250820" in json.loads(out)["js"],
+          "--pcvr --dry-run: only reads the paired PCs")
+    c, out, err = cli(cef.port, "--pcvr", "--app", "steamvr", "--client", "9001", "--dry-run")
+    check(c == 0 and json.loads(out)["app"] == 250820, "--app steamvr is 250820")
+    c, out, err = cli(cef.port, "--pcvr", "--confirm", "99", "--client", "9001")
+    check(c == 2 and "--confirm" in err, "--confirm out of range exits 2")
     c, out, err = cli(cef.port, "--pcvr", "--app", "5", "--client", "77")
     check(c == 0 and json.loads(out)["js"] == 'SteamClient.Apps.StreamGame(5, "77", 0)', "--pcvr on the command line")
     c, out, err = cli(cef.port, "--pcvr", "--app", "5; x", "--client", "77")
@@ -193,24 +210,103 @@ with FakeCef([("RegisterForDevicesChanges", devs), ("appStore", apps_raw), ("Str
     check(c == 2 and "needs a value" in err, "an option without its value exits 2")
 
 two = {"devices": devs["devices"] + [{"clientId": "9002", "clientName": "laptop"}]}
-with FakeCef([("RegisterForDevicesChanges", two)]) as cef:
+with FakeCef([("RegisterForDevicesChanges", two), ("ExecuteSteamURL", True)]) as cef:
     os.environ["STEAM_CEF_PORT"] = str(cef.port)
-    check(raises(sc.CefError, sc.pcvr, 5), "pcvr with two PCs paired and none chosen is an error")
+    c, out, err = cli(cef.port, "--pcvr", "--pc", "LAPTOP", "--dry-run")
+    r = json.loads(out) if c == 0 else {}
+    check(c == 0 and r.get("client") == "9002" and r.get("js") == 'SteamClient.Apps.StreamGame(250820, "9002", 0)',
+          "--pcvr --pc NAME --dry-run: the paired PC of that name, SteamVR")
     c, out, err = cli(cef.port, "--pcvr", "--app", "5")
-    check(c == 1 and "gaming-pc" in err and "laptop" in err, "...which names both, exit 1")
-with FakeCef([("RegisterForDevicesChanges", {"devices": []})]) as cef:
+    r = json.loads(out) if c == 0 else {}
+    check(c == 0 and r.get("path") == "app-page" and "gaming-pc" in r.get("reason", "") and "laptop" in r["reason"]
+          and cef.expressions[-1] == "SteamClient.URL.ExecuteSteamURL('steam://nav/games/details/5')",
+          "two PCs paired and none chosen: the app's page opens, the reason names both")
+with FakeCef([("RegisterForDevicesChanges", {"devices": []}), ("ExecuteSteamURL", True)]) as cef:
     os.environ["STEAM_CEF_PORT"] = str(cef.port)
-    c, out, err = cli(cef.port, "--pcvr", "--app", "5")
-    check(c == 1 and "no paired Remote Play PC" in err, "no paired PC is an error")
+    c, out, err = cli(cef.port, "--pcvr")
+    r = json.loads(out) if c == 0 else {}
+    check(c == 0 and r.get("path") == "library" and "no paired Remote Play PC" in r.get("reason", "")
+          and cef.expressions[-1] == "SteamClient.URL.ExecuteSteamURL('steam://nav/games')",
+          "no paired PC: the library opens as the last way out, and says why")
 with FakeCef([("RegisterForDevicesChanges", {"devices": [], "error": "TypeError: undefined is not a function"})]) as cef:
     os.environ["STEAM_CEF_PORT"] = str(cef.port)
     c, out, err = cli(cef.port, "--devices", "--seconds", "1")
     check(c == 1 and "RegisterForDevicesChanges" in err, "a failing subscription is reported")
 
-with FakeCef([("StreamGame", RuntimeError("boom"))]) as cef:
+with FakeCef([("StreamGame", RuntimeError("boom")), ("ExecuteSteamURL", True)]) as cef:
+    os.environ["STEAM_CEF_PORT"] = str(cef.port)
+    c, out, err = cli(cef.port, "--pcvr", "--client", "7")
+    r = json.loads(out) if c == 0 else {}
+    check(c == 0 and r.get("path") == "app-page" and "boom" in r["tried"][0]["error"]
+          and cef.expressions == ['SteamClient.Apps.StreamGame(250820, "7", 0)',
+                                  "SteamClient.URL.ExecuteSteamURL('steam://nav/games/details/250820')"],
+          "Steam refusing StreamGame: SteamVR's page opens instead, both tries recorded")
+with FakeCef([("StreamGame", RuntimeError("boom")), ("ExecuteSteamURL", RuntimeError("bang"))]) as cef:
     os.environ["STEAM_CEF_PORT"] = str(cef.port)
     c, out, err = cli(cef.port, "--pcvr", "--app", "5", "--client", "7")
-    check(c == 1 and "JS exception" in err, "a JS exception comes back as exit 1")
+    check(c == 1 and "JS exception" in err and "boom" in err and "bang" in err,
+          "the call and the fallback both refused: exit 1 with both reasons")
+
+# ---- the decision, offline (no endpoint: made-up device lists and a fake evaluate) -------------------
+one = [{"clientId": "9001", "clientName": "gaming-pc", "streaming": False}]
+p = sc.plan_pcvr(None, None, one)
+check(p["path"] == "stream" and p["app"] == 250820 and p["target"] == "steamvr" and p["client"] == "9001"
+      and p["js"] == 'SteamClient.Apps.StreamGame(250820, "9001", 0)'
+      and p["fallback"] == "SteamClient.URL.ExecuteSteamURL('steam://nav/games/details/250820')",
+      "plan: no game, one PC -> StreamGame(SteamVR, that PC), SteamVR's page as the fallback")
+p = sc.plan_pcvr("", "", one)
+check(p["path"] == "stream" and p["app"] == 250820 and p["client"] == "9001", "plan: empty strings are none")
+p = sc.plan_pcvr(620980, "42", None)
+check(p["path"] == "stream" and p["target"] == "game" and p["js"] == 'SteamClient.Apps.StreamGame(620980, "42", 0)',
+      "plan: a chosen game and PC")
+p = sc.plan_pcvr(None, None, one + [{"clientId": "9002", "clientName": "laptop"}])
+check(p["path"] == "app-page" and p["js"].endswith("details/250820')") and p["fallback"] is None, "plan: two PCs")
+two_pcs = one + [{"clientId": "9002", "clientName": "Laptop"}]
+p = sc.plan_pcvr(None, None, two_pcs, "laptop")
+check(p["path"] == "stream" and p["client"] == "9002" and "Laptop" in p["reason"],
+      "plan: two PCs, the one with the Moonlight PC's name (any case)")
+p = sc.plan_pcvr(None, None, two_pcs, "elsewhere")
+check(p["path"] == "app-page", "plan: two PCs, neither with that name -> the app's page")
+p = sc.plan_pcvr(None, None, one, "elsewhere")
+check(p["path"] == "stream" and p["client"] == "9001", "plan: one PC, another name -> still the only one")
+p = sc.plan_pcvr(None, "42", two_pcs, "laptop")
+check(p["client"] == "42", "plan: a chosen client wins over the name")
+p = sc.plan_pcvr(None, None, [])
+check(p["path"] == "library" and p["js"] == sc.js_library(), "plan: no PC -> the library, last")
+p = sc.plan_pcvr(None, None, [{"clientName": "no id"}])
+check(p["path"] == "library", "plan: a device without an id is no PC")
+check(raises(ValueError, sc.plan_pcvr, "x; alert(1)", "1", None) and raises(ValueError, sc.plan_pcvr, None, "1)", None),
+      "plan: a bad app or client id is refused before any JS is built")
+
+calls = []
+def fake_ev(js):
+    calls.append(js)
+    if "StreamGame" in js:
+        raise sc.CefError("JS exception: StreamGame is not a function")
+    return True
+r = sc.pcvr(None, None, ev=fake_ev, list_devices=lambda *a: one)
+check(r["path"] == "app-page" and len(r["tried"]) == 2 and calls[-1].endswith("details/250820')"),
+      "pcvr (fake evaluate): StreamGame missing -> SteamVR's page")
+calls.clear()
+def broken_list(*a):
+    raise sc.CefError("RegisterForDevicesChanges: TypeError")
+r = sc.pcvr(None, None, ev=fake_ev, list_devices=broken_list)
+check(r["path"] == "library" and "RegisterForDevicesChanges" in r["reason"] and calls == [sc.js_library()],
+      "pcvr (fake evaluate): the device list failing -> the library, with the reason")
+calls.clear()
+r = sc.pcvr(None, None, dry_run=True, ev=fake_ev, list_devices=lambda *a: one)
+check(calls == [] and r["dryRun"] and r["js"] == 'SteamClient.Apps.StreamGame(250820, "9001", 0)', "pcvr dry run calls nothing")
+streaming = [{"clientId": "9001", "clientName": "gaming-pc", "streaming": True}]
+lists = iter([one, streaming])
+r = sc.pcvr(None, None, confirm=2, ev=lambda js: None, list_devices=lambda *a: next(lists))
+check(r["path"] == "stream" and r["streaming"] is True, "pcvr confirm: a session on the PC reads as streaming")
+def gone(*a):
+    raise ConnectionError("socket closed")
+r = sc.pcvr(None, "9001", confirm=2, ev=lambda js: None, list_devices=gone)
+check(r["path"] == "stream" and r["streaming"] is None and "socket closed" in r["confirmError"],
+      "pcvr confirm: the port going away after the call is not a failure of the call")
+check(sc.stream_state(one, "9001") is False and sc.stream_state(streaming, "9001") is True
+      and sc.stream_state(one, "1") is None, "stream_state")
 
 # the plain expression mode the deploy script uses is unchanged
 with FakeCef([("1+1", 2)]) as cef:

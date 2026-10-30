@@ -177,7 +177,7 @@ void panel_host(Dc* dc) {
     dc_stroke_rrect(dc, x0, y0, x1, y1, 24.0f, 3.0f, 0xFFB0B0B8u);
     char q[160];
     int pcvr = v->host_confirm == XR_HOST_CONFIRM_PCVR;
-    if (pcvr) snprintf(q, sizeof q, "%s", ui_str(UIS_HOST_PCVR_Q));
+    if (pcvr) snprintf(q, sizeof q, "%s", ui_str(UIS_HOST_VR_Q));   // lane pcvr-steamvr
     else snprintf(q, sizeof q, ui_str(v->host_confirm_cmd ? UIS_HOST_CONFIRM_RUN_Q : UIS_HOST_CONFIRM_Q),
                   v->host_confirm_label);
     dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 32.0f, (x0 + x1) * 0.5f, y0 + (y1 - y0) * 0.30f,
