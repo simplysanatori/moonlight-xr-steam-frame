@@ -55,3 +55,46 @@ Not validated: the apt package list (names from memory of Ubuntu 24.04; `glslc` 
 - `libmlxr_litert.a` links statically, so LiteRT's dependency licences must ship: they are in `assets/depth/third_party_LICENSES.txt`, which the installer copies.
 - The release tarball is 66 MB (assets are 91 MB uncompressed, mostly the depth models and ASTC atlases). A depth-less variant would be `NO_DEPTH`-style packaging; not done.
 - `ldd-audit.sh` is not usable outside SteamOS (pacman); CI skips it.
+
+## Community installers (Frametanium, FrameDrop)
+
+Read for PLAN 6.13, packaging half. Checked 2026-10-30.
+
+### Frametanium: what its source does
+
+Source: github.com/Cogential/frametanium at commit 1e1564d (a shallow clone, read only; nothing from it is in this repository). Line numbers are of `manager.py` at that commit. Frametanium is a stdlib Python service (`frametanium.service`, a systemd user unit with no `User=`), so everything below runs as the Frame's desktop user, not root.
+
+| Question | Answer | Where |
+| --- | --- | --- |
+| Which release file it takes | Per release, the highest score among the assets: not checksums or docs (`.sha*`, `.txt`, `.md`, `.json`... and names ending in `sum`/`sums`), not Windows/macOS/Android/x86 names; `arm64`/`aarch64` +50, `steam-frame`/`frame` +20, `linux` +10, then +6 AppImage, +4 tar, +3 zip, +0 single binary. | `ARCHIVES`, `NOT_DOWNLOADS`, `NOT_PROGRAMS`, `OTHER_SYSTEMS`, `OUR_CPU` 237-244; `asset_type` 247; `score_asset` 256-271; `choose_asset` 280 |
+| Our two files | `moonlight-xr-steam-frame-<ver>-linux-arm64.tar.gz` scores 84 and the `.zip` 83, so it takes the tar.gz unless the user picks the zip by hand when adding the repo. `SHA256SUMS` is passed over. Either unpacks the same way. | same lines |
+| Which release | The newest non-draft release that has such a file; pre-releases only if turned on. A repo whose latest release has no installable file is not offered in Discover. | `releases` 294-324, `latest_release` 326 |
+| Unpacking | zip: every member's path is checked, extracted, and the Unix mode from `external_attr` is applied (the high 16 bits), so a zip needs explicit modes. tar: members checked (paths, links, device files) then extracted with the `data` filter. After either, `make_executables` marks every ELF file and every `#!` script executable anyway. | `extract_zip` 737-747, `extract_tar` 779-802, `make_executables` 721-735, calls 1005-1015 |
+| Nested `install.sh` | If the archive has exactly one top-level folder, that folder's contents become the install folder (`flatten`). Our `MoonlightXRNative/install.sh` therefore ends up at the top level, in both the zip and the tar.gz. No top-level shim is needed. | `flatten` 768-776, called at the end of both extractors (747, 802) |
+| Where it looks for the script | Only in the (flattened) install folder, in this order: the app's own `installer` setting, then `install.sh`, `contrib/install.sh`, `scripts/install.sh`, `setup.sh`. No search deeper than that. If more than one top-level entry exists (no single folder), `install.sh` must itself be at the top. | `INSTALLERS` 63, `find_installer` 903-907 |
+| Install mode | A repo added from Discover or by typing `owner/name` gets mode `auto`; with an `install.sh` found it becomes `installer` (otherwise `game`: a `run.sh`, a library shortcut). | `add_app` 371-402 (mode `auto` at 400), `install` 1017-1019 |
+| Where it unpacks | `~/.local/share/frametanium/apps/<id>/` (the id is the repo name, `moonlight-xr-steam-frame`), unpacked first in `~/.local/share/frametanium/staging/<id>` and renamed in. The previous version is kept as `.<id>.previous`. The download is cached in `~/.cache/frametanium/` and deleted afterwards. | `APPS_DIR` 46, `install` 965-1044 |
+| How it runs the script | `bash <script>` (made executable first), working directory = the script's folder, `stdin` = `/dev/null`, stdout and stderr both into `~/.cache/frametanium/<id>-install.log`, 15 minute timeout, no arguments. No `env=` is passed, so it inherits the service's environment (a systemd user service: `HOME`, a minimal `PATH`, usually no `DISPLAY`; not checked on a Frame). No terminal. Whether Steam is running is not looked at. Run as the desktop user. | `run_installer` 910-940, esp. 925-929 |
+| Exit code and output | Non-zero exit: the install fails, the new folder is removed and the previous one put back, and the list shows "Its installer failed: <last two non-empty output lines, first 200 characters> (log: ...)". Zero: "Installed <tag>. <same last two lines>". So the last two lines of `install.sh` are what the user reads on the headset. | `run_installer` 931-937, `install` 1055-1064 |
+| Uninstall | Removing the app runs `uninstall.sh` next to the script, or the script with `--uninstall` if its text contains that word; otherwise nothing runs, and only Frametanium's copy is deleted. `install.sh` has no uninstall mode, so removing the app in Frametanium leaves `~/Games/MoonlightXRNative` and the Steam shortcut in place (README "Uninstall" still applies). | `run_installer` 915-922, `remove` 1116-1135 |
+| Discovery | Repo topics `steam-frame` / `steamframe`, "steam frame" in name or description, or the awesome-steam-frame README; checked in batches against the unauthenticated GitHub limit. There is no submission process. | `DISCOVER_QUERIES` 418, `AWESOME_LISTS` 420, `discover` 488 |
+
+Not found in the source, so not known: the exact environment of a service started at login on the Frame (the unit file has no `Environment=`), and whether SteamOS keeps the debugging port of Steam's browser (the one `install.sh` uses for the shortcut) open for a process started by systemd; it is a local TCP port, so it should be reachable whenever Steam is up.
+
+### FrameDrop
+
+framedropvr.com says "Drop an APK, a Linux ARM64 zip, or a Windows build." Its pages show no layout rules, install-script convention or submission process, and it is a Windows program, so it could not be read like Frametanium. The zip is the same tree as the tar.gz (one `MoonlightXRNative/` folder holding `install.sh`), with Unix modes in the zip entries. Whether FrameDrop runs `install.sh` is unverified.
+
+### What this changed
+
+- `tools/release.sh` writes `moonlight-xr-steam-frame-<ver>-linux-arm64.zip` beside the `.tar.gz`, from the same staged tree, with Python's `zipfile` (sorted names, commit time, `external_attr` carries file type and mode; directories get entries too). `zip` is not assumed on the Frame. Both are in `SHA256SUMS`. The privacy check runs on the tarball and on the unpacked zip (it reads a tarball or a directory), and the verify step unpacks the zip and compares it with the tarball's tree.
+- Layout unchanged: `MoonlightXRNative/install.sh` stays one folder down in both. The documented `tar xzf ...; cd MoonlightXRNative; ./install.sh` path is untouched, and Frametanium's `flatten` makes a shim unnecessary.
+- `packaging/install.sh`: before, it already had no prompts and exited 0 when Steam could not be reached, but it said so in one line among many, ended on "dock icon: failed", and kept no log. Now it appends its whole output to `~/Games/MoonlightXRNative/install.log` (`MLXR_INSTALL_LOG` moves it; rotated at 1 MB; it runs a child through `tee` and waits for it, so the log is complete when the script exits), starts with a header line (date, arguments, user, whether there was a terminal), reads `/dev/null` for stdin, and always ends with two summary lines: "Moonlight XR for Frame <ver> installed." and the shortcut state ("Steam shortcut ready (appid N)", "Steam shortcut skipped (Steam not reachable): start Steam, then run <path of this install.sh> again.", or "skipped (asked for)"). The exit code is 0 in all three; a real failure (missing binary, copy error) still exits non-zero with its message last.
+- `tests/tools/test_release_archives.sh` (ctest `tools_release_archives`): runs `release.sh` with `/usr/bin/true` as the binaries, compares the two archives (entries, kinds, modes, SHA-256 of each file, one top-level folder, `install.sh` and binaries executable), runs the privacy check on both, then installs from the unpacked zip with `setsid`, closed stdin, a fresh `HOME` and the Steam port closed, and checks exit 0, the files, the log equal to the output, and the skipped-shortcut lines.
+- CI: the tarball steps of `linux-arm64` and `frame-artifact` upload `dist/*.zip` too.
+
+### Left to the owner
+
+- Set the GitHub repository topic `steam-frame` (Settings, About, Topics). Frametanium's search uses it; a lane cannot set it.
+- Upload the `.zip` next to the `.tar.gz` when running `gh release create`.
+- Frametanium keeps a second copy of the release (about 66 MB) in `~/.local/share/frametanium/apps/` and a third as `.previous` after an update; the app itself lives in `~/Games/MoonlightXRNative/app`. The README's "250 MB free" still holds for one install, not for Frametanium plus its previous copy.
