@@ -8,7 +8,7 @@
 #   tools/frame-deploy.sh build   [--branch B] [--no-pull] [--ctest]
 #   tools/frame-deploy.sh install
 #   tools/frame-deploy.sh artifact <release.tar.gz | CI run id> [--artifact-name S]
-#   tools/frame-deploy.sh shortcut
+#   tools/frame-deploy.sh shortcut [--sync-settings]
 #   tools/frame-deploy.sh launch  [--app NAME] [--cef] [--force]
 #   tools/frame-deploy.sh logs    <outdir>
 #   tools/frame-deploy.sh shot    <outdir>
@@ -26,8 +26,12 @@
 #             own install.sh run into DEST (NO_SHORTCUT=1), then the ldd audit, and a smoke run
 #             of the new binaries that needs no headset session (usage output).
 #   shortcut  add the Steam library shortcut "Moonlight XR (dev)" for DEST's launcher (the
-#             installer cannot name a second shortcut), with the 1080p window and the SteamVR
-#             per-app settings of the main one. Needs Steam up; does nothing if one exists.
+#             installer cannot name a second shortcut), with the 1080p window and a copy of the
+#             main app's per-app SteamVR block (resolution, refresh rate, smoothing, sharpening,
+#             whatever it holds; 3408 / 90 Hz / smoothing off / sharpening off when the main app
+#             has none). Needs Steam up; does nothing if one exists.
+#             --sync-settings: create nothing, re-apply that copy to the existing dev shortcut
+#             (needs SteamVR running; the main app block is only read).
 #   launch    refuse if the VR client or launcher already runs, find the shortcut for DEST in
 #             shortcuts.vdf, gameid = (appid << 32) | 0x02000000, then
 #             `steam steam://rungameid/<gameid>` (--cef: SteamClient.Apps.RunGame through
@@ -234,8 +238,59 @@ done
 '
 
 R_SHORTCUT='
-DEST=$(expand "$1"); SRC=$(expand "$2"); NAME=$3
-id=$(shortcut_appid "$DEST") && { echo "shortcut for $DEST already exists: appid $id"; exit 0; }
+DEST=$(expand "$1"); SRC=$(expand "$2"); NAME=$3; MAIN=$(expand "$4"); MODE=$5
+VRCMD=/opt/steamvr/bin/linuxarm64/vrcmd
+VRSET="$HOME/.config/openvr/config/steamvr.vrsettings"
+# sync_vr_settings <appid>: give the shortcut the per-app SteamVR block of the main app (every key:
+# resolution, refresh rate, motion smoothing, sharpening, anything else), or 3408 / 90 Hz / smoothing
+# off / sharpening off when the main app has none. Written through vrcmd, because vrserver rewrites
+# the settings file from memory. Never writes the main app block.
+sync_vr_settings() {
+    local app=$1 main lines src t k v bad=0 n=0
+    main=$(shortcut_appid "$MAIN") || main=""
+    lines=$(python3 -I -c '"'"'
+import json, sys
+path, main = sys.argv[1:3]
+blk = None
+try:
+    if main:
+        blk = json.load(open(path)).get("steam.app." + main)
+except (OSError, ValueError):
+    blk = None
+src = "the main app (appid %s)" % main
+if not isinstance(blk, dict) or not blk:
+    blk = {"preferredRefreshRate": 90, "motionSmoothingOverride": 0, "resolutionOverride": 3408, "sharpeningOverride": 0}
+    src = "defaults (no per-app block for the main app)"
+print("source", src)
+for k in sorted(blk):
+    v = blk[k]
+    if isinstance(v, bool): print("bool", k, "true" if v else "false")
+    elif isinstance(v, int): print("int", k, v)
+    elif isinstance(v, float): print("float", k, repr(v))
+    elif isinstance(v, str): print("string", k, v)
+'"'"' "$VRSET" "$main") || die "cannot read the main app SteamVR settings"
+    src=$(printf "%s\n" "$lines" | sed -n "s/^source //p")
+    if [ "$DRY" != 1 ] && { [ ! -x "$VRCMD" ] || ! pgrep -x vrserver >/dev/null; }; then
+        echo "SteamVR per-app settings: SteamVR is not running; run: frame-deploy.sh shortcut --sync-settings once it is up"; return 1
+    fi
+    while read -r t k v; do
+        [ "$t" = source ] && continue
+        n=$((n + 1))
+        if [ "$DRY" = 1 ]; then echo "[dry-run] vrcmd --set-settings-$t steam.app.$app.$k $v"
+        else timeout 20 "$VRCMD" "--set-settings-$t" "steam.app.$app.$k" "$v" >/dev/null 2>&1 || { echo "vrcmd: could not set $k"; bad=1; }; fi
+    done <<SYNC_LINES
+$lines
+SYNC_LINES
+    echo "SteamVR per-app settings for appid $app: $n keys from $src"
+    return $bad
+}
+id=$(shortcut_appid "$DEST")
+if [ "$MODE" = sync ]; then
+    [ -n "$id" ] || die "no Steam shortcut for $DEST: create one with: frame-deploy.sh shortcut"
+    [ "$id" != "$(shortcut_appid "$MAIN")" ] || die "refusing to overwrite the main app block (DEST is the main install)"
+    sync_vr_settings "$id"; exit $?
+fi
+[ -z "$id" ] || { echo "shortcut for $DEST already exists: appid $id (frame-deploy.sh shortcut --sync-settings re-applies the main app SteamVR settings)"; exit 0; }
 if [ -x "$DEST/moonlight-xr-launcher" ] && [ -f "$DEST/moonlight-xr-launcher.sh" ]; then EXE="$DEST/moonlight-xr-launcher.sh"
 elif [ -f "$DEST/moonlight-xr.sh" ]; then EXE="$DEST/moonlight-xr.sh"
 else die "nothing installed in $DEST: run install first"; fi
@@ -250,18 +305,12 @@ print("(async()=>{const name=%s, exe=%s, dir=%s; const id=await SteamClient.Apps
       "SteamClient.Apps.SetShortcutStartDir(id, dir); SteamClient.Apps.SetShortcutLaunchOptions(id, \"\"); return id;})()"
       % (json.dumps(name), json.dumps("\"" + exe + "\""), json.dumps("\"" + d + "\"")))
 '"'"' "$NAME" "$EXE" "$DEST")
-if [ "$DRY" = 1 ]; then echo "[dry-run] python3 -I $CEFPY <<< $JS"; echo "[dry-run] then SetAppResolutionOverride(appid,1920x1080) and vrcmd per-app settings (90 Hz, smoothing off, 2160, sharpening off)"; exit 0; fi
+if [ "$DRY" = 1 ]; then echo "[dry-run] python3 -I $CEFPY <<< $JS"; echo "[dry-run] then SetAppResolutionOverride(appid,1920x1080) and the main app SteamVR per-app block copied with vrcmd:"; sync_vr_settings "<new appid>"; exit 0; fi
 APPID=$(python3 -I "$CEFPY" "$JS") || die "Steam did not add the shortcut (CEF port?)"
 APPID=$(printf "%s" "$APPID" | tr -d "\"[:space:]")
 echo "shortcut \"$NAME\": appid $APPID ($EXE)"
 python3 -I "$CEFPY" "SteamClient.Apps.SetAppResolutionOverride($APPID,\"1920x1080\")" >/dev/null 2>&1 && echo "game resolution: 1920x1080" || echo "game resolution: not set"
-VRCMD=/opt/steamvr/bin/linuxarm64/vrcmd
-if [ -x "$VRCMD" ] && pgrep -x vrserver >/dev/null; then
-    for kv in preferredRefreshRate:90 motionSmoothingOverride:0 resolutionOverride:2160 sharpeningOverride:0; do
-        timeout 20 "$VRCMD" --set-settings-int "steam.app.$APPID.${kv%%:*}" "${kv##*:}" >/dev/null 2>&1 || echo "vrcmd: could not set ${kv%%:*}"
-    done
-    echo "SteamVR per-app settings: 90 Hz, smoothing off, resolution 2160, sharpening off"
-else echo "SteamVR per-app settings: SteamVR is not running; set 90 Hz in its per-app video settings"; fi
+sync_vr_settings "$APPID"
 '
 
 R_LAUNCH='
@@ -382,7 +431,16 @@ cmd_artifact() {
     rx "$R_ARTIFACT" "$remote" "$DEST" "$SRC"
 }
 
-cmd_shortcut() { rx "$R_SHORTCUT" "$DEST" "$SRC" "Moonlight XR (dev)"; }
+cmd_shortcut() {
+    local mode=create
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --sync-settings) mode=sync ;;
+            *) bad_usage "shortcut: unknown option $1" ;;
+        esac; shift
+    done
+    rx "$R_SHORTCUT" "$DEST" "$SRC" "Moonlight XR (dev)" "$MAIN_APP" "$mode"
+}
 
 cmd_launch() {
     local app="" method=url force=0

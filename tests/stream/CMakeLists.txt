@@ -26,3 +26,7 @@ add_test(NAME stream_commonc_log COMMAND test_commonc_log)
 add_executable(test_reconnect test_reconnect.c)
 target_link_libraries(test_reconnect PRIVATE mlxr_stream)
 add_test(NAME stream_reconnect COMMAND test_reconnect)
+# Lane deploy-res-fix: the rate limit on common-c's "Unrecoverable frame" log lines
+add_executable(test_log_throttle test_log_throttle.c)
+target_link_libraries(test_log_throttle PRIVATE mlxr_stream)
+add_test(NAME stream_log_throttle COMMAND test_log_throttle)
