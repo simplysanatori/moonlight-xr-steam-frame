@@ -680,7 +680,9 @@ void mlxr_pass_warp(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, con
     pc[26] = w->showDepth ? 1.0f : 0.0f;
     pc[27] = w->barTest ? 1.0f : 0.0f;
     pc[28] = w->sharpen;
-    pc[29] = pc[30] = pc[31] = 0.0f;
+    pc[29] = (float)w->split;
+    pc[30] = (float)w->half;
+    pc[31] = w->shift;
     beginRender(p, cmd, t, 1, VK_NULL_HANDLE, t->clear);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
     pushVideoSet(p, cmd, layout, &w->video, w->depth, w->offsets, 2);

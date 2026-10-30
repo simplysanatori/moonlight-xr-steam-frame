@@ -85,6 +85,17 @@ static void face_stereo(Face* f, int on) {
     if (!on) strike(f, 30, 98, 98, 30);
 }
 
+// Native (PLAN 4.3): the 3D button's on face with a host-rendered pair, the
+// pair's layout in place of "3D" (the off face is the struck 3D as ever)
+static void face_stereo_host(Face* f, const char* text) {
+    frame(f, INK_ON);
+    Dc* dc = f->dc;
+    // shrunk to sit inside the frame rather than cut
+    float size = ui_text_fit_size(dc->font, UI_WEIGHT_MEDIUM, 48.0f * f->s * dc->k, 24.0f * f->s * dc->k, text,
+                                  84.0f * f->s * dc->k) / dc->k;
+    dc_text_center(dc, UI_WEIGHT_MEDIUM, size, f->ox + 64.0f * f->s, f->oy + 64.0f * f->s, INK_ON, text);
+}
+
 static void face_ray(Face* f, int on) {
     uint32_t ink = on ? INK_ON : INK_OFF;
     frame(f, ink);
@@ -136,6 +147,8 @@ void dc_button_face(Dc* dc, int cell, float ox, float oy, float size) {
     case BTN_CELL_EXIT: face_exit(&f); break;
     case BTN_CELL_STEREO: face_stereo(&f, 0); break;
     case BTN_CELL_STEREO + 1: face_stereo(&f, 1); break;
+    case BTN_CELL_STEREO_SBS: face_stereo_host(&f, "SBS"); break;
+    case BTN_CELL_STEREO_TB: face_stereo_host(&f, "TB"); break;
     case BTN_CELL_RAY: face_ray(&f, 0); break;
     case BTN_CELL_RAY + 1: face_ray(&f, 1); break;
     case BTN_CELL_AIM: face_aim(&f, 0); break;

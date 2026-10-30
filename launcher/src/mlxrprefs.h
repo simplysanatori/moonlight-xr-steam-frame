@@ -51,6 +51,11 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(bool strengthIsDefault MEMBER strengthIsDefault NOTIFY changed)
     Q_PROPERTY(int convergence MEMBER convergence NOTIFY changed)            // [3d] convergence, 0..100
     Q_PROPERTY(bool convergenceIsDefault MEMBER convergenceIsDefault NOTIFY changed)
+    // Native (PLAN 4.3): [3d] stereo_source, where the 3D comes from: "depth" (default, the depth model),
+    // "sbs" (the PC renders a side by side pair) or "top-bottom"; [3d] sbs_full: that pair holds a full
+    // size picture per eye (3840x1080) rather than two squeezed halves (1920x1080)
+    Q_PROPERTY(QString stereoSource MEMBER stereoSource NOTIFY changed)
+    Q_PROPERTY(bool sbsFull MEMBER sbsFull NOTIFY changed)
     // Native (lane wave5-depth, PLAN 5.1): [3d] edge_sharpness, the Edge setting, 0..100 (0, the
     // default, is the soft edges the 3D always had)
     Q_PROPERTY(int edgeSharpness MEMBER edgeSharpness NOTIFY changed)
@@ -192,6 +197,8 @@ public:
     bool strengthIsDefault;
     int convergence;
     bool convergenceIsDefault;
+    QString stereoSource;
+    bool sbsFull = false;
     int edgeSharpness = 0;
     int motionReset = 0;
     int depthScale = 100;
@@ -232,6 +239,8 @@ private:
     QString m_iniLightgun = "auto", m_iniPadGyro = "off";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
+    QString m_iniStereoSource = QStringLiteral("depth");
+    bool m_iniSbsFull = false;
     int m_iniEdgeSharpness = 0, m_iniMotionReset = 0, m_iniDepthScale = 100, m_iniDepthGlobal = 100;
     bool m_usbCable = false, m_usbScanned = false;
     QString m_pcvrStatus, m_pcvrBase;
