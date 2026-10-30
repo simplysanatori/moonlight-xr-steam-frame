@@ -3,6 +3,15 @@
 // Do not edit; run the script (docs/dev/i18n.md). Translations by upstream's translators
 // (CREDITS.md). GPLv3.
 // map: 963621e1053d34e2
+// The English each translated key had when this was made (--verify fails when one changes):
+// en vr_panel_distance b7bdf7a2
+// en vr_panel_version 170672f8
+// en vr_key_space 3f49dbbf
+// en cancel 19766ed6
+// en vr_hand_hint_never 497a0f94
+// en native_host_close 7d9eb7ac
+// en vr_toast_rate bf9178ed
+// en vr_battery 34edf1d8
 
 // X(ident, setting code, name in its own language, UI_SCRIPT_*) for each language,
 // English (the built-in table) not included

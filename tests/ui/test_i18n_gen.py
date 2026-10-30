@@ -85,6 +85,20 @@ for e in errs:
     print("  " + e)
 check(not errs, "committed ui/ui_strings_i18n.inc matches MAP and ui/ui_strings.h")
 check(len(gen.LANGS) == 19, "upstream's 19 complete languages")
+# a translated key whose English changes (it may mean something else now) is caught
+with tempfile.TemporaryDirectory() as tmp:
+    real = open(gen.HEADER_PATH, encoding="utf-8").read()
+    changed = os.path.join(tmp, "ui_strings.h")
+    with open(changed, "w", encoding="utf-8") as f:
+        f.write(real.replace('"vr_panel_distance", "Distance"', '"vr_panel_distance", "Distance to the wall"'))
+    errs = gen.verify(gen.INC_PATH, changed)
+    check(any("English of vr_panel_distance changed" in e for e in errs), "a changed English is caught")
+    # a native string's English may change freely
+    with open(changed, "w", encoding="utf-8") as f:
+        f.write(real.replace('"native_forget", "Forget"', '"native_forget", "Forget it"'))
+    check(gen.verify(gen.INC_PATH, changed) == [], "a native string's English changes freely")
+check(all(k not in [h for _, h, _ in header] or dict(gen.MAP)[k] is gen.NATIVE for k in gen.PENDING),
+      "keys of lanes not merged yet are native")
 shared = [k for k, s in gen.MAP if s == gen.SAME]
 check(len(shared) + len([k for k, s in gen.MAP if s == gen.DRIFT]) == 111,
       "111 keys shared with upstream (SAME + DRIFT)")
