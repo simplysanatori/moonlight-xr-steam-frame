@@ -5,6 +5,13 @@
 //                             whether eye gaze (XR_EXT_eye_gaze_interaction) reaches a native
 //                             app: runs a session, watches the gaze pose for N seconds once
 //                             focused (default 20), prints what it saw and exits by itself
+// mlxr-hello --button-probe [--grab] [--seconds N]
+//                             whether the headset's side button (the "Aux" button SteamVR opens
+//                             its dashboard with) reaches a native app: every OpenXR path that
+//                             could be it, the session's focus (the Steam home opening takes it),
+//                             and the button's evdev device (gpio-keys, KEY_SELECT), read without
+//                             a grab; --grab takes the device for the first 10 s only. Read-only
+//                             otherwise; exits by itself after N seconds focused (default 20)
 // mlxr-hello [--seconds N] [--rate HZ]
 //                             draw a world-locked triangle in both eyes until SteamVR
 //                             ends the session (or N seconds pass), logging the refresh rate
@@ -20,6 +27,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <vulkan/vulkan.h>
 #define XR_USE_GRAPHICS_API_VULKAN
@@ -643,6 +653,257 @@ static int gazeProbeSummary(int extPresent, int supports, int focused) {
     return works ? 0 : 3;
 }
 
+// ---------------------------------------------------------------- button probe
+// Native (lane a11y-2): read-only. A boolean action on every path that could be the headset's side
+// button, suggested a profile at a time (a profile refused whole is tried a path at a time, so the
+// log says which paths the runtime takes), synced every frame once focused; each change is printed
+// with its path. The session's state is followed too: the Steam home opening takes the focus, so
+// a press the runtime keeps for itself still shows. And the button's evdev device, read without a
+// grab (SteamVR still sees those presses), or with --grab for the first 10 s only.
+
+#include "auxbutton.h"
+
+typedef struct {
+    const char* profile;
+    const char* path;
+    XrAction act;
+    int accepted;
+    int last;
+    long presses;
+} ButtonCand;
+
+static ButtonCand g_bc[] = {
+    { "/interaction_profiles/valve/frame_controller", "/user/hand/left/input/system/click" },
+    { "/interaction_profiles/valve/frame_controller", "/user/hand/right/input/system/click" },
+    { "/interaction_profiles/valve/frame_controller", "/user/head/input/system/click" },
+    { "/interaction_profiles/valve/frame_controller", "/user/head/input/aux/click" },
+    { "/interaction_profiles/valve/frame_controller", "/user/head/input/home/click" },
+    { "/interaction_profiles/valve/frame_controller", "/user/head/input/dashboard/click" },
+    { "/interaction_profiles/valve/frame_controller_valve", "/user/hand/left/input/system/click" },
+    { "/interaction_profiles/valve/frame_controller_valve", "/user/hand/right/input/system/click" },
+    { "/interaction_profiles/valve/frame_controller_valve", "/user/head/input/system/click" },
+    { "/interaction_profiles/htc/vive_pro", "/user/head/input/system/click" },
+    { "/interaction_profiles/valve/index_controller", "/user/hand/left/input/system/click" },
+    { "/interaction_profiles/valve/index_controller", "/user/hand/right/input/system/click" },
+    { "/interaction_profiles/htc/vive_controller", "/user/hand/left/input/system/click" },
+    { "/interaction_profiles/htc/vive_controller", "/user/hand/right/input/system/click" },
+    { "/interaction_profiles/oculus/touch_controller", "/user/hand/left/input/menu/click" },
+    { "/interaction_profiles/oculus/touch_controller", "/user/hand/right/input/system/click" },
+    { "/interaction_profiles/khr/simple_controller", "/user/hand/left/input/menu/click" },
+    { "/interaction_profiles/khr/simple_controller", "/user/hand/right/input/menu/click" },
+};
+#define N_BC (sizeof(g_bc) / sizeof(g_bc[0]))
+
+typedef struct {
+    int on, grab;
+    XrActionSet set;
+    int attached;
+    double focusLostAt[8];
+    int focusLosses;
+    double lastPressAt;
+    long presses;
+    // evdev
+    AuxDevInfo info;
+    AuxDev dev;
+    int grabOver;
+    long evPresses, evGrabPresses;
+    int lostDuringGrab;
+} ButtonProbe;
+
+static ButtonProbe g_bp;
+
+static XrResult buttonSuggest(const char* profile, int only) {
+    XrActionSuggestedBinding b[N_BC];
+    uint32_t n = 0;
+    for (size_t i = 0; i < N_BC; i++) {
+        if (strcmp(g_bc[i].profile, profile) != 0) continue;
+        if (only >= 0 ? (int)i != only : !g_bc[i].accepted) continue;
+        b[n].action = g_bc[i].act;
+        b[n++].binding = toPath(g_bc[i].path);
+    }
+    XrInteractionProfileSuggestedBinding sb = {XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
+    sb.interactionProfile = toPath(profile);
+    sb.countSuggestedBindings = n;
+    sb.suggestedBindings = b;
+    return n > 0 ? xrSuggestInteractionProfileBindings(g_instance, &sb) : XR_SUCCESS;
+}
+
+static void buttonProbeActions(XrSession session) {
+    XrActionSetCreateInfo si = {XR_TYPE_ACTION_SET_CREATE_INFO};
+    strcpy(si.actionSetName, "buttonprobe");
+    strcpy(si.localizedActionSetName, "Button probe");
+    XrResult r = xrCreateActionSet(g_instance, &si, &g_bp.set);
+    LOG("button probe: action set -> %s", xrStr(r));
+    if (XR_FAILED(r)) return;
+    for (size_t i = 0; i < N_BC; i++) {
+        XrActionCreateInfo ci = {XR_TYPE_ACTION_CREATE_INFO};
+        snprintf(ci.actionName, sizeof ci.actionName, "b%zu", i);
+        snprintf(ci.localizedActionName, sizeof ci.localizedActionName, "Button %zu", i);
+        ci.actionType = XR_ACTION_TYPE_BOOLEAN_INPUT;
+        if (XR_FAILED(xrCreateAction(g_bp.set, &ci, &g_bc[i].act))) g_bc[i].act = XR_NULL_HANDLE;
+        g_bc[i].last = -1;
+    }
+    // a profile at a time: all its paths, and where it is refused whole, each path alone; then the
+    // ones it took, together (a profile's last suggestion is the one that counts)
+    for (size_t i = 0; i < N_BC; i++) {
+        int first = 1;
+        for (size_t k = 0; k < i; k++) first &= strcmp(g_bc[k].profile, g_bc[i].profile) != 0;
+        if (!first) continue;
+        const char* profile = g_bc[i].profile;
+        for (size_t k = i; k < N_BC; k++) g_bc[k].accepted |= strcmp(g_bc[k].profile, profile) == 0;
+        r = buttonSuggest(profile, -1);
+        LOG("button probe: %s, every path at once -> %s", profile, xrStr(r));
+        if (XR_SUCCEEDED(r)) continue;
+        for (size_t k = i; k < N_BC; k++) {
+            if (strcmp(g_bc[k].profile, profile) != 0) continue;
+            XrResult one = buttonSuggest(profile, (int)k);
+            g_bc[k].accepted = XR_SUCCEEDED(one);
+            LOG("button probe:   %s alone -> %s", g_bc[k].path, xrStr(one));
+        }
+        r = buttonSuggest(profile, -1);
+        LOG("button probe: %s, the paths it took -> %s", profile, xrStr(r));
+    }
+    XrSessionActionSetsAttachInfo ai = {XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO};
+    ai.countActionSets = 1;
+    ai.actionSets = &g_bp.set;
+    r = xrAttachSessionActionSets(session, &ai);
+    g_bp.attached = XR_SUCCEEDED(r);
+    LOG("button probe: attach the action set -> %s", xrStr(r));
+    // the evdev device, found by name and key, never by number
+    if (auxDevFind("/sys", "/dev/input", &g_bp.info)) {
+        LOG("button probe: evdev %s (%s, KEY_SELECT) %s%s", g_bp.info.path, AUXBTN_DEVICE_NAME,
+            g_bp.info.readable ? "readable" : "NOT readable: ", g_bp.info.readable ? "" : strerror(g_bp.info.err));
+    } else {
+        LOG("button probe: evdev: no %s device with KEY_SELECT", AUXBTN_DEVICE_NAME);
+    }
+}
+
+static void buttonProbeProfiles(XrSession session) {
+    static const char* const USERS[3] = { "/user/head", "/user/hand/left", "/user/hand/right" };
+    for (int u = 0; u < 3; u++) {
+        XrInteractionProfileState st = {XR_TYPE_INTERACTION_PROFILE_STATE};
+        XrResult r = xrGetCurrentInteractionProfile(session, toPath(USERS[u]), &st);
+        char name[XR_MAX_PATH_LENGTH] = "(none)";
+        uint32_t n = 0;
+        if (XR_SUCCEEDED(r) && st.interactionProfile != XR_NULL_PATH) {
+            xrPathToString(g_instance, st.interactionProfile, sizeof(name), &n, name);
+        }
+        LOG("button probe: interaction profile on %s: %s (%s)", USERS[u], name, xrStr(r));
+    }
+}
+
+// The evdev device opens at focus (grabbed with --grab), and the grab is let go after 10 s
+static void buttonProbeEvdev(double focusedFor) {
+    if (!g_bp.info.readable) return;
+    if (g_bp.dev.fd < 0 && !g_bp.grabOver) {
+        int err = auxDevOpen(&g_bp.dev, g_bp.info.path, g_bp.grab);
+        LOG("button probe: evdev %s opened%s%s", g_bp.info.path, err ? " FAILED: " : "",
+            err ? strerror(-err) : g_bp.grab ? (g_bp.dev.grabbed ? ", GRABBED for 10 s (SteamVR should not see presses)"
+                                                                 : ", grab REFUSED") : ", not grabbed (SteamVR still sees the presses)");
+        if (err) { g_bp.grabOver = 1; return; }
+    }
+    if (g_bp.grab && g_bp.dev.grabbed && focusedFor >= 10.0) {
+        auxDevClose(&g_bp.dev);
+        g_bp.grabOver = 1;
+        LOG("button probe: evdev grab released after 10 s (presses go to SteamVR again)");
+        auxDevOpen(&g_bp.dev, g_bp.info.path, 0);
+    }
+    int edges[16];
+    int n = auxDevRead(&g_bp.dev, edges, 16);
+    for (int i = 0; i < n; i++) {
+        int grabbed = g_bp.dev.grabbed;
+        LOG("button probe: evdev KEY_SELECT %s at %.2f s%s", edges[i] ? "DOWN" : "up", focusedFor,
+            grabbed ? " (grabbed)" : "");
+        if (edges[i]) {
+            g_bp.evPresses++;
+            if (grabbed) g_bp.evGrabPresses++;
+        }
+    }
+}
+
+static void buttonProbeFrame(XrSession session, double focusedFor) {
+    buttonProbeEvdev(focusedFor);
+    if (!g_bp.attached) return;
+    XrActiveActionSet as = {g_bp.set, XR_NULL_PATH};
+    XrActionsSyncInfo sync = {XR_TYPE_ACTIONS_SYNC_INFO};
+    sync.countActiveActionSets = 1;
+    sync.activeActionSets = &as;
+    XrResult r = xrSyncActions(session, &sync);
+    if (XR_FAILED(r) || r == XR_SESSION_NOT_FOCUSED) return;
+    for (size_t i = 0; i < N_BC; i++) {
+        if (!g_bc[i].accepted || g_bc[i].act == XR_NULL_HANDLE) continue;
+        XrActionStateGetInfo gi = {XR_TYPE_ACTION_STATE_GET_INFO};
+        gi.action = g_bc[i].act;
+        XrActionStateBoolean st = {XR_TYPE_ACTION_STATE_BOOLEAN};
+        if (XR_FAILED(xrGetActionStateBoolean(session, &gi, &st))) continue;
+        int v = st.isActive ? (st.currentState ? 2 : 1) : 0;
+        if (v != g_bc[i].last) {
+            LOG("button probe: %s %s at %.2f s: %s", g_bc[i].profile, g_bc[i].path, focusedFor,
+                v == 2 ? "PRESSED" : v == 1 ? "active, released" : "not active");
+            if (v == 2) {
+                g_bc[i].presses++;
+                g_bp.presses++;
+                g_bp.lastPressAt = focusedFor;
+            }
+            g_bc[i].last = v;
+        }
+    }
+}
+
+static void buttonProbeState(XrSessionState from, XrSessionState to, double focusedFor) {
+    if (from == XR_SESSION_STATE_FOCUSED && to != XR_SESSION_STATE_FOCUSED) {
+        if (g_bp.focusLosses < 8) g_bp.focusLostAt[g_bp.focusLosses] = focusedFor;
+        g_bp.focusLosses++;
+        if (g_bp.grab && g_bp.dev.grabbed) g_bp.lostDuringGrab++;
+        LOG("button probe: the session LOST FOCUS at %.2f s (the Steam home or the dashboard opened?)", focusedFor);
+    } else if (to == XR_SESSION_STATE_FOCUSED && from != XR_SESSION_STATE_UNKNOWN) {
+        LOG("button probe: focus back at %.2f s", focusedFor);
+    }
+}
+
+static int buttonProbeSummary(int focused) {
+    printf("\n# button probe summary\n");
+    printf("session focused: %s\n", focused ? "yes" : "NO (put the headset on; the watch needs focus)");
+    for (size_t i = 0; i < N_BC; i++) {
+        printf("%-50s %-40s %s, %ld presses\n", g_bc[i].profile, g_bc[i].path, g_bc[i].accepted ? "taken" : "refused",
+               g_bc[i].presses);
+    }
+    printf("focus lost: %d time(s)", g_bp.focusLosses);
+    for (int i = 0; i < g_bp.focusLosses && i < 8; i++) printf("%s %.2f s", i ? "," : " at", g_bp.focusLostAt[i]);
+    printf("\n");
+    const char* path = NULL;
+    for (size_t i = 0; i < N_BC && path == NULL; i++) if (g_bc[i].presses > 0) path = g_bc[i].path;
+    if (g_bp.presses > 0 && g_bp.focusLosses == 0) {
+        printf("RESULT OpenXR: (a) the app receives presses on %s and the Steam home did not open\n", path);
+    } else if (g_bp.presses > 0) {
+        printf("RESULT OpenXR: (b) the app receives presses on %s, but the Steam home also opened (focus lost at %.2f s)\n",
+               path, g_bp.focusLostAt[0]);
+    } else if (g_bp.focusLosses > 0) {
+        printf("RESULT OpenXR: (c) the runtime keeps the button: no OpenXR path delivered a press, the session lost focus at %.2f s\n",
+               g_bp.focusLostAt[0]);
+    } else {
+        printf("RESULT OpenXR: no press on any path and the focus never left: was the button pressed?\n");
+    }
+    if (!g_bp.info.found) {
+        printf("RESULT evdev: no %s device with KEY_SELECT\n", AUXBTN_DEVICE_NAME);
+    } else if (!g_bp.info.readable) {
+        printf("RESULT evdev: %s found but NOT readable by this user (%s): the app cannot use it without a "
+               "permission change (see the user guide)\n", g_bp.info.path, strerror(g_bp.info.err));
+    } else {
+        printf("RESULT evdev: %s readable, %ld press(es) seen", g_bp.info.path, g_bp.evPresses);
+        if (g_bp.grab) {
+            printf("; during the 10 s grab %ld press(es), focus %s", g_bp.evGrabPresses,
+                   g_bp.lostDuringGrab ? "LOST (the grab did not keep the button from SteamVR)" : "kept (SteamVR did not act on them)");
+        } else {
+            printf(" (not grabbed: SteamVR saw them too; run with --grab to test taking them)");
+        }
+        printf("\n");
+    }
+    fflush(stdout);
+    auxDevClose(&g_bp.dev);
+    return g_bp.presses > 0 || g_bp.evPresses > 0 ? 0 : 3;
+}
+
 // ---------------------------------------------------------------- main
 
 int main(int argc, char** argv) {
@@ -654,19 +915,23 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--probe")) probe = 1;
         else if (!strcmp(argv[i], "--gaze-probe")) g_gp.on = 1;
+        else if (!strcmp(argv[i], "--button-probe")) g_bp.on = 1;
+        else if (!strcmp(argv[i], "--grab")) g_bp.grab = 1;
         else if (!strcmp(argv[i], "--probe-out") && i + 1 < argc) probeOut = argv[++i];
         else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = atof(argv[++i]);
         else if (!strcmp(argv[i], "--rate") && i + 1 < argc) wantRate = (float)atof(argv[++i]);
         else {
-            fprintf(stderr, "usage: %s [--probe [--probe-out FILE]] [--gaze-probe] [--seconds N] [--rate HZ]\n", argv[0]);
+            fprintf(stderr, "usage: %s [--probe [--probe-out FILE]] [--gaze-probe] [--button-probe [--grab]] [--seconds N] [--rate HZ]\n", argv[0]);
             return 2;
         }
     }
     signal(SIGINT, onSignal);
     signal(SIGTERM, onSignal);
     // the gaze probe watches this long once focused, and gives up on focus after a minute
-    if (g_gp.on && seconds <= 0) seconds = 20;
-    if (g_gp.on) probe = 0;
+    auxDevInit(&g_bp.dev);
+    if (g_bp.on) g_gp.on = 0;   // one probe a run
+    if ((g_gp.on || g_bp.on) && seconds <= 0) seconds = 20;
+    if (g_gp.on || g_bp.on) probe = 0;
 
     FILE* out = stdout;
     if (probeOut) {
@@ -864,7 +1129,9 @@ int main(int argc, char** argv) {
     XrSpace local;
     XR_CHECK(xrCreateReferenceSpace(session, &rsci, &local));
     if (g_gp.on && hasExt("XR_EXT_eye_gaze_interaction")) gazeProbeActions(session);
+    if (g_bp.on) buttonProbeActions(session);
     int everFocused = 0;
+    XrSessionState lastState = XR_SESSION_STATE_UNKNOWN;
 
     int64_t format = formats[0];
     for (uint32_t i = 0; i < nf; i++)
@@ -935,9 +1202,10 @@ int main(int argc, char** argv) {
 
     while (running) {
         // the gaze probe counts its seconds from focus, and stops after a minute without it
-        int timeUp = g_gp.on ? ((g_gp.focusedAt > 0 && nowSec() - g_gp.focusedAt > seconds) || nowSec() - started > 60 + seconds)
+        int probing = g_gp.on || g_bp.on;
+        int timeUp = probing ? ((g_gp.focusedAt > 0 && nowSec() - g_gp.focusedAt > seconds) || nowSec() - started > 60 + seconds)
                              : (seconds > 0 && nowSec() - started > seconds);
-        if (g_gp.on && timeUp && !sessionRunning && !exitRequested) break;
+        if (probing && timeUp && !sessionRunning && !exitRequested) break;
         if ((g_quit || timeUp) && !exitRequested && sessionRunning) {
             LOG("requesting exit");
             xrRequestExitSession(session);
@@ -951,10 +1219,19 @@ int main(int argc, char** argv) {
             case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED: {
                 XrEventDataSessionStateChanged* s = (XrEventDataSessionStateChanged*)&ev;
                 LOG("session state %d", (int)s->state);
-                if (g_gp.on && s->state == XR_SESSION_STATE_FOCUSED && g_gp.focusedAt == 0) {
+                if (g_bp.on) {
+                    buttonProbeState(lastState, s->state, g_gp.focusedAt > 0 ? nowSec() - g_gp.focusedAt : 0.0);
+                }
+                lastState = s->state;
+                if ((g_gp.on || g_bp.on) && s->state == XR_SESSION_STATE_FOCUSED && g_gp.focusedAt == 0) {
                     g_gp.focusedAt = nowSec();
                     everFocused = 1;
-                    LOG("gaze probe: focused, watching the gaze for %.0f s (look around, blink, close the eyes)", seconds);
+                    if (g_gp.on) LOG("gaze probe: focused, watching the gaze for %.0f s (look around, blink, close the eyes)", seconds);
+                    if (g_bp.on) {
+                        LOG("button probe: focused, watching for %.0f s: press the headset's side button now and then "
+                            "(once, twice, hold), and say what the headset did", seconds);
+                        buttonProbeProfiles(session);
+                    }
                 }
                 if (s->state == XR_SESSION_STATE_READY) {
                     XrSessionBeginInfo bi = {XR_TYPE_SESSION_BEGIN_INFO};
@@ -984,6 +1261,7 @@ int main(int argc, char** argv) {
                 break;
             case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED:
                 if (g_gp.on) gazeProbeProfile(session);
+                if (g_bp.on) buttonProbeProfiles(session);
                 break;
             case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:
                 LOG("reference space change pending (recentre)");
@@ -1004,6 +1282,7 @@ int main(int argc, char** argv) {
         XR_CHECK(xrWaitFrame(session, NULL, &fs));
         XR_CHECK(xrBeginFrame(session, NULL));
         if (g_gp.on && g_gp.focusedAt > 0 && !exitRequested) gazeProbeFrame(session, local, fs.predictedDisplayTime);
+        if (g_bp.on && g_gp.focusedAt > 0 && !exitRequested) buttonProbeFrame(session, nowSec() - g_gp.focusedAt);
         frames++;
         framesWindow++;
         if (lastDisplayTime) {
@@ -1141,6 +1420,10 @@ int main(int argc, char** argv) {
         result = gazeProbeSummary(hasExt("XR_EXT_eye_gaze_interaction"), (int)gaze.supportsEyeGazeInteraction, everFocused);
         if (g_gp.space != XR_NULL_HANDLE) xrDestroySpace(g_gp.space);
         if (g_gp.set != XR_NULL_HANDLE) xrDestroyActionSet(g_gp.set);
+    }
+    if (g_bp.on) {
+        result = buttonProbeSummary(everFocused);
+        if (g_bp.set != XR_NULL_HANDLE) xrDestroyActionSet(g_bp.set);
     }
     vkDeviceWaitIdle(vk.device);
     vkDestroyFence(vk.device, fence, NULL);

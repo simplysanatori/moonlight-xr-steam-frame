@@ -157,6 +157,11 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     ctx->dwellFraction = -1.0f;
     ctx->gazeValid = -1;
     ctx->gazeSupportFlag = -1;
+    ctx->assistDotSize = ACCESS_DOT_DEFAULT;   // native (lane a11y-2)
+    ctx->cogPointV = -1.0f;
+    auxDevInit(&ctx->auxDev);
+    auxClickReset(&ctx->auxGest);
+    assistPlayReset(&ctx->assistPlay);
     gazeFallReset(&ctx->gazeFall);
     ctx->padDeadzone = PAD_STICK_DEADZONE_DEFAULT;
     ctx->padShortcut = PAD_SHORTCUT_MENU_GRIP;
@@ -392,6 +397,9 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetHeadLook(ctx, s->head_look, s->head_look_px_deg);
     xrSetOpentrack(ctx, s->opentrack, s->opentrack_host, s->opentrack_port); // PLAN 4.5
     xrSetPointerSource(ctx, s->pointer_source, s->head_dwell_ms);              // PLAN 6.5
+    ctx->assistDotSize = accessDotClamp(s->assist_dot_size);                   // native (lane a11y-2)
+    ctx->assistHeadsetButton = s->assist_headset_button != 0;
+    snprintf(ctx->assistClickPath, sizeof(ctx->assistClickPath), "%s", s->assist_click_path);
     xrSetMouseMode(ctx, s->mouse_mode);           // native (lane headinput-finish, PLAN 4b.10)
     xrPadBridgeSetBackAsGuide(s->back_as_guide);  // native (lane headinput-finish, PLAN 4b.10)
     xrSetScrollSpeed(ctx, s->scroll_speed);
@@ -507,6 +515,8 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->depth_global = iround(ctx->depthGlobal * 100.0f);
     s->motion_reset = iround(ctx->depthMotion * 100.0f);
     s->eye_balance = iround(ctx->eyeBalance * 100.0f);
+    // Native (lane a11y-2): the Accessibility tab's Dot size, so its thumb moves with a drag
+    s->assist_dot_size = ctx->assistDotSize;
     if (ctx->placementValid) {
         float pose[POSE_VALUES];
         pose[0] = ctx->screenPose.position.x;
@@ -579,9 +589,8 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
         s->pointer_source = value >= 0 && value < POINTER_SOURCE_COUNT ? value : POINTER_SOURCE_CONTROLLER;
         break;
     case SETTING_HEAD_DWELL: s->head_dwell_ms = dwellMsClamp(value); break;
-    case SETTING_HEAD_LOOK: s->head_look = value != 0; break;
-    case SETTING_BACK_AS_GUIDE: s->back_as_guide = value != 0; break;
-    case SETTING_MOUSE_MODE: s->mouse_mode = value == MOUSE_MODE_RELATIVE ? MOUSE_MODE_RELATIVE : MOUSE_MODE_ABSOLUTE; break;
+    case SETTING_ASSIST_DOT_SIZE: s->assist_dot_size = accessDotClamp(value); break;   // native (lane a11y-2)
+    case SETTING_ASSIST_HEADSET_BUTTON: s->assist_headset_button = value != 0; break;
     case SETTING_PICTURE_BRIGHTNESS: s->picture_brightness = value; break;
     case SETTING_PICTURE_CONTRAST: s->picture_contrast = value; break;
     case SETTING_PICTURE_GAMMA: s->picture_gamma = value; break;

@@ -36,14 +36,14 @@
 #define SETTING_MOTION_RESET 35
 #define SETTING_EYE_BALANCE 36
 // Native (lane a11y-tab): the Accessibility tab's rows, each the value its [vr] key is stored in:
-// pointer_source (POINTER_SOURCE_*), head_dwell_ms (0 off), head_look (0 or 1), back_as_guide
-// (0 or 1) and mouse_mode (MOUSE_MODE_*). Only a press on the tab hands these back. (37 to 39
-// are free; 40 and 41 are xr_shared.h's Background and Glow edge.)
+// pointer_source (POINTER_SOURCE_*), head_dwell_ms (0 off) and (lane a11y-2) assist_dot_size
+// (percent) and assist_headset_button. Only a press or a drag on the tab hands these back. (37 to
+// 39 and 46 are free;
+// 40 and 41 are xr_shared.h's Background and Glow edge.)
 #define SETTING_POINTER_SOURCE 42
 #define SETTING_HEAD_DWELL 43
-#define SETTING_HEAD_LOOK 44
-#define SETTING_BACK_AS_GUIDE 45
-#define SETTING_MOUSE_MODE 46
+#define SETTING_ASSIST_DOT_SIZE 44
+#define SETTING_ASSIST_HEADSET_BUTTON 45
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 
@@ -97,18 +97,50 @@ void xrZoomFromSettings(XrCtx* ctx, const Settings* s);
 void xrZoomToSettings(const XrCtx* ctx, Settings* s);
 int xrZoomSync(XrCtx* ctx, Settings* s);
 
-// ---- the Accessibility tab (xr_assist.c, lane a11y-tab) -----------------------
+// ---- the Accessibility tab (xr_assist.c, lane a11y-tab, a11y-2) ---------------
 // What its eye tracking line says (ACCESS_EYES_*, xr/core/xr_access.h) from what the session found
 int xrAccessEyes(const XrCtx* ctx);
-// The cells a row of it shows (the pointer row's Eyes only where it can work), whether a row can
-// act (the dwell click needs the head or the eyes pointing), and a press on a cell: applied now
-// and handed back in IN_SETTING to be stored. Only a press here changes these settings.
+// The cells a row of it has (the pointer row always all three; its Eyes cell takes a press only
+// where the runtime offers eye gaze), whether a row can act (the dwell click and the dot size need
+// the head or the eyes pointing), and a press on a cell: applied now and handed back in IN_SETTING
+// to be stored. Only a press here changes these settings.
 int cogAccessCells(XrCtx* ctx, int row);
+int cogAccessCellLive(XrCtx* ctx, int row, int cell);
 int cogAccessRowLive(XrCtx* ctx, int row);
 void cogApplyAccessCell(XrCtx* ctx, int row, int cell, float* out);
+// The Dot size track: where its thumb is (0 to 1), a point on it applied (25 % steps), and the
+// value handed back when a drag or a step ends
+float cogAccessSliderValue(XrCtx* ctx, int row);
+void cogApplyAccessSlider(XrCtx* ctx, int row, float t);
+void cogAccessDragEnded(XrCtx* ctx, int row, float* out);
+// The row the footer describes: the one the pointer is on this frame, live or greyed, or -1
+int xrAccessHoverRow(const XrCtx* ctx);
+// The scale the pointer's dot is drawn at (assist_dot_size with the head or the eyes pointing)
+float xrAssistDotScale(const XrCtx* ctx);
+
+// ---- clicks for the head and eye pointer (xr_auxbutton.c, lane a11y-2) -------------------------
+// Once a frame before the input pass: the headset's side button (found, grabbed from SteamVR while
+// on, focused and streaming with the head or the eyes pointing; given back otherwise and for 15 s
+// after a 3 s hold), its gestures, and this frame's mouse buttons from them (xrAssistFrame)
+void xrAuxButtonFrame(XrCtx* ctx, int64_t now, int focused, int streaming);
+// Gives the button back now (the session ending)
+void xrAuxButtonRelease(XrCtx* ctx, const char* why);
+// Looks for the button's device and says in auxState what was found (the tab greys its row)
+void xrAuxButtonLook(XrCtx* ctx);
+// An action (ASSIST_*) at the dot, from the button or the radial menu; xrAssistFrame works out
+// the frame's buttons from what is playing (the input pass reads assistButtons, assistPress)
+void xrAssistAction(XrCtx* ctx, int action, int64_t now);
+void xrAssistFrame(XrCtx* ctx, int64_t now);
+// The OpenXR button of assist_click_path: its action made before the bindings are suggested,
+// added to a profile's first suggestion where the profile is the app's own (returns the new count),
+// suggested on its own where it is not, and read after each sync
+void xrAssistClickCreate(XrCtx* ctx);
+uint32_t xrAssistClickBind(XrCtx* ctx, const char* profile, XrActionSuggestedBinding* b, uint32_t n, uint32_t cap);
+void xrAssistClickSuggestAlone(XrCtx* ctx);
+void xrAssistClickRead(XrCtx* ctx, int64_t now);
 // Once a frame from the input pass, after the gaze is read: notes the first tracked gaze pose of the
-// session (the Eyes cell shows from then) and logs, once a session, that it came, or after 10 s
-// focused without one, the action's state and the pose's flags
+// session (the eye line says available from then) and logs, once a session, that it came, or after
+// 10 s focused without one, the action's state and the pose's flags
 void xrGazeWatch(XrCtx* ctx, int64_t nowNs, int focused, int actionActive);
 
 // ---- rows the native client cannot act on yet (xr_prefs.c) ----------------

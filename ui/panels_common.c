@@ -308,6 +308,7 @@ void ui_view_init(UiView* v, const Settings* s) {
     v->env_live_cells = ENV_CELL_COUNT;
     v->host_confirm = -1;
     v->access_eyes = ACCESS_EYES_UNAVAILABLE;
+    v->access_row = -1;
 }
 
 int ui_cog_face(const UiView* v) {
@@ -327,7 +328,7 @@ int ui_cog_row_count(int face) {
 
 int ui_cog_row_is_track(int face, int row) {
     if (face == COG_TAB_SCREEN) return row < COG_SCREEN_TRACK_ROWS;
-    if (face == COG_TAB_ACCESS) return 0;
+    if (face == COG_TAB_ACCESS) return row == COG_ACCESS_ROW_DOT;
     if (face == COG_TAB_DISPLAY) return row == COG_DISPLAY_SLIDER_ROW;
     if (face == COG_FACE_ROOM) return row != COG_ROOM_ROW_GLOW && row != COG_ROOM_ROW_LIGHT;
     if (face == COG_TAB_3D) return row == COG_ROW3D_SEPARATION || row == COG_ROW3D_CONVERGENCE || row >= COG_ROW3D_EDGE;
@@ -350,9 +351,9 @@ int ui_cog_row_cells(int face, int row) {
     }
     if (face == COG_FACE_ROOM) return COG_ROOM_SWITCH_CELLS;
     if (face == COG_TAB_ACCESS) {
-        // the pointer row's most; how many it shows is ui_cog_access_cells
         return row == COG_ACCESS_ROW_POINTER ? COG_ACCESS_POINTER_CELLS
-             : row == COG_ACCESS_ROW_DWELL ? COG_ACCESS_DWELL_CELLS : COG_ACCESS_SWITCH_CELLS;
+             : row == COG_ACCESS_ROW_DWELL ? COG_ACCESS_DWELL_CELLS
+             : row == COG_ACCESS_ROW_BUTTON ? COG_ACCESS_BUTTON_CELLS : 0;
     }
     if (face == COG_TAB_3D) {
         return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS : row == COG_ROW3D_SOURCE ? COG_SOURCE_CELLS : COG_STEREO_CELLS;
@@ -370,14 +371,25 @@ int ui_cog_row_live(const UiView* v, int face, int row) {
     if (face == COG_TAB_DISPLAY && row == COG_OPTION_HEAD_AIM) return head_locked && !in_room;
     if (face == COG_TAB_3D) return cog3dRowLive(v->stereo_ok, v->stereo_source, row);
     if (face == COG_FACE_ROOM && row == COG_ROOM_ROW_SIZE) return settings_room_resizable(v->room_env);
-    // the dwell click only acts with the head or the eyes pointing
-    if (face == COG_TAB_ACCESS && row == COG_ACCESS_ROW_DWELL) return v->settings->pointer_source != POINTER_SOURCE_CONTROLLER;
+    // every Accessibility row but the pointer's acts only with the head or the eyes pointing, and
+    // the headset button's only with a device this app may read (xr_assist.c cogAccessRowLive)
+    if (face == COG_TAB_ACCESS && row != COG_ACCESS_ROW_POINTER) {
+        if (row == COG_ACCESS_ROW_BUTTON && accessButtonGreyed(v->access_button)) return 0;
+        return v->settings->pointer_source != POINTER_SOURCE_CONTROLLER;
+    }
     return 1;
 }
 
 int ui_cog_access_cells(const UiView* v, int row) {
-    if (row == COG_ACCESS_ROW_POINTER) return accessPointerCells(v->access_eyes, v->settings->pointer_source);
+    (void)v;
     return ui_cog_row_cells(COG_TAB_ACCESS, row);
+}
+
+int ui_cog_access_cell_live(const UiView* v, int row, int cell) {
+    if (row == COG_ACCESS_ROW_POINTER && cell == POINTER_SOURCE_GAZE) {
+        return accessEyesCellLive(v->access_eyes, v->settings->pointer_source);
+    }
+    return cell >= 0 && cell < ui_cog_access_cells(v, row);
 }
 
 void ui_presets_for(const Settings* s, int presets[COG_PRESET_CELLS]) {
