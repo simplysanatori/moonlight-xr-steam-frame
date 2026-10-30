@@ -878,6 +878,145 @@ static void testWarpStep(void) {
     videoFree(&vd);
 }
 
+// PLAN 4.3: a host-rendered stereo pair. Left half red and right half blue
+// (side by side), or top red and bottom blue (top and bottom): each eye's
+// warp reads only its own half, over the whole target and with nothing of
+// the other half at the seam; an eye given the other half (what eye_swap
+// does) reads the other colour; the depth inputs and a disparity are not
+// read; the convergence shift moves the picture the right way.
+static const float SBS_RED[3] = {0.8f, 0.1f, 0.1f};
+static const float SBS_BLUE[3] = {0.1f, 0.15f, 0.8f};
+static void fillSbs(float x, float y, float rgb[3]) {
+    memcpy(rgb, x < 0.5f ? SBS_RED : SBS_BLUE, sizeof(SBS_RED));
+}
+static void fillTb(float x, float y, float rgb[3]) {
+    memcpy(rgb, y < 0.5f ? SBS_RED : SBS_BLUE, sizeof(SBS_RED));
+}
+// The same grey ramp across each half, for the shift
+static void fillSbsRamp(float x, float y, float rgb[3]) {
+    float u = x < 0.5f ? 2.0f * x : 2.0f * x - 1.0f;
+    rgb[0] = rgb[1] = rgb[2] = 0.1f + 0.8f * u;
+}
+
+// The largest channel difference of any pixel from rgb (0..1), and where
+static int solidDiff(const uint8_t* px, uint32_t w, uint32_t h, const float rgb[3], uint32_t* atX) {
+    int m = 0;
+    *atX = 0;
+    for (uint32_t y = 0; y < h; y++)
+        for (uint32_t x = 0; x < w; x++)
+            for (int c = 0; c < 3; c++) {
+                int d = abs((int)px[((size_t)y * w + x) * 4 + c] - to8(rgb[c]));
+                if (d > m) {
+                    m = d;
+                    *atX = x;
+                }
+            }
+    return m;
+}
+
+static float rowMeanLuma(const uint8_t* px, uint32_t w, uint32_t y, uint32_t x0, uint32_t x1) {
+    float s = 0.0f;
+    for (uint32_t x = x0; x < x1; x++) s += px[((size_t)y * w + x) * 4 + 1];
+    return s / (float)(x1 - x0) / 255.0f;
+}
+
+static void testWarpSbs(void) {
+    const uint32_t W = 256, H = 64;
+    const char* layoutName[2] = {"side by side", "top-bottom"};
+    for (int layout = 0; layout < 2; layout++) {
+        Video vd;
+        Target t;
+        // A full size eye: half the frame's width (side by side) or height
+        uint32_t ew = layout ? W : W / 2, eh = layout ? H / 2 : H;
+        if (videoMake(&vd, W, H, layout ? fillTb : fillSbs) || targetMake(&t, ew, eh, UNORM)) {
+            check(0, "sbs fixture");
+            return;
+        }
+        // The software decoder's siting, the one that leans across the seam
+        vd.yuv.chroma = MLXR_CHROMA_LEFT;
+        uint8_t* ramp = malloc((size_t)W * H * 4);
+        for (size_t i = 0; i < (size_t)W * H * 4; i++) ramp[i] = (uint8_t)(i * 37 % 251);
+        VkhImage noise;
+        textureMake(&noise, W / 4, H / 4, ramp);
+        free(ramp);
+        for (int k = 0; k < (nv12Ok ? 2 : 1); k++) {
+            const MlxrVideo* v = k ? &vd.nv : &vd.yuv;
+            int tol = k ? nv12Tol + 1 : 2;
+            for (int half = 0; half < 2; half++) {
+                const float* want = half == 0 ? SBS_RED : SBS_BLUE;
+                MlxrWarpParams w = warpDefaults(v);
+                w.split = layout ? MLXR_SPLIT_TB : MLXR_SPLIT_SBS;
+                w.half = half;
+                w.eye = half;
+                uint32_t at;
+                uint8_t* px = runWarp(&t, &w);
+                int d = solidDiff(px, ew, eh, want, &at);
+                note("%s %s, eye %d reads half %d: max diff %d/255 from %s (column %u)", layoutName[layout],
+                     k ? "NV12" : "three-plane", half, half, d, half ? "blue" : "red", at);
+                check(d <= tol, "%s %s: eye %d is all its own half's colour, seam included (%d/255 at column %u)",
+                      layoutName[layout], k ? "NV12" : "three-plane", half, d, at);
+                char name[64];
+                snprintf(name, sizeof(name), "sbs_%s_%s_eye%d", layout ? "tb" : "lr", k ? "nv12" : "yuv", half);
+                ppm(name, px, ew, eh);
+                free(px);
+                // eye_swap: the left eye shown the right half
+                w.eye = 1 - half;
+                px = runWarp(&t, &w);
+                d = solidDiff(px, ew, eh, want, &at);
+                check(d <= tol, "%s %s: swapped, eye %d reads half %d (%d/255)", layoutName[layout],
+                      k ? "NV12" : "three-plane", 1 - half, half, d);
+                free(px);
+                // Depth and disparity are not read with a split
+                w.eye = half;
+                w.depth = noise.view;
+                w.offsets = noise.view;
+                w.disparity = half ? -0.02f : 0.02f;
+                w.dispTexels = 4.0f;
+                w.occlusion = 1;
+                px = runWarp(&t, &w);
+                d = solidDiff(px, ew, eh, want, &at);
+                check(d <= tol, "%s %s: eye %d ignores the depth and the disparity (%d/255)", layoutName[layout],
+                      k ? "NV12" : "three-plane", half, d);
+                free(px);
+            }
+        }
+        vkh_image_free(&vk, &noise);
+        targetFree(&t);
+        videoFree(&vd);
+    }
+
+    // The shift: each half the same ramp, dark to light left to right. A
+    // positive shift (convergence over 0.5, the picture behind the screen)
+    // makes the left eye read further right (lighter) and the right eye
+    // further left (darker), by the shift's share of the ramp.
+    Video vd;
+    Target t;
+    if (videoMake(&vd, W, H, fillSbsRamp) || targetMake(&t, W / 2, H, UNORM)) {
+        check(0, "sbs ramp fixture");
+        return;
+    }
+    const float s = 0.1f;
+    uint32_t x0 = W / 8, x1 = W / 2 - W / 8;
+    for (int eye = 0; eye < 2; eye++) {
+        MlxrWarpParams w = warpDefaults(&vd.yuv);
+        w.split = MLXR_SPLIT_SBS;
+        w.half = eye;
+        w.eye = eye;
+        uint8_t* flat = runWarp(&t, &w);
+        w.shift = eye == 0 ? s : -s;
+        uint8_t* moved = runWarp(&t, &w);
+        float a = rowMeanLuma(flat, W / 2, H / 2, x0, x1), b = rowMeanLuma(moved, W / 2, H / 2, x0, x1);
+        float want = (eye == 0 ? 1.0f : -1.0f) * 0.8f * s;
+        note("eye %d: ramp mean %.3f, shifted by %+.2f: %.3f (%+.3f, want %+.3f)", eye, a, w.shift, b, b - a, want);
+        check(fabsf((b - a) - want) < 0.02f, "eye %d: the shift moves its half the right way (%+.3f, want %+.3f)", eye,
+              b - a, want);
+        free(flat);
+        free(moved);
+    }
+    targetFree(&t);
+    videoFree(&vd);
+}
+
 // ---- the fur (#36, #46): a thin dark bar on a bright page ---------------------------
 
 // Native (lane wave5-depth, PLAN 5.2). 1024 wide, the bar from pixel 497 to
@@ -2454,6 +2593,7 @@ int main(int argc, char** argv) {
                  {"srgb", testSrgb},
                  {"warp_identity", testWarpIdentity},
                  {"warp_step", testWarpStep},
+                 {"warp_sbs", testWarpSbs},
                  {"warp_fur", testWarpFur},
                  {"sharpen", testSharpen},
                  {"upsample", testUpsample},

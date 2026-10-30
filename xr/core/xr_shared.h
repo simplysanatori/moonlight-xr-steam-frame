@@ -41,6 +41,23 @@
 #define DEPTH_MODE_SHIFTTEST 5
 // Real depth from a model, ZipDepth or MiDaS, run in Java on LiteRT
 #define DEPTH_MODE_MODEL 6
+// Native (PLAN 4.3): the host renders the stereo pair itself, side by side or
+// top and bottom in the one video frame. Each eye is given its half and none
+// of the depth passes run.
+#define DEPTH_MODE_SBS 7
+
+// Native (PLAN 4.3): where the 3D comes from, the [3d] stereo_source setting
+// and the 3D tab's 3D source row in this order: the depth model (or the test
+// pattern depth_source names), a side by side frame (left eye in the left
+// half), or a top and bottom one (left eye in the top half)
+#define STEREO_SOURCE_DEPTH 0
+#define STEREO_SOURCE_SBS 1
+#define STEREO_SOURCE_TB 2
+#define STEREO_SOURCE_COUNT 3
+// How far the convergence track moves each eye's half sideways at either
+// end, as a fraction of the eye's picture width; the middle is the pair as
+// the host drew it
+#define SBS_SHIFT_MAX 0.02f
 
 // The depth map is the size of the model input it is made from, which Java
 // picks per session from the model and the headset and hands to nativeInit:
@@ -639,14 +656,20 @@
 // 3D tab rows, in the order they are drawn: a row of preset cells over two
 // sliders like the screen tab's, then the switch the bar's 3D button also
 // works. Only values that take effect the moment they move belong here: the
-// depth source itself is settled when the session starts, so it stays in the
+// depth model itself is settled when the session starts, so it stays in the
 // 2d settings, and the switch only pauses a session that started with 3D.
+// Native (PLAN 4.3): last, the 3D source (Depth, SBS, Top-bottom), live in
+// every session, which switches between the model and a host-rendered pair
+// at once; with a host-rendered pair the preset and depth rows are dead and
+// the convergence track moves the two halves apart or together.
 #define COG_ROW3D_PRESET 0
 #define COG_ROW3D_SEPARATION 1
 #define COG_ROW3D_CONVERGENCE 2
 #define COG_ROW3D_SWITCH 3
-#define COG_ROW3D_COUNT 4
+#define COG_ROW3D_SOURCE 4
+#define COG_ROW3D_COUNT 5
 #define COG_STEREO_CELLS 2
+#define COG_SOURCE_CELLS STEREO_SOURCE_COUNT
 // The presets, in the order their cells are drawn. Each is a separation on the
 // depth track: Balanced is the running model's default, and Comfort and Strong
 // are this many steps of the track under and over it, kept on the track.

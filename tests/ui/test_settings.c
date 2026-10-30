@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "check.h"
+#include "panels.h"
 #include "settings.h"
 #include "ui_strings.h"
 #include "xr_shared.h"
@@ -144,7 +145,7 @@ static const char* const README_KEYS[] = {
     // the panel: Screen, Display, 3D, Room
     "distance_cm", "height_cm", "tilt_deg", "rotate_deg", "curve", "width_cm", "azimuth_deg",
     "head_locked", "sharpening", "supersampling", "stats", "stats_style", "glow", "glow_level", "screen_light",
-    "separation", "convergence",
+    "separation", "convergence", "stereo_source", "sbs_full",
     "room_4_brightness", "room_4_glow", "room_4_light", "room_4_screen",
     "room_5_brightness", "room_5_glow", "room_5_light", "room_5_screen",
     "room_6_brightness", "room_6_glow", "room_6_light", "room_6_screen",
@@ -475,6 +476,47 @@ static void test_cog_tab(void) {
     free(text);
 }
 
+// Native (PLAN 4.3): the 3D source and full-size SBS, through the file and
+// back, with the names, an index, a bad value and the panel's view
+static void test_stereo_source(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.stereo_source == STEREO_SOURCE_DEPTH && s.sbs_full == 0);
+    CHECK(settings_find("3d.stereo_source") != NULL && settings_find("3d.sbs_full") != NULL);
+    settings_from_text(&s, "[3d]\nstereo_source = sbs\nsbs_full = true\n", &info);
+    CHECK(s.stereo_source == STEREO_SOURCE_SBS && s.sbs_full == 1 && info.applied == 2 && info.bad == 0);
+    settings_from_text(&s, "[3d]\nstereo_source = Top-Bottom\n", &info);
+    CHECK(s.stereo_source == STEREO_SOURCE_TB);
+    settings_from_text(&s, "[3d]\nstereo_source = 1\n", &info);   // an index works too
+    CHECK(s.stereo_source == STEREO_SOURCE_SBS);
+    settings_from_text(&s, "[3d]\nstereo_source = anaglyph\n", &info);   // not a source: the last good one stays
+    CHECK(s.stereo_source == STEREO_SOURCE_SBS && info.bad == 1);
+    s.stereo_source = STEREO_SOURCE_TB;
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nstereo_source = top-bottom\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\nsbs_full = true\n") != NULL);
+    Settings back;
+    settings_defaults(&back);
+    if (text != NULL) settings_from_text(&back, text, &info);
+    CHECK(back.stereo_source == STEREO_SOURCE_TB && back.sbs_full == 1 && settings_equal(&s, &back));
+    free(text);
+    settings_defaults(&s);
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#stereo_source = depth\n") != NULL);
+    CHECK(text != NULL && strstr(text, "\n#sbs_full = false\n") != NULL);
+    free(text);
+    // the panel's view: the PC's pair needs no depth model, so the 3D rows
+    // and the bar's button are there with the model off
+    s.depth_source = 2;
+    UiView v;
+    ui_view_init(&v, &s);
+    CHECK(!v.stereo_ok && !v.bar_show_stereo && v.stereo_source == STEREO_SOURCE_DEPTH);
+    s.stereo_source = STEREO_SOURCE_SBS;
+    ui_view_init(&v, &s);
+    CHECK(v.stereo_ok && v.bar_show_stereo && v.stereo_source == STEREO_SOURCE_SBS);
+}
+
 // Native (lane wave2-bind-wire): Click steadiness and the stick's wheel speed
 static void test_click_and_scroll(void) {
     Settings s;
@@ -543,6 +585,29 @@ static void test_session_limits(void) {
     s.idle_disconnect = 45;
     text = settings_to_text(&s);
     CHECK(text != NULL && strstr(text, "\ndoff_disconnect = 15\n") != NULL && strstr(text, "\nidle_disconnect = 45\n") != NULL);
+    free(text);
+}
+
+// Native (lane wave1-burst): [stream] rfi_idr_ms, the cap on the client's own IDR frame requests
+static void test_rfi_idr_ms(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.rfi_idr_ms == 500);
+    CHECK(settings_find("stream.rfi_idr_ms") != NULL && settings_find("rfi_idr_ms") != NULL);
+    settings_from_text(&s, "[stream]\nrfi_idr_ms = 0\n", &info);   // 0: no cap
+    CHECK(s.rfi_idr_ms == 0 && info.applied == 1 && info.bad == 0);
+    settings_from_text(&s, "[stream]\nrfi_idr_ms = 90000\n", &info);   // held to the range
+    CHECK(s.rfi_idr_ms == 5000);
+    settings_from_text(&s, "[stream]\nrfi_idr_ms = -1\n", &info);
+    CHECK(s.rfi_idr_ms == 0);
+    settings_defaults(&s);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#rfi_idr_ms = 500\n") != NULL);
+    free(text);
+    s.rfi_idr_ms = 1000;
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nrfi_idr_ms = 1000\n") != NULL);
     free(text);
 }
 
@@ -1085,6 +1150,7 @@ int main(void) {
     test_clamping();
     test_network_path();
     test_session_limits();
+    test_rfi_idr_ms();
     test_tolerant();
     test_removed_keys();
     test_bitrate_ceiling();
@@ -1092,6 +1158,7 @@ int main(void) {
     test_click_and_scroll();
     test_controller_model();
     test_cog_tab();
+    test_stereo_source();
     test_files();
     test_sliders();
     return checksDone("ui_settings");
