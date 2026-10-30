@@ -118,7 +118,7 @@ check(sc.parse_apps(None) == [] and sc.parse_apps({"error": "x"}) == [], "apps: 
 # ---- the preflight against a fake endpoint -------------------------------------------------------------
 good_api = {"StreamGame": "function", "RunGame": "function", "RegisterForDevicesChanges": "function",
             "ExecuteSteamURL": "function", "ShowDashboard": "function", "userAgent": "Steam/1 Chrome/2"}
-with FakeCef([("typeof (", good_api)]) as cef:
+with FakeCef([("navigator.userAgent", good_api)]) as cef:
     os.environ["STEAM_CEF_PORT"] = str(cef.port)
     os.environ["STEAM_CEF_FLAG_FILE"] = os.path.join(HERE, "no-such-flag")
     r = sc.probe()
@@ -128,7 +128,7 @@ with FakeCef([("typeof (", good_api)]) as cef:
     check(c == 0 and json.loads(out)["ok"] is True, "--probe exits 0")
 
 half = dict(good_api, StreamGame="undefined")
-with FakeCef([("typeof (", half)]) as cef:
+with FakeCef([("navigator.userAgent", half)]) as cef:
     os.environ["STEAM_CEF_PORT"] = str(cef.port)
     r = sc.probe()
     check(not r["ok"] and r["reachable"] and "StreamGame" in r["hint"], "probe: a missing call is named")

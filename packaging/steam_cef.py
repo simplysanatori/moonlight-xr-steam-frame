@@ -232,9 +232,11 @@ def js_apps():
 
 
 def js_api_check():
-    parts = ", ".join(f"{json.dumps(k)}: typeof ({path})" for k, path in API_CALLS.items())
-    return ("(function () { var r = {}; try { r = {" + parts + "}; } catch (e) { r = { error: String(e) }; }"
-            " r.userAgent = navigator.userAgent; return r; })()")
+    """typeof of every call the hand-off needs ("missing" when the path itself does not exist), and the
+    client's user agent."""
+    parts = ", ".join(f"{json.dumps(k)}: t(function () {{ return {path}; }})" for k, path in API_CALLS.items())
+    return ("(function () { function t(f) { try { return typeof f(); } catch (e) { return \"missing\"; } }"
+            " return {" + parts + ", userAgent: navigator.userAgent}; })()")
 
 
 # ---- parsing what Steam answers (pure functions: unit-tested) ---------------------------------------

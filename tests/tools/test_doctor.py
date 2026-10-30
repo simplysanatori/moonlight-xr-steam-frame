@@ -104,7 +104,7 @@ if os.name == "posix":
 # the Steam port line
 good_api = {"StreamGame": "function", "RunGame": "function", "RegisterForDevicesChanges": "function",
             "ExecuteSteamURL": "function", "ShowDashboard": "function", "userAgent": "x"}
-with fake_cef.FakeCef([("typeof (", good_api)]) as cef:
+with fake_cef.FakeCef([("navigator.userAgent", good_api)]) as cef:
     c, out, err = run("--current", same_file, "--baseline", PROBE, "--cef-script", CEF,
                       env_extra={"STEAM_CEF_PORT": str(cef.port), "STEAM_CEF_FLAG_FILE": os.path.join(tmp, "x")})
     check(c == 0 and "Steam CEF port: Steam's debugging port is fine." in out, "the port line says fine")
