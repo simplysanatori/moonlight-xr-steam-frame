@@ -2,7 +2,7 @@
 // (ordering, rank correlation with the truth), run-to-run and thread-count
 // stability, fp16 vs int8 agreement, fp16 arithmetic vs fp32, the
 // normalisation, and the threaded engine's hand-off and rate. GPLv3.
-//   test_depth [group]   groups: spec order stable agree arith norm engine
+//   test_depth [group]   groups: spec order stable agree arith norm motion engine
 #define _GNU_SOURCE
 #include <math.h>
 #include <stdio.h>
@@ -386,6 +386,64 @@ static void groupNorm(void) {
     mlxr_depth_norm_free(nm);
 }
 
+// Native (lane wave5-depth, PLAN 5.4): an edge in the guide moves between two
+// maps. With the motion reset the average starts again where the picture
+// changed and keeps its history where it did not; without it every texel
+// carries the old depth for a while
+static void groupMotion(void) {
+    printf("motion\n");
+    const int w = 64, h = 16, n = w * h;
+    float* raw = malloc(sizeof(float) * n);
+    float* guide = malloc(sizeof(float) * n * 3);
+    MlxrDepthParams p;
+    mlxr_depth_params_default(&p);
+    p.rangeTauMs = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        p.motion = pass == 0 ? 0.0f : 0.10f;
+        MlxrDepthNorm* nm = mlxr_depth_norm_create(w, h);
+        int64_t t = 1000000000LL;
+        // First map: a bright object over columns 10..19, near (60) on a far
+        // page (20)
+        for (int i = 0; i < n; i++) {
+            int x = i % w;
+            int in = x >= 10 && x < 20;
+            float g = in ? 0.9f : 0.1f;
+            guide[i * 3 + 0] = guide[i * 3 + 1] = guide[i * 3 + 2] = g;
+            raw[i] = in ? 60.0f : 20.0f;
+        }
+        mlxr_depth_norm_run(nm, &p, raw, guide, 0, t, NULL, NULL);
+        // 20 ms on the object has moved to columns 30..39; the model also
+        // wobbles the far page a little (21) where nothing moved
+        for (int i = 0; i < n; i++) {
+            int x = i % w;
+            int in = x >= 30 && x < 40;
+            float g = in ? 0.9f : 0.1f;
+            guide[i * 3 + 0] = guide[i * 3 + 1] = guide[i * 3 + 2] = g;
+            raw[i] = in ? 60.0f : 21.0f;
+        }
+        mlxr_depth_norm_run(nm, &p, raw, guide, 0, t + 20000000LL, NULL, NULL);
+        const float* avg = mlxr_depth_norm_average(nm);
+        int row = 8 * w;
+        float oldSpot = avg[row + 15], newSpot = avg[row + 35], still = avg[row + 50];
+        int resets = mlxr_depth_norm_motion_resets(nm);
+        printf("  motion %.2f: where it was %.2f, where it is %.2f, the still page %.2f, %d texels started again\n",
+               p.motion, oldSpot, newSpot, still, resets);
+        // The still page keeps averaging either way: between 20 and 21
+        CHECK(still > 20.0f && still < 21.0f, "still page averaged: %.3f", still);
+        if (pass == 0) {
+            CHECK(oldSpot > 30.0f && newSpot < 50.0f, "without it the old depth trails: %.2f %.2f", oldSpot, newSpot);
+            CHECK(resets == 0, "off: no texel starts again (%d)", resets);
+        } else {
+            CHECK(oldSpot == 21.0f && newSpot == 60.0f, "with it the moved texels take the new map: %.2f %.2f",
+                  oldSpot, newSpot);
+            CHECK(resets == 20 * h, "the two moved bands start again, nothing else (%d)", resets);
+        }
+        mlxr_depth_norm_free(nm);
+    }
+    free(raw);
+    free(guide);
+}
+
 static void sleepMs(int ms) {
     struct timespec ts = { ms / 1000, (long)(ms % 1000) * 1000000L };
     nanosleep(&ts, NULL);
@@ -523,7 +581,7 @@ int main(int argc, char** argv) {
     const char* only = argc > 1 ? argv[1] : NULL;
     struct { const char* name; void (*fn)(void); } groups[] = {
         { "spec", groupSpec }, { "order", groupOrder }, { "stable", groupStable },
-        { "agree", groupAgree }, { "arith", groupArith }, { "norm", groupNorm },
+        { "agree", groupAgree }, { "arith", groupArith }, { "norm", groupNorm }, { "motion", groupMotion },
         { "engine", groupEngine },
     };
     for (size_t i = 0; i < sizeof groups / sizeof groups[0]; i++) {

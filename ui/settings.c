@@ -149,6 +149,7 @@ static const SettingDesc TABLE[] = {
     DI("3d", "convergence", convergence, -1, 100, -1, "seekbar_vr_convergence: percent; -1 is the depth model's own (50)"),
     DB("3d", "stereo", stereo, 1, "native: the 3D switch (bar button, 3D tab) as it was last left; on to begin with, as upstream started every session"),
     DI("3d", "edge_sharpness", edge_sharpness, EDGE_SHARPNESS_MIN, EDGE_SHARPNESS_MAX, EDGE_SHARPNESS_DEFAULT, "native: Edge, how closely the 3D's depth keeps to the edges in the picture, 0..100; 0 is Moonlight XR's own soft edges, higher keeps hair and thin outlines on their own depth (the upsample's colour match tightens from 0.25 to 0.10 and the snap to the nearer side rises from off to full)"),
+    DI("3d", "motion_reset", motion_reset, MOTION_RESET_MIN, MOTION_RESET_MAX, MOTION_RESET_DEFAULT, "native: Motion reset, percent the picture's brightness at a spot may change by between two depth maps before the depth there stops being averaged with the old ones, so a moving edge leaves no trail of its old depth; 0 never (the smoothing as it always was), about 10 for fast scenes"),
     // screen
     DI("screen", "distance_cm", screen_distance_cm, 20, 800, 300, "Screen tab: distance in centimetres"),
     DI("screen", "height_cm", screen_height_cm, -200, 200, 0, "Screen tab: height of the centre above eye level, centimetres"),

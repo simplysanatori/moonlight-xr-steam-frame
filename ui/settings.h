@@ -122,6 +122,7 @@ typedef struct Settings {
     int convergence;       // percent; -1 = the depth model's own
     int stereo;            // native: the 3D switch as it was last left (0 off, 1 on)
     int edge_sharpness;    // native (PLAN 5.1): the Edge setting, EDGE_SHARPNESS_MIN..MAX; 0 is upstream's edges
+    int motion_reset;      // native (PLAN 5.4): percent luma change that restarts a depth texel's average; 0 off
 
     // [screen] where the picture hangs (what the Screen tab moves)
     int screen_distance_cm;

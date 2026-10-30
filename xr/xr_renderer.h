@@ -436,6 +436,9 @@ typedef struct XrCtx {
     // from the background side rather than by stretching the nearer edge
     // (MLXR_HOLE_STRETCH; on, MLXR_HOLE_FILL=0 turns it off)
     int holeFill;
+    // Native (lane wave5-depth, PLAN 5.4): [3d] motion_reset as a luma change
+    // 0..1 that starts a depth texel's average again; 0 off
+    float depthMotion;
     // The edge fixes, on apart from the cubic read. Pixels for the fade, 0 or
     // 1 for the rest.
     int srcInsetOn;

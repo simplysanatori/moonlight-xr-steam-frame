@@ -342,6 +342,8 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     // Native (lane wave5-depth, PLAN 5.1): the Edge setting is the upsample's
     // two knobs; 0 leaves them as upstream has them
     depthEdgeParams(s->edge_sharpness, &ctx->upsampleSigmaR, &ctx->depthSharp);
+    // PLAN 5.4: the motion reset, percent of luma to a fraction; 0 off
+    ctx->depthMotion = (float)s->motion_reset / 100.0f;
     xrSetDepthRate(ctx, s->depth_rate);
     // M6: the depth model or test pattern, and the 3D switch as last left
     xrDepthConfigure(ctx, s);

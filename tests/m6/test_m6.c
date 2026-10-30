@@ -19,7 +19,8 @@
 //             waits for a fresh map; FAILED (and a thread that never starts)
 //             stays flat with a toast and puts the switch away
 //   params    the 3D's tuning keys only config.ini and the launcher carry
-//             (edge_sharpness), into the context, the engine and the passes
+//             (edge_sharpness, motion_reset), into the context, the engine
+//             and the passes
 //   budget    the layers of the busiest frames with the 3D on (two picture
 //             quads, one an eye, and the bar's 3D button), against SteamVR's 16
 // GPLv3.
@@ -54,6 +55,8 @@ struct MlxrDepthEngine {
     int newest, held;
     // what the tests read
     int resets, rateCalls, paramsCalls;
+    MlxrDepthParams params;   // as started, then as last set
+    int threads;
     long submits, contentBad, orderBad;
     uint64_t lastFrameId;
     int haveLast;
@@ -85,6 +88,8 @@ static MlxrDepthEngine* fStart(const MlxrDepthConfig* cfg) {
     e->fail = fakeFailNext;
     fakeFailNext = 0;
     e->rate = cfg->perSecond;
+    e->params = cfg->params;
+    e->threads = cfg->threads;
     e->held = -1;
     e->newest = -1;
     fakeLive = e;
@@ -117,7 +122,7 @@ static void fRate(MlxrDepthEngine* e, int r) {
     pthread_mutex_unlock(&e->lock);
 }
 static void fParams(MlxrDepthEngine* e, const MlxrDepthParams* p) {
-    (void)p;
+    e->params = *p;
     e->paramsCalls++;
 }
 static void fReset(MlxrDepthEngine* e) {
@@ -601,8 +606,37 @@ static void testParams(void) {
     m6_ctx_free(ctx);
     Settings bad;
     settings_defaults(&bad);
-    settings_from_text(&bad, "[3d]\nedge_sharpness = 400\n", NULL);
+    settings_from_text(&bad, "[3d]\nedge_sharpness = 400\nmotion_reset = 99\n", NULL);
     CHECK(bad.edge_sharpness == EDGE_SHARPNESS_MAX);
+    CHECK(bad.motion_reset == MOTION_RESET_MAX);
+
+    // 5.4 Motion reset: off by default, so the engine averages as upstream's
+    settings_defaults(&s);
+    CHECK(s.motion_reset == MOTION_RESET_DEFAULT && MOTION_RESET_DEFAULT == 0);
+    ctx = m6_ctx(&g, &FAKE, assets, &s);
+    uint64_t fid = 0;
+    waitReady(ctx, &fid);
+    CHECK(fakeLive != NULL && fakeLive->params.motion == 0.0f && fakeLive->params.tauMs == DEPTH_TAU_DEFAULT_MS);
+    m6_ctx_free(ctx);
+    // set: the engine starts with it, and a change reaches it at the next frame
+    s.motion_reset = 12;
+    ctx = m6_ctx(&g, &FAKE, assets, &s);
+    CHECK_NEAR(ctx->depthMotion, 0.12, 1e-6);
+    fid = 0;
+    waitReady(ctx, &fid);
+    CHECK(fakeLive != NULL);
+    if (fakeLive != NULL) {
+        CHECK_NEAR(fakeLive->params.motion, 0.12, 1e-6);
+        int calls = fakeLive->paramsCalls;
+        frames(ctx, 1, &fid, 0);
+        CHECK(fakeLive->paramsCalls == calls);   // nothing changed, nothing sent
+        ctx->depthMotion = 0.2f;
+        frames(ctx, 1, &fid, 0);
+        CHECK(fakeLive->paramsCalls == calls + 1);
+        CHECK_NEAR(fakeLive->params.motion, 0.2, 1e-6);
+        CHECK_NEAR(fakeLive->params.convergence, ctx->convergence, 1e-6);
+    }
+    m6_ctx_free(ctx);
 }
 
 // ---- states --------------------------------------------------------------------------------

@@ -72,6 +72,14 @@
 #define EDGE_SHARPNESS_MAX 100
 #define EDGE_SHARPNESS_DEFAULT 0
 
+// Native (lane wave5-depth, PLAN 5.4): [3d] motion_reset, percent of the
+// guide's luma a depth texel's colour may change by between two maps before
+// its average over time starts again there; 0, the default, never (the
+// average as upstream has it)
+#define MOTION_RESET_MIN 0
+#define MOTION_RESET_MAX 50
+#define MOTION_RESET_DEFAULT 0
+
 // Enough for a dozen lines of stats without being big enough to matter
 #define OVERLAY_WIDTH 768
 #define OVERLAY_HEIGHT 512

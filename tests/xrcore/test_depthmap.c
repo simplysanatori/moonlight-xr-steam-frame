@@ -811,6 +811,38 @@ static void testEdgeParams(void) {
     CHECK(monotonic);
 }
 
+// Native (lane wave5-depth, PLAN 5.4): where the guide's luma moved past the
+// threshold the average takes the new value; elsewhere it is left alone
+static void testMotionReset(void) {
+    enum { C = 6 };
+    float rgb[C * 3], luma[C], last[C];
+    for (int i = 0; i < C; i++) {
+        float g = 0.1f * (float)i;
+        rgb[i * 3 + 0] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = g;
+    }
+    depthGuideLuma(rgb, luma, C);
+    for (int i = 0; i < C; i++) CHECK_NEAR(luma[i], 0.1 * i, 1e-6);
+    // Texels 1 and 4 changed by 0.3, texel 2 by 0.05, the rest not at all
+    for (int i = 0; i < C; i++) last[i] = luma[i];
+    last[1] += 0.3f;
+    last[4] -= 0.3f;
+    last[2] += 0.05f;
+    float avg[C] = { 1, 1, 1, 1, 1, 1 };
+    float v[C] = { 5, 5, 5, 5, 5, 5 };
+    v[4] = NAN;
+    CHECK(depthMotionReset(avg, v, luma, last, C, 0.1f) == 1);
+    CHECK(avg[1] == 5.0f);       // moved: the new value
+    CHECK(avg[4] == 1.0f);       // moved, but the model gave a NaN there
+    CHECK(avg[0] == 1.0f && avg[2] == 1.0f && avg[3] == 1.0f && avg[5] == 1.0f);
+    // A lower threshold takes texel 2 as well; 0 is off
+    CHECK(depthMotionReset(avg, v, luma, last, C, 0.04f) == 2);
+    CHECK(avg[2] == 5.0f);
+    float before[C];
+    memcpy(before, avg, sizeof(avg));
+    CHECK(depthMotionReset(avg, v, luma, last, C, 0.0f) == 0);
+    CHECK(memcmp(before, avg, sizeof(avg)) == 0);
+}
+
 int main(void) {
     testRobustRange();
     testLowPass();
@@ -830,5 +862,6 @@ int main(void) {
     testResets();
     testResetsInPipeline();
     testEdgeParams();
+    testMotionReset();
     return checksDone("xr_depthmap");
 }

@@ -194,6 +194,15 @@ Flickable {
         return edgeSteps[0]
     }
 
+    // [3d] motion_reset: the steps the Motion row goes through (0 is off)
+    readonly property var motionSteps: [0, 5, 10, 20, 30]
+    function nextMotion() {
+        for (var i = 0; i < motionSteps.length; i++) {
+            if (motionSteps[i] > MlxrPrefs.motionReset) return motionSteps[i]
+        }
+        return motionSteps[0]
+    }
+
     // [vr] controller_model: which controller the headset draws in each hand
     readonly property var modelValues: ["off", "frame", "generic", "gun", "custom"]
     readonly property var modelNames: [qsTr("Off"), qsTr("Steam Frame controller"), qsTr("Generic controller"), qsTr("Gun"), qsTr("Your own model")]
@@ -712,6 +721,17 @@ Flickable {
             summary: qsTr("Higher keeps hair, outlines and thin text on their own depth instead of blending them into what is behind. Too high can make edges look cut out.")
             reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
             onClicked: if (enabled) MlxrPrefs.edgeSharpness = settingsPage.nextEdge()
+        }
+
+        // Native (lane wave5-depth): the depth's smoothing over time restarts where the picture moved, so a
+        // fast edge leaves no trail. Pressing the row steps Off, 5, 10, 20, 30 percent ([3d] motion_reset)
+        PrefRow {
+            objectName: "motionRow"
+            title: qsTr("3D Motion Reset")
+            valueText: MlxrPrefs.motionReset === 0 ? qsTr("Off (the default)") : (MlxrPrefs.motionReset + "%")
+            summary: qsTr("For fast scenes: where the picture changes by more than this between two depth maps, the 3D stops smoothing the old depth into the new there, so moving edges leave no trail. Lower reacts to smaller changes; too low brings back flicker.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            onClicked: if (enabled) MlxrPrefs.motionReset = settingsPage.nextMotion()
         }
 
         PrefSwitch {
