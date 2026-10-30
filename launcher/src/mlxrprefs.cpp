@@ -36,6 +36,7 @@ struct VrKey {
 };
 const VrKey kVrKeys[] = {
     { "stream.virtual_surround", 'b', 0, 0, 1, nullptr },
+    { "stream.vpn_only_away", 'b', 1, 0, 1, nullptr },   // Native (lane vpn-fallback)
     { "vr.pointer", 'b', 1, 0, 1, nullptr },
     { "vr.pointer_sleep", 'b', 1, 0, 1, nullptr },
     { "vr.show_ray", 'b', 1, 0, 1, nullptr },

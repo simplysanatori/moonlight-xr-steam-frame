@@ -92,6 +92,7 @@ void mlxr_net_plan_init(mlxr_net_plan *p, mlxr_net_pref pref, const char *source
     p->retry_ms = 4000;
     p->grace_ms = 700;   /* Native (lane netpath-quality): the slower path needs time for its 15 probes */
     p->chosen = -1;
+    p->vpn_only_away = true;   /* Native (lane vpn-fallback) */
     if (uuid) mlxr_strlcpy(p->uuid, uuid, sizeof p->uuid);
     if (uniqueid) mlxr_strlcpy(p->uniqueid, uniqueid, sizeof p->uniqueid);
 }
@@ -141,15 +142,128 @@ void mlxr_net_plan_add_record(mlxr_net_plan *p, const char *address, const char 
     }
 }
 
+/* ---------------------------------------------------------------- VPN addresses (Native, lane vpn-fallback) */
+
+bool mlxr_net_ipv4_is_vpn(uint32_t a)
+{
+    return (a & 0xffc00000u) == 0x64400000u;   /* 100.64.0.0/10 */
+}
+
+bool mlxr_net_ifname_is_vpn(const char *name)
+{
+    static const char *const pre[] = { "tailscale", "wg", "tun", "tap", "zt", "utun" };
+    if (!name || !name[0]) return false;
+    for (size_t k = 0; k < sizeof pre / sizeof pre[0]; k++)
+        if (!strncmp(name, pre[k], strlen(pre[k]))) return true;
+    return false;
+}
+
+bool mlxr_net_addr_is_vpn(const char *addr, const char *ifname, const char **why)
+{
+    const char *w = NULL;
+    struct in_addr a4;
+    struct in6_addr a6;
+    char a[128];
+    if (why) *why = "";
+    if (!addr) return false;
+    mlxr_strlcpy(a, addr, sizeof a);
+    mlxr_trim(a);
+    char *pct = strchr(a, '%');   /* fe80::1%wlan0: the zone is not part of the address */
+    if (pct) *pct = 0;
+    if (inet_pton(AF_INET, a, &a4) == 1) {
+        uint32_t v = ntohl(a4.s_addr);
+        if (mlxr_net_ipv4_is_vpn(v)) w = "100.64.0.0/10";
+        else if ((v >> 24) == 127) w = "loopback";
+    } else if (inet_pton(AF_INET6, a, &a6) == 1) {
+        static const uint8_t ts[6] = { 0xfd, 0x7a, 0x11, 0x5c, 0xa1, 0xe0 };
+        if (!memcmp(a6.s6_addr, ts, sizeof ts)) w = "fd7a:115c:a1e0::/48";
+        else if (IN6_IS_ADDR_LOOPBACK(&a6)) w = "loopback";
+        else if (IN6_IS_ADDR_V4MAPPED(&a6)) {
+            uint32_t v = ((uint32_t)a6.s6_addr[12] << 24) | ((uint32_t)a6.s6_addr[13] << 16) |
+                         ((uint32_t)a6.s6_addr[14] << 8) | a6.s6_addr[15];
+            if (mlxr_net_ipv4_is_vpn(v)) w = "100.64.0.0/10";
+            else if ((v >> 24) == 127) w = "loopback";
+        }
+    }
+    if (!w && mlxr_net_ifname_is_vpn(ifname)) w = "interface";
+    if (why && w) *why = w;
+    return w != NULL;
+}
+
 void mlxr_net_plan_classify(mlxr_net_plan *p, const mlxr_netifs *t)
 {
     for (int i = 0; i < p->n; i++) {
+        mlxr_net_cand *c = &p->c[i];
         const mlxr_netif *via = NULL;
-        p->c[i].path = mlxr_net_classify(t, p->c[i].address, &via);
-        p->c[i].onlink = mlxr_net_onlink_if(t, p->c[i].address) != NULL;
-        p->c[i].ifname[0] = 0;
-        if (via) mlxr_strlcpy(p->c[i].ifname, via->name, sizeof p->c[i].ifname);
+        c->path = mlxr_net_classify(t, c->address, &via);
+        c->onlink = mlxr_net_onlink_if(t, c->address) != NULL;
+        c->ifname[0] = 0;
+        if (via) mlxr_strlcpy(c->ifname, via->name, sizeof c->ifname);
+        /* Native (lane vpn-fallback): direct or VPN. The kernel's route lookup sees what the table cannot (a VPN
+         * that routes by policy, or a /32 interface address) */
+        const char *why = "";
+        c->vpn = mlxr_net_addr_is_vpn(c->address, c->ifname, &why);
+        if (!c->vpn && p->route_lookup) {
+            char rif[16];
+            if (mlxr_net_route_ifname(t, c->address, rif, sizeof rif) && mlxr_net_ifname_is_vpn(rif)) {
+                c->vpn = true;
+                mlxr_strlcpy(c->ifname, rif, sizeof c->ifname);
+                why = "interface";
+            }
+        }
+        c->vpn_why[0] = 0;
+        if (c->vpn) mlxr_strlcpy(c->vpn_why, !strcmp(why, "interface") ? c->ifname : why, sizeof c->vpn_why);
     }
+}
+
+/* is `a` in the comma list `list`? */
+static bool in_list(const char *list, const char *a)
+{
+    size_t al = strlen(a);
+    for (const char *s = list; *s;) {
+        while (*s == ',' || *s == ' ' || *s == '\t') s++;
+        size_t n = strcspn(s, ", \t");
+        if (n && n == al && !strncasecmp(s, a, al)) return true;
+        s += n;
+    }
+    return false;
+}
+
+static int learn_one(const char *a, const char *address, char *extra, size_t cap, char *learned, size_t learned_cap)
+{
+    if (!a || !a[0] || mlxr_net_addr_is_vpn(a, NULL, NULL)) return 0;   /* VPN by its address, loopback */
+    if (address && !strcasecmp(a, address)) return 0;
+    if (in_list(extra, a)) return 0;
+    size_t len = strlen(extra), al = strlen(a);
+    if (len + (len ? 1 : 0) + al + 1 > cap) return 0;
+    snprintf(extra + len, cap - len, "%s%s", len ? "," : "", a);
+    if (learned && learned_cap) {
+        size_t ll = strlen(learned);
+        snprintf(learned + ll, learned_cap - ll, "%s%s", ll ? "," : "", a);
+    }
+    return 1;
+}
+
+int mlxr_net_learn_addresses(const mlxr_net_plan *p, const char *address, const char *local_ip, char *extra, size_t cap,
+                             char *learned, size_t learned_cap)
+{
+    int added = 0;
+    if (learned && learned_cap) learned[0] = 0;
+    if (!extra || !cap) return 0;
+    bool local_ok = local_ip && local_ip[0] && p->chosen >= 0 && !p->c[p->chosen].vpn;
+    for (int i = 0; i < p->n; i++) {
+        const mlxr_net_cand *c = &p->c[i];
+        /* the cable's addresses are worked out from the interface each time (unplugged, a kept one only costs a
+         * timeout), and so is the PC's own idea of its address on it */
+        if (c->path == MLXR_PATH_USB) {
+            if (local_ok && !strcasecmp(c->address, local_ip)) local_ok = false;
+            continue;
+        }
+        if (!c->probed || c->ok <= 0 || c->other_host || c->vpn) continue;
+        added += learn_one(c->address, address, extra, cap, learned, learned_cap);
+    }
+    if (local_ok) added += learn_one(local_ip, address, extra, cap, learned, learned_cap);
+    return added;
 }
 
 void mlxr_net_plan_read_links(mlxr_net_plan *p, const mlxr_netifs *t)
@@ -508,6 +622,20 @@ bool mlxr_net_better(const mlxr_net_cand *a, const mlxr_net_cand *b)
 
 static bool answered(const mlxr_net_cand *c) { return c->probed && c->ok > 0 && !c->other_host; }
 
+/* Native (lane vpn-fallback): a direct candidate answered (any path) */
+static bool direct_answered(const mlxr_net_plan *p)
+{
+    for (int i = 0; i < p->n; i++)
+        if (!p->c[i].vpn && answered(&p->c[i])) return true;
+    return false;
+}
+
+/* ... so this VPN candidate is not a choice (with the setting on) */
+static bool set_aside(const mlxr_net_plan *p, const mlxr_net_cand *c)
+{
+    return p->vpn_only_away && c->vpn && direct_answered(p);
+}
+
 void mlxr_net_path_describe(mlxr_net_path p, const mlxr_net_link *l, char *out, size_t cap)
 {
     const char *name = mlxr_net_path_label(p);
@@ -530,7 +658,7 @@ static int best_on(const mlxr_net_plan *p, mlxr_net_path path)
 {
     int best = -1;
     for (int i = 0; i < p->n; i++) {
-        if (!answered(&p->c[i]) || p->c[i].path != path) continue;
+        if (!answered(&p->c[i]) || p->c[i].path != path || set_aside(p, &p->c[i])) continue;
         if (best < 0 || mlxr_net_better(&p->c[i], &p->c[best])) best = i;
     }
     return best;
@@ -600,6 +728,40 @@ static void auto_reason(mlxr_net_plan *p, int x, int y)
     }
 }
 
+/* Native (lane vpn-fallback): the one line about the PC's VPN addresses, "" when it has none */
+static void vpn_words(mlxr_net_plan *p)
+{
+    int vpn = -1, vpn_ok = -1;
+    for (int i = 0; i < p->n; i++) {
+        if (!p->c[i].vpn) continue;
+        if (vpn < 0) vpn = i;
+        if (answered(&p->c[i]) && vpn_ok < 0) vpn_ok = i;
+    }
+    if (vpn < 0) return;
+    const mlxr_net_cand *ch = p->chosen >= 0 ? &p->c[p->chosen] : NULL;
+    const mlxr_net_cand *v = &p->c[vpn_ok >= 0 ? vpn_ok : vpn];
+    if (!ch) {
+        snprintf(p->vpn_note, sizeof p->vpn_note, "the PC answered neither on the home network nor on its VPN address %s",
+                 v->address);
+    } else if (ch->vpn && p->vpn_only_away) {
+        snprintf(p->vpn_note, sizeof p->vpn_note,
+                 "the PC did not answer on the home network; using its VPN address %s (score %.1f ms)", ch->address,
+                 mlxr_net_score(ch));
+    } else if (ch->vpn) {
+        snprintf(p->vpn_note, sizeof p->vpn_note,
+                 "using the VPN address %s on its score (%.1f ms): VPN addresses only away from home is off", ch->address,
+                 mlxr_net_score(ch));
+    } else if (p->vpn_only_away) {
+        p->vpn_set_aside = vpn_ok >= 0;
+        snprintf(p->vpn_note, sizeof p->vpn_note, "the PC answered on the home network (%s %s); its VPN address %s is not used%s",
+                 mlxr_net_path_label(ch->path), ch->address, v->address,
+                 vpn_ok >= 0 ? "" : " (it did not answer either)");
+    } else {
+        snprintf(p->vpn_note, sizeof p->vpn_note, "%s %s scored better than the VPN address %s",
+                 mlxr_net_path_label(ch->path), ch->address, v->address);
+    }
+}
+
 static mlxr_net_path pref_path(mlxr_net_pref pref)
 {
     return pref == MLXR_NET_HOME ? MLXR_PATH_HOME : pref == MLXR_NET_USB ? MLXR_PATH_USB : MLXR_PATH_ADAPTER;
@@ -615,6 +777,8 @@ int mlxr_net_choose(mlxr_net_plan *p)
     p->reason[0] = 0;
     p->adapter_absent_fallback = false;
     p->usb_absent_fallback = false;   /* Native (lane wave4c-usb) */
+    p->vpn_set_aside = false;         /* Native (lane vpn-fallback) */
+    p->vpn_note[0] = 0;
     mlxr_net_plan_apply_history(p);   /* Native (lane netpath-quality) */
     for (int i = 0; i < p->n; i++) {
         mlxr_net_cand_stats(&p->c[i]);
@@ -657,7 +821,7 @@ int mlxr_net_choose(mlxr_net_plan *p)
     } else {
         mlxr_net_path want = pref_path(p->pref);
         for (int i = 0; i < p->n && p->chosen < 0; i++)
-            if (answered(&p->c[i]) && p->c[i].path == want) p->chosen = i;
+            if (answered(&p->c[i]) && p->c[i].path == want && !set_aside(p, &p->c[i])) p->chosen = i;
         if (p->chosen < 0) {
             failures_on(p, want, p->failure, sizeof p->failure);
             /* Native (lane adapter-detect): the adapter was asked for and none is there */
@@ -668,7 +832,7 @@ int mlxr_net_choose(mlxr_net_plan *p)
             if (no_usb) snprintf(p->failure, sizeof p->failure, "no USB cable found: %s", p->usb.reason);
             if (!p->failure[0]) snprintf(p->failure, sizeof p->failure, "no address of the PC known on this network");
             for (int i = 0; i < p->n && p->chosen < 0; i++)
-                if (answered(&p->c[i])) p->chosen = i;
+                if (answered(&p->c[i]) && !set_aside(p, &p->c[i])) p->chosen = i;
             if (p->chosen >= 0) {
                 p->fell_back = true;
                 p->adapter_absent_fallback = no_adapter;
@@ -687,9 +851,10 @@ int mlxr_net_choose(mlxr_net_plan *p)
                      mlxr_net_pref_name(p->pref));
         mlxr_net_path_describe(p->chosen_path, &p->c[p->chosen].link, p->chosen_desc, sizeof p->chosen_desc);
         snprintf(p->connected, sizeof p->connected, "Connected over %s.", p->chosen_desc);
-        snprintf(p->summary, sizeof p->summary, "%s %s (%s%s)", path_short(p->chosen_path), p->c[p->chosen].address,
-                 mlxr_net_pref_name(p->pref), p->fell_back ? ", fell back" : "");
+        snprintf(p->summary, sizeof p->summary, "%s %s (%s%s%s)", path_short(p->chosen_path), p->c[p->chosen].address,
+                 mlxr_net_pref_name(p->pref), p->fell_back ? ", fell back" : "", p->c[p->chosen].vpn ? ", VPN" : "");
     }
+    vpn_words(p);
     return p->chosen;
 }
 
@@ -888,19 +1053,38 @@ void mlxr_net_probe(mlxr_net_plan *p, const bool *which, int samples, bool first
         if (!started[i]) { c->probed = true; snprintf(c->error, sizeof c->error, "no thread"); c->failed = 1; }
     }
     int64_t first_answer_ns = 0;
+    /* Native (lane vpn-fallback): with the setting on, VPN candidates come second: a VPN answer counts only once
+     * every direct candidate has finished without one */
+    const bool defer = p->vpn_only_away;
     for (;;) {
-        bool all = true, win = false;
+        bool all = true, win = false, direct_pending = false, direct_ok = false;
         for (int i = 0; i < p->n; i++) {
             if (!started[i]) continue;
-            if (!__atomic_load_n(&p->c[i].done, __ATOMIC_ACQUIRE)) { all = false; if (first_wins) break; continue; }
-            if (first_wins && p->c[i].ok > 0 && !p->c[i].other_host) { win = true; break; }
+            bool done = __atomic_load_n(&p->c[i].done, __ATOMIC_ACQUIRE);
+            if (!done) all = false;
+            if (defer && p->c[i].vpn) continue;
+            if (!done) direct_pending = true;
+            else if (p->c[i].ok > 0 && !p->c[i].other_host) direct_ok = true;
+        }
+        if (first_wins) {
+            /* the first answering one in address order, every earlier one finished; direct ones first */
+            for (int pass = 0; pass < (defer ? 2 : 1) && !win; pass++) {
+                if (pass == 1 && (direct_pending || direct_ok)) break;
+                for (int i = 0; i < p->n; i++) {
+                    if (!started[i] || (defer && p->c[i].vpn != (pass == 1))) continue;
+                    if (!__atomic_load_n(&p->c[i].done, __ATOMIC_ACQUIRE)) break;
+                    if (p->c[i].ok > 0 && !p->c[i].other_host) { win = true; break; }
+                }
+            }
         }
         if (all || win) break;
         if (!first_wins) {
             /* auto: one path answered, the other is given a moment, not the whole budget */
             bool got = false;
             for (int i = 0; i < p->n; i++)
-                if (started[i] && __atomic_load_n(&p->c[i].done, __ATOMIC_ACQUIRE) && p->c[i].ok > 0) got = true;
+                if (started[i] && __atomic_load_n(&p->c[i].done, __ATOMIC_ACQUIRE) && p->c[i].ok > 0 &&
+                    (!defer || !p->c[i].vpn || !direct_pending))
+                    got = true;
             if (got && !first_answer_ns) first_answer_ns = now_ns();
             if (first_answer_ns && now_ns() - first_answer_ns > (int64_t)p->grace_ms * 1000000LL) break;
         }
@@ -950,9 +1134,9 @@ void mlxr_net_log_plan(const mlxr_net_plan *p)
         list[0] = 0;
         for (int i = 0; i < p->n && n < sizeof list - 1; i++) {
             const mlxr_net_cand *c = &p->c[i];
-            int w = snprintf(list + n, sizeof list - n, "%s%s (%s, %s%s via %s)", n ? ", " : "", c->address,
+            int w = snprintf(list + n, sizeof list - n, "%s%s (%s, %s%s via %s%s%s)", n ? ", " : "", c->address,
                              c->source[0] ? c->source : "?", c->onlink ? "" : "off-link, ", mlxr_net_path_label(c->path),
-                             c->ifname[0] ? c->ifname : "?");
+                             c->ifname[0] ? c->ifname : "?", c->vpn ? ", VPN: " : "", c->vpn ? c->vpn_why : "");
             if (w < 0 || (size_t)w >= sizeof list - n) break;
             n += (size_t)w;
         }
@@ -987,8 +1171,8 @@ void mlxr_net_log_plan(const mlxr_net_plan *p)
         else if (!c->probed)
             mlxr_log(1, "network path: %s %s via %s: not probed; link: %s", mlxr_net_path_label(c->path), c->address, ifn, link);
         else if (c->ok > 0)
-            mlxr_log(1, "network path: %s %s via %s: %d/%d ok, rtt median %.1f ms, p90 %.1f ms, jitter %.1f ms (serverinfo %.0f ms)%s%s; score %.1f ms; link: %s",
-                     mlxr_net_path_label(c->path), c->address, ifn, c->ok, c->sent, c->median_ms, c->p90_ms, c->jitter_ms, c->info_ms,
+            mlxr_log(1, "network path: %s%s %s via %s: %d/%d ok, rtt median %.1f ms, p90 %.1f ms, jitter %.1f ms (serverinfo %.0f ms)%s%s; score %.1f ms; link: %s",
+                     mlxr_net_path_label(c->path), c->vpn ? " (VPN)" : "", c->address, ifn, c->ok, c->sent, c->median_ms, c->p90_ms, c->jitter_ms, c->info_ms,
                      c->failed ? ", last failure: " : "", c->failed ? c->error : "", mlxr_net_score(c), link);
         else
             mlxr_log(1, "network path: %s %s via %s: no answer (%d/%d failed: %s); link: %s", path_short(c->path),
@@ -996,6 +1180,7 @@ void mlxr_net_log_plan(const mlxr_net_plan *p)
     }
     if (p->chosen >= 0)
         mlxr_log(1, "network path: %s", p->reason);
+    if (p->vpn_note[0]) mlxr_log(1, "network path: %s", p->vpn_note);   /* Native (lane vpn-fallback) */
     if (p->chosen >= 0)
         mlxr_log(1, "network path: using %s %s via %s (setting %s from %s)%s%s", p->chosen_desc,
                  p->c[p->chosen].address, p->c[p->chosen].ifname[0] ? p->c[p->chosen].ifname : "?", mlxr_net_pref_name(p->pref), p->source, p->fell_back ? ": " : "", p->toast);
@@ -1163,19 +1348,29 @@ static void quality_note(const mlxr_net_plan *p, bool was_auto, bool forced)
     }
     g_q.valid = p->chosen >= 0;
     g_q.chosen = p->chosen >= 0 ? p->chosen_path : MLXR_PATH_NONE;
+    g_q.chosen_vpn = p->chosen >= 0 && p->c[p->chosen].vpn;   /* Native (lane vpn-fallback) */
+    g_q.vpn_only_away = p->vpn_only_away;
     int64_t now = mono_ms();
     for (int path = MLXR_PATH_HOME; path <= MLXR_PATH_USB; path++) {
         int best = -1;
         bool probed = false;
+        /* Native (lane vpn-fallback): a path's figure is its best direct candidate when one answered there (with the
+         * setting on), and the chosen path's is the chosen candidate's */
+        bool direct_here = false;
+        for (int i = 0; i < p->n; i++)
+            if (p->c[i].path == (mlxr_net_path)path && !p->c[i].vpn && answered(&p->c[i])) direct_here = true;
         for (int i = 0; i < p->n; i++) {
             const mlxr_net_cand *c = &p->c[i];
             if (c->path != (mlxr_net_path)path || c->skipped || !c->probed) continue;
             probed = true;
+            if (p->vpn_only_away && c->vpn && direct_here) continue;
             if (answered(c) && (best < 0 || mlxr_net_score(c) < mlxr_net_score(&p->c[best]))) best = i;
         }
         if (!probed) continue;
+        if (p->chosen >= 0 && p->chosen_path == (mlxr_net_path)path) best = p->chosen;
         mlxr_net_path_quality *q = &g_q.p[path];
         q->present = best >= 0;
+        q->vpn = best >= 0 && p->c[best].vpn;
         q->score_ms = best >= 0 ? mlxr_net_score(&p->c[best]) : -1;
         q->probed_ms = now;
         snprintf(q->address, sizeof q->address, "%s", best >= 0 ? p->c[best].address : "");
@@ -1189,6 +1384,7 @@ int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
     if (!t) {
         mlxr_netifs_read(&own);
         t = &own;
+        p->route_lookup = true;   /* Native (lane vpn-fallback): the real table, so the kernel's routes count too */
     }
     /* Native (lane wave1-failover): a failover asks for one path; it goes through the same steps as a path set by
      * hand, without waiting for it to come up */
