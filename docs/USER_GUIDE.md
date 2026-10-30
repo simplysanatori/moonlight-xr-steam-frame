@@ -230,6 +230,7 @@ The bar sits under the screen and shows its buttons only while the ray is over i
 | Button | What it does |
 | --- | --- |
 | Head aim | Only shown with Head locked on and outside a room. Your head moves the mouse. |
+| Bring here | In the same place as Head aim, shown when Head aim is not: with the screen in the room (Head locked off) and outside a room. Brings the screen round to where you are looking, at the same size and distance, like the Screen tab's **Bring here**. You are looking at the bar when you press it, so the screen comes round with its bar where your eyes are and keeps its height; a second press leaves it where it is. No toast: the screen moving is the sign. |
 | Gamepad / Pointer | Switches the controllers between pointer mode and gamepad mode. |
 | Exit | Asks "Exit the stream?" with three choices. **Quit app** quits the app on the PC and ends the stream. **Disconnect** ends the stream and leaves the app running on the PC (use **Resume Game** in the flat window to go back). **Cancel** closes the question. |
 | Environment | Opens the Rooms picker. |

@@ -56,24 +56,45 @@ static void locateHead(XrCtx* ctx) {
 
 // ---- bring here ------------------------------------------------------------------------------------
 
-int xrBringScreenHere(XrCtx* ctx) {
+// A screen locked to the head is already where you look, and a room hangs
+// its picture on a wall
+int xrBringHereCanAct(XrCtx* ctx) {
+    return ctx != NULL && !ctx->headLockedPref && roomEffective(ctx) <= 0;
+}
+
+// Native (lane bar-glare): the move itself, from the panel and the binding
+// (fromBar 0) or from the bar's button (1)
+static int bringHere(XrCtx* ctx, int fromBar) {
     if (ctx == NULL || !ctx->placementValid || !ctx->headPoseValid) {
         return 0;
     }
-    // A screen locked to the head is already where you look, and a room hangs
-    // its picture on a wall
-    if (ctx->headLockedPref || roomEffective(ctx) > 0) {
+    if (!xrBringHereCanAct(ctx)) {
         return 0;
     }
-    ctx->screenPose = layoutBringHere(ctx->screenPose, ctx->headPose);
+    if (fromBar) {
+        BarFrame frame = barFrame(ctx);
+        ctx->screenPose = layoutBringHereFromBar(ctx->screenPose, frame.width, frame.height, ctx->headPose);
+    }
+    else {
+        ctx->screenPose = layoutBringHere(ctx->screenPose, ctx->headPose);
+    }
     ctx->grabMode = GRAB_NONE;
     followReset(&ctx->follow);
     ctx->poseDirty = 1;
     Vec3 d = { ctx->screenPose.position.x - ctx->headPose.position.x,
                ctx->screenPose.position.y - ctx->headPose.position.y,
                ctx->screenPose.position.z - ctx->headPose.position.z };
-    LOGEV("screen brought here: %.2f m away, %.2f m wide", sqrtf(vecDot(d, d)), ctx->screenWidth);
+    LOGEV("screen brought here%s: %.2f m away, %.2f m wide", fromBar ? " from the bar" : "",
+          sqrtf(vecDot(d, d)), ctx->screenWidth);
     return 1;
+}
+
+int xrBringScreenHere(XrCtx* ctx) {
+    return bringHere(ctx, 0);
+}
+
+int xrBringScreenHereFromBar(XrCtx* ctx) {
+    return bringHere(ctx, 1);
 }
 
 // ---- Follow -------------------------------------------------------------------------------------------

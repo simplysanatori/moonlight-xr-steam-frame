@@ -154,6 +154,11 @@ static float barLooks(const BarFrame* frame) {
     return frame->width * BAR_WIDTH_FRAC / lengthOf(barMiddle(frame));
 }
 
+// Head aim and Bring here: one place on the bar for the two
+static int sharesPlace(int slot) {
+    return slot == BAR_SLOT_AIM || slot == BAR_SLOT_HERE;
+}
+
 // Each button aimed at from the seat is hit, on the frame it was placed on,
 // and none of the others is
 static void checkButtonsHitWhereTheyHang(const BarFrame* frame) {
@@ -167,7 +172,10 @@ static void checkButtonsHitWhereTheyHang(const BarFrame* frame) {
         CHECK(screenProject(aimAt(framePoint(frame, local)), frame->pose, frame->width,
                             frame->height, frame->radius, frame->curved, &u, &v));
         for (int other = 0; other < BAR_SLOTS; other++) {
-            CHECK(barSlotHit(other, u, v, frame->width, frame->height) == (other == slot));
+            // Bring here hangs in head aim's place (lane bar-glare); the two
+            // never show together
+            int same = other == slot || (sharesPlace(slot) && sharesPlace(other));
+            CHECK(barSlotHit(other, u, v, frame->width, frame->height) == same);
         }
     }
     // And the middle of the row is the move bar's zone
@@ -344,6 +352,16 @@ static void testTheRowsOrder(void) {
     barSlotPlacement(BAR_SLOT_HOST, w, h, &host, &hostSide);
     CHECK(host.x - hostSide * 0.5f > lastR);
     CHECK_NEAR(host.y, -(h * 0.5f + w * BAR_DROP_FRAC), 1e-6);
+    // Native (lane bar-glare): Bring here in head aim's place, the fourth out
+    // on the left
+    Vec3 here, aim;
+    float hereSide, aimSide;
+    barSlotPlacement(BAR_SLOT_HERE, w, h, &here, &hereSide);
+    barSlotPlacement(BAR_SLOT_AIM, w, h, &aim, &aimSide);
+    CHECK_NEAR(here.x, aim.x, 1e-6);
+    CHECK_NEAR(here.y, aim.y, 1e-6);
+    CHECK_NEAR(hereSide, aimSide, 1e-6);
+    CHECK(here.x < 0.0f);
     // Every button is clear of the frame's bottom edge
     for (int slot = 0; slot < BAR_SLOTS; slot++) {
         Vec3 p;
@@ -948,13 +966,15 @@ static void testTheKofiButton(void) {
 // offsets in y, and a face written in lands in its cell the right way up for
 // a texture uploaded bottom row first, touching nothing else.
 static void testTheButtonCells(void) {
-    CHECK(BTN_ATLAS_W == 1920 && BTN_ATLAS_H == BUTTON_TEX);
+    // Native (lane bar-glare): sixteen cells with Bring here's, the atlas's whole width
+    CHECK(BTN_ATLAS_W == 2048 && BTN_ATLAS_H == BUTTON_TEX);
     // Every switch has its on face in the cell after its off face; the Host
     // sheet's button (native) has one face; the 3D button's on faces for the
     // PC's own pair (native, PLAN 4.3) are the last two cells
     CHECK(BTN_CELL_STEREO + 1 < BTN_CELL_RAY && BTN_CELL_RAY + 1 < BTN_CELL_AIM);
     CHECK(BTN_CELL_AIM + 1 < BTN_CELL_PAD && BTN_CELL_PAD + 1 < BTN_CELL_HOST);
-    CHECK(BTN_CELL_HOST + 1 == BTN_CELL_STEREO_SBS && BTN_CELL_STEREO_TB == BTN_CELLS - 1);
+    CHECK(BTN_CELL_HOST + 1 == BTN_CELL_STEREO_SBS && BTN_CELL_STEREO_TB + 1 == BTN_CELL_HERE);
+    CHECK(BTN_CELL_HERE == BTN_CELLS - 1);
     CHECK(barStereoCell(STEREO_SOURCE_DEPTH, 0) == BTN_CELL_STEREO && barStereoCell(STEREO_SOURCE_SBS, 0) == BTN_CELL_STEREO);
     CHECK(barStereoCell(STEREO_SOURCE_DEPTH, 1) == BTN_CELL_STEREO + 1);
     CHECK(barStereoCell(STEREO_SOURCE_SBS, 1) == BTN_CELL_STEREO_SBS && barStereoCell(STEREO_SOURCE_TB, 1) == BTN_CELL_STEREO_TB);
@@ -1092,6 +1112,39 @@ static void testTheGaze(void) {
     g = layoutGazeDir(yawPitch(0.0f, radians(90.0f)));
     CHECK_NEAR(sqrtf(vecDot(g, g)), 1.0, 1e-5);
     CHECK_NEAR(degrees(asinf(g.y)), LAYOUT_GAZE_PITCH_MAX_DEG, 1e-3);
+}
+
+// Native (lane bar-glare): Bring here from the bar, pressed with the eyes on
+// the bar's row. Looking straight at the bar of a screen ahead leaves it where
+// it is (the panel's Bring here would have dropped it to put its middle there),
+// and with the head turned it comes round at the height it had.
+static void testBringHereFromTheBar(void) {
+    const float w = 3.0f, h = w * 9.0f / 16.0f;
+    XrPosef screen;
+    memset(&screen, 0, sizeof(screen));
+    screen.orientation.w = 1.0f;
+    screen.position.z = -3.0f;
+    float barY = -(h * 0.5f + w * BAR_DROP_FRAC);
+    float down = atan2f(-barY, 3.0f);
+    XrPosef head;
+    memset(&head, 0, sizeof(head));
+    head.orientation = yawPitch(0.0f, -down);
+    XrPosef out = layoutBringHereFromBar(screen, w, h, head);
+    CHECK_NEAR(out.position.x, 0.0, 1e-3);
+    CHECK_NEAR(out.position.y, 0.0, 1e-3);
+    CHECK_NEAR(out.position.z, -3.0, 1e-3);
+    XrPosef plain = layoutBringHere(screen, head);
+    CHECK(plain.position.y < barY * 0.9f);
+    // Twice is once
+    XrPosef again = layoutBringHereFromBar(out, w, h, head);
+    CHECK_NEAR(again.position.y, out.position.y, 1e-3);
+    // Turned 30 degrees to the left, eyes on where the bar would be
+    head.orientation = yawPitch(radians(30.0f), -down);
+    out = layoutBringHereFromBar(screen, w, h, head);
+    Vec3 p = { out.position.x, out.position.y, out.position.z };
+    CHECK_NEAR(sqrtf(vecDot(p, p)), 3.0, 1e-3);
+    CHECK_NEAR(out.position.y, 0.0, 1e-3);
+    CHECK_NEAR(atan2f(-p.x, -p.z), radians(30.0f), 1e-3);
 }
 
 // Bring here: where the head looks, as far off as it was, facing the head,
@@ -1685,6 +1738,7 @@ int main(void) {
     testTheBarOnACurvedPicture();
     testTheRowsOrder();
     testTheWholeRowIsTheBar();
+    testBringHereFromTheBar();
     testRoomCornersLookTheSameEverywhere();
     testLanes();
     testTheSizeClamp();

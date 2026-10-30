@@ -58,7 +58,6 @@ int hoverTest(float u, float v, float width, float height, float cornerSide, int
     if (v > 1.0f && v < 1.0f + reach && fabsf(u - 0.5f) < barU) {
         return HOVER_BAR;
     }
-
     // Native (lane bar-glare): and so is the rest of its row, end to end and
     // as deep as the buttons reach, where no button claims it: under the pill,
     // under and between the buttons, a hidden button's place. That was the
@@ -135,10 +134,11 @@ BarFrame roomBarFrame(XrPosef picture, float pictureHeight, float aspect) {
 // Out from the middle in the order the buttons are added, the pill between
 // the first pair: the picker and the cog, then the exit and keyboard
 // buttons, then gamepad mode and the ray, then head aim and the 3D, and on
-// the right past the 3D the Host sheet's
+// the right past the 3D the Host sheet's. Bring here takes head aim's place
+// on the left (lane bar-glare), the two never showing together.
 void barSlotPlacement(int slot, float width, float height, Vec3* outLocal, float* outSide) {
-    static const int OUT[BAR_SLOTS] = { 0, 0, 1, 1, 2, 3, 2, 3, 4 };
-    static const int LEFT[BAR_SLOTS] = { 1, 0, 0, 1, 1, 1, 0, 0, 0 };
+    static const int OUT[BAR_SLOTS] = { 0, 0, 1, 1, 2, 3, 2, 3, 4, 3 };
+    static const int LEFT[BAR_SLOTS] = { 1, 0, 0, 1, 1, 1, 0, 0, 0, 1 };
     if (slot < 0 || slot >= BAR_SLOTS) {
         slot = BAR_SLOT_ENV;
     }
@@ -781,6 +781,26 @@ XrPosef layoutScreenAlong(XrPosef screen, Vec3 headPos, Vec3 dir) {
 XrPosef layoutBringHere(XrPosef screen, XrPosef head) {
     Vec3 hp = { head.position.x, head.position.y, head.position.z };
     return layoutScreenAlong(screen, hp, layoutGazeDir(head.orientation));
+}
+
+XrPosef layoutBringHereFromBar(XrPosef screen, float width, float height, XrPosef head) {
+    Vec3 hp = { head.position.x, head.position.y, head.position.z };
+    Vec3 gaze = layoutGazeDir(head.orientation);
+    Vec3 barLocal = { 0.0f, -(height * 0.5f + width * BAR_DROP_FRAC), 0.0f };
+    Vec3 barOff = quatRotate(screen.orientation, barLocal);
+    Vec3 mid = { screen.position.x - hp.x, screen.position.y - hp.y, screen.position.z - hp.z };
+    Vec3 bar = { mid.x + barOff.x, mid.y + barOff.y, mid.z + barOff.z };
+    float lm = sqrtf(vecDot(mid, mid)), lb = sqrtf(vecDot(bar, bar));
+    Vec3 up = { 0.0f, 1.0f, 0.0f };
+    Vec3 axis = vecCross(gaze, up);
+    float la = sqrtf(vecDot(axis, axis));
+    if (lm > 1e-4f && lb > 1e-4f && la > 1e-4f) {
+        float c = vecDot(mid, bar) / (lm * lb);
+        float lift = acosf(c > 1.0f ? 1.0f : (c < -1.0f ? -1.0f : c));
+        Vec3 a = { axis.x / la, axis.y / la, axis.z / la };
+        gaze = vecNorm(quatRotate(axisAngleQuat(a, lift), gaze));
+    }
+    return layoutScreenAlong(screen, hp, gaze);
 }
 
 void followReset(FollowState* st) {

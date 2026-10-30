@@ -42,6 +42,8 @@
 // Native (lane wave2-bind-wire): the bar's Host button and the Host sheet
 #define HOVER_HOSTBUTTON 22
 #define HOVER_HOST      23
+// Native (lane bar-glare): the bar's Bring here button
+#define HOVER_HEREBUTTON 24
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 
@@ -95,7 +97,11 @@
 #define BAR_SLOT_STEREO 7
 // Native (lane wave2-bind-wire): the Host sheet's, outermost on the right
 #define BAR_SLOT_HOST   8
-#define BAR_SLOTS       9
+// Native (lane bar-glare): Bring here, outermost on the left. It shares head
+// aim's place: head aim shows only with the screen on the head and Bring here
+// only with it in the world, so the two never show together.
+#define BAR_SLOT_HERE   9
+#define BAR_SLOTS       10
 
 // The rectangle the bar and its buttons are laid out in: the picture's shape,
 // its bottom edge on the bottom edge of the picture as drawn and centred on
@@ -153,8 +159,10 @@ int barRowHolds(float u, float v, float width, float height);
 // says SBS or TB in place of 3D (its off face is the 3D button's own)
 #define BTN_CELL_STEREO_SBS 13
 #define BTN_CELL_STEREO_TB  14
-#define BTN_CELLS       15
-#define BTN_ATLAS_COLS  15
+// Native (lane bar-glare): Bring here
+#define BTN_CELL_HERE   15
+#define BTN_CELLS       16
+#define BTN_ATLAS_COLS  16
 #define BTN_ATLAS_ROWS  1
 #define BTN_ATLAS_W     (BTN_ATLAS_COLS * BUTTON_TEX)
 #define BTN_ATLAS_H     (BTN_ATLAS_ROWS * BUTTON_TEX)
@@ -398,6 +406,14 @@ XrQuaternionf layoutFaceHead(XrQuaternionf orientation, Vec3 screenPos, Vec3 hea
 // "Bring here": the screen where the head looks, as far from the head as it
 // was, facing it, the same size. Only its pose; the width is not touched.
 XrPosef layoutBringHere(XrPosef screen, XrPosef head);
+
+// Native (lane bar-glare): the same from the bar's Bring here button. The eyes
+// are on the bar then, not on the picture, so the gaze is lifted by the angle
+// the middle of the bar's row hangs under the picture's middle as the head
+// sees it now (a frame width x height, the bar under it as barSlotPlacement
+// hangs it): the picture comes round with its bar where the eyes were, and a
+// second press leaves it where it is rather than walking it down.
+XrPosef layoutBringHereFromBar(XrPosef screen, float width, float height, XrPosef head);
 
 // Where the screen is when it sits dir from the head, as far from it as it
 // was, facing it with its tilt and roll kept
