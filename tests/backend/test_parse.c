@@ -334,8 +334,76 @@ static void test_launch_query(void)
     CHECK_EQ_INT(mlxr_parse_mode(NULL, &w, &h, &f), MLXR_E_ARG);
 }
 
+/* Native (lane wave4-apollo): which hosts the Host sheet's commands and clipboard entries work on */
+static void test_hostfeat(void)
+{
+    mlxr_error e;
+    mlxr_computer c;
+    int idx = -9;
+    char *s = fx("serverinfo_apollo.xml");
+    CHECK_OK(mlxr_computer_parse(s, strlen(s), 47989, &c, &e));
+    free(s);
+    CHECK_EQ_INT(mlxr_server_cmd_gate(&c, -1), MLXR_HOSTFEAT_OK);
+    CHECK_EQ_INT(mlxr_server_cmd_gate(&c, 0), MLXR_HOSTFEAT_OK);
+    CHECK_EQ_INT(mlxr_server_cmd_gate(&c, 1), MLXR_HOSTFEAT_OK);
+    CHECK_EQ_INT(mlxr_server_cmd_gate(&c, 2), MLXR_HOSTFEAT_BAD_INDEX);
+    CHECK_EQ_INT(mlxr_server_cmd_gate(&c, -2), MLXR_HOSTFEAT_BAD_INDEX);
+    CHECK_EQ_INT(mlxr_server_cmd_find(&c, "Bubbles"), 0);
+    CHECK_EQ_INT(mlxr_server_cmd_find(&c, "sleep pc"), 1);   /* case-insensitive */
+    CHECK_EQ_INT(mlxr_server_cmd_find(&c, "Hibernate"), -1);
+    CHECK_EQ_INT(mlxr_server_cmd_find(&c, NULL), -1);
+    CHECK_EQ_INT(mlxr_server_cmd_resolve(&c, "SLEEP PC", &idx), MLXR_HOSTFEAT_OK);
+    CHECK_EQ_INT(idx, 1);
+    CHECK_EQ_INT(mlxr_server_cmd_resolve(&c, "Hibernate", &idx), MLXR_HOSTFEAT_BAD_INDEX);
+    CHECK_EQ_INT(mlxr_clipboard_gate(&c, false), MLXR_HOSTFEAT_OK);
+    CHECK_EQ_INT(mlxr_clipboard_gate(&c, true), MLXR_HOSTFEAT_OK);
+
+    /* the same Apollo with the Server Command and Clipboard Read bits taken away */
+    c.permission &= ~(MLXR_PERM_SERVER_CMD | MLXR_PERM_CLIPBOARD_READ);
+    CHECK_EQ_INT(mlxr_server_cmd_gate(&c, -1), MLXR_HOSTFEAT_NO_PERMISSION);
+    CHECK_EQ_INT(mlxr_server_cmd_gate(&c, 0), MLXR_HOSTFEAT_NO_PERMISSION);
+    CHECK_EQ_INT(mlxr_server_cmd_resolve(&c, "Bubbles", &idx), MLXR_HOSTFEAT_NO_PERMISSION);
+    CHECK_EQ_INT(mlxr_clipboard_gate(&c, false), MLXR_HOSTFEAT_NO_PERMISSION);
+    CHECK_EQ_INT(mlxr_clipboard_gate(&c, true), MLXR_HOSTFEAT_OK);
+
+    /* permitted but nothing set up */
+    s = fx("serverinfo_apollo.xml");
+    CHECK_OK(mlxr_computer_parse(s, strlen(s), 47989, &c, &e));
+    free(s);
+    c.n_server_cmds = 0;
+    CHECK_EQ_INT(mlxr_server_cmd_gate(&c, -1), MLXR_HOSTFEAT_NONE_CONFIGURED);
+
+    /* an Apollo older than 0.2.0 sends commands and no <Permission>: they are enough */
+    s = fx("serverinfo_apollo.xml");
+    CHECK_OK(mlxr_computer_parse(s, strlen(s), 47989, &c, &e));
+    free(s);
+    c.permission = -1;
+    CHECK_EQ_INT(mlxr_server_cmd_gate(&c, 0), MLXR_HOSTFEAT_OK);
+    CHECK_EQ_INT(mlxr_clipboard_gate(&c, false), MLXR_HOSTFEAT_OK);   /* it has the virtual display fields */
+
+    /* plain Sunshine: neither */
+    s = fx("serverinfo_sunshine.xml");
+    CHECK_OK(mlxr_computer_parse(s, strlen(s), 47989, &c, &e));
+    free(s);
+    CHECK_EQ_INT(mlxr_server_cmd_gate(&c, -1), MLXR_HOSTFEAT_NOT_APOLLO);
+    CHECK_EQ_INT(mlxr_server_cmd_resolve(&c, "Bubbles", &idx), MLXR_HOSTFEAT_NOT_APOLLO);
+    CHECK_EQ_INT(mlxr_clipboard_gate(&c, false), MLXR_HOSTFEAT_NOT_APOLLO);
+    CHECK_EQ_INT(mlxr_clipboard_gate(&c, true), MLXR_HOSTFEAT_NOT_APOLLO);
+    CHECK_EQ_INT(mlxr_server_cmd_gate(NULL, -1), MLXR_HOSTFEAT_NOT_APOLLO);
+
+    CHECK_EQ_STR(mlxr_hostfeat_text(MLXR_HOSTFEAT_NOT_APOLLO), "Not supported by this host");
+    CHECK_EQ_STR(mlxr_hostfeat_text(MLXR_HOSTFEAT_OK), "");
+    CHECK(mlxr_hostfeat_text(MLXR_HOSTFEAT_NO_PERMISSION)[0] != 0);
+    CHECK(mlxr_hostfeat_text(MLXR_HOSTFEAT_NONE_CONFIGURED)[0] != 0);
+    CHECK(mlxr_hostfeat_text(MLXR_HOSTFEAT_BAD_INDEX)[0] != 0);
+    CHECK_EQ_STR(mlxr_hostfeat_http_text(404), "Not supported by this host");
+    CHECK(mlxr_hostfeat_http_text(401) != NULL && mlxr_hostfeat_http_text(403) != NULL);
+    CHECK(mlxr_hostfeat_http_text(500) == NULL);
+}
+
 int main(void)
 {
+    test_hostfeat();
     test_xml();
     test_serverinfo();
     test_applist();

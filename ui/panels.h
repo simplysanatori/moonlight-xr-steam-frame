@@ -94,7 +94,8 @@ typedef enum {
     UI_BTN_HOST_CONFIRM,     // Host sheet's confirmation: send (XR_HOST_ZONE_CONFIRM_SEND)
     UI_BTN_HOST_CANCEL,      // Host sheet's confirmation: cancel (XR_HOST_ZONE_CONFIRM_CANCEL)
     UI_BTN_HOST_PCVR,        // Host sheet: Switch to PC VR (XR_HOST_ZONE_PCVR)
-    UI_BTN_KOFI_OPEN         // Ko-fi sheet, "Open page" (KOFI_ZONE_OPEN)
+    UI_BTN_KOFI_OPEN,        // Ko-fi sheet, "Open page" (KOFI_ZONE_OPEN)
+    UI_BTN_HOST_PAGE         // Host sheet: the header button between its pages (XR_HOST_ZONE_PAGE)
 } UiButton;
 
 typedef struct {
@@ -156,7 +157,16 @@ typedef struct {
     int host_macros;
     char host_macro[XR_HOST_MACRO_SLOTS][XR_MACRO_NAME];
     int host_confirm;
-    char host_confirm_label[XR_MACRO_NAME];
+    char host_confirm_label[XR_HOST_CMD_NAME];
+    // Native (lane wave4-apollo): the Host sheet's PC page. host_page is XR_HOST_PAGE_*; host_info what
+    // the host offers (the commands' names are its cells); host_confirm_cmd says the question is about
+    // a command (Run) and not keys (Send). kb_compose: "Send text to PC" has the keyboard, and
+    // kb_compose_text is the end of what is typed, for the space bar
+    int host_page;
+    XrHostInfo host_info;
+    int host_confirm_cmd;
+    int kb_compose;
+    char kb_compose_text[64];
     const char* version;         // About tab ("0.1.0"), NULL for none
     const char* commit;          // may be NULL
     const char* log_path;        // shown shortened; NULL means the log is off

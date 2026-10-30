@@ -40,6 +40,12 @@ int stream_failed(void);    // 1 once the connection has terminated or failed
 // for a socket failure, 0 for the host's graceful end); 0 until it has terminated. Reset by stream_start.
 int stream_termination_code(void);
 
+// Native (lane wave4-apollo): runs Apollo's server command number `index` (its place in the host's
+// <ServerCommand> list, backend.h mlxr_server_cmd_resolve) over the control stream. 1 if the request
+// went to the host, 0 if there is no stream or the host's control stream cannot carry it. The host gives
+// no answer; whether it ran is for the host to say (its permission and its command list decide).
+int stream_exec_server_cmd(int index);
+
 // Input from the frame loop (no-ops when not connected).
 void stream_pointer(int x, int y, int w, int h);
 void stream_button(int button, int down);
