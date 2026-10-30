@@ -911,41 +911,15 @@ static int64_t monoSeconds(void) {
     return ts.tv_sec;
 }
 
-// Every address that answered as this PC (and serverinfo's LocalIP) goes into hosts.ini, so the
-// next choice has both paths even when the flat launcher only knew one
+// Every direct address that answered as this PC (and serverinfo's LocalIP) goes into hosts.ini, so the
+// next choice has every path from the start even when the flat launcher only knew one. Native (lane
+// vpn-fallback): the rule is mlxr_net_learn_addresses (no VPN, loopback or USB cable addresses; nothing removed)
 static void rememberAddresses(Net* n, int i, const mlxr_net_plan* plan, const mlxr_computer* comp) {
     mlxr_host_record* rec = &n->hosts.v[i];
-    char list[sizeof(rec->extra_addresses)];
+    char list[sizeof(rec->extra_addresses)], learned[sizeof(rec->extra_addresses)];
     snprintf(list, sizeof(list), "%s", rec->extra_addresses);
-    int changed = 0;
-    const char* add[MLXR_NET_MAX_CANDS + 1];
-    int na = 0;
-    // Native (lane wave4c-usb): the cable's addresses are worked out from the interface each time, not kept
-    // (unplugged, a kept address would only cost a timeout)
-    int localIsUsb = 0;
-    for (int k = 0; k < plan->n; k++) {
-        if (plan->c[k].path == MLXR_PATH_USB) {
-            if (!strcmp(plan->c[k].address, comp->local_ip)) localIsUsb = 1;
-            continue;
-        }
-        if (plan->c[k].ok > 0 && !plan->c[k].other_host) add[na++] = plan->c[k].address;
-    }
-    if (comp->local_ip[0] && !localIsUsb) add[na++] = comp->local_ip;
-    for (int k = 0; k < na; k++) {
-        const char* a = add[k];
-        if (!strncmp(a, "127.", 4) || !strcmp(a, rec->address)) continue;
-        char probe[sizeof(list) + 2];
-        snprintf(probe, sizeof(probe), ",%s,", list);
-        char needle[140];
-        snprintf(needle, sizeof(needle), ",%s,", a);
-        if (strstr(probe, needle)) continue;
-        if (strlen(list) + strlen(a) + 2 > sizeof(list)) continue;
-        if (list[0]) strcat(list, ",");
-        strcat(list, a);
-        changed = 1;
-        MLOG_I("network path: learned address %s of %s", a, rec->name);
-    }
-    if (changed) {
+    if (mlxr_net_learn_addresses(plan, rec->address, comp->local_ip, list, sizeof(list), learned, sizeof(learned)) > 0) {
+        MLOG_I("network path: learned address %s of %s", learned, rec->name);
         snprintf(rec->extra_addresses, sizeof(rec->extra_addresses), "%s", list);
         mlxr_error err = { 0 };
         if (mlxr_hosts_save(n->dir, &n->hosts, &err) != MLXR_OK) MLOG_W("hosts.ini not saved: %s", err.msg);
@@ -968,6 +942,7 @@ static mlxr_server* connectChosen(Net* n, int i, const char* override) {
     mlxr_net_plan_init(plan, pref, source, rec->http_port, rec->uuid, n->id.unique_id);
     snprintf(plan->history_dir, sizeof(plan->history_dir), "%s", n->dir); // Native (lane netpath-quality)
     plan->bitrate_kbps = g_args.bitrate > 0 ? g_args.bitrate : settings_bitrate_kbps(&g_settings);
+    plan->vpn_only_away = g_settings.vpn_only_away != 0; // Native (lane vpn-fallback)
     snprintf(plan->hostname, sizeof(plan->hostname), "%s", rec->name);
     if (rec->has_mac) {
         memcpy(plan->mac, rec->mac, 6);
