@@ -74,5 +74,6 @@ void panel_button_atlas(Dc* dc);
 void panel_exit(Dc* dc);
 void panel_hint(Dc* dc);
 void panel_kofi(Dc* dc);
+void panel_host(Dc* dc);
 
 #endif

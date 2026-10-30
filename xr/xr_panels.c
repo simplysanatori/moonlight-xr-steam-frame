@@ -653,11 +653,14 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->bar_show_aim = headAimCanAct(ctx);
     v->bar_show_stereo = ctx->stereoButtonReady;
     v->kb_sheet = ctx->kbState;
-    v->kb_mods = ctx->kbMods;
+    v->kb_mods = ctx->kbMods | (ctx->hostChord.active ? ctx->hostChord.mods : 0);
     v->kb_layout = xrKeyboardLayout(ctx);
     v->kb_map = xrKeyboardMap(ctx);
-    v->kb_oneshot = ctx->kbFull.oneshot;
-    v->kb_locked = ctx->kbFull.locked;
+    v->kb_oneshot = ctx->kbFull.oneshot | (ctx->hostChord.active ? ctx->hostChord.mods : 0);
+    // the Compact keyboard's locked modifiers (KB_STICKY_SHIFT is KBF_LSHIFT's bit)
+    v->kb_locked = v->kb_layout == KB_LAYOUT_FULL ? ctx->kbFull.locked : ctx->kbSticky.locked;
+    v->kb_chord = ctx->hostChord.active;
+    v->kb_chord_mods = ctx->hostChord.mods;
     v->kb_caps = ctx->kbFull.caps;
     v->kb_chip = !ctx->reportOpen;
     v->version = MLXR_VERSION;   // the top-level VERSION file, through CMake
@@ -765,8 +768,9 @@ static void updateKeyboard(XrCtx* ctx, XrPanels* p, const UiView* base) {
     if (!ctx->kbOpen) {
         return;
     }
-    int k[7] = { ctx->kbState, ctx->kbMods, ctx->kbLayoutShown, ctx->kbFull.oneshot,
-                 ctx->kbFull.locked, ctx->kbFull.caps, ctx->reportOpen };
+    int k[10] = { ctx->kbState, ctx->kbMods, ctx->kbLayoutShown, ctx->kbFull.oneshot,
+                  ctx->kbFull.locked, ctx->kbFull.caps, ctx->reportOpen, ctx->kbSticky.locked,
+                  ctx->hostChord.active, ctx->hostChord.mods };
     if (!keyChanged(p, UI_PANEL_KEYBOARD, k, sizeof(k))) {
         return;
     }
@@ -791,6 +795,54 @@ static void updateExit(XrCtx* ctx, XrPanels* p, const UiView* base) {
               : zone[0] == EXIT_ZONE_DISCONNECT ? UI_BTN_EXIT_DISCONNECT : UI_BTN_EXIT_CANCEL;
     PanelJob j;
     jobPanel(&j, UI_PANEL_EXIT, &v);
+    submit(ctx, p, &j);
+}
+
+// Native: the Host sheet, per hovered zone, confirmation and macro list
+static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
+    if (!ctx->hostOpen && ctx->panelFades[FADE_HOST].level <= 0.0f) {
+        return;
+    }
+    struct {
+        int zone, confirm, count;
+        char names[XR_HOST_MACRO_SLOTS][XR_MACRO_NAME];
+        char label[XR_MACRO_NAME];
+    } k;
+    memset(&k, 0, sizeof(k));
+    k.zone = ctx->hostHoverZone;
+    k.confirm = ctx->hostConfirm;
+    k.count = ctx->macros.count < XR_HOST_MACRO_SLOTS ? ctx->macros.count : XR_HOST_MACRO_SLOTS;
+    for (int i = 0; i < k.count; i++) {
+        snprintf(k.names[i], sizeof(k.names[i]), "%s", ctx->macros.macro[i].name);
+    }
+    if (k.confirm >= 0) {
+        XrHostSeq seq;
+        int ask;
+        xrHostCellSeq(k.confirm, &ctx->macros, &seq, &ask, k.label, sizeof(k.label));
+    }
+    if (!keyChanged(p, UI_PANEL_HOST, &k, sizeof(k))) {
+        return;
+    }
+    UiView v = *base;
+    v.hover.kind = UI_HIT_NONE;
+    if (k.zone >= 0 && k.zone < XR_HOST_CELLS) {
+        v.hover.kind = UI_HIT_HOST_CELL;
+        v.hover.a = k.zone;
+    }
+    else if (k.zone == XR_HOST_ZONE_CLOSE || k.zone == XR_HOST_ZONE_CONFIRM_SEND
+             || k.zone == XR_HOST_ZONE_CONFIRM_CANCEL) {
+        v.hover.kind = UI_HIT_BUTTON;
+        v.hover.a = k.zone == XR_HOST_ZONE_CLOSE ? UI_BTN_HOST_CLOSE
+                  : k.zone == XR_HOST_ZONE_CONFIRM_SEND ? UI_BTN_HOST_CONFIRM : UI_BTN_HOST_CANCEL;
+    }
+    v.host_macros = k.count;
+    for (int i = 0; i < k.count; i++) {
+        snprintf(v.host_macro[i], sizeof(v.host_macro[i]), "%s", k.names[i]);
+    }
+    v.host_confirm = k.confirm;
+    snprintf(v.host_confirm_label, sizeof(v.host_confirm_label), "%s", k.label);
+    PanelJob j;
+    jobPanel(&j, UI_PANEL_HOST, &v);
     submit(ctx, p, &j);
 }
 
@@ -1178,6 +1230,7 @@ void xrPanelsUpdate(XrCtx* ctx, const Settings* live, const XrLauncherView* laun
     updateClock(ctx, p, clockText);
     updateKeyboard(ctx, p, &base);
     updateExit(ctx, p, &base);
+    updateHost(ctx, p, &base);
     updateReport(ctx, p);
     xrPanelsReportPoll(ctx);
     updateOverlay(ctx, p, statsText);

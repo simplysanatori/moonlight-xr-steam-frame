@@ -620,7 +620,11 @@
 // arrows and the rest, and the Ctrl, Alt and Win that stay held until the
 // next key goes with them.
 #define KB_TEX_W 1120
-#define KB_TEX_H 448
+// Native: the main block of keys is laid out in the first 448 rows
+// (KB_MAIN_TEX_H, as it always was) and the media keys row sits under it, so
+// the panel is KB_TEX_H tall (PLAN 3.11)
+#define KB_MAIN_TEX_H 448
+#define KB_TEX_H 512
 #define KB_STATE_LOWER   0
 #define KB_STATE_UPPER   1
 #define KB_STATE_SYMBOLS 2

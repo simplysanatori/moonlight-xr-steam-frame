@@ -2,6 +2,7 @@
 // set of key rectangles, a held Ctrl, Alt and Win shown lit. Layout, labels
 // and codes are XrPanels.java's KB_ tables. GPLv3.
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "panels_int.h"
@@ -151,9 +152,16 @@ static const char* resolve(const char* l) {
     return l;   // arrows stay as tokens
 }
 
-int ui_kb_key_count(void) { return NKEYS; }
+int ui_kb_key_count(void) { return NKEYS + KB_MEDIA_KEYS; }
+
+// The media keys row's tokens, drawn as shapes (Noto Sans has none of the glyphs)
+static const char* const MEDIA_LABEL[KB_MEDIA_KEYS] = { "@prev", "@play", "@next", "@mute", "@voldown", "@volup" };
 
 void ui_kb_key_rect(int index, float r[4]) {
+    if (index >= NKEYS) {
+        kbMediaRect(index - NKEYS, r);
+        return;
+    }
     int row = 0, k = index;
     while (row < 5 && k >= ROW_KEYS[row]) { k -= ROW_KEYS[row]; row++; }
     float unit = (1.0f - 2.0f * PAD_U) / ROW_UNITS;
@@ -162,9 +170,9 @@ void ui_kb_key_rect(int index, float r[4]) {
     for (int i = 0; i < k; i++) x += ROW_WIDTHS[row][i];
     float w = ROW_WIDTHS[row][k];
     r[0] = PAD_U + x * unit + GAP_U * 0.5f;
-    r[1] = PAD_V + (float)row * rowh + GAP_V * 0.5f;
+    r[1] = kbMainV(PAD_V + (float)row * rowh + GAP_V * 0.5f);
     r[2] = PAD_U + (x + w) * unit - GAP_U * 0.5f;
-    r[3] = PAD_V + (float)(row + 1) * rowh - GAP_V * 0.5f;
+    r[3] = kbMainV(PAD_V + (float)(row + 1) * rowh - GAP_V * 0.5f);
 }
 
 // The half key of room at the right of the home row, on every sheet
@@ -179,10 +187,14 @@ void ui_kb_layout_chip_rect(float r[4]) {
 }
 
 int ui_kb_map_key_code(int map, int sheet, int i) {
+    if ((unsigned)sheet < KB_STATE_COUNT && i >= NKEYS && i < NKEYS + KB_MEDIA_KEYS) {
+        return kbMediaCode(i - NKEYS);   // the same under every sheet and key map
+    }
     return (unsigned)sheet < KB_STATE_COUNT && i >= 0 && i < NKEYS ? SHEETS_BY_MAP[mapOf(map)][sheet][i].code : 0;
 }
 
 const char* ui_kb_map_key_label(int map, int sheet, int i) {
+    if ((unsigned)sheet < KB_STATE_COUNT && i >= NKEYS && i < NKEYS + KB_MEDIA_KEYS) return MEDIA_LABEL[i - NKEYS];
     if ((unsigned)sheet >= KB_STATE_COUNT || i < 0 || i >= NKEYS) return NULL;
     return resolve(SHEETS_BY_MAP[mapOf(map)][sheet][i].label);
 }
@@ -204,6 +216,66 @@ static void arrow(Dc* dc, const char* token, float cx, float cy, uint32_t ink) {
     float head[6] = { x1 - dx * H + px * H, y1 - dy * H + py * H, x1, y1,
                       x1 - dx * H - px * H, y1 - dy * H - py * H };
     dc_polyline(dc, head, 3, 3.5f, ink, 0);
+}
+
+// A media key's shape, centred on (cx, cy): previous and next are a bar and a
+// triangle, play/pause a triangle and two bars, the volume keys a speaker with
+// a cross, a minus or a plus beside it
+static void mediaIcon(Dc* dc, const char* token, float cx, float cy, uint32_t ink) {
+    const float s = 12.0f;
+    if (!strcmp(token, "@prev") || !strcmp(token, "@next")) {
+        float d = !strcmp(token, "@next") ? 1.0f : -1.0f;
+        float tri[6] = { cx - d * s, cy - s, cx - d * s, cy + s, cx + d * s * 0.5f, cy };
+        dc_fill_poly(dc, tri, 3, ink);
+        dc_line(dc, cx + d * s * 0.9f, cy - s, cx + d * s * 0.9f, cy + s, 3.5f, ink);
+    } else if (!strcmp(token, "@play")) {
+        float tri[6] = { cx - s * 1.3f, cy - s, cx - s * 1.3f, cy + s, cx - s * 0.1f, cy };
+        dc_fill_poly(dc, tri, 3, ink);
+        dc_line(dc, cx + s * 0.55f, cy - s, cx + s * 0.55f, cy + s, 4.0f, ink);
+        dc_line(dc, cx + s * 1.25f, cy - s, cx + s * 1.25f, cy + s, 4.0f, ink);
+    } else {
+        float body[8] = { cx - s * 1.4f, cy - s * 0.4f, cx - s * 0.7f, cy - s * 0.4f,
+                          cx - s * 0.7f, cy + s * 0.4f, cx - s * 1.4f, cy + s * 0.4f };
+        dc_fill_poly(dc, body, 4, ink);
+        float cone[8] = { cx - s * 0.7f, cy - s * 0.4f, cx, cy - s * 0.95f, cx, cy + s * 0.95f,
+                          cx - s * 0.7f, cy + s * 0.4f };
+        dc_fill_poly(dc, cone, 4, ink);
+        float mx = cx + s * 1.0f;
+        if (!strcmp(token, "@mute")) {
+            dc_line(dc, mx - s * 0.5f, cy - s * 0.5f, mx + s * 0.5f, cy + s * 0.5f, 3.5f, ink);
+            dc_line(dc, mx - s * 0.5f, cy + s * 0.5f, mx + s * 0.5f, cy - s * 0.5f, 3.5f, ink);
+        } else {
+            dc_line(dc, mx - s * 0.6f, cy, mx + s * 0.6f, cy, 3.5f, ink);
+            if (!strcmp(token, "@volup")) dc_line(dc, mx, cy - s * 0.6f, mx, cy + s * 0.6f, 3.5f, ink);
+        }
+    }
+}
+
+static int isMedia(const char* token) {
+    return token[0] == '@' && (!strcmp(token, "@prev") || !strcmp(token, "@play") || !strcmp(token, "@next")
+                               || !strcmp(token, "@mute") || !strcmp(token, "@voldown") || !strcmp(token, "@volup"));
+}
+
+// What "Send keys" has so far, for the space bar: the modifiers lit, or the prompt
+static void chordText(const UiView* v, char* out, size_t cap) {
+    static const struct { int bit; UiStr name; } M[4] = {
+        { KBF_LSHIFT, UIS_KEY_SHIFT }, { KBF_LCTRL, UIS_KEY_CTRL }, { KBF_LALT, UIS_KEY_ALT }, { KBF_LWIN, UIS_KEY_WIN } };
+    out[0] = 0;
+    for (int i = 0; i < 4; i++) {
+        if (v->kb_chord_mods & M[i].bit) {
+            strncat(out, ui_str(M[i].name), cap - strlen(out) - 1);
+            strncat(out, "+", cap - strlen(out) - 1);
+        }
+    }
+    if (!out[0]) snprintf(out, cap, "%s", ui_str(UIS_HOST_SEND_KEYS_SHORT));
+}
+
+// A lit pill at the left end of a key, for what is held or being typed
+static void keyPill(Dc* dc, float x0, float y0, float y1, const char* text) {
+    float tw = dc_text_width(dc, UI_WEIGHT_REGULAR, 20.0f, text) + 20.0f;
+    float th = (y1 - y0) - 16.0f;
+    dc_fill_rrect(dc, x0 + 8, y0 + 8, x0 + 8 + tw, y0 + 8 + th, 8.0f, 0xEEFFFFFFu);
+    dc_text_left_mid(dc, UI_WEIGHT_REGULAR, 20.0f, x0 + 18, y0 + 8 + th * 0.5f, 0xFF141416u, text);
 }
 
 // ---- the Full keyboard ------------------------------------------------------------------
@@ -243,6 +315,8 @@ static void panelFull(Dc* dc) {
         if (!strcmp(label, "@up") || !strcmp(label, "@down") || !strcmp(label, "@left")
                 || !strcmp(label, "@right")) {
             arrow(dc, label, cx, cy, ink);
+        } else if (isMedia(label)) {
+            mediaIcon(dc, label, cx, cy, ink);
         } else {
             const char* text = fullText(label);
             float size = ui_utf8_count(text, -1) == 1 ? 30.0f : 20.0f;
@@ -258,6 +332,11 @@ static void panelFull(Dc* dc) {
             dc_fill_circle(dc, x1 - 10.0f, y0 + 10.0f, 4.0f, ink);
         } else if (k->kind == KBF_CAPS && v->kb_caps) {
             dc_fill_circle(dc, x1 - 10.0f, y0 + 10.0f, 5.0f, 0xFF2EB82Eu);
+        }
+        if (v->kb_chord && k->vk == 0x20) {
+            char said[64];
+            chordText(v, said, sizeof said);
+            keyPill(dc, x0, y0, y1, said);
         }
         dc_hit_uv(dc, UI_HIT_KEY, i, kbfKeyCode(i), r[0], r[1], r[2], r[3], 1);
     }
@@ -298,26 +377,52 @@ void panel_keyboard(Dc* dc) {
         float x0 = r[0] * dc->nw, y0 = r[1] * dc->nh, x1 = r[2] * dc->nw, y1 = r[3] * dc->nh;
         int code = keys[i].code;
         int lit = (mods & kbModifierBit(code)) != 0;
+        // Native (PLAN 4b.13): a modifier held down to lock is drawn as the
+        // Full keyboard draws its locked ones, in blue with an underline
+        int locked = (kbModifierBit(code) && (v->kb_locked & kbModifierBit(code)))
+                  || (code == KB_CODE_SHIFT && (v->kb_locked & KB_STICKY_SHIFT));
+        if (locked) lit = 1;
         int hot = dc_hover(dc, UI_HIT_KEY, i, -1);
-        dc_fill_rrect(dc, x0, y0, x1, y1, 10.0f, lit ? 0xEEFFFFFFu : hot ? 0x44FFFFFFu : 0x28FFFFFFu);
-        dc_stroke_rrect(dc, x0, y0, x1, y1, 10.0f, 2.0f, lit ? 0xFFFFFFFFu : hot ? 0x90FFFFFFu : 0x50FFFFFFu);
+        dc_fill_rrect(dc, x0, y0, x1, y1, 10.0f,
+                      locked ? 0xEE9CC9FFu : lit ? 0xEEFFFFFFu : hot ? 0x44FFFFFFu : 0x28FFFFFFu);
+        dc_stroke_rrect(dc, x0, y0, x1, y1, 10.0f, 2.0f,
+                        locked ? 0xFFCFE4FFu : lit ? 0xFFFFFFFFu : hot ? 0x90FFFFFFu : 0x50FFFFFFu);
         uint32_t ink = lit ? 0xFF141416u : 0xFFFFFFFFu;
-        if (label[0] == '@') {
+        if (label[0] == '@' && isMedia(label)) {
+            mediaIcon(dc, label, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, ink);
+        } else if (label[0] == '@') {
             arrow(dc, label, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, ink);
         } else {
             // a single character is what the key types, so it gets the room
             float size = ui_utf8_count(label, -1) == 1 ? 34.0f : 22.0f;
             dc_text_center(dc, UI_WEIGHT_REGULAR, size, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, ink, label);
         }
-        if (held[0] && code == 32) {
+        if (locked) {
+            dc_line(dc, x0 + 12.0f, y1 - 9.0f, x1 - 12.0f, y1 - 9.0f, 4.0f, ink);
+            dc_fill_circle(dc, x1 - 10.0f, y0 + 10.0f, 4.0f, ink);
+        }
+        if (code == 32 && v->kb_chord) {
+            // Send keys is waiting for a combo: what it has so far
+            char said[64];
+            chordText(v, said, sizeof said);
+            keyPill(dc, x0, y0, y1, said);
+        } else if (held[0] && code == 32) {
             // the held modifiers, lit at the left end of the space bar
-            float tw = dc_text_width(dc, UI_WEIGHT_REGULAR, 20.0f, held) + 20.0f;
-            float th = (y1 - y0) - 16.0f;
-            dc_fill_rrect(dc, x0 + 8, y0 + 8, x0 + 8 + tw, y0 + 8 + th, 8.0f, 0xEEFFFFFFu);
-            dc_text_left_mid(dc, UI_WEIGHT_REGULAR, 20.0f, x0 + 18, y0 + 8 + th * 0.5f, 0xFF141416u, held);
+            keyPill(dc, x0, y0, y1, held);
         }
         // a blank is no key; every other key is a hit
         dc_hit_uv(dc, UI_HIT_KEY, i, code, r[0], r[1], r[2], r[3], 1);
+    }
+    // the media keys row, the same under every sheet and key map
+    for (int m = 0; m < KB_MEDIA_KEYS; m++) {
+        float r[4];
+        kbMediaRect(m, r);
+        float x0 = r[0] * dc->nw, y0 = r[1] * dc->nh, x1 = r[2] * dc->nw, y1 = r[3] * dc->nh;
+        int hot = dc_hover(dc, UI_HIT_KEY, NKEYS + m, -1);
+        dc_fill_rrect(dc, x0, y0, x1, y1, 10.0f, hot ? 0x44FFFFFFu : 0x28FFFFFFu);
+        dc_stroke_rrect(dc, x0, y0, x1, y1, 10.0f, 2.0f, hot ? 0x90FFFFFFu : 0x50FFFFFFu);
+        mediaIcon(dc, MEDIA_LABEL[m], (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, 0xFFFFFFFFu);
+        dc_hit_uv(dc, UI_HIT_KEY, NKEYS + m, kbMediaCode(m), r[0], r[1], r[2], r[3], 1);
     }
     if (v->kb_chip) {
         float r[4];

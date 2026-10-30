@@ -47,6 +47,7 @@
 #include "xr_grade.h"
 #include "xr_keys.h"
 #include "xr_kbfull.h"
+#include "xr_hostkeys.h"
 #include "xr_controller.h"
 #include "xr_headaim.h"
 #include "xr_clickhold.h"
@@ -234,6 +235,10 @@ static inline float nativePointerTunable(const char* env, float def) {
 // The Ko-fi sheet, over the middle of the picture like the hint and as wide
 #define KOFI_WIDTH_FRAC 0.40f
 
+// Native: the Host sheet, over the middle of the picture, a little wider as it
+// has a grid of twenty cells
+#define HOST_WIDTH_FRAC 0.46f
+
 // The panels that fade in and out, each with a fade of its own
 #define FADE_COG 0
 #define FADE_PICKER 1
@@ -242,7 +247,8 @@ static inline float nativePointerTunable(const char* env, float def) {
 #define FADE_REPORT 4
 #define FADE_HINT 5
 #define FADE_KOFI 6
-#define FADE_PANELS 7
+#define FADE_HOST 7
+#define FADE_PANELS 8
 #define FADE_SLOT_SPLASH FADE_PANELS
 #define FADE_SLOT_TOAST (FADE_PANELS + 1)
 #define FADE_SLOTS (FADE_PANELS + 2)
@@ -1062,6 +1068,23 @@ typedef struct XrCtx {
     int kofiHoverZone;
     XrPosef kofiPose;
     float kofiW, kofiH;
+
+    // Native: the Host sheet (xr_host.c). hostConfirm is the cell asking for a
+    // yes, or -1. macros is macros.ini as last read; hostRun plays the
+    // sequence a cell chose, a key a frame; hostChord is "Send keys" waiting
+    // for a combo on the keyboard.
+    int hostOpen;
+    int hostReady;
+    int hostHoverZone;
+    int hostConfirm;
+    XrPosef hostPose;
+    float hostW, hostH;
+    XrMacros macros;
+    XrHostRun hostRun;
+    XrHostChord hostChord;
+    // Native: the Compact keyboard's locked modifiers, and the hand holding the key
+    KbSticky kbSticky;
+    int kbStickyHand;
 
     float panelCurve;
     float prefCurvature;

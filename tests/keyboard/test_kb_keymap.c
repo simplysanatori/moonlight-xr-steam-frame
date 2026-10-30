@@ -177,8 +177,16 @@ static void testCompact(int map) {
     }
     // the same keys on every map: the three letter and symbol sheets are full, the Fn sheet has
     // at least what QWERTY has
-    CHECK(labelled[KB_STATE_LOWER] == 44 && labelled[KB_STATE_UPPER] == 44 && labelled[KB_STATE_SYMBOLS] == 44);
-    CHECK(labelled[KB_STATE_FN] >= 35);
+    CHECK(labelled[KB_STATE_LOWER] == 44 + KB_MEDIA_KEYS && labelled[KB_STATE_UPPER] == 44 + KB_MEDIA_KEYS
+          && labelled[KB_STATE_SYMBOLS] == 44 + KB_MEDIA_KEYS);
+    CHECK(labelled[KB_STATE_FN] >= 35 + KB_MEDIA_KEYS);
+    // the media row (PLAN 3.11): the same six host keys under every sheet of every map, past the 44
+    for (int sheet = 0; sheet < KB_STATE_COUNT; sheet++) {
+        for (int m = 0; m < KB_MEDIA_KEYS; m++) {
+            CHECK(ui_kb_map_key_code(map, sheet, 44 + m) == KB_CODE_VK + kbMediaVk(m));
+            CHECK(ui_kb_map_key_label(map, sheet, 44 + m) != NULL);
+        }
+    }
     // the controls stay where they are, so the sheets flip and hide as they did
     for (int sheet = 0; sheet < KB_STATE_COUNT; sheet++) {
         for (int i = 0; i < ui_kb_key_count(); i++) {
@@ -245,7 +253,13 @@ static int startsWithAt(const char* s) { return s != NULL && s[0] == '@'; }
 static void testFull(int map) {
     const char* name = MAP_NAMES[map];
     int count = kbfKeyCountFor(map);
-    CHECK(count == (map == KB_MAP_QWERTY ? 88 : 89));
+    CHECK(count == (map == KB_MAP_QWERTY ? 88 : 89) + KB_MEDIA_KEYS);
+    // the media row follows the 88 on every map, then the ISO key where a map has one
+    for (int m = 0; m < KB_MEDIA_KEYS; m++) {
+        CHECK(kbfKeyCode(KBF_MEDIA_FIRST + m) == KB_CODE_VK + kbMediaVk(m));
+        CHECK(kbfKey(KBF_MEDIA_FIRST + m)->kind == KBF_NORMAL && kbfKey(KBF_MEDIA_FIRST + m)->vk == kbMediaVk(m));
+        CHECK(kbfFindVk(kbMediaVk(m)) == KBF_MEDIA_FIRST + m);
+    }
     CHECK(count <= KBF_KEY_COUNT_MAX);
 
     int keysWithVk = 0;
@@ -392,7 +406,7 @@ static void testPanels(void) {
     ui_cv_init(&cv, g_px, KB_TEX_W, KB_TEX_H);
     ui_cv_clear(&cv);
     ui_draw_panel(UI_PANEL_KEYBOARD, &cv, &v, &hits);
-    CHECK(hits.count == 44);
+    CHECK(hits.count == 44 + KB_MEDIA_KEYS);
     CHECK(ui_kb_map_key_code(-1, KB_STATE_LOWER, 10) == ui_kb_key_code(KB_STATE_LOWER, 10));
 }
 

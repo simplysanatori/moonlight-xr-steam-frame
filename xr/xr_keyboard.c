@@ -4,6 +4,7 @@
 
 #include "mlxr_log.h"
 #include "panels.h"
+#include "xr_host.h"
 
 int xrKeyboardLayout(XrCtx* ctx) {
     return ctx->reportOpen ? KB_LAYOUT_COMPACT : ctx->kbLayout;
@@ -108,6 +109,30 @@ void xrKeyboardSetLayout(XrCtx* ctx, float* out, int layout) {
     xrKeyboardSync(ctx, out);
 }
 
+// "Send keys" is waiting for a combo (xr_hostkeys.h): a modifier lights, any
+// other key completes it and the whole chord goes once, through the same path
+// as a Host sheet cell. Returns 1 if the press was the chord's.
+static int chordPress(XrCtx* ctx, int code) {
+    int vk = 0, mods = 0;
+    int r = xrHostChordKey(&ctx->hostChord, code, &vk, &mods);
+    if (r == XR_CHORD_MOD) {
+        LOGI("send keys: modifiers 0x%02x", ctx->hostChord.mods);
+        return 1;
+    }
+    if (r == XR_CHORD_SEND) {
+        XrHostSeq seq;
+        memset(&seq, 0, sizeof(seq));
+        seq.count = 1;
+        seq.step[0].kind = XR_HOST_STEP_TAP;
+        seq.step[0].vk = vk;
+        seq.step[0].mods = mods;
+        xrHostRunStart(&ctx->hostRun, &seq);
+        LOGEV("send keys: vk 0x%02x with modifiers 0x%02x", vk, mods);
+        return 1;
+    }
+    return 0;
+}
+
 int xrKeyboardPress(XrCtx* ctx, float* out, int key, int hand, int64_t now) {
     if (key < 0 || key >= KB_MAX_KEYS) {
         return 0;
@@ -118,7 +143,16 @@ int xrKeyboardPress(XrCtx* ctx, float* out, int key, int hand, int64_t now) {
                                                                        : KB_LAYOUT_FULL);
         return 1;
     }
+    if (ctx->hostChord.active && !ctx->reportOpen && chordPress(ctx, code)) {
+        return 1;
+    }
     if ((ctx->kbLayoutShown & 1) != KB_LAYOUT_FULL) {
+        // Native (PLAN 4b.13): a modifier pressed starts its hold clock for the
+        // lock (xrKeyboardFrame), and a tap on a locked one lets it go
+        if (!ctx->reportOpen) {
+            ctx->kbStickyHand = hand;
+            kbStickyPress(&ctx->kbSticky, code, now);
+        }
         return 0;
     }
     KbFull* k = &ctx->kbFull;
@@ -133,9 +167,31 @@ int xrKeyboardPress(XrCtx* ctx, float* out, int key, int hand, int64_t now) {
     return 1;
 }
 
+// Native (PLAN 4b.13): the Compact keyboard's locked modifiers. A modifier held
+// for the Full keyboard's hold time locks and stays lit through the keys typed
+// after it; a locked Shift keeps the capitals sheet.
+static void compactSticky(XrCtx* ctx, int64_t now, int live) {
+    KbSticky* s = &ctx->kbSticky;
+    if (!ctx->kbOpen || !live || ctx->reportOpen || ctx->launcher != LAUNCHER_NONE) {
+        kbStickyInit(s);
+        ctx->kbStickyHand = -1;
+        return;
+    }
+    int hand = ctx->kbStickyHand;
+    int down = hand >= 0 && hand < SRC_COUNT && ctx->triggerDown[hand];
+    int bit = kbStickyTick(s, down, (long long)now, (long long)ctx->kbFull.holdNs);
+    if (bit != 0) {
+        LOGI("keyboard modifier 0x%02x locked", bit);
+    }
+    ctx->kbMods = kbStickyMods(s, ctx->kbMods);
+    ctx->kbState = kbStickySheet(s, ctx->kbState);
+}
+
 void xrKeyboardFrame(XrCtx* ctx, float* out, int64_t now, int live) {
     xrKeyboardSync(ctx, out);
+    xrHostFrame(ctx, out, now, live);
     if ((ctx->kbLayoutShown & 1) != KB_LAYOUT_FULL) {
+        compactSticky(ctx, now, live);
         return;
     }
     KbFull* k = &ctx->kbFull;
