@@ -17,6 +17,19 @@ void xrPadBridgeStop(void);                 // before LiStopConnection: unplug t
 // the pad is not plugged in.
 void xrPadBridgeRest(void);
 
+// Native (lane wave2-lightgun-gyro, PLAN 2.9): the pad_gyro opt-in. On, the pad's next arrival says it is a
+// PlayStation pad with a gyroscope and an accelerometer (and only then; off it is the Xbox pad with neither),
+// the host's setMotionEventState for the pad's number is answered, and motion goes out through
+// xrPadBridgeMotion. A pad already plugged in keeps the arrival it made. Read at the next stream start too.
+void xrPadBridgeSetMotion(int on);
+// What the host asked for in Hz, 0 when nothing: motionType is PADOUT_MOTION_ACCEL or _GYRO
+int xrPadBridgeMotionRate(int motionType);
+// One sample: the gyroscope in deg/s or the accelerometer in m/s^2, see input/pad_out.h padOutMotion.
+// Returns 1 when it went to the host.
+int xrPadBridgeMotion(int motionType, float x, float y, float z, int64_t nowNs);
+// The host's motion request as the stream layer passes it on (gamepadsHostMotionState); public for the tests
+void xrPadBridgeHostMotionState(uint16_t controllerNumber, uint8_t motionType, uint16_t reportRateHz);
+
 // The disconnect chord: Start + Select (Back) + both triggers past 80 percent,
 // held together in gamepad mode. On the frame it completes the pad goes to the
 // host at rest (so nothing is left stuck there), then fn(user) is called once,
