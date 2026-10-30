@@ -45,7 +45,7 @@ Written `left.trigger`, `right.a_touch` and so on. `left.stick` and `right.stick
 | `wheel:up\|down\|left\|right` | One wheel notch per press |
 | `pad:<button>` | `a b x y lb rb lt rt ls rs start back guide dpad_up dpad_down dpad_left dpad_right`. Gamepad mode only. Codes are the `PAD_` bits; `lt`/`rt` are `PAD_HELD_LT`/`RT` (a trigger bound to them stays analogue, a button pulls them full) |
 | `stick:<use>` | `scroll mouse wasd arrows dpad pad_left pad_right`, whole sticks only. `pad_left`/`pad_right` are gamepad mode only |
-| `app:<command>` | `keyboard` (show or hide), `ray` (step Off/Dot/Ray), `recentre` (what SteamVR's recentre does: the screen comes round to where you face), `cog` (open or close the cog panel), `3d` (on or off), `gamepad` (switch modes at once, no hold), `bringhere` (PLAN 3.6, not built yet), `none` |
+| `app:<command>` | `keyboard` (show or hide), `ray` (step Off/Dot/Ray), `recentre` (what SteamVR's recentre does: the screen comes round to where you face), `cog` (open or close the cog panel), `3d` (on or off), `gamepad` (switch modes at once, no hold), `bringhere` (the screen comes to where you look, the same size and as far from you as it was; built in PLAN 3.1, `xrBringScreenHere` in `xr/xr_place.c`), `none` |
 | `none` | Nothing |
 
 ### Never bindable (refused with an error, or kept working whatever is bound)
