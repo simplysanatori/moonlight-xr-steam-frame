@@ -192,9 +192,12 @@ Normal is as sharp as before, its colour is now Off's, and its light is as befor
 Quality is still about a fifth sharper than normal (MTF50 +21 %, 3 px lines 0.59 against 0.55) and shimmers on
 light text on dark about as much as normal does (0.50 against 0.47). Coloured text keeps Off's chroma error (3.51);
 per channel sharpening had brought it to 2.90 while making grey text's fringes worse, and the owner's eye preferred
-Off's colour. The test holds all of this (`text:` checks: colour within 0.15 and 0.03 of Off's, pictures within
-1/255, 1 % and 0.15 of Off's, light no further from the ideal than Off's, quality at least 12 % sharper than normal
-with crawl on light text within 12 % of normal's).
+Off's colour. The test holds all of this (`text:` checks: colour within 0.15 and 0.03 of Off's; on pictures, colour
+within 0.15 and 0.01 of Off's and luma and light no further from the ideal than Off's by more than 0.75/255 and 1 %;
+on text, light no further from the ideal than Off's; quality at least 12 % sharper than normal with crawl on light text
+within 12 % of normal's). On the arm64 runner's lavapipe Off's texture comes out 1/255 darker than on x86 (luma
+-0.88, light -2.0 %) and normal and quality nearer the ideal (-0.51 and -0.37, -0.4 % and +0.2 %), so the picture check
+is against the ideal rather than against Off.
 
 The flat picture's Sharpen (the warp's CAS) was measured too: no change on pictures, and on text it is near Off's
 (light text on dark -19.5 %, luma +0.01), as CAS barely touches text. It was left alone.

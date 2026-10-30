@@ -3771,7 +3771,9 @@ static void testText(void) {
     }
     // Sharpen keeps the picture's colour and brightness (lane polish-3). Its
     // colour is the unsharpened picture's (it works on luma alone); on flat
-    // colour and photo-like pictures it moves neither; on text its light is
+    // colour and photo-like pictures it keeps the colour and is no further
+    // from the ideal's brightness than off (lavapipe on arm64 has off's
+    // texture 1/255 darker than on x86, and sharpen nearer); on text its light is
     // no further from the ideal's than the unsharpened picture's (it makes
     // strokes bolder in encoded values, which gives back light the footprint
     // average took from thin bright strokes)
@@ -3788,8 +3790,8 @@ static void testText(void) {
                       toneText[t][c].light, toneText[0][c].light);
             }
             for (int c = 0; c < TXS_TONE_CLASSES; c++)
-                check(fabsf(tonePhoto[t][c].luma - tonePhoto[0][c].luma) <= 1.0f &&
-                          fabsf(tonePhoto[t][c].light - tonePhoto[0][c].light) <= 1.0f &&
+                check(fabsf(tonePhoto[t][c].luma) <= fabsf(tonePhoto[0][c].luma) + 0.75f &&
+                          fabsf(tonePhoto[t][c].light) <= fabsf(tonePhoto[0][c].light) + 1.0f &&
                           fabsf(tonePhoto[t][c].chroma - tonePhoto[0][c].chroma) <= 0.15f &&
                           fabsf(tonePhoto[t][c].sat - tonePhoto[0][c].sat) <= 0.01f,
                       "text: %s on %s: luma %+.2f light %+.1f%% chroma %.2f sat %.3f, off %+.2f %+.1f%% %.2f %.3f",
