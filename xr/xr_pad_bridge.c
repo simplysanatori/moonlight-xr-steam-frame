@@ -13,6 +13,7 @@
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static PadOut g_out;
 static int g_ready, g_flip, g_motion;
+static int g_backAsGuide; // native (lane headinput-finish)
 static PadExit g_exit = { 1 };
 static void (*g_hook)(void*);
 static void* g_hookUser;
@@ -28,6 +29,12 @@ void xrPadBridgeSetFlip(int flip) {
     pthread_mutex_lock(&g_lock);
     g_flip = flip ? 1 : 0;
     if (g_ready) padOutSetFlipFace(&g_out, g_flip);
+    pthread_mutex_unlock(&g_lock);
+}
+
+void xrPadBridgeSetBackAsGuide(int on) {
+    pthread_mutex_lock(&g_lock);
+    g_backAsGuide = on ? 1 : 0;
     pthread_mutex_unlock(&g_lock);
 }
 
@@ -92,8 +99,8 @@ void xrPadBridgeStartWithSink(const PadOutSink* sink) {
     pthread_mutex_unlock(&g_lock);
     gamepadsSetFramePadMotionHook(xrPadBridgeHostMotionState); // Native (lane wave2-lightgun-gyro)
     gamepadsStreamStart(); // Native: physical pads announce themselves to this host
-    MLOG_I("gamepad: pad output ready (flip face buttons %s, motion %s)", g_flip ? "on" : "off",
-           g_motion ? "on" : "off");
+    MLOG_I("gamepad: pad output ready (flip face buttons %s, motion %s, Back as Guide %s)", g_flip ? "on" : "off",
+           g_motion ? "on" : "off", g_backAsGuide ? "on" : "off");
 }
 
 void xrPadBridgeFrame(int plugged, const PadState* s, int64_t nowNs) {
@@ -114,6 +121,12 @@ void xrPadBridgeFrame(int plugged, const PadState* s, int64_t nowNs) {
         }
         if (padExitLatched(&g_exit)) {
             padRest(&rest);
+            send = &rest;
+        }
+        else if (g_backAsGuide) {
+            // Native (lane headinput-finish, PLAN 4b.10): Back is Guide from here on
+            rest = *s;
+            padBackAsGuide(&rest);
             send = &rest;
         }
         // Native: the pad takes a number the physical pads (input/gamepads) do not hold,

@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Fri, 30 Oct 2026 06:48:08 +0000
+Subject: [PATCH] On start: open the last PC's Desktop or a chosen app once the
+ PC is online (hand-off mode)
+
+Moonlight XR Native (lane launcher-bundle, PLAN 6.4). app.pro builds mlxronstart.cpp, main.cpp registers the MlxrOnStart singleton, and main.qml starts it when the launcher opens on the PC grid in hand-off mode. When the PC is online with the app, the stream segue is pushed with its Session, as a click on the app does, unless another page is open by then. The command line's stream PC App is stock and unchanged.
+---
+ app/app.pro      |  2 ++
+ app/gui/main.qml | 23 +++++++++++++++++++++++
+ app/main.cpp     |  7 +++++++
+ 3 files changed, 32 insertions(+)
+
+diff --git a/app/app.pro b/app/app.pro
+index 88324b0..6fa717a 100644
+--- a/app/app.pro
++++ b/app/app.pro
+@@ -201,6 +201,7 @@ SOURCES += \
+     streaming/mlxrpreflight.cpp \
+     streaming/mlxrbindings.cpp \
+     streaming/mlxrupdate.cpp \
++    streaming/mlxronstart.cpp \
+     streaming/xr_bind.c \
+     streaming/xr_gamepad.c \
+     streaming/audio/audio.cpp \
+@@ -244,6 +245,7 @@ HEADERS += \
+     streaming/mlxrpreflight.h \
+     streaming/mlxrbindings.h \
+     streaming/mlxrupdate.h \
++    streaming/mlxronstart.h \
+     streaming/xr_bind.h \
+     streaming/xr_gamepad.h \
+     streaming/xr_shared.h \
+diff --git a/app/gui/main.qml b/app/gui/main.qml
+index 56da716..93843b5 100644
+--- a/app/gui/main.qml
++++ b/app/gui/main.qml
+@@ -10,6 +10,7 @@ import StreamingPreferences 1.0
+ import SystemProperties 1.0
+ import SdlGamepadKeyNavigation 1.0
+ import MlxrUpdate 1.0
++import MlxrOnStart 1.0
+ 
+ ApplicationWindow {
+     property bool pollingActive: false
+@@ -63,6 +64,28 @@ ApplicationWindow {
+             unmappedGamepadDialog.unmappedGamepads = SystemProperties.unmappedGamepads
+             unmappedGamepadDialog.open()
+         }
++
++        // Moonlight XR Native (PLAN 6.4): the Settings page's On start, when the launcher opens on the PC grid
++        if (SystemProperties.nativeVrHandoff && initialView === "qrc:/gui/PcView.qml") {
++            MlxrOnStart.sessionReady.connect(onStartSessionReady)
++            MlxrOnStart.start(ComputerManager)
++        }
++    }
++
++    // Moonlight XR Native (PLAN 6.4): the PC came online; start the stream as a click on the app would, unless the
++    // grid is no longer the page shown (the user went somewhere first)
++    function onStartSessionReady(appName, session)
++    {
++        if (stackView.depth !== 1) {
++            console.info("MLXR_LAUNCHER_ONSTART: not started, another page is open")
++            return
++        }
++        var component = Qt.createComponent("StreamSegue.qml")
++        var segue = component.createObject(stackView, {
++            "appName": appName,
++            "session": session
++        })
++        stackView.push(segue)
+     }
+   
+     // This configures the maximum width of the singleton attached QML ToolTip. If left unconstrained,
+diff --git a/app/main.cpp b/app/main.cpp
+index 28dc1ba..08cfead 100644
+--- a/app/main.cpp
++++ b/app/main.cpp
+@@ -52,6 +52,7 @@
+ #include "streaming/mlxrbindings.h"
+ #include "streaming/mlxrprofiles.h"
+ #include "streaming/mlxrupdate.h"
++#include "streaming/mlxronstart.h"
+ 
+ #if defined(Q_OS_WIN32)
+ #define IS_UNSPECIFIED_HANDLE(x) ((x) == INVALID_HANDLE_VALUE || (x) == NULL)
+@@ -750,6 +751,12 @@ int main(int argc, char *argv[])
+                                              QQmlEngine::setObjectOwnership(MlxrUpdate::get(), QQmlEngine::CppOwnership);
+                                              return MlxrUpdate::get();
+                                          });
++    // Moonlight XR Native (PLAN 6.4): the Settings page's On start (launcher/src/mlxronstart.h)
++    qmlRegisterSingletonType<MlxrOnStart>("MlxrOnStart", 1, 0, "MlxrOnStart",
++                                          [](QQmlEngine*, QJSEngine*) -> QObject* {
++                                              QQmlEngine::setObjectOwnership(MlxrOnStart::get(), QQmlEngine::CppOwnership);
++                                              return MlxrOnStart::get();
++                                          });
+     qmlRegisterSingletonType<StreamingPreferences>("StreamingPreferences", 1, 0,
+                                                    "StreamingPreferences",
+                                                    [](QQmlEngine* qmlEngine, QJSEngine*) -> QObject* {

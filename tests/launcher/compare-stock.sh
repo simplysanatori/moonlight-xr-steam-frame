@@ -15,6 +15,8 @@ unset LD_LIBRARY_PATH XDG_CONFIG_HOME XDG_CACHE_HOME MLXR_CONFIG_DIR MLXR_NATIVE
 # Game Mode (gamescope) makes the launcher, by design, open full screen once; stock does not
 unset XDG_CURRENT_DESKTOP
 export QT_QPA_PLATFORM=offscreen SDL_VIDEODRIVER=dummy QT_QUICK_BACKEND=software
+# the hand-off shots: no update check (it would ask GitHub)
+export MLXR_LAUNCHER_UPDATE=0
 MLXR_CONFIG_DIR="$t/q" "$CLI" identity >/dev/null 2>&1; MLXR_CONFIG_DIR="$t/s" "$CLI" identity >/dev/null 2>&1
 python3 -I "$here/../backend/make_qt_conf.py" "$t/c.conf" "$t/q/client.pem" "$t/q/client.key" "$t/s/client.pem"
 python3 -I - "$t/c.conf" <<'PY'

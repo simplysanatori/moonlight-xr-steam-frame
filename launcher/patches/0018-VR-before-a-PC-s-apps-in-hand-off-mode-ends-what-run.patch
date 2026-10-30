@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Fri, 30 Oct 2026 07:17:38 +0000
+Subject: [PATCH] VR before a PC's apps in hand-off mode: ends what runs on the
+ PC, then SteamVR through Steam Link
+
+---
+ app/gui/AppView.qml | 47 +++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 47 insertions(+)
+
+diff --git a/app/gui/AppView.qml b/app/gui/AppView.qml
+index e42f1e8..7f5f656 100644
+--- a/app/gui/AppView.qml
++++ b/app/gui/AppView.qml
+@@ -72,6 +72,53 @@ CenteredGridView {
+ 
+     model: appModel
+ 
++    // Moonlight XR Native (lane pcvr-steamvr): "VR" before the PC's apps. It is not the host's: it ends what runs
++    // on the PC and hands the headset to Steam Link in SteamVR (MlxrPrefs.startVr, mlxrhandoff.h startVr)
++    header: SystemProperties.nativeVrHandoff ? vrTileComponent : null
++
++    Component {
++        id: vrTileComponent
++
++        Item {
++            width: appGrid.cellWidth
++            height: appGrid.cellHeight
++
++            ItemDelegate {
++                id: vrTile
++                objectName: "vrTile"
++                width: 220; height: 287
++
++                Rectangle {
++                    anchors.horizontalCenter: parent.horizontalCenter
++                    y: 10
++                    width: 200; height: 267
++                    radius: 10
++                    color: vrTile.hovered || vrTile.highlighted ? "#30FFFFFF" : "#18FFFFFF"
++                    border.color: "#B0FFFFFF"
++                    border.width: 2
++
++                    Label {
++                        anchors.centerIn: parent
++                        text: qsTr("VR")
++                        font.pointSize: 44
++                    }
++                }
++
++                onClicked: {
++                    vrTile.enabled = false
++                    vrTileAgain.start()
++                    MlxrPrefs.startVr(ComputerManager, appGrid.computerIndex)
++                }
++
++                Timer {
++                    id: vrTileAgain
++                    interval: 15000
++                    onTriggered: vrTile.enabled = true
++                }
++            }
++        }
++    }
++
+     delegate: NavigableItemDelegate {
+         width: 220; height: 287;
+         grid: appGrid

@@ -1,6 +1,8 @@
 // Moonlight XR Native launcher: see mlxrprefs.h. GPLv3.
 #include "mlxrprefs.h"
 #include "mlxrhandoff.h"
+#include "backend/computermanager.h"
+#include "backend/nvcomputer.h"
 
 #include <QFile>
 #include <QJsonArray>
@@ -17,6 +19,177 @@
 #include <QtMath>
 
 static const char* const kPacing[] = { "latency", "balanced", "smoothness" };
+
+// ---- Native (lane launcher-bundle, PLAN 6.7): the rest of the VR client's config.ini -------------------------
+// The keys of ui/settings.c's TABLE a user would set that had no row on the page. Left out on purpose: [debug]; the
+// state the headset keeps by itself (stream host and app, cog_tab, hand_hint_seen, zoom_x and zoom_y); the stream's
+// basics, which the page's own rows pass as flags (resolution, fps, bitrate_kbps, codec, audio_config,
+// frame_pacing, network_path); the screen's placement (height, azimuth, tilt, rotate: set by grabbing it; far_distance_cm
+// and far_width_cm: where the bar's Bring here switch goes back to) and the
+// rooms' own look (room_N_*: the Room tab, while looking at the room). The test compares this table with
+// `mlxr-settings-dump --table`, so a range or default changed there shows up.
+namespace {
+struct VrKey {
+    const char* id;     // section.key
+    char kind;          // 'b' bool, 'i' int, 'e' enum
+    int def, lo, hi;    // enum: def is the index
+    const char* names;  // enum names, '|' between them
+};
+const VrKey kVrKeys[] = {
+    { "stream.virtual_surround", 'b', 0, 0, 1, nullptr },
+    { "vr.pointer", 'b', 1, 0, 1, nullptr },
+    { "vr.pointer_sleep", 'b', 1, 0, 1, nullptr },
+    { "vr.show_ray", 'b', 1, 0, 1, nullptr },
+    { "vr.pointer_dot", 'b', 1, 0, 1, nullptr },
+    { "vr.keyboard_layout", 'e', 0, 0, 1, "compact|full" },
+    { "vr.keyboard_hold_ms", 'i', 500, 200, 1500, nullptr },
+    { "vr.head_aim", 'b', 0, 0, 1, nullptr },
+    { "vr.head_aim_sensitivity", 'i', 8, 1, 30, nullptr },
+    { "vr.head_aim_deadzone", 'i', 2, 0, 20, nullptr },
+    { "vr.gamepad_toggle", 'e', 0, 0, 2, "menu_grip|sticks|triggers_grips" },
+    { "vr.rumble_mix", 'e', 0, 0, 1, "both|split" },
+    { "vr.rumble_intensity", 'i', 100, 0, 100, nullptr },
+    { "vr.pad_grip", 'e', 0, 0, 2, "bumpers|none|stick_clicks" },
+    { "vr.pad_gyro_ratchet", 'e', 0, 0, 1, "always|stick_touch" },
+    { "vr.click_sound", 'b', 1, 0, 1, nullptr },
+    { "vr.click_steadiness", 'e', 1, 0, 2, "off|normal|steady" },
+    { "vr.lightgun_reload", 'b', 0, 0, 1, nullptr },
+    { "vr.lightgun_recoil", 'b', 1, 0, 1, nullptr },
+    { "vr.gaze", 'b', 0, 0, 1, nullptr },
+    { "vr.hand_tracking", 'b', 0, 0, 1, nullptr },
+    { "vr.passthrough", 'b', 0, 0, 1, nullptr },
+    { "vr.environment", 'e', 0, 0, 5, "auto|passthrough|void|home_theater|grand_cinema|synthwave" },
+    { "vr.depth_source", 'e', 0, 0, 8, "zipdepth|midas|off|flat|ramp|blob|eyetest|shifttest|zipdepth-int8" },
+    { "vr.env_res", 'e', 1, 0, 3, "low|standard|high|ultra" },
+    { "vr.picture_brightness", 'i', 0, -50, 50, nullptr },
+    { "vr.picture_contrast", 'i', 100, 50, 150, nullptr },
+    { "vr.picture_gamma", 'i', 100, 50, 200, nullptr },
+    { "vr.picture_saturation", 'i', 100, 0, 200, nullptr },
+    { "display.head_locked", 'b', 0, 0, 1, nullptr },
+    { "display.head_follow", 'b', 0, 0, 1, nullptr },
+    { "display.follow_leash_deg", 'i', 25, 10, 60, nullptr },
+    { "display.sharpening", 'e', 0, 0, 2, "off|normal|quality" },
+    { "display.supersampling", 'e', 1, 0, 2, "off|normal|quality" },
+    { "display.picture_filter", 'b', 1, 0, 1, nullptr },
+    { "display.chroma_from_luma", 'b', 1, 0, 1, nullptr },
+    { "display.stats_style", 'e', 0, 0, 2, "full|hud|lite" },
+    { "display.glow", 'b', 0, 0, 1, nullptr },
+    { "display.glow_level", 'i', 50, 0, 100, nullptr },
+    { "display.screen_light", 'b', 1, 0, 1, nullptr },
+    { "screen.distance_cm", 'i', 300, 20, 800, nullptr },
+    { "screen.width_cm", 'i', 300, 80, 800, nullptr },
+    { "screen.curve", 'i', 0, 0, 100, nullptr },
+    { "screen.per_app", 'b', 1, 0, 1, nullptr },
+    { "screen.angular_lock", 'b', 1, 0, 1, nullptr },
+};
+
+const VrKey* findVrKey(const QString& id)
+{
+    for (const VrKey& k : kVrKeys) {
+        if (id == QLatin1String(k.id)) {
+            return &k;
+        }
+    }
+    return nullptr;
+}
+
+QStringList vrNames(const VrKey& k)
+{
+    return k.names ? QString::fromLatin1(k.names).split('|') : QStringList();
+}
+
+QString vrDefault(const VrKey& k)
+{
+    switch (k.kind) {
+    case 'b': return k.def ? "true" : "false";
+    case 'e': return vrNames(k).value(k.def);
+    default: return QString::number(k.def);
+    }
+}
+
+// ui/settings.c parse_bool
+int vrParseBool(const QString& v)
+{
+    const QString s = v.toLower();
+    if (s == "true" || s == "on" || s == "yes" || s == "1" || s == "y") return 1;
+    if (s == "false" || s == "off" || s == "no" || s == "0" || s == "n") return 0;
+    return -1;
+}
+}
+
+QString MlxrPrefs::vrNormalize(const QString& id, const QString& raw)
+{
+    const VrKey* k = findVrKey(id);
+    if (!k) {
+        return QString();
+    }
+    const QString v = raw.trimmed();
+    if (k->kind == 'b') {
+        const int b = vrParseBool(v);
+        return b < 0 ? vrDefault(*k) : (b ? "true" : "false");
+    }
+    if (k->kind == 'e') {
+        const QStringList names = vrNames(*k);
+        for (const QString& n : names) {
+            if (n.compare(v, Qt::CaseInsensitive) == 0) return n;
+        }
+        bool ok = false;
+        const int i = v.toInt(&ok);
+        return ok && i >= 0 && i < names.size() ? names[i] : vrDefault(*k);
+    }
+    // the VR client's strtol: a whole number (a unit or a fraction is not taken), held to the range
+    bool ok = false;
+    const qlonglong n = v.toLongLong(&ok);
+    if (!ok) {
+        return vrDefault(*k);
+    }
+    return QString::number(qBound(qlonglong(k->lo), n, qlonglong(k->hi)));
+}
+
+QStringList MlxrPrefs::vrKeyTable()
+{
+    QStringList out;
+    for (const VrKey& k : kVrKeys) {
+        const bool range = k.kind == 'i';
+        out << QString("%1 %2 %3 %4 %5 %6").arg(QLatin1String(k.id), QString(QChar(k.kind)), vrDefault(k),
+                                                range ? QString::number(k.lo) : "-", range ? QString::number(k.hi) : "-",
+                                                k.names ? QString::fromLatin1(k.names) : "-");
+    }
+    return out;
+}
+
+QVariantMap MlxrPrefs::vr() const
+{
+    QVariantMap m;
+    for (const VrKey& k : kVrKeys) {
+        const QString v = m_vr.value(k.id, vrDefault(k));
+        if (k.kind == 'b') m.insert(k.id, v == "true");
+        else if (k.kind == 'i') m.insert(k.id, v.toInt());
+        else m.insert(k.id, v);
+    }
+    return m;
+}
+
+void MlxrPrefs::setVr(const QString& id, const QVariant& value)
+{
+    if (!findVrKey(id)) {
+        qWarning().noquote() << "MlxrPrefs: no config key" << id;
+        return;
+    }
+    QString raw = value.toString();
+    if (value.typeId() == QMetaType::Bool) {
+        raw = value.toBool() ? "true" : "false";
+    }
+    else if (value.typeId() == QMetaType::Double) {
+        raw = QString::number(qRound64(value.toDouble()));
+    }
+    const QString v = vrNormalize(id, raw);
+    if (m_vr.value(id) != v) {
+        m_vr[id] = v;
+        emit changed();
+    }
+}
+
 
 MlxrPrefs* MlxrPrefs::get()
 {
@@ -125,7 +298,6 @@ void MlxrPrefs::pcvrRefresh()
         qInfo().noquote() << "Steam CEF preflight:" << (ok ? "ok" : "NOT OK") << "-" << hint;
         if (!o.value("reachable").toBool() || !o.value("context").toBool()) {
             m_pcvrDevices.clear();
-            m_pcvrApps.clear();
             pcvrSay(hint, false);
             return;
         }
@@ -148,39 +320,13 @@ void MlxrPrefs::pcvrRefresh()
                 emit changed();
             }
             m_pcvrBase = (ok ? QObject::tr("Steam is ready.") : hint) + " " + QObject::tr("%n paired PC(s) found.", "", m_pcvrDevices.size());
-            pcvrSay(m_pcvrBase, true);
-            pcvrLoadApps();
+            pcvrSay(m_pcvrBase, false);
         });
-    });
-}
-
-void MlxrPrefs::pcvrLoadApps()
-{
-    QStringList args { "--apps" };
-    if (!pcvrClient.isEmpty()) {
-        args << "--client" << pcvrClient;
-    }
-    MlxrHandoff::runSteamCef(args, 30000, this, [this](int code, const QByteArray& out, const QString& err) {
-        const QJsonDocument doc = QJsonDocument::fromJson(out);
-        m_pcvrApps.clear();
-        if (code == 0 && doc.isArray()) {
-            for (const QJsonValue& v : doc.array()) {
-                QVariantMap m = v.toObject().toVariantMap();
-                m["appid"] = QString::number(static_cast<qlonglong>(v.toObject().value("appid").toDouble()));   // a whole number, not a double
-                m_pcvrApps << m;
-            }
-            pcvrSay(m_pcvrBase + " " + QObject::tr("%n game(s) on the PC.", "", m_pcvrApps.size()), false);
-        }
-        else {
-            pcvrSay(m_pcvrBase + " " + QObject::tr("Steam did not list the PC's games (%1): type a game's Steam app id instead.")
-                        .arg(err.isEmpty() ? QString::number(code) : err.simplified().left(200)), false);
-        }
     });
 }
 
 void MlxrPrefs::pcvrChooseDevice(int index)
 {
-    const QString before = pcvrClient;
     if (index >= 0 && index < m_pcvrDevices.size()) {
         const QVariantMap d = m_pcvrDevices[index].toMap();
         pcvrClient = d.value("clientId").toString();
@@ -191,37 +337,21 @@ void MlxrPrefs::pcvrChooseDevice(int index)
         pcvrClientName.clear();
     }
     emit changed();
-    if (pcvrClient != before && !m_pcvrBusy) {
-        pcvrSay(m_pcvrStatus, true);
-        pcvrLoadApps();
-    }
 }
 
-void MlxrPrefs::pcvrChooseApp(int index)
+void MlxrPrefs::startVr(QObject* computerManager, int computerIndex)
 {
-    if (index >= 0 && index < m_pcvrApps.size()) {
-        const QVariantMap a = m_pcvrApps[index].toMap();
-        pcvrApp = a.value("appid").toString();
-        pcvrAppName = a.value("name").toString();
+    ComputerManager* cm = qobject_cast<ComputerManager*>(computerManager);
+    if (cm == nullptr) {
+        qWarning() << "VR: no ComputerManager";
+        return;
     }
-    else {
-        pcvrApp.clear();
-        pcvrAppName.clear();
+    const QVector<NvComputer*> computers = cm->getComputers();
+    if (computerIndex < 0 || computerIndex >= computers.size()) {
+        qWarning() << "VR: no PC at" << computerIndex;
+        return;
     }
-    emit changed();
-}
-
-void MlxrPrefs::pcvrSetAppId(const QString& id)
-{
-    const QString t = id.trimmed();
-    pcvrApp = t;
-    pcvrAppName.clear();
-    for (const QVariant& a : m_pcvrApps) {
-        if (a.toMap().value("appid").toString() == t) {
-            pcvrAppName = a.toMap().value("name").toString();
-        }
-    }
-    emit changed();
+    MlxrHandoff::startVr(computers[computerIndex]);
 }
 
 QString MlxrPrefs::configIniPath() const
@@ -272,10 +402,16 @@ void MlxrPrefs::load()
     clipboardSync = s.value("mlxr/clipboard_sync", false).toBool();
     quickResume = s.value("mlxr/quick_resume", false).toBool();
     preflight = s.value("mlxr/preflight", true).toBool();
-    pcvrApp = s.value("mlxr/pcvr_app", "").toString().trimmed();
-    pcvrAppName = s.value("mlxr/pcvr_app_name", "").toString();
     pcvrClient = s.value("mlxr/pcvr_client", "").toString().trimmed();
     pcvrClientName = s.value("mlxr/pcvr_client_name", "").toString();
+    // Native (lane launcher-bundle, PLAN 6.2, 6.4)
+    checkUpdates = s.value("mlxr/check_updates", true).toBool();
+    onStart = s.value("mlxr/on_start", "none").toString();
+    if (onStart != "desktop" && onStart != "app") {
+        onStart = "none";
+    }
+    onStartPc = s.value("mlxr/on_start_pc", "").toString();
+    onStartApp = s.value("mlxr/on_start_app", "").toString();
 
     // The VR client's defaults (ui/settings.c) when config.ini or the key is absent
     const QString ini = configIniPath();
@@ -386,9 +522,19 @@ void MlxrPrefs::load()
     lightgun = (lg == "on" || lg == "1") ? "on" : (lg == "off" || lg == "2") ? "off" : "auto";
     const QString pg = iniValue(ini, "vr", "pad_gyro", "off").trimmed().toLower();
     padGyro = (pg == "controller" || pg == "1") ? "controller" : (pg == "head" || pg == "2") ? "head" : "off";
+    loadHeadInput(ini); // Native (lane wave4-headinput)
 
     // the VR client's spelling; anything else is its default, auto
     headsetLanguage = normalizeLanguage(iniValue(ini, "ui", "language", "auto"));
+
+    // Native (lane launcher-bundle, PLAN 6.7): the rest, as the VR client reads them
+    m_vr.clear();
+    for (const VrKey& k : kVrKeys) {
+        const QString id = QLatin1String(k.id);
+        const int dot = id.indexOf('.');
+        m_vr[id] = vrNormalize(id, iniValue(ini, id.left(dot), id.mid(dot + 1), vrDefault(k)));
+    }
+    m_iniVr = m_vr;
 
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
@@ -448,10 +594,15 @@ void MlxrPrefs::save()
     s.setValue("mlxr/clipboard_sync", clipboardSync);
     s.setValue("mlxr/quick_resume", quickResume);
     s.setValue("mlxr/preflight", preflight);
-    s.setValue("mlxr/pcvr_app", pcvrApp.trimmed());
-    s.setValue("mlxr/pcvr_app_name", pcvrAppName);
+    // lane pcvr-steamvr: VR is SteamVR, the per-game choice is gone
+    s.remove("mlxr/pcvr_app");
+    s.remove("mlxr/pcvr_app_name");
     s.setValue("mlxr/pcvr_client", pcvrClient.trimmed());
     s.setValue("mlxr/pcvr_client_name", pcvrClientName);
+    s.setValue("mlxr/check_updates", checkUpdates);
+    s.setValue("mlxr/on_start", onStart);
+    s.setValue("mlxr/on_start_pc", onStartPc);
+    s.setValue("mlxr/on_start_app", onStartApp);
     s.sync();
 
     // Only what changed here: the headset may have changed the others since (the cog saves the file)
@@ -563,6 +714,15 @@ void MlxrPrefs::save()
     if (padGyro != m_iniPadGyro) {
         setIniValue(ini, "vr", "pad_gyro", padGyro);
     }
+    // Native (lane launcher-bundle, PLAN 6.7)
+    for (auto it = m_vr.constBegin(); it != m_vr.constEnd(); ++it) {
+        if (it.value() != m_iniVr.value(it.key())) {
+            const int dot = it.key().indexOf('.');
+            setIniValue(ini, it.key().left(dot), it.key().mid(dot + 1), it.value());
+        }
+    }
+    m_iniVr = m_vr;
+    saveHeadInput(ini); // Native (lane wave4-headinput)
     m_iniPerfOverlay = perfOverlay;
     m_iniRenderMode = renderMode;
     m_iniStrength = strength;
@@ -602,6 +762,29 @@ void MlxrPrefs::save()
     m_iniFirstRunShown = firstRunShown;
     m_iniLightgun = lightgun;
     m_iniPadGyro = padGyro;
+}
+
+// ---- Native (lane launcher-bundle, PLAN 6.4): the On start rows ------------------------------------------------
+
+QVariantList MlxrPrefs::onStartChoices() const
+{
+    QVariantList out;
+    QSettings settings;
+    const int n = settings.beginReadArray("hosts");
+    for (int i = 0; i < n; i++) {
+        settings.setArrayIndex(i);
+        NvComputer c(settings);
+        for (const NvApp& a : c.appList) {
+            out << QVariantMap { { "pc", c.name }, { "app", a.name } };
+        }
+    }
+    settings.endArray();
+    return out;
+}
+
+QString MlxrPrefs::lastPc() const
+{
+    return QSettings().value("mlxr/last_pc", "").toString();
 }
 
 QString MlxrPrefs::normalizeLanguage(const QString& v)
@@ -652,6 +835,72 @@ QVector<MlxrPrefs::IniEntry> MlxrPrefs::profileIniEntries() const
         { "vr", "pad_mouse_scroll", padMouseScroll },
         { "vr", "pad_arbitration", padArbitration },
     };
+}
+
+// Native (lane wave4-headinput): the head and pointer input keys, read as the VR client reads them
+// (ui/settings.c: a switch takes true/1/on/yes, a number is held to its range and anything else is
+// its default) and written only when this page changed them
+void MlxrPrefs::loadHeadInput(const QString& ini)
+{
+    headLook = iniBool(iniValue(ini, "vr", "head_look", "false"));
+    bool pxOk = false;
+    const int px = iniValue(ini, "vr", "head_look_px_deg", "8").trimmed().toInt(&pxOk);
+    headLookPxDeg = pxOk ? qBound(1, px, 30) : 8;
+    opentrack = iniBool(iniValue(ini, "vr", "opentrack", "false"));
+    opentrackHost = iniValue(ini, "vr", "opentrack_host", "").trimmed();
+    bool portOk = false;
+    const int port = iniValue(ini, "vr", "opentrack_port", "4242").trimmed().toInt(&portOk);
+    opentrackPort = portOk && port >= 1 && port <= 65535 ? port : 4242;
+    m_iniHeadLook = headLook;
+    m_iniHeadLookPxDeg = headLookPxDeg;
+    m_iniOpentrack = opentrack;
+    m_iniOpentrackHost = opentrackHost;
+    m_iniOpentrackPort = opentrackPort;
+    const QString ps = iniValue(ini, "vr", "pointer_source", "controller").trimmed().toLower();
+    pointerSource = (ps == "head" || ps == "1") ? "head" : (ps == "gaze" || ps == "2") ? "gaze" : "controller";
+    m_iniPointerSource = pointerSource;
+    // Native (lane headinput-finish, PLAN 4b.10)
+    const QString mm = iniValue(ini, "vr", "mouse_mode", "absolute").trimmed().toLower();
+    mouseMode = (mm == "relative" || mm == "1") ? "relative" : "absolute";
+    m_iniMouseMode = mouseMode;
+    backAsGuide = iniBool(iniValue(ini, "vr", "back_as_guide", "false"));
+    m_iniBackAsGuide = backAsGuide;
+}
+
+void MlxrPrefs::saveHeadInput(const QString& ini)
+{
+    if (headLook != m_iniHeadLook) {
+        setIniValue(ini, "vr", "head_look", headLook ? "true" : "false");
+    }
+    if (headLookPxDeg != m_iniHeadLookPxDeg) {
+        setIniValue(ini, "vr", "head_look_px_deg", QString::number(qBound(1, headLookPxDeg, 30)));
+    }
+    if (opentrack != m_iniOpentrack) {
+        setIniValue(ini, "vr", "opentrack", opentrack ? "true" : "false");
+    }
+    if (opentrackHost.trimmed() != m_iniOpentrackHost) {
+        setIniValue(ini, "vr", "opentrack_host", opentrackHost.trimmed());
+    }
+    if (opentrackPort != m_iniOpentrackPort) {
+        setIniValue(ini, "vr", "opentrack_port", QString::number(opentrackPort >= 1 && opentrackPort <= 65535 ? opentrackPort : 4242));
+    }
+    m_iniHeadLook = headLook;
+    m_iniHeadLookPxDeg = headLookPxDeg;
+    m_iniOpentrack = opentrack;
+    m_iniOpentrackHost = opentrackHost.trimmed();
+    m_iniOpentrackPort = opentrackPort;
+    if (pointerSource != m_iniPointerSource) {
+        setIniValue(ini, "vr", "pointer_source", pointerSource);
+    }
+    m_iniPointerSource = pointerSource;
+    if (mouseMode != m_iniMouseMode) {
+        setIniValue(ini, "vr", "mouse_mode", mouseMode == "relative" ? "relative" : "absolute");
+    }
+    m_iniMouseMode = mouseMode;
+    if (backAsGuide != m_iniBackAsGuide) {
+        setIniValue(ini, "vr", "back_as_guide", backAsGuide ? "true" : "false");
+    }
+    m_iniBackAsGuide = backAsGuide;
 }
 
 int MlxrPrefs::headsetMaxFps() const

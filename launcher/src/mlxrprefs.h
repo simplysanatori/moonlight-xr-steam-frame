@@ -13,7 +13,9 @@
 // StreamingPreferences under their stock keys, so existing configs keep working.
 #pragma once
 
+#include <QMap>
 #include <QObject>
+#include <QVariantMap>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -137,22 +139,51 @@ class MlxrPrefs : public QObject
     // pad_gyro_ratchet) are in the file only
     Q_PROPERTY(QString lightgun MEMBER lightgun NOTIFY changed)
     Q_PROPERTY(QString padGyro MEMBER padGyro NOTIFY changed)
+    // Native (lane wave4-headinput): head and pointer input of the VR client, all [vr] and off by default.
+    // head_look (PLAN 4.4): the head's turn moves the PC's mouse in pointer mode with the screen head
+    // locked or a room up; head_look_px_deg its pixels a degree, 1..30 (default 8)
+    Q_PROPERTY(bool headLook MEMBER headLook NOTIFY changed)
+    Q_PROPERTY(int headLookPxDeg MEMBER headLookPxDeg NOTIFY changed)
+    // opentrack (PLAN 4.5): the head pose to opentrack on the PC over UDP while streaming; opentrack_host
+    // where to ("" the PC of the current stream), opentrack_port its UDP port, 1..65535 (default 4242)
+    Q_PROPERTY(bool opentrack MEMBER opentrack NOTIFY changed)
+    Q_PROPERTY(QString opentrackHost MEMBER opentrackHost NOTIFY changed)
+    Q_PROPERTY(int opentrackPort MEMBER opentrackPort NOTIFY changed)
+    // pointer_source (PLAN 6.5): "controller" (default), "head" or "gaze"
+    Q_PROPERTY(QString pointerSource MEMBER pointerSource NOTIFY changed)
+    // Native (lane headinput-finish, PLAN 4b.10): mouse_mode "absolute" (default) or "relative";
+    // back_as_guide, gamepad mode's Back (View) button as Guide
+    Q_PROPERTY(QString mouseMode MEMBER mouseMode NOTIFY changed)
+    Q_PROPERTY(bool backAsGuide MEMBER backAsGuide NOTIFY changed)
     // ---- PC VR: Valve's Steam Link stream of the PC (lane wave4-pcvr, PLAN 4.1, 4.2, 4.9) ----
-    // The Host sheet's PC VR button ends the stream and the launcher asks Steam to stream pcvrApp (a Steam
-    // app id; empty: open Steam's library) from the Remote Play PC pcvrClient (a Remote Play client id; empty:
-    // the only paired PC). The names are for this page. Keys mlxr/pcvr_app, pcvr_app_name, pcvr_client,
-    // pcvr_client_name.
-    Q_PROPERTY(QString pcvrApp MEMBER pcvrApp NOTIFY changed)
-    Q_PROPERTY(QString pcvrAppName MEMBER pcvrAppName NOTIFY changed)
+    // VR (the app grid's VR entry, the Host sheet's PC VR; lane pcvr-steamvr) ends the PC's app and the launcher
+    // asks Steam to stream SteamVR from the Remote Play PC pcvrClient (a Remote Play client id; empty: the
+    // paired PC with the Moonlight PC's name, else the only one). The name is for this page. Keys
+    // mlxr/pcvr_client, pcvr_client_name.
     Q_PROPERTY(QString pcvrClient MEMBER pcvrClient NOTIFY changed)
     Q_PROPERTY(QString pcvrClientName MEMBER pcvrClientName NOTIFY changed)
-    // What the last check found (steam_cef.py --probe, --devices, --apps): a sentence for the page, the paired
-    // PCs [{clientId, clientName, streaming}] and the games on the chosen PC [{appid, name, vr}] (vr true,
-    // false or null when Steam does not say)
+    // What the last check found (steam_cef.py --probe, --devices): a sentence for the page and the paired
+    // PCs [{clientId, clientName, streaming}]
     Q_PROPERTY(QString pcvrStatus READ pcvrStatus NOTIFY pcvrChanged)
     Q_PROPERTY(bool pcvrBusy READ pcvrBusy NOTIFY pcvrChanged)
     Q_PROPERTY(QVariantList pcvrDevices READ pcvrDevices NOTIFY pcvrChanged)
-    Q_PROPERTY(QVariantList pcvrApps READ pcvrApps NOTIFY pcvrChanged)
+    // ---- Native (lane launcher-bundle, PLAN 6.7): the rest of the VR client's config.ini ----
+    // Every key of ui/settings.c that a user would set and that had no row of its own: picture, pointer,
+    // keyboard, gamepad mode, the screen and its surroundings (the table is kVrKeys in mlxrprefs.cpp; tests
+    // check it against the VR client's own table). vr["section.key"] is the value as the VR client reads it:
+    // a bool, an int, or an enum's name. setVr() takes the same (or text) and holds it to the key's range;
+    // save() writes only the keys changed here. Not part of a settings profile.
+    Q_PROPERTY(QVariantMap vr READ vr NOTIFY changed)
+    // ---- Native (lane launcher-bundle, PLAN 6.2 and 6.4) ----
+    // Once a day at most, ask GitHub for the latest release (mlxrupdate.h); on by default. Key mlxr/check_updates.
+    Q_PROPERTY(bool checkUpdates MEMBER checkUpdates NOTIFY changed)
+    // What the launcher does once a PC is online after it starts (mlxronstart.h): "none" (default), "desktop" (the
+    // Desktop app of the PC the last stream went to) or "app" (onStartApp on onStartPc). Keys mlxr/on_start,
+    // mlxr/on_start_pc, mlxr/on_start_app; the last stream's PC is mlxr/last_pc (written by the hand-off)
+    Q_PROPERTY(QString onStart MEMBER onStart NOTIFY changed)
+    Q_PROPERTY(QString onStartPc MEMBER onStartPc NOTIFY changed)
+    Q_PROPERTY(QString onStartApp MEMBER onStartApp NOTIFY changed)
+    Q_PROPERTY(QString lastPc READ lastPc NOTIFY changed)
     // ---- facts ----
     // Native (lane wave4c-usb): a USB data cable to the PC is up, i.e. the headset's USB network
     // interface (usb*, or a gadget device) has carrier. Rescanned every 10 s while the app is open.
@@ -197,16 +228,15 @@ public:
     QString pcvrStatus() const { return m_pcvrStatus; }
     bool pcvrBusy() const { return m_pcvrBusy; }
     QVariantList pcvrDevices() const { return m_pcvrDevices; }
-    QVariantList pcvrApps() const { return m_pcvrApps; }
     // PLAN 4.9: only asks Steam's debugging port (steam_cef.py --probe) and says so in pcvrStatus and the log
     Q_INVOKABLE void pcvrProbe();
-    // PLAN 4.2: the probe, then the paired PCs, then the games on the chosen PC (the only one when none is chosen)
+    // PLAN 4.2: the probe, then the paired PCs
     Q_INVOKABLE void pcvrRefresh();
-    // index into pcvrDevices / pcvrApps; -1 = none (a PC: the only paired one; a game: open the library)
+    // index into pcvrDevices; -1 = none (the paired PC with the Moonlight PC's name, else the only one)
     Q_INVOKABLE void pcvrChooseDevice(int index);
-    Q_INVOKABLE void pcvrChooseApp(int index);
-    // A Steam app id typed by hand (the lists need Steam's undocumented library data); "" = none
-    Q_INVOKABLE void pcvrSetAppId(const QString& id);
+    // Lane pcvr-steamvr: the app grid's VR entry for the PC at computerIndex of computerManager (QML's
+    // ComputerManager): MlxrHandoff::startVr
+    Q_INVOKABLE void startVr(QObject* computerManager, int computerIndex);
     // The one-sentence reading of steam_cef.py --probe's JSON (exposed for tests): ok, what is wrong, a hint
     static QString pcvrProbeSummary(const QByteArray& json, int exitCode, const QString& stderrText, bool* ok);
     // Looks at the network interfaces under netRoot (/sys/class/net) now and emits usbCableChanged()
@@ -215,6 +245,21 @@ public:
     // The name of the first USB network interface under netRoot that has carrier ("1" in its carrier
     // file), "" when none. USB means the name starts with "usb" or uevent says DEVTYPE=gadget.
     static QString usbCableInterface(const QString& netRoot);
+
+    // PLAN 6.7: see the vr property
+    QVariantMap vr() const;
+    Q_INVOKABLE void setVr(const QString& id, const QVariant& value);
+    // One line per key of kVrKeys, "section.key kind default min max names" (kind b, i or e; names joined by |,
+    // "-" for none), the format of `mlxr-settings-dump --table`, which prints the VR client's own
+    // (MLXR_LAUNCHER_SELFTEST=vrkeys)
+    static QStringList vrKeyTable();
+    // The value text the VR client would read from raw for that key: a bool as true or false, an int held to its
+    // range, an enum's name (by name or index); anything it would not take is the key's default. "" for an unknown id.
+    static QString vrNormalize(const QString& id, const QString& raw);
+
+    // PLAN 6.4: the PCs and apps the launcher knows (from its saved PC list), [{pc, app}], for the On start row
+    Q_INVOKABLE QVariantList onStartChoices() const;
+    QString lastPc() const;
 
     // config.ini access (exposed for tests): the active value of section.key, else the commented
     // default line's, else def
@@ -281,8 +326,19 @@ public:
     bool firstRunShown = false;
     QString lightgun;
     QString padGyro;
-    QString pcvrApp;
-    QString pcvrAppName;
+    bool checkUpdates = true;
+    QString onStart = QStringLiteral("none");
+    QString onStartPc;
+    QString onStartApp;
+    // Native (lane wave4-headinput)
+    bool headLook = false;
+    int headLookPxDeg = 8;
+    bool opentrack = false;
+    QString opentrackHost;
+    int opentrackPort = 4242;
+    QString pointerSource = QStringLiteral("controller");
+    QString mouseMode = QStringLiteral("absolute"); // native (lane headinput-finish)
+    bool backAsGuide = false;
     QString pcvrClient;
     QString pcvrClientName;
 
@@ -308,6 +364,18 @@ private:
     QString m_iniPadCard = "auto";
     bool m_iniFirstRunShown = false;
     QString m_iniLightgun = "auto", m_iniPadGyro = "off";
+    // Native (lane wave4-headinput): what config.ini held for the head and pointer input keys, and the
+    // load and save of those keys (called from load() and save())
+    bool m_iniHeadLook = false;
+    int m_iniHeadLookPxDeg = 8;
+    bool m_iniOpentrack = false;
+    QString m_iniOpentrackHost;
+    int m_iniOpentrackPort = 4242;
+    QString m_iniPointerSource = QStringLiteral("controller");
+    QString m_iniMouseMode = QStringLiteral("absolute");
+    bool m_iniBackAsGuide = false;
+    void loadHeadInput(const QString& ini);
+    void saveHeadInput(const QString& ini);
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     int m_iniEyeBalance = 0, m_iniBackgroundDim = 0;
     QString m_iniVoidColor = QStringLiteral("#000000"), m_iniGlowFeather = QStringLiteral("off");
@@ -318,9 +386,10 @@ private:
     bool m_usbCable = false, m_usbScanned = false;
     QString m_pcvrStatus, m_pcvrBase;
     bool m_pcvrBusy = false;
-    QVariantList m_pcvrDevices, m_pcvrApps;
-    void pcvrLoadApps();
+    QVariantList m_pcvrDevices;
     void pcvrSay(const QString& status, bool busy);
+    // PLAN 6.7: kVrKeys' values now and as config.ini held them at load(), as the VR client's text
+    QMap<QString, QString> m_vr, m_iniVr;
     QString m_iniKeymap = QStringLiteral("qwerty");
     QString m_iniHeadsetLanguage = QStringLiteral("auto");
 };

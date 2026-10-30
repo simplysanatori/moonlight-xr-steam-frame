@@ -10,7 +10,10 @@
 #include "streaming/uihooks.h"
 #include "streaming/mlxrprefs.h"
 #include "streaming/mlxrpreflight.h"
+#include "streaming/mlxronstart.h"
+#include "streaming/mlxrupdate.h"
 #include "backend/computermanager.h"
+#include "backend/nvhttp.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -22,6 +25,9 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJSValue>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QThread>
 #include <QPlatformSurfaceEvent>
 #include <QPointer>
 #include <memory>
@@ -203,12 +209,17 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
         uuid = c.uuid;
         pcName = c.name;
     }
+    // Native (lane launcher-bundle, PLAN 6.4): the PC of the last stream, for the On start setting's "Last PC's Desktop"
+    if (!pcName.isEmpty()) {
+        QSettings().setValue("mlxr/last_pc", pcName);
+    }
     // Native (lane wave4-launcher): the PC's or the app's settings profile, if it has one, is in force from here until
     // the Plan is gone (mlxrprofiles.h); everything below reads the settings in force
     if (&p == StreamingPreferences::get()) {
         plan.profile = MlxrProfiles::get()->beginLaunch(pcName, app.name);
     }
 
+    plan.pcName = pcName;   // lane pcvr-steamvr: VR asks Steam for this PC by name
     QStringList a;
     // The uuid is how the native client's hosts.ini names this PC (exportPairing wrote it)
     a << "--host" << uuid;
@@ -621,24 +632,27 @@ QProcess* runSteamCef(const QStringList& args, int timeoutMs, QObject* context,
     return p;
 }
 
-QStringList pcvrArguments(const QString& app, const QString& client)
+QStringList pcvrArguments(const QString& pcName, const QString& client, int confirmSeconds)
 {
     QStringList a { "--pcvr" };
-    if (!app.trimmed().isEmpty()) {
-        a << "--app" << app.trimmed();
+    if (!pcName.trimmed().isEmpty()) {
+        a << "--pc" << pcName.trimmed();
     }
     if (!client.trimmed().isEmpty()) {
         a << "--client" << client.trimmed();
     }
+    if (confirmSeconds > 0) {
+        a << "--confirm" << QString::number(confirmSeconds);
+    }
     return a;
 }
 
-void startPcvr()
+void startPcvr(const QString& pcName)
 {
     QSettings s;
-    const QString app = s.value("mlxr/pcvr_app").toString();
     const QString client = s.value("mlxr/pcvr_client").toString();
-    const QStringList args = pcvrArguments(app, client);
+    // --confirm: the log then says whether Steam reported the stream (10 s of its Remote Play state)
+    const QStringList args = pcvrArguments(pcName, client, 10);
     s_pcvrStarted = true;
     s_pcvrSince.start();
     const QString line = "MLXR_PCVR: python3 -I steam_cef.py " + args.join(' ');
@@ -654,17 +668,89 @@ void startPcvr()
         }
         return;
     }
-    qInfo().noquote() << "Handing the headset to PC VR (Steam Link):" << args.join(' ')
-                      << (app.isEmpty() ? "(no game chosen: Steam's library opens)" : "");
+    qInfo().noquote() << "Handing the headset to SteamVR (Steam Link):" << args.join(' ');
     s_pcvrProcess = runSteamCef(args, 40000, qApp, [](int code, const QByteArray& out, const QString& err) {
         if (code == 0) {
-            qInfo().noquote() << "Asked Steam for PC VR: done" << QString::fromUtf8(out).trimmed();
+            // which path steam_cef.py took (stream, app-page, library), why, and what Steam reported after
+            const QJsonObject o = QJsonDocument::fromJson(out).object();
+            const QJsonValue st = o.value("streaming");
+            qInfo().noquote() << QString("Asked Steam for PC VR: %1 (%2)%3").arg(o.value("path").toString("?"),
+                                     o.value("reason").toString(),
+                                     st.isBool() ? QString("; Steam reports the PC %1").arg(st.toBool() ? "streaming" : "not streaming yet")
+                                                 : QString())
+                              << QString::fromUtf8(out).trimmed();
         }
         else {
             qWarning().noquote() << QString("Asked Steam for PC VR: failed (exit %1): %2 %3; run steam_cef.py --probe for the "
                                             "Steam port").arg(code).arg(err.left(300), QString::fromUtf8(out).left(200));
         }
     });
+}
+
+void startVr(NvComputer* computer, const std::function<void()>& done)
+{
+    if (computer == nullptr) {
+        return;
+    }
+    QString name;
+    {
+        QReadLocker lock(&computer->lock);
+        name = computer->name;
+    }
+    const bool dry = !qEnvironmentVariable("MLXR_LAUNCHER_DRYRUN").isEmpty();
+    s_pcvrStarted = true;   // the flat screen is not asked for meanwhile
+    s_pcvrSince.start();
+    qInfo().noquote() << "VR: ending what runs on" << name << "then SteamVR through Steam Link";
+    QThread* t = QThread::create([computer, name, dry, done]() {
+        QStringList lines;
+        int game = -1;
+        try {
+            NvHTTP http(computer);
+            for (int i = 0; i < 20; i++) {
+                game = NvHTTP::getCurrentGame(http.getServerInfo(NvHTTP::NVLL_ERROR, true));
+                if (game == 0) {
+                    break;
+                }
+                if (i == 0) {
+                    if (dry) {
+                        lines << QString("MLXR_VR: would quit app %1 on %2").arg(game).arg(name);
+                        break;
+                    }
+                    lines << QString("VR: ending app %1 on %2").arg(game).arg(name);
+                    http.quitApp();
+                }
+                QThread::msleep(500);
+            }
+        }
+        catch (const GfeHttpResponseException& e) {
+            lines << "VR: the PC refused: " + e.toQString();
+        }
+        catch (const QtNetworkReplyException& e) {
+            lines << "VR: the PC did not answer: " + e.toQString();
+        }
+        QMetaObject::invokeMethod(qApp, [lines, game, name, dry, done]() {
+            for (const QString& l : lines) {
+                if (l.startsWith("MLXR_VR")) {
+                    QTextStream(stdout) << l << Qt::endl;
+                }
+                qInfo().noquote() << l;
+            }
+            if (game == 0) {
+                qInfo().noquote() << "VR:" << name << "reports no running app";
+            }
+            else if (!dry) {
+                qWarning().noquote() << "VR:" << name << (game > 0 ? QString("still reports app %1 after 10 s").arg(game)
+                                                                    : QString("could not be asked what runs"))
+                                     << ": asking Steam anyway";
+            }
+            startPcvr(name);
+            if (done) {
+                done();
+            }
+        }, Qt::QueuedConnection);
+    });
+    QObject::connect(t, &QThread::finished, t, &QObject::deleteLater);
+    t->start();
 }
 
 bool pcvrHeldOff()
@@ -1076,7 +1162,7 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
             if (r.exitCode == kExitPcvr) {
                 r.disconnected = r.pcvr = true;
                 r.message.clear();
-                startPcvr();
+                startPcvr(plan.pcName);
             }
         }
         return r;
@@ -1179,7 +1265,7 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
     }
     log.write(QString("\n== VR client exited: code %1%2\n").arg(r.exitCode).arg(r.crashed ? " (crashed)" : "").toUtf8());
     if (r.pcvr) {
-        startPcvr();   // not the flat screen: the headset goes to Valve's stream
+        startPcvr(plan.pcName);   // not the flat screen: the headset goes to Valve's stream
     }
     else {
         reopenFlatScreen();
@@ -1271,9 +1357,9 @@ static void seedOnce()
 // ---- self test --------------------------------------------------------------------
 
 // The saved PC (by name or uuid) and its app (by name or id), from the launcher's config
-static NvComputer* loadComputer(const QString& spec, NvApp* app, QString* why)
+static NvComputer* loadComputer(const QString& spec, NvApp* app, QString* why, bool needApp = true)
 {
-    const int colon = spec.lastIndexOf(':');
+    const int colon = needApp ? spec.lastIndexOf(':') : -1;
     const QString hostKey = colon < 0 ? spec : spec.left(colon);
     const QString appKey = colon < 0 ? QString() : spec.mid(colon + 1);
 
@@ -1300,7 +1386,7 @@ static NvComputer* loadComputer(const QString& spec, NvApp* app, QString* why)
             *app = a;
         }
     }
-    if (!app->id) {
+    if (needApp && !app->id) {
         *why = "no app " + appKey + " on " + found->name;
         delete found;
         return nullptr;
@@ -1388,6 +1474,13 @@ static int selfTestValue(const QString& spec)
         QTextStream(stdout) << "SELFTEST: openurl=" << (cmd.isEmpty() ? QString("qt ") + url : cmd.join(' ')) << Qt::endl;
         return 0;
     }
+    // Native (lane launcher-bundle, PLAN 6.7): the config.ini keys the Settings page shows through MlxrPrefs.vr
+    if (spec == "vrkeys") {
+        for (const QString& line : MlxrPrefs::vrKeyTable()) {
+            QTextStream(stdout) << line << Qt::endl;
+        }
+        return 0;
+    }
     if (spec == "scale") {
         QTextStream(stdout) << "SELFTEST: scale=" << QByteArray::number(gameModeScale(), 'g', 4)
                             << " QT_SCALE_FACTOR=" << qEnvironmentVariable("QT_SCALE_FACTOR") << Qt::endl;
@@ -1449,7 +1542,7 @@ static int selfTestPcvr(const QString& spec)
     const QStringList p = spec.split(':');
     const QString what = p.value(1);
     if (what == "go") {
-        startPcvr();
+        startPcvr(p.value(2));
         waitForPcvr(20000);
         return 0;
     }
@@ -1489,13 +1582,49 @@ int selfTest(const QString& spec)
     if (spec.startsWith("plan:")) {
         return selfTestPlan(spec.mid(5));
     }
+    if (spec.startsWith("vr:")) {
+        // Lane pcvr-steamvr: the app grid's VR for a saved PC
+        NvApp none;
+        QString why;
+        NvComputer* found = loadComputer(spec.mid(3), &none, &why, false);
+        if (!found) {
+            QTextStream(stderr) << "SELFTEST: " << why << Qt::endl;
+            fflush(stderr);
+            _exit(20);
+        }
+        QEventLoop loop;
+        startVr(found, [&loop]() { loop.quit(); });
+        loop.exec();
+        waitForPcvr(40000);
+        if (!qEnvironmentVariable("MLXR_LAUNCHER_DRYRUN").isEmpty()) {
+            // what steam_cef.py would ask Steam (it reads the paired PCs only)
+            QEventLoop wait;
+            runSteamCef(pcvrArguments(found->name, QSettings().value("mlxr/pcvr_client").toString()) << "--dry-run", 30000, qApp,
+                        [&wait](int code, const QByteArray& out, const QString& err) {
+                QTextStream(stdout) << "SELFTEST: vr steam rc=" << code << " " << QString::fromUtf8(out).trimmed() << " "
+                                    << err << Qt::endl;
+                wait.quit();
+            });
+            wait.exec();
+        }
+        fflush(stdout);
+        fflush(stderr);
+        _exit(0);
+    }
+    // Native (lane launcher-bundle, PLAN 6.2 and 6.4)
+    if (spec == "update" || spec == "onstart" || spec.startsWith("onstart:")) {
+        const int rc = spec == "update" ? MlxrUpdate::selfTest() : MlxrOnStart::selfTest(spec);
+        fflush(stdout);
+        fflush(stderr);
+        _exit(rc);
+    }
     if (spec.startsWith("pcvr:")) {
         const int rc = selfTestPcvr(spec);
         fflush(stdout);
         fflush(stderr);
         _exit(rc);
     }
-    if (spec == "scale" || spec.startsWith("bitrate:") || spec.startsWith("openurl:")) {
+    if (spec == "scale" || spec == "vrkeys" || spec.startsWith("bitrate:") || spec.startsWith("openurl:")) {
         const int rc = selfTestValue(spec);
         fflush(stdout);
         fflush(stderr);

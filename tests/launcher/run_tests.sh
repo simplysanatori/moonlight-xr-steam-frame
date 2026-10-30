@@ -15,6 +15,10 @@ export MLXR_LOG_DIR="$t/log" MLXR_CONFIG_DIR="$t/native"
 # lane wave4-launcher: the check before a stream asks the PC; only section 3e turns it on, against a fake PC
 export MLXR_LAUNCHER_PREFLIGHT=0
 unset MLXR_LAUNCHER_PREFLIGHT_URL MLXR_APP_UUID
+# lane launcher-bundle: the update check asks GitHub; only section 3f turns it on, with the answer injected or from a
+# local fake. On start is off unless a test sets it.
+export MLXR_LAUNCHER_UPDATE=0
+unset MLXR_LAUNCHER_UPDATE_JSON MLXR_LAUNCHER_UPDATE_URL MLXR_LAUNCHER_ONSTART_ONLINE MLXR_LAUNCHER_ONSTART_WAIT_MS
 mkdir -p "$HOME" "$MLXR_LOG_DIR"
 # Lane refresh: SteamVR's per-app refresh rate is set through vrcmd. The tests never reach the real
 # one (it would change this machine's SteamVR settings): a fake records its arguments instead, and
@@ -566,6 +570,125 @@ expect "check: under its own heading" "$out" "Found before the stream started:"
 expect "launch by UUID: in the VR client's environment" "$out" "MLXR_LAUNCHER_DRYRUN_ENV: MLXR_APP_UUID=$UUID_DESKTOP"
 srvinfo $PERM_ALL true true SUNSHINE_SERVER_FREE 0 1 769
 
+# --- 3f. lane launcher-bundle (PLAN 6.7, 6.2, 6.4)
+# 6.7: the VR client's config.ini keys the Settings page shows through MlxrPrefs.vr have the client's own kind,
+# default, range and names (its parser's table, mlxr-settings-dump --table)
+if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+    "$MLXR_SETTINGS_DUMP" --table > "$t/client-table"
+    MLXR_LAUNCHER_DRYRUN=1 selftest vrkeys > "$t/launcher-table"
+    n="$(wc -l < "$t/launcher-table")"
+    bad="$(grep -vxFf "$t/client-table" "$t/launcher-table")"
+    [ "$n" -ge 40 ] && [ -z "$bad" ] && ok "the page's $n config.ini keys match the VR client's table" || fail "config.ini keys differ from the VR client's ($n keys): $bad"
+    # Report only: a key of the client's that has no row on the page and is not left out on purpose (a new setting
+    # wants a row, or a place on this list; launcher.md "Config-only VR keys")
+    own="stream.resolution stream.fps stream.bitrate_kbps stream.codec stream.audio_config stream.frame_pacing stream.network_path
+         stream.doff_disconnect stream.idle_disconnect stream.bitrate_wifi stream.bitrate_adapter stream.bitrate_wired stream.bitrate_usb
+         stream.rfi_idr_ms stream.failover stream.failover_burst_ms vr.keyboard_keymap vr.controller_model vr.flip_face_buttons
+         vr.pad_mouse_chord vr.pad_mouse_scroll vr.pad_arbitration vr.pad_gyro vr.notices vr.lightgun vr.scroll_speed
+         vr.background_dim vr.void_color vr.first_run_shown vr.pad_card display.zoom display.stats display.glow_feather
+         3d.separation 3d.convergence 3d.stereo 3d.eye_balance 3d.stereo_source 3d.sbs_full 3d.edge_sharpness 3d.depth_scale
+         3d.depth_global 3d.motion_reset ui.language"
+    left="stream.host stream.app vr.hand_hint_seen display.cog_tab display.zoom_x display.zoom_y screen.height_cm
+          screen.azimuth_deg screen.tilt_deg screen.rotate_deg screen.far_distance_cm screen.far_width_cm"
+    for k in $(cut -d' ' -f1 "$t/client-table"); do
+        case "$k" in debug.*|rooms.*) continue;; esac
+        case " $(echo $own $left) " in *" $k "*) continue;; esac
+        grep -q "^$k " "$t/launcher-table" || echo "note: config.ini key $k has no row on the Settings page"
+    done
+fi
+
+# 6.2: the update check. upd [VAR=value ...] -> its log lines; GitHub's answer is a file or a fake on 127.0.0.1
+upd() { env MLXR_LAUNCHER_DRYRUN=1 MLXR_LAUNCHER_UPDATE=1 "$@" MLXR_LAUNCHER_SELFTEST=update "$L" 2>&1 | grep -E 'MLXR_LAUNCHER_UPDATE|SELFTEST: update'; }
+VER="$(head -n 1 "$here/../../VERSION")"
+REL=https://github.com/simplysanatori/moonlight-xr-steam-frame/releases
+rel() { printf '{"tag_name":"%s","html_url":"%s","draft":false,"prerelease":%s,"assets":[]}' "$1" "${2:-$REL/tag/$1}" "${3:-false}" > "$t/rel.json"; }
+rel v999.0.0
+o="$(upd MLXR_LAUNCHER_UPDATE_JSON="$t/rel.json")"
+expect "update: a newer release is offered with its page" "$o" "SELFTEST: update available 999.0.0 $REL/tag/v999.0.0"
+expect "update: and logged with the installed version" "$o" "version 999.0.0 is out (installed $VER)"
+rel "v$VER"
+o="$(upd MLXR_LAUNCHER_UPDATE_JSON="$t/rel.json")"
+expect "update: the installed version is up to date" "$o" "up to date (latest release $VER, installed $VER)"
+refute "update: no notice for the same version" "$o" "available"
+rel v0.0.1
+refute "update: no notice for an older release" "$(upd MLXR_LAUNCHER_UPDATE_JSON="$t/rel.json")" "available"
+rel v999.0.0 "" true
+expect "update: a pre-release is not offered" "$(upd MLXR_LAUNCHER_UPDATE_JSON="$t/rel.json")" "check failed: the latest release is a draft or a pre-release"
+rel v999.0.0 "https://example.invalid/not-this-project"
+expect "update: a page outside this project's releases is not opened" "$(upd MLXR_LAUNCHER_UPDATE_JSON="$t/rel.json")" "available 999.0.0 $REL/latest"
+echo '<html>rate limited</html>' > "$t/bad.json"
+o="$(upd MLXR_LAUNCHER_UPDATE_JSON="$t/bad.json")"
+expect "update: an answer that is not JSON is one log line" "$o" "check failed: the answer is not a JSON object"
+[ "$(echo "$o" | grep -c MLXR_LAUNCHER_UPDATE)" = 1 ] && ok "update: a failure is exactly one log line" || fail "update failure lines: $o"
+rel v999.0.0
+SECTION=mlxr setconf check_updates=false
+o="$(upd MLXR_LAUNCHER_UPDATE_JSON="$t/rel.json")"
+expect "update: Check for updates off asks nothing" "$o" "off (Settings, Check for updates)"
+refute "update: and offers nothing" "$o" "available"
+SECTION=mlxr setconf check_updates=true
+refute "update: stock mode (MLXR_HANDOFF=0) never checks" "$(upd MLXR_HANDOFF=0 MLXR_LAUNCHER_UPDATE_JSON="$t/rel.json")" "MLXR_LAUNCHER_UPDATE"
+# a fake GitHub on 127.0.0.1: what is asked, how often, and failures
+cat > "$t/fakegh.py" <<'PY'
+import http.server, os, sys
+d = sys.argv[1]
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        with open(os.path.join(d, "gh.log"), "a") as f:
+            f.write("%s UA=%s ACCEPT=%s\n" % (self.path, self.headers.get("User-Agent"), self.headers.get("Accept")))
+        code = int(open(os.path.join(d, "gh.status")).read().strip())
+        body = open(os.path.join(d, "rel.json"), "rb").read()
+        self.send_response(code); self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+    def log_message(self, *a): pass
+s = http.server.HTTPServer(("127.0.0.1", 0), H)
+print(s.server_address[1], flush=True)
+s.serve_forever()
+PY
+echo 200 > "$t/gh.status"; : > "$t/gh.log"
+python3 -I "$t/fakegh.py" "$t" > "$t/gh.port" 2>/dev/null &
+GHPID=$!
+for _ in $(seq 50); do [ -s "$t/gh.port" ] && break; sleep 0.1; done
+GHURL="http://127.0.0.1:$(cat "$t/gh.port")/repos/simplysanatori/moonlight-xr-steam-frame/releases/latest"
+SECTION=mlxr setconf update_checked=
+o="$(upd MLXR_LAUNCHER_UPDATE_URL="$GHURL")"
+expect "update: asks the releases API once" "$(cat "$t/gh.log")" "/repos/simplysanatori/moonlight-xr-steam-frame/releases/latest UA=moonlight-xr-launcher ACCEPT=application/vnd.github+json"
+expect "update: the answer offers the release" "$o" "available 999.0.0"
+o="$(upd MLXR_LAUNCHER_UPDATE_URL="$GHURL")"
+[ "$(wc -l < "$t/gh.log")" = 1 ] && ok "update: at most once a day (the second start asks nothing)" || fail "update asked again: $(cat "$t/gh.log")"
+expect "update: the second start still shows the kept answer" "$o" "available 999.0.0"
+expect "update: and says when it asks again" "$o" "next check after"
+SECTION=mlxr setconf update_checked="$(date -u -d '-2 days' +%Y-%m-%dT%H:%M:%SZ)"
+upd MLXR_LAUNCHER_UPDATE_URL="$GHURL" >/dev/null
+[ "$(wc -l < "$t/gh.log")" = 2 ] && ok "update: a day later it asks again" || fail "update after two days: $(cat "$t/gh.log")"
+grep -q "^update_checked=$(date -u +%Y-%m-%d)" "$CONF" && ok "update: the check's time is kept" || fail "update_checked: $(grep update_ "$CONF")"
+echo 500 > "$t/gh.status"; SECTION=mlxr setconf update_checked=
+o="$(upd MLXR_LAUNCHER_UPDATE_URL="$GHURL")"
+expect "update: an HTTP error is one log line" "$o" "check failed: HTTP 500"
+[ "$(echo "$o" | grep -c MLXR_LAUNCHER_UPDATE)" = 1 ] && ok "update: and nothing else" || fail "update HTTP 500 lines: $o"
+kill "$GHPID" 2>/dev/null; wait "$GHPID" 2>/dev/null
+SECTION=mlxr setconf update_checked=
+o="$(upd MLXR_LAUNCHER_UPDATE_URL="$GHURL")"
+[ "$(echo "$o" | grep -c 'MLXR_LAUNCHER_UPDATE: check failed')" = 1 ] && ok "update: no answer at all is one log line" || fail "update without a server: $o"
+SECTION=mlxr setconf update_checked= update_latest= update_url=
+
+# 6.4: On start. onstart [running app id] -> what the launcher would start with the PC online
+onstart() { MLXR_LAUNCHER_DRYRUN=1 selftest "onstart${1:+:$1}"; }
+expect "On start: off by default" "$(onstart)" "mode=none pc= app= nothing: off"
+SECTION=mlxr setconf on_start=desktop last_pc=
+expect "On start: Last PC's Desktop with no stream yet starts nothing" "$(onstart)" "nothing: no stream has gone to a PC yet"
+dry "gaming-pc:Desktop" >/dev/null
+grep -q '^last_pc=gaming-pc$' "$CONF" && ok "On start: a stream keeps its PC as the last PC" || fail "last_pc: $(grep last_pc "$CONF")"
+o="$(onstart)"
+expect "On start: the last PC's Desktop" "$o" "mode=desktop pc=gaming-pc app=Desktop"
+expect "On start: starts once the PC is online" "$o" "verdict=start 881448767 Desktop"
+expect "On start: another app running on the PC is left alone" "$(onstart 1439608285)" "verdict=busy Assassin's Creed Origins"
+expect "On start: the same app running is resumed" "$(onstart 881448767)" "verdict=start 881448767 Desktop"
+SECTION=mlxr setconf on_start=app on_start_pc=GAMING-PC "on_start_app=assassin's creed origins"
+expect "On start: a chosen app, names matched without case" "$(onstart)" "verdict=start 1439608285 Assassin's Creed Origins"
+SECTION=mlxr setconf on_start_app=Nothing
+expect "On start: an app the PC does not list (yet) is waited for" "$(onstart)" "verdict=wait"
+SECTION=mlxr setconf on_start=none on_start_pc= on_start_app=
+
 # --- 4. a client that runs: control comes back with its result
 fake="$t/fake-client.sh"
 cat >"$fake" <<'FAKE'
@@ -641,11 +764,13 @@ JSON
     MLXR_LAUNCHER_DRYRUN="fail:12:" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
     [ $rc = 0 ] && ok "exit 12 (Switch to PC VR) is not an error" || fail "exit 12 gave $rc"
     expect "exit 12: no error dialog" "$(cat "$t/stdout")" "error=none"
-    expect "exit 12 with no game chosen: --pcvr alone" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr"
-    refute "exit 12 with no game chosen: no --app" "$(grep '^MLXR_PCVR' "$t/stdout")" "--app"
+    # lane pcvr-steamvr: SteamVR from the PC of that name, never a game
+    expect "exit 12: SteamVR from the stream's PC, by name" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --pc gaming-pc --confirm 10"
+    refute "exit 12: no --app" "$(grep '^MLXR_PCVR' "$t/stdout")" "--app"
     SECTION=mlxr setconf pcvr_app=620980 pcvr_client=76561198000000001
     MLXR_LAUNCHER_DRYRUN="fail:12:" selftest "gaming-pc:Desktop" >"$t/stdout"
-    expect "exit 12 with a game and a PC chosen" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --app 620980 --client 76561198000000001"
+    expect "exit 12 with a PC chosen in Settings" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --pc gaming-pc --client 76561198000000001 --confirm 10"
+    refute "exit 12: an old saved game is not streamed" "$(grep '^MLXR_PCVR' "$t/stdout")" "--app"
     MLXR_LAUNCHER_DRYRUN="fail:11:" selftest "gaming-pc:Desktop" >"$t/stdout"
     refute "exit 11 (disconnect) does not hand off to PC VR" "$(cat "$t/stdout")" "MLXR_PCVR"
     MLXR_LAUNCHER_DRYRUN="fail:6:no" selftest "gaming-pc:Desktop" >"$t/stdout"
@@ -656,22 +781,34 @@ JSON
     FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
     [ $rc = 0 ] && ok "client exit 12 -> success" || fail "client exit 12 gave $rc"
     expect "client exit 12: finished without an error" "$(cat "$t/stdout")" "started=yes finished=yes error=none"
-    expect "client exit 12: Steam is asked to StreamGame the chosen game from the chosen PC" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(620980, "76561198000000001", 0)'
+    expect "client exit 12: Steam is asked to StreamGame SteamVR from the chosen PC" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(250820, "76561198000000001", 0)'
     refute "client exit 12: the flat screen is not asked for" "$(cat "$t/cef.log")" "ShowDashboard"
-    # no PC chosen: the only paired PC is used (the script asks Steam for the list first)
+    refute "client exit 12: no Steam page, no library" "$(cat "$t/cef.log")" "ExecuteSteamURL"
+    expect "client exit 12: the log names the path taken" "$(cat "$t/stderr")" "Asked Steam for PC VR: stream (the PC chosen"
+    # no PC chosen: Steam's paired PC with the Moonlight PC's name (the script asks Steam for the list first)
     : > "$t/cef.log"
     SECTION=mlxr setconf pcvr_client=
     FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"
     expect "no PC chosen: Steam is asked for the paired PCs" "$(cat "$t/cef.log")" "RegisterForDevicesChanges"
-    expect "no PC chosen: the only paired PC is streamed from" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(620980, "76561198000000001", 0)'
-    # no game chosen: Steam's library opens
+    expect "no PC chosen: the paired PC of that name is streamed from" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(250820, "76561198000000001", 0)'
+    expect "no PC chosen: the log says it was found by name" "$(cat "$t/stderr")" "the paired PC named gaming-pc"
+    # the app grid's VR (vr:<PC>): a dry run ends nothing and asks Steam nothing, and shows the call
     : > "$t/cef.log"
-    SECTION=mlxr setconf pcvr_app=
-    FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"
-    expect "no game chosen: Steam's library opens" "$(cat "$t/cef.log")" "steam://nav/games"
-    refute "no game chosen: nothing is streamed" "$(cat "$t/cef.log")" "StreamGame"
+    MLXR_LAUNCHER_DRYRUN=1 selftest "vr:gaming-pc" >"$t/stdout"; rc=$?
+    [ $rc = 0 ] && ok "vr: dry run" || fail "vr: dry run gave $rc: $(cat "$t/stderr")"
+    expect "vr dry run: the hand-off it would start" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --pc gaming-pc --confirm 10"
+    expect "vr dry run: steam_cef.py's call" "$(cat "$t/stdout")" 'SELFTEST: vr steam rc=0'
+    expect "vr dry run: SteamVR from the paired PC" "$(cat "$t/stdout")" 'StreamGame(250820, \"76561198000000001\", 0)'
+    refute "vr dry run: Steam was not asked to stream" "$(cat "$t/cef.log")" "StreamGame"
+    # for real against the fake Steam (the saved PC does not answer here: it says so and asks Steam anyway)
+    : > "$t/cef.log"
+    selftest "vr:gaming-pc" >"$t/stdout"; rc=$?
+    [ $rc = 0 ] && ok "vr: runs" || fail "vr gave $rc"
+    expect "vr: Steam is asked for SteamVR from the PC" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(250820, "76561198000000001", 0)'
+    expect "vr: the log says what it did about the PC's app" "$(cat "$t/stderr")" "VR: "
+    selftest "vr:nosuch" >/dev/null 2>&1; [ $? = 20 ] && ok "vr: an unknown PC is reported" || fail "vr: unknown PC"
     # Steam's port does not answer: the hand-off fails quietly (logged), the launcher carries on
-    SECTION=mlxr setconf pcvr_app=620980 pcvr_client=76561198000000001
+    SECTION=mlxr setconf pcvr_client=76561198000000001
     STEAM_CEF_PORT="$DEADPORT" FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
     [ $rc = 0 ] && expect "Steam port dead: no error dialog" "$(cat "$t/stdout")" "error=none" || fail "dead port gave $rc"
     expect "Steam port dead: logged with the way to check" "$(cat "$t/stderr")" "steam_cef.py --probe"
@@ -878,6 +1015,46 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads depth_scale" "$dump" "3d.depth_scale = 125"
         expect "VR client reads depth_global" "$dump" "3d.depth_global = 125"
         expect "VR client reads zoom" "$dump" "display.zoom = 125"
+    fi
+    # lane wave4-headinput: the head and pointer input rows under Input Settings write only their keys
+    printf '[vr]\nhead_aim = true\nopentrack_host = gaming-pc.local\nopentrack_port = 5555\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=headLookRow,headLookPxRow,opentrackRow,pointerSourceRow \
+        MLXR_LAUNCHER_SCREENSHOT="$t/settings-headinput.png@3000" "$L" >"$t/ui13.out" 2>&1
+    grep -q "no clickable" "$t/ui13.out" && fail "head input click hook: $(grep 'no clickable' "$t/ui13.out")"
+    grep -Eq "$QMLERR" "$t/ui13.out" && { fail "head input rows: QML errors"; grep -E "$QMLERR" "$t/ui13.out" | head -3; } || ok "head input rows load (no QML errors)"
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^head_look = true$' && ok "head-look switch writes [vr] head_look = true" || { fail "head_look not written"; cat "$ini"; }
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^head_look_px_deg = 12$' && ok "head-look speed row steps 8 to 12 and writes [vr] head_look_px_deg" || { fail "head_look_px_deg not written"; cat "$ini"; }
+    grep -q '^head_aim = true$' "$ini" && ok "head input rows leave head_aim alone" || { fail "head_aim changed"; cat "$ini"; }
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^opentrack = true$' && ok "opentrack switch writes [vr] opentrack = true" || { fail "opentrack not written"; cat "$ini"; }
+    grep -q '^opentrack_host = gaming-pc.local$' "$ini" && grep -q '^opentrack_port = 5555$' "$ini" && ok "opentrack host and port read and kept" || { fail "opentrack host or port changed"; cat "$ini"; }
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads head_look" "$dump" "vr.head_look = true"
+        expect "VR client reads head_look_px_deg" "$dump" "vr.head_look_px_deg = 12"
+        expect "VR client reads opentrack" "$dump" "vr.opentrack = true"
+        expect "VR client reads opentrack_host" "$dump" "vr.opentrack_host = gaming-pc.local"
+        expect "VR client reads opentrack_port" "$dump" "vr.opentrack_port = 5555"
+        expect "VR client reads pointer_source" "$dump" "vr.pointer_source = head"
+    fi
+    # lane headinput-finish: mouse mode and Back as Guide write only their keys, and no row but What points
+    # ever writes pointer_source or head_dwell_ms (head Point mode never turns on by itself)
+    printf '[vr]\nhead_aim = true\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=mouseModeRow,backAsGuideRow,headLookRow,opentrackRow \
+        MLXR_LAUNCHER_SCREENSHOT="$t/settings-mousemode.png@3000" "$L" >"$t/ui13b.out" 2>&1
+    grep -q "no clickable" "$t/ui13b.out" && fail "mouse mode click hook: $(grep 'no clickable' "$t/ui13b.out")"
+    grep -Eq "$QMLERR" "$t/ui13b.out" && { fail "mouse mode rows: QML errors"; grep -E "$QMLERR" "$t/ui13b.out" | head -3; } || ok "mouse mode and Back as Guide rows load (no QML errors)"
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^mouse_mode = relative$' && ok "mouse mode row steps to relative and writes [vr] mouse_mode" || { fail "mouse_mode not written"; cat "$ini"; }
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^back_as_guide = true$' && ok "Back as Guide switch writes [vr] back_as_guide = true" || { fail "back_as_guide not written"; cat "$ini"; }
+    grep -q '^head_aim = true$' "$ini" && ok "mouse mode rows leave head_aim alone" || { fail "head_aim changed"; cat "$ini"; }
+    grep -Eq '^(pointer_source|head_dwell_ms) *=' "$ini" && { fail "a row wrote pointer_source or head_dwell_ms"; cat "$ini"; } || ok "no other row writes pointer_source or head_dwell_ms"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads mouse_mode" "$dump" "vr.mouse_mode = relative"
+        expect "VR client reads back_as_guide" "$dump" "vr.back_as_guide = true"
+        expect "VR client keeps pointer_source on the controllers" "$dump" "vr.pointer_source = controller"
+        expect "VR client keeps the dwell off" "$dump" "vr.head_dwell_ms = 0"
     fi
     # MLXR_HANDOFF=0: the stock probe runs again
     MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1
@@ -1131,6 +1308,99 @@ PY
         grep -Eq "$QMLERR" "$t/ui9.out" && { fail "scale 1.5 $pg: QML errors"; grep -E "$QMLERR" "$t/ui9.out" | head -3; } || ok "scale 1.5: $pg page, no QML errors"
         grep -q "scale15-$pg.png\" QSize(1920, 1080) saved" "$t/ui9.out" && ok "scale 1.5: $pg rendered 1920x1080 from a 1280x720 logical window" || fail "scale 1.5 $pg: $(grep Screenshot "$t/ui9.out")"
     done
+    # --- lane launcher-bundle, PLAN 6.7: the config.ini keys' rows. A switch clicked, sliders and lists set as the
+    # page's own functions do, then only those keys written, as the VR client reads them
+    ini="$MLXR_CONFIG_DIR/config.ini"
+    printf '[vr]\n# checkbox_vr_show_ray: show the controller ray [true | false] (default true)\n#show_ray = true\nnotices = off\n\n[screen]\ndistance_cm = 280\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.show_ray,vr.passthrough,display.glow \
+        MLXR_LAUNCHER_INVOKE='vrSet:vr.picture_contrast|120;vrSet:vr.picture_gamma|135;vrSet:vr.head_aim_sensitivity|99;vrSet:screen.width_cm|450;vrPick:vr.environment|3;vrPick:display.stats_style|1;vrPick:vr.depth_source|1;vrPick:vr.gamepad_toggle|2;pickOnStart:1;saveAll;setSearch:picture' \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-vrkeys.png@3000" "$L" >"$t/vrk.out" 2>&1
+    grep -q "no clickable\|no function\|could not call\|vrPick: no row" "$t/vrk.out" && fail "config key rows: $(grep -E 'no clickable|no function|could not call|vrPick' "$t/vrk.out" | head -3)"
+    uiout "$t/vrk.out" "config key rows"
+    sec() { sed -n "/^\[$1\]/,/^\[/p" "$ini"; }
+    expect "a switch row writes its key: Show the ray off" "$(sec vr)" "show_ray = false"
+    refute "the commented default line was replaced" "$(cat "$ini")" "#show_ray"
+    expect "Passthrough on" "$(sec vr)" "passthrough = true"
+    expect "Glow on" "$(sec display)" "glow = true"
+    expect "a slider row writes its key: contrast" "$(sec vr)" "picture_contrast = 120"
+    expect "gamma in hundredths" "$(sec vr)" "picture_gamma = 135"
+    expect "a value past the range is held to it (head aim speed 99 -> 30)" "$(sec vr)" "head_aim_sensitivity = 30"
+    expect "screen width" "$(sec screen)" "width_cm = 450"
+    expect "a list row writes the VR client's name: environment" "$(sec vr)" "environment = home_theater"
+    expect "stats style" "$(sec display)" "stats_style = hud"
+    expect "depth model" "$(sec vr)" "depth_source = zipdepth-int8"
+    expect "gamepad mode shortcut" "$(sec vr)" "gamepad_toggle = triggers_grips"
+    expect "other keys untouched (notices)" "$(sec vr)" "notices = off"
+    expect "other keys untouched (screen distance)" "$(sec screen)" "distance_cm = 280"
+    refute "rows left alone write nothing" "$(cat "$ini")" "click_sound"
+    expect "On start row: Last PC's Desktop" "$(grep '^on_start=' "$CONF")" "on_start=desktop"
+    s="$(grep 'MLXR_SETTINGS_SEARCH: text="picture"' "$t/vrk.out")"
+    expect "search finds the new rows" "$s" "Picture brightness|Picture contrast|Picture gamma|Picture saturation"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        for kv in "vr.show_ray = false" "vr.passthrough = true" "display.glow = true" "vr.picture_contrast = 120" "vr.picture_gamma = 135" \
+                  "vr.head_aim_sensitivity = 30" "screen.width_cm = 450" "vr.environment = home_theater" "display.stats_style = hud" \
+                  "vr.depth_source = zipdepth-int8" "vr.gamepad_toggle = triggers_grips" "screen.distance_cm = 280"; do
+            expect "VR client reads $kv" "$dump" "$kv"
+        done
+        expect "VR client: nothing it could not read" "$dump" "unknown 0, unreadable 0"
+    fi
+    # read back: the switch starts off now, a click turns it on again
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.show_ray \
+        MLXR_LAUNCHER_INVOKE='setSearch:steadiness' MLXR_LAUNCHER_SCREENSHOT="$t/vrk2.png@3000" "$L" >"$t/vrk2.out" 2>&1
+    expect "the rows read config.ini back (Show the ray off -> on)" "$(sec vr)" "show_ray = true"
+    expect "search: one word finds its row" "$(grep 'text="steadiness"' "$t/vrk2.out")" "rows=1 titles=Click steadiness sections=Input Settings"
+    SECTION=mlxr setconf on_start=none
+
+    # --- PLAN 6.2: the update notice in the toolbar (stock's update button) with this project's version
+    rel v999.0.0
+    MLXR_LAUNCHER_UPDATE=1 MLXR_LAUNCHER_UPDATE_JSON="$t/rel.json" MLXR_NATIVE_CLIENT="$fake" \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-update.png@2500" "$L" >"$t/upd.out" 2>&1
+    uiout "$t/upd.out" "update notice"
+    expect "update: the toolbar's notice gets the version and page" "$(grep MLXR_LAUNCHER_UPDATE_NOTICE "$t/upd.out")" "999.0.0 $REL/tag/v999.0.0"
+    MLXR_HANDOFF=0 MLXR_LAUNCHER_UPDATE=1 MLXR_LAUNCHER_UPDATE_JSON="$t/rel.json" \
+        MLXR_LAUNCHER_SCREENSHOT="$t/pcs-update-stock.png@2500" "$L" >"$t/upd2.out" 2>&1
+    refute "update: stock mode shows no notice" "$(cat "$t/upd2.out")" "MLXR_LAUNCHER_UPDATE"
+
+    # --- PLAN 6.4 end to end against a Moonlight host on 127.0.0.1 (tests/backend's fake host, MLXR_FAKE_HOST): the
+    # launcher pairs with it, the command line's stream "PC" "Desktop" (the "Desktop in VR" Steam shortcut) hands
+    # Desktop to the VR client, and On start opens the last PC's Desktop by itself once the PC answers
+    if [ -n "${MLXR_FAKE_HOST:-}" ] && [ -x "$MLXR_FAKE_HOST" ]; then
+        e2e="$t/e2e"; mkdir -p "$e2e/home/.config/Moonlight XR Native"
+        ECONF="$e2e/home/.config/Moonlight XR Native/Moonlight XR Native.conf"
+        printf '[General]\nmdns=false\n' > "$ECONF"   # no discovery: only the fake host is asked
+        mkfifo "$e2e/pin"
+        "$MLXR_FAKE_HOST" < "$e2e/pin" > "$e2e/fake.out" 2>&1 &
+        FHPID=$!
+        exec 7>"$e2e/pin"
+        for _ in $(seq 100); do grep -q '^PORTS' "$e2e/fake.out" && break; sleep 0.1; done
+        read -r _ fhttp _ < <(grep '^PORTS' "$e2e/fake.out")
+        echo 1234 >&7
+        ( export HOME="$e2e/home" MLXR_CONFIG_DIR="$e2e/native" MLXR_NO_SEED=1
+          MLXR_LAUNCHER_SCREENSHOT="$e2e/pair.png@6000" "$L" pair "127.0.0.1:$fhttp" --pin 1234 > "$e2e/pair.out" 2>&1
+          grep -q '^1\\srvcert=' "$ECONF" && echo paired
+          MLXR_LAUNCHER_DRYRUN=1 MLXR_NATIVE_CLIENT= timeout 120 "$L" stream fake-host Desktop > "$e2e/cli.out" 2>&1; echo "cli rc $?"
+          grep '^MLXR_LAUNCHER_DRYRUN: ' "$e2e/cli.out" | tail -1
+          sed -i 's/^\[mlxr\]$/[mlxr]\non_start=desktop/' "$ECONF"
+          grep -q '^on_start=' "$ECONF" || printf '\n[mlxr]\non_start=desktop\n' >> "$ECONF"
+          : > "$FAKE_LOG"
+          FAKE_SLEEP=1 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/onstart-after.png@8000" "$L" > "$e2e/gui.out" 2>&1
+          echo "gui rc $?"
+        ) > "$e2e/steps" 2>&1
+        exec 7>&-; kill "$FHPID" 2>/dev/null; wait "$FHPID" 2>/dev/null
+        st="$(cat "$e2e/steps")"
+        expect "fake host: the launcher pairs with it" "$st" "paired"
+        expect "CLI stream \"PC\" \"Desktop\": the launcher exits after the stream" "$st" "cli rc 0"
+        expect "CLI stream \"PC\" \"Desktop\": Desktop goes to the VR client" "$st" "--host FAKE-HOST-UUID-0001 --app 881448767 "
+        grep -q '^last_pc=fake-host$' "$ECONF" && ok "the CLI stream's PC is the last PC" || fail "last_pc after the CLI stream: $(grep last_pc "$ECONF")"
+        uiout "$e2e/gui.out" "On start"
+        expect "On start: waits for the last PC" "$(cat "$e2e/gui.out")" "MLXR_LAUNCHER_ONSTART: waiting for fake-host to start Desktop"
+        expect "On start: starts Desktop once it is online" "$(cat "$e2e/gui.out")" "MLXR_LAUNCHER_ONSTART: starting Desktop on fake-host"
+        expect "On start: the VR client gets Desktop" "$(cat "$FAKE_LOG")" "--host FAKE-HOST-UUID-0001 --app 881448767 "
+        expect "On start: the flat window is back after the stream" "$(cat "$e2e/gui.out")" "The VR client exited with 0"
+    else
+        echo "note: no MLXR_FAKE_HOST (tests/backend's backend_fake_host_main): the end-to-end On start and CLI checks are skipped"
+    fi
 fi
 echo "failures: $fails"
 [ $fails = 0 ]

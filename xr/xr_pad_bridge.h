@@ -9,6 +9,9 @@
 
 void xrPadBridgeSetRumble(int mix, int intensityPercent); // settings: rumble_mix, rumble_intensity
 void xrPadBridgeSetFlip(int flip);          // settings: swap A/B and X/Y
+// Native (lane headinput-finish, PLAN 4b.10): [vr] back_as_guide, Back (View) goes to the host as Guide
+// (xr_gamepad.h padBackAsGuide), after the disconnect chord has seen it. Live.
+void xrPadBridgeSetBackAsGuide(int on);
 void xrPadBridgeStart(void);                // stream start, before LiStartConnection
 void xrPadBridgeFrame(int plugged, const PadState* s, int64_t nowNs); // each input frame
 void xrPadBridgeStop(void);                 // before LiStopConnection: unplug the pad, stop rumble
