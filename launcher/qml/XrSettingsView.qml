@@ -185,6 +185,13 @@ Flickable {
         return scrollSpeedSteps[0]
     }
 
+    // [vr] controller_model: which controller the headset draws in each hand
+    readonly property var modelValues: ["off", "frame", "generic", "gun", "custom"]
+    readonly property var modelNames: [qsTr("Off"), qsTr("Steam Frame controller"), qsTr("Generic controller"), qsTr("Gun"), qsTr("Your own model")]
+    function modelIndex() {
+        return Math.max(0, modelValues.indexOf(MlxrPrefs.controllerModel))
+    }
+
     // [stream] doff_disconnect (seconds) and idle_disconnect (minutes) of the VR client's config.ini: 0 is never
     readonly property var doffValues: [0, 15, 30, 60, 120, 300]
     readonly property var idleValues: [0, 10, 30, 60, 120]
@@ -795,6 +802,16 @@ Flickable {
                     MlxrPrefs.keyboardKeymap = settingsPage.keymapValues[i]
                 })
             }
+        }
+
+        // Pressing the row steps Off -> Steam Frame -> Generic -> Gun -> Your own model
+        PrefRow {
+            objectName: "controllerModelRow"
+            title: qsTr("Show controllers")
+            valueText: settingsPage.modelNames[settingsPage.modelIndex()]
+            summary: qsTr("The controllers drawn in the headset. Your own model reads custom_left.model and custom_right.model (or one custom.model, mirrored for the left hand) from the models folder next to the headset's config file, and falls back to the Steam Frame controllers when they are missing.") + " " +
+                     qsTr("(the headset's Display tab has the first four)")
+            onClicked: MlxrPrefs.controllerModel = settingsPage.modelValues[(settingsPage.modelIndex() + 1) % settingsPage.modelValues.length]
         }
 
         PrefRow {

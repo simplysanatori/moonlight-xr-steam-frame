@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "xr_atlas.h"
+#include "xr_controller.h"
 #include "xr_roommesh.h"
 
 static double nowMs(void) {
@@ -832,25 +833,25 @@ static void recordModelImage(VkCommandBuffer cmd, VkBuffer staging, uint64_t off
                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, T, FS);
 }
 
-// The textured pair, both hands or neither. Everything is read, checked and
-// created before a command goes into cmd, so a failure (-1, the reason on
-// stderr, all of it freed) leaves cmd as it was for the next candidate.
-static int recordTextured(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, double started, MlxrModel** out) {
-    static const char* const kHand[2] = {"left", "right"};
+// The textured pair, both hands or neither (files 2: path[0] the left hand's, path[1] the right's),
+// or one file for both hands (files 1: the right hand's, drawn mirrored for the left, with its
+// ranges and images shared). Everything is read, checked and created before a command goes into
+// cmd, so a failure (-1, the reason on stderr, all of it freed) leaves cmd as it was for the next
+// candidate.
+static int recordTextured(const MlxrGpu* gpu, const char* const path[2], int files, VkCommandBuffer cmd, double started,
+                          MlxrModel** out) {
     static const VkFormat kFormat[2] = {VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_R8G8B8A8_UNORM};
     TexturedFile tf[2];
     memset(tf, 0, sizeof(tf));
     MlxrModel* m = NULL;
     int rc = -1;
-    for (int h = 0; h < 2; h++) {
-        char path[1024];
-        snprintf(path, sizeof(path), "%s/models/frame_controller_%s.model", assetsDir, kHand[h]);
-        if (openTextured(path, &tf[h]) != 0) {
+    for (int h = 0; h < files; h++) {
+        if (openTextured(path[h], &tf[h]) != 0) {
             goto done;
         }
     }
     uint32_t mips[2][2];
-    for (int h = 0; h < 2; h++) {
+    for (int h = 0; h < files; h++) {
         for (int k = 0; k < 2; k++) {
             if (!texturedSupport(gpu, kFormat[k], tf[h].info.texWidth, tf[h].info.texHeight, &mips[h][k])) {
                 fprintf(stderr, "controller model textures of %ux%u cannot be sampled here\n", tf[h].info.texWidth,
@@ -863,11 +864,17 @@ static int recordTextured(const MlxrGpu* gpu, const char* assetsDir, VkCommandBu
     if (!m) {
         goto done;
     }
-    m->perHand = 1;
+    m->perHand = 1; // the textured pass draws by hand's range, a mirrored one has the same range twice
     m->textured = 1;
-    snprintf(m->source, sizeof(m->source), "%s/models/frame_controller_{left,right}.model", assetsDir);
+    m->mirrorLeft = files == 1;
+    if (files == 1) {
+        snprintf(m->source, sizeof(m->source), "%.1000s (mirrored for the left hand)", path[0]);
+    }
+    else {
+        snprintf(m->source, sizeof(m->source), "%.500s + %.500s", path[0], path[1]);
+    }
     uint64_t voff[2], ioff[2];
-    for (int h = 0; h < 2; h++) {
+    for (int h = 0; h < files; h++) {
         const MlxrModelFileInfo* i = &tf[h].info;
         voff[h] = m->vertexBytes;
         ioff[h] = m->indexBytes;
@@ -884,6 +891,14 @@ static int recordTextured(const MlxrGpu* gpu, const char* assetsDir, VkCommandBu
         m->vertexBytes += (uint64_t)i->vertexCount * MXFM_VERTEX_BYTES;
         m->indexBytes += (uint64_t)i->indexCount * sizeof(uint32_t);
     }
+    if (files == 1) {
+        // The left hand is the right's mesh and parts, mirrored by its matrix: the motion mirrors with it
+        m->handVertexOffset[1] = m->handVertexOffset[0];
+        m->handFirstIndex[1] = m->handFirstIndex[0];
+        m->handIndexCount[1] = m->handIndexCount[0];
+        m->componentCount[1] = m->componentCount[0];
+        memcpy(m->components[1], m->components[0], sizeof(m->components[0]));
+    }
     m->texWidth = tf[0].info.texWidth;
     m->texHeight = tf[0].info.texHeight;
     m->texLevels = mips[0][0];
@@ -896,7 +911,7 @@ static int recordTextured(const MlxrGpu* gpu, const char* assetsDir, VkCommandBu
     uint64_t indexStart = alignUp(m->vertexBytes, 16);
     uint64_t total = alignUp(indexStart + m->indexBytes, copyAlign);
     uint64_t texOff[2][2];
-    for (int h = 0; h < 2; h++) {
+    for (int h = 0; h < files; h++) {
         for (int k = 0; k < 2; k++) {
             texOff[h][k] = total;
             total = alignUp(total + (uint64_t)tf[h].info.texWidth * tf[h].info.texHeight * 4, copyAlign);
@@ -906,7 +921,7 @@ static int recordTextured(const MlxrGpu* gpu, const char* assetsDir, VkCommandBu
     if (makeStaging(gpu, total, &m->staging, &m->stagingMemory, &map) != 0) {
         goto done;
     }
-    for (int h = 0; h < 2; h++) {
+    for (int h = 0; h < files; h++) {
         const MlxrModelFileInfo* i = &tf[h].info;
         memcpy((char*)map + voff[h], tf[h].mesh + (i->vertexOffset - i->componentOffset),
                (size_t)i->vertexCount * MXFM_VERTEX_BYTES);
@@ -917,7 +932,7 @@ static int recordTextured(const MlxrGpu* gpu, const char* assetsDir, VkCommandBu
         size_t texBytes = (size_t)i->texWidth * i->texHeight * 4;
         for (int k = 0; k < 2; k++) {
             if (fread((char*)map + texOff[h][k], 1, texBytes, tf[h].f) != texBytes) {
-                fprintf(stderr, "controller model (%s hand): short read of its textures\n", kHand[h]);
+                fprintf(stderr, "controller model %s: short read of its textures\n", path[h]);
                 vkUnmapMemory(gpu->device, m->stagingMemory);
                 goto done;
             }
@@ -927,7 +942,7 @@ static int recordTextured(const MlxrGpu* gpu, const char* assetsDir, VkCommandBu
     if (makeMeshBuffers(gpu, m->vertexBytes, m->indexBytes, &m->vertices, &m->indices, &m->bufferMemory, &m->gpuBytes) != 0) {
         goto done;
     }
-    for (int h = 0; h < 2; h++) {
+    for (int h = 0; h < files; h++) {
         for (int k = 0; k < 2; k++) {
             if (makeModelImage(gpu, kFormat[k], tf[h].info.texWidth, tf[h].info.texHeight, mips[h][k], &m->texture[h][k]) !=
                 0) {
@@ -941,7 +956,7 @@ static int recordTextured(const MlxrGpu* gpu, const char* assetsDir, VkCommandBu
 
     // Nothing failed: the commands
     recordMeshCopy(cmd, m->staging, indexStart, m->vertices, m->vertexBytes, m->indices, m->indexBytes);
-    for (int h = 0; h < 2; h++) {
+    for (int h = 0; h < files; h++) {
         for (int k = 0; k < 2; k++) {
             recordModelImage(cmd, m->staging, texOff[h][k], &m->texture[h][k]);
         }
@@ -957,39 +972,30 @@ done:
     return rc;
 }
 
-// The painted models (.room): the Frame's pair from an older converter, else
-// the generic controller
-static int recordPainted(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, double started, MlxrModel** out) {
+// The painted models (.room): the Frame's pair from an older converter (count 2: path[0] the left
+// hand's, path[1] the right's), else the generic controller (count 1), mirrored for the left hand.
+// A failure (-1, the reason on stderr) leaves cmd as it was.
+static int recordPainted(const MlxrGpu* gpu, const char* const path[2], int count, VkCommandBuffer cmd, double started,
+                         MlxrModel** out) {
     // Moonlight XR Native: the Steam Frame's own controllers, painted, when
     // an older tools/frame-models made them from the local SteamVR install:
     // both hands or neither, each in its own hand's grip space (not
     // mirrored). Otherwise the one generic controller, mirrored for the left
     // hand.
-    char path[2][1024];
     unsigned char* file[2] = { NULL, NULL };
     RoomMeshInfo mi[2];
+    memset(mi, 0, sizeof(mi));
     size_t size = 0;
-    int count = 0;
-    int perHand = 0;
-    snprintf(path[0], sizeof(path[0]), "%s/models/frame_controller_left.room", assetsDir);
-    snprintf(path[1], sizeof(path[1]), "%s/models/frame_controller_right.room", assetsDir);
-    if (access(path[0], R_OK) == 0 && access(path[1], R_OK) == 0) {
-        file[0] = readModelFile(path[0], &mi[0], &size);
-        file[1] = file[0] ? readModelFile(path[1], &mi[1], &size) : NULL;
-        if (file[0] && file[1]) {
-            perHand = 1;
-            count = 2;
-        }
-        else {
-            fprintf(stderr, "Frame controller models are not usable, falling back to the generic controller\n");
-            free(file[0]);
-            file[0] = file[1] = NULL;
+    int perHand = count == 2;
+    for (int i = 0; i < count; i++) {
+        file[i] = readModelFile(path[i], &mi[i], &size);
+        if (!file[i]) {
+            break;
         }
     }
-    if (!perHand) {
-        snprintf(path[0], sizeof(path[0]), "%s/models/controller.room", assetsDir);
-        file[0] = readModelFile(path[0], &mi[0], &size);
-        count = 1;
+    if (!file[count - 1]) {
+        free(file[0]);
+        file[0] = file[1] = NULL;
     }
     MlxrModel* m = NULL;
     int rc = -1;
@@ -1001,8 +1007,13 @@ static int recordPainted(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuf
         goto done;
     }
     m->perHand = perHand;
-    snprintf(m->source, sizeof(m->source), "%s/models/%s", assetsDir,
-             perHand ? "frame_controller_{left,right}.room" : "controller.room");
+    m->mirrorLeft = !perHand;
+    if (perHand) {
+        snprintf(m->source, sizeof(m->source), "%.500s + %.500s", path[0], path[1]);
+    }
+    else {
+        snprintf(m->source, sizeof(m->source), "%.1000s", path[0]);
+    }
     uint64_t voff[2] = { 0, 0 };
     uint64_t ioff[2] = { 0, 0 };
     for (int i = 0; i < count; i++) {
@@ -1048,32 +1059,62 @@ done:
     return rc;
 }
 
-int mlxr_model_record(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, MlxrModel** out) {
+int mlxr_model_record_kind(const MlxrGpu* gpu, const char* assetsDir, const char* userDir, int kind,
+                           VkCommandBuffer cmd, MlxrModel** out) {
     double started = nowMs();
     *out = NULL;
-    // Native: the textured pair when both halves are there; one that does
-    // not load falls through to the painted files and the generic controller
-    char path[2][1024];
-    snprintf(path[0], sizeof(path[0]), "%s/models/frame_controller_left.model", assetsDir);
-    snprintf(path[1], sizeof(path[1]), "%s/models/frame_controller_right.model", assetsDir);
-    if (access(path[0], R_OK) == 0 || access(path[1], R_OK) == 0) {
-        if (recordTextured(gpu, assetsDir, cmd, started, out) == 0) {
+    // Native: the kind says what to read (controllerModelCandidates): the first of its files that
+    // loads is the model, and a kind whose files are missing or unusable gives way to the next
+    // (a custom or gun model to the Frame's, the Frame's textured pair to the painted one and the
+    // generic controller)
+    ModelCandidate cand[MODEL_CANDIDATES_MAX];
+    int n = controllerModelCandidates(kind, assetsDir, userDir, cand);
+    if (n == 0) {
+        fprintf(stderr, "controller model kind %d has nothing to read\n", kind);
+        return -1;
+    }
+    for (int i = 0; i < n; i++) {
+        const char* const path[2] = { cand[i].path[0], cand[i].path[1] };
+        int rc = -1;
+        switch (cand[i].format) {
+        case MODEL_FILES_TEXTURED_PAIR: rc = recordTextured(gpu, path, 2, cmd, started, out); break;
+        case MODEL_FILES_TEXTURED_ONE: rc = recordTextured(gpu, path, 1, cmd, started, out); break;
+        case MODEL_FILES_PAINTED_PAIR: rc = recordPainted(gpu, path, 2, cmd, started, out); break;
+        case MODEL_FILES_GENERIC: rc = recordPainted(gpu, path, 1, cmd, started, out); break;
+        default: break;
+        }
+        if (rc == 0) {
+            MlxrModel* m = *out;
+            m->kind = cand[i].kind;
+            m->space = controllerModelSpace(m->kind);
+            if (m->kind != kind) {
+                fprintf(stderr, "controller model: the %s model is not available, drawing the %s one (%s)\n",
+                        controllerModelKindName(kind), controllerModelKindName(m->kind), m->source);
+            }
             return 0;
         }
-        fprintf(stderr, "textured Frame controller models are not usable, trying the painted ones and the generic "
-                        "controller\n");
+        fprintf(stderr, "%s controller model (%s) is not usable%s\n", controllerModelKindName(cand[i].kind),
+                cand[i].path[0], i + 1 < n ? ", trying the next" : "");
     }
-    return recordPainted(gpu, assetsDir, cmd, started, out);
+    return -1;
+}
+
+int mlxr_model_record(const MlxrGpu* gpu, const char* assetsDir, VkCommandBuffer cmd, MlxrModel** out) {
+    return mlxr_model_record_kind(gpu, assetsDir, NULL, CONTROLLER_MODEL_FRAME, cmd, out);
 }
 
 int mlxr_model_load(const MlxrGpu* gpu, const char* assetsDir, MlxrModel** out) {
+    return mlxr_model_load_kind(gpu, assetsDir, NULL, CONTROLLER_MODEL_FRAME, out);
+}
+
+int mlxr_model_load_kind(const MlxrGpu* gpu, const char* assetsDir, const char* userDir, int kind, MlxrModel** out) {
     double started = nowMs();
     *out = NULL;
     VkCommandPool pool = VK_NULL_HANDLE;
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     MlxrModel* m = NULL;
     int rc = -1;
-    if (beginSync(gpu, &pool, &cmd) != 0 || mlxr_model_record(gpu, assetsDir, cmd, &m) != 0) {
+    if (beginSync(gpu, &pool, &cmd) != 0 || mlxr_model_record_kind(gpu, assetsDir, userDir, kind, cmd, &m) != 0) {
         goto done;
     }
     if (submitSync(gpu, pool, cmd) != 0) {
@@ -1101,9 +1142,11 @@ void mlxr_model_fill(const MlxrModel* m, MlxrModelParams* out) {
         out->handFirstIndex[h] = m->handFirstIndex[h];
         out->handIndexCount[h] = m->handIndexCount[h];
         out->handVertexOffset[h] = m->handVertexOffset[h];
-        // Native: the textured pair's images (NULL for a painted model)
-        out->handColour[h] = m->textured ? m->texture[h][0].view : VK_NULL_HANDLE;
-        out->handSurface[h] = m->textured ? m->texture[h][1].view : VK_NULL_HANDLE;
+        // Native: the textured pair's images (NULL for a painted model); one mirrored file has
+        // one set, the right hand's, for both
+        int t = m->mirrorLeft ? 0 : h;
+        out->handColour[h] = m->textured ? m->texture[t][0].view : VK_NULL_HANDLE;
+        out->handSurface[h] = m->textured ? m->texture[t][1].view : VK_NULL_HANDLE;
     }
     out->textured = m->textured;
 }

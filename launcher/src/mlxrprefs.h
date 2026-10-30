@@ -58,6 +58,10 @@ class MlxrPrefs : public QObject
     // How fast a controller thumbstick scrolls in the headset, percent of 7.5 notches a
     // second, 25..400 ([vr] scroll_speed)
     Q_PROPERTY(int scrollSpeed MEMBER scrollSpeed NOTIFY changed)
+    // Which controller the headset draws in each hand: "off", "frame", "generic", "gun" or "custom"
+    // ([vr] controller_model). Custom (your own files in the models folder) is only chosen here and
+    // in the file; the headset's Display tab has a cell for the other four
+    Q_PROPERTY(QString controllerModel MEMBER controllerModel NOTIFY changed)
     // Native (lane wave3-session): [stream] doff_disconnect (seconds with the headset off before the stream is
     // disconnected, the PC's app keeps running; 0 never, default 60) and idle_disconnect (minutes without input
     // before the same; 0 never, default 0)
@@ -141,6 +145,7 @@ public:
     QString keyboardKeymap;
     QString notices;
     int scrollSpeed;
+    QString controllerModel;
     int doffDisconnect = 60;
     int idleDisconnect = 0;
     QString padMouseChord;
@@ -157,6 +162,7 @@ private:
     bool m_iniPerfOverlay = false, m_iniFlip = false;
     QString m_iniNotices = "all";
     int m_iniScrollSpeed = 100;
+    QString m_iniControllerModel = "off";
     int m_iniDoff = 60, m_iniIdle = 0;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;

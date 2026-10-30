@@ -266,6 +266,8 @@ static void tab_display(Dc* dc) {
     static const UiStr STEADY3[3] = { UIS_OFF, UIS_NORMAL, UIS_STEADY };
     // native: the ray row has a third cell, the dot without the ray
     static const UiStr POINTER3[3] = { UIS_OFF, UIS_NATIVE_DOT, UIS_NATIVE_RAY };
+    // native: which controller to draw (a custom model has no cell: the file and the launcher pick it)
+    static const UiStr MODEL4[4] = { UIS_OFF, UIS_MODEL_FRAME, UIS_MODEL_GENERIC, UIS_MODEL_GUN };
     float cell_half = COG_DISPLAY_CELL_HALF * dc->nh;
     int in_room = v->room_env >= 0 && settings_room_index(v->room_env) >= 0;
     for (int row = 0; row < COG_OPTION_COUNT; row++) {
@@ -296,6 +298,7 @@ static void tab_display(Dc* dc) {
         const UiStr* names = row <= COG_OPTION_SUPERSAMPLE ? OFFNQ : row == COG_OPTION_GAMEPAD ? PADPTR
                            : row == COG_OPTION_RAY ? POINTER3 : row == COG_OPTION_NOTICES ? NOTICES3
                            : row == COG_OPTION_HEAD_LOCK ? HEADLOCK3
+                           : row == COG_OPTION_CONTROLLERS ? MODEL4
                            : row == COG_OPTION_CLICK_STEADY ? STEADY3 : OFFON;
         int n = ui_cog_row_cells(COG_TAB_DISPLAY, row);
         cells(dc, COG_TAB_DISPLAY, row, names, n, y, 1, cell_half, settings_option_cell(s, &v->session, row));

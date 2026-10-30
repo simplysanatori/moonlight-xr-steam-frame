@@ -984,7 +984,8 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
         return settings_pointer_cell(raySwitchOn(ctx->raySetting, ctx->rayFlipped), ctx->dotOn);
     }
     if (option == COG_OPTION_CONTROLLERS) {
-        return ctx->modelOn ? 1 : 0;
+        // Off, Frame, Generic, Gun; a custom model (the file's, the launcher's) has no cell
+        return controllerModelKind(ctx->modelOn, ctx->modelKind);
     }
     if (option == COG_OPTION_CLICK_SOUND) {
         return ctx->clickSoundOn ? 1 : 0;
@@ -1070,9 +1071,11 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         return SETTING_POINTER_DOT;
     }
     if (option == COG_OPTION_CONTROLLERS) {
-        // Drawn from the next frame, and stored like the rows around it
-        ctx->modelOn = cell != 0;
-        LOGEV("controller model %s from the panel", cell != 0 ? "on" : "off");
+        // Drawn from the next frame (loaded then if this kind is not the one in memory), and stored
+        // like the rows around it
+        ctx->modelKind = cell > CONTROLLER_MODEL_OFF && cell < CONTROLLER_MODEL_COUNT ? cell : CONTROLLER_MODEL_OFF;
+        ctx->modelOn = ctx->modelKind != CONTROLLER_MODEL_OFF;
+        LOGEV("controller model %s from the panel", controllerModelKindName(ctx->modelKind));
         return SETTING_CONTROLLER_MODEL;
     }
     if (option == COG_OPTION_CLICK_SOUND) {

@@ -31,6 +31,12 @@ typedef struct XrWorld {
     } retired[RETIRED_MAX];
     int retiredCount;
     int retiredTotal;
+    // Native: controller models replaced by another kind, freed once the GPU is past their last frame
+    struct {
+        MlxrModel* model;
+        uint64_t serial;
+    } retiredModels[RETIRED_MAX];
+    int retiredModelCount;
     // GPU time
     VkQueryPool queries;
     int queriesFailed;
@@ -343,6 +349,27 @@ void xrWorldRetireRoom(XrCtx* ctx, MlxrRoom* room, uint64_t lastUse) {
     w->retiredCount++;
 }
 
+// Native: a controller model that another has replaced (the Show controllers row changed kind),
+// freed when the GPU has finished the frames that drew it. Its upload, if still waiting on its
+// staging, is let go with it
+static void retireModel(XrCtx* ctx, MlxrModel* model, uint64_t lastUse) {
+    XrWorld* w = world(ctx);
+    for (int i = 0; i < w->uploadCount; i++) {
+        if (w->uploads[i].model == model) {
+            w->uploads[i].model = NULL;
+        }
+    }
+    if (w->retiredModelCount >= RETIRED_MAX) {
+        vkDeviceWaitIdle(ctx->vk->device);
+        MlxrGpu g = xrWorldGpu(ctx);
+        mlxr_model_unload(&g, model);
+        return;
+    }
+    w->retiredModels[w->retiredModelCount].model = model;
+    w->retiredModels[w->retiredModelCount].serial = lastUse;
+    w->retiredModelCount++;
+}
+
 int xrWorldTakeUploads(XrCtx* ctx, VkCommandBuffer* out, int max) {
     XrWorld* w = world(ctx);
     int n = 0;
@@ -393,6 +420,15 @@ static void collect(XrCtx* ctx, int all) {
         w->retired[keep++] = w->retired[i];
     }
     w->retiredCount = keep;
+    keep = 0;
+    for (int i = 0; i < w->retiredModelCount; i++) {
+        if (all || w->retiredModels[i].serial <= ctx->gpuDone) {
+            mlxr_model_unload(&g, w->retiredModels[i].model);
+            continue;
+        }
+        w->retiredModels[keep++] = w->retiredModels[i];
+    }
+    w->retiredModelCount = keep;
 }
 
 int xrRoomsRetired(XrCtx* ctx) {
@@ -527,22 +563,44 @@ void xrWorldFindAssets(XrCtx* ctx) {
 
 // Upstream: nativeUploadControllerModel, from the frame loop. Read off the
 // assets the first frame the switch is on, into the frame's own buffer.
-static void loadControllerModel(XrCtx* ctx) {
+// Native: of the kind asked for (the first load, and each change of kind after it, on this the
+// render thread and into this frame's command buffer, the thread and buffer every other upload
+// of the world goes through). The model it replaces is freed once the GPU is past the frames that
+// drew it; one that fails to load leaves the one in use drawn.
+static void loadControllerModel(XrCtx* ctx, int want) {
     MlxrGpu g = xrWorldGpu(ctx);
     MlxrModel* m = NULL;
-    if (mlxr_model_record(&g, ctx->assetsDir, ctx->frameCmd, &m) != 0) {
-        ctx->modelLoadFailed = 1;
-        LOGW("controller model is not a mesh the renderer reads (%s/models/controller.room)", ctx->assetsDir);
+    char userDir[600];
+    const char* user = want == CONTROLLER_MODEL_CUSTOM ? controllerModelUserDir(userDir, sizeof(userDir)) : NULL;
+    ctx->modelKindAsked = want;
+    if (mlxr_model_record_kind(&g, ctx->assetsDir, user, want, ctx->frameCmd, &m) != 0) {
+        if (ctx->model == NULL) {
+            ctx->modelLoadFailed = 1;
+        }
+        LOGW("controller model (%s) is not a mesh the renderer reads (%s/models/controller.room)",
+             controllerModelKindName(want), ctx->assetsDir);
         return;
     }
     xrWorldQueueUpload(ctx, VK_NULL_HANDLE, VK_NULL_HANDLE, NULL, m);
+    if (ctx->model != NULL) {
+        retireModel(ctx, ctx->model, ctx->gpuSerial);
+    }
     ctx->model = m;
     ctx->modelReady = 1;
-    // Native: which model it is, the Steam Frame's pair or the generic one
-    LOGEV("controller model ready: %s from %s: %u vertices, %u triangles, %.0f KB, %.1f ms, %s",
-          m->textured ? "Frame per-hand controllers, textured" : m->perHand ? "Frame per-hand controllers, painted"
-          : "generic controller (no Frame models found, mirrored for the left hand)", m->source, m->vertexCount,
-          m->indexCount / 3, m->gpuBytes / 1024.0, m->loadMs, ctx->modelOn ? "shown" : "off for now");
+    ctx->modelLoadFailed = 0;
+    // The pass's pipeline for this model (the textured one is not the painted one)
+    if (ctx->modelPassReady && ctx->passes != NULL) {
+        mlxr_passes_warm(ctx->passes, m->textured ? MLXR_PASS_MODEL_TEX : MLXR_PASS_MODEL, MLXR_VIDEO_YUV420P,
+                         VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_D32_SFLOAT);
+    }
+    // Native: which model it is, and from what
+    LOGEV("controller model ready: %s asked, %s drawn at the %s pose, %s, from %s: %u vertices, %u triangles, "
+          "%.0f KB, %.1f ms, %s", controllerModelKindName(want), controllerModelKindName(m->kind),
+          m->space == MODEL_SPACE_AIM ? "aim" : "grip",
+          m->textured ? (m->mirrorLeft ? "one textured model mirrored for the left hand" : "per-hand, textured")
+                      : m->perHand ? "per-hand, painted" : "painted, mirrored for the left hand",
+          m->source, m->vertexCount, m->indexCount / 3, m->gpuBytes / 1024.0, m->loadMs,
+          ctx->modelOn ? "shown" : "off for now");
     if (m->textured) {
         LOGEV("controller model textures %ux%u, %u mip levels, components %u left, %u right", m->texWidth,
               m->texHeight, m->texLevels, m->componentCount[0], m->componentCount[1]);
@@ -587,8 +645,11 @@ void xrWorldFrameBegin(XrCtx* ctx) {
     if (!ctx->ambiReady && !ctx->ambiFailed) {
         initAmbilight(ctx);
     }
-    if (ctx->modelOn && !ctx->modelReady && !ctx->modelLoadFailed) {
-        loadControllerModel(ctx);
+    // The first frame the switch is on, and any frame its kind is not the one the model was
+    // loaded for
+    int want = controllerModelKind(ctx->modelOn, ctx->modelKind);
+    if (want != CONTROLLER_MODEL_OFF && want != ctx->modelKindAsked) {
+        loadControllerModel(ctx, want);
     }
     if (roomEffective(ctx) > 0) {
         prepareRoom(ctx);
@@ -631,6 +692,7 @@ void xrWorldDestroy(XrCtx* ctx) {
         ctx->model = NULL;
     }
     ctx->modelReady = 0;
+    ctx->modelKindAsked = 0;
     for (int e = 0; e < ROOM_EYES; e++) {
         destroyArtSwapchain(ctx, &ctx->roomSwapchain[e], &ctx->roomImages[e], &ctx->roomImageViews[e],
                             &ctx->roomImageCount[e]);

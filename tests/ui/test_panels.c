@@ -163,7 +163,7 @@ static void test_cog_rows_present(void) {
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_RAY) == 3);
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_NOTICES) == 3);
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_GAMEPAD) == 2);
-    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS) == 2);
+    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS) == 4);   // Off, Frame, Generic, Gun
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_POINTER_SLEEP) == 2);
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_CLICK_SOUND) == 2);
     free(g.base);
@@ -681,6 +681,7 @@ static void test_rows_read_settings(void) {
     struct { int tab; const char* key; int value; } CASES[] = {
         { COG_TAB_DISPLAY, "sharpening", 2 }, { COG_TAB_DISPLAY, "supersampling", 0 }, { COG_TAB_DISPLAY, "stats", 1 },
         { COG_TAB_DISPLAY, "head_locked", 0 }, { COG_TAB_DISPLAY, "pointer_sleep", 0 }, { COG_TAB_DISPLAY, "controller_model", 1 },
+        { COG_TAB_DISPLAY, "controller_model", 2 }, { COG_TAB_DISPLAY, "controller_model", 3 },
         { COG_TAB_DISPLAY, "click_sound", 0 }, { COG_TAB_DISPLAY, "glow", 1 }, { COG_TAB_DISPLAY, "screen_light", 0 },
         { COG_TAB_DISPLAY, "glow_level", 10 }, { COG_TAB_DISPLAY, "gamepad_toggle", 1 },
         { COG_TAB_SCREEN, "distance_cm", 100 }, { COG_TAB_SCREEN, "height_cm", 100 }, { COG_TAB_SCREEN, "tilt_deg", 20 },

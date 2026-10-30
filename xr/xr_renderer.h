@@ -938,6 +938,12 @@ typedef struct XrCtx {
     // The controller models (xr_model.c), at each hand's grip in a projection
     // layer of their own (native: rooms/room_gpu's MlxrModel, mlxr_pass_model)
     int modelOn;
+    // Native: which model (CONTROLLER_MODEL_*; modelOn with none yet reads as the Frame's), the
+    // kind the loaded one (or the load that failed) was asked for, so a change of kind reloads it
+    // between frames, and which pose the hold below was kept at
+    int modelKind;
+    int modelKindAsked;
+    int modelAimDrawn;
     int modelReady;
     int modelLoadFailed;
     struct MlxrModel* model;

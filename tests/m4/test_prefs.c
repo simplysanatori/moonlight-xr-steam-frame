@@ -283,6 +283,78 @@ static void rayRowSaved(void) {
     }
 }
 
+// The Display tab's Show controllers row (Off / Frame / Generic / Gun): applied to the context,
+// stored as the kind, round-tripped through config.ini into the next session, which loads that
+// kind. Custom has no cell: it comes from the file, shows no cell marked, and survives the row's
+// other cells being read
+static void controllerModelRow(void) {
+    CHECK(cogOptionCells(COG_OPTION_CONTROLLERS) == 4);
+    for (int cell = 0; cell < 4; cell++) {
+        Scene* sc = scene_new();
+        XrCtx* c = sc->ctx;
+        Settings s;
+        settings_defaults(&s);
+        float out[IN_SLOTS];
+        memset(out, 0, sizeof(out));
+        out[IN_SETTING] = -1;
+        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS, cell, out);
+        CHECK((int)out[IN_SETTING] == SETTING_CONTROLLER_MODEL && (int)out[IN_SETTING_VALUE] == cell);
+        CHECK(c->modelOn == (cell != 0) && c->modelKind == cell);
+        CHECK(cogOptionValue(c, COG_OPTION_CONTROLLERS, 0) == cell);
+        CHECK(xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) == (cell != 0));
+        CHECK(s.controller_model == cell);
+
+        // through config.ini and into the next session
+        char* text = settings_to_text(&s);
+        CHECK(text != NULL);
+        Settings back;
+        settings_defaults(&back);
+        settings_from_text(&back, text, NULL);
+        free(text);
+        CHECK(back.controller_model == cell);
+        Scene* next = scene_new();
+        xrApplySettings(next->ctx, &back);
+        CHECK(next->ctx->modelOn == (cell != 0) && next->ctx->modelKind == cell);
+        CHECK(controllerModelKind(next->ctx->modelOn, next->ctx->modelKind) == cell);
+        scene_free(next);
+
+        // and back out of the context
+        Settings from;
+        settings_defaults(&from);
+        xrSettingsFromCtx(c, &from);
+        CHECK(from.controller_model == cell);
+        scene_free(sc);
+    }
+
+    // Custom is the file's: the context takes it, hands it back, and the row marks no cell
+    Settings custom;
+    settings_defaults(&custom);
+    settings_from_text(&custom, "[vr]\ncontroller_model = custom\n", NULL);
+    CHECK(custom.controller_model == CONTROLLER_MODEL_CUSTOM);
+    Scene* sc = scene_new();
+    xrApplySettings(sc->ctx, &custom);
+    CHECK(sc->ctx->modelOn == 1 && sc->ctx->modelKind == CONTROLLER_MODEL_CUSTOM);
+    CHECK(cogOptionValue(sc->ctx, COG_OPTION_CONTROLLERS, 0) == CONTROLLER_MODEL_CUSTOM);
+    Settings back;
+    settings_defaults(&back);
+    xrSettingsFromCtx(sc->ctx, &back);
+    CHECK(back.controller_model == CONTROLLER_MODEL_CUSTOM);
+    // a stored value out of range is Off, not a crash
+    CHECK(xrStoreSetting(sc->ctx, &back, SETTING_CONTROLLER_MODEL, 9) && back.controller_model == CONTROLLER_MODEL_OFF);
+    scene_free(sc);
+
+    // A file from before the row was a kind: true is the Frame's controllers, false none
+    Settings old;
+    settings_defaults(&old);
+    settings_from_text(&old, "[vr]\ncontroller_model = true\n", NULL);
+    Scene* oldScene = scene_new();
+    xrApplySettings(oldScene->ctx, &old);
+    CHECK(oldScene->ctx->modelOn == 1 && oldScene->ctx->modelKind == CONTROLLER_MODEL_FRAME);
+    scene_free(oldScene);
+    settings_from_text(&old, "[vr]\ncontroller_model = false\n", NULL);
+    CHECK(old.controller_model == CONTROLLER_MODEL_OFF);
+}
+
 // The Display tab's Notices row (All / Important / Off): applied to the
 // board, stored, round-tripped, and what it silences (the Hz toast, #42)
 static void noticesRow(void) {
@@ -566,6 +638,7 @@ int main(void) {
     rayRowSaved();
     noticesRow();
     clickSteadyRow();
+    controllerModelRow();
     cogTabKept();
     restingBeam();
     displayCells();

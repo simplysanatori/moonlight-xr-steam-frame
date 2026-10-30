@@ -299,7 +299,8 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->angularLockOn = s->angular_lock;
     ctx->perAppOn = s->per_app;
     ctx->pointerSleepOn = s->pointer_sleep;
-    ctx->modelOn = s->controller_model;
+    ctx->modelKind = s->controller_model;
+    ctx->modelOn = s->controller_model != CONTROLLER_MODEL_OFF;
     xrSetClickSound(ctx, s->click_sound);
     noticeSetLevel(&ctx->notices, s->notices);
     ctx->cogTab = s->cog_tab >= 0 && s->cog_tab < COG_TAB_COUNT ? s->cog_tab : COG_TAB_SCREEN;
@@ -370,7 +371,7 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
         r->screen = ctx->roomScreen[style];
     }
     s->pointer_sleep = ctx->pointerSleepOn;
-    s->controller_model = ctx->modelOn;
+    s->controller_model = controllerModelKind(ctx->modelOn, ctx->modelKind);
     s->click_sound = ctx->clickSoundOn;
     s->notices = ctx->notices.level;
     s->click_steadiness = ctx->clickSteady;
@@ -451,7 +452,9 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_NOTICES: s->notices = value; break;
     case SETTING_CLICK_STEADY: s->click_steadiness = value; break;
     case SETTING_COG_TAB: s->cog_tab = value; break;
-    case SETTING_CONTROLLER_MODEL: s->controller_model = value != 0; break;
+    case SETTING_CONTROLLER_MODEL:
+        s->controller_model = value > CONTROLLER_MODEL_OFF && value < CONTROLLER_MODEL_COUNT ? value : CONTROLLER_MODEL_OFF;
+        break;
     case SETTING_HEAD_AIM_SENSITIVITY: s->head_aim_sensitivity = value; break;
     case SETTING_HEAD_AIM_DEADZONE: s->head_aim_deadzone = value; break;
     case SETTING_AMBI_LEVEL: s->glow_level = value; break;

@@ -22,7 +22,7 @@ add_executable(test_m5_world test_world.c)
 target_link_libraries(test_m5_world PRIVATE m5_gpu m4_scene dl)
 target_compile_options(test_m5_world PRIVATE -Werror)
 mlxr_link_openxr(test_m5_world)
-foreach(g leaks timing glow curve supersample frame_models eye_images)
+foreach(g leaks timing glow curve supersample frame_models model_kind eye_images)
   add_test(NAME m5_world_${g} COMMAND test_m5_world ${g})
   set_tests_properties(m5_world_${g} PROPERTIES SKIP_RETURN_CODE 77)   # 77: no Vulkan device
 endforeach()
