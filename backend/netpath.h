@@ -376,6 +376,13 @@ void mlxr_net_probe(mlxr_net_plan *p, const bool *which, int samples, bool first
 int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t);
 /* One log line per candidate (to the backend's log hook), the history and the choice; also used by the CLI. */
 void mlxr_net_log_plan(const mlxr_net_plan *p);
+/* Native (lane wave4b-abr): the path kind for a start bitrate (xr/core/xr_abr.h: 0 Wi-Fi, 1 Steam Frame Wireless
+ * Adapter, 2 wired network, 3 USB cable, -1 none). The home path is a wired network when the interface it went
+ * through is not a Wi-Fi one (the same test that makes mlxr_net_path_describe say "Wired network"). `l` may be NULL. */
+int mlxr_net_bitrate_kind(mlxr_net_path p, const mlxr_net_link *l);
+/* The kind of the path mlxr_net_select last chose for this address (the chosen candidate's address, which is what
+ * the app keeps as the PC's address for the stream); -1 when it never chose it. Thread safe. */
+int mlxr_net_kind_for_address(const char *addr);
 /* Address and port the stream should use: the chosen candidate's. */
 const char *mlxr_net_chosen_address(const mlxr_net_plan *p, uint16_t *port);
 
