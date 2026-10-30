@@ -6,7 +6,7 @@
 # "Moonlight XR for Frame" through Steam's CEF debugging port, and puts its art
 # in Steam's grid folder. Safe to run again.
 #
-#   install.sh [--seed] [--no-shortcut] [--art DIR]
+#   install.sh [--seed] [--no-shortcut] [--art DIR] [--desktop-shortcut [--desktop-pc NAME]]
 #
 #   --seed         if ~/.config/moonlight-xr has no client identity yet, import
 #                  the pairing from Moonlight Qt (seed-from-moonlight-qt.sh)
@@ -14,6 +14,11 @@
 #   --art DIR      shortcut art; DIR holds any of portrait (or poster), wide,
 #                  hero, logo and icon, as <name>*.png/.jpg (default: the
 #                  branding art in assets/branding)
+#   --desktop-shortcut  also add a second shortcut, "Desktop in VR", that opens
+#                  the PC's Desktop in the headset straight away (the flat
+#                  launcher's `stream "PC" "Desktop"`); same as DESKTOP_SHORTCUT=1
+#   --desktop-pc NAME   the PC for it (DESKTOP_PC); default: the PC the flat
+#                  launcher streamed from last, else its only PC
 #
 # Environment: DEST (default ~/Games/MoonlightXRNative/app), NO_SHORTCUT=1,
 # MLXR_INSTALL_LOG (default ~/Games/MoonlightXRNative/install.log),
@@ -63,11 +68,15 @@ NAME="Moonlight XR for Frame"
 OLDNAME="Moonlight XR Native"   # the shortcut's name until it was renamed; it is renamed in place
 SEED=0; ART=""
 [ "${NO_SHORTCUT:-0}" = 1 ] && NOSC=1 || NOSC=0
+DESK="${DESKTOP_SHORTCUT:-0}"; DESKPC="${DESKTOP_PC:-}"
+DESKNAME="Desktop in VR"
 while [ $# -gt 0 ]; do
     case "$1" in
         --seed) SEED=1 ;;
         --no-shortcut) NOSC=1 ;;
         --art) shift; ART="${1:?--art needs a directory}" ;;
+        --desktop-shortcut) DESK=1 ;;
+        --desktop-pc) shift; DESKPC="${1:?--desktop-pc needs a PC name}"; DESK=1 ;;
         -h|--help) sed -n '2,/^# unpacked release/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $1 (try --help)"; exit 2 ;;
     esac
@@ -214,11 +223,13 @@ for v in "$HOME"/.local/share/Steam/userdata/*/config/shortcuts.vdf; do
 import re, struct, sys
 d = open(sys.argv[1], "rb").read()
 dest = sys.argv[2]
-for m in re.finditer(rb"\x02appid\x00(....)\x01AppName\x00[^\x00]*\x00\x01Exe\x00([^\x00]*)\x00", d, re.S):
-    exe = m.group(2).decode(errors="replace").strip(chr(34))
+for m in re.finditer(rb"\x02appid\x00(....)\x01AppName\x00([^\x00]*)\x00\x01Exe\x00([^\x00]*)\x00", d, re.S):
+    exe = m.group(3).decode(errors="replace").strip(chr(34))
+    if m.group(2).decode(errors="replace") == sys.argv[3]:
+        continue   # the "Desktop in VR" shortcut runs the same launcher
     if exe in (dest + "/moonlight-xr-launcher.sh", dest + "/moonlight-xr.sh"):
         print(struct.unpack("<I", m.group(1))[0]); break
-' "$v" "$DEST") && [ -n "$HAVE_ID" ] && break
+' "$v" "$DEST" "$DESKNAME") && [ -n "$HAVE_ID" ] && break
 done
 if ! APPID=$($CEF "(async()=>{
   const name=$JS_NAME, oldname=$JS_OLDNAME, exe=$JS_EXE, dir=$JS_DIR, known='$HAVE_ID';
@@ -238,8 +249,11 @@ fi
 echo "Steam shortcut \"$NAME\" appid $APPID"
 # Steam's game resolution for the flat window, 1080p (the owner found 1440p too small to read; gamescope's own default is 1280x720
 # on a 1920x1080 screen)
-$CEF "SteamClient.Apps.SetAppResolutionOverride($APPID,'1920x1080')" >/dev/null 2>&1 \
-    && echo "Steam game resolution: 1920x1080" || echo "Steam game resolution: not set"
+app_resolution() {   # app_resolution <appid>
+    $CEF "SteamClient.Apps.SetAppResolutionOverride($1,'1920x1080')" >/dev/null 2>&1 \
+        && echo "Steam game resolution: 1920x1080" || echo "Steam game resolution: not set"
+}
+app_resolution "$APPID"
 
 # SteamVR's per-app video settings for the shortcut, as the owner has them for
 # Moonlight XR: 90 Hz (the Frame's default for an app is 72), motion smoothing
@@ -247,59 +261,126 @@ $CEF "SteamClient.Apps.SetAppResolutionOverride($APPID,'1920x1080')" >/dev/null 
 # running SteamVR (vrcmd), which keeps steamvr.vrsettings itself; without it
 # running they are set on the next install.
 VRCMD=/opt/steamvr/bin/linuxarm64/vrcmd
-if [ -x "$VRCMD" ] && pgrep -x vrserver >/dev/null; then
-    ok=1
-    for kv in preferredRefreshRate:90 motionSmoothingOverride:0 resolutionOverride:2160 sharpeningOverride:0; do
-        env -u LD_LIBRARY_PATH timeout 20 "$VRCMD" --set-settings-int "steam.app.$APPID.${kv%%:*}" "${kv##*:}" >/dev/null 2>&1 || ok=0
-    done
-    [ "$ok" = 1 ] && echo "SteamVR per-app settings: 90 Hz, motion smoothing off, resolution 2160, sharpening off" \
-        || echo "SteamVR per-app settings: could not set them all (set 90 Hz in SteamVR's per-app video settings)"
-else
-    echo "SteamVR per-app settings: SteamVR is not running; run this again with it up to set 90 Hz"
-fi
+steamvr_app_settings() {   # steamvr_app_settings <appid>
+    local ok kv
+    if [ -x "$VRCMD" ] && pgrep -x vrserver >/dev/null; then
+        ok=1
+        for kv in preferredRefreshRate:90 motionSmoothingOverride:0 resolutionOverride:2160 sharpeningOverride:0; do
+            env -u LD_LIBRARY_PATH timeout 20 "$VRCMD" --set-settings-int "steam.app.$1.${kv%%:*}" "${kv##*:}" >/dev/null 2>&1 || ok=0
+        done
+        [ "$ok" = 1 ] && echo "SteamVR per-app settings: 90 Hz, motion smoothing off, resolution 2160, sharpening off" \
+            || echo "SteamVR per-app settings: could not set them all (set 90 Hz in SteamVR's per-app video settings)"
+    else
+        echo "SteamVR per-app settings: SteamVR is not running; run this again with it up to set 90 Hz"
+    fi
+}
+steamvr_app_settings "$APPID"
 
 # Shortcut art, for this shortcut's appid only: copied into Steam's grid folder under the names Steam
 # reads (<appid>p portrait, <appid> wide, <appid>_hero, <appid>_logo, <appid>_icon), then handed to the
 # running Steam too (SetCustomArtworkForApp: 0 portrait, 1 hero, 2 logo, 3 wide) so the library shows it
 # without a restart, and the shortcut's icon is set. A file that is already the same is left alone.
-if [ -n "$ART" ] && [ -d "$ART" ]; then
-    n=0; ICON=""
-    pick() { # pick <name prefix>...: the first file in ART that starts with one of them
-        local pre f
-        for pre in "$@"; do
-            for f in "$ART/$pre"*.png "$ART/$pre"*.jpg "$ART/$pre"*.jpeg; do [ -f "$f" ] && { echo "$f"; return 0; }; done
+shortcut_art() {   # shortcut_art <appid>
+    local APPID="$1" n ICON g kind pat suf src dst spec mime
+    if [ -n "$ART" ] && [ -d "$ART" ]; then
+        n=0; ICON=""
+        pick() { # pick <name prefix>...: the first file in ART that starts with one of them
+            local pre f
+            for pre in "$@"; do
+                for f in "$ART/$pre"*.png "$ART/$pre"*.jpg "$ART/$pre"*.jpeg; do [ -f "$f" ] && { echo "$f"; return 0; }; done
+            done
+            return 0
+        }
+        for g in "$HOME"/.local/share/Steam/userdata/*/config; do
+            [ -d "$g" ] || continue
+            mkdir -p "$g/grid"
+            for kind in "portrait poster:p" "wide:" "hero:_hero" "logo:_logo" "icon-512 icon:_icon"; do
+                pat="${kind%%:*}"; suf="${kind#*:}"
+                src=$(pick $pat)
+                [ -n "$src" ] || continue
+                dst="$g/grid/$APPID$suf.${src##*.}"
+                cmp -s "$src" "$dst" 2>/dev/null || { install -m644 "$src" "$dst"; n=$((n+1)); }
+                [ "$suf" = _icon ] && [ -z "$ICON" ] && ICON="$dst"
+            done
         done
-        return 0
-    }
-    for g in "$HOME"/.local/share/Steam/userdata/*/config; do
-        [ -d "$g" ] || continue
-        mkdir -p "$g/grid"
-        for kind in "portrait poster:p" "wide:" "hero:_hero" "logo:_logo" "icon-512 icon:_icon"; do
-            pat="${kind%%:*}"; suf="${kind#*:}"
-            src=$(pick $pat)
+        echo "Steam art: $n file(s) updated in the grid folder"
+        if [ -n "$ICON" ]; then
+            JS_ICON=$(printf '%s' "$ICON" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+            $CEF "(()=>{SteamClient.Apps.SetShortcutIcon($APPID,$JS_ICON); return 1})()" >/dev/null 2>&1 \
+                && echo "Steam shortcut icon: $ICON (Steam loads a shortcut's icon data only at start: SteamVR's dock shows it after the next Steam restart)" || echo "Steam shortcut icon: not set"
+        fi
+        for spec in "portrait poster:0" "hero:1" "logo:2" "wide:3"; do
+            src=$(pick ${spec%%:*})
             [ -n "$src" ] || continue
-            dst="$g/grid/$APPID$suf.${src##*.}"
-            cmp -s "$src" "$dst" 2>/dev/null || { install -m644 "$src" "$dst"; n=$((n+1)); }
-            [ "$suf" = _icon ] && [ -z "$ICON" ] && ICON="$dst"
-        done
-    done
-    echo "Steam art: $n file(s) updated in the grid folder"
-    if [ -n "$ICON" ]; then
-        JS_ICON=$(printf '%s' "$ICON" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
-        $CEF "(()=>{SteamClient.Apps.SetShortcutIcon($APPID,$JS_ICON); return 1})()" >/dev/null 2>&1 \
-            && echo "Steam shortcut icon: $ICON (Steam loads a shortcut's icon data only at start: SteamVR's dock shows it after the next Steam restart)" || echo "Steam shortcut icon: not set"
-    fi
-    for spec in "portrait poster:0" "hero:1" "logo:2" "wide:3"; do
-        src=$(pick ${spec%%:*})
-        [ -n "$src" ] || continue
-        case "${src##*.}" in png) mime=png ;; *) mime=jpeg ;; esac
-        python3 -I -c '
+            case "${src##*.}" in png) mime=png ;; *) mime=jpeg ;; esac
+            python3 -I -c '
 import base64, sys
 b = base64.b64encode(open(sys.argv[1], "rb").read()).decode()
 print("(async()=>{ await SteamClient.Apps.SetCustomArtworkForApp(%s, %r, %r, %s); return 1 })()" % (sys.argv[2], b, sys.argv[3], sys.argv[4]))
 ' "$src" "$APPID" "$mime" "${spec##*:}" | $CEF - >/dev/null 2>&1 || echo "Steam art: Steam did not take ${src##*/} (it is in the grid folder; it shows after a Steam restart)"
-    done
-fi
+        done
+    fi
+}
+shortcut_art "$APPID"
+
+# PLAN 6.4: a second shortcut, "Desktop in VR", that opens the PC's Desktop in the headset straight away. It runs the
+# flat launcher with stock Moonlight's command line, stream "PC" "Desktop": the launcher waits for the PC, hands
+# Desktop to the VR client and quits when the stream ends. Only with --desktop-shortcut; otherwise one line offers it.
+# The PC is --desktop-pc, else the PC of the flat launcher's last stream (mlxr/last_pc), else its only PC.
+desktop_shortcut() {
+    if [ "$DESK" != 1 ]; then
+        echo "Steam shortcut \"$DESKNAME\": not added (run again with --desktop-shortcut for one that opens your PC's Desktop in the headset straight away)"
+        return 0
+    fi
+    if [ "${VR_ONLY:-0}" = 1 ] || [ ! -x "$DEST/moonlight-xr-launcher" ] || [ ! -f "$DEST/moonlight-xr-launcher.sh" ]; then
+        echo "Steam shortcut \"$DESKNAME\": skipped, it needs the flat launcher (moonlight-xr-launcher)"
+        return 0
+    fi
+    local conf="${XDG_CONFIG_HOME:-$HOME/.config}/Moonlight XR Native/Moonlight XR Native.conf" pc="$DESKPC" id
+    if [ -z "$pc" ] && [ -f "$conf" ]; then
+        pc=$(python3 -I -c '
+import re, sys
+sec = None; last = ""; names = []
+for line in open(sys.argv[1], encoding="utf-8", errors="replace").read().splitlines():
+    m = re.match(r"^\[(.*)\]$", line)
+    if m:
+        sec = m.group(1); continue
+    if sec == "mlxr" and line.startswith("last_pc="):
+        last = line[8:].strip()
+    m = re.match(r"^\d+\\hostname=(.*)$", line)
+    if sec == "hosts" and m:
+        names.append(m.group(1).strip())
+print(last or (names[0] if len(names) == 1 else ""))
+' "$conf" 2>/dev/null || true)
+    fi
+    if [ -z "$pc" ]; then
+        echo "Steam shortcut \"$DESKNAME\": skipped, no PC yet (stream once from the flat launcher, or give --desktop-pc NAME)"
+        return 0
+    fi
+    case "$pc" in *\"*|*\\*) echo "Steam shortcut \"$DESKNAME\": skipped, the PC name $pc has a quote or backslash"; return 0 ;; esac
+    local js_name js_exe js_opts
+    js_name=$(printf '%s' "$DESKNAME" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+    js_exe=$(printf '%s' "\"$DEST/moonlight-xr-launcher.sh\"" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+    js_opts=$(printf 'stream "%s" "Desktop"' "$pc" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+    if ! id=$($CEF "(async()=>{
+  const name=$js_name, exe=$js_exe, dir=$JS_DIR, opts=$js_opts;
+  const have=[...appStore.allApps].filter(a=>a.app_type===1073741824).find(a=>a.display_name===name);
+  let id = have ? have.appid : await SteamClient.Apps.AddShortcut(name, exe, dir, opts);
+  SteamClient.Apps.SetShortcutName(id, name);
+  SteamClient.Apps.SetShortcutExe(id, exe);
+  SteamClient.Apps.SetShortcutStartDir(id, dir);
+  SteamClient.Apps.SetShortcutLaunchOptions(id, opts);
+  return id;
+})()"); then
+        echo "Steam shortcut \"$DESKNAME\": Steam did not add it (see above)"
+        return 0
+    fi
+    echo "Steam shortcut \"$DESKNAME\" appid $id: Desktop on $pc"
+    app_resolution "$id"
+    steamvr_app_settings "$id"
+    shortcut_art "$id"
+}
+desktop_shortcut
 
 dock_icon --appid "$APPID"
 finish "Steam shortcut ready (appid $APPID). Log: $(tilde "$LOG")"

@@ -1,9 +1,11 @@
 // Moonlight XR Native, tests/m4: the launcher's state machine (app/launcher.c).
 // GPLv3.
+#include <stdlib.h>
 #include <string.h>
 
 #include "check.h"
 #include "launcher.h"
+#include "vr_handoff.h"
 
 static int take(Launcher* l, LaunchCmdKind kind, LaunchCmd* out) {
     LaunchCmd c;
@@ -75,7 +77,9 @@ int main(void) {
     CHECK(l.state == LAUNCH_APPS);
     apps(&l, 0);
     launcher_view(&l, &v);
-    CHECK(v.mode == 2 && !v.loading && v.appCount == 7 && strcmp(v.pcName, "gaming-pc") == 0);
+    // lane pcvr-steamvr: "VR" (ours, not the host's) first, then the host's seven
+    CHECK(v.mode == 2 && !v.loading && v.appCount == 8 && strcmp(v.pcName, "gaming-pc") == 0);
+    CHECK(strcmp(v.apps[0].name, ui_str(UIS_APP_VR)) == 0 && strcmp(ui_str(UIS_APP_VR), "VR") == 0 && l.apps[0].id == LAUNCH_APP_VR);
     // Pages
     launcher_press(&l, UI_HIT_BUTTON, UI_BTN_LIST_PAGE_DOWN, 0);
     CHECK(l.appPage == 1);
@@ -86,7 +90,7 @@ int main(void) {
 
     // Launch, stream, exit: the stream stops with the host's session ended,
     // and the app list comes back
-    launcher_press(&l, UI_HIT_LIST_ITEM, 3, 0);
+    launcher_press(&l, UI_HIT_LIST_ITEM, 4, 0);
     CHECK(l.state == LAUNCH_STARTING && take(&l, LCMD_LAUNCH, &c) && c.pc == 0 && c.appId == 103 && !c.quitFirst);
     launcher_view(&l, &v);
     CHECK(v.mode == 2 && v.loading);
@@ -148,8 +152,8 @@ int main(void) {
     // Another app running on the host is ended before a different one starts
     l.pcs[0].currentGame = 101;
     launcher_view(&l, &v);
-    CHECK(v.apps[1].running && !v.apps[2].running);
-    launcher_press(&l, UI_HIT_LIST_ITEM, 2, 0);
+    CHECK(!v.apps[0].running && v.apps[2].running && !v.apps[3].running);
+    launcher_press(&l, UI_HIT_LIST_ITEM, 3, 0);
     CHECK(take(&l, LCMD_LAUNCH, &c) && c.appId == 102 && c.quitFirst == 1);
     // A launch that fails goes back to the apps, with a word why
     launcher_stream_failed(&l, NULL);
@@ -157,7 +161,7 @@ int main(void) {
     l.notice[0] = '\0';
     apps(&l, 0);
     // Resuming the running one does not end it first
-    launcher_press(&l, UI_HIT_LIST_ITEM, 1, 0);
+    launcher_press(&l, UI_HIT_LIST_ITEM, 2, 0);
     CHECK(take(&l, LCMD_LAUNCH, &c) && c.appId == 101 && c.quitFirst == 0);
     launcher_stream_started(&l);
     // The host ends the stream: back to the apps, said on the toast
@@ -201,8 +205,8 @@ int main(void) {
     launcher_disconnect_bar(&l);
     CHECK(l.state == LAUNCH_QUIT && take(&l, LCMD_EXIT, NULL));
 
-    // Native (PLAN 4.1): the Host sheet's Switch to PC VR leaves the stream like Disconnect (the host's
-    // session stays, quitHost 0) and marks the stop, so the process ends with the PC VR exit code
+    // Native (PLAN 4.1): the Host sheet's PC VR leaves the stream; lane pcvr-steamvr: with the host's session
+    // ended (quitHost 1, the desktop closes) and the stop marked, after which the app ends (VR hand-off)
     launcher_init(&l);
     hosts(&l);
     launcher_pcvr(&l);
@@ -212,13 +216,53 @@ int main(void) {
     launcher_stream_started(&l);
     CHECK(l.state == LAUNCH_STREAMING);
     launcher_pcvr(&l);
-    CHECK(l.state == LAUNCH_STOPPING && l.ncmd == 1);
+    CHECK(l.state == LAUNCH_QUIT && l.ncmd == 1);
     CHECK(strcmp(l.notice, ui_str(UIS_NATIVE_PCVR)) == 0);
     launcher_pcvr(&l);                            // asked twice: still one stop
     CHECK(l.ncmd == 1);
-    CHECK(take(&l, LCMD_STOP, &c) && c.quitHost == 0 && c.pcvr == 1);
+    CHECK(take(&l, LCMD_STOP, &c) && c.quitHost == 1 && c.pcvr == 1);
     launcher_stream_ended(&l, 0);
-    CHECK(l.state == LAUNCH_APPS && take(&l, LCMD_FETCH_APPS, &c) && c.pcvr == 0);
+    CHECK(l.state == LAUNCH_QUIT && l.ncmd == 0);   // no app list: the app ends after the hand-off
+    // the app list's VR: the host's session ends if one runs (quitHost says so), then the hand-off
+    launcher_init(&l);
+    hosts(&l);
+    launcher_press(&l, UI_HIT_LIST_ITEM, 0, 0);
+    take(&l, LCMD_REFRESH_PCS, NULL);
+    CHECK(take(&l, LCMD_FETCH_APPS, &c));
+    apps(&l, 0);
+    l.pcs[0].currentGame = 101;
+    launcher_press(&l, UI_HIT_LIST_ITEM, 0, 0);
+    CHECK(l.state == LAUNCH_QUIT && take(&l, LCMD_VR, &c) && c.pc == 0 && c.quitHost == 1 && c.appId == 0);
+    CHECK(strcmp(l.notice, ui_str(UIS_NATIVE_PCVR)) == 0);
+    // nothing to ask Steam with (no launcher, no steam_cef.py): it says so and stays
+    launcher_init(&l);
+    hosts(&l);
+    l.vrMissing = 1;
+    launcher_press(&l, UI_HIT_LIST_ITEM, 0, 0);
+    take(&l, LCMD_REFRESH_PCS, NULL);
+    take(&l, LCMD_FETCH_APPS, NULL);
+    apps(&l, 0);
+    launcher_press(&l, UI_HIT_LIST_ITEM, 0, 0);
+    CHECK(l.state == LAUNCH_APPS && l.ncmd == 0 && strcmp(l.notice, ui_str(UIS_NATIVE_PCVR_NEEDS_LAUNCHER)) == 0);
+    launcher_autostart(&l, 0, 881);
+    take(&l, LCMD_LAUNCH, NULL);
+    launcher_stream_started(&l);
+    launcher_pcvr(&l);
+    CHECK(l.state == LAUNCH_STREAMING && l.ncmd == 0);
+    // the command steam_cef.py runs with when there is no launcher
+    {
+        const char* argv[8];
+        CHECK(vr_handoff_argv("/x/steam_cef.py", "gaming-pc", argv, 8) == 6 && strcmp(argv[0], "python3") == 0
+              && strcmp(argv[3], "--pcvr") == 0 && strcmp(argv[4], "--pc") == 0 && strcmp(argv[5], "gaming-pc") == 0
+              && argv[6] == NULL);
+        CHECK(vr_handoff_argv("/x/steam_cef.py", "", argv, 8) == 4 && argv[4] == NULL);
+        char path[64];
+        setenv("MLXR_STEAM_CEF", "/nonexistent/steam_cef.py", 1);
+        CHECK(vr_steam_cef_path(path, sizeof path) == 0 && strcmp(path, "/nonexistent/steam_cef.py") == 0);
+        unsetenv("MLXR_STEAM_CEF");
+    }
+    launcher_init(&l);
+    hosts(&l);
     // the other ways out are not PC VR
     launcher_autostart(&l, 0, 881);
     CHECK(take(&l, LCMD_LAUNCH, &c) && c.pcvr == 0);

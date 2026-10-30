@@ -23,5 +23,10 @@ add_test(NAME launcher_vs_stock
 set_tests_properties(launcher_handoff launcher_vs_stock PROPERTIES TIMEOUT 600 SKIP_RETURN_CODE 77)
 # lane artemis-settings: the VR client's own config.ini parser checks the Settings page's edits
 if(TARGET mlxr-settings-dump)
-  set_tests_properties(launcher_handoff PROPERTIES ENVIRONMENT "MLXR_SETTINGS_DUMP=$<TARGET_FILE:mlxr-settings-dump>")
+  set_property(TEST launcher_handoff APPEND PROPERTY ENVIRONMENT "MLXR_SETTINGS_DUMP=$<TARGET_FILE:mlxr-settings-dump>")
+endif()
+# lane launcher-bundle: a Moonlight host on 127.0.0.1 (tests/backend's fake host) that the launcher pairs with, for the
+# command line's stream "PC" "Desktop" and the On start setting end to end; skipped without it
+if(TARGET backend_fake_host_main)
+  set_property(TEST launcher_handoff APPEND PROPERTY ENVIRONMENT "MLXR_FAKE_HOST=$<TARGET_FILE:backend_fake_host_main>")
 endif()

@@ -18,6 +18,7 @@ mlxr_backend_test(backend_test_netpath test_netpath.c fake_host.c)
 mlxr_backend_test(backend_test_netdiag test_netdiag.c)
 # Lane wave1-failover: the path failover policy
 mlxr_backend_test(backend_test_failover test_failover.c)
+mlxr_backend_test(backend_test_opentrack test_opentrack.c)
 
 if(TARGET mlxr_backend_ll)
   mlxr_backend_test(backend_test_glue test_glue.c)

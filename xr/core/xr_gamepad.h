@@ -189,6 +189,13 @@ void padGuideReset(PadGuide* g);
 // frame Guide goes down.
 int padGuideStep(PadGuide* g, PadState* s, int64_t nowNs);
 
+// Native (lane headinput-finish, PLAN 4b.10): [vr] back_as_guide. The pad as
+// it goes to the host, edited in place: Back (View) down with Start up is
+// Guide instead. With Start down it stays Back, so the chords of Start and
+// Back (Guide held a quarter second, the disconnect chord) work as ever, and
+// they still see Back on the pad before this. Returns 1 when it made Guide.
+int padBackAsGuide(PadState* s);
+
 // The other two shortcuts are chords of two or four controls, the parts, each
 // a bit: a stick click, a trigger or a grip, left or right
 #define PAD_PART_LS 0x01

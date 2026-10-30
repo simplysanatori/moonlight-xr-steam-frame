@@ -1,0 +1,107 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Fri, 30 Oct 2026 06:47:49 +0000
+Subject: [PATCH] Update check against this project's GitHub releases, once a
+ day (hand-off mode)
+
+Moonlight XR Native (lane launcher-bundle, PLAN 6.2). app.pro builds mlxrupdate.cpp, main.cpp registers the MlxrUpdate singleton, and main.qml starts it in hand-off mode and shows stock's update button with this project's version and release page when a newer release is out (the page opens through SystemProperties.openExternalUrl, Steam's browser in Game Mode). Stock mode keeps stock's checker only.
+---
+ app/app.pro      |  2 ++
+ app/gui/main.qml | 20 +++++++++++++++++++-
+ app/main.cpp     |  8 ++++++++
+ 3 files changed, 29 insertions(+), 1 deletion(-)
+
+diff --git a/app/app.pro b/app/app.pro
+index 2f7299c..88324b0 100644
+--- a/app/app.pro
++++ b/app/app.pro
+@@ -200,6 +200,7 @@ SOURCES += \
+     streaming/mlxrprofiles.cpp \
+     streaming/mlxrpreflight.cpp \
+     streaming/mlxrbindings.cpp \
++    streaming/mlxrupdate.cpp \
+     streaming/xr_bind.c \
+     streaming/xr_gamepad.c \
+     streaming/audio/audio.cpp \
+@@ -242,6 +243,7 @@ HEADERS += \
+     streaming/mlxrprofiles.h \
+     streaming/mlxrpreflight.h \
+     streaming/mlxrbindings.h \
++    streaming/mlxrupdate.h \
+     streaming/xr_bind.h \
+     streaming/xr_gamepad.h \
+     streaming/xr_shared.h \
+diff --git a/app/gui/main.qml b/app/gui/main.qml
+index 8712a84..56da716 100644
+--- a/app/gui/main.qml
++++ b/app/gui/main.qml
+@@ -9,6 +9,7 @@ import AutoUpdateChecker 1.0
+ import StreamingPreferences 1.0
+ import SystemProperties 1.0
+ import SdlGamepadKeyNavigation 1.0
++import MlxrUpdate 1.0
+ 
+ ApplicationWindow {
+     property bool pollingActive: false
+@@ -334,7 +335,11 @@ ApplicationWindow {
+                 visible: false
+ 
+                 onClicked: {
+-                    if (SystemProperties.hasBrowser) {
++                    // Moonlight XR Native (PLAN 6.2): this project's release page, through Steam's browser in Game Mode
++                    if (SystemProperties.nativeVrHandoff) {
++                        SystemProperties.openExternalUrl(browserUrl);
++                    }
++                    else if (SystemProperties.hasBrowser) {
+                         Qt.openUrlExternally(browserUrl);
+                     }
+                 }
+@@ -346,9 +351,22 @@ ApplicationWindow {
+                     updateButton.visible = true
+                 }
+ 
++                // Moonlight XR Native (PLAN 6.2): a newer release of this project (launcher/src/mlxrupdate.h)
++                function xrUpdateAvailable(version, url)
++                {
++                    ToolTip.text = qsTr("Update available for Moonlight XR for Frame: Version %1").arg(version)
++                    updateButton.browserUrl = url
++                    updateButton.visible = true
++                    console.info("MLXR_LAUNCHER_UPDATE_NOTICE: " + version + " " + url)
++                }
++
+                 Component.onCompleted: {
+                     AutoUpdateChecker.onUpdateAvailable.connect(updateAvailable)
+                     AutoUpdateChecker.start()
++                    if (SystemProperties.nativeVrHandoff) {
++                        MlxrUpdate.onUpdateAvailable.connect(xrUpdateAvailable)
++                        MlxrUpdate.start()
++                    }
+                 }
+ 
+                 Keys.onDownPressed: {
+diff --git a/app/main.cpp b/app/main.cpp
+index 364e9bb..28dc1ba 100644
+--- a/app/main.cpp
++++ b/app/main.cpp
+@@ -51,6 +51,7 @@
+ #include "streaming/mlxrprefs.h"
+ #include "streaming/mlxrbindings.h"
+ #include "streaming/mlxrprofiles.h"
++#include "streaming/mlxrupdate.h"
+ 
+ #if defined(Q_OS_WIN32)
+ #define IS_UNSPECIFIED_HANDLE(x) ((x) == INVALID_HANDLE_VALUE || (x) == NULL)
+@@ -742,6 +743,13 @@ int main(int argc, char *argv[])
+                                                QQmlEngine::setObjectOwnership(MlxrProfiles::get(), QQmlEngine::CppOwnership);
+                                                return MlxrProfiles::get();
+                                            });
++    // Moonlight XR Native (PLAN 6.2): the daily update check against this project's GitHub releases
++    // (launcher/src/mlxrupdate.h); main.qml starts it in hand-off mode
++    qmlRegisterSingletonType<MlxrUpdate>("MlxrUpdate", 1, 0, "MlxrUpdate",
++                                         [](QQmlEngine*, QJSEngine*) -> QObject* {
++                                             QQmlEngine::setObjectOwnership(MlxrUpdate::get(), QQmlEngine::CppOwnership);
++                                             return MlxrUpdate::get();
++                                         });
+     qmlRegisterSingletonType<StreamingPreferences>("StreamingPreferences", 1, 0,
+                                                    "StreamingPreferences",
+                                                    [](QQmlEngine* qmlEngine, QJSEngine*) -> QObject* {
