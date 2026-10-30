@@ -10,7 +10,7 @@ add_library(mlxr_xrui STATIC
   xr_log.c xr_result.c xr_ui.c xr_input.c xr_layers.c xr_display.c
   xr_room.c xr_model.c xr_ambilight.c xr_world.c
   xr_assets.c xr_panels.c xr_prefs.c xr_vk.c xr_pad_bridge.c xr_bugzip.c xr_metrics.c xr_place.c)
-target_sources(mlxr_xrui PRIVATE xr_keyboard.c xr_depth.c xr_host.c)
+target_sources(mlxr_xrui PRIVATE xr_keyboard.c xr_depth.c xr_host.c xr_padcard.c)
 # M6: xr_depth.c reads depth/depth_engine.h's types only; the engine itself
 # comes in through mlxr_xrdepth below
 target_include_directories(mlxr_xrui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/depth)

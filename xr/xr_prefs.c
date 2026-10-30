@@ -351,6 +351,8 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->passthrough = cell == ENV_CELL_PASSTHROUGH;
     ctx->handsEnabled = s->hand_tracking;
     xrSetHandHint(ctx, s->hand_tracking && !s->hand_hint_seen);
+    // Native (lane wave3-cards): the first-run card and the pad card
+    xrCardsApplySettings(ctx, s);
 }
 
 // ---- context -> config.ini ---------------------------------------------------------
