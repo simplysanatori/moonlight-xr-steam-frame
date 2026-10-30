@@ -432,6 +432,21 @@ typedef struct XrCtx {
     int upsampleEnabled;
     float upsampleSigmaR;
     int occlusionEnabled;
+    // Native (lane wave5-depth, PLAN 5.2): the gaps the shift opens filled
+    // from the background side rather than by stretching the nearer edge
+    // (MLXR_HOLE_STRETCH; on, MLXR_HOLE_FILL=0 turns it off)
+    int holeFill;
+    // Native (lane wave5-depth, PLAN 5.4): [3d] motion_reset as a luma change
+    // 0..1 that starts a depth texel's average again; 0 off
+    float depthMotion;
+    // Native (lane wave5-depth, PLAN 5.6): [3d] depth_global and depth_scale
+    // as the engine's remap gains (upstream depthGlobal, depthLocal); 1 is
+    // the map as made
+    float depthGlobal;
+    float depthLocal;
+    // Native (lane wave5-depth, PLAN 5.5): [debug] depth_threads, read when
+    // the model starts (MLXR_DEPTH_THREADS overrides it)
+    int depthThreads;
     // The edge fixes, on apart from the cubic read. Pixels for the fade, 0 or
     // 1 for the rest.
     int srcInsetOn;
@@ -1160,6 +1175,9 @@ typedef struct XrCtx {
     XrMacros macros;
     XrHostRun hostRun;
     XrHostChord hostChord;
+    // Native (PLAN 4.1): the Host sheet's "Switch to PC VR" was confirmed; xr_session.c turns it into
+    // XrUiEvents.pcvrConfirmed once and clears it
+    int pcvrRequest;
     // Native: the Compact keyboard's locked modifiers, and the hand holding the key
     KbSticky kbSticky;
     int kbStickyHand;
