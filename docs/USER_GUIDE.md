@@ -56,6 +56,16 @@ The **Help** button (the question mark at the top) opens this project's readme: 
 
 If you used the Moonlight flatpak on the Frame before, its PC list and pairing are copied the first time the flat window starts. The flatpak's own files are not changed.
 
+### Updates
+
+Once a day at most, the flat window asks GitHub for this project's latest release (`api.github.com`, nothing else). When it is newer than the installed version, an update button (the round arrow icon) appears at the top, with "Update available for Moonlight XR for Frame: Version N" for a few seconds; it opens the release page, in Steam's browser in Game Mode. Nothing is downloaded or installed: update as under "Update" in the readme. No information about you, the headset or your PCs is sent, and if GitHub cannot be reached nothing is shown (`moonlight-launcher.log` has one `MLXR_LAUNCHER_UPDATE: check failed` line). Between checks the last answer is used. Turn it off with **Check for updates** (General Settings).
+
+### Opening a stream by itself
+
+**On start** (General Settings) makes the flat window start a stream as soon as it opens and the PC answers, as if you had selected the app: **Last PC's Desktop** (the Desktop app of the PC you streamed from last) or **An app** (choose it in **App to open on start** from the apps of your PCs). The default is **Nothing**. It waits up to 2 minutes for the PC (and wakes it, as Moonlight's own command line does), then gives up quietly. If another app is already running on that PC, it does not start, so nothing of yours is quit. When the stream ends you are back in the PC list. `moonlight-launcher.log` has `MLXR_LAUNCHER_ONSTART:` lines for each step.
+
+The installer can add a second Steam shortcut, **Desktop in VR**, that goes straight to the Desktop: `./install.sh --desktop-shortcut` (see the readme). It runs `moonlight-xr-launcher.sh stream "PC" "Desktop"`, Moonlight's own command line. The flat window shows "Establishing connection to PC..." and closes when the stream ends. The PC is the one you streamed from last, or the only one, or `--desktop-pc "PC name"`. Run the installer again with another `--desktop-pc` to change it, or edit the shortcut's launch options in Steam.
+
 ## Settings page
 
 The page has the categories below, in this order. A greyed row shows "Not available:" and the reason. Settings are saved when you leave the page.
@@ -177,6 +187,48 @@ When a stream starts, the profile of the app, or else of its PC, is in force for
 | Quick Resume | on, off | off. Selecting a running app resumes it at once. |
 | Enable Full Screen | on, off | Takes effect at the next start. |
 | Headset language | Automatic, English and 19 more | Automatic. The headset's own menus, see [Language](#language). The Language row above it is the flat window's. |
+| On start (General) | Nothing, Last PC's Desktop, An app | Nothing. See [Opening a stream by itself](#opening-a-stream-by-itself). |
+| App to open on start (General) | the apps of your PCs | Shown with On start set to An app. |
+| Check for updates (General) | on, off | on. See [Updates](#updates). |
+
+### Headset settings on this page
+
+These rows change the headset's own settings in `config.ini`, the same ones its cog menu and the file have. Only a row you change is written; a change takes effect at the next stream (the 3D depth model and Room detail when the model or the room is loaded). They are not part of a stream profile.
+
+| Row (category) | Options | Default | `config.ini` |
+| --- | --- | --- | --- |
+| 3D depth model (Video) | ZipDepth, ZipDepth lighter on the CPU, MiDaS (older), Off (2D only) | ZipDepth | `[vr] depth_source` |
+| Sharpening (Video) | Off, Normal, Quality | Off | `[display] sharpening` |
+| Supersampling (Video) | Off, Normal, Quality | Normal. Not used while the 3D is on. | `[display] supersampling` |
+| Sharper small text, Sharper coloured text (Video) | on, off | on, on | `[display] picture_filter`, `chroma_from_luma` |
+| Picture brightness, contrast, gamma, saturation (Video) | -50 to 50; 50 to 150 %; 0.50 to 2.00; 0 to 200 % | 0, 100 %, 1.00, 100 % | `[vr] picture_brightness`, `picture_contrast`, `picture_gamma` (hundredths), `picture_saturation` |
+| Virtual surround (Audio) | on, off | off | `[stream] virtual_surround` |
+| When the gyro is sent (Gamepad) | Always, While the thumb touches the right stick | Always | `[vr] pad_gyro_ratchet` |
+| Lightgun reload, Lightgun recoil (Gamepad) | on, off | off, on | `[vr] lightgun_reload`, `lightgun_recoil` |
+| Gamepad mode shortcut (Gamepad) | Left View and left grip, Click both sticks, Both triggers and both grips | Left View and left grip | `[vr] gamepad_toggle` |
+| Grips in gamepad mode (Gamepad) | Bumpers (LB, RB), Nothing, Stick clicks (LS, RS) | Bumpers | `[vr] pad_grip` |
+| Rumble on the headset controllers (Gamepad) | Stronger motor in both hands, Low motor left, high motor right | Stronger motor in both hands | `[vr] rumble_mix` |
+| Rumble strength on the headset controllers (Gamepad) | 0 to 100 % | 100 % | `[vr] rumble_intensity` |
+| Headset keyboard size (Input) | Compact, Full (tenkeyless) | Compact | `[vr] keyboard_layout` |
+| Hold to lock Shift, Ctrl, Alt or Win (Input) | 200 to 1500 ms | 500 ms | `[vr] keyboard_hold_ms` |
+| Controllers as a mouse (Input) | on, off | on | `[vr] pointer` |
+| Pause the pointer when the controller is still (Input) | on, off | on | `[vr] pointer_sleep` |
+| Show the ray, Show the dot where the ray lands (Input) | on, off | on, on | `[vr] show_ray`, `pointer_dot` |
+| Click steadiness (Input) | Off, Normal, Steady | Normal | `[vr] click_steadiness` |
+| Click sound (Input) | on, off | on | `[vr] click_sound` |
+| Head aims the mouse, Head aim speed, Head aim dead zone (Input) | on, off; 1 to 30 px/°; 0 to 20 °/s | off, 8, 2 | `[vr] head_aim`, `head_aim_sensitivity`, `head_aim_deadzone` |
+| Look to point, Hand tracking (Input) | on, off | off, off. Not tested on the Steam Frame yet. | `[vr] gaze`, `hand_tracking` |
+| Environment (UI) | Automatic, Passthrough, Void, Home Theater, Grand Cinema, Synthwave | Automatic: the void, or the passthrough with Passthrough on | `[vr] environment` |
+| Passthrough (UI) | on, off | off | `[vr] passthrough` |
+| Room detail (UI) | Low, Standard, High, Ultra | Standard | `[vr] env_res` |
+| Screen light in rooms, Glow, Glow level (UI) | on, off; 0 to 100 % | on, off, 50 % | `[display] screen_light`, `glow`, `glow_level` |
+| Screen distance, Screen width, Screen curve (UI) | 20 to 800 cm; 80 to 800 cm; 0 to 100 % | 300 cm, 300 cm, 0 % | `[screen] distance_cm`, `width_cm`, `curve` |
+| Remember the screen per app (UI) | on, off | on. An app without its own place starts from the rows above. | `[screen] per_app` |
+| Keep the screen's size when pushing or pulling it (UI) | on, off | on | `[screen] angular_lock` |
+| Head-locked screen, Screen follows your head, Follow after turning (UI) | on, off; 10 to 60° | off, off, 25° | `[display] head_locked`, `head_follow`, `follow_leash_deg` |
+| Stats style (Performance Monitor) | Full, HUD, Lite | Full | `[display] stats_style` |
+
+Left out on purpose: the `[debug]` keys, what the headset keeps by itself (the last PC and app, the cog's last tab, the zoom's centre, the hand hint), the screen's height, direction, tilt and rotation (set by grabbing the screen) and the place the bar's Bring here switch goes back to and each room's own brightness, glow, light and picture size (the cog's Room tab, while you look at the room).
 
 ### Language
 
@@ -942,6 +994,7 @@ The four click variables above override the Click steadiness row for their own p
 | `MLXR_VRTIMING` | 1 | 0 stops the flat window from logging SteamVR's frame timing to `vrtiming.log`. |
 | `MLXR_HANDOFF` | 1 | 0 makes the flat window stream flat, as stock Moonlight. |
 | `MLXR_LAUNCHER_PREFLIGHT` | 1 | 0 stops the flat window from asking the PC before a stream (the check and the app's UUID). |
+| `MLXR_LAUNCHER_UPDATE` | 1 | 0 stops the flat window's daily update check, whatever **Check for updates** says. |
 | `MLXR_APP_UUID` | | Set by the flat window for the VR client: the app's UUID on Apollo, sent in the launch request as `appuuid`. Anything that is not a UUID is ignored. |
 | `MLXR_LAUNCHER_SCALE` | 1.5 | How much larger the flat window is drawn in Game Mode (1.0 to 2.5). A `QT_SCALE_FACTOR` you set yourself is used when this is not set. |
 | `MLXR_LAUNCHER_FADE_WINDOW` | 1 | In Game Mode the flat window fades to opacity 0 during a stream and stays mapped, so gamescope keeps a window for keyboard focus. 0 hides the window instead, which can crash gamescope on a volume key press. |
