@@ -578,22 +578,58 @@
 #define COG_TAB_DISPLAY 1
 #define COG_TAB_3D      2
 #define COG_TAB_PICTURE 3
-#define COG_TAB_ABOUT   4
-#define COG_TAB_COUNT   5
+// Native (lane a11y-tab): the Accessibility tab, before About
+#define COG_TAB_ACCESS  4
+#define COG_TAB_ABOUT   5
+#define COG_TAB_COUNT   6
 // And the sheets a room shows instead. While one is up the first tab is the
 // Room tab, whose size row is live or greyed as the room allows, and the other
 // tabs are drawn again with that name over the first slot.
-#define COG_ART_ROOM         5
-#define COG_ART_ROOM_FIXED   6
-#define COG_ART_ROOM_DISPLAY 7
-#define COG_ART_ROOM_3D      8
-#define COG_ART_ROOM_PICTURE 9
-#define COG_ART_ROOM_ABOUT   10
+#define COG_ART_ROOM         6
+#define COG_ART_ROOM_FIXED   7
+#define COG_ART_ROOM_DISPLAY 8
+#define COG_ART_ROOM_3D      9
+#define COG_ART_ROOM_PICTURE 10
+#define COG_ART_ROOM_ACCESS  11
+#define COG_ART_ROOM_ABOUT   12
 // And the screen and display tabs for a screen that is not locked to the head,
 // where head aim's rows are greyed, since it only acts on one that is
-#define COG_ART_SCREEN_WORLD 11
-#define COG_ART_DISPLAY_WORLD 12
-#define COG_ART_COUNT        13
+#define COG_ART_SCREEN_WORLD 13
+#define COG_ART_DISPLAY_WORLD 14
+#define COG_ART_COUNT        15
+// Native (lane a11y-tab): the tab bar's slots are not even any more. Each tab's
+// slot starts at COG_TAB_EDGE_<n> (fractions of the panel's width; the last
+// ends at 1), Accessibility getting the room its name needs. xr_layout.h's
+// cogTabAt and cogTabLeft read them.
+#define COG_TAB_EDGE_1 0.190f
+#define COG_TAB_EDGE_2 0.355f
+#define COG_TAB_EDGE_3 0.445f
+#define COG_TAB_EDGE_4 0.595f
+#define COG_TAB_EDGE_5 0.845f
+
+// Native (lane a11y-tab): Accessibility tab rows, all cells: what points
+// (Controller, Head, and Eyes where the runtime gives eye gaze), the dwell
+// click (Off and four times), head-look, Back as Guide and the mouse mode. Under
+// them a line says whether eye tracking reaches the app, and a few short lines
+// say how to use it and how to turn it off.
+#define COG_ACCESS_ROW_POINTER 0
+#define COG_ACCESS_ROW_DWELL 1
+#define COG_ACCESS_ROW_HEAD_LOOK 2
+#define COG_ACCESS_ROW_BACK_GUIDE 3
+#define COG_ACCESS_ROW_MOUSE 4
+#define COG_ACCESS_ROW_COUNT 5
+// Controller, Head, Eyes; Eyes is only drawn (and only hit) where it can work
+#define COG_ACCESS_POINTER_CELLS 3
+// Off, 0.6 s, 0.9 s, 1.2 s, 1.5 s (xr/core/xr_access.h accessDwellMs)
+#define COG_ACCESS_DWELL_CELLS 5
+#define COG_ACCESS_SWITCH_CELLS 2
+#define COG_ACCESS_ROW_V0 0.215f
+#define COG_ACCESS_ROW_STEP 0.07f
+#define COG_ACCESS_ROW_HALF 0.035f
+#define COG_ACCESS_CELL_HALF 0.029f
+// The eye tracking line and the instructions under the rows
+#define COG_ACCESS_STATUS_V 0.575f
+#define COG_ACCESS_HELP_T 0.645f
 
 // Screen tab rows, in the order they are drawn: the six that place the
 // screen, which the reset button under them puts back, then head aim's two,

@@ -1,6 +1,10 @@
 // Moonlight XR Native - M0: OpenXR probe and two-eye Vulkan triangle.
 //
 // mlxr-hello --probe          list what SteamVR offers a native Arm64 Vulkan app, then exit
+// mlxr-hello --gaze-probe [--seconds N]
+//                             whether eye gaze (XR_EXT_eye_gaze_interaction) reaches a native
+//                             app: runs a session, watches the gaze pose for N seconds once
+//                             focused (default 20), prints what it saw and exits by itself
 // mlxr-hello [--seconds N] [--rate HZ]
 //                             draw a world-locked triangle in both eyes until SteamVR
 //                             ends the session (or N seconds pass), logging the refresh rate
@@ -495,6 +499,150 @@ static const char* vkFormatName(int64_t f) {
     }
 }
 
+// ---------------------------------------------------------------- gaze probe
+// Native (lane a11y-tab): read-only. One pose action on /user/eyes_ext/input/gaze_ext/pose, synced
+// every frame once the session is focused; what the runtime says about it is printed as it changes
+// and twice a second, and summed up at the end.
+
+typedef struct {
+    int on;
+    XrActionSet set;
+    XrAction gaze;
+    XrSpace space;
+    int bound;          // the suggested binding was taken
+    int attached;
+    double focusedAt;   // when the session got focus (0: not yet)
+    double lastLine;
+    int lastActive;
+    unsigned lastFlags;
+    long frames, active, valid, tracked;
+    int samples;
+    int syncErrors;
+    XrResult firstSyncError;
+} GazeProbe;
+
+static GazeProbe g_gp = { .lastActive = -1, .lastFlags = 0xFFFFFFFFu };
+
+static void gazeProbeActions(XrSession session) {
+    XrActionSetCreateInfo si = {XR_TYPE_ACTION_SET_CREATE_INFO};
+    strcpy(si.actionSetName, "gazeprobe");
+    strcpy(si.localizedActionSetName, "Gaze probe");
+    XrResult r = xrCreateActionSet(g_instance, &si, &g_gp.set);
+    LOG("gaze probe: action set -> %s", xrStr(r));
+    if (XR_FAILED(r)) return;
+    XrActionCreateInfo ci = {XR_TYPE_ACTION_CREATE_INFO};
+    strcpy(ci.actionName, "gaze");
+    strcpy(ci.localizedActionName, "Gaze");
+    ci.actionType = XR_ACTION_TYPE_POSE_INPUT;
+    r = xrCreateAction(g_gp.set, &ci, &g_gp.gaze);
+    LOG("gaze probe: gaze pose action -> %s", xrStr(r));
+    if (XR_FAILED(r)) return;
+    XrActionSuggestedBinding b = {g_gp.gaze, toPath("/user/eyes_ext/input/gaze_ext/pose")};
+    XrInteractionProfileSuggestedBinding sb = {XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
+    sb.interactionProfile = toPath("/interaction_profiles/ext/eye_gaze_interaction");
+    sb.countSuggestedBindings = 1;
+    sb.suggestedBindings = &b;
+    r = xrSuggestInteractionProfileBindings(g_instance, &sb);
+    g_gp.bound = XR_SUCCEEDED(r);
+    LOG("gaze probe: suggest /interaction_profiles/ext/eye_gaze_interaction /user/eyes_ext/input/gaze_ext/pose -> %s",
+        xrStr(r));
+    XrActionSpaceCreateInfo asci = {XR_TYPE_ACTION_SPACE_CREATE_INFO};
+    asci.action = g_gp.gaze;
+    asci.poseInActionSpace.orientation.w = 1.0f;
+    r = xrCreateActionSpace(session, &asci, &g_gp.space);
+    LOG("gaze probe: gaze action space -> %s", xrStr(r));
+    XrSessionActionSetsAttachInfo ai = {XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO};
+    ai.countActionSets = 1;
+    ai.actionSets = &g_gp.set;
+    r = xrAttachSessionActionSets(session, &ai);
+    g_gp.attached = XR_SUCCEEDED(r);
+    LOG("gaze probe: attach the action set -> %s", xrStr(r));
+}
+
+// Which interaction profile the runtime has bound to the eyes (none until it picks one)
+static void gazeProbeProfile(XrSession session) {
+    XrInteractionProfileState st = {XR_TYPE_INTERACTION_PROFILE_STATE};
+    XrResult r = xrGetCurrentInteractionProfile(session, toPath("/user/eyes_ext"), &st);
+    char name[XR_MAX_PATH_LENGTH] = "(none)";
+    uint32_t n = 0;
+    if (XR_SUCCEEDED(r) && st.interactionProfile != XR_NULL_PATH) {
+        xrPathToString(g_instance, st.interactionProfile, sizeof(name), &n, name);
+    }
+    LOG("gaze probe: interaction profile on /user/eyes_ext: %s (%s)", name, xrStr(r));
+}
+
+static void gazeProbeFrame(XrSession session, XrSpace local, XrTime time) {
+    if (!g_gp.attached) return;
+    XrActiveActionSet as = {g_gp.set, XR_NULL_PATH};
+    XrActionsSyncInfo sync = {XR_TYPE_ACTIONS_SYNC_INFO};
+    sync.countActiveActionSets = 1;
+    sync.activeActionSets = &as;
+    XrResult r = xrSyncActions(session, &sync);
+    if (XR_FAILED(r) || r == XR_SESSION_NOT_FOCUSED) {
+        if (g_gp.syncErrors++ == 0) g_gp.firstSyncError = r;
+        if (g_gp.syncErrors <= 3) LOG("gaze probe: xrSyncActions -> %s", xrStr(r));
+        return;
+    }
+    XrActionStateGetInfo gi = {XR_TYPE_ACTION_STATE_GET_INFO};
+    gi.action = g_gp.gaze;
+    XrActionStatePose ps = {XR_TYPE_ACTION_STATE_POSE};
+    r = xrGetActionStatePose(session, &gi, &ps);
+    int active = XR_SUCCEEDED(r) && ps.isActive;
+    XrSpaceLocation loc = {XR_TYPE_SPACE_LOCATION};
+    XrResult lr = g_gp.space != XR_NULL_HANDLE ? xrLocateSpace(g_gp.space, local, time, &loc) : XR_ERROR_HANDLE_INVALID;
+    unsigned flags = XR_SUCCEEDED(lr) ? (unsigned)loc.locationFlags : 0u;
+    int valid = (flags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0;
+    int tracked = (flags & XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT) != 0;
+    g_gp.frames++;
+    g_gp.active += active;
+    g_gp.valid += valid;
+    g_gp.tracked += tracked;
+    double t = nowSec();
+    if (active != g_gp.lastActive || flags != g_gp.lastFlags) {
+        LOG("gaze probe: action %s, location flags 0x%x (orientation valid %d tracked %d, position valid %d)%s",
+            active ? "ACTIVE" : "not active", flags, valid, tracked,
+            (flags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0,
+            XR_FAILED(lr) ? " (xrLocateSpace failed)" : "");
+        g_gp.lastActive = active;
+        g_gp.lastFlags = flags;
+    }
+    if (t - g_gp.lastLine >= 0.5) {
+        g_gp.lastLine = t;
+        if (valid) {
+            // where the gaze points: the pose's -z, as yaw (left +) and pitch (up +) in degrees
+            float x = loc.pose.orientation.x, y = loc.pose.orientation.y, z = loc.pose.orientation.z,
+                  w = loc.pose.orientation.w;
+            float fx = -(2 * (x * z + w * y)), fy = -(2 * (y * z - w * x)), fz = -(1 - 2 * (x * x + y * y));
+            LOG("gaze probe: %.1f s focused, active %d, flags 0x%x, gaze yaw %+.1f pitch %+.1f deg",
+                t - g_gp.focusedAt, active, flags, atan2f(-fx, -fz) * 57.29578f,
+                atan2f(fy, sqrtf(fx * fx + fz * fz)) * 57.29578f);
+            g_gp.samples++;
+        } else {
+            LOG("gaze probe: %.1f s focused, active %d, flags 0x%x, no gaze direction", t - g_gp.focusedAt, active, flags);
+        }
+    }
+}
+
+static int gazeProbeSummary(int extPresent, int supports, int focused) {
+    printf("\n# gaze probe summary\n");
+    printf("XR_EXT_eye_gaze_interaction offered: %s\n", extPresent ? "yes" : "NO");
+    printf("supportsEyeGazeInteraction: %d\n", supports);
+    printf("gaze binding suggested: %s, action set attached: %s\n", g_gp.bound ? "ok" : "REFUSED",
+           g_gp.attached ? "ok" : "NO");
+    printf("session focused: %s\n", focused ? "yes" : "NO (put the headset on; the watch needs focus)");
+    printf("frames watched: %ld, action active: %ld, orientation valid: %ld, tracked: %ld\n", g_gp.frames,
+           g_gp.active, g_gp.valid, g_gp.tracked);
+    if (g_gp.syncErrors) printf("xrSyncActions failures: %d (first: %s)\n", g_gp.syncErrors, xrStr(g_gp.firstSyncError));
+    int works = g_gp.tracked > 0;
+    printf("RESULT: %s\n", works ? "eye gaze reaches this app"
+           : !extPresent ? "no eye gaze: the runtime does not offer XR_EXT_eye_gaze_interaction"
+           : !focused ? "not checked: the session never got focus"
+           : g_gp.active == 0 ? "no eye gaze: the gaze action never went active (check SteamVR Settings > General > Eye Tracking, headset worn)"
+           : "no eye gaze: the action is active but no tracked gaze pose came");
+    fflush(stdout);
+    return works ? 0 : 3;
+}
+
 // ---------------------------------------------------------------- main
 
 int main(int argc, char** argv) {
@@ -505,16 +653,20 @@ int main(int argc, char** argv) {
     const char* probeOut = NULL;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--probe")) probe = 1;
+        else if (!strcmp(argv[i], "--gaze-probe")) g_gp.on = 1;
         else if (!strcmp(argv[i], "--probe-out") && i + 1 < argc) probeOut = argv[++i];
         else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = atof(argv[++i]);
         else if (!strcmp(argv[i], "--rate") && i + 1 < argc) wantRate = (float)atof(argv[++i]);
         else {
-            fprintf(stderr, "usage: %s [--probe [--probe-out FILE]] [--seconds N] [--rate HZ]\n", argv[0]);
+            fprintf(stderr, "usage: %s [--probe [--probe-out FILE]] [--gaze-probe] [--seconds N] [--rate HZ]\n", argv[0]);
             return 2;
         }
     }
     signal(SIGINT, onSignal);
     signal(SIGTERM, onSignal);
+    // the gaze probe watches this long once focused, and gives up on focus after a minute
+    if (g_gp.on && seconds <= 0) seconds = 20;
+    if (g_gp.on) probe = 0;
 
     FILE* out = stdout;
     if (probeOut) {
@@ -597,6 +749,11 @@ int main(int argc, char** argv) {
     if (hasExt("XR_EXT_eye_gaze_interaction")) { *tail = &gaze; tail = (const void**)&gaze.next; }
     if (hasExt("XR_EXT_user_presence")) { *tail = &presence; tail = (const void**)&presence.next; }
     XR_CHECK(xrGetSystemProperties(g_instance, system, &sp));
+    if (g_gp.on) {
+        LOG("gaze probe: XR_EXT_eye_gaze_interaction %s, supportsEyeGazeInteraction %d",
+            hasExt("XR_EXT_eye_gaze_interaction") ? "offered and enabled" : "NOT offered by the runtime",
+            hasExt("XR_EXT_eye_gaze_interaction") ? (int)gaze.supportsEyeGazeInteraction : -1);
+    }
     LOG("system: %s (vendor %u), max swapchain %ux%u, max layers %u", sp.systemName, sp.vendorId,
         sp.graphicsProperties.maxSwapchainImageWidth, sp.graphicsProperties.maxSwapchainImageHeight,
         sp.graphicsProperties.maxLayerCount);
@@ -706,6 +863,8 @@ int main(int argc, char** argv) {
     rsci.poseInReferenceSpace.orientation.w = 1;
     XrSpace local;
     XR_CHECK(xrCreateReferenceSpace(session, &rsci, &local));
+    if (g_gp.on && hasExt("XR_EXT_eye_gaze_interaction")) gazeProbeActions(session);
+    int everFocused = 0;
 
     int64_t format = formats[0];
     for (uint32_t i = 0; i < nf; i++)
@@ -775,7 +934,11 @@ int main(int argc, char** argv) {
     uint64_t periodCount = 0;
 
     while (running) {
-        if ((g_quit || (seconds > 0 && nowSec() - started > seconds)) && !exitRequested && sessionRunning) {
+        // the gaze probe counts its seconds from focus, and stops after a minute without it
+        int timeUp = g_gp.on ? ((g_gp.focusedAt > 0 && nowSec() - g_gp.focusedAt > seconds) || nowSec() - started > 60 + seconds)
+                             : (seconds > 0 && nowSec() - started > seconds);
+        if (g_gp.on && timeUp && !sessionRunning && !exitRequested) break;
+        if ((g_quit || timeUp) && !exitRequested && sessionRunning) {
             LOG("requesting exit");
             xrRequestExitSession(session);
             exitRequested = 1;
@@ -788,6 +951,11 @@ int main(int argc, char** argv) {
             case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED: {
                 XrEventDataSessionStateChanged* s = (XrEventDataSessionStateChanged*)&ev;
                 LOG("session state %d", (int)s->state);
+                if (g_gp.on && s->state == XR_SESSION_STATE_FOCUSED && g_gp.focusedAt == 0) {
+                    g_gp.focusedAt = nowSec();
+                    everFocused = 1;
+                    LOG("gaze probe: focused, watching the gaze for %.0f s (look around, blink, close the eyes)", seconds);
+                }
                 if (s->state == XR_SESSION_STATE_READY) {
                     XrSessionBeginInfo bi = {XR_TYPE_SESSION_BEGIN_INFO};
                     bi.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -814,6 +982,9 @@ int main(int argc, char** argv) {
                 LOG("instance loss pending");
                 running = 0;
                 break;
+            case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED:
+                if (g_gp.on) gazeProbeProfile(session);
+                break;
             case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:
                 LOG("reference space change pending (recentre)");
                 break;
@@ -832,6 +1003,7 @@ int main(int argc, char** argv) {
         XrFrameState fs = {XR_TYPE_FRAME_STATE};
         XR_CHECK(xrWaitFrame(session, NULL, &fs));
         XR_CHECK(xrBeginFrame(session, NULL));
+        if (g_gp.on && g_gp.focusedAt > 0 && !exitRequested) gazeProbeFrame(session, local, fs.predictedDisplayTime);
         frames++;
         framesWindow++;
         if (lastDisplayTime) {
@@ -963,6 +1135,13 @@ int main(int argc, char** argv) {
     }
 
     LOG("shutting down after %llu frames", (unsigned long long)frames);
+    int result = 0;
+    if (g_gp.on) {
+        if (g_gp.attached) gazeProbeProfile(session);
+        result = gazeProbeSummary(hasExt("XR_EXT_eye_gaze_interaction"), (int)gaze.supportsEyeGazeInteraction, everFocused);
+        if (g_gp.space != XR_NULL_HANDLE) xrDestroySpace(g_gp.space);
+        if (g_gp.set != XR_NULL_HANDLE) xrDestroyActionSet(g_gp.set);
+    }
     vkDeviceWaitIdle(vk.device);
     vkDestroyFence(vk.device, fence, NULL);
     vkDestroyCommandPool(vk.device, pool, NULL);
@@ -977,5 +1156,5 @@ int main(int argc, char** argv) {
     xrDestroyInstance(g_instance);
     vkDestroyDevice(vk.device, NULL);
     vkDestroyInstance(vk.instance, NULL);
-    return 0;
+    return result;
 }
