@@ -155,7 +155,10 @@
     X(NATIVE_3D_LOADING, "native_3d_loading", "3D: loading the depth model") \
     X(NATIVE_TILE_LATER, "native_tile_later", "Later") \
     X(NATIVE_DOT, "native_dot", "Dot") \
-    X(NATIVE_RAY, "native_ray", "Ray")     X(MODEL_FRAME, "native_model_frame", "Frame")     X(MODEL_GENERIC, "native_model_generic", "Generic")     X(MODEL_GUN, "native_model_gun", "Gun") \
+    X(NATIVE_RAY, "native_ray", "Ray") \
+    X(MODEL_FRAME, "native_model_frame", "Frame") \
+    X(MODEL_GENERIC, "native_model_generic", "Generic") \
+    X(MODEL_GUN, "native_model_gun", "Gun") \
     X(NATIVE_EXIT_APP, "native_exit_app", "Quit Moonlight XR for Frame?") \
     X(NATIVE_PAIR_LATER, "native_pair_later", "Pairing from the headset comes later: pair with mlxr-cli") \
     X(NATIVE_NOT_PAIRED, "native_not_paired", "%s is not paired: pair it with mlxr-cli") \
