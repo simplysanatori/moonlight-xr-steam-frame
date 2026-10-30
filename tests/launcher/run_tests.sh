@@ -739,6 +739,9 @@ if [ -n "$SHOTS" ]; then
     MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs.png@2500" "$L" >"$t/ui.out" 2>&1; rc=$?
     [ $rc = 0 ] && ok "UI starts, loads, exits (offscreen)" || fail "UI exit $rc"
     QMLERR='TypeError|ReferenceError|is not a function|is not defined|Cannot assign|Unable to assign|qrc:/[^ ]*(Error|error)'
+    # defined here, before the first section that checks a page's output with it (lane a11y-2: the Accessibility
+    # section's check ran before this was defined further down, and was skipped)
+    uiout() { grep -E "$QMLERR" "$1" && fail "$2: QML errors" || ok "$2: no QML errors"; }
     grep -Eq "$QMLERR" "$t/ui.out" && { fail "QML errors:"; grep -E "$QMLERR" "$t/ui.out" | head; } || ok "no QML errors on start"
     grep -q "Screenshot.*saved" "$t/ui.out" && ok "screenshot written" || fail "no screenshot"
     grep -q "Failed to find ANY working\|Unable to find working decoder" "$t/ui.out" && fail "decoder probe ran in hand-off mode" || ok "hand-off mode: no local decoder probe"
@@ -948,13 +951,16 @@ if [ -n "$SHOTS" ]; then
     # saved without a press writes neither
     printf '[vr]\nhead_aim = true\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
-        MLXR_LAUNCHER_INVOKE='saveAll;setSearch:accessibility' \
+        MLXR_LAUNCHER_INVOKE='saveAll;setSearch:first-person;setSearch:accessibility' \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-accessibility.png@3000" "$L" >"$t/acc0.out" 2>&1
     uiout "$t/acc0.out" "accessibility section"
-    grep -Eq '^(pointer_source|head_dwell_ms) *=' "$ini" && { fail "opening the page wrote pointer_source or head_dwell_ms"; cat "$ini"; } || ok "the page opened and saved writes no accessibility key"
+    grep -Eq '^(pointer_source|head_dwell_ms|assist_dot_size|assist_headset_button) *=' "$ini" && { fail "opening the page wrote an accessibility key"; cat "$ini"; } || ok "the page opened and saved writes no accessibility key"
     s="$(grep 'MLXR_SETTINGS_SEARCH: text="accessibility"' "$t/acc0.out")"
     expect "search: the Accessibility section is found" "$s" "sections=Accessibility"
-    expect "search: with its rows" "$s" "What points|Dwell click|Head-look (experimental)|Head-look speed|Back button as Guide|Mouse mode"
+    expect "search: with its rows" "$s" "titles=Pointer|Dwell click|Dot size|Headset button clicks sections=Accessibility"
+    # lane a11y-2: head-look is under Input with a name that says what it does, Back as Guide under Gamepad
+    s="$(grep 'MLXR_SETTINGS_SEARCH: text="first-person"' "$t/acc0.out")"
+    expect "search: head-look is found under Input" "$s" "titles=Head turns the game's camera (first-person games) sections=Input Settings"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
         MLXR_LAUNCHER_CLICK=pointerSourceRow,headDwellRow \
         MLXR_LAUNCHER_INVOKE='setSearch:dwell' MLXR_LAUNCHER_SCREENSHOT="$t/acc1.png@3000" "$L" >"$t/acc1.out" 2>&1
@@ -963,12 +969,42 @@ if [ -n "$SHOTS" ]; then
     grep -A8 '^\[vr\]' "$ini" | grep -q '^pointer_source = head$' && ok "What points steps to Head and writes [vr] pointer_source = head" || { fail "pointer_source not written"; cat "$ini"; }
     grep -A8 '^\[vr\]' "$ini" | grep -q '^head_dwell_ms = 600$' && ok "Dwell click steps Off to 0.6 s and writes [vr] head_dwell_ms = 600" || { fail "head_dwell_ms not written"; cat "$ini"; }
     grep -q '^head_aim = true$' "$ini" && ok "accessibility rows leave head_aim alone" || { fail "head_aim changed"; cat "$ini"; }
-    expect "search: one word finds the dwell row" "$(grep 'text="dwell"' "$t/acc1.out")" "titles=Dwell click sections=Accessibility"
+    expect "search: one word finds the dwell rows" "$(grep 'text="dwell"' "$t/acc1.out")" "titles=Dwell click|Dot size sections=Accessibility"
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
         expect "VR client reads pointer_source" "$dump" "vr.pointer_source = head"
         expect "VR client reads head_dwell_ms" "$dump" "vr.head_dwell_ms = 600"
     fi
+    # lane a11y-2: the Dot size slider (50 to 300 %, ticks at its 25 % steps) writes [vr] assist_dot_size only when
+    # moved, and each Accessibility row has its tip, shown on a gamepad's or a keyboard's focus
+    printf '[vr]\nhead_aim = true\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='showTip:pointerSourceRow;showTip:headDwellRow;showTip:assistDotSizeRow;showTip:assistHeadsetButtonRow;setPref:assistDotSize|175;saveAll' \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-accessibility-tip.png@3000" "$L" >"$t/acc2.out" 2>&1
+    uiout "$t/acc2.out" "accessibility tips"
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^assist_dot_size = 175$' && ok "Dot size writes [vr] assist_dot_size = 175" || { fail "assist_dot_size not written"; cat "$ini"; }
+    grep -Eq '^(pointer_source|head_dwell_ms|assist_headset_button) *=' "$ini" && { fail "the dot size wrote another accessibility key"; cat "$ini"; } || ok "the dot size writes only its key"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads assist_dot_size" "$dump" "vr.assist_dot_size = 175"
+    fi
+    # the headset button writes its key when pressed
+    printf '[vr]\nhead_aim = true\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=assistHeadsetButtonRow MLXR_LAUNCHER_SCREENSHOT="$t/acc3.png@3000" "$L" >"$t/acc3.out" 2>&1
+    uiout "$t/acc3.out" "headset button row"
+    grep -q "no clickable" "$t/acc3.out" && fail "accessibility click hook: $(grep 'no clickable' "$t/acc3.out")"
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^assist_headset_button = true$' && ok "Headset button clicks writes [vr] assist_headset_button = true" || { fail "assist_headset_button not written"; cat "$ini"; }
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads assist_headset_button" "$dump" "vr.assist_headset_button = true"
+    fi
+    tips="$(grep 'MLXR_SETTINGS_TIP:' "$t/acc2.out")"
+    expect "tip: Pointer" "$tips" 'pointerSourceRow visible=true text="What moves the pointer: a controller, your head, or where you look."'
+    expect "tip: Dwell click" "$tips" 'headDwellRow visible=true text="Rest the dot this long on something to click it."'
+    expect "tip: Dot size" "$tips" 'assistDotSizeRow visible=true text="How big the dot is when you point with your head or eyes."'
+    expect "tip: Headset button" "$tips" "assistHeadsetButtonRow visible=true text=\"The headset's side button clicks instead of opening the Steam home. Hold it 3 seconds to get the Steam home back.\""
+    grep -q 'MLXR_LAUNCHER_CLICK\|showTip: no row' "$t/acc2.out" && fail "a tip row is missing: $(grep 'showTip: no row' "$t/acc2.out")"
     # MLXR_HANDOFF=0: the stock probe runs again
     MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1
     grep -q "Unable to find working decoder\|Failed to initialize VAAPI" "$t/ui4.out" && ok "hand-off off: stock decoder probe runs" || fail "stock probe missing with MLXR_HANDOFF=0"
@@ -1148,7 +1184,6 @@ PY
     bindqml "$t/bind-via.out" "bindings via Settings"
     # lane wave4-launcher: the Stream profiles page (PLAN 4.7), opened as an app's menu opens it (PC 0, app Desktop);
     # the page's own functions make a profile and use it for the app
-    uiout() { grep -E "$QMLERR" "$1" && fail "$2: QML errors" || ok "$2: no QML errors"; }
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE="profiles:0:Desktop" MLXR_LAUNCHER_WINDOW=1280x1100 \
         MLXR_LAUNCHER_INVOKE='doCreate:Couch;doUse:Couch;doCreate:Default' MLXR_LAUNCHER_SCREENSHOT="$SHOTS/profiles.png@3000" "$L" >"$t/prof1.out" 2>&1
     uiout "$t/prof1.out" "profiles page"

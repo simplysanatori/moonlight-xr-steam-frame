@@ -1,6 +1,7 @@
 // Native (lane a11y-tab): the Accessibility tab's pure parts. The dwell row's cells and the times
-// they stand for, which pointer cells the tab shows, what the eye tracking line says, and the eyes
-// pointer's fallback to the head while the eyes are lost. Plain arithmetic, no OpenXR and no
+// they stand for, the pointer row's Eyes cell, what the eye tracking line says, the eyes pointer's
+// fallback to the head while the eyes are lost, and (lane a11y-2) the size of the head and eye
+// pointer's dot and which row of the tab a point on it is on. Plain arithmetic, no OpenXR and no
 // context, so tests/xrcore reaches all of it. GPLv3.
 #ifndef XR_ACCESS_H
 #define XR_ACCESS_H
@@ -20,24 +21,52 @@ int accessDwellMs(int cell);
 int accessDwellCell(int ms);
 
 // ---- eye tracking ---------------------------------------------------------------------------------
-// What the eye tracking line says, from what the session found
+// What the eye tracking line says, from what the session found. Native (lane a11y-2): the app asks
+// for eye gaze whenever the runtime offers it, so there is no "not asked for" any more.
 #define ACCESS_EYES_READY 0        // eye gaze reached the app this session
-#define ACCESS_EYES_WAITING 1      // the runtime says it supports it, but no gaze has arrived yet
-#define ACCESS_EYES_NOT_ASKED 2    // the runtime offers the extension, but nothing here asked for it
-#define ACCESS_EYES_UNAVAILABLE 3  // the runtime does not give eye gaze to apps
+#define ACCESS_EYES_WAITING 1      // the gaze action is attached, no gaze has arrived yet
+#define ACCESS_EYES_NO_ACTION 2    // offered, but the gaze action could not be set up
+#define ACCESS_EYES_UNAVAILABLE 3  // the runtime does not offer XR_EXT_eye_gaze_interaction
 #define ACCESS_EYES_COUNT 4
 
-// offered: the runtime lists XR_EXT_eye_gaze_interaction; asked: [vr] gaze or pointer_source = gaze
-// asked for it at the session's start; working: the extension was enabled, the system reports
-// supportsEyeGazeInteraction and the gaze binding was taken; seen: a tracked gaze pose arrived this
-// session. A gaze that arrived is ready whatever the rest says: SteamVR's flag is only a hint (it
-// has read 0 on systems that gave gaze), so the input pass keeps the gaze action without it.
-int accessEyesState(int offered, int asked, int working, int seen);
+// offered: the runtime lists XR_EXT_eye_gaze_interaction; bound: the extension was enabled and the
+// gaze action and its binding were taken; seen: a tracked gaze pose arrived this session. A gaze
+// that arrived is ready whatever the rest says. SteamVR's supportsEyeGazeInteraction is only a
+// hint (it has read 0 on systems that gave gaze), so it plays no part.
+int accessEyesState(int offered, int bound, int seen);
 
-// Whether the pointer row shows its Eyes cell: when eye gaze has arrived this session, or when Eyes
-// is the setting already (so what is set is never hidden; it points with the head until the eyes
-// come). 3 cells or 2.
-int accessPointerCells(int eyesState, int pointerSource);
+// Whether the pointer row's Eyes cell can be pressed: always, unless the runtime does not offer eye
+// gaze at all (then it is drawn dimmed), and always when Eyes is the setting already (so what is
+// set can be seen; it points with the head until the eyes come)
+int accessEyesCellLive(int eyesState, int pointerSource);
+
+// ---- the dot's size (lane a11y-2) -----------------------------------------------------------------
+// [vr] assist_dot_size: the head and eye pointer's dot (and its dwell ring) as a percentage of the
+// size it has always had, 50 to 300 in the slider's 25 % steps; 100 is that size
+#define ACCESS_DOT_MIN 50
+#define ACCESS_DOT_MAX 300
+#define ACCESS_DOT_STEP 25
+#define ACCESS_DOT_DEFAULT 100
+#define ACCESS_DOT_STEPS ((ACCESS_DOT_MAX - ACCESS_DOT_MIN) / ACCESS_DOT_STEP)
+
+// A stored percentage held to 50..300 (a value between the steps is kept as it is)
+int accessDotClamp(int percent);
+// The scale the dot's side is drawn at: percent / 100 with the head or the eyes pointing, 1 with
+// the controllers (their dot is not this setting's)
+float accessDotScale(int percent, int pointerSource);
+
+// ---- the headset button's device, as the tab shows it (lane a11y-2) ----------------------------------
+#define ACCESS_BUTTON_UNKNOWN 0     // not looked for yet
+#define ACCESS_BUTTON_OK 1          // found and readable
+#define ACCESS_BUTTON_MISSING 2     // no gpio-keys device with KEY_SELECT
+#define ACCESS_BUTTON_UNREADABLE 3  // found, but this user cannot read it
+// Whether the tab greys its row for the device: missing or unreadable (unknown is live)
+int accessButtonGreyed(int state);
+
+// ---- the tab's rows (lane a11y-2) ------------------------------------------------------------------
+// The row of the tab a point at v (0 top, 1 bottom of the panel) is on, live or greyed, label or
+// cells, or -1 between and past them: the row the footer describes
+int accessRowAt(float v);
 
 // ---- the eyes pointer's fallback --------------------------------------------------------------------
 // With the pointer on Eyes, the dot follows the gaze while it is tracked. Lost for longer than
