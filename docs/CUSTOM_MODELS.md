@@ -2,7 +2,22 @@
 
 `tools/xr/make_model.py` turns your own 3D model (glTF, GLB or OBJ) into the `.model` file the VR client draws at a hand's grip. It is plain Python 3 with nothing to install, and runs on any computer.
 
-The client reads these files from `~/.config/moonlight-xr/models/` (the Custom controller model kind; until a build with that kind is installed the files are written but not drawn). Your model is yours: nothing here is uploaded or shared, and its licence is your business.
+The client reads these files from `~/.config/moonlight-xr/models/` (or `$MLXR_CONFIG_DIR/models/`). Your model is yours: nothing here is uploaded or shared, and its licence is your business.
+
+## Turn it on
+
+Put the file or files in that folder, then choose the **Custom** kind of the Show controllers setting. The headset's Display tab has cells for Off, Frame, Generic and Gun only, so pick Custom in one of two other places:
+
+- the launcher's Settings page, Input Settings, **Show controllers** (press the row until it says *Your own model*), or
+- `config.ini`: `controller_model = custom` under `[vr]`.
+
+The change applies the next time a session starts. Which files are read:
+
+1. `custom_left.model` and `custom_right.model`, if both are there: each hand draws its own.
+2. Otherwise `custom.model`: the right hand's model, mirrored by the client for the left hand (parts that move are mirrored with it).
+3. Otherwise, or if the files cannot be read, the Steam Frame controllers (and the generic one if those are not installed either). One half of a pair on its own is not used. `moonlight.log` says which file was read, or why one was skipped.
+
+The model is drawn at the controller's grip, like the Frame controllers, and a part named after `/input/trigger` and the other controls moves with them (see Moving parts below).
 
 ## Convert
 

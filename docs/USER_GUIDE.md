@@ -179,7 +179,7 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Head locked | Off, On | Off. The screen follows your head. |
 | Head aim | Off, On | Off. Needs Head locked; not in a room. |
 | Mode | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
-| Show controllers | Off, On | Off |
+| Show controllers | Off, Frame, Generic, Gun | Off. Which controller is drawn in each hand; see [Controllers](#controllers). |
 | Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. Bar = this session, cog = saved: the choice here is kept for the next session, the bar's Ray button is not. |
 | Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
 | Click sound | Off, On | On |
@@ -299,9 +299,11 @@ The cog's **Display** tab has the controller rows together: **Mode**, **Show con
 
 | Row | What it does |
 | --- | --- |
-| Show controllers | Off by default: no controller is drawn in the headset. Turn it on to draw a controller in each hand. The installer converts SteamVR's own Steam Frame controller models on your Frame, so the models match the real controllers and move with your buttons and sticks. Valve's models are never in the download. If the conversion fails, a generic controller is shown. To draw a model of your own, convert it with `tools/xr/make_model.py`; see [Custom controller models](CUSTOM_MODELS.md). Controllers are hidden in passthrough. |
+| Show controllers | **Off** (the default) draws no controller in the headset. The other cells draw one in each hand: **Frame** is the Steam Frame controller itself (the installer converts SteamVR's own models on your Frame, so they match the real controllers and move with your buttons and sticks; Valve's models are never in the download; if the conversion failed you get the generic controller instead), **Generic** is a plain Touch-style controller that is always available, and **Gun** is a pistol held like a light gun: it is drawn at the ray, with the barrel pointing along it and the muzzle where the dot is, and its trigger moves as you pull yours. Controllers are hidden in passthrough. The choice takes effect at once and is kept for the next session. |
 | Mode | Pointer or Gamepad. Every session starts in pointer mode. |
 | Ray | Off, Dot or Ray: how the pointer shows. |
+
+**A model of your own.** `controller_model = custom` in `config.ini` (or the launcher's Settings page, under Input Settings, **Show controllers**: press the row until it says Your own model) draws the model you put in `~/.config/moonlight-xr/models/`. The cog has no cell for it. If the files are missing or cannot be read, the Frame controllers are drawn and `moonlight.log` says why. How to make the files: [Custom controller models](CUSTOM_MODELS.md). Older config files that say `controller_model = true` or `false` still work (Frame and Off).
 
 **Bar = this session, cog = saved.** The bar's Ray, Gamepad / Pointer and Head aim buttons change this session only. The cog's Ray row and Show controllers are kept for the next session.
 
