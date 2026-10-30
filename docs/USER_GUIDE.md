@@ -16,6 +16,7 @@ This guide covers version 1.0.1. For install, update and uninstall, see the [REA
 - [Keyboards, mice and gamepads](#keyboards-mice-and-gamepads)
 - [Host: keys for the PC](#host-keys-for-the-pc)
 - [Ending a stream](#ending-a-stream)
+- [Apollo on the PC: recipes](#apollo-on-the-pc-recipes)
 - [Recommended PC settings](#recommended-pc-settings)
 - [Troubleshooting](#troubleshooting)
 - [Advanced: config.ini](#advanced-configini)
@@ -141,6 +142,21 @@ The bar sits under the screen and shows its buttons only while the ray is over i
 | Ray | Shows or hides the controller ray for this session only. The cog's Ray row is the saved one. |
 | 3D | Only shown when the depth model is ready. Turns 3D on or off. |
 | Host | Opens the Host sheet: Esc, Win, Alt+Enter and the other keys that are awkward to reach, plus your own macros. A button can open it too: `app:host` in `bindings.ini`. See [Host: keys for the PC](#host-keys-for-the-pc). |
+
+### Finding the bar
+
+The bar is not drawn all the time. Its buttons and the move pill appear only while the ray is over the strip under the picture, and they go again when it leaves. That keeps the picture clear, but it means you have to point at the strip before the bar is there.
+
+- Point either controller just below the picture. The buttons appear, the one under the ray grows a little, and a press lands on it.
+- With **Ray** on Off (no beam and no dot), a faint beam shows only while the controller points into that strip, so the bar can still be found. Anywhere else nothing extra is drawn. With a menu open the beam comes back anyway.
+- In gamepad mode the controllers are not pointers, so there is nothing to point at the bar with: switch back to pointer mode first (see [Switching between the modes](#switching-between-the-modes)).
+- Everything on the bar can also go on a controller button without the bar: `app:cog`, `app:keyboard`, `app:gamepad`, `app:host`, `app:3d`, `app:ray`, `app:recentre` and `app:bringhere` in `bindings.ini` ([Changing the buttons](#changing-the-buttons)).
+
+### The first-run card
+
+The first time you stream after installing, a card appears over the middle of the picture and lists the controls: where the bar is, what opens the cog and the keyboard, the shortcut for gamepad mode (worded for your `gamepad_toggle`), the Host button, the keyboard chord that disconnects, and how a Bluetooth gamepad becomes the PC's mouse (worded for the gamepad you have used: Menu, Options or +).
+
+It has no buttons. It goes by itself after 20 seconds, or the moment you open any menu, and it does not come back: `first_run_shown = true` is written to `config.ini` as it appears. Set it to `false` there to see the card again.
 
 ## The cog menu
 
@@ -384,6 +400,14 @@ Everything the PC had down is let go when the mode ends, when the stream goes ou
 
 With the Frame controllers in gamepad mode and a Bluetooth gamepad in use, the PC would see two gamepads. `pad_arbitration` (or **When a gamepad is connected** in the launcher) decides: **pointer** (default) takes the controllers' gamepad off the PC the moment the gamepad is first used, so they point again; turn gamepad mode off and on to bring it back. **also_gamepad** leaves both. **sleep** is pointer, and the controllers' pointer rests while the gamepad was used in the last 20 seconds.
 
+### The gamepad card
+
+While a Bluetooth or USB gamepad is in use, a small card hangs in your lap: 45 cm below your eyes and 35 cm ahead of you in the direction you are facing, leaning back so its face looks at you. It follows your heading, not your head's tilt, so it stays in your lap when you look up at the picture, and it turns with you when you turn.
+
+The card is a flat drawing of the gamepad, picked from the type the pad announces: Xbox, PlayStation, Nintendo, Steam Controller, or a plain generic pad. Whatever you do on the real pad lights up on the drawing: buttons and d-pad, bumpers, a trigger (a bar fills as you pull), a thumbstick (its cap follows the stick, and the ring lights when it is pulled or clicked) and the touchpad (a dot where your finger is). A **Gyro** mark lights while motion data from the pad is reaching the PC, which is the quick way to see that gyro works. Use it to learn which button is which, or to see that a pad is working at all.
+
+`pad_card` in `config.ini` (there is no cog row) decides when it shows: `auto` (default) shows it when you use the gamepad and takes it away 4 seconds after the last input; `on` keeps it up for as long as the gamepad counts as in use (20 seconds after its last input); `off` never shows it. It is for physical gamepads only: the Frame controllers in gamepad mode do not get one.
+
 ### AZERTY and QWERTZ
 
 The headset keyboard can show French (AZERTY) or German (QWERTZ) letters. Pick it in the launcher's Settings page under Input Settings ("Headset keyboard layout"), or set `[vr] keyboard_keymap` in `config.ini` to `qwerty` (the default), `azerty` or `qwertz`.
@@ -469,6 +493,47 @@ When the headset comes off, the sound mutes at once and everything held down on 
 
 This uses the headset sensor through `XR_EXT_user_presence`. `moonlight.log` has `presence:` lines: `headset off`, `headset back on after N s`, and the disconnect. If the runtime does not offer the extension, the log says so and none of this happens.
 
+### The SteamVR dashboard
+
+Opening the SteamVR dashboard (or any system menu) takes the focus away from the VR client, and the stream carries on behind it:
+
+- The stream is not paused. Video keeps arriving, and the game keeps running on the PC.
+- The sound is muted, and everything held down on the PC is let go: keys, mouse buttons, and the gamepad, which goes to rest. A gamepad that was the PC's mouse is a gamepad again.
+- Nothing from the controllers, the headset keyboard, a Bluetooth keyboard, mouse or gamepad reaches the PC until you close the dashboard. The idle timer (`idle_disconnect`) starts over when you do.
+
+If you want the game to stop while you look away, the dashboard does not do it: use Disconnect, or the pause recipe in [Apollo on the PC: recipes](#apollo-on-the-pc-recipes).
+
+## Apollo on the PC: recipes
+
+Apollo is the Sunshine fork this app is built against. Several of its options help a headset stream, and they live on the PC, in Apollo's web interface (`https://localhost:47990`), not in this app. The names below are Apollo 0.4's; if yours are different, look for the same words. These come from Apollo's documentation and from reading what this app sends. They have not all been measured on the Frame, and each recipe says what to look at in `moonlight.log` so you can tell for yourself.
+
+### Pin the display mode
+
+By default the virtual display is made at whatever resolution and rate the headset asks for ([Use Virtual Display](#video-settings) in the flat window). **Display Mode Override** takes that choice away from the client: in Apollo's web interface, on the client's entry, set a mode such as 2560x1440x90, and the display is made at that mode whatever the headset asks for.
+
+- Keep the rate the same as the headset's. A 90 Hz override with the headset at 90 Hz is on the grid; a 144 Hz desktop feeding a 72 or 90 Hz headset hands it frames it has to drop or repeat.
+- If you use **Always create virtual display** for this client (Apollo 0.3.7 and later), Windows remembers where the display sits for that client, so windows come back where you left them.
+- Check: the Stats window's `Video ...` line shows the size and rate that actually arrived.
+
+### Pause the PC while you are away, resume when you are back
+
+Apollo can run commands when the last client disconnects and again when a client comes back: its global **Pause** and **Resume** commands (not the ones set on a single client): Pause runs when all clients have disconnected, Resume when one reconnects. Use them for the things you would do by hand when you take the headset off: mute the PC's speakers, pause the player, lock the screen, or suspend the game's process.
+
+- They only run when the stream is disconnected, not when the app quits: **Exit, Disconnect**, the Start+Select+L1+R1 chord, the headset left off for `doff_disconnect` seconds, or `idle_disconnect`. **Quit app** ends the game, so there is nothing to pause. See [Ending a stream](#ending-a-stream).
+- Leave **Terminate on Pause** off, or Pause ends the app and **Resume Game** in the flat window has nothing to resume.
+- Apollo gives the command the client's name and the stream's size and rate in `APOLLO_` environment variables, so one script can tell the headset from a phone. A command set on the client itself (rather than the global pair) has been reported not to run after a disconnect in some Apollo versions; if it does not fire, use the global pair.
+- Opening the SteamVR dashboard does not disconnect the stream, so it does not run these. See [The SteamVR dashboard](#the-steamvr-dashboard).
+
+### Double refresh rate: an A/B test
+
+Apollo has a server option, **Double refresh rate**, that makes it capture at twice the stream's rate and send the newest frame. The idea is that each frame is younger when it is sent; the cost is that the frames land on a finer time grid, and the intervals between them can scatter more. Whether that is better on your PC and link is something to measure, not assume.
+
+1. Stream for a few minutes with the option off. Pick something steady, like a game standing still or a looping scene. In `moonlight.log`, find a `host frames ... fps by their timestamps` line (one every few seconds with the latency line) and write down: the host fps, the counts in each interval bucket, the number on the 2.78 ms grid, and the `arrival jitter`. Note the Stats window's `Video` fps and `decode` time too.
+2. Turn **Double refresh rate** on in Apollo and start the stream again (the option is read when a stream starts). Repeat the same scene for the same time.
+3. Compare. With the option on, expect the intervals to scatter between neighbouring buckets instead of sitting in the stream's own, and expect the grid count to rise. It is better if the host fps stays at the stream's rate, the number of one-refresh repeats does not grow, and the arrival jitter stays about the same. If the host fps drops or the jitter grows, turn it off again.
+
+Do the A and B on the same link, at the same bitrate, in the same scene. A different time of day on Wi-Fi can move the jitter by as much as the option does.
+
 ## Recommended PC settings
 
 | Setting | Recommendation |
@@ -515,6 +580,8 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. To share them, use
 | `[vr] pad_mouse_chord` | `start_hold` (hold Start for a second), `start_back` (hold Start and Back), `off`. Turns a physical gamepad into the PC's mouse and back. | `start_hold` |
 | `[vr] pad_mouse_scroll` | `right`, `left`, `none`. The stick that scrolls while a gamepad is a mouse; the other stick points. | `right` |
 | `[vr] pad_arbitration` | `pointer` (a used gamepad takes the Frame controllers' gamepad off the PC), `also_gamepad` (both), `sleep` (pointer, and the controllers' pointer rests) | `pointer` |
+| `[vr] first_run_shown` | `true`, `false` | `false`. Becomes `true` as the first-run controls card appears (once per install, on the first stream). Set it to `false` to see the card again. |
+| `[vr] pad_card` | `auto`, `on`, `off` | `auto`. The gamepad card in your lap: `auto` shows it while a Bluetooth or USB gamepad is in use and takes it away 4 seconds after the last input, `on` keeps it up while the gamepad counts as in use, `off` never shows it. |
 | `[vr] scroll_speed` | 25 to 400 (%) | 100, which is 7.5 notches a second with the thumbstick pushed all the way. The flat window's Settings page has it too. |
 | `[vr] click_steadiness` | `off`, `normal`, `steady` | `normal`. The Display tab's Click steadiness row. |
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |
