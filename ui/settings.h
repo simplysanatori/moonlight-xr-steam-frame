@@ -66,6 +66,10 @@ typedef struct Settings {
     int network_path;      // 0 auto, 1 home (Wi-Fi), 2 adapter (Steam Frame Wireless Adapter), 3 usb (USB cable)
     int doff_disconnect;   // native: seconds with the headset off before the stream disconnects (the host's app stays); 0 never
     int idle_disconnect;   // native: minutes without input before the same; 0 never
+    int bitrate_wifi;      // native (lane wave4b-abr): start bitrate in kbps over Wi-Fi; 0 = the launcher's bitrate
+    int bitrate_adapter;   // ... over the Steam Frame Wireless Adapter
+    int bitrate_wired;     // ... over a wired network
+    int bitrate_usb;       // ... over the USB cable
     int rfi_idr_ms;        // native (lane wave1-burst): at most one IDR frame request of the client's own per this many ms; 0 no cap
 
     // [vr] VR Settings table
@@ -91,6 +95,11 @@ typedef struct Settings {
     int click_sound;
     int notices;           // native: NOTICES_ALL, IMPORTANT, OFF (the toast's informational notices)
     int click_steadiness;  // native: CLICK_STEADY_OFF, NORMAL, STEADY (how still the cursor is held around a click)
+    int lightgun;          // native: LIGHTGUN_AUTO, ON, OFF (the lightgun pointer policy; auto follows the Gun model)
+    int lightgun_reload;   // native: with the policy on, a trigger pulled off the picture is a right click
+    int lightgun_recoil;   // native: with the policy on, a pulse in the controller on every shot
+    int pad_gyro;          // native: PAD_GYRO_OFF, CONTROLLER, HEAD (what turns the gamepad's gyro)
+    int pad_gyro_ratchet;  // native: PAD_GYRO_RATCHET_ALWAYS, STICK_TOUCH (when the gyro is sent)
     int scroll_speed;      // native: the thumbstick's wheel, percent of 7.5 notches a second (SCROLL_SPEED_MIN..MAX)
     int gaze;
     int hand_tracking;
@@ -219,6 +228,9 @@ int settings_fps_value(const Settings* s);
 // Upstream's default curve for a resolution and rate (Moonlight Qt's table)
 int settings_default_bitrate_kbps(int w, int h, int fps);
 int settings_bitrate_kbps(const Settings* s);                 // 0 means default curve
+// Native (lane wave4b-abr): the four per-path start bitrates in xr/core/xr_abr.h's order (Wi-Fi, adapter,
+// wired, USB), 0 = none
+void settings_abr_overrides(const Settings* s, int out[4]);
 int settings_environment_id(const Settings* s);               // ENV_ID_*; 0 auto resolves with passthrough
 int settings_room_index(int env_id);                          // 0..2, or -1 if not a room
 int settings_room_resizable(int env_id);

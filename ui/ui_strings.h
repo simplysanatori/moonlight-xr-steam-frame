@@ -103,9 +103,11 @@
     X(HAND_HINT_BODY, "vr_hand_hint_body", "Pinch your thumb and index finger three times quickly to lock your hands out, so a stray pinch does not click; the same triple pinch unlocks them.") \
     X(HAND_HINT_NEVER, "vr_hand_hint_never", "Don't show this again") \
     X(KOFI_TITLE, "vr_kofi_title", "Support Moonlight XR on Ko-fi") \
-    X(KOFI_SCAN, "vr_kofi_scan", "Scan it with your phone.") \
+    X(KOFI_SCAN, "vr_kofi_scan", "Taken the headset off? Scan it with your phone.") \
+    X(KOFI_HERE, "vr_kofi_here", "In the headset, Open page shows it in Steam's browser.") \
     X(KOFI_FREE, "vr_kofi_free", "Optional: Moonlight XR is free and stays free.") \
-    X(KOFI_CLOSE, "vr_kofi_close", "Close") \
+    X(KOFI_CLOSE, "vr_kofi_close", "Not now") \
+    X(KOFI_OPEN, "vr_kofi_open", "Open page") \
     /* the Host sheet (PLAN 4b.1) */ \
     X(HOST_TITLE, "native_host_title", "Host") \
     X(HOST_SEND_KEYS, "native_host_send_keys", "Send keys…") \
@@ -222,6 +224,9 @@
     X(NATIVE_DISCONNECTED_KEYS, "native_disconnected_keys", "Disconnected: Ctrl+Alt+Shift+Q") \
     X(NATIVE_DISCONNECTED_BAR, "native_disconnected_bar", "Disconnected: the app is still running on the PC") \
     X(NATIVE_RECONNECTING, "native_reconnecting", "Connection lost, reconnecting (%d/%d)…") \
+    X(NATIVE_SPLASH_CONNECTING, "native_splash_connecting", "Connecting to %s…") \
+    X(NATIVE_SPLASH_CONNECTING_NOPC, "native_splash_connecting_nopc", "Connecting…") \
+    X(NATIVE_SPLASH_RECONNECTING, "native_splash_reconnecting", "Reconnecting…") \
     X(NATIVE_DISCONNECTED_DOFF, "native_disconnected_doff", "Disconnected while the headset was off: the app is still running on the PC") \
     X(NATIVE_DISCONNECTED_IDLE, "native_disconnected_idle", "Disconnected after no input for a while: the app is still running on the PC") \
     X(NATIVE_PCVR, "native_pcvr", "Switching to PC VR: the app is still running on the PC") \

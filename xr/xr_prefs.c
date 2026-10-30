@@ -9,6 +9,7 @@
 #include "../input/gamepads.h"
 #include "xr_keyboard.h"
 #include "xr_depth.h"
+#include "mlxr_log.h"
 #include "xr_stream_prefs.h"
 
 #include <stdatomic.h>
@@ -115,6 +116,9 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     // Native (lane double-click): the double-click time, press to press
     ctx->pressCfg.doubleNs = (int64_t)(doubleClickMsFromEnv() * 1000000.0f);
     ctx->stickRightClick = stickRightClickFromEnv();
+    // Native (lane wave2-lightgun-gyro): the recoil is on unless config.ini says otherwise
+    ctx->lightgunRecoilSetting = 1;
+    ctx->padGyroPrevWho = -2;
     // Native (lane wave2-bind-wire): the variables above are the Normal level
     // with any that is set taken in, until config.ini says otherwise
     ctx->clickSteady = CLICK_STEADY_NORMAL;
@@ -336,6 +340,9 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetGamepad(ctx, s->gamepad_toggle, padDeadzonePercentFromLauncher(gamepadsGetDeadzone()));
     xrSetPadGrip(ctx, s->pad_grip);
     xrSetClickSteadiness(ctx, s->click_steadiness);
+    // Native (lane wave2-lightgun-gyro): the lightgun pointer policy, and the gamepad's gyro
+    xrSetLightgun(ctx, s->lightgun, s->lightgun_reload, s->lightgun_recoil);
+    xrSetPadGyro(ctx, s->pad_gyro, s->pad_gyro_ratchet);
     xrSetScrollSpeed(ctx, s->scroll_speed);
     xrPadBridgeSetFlip(s->flip_face_buttons);
     // Native (lane wave2b-padmouse): the same switch for the physical pads, live (the stream start
@@ -532,4 +539,16 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     }
     settings_clamp(s);
     return !settings_equal(&before, s);
+}
+
+// ---- the bitrate a stream starts with (Native, lane wave4b-abr) ----------------
+
+int xrStreamBitrate(const Settings* s, int pathKind, int launcherKbps) {
+    int overrides[MLXR_ABR_KINDS];
+    settings_abr_overrides(s, overrides);
+    MlxrAbrPick pick = mlxr_abr_pick(pathKind, launcherKbps, overrides);
+    char line[128];
+    mlxr_abr_line(pathKind, &pick, line, sizeof(line));
+    MLOG_I("%s", line);
+    return pick.kbps;
 }

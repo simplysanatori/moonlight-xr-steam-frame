@@ -165,6 +165,23 @@ Flickable {
         return Math.max(0, networkValues.indexOf(MlxrPrefs.networkPath))
     }
 
+    // Native (lane wave4b-abr): [stream] bitrate_wifi, bitrate_adapter, bitrate_wired, bitrate_usb of the VR client's
+    // config.ini, kbps. 0 is "Same as above" (the Video bitrate). A running stream's bitrate cannot change, so the
+    // client picks it at the start, for the connection it ended up on
+    readonly property var pathBitrateSteps: [0, 10000, 20000, 30000, 40000, 50000, 60000, 80000, 100000, 120000, 150000,
+                                             200000, 300000, 400000, 500000]
+    function pathBitrateText(kbps) {
+        return kbps <= 0 ? qsTr("Same as above") : (Math.round(kbps / 100) / 10) + " " + qsTr("Mbps")
+    }
+    function nextPathBitrate(current) {   // the next listed step above; past the last, or a value typed into config.ini, wraps to 0
+        for (var i = 0; i < pathBitrateSteps.length; i++) {
+            if (pathBitrateSteps[i] > current) return pathBitrateSteps[i]
+        }
+        return 0
+    }
+    readonly property string pathBitrateSummary: qsTr("The bitrate a stream starts with when it goes over this connection. Same as above uses the Video bitrate. A stream's bitrate cannot change once it runs, so this is chosen at the start, for the connection Network connection ends up using. Tap to step up.") + " " +
+        qsTr("The Steam Frame Wireless Adapter can have worse latency than a good 5 GHz network. Automatic measures latency and drops on each connection before it chooses, so do not assume the adapter wins.")
+
     // The headset keyboard's letters ([vr] keyboard_keymap in the VR client's config.ini). The keys send the
     // US keyboard's positions, so the PC has to be on the same layout
     readonly property var keymapValues: ["qwerty", "azerty", "qwertz"]
@@ -254,6 +271,11 @@ Flickable {
     readonly property var padMouseScrollNames: [qsTr("Right stick"), qsTr("Left stick"), qsTr("None")]
     readonly property var padArbitrationValues: ["pointer", "also_gamepad", "sleep"]
     readonly property var padArbitrationNames: [qsTr("Pointer"), qsTr("Also gamepad"), qsTr("Sleep")]
+    // Native (lane wave2-lightgun-gyro): [vr] lightgun and pad_gyro of the VR client
+    readonly property var lightgunValues: ["auto", "on", "off"]
+    readonly property var lightgunNames: [qsTr("Automatic"), qsTr("On"), qsTr("Off")]
+    readonly property var padGyroValues: ["off", "controller", "head"]
+    readonly property var padGyroNames: [qsTr("Off"), qsTr("Controller"), qsTr("Head")]
 
     readonly property var audioNames: [qsTr("Stereo"), qsTr("5.1 Surround Sound"), qsTr("7.1 Surround Sound")]
 
@@ -572,6 +594,38 @@ Flickable {
             }
         }
 
+        PrefRow {
+            objectName: "bitrateWifiRow"
+            title: qsTr("Bitrate over Wi-Fi")
+            valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateWifi)
+            summary: settingsPage.pathBitrateSummary
+            onClicked: MlxrPrefs.bitrateWifi = settingsPage.nextPathBitrate(MlxrPrefs.bitrateWifi)
+        }
+
+        PrefRow {
+            objectName: "bitrateAdapterRow"
+            title: qsTr("Bitrate over the Steam Frame Wireless Adapter")
+            valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateAdapter)
+            summary: settingsPage.pathBitrateSummary
+            onClicked: MlxrPrefs.bitrateAdapter = settingsPage.nextPathBitrate(MlxrPrefs.bitrateAdapter)
+        }
+
+        PrefRow {
+            objectName: "bitrateWiredRow"
+            title: qsTr("Bitrate over a wired network")
+            valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateWired)
+            summary: settingsPage.pathBitrateSummary
+            onClicked: MlxrPrefs.bitrateWired = settingsPage.nextPathBitrate(MlxrPrefs.bitrateWired)
+        }
+
+        PrefRow {
+            objectName: "bitrateUsbRow"
+            title: qsTr("Bitrate over the USB cable")
+            valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateUsb)
+            summary: settingsPage.pathBitrateSummary
+            onClicked: MlxrPrefs.bitrateUsb = settingsPage.nextPathBitrate(MlxrPrefs.bitrateUsb)
+        }
+
         // Native (lane wave1-burst): the cap on the headset's full-frame requests after lost video. Pressing
         // the row steps No limit -> 250 -> 500 -> 1000 -> 2000 ms.
         PrefRow {
@@ -643,9 +697,10 @@ Flickable {
 
         PrefSlider {
             title: qsTr("Video bitrate")
-            summary: qsTr("Increase for better image quality. Decrease to improve performance on slower connections.")
+            summary: qsTr("Increase for better image quality. Decrease to improve performance on slower connections.") +
+                     " " + qsTr("Goes up to 500 Mbps, for a good 5 GHz Wi-Fi or a wired link.")
             from: 0.5
-            to: 150
+            to: 500
             stepSize: 0.5
             decimals: 1
             suffix: " " + qsTr("Mbps")
@@ -893,6 +948,34 @@ Flickable {
                 for (var i = 0; i < settingsPage.padArbitrationNames.length; i++) e.push({ text: settingsPage.padArbitrationNames[i], reason: "" })
                 listDialog.show(title, e, settingsPage.padArbitrationValues.indexOf(MlxrPrefs.padArbitration), function(i) {
                     MlxrPrefs.padArbitration = settingsPage.padArbitrationValues[i]
+                })
+            }
+        }
+
+        PrefRow {
+            objectName: "lightgunRow"
+            title: qsTr("Lightgun mode")
+            valueText: settingsPage.lightgunNames[Math.max(0, settingsPage.lightgunValues.indexOf(MlxrPrefs.lightgun))]
+            summary: qsTr("Aim like a lightgun: the pointer never sleeps, clicks go out exactly where you aim, only the grip takes hold of the screen and a shot pulses the controller. Automatic turns it on while the headset draws the Gun.")
+            onClicked: {
+                var e = []
+                for (var i = 0; i < settingsPage.lightgunNames.length; i++) e.push({ text: settingsPage.lightgunNames[i], reason: "" })
+                listDialog.show(title, e, settingsPage.lightgunValues.indexOf(MlxrPrefs.lightgun), function(i) {
+                    MlxrPrefs.lightgun = settingsPage.lightgunValues[i]
+                })
+            }
+        }
+
+        PrefRow {
+            objectName: "padGyroRow"
+            title: qsTr("Gyro from the headset")
+            valueText: settingsPage.padGyroNames[Math.max(0, settingsPage.padGyroValues.indexOf(MlxrPrefs.padGyro))]
+            summary: qsTr("Send the turn of the right controller, or of your head, to the PC as the gyro of a PlayStation gamepad while the controllers are the gamepad, for gyro aiming in Steam Input. The PC then sees a DualShock 4, with PlayStation button names.")
+            onClicked: {
+                var e = []
+                for (var i = 0; i < settingsPage.padGyroNames.length; i++) e.push({ text: settingsPage.padGyroNames[i], reason: "" })
+                listDialog.show(title, e, settingsPage.padGyroValues.indexOf(MlxrPrefs.padGyro), function(i) {
+                    MlxrPrefs.padGyro = settingsPage.padGyroValues[i]
                 })
             }
         }

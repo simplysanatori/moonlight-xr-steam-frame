@@ -9,6 +9,10 @@
 // explicit all the same, and these catch a change on either side.
 _Static_assert(PADOUT_TYPE == LI_CTYPE_XBOX, "arrival type");
 _Static_assert(PADOUT_CAPS == (LI_CCAP_ANALOG_TRIGGERS | LI_CCAP_RUMBLE), "arrival caps");
+_Static_assert(PADOUT_TYPE_MOTION == LI_CTYPE_PS, "arrival type with motion");
+_Static_assert(PADOUT_CAPS_MOTION == (PADOUT_CAPS | LI_CCAP_GYRO | LI_CCAP_ACCEL), "arrival caps with motion");
+_Static_assert(PADOUT_MOTION_ACCEL == LI_MOTION_TYPE_ACCEL && PADOUT_MOTION_GYRO == LI_MOTION_TYPE_GYRO,
+               "motion types");
 
 static const struct {
     int pad;
@@ -127,10 +131,16 @@ static int sendState(PadOut* p, const PadOutPacket* pk, int64_t nowNs) {
 static int plugIn(PadOut* p) {
     p->plugged = 1;
     p->haveSent = 0;
+    // Native (lane wave2-lightgun-gyro): a new plug-in is a new pad to the host, which asks for motion
+    // afresh, and says whether it has any by the opt-in alone
+    p->motionAnnounced = p->motion;
+    memset(p->motionHz, 0, sizeof(p->motionHz));
+    memset(p->haveMotion, 0, sizeof(p->haveMotion));
     if (p->sink.arrival != NULL) {
         p->sink.arrival(p->sink.user, (uint8_t)p->controllerNumber,
-                        (uint16_t)padOutMask(p), PADOUT_TYPE,
-                        (uint32_t)padOutButtonFlags(PAD_BUTTONS | PAD_GUIDE), PADOUT_CAPS);
+                        (uint16_t)padOutMask(p), p->motion ? PADOUT_TYPE_MOTION : PADOUT_TYPE,
+                        (uint32_t)padOutButtonFlags(PAD_BUTTONS | PAD_GUIDE),
+                        p->motion ? PADOUT_CAPS_MOTION : PADOUT_CAPS);
     }
     p->arrivals++;
     return 1;
@@ -169,10 +179,60 @@ int padOutUnplug(PadOut* p) {
     }
     p->plugged = 0;
     p->unplugs++;
+    p->motionAnnounced = 0;
+    memset(p->motionHz, 0, sizeof(p->motionHz));
+    memset(p->haveMotion, 0, sizeof(p->haveMotion));
     PadOutPacket rest;
     memset(&rest, 0, sizeof(rest));
     // The mask now lacks this pad's bit, which is the removal
     int sends = sendState(p, &rest, 0);
     p->haveSent = 0;
     return sends;
+}
+
+// ---- Native (lane wave2-lightgun-gyro): the pad_gyro opt-in ------------------------------------
+
+// 0 accelerometer, 1 gyroscope, -1 for anything else (gamepads.c's motionIndex)
+static int motionSlot(int motionType) {
+    return motionType == PADOUT_MOTION_ACCEL ? 0 : motionType == PADOUT_MOTION_GYRO ? 1 : -1;
+}
+
+void padOutSetMotion(PadOut* p, int on) {
+    p->motion = on != 0;
+}
+
+int padOutMotionState(PadOut* p, int motionType, int rateHz) {
+    int t = motionSlot(motionType);
+    if (t < 0 || !p->plugged || !p->motionAnnounced) {
+        return 0;
+    }
+    p->motionHz[t] = rateHz > 0 ? rateHz : 0;
+    p->haveMotion[t] = 0;
+    return 1;
+}
+
+int padOutMotionRate(const PadOut* p, int motionType) {
+    int t = motionSlot(motionType);
+    return t < 0 || !p->plugged || !p->motionAnnounced ? 0 : p->motionHz[t];
+}
+
+int padOutMotion(PadOut* p, int motionType, float x, float y, float z, int64_t nowNs) {
+    int t = motionSlot(motionType);
+    if (t < 0 || p->motionHz[t] <= 0 || !p->plugged || !p->motionAnnounced) {
+        return 0;
+    }
+    int64_t period = 1000000000LL / p->motionHz[t];
+    const float v[3] = { x, y, z };
+    if (p->haveMotion[t] && (nowNs - p->motionNs[t] < period
+                             || memcmp(v, p->lastMotion[t], sizeof(v)) == 0)) {
+        return 0;
+    }
+    memcpy(p->lastMotion[t], v, sizeof(v));
+    p->motionNs[t] = nowNs;
+    p->haveMotion[t] = 1;
+    p->motions++;
+    if (p->sink.motion != NULL) {
+        p->sink.motion(p->sink.user, (uint8_t)p->controllerNumber, (uint8_t)motionType, x, y, z);
+    }
+    return 1;
 }

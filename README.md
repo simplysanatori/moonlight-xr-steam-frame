@@ -69,6 +69,8 @@ Seen working in the headset: the stream with hardware decode at 1440p and 90 Hz,
 
 The installer changes nothing outside the folders listed under [Files](#files), the Steam shortcut and SteamVR's settings for that shortcut. `./install.sh --help` lists its options.
 
+Releases after 1.0.1 also carry the same files as a `.zip` (`moonlight-xr-steam-frame-<version>-linux-arm64.zip`). The community installers [Frametanium](https://github.com/Cogential/frametanium) and FrameDrop can install the release from there; they run `install.sh` without a terminal. If Steam is not running then, the files are installed and the Steam shortcut is skipped; the installer says so (the last lines of its output, and `~/Games/MoonlightXRNative/install.log`), and running `install.sh` again with Steam up adds it.
+
 The icon in the SteamVR dock stays grey until Steam has been restarted once after the first install.
 
 ## First run and pairing
@@ -146,7 +148,7 @@ See [docs/BUILDING.md](docs/BUILDING.md). The build runs on the Frame itself.
 
 ## Support
 
-Moonlight XR is Gilleece's work. If you want to support someone, support upstream first: [Ko-fi: moonlightxr](https://ko-fi.com/moonlightxr).
+Moonlight XR is Gilleece's work. If you want to support someone, support upstream first: [Ko-fi: moonlightxr](https://ko-fi.com/moonlightxr). In the headset, the settings panel's About tab has a Ko-fi button: **Open page** shows that page in Steam's browser in the dashboard (the QR code on the sheet is for a phone, with the headset off).
 
 If you would like more Steam Frame ports, you can also [buy me a coffee](https://ko-fi.com/sana748653). It pays for the Claude API credits these ports are built with, spent as carefully as I can.
 
