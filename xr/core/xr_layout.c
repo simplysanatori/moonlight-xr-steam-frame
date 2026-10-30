@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "xr_access.h"
 #include "xr_layout.h"
 #include "xr_shared.h"
 
@@ -563,7 +564,7 @@ float cogTabRight(int tab) {
 // thumbs are a little smaller and two at the same place on neighbouring rows
 // stay apart. The display tab has only the one.
 float cogThumbSize(int tab) {
-    return tab == COG_TAB_SCREEN || tab == COG_TAB_3D ? 0.06f : 0.085f;
+    return tab == COG_TAB_SCREEN || tab == COG_TAB_3D || tab == COG_TAB_ACCESS ? 0.06f : 0.085f;
 }
 
 int cogTrackPart(float pu) {
@@ -632,8 +633,12 @@ int cogTrackSteps(int tab, int row) {
         default: return 0;
         }
     }
-    if (tab == COG_TAB_ABOUT || tab == COG_TAB_ACCESS) {
-        // No tracks: the About tab has only its buttons, Accessibility only cells
+    if (tab == COG_TAB_ACCESS) {
+        // Native (lane a11y-2): the dot's size in 25 % steps; the other rows are cells
+        return row == COG_ACCESS_ROW_DOT ? (ACCESS_DOT_MAX - ACCESS_DOT_MIN) / ACCESS_DOT_STEP : 0;
+    }
+    if (tab == COG_TAB_ABOUT) {
+        // No tracks: the About tab has only its buttons
         return 0;
     }
     if (tab == COG_TAB_PICTURE) {

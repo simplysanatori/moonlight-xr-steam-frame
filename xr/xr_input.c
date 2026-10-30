@@ -279,6 +279,10 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int level, int hapt
         }
     }
 
+    // native (lane a11y-2): assist_click_path's button, on the first rung only
+    if (haptic && level >= BIND_FULL) {
+        n = xrAssistClickBind(ctx, profile, b, n, 24);
+    }
     XrInteractionProfileSuggestedBinding suggest = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
     suggest.interactionProfile = toPath(ctx, profile);
     suggest.countSuggestedBindings = n;
@@ -361,6 +365,11 @@ static int suggestFrameBindings(XrCtx* ctx, int which, const char* squeeze, int 
         BIND(ctx->stickTouchAction, HAND_RIGHT, "input/thumbstick/touch");
     }
 #undef BIND
+    // native (lane a11y-2): assist_click_path's button, on the first rung only, so a runtime that
+    // refuses it costs the next rung nothing
+    if (haptic && touch) {
+        n = xrAssistClickBind(ctx, FRAME_PROFILE_PATHS[which], b, n, 40);
+    }
 
     XrInteractionProfileSuggestedBinding suggest = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
     suggest.interactionProfile = ctx->frameProfile[which];
@@ -499,6 +508,7 @@ int initXrInput(XrCtx* ctx) {
         return 0;
     }
 
+    xrAssistClickCreate(ctx);   // native (lane a11y-2): assist_click_path's action, before any bindings
     if (ctx->frameInteraction) {
         ctx->padXAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "padx", "Gamepad X");
         ctx->padYAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "pady", "Gamepad Y");
@@ -578,6 +588,9 @@ int initXrInput(XrCtx* ctx) {
             ctx->eyeGaze = 0;
         }
     }
+
+    // native (lane a11y-2): assist_click_path's button on a profile the app does not suggest itself
+    xrAssistClickSuggestAlone(ctx);
 
     // The EXT profile only where the Microsoft one is not offered. The Quest
     // offers both and its pinch was tuned on the Microsoft one, which a
@@ -1869,6 +1882,11 @@ static void gazeTrigger(XrCtx* ctx, const InputFrame* f) {
         if (headPointing(ctx) && f->now < ctx->dwellUiUntil) {
             ctx->triggerDown[SRC_GAZE] = 1;
             ctx->triggerEdge[SRC_GAZE] |= ctx->dwellUiEdge;
+        }
+        // native (lane a11y-2): the headset button's (or the radial menu's) press on our UI
+        if (headPointing(ctx) && ctx->assistUi && ctx->assistButtons != 0) {
+            ctx->triggerDown[SRC_GAZE] = 1;
+            ctx->triggerEdge[SRC_GAZE] |= ctx->assistPress;
         }
         ctx->usingHands[SRC_GAZE] = 1;
     }
@@ -3185,6 +3203,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
     f->hover = HOVER_COGPANEL;
     f->hand = -1;
     int face = cogFace(ctx);
+    ctx->cogPointV = -1.0f;   // native (lane a11y-2): where the pointer is, for the Accessibility footer
 
     // A drag keeps the hand that started it, and keeps it even once the
     // ray has wandered off the panel, so a slider can be run to either end
@@ -3223,6 +3242,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             f->hand = ctx->cogDragByGaze ? SRC_GAZE : h;
             f->hitU[f->hand] = pu;
             f->hitV[f->hand] = pv;
+            ctx->cogPointV = pv;
             ctx->cogHoverSlider = ctx->cogDragSlider;
             cogApplySlider(ctx, face, ctx->cogDragSlider, pu);
         }
@@ -3246,6 +3266,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
         f->hand = h;
         f->hitU[h] = pu;
         f->hitV[h] = pv;
+        ctx->cogPointV = pv;
 
         // The tab bar runs across the top, one even slot per tab. A press
         // up here changes tab and reaches nothing else.
@@ -4677,6 +4698,11 @@ static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
     if (headPointing(ctx) && f->now < ctx->dwellHostUntil) {
         mask |= VR_BUTTON_LEFT;
     }
+    // native (lane a11y-2): the headset button's (or the radial menu's) clicks on the picture
+    if (headPointing(ctx) && !ctx->assistUi) {
+        mask |= (ctx->assistButtons & ASSIST_BTN_LEFT ? VR_BUTTON_LEFT : 0)
+                | (ctx->assistButtons & ASSIST_BTN_RIGHT ? VR_BUTTON_RIGHT : 0);
+    }
     int prevButtons = ctx->buttonsDown;
     // A press only counts while aimed at the screen, but a release always
     // does, so walking the pointer off the edge mid drag still lets go
@@ -5755,6 +5781,7 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     }
     // The controller models read their grips off this sync
     ctx->actionsSynced = 1;
+    xrAssistClickRead(ctx, nowNs());   // native (lane a11y-2): assist_click_path's presses
 
     // The pad before anything points, so a switch between the two lands
     // before the controllers are read for the pointer
