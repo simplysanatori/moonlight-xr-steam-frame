@@ -59,6 +59,11 @@ class MlxrPrefs : public QObject
     // ([vr] controller_model). Custom (your own files in the models folder) is only chosen here and
     // in the file; the headset's Display tab has a cell for the other four
     Q_PROPERTY(QString controllerModel MEMBER controllerModel NOTIFY changed)
+    // Native (lane wave3-session): [stream] doff_disconnect (seconds with the headset off before the stream is
+    // disconnected, the PC's app keeps running; 0 never, default 60) and idle_disconnect (minutes without input
+    // before the same; 0 never, default 0)
+    Q_PROPERTY(int doffDisconnect MEMBER doffDisconnect NOTIFY changed)
+    Q_PROPERTY(int idleDisconnect MEMBER idleDisconnect NOTIFY changed)
     // Native (lane wave2b-padmouse): physical gamepads in the headset. [vr] pad_mouse_chord: what turns a pad
     // into the PC's mouse, "start_hold" (default), "start_back" or "off"; [vr] pad_mouse_scroll: the stick that
     // scrolls then, "right" (default), "left" or "none"; [vr] pad_arbitration: what a used pad does to the
@@ -137,6 +142,8 @@ public:
     QString keyboardKeymap;
     QString notices;
     QString controllerModel;
+    int doffDisconnect = 60;
+    int idleDisconnect = 0;
     QString padMouseChord;
     QString padMouseScroll;
     QString padArbitration;
@@ -151,6 +158,7 @@ private:
     bool m_iniPerfOverlay = false, m_iniFlip = false;
     QString m_iniNotices = "all";
     QString m_iniControllerModel = "off";
+    int m_iniDoff = 60, m_iniIdle = 0;
     QString m_iniPadMouseChord = "start_hold", m_iniPadMouseScroll = "right", m_iniPadArbitration = "pointer";
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;

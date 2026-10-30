@@ -181,6 +181,15 @@ Flickable {
     readonly property var modelNames: [qsTr("Off"), qsTr("Steam Frame controller"), qsTr("Generic controller"), qsTr("Gun"), qsTr("Your own model")]
     function modelIndex() {
         return Math.max(0, modelValues.indexOf(MlxrPrefs.controllerModel))
+    // [stream] doff_disconnect (seconds) and idle_disconnect (minutes) of the VR client's config.ini: 0 is never
+    readonly property var doffValues: [0, 15, 30, 60, 120, 300]
+    readonly property var idleValues: [0, 10, 30, 60, 120]
+    function limitText(v, unitOne, unitMany) {
+        return v === 0 ? qsTr("Never") : (v + " " + (v === 1 ? unitOne : unitMany))
+    }
+    function nextLimit(values, current) {
+        var i = values.indexOf(current)
+        return values[(i + 1) % values.length]   // a value typed into config.ini that is not listed steps to Never
     }
     // Native (lane wave2b-padmouse): [vr] pad_mouse_chord, pad_mouse_scroll and pad_arbitration of the VR client
     readonly property var padMouseChordValues: ["start_hold", "start_back", "off"]
@@ -869,6 +878,24 @@ Flickable {
             summary: qsTr("The small pop-ups in the headset. Important leaves out the display rate and 3D on/off and keeps mode changes and errors.") + " " +
                      qsTr("(also on its Display tab)")
             onClicked: MlxrPrefs.notices = settingsPage.noticeValues[(settingsPage.noticeIndex() + 1) % settingsPage.noticeValues.length]
+        }
+
+        // The headset coming off: the sound mutes and the input is let go at once; after the time the stream
+        // is disconnected and the PC's app keeps running. Pressing a row steps through the choices.
+        PrefRow {
+            objectName: "doffRow"
+            title: qsTr("Disconnect when the headset is off")
+            valueText: settingsPage.limitText(MlxrPrefs.doffDisconnect, qsTr("second"), qsTr("seconds"))
+            summary: qsTr("How long the headset can stay off before the stream is disconnected. The app keeps running on the PC. Putting the headset back on sooner carries on.")
+            onClicked: MlxrPrefs.doffDisconnect = settingsPage.nextLimit(settingsPage.doffValues, MlxrPrefs.doffDisconnect)
+        }
+
+        PrefRow {
+            objectName: "idleRow"
+            title: qsTr("Disconnect when idle")
+            valueText: settingsPage.limitText(MlxrPrefs.idleDisconnect, qsTr("minute"), qsTr("minutes"))
+            summary: qsTr("Disconnect the stream after this long with no input from the controllers, hands, keyboard, mouse or pads. The app keeps running on the PC.")
+            onClicked: MlxrPrefs.idleDisconnect = settingsPage.nextLimit(settingsPage.idleValues, MlxrPrefs.idleDisconnect)
         }
 
         // ======== Advanced Settings ========
