@@ -76,7 +76,9 @@
 #include "../xr/mlxr_log.h"
 #include "../xr/xr_pad_bridge.h"
 #include "../xr/xr_renderer.h"
+#include "../xr/xr_native.h"
 #include "../xr/xr_session.h"
+#include "../xr/xr_stream_prefs.h"
 #include "launcher.h"
 #include "panels.h"
 #include "settings.h"
@@ -1045,6 +1047,8 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     mlxr_fill_stream_config(&g_job.cfg, &lp);
     int bitrate = g_args.bitrate > 0 ? g_args.bitrate : settings_default_bitrate_kbps(w, h, fps);
     if (!g_args.bitrate && g_settings.bitrate_kbps > 0) bitrate = settings_bitrate_kbps(&g_settings);
+    // Native (lane wave4b-abr): the bitrate for the network path this stream goes over, if that path has its own
+    bitrate = xrStreamBitrate(&g_settings, mlxr_net_kind_for_address(n->address[pc]), bitrate);
     g_job.cfg.bitrate = bitrate;
     g_job.cfg.packetSize = 1392;
     g_job.cfg.streamingRemotely = STREAM_CFG_AUTO;
@@ -1605,6 +1609,7 @@ int main(int argc, char** argv) {
     settings_defaults(&g_settings);
     SettingsLoadInfo info;
     int lr = settings_load(&g_settings, NULL, &info);
+    xrStreamPrefsSetRfiIdrMs(g_settings.rfi_idr_ms); // Native (lane wave1-burst): the stream session reads it at its start
     openLog();
     char cfgPath[512];
     settings_default_path(cfgPath, sizeof(cfgPath));

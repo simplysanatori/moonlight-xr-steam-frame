@@ -1049,6 +1049,49 @@ static void discover(mlxr_net_plan *p, const mlxr_netifs *t)
     for (int i = 0; i < n; i++) mlxr_net_plan_add_src(p, found[i], 0, src[i]);
 }
 
+/* Native (lane wave4b-abr): the kind of the path each chosen address went over, so the stream start can find
+ * the bitrate for it without the plan (which is gone by then). The last few choices, newest wins. */
+#define KIND_SLOTS 8
+static pthread_mutex_t g_kind_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct { char addr[128]; int kind; } g_kinds[KIND_SLOTS];
+static int g_kind_next;
+
+static void kind_note(const char *addr, int kind)
+{
+    pthread_mutex_lock(&g_kind_lock);
+    int slot = -1;
+    for (int i = 0; i < KIND_SLOTS && slot < 0; i++)
+        if (!strcasecmp(g_kinds[i].addr, addr)) slot = i;
+    if (slot < 0) {
+        slot = g_kind_next;
+        g_kind_next = (g_kind_next + 1) % KIND_SLOTS;
+    }
+    snprintf(g_kinds[slot].addr, sizeof g_kinds[slot].addr, "%s", addr);
+    g_kinds[slot].kind = kind;
+    pthread_mutex_unlock(&g_kind_lock);
+}
+
+int mlxr_net_bitrate_kind(mlxr_net_path p, const mlxr_net_link *l)
+{
+    switch (p) {
+    case MLXR_PATH_HOME: return l && l->valid && !l->wifi ? 2 : 0;
+    case MLXR_PATH_ADAPTER: return 1;
+    case MLXR_PATH_USB: return 3;
+    default: return -1;
+    }
+}
+
+int mlxr_net_kind_for_address(const char *addr)
+{
+    int kind = -1;
+    if (!addr || !*addr) return kind;
+    pthread_mutex_lock(&g_kind_lock);
+    for (int i = 0; i < KIND_SLOTS; i++)
+        if (g_kinds[i].addr[0] && !strcasecmp(g_kinds[i].addr, addr)) kind = g_kinds[i].kind;
+    pthread_mutex_unlock(&g_kind_lock);
+    return kind;
+}
+
 int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
 {
     mlxr_netifs own;
@@ -1092,5 +1135,6 @@ int mlxr_net_select(mlxr_net_plan *p, const mlxr_netifs *t)
     }
     int r = mlxr_net_choose(p);
     mlxr_net_log_plan(p);
+    if (r >= 0) kind_note(p->c[r].address, mlxr_net_bitrate_kind(p->chosen_path, &p->c[r].link));
     return r;
 }
