@@ -9,6 +9,15 @@
 #include "../input/gamepads.h"
 #include "xr_keyboard.h"
 #include "xr_depth.h"
+#include "xr_stream_prefs.h"
+
+#include <stdatomic.h>
+
+// Native (lane wave1-burst): [stream] rfi_idr_ms for the stream session (xr_stream_prefs.h)
+static atomic_int g_rfiIdrMs = MLXR_RFI_IDR_MS_DEFAULT;
+
+void xrStreamPrefsSetRfiIdrMs(int ms) { atomic_store(&g_rfiIdrMs, ms < 0 ? 0 : ms); }
+int xrStreamPrefsRfiIdrMs(void) { return atomic_load(&g_rfiIdrMs); }
 
 // ---- what nativeInit set ---------------------------------------------------
 
@@ -323,6 +332,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     gamepadsSetPadMouse(s->pad_mouse_chord, s->pad_mouse_scroll);
     gamepadsSetArbitration(s->pad_arbitration);
     xrPadBridgeSetRumble(s->rumble_mix, s->rumble_intensity);
+    xrStreamPrefsSetRfiIdrMs(s->rfi_idr_ms); // Native (lane wave1-burst): read at the next stream start
     int picture[PICTURE_VALUES];
     for (int row = 0; row < PICTURE_VALUES; row++) {
         picture[row] = settings_picture_value(s, row);
