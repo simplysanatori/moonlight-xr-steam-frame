@@ -1,8 +1,10 @@
 // Moonlight XR Native launcher (lane artemis-settings): the Settings page in hand-off mode, laid out
 // and worded after Artemis (ClassicOldSong/moonlight-android, res/xml/preferences.xml): its
 // categories in its order, a title and a summary per row, lists in a dialog. Only Artemis settings
-// the Frame and the VR client honour are shown; a row that cannot work here is greyed with its
-// reason. Where each one goes: docs/dev/reports/launcher.md ("Artemis settings"). New file, copied into
+// the Frame and the VR client honour are shown (HDR, AV1 and the frame-rate unlock are left out); a row
+// that depends on another is greyed with its reason while that one is off. Where each one goes:
+// docs/dev/reports/launcher.md ("Artemis settings"). Lane flat-coherence: titles in sentence case and, where
+// the headset's cog has the same setting, with the cog's name (ui/ui_strings.h). New file, copied into
 // app/gui by launcher/build.sh. GPLv3.
 import QtQuick
 import QtQuick.Controls
@@ -25,7 +27,7 @@ Flickable {
     readonly property color accentColor: "#80CBC4"
     readonly property color summaryColor: "#B3FFFFFF"
     readonly property color reasonColor: "#FFB74D"
-    readonly property string apolloNote: qsTr("Requires Apollo as host streaming software.")
+    readonly property string apolloNote: qsTr("Needs Apollo.")
 
     boundsBehavior: Flickable.OvershootBounds
     contentWidth: width
@@ -119,6 +121,20 @@ Flickable {
         return i >= 0 ? resolutions[i].text + " (" + resolutions[i].w + "x" + resolutions[i].h + ")"
                       : qsTr("Custom") + " (" + StreamingPreferences.width + "x" + StreamingPreferences.height + ")"
     }
+    // The size typed in the list's Custom... entry (Artemis's Custom Resolution row, folded into the list)
+    function editCustomResolution() {
+        editDialog.show(qsTr("Custom resolution"), qsTr("Width x height, for example 2560x1440. A size the PC cannot make may fail to start."),
+                        StreamingPreferences.width + "x" + StreamingPreferences.height,
+                        "^\\s*\\d{3,4}\\s*[xX]\\s*\\d{3,4}\\s*$", function(t) {
+            var p = t.toLowerCase().split("x")
+            var w = parseInt(p[0]), h = parseInt(p[1])
+            if (w >= 256 && h >= 256 && w <= 8192 && h <= 8192) {
+                StreamingPreferences.width = w
+                StreamingPreferences.height = h
+                resetBitrate()
+            }
+        })
+    }
 
     // One rate setting: Match headset (default; the VR client asks the host for the display's rate,
     // the one SteamVR runs this app at), a fixed rate (stock "fps"), or Artemis's custom rate
@@ -145,8 +161,7 @@ Flickable {
     }
 
     readonly property var pacingValues: ["latency", "balanced", "smoothness"]
-    readonly property var pacingNames: [qsTr("Prefer lowest latency"), qsTr("Balanced"),
-                                         qsTr("Prefer smoothest video (may significantly increase latency)")]
+    readonly property var pacingNames: [qsTr("Prefer lowest latency"), qsTr("Balanced"), qsTr("Prefer smoothest video")]
 
     // The PC link (the setting's key networkPath; the hand-off passes it to the VR client). The Steam
     // client's own terms: "Wi-Fi", "Steam Frame Wireless Adapter"; the Wi-Fi as the headset sees it now
@@ -159,7 +174,7 @@ Flickable {
                                          qsTr("USB cable")]
     readonly property var networkSummaries: [qsTr("Uses whichever connection to your PC is faster when a stream starts."),
                                              qsTr("Streams over your Wi-Fi network."),
-                                             qsTr("Streams over the Steam Frame Wireless Adapter plugged into your PC."),
+                                             qsTr("Streams over the Steam Frame Wireless Adapter plugged into your PC. Its latency can be worse than a good 5 GHz Wi-Fi; Automatic measures both before it chooses."),
                                              usbCable ? qsTr("Streams over the USB cable between the headset and your PC. Cable detected.")
                                                       : qsTr("Streams over a USB data cable between the headset and your PC. No cable detected yet; plug it in and it is noticed within ten seconds.")]
     function networkIndex() {
@@ -180,8 +195,6 @@ Flickable {
         }
         return 0
     }
-    readonly property string pathBitrateSummary: qsTr("The bitrate a stream starts with when it goes over this connection. Same as above uses the Video bitrate. A stream's bitrate cannot change once it runs, so this is chosen at the start, for the connection Network connection ends up using. Tap to step up.") + " " +
-        qsTr("The Steam Frame Wireless Adapter can have worse latency than a good 5 GHz network. Automatic measures latency and drops on each connection before it chooses, so do not assume the adapter wins.")
 
     // The headset keyboard's letters ([vr] keyboard_keymap in the VR client's config.ini). The keys send the
     // US keyboard's positions, so the PC has to be on the same layout
@@ -196,7 +209,7 @@ Flickable {
 
     // [vr] notices of the VR client's config.ini
     readonly property var noticeValues: ["all", "important", "off"]
-    readonly property var noticeNames: [qsTr("All"), qsTr("Important only"), qsTr("Off")]
+    readonly property var noticeNames: [qsTr("All"), qsTr("Important"), qsTr("Off")]
     function noticeIndex() {
         return Math.max(0, noticeValues.indexOf(MlxrPrefs.notices))
     }
@@ -246,7 +259,7 @@ Flickable {
 
     // [vr] controller_model: which controller the headset draws in each hand
     readonly property var modelValues: ["off", "frame", "gun", "custom"]
-    readonly property var modelNames: [qsTr("Off"), qsTr("Steam Frame controller"), qsTr("Gun"), qsTr("Your own model")]
+    readonly property var modelNames: [qsTr("Off"), qsTr("Frame"), qsTr("Gun"), qsTr("Your own model")]
     function modelIndex() {
         return Math.max(0, modelValues.indexOf(MlxrPrefs.controllerModel))
     }
@@ -254,8 +267,9 @@ Flickable {
     // [stream] doff_disconnect (seconds) and idle_disconnect (minutes) of the VR client's config.ini: 0 is never
     readonly property var doffValues: [0, 15, 30, 60, 120, 300]
     readonly property var idleValues: [0, 10, 30, 60, 120]
-    function limitText(v, unitOne, unitMany) {
-        return v === 0 ? qsTr("Never") : (v + " " + (v === 1 ? unitOne : unitMany))
+    // One style for every time on the page: ms below a second, s below a minute, min above
+    function timeText(ms) {
+        return ms < 1000 ? qsTr("%1 ms").arg(ms) : ms < 60000 ? qsTr("%1 s").arg(ms / 1000) : qsTr("%1 min").arg(ms / 60000)
     }
     function nextLimit(values, current) {
         var i = values.indexOf(current)
@@ -264,12 +278,12 @@ Flickable {
     // Native (lane wave1-burst): [stream] rfi_idr_ms of the VR client's config.ini: 0 is no limit
     readonly property var idrCapValues: [0, 250, 500, 1000, 2000]
     function idrCapText(v) {
-        return v === 0 ? qsTr("No limit") : (v + " ms")
+        return v === 0 ? qsTr("No limit") : timeText(v)
     }
     // Native (lane wave1-failover): [stream] failover_burst_ms of the VR client's config.ini
     readonly property var failoverBurstValues: [1500, 3000, 5000, 8000]
     function failoverBurstText(v) {
-        return (v / 1000) + " s"
+        return timeText(v)
     }
     function nextFailoverBurst(current) {
         for (var i = 0; i < failoverBurstValues.length; i++)
@@ -285,7 +299,7 @@ Flickable {
     readonly property var padArbitrationNames: [qsTr("Pointer"), qsTr("Also gamepad"), qsTr("Sleep")]
     // Native (lane wave3-cards): [vr] pad_card of the VR client, stepped by pressing its row
     readonly property var padCardValues: ["auto", "on", "off"]
-    readonly property var padCardNames: [qsTr("Auto"), qsTr("On"), qsTr("Off")]
+    readonly property var padCardNames: [qsTr("Automatic"), qsTr("On"), qsTr("Off")]
     function padCardIndex() {
         return Math.max(0, padCardValues.indexOf(MlxrPrefs.padCard))
     }
@@ -295,20 +309,29 @@ Flickable {
     readonly property var padGyroValues: ["off", "controller", "head"]
     readonly property var padGyroNames: [qsTr("Off"), qsTr("Controller"), qsTr("Head")]
 
-    readonly property var audioNames: [qsTr("Stereo"), qsTr("5.1 Surround Sound"), qsTr("7.1 Surround Sound")]
+    // The cog's three-way rows over two config.ini switches each (ui/settings.c settings_head_lock_cell and
+    // settings_pointer_cell): Head locked is [display] head_locked / head_follow, Ray is [vr] show_ray / pointer_dot
+    readonly property var headLockNames: [qsTr("Off"), qsTr("On"), qsTr("Follow")]
+    function headLockIndex() {
+        return MlxrPrefs.vr["display.head_locked"] === true ? 1 : (MlxrPrefs.vr["display.head_follow"] === true ? 2 : 0)
+    }
+    readonly property var rayNames: [qsTr("Off"), qsTr("Dot"), qsTr("Ray")]
+    function rayIndex() {
+        return MlxrPrefs.vr["vr.show_ray"] === true ? 2 : (MlxrPrefs.vr["vr.pointer_dot"] === true ? 1 : 0)
+    }
 
-    // Artemis video_format; AV1 is listed greyed (the VR client has no AV1 decoder)
+    readonly property var audioNames: [qsTr("Stereo"), qsTr("5.1 surround sound"), qsTr("7.1 surround sound")]
+
+    // Artemis video_format without AV1 (the Frame decodes H.264 and HEVC only; patch 0005 drops it from the stock list too)
     readonly property var codecEntries: [
         { text: qsTr("Automatic (Recommended)"), val: StreamingPreferences.VCC_AUTO, reason: "" },
-        { text: qsTr("Prefer AV1 (Experimental)"), val: StreamingPreferences.VCC_FORCE_AV1,
-          reason: qsTr("the Frame decodes H.264 and HEVC only") },
         { text: qsTr("Prefer HEVC"), val: StreamingPreferences.VCC_FORCE_HEVC, reason: "" },
         { text: qsTr("Prefer H.264"), val: StreamingPreferences.VCC_FORCE_H264, reason: "" }
     ]
     function codecIndex() {
         var v = StreamingPreferences.videoCodecConfig
-        if (v === StreamingPreferences.VCC_FORCE_H264) return 3
-        if (v === StreamingPreferences.VCC_FORCE_HEVC || v === StreamingPreferences.VCC_FORCE_HEVC_HDR_DEPRECATED) return 2
+        if (v === StreamingPreferences.VCC_FORCE_H264) return 2
+        if (v === StreamingPreferences.VCC_FORCE_HEVC || v === StreamingPreferences.VCC_FORCE_HEVC_HDR_DEPRECATED) return 1
         return 0 // auto; a saved AV1 choice streams as auto (HEVC, H.264 fallback)
     }
 
@@ -1009,12 +1032,11 @@ Flickable {
         }
 
         // Native (lane polish-3): the stream's bitrate, over the per-connection rows whose "Same as above" is
-        // this one (it was under Video Settings, below them)
+        // this one (it was under Video settings, below them)
         PrefSlider {
             objectName: "bitrateRow"
             title: qsTr("Video bitrate")
-            summary: qsTr("Increase for better image quality. Decrease to improve performance on slower connections.") +
-                     " " + qsTr("Goes up to 500 Mbps, for a good 5 GHz Wi-Fi or a wired link.")
+            summary: qsTr("Up to 500 Mbps, for a good 5 GHz Wi-Fi or a wired link. Picking a resolution or a frame rate sets it back to their default. A stream's bitrate is chosen when it starts; the rows below can start one at a different bitrate over each connection, and Same as above is this one.")
             from: 0.5
             to: 500
             stepSize: 0.5
@@ -1028,7 +1050,6 @@ Flickable {
             objectName: "bitrateWifiRow"
             title: qsTr("Bitrate over Wi-Fi")
             valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateWifi)
-            summary: settingsPage.pathBitrateSummary
             onClicked: MlxrPrefs.bitrateWifi = settingsPage.nextPathBitrate(MlxrPrefs.bitrateWifi)
         }
 
@@ -1036,7 +1057,6 @@ Flickable {
             objectName: "bitrateAdapterRow"
             title: qsTr("Bitrate over the Steam Frame Wireless Adapter")
             valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateAdapter)
-            summary: settingsPage.pathBitrateSummary
             onClicked: MlxrPrefs.bitrateAdapter = settingsPage.nextPathBitrate(MlxrPrefs.bitrateAdapter)
         }
 
@@ -1044,7 +1064,6 @@ Flickable {
             objectName: "bitrateWiredRow"
             title: qsTr("Bitrate over a wired network")
             valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateWired)
-            summary: settingsPage.pathBitrateSummary
             onClicked: MlxrPrefs.bitrateWired = settingsPage.nextPathBitrate(MlxrPrefs.bitrateWired)
         }
 
@@ -1052,12 +1071,11 @@ Flickable {
             objectName: "bitrateUsbRow"
             title: qsTr("Bitrate over the USB cable")
             valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateUsb)
-            summary: settingsPage.pathBitrateSummary
             onClicked: MlxrPrefs.bitrateUsb = settingsPage.nextPathBitrate(MlxrPrefs.bitrateUsb)
         }
 
         // Native (lane wave1-burst): the cap on the headset's full-frame requests after lost video. Pressing
-        // the row steps No limit -> 250 -> 500 -> 1000 -> 2000 ms.
+        // the row steps No limit -> 250 ms -> 500 ms -> 1 s -> 2 s.
         PrefRow {
             objectName: "idrCapRow"
             title: qsTr("Full-frame requests after lost video")
@@ -1080,7 +1098,8 @@ Flickable {
             objectName: "failoverBurstRow"
             title: qsTr("Video loss before switching")
             valueText: settingsPage.failoverBurstText(MlxrPrefs.failoverBurstMs)
-            summary: qsTr("How much lost video within ten seconds makes the stream leave its link. 3 s suits most places; shorter switches sooner, longer waits out brief dropouts. Used only when switching is on.")
+            summary: qsTr("How much lost video within ten seconds makes the stream leave its link. 3 s suits most places; shorter switches sooner, longer waits out brief dropouts.")
+            reason: MlxrPrefs.pathFailover ? "" : qsTr("the switch above is off")
             onClicked: MlxrPrefs.failoverBurstMs = settingsPage.nextFailoverBurst(MlxrPrefs.failoverBurstMs)
         }
 
@@ -1095,25 +1114,32 @@ Flickable {
             onClicked: settingsPage.StackView.view.push("qrc:/gui/XrProfilesView.qml")
         }
 
-        // ======== Video Settings ========
-        PrefCategory { text: qsTr("Video Settings"); icon: "video" }
+        // ======== Video settings ========
+        PrefCategory { text: qsTr("Video settings"); icon: "video" }
 
         PrefRow {
             id: resolutionRow
             objectName: "resolutionRow"
             title: qsTr("Video resolution")
             valueText: settingsPage.resolutionText()
-            summary: qsTr("Increase to improve image clarity. Decrease for better performance on lower end devices and slower networks.")
+            summary: qsTr("The size the PC renders and streams; the headset scales it to the screen. Changing it sets the Video bitrate to that size's default. Custom takes any size, such as 3840x1080 for full-size SBS.")
             onClicked: {
                 var e = []
                 for (var i = 0; i < settingsPage.resolutions.length; i++) {
                     var r = settingsPage.resolutions[i]
                     e.push({ text: r.text + " (" + r.w + "x" + r.h + ")", reason: "" })
                 }
-                listDialog.show(title, e, settingsPage.resolutionIndex(), function(i) {
-                    StreamingPreferences.width = settingsPage.resolutions[i].w
-                    StreamingPreferences.height = settingsPage.resolutions[i].h
-                    settingsPage.resetBitrate()
+                e.push({ text: qsTr("Custom..."), reason: "" })
+                var cur = settingsPage.resolutionIndex()
+                listDialog.show(title, e, cur >= 0 ? cur : settingsPage.resolutions.length, function(i) {
+                    if (i < settingsPage.resolutions.length) {
+                        StreamingPreferences.width = settingsPage.resolutions[i].w
+                        StreamingPreferences.height = settingsPage.resolutions[i].h
+                        settingsPage.resetBitrate()
+                    }
+                    else {
+                        settingsPage.editCustomResolution()
+                    }
                 })
             }
         }
@@ -1123,7 +1149,7 @@ Flickable {
             title: qsTr("Refresh rate")
             valueText: settingsPage.rateText()
             summary: qsTr("How many frames per second the PC streams. Match headset uses the rate SteamVR runs the Steam Frame's display at for this app (90 Hz unless changed in SteamVR's settings). Picking 72, 90, 120 or 144 Hz also sets the headset to that rate in SteamVR's settings for this app. 120 and 144 Hz need the stream and the PC to keep up. The stream never goes above the headset's rate.") +
-                     " " + qsTr("Custom takes rates such as 59.94 (Apollo).")
+                     " " + qsTr("Custom takes a rate such as 59.94 and needs Apollo.")
             onClicked: {
                 var e = []
                 for (var i = 0; i < settingsPage.rateNames.length; i++) e.push({ text: settingsPage.rateNames[i], reason: "" })
@@ -1141,7 +1167,7 @@ Flickable {
                         settingsPage.resetBitrate()
                     }
                     else {
-                        editDialog.show(qsTr("Custom refresh rate"), qsTr("Enter refresh rate manually, for example 59.94. Only supports Apollo. Capped at the headset's rate (%1 Hz at most).").arg(MlxrPrefs.headsetMaxFps),
+                        editDialog.show(qsTr("Custom refresh rate"), qsTr("A rate such as 59.94, at most the headset's %1 Hz.").arg(MlxrPrefs.headsetMaxFps) + " " + settingsPage.apolloNote,
                                         MlxrPrefs.customRefreshRate, "^\\s*\\d{2,3}(\\.\\d{1,3})?\\s*$", function(t) {
                             var v = Math.min(Math.max(parseFloat(t), 10), MlxrPrefs.headsetMaxFps)
                             MlxrPrefs.matchHeadsetFps = false
@@ -1158,7 +1184,7 @@ Flickable {
             objectName: "pacingRow"
             title: qsTr("Video frame pacing")
             valueText: settingsPage.pacingNames[Math.max(0, settingsPage.pacingValues.indexOf(MlxrPrefs.framePacing))]
-            summary: qsTr("Specify how to balance video latency and smoothness")
+            summary: qsTr("Lowest latency shows the newest frame at once; smoothest shows every frame in turn, a frame or two later; balanced is in between.")
             onClicked: {
                 var e = []
                 for (var i = 0; i < settingsPage.pacingNames.length; i++) e.push({ text: settingsPage.pacingNames[i], reason: "" })
@@ -1169,22 +1195,25 @@ Flickable {
         }
 
         PrefSwitch {
-            title: qsTr("Ultra Low Latency (experimental)")
+            objectName: "ullRow"
+            title: qsTr("Ultra low latency (experimental)")
             summary: qsTr("Runs the stream's network and decoder threads at realtime priority on the Frame.")
             isOn: MlxrPrefs.ultraLowLatency
             onSwitched: function(on) { MlxrPrefs.ultraLowLatency = on }
         }
 
         PrefSwitch {
-            title: qsTr("Use Virtual Display")
-            summary: qsTr("Use Virtual Display by default.\nVirtual Display can automatically match your client side resolution and frame rate settings, giving you a seamless streaming experience.") + "\n" + settingsPage.apolloNote
+            objectName: "virtualDisplayRow"
+            title: qsTr("Use virtual display")
+            summary: qsTr("The PC makes a display at the stream's size and rate for this headset and leaves its own monitors alone.") + " " + settingsPage.apolloNote
             isOn: MlxrPrefs.virtualDisplay
             onSwitched: function(on) { MlxrPrefs.virtualDisplay = on }
         }
 
         PrefSlider {
-            title: qsTr("Resolution Scale Factor")
-            summary: qsTr("Server side requested virtual screen resolution will be multiplied by this factor. Streaming resolution are not affected.\ne.g. 120% will make 2000x1000 become 2400x1200.\nSetting a higher scale factor will improve image quality for some games.") + "\n" + qsTr("Requires Apollo to take effect.")
+            objectName: "scaleFactorRow"
+            title: qsTr("Resolution scale factor")
+            summary: qsTr("The virtual display is made this much of the stream's size (at 120%, 2000x1000 becomes 2400x1200); the stream itself keeps its size.") + " " + settingsPage.apolloNote
             from: 20
             to: 200
             stepSize: 1
@@ -1193,26 +1222,12 @@ Flickable {
             onMoved: function(v) { MlxrPrefs.scaleFactor = Math.round(v) }
         }
 
+        // The Video bitrate typed in (Artemis's row; the owner keeps it here)
         PrefRow {
-            title: qsTr("Custom Resolution")
-            valueText: StreamingPreferences.width + "x" + StreamingPreferences.height
-            summary: qsTr("Add a custom resolution, separated by x, strange resolutions may not work.\nFor example: 1920x1080")
-            onClicked: editDialog.show(title, summary, StreamingPreferences.width + "x" + StreamingPreferences.height,
-                                       "^\\s*\\d{3,4}\\s*[xX]\\s*\\d{3,4}\\s*$", function(t) {
-                var p = t.toLowerCase().split("x")
-                var w = parseInt(p[0]), h = parseInt(p[1])
-                if (w >= 256 && h >= 256 && w <= 8192 && h <= 8192) {
-                    StreamingPreferences.width = w
-                    StreamingPreferences.height = h
-                    settingsPage.resetBitrate()
-                }
-            })
-        }
-
-        PrefRow {
+            objectName: "customBitrateRow"
             title: qsTr("Custom bitrate")
             valueText: (StreamingPreferences.bitrateKbps / 1000.0) + " " + qsTr("Mbps")
-            summary: qsTr("Enter bitrate manually.\nCan exceed the maximum range of the seekbar.")
+            summary: qsTr("The Video bitrate under Connection, typed in Mbps (0.5 to 500).")
             onClicked: editDialog.show(title, qsTr("Mbps, 0.5 to 500"), "" + (StreamingPreferences.bitrateKbps / 1000.0),
                                        "^\\s*\\d{1,3}(\\.\\d{1,3})?\\s*$", function(t) {
                 var v = parseFloat(t)
@@ -1220,19 +1235,47 @@ Flickable {
             })
         }
 
+        // Artemis's Render Mode ([3d] stereo), named as the bar's button and the cog's tab
+        PrefSwitch {
+            objectName: "renderModeRow"
+            title: qsTr("3D")
+            summary: qsTr("The bar's 3D button switches it too.")
+            isOn: MlxrPrefs.renderMode === 1
+            onSwitched: function(on) { MlxrPrefs.renderMode = on ? 1 : 0 }
+        }
+
+        // Native (PLAN 4.3): the headset's 3D tab's 3D source row; pressing steps Depth -> SBS -> Top-bottom
         PrefRow {
-            title: qsTr("Render Mode")
-            valueText: MlxrPrefs.renderMode ? qsTr("AI SBS 3D") : qsTr("Default 2D")
-            summary: qsTr("Default 2D or AI 2D to 3D conversion: the headset turns the stream into 3D with its depth model (the bar's 3D button switches it too).")
-            onClicked: listDialog.show(title, [{ text: qsTr("Default 2D"), reason: "" }, { text: qsTr("AI SBS 3D"), reason: "" }],
-                                       MlxrPrefs.renderMode, function(i) { MlxrPrefs.renderMode = i })
+            objectName: "stereoSourceRow"
+            title: qsTr("3D source")
+            valueText: settingsPage.stereoSourceNames[settingsPage.stereoSourceIndex()]
+            summary: qsTr("Depth model: the headset makes the 3D from a 2D stream. SBS or Top-bottom: the PC renders the two eyes itself (a 3D film, a game's own SBS mode, ReShade SuperDepth3D) and each eye sees its half; no depth model runs and 3D convergence moves the halves apart or together.")
+            onClicked: MlxrPrefs.stereoSource = settingsPage.stereoSourceValues[(settingsPage.stereoSourceIndex() + 1) % settingsPage.stereoSourceValues.length]
+        }
+
+        PrefSwitch {
+            objectName: "sbsFullRow"
+            title: qsTr("Full-size SBS")
+            summary: qsTr("On: the PC's pair holds a full picture per eye (a 3840x1080 custom resolution for two 1920x1080 eyes). Off: half-size, each eye squeezed into half of a 1920x1080 frame.")
+            reason: MlxrPrefs.stereoSource === "depth" ? qsTr("3D source is the depth model") : ""
+            isOn: MlxrPrefs.sbsFull
+            onSwitched: function(on) { MlxrPrefs.sbsFull = on }
+        }
+
+        VrChoice {
+            key: "vr.depth_source"
+            title: qsTr("Depth model")
+            reason: MlxrPrefs.stereoSource === "depth" ? "" : qsTr("3D source is the PC's own pair")
+            values: ["zipdepth", "zipdepth-int8", "midas", "off"]
+            names: [qsTr("ZipDepth"), qsTr("ZipDepth, lighter on the CPU"), qsTr("MiDaS (older)"), qsTr("Off (2D only)")]
         }
 
         PrefSlider {
-            title: qsTr("3D Effect Strength")
-            summary: qsTr("Higher more effect, but maybe strain on eyes and unnatural. Lower, easier on eyes and smoother experience.") +
+            objectName: "strengthRow"
+            title: qsTr("3D depth")
+            summary: qsTr("How far apart the two eyes' pictures are: higher is a stronger 3D effect and can tire the eyes.") +
                      (MlxrPrefs.strengthIsDefault ? " " + qsTr("(Now: the depth model's own.)") : "")
-            reason: MlxrPrefs.renderMode !== 1 ? qsTr("Render Mode is Default 2D")
+            reason: MlxrPrefs.renderMode !== 1 ? qsTr("3D is off")
                     : MlxrPrefs.stereoSource !== "depth" ? qsTr("3D source is the PC's own pair") : ""
             from: 1
             to: 100
@@ -1241,43 +1284,25 @@ Flickable {
         }
 
         PrefSlider {
-            title: qsTr("3D Convergence")
-            summary: qsTr("Reference: 50 - Balanced / 0: InFrontOfScreen /  100 - BehindOfScreen") +
+            objectName: "convergenceRow"
+            title: qsTr("3D convergence")
+            summary: qsTr("Where the picture sits in depth: 0 in front of the screen, 50 balanced, 100 behind it.") +
                      (MlxrPrefs.convergenceIsDefault ? " " + qsTr("(Now: the depth model's own.)") : "")
-            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("3D is off")
             from: 0
             to: 100
             value: MlxrPrefs.convergence
             onMoved: function(v) { MlxrPrefs.convergence = Math.round(v); MlxrPrefs.convergenceIsDefault = false }
         }
 
-        // Native (PLAN 4.3): the headset's 3D tab's 3D source row; pressing steps Depth -> SBS -> Top-bottom
-        PrefRow {
-            objectName: "stereoSourceRow"
-            title: qsTr("3D source")
-            valueText: settingsPage.stereoSourceNames[settingsPage.stereoSourceIndex()]
-            summary: qsTr("Depth model: the headset makes the 3D from a 2D stream. SBS or Top-bottom: the PC renders the two eyes itself (a 3D film, a game's own SBS mode, ReShade SuperDepth3D) and each eye sees its half; no depth model runs and Convergence moves the halves apart or together.") + " " +
-                     qsTr("(also on the headset's 3D tab)")
-            onClicked: MlxrPrefs.stereoSource = settingsPage.stereoSourceValues[(settingsPage.stereoSourceIndex() + 1) % settingsPage.stereoSourceValues.length]
-        }
-
-        PrefSwitch {
-            objectName: "sbsFullRow"
-            title: qsTr("Full-size SBS")
-            summary: qsTr("On: the PC's pair holds a full picture per eye (set a 3840x1080 Custom Resolution for two 1920x1080 eyes). Off: half-size, each eye squeezed into half of a 1920x1080 frame.")
-            reason: MlxrPrefs.stereoSource === "depth" ? qsTr("3D source is the depth model") : ""
-            isOn: MlxrPrefs.sbsFull
-            onSwitched: function(on) { MlxrPrefs.sbsFull = on }
-        }
-
         // Native (lane wave5-depth): how closely the depth keeps to the edges in the picture. Pressing the
         // row steps 0, 25, 50, 75, 100 ([3d] edge_sharpness of the VR client's config.ini)
         PrefRow {
             objectName: "edgeRow"
-            title: qsTr("3D Edge Sharpness")
-            valueText: MlxrPrefs.edgeSharpness === 0 ? qsTr("0 (soft, the default)") : ("" + MlxrPrefs.edgeSharpness)
-            summary: qsTr("Higher keeps hair, outlines and thin text on their own depth instead of blending them into what is behind. Too high can make edges look cut out.")
-            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            title: qsTr("3D edge")
+            valueText: "" + MlxrPrefs.edgeSharpness
+            summary: qsTr("Higher keeps hair, outlines and thin text on their own depth instead of blending them into what is behind; 0 is the depth model's soft edges. Too high can make edges look cut out.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("3D is off")
             onClicked: if (enabled) MlxrPrefs.edgeSharpness = settingsPage.nextEdge()
         }
 
@@ -1285,10 +1310,10 @@ Flickable {
         // fast edge leaves no trail. Pressing the row steps Off, 5, 10, 20, 30 percent ([3d] motion_reset)
         PrefRow {
             objectName: "motionRow"
-            title: qsTr("3D Motion Reset")
-            valueText: MlxrPrefs.motionReset === 0 ? qsTr("Off (the default)") : (MlxrPrefs.motionReset + "%")
+            title: qsTr("3D motion reset")
+            valueText: MlxrPrefs.motionReset === 0 ? qsTr("Off") : (MlxrPrefs.motionReset + "%")
             summary: qsTr("For fast scenes: where the picture changes by more than this between two depth maps, the 3D stops smoothing the old depth into the new there, so moving edges leave no trail. Lower reacts to smaller changes; too low brings back flicker.")
-            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("3D is off")
             onClicked: if (enabled) MlxrPrefs.motionReset = settingsPage.nextMotion()
         }
 
@@ -1296,39 +1321,42 @@ Flickable {
         // row steps 50, 75, 100, 125, 150, 200 percent ([3d] depth_scale, depth_global)
         PrefRow {
             objectName: "depthScaleRow"
-            title: qsTr("3D Depth Detail")
-            valueText: MlxrPrefs.depthScale + "%" + (MlxrPrefs.depthScale === 100 ? " " + qsTr("(as the model makes it)") : "")
-            summary: qsTr("The depth between things near each other, like a face in front of a wall. Higher makes them stand apart more, without pushing the whole picture further in or out.")
-            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            title: qsTr("3D depth detail")
+            valueText: MlxrPrefs.depthScale + "%"
+            summary: qsTr("The depth between things near each other, like a face in front of a wall. Higher makes them stand apart more, without pushing the whole picture further in or out; 100% is as the model makes it.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("3D is off")
             onClicked: if (enabled) MlxrPrefs.depthScale = settingsPage.nextDepthStep(MlxrPrefs.depthScale)
         }
 
         PrefRow {
             objectName: "depthGlobalRow"
-            title: qsTr("3D Depth Shape")
-            valueText: MlxrPrefs.depthGlobal + "%" + (MlxrPrefs.depthGlobal === 100 ? " " + qsTr("(as the model makes it)") : "")
-            summary: qsTr("The depth of the picture as a whole, from the near ground to the far sky. Lower flattens it toward the screen, which is easier on the eyes, while Depth Detail keeps things standing apart.")
-            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("Render Mode is Default 2D")
+            title: qsTr("3D depth shape")
+            valueText: MlxrPrefs.depthGlobal + "%"
+            summary: qsTr("The depth of the picture as a whole, from the near ground to the far sky. Lower flattens it toward the screen, which is easier on the eyes, while 3D depth detail keeps things standing apart.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("3D is off")
             onClicked: if (enabled) MlxrPrefs.depthGlobal = settingsPage.nextDepthStep(MlxrPrefs.depthGlobal)
         }
 
-        VrChoice {
-            key: "vr.depth_source"
-            title: qsTr("3D depth model")
-            values: ["zipdepth", "zipdepth-int8", "midas", "off"]
-            names: [qsTr("ZipDepth"), qsTr("ZipDepth, lighter on the CPU"), qsTr("MiDaS (older)"), qsTr("Off (2D only)")]
+        PrefRow {
+            objectName: "eyeBalanceRow"
+            title: qsTr("3D eye balance")
+            valueText: MlxrPrefs.eyeBalance > 0 ? qsTr("Left eye %1%").arg(MlxrPrefs.eyeBalance)
+                     : MlxrPrefs.eyeBalance < 0 ? qsTr("Right eye %1%").arg(-MlxrPrefs.eyeBalance) : qsTr("Even")
+            summary: qsTr("How the 3D's shift is shared by the two eyes. Even moves each eye the same; at 100% only the left eye's picture moves and the right eye's is as streamed. The depth you see is the same at every setting. Useful with a dominant eye.")
+            reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("3D is off")
+            onClicked: if (enabled) MlxrPrefs.eyeBalance = settingsPage.nextLimit(settingsPage.eyeBalanceSteps, MlxrPrefs.eyeBalance)
         }
 
         VrChoice {
             key: "display.sharpening"
-            title: qsTr("Sharpening")
+            title: qsTr("Sharpen")
             values: ["off", "normal", "quality"]
             names: [qsTr("Off"), qsTr("Normal"), qsTr("Quality")]
         }
 
         VrChoice {
             key: "display.supersampling"
-            title: qsTr("Supersampling")
+            title: qsTr("Supersample")
             summary: qsTr("Not used while the 3D is on.")
             values: ["off", "normal", "quality"]
             names: [qsTr("Off"), qsTr("Normal"), qsTr("Quality")]
@@ -1337,12 +1365,13 @@ Flickable {
         VrSwitch {
             key: "display.picture_filter"
             title: qsTr("Sharper small text")
-            summary: qsTr("On a curved or 3D screen.")
+            summary: qsTr("On a curved or 3D screen: averages the stream under each of the headset's pixels.")
         }
 
         VrSwitch {
             key: "display.chroma_from_luma"
             title: qsTr("Sharper coloured text")
+            summary: qsTr("On a curved or 3D screen: keeps coloured text in colour to its edge.")
         }
 
         VrSlider {
@@ -1378,21 +1407,14 @@ Flickable {
             suffix: "%"
         }
 
-        PrefSwitch {
-            objectName: "hdrRow"
-            title: qsTr("Enable HDR (Experimental)")
-            summary: qsTr("Stream HDR when the game and PC GPU support it. HDR requires a GPU with HEVC Main 10 encoding support.")
-            reason: qsTr("the Frame's video path is 8-bit SDR (H.264/HEVC Main decoded to NV12, shown on an SDR panel)")
-            isOn: false
-        }
-
-        // ======== Audio Settings ========
-        PrefCategory { text: qsTr("Audio Settings"); icon: "audio" }
+        // ======== Audio settings ========
+        PrefCategory { text: qsTr("Audio settings"); icon: "audio" }
 
         PrefRow {
+            objectName: "audioConfigRow"
             title: qsTr("Surround sound configuration")
             valueText: settingsPage.audioNames[StreamingPreferences.audioConfig]
-            summary: qsTr("Enable 5.1 or 7.1 surround sound for home-theater systems")
+            summary: qsTr("What the PC sends. 5.1 and 7.1 are mixed down to stereo unless Virtual surround places them around you.")
             onClicked: {
                 var e = []
                 for (var i = 0; i < settingsPage.audioNames.length; i++) e.push({ text: settingsPage.audioNames[i], reason: "" })
@@ -1406,13 +1428,13 @@ Flickable {
             summary: qsTr("Places stereo, 5.1 and 7.1 speakers around you, held to the screen.")
         }
 
-        // ======== Gamepad Settings ========
-        PrefCategory { text: qsTr("Gamepad Settings"); icon: "gamepad" }
+        // ======== Gamepad settings ========
+        PrefCategory { text: qsTr("Gamepad settings"); icon: "gamepad" }
 
         PrefSlider {
-            title: qsTr("Adjust analog stick deadzone")
-            summary: qsTr("Positive values set a normal dead zone, negative values apply dead zone compensation. Ensure your controller can adjust dead zones when using dead zone compensation, or centering may be difficult.") +
-                     " " + qsTr("Physical gamepads; 0 sends the sticks as read.")
+            objectName: "deadzoneRow"
+            title: qsTr("Adjust analog stick dead zone")
+            summary: qsTr("Above 0 a dead zone; below 0 compensates for the game's own, which can make centring hard. At 0 a gamepad's sticks are sent as read and the Frame controllers in gamepad mode use 7%.")
             from: -20
             to: 20
             suffix: "%"
@@ -1423,7 +1445,7 @@ Flickable {
         PrefSwitch {
             objectName: "flipRow"
             title: qsTr("Flip face buttons")
-            summary: qsTr("Switches the face buttons A/B and X/Y for gamepads and the headset's gamepad mode")
+            summary: qsTr("Swaps A/B and X/Y on gamepads and in the headset's gamepad mode.")
             isOn: MlxrPrefs.flipFaceButtons
             onSwitched: function(on) { MlxrPrefs.flipFaceButtons = on }
         }
@@ -1484,17 +1506,8 @@ Flickable {
             objectName: "padCardRow"
             title: qsTr("Gamepad card in the headset")
             valueText: settingsPage.padCardNames[settingsPage.padCardIndex()]
-            summary: qsTr("A picture of the gamepad you are playing with, in your lap, that lights up as you press it. Auto: up while you play, gone 4 seconds after you stop. On: up while a gamepad is in use. Off: never.")
+            summary: qsTr("A picture of the gamepad you are playing with, in your lap, that lights up as you press it. Automatic: up while you play, gone 4 s after you stop. On: up while a gamepad is in use. Off: never.")
             onClicked: MlxrPrefs.padCard = settingsPage.padCardValues[(settingsPage.padCardIndex() + 1) % settingsPage.padCardValues.length]
-        }
-
-        // Native (lane wave3-cards): the first-run controls card comes up once; this brings it back
-        PrefSwitch {
-            objectName: "firstRunRow"
-            title: qsTr("Controls card on the next stream")
-            summary: qsTr("The card that shows the headset's controls when a stream starts. It comes up once by itself; switch this on to see it again.")
-            isOn: !MlxrPrefs.firstRunShown
-            onSwitched: function(on) { MlxrPrefs.firstRunShown = !on }
         }
 
         PrefRow {
@@ -1509,6 +1522,20 @@ Flickable {
                     MlxrPrefs.lightgun = settingsPage.lightgunValues[i]
                 })
             }
+        }
+
+        VrSwitch {
+            key: "vr.lightgun_reload"
+            title: qsTr("Lightgun reload")
+            summary: qsTr("A trigger pulled off the picture is a right click.")
+            reason: MlxrPrefs.lightgun === "off" ? qsTr("Lightgun mode is Off") : ""
+        }
+
+        VrSwitch {
+            key: "vr.lightgun_recoil"
+            title: qsTr("Lightgun recoil")
+            summary: qsTr("A short pulse in the controller on every shot.")
+            reason: MlxrPrefs.lightgun === "off" ? qsTr("Lightgun mode is Off") : ""
         }
 
         PrefRow {
@@ -1528,27 +1555,16 @@ Flickable {
         VrChoice {
             key: "vr.pad_gyro_ratchet"
             title: qsTr("When the gyro is sent")
+            reason: MlxrPrefs.padGyro === "off" ? qsTr("Gyro from the headset is Off") : ""
             values: ["always", "stick_touch"]
             names: [qsTr("Always"), qsTr("While the thumb touches the right stick")]
-        }
-
-        VrSwitch {
-            key: "vr.lightgun_reload"
-            title: qsTr("Lightgun reload")
-            summary: qsTr("In lightgun mode, a trigger pulled off the picture is a right click.")
-        }
-
-        VrSwitch {
-            key: "vr.lightgun_recoil"
-            title: qsTr("Lightgun recoil")
-            summary: qsTr("In lightgun mode, a short pulse in the controller on every shot.")
         }
 
         VrChoice {
             key: "vr.gamepad_toggle"
             title: qsTr("Gamepad mode shortcut")
             values: ["menu_grip", "sticks", "triggers_grips"]
-            names: [qsTr("Left View and left grip"), qsTr("Click both sticks"), qsTr("Both triggers and both grips")]
+            names: [qsTr("Left View and left grip"), qsTr("Click both thumbsticks"), qsTr("Both triggers and both grips")]
         }
 
         VrChoice {
@@ -1559,8 +1575,9 @@ Flickable {
         }
 
         PrefSwitch {
-            title: qsTr("Enable Rumble")
-            summary: qsTr("Enable rumble feedback on supported gamepads.") + " " + qsTr("Also the headset controllers.")
+            objectName: "rumbleRow"
+            title: qsTr("Enable rumble")
+            summary: qsTr("Passes the PC's rumble to gamepads and to the headset controllers.")
             isOn: MlxrPrefs.rumble
             onSwitched: function(on) { MlxrPrefs.rumble = on }
         }
@@ -1568,6 +1585,7 @@ Flickable {
         VrChoice {
             key: "vr.rumble_mix"
             title: qsTr("Rumble on the headset controllers")
+            reason: MlxrPrefs.rumble ? "" : qsTr("Enable rumble is off")
             values: ["both", "split"]
             names: [qsTr("Stronger motor in both hands"), qsTr("Low motor left, high motor right")]
         }
@@ -1575,14 +1593,15 @@ Flickable {
         VrSlider {
             key: "vr.rumble_intensity"
             title: qsTr("Rumble strength on the headset controllers")
+            reason: MlxrPrefs.rumble ? "" : qsTr("Enable rumble is off")
             from: 0
             to: 100
             stepSize: 5
             suffix: "%"
         }
 
-        // ======== Input Settings ========
-        PrefCategory { text: qsTr("Input Settings"); icon: "input" }
+        // ======== Input settings ========
+        PrefCategory { text: qsTr("Input settings"); icon: "input" }
 
         PrefRow {
             objectName: "keymapRow"
@@ -1608,20 +1627,80 @@ Flickable {
         VrSlider {
             key: "vr.keyboard_hold_ms"
             title: qsTr("Hold to lock Shift, Ctrl, Alt or Win")
-            summary: qsTr("On the full keyboard.")
+            summary: qsTr("How long to hold one of them to lock it, on both keyboards.")
             from: 200
             to: 1500
             stepSize: 50
             suffix: " ms"
         }
 
-        // Pressing the row steps Off -> Steam Frame -> Gun -> Your own model
+        VrSwitch {
+            key: "vr.pointer"
+            title: qsTr("Controllers as a mouse")
+            summary: qsTr("Off leaves only the switch to gamepad mode.")
+        }
+
+        // Native (lane headinput-finish, PLAN 4b.10): pressing the row steps Absolute -> Relative
+        PrefRow {
+            objectName: "mouseModeRow"
+            title: qsTr("Mouse mode")
+            valueText: MlxrPrefs.mouseMode === "relative" ? qsTr("Relative") : qsTr("Absolute")
+            summary: qsTr("Absolute puts the PC's cursor where the pointer lands on the picture, as a remote desktop does. Relative sends how far the pointer moves instead, for games that capture the mouse and ignore where it is.")
+            onClicked: MlxrPrefs.mouseMode = MlxrPrefs.mouseMode === "relative" ? "absolute" : "relative"
+        }
+
+        // The cog's Ray row: Off, Dot (the dot where the ray lands) or Ray (the ray and the dot)
+        PrefRow {
+            id: rayRow
+            objectName: "rayRow"
+            title: qsTr("Ray")
+            valueText: settingsPage.rayNames[settingsPage.rayIndex()]
+            summary: qsTr("Dot shows only where the ray lands.")
+            function pick(i) {
+                MlxrPrefs.setVr("vr.show_ray", Number(i) >= 2)
+                MlxrPrefs.setVr("vr.pointer_dot", Number(i) >= 1)
+            }
+            onClicked: {
+                var e = []
+                for (var i = 0; i < settingsPage.rayNames.length; i++) e.push({ text: settingsPage.rayNames[i], reason: "" })
+                listDialog.show(title, e, settingsPage.rayIndex(), function(i) { rayRow.pick(i) })
+            }
+        }
+
+        VrSwitch {
+            key: "vr.pointer_sleep"
+            title: qsTr("Pointer sleep")
+            summary: qsTr("The pointer rests while the controller is still.")
+        }
+
+        VrChoice {
+            key: "vr.click_steadiness"
+            title: qsTr("Click steadiness")
+            summary: qsTr("How still the cursor is held around a click.")
+            values: ["off", "normal", "steady"]
+            names: [qsTr("Off"), qsTr("Normal"), qsTr("Steady")]
+        }
+
+        VrSwitch {
+            key: "vr.click_sound"
+            title: qsTr("Click sound")
+        }
+
+        // The controllers' thumbstick wheel in the headset: pressing the row steps the speed
+        PrefRow {
+            objectName: "scrollSpeedRow"
+            title: qsTr("Scroll speed")
+            valueText: MlxrPrefs.scrollSpeed + "%"
+            summary: qsTr("How fast a controller's thumbstick scrolls in pointer mode. Tilt it sideways to scroll sideways.")
+            onClicked: MlxrPrefs.scrollSpeed = settingsPage.nextScrollSpeed()
+        }
+
+        // Pressing the row steps Off -> Frame -> Gun -> Your own model
         PrefRow {
             objectName: "controllerModelRow"
             title: qsTr("Show controllers")
             valueText: settingsPage.modelNames[settingsPage.modelIndex()]
-            summary: qsTr("The controllers drawn in the headset. Your own model reads custom_left.model and custom_right.model (or one custom.model, mirrored for the left hand) from the models folder next to the headset's config file, and falls back to the Steam Frame controllers when they are missing.") + " " +
-                     qsTr("(the headset's Display tab has the first three)")
+            summary: qsTr("The controllers drawn in the headset. Your own model reads custom_left.model and custom_right.model (or one custom.model, mirrored for the left hand) from the models folder next to the headset's config file, and falls back to the Steam Frame controllers when they are missing.")
             onClicked: MlxrPrefs.controllerModel = settingsPage.modelValues[(settingsPage.modelIndex() + 1) % settingsPage.modelValues.length]
         }
 
@@ -1632,9 +1711,38 @@ Flickable {
             onClicked: settingsPage.StackView.view.push("qrc:/gui/XrBindingsView.qml")
         }
 
-        // Native (lane wave4-headinput): head and pointer input of the VR client, every one off by default
-        // (native, lane a11y-tab: What points is under Accessibility; lane a11y-2: head-look and the mouse mode
-        // are back here, head-look named for what it does)
+        PrefSwitch {
+            objectName: "mouseNavRow"
+            title: qsTr("Enable forward/back mouse buttons")
+            summary: qsTr("Sends a physical mouse's back and forward buttons to the PC.")
+            isOn: MlxrPrefs.mouseNavButtons
+            onSwitched: function(on) { MlxrPrefs.mouseNavButtons = on }
+        }
+
+        VrSwitch {
+            key: "vr.head_aim"
+            title: qsTr("Head aim")
+            summary: qsTr("Your head moves the mouse, with the screen head locked and outside a room.")
+        }
+
+        VrSlider {
+            key: "vr.head_aim_sensitivity"
+            title: qsTr("Aim sensitivity")
+            from: 1
+            to: 30
+            suffix: " px/°"
+        }
+
+        VrSlider {
+            key: "vr.head_aim_deadzone"
+            title: qsTr("Aim dead zone")
+            from: 0
+            to: 20
+            suffix: " °/s"
+        }
+
+        // Native (lane wave4-headinput): head-look, off by default (lane a11y-2: back under Input, named for
+        // what it does). It shares head aim's dead zone, so it follows the head aim rows
         PrefSwitch {
             objectName: "headLookRow"
             title: qsTr("Head turns the game's camera (first-person games)")
@@ -1653,14 +1761,20 @@ Flickable {
             onClicked: MlxrPrefs.headLookPxDeg = settingsPage.nextLimit(steps, MlxrPrefs.headLookPxDeg)
         }
 
-        // Native (lane headinput-finish, PLAN 4b.10): pressing the row steps Absolute -> Relative
-        PrefRow {
-            objectName: "mouseModeRow"
-            title: qsTr("Mouse mode")
-            valueText: MlxrPrefs.mouseMode === "relative" ? qsTr("Relative") : qsTr("Absolute")
-            summary: qsTr("Absolute puts the PC's cursor where the pointer lands on the picture, as a remote desktop does. Relative sends how far the pointer moves instead, for games that capture the mouse and ignore where it is.")
-            onClicked: MlxrPrefs.mouseMode = MlxrPrefs.mouseMode === "relative" ? "absolute" : "relative"
+        VrSwitch {
+            key: "vr.gaze"
+            title: qsTr("Look to point")
+            summary: qsTr("The pointer follows your eyes while SteamVR gives eye tracking to apps; a press on a controller takes it back.")
         }
+
+        VrSwitch {
+            key: "vr.hand_tracking"
+            title: qsTr("Hand tracking")
+            summary: qsTr("Point with your hands; a pinch of thumb and index finger clicks. Three quick pinches lock the hands out.")
+        }
+
+        // Native (lane wave4-headinput): head tracking to opentrack, off by default (head-look, What points and the
+        // mouse mode are under Accessibility)
         PrefSwitch {
             objectName: "opentrackRow"
             title: qsTr("Head tracking to opentrack")
@@ -1671,7 +1785,7 @@ Flickable {
 
         PrefRow {
             objectName: "opentrackHostRow"
-            title: qsTr("opentrack's PC")
+            title: qsTr("opentrack address")
             valueText: MlxrPrefs.opentrackHost === "" ? qsTr("The streaming PC") : MlxrPrefs.opentrackHost
             summary: qsTr("Where the head tracking goes: an address or a name. Leave it empty for the PC you are streaming from.")
             onClicked: editDialog.show(title, qsTr("Address or name, empty for the streaming PC"), MlxrPrefs.opentrackHost,
@@ -1682,7 +1796,7 @@ Flickable {
 
         PrefRow {
             objectName: "opentrackPortRow"
-            title: qsTr("opentrack's port")
+            title: qsTr("opentrack port")
             valueText: "" + MlxrPrefs.opentrackPort
             summary: qsTr("The UDP port opentrack's UDP over network input listens on (4242 unless you changed it).")
             onClicked: editDialog.show(title, qsTr("1 to 65535"), "" + MlxrPrefs.opentrackPort,
@@ -1690,81 +1804,6 @@ Flickable {
                 var p = parseInt(t.trim(), 10)
                 MlxrPrefs.opentrackPort = p >= 1 && p <= 65535 ? p : 4242
             })
-        }
-
-        PrefSwitch {
-            title: qsTr("Enable forward/back mouse buttons")
-            summary: qsTr("Sends a physical mouse's back and forward buttons to the PC")
-            isOn: MlxrPrefs.mouseNavButtons
-            onSwitched: function(on) { MlxrPrefs.mouseNavButtons = on }
-        }
-
-        VrSwitch {
-            key: "vr.pointer"
-            title: qsTr("Controllers as a mouse")
-            summary: qsTr("Off leaves only the switch to gamepad mode.")
-        }
-
-        VrSwitch {
-            key: "vr.pointer_sleep"
-            title: qsTr("Pause the pointer when the controller is still")
-        }
-
-        VrSwitch {
-            key: "vr.show_ray"
-            title: qsTr("Show the ray")
-        }
-
-        VrSwitch {
-            key: "vr.pointer_dot"
-            title: qsTr("Show the dot where the ray lands")
-        }
-
-        VrChoice {
-            key: "vr.click_steadiness"
-            title: qsTr("Click steadiness")
-            summary: qsTr("How still the cursor is held around a click.")
-            values: ["off", "normal", "steady"]
-            names: [qsTr("Off"), qsTr("Normal"), qsTr("Steady")]
-        }
-
-        VrSwitch {
-            key: "vr.click_sound"
-            title: qsTr("Click sound")
-        }
-
-        VrSwitch {
-            key: "vr.head_aim"
-            title: qsTr("Head aims the mouse")
-            summary: qsTr("With the screen head-locked, outside a room.")
-        }
-
-        VrSlider {
-            key: "vr.head_aim_sensitivity"
-            title: qsTr("Head aim speed")
-            from: 1
-            to: 30
-            suffix: " px/°"
-        }
-
-        VrSlider {
-            key: "vr.head_aim_deadzone"
-            title: qsTr("Head aim dead zone")
-            from: 0
-            to: 20
-            suffix: " °/s"
-        }
-
-        VrSwitch {
-            key: "vr.gaze"
-            title: qsTr("Look to point")
-            summary: qsTr("Not tested on the Steam Frame yet.")
-        }
-
-        VrSwitch {
-            key: "vr.hand_tracking"
-            title: qsTr("Hand tracking")
-            summary: qsTr("Not tested on the Steam Frame yet.")
         }
 
         // ======== Native (lane a11y-tab, a11y-2): Accessibility ========
@@ -1826,8 +1865,8 @@ Flickable {
             onSwitched: function(on) { MlxrPrefs.assistHeadsetButton = on }
         }
 
-        // ======== Host Settings ========
-        PrefCategory { text: qsTr("Host Settings"); icon: "host" }
+        // ======== Host settings ========
+        PrefCategory { text: qsTr("Host settings"); icon: "host" }
 
         PrefSwitch {
             objectName: "preflightRow"
@@ -1838,26 +1877,28 @@ Flickable {
         }
 
         PrefSwitch {
+            objectName: "gameOptsRow"
             title: qsTr("Optimize game settings")
-            summary: qsTr("Allow GFE to modify game settings for optimal streaming")
+            summary: qsTr("Lets the PC switch its display to the stream's resolution, where the host is set to.")
             isOn: StreamingPreferences.gameOptimizations
             onSwitched: function(on) { StreamingPreferences.gameOptimizations = on }
         }
 
         PrefSwitch {
+            objectName: "hostAudioRow"
             title: qsTr("Play audio on PC")
-            summary: qsTr("Play audio from the computer and this device")
+            summary: qsTr("The game's sound plays on the PC's speakers as well as in the headset.")
             isOn: StreamingPreferences.playAudioOnHost
             onSwitched: function(on) { StreamingPreferences.playAudioOnHost = on }
         }
 
-        // ======== General Settings ========
-        PrefCategory { text: qsTr("General Settings"); icon: "general" }
+        // ======== General settings ========
+        PrefCategory { text: qsTr("General settings"); icon: "general" }
 
         PrefSwitch {
             objectName: "clipboardRow"
-            title: qsTr("Smart Clipboard Sync (Experimental)")
-            summary: qsTr("Automatically upload clipboard content to server when the stream starts, download clipboard from server when you leave the stream (requires Apollo)")
+            title: qsTr("Smart clipboard sync (experimental)")
+            summary: qsTr("Copies the Frame's clipboard to the PC when a stream starts, and the PC's back when it ends.") + " " + settingsPage.apolloNote
             isOn: MlxrPrefs.clipboardSync
             onSwitched: function(on) { MlxrPrefs.clipboardSync = on }
         }
@@ -1903,20 +1944,48 @@ Flickable {
             onSwitched: function(on) { MlxrPrefs.checkUpdates = on }
         }
 
-        // ======== UI Settings ========
-        PrefCategory { text: qsTr("UI Settings"); icon: "ui" }
+        // Native (lane wave3-cards): the first-run controls card comes up once; this brings it back
+        PrefSwitch {
+            objectName: "firstRunRow"
+            title: qsTr("Controls card on the next stream")
+            summary: qsTr("The card that shows the headset's controls when a stream starts. It comes up once by itself; switch this on to see it again.")
+            isOn: !MlxrPrefs.firstRunShown
+            onSwitched: function(on) { MlxrPrefs.firstRunShown = !on }
+        }
+
+        // The headset coming off: the sound mutes and the input is let go at once; after the time the stream
+        // is disconnected and the PC's app keeps running. Pressing a row steps through the choices.
+        PrefRow {
+            objectName: "doffRow"
+            title: qsTr("Disconnect when the headset is off")
+            valueText: MlxrPrefs.doffDisconnect === 0 ? qsTr("Never") : settingsPage.timeText(MlxrPrefs.doffDisconnect * 1000)
+            summary: qsTr("How long the headset can stay off before the stream is disconnected. The app keeps running on the PC. Putting the headset back on sooner carries on.")
+            onClicked: MlxrPrefs.doffDisconnect = settingsPage.nextLimit(settingsPage.doffValues, MlxrPrefs.doffDisconnect)
+        }
+
+        PrefRow {
+            objectName: "idleRow"
+            title: qsTr("Disconnect when idle")
+            valueText: MlxrPrefs.idleDisconnect === 0 ? qsTr("Never") : settingsPage.timeText(MlxrPrefs.idleDisconnect * 60000)
+            summary: qsTr("How long without input from the controllers, hands, keyboard, mouse or gamepads before the stream is disconnected. The app keeps running on the PC.")
+            onClicked: MlxrPrefs.idleDisconnect = settingsPage.nextLimit(settingsPage.idleValues, MlxrPrefs.idleDisconnect)
+        }
+
+        // ======== UI settings ========
+        PrefCategory { text: qsTr("UI settings"); icon: "ui" }
 
         PrefSwitch {
             objectName: "quickResumeRow"
-            title: qsTr("Quick Resume")
-            summary: qsTr("Do not show resume menu when clicking resume button, resume the app immediately.")
+            title: qsTr("Quick resume")
+            summary: qsTr("Selecting a running app resumes it at once, without the Resume / Quit menu.")
             isOn: MlxrPrefs.quickResume
             onSwitched: function(on) { MlxrPrefs.quickResume = on }
         }
 
         PrefSwitch {
-            title: qsTr("Enable Full Screen")
-            summary: qsTr("Show this window full screen (from the next start)")
+            objectName: "fullScreenRow"
+            title: qsTr("Enable full screen")
+            summary: qsTr("This window, from its next start.")
             isOn: StreamingPreferences.uiDisplayMode === StreamingPreferences.UI_FULLSCREEN
             onSwitched: function(on) {
                 StreamingPreferences.uiDisplayMode = on ? StreamingPreferences.UI_FULLSCREEN : StreamingPreferences.UI_WINDOWED
@@ -1926,14 +1995,37 @@ Flickable {
         VrChoice {
             key: "vr.environment"
             title: qsTr("Environment")
-            summary: qsTr("Automatic is the void, or the passthrough with Passthrough on.")
+            summary: qsTr("Automatic is the black void, or the passthrough with the Passthrough switch on.")
             values: ["auto", "passthrough", "void", "home_theater", "grand_cinema", "synthwave"]
-            names: [qsTr("Automatic"), qsTr("Passthrough"), qsTr("Void"), qsTr("Home Theater"), qsTr("Grand Cinema"), qsTr("Synthwave")]
+            names: [qsTr("Automatic"), qsTr("Passthrough"), qsTr("Black void"), qsTr("Home Theater"), qsTr("Grand Cinema"), qsTr("Synthwave")]
         }
 
+        // Only Environment's Automatic reads it ([vr] environment and passthrough are two keys)
         VrSwitch {
             key: "vr.passthrough"
             title: qsTr("Passthrough")
+            reason: MlxrPrefs.vr["vr.environment"] === "auto" ? "" : qsTr("Environment is not Automatic")
+        }
+
+        PrefRow {
+            objectName: "voidColorRow"
+            title: qsTr("Void colour")
+            valueText: MlxrPrefs.voidColor
+            summary: qsTr("The colour of the void environment, as on a web page: #rrggbb. Black draws nothing.")
+            onClicked: editDialog.show(title, qsTr("#rrggbb"), MlxrPrefs.voidColor,
+                                       "^\\s*#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\\s*$", function(t) {
+                MlxrPrefs.voidColor = "#" + t.trim().replace("#", "").toLowerCase()
+            })
+        }
+
+        // Native (lane wave3-visual): the Picture tab's Background row, the void's colour, the Glow edge row (below)
+        // and the 3D eye balance (Video). Pressing a row steps through its choices.
+        PrefRow {
+            objectName: "backgroundDimRow"
+            title: qsTr("Background dim")
+            valueText: MlxrPrefs.backgroundDim + "%"
+            summary: qsTr("How far the room, the passthrough cameras or the void are turned down, the picture itself not. 100% is black.")
+            onClicked: MlxrPrefs.backgroundDim = settingsPage.nextLimit(settingsPage.backgroundDimSteps, MlxrPrefs.backgroundDim)
         }
 
         VrChoice {
@@ -1946,7 +2038,8 @@ Flickable {
 
         VrSwitch {
             key: "display.screen_light"
-            title: qsTr("Screen light in rooms")
+            title: qsTr("Screen light")
+            summary: qsTr("In a room, the picture lights it.")
         }
 
         VrSwitch {
@@ -1957,10 +2050,20 @@ Flickable {
         VrSlider {
             key: "display.glow_level"
             title: qsTr("Glow level")
+            reason: MlxrPrefs.vr["display.glow"] === true ? "" : qsTr("Glow is off")
             from: 0
             to: 100
             stepSize: 5
             suffix: "%"
+        }
+
+        PrefRow {
+            objectName: "glowFeatherRow"
+            title: qsTr("Glow edge")
+            valueText: settingsPage.glowFeatherNames[Math.max(0, settingsPage.glowFeatherValues.indexOf(MlxrPrefs.glowFeather))]
+            summary: qsTr("Fades the picture's outer edge into the glow around it so the screen has no hard border.")
+            reason: MlxrPrefs.vr["display.glow"] === true ? "" : qsTr("Glow is off")
+            onClicked: MlxrPrefs.glowFeather = settingsPage.nextLimit(settingsPage.glowFeatherValues, MlxrPrefs.glowFeather)
         }
 
         VrSlider {
@@ -1974,7 +2077,8 @@ Flickable {
 
         VrSlider {
             key: "screen.width_cm"
-            title: qsTr("Screen width")
+            title: qsTr("Screen size")
+            summary: qsTr("The picture's width.")
             from: 80
             to: 800
             stepSize: 10
@@ -1989,44 +2093,70 @@ Flickable {
             suffix: "%"
         }
 
+        // Native (lane wave4b-zoom, PLAN 4b.6): the zoom a stream starts at; pressing the row steps it
+        PrefRow {
+            objectName: "zoomRow"
+            title: qsTr("Zoom")
+            valueText: MlxrPrefs.zoom + "%"
+            summary: qsTr("How much of the picture fills the screen in the headset: 100% is all of it, 400% a quarter across and down. In the headset, bind zoom in, zoom out and zoom reset to a button, and aim at the part to zoom into; it remembers the zoom and the place for each app.")
+            onClicked: MlxrPrefs.zoom = settingsPage.nextLimit(settingsPage.zoomSteps, MlxrPrefs.zoom)
+        }
+
         VrSwitch {
             key: "screen.per_app"
-            title: qsTr("Remember the screen per app")
-            summary: qsTr("An app without its own place starts from the rows above.")
+            title: qsTr("Remember per app")
+            summary: qsTr("Each app keeps its own screen place; an app without one starts from the rows above.")
         }
 
         VrSwitch {
             key: "screen.angular_lock"
-            title: qsTr("Keep the screen's size when pushing or pulling it")
+            title: qsTr("Angular-size lock")
+            summary: qsTr("The screen looks the same size when you push it away or pull it closer.")
         }
 
-        VrSwitch {
-            key: "display.head_locked"
-            title: qsTr("Head-locked screen")
-        }
-
-        VrSwitch {
-            key: "display.head_follow"
-            title: qsTr("Screen follows your head")
-            summary: qsTr("Head-locked wins when both are on.")
+        // The cog's Head locked row: Off, On (the screen moves with the head) or Follow
+        PrefRow {
+            id: headLockRow
+            objectName: "headLockRow"
+            title: qsTr("Head locked")
+            valueText: settingsPage.headLockNames[settingsPage.headLockIndex()]
+            summary: qsTr("On: the screen moves with your head. Follow: it stays put until you turn away, then eases back in front of you.")
+            function pick(i) {
+                MlxrPrefs.setVr("display.head_locked", Number(i) === 1)
+                MlxrPrefs.setVr("display.head_follow", Number(i) === 2)
+            }
+            onClicked: {
+                var e = []
+                for (var i = 0; i < settingsPage.headLockNames.length; i++) e.push({ text: settingsPage.headLockNames[i], reason: "" })
+                listDialog.show(title, e, settingsPage.headLockIndex(), function(i) { headLockRow.pick(i) })
+            }
         }
 
         VrSlider {
             key: "display.follow_leash_deg"
             title: qsTr("Follow after turning")
+            reason: settingsPage.headLockIndex() === 2 ? "" : qsTr("Head locked is not Follow")
             from: 10
             to: 60
             suffix: "°"
         }
 
-        // ======== Performance Monitor ========
-        PrefCategory { text: qsTr("Performance Monitor"); icon: "performance" }
+        // The headset's toast: pressing the row steps All -> Important -> Off
+        PrefRow {
+            objectName: "noticesRow"
+            title: qsTr("Notices")
+            valueText: settingsPage.noticeNames[settingsPage.noticeIndex()]
+            summary: qsTr("The small pop-ups in the headset. Important leaves out the display rate and 3D on/off and keeps mode changes and errors.")
+            onClicked: MlxrPrefs.notices = settingsPage.noticeValues[(settingsPage.noticeIndex() + 1) % settingsPage.noticeValues.length]
+        }
+
+        // ======== Performance monitor ========
+        PrefCategory { text: qsTr("Performance monitor"); icon: "performance" }
 
         PrefSwitch {
             objectName: "statsRow"
-            title: qsTr("Show performance stats while streaming")
-            summary: qsTr("Display real-time stream performance information while streaming") + " " +
-                     qsTr("(the headset's stats panel; also on its Display tab)")
+            title: qsTr("Stats")
+            summary: qsTr("The stats window in the headset while streaming.")
             isOn: MlxrPrefs.perfOverlay
             onSwitched: function(on) { MlxrPrefs.perfOverlay = on }
         }
@@ -2038,136 +2168,45 @@ Flickable {
             names: [qsTr("Full"), qsTr("HUD"), qsTr("Lite")]
         }
 
-        // The headset's toast: pressing the row steps All -> Important -> Off
-        PrefRow {
-            objectName: "noticesRow"
-            title: qsTr("Headset notices")
-            valueText: settingsPage.noticeNames[settingsPage.noticeIndex()]
-            summary: qsTr("The small pop-ups in the headset. Important leaves out the display rate and 3D on/off and keeps mode changes and errors.") + " " +
-                     qsTr("(also on its Display tab)")
-            onClicked: MlxrPrefs.notices = settingsPage.noticeValues[(settingsPage.noticeIndex() + 1) % settingsPage.noticeValues.length]
-        }
-
-        // The controllers' thumbstick wheel in the headset: pressing the row steps the speed
-        PrefRow {
-            objectName: "scrollSpeedRow"
-            title: qsTr("Headset scroll speed")
-            valueText: MlxrPrefs.scrollSpeed + "%"
-            summary: qsTr("How fast a controller's thumbstick scrolls in pointer mode. Tilt it sideways to scroll sideways.")
-            onClicked: MlxrPrefs.scrollSpeed = settingsPage.nextScrollSpeed()
-        }
-
-        // Native (lane wave4b-zoom, PLAN 4b.6): the zoom a stream starts at; pressing the row steps it
-        PrefRow {
-            objectName: "zoomRow"
-            title: qsTr("Zoom")
-            valueText: MlxrPrefs.zoom + "%"
-            summary: qsTr("How much of the picture fills the screen in the headset: 100% is all of it, 400% a quarter across and down. In the headset, bind zoom in, zoom out and zoom reset to a button, and aim at the part to zoom into; it remembers the zoom and the place for each app.")
-            onClicked: MlxrPrefs.zoom = settingsPage.nextLimit(settingsPage.zoomSteps, MlxrPrefs.zoom)
-        }
-
-        // Native (lane wave3-visual): the Picture tab's Background and Glow edge rows, the void's colour and
-        // the 3D eye balance. Pressing a row steps through its choices.
-        PrefRow {
-            objectName: "backgroundDimRow"
-            title: qsTr("Dim the surroundings")
-            valueText: MlxrPrefs.backgroundDim + "%"
-            summary: qsTr("How far the room, the passthrough cameras or the void are turned down, the picture itself not. 100% is black.") + " " +
-                     qsTr("(the headset's Picture tab has it too)")
-            onClicked: MlxrPrefs.backgroundDim = settingsPage.nextLimit(settingsPage.backgroundDimSteps, MlxrPrefs.backgroundDim)
-        }
-
-        PrefRow {
-            objectName: "glowFeatherRow"
-            title: qsTr("Glow edge")
-            valueText: settingsPage.glowFeatherNames[Math.max(0, settingsPage.glowFeatherValues.indexOf(MlxrPrefs.glowFeather))]
-            summary: qsTr("Fades the picture's outer edge into the glow around it so the screen has no hard border. Needs the glow on.") + " " +
-                     qsTr("(the headset's Picture tab has it too)")
-            onClicked: MlxrPrefs.glowFeather = settingsPage.nextLimit(settingsPage.glowFeatherValues, MlxrPrefs.glowFeather)
-        }
-
-        PrefRow {
-            objectName: "voidColorRow"
-            title: qsTr("Void colour")
-            valueText: MlxrPrefs.voidColor
-            summary: qsTr("The colour of the void environment, as on a web page: #rrggbb. Black draws nothing.")
-            onClicked: editDialog.show(title, qsTr("#rrggbb"), MlxrPrefs.voidColor,
-                                       "^\\s*#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\\s*$", function(t) {
-                MlxrPrefs.voidColor = "#" + t.trim().replace("#", "").toLowerCase()
-            })
-        }
-
-        PrefRow {
-            objectName: "eyeBalanceRow"
-            title: qsTr("3D eye balance")
-            valueText: MlxrPrefs.eyeBalance > 0 ? qsTr("Left eye %1%").arg(MlxrPrefs.eyeBalance)
-                     : MlxrPrefs.eyeBalance < 0 ? qsTr("Right eye %1%").arg(-MlxrPrefs.eyeBalance) : qsTr("Even")
-            summary: qsTr("How the 3D's shift is shared by the two eyes. Even moves each eye the same; at 100% only the left eye's picture moves and the right eye's is as streamed. The depth you see is the same at every setting. Useful with a dominant eye.")
-            onClicked: MlxrPrefs.eyeBalance = settingsPage.nextLimit(settingsPage.eyeBalanceSteps, MlxrPrefs.eyeBalance)
-        }
-
-        // The headset coming off: the sound mutes and the input is let go at once; after the time the stream
-        // is disconnected and the PC's app keeps running. Pressing a row steps through the choices.
-        PrefRow {
-            objectName: "doffRow"
-            title: qsTr("Disconnect when the headset is off")
-            valueText: settingsPage.limitText(MlxrPrefs.doffDisconnect, qsTr("second"), qsTr("seconds"))
-            summary: qsTr("How long the headset can stay off before the stream is disconnected. The app keeps running on the PC. Putting the headset back on sooner carries on.")
-            onClicked: MlxrPrefs.doffDisconnect = settingsPage.nextLimit(settingsPage.doffValues, MlxrPrefs.doffDisconnect)
-        }
-
-        PrefRow {
-            objectName: "idleRow"
-            title: qsTr("Disconnect when idle")
-            valueText: settingsPage.limitText(MlxrPrefs.idleDisconnect, qsTr("minute"), qsTr("minutes"))
-            summary: qsTr("Disconnect the stream after this long with no input from the controllers, hands, keyboard, mouse or pads. The app keeps running on the PC.")
-            onClicked: MlxrPrefs.idleDisconnect = settingsPage.nextLimit(settingsPage.idleValues, MlxrPrefs.idleDisconnect)
-        }
-
-        // ======== Advanced Settings ========
-        PrefCategory { text: qsTr("Advanced Settings"); icon: "advanced" }
+        // ======== Advanced settings ========
+        PrefCategory { text: qsTr("Advanced settings"); icon: "advanced" }
 
         PrefRow {
             objectName: "codecRow"
             title: qsTr("Change codec settings")
             valueText: settingsPage.codecEntries[settingsPage.codecIndex()].text
-            summary: qsTr("Newer codecs can lower video bandwidth requirements if your device supports them. Codec selections may be ignored if not supported by the host software or GPU.")
+            summary: qsTr("HEVC needs less bitrate than H.264 for the same picture. Automatic uses HEVC when the PC has it, else H.264.")
             onClicked: listDialog.show(title, settingsPage.codecEntries, settingsPage.codecIndex(), function(i) {
                 StreamingPreferences.videoCodecConfig = settingsPage.codecEntries[i].val
             })
         }
 
         PrefSwitch {
-            title: qsTr("Unlock all possible frame rates")
-            summary: qsTr("Streaming at 90 or 120 FPS may reduce latency on high-end devices but can cause lag or instability on devices that can't support it")
-            reason: qsTr("the VR client caps the frame rate at the headset's rate, set in SteamVR for this app (%1 Hz at most)").arg(MlxrPrefs.headsetMaxFps)
-            isOn: false
-        }
-
-        PrefSwitch {
-            title: qsTr("Force full range video (Experimental)")
-            summary: qsTr("This will cause loss of detail in light and dark areas if your device doesn't properly display full range video content.") +
-                     " " + qsTr("Hardware decoding only.")
+            objectName: "fullRangeRow"
+            title: qsTr("Force full range video (experimental)")
+            summary: qsTr("Asks the PC for full-range video instead of limited range. Hardware decoding only.")
             isOn: MlxrPrefs.fullRange
             onSwitched: function(on) { MlxrPrefs.fullRange = on }
         }
 
         PrefSwitch {
+            objectName: "swDecodeRow"
             title: qsTr("Force software decoding")
-            summary: qsTr("From Moonlight: decode on the CPU instead of the Frame's hardware decoder (slow; for troubleshooting)")
+            summary: qsTr("Decodes on the CPU instead of the Frame's hardware decoder. Slow; for troubleshooting.")
             isOn: StreamingPreferences.videoDecoderSelection === StreamingPreferences.VDS_FORCE_SOFTWARE
             onSwitched: function(on) {
                 StreamingPreferences.videoDecoderSelection = on ? StreamingPreferences.VDS_FORCE_SOFTWARE : StreamingPreferences.VDS_AUTO
             }
         }
 
-        // ======== MISC ========
-        PrefCategory { text: qsTr("MISC"); icon: "misc" }
+        // ======== Misc ========
+        PrefCategory { text: qsTr("Misc"); icon: "misc" }
 
         PrefRow {
+            objectName: "languageRow"
             title: qsTr("Language")
             valueText: settingsPage.languages[settingsPage.languageIndex()].text
-            summary: qsTr("Language to use for Moonlight XR")
+            summary: qsTr("The language of this window. The headset's menus have their own, below.")
             onClicked: {
                 var e = []
                 for (var i = 0; i < settingsPage.languages.length; i++) e.push({ text: settingsPage.languages[i].text, reason: "" })
@@ -2222,7 +2261,7 @@ Flickable {
             Layout.topMargin: 24
             Layout.leftMargin: 16
             Layout.rightMargin: 16
-            text: qsTr("The screen's place and each room's look are set in the headset's cog menu. All of the headset's settings are saved in %1.").arg(MlxrPrefs.configIniPath)
+            text: qsTr("Rows that are also in the headset's cog menu change the same setting. The screen's place and each room's look are set in the cog menu. The headset's settings are saved in %1.").arg(MlxrPrefs.configIniPath)
             font.pointSize: 9
             color: settingsPage.summaryColor
             wrapMode: Text.Wrap

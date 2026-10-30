@@ -181,30 +181,30 @@ QStringList hintsFor(const Facts& f, const Request& r, const QVector<App>& apps)
             }
         }
         if (r.clipboardSync && !((f.permission & kPermClipboardSet) && (f.permission & kPermClipboardRead))) {
-            h << QObject::tr("Smart Clipboard Sync is on, but %1 does not give this client the clipboard permissions "
+            h << QObject::tr("Smart clipboard sync is on, but %1 does not give this client the clipboard permissions "
                              "(Clipboard Set and Clipboard Read). Turn them on in Apollo's web page, Clients.").arg(pc);
         }
     }
     else if (r.clipboardSync && !f.apollo) {
-        h << QObject::tr("Smart Clipboard Sync is on, but %1 does not look like Apollo, which is the only host that has it.").arg(pc);
+        h << QObject::tr("Smart clipboard sync is on, but %1 does not look like Apollo, which is the only host that has it.").arg(pc);
     }
 
     // ---- the virtual display ----
     if (r.virtualDisplay) {
         if (!f.apollo) {
-            h << QObject::tr("Use Virtual Display is on, but %1 does not look like Apollo. Sunshine and GeForce Experience have no "
+            h << QObject::tr("Use virtual display is on, but %1 does not look like Apollo. Sunshine and GeForce Experience have no "
                              "virtual display, so the setting does nothing.").arg(pc);
         }
         else if (!f.paired) {
             // an answer over plain HTTP: Apollo does not say there whether it can make one
         }
         else if (!f.vdCapable) {
-            h << QObject::tr("Use Virtual Display is on, but Apollo on %1 says it cannot make a virtual display "
+            h << QObject::tr("Use virtual display is on, but Apollo on %1 says it cannot make a virtual display "
                              "(it needs Windows and Apollo's virtual display driver).").arg(pc);
         }
         else if (!f.vdReady) {
-            h << QObject::tr("Use Virtual Display is on, but Apollo's virtual display driver is not ready on %1. "
-                             "Repair or reinstall Apollo with the driver and restart the PC, or turn Use Virtual Display off.").arg(pc);
+            h << QObject::tr("Use virtual display is on, but Apollo's virtual display driver is not ready on %1. "
+                             "Repair or reinstall Apollo with the driver and restart the PC, or turn Use virtual display off.").arg(pc);
         }
     }
 
@@ -254,7 +254,7 @@ QStringList hintsFor(const Facts& f, const Request& r, const QVector<App>& apps)
             QString text = QObject::tr("%1x%2 is not one of the resolutions %3 lists (%4). It may be scaled or refused.")
                                .arg(r.width).arg(r.height).arg(pc, list);
             if (f.apollo && f.vdCapable) {
-                text += " " + QObject::tr("Use Virtual Display makes the PC match it.");
+                text += " " + QObject::tr("Use virtual display makes the PC match it.");
             }
             h << text;
         }

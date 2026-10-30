@@ -13,6 +13,7 @@ What it does:
 - Uses the Frame controllers as a mouse pointer or as an Xbox gamepad, and every button can be remapped (see [Controls](#controls)).
 - Forwards Bluetooth keyboards, mice and gamepads connected to the Frame.
 - Can stream over your Wi-Fi, over the Steam Frame Wireless Adapter or over a USB cable. **Automatic** measures every link that is there before each stream and picks the one with the lower latency and fewer losses.
+- Use VPN addresses only away from home (on by default): if your PC also has a VPN address (Tailscale, WireGuard, ZeroTier or similar), the headset uses it only when the PC does not answer on your home network, and it learns the PC's home address by itself.
 
 ## What this adds to Moonlight XR
 
@@ -35,11 +36,41 @@ Sean Gilleece's Moonlight XR is an Android app for headsets like the Quest. This
 
 The rooms, 3D mode, glow and virtual surround come from Moonlight XR and are kept.
 
+## Where the features come from
+
+Four projects meet here. [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) by Sean Gilleece is the in-headset app this one ports. [Moonlight](https://github.com/moonlight-stream) is the streaming client and protocol underneath. [Apollo](https://github.com/ClassicOldSong/Apollo) is a host for the PC, a fork of Sunshine with extra features; nothing of Apollo runs on the Frame, but some features here need it on the PC. [Artemis](https://github.com/ClassicOldSong/moonlight-android) is the Android Moonlight client by Apollo's author, ClassicOldSong; this client follows how Artemis asks Apollo for those features, and its Settings page follows Artemis's.
+
+| Source | What it gives this client |
+| --- | --- |
+| Moonlight XR (Sean Gilleece), ported from Java and OpenGL ES to C, Vulkan and OpenXR | The flat or curved screen and its rows (distance, height, tilt, rotate, curve, size), grabbing and moving it, the bar and the cog menu. The rooms (Home Theater, Grand Cinema, Synthwave), the black void and passthrough. The glow and the picture rows (brightness, contrast, gamma, saturation, Sharpen, Supersample). 2D to 3D with the ZipDepth and MiDaS depth models, with Depth and Convergence. Virtual surround. Pointer mode with the ray, the dot, pointer sleep and the click sound; head aim; the hand-tracking pinch click. Gamepad mode. The compact headset keyboard. The stats window. The headset's translations into 19 languages. The logo. |
+| Moonlight (moonlight-common-c, moonlight-qt 6.1.0) | The streaming protocol. The flat window: the PC list, adding a PC, pairing with a PIN, the app list, Resume and Quit, Wake-on-LAN, and the PCs and pairing imported from the Moonlight flatpak. The stream settings kept under Moonlight's own names (resolution, refresh rate, bitrate, codec, surround sound, Optimize game settings, Play audio on PC, software decoding, the window's language). Frame pacing and the disconnect chords. |
+| Artemis (followed) | The Settings page's categories, row names and descriptions. Video frame pacing's three choices, Ultra low latency, Quick resume, the analog stick dead zone, Flip face buttons, Gamepad as mouse, stream settings profiles. How the Apollo features below are asked for. |
+| Needs an Apollo host | **Use virtual display** and **Resolution scale factor**; a refresh rate with decimals such as 59.94 (**Custom...**); **Smart clipboard sync**; the Host sheet's **Paste from PC**, **Send text to PC** and server commands; starting an app by its UUID; the permission part of **Check the PC before streaming**. |
+| New for the Steam Frame: platform and network | A native Linux Arm64 program on OpenXR and Vulkan, decoding H.264 and HEVC on the Frame's hardware decoder with no copy to the GPU. **Match headset** and 72 to 144 Hz, set in SteamVR before the stream. **Network connection** (Wi-Fi, Steam Frame Wireless Adapter, USB cable, **Automatic**) with a bitrate for each, switching links when video keeps breaking up, and VPN addresses only away from home. Reconnecting after a drop; disconnecting when the headset is off or idle. |
+| New for the Steam Frame: picture and 3D | **3D source** (side by side or top-bottom from the PC), Full-size SBS, 3D edge, motion reset, depth detail, depth shape and eye balance. Sharper small text and coloured text, zoom and pan, screen presets, Bring here, Remember per app, Follow, Angular-size lock, Background dim, Glow edge, Void colour. |
+| New for the Steam Frame: controls | Steam Frame controller models built from SteamVR's own files, the Gun and lightgun mode, controller bindings for every button with an editor, Click steadiness, Relative mouse, the head turning a first-person game's camera, opentrack head tracking, gyro from the headset, Bluetooth and USB gamepads passed through with rumble, gyro, touchpad and light bar, the gamepad card. The full keyboard, AZERTY and QWERTZ, media keys. The Host sheet with your own macros. The Accessibility tab: pointing with the head or the eyes, Dwell click, Dot size, Headset button clicks. |
+| New for the Steam Frame: menus and flat window | Notices, the HUD and Lite stats, the battery and slow-connection badge, the first-run card, Headset language. The Settings page's Connection rows and headset rows, search and jump list, Check the PC before streaming, On start, the update check. The installer, the Steam shortcut and artwork, and the bug report tool. |
+
+### How it works with Apollo
+
+The client knows a PC is Apollo by what the PC reports about itself (its virtual display and permission fields, or its server commands), not by a version number, so a fork of Apollo that keeps those works the same way. It asks for Apollo's features with extra fields in the launch request (virtual display, scale factor, a refresh rate with decimals, the app's UUID), an HTTPS call for the clipboard, and one control-stream message for a server command.
+
+On the PC, in Apollo's web UI:
+
+- **Clients**: Apollo gives each paired client its own permissions. The first client paired gets all of them; one paired later gets only List Apps and View Streams. For the Frame, turn on **Launch Apps**, the input permissions (**Controller**, **Mouse**, **Keyboard**), **Clipboard Read** and **Clipboard Set** for the clipboard, and **Server Command** for server commands.
+- **Virtual display**: Apollo on Windows with its virtual display driver installed. A **Display Mode Override** on the client's entry or **Always create virtual display** (Apollo 0.3.7 and later) change how it is made; see [Apollo on the PC: recipes](docs/USER_GUIDE.md#apollo-on-the-pc-recipes).
+- **Clipboard**: Apollo 0.2.4 or later, text only, while the Frame is streaming.
+- **Server commands**: Configuration, General, Server Commands (a name, a command, and whether it runs elevated). Up to eight show on the Host sheet; see [Clipboard and PC commands](docs/USER_GUIDE.md#clipboard-and-pc-commands-apollo).
+
+**Check the PC before streaming** (on by default) reads this client's permissions and the virtual display's state just before each stream and says what is missing.
+
+With Sunshine everything else works the same: streaming, pairing, apps, every headset feature. The Apollo fields are sent and ignored, so there is no virtual display and no scale factor; the Host sheet's PC page dims its cells and says "Not supported by this host"; and Check the PC before streaming says when a setting needs Apollo.
+
 ## Status
 
 Version 1.1.0 is the current stable build. 1.0.0 was the first. It has been used on one Steam Frame (SteamOS 0.4.5, SteamVR 2.18) against one Windows PC with Sunshine and Apollo.
 
-The 1.1.0 build went through the full headset checklist on 30 October 2026, and everything tested there worked, except eye tracking, which did not reach the app on that Frame (the cause is under investigation). The cog's Accessibility tab shows whether SteamVR provides eye tracking, and offers the eyes as a pointer only then. The USB cable connection was not tried. The [changelog](docs/CHANGELOG.md) lists everything new in 1.1.0; the [1.0.0 release notes](docs/RELEASE_NOTES_v1.0.0.md) describe the first release.
+The 1.1.0 build went through the full headset checklist on 30 October 2026, and everything tested there worked except eye tracking. That is fixed since: the app now asks SteamVR for eye tracking whenever it is offered, and eye gaze reaches it on the Steam Frame from the Accessibility tab (checked with a gaze probe on 30 October 2026). The USB cable connection was not tried. The [changelog](docs/CHANGELOG.md) lists everything new in 1.1.0; the [1.0.0 release notes](docs/RELEASE_NOTES_v1.0.0.md) describe the first release.
 
 ## Requirements
 
@@ -137,7 +168,7 @@ The bar under the screen shows its buttons while the ray is over it. From left t
 | 3D | Turns 3D on or off (shown when 3D can run). |
 | Host | Opens the Host sheet: Esc, Win, Alt+Enter and other keys, and your own macros. |
 
-The cog menu's **Accessibility** tab (early) lets you point with your head and click by resting the dot, with your eyes too when SteamVR provides eye tracking.
+The cog menu's **Accessibility** tab (early) has **Pointer** (Controller, Head, Eyes), **Dwell click**, **Dot size** and **Headset button clicks**; eye tracking works on the Steam Frame. <!-- pending lane: radial dwell -->
 
 To change what a button does, edit `~/.config/moonlight-xr/bindings.ini` or use the flat window's **Controller bindings** page ([BINDINGS.md](docs/BINDINGS.md)); the mode switch, the disconnect chord and the grips' grab cannot be changed.
 
@@ -145,7 +176,7 @@ To change what a button does, edit `~/.config/moonlight-xr/bindings.ini` or use 
 
 Download the new tarball, unpack it and run `./install.sh` again. Your settings, your pairing and the Steam shortcut are kept.
 
-The flat window checks once a day whether a newer release is out and then shows an update button at the top that opens its release page. It asks GitHub only, sends nothing about you or your headset, and downloads nothing. Turn it off with **Check for updates** in Settings (General Settings).
+The flat window checks once a day whether a newer release is out and then shows an update button at the top that opens its release page. It asks GitHub only, sends nothing about you or your headset, and downloads nothing. Turn it off with **Check for updates** in Settings (General settings).
 
 ## Uninstall
 
