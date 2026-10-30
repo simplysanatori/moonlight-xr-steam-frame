@@ -396,24 +396,6 @@ if [ -n "$SHOTS" ]; then
     grep -q '^glow = true$' "$ini" && grep -q '^separation = 9$' "$ini" && grep -q '^stereo = false$' "$ini" && ok "other config.ini keys untouched" || { fail "config.ini keys changed"; diff "$t/ini.before" "$ini"; }
     grep -q -i hdr "$ini" && fail "greyed HDR row changed something" || ok "greyed HDR row is inert"
     grep -q "MLXR_LAUNCHER_WIFI: Wi-Fi$" "$t/ui6.out" && ok "Network connection: plain Wi-Fi when unknown" || fail "wifi fallback: $(grep MLXR_LAUNCHER_WIFI "$t/ui6.out")"
-    # lane wave3-visual: the surroundings rows (Picture tab's Background and Glow edge, 3D eye balance) step
-    # from the file's values and write only their keys; the void colour is read as typed and kept
-    printf '[vr]\nvoid_color = #204060\n\n[3d]\nseparation = 9\n' > "$ini"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=backgroundDimRow,backgroundDimRow,glowFeatherRow,eyeBalanceRow,eyeBalanceRow \
-        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-surroundings.png@3000" "$L" >"$t/ui6b.out" 2>&1
-    grep -q "no clickable" "$t/ui6b.out" && fail "surroundings click hook: $(grep 'no clickable' "$t/ui6b.out")"
-    grep -Eq "$QMLERR" "$t/ui6b.out" && { fail "surroundings QML errors"; grep -E "$QMLERR" "$t/ui6b.out" | head; } || ok "surroundings rows load (no QML errors)"
-    grep -A4 '^\[vr\]' "$ini" | grep -q '^background_dim = 50$' && ok "background row steps 0 to 25 to 50 and writes [vr] background_dim" || { fail "background_dim not written"; cat "$ini"; }
-    grep -A2 '^\[display\]' "$ini" | grep -q '^glow_feather = soft$' && ok "glow edge row steps Off to Soft and writes [display] glow_feather" || { fail "glow_feather not written"; cat "$ini"; }
-    grep -A4 '^\[3d\]' "$ini" | grep -q '^eye_balance = 100$' && ok "eye balance row steps 0 to 50 to 100 and writes [3d] eye_balance" || { fail "eye_balance not written"; cat "$ini"; }
-    grep -q '^void_color = #204060$' "$ini" && grep -q '^separation = 9$' "$ini" && ok "void colour and the other keys untouched" || { fail "void_color or separation changed"; cat "$ini"; }
-    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
-        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
-        expect "VR client reads background_dim" "$dump" "vr.background_dim = 50"
-        expect "VR client reads void_color" "$dump" "vr.void_color = #204060"
-        expect "VR client reads glow_feather" "$dump" "display.glow_feather = soft"
-        expect "VR client reads eye_balance" "$dump" "3d.eye_balance = 100"
-    fi
     # lane wave4c-usb: the USB cable row. A fake /sys/class/net: usb0 with carrier, a wired port without
     mkdir -p "$t/netroot/usb0" "$t/netroot/eth0"
     echo 1 > "$t/netroot/usb0/carrier"; echo 0 > "$t/netroot/eth0/carrier"
@@ -435,6 +417,24 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads controller_model" "$dump" "vr.controller_model = frame"
         expect "VR client reads doff_disconnect" "$dump" "stream.doff_disconnect = 120"
         expect "VR client reads idle_disconnect" "$dump" "stream.idle_disconnect = 10"
+    fi
+    # lane wave3-visual: the surroundings rows (Picture tab's Background and Glow edge, 3D eye balance) step
+    # from the file's values and write only their keys; the void colour is read as typed and kept
+    printf '[vr]\nvoid_color = #204060\n\n[3d]\nseparation = 9\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=backgroundDimRow,backgroundDimRow,glowFeatherRow,eyeBalanceRow,eyeBalanceRow \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-surroundings.png@3000" "$L" >"$t/ui6b.out" 2>&1
+    grep -q "no clickable" "$t/ui6b.out" && fail "surroundings click hook: $(grep 'no clickable' "$t/ui6b.out")"
+    grep -Eq "$QMLERR" "$t/ui6b.out" && { fail "surroundings QML errors"; grep -E "$QMLERR" "$t/ui6b.out" | head; } || ok "surroundings rows load (no QML errors)"
+    grep -A4 '^\[vr\]' "$ini" | grep -q '^background_dim = 50$' && ok "background row steps 0 to 25 to 50 and writes [vr] background_dim" || { fail "background_dim not written"; cat "$ini"; }
+    grep -A2 '^\[display\]' "$ini" | grep -q '^glow_feather = soft$' && ok "glow edge row steps Off to Soft and writes [display] glow_feather" || { fail "glow_feather not written"; cat "$ini"; }
+    grep -A4 '^\[3d\]' "$ini" | grep -q '^eye_balance = 100$' && ok "eye balance row steps 0 to 50 to 100 and writes [3d] eye_balance" || { fail "eye_balance not written"; cat "$ini"; }
+    grep -q '^void_color = #204060$' "$ini" && grep -q '^separation = 9$' "$ini" && ok "void colour and the other keys untouched" || { fail "void_color or separation changed"; cat "$ini"; }
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads background_dim" "$dump" "vr.background_dim = 50"
+        expect "VR client reads void_color" "$dump" "vr.void_color = #204060"
+        expect "VR client reads glow_feather" "$dump" "display.glow_feather = soft"
+        expect "VR client reads eye_balance" "$dump" "3d.eye_balance = 100"
     fi
     # MLXR_HANDOFF=0: the stock probe runs again
     MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1
