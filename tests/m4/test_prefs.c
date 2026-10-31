@@ -865,17 +865,51 @@ static void pointerSmoothing(void) {
 static void pathBitrates(void) {
     Settings s;
     settings_defaults(&s);
-    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIFI, 98000) == 98000);      // no override anywhere: the launcher's
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIFI, 98000, 2560, 1440, 90, NULL, 0) == 98000);   // no override anywhere: the launcher's
     s.bitrate_wifi = 60000;
     s.bitrate_adapter = 150000;
-    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIFI, 98000) == 60000);
-    CHECK(xrStreamBitrate(&s, MLXR_ABR_ADAPTER, 98000) == 150000);
-    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIRED, 98000) == 98000);     // that path has none
-    CHECK(xrStreamBitrate(&s, MLXR_ABR_UNKNOWN, 98000) == 98000);   // no path chosen: none applies
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIFI, 98000, 2560, 1440, 90, NULL, 0) == 60000);
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_ADAPTER, 98000, 2560, 1440, 90, NULL, 0) == 150000);
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIRED, 98000, 2560, 1440, 90, NULL, 0) == 98000);     // that path has none
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_UNKNOWN, 98000, 2560, 1440, 90, NULL, 0) == 98000);   // no path chosen: none applies
+}
+
+// Native (lane flat-input): 300 Mbps from each place it can be set survives config.ini's parser and the start decision,
+// to the figure the stream's configuration carries (app/main.c: cfg.bitrate = xrStreamBitrate(...)); the owner saw
+// nothing above 150 Mbps
+static void bitrate300(void) {
+    Settings s;
+    char why[128];
+    // --bitrate 300000 (the flat launcher's Video bitrate slider or its Custom bitrate row)
+    settings_defaults(&s);
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIFI, 300000, 2560, 1440, 90, why, sizeof(why)) == 300000);
+    CHECK(strcmp(why, "the flat launcher's Video bitrate (--bitrate)") == 0);
+    // config.ini [stream] bitrate_kbps = 300000, no --bitrate
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    settings_from_text(&s, "[stream]\nbitrate_kbps = 300000\n", &info);
+    CHECK(info.clamped == 0);
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIRED, 0, 2560, 1440, 90, why, sizeof(why)) == 300000);
+    CHECK(strcmp(why, "config.ini [stream] bitrate_kbps") == 0);
+    // a connection's row: [stream] bitrate_wifi = 300000, over Wi-Fi, whatever --bitrate says
+    settings_defaults(&s);
+    settings_from_text(&s, "[stream]\nbitrate_wifi = 300000\nbitrate_usb = 450000\n", &info);
+    CHECK(info.clamped == 0 && s.bitrate_wifi == 300000);
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIFI, 98000, 2560, 1440, 90, why, sizeof(why)) == 300000);
+    CHECK(strcmp(why, "config.ini [stream] bitrate_wifi (Bitrate over Wi-Fi)") == 0);
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_USB, 98000, 2560, 1440, 90, NULL, 0) == 450000);
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_ADAPTER, 98000, 2560, 1440, 90, NULL, 0) == 98000);
+    // nothing set: the default curve (which alone stops at 150 Mbps)
+    settings_defaults(&s);
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIFI, 0, 2560, 1440, 90, why, sizeof(why)) == settings_default_bitrate_kbps(2560, 1440, 90));
+    CHECK(strcmp(why, "the default for this resolution and frame rate") == 0);
+    // above the 500 Mbps cap: held there
+    CHECK(xrStreamBitrate(&s, MLXR_ABR_WIFI, 900000, 2560, 1440, 90, NULL, 0) == 500000);
 }
 
 int main(void) {
     pathBitrates();
+    bitrate300();
     pointerSmoothing();
     roundTripDefaults();
     roundTripChanged();

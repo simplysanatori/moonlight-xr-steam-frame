@@ -1204,11 +1204,12 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     StreamHost host = { g_job.si.address, g_job.si.serverInfoAppVersion, g_job.si.serverInfoGfeVersion,
                         g_job.si.rtspSessionUrl, g_job.si.serverCodecModeSupport };
     mlxr_fill_stream_config(&g_job.cfg, &lp);
-    int bitrate = g_args.bitrate > 0 ? g_args.bitrate : settings_default_bitrate_kbps(w, h, fps);
-    if (!g_args.bitrate && g_settings.bitrate_kbps > 0) bitrate = settings_bitrate_kbps(&g_settings);
-    // Native (lane wave4b-abr): the bitrate for the network path this stream goes over, if that path has its own
-    bitrate = xrStreamBitrate(&g_settings, mlxr_net_kind_for_address(n->address[pc]), bitrate);
-    g_job.cfg.bitrate = bitrate;
+    // Native (lane wave4b-abr, flat-input): the network path's own bitrate, else --bitrate, else [stream] bitrate_kbps,
+    // else the default; logged with where it came from, which the stream's start line repeats
+    char bitrateWhy[128];
+    g_job.cfg.bitrate = xrStreamBitrate(&g_settings, mlxr_net_kind_for_address(n->address[pc]), g_args.bitrate, w, h, fps,
+                                        bitrateWhy, sizeof(bitrateWhy));
+    stream_set_bitrate_source(bitrateWhy);
     g_job.cfg.packetSize = 1392;
     g_job.cfg.streamingRemotely = STREAM_CFG_AUTO;
     if (g_args.packetSize > 0) {
@@ -1233,7 +1234,7 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     stream_set_hw_decode(!g_args.swDecode);
     n->streamPc = pc;
     n->streamApp = appId;
-    MLOG_I("stream: %dx%d %d fps, %d kbps, %s", w, h, fps, bitrate, h264Only ? "H.264" : "H.264/HEVC");
+    MLOG_I("stream: %dx%d %d fps, %d kbps, %s", w, h, fps, g_job.cfg.bitrate, h264Only ? "H.264" : "H.264/HEVC");
     // Native (lane artemis-settings)
     MLOG_I("stream options: sops %d, audio on PC %d, %s range, virtual display %d, scale factor %d, rate x1000 %d%s",
            lp.sops, lp.local_audio, g_job.cfg.colorRange == COLOR_RANGE_FULL ? "full" : "limited", lp.virtual_display,
