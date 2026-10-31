@@ -23,12 +23,15 @@
 # soname in $BUILD/lib (CMake links it to the bundle) goes in as a regular file under that name, not a
 # symlink (some zip unpackers turn symlinks into small text files). A build without the bundle is
 # refused unless NO_BUNDLE=1 (CI's build check on Ubuntu, which is not for the Frame).
-# A release must carry the flat launcher (build-launcher/, launcher/build.sh); ALLOW_NO_LAUNCHER=1 makes a
+# A release must carry the flat launcher ($LAUNCHER_BUILD, default build-launcher/, from launcher/build.sh);
+# ALLOW_NO_LAUNCHER=1 makes a
 # test tarball without it (CI), which is not for publishing.
-# Environment: BUILD (default build), OUT, NO_VERIFY, NO_BUNDLE, ALLOW_NO_LAUNCHER.
+# Environment: BUILD (default build), LAUNCHER_BUILD (default build-launcher), OUT, NO_VERIFY, NO_BUNDLE,
+# ALLOW_NO_LAUNCHER.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 BUILD="${BUILD:-build}"
+LAUNCHER_BUILD="${LAUNCHER_BUILD:-build-launcher}"
 OUT="${OUT:-$HOME/Games/MoonlightXRNative/releases}"
 for b in "$BUILD/moonlight-xr" "$BUILD/backend/mlxr-cli" "$BUILD/input/mlxr-gamepad-probe"; do
     [ -x "$b" ] || { echo "missing $b: run ./build.sh first"; exit 1; }
@@ -54,13 +57,13 @@ strip_to "$BUILD/backend/mlxr-cli" "$ROOT/app/mlxr-cli"
 strip_to "$BUILD/input/mlxr-gamepad-probe" "$ROOT/app/mlxr-gamepad-probe"
 install -m755 packaging/moonlight-xr.sh "$ROOT/app/moonlight-xr.sh"
 # The flat Moonlight UI (patched moonlight-qt), when built (launcher/build.sh)
-if [ -x build-launcher/moonlight-xr-launcher ]; then
-    strip_to build-launcher/moonlight-xr-launcher "$ROOT/app/moonlight-xr-launcher"
+if [ -x "$LAUNCHER_BUILD/moonlight-xr-launcher" ]; then
+    strip_to "$LAUNCHER_BUILD/moonlight-xr-launcher" "$ROOT/app/moonlight-xr-launcher"
     install -m755 launcher/moonlight-xr-launcher.sh "$ROOT/app/moonlight-xr-launcher.sh"
 elif [ "${ALLOW_NO_LAUNCHER:-0}" = 1 ]; then
     echo "warning: ALLOW_NO_LAUNCHER=1: no flat launcher in this tarball (a test build, not a release)"
 else
-    echo "no build-launcher/moonlight-xr-launcher: a release must carry the flat launcher (launcher/build.sh)."
+    echo "no $LAUNCHER_BUILD/moonlight-xr-launcher: a release must carry the flat launcher (launcher/build.sh)."
     echo "ALLOW_NO_LAUNCHER=1 makes a test tarball without it (CI's build checks)."
     exit 1
 fi
