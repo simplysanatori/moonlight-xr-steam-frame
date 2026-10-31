@@ -70,7 +70,7 @@ static void test_defaults(void) {
     CHECK(geti(&s, "file_log") == FILE_LOG_BASIC);
     // the panel's rows
     CHECK(geti(&s, "head_locked") == 0);
-    CHECK(geti(&s, "sharpening") == 0);      // native: off (upstream quality)
+    CHECK(geti(&s, "sharpening") == 1);      // native: normal (upstream quality)
     CHECK(geti(&s, "supersampling") == 1);   // native: normal (upstream off)
     CHECK(geti(&s, "picture_filter") == 1);  // native (lane text-clarity): on, by measurement
     CHECK(geti(&s, "chroma_from_luma") == 1);
@@ -480,6 +480,14 @@ static void test_cog_tab(void) {
     CHECK(s.cog_tab == COG_TAB_PICTURE);
     settings_from_text(&s, "[display]\ncog_tab = about\n", &info);
     CHECK(s.cog_tab == COG_TAB_ABOUT);
+    // native (lane a11y-tab): the Accessibility tab, kept by name like the others
+    settings_from_text(&s, "[display]\ncog_tab = accessibility\n", &info);
+    CHECK(s.cog_tab == COG_TAB_ACCESS && info.bad == 0);
+    {
+        char* t = settings_to_text(&s);
+        CHECK(t != NULL && strstr(t, "\ncog_tab = accessibility\n") != NULL);
+        free(t);
+    }
     settings_from_text(&s, "[display]\ncog_tab = 1\n", &info);   // an index works too
     CHECK(s.cog_tab == COG_TAB_DISPLAY);
     settings_from_text(&s, "[display]\ncog_tab = sound\n", &info);   // not a tab: the last good one stays
@@ -682,6 +690,51 @@ static void test_pointer_source(void) {
 // without them, every other setting moved off its default (many times over, as the round trip does),
 // an unreadable value and the launcher's numbers all leave the pointer on the controllers and the
 // dwell off, and settings_clamp never makes them.
+// Native (lane a11y-2): the head and eye pointer's dot size, percent: 100 by default, held to 50..300,
+// through config.ini
+static void test_assist_dot_size(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.assist_dot_size == 100);
+    const SettingDesc* d = settings_find("assist_dot_size");
+    CHECK(d != NULL && settings_is_default(&s, d));
+    settings_from_text(&s, "[vr]\nassist_dot_size = 175\n", &info);
+    CHECK(s.assist_dot_size == 175);
+    settings_from_text(&s, "[vr]\nassist_dot_size = 900\n", &info);
+    CHECK(s.assist_dot_size == 300);
+    settings_from_text(&s, "[vr]\nassist_dot_size = 10\n", &info);
+    CHECK(s.assist_dot_size == 50);
+    s.assist_dot_size = 225;
+    char* text = settings_to_text(&s);
+    Settings back;
+    settings_defaults(&back);
+    settings_from_text(&back, text ? text : "", &info);
+    CHECK(back.assist_dot_size == 225);
+    free(text);
+}
+
+// Native (lane radial-dwell): the dwell's style, simple unless the file says radial
+static void test_assist_dwell_style(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.assist_dwell_style == DWELL_STYLE_SIMPLE);
+    const SettingDesc* d = settings_find("assist_dwell_style");
+    CHECK(d != NULL && settings_is_default(&s, d));
+    settings_from_text(&s, "[vr]\nassist_dwell_style = radial\n", &info);
+    CHECK(s.assist_dwell_style == DWELL_STYLE_RADIAL);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "assist_dwell_style = radial") != NULL);
+    free(text);
+    settings_from_text(&s, "[vr]\nassist_dwell_style = simple\n", &info);
+    CHECK(s.assist_dwell_style == DWELL_STYLE_SIMPLE);
+    // nothing else in the file turns it on: every other key at its most
+    settings_from_text(&s, "[vr]\npointer_source = head\nhead_dwell_ms = 600\nassist_dot_size = 300\n"
+                           "assist_headset_button = true\n", &info);
+    CHECK(s.assist_dwell_style == DWELL_STYLE_SIMPLE);
+}
+
 static void test_head_point_never_by_itself(void) {
     Settings s;
     SettingsLoadInfo info;
@@ -1065,7 +1118,7 @@ static void test_sliders(void) {
     settings_defaults(&s);
     SessionToggles t;
     session_from_settings(&s, &t);
-    CHECK(settings_option_cell(&s, &t, COG_OPTION_SHARPEN) == 0);
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_SHARPEN) == 1);   // native: normal
     CHECK(settings_option_cell(&s, &t, COG_OPTION_SUPERSAMPLE) == 1);
     CHECK(settings_option_cell(&s, &t, COG_OPTION_STATS) == 0);
     CHECK(settings_option_cell(&s, &t, COG_OPTION_GAMEPAD) == 0);   // every session starts as the pointer
@@ -1446,6 +1499,8 @@ int main(void) {
     test_opentrack();
     test_pointer_source();
     test_head_point_never_by_itself();
+    test_assist_dot_size();
+    test_assist_dwell_style();
     test_mouse_mode_back_as_guide();
     test_controller_model();
     test_cog_tab();

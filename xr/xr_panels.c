@@ -44,7 +44,10 @@
 #define MLXR_VERSION "dev"
 #endif
 
-#define KEY_MAX 2048
+// Native (lane a11y-2): room for the cog's key, which holds the whole Settings (near 3 KB): at
+// 2048 the key was cut inside the settings, so the tab, the hover and the rest after them never
+// asked for a redraw on their own (CogKey's assert below)
+#define KEY_MAX 4096
 
 // ---- a panel drawing, as the worker gets it ------------------------------------------
 
@@ -695,6 +698,8 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->exit_question = ctx->launcher != LAUNCHER_NONE ? ui_str(UIS_NATIVE_EXIT_APP) : NULL;
     v->exit_disconnect = exitPromptHasDisconnect(ctx);
     v->pad = ctx->padLive;   // Native (lane wave3-cards): the pad card, and the first-run card's wording
+    v->access_eyes = xrAccessEyes(ctx);   // Native (lane a11y-tab): the Accessibility tab's eye line
+    v->access_row = xrAccessHoverRow(ctx);   // Native (lane a11y-2): and the row its footer describes
 }
 
 // What the ray is on in the settings panel, as lane U's hover
@@ -731,7 +736,10 @@ typedef struct {
     int tab, curveOk, stereoOk, showAim, roomEnv;
     UiHover hover;
     unsigned later;
+    int accessEyes;
+    int accessRow;
 } CogKey;
+_Static_assert(sizeof(CogKey) <= KEY_MAX, "the cog's key is compared whole");
 
 static void updateCog(XrCtx* ctx, XrPanels* p, const UiView* base) {
     if (!ctx->cogOpen && ctx->panelFades[FADE_COG].level <= 0.0f) {
@@ -750,6 +758,8 @@ static void updateCog(XrCtx* ctx, XrPanels* p, const UiView* base) {
     k.roomEnv = v.room_env;
     k.hover = v.hover;
     k.later = v.display_later;
+    k.accessEyes = v.access_eyes;
+    k.accessRow = v.access_row;
     if (!keyChanged(p, UI_PANEL_COG, &k, sizeof(k))) {
         return;
     }
@@ -847,7 +857,7 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
     for (int i = 0; i < k.count; i++) {
         snprintf(k.names[i], sizeof(k.names[i]), "%s", ctx->macros.macro[i].name);
     }
-    if (k.confirm >= 0 && k.confirm != XR_HOST_CONFIRM_PCVR && k.page == XR_HOST_PAGE_PC) {
+    if (k.confirm >= 0 && k.page == XR_HOST_PAGE_PC) {
         // a command: its name is the question
         int n = k.confirm - XR_HOST_PC_CMD_FIRST;
         if (n >= 0 && n < XR_HOST_CMD_SLOTS) {
@@ -871,11 +881,9 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
         v.hover.a = k.zone;
     }
     else if (k.zone == XR_HOST_ZONE_CLOSE || k.zone == XR_HOST_ZONE_CONFIRM_SEND
-             || k.zone == XR_HOST_ZONE_CONFIRM_CANCEL || k.zone == XR_HOST_ZONE_PCVR
-             || k.zone == XR_HOST_ZONE_PAGE) {
+             || k.zone == XR_HOST_ZONE_CONFIRM_CANCEL || k.zone == XR_HOST_ZONE_PAGE) {
         v.hover.kind = UI_HIT_BUTTON;
         v.hover.a = k.zone == XR_HOST_ZONE_CLOSE ? UI_BTN_HOST_CLOSE
-                  : k.zone == XR_HOST_ZONE_PCVR ? UI_BTN_HOST_PCVR
                   : k.zone == XR_HOST_ZONE_PAGE ? UI_BTN_HOST_PAGE
                   : k.zone == XR_HOST_ZONE_CONFIRM_SEND ? UI_BTN_HOST_CONFIRM : UI_BTN_HOST_CANCEL;
     }
@@ -887,7 +895,7 @@ static void updateHost(XrCtx* ctx, XrPanels* p, const UiView* base) {
     snprintf(v.host_confirm_label, sizeof(v.host_confirm_label), "%s", k.label);
     v.host_page = k.page;
     v.host_info = k.info;
-    v.host_confirm_cmd = k.page == XR_HOST_PAGE_PC && k.confirm != XR_HOST_CONFIRM_PCVR;
+    v.host_confirm_cmd = k.page == XR_HOST_PAGE_PC;
     PanelJob j;
     jobPanel(&j, UI_PANEL_HOST, &v);
     submit(ctx, p, &j);

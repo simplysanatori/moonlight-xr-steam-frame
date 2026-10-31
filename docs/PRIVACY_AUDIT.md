@@ -11,7 +11,7 @@ Every tracked file outside `third_party/` (524 files): source, tests and fixture
 | Category | Looked for |
 | --- | --- |
 | Names and accounts | Fragments of the previous owner identity and account names, e-mail addresses |
-| Network | The owner's PC host name, the client host name fixture, home LAN addresses, Frame hotspot (adapter link) addresses, the Tailscale address, the public IP, MAC addresses, the Frame's access point name, Wi-Fi names and bands in log excerpts |
+| Network | The owner's PC host name, the client host name fixture, home LAN addresses, Frame hotspot (adapter link) addresses, VPN addresses, the public IP, MAC addresses, the Frame's access point name, Wi-Fi names and bands in log excerpts |
 | Ids and secrets | The host UUID, the Moonlight client unique id, the Steam user id, serial numbers, device and driver UUIDs in probe dumps, session cookies, access tokens (`ghp_`, `github_pat_`, `sk-` and similar), API keys, private keys and certificates, certificate fingerprints, the SteamGridDB key path |
 | Paths and devices | Home directories other than the default `/home/steamos`, personal folder names, device models (keyboard, router) |
 | Git history | Tokens and keys in `git log -p` |
@@ -25,7 +25,7 @@ Every tracked file outside `third_party/` (524 files): source, tests and fixture
 | Client host name fixture | 3 lines, 1 file | `GAMING-PC` |
 | Home LAN addresses | 53 lines, 15 files | 192.168.1.x placeholders |
 | Hotspot addresses | 24 lines, 4 files | 10.35.50.x placeholders |
-| Tailscale address | 13 lines, 8 files | 100.64.0.5 |
+| VPN addresses | 13 lines, 8 files | 100.64.0.5 |
 | Public IP | 6 lines, 2 files | 203.0.113.50 (documentation range) |
 | Host UUID | 17 lines, 10 files | a made-up UUID |
 | PC MAC address | 9 lines, 8 files | a locally administered placeholder MAC |

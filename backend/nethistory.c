@@ -177,8 +177,15 @@ bool mlxr_nethist_record_stream(const char *dir, const char *address, uint64_t f
     if (!dir || !address || frames + lost < MLXR_NETHIST_MIN_FRAMES) return false;
     mlxr_netifs t;
     mlxr_netifs_read(&t);
-    mlxr_net_path p = mlxr_net_classify(&t, address, NULL);
+    const mlxr_netif *via = NULL;
+    mlxr_net_path p = mlxr_net_classify(&t, address, &via);
     if (p == MLXR_PATH_NONE) return false;
+    /* Native (lane vpn-fallback): a stream over a VPN address says nothing about the home link it would be filed
+     * under; it is left out */
+    char rif[16] = "";
+    if (mlxr_net_addr_is_vpn(address, via ? via->name : NULL, NULL) ||
+        (mlxr_net_route_ifname(&t, address, rif, sizeof rif) && mlxr_net_ifname_is_vpn(rif)))
+        return false;
     mlxr_nethist_entry e = { true, frames, lost, jitter_ms < 0 ? 0 : jitter_ms, rtt_ms < 0 ? 0 : rtt_ms,
                              now_s ? now_s : (int64_t)time(NULL) };
     return mlxr_nethist_record(dir, mlxr_net_hist_index(p), &e);

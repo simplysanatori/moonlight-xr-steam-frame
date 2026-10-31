@@ -1,4 +1,4 @@
-// The settings panel: five tabs (Screen, Display, 3D, Picture, About) and the
+// The settings panel: six tabs (Screen, Display, 3D, Picture, Accessibility, About) and the
 // Room tab that takes the Screen tab's place in a room. XrPanels.buildCogSheet
 // and its drawCog* helpers, with the things upstream puts on separate quads
 // (thumbs, the Display tab's marks, the Room/Picture/Screen readouts, the
@@ -142,21 +142,26 @@ static void line_fit_center(Dc* dc, float size, float x, float baseline, float r
 
 static void chrome(Dc* dc, int tab, int in_room) {
     dc_sheet(dc, 32.0f, 0xF0141416u);
-    static const UiStr TABS[COG_TAB_COUNT] = { UIS_TAB_SCREEN, UIS_TAB_DISPLAY, UIS_TAB_3D, UIS_TAB_PICTURE, UIS_TAB_ABOUT };
+    static const UiStr TABS[COG_TAB_COUNT] = { UIS_TAB_SCREEN, UIS_TAB_DISPLAY, UIS_TAB_3D, UIS_TAB_PICTURE,
+                                               UIS_TAB_ACCESS, UIS_TAB_ABOUT };
     float bar_b = COG_TAB_BAR_B * dc->nh;
-    float slot_w = dc->nw / (float)COG_TAB_COUNT;
     for (int i = 0; i < COG_TAB_COUNT; i++) {
         int current = i == tab;
-        float x0 = (float)i * slot_w + 12.0f, x1 = (float)(i + 1) * slot_w - 12.0f, y0 = 12.0f, y1 = bar_b - 8.0f;
+        // native (lane a11y-tab): six slots of their own widths (xr_layout.h cogTabLeft), the gaps
+        // between them a little narrower than the five even ones had
+        float x0 = cogTabLeft(i) * dc->nw + 8.0f, x1 = cogTabRight(i) * dc->nw - 8.0f, y0 = 12.0f, y1 = bar_b - 8.0f;
         if (current) dc_fill_rrect(dc, x0, y0, x1, y1, 14.0f, 0x28FFFFFFu);
         else if (dc_hover(dc, UI_HIT_TAB, i, -1)) dc_fill_rrect(dc, x0, y0, x1, y1, 14.0f, 0x14FFFFFFu);
         const char* name = ui_str(in_room && i == COG_TAB_SCREEN ? UIS_TAB_ROOM : TABS[i]);
-        dc_text_center(dc, UI_WEIGHT_REGULAR, 25.0f, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, current ? WHITE : 0x60FFFFFFu, name);
+        // a name longer than its slot (a translation's) shrinks to fit
+        float fit = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, 25.0f * dc->k, 15.0f * dc->k, name,
+                                     ((x1 - x0) - 10.0f) * dc->k) / dc->k;
+        dc_text_center(dc, UI_WEIGHT_REGULAR, fit, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, current ? WHITE : 0x60FFFFFFu, name);
         if (current) {
             // the underline is what carries at a glance, the fill alone is too subtle
-            dc_fill_rrect(dc, x0 + 24.0f, y1 - 4.0f, x1 - 24.0f, y1, 0.0f, 0xEEFFFFFFu);
+            dc_fill_rrect(dc, x0 + 20.0f, y1 - 4.0f, x1 - 20.0f, y1, 0.0f, 0xEEFFFFFFu);
         }
-        dc_hit_uv(dc, UI_HIT_TAB, i, 0, (float)i / COG_TAB_COUNT, 0.0f, (float)(i + 1) / COG_TAB_COUNT, COG_TAB_BAR_B, 1);
+        dc_hit_uv(dc, UI_HIT_TAB, i, 0, cogTabLeft(i), 0.0f, cogTabRight(i), COG_TAB_BAR_B, 1);
     }
     dc_fill_rrect(dc, 20.0f, bar_b, dc->nw - 20.0f, bar_b + 2.0f, 0.0f, 0x30FFFFFFu);
 }
@@ -520,6 +525,169 @@ static void tab_picture(Dc* dc) {
     reset_button(dc);
 }
 
+// Native (lane a11y-tab, a11y-2): the Accessibility tab. Pointer (Controller, Head, Eyes; Eyes
+// dimmed only where the runtime has no eye gaze), the dwell click's cells and the Dot size track;
+// under them the eye tracking line and a few short lines on how to use it and turn it off, and in
+// the footer one sentence on what the row under the pointer does.
+
+// The pointer row's cells, one of which (Eyes) may be dimmed on its own: drawn as cells() draws a
+// row, with each cell live or not
+// Native (lane a11y-final): a cell's name with a small, quieter tag under it ("Eyes" over
+// "experimental"), the two inside the cell. 0 (nothing drawn) when either does not fit: the caller
+// draws the name alone, and the footer's sentence still says it.
+static int tagged_cell(Dc* dc, const char* name, const char* tag, float x0, float x1, float y, float cell_half,
+                       int live) {
+    const float room = (x1 - x0) - 12.0f, ns = 16.0f, ts = 12.0f;
+    if (dc_text_width(dc, UI_WEIGHT_REGULAR, ns, name) > room || dc_text_width(dc, UI_WEIGHT_REGULAR, ts, tag) > room) {
+        return 0;
+    }
+    float cx = (x0 + x1) * 0.5f;
+    dc_text_center(dc, UI_WEIGHT_REGULAR, ns, cx, y - cell_half * 0.35f, live ? WHITE : DIM, name);
+    dc_text_center(dc, UI_WEIGHT_REGULAR, ts, cx, y + cell_half * 0.55f, live ? 0xB0FFFFFFu : 0x20FFFFFFu, tag);
+    return 1;
+}
+
+static void access_cells(Dc* dc, int row, const UiStr* names, int n, float y, int row_live, float cell_half,
+                         int mark) {
+    const UiView* v = dc->v;
+    float track_l = COG_TRACK_L * dc->nw, track_r = COG_TRACK_R * dc->nw;
+    float span = (track_r - track_l) / (float)n;
+    float rv = cogRowV(COG_TAB_ACCESS, row), half = cogRowHalf(COG_TAB_ACCESS);
+    for (int i = 0; i < n; i++) {
+        int live = row_live && ui_cog_access_cell_live(v, row, i);
+        float x0 = track_l + (float)i * span + 3.0f, x1 = track_l + (float)(i + 1) * span - 3.0f;
+        int hot = live && dc_hover(dc, UI_HIT_CELL, row, i);
+        dc_fill_rrect(dc, x0, y - cell_half, x1, y + cell_half, 10.0f, live ? (hot ? 0x40FFFFFFu : 0x28FFFFFFu) : 0x10FFFFFFu);
+        dc_stroke_rrect(dc, x0, y - cell_half, x1, y + cell_half, 10.0f, 2.0f, live ? 0x50FFFFFFu : 0x20FFFFFFu);
+        // the Eyes pointer is experimental, and its cell says so (lane a11y-final)
+        int tagged = row == COG_ACCESS_ROW_POINTER && i == POINTER_SOURCE_GAZE
+                && tagged_cell(dc, ui_str(names[i]), ui_str(UIS_CELL_EYES_EXPERIMENTAL), x0, x1, y, cell_half, live);
+        if (!tagged) {
+            float fit = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, 19.0f * dc->k, 12.0f * dc->k, ui_str(names[i]),
+                                         ((x1 - x0) - 8.0f) * dc->k) / dc->k;
+            dc_text_center(dc, UI_WEIGHT_REGULAR, fit, (x0 + x1) * 0.5f, y, live ? WHITE : DIM, ui_str(names[i]));
+        }
+        if (live && i == mark) {
+            dc_stroke_rrect(dc, x0 + 1.5f, y - cell_half + 1.5f, x1 - 1.5f, y + cell_half - 1.5f, 10.0f, 3.0f, WHITE);
+        } else if (hot) {
+            dc_stroke_rrect(dc, x0, y - cell_half, x1, y + cell_half, 10.0f, 2.5f, 0xB0FFFFFFu);
+        }
+        dc_hit_uv(dc, UI_HIT_CELL, row, i, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)i / (float)n,
+                  rv - half, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)(i + 1) / (float)n, rv + half, live);
+    }
+}
+
+// The Dot size track: a tick at every 25 % step (the default's taller), the thumb and its percent
+static void access_dot_track(Dc* dc, int live, float tick_half) {
+    const Settings* s = dc->v->settings;
+    int row = COG_ACCESS_ROW_DOT;
+    float y = row_y(dc, COG_TAB_ACCESS, row);
+    track_line(dc, y, live ? 0x66FFFFFFu : 0x30FFFFFFu);
+    for (int i = 0; i <= ACCESS_DOT_STEPS; i++) {
+        int pct = ACCESS_DOT_MIN + i * ACCESS_DOT_STEP;
+        float x = cogRunU(lanePlace(pct, ACCESS_DOT_MIN, ACCESS_DOT_MAX)) * dc->nw;
+        tick(dc, x, y, pct == ACCESS_DOT_DEFAULT ? tick_half : tick_half * 0.45f, live);
+    }
+    chevrons(dc, y, live, tick_half);
+    if (live) {
+        int pct = accessDotClamp(s->assist_dot_size);
+        char buf[16];
+        snprintf(buf, sizeof buf, "%d%%", pct);
+        thumb(dc, COG_TAB_ACCESS, row, y, lanePlace(pct, ACCESS_DOT_MIN, ACCESS_DOT_MAX));
+        readout(dc, cogRowV(COG_TAB_ACCESS, row), buf);
+    }
+    track_hits(dc, COG_TAB_ACCESS, row, live);
+}
+
+// Up to max_lines of text wrapped to room from a baseline down; returns the baseline after them
+static float access_wrap(Dc* dc, const char* text, float left, float baseline, float room, float step, int max_lines,
+                         uint32_t color) {
+    UiTextLine lines[12];
+    int got = ui_text_wrap(dc->font, UI_WEIGHT_REGULAR, 19.0f * dc->k, text, room * dc->k, lines, 12);
+    if (got > max_lines) got = max_lines;
+    for (int i = 0; i < got && baseline < dc->nh - 8.0f; i++) {
+        char buf[512];
+        int len = lines[i].len < 511 ? lines[i].len : 511;
+        memcpy(buf, text + lines[i].start, (size_t)len);
+        buf[len] = 0;
+        dc_text(dc, UI_WEIGHT_REGULAR, 19.0f, left, baseline, UI_ALIGN_LEFT, color, buf);
+        baseline += step;
+    }
+    return baseline;
+}
+
+static void tab_access(Dc* dc) {
+    const UiView* v = dc->v;
+    const Settings* s = v->settings;
+    static const UiStr ROWS[COG_ACCESS_ROW_COUNT] = { UIS_ROW_POINTER_SOURCE, UIS_ROW_DWELL, UIS_ROW_DWELL_STYLE,
+                                                      UIS_ROW_DOT_SIZE };
+    static const UiStr POINTER[COG_ACCESS_POINTER_CELLS] = { UIS_CELL_CONTROLLER, UIS_CELL_HEAD, UIS_CELL_EYES };
+    static const UiStr DWELL[COG_ACCESS_DWELL_CELLS] = { UIS_OFF, UIS_DWELL_06, UIS_DWELL_09, UIS_DWELL_12, UIS_DWELL_15 };
+    static const UiStr STYLE[COG_ACCESS_STYLE_CELLS] = { UIS_CELL_DWELL_SIMPLE, UIS_CELL_DWELL_RADIAL };
+    static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL,
+                                                      UIS_ACCESS_DESC_DWELL_STYLE, UIS_ACCESS_DESC_DOT };
+    static const UiStr EYES[ACCESS_EYES_COUNT] = { UIS_EYES_READY, UIS_EYES_WAITING, UIS_EYES_NO_ACTION,
+                                                   UIS_EYES_UNAVAILABLE };
+    float cell_half = COG_ACCESS_CELL_HALF * dc->nh;
+    for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) {
+        int live = ui_cog_row_live(v, COG_TAB_ACCESS, row);
+        float y = row_y(dc, COG_TAB_ACCESS, row);
+        label(dc, ui_str(ROWS[row]), y, live);
+        if (row == COG_ACCESS_ROW_DOT) {
+            if (!live) {
+                label_flush(dc, label_right(dc));
+                greyed_reason(dc, y, ui_str(UIS_NEEDS_HEAD_POINTER));
+                track_hits(dc, COG_TAB_ACCESS, row, 0);
+            } else {
+                access_dot_track(dc, 1, cell_half);
+            }
+            continue;
+        }
+        int n = ui_cog_access_cells(v, row);
+        if (!live) {
+            greyed_reason(dc, y, ui_str(UIS_NEEDS_HEAD_POINTER));
+            float rv = cogRowV(COG_TAB_ACCESS, row), half = cogRowHalf(COG_TAB_ACCESS);
+            for (int c = 0; c < n; c++) {
+                dc_hit_uv(dc, UI_HIT_CELL, row, c, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)c / (float)n, rv - half,
+                          COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)(c + 1) / (float)n, rv + half, 0);
+            }
+            continue;
+        }
+        if (row == COG_ACCESS_ROW_POINTER) {
+            access_cells(dc, row, POINTER, n, y, 1, cell_half, s->pointer_source < n ? s->pointer_source : -1);
+        } else if (row == COG_ACCESS_ROW_DWELL) {
+            cells(dc, COG_TAB_ACCESS, row, DWELL, n, y, 1, cell_half, accessDwellCell(s->head_dwell_ms));
+        } else if (row == COG_ACCESS_ROW_STYLE) {
+            cells(dc, COG_TAB_ACCESS, row, STYLE, n, y, 1, cell_half,
+                  s->assist_dwell_style == DWELL_STYLE_RADIAL ? DWELL_STYLE_RADIAL : DWELL_STYLE_SIMPLE);
+        }
+    }
+    label_flush(dc, label_right(dc));
+    // whether eye tracking reaches the app, so the user sees why Eyes does nothing (and why it is dimmed)
+    int eyes = v->access_eyes >= 0 && v->access_eyes < ACCESS_EYES_COUNT ? v->access_eyes : ACCESS_EYES_UNAVAILABLE;
+    float left = LABEL_X * dc->nw, room = COG_TRACK_R * dc->nw - left;
+    dc_text_fit_left(dc, UI_WEIGHT_REGULAR, 19.0f, left, COG_ACCESS_STATUS_V * dc->nh, room,
+                     eyes == ACCESS_EYES_READY ? 0xEE9BE7A0u : 0xEEFFC870u, ui_str(EYES[eyes]));
+    // the instructions, and how to get the eyes working while they are not
+    float baseline = COG_ACCESS_HELP_T * dc->nh, step = 26.0f;
+    float footer = COG_ACCESS_FOOTER_RULE * dc->nh;
+    baseline = access_wrap(dc, ui_str(UIS_ACCESS_HELP), left, baseline, room, step, 8, 0xB0FFFFFFu) + 6.0f;
+    if (eyes != ACCESS_EYES_READY && baseline < footer - 8.0f) {
+        access_wrap(dc, ui_str(UIS_ACCESS_HELP_EYES), left, baseline, room, step,
+                    (int)((footer - 8.0f - baseline) / step) + 1, 0xB0FFFFFFu);
+    }
+    // native (lane a11y-2): the footer, what the row under the pointer (or the dot) does
+    int hover = v->access_row;
+    if (hover < 0 && (v->hover.kind == UI_HIT_CELL || v->hover.kind == UI_HIT_TRACK_RUN
+                      || v->hover.kind == UI_HIT_TRACK_UP || v->hover.kind == UI_HIT_TRACK_DOWN)) {
+        hover = v->hover.a;
+    }
+    dc_fill_rrect(dc, 20.0f, footer, dc->nw - 20.0f, footer + 2.0f, 0.0f, 0x30FFFFFFu);
+    const char* desc = hover >= 0 && hover < COG_ACCESS_ROW_COUNT ? ui_str(DESC[hover]) : ui_str(UIS_ACCESS_DESC_NONE);
+    access_wrap(dc, desc, left, COG_ACCESS_FOOTER_T * dc->nh, room, step, 3,
+                hover >= 0 && hover < COG_ACCESS_ROW_COUNT ? 0xF0FFFFFFu : 0x70FFFFFFu);
+}
+
 static void about_button(Dc* dc, float l, float t, float r, float b, const char* text, int btn) {
     float x0 = l * dc->nw, y0 = t * dc->nh, x1 = r * dc->nw, y1 = b * dc->nh;
     if (dc_hover(dc, UI_HIT_BUTTON, btn, -1)) dc_fill_rrect(dc, x0, y0, x1, y1, 14.0f, 0x28FFFFFFu);
@@ -566,6 +734,7 @@ void panel_cog(Dc* dc) {
     case COG_TAB_DISPLAY: tab_display(dc); break;
     case COG_TAB_3D: tab_3d(dc); break;
     case COG_TAB_PICTURE: tab_picture(dc); break;
+    case COG_TAB_ACCESS: tab_access(dc); break;
     case COG_TAB_ABOUT: tab_about(dc); break;
     default: break;
     }

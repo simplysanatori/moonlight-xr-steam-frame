@@ -669,6 +669,15 @@ static float panelSharpenFor(int mode) {
     return mode == 2 ? 1.0f : (mode == 1 ? 0.5f : 0.0f);
 }
 
+// Native (lane polish-3): quality's pixels reach only half way to the
+// footprint's brightest or darkest read over high contrast, where it
+// shimmered on white text on black (tests/shaders text: the crawl of light
+// text on dark 0.61 to about Normal's 0.47, MTF50 still about a fifth past
+// Normal's)
+static float panelSharpenReachFor(int mode) {
+    return mode == 2 ? 0.5f : 0.0f;
+}
+
 // Native (lane text-clarity): a config.ini switch with its variable over it
 // (for a headset A/B from the shortcut's launch options; never saved)
 static int knobOr(const char* name, int setting) {
@@ -797,6 +806,7 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     // filter, and sharpened there (panel.frag)
     pp.pictureFilter = pictureFilterOn(ctx);
     pp.sharpen = panelSharpenFor(ctx->sharpenMode);
+    pp.sharpenReach = panelSharpenReachFor(ctx->sharpenMode);
     int said = 1 + pp.pictureFilter * 2 + ctx->sharpenMode * 4 + chromaFromLumaOn(ctx) * 16;
     if (cv->filterSaid != said) {
         cv->filterSaid = said;
@@ -1409,11 +1419,14 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
         ctx->handAimOffered = 0;
         LOGI("hand tracking off by preference");
     }
-    // Native: the gaze extension only when the setting wants it, so a runtime
-    // that would ask for eye tracking does not ask for nothing
-    if (!s->gaze) {
-        ctx->eyeGaze = 0;
-    }
+    // Native (lane a11y-2): the gaze extension whenever the runtime offers it,
+    // and the gaze action with it (xr_input.c), so the Accessibility tab can say
+    // whether eye gaze arrives and its Eyes cell works without config.ini.
+    // Reading the gaze points nothing: the eyes point only with gaze = true or
+    // pointer_source = gaze (gazeEnabled, headPointing). gazeAsked says, for
+    // the log, whether the settings wanted it for themselves.
+    ctx->gazeOffered = ctx->eyeGaze;
+    ctx->gazeAsked = s->gaze || s->pointer_source == POINTER_SOURCE_GAZE;
     free(exts);
 
     const char* enabled[16];
@@ -1494,9 +1507,24 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
             ctx->maxLayerCount = (int)props.graphicsProperties.maxLayerCount;
         }
         LOGEV("system %s, %d composition layers used", props.systemName, ctx->maxLayerCount);
-        if (ctx->eyeGaze && !gazeProps.supportsEyeGazeInteraction) ctx->eyeGaze = 0;
+        // Native (lane a11y-tab): the flag is read and logged, but the gaze
+        // action is kept without it: SteamVR's flag has read 0 on systems that
+        // gave gaze, and a gaze pose arriving is the real signal (xrGazeWatch)
+        if (ctx->eyeGaze) ctx->gazeSupportFlag = gazeProps.supportsEyeGazeInteraction ? 1 : 0;
         if (ctx->handTracking && !handProps.supportsHandTracking) ctx->handTracking = 0;
         g_presenceSupported = g_presenceOffered && presenceProps.supportsUserPresence;
+    }
+    // Native (lane a11y-tab): once a session, why eye gaze can or cannot reach the app
+    if (!ctx->gazeOffered) {
+        LOGEV("eye gaze: the runtime does not offer XR_EXT_eye_gaze_interaction to apps%s",
+              ctx->gazeAsked ? " (asked for by the settings)" : "");
+    }
+    else {
+        LOGEV("eye gaze: XR_EXT_eye_gaze_interaction enabled (%s), supportsEyeGazeInteraction %d%s",
+              s->gaze ? "gaze = true points with the eyes" : s->pointer_source == POINTER_SOURCE_GAZE
+              ? "pointer_source = gaze" : "watched for the Accessibility tab, pointing with it is off",
+              ctx->gazeSupportFlag,
+              ctx->gazeSupportFlag == 0 ? ": the system says no eye gaze, the gaze action is kept to see" : "");
     }
     if (g_presenceOffered) {
         LOGEV("user presence: XR_EXT_user_presence enabled, the system %s the sensor",
@@ -1652,10 +1680,6 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
         ctx->hostActKind = XR_HOSTACT_NONE;
         ctx->hostActText[0] = '\0';
     }
-    if (ctx->pcvrRequest) {
-        ctx->pcvrRequest = 0;
-        ev->pcvrConfirmed = 1;
-    }
     if ((int)in[IN_EXIT] == EXIT_SLOT_DISCONNECT) {
         ev->disconnectConfirmed = 1;
     }
@@ -1673,7 +1697,7 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
     Settings* s = h->cfg->settings;
     if (in[IN_POSE_DIRTY] != 0.0f) {
         xrPoseToSettings(&in[IN_POSE], xrCurveSetting(ctx), s);
-        xrBringFarToSettings(ctx, s); // native (lane bar-glare): the bar's Bring here's far placement
+        xrBringBackToSettings(ctx, s); // the bar's Bring here: the placement it goes back to
         saveSettings(h, "screen placement");
     }
     int pick = (int)in[IN_PICKER_PICK];
@@ -2256,6 +2280,9 @@ int xr_app_run(const XrAppConfig* cfg) {
         if (atomic_exchange(&g_kbToggle, 0)) {
             xrKeyboardToggle(ctx, "a gamepad's Y");
         }
+        // native (lane a11y-2): the headset button, taken from SteamVR only while it may be
+        xrAuxButtonFrame(ctx, nowNs(), ctx->sessionState == XR_SESSION_STATE_FOCUSED,
+                         atomic_load(&g_streaming));
         xrUpdateInput(ctx, host.distance, host.quadWidth, host.curvature, host.live.head_locked,
                       host.live.pointer, host.live.gaze && ctx->eyeGaze, host.live.pointer_sleep, host.out);
         if (cfg->hooks.headYaw) cfg->hooks.headYaw(cfg->hooks.user, host.out[IN_HEAD_YAW]);
@@ -2284,7 +2311,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         XrUiLauncher show;
         memset(&show, 0, sizeof(show));
         if (cfg->hooks.ui) cfg->hooks.ui(cfg->hooks.user, &ev, &show);
-        else if (ev.exitConfirmed || ev.disconnectConfirmed || ev.pcvrConfirmed) atomic_store(&g_quit, 1);
+        else if (ev.exitConfirmed || ev.disconnectConfirmed) atomic_store(&g_quit, 1);
         XrLauncherView lv;
         memset(&lv, 0, sizeof(lv));
         lv.mode = show.mode;
@@ -2793,6 +2820,7 @@ fail:
     if (ctx->localSpace) xrDestroySpace(ctx->localSpace);
     perfClose(&host);
     xrMetricsStop(ctx);
+    xrAuxButtonRelease(ctx, "the session ended");   // native (lane a11y-2)
     if (ctx->session) xrDestroySession(ctx->session);
     if (ctx->instance) xrDestroyInstance(ctx->instance);
     xr_vk_destroy(&vk);

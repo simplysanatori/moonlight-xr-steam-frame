@@ -279,6 +279,10 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int level, int hapt
         }
     }
 
+    // native (lane a11y-2): assist_click_path's button, on the first rung only
+    if (haptic && level >= BIND_FULL) {
+        n = xrAssistClickBind(ctx, profile, b, n, 24);
+    }
     XrInteractionProfileSuggestedBinding suggest = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
     suggest.interactionProfile = toPath(ctx, profile);
     suggest.countSuggestedBindings = n;
@@ -361,6 +365,11 @@ static int suggestFrameBindings(XrCtx* ctx, int which, const char* squeeze, int 
         BIND(ctx->stickTouchAction, HAND_RIGHT, "input/thumbstick/touch");
     }
 #undef BIND
+    // native (lane a11y-2): assist_click_path's button, on the first rung only, so a runtime that
+    // refuses it costs the next rung nothing
+    if (haptic && touch) {
+        n = xrAssistClickBind(ctx, FRAME_PROFILE_PATHS[which], b, n, 40);
+    }
 
     XrInteractionProfileSuggestedBinding suggest = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
     suggest.interactionProfile = ctx->frameProfile[which];
@@ -499,6 +508,7 @@ int initXrInput(XrCtx* ctx) {
         return 0;
     }
 
+    xrAssistClickCreate(ctx);   // native (lane a11y-2): assist_click_path's action, before any bindings
     if (ctx->frameInteraction) {
         ctx->padXAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "padx", "Gamepad X");
         ctx->padYAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "pady", "Gamepad Y");
@@ -569,12 +579,18 @@ int initXrInput(XrCtx* ctx) {
                 ctx->gazeAction = XR_NULL_HANDLE;
                 ctx->eyeGaze = 0;
             }
+            else {
+                ctx->gazeBound = 1;   // native (lane a11y-tab): for the Accessibility tab's eye line
+            }
         }
         else {
             ctx->gazeAction = XR_NULL_HANDLE;
             ctx->eyeGaze = 0;
         }
     }
+
+    // native (lane a11y-2): assist_click_path's button on a profile the app does not suggest itself
+    xrAssistClickSuggestAlone(ctx);
 
     // The EXT profile only where the Microsoft one is not offered. The Quest
     // offers both and its pinch was tuned on the Microsoft one, which a
@@ -1727,9 +1743,30 @@ typedef struct {
 // controller's is; the controllers only click (either trigger) and never point,
 // nothing wakes or sleeps on their clocks, the dot is drawn where the head
 // points and the host's cursor follows it. Gamepad mode leaves it alone.
+// Native (lane a11y-tab): the Accessibility tab's Eyes pointer is the same mode
+// with the gaze's ray in the head's place while the eyes are tracked, and the
+// head's while they are lost (readSources, xr_access.h gazeFallStep), so
+// everything here holds for it, the dwell click included.
 static int headPointing(XrCtx* ctx) {
-    return ctx->pointerSource == POINTER_SOURCE_HEAD && ctx->viewSpace != XR_NULL_HANDLE
-            && !ctx->padMode;
+    return (ctx->pointerSource == POINTER_SOURCE_HEAD || ctx->pointerSource == POINTER_SOURCE_GAZE)
+            && ctx->viewSpace != XR_NULL_HANDLE && !ctx->padMode;
+}
+
+// Native (lane a11y-tab): whether the gaze action is driven, for the eye gaze log line
+static int gazeActionActive(XrCtx* ctx) {
+    if (ctx->gazeAction == XR_NULL_HANDLE) {
+        return 0;
+    }
+    if (ctx->poseActive != NULL) {
+        return ctx->poseActive(ctx, ctx->gazeAction, SRC_GAZE) != 0;
+    }
+    if (ctx->session == XR_NULL_HANDLE) {
+        return 0;
+    }
+    XrActionStateGetInfo get = { XR_TYPE_ACTION_STATE_GET_INFO };
+    get.action = ctx->gazeAction;
+    XrActionStatePose state = { XR_TYPE_ACTION_STATE_POSE };
+    return XR_SUCCEEDED(xrGetActionStatePose(ctx->session, &get, &state)) && state.isActive;
 }
 
 // Whether the eyes are what is doing the pointing. A controller in use takes
@@ -1846,6 +1883,11 @@ static void gazeTrigger(XrCtx* ctx, const InputFrame* f) {
             ctx->triggerDown[SRC_GAZE] = 1;
             ctx->triggerEdge[SRC_GAZE] |= ctx->dwellUiEdge;
         }
+        // native (lane a11y-2): the headset button's (or the radial menu's) press on our UI
+        if (headPointing(ctx) && ctx->assistUi && ctx->assistButtons != 0) {
+            ctx->triggerDown[SRC_GAZE] = 1;
+            ctx->triggerEdge[SRC_GAZE] |= ctx->assistPress;
+        }
         ctx->usingHands[SRC_GAZE] = 1;
     }
     else {
@@ -1864,6 +1906,7 @@ static void releaseInput(XrCtx* ctx, float* out) {
     ctx->dwellFraction = -1.0f;
     ctx->dwellHostUntil = 0;
     ctx->dwellUiUntil = 0;
+    xrDwellMenuReset(ctx);   // native (lane radial-dwell): nor its menu, nor a drag it holds
     // Nothing is being read, so last frame's answer must not stand
     ctx->aimTracked[HAND_LEFT] = 0;
     ctx->aimTracked[HAND_RIGHT] = 0;
@@ -2186,6 +2229,7 @@ static void resetHeadPointFilter(XrCtx* ctx) {
     ctx->headPointFilterPos[1].valid = 0;
     ctx->headPointFilterPos[2].valid = 0;
     ctx->headPointFilterRot.valid = 0;
+    gazeSteadyReset(&ctx->gazeSteady);   // native (lane a11y-final): the Eyes pointer's steadying
 }
 
 // Native (lane wave4-headinput): the eyes this frame, whatever is pointing, for
@@ -2213,6 +2257,27 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
     int gazeSpace = head || ctx->aimSpaces[SRC_GAZE] != XR_NULL_HANDLE;
     rayRowBegin(ctx, f);
     readGazeValid(ctx);
+    // Native (lane a11y-tab): the first gaze of the session, and the log line that says whether
+    // one came; then the Eyes pointer: the gaze while it is tracked, the head's ray once it has
+    // been lost for 200 ms, the gaze again after 300 ms tracked. A switch starts the smoothing
+    // afresh, so the dot jumps rather than sweeping across.
+    if (!ctx->gazeSeen || !ctx->gazeReported) {
+        xrGazeWatch(ctx, f->now, ctx->sessionState == XR_SESSION_STATE_FOCUSED,
+                    ctx->gazeReported ? 0 : gazeActionActive(ctx));
+    }
+    int eyesPoint = 0;
+    if (head && ctx->pointerSource == POINTER_SOURCE_GAZE) {
+        int switched = 0;
+        eyesPoint = !gazeFallStep(&ctx->gazeFall, ctx->aimSpaces[SRC_GAZE] != XR_NULL_HANDLE ? ctx->gazeValid : -1,
+                                  f->now, &switched);
+        if (switched) {
+            resetHeadPointFilter(ctx);
+            ctx->eyesHoldValid = 0;
+        }
+    }
+    else {
+        gazeFallReset(&ctx->gazeFall);
+    }
     // A controller that is the pad's points at nothing and presses nothing, so
     // it is never read here
     for (int h = 0; h < HAND_COUNT; h++) {
@@ -2302,8 +2367,9 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
         int handActions = onHandActions(ctx, h);
         XrSpace space = handActions ? ctx->handAimSpaces[h] : ctx->aimSpaces[h];
         // Native (lane wave4-headinput, PLAN 6.5): head Point mode's ray is the view's own
+        // (native, lane a11y-tab: the Eyes pointer's is the gaze while the eyes are tracked)
         if (h == SRC_GAZE && head) {
-            space = ctx->viewSpace;
+            space = eyesPoint ? ctx->aimSpaces[SRC_GAZE] : ctx->viewSpace;
         }
         // Native (lane ray-glitch): through the seam, and kept as the runtime
         // gave it for the recorder before the screen's frame moves it
@@ -2320,6 +2386,7 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             row->active = active;
             row->pose = loc.pose;
         }
+        XrPosef raw = loc.pose;
         int ok = found && intoFrame(&f->xform, &loc.pose);
         int located = ok && (loc.locationFlags & needed) == needed;
         if (h == SRC_GAZE) {
@@ -2328,6 +2395,18 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             located = ok && gazeUsable((unsigned)loc.locationFlags);
             f->gazeAsked = 1;
             f->gazeUsable = located;
+            // Native (lane a11y-tab): the Eyes pointer holds the last gaze through a blink,
+            // until the fallback hands the pointer to the head
+            if (eyesPoint) {
+                if (located) {
+                    ctx->eyesHold = raw;
+                    ctx->eyesHoldValid = 1;
+                }
+                else if (ctx->eyesHoldValid) {
+                    loc.pose = ctx->eyesHold;
+                    located = intoFrame(&f->xform, &loc.pose);
+                }
+            }
         }
         else {
             // A hand the runtime has lost still reports a last known pose, and
@@ -2412,8 +2491,12 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
                                              f->dt, ctx->aimMinCutoff, ctx->aimBeta);
             filtered.position.z = euroFilter(&ctx->headPointFilterPos[2], filtered.position.z,
                                              f->dt, ctx->aimMinCutoff, ctx->aimBeta);
-            filtered.orientation = euroFilterQuat(&ctx->headPointFilterRot, filtered.orientation,
-                                                  f->dt, ctx->aimMinCutoff, ctx->aimBeta);
+            // native (lane a11y-final): the eyes' direction steadied harder than the head's, so the
+            // dot holds still through a fixation's jitter
+            filtered.orientation = eyesPoint && h == SRC_GAZE
+                    ? xrEyesSteady(ctx, filtered.orientation, f->dt)
+                    : euroFilterQuat(&ctx->headPointFilterRot, filtered.orientation,
+                                     f->dt, ctx->aimMinCutoff, ctx->aimBeta);
             f->aimPoses[h] = filtered;
         }
         else {
@@ -3126,6 +3209,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
     f->hover = HOVER_COGPANEL;
     f->hand = -1;
     int face = cogFace(ctx);
+    ctx->cogPointV = -1.0f;   // native (lane a11y-2): where the pointer is, for the Accessibility footer
 
     // A drag keeps the hand that started it, and keeps it even once the
     // ray has wandered off the panel, so a slider can be run to either end
@@ -3164,6 +3248,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             f->hand = ctx->cogDragByGaze ? SRC_GAZE : h;
             f->hitU[f->hand] = pu;
             f->hitV[f->hand] = pv;
+            ctx->cogPointV = pv;
             ctx->cogHoverSlider = ctx->cogDragSlider;
             cogApplySlider(ctx, face, ctx->cogDragSlider, pu);
         }
@@ -3187,13 +3272,14 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
         f->hand = h;
         f->hitU[h] = pu;
         f->hitV[h] = pv;
+        ctx->cogPointV = pv;
 
         // The tab bar runs across the top, one even slot per tab. A press
         // up here changes tab and reaches nothing else.
         if (pv < COG_TAB_BAR_B) {
             if (ctx->triggerEdge[h]) {
-                int t = (int)(pu * COG_TAB_COUNT);
-                if (t >= COG_TAB_COUNT) t = COG_TAB_COUNT - 1;
+                // native (lane a11y-tab): the slots are of their own widths
+                int t = cogTabAt(pu);
                 ctx->cogTab = t;
                 // Kept: the cog opens on this tab next time, this session
                 // and the next. Skipped on the rare frame a slider drag
@@ -3227,7 +3313,8 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
 
         if (row >= 0 && !cogRowIsTrack(face, row)) {
             // Cells, so a press picks one rather than starting a drag
-            int cell = cogCellAt(pu, cogRowCells(face, row));
+            // native (lane a11y-tab): the Accessibility tab's pointer row shows Eyes only where it works
+            int cell = cogCellAt(pu, face == COG_TAB_ACCESS ? cogAccessCells(ctx, row) : cogRowCells(face, row));
             ctx->cogHoverSlider = cell >= 0 ? row : -1;
             ctx->cogHoverCell = cell;
             if (cell >= 0 && ctx->triggerEdge[h]) {
@@ -3748,13 +3835,13 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
         }
     }
     else if (f->hover == HOVER_HEREBUTTON) {
-        // Native (lane bar-glare): Bring here, near and back far, with the
-        // eyes on the bar (xr_place.c). The screen comes round under the ray,
-        // so the press is held back from the PC. Lit off hoverKind
-        // (xr_layers.c), so no hot flag.
+        // Bring here, a switch between the Desk preset and where the screen
+        // was before it (xr_place.c). The screen moves under the ray, so the
+        // press is held back from the PC. Lit off hoverKind (xr_layers.c), so
+        // no hot flag.
         if (ctx->triggerEdge[f->hand]) {
             if (xrBringHereToggle(ctx) < 0) {
-                LOGI("bring here from the bar: nothing moved (a room, head locked, or no head pose yet)");
+                LOGI("bring here from the bar: nothing moved (a room, head locked, or no placement yet)");
             }
             swallowTrigger(ctx, f->hand);
         }
@@ -4149,6 +4236,7 @@ static void bindLetGo(XrCtx* ctx, uint64_t down, float* out) {
     scrollAccReset(&ctx->padScroll);
     memset(ctx->bindMouseCarry, 0, sizeof(ctx->bindMouseCarry));
     ctx->headLookHold = 0;
+    xrPointerBackReset(ctx);   // native (lane a11y-final)
 }
 
 // Nothing is read this frame (focus gone, the pointer switched off): let go
@@ -4249,6 +4337,9 @@ static void bindPointerStep(XrCtx* ctx, const InputFrame* f, float* out) {
             down &= ~XR_BIND_BIT(BIND_SRC_CLICK(h));
         }
     }
+    // Native (lane a11y-final): the right Menu and grip held give the pointer back to the
+    // controllers; Menu reaches the bindings only once it cannot be that
+    xrPointerBackStep(ctx, &down, f->now, out);
     if (ctx->grabMode != GRAB_NONE || ctx->statsOver || f->hover == HOVER_BAR
             || f->hover == HOVER_CORNER || f->hover == HOVER_KBBAR) {
         down &= ~(XR_BIND_BIT(XR_BIND_SRC_LEFT_GRIP) | XR_BIND_BIT(XR_BIND_SRC_RIGHT_GRIP));
@@ -4411,6 +4502,7 @@ void xrBindFrame(XrCtx* ctx, int64_t now, float dt, PadState* pad, float* out) {
     memset(&f, 0, sizeof(f));
     f.out = out;
     f.dt = dt;
+    f.now = now;
     f.hover = HOVER_SCREEN;
     bindPointerStep(ctx, &f, out);
 }
@@ -4491,6 +4583,8 @@ void xrPointerToHost(XrCtx* ctx, int hand, float u, float v, float* out) {
 // Smooths the hit point, hands it to Java and ends the ray on it
 static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
     if (!hit) {
+        // Native (lane radial-dwell): the dwell's start, while its radial menu has the dot off the picture
+        xrDwellMenuSendHeld(ctx, f->hand, f->now, f->out);
         return;
     }
     // Filtering across a gap or a change of hands would slide the cursor
@@ -4558,7 +4652,11 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
                      pointerButtonsWanted(ctx) != 0, u, v, ctx->videoWidth, ctx->videoHeight,
                      pressCfg, f->now, &u, &v);
     }
-    xrPointerToHost(ctx, f->hand, u, v, f->out);
+    // Native (lane radial-dwell): the host's cursor stays on the dwell's start while its radial menu
+    // is up and its click plays; the dot goes on following the head
+    float hostU = u, hostV = v;
+    xrDwellMenuHostPoint(ctx, f->now, &hostU, &hostV);
+    xrPointerToHost(ctx, f->hand, hostU, hostV, f->out);
 
     // The ray is only drawn when it lands on something, which is what
     // makes a laser readable rather than a light show
@@ -4616,6 +4714,11 @@ static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
     // Native (lane wave4-headinput, PLAN 6.5): a dwell click on the picture is the left button
     if (headPointing(ctx) && f->now < ctx->dwellHostUntil) {
         mask |= VR_BUTTON_LEFT;
+    }
+    // native (lane a11y-2): the headset button's (or the radial menu's) clicks on the picture
+    if (headPointing(ctx) && !ctx->assistUi) {
+        mask |= (ctx->assistButtons & ASSIST_BTN_LEFT ? VR_BUTTON_LEFT : 0)
+                | (ctx->assistButtons & ASSIST_BTN_RIGHT ? VR_BUTTON_RIGHT : 0);
     }
     int prevButtons = ctx->buttonsDown;
     // A press only counts while aimed at the screen, but a release always
@@ -4918,13 +5021,15 @@ void xrSetPointerSource(XrCtx* ctx, int source, int dwellMs) {
     ctx->headDwellMs = dwellMsClamp(dwellMs);
     dwellReset(&ctx->dwell);
     ctx->dwellFraction = -1.0f;
+    xrDwellMenuReset(ctx);   // native (lane radial-dwell)
     resetHeadPointFilter(ctx);
+    gazeFallReset(&ctx->gazeFall);
     if (ctx->pointerSource != POINTER_SOURCE_CONTROLLER) {
-        LOGEV("pointer source %s%s", ctx->pointerSource == POINTER_SOURCE_HEAD ? "head" : "gaze",
-              ctx->pointerSource == POINTER_SOURCE_HEAD && ctx->headDwellMs > 0 ? ", dwell click" : "");
-        if (ctx->pointerSource == POINTER_SOURCE_HEAD && ctx->headDwellMs > 0) {
+        LOGEV("pointer source %s%s", ctx->pointerSource == POINTER_SOURCE_HEAD ? "head" : "eyes (the head while they are lost)",
+              ctx->headDwellMs > 0 ? ", dwell click" : "");
+        if (ctx->headDwellMs > 0) {
             LOGEV("dwell click after %d ms resting within %.1f degrees", ctx->headDwellMs,
-                  DWELL_TOLERANCE_DEG);
+                  accessDwellToleranceDeg(ctx->pointerSource));
         }
     }
 }
@@ -5460,30 +5565,110 @@ static void beginPointerFrame(XrCtx* ctx, InputFrame* f, float* out, int headLoc
 // click is the left button on the picture or the head's press on our UI, both
 // from the next frame for DWELL_PRESS_NS. The handles (the move pill, a corner,
 // the keyboard's bar) are never dwelt on: a press there grabs.
+// Native (lane a11y-tab): the modal panel the head's (or the eyes') ray is on, for the dwell. The
+// panels take their presses after the pointer's pass, so the pass's hover names the picture behind
+// one instead (and a dwell there was a click on the hidden picture, which the open panel then
+// kept from the PC). -1 with no modal panel up, HOVER_NONE with the ray off it: a dwell never
+// lands beside a panel, where a press would put it away.
+static int dwellPanelHover(XrCtx* ctx, const InputFrame* f) {
+    XrPosef pose;
+    float w = 0.0f, h = 0.0f;
+    int kind;
+    if (ctx->pickerOpen) {
+        pose = pickerPose(ctx, &w, &h);
+        kind = HOVER_PICKER;
+    }
+    else if (ctx->cogOpen) {
+        pose = ctx->cogPose;
+        w = ctx->cogW;
+        h = ctx->cogH;
+        kind = HOVER_COGPANEL;
+    }
+    else if (ctx->exitConfirmOpen) {
+        pose = ctx->exitPose;
+        w = ctx->exitW;
+        h = ctx->exitH;
+        kind = HOVER_EXITPROMPT;
+    }
+    else if (ctx->reportOpen) {
+        pose = ctx->reportPose;
+        w = ctx->reportW;
+        h = ctx->reportH;
+        kind = HOVER_REPORT;
+    }
+    else if (ctx->hintOpen) {
+        pose = ctx->hintPose;
+        w = ctx->hintW;
+        h = ctx->hintH;
+        kind = HOVER_HINT;
+    }
+    else if (ctx->kofiOpen) {
+        pose = ctx->kofiPose;
+        w = ctx->kofiW;
+        h = ctx->kofiH;
+        kind = HOVER_KOFI;
+    }
+    else if (ctx->hostOpen) {
+        pose = ctx->hostPose;
+        w = ctx->hostW;
+        h = ctx->hostH;
+        kind = HOVER_HOST;
+    }
+    else {
+        return -1;
+    }
+    float u = -1.0f, v = -1.0f;
+    if (f->aimValid[SRC_GAZE] && screenProject(f->aimPoses[SRC_GAZE], pose, w, h, 0.0f, 0, &u, &v)
+            && u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f) {
+        return kind;
+    }
+    return HOVER_NONE;
+}
+
 static void updateDwell(XrCtx* ctx, InputFrame* f) {
     ctx->dwellUiEdge = 0;
     if (!headPointing(ctx) || ctx->headDwellMs <= 0) {
         dwellReset(&ctx->dwell);
         ctx->dwellFraction = -1.0f;
+        xrDwellMenuReset(ctx);   // native (lane radial-dwell)
         return;
     }
-    int hover = f->hand == SRC_GAZE ? f->hover : HOVER_NONE;
+    // Native (lane a11y-tab): the dwell's own click is waited out with the dwell as it is, so the
+    // spot it clicked stays spent until the dot leaves it. (Counted as an invalid frame, it reset
+    // the dwell and the same spot clicked again every dwell time.)
+    if (f->now < ctx->dwellHostUntil || f->now < ctx->dwellUiUntil) {
+        ctx->dwellFraction = -1.0f;
+        return;
+    }
+    int panel = dwellPanelHover(ctx, f);
+    int hover = panel >= 0 ? panel : f->hand == SRC_GAZE ? f->hover : HOVER_NONE;
     int target = hover != HOVER_NONE && hover != HOVER_HALO && hover != HOVER_BAR
             && hover != HOVER_CORNER && hover != HOVER_KBBAR;
+    // a controller's press, or a grab, drops the dwell
     int held = ctx->triggerDown[HAND_LEFT] || ctx->triggerDown[HAND_RIGHT]
-            || ctx->triggerDown[SRC_GAZE] || ctx->grabMode != GRAB_NONE
-            || f->now < ctx->dwellHostUntil || f->now < ctx->dwellUiUntil;
+            || ctx->grabMode != GRAB_NONE
+            || (ctx->triggerDown[SRC_GAZE] && f->now >= ctx->dwellUiUntil);
     int valid = target && !held && f->aimValid[SRC_GAZE]
             && (hover != HOVER_SCREEN || ctx->pointerOn);
     float yaw = 0.0f, pitch = 0.0f;
-    if (valid) {
+    if (f->aimValid[SRC_GAZE]) {
         headAimAngles(f->aimPoses[SRC_GAZE].orientation, &yaw, &pitch);
     }
     // Degrees across the view: yaw narrows toward straight up
     const float deg = 57.2957795f;
     float x = yaw * deg * cosf(pitch), y = pitch * deg;
-    int what = dwellStep(&ctx->dwell, valid, x, y, f->now, ctx->headDwellMs, DWELL_TOLERANCE_DEG,
-                         &ctx->dwellFraction);
+    // Native (lane radial-dwell): the dwell goes through its radial menu (xr_dwellmenu.c), which plays
+    // the menu's clicks itself and answers DWELL_CLICK for a plain one only. The open menu needs only
+    // a pointer (the dot may leave the picture to pick); where on the picture the dwell started is
+    // where its clicks land.
+    XrVector3f at = { 0.0f, 0.0f, 0.0f };
+    if (hover == HOVER_SCREEN) {
+        Vec3 p = screenPoint(f->hitU[SRC_GAZE], f->hitV[SRC_GAZE], f->screenPose, ctx->screenWidth, f->height,
+                             f->radius, f->curved);
+        at = (XrVector3f){ p.x, p.y, p.z };
+    }
+    int what = xrDwellMenuStep(ctx, valid, !held && f->aimValid[SRC_GAZE], x, y, f->now, hover == HOVER_SCREEN,
+                               f->hitU[SRC_GAZE], f->hitV[SRC_GAZE], at);
     if (what == DWELL_CLICK) {
         if (hover == HOVER_SCREEN) {
             ctx->dwellHostUntil = f->now + DWELL_PRESS_NS;
@@ -5520,6 +5705,23 @@ void xrPointerStep(XrCtx* ctx, int64_t now, int headLocked) {
     pointerPass(ctx, &f);
 }
 
+// Native (lane a11y-tab), for the tests: see xr_native.h
+void xrPointerPanelStep(XrCtx* ctx, int64_t now, int headLocked, float* out) {
+    memset(out, 0, sizeof(float) * IN_SLOTS);
+    out[IN_PICKER_PICK] = -1.0f;
+    out[IN_SETTING] = -1.0f;
+    out[IN_KEY] = -1.0f;
+    out[IN_REPORT] = -1.0f;
+    InputFrame f;
+    beginPointerFrame(ctx, &f, out, headLocked, now);
+    pointerPass(ctx, &f);
+    clearHotState(ctx);
+    if (ctx->cogOpen) {
+        updateCogPanel(ctx, &f);
+    }
+    ctx->hoverKind = f.hover;
+}
+
 // Native (lane wave2-lightgun-gyro), for the tests: see xr_native.h
 int xrButtonsFrame(XrCtx* ctx, int wanted, int hover, int hit) {
     float out[IN_SLOTS];
@@ -5544,8 +5746,9 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     if (ctx != NULL) {
         // Native (lane wave4-headinput, PLAN 6.5): pointer_source = gaze is the gaze switch on;
         // head pointing leaves the eyes out of it
-        ctx->gazeEnabled = ctx->pointerSource == POINTER_SOURCE_HEAD ? 0
-                : (gazeEnabled || ctx->pointerSource == POINTER_SOURCE_GAZE);
+        // native (lane a11y-tab): and the Accessibility tab's Eyes is head Point mode with the
+        // gaze's ray (headPointing), so it leaves the controllers' gaze switch out too
+        ctx->gazeEnabled = ctx->pointerSource != POINTER_SOURCE_CONTROLLER ? 0 : gazeEnabled;
         ctx->pointerSleepOn = pointerSleep;
         ctx->headLockedPref = headLocked;
         // Before anything asks who is pointing, off the last frame's clocks and
@@ -5607,6 +5810,7 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     }
     // The controller models read their grips off this sync
     ctx->actionsSynced = 1;
+    xrAssistClickRead(ctx, nowNs());   // native (lane a11y-2): assist_click_path's presses
 
     // The pad before anything points, so a switch between the two lands
     // before the controllers are read for the pointer
@@ -5762,7 +5966,9 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
         beamToFurniture(ctx, &f);
     }
     sendPointer(ctx, &f, hit);
-    updateButtons(ctx, &f, hit);
+    // Native (lane radial-dwell): a click the dwell's menu chose lands on the dwell's start, with the
+    // host's cursor held there, wherever the dot went to pick it
+    updateButtons(ctx, &f, hit || xrDwellMenuHostPoint(ctx, f.now, &(float){ 0 }, &(float){ 0 }));
     updateScroll(ctx, &f, hit);
     beamIntoRoom(ctx, &f);
     headBeamDotOnly(ctx, f.hand);

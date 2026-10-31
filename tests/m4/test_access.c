@@ -1,0 +1,1134 @@
+// Moonlight XR Native, tests/m4: the Accessibility tab (lanes a11y-tab, a11y-2), driven through
+// the input pass's seams with no controllers in use: a press on each of its cells is applied and
+// handed back to be stored; the pointer row always has Eyes, dimmed only where the runtime offers no
+// eye gaze; looking at the tab, with the head or the eyes, never changes a setting by itself; with
+// the head pointing and a dwell picked, the head alone turns it off again; the Eyes pointer follows
+// the gaze, falling back to the head's ray while the eyes are lost; the Dot size track scales the
+// dot and its dwell ring; and the footer follows the row under the pointer. Lane a11y-final: the right
+// hand's Menu and grip give the pointer back to the controllers (a Menu tap still opens the cog), and
+// the Eyes pointer's dot holds still through a fixation's jitter. GPLv3.
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <linux/input.h>
+
+#include "check.h"
+#include "scene.h"
+
+#define FAKE(n) ((uintptr_t)(n))
+#define VIEW ((XrSpace)FAKE(0x503))
+#define LOCAL ((XrSpace)FAKE(0x504))
+#define GAZE ((XrSpace)FAKE(0x505))
+#define FRAME_NS 11111111LL
+// Where the rows' labels are, left of the cells
+#define LABEL_U 0.12f
+
+// Where the head and the eyes look (directions in the local space, from the origin), and whether the
+// eyes are tracked
+static Vec3 g_head = { 0.0f, 0.0f, -1.0f };
+static Vec3 g_eyes = { 0.0f, 0.0f, -1.0f };
+static int g_eyesTracked;
+
+static XrQuaternionf lookAlong(Vec3 d) {
+    Vec3 up = { 0.0f, 1.0f, 0.0f };
+    Vec3 right = { 1.0f, 0.0f, 0.0f };
+    float yaw = atan2f(-d.x, -d.z);
+    float pitch = atan2f(d.y, sqrtf(d.x * d.x + d.z * d.z));
+    return quatNorm(quatMul(axisAngleQuat(up, yaw), axisAngleQuat(right, pitch)));
+}
+
+static XrResult fakeLocate(XrCtx* ctx, XrSpace space, XrSpace base, XrTime time, XrSpaceLocation* out) {
+    (void)ctx; (void)base; (void)time;
+    const XrSpaceLocationFlags all = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT
+            | XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
+    out->pose.position = (XrVector3f){ 0.0f, 0.0f, 0.0f };
+    if (space == VIEW) {
+        out->locationFlags = all;
+        out->pose.orientation = lookAlong(g_head);
+        return XR_SUCCESS;
+    }
+    if (space == GAZE) {
+        out->locationFlags = g_eyesTracked ? all : 0;
+        out->pose.orientation = lookAlong(g_eyes);
+        return XR_SUCCESS;
+    }
+    return XR_ERROR_HANDLE_INVALID;
+}
+
+static int fakePoseActive(XrCtx* ctx, XrAction action, int hand) {
+    (void)hand;
+    return action == ctx->gazeAction && g_eyesTracked;
+}
+
+static float fakeFloat(XrCtx* ctx, XrAction action, int hand) {
+    (void)ctx; (void)action; (void)hand;
+    return 0.0f;
+}
+
+static int fakeBool(XrCtx* ctx, XrAction action, int hand) {
+    (void)ctx; (void)action; (void)hand;
+    return 0;
+}
+
+static XrVector2f fakeVec2(XrCtx* ctx, XrAction action, int hand) {
+    (void)ctx; (void)action; (void)hand;
+    XrVector2f zero = { 0.0f, 0.0f };
+    return zero;
+}
+
+static int64_t g_now = 1000000000LL;
+
+static void setUp(Scene* s, int eyes) {
+    XrCtx* c = s->ctx;
+    scene_reset(s);
+    float place[10] = { 0.0f, 0.0f, -2.5f, 0.0f, 0.0f, 0.0f, 1.0f, 2.4f, 2.5f, -1.0f };
+    xrSetScreenPose(c, place);
+    c->viewSpace = VIEW;
+    c->localSpace = LOCAL;
+    c->aimSpaces[0] = XR_NULL_HANDLE;
+    c->aimSpaces[1] = XR_NULL_HANDLE;
+    c->profileKind[0] = c->profileKind[1] = PROFILE_NONE;
+    c->locateSpace = fakeLocate;
+    c->poseActive = fakePoseActive;
+    c->readFloat = fakeFloat;
+    c->readBool = fakeBool;
+    c->readVec2 = fakeVec2;
+    c->pointerSleepOn = 0;
+    c->pointerAwake = 1;
+    c->padMode = 0;
+    // the eye gaze as a session on a runtime that offers it has it (lane a11y-2: always asked for)
+    c->eyeGaze = eyes;
+    c->gazeOffered = eyes;
+    c->gazeAsked = 0;
+    c->gazeBound = eyes;
+    c->gazeSupportFlag = eyes;
+    c->gazeSeen = 0;
+    c->gazeReported = 0;
+    c->gazeAction = eyes ? (XrAction)FAKE(0x601) : XR_NULL_HANDLE;
+    c->aimSpaces[SRC_GAZE] = eyes ? GAZE : XR_NULL_HANDLE;
+    g_eyesTracked = 0;
+    c->gazeEnabled = 0;
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+    c->assistDotSize = ACCESS_DOT_DEFAULT;
+    c->cogDragSlider = -1;
+    // the cog open on the Accessibility tab
+    c->cogOpen = 1;
+    c->cogTab = COG_TAB_ACCESS;
+    c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
+}
+
+// A point of the panel (u, v) in the local space
+static Vec3 panelAt(XrCtx* c, float u, float v) {
+    Vec3 local = { (u - 0.5f) * c->cogW, (0.5f - v) * c->cogH, 0.0f };
+    Vec3 off = quatRotate(c->cogPose.orientation, local);
+    Vec3 p = { c->cogPose.position.x + off.x, c->cogPose.position.y + off.y, c->cogPose.position.z + off.z };
+    return p;
+}
+
+// The middle of a cell of the tab
+static Vec3 cellAt(XrCtx* c, int row, int cell) {
+    int n = cogAccessCells(c, row);
+    return panelAt(c, COG_TRACK_L + (cell + 0.5f) * (COG_TRACK_R - COG_TRACK_L) / (float)n, cogRowV(COG_TAB_ACCESS, row));
+}
+
+// The Dot size track's step buttons (dir -1 the smaller, 1 the larger) and a row's label
+static Vec3 stepAt(XrCtx* c, int dir) {
+    float u = dir < 0 ? COG_TRACK_L + COG_CHEVRON_W * 0.5f : COG_TRACK_R - COG_CHEVRON_W * 0.5f;
+    return panelAt(c, u, cogRowV(COG_TAB_ACCESS, COG_ACCESS_ROW_DOT));
+}
+
+static Vec3 labelAt(XrCtx* c, int row) {
+    return panelAt(c, LABEL_U, cogRowV(COG_TAB_ACCESS, row));
+}
+
+// Frames of the pointer and the open panel; how many handed a setting back
+static int g_settingsOut;
+static int g_lastSetting = -1, g_lastValue = -1;
+
+static void frames(XrCtx* c, int n) {
+    float out[IN_SLOTS];
+    for (int i = 0; i < n; i++) {
+        g_now += FRAME_NS;
+        c->predictedDisplayTime = (XrTime)g_now;
+        xrAssistFrame(c, g_now);   // as the session does before the input pass (lane a11y-2)
+        xrPointerPanelStep(c, g_now, 0, out);
+        if (out[IN_SETTING] >= 0.0f) {
+            g_settingsOut++;
+            g_lastSetting = (int)out[IN_SETTING];
+            g_lastValue = (int)out[IN_SETTING_VALUE];
+        }
+    }
+}
+
+// Each cell pressed hands back its setting, which lands in config.ini's key
+static void presses(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 0);
+    Settings st;
+    settings_defaults(&st);
+    float out[IN_SLOTS];
+    // no eye gaze offered: the pointer row still has Eyes, dimmed, and a press on it does nothing
+    CHECK(cogAccessCells(c, COG_ACCESS_ROW_POINTER) == 3 && cogRowCells(COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER) == 3);
+    CHECK(xrAccessEyes(c) == ACCESS_EYES_UNAVAILABLE && !cogAccessCellLive(c, COG_ACCESS_ROW_POINTER, 2));
+    out[IN_SETTING] = -1.0f;
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, 2, out);
+    CHECK(out[IN_SETTING] == -1.0f && c->pointerSource == POINTER_SOURCE_CONTROLLER);
+    // the dwell row and the dot track are dead while the controllers point
+    CHECK(!cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL) && !cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT));
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL, 2, out);
+    CHECK(out[IN_SETTING] == -1.0f && c->headDwellMs == 0);
+    cogStepTrack(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT, 1, out);
+    CHECK(out[IN_SETTING] == -1.0f || (int)out[IN_SETTING] != SETTING_ASSIST_DOT_SIZE || c->assistDotSize == ACCESS_DOT_DEFAULT);
+    CHECK(c->assistDotSize == ACCESS_DOT_DEFAULT);
+    // Head
+    out[IN_SETTING] = -1.0f;
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, 1, out);
+    CHECK((int)out[IN_SETTING] == SETTING_POINTER_SOURCE && (int)out[IN_SETTING_VALUE] == POINTER_SOURCE_HEAD);
+    CHECK(c->pointerSource == POINTER_SOURCE_HEAD);
+    CHECK(xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) && st.pointer_source == POINTER_SOURCE_HEAD);
+    CHECK(cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL) && cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT));
+    // each dwell time
+    for (int cell = 0; cell < COG_ACCESS_DWELL_CELLS; cell++) {
+        out[IN_SETTING] = -1.0f;
+        cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL, cell, out);
+        CHECK((int)out[IN_SETTING] == SETTING_HEAD_DWELL && (int)out[IN_SETTING_VALUE] == accessDwellMs(cell));
+        CHECK(c->headDwellMs == accessDwellMs(cell) && c->pointerSource == POINTER_SOURCE_HEAD);
+        xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
+        CHECK(st.head_dwell_ms == accessDwellMs(cell) && accessDwellCell(st.head_dwell_ms) == cell);
+    }
+    // the dot: each step button press is a 25 % step, handed back at once; the ends hold
+    CHECK(cogRowIsTrack(COG_TAB_ACCESS, COG_ACCESS_ROW_DOT) && !cogRowIsTrack(COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL));
+    CHECK_NEAR(cogSliderValue(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT), 0.2f, 1e-5);
+    out[IN_SETTING] = -1.0f;
+    cogStepTrack(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT, 1, out);
+    CHECK((int)out[IN_SETTING] == SETTING_ASSIST_DOT_SIZE && (int)out[IN_SETTING_VALUE] == 125 && c->assistDotSize == 125);
+    xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
+    CHECK(st.assist_dot_size == 125);
+    for (int i = 0; i < 20; i++) {
+        cogStepTrack(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT, -1, out);
+    }
+    CHECK(c->assistDotSize == ACCESS_DOT_MIN && (int)out[IN_SETTING_VALUE] == ACCESS_DOT_MIN);
+    // a drag lands on a step, and is handed back when it ends
+    cogApplySlider(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT, cogRunU(0.62f));
+    CHECK(c->assistDotSize == 200);
+    c->cogDragSlider = COG_ACCESS_ROW_DOT;
+    c->cogDragFace = COG_TAB_ACCESS;
+    out[IN_SETTING] = -1.0f;
+    cogDragEnded(c, out);
+    CHECK((int)out[IN_SETTING] == SETTING_ASSIST_DOT_SIZE && (int)out[IN_SETTING_VALUE] == 200);
+    xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
+    // the panel's view follows the drag (the thumb and the readout are drawn from it)
+    Settings live = st;
+    cogApplySlider(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT, cogRunU(1.0f));
+    xrSettingsFromCtx(c, &live);
+    CHECK(live.assist_dot_size == ACCESS_DOT_MAX);
+    c->assistDotSize = 200;
+    // and back to the controllers
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, 0, out);
+    xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
+    CHECK(st.pointer_source == POINTER_SOURCE_CONTROLLER && c->pointerSource == POINTER_SOURCE_CONTROLLER);
+    // the stored values survive config.ini
+    char* text = settings_to_text(&st);
+    Settings back;
+    settings_defaults(&back);
+    settings_from_text(&back, text ? text : "", NULL);
+    CHECK(back.head_dwell_ms == 1500 && back.assist_dot_size == 200);
+    free(text);
+    // a runtime that offers eye gaze: Eyes takes a press, before any gaze has arrived
+    setUp(s, 1);
+    CHECK(xrAccessEyes(c) == ACCESS_EYES_WAITING && cogAccessCellLive(c, COG_ACCESS_ROW_POINTER, 2));
+    out[IN_SETTING] = -1.0f;
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, 2, out);
+    CHECK((int)out[IN_SETTING] == SETTING_POINTER_SOURCE && (int)out[IN_SETTING_VALUE] == POINTER_SOURCE_GAZE);
+    CHECK(c->pointerSource == POINTER_SOURCE_GAZE);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
+// Looking at the tab, with the head and the eyes, for a long time, on every cell and step button:
+// nothing changes. Only a press does, and with the controllers pointing (the default) the head and
+// the eyes press nothing.
+static void neverByItself(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 1);
+    g_eyesTracked = 1;
+    g_settingsOut = 0;
+    // gaze = true as well (the eyes point, the hands would pinch to click)
+    c->gazeEnabled = 1;
+    Vec3 spots[16];
+    int n = 0;
+    for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) {
+        for (int cell = 0; cell < cogAccessCells(c, row); cell++) {
+            spots[n++] = cellAt(c, row, cell);
+        }
+    }
+    spots[n++] = stepAt(c, -1);
+    spots[n++] = stepAt(c, 1);
+    for (int i = 0; i < n; i++) {
+        g_head = spots[i];
+        g_eyes = spots[(i + 3) % n];
+        frames(c, 270); // 3 s on each
+        CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER && c->headDwellMs == 0);
+        CHECK(c->assistDotSize == ACCESS_DOT_DEFAULT && c->assistDwellStyle == DWELL_STYLE_SIMPLE);
+        CHECK(c->dwellClicks == 0 && g_settingsOut == 0);
+    }
+    c->gazeEnabled = 0;
+    // the eyes were seen: the line says so, and still nothing is on
+    CHECK(c->gazeSeen == 1 && xrAccessEyes(c) == ACCESS_EYES_READY);
+    CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER);
+    // gaze = false and the controllers pointing (the defaults): the gaze is read for the eye line
+    // only, and points at nothing
+    setUp(s, 1);
+    g_eyesTracked = 1;
+    g_eyes = cellAt(c, COG_ACCESS_ROW_POINTER, 1);
+    g_head = cellAt(c, COG_ACCESS_ROW_POINTER, 2);
+    frames(c, 200);
+    CHECK(c->gazeSeen == 1 && c->cogHoverSlider == -1 && g_settingsOut == 0 && c->dwellClicks == 0);
+}
+
+// The head picked and a dwell time: resting the head on Controller for longer than the dwell turns
+// head pointing off, with nothing but the head
+static void headTurnsItOff(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 0);
+    float out[IN_SLOTS];
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_HEAD, out);
+    // the head pointing with the dwell off: resting on a cell clicks nothing
+    g_settingsOut = 0;
+    g_head = cellAt(c, COG_ACCESS_ROW_DWELL, 3);
+    frames(c, 270);
+    CHECK(c->cogHoverSlider == COG_ACCESS_ROW_DWELL && c->cogHoverCell == 3);
+    CHECK(g_settingsOut == 0 && c->headDwellMs == 0 && c->dwellClicks == 0);
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL, 2, out);
+    CHECK(c->pointerSource == POINTER_SOURCE_HEAD && c->headDwellMs == 900);
+    // a glance across Controller is not a click
+    g_head = cellAt(c, COG_ACCESS_ROW_POINTER, 0);
+    frames(c, 60); // 0.67 s
+    g_head = labelAt(c, COG_ACCESS_ROW_DOT);
+    frames(c, 10);
+    CHECK(c->pointerSource == POINTER_SOURCE_HEAD);
+    // resting on it is
+    g_head = cellAt(c, COG_ACCESS_ROW_POINTER, 0);
+    g_settingsOut = 0;
+    frames(c, 120); // 1.3 s
+    CHECK(c->dwellClicks >= 1);
+    CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER);
+    // handed back to be stored, once
+    CHECK(g_settingsOut == 1 && g_lastSetting == SETTING_POINTER_SOURCE && g_lastValue == POINTER_SOURCE_CONTROLLER);
+    // the dwell time is kept for the next time the head points
+    CHECK(c->headDwellMs == 900);
+    // a dwell on a cell clicks it once: resting there on, nothing more is handed back
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_HEAD, out);
+    g_head = cellAt(c, COG_ACCESS_ROW_DWELL, 4);
+    g_settingsOut = 0;
+    frames(c, 450); // 5 s
+    CHECK(c->headDwellMs == 1500 && c->dwellClicks == 2);
+    CHECK(g_settingsOut == 1 && g_lastSetting == SETTING_HEAD_DWELL && g_lastValue == 1500);
+    // a dwell on the Dot size's larger step button: one 25 % step, handed back
+    g_head = stepAt(c, 1);
+    g_settingsOut = 0;
+    frames(c, 300);
+    CHECK(c->assistDotSize == 125 && g_settingsOut == 1 && g_lastSetting == SETTING_ASSIST_DOT_SIZE && g_lastValue == 125);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
+// Eyes: the dwell lands where the eyes look while they are tracked; lost for longer than 200 ms,
+// the head's ray points instead
+static void eyesFallBack(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 1);
+    g_eyesTracked = 1;
+    g_head = stepAt(c, -1);   // the dot smaller
+    g_eyes = stepAt(c, 1);    // the dot larger
+    frames(c, 5);
+    CHECK(c->gazeSeen == 1);
+    float out[IN_SLOTS];
+    out[IN_SETTING] = -1.0f;
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_GAZE, out);
+    CHECK((int)out[IN_SETTING] == SETTING_POINTER_SOURCE && (int)out[IN_SETTING_VALUE] == POINTER_SOURCE_GAZE);
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL, 2, out);
+    CHECK(c->pointerSource == POINTER_SOURCE_GAZE && c->headDwellMs == 900);
+    // the eyes tracked: after their 300 ms the dot is theirs, and their dwell makes it larger
+    frames(c, 150);
+    CHECK(c->gazeFall.head == 0);
+    CHECK(c->assistDotSize == 125);
+    // a blink (150 ms) leaves the eyes pointing
+    g_eyesTracked = 0;
+    frames(c, 13);
+    CHECK(c->gazeFall.head == 0);
+    g_eyesTracked = 1;
+    frames(c, 5);
+    // lost: the head's ray takes over and its dwell makes it smaller again
+    g_eyesTracked = 0;
+    frames(c, 25);
+    CHECK(c->gazeFall.head == 1);
+    frames(c, 130);
+    CHECK(c->assistDotSize == 100);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
+// The eye tracking line: what the session found, and the gaze arriving
+static void eyesLine(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 0);
+    c->gazeOffered = 0;
+    CHECK(xrAccessEyes(c) == ACCESS_EYES_UNAVAILABLE);
+    // offered, but the action could not be set up
+    c->gazeOffered = 1;
+    CHECK(xrAccessEyes(c) == ACCESS_EYES_NO_ACTION && cogAccessCellLive(c, COG_ACCESS_ROW_POINTER, 2));
+    setUp(s, 1);
+    c->gazeSupportFlag = 0;   // SteamVR's flag plays no part
+    CHECK(xrAccessEyes(c) == ACCESS_EYES_WAITING);
+    // focused for 10 s with no gaze: logged once, and still waiting
+    frames(c, 950);
+    CHECK(c->gazeReported == 1 && c->gazeSeen == 0 && xrAccessEyes(c) == ACCESS_EYES_WAITING);
+    g_eyesTracked = 1;
+    frames(c, 2);
+    CHECK(c->gazeSeen == 1 && xrAccessEyes(c) == ACCESS_EYES_READY);
+    // the panel's view says the same
+    scene_frame(s, NULL);
+    const UiView* v = xrPanelsLastView(c);
+    CHECK(v != NULL && v->access_eyes == ACCESS_EYES_READY && v->cog_tab == COG_TAB_ACCESS);
+}
+
+// The footer: the row under the pointer, its label or its cells, live or greyed
+static void footer(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 0);
+    xrSetPointerSource(c, POINTER_SOURCE_HEAD, 0);
+    static const int ROWS[] = { COG_ACCESS_ROW_DOT, COG_ACCESS_ROW_POINTER, COG_ACCESS_ROW_DWELL };
+    for (int i = 0; i < 3; i++) {
+        g_head = labelAt(c, ROWS[i]);
+        frames(c, 3);
+        CHECK(xrAccessHoverRow(c) == ROWS[i]);
+        scene_frame(s, NULL);
+        xrPanelsFlush(c);
+        const UiView* v = xrPanelsLastView(c);
+        CHECK(v != NULL && v->access_row == ROWS[i]);
+    }
+    g_head = cellAt(c, COG_ACCESS_ROW_DWELL, 1);
+    frames(c, 3);
+    CHECK(xrAccessHoverRow(c) == COG_ACCESS_ROW_DWELL);
+    // the status line and the instructions are no row
+    g_head = panelAt(c, 0.5f, COG_ACCESS_HELP_T);
+    frames(c, 3);
+    CHECK(xrAccessHoverRow(c) == -1);
+    // a greyed row is described too: the controllers' pointer greys the dwell and the dot (here
+    // the eyes point for them, gaze = true)
+    setUp(s, 1);
+    c->gazeEnabled = 1;
+    g_eyesTracked = 1;
+    g_eyes = labelAt(c, COG_ACCESS_ROW_DOT);
+    frames(c, 30);
+    CHECK(!cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DOT));
+    CHECK(xrAccessHoverRow(c) == COG_ACCESS_ROW_DOT);
+    g_eyes = cellAt(c, COG_ACCESS_ROW_DWELL, 2);
+    frames(c, 3);
+    CHECK(xrAccessHoverRow(c) == COG_ACCESS_ROW_DWELL && c->cogHoverSlider == -1);
+    c->gazeEnabled = 0;
+    // another tab, or the cog shut: none
+    c->cogTab = COG_TAB_ABOUT;
+    CHECK(xrAccessHoverRow(c) == -1);
+    c->cogTab = COG_TAB_ACCESS;
+    c->cogOpen = 0;
+    CHECK(xrAccessHoverRow(c) == -1);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
+static const XrCompositionLayerQuad* findRect(Scene* s, UiRectPx r) {
+    for (uint32_t i = 0; i < s->out.count; i++) {
+        const XrCompositionLayerBaseHeader* b = s->out.order[i];
+        if (b->type != XR_TYPE_COMPOSITION_LAYER_QUAD) continue;
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)b;
+        if (q->subImage.imageRect.offset.x == r.x && q->subImage.imageRect.offset.y == r.y &&
+            q->subImage.imageRect.extent.width == r.w && q->subImage.imageRect.extent.height == r.h) {
+            return q;
+        }
+    }
+    return NULL;
+}
+
+// The side of the quad showing an atlas rect as the frame draws it (the dot, or the dwell's circle)
+static float rectSide(Scene* s, UiRectPx r) {
+    Vec3 hand = { 0.0f, 0.0f, 0.0f };
+    Vec3 target = { 0.0f, 0.0f, -2.0f };
+    scene_ray_to(s, hand, target);
+    scene_frame(s, NULL);
+    const XrCompositionLayerQuad* q = findRect(s, r);
+    return q != NULL ? q->size.width : -1.0f;
+}
+
+static float dotSide(Scene* s, int slot) {
+    return rectSide(s, xrAtlasRect(slot));
+}
+
+// Dot size scales the head and eye pointer's dot and its dwell ring, and only theirs
+static void dotScales(Scene* s) {
+    XrCtx* c = s->ctx;
+    scene_reset(s);
+    c->dwellFraction = -1.0f;
+    xrSetPointerSource(c, POINTER_SOURCE_HEAD, 900);
+    c->assistDotSize = 100;
+    float base = dotSide(s, ATLAS_DOT);
+    CHECK(base > 0.0f);
+    c->assistDotSize = 200;
+    CHECK_NEAR(dotSide(s, ATLAS_DOT), base * 2.0f, 1e-5);
+    c->assistDotSize = 50;
+    CHECK_NEAR(dotSide(s, ATLAS_DOT), base * 0.5f, 1e-5);
+    c->assistDotSize = 300;
+    CHECK_NEAR(dotSide(s, ATLAS_DOT), base * 3.0f, 1e-5);
+    // the dwell's circle (lane radial-dwell: the dot drawn into each of its pictures, a quad of three
+    // times the dot) scales with it; none in the dwell's first moment
+    c->dwellFraction = 0.55f;
+    c->assistDotSize = 100;
+    UiRectPx half = xrDwellRingRect(radialRingFrame(radialRingProgress(0.55f)));
+    float ring = rectSide(s, half);
+    CHECK_NEAR(ring, base * RADIAL_ART_SIDE, 1e-5);
+    c->assistDotSize = 250;
+    CHECK_NEAR(rectSide(s, half), ring * 2.5f, 1e-5);
+    c->dwellFraction = 0.05f;
+    CHECK_NEAR(dotSide(s, ATLAS_DOT), base * 2.5f, 1e-5);
+    // the eyes too; the controllers' dot is today's whatever the setting
+    c->dwellFraction = -1.0f;
+    xrSetPointerSource(c, POINTER_SOURCE_GAZE, 900);
+    CHECK_NEAR(dotSide(s, ATLAS_DOT), base * 2.5f, 1e-5);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+    CHECK_NEAR(dotSide(s, ATLAS_DOT), base, 1e-5);
+    c->assistDotSize = ACCESS_DOT_DEFAULT;
+    c->beamVisible = 0;
+}
+
+// Lane a11y-2: the headset button's clicks land where the dot is: on our menus as a press, on the
+// picture as the mouse buttons; a drag holds the left button
+static void assistClicks(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 0);
+    float out[IN_SLOTS];
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_HEAD, out);
+    g_head = cellAt(c, COG_ACCESS_ROW_DWELL, 3);
+    frames(c, 20);
+    g_settingsOut = 0;
+    xrAssistAction(c, ASSIST_LEFT, g_now);
+    CHECK(c->assistUi == 1);
+    frames(c, 10);
+    CHECK(c->headDwellMs == 1200 && g_settingsOut == 1 && g_lastSetting == SETTING_HEAD_DWELL);
+    // a right click on our menus is one press
+    g_head = cellAt(c, COG_ACCESS_ROW_DWELL, 1);
+    frames(c, 20);
+    xrAssistAction(c, ASSIST_RIGHT, g_now);
+    frames(c, 10);
+    CHECK(c->headDwellMs == 600);
+    // on the picture: the cog shut, the dot on the screen
+    c->cogOpen = 0;
+    g_head = (Vec3){ 0.0f, 0.0f, -1.0f };
+    frames(c, 20);
+    CHECK(c->hoverKind == HOVER_SCREEN);
+    int sawLeft = 0, sawRight = 0;
+    xrAssistAction(c, ASSIST_RIGHT, g_now);
+    CHECK(c->assistUi == 0);
+    for (int i = 0; i < 12; i++) {
+        g_now += FRAME_NS;
+        c->predictedDisplayTime = (XrTime)g_now;
+        xrAssistFrame(c, g_now);
+        int b = xrButtonsFrame(c, 0, HOVER_SCREEN, 1);   // the buttons part of the frame, on the picture
+        sawRight |= (b & VR_BUTTON_RIGHT) != 0;
+        sawLeft |= (b & VR_BUTTON_LEFT) != 0;
+    }
+    CHECK(sawRight && !sawLeft);
+    // a drag: the left button stays down until it is let go
+    xrAssistAction(c, ASSIST_DRAG_DOWN, g_now);
+    int held = 0;
+    for (int i = 0; i < 60; i++) {
+        g_now += FRAME_NS;
+        c->predictedDisplayTime = (XrTime)g_now;
+        xrAssistFrame(c, g_now);
+        held += (xrButtonsFrame(c, 0, HOVER_SCREEN, 1) & VR_BUTTON_LEFT) != 0;
+    }
+    CHECK(held == 60);
+    xrAssistAction(c, ASSIST_DRAG_UP, g_now);
+    xrAssistFrame(c, g_now);
+    CHECK(c->assistButtons == 0 && (xrButtonsFrame(c, 0, HOVER_SCREEN, 1) & VR_BUTTON_LEFT) == 0);
+    c->cogOpen = 1;
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
+// Lane a11y-2: the headset button's device through xrAuxButtonFrame, a FIFO standing in for it: taken
+// (grabbed) only while on, focused and streaming with the head pointing; given back on focus loss,
+// with the setting off, and for 15 s after a 3 s hold (with a toast). Lane a11y-final: a future
+// feature, which nothing in 1.1.0 turns on (config.ini's key is not read, the tab has no row): the
+// test turns it on itself, so the code kept for later keeps working
+static int g_grabs[16], g_ngrabs;
+static int fakeGrab(int fd, int on) {
+    (void)fd;
+    if (g_ngrabs < 16) g_grabs[g_ngrabs++] = on;
+    return 0;
+}
+
+static void auxFrames(XrCtx* c, int n, int focused, int streaming) {
+    for (int i = 0; i < n; i++) {
+        g_now += FRAME_NS;
+        xrAuxButtonFrame(c, g_now, focused, streaming);
+    }
+}
+
+static void putKey(int fd, int value) {
+    struct input_event e;
+    memset(&e, 0, sizeof e);
+    e.type = EV_KEY;
+    e.code = KEY_SELECT;
+    e.value = value;
+    CHECK(write(fd, &e, sizeof e) == (ssize_t)sizeof e);
+}
+
+static void auxGrab(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 0);
+    signal(SIGPIPE, SIG_IGN);
+    char dir[] = "/tmp/mlxr-auxfifo-XXXXXX";
+    CHECK(mkdtemp(dir) != NULL);
+    char fifo[600];
+    snprintf(fifo, sizeof fifo, "%s/event7", dir);
+    CHECK(mkfifo(fifo, 0600) == 0);
+    int w = open(fifo, O_RDWR | O_NONBLOCK);   // a writer for as long as the test runs: no EOF
+    CHECK(w >= 0);
+    c->auxState = ACCESS_BUTTON_OK;
+    c->auxInfo.found = c->auxInfo.readable = 1;
+    snprintf(c->auxInfo.path, sizeof c->auxInfo.path, "%s", fifo);
+    c->auxLookNs = g_now;
+    c->auxDev.grab = fakeGrab;
+    g_ngrabs = 0;
+    // off by default: nothing taken
+    xrSetPointerSource(c, POINTER_SOURCE_HEAD, 0);
+    auxFrames(c, 3, 1, 1);
+    CHECK(c->auxDev.fd < 0 && g_ngrabs == 0);
+    // assist_headset_button = true in config.ini turns nothing on in 1.1.0, nor does assist_click_path
+    Settings st;
+    settings_defaults(&st);
+    st.assist_headset_button = 1;
+    snprintf(st.assist_click_path, sizeof st.assist_click_path, "%s", "/interaction_profiles/valve/frame_controller /user/head/input/system/click");
+    xrApplySettings(c, &st);
+    CHECK(!c->assistHeadsetButton && c->assistClickPath[0] == 0);
+    xrSetPointerSource(c, POINTER_SOURCE_HEAD, 0);
+    auxFrames(c, 30, 1, 1);
+    CHECK(c->auxDev.fd < 0 && g_ngrabs == 0);
+    // on (as only a test can), but a controller pointing, or not focused, or no stream: still nothing
+    c->assistHeadsetButton = 1;
+    auxFrames(c, 3, 0, 1);
+    auxFrames(c, 3, 1, 0);
+    CHECK(c->auxDev.fd < 0 && g_ngrabs == 0);
+    // taken
+    auxFrames(c, 2, 1, 1);
+    CHECK(c->auxDev.fd >= 0 && c->auxDev.grabbed && g_ngrabs == 1 && g_grabs[0] == 1);
+    // one press: a click after the multi-press window
+    putKey(w, 1);
+    auxFrames(c, 3, 1, 1);
+    putKey(w, 0);
+    int clicked = 0;
+    for (int i = 0; i < 60; i++) {
+        auxFrames(c, 1, 1, 1);
+        clicked |= c->assistButtons != 0;
+    }
+    CHECK(clicked);
+    // focus lost: given back at once
+    auxFrames(c, 1, 0, 1);
+    CHECK(c->auxDev.fd < 0 && g_ngrabs == 2 && g_grabs[1] == 0);
+    // focus back: taken again; held 3 s: the drag let go, given back for 15 s with a toast
+    auxFrames(c, 1, 1, 1);
+    CHECK(c->auxDev.fd >= 0 && g_ngrabs == 3);
+    putKey(w, 1);
+    int dragged = 0;
+    for (int i = 0; i < 300; i++) {   // 3.3 s
+        auxFrames(c, 1, 1, 1);
+        dragged |= c->assistPlay.dragging;
+    }
+    CHECK(dragged && !c->assistPlay.dragging && c->assistButtons == 0);
+    CHECK(c->auxDev.fd < 0 && g_ngrabs == 4 && g_grabs[3] == 0);
+    CHECK(c->auxEscapeUntilNs > g_now + 14000000000LL);
+    putKey(w, 0);
+    auxFrames(c, 900, 1, 1);   // 10 s: still SteamVR's
+    CHECK(c->auxDev.fd < 0);
+    auxFrames(c, 500, 1, 1);   // past 15 s: taken again
+    CHECK(c->auxDev.fd >= 0 && c->auxDev.grabbed);
+    // the setting off: given back
+    c->assistHeadsetButton = 0;
+    auxFrames(c, 1, 1, 1);
+    CHECK(c->auxDev.fd < 0 && !c->auxDev.grabbed);
+    c->auxState = ACCESS_BUTTON_UNKNOWN;
+    c->auxDev.grab = NULL;
+    close(w);
+    unlink(fifo);
+    rmdir(dir);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
+// ---- lane radial-dwell: the dwell's style row, and the radial menu through the input pass ----------
+
+// The style row: greyed with the controllers, a press with the head pointing applies it and hands it
+// back to be stored; the one in force again changes nothing more
+static void stylePresses(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 0);
+    float out[IN_SLOTS];
+    Settings st;
+    settings_defaults(&st);
+    CHECK(st.assist_dwell_style == DWELL_STYLE_SIMPLE && c->assistDwellStyle == DWELL_STYLE_SIMPLE);
+    CHECK(cogAccessCells(c, COG_ACCESS_ROW_STYLE) == 2 && cogRowCells(COG_TAB_ACCESS, COG_ACCESS_ROW_STYLE) == 2);
+    CHECK(!cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_STYLE));
+    out[IN_SETTING] = -1.0f;
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_STYLE, DWELL_STYLE_RADIAL, out);
+    CHECK(out[IN_SETTING] == -1.0f && c->assistDwellStyle == DWELL_STYLE_SIMPLE);
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_HEAD, out);
+    CHECK(cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_STYLE));
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_STYLE, DWELL_STYLE_RADIAL, out);
+    CHECK((int)out[IN_SETTING] == SETTING_ASSIST_DWELL_STYLE && (int)out[IN_SETTING_VALUE] == DWELL_STYLE_RADIAL);
+    CHECK(c->assistDwellStyle == DWELL_STYLE_RADIAL);
+    CHECK(xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) && st.assist_dwell_style == DWELL_STYLE_RADIAL);
+    char* text = settings_to_text(&st);
+    CHECK(text != NULL && strstr(text, "assist_dwell_style = radial") != NULL);
+    free(text);
+    // the dwell on the tab: the radial style is for the picture, a dwell on a cell is a plain press
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL, 1, out);   // 0.6 s
+    g_settingsOut = 0;
+    g_head = cellAt(c, COG_ACCESS_ROW_STYLE, DWELL_STYLE_SIMPLE);
+    int opened = 0;
+    for (int i = 0; i < 90; i++) {
+        frames(c, 1);
+        opened |= c->radialView.open;
+    }
+    CHECK(!opened && c->assistDwellStyle == DWELL_STYLE_SIMPLE && g_settingsOut == 1);
+    CHECK(g_lastSetting == SETTING_ASSIST_DWELL_STYLE && g_lastValue == DWELL_STYLE_SIMPLE);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
+// The head turned from straight ahead by yaw (to the left) and pitch (up), degrees
+static Vec3 turned(float yawDeg, float pitchDeg) {
+    float y = yawDeg * 0.0174532925f, p = pitchDeg * 0.0174532925f;
+    Vec3 d = { -sinf(y) * cosf(p), sinf(p), -cosf(y) * cosf(p) };
+    return d;
+}
+
+// Frames of the whole pointer as the session runs them: the assist player, the pointer's pass, and
+// the host's buttons as the input pass works them out (the dot on the picture, or the cursor held on
+// the dwell's start). Counts the buttons' presses and where the host's cursor was held.
+static int g_left, g_right, g_leftDown, g_prevButtons, g_heldFrames, g_menuFrames;
+static float g_heldU, g_heldV;
+
+static void hostFrames(XrCtx* c, int n) {
+    float out[IN_SLOTS];
+    for (int i = 0; i < n; i++) {
+        g_now += FRAME_NS;
+        c->predictedDisplayTime = (XrTime)g_now;
+        xrAssistFrame(c, g_now);
+        xrPointerPanelStep(c, g_now, 0, out);
+        float u = -1.0f, v = -1.0f;
+        int held = xrDwellMenuHostPoint(c, g_now, &u, &v);
+        if (held) {
+            g_heldFrames++;
+            g_heldU = u;
+            g_heldV = v;
+        }
+        g_menuFrames += c->radialView.open;
+        int b = xrButtonsFrame(c, 0, c->hoverKind, c->hoverKind == HOVER_SCREEN || held);
+        g_left += (b & VR_BUTTON_LEFT) && !(g_prevButtons & VR_BUTTON_LEFT);
+        g_right += (b & VR_BUTTON_RIGHT) && !(g_prevButtons & VR_BUTTON_RIGHT);
+        g_leftDown += (b & VR_BUTTON_LEFT) != 0;
+        g_prevButtons = b;
+    }
+}
+
+static void hostCountsReset(void) {
+    g_left = g_right = g_leftDown = g_heldFrames = g_menuFrames = 0;
+    g_heldU = g_heldV = -1.0f;
+}
+
+// The head pointing at the picture with a 0.6 s dwell in the radial style, the cog shut
+static void radialSetUp(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 0);
+    c->cogOpen = 0;
+    c->pointerOn = 1;   // as the session's input set up leaves it: the picture takes the pointer
+    xrSetPointerSource(c, POINTER_SOURCE_HEAD, 600);
+    c->assistDwellStyle = DWELL_STYLE_RADIAL;
+    // xrButtonsFrame's frame is at time 0: no plain dwell's press may be waiting from before
+    c->dwellHostUntil = 0;
+    g_prevButtons = 0;
+    // somewhere to start from: away from the spot the tests rest on, long enough to settle
+    g_head = turned(12.0f, 6.0f);
+    hostFrames(c, 20);
+    for (int i = 0; i < 40 && c->hoverKind != HOVER_SCREEN; i++) hostFrames(c, 1);
+    hostCountsReset();
+}
+
+// A dwell rested to 80 %: the menu is up from 75 % (not before), anchored where the dwell started
+static int restToMenu(XrCtx* c, Vec3 at) {
+    g_head = at;
+    int firstOpen = -1;
+    for (int i = 0; i < 80 && firstOpen < 0; i++) {
+        hostFrames(c, 1);
+        if (c->radialView.open) firstOpen = i;
+    }
+    return firstOpen;
+}
+
+static void radialMenu(Scene* s) {
+    XrCtx* c = s->ctx;
+    // keeping still: the menu from 75 % of the dwell (0.45 s, frame 41 or so, after the head's
+    // filter settles), then the left click at its end, with the host's cursor on the dwell's start
+    radialSetUp(s);
+    long picks = c->dwellMenuPicks;
+    int open = restToMenu(c, turned(0.0f, 0.0f));
+    CHECK(open >= 38 && open <= 50);
+    if (open < 38 || open > 50) fprintf(stderr, "  the menu came up at frame %d\n", open);
+    float u0 = c->dwellAnchorU, v0 = c->dwellAnchorV;
+    CHECK(c->dwellAnchorValid && fabsf(u0 - 0.5f) < 0.02f && fabsf(v0 - 0.5f) < 0.02f);
+    CHECK(g_left == 0 && g_right == 0);
+    hostFrames(c, 30);
+    CHECK(c->dwellMenuPicks == picks + 1 && g_left == 1 && g_right == 0 && !c->radialView.open);
+    CHECK(fabsf(g_heldU - u0) < 1e-6f && fabsf(g_heldV - v0) < 1e-6f);
+    // resting on: the spot is spent
+    hostFrames(c, 120);
+    CHECK(g_left == 1 && c->dwellMenuPicks == picks + 1);
+
+    // left, held: a double click, on the dwell's start though the dot went left
+    radialSetUp(s);
+    restToMenu(c, turned(0.0f, 0.0f));
+    u0 = c->dwellAnchorU;
+    v0 = c->dwellAnchorV;
+    g_head = turned(3.6f, 0.0f);
+    int lit = 0;
+    for (int i = 0; i < 40; i++) {
+        hostFrames(c, 1);
+        lit |= c->radialView.open && c->radialView.sector == RADIAL_LEFT;
+        float u, v;
+        if (c->radialView.open) CHECK(xrDwellMenuHostPoint(c, g_now, &u, &v) && u == u0 && v == v0);
+    }
+    CHECK(lit && g_left == 2 && g_right == 0 && fabsf(g_heldU - u0) < 1e-6f);
+
+    // right, held: a right click
+    radialSetUp(s);
+    restToMenu(c, turned(0.0f, 0.0f));
+    g_head = turned(-3.6f, 0.5f);
+    hostFrames(c, 40);
+    CHECK(g_right == 1 && g_left == 0);
+
+    // jitter inside the dead zone, and a glance up into the gap, pick nothing: the left click
+    radialSetUp(s);
+    restToMenu(c, turned(0.0f, 0.0f));
+    for (int i = 0; i < 6; i++) {
+        g_head = turned(i % 2 ? 1.2f : -1.2f, i % 3 ? 0.8f : -0.8f);
+        hostFrames(c, 1);
+    }
+    g_head = turned(0.0f, 3.5f);
+    hostFrames(c, 30);
+    CHECK(g_left == 1 && g_right == 0 && c->dwellMenuPicks > 0);
+
+    // past the outer edge: cancelled, no click; the menu goes
+    radialSetUp(s);
+    picks = c->dwellMenuPicks;
+    restToMenu(c, turned(0.0f, 0.0f));
+    g_head = turned(-12.0f, 0.0f);
+    hostFrames(c, 30);
+    CHECK(g_left == 0 && g_right == 0 && c->dwellMenuPicks == picks && !c->radialView.open);
+
+    // the simple style: never a menu, the dwell's plain click as before
+    radialSetUp(s);
+    c->assistDwellStyle = DWELL_STYLE_SIMPLE;
+    long clicks = c->dwellClicks;
+    g_head = turned(0.0f, 0.0f);
+    hostFrames(c, 80);
+    CHECK(g_menuFrames == 0 && c->dwellClicks == clicks + 1 && c->dwellMenuPicks == picks);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
+// The art the frame shows: the menu's quad at the dwell's start while it is up (lit as the dot is
+// in a segment), the dot's circle; a held drag's mark and hollow dot
+static int hasRect(Scene* s, UiRectPx r) {
+    scene_frame(s, NULL);
+    return findRect(s, r) != NULL;
+}
+
+static void radialDrag(Scene* s) {
+    XrCtx* c = s->ctx;
+    radialSetUp(s);
+    restToMenu(c, turned(0.0f, 0.0f));
+    float u0 = c->dwellAnchorU, v0 = c->dwellAnchorV;
+    c->beamVisible = 1;
+    CHECK(hasRect(s, xrDwellMenuRect(radialMenuFrame(&c->radialView))));
+    // down, held: the left button goes down on the dwell's start and stays down
+    g_head = turned(0.0f, -3.6f);
+    hostFrames(c, 6);
+    CHECK(c->radialView.sector == RADIAL_DOWN);
+    CHECK(hasRect(s, xrDwellMenuRect(radialMenuFrame(&c->radialView))));
+    hostFrames(c, 30);
+    CHECK(c->dwellDrag && g_left == 1 && c->assistButtons == ASSIST_BTN_LEFT);
+    CHECK(fabsf(c->dwellDragU - u0) < 1e-6f && fabsf(c->dwellDragV - v0) < 1e-6f);
+    // shown held: the mark at the start, the dot hollow
+    CHECK(hasRect(s, xrDwellRingRect(RADIAL_FRAME_MARK)) && hasRect(s, xrDwellRingRect(RADIAL_FRAME_HOLLOW_DOT)));
+    // moved on (the cursor follows the dot again: the drag), held down all the way
+    int down0 = g_leftDown;
+    g_head = turned(-10.0f, -5.0f);
+    hostFrames(c, 20);
+    CHECK(g_leftDown - down0 == 20 && c->dwellDrag);
+    float u, v;
+    CHECK(!xrDwellMenuHostPoint(c, g_now, &u, &v));
+    // and rested: no menu while a drag is held; the dwell lets it go there
+    hostFrames(c, 70);
+    CHECK(!c->dwellDrag && c->assistButtons == 0 && g_menuFrames > 0 && g_left == 1);
+    CHECK(!hasRect(s, xrDwellRingRect(RADIAL_FRAME_MARK)));
+
+    // another drag, let go on its start: the cursor goes back there for the release, so nothing moves
+    radialSetUp(s);
+    restToMenu(c, turned(0.0f, 0.0f));
+    u0 = c->dwellAnchorU;
+    v0 = c->dwellAnchorV;
+    g_head = turned(0.0f, -3.6f);
+    hostFrames(c, 36);
+    CHECK(c->dwellDrag);
+    g_head = turned(-8.0f, 0.0f);
+    hostFrames(c, 10);
+    g_head = turned(0.3f, 0.2f);
+    for (int i = 0; i < 90 && c->dwellDrag; i++) hostFrames(c, 1);
+    CHECK(!c->dwellDrag && xrDwellMenuHostPoint(c, g_now, &u, &v) && u == u0 && v == v0);
+
+    // one let go when the session loses focus
+    radialSetUp(s);
+    restToMenu(c, turned(0.0f, 0.0f));
+    g_head = turned(0.0f, -3.6f);
+    hostFrames(c, 36);
+    CHECK(c->dwellDrag);
+    xrDwellMenuWatch(c, g_now, 0, 1);
+    xrAssistFrame(c, g_now);
+    CHECK(!c->dwellDrag && c->assistButtons == 0);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+    c->assistDwellStyle = DWELL_STYLE_SIMPLE;
+    c->beamVisible = 0;
+    c->pointerOn = 0;
+}
+
+// ---- lane a11y-final: the right hand's way back to the controllers -----------------------------------
+
+// Frames with both controllers in hand, the right Menu button and grip as given: the pointer and the
+// open panel (frames), then pointer mode's bindings as the input pass runs them after the panels
+static void handFrames(XrCtx* c, int n, int menu, int grip) {
+    for (int i = 0; i < n; i++) {
+        for (int h = 0; h < HAND_COUNT; h++) {
+            c->profileKind[h] = PROFILE_CONTROLLER;
+            c->padSeen[h].frame = 1;
+        }
+        c->padSeen[HAND_RIGHT].start = menu;
+        c->padSeen[HAND_RIGHT].grip = grip ? 1.0f : 0.0f;
+        frames(c, 1);
+        float out[IN_SLOTS];
+        memset(out, 0, sizeof(out));
+        out[IN_SETTING] = -1.0f;
+        PadState pad;
+        padRest(&pad);
+        xrBindFrame(c, g_now, (float)FRAME_NS / 1e9f, &pad, out);
+        if (out[IN_SETTING] >= 0.0f) {
+            g_settingsOut++;
+            g_lastSetting = (int)out[IN_SETTING];
+            g_lastValue = (int)out[IN_SETTING_VALUE];
+        }
+    }
+}
+
+static void handsSetUp(Scene* s, int eyes) {
+    XrCtx* c = s->ctx;
+    setUp(s, eyes);
+    c->cogOpen = 0;
+    for (int h = 0; h < HAND_COUNT; h++) {
+        memset(&c->padSeen[h], 0, sizeof(c->padSeen[h]));
+    }
+    handFrames(c, 3, 0, 0);
+    noticeInit(&c->notices);
+    g_settingsOut = 0;
+}
+
+// Head -> right Menu and grip held -> Controller, saved and said; Menu tapped alone still opens the
+// cog; the chord never opens it, whatever points
+static void pointerBack(Scene* s) {
+    XrCtx* c = s->ctx;
+    handsSetUp(s, 0);
+    float out[IN_SLOTS];
+    out[IN_SETTING] = -1.0f;
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_HEAD, out);
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL, 2, out);
+    CHECK(c->pointerSource == POINTER_SOURCE_HEAD && c->headDwellMs == 900);
+    // Menu tapped: the cog opens as it is let go, not before; tapped again it closes
+    handFrames(c, 12, 1, 0);
+    CHECK(!c->cogOpen);
+    handFrames(c, 2, 0, 0);
+    CHECK(c->cogOpen);
+    handFrames(c, 12, 1, 0);
+    handFrames(c, 2, 0, 0);
+    CHECK(!c->cogOpen && g_settingsOut == 0);
+    // Menu and the grip: nothing for the first part of the half second, then the controllers point
+    handFrames(c, 30, 1, 1);
+    CHECK(c->pointerSource == POINTER_SOURCE_HEAD && !c->cogOpen && c->notices.count == 0);
+    handFrames(c, 20, 1, 1);
+    CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER);
+    // saved as a press on the tab's Controller is, once, and said in a toast
+    CHECK(g_settingsOut == 1 && g_lastSetting == SETTING_POINTER_SOURCE && g_lastValue == POINTER_SOURCE_CONTROLLER);
+    CHECK(c->notices.count == 1 && c->notices.waiting[0].kind == TOAST_TEXT);
+    Settings st;
+    settings_defaults(&st);
+    st.pointer_source = POINTER_SOURCE_HEAD;
+    CHECK(xrStoreSetting(c, &st, g_lastSetting, g_lastValue) && st.pointer_source == POINTER_SOURCE_CONTROLLER);
+    // the dwell time is kept for the next time the head points; held on, and let go: nothing more,
+    // and the cog stays shut
+    CHECK(c->headDwellMs == 900);
+    handFrames(c, 60, 1, 1);
+    handFrames(c, 3, 0, 0);
+    CHECK(!c->cogOpen && g_settingsOut == 1 && c->notices.count == 1);
+    // with the controllers pointing the chord does nothing, but it does not open the cog either
+    handFrames(c, 60, 1, 1);
+    handFrames(c, 3, 0, 0);
+    CHECK(!c->cogOpen && g_settingsOut == 1 && c->pointerSource == POINTER_SOURCE_CONTROLLER);
+    // and Menu tapped still opens it
+    handFrames(c, 8, 1, 0);
+    handFrames(c, 2, 0, 0);
+    CHECK(c->cogOpen);
+    c->cogOpen = 0;
+    // a chord started and given up (the grip let go early): no chord, and no cog
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_HEAD, out);
+    g_settingsOut = 0;
+    handFrames(c, 20, 1, 1);
+    handFrames(c, 10, 1, 0);
+    handFrames(c, 3, 0, 0);
+    CHECK(!c->cogOpen && c->pointerSource == POINTER_SOURCE_HEAD && g_settingsOut == 0);
+    // the grip held first, then Menu: the chord all the same
+    handFrames(c, 10, 0, 1);
+    handFrames(c, 50, 1, 1);
+    handFrames(c, 3, 0, 0);
+    CHECK(!c->cogOpen && c->pointerSource == POINTER_SOURCE_CONTROLLER && g_settingsOut == 1);
+
+    // the Eyes pointer, and a frame whose setting slot the panels took: stored on the next frame
+    handsSetUp(s, 1);
+    g_eyesTracked = 1;
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_GAZE, out);
+    CHECK(c->pointerSource == POINTER_SOURCE_GAZE);
+    int fired = 0;
+    for (int i = 0; i < 90 && !fired; i++) {
+        c->padSeen[HAND_RIGHT].start = 1;
+        c->padSeen[HAND_RIGHT].grip = 1.0f;
+        frames(c, 1);
+        memset(out, 0, sizeof(out));
+        out[IN_SETTING] = (float)SETTING_HEAD_DWELL;   // taken this frame
+        out[IN_SETTING_VALUE] = 600.0f;
+        PadState pad;
+        padRest(&pad);
+        xrBindFrame(c, g_now, (float)FRAME_NS / 1e9f, &pad, out);
+        fired = c->pointerSource == POINTER_SOURCE_CONTROLLER;
+        CHECK((int)out[IN_SETTING] == SETTING_HEAD_DWELL);
+    }
+    CHECK(fired && c->pointerBackUnsaved);
+    handFrames(c, 1, 1, 1);
+    CHECK(!c->pointerBackUnsaved && g_settingsOut == 1 && g_lastSetting == SETTING_POINTER_SOURCE
+          && g_lastValue == POINTER_SOURCE_CONTROLLER);
+    handFrames(c, 3, 0, 0);
+    CHECK(!c->cogOpen);
+    g_eyesTracked = 0;
+
+    // gamepad mode: Menu is Start and the grip a bumper, so there is no chord there
+    handsSetUp(s, 0);
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_HEAD, out);
+    c->padMode = 1;
+    handFrames(c, 60, 1, 1);
+    handFrames(c, 3, 0, 0);
+    CHECK(c->pointerSource == POINTER_SOURCE_HEAD && g_settingsOut == 0);
+    c->padMode = 0;
+    // and back in pointer mode with Menu still down from the pad: not a press until let go
+    handFrames(c, 3, 1, 0);
+    c->padMode = 1;
+    handFrames(c, 1, 1, 0);
+    c->padMode = 0;
+    handFrames(c, 20, 1, 0);
+    handFrames(c, 2, 0, 0);
+    CHECK(!c->cogOpen);
+    for (int h = 0; h < HAND_COUNT; h++) {
+        memset(&c->padSeen[h], 0, sizeof(c->padSeen[h]));
+        c->profileKind[h] = PROFILE_NONE;
+    }
+    handFrames(c, 1, 0, 0);
+    for (int h = 0; h < HAND_COUNT; h++) {
+        c->profileKind[h] = PROFILE_NONE;
+    }
+    c->cogOpen = 1;
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
+// The Eyes pointer through the input pass: the gaze jittering by up to a degree round one point of
+// the open panel moves the dot (read as the point's height on the panel, cogPointV) by less than 0.3
+// degrees once it has settled; the head pointer's smoothing on the same jitter would not hold it
+static float eyesWander(Scene* s, int steady) {
+    XrCtx* c = s->ctx;
+    setUp(s, 1);
+    g_eyesTracked = 1;
+    float out[IN_SLOTS];
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, steady ? POINTER_SOURCE_GAZE : POINTER_SOURCE_HEAD, out);
+    Vec3 aim = panelAt(c, 0.3f, 0.5f);
+    float dist = sqrtf(vecDot(aim, aim));
+    Vec3 fwd = vecNorm(aim);
+    Vec3 right = vecNorm(vecCross(fwd, (Vec3){ 0.0f, 1.0f, 0.0f }));
+    Vec3 up = vecCross(right, fwd);
+    uint32_t seed = 777u;
+    float lo = 2.0f, hi = -2.0f;
+    for (int i = 0; i < 360; i++) {
+        float j[2];
+        for (int k = 0; k < 2; k++) {
+            seed = seed * 1664525u + 1013904223u;
+            j[k] = ((float)((seed >> 8) & 0xFFFFu) / 32767.5f - 1.0f) * (float)M_PI / 180.0f;
+        }
+        Vec3 d = { fwd.x + right.x * j[0] + up.x * j[1], fwd.y + right.y * j[0] + up.y * j[1],
+                   fwd.z + right.z * j[0] + up.z * j[1] };
+        if (steady) {
+            g_eyes = d;
+        }
+        else {
+            g_head = d;
+        }
+        frames(c, 1);
+        if (i >= 90) {
+            CHECK(c->cogPointV >= 0.0f);
+            if (c->cogPointV < lo) lo = c->cogPointV;
+            if (c->cogPointV > hi) hi = c->cogPointV;
+        }
+    }
+    g_eyesTracked = 0;
+    g_head = (Vec3){ 0.0f, 0.0f, -1.0f };
+    g_eyes = g_head;
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+    return atanf((hi - lo) * c->cogH / dist) * 180.0f / (float)M_PI;
+}
+
+static void eyesSteady(Scene* s) {
+    float eyes = eyesWander(s, 1), head = eyesWander(s, 0);
+    CHECK(eyes < 0.3f);
+    CHECK(head > 0.5f);   // the same jitter through the head's filter wanders about 2 degrees
+    CHECK(accessDwellToleranceDeg(POINTER_SOURCE_GAZE) > accessDwellToleranceDeg(POINTER_SOURCE_HEAD));
+}
+
+int main(void) {
+    Scene* s = scene_new();
+    presses(s);
+    neverByItself(s);
+    headTurnsItOff(s);
+    eyesFallBack(s);
+    eyesLine(s);
+    footer(s);
+    dotScales(s);
+    assistClicks(s);
+    auxGrab(s);
+    stylePresses(s);
+    radialMenu(s);
+    radialDrag(s);
+    pointerBack(s);
+    eyesSteady(s);
+    scene_free(s);
+    return checksDone("m4_access");
+}

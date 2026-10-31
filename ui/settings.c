@@ -18,6 +18,8 @@
 #include "xr_lightgun.h"
 #include "xr_opentrack.h"
 #include "xr_dwell.h"
+#include "xr_access.h"
+#include "xr_radial.h"
 #include "xr_headaim.h"
 #include "xr_padgyro.h"
 #include "xr_padmouse.h"
@@ -55,6 +57,10 @@ _Static_assert(sizeof(PADCARD_NAMES) / sizeof(PADCARD_NAMES[0]) == PADCARD_MODES
 static const char* const POINTER_SOURCE_NAMES[] = { "controller", "head", "gaze" };
 _Static_assert(sizeof(POINTER_SOURCE_NAMES) / sizeof(POINTER_SOURCE_NAMES[0]) == POINTER_SOURCE_COUNT, "pointer_source names follow POINTER_SOURCE_");
 // Native (lane headinput-finish): MOUSE_MODE_ in xr_headaim.h
+// Native (lane radial-dwell): [vr] assist_dwell_style
+static const char* const DWELL_STYLE_NAMES[] = { "simple", "radial" };
+_Static_assert(sizeof(DWELL_STYLE_NAMES) / sizeof(DWELL_STYLE_NAMES[0]) == DWELL_STYLE_COUNT, "assist_dwell_style names follow DWELL_STYLE_");
+
 static const char* const MOUSE_MODE_NAMES[] = { "absolute", "relative" };
 _Static_assert(sizeof(MOUSE_MODE_NAMES) / sizeof(MOUSE_MODE_NAMES[0]) == MOUSE_MODE_COUNT, "mouse_mode names follow MOUSE_MODE_");
 static const char* const LIGHTGUN_NAMES[] = { "auto", "on", "off" };
@@ -77,7 +83,7 @@ static const char* const NOTICES_NAMES[] = { "all", "important", "off" };
 static const char* const STEADY_NAMES[] = { "off", "normal", "steady" };
 static const char* const LOG_NAMES[] = { "off", "basic", "verbose" };
 static const char* const KBLAYOUT_NAMES[] = { "compact", "full" };
-static const char* const COGTAB_NAMES[] = { "screen", "display", "3d", "picture", "about" };
+static const char* const COGTAB_NAMES[] = { "screen", "display", "3d", "picture", "accessibility", "about" };
 _Static_assert(sizeof(COGTAB_NAMES) / sizeof(COGTAB_NAMES[0]) == COG_TAB_COUNT, "cog_tab names follow COG_TAB_");
 static const char* const KEYMAP_NAMES[] = { "qwerty", "azerty", "qwertz" };
 static const char* const STATS_STYLE_NAMES[] = { "full", "hud", "lite" };
@@ -120,9 +126,10 @@ static const SettingDesc TABLE[] = {
     DI("stream", "bitrate_kbps", bitrate_kbps, 0, MLXR_BITRATE_MAX_KBPS, 0, "seekbar_bitrate_kbps; 0 follows resolution and frame rate, else 500..500000 (the flat launcher's custom bitrate goes to 500 Mbps)"),
     DE("stream", "codec", codec, CODEC_NAMES, 0, "list_video_format: auto, av1, hevc, h264"),
     DE("stream", "audio_config", audio_config, AUDIO_NAMES, 0, "list_audio_config: stereo, 5.1, 7.1"),
-    DB("stream", "virtual_surround", virtual_surround, 0, "checkbox_vr_virtual_surround: place 5.1 and 7.1 speakers around you in stereo"),
+    DB("stream", "virtual_surround", virtual_surround, 0, "checkbox_vr_virtual_surround: place stereo, 5.1 and 7.1 speakers around you, held to the screen as you turn"),
     DE("stream", "frame_pacing", frame_pacing, PACING_NAMES, 0, "frame_pacing"),
     DE("stream", "network_path", network_path, NETWORK_NAMES, 0, "native: which link reaches the PC: auto (probe all), home (Wi-Fi), adapter (Steam Frame Wireless Adapter) or usb (a USB cable between the headset and the PC); the --network flag and MLXR_NETWORK override it"),
+    DB("stream", "vpn_only_away", vpn_only_away, 1, "native: true = a VPN address of the PC (100.64.0.0/10, fd7a:115c:a1e0::/48, an address reached through a VPN interface such as wg0 or tun0) is used only when the PC answers on none of its direct addresses (away from home); false = whichever address scores best"),
     DI("stream", "doff_disconnect", doff_disconnect, 0, 3600, 60, "native: seconds with the headset off before the stream is disconnected, leaving the host's app running; 0 never. The sound mutes and the input is let go the moment it comes off, and putting it back on within the time carries on"),
     DI("stream", "idle_disconnect", idle_disconnect, 0, 1440, 0, "native: minutes without any input (controllers, hands, keyboard, mouse, pads) before the stream is disconnected, leaving the host's app running; 0 never"),
     DI("stream", "bitrate_wifi", bitrate_wifi, 0, MLXR_BITRATE_MAX_KBPS, 0, "native: start bitrate in kbps when the stream goes over Wi-Fi; 0 uses the launcher's bitrate, else 500..500000 (a stream's bitrate cannot change once it runs, so this is chosen at the start, for the path Automatic or the Network connection setting picked)"),
@@ -171,8 +178,14 @@ static const SettingDesc TABLE[] = {
     DB("vr", "opentrack", opentrack, 0, "native: while streaming, send the head pose to opentrack on the PC every frame as its UDP packet (x, y, z in cm, yaw, pitch, roll in degrees); in opentrack pick the input \"UDP over network\" on the same port"),
     DS("vr", "opentrack_host", opentrack_host, "", "native: where the opentrack packets go, an address or a name; empty sends them to the PC of the current stream"),
     // Native (lane wave4-headinput, PLAN 6.5): head Point mode
-    DE("vr", "pointer_source", pointer_source, POINTER_SOURCE_NAMES, POINTER_SOURCE_CONTROLLER, "native: what points: controller (the controllers' rays, and the eyes when gaze is on), head (the head's own ray, smoothed, with either controller's trigger as the click; for accessibility) or gaze (the eye-gaze pointer, the same as gaze = true)"),
-    DI("vr", "head_dwell_ms", head_dwell_ms, 0, DWELL_MS_MAX, 0, "native: with pointer_source = head, resting the dot this long on one spot clicks it (400 to 2000 ms); 0 is off"),
+    DE("vr", "pointer_source", pointer_source, POINTER_SOURCE_NAMES, POINTER_SOURCE_CONTROLLER, "native: what points (the cog's Accessibility tab sets it too): controller (the controllers' rays, and the eyes when gaze is on), head (the head's own ray, smoothed, with either controller's trigger as the click; for accessibility) or gaze (the Accessibility tab's Eyes: the head pointer driven by the eyes while SteamVR gives eye gaze, the head's ray while they are lost). The app asks the runtime for eye gaze whenever it offers it"),
+    DI("vr", "head_dwell_ms", head_dwell_ms, 0, DWELL_MS_MAX, 0, "native: with pointer_source = head or gaze, resting the dot this long on one spot clicks it (400 to 2000 ms; the Accessibility tab offers 600, 900, 1200 and 1500); 0 is off"),
+    // Native (lane a11y-2): the Accessibility tab's Dot size
+    DI("vr", "assist_dot_size", assist_dot_size, ACCESS_DOT_MIN, ACCESS_DOT_MAX, ACCESS_DOT_DEFAULT, "native: with pointer_source = head or gaze, the size of the dot (and of its dwell ring) in percent of its usual size, 50 to 300 (the Accessibility tab's Dot size slider steps by 25); 100 is the usual size"),
+    // Native (lane radial-dwell): the Accessibility tab's Dwell click style
+    DE("vr", "assist_dwell_style", assist_dwell_style, DWELL_STYLE_NAMES, DWELL_STYLE_SIMPLE, "native: with pointer_source = head or gaze and a dwell click on, what a dwell on the picture does: simple (a left click) or radial (near the end of the dwell a small menu opens round the dot: look left for a double click, down to drag, right for a right click, keep still for a left click, look well away to cancel; every click lands where the dwell started). Our own menus always get a plain click"),
+    DB("vr", "assist_headset_button", assist_headset_button, 0, "native: kept for a future version (the headset's side button clicking for the head and eye pointer); read and written as before, but the client does not act on it in 1.1.0"),
+    DS("vr", "assist_click_path", assist_click_path, "", "native: kept for a future version (an OpenXR button that clicks for the head and eye pointer, as \"<interaction profile> <input path>\"); the client does not act on it in 1.1.0"),
     // Native (lane headinput-finish, PLAN 4b.10)
     DE("vr", "mouse_mode", mouse_mode, MOUSE_MODE_NAMES, MOUSE_MODE_ABSOLUTE, "native: how the pointer moves the PC's mouse: absolute (the cursor goes where the ray lands, Moonlight's remote desktop mouse) or relative (the ray's movement goes as mouse motion, for games that capture the mouse)"),
     DB("vr", "back_as_guide", back_as_guide, 0, "native: in gamepad mode the Frame controllers' Back (View) button is the Guide (Xbox) button; with Start held it stays Back, so the Start and Back chords work as ever"),
@@ -206,7 +219,7 @@ static const SettingDesc TABLE[] = {
     DI("display", "zoom", zoom, 100, 400, 100, "native (PLAN 4b.6): zoom percent, 100 shows the whole picture and 400 a quarter of it across and down, filling the screen. The binding actions app:zoomin, app:zoomout and app:zoomreset step it, aimed at the controller's pointer. Remembered per PC and app with the layout (Remember per app)"),
     DI("display", "zoom_x", zoom_x, 0, 100, 50, "native (PLAN 4b.6): where the zoomed part is centred across the picture, percent (0 the left edge, 100 the right); held where the part still fits"),
     DI("display", "zoom_y", zoom_y, 0, 100, 50, "native (PLAN 4b.6): where the zoomed part is centred down the picture, percent (0 the top edge, 100 the bottom)"),
-    DE("display", "sharpening", sharpening, SHARP_NAMES, 0, "Display tab: sharpen (list_vr_sharpening; native default off, the owner's choice, upstream quality)"),
+    DE("display", "sharpening", sharpening, SHARP_NAMES, 1, "Display tab: sharpen (list_vr_sharpening; native default normal, the owner's choice after the 1.1.0 headset run, upstream quality)"),
     DE("display", "supersampling", supersampling, SHARP_NAMES, 1, "Display tab: supersample (list_vr_supersampling; native default normal, the owner's choice, upstream off; never used with the 3D on)"),
     DB("display", "picture_filter", picture_filter, 1, "native: sharper small text on the curved or 3D picture (MLXR_PICTURE_FILTER)"),
     DB("display", "chroma_from_luma", chroma_from_luma, 1, "native: sharper coloured text, colour fitted to the luma (MLXR_CHROMA_FROM_LUMA)"),
@@ -216,7 +229,7 @@ static const SettingDesc TABLE[] = {
     DI("display", "glow_level", glow_level, 0, 100, 50, "Display tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
     DE("display", "glow_feather", glow_feather, FEATHER_NAMES, GLOW_FEATHER_OFF, "native: Picture tab Glow edge: off, soft or wide. Feathers the picture's edge into the glow round it (needs the glow on)"),
     DB("display", "screen_light", screen_light, 1, "Display tab: screen light in rooms (checkbox_vr_room_light)"),
-    DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (room in a room), display, 3d, picture or about"),
+    DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (room in a room), display, 3d, picture, accessibility or about"),
     // 3d
     DI("3d", "separation", separation, -1, COG_SEP_STEPS, -1, "seekbar_vr_separation: tenths of a percent of frame width; -1 is the depth model's own (ZipDepth 6, MiDaS 5)"),
     DI("3d", "convergence", convergence, -1, 100, -1, "seekbar_vr_convergence: percent; -1 is the depth model's own (50)"),
@@ -236,8 +249,16 @@ static const SettingDesc TABLE[] = {
     DI("screen", "rotate_deg", screen_rotate_deg, -90, 90, 0, "Screen tab: rotate, degrees clockwise"),
     DI("screen", "curve", screen_curve, 0, 100, 0, "Screen tab: curve, percent (seekbar_vr_curvature)"),
     DI("screen", "width_cm", screen_width_cm, 80, 800, 300, "Screen tab: size, picture width in centimetres (seekbar_vr_screen_size)"),
-    DI("screen", "far_distance_cm", screen_far_distance_cm, 0, 800, 0, "native: the bar's Bring here switch, the distance from the head the screen goes back to from near, centimetres; 0 none (the Cinema preset)"),
-    DI("screen", "far_width_cm", screen_far_width_cm, 0, 800, 0, "native: the bar's Bring here switch, the width it goes back to, centimetres; 0 none"),
+    // The bar's Bring here switch: the placement the screen had before a press took it to the Desk preset, which
+    // the next press puts back (the screen's own keys above, prefixed back_). Old files with far_distance_cm and
+    // far_width_cm (the switch before 1.1.0) load: the two are unknown keys now, dropped on the next save.
+    DI("screen", "back_distance_cm", screen_back_distance_cm, 0, 800, 0, "native: the bar's Bring here switch, the placement it goes back to from Desk: distance in centimetres (0 none remembered)"),
+    DI("screen", "back_height_cm", screen_back_height_cm, -200, 200, 0, "native: the same placement's height above eye level, centimetres"),
+    DI("screen", "back_azimuth_deg", screen_back_azimuth_deg, -180, 180, 0, "native: the same placement's direction, degrees to the left of straight ahead"),
+    DI("screen", "back_tilt_deg", screen_back_tilt_deg, -40, 40, 0, "native: the same placement's tilt, degrees"),
+    DI("screen", "back_rotate_deg", screen_back_rotate_deg, -90, 90, 0, "native: the same placement's rotate, degrees clockwise"),
+    DI("screen", "back_curve", screen_back_curve, 0, 100, 0, "native: the same placement's curve, percent"),
+    DI("screen", "back_width_cm", screen_back_width_cm, 0, 800, 0, "native: the same placement's width, centimetres (0 none remembered: the switch goes to the Cinema preset from Desk)"),
     DB("screen", "per_app", per_app, 1, "native: Screen tab, Remember per app: each PC and app keeps its own placement, head lock and 3D state in a [screen.<hash>] section; an app with none starts from the settings in force"),
     DB("screen", "angular_lock", angular_lock, 1, "native: Screen tab, Angular-size lock: pushing or pulling the held screen with the thumbsticks resizes it to look the same size"),
     // ui (lane wave6-i18n)

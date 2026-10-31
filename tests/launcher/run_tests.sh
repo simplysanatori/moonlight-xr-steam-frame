@@ -110,7 +110,9 @@ cmp "$t/fakesrv/client.pem" "$MLXR_CONFIG_DIR/servercerts/$HOSTID.pem" && ok "pi
 [ "$(stat -c %a "$MLXR_CONFIG_DIR/client.key")" = 600 ] && [ "$(stat -c %a "$MLXR_CONFIG_DIR/hosts.ini")" = 600 ] && ok "private files are 0600" || fail "modes"
 h="$MLXR_CONFIG_DIR/hosts.ini"
 grep -q "^\[$HOSTID\]" "$h" && grep -q '^name = gaming-pc' "$h" && grep -q '^mac = 02:f0:2c:5d:a5:10' "$h" && grep -q '^cert = servercerts/' "$h" && ok "hosts.ini record" || { fail "hosts.ini"; cat "$h"; }
-grep -q '^address = 198.51.100.5' "$h" && grep -q 'extra_addresses = .*198.51.100.7' "$h" && ok "addresses (no loopback)" || { fail "addresses"; cat "$h"; }
+grep -q '^address = 198.51.100.5' "$h" && grep -q 'extra_addresses = .*198.51.100.7' "$h" && ok "addresses" || { fail "addresses"; cat "$h"; }
+# lane flat-input: the manual address 127.0.0.1 (a port forward set up on the Frame) is kept, last, never the first
+grep -q '^extra_addresses = .*,127\.0\.0\.1$' "$h" && ok "loopback manual address kept, last of the addresses" || { fail "loopback address"; cat "$h"; }
 "$CLI" identity 2>&1 | grep -q "saved hosts:  1" && ok "mlxr-cli reads the exported host" || fail "mlxr-cli: $("$CLI" identity 2>&1)"
 "$CLI" identity 2>&1 | grep -q "created a new client identity" && fail "identity regenerated"
 # another host already in hosts.ini is kept
@@ -123,6 +125,12 @@ grep -q 'extra_addresses = .*10.35.50.27' "$h" || fail "test setup: extra addres
 dry "gaming-pc:Desktop" >/dev/null
 grep -q '^address = 198.51.100.5' "$h" && grep -q 'extra_addresses = .*198.51.100.7' "$h" && grep -q 'extra_addresses = .*10.35.50.27' "$h" && ok "earlier addresses kept across hand-offs" || { fail "address merge"; cat "$h"; }
 [ "$(grep -o '198.51.100.7' "$h" | wc -l)" = 1 ] && ok "no duplicate addresses" || fail "duplicate addresses"
+# lane flat-input: an earlier record's IPv4-mapped loopback (::ffff:127.0.0.1) is the same forward: one plain 127.0.0.1
+sed -i "/^\[$HOSTID\]/,/^cert/ s/^extra_addresses = .*/&,::ffff:127.0.0.1,::FFFF:127.0.0.2/" "$h"
+dry "gaming-pc:Desktop" >/dev/null
+[ "$(grep -o '127\.0\.0\.1' "$h" | wc -l)" = 1 ] && ! grep -qi 'ffff' "$h" && grep -q '^extra_addresses = .*,127\.0\.0\.1,127\.0\.0\.2$' "$h" \
+    && ok "loopback forwards in one form, no duplicate, after the other addresses" || { fail "loopback forms"; cat "$h"; }
+grep -q '^address = 198.51.100.5' "$h" && ok "a loopback forward is never the first address" || fail "first address: $(grep '^address' "$h")"
 
 # --- 3. the settings matrix (user changes them in Settings; here in the conf, as Settings would)
 setconf width=1920 height=1080 fps=60 bitrate=20000 videocfg=0
@@ -505,14 +513,14 @@ expect "launch by UUID: by the app's id" "$out" "SELFTEST: env: MLXR_APP_UUID=$U
 SECTION=mlxr setconf virtual_display=true
 srvinfo $PERM_ALL true false SUNSHINE_SERVER_FREE 0 1 769
 out="$(pfplan "gaming-pc:Desktop")"
-expect "check: virtual display driver not ready" "$out" "hint: Use Virtual Display is on, but Apollo's virtual display driver is not ready on gaming-pc."
-expect "check: the hint is logged" "$(cat "$t/stderr")" "MLXR_LAUNCHER_HINT: Use Virtual Display is on"
+expect "check: virtual display driver not ready" "$out" "hint: Use virtual display is on, but Apollo's virtual display driver is not ready on gaming-pc."
+expect "check: the hint is logged" "$(cat "$t/stderr")" "MLXR_LAUNCHER_HINT: Use virtual display is on"
 # not Apollo (no Permission, no virtual display), virtual display and clipboard sync on
 SECTION=mlxr setconf clipboard_sync=true
 srvinfo "" "" "" SUNSHINE_SERVER_FREE 0 1 769
 out="$(pfplan "gaming-pc:Desktop")"
-expect "check: a virtual display needs Apollo" "$out" "hint: Use Virtual Display is on, but gaming-pc does not look like Apollo."
-expect "check: clipboard sync needs Apollo" "$out" "hint: Smart Clipboard Sync is on, but gaming-pc does not look like Apollo"
+expect "check: a virtual display needs Apollo" "$out" "hint: Use virtual display is on, but gaming-pc does not look like Apollo."
+expect "check: clipboard sync needs Apollo" "$out" "hint: Smart clipboard sync is on, but gaming-pc does not look like Apollo"
 cp "$pf/applist.xml" "$t/applist.uuid"
 sed -i "s/$UUID_DESKTOP//" "$pf/applist.xml"
 out="$(pfplan "gaming-pc:Desktop")"
@@ -587,9 +595,10 @@ if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
          vr.pad_mouse_chord vr.pad_mouse_scroll vr.pad_arbitration vr.pad_gyro vr.notices vr.lightgun vr.scroll_speed
          vr.background_dim vr.void_color vr.first_run_shown vr.pad_card display.zoom display.stats display.glow_feather
          3d.separation 3d.convergence 3d.stereo 3d.eye_balance 3d.stereo_source 3d.sbs_full 3d.edge_sharpness 3d.depth_scale
-         3d.depth_global 3d.motion_reset ui.language"
+         3d.depth_global 3d.motion_reset ui.language vr.head_dwell_ms"
     left="stream.host stream.app vr.hand_hint_seen display.cog_tab display.zoom_x display.zoom_y screen.height_cm
-          screen.azimuth_deg screen.tilt_deg screen.rotate_deg screen.far_distance_cm screen.far_width_cm"
+          screen.azimuth_deg screen.tilt_deg screen.rotate_deg screen.back_distance_cm screen.back_height_cm
+          screen.back_azimuth_deg screen.back_tilt_deg screen.back_rotate_deg screen.back_curve screen.back_width_cm"
     for k in $(cut -d' ' -f1 "$t/client-table"); do
         case "$k" in debug.*|rooms.*) continue;; esac
         case " $(echo $own $left) " in *" $k "*) continue;; esac
@@ -703,7 +712,6 @@ case "${FAKE_MODE:-ok}" in
   err) echo "some log line"; echo "MLXR_ERROR: The host is on fire" >&2; exit 6;;
   silent) exit 3;;
   disc) exit 11;;
-  pcvr) exit 12;;
   crash) kill -SEGV $$;;
 esac
 FAKE
@@ -731,107 +739,6 @@ selftest "nosuch:Desktop" >/dev/null 2>&1; [ $? = 20 ] && ok "unknown PC is repo
 # a PC without that app
 selftest "laptop:1" >/dev/null 2>&1; [ $? = 21 ] && ok "unknown app is reported" || fail "unknown app"
 
-# --- 4b. lane wave4-pcvr: exit code 12 (the Host sheet's Switch to PC VR) hands the headset to Valve's
-# Steam Link stream through steam_cef.py. A fake CEF endpoint (tests/tools/fake_cef.py) stands in for
-# Steam; it logs every expression it is asked to evaluate.
-SC="$here/../../packaging/steam_cef.py"
-FC="$here/../tools/fake_cef.py"
-if [ -f "$SC" ] && [ -f "$FC" ]; then
-    read -r CEFPORT DEADPORT < <(python3 -I -c 'import socket
-a=socket.socket(); a.bind(("127.0.0.1",0)); b=socket.socket(); b.bind(("127.0.0.1",0))
-print(a.getsockname()[1], b.getsockname()[1])')
-    cat >"$t/cef-rules.json" <<'JSON'
-[
- ["navigator.userAgent", {"StreamGame":"function","RunGame":"function","RegisterForDevicesChanges":"function","ExecuteSteamURL":"function","ShowDashboard":"function","userAgent":"Steam/test"}],
- ["RegisterForDevicesChanges", {"devices":[{"clientId":"76561198000000001","clientName":"gaming-pc","unStreamingSessionID":0}]}],
- ["appStore", {"apps":[
-   {"appid":620980,"name":"Beat Saber","categories":[53],"perClient":[{"clientid":"76561198000000001","installed":true}]},
-   {"appid":440,"name":"Team Fortress 2","categories":[1],"perClient":[{"clientid":"76561198000000001","installed":true}]}]}],
- ["StreamGame", true],
- ["ExecuteSteamURL", true]
-]
-JSON
-    : > "$t/cef.log"
-    python3 -I "$FC" "$CEFPORT" "$t/cef-rules.json" "$t/cef.log" >"$t/cef.out" 2>&1 &
-    CEFPID=$!
-    trap 'kill $CEFPID ${fakepc:-} 2>/dev/null; rm -rf "$t"' EXIT   # (lane wave4-launcher: and the fake PC of 3e)
-    for _ in $(seq 1 50); do grep -q "fake CEF on" "$t/cef.out" 2>/dev/null && break; sleep 0.1; done
-    export MLXR_STEAM_CEF="$SC" STEAM_CEF_PORT="$CEFPORT" STEAM_CEF_FLAG_FILE="$t/no-flag"
-    pcvrsay() { MLXR_LAUNCHER_SELFTEST="$1" "$L" 2>"$t/stderr"; }
-
-    # the exit code, as a dry run: the launcher treats 12 like 11 (no dialog) and prints what it asks Steam
-    unset FAKE_MODE
-    MLXR_LAUNCHER_DRYRUN="fail:12:" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
-    [ $rc = 0 ] && ok "exit 12 (Switch to PC VR) is not an error" || fail "exit 12 gave $rc"
-    expect "exit 12: no error dialog" "$(cat "$t/stdout")" "error=none"
-    # lane pcvr-steamvr: SteamVR from the PC of that name, never a game
-    expect "exit 12: SteamVR from the stream's PC, by name" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --pc gaming-pc --confirm 10"
-    refute "exit 12: no --app" "$(grep '^MLXR_PCVR' "$t/stdout")" "--app"
-    SECTION=mlxr setconf pcvr_app=620980 pcvr_client=76561198000000001
-    MLXR_LAUNCHER_DRYRUN="fail:12:" selftest "gaming-pc:Desktop" >"$t/stdout"
-    expect "exit 12 with a PC chosen in Settings" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --pc gaming-pc --client 76561198000000001 --confirm 10"
-    refute "exit 12: an old saved game is not streamed" "$(grep '^MLXR_PCVR' "$t/stdout")" "--app"
-    MLXR_LAUNCHER_DRYRUN="fail:11:" selftest "gaming-pc:Desktop" >"$t/stdout"
-    refute "exit 11 (disconnect) does not hand off to PC VR" "$(cat "$t/stdout")" "MLXR_PCVR"
-    MLXR_LAUNCHER_DRYRUN="fail:6:no" selftest "gaming-pc:Desktop" >"$t/stdout"
-    refute "a failing client does not hand off to PC VR" "$(cat "$t/stdout")" "MLXR_PCVR"
-
-    # for real: a client that exits 12, Steam's side played by the fake endpoint
-    : > "$t/cef.log"
-    FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
-    [ $rc = 0 ] && ok "client exit 12 -> success" || fail "client exit 12 gave $rc"
-    expect "client exit 12: finished without an error" "$(cat "$t/stdout")" "started=yes finished=yes error=none"
-    expect "client exit 12: Steam is asked to StreamGame SteamVR from the chosen PC" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(250820, "76561198000000001", 0)'
-    refute "client exit 12: the flat screen is not asked for" "$(cat "$t/cef.log")" "ShowDashboard"
-    refute "client exit 12: no Steam page, no library" "$(cat "$t/cef.log")" "ExecuteSteamURL"
-    expect "client exit 12: the log names the path taken" "$(cat "$t/stderr")" "Asked Steam for PC VR: stream (the PC chosen"
-    # no PC chosen: Steam's paired PC with the Moonlight PC's name (the script asks Steam for the list first)
-    : > "$t/cef.log"
-    SECTION=mlxr setconf pcvr_client=
-    FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"
-    expect "no PC chosen: Steam is asked for the paired PCs" "$(cat "$t/cef.log")" "RegisterForDevicesChanges"
-    expect "no PC chosen: the paired PC of that name is streamed from" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(250820, "76561198000000001", 0)'
-    expect "no PC chosen: the log says it was found by name" "$(cat "$t/stderr")" "the paired PC named gaming-pc"
-    # the app grid's VR (vr:<PC>): a dry run ends nothing and asks Steam nothing, and shows the call
-    : > "$t/cef.log"
-    MLXR_LAUNCHER_DRYRUN=1 selftest "vr:gaming-pc" >"$t/stdout"; rc=$?
-    [ $rc = 0 ] && ok "vr: dry run" || fail "vr: dry run gave $rc: $(cat "$t/stderr")"
-    expect "vr dry run: the hand-off it would start" "$(cat "$t/stdout")" "MLXR_PCVR: python3 -I steam_cef.py --pcvr --pc gaming-pc --confirm 10"
-    expect "vr dry run: steam_cef.py's call" "$(cat "$t/stdout")" 'SELFTEST: vr steam rc=0'
-    expect "vr dry run: SteamVR from the paired PC" "$(cat "$t/stdout")" 'StreamGame(250820, \"76561198000000001\", 0)'
-    refute "vr dry run: Steam was not asked to stream" "$(cat "$t/cef.log")" "StreamGame"
-    # for real against the fake Steam (the saved PC does not answer here: it says so and asks Steam anyway)
-    : > "$t/cef.log"
-    selftest "vr:gaming-pc" >"$t/stdout"; rc=$?
-    [ $rc = 0 ] && ok "vr: runs" || fail "vr gave $rc"
-    expect "vr: Steam is asked for SteamVR from the PC" "$(cat "$t/cef.log")" 'SteamClient.Apps.StreamGame(250820, "76561198000000001", 0)'
-    expect "vr: the log says what it did about the PC's app" "$(cat "$t/stderr")" "VR: "
-    selftest "vr:nosuch" >/dev/null 2>&1; [ $? = 20 ] && ok "vr: an unknown PC is reported" || fail "vr: unknown PC"
-    # Steam's port does not answer: the hand-off fails quietly (logged), the launcher carries on
-    SECTION=mlxr setconf pcvr_client=76561198000000001
-    STEAM_CEF_PORT="$DEADPORT" FAKE_MODE=pcvr MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
-    [ $rc = 0 ] && expect "Steam port dead: no error dialog" "$(cat "$t/stdout")" "error=none" || fail "dead port gave $rc"
-    expect "Steam port dead: logged with the way to check" "$(cat "$t/stderr")" "steam_cef.py --probe"
-
-    # the preflight and the lists (steam_cef.py through the launcher)
-    out="$(pcvrsay pcvr:probe)"
-    expect "preflight: port answers, calls present" "$out" "SELFTEST: pcvr probe rc=0"
-    expect "preflight: reports ok" "$out" '"ok": true'
-    out="$(STEAM_CEF_PORT="$DEADPORT" pcvrsay pcvr:probe)"
-    expect "preflight: a dead port is exit 3" "$out" "SELFTEST: pcvr probe rc=3"
-    expect "preflight: with a hint" "$out" "does not answer"
-    out="$(pcvrsay pcvr:devices)"
-    expect "paired PCs are listed" "$out" '"clientName": "gaming-pc"'
-    out="$(pcvrsay pcvr:apps:76561198000000001)"
-    expect "the PC's games are listed" "$out" '"name": "Beat Saber"'
-    expect "VR games first" "$out" '[{"appid": 620980'
-    out="$(pcvrsay pcvr:bogus)"; [ $? = 20 ] && ok "a bad pcvr self-test is reported" || fail "bad pcvr self-test"
-    unset MLXR_STEAM_CEF STEAM_CEF_PORT STEAM_CEF_FLAG_FILE
-    SECTION=mlxr setconf pcvr_app= pcvr_client=
-else
-    ok "(PC VR tests skipped: no packaging/steam_cef.py or tests/tools/fake_cef.py)"
-fi
-
 # --- 5. the whole app starts headless, shows the seeded PCs, and leaves cleanly
 if [ -n "$SHOTS" ]; then
     mkdir -p "$SHOTS"
@@ -840,6 +747,9 @@ if [ -n "$SHOTS" ]; then
     MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs.png@2500" "$L" >"$t/ui.out" 2>&1; rc=$?
     [ $rc = 0 ] && ok "UI starts, loads, exits (offscreen)" || fail "UI exit $rc"
     QMLERR='TypeError|ReferenceError|is not a function|is not defined|Cannot assign|Unable to assign|qrc:/[^ ]*(Error|error)'
+    # defined here, before the first section that checks a page's output with it (lane a11y-2: the Accessibility
+    # section's check ran before this was defined further down, and was skipped)
+    uiout() { grep -E "$QMLERR" "$1" && fail "$2: QML errors" || ok "$2: no QML errors"; }
     grep -Eq "$QMLERR" "$t/ui.out" && { fail "QML errors:"; grep -E "$QMLERR" "$t/ui.out" | head; } || ok "no QML errors on start"
     grep -q "Screenshot.*saved" "$t/ui.out" && ok "screenshot written" || fail "no screenshot"
     grep -q "Failed to find ANY working\|Unable to find working decoder" "$t/ui.out" && fail "decoder probe ran in hand-off mode" || ok "hand-off mode: no local decoder probe"
@@ -855,7 +765,7 @@ if [ -n "$SHOTS" ]; then
     ini="$MLXR_CONFIG_DIR/config.ini"
     printf '# Moonlight XR settings\n[display]\n# Display tab: show performance stats [true | false] (default false)\n#stats = false\nglow = true\n\n[3d]\nseparation = 9\nstereo = false\n' > "$ini"
     cp "$ini" "$t/ini.before"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,scrollSpeedRow,doffRow,idleRow,controllerModelRow,hdrRow,stereoSourceRow,sbsFullRow,idrCapRow,padCardRow,firstRunRow,pathFailoverRow,failoverBurstRow \
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=statsRow,flipRow,noticesRow,scrollSpeedRow,doffRow,idleRow,controllerModelRow,stereoSourceRow,sbsFullRow,idrCapRow,padCardRow,firstRunRow,pathFailoverRow,failoverBurstRow \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-clicked.png@3000" "$L" >"$t/ui6.out" 2>&1
     grep -q "no clickable" "$t/ui6.out" && fail "click hook: $(grep 'no clickable' "$t/ui6.out")"
     grep -q '^stats = true$' "$ini" && ok "stats overlay row writes [display] stats = true" || { fail "stats not written"; cat "$ini"; }
@@ -863,7 +773,7 @@ if [ -n "$SHOTS" ]; then
     grep -A1 '^\[vr\]' "$ini" | grep -q '^flip_face_buttons = true$' && ok "flip row adds [vr] flip_face_buttons = true" || { fail "flip not written"; cat "$ini"; }
     grep -A2 '^\[vr\]' "$ini" | grep -q '^notices = important$' && ok "notices row steps All to Important and writes [vr] notices" || { fail "notices not written"; cat "$ini"; }
     grep -A6 '^\[vr\]' "$ini" | grep -q '^scroll_speed = 150$' && ok "scroll speed row steps 100 to 150 and writes [vr] scroll_speed" || { fail "scroll_speed not written"; cat "$ini"; }
-    grep -A6 '^\[vr\]' "$ini" | grep -q '^controller_model = frame$' && ok "controller row steps Off to Steam Frame and writes [vr] controller_model" || { fail "controller_model not written"; cat "$ini"; }
+    grep -A6 '^\[vr\]' "$ini" | grep -q '^controller_model = frame$' && ok "controller row steps Off to Frame and writes [vr] controller_model" || { fail "controller_model not written"; cat "$ini"; }
     grep -A3 '^\[stream\]' "$ini" | grep -q '^doff_disconnect = 120$' && ok "headset-off row steps 60 s to 120 s and writes [stream] doff_disconnect" || { fail "doff_disconnect not written"; cat "$ini"; }
     grep -A3 '^\[stream\]' "$ini" | grep -q '^idle_disconnect = 10$' && ok "idle row steps Never to 10 minutes and writes [stream] idle_disconnect" || { fail "idle_disconnect not written"; cat "$ini"; }
     # lane wave4-sbs (PLAN 4.3): the 3D source row steps Depth to SBS, then the full-size switch comes alive
@@ -878,7 +788,6 @@ if [ -n "$SHOTS" ]; then
     grep -A8 '^\[stream\]' "$ini" | grep -q '^failover = on$' && ok "path failover switch writes [stream] failover = on" || { fail "failover not written"; cat "$ini"; }
     grep -A8 '^\[stream\]' "$ini" | grep -q '^failover_burst_ms = 5000$' && ok "loss length row steps 3 s to 5 s and writes [stream] failover_burst_ms" || { fail "failover_burst_ms not written"; cat "$ini"; }
     grep -q '^glow = true$' "$ini" && grep -q '^separation = 9$' "$ini" && grep -q '^stereo = false$' "$ini" && ok "other config.ini keys untouched" || { fail "config.ini keys changed"; diff "$t/ini.before" "$ini"; }
-    grep -q -i hdr "$ini" && fail "greyed HDR row changed something" || ok "greyed HDR row is inert"
     grep -q "MLXR_LAUNCHER_WIFI: Wi-Fi$" "$t/ui6.out" && ok "Network connection: plain Wi-Fi when unknown" || fail "wifi fallback: $(grep MLXR_LAUNCHER_WIFI "$t/ui6.out")"
     # lane wave4c-usb: the USB cable row. A fake /sys/class/net: usb0 with carrier, a wired port without
     mkdir -p "$t/netroot/usb0" "$t/netroot/eth0"
@@ -891,40 +800,31 @@ if [ -n "$SHOTS" ]; then
     MLXR_LAUNCHER_NET_ROOT="$t/netroot" MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
         MLXR_LAUNCHER_SCREENSHOT="$t/usb-nocable.png@3000" "$L" >"$t/ui8.out" 2>&1
     grep -q "MLXR_LAUNCHER_USB: no cable" "$t/ui8.out" && ok "USB cable: usb0 without carrier is ignored" || fail "usb0 without carrier: $(grep MLXR_LAUNCHER_USB "$t/ui8.out")"
-    # lane wave4b-abr: one stepped bitrate row per network path under Network connection ("Same as above" at 0)
-    rep() { local n="$1" c="$2" o="" i; for ((i = 0; i < c; i++)); do o="$o${o:+,}$n"; done; printf '%s' "$o"; }
-    abr_clicks="$(rep bitrateWifiRow 7),$(rep bitrateAdapterRow 10),$(rep bitrateUsbRow 14),$(rep bitrateWiredRow 15)"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK="$abr_clicks" \
+    # lane wave4b-abr: one bitrate row per network path under Network connection ("Same as above" at 0). Lane flat-input:
+    # each opens a list (Same as above, 10 to 500 Mbps, Custom...); pathPick picks an entry as the list does
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='pathPick:bitrateWifiRow|7;pathPick:bitrateAdapterRow|10;pathPick:bitrateUsbRow|15;pathPick:bitrateWiredRow|0;saveAll' \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-path-bitrates.png@3000" "$L" >"$t/uiabr1.out" 2>&1
-    grep -q "no clickable" "$t/uiabr1.out" && fail "bitrate rows not found: $(grep 'no clickable' "$t/uiabr1.out" | head -2)"
+    grep -q "no row" "$t/uiabr1.out" && fail "bitrate rows not found: $(grep 'no row' "$t/uiabr1.out" | head -2)"
     grep -Eq "$QMLERR" "$t/uiabr1.out" && { fail "path bitrate rows: QML errors"; grep -E "$QMLERR" "$t/uiabr1.out" | head; } || ok "settings page loads with the path bitrate rows (no QML errors)"
-    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_wifi = 80000$' && ok "Wi-Fi bitrate row steps 0 up to 80 Mbps and writes [stream] bitrate_wifi" || { fail "bitrate_wifi not written"; cat "$ini"; }
-    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_adapter = 150000$' && ok "adapter bitrate row steps to 150 Mbps and writes [stream] bitrate_adapter" || { fail "bitrate_adapter not written"; cat "$ini"; }
-    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_usb = 500000$' && ok "USB bitrate row steps to the 500 Mbps cap and writes [stream] bitrate_usb" || { fail "bitrate_usb not written"; cat "$ini"; }
-    grep -q '^bitrate_wired' "$ini" && fail "wired bitrate row wrapped back to Same as above but wrote a key" || ok "wired bitrate row wraps from 500 Mbps back to Same as above and writes nothing"
+    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_wifi = 80000$' && ok "Wi-Fi bitrate row: 80 Mbps writes [stream] bitrate_wifi" || { fail "bitrate_wifi not written"; cat "$ini"; }
+    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_adapter = 150000$' && ok "adapter bitrate row: 150 Mbps writes [stream] bitrate_adapter" || { fail "bitrate_adapter not written"; cat "$ini"; }
+    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_usb = 500000$' && ok "USB bitrate row: the 500 Mbps cap writes [stream] bitrate_usb" || { fail "bitrate_usb not written"; cat "$ini"; }
+    grep -q '^bitrate_wired' "$ini" && fail "wired bitrate row left at Same as above but wrote a key" || ok "wired bitrate row at Same as above writes nothing"
     grep -q '^doff_disconnect = 120$' "$ini" && grep -q '^idle_disconnect = 10$' "$ini" && ok "other [stream] keys untouched by the bitrate rows" || { fail "[stream] keys changed"; cat "$ini"; }
-    # a second page start reads the keys back: the 80000 steps on to 100000, and the value shows in the row
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=bitrateWifiRow \
+    # a second page start reads the keys back (the rows show them), and 80000 goes on to 100000
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='logBitrates;pathPick:bitrateWifiRow|8;saveAll' \
         MLXR_LAUNCHER_SCREENSHOT="$t/path-bitrates-2.png@3000" "$L" >"$t/uiabr2.out" 2>&1
-    grep -q '^bitrate_wifi = 100000$' "$ini" && ok "path bitrates are read back from config.ini (80000 steps to 100000)" || { fail "bitrate_wifi not read back"; cat "$ini"; }
-    # lane wave4-pcvr: the Settings page's PC VR rows and the startup preflight
-    if [ -n "${CEFPID:-}" ]; then
-        # preflight at start (MLXR_PCVR_PREFLIGHT stands in for Game Mode): logged as ok
-        MLXR_STEAM_CEF="$SC" STEAM_CEF_PORT="$CEFPORT" STEAM_CEF_FLAG_FILE="$t/no-flag" MLXR_PCVR_PREFLIGHT=1 MLXR_LAUNCHER_IW_FILE=/dev/null \
-            MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_SCREENSHOT="$t/pcvr-pre.png@3000" "$L" >"$t/ui10.out" 2>&1
-        expect "preflight at start: Steam's port is fine" "$(grep 'Steam CEF preflight' "$t/ui10.out")" "Steam CEF preflight: ok"
-        MLXR_STEAM_CEF="$SC" STEAM_CEF_PORT="$DEADPORT" STEAM_CEF_FLAG_FILE="$t/no-flag" MLXR_PCVR_PREFLIGHT=1 MLXR_LAUNCHER_IW_FILE=/dev/null \
-            MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_SCREENSHOT="$t/pcvr-dead.png@3000" "$L" >"$t/ui11.out" 2>&1
-        expect "preflight at start: a dead port is logged with the hint" "$(grep 'Steam CEF preflight' "$t/ui11.out")" "NOT OK - Steam's debugging port $DEADPORT does not answer"
-        # the Settings page: the rows load without QML errors, and the first one asks Steam for the lists
-        MLXR_STEAM_CEF="$SC" STEAM_CEF_PORT="$CEFPORT" STEAM_CEF_FLAG_FILE="$t/no-flag" MLXR_LAUNCHER_IW_FILE=/dev/null \
-            MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_SCROLL=1500 MLXR_LAUNCHER_CLICK=pcvrCheckRow \
-            MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-pcvr.png@4500" "$L" >"$t/ui12.out" 2>&1
-        grep -Eq "$QMLERR" "$t/ui12.out" && { fail "PC VR rows: QML errors"; grep -E "$QMLERR" "$t/ui12.out" | head -3; } || ok "settings page with the PC VR rows loads (no QML errors)"
-        grep -q "no clickable" "$t/ui12.out" && fail "PC VR click hook: $(grep 'no clickable' "$t/ui12.out")"
-        expect "PC VR check row: asks Steam" "$(grep 'Steam CEF preflight' "$t/ui12.out")" "Steam CEF preflight: ok"
-        SECTION=mlxr setconf pcvr_app= pcvr_client=
-    fi
+    expect "path bitrates are read back from config.ini" "$(grep MLXR_SETTINGS_BITRATE "$t/uiabr2.out")" \
+        "bitrateWifiRow=80 Mbps bitrateAdapterRow=150 Mbps bitrateWiredRow=Same as above bitrateUsbRow=500 Mbps"
+    grep -q '^bitrate_wifi = 100000$' "$ini" && ok "path bitrate changed again (80000 to 100000)" || { fail "bitrate_wifi not changed"; cat "$ini"; }
+    # PC VR was taken out: the keys an older version saved for it load without trouble and are dropped
+    SECTION=mlxr setconf pcvr_client=76561198000000001 pcvr_client_name=gaming-pc pcvr_app=620980 "pcvr_app_name=Beat Saber"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_SCREENSHOT="$t/old-pcvr.png@3000" "$L" >"$t/uipcvr.out" 2>&1
+    grep -Eq "$QMLERR" "$t/uipcvr.out" && { fail "old PC VR keys: QML errors"; grep -E "$QMLERR" "$t/uipcvr.out" | head -3; } || ok "settings page loads with an old config's PC VR keys (no QML errors)"
+    grep -q '^pcvr_' "$CONF" && fail "old PC VR keys kept after a save: $(grep '^pcvr_' "$CONF" | tr '\n' ' ')" || ok "old PC VR keys are dropped"
     # what the VR client's own parser makes of it
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
@@ -946,6 +846,96 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads failover" "$dump" "stream.failover = on"
         expect "VR client reads failover_burst_ms" "$dump" "stream.failover_burst_ms = 5000"
     fi
+    # lane flat-input: 300 Mbps through every bitrate route of the page reaches the hand-off's --bitrate, the launcher's
+    # config and config.ini as the VR client reads them. The owner's config had stock's unlockbitrate=false, which limits
+    # nothing in hand-off mode. Every row shows the figure the same way.
+    setconf bitrate=98000 unlockbitrate=false
+    br() { # name invoke-list
+        MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_INVOKE="$2" \
+            MLXR_LAUNCHER_SCREENSHOT="$t/$1.png@3000" "$L" >"$t/$1.out" 2>&1
+        uiout "$t/$1.out" "bitrate route $1"
+        grep -q "no row\|no function" "$t/$1.out" && fail "bitrate route $1: $(grep 'no row\|no function' "$t/$1.out" | head -2)"
+    }
+    brlog() { grep MLXR_SETTINGS_BITRATE "$t/$1.out" | sed -n "$2p"; }
+    br br1 'logBitrates;slide:bitrateRow|300;logBitrates;saveAll'
+    expect "bitrate: the config's 98 Mbps on the page" "$(brlog br1 1)" "kbps=98000 bitrateRow=98 Mbps customBitrateRow=98 Mbps"
+    expect "bitrate: the slider goes to 300 Mbps, Custom bitrate shows the same" "$(brlog br1 2)" "kbps=300000 bitrateRow=300 Mbps customBitrateRow=300 Mbps"
+    grep -q '^bitrate=300000$' "$CONF" && ok "bitrate: the slider's 300 Mbps is saved" || fail "slider's bitrate not saved: $(grep '^bitrate=' "$CONF")"
+    out="$(dry "gaming-pc:Desktop")"
+    expect "bitrate: the slider's 300 Mbps is the hand-off's --bitrate" "$out" "--bitrate 300000 "
+    expect "bitrate: the launcher logs the bitrate and where it came from" "$(cat "$t/stderr" "$t/stdout")" \
+        "hand-off bitrate: --bitrate 300000 kbps from the Settings page's Video bitrate"
+    setconf bitrate=98000
+    br br2 'openRow:customBitrateRow;editAccept:300;logBitrates;openRow:customBitrateRow;editAccept:600;openRow:customBitrateRow;editAccept:0.4;logBitrates;saveAll'
+    expect "bitrate: Custom bitrate takes 300 (Mbps), the slider shows it" "$(brlog br2 1)" "kbps=300000 bitrateRow=300 Mbps customBitrateRow=300 Mbps"
+    expect "bitrate: Custom bitrate refuses 600 and 0.4" "$(brlog br2 2)" "kbps=300000 "
+    grep -q '^bitrate=300000$' "$CONF" && ok "bitrate: Custom bitrate's 300 Mbps is saved" || fail "Custom bitrate not saved: $(grep '^bitrate=' "$CONF")"
+    expect "bitrate: Custom bitrate's 300 Mbps is the hand-off's --bitrate" "$(dry "gaming-pc:Desktop")" "--bitrate 300000 "
+    setconf bitrate=98000
+    br br3 'openRow:bitrateWifiRow;listPick:13;openRow:bitrateUsbRow;listPick:16;editAccept:312.5;logBitrates;saveAll'
+    expect "bitrate: the Wi-Fi row's 300 Mbps and the USB row's typed 312.5 Mbps" "$(brlog br3 1)" "bitrateWifiRow=300 Mbps"
+    expect "bitrate: the USB row's typed figure shown exactly" "$(brlog br3 1)" "bitrateUsbRow=312.5 Mbps"
+    grep -q '^bitrate_wifi = 300000$' "$ini" && grep -q '^bitrate_usb = 312500$' "$ini" && ok "bitrate: the connection rows write 300000 and 312500 to config.ini" || { fail "connection rows not written"; cat "$ini"; }
+    out="$(dry "gaming-pc:Desktop")"
+    expect "bitrate: the launcher logs the rows that replace the Video bitrate" "$(grep 'hand-off bitrate:' "$t/stderr")" \
+        "the connection rows replace it: 300000 kbps over Wi-Fi, "
+    expect "bitrate: ... each of them" "$(grep 'hand-off bitrate:' "$t/stderr")" ", 312500 kbps over USB cable (config.ini)"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "bitrate: the VR client reads bitrate_wifi = 300000" "$dump" "stream.bitrate_wifi = 300000"
+        expect "bitrate: the VR client reads bitrate_usb = 312500" "$dump" "stream.bitrate_usb = 312500"
+    fi
+    br br4 'pathPick:bitrateWifiRow|0;pathPick:bitrateUsbRow|0;saveAll'
+    grep -q '^bitrate_wifi = 0$' "$ini" && grep -q '^bitrate_usb = 0$' "$ini" && ok "bitrate: Same as above writes 0" || { fail "Same as above"; cat "$ini"; }
+    grep -q '^unlockbitrate=false$' "$CONF" && fail "stock's unlockbitrate=false kept after a save in hand-off mode" || ok "bitrate: always unlocked in hand-off mode"
+    # an old config with 300 Mbps and unlockbitrate=false: the page shows 300 and the hand-off asks for it
+    setconf bitrate=300000 unlockbitrate=false
+    br br5 'logBitrates'
+    expect "bitrate: an old unlockbitrate=false config keeps 300 Mbps on the page" "$(brlog br5 1)" "kbps=300000 bitrateRow=300 Mbps"
+    expect "bitrate: and in the hand-off" "$(dry "gaming-pc:Desktop")" "--bitrate 300000 "
+    setconf bitrate=98000
+
+    # lane flat-input: the thumbsticks (MLXR_LAUNCHER_STICK injects stick values; launcher/src/mlxrstick.h)
+    stick() { # name stick-spec [invoke] [click]
+        MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE="${PAGE:-settings}" MLXR_LAUNCHER_STICK="$2" \
+            MLXR_LAUNCHER_INVOKE="${3:-}" MLXR_LAUNCHER_CLICK="${4:-}" MLXR_LAUNCHER_SCREENSHOT="$t/$1.png@${END:-5000}" "$L" >"$t/$1.out" 2>&1
+        grep -v 'CenteredGridView.qml:10: TypeError' "$t/$1.out" > "$t/$1.qml"   # stock's grid, before the hook parents it
+        uiout "$t/$1.qml" "sticks $1"
+    }
+    sline() { grep "MLXR_STICK: " "$t/$1.out" | sed -n "$2p"; }
+    cy() { sed -n 's/.*contentY \([0-9.-]*\) -> \([0-9.-]*\).*/\1 \2/p'; }
+    # the right stick scrolls the Settings page in proportion to how far it is pushed; inside the dead zone nothing
+    stick st1 'ry=32767@2500+500;ry=16000@3200+500;ry=6000@3900+300;ry=-32767@4400+250'
+    read -r a b < <(sline st1 1 | cy); read -r c d < <(sline st1 2 | cy); read -r e f < <(sline st1 3 | cy); read -r g h < <(sline st1 4 | cy)
+    echo "right stick: full $a->$b, a third $c->$d, dead zone $e->$f, back $g->$h"
+    python3 -I -c "import sys; a,b,c,d,e,f,g,h=map(float,sys.argv[1:]); full=b-a; part=d-c
+sys.exit(0 if full>900 and 0.15*full<part<0.5*full and e==f and h<g else 1)" "$a" "$b" "$c" "$d" "$e" "$f" "$g" "$h" \
+        && ok "right stick: scrolls Settings smoothly, faster the further it is pushed, not in the dead zone, both ways" \
+        || fail "right stick scroll: $(grep MLXR_STICK "$t/st1.out")"
+    expect "right stick: the gesture is logged" "$(cat "$t/st1.out")" "gamepad: the right stick scrolled Settings from y 0 to"
+    # a focused row scrolled out of sight: the focus goes to a row in sight; then the left stick moves the focus on
+    # and the page follows it
+    END=7500 stick st2 'ry=32767@2500+1200;ly=32767@4000+2500' 'showTip:networkRow'
+    expect "right stick: a row in sight takes the focus" "$(sline st2 1)" "done: Settings contentY 0.0 -> "
+    refute "right stick: the focus left the row scrolled away" "$(sline st2 1)" "focus networkRow"
+    read -r a b < <(sline st2 2 | cy)
+    python3 -I -c "import sys; sys.exit(0 if float(sys.argv[2])>float(sys.argv[1]) else 1)" "$a" "$b" \
+        && ok "left stick: moves the focus down the page, which follows it" || fail "left stick on the page: $(sline st2 2)"
+    # the left stick in a long list (the Wi-Fi bitrate row's 17 choices): it moves in the list, not out of it; the
+    # right stick scrolls the list, not the page behind the dialog
+    stick st3 'ly=32767@2500+700;ry=32767@3400+400;ly=-32767@4100+100' '' 'bitrateWifiRow'
+    expect "left stick: down the dialog's list" "$(sline st3 1)" "list index 5 of 17"
+    expect "right stick: scrolls the dialog's list" "$(sline st3 2)" "done: QQuickListView contentY 0.0 -> "
+    expect "left stick: up the list again" "$(sline st3 3)" "list index 4 of 17"
+    # the Video bitrate slider: left and right move it to the next 5 Mbps a press (98 -> 100, 105, 110 -> 105)
+    stick st4 'ly=-32767@2500+100;lx=32767@2800+400;lx=-32767@3400+100' 'showTip:bitrateWifiRow'
+    expect "left stick: Backtab from the Wi-Fi row reaches the Video bitrate slider" "$(sline st4 1)" "focus bitrateRow"
+    expect "left stick: right moves the Video bitrate 5 Mbps a step" "$(sline st4 2)" "value 110"
+    expect "left stick: left moves it back 5 Mbps" "$(sline st4 3)" "value 105"
+    # the PC grid and an app grid: the sticks do no harm where nothing scrolls
+    PAGE=apps:0 stick st5 'ry=32767@2500+300;ly=32767@3000+200'
+    [ "$(grep -c 'MLXR_STICK: ' "$t/st5.out")" = 2 ] && ok "sticks on an app grid: no errors" || fail "sticks on an app grid: $(grep MLXR_STICK "$t/st5.out")"
+
     # lane fix-polish: Show controllers has no Generic choice. A file's old "generic" (and its old number 2) reads
     # as the Steam Frame controller, here and in the VR client, so one press steps it on to Gun
     printf '[vr]\ncontroller_model = generic\n' > "$ini"
@@ -1016,7 +1006,7 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads depth_global" "$dump" "3d.depth_global = 125"
         expect "VR client reads zoom" "$dump" "display.zoom = 125"
     fi
-    # lane wave4-headinput: the head and pointer input rows under Input Settings write only their keys
+    # lane wave4-headinput: the head and pointer input rows under Input settings write only their keys
     printf '[vr]\nhead_aim = true\nopentrack_host = gaming-pc.local\nopentrack_port = 5555\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
         MLXR_LAUNCHER_CLICK=headLookRow,headLookPxRow,opentrackRow,pointerSourceRow \
@@ -1056,6 +1046,72 @@ if [ -n "$SHOTS" ]; then
         expect "VR client keeps pointer_source on the controllers" "$dump" "vr.pointer_source = controller"
         expect "VR client keeps the dwell off" "$dump" "vr.head_dwell_ms = 0"
     fi
+    # lane a11y-tab: the Accessibility section. What points and Dwell click write their keys only when pressed
+    # (one press each: Head, 0.6 s), the section's rows are found by the settings search, and a page opened and
+    # saved without a press writes neither
+    printf '[vr]\nhead_aim = true\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='saveAll;setSearch:first-person;setSearch:accessibility' \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-accessibility.png@3000" "$L" >"$t/acc0.out" 2>&1
+    uiout "$t/acc0.out" "accessibility section"
+    grep -Eq '^(pointer_source|head_dwell_ms|assist_dot_size|assist_headset_button|assist_dwell_style) *=' "$ini" && { fail "opening the page wrote an accessibility key"; cat "$ini"; } || ok "the page opened and saved writes no accessibility key"
+    s="$(grep 'MLXR_SETTINGS_SEARCH: text="accessibility"' "$t/acc0.out")"
+    expect "search: the Accessibility section is found" "$s" "sections=Accessibility"
+    expect "search: with its rows" "$s" "titles=Pointer|Dwell click|Dwell click style|Dot size sections=Accessibility"
+    # lane a11y-2: head-look is under Input with a name that says what it does, Back as Guide under Gamepad
+    s="$(grep 'MLXR_SETTINGS_SEARCH: text="first-person"' "$t/acc0.out")"
+    expect "search: head-look is found under Input" "$s" "titles=Head turns the game's camera (first-person games) sections=Input settings"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=pointerSourceRow,headDwellRow \
+        MLXR_LAUNCHER_INVOKE='setSearch:dwell' MLXR_LAUNCHER_SCREENSHOT="$t/acc1.png@3000" "$L" >"$t/acc1.out" 2>&1
+    grep -q "no clickable" "$t/acc1.out" && fail "accessibility click hook: $(grep 'no clickable' "$t/acc1.out")"
+    grep -Eq "$QMLERR" "$t/acc1.out" && { fail "accessibility rows: QML errors"; grep -E "$QMLERR" "$t/acc1.out" | head -3; } || ok "accessibility rows load (no QML errors)"
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^pointer_source = head$' && ok "What points steps to Head and writes [vr] pointer_source = head" || { fail "pointer_source not written"; cat "$ini"; }
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^head_dwell_ms = 600$' && ok "Dwell click steps Off to 0.6 s and writes [vr] head_dwell_ms = 600" || { fail "head_dwell_ms not written"; cat "$ini"; }
+    grep -q '^head_aim = true$' "$ini" && ok "accessibility rows leave head_aim alone" || { fail "head_aim changed"; cat "$ini"; }
+    expect "search: one word finds the dwell rows" "$(grep 'text="dwell"' "$t/acc1.out")" "titles=Dwell click|Dwell click style|Dot size sections=Accessibility"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads pointer_source" "$dump" "vr.pointer_source = head"
+        expect "VR client reads head_dwell_ms" "$dump" "vr.head_dwell_ms = 600"
+    fi
+    # lane a11y-2: the Dot size slider (50 to 300 %, ticks at its 25 % steps) writes [vr] assist_dot_size only when
+    # moved, and each Accessibility row has its tip, shown on a gamepad's or a keyboard's focus
+    printf '[vr]\nhead_aim = true\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='showTip:pointerSourceRow;showTip:headDwellRow;showTip:assistDwellStyleRow;showTip:assistDotSizeRow;setPref:assistDotSize|175;saveAll' \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-accessibility-tip.png@3000" "$L" >"$t/acc2.out" 2>&1
+    uiout "$t/acc2.out" "accessibility tips"
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^assist_dot_size = 175$' && ok "Dot size writes [vr] assist_dot_size = 175" || { fail "assist_dot_size not written"; cat "$ini"; }
+    grep -Eq '^(pointer_source|head_dwell_ms|assist_headset_button|assist_dwell_style) *=' "$ini" && { fail "the dot size wrote another accessibility key"; cat "$ini"; } || ok "the dot size writes only its key"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads assist_dot_size" "$dump" "vr.assist_dot_size = 175"
+    fi
+    # lane a11y-final: the headset button's row is gone (a future feature), and a key the file has is kept
+    printf '[vr]\nhead_aim = true\nassist_headset_button = true\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=assistHeadsetButtonRow MLXR_LAUNCHER_INVOKE='saveAll' MLXR_LAUNCHER_SCREENSHOT="$t/acc3.png@3000" "$L" >"$t/acc3.out" 2>&1
+    grep -q "no clickable" "$t/acc3.out" && ok "no Headset button clicks row" || fail "the Headset button clicks row is still there"
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^assist_headset_button = true$' && ok "the page keeps a file's assist_headset_button as it is" || { fail "assist_headset_button changed"; cat "$ini"; }
+    # lane radial-dwell: Dwell click style steps Simple to Radial menu and writes its key, and only it
+    printf '[vr]\nhead_aim = true\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=assistDwellStyleRow MLXR_LAUNCHER_SCREENSHOT="$t/acc4.png@3000" "$L" >"$t/acc4.out" 2>&1
+    uiout "$t/acc4.out" "dwell click style row"
+    grep -q "no clickable" "$t/acc4.out" && fail "accessibility click hook: $(grep 'no clickable' "$t/acc4.out")"
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^assist_dwell_style = radial$' && ok "Dwell click style steps to Radial menu and writes [vr] assist_dwell_style = radial" || { fail "assist_dwell_style not written"; cat "$ini"; }
+    grep -Eq '^(pointer_source|head_dwell_ms|assist_dot_size|assist_headset_button) *=' "$ini" && { fail "the dwell click style wrote another accessibility key"; cat "$ini"; } || ok "the dwell click style writes only its key"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads assist_dwell_style" "$dump" "vr.assist_dwell_style = radial"
+    fi
+    tips="$(grep 'MLXR_SETTINGS_TIP:' "$t/acc2.out")"
+    expect "tip: Pointer" "$tips" 'pointerSourceRow visible=true text="What moves the pointer: a controller, your head, or where you look. Eyes is experimental: the dot jitters and lands near where you look. Hold right Menu and right grip to point with the controllers again."'
+    expect "tip: Dwell click" "$tips" 'headDwellRow visible=true text="Rest the dot this long on something to click it."'
+    expect "tip: Dwell click style" "$tips" 'assistDwellStyleRow visible=true text="Radial menu: near the end of the dwell, look left for double click, down to drag, right for right click."'
+    expect "tip: Dot size" "$tips" 'assistDotSizeRow visible=true text="How big the dot is when you point with your head or eyes."'
+    grep -q 'MLXR_LAUNCHER_CLICK\|showTip: no row' "$t/acc2.out" && fail "a tip row is missing: $(grep 'showTip: no row' "$t/acc2.out")"
     # MLXR_HANDOFF=0: the stock probe runs again
     MLXR_HANDOFF=0 MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/pcs-stock-mode.png@2500" "$L" >"$t/ui4.out" 2>&1
     grep -q "Unable to find working decoder\|Failed to initialize VAAPI" "$t/ui4.out" && ok "hand-off off: stock decoder probe runs" || fail "stock probe missing with MLXR_HANDOFF=0"
@@ -1073,7 +1129,7 @@ if [ -n "$SHOTS" ]; then
       MLXR_LAUNCHER_DEMO="gaming-pc:Desktop" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/segue-hints.png@2000,$SHOTS/after-hints.png@7500" "$L" >"$t/hint.out" 2>&1
     grep -E "$QMLERR" "$t/hint.out" && fail "hints demo QML errors" || ok "hints demo: no QML errors"
     expect "hints: the segue shows them (toast)" "$(grep 'Qt Warning: gaming-pc does not let this client launch apps' "$t/hint.out")" "launch apps"
-    expect "hints: the virtual display one too" "$(cat "$t/hint.out")" "Use Virtual Display is on, but Apollo's virtual display driver is not ready"
+    expect "hints: the virtual display one too" "$(cat "$t/hint.out")" "Use virtual display is on, but Apollo's virtual display driver is not ready"
     grep -q "segue-hints.png\" QSize.* saved" "$t/hint.out" && grep -q "after-hints.png\" QSize.* saved" "$t/hint.out" && ok "hints demo rendered" || fail "hints demo screenshots"
     SECTION=mlxr setconf virtual_display=false
     srvinfo $PERM_ALL true true SUNSHINE_SERVER_FREE 0 1 769
@@ -1235,7 +1291,6 @@ PY
     bindqml "$t/bind-via.out" "bindings via Settings"
     # lane wave4-launcher: the Stream profiles page (PLAN 4.7), opened as an app's menu opens it (PC 0, app Desktop);
     # the page's own functions make a profile and use it for the app
-    uiout() { grep -E "$QMLERR" "$1" && fail "$2: QML errors" || ok "$2: no QML errors"; }
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE="profiles:0:Desktop" MLXR_LAUNCHER_WINDOW=1280x1100 \
         MLXR_LAUNCHER_INVOKE='doCreate:Couch;doUse:Couch;doCreate:Default' MLXR_LAUNCHER_SCREENSHOT="$SHOTS/profiles.png@3000" "$L" >"$t/prof1.out" 2>&1
     uiout "$t/prof1.out" "profiles page"
@@ -1277,7 +1332,7 @@ PY
     uiout "$t/srch1.out" "settings search"
     s="$(grep 'MLXR_SETTINGS_SEARCH: text="refresh rate"' "$t/srch1.out")"
     expect "search: the Refresh rate row matches" "$s" "titles=Refresh rate"
-    expect "search: only its section is left" "$s" "sections=Video Settings"
+    expect "search: only its section is left" "$s" "sections=Video settings"
     refute "search: other rows are hidden" "$s" "Surround sound"
     grep -q "settings-search.png\" QSize.* saved" "$t/srch1.out" && ok "search rendered" || fail "no search screenshot"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
@@ -1285,17 +1340,48 @@ PY
         MLXR_LAUNCHER_SCREENSHOT="$t/srch2.png@3000" "$L" >"$t/srch2.out" 2>&1
     uiout "$t/srch2.out" "settings search 2"
     expect "search: a section's name finds its rows, case ignored" "$(grep 'text="AUDIO"' "$t/srch2.out")" "titles=Surround sound configuration|"
-    expect "search: and the sections they are in" "$(grep 'text="AUDIO"' "$t/srch2.out")" "sections=Audio Settings|"
-    expect "search: two words, both in the row" "$(grep 'text="virtual display"' "$t/srch2.out")" "Use Virtual Display"
+    expect "search: and the sections they are in" "$(grep 'text="AUDIO"' "$t/srch2.out")" "sections=Audio settings|"
+    expect "search: two words, both in the row" "$(grep 'text="virtual display"' "$t/srch2.out")" "Use virtual display"
     expect "search: nothing found" "$(grep 'text="nothing like this"' "$t/srch2.out")" "rows=0 titles= sections="
     s="$(grep 'MLXR_SETTINGS_SEARCH: text=""' "$t/srch2.out")"
-    expect "search: cleared, every section is back" "$s" "sections=Connection|Stream profiles|Video Settings|Audio Settings"
-    expect "search: cleared, the last section too" "$s" "|MISC"
+    expect "search: cleared, every section is back" "$s" "sections=Connection|Stream profiles|Video settings|Audio settings"
+    expect "search: cleared, the last section too" "$s" "|Misc"
+    # lane polish-3: the Video bitrate slider is in Connection, right above the per-connection rows whose
+    # "Same as above" it is, and no longer under Video settings
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='setSearch:bitrate;setSearch:video settings' \
+        MLXR_LAUNCHER_SCREENSHOT="$t/srch3.png@3000" "$L" >"$t/srch3.out" 2>&1
+    uiout "$t/srch3.out" "settings search 3"
+    s="$(grep 'MLXR_SETTINGS_SEARCH: text="bitrate"' "$t/srch3.out")"
+    expect "Video bitrate: first of the bitrate rows, right above the per-connection ones" "$s" \
+        "titles=Video bitrate|Bitrate over Wi-Fi|Bitrate over the Steam Frame Wireless Adapter|Bitrate over a wired network|Bitrate over the USB cable"
+    expect "Video bitrate: under the Connection heading" "$s" "sections=Connection|"
+    [ "$(echo "$s" | grep -o 'Video bitrate' | wc -l)" = 1 ] && ok "Video bitrate: one slider, not two" || fail "Video bitrate twice: $s"
+    s="$(grep 'MLXR_SETTINGS_SEARCH: text="video settings"' "$t/srch3.out")"
+    expect "search: Video settings still finds its rows" "$s" "Video resolution|Refresh rate"
+    refute "Video bitrate: no longer under Video settings" "$s" "Video bitrate"
+    # lane flat-coherence: rows in the category they belong to, the rows that did nothing gone, one Apollo wording
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='setSearch:performance monitor;setSearch:background dim;setSearch:disconnect when;setSearch:controls card;setSearch:eye balance;setSearch:scroll speed;setSearch:hdr;setSearch:unlock;setSearch:custom;setSearch:needs apollo' \
+        MLXR_LAUNCHER_SCREENSHOT="$t/srch4.png@3000" "$L" >"$t/srch4.out" 2>&1
+    uiout "$t/srch4.out" "settings search 4"
+    sq() { grep "MLXR_SETTINGS_SEARCH: text=\"$1\"" "$t/srch4.out"; }
+    expect "Performance monitor holds only the stats rows" "$(sq 'performance monitor')" "rows=2 titles=Stats|Stats style sections=Performance monitor"
+    expect "Background dim is under UI settings" "$(sq 'background dim')" "titles=Background dim sections=UI settings"
+    expect "the disconnect rows are under General settings" "$(sq 'disconnect when')" "titles=Disconnect when the headset is off|Disconnect when idle sections=General settings"
+    expect "the controls card row is under General settings" "$(sq 'controls card')" "titles=Controls card on the next stream sections=General settings"
+    expect "3D eye balance is with the 3D rows" "$(sq 'eye balance')" "titles=3D eye balance sections=Video settings"
+    expect "Scroll speed is under Input settings" "$(sq 'scroll speed')" "titles=Scroll speed sections=Input settings"
+    expect "no HDR row (the Frame's video is 8-bit SDR)" "$(sq hdr)" "rows=0"
+    expect "no Unlock all possible frame rates row" "$(sq unlock)" "rows=0"
+    expect "custom: the resolution list's Custom... and Custom bitrate" "$(sq custom)" "Video resolution|Refresh rate|Custom bitrate"
+    refute "no Custom Resolution row (it is in the list)" "$(sq custom)" "Custom resolution"
+    expect "one wording for the Apollo-only rows" "$(sq 'needs apollo')" "titles=Refresh rate|Use virtual display|Resolution scale factor|Smart clipboard sync (experimental)"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=jump_audio \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-jump.png@3000" "$L" >"$t/jump.out" 2>&1
     grep -q "no clickable" "$t/jump.out" && fail "jump list: $(grep 'no clickable' "$t/jump.out")"
     uiout "$t/jump.out" "jump list"
-    grep -Eq 'MLXR_SETTINGS_JUMP: Audio Settings y=[1-9][0-9]+' "$t/jump.out" && ok "jump list: Audio goes down the page to its section" || fail "jump: $(grep MLXR_SETTINGS_JUMP "$t/jump.out")"
+    grep -Eq 'MLXR_SETTINGS_JUMP: Audio settings y=[1-9][0-9]+' "$t/jump.out" && ok "jump list: Audio goes down the page to its section" || fail "jump: $(grep MLXR_SETTINGS_JUMP "$t/jump.out")"
     # lane launcher2: the Game Mode scale (1.5) on a 1920x1080 window. The offscreen screen is
     # 800x800, so this uses QT_SCALE_FACTOR (what the launcher sets in Game Mode) with the window
     # at 1920/1.5 x 1080/1.5 = 1280x720 logical and a windowed UI; the grab is in device pixels.
@@ -1312,14 +1398,19 @@ PY
     # page's own functions do, then only those keys written, as the VR client reads them
     ini="$MLXR_CONFIG_DIR/config.ini"
     printf '[vr]\n# checkbox_vr_show_ray: show the controller ray [true | false] (default true)\n#show_ray = true\nnotices = off\n\n[screen]\ndistance_cm = 280\n' > "$ini"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.show_ray,vr.passthrough,display.glow \
-        MLXR_LAUNCHER_INVOKE='vrSet:vr.picture_contrast|120;vrSet:vr.picture_gamma|135;vrSet:vr.head_aim_sensitivity|99;vrSet:screen.width_cm|450;vrPick:vr.environment|3;vrPick:display.stats_style|1;vrPick:vr.depth_source|1;vrPick:vr.gamepad_toggle|2;pickOnStart:1;saveAll;setSearch:picture' \
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.pointer_sleep,vr.passthrough,display.glow \
+        MLXR_LAUNCHER_INVOKE='vrPick:rayRow|1;vrPick:headLockRow|2;vrSet:vr.picture_contrast|120;vrSet:vr.picture_gamma|135;vrSet:vr.head_aim_sensitivity|99;vrSet:screen.width_cm|450;vrPick:vr.environment|3;vrPick:display.stats_style|1;vrPick:vr.depth_source|1;vrPick:vr.gamepad_toggle|2;pickOnStart:1;saveAll;setSearch:picture' \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-vrkeys.png@3000" "$L" >"$t/vrk.out" 2>&1
     grep -q "no clickable\|no function\|could not call\|vrPick: no row" "$t/vrk.out" && fail "config key rows: $(grep -E 'no clickable|no function|could not call|vrPick' "$t/vrk.out" | head -3)"
     uiout "$t/vrk.out" "config key rows"
     sec() { sed -n "/^\[$1\]/,/^\[/p" "$ini"; }
-    expect "a switch row writes its key: Show the ray off" "$(sec vr)" "show_ray = false"
+    expect "a switch row writes its key: Pointer sleep off" "$(sec vr)" "pointer_sleep = false"
+    # lane flat-coherence: Ray and Head locked are one three-way row each, as in the cog
+    expect "the Ray row's Dot writes show_ray = false" "$(sec vr)" "show_ray = false"
     refute "the commented default line was replaced" "$(cat "$ini")" "#show_ray"
+    refute "Dot leaves pointer_dot at its default (not written)" "$(sec vr)" "pointer_dot"
+    expect "the Head locked row's Follow writes head_follow = true" "$(sec display)" "head_follow = true"
+    refute "Follow leaves head_locked at its default (not written)" "$(sec display)" "head_locked"
     expect "Passthrough on" "$(sec vr)" "passthrough = true"
     expect "Glow on" "$(sec display)" "glow = true"
     expect "a slider row writes its key: contrast" "$(sec vr)" "picture_contrast = 120"
@@ -1338,7 +1429,7 @@ PY
     expect "search finds the new rows" "$s" "Picture brightness|Picture contrast|Picture gamma|Picture saturation"
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
-        for kv in "vr.show_ray = false" "vr.passthrough = true" "display.glow = true" "vr.picture_contrast = 120" "vr.picture_gamma = 135" \
+        for kv in "vr.show_ray = false" "vr.pointer_dot = true" "vr.pointer_sleep = false" "display.head_follow = true" "display.head_locked = false" "vr.passthrough = true" "display.glow = true" "vr.picture_contrast = 120" "vr.picture_gamma = 135" \
                   "vr.head_aim_sensitivity = 30" "screen.width_cm = 450" "vr.environment = home_theater" "display.stats_style = hud" \
                   "vr.depth_source = zipdepth-int8" "vr.gamepad_toggle = triggers_grips" "screen.distance_cm = 280"; do
             expect "VR client reads $kv" "$dump" "$kv"
@@ -1346,11 +1437,31 @@ PY
         expect "VR client: nothing it could not read" "$dump" "unknown 0, unreadable 0"
     fi
     # read back: the switch starts off now, a click turns it on again
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.show_ray \
-        MLXR_LAUNCHER_INVOKE='setSearch:steadiness' MLXR_LAUNCHER_SCREENSHOT="$t/vrk2.png@3000" "$L" >"$t/vrk2.out" 2>&1
-    expect "the rows read config.ini back (Show the ray off -> on)" "$(sec vr)" "show_ray = true"
-    expect "search: one word finds its row" "$(grep 'text="steadiness"' "$t/vrk2.out")" "rows=1 titles=Click steadiness sections=Input Settings"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.pointer_sleep \
+        MLXR_LAUNCHER_INVOKE='vrPick:headLockRow|1;saveAll;setSearch:steadiness' MLXR_LAUNCHER_SCREENSHOT="$t/vrk2.png@3000" "$L" >"$t/vrk2.out" 2>&1
+    expect "the rows read config.ini back (Pointer sleep off -> on)" "$(sec vr)" "pointer_sleep = true"
+    expect "Head locked On after Follow: head_locked = true" "$(sec display)" "head_locked = true"
+    expect "and head_follow = false (the cog's one row)" "$(sec display)" "head_follow = false"
+    expect "search: one word finds its row" "$(grep 'text="steadiness"' "$t/vrk2.out")" "rows=1 titles=Click steadiness sections=Input settings"
     SECTION=mlxr setconf on_start=none
+
+    # --- lane vpn-fallback: Connection's "Use VPN only when the PC isn't on the local network" is on by default (nothing in the
+    # file); a click writes [stream] vpn_only_away = false, which the VR client reads, and a second start reads it back
+    printf '[stream]\nfailover = on\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=stream.vpn_only_away \
+        MLXR_LAUNCHER_INVOKE='setSearch:vpn' MLXR_LAUNCHER_SCREENSHOT="$t/vpn.png@3000" "$L" >"$t/vpn.out" 2>&1
+    grep -q "no clickable" "$t/vpn.out" && fail "VPN row: $(grep 'no clickable' "$t/vpn.out")"
+    uiout "$t/vpn.out" "VPN row"
+    expect "VPN row: a click turns it off, written to [stream]" "$(sec stream)" "vpn_only_away = false"
+    expect "VPN row: other keys untouched" "$(sec stream)" "failover = on"
+    expect "VPN row: search finds it under Connection" "$(grep 'text="vpn"' "$t/vpn.out")" "titles=Use VPN only when the PC isn't on the local network sections=Connection"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        expect "VR client reads stream.vpn_only_away = false" "$("$MLXR_SETTINGS_DUMP" "$ini")" "stream.vpn_only_away = false"
+        expect "VR client: on by default" "$("$MLXR_SETTINGS_DUMP" --table)" "stream.vpn_only_away b true"
+    fi
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=stream.vpn_only_away \
+        MLXR_LAUNCHER_SCREENSHOT="$t/vpn2.png@3000" "$L" >"$t/vpn2.out" 2>&1
+    expect "VPN row: read back off, a click turns it on again" "$(sec stream)" "vpn_only_away = true"
 
     # --- PLAN 6.2: the update notice in the toolbar (stock's update button) with this project's version
     rel v999.0.0

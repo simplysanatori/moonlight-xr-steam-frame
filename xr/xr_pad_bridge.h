@@ -33,11 +33,12 @@ int xrPadBridgeMotion(int motionType, float x, float y, float z, int64_t nowNs);
 // The host's motion request as the stream layer passes it on (gamepadsHostMotionState); public for the tests
 void xrPadBridgeHostMotionState(uint16_t controllerNumber, uint8_t motionType, uint16_t reportRateHz);
 
-// The disconnect chord: Start + Select (Back) + both triggers past 80 percent,
-// held together in gamepad mode. On the frame it completes the pad goes to the
-// host at rest (so nothing is left stuck there), then fn(user) is called once,
-// outside this module's lock. The pad stays at rest until the chord is let go,
-// so one press fires once. fn may be NULL.
+// The disconnect chord: Start + Select (Back) + LB + RB and no other button
+// (xr/core/xr_padexit.h), held together in gamepad mode. On the frame it
+// completes the pad goes to the host at rest (so nothing is left stuck
+// there), then fn(user) is called once, outside this module's lock. The pad
+// stays at rest until the chord is let go, so one press fires once. fn may be
+// NULL.
 void xrPadBridgeSetDisconnectHook(void (*fn)(void* user), void* user);
 // As xrPadBridgeStart with the sends given (tests)
 void xrPadBridgeStartWithSink(const PadOutSink* sink);

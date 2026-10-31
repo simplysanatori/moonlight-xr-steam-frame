@@ -150,6 +150,9 @@ int cogArt(XrCtx* ctx) {
     if (ctx->cogTab == COG_TAB_PICTURE) {
         return COG_ART_ROOM_PICTURE;
     }
+    if (ctx->cogTab == COG_TAB_ACCESS) {
+        return COG_ART_ROOM_ACCESS;
+    }
     if (ctx->cogTab == COG_TAB_ABOUT) {
         return COG_ART_ROOM_ABOUT;
     }
@@ -603,6 +606,10 @@ int cogTabRowCount(int face) {
     if (face == COG_TAB_PICTURE) {
         return PICTURE_TAB_ROWS;
     }
+    // Native (lane a11y-tab): the Accessibility tab's rows
+    if (face == COG_TAB_ACCESS) {
+        return COG_ACCESS_ROW_COUNT;
+    }
     if (face == COG_TAB_ABOUT) {
         return 0;
     }
@@ -618,6 +625,10 @@ int cogRowIsTrack(int face, int row) {
     }
     if (face == COG_TAB_DISPLAY) {
         return row == COG_DISPLAY_SLIDER_ROW;
+    }
+    // Native (lane a11y-2): the Accessibility tab's Dot size is a track, the rest cells
+    if (face == COG_TAB_ACCESS) {
+        return row == COG_ACCESS_ROW_DOT;
     }
     if (face == COG_FACE_ROOM) {
         return row != COG_ROOM_ROW_GLOW && row != COG_ROOM_ROW_LIGHT;
@@ -638,6 +649,10 @@ int cogRowCells(int face, int row) {
     }
     if (face == COG_FACE_ROOM) {
         return COG_ROOM_SWITCH_CELLS;
+    }
+    // Native (lane a11y-tab): the Accessibility tab's cell rows (xr_assist.c)
+    if (face == COG_TAB_ACCESS) {
+        return cogAccessCells(NULL, row);
     }
     if (face == COG_TAB_3D) {
         return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS
@@ -675,6 +690,10 @@ int cogRowLive(XrCtx* ctx, int face, int row) {
     // A room built around its picture keeps it at the whole of its anchor
     if (face == COG_FACE_ROOM && row == COG_ROOM_ROW_SIZE) {
         return roomResizable(roomFaceStyle(ctx));
+    }
+    // Native (lane a11y-tab): the dwell click needs the head or the eyes pointing
+    if (face == COG_TAB_ACCESS) {
+        return cogAccessRowLive(ctx, row);
     }
     return 1;
 }
@@ -732,6 +751,9 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
         else if (slider == COG_ROW3D_BALANCE) {
             t = lanePlace((int)lroundf(ctx->eyeBalance * 100.0f), EYE_BALANCE_MIN, EYE_BALANCE_MAX);
         }
+    }
+    else if (face == COG_TAB_ACCESS) {
+        t = cogAccessSliderValue(ctx, slider);   // native (lane a11y-2): Dot size
     }
     else if (face == COG_TAB_PICTURE) {
         if (slider >= 0 && slider < PICTURE_VALUES) {
@@ -815,6 +837,12 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
         // will be written with when the drag ends
         int units = (int)roundf(t * 20.0f) * 5;
         ctx->ambiIntensity = units / 100.0f;
+        return;
+    }
+
+    // Native (lane a11y-2): the Accessibility tab's Dot size, in its 25 % steps (xr_assist.c)
+    if (face == COG_TAB_ACCESS) {
+        cogApplyAccessSlider(ctx, slider, t);
         return;
     }
 
@@ -1206,9 +1234,7 @@ int cogCellInForce(XrCtx* ctx, int face, int row) {
         return cogRoomCellValue(ctx, row);
     }
     if (face == COG_TAB_SCREEN && row == COG_SCREEN_ROW_PRESET) {
-        XrVector3f p = ctx->screenPose.position;
-        float d = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
-        return layoutPresetAt((int)lroundf(d * 100.0f), (int)lroundf(ctx->screenWidth * 100.0f));
+        return xrScreenPresetNow(ctx);
     }
     if (face == COG_TAB_SCREEN && row == COG_SCREEN_ROW_PER_APP) {
         return ctx->perAppOn ? 1 : 0;
@@ -1261,29 +1287,42 @@ static void cogApply3dCell(XrCtx* ctx, int row, int cell, float* out) {
     setStereoLive(ctx, 1, "a preset");
 }
 
-// The Screen tab's cells. A preset puts the distance and the width where it
-// says, by the same sums the two tracks use, keeping the direction, height,
-// tilt and curve, and is saved with the placement. Bring here goes to
+int xrScreenPresetNow(XrCtx* ctx) {
+    XrVector3f p = ctx->screenPose.position;
+    float d = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
+    return layoutPresetAt((int)lroundf(d * 100.0f), (int)lroundf(ctx->screenWidth * 100.0f));
+}
+
+// A preset puts the distance and the width where it says, by the same sums the
+// two tracks use, keeping the direction, height, tilt and curve, and is saved
+// with the placement. The Screen tab's cells and the bar's Bring here both
+// come here.
+void xrScreenApplyPreset(XrCtx* ctx, int preset) {
+    static const char* const PRESET_NAMES[LAYOUT_PRESETS] = { "Desk", "Couch", "Cinema" };
+    if (preset < 0 || preset >= LAYOUT_PRESETS) {
+        return;
+    }
+    LayoutPreset p = layoutPresetOf(preset);
+    float d = (float)p.distanceCm / 100.0f;
+    float w = (float)p.widthCm / 100.0f;
+    cogApplySlider(ctx, COG_TAB_SCREEN, COG_SLIDER_DISTANCE,
+                   cogRunU((d - COG_DIST_MIN) / (COG_DIST_MAX - COG_DIST_MIN)));
+    cogApplySlider(ctx, COG_TAB_SCREEN, COG_SLIDER_SIZE,
+                   cogRunU((w - SCREEN_MIN_WIDTH) / (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH)));
+    ctx->poseDirty = 1;
+    LOGEV("screen preset %s: %.2f m away, %.2f m wide", PRESET_NAMES[preset], d, w);
+}
+
+// The Screen tab's cells. A preset is xrScreenApplyPreset. Bring here goes to
 // xrBringScreenHere. The switches go to Java to store like the Display tab's.
 static void cogApplyScreenCell(XrCtx* ctx, int row, int cell, float* out) {
-    static const char* const PRESET_NAMES[LAYOUT_PRESETS] = { "Desk", "Couch", "Cinema" };
     if (row == COG_SCREEN_ROW_PRESET) {
         if (cell == COG_SCREEN_CELL_BRING) {
             LOGEV("bring here from the panel: %s", xrBringScreenHere(ctx) ? "moved" : "nothing to move");
             return;
         }
-        if (cell < 0 || cell >= LAYOUT_PRESETS) {
-            return;
-        }
-        LayoutPreset preset = layoutPresetOf(cell);
-        float d = (float)preset.distanceCm / 100.0f;
-        float w = (float)preset.widthCm / 100.0f;
-        cogApplySlider(ctx, COG_TAB_SCREEN, COG_SLIDER_DISTANCE,
-                       cogRunU((d - COG_DIST_MIN) / (COG_DIST_MAX - COG_DIST_MIN)));
-        cogApplySlider(ctx, COG_TAB_SCREEN, COG_SLIDER_SIZE,
-                       cogRunU((w - SCREEN_MIN_WIDTH) / (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH)));
-        ctx->poseDirty = 1;
-        LOGEV("screen preset %s from the panel: %.2f m away, %.2f m wide", PRESET_NAMES[cell], d, w);
+        LOGEV("screen preset cell %d from the panel", cell);
+        xrScreenApplyPreset(ctx, cell);
         return;
     }
     if (row == COG_SCREEN_ROW_PER_APP) {
@@ -1320,6 +1359,10 @@ void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out) {
     }
     if (face == COG_TAB_3D) {
         cogApply3dCell(ctx, row, cell, out);
+        return;
+    }
+    if (face == COG_TAB_ACCESS) {
+        cogApplyAccessCell(ctx, row, cell, out);   // native (lane a11y-tab), xr_assist.c
         return;
     }
     int id = cogApplyOption(ctx, row, cell);
@@ -1427,6 +1470,9 @@ void cogDragEnded(XrCtx* ctx, float* out) {
             out[IN_SETTING] = (float)SETTING_EYE_BALANCE;
             out[IN_SETTING_VALUE] = roundf(ctx->eyeBalance * 100.0f);
         }
+    }
+    else if (face == COG_TAB_ACCESS) {
+        cogAccessDragEnded(ctx, slider, out);   // native (lane a11y-2): Dot size
     }
     else if (face == COG_TAB_DISPLAY) {
         out[IN_SETTING] = (float)SETTING_AMBI_LEVEL;

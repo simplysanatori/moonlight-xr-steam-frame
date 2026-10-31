@@ -10,8 +10,8 @@
   The display refresh rates are left out: SteamVR changes them from run to run.
 * --save writes the current probe as the baseline (do this after you have looked at a difference and
   accepted it, or on a known good install).
-* Also runs `steam_cef.py --probe` (the Steam debugging port the PC VR hand-off and the flat screen
-  return use) and prints its hint. --no-cef leaves that out.
+* Also runs `steam_cef.py --probe` (the Steam debugging port the flat screen's return after a stream
+  and the installer use) and prints its hint. --no-cef leaves that out.
 
 Quit the Moonlight XR client first: the probe opens its own OpenXR session. Run it on the Frame.
 Exit code: 0 nothing changed, 1 something changed (or the Steam port is not fine), 2 the probe could

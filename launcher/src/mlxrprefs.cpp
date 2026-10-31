@@ -1,7 +1,6 @@
 // Moonlight XR Native launcher: see mlxrprefs.h. GPLv3.
 #include "mlxrprefs.h"
 #include "mlxrhandoff.h"
-#include "backend/computermanager.h"
 #include "backend/nvcomputer.h"
 
 #include <QFile>
@@ -24,8 +23,8 @@ static const char* const kPacing[] = { "latency", "balanced", "smoothness" };
 // The keys of ui/settings.c's TABLE a user would set that had no row on the page. Left out on purpose: [debug]; the
 // state the headset keeps by itself (stream host and app, cog_tab, hand_hint_seen, zoom_x and zoom_y); the stream's
 // basics, which the page's own rows pass as flags (resolution, fps, bitrate_kbps, codec, audio_config,
-// frame_pacing, network_path); the screen's placement (height, azimuth, tilt, rotate: set by grabbing it; far_distance_cm
-// and far_width_cm: where the bar's Bring here switch goes back to) and the
+// frame_pacing, network_path); the screen's placement (height, azimuth, tilt, rotate: set by grabbing it; back_*: the
+// placement the bar's Bring here switch goes back to from Desk) and the
 // rooms' own look (room_N_*: the Room tab, while looking at the room). The test compares this table with
 // `mlxr-settings-dump --table`, so a range or default changed there shows up.
 namespace {
@@ -37,6 +36,7 @@ struct VrKey {
 };
 const VrKey kVrKeys[] = {
     { "stream.virtual_surround", 'b', 0, 0, 1, nullptr },
+    { "stream.vpn_only_away", 'b', 1, 0, 1, nullptr },   // Native (lane vpn-fallback)
     { "vr.pointer", 'b', 1, 0, 1, nullptr },
     { "vr.pointer_sleep", 'b', 1, 0, 1, nullptr },
     { "vr.show_ray", 'b', 1, 0, 1, nullptr },
@@ -68,7 +68,7 @@ const VrKey kVrKeys[] = {
     { "display.head_locked", 'b', 0, 0, 1, nullptr },
     { "display.head_follow", 'b', 0, 0, 1, nullptr },
     { "display.follow_leash_deg", 'i', 25, 10, 60, nullptr },
-    { "display.sharpening", 'e', 0, 0, 2, "off|normal|quality" },
+    { "display.sharpening", 'e', 1, 0, 2, "off|normal|quality" },
     { "display.supersampling", 'e', 1, 0, 2, "off|normal|quality" },
     { "display.picture_filter", 'b', 1, 0, 1, nullptr },
     { "display.chroma_from_luma", 'b', 1, 0, 1, nullptr },
@@ -246,114 +246,6 @@ void MlxrPrefs::rescanUsb()
     emit usbCableChanged();
 }
 
-// ---- PC VR (lane wave4-pcvr) ---------------------------------------------------------------------------
-
-void MlxrPrefs::pcvrSay(const QString& status, bool busy)
-{
-    m_pcvrStatus = status;
-    m_pcvrBusy = busy;
-    emit pcvrChanged();
-}
-
-QString MlxrPrefs::pcvrProbeSummary(const QByteArray& json, int exitCode, const QString& stderrText, bool* ok)
-{
-    const QJsonObject o = QJsonDocument::fromJson(json).object();
-    if (ok) {
-        *ok = o.value("ok").toBool();
-    }
-    QString hint = o.value("hint").toString();
-    if (hint.isEmpty()) {
-        // no JSON at all: python or the script did not run (-1), timed out (-2), or crashed
-        hint = stderrText.simplified().left(300);
-        if (hint.isEmpty()) {
-            hint = QObject::tr("steam_cef.py gave no answer (exit %1)").arg(exitCode);
-        }
-        if (ok) {
-            *ok = false;
-        }
-    }
-    return hint;
-}
-
-void MlxrPrefs::pcvrProbe()
-{
-    MlxrHandoff::runSteamCef({ "--probe" }, 20000, this, [this](int code, const QByteArray& out, const QString& err) {
-        bool ok = false;
-        const QString hint = pcvrProbeSummary(out, code, err, &ok);
-        qInfo().noquote() << "Steam CEF preflight:" << (ok ? "ok" : "NOT OK") << "-" << hint;
-        pcvrSay(hint, false);
-    });
-}
-
-void MlxrPrefs::pcvrRefresh()
-{
-    if (m_pcvrBusy) {
-        return;
-    }
-    pcvrSay(QObject::tr("Asking Steam..."), true);
-    MlxrHandoff::runSteamCef({ "--probe" }, 20000, this, [this](int code, const QByteArray& out, const QString& err) {
-        bool ok = false;
-        const QString hint = pcvrProbeSummary(out, code, err, &ok);
-        const QJsonObject o = QJsonDocument::fromJson(out).object();
-        qInfo().noquote() << "Steam CEF preflight:" << (ok ? "ok" : "NOT OK") << "-" << hint;
-        if (!o.value("reachable").toBool() || !o.value("context").toBool()) {
-            m_pcvrDevices.clear();
-            pcvrSay(hint, false);
-            return;
-        }
-        MlxrHandoff::runSteamCef({ "--devices", "--seconds", "3" }, 25000, this,
-                                 [this, hint, ok](int dcode, const QByteArray& dout, const QString& derr) {
-            const QJsonDocument doc = QJsonDocument::fromJson(dout);
-            if (dcode != 0 || !doc.isArray()) {
-                m_pcvrDevices.clear();
-                pcvrSay(QObject::tr("Steam did not list the paired PCs: %1").arg(derr.isEmpty() ? hint : derr.simplified().left(300)), false);
-                return;
-            }
-            m_pcvrDevices.clear();
-            for (const QJsonValue& v : doc.array()) {
-                m_pcvrDevices << v.toObject().toVariantMap();
-            }
-            // The only paired PC is the one to stream from, unless one was chosen
-            if (pcvrClient.isEmpty() && m_pcvrDevices.size() == 1) {
-                pcvrClient = m_pcvrDevices[0].toMap().value("clientId").toString();
-                pcvrClientName = m_pcvrDevices[0].toMap().value("clientName").toString();
-                emit changed();
-            }
-            m_pcvrBase = (ok ? QObject::tr("Steam is ready.") : hint) + " " + QObject::tr("%n paired PC(s) found.", "", m_pcvrDevices.size());
-            pcvrSay(m_pcvrBase, false);
-        });
-    });
-}
-
-void MlxrPrefs::pcvrChooseDevice(int index)
-{
-    if (index >= 0 && index < m_pcvrDevices.size()) {
-        const QVariantMap d = m_pcvrDevices[index].toMap();
-        pcvrClient = d.value("clientId").toString();
-        pcvrClientName = d.value("clientName").toString();
-    }
-    else {
-        pcvrClient.clear();
-        pcvrClientName.clear();
-    }
-    emit changed();
-}
-
-void MlxrPrefs::startVr(QObject* computerManager, int computerIndex)
-{
-    ComputerManager* cm = qobject_cast<ComputerManager*>(computerManager);
-    if (cm == nullptr) {
-        qWarning() << "VR: no ComputerManager";
-        return;
-    }
-    const QVector<NvComputer*> computers = cm->getComputers();
-    if (computerIndex < 0 || computerIndex >= computers.size()) {
-        qWarning() << "VR: no PC at" << computerIndex;
-        return;
-    }
-    MlxrHandoff::startVr(computers[computerIndex]);
-}
-
 QString MlxrPrefs::configIniPath() const
 {
     return MlxrHandoff::nativeConfigDir() + "/config.ini";
@@ -375,9 +267,19 @@ static bool iniBool(const QString& v)
     return s == "true" || s == "1" || s == "on" || s == "yes";
 }
 
+// PC VR was taken out (SteamVR takes the headset over and cannot stream beside Moonlight): the keys an
+// older version saved for it are dropped when the settings are read and again when they are saved
+static void dropPcvrKeys(QSettings& s)
+{
+    for (const char* k : { "mlxr/pcvr_client", "mlxr/pcvr_client_name", "mlxr/pcvr_app", "mlxr/pcvr_app_name" }) {
+        s.remove(k);
+    }
+}
+
 void MlxrPrefs::load()
 {
     QSettings s;
+    dropPcvrKeys(s);
     framePacing = s.value("mlxr/frame_pacing", "balanced").toString();
     bool known = false;
     for (const char* p : kPacing) {
@@ -402,8 +304,6 @@ void MlxrPrefs::load()
     clipboardSync = s.value("mlxr/clipboard_sync", false).toBool();
     quickResume = s.value("mlxr/quick_resume", false).toBool();
     preflight = s.value("mlxr/preflight", true).toBool();
-    pcvrClient = s.value("mlxr/pcvr_client", "").toString().trimmed();
-    pcvrClientName = s.value("mlxr/pcvr_client_name", "").toString();
     // Native (lane launcher-bundle, PLAN 6.2, 6.4)
     checkUpdates = s.value("mlxr/check_updates", true).toBool();
     onStart = s.value("mlxr/on_start", "none").toString();
@@ -594,11 +494,7 @@ void MlxrPrefs::save()
     s.setValue("mlxr/clipboard_sync", clipboardSync);
     s.setValue("mlxr/quick_resume", quickResume);
     s.setValue("mlxr/preflight", preflight);
-    // lane pcvr-steamvr: VR is SteamVR, the per-game choice is gone
-    s.remove("mlxr/pcvr_app");
-    s.remove("mlxr/pcvr_app_name");
-    s.setValue("mlxr/pcvr_client", pcvrClient.trimmed());
-    s.setValue("mlxr/pcvr_client_name", pcvrClientName);
+    dropPcvrKeys(s);
     s.setValue("mlxr/check_updates", checkUpdates);
     s.setValue("mlxr/on_start", onStart);
     s.setValue("mlxr/on_start_pc", onStartPc);
@@ -865,6 +761,24 @@ void MlxrPrefs::loadHeadInput(const QString& ini)
     m_iniMouseMode = mouseMode;
     backAsGuide = iniBool(iniValue(ini, "vr", "back_as_guide", "false"));
     m_iniBackAsGuide = backAsGuide;
+    // Native (lane a11y-tab): the dwell click, as ui/settings.c reads it: 0 or less off, else 400..2000;
+    // anything unreadable is the default, off
+    bool dwellOk = false;
+    const int dwell = iniValue(ini, "vr", "head_dwell_ms", "0").trimmed().toInt(&dwellOk);
+    headDwellMs = !dwellOk || dwell <= 0 ? 0 : qBound(400, dwell, 2000);
+    m_iniHeadDwellMs = headDwellMs;
+    // Native (lane a11y-2): the head and eye pointer's dot size, as ui/settings.c reads it (50..300,
+    // anything unreadable the default, 100)
+    bool dotOk = false;
+    const int dot = iniValue(ini, "vr", "assist_dot_size", "100").trimmed().toInt(&dotOk);
+    assistDotSize = dotOk ? qBound(50, dot, 300) : 100;
+    m_iniAssistDotSize = assistDotSize;
+    assistHeadsetButton = iniBool(iniValue(ini, "vr", "assist_headset_button", "false"));
+    m_iniAssistHeadsetButton = assistHeadsetButton;
+    // Native (lane radial-dwell): the dwell click's style, as ui/settings.c reads it (a name or its index)
+    const QString ds = iniValue(ini, "vr", "assist_dwell_style", "simple").trimmed().toLower();
+    assistDwellStyle = (ds == "radial" || ds == "1") ? "radial" : "simple";
+    m_iniAssistDwellStyle = assistDwellStyle;
 }
 
 void MlxrPrefs::saveHeadInput(const QString& ini)
@@ -901,6 +815,22 @@ void MlxrPrefs::saveHeadInput(const QString& ini)
         setIniValue(ini, "vr", "back_as_guide", backAsGuide ? "true" : "false");
     }
     m_iniBackAsGuide = backAsGuide;
+    if (headDwellMs != m_iniHeadDwellMs) {
+        setIniValue(ini, "vr", "head_dwell_ms", QString::number(headDwellMs <= 0 ? 0 : qBound(400, headDwellMs, 2000)));
+    }
+    m_iniHeadDwellMs = headDwellMs;
+    if (assistDotSize != m_iniAssistDotSize) {
+        setIniValue(ini, "vr", "assist_dot_size", QString::number(qBound(50, assistDotSize, 300)));
+    }
+    m_iniAssistDotSize = assistDotSize;
+    if (assistHeadsetButton != m_iniAssistHeadsetButton) {
+        setIniValue(ini, "vr", "assist_headset_button", assistHeadsetButton ? "true" : "false");
+    }
+    m_iniAssistHeadsetButton = assistHeadsetButton;
+    if (assistDwellStyle != m_iniAssistDwellStyle) {
+        setIniValue(ini, "vr", "assist_dwell_style", assistDwellStyle == "radial" ? "radial" : "simple");
+    }
+    m_iniAssistDwellStyle = assistDwellStyle;
 }
 
 int MlxrPrefs::headsetMaxFps() const

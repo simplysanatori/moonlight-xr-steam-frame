@@ -7,6 +7,7 @@
 #include "check.h"
 #include "panels.h"
 #include "xr_padmouse.h"
+#include "text.h"
 
 #define GUARD 256
 
@@ -69,6 +70,133 @@ static void check_hits_inside(const char* what) {
         CHECK(h->u1 > h->u0 && h->v1 > h->v0);
         CHECK(h->kind != UI_HIT_NONE);
     }
+}
+
+// Native (lane a11y-2): the Accessibility tab. The footer says what the row under the pointer does
+// (the dot's row, a cell's row through the hover, or a hint while nothing is pointed at), Eyes is
+// always on the pointer row and dimmed alone where the runtime offers no eye gaze, and Dot size is
+// a track with its readout
+#define ACCESS_TEXTS 96
+static char access_texts[ACCESS_TEXTS][160];
+static int access_ntexts;
+
+static void access_on_text(const UiTextTraceEvent* e, void* user) {
+    (void)user;
+    if (e->kind != UI_TEXT_TRACE_DRAW || access_ntexts >= ACCESS_TEXTS) return;
+    int n = e->len < 159 ? e->len : 159;
+    memcpy(access_texts[access_ntexts], e->text, (size_t)n);
+    access_texts[access_ntexts][n] = 0;
+    access_ntexts++;
+}
+
+static int access_drawn(const UiView* v, const char* text) {
+    Guarded g;
+    access_ntexts = 0;
+    ui_text_set_trace(access_on_text, NULL);
+    draw(UI_PANEL_COG, v, 1.0f, &g);
+    ui_text_set_trace(NULL, NULL);
+    CHECK(guard_ok(&g));
+    free(g.base);
+    for (int i = 0; i < access_ntexts; i++) {
+        if (strcmp(access_texts[i], text) == 0) return 1;
+    }
+    // a sentence wrapped onto two lines (or three, lane a11y-final): the lines one after the other,
+    // joined where they broke
+    for (int i = 0; i + 1 < access_ntexts; i++) {
+        char two[330], three[500];
+        snprintf(two, sizeof two, "%s %s", access_texts[i], access_texts[i + 1]);
+        if (strcmp(two, text) == 0) return 1;
+        if (i + 2 < access_ntexts) {
+            snprintf(three, sizeof three, "%s %s", two, access_texts[i + 2]);
+            if (strcmp(three, text) == 0) return 1;
+        }
+    }
+    return 0;
+}
+
+static const UiHit* access_hit(int kind, int a, int b) {
+    for (int i = 0; i < hits.count; i++) {
+        if (hits.hit[i].kind == kind && hits.hit[i].a == a && hits.hit[i].b == b) return &hits.hit[i];
+    }
+    return NULL;
+}
+
+static void test_access_tab(void) {
+    Settings s;
+    settings_defaults(&s);
+    s.pointer_source = POINTER_SOURCE_HEAD;
+    s.assist_dot_size = 175;
+    UiView v;
+    ui_view_init(&v, &s);
+    v.cog_tab = COG_TAB_ACCESS;
+    v.access_eyes = ACCESS_EYES_WAITING;
+    static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL,
+                                                      UIS_ACCESS_DESC_DWELL_STYLE, UIS_ACCESS_DESC_DOT };
+    // nothing pointed at: the hint, and no row's sentence
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_NONE)));
+    for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) CHECK(!access_drawn(&v, ui_str(DESC[row])));
+    // the footer follows the row under the pointer
+    for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) {
+        v.access_row = row;
+        CHECK(access_drawn(&v, ui_str(DESC[row])));
+        CHECK(!access_drawn(&v, ui_str(UIS_ACCESS_DESC_NONE)));
+        CHECK(!access_drawn(&v, ui_str(DESC[(row + 1) % COG_ACCESS_ROW_COUNT])));
+    }
+    // or the cell under it, when the view has only the hover
+    v.access_row = -1;
+    v.hover.kind = UI_HIT_CELL;
+    v.hover.a = COG_ACCESS_ROW_DWELL;
+    v.hover.b = 2;
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_DWELL)));
+    v.hover.kind = UI_HIT_NONE;
+    // the instructions stay, the readout says the dot's percent
+    CHECK(access_drawn(&v, "175%"));
+    CHECK(access_drawn(&v, ui_str(UIS_EYES_WAITING)));
+    // Eyes is there and takes a press where eye gaze is offered, before any has arrived
+    const UiHit* eyes = access_hit(UI_HIT_CELL, COG_ACCESS_ROW_POINTER, 2);
+    CHECK(eyes != NULL && eyes->enabled);
+    CHECK(access_drawn(&v, ui_str(UIS_CELL_EYES)));
+    // lane a11y-final: marked experimental, in the cell and in the pointer row's sentence, which also
+    // says how to get the controllers back; the instructions say it too
+    CHECK(access_drawn(&v, ui_str(UIS_CELL_EYES_EXPERIMENTAL)));
+    CHECK(strstr(ui_str(UIS_ACCESS_DESC_POINTER), "experimental") != NULL);
+    CHECK(strstr(ui_str(UIS_ACCESS_DESC_POINTER), "jitters") != NULL);
+    CHECK(strstr(ui_str(UIS_ACCESS_DESC_POINTER), "Hold right Menu and right grip") != NULL);
+    CHECK(strstr(ui_str(UIS_ACCESS_HELP), "Hold right Menu and right grip to point with the controllers again") != NULL);
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_HELP)) || access_drawn(&v, "Head: the dot follows the middle of your view, and either trigger clicks."));
+    // lane a11y-final: no headset button row (a future feature): four rows, nothing under the dot's
+    CHECK(COG_ACCESS_ROW_COUNT == 4 && access_hit(UI_HIT_CELL, COG_ACCESS_ROW_COUNT, 0) == NULL);
+    // the Dot size track: step buttons and run, live with the head pointing
+    const UiHit* run = access_hit(UI_HIT_TRACK_RUN, COG_ACCESS_ROW_DOT, 0);
+    CHECK(run != NULL && run->enabled && access_hit(UI_HIT_TRACK_UP, COG_ACCESS_ROW_DOT, 0) != NULL);
+    // no eye gaze offered: Eyes is drawn, dimmed and dead, and the line says why
+    v.access_eyes = ACCESS_EYES_UNAVAILABLE;
+    CHECK(access_drawn(&v, ui_str(UIS_CELL_EYES)));
+    CHECK(access_drawn(&v, ui_str(UIS_EYES_UNAVAILABLE)));
+    eyes = access_hit(UI_HIT_CELL, COG_ACCESS_ROW_POINTER, 2);
+    CHECK(eyes != NULL && !eyes->enabled);
+    CHECK(access_hit(UI_HIT_CELL, COG_ACCESS_ROW_POINTER, 1)->enabled);
+    // ... unless Eyes is the setting already
+    s.pointer_source = POINTER_SOURCE_GAZE;
+    access_drawn(&v, "");
+    CHECK(access_hit(UI_HIT_CELL, COG_ACCESS_ROW_POINTER, 2)->enabled);
+    // the controllers pointing: the dwell and the dot are greyed, with no readout
+    s.pointer_source = POINTER_SOURCE_CONTROLLER;
+    CHECK(!access_drawn(&v, "175%"));
+    run = access_hit(UI_HIT_TRACK_RUN, COG_ACCESS_ROW_DOT, 0);
+    CHECK(run != NULL && !run->enabled);
+    v.access_row = COG_ACCESS_ROW_DOT;
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_DOT)));
+    // lane radial-dwell: the dwell's style, Simple and Radial menu, live with the head pointing and
+    // greyed with the controllers
+    s.pointer_source = POINTER_SOURCE_HEAD;
+    v.access_row = COG_ACCESS_ROW_STYLE;
+    CHECK(access_drawn(&v, ui_str(UIS_ROW_DWELL_STYLE)) && access_drawn(&v, ui_str(UIS_CELL_DWELL_SIMPLE)));
+    CHECK(access_drawn(&v, ui_str(UIS_CELL_DWELL_RADIAL)));
+    CHECK(access_hit(UI_HIT_CELL, COG_ACCESS_ROW_STYLE, 1) != NULL && access_hit(UI_HIT_CELL, COG_ACCESS_ROW_STYLE, 1)->enabled);
+    s.pointer_source = POINTER_SOURCE_CONTROLLER;
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_DWELL_STYLE)) && access_drawn(&v, ui_str(UIS_NEEDS_HEAD_POINTER)));
+    CHECK(!access_hit(UI_HIT_CELL, COG_ACCESS_ROW_STYLE, 1)->enabled);
 }
 
 // Every pixel of a panel is within its buffer at every scale, and the output is sane
@@ -924,20 +1052,13 @@ static void test_host_sheet(void) {
     ui_view_init(&v, &s);
     CHECK(v.host_confirm == -1);
     Guarded g;
-    // no macros: Close, PC VR (PLAN 4.1), the button to the PC page, the 11 quick actions and Send keys
+    // no macros: Close, the button to the PC page, the 11 quick actions and Send keys (no PC VR: it was
+    // taken out, the header has only these two buttons)
     draw(UI_PANEL_HOST, &v, 1.0f, &g);
     check_hits_inside("host");
-    CHECK(hits.count == 3 + XR_HOST_MACRO_FIRST);
+    CHECK(hits.count == 2 + XR_HOST_MACRO_FIRST);
     CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CLOSE, -1) >= 0);
     CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PAGE, -1) >= 0);
-    {
-        int pc = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PCVR, -1);
-        CHECK(pc >= 0);
-        if (pc >= 0) {
-            CHECK(xrHostZoneAt((hits.hit[pc].u0 + hits.hit[pc].u1) * 0.5f, (hits.hit[pc].v0 + hits.hit[pc].v1) * 0.5f, 0, 0)
-                  == XR_HOST_ZONE_PCVR);
-        }
-    }
     free(g.base);
     // with macros (and more than the sheet has room for)
     for (int n = 1; n <= XR_HOST_MACRO_SLOTS + 3; n++) {
@@ -946,15 +1067,13 @@ static void test_host_sheet(void) {
         draw(UI_PANEL_HOST, &v, 1.0f, &g);
         check_hits_inside("host macros");
         int shown = n < XR_HOST_MACRO_SLOTS ? n : XR_HOST_MACRO_SLOTS;
-        CHECK(hits.count == 3 + XR_HOST_MACRO_FIRST + shown);
+        CHECK(hits.count == 2 + XR_HOST_MACRO_FIRST + shown);
         for (int i = 0; i < hits.count; i++) {
             const UiHit* h = &hits.hit[i];
             float u = (h->u0 + h->u1) * 0.5f, w = (h->v0 + h->v1) * 0.5f;
             int zone = xrHostZoneAtPage(u, w, XR_HOST_PAGE_MAIN, shown, 0, 0);
             if (h->kind == UI_HIT_HOST_CELL) {
                 CHECK(zone == h->a && h->b == xrHostCellKind(h->a, shown));
-            } else if (h->a == UI_BTN_HOST_PCVR) {
-                CHECK(h->kind == UI_HIT_BUTTON && zone == XR_HOST_ZONE_PCVR);
             } else if (h->kind == UI_HIT_BUTTON && h->a == UI_BTN_HOST_PAGE) {
                 CHECK(zone == XR_HOST_ZONE_PAGE);
             } else {
@@ -978,20 +1097,6 @@ static void test_host_sheet(void) {
         CHECK(xrHostZoneAt((hits.hit[cancel].u0 + hits.hit[cancel].u1) * 0.5f, (hits.hit[cancel].v0 + hits.hit[cancel].v1) * 0.5f, 2, 1)
               == XR_HOST_ZONE_CONFIRM_CANCEL);
     }
-    long sumKeys = 0;
-    for (size_t i = 0; i < g.size; i++) sumKeys += g.px[i];
-    free(g.base);
-    // asking before the switch to PC VR: the same two buttons, its own words
-    v.host_confirm = XR_HOST_CONFIRM_PCVR;
-    v.host_confirm_label[0] = '\0';
-    draw(UI_PANEL_HOST, &v, 1.0f, &g);
-    check_hits_inside("host pcvr confirm");
-    CHECK(hits.count == 2);
-    CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CONFIRM, -1) >= 0);
-    CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_CANCEL, -1) >= 0);
-    long sumPcvr = 0;
-    for (size_t i = 0; i < g.size; i++) sumPcvr += g.px[i];
-    CHECK(sumPcvr != sumKeys);
     free(g.base);
     // a lit cell changes the drawing
     v.host_confirm = -1;
@@ -1220,10 +1325,9 @@ static void test_host_pc_page(void) {
         draw(UI_PANEL_HOST, &v, 1.0f, &g);
         check_hits_inside("host pc");
         int shown = n < XR_HOST_CMD_SLOTS ? n : XR_HOST_CMD_SLOTS;
-        // Close, PC VR, the page button, Paste, Send text and the commands
-        CHECK(hits.count == 3 + 2 + shown);
+        // Close, the page button, Paste, Send text and the commands
+        CHECK(hits.count == 2 + 2 + shown);
         CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PAGE, -1) >= 0);
-        CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HOST_PCVR, -1) >= 0);
         for (int i = 0; i < hits.count; i++) {
             const UiHit* h = &hits.hit[i];
             float u = (h->u0 + h->u1) * 0.5f, w = (h->v0 + h->v1) * 0.5f;
@@ -1232,8 +1336,6 @@ static void test_host_pc_page(void) {
                 CHECK(zone == h->a && h->b == xrHostPcCellKind(h->a, shown));
             } else if (h->a == UI_BTN_HOST_PAGE) {
                 CHECK(h->kind == UI_HIT_BUTTON && zone == XR_HOST_ZONE_PAGE);
-            } else if (h->a == UI_BTN_HOST_PCVR) {
-                CHECK(h->kind == UI_HIT_BUTTON && zone == XR_HOST_ZONE_PCVR);
             } else {
                 CHECK(h->kind == UI_HIT_BUTTON && h->a == UI_BTN_HOST_CLOSE && zone == XR_HOST_ZONE_CLOSE);
             }
@@ -1301,6 +1403,7 @@ int main(void) {
     test_state_sweep();
     test_rows_read_settings();
     test_atlas();
+    test_access_tab();
     ui_panels_shutdown();
     return checksDone(
 #ifdef UI_ASAN

@@ -4,6 +4,7 @@
 // would, and composes them from one eye into DIR/<state>.png, with the layer
 // count of each. Exits 1 if a state would go over SteamVR's 16 layers.
 // GPLv3.
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -80,7 +81,10 @@ int main(int argc, char** argv) {
     shot(s, "03b-bar-here-hover", NULL);
     scene_reset(s);
 
-    static const char* const TABS[COG_TAB_COUNT] = { "screen", "display", "3d", "picture", "about" };
+    // Native (lane a11y-tab): the golden names the tabs had before Accessibility came in before
+    // About stay, and Accessibility's sits between Picture's and About's
+    static const char* const TABS[COG_TAB_COUNT] = { "04-cog-screen", "05-cog-display", "06-cog-3d", "07-cog-picture",
+                                                     "07b-cog-accessibility", "08-cog-about" };
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
         scene_reset(s);
         c->cogOpen = 1;
@@ -97,10 +101,17 @@ int main(int argc, char** argv) {
         else if (tab == COG_TAB_PICTURE) {
             c->cogHoverSlider = PICTURE_CONTRAST;
         }
+        else if (tab == COG_TAB_ACCESS) {
+            // the head pointing with a dwell (as config.ini holds it), the Head cell under the ray
+            s->settings.pointer_source = POINTER_SOURCE_HEAD;
+            s->settings.head_dwell_ms = 900;
+            c->cogHoverSlider = COG_ACCESS_ROW_POINTER;
+            c->cogHoverCell = 1;
+        }
         scene_ray_to(s, hand(), panelPoint(c->cogPose, c->cogW, c->cogH, 0.7f, 0.55f));
-        char name[64];
-        snprintf(name, sizeof(name), "%02d-cog-%s", 4 + tab, TABS[tab]);
-        shot(s, name, NULL);
+        shot(s, TABS[tab], NULL);
+        s->settings.pointer_source = POINTER_SOURCE_CONTROLLER;
+        s->settings.head_dwell_ms = 0;
     }
 
     // Native (lane wave3-hud): the clock strip over the cog with the headset's battery (charging) and the
@@ -262,6 +273,43 @@ int main(int argc, char** argv) {
     c->hoverCorner = 3;
     shot(s, "15-corner", NULL);
 
+    // Native (lane radial-dwell): the head pointer's dwell on the picture at its largest dot (300 %):
+    // the circle a quarter, half and three quarters of the way, then the radial menu with the right
+    // click's segment lit, the dot moved right of where the dwell started. The head is at the origin
+    // and the dot on the picture a little left and below its middle.
+    {
+        static const char* const RING[3] = { "31-dwell-ring-25", "31b-dwell-ring-50", "31c-dwell-ring-75" };
+        static const float AT[3] = { 0.25f, 0.5f, 0.75f };
+        scene_reset(s);
+        xrSetPointerSource(c, POINTER_SOURCE_HEAD, 900);
+        c->assistDotSize = ACCESS_DOT_MAX;
+        c->dotOn = 1;
+        c->hoverKind = HOVER_SCREEN;
+        Vec3 at = { c->screenPose.position.x - 0.3f, c->screenPose.position.y - 0.15f, c->screenPose.position.z };
+        for (int i = 0; i < 3; i++) {
+            scene_ray_to(s, at, at);
+            c->dwellFraction = AT[i];
+            shot(s, RING[i], NULL);
+        }
+        float away = sqrtf(vecDot(at, at));
+        Vec3 dot = { at.x + away * tanf(3.6f * 0.0174532925f), at.y, at.z };
+        scene_ray_to(s, dot, dot);
+        c->dwellFraction = -1.0f;
+        c->dwellAnchorValid = 1;
+        c->dwellAnchorAt = (XrVector3f){ at.x, at.y, at.z };
+        memset(&c->radialView, 0, sizeof(c->radialView));
+        c->radialView.fraction = -1.0f;
+        c->radialView.open = 1;
+        c->radialView.menu = 1.0f;
+        c->radialView.sector = RADIAL_RIGHT;
+        c->radialView.hold = 0.6f;
+        shot(s, "32-dwell-radial-menu", NULL);
+        xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+        c->dwellAnchorValid = 0;
+        c->assistDotSize = ACCESS_DOT_DEFAULT;
+        c->hoverKind = HOVER_NONE;
+    }
+
     // The launcher: the lists in the picture's place
     scene_reset(s);
     c->videoShown = 0;
@@ -308,10 +356,6 @@ int main(int argc, char** argv) {
     c->hostConfirm = 10;
     c->hostHoverZone = XR_HOST_ZONE_CONFIRM_SEND;
     shot(s, "20-host-confirm", NULL);
-    // Native (PLAN 4.1): asking before it switches to PC VR
-    c->hostConfirm = XR_HOST_CONFIRM_PCVR;
-    c->hostHoverZone = XR_HOST_ZONE_CONFIRM_SEND;
-    shot(s, "20b-host-pcvr-confirm", NULL);
     // Native (lane wave4-apollo): the PC page on an Apollo host with three commands, asking before one
     // runs, and on a host that is not Apollo
     c->hostConfirm = -1;
