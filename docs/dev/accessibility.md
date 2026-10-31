@@ -1,17 +1,27 @@
 # Accessibility: the cog tab, the eyes, and the gaze probe
 
-Lanes a11y-tab, a11y-2 and radial-dwell (2026-10-30). What the user sees is in [USER_GUIDE.md](../USER_GUIDE.md#accessibility). This page is
+Lanes a11y-tab, a11y-2 and radial-dwell (2026-10-30), a11y-final (2026-10-31). What the user sees is in [USER_GUIDE.md](../USER_GUIDE.md#accessibility). This page is
 for whoever works on it next.
 
 ## The tab
 
 The cog's fifth tab, `COG_TAB_ACCESS` (4; About moved to 5, `cog_tab` is kept by name so old files still open on the
-right tab). Five rows, each the `[vr]` key it shows: Pointer (`pointer_source`: Controller, Head, Eyes), Dwell
+right tab). Four rows, each the `[vr]` key it shows: Pointer (`pointer_source`: Controller, Head, Eyes), Dwell
 click (`head_dwell_ms`: Off, 600, 900, 1200, 1500), Dwell click style (`assist_dwell_style`: Simple, Radial menu;
-lane radial-dwell, below), Dot size (`assist_dot_size`, a track of 50 to 300 % in 25 %
-steps, a tick at each, the thumb's percent as its readout) and Headset button clicks (`assist_headset_button`, below). Under them the eye tracking line and the instructions
+lane radial-dwell, below) and Dot size (`assist_dot_size`, a track of 50 to 300 % in 25 %
+steps, a tick at each, the thumb's percent as its readout). Under them the eye tracking line and the instructions
 (`UIS_ACCESS_HELP`, plus `UIS_ACCESS_HELP_EYES` while the eyes are not ready), and at the bottom a footer with one
-sentence on the row under the pointer (`UIS_ACCESS_DESC_*`; `UIS_ACCESS_DESC_NONE` while it is on none).
+sentence on the row under the pointer (`UIS_ACCESS_DESC_*`; `UIS_ACCESS_DESC_NONE` while it is on none), up to three
+lines.
+
+Lane a11y-final: the Headset button clicks row is gone (the feature is for later, see "Future: the headset button"
+below), and the eye line, the instructions and the footer moved up into its room (`COG_ACCESS_STATUS_V`,
+`COG_ACCESS_HELP_T`, `COG_ACCESS_FOOTER_*` in `xr/core/xr_shared.h`). The Eyes cell carries a small "experimental"
+under its name (`tagged_cell` in `ui/panel_cog.c`, `UIS_CELL_EYES_EXPERIMENTAL`; one line did not fit a third of the
+track at a readable size, so the two are stacked; a translation too long for the cell drops the tag and the
+footer's sentence still says it). The pointer row's sentence says Eyes is experimental and jittery and how to get the
+controllers back, and so do the instructions. The launcher's Pointer row names the cell "Eyes (experimental)", and
+its tip is the same sentence.
 
 Lane a11y-2 took Head-look, Back as Guide and Mouse mode off the tab: the owner's point was that "Head" on the
 Pointer row already means "move the pointer with your head", so a second head row that turns a game's camera read as
@@ -24,8 +34,8 @@ their slot when a translation is long.
 
 | Where | What |
 | --- | --- |
-| `xr/core/xr_access.c` | Pure: the dwell row's times, the eye line's state (`accessEyesState`), whether the Eyes cell takes a press (`accessEyesCellLive`: always, unless the runtime does not offer eye gaze), the dot's scale (`accessDotScale`), the row at a point of the panel (`accessRowAt`, for the footer), the Eyes pointer's fallback to the head (`gazeFallStep`: the head after 200 ms lost, the eyes again after 300 ms tracked). `tests/xrcore/test_access.c` |
-| `xr/xr_assist.c` | The tab on the XR side: the cells a row has, a press (applied to the context now, handed back as `SETTING_POINTER_SOURCE`, `SETTING_HEAD_DWELL`, `SETTING_ASSIST_DOT_SIZE`, 42 to 44, and stored by `xrStoreSetting`), the Dot size track (`cogAccessSliderValue`, `cogApplyAccessSlider`, `cogAccessDragEnded`, called from `xr/xr_ui.c`'s slider code), the footer's row (`xrAccessHoverRow` from `ctx->cogPointV`, which `xr/xr_input.c` sets wherever the pointer is on the cog, labels and greyed rows included), the dot's scale for `xr/xr_layers.c` (`xrAssistDotScale`), the eye line from what the session found, and `xrGazeWatch`, the once-a-session log line |
+| `xr/core/xr_access.c` | Pure. Lane a11y-final: `pointerBackStep`, the right hand's Menu and grip (below); `gazeSteadyStep`, the Eyes pointer's steadying (below); `accessDwellToleranceDeg`, the dwell's wander, 1 degree for the head, 2 for the eyes (`DWELL_TOLERANCE_EYES_DEG`). From lanes a11y-tab and a11y-2: the dwell row's times, the eye line's state (`accessEyesState`), whether the Eyes cell takes a press (`accessEyesCellLive`: always, unless the runtime does not offer eye gaze), the dot's scale (`accessDotScale`), the row at a point of the panel (`accessRowAt`, for the footer), the Eyes pointer's fallback to the head (`gazeFallStep`: the head after 200 ms lost, the eyes again after 300 ms tracked). `tests/xrcore/test_access.c` |
+| `xr/xr_assist.c` | Lane a11y-final: `xrPointerBackStep` (from pointer mode's bindings frame, `bindPointerStep` in `xr/xr_input.c`, reset with everything else the bindings let go) and `xrEyesSteady` (from `readSources`, in place of the head's One Euro on the gaze's rotation while the eyes point). The tab on the XR side: the cells a row has, a press (applied to the context now, handed back as `SETTING_POINTER_SOURCE`, `SETTING_HEAD_DWELL`, `SETTING_ASSIST_DOT_SIZE`, 42 to 44, and stored by `xrStoreSetting`), the Dot size track (`cogAccessSliderValue`, `cogApplyAccessSlider`, `cogAccessDragEnded`, called from `xr/xr_ui.c`'s slider code), the footer's row (`xrAccessHoverRow` from `ctx->cogPointV`, which `xr/xr_input.c` sets wherever the pointer is on the cog, labels and greyed rows included), the dot's scale for `xr/xr_layers.c` (`xrAssistDotScale`), the eye line from what the session found, and `xrGazeWatch`, the once-a-session log line |
 | `ui/panel_cog.c` `tab_access` | The drawing; `UiView.access_eyes` carries the eye line's state and `UiView.access_row` the footer's row (`xr/xr_panels.c` puts both in the cog's redraw key; the key's room went from 2 KB to 4 KB, since the whole `Settings` in it had grown past 2 KB and cut off everything after it) |
 | `xr/xr_layers.c` | The pointer's dot and the dwell's circle drawn at `pointerDotSize(distance) * xrAssistDotScale(ctx)`: `assist_dot_size` with the head or the eyes pointing, today's size with a controller |
 | `xr/xr_input.c` | `headPointing` covers `POINTER_SOURCE_GAZE`: Eyes is head Point mode with the gaze's ray while the eyes are tracked (`readSources`), held through a blink. `dwellPanelHover`: with a menu open the dwell aims at the menu (before, the pass's hover named the picture behind it, so a dwell on a cog cell was a click on the hidden picture) |
@@ -44,7 +54,102 @@ footer's sentences as tips (`PrefRow.tip`: a `ToolTip` while the mouse is over t
 a gamepad's focus). `tests/launcher/run_tests.sh` gives each row the focus as a gamepad does and checks the tip is up
 with its sentence (`showTip`, `MLXR_SETTINGS_TIP:`).
 
-## The headset's side button
+## The way back to the controllers: right Menu and right grip (lane a11y-final)
+
+The owner's ask: "There needs to be a way to revert control back to the controller. It should be the right hand: the
+Menu button plus grip, similar to the left hand's View plus grip." With Pointer on Head or Eyes, the right Menu button
+and the right grip held together for `POINTER_BACK_HOLD_NS` (500 ms, the left hand's `PAD_TOGGLE_HOLD_NS`) set
+`pointer_source` to controller, as a press on the tab's Controller does (`xrSetPointerSource`, the dwell time kept),
+hand `SETTING_POINTER_SOURCE` back to be stored on the first frame the setting slot is free, and say "Controllers
+point again" (`UIS_TOAST_POINTER_BACK`). Done the same way as the gamepad switch's left View + left grip
+(`padToggleStep`): a pure step over the two buttons and the clock (`pointerBackStep`, `xr/core/xr_access.c`), fed from
+pointer mode's bindings frame with the controls the bindings see (`xrPointerBackStep`, before the grips are masked for
+the UI's grab).
+
+Menu is the cog's (`app:cog`, or whatever `bindings.ini` gives `right.menu`), so the step keeps it from the bindings
+while it may still be the chord's: let go before 500 ms with the grip never held, it reaches them as a one frame press
+on the release (the cog opens as Menu is let go, a frame later than before); held alone for 500 ms it goes through as
+held from then on (a binding that holds still works, and the chord can no longer form in that press); with the grip
+held at any time during the press, Menu does nothing but the chord. The grip is not held back (in pointer mode it only
+grabs the UI's handles, and with the head pointing no controller points at them). After a reset (a mode switch, focus
+lost, the pointer off: `bindLetGo`) a Menu already down is no press until let go. It works whatever the pointer is;
+with Controller it fires nothing (a log line) and still keeps the cog shut. Pointer mode only: in gamepad mode Menu is
+Start and the grip RB, which a game may want together. `bindings.ini` refuses a pointer-mode chord with both
+(`reservedWhy` in `xr/core/xr_bind.c`; grips were already refused there), like the mode switch.
+
+Tests: `tests/xrcore/test_access.c` `testPointerBack` (the timing, a tap, the grip first or late, given up, held alone,
+after a reset), `tests/xrcore/test_bind.c` (refused), `tests/m4/test_access.c` `pointerBack` (through the bindings
+frame with the pointer pass: Head and Eyes to Controller, saved and said, a Menu tap opening the cog, the chord never
+opening it, the setting slot taken that frame, gamepad mode), `tests/m4/test_bindings.c` (Menu opens the cog on the
+release).
+
+## Eyes: experimental, and steadied (lane a11y-final)
+
+The owner, after trying it: Eyes is "experimental and really not great: the eye jitters so much and it's not accurate
+at all". It is labelled experimental (above), and steadied cheaply. The head pointer's One Euro filter (the controllers'
+settings) let the dot wander about 2 degrees on a gaze jittering by a degree round one spot (`tests/m4/test_access.c`
+`eyesSteady`). `gazeSteadyStep` (`xr/core/xr_access.c`) replaces it on the gaze's direction while the eyes point
+(`xrEyesSteady`, from `readSources`; the position keeps the head's filter, the fallback to the head keeps the head's
+filters, and a switch between the two resets both):
+
+- the direction is smoothed with a time constant of 120 ms (`GAZE_STEADY_SMOOTH_S`);
+- the dot holds still while the smoothed gaze stays within 1 degree of it (`GAZE_STEADY_HOLD_DEG`: a fixation); past
+  that it catches up with a 40 ms time constant (`GAZE_STEADY_FOLLOW_S`) until it is within 0.2 degrees
+  (`GAZE_STEADY_SETTLE_DEG`), and holds again;
+- a gaze 4 degrees from the smoothed one (`GAZE_STEADY_JUMP_DEG`) on two frames running is a saccade: the smoothing
+  jumps there (the mean of the two), so a real look elsewhere is not dragged out; one wild frame is ignored.
+
+Measured (`tests/xrcore/test_access.c` `testGazeSteady`, 90 Hz): +-1 degree of noise in yaw and pitch round a
+fixation moves the settled dot by 0 degrees over 4.5 s (the check is under 0.3) and leaves it 0.1 degrees from the
+fixation; a 10 degree look is reached within half a degree in 12 frames (130 ms); a slow look across at 5 degrees a
+second lags by up to about 1.6 degrees (it holds, then catches up: a staircase at slow speeds, the price of the hold).
+Through the input pass (`eyesSteady`) the dot on the cog does not move at all on the same jitter, where the head's
+filter wanders 2 degrees. The dwell allows the eyes 2 degrees of wander (`accessDwellToleranceDeg`), the head 1; the
+radial menu's dead zone (2.5) is still wider. What it cannot fix is the offset: the gaze is not exact, so the dot lands
+near where the user looks. Numbers to tune in the headset: the hold radius (larger is steadier and less precise) and
+the smoothing.
+
+## Future: the headset button
+
+The owner, for 1.1.0: "forget it for now; list it as a future thing". Lane a11y-2 built it (below, unchanged); lane
+a11y-final took it out of reach for 1.1.0:
+
+- The Accessibility tab's Headset button clicks row is gone, and the launcher's (its strings and `MAP` lines too, but
+  `UIS_AUX_RETURNED`, the 3 s hold's toast, which the code below still says).
+- `[vr] assist_headset_button` and `[vr] assist_click_path` stay keys of `config.ini` (`ui/settings.c`; an old file
+  reads without a warning, and the launcher keeps a file's value as it is), undocumented in the user guide, and
+  ignored: `xr/xr_prefs.c` reads neither, so `ctx->assistHeadsetButton` is never on and `ctx->assistClickPath` is
+  empty. `xrAuxButtonFrame` then never looks for the device, never opens or grabs it, and no OpenXR button is made or
+  read. Only the tests turn `ctx->assistHeadsetButton` on (`tests/m4/test_access.c` `auxGrab`, which also checks that
+  `config.ini`'s keys turn nothing on), so the code keeps working.
+- A press no longer lets go of the radial menu's drag (`xrDwellDragRelease` is gone); the next dwell does.
+- `mlxr-hello --button-probe` is unchanged.
+
+To bring it back: read the two keys in `xrApplySettings` again, give the tab its row back (`COG_ACCESS_ROW_BUTTON`,
+`cogApplyAccessCell`'s case, the greyed reasons `UIS_BUTTON_MISSING` and `UIS_BUTTON_UNREADABLE`, the footer's
+`UIS_ACCESS_DESC_BUTTON` and `UIS_ACCESS_DESC_BUTTON_UNREADABLE`, `UiView.access_button` from `ctx->auxState`; all in
+lane a11y-2's commits), and the launcher's row (`assistHeadsetButtonRow`; `MlxrPrefs.assistHeadsetButton` is still
+there). The tab has the room: the eye line and the instructions moved up into it.
+
+What the user guide said about it (for when it comes back):
+
+> **The headset's side button.** With **Headset button clicks** on and the head or the eyes pointing, the button on the right side of the headset (the one that normally opens the Steam home) clicks where the dot is:
+>
+> | Press | What it does |
+> | --- | --- |
+> | Once | A left click |
+> | Twice, quickly | A double click |
+> | Three times, quickly | A right click |
+> | Hold (longer than 0.4 s) | Holds the left button down to drag; let go to drop |
+> | Hold 3 seconds | Gives the button back to SteamVR for 15 seconds (a message says so), so the next press opens the Steam home as usual. A drag under way is let go first. |
+>
+> While it clicks, the app holds the button for itself, so SteamVR does not see it. It gives the button back whenever the app loses focus (the Steam home or the dashboard is up), the stream ends, a controller points, you turn the row off or the app closes; if the app stops for any reason, the system gets the button back by itself. A single click waits about a third of a second to see whether a second press follows.
+>
+> The app reads the button from its input device (`gpio-keys`, the device Linux reports the button on). It never changes permissions itself. If your user may not read that device, the row is greyed with "cannot read the button" and `moonlight.log` says `headset button: ... not readable`. What you can do, if you choose to (an advanced, optional step, at your own risk): give your user read access to that one device with a udev rule, for example a file `/etc/udev/rules.d/70-mlxr-headset-button.rules` holding `SUBSYSTEM=="input", ATTRS{name}=="gpio-keys", TAG+="uaccess"`, then reboot. This lets programs you run read the headset's volume and side buttons; it changes nothing else, and deleting the file undoes it. Making the file needs root (`sudo`); a SteamOS update may undo it.
+>
+> `mlxr-hello --button-probe` (below) says whether the button reaches the app on your headset.
+
+### How it was built (lane a11y-2)
 
 The Steam Frame's side button (Valve calls it the Aux button; SteamVR opens its dashboard, the Steam home, with it).
 Valve documents no OpenXR path for it. Linux reports it as `KEY_SELECT` on the `gpio-keys` input device, and a
@@ -179,8 +284,8 @@ lands on the dwell's start: the host's cursor is held there while the menu is up
 play, and the buttons count there even when the dot has left the picture to pick. A drag holds the left button from
 the start; the cursor then follows the dot, the dot is drawn hollow and a small mark stays on the start; the next
 dwell anywhere (no menu while a drag is held) lets go there, a dwell back inside the dead zone round the start lets
-go on the start itself (nothing moves), and so does a press of the headset button when that row is on (the press does
-nothing else). Losing focus, the stream or the head pointer lets a drag go too.
+go on the start itself (nothing moves). (Until lane a11y-final a press of the headset button let it go too; that went
+with the button.) Losing focus, the stream or the head pointer lets a drag go too.
 
 **The numbers** (`xr/core/xr_radial.h`; to tune in the headset): menu from 75 % of the dwell; dead zone 2.5 degrees
 round the start, a segment held until the dot is back inside 2.2 (0.3 degrees of slack, so a dot resting on the edge
@@ -196,7 +301,7 @@ circle's start (1.6 degrees) is still inside the dead zone.
 | `xr/xr_dwellmenu.c` | The XR side. `xrDwellMenuStep` from `updateDwell` (`xr/xr_input.c`): the dwell's start on the picture (u, v and the point in the space), the cursor held there (`xrDwellMenuHostPoint`, used by `sendPointer`, and for the buttons' `hit`), the choices played through `xrAssistActionAt` (`xr/xr_auxbutton.c`, the headset button's player), the drag and its release, the circle's fade. `xrDwellMenuArt` picks the frames for `xr/xr_layers.c`; `xrDrawDwellArt` draws them all once into the atlas with the rest of the code drawn art |
 | `xr/xr_layers.c` | The dot's quad shows a frame of the circle (or the hollow dot); the menu, or a drag's mark, is one more quad at the dwell's start (`dwellMark`, under the dot). The head and eye pointer never draw the beam, so the busiest frame is no fuller (`tests/m4/test_budget.c`) |
 | Atlas | `ATLAS_DWELL_RING` (64 px frames: 40 steps of the sweep, 5 x 3 fades, the hollow dot, the mark) under the Ko-fi sheet, `ATLAS_DWELL_HOLLOW` (20 steps round a hollow dot) right of the pad card, `ATLAS_DWELL_MENU_A` to `C` (15 frames of 160 px: 3 of the fade in, 4 of each segment's hold) in three free corners |
-| `tests/m4/test_access.c` | `stylePresses`, `radialMenu`, `radialDrag`: through the input pass's seams, the row's press, a dwell on the tab staying a press, staying, each direction, jitter and the gap, the cancel, the simple style, the cursor held on the start, the drag's start, its release by a dwell, on its start, by the headset button and on focus loss, and the quads the frame shows |
+| `tests/m4/test_access.c` | `stylePresses`, `radialMenu`, `radialDrag`: through the input pass's seams, the row's press, a dwell on the tab staying a press, staying, each direction, jitter and the gap, the cancel, the simple style, the cursor held on the start, the drag's start, its release by a dwell, on its start and on focus loss, and the quads the frame shows |
 | Goldens | `31-dwell-ring-25`, `31b-dwell-ring-50`, `31c-dwell-ring-75` (Dot size 300 %), `32-dwell-radial-menu` (right segment lit, the dot on it) |
 
 ## Later: eye gestures (not built)

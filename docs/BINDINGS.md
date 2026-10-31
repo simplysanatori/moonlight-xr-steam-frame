@@ -27,7 +27,7 @@ The seven controls that did nothing in pointer mode get these jobs:
 | Y (right) | Shows or hides the keyboard |
 | X (right) | Turns 3D on or off |
 | d-pad up (left) | Recentres: the screen comes round to where you face |
-| Menu (right) | Opens or closes the cog panel |
+| Menu (right) | Opens or closes the cog panel (as you let go of it; held with the right grip it gives the pointer back to the controllers instead, see below) |
 | Left bumper | Mouse Back (X1) |
 | Right bumper | Mouse Forward (X2) |
 | d-pad left (left) | Nothing (free for your own binding) |
@@ -38,4 +38,5 @@ Everything else stays as it is: the triggers click, A and d-pad down right click
 
 - The pointer/gamepad switch (left View with the left grip, or the shortcut you chose).
 - The disconnect chord in gamepad mode (View, Menu and both bumpers).
+- The right Menu button held with the right grip in pointer mode: it turns the head or eye pointer off and the controllers point again ([Accessibility](USER_GUIDE.md#accessibility)). While Menu is down it waits to see whether the grip joins it, so whatever Menu is bound to happens as you let go (or once Menu has been held alone for half a second).
 - The grips grabbing the screen's handles, the keyboard's bar and the stats window while the ray is on them.

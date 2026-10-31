@@ -1,5 +1,10 @@
 // Native (lane a11y-2): clicks for the head and eye pointer that are not a controller's trigger.
 //
+// Lane a11y-final: a future feature (docs/dev/accessibility.md, "Future: the headset button"). The
+// tab has no row for it and xr_prefs.c reads neither assist_headset_button nor assist_click_path,
+// so nothing here looks for the device, grabs it or reads a button; only the tests turn
+// ctx->assistHeadsetButton on, so the code keeps working for when it comes back.
+//
 // The headset's side button (the Steam Frame's "Aux" button, which SteamVR uses to open its
 // dashboard): read from its evdev device (input/auxbutton.c) and, while the Accessibility tab's
 // Headset button row is on, the session is focused and streaming and the head or the eyes point,
@@ -99,20 +104,16 @@ static void gesture(XrCtx* ctx, int action, int64_t now) {
     xrAssistAction(ctx, action, now);
 }
 
-// An edge of the button. Native (lane radial-dwell): a press while the dwell's radial menu holds a
-// drag lets it go where the dot is, and that press does nothing more (its release, its hold)
+// An edge of the button
 static void edge(XrCtx* ctx, int down, int64_t now) {
     int action = auxClickEdge(&ctx->auxGest, down, now);
-    if (down && xrDwellDragRelease(ctx, now)) {
-        auxClickSpend(&ctx->auxGest);
-        return;
-    }
     gesture(ctx, action, now);
 }
 
 void xrAuxButtonFrame(XrCtx* ctx, int64_t now, int focused, int streaming) {
-    // looked for once a session for the tab's row, and again every 5 s while it is wanted and not there
-    if (ctx->auxState == ACCESS_BUTTON_UNKNOWN) {
+    // looked for once it is wanted, and again every 5 s while it is wanted and not there (lane
+    // a11y-final: never in 1.1.0, where nothing turns it on)
+    if (ctx->assistHeadsetButton && ctx->auxState == ACCESS_BUTTON_UNKNOWN) {
         xrAuxButtonLook(ctx);
         ctx->auxLookNs = now;
     }

@@ -610,9 +610,10 @@
 // Native (lane a11y-tab, a11y-2): Accessibility tab rows: what points
 // (Controller, Head and Eyes; Eyes dimmed only where the runtime does not
 // offer eye gaze), the dwell click (Off and four times), the size of the head
-// and eye pointer's dot (a track of 25 % steps) and whether the headset's side
-// button clicks (Off, On); lane radial-dwell put the dwell's style (Simple,
-// Radial menu) under the dwell's row. Under them a line says
+// and eye pointer's dot (a track of 25 % steps); lane radial-dwell put the
+// dwell's style (Simple, Radial menu) under the dwell's row, and lane
+// a11y-final took the headset button's row out (a future feature) and moved
+// what is under the rows up into its room. Under them a line says
 // whether eye tracking reaches the app and a few short lines say how to use
 // it and how to turn it off; the footer under those says what the row under
 // the pointer does.
@@ -620,14 +621,11 @@
 #define COG_ACCESS_ROW_DWELL 1
 #define COG_ACCESS_ROW_STYLE 2
 #define COG_ACCESS_ROW_DOT 3
-#define COG_ACCESS_ROW_BUTTON 4
-#define COG_ACCESS_ROW_COUNT 5
+#define COG_ACCESS_ROW_COUNT 4
 // Controller, Head, Eyes (POINTER_SOURCE_ order)
 #define COG_ACCESS_POINTER_CELLS 3
 // Off, 0.6 s, 0.9 s, 1.2 s, 1.5 s (xr/core/xr_access.h accessDwellMs)
 #define COG_ACCESS_DWELL_CELLS 5
-// Off, On
-#define COG_ACCESS_BUTTON_CELLS 2
 // Simple, Radial menu (xr_radial.h DWELL_STYLE_)
 #define COG_ACCESS_STYLE_CELLS 2
 #define COG_ACCESS_ROW_V0 0.215f
@@ -635,11 +633,11 @@
 #define COG_ACCESS_ROW_HALF 0.0325f
 #define COG_ACCESS_CELL_HALF 0.028f
 // The eye tracking line, the instructions under the rows, and the footer
-// (its rule, then the description's first baseline; two lines)
-#define COG_ACCESS_STATUS_V 0.54f
-#define COG_ACCESS_HELP_T 0.6f
-#define COG_ACCESS_FOOTER_RULE 0.855f
-#define COG_ACCESS_FOOTER_T 0.9f
+// (its rule, then the description's first baseline; up to three lines)
+#define COG_ACCESS_STATUS_V 0.475f
+#define COG_ACCESS_HELP_T 0.535f
+#define COG_ACCESS_FOOTER_RULE 0.8f
+#define COG_ACCESS_FOOTER_T 0.845f
 
 // Screen tab rows, in the order they are drawn: the six that place the
 // screen, which the reset button under them puts back, then head aim's two,

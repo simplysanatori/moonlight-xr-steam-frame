@@ -5,8 +5,9 @@
 // started on the picture, holds the host's cursor there while the menu is up and while the click
 // it chose plays (so every click lands on the dwell's start, wherever the dot went to pick), plays
 // the choices through the headset button's player (xrAssistActionAt, on the picture), and keeps a
-// drag the menu started: the left button held until the next dwell (anywhere) or a press of the
-// headset button lets it go; a dwell back on the drag's start lets it go there, so nothing moves.
+// drag the menu started: the left button held until the next dwell (anywhere) lets it go; a dwell
+// back on the drag's start lets it go there, so nothing moves. (Lane a11y-final: the headset
+// button's release went with the button, a future feature.)
 //
 // The art is drawn once into the UI atlas with the rest of the code drawn art: every step of the
 // dwell's circle (a thin arc in the dot's colour sweeping clockwise from the top while its radius
@@ -59,14 +60,6 @@ void xrDwellMenuWatch(XrCtx* ctx, int64_t now, int focused, int streaming) {
     }
 }
 
-int xrDwellDragRelease(XrCtx* ctx, int64_t now) {
-    if (!ctx->dwellDrag) {
-        return 0;
-    }
-    letGo(ctx, now, "the headset button");
-    return 1;
-}
-
 // A choice of the menu, on the dwell's start
 static void act(XrCtx* ctx, int action, int64_t now) {
     float u = ctx->dwellAnchorU, v = ctx->dwellAnchorV;
@@ -106,7 +99,7 @@ int xrDwellMenuStep(XrCtx* ctx, int valid, int aimed, float x, float y, int64_t 
     int action = ASSIST_NONE;
     RadialView view;
     int ev = radialStep(&ctx->radial, &ctx->dwell, valid, aimed, right, up, now, ctx->headDwellMs,
-                        DWELL_TOLERANCE_DEG, menu, &action, &view);
+                        accessDwellToleranceDeg(ctx->pointerSource), menu, &action, &view);
     if (view.fresh) {
         ctx->dwellAnchorValid = onPicture;
         ctx->dwellAnchorU = u;

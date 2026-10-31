@@ -398,9 +398,10 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetOpentrack(ctx, s->opentrack, s->opentrack_host, s->opentrack_port); // PLAN 4.5
     xrSetPointerSource(ctx, s->pointer_source, s->head_dwell_ms);              // PLAN 6.5
     ctx->assistDotSize = accessDotClamp(s->assist_dot_size);                   // native (lane a11y-2)
-    ctx->assistHeadsetButton = s->assist_headset_button != 0;
     ctx->assistDwellStyle = s->assist_dwell_style == DWELL_STYLE_RADIAL ? DWELL_STYLE_RADIAL : DWELL_STYLE_SIMPLE;
-    snprintf(ctx->assistClickPath, sizeof(ctx->assistClickPath), "%s", s->assist_click_path);
+    // native (lane a11y-final): assist_headset_button and assist_click_path are a future feature's
+    // (docs/dev/accessibility.md): still keys of config.ini, so a file with them reads as before, but
+    // not read here, so the app never takes the headset button or reads that path
     xrSetMouseMode(ctx, s->mouse_mode);           // native (lane headinput-finish, PLAN 4b.10)
     xrPadBridgeSetBackAsGuide(s->back_as_guide);  // native (lane headinput-finish, PLAN 4b.10)
     xrSetScrollSpeed(ctx, s->scroll_speed);
