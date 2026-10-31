@@ -430,7 +430,7 @@ static float dragIcon(float x, float y) {
 
 static float iconAt(int sector, float x, float y) {
     switch (sector) {
-    case RADIAL_LEFT: return fmaxf(mouseIcon(x, y, 3.8f, -1), twoIcon(x, y, -7.4f));
+    case RADIAL_LEFT: return fmaxf(mouseIcon(x, y, 4.6f, -1), twoIcon(x, y, -8.0f));
     case RADIAL_DOWN: return dragIcon(x, y);
     case RADIAL_RIGHT: return mouseIcon(x, y, 0.0f, 1);
     default: return 0.0f;
