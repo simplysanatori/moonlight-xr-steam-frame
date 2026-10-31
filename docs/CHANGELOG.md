@@ -129,6 +129,7 @@
 - **On start** in Settings opens the last PC's Desktop, or an app you choose, as soon as the PC is online, and wakes the PC first.
 - **Help** opens the readme in Steam's browser in Game Mode, as the Ko-fi page does.
 - Apollo apps are started by their UUID as well as their number, as Artemis does, so Apollo knows when that app is already running.
+- In the flat window, the right thumbstick scrolls the page smoothly (faster the further it is pushed), and the left stick and the d-pad move from item to item, including through a long list in a dialog.
 
 ### Install
 
@@ -152,7 +153,7 @@
 
 ### Known issues
 
-- Scrolling the flat window with the right thumbstick needs improving: the Frame does not pass that stick's input on reliably yet.
+- While the flat window is docked in the SteamVR dashboard, the right thumbstick does not scroll it, because the dashboard keeps that input. Undock the window (grab it with the grip) and scrolling works.
 
 ## 1.0.1 (October 2026)
 

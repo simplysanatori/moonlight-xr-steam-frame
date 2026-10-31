@@ -51,7 +51,7 @@ With a gamepad (in Game Mode the Steam Frame controllers count as one, through S
 | Control | In the flat window |
 | --- | --- |
 | D-pad, left thumbstick | Move from one item to the next (a PC, an app, a row of Settings). The page follows, so the item with the focus stays on screen. In a list that opens from a row (the choices of Video resolution, for example) up and down move through the list, which scrolls with them; past its last entry they go on to the dialog's buttons. On a slider, left and right move it (the Video bitrate by 5 Mbps a press). |
-| Right thumbstick | Known issue in 1.1.0: the Frame does not pass this stick's input on reliably yet, so this may not work. When it does, it scrolls the page you are on (the PC list, the app list, the Settings page) up and down. The further you push it, the faster it scrolls; a light touch does nothing. With a list dialog open it scrolls that list. When you let go and the item you had was scrolled away, the first item in sight takes the focus, so the next press carries on from what you see. |
+| Right thumbstick | Scrolls the page you are on (the PC list, the app list, the Settings page) up and down; not while the window is docked in the SteamVR dashboard, which keeps that input, so undock it first. The further you push it, the faster it scrolls; a light touch does nothing. With a list dialog open it scrolls that list. When you let go and the item you had was scrolled away, the first item in sight takes the focus, so the next press carries on from what you see. |
 | A | Select, or switch a Settings row. |
 | B | Back, or close a dialog. |
 | X | An app's menu (Resume, Quit, Stream settings profile...). |
