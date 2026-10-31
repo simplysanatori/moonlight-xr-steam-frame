@@ -1152,7 +1152,7 @@ Flickable {
         // answer directly. Off: whichever address answers best.
         VrSwitch {
             key: "stream.vpn_only_away"
-            title: qsTr("Use VPN addresses only away from home")
+            title: qsTr("Use VPN only when the PC isn't on the local network")
             summary: qsTr("When the PC also has a VPN address, it is used only when the PC does not answer on your home network. Off: whichever address answers fastest.")
         }
 

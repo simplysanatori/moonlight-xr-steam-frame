@@ -14,7 +14,7 @@ What it does:
 - Forwards Bluetooth keyboards, mice and gamepads connected to the Frame.
 - Lets your head or your eyes (experimental) point and click, with a dwell click, from the **Accessibility** tab (early).
 - Can stream over your Wi-Fi, over the Steam Frame Wireless Adapter or over a USB cable. **Automatic** measures every link that is there before each stream and picks the one with the lower latency and fewer losses.
-- **Use VPN addresses only away from home** (on by default): if your PC also has a VPN address (Tailscale, WireGuard, ZeroTier or similar), the headset uses it only when the PC does not answer on your home network, and it learns the PC's home address by itself.
+- **Use VPN only when the PC isn't on the local network** (on by default): on the same network as the PC, the headset uses the PC's local IP address; a VPN address such as Tailscale is used only when the PC does not answer locally.
 
 ## What this adds to Moonlight XR
 
@@ -47,7 +47,7 @@ Four projects meet here. [Moonlight XR](https://github.com/Gilleece/moonlight-an
 | Moonlight (moonlight-common-c, moonlight-qt 6.1.0) | The streaming protocol. The flat window: the PC list, adding a PC, pairing with a PIN, the app list, Resume and Quit, Wake-on-LAN, and the PCs and pairing imported from the Moonlight flatpak. The stream settings kept under Moonlight's own names (resolution, refresh rate, bitrate, codec, surround sound, Optimize game settings, Play audio on PC, Force software decoding, the window's language). Frame pacing and the disconnect chords. |
 | Artemis (followed) | The Settings page's categories, row names and descriptions. Video frame pacing's three choices, Ultra low latency, Quick resume, the analog stick dead zone, Flip face buttons, Gamepad as mouse, stream settings profiles. How the Apollo features below are asked for. |
 | Needs an Apollo host | **Use virtual display** and **Resolution scale factor**; a refresh rate with decimals such as 59.94 (**Custom...**); **Smart clipboard sync**; the Host sheet's **Paste from PC**, **Send text to PC** and server commands; starting an app by its UUID; the permission part of **Check the PC before streaming**. |
-| New for the Steam Frame: platform and network | A native Linux Arm64 program on OpenXR and Vulkan, decoding H.264 and HEVC on the Frame's hardware decoder with no copy to the GPU. **Match headset** and 72 to 144 Hz, set in SteamVR before the stream. **Network connection** (Wi-Fi, Steam Frame Wireless Adapter, USB cable, **Automatic**) with a bitrate for each, switching links when video keeps breaking up, and VPN addresses only away from home. Reconnecting after a drop; disconnecting when the headset is off or idle. |
+| New for the Steam Frame: platform and network | A native Linux Arm64 program on OpenXR and Vulkan, decoding H.264 and HEVC on the Frame's hardware decoder with no copy to the GPU. **Match headset** and 72 to 144 Hz, set in SteamVR before the stream. **Network connection** (Wi-Fi, Steam Frame Wireless Adapter, USB cable, **Automatic**) with a bitrate for each, switching links when video keeps breaking up, and VPN only when the PC isn't on the local network. Reconnecting after a drop; disconnecting when the headset is off or idle. |
 | New for the Steam Frame: picture and 3D | **3D source** (side by side or top-bottom from the PC), Full-size SBS, 3D edge, motion reset, depth detail, depth shape and eye balance. Sharper small text and coloured text, zoom and pan, screen presets, Bring here, Remember per app, Follow, Angular-size lock, Background dim, Glow edge, Void colour. |
 | New for the Steam Frame: controls | Steam Frame controller models built from SteamVR's own files, the Gun and lightgun mode, controller bindings for every button with an editor, Click steadiness, Relative mouse, the head turning a first-person game's camera, opentrack head tracking, gyro from the headset, Bluetooth and USB gamepads passed through with rumble, gyro, touchpad and light bar, the gamepad card. The full keyboard, AZERTY and QWERTZ, media keys. The Host sheet with your own macros. The Accessibility tab: pointing with the head or the eyes (experimental), Dwell click, Dot size. |
 | New for the Steam Frame: menus and flat window | Notices, the HUD and Lite stats, the battery and slow-connection badge, the first-run card, Headset language. The Settings page's Connection rows and headset rows, search and jump list, Check the PC before streaming, On start, the update check. The installer, the Steam shortcut and artwork, and the bug report tool. |
@@ -97,7 +97,7 @@ Version 1.1.0 was tested in the headset on 30 and 31 October 2026. Eye tracking 
    ./install.sh
    ```
 
-   The installer copies the program to `~/Games/MoonlightXRNative/app`. It adds **Moonlight XR for Frame** to your Steam library as a non-Steam shortcut, with its artwork. It sets SteamVR's per-app settings for that shortcut (90 Hz, no motion smoothing; the Refresh rate in Settings can change the rate later). It also converts SteamVR's own Steam Frame controller models for the app. You can run it again at any time.
+   The installer copies the program to `~/Games/MoonlightXRNative/app`. It adds **Moonlight XR for Frame** to your Steam library as a non-Steam shortcut, with its artwork. It sets SteamVR's per-app settings for that shortcut: 90 Hz, no motion smoothing, and a render resolution of 3240 x 3240 per eye (the Refresh rate in Settings can change the rate later). It also converts SteamVR's own Steam Frame controller models for the app. You can run it again at any time.
 
 3. Start **Moonlight XR for Frame** from the Steam library.
 
@@ -108,6 +108,10 @@ From 1.1.0 on, releases also carry the same files as a `.zip` (`moonlight-xr-ste
 The icon in the SteamVR dock stays grey until Steam has been restarted once after the first install.
 
 To get a second shortcut, **Desktop in VR**, that opens your PC's Desktop in the headset straight away, run `./install.sh --desktop-shortcut` after you have streamed once from the flat window. It uses the PC you streamed from last (or the only one); `--desktop-pc "PC name"` picks another. When the stream ends, that shortcut closes.
+
+### For the sharpest picture
+
+Keep SteamVR's render resolution for Moonlight XR at **3240 x 3240 per eye**, 1.5 times the Frame's native 2160 x 2160: SteamVR Settings, Video, **Per-application video settings**, Moonlight XR for Frame, **Render resolution**: Custom, set so the figure under the slider reads 3240 x 3240. The installer sets this for you; a lower figure (SteamVR's default for the Frame is lower) makes small text blurry. The Frame still holds 90 Hz at this size, because the app only draws the screen and its surroundings. To check what is in effect, `moonlight.log` says `curved picture: projection layer 3240x3240 per eye` near the start of a stream.
 
 ## First run and pairing
 
@@ -172,7 +176,7 @@ The bar under the screen shows its buttons while the ray is over it. From left t
 
 The cog menu's **Accessibility** tab (early) has **Pointer** (Controller, Head, or Eyes, which is experimental: eye tracking reaches the app on the Steam Frame, but the eyes jitter and land only near where you look), **Dwell click** and **Dot size**; Eyes holds the dot still while your eyes rest and tolerates a wider wander during a dwell. Holding the right Menu button and the right grip for half a second gives the pointer back to the controllers. **Dwell click style** (Simple by default) adds a radial menu near the end of a dwell: look left for a double click, down to drag, right for a right click.
 
-In the flat window (the PC list, the app list and the Settings page), a gamepad or the Frame controllers in Game Mode work too: the right stick scrolls the page, and the left stick and the d-pad move the focus from item to item.
+In the flat window, a gamepad or the Frame controllers in Game Mode work too: the right stick scrolls the page, and the left stick and the d-pad move from item to item. While the window is docked in the SteamVR dashboard the right stick does not scroll it; undock it first.
 
 To change what a button does, edit `~/.config/moonlight-xr/bindings.ini` or use the flat window's **Controller bindings** page ([BINDINGS.md](docs/BINDINGS.md)); the mode switch, the disconnect chord and the grips' grab cannot be changed.
 

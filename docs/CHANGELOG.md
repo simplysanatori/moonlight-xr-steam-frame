@@ -2,7 +2,7 @@
 
 ## 1.1.0 (October 2026)
 
-1.1.0 is the largest update so far. Every controller button can now be changed in `bindings.ini`, and there is a Gun model with lightgun mode, gyro from the headset, Bluetooth and USB gamepad passthrough, and a Host sheet of hard-to-reach keys and macros. The picture gets sharper small text, a 3D source for side-by-side and top-bottom pairs, screen presets, zoom and a remembered place for each app. Streams reconnect by themselves, start at a bitrate for each connection (up to 500 Mbps), can run over a USB cable, and use VPN addresses only away from home. A new Accessibility tab (early) lets the head or the eyes (experimental) point and click, with a dwell click and a radial menu. The flat window gets a searchable, tidied Settings page, a controller bindings editor, stream profiles and a check of the PC before each stream.
+1.1.0 is the largest update so far. Every controller button can now be changed in `bindings.ini`, and there is a Gun model with lightgun mode, gyro from the headset, Bluetooth and USB gamepad passthrough, and a Host sheet of hard-to-reach keys and macros. The picture gets sharper small text, a 3D source for side-by-side and top-bottom pairs, screen presets, zoom and a remembered place for each app. Streams reconnect by themselves, start at a bitrate for each connection (up to 500 Mbps), can run over a USB cable, and use VPN only when the PC isn't on the local network. A new Accessibility tab (early) lets the head or the eyes (experimental) point and click, with a dwell click and a radial menu. The flat window gets a searchable, tidied Settings page, a controller bindings editor, stream profiles and a check of the PC before each stream.
 
 ### Streaming
 
@@ -22,9 +22,7 @@
 ### Network
 
 - A USB data cable between the headset and the PC is a third connection: **USB cable** under Network connection, and Automatic tries it too. It needs the headset in developer mode.
-- **Use VPN addresses only away from home** under Connection (on by default). A PC's VPN address is used only when the PC does not answer on a direct address; at home the home network is always used, even when the VPN answers faster (that gave dropped audio and a low frame rate), and the log says so in one line.
-- The headset learns the PC's home address the first time it finds it and never removes a saved VPN address. Switching network never moves a stream from the home network to a VPN, and streams over a VPN are not counted in the per-link history.
-- A local port forward to the PC on a loopback address (such as 127.0.0.1, added as the PC's address) is kept as a VPN path: used only when the PC does not answer directly.
+- **Use VPN only when the PC isn't on the local network** (on by default, under Connection): on the same network as the PC, the headset always streams over the PC's local IP address. If the PC also has a VPN address, such as Tailscale, the headset uses it only when the PC does not answer on the local network. The local address is remembered once found, a local port forward (127.0.0.1) counts as a VPN address, and a stream never switches from the local network to a VPN by itself.
 - **Switch network when video keeps breaking up** moves a stream that keeps losing video to another link that measured clearly better when it started; **Video loss before switching** sets how much loss that takes. Off by default, and only with Network connection on Automatic.
 - `moonlight.log` tells video lost on the network apart from Wi-Fi power saving and packets dropped inside the headset, with a summary of each burst of loss, for bug reports.
 
@@ -131,7 +129,7 @@
 - **On start** in Settings opens the last PC's Desktop, or an app you choose, as soon as the PC is online, and wakes the PC first.
 - **Help** opens the readme in Steam's browser in Game Mode, as the Ko-fi page does.
 - Apollo apps are started by their UUID as well as their number, as Artemis does, so Apollo knows when that app is already running.
-- The right thumbstick of a gamepad (the Frame controllers in Game Mode) scrolls the flat window's pages smoothly, faster the further it is pushed; the left stick and the d-pad move the focus from item to item, now also through a long list in a dialog, and the page follows.
+- In the flat window, the right thumbstick scrolls the page smoothly (faster the further it is pushed), and the left stick and the d-pad move from item to item, including through a long list in a dialog.
 
 ### Install
 
@@ -148,10 +146,15 @@
 
 ### Fixed
 
+- The installer now sets SteamVR's render resolution for the shortcut to 3240 x 3240 per eye, 1.5 times the Frame's native 2160 x 2160. It used to set 2160, which left small text blurry; run `install.sh` again, or set it in SteamVR's per-application video settings.
 - A white beam no longer runs across the picture when you move the ray along the bar with the other controller pointing at the picture: the whole bar row now belongs to the hand on it.
 - The ray and the controller model no longer flicker or jump when tracking drops for a moment: the last aim is held for up to 300 ms.
 - The controller bindings are offered to SteamVR under both names it gives the Frame controllers, the older one and the one SteamVR uses since 2.15.1.
 - A dwell click no longer repeats on the same spot or cell every dwell time, a dwell on an open menu no longer clicks the picture behind it, and the headset's menus redraw on their own when only the hover changes.
+
+### Known issues
+
+- While the flat window is docked in the SteamVR dashboard, the right thumbstick does not scroll it, because the dashboard keeps that input. Undock the window (grab it with the grip) and scrolling works.
 
 ## 1.0.1 (October 2026)
 
