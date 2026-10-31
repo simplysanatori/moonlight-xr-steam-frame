@@ -22,9 +22,7 @@
 ### Network
 
 - A USB data cable between the headset and the PC is a third connection: **USB cable** under Network connection, and Automatic tries it too. It needs the headset in developer mode.
-- **Use VPN addresses only away from home** under Connection (on by default). A PC's VPN address is used only when the PC does not answer on a direct address; at home the home network is always used, even when the VPN answers faster (that gave dropped audio and a low frame rate), and the log says so in one line.
-- The headset learns the PC's home address the first time it finds it and never removes a saved VPN address. Switching network never moves a stream from the home network to a VPN, and streams over a VPN are not counted in the per-link history.
-- A local port forward to the PC on a loopback address (such as 127.0.0.1, added as the PC's address) is kept as a VPN path: used only when the PC does not answer directly.
+- **Use VPN addresses only away from home** (on by default, under Connection): on the same network as the PC, the headset always streams over the PC's local IP address. If the PC also has a VPN address, such as Tailscale, the headset uses it only when the PC does not answer on the local network. The local address is remembered once found, a local port forward (127.0.0.1) counts as a VPN address, and a stream never switches from the local network to a VPN by itself.
 - **Switch network when video keeps breaking up** moves a stream that keeps losing video to another link that measured clearly better when it started; **Video loss before switching** sets how much loss that takes. Off by default, and only with Network connection on Automatic.
 - `moonlight.log` tells video lost on the network apart from Wi-Fi power saving and packets dropped inside the headset, with a summary of each burst of loss, for bug reports.
 
@@ -131,7 +129,6 @@
 - **On start** in Settings opens the last PC's Desktop, or an app you choose, as soon as the PC is online, and wakes the PC first.
 - **Help** opens the readme in Steam's browser in Game Mode, as the Ko-fi page does.
 - Apollo apps are started by their UUID as well as their number, as Artemis does, so Apollo knows when that app is already running.
-- The right thumbstick of a gamepad (the Frame controllers in Game Mode) scrolls the flat window's pages smoothly, faster the further it is pushed; the left stick and the d-pad move the focus from item to item, now also through a long list in a dialog, and the page follows.
 
 ### Install
 
@@ -152,6 +149,10 @@
 - The ray and the controller model no longer flicker or jump when tracking drops for a moment: the last aim is held for up to 300 ms.
 - The controller bindings are offered to SteamVR under both names it gives the Frame controllers, the older one and the one SteamVR uses since 2.15.1.
 - A dwell click no longer repeats on the same spot or cell every dwell time, a dwell on an open menu no longer clicks the picture behind it, and the headset's menus redraw on their own when only the hover changes.
+
+### Known issues
+
+- Scrolling the flat window with the right thumbstick needs improving: the Frame does not pass that stick's input on reliably yet.
 
 ## 1.0.1 (October 2026)
 

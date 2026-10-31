@@ -14,7 +14,7 @@ What it does:
 - Forwards Bluetooth keyboards, mice and gamepads connected to the Frame.
 - Lets your head or your eyes (experimental) point and click, with a dwell click, from the **Accessibility** tab (early).
 - Can stream over your Wi-Fi, over the Steam Frame Wireless Adapter or over a USB cable. **Automatic** measures every link that is there before each stream and picks the one with the lower latency and fewer losses.
-- **Use VPN addresses only away from home** (on by default): if your PC also has a VPN address (Tailscale, WireGuard, ZeroTier or similar), the headset uses it only when the PC does not answer on your home network, and it learns the PC's home address by itself.
+- **Use VPN addresses only away from home** (on by default): on the same network as the PC, the headset uses the PC's local IP address; a VPN address such as Tailscale is used only when the PC does not answer locally.
 
 ## What this adds to Moonlight XR
 
@@ -172,7 +172,7 @@ The bar under the screen shows its buttons while the ray is over it. From left t
 
 The cog menu's **Accessibility** tab (early) has **Pointer** (Controller, Head, or Eyes, which is experimental: eye tracking reaches the app on the Steam Frame, but the eyes jitter and land only near where you look), **Dwell click** and **Dot size**; Eyes holds the dot still while your eyes rest and tolerates a wider wander during a dwell. Holding the right Menu button and the right grip for half a second gives the pointer back to the controllers. **Dwell click style** (Simple by default) adds a radial menu near the end of a dwell: look left for a double click, down to drag, right for a right click.
 
-In the flat window (the PC list, the app list and the Settings page), a gamepad or the Frame controllers in Game Mode work too: the right stick scrolls the page, and the left stick and the d-pad move the focus from item to item.
+In the flat window, a gamepad or the Frame controllers in Game Mode move between items with the d-pad. Scrolling there with the right thumbstick is a known issue in 1.1.0.
 
 To change what a button does, edit `~/.config/moonlight-xr/bindings.ini` or use the flat window's **Controller bindings** page ([BINDINGS.md](docs/BINDINGS.md)); the mode switch, the disconnect chord and the grips' grab cannot be changed.
 
