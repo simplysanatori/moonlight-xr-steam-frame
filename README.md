@@ -172,7 +172,7 @@ The bar under the screen shows its buttons while the ray is over it. From left t
 
 The cog menu's **Accessibility** tab (early) has **Pointer** (Controller, Head, or Eyes, which is experimental: eye tracking reaches the app on the Steam Frame, but the eyes jitter and land only near where you look), **Dwell click** and **Dot size**; Eyes holds the dot still while your eyes rest and tolerates a wider wander during a dwell. Holding the right Menu button and the right grip for half a second gives the pointer back to the controllers. **Dwell click style** (Simple by default) adds a radial menu near the end of a dwell: look left for a double click, down to drag, right for a right click.
 
-In the flat window, a gamepad or the Frame controllers in Game Mode move between items with the d-pad. Scrolling there with the right thumbstick is a known issue in 1.1.0.
+In the flat window, a gamepad or the Frame controllers in Game Mode work too: the right stick scrolls the page, and the left stick and the d-pad move from item to item. While the window is docked in the SteamVR dashboard the right stick does not scroll it; undock it first.
 
 To change what a button does, edit `~/.config/moonlight-xr/bindings.ini` or use the flat window's **Controller bindings** page ([BINDINGS.md](docs/BINDINGS.md)); the mode switch, the disconnect chord and the grips' grab cannot be changed.
 
