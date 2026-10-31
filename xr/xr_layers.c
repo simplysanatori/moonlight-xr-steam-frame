@@ -84,6 +84,9 @@ typedef struct {
     XrCompositionLayerProjection models;
     XrCompositionLayerProjectionView modelViews[ROOM_EYES];
     XrCompositionLayerQuad beam;
+    // Native (lane radial-dwell): the dwell's radial menu, or a drag's mark, at the dwell's start
+    // (only with the head or the eyes pointing, which never draw the beam)
+    XrCompositionLayerQuad dwellMark;
     XrCompositionLayerQuad dot;
     XrCompositionLayerQuad toast;
     const XrCompositionLayerBaseHeader* order[FRAME_MAX_LAYERS];
@@ -866,11 +869,35 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
     // is in the bar's hover band, so the bar can be found (xr_controller.c)
     int beamKind = rayBeamKind(ctx->raySetting, ctx->rayFlipped, panelUp(ctx), ctx->dotOn, view->barArea);
     int beamSlot = beamKind == RAY_BEAM_RESTING ? ATLAS_BEAM_FAINT : ATLAS_BEAM;
+    Vec3 head = { ctx->headPos.x, ctx->headPos.y, ctx->headPos.z };
+
+    // Native (lane radial-dwell): the dwell's circle round the dot, and at the dwell's start its
+    // radial menu (or a held drag's mark), under the dot. The menu is drawn whether or not the dot is
+    // on anything: the dot may leave the picture to pick.
+    XrDwellArt art;
+    int dwellArt = ctx->outlineReady && xrDwellMenuArt(ctx, &art);
+    if (dwellArt && art.mark.w > 0) {
+        Vec3 at = { art.markAt.x, art.markAt.y, art.markAt.z };
+        Vec3 toHead = vecSub(head, at);
+        float away = sqrtf(vecDot(toHead, toHead));
+        if (away > 0.05f) {
+            Vec3 z = vecNorm(toHead);
+            Vec3 worldUp = { 0.0f, 1.0f, 0.0f };
+            Vec3 x = vecNorm(vecCross(worldUp, z));
+            Vec3 y = vecCross(z, x);
+            XrPosef pose = { quatFromBasis(x, y, z), { at.x + z.x * 0.006f, at.y + z.y * 0.006f, at.z + z.z * 0.006f } };
+            float side = art.menuHalfDeg > 0.0f ? 2.0f * away * tanf(art.menuHalfDeg * 0.0174532925f)
+                                                : pointerDotSize(away) * xrAssistDotScale(ctx) * art.markSide;
+            quadLayerRect(&layers->dwellMark, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                          xrAtlasSwapchain(ctx), art.mark.x, art.mark.y, art.mark.w, art.mark.h, view->space, pose,
+                          side, side);
+            pushLayer(ctx, layers, &layers->dwellMark);
+        }
+    }
 
     if (ctx->beamVisible && !ctx->beamGaze && ctx->pointerArtReady) {
         Vec3 start = { ctx->beamStart.x, ctx->beamStart.y, ctx->beamStart.z };
         Vec3 end = { ctx->beamEnd.x, ctx->beamEnd.y, ctx->beamEnd.z };
-        Vec3 head = { ctx->headPos.x, ctx->headPos.y, ctx->headPos.z };
         Vec3 along = vecSub(end, start);
         float length = sqrtf(along.x * along.x + along.y * along.y + along.z * along.z);
 
@@ -895,10 +922,10 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
         // Native: the dot is the owner's to hide (the host draws its own
         // cursor into the picture); a panel up keeps it, being ours
         // Native (lane wave4-headinput, PLAN 6.5): a charging dwell click shows whatever the
-        // Ray row says, as the hover ring's art closing in on the point (xr_dwell.h dwellRingScale)
-        float dwellRing = ctx->outlineReady ? dwellRingScale(ctx->dwellFraction) : 0.0f;
+        // Ray row says. Native (lane radial-dwell): as a circle in the dot's colour that sweeps round
+        // and closes in on the dot (xr_dwellmenu.c), the dot drawn into each of its pictures
         if (!ctx->beamFree && (ctx->dotOn || panelUp(ctx) || ctx->launcher != LAUNCHER_NONE
-                               || dwellRing > 0.0f)) {
+                               || (dwellArt && art.dot.w > 0))) {
             Vec3 toHead2 = vecSub(head, end);
             float away = sqrtf(vecDot(toHead2, toHead2));
             // native (lane a11y-2): the head and eye pointer's dot, and its ring, at the Dot size
@@ -914,9 +941,10 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
             XrPosef dotPose = { quatFromBasis(dotX, dotY, dotZ),
                                 { end.x + dotZ.x * 0.012f, end.y + dotZ.y * 0.012f,
                                   end.z + dotZ.z * 0.012f } };
-            if (dwellRing > 0.0f) {
-                atlasQuad(ctx, &layers->dot, NULL, ATLAS_OUTLINE, view->space, dotPose,
-                          dotSize * dwellRing, dotSize * dwellRing);
+            if (dwellArt && art.dot.w > 0) {
+                quadLayerRect(&layers->dot, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                              xrAtlasSwapchain(ctx), art.dot.x, art.dot.y, art.dot.w, art.dot.h, view->space,
+                              dotPose, dotSize * art.dotSide, dotSize * art.dotSide);
             }
             else {
                 atlasQuad(ctx, &layers->dot, NULL, ATLAS_DOT, view->space, dotPose, dotSize, dotSize);

@@ -55,20 +55,24 @@ void xrAuxButtonRelease(XrCtx* ctx, const char* why) {
     auxClickReset(&ctx->auxGest);
 }
 
-void xrAssistAction(XrCtx* ctx, int action, int64_t now) {
+void xrAssistActionAt(XrCtx* ctx, int action, int64_t now, int ui) {
     if (action == ASSIST_NONE) {
         return;
     }
     // where the click goes is settled when it starts: the picture, or our own menus, which have
     // only a press (a double or right click there is one press)
     if (action == ASSIST_LEFT || action == ASSIST_DOUBLE || action == ASSIST_RIGHT || action == ASSIST_DRAG_DOWN) {
-        ctx->assistUi = ctx->hoverKind != HOVER_SCREEN;
+        ctx->assistUi = ui;
         if (ctx->assistUi && (action == ASSIST_DOUBLE || action == ASSIST_RIGHT)) {
             action = ASSIST_LEFT;
         }
     }
     assistPlayStart(&ctx->assistPlay, action, now);
     LOGEV("assist %s on %s", assistActionName(action), ctx->assistUi ? "our UI" : "the picture");
+}
+
+void xrAssistAction(XrCtx* ctx, int action, int64_t now) {
+    xrAssistActionAt(ctx, action, now, ctx->hoverKind != HOVER_SCREEN);
 }
 
 void xrAssistFrame(XrCtx* ctx, int64_t now) {
@@ -93,6 +97,17 @@ static void gesture(XrCtx* ctx, int action, int64_t now) {
         return;
     }
     xrAssistAction(ctx, action, now);
+}
+
+// An edge of the button. Native (lane radial-dwell): a press while the dwell's radial menu holds a
+// drag lets it go where the dot is, and that press does nothing more (its release, its hold)
+static void edge(XrCtx* ctx, int down, int64_t now) {
+    int action = auxClickEdge(&ctx->auxGest, down, now);
+    if (down && xrDwellDragRelease(ctx, now)) {
+        auxClickSpend(&ctx->auxGest);
+        return;
+    }
+    gesture(ctx, action, now);
 }
 
 void xrAuxButtonFrame(XrCtx* ctx, int64_t now, int focused, int streaming) {
@@ -136,7 +151,7 @@ void xrAuxButtonFrame(XrCtx* ctx, int64_t now, int focused, int streaming) {
         int n = auxDevRead(&ctx->auxDev, edges, 16);
         gesture(ctx, auxClickTick(&ctx->auxGest, now), now);
         for (int i = 0; i < n; i++) {
-            gesture(ctx, auxClickEdge(&ctx->auxGest, edges[i], now), now);
+            edge(ctx, edges[i], now);
         }
         if (n < 0) {
             LOGW("headset button: %s went away", ctx->auxInfo.path);
@@ -147,6 +162,7 @@ void xrAuxButtonFrame(XrCtx* ctx, int64_t now, int focused, int streaming) {
         // the OpenXR button's presses come in after the sync (xrAssistClickRead); its holds tick here
         gesture(ctx, auxClickTick(&ctx->auxGest, now), now);
     }
+    xrDwellMenuWatch(ctx, now, focused, streaming);   // native (lane radial-dwell)
     xrAssistFrame(ctx, now);
 }
 
@@ -240,7 +256,7 @@ void xrAssistClickRead(XrCtx* ctx, int64_t now) {
     if (down != ctx->assistClickLast) {
         ctx->assistClickLast = down;
         if (ctx->pointerSource != POINTER_SOURCE_CONTROLLER && !ctx->padMode) {
-            gesture(ctx, auxClickEdge(&ctx->auxGest, down, now), now);
+            edge(ctx, down, now);
         }
     }
 }

@@ -4,6 +4,7 @@
 // would, and composes them from one eye into DIR/<state>.png, with the layer
 // count of each. Exits 1 if a state would go over SteamVR's 16 layers.
 // GPLv3.
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -271,6 +272,43 @@ int main(int argc, char** argv) {
     c->hoverKind = HOVER_CORNER;
     c->hoverCorner = 3;
     shot(s, "15-corner", NULL);
+
+    // Native (lane radial-dwell): the head pointer's dwell on the picture at its largest dot (300 %):
+    // the circle a quarter, half and three quarters of the way, then the radial menu with the right
+    // click's segment lit, the dot moved right of where the dwell started. The head is at the origin
+    // and the dot on the picture a little left and below its middle.
+    {
+        static const char* const RING[3] = { "31-dwell-ring-25", "31b-dwell-ring-50", "31c-dwell-ring-75" };
+        static const float AT[3] = { 0.25f, 0.5f, 0.75f };
+        scene_reset(s);
+        xrSetPointerSource(c, POINTER_SOURCE_HEAD, 900);
+        c->assistDotSize = ACCESS_DOT_MAX;
+        c->dotOn = 1;
+        c->hoverKind = HOVER_SCREEN;
+        Vec3 at = { c->screenPose.position.x - 0.3f, c->screenPose.position.y - 0.15f, c->screenPose.position.z };
+        for (int i = 0; i < 3; i++) {
+            scene_ray_to(s, at, at);
+            c->dwellFraction = AT[i];
+            shot(s, RING[i], NULL);
+        }
+        float away = sqrtf(vecDot(at, at));
+        Vec3 dot = { at.x + away * tanf(3.6f * 0.0174532925f), at.y, at.z };
+        scene_ray_to(s, dot, dot);
+        c->dwellFraction = -1.0f;
+        c->dwellAnchorValid = 1;
+        c->dwellAnchorAt = (XrVector3f){ at.x, at.y, at.z };
+        memset(&c->radialView, 0, sizeof(c->radialView));
+        c->radialView.fraction = -1.0f;
+        c->radialView.open = 1;
+        c->radialView.menu = 1.0f;
+        c->radialView.sector = RADIAL_RIGHT;
+        c->radialView.hold = 0.6f;
+        shot(s, "32-dwell-radial-menu", NULL);
+        xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+        c->dwellAnchorValid = 0;
+        c->assistDotSize = ACCESS_DOT_DEFAULT;
+        c->hoverKind = HOVER_NONE;
+    }
 
     // The launcher: the lists in the picture's place
     scene_reset(s);

@@ -168,7 +168,7 @@ The bar under the screen shows its buttons while the ray is over it. From left t
 | 3D | Turns 3D on or off (shown when 3D can run). |
 | Host | Opens the Host sheet: Esc, Win, Alt+Enter and other keys, and your own macros. |
 
-The cog menu's **Accessibility** tab (early) has **Pointer** (Controller, Head, Eyes), **Dwell click**, **Dot size** and **Headset button clicks**; eye tracking works on the Steam Frame. <!-- pending lane: radial dwell -->
+The cog menu's **Accessibility** tab (early) has **Pointer** (Controller, Head, Eyes), **Dwell click**, **Dot size** and **Headset button clicks**; eye tracking works on the Steam Frame. **Dwell click style** (Simple by default) adds a radial menu near the end of a dwell: look left for a double click, down to drag, right for a right click.
 
 To change what a button does, edit `~/.config/moonlight-xr/bindings.ini` or use the flat window's **Controller bindings** page ([BINDINGS.md](docs/BINDINGS.md)); the mode switch, the disconnect chord and the grips' grab cannot be changed.
 
