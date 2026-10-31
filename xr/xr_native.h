@@ -486,8 +486,12 @@ void xrKeyboardToggle(XrCtx* ctx, const char* from);
 // Native (lane wave4b-abr), PLAN 4b.8. The bitrate to start the stream with on the network path in use:
 // that path's own setting ([stream] bitrate_wifi, bitrate_adapter, bitrate_wired, bitrate_usb) when it is
 // above 0, else launcherKbps. pathKind is mlxr_net_kind_for_address(address of the PC) (backend/netpath.h),
-// MLXR_ABR_UNKNOWN (-1) when no path was chosen. Logs one line, "bitrate for Wi-Fi: 60000 kbps (override)".
-int xrStreamBitrate(const Settings* s, int pathKind, int launcherKbps);
+// MLXR_ABR_UNKNOWN (-1) when no path was chosen.
+// Native (lane flat-input): the whole decision (xr/core/xr_abr.h mlxr_abr_start): the path's row, else argKbps
+// (--bitrate, the flat launcher's Video bitrate), else [stream] bitrate_kbps, else the default for width x height at
+// fps; 500 kbps .. 500 Mbps. Logs one line, "stream bitrate: 300000 kbps (300 Mbps) over Wi-Fi, from the flat
+// launcher's Video bitrate (--bitrate)"; `why` (may be NULL) gets the "from ..." part for the stream's own start line.
+int xrStreamBitrate(const Settings* s, int pathKind, int argKbps, int width, int height, int fps, char* why, size_t whyCap);
 
 // ---- the context's defaults (xr_prefs.c) -----------------------------------
 // What upstream's nativeInit set before any setter ran

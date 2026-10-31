@@ -110,7 +110,9 @@ cmp "$t/fakesrv/client.pem" "$MLXR_CONFIG_DIR/servercerts/$HOSTID.pem" && ok "pi
 [ "$(stat -c %a "$MLXR_CONFIG_DIR/client.key")" = 600 ] && [ "$(stat -c %a "$MLXR_CONFIG_DIR/hosts.ini")" = 600 ] && ok "private files are 0600" || fail "modes"
 h="$MLXR_CONFIG_DIR/hosts.ini"
 grep -q "^\[$HOSTID\]" "$h" && grep -q '^name = gaming-pc' "$h" && grep -q '^mac = 02:f0:2c:5d:a5:10' "$h" && grep -q '^cert = servercerts/' "$h" && ok "hosts.ini record" || { fail "hosts.ini"; cat "$h"; }
-grep -q '^address = 198.51.100.5' "$h" && grep -q 'extra_addresses = .*198.51.100.7' "$h" && ok "addresses (no loopback)" || { fail "addresses"; cat "$h"; }
+grep -q '^address = 198.51.100.5' "$h" && grep -q 'extra_addresses = .*198.51.100.7' "$h" && ok "addresses" || { fail "addresses"; cat "$h"; }
+# lane flat-input: the manual address 127.0.0.1 (a port forward set up on the Frame) is kept, last, never the first
+grep -q '^extra_addresses = .*,127\.0\.0\.1$' "$h" && ok "loopback manual address kept, last of the addresses" || { fail "loopback address"; cat "$h"; }
 "$CLI" identity 2>&1 | grep -q "saved hosts:  1" && ok "mlxr-cli reads the exported host" || fail "mlxr-cli: $("$CLI" identity 2>&1)"
 "$CLI" identity 2>&1 | grep -q "created a new client identity" && fail "identity regenerated"
 # another host already in hosts.ini is kept
@@ -123,6 +125,12 @@ grep -q 'extra_addresses = .*10.35.50.27' "$h" || fail "test setup: extra addres
 dry "gaming-pc:Desktop" >/dev/null
 grep -q '^address = 198.51.100.5' "$h" && grep -q 'extra_addresses = .*198.51.100.7' "$h" && grep -q 'extra_addresses = .*10.35.50.27' "$h" && ok "earlier addresses kept across hand-offs" || { fail "address merge"; cat "$h"; }
 [ "$(grep -o '198.51.100.7' "$h" | wc -l)" = 1 ] && ok "no duplicate addresses" || fail "duplicate addresses"
+# lane flat-input: an earlier record's IPv4-mapped loopback (::ffff:127.0.0.1) is the same forward: one plain 127.0.0.1
+sed -i "/^\[$HOSTID\]/,/^cert/ s/^extra_addresses = .*/&,::ffff:127.0.0.1,::FFFF:127.0.0.2/" "$h"
+dry "gaming-pc:Desktop" >/dev/null
+[ "$(grep -o '127\.0\.0\.1' "$h" | wc -l)" = 1 ] && ! grep -qi 'ffff' "$h" && grep -q '^extra_addresses = .*,127\.0\.0\.1,127\.0\.0\.2$' "$h" \
+    && ok "loopback forwards in one form, no duplicate, after the other addresses" || { fail "loopback forms"; cat "$h"; }
+grep -q '^address = 198.51.100.5' "$h" && ok "a loopback forward is never the first address" || fail "first address: $(grep '^address' "$h")"
 
 # --- 3. the settings matrix (user changes them in Settings; here in the conf, as Settings would)
 setconf width=1920 height=1080 fps=60 bitrate=20000 videocfg=0
@@ -792,22 +800,25 @@ if [ -n "$SHOTS" ]; then
     MLXR_LAUNCHER_NET_ROOT="$t/netroot" MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
         MLXR_LAUNCHER_SCREENSHOT="$t/usb-nocable.png@3000" "$L" >"$t/ui8.out" 2>&1
     grep -q "MLXR_LAUNCHER_USB: no cable" "$t/ui8.out" && ok "USB cable: usb0 without carrier is ignored" || fail "usb0 without carrier: $(grep MLXR_LAUNCHER_USB "$t/ui8.out")"
-    # lane wave4b-abr: one stepped bitrate row per network path under Network connection ("Same as above" at 0)
-    rep() { local n="$1" c="$2" o="" i; for ((i = 0; i < c; i++)); do o="$o${o:+,}$n"; done; printf '%s' "$o"; }
-    abr_clicks="$(rep bitrateWifiRow 7),$(rep bitrateAdapterRow 10),$(rep bitrateUsbRow 14),$(rep bitrateWiredRow 15)"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK="$abr_clicks" \
+    # lane wave4b-abr: one bitrate row per network path under Network connection ("Same as above" at 0). Lane flat-input:
+    # each opens a list (Same as above, 10 to 500 Mbps, Custom...); pathPick picks an entry as the list does
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='pathPick:bitrateWifiRow|7;pathPick:bitrateAdapterRow|10;pathPick:bitrateUsbRow|15;pathPick:bitrateWiredRow|0;saveAll' \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-path-bitrates.png@3000" "$L" >"$t/uiabr1.out" 2>&1
-    grep -q "no clickable" "$t/uiabr1.out" && fail "bitrate rows not found: $(grep 'no clickable' "$t/uiabr1.out" | head -2)"
+    grep -q "no row" "$t/uiabr1.out" && fail "bitrate rows not found: $(grep 'no row' "$t/uiabr1.out" | head -2)"
     grep -Eq "$QMLERR" "$t/uiabr1.out" && { fail "path bitrate rows: QML errors"; grep -E "$QMLERR" "$t/uiabr1.out" | head; } || ok "settings page loads with the path bitrate rows (no QML errors)"
-    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_wifi = 80000$' && ok "Wi-Fi bitrate row steps 0 up to 80 Mbps and writes [stream] bitrate_wifi" || { fail "bitrate_wifi not written"; cat "$ini"; }
-    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_adapter = 150000$' && ok "adapter bitrate row steps to 150 Mbps and writes [stream] bitrate_adapter" || { fail "bitrate_adapter not written"; cat "$ini"; }
-    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_usb = 500000$' && ok "USB bitrate row steps to the 500 Mbps cap and writes [stream] bitrate_usb" || { fail "bitrate_usb not written"; cat "$ini"; }
-    grep -q '^bitrate_wired' "$ini" && fail "wired bitrate row wrapped back to Same as above but wrote a key" || ok "wired bitrate row wraps from 500 Mbps back to Same as above and writes nothing"
+    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_wifi = 80000$' && ok "Wi-Fi bitrate row: 80 Mbps writes [stream] bitrate_wifi" || { fail "bitrate_wifi not written"; cat "$ini"; }
+    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_adapter = 150000$' && ok "adapter bitrate row: 150 Mbps writes [stream] bitrate_adapter" || { fail "bitrate_adapter not written"; cat "$ini"; }
+    grep -A12 '^\[stream\]' "$ini" | grep -q '^bitrate_usb = 500000$' && ok "USB bitrate row: the 500 Mbps cap writes [stream] bitrate_usb" || { fail "bitrate_usb not written"; cat "$ini"; }
+    grep -q '^bitrate_wired' "$ini" && fail "wired bitrate row left at Same as above but wrote a key" || ok "wired bitrate row at Same as above writes nothing"
     grep -q '^doff_disconnect = 120$' "$ini" && grep -q '^idle_disconnect = 10$' "$ini" && ok "other [stream] keys untouched by the bitrate rows" || { fail "[stream] keys changed"; cat "$ini"; }
-    # a second page start reads the keys back: the 80000 steps on to 100000, and the value shows in the row
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=bitrateWifiRow \
+    # a second page start reads the keys back (the rows show them), and 80000 goes on to 100000
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='logBitrates;pathPick:bitrateWifiRow|8;saveAll' \
         MLXR_LAUNCHER_SCREENSHOT="$t/path-bitrates-2.png@3000" "$L" >"$t/uiabr2.out" 2>&1
-    grep -q '^bitrate_wifi = 100000$' "$ini" && ok "path bitrates are read back from config.ini (80000 steps to 100000)" || { fail "bitrate_wifi not read back"; cat "$ini"; }
+    expect "path bitrates are read back from config.ini" "$(grep MLXR_SETTINGS_BITRATE "$t/uiabr2.out")" \
+        "bitrateWifiRow=80 Mbps bitrateAdapterRow=150 Mbps bitrateWiredRow=Same as above bitrateUsbRow=500 Mbps"
+    grep -q '^bitrate_wifi = 100000$' "$ini" && ok "path bitrate changed again (80000 to 100000)" || { fail "bitrate_wifi not changed"; cat "$ini"; }
     # PC VR was taken out: the keys an older version saved for it load without trouble and are dropped
     SECTION=mlxr setconf pcvr_client=76561198000000001 pcvr_client_name=gaming-pc pcvr_app=620980 "pcvr_app_name=Beat Saber"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
@@ -835,6 +846,96 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads failover" "$dump" "stream.failover = on"
         expect "VR client reads failover_burst_ms" "$dump" "stream.failover_burst_ms = 5000"
     fi
+    # lane flat-input: 300 Mbps through every bitrate route of the page reaches the hand-off's --bitrate, the launcher's
+    # config and config.ini as the VR client reads them. The owner's config had stock's unlockbitrate=false, which limits
+    # nothing in hand-off mode. Every row shows the figure the same way.
+    setconf bitrate=98000 unlockbitrate=false
+    br() { # name invoke-list
+        MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_INVOKE="$2" \
+            MLXR_LAUNCHER_SCREENSHOT="$t/$1.png@3000" "$L" >"$t/$1.out" 2>&1
+        uiout "$t/$1.out" "bitrate route $1"
+        grep -q "no row\|no function" "$t/$1.out" && fail "bitrate route $1: $(grep 'no row\|no function' "$t/$1.out" | head -2)"
+    }
+    brlog() { grep MLXR_SETTINGS_BITRATE "$t/$1.out" | sed -n "$2p"; }
+    br br1 'logBitrates;slide:bitrateRow|300;logBitrates;saveAll'
+    expect "bitrate: the config's 98 Mbps on the page" "$(brlog br1 1)" "kbps=98000 bitrateRow=98 Mbps customBitrateRow=98 Mbps"
+    expect "bitrate: the slider goes to 300 Mbps, Custom bitrate shows the same" "$(brlog br1 2)" "kbps=300000 bitrateRow=300 Mbps customBitrateRow=300 Mbps"
+    grep -q '^bitrate=300000$' "$CONF" && ok "bitrate: the slider's 300 Mbps is saved" || fail "slider's bitrate not saved: $(grep '^bitrate=' "$CONF")"
+    out="$(dry "gaming-pc:Desktop")"
+    expect "bitrate: the slider's 300 Mbps is the hand-off's --bitrate" "$out" "--bitrate 300000 "
+    expect "bitrate: the launcher logs the bitrate and where it came from" "$(cat "$t/stderr" "$t/stdout")" \
+        "hand-off bitrate: --bitrate 300000 kbps from the Settings page's Video bitrate"
+    setconf bitrate=98000
+    br br2 'openRow:customBitrateRow;editAccept:300;logBitrates;openRow:customBitrateRow;editAccept:600;openRow:customBitrateRow;editAccept:0.4;logBitrates;saveAll'
+    expect "bitrate: Custom bitrate takes 300 (Mbps), the slider shows it" "$(brlog br2 1)" "kbps=300000 bitrateRow=300 Mbps customBitrateRow=300 Mbps"
+    expect "bitrate: Custom bitrate refuses 600 and 0.4" "$(brlog br2 2)" "kbps=300000 "
+    grep -q '^bitrate=300000$' "$CONF" && ok "bitrate: Custom bitrate's 300 Mbps is saved" || fail "Custom bitrate not saved: $(grep '^bitrate=' "$CONF")"
+    expect "bitrate: Custom bitrate's 300 Mbps is the hand-off's --bitrate" "$(dry "gaming-pc:Desktop")" "--bitrate 300000 "
+    setconf bitrate=98000
+    br br3 'openRow:bitrateWifiRow;listPick:13;openRow:bitrateUsbRow;listPick:16;editAccept:312.5;logBitrates;saveAll'
+    expect "bitrate: the Wi-Fi row's 300 Mbps and the USB row's typed 312.5 Mbps" "$(brlog br3 1)" "bitrateWifiRow=300 Mbps"
+    expect "bitrate: the USB row's typed figure shown exactly" "$(brlog br3 1)" "bitrateUsbRow=312.5 Mbps"
+    grep -q '^bitrate_wifi = 300000$' "$ini" && grep -q '^bitrate_usb = 312500$' "$ini" && ok "bitrate: the connection rows write 300000 and 312500 to config.ini" || { fail "connection rows not written"; cat "$ini"; }
+    out="$(dry "gaming-pc:Desktop")"
+    expect "bitrate: the launcher logs the rows that replace the Video bitrate" "$(grep 'hand-off bitrate:' "$t/stderr")" \
+        "the connection rows replace it: 300000 kbps over Wi-Fi, "
+    expect "bitrate: ... each of them" "$(grep 'hand-off bitrate:' "$t/stderr")" ", 312500 kbps over USB cable (config.ini)"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "bitrate: the VR client reads bitrate_wifi = 300000" "$dump" "stream.bitrate_wifi = 300000"
+        expect "bitrate: the VR client reads bitrate_usb = 312500" "$dump" "stream.bitrate_usb = 312500"
+    fi
+    br br4 'pathPick:bitrateWifiRow|0;pathPick:bitrateUsbRow|0;saveAll'
+    grep -q '^bitrate_wifi = 0$' "$ini" && grep -q '^bitrate_usb = 0$' "$ini" && ok "bitrate: Same as above writes 0" || { fail "Same as above"; cat "$ini"; }
+    grep -q '^unlockbitrate=false$' "$CONF" && fail "stock's unlockbitrate=false kept after a save in hand-off mode" || ok "bitrate: always unlocked in hand-off mode"
+    # an old config with 300 Mbps and unlockbitrate=false: the page shows 300 and the hand-off asks for it
+    setconf bitrate=300000 unlockbitrate=false
+    br br5 'logBitrates'
+    expect "bitrate: an old unlockbitrate=false config keeps 300 Mbps on the page" "$(brlog br5 1)" "kbps=300000 bitrateRow=300 Mbps"
+    expect "bitrate: and in the hand-off" "$(dry "gaming-pc:Desktop")" "--bitrate 300000 "
+    setconf bitrate=98000
+
+    # lane flat-input: the thumbsticks (MLXR_LAUNCHER_STICK injects stick values; launcher/src/mlxrstick.h)
+    stick() { # name stick-spec [invoke] [click]
+        MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE="${PAGE:-settings}" MLXR_LAUNCHER_STICK="$2" \
+            MLXR_LAUNCHER_INVOKE="${3:-}" MLXR_LAUNCHER_CLICK="${4:-}" MLXR_LAUNCHER_SCREENSHOT="$t/$1.png@${END:-5000}" "$L" >"$t/$1.out" 2>&1
+        grep -v 'CenteredGridView.qml:10: TypeError' "$t/$1.out" > "$t/$1.qml"   # stock's grid, before the hook parents it
+        uiout "$t/$1.qml" "sticks $1"
+    }
+    sline() { grep "MLXR_STICK: " "$t/$1.out" | sed -n "$2p"; }
+    cy() { sed -n 's/.*contentY \([0-9.-]*\) -> \([0-9.-]*\).*/\1 \2/p'; }
+    # the right stick scrolls the Settings page in proportion to how far it is pushed; inside the dead zone nothing
+    stick st1 'ry=32767@2500+500;ry=16000@3200+500;ry=6000@3900+300;ry=-32767@4400+250'
+    read -r a b < <(sline st1 1 | cy); read -r c d < <(sline st1 2 | cy); read -r e f < <(sline st1 3 | cy); read -r g h < <(sline st1 4 | cy)
+    echo "right stick: full $a->$b, a third $c->$d, dead zone $e->$f, back $g->$h"
+    python3 -I -c "import sys; a,b,c,d,e,f,g,h=map(float,sys.argv[1:]); full=b-a; part=d-c
+sys.exit(0 if full>900 and 0.15*full<part<0.5*full and e==f and h<g else 1)" "$a" "$b" "$c" "$d" "$e" "$f" "$g" "$h" \
+        && ok "right stick: scrolls Settings smoothly, faster the further it is pushed, not in the dead zone, both ways" \
+        || fail "right stick scroll: $(grep MLXR_STICK "$t/st1.out")"
+    expect "right stick: the gesture is logged" "$(cat "$t/st1.out")" "gamepad: the right stick scrolled Settings from y 0 to"
+    # a focused row scrolled out of sight: the focus goes to a row in sight; then the left stick moves the focus on
+    # and the page follows it
+    END=7500 stick st2 'ry=32767@2500+1200;ly=32767@4000+2500' 'showTip:networkRow'
+    expect "right stick: a row in sight takes the focus" "$(sline st2 1)" "done: Settings contentY 0.0 -> "
+    refute "right stick: the focus left the row scrolled away" "$(sline st2 1)" "focus networkRow"
+    read -r a b < <(sline st2 2 | cy)
+    python3 -I -c "import sys; sys.exit(0 if float(sys.argv[2])>float(sys.argv[1]) else 1)" "$a" "$b" \
+        && ok "left stick: moves the focus down the page, which follows it" || fail "left stick on the page: $(sline st2 2)"
+    # the left stick in a long list (the Wi-Fi bitrate row's 17 choices): it moves in the list, not out of it; the
+    # right stick scrolls the list, not the page behind the dialog
+    stick st3 'ly=32767@2500+700;ry=32767@3400+400;ly=-32767@4100+100' '' 'bitrateWifiRow'
+    expect "left stick: down the dialog's list" "$(sline st3 1)" "list index 5 of 17"
+    expect "right stick: scrolls the dialog's list" "$(sline st3 2)" "done: QQuickListView contentY 0.0 -> "
+    expect "left stick: up the list again" "$(sline st3 3)" "list index 4 of 17"
+    # the Video bitrate slider: left and right move it to the next 5 Mbps a press (98 -> 100, 105, 110 -> 105)
+    stick st4 'ly=-32767@2500+100;lx=32767@2800+400;lx=-32767@3400+100' 'showTip:bitrateWifiRow'
+    expect "left stick: Backtab from the Wi-Fi row reaches the Video bitrate slider" "$(sline st4 1)" "focus bitrateRow"
+    expect "left stick: right moves the Video bitrate 5 Mbps a step" "$(sline st4 2)" "value 110"
+    expect "left stick: left moves it back 5 Mbps" "$(sline st4 3)" "value 105"
+    # the PC grid and an app grid: the sticks do no harm where nothing scrolls
+    PAGE=apps:0 stick st5 'ry=32767@2500+300;ly=32767@3000+200'
+    [ "$(grep -c 'MLXR_STICK: ' "$t/st5.out")" = 2 ] && ok "sticks on an app grid: no errors" || fail "sticks on an app grid: $(grep MLXR_STICK "$t/st5.out")"
+
     # lane fix-polish: Show controllers has no Generic choice. A file's old "generic" (and its old number 2) reads
     # as the Steam Frame controller, here and in the VR client, so one press steps it on to Gun
     printf '[vr]\ncontroller_model = generic\n' > "$ini"

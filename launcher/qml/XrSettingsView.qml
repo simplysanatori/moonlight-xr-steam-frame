@@ -184,16 +184,49 @@ Flickable {
     // Native (lane wave4b-abr): [stream] bitrate_wifi, bitrate_adapter, bitrate_wired, bitrate_usb of the VR client's
     // config.ini, kbps. 0 is "Same as above" (the Video bitrate). A running stream's bitrate cannot change, so the
     // client picks it at the start, for the connection it ended up on
-    readonly property var pathBitrateSteps: [0, 10000, 20000, 30000, 40000, 50000, 60000, 80000, 100000, 120000, 150000,
-                                             200000, 300000, 400000, 500000]
-    function pathBitrateText(kbps) {
-        return kbps <= 0 ? qsTr("Same as above") : (Math.round(kbps / 100) / 10) + " " + qsTr("Mbps")
+    // Native (lane flat-input): every bitrate row (the Video bitrate slider, Custom bitrate, the four connection rows)
+    // has the same range, 0.5 to 500 Mbps (500 to 500000 kbps; the VR client's MLXR_BITRATE_MAX_KBPS), and shows it the
+    // same way: Mbps, exact, no trailing zeros (98, 87.5, 123.456). Stock's 150 Mbps limit and its Unlock bitrate
+    // switch belong to the stock page only, which hand-off mode never opens.
+    readonly property int bitrateMinKbps: 500
+    readonly property int bitrateMaxKbps: 500000
+    function mbpsText(kbps) {
+        return Number((kbps / 1000).toFixed(3)) + " " + qsTr("Mbps")
     }
-    function nextPathBitrate(current) {   // the next listed step above; past the last, or a value typed into config.ini, wraps to 0
-        for (var i = 0; i < pathBitrateSteps.length; i++) {
-            if (pathBitrateSteps[i] > current) return pathBitrateSteps[i]
+    // A figure typed in Mbps: kbps, or -1 when it is not one or out of range
+    function parseMbps(t) {
+        var v = parseFloat(String(t).trim())
+        if (isNaN(v)) return -1
+        var k = Math.round(v * 1000)
+        return k >= bitrateMinKbps && k <= bitrateMaxKbps ? k : -1
+    }
+    readonly property string mbpsHint: qsTr("Mbps, 0.5 to 500")
+    readonly property string mbpsPattern: "^\\s*\\d{1,3}(\\.\\d{1,3})?\\s*$"
+    function setVideoBitrate(kbps) {   // the slider and Custom bitrate; tests (MLXR_LAUNCHER_INVOKE) too
+        var k = Math.round(Number(kbps))
+        if (k >= bitrateMinKbps && k <= bitrateMaxKbps) StreamingPreferences.bitrateKbps = k
+    }
+    function setCustomBitrate(text) {  // what the Custom bitrate row's dialog does with what was typed
+        var k = parseMbps(text)
+        if (k > 0) setVideoBitrate(k)
+    }
+
+    // The connection rows' list: Same as above, these, and Custom... (typed, 0.5 to 500 Mbps)
+    readonly property var pathBitrateSteps: [0, 10000, 20000, 30000, 40000, 50000, 60000, 80000, 100000, 120000, 150000,
+                                             200000, 250000, 300000, 400000, 500000]
+    function pathBitrateText(kbps) {
+        return kbps <= 0 ? qsTr("Same as above") : mbpsText(kbps)
+    }
+    // Where a connection's row differs from the Video bitrate: said under the Video bitrate, so what a stream asks for
+    // over each connection is never a surprise
+    function pathOverridesText() {
+        var rows = [[qsTr("Wi-Fi"), MlxrPrefs.bitrateWifi], [qsTr("the Steam Frame Wireless Adapter"), MlxrPrefs.bitrateAdapter],
+                    [qsTr("a wired network"), MlxrPrefs.bitrateWired], [qsTr("the USB cable"), MlxrPrefs.bitrateUsb]]
+        var parts = []
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i][1] > 0) parts.push(qsTr("%1 over %2").arg(mbpsText(rows[i][1])).arg(rows[i][0]))
         }
-        return 0
+        return parts.length ? qsTr("The rows below replace it: %1.").arg(parts.join(", ")) : ""
     }
 
     // The headset keyboard's letters ([vr] keyboard_keymap in the VR client's config.ini). The keys send the
@@ -679,6 +712,10 @@ Flickable {
         property int decimals: 0
         // Native (lane a11y-2): a tick mark under every step
         property bool ticks: false
+        // Native (lane flat-input): what the value shows as ("" = the value with decimals and suffix), and how far one
+        // press of left or right (the d-pad, the left stick, the keyboard) moves it (0 = stepSize)
+        property string shownText: ""
+        property real keyStep: 0
         signal moved(real v)
         focusPolicy: Qt.NoFocus
         activeFocusOnTab: false
@@ -700,6 +737,19 @@ Flickable {
                     enabled: sliderRow.enabled
                     activeFocusOnTab: true
                     onMoved: sliderRow.moved(value)
+                    function keyMove(sign, event) {
+                        if (sliderRow.keyStep <= 0) {
+                            event.accepted = false
+                            return
+                        }
+                        var grid = Math.round(value / sliderRow.keyStep) * sliderRow.keyStep
+                        var v = sign > 0 ? (grid > value + 1e-6 ? grid : grid + sliderRow.keyStep)
+                                         : (grid < value - 1e-6 ? grid : grid - sliderRow.keyStep)
+                        sliderRow.moved(Math.min(Math.max(v, from), to))
+                        event.accepted = true
+                    }
+                    Keys.onLeftPressed: function(event) { keyMove(-1, event) }
+                    Keys.onRightPressed: function(event) { keyMove(1, event) }
                 }
                 // under the track, one a step, the default's (or any value's) place easy to count
                 Repeater {
@@ -720,7 +770,7 @@ Flickable {
                 }
             }
             Label {
-                text: slider.value.toFixed(sliderRow.decimals) + sliderRow.suffix
+                text: sliderRow.shownText !== "" ? sliderRow.shownText : slider.value.toFixed(sliderRow.decimals) + sliderRow.suffix
                 font.pointSize: 11
                 Layout.minimumWidth: 80
                 horizontalAlignment: Text.AlignRight
@@ -757,6 +807,40 @@ Flickable {
         }
     }
 
+    // Native (lane flat-input): a connection's own start bitrate (MlxrPrefs.bitrateWifi ...): a list of Same as above, the
+    // steps and Custom... (typed, 0.5 to 500 Mbps), like Video resolution's
+    component PathBitrateRow: PrefRow {
+        id: pathRow
+        property string prop
+        readonly property int kbps: MlxrPrefs[prop]
+        readonly property int stepIndex: settingsPage.pathBitrateSteps.indexOf(kbps)
+        valueText: settingsPage.pathBitrateText(kbps)
+        function setKbps(k) {
+            k = Math.round(Number(k))
+            if (k <= 0) MlxrPrefs[prop] = 0
+            else if (k >= settingsPage.bitrateMinKbps && k <= settingsPage.bitrateMaxKbps) MlxrPrefs[prop] = k
+        }
+        function pick(i) {
+            if (i < settingsPage.pathBitrateSteps.length) setKbps(settingsPage.pathBitrateSteps[i])
+            else editDialog.show(title, settingsPage.mbpsHint, kbps > 0 ? "" + Number((kbps / 1000).toFixed(3)) : "",
+                                 settingsPage.mbpsPattern, function(t) {
+                                     var k = settingsPage.parseMbps(t)
+                                     if (k > 0) pathRow.setKbps(k)
+                                 })
+        }
+        onClicked: {
+            var e = []
+            var steps = settingsPage.pathBitrateSteps
+            for (var i = 0; i < steps.length; i++) {
+                e.push({ text: steps[i] > 0 ? settingsPage.mbpsText(steps[i])
+                                            : qsTr("Same as above") + " (" + settingsPage.mbpsText(StreamingPreferences.bitrateKbps) + ")",
+                         reason: "" })
+            }
+            e.push({ text: stepIndex < 0 ? qsTr("Custom (%1)").arg(settingsPage.mbpsText(kbps)) : qsTr("Custom..."), reason: "" })
+            listDialog.show(title, e, stepIndex >= 0 ? stepIndex : steps.length, function(i) { pathRow.pick(i) })
+        }
+    }
+
     // The slider shows the value divided by scale (the gamma is kept in hundredths)
     component VrSlider: PrefSlider {
         property string key
@@ -776,6 +860,47 @@ Flickable {
             }
         }
         console.warn("vrPick: no row " + key)
+    }
+    // Native (lane flat-input), tests: a connection row's list pick (index), as its dialog does
+    function pathPick(name, index) {
+        var r = rowNamed(name)
+        if (r && r.pick !== undefined) r.pick(Number(index))
+    }
+    // the rest of the bitrate rows' routes as a gamepad or a pointer takes them: a slider moved to a value, a row opened,
+    // an entry of the open list picked, a figure typed into the open text dialog and OK pressed; and what each shows
+    function rowNamed(name) {
+        var kids = prefColumn.children
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i].objectName === name) return kids[i]
+        }
+        console.warn("no row " + name)
+        return null
+    }
+    function slide(name, value) {
+        var r = rowNamed(name)
+        if (r && r.moved !== undefined) r.moved(Number(value))
+    }
+    function openRow(name) {
+        var r = rowNamed(name)
+        if (r) r.clicked()
+    }
+    function listPick(index) {
+        var f = listDialog.pickFn
+        listDialog.close()
+        if (f) f(Number(index))
+    }
+    function editAccept(text) {
+        editField.text = String(text)
+        editDialog.accept()
+    }
+    function logBitrates() {
+        var names = ["bitrateRow", "customBitrateRow", "bitrateWifiRow", "bitrateAdapterRow", "bitrateWiredRow", "bitrateUsbRow"]
+        var parts = ["kbps=" + StreamingPreferences.bitrateKbps]
+        for (var i = 0; i < names.length; i++) {
+            var r = rowNamed(names[i])
+            if (r) parts.push(names[i] + "=" + (r.shownText !== undefined ? r.shownText : r.valueText))
+        }
+        console.info("MLXR_SETTINGS_BITRATE: " + parts.join(" "))
     }
     function vrSet(key, value) {
         MlxrPrefs.setVr(key, value)
@@ -1033,45 +1158,46 @@ Flickable {
 
         // Native (lane polish-3): the stream's bitrate, over the per-connection rows whose "Same as above" is
         // this one (it was under Video settings, below them)
+        // Native (lane flat-input): 0.5 to 500 Mbps like every bitrate row; left and right (d-pad, left stick) move it
+        // 5 Mbps a press, the slider's drag 0.5 Mbps, Custom bitrate below takes any figure
         PrefSlider {
             objectName: "bitrateRow"
             title: qsTr("Video bitrate")
-            summary: qsTr("Up to 500 Mbps, for a good 5 GHz Wi-Fi or a wired link. Picking a resolution or a frame rate sets it back to their default. A stream's bitrate is chosen when it starts; the rows below can start one at a different bitrate over each connection, and Same as above is this one.")
+            summary: qsTr("0.5 to 500 Mbps; up to 500 Mbps for a good 5 GHz Wi-Fi or a wired link, if the PC allows it (see the user guide). Picking a resolution or a frame rate sets it back to their default. A stream's bitrate is chosen when it starts; the rows below can start one at a different bitrate over each connection, and Same as above is this one.") +
+                     (settingsPage.pathOverridesText() !== "" ? " " + settingsPage.pathOverridesText() : "")
             from: 0.5
             to: 500
             stepSize: 0.5
+            keyStep: 5
             decimals: 1
             suffix: " " + qsTr("Mbps")
+            shownText: settingsPage.mbpsText(StreamingPreferences.bitrateKbps)
             value: StreamingPreferences.bitrateKbps / 1000.0
-            onMoved: function(v) { StreamingPreferences.bitrateKbps = Math.round(v * 1000) }
+            onMoved: function(v) { settingsPage.setVideoBitrate(Math.round(v * 1000)) }
         }
 
-        PrefRow {
+        PathBitrateRow {
             objectName: "bitrateWifiRow"
             title: qsTr("Bitrate over Wi-Fi")
-            valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateWifi)
-            onClicked: MlxrPrefs.bitrateWifi = settingsPage.nextPathBitrate(MlxrPrefs.bitrateWifi)
+            prop: "bitrateWifi"
         }
 
-        PrefRow {
+        PathBitrateRow {
             objectName: "bitrateAdapterRow"
             title: qsTr("Bitrate over the Steam Frame Wireless Adapter")
-            valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateAdapter)
-            onClicked: MlxrPrefs.bitrateAdapter = settingsPage.nextPathBitrate(MlxrPrefs.bitrateAdapter)
+            prop: "bitrateAdapter"
         }
 
-        PrefRow {
+        PathBitrateRow {
             objectName: "bitrateWiredRow"
             title: qsTr("Bitrate over a wired network")
-            valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateWired)
-            onClicked: MlxrPrefs.bitrateWired = settingsPage.nextPathBitrate(MlxrPrefs.bitrateWired)
+            prop: "bitrateWired"
         }
 
-        PrefRow {
+        PathBitrateRow {
             objectName: "bitrateUsbRow"
             title: qsTr("Bitrate over the USB cable")
-            valueText: settingsPage.pathBitrateText(MlxrPrefs.bitrateUsb)
-            onClicked: MlxrPrefs.bitrateUsb = settingsPage.nextPathBitrate(MlxrPrefs.bitrateUsb)
+            prop: "bitrateUsb"
         }
 
         // Native (lane wave1-burst): the cap on the headset's full-frame requests after lost video. Pressing
@@ -1222,17 +1348,15 @@ Flickable {
             onMoved: function(v) { MlxrPrefs.scaleFactor = Math.round(v) }
         }
 
-        // The Video bitrate typed in (Artemis's row; the owner keeps it here)
+        // The Video bitrate typed in (Artemis's row; the owner keeps it here). Native (lane flat-input): the same range
+        // and figure as the slider
         PrefRow {
             objectName: "customBitrateRow"
             title: qsTr("Custom bitrate")
-            valueText: (StreamingPreferences.bitrateKbps / 1000.0) + " " + qsTr("Mbps")
+            valueText: settingsPage.mbpsText(StreamingPreferences.bitrateKbps)
             summary: qsTr("The Video bitrate under Connection, typed in Mbps (0.5 to 500).")
-            onClicked: editDialog.show(title, qsTr("Mbps, 0.5 to 500"), "" + (StreamingPreferences.bitrateKbps / 1000.0),
-                                       "^\\s*\\d{1,3}(\\.\\d{1,3})?\\s*$", function(t) {
-                var v = parseFloat(t)
-                if (v >= 0.5 && v <= 500) StreamingPreferences.bitrateKbps = Math.round(v * 1000)
-            })
+            onClicked: editDialog.show(title, settingsPage.mbpsHint, "" + Number((StreamingPreferences.bitrateKbps / 1000).toFixed(3)),
+                                       settingsPage.mbpsPattern, function(t) { settingsPage.setCustomBitrate(t) })
         }
 
         // Artemis's Render Mode ([3d] stereo), named as the bar's button and the cog's tab
