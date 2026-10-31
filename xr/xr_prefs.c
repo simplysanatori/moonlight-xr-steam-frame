@@ -635,12 +635,14 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
 
 // ---- the bitrate a stream starts with (Native, lane wave4b-abr) ----------------
 
-int xrStreamBitrate(const Settings* s, int pathKind, int launcherKbps) {
+int xrStreamBitrate(const Settings* s, int pathKind, int argKbps, int width, int height, int fps, char* why, size_t whyCap) {
     int overrides[MLXR_ABR_KINDS];
     settings_abr_overrides(s, overrides);
-    MlxrAbrPick pick = mlxr_abr_pick(pathKind, launcherKbps, overrides);
-    char line[128];
-    mlxr_abr_line(pathKind, &pick, line, sizeof(line));
+    MlxrAbrStart st = mlxr_abr_start(pathKind, argKbps, s->bitrate_kbps, settings_default_bitrate_kbps(width, height, fps),
+                                     overrides);
+    char line[256];
+    mlxr_abr_start_line(&st, line, sizeof(line));
     MLOG_I("%s", line);
-    return pick.kbps;
+    if (why != NULL && whyCap > 0) mlxr_abr_source_text(&st, why, whyCap);
+    return st.kbps;
 }

@@ -1,0 +1,156 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Sat, 31 Oct 2026 14:01:03 +0000
+Subject: [PATCH] Thumbsticks on the flat window: the right stick scrolls the
+ page, the left stick moves the focus (also inside lists)
+
+Moonlight XR Native (lane flat-input). app.pro builds mlxrstick.cpp. SdlGamepadKeyNavigation hands both sticks of
+every pad to MlxrStick (launcher/src/mlxrstick.h) instead of turning the left stick into keys itself: the right stick
+scrolls the Flickable in front smoothly, in proportion to how far it is pushed; the left stick keeps stock's focus
+moves. In UI nav mode the d-pad's and the left stick's up and down go to a list that has the focus (a dialog's
+choices) as Up/Down instead of Tab/Backtab, so a long list scrolls with them.
+---
+ app/app.pro                         |  2 +
+ app/gui/sdlgamepadkeynavigation.cpp | 62 ++++++++++-------------------
+ 2 files changed, 23 insertions(+), 41 deletions(-)
+
+diff --git a/app/app.pro b/app/app.pro
+index 6fa717a..1f8fc6c 100644
+--- a/app/app.pro
++++ b/app/app.pro
+@@ -202,6 +202,7 @@ SOURCES += \
+     streaming/mlxrbindings.cpp \
+     streaming/mlxrupdate.cpp \
+     streaming/mlxronstart.cpp \
++    streaming/mlxrstick.cpp \
+     streaming/xr_bind.c \
+     streaming/xr_gamepad.c \
+     streaming/audio/audio.cpp \
+@@ -246,6 +247,7 @@ HEADERS += \
+     streaming/mlxrbindings.h \
+     streaming/mlxrupdate.h \
+     streaming/mlxronstart.h \
++    streaming/mlxrstick.h \
+     streaming/xr_bind.h \
+     streaming/xr_gamepad.h \
+     streaming/xr_shared.h \
+diff --git a/app/gui/sdlgamepadkeynavigation.cpp b/app/gui/sdlgamepadkeynavigation.cpp
+index e51eb77..d81c0f5 100644
+--- a/app/gui/sdlgamepadkeynavigation.cpp
++++ b/app/gui/sdlgamepadkeynavigation.cpp
+@@ -4,7 +4,10 @@
+ #include <QGuiApplication>
+ #include <QWindow>
+ 
++#include <cstdlib>
++
+ #include "settings/mappingmanager.h"
++#include "streaming/mlxrstick.h"
+ 
+ #define AXIS_NAVIGATION_REPEAT_DELAY 150
+ 
+@@ -17,6 +20,8 @@ SdlGamepadKeyNavigation::SdlGamepadKeyNavigation(StreamingPreferences* prefs)
+ {
+     m_PollingTimer = new QTimer(this);
+     connect(m_PollingTimer, &QTimer::timeout, this, &SdlGamepadKeyNavigation::onPollingTimerFired);
++    // Moonlight XR Native (lane flat-input): the thumbsticks (launcher/src/mlxrstick.h)
++    MlxrStick::get();
+ }
+ 
+ SdlGamepadKeyNavigation::~SdlGamepadKeyNavigation()
+@@ -79,6 +84,7 @@ void SdlGamepadKeyNavigation::disable()
+     }
+ 
+     m_PollingTimer->stop();
++    MlxrStick::get()->reset();   // Moonlight XR Native: the sticks count as centred
+ 
+     while (!m_Gamepads.isEmpty()) {
+         SDL_GameControllerClose(m_Gamepads[0]);
+@@ -139,7 +145,8 @@ void SdlGamepadKeyNavigation::onPollingTimerFired()
+ 
+             switch (event.cbutton.button) {
+             case SDL_CONTROLLER_BUTTON_DPAD_UP:
+-                if (m_UiNavMode) {
++                // Moonlight XR Native (lane flat-input): in a list (a dialog's choices) Up/Down move in the list
++                if (m_UiNavMode && !MlxrStick::listTakesVertical(QGuiApplication::focusWindow(), false)) {
+                     // Back-tab
+                     sendKey(type, Qt::Key_Tab, Qt::ShiftModifier);
+                 }
+@@ -148,7 +155,7 @@ void SdlGamepadKeyNavigation::onPollingTimerFired()
+                 }
+                 break;
+             case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+-                if (m_UiNavMode) {
++                if (m_UiNavMode && !MlxrStick::listTakesVertical(QGuiApplication::focusWindow(), true)) {
+                     sendKey(type, Qt::Key_Tab);
+                 }
+                 else {
+@@ -206,49 +213,21 @@ void SdlGamepadKeyNavigation::onPollingTimerFired()
+         }
+     }
+ 
+-    // Handle analog sticks by polling
++    // Moonlight XR Native (lane flat-input): the sticks go to MlxrStick (launcher/src/mlxrstick.h): the left stick
++    // moves the focus as stock did here (also inside lists), the right stick scrolls the page smoothly. Per axis the
++    // most pushed value of all pads.
++    int axes[4] = { 0, 0, 0, 0 };
+     for (auto gc : m_Gamepads) {
+-        short leftX = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX);
+-        short leftY = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY);
+-        if (SDL_GetTicks() - m_LastAxisNavigationEventTime < AXIS_NAVIGATION_REPEAT_DELAY) {
+-            // Do nothing
+-        }
+-        else if (leftY < -30000) {
+-            if (m_UiNavMode) {
+-                // Back-tab
+-                sendKey(QEvent::Type::KeyPress, Qt::Key_Tab, Qt::ShiftModifier);
+-                sendKey(QEvent::Type::KeyRelease, Qt::Key_Tab, Qt::ShiftModifier);
+-            }
+-            else {
+-                sendKey(QEvent::Type::KeyPress, Qt::Key_Up);
+-                sendKey(QEvent::Type::KeyRelease, Qt::Key_Up);
+-            }
+-
+-            m_LastAxisNavigationEventTime = SDL_GetTicks();
+-        }
+-        else if (leftY > 30000) {
+-            if (m_UiNavMode) {
+-                sendKey(QEvent::Type::KeyPress, Qt::Key_Tab);
+-                sendKey(QEvent::Type::KeyRelease, Qt::Key_Tab);
+-            }
+-            else {
+-                sendKey(QEvent::Type::KeyPress, Qt::Key_Down);
+-                sendKey(QEvent::Type::KeyRelease, Qt::Key_Down);
++        const SDL_GameControllerAxis ids[4] = { SDL_CONTROLLER_AXIS_LEFTX, SDL_CONTROLLER_AXIS_LEFTY,
++                                                SDL_CONTROLLER_AXIS_RIGHTX, SDL_CONTROLLER_AXIS_RIGHTY };
++        for (int a = 0; a < 4; a++) {
++            const int v = SDL_GameControllerGetAxis(gc, ids[a]);
++            if (std::abs(v) > std::abs(axes[a])) {
++                axes[a] = v;
+             }
+-
+-            m_LastAxisNavigationEventTime = SDL_GetTicks();
+-        }
+-        else if (leftX < -30000) {
+-            sendKey(QEvent::Type::KeyPress, Qt::Key_Left);
+-            sendKey(QEvent::Type::KeyRelease, Qt::Key_Left);
+-            m_LastAxisNavigationEventTime = SDL_GetTicks();
+-        }
+-        else if (leftX > 30000) {
+-            sendKey(QEvent::Type::KeyPress, Qt::Key_Right);
+-            sendKey(QEvent::Type::KeyRelease, Qt::Key_Right);
+-            m_LastAxisNavigationEventTime = SDL_GetTicks();
+         }
+     }
++    MlxrStick::get()->poll(axes[0], axes[1], axes[2], axes[3]);
+ }
+ 
+ void SdlGamepadKeyNavigation::sendKey(QEvent::Type type, Qt::Key key, Qt::KeyboardModifiers modifiers)
+@@ -264,6 +243,7 @@ void SdlGamepadKeyNavigation::sendKey(QEvent::Type type, Qt::Key key, Qt::Keyboa
+ void SdlGamepadKeyNavigation::setUiNavMode(bool uiNavMode)
+ {
+     m_UiNavMode = uiNavMode;
++    MlxrStick::get()->setUiNavMode(uiNavMode);
+ }
+ 
+ int SdlGamepadKeyNavigation::getConnectedGamepads()
