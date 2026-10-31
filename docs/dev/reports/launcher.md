@@ -16,6 +16,7 @@ whose stream start hands off to the native OpenXR client. Everything else in the
 | `launcher/src/mlxrpreflight.{h,cpp}` | new (lane wave4-launcher): the check before a stream, the app's UUID (section below) |
 | `launcher/src/mlxrupdate.{h,cpp}` | new (lane launcher-bundle, PLAN 6.2): the daily update check against this project's GitHub releases (section below) |
 | `launcher/src/mlxronstart.{h,cpp}` | new (lane launcher-bundle, PLAN 6.4): On start, the stream the launcher opens by itself once the PC is online (section below) |
+| `launcher/src/mlxrstick.{h,cpp}` | new (lane flat-input): the thumbsticks on the flat window, right stick scrolls, left stick moves the focus (section below) |
 | `launcher/qml/XrIcon.qml` | new (lane wave4-launcher): the section icons, strokes drawn with QtQuick.Shapes, loaded through a Loader |
 | `launcher/patches.sh` | `workdir` / `export`: rebase the patches after a submodule update (`build.sh` stops with a pointer to it if a patch does not apply) |
 | `launcher/moonlight-xr-launcher.sh` | wrapper: unsets `MESA_GL_VERSION_OVERRIDE`, `MESA_GLSL_VERSION_OVERRIDE`, `LD_LIBRARY_PATH`; same `XR_RUNTIME_JSON` rule as `moonlight-xr.sh`; sets `MLXR_NATIVE_CLIENT=<dir>/moonlight-xr`; log `~/Games/MoonlightXRNative/moonlight-launcher.log` |
@@ -38,6 +39,8 @@ whose stream start hands off to the native OpenXR client. Everything else in the
 15. `0015` (lane wave4-launcher) `app.pro` builds `mlxrprofiles.cpp` and `mlxrpreflight.cpp`; `qml.qrc` adds `XrProfilesView.qml` and `XrIcon.qml`; `main.cpp` makes `MlxrProfiles` (which puts back config.ini keys a killed launcher left) and registers it as a QML singleton; `AppView.qml`: the app menu entry "Stream settings profile..." (hand-off mode only) pushes the profiles page for that PC and app; `Session::execVr()` emits the plan's hints as `displayLaunchWarning` (stock's segue toast) and appends them to `displayLaunchError` under "Found before the stream started:".
 16. `0016` (lane launcher-bundle, PLAN 6.2) `app.pro` builds `mlxrupdate.cpp`; `main.cpp` registers the `MlxrUpdate` singleton; `main.qml`: in hand-off mode stock's update button is also connected to `MlxrUpdate.updateAvailable` ("Update available for Moonlight XR for Frame: Version %1") and `MlxrUpdate.start()` is called; its click opens the page through `SystemProperties.openExternalUrl` in hand-off mode (Steam's browser in Game Mode). Stock's `AutoUpdateChecker` is untouched (it asks nothing on Linux builds that are not AppImages).
 17. `0017` (lane launcher-bundle, PLAN 6.4) `app.pro` builds `mlxronstart.cpp`; `main.cpp` registers the `MlxrOnStart` singleton; `main.qml`: when the first page is `PcView.qml` in hand-off mode, `MlxrOnStart.start(ComputerManager)`, and `onStartSessionReady(appName, session)` pushes `StreamSegue.qml` with that Session (quitAfter false, as a click in the app grid) unless another page is open by then.
+18. `0018` (lane flat-input) `app.pro` builds `mlxrstick.cpp`; `sdlgamepadkeynavigation.cpp`: the 50 ms poll hands both sticks of every pad (per axis the most pushed) to `MlxrStick::poll()` instead of turning the left stick into keys itself; `setUiNavMode()` and `disable()` tell it too; in UI nav mode the d-pad's up and down go to a list with the focus as Up/Down (`MlxrStick::listTakesVertical`) instead of Backtab/Tab.
+19. `0019` (lane flat-input) `streamingpreferences.cpp`: `reload()` sets `unlockBitrate` when `MlxrHandoff::enabled()`, so an older config's `unlockbitrate=false` (stock's default) limits nothing; the hand-off page has no Unlock switch and every bitrate row goes to 500 Mbps. Stock mode keeps stock's switch (launcher_vs_stock stays pixel-identical).
 11. `0011` (lane launcher2) `main.qml`: the Help button opens `https://github.com/simplysanatori/moonlight-xr-steam-frame#readme` when `SystemProperties.nativeVrHandoff`, else stock's Setup-Guide. The other help links (decoder dialogs, gamepad mapping, the PC list's dialog) are stock.
 
 ## Hand-off contract
@@ -133,6 +136,39 @@ The command line: `moonlight-xr-launcher stream "PC" "Desktop"` is stock moonlig
 
 Tests (`run_tests.sh` 3f and 5): the key table against the client's; the update check with injected answers (newer, same, older, pre-release, foreign page, not JSON, switched off, stock mode) and against a fake GitHub on 127.0.0.1 (the request and its headers, once a day, a day later again, HTTP 500, no server, each failure one log line); On start's decision (off, no last PC, last PC's Desktop, another app running, the same app running, a chosen app by name without case, an app not listed); the rows on the page (a switch clicked, sliders and lists set through the page's functions, read back by the client's parser, other keys untouched, read back on the next start, search); the toolbar notice; end to end with the fake host when `MLXR_FAKE_HOST` is set (CI builds it): pairing, the CLI form, On start in the real UI, the flat window back after. `tests/tools/test_install_desktop_shortcut.sh`: install.sh's two shortcuts against `fake_cef.py`.
 Only the owner can check: the notice and its page in Steam's browser in Game Mode, On start with the real PC waking from sleep, the "Desktop in VR" shortcut from the Steam library, and the new rows with a gamepad at Game Mode's scale.
+
+## Thumbsticks and the bitrate rows (lane flat-input)
+
+**Thumbsticks.** `MlxrStick` (`mlxrstick.h`), fed by patch 0018. Right stick: scrolls smoothly, a 16 ms timer that runs
+only while a stick is pushed; speed in proportion to the deflection past a dead zone of 8000 (of 32767), 2400 logical
+px/s at full deflection. What scrolls: the nearest scrollable `Flickable` (visible, interactive, taller inside than
+out) above the focused item; with the focus in a dialog only the dialog's own list (nothing behind a modal dialog);
+else the largest scrollable `Flickable` of the `StackView`'s current page (the PC grid, an app grid, the Settings,
+bindings and profiles pages). When the stick is let go after scrolling and the focus is out of sight, the focus goes
+to what is shown: in a `ListView`/`GridView` the item in the middle (`indexAt`), on a page the first row wholly in
+sight along the Tab order (from the top after scrolling down, from the bottom after scrolling up). One log line per
+gesture: "gamepad: the right stick scrolled <page> from y A to B". Left stick: stock's focus moves (past 30000, a step
+every 150 ms); the pages keep the focused row on screen (their own `Window.onActiveFocusItemChanged`). In UI nav mode,
+up and down (left stick and d-pad) go as Up/Down to a vertical `ListView`/`GridView` with key navigation that has the
+focus and can still move that way (a dialog's choices, a combo box's list), so a long list scrolls; at its last or
+first entry they are Tab/Backtab again (on to the dialog's buttons). Tests: `MLXR_LAUNCHER_STICK`
+("ry=24000@2500+800;ly=32767@4000+400": axis=value@start+duration ms) injects values and logs `MLXR_STICK:` lines.
+
+**Bitrate.** One range for every bitrate row (Video bitrate slider, Custom bitrate, the four connection rows): 0.5 to
+500 Mbps (500 to 500000 kbps, the VR client's `MLXR_BITRATE_MAX_KBPS`), shown the same way (`mbpsText`: exact Mbps, no
+trailing zeros). The connection rows open a list (Same as above, 10 to 500 Mbps, Custom... typed). The slider moves
+5 Mbps a press of left/right. Stock's 150 Mbps slider and its Unlock bitrate switch exist only on the stock page,
+which hand-off mode never opens, and patch 0019 sets `unlockBitrate` in hand-off mode whatever the config says (the
+owner's config had `unlockbitrate=false` and `bitrate=150000`). `makePlan()` passes the setting as it
+is (at most 500000) and logs "hand-off bitrate: --bitrate N kbps from the Settings page's Video bitrate" (or the
+settings profile in force) and any connection row that replaces it. Only the default (`getHandoffDefaultBitrate`)
+stops at 150000. The VR client logs "stream bitrate: N kbps (M Mbps) over <path>, from <source>" (`mlxr_abr_start`)
+and repeats the source in its "starting stream" line.
+
+**Loopback forwards.** `exportPairing()` keeps loopback addresses (127.x, `::1`; `::ffff:127.x` and `localhost` are
+written as plain 127.x) instead of dropping them, at most two, always after the other addresses (never `address =`),
+without duplicates. A port forward the user set up on the Frame and gave as the PC's manual address so reaches
+`hosts.ini`, where `mlxr_net_addr_is_vpn` counts it as a VPN path (away-only with `vpn_only_away`).
 
 ## Config and pairing sharing
 Own profile `~/.config/Moonlight XR Native/Moonlight XR Native.conf` (cache `~/.cache/Moonlight XR Native/`). On the first run only (file absent), if the flatpak's `~/.var/app/com.moonlight_stream.Moonlight/config/Moonlight Game Streaming Project/Moonlight.conf` exists (else the native `~/.config/Moonlight Game Streaming Project/Moonlight.conf`; `MLXR_SEED_CONF` overrides, `MLXR_NO_SEED=1` disables) it is **copied whole** (client certificate + key + unique id, every PC with addresses, MAC, pinned server certificate and app list, all settings), read-only on the source; then these keys are rewritten for the headset: `width=2560 height=1440 fps=90 bitrate=98000 (lane launcher2: the hand-off default rule at 1440p90, was 80000) hdr=false yuv444=false videocfg=0 audiocfg=0 packetsize=0` and `mlxr/seeded_from=<path>` is added (the owner's flatpak has 1080p144 31 Mbps, chosen for a flat window). The user changes them in Settings as usual. Box-art cache is not copied (re-fetched from the hosts). Because the launcher keeps the same identity as the flatpak and as the earlier `seed-from-moonlight-qt.sh` import, the PC needs no re-pairing, and pairing done in the launcher works for the VR client at once.
