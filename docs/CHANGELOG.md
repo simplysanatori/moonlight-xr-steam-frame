@@ -146,7 +146,7 @@
 
 ### Fixed
 
-- The installer now sets SteamVR's render resolution for the shortcut to 3408 x 3408 per eye. It used to set 2160, which left small text blurry; run `install.sh` again, or set it in SteamVR's per-application video settings.
+- The installer now sets SteamVR's render resolution for the shortcut to 3240 x 3240 per eye, 1.5 times the Frame's native 2160 x 2160. It used to set 2160, which left small text blurry; run `install.sh` again, or set it in SteamVR's per-application video settings.
 - A white beam no longer runs across the picture when you move the ray along the bar with the other controller pointing at the picture: the whole bar row now belongs to the hand on it.
 - The ray and the controller model no longer flicker or jump when tracking drops for a moment: the last aim is held for up to 300 ms.
 - The controller bindings are offered to SteamVR under both names it gives the Frame controllers, the older one and the one SteamVR uses since 2.15.1.
