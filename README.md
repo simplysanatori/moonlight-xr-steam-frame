@@ -97,7 +97,7 @@ Version 1.1.0 was tested in the headset on 30 and 31 October 2026. Eye tracking 
    ./install.sh
    ```
 
-   The installer copies the program to `~/Games/MoonlightXRNative/app`. It adds **Moonlight XR for Frame** to your Steam library as a non-Steam shortcut, with its artwork. It sets SteamVR's per-app settings for that shortcut (90 Hz, no motion smoothing; the Refresh rate in Settings can change the rate later). It also converts SteamVR's own Steam Frame controller models for the app. You can run it again at any time.
+   The installer copies the program to `~/Games/MoonlightXRNative/app`. It adds **Moonlight XR for Frame** to your Steam library as a non-Steam shortcut, with its artwork. It sets SteamVR's per-app settings for that shortcut: 90 Hz, no motion smoothing, and a render resolution of 3408 x 3408 per eye (the Refresh rate in Settings can change the rate later). It also converts SteamVR's own Steam Frame controller models for the app. You can run it again at any time.
 
 3. Start **Moonlight XR for Frame** from the Steam library.
 
@@ -108,6 +108,10 @@ From 1.1.0 on, releases also carry the same files as a `.zip` (`moonlight-xr-ste
 The icon in the SteamVR dock stays grey until Steam has been restarted once after the first install.
 
 To get a second shortcut, **Desktop in VR**, that opens your PC's Desktop in the headset straight away, run `./install.sh --desktop-shortcut` after you have streamed once from the flat window. It uses the PC you streamed from last (or the only one); `--desktop-pc "PC name"` picks another. When the stream ends, that shortcut closes.
+
+### For the sharpest picture
+
+Keep SteamVR's render resolution for Moonlight XR at **3408 x 3408 per eye**: SteamVR Settings, Video, **Per-application video settings**, Moonlight XR for Frame, **Render resolution**: Custom, set so the figure under the slider reads 3408 x 3408. The installer sets this for you; a lower figure (SteamVR's default for the Frame is lower) makes small text blurry. The Frame still holds 90 Hz at this size, because the app only draws the screen and its surroundings. To check what is in effect, `moonlight.log` says `curved picture: projection layer 3408x3408 per eye` near the start of a stream.
 
 ## First run and pairing
 
