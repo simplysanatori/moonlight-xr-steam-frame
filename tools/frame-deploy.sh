@@ -28,7 +28,7 @@
 #   shortcut  add the Steam library shortcut "Moonlight XR (dev)" for DEST's launcher (the
 #             installer cannot name a second shortcut), with the 1080p window and a copy of the
 #             main app's per-app SteamVR block (resolution, refresh rate, smoothing, sharpening,
-#             whatever it holds; 3240 / 90 Hz / smoothing off / sharpening off when the main app
+#             whatever it holds; 3408 / 90 Hz / smoothing off / sharpening off when the main app
 #             has none). Needs Steam up; does nothing if one exists.
 #             --sync-settings: create nothing, re-apply that copy to the existing dev shortcut
 #             (needs SteamVR running; the main app block is only read).
@@ -242,7 +242,7 @@ DEST=$(expand "$1"); SRC=$(expand "$2"); NAME=$3; MAIN=$(expand "$4"); MODE=$5
 VRCMD=/opt/steamvr/bin/linuxarm64/vrcmd
 VRSET="$HOME/.config/openvr/config/steamvr.vrsettings"
 # sync_vr_settings <appid>: give the shortcut the per-app SteamVR block of the main app (every key:
-# resolution, refresh rate, motion smoothing, sharpening, anything else), or 3240 / 90 Hz / smoothing
+# resolution, refresh rate, motion smoothing, sharpening, anything else), or 3408 / 90 Hz / smoothing
 # off / sharpening off when the main app has none. Written through vrcmd, because vrserver rewrites
 # the settings file from memory. Never writes the main app block.
 sync_vr_settings() {
@@ -259,7 +259,7 @@ except (OSError, ValueError):
     blk = None
 src = "the main app (appid %s)" % main
 if not isinstance(blk, dict) or not blk:
-    blk = {"preferredRefreshRate": 90, "motionSmoothingOverride": 0, "resolutionOverride": 3240, "sharpeningOverride": 0}
+    blk = {"preferredRefreshRate": 90, "motionSmoothingOverride": 0, "resolutionOverride": 3408, "sharpeningOverride": 0}
     src = "defaults (no per-app block for the main app)"
 print("source", src)
 for k in sorted(blk):
