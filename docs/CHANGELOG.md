@@ -2,7 +2,7 @@
 
 ## 1.1.0 (October 2026)
 
-1.1.0 is the largest update so far. Every controller button can now be changed in `bindings.ini`, and there is a Gun model with lightgun mode, gyro from the headset, Bluetooth and USB gamepad passthrough, and a Host sheet of hard-to-reach keys and macros. The picture gets sharper small text, a 3D source for side-by-side and top-bottom pairs, screen presets, zoom and a remembered place for each app. Streams reconnect by themselves, start at a bitrate for each connection (up to 500 Mbps), can run over a USB cable, and use VPN addresses only away from home. A new Accessibility tab (early) lets the head or the eyes (experimental) point and click, with a dwell click and a radial menu. The flat window gets a searchable, tidied Settings page, a controller bindings editor, stream profiles and a check of the PC before each stream.
+1.1.0 is the largest update so far. Every controller button can now be changed in `bindings.ini`, and there is a Gun model with lightgun mode, gyro from the headset, Bluetooth and USB gamepad passthrough, and a Host sheet of hard-to-reach keys and macros. The picture gets sharper small text, a 3D source for side-by-side and top-bottom pairs, screen presets, zoom and a remembered place for each app. Streams reconnect by themselves, start at a bitrate for each connection (up to 500 Mbps), can run over a USB cable, and use VPN only when the PC isn't on the local network. A new Accessibility tab (early) lets the head or the eyes (experimental) point and click, with a dwell click and a radial menu. The flat window gets a searchable, tidied Settings page, a controller bindings editor, stream profiles and a check of the PC before each stream.
 
 ### Streaming
 
@@ -22,7 +22,7 @@
 ### Network
 
 - A USB data cable between the headset and the PC is a third connection: **USB cable** under Network connection, and Automatic tries it too. It needs the headset in developer mode.
-- **Use VPN addresses only away from home** (on by default, under Connection): on the same network as the PC, the headset always streams over the PC's local IP address. If the PC also has a VPN address, such as Tailscale, the headset uses it only when the PC does not answer on the local network. The local address is remembered once found, a local port forward (127.0.0.1) counts as a VPN address, and a stream never switches from the local network to a VPN by itself.
+- **Use VPN only when the PC isn't on the local network** (on by default, under Connection): on the same network as the PC, the headset always streams over the PC's local IP address. If the PC also has a VPN address, such as Tailscale, the headset uses it only when the PC does not answer on the local network. The local address is remembered once found, a local port forward (127.0.0.1) counts as a VPN address, and a stream never switches from the local network to a VPN by itself.
 - **Switch network when video keeps breaking up** moves a stream that keeps losing video to another link that measured clearly better when it started; **Video loss before switching** sets how much loss that takes. Off by default, and only with Network connection on Automatic.
 - `moonlight.log` tells video lost on the network apart from Wi-Fi power saving and packets dropped inside the headset, with a summary of each burst of loss, for bug reports.
 

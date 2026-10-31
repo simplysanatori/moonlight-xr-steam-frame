@@ -177,7 +177,7 @@ never left.
   and the adapter or 5 GHz as the other candidate is the data (`HEADSET_TEST` list in the lane report). Other
   candidates are not re-probed mid-stream; a stream older than 2 h will not switch.
 
-## VPN addresses only away from home (lane vpn-fallback)
+## VPN only when the PC isn't on the local network (lane vpn-fallback)
 
 Request: a PC that is also reachable through a VPN should be streamed over the VPN only when the headset is not
 on the PC's network. Before this lane a VPN address was one more candidate on the Wi-Fi path. It answered at home
@@ -198,8 +198,8 @@ than the LAN address, so streams at home went through the tunnel, with dropped a
   direct answer, or once every direct candidate has finished without one, so away from home the choice waits for
   the full budget (1.5 s) before it takes the VPN; a path set by hand (first answer in address order wins) lets a
   VPN candidate win only after every direct one has finished. False restores best-score-wins.
-- One log line (`plan.vpn_note`, after the reason): `the PC answered on the home network (Wi-Fi 192.168.1.10);
-  its VPN address 100.64.0.5 is not used`, `the PC did not answer on the home network; using its VPN address
+- One log line (`plan.vpn_note`, after the reason): `the PC answered on the local network (Wi-Fi 192.168.1.10);
+  its VPN address 100.64.0.5 is not used`, `the PC did not answer on the local network; using its VPN address
   100.64.0.5 (score 38.2 ms)`, and with the setting off `... scored better than the VPN address ...` or
   `using the VPN address ... on its score`. The candidate list marks each VPN address (`VPN: 100.64.0.0/10`,
   `VPN: wg0`); the stats summary adds `, VPN`.

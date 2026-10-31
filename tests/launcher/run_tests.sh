@@ -1445,7 +1445,7 @@ PY
     expect "search: one word finds its row" "$(grep 'text="steadiness"' "$t/vrk2.out")" "rows=1 titles=Click steadiness sections=Input settings"
     SECTION=mlxr setconf on_start=none
 
-    # --- lane vpn-fallback: Connection's "Use VPN addresses only away from home" is on by default (nothing in the
+    # --- lane vpn-fallback: Connection's "Use VPN only when the PC isn't on the local network" is on by default (nothing in the
     # file); a click writes [stream] vpn_only_away = false, which the VR client reads, and a second start reads it back
     printf '[stream]\nfailover = on\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=stream.vpn_only_away \
@@ -1454,7 +1454,7 @@ PY
     uiout "$t/vpn.out" "VPN row"
     expect "VPN row: a click turns it off, written to [stream]" "$(sec stream)" "vpn_only_away = false"
     expect "VPN row: other keys untouched" "$(sec stream)" "failover = on"
-    expect "VPN row: search finds it under Connection" "$(grep 'text="vpn"' "$t/vpn.out")" "titles=Use VPN addresses only away from home sections=Connection"
+    expect "VPN row: search finds it under Connection" "$(grep 'text="vpn"' "$t/vpn.out")" "titles=Use VPN only when the PC isn't on the local network sections=Connection"
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         expect "VR client reads stream.vpn_only_away = false" "$("$MLXR_SETTINGS_DUMP" "$ini")" "stream.vpn_only_away = false"
         expect "VR client: on by default" "$("$MLXR_SETTINGS_DUMP" --table)" "stream.vpn_only_away b true"

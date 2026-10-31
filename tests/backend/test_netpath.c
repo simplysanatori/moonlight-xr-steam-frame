@@ -1778,22 +1778,22 @@ static void test_vpn_choose(void)
         const char *note;           /* in plan.vpn_note ("" must be empty) */
     } rows[] = {
         { "both answer, the VPN scores lower: direct wins", MLXR_NET_AUTO, true, { vpn, home }, 2, 1,
-          "the PC answered on the home network (Wi-Fi 192.168.1.10); its VPN address 100.64.0.5 is not used" },
+          "the PC answered on the local network (Wi-Fi 192.168.1.10); its VPN address 100.64.0.5 is not used" },
         { "the same, the other order", MLXR_NET_AUTO, true, { home, vpn }, 2, 0, "its VPN address 100.64.0.5 is not used" },
         { "only the VPN answers: VPN", MLXR_NET_AUTO, true, { home_dead, vpn }, 2, 1,
-          "the PC did not answer on the home network; using its VPN address 100.64.0.5 (score 2.0 ms)" },
+          "the PC did not answer on the local network; using its VPN address 100.64.0.5 (score 2.0 ms)" },
         { "setting off: the lowest score, the VPN", MLXR_NET_AUTO, false, { home, vpn }, 2, 1,
-          "using the VPN address 100.64.0.5 on its score (2.0 ms): VPN addresses only away from home is off" },
+          "using the VPN address 100.64.0.5 on its score (2.0 ms): VPN only when the PC isn't on the local network is off" },
         { "setting off, direct scores lower: direct", MLXR_NET_AUTO, false, { home, vpn_slow }, 2, 0,
           "Wi-Fi 192.168.1.10 scored better than the VPN address 100.64.0.6" },
         { "a direct path on the adapter beats a faster VPN", MLXR_NET_AUTO, true, { vpn, ad }, 2, 1,
-          "the PC answered on the home network (Steam Frame Wireless Adapter 10.35.50.27)" },
+          "the PC answered on the local network (Steam Frame Wireless Adapter 10.35.50.27)" },
         { "two VPN addresses, nothing direct: the better VPN", MLXR_NET_AUTO, true, { vpn_slow, vpn, home_dead }, 3, 1,
           "using its VPN address 100.64.0.5" },
         { "the VPN did not answer either: direct, said so", MLXR_NET_AUTO, true, { vpn_dead, home }, 2, 1,
           "its VPN address 100.64.0.5 is not used (it did not answer either)" },
         { "nothing answers", MLXR_NET_AUTO, true, { vpn_dead, home_dead }, 2, -1,
-          "the PC answered neither on the home network nor on its VPN address 100.64.0.5" },
+          "the PC answered neither on the local network nor on its VPN address 100.64.0.5" },
         { "no VPN address: no line", MLXR_NET_AUTO, true, { home, ad }, 2, 0, "" },
         { "Wi-Fi set by hand, VPN first in the list: direct", MLXR_NET_HOME, true, { vpn, home }, 2, 1, "is not used" },
         { "Wi-Fi set by hand, away: VPN", MLXR_NET_HOME, true, { home_dead, vpn }, 2, 1, "using its VPN address" },
@@ -1999,7 +1999,7 @@ static void test_vpn_probe(fake_host *h)
     p.c[0].path = p.c[1].path = MLXR_PATH_HOME;
     mlxr_net_probe(&p, NULL, 2, true);
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);
-    CHECK(strstr(p.vpn_note, "did not answer on the home network; using its VPN address 127.0.0.1"));
+    CHECK(strstr(p.vpn_note, "did not answer on the local network; using its VPN address 127.0.0.1"));
     mini_stop(&m);
 
     /* the whole select over loopback (VPN by the classification): the failover's table says so */

@@ -741,19 +741,19 @@ static void vpn_words(mlxr_net_plan *p)
     const mlxr_net_cand *ch = p->chosen >= 0 ? &p->c[p->chosen] : NULL;
     const mlxr_net_cand *v = &p->c[vpn_ok >= 0 ? vpn_ok : vpn];
     if (!ch) {
-        snprintf(p->vpn_note, sizeof p->vpn_note, "the PC answered neither on the home network nor on its VPN address %s",
+        snprintf(p->vpn_note, sizeof p->vpn_note, "the PC answered neither on the local network nor on its VPN address %s",
                  v->address);
     } else if (ch->vpn && p->vpn_only_away) {
         snprintf(p->vpn_note, sizeof p->vpn_note,
-                 "the PC did not answer on the home network; using its VPN address %s (score %.1f ms)", ch->address,
+                 "the PC did not answer on the local network; using its VPN address %s (score %.1f ms)", ch->address,
                  mlxr_net_score(ch));
     } else if (ch->vpn) {
         snprintf(p->vpn_note, sizeof p->vpn_note,
-                 "using the VPN address %s on its score (%.1f ms): VPN addresses only away from home is off", ch->address,
+                 "using the VPN address %s on its score (%.1f ms): VPN only when the PC isn't on the local network is off", ch->address,
                  mlxr_net_score(ch));
     } else if (p->vpn_only_away) {
         p->vpn_set_aside = vpn_ok >= 0;
-        snprintf(p->vpn_note, sizeof p->vpn_note, "the PC answered on the home network (%s %s); its VPN address %s is not used%s",
+        snprintf(p->vpn_note, sizeof p->vpn_note, "the PC answered on the local network (%s %s); its VPN address %s is not used%s",
                  mlxr_net_path_label(ch->path), ch->address, v->address,
                  vpn_ok >= 0 ? "" : " (it did not answer either)");
     } else {
