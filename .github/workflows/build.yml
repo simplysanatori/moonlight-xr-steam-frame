@@ -272,6 +272,22 @@ jobs:
           qmake6 --version
           SKIP_AUDIT=1 JOBS=4 ./launcher/build.sh
 
+      # the launcher must find the bundled FFmpeg beside itself, as in app/ (1.1.1's first CI run
+      # linked a broken -rpath,$ORIGIN/RIGIN/lib and every launcher test failed on libavcodec.so.61)
+      - name: The launcher loads the bundled FFmpeg
+        run: |
+          B="$PWD/build-launcher/moonlight-xr-launcher"
+          readelf -d "$B" | grep -E 'RPATH|RUNPATH'
+          readelf -d "$B" | grep -q 'RUNPATH.*\[\$ORIGIN/lib[]:]' || { echo "$B: RUNPATH lacks \$ORIGIN/lib"; exit 1; }
+          ! readelf -d "$B" | grep -q '(RPATH)' || { echo "$B: RPATH instead of RUNPATH"; exit 1; }
+          env -u LD_LIBRARY_PATH ldd "$B" > ldd.txt
+          ! grep 'not found' ldd.txt || exit 1
+          L="$(readlink -f build-launcher/lib)"
+          for n in libavcodec.so.61 libavutil.so.59 libswscale.so.8; do
+            grep -E "^\s*$n => " ldd.txt
+            grep -qE "^\s*$n => ($L|$PWD/build-launcher/lib)/$n " ldd.txt || { echo "$B loads $n from outside build-launcher/lib"; exit 1; }
+          done
+
       # launcher_vs_stock is not run: it needs a second full moonlight-qt build
       # (tests/launcher/build-stock.sh), so it skips itself (exit 77).
       - name: Test

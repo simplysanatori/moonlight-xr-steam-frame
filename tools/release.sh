@@ -222,6 +222,7 @@ if command -v pacman >/dev/null; then
     ./tools/ldd-audit.sh "$TMP/inst/app/moonlight-xr"
     ./tools/ldd-audit.sh "$TMP/inst/app/mlxr-cli"
     ./tools/ldd-audit.sh "$TMP/inst/app/mlxr-gamepad-probe"
+    [ ! -x "$TMP/inst/app/moonlight-xr-launcher" ] || ./tools/ldd-audit.sh "$TMP/inst/app/moonlight-xr-launcher"
 else
     echo "no pacman: ldd audit skipped"
 fi
