@@ -8,6 +8,7 @@ target_link_libraries(moonlight-xr PRIVATE mlxr_launcher mlxr_stream mlxr_xr mlx
 target_compile_definitions(moonlight-xr PRIVATE MLXR_SOURCE_ASSETS="${PROJECT_SOURCE_DIR}/assets")
 mlxr_link_openxr(moonlight-xr)
 set_target_properties(moonlight-xr PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
+mlxr_shipped_binary(moonlight-xr)
 
 add_subdirectory(${PROJECT_SOURCE_DIR}/tests/m4 ${CMAKE_CURRENT_BINARY_DIR}/tests)
 

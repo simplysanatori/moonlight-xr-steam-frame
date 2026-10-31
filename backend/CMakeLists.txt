@@ -1,5 +1,6 @@
 # Backend lane: C port of moonlight-qt's app/backend (HTTP/HTTPS, pairing,
-# identity, serverinfo). Uses only SteamOS-shipped libcurl, OpenSSL, libxml2. GPLv3.
+# identity, serverinfo). Uses SteamOS-shipped libcurl and OpenSSL, and libxml2 (bundled in releases:
+# MLXR_BUNDLED_LIBS_DIR in the top-level CMakeLists.txt). GPLv3.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(MLXR_CURL REQUIRED IMPORTED_TARGET libcurl)
 pkg_check_modules(MLXR_SSL REQUIRED IMPORTED_TARGET openssl)
@@ -29,6 +30,7 @@ if(MLXR_BACKEND_HAVE_LL)
   target_link_libraries(mlxr-cli PRIVATE mlxr_backend_ll)
   target_compile_definitions(mlxr-cli PRIVATE MLXR_HAVE_LIMELIGHT)
 endif()
+mlxr_shipped_binary(mlxr-cli)
 
 if(EXISTS ${PROJECT_SOURCE_DIR}/tests/backend/CMakeLists.txt)
   add_subdirectory(${PROJECT_SOURCE_DIR}/tests/backend ${CMAKE_CURRENT_BINARY_DIR}/tests)
