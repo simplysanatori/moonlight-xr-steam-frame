@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 (October 2026)
+
+### Fixed
+
+- The app closed as soon as it started on SteamOS versions with FFmpeg 8, such as the Steam Frame OS Preview (`error while loading shared libraries: libavcodec.so.61`). It used the system's FFmpeg 7 and libxml2; it now carries its own FFmpeg 7.0.2 and libxml2 2.13.9 in `app/lib`, so a SteamOS update cannot break it this way.
+- The 1.1.0 download had no flat launcher (the Moonlight window with your PCs, apps and Settings), so the app opened the VR client directly. 1.1.1 includes it again.
+
 ## 1.1.0 (October 2026)
 
 1.1.0 is the largest update so far. Every controller button can now be changed in `bindings.ini`, and there is a Gun model with lightgun mode, gyro from the headset, Bluetooth and USB gamepad passthrough, and a Host sheet of hard-to-reach keys and macros. The picture gets sharper small text, a 3D source for side-by-side and top-bottom pairs, screen presets, zoom and a remembered place for each app. Streams reconnect by themselves, start at a bitrate for each connection (up to 500 Mbps), can run over a USB cable, and use VPN only when the PC isn't on the local network. A new Accessibility tab (early) lets the head or the eyes (experimental) point and click, with a dwell click and a radial menu. The flat window gets a searchable, tidied Settings page, a controller bindings editor, stream profiles and a check of the PC before each stream.

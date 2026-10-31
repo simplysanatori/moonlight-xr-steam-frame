@@ -2,7 +2,7 @@
 
 ## Read this first
 
-These are the working notes kept while the project was built, under its working name Moonlight XR Native. The notes use that name. They are history, not instructions. The current state is in [BUILDING.md](../BUILDING.md), [USER_GUIDE.md](../USER_GUIDE.md) and [CHANGELOG.md](../CHANGELOG.md). Users want the [README](../../README.md).
+These are the working notes kept while the project was built, under its working name Moonlight XR Native. The notes use that name. The current state is in [BUILDING.md](../BUILDING.md), [USER_GUIDE.md](../USER_GUIDE.md) and [CHANGELOG.md](../CHANGELOG.md). Users want the [README](../../README.md).
 
 The repository is public and the current release is v1.0.0. Commit hashes quoted in the notes predate a history rewrite and no longer resolve. Paths like `~/Games/MoonlightXRNative/...`, `lanes/` and `ref/` were on the developer's machine. They are not in the repository.
 

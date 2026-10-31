@@ -27,7 +27,45 @@ add_subdirectory(third_party/OpenXR-SDK EXCLUDE_FROM_ALL)
 find_package(Vulkan REQUIRED)
 find_program(GLSLC glslc REQUIRED)
 find_package(PkgConfig REQUIRED)
+
+# Libraries the release carries in app/lib (FFmpeg 7.0.2, libxml2 2.13.9), built by
+# tools/build-bundled-libs.sh: SteamOS updates move them to new sonames (FFmpeg 8 in the Steam Frame
+# OS Preview), and a binary linked against the system's copies then does not start. When this is set
+# (build.sh sets it when the bundle is built), they are linked from here instead of the system, and
+# each shipped binary finds them in a lib/ beside it (mlxr_shipped_binary below).
+set(MLXR_BUNDLED_LIBS_DIR "" CACHE PATH "Prefix of tools/build-bundled-libs.sh (its dist/); empty: system FFmpeg and libxml2")
+if(MLXR_BUNDLED_LIBS_DIR)
+  if(NOT EXISTS ${MLXR_BUNDLED_LIBS_DIR}/lib/pkgconfig/libavcodec.pc OR NOT EXISTS ${MLXR_BUNDLED_LIBS_DIR}/lib/pkgconfig/libxml-2.0.pc)
+    message(FATAL_ERROR "MLXR_BUNDLED_LIBS_DIR=${MLXR_BUNDLED_LIBS_DIR} has no FFmpeg or libxml2 (run tools/build-bundled-libs.sh)")
+  endif()
+  set(ENV{PKG_CONFIG_PATH} "${MLXR_BUNDLED_LIBS_DIR}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+  message(STATUS "FFmpeg and libxml2: bundled, from ${MLXR_BUNDLED_LIBS_DIR}")
+endif()
+# pkg_check_modules keeps its first answer in the cache: ask again when the choice changed
+if(NOT "${MLXR_BUNDLED_LIBS_DIR}" STREQUAL "${_MLXR_BUNDLED_LIBS_DIR_SEEN}")
+  unset(__pkg_config_checked_AV CACHE)
+  unset(__pkg_config_checked_MLXR_XML2 CACHE)
+  set(_MLXR_BUNDLED_LIBS_DIR_SEEN "${MLXR_BUNDLED_LIBS_DIR}" CACHE INTERNAL "")
+endif()
 pkg_check_modules(AV REQUIRED IMPORTED_TARGET libavcodec libavformat libavutil libswscale)
+
+# mlxr_shipped_binary(<target>): a binary the release ships in app/. Its RUNPATH is $ORIGIN/lib, so it
+# loads the bundled libraries from app/lib before the system's (and the system's when app/lib lacks
+# one). In the build tree a lib/ symlink beside it points at the bundle, so it runs there too.
+function(mlxr_shipped_binary target)
+  set_target_properties(${target} PROPERTIES BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "$ORIGIN/lib")
+  target_link_options(${target} PRIVATE "LINKER:--enable-new-dtags")
+  get_target_property(dir ${target} RUNTIME_OUTPUT_DIRECTORY)
+  if(NOT dir)
+    set(dir ${CMAKE_CURRENT_BINARY_DIR})
+  endif()
+  if(MLXR_BUNDLED_LIBS_DIR)
+    file(MAKE_DIRECTORY ${dir})
+    file(CREATE_LINK ${MLXR_BUNDLED_LIBS_DIR}/lib ${dir}/lib SYMBOLIC)
+  elseif(IS_SYMLINK ${dir}/lib)
+    file(REMOVE ${dir}/lib)
+  endif()
+endfunction()
 
 # glsl_to_c(<target> <out_var> <shader files...>): compile each shader to a
 # C initializer list (<name>.inc) in the build tree.

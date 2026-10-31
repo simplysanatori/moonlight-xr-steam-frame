@@ -7,8 +7,8 @@
 # $OUT (default ~/Games/MoonlightXRNative/releases). Both archives unpack to
 # MoonlightXRNative/ holding install.sh, steam_cef.py, dock_icon.py, README.md, docs/ (user guide,
 # changelog, building, privacy audit), the licence files and
-# app/ (binaries incl. mlxr-gamepad-probe, launcher, assets, the Moonlight Qt import script) and the
-# Frame controller model converter. The converted Steam Frame controller
+# app/ (binaries incl. mlxr-gamepad-probe, launcher, assets, the Moonlight Qt import script, and lib/
+# with the bundled FFmpeg and libxml2) and the Frame controller model converter. The converted Steam Frame controller
 # models (Valve's) are never in the tarball: install.sh makes them on the target.
 # The version is the top-level VERSION file (e.g. 1.0.0, tag v1.0.0).
 # When HEAD carries a v* tag it must match VERSION.
@@ -18,7 +18,14 @@
 # a temporary DEST and config dir), compares every installed file with the
 # tarball, and runs the ldd audit on the unpacked binaries (skipped on hosts
 # without pacman).
-# Environment: BUILD (default build), OUT, NO_VERIFY.
+# app/lib: the shared libraries SteamOS updates move to new sonames (FFmpeg, libxml2), built by
+# tools/build-bundled-libs.sh; the binaries load them first through their RUNPATH $ORIGIN/lib. Every
+# soname in $BUILD/lib (CMake links it to the bundle) goes in as a regular file under that name, not a
+# symlink (some zip unpackers turn symlinks into small text files). A build without the bundle is
+# refused unless NO_BUNDLE=1 (CI's build check on Ubuntu, which is not for the Frame).
+# A release must carry the flat launcher (build-launcher/, launcher/build.sh); ALLOW_NO_LAUNCHER=1 makes a
+# test tarball without it (CI), which is not for publishing.
+# Environment: BUILD (default build), OUT, NO_VERIFY, NO_BUNDLE, ALLOW_NO_LAUNCHER.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 BUILD="${BUILD:-build}"
@@ -50,8 +57,38 @@ install -m755 packaging/moonlight-xr.sh "$ROOT/app/moonlight-xr.sh"
 if [ -x build-launcher/moonlight-xr-launcher ]; then
     strip_to build-launcher/moonlight-xr-launcher "$ROOT/app/moonlight-xr-launcher"
     install -m755 launcher/moonlight-xr-launcher.sh "$ROOT/app/moonlight-xr-launcher.sh"
+elif [ "${ALLOW_NO_LAUNCHER:-0}" = 1 ]; then
+    echo "warning: ALLOW_NO_LAUNCHER=1: no flat launcher in this tarball (a test build, not a release)"
 else
-    echo "warning: no build-launcher/moonlight-xr-launcher: the release opens the VR client directly"
+    echo "no build-launcher/moonlight-xr-launcher: a release must carry the flat launcher (launcher/build.sh)."
+    echo "ALLOW_NO_LAUNCHER=1 makes a test tarball without it (CI's build checks)."
+    exit 1
+fi
+# the bundled libraries (see the top): the sonames, as regular files
+if [ -d "$BUILD/lib" ]; then
+    mkdir -p "$ROOT/app/lib"
+    for f in "$BUILD"/lib/lib*.so.*; do
+        n="${f##*/}"
+        [[ "$n" =~ ^lib[^.]+\.so\.[0-9]+$ ]] || continue
+        strip_to "$f" "$ROOT/app/lib/$n"
+    done
+    [ -n "$(ls -A "$ROOT/app/lib")" ] || { echo "$BUILD/lib holds no shared library"; exit 1; }
+    echo "bundled in app/lib: $(cd "$ROOT/app/lib" && ls | tr '\n' ' ')($(du -sh "$ROOT/app/lib" | cut -f1))"
+elif [ "${NO_BUNDLE:-0}" = 1 ]; then
+    echo "warning: NO_BUNDLE=1: no app/lib, the binaries load the system's FFmpeg and libxml2 (not for a release)"
+else
+    echo "no $BUILD/lib: the build links the system's FFmpeg and libxml2, which SteamOS updates replace."
+    echo "Build with the bundled ones (./build.sh builds them; tools/build-bundled-libs.sh), or NO_BUNDLE=1 for a test tarball."
+    exit 1
+fi
+# every bundled library a shipped binary needs is in app/lib (where a tool can read the ELF)
+if command -v objdump >/dev/null && [ -d "$ROOT/app/lib" ]; then
+    for b in "$ROOT"/app/moonlight-xr "$ROOT"/app/mlxr-cli "$ROOT"/app/mlxr-gamepad-probe "$ROOT"/app/moonlight-xr-launcher; do
+        [ -f "$b" ] && objdump -p "$b" >/dev/null 2>&1 || continue
+        for n in $(objdump -p "$b" | awk '$1 == "NEEDED" { print $2 }' | grep -E '^lib(av[a-z]+|sw[a-z]+|xml2)\.so\.' || true); do
+            [ -f "$ROOT/app/lib/$n" ] || { echo "${b##*/} needs $n, which is not in app/lib (built against another FFmpeg or libxml2?)"; exit 1; }
+        done
+    done
 fi
 install -m755 backend/seed-from-moonlight-qt.sh "$ROOT/app/seed-from-moonlight-qt.sh"
 install -m644 backend/seed_moonlight_qt.py "$ROOT/app/seed_moonlight_qt.py"
@@ -163,10 +200,29 @@ for f in LICENSE.txt CREDITS.md; do cmp "$U/$f" "$TMP/inst/app/$f"; done
 [ ! -x "$U/app/moonlight-xr-launcher" ] || cmp "$U/steam_cef.py" "$TMP/inst/app/steam_cef.py"
 MLXR_CONFIG_DIR="$TMP/cfg" "$TMP/inst/app/mlxr-cli" 2>&1 | head -n 3 || true
 "$TMP/inst/app/mlxr-gamepad-probe" --help >/dev/null
+# the installed binaries take every bundled library from their own lib/, never from the system
+if [ -d "$TMP/inst/app/lib" ]; then
+    L="$(readlink -f "$TMP/inst/app/lib")"
+    for b in moonlight-xr mlxr-cli mlxr-gamepad-probe moonlight-xr-launcher; do
+        [ -x "$TMP/inst/app/$b" ] || continue
+        env -u LD_LIBRARY_PATH ldd "$TMP/inst/app/$b" > "$TMP/ldd.txt" 2>&1 || { cat "$TMP/ldd.txt"; echo "ldd $b failed"; exit 1; }
+        ! grep -q 'not found' "$TMP/ldd.txt" || { grep 'not found' "$TMP/ldd.txt"; echo "$b: unresolved libraries"; exit 1; }
+        for n in $(ls "$TMP/inst/app/lib"); do
+            grep -q "^[[:space:]]*$n => " "$TMP/ldd.txt" || continue
+            grep -qF "$n => $L/$n " "$TMP/ldd.txt" \
+                || { grep "$n" "$TMP/ldd.txt"; echo "$b loads $n from outside its lib/"; exit 1; }
+        done
+    done
+    # it starts: every library loads and main() runs (a usage error, before any XR)
+    env -u LD_LIBRARY_PATH "$TMP/inst/app/moonlight-xr" --network bogus 2>&1 | grep -q 'MLXR_ERROR: --network takes' \
+        || { echo "the installed moonlight-xr does not start"; env -u LD_LIBRARY_PATH "$TMP/inst/app/moonlight-xr" --network bogus 2>&1 | head -n 5; exit 1; }
+    echo "installed binaries load app/lib: $(ls "$TMP/inst/app/lib" | tr '\n' ' ')"
+fi
 if command -v pacman >/dev/null; then
     ./tools/ldd-audit.sh "$TMP/inst/app/moonlight-xr"
     ./tools/ldd-audit.sh "$TMP/inst/app/mlxr-cli"
     ./tools/ldd-audit.sh "$TMP/inst/app/mlxr-gamepad-probe"
+    [ ! -x "$TMP/inst/app/moonlight-xr-launcher" ] || ./tools/ldd-audit.sh "$TMP/inst/app/moonlight-xr-launcher"
 else
     echo "no pacman: ldd audit skipped"
 fi
