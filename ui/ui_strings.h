@@ -272,26 +272,24 @@
     X(EYES_READY, "native_eyes_ready", "Eye tracking: available") \
     X(EYES_WAITING, "native_eyes_waiting", "Eye tracking: offered, but no gaze has arrived yet") \
     X(EYES_UNAVAILABLE, "native_eyes_unavailable", "Eye tracking: SteamVR does not offer it to apps") \
-    X(ACCESS_HELP, "native_access_help", "Head: the dot follows the middle of your view, and either trigger clicks. Dwell click: hold the dot still on a button or on the picture and it clicks by itself. To turn it off, pick Controller here, or set pointer_source = controller in config.ini.") \
+    X(ACCESS_HELP, "native_access_help", "Head: the dot follows the middle of your view, and either trigger clicks. Dwell click: hold the dot still on a button or on the picture and it clicks by itself. To turn it off, pick Controller here. Hold right Menu and right grip to point with the controllers again.") \
     X(ACCESS_HELP_EYES, "native_access_help_eyes", "For Eyes: wear the headset, turn on SteamVR Settings > General > Eye Tracking, then restart the app.") \
     /* native (lane a11y-2): the Accessibility tab's Dot size, its footer's descriptions, the eye line */ \
     X(ROW_DOT_SIZE, "native_row_dot_size", "Dot size") \
-    X(ACCESS_DESC_POINTER, "native_access_desc_pointer", "What moves the pointer: a controller, your head, or where you look.") \
+    X(ACCESS_DESC_POINTER, "native_access_desc_pointer", "What moves the pointer: a controller, your head, or where you look. Eyes is experimental: the dot jitters and lands near where you look. Hold right Menu and right grip to point with the controllers again.") \
     X(ACCESS_DESC_DWELL, "native_access_desc_dwell", "Rest the dot this long on something to click it.") \
     X(ACCESS_DESC_DOT, "native_access_desc_dot", "How big the dot is when you point with your head or eyes.") \
     X(ACCESS_DESC_NONE, "native_access_desc_none", "Point at a setting to see what it does.") \
     X(EYES_NO_ACTION, "native_eyes_no_action", "Eye tracking: offered, but the app could not set it up") \
-    /* native (lane a11y-2): the headset button */ \
-    X(ROW_HEADSET_BUTTON, "native_row_headset_button", "Headset button clicks") \
-    X(ACCESS_DESC_BUTTON, "native_access_desc_button", "The headset's side button clicks instead of opening the Steam home. Hold it 3 seconds to get the Steam home back.") \
-    X(BUTTON_MISSING, "native_button_missing", "no headset button found") \
-    X(BUTTON_UNREADABLE, "native_button_unreadable", "cannot read the button: see the guide") \
-    X(ACCESS_DESC_BUTTON_UNREADABLE, "native_access_desc_button_unreadable", "This app may not read the headset button's device; the user guide says how to allow it.") \
+    /* native (lane a11y-2): the headset button (a future feature since lane a11y-final; its toast is kept with its code) */ \
     X(AUX_RETURNED, "native_aux_returned", "Headset button returned to SteamVR for 15 s") \
     X(ROW_DWELL_STYLE, "native_row_dwell_style", "Dwell click style") \
     X(CELL_DWELL_SIMPLE, "native_cell_dwell_simple", "Simple") \
     X(CELL_DWELL_RADIAL, "native_cell_dwell_radial", "Radial menu") \
-    X(ACCESS_DESC_DWELL_STYLE, "native_access_desc_dwell_style", "Radial menu: near the end of the dwell, look left for double click, down to drag, right for right click.")
+    X(ACCESS_DESC_DWELL_STYLE, "native_access_desc_dwell_style", "Radial menu: near the end of the dwell, look left for double click, down to drag, right for right click.") \
+    /* native (lane a11y-final): Eyes marked experimental, and the right hand's way back to the controllers */ \
+    X(CELL_EYES_EXPERIMENTAL, "native_cell_eyes_experimental", "experimental") \
+    X(TOAST_POINTER_BACK, "native_toast_pointer_back", "Controllers point again")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

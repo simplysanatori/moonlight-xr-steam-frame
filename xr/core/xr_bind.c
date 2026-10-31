@@ -18,6 +18,8 @@
 #define DISCONNECT_CHORD (B(LEFT_VIEW) | B(RIGHT_MENU) | B(LEFT_BUMPER) | B(RIGHT_BUMPER))
 #define GRIPS (B(LEFT_GRIP) | B(RIGHT_GRIP))
 #define WHOLE_STICKS (B(LEFT_STICK) | B(RIGHT_STICK))
+// Native (lane a11y-final): pointer mode's way back to the controllers from the head or eye pointer
+#define POINTER_BACK (B(RIGHT_MENU) | B(RIGHT_GRIP))
 
 // ---- names ---------------------------------------------------------------------------------
 
@@ -823,6 +825,10 @@ static const char* reservedWhy(uint64_t sources, int mode) {
     if ((sources & DISCONNECT_CHORD) == DISCONNECT_CHORD) {
         return "holds the disconnect chord (left.view+right.menu+left.bumper+right.bumper), "
                "which cannot be bound";
+    }
+    if (mode == XR_BIND_MODE_POINTER && (sources & POINTER_BACK) == POINTER_BACK) {
+        return "holds right.menu+right.grip, which gives the pointer back to the controllers in pointer "
+               "mode, so it cannot be bound there";
     }
     if (mode == XR_BIND_MODE_POINTER && (sources & GRIPS) != 0) {
         return "has a grip in it, which grabs over the UI in pointer mode, so it cannot be bound "

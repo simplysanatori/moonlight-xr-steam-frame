@@ -100,11 +100,16 @@ static int access_drawn(const UiView* v, const char* text) {
     for (int i = 0; i < access_ntexts; i++) {
         if (strcmp(access_texts[i], text) == 0) return 1;
     }
-    // a sentence wrapped onto two lines: the lines one after the other, joined where they broke
+    // a sentence wrapped onto two lines (or three, lane a11y-final): the lines one after the other,
+    // joined where they broke
     for (int i = 0; i + 1 < access_ntexts; i++) {
-        char two[330];
+        char two[330], three[500];
         snprintf(two, sizeof two, "%s %s", access_texts[i], access_texts[i + 1]);
         if (strcmp(two, text) == 0) return 1;
+        if (i + 2 < access_ntexts) {
+            snprintf(three, sizeof three, "%s %s", two, access_texts[i + 2]);
+            if (strcmp(three, text) == 0) return 1;
+        }
     }
     return 0;
 }
@@ -126,8 +131,7 @@ static void test_access_tab(void) {
     v.cog_tab = COG_TAB_ACCESS;
     v.access_eyes = ACCESS_EYES_WAITING;
     static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL,
-                                                      UIS_ACCESS_DESC_DWELL_STYLE, UIS_ACCESS_DESC_DOT,
-                                                      UIS_ACCESS_DESC_BUTTON };
+                                                      UIS_ACCESS_DESC_DWELL_STYLE, UIS_ACCESS_DESC_DOT };
     // nothing pointed at: the hint, and no row's sentence
     CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_NONE)));
     for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) CHECK(!access_drawn(&v, ui_str(DESC[row])));
@@ -152,6 +156,16 @@ static void test_access_tab(void) {
     const UiHit* eyes = access_hit(UI_HIT_CELL, COG_ACCESS_ROW_POINTER, 2);
     CHECK(eyes != NULL && eyes->enabled);
     CHECK(access_drawn(&v, ui_str(UIS_CELL_EYES)));
+    // lane a11y-final: marked experimental, in the cell and in the pointer row's sentence, which also
+    // says how to get the controllers back; the instructions say it too
+    CHECK(access_drawn(&v, ui_str(UIS_CELL_EYES_EXPERIMENTAL)));
+    CHECK(strstr(ui_str(UIS_ACCESS_DESC_POINTER), "experimental") != NULL);
+    CHECK(strstr(ui_str(UIS_ACCESS_DESC_POINTER), "jitters") != NULL);
+    CHECK(strstr(ui_str(UIS_ACCESS_DESC_POINTER), "Hold right Menu and right grip") != NULL);
+    CHECK(strstr(ui_str(UIS_ACCESS_HELP), "Hold right Menu and right grip to point with the controllers again") != NULL);
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_HELP)) || access_drawn(&v, "Head: the dot follows the middle of your view, and either trigger clicks."));
+    // lane a11y-final: no headset button row (a future feature): four rows, nothing under the dot's
+    CHECK(COG_ACCESS_ROW_COUNT == 4 && access_hit(UI_HIT_CELL, COG_ACCESS_ROW_COUNT, 0) == NULL);
     // the Dot size track: step buttons and run, live with the head pointing
     const UiHit* run = access_hit(UI_HIT_TRACK_RUN, COG_ACCESS_ROW_DOT, 0);
     CHECK(run != NULL && run->enabled && access_hit(UI_HIT_TRACK_UP, COG_ACCESS_ROW_DOT, 0) != NULL);
@@ -173,21 +187,9 @@ static void test_access_tab(void) {
     CHECK(run != NULL && !run->enabled);
     v.access_row = COG_ACCESS_ROW_DOT;
     CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_DOT)));
-    // the headset button: greyed with the device's reason, whatever points; the footer says what to do
-    s.pointer_source = POINTER_SOURCE_HEAD;
-    v.access_row = COG_ACCESS_ROW_BUTTON;
-    v.access_button = ACCESS_BUTTON_OK;
-    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_BUTTON)));
-    CHECK(access_hit(UI_HIT_CELL, COG_ACCESS_ROW_BUTTON, 1)->enabled);
-    v.access_button = ACCESS_BUTTON_UNREADABLE;
-    CHECK(access_drawn(&v, ui_str(UIS_BUTTON_UNREADABLE)));
-    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_BUTTON_UNREADABLE)));
-    CHECK(!access_hit(UI_HIT_CELL, COG_ACCESS_ROW_BUTTON, 1)->enabled);
-    v.access_button = ACCESS_BUTTON_MISSING;
-    CHECK(access_drawn(&v, ui_str(UIS_BUTTON_MISSING)));
     // lane radial-dwell: the dwell's style, Simple and Radial menu, live with the head pointing and
     // greyed with the controllers
-    v.access_button = ACCESS_BUTTON_OK;
+    s.pointer_source = POINTER_SOURCE_HEAD;
     v.access_row = COG_ACCESS_ROW_STYLE;
     CHECK(access_drawn(&v, ui_str(UIS_ROW_DWELL_STYLE)) && access_drawn(&v, ui_str(UIS_CELL_DWELL_SIMPLE)));
     CHECK(access_drawn(&v, ui_str(UIS_CELL_DWELL_RADIAL)));

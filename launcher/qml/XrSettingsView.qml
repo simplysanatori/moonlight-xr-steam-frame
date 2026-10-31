@@ -1816,11 +1816,11 @@ Flickable {
         PrefRow {
             objectName: "pointerSourceRow"
             readonly property var values: ["controller", "head", "gaze"]
-            readonly property var names: [qsTr("Controller"), qsTr("Head"), qsTr("Eyes")]
+            readonly property var names: [qsTr("Controller"), qsTr("Head"), qsTr("Eyes (experimental)")]
             title: qsTr("Pointer")
-            tip: qsTr("What moves the pointer: a controller, your head, or where you look.")
+            tip: qsTr("What moves the pointer: a controller, your head, or where you look. Eyes is experimental: the dot jitters and lands near where you look. Hold right Menu and right grip to point with the controllers again.")
             valueText: names[Math.max(0, values.indexOf(MlxrPrefs.pointerSource))]
-            summary: qsTr("For people who cannot use their hands or have limited mobility. Head: a dot follows the middle of your view and either controller's trigger clicks. Eyes: the dot follows your eyes while SteamVR gives eye tracking to apps (the headset's Accessibility tab says whether it does) and your head while it does not. Controller turns it off.")
+            summary: qsTr("For people who cannot use their hands or have limited mobility. Head: a dot follows the middle of your view and either controller's trigger clicks. Eyes (experimental: the dot jitters and lands near where you look): the dot follows your eyes while SteamVR gives eye tracking to apps (the headset's Accessibility tab says whether it does) and your head while it does not. Controller turns it off; in the headset, holding the right Menu button and the right grip for half a second does too.")
             onClicked: MlxrPrefs.pointerSource = values[(Math.max(0, values.indexOf(MlxrPrefs.pointerSource)) + 1) % values.length]
         }
 
@@ -1867,15 +1867,8 @@ Flickable {
             onMoved: function(v) { MlxrPrefs.assistDotSize = Math.round(v) }
         }
 
-        // Lane a11y-2: off by default, since it takes a system button from SteamVR while it is on
-        PrefSwitch {
-            objectName: "assistHeadsetButtonRow"
-            title: qsTr("Headset button clicks")
-            tip: qsTr("The headset's side button clicks instead of opening the Steam home. Hold it 3 seconds to get the Steam home back.")
-            summary: qsTr("With the Head or Eyes pointer: press once to click, twice to double click, three times to right click, hold to drag. Holding it 3 seconds gives it back to SteamVR for 15 seconds. The app needs read access to the button's input device; the headset's Accessibility tab says when it does not have it.")
-            isOn: MlxrPrefs.assistHeadsetButton
-            onSwitched: function(on) { MlxrPrefs.assistHeadsetButton = on }
-        }
+        // Lane a11y-final: the headset button's row is gone (a future feature, docs/dev/accessibility.md);
+        // MlxrPrefs keeps assistHeadsetButton so a file that has the key keeps it as it is
 
         // ======== Host settings ========
         PrefCategory { text: qsTr("Host settings"); icon: "host" }
