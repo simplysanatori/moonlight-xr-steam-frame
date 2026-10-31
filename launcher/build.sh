@@ -8,8 +8,12 @@
 # build-launcher/src, launcher/src/* (new files) and launcher/qml/*.qml (new pages, into app/gui)
 # are copied in and launcher/patches/*.patch applied
 # there. The copy is refreshed only when the submodule commit, the patches or launcher/src change.
-# SteamOS ships what this needs: qt6-base/declarative/svg/tools, SDL2, SDL2_ttf, FFmpeg, opus,
-# OpenSSL, libva, libdrm.
+# SteamOS ships what this needs: qt6-base/declarative/svg/tools, SDL2, SDL2_ttf, opus, OpenSSL,
+# libva, libdrm. FFmpeg (libavcodec, libavutil, libswscale) is the app's bundled 7.0.2 when it is built
+# (tools/build-bundled-libs.sh; build.sh builds it and passes MLXR_BUNDLED_LIBS_DIR): the launcher
+# then finds it in app/lib through its RUNPATH $ORIGIN/lib, as the VR client does, and is built
+# without libplacebo (its soname changes with every release; in hand-off mode the launcher draws no
+# video). NO_BUNDLE=1 links the system's FFmpeg (not for a release).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -20,6 +24,15 @@ SUB=third_party/moonlight-qt
 for t in qmake6 make g++ gcc rsync patch pkg-config; do
     command -v "$t" >/dev/null || { echo "missing host tool: $t"; exit 1; }
 done
+BUNDLE="${MLXR_BUNDLED_LIBS_DIR:-${MLXR_BUNDLE_ROOT:-$HOME/Games/MoonlightXRNative/third-party-build/bundled}/dist}"
+QMAKE_ARGS=(CONFIG+=release)
+if [ "${NO_BUNDLE:-0}" != 1 ] && [ -f "$BUNDLE/lib/pkgconfig/libavcodec.pc" ]; then
+    export PKG_CONFIG_PATH="$BUNDLE/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+    QMAKE_ARGS+=(CONFIG+=disable-libplacebo 'QMAKE_RPATHDIR+=$ORIGIN/lib' QMAKE_LFLAGS+=-Wl,--enable-new-dtags)
+    echo "FFmpeg: bundled ($BUNDLE)"
+else
+    echo "FFmpeg: the system's (no bundle at $BUNDLE, or NO_BUNDLE=1): not for a release"
+fi
 for p in sdl2 SDL2_ttf opus libavcodec openssl libva libdrm; do
     pkg-config --exists "$p" || { echo "missing host library (pkg-config $p); did a SteamOS update drop it?"; exit 1; }
 done
@@ -58,12 +71,18 @@ if [ "$(cat "$BUILD/.stamp" 2>/dev/null)" != "$STAMP" ]; then
     echo "$STAMP" > "$BUILD/.stamp"
 fi
 
+# a different FFmpeg (bundled or not, or another bundle) means a fresh qmake and a full rebuild
+QSTAMP="$(printf '%s\n' "${QMAKE_ARGS[@]}" "$PKG_CONFIG_PATH" | sha256sum | cut -c1-16)"
+[ "$(cat "$BUILD/obj/.qmake-stamp" 2>/dev/null)" = "$QSTAMP" ] || rm -rf "$BUILD/obj"
 mkdir -p "$BUILD/obj"
 cd "$BUILD/obj"
-[ -f Makefile ] || qmake6 ../src/moonlight-qt.pro CONFIG+=release
+[ -f Makefile ] || { qmake6 ../src/moonlight-qt.pro "${QMAKE_ARGS[@]}" && echo "$QSTAMP" > .qmake-stamp; }
 nice -n 10 make -j"$JOBS"
 cd "$ROOT"
 install -m755 "$BUILD/obj/app/moonlight" "$BUILD/moonlight-xr-launcher"
+# a lib/ beside it, as in app/, so it runs from here with the bundled FFmpeg
+if [ -n "${PKG_CONFIG_PATH:-}" ] && [ "${PKG_CONFIG_PATH%%:*}" = "$BUNDLE/lib/pkgconfig" ]; then ln -sfn "$BUNDLE/lib" "$BUILD/lib"
+else rm -f "$BUILD/lib"; fi
 echo "built $BUILD/moonlight-xr-launcher"
 if [ "${SKIP_AUDIT:-0}" = 1 ]; then
     echo "SKIP_AUDIT=1: ldd audit skipped"

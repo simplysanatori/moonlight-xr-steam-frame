@@ -1,6 +1,6 @@
 # Building Moonlight XR for Frame
 
-The build runs on the Steam Frame itself. The SteamOS image ships everything it needs: clang 19, lld, cmake, ninja, glslc, qmake6, pkg-config and the development headers for Vulkan, FFmpeg, OpenSSL, curl, Opus, PulseAudio, PipeWire, SDL2, libpng and Qt 6. No container and no `pacman` installs are needed. The binaries link only libraries that SteamOS ships.
+The build runs on the Steam Frame itself. The SteamOS image ships everything it needs: clang 19, lld, cmake, ninja, glslc, qmake6, pkg-config and the development headers for Vulkan, FFmpeg, OpenSSL, curl, Opus, PulseAudio, PipeWire, SDL2, libpng and Qt 6. No container and no `pacman` installs are needed. The binaries link only libraries that SteamOS ships, except FFmpeg and libxml2: the app carries its own copies of those in `app/lib`, because SteamOS updates change their versions (the Steam Frame OS Preview moved to FFmpeg 8).
 
 ## Get the source
 
@@ -21,9 +21,10 @@ env -u LD_LIBRARY_PATH ./build.sh
 
 1. Checks the host tools and updates the submodules.
 2. Builds LiteRT, the depth model runtime, the first time. This takes about 12 minutes and downloads TensorFlow and its dependencies from GitHub. The result goes to `~/Games/MoonlightXRNative/third-party-build/litert`, outside the repository. `NO_DEPTH=1` skips it; the app then has no 3D.
-3. Configures and builds the VR client (`build/moonlight-xr`), the command line tool (`build/backend/mlxr-cli`) and the tests with CMake and Ninja.
-4. Builds the flat window (`build-launcher/moonlight-xr-launcher`): it copies moonlight-qt, applies `launcher/patches/*.patch` and builds it with qmake. `NO_LAUNCHER=1` skips it.
-5. Runs `tools/ldd-audit.sh` on the binaries. It fails if a binary needs a library that is not a SteamOS package.
+3. Builds FFmpeg 7.0.2 and libxml2 2.13.9 the first time (`tools/build-bundled-libs.sh`, a few minutes). It downloads the release tarballs from ffmpeg.org and gnome.org and checks their SHA-256. The result goes to `~/Games/MoonlightXRNative/third-party-build/bundled`. The binaries find these through `$ORIGIN/lib`, so they never use the system's FFmpeg or libxml2. `NO_BUNDLE=1` skips this and links the system's copies (not for releases).
+4. Configures and builds the VR client (`build/moonlight-xr`), the command line tool (`build/backend/mlxr-cli`) and the tests with CMake and Ninja.
+5. Builds the flat window (`build-launcher/moonlight-xr-launcher`): it copies moonlight-qt, applies `launcher/patches/*.patch` and builds it with qmake. `NO_LAUNCHER=1` skips it.
+6. Runs `tools/ldd-audit.sh` on the binaries. It fails if a binary needs a library that is neither a SteamOS package nor in `lib/`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -31,6 +32,8 @@ env -u LD_LIBRARY_PATH ./build.sh
 | `JOBS` | 3 | Parallel jobs |
 | `NO_DEPTH` | 0 | 1: do not build LiteRT |
 | `NO_LAUNCHER` | 0 | 1: do not build the flat window |
+| `NO_BUNDLE` | 0 | 1: link the system's FFmpeg and libxml2 instead of building them |
+| `MLXR_BUNDLE_ROOT` | `~/Games/MoonlightXRNative/third-party-build/bundled` | Where FFmpeg and libxml2 are built |
 | `MLXR_LITERT_ROOT` | `~/Games/MoonlightXRNative/third-party-build/litert` | Where LiteRT is built |
 | `SKIP_AUDIT` | 0 | 1: skip the library audit |
 
@@ -62,9 +65,9 @@ BUILD=build tools/release.sh
 
 It packs `moonlight-xr-steam-frame-<version>-linux-arm64.tar.gz` and updates `SHA256SUMS` in `~/Games/MoonlightXRNative/releases` (`OUT` changes it). The version is the `VERSION` file. If the commit carries a `v*` tag, it must match.
 
-The script strips the binaries, copies only tracked assets, and stops if config, pairing keys, logs, the LiteRT build or a converted Steam Frame controller model would be packed. It runs `tools/privacy-check.sh` on the tarball. Then it unpacks the tarball, installs it twice into a temporary folder, compares the installed files and runs the library audit on them.
+The script strips the binaries, copies only tracked assets, and stops if config, pairing keys, logs, the LiteRT build or a converted Steam Frame controller model would be packed. It copies the bundled FFmpeg and libxml2 into `app/lib` and refuses to pack without them, or without the flat launcher (`ALLOW_NO_LAUNCHER=1` makes a test tarball without it). It runs `tools/privacy-check.sh` on the tarball. Then it unpacks the tarball, installs it twice into a temporary folder, compares the installed files and runs the library audit on them.
 
-Build releases on the Frame. GitHub Actions builds every push on `ubuntu-24.04-arm` (`.github/workflows/build.yml`), but that is a build check only. Ubuntu 24.04 has FFmpeg 6.1 and SteamOS has 7.0, so the CI binaries do not run on the Frame. CI builds with `NO_LAUNCHER=1`, because the flat launcher (the patched moonlight-qt) needs Qt 6.5 or newer and Ubuntu 24.04 ships 6.4. The tests that need a Vulkan device, the Iris decoder, PulseAudio or SteamVR either skip themselves (exit code 77) or are filtered out of the ctest run.
+Build releases on the Frame. GitHub Actions builds every push on `ubuntu-24.04-arm` (`.github/workflows/build.yml`), but that is a build check only. CI builds the bundled FFmpeg and libxml2 too and checks that the unpacked client starts on them alone, on a system without FFmpeg 7, but its tarball has no flat launcher and is not a release. CI builds with `NO_LAUNCHER=1`, because the flat launcher (the patched moonlight-qt) needs Qt 6.5 or newer and Ubuntu 24.04 ships 6.4. The tests that need a Vulkan device, the Iris decoder, PulseAudio or SteamVR either skip themselves (exit code 77) or are filtered out of the ctest run.
 
 ## Other machines
 

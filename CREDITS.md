@@ -47,11 +47,12 @@ The gun model: This work is based on "G17 Gen 5 Handgun + Olight - NSW Police Fo
 | farmhash, in LiteRT | Hashing | MIT | https://github.com/google/farmhash | `assets/depth/third_party_LICENSES.txt` |
 | fft2d (Takuya Ooura), in LiteRT | FFT | Permissive, own terms | http://www.kurims.kyoto-u.ac.jp/~ooura/fft.html | `assets/depth/third_party_LICENSES.txt` |
 | Eigen, in LiteRT (MPL2-only build) | Linear algebra | MPL-2.0 | https://eigen.tuxfamily.org | `assets/depth/third_party_LICENSES.txt` |
+| **Libraries shipped as shared libraries in `app/lib`** | | | | |
+| FFmpeg 7.0.2 (libavcodec, libavformat, libavutil, libswscale) | Software decode fallback and test-file reading | LGPL-2.1+ (LGPL-only build, unmodified source) | https://ffmpeg.org | `assets/licenses/ffmpeg_COPYING.LGPLv2.1.txt`, `assets/licenses/ffmpeg_LICENSE.md` |
+| libxml2 2.13.9 | Host answers | MIT | https://gitlab.gnome.org/GNOME/libxml2 | `assets/licenses/libxml2_Copyright.txt` |
 | **Libraries linked dynamically from SteamOS (not shipped)** | | | | |
-| FFmpeg 7.0 (libavcodec, libavformat, libavutil, libswscale) | Video decode helpers and software fallback | LGPL-2.1+ (SteamOS build) | https://ffmpeg.org | |
 | OpenSSL 3.2 | Pairing, TLS, stream encryption | Apache-2.0 | https://www.openssl.org | |
 | libcurl | HTTP and HTTPS to the host | curl licence (MIT style) | https://curl.se | |
-| libxml2 | Host answers | MIT | https://gitlab.gnome.org/GNOME/libxml2 | |
 | Opus | Audio decode | BSD-3-Clause | https://opus-codec.org | |
 | PulseAudio client library (served by PipeWire on SteamOS) | Audio output | LGPL-2.1+ | https://www.freedesktop.org/wiki/Software/PulseAudio/ | |
 | Vulkan loader | Rendering | Apache-2.0 | https://github.com/KhronosGroup/Vulkan-Loader | |
