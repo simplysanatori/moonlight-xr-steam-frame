@@ -257,7 +257,7 @@ app_resolution "$APPID"
 
 # SteamVR's per-app video settings for the shortcut, as the owner has them for
 # Moonlight XR: 90 Hz (the Frame's default for an app is 72), motion smoothing
-# off, render resolution 2160, SteamVR's own sharpening off. Set through the
+# off, render resolution 3240 per eye (1.5 x the Frame's native 2160; 2160 left small text soft), SteamVR's own sharpening off. Set through the
 # running SteamVR (vrcmd), which keeps steamvr.vrsettings itself; without it
 # running they are set on the next install.
 VRCMD=/opt/steamvr/bin/linuxarm64/vrcmd
@@ -265,10 +265,10 @@ steamvr_app_settings() {   # steamvr_app_settings <appid>
     local ok kv
     if [ -x "$VRCMD" ] && pgrep -x vrserver >/dev/null; then
         ok=1
-        for kv in preferredRefreshRate:90 motionSmoothingOverride:0 resolutionOverride:2160 sharpeningOverride:0; do
+        for kv in preferredRefreshRate:90 motionSmoothingOverride:0 resolutionOverride:3240 sharpeningOverride:0; do
             env -u LD_LIBRARY_PATH timeout 20 "$VRCMD" --set-settings-int "steam.app.$1.${kv%%:*}" "${kv##*:}" >/dev/null 2>&1 || ok=0
         done
-        [ "$ok" = 1 ] && echo "SteamVR per-app settings: 90 Hz, motion smoothing off, resolution 2160, sharpening off" \
+        [ "$ok" = 1 ] && echo "SteamVR per-app settings: 90 Hz, motion smoothing off, resolution 3240 per eye, sharpening off" \
             || echo "SteamVR per-app settings: could not set them all (set 90 Hz in SteamVR's per-app video settings)"
     else
         echo "SteamVR per-app settings: SteamVR is not running; run this again with it up to set 90 Hz"
