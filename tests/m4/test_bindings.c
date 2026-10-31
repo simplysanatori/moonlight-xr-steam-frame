@@ -114,11 +114,14 @@ static void defaultsFile(void) {
     CHECK(c->kbOpen == 0);
     rest(c);
     frame(c);
-    // Menu opens the cog
+    // Menu opens the cog: as it is let go (lane a11y-final: until then it may be the right hand's
+    // Menu and grip, which gives the pointer back to the controllers)
     c->padSeen[HAND_RIGHT].start = 1;
     frame(c);
-    CHECK(c->cogOpen == 1);
+    CHECK(c->cogOpen == 0);
     rest(c);
+    frame(c);
+    CHECK(c->cogOpen == 1);
     frame(c);
     c->cogOpen = 0;
     // Nothing went to the keys

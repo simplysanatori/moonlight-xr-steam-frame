@@ -284,17 +284,15 @@ MAP = [
     ("native_access_desc_dot", NATIVE),
     ("native_access_desc_none", NATIVE),
     ("native_eyes_no_action", NATIVE),
-    ("native_row_headset_button", NATIVE),
-    ("native_access_desc_button", NATIVE),
-    ("native_button_missing", NATIVE),
-    ("native_button_unreadable", NATIVE),
-    ("native_access_desc_button_unreadable", NATIVE),
     ("native_aux_returned", NATIVE),
     # native (lane radial-dwell): the dwell click's style
     ("native_row_dwell_style", NATIVE),
     ("native_cell_dwell_simple", NATIVE),
     ("native_cell_dwell_radial", NATIVE),
     ("native_access_desc_dwell_style", NATIVE),
+    # native (lane a11y-final): Eyes marked experimental, the right hand's way back to the controllers
+    ("native_cell_eyes_experimental", NATIVE),
+    ("native_toast_pointer_back", NATIVE),
 ]
 
 # Keys of lanes not merged into main yet, all written for this port: listed so that their merges

@@ -1002,14 +1002,21 @@ typedef struct XrCtx {
     GazeFall gazeFall;
     XrPosef eyesHold;
     int eyesHoldValid;
+    // Native (lane a11y-final): the Eyes pointer's steadying of the gaze's direction (xr_access.h),
+    // in place of the head's One Euro on its rotation; the right hand's Menu and grip chord that
+    // gives the pointer back to the controllers, and its pointer_source = controller still to be
+    // handed back to be stored (the setting slot was taken on the frame it fired)
+    GazeSteady gazeSteady;
+    PointerBack pointerBack;
+    int pointerBackUnsaved;
     // Native (lane a11y-2): the head and eye pointer's dot size in percent ([vr] assist_dot_size), and
     // where on the settings panel (v, 0 top) the pointer is this frame, -1 off it, for the
     // Accessibility tab's footer (which row it describes)
     int assistDotSize;
     float cogPointV;
     // Native (lane a11y-2): clicks that are not a controller's trigger, for the head and eye pointer.
-    // The headset's side button: whether it is on
-    // (assist_headset_button), its device (auxDev, found as auxInfo, ACCESS_BUTTON_* in auxState),
+    // The headset's side button: whether it is on (assist_headset_button, which lane a11y-final
+    // stopped reading: a future feature, docs/dev/accessibility.md; only the tests turn it on), its device (auxDev, found as auxInfo, ACCESS_BUTTON_* in auxState),
     // when it is back with SteamVR after the 3 s hold (auxEscapeUntilNs), the log said once. An
     // OpenXR button that does the same (assist_click_path): its action, bound or not, last state.
     // auxGest turns either into actions, assistPlay plays them as mouse buttons: assistButtons and

@@ -2229,6 +2229,7 @@ static void resetHeadPointFilter(XrCtx* ctx) {
     ctx->headPointFilterPos[1].valid = 0;
     ctx->headPointFilterPos[2].valid = 0;
     ctx->headPointFilterRot.valid = 0;
+    gazeSteadyReset(&ctx->gazeSteady);   // native (lane a11y-final): the Eyes pointer's steadying
 }
 
 // Native (lane wave4-headinput): the eyes this frame, whatever is pointing, for
@@ -2490,8 +2491,12 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
                                              f->dt, ctx->aimMinCutoff, ctx->aimBeta);
             filtered.position.z = euroFilter(&ctx->headPointFilterPos[2], filtered.position.z,
                                              f->dt, ctx->aimMinCutoff, ctx->aimBeta);
-            filtered.orientation = euroFilterQuat(&ctx->headPointFilterRot, filtered.orientation,
-                                                  f->dt, ctx->aimMinCutoff, ctx->aimBeta);
+            // native (lane a11y-final): the eyes' direction steadied harder than the head's, so the
+            // dot holds still through a fixation's jitter
+            filtered.orientation = eyesPoint && h == SRC_GAZE
+                    ? xrEyesSteady(ctx, filtered.orientation, f->dt)
+                    : euroFilterQuat(&ctx->headPointFilterRot, filtered.orientation,
+                                     f->dt, ctx->aimMinCutoff, ctx->aimBeta);
             f->aimPoses[h] = filtered;
         }
         else {
@@ -4231,6 +4236,7 @@ static void bindLetGo(XrCtx* ctx, uint64_t down, float* out) {
     scrollAccReset(&ctx->padScroll);
     memset(ctx->bindMouseCarry, 0, sizeof(ctx->bindMouseCarry));
     ctx->headLookHold = 0;
+    xrPointerBackReset(ctx);   // native (lane a11y-final)
 }
 
 // Nothing is read this frame (focus gone, the pointer switched off): let go
@@ -4331,6 +4337,9 @@ static void bindPointerStep(XrCtx* ctx, const InputFrame* f, float* out) {
             down &= ~XR_BIND_BIT(BIND_SRC_CLICK(h));
         }
     }
+    // Native (lane a11y-final): the right Menu and grip held give the pointer back to the
+    // controllers; Menu reaches the bindings only once it cannot be that
+    xrPointerBackStep(ctx, &down, f->now, out);
     if (ctx->grabMode != GRAB_NONE || ctx->statsOver || f->hover == HOVER_BAR
             || f->hover == HOVER_CORNER || f->hover == HOVER_KBBAR) {
         down &= ~(XR_BIND_BIT(XR_BIND_SRC_LEFT_GRIP) | XR_BIND_BIT(XR_BIND_SRC_RIGHT_GRIP));
@@ -4493,6 +4502,7 @@ void xrBindFrame(XrCtx* ctx, int64_t now, float dt, PadState* pad, float* out) {
     memset(&f, 0, sizeof(f));
     f.out = out;
     f.dt = dt;
+    f.now = now;
     f.hover = HOVER_SCREEN;
     bindPointerStep(ctx, &f, out);
 }
@@ -5019,7 +5029,7 @@ void xrSetPointerSource(XrCtx* ctx, int source, int dwellMs) {
               ctx->headDwellMs > 0 ? ", dwell click" : "");
         if (ctx->headDwellMs > 0) {
             LOGEV("dwell click after %d ms resting within %.1f degrees", ctx->headDwellMs,
-                  DWELL_TOLERANCE_DEG);
+                  accessDwellToleranceDeg(ctx->pointerSource));
         }
     }
 }

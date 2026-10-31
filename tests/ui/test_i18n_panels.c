@@ -157,22 +157,23 @@ static void build_states(void) {
     st = add("cog-access-no-eyes", UI_PANEL_COG, &s);
     st->v.cog_tab = COG_TAB_ACCESS;
     st->v.access_eyes = ACCESS_EYES_UNAVAILABLE;
-    // the headset button on, the footer on the button's two lines; the button's device unreadable
-    // and missing
+    // lane a11y-final (the headset button's states went with its row): the most text the tab has,
+    // the instructions, the eyes' help and the pointer row's three line sentence; the radial style;
+    // Eyes greyed with its tag and the pointer's sentence
     Settings radial = head;
-    radial.assist_headset_button = 1;
-    st = add("cog-access-button", UI_PANEL_COG, &radial);
+    radial.assist_dwell_style = DWELL_STYLE_RADIAL;
+    st = add("cog-access-pointer-waiting", UI_PANEL_COG, &head);
+    st->v.cog_tab = COG_TAB_ACCESS;
+    st->v.access_eyes = ACCESS_EYES_WAITING;
+    st->v.access_row = COG_ACCESS_ROW_POINTER;
+    st = add("cog-access-radial", UI_PANEL_COG, &radial);
     st->v.cog_tab = COG_TAB_ACCESS;
     st->v.access_eyes = ACCESS_EYES_READY;
-    st->v.access_row = COG_ACCESS_ROW_BUTTON;
-    st = add("cog-access-button-unreadable", UI_PANEL_COG, &radial);
+    st->v.access_row = COG_ACCESS_ROW_STYLE;
+    st = add("cog-access-eyes-greyed", UI_PANEL_COG, &s);
     st->v.cog_tab = COG_TAB_ACCESS;
-    st->v.access_button = ACCESS_BUTTON_UNREADABLE;
-    st->v.access_row = COG_ACCESS_ROW_BUTTON;
-    st = add("cog-access-button-missing", UI_PANEL_COG, &radial);
-    st->v.cog_tab = COG_TAB_ACCESS;
-    st->v.access_button = ACCESS_BUTTON_MISSING;
-    st->v.access_row = COG_ACCESS_ROW_DWELL;
+    st->v.access_eyes = ACCESS_EYES_UNAVAILABLE;
+    st->v.access_row = COG_ACCESS_ROW_POINTER;
     st = add("cog-about-nolog", UI_PANEL_COG, &s);
     st->v.cog_tab = COG_TAB_ABOUT;
     st->v.log_path = NULL;
