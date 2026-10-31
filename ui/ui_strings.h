@@ -287,7 +287,11 @@
     X(BUTTON_MISSING, "native_button_missing", "no headset button found") \
     X(BUTTON_UNREADABLE, "native_button_unreadable", "cannot read the button: see the guide") \
     X(ACCESS_DESC_BUTTON_UNREADABLE, "native_access_desc_button_unreadable", "This app may not read the headset button's device; the user guide says how to allow it.") \
-    X(AUX_RETURNED, "native_aux_returned", "Headset button returned to SteamVR for 15 s")
+    X(AUX_RETURNED, "native_aux_returned", "Headset button returned to SteamVR for 15 s") \
+    X(ROW_DWELL_STYLE, "native_row_dwell_style", "Dwell click style") \
+    X(CELL_DWELL_SIMPLE, "native_cell_dwell_simple", "Simple") \
+    X(CELL_DWELL_RADIAL, "native_cell_dwell_radial", "Radial menu") \
+    X(ACCESS_DESC_DWELL_STYLE, "native_access_desc_dwell_style", "Radial menu: near the end of the dwell, look left for double click, down to drag, right for right click.")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

@@ -272,7 +272,7 @@ static void neverByItself(Scene* s) {
         g_eyes = spots[(i + 3) % n];
         frames(c, 270); // 3 s on each
         CHECK(c->pointerSource == POINTER_SOURCE_CONTROLLER && c->headDwellMs == 0);
-        CHECK(c->assistDotSize == ACCESS_DOT_DEFAULT);
+        CHECK(c->assistDotSize == ACCESS_DOT_DEFAULT && c->assistDwellStyle == DWELL_STYLE_SIMPLE);
         CHECK(c->dwellClicks == 0 && g_settingsOut == 0);
     }
     c->gazeEnabled = 0;
@@ -438,8 +438,7 @@ static void footer(Scene* s) {
     xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
 }
 
-static const XrCompositionLayerQuad* findQuad(Scene* s, int slot) {
-    UiRectPx r = xrAtlasRect(slot);
+static const XrCompositionLayerQuad* findRect(Scene* s, UiRectPx r) {
     for (uint32_t i = 0; i < s->out.count; i++) {
         const XrCompositionLayerBaseHeader* b = s->out.order[i];
         if (b->type != XR_TYPE_COMPOSITION_LAYER_QUAD) continue;
@@ -452,14 +451,18 @@ static const XrCompositionLayerQuad* findQuad(Scene* s, int slot) {
     return NULL;
 }
 
-// The dot's side as the frame draws it, at the slot (the dot, or the ring while a dwell charges)
-static float dotSide(Scene* s, int slot) {
+// The side of the quad showing an atlas rect as the frame draws it (the dot, or the dwell's circle)
+static float rectSide(Scene* s, UiRectPx r) {
     Vec3 hand = { 0.0f, 0.0f, 0.0f };
     Vec3 target = { 0.0f, 0.0f, -2.0f };
     scene_ray_to(s, hand, target);
     scene_frame(s, NULL);
-    const XrCompositionLayerQuad* q = findQuad(s, slot);
+    const XrCompositionLayerQuad* q = findRect(s, r);
     return q != NULL ? q->size.width : -1.0f;
+}
+
+static float dotSide(Scene* s, int slot) {
+    return rectSide(s, xrAtlasRect(slot));
 }
 
 // Dot size scales the head and eye pointer's dot and its dwell ring, and only theirs
@@ -477,13 +480,17 @@ static void dotScales(Scene* s) {
     CHECK_NEAR(dotSide(s, ATLAS_DOT), base * 0.5f, 1e-5);
     c->assistDotSize = 300;
     CHECK_NEAR(dotSide(s, ATLAS_DOT), base * 3.0f, 1e-5);
-    // the ring closing in (half way: twice the dot) scales with it
-    c->dwellFraction = 0.5f;
+    // the dwell's circle (lane radial-dwell: the dot drawn into each of its pictures, a quad of three
+    // times the dot) scales with it; none in the dwell's first moment
+    c->dwellFraction = 0.55f;
     c->assistDotSize = 100;
-    float ring = dotSide(s, ATLAS_OUTLINE);
-    CHECK_NEAR(ring, base * dwellRingScale(0.5f), 1e-5);
+    UiRectPx half = xrDwellRingRect(radialRingFrame(radialRingProgress(0.55f)));
+    float ring = rectSide(s, half);
+    CHECK_NEAR(ring, base * RADIAL_ART_SIDE, 1e-5);
     c->assistDotSize = 250;
-    CHECK_NEAR(dotSide(s, ATLAS_OUTLINE), ring * 2.5f, 1e-5);
+    CHECK_NEAR(rectSide(s, half), ring * 2.5f, 1e-5);
+    c->dwellFraction = 0.05f;
+    CHECK_NEAR(dotSide(s, ATLAS_DOT), base * 2.5f, 1e-5);
     // the eyes too; the controllers' dot is today's whatever the setting
     c->dwellFraction = -1.0f;
     xrSetPointerSource(c, POINTER_SOURCE_GAZE, 900);
@@ -653,6 +660,258 @@ static void auxGrab(Scene* s) {
     xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
 }
 
+// ---- lane radial-dwell: the dwell's style row, and the radial menu through the input pass ----------
+
+// The style row: greyed with the controllers, a press with the head pointing applies it and hands it
+// back to be stored; the one in force again changes nothing more
+static void stylePresses(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 0);
+    float out[IN_SLOTS];
+    Settings st;
+    settings_defaults(&st);
+    CHECK(st.assist_dwell_style == DWELL_STYLE_SIMPLE && c->assistDwellStyle == DWELL_STYLE_SIMPLE);
+    CHECK(cogAccessCells(c, COG_ACCESS_ROW_STYLE) == 2 && cogRowCells(COG_TAB_ACCESS, COG_ACCESS_ROW_STYLE) == 2);
+    CHECK(!cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_STYLE));
+    out[IN_SETTING] = -1.0f;
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_STYLE, DWELL_STYLE_RADIAL, out);
+    CHECK(out[IN_SETTING] == -1.0f && c->assistDwellStyle == DWELL_STYLE_SIMPLE);
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_POINTER, POINTER_SOURCE_HEAD, out);
+    CHECK(cogRowLive(c, COG_TAB_ACCESS, COG_ACCESS_ROW_STYLE));
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_STYLE, DWELL_STYLE_RADIAL, out);
+    CHECK((int)out[IN_SETTING] == SETTING_ASSIST_DWELL_STYLE && (int)out[IN_SETTING_VALUE] == DWELL_STYLE_RADIAL);
+    CHECK(c->assistDwellStyle == DWELL_STYLE_RADIAL);
+    CHECK(xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) && st.assist_dwell_style == DWELL_STYLE_RADIAL);
+    char* text = settings_to_text(&st);
+    CHECK(text != NULL && strstr(text, "assist_dwell_style = radial") != NULL);
+    free(text);
+    // the dwell on the tab: the radial style is for the picture, a dwell on a cell is a plain press
+    cogApplyCell(c, COG_TAB_ACCESS, COG_ACCESS_ROW_DWELL, 1, out);   // 0.6 s
+    g_settingsOut = 0;
+    g_head = cellAt(c, COG_ACCESS_ROW_STYLE, DWELL_STYLE_SIMPLE);
+    int opened = 0;
+    for (int i = 0; i < 90; i++) {
+        frames(c, 1);
+        opened |= c->radialView.open;
+    }
+    CHECK(!opened && c->assistDwellStyle == DWELL_STYLE_SIMPLE && g_settingsOut == 1);
+    CHECK(g_lastSetting == SETTING_ASSIST_DWELL_STYLE && g_lastValue == DWELL_STYLE_SIMPLE);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
+// The head turned from straight ahead by yaw (to the left) and pitch (up), degrees
+static Vec3 turned(float yawDeg, float pitchDeg) {
+    float y = yawDeg * 0.0174532925f, p = pitchDeg * 0.0174532925f;
+    Vec3 d = { -sinf(y) * cosf(p), sinf(p), -cosf(y) * cosf(p) };
+    return d;
+}
+
+// Frames of the whole pointer as the session runs them: the assist player, the pointer's pass, and
+// the host's buttons as the input pass works them out (the dot on the picture, or the cursor held on
+// the dwell's start). Counts the buttons' presses and where the host's cursor was held.
+static int g_left, g_right, g_leftDown, g_prevButtons, g_heldFrames, g_menuFrames;
+static float g_heldU, g_heldV;
+
+static void hostFrames(XrCtx* c, int n) {
+    float out[IN_SLOTS];
+    for (int i = 0; i < n; i++) {
+        g_now += FRAME_NS;
+        c->predictedDisplayTime = (XrTime)g_now;
+        xrAssistFrame(c, g_now);
+        xrPointerPanelStep(c, g_now, 0, out);
+        float u = -1.0f, v = -1.0f;
+        int held = xrDwellMenuHostPoint(c, g_now, &u, &v);
+        if (held) {
+            g_heldFrames++;
+            g_heldU = u;
+            g_heldV = v;
+        }
+        g_menuFrames += c->radialView.open;
+        int b = xrButtonsFrame(c, 0, c->hoverKind, c->hoverKind == HOVER_SCREEN || held);
+        g_left += (b & VR_BUTTON_LEFT) && !(g_prevButtons & VR_BUTTON_LEFT);
+        g_right += (b & VR_BUTTON_RIGHT) && !(g_prevButtons & VR_BUTTON_RIGHT);
+        g_leftDown += (b & VR_BUTTON_LEFT) != 0;
+        g_prevButtons = b;
+    }
+}
+
+static void hostCountsReset(void) {
+    g_left = g_right = g_leftDown = g_heldFrames = g_menuFrames = 0;
+    g_heldU = g_heldV = -1.0f;
+}
+
+// The head pointing at the picture with a 0.6 s dwell in the radial style, the cog shut
+static void radialSetUp(Scene* s) {
+    XrCtx* c = s->ctx;
+    setUp(s, 0);
+    c->cogOpen = 0;
+    c->pointerOn = 1;   // as the session's input set up leaves it: the picture takes the pointer
+    xrSetPointerSource(c, POINTER_SOURCE_HEAD, 600);
+    c->assistDwellStyle = DWELL_STYLE_RADIAL;
+    // xrButtonsFrame's frame is at time 0: no plain dwell's press may be waiting from before
+    c->dwellHostUntil = 0;
+    g_prevButtons = 0;
+    // somewhere to start from: away from the spot the tests rest on, long enough to settle
+    g_head = turned(12.0f, 6.0f);
+    hostFrames(c, 20);
+    for (int i = 0; i < 40 && c->hoverKind != HOVER_SCREEN; i++) hostFrames(c, 1);
+    hostCountsReset();
+}
+
+// A dwell rested to 80 %: the menu is up from 75 % (not before), anchored where the dwell started
+static int restToMenu(XrCtx* c, Vec3 at) {
+    g_head = at;
+    int firstOpen = -1;
+    for (int i = 0; i < 80 && firstOpen < 0; i++) {
+        hostFrames(c, 1);
+        if (c->radialView.open) firstOpen = i;
+    }
+    return firstOpen;
+}
+
+static void radialMenu(Scene* s) {
+    XrCtx* c = s->ctx;
+    // keeping still: the menu from 75 % of the dwell (0.45 s, frame 41 or so, after the head's
+    // filter settles), then the left click at its end, with the host's cursor on the dwell's start
+    radialSetUp(s);
+    long picks = c->dwellMenuPicks;
+    int open = restToMenu(c, turned(0.0f, 0.0f));
+    CHECK(open >= 38 && open <= 50);
+    if (open < 38 || open > 50) fprintf(stderr, "  the menu came up at frame %d\n", open);
+    float u0 = c->dwellAnchorU, v0 = c->dwellAnchorV;
+    CHECK(c->dwellAnchorValid && fabsf(u0 - 0.5f) < 0.02f && fabsf(v0 - 0.5f) < 0.02f);
+    CHECK(g_left == 0 && g_right == 0);
+    hostFrames(c, 30);
+    CHECK(c->dwellMenuPicks == picks + 1 && g_left == 1 && g_right == 0 && !c->radialView.open);
+    CHECK(fabsf(g_heldU - u0) < 1e-6f && fabsf(g_heldV - v0) < 1e-6f);
+    // resting on: the spot is spent
+    hostFrames(c, 120);
+    CHECK(g_left == 1 && c->dwellMenuPicks == picks + 1);
+
+    // left, held: a double click, on the dwell's start though the dot went left
+    radialSetUp(s);
+    restToMenu(c, turned(0.0f, 0.0f));
+    u0 = c->dwellAnchorU;
+    v0 = c->dwellAnchorV;
+    g_head = turned(3.6f, 0.0f);
+    int lit = 0;
+    for (int i = 0; i < 40; i++) {
+        hostFrames(c, 1);
+        lit |= c->radialView.open && c->radialView.sector == RADIAL_LEFT;
+        float u, v;
+        if (c->radialView.open) CHECK(xrDwellMenuHostPoint(c, g_now, &u, &v) && u == u0 && v == v0);
+    }
+    CHECK(lit && g_left == 2 && g_right == 0 && fabsf(g_heldU - u0) < 1e-6f);
+
+    // right, held: a right click
+    radialSetUp(s);
+    restToMenu(c, turned(0.0f, 0.0f));
+    g_head = turned(-3.6f, 0.5f);
+    hostFrames(c, 40);
+    CHECK(g_right == 1 && g_left == 0);
+
+    // jitter inside the dead zone, and a glance up into the gap, pick nothing: the left click
+    radialSetUp(s);
+    restToMenu(c, turned(0.0f, 0.0f));
+    for (int i = 0; i < 6; i++) {
+        g_head = turned(i % 2 ? 1.2f : -1.2f, i % 3 ? 0.8f : -0.8f);
+        hostFrames(c, 1);
+    }
+    g_head = turned(0.0f, 3.5f);
+    hostFrames(c, 30);
+    CHECK(g_left == 1 && g_right == 0 && c->dwellMenuPicks > 0);
+
+    // past the outer edge: cancelled, no click; the menu goes
+    radialSetUp(s);
+    picks = c->dwellMenuPicks;
+    restToMenu(c, turned(0.0f, 0.0f));
+    g_head = turned(-12.0f, 0.0f);
+    hostFrames(c, 30);
+    CHECK(g_left == 0 && g_right == 0 && c->dwellMenuPicks == picks && !c->radialView.open);
+
+    // the simple style: never a menu, the dwell's plain click as before
+    radialSetUp(s);
+    c->assistDwellStyle = DWELL_STYLE_SIMPLE;
+    long clicks = c->dwellClicks;
+    g_head = turned(0.0f, 0.0f);
+    hostFrames(c, 80);
+    CHECK(g_menuFrames == 0 && c->dwellClicks == clicks + 1 && c->dwellMenuPicks == picks);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+}
+
+// The art the frame shows: the menu's quad at the dwell's start while it is up (lit as the dot is
+// in a segment), the dot's circle; a held drag's mark and hollow dot
+static int hasRect(Scene* s, UiRectPx r) {
+    scene_frame(s, NULL);
+    return findRect(s, r) != NULL;
+}
+
+static void radialDrag(Scene* s) {
+    XrCtx* c = s->ctx;
+    radialSetUp(s);
+    restToMenu(c, turned(0.0f, 0.0f));
+    float u0 = c->dwellAnchorU, v0 = c->dwellAnchorV;
+    c->beamVisible = 1;
+    CHECK(hasRect(s, xrDwellMenuRect(radialMenuFrame(&c->radialView))));
+    // down, held: the left button goes down on the dwell's start and stays down
+    g_head = turned(0.0f, -3.6f);
+    hostFrames(c, 6);
+    CHECK(c->radialView.sector == RADIAL_DOWN);
+    CHECK(hasRect(s, xrDwellMenuRect(radialMenuFrame(&c->radialView))));
+    hostFrames(c, 30);
+    CHECK(c->dwellDrag && g_left == 1 && c->assistButtons == ASSIST_BTN_LEFT);
+    CHECK(fabsf(c->dwellDragU - u0) < 1e-6f && fabsf(c->dwellDragV - v0) < 1e-6f);
+    // shown held: the mark at the start, the dot hollow
+    CHECK(hasRect(s, xrDwellRingRect(RADIAL_FRAME_MARK)) && hasRect(s, xrDwellRingRect(RADIAL_FRAME_HOLLOW_DOT)));
+    // moved on (the cursor follows the dot again: the drag), held down all the way
+    int down0 = g_leftDown;
+    g_head = turned(-10.0f, -5.0f);
+    hostFrames(c, 20);
+    CHECK(g_leftDown - down0 == 20 && c->dwellDrag);
+    float u, v;
+    CHECK(!xrDwellMenuHostPoint(c, g_now, &u, &v));
+    // and rested: no menu while a drag is held; the dwell lets it go there
+    hostFrames(c, 70);
+    CHECK(!c->dwellDrag && c->assistButtons == 0 && g_menuFrames > 0 && g_left == 1);
+    CHECK(!hasRect(s, xrDwellRingRect(RADIAL_FRAME_MARK)));
+
+    // another drag, let go on its start: the cursor goes back there for the release, so nothing moves
+    radialSetUp(s);
+    restToMenu(c, turned(0.0f, 0.0f));
+    u0 = c->dwellAnchorU;
+    v0 = c->dwellAnchorV;
+    g_head = turned(0.0f, -3.6f);
+    hostFrames(c, 36);
+    CHECK(c->dwellDrag);
+    g_head = turned(-8.0f, 0.0f);
+    hostFrames(c, 10);
+    g_head = turned(0.3f, 0.2f);
+    for (int i = 0; i < 90 && c->dwellDrag; i++) hostFrames(c, 1);
+    CHECK(!c->dwellDrag && xrDwellMenuHostPoint(c, g_now, &u, &v) && u == u0 && v == v0);
+
+    // a drag let go by the headset button's press
+    radialSetUp(s);
+    restToMenu(c, turned(0.0f, 0.0f));
+    g_head = turned(0.0f, -3.6f);
+    hostFrames(c, 36);
+    CHECK(c->dwellDrag && xrDwellDragRelease(c, g_now) && !c->dwellDrag && !xrDwellDragRelease(c, g_now));
+    hostFrames(c, 2);
+    CHECK(c->assistButtons == 0);
+    // and one let go when the session loses focus
+    radialSetUp(s);
+    restToMenu(c, turned(0.0f, 0.0f));
+    g_head = turned(0.0f, -3.6f);
+    hostFrames(c, 36);
+    CHECK(c->dwellDrag);
+    xrDwellMenuWatch(c, g_now, 0, 1);
+    xrAssistFrame(c, g_now);
+    CHECK(!c->dwellDrag && c->assistButtons == 0);
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+    c->assistDwellStyle = DWELL_STYLE_SIMPLE;
+    c->beamVisible = 0;
+    c->pointerOn = 0;
+}
+
 int main(void) {
     Scene* s = scene_new();
     presses(s);
@@ -664,6 +923,9 @@ int main(void) {
     dotScales(s);
     assistClicks(s);
     auxGrab(s);
+    stylePresses(s);
+    radialMenu(s);
+    radialDrag(s);
     scene_free(s);
     return checksDone("m4_access");
 }

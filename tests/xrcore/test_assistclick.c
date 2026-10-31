@@ -100,8 +100,39 @@ static void testPlay(void) {
     CHECK(assistPlayButtons(&p, 11000 * MS, NULL) == 0 && !assistPlayBusy(&p, 11000 * MS));
 }
 
+// Native (lane radial-dwell): a press spent on something else (letting the radial menu's drag go)
+// clicks nothing on its release and drags nothing when held; a 3 s hold still escapes
+static void testSpend(void) {
+    AuxClick g;
+    auxClickReset(&g);
+    int any = 0;
+    auxClickEdge(&g, 1, 100 * MS);
+    auxClickSpend(&g);
+    for (int ms = 100; ms <= 1500; ms += 11) any |= auxClickTick(&g, ms * MS) != ASSIST_NONE;
+    any |= auxClickEdge(&g, 0, 1500 * MS) != ASSIST_NONE;
+    for (int ms = 1500; ms <= 2500; ms += 11) any |= auxClickTick(&g, ms * MS) != ASSIST_NONE;
+    CHECK(!any);
+    // the next press is a click again
+    auxClickEdge(&g, 1, 3000 * MS);
+    auxClickEdge(&g, 0, 3080 * MS);
+    int a = ASSIST_NONE;
+    for (int ms = 3080; ms <= 3600 && a == ASSIST_NONE; ms += 11) a = auxClickTick(&g, ms * MS);
+    CHECK(a == ASSIST_LEFT);
+    // spent and held 3 s: the escape still comes
+    auxClickEdge(&g, 1, 5000 * MS);
+    auxClickSpend(&g);
+    a = ASSIST_NONE;
+    for (int ms = 5000; ms <= 8200 && a == ASSIST_NONE; ms += 11) a = auxClickTick(&g, ms * MS);
+    CHECK(a == ASSIST_ESCAPE);
+    // nothing down: nothing to spend
+    auxClickReset(&g);
+    auxClickSpend(&g);
+    CHECK(!g.spent);
+}
+
 int main(void) {
     testScripts();
     testPlay();
+    testSpend();
     return checksDone("xr_assistclick");
 }

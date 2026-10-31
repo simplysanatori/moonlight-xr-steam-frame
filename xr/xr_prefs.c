@@ -399,6 +399,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetPointerSource(ctx, s->pointer_source, s->head_dwell_ms);              // PLAN 6.5
     ctx->assistDotSize = accessDotClamp(s->assist_dot_size);                   // native (lane a11y-2)
     ctx->assistHeadsetButton = s->assist_headset_button != 0;
+    ctx->assistDwellStyle = s->assist_dwell_style == DWELL_STYLE_RADIAL ? DWELL_STYLE_RADIAL : DWELL_STYLE_SIMPLE;
     snprintf(ctx->assistClickPath, sizeof(ctx->assistClickPath), "%s", s->assist_click_path);
     xrSetMouseMode(ctx, s->mouse_mode);           // native (lane headinput-finish, PLAN 4b.10)
     xrPadBridgeSetBackAsGuide(s->back_as_guide);  // native (lane headinput-finish, PLAN 4b.10)
@@ -591,6 +592,9 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_HEAD_DWELL: s->head_dwell_ms = dwellMsClamp(value); break;
     case SETTING_ASSIST_DOT_SIZE: s->assist_dot_size = accessDotClamp(value); break;   // native (lane a11y-2)
     case SETTING_ASSIST_HEADSET_BUTTON: s->assist_headset_button = value != 0; break;
+    case SETTING_ASSIST_DWELL_STYLE:   // native (lane radial-dwell)
+        s->assist_dwell_style = value == DWELL_STYLE_RADIAL ? DWELL_STYLE_RADIAL : DWELL_STYLE_SIMPLE;
+        break;
     case SETTING_PICTURE_BRIGHTNESS: s->picture_brightness = value; break;
     case SETTING_PICTURE_CONTRAST: s->picture_contrast = value; break;
     case SETTING_PICTURE_GAMMA: s->picture_gamma = value; break;

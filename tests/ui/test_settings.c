@@ -714,6 +714,27 @@ static void test_assist_dot_size(void) {
     free(text);
 }
 
+// Native (lane radial-dwell): the dwell's style, simple unless the file says radial
+static void test_assist_dwell_style(void) {
+    Settings s;
+    SettingsLoadInfo info;
+    settings_defaults(&s);
+    CHECK(s.assist_dwell_style == DWELL_STYLE_SIMPLE);
+    const SettingDesc* d = settings_find("assist_dwell_style");
+    CHECK(d != NULL && settings_is_default(&s, d));
+    settings_from_text(&s, "[vr]\nassist_dwell_style = radial\n", &info);
+    CHECK(s.assist_dwell_style == DWELL_STYLE_RADIAL);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "assist_dwell_style = radial") != NULL);
+    free(text);
+    settings_from_text(&s, "[vr]\nassist_dwell_style = simple\n", &info);
+    CHECK(s.assist_dwell_style == DWELL_STYLE_SIMPLE);
+    // nothing else in the file turns it on: every other key at its most
+    settings_from_text(&s, "[vr]\npointer_source = head\nhead_dwell_ms = 600\nassist_dot_size = 300\n"
+                           "assist_headset_button = true\n", &info);
+    CHECK(s.assist_dwell_style == DWELL_STYLE_SIMPLE);
+}
+
 static void test_head_point_never_by_itself(void) {
     Settings s;
     SettingsLoadInfo info;
@@ -1479,6 +1500,7 @@ int main(void) {
     test_pointer_source();
     test_head_point_never_by_itself();
     test_assist_dot_size();
+    test_assist_dwell_style();
     test_mouse_mode_back_as_guide();
     test_controller_model();
     test_cog_tab();

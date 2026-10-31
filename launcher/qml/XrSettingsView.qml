@@ -1839,6 +1839,18 @@ Flickable {
             }
         }
 
+        // Lane radial-dwell: pressing the row steps Simple -> Radial menu
+        PrefRow {
+            objectName: "assistDwellStyleRow"
+            readonly property var values: ["simple", "radial"]
+            readonly property var names: [qsTr("Simple"), qsTr("Radial menu")]
+            title: qsTr("Dwell click style")
+            tip: qsTr("Radial menu: near the end of the dwell, look left for double click, down to drag, right for right click.")
+            valueText: names[Math.max(0, values.indexOf(MlxrPrefs.assistDwellStyle))]
+            summary: qsTr("With the Head or Eyes pointer and a dwell click on the picture. Simple: the dwell clicks. Radial menu: in the last quarter of the dwell a small menu opens round the dot; keep still for a click, look left for a double click, down to drag (the next dwell drops it) or right for a right click, and look well away to cancel.")
+            onClicked: MlxrPrefs.assistDwellStyle = values[(Math.max(0, values.indexOf(MlxrPrefs.assistDwellStyle)) + 1) % values.length]
+        }
+
         // Lane a11y-2: 50 to 300 % of the dot's usual size, in 25 % steps with a tick at each
         PrefSlider {
             id: dotSizeRow

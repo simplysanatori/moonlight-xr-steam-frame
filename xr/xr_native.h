@@ -37,13 +37,14 @@
 #define SETTING_EYE_BALANCE 36
 // Native (lane a11y-tab): the Accessibility tab's rows, each the value its [vr] key is stored in:
 // pointer_source (POINTER_SOURCE_*), head_dwell_ms (0 off) and (lane a11y-2) assist_dot_size
-// (percent) and assist_headset_button. Only a press or a drag on the tab hands these back. (37 to
-// 39 and 46 are free;
+// (percent) and assist_headset_button, and (lane radial-dwell) assist_dwell_style
+// (DWELL_STYLE_*). Only a press or a drag on the tab hands these back. (37 to 39 are free;
 // 40 and 41 are xr_shared.h's Background and Glow edge.)
 #define SETTING_POINTER_SOURCE 42
 #define SETTING_HEAD_DWELL 43
 #define SETTING_ASSIST_DOT_SIZE 44
 #define SETTING_ASSIST_HEADSET_BUTTON 45
+#define SETTING_ASSIST_DWELL_STYLE 46
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 
@@ -130,7 +131,51 @@ void xrAuxButtonLook(XrCtx* ctx);
 // An action (ASSIST_*) at the dot, from the button or the radial menu; xrAssistFrame works out
 // the frame's buttons from what is playing (the input pass reads assistButtons, assistPress)
 void xrAssistAction(XrCtx* ctx, int action, int64_t now);
+// Native (lane radial-dwell): the same, said where it goes: ui 1 our menus (a double or right click
+// there is one press), 0 the picture
+void xrAssistActionAt(XrCtx* ctx, int action, int64_t now, int ui);
 void xrAssistFrame(XrCtx* ctx, int64_t now);
+
+// ---- the dwell click's radial menu (xr_dwellmenu.c, lane radial-dwell) ---------------------------
+// One frame of the head or eye pointer's dwell, from the input pass's updateDwell: valid and aimed
+// as radialStep takes them (xr/core/xr_radial.h), x, y the pointer's direction in degrees as the
+// dwell has always had it (yaw to the left, pitch up), onPicture the dot is on the picture, u, v
+// where on it, at that point in the space. Plays the menu's choices itself (through
+// xrAssistActionAt, on the picture) and lets a drag it holds go on the next dwell; returns
+// DWELL_CLICK only for a plain click, which the caller plays as it always has.
+int xrDwellMenuStep(XrCtx* ctx, int valid, int aimed, float x, float y, int64_t now, int onPicture, float u,
+                    float v, XrVector3f at);
+// Forgets the dwell's menu, its circle and its fade, and lets go a drag it holds (the pointer
+// unwatched or changed, the dwell off)
+void xrDwellMenuReset(XrCtx* ctx);
+// Where the host's cursor is held (the dwell's start, while the menu is up and while its click
+// plays): 1 and *u, *v, or 0 to leave them
+int xrDwellMenuHostPoint(const XrCtx* ctx, int64_t now, float* u, float* v);
+// The held point to the host when the dot is off the picture (the menu may take it there)
+void xrDwellMenuSendHeld(XrCtx* ctx, int hand, int64_t now, float* out);
+// A press of the headset button while the menu's drag holds the left button: lets it go (1)
+int xrDwellDragRelease(XrCtx* ctx, int64_t now);
+// Once a frame before the input pass: a drag the menu holds is let go when the pointing stops
+void xrDwellMenuWatch(XrCtx* ctx, int64_t now, int focused, int streaming);
+// What the pointer's layers show for it: the dot's quad (a frame of the circle, the hollow dot of a
+// held drag: rect w 0 for the plain dot) at dotSide times the dot's side, and a quad at the dwell's
+// start (the menu, menuHalfDeg round it as seen from the head, or a drag's mark, markSide times the
+// dot's side). Returns 1 when any of it is up, so the dot shows with the Dot switch off too.
+typedef struct {
+    UiRectPx dot;
+    float dotSide;
+    UiRectPx mark;
+    XrVector3f markAt;
+    float menuHalfDeg;
+    float markSide;
+} XrDwellArt;
+int xrDwellMenuArt(const XrCtx* ctx, XrDwellArt* art);
+// The frames' places in the atlas (ATLAS_DWELL_*), and their art, drawn once with the rest of the
+// code drawn art (xrDrawCodeArt)
+UiRectPx xrDwellRingRect(int frame);
+UiRectPx xrDwellHollowRect(int frame);
+UiRectPx xrDwellMenuRect(int frame);
+void xrDrawDwellArt(uint8_t* atlas);
 // The OpenXR button of assist_click_path: its action made before the bindings are suggested,
 // added to a profile's first suggestion where the profile is the app's own (returns the new count),
 // suggested on its own where it is not, and read after each sync
@@ -202,8 +247,18 @@ enum {
     ATLAS_OVERLAY,
     ATLAS_BEAM_FAINT,
     ATLAS_SPLASH,
+    // Native (lane radial-dwell): the dwell's circle round the dot (DWELL_ART_PX frames: the sweep,
+    // its fades, the hollow dot and a drag's mark), the sweep round a hollow dot, and the radial
+    // menu's frames (DWELL_MENU_PX) over three free corners (xr_dwellmenu.c xrDwellMenuRect)
+    ATLAS_DWELL_RING,
+    ATLAS_DWELL_HOLLOW,
+    ATLAS_DWELL_MENU_A,
+    ATLAS_DWELL_MENU_B,
+    ATLAS_DWELL_MENU_C,
     ATLAS_SLOTS
 };
+#define DWELL_ART_PX 64
+#define DWELL_MENU_PX 160
 // Native: 416 x 400, the whole free corner under the clock strip (x 1632..2048,
 // y 1840..2240), so the longest stats line wraps rather than being cut off
 #define ATLAS_OVERLAY_W 416

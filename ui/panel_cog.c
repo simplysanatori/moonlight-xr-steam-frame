@@ -599,12 +599,14 @@ static float access_wrap(Dc* dc, const char* text, float left, float baseline, f
 static void tab_access(Dc* dc) {
     const UiView* v = dc->v;
     const Settings* s = v->settings;
-    static const UiStr ROWS[COG_ACCESS_ROW_COUNT] = { UIS_ROW_POINTER_SOURCE, UIS_ROW_DWELL, UIS_ROW_DOT_SIZE,
-                                                      UIS_ROW_HEADSET_BUTTON };
+    static const UiStr ROWS[COG_ACCESS_ROW_COUNT] = { UIS_ROW_POINTER_SOURCE, UIS_ROW_DWELL, UIS_ROW_DWELL_STYLE,
+                                                      UIS_ROW_DOT_SIZE, UIS_ROW_HEADSET_BUTTON };
     static const UiStr POINTER[COG_ACCESS_POINTER_CELLS] = { UIS_CELL_CONTROLLER, UIS_CELL_HEAD, UIS_CELL_EYES };
     static const UiStr DWELL[COG_ACCESS_DWELL_CELLS] = { UIS_OFF, UIS_DWELL_06, UIS_DWELL_09, UIS_DWELL_12, UIS_DWELL_15 };
     static const UiStr OFFON[COG_ACCESS_BUTTON_CELLS] = { UIS_OFF, UIS_ON };
-    static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL, UIS_ACCESS_DESC_DOT,
+    static const UiStr STYLE[COG_ACCESS_STYLE_CELLS] = { UIS_CELL_DWELL_SIMPLE, UIS_CELL_DWELL_RADIAL };
+    static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL,
+                                                      UIS_ACCESS_DESC_DWELL_STYLE, UIS_ACCESS_DESC_DOT,
                                                       UIS_ACCESS_DESC_BUTTON };
     static const UiStr EYES[ACCESS_EYES_COUNT] = { UIS_EYES_READY, UIS_EYES_WAITING, UIS_EYES_NO_ACTION,
                                                    UIS_EYES_UNAVAILABLE };
@@ -641,6 +643,9 @@ static void tab_access(Dc* dc) {
             access_cells(dc, row, POINTER, n, y, 1, cell_half, s->pointer_source < n ? s->pointer_source : -1);
         } else if (row == COG_ACCESS_ROW_DWELL) {
             cells(dc, COG_TAB_ACCESS, row, DWELL, n, y, 1, cell_half, accessDwellCell(s->head_dwell_ms));
+        } else if (row == COG_ACCESS_ROW_STYLE) {
+            cells(dc, COG_TAB_ACCESS, row, STYLE, n, y, 1, cell_half,
+                  s->assist_dwell_style == DWELL_STYLE_RADIAL ? DWELL_STYLE_RADIAL : DWELL_STYLE_SIMPLE);
         } else {
             cells(dc, COG_TAB_ACCESS, row, OFFON, n, y, 1, cell_half, s->assist_headset_button ? 1 : 0);
         }

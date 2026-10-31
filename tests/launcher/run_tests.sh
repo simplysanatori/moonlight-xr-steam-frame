@@ -953,10 +953,10 @@ if [ -n "$SHOTS" ]; then
         MLXR_LAUNCHER_INVOKE='saveAll;setSearch:first-person;setSearch:accessibility' \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-accessibility.png@3000" "$L" >"$t/acc0.out" 2>&1
     uiout "$t/acc0.out" "accessibility section"
-    grep -Eq '^(pointer_source|head_dwell_ms|assist_dot_size|assist_headset_button) *=' "$ini" && { fail "opening the page wrote an accessibility key"; cat "$ini"; } || ok "the page opened and saved writes no accessibility key"
+    grep -Eq '^(pointer_source|head_dwell_ms|assist_dot_size|assist_headset_button|assist_dwell_style) *=' "$ini" && { fail "opening the page wrote an accessibility key"; cat "$ini"; } || ok "the page opened and saved writes no accessibility key"
     s="$(grep 'MLXR_SETTINGS_SEARCH: text="accessibility"' "$t/acc0.out")"
     expect "search: the Accessibility section is found" "$s" "sections=Accessibility"
-    expect "search: with its rows" "$s" "titles=Pointer|Dwell click|Dot size|Headset button clicks sections=Accessibility"
+    expect "search: with its rows" "$s" "titles=Pointer|Dwell click|Dwell click style|Dot size|Headset button clicks sections=Accessibility"
     # lane a11y-2: head-look is under Input with a name that says what it does, Back as Guide under Gamepad
     s="$(grep 'MLXR_SETTINGS_SEARCH: text="first-person"' "$t/acc0.out")"
     expect "search: head-look is found under Input" "$s" "titles=Head turns the game's camera (first-person games) sections=Input settings"
@@ -968,7 +968,7 @@ if [ -n "$SHOTS" ]; then
     grep -A8 '^\[vr\]' "$ini" | grep -q '^pointer_source = head$' && ok "What points steps to Head and writes [vr] pointer_source = head" || { fail "pointer_source not written"; cat "$ini"; }
     grep -A8 '^\[vr\]' "$ini" | grep -q '^head_dwell_ms = 600$' && ok "Dwell click steps Off to 0.6 s and writes [vr] head_dwell_ms = 600" || { fail "head_dwell_ms not written"; cat "$ini"; }
     grep -q '^head_aim = true$' "$ini" && ok "accessibility rows leave head_aim alone" || { fail "head_aim changed"; cat "$ini"; }
-    expect "search: one word finds the dwell rows" "$(grep 'text="dwell"' "$t/acc1.out")" "titles=Dwell click|Dot size sections=Accessibility"
+    expect "search: one word finds the dwell rows" "$(grep 'text="dwell"' "$t/acc1.out")" "titles=Dwell click|Dwell click style|Dot size sections=Accessibility"
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
         expect "VR client reads pointer_source" "$dump" "vr.pointer_source = head"
@@ -978,11 +978,11 @@ if [ -n "$SHOTS" ]; then
     # moved, and each Accessibility row has its tip, shown on a gamepad's or a keyboard's focus
     printf '[vr]\nhead_aim = true\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
-        MLXR_LAUNCHER_INVOKE='showTip:pointerSourceRow;showTip:headDwellRow;showTip:assistDotSizeRow;showTip:assistHeadsetButtonRow;setPref:assistDotSize|175;saveAll' \
+        MLXR_LAUNCHER_INVOKE='showTip:pointerSourceRow;showTip:headDwellRow;showTip:assistDwellStyleRow;showTip:assistDotSizeRow;showTip:assistHeadsetButtonRow;setPref:assistDotSize|175;saveAll' \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-accessibility-tip.png@3000" "$L" >"$t/acc2.out" 2>&1
     uiout "$t/acc2.out" "accessibility tips"
     grep -A8 '^\[vr\]' "$ini" | grep -q '^assist_dot_size = 175$' && ok "Dot size writes [vr] assist_dot_size = 175" || { fail "assist_dot_size not written"; cat "$ini"; }
-    grep -Eq '^(pointer_source|head_dwell_ms|assist_headset_button) *=' "$ini" && { fail "the dot size wrote another accessibility key"; cat "$ini"; } || ok "the dot size writes only its key"
+    grep -Eq '^(pointer_source|head_dwell_ms|assist_headset_button|assist_dwell_style) *=' "$ini" && { fail "the dot size wrote another accessibility key"; cat "$ini"; } || ok "the dot size writes only its key"
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
         expect "VR client reads assist_dot_size" "$dump" "vr.assist_dot_size = 175"
@@ -998,9 +998,22 @@ if [ -n "$SHOTS" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
         expect "VR client reads assist_headset_button" "$dump" "vr.assist_headset_button = true"
     fi
+    # lane radial-dwell: Dwell click style steps Simple to Radial menu and writes its key, and only it
+    printf '[vr]\nhead_aim = true\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=assistDwellStyleRow MLXR_LAUNCHER_SCREENSHOT="$t/acc4.png@3000" "$L" >"$t/acc4.out" 2>&1
+    uiout "$t/acc4.out" "dwell click style row"
+    grep -q "no clickable" "$t/acc4.out" && fail "accessibility click hook: $(grep 'no clickable' "$t/acc4.out")"
+    grep -A8 '^\[vr\]' "$ini" | grep -q '^assist_dwell_style = radial$' && ok "Dwell click style steps to Radial menu and writes [vr] assist_dwell_style = radial" || { fail "assist_dwell_style not written"; cat "$ini"; }
+    grep -Eq '^(pointer_source|head_dwell_ms|assist_dot_size|assist_headset_button) *=' "$ini" && { fail "the dwell click style wrote another accessibility key"; cat "$ini"; } || ok "the dwell click style writes only its key"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads assist_dwell_style" "$dump" "vr.assist_dwell_style = radial"
+    fi
     tips="$(grep 'MLXR_SETTINGS_TIP:' "$t/acc2.out")"
     expect "tip: Pointer" "$tips" 'pointerSourceRow visible=true text="What moves the pointer: a controller, your head, or where you look."'
     expect "tip: Dwell click" "$tips" 'headDwellRow visible=true text="Rest the dot this long on something to click it."'
+    expect "tip: Dwell click style" "$tips" 'assistDwellStyleRow visible=true text="Radial menu: near the end of the dwell, look left for double click, down to drag, right for right click."'
     expect "tip: Dot size" "$tips" 'assistDotSizeRow visible=true text="How big the dot is when you point with your head or eyes."'
     expect "tip: Headset button" "$tips" "assistHeadsetButtonRow visible=true text=\"The headset's side button clicks instead of opening the Steam home. Hold it 3 seconds to get the Steam home back.\""
     grep -q 'MLXR_LAUNCHER_CLICK\|showTip: no row' "$t/acc2.out" && fail "a tip row is missing: $(grep 'showTip: no row' "$t/acc2.out")"

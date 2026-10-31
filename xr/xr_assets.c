@@ -29,6 +29,14 @@ UiRectPx xrAtlasRect(int slot) {
         [ATLAS_OVERLAY - UI_PANEL_COUNT] = { 1632, 1840, ATLAS_OVERLAY_W, ATLAS_OVERLAY_H },
         [ATLAS_BEAM_FAINT - UI_PANEL_COUNT] = { 1280, 2240 + PTR_BEAM_H, PTR_TEX_W, ATLAS_BEAM_FAINT_H },
         [ATLAS_SPLASH - UI_PANEL_COUNT] = { 1408, 3072, ATLAS_SPLASH_W, ATLAS_SPLASH_H },
+        // Native (lane radial-dwell): under the Ko-fi sheet (16 x 4 frames), right of the pad card
+        // (4 x 5), and the menu's frames right of the report sheet (1 x 4), under the exit prompt
+        // (3 x 1) and right of the picker's art (4 x 2)
+        [ATLAS_DWELL_RING - UI_PANEL_COUNT] = { 0, 1536, 16 * DWELL_ART_PX, 4 * DWELL_ART_PX },
+        [ATLAS_DWELL_HOLLOW - UI_PANEL_COUNT] = { 1792, 3472, 4 * DWELL_ART_PX, 5 * DWELL_ART_PX },
+        [ATLAS_DWELL_MENU_A - UI_PANEL_COUNT] = { 1792, 0, DWELL_MENU_PX, 4 * DWELL_MENU_PX },
+        [ATLAS_DWELL_MENU_B - UI_PANEL_COUNT] = { 1024, 2048, 3 * DWELL_MENU_PX, DWELL_MENU_PX },
+        [ATLAS_DWELL_MENU_C - UI_PANEL_COUNT] = { 1344, 2368, 4 * DWELL_MENU_PX, 2 * DWELL_MENU_PX },
     };
     if (slot >= 0 && slot < UI_PANEL_COUNT) {
         return ui_atlas_rect((UiPanelId)slot);
@@ -430,6 +438,9 @@ void xrDrawCodeArt(uint8_t* atlas) {
                     a * 255.0f);
         }
     }
+
+    // Native (lane radial-dwell): the dwell's circle and its radial menu
+    xrDrawDwellArt(atlas);
 }
 
 // ---- the environment ------------------------------------------------------------------
