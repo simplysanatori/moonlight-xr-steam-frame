@@ -2,25 +2,29 @@
 
 ## 1.1.0 (October 2026)
 
+1.1.0 is the largest update so far. Every controller button can now be changed in `bindings.ini`, and there is a Gun model with lightgun mode, gyro from the headset, Bluetooth and USB gamepad passthrough, and a Host sheet of hard-to-reach keys and macros. The picture gets sharper small text, a 3D source for side-by-side and top-bottom pairs, screen presets, zoom and a remembered place for each app. Streams reconnect by themselves, start at a bitrate for each connection (up to 500 Mbps), can run over a USB cable, and use VPN addresses only away from home. A new Accessibility tab (early) lets the head or the eyes (experimental) point and click, with a dwell click and a radial menu. The flat window gets a searchable, tidied Settings page, a controller bindings editor, stream profiles and a check of the PC before each stream.
+
 ### Streaming
 
 - Each connection can start at its own bitrate: **Bitrate over Wi-Fi**, **Bitrate over the Steam Frame Wireless Adapter**, **Bitrate over a wired network** and **Bitrate over the USB cable** under Connection. **Same as above** (the default) uses the Video bitrate.
-- The **Video bitrate** row and `config.ini` go up to 500 Mbps.
-- The Settings page's **Video bitrate** slider moved to Connection, right above the per-connection bitrate rows (which stay **Same as above**).
+- Every bitrate row goes up to 500 Mbps, with no Unlock bitrate switch: **Video bitrate**, **Custom bitrate**, the four connection rows and `config.ini`, whatever an older configuration says. A stream used to stop at 150 Mbps unless that hidden Moonlight option was on.
+- The Settings page's **Video bitrate** slider is under Connection, right above the per-connection rows, and moves in 5 Mbps steps with left and right (0.5 Mbps when dragged).
+- The connection rows open a list with a **Custom...** entry (0.5 to 500 Mbps), and every bitrate row shows its figure in Mbps. The log says the bitrate a stream asks for and where it came from.
 - A dropped connection reconnects by itself: the headset keeps the room, the screen's place and the 3D, and asks the PC to resume the same app twice (after 2 and 5 seconds) before the flat window comes back.
 - Taking the headset off mutes the sound and lets go of every key and button held on the PC. After 60 seconds off, the stream disconnects and the game keeps running on the PC (`[stream] doff_disconnect`, 0 for never).
 - **Disconnect when idle** ends the stream after a set time with no input; the game keeps running (off by default).
 - After lost video the headset waits for the PC's quick repair as long as the link needs before it asks for a full frame, so a bad moment on Wi-Fi does not turn into a longer freeze.
 - **Full-frame requests after lost video** limits how often the headset asks the PC for a full frame (500 ms by default).
-- **Virtual surround** keeps the 5.1 and 7.1 speakers in place as you turn your head, and has a switch on the Settings page (off by default).
-- **Virtual surround** now works with Stereo too: the two channels become speakers in front of the screen that stay put as you turn your head.
+- **Virtual surround** keeps the 5.1 and 7.1 speakers in place as you turn your head, and with Stereo the two channels become speakers in front of the screen that stay put too. It has a switch on the Settings page (off by default).
 - The sound mutes while the SteamVR dashboard is open, and everything held down on the PC is let go.
 - The Moonlight XR logo with "Connecting to *PC name*..." shows while a stream starts, and "Reconnecting..." while it reconnects.
 
 ### Network
 
 - A USB data cable between the headset and the PC is a third connection: **USB cable** under Network connection, and Automatic tries it too. It needs the headset in developer mode.
-- **Use VPN addresses only away from home** under Connection (on by default). A PC's VPN address is used only when the PC does not answer on a direct address; at home the home network is always used, and the log says so in one line.
+- **Use VPN addresses only away from home** under Connection (on by default). A PC's VPN address is used only when the PC does not answer on a direct address; at home the home network is always used, even when the VPN answers faster (that gave dropped audio and a low frame rate), and the log says so in one line.
+- The headset learns the PC's home address the first time it finds it and never removes a saved VPN address. Switching network never moves a stream from the home network to a VPN, and streams over a VPN are not counted in the per-link history.
+- A local port forward to the PC on a loopback address (such as 127.0.0.1, added as the PC's address) is kept as a VPN path: used only when the PC does not answer directly.
 - **Switch network when video keeps breaking up** moves a stream that keeps losing video to another link that measured clearly better when it started; **Video loss before switching** sets how much loss that takes. Off by default, and only with Network connection on Automatic.
 - `moonlight.log` tells video lost on the network apart from Wi-Fi power saving and packets dropped inside the headset, with a summary of each burst of loss, for bug reports.
 
@@ -80,15 +84,19 @@
 - **Mouse mode** Relative sends how far the pointer moves instead of where it is, for games that capture the mouse (Absolute by default).
 - **Head turns the game's camera (first-person games)** (head-look, experimental): with the screen head locked or in a room, your head's turn moves the PC's mouse for first-person games; hold a grip to turn back without turning the game (off by default).
 - **Head tracking to opentrack** sends your head's position and turn to opentrack on the PC, for simulators that take TrackIR or FreeTrack (off by default).
-- **Accessibility** (early): a new Accessibility tab in the cog and a matching section on the Settings page, with one **Pointer** control (Controller, Head, Eyes; Eyes is experimental: the eyes jitter and land only near where you look, and the dot is held still while they rest), **Dwell click** (0.6 to 1.5 s), a **Dot size** slider (50 to 300 % of the head and eye pointer's dot and its dwell ring), and a line at the bottom saying what the row under the pointer does. The flat window shows the same sentence as a tip on hover or gamepad focus. Nothing turns on by itself.
-- Whenever SteamVR offers eye tracking, the app asks for it, so **Eyes** works from the Accessibility tab without editing `config.ini`. On a Steam Frame, eye gaze reaches the app. The tab says whether gaze is arriving, Eyes is dimmed only when SteamVR does not offer eye tracking at all, and the head takes over while the eyes are lost.
-- With the head or eye pointer, holding the right Menu button and the right grip for half a second makes the controllers point again (and saves it). Menu alone still opens the cog, as you let go of it.
-- The dwell click shows as a circle in the dot's colour that goes round and closes in on the dot, and fades if you move away before it clicks. **Dwell click style** (Simple by default) adds a **Radial menu**: near the end of a dwell on the picture, keep still for a click, look left for a double click, down to drag (the next dwell drops it) or right for a right click; look well away to cancel. Every click lands where the dwell started.
+- **Accessibility** (early): a new tab in the cog and a matching section on the Settings page, for pointing and clicking with the head or the eyes. Nothing turns on by itself.
+- **Pointer** (Controller, Head, Eyes) chooses what moves the pointer. **Eyes** is experimental: the eyes jitter and land only near where you look, so the dot is held still while they rest and a dwell tolerates a wider wander; the head takes over while the eyes are lost.
+- Whenever SteamVR offers eye tracking, the app asks for it, so **Eyes** works from the tab without editing `config.ini`. On a Steam Frame, eye gaze reaches the app; the tab says whether gaze is arriving, and Eyes is dimmed only when SteamVR does not offer eye tracking at all.
+- **Dwell click** (Off, 0.6 to 1.5 s) clicks when the dot rests on a spot. It shows as a circle in the dot's colour that goes round and closes in on the dot, and fades if you move away before it clicks.
+- **Dwell click style** (Simple by default) adds a **Radial menu**: near the end of a dwell on the picture, keep still for a click, look left for a double click, down to drag (the next dwell drops it) or right for a right click; look well away to cancel. Every click lands where the dwell started.
+- **Dot size** (50 to 300 %) scales the head and eye pointer's dot and its dwell ring.
+- A line at the bottom of the tab says what the row under the pointer does. The flat window shows the same sentence as a tip on hover or gamepad focus.
+- Holding the right Menu button and the right grip for half a second makes the controllers point again (and saves it). Menu alone still opens the cog, as you let go of it.
 - A gamepad card hangs in your lap while a Bluetooth or USB gamepad is in use and lights up what you press on it (**Gamepad card in the headset**: Automatic, On, Off).
 
 ### The bar and menus
 
-- **Bring here**, outermost on the bar's left, switches the screen between the Screen tab's Desk preset and the place it had before, exactly as you left it (Cinema when nothing is remembered). It does not follow your head, and the place it goes back to is kept across restarts.
+- **Bring here**, outermost on the bar's left (screen in the world, outside a room), switches the screen between the Screen tab's Desk preset and the place it had before, exactly as you left it (Cinema when nothing is remembered). It does not follow your head, and the place it goes back to is kept across restarts.
 - A **Host** button on the bar opens the Host sheet (also `app:host` in `bindings.ini`).
 - Exit on the bar asks **Quit app**, **Disconnect** (the game keeps running on the PC) or **Cancel**.
 - The cog opens on the tab you used last.
@@ -123,8 +131,7 @@
 - **On start** in Settings opens the last PC's Desktop, or an app you choose, as soon as the PC is online, and wakes the PC first.
 - **Help** opens the readme in Steam's browser in Game Mode, as the Ko-fi page does.
 - Apollo apps are started by their UUID as well as their number, as Artemis does, so Apollo knows when that app is already running.
-- The right thumbstick of a gamepad (the Frame controllers in Game Mode) scrolls the flat window's pages smoothly, faster the further it is pushed; the left stick and the d-pad still move from item to item, now also through a long list in a dialog, and the page follows.
-- The bitrate rows for each connection open a list with a **Custom...** entry (0.5 to 500 Mbps), and every bitrate row shows its figure the same way, in Mbps. The log says the bitrate a stream asks for and where it came from.
+- The right thumbstick of a gamepad (the Frame controllers in Game Mode) scrolls the flat window's pages smoothly, faster the further it is pushed; the left stick and the d-pad move the focus from item to item, now also through a long list in a dialog, and the page follows.
 
 ### Install
 
@@ -136,20 +143,15 @@
 
 - The Settings page is tidied up. Rows that were filed under Performance Monitor or Gamepad move to where they belong (Scroll speed to Input; 3D eye balance to the 3D rows; Notices, Zoom, Background dim, Glow edge and Void colour to UI; the two disconnect rows and the controls card to General), the 3D switch, 3D source and depth model come before the rows they grey out, and a row that depends on another is greyed with the reason while that one is off. Head-look is **Head turns the game's camera (first-person games)** under Input, next to Mouse mode, and Back button as Guide is under Gamepad.
 - Settings page names follow the headset's cog where it has the same setting (**Sharpen**, **Supersample**, **Screen size**, **Remember per app**, **Angular-size lock**, **Head aim**, **Pointer sleep**, **Notices**, **Stats**, **3D depth**, **3D convergence** and more), in sentence case. **Head locked** (Off, On, Follow) and **Ray** (Off, Dot, Ray) are one row each, as in the cog, and Render Mode is the **3D** switch. Custom resolution is the **Custom...** entry of Video resolution. The rows that could never be used on the Frame are gone (HDR, Unlock all possible frame rates, the AV1 codec choice). Apollo-only rows say "Needs Apollo".
-- The headset remembers the PC's home address the first time it finds it and never removes a saved VPN address. Switching networks when video keeps breaking up never moves a stream from the home network to a VPN. Streams over a VPN are not counted in the per-link history.
 - The Display tab's Controller model row (Off, On) is now **Show controllers** (Off, Frame, Gun). When SteamVR's Frame models could not be converted, no controller is drawn instead of a plain one.
 - The About tab's Ko-fi button reads **Support simplysanatori on Ko-fi** and its sheet opens this port's page in Steam's browser; the QR code is gone.
 
 ### Fixed
 
-- At home, a stream could go through a VPN when its address answered faster, with dropped audio and a low frame rate.
-- A stream could not go above 150 Mbps unless a hidden Moonlight option (Unlock bitrate) was on; it now goes to 500 Mbps from every bitrate row (Video bitrate, Custom bitrate and the rows for each connection), whatever an older configuration says.
-- A local port forward to the PC on a loopback address (such as 127.0.0.1, added as the PC's address) was dropped by the flat window; it is now kept and used, like a VPN address, only when the PC does not answer directly.
 - A white beam no longer runs across the picture when you move the ray along the bar with the other controller pointing at the picture: the whole bar row now belongs to the hand on it.
 - The ray and the controller model no longer flicker or jump when tracking drops for a moment: the last aim is held for up to 300 ms.
 - The controller bindings are offered to SteamVR under both names it gives the Frame controllers, the older one and the one SteamVR uses since 2.15.1.
-- A dwell click no longer repeats on the same spot every dwell time, and a dwell on an open menu no longer clicks the picture behind it.
-- Resting the dwell on a cell already in force no longer clicks it again every dwell time, and the headset's menus redraw on their own when only the hover changes.
+- A dwell click no longer repeats on the same spot or cell every dwell time, a dwell on an open menu no longer clicks the picture behind it, and the headset's menus redraw on their own when only the hover changes.
 
 ## 1.0.1 (October 2026)
 
