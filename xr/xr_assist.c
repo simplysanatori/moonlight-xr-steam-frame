@@ -22,8 +22,7 @@ int cogAccessCells(XrCtx* ctx, int row) {
     (void)ctx;
     return row == COG_ACCESS_ROW_POINTER ? COG_ACCESS_POINTER_CELLS
          : row == COG_ACCESS_ROW_DWELL ? COG_ACCESS_DWELL_CELLS
-         : row == COG_ACCESS_ROW_STYLE ? COG_ACCESS_STYLE_CELLS
-         : row == COG_ACCESS_ROW_BUTTON ? COG_ACCESS_BUTTON_CELLS : 0;
+         : row == COG_ACCESS_ROW_STYLE ? COG_ACCESS_STYLE_CELLS : 0;
 }
 
 int cogAccessCellLive(XrCtx* ctx, int row, int cell) {
@@ -35,13 +34,9 @@ int cogAccessCellLive(XrCtx* ctx, int row, int cell) {
 }
 
 int cogAccessRowLive(XrCtx* ctx, int row) {
-    // every row but the pointer's acts only with the head or the eyes pointing; the headset button
-    // also needs a device this app may read (unknown until the session has looked: live)
+    // every row but the pointer's acts only with the head or the eyes pointing
     if (row == COG_ACCESS_ROW_POINTER) {
         return 1;
-    }
-    if (row == COG_ACCESS_ROW_BUTTON && accessButtonGreyed(ctx->auxState)) {
-        return 0;
     }
     return ctx->pointerSource != POINTER_SOURCE_CONTROLLER;
 }
@@ -77,14 +72,6 @@ void cogApplyAccessCell(XrCtx* ctx, int row, int cell, float* out) {
         ctx->assistDwellStyle = value;
         setting = SETTING_ASSIST_DWELL_STYLE;
         LOGEV("dwell click style %s from the Accessibility tab", value == DWELL_STYLE_RADIAL ? "radial menu" : "simple");
-        break;
-    case COG_ACCESS_ROW_BUTTON:
-        // native (lane a11y-2): the next frame takes the button, or gives it back
-        value = cell != 0;
-        ctx->assistHeadsetButton = value;
-        ctx->auxEscapeUntilNs = 0;
-        setting = SETTING_ASSIST_HEADSET_BUTTON;
-        LOGEV("headset button clicks %s from the Accessibility tab", value ? "on" : "off");
         break;
     default:
         return;
@@ -159,4 +146,55 @@ void xrGazeWatch(XrCtx* ctx, int64_t nowNs, int focused, int actionActive) {
              (int)(GAZE_WATCH_NS / 1000000000LL), actionActive ? "active" : "not active", ctx->gazeFlags,
              ctx->gazeSupportFlag);
     }
+}
+
+// ---- lane a11y-final: the right hand's way back to the controllers, the Eyes pointer's steadiness ----
+
+void xrPointerBackReset(XrCtx* ctx) {
+    pointerBackReset(&ctx->pointerBack);
+}
+
+void xrPointerBackStep(XrCtx* ctx, uint64_t* down, int64_t now, float* out) {
+    const uint64_t menuBit = XR_BIND_BIT(XR_BIND_SRC_RIGHT_MENU);
+    const uint64_t gripBit = XR_BIND_BIT(XR_BIND_SRC_RIGHT_GRIP);
+    int menuOut = 0;
+    if (pointerBackStep(&ctx->pointerBack, (*down & menuBit) != 0, (*down & gripBit) != 0, now, &menuOut)) {
+        if (ctx->pointerSource == POINTER_SOURCE_CONTROLLER) {
+            LOGI("right Menu and grip held %d ms: the controllers point already",
+                 (int)(POINTER_BACK_HOLD_NS / 1000000LL));
+        }
+        else {
+            LOGEV("pointer controller from the right Menu and grip held %d ms (was %s)",
+                  (int)(POINTER_BACK_HOLD_NS / 1000000LL),
+                  ctx->pointerSource == POINTER_SOURCE_GAZE ? "eyes" : "head");
+            xrSetPointerSource(ctx, POINTER_SOURCE_CONTROLLER, ctx->headDwellMs);
+            ctx->pointerBackUnsaved = 1;
+            xrPanelsNotice(ctx, ui_str(UIS_TOAST_POINTER_BACK));
+        }
+    }
+    *down = menuOut ? (*down | menuBit) : (*down & ~menuBit);
+    // stored as a press on the tab's Controller is, on the first frame the slot is free; a pointer
+    // chosen again meanwhile was stored by its own press
+    if (ctx->pointerBackUnsaved && out != NULL && out[IN_SETTING] < 0.0f) {
+        ctx->pointerBackUnsaved = 0;
+        if (ctx->pointerSource == POINTER_SOURCE_CONTROLLER) {
+            out[IN_SETTING] = (float)SETTING_POINTER_SOURCE;
+            out[IN_SETTING_VALUE] = (float)POINTER_SOURCE_CONTROLLER;
+        }
+    }
+}
+
+XrQuaternionf xrEyesSteady(XrCtx* ctx, XrQuaternionf q, float dt) {
+    Vec3 fwd = { 0.0f, 0.0f, -1.0f };
+    Vec3 d = quatRotate(q, fwd);
+    float raw[3] = { d.x, d.y, d.z }, to[3];
+    gazeSteadyStep(&ctx->gazeSteady, raw, dt, to);
+    // the turn from the gaze to the steadied direction, put on top of the gaze's own
+    Vec3 want = { to[0], to[1], to[2] };
+    Vec3 axis = vecCross(d, want);
+    float s = sqrtf(vecDot(axis, axis)), c = vecDot(d, want);
+    if (s < 1e-7f) {
+        return q;
+    }
+    return quatNorm(quatMul(axisAngleQuat(vecNorm(axis), atan2f(s, c)), q));
 }

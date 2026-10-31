@@ -118,6 +118,18 @@ void cogAccessDragEnded(XrCtx* ctx, int row, float* out);
 int xrAccessHoverRow(const XrCtx* ctx);
 // The scale the pointer's dot is drawn at (assist_dot_size with the head or the eyes pointing)
 float xrAssistDotScale(const XrCtx* ctx);
+// Native (lane a11y-final): the right hand's way back to the controllers, from pointer mode's
+// bindings frame. down is the controls down this frame (XR_BIND_BIT of XR_BIND_SRC_*): the right
+// Menu button is kept out of it while it may be the chord's (and put back as a one frame press when
+// it was only a tap), and the right Menu and grip held for POINTER_BACK_HOLD_NS set the pointer to
+// the controllers, saved (out's IN_SETTING, on the first frame it is free) and said in a toast. A
+// reset forgets a press under way (a Menu already down is no press until it is let go).
+void xrPointerBackStep(XrCtx* ctx, uint64_t* down, int64_t now, float* out);
+void xrPointerBackReset(XrCtx* ctx);
+// Native (lane a11y-final): the Eyes pointer's ray (q, the gaze's orientation this frame; dt the
+// frame's seconds) turned to its steadied direction (xr_access.h gazeSteadyStep). The head pointer's
+// filters' reset forgets it too.
+XrQuaternionf xrEyesSteady(XrCtx* ctx, XrQuaternionf q, float dt);
 
 // ---- clicks for the head and eye pointer (xr_auxbutton.c, lane a11y-2) -------------------------
 // Once a frame before the input pass: the headset's side button (found, grabbed from SteamVR while
@@ -153,8 +165,6 @@ void xrDwellMenuReset(XrCtx* ctx);
 int xrDwellMenuHostPoint(const XrCtx* ctx, int64_t now, float* u, float* v);
 // The held point to the host when the dot is off the picture (the menu may take it there)
 void xrDwellMenuSendHeld(XrCtx* ctx, int hand, int64_t now, float* out);
-// A press of the headset button while the menu's drag holds the left button: lets it go (1)
-int xrDwellDragRelease(XrCtx* ctx, int64_t now);
 // Once a frame before the input pass: a drag the menu holds is let go when the pointing stops
 void xrDwellMenuWatch(XrCtx* ctx, int64_t now, int focused, int streaming);
 // What the pointer's layers show for it: the dot's quad (a frame of the circle, the hollow dot of a

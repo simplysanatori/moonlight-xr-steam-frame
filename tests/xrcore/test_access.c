@@ -1,6 +1,9 @@
 // Native (lane a11y-tab, a11y-2): the Accessibility tab's pure parts: the dwell row's cells, the
 // eye tracking line, the pointer row's Eyes cell, the dot's size, the row the footer describes, the
-// eyes pointer's fallback to the head, and the tab bar's uneven slots
+// eyes pointer's fallback to the head, and the tab bar's uneven slots; (lane a11y-final) the right
+// hand's chord back to the controllers, the Eyes pointer's steadying and the dwell's tolerances
+#include <stdint.h>
+
 #include "check.h"
 #include "xr_access.h"
 #include "xr_dwell.h"
@@ -149,6 +152,192 @@ static void testTabSlots(void) {
     CHECK(COG_ACCESS_FOOTER_RULE < COG_ACCESS_FOOTER_T && COG_ACCESS_FOOTER_T < 0.95f);
 }
 
+// ---- lane a11y-final ---------------------------------------------------------------------------
+
+#define DEG ((float)M_PI / 180.0f)
+#define FRAME (11112000LL)   // 90 Hz, rounded up so 45 frames make the half second
+
+// A unit direction yaw and pitch degrees off straight ahead (-z)
+static void dirAt(float yaw, float pitch, float d[3]) {
+    d[0] = -sinf(yaw * DEG) * cosf(pitch * DEG);
+    d[1] = sinf(pitch * DEG);
+    d[2] = -cosf(yaw * DEG) * cosf(pitch * DEG);
+}
+
+static float degApart(const float a[3], const float b[3]) {
+    float d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    d = d > 1.0f ? 1.0f : (d < -1.0f ? -1.0f : d);
+    return acosf(d) / DEG;
+}
+
+// A fixed sequence of noise in [-1, 1]
+static uint32_t g_seed = 12345u;
+static float noise(void) {
+    g_seed = g_seed * 1664525u + 1013904223u;
+    return (float)((g_seed >> 8) & 0xFFFFu) / 32767.5f - 1.0f;
+}
+
+static void testDwellTolerance(void) {
+    CHECK(accessDwellToleranceDeg(POINTER_SOURCE_HEAD) == DWELL_TOLERANCE_DEG);
+    CHECK(accessDwellToleranceDeg(POINTER_SOURCE_CONTROLLER) == DWELL_TOLERANCE_DEG);
+    CHECK(accessDwellToleranceDeg(POINTER_SOURCE_GAZE) > accessDwellToleranceDeg(POINTER_SOURCE_HEAD));
+    CHECK(DWELL_TOLERANCE_EYES_DEG == 2.0f);
+}
+
+// The Eyes pointer's dot: gaze jittering by up to a degree each way round one spot (a fixation)
+// moves it by less than 0.3 degrees once it has settled; a real look elsewhere moves it there
+static void testGazeSteady(void) {
+    GazeSteady g;
+    gazeSteadyReset(&g);
+    float raw[3], out[3], first[3], centre[3], settled[3];
+    const float dt = 1.0f / 90.0f;
+    // the first frame is the gaze itself
+    dirAt(3.0f, -2.0f, raw);
+    gazeSteadyStep(&g, raw, dt, first);
+    CHECK(degApart(first, raw) < 1e-3f);
+    // 5 s of a fixation at (10, 5) with +-1 degree of noise in yaw and pitch, every frame
+    gazeSteadyReset(&g);
+    dirAt(10.0f, 5.0f, centre);
+    float rawMax = 0.0f, moved = 0.0f, offCentre = 0.0f;
+    for (int i = 0; i < 450; i++) {
+        dirAt(10.0f + noise(), 5.0f + noise(), raw);
+        gazeSteadyStep(&g, raw, dt, out);
+        float r = degApart(raw, centre);
+        if (r > rawMax) rawMax = r;
+        if (i == 45) {
+            settled[0] = out[0]; settled[1] = out[1]; settled[2] = out[2];
+        }
+        if (i > 45) {
+            float m = degApart(out, settled);
+            if (m > moved) moved = m;
+            float c = degApart(out, centre);
+            if (c > offCentre) offCentre = c;
+        }
+    }
+    CHECK(rawMax > 0.9f);       // the noise really was about a degree
+    CHECK(moved < 0.3f);        // and the dot hardly moved after its first half second
+    CHECK(offCentre < 0.8f);    // and it rests near the fixation
+    // the same with the raw in out (the input pass passes one array)
+    gazeSteadyReset(&g);
+    dirAt(0.0f, 0.0f, raw);
+    gazeSteadyStep(&g, raw, dt, raw);
+    CHECK(degApart(raw, centre) > 5.0f);
+    // a look 10 degrees away: the dot is there (within half a degree) in 0.3 s
+    gazeSteadyReset(&g);
+    for (int i = 0; i < 30; i++) {
+        dirAt(noise() * 0.5f, noise() * 0.5f, raw);
+        gazeSteadyStep(&g, raw, dt, out);
+    }
+    dirAt(10.0f, 0.0f, centre);
+    int at = -1;
+    for (int i = 0; i < 90; i++) {
+        dirAt(10.0f + noise() * 0.5f, noise() * 0.5f, raw);
+        gazeSteadyStep(&g, raw, dt, out);
+        if (at < 0 && degApart(out, centre) < 0.5f) at = i;
+    }
+    CHECK(at >= 0 && at <= 27);
+    CHECK(degApart(out, centre) < 0.6f);
+    // one wild frame (a blink's last sample, a tracking glitch) does not move the dot
+    float before[3] = { out[0], out[1], out[2] };
+    dirAt(25.0f, 10.0f, raw);
+    gazeSteadyStep(&g, raw, dt, out);
+    dirAt(10.0f, 0.0f, raw);
+    gazeSteadyStep(&g, raw, dt, out);
+    CHECK(degApart(out, before) < 0.05f);
+    // a slow look across (5 degrees a second): the dot keeps up within about a degree and a half (it holds, then catches up)
+    gazeSteadyReset(&g);
+    float lagMax = 0.0f;
+    for (int i = 0; i < 270; i++) {
+        float yaw = 5.0f * (float)i * dt;
+        dirAt(yaw, 0.0f, raw);
+        gazeSteadyStep(&g, raw, dt, out);
+        float lag = degApart(out, raw);
+        if (i > 90 && lag > lagMax) lagMax = lag;
+    }
+    CHECK(lagMax < 1.7f);
+    // a direction that is not one is ignored, and the reset forgets
+    float bad[3] = { 0.0f / 0.0f, 0.0f, -1.0f };
+    gazeSteadyStep(&g, bad, dt, out);
+    CHECK(isfinite(out[0]) && isfinite(out[1]) && isfinite(out[2]));
+    gazeSteadyReset(&g);
+    CHECK(!g.valid);
+}
+
+// Frames of the right Menu button and grip at 90 Hz from *t; how many fired, and what the bindings
+// saw of Menu on the last frame and how many frames it was down
+static int chord(PointerBack* b, int64_t* t, int frames, int menu, int grip, int* seen, int* downFrames) {
+    int fired = 0, out = 0;
+    for (int i = 0; i < frames; i++) {
+        *t += FRAME;
+        fired += pointerBackStep(b, menu, grip, *t, &out);
+        if (downFrames != NULL && out) (*downFrames)++;
+    }
+    if (seen != NULL) *seen = out;
+    return fired;
+}
+
+static void testPointerBack(void) {
+    PointerBack b;
+    int64_t t = 1000 * MS;
+    int seen = 0, down = 0;
+    // after a reset a Menu already down is not a press: nothing until it is let go
+    pointerBackReset(&b);
+    CHECK(chord(&b, &t, 60, 1, 1, &seen, &down) == 0 && down == 0);
+    CHECK(chord(&b, &t, 2, 0, 0, &seen, &down) == 0 && down == 0);
+    // Menu tapped alone: nothing while it is down, one frame down on the release (the cog's press)
+    down = 0;
+    CHECK(chord(&b, &t, 20, 1, 0, &seen, &down) == 0 && down == 0);
+    CHECK(chord(&b, &t, 1, 0, 0, &seen, &down) == 0 && seen == 1 && down == 1);
+    CHECK(chord(&b, &t, 3, 0, 0, &seen, &down) == 0 && seen == 0 && down == 1);
+    // Menu and the grip together for half a second: the chord fires once, Menu never goes through
+    down = 0;
+    CHECK(chord(&b, &t, 44, 1, 1, &seen, &down) == 0);
+    CHECK(chord(&b, &t, 2, 1, 1, &seen, &down) == 1);
+    CHECK(chord(&b, &t, 200, 1, 1, &seen, &down) == 0 && down == 0);
+    CHECK(chord(&b, &t, 3, 0, 0, &seen, &down) == 0 && down == 0);
+    // the exact time: POINTER_BACK_HOLD_NS after both are down
+    pointerBackReset(&b);
+    b.prev = 0;
+    t = 5000 * MS;
+    int out = 0;
+    CHECK(pointerBackStep(&b, 1, 1, t, &out) == 0);
+    CHECK(pointerBackStep(&b, 1, 1, t + POINTER_BACK_HOLD_NS - 1, &out) == 0);
+    CHECK(pointerBackStep(&b, 1, 1, t + POINTER_BACK_HOLD_NS, &out) == 1 && out == 0);
+    CHECK(pointerBackStep(&b, 0, 0, t + POINTER_BACK_HOLD_NS + FRAME, &out) == 0 && out == 0);
+    // the grip first, then Menu: the hold counts from Menu's press; the cog does not open
+    down = 0;
+    t += 2000 * MS;
+    CHECK(chord(&b, &t, 30, 0, 1, &seen, &down) == 0);
+    CHECK(chord(&b, &t, 46, 1, 1, &seen, &down) == 1 && down == 0);
+    CHECK(chord(&b, &t, 2, 0, 0, &seen, &down) == 0 && down == 0);
+    // the chord building and given up (the grip let go early): no chord, and no cog either
+    down = 0;
+    CHECK(chord(&b, &t, 20, 1, 1, &seen, &down) == 0);
+    CHECK(chord(&b, &t, 60, 1, 0, &seen, &down) == 0 && down == 0);
+    CHECK(chord(&b, &t, 2, 0, 0, &seen, &down) == 0 && down == 0);
+    // Menu first, the grip a moment later: the chord, counted from the grip
+    CHECK(chord(&b, &t, 10, 1, 0, &seen, &down) == 0);
+    CHECK(chord(&b, &t, 44, 1, 1, &seen, &down) == 0);
+    CHECK(chord(&b, &t, 2, 1, 1, &seen, &down) == 1 && down == 0);
+    CHECK(chord(&b, &t, 2, 0, 0, &seen, &down) == 0 && down == 0);
+    // the grip let go and taken again: the hold starts over
+    CHECK(chord(&b, &t, 30, 1, 1, &seen, &down) == 0);
+    CHECK(chord(&b, &t, 1, 1, 0, &seen, &down) == 0);
+    CHECK(chord(&b, &t, 44, 1, 1, &seen, &down) == 0);
+    CHECK(chord(&b, &t, 2, 1, 1, &seen, &down) == 1);
+    CHECK(chord(&b, &t, 2, 0, 0, &seen, &down) == 0 && down == 0);
+    // Menu held alone past the hold time goes through as held (a binding that holds still works),
+    // and a grip that comes after that is no chord
+    down = 0;
+    CHECK(chord(&b, &t, 44, 1, 0, &seen, &down) == 0 && down == 0);
+    CHECK(chord(&b, &t, 2, 1, 0, &seen, &down) == 0 && seen == 1);
+    CHECK(chord(&b, &t, 90, 1, 1, &seen, &down) == 0 && seen == 1);
+    CHECK(chord(&b, &t, 1, 0, 0, &seen, &down) == 0 && seen == 0);
+    // the grip alone does nothing
+    down = 0;
+    CHECK(chord(&b, &t, 90, 0, 1, &seen, &down) == 0 && down == 0);
+}
+
 int main(void) {
     testDwellCells();
     testEyesState();
@@ -157,5 +346,8 @@ int main(void) {
     testRowAt();
     testGazeFall();
     testTabSlots();
+    testDwellTolerance();
+    testGazeSteady();
+    testPointerBack();
     return checksDone("xr_access");
 }
