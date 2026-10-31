@@ -40,4 +40,37 @@ const char* mlxr_abr_kind_name(int kind);
 // The log line: "bitrate for Wi-Fi: 60000 kbps (override)" or "... (launcher)"
 void mlxr_abr_line(int kind, const MlxrAbrPick* pick, char* buf, size_t cap);
 
+// Native (lane flat-input): the whole decision at the start of a stream, and where its figure came from, so the log
+// says it plainly. In order: the connection's own row (overrides[kind] above 0), else --bitrate (the flat launcher's
+// Video bitrate, its Custom bitrate row typed in the same place), else config.ini [stream] bitrate_kbps, else the
+// default for the resolution and frame rate. Every figure is held to 500 kbps .. 500 Mbps, nothing lower: no 150 Mbps
+// cap anywhere on this path (only the default curve stops at 150 Mbps, settings_default_bitrate_kbps).
+enum {
+    MLXR_BITRATE_FROM_DEFAULT = 0,   // the default for the resolution and frame rate
+    MLXR_BITRATE_FROM_ARG = 1,       // --bitrate, the flat launcher's Video bitrate
+    MLXR_BITRATE_FROM_CONFIG = 2,    // config.ini [stream] bitrate_kbps
+    MLXR_BITRATE_FROM_PATH = 3,      // config.ini [stream] bitrate_wifi / _adapter / _wired / _usb
+};
+
+typedef struct MlxrAbrStart {
+    int kbps;      // what the stream asks the PC for
+    int asked;     // the figure before it was held to 500 .. 500000 (equal to kbps unless it was out of range)
+    int source;    // MLXR_BITRATE_FROM_*
+    int kind;      // the path kind it was decided for
+} MlxrAbrStart;
+
+MlxrAbrStart mlxr_abr_start(int kind, int argKbps, int configKbps, int defaultKbps, const int overrides[MLXR_ABR_KINDS]);
+
+// "[stream] bitrate_wifi" for a path kind (NULL for an unknown one)
+const char* mlxr_abr_key(int kind);
+
+// Where it came from, in words for the log: "the flat launcher's Video bitrate (--bitrate)",
+// "config.ini [stream] bitrate_wifi (Bitrate over Wi-Fi)", "config.ini [stream] bitrate_kbps",
+// "the default for this resolution and frame rate"
+void mlxr_abr_source_text(const MlxrAbrStart* st, char* buf, size_t cap);
+
+// The log line: "stream bitrate: 300000 kbps (300 Mbps) over Wi-Fi, from the flat launcher's Video bitrate (--bitrate)",
+// with ", asked for 900000 kbps, held to the 500 Mbps cap" when it was out of range
+void mlxr_abr_start_line(const MlxrAbrStart* st, char* buf, size_t cap);
+
 #endif

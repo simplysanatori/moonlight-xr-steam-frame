@@ -30,6 +30,9 @@ typedef struct StreamHost {
 int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* video,
                  PAUDIO_RENDERER_CALLBACKS audio, void* audioContext);
 void stream_stop(void);
+// Native (lane flat-input): where the bitrate in the next stream_start's configuration came from, for its "starting
+// stream" log line ("the flat launcher's Video bitrate (--bitrate)"); NULL or "" leaves it out
+void stream_set_bitrate_source(const char* why);
 // Hardware (V4L2) decode on by default; off = FFmpeg software decode.
 void stream_set_hw_decode(int on);
 // Closes the hardware decoder; call after xr_app_run returned and after stream_stop.

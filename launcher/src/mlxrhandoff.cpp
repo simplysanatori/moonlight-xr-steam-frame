@@ -235,7 +235,12 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
     }
     a << "--mode" << QString("%1x%2x%3").arg(p.width).arg(p.height).arg(fps);
     if (p.bitrateKbps > 0) {
-        a << "--bitrate" << QString::number(p.bitrateKbps);
+        // Native (lane flat-input): as set, up to 500 Mbps (only a figure typed into the config file can be more)
+        if (p.bitrateKbps > kMaxBitrateKbps) {
+            qWarning() << "The bitrate setting" << p.bitrateKbps << "kbps is above" << kMaxBitrateKbps << "kbps: asking for"
+                       << kMaxBitrateKbps;
+        }
+        a << "--bitrate" << QString::number(qMin(p.bitrateKbps, kMaxBitrateKbps));
     }
     // The native client streams H.264 or HEVC; AV1 and "auto" leave its own choice (HEVC, H.264 fallback)
     if (p.videoCodecConfig == StreamingPreferences::VCC_FORCE_H264) {
@@ -266,6 +271,28 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
         a << "--local-audio";
     }
     MlxrPrefs* prefs = MlxrPrefs::get();
+    // Native (lane flat-input): the bitrate the stream asks for and where it came from, beside the VR client's own
+    // "stream bitrate:" line. 500 to 500000 kbps everywhere; nothing here caps it at stock's 150000.
+    {
+        const QString from = plan.profile ? QString("settings profile \"%1\"").arg(plan.profile->profile)
+                                          : QString("the Settings page's Video bitrate");
+        QStringList rows;
+        const struct { const char* name; int kbps; } paths[] = { { "Wi-Fi", prefs->bitrateWifi },
+                                                                 { "Steam Frame Wireless Adapter", prefs->bitrateAdapter },
+                                                                 { "wired network", prefs->bitrateWired },
+                                                                 { "USB cable", prefs->bitrateUsb } };
+        for (const auto& r : paths) {
+            if (r.kbps > 0) {
+                rows << QString("%1 kbps over %2").arg(r.kbps).arg(r.name);
+            }
+        }
+        qInfo().noquote() << QString("hand-off bitrate: %1 from %2%3")
+                                 .arg(p.bitrateKbps > 0 ? QString("--bitrate %1 kbps").arg(qMin(p.bitrateKbps, kMaxBitrateKbps))
+                                                        : QString("no --bitrate (the VR client's config.ini or default)"))
+                                 .arg(from)
+                                 .arg(rows.isEmpty() ? QString() : QString("; the connection rows replace it: %1 (config.ini)")
+                                                                       .arg(rows.join(", ")));
+    }
     a << prefs->clientArgs();
     plan.clipboardSync = prefs->clipboardSync;
     // Native (lane refresh): a fixed display rate picked on the Settings page goes to SteamVR too
@@ -327,9 +354,24 @@ static QString safeName(const QString& uuid)
     return s.isEmpty() ? QString("host") : s;
 }
 
+// Native (lane flat-input): one form for an address: an IPv4-mapped one (::ffff:127.0.0.1) as plain IPv4, localhost as
+// 127.0.0.1
+static QString plainAddress(const QString& a)
+{
+    const QString t = a.trimmed();
+    if (t.compare("localhost", Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("127.0.0.1");
+    }
+    static const QRegularExpression mapped("^::ffff:(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})$",
+                                           QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch m = mapped.match(t);
+    return m.hasMatch() ? m.captured(1) : t;
+}
+
 static bool isLoopback(const QString& a)
 {
-    return a.startsWith("127.") || a == "::1" || a == "localhost";
+    const QString p = plainAddress(a);
+    return p.startsWith("127.") || p == "::1";
 }
 
 struct HostRecord {
@@ -426,6 +468,8 @@ bool exportPairing(const NvComputer& c, QString* error)
     // ---- the host ----
     QString uuid, name, mac;
     QStringList addrs; // preference order: the address that answers now, then the saved ones
+    QStringList loopbacks; // Native (lane flat-input): local port forwards (127.x, ::1), kept and put last
+    uint16_t loopbackPort = 0;
     QByteArray srvPem;
     int httpPort = 47989, httpsPort = 47984;
     {
@@ -442,14 +486,25 @@ bool exportPairing(const NvComputer& c, QString* error)
         const NvAddress order[] = { c.activeAddress, c.manualAddress, c.localAddress, c.remoteAddress, c.ipv6Address };
         bool first = true;
         for (const NvAddress& a : order) {
-            if (a.isNull() || a.address().isEmpty() || isLoopback(a.address()) || addrs.contains(a.address())) {
+            const QString addr = a.isNull() ? QString() : plainAddress(a.address());
+            // Native (lane flat-input): a loopback address (a port forward the user set up on the Frame, given as the
+            // PC's manual address) is kept, after the others (below): the VR client takes it as a VPN path, used only
+            // when the PC does not answer directly
+            if (addr.isEmpty() || isLoopback(addr) || addrs.contains(addr)) {
+                if (isLoopback(addr) && !loopbacks.contains(addr)) {
+                    loopbacks << addr;
+                    loopbackPort = loopbackPort ? loopbackPort : a.port();
+                }
                 continue;
             }
             if (first) {
                 httpPort = a.port() ? a.port() : 47989;
                 first = false;
             }
-            addrs << a.address();
+            addrs << addr;
+        }
+        if (first && loopbackPort) {
+            httpPort = loopbackPort;   // a forward is the only way to the PC known: its port
         }
         if (c.activeHttpsPort) {
             httpsPort = c.activeHttpsPort;
@@ -488,11 +543,22 @@ bool exportPairing(const NvComputer& c, QString* error)
                 continue;
             }
             for (const QString& old : kv.second.split(',', Qt::SkipEmptyParts)) {
-                const QString o = old.trimmed();
-                if (!o.isEmpty() && !isLoopback(o) && !addrs.contains(o) && addrs.size() < 8) {
+                const QString o = plainAddress(old);
+                if (isLoopback(o)) {
+                    if (!loopbacks.contains(o)) {
+                        loopbacks << o;
+                    }
+                }
+                else if (!o.isEmpty() && !addrs.contains(o) && addrs.size() < 8) {
                     addrs << o;
                 }
             }
+        }
+    }
+    // Native (lane flat-input): the loopback forwards last, never the first address, at most two
+    for (const QString& l : loopbacks.mid(0, 2)) {
+        if (addrs.size() < 10) {
+            addrs << l;
         }
     }
 

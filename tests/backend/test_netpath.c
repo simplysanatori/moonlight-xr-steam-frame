@@ -1703,6 +1703,10 @@ static void test_vpn_classify(void)
         { "127.0.0.1", NULL, true, "loopback" },
         { "127.0.0.2", "lo", true, "loopback" },
         { "::1", NULL, true, "loopback" },
+        /* Native (lane flat-input): a local port forward to the PC written as an IPv4-mapped loopback */
+        { "::ffff:127.0.0.1", NULL, true, "loopback" },
+        { "::FFFF:127.4.5.6", "lo", true, "loopback" },
+        { "::ffff:198.51.100.7", NULL, false, "" },
         { "10.9.9.1", "wg0", true, "interface" },
         { "10.9.9.1", "tun0", true, "interface" },
         { "192.168.1.10", "wlan0", false, "" },
@@ -1816,6 +1820,42 @@ static void test_vpn_choose(void)
             CHECK((strstr(p.summary, ", VPN") != NULL) == p.c[got].vpn);
         }
     }
+}
+
+/* Native (lane flat-input): a local port forward on the Frame (the PC's ports on a loopback address, a tunnel behind
+ * it) is a VPN path: hosts.ini gives it as an extra address, in either form; it is never chosen while the PC answers
+ * on its own address, and is when only it answers */
+static void test_vpn_loopback_forward(void)
+{
+    mlxr_netifs t;
+    frame_table(&t, true);
+    mlxr_net_plan p;
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 47989, "", "");
+    mlxr_net_plan_add_record(&p, "192.168.1.10", "127.0.0.1,::ffff:127.0.0.2");
+    mlxr_net_plan_classify(&p, &t);
+    CHECK_EQ_INT(p.n, 3);
+    CHECK(!p.c[0].vpn);
+    CHECK(p.c[1].vpn && !strcmp(p.c[1].vpn_why, "loopback"));
+    CHECK(p.c[2].vpn && !strcmp(p.c[2].vpn_why, "loopback"));
+
+    const mlxr_net_cand home = mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 9.0, 100);
+    const mlxr_net_cand home_dead = mkflat(MLXR_PATH_HOME, "192.168.1.10", 0, 4, 0, 100);
+    mlxr_net_cand fwd = mkflat(MLXR_PATH_HOME, "127.0.0.1", 15, 0, 0.3, 100);   /* loopback: always the fastest */
+    fwd.vpn = true;
+    snprintf(fwd.vpn_why, sizeof fwd.vpn_why, "loopback");
+    /* at home: the PC answers on the LAN, the forward (were it running) is set aside */
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 47989, "", "");
+    p.c[0] = fwd;
+    p.c[1] = home;
+    p.n = 2;
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    /* away: only the forward answers */
+    mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", 47989, "", "");
+    p.c[0] = home_dead;
+    p.c[1] = fwd;
+    p.n = 2;
+    CHECK_EQ_INT(mlxr_net_choose(&p), 1);
+    CHECK(strstr(p.summary, ", VPN") != NULL);
 }
 
 /* The failover: never from a working direct path to a VPN one; from VPN to direct it may */
@@ -1999,6 +2039,7 @@ int main(void)
     test_bitrate_kind();
     test_vpn_classify();
     test_vpn_choose();
+    test_vpn_loopback_forward();
     test_vpn_failover();
     test_vpn_learn();
     {
