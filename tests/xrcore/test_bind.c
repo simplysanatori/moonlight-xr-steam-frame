@@ -408,6 +408,9 @@ static void testErrors(void) {
     expectError("[gamepad]\nleft.view+right.menu+left.bumper+right.bumper = key:Q\n", 2, 1,
                 "disconnect", 0);
     expectError("[pointer]\nleft.grip+right.a = key:A\n", 2, 1, "grip", 0);
+    // native (lane a11y-final): the right hand's way back to the controllers, in pointer mode
+    expectError("[pointer]\nright.menu+right.grip = app:keyboard\n", 2, 1, "back to the controllers", 0);
+    expectError("[app \"X\"]\npointer.right.grip+right.menu = key:A\n", 2, 9, "back to the controllers", 0);
     // ... which gamepad mode allows
     CHECK(xrBindParse(&g_set, "[gamepad]\nleft.grip+right.a = key:A\n", NULL) == 0);
 

@@ -4,6 +4,7 @@
 // view), "bring here", and the layout kept per PC and app. The arithmetic is
 // xr_layout.c's; this is the glue to the context, the head and the settings
 // that the session saves. GPLv3.
+#include <stdlib.h>
 #include <string.h>
 
 #include "xr_native.h"
@@ -80,48 +81,104 @@ int xrBringScreenHere(XrCtx* ctx) {
     return 1;
 }
 
-// Native (lane bar-glare): the bar's button, near (Desk) and back far
-// (bringTogglePress). The curve keeps its shape as the Screen tab's presets
-// keep it: the radius goes with the distance and with the width.
+// The bar's button: a switch between the Screen tab's Desk preset and the
+// placement the screen left for it (bringSwitchNext). Desk and Cinema go
+// through the Screen tab's own preset code; the way back puts the remembered
+// pose, width, radius and curve back as they were. Nothing here follows the
+// head: the head pose is not read.
 int xrBringHereToggle(XrCtx* ctx) {
-    if (ctx == NULL || !ctx->placementValid || !ctx->headPoseValid || !xrBringHereCanAct(ctx)) {
+    if (ctx == NULL || !ctx->placementValid || !xrBringHereCanAct(ctx)) {
         return -1;
     }
-    Vec3 h = { ctx->headPose.position.x, ctx->headPose.position.y, ctx->headPose.position.z };
-    Vec3 was = { ctx->screenPose.position.x - h.x, ctx->screenPose.position.y - h.y,
-                 ctx->screenPose.position.z - h.z };
-    float wasDist = sqrtf(vecDot(was, was));
-    float wasWidth = ctx->screenWidth;
-    float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
-    int nearNow = bringTogglePress(&ctx->bringToggle, &ctx->screenPose, &ctx->screenWidth, aspect,
-                                   ctx->headPose);
-    Vec3 now = { ctx->screenPose.position.x - h.x, ctx->screenPose.position.y - h.y,
-                 ctx->screenPose.position.z - h.z };
-    float dist = sqrtf(vecDot(now, now));
-    if (wasDist > 0.01f && wasWidth > 0.01f) {
-        ctx->screenRadius *= (dist / wasDist) * (ctx->screenWidth / wasWidth);
+    int next = bringSwitchNext(xrScreenPresetNow(ctx), ctx->bringBackValid);
+    if (next == BRING_TO_DESK) {
+        ctx->bringBackValid = 1;
+        ctx->bringBackPose = ctx->screenPose;
+        ctx->bringBackWidth = ctx->screenWidth;
+        ctx->bringBackRadius = ctx->screenRadius;
+        ctx->bringBackCurve = ctx->panelCurve;
+        xrScreenApplyPreset(ctx, LAYOUT_PRESET_DESK);
+    }
+    else if (next == BRING_BACK) {
+        ctx->screenPose = ctx->bringBackPose;
+        ctx->screenWidth = ctx->bringBackWidth;
+        ctx->screenRadius = ctx->bringBackRadius;
+        ctx->panelCurve = ctx->bringBackCurve;
+    }
+    else {
+        xrScreenApplyPreset(ctx, LAYOUT_PRESET_CINEMA);
     }
     ctx->grabMode = GRAB_NONE;
     followReset(&ctx->follow);
     ctx->poseDirty = 1;
-    LOGEV("screen brought %s from the bar: %.2f m away, %.2f m wide%s", nearNow ? "near" : "far", dist,
-          ctx->screenWidth, nearNow ? "" : (ctx->bringToggle.farValid ? " (as it was)" : " (Cinema)"));
-    return nearNow;
+    XrVector3f p = ctx->screenPose.position;
+    LOGEV("screen from the bar's Bring here: %s, %.2f m from the seat, %.2f m wide",
+          next == BRING_TO_DESK ? "Desk (the placement before it remembered)"
+          : next == BRING_BACK ? "back where it was" : "Cinema (nothing remembered)",
+          sqrtf(p.x * p.x + p.y * p.y + p.z * p.z), ctx->screenWidth);
+    return next;
 }
 
-// Native (lane bar-glare): the far placement into and out of config.ini,
-// [screen] far_distance_cm and far_width_cm, 0 for none
-void xrBringFarToSettings(XrCtx* ctx, Settings* s) {
-    const BringToggle* t = &ctx->bringToggle;
-    s->screen_far_distance_cm = t->farValid ? (int)lroundf(t->farDistance * 100.0f) : 0;
-    s->screen_far_width_cm = t->farValid ? (int)lroundf(t->farWidth * 100.0f) : 0;
+// The remembered placement into and out of config.ini, [screen] back_*: the
+// same keys and sums as the screen's own placement (xrPoseToSettings and
+// xrPoseFromSettings, through a copy of the settings), back_width_cm 0 for
+// none
+void xrBringBackToSettings(XrCtx* ctx, Settings* s) {
+    if (!ctx->bringBackValid) {
+        s->screen_back_distance_cm = s->screen_back_height_cm = s->screen_back_azimuth_deg = 0;
+        s->screen_back_tilt_deg = s->screen_back_rotate_deg = s->screen_back_curve = s->screen_back_width_cm = 0;
+        return;
+    }
+    Settings* tmp = malloc(sizeof(Settings));
+    if (tmp == NULL) {
+        return;
+    }
+    *tmp = *s;
+    float pose[POSE_VALUES] = {
+        ctx->bringBackPose.position.x, ctx->bringBackPose.position.y, ctx->bringBackPose.position.z,
+        ctx->bringBackPose.orientation.x, ctx->bringBackPose.orientation.y, ctx->bringBackPose.orientation.z,
+        ctx->bringBackPose.orientation.w, ctx->bringBackWidth, ctx->bringBackRadius, ctx->bringBackCurve
+    };
+    xrPoseToSettings(pose, ctx->bringBackCurve >= 0.0f ? ctx->bringBackCurve : ctx->prefCurvature, tmp);
+    s->screen_back_distance_cm = tmp->screen_distance_cm;
+    s->screen_back_height_cm = tmp->screen_height_cm;
+    s->screen_back_azimuth_deg = tmp->screen_azimuth_deg;
+    s->screen_back_tilt_deg = tmp->screen_tilt_deg;
+    s->screen_back_rotate_deg = tmp->screen_rotate_deg;
+    s->screen_back_curve = tmp->screen_curve;
+    s->screen_back_width_cm = tmp->screen_width_cm;
+    free(tmp);
 }
 
-void xrBringFarFromSettings(XrCtx* ctx, const Settings* s) {
-    BringToggle* t = &ctx->bringToggle;
-    t->farValid = s->screen_far_distance_cm > 0 && s->screen_far_width_cm > 0;
-    t->farDistance = (float)s->screen_far_distance_cm / 100.0f;
-    t->farWidth = (float)s->screen_far_width_cm / 100.0f;
+void xrBringBackFromSettings(XrCtx* ctx, const Settings* s) {
+    ctx->bringBackValid = 0;
+    if (s->screen_back_width_cm <= 0 || s->screen_back_distance_cm <= 0) {
+        return;
+    }
+    Settings* tmp = malloc(sizeof(Settings));
+    if (tmp == NULL) {
+        return;
+    }
+    *tmp = *s;
+    tmp->screen_distance_cm = s->screen_back_distance_cm;
+    tmp->screen_height_cm = s->screen_back_height_cm;
+    tmp->screen_azimuth_deg = s->screen_back_azimuth_deg;
+    tmp->screen_tilt_deg = s->screen_back_tilt_deg;
+    tmp->screen_rotate_deg = s->screen_back_rotate_deg;
+    tmp->screen_curve = s->screen_back_curve;
+    tmp->screen_width_cm = s->screen_back_width_cm;
+    float p[POSE_VALUES];
+    xrPoseFromSettings(tmp, p);
+    free(tmp);
+    if (p[7] < SCREEN_MIN_WIDTH || p[7] > SCREEN_MAX_WIDTH || p[8] <= 0.0f) {
+        return;
+    }
+    ctx->bringBackPose.position = (XrVector3f){ p[0], p[1], p[2] };
+    ctx->bringBackPose.orientation = quatNorm((XrQuaternionf){ p[3], p[4], p[5], p[6] });
+    ctx->bringBackWidth = p[7];
+    ctx->bringBackRadius = p[8];
+    ctx->bringBackCurve = p[9];
+    ctx->bringBackValid = 1;
 }
 
 // ---- Follow -------------------------------------------------------------------------------------------

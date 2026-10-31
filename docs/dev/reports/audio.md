@@ -11,7 +11,7 @@ Nothing outside `audio/` and `tests/audio/` was touched. No requests for other l
 | file | what |
 |---|---|
 | `hrtf.c/.h` | C port of `Hrtf.java`: loads the 37 KEMAR WAVs from a directory, diffuse field EQ, resample to the stream rate (175 taps at 48 kHz), 72-azimuth mirrored ring, reversed for xr_audio |
-| `surround.c/.h` | C port of `BinauralRenderer.java` + `VirtualSurround.java` + `HeadYaw`: 5.1/7.1 -> 2 ears over `xr_audio` (FFT kernel, direct kernel fallback), head-relative azimuths, crossfade on turning, runtime enable/disable, thread-safe pose |
+| `surround.c/.h` | C port of `BinauralRenderer.java` + `VirtualSurround.java` + `HeadYaw`: 5.1/7.1 (and, native, stereo as two speakers at -30/30 degrees) -> 2 ears over `xr_audio` (FFT kernel, direct kernel fallback), head-relative azimuths, crossfade on turning, runtime enable/disable, thread-safe pose |
 | `pcmq.c/.h` | bounded float PCM FIFO (mutex), drop-oldest at the cap, fade-in after a splice or underrun |
 | `pulse_out.c/.h` | shared PulseAudio threaded mainloop + context (refcounted) and a float32 playback stream with a small pump-driven queue |
 | `opus_out.c/.h` | `AUDIO_RENDERER_CALLBACKS` for moonlight-common-c: multistream decode -> stereo / surround / downmix -> `pulse_out`; stats, mute, pose |
@@ -46,7 +46,7 @@ During the session (any thread, lock-free, cheap enough to call every frame):
 |---|---|
 | `mlxr_opus_out_set_pose(yawRad, pitchRad)` | every frame loop iteration: the head pose **relative to the screen** (the stream quad): yaw positive when the head is turned LEFT of the screen centre, 0 when the screen is locked to the head (e.g. headlocked/2D mode). Pitch is stored but not used (KEMAR has only the horizontal plane). NaN/inf are ignored. |
 | `mlxr_opus_out_set_muted(true/false)` | headset-off (proximity) / back on. The audio thread corks and flushes the stream on its next packet (<= 5 ms) and drops packets; unmute resets the decoder and convolver state. |
-| `mlxr_opus_out_set_surround_enabled(b)` | the user's virtual-surround setting, any time; crossfaded over one 5 ms block. Off = plain stereo downmix of 5.1/7.1. No effect on stereo streams. |
+| `mlxr_opus_out_set_surround_enabled(b)` | the user's virtual-surround setting, any time; crossfaded over one 5 ms block. Off = plain stereo downmix of 5.1/7.1, stereo as it was sent. On, a stereo stream is two speakers in front of the screen at -30 and 30 degrees, turned with the head as the 5.1/7.1 speakers are (lane polish-3; it used to pass stereo through untouched, so turning the head changed nothing). |
 | `mlxr_opus_out_stats(&s)` | perf overlay: `underruns`, `overruns`/`droppedFrames` (queue cap), `queueMs`, `latencyMs`, `bufferedMs`, `processUs`/`processMaxUs`, `lostPackets`, `decodeErrors`, `mutedPackets`, `surroundActive`, `sinkDead`. After `cleanup` it returns the totals of the stream that ended (log "audio: N underruns over the stream"). |
 | `mlxr_click_init(NULL, err, n)` once at app start (or at stream start), `mlxr_click_play(MLXR_CLICK_PRESS/TICK)` from the frame loop on UI press/hover, `mlxr_click_set_volume(0..1)`, `mlxr_click_shutdown()` at exit | the click is independent of the stream session and works in the menus before any stream; it needs only the PulseAudio connection |
 

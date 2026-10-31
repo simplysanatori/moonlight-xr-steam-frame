@@ -20,6 +20,8 @@
 #include "settings.h"
 #include "text.h"
 #include "ui_strings.h"
+#include "xr_access.h"
+#include "xr_radial.h"
 #include "xr_cards.h"
 #include "xr_hostkeys.h"
 #include "xr_keys.h"
@@ -96,7 +98,6 @@ typedef enum {
     UI_BTN_HOST_CLOSE,       // Host sheet (XR_HOST_ZONE_CLOSE)
     UI_BTN_HOST_CONFIRM,     // Host sheet's confirmation: send (XR_HOST_ZONE_CONFIRM_SEND)
     UI_BTN_HOST_CANCEL,      // Host sheet's confirmation: cancel (XR_HOST_ZONE_CONFIRM_CANCEL)
-    UI_BTN_HOST_PCVR,        // Host sheet: Switch to PC VR (XR_HOST_ZONE_PCVR)
     UI_BTN_KOFI_OPEN,        // Ko-fi sheet, "Open page" (KOFI_ZONE_OPEN)
     UI_BTN_HOST_PAGE         // Host sheet: the header button between its pages (XR_HOST_ZONE_PAGE)
 } UiButton;
@@ -157,7 +158,6 @@ typedef struct {
     // Native: the Host sheet (UI_PANEL_HOST). host_macros is how many of the
     // user's macros there are (names in host_macro, at most XR_HOST_MACRO_SLOTS
     // shown); host_confirm is the cell waiting for a yes, or -1 for none
-    // (XR_HOST_CONFIRM_PCVR: the PC VR switch is asking)
     int host_macros;
     char host_macro[XR_HOST_MACRO_SLOTS][XR_MACRO_NAME];
     int host_confirm;
@@ -192,6 +192,12 @@ typedef struct {
     // Native (lane wave3-cards): the pad in use as the pad card draws it, and what the first-run
     // card words its gamepad lines for (pad.style; Xbox until a pad has been used)
     PadLive pad;
+    // Native (lane a11y-tab): what the Accessibility tab's eye tracking line says (ACCESS_EYES_*,
+    // xr_access.h), which also decides whether its pointer row has the Eyes cell
+    int access_eyes;
+    // Native (lane a11y-2): the Accessibility tab's row under the pointer (COG_ACCESS_ROW_*), whose
+    // one-line description the tab's footer shows, or -1
+    int access_row;
 } UiView;
 
 // Fills the view's defaults from settings (session toggles included)
@@ -285,6 +291,10 @@ int ui_cog_row_count(int face);
 int ui_cog_row_is_track(int face, int row);
 int ui_cog_row_cells(int face, int row);
 int ui_cog_row_live(const UiView* v, int face, int row);
+// Native (lane a11y-tab, a11y-2): the cells an Accessibility row has, and whether one takes a press
+// (the pointer row's Eyes is dimmed where the runtime has no eye gaze, xr_access.h accessEyesCellLive)
+int ui_cog_access_cells(const UiView* v, int row);
+int ui_cog_access_cell_live(const UiView* v, int row, int cell);
 
 // Preset separations (units of the track) for the 3D tab, in cell order
 void ui_presets_for(const Settings* s, int presets[COG_PRESET_CELLS]);

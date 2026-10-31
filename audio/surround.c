@@ -19,6 +19,9 @@
 #define CROSSFADE_DEGREES 0.25f
 #define SIDE_GAIN 0.70710678f
 
+// Native (lane polish-3): a stereo stream as the two front speakers of a
+// 5.1 set, in front of the screen at the usual 30 degrees either side
+static const float AZIMUTHS_2[2] = {-30.0f, 30.0f};
 static const float AZIMUTHS_6[6] = {-30.0f, 30.0f, 0.0f, 0.0f, -135.0f, 135.0f};
 static const float AZIMUTHS_8[8] = {-30.0f, 30.0f, 0.0f, 0.0f, -150.0f, 150.0f, -90.0f, 90.0f};
 
@@ -78,7 +81,8 @@ float mlxr_surround_azimuth(int channels, int channel) {
     if (channel < 0 || channel >= channels) {
         return 0.0f;
     }
-    return channels == 6 ? AZIMUTHS_6[channel] : channels == 8 ? AZIMUTHS_8[channel] : 0.0f;
+    return channels == 2 ? AZIMUTHS_2[channel]
+           : channels == 6 ? AZIMUTHS_6[channel] : channels == 8 ? AZIMUTHS_8[channel] : 0.0f;
 }
 
 static void failed(char* err, int errLen, const char* what) {
@@ -148,8 +152,8 @@ void mlxr_surround_reset(MlxrSurround* s) {
 }
 
 MlxrSurround* mlxr_surround_create(const MlxrSurroundParams* p, char* err, int errLen) {
-    if (p->channels != 6 && p->channels != 8) {
-        failed(err, errLen, "not a surround layout (need 6 or 8 channels)");
+    if (p->channels != 2 && p->channels != 6 && p->channels != 8) {
+        failed(err, errLen, "not a layout the virtual surround places (need 2, 6 or 8 channels)");
         return NULL;
     }
     MlxrSurround* s = (MlxrSurround*) calloc(1, sizeof *s);
@@ -159,7 +163,7 @@ MlxrSurround* mlxr_surround_create(const MlxrSurroundParams* p, char* err, int e
     }
     s->channels = p->channels;
     s->rate = p->sampleRate;
-    s->azimuths = p->channels == 6 ? AZIMUTHS_6 : AZIMUTHS_8;
+    s->azimuths = p->channels == 2 ? AZIMUTHS_2 : p->channels == 6 ? AZIMUTHS_6 : AZIMUTHS_8;
     atomic_init(&s->yaw, 0.0f);
     atomic_init(&s->pitch, 0.0f);
     atomic_init(&s->enabled, 1);
@@ -324,6 +328,10 @@ static float clampUnit(float v) {
 }
 
 void mlxr_downmix_to_stereo(int n, const float* in, int frames, float* out) {
+    if (n == 2) {
+        memcpy(out, in, sizeof(float) * 2 * (size_t) frames);
+        return;
+    }
     for (int f = 0; f < frames; f++) {
         const float* x = in + (size_t) f * n;
         float l = x[0] + SIDE_GAIN * (x[2] + x[3] + x[4]);

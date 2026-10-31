@@ -83,6 +83,7 @@ static struct {
 // (xr_hud.h). Unlike g_lat they are never reset within a stream. Under g_latLock.
 static MlxrHudCum g_hud;
 static int g_setKbps;   // Native (lane wave4b-abr): the bitrate this stream started with, for the HUD and the stats line
+static char g_bitrateWhy[128];   // Native (lane flat-input): where that bitrate came from (stream_set_bitrate_source)
 static atomic_int g_poor;   // the connection status common-c last reported is "poor"
 
 // Native (lane netpath-quality): the whole stream's network figures. The window counters above are
@@ -582,8 +583,9 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
     AUDIO_RENDERER_CALLBACKS noAudio;
     LiInitializeAudioCallbacks(&noAudio);
     g_setKbps = cfg->bitrate;
-    MLOG_I("starting stream to %s: %dx%d %d fps %d kbps, formats 0x%x", host->address, cfg->width, cfg->height,
-           cfg->fps, cfg->bitrate, cfg->supportedVideoFormats);
+    MLOG_I("starting stream to %s: %dx%d %d fps %d kbps%s%s%s, formats 0x%x", host->address, cfg->width, cfg->height,
+           cfg->fps, cfg->bitrate, g_bitrateWhy[0] ? " (from " : "", g_bitrateWhy, g_bitrateWhy[0] ? ")" : "",
+           cfg->supportedVideoFormats);
     xrPadBridgeStart();
     int r = LiStartConnection(&si, cfg, &cl, &dr, audio ? audio : &noAudio, NULL, 0, audioContext, 0);
     if (r != 0) {
@@ -594,6 +596,10 @@ int stream_start(const StreamHost* host, STREAM_CONFIGURATION* cfg, FrameSlot* v
 }
 
 void stream_set_hw_decode(int on) { g_useHw = on; }
+
+void stream_set_bitrate_source(const char* why) {
+    snprintf(g_bitrateWhy, sizeof(g_bitrateWhy), "%s", why ? why : "");
+}
 
 void stream_close_video(void) {
     hw_video_set_current(NULL);

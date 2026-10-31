@@ -1,6 +1,7 @@
-// Audio renderer for moonlight-common-c: Opus multistream decode -> (stereo
-// passthrough | 5.1/7.1 through the virtual surround stage or a plain
-// downmix) -> a low-latency PulseAudio stream.
+// Audio renderer for moonlight-common-c: Opus multistream decode -> (stereo,
+// 5.1 or 7.1 through the virtual surround stage, which passes stereo through
+// and downmixes 5.1/7.1 plainly while it is off | without HRTFs, stereo
+// passthrough or a plain downmix) -> a low-latency PulseAudio stream.
 //
 // Usage (see docs/dev/reports/audio.md for the full sequence):
 //
@@ -45,8 +46,9 @@ typedef struct {
     // Directory with the 37 KEMAR WAVs (assets/hrtf/kemar). NULL: no HRTFs, 5.1/7.1
     // are downmixed to stereo plainly.
     const char* hrtfDir;
-    // Render 5.1/7.1 with the HRTF virtual surround (initial state; runtime
-    // toggle: mlxr_opus_out_set_surround_enabled).
+    // Render stereo, 5.1 and 7.1 with the HRTF virtual surround (initial
+    // state; runtime toggle: mlxr_opus_out_set_surround_enabled). Stereo is
+    // two speakers in front of the screen at -30 and 30 degrees.
     bool surround;
     // PulseAudio sink name; NULL = default sink.
     const char* sink;

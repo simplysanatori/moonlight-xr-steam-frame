@@ -65,6 +65,7 @@ typedef struct Settings {
     int virtual_surround;  // HRTF virtual surround for headsets
     int frame_pacing;      // 0 latency, 1 balanced, 2 cap fps, 3 smoothness
     int network_path;      // 0 auto, 1 home (Wi-Fi), 2 adapter (Steam Frame Wireless Adapter), 3 usb (USB cable)
+    int vpn_only_away;     // native (lane vpn-fallback): 1 = a VPN address of the PC is used only when it does not answer directly
     int doff_disconnect;   // native: seconds with the headset off before the stream disconnects (the host's app stays); 0 never
     int idle_disconnect;   // native: minutes without input before the same; 0 never
     int bitrate_wifi;      // native (lane wave4b-abr): start bitrate in kbps over Wi-Fi; 0 = the launcher's bitrate
@@ -111,6 +112,10 @@ typedef struct Settings {
     int opentrack_port;    // native: its UDP port (OPENTRACK_PORT_MIN..MAX, default 4242)
     int pointer_source;    // native: PLAN 6.5, POINTER_SOURCE_CONTROLLER, HEAD, GAZE (what points)
     int head_dwell_ms;     // native: head Point mode's dwell click, 0 off, else DWELL_MS_MIN..MAX
+    int assist_dot_size;   // native (lane a11y-2): the head and eye pointer's dot, percent (ACCESS_DOT_*)
+    int assist_dwell_style;   // native (lane radial-dwell): DWELL_STYLE_SIMPLE or RADIAL (xr_radial.h)
+    int assist_headset_button;   // native (lane a11y-2): the headset's side button clicks (evdev, grabbed)
+    char assist_click_path[UI_STR_MAX];   // native (lane a11y-2): "<profile> <path>" of an OpenXR button that clicks, "" off
     int mouse_mode;        // native: PLAN 4b.10, MOUSE_MODE_ABSOLUTE, RELATIVE (the ray's point, or its movement)
     int back_as_guide;     // native: PLAN 4b.10, gamepad mode's Back (View) button is Guide
     int scroll_speed;      // native: the thumbstick's wheel, percent of 7.5 notches a second (SCROLL_SPEED_MIN..MAX)
@@ -168,8 +173,10 @@ typedef struct Settings {
     int screen_rotate_deg;    // clockwise positive as the viewer sees it
     int screen_curve;         // percent
     int screen_width_cm;
-    int screen_far_distance_cm; // native (lane bar-glare): where the bar's Bring here goes back to, 0 none
-    int screen_far_width_cm;
+    // The bar's Bring here: the placement it goes back to from Desk, in the
+    // placement's own units; back_width_cm 0 for none
+    int screen_back_distance_cm, screen_back_height_cm, screen_back_azimuth_deg;
+    int screen_back_tilt_deg, screen_back_rotate_deg, screen_back_curve, screen_back_width_cm;
     int per_app;              // native: remember the layout per PC and app
     int angular_lock;         // native: pushing or pulling the held screen keeps its size in the view
 

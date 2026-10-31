@@ -35,6 +35,16 @@
 #define SETTING_DEPTH_SHAPE 34
 #define SETTING_MOTION_RESET 35
 #define SETTING_EYE_BALANCE 36
+// Native (lane a11y-tab): the Accessibility tab's rows, each the value its [vr] key is stored in:
+// pointer_source (POINTER_SOURCE_*), head_dwell_ms (0 off) and (lane a11y-2) assist_dot_size
+// (percent) and assist_headset_button, and (lane radial-dwell) assist_dwell_style
+// (DWELL_STYLE_*). Only a press or a drag on the tab hands these back. (37 to 39 are free;
+// 40 and 41 are xr_shared.h's Background and Glow edge.)
+#define SETTING_POINTER_SOURCE 42
+#define SETTING_HEAD_DWELL 43
+#define SETTING_ASSIST_DOT_SIZE 44
+#define SETTING_ASSIST_HEADSET_BUTTON 45
+#define SETTING_ASSIST_DWELL_STYLE 46
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 
@@ -61,16 +71,18 @@ int xrBringScreenHere(XrCtx* ctx);
 // Native (lane bar-glare): whether Bring here can act at all, the screen in
 // the world and no room up. The bar's Bring here button shows only then.
 int xrBringHereCanAct(XrCtx* ctx);
-// Native (lane bar-glare): the bar's Bring here button, a switch: from far
-// the screen comes round where the eyes are (on the bar) at the Desk preset's
-// distance and width, from near it goes back to the distance and width it had
-// before, or to the Cinema preset's (bringTogglePress). Says 1 when it went
-// near, 0 far, -1 when nothing moved (head locked, a room, no head pose).
+// The bar's Bring here button, a switch between the Screen tab's Desk and
+// Cinema presets: anywhere but Desk it remembers the placement and applies
+// Desk as the Desk cell does; at Desk it puts the remembered placement back
+// exactly, or applies Cinema as the Cinema cell does when none is remembered
+// (xr/core/xr_layout.h bringSwitchNext). Nothing follows the head. Says
+// BRING_TO_DESK, BRING_BACK or BRING_TO_CINEMA, or -1 when nothing moved
+// (head locked, a room, no placement yet).
 int xrBringHereToggle(XrCtx* ctx);
-// Native (lane bar-glare): the far placement it goes back to, into and out of
-// the settings ([screen] far_distance_cm, far_width_cm; 0 none)
-void xrBringFarToSettings(XrCtx* ctx, Settings* s);
-void xrBringFarFromSettings(XrCtx* ctx, const Settings* s);
+// The remembered placement, into and out of the settings ([screen] back_*,
+// the placement's own keys; back_width_cm 0 none)
+void xrBringBackToSettings(XrCtx* ctx, Settings* s);
+void xrBringBackFromSettings(XrCtx* ctx, const Settings* s);
 
 // ---- zoom and pan (xr_zoom.c, PLAN 4b.6) ------------------------------------
 // The step the app:zoomin, app:zoomout and app:zoomreset bindings take: +1 the
@@ -85,6 +97,106 @@ int xrZoomStep(XrCtx* ctx, int dir);
 void xrZoomFromSettings(XrCtx* ctx, const Settings* s);
 void xrZoomToSettings(const XrCtx* ctx, Settings* s);
 int xrZoomSync(XrCtx* ctx, Settings* s);
+
+// ---- the Accessibility tab (xr_assist.c, lane a11y-tab, a11y-2) ---------------
+// What its eye tracking line says (ACCESS_EYES_*, xr/core/xr_access.h) from what the session found
+int xrAccessEyes(const XrCtx* ctx);
+// The cells a row of it has (the pointer row always all three; its Eyes cell takes a press only
+// where the runtime offers eye gaze), whether a row can act (the dwell click and the dot size need
+// the head or the eyes pointing), and a press on a cell: applied now and handed back in IN_SETTING
+// to be stored. Only a press here changes these settings.
+int cogAccessCells(XrCtx* ctx, int row);
+int cogAccessCellLive(XrCtx* ctx, int row, int cell);
+int cogAccessRowLive(XrCtx* ctx, int row);
+void cogApplyAccessCell(XrCtx* ctx, int row, int cell, float* out);
+// The Dot size track: where its thumb is (0 to 1), a point on it applied (25 % steps), and the
+// value handed back when a drag or a step ends
+float cogAccessSliderValue(XrCtx* ctx, int row);
+void cogApplyAccessSlider(XrCtx* ctx, int row, float t);
+void cogAccessDragEnded(XrCtx* ctx, int row, float* out);
+// The row the footer describes: the one the pointer is on this frame, live or greyed, or -1
+int xrAccessHoverRow(const XrCtx* ctx);
+// The scale the pointer's dot is drawn at (assist_dot_size with the head or the eyes pointing)
+float xrAssistDotScale(const XrCtx* ctx);
+// Native (lane a11y-final): the right hand's way back to the controllers, from pointer mode's
+// bindings frame. down is the controls down this frame (XR_BIND_BIT of XR_BIND_SRC_*): the right
+// Menu button is kept out of it while it may be the chord's (and put back as a one frame press when
+// it was only a tap), and the right Menu and grip held for POINTER_BACK_HOLD_NS set the pointer to
+// the controllers, saved (out's IN_SETTING, on the first frame it is free) and said in a toast. A
+// reset forgets a press under way (a Menu already down is no press until it is let go).
+void xrPointerBackStep(XrCtx* ctx, uint64_t* down, int64_t now, float* out);
+void xrPointerBackReset(XrCtx* ctx);
+// Native (lane a11y-final): the Eyes pointer's ray (q, the gaze's orientation this frame; dt the
+// frame's seconds) turned to its steadied direction (xr_access.h gazeSteadyStep). The head pointer's
+// filters' reset forgets it too.
+XrQuaternionf xrEyesSteady(XrCtx* ctx, XrQuaternionf q, float dt);
+
+// ---- clicks for the head and eye pointer (xr_auxbutton.c, lane a11y-2) -------------------------
+// Once a frame before the input pass: the headset's side button (found, grabbed from SteamVR while
+// on, focused and streaming with the head or the eyes pointing; given back otherwise and for 15 s
+// after a 3 s hold), its gestures, and this frame's mouse buttons from them (xrAssistFrame)
+void xrAuxButtonFrame(XrCtx* ctx, int64_t now, int focused, int streaming);
+// Gives the button back now (the session ending)
+void xrAuxButtonRelease(XrCtx* ctx, const char* why);
+// Looks for the button's device and says in auxState what was found (the tab greys its row)
+void xrAuxButtonLook(XrCtx* ctx);
+// An action (ASSIST_*) at the dot, from the button or the radial menu; xrAssistFrame works out
+// the frame's buttons from what is playing (the input pass reads assistButtons, assistPress)
+void xrAssistAction(XrCtx* ctx, int action, int64_t now);
+// Native (lane radial-dwell): the same, said where it goes: ui 1 our menus (a double or right click
+// there is one press), 0 the picture
+void xrAssistActionAt(XrCtx* ctx, int action, int64_t now, int ui);
+void xrAssistFrame(XrCtx* ctx, int64_t now);
+
+// ---- the dwell click's radial menu (xr_dwellmenu.c, lane radial-dwell) ---------------------------
+// One frame of the head or eye pointer's dwell, from the input pass's updateDwell: valid and aimed
+// as radialStep takes them (xr/core/xr_radial.h), x, y the pointer's direction in degrees as the
+// dwell has always had it (yaw to the left, pitch up), onPicture the dot is on the picture, u, v
+// where on it, at that point in the space. Plays the menu's choices itself (through
+// xrAssistActionAt, on the picture) and lets a drag it holds go on the next dwell; returns
+// DWELL_CLICK only for a plain click, which the caller plays as it always has.
+int xrDwellMenuStep(XrCtx* ctx, int valid, int aimed, float x, float y, int64_t now, int onPicture, float u,
+                    float v, XrVector3f at);
+// Forgets the dwell's menu, its circle and its fade, and lets go a drag it holds (the pointer
+// unwatched or changed, the dwell off)
+void xrDwellMenuReset(XrCtx* ctx);
+// Where the host's cursor is held (the dwell's start, while the menu is up and while its click
+// plays): 1 and *u, *v, or 0 to leave them
+int xrDwellMenuHostPoint(const XrCtx* ctx, int64_t now, float* u, float* v);
+// The held point to the host when the dot is off the picture (the menu may take it there)
+void xrDwellMenuSendHeld(XrCtx* ctx, int hand, int64_t now, float* out);
+// Once a frame before the input pass: a drag the menu holds is let go when the pointing stops
+void xrDwellMenuWatch(XrCtx* ctx, int64_t now, int focused, int streaming);
+// What the pointer's layers show for it: the dot's quad (a frame of the circle, the hollow dot of a
+// held drag: rect w 0 for the plain dot) at dotSide times the dot's side, and a quad at the dwell's
+// start (the menu, menuHalfDeg round it as seen from the head, or a drag's mark, markSide times the
+// dot's side). Returns 1 when any of it is up, so the dot shows with the Dot switch off too.
+typedef struct {
+    UiRectPx dot;
+    float dotSide;
+    UiRectPx mark;
+    XrVector3f markAt;
+    float menuHalfDeg;
+    float markSide;
+} XrDwellArt;
+int xrDwellMenuArt(const XrCtx* ctx, XrDwellArt* art);
+// The frames' places in the atlas (ATLAS_DWELL_*), and their art, drawn once with the rest of the
+// code drawn art (xrDrawCodeArt)
+UiRectPx xrDwellRingRect(int frame);
+UiRectPx xrDwellHollowRect(int frame);
+UiRectPx xrDwellMenuRect(int frame);
+void xrDrawDwellArt(uint8_t* atlas);
+// The OpenXR button of assist_click_path: its action made before the bindings are suggested,
+// added to a profile's first suggestion where the profile is the app's own (returns the new count),
+// suggested on its own where it is not, and read after each sync
+void xrAssistClickCreate(XrCtx* ctx);
+uint32_t xrAssistClickBind(XrCtx* ctx, const char* profile, XrActionSuggestedBinding* b, uint32_t n, uint32_t cap);
+void xrAssistClickSuggestAlone(XrCtx* ctx);
+void xrAssistClickRead(XrCtx* ctx, int64_t now);
+// Once a frame from the input pass, after the gaze is read: notes the first tracked gaze pose of the
+// session (the eye line says available from then) and logs, once a session, that it came, or after
+// 10 s focused without one, the action's state and the pose's flags
+void xrGazeWatch(XrCtx* ctx, int64_t nowNs, int focused, int actionActive);
 
 // ---- rows the native client cannot act on yet (xr_prefs.c) ----------------
 // 0 when the row is live as far as the native client goes, else the reason's
@@ -145,8 +257,18 @@ enum {
     ATLAS_OVERLAY,
     ATLAS_BEAM_FAINT,
     ATLAS_SPLASH,
+    // Native (lane radial-dwell): the dwell's circle round the dot (DWELL_ART_PX frames: the sweep,
+    // its fades, the hollow dot and a drag's mark), the sweep round a hollow dot, and the radial
+    // menu's frames (DWELL_MENU_PX) over three free corners (xr_dwellmenu.c xrDwellMenuRect)
+    ATLAS_DWELL_RING,
+    ATLAS_DWELL_HOLLOW,
+    ATLAS_DWELL_MENU_A,
+    ATLAS_DWELL_MENU_B,
+    ATLAS_DWELL_MENU_C,
     ATLAS_SLOTS
 };
+#define DWELL_ART_PX 64
+#define DWELL_MENU_PX 160
 // Native: 416 x 400, the whole free corner under the clock strip (x 1632..2048,
 // y 1840..2240), so the longest stats line wraps rather than being cut off
 #define ATLAS_OVERLAY_W 416
@@ -301,6 +423,9 @@ int xrGrabStepStick(XrCtx* ctx, XrPosef aim, int trigger, int grip, XrVector2f s
 // points and of the hand whose ray is drawn. What it made of them is left in
 // ctx->rayRow, as the recorder writes it (tests/m4/test_replay.c).
 void xrPointerStep(XrCtx* ctx, int64_t now, int headLocked);
+// Native (lane a11y-tab), for the tests: the same, then the settings panel's part when it is open
+// (hover, presses, a dwell's click on it), with what the frame hands back in out
+void xrPointerPanelStep(XrCtx* ctx, int64_t now, int headLocked, float* out);
 // Native (lane wave2-lightgun-gyro): for the tests, the buttons part of a pointer frame: the host
 // buttons the controllers ask for (VR_BUTTON_ bits, as the bindings leave them), what the ray is over
 // (HOVER_*) and whether that is the picture. Returns the buttons that go to the host, which are
@@ -361,8 +486,12 @@ void xrKeyboardToggle(XrCtx* ctx, const char* from);
 // Native (lane wave4b-abr), PLAN 4b.8. The bitrate to start the stream with on the network path in use:
 // that path's own setting ([stream] bitrate_wifi, bitrate_adapter, bitrate_wired, bitrate_usb) when it is
 // above 0, else launcherKbps. pathKind is mlxr_net_kind_for_address(address of the PC) (backend/netpath.h),
-// MLXR_ABR_UNKNOWN (-1) when no path was chosen. Logs one line, "bitrate for Wi-Fi: 60000 kbps (override)".
-int xrStreamBitrate(const Settings* s, int pathKind, int launcherKbps);
+// MLXR_ABR_UNKNOWN (-1) when no path was chosen.
+// Native (lane flat-input): the whole decision (xr/core/xr_abr.h mlxr_abr_start): the path's row, else argKbps
+// (--bitrate, the flat launcher's Video bitrate), else [stream] bitrate_kbps, else the default for width x height at
+// fps; 500 kbps .. 500 Mbps. Logs one line, "stream bitrate: 300000 kbps (300 Mbps) over Wi-Fi, from the flat
+// launcher's Video bitrate (--bitrate)"; `why` (may be NULL) gets the "from ..." part for the stream's own start line.
+int xrStreamBitrate(const Settings* s, int pathKind, int argKbps, int width, int height, int fps, char* why, size_t whyCap);
 
 // ---- the context's defaults (xr_prefs.c) -----------------------------------
 // What upstream's nativeInit set before any setter ran

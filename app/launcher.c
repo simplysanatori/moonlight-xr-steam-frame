@@ -21,7 +21,6 @@ static void push(Launcher* l, LaunchCmdKind kind, int pc, int appId, int quitFir
     c->appId = appId;
     c->quitFirst = quitFirst;
     c->quitHost = quitHost;
-    c->pcvr = 0;
 }
 
 static void say(Launcher* l, const char* fmt, const char* arg) {
@@ -62,17 +61,10 @@ void launcher_apps(Launcher* l, int pc, const LaunchApp* apps, int n, int ok) {
     if (pc != l->pc) return;   // a list for a PC no longer shown
     l->appsLoading = 0;
     l->appsFailed = !ok;
-    // Lane pcvr-steamvr: "VR" first, then the host's apps
-    if (n > LAUNCH_MAX_APPS - 1) n = LAUNCH_MAX_APPS - 1;
-    l->appCount = 0;
-    if (ok) {
-        snprintf(l->apps[0].name, sizeof(l->apps[0].name), "%s", ui_str(UIS_APP_VR));
-        l->apps[0].id = LAUNCH_APP_VR;
-        l->appCount = 1;
-        for (int i = 0; i < n; i++) {
-            if (apps[i].id == LAUNCH_APP_VR) continue;
-            l->apps[l->appCount++] = apps[i];
-        }
+    if (n > LAUNCH_MAX_APPS) n = LAUNCH_MAX_APPS;
+    l->appCount = ok ? n : 0;
+    for (int i = 0; i < l->appCount; i++) {
+        l->apps[i] = apps[i];
     }
     if (l->appPage * UI_LIST_ROWS >= l->appCount) l->appPage = 0;
 }
@@ -163,17 +155,6 @@ static void pressPc(Launcher* l, int i) {
 static void pressApp(Launcher* l, int i) {
     if (i < 0 || i >= l->appCount || l->pc < 0 || l->appsLoading) return;
     int id = l->apps[i].id;
-    if (id == LAUNCH_APP_VR) {
-        // Lane pcvr-steamvr: the host's session ends (whatever runs) and Steam Link takes the headset
-        if (l->vrMissing) {
-            say(l, "%s", ui_str(UIS_NATIVE_PCVR_NEEDS_LAUNCHER));
-            return;
-        }
-        l->state = LAUNCH_QUIT;
-        say(l, "%s", ui_str(UIS_NATIVE_PCVR));
-        push(l, LCMD_VR, l->pc, 0, 0, l->pcs[l->pc].currentGame != 0);
-        return;
-    }
     l->startingApp = id;
     l->state = LAUNCH_STARTING;
     snprintf(l->notice, sizeof(l->notice), ui_str(UIS_NATIVE_STARTING), l->apps[i].name);
@@ -268,23 +249,6 @@ void launcher_disconnect_doff(Launcher* l) {
 
 void launcher_disconnect_idle(Launcher* l) {
     disconnectWith(l, UIS_NATIVE_DISCONNECTED_IDLE);
-}
-
-void launcher_pcvr(Launcher* l) {
-    if (l->fileMode) {
-        return;   // no host, nothing to hand over
-    }
-    int streaming = l->state == LAUNCH_STREAMING || l->state == LAUNCH_STARTING;
-    if (streaming && l->vrMissing) {
-        say(l, "%s", ui_str(UIS_NATIVE_PCVR_NEEDS_LAUNCHER));
-        return;
-    }
-    disconnectWith(l, UIS_NATIVE_PCVR);
-    if (streaming && l->state == LAUNCH_STOPPING && l->ncmd > 0 && l->cmds[l->ncmd - 1].kind == LCMD_STOP) {
-        l->cmds[l->ncmd - 1].pcvr = 1;
-        l->cmds[l->ncmd - 1].quitHost = 1;   // lane pcvr-steamvr: the desktop closes first
-        l->state = LAUNCH_QUIT;               // the worker hands over and the app ends
-    }
 }
 
 int launcher_take_cmd(Launcher* l, LaunchCmd* out) {

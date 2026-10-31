@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "xr_access.h"
 #include "xr_layout.h"
 #include "xr_shared.h"
 
@@ -517,26 +518,53 @@ float cogRowV(int tab, int row) {
     if (tab == COG_TAB_3D) {
         return COG_3D_ROW_V0 + row * COG_3D_ROW_STEP;
     }
+    if (tab == COG_TAB_ACCESS) {
+        return COG_ACCESS_ROW_V0 + row * COG_ACCESS_ROW_STEP;
+    }
     return COG_ROW_V0 + row * COG_ROW_STEP;
 }
 
 float cogRowHalf(int tab) {
     return tab == COG_TAB_DISPLAY ? COG_DISPLAY_ROW_HALF
             : tab == COG_TAB_SCREEN ? COG_SCREEN_ROW_HALF
-            : tab == COG_TAB_3D ? COG_3D_ROW_HALF : COG_ROW_HALF;
+            : tab == COG_TAB_3D ? COG_3D_ROW_HALF
+            : tab == COG_TAB_ACCESS ? COG_ACCESS_ROW_HALF : COG_ROW_HALF;
 }
 
 float cogCellHalf(int tab) {
     return tab == COG_TAB_DISPLAY ? COG_DISPLAY_CELL_HALF
             : tab == COG_TAB_SCREEN ? COG_SCREEN_CELL_HALF
-            : tab == COG_TAB_3D ? COG_3D_CELL_HALF : COG_CELL_HALF;
+            : tab == COG_TAB_3D ? COG_3D_CELL_HALF
+            : tab == COG_TAB_ACCESS ? COG_ACCESS_CELL_HALF : COG_CELL_HALF;
+}
+
+// Native (lane a11y-tab): the tab bar's slots
+static const float TAB_EDGES[COG_TAB_COUNT + 1] = {
+    0.0f, COG_TAB_EDGE_1, COG_TAB_EDGE_2, COG_TAB_EDGE_3, COG_TAB_EDGE_4, COG_TAB_EDGE_5, 1.0f
+};
+
+int cogTabAt(float pu) {
+    for (int t = 0; t < COG_TAB_COUNT - 1; t++) {
+        if (pu < TAB_EDGES[t + 1]) {
+            return t;
+        }
+    }
+    return COG_TAB_COUNT - 1;
+}
+
+float cogTabLeft(int tab) {
+    return tab <= 0 ? 0.0f : tab >= COG_TAB_COUNT ? 1.0f : TAB_EDGES[tab];
+}
+
+float cogTabRight(int tab) {
+    return tab < 0 ? 0.0f : tab >= COG_TAB_COUNT - 1 ? 1.0f : TAB_EDGES[tab + 1];
 }
 
 // The screen and 3D tabs' rows sit closer than a full size thumb, so their
 // thumbs are a little smaller and two at the same place on neighbouring rows
 // stay apart. The display tab has only the one.
 float cogThumbSize(int tab) {
-    return tab == COG_TAB_SCREEN || tab == COG_TAB_3D ? 0.06f : 0.085f;
+    return tab == COG_TAB_SCREEN || tab == COG_TAB_3D || tab == COG_TAB_ACCESS ? 0.06f : 0.085f;
 }
 
 int cogTrackPart(float pu) {
@@ -605,8 +633,12 @@ int cogTrackSteps(int tab, int row) {
         default: return 0;
         }
     }
+    if (tab == COG_TAB_ACCESS) {
+        // Native (lane a11y-2): the dot's size in 25 % steps; the other rows are cells
+        return row == COG_ACCESS_ROW_DOT ? (ACCESS_DOT_MAX - ACCESS_DOT_MIN) / ACCESS_DOT_STEP : 0;
+    }
     if (tab == COG_TAB_ABOUT) {
-        // No rows at all, only the button
+        // No tracks: the About tab has only its buttons
         return 0;
     }
     if (tab == COG_TAB_PICTURE) {
@@ -783,108 +815,11 @@ XrPosef layoutBringHere(XrPosef screen, XrPosef head) {
     return layoutScreenAlong(screen, hp, layoutGazeDir(head.orientation));
 }
 
-XrPosef layoutBringHereFromBar(XrPosef screen, float width, float height, XrPosef head) {
-    Vec3 hp = { head.position.x, head.position.y, head.position.z };
-    Vec3 gaze = layoutGazeDir(head.orientation);
-    Vec3 barLocal = { 0.0f, -(height * 0.5f + width * BAR_DROP_FRAC), 0.0f };
-    Vec3 barOff = quatRotate(screen.orientation, barLocal);
-    Vec3 mid = { screen.position.x - hp.x, screen.position.y - hp.y, screen.position.z - hp.z };
-    Vec3 bar = { mid.x + barOff.x, mid.y + barOff.y, mid.z + barOff.z };
-    float lm = sqrtf(vecDot(mid, mid)), lb = sqrtf(vecDot(bar, bar));
-    Vec3 up = { 0.0f, 1.0f, 0.0f };
-    Vec3 axis = vecCross(gaze, up);
-    float la = sqrtf(vecDot(axis, axis));
-    if (lm > 1e-4f && lb > 1e-4f && la > 1e-4f) {
-        float c = vecDot(mid, bar) / (lm * lb);
-        float lift = acosf(c > 1.0f ? 1.0f : (c < -1.0f ? -1.0f : c));
-        Vec3 a = { axis.x / la, axis.y / la, axis.z / la };
-        gaze = vecNorm(quatRotate(axisAngleQuat(a, lift), gaze));
+int bringSwitchNext(int presetNow, int backValid) {
+    if (presetNow != LAYOUT_PRESET_DESK) {
+        return BRING_TO_DESK;
     }
-    return layoutScreenAlong(screen, hp, gaze);
-}
-
-XrPosef layoutBringHereFromBarAt(XrPosef screen, XrPosef head, float dist, float width,
-                                 float height) {
-    Vec3 hp = { head.position.x, head.position.y, head.position.z };
-    Vec3 gaze = layoutGazeDir(head.orientation);
-    if (dist < 0.3f) {
-        dist = 0.3f;
-    }
-    Vec3 up = { 0.0f, 1.0f, 0.0f };
-    Vec3 axis = vecCross(gaze, up);
-    float la = sqrtf(vecDot(axis, axis));
-    if (la > 1e-4f) {
-        float lift = atan2f(height * 0.5f + width * BAR_DROP_FRAC, dist);
-        Vec3 a = { axis.x / la, axis.y / la, axis.z / la };
-        gaze = vecNorm(quatRotate(axisAngleQuat(a, lift), gaze));
-    }
-    XrPosef out = screen;
-    out.position.x = hp.x + gaze.x * dist;
-    out.position.y = hp.y + gaze.y * dist;
-    out.position.z = hp.z + gaze.z * dist;
-    Vec3 at = { out.position.x, out.position.y, out.position.z };
-    out.orientation = layoutFaceHead(screen.orientation, at, hp);
-    return out;
-}
-
-int bringToggleNear(const BringToggle* t, XrPosef screen, float width, XrPosef head) {
-    if (t->nearValid) {
-        Vec3 d = { screen.position.x - t->nearPose.position.x, screen.position.y - t->nearPose.position.y,
-                   screen.position.z - t->nearPose.position.z };
-        XrQuaternionf a = screen.orientation, b = t->nearPose.orientation;
-        float dot = fabsf(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w);
-        float turn = 2.0f * acosf(dot > 1.0f ? 1.0f : dot) * 180.0f / (float)M_PI;
-        return sqrtf(vecDot(d, d)) <= BRING_NEAR_TOL_M && turn <= BRING_NEAR_TOL_DEG
-                && fabsf(width - t->nearWidth) <= BRING_NEAR_TOL_M;
-    }
-    // Nothing brought near this session (a restart): the Desk preset is near
-    LayoutPreset desk = layoutPresetOf(LAYOUT_PRESET_DESK);
-    Vec3 p = { screen.position.x - head.position.x, screen.position.y - head.position.y,
-               screen.position.z - head.position.z };
-    return fabsf(width - (float)desk.widthCm / 100.0f) <= BRING_NEAR_TOL_M
-            && fabsf(sqrtf(vecDot(p, p)) - (float)desk.distanceCm / 100.0f) <= BRING_DESK_TOL_M;
-}
-
-int bringTogglePress(BringToggle* t, XrPosef* screen, float* width, float aspect, XrPosef head) {
-    int wasNear = bringToggleNear(t, *screen, *width, head);
-    float dist, w;
-    if (wasNear) {
-        if (t->farValid) {
-            dist = t->farDistance;
-            w = t->farWidth;
-        }
-        else {
-            LayoutPreset far = layoutPresetOf(LAYOUT_PRESET_CINEMA);
-            dist = (float)far.distanceCm / 100.0f;
-            w = (float)far.widthCm / 100.0f;
-        }
-        t->nearValid = 0;
-    }
-    else {
-        if (t->nearValid) {
-            // Moved or resized while near: that is no far placement of the
-            // user's, so the way back is the Cinema preset
-            t->farValid = 0;
-        }
-        else {
-            Vec3 d = { screen->position.x - head.position.x, screen->position.y - head.position.y,
-                       screen->position.z - head.position.z };
-            t->farValid = 1;
-            t->farDistance = sqrtf(vecDot(d, d));
-            t->farWidth = *width;
-        }
-        LayoutPreset nearP = layoutPresetOf(LAYOUT_PRESET_DESK);
-        dist = (float)nearP.distanceCm / 100.0f;
-        w = (float)nearP.widthCm / 100.0f;
-    }
-    *screen = layoutBringHereFromBarAt(*screen, head, dist, w, w * aspect);
-    *width = w;
-    if (!wasNear) {
-        t->nearValid = 1;
-        t->nearPose = *screen;
-        t->nearWidth = w;
-    }
-    return !wasNear;
+    return backValid ? BRING_BACK : BRING_TO_CINEMA;
 }
 
 void followReset(FollowState* st) {

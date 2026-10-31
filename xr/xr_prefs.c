@@ -156,6 +156,13 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     ctx->opentrackPort = OPENTRACK_PORT_DEFAULT;
     ctx->dwellFraction = -1.0f;
     ctx->gazeValid = -1;
+    ctx->gazeSupportFlag = -1;
+    ctx->assistDotSize = ACCESS_DOT_DEFAULT;   // native (lane a11y-2)
+    ctx->cogPointV = -1.0f;
+    auxDevInit(&ctx->auxDev);
+    auxClickReset(&ctx->auxGest);
+    assistPlayReset(&ctx->assistPlay);
+    gazeFallReset(&ctx->gazeFall);
     ctx->padDeadzone = PAD_STICK_DEADZONE_DEFAULT;
     ctx->padShortcut = PAD_SHORTCUT_MENU_GRIP;
     padToggleReset(&ctx->padToggle);
@@ -348,7 +355,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->ambiIntensity = (float)s->glow_level / 100.0f;
     ctx->glowFeather = s->glow_feather;
     xrZoomFromSettings(ctx, s);
-    xrBringFarFromSettings(ctx, s); // native (lane bar-glare)
+    xrBringBackFromSettings(ctx, s); // the bar's Bring here: the placement it goes back to
     ctx->bgDim = s->bg_dim;
     settings_void_rgb(s, ctx->voidColor);
     ctx->eyeBalance = (float)s->eye_balance / 100.0f;
@@ -390,6 +397,11 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetHeadLook(ctx, s->head_look, s->head_look_px_deg);
     xrSetOpentrack(ctx, s->opentrack, s->opentrack_host, s->opentrack_port); // PLAN 4.5
     xrSetPointerSource(ctx, s->pointer_source, s->head_dwell_ms);              // PLAN 6.5
+    ctx->assistDotSize = accessDotClamp(s->assist_dot_size);                   // native (lane a11y-2)
+    ctx->assistDwellStyle = s->assist_dwell_style == DWELL_STYLE_RADIAL ? DWELL_STYLE_RADIAL : DWELL_STYLE_SIMPLE;
+    // native (lane a11y-final): assist_headset_button and assist_click_path are a future feature's
+    // (docs/dev/accessibility.md): still keys of config.ini, so a file with them reads as before, but
+    // not read here, so the app never takes the headset button or reads that path
     xrSetMouseMode(ctx, s->mouse_mode);           // native (lane headinput-finish, PLAN 4b.10)
     xrPadBridgeSetBackAsGuide(s->back_as_guide);  // native (lane headinput-finish, PLAN 4b.10)
     xrSetScrollSpeed(ctx, s->scroll_speed);
@@ -505,6 +517,8 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->depth_global = iround(ctx->depthGlobal * 100.0f);
     s->motion_reset = iround(ctx->depthMotion * 100.0f);
     s->eye_balance = iround(ctx->eyeBalance * 100.0f);
+    // Native (lane a11y-2): the Accessibility tab's Dot size, so its thumb moves with a drag
+    s->assist_dot_size = ctx->assistDotSize;
     if (ctx->placementValid) {
         float pose[POSE_VALUES];
         pose[0] = ctx->screenPose.position.x;
@@ -519,7 +533,7 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
         pose[9] = ctx->panelCurve;
         xrPoseToSettings(pose, xrCurveSetting(ctx), s);
     }
-    xrBringFarToSettings(ctx, s); // native (lane bar-glare)
+    xrBringBackToSettings(ctx, s); // the bar's Bring here: the placement it goes back to
     settings_clamp(s);
 }
 
@@ -572,6 +586,16 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_DEPTH_SHAPE: s->depth_global = value; break;
     case SETTING_MOTION_RESET: s->motion_reset = value; break;
     case SETTING_EYE_BALANCE: s->eye_balance = value; break;
+    // Native (lane a11y-tab): the Accessibility tab
+    case SETTING_POINTER_SOURCE:
+        s->pointer_source = value >= 0 && value < POINTER_SOURCE_COUNT ? value : POINTER_SOURCE_CONTROLLER;
+        break;
+    case SETTING_HEAD_DWELL: s->head_dwell_ms = dwellMsClamp(value); break;
+    case SETTING_ASSIST_DOT_SIZE: s->assist_dot_size = accessDotClamp(value); break;   // native (lane a11y-2)
+    case SETTING_ASSIST_HEADSET_BUTTON: s->assist_headset_button = value != 0; break;
+    case SETTING_ASSIST_DWELL_STYLE:   // native (lane radial-dwell)
+        s->assist_dwell_style = value == DWELL_STYLE_RADIAL ? DWELL_STYLE_RADIAL : DWELL_STYLE_SIMPLE;
+        break;
     case SETTING_PICTURE_BRIGHTNESS: s->picture_brightness = value; break;
     case SETTING_PICTURE_CONTRAST: s->picture_contrast = value; break;
     case SETTING_PICTURE_GAMMA: s->picture_gamma = value; break;
@@ -611,12 +635,14 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
 
 // ---- the bitrate a stream starts with (Native, lane wave4b-abr) ----------------
 
-int xrStreamBitrate(const Settings* s, int pathKind, int launcherKbps) {
+int xrStreamBitrate(const Settings* s, int pathKind, int argKbps, int width, int height, int fps, char* why, size_t whyCap) {
     int overrides[MLXR_ABR_KINDS];
     settings_abr_overrides(s, overrides);
-    MlxrAbrPick pick = mlxr_abr_pick(pathKind, launcherKbps, overrides);
-    char line[128];
-    mlxr_abr_line(pathKind, &pick, line, sizeof(line));
+    MlxrAbrStart st = mlxr_abr_start(pathKind, argKbps, s->bitrate_kbps, settings_default_bitrate_kbps(width, height, fps),
+                                     overrides);
+    char line[256];
+    mlxr_abr_start_line(&st, line, sizeof(line));
     MLOG_I("%s", line);
-    return pick.kbps;
+    if (why != NULL && whyCap > 0) mlxr_abr_source_text(&st, why, whyCap);
+    return st.kbps;
 }

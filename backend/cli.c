@@ -432,6 +432,7 @@ static int cmd_probe_paths(int argc, char **argv)
     mlxr_net_plan_init(&plan, pref, source, rec && rec->http_port ? rec->http_port : MLXR_DEFAULT_HTTP_PORT,
                        rec ? rec->uuid : "", c.id.unique_id);
     plan.bitrate_kbps = bitrate;
+    plan.route_lookup = true;   /* Native (lane vpn-fallback): the real table below, so the kernel's routes count */
     if (c.dir) snprintf(plan.history_dir, sizeof plan.history_dir, "%s", c.dir);   /* Native (lane netpath-quality) */
     if (rec) {
         snprintf(plan.hostname, sizeof plan.hostname, "%s", rec->name);
@@ -469,8 +470,8 @@ static int cmd_probe_paths(int argc, char **argv)
         const mlxr_net_cand *k = &plan.c[i];
         char desc[96];
         mlxr_net_path_describe(k->path, &k->link, desc, sizeof desc);
-        printf("candidate %s  path=%s via %s  [%s%s]\n", k->address, desc, k->ifname[0] ? k->ifname : "?",
-               k->source[0] ? k->source : "--addr", k->onlink ? "" : ", off-link");
+        printf("candidate %s  path=%s via %s  [%s%s%s%s]\n", k->address, desc, k->ifname[0] ? k->ifname : "?",
+               k->source[0] ? k->source : "--addr", k->onlink ? "" : ", off-link", k->vpn ? ", VPN: " : "", k->vpn ? k->vpn_why : "");
         if (!k->probed) printf("  probe:   not probed\n");
         else if (k->ok == 0) printf("  probe:   no answer, %d/%d failed (%s)\n", k->failed, k->sent, k->error);
         else printf("  probe:   %d/%d ok, median %.1f ms, p90 %.1f ms, jitter %.1f ms%s; serverinfo took %.0f ms\n", k->ok, k->sent,
@@ -493,6 +494,7 @@ static int cmd_probe_paths(int argc, char **argv)
     }
     if (pick >= 0) printf("choice: %s %s\n        reason: %s\n        toast: %s\n", plan.chosen_desc, plan.c[pick].address,
                           plan.reason, plan.toast[0] ? plan.toast : plan.connected);
+    if (plan.vpn_note[0]) printf("vpn: %s\n", plan.vpn_note);   /* Native (lane vpn-fallback) */
     else printf("choice: none answered\n");
     ctx_close(&c);
     return pick >= 0 ? 0 : 3;

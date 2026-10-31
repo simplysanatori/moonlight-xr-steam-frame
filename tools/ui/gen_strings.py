@@ -161,8 +161,6 @@ MAP = [
     ("native_host_close", "vr_kofi_close"),
     ("native_host_confirm_q", NATIVE),
     ("native_host_confirm_send", "bug_report_send_direct"),
-    ("native_host_pcvr", NATIVE),
-    ("native_host_pcvr_go", NATIVE),
     ("native_host_hint_esc", NATIVE),
     ("native_host_hint_win", NATIVE),
     ("native_host_hint_desktop", NATIVE),
@@ -262,11 +260,39 @@ MAP = [
     ("native_reconnecting", NATIVE),
     ("native_disconnected_doff", NATIVE),
     ("native_disconnected_idle", NATIVE),
-    ("native_pcvr", NATIVE),
-    ("native_pcvr_needs_launcher", NATIVE),
-    # lane pcvr-steamvr: the app list's VR entry and the Host sheet's question
-    ("native_app_vr", NATIVE),
-    ("native_host_vr_q", NATIVE),
+    # native (lane a11y-tab): the Accessibility tab
+    ("native_tab_access", NATIVE),
+    ("native_row_pointer_source", NATIVE),
+    ("native_cell_controller", NATIVE),
+    ("native_cell_head", NATIVE),
+    ("native_cell_eyes", NATIVE),
+    ("native_row_dwell", NATIVE),
+    ("native_dwell_06", NATIVE),
+    ("native_dwell_09", NATIVE),
+    ("native_dwell_12", NATIVE),
+    ("native_dwell_15", NATIVE),
+    ("native_needs_head_pointer", NATIVE),
+    ("native_eyes_ready", NATIVE),
+    ("native_eyes_waiting", NATIVE),
+    ("native_eyes_unavailable", NATIVE),
+    ("native_access_help", NATIVE),
+    ("native_access_help_eyes", NATIVE),
+    # native (lane a11y-2): Dot size, the footer's descriptions, the eye line
+    ("native_row_dot_size", NATIVE),
+    ("native_access_desc_pointer", NATIVE),
+    ("native_access_desc_dwell", NATIVE),
+    ("native_access_desc_dot", NATIVE),
+    ("native_access_desc_none", NATIVE),
+    ("native_eyes_no_action", NATIVE),
+    ("native_aux_returned", NATIVE),
+    # native (lane radial-dwell): the dwell click's style
+    ("native_row_dwell_style", NATIVE),
+    ("native_cell_dwell_simple", NATIVE),
+    ("native_cell_dwell_radial", NATIVE),
+    ("native_access_desc_dwell_style", NATIVE),
+    # native (lane a11y-final): Eyes marked experimental, the right hand's way back to the controllers
+    ("native_cell_eyes_experimental", NATIVE),
+    ("native_toast_pointer_back", NATIVE),
 ]
 
 # Keys of lanes not merged into main yet, all written for this port: listed so that their merges

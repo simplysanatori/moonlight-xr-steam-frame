@@ -155,18 +155,13 @@ class MlxrPrefs : public QObject
     // back_as_guide, gamepad mode's Back (View) button as Guide
     Q_PROPERTY(QString mouseMode MEMBER mouseMode NOTIFY changed)
     Q_PROPERTY(bool backAsGuide MEMBER backAsGuide NOTIFY changed)
-    // ---- PC VR: Valve's Steam Link stream of the PC (lane wave4-pcvr, PLAN 4.1, 4.2, 4.9) ----
-    // VR (the app grid's VR entry, the Host sheet's PC VR; lane pcvr-steamvr) ends the PC's app and the launcher
-    // asks Steam to stream SteamVR from the Remote Play PC pcvrClient (a Remote Play client id; empty: the
-    // paired PC with the Moonlight PC's name, else the only one). The name is for this page. Keys
-    // mlxr/pcvr_client, pcvr_client_name.
-    Q_PROPERTY(QString pcvrClient MEMBER pcvrClient NOTIFY changed)
-    Q_PROPERTY(QString pcvrClientName MEMBER pcvrClientName NOTIFY changed)
-    // What the last check found (steam_cef.py --probe, --devices): a sentence for the page and the paired
-    // PCs [{clientId, clientName, streaming}]
-    Q_PROPERTY(QString pcvrStatus READ pcvrStatus NOTIFY pcvrChanged)
-    Q_PROPERTY(bool pcvrBusy READ pcvrBusy NOTIFY pcvrChanged)
-    Q_PROPERTY(QVariantList pcvrDevices READ pcvrDevices NOTIFY pcvrChanged)
+    // Native (lane a11y-tab): head_dwell_ms, the dwell click of the head or eyes pointer: 0 (default, off) or
+    // 400..2000; the Accessibility section offers 600, 900, 1200 and 1500. Written only when changed here.
+    Q_PROPERTY(int headDwellMs MEMBER headDwellMs NOTIFY changed)
+    Q_PROPERTY(int assistDotSize MEMBER assistDotSize NOTIFY changed)   // native (lane a11y-2)
+    Q_PROPERTY(bool assistHeadsetButton MEMBER assistHeadsetButton NOTIFY changed)
+    // Native (lane radial-dwell): assist_dwell_style, "simple" (default) or "radial" (the dwell's radial menu)
+    Q_PROPERTY(QString assistDwellStyle MEMBER assistDwellStyle NOTIFY changed)
     // ---- Native (lane launcher-bundle, PLAN 6.7): the rest of the VR client's config.ini ----
     // Every key of ui/settings.c that a user would set and that had no row of its own: picture, pointer,
     // keyboard, gamepad mode, the screen and its surroundings (the table is kVrKeys in mlxrprefs.cpp; tests
@@ -225,20 +220,6 @@ public:
 
     bool usbCable() const { return m_usbCable; }
 
-    QString pcvrStatus() const { return m_pcvrStatus; }
-    bool pcvrBusy() const { return m_pcvrBusy; }
-    QVariantList pcvrDevices() const { return m_pcvrDevices; }
-    // PLAN 4.9: only asks Steam's debugging port (steam_cef.py --probe) and says so in pcvrStatus and the log
-    Q_INVOKABLE void pcvrProbe();
-    // PLAN 4.2: the probe, then the paired PCs
-    Q_INVOKABLE void pcvrRefresh();
-    // index into pcvrDevices; -1 = none (the paired PC with the Moonlight PC's name, else the only one)
-    Q_INVOKABLE void pcvrChooseDevice(int index);
-    // Lane pcvr-steamvr: the app grid's VR entry for the PC at computerIndex of computerManager (QML's
-    // ComputerManager): MlxrHandoff::startVr
-    Q_INVOKABLE void startVr(QObject* computerManager, int computerIndex);
-    // The one-sentence reading of steam_cef.py --probe's JSON (exposed for tests): ok, what is wrong, a hint
-    static QString pcvrProbeSummary(const QByteArray& json, int exitCode, const QString& stderrText, bool* ok);
     // Looks at the network interfaces under netRoot (/sys/class/net) now and emits usbCableChanged()
     // when the cable appeared or went away. MLXR_LAUNCHER_NET_ROOT: another directory (tests).
     Q_INVOKABLE void rescanUsb();
@@ -339,11 +320,12 @@ public:
     QString pointerSource = QStringLiteral("controller");
     QString mouseMode = QStringLiteral("absolute"); // native (lane headinput-finish)
     bool backAsGuide = false;
-    QString pcvrClient;
-    QString pcvrClientName;
+    int headDwellMs = 0;   // native (lane a11y-tab)
+    int assistDotSize = 100;   // native (lane a11y-2): [vr] assist_dot_size, percent, 50..300
+    bool assistHeadsetButton = false;                // [vr] assist_headset_button
+    QString assistDwellStyle = QStringLiteral("simple");   // [vr] assist_dwell_style (lane radial-dwell)
 
 signals:
-    void pcvrChanged();
     void changed();
     void usbCableChanged();
 
@@ -374,6 +356,10 @@ private:
     QString m_iniPointerSource = QStringLiteral("controller");
     QString m_iniMouseMode = QStringLiteral("absolute");
     bool m_iniBackAsGuide = false;
+    int m_iniHeadDwellMs = 0;   // native (lane a11y-tab)
+    int m_iniAssistDotSize = 100;   // native (lane a11y-2)
+    bool m_iniAssistHeadsetButton = false;
+    QString m_iniAssistDwellStyle = QStringLiteral("simple");
     void loadHeadInput(const QString& ini);
     void saveHeadInput(const QString& ini);
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
@@ -384,10 +370,6 @@ private:
     bool m_iniSbsFull = false;
     int m_iniEdgeSharpness = 0, m_iniMotionReset = 0, m_iniDepthScale = 100, m_iniDepthGlobal = 100;
     bool m_usbCable = false, m_usbScanned = false;
-    QString m_pcvrStatus, m_pcvrBase;
-    bool m_pcvrBusy = false;
-    QVariantList m_pcvrDevices;
-    void pcvrSay(const QString& status, bool busy);
     // PLAN 6.7: kVrKeys' values now and as config.ini held them at load(), as the VR client's text
     QMap<QString, QString> m_vr, m_iniVr;
     QString m_iniKeymap = QStringLiteral("qwerty");

@@ -30,8 +30,8 @@ if(Python3_FOUND)
   set_tests_properties(tools_make_gun PROPERTIES TIMEOUT 120)
 endif()
 
-# packaging/steam_cef.py (the Steam CEF driver, and the PC VR hand-off's JavaScript, list parsing and
-# preflight) against a fake CEF endpoint (tests/tools/fake_cef.py, a small HTTP + websocket stub).
+# packaging/steam_cef.py (the Steam CEF driver and its preflight, --probe) against a fake CEF endpoint
+# (tests/tools/fake_cef.py, a small HTTP + websocket stub).
 if(Python3_FOUND)
   add_test(NAME tools_steam_cef
     COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/test_steam_cef.py

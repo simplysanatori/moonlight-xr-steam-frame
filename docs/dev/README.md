@@ -45,6 +45,7 @@ What the developer asked the owner to check in the headset after a session.
 | [reports/xr-core.md](reports/xr-core.md) | `xr/core/`: the ported Moonlight XR modules |
 | [reports/audio.md](reports/audio.md) | `audio/`: Opus, PulseAudio, virtual surround |
 | [reports/ui.md](reports/ui.md) | `ui/`: text, panels, settings |
+| [accessibility.md](accessibility.md) | The cog's Accessibility tab, the Eyes pointer, the gaze probe (`mlxr-hello --gaze-probe`) and the eye gestures left for later |
 | [i18n.md](i18n.md) | The headset UI's translations: where they come from, the language setting, CJK fonts, the overflow test, what is left in English |
 | [reports/shaders.md](reports/shaders.md) | `shaders/`: the Vulkan passes |
 | [reports/depth.md](reports/depth.md) | `depth/`: LiteRT and the depth models |

@@ -84,20 +84,6 @@ static void testZones(void) {
     xrHostCloseRect(r);
     CHECK(xrHostZoneAt((r[0] + r[2]) * 0.5f, (r[1] + r[3]) * 0.5f, 0, 0) == XR_HOST_ZONE_CLOSE);
     CHECK(xrHostZoneAt((r[0] + r[2]) * 0.5f, (r[1] + r[3]) * 0.5f, 0, 1) == XR_HOST_ZONE_NONE);
-    // Native (PLAN 4.1): PC VR is a zone left of Close, over no cell, and out of reach while asking
-    float pc[4], cl[4];
-    xrHostPcvrRect(pc);
-    xrHostCloseRect(cl);
-    CHECK(pc[2] <= cl[0] && pc[0] >= 0.0f && pc[1] >= 0.0f && pc[3] <= 1.0f);
-    for (int i = 0; i < XR_HOST_CELLS; i++) {
-        float cr[4];
-        xrHostCellRect(i, cr);
-        CHECK(pc[2] <= cr[0] || cr[2] <= pc[0] || pc[3] <= cr[1] || cr[3] <= pc[1]);
-    }
-    CHECK(xrHostZoneAt((pc[0] + pc[2]) * 0.5f, (pc[1] + pc[3]) * 0.5f, 0, 0) == XR_HOST_ZONE_PCVR);
-    CHECK(xrHostZoneAt((pc[0] + pc[2]) * 0.5f, (pc[1] + pc[3]) * 0.5f, 8, 0) == XR_HOST_ZONE_PCVR);
-    CHECK(xrHostZoneAt((pc[0] + pc[2]) * 0.5f, (pc[1] + pc[3]) * 0.5f, 0, 1) == XR_HOST_ZONE_NONE);
-    CHECK(XR_HOST_CONFIRM_PCVR >= XR_HOST_CELLS && XR_HOST_ZONE_PCVR != XR_HOST_ZONE_CLOSE);
     xrHostConfirmSendRect(r);
     CHECK(xrHostZoneAt((r[0] + r[2]) * 0.5f, (r[1] + r[3]) * 0.5f, 0, 1) == XR_HOST_ZONE_CONFIRM_SEND);
     CHECK(xrHostZoneAt((r[0] + r[2]) * 0.5f, (r[1] + r[3]) * 0.5f, 0, 0) != XR_HOST_ZONE_CONFIRM_SEND);
@@ -378,18 +364,22 @@ static void testPcPage(void) {
     xrHostPageRect(page);
     xrHostCloseRect(close);
     CHECK(page[0] >= 0 && page[1] >= 0 && page[2] <= 1 && page[3] <= 1 && page[2] > page[0] && page[3] > page[1]);
-    // beside Close, clear of it, of PC VR (main's) and of every cell
-    CHECK(page[2] <= close[0] || close[2] <= page[0] || page[3] <= close[1] || close[3] <= page[1]);
-    float pcvr[4];
-    xrHostPcvrRect(pcvr);
-    CHECK(page[2] <= pcvr[0] || pcvr[2] <= page[0] || page[3] <= pcvr[1] || pcvr[3] <= page[1]);
-    CHECK(XR_HOST_ZONE_PAGE != XR_HOST_ZONE_PCVR && XR_HOST_ZONE_PAGE != XR_HOST_ZONE_CLOSE
+    // left of Close on the same line, 14 px apart like the cells (the header has only these two), and
+    // clear of every cell
+    CHECK(page[2] <= close[0] && page[1] == close[1] && page[3] == close[3]);
+    float gapPx = (close[0] - page[2]) * (float)XR_HOST_TEX_W;
+    CHECK(gapPx > 13.5f && gapPx < 14.5f);
+    CHECK(XR_HOST_ZONE_PAGE != XR_HOST_ZONE_CLOSE
           && XR_HOST_ZONE_PAGE != XR_HOST_ZONE_CONFIRM_SEND && XR_HOST_ZONE_PAGE != XR_HOST_ZONE_CONFIRM_CANCEL);
-    // the header is the same on both pages: PC VR is a zone on each, and hidden by a question
-    float qu = (pcvr[0] + pcvr[2]) * 0.5f, qv = (pcvr[1] + pcvr[3]) * 0.5f;
-    CHECK(xrHostZoneAtPage(qu, qv, XR_HOST_PAGE_MAIN, 0, 3, 0) == XR_HOST_ZONE_PCVR);
-    CHECK(xrHostZoneAtPage(qu, qv, XR_HOST_PAGE_PC, 0, 3, 0) == XR_HOST_ZONE_PCVR);
+    // the header is the same on both pages: Close is a zone on each, and hidden by a question; the gap
+    // between the two buttons is nothing
+    float qu = (close[0] + close[2]) * 0.5f, qv = (close[1] + close[3]) * 0.5f;
+    CHECK(xrHostZoneAtPage(qu, qv, XR_HOST_PAGE_MAIN, 0, 3, 0) == XR_HOST_ZONE_CLOSE);
+    CHECK(xrHostZoneAtPage(qu, qv, XR_HOST_PAGE_PC, 0, 3, 0) == XR_HOST_ZONE_CLOSE);
     CHECK(xrHostZoneAtPage(qu, qv, XR_HOST_PAGE_PC, 0, 3, 1) == XR_HOST_ZONE_NONE);
+    float gu = (page[2] + close[0]) * 0.5f;
+    CHECK(xrHostZoneAtPage(gu, qv, XR_HOST_PAGE_MAIN, 0, 3, 0) == XR_HOST_ZONE_NONE);
+    CHECK(xrHostZoneAtPage(gu, qv, XR_HOST_PAGE_PC, 0, 3, 0) == XR_HOST_ZONE_NONE);
     for (int i = 0; i < XR_HOST_CELLS; i++) {
         xrHostCellRect(i, cell);
         CHECK(page[2] <= cell[0] || cell[2] <= page[0] || page[3] <= cell[1] || cell[3] <= page[1]);

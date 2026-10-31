@@ -64,6 +64,30 @@
  *   - the score is the same as for the others; the cable has no radio jitter, so it normally wins.
  *   - hot-plug: the table is read afresh each time a path is chosen; the launcher rescans every
  *     10 s (mlxr_usb_watch below) so a cable plugged in after the app started is noticed and logged.
+ *
+ * Native (lane vpn-fallback): VPN addresses. A PC is often also reachable through a VPN (an overlay
+ * network that reaches it from anywhere). At home the VPN address answers too, sometimes faster on the
+ * probe than the home network, but the stream over it is worse (the tunnel's own overhead, a relay, an
+ * MTU that splits the video packets). So every candidate is classified as direct or VPN
+ * (mlxr_net_addr_is_vpn, mlxr_net_plan_classify):
+ *   - VPN: an IPv4 address in 100.64.0.0/10 (the shared carrier-grade NAT range, which overlay VPNs
+ *     hand out), an IPv6 address in fd7a:115c:a1e0::/48, an address reached through an interface whose
+ *     name starts with tailscale, wg, tun, tap, zt or utun (the subnet the interface owns, the interface
+ *     of the default route, or, when the plan reads the system's table, the kernel's own route lookup,
+ *     which also sees policy routing), and a loopback address (a local port forward into a VPN that
+ *     runs in user space; hosts.ini never gets one from the flat launcher, which drops loopback).
+ *   - direct: everything else (the home Wi-Fi or ethernet, the adapter, the USB cable).
+ * The path of a VPN candidate stays what the interface says (normally Wi-Fi); `vpn` is a flag beside it.
+ * With `[stream] vpn_only_away` (default true, plan->vpn_only_away) every candidate is still probed, but
+ * a VPN candidate is chosen only when no direct candidate answered within the budget: Automatic, a path
+ * set by hand and the fallback to the other paths alike. Automatic's grace time after the first answer
+ * starts only with a direct answer (or once every direct candidate has finished without one), and a
+ * path set by hand lets a VPN candidate win only after every direct one on it has finished. False:
+ * the old rule, the best score wins whatever the address. plan->vpn_note has the one line for the log.
+ * The failover (failover.h) never moves a stream from a direct path to a VPN one; from VPN to direct
+ * it may. A stream over a VPN address is not written into the history (its losses say nothing about
+ * the home link). mlxr_net_learn_addresses saves the direct addresses that discovery found into the
+ * host's extra_addresses, so at home the next choice probes them from the start; it never removes one.
  */
 #ifndef MLXR_NETPATH_H
 #define MLXR_NETPATH_H
@@ -116,9 +140,23 @@ typedef struct {
 
 /* Read the system's table (getifaddrs, /proc/net/route, nl80211). Returns the count. */
 int mlxr_netifs_read(mlxr_netifs *t);
+/* Native (lane vpn-fallback): the interface the kernel would send to `addr` through (a UDP socket connected
+ * to it, no packet sent; its source address matched against the table, IPv6 against getifaddrs). Sees policy
+ * routing, which /proc/net/route does not. False when there is no route or no match. */
+bool mlxr_net_route_ifname(const mlxr_netifs *t, const char *addr, char *out, size_t cap);
 /* The path of an address and the interface entry it goes through (NULL when none matched). */
 mlxr_net_path mlxr_net_classify(const mlxr_netifs *t, const char *addr, const mlxr_netif **via);
 bool mlxr_netif_is_ap(const mlxr_netifs *t, const mlxr_netif *i);
+
+/* ---- VPN addresses (Native, lane vpn-fallback) ---- */
+
+/* Pure. 100.64.0.0/10, host byte order. */
+bool mlxr_net_ipv4_is_vpn(uint32_t a);
+/* Pure. An interface name of a VPN: tailscale*, wg*, tun*, tap*, zt*, utun*. */
+bool mlxr_net_ifname_is_vpn(const char *name);
+/* Pure. Is `addr` a VPN address, reached through the interface `ifname` (may be NULL or "")? *why (may be
+ * NULL) gets a static word for the log: "100.64.0.0/10", "fd7a:115c:a1e0::/48", "loopback", "interface". */
+bool mlxr_net_addr_is_vpn(const char *addr, const char *ifname, const char **why);
 
 /* ---- the USB cable (Native, lane wave4c-usb) ---- */
 
@@ -268,6 +306,9 @@ typedef struct {
     bool other_host;            /* answered, but as another PC (uuid differs) */
     char error[96];             /* the last failure */
     bool skipped;               /* Native (lane adapter-detect): not probed, there is no adapter */
+    /* Native (lane vpn-fallback) */
+    bool vpn;                   /* a VPN address (mlxr_net_plan_classify); direct when false */
+    char vpn_why[24];           /* "100.64.0.0/10" "loopback" "wg0" ... ("" direct) */
 } mlxr_net_cand;
 
 typedef struct {
@@ -306,6 +347,12 @@ typedef struct {
     char history_dir[256];      /* the config directory: mlxr_net_select reads netpath-history.ini there ("" none) */
     mlxr_nethist hist;          /* the last streams per path; filled by mlxr_net_select, or by the tests */
     int64_t now_s;              /* Unix time for the history's age; 0 means the clock */
+    /* Native (lane vpn-fallback) */
+    bool vpn_only_away;         /* [stream] vpn_only_away: a VPN candidate only when no direct one answered (true) */
+    bool route_lookup;          /* classify asks the kernel's routes too (mlxr_net_select sets it when it reads the
+                                 * system's table itself; tests with a fake table leave it off) */
+    bool vpn_set_aside;         /* the outcome: a VPN candidate answered and was not used, a direct one was */
+    char vpn_note[200];         /* the log line about VPN addresses ("" when the PC has none) */
 } mlxr_net_plan;
 
 void mlxr_net_plan_init(mlxr_net_plan *p, mlxr_net_pref pref, const char *source, uint16_t http_port,
@@ -336,6 +383,15 @@ int mlxr_net_plan_add_usb(mlxr_net_plan *p, const mlxr_netifs *t);
 void mlxr_net_plan_add_record(mlxr_net_plan *p, const char *address, const char *extra_addresses);
 /* Sets path, ifname of each candidate from the table. */
 void mlxr_net_plan_classify(mlxr_net_plan *p, const mlxr_netifs *t);
+/* Native (lane vpn-fallback): remembering the PC's addresses. Every direct candidate that answered as this PC
+ * (the ones discovery found through ARP or mDNS above all, the launcher's, the record's own) and serverinfo's
+ * LocalIP `local_ip` (may be NULL; only when the chosen candidate is direct: over a VPN it is the PC's VPN side) are
+ * appended to the comma list `extra` (cap bytes, hosts.ini's extra_addresses) unless already there or equal to
+ * `address` (the record's own). Not learned: VPN and loopback addresses (the user saves those, and they stay), and
+ * the USB cable's (worked out afresh each time). Nothing is removed. Returns how many were added; `learned` (may be
+ * NULL) gets them, comma separated. */
+int mlxr_net_learn_addresses(const mlxr_net_plan *p, const char *address, const char *local_ip, char *extra, size_t cap,
+                             char *learned, size_t learned_cap);
 /* Native (lane adapter-detect): looks for the adapter (plan->adapter_inputs if set, else the system),
  * stores the answer in plan->adapter and marks the adapter-path candidates `skipped` when there is no
  * station. Call after mlxr_net_plan_classify. mlxr_net_select does it. */
@@ -390,11 +446,14 @@ typedef struct {
     double score_ms;            /* its score (mlxr_net_score), -1 when not present */
     int64_t probed_ms;          /* CLOCK_MONOTONIC milliseconds of that probe */
     char address[128];
+    bool vpn;                   /* Native (lane vpn-fallback): ... and it is a VPN address (no direct one answered on it) */
 } mlxr_net_path_quality;
 typedef struct {
     bool valid;                 /* a choice was made */
     bool pref_auto;             /* the setting was Automatic (a path set by hand is never left) */
     mlxr_net_path chosen;
+    bool chosen_vpn;            /* Native (lane vpn-fallback): the stream's address is a VPN one */
+    bool vpn_only_away;         /* ... and the setting: then a direct path is never left for a VPN one */
     int generation;             /* counts the unforced choices (a new stream, a reconnect) */
     mlxr_net_path_quality p[4];
 } mlxr_net_quality;

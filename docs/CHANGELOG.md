@@ -1,16 +1,160 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 (October 2026)
 
-### Added
+1.1.0 is the largest update so far. Every controller button can now be changed in `bindings.ini`, and there is a Gun model with lightgun mode, gyro from the headset, Bluetooth and USB gamepad passthrough, and a Host sheet of hard-to-reach keys and macros. The picture gets sharper small text, a 3D source for side-by-side and top-bottom pairs, screen presets, zoom and a remembered place for each app. Streams reconnect by themselves, start at a bitrate for each connection (up to 500 Mbps), can run over a USB cable, and use VPN only when the PC isn't on the local network. A new Accessibility tab (early) lets the head or the eyes (experimental) point and click, with a dwell click and a radial menu. The flat window gets a searchable, tidied Settings page, a controller bindings editor, stream profiles and a check of the PC before each stream.
 
-- The flat window checks once a day whether a newer release is out on GitHub and then shows an update button that opens its release page. Nothing is downloaded or sent; **Check for updates** in Settings turns it off.
-- **On start** in Settings opens the last PC's Desktop, or an app you choose, as soon as the PC is online. `install.sh --desktop-shortcut` adds a second Steam shortcut, **Desktop in VR**, that goes straight to the Desktop.
+### Streaming
+
+- Each connection can start at its own bitrate: **Bitrate over Wi-Fi**, **Bitrate over the Steam Frame Wireless Adapter**, **Bitrate over a wired network** and **Bitrate over the USB cable** under Connection. **Same as above** (the default) uses the Video bitrate.
+- Every bitrate row goes up to 500 Mbps, with no Unlock bitrate switch: **Video bitrate**, **Custom bitrate**, the four connection rows and `config.ini`, whatever an older configuration says. A stream used to stop at 150 Mbps unless that hidden Moonlight option was on.
+- The Settings page's **Video bitrate** slider is under Connection, right above the per-connection rows, and moves in 5 Mbps steps with left and right (0.5 Mbps when dragged).
+- The connection rows open a list with a **Custom...** entry (0.5 to 500 Mbps), and every bitrate row shows its figure in Mbps. The log says the bitrate a stream asks for and where it came from.
+- A dropped connection reconnects by itself: the headset keeps the room, the screen's place and the 3D, and asks the PC to resume the same app twice (after 2 and 5 seconds) before the flat window comes back.
+- Taking the headset off mutes the sound and lets go of every key and button held on the PC. After 60 seconds off, the stream disconnects and the game keeps running on the PC (`[stream] doff_disconnect`, 0 for never).
+- **Disconnect when idle** ends the stream after a set time with no input; the game keeps running (off by default).
+- After lost video the headset waits for the PC's quick repair as long as the link needs before it asks for a full frame, so a bad moment on Wi-Fi does not turn into a longer freeze.
+- **Full-frame requests after lost video** limits how often the headset asks the PC for a full frame (500 ms by default).
+- **Virtual surround** keeps the 5.1 and 7.1 speakers in place as you turn your head, and with Stereo the two channels become speakers in front of the screen that stay put too. It has a switch on the Settings page (off by default).
+- The sound mutes while the SteamVR dashboard is open, and everything held down on the PC is let go.
+- The Moonlight XR logo with "Connecting to *PC name*..." shows while a stream starts, and "Reconnecting..." while it reconnects.
+
+### Network
+
+- A USB data cable between the headset and the PC is a third connection: **USB cable** under Network connection, and Automatic tries it too. It needs the headset in developer mode.
+- **Use VPN only when the PC isn't on the local network** (on by default, under Connection): on the same network as the PC, the headset always streams over the PC's local IP address. If the PC also has a VPN address, such as Tailscale, the headset uses it only when the PC does not answer on the local network. The local address is remembered once found, a local port forward (127.0.0.1) counts as a VPN address, and a stream never switches from the local network to a VPN by itself.
+- **Switch network when video keeps breaking up** moves a stream that keeps losing video to another link that measured clearly better when it started; **Video loss before switching** sets how much loss that takes. Off by default, and only with Network connection on Automatic.
+- `moonlight.log` tells video lost on the network apart from Wi-Fi power saving and packets dropped inside the headset, with a summary of each burst of loss, for bug reports.
+
+### The picture
+
+- **Sharper small text** averages the stream under each of the headset's pixels on a curved or 3D screen, so small text is sharper (on by default).
+- **Sharper coloured text** keeps red, blue and syntax-coloured text in colour to its edge on a curved or 3D screen (on by default).
+- **Sharpen** on a curved or 3D screen now works at the headset's own pixels, crisps black text on white and never rings past an edge.
+- **Sharpen** now defaults to **Normal** and sharpens brightness only, so colour stays exactly as with Off.
+- **Sharpen**'s **Quality** holds back on black-and-white edges, so white text on black shimmers about as little as with Normal.
+- Zoom and pan: bind `app:zoomin`, `app:zoomout` and `app:zoomreset` to show a part of the picture filling the screen, from 100 to 400 %. Zoom in aims at where the controller points, and the zoom is kept for each app.
+- The Settings page's **Zoom** row sets the zoom a stream starts with.
+- The Screen tab's **Preset** row: **Desk** (1.2 m away, 1.6 m wide), **Couch** (2.5 m, 2.6 m) and **Cinema** (4 m, 5 m).
+- The Screen tab's **Bring here** puts the screen where you look, as far away and as large as it was (also `app:bringhere` in `bindings.ini`).
+- **Remember per app** keeps the screen's place, the head lock, the 3D state and the zoom for each PC and app (on by default; **Forget** drops what is kept for the app now streaming).
+- **Follow**, a third choice of the Head locked row: the screen stays put until your head turns more than 25° away, then glides after you (**Follow after turning**, 10 to 60°).
+- **Angular-size lock**: pushing or pulling the held screen with the thumbstick keeps its size in your view (on by default).
+- The Picture tab's **Background** (Settings page: **Background dim**) dims the room, the passthrough or the void from 0 to 100 % (0 by default).
+- The Picture tab's **Glow edge** fades the picture's edge into the glow, **Soft** or **Wide** (off by default).
+- **Void colour** on the Settings page (`[vr] void_color`) sets the colour of the black void.
+
+### 3D
+
+- **3D source** shows a side-by-side or top-bottom pair the PC renders itself (3D films, games with an SBS mode, ReShade's SuperDepth3D) instead of the depth model, with no depth lag. The bar's 3D button reads SBS or TB.
+- **Full-size SBS** is for a PC pair with a full picture per eye (off by default).
+- The sliver each eye sees behind a person or an object is filled from the background, so outlines are as sharp in both eyes (on by default).
+- **Edge** on the 3D tab (Settings page: **3D edge**) keeps hair, outlines and thin text on their own depth instead of blending them into what is behind.
+- **Motion reset** (Settings page: **3D motion reset**) restarts the depth smoothing where the picture changes fast, so moving edges leave no trail.
+- **Depth detail** (Settings page: **3D depth detail**) scales the depth between things near each other without moving the whole picture in or out.
+- **Depth shape** (Settings page: **3D depth shape**) scales the depth of the picture as a whole toward the screen.
+- **Eye balance** (Settings page: **3D eye balance**) shares the 3D shift between the two eyes, or puts all of it in one.
+- At their defaults the five new 3D rows leave the picture as before.
+
+### Controllers and input
+
+- New pointer-mode buttons: X turns 3D on or off, Y shows or hides the headset keyboard, the right Menu button opens the cog, d-pad up turns the screen round to where you face, and the bumpers are Back and Forward. D-pad left stays free.
+- `bindings.ini` changes what each controller button does, in pointer and gamepad mode, for every app or for one app, and a change applies at the next stream.
+- The flat window's **Controller bindings** page edits `bindings.ini`.
+- **Show controllers** on the Display tab chooses what is drawn in each hand: **Off** (the default), **Frame** or **Gun**.
+- The **Gun** is a G17 Gen 5 with a weapon light, held like a light gun with the muzzle on the dot and a trigger that moves with yours (model by 8sianDude, CC BY 4.0; see CREDITS.md). A `gun_left.model` and `gun_right.model` pair of your own in the models folder replaces it.
+- **Your own model** (Settings page's **Show controllers**, or `controller_model = custom`) draws a controller model you made yourself from `~/.config/moonlight-xr/models/`; [CUSTOM_MODELS.md](CUSTOM_MODELS.md) explains how to convert one.
+- Lightgun mode: with Show controllers on Gun, clicks land exactly where the gun points and each shot gives a recoil pulse (**Lightgun recoil**, on by default).
+- **Lightgun reload** makes a trigger pull that starts off the picture a right click, for games that reload with a shot off the screen (off by default).
+- **Gyro from the headset** sends the right controller's or your head's turn to the PC as the gyro of a PlayStation gamepad in gamepad mode, for gyro aiming in Steam Input (off by default). **When the gyro is sent** can limit it to while your thumb touches the right stick.
+- Bluetooth gamepads pass their gyro, accelerometer, battery, touchpad and light bar to the PC (needs DS4 emulation on the PC).
+- **Gamepad as mouse**: hold Start on a Bluetooth or USB gamepad for a second and it becomes the PC's mouse; hold it again to give it back.
+- **When a gamepad is connected**: a Bluetooth gamepad in use takes the Frame controllers' gamepad off the PC, so the controllers point again.
+- **Flip face buttons** now applies to Bluetooth and USB gamepads too.
+- In gamepad mode, left View and right Menu held together for a quarter of a second is the Guide button.
+- **Back button as Guide** makes View the Guide button on its own (off by default).
+- **Grips in gamepad mode**: the grips can be the bumpers (the default), the stick clicks or nothing.
+- **Adjust analog stick dead zone** now applies to the Frame controllers too.
+- Rumble reaches both hands by default, the trigger motors included.
+- **Rumble strength on the headset controllers** turns the controllers' rumble down.
+- **Click steadiness** (Off, Normal, Steady) holds the cursor still around a click so double clicks land on the same spot.
+- Thumbstick scrolling is smooth, with **Scroll speed** on the Settings page (`scroll_speed` in `config.ini`) for its speed.
+- **Mouse mode** Relative sends how far the pointer moves instead of where it is, for games that capture the mouse (Absolute by default).
+- **Head turns the game's camera (first-person games)** (head-look, experimental): with the screen head locked or in a room, your head's turn moves the PC's mouse for first-person games; hold a grip to turn back without turning the game (off by default).
+- **Head tracking to opentrack** sends your head's position and turn to opentrack on the PC, for simulators that take TrackIR or FreeTrack (off by default).
+- **Accessibility** (early): a new tab in the cog and a matching section on the Settings page, for pointing and clicking with the head or the eyes. Nothing turns on by itself.
+- **Pointer** (Controller, Head, Eyes) chooses what moves the pointer. **Eyes** is experimental: the eyes jitter and land only near where you look, so the dot is held still while they rest and a dwell tolerates a wider wander; the head takes over while the eyes are lost.
+- Whenever SteamVR offers eye tracking, the app asks for it, so **Eyes** works from the tab without editing `config.ini`. On a Steam Frame, eye gaze reaches the app; the tab says whether gaze is arriving, and Eyes is dimmed only when SteamVR does not offer eye tracking at all.
+- **Dwell click** (Off, 0.6 to 1.5 s) clicks when the dot rests on a spot. It shows as a circle in the dot's colour that goes round and closes in on the dot, and fades if you move away before it clicks.
+- **Dwell click style** (Simple by default) adds a **Radial menu**: near the end of a dwell on the picture, keep still for a click, look left for a double click, down to drag (the next dwell drops it) or right for a right click; look well away to cancel. Every click lands where the dwell started.
+- **Dot size** (50 to 300 %) scales the head and eye pointer's dot and its dwell ring.
+- A line at the bottom of the tab says what the row under the pointer does. The flat window shows the same sentence as a tip on hover or gamepad focus.
+- Holding the right Menu button and the right grip for half a second makes the controllers point again (and saves it). Menu alone still opens the cog, as you let go of it.
+- A gamepad card hangs in your lap while a Bluetooth or USB gamepad is in use and lights up what you press on it (**Gamepad card in the headset**: Automatic, On, Off).
+
+### The bar and menus
+
+- **Bring here**, outermost on the bar's left (screen in the world, outside a room), switches the screen between the Screen tab's Desk preset and the place it had before, exactly as you left it (Cinema when nothing is remembered). It does not follow your head, and the place it goes back to is kept across restarts.
+- A **Host** button on the bar opens the Host sheet (also `app:host` in `bindings.ini`).
+- Exit on the bar asks **Quit app**, **Disconnect** (the game keeps running on the PC) or **Cancel**.
+- The cog opens on the tab you used last.
+- The Display tab has the controller rows together: **Mode**, **Show controllers**, **Ray**, **Pointer sleep**, **Click steadiness** and **Click sound**.
+- **Notices** (All, Important, Off) chooses which pop-ups appear under the picture.
+- The cog's **Ray** row (Off, Dot, Ray) is kept for the next session and shows at once with the cog open.
+- With the ray off, a faint beam still shows over the bar so you can find it.
+- Stats has two shorter styles, **HUD** and **Lite** (**Stats style** on the Settings page, `stats_style`). The HUD also shows the compositor's frame times and dropped frames when SteamVR reports them.
+- With Stats on, `perf-<date>-<time>.csv` next to `vrtiming.log` gets a row of figures every 5 seconds, for comparing runs.
+- The clock strip shows the headset's battery.
+- A **Slow connection** badge shows in the clock strip while frames are being lost.
+- A card lists the controls the first time you stream after installing (**Controls card on the next stream** shows it again).
+- The headset's menus, keyboard and notices can be in 19 languages besides English (**Headset language**). Chinese, Japanese and Korean need the Noto Sans CJK fonts on the Frame.
+- The report sheet has **Save and zip**, which runs `bug-report.sh` and shows where the zip is.
+
+### Keyboard and host
+
+- The **Host** sheet sends keys that are awkward to reach in one press (Esc, Win, Win+D, Alt+Enter, Ctrl+Alt+Tab, Ctrl+Shift+Esc, Alt+F4 after asking, and more), and **Send keys...** for any combo.
+- Up to eight macros of your own from `macros.ini` show on the Host sheet.
+- With an Apollo PC, the Host sheet's **Clipboard, commands** page has **Paste from PC** (types the PC's clipboard), **Send text to PC** (puts what you type on the PC's clipboard) and the server commands set up in Apollo.
+- The headset keyboards have AZERTY (French) and QWERTZ (German) layouts (**Headset keyboard layout**), with dead keys on the Full keyboard.
+- A row of media keys under both keyboards: previous, play/pause, next, mute, volume down and up, for the PC's own player and volume.
+- The Compact keyboard's Shift, Ctrl, Alt and Win work like the Full keyboard's: tap for one key, hold half a second to lock (**Hold to lock Shift, Ctrl, Alt or Win** sets the time).
+
+### The flat window
+
+- Stream settings profiles: save the page's settings under a name and use them for a PC or for one app (**Profiles**, or **Stream settings profile...** in an app's menu).
+- Before a stream starts, the flat window asks the PC what will go wrong (Apollo permissions, the virtual display, another app already running) and says so (**Check the PC before streaming**, on by default).
+- The Settings page has a **Search settings** field and a button for each category.
 - The Settings page has rows for the headset settings that were only in `config.ini` or the cog menu: the picture, the pointer, the keyboard, gamepad mode, the environment and the screen.
+- The flat window checks once a day whether a newer release is out on GitHub and then shows an update button that opens its release page. Nothing is downloaded or sent; **Check for updates** in Settings turns it off.
+- **On start** in Settings opens the last PC's Desktop, or an app you choose, as soon as the PC is online, and wakes the PC first.
+- **Help** opens the readme in Steam's browser in Game Mode, as the Ko-fi page does.
+- Apollo apps are started by their UUID as well as their number, as Artemis does, so Apollo knows when that app is already running.
+- In the flat window, the right thumbstick scrolls the page smoothly (faster the further it is pushed), and the left stick and the d-pad move from item to item, including through a long list in a dialog.
+
+### Install
+
+- `install.sh --desktop-shortcut` adds a second Steam shortcut, **Desktop in VR**, that goes straight to the PC's Desktop.
+- The release is also written as a `.zip` with the same files and modes as the `.tar.gz`, for the community installers Frametanium and FrameDrop.
+- `install.sh` keeps a log in `~/Games/MoonlightXRNative/install.log` and never waits for input; when Steam is not running it installs the files, says that the Steam shortcut was skipped and exits 0.
 
 ### Changed
 
-- The release is also written as a `.zip` with the same files and modes as the `.tar.gz`, for the community installers Frametanium and FrameDrop. `install.sh` now keeps a log in `~/Games/MoonlightXRNative/install.log`, never waits for input, and when Steam is not running it installs the files, says that the Steam shortcut was skipped and exits 0.
+- The Settings page is tidied up. Rows that were filed under Performance Monitor or Gamepad move to where they belong (Scroll speed to Input; 3D eye balance to the 3D rows; Notices, Zoom, Background dim, Glow edge and Void colour to UI; the two disconnect rows and the controls card to General), the 3D switch, 3D source and depth model come before the rows they grey out, and a row that depends on another is greyed with the reason while that one is off. Head-look is **Head turns the game's camera (first-person games)** under Input, next to Mouse mode, and Back button as Guide is under Gamepad.
+- Settings page names follow the headset's cog where it has the same setting (**Sharpen**, **Supersample**, **Screen size**, **Remember per app**, **Angular-size lock**, **Head aim**, **Pointer sleep**, **Notices**, **Stats**, **3D depth**, **3D convergence** and more), in sentence case. **Head locked** (Off, On, Follow) and **Ray** (Off, Dot, Ray) are one row each, as in the cog, and Render Mode is the **3D** switch. Custom resolution is the **Custom...** entry of Video resolution. The rows that could never be used on the Frame are gone (HDR, Unlock all possible frame rates, the AV1 codec choice). Apollo-only rows say "Needs Apollo".
+- The Display tab's Controller model row (Off, On) is now **Show controllers** (Off, Frame, Gun). When SteamVR's Frame models could not be converted, no controller is drawn instead of a plain one.
+- The About tab's Ko-fi button reads **Support simplysanatori on Ko-fi** and its sheet opens this port's page in Steam's browser; the QR code is gone.
+
+### Fixed
+
+- The installer now sets SteamVR's render resolution for the shortcut to 3240 x 3240 per eye, 1.5 times the Frame's native 2160 x 2160. It used to set 2160, which left small text blurry; run `install.sh` again, or set it in SteamVR's per-application video settings.
+- A white beam no longer runs across the picture when you move the ray along the bar with the other controller pointing at the picture: the whole bar row now belongs to the hand on it.
+- The ray and the controller model no longer flicker or jump when tracking drops for a moment: the last aim is held for up to 300 ms.
+- The controller bindings are offered to SteamVR under both names it gives the Frame controllers, the older one and the one SteamVR uses since 2.15.1.
+- A dwell click no longer repeats on the same spot or cell every dwell time, a dwell on an open menu no longer clicks the picture behind it, and the headset's menus redraw on their own when only the hover changes.
+
+### Known issues
+
+- While the flat window is docked in the SteamVR dashboard, the right thumbstick does not scroll it, because the dashboard keeps that input. Undock the window (grab it with the grip) and scrolling works.
 
 ## 1.0.1 (October 2026)
 

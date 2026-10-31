@@ -38,7 +38,7 @@ def esc(data, bytearray_=True):
 
 lines = ["[General]", "bitrate=31000", "certificate=" + esc(rd(cert_p)), "fps=144",
          "key=" + esc(rd(key_p)), "[hosts]"]
-# host 1: paired, Tailscale-ish addresses, loopback manual address, binary MAC with a \x1b + hex-digit trap
+# host 1: paired, VPN-style addresses, loopback manual address, binary MAC with a \x1b + hex-digit trap
 mac1 = bytes([0x02, 0xf0, 0x2c, 0x5d, 0xa5, 0x10])
 lines += [
     "1\\customname=false",

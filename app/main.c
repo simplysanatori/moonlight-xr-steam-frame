@@ -10,9 +10,7 @@
 //                      session and then the process, instead of showing the VR app list.
 //                      Exit code 0 is normal; otherwise the last stderr line starting
 //                      "MLXR_ERROR: " is the message (codes below, EXIT_*). 11 = left with
-//                      the disconnect chord (host session kept): not an error. 12 = the Host
-//                      sheet's Switch to PC VR (host session kept): the launcher hands the
-//                      headset to Valve's Steam Link stream.
+//                      the disconnect chord (host session kept): not an error.
 //   --packet-size N    video packet size (bytes, local network), 0/absent = 1392
 //   --audio stereo|51|71   the audio channel layout to ask the host for
 // Native (lane artemis-settings): the flat launcher's Artemis-style Settings page adds
@@ -83,7 +81,6 @@
 #include "../xr/xr_stream_prefs.h"
 #include "launcher.h"
 #include "panels.h"
-#include "vr_handoff.h"
 #include "settings.h"
 
 static FrameSlot g_slot;
@@ -116,9 +113,7 @@ enum {
     EXIT_NO_APP = 5,
     EXIT_LAUNCH_FAILED = 6,  // the host refused the launch/resume, or the stream would not connect
     EXIT_STREAM_ENDED = 10,  // the stream ended by itself (the host closed it, or the network dropped)
-    EXIT_DISCONNECTED = 11,  // left with the disconnect chord: not an error, the host's session still runs
-    EXIT_PCVR = 12           // VR (the app list's entry, the Host sheet's PC VR): the host's session ended, and the
-                             // launcher hands the headset to Steam Link in SteamVR
+    EXIT_DISCONNECTED = 11   // left with the disconnect chord: not an error, the host's session still runs
 };
 static atomic_int g_exitCode;
 static char g_exitMsg[256];
@@ -509,13 +504,6 @@ static void uiHook(void* user, const XrUiEvents* ev, XrUiLauncher* show) {
         // The exit prompt's Disconnect: the stream stops and the host's session stays, as the gamepad chord does
         MLOG_I("disconnect confirmed in %s: leaving the stream, the host's session stays", launcher_state_name(g_launch.state));
         launcher_disconnect_bar(&g_launch);
-        poke = 1;
-    }
-    if (ev->pcvrConfirmed) {
-        // The Host sheet's PC VR: the host's session ends and Steam Link takes the headset in SteamVR (the flat
-        // launcher asks Steam, or steam_cef.py next to this program when there is no launcher: vrHandOff)
-        MLOG_I("VR confirmed in %s: ending the host's session for Steam Link", launcher_state_name(g_launch.state));
-        launcher_pcvr(&g_launch);
         poke = 1;
     }
     if (ev->listKind != 0) {
@@ -923,41 +911,15 @@ static int64_t monoSeconds(void) {
     return ts.tv_sec;
 }
 
-// Every address that answered as this PC (and serverinfo's LocalIP) goes into hosts.ini, so the
-// next choice has both paths even when the flat launcher only knew one
+// Every direct address that answered as this PC (and serverinfo's LocalIP) goes into hosts.ini, so the
+// next choice has every path from the start even when the flat launcher only knew one. Native (lane
+// vpn-fallback): the rule is mlxr_net_learn_addresses (no VPN, loopback or USB cable addresses; nothing removed)
 static void rememberAddresses(Net* n, int i, const mlxr_net_plan* plan, const mlxr_computer* comp) {
     mlxr_host_record* rec = &n->hosts.v[i];
-    char list[sizeof(rec->extra_addresses)];
+    char list[sizeof(rec->extra_addresses)], learned[sizeof(rec->extra_addresses)];
     snprintf(list, sizeof(list), "%s", rec->extra_addresses);
-    int changed = 0;
-    const char* add[MLXR_NET_MAX_CANDS + 1];
-    int na = 0;
-    // Native (lane wave4c-usb): the cable's addresses are worked out from the interface each time, not kept
-    // (unplugged, a kept address would only cost a timeout)
-    int localIsUsb = 0;
-    for (int k = 0; k < plan->n; k++) {
-        if (plan->c[k].path == MLXR_PATH_USB) {
-            if (!strcmp(plan->c[k].address, comp->local_ip)) localIsUsb = 1;
-            continue;
-        }
-        if (plan->c[k].ok > 0 && !plan->c[k].other_host) add[na++] = plan->c[k].address;
-    }
-    if (comp->local_ip[0] && !localIsUsb) add[na++] = comp->local_ip;
-    for (int k = 0; k < na; k++) {
-        const char* a = add[k];
-        if (!strncmp(a, "127.", 4) || !strcmp(a, rec->address)) continue;
-        char probe[sizeof(list) + 2];
-        snprintf(probe, sizeof(probe), ",%s,", list);
-        char needle[140];
-        snprintf(needle, sizeof(needle), ",%s,", a);
-        if (strstr(probe, needle)) continue;
-        if (strlen(list) + strlen(a) + 2 > sizeof(list)) continue;
-        if (list[0]) strcat(list, ",");
-        strcat(list, a);
-        changed = 1;
-        MLOG_I("network path: learned address %s of %s", a, rec->name);
-    }
-    if (changed) {
+    if (mlxr_net_learn_addresses(plan, rec->address, comp->local_ip, list, sizeof(list), learned, sizeof(learned)) > 0) {
+        MLOG_I("network path: learned address %s of %s", learned, rec->name);
         snprintf(rec->extra_addresses, sizeof(rec->extra_addresses), "%s", list);
         mlxr_error err = { 0 };
         if (mlxr_hosts_save(n->dir, &n->hosts, &err) != MLXR_OK) MLOG_W("hosts.ini not saved: %s", err.msg);
@@ -980,6 +942,7 @@ static mlxr_server* connectChosen(Net* n, int i, const char* override) {
     mlxr_net_plan_init(plan, pref, source, rec->http_port, rec->uuid, n->id.unique_id);
     snprintf(plan->history_dir, sizeof(plan->history_dir), "%s", n->dir); // Native (lane netpath-quality)
     plan->bitrate_kbps = g_args.bitrate > 0 ? g_args.bitrate : settings_bitrate_kbps(&g_settings);
+    plan->vpn_only_away = g_settings.vpn_only_away != 0; // Native (lane vpn-fallback)
     snprintf(plan->hostname, sizeof(plan->hostname), "%s", rec->name);
     if (rec->has_mac) {
         memcpy(plan->mac, rec->mac, 6);
@@ -1241,11 +1204,12 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     StreamHost host = { g_job.si.address, g_job.si.serverInfoAppVersion, g_job.si.serverInfoGfeVersion,
                         g_job.si.rtspSessionUrl, g_job.si.serverCodecModeSupport };
     mlxr_fill_stream_config(&g_job.cfg, &lp);
-    int bitrate = g_args.bitrate > 0 ? g_args.bitrate : settings_default_bitrate_kbps(w, h, fps);
-    if (!g_args.bitrate && g_settings.bitrate_kbps > 0) bitrate = settings_bitrate_kbps(&g_settings);
-    // Native (lane wave4b-abr): the bitrate for the network path this stream goes over, if that path has its own
-    bitrate = xrStreamBitrate(&g_settings, mlxr_net_kind_for_address(n->address[pc]), bitrate);
-    g_job.cfg.bitrate = bitrate;
+    // Native (lane wave4b-abr, flat-input): the network path's own bitrate, else --bitrate, else [stream] bitrate_kbps,
+    // else the default; logged with where it came from, which the stream's start line repeats
+    char bitrateWhy[128];
+    g_job.cfg.bitrate = xrStreamBitrate(&g_settings, mlxr_net_kind_for_address(n->address[pc]), g_args.bitrate, w, h, fps,
+                                        bitrateWhy, sizeof(bitrateWhy));
+    stream_set_bitrate_source(bitrateWhy);
     g_job.cfg.packetSize = 1392;
     g_job.cfg.streamingRemotely = STREAM_CFG_AUTO;
     if (g_args.packetSize > 0) {
@@ -1270,7 +1234,7 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     stream_set_hw_decode(!g_args.swDecode);
     n->streamPc = pc;
     n->streamApp = appId;
-    MLOG_I("stream: %dx%d %d fps, %d kbps, %s", w, h, fps, bitrate, h264Only ? "H.264" : "H.264/HEVC");
+    MLOG_I("stream: %dx%d %d fps, %d kbps, %s", w, h, fps, g_job.cfg.bitrate, h264Only ? "H.264" : "H.264/HEVC");
     // Native (lane artemis-settings)
     MLOG_I("stream options: sops %d, audio on PC %d, %s range, virtual display %d, scale factor %d, rate x1000 %d%s",
            lp.sops, lp.local_audio, g_job.cfg.colorRange == COLOR_RANGE_FULL ? "full" : "limited", lp.virtual_display,
@@ -1324,42 +1288,6 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     pthread_mutex_unlock(&g_netLock);
     if (toast[0] && !reconnect) xr_app_notice(toast); // a reconnect continues silently
     return 0;
-}
-
-// Lane pcvr-steamvr: VR. The host's session ends if an app still runs there, the host is asked until it
-// reports none (10 s at most), then the flat launcher (the PC VR exit code) or, without one, steam_cef.py
-// asks Steam to stream SteamVR from that PC to this headset, and the app ends
-static void vrHandOff(Net* n, int pc) {
-    const char* name = pc >= 0 && pc < (int)n->hosts.n ? n->hosts.v[pc].name : "";
-    mlxr_server* s = name[0] ? (n->srv[pc] ? n->srv[pc] : connectHost(n, pc, NULL)) : NULL;
-    int game = -1;
-    for (int i = 0; s && i < 20 && !atomic_load(&g_workerQuit); i++) {
-        mlxr_error err = { 0 };
-        if (mlxr_server_get_info(s, true, &n->comp[pc], NULL, &err) == MLXR_OK) {
-            game = n->comp[pc].current_game;
-            if (game == 0) break;
-            if (i == 0) {
-                MLOG_I("VR: ending app %d on %s", game, name);
-                if (mlxr_server_quit_app(s, &err) != MLXR_OK) MLOG_W("VR: the quit was refused: %s", err.msg);
-            }
-        }
-        usleep(500 * 1000);
-    }
-    if (game == 0) MLOG_I("VR: %s reports no running app", name);
-    else if (s) MLOG_W("VR: %s still reports app %d after 10 s: asking Steam anyway", name, game);
-    else MLOG_W("VR: %s does not answer: asking Steam anyway", name);
-    if (g_args.exitToCaller) {
-        endForCaller(EXIT_PCVR, NULL);
-        return;
-    }
-    char cef[1024], logPath[1024];
-    vr_steam_cef_path(cef, sizeof(cef));
-    const char* dir = getenv("MLXR_LOG_DIR");
-    snprintf(logPath, sizeof(logPath), "%s/pcvr-handoff.log", dir && dir[0] ? dir : "/tmp");
-    int pid = vr_handoff_spawn(cef, name, logPath);
-    if (pid > 0) MLOG_I("VR: asked Steam through %s --pcvr --pc %s (pid %d, output in %s)", cef, name, pid, logPath);
-    else MLOG_W("VR: python3 %s could not be started", cef);
-    xr_app_request_quit();
 }
 
 // The stream down: input let go, the decoder closed after the renderer let go
@@ -1657,13 +1585,9 @@ static void* worker(void* arg) {
             pthread_mutex_lock(&g_lock);
             launcher_stream_ended(&g_launch, 0);
             pthread_mutex_unlock(&g_lock);
-            if (c.pcvr) {
-                vrHandOff(n, c.pc);   // lane pcvr-steamvr: the Host sheet's PC VR
-                break;
-            }
             // The bar's exit (the host's session is ended) or the disconnect chord (it stays, so the
             // caller shows the app as running, as Moonlight does after a disconnect)
-            if (g_args.exitToCaller) endForCaller(c.pcvr ? EXIT_PCVR : c.quitHost ? EXIT_OK : EXIT_DISCONNECTED, NULL);
+            if (g_args.exitToCaller) endForCaller(c.quitHost ? EXIT_OK : EXIT_DISCONNECTED, NULL);
             break;
         case LCMD_WAKE:
             if (c.pc >= 0 && c.pc < (int)n->hosts.n) {
@@ -1675,9 +1599,6 @@ static void* worker(void* arg) {
         case LCMD_EXIT:
             stopStream(n, 1);
             xr_app_request_quit();
-            break;
-        case LCMD_VR:
-            vrHandOff(n, c.pc);   // lane pcvr-steamvr: the app list's VR
             break;
         default:
             break;
@@ -1925,11 +1846,6 @@ int main(int argc, char** argv) {
     }
     else {
         launcher_init(&g_launch);
-        {
-            // Lane pcvr-steamvr: VR needs the flat launcher or steam_cef.py beside this program
-            char cef[1024];
-            g_launch.vrMissing = !g_args.exitToCaller && !vr_steam_cef_path(cef, sizeof(cef));
-        }
         if (g_args.host) {
             g_launch.state = LAUNCH_STARTING; // the worker's autostart decides
             g_launch.ncmd = 0;

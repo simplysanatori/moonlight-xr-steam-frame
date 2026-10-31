@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Tests of packaging/steam_cef.py against a fake CEF endpoint (tests/tools/fake_cef.py): the JavaScript
-strings of the PC VR hand-off, the device and app list parsing, the preflight, and the command line.
+"""Tests of packaging/steam_cef.py against a fake CEF endpoint (tests/tools/fake_cef.py): the preflight
+(--probe) and the command line.
 
     test_steam_cef.py <path to steam_cef.py>
 
@@ -60,64 +60,15 @@ def cli(port, *args, env_extra=None):
     return p.returncode, p.stdout, p.stderr
 
 
-# ---- the JavaScript strings --------------------------------------------------------------------------
-check(sc.js_stream_game(123456, "76561198000000001") == 'SteamClient.Apps.StreamGame(123456, "76561198000000001", 0)',
-      "StreamGame(appId, clientId, 0): the client id is a string, the app id a number")
-check(sc.js_stream_game("42", " 7 ", 2) == 'SteamClient.Apps.StreamGame(42, "7", 2)', "ids are trimmed, param2 is passed")
-check(sc.js_stream_game(4294967295, "1") == 'SteamClient.Apps.StreamGame(4294967295, "1", 0)', "a non-Steam shortcut's 32-bit id is allowed")
-for bad in (0, -5, 2 ** 32, "abc", "1; evil()", "", None, "1.5"):
-    check(raises(ValueError, sc.js_stream_game, bad, "1"), f"app id {bad!r} is refused")
-for bad in ("", "abc", '1"); evil(); ("', "1 2", "-1", "1" * 21, None):
-    check(raises(ValueError, sc.js_stream_game, 5, bad), f"client id {bad!r} is refused")
-check(sc.js_run_game(77) == 'SteamClient.Apps.RunGame("77", "", -1, 100)', "RunGame as tools/frame-deploy.sh calls it")
-check(sc.js_run_game(77, '--x "y"') == 'SteamClient.Apps.RunGame("77", "--x \\"y\\"", -1, 100)', "RunGame launch options are quoted")
-check(sc.js_show_dashboard(3000000001) == "SteamClient.OpenVR.VROverlay.ShowDashboard('valve.steam.desktopgame.3000000001')",
-      "ShowDashboard names the shortcut")
-check(sc.js_library() == "SteamClient.URL.ExecuteSteamURL('steam://nav/games')", "the library page")
-js = sc.js_devices(4)
-check("RegisterForDevicesChanges" in js and "}, 4000);" in js and "unregister" in js, "devices: subscribes for 4 s and lets go")
-check("}, 15000);" in sc.js_devices(600) and "}, 1000);" in sc.js_devices(0), "devices: the time is clamped to 1..15 s")
-check("allApps" in sc.js_apps() and "per_client_data" in sc.js_apps(), "apps: reads the library overviews")
+# ---- the preflight's JavaScript ----------------------------------------------------------------------
 api = sc.js_api_check()
 check(all(path in api for path in sc.API_CALLS.values()) and "userAgent" in api, "the probe asks for every call it needs")
-
-# ---- parsing -----------------------------------------------------------------------------------------
-raw = [
-    {"clientId": "222", "clientName": "Zed PC", "unStreamingSessionID": 0},
-    {"clientId": "111", "clientName": "attic", "unStreamingSessionID": 9},
-    {"clientId": "111", "clientName": "attic again"},
-    {"clientId": "0", "clientName": "nobody"},
-    {"clientName": "no id"},
-    "junk",
-    {"clientId": 333},
-]
-d = sc.parse_devices(raw)
-check([x["clientId"] for x in d] == ["333", "111", "222"], "devices: dropped without id, deduplicated, sorted by name (333, attic, Zed)")
-check(d[1]["clientName"] == "attic" and d[1]["streaming"] is True and d[2]["streaming"] is False, "devices: name and streaming flag")
-check(d[0]["clientName"] == "333", "devices: no name falls back to the id")
-check(sc.parse_devices({"devices": raw[:1]})[0]["clientId"] == "222", "devices: {devices: [...]} is accepted")
-check(sc.parse_devices(None) == [] and sc.parse_devices({}) == [] and sc.parse_devices("x") == [], "devices: nothing is nothing")
-check(sc.parse_devices([{"client_id": "5", "client_name": "snake"}])[0]["clientName"] == "snake", "devices: snake_case keys")
-
-apps_raw = {"apps": [
-    {"appid": 10, "name": "Beta", "categories": [53], "perClient": [{"clientid": "111", "installed": True}]},
-    {"appid": 11, "name": "alpha", "categories": [1, 2], "perClient": [{"clientid": "111", "installed": True}]},
-    {"appid": 12, "name": "Gamma VR", "categories": [54], "perClient": [{"clientid": "111", "installed": True}, {"clientid": "222", "installed": True}]},
-    {"appid": 13, "name": "Not installed", "categories": [53], "perClient": [{"clientid": "111", "installed": False}]},
-    {"appid": 14, "name": "Other PC", "categories": [53], "perClient": [{"clientid": "222", "installed": True}]},
-    {"appid": "bad", "name": "x", "perClient": []},
-]}
-a = sc.parse_apps(apps_raw, "111")
-check([x["appid"] for x in a] == [10, 12, 11], "apps: this PC's installed apps, VR first then by name")
-check(a[0]["vr"] is True and a[2]["vr"] is False, "apps: vr from the store categories")
-check([x["appid"] for x in sc.parse_apps(apps_raw)] == [10, 12, 14, 11], "apps: no client id = installed on any PC")
-nocat = sc.parse_apps({"apps": [{"appid": 5, "name": "B", "perClient": [{"clientid": "1"}]}, {"appid": 6, "name": "A", "perClient": [{"clientid": "1"}]}]}, "1")
-check([x["appid"] for x in nocat] == [6, 5] and all(x["vr"] is None for x in nocat), "apps: no categories anywhere = unfiltered (vr null), by name")
-check(sc.parse_apps(None) == [] and sc.parse_apps({"error": "x"}) == [], "apps: an error answer is no apps")
+check(list(sc.API_REQUIRED) == ["ShowDashboard"], "the probe needs only the flat screen's return call (PC VR was taken out)")
+for gone in ("js_stream_game", "plan_pcvr", "pcvr", "devices", "apps"):
+    check(not hasattr(sc, gone), f"no {gone} left (PC VR was taken out)")
 
 # ---- the preflight against a fake endpoint -------------------------------------------------------------
-good_api = {"StreamGame": "function", "RunGame": "function", "RegisterForDevicesChanges": "function",
-            "ExecuteSteamURL": "function", "ShowDashboard": "function", "userAgent": "Steam/1 Chrome/2"}
+good_api = {"ShowDashboard": "function", "userAgent": "Steam/1 Chrome/2"}
 with FakeCef([("navigator.userAgent", good_api)]) as cef:
     os.environ["STEAM_CEF_PORT"] = str(cef.port)
     os.environ["STEAM_CEF_FLAG_FILE"] = os.path.join(HERE, "no-such-flag")
@@ -127,13 +78,13 @@ with FakeCef([("navigator.userAgent", good_api)]) as cef:
     c, out, err = cli(cef.port, "--probe")
     check(c == 0 and json.loads(out)["ok"] is True, "--probe exits 0")
 
-half = dict(good_api, StreamGame="undefined")
+half = dict(good_api, ShowDashboard="undefined")
 with FakeCef([("navigator.userAgent", half)]) as cef:
     os.environ["STEAM_CEF_PORT"] = str(cef.port)
     r = sc.probe()
-    check(not r["ok"] and r["reachable"] and "StreamGame" in r["hint"], "probe: a missing call is named")
+    check(not r["ok"] and r["reachable"] and "ShowDashboard" in r["hint"], "probe: a missing call is named")
     c, out, err = cli(cef.port, "--probe")
-    check(c == 4 and json.loads(out)["api"]["StreamGame"] == "undefined", "--probe exits 4 when a call is missing")
+    check(c == 4 and json.loads(out)["api"]["ShowDashboard"] == "undefined", "--probe exits 4 when a call is missing")
 
 with FakeCef([], title="Steam Big Picture") as cef:
     os.environ["STEAM_CEF_PORT"] = str(cef.port)
@@ -159,154 +110,9 @@ check(c == 3 and json.loads(out)["reachable"] is False, "--probe exits 3 when no
 c, out, err = cli(dead, "1+1")
 check(c == 3 and "cannot reach" in err, "an expression with nothing listening exits 3 with the reason")
 
-# ---- devices, apps and the hand-off ------------------------------------------------------------------
-devs = {"devices": [{"clientId": "9001", "clientName": "gaming-pc", "unStreamingSessionID": 0}]}
-with FakeCef([("RegisterForDevicesChanges", devs), ("appStore", apps_raw), ("StreamGame", True), ("ExecuteSteamURL", True)]) as cef:
-    os.environ["STEAM_CEF_PORT"] = str(cef.port)
-    check(sc.devices(1) == [{"clientId": "9001", "clientName": "gaming-pc", "streaming": False}], "devices() parses the collected list")
-    c, out, err = cli(cef.port, "--devices", "--seconds", "1")
-    check(c == 0 and json.loads(out)[0]["clientName"] == "gaming-pc", "--devices prints the list")
-    check([x["appid"] for x in sc.apps("111")] == [10, 12, 11], "apps() for a client")
-    c, out, err = cli(cef.port, "--apps", "--client", "222")
-    check(c == 0 and [x["appid"] for x in json.loads(out)] == [12, 14], "--apps --client")
-
-    cef.expressions.clear()
-    res = sc.pcvr(12, "9001")
-    check(cef.expressions == ['SteamClient.Apps.StreamGame(12, "9001", 0)'] and res["action"] == "stream",
-          "pcvr with app and client sends exactly StreamGame(app, client, 0)")
-    cef.expressions.clear()
-    res = sc.pcvr(12)
-    check(len(cef.expressions) == 2 and "RegisterForDevicesChanges" in cef.expressions[0]
-          and cef.expressions[1] == 'SteamClient.Apps.StreamGame(12, "9001", 0)' and res["client"] == "9001",
-          "pcvr without a client asks for the paired PCs and uses the only one")
-    cef.expressions.clear()
-    res = sc.pcvr()
-    check(len(cef.expressions) == 2 and cef.expressions[1] == 'SteamClient.Apps.StreamGame(250820, "9001", 0)'
-          and res["action"] == "stream" and res["target"] == "steamvr" and res["appName"] == "SteamVR",
-          "pcvr without an app streams SteamVR itself (250820) from the only paired PC")
-    cef.expressions.clear()
-    res = sc.pcvr(None, "9001", confirm=1)
-    check(res["streaming"] is False and len(cef.expressions) == 2 and "RegisterForDevicesChanges" in cef.expressions[1],
-          "pcvr --confirm reads the PC's Remote Play state after the call")
-    cef.expressions.clear()
-    c, out, err = cli(cef.port, "--pcvr", "--dry-run", "--client", "9001")
-    check(c == 0 and cef.expressions == [] and json.loads(out)["js"] == 'SteamClient.Apps.StreamGame(250820, "9001", 0)'
-          and json.loads(out)["dryRun"] is True, "--pcvr --dry-run --client: prints the SteamVR call, asks Steam nothing")
-    c, out, err = cli(cef.port, "--pcvr", "--dry-run")
-    check(c == 0 and len(cef.expressions) == 1 and "RegisterForDevicesChanges" in cef.expressions[0]
-          and json.loads(out)["client"] == "9001" and "StreamGame(250820" in json.loads(out)["js"],
-          "--pcvr --dry-run: only reads the paired PCs")
-    c, out, err = cli(cef.port, "--pcvr", "--app", "steamvr", "--client", "9001", "--dry-run")
-    check(c == 0 and json.loads(out)["app"] == 250820, "--app steamvr is 250820")
-    c, out, err = cli(cef.port, "--pcvr", "--confirm", "99", "--client", "9001")
-    check(c == 2 and "--confirm" in err, "--confirm out of range exits 2")
-    c, out, err = cli(cef.port, "--pcvr", "--app", "5", "--client", "77")
-    check(c == 0 and json.loads(out)["js"] == 'SteamClient.Apps.StreamGame(5, "77", 0)', "--pcvr on the command line")
-    c, out, err = cli(cef.port, "--pcvr", "--app", "5; x", "--client", "77")
-    check(c == 2 and "not an app id" in err, "--pcvr with a bad app id exits 2")
-    c, out, err = cli(cef.port, "--bogus")
-    check(c == 2, "an unknown option exits 2")
-    c, out, err = cli(cef.port, "--pcvr", "--app")
-    check(c == 2 and "needs a value" in err, "an option without its value exits 2")
-
-two = {"devices": devs["devices"] + [{"clientId": "9002", "clientName": "laptop"}]}
-with FakeCef([("RegisterForDevicesChanges", two), ("ExecuteSteamURL", True)]) as cef:
-    os.environ["STEAM_CEF_PORT"] = str(cef.port)
-    c, out, err = cli(cef.port, "--pcvr", "--pc", "LAPTOP", "--dry-run")
-    r = json.loads(out) if c == 0 else {}
-    check(c == 0 and r.get("client") == "9002" and r.get("js") == 'SteamClient.Apps.StreamGame(250820, "9002", 0)',
-          "--pcvr --pc NAME --dry-run: the paired PC of that name, SteamVR")
-    c, out, err = cli(cef.port, "--pcvr", "--app", "5")
-    r = json.loads(out) if c == 0 else {}
-    check(c == 0 and r.get("path") == "app-page" and "gaming-pc" in r.get("reason", "") and "laptop" in r["reason"]
-          and cef.expressions[-1] == "SteamClient.URL.ExecuteSteamURL('steam://nav/games/details/5')",
-          "two PCs paired and none chosen: the app's page opens, the reason names both")
-with FakeCef([("RegisterForDevicesChanges", {"devices": []}), ("ExecuteSteamURL", True)]) as cef:
-    os.environ["STEAM_CEF_PORT"] = str(cef.port)
-    c, out, err = cli(cef.port, "--pcvr")
-    r = json.loads(out) if c == 0 else {}
-    check(c == 0 and r.get("path") == "library" and "no paired Remote Play PC" in r.get("reason", "")
-          and cef.expressions[-1] == "SteamClient.URL.ExecuteSteamURL('steam://nav/games')",
-          "no paired PC: the library opens as the last way out, and says why")
-with FakeCef([("RegisterForDevicesChanges", {"devices": [], "error": "TypeError: undefined is not a function"})]) as cef:
-    os.environ["STEAM_CEF_PORT"] = str(cef.port)
-    c, out, err = cli(cef.port, "--devices", "--seconds", "1")
-    check(c == 1 and "RegisterForDevicesChanges" in err, "a failing subscription is reported")
-
-with FakeCef([("StreamGame", RuntimeError("boom")), ("ExecuteSteamURL", True)]) as cef:
-    os.environ["STEAM_CEF_PORT"] = str(cef.port)
-    c, out, err = cli(cef.port, "--pcvr", "--client", "7")
-    r = json.loads(out) if c == 0 else {}
-    check(c == 0 and r.get("path") == "app-page" and "boom" in r["tried"][0]["error"]
-          and cef.expressions == ['SteamClient.Apps.StreamGame(250820, "7", 0)',
-                                  "SteamClient.URL.ExecuteSteamURL('steam://nav/games/details/250820')"],
-          "Steam refusing StreamGame: SteamVR's page opens instead, both tries recorded")
-with FakeCef([("StreamGame", RuntimeError("boom")), ("ExecuteSteamURL", RuntimeError("bang"))]) as cef:
-    os.environ["STEAM_CEF_PORT"] = str(cef.port)
-    c, out, err = cli(cef.port, "--pcvr", "--app", "5", "--client", "7")
-    check(c == 1 and "JS exception" in err and "boom" in err and "bang" in err,
-          "the call and the fallback both refused: exit 1 with both reasons")
-
-# ---- the decision, offline (no endpoint: made-up device lists and a fake evaluate) -------------------
-one = [{"clientId": "9001", "clientName": "gaming-pc", "streaming": False}]
-p = sc.plan_pcvr(None, None, one)
-check(p["path"] == "stream" and p["app"] == 250820 and p["target"] == "steamvr" and p["client"] == "9001"
-      and p["js"] == 'SteamClient.Apps.StreamGame(250820, "9001", 0)'
-      and p["fallback"] == "SteamClient.URL.ExecuteSteamURL('steam://nav/games/details/250820')",
-      "plan: no game, one PC -> StreamGame(SteamVR, that PC), SteamVR's page as the fallback")
-p = sc.plan_pcvr("", "", one)
-check(p["path"] == "stream" and p["app"] == 250820 and p["client"] == "9001", "plan: empty strings are none")
-p = sc.plan_pcvr(620980, "42", None)
-check(p["path"] == "stream" and p["target"] == "game" and p["js"] == 'SteamClient.Apps.StreamGame(620980, "42", 0)',
-      "plan: a chosen game and PC")
-p = sc.plan_pcvr(None, None, one + [{"clientId": "9002", "clientName": "laptop"}])
-check(p["path"] == "app-page" and p["js"].endswith("details/250820')") and p["fallback"] is None, "plan: two PCs")
-two_pcs = one + [{"clientId": "9002", "clientName": "Laptop"}]
-p = sc.plan_pcvr(None, None, two_pcs, "laptop")
-check(p["path"] == "stream" and p["client"] == "9002" and "Laptop" in p["reason"],
-      "plan: two PCs, the one with the Moonlight PC's name (any case)")
-p = sc.plan_pcvr(None, None, two_pcs, "elsewhere")
-check(p["path"] == "app-page", "plan: two PCs, neither with that name -> the app's page")
-p = sc.plan_pcvr(None, None, one, "elsewhere")
-check(p["path"] == "stream" and p["client"] == "9001", "plan: one PC, another name -> still the only one")
-p = sc.plan_pcvr(None, "42", two_pcs, "laptop")
-check(p["client"] == "42", "plan: a chosen client wins over the name")
-p = sc.plan_pcvr(None, None, [])
-check(p["path"] == "library" and p["js"] == sc.js_library(), "plan: no PC -> the library, last")
-p = sc.plan_pcvr(None, None, [{"clientName": "no id"}])
-check(p["path"] == "library", "plan: a device without an id is no PC")
-check(raises(ValueError, sc.plan_pcvr, "x; alert(1)", "1", None) and raises(ValueError, sc.plan_pcvr, None, "1)", None),
-      "plan: a bad app or client id is refused before any JS is built")
-
-calls = []
-def fake_ev(js):
-    calls.append(js)
-    if "StreamGame" in js:
-        raise sc.CefError("JS exception: StreamGame is not a function")
-    return True
-r = sc.pcvr(None, None, ev=fake_ev, list_devices=lambda *a: one)
-check(r["path"] == "app-page" and len(r["tried"]) == 2 and calls[-1].endswith("details/250820')"),
-      "pcvr (fake evaluate): StreamGame missing -> SteamVR's page")
-calls.clear()
-def broken_list(*a):
-    raise sc.CefError("RegisterForDevicesChanges: TypeError")
-r = sc.pcvr(None, None, ev=fake_ev, list_devices=broken_list)
-check(r["path"] == "library" and "RegisterForDevicesChanges" in r["reason"] and calls == [sc.js_library()],
-      "pcvr (fake evaluate): the device list failing -> the library, with the reason")
-calls.clear()
-r = sc.pcvr(None, None, dry_run=True, ev=fake_ev, list_devices=lambda *a: one)
-check(calls == [] and r["dryRun"] and r["js"] == 'SteamClient.Apps.StreamGame(250820, "9001", 0)', "pcvr dry run calls nothing")
-streaming = [{"clientId": "9001", "clientName": "gaming-pc", "streaming": True}]
-lists = iter([one, streaming])
-r = sc.pcvr(None, None, confirm=2, ev=lambda js: None, list_devices=lambda *a: next(lists))
-check(r["path"] == "stream" and r["streaming"] is True, "pcvr confirm: a session on the PC reads as streaming")
-def gone(*a):
-    raise ConnectionError("socket closed")
-r = sc.pcvr(None, "9001", confirm=2, ev=lambda js: None, list_devices=gone)
-check(r["path"] == "stream" and r["streaming"] is None and "socket closed" in r["confirmError"],
-      "pcvr confirm: the port going away after the call is not a failure of the call")
-check(sc.stream_state(one, "9001") is False and sc.stream_state(streaming, "9001") is True
-      and sc.stream_state(one, "1") is None, "stream_state")
+for opt in ("--pcvr", "--devices", "--apps", "--bogus"):
+    c, out, err = cli(dead, opt)
+    check(c == 2, f"{opt} is an unknown option (exit 2)")
 
 # the plain expression mode the deploy script uses is unchanged
 with FakeCef([("1+1", 2)]) as cef:

@@ -54,6 +54,10 @@
 #include "xr_headaim.h"
 #include "xr_opentrack.h"
 #include "xr_dwell.h"
+#include "xr_access.h"
+#include "xr_assistclick.h"
+#include "xr_radial.h"
+#include "auxbutton.h"
 #include "xr_clickhold.h"
 #include "xr_pressfix.h"
 #include "xr_gamepad.h"
@@ -980,6 +984,84 @@ typedef struct XrCtx {
     // flags. The Frame has one combined gaze pose, no per-eye openness. xrGazeValid() reads it.
     int gazeValid;
     unsigned gazeFlags;
+    // Native (lane a11y-tab): what the session found out about eye gaze, for the Accessibility tab's
+    // eye tracking line (xr_access.h accessEyesState) and the log: the runtime offers the extension,
+    // the settings wanted it for themselves (gaze = true or pointer_source = gaze; the app asks for it
+    // whenever it is offered since lane a11y-2, this is only for the log), the system's
+    // supportsEyeGazeInteraction (-1 not read), the gaze
+    // binding was taken, and a usable gaze pose has arrived this session (with when the pointer's
+    // eyes report was logged). gazeFall is the Eyes pointer's fallback to the head, eyesHold the
+    // last tracked gaze pose (local space), held through a blink.
+    int gazeOffered;
+    int gazeAsked;
+    int gazeSupportFlag;
+    int gazeBound;
+    int gazeSeen;
+    int gazeReported;
+    int64_t gazeWatchStartNs;
+    GazeFall gazeFall;
+    XrPosef eyesHold;
+    int eyesHoldValid;
+    // Native (lane a11y-final): the Eyes pointer's steadying of the gaze's direction (xr_access.h),
+    // in place of the head's One Euro on its rotation; the right hand's Menu and grip chord that
+    // gives the pointer back to the controllers, and its pointer_source = controller still to be
+    // handed back to be stored (the setting slot was taken on the frame it fired)
+    GazeSteady gazeSteady;
+    PointerBack pointerBack;
+    int pointerBackUnsaved;
+    // Native (lane a11y-2): the head and eye pointer's dot size in percent ([vr] assist_dot_size), and
+    // where on the settings panel (v, 0 top) the pointer is this frame, -1 off it, for the
+    // Accessibility tab's footer (which row it describes)
+    int assistDotSize;
+    float cogPointV;
+    // Native (lane a11y-2): clicks that are not a controller's trigger, for the head and eye pointer.
+    // The headset's side button: whether it is on (assist_headset_button, which lane a11y-final
+    // stopped reading: a future feature, docs/dev/accessibility.md; only the tests turn it on), its device (auxDev, found as auxInfo, ACCESS_BUTTON_* in auxState),
+    // when it is back with SteamVR after the 3 s hold (auxEscapeUntilNs), the log said once. An
+    // OpenXR button that does the same (assist_click_path): its action, bound or not, last state.
+    // auxGest turns either into actions, assistPlay plays them as mouse buttons: assistButtons and
+    // assistPress are this frame's (xrAssistFrame), assistUi whether they go to our menus.
+    int assistHeadsetButton;
+    AuxDev auxDev;
+    AuxDevInfo auxInfo;
+    int auxState;
+    int auxWarned;
+    int64_t auxLookNs;
+    int64_t auxEscapeUntilNs;
+    char assistClickPath[160];
+    XrAction assistClickAction;
+    int assistClickBound;
+    int assistClickLast;
+    AuxClick auxGest;
+    AssistPlay assistPlay;
+    int assistButtons;
+    int assistPress;
+    int assistUi;
+    // Native (lane radial-dwell): the dwell click's style ([vr] assist_dwell_style, DWELL_STYLE_) and
+    // its radial menu (xr_dwellmenu.c): the state machine over ctx->dwell, what its last step left
+    // for the drawing, where the dwell started (the host's point and the point in the space, while
+    // dwellAnchorValid: the dwell began on the picture), the host's cursor held there (while the
+    // menu is up, and until dwellHoldUntil after a click so its presses land there), a drag the menu
+    // started (the left button held from dwellDragU, V, shown by a mark at dwellDragAt and the dot
+    // drawn hollow), and the circle of a dropped dwell fading out
+    int assistDwellStyle;
+    RadialDwell radial;
+    RadialView radialView;
+    int dwellAnchorValid;
+    float dwellAnchorU, dwellAnchorV;
+    XrVector3f dwellAnchorAt;
+    float dwellHoldU, dwellHoldV;
+    int64_t dwellHoldUntil;
+    int dwellDrag;
+    float dwellDragX, dwellDragY;
+    float dwellDragU, dwellDragV;
+    XrVector3f dwellDragAt;
+    int dwellRingShown;
+    float dwellRingWas;
+    float dwellFadeFrom;
+    int64_t dwellFadeNs;
+    int64_t dwellArtNs;
+    long dwellMenuPicks;
     long inputFrames;
     // Gamepad mode (M3: the pad's state is worked out as upstream does, but
     // nothing sends it to the host yet)
@@ -1191,9 +1273,15 @@ typedef struct XrCtx {
     int64_t followNs;
     XrPosef headPose;
     int headPoseValid;
-    // Native (lane bar-glare): the bar's Bring here switch, near and far
-    // (xr/core/xr_layout.h); the far placement is kept in config.ini
-    BringToggle bringToggle;
+    // The bar's Bring here switch between Desk and the placement the screen
+    // left for it (xr/core/xr_layout.h bringSwitchNext): that placement as
+    // it was, pose, width, cylinder radius and the panel's curve (-1 the
+    // preference's); kept in config.ini ([screen] back_*)
+    int bringBackValid;
+    XrPosef bringBackPose;
+    float bringBackWidth;
+    float bringBackRadius;
+    float bringBackCurve;
     int perAppOn;
     int angularLockOn;
     int lockActive;
@@ -1304,9 +1392,6 @@ typedef struct XrCtx {
     int padCardUp;
     int padCardReady;
     PadLive padLive;
-    // Native (PLAN 4.1): the Host sheet's "Switch to PC VR" was confirmed; xr_session.c turns it into
-    // XrUiEvents.pcvrConfirmed once and clears it
-    int pcvrRequest;
     // Native (lane wave4-apollo): the Host sheet's PC page. hostPage is the page showing; hostInfo what the
     // host offers (xr_app_set_host_info); hostCompose "Send text to PC" having the keyboard; and
     // hostActKind (XR_HOSTACT_*, with hostActArg and hostActText) the thing a press chose, which the
@@ -1506,6 +1591,10 @@ int cogRoomCellValue(XrCtx* ctx, int row);
 void cogApplyRoomCell(XrCtx* ctx, int row, int cell, float* out);
 int cogCellInForce(XrCtx* ctx, int face, int row);
 void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out);
+// The Screen tab's preset rows: which preset the screen is at now (-1 none, the
+// one whose cell shows its ring), and a preset put in force as its cell does
+int xrScreenPresetNow(XrCtx* ctx);
+void xrScreenApplyPreset(XrCtx* ctx, int preset);
 void cogDragEnded(XrCtx* ctx, float* out);
 void cogStepTrack(XrCtx* ctx, int face, int row, int dir, float* out);
 int cogCellAt(float pu, int cells);

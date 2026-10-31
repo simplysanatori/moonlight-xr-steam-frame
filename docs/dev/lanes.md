@@ -2,6 +2,10 @@
 
 Each lane works in its own git worktree at `~/Games/MoonlightXRNative/lanes/<name>` on branch `lane/<name>`, owns one directory, and builds with the top-level CMake into `build-<name>/` inside its worktree. The orchestrator merges a lane into `main` when its milestone starts and its tests pass.
 
+## Branches
+
+`develop` takes all new work: lanes merge into it. `main` moves only when a release is cut from `develop`, and is tagged then. Long experiments, such as PC VR, live on `feature/<name>` until they are ready for `develop`.
+
 | Lane | Branch | Owns | Model | State |
 | --- | --- | --- | --- | --- |
 | T toolchain | (main) | build.sh, tools/ldd-audit.sh, third_party | orchestrator | done in M0 (host toolchain, no container needed) |

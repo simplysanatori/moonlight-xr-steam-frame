@@ -22,7 +22,9 @@
  *    is at least MLXR_FAILOVER_CLEAR_MS below the current path's score plus what the loss of the last
  *    10 s costs it (the same 20 ms per percent as the history penalty, at most 150 ms). So a path
  *    with a worse round trip, such as the adapter against a good 5 GHz link, wins only when the
- *    current path really is losing frames.
+ *    current path really is losing frames;
+ *  - Native (lane vpn-fallback): with `[stream] vpn_only_away` on, a stream on a direct address never
+ *    moves to a path whose figure is a VPN address (netpath.h); from a VPN address to a direct path it may.
  */
 #ifndef MLXR_FAILOVER_H
 #define MLXR_FAILOVER_H
@@ -90,6 +92,7 @@ typedef struct {
     bool present;               /* answered a probe; false: absent (no adapter, no cable) or left already */
     double score_ms;            /* mlxr_net_score at that probe; < 0 unknown */
     int64_t probed_ms;          /* when, on the caller's clock */
+    bool vpn;                   /* Native (lane vpn-fallback): that figure is a VPN address's */
 } mlxr_failover_cand;
 
 typedef struct {
@@ -104,6 +107,9 @@ typedef struct {
     mlxr_failover_window loss;
     const mlxr_failover_cand *cand;
     int n_cand;
+    /* Native (lane vpn-fallback) */
+    bool vpn_only_away;         /* [stream] vpn_only_away */
+    bool cur_vpn;               /* the stream runs over a VPN address */
 } mlxr_failover_in;
 
 typedef enum {
