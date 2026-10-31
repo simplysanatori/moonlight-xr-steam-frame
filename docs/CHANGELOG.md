@@ -123,6 +123,8 @@
 - **On start** in Settings opens the last PC's Desktop, or an app you choose, as soon as the PC is online, and wakes the PC first.
 - **Help** opens the readme in Steam's browser in Game Mode, as the Ko-fi page does.
 - Apollo apps are started by their UUID as well as their number, as Artemis does, so Apollo knows when that app is already running.
+- The right thumbstick of a gamepad (the Frame controllers in Game Mode) scrolls the flat window's pages smoothly, faster the further it is pushed; the left stick and the d-pad still move from item to item, now also through a long list in a dialog, and the page follows.
+- The bitrate rows for each connection open a list with a **Custom...** entry (0.5 to 500 Mbps), and every bitrate row shows its figure the same way, in Mbps. The log says the bitrate a stream asks for and where it came from.
 
 ### Install
 
@@ -141,6 +143,8 @@
 ### Fixed
 
 - At home, a stream could go through a VPN when its address answered faster, with dropped audio and a low frame rate.
+- A stream could not go above 150 Mbps unless a hidden Moonlight option (Unlock bitrate) was on; it now goes to 500 Mbps from every bitrate row (Video bitrate, Custom bitrate and the rows for each connection), whatever an older configuration says.
+- A local port forward to the PC on a loopback address (such as 127.0.0.1, added as the PC's address) was dropped by the flat window; it is now kept and used, like a VPN address, only when the PC does not answer directly.
 - A white beam no longer runs across the picture when you move the ray along the bar with the other controller pointing at the picture: the whole bar row now belongs to the hand on it.
 - The ray and the controller model no longer flicker or jump when tracking drops for a moment: the last aim is held for up to 300 ms.
 - The controller bindings are offered to SteamVR under both names it gives the Frame controllers, the older one and the one SteamVR uses since 2.15.1.
