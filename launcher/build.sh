@@ -28,7 +28,10 @@ BUNDLE="${MLXR_BUNDLED_LIBS_DIR:-${MLXR_BUNDLE_ROOT:-$HOME/Games/MoonlightXRNati
 QMAKE_ARGS=(CONFIG+=release)
 if [ "${NO_BUNDLE:-0}" != 1 ] && [ -f "$BUNDLE/lib/pkgconfig/libavcodec.pc" ]; then
     export PKG_CONFIG_PATH="$BUNDLE/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-    QMAKE_ARGS+=(CONFIG+=disable-libplacebo 'QMAKE_RPATHDIR+=$ORIGIN/lib' QMAKE_LFLAGS+=-Wl,--enable-new-dtags)
+    # mlxr_bundled: the RUNPATH $ORIGIN/lib line appended to app.pro below. It is not passed here because
+    # moonlight-qt.pro is a subdirs project: its Makefile hands the arguments to the app's qmake through
+    # make, which eats the $ of $ORIGIN (1.1.1's first CI run linked -rpath,$ORIGIN/RIGIN/lib).
+    QMAKE_ARGS+=(CONFIG+=disable-libplacebo CONFIG+=mlxr_bundled)
     echo "FFmpeg: bundled ($BUNDLE)"
 else
     echo "FFmpeg: the system's (no bundle at $BUNDLE, or NO_BUNDLE=1): not for a release"
@@ -47,7 +50,7 @@ SUBREV="$(git -C "$SUB" rev-parse HEAD)"
 BINDCORE="xr/core/xr_bind.c xr/core/xr_bind.h xr/core/xr_gamepad.c xr/core/xr_gamepad.h xr/core/xr_shared.h"
 
 mkdir -p "$BUILD"
-STAMP="$(cat launcher/patches/*.patch launcher/src/* launcher/qml/* $BINDCORE assets/branding/icon-256.png VERSION | sha256sum | cut -c1-16)-$SUBREV"
+STAMP="$(cat launcher/build.sh launcher/patches/*.patch launcher/src/* launcher/qml/* $BINDCORE assets/branding/icon-256.png VERSION | sha256sum | cut -c1-16)-$SUBREV"
 if [ "$(cat "$BUILD/.stamp" 2>/dev/null)" != "$STAMP" ]; then
     echo "== preparing $BUILD/src (moonlight-qt $SUBREV + launcher/src + patches)"
     rm -rf "$BUILD/src"
@@ -68,6 +71,10 @@ if [ "$(cat "$BUILD/.stamp" 2>/dev/null)" != "$STAMP" ]; then
             exit 1
         fi
     done
+    # with the bundled FFmpeg the launcher finds it in lib/ beside itself, as the VR client does.
+    # In a .pro file \$\$ is a literal $$, which make turns into the $ the linker needs.
+    printf '%s\n' '' '# Moonlight XR (launcher/build.sh): the bundled FFmpeg in lib/ beside the binary' \
+        "mlxr_bundled: QMAKE_LFLAGS += -Wl,--enable-new-dtags -Wl,-rpath,\\'\\\$\\\$ORIGIN/lib\\'" >> "$BUILD/src/app/app.pro"
     echo "$STAMP" > "$BUILD/.stamp"
 fi
 
