@@ -97,7 +97,7 @@ Version 1.1.0 was tested in the headset on 30 and 31 October 2026. Eye tracking 
    ./install.sh
    ```
 
-   The installer copies the program to `~/Games/MoonlightXRNative/app`. It adds **Moonlight XR for Frame** to your Steam library as a non-Steam shortcut, with its artwork. It sets SteamVR's per-app settings for that shortcut: 90 Hz, no motion smoothing, and a render resolution of 3240 x 3240 per eye (the Refresh rate in Settings can change the rate later). It also converts SteamVR's own Steam Frame controller models for the app. You can run it again at any time.
+   The installer copies the program to `~/Games/MoonlightXRNative/app`. It adds **Moonlight XR for Frame** to your Steam library as a non-Steam shortcut, with its artwork. It sets SteamVR's per-app settings for that shortcut: 90 Hz, no motion smoothing, and a render resolution of 3408 x 3408 per eye, the highest SteamVR allows (the Refresh rate in Settings can change the rate later). It also converts SteamVR's own Steam Frame controller models for the app. You can run it again at any time.
 
 3. Start **Moonlight XR for Frame** from the Steam library.
 
@@ -111,7 +111,7 @@ To get a second shortcut, **Desktop in VR**, that opens your PC's Desktop in the
 
 ### For the sharpest picture
 
-Keep SteamVR's render resolution for Moonlight XR at **3240 x 3240 per eye**, 1.5 times the Frame's native 2160 x 2160: SteamVR Settings, Video, **Per-application video settings**, Moonlight XR for Frame, **Render resolution**: Custom, set so the figure under the slider reads 3240 x 3240. The installer sets this for you; a lower figure (SteamVR's default for the Frame is lower) makes small text blurry. The Frame still holds 90 Hz at this size, because the app only draws the screen and its surroundings. To check what is in effect, `moonlight.log` says `curved picture: projection layer 3240x3240 per eye` near the start of a stream.
+Keep SteamVR's render resolution for Moonlight XR at **3408 x 3408 per eye**, the highest SteamVR allows on the Frame. It makes a visible difference to text. Set it in SteamVR Settings, Video, **Per-application video settings**, Moonlight XR for Frame, **Render resolution**: Custom, set so the slider is at its maximum and the figure under it reads 3408 x 3408. The installer sets this for you; a lower figure (SteamVR's default for the Frame is lower) makes small text blurry. The Frame still holds 90 Hz at this size, because the app only draws the screen and its surroundings. To check what is in effect, `moonlight.log` says `curved picture: projection layer 3408x3408 per eye` near the start of a stream.
 
 ## First run and pairing
 
