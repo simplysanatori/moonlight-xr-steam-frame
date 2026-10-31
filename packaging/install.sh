@@ -1,8 +1,8 @@
 #!/bin/bash
 # Moonlight XR for Frame installer. GPLv3.
 #
-# Copies the app (binaries, launcher, assets, licences, the Moonlight Qt
-# import script) into DEST and adds or updates the Steam library shortcut
+# Copies the app (binaries, launcher, the bundled libraries in lib/, assets,
+# licences, the Moonlight Qt import script) into DEST and adds or updates the Steam library shortcut
 # "Moonlight XR for Frame" through Steam's CEF debugging port, and puts its art
 # in Steam's grid folder. Safe to run again.
 #
@@ -91,6 +91,7 @@ if [ -x "$HERE/app/moonlight-xr" ]; then          # unpacked release
     SEEDDIR="$PAY"; CEFPY="$HERE/steam_cef.py"; DOCS="$HERE"
     BUGREPORT="$PAY/bug-report.sh"; PROBE="$PAY/docs/probe/SUMMARY.md"; VRTIMING="$PAY/vrtiming.py"
     LAUNCHER_BIN="$PAY/moonlight-xr-launcher"; LAUNCHER_SH="$PAY/moonlight-xr-launcher.sh"
+    LIBSRC="$PAY/lib"
     [ -z "$ART" ] && [ -d "$HERE/art" ] && ART="$HERE/art"
 else                                              # source checkout
     MODE=source
@@ -101,6 +102,7 @@ else                                              # source checkout
     SEEDDIR="$SRC/backend"; CEFPY="$HERE/steam_cef.py"; DOCS="$SRC"
     BUGREPORT="$SRC/tools/bug-report.sh"; PROBE="$SRC/docs/probe/SUMMARY.md"; VRTIMING="$SRC/tools/vrtiming.py"
     LAUNCHER_BIN="$SRC/build-launcher/moonlight-xr-launcher"; LAUNCHER_SH="$SRC/launcher/moonlight-xr-launcher.sh"
+    LIBSRC="$BUILD/lib"   # CMake links it to the bundled libraries (tools/build-bundled-libs.sh)
     [ -z "$ART" ] && [ -d "$HERE/art" ] && ART="$HERE/art"
 fi
 [ -z "$ART" ] && [ -d "$ASSETS/branding" ] && ART="$ASSETS/branding"
@@ -144,6 +146,25 @@ else
     if [ "$MODE" = release ]; then [ -f "$PAY/VERSION" ] && install -m644 "$PAY/VERSION" "$DEST/VERSION"
     else echo "$(head -n 1 "$SRC/VERSION" 2>/dev/null || echo dev) (source $(git -C "$SRC" describe --tags --always --dirty 2>/dev/null))" > "$DEST/VERSION"; fi
     [ -f "$DEST/VERSION" ] && echo "  VERSION ($(cat "$DEST/VERSION"))"
+    # lib/: the bundled libraries (FFmpeg, libxml2) the binaries load first (RUNPATH $ORIGIN/lib), as
+    # regular files named by soname. Mirrored: made beside DEST/lib and swapped in, so a library a newer
+    # release dropped does not linger and a running client keeps the files it mapped; a payload with
+    # none (a build against the system's libraries) leaves no lib/.
+    rm -rf "$DEST/lib.new" "$DEST/lib.old"; mkdir -p "$DEST/lib.new"
+    if [ -d "$LIBSRC" ]; then
+        for f in "$LIBSRC"/lib*.so.*; do
+            n="${f##*/}"
+            if [[ "$n" =~ ^lib[^.]+\.so\.[0-9]+$ ]] && [ -f "$f" ]; then install -m755 "$f" "$DEST/lib.new/$n"; fi
+        done
+    fi
+    if [ -n "$(ls -A "$DEST/lib.new")" ]; then
+        [ -e "$DEST/lib" ] && mv "$DEST/lib" "$DEST/lib.old"
+        mv "$DEST/lib.new" "$DEST/lib" && rm -rf "$DEST/lib.old"
+        echo "  lib/ ($(ls "$DEST/lib" | tr '\n' ' ')$(du -sh "$DEST/lib" | cut -f1)): bundled FFmpeg and libxml2"
+    else
+        rm -rf "$DEST/lib.new" "$DEST/lib"
+        echo "  lib/: none (this build uses the system's FFmpeg and libxml2)"
+    fi
     # mirror assets/, so files removed from a newer release do not linger
     if command -v rsync >/dev/null; then
         rsync -a --delete "$ASSETS/" "$DEST/assets/"

@@ -12,6 +12,11 @@
 #                         (the app then has no 3D depth)
 #   MLXR_LITERT_ROOT=...  where depth/tools/build-litert.sh puts LiteRT
 #                         (default ~/Games/MoonlightXRNative/third-party-build/litert)
+#   NO_BUNDLE=1           link the system's FFmpeg and libxml2 instead of the bundled
+#                         ones (tools/build-bundled-libs.sh, about 3 minutes the first
+#                         time); such a build is not for a release (tools/release.sh)
+#   MLXR_BUNDLE_ROOT=...  where tools/build-bundled-libs.sh puts them
+#                         (default ~/Games/MoonlightXRNative/third-party-build/bundled)
 #   SKIP_AUDIT=1          skip the ldd audit (it needs pacman, so it is
 #                         skipped by itself on non-SteamOS hosts)
 set -euo pipefail
@@ -32,6 +37,18 @@ elif [ ! -f "$LITERT_ROOT/dist/lib/libmlxr_litert.a" ]; then
     MLXR_LITERT_ROOT="$LITERT_ROOT" JOBS="${JOBS:-3}" ./depth/tools/build-litert.sh
 fi
 [ -f "$LITERT_ROOT/dist/lib/libmlxr_litert.a" ] && cmake_args+=("-DMLXR_LITERT_DIR=$LITERT_ROOT/dist")
+
+# FFmpeg and libxml2 ship with the app (app/lib), since SteamOS updates move them to new
+# sonames; built outside the repository, once per machine (again only when the script changes)
+if [ "${NO_BUNDLE:-0}" = 1 ]; then
+    echo "NO_BUNDLE=1: linking the system's FFmpeg and libxml2 (not for a release)"
+    cmake_args+=("-DMLXR_BUNDLED_LIBS_DIR=")
+else
+    BUNDLE_ROOT="${MLXR_BUNDLE_ROOT:-$HOME/Games/MoonlightXRNative/third-party-build/bundled}"
+    MLXR_BUNDLE_ROOT="$BUNDLE_ROOT" JOBS="${JOBS:-3}" ./tools/build-bundled-libs.sh
+    cmake_args+=("-DMLXR_BUNDLED_LIBS_DIR=$BUNDLE_ROOT/dist")
+    export MLXR_BUNDLED_LIBS_DIR="$BUNDLE_ROOT/dist"   # for launcher/build.sh
+fi
 
 BUILD="${BUILD:-build}"
 # Configure every time: it is quick, and it notices a LiteRT that appeared

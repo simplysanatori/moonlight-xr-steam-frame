@@ -11,7 +11,22 @@ fail() { echo "FAIL: $*"; exit 1; }
 TRUE=/usr/bin/true; [ -x "$TRUE" ] || TRUE=/bin/true
 mkdir -p "$t/build/backend" "$t/build/input" "$t/out" "$t/home"
 for f in moonlight-xr backend/mlxr-cli input/mlxr-gamepad-probe; do cp "$TRUE" "$t/build/$f"; done
-BUILD="$t/build" OUT="$t/out" NO_VERIFY=1 "$ROOT/tools/release.sh" > "$t/release.out" 2>&1 \
+# a bundled library (as tools/build-bundled-libs.sh leaves them, a soname symlink to the real file; a copy of
+# the C library stands in): release.sh must ship it as app/lib/<soname>, a regular file, and nothing else there
+LIBC="$(ldd "$TRUE" | awk '$1 ~ /^libc\.so/ { print $3 }')"
+[ -f "$LIBC" ] || fail "no C library found to stand in for a bundled one"
+mkdir -p "$t/bundle"; cp "$LIBC" "$t/bundle/libmlxrtest.so.1.2.3"
+ln -s libmlxrtest.so.1.2.3 "$t/bundle/libmlxrtest.so.1"; ln -s libmlxrtest.so.1 "$t/bundle/libmlxrtest.so"
+ln -s "$t/bundle" "$t/build/lib"
+# a release without the flat launcher is refused (when this tree has none built); ALLOW_NO_LAUNCHER=1 lets a test tarball through
+if [ ! -x "$ROOT/build-launcher/moonlight-xr-launcher" ]; then
+    mkdir -p "$t/refused"
+    if BUILD="$t/build" OUT="$t/refused" NO_VERIFY=1 "$ROOT/tools/release.sh" > "$t/refused.out" 2>&1; then
+        fail "release.sh made a tarball without the flat launcher"
+    fi
+    grep -q "must carry the flat launcher" "$t/refused.out" || { cat "$t/refused.out"; fail "no reason given for refusing"; }
+fi
+BUILD="$t/build" OUT="$t/out" NO_VERIFY=1 ALLOW_NO_LAUNCHER=1 "$ROOT/tools/release.sh" > "$t/release.out" 2>&1 \
     || { cat "$t/release.out"; fail "release.sh failed"; }
 tgz=("$t"/out/moonlight-xr-steam-frame-*-linux-arm64.tar.gz); zp=("$t"/out/moonlight-xr-steam-frame-*-linux-arm64.zip)
 [ -f "${tgz[0]}" ] || fail "no .tar.gz in the output"
@@ -64,6 +79,9 @@ for n in ("MoonlightXRNative/install.sh", "MoonlightXRNative/app/moonlight-xr", 
           "MoonlightXRNative/app/moonlight-xr.sh", "MoonlightXRNative/app/bug-report.sh"):
     assert a[n][1] & 0o111 == 0o111, "%s is not executable in the tar.gz (%o)" % (n, a[n][1])
     assert b[n][1] & 0o111 == 0o111, "%s is not executable in the zip (%o)" % (n, b[n][1])
+lib = sorted(n for n in a if n.startswith("MoonlightXRNative/app/lib/"))
+assert lib == ["MoonlightXRNative/app/lib/libmlxrtest.so.1"], "app/lib holds %s" % lib
+assert a[lib[0]][0] == "file" and b[lib[0]][0] == "file", "app/lib/libmlxrtest.so.1 is not a regular file"
 print("same %d entries and modes in both archives" % len(a))
 PY
 
@@ -93,8 +111,14 @@ D="$t/home/Games/MoonlightXRNative"
 cmp -s "$t/install.out" "$D/install.log" || fail "the log differs from the output"
 grep -q "Steam shortcut: SKIPPED" "$t/install.out" || fail "the output does not say the shortcut was skipped"
 tail -n 2 "$t/install.out" | grep -q "^Steam shortcut skipped" || { tail -n 3 "$t/install.out"; fail "the last lines do not give the summary"; }
+[ -f "$D/app/lib/libmlxrtest.so.1" ] && [ ! -L "$D/app/lib/libmlxrtest.so.1" ] || fail "lib/libmlxrtest.so.1 not installed as a file"
+# a library an older release had is gone after the next install (lib/ is mirrored)
+cp "$D/app/lib/libmlxrtest.so.1" "$D/app/lib/libstale.so.7"
 # a second run appends to the log and still succeeds
 ( cd "$U" && env -i PATH="$PATH" HOME="$t/home" STEAM_CEF_PORT=1 MLXR_CONFIG_DIR="$t/cfg" ./install.sh < /dev/null > "$t/install2.out" 2>&1 ) \
     || { cat "$t/install2.out"; fail "second run failed"; }
 [ "$(grep -c '^== .* install.sh' "$D/install.log")" = 2 ] || fail "the log should hold two runs"
+[ "$(ls "$D/app/lib")" = libmlxrtest.so.1 ] || fail "lib/ after the second install holds: $(ls "$D/app/lib" | tr '\n' ' ')"
+[ ! -e "$D/app/lib.new" ] && [ ! -e "$D/app/lib.old" ] || fail "install left lib.new or lib.old behind"
+cmp -s "$U/app/lib/libmlxrtest.so.1" "$D/app/lib/libmlxrtest.so.1" || fail "the installed library differs from the release's"
 echo "release archives ok"

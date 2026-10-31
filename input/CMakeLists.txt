@@ -31,6 +31,7 @@ set_target_properties(mlxr_input_sdl PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRE
 add_executable(mlxr-gamepad-probe gamepad_probe.c)
 target_link_libraries(mlxr-gamepad-probe PRIVATE mlxr_input_sdlinfo)
 set_target_properties(mlxr-gamepad-probe PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+mlxr_shipped_binary(mlxr-gamepad-probe)
 
 if(EXISTS ${PROJECT_SOURCE_DIR}/tests/input/CMakeLists.txt)
   add_subdirectory(${PROJECT_SOURCE_DIR}/tests/input ${CMAKE_CURRENT_BINARY_DIR}/tests)

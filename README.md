@@ -69,9 +69,9 @@ With Sunshine everything else works the same: streaming, pairing, apps, every he
 
 ## Status
 
-Version 1.1.0 is the current stable build. 1.0.0 was the first. It has been used on one Steam Frame (SteamOS 0.4.5, SteamVR 2.18) against one Windows PC with Sunshine and Apollo.
+Version 1.1.1 is the current stable build. 1.0.0 was the first. It has been used on one Steam Frame (SteamOS 0.4.5, SteamVR 2.18) against one Windows PC with Sunshine and Apollo.
 
-The [changelog](docs/CHANGELOG.md) lists everything new in 1.1.0; the [1.0.0 release notes](docs/RELEASE_NOTES_v1.0.0.md) describe the first release.
+The [changelog](docs/CHANGELOG.md) lists everything new in each version; the [1.0.0 release notes](docs/RELEASE_NOTES_v1.0.0.md) describe the first release.
 
 ## Requirements
 
@@ -83,7 +83,7 @@ The [changelog](docs/CHANGELOG.md) lists everything new in 1.1.0; the [1.0.0 rel
 
 ## Install
 
-1. Download `moonlight-xr-steam-frame-1.1.0-linux-arm64.tar.gz` and `SHA256SUMS` from the [Releases](https://github.com/simplysanatori/moonlight-xr-steam-frame/releases) page. Check the download:
+1. Download `moonlight-xr-steam-frame-1.1.1-linux-arm64.tar.gz` and `SHA256SUMS` from the [Releases](https://github.com/simplysanatori/moonlight-xr-steam-frame/releases) page. Check the download:
 
    ```sh
    sha256sum -c --ignore-missing SHA256SUMS
@@ -92,7 +92,7 @@ The [changelog](docs/CHANGELOG.md) lists everything new in 1.1.0; the [1.0.0 rel
 2. Unpack it and run the installer:
 
    ```sh
-   tar xzf moonlight-xr-steam-frame-1.1.0-linux-arm64.tar.gz
+   tar xzf moonlight-xr-steam-frame-1.1.1-linux-arm64.tar.gz
    cd MoonlightXRNative
    ./install.sh
    ```
