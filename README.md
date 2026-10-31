@@ -12,8 +12,9 @@ What it does:
 - Turns 2D games into 3D on the headset with a depth model (ZipDepth or MiDaS), or shows the side-by-side or top-bottom 3D a PC game or film renders itself.
 - Uses the Frame controllers as a mouse pointer or as an Xbox gamepad, and every button can be remapped (see [Controls](#controls)).
 - Forwards Bluetooth keyboards, mice and gamepads connected to the Frame.
+- Lets your head or your eyes (experimental) point and click, with a dwell click, from the **Accessibility** tab (early).
 - Can stream over your Wi-Fi, over the Steam Frame Wireless Adapter or over a USB cable. **Automatic** measures every link that is there before each stream and picks the one with the lower latency and fewer losses.
-- Use VPN addresses only away from home (on by default): if your PC also has a VPN address (Tailscale, WireGuard, ZeroTier or similar), the headset uses it only when the PC does not answer on your home network, and it learns the PC's home address by itself.
+- **Use VPN addresses only away from home** (on by default): if your PC also has a VPN address (Tailscale, WireGuard, ZeroTier or similar), the headset uses it only when the PC does not answer on your home network, and it learns the PC's home address by itself.
 
 ## What this adds to Moonlight XR
 
@@ -23,7 +24,7 @@ Sean Gilleece's Moonlight XR is an Android app for headsets like the Quest. This
 - Video is decoded on the Frame's Qualcomm decoder (H.264 and HEVC) and handed to the GPU without a copy.
 - Before the stream you get Moonlight's own PC list, pairing and app list (a patched moonlight-qt), shown flat in the headset, with an Artemis-style settings page.
 - Apollo options are in that settings page: virtual display, resolution scale factor, custom refresh rate and clipboard sync.
-- A Network connection setting for Wi-Fi, the Steam Frame Wireless Adapter or a USB cable, with a start bitrate for each. Automatic chooses by latency and drops.
+- A Network connection setting for Wi-Fi, the Steam Frame Wireless Adapter or a USB cable, with a start bitrate for each (up to 500 Mbps). Automatic chooses by latency and drops.
 - A full tenkeyless keyboard with Ctrl, Alt, Shift and Win and key repeat, next to the compact one, with a move bar, AZERTY and QWERTZ layouts and a row of media keys.
 - A Host sheet on the bar for keys that are awkward to reach (Esc, Win, Alt+Enter and more) and your own macros.
 - Controller bindings for every button, for every app or one app, with an editor in the flat window.
@@ -43,7 +44,7 @@ Four projects meet here. [Moonlight XR](https://github.com/Gilleece/moonlight-an
 | Source | What it gives this client |
 | --- | --- |
 | Moonlight XR (Sean Gilleece), ported from Java and OpenGL ES to C, Vulkan and OpenXR | The flat or curved screen and its rows (distance, height, tilt, rotate, curve, size), grabbing and moving it, the bar and the cog menu. The rooms (Home Theater, Grand Cinema, Synthwave), the black void and passthrough. The glow and the picture rows (brightness, contrast, gamma, saturation, Sharpen, Supersample). 2D to 3D with the ZipDepth and MiDaS depth models, with Depth and Convergence. Virtual surround. Pointer mode with the ray, the dot, pointer sleep and the click sound; head aim; the hand-tracking pinch click. Gamepad mode. The compact headset keyboard. The stats window. The headset's translations into 19 languages. The logo. |
-| Moonlight (moonlight-common-c, moonlight-qt 6.1.0) | The streaming protocol. The flat window: the PC list, adding a PC, pairing with a PIN, the app list, Resume and Quit, Wake-on-LAN, and the PCs and pairing imported from the Moonlight flatpak. The stream settings kept under Moonlight's own names (resolution, refresh rate, bitrate, codec, surround sound, Optimize game settings, Play audio on PC, software decoding, the window's language). Frame pacing and the disconnect chords. |
+| Moonlight (moonlight-common-c, moonlight-qt 6.1.0) | The streaming protocol. The flat window: the PC list, adding a PC, pairing with a PIN, the app list, Resume and Quit, Wake-on-LAN, and the PCs and pairing imported from the Moonlight flatpak. The stream settings kept under Moonlight's own names (resolution, refresh rate, bitrate, codec, surround sound, Optimize game settings, Play audio on PC, Force software decoding, the window's language). Frame pacing and the disconnect chords. |
 | Artemis (followed) | The Settings page's categories, row names and descriptions. Video frame pacing's three choices, Ultra low latency, Quick resume, the analog stick dead zone, Flip face buttons, Gamepad as mouse, stream settings profiles. How the Apollo features below are asked for. |
 | Needs an Apollo host | **Use virtual display** and **Resolution scale factor**; a refresh rate with decimals such as 59.94 (**Custom...**); **Smart clipboard sync**; the Host sheet's **Paste from PC**, **Send text to PC** and server commands; starting an app by its UUID; the permission part of **Check the PC before streaming**. |
 | New for the Steam Frame: platform and network | A native Linux Arm64 program on OpenXR and Vulkan, decoding H.264 and HEVC on the Frame's hardware decoder with no copy to the GPU. **Match headset** and 72 to 144 Hz, set in SteamVR before the stream. **Network connection** (Wi-Fi, Steam Frame Wireless Adapter, USB cable, **Automatic**) with a bitrate for each, switching links when video keeps breaking up, and VPN addresses only away from home. Reconnecting after a drop; disconnecting when the headset is off or idle. |
@@ -70,7 +71,7 @@ With Sunshine everything else works the same: streaming, pairing, apps, every he
 
 Version 1.1.0 is the current stable build. 1.0.0 was the first. It has been used on one Steam Frame (SteamOS 0.4.5, SteamVR 2.18) against one Windows PC with Sunshine and Apollo.
 
-The 1.1.0 build went through the full headset checklist on 30 October 2026, and everything tested there worked except eye tracking. That is fixed since: the app now asks SteamVR for eye tracking whenever it is offered, and eye gaze reaches it on the Steam Frame from the Accessibility tab (checked with a gaze probe on 30 October 2026). The USB cable connection was not tried. The [changelog](docs/CHANGELOG.md) lists everything new in 1.1.0; the [1.0.0 release notes](docs/RELEASE_NOTES_v1.0.0.md) describe the first release.
+Version 1.1.0 was tested in the headset on 30 and 31 October 2026. Eye tracking works from the Accessibility tab, since the app asks SteamVR for it whenever it is offered, but it is experimental: the eyes jitter and the dot lands near where you look, not always on it. The USB cable connection was not tried. The [changelog](docs/CHANGELOG.md) lists everything new in 1.1.0; the [1.0.0 release notes](docs/RELEASE_NOTES_v1.0.0.md) describe the first release.
 
 ## Requirements
 
@@ -169,7 +170,9 @@ The bar under the screen shows its buttons while the ray is over it. From left t
 | 3D | Turns 3D on or off (shown when 3D can run). |
 | Host | Opens the Host sheet: Esc, Win, Alt+Enter and other keys, and your own macros. |
 
-The cog menu's **Accessibility** tab (early) has **Pointer** (Controller, Head, or Eyes, which is experimental: eye tracking reaches the app on the Steam Frame, but the eyes jitter and land only near where you look), **Dwell click** and **Dot size**. Holding the right Menu button and the right grip for half a second gives the pointer back to the controllers. **Dwell click style** (Simple by default) adds a radial menu near the end of a dwell: look left for a double click, down to drag, right for a right click.
+The cog menu's **Accessibility** tab (early) has **Pointer** (Controller, Head, or Eyes, which is experimental: eye tracking reaches the app on the Steam Frame, but the eyes jitter and land only near where you look), **Dwell click** and **Dot size**; Eyes holds the dot still while your eyes rest and tolerates a wider wander during a dwell. Holding the right Menu button and the right grip for half a second gives the pointer back to the controllers. **Dwell click style** (Simple by default) adds a radial menu near the end of a dwell: look left for a double click, down to drag, right for a right click.
+
+In the flat window (the PC list, the app list and the Settings page), a gamepad or the Frame controllers in Game Mode work too: the right stick scrolls the page, and the left stick and the d-pad move the focus from item to item.
 
 To change what a button does, edit `~/.config/moonlight-xr/bindings.ini` or use the flat window's **Controller bindings** page ([BINDINGS.md](docs/BINDINGS.md)); the mode switch, the disconnect chord and the grips' grab cannot be changed.
 
@@ -199,7 +202,7 @@ The flat window checks once a day whether a newer release is out and then shows 
 | Headset settings, pairing keys, saved PCs | `~/.config/moonlight-xr` (`config.ini`, `hosts.ini`, `client.pem`, `client.key`, `servercerts/`) |
 | Controller bindings, Host sheet macros, your own controller models | `~/.config/moonlight-xr` (`bindings.ini`, `macros.ini`, `models/`) |
 | Flat window settings and PC list | `~/.config/Moonlight XR Native/Moonlight XR Native.conf` |
-| Logs | `~/Games/MoonlightXRNative/moonlight.log`, `moonlight-launcher.log`, `moonlight-console.log`, `vrtiming.log` |
+| Logs | `~/Games/MoonlightXRNative/moonlight.log`, `moonlight-launcher.log`, `moonlight-console.log`, `vrtiming.log`, `install.log`; with Stats on, `perf-<date>-<time>.csv` next to `vrtiming.log` |
 | Bug reports | `~/Games/MoonlightXRNative/reports` |
 
 The logs keep your PC's name and addresses, so you can check your own network. Do not post them as they are.
