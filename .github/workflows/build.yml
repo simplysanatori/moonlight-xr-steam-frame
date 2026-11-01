@@ -76,33 +76,18 @@ jobs:
           path: build/**/*.png
           if-no-files-found: ignore
 
-      # This tarball is a build check, not a release. Ubuntu 24.04 ships
-      # FFmpeg 6.1 (libavcodec.so.60); SteamOS has 7.0 (.61), so a binary
-      # linked here will not start on the Frame. Releases are built on the
-      # Frame with tools/release.sh.
-      - name: Tarball (build check, not for the Frame)
-        run: |
-          mkdir -p dist
-          OUT=dist NO_VERIFY=1 NO_BUNDLE=1 ALLOW_NO_LAUNCHER=1 ./tools/release.sh
-          ls -l dist
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ci-build-ubuntu24.04-arm64-not-for-the-frame
-          path: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/SHA256SUMS
-          if-no-files-found: error
-
-  # A test tarball of the VR client for the Steam Frame, built the way a release builds it but without
-  # the flat launcher (it has its own job; releases are made on the Frame with tools/release.sh, which
-  # refuses a tarball without the launcher). The app carries its own FFmpeg 7.0.2 and libxml2 2.13.9 in
-  # app/lib (tools/build-bundled-libs.sh): SteamOS updates move those to new sonames (FFmpeg 8 in the
-  # Steam Frame OS Preview), and a binary that used the system's copies then did not start. Every
-  # shipped binary finds them through its RUNPATH $ORIGIN/lib. glibc matches (2.39 on both,
-  # docs/probe/system.txt). Tests run in the linux-arm64 job; tools/ldd-audit.sh needs pacman.
+  # The release candidate: the full tarball (VR client and flat launcher), built the way a release is
+  # built and uploaded as an artifact; releases publish this artifact (tools/release.sh). Ubuntu 24.04 has
+  # glibc 2.39, the older SteamOS's (docs/probe/host-sonames/), and the newer SteamOS (glibc 2.43) runs
+  # what is built against it. The app carries what SteamOS updates move or drop: FFmpeg 7.0.2, libxml2
+  # 2.13.9 and SDL2_ttf 2.24.0 (tools/build-bundled-libs.sh) and the launcher's own Qt 6.8 (the launcher
+  # job, tools/stage-launcher.sh), all in app/ and found through RUNPATH $ORIGIN/lib and qt.conf.
+  # tools/check-bundle.sh (run by release.sh) fails when anything else would come from the system
+  # (tools/host-libs.allow) or a binary needs a newer glibc. Tests run in the linux-arm64 and launcher
+  # jobs; tools/ldd-audit.sh needs pacman.
   frame-artifact:
+    needs: launcher
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     steps:
@@ -111,6 +96,8 @@ jobs:
           submodules: recursive
           fetch-depth: 0        # git describe needs the tags
 
+      # the runtime libraries too: release.sh starts the unpacked launcher (offscreen), and its plugins'
+      # host libraries (xcb, xkbcommon, fontconfig) should resolve for tools/check-bundle.sh
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -120,7 +107,11 @@ jobs:
             libssl-dev libcurl4-openssl-dev libxml2-dev \
             libopus-dev libpulse-dev libpipewire-0.3-dev libsdl2-dev libdrm-dev libpng-dev \
             libwayland-dev libx11-dev libxcb1-dev libxxf86vm-dev libxrandr-dev \
-            libgl-dev libegl-dev libwayland-bin wayland-protocols
+            libgl-dev libegl-dev libwayland-bin wayland-protocols \
+            libva-dev libfontconfig1 libfreetype6 libxkbcommon0 libxkbcommon-x11-0 libdbus-1-3 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xkb1 \
+            libxcb-shape0 libxcb-xinerama0 libxcb-randr0 libxcb-xfixes0 libxcb-sync1 libxcb-shm0 \
+            libwayland-cursor0 libwayland-egl1 libgssapi-krb5-2
 
       # The key is the script's hash: it holds the versions, checksums and configure flags.
       - name: Cache the bundled libraries
@@ -130,7 +121,7 @@ jobs:
           path: ~/Games/MoonlightXRNative/third-party-build/bundled/dist
           key: bundled-${{ runner.arch }}-${{ hashFiles('tools/build-bundled-libs.sh') }}
 
-      - name: Build the bundled libraries (FFmpeg 7.0.2, libxml2 2.13.9)
+      - name: Build the bundled libraries (FFmpeg 7.0.2, libxml2 2.13.9, SDL2_ttf 2.24.0)
         run: JOBS=4 ./tools/build-bundled-libs.sh
 
       # Same cache as the linux-arm64 job.
@@ -149,8 +140,7 @@ jobs:
         run: JOBS=4 ./build.sh
         env:
           SKIP_AUDIT: '1'       # the ldd audit compares against SteamOS packages
-          NO_LAUNCHER: '1'      # the flat launcher has its own job
-
+          NO_LAUNCHER: '1'      # the flat launcher comes from the launcher job
       - name: Check the libraries the binaries need
         run: |
           B="$HOME/Games/MoonlightXRNative/third-party-build/bundled/dist/lib"
@@ -176,11 +166,21 @@ jobs:
           env -u LD_LIBRARY_PATH ldd build/moonlight-xr | tee "$RUNNER_TEMP/ldd.txt"
           ! grep -q 'not found' "$RUNNER_TEMP/ldd.txt" || { echo "::error::unresolved libraries"; exit 1; }
 
-      - name: Test tarball for the Frame (no launcher, not a release)
+      - name: The launcher staged by the launcher job
+        uses: actions/download-artifact@v4
+        with:
+          name: launcher-stage
+          path: ${{ runner.temp }}/launcher-stage
+
+      # the full release: release.sh checks the app (tools/check-bundle.sh), packs it, then unpacks it,
+      # installs it twice into a temporary folder and starts the client and the launcher from there
+      - name: Release tarball
         run: |
-          mkdir -p dist
-          OUT=dist NO_VERIFY=1 ALLOW_NO_LAUNCHER=1 ./tools/release.sh
+          mkdir -p build-launcher/stage dist
+          tar -xzf "$RUNNER_TEMP/launcher-stage/launcher-stage.tar.gz" -C build-launcher/stage
+          OUT=dist ALLOW_MISSING_HOST=1 ./tools/release.sh
           ls -l dist
+          echo "VERSION=$(head -n 1 VERSION)" >> "$GITHUB_ENV"
 
       # The reported failure: the system has no libavcodec.so.61 (this runner has no FFmpeg at all) and its
       # own libxml2 is not the one we ship. Unpacked, the client must load every bundled library from its
@@ -206,22 +206,23 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: frame-test-build-no-launcher-not-a-release
+          name: moonlight-xr-steam-frame-${{ env.VERSION }}-release-candidate
           path: |
             dist/*.tar.gz
             dist/*.zip
             dist/SHA256SUMS
           if-no-files-found: error
 
-  # The flat launcher (patched moonlight-qt 6.1.0, qmake) and its offscreen tests
-  # (tests/launcher/run_tests.sh). Ubuntu 24.04 has Qt 6.4 and the launcher needs 6.5 or newer, so
-  # Qt comes from aqtinstall (linux_arm64 builds exist from 6.7). The Frame ships qt6-base 6.8.0 and
-  # qt6-declarative 6.8.0, so this is pinned to 6.8.0: not newer than the Frame.
+  # The flat launcher (patched moonlight-qt 6.1.0, qmake), its offscreen tests (tests/launcher/run_tests.sh)
+  # and the launcher with its own Qt for the release (tools/stage-launcher.sh, the launcher-stage
+  # artifact the frame-artifact job packs). Qt 6.8.3, the last open-source 6.8 LTS build, from aqtinstall:
+  # built on Ubuntu 24.04 for linux arm64, with qtwayland and its ICU. SteamOS's own Qt moved from 6.8.0
+  # to 6.10.2 in an update, so the launcher never uses the system's Qt.
   launcher:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     env:
-      QT_VERSION: '6.8.0'
+      QT_VERSION: '6.8.3'
       QT_ROOT: /home/runner/Qt
     steps:
       - uses: actions/checkout@v4
@@ -229,19 +230,22 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      # no libsdl2-ttf-dev: SDL2_ttf is the bundled one (tools/build-bundled-libs.sh)
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             clang lld cmake ninja-build pkg-config python3 python3-venv \
-            build-essential rsync patch \
+            build-essential rsync patch patchelf \
             glslc libvulkan-dev \
             libavcodec-dev libavformat-dev libswscale-dev libavutil-dev \
             libssl-dev libcurl4-openssl-dev libxml2-dev \
-            libopus-dev libsdl2-dev libsdl2-ttf-dev libva-dev libdrm-dev \
+            libopus-dev libsdl2-dev libva-dev libdrm-dev \
             libwayland-dev libx11-dev libxcb1-dev libxxf86vm-dev libxrandr-dev \
             libgl-dev libegl-dev libwayland-bin wayland-protocols \
-            libxkbcommon-dev libfontconfig1-dev libfreetype-dev libdbus-1-dev libglib2.0-dev
+            libxkbcommon-dev libfontconfig1-dev libfreetype-dev libdbus-1-dev libglib2.0-dev \
+            libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-render-util0 libxcb-xkb1 libxcb-shape0 libxcb-xinerama0 libwayland-cursor0 libwayland-egl1
 
       - name: Cache Qt
         id: qt
@@ -256,10 +260,17 @@ jobs:
           python3 -m venv "$HOME/aqt-venv"
           "$HOME/aqt-venv/bin/pip" install aqtinstall
           "$HOME/aqt-venv/bin/aqt" list-qt linux_arm64 desktop
-          # qtbase, qtdeclarative (Qt Quick, Controls), qtsvg and qttools come with the base
-          # archives; qtshadertools is a separate module that Qt Quick needs.
+          # qtbase, qtdeclarative (Qt Quick, Controls), qtsvg, qttools, qtwayland and ICU come with the
+          # base archives; qtshadertools is a separate module that Qt Quick needs.
           "$HOME/aqt-venv/bin/aqt" install-qt linux_arm64 desktop "$QT_VERSION" linux_gcc_arm64 \
             -m qtshadertools --outputdir "$QT_ROOT"
+
+      # Same cache as the frame-artifact job: the launcher links the bundled FFmpeg and SDL2_ttf.
+      - name: Cache the bundled libraries
+        uses: actions/cache@v4
+        with:
+          path: ~/Games/MoonlightXRNative/third-party-build/bundled/dist
+          key: bundled-${{ runner.arch }}-${{ hashFiles('tools/build-bundled-libs.sh') }}
 
       - name: Build mlxr-cli, mlxr-settings-dump and the fake host
         run: NO_DEPTH=1 SKIP_AUDIT=1 JOBS=4 ./build.sh mlxr-cli mlxr-settings-dump backend_fake_host_main
@@ -272,9 +283,9 @@ jobs:
           qmake6 --version
           SKIP_AUDIT=1 JOBS=4 ./launcher/build.sh
 
-      # the launcher must find the bundled FFmpeg beside itself, as in app/ (1.1.1's first CI run
-      # linked a broken -rpath,$ORIGIN/RIGIN/lib and every launcher test failed on libavcodec.so.61)
-      - name: The launcher loads the bundled FFmpeg
+      # the launcher must find the bundled FFmpeg and SDL2_ttf beside itself, as in app/ (1.1.1's first CI
+      # run linked a broken -rpath,$ORIGIN/RIGIN/lib and every launcher test failed on libavcodec.so.61)
+      - name: The launcher loads the bundled FFmpeg and SDL2_ttf
         run: |
           B="$PWD/build-launcher/moonlight-xr-launcher"
           readelf -d "$B" | grep -E 'RPATH|RUNPATH'
@@ -283,7 +294,7 @@ jobs:
           env -u LD_LIBRARY_PATH ldd "$B" > ldd.txt
           ! grep 'not found' ldd.txt || exit 1
           L="$(readlink -f build-launcher/lib)"
-          for n in libavcodec.so.61 libavutil.so.59 libswscale.so.8; do
+          for n in libavcodec.so.61 libavutil.so.59 libswscale.so.8 libSDL2_ttf-2.0.so.0; do
             grep -E "^\s*$n => " ldd.txt
             grep -qE "^\s*$n => ($L|$PWD/build-launcher/lib)/$n " ldd.txt || { echo "$B loads $n from outside build-launcher/lib"; exit 1; }
           done
@@ -293,6 +304,34 @@ jobs:
       - name: Test
         run: ctest --test-dir build -R '^launcher_' --output-on-failure
 
+      # The launcher as the release ships it: its Qt libraries, plugins and QML modules in a lib/, plugins/
+      # and qml/ beside it, with qt.conf
+      - name: Stage the launcher with its own Qt
+        run: |
+          ./tools/stage-launcher.sh "$QT_ROOT/$QT_VERSION/gcc_arm64" build-launcher/stage
+          tar -czf "$RUNNER_TEMP/launcher-stage.tar.gz" -C build-launcher/stage .
+
+      # uploaded before its tests, so a failure there still leaves the frame-artifact job its input
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher-stage
+          path: ${{ runner.temp }}/launcher-stage.tar.gz
+          if-no-files-found: error
+
+      # The same tests against the staged launcher, with only the bundled libraries beside it: what it
+      # draws must come from the QML modules and plugins stage-launcher.sh picked. The Qt it was built
+      # with is moved away first, so nothing can fall back to it.
+      - name: Test the staged launcher
+        run: |
+          T="$RUNNER_TEMP/staged"; rm -rf "$T"; mkdir -p "$T"
+          tar -xzf "$RUNNER_TEMP/launcher-stage.tar.gz" -C "$T"
+          cp -L "$HOME"/Games/MoonlightXRNative/third-party-build/bundled/dist/lib/lib*.so.[0-9]* "$T/lib/"
+          mv "$QT_ROOT" "$QT_ROOT.away"
+          env -u LD_LIBRARY_PATH ldd "$T/moonlight-xr-launcher" | grep -E 'Qt6|icu|not found' || true
+          rc=0; tests/launcher/run_tests.sh "$T/moonlight-xr-launcher" "$PWD/build/backend/mlxr-cli" "$RUNNER_TEMP/staged-shots" || rc=$?
+          mv "$QT_ROOT.away" "$QT_ROOT"
+          exit $rc
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -300,4 +339,5 @@ jobs:
           path: |
             build-launcher/shots/
             build/Testing/Temporary/LastTest.log
+            ${{ runner.temp }}/staged-shots/
           if-no-files-found: ignore

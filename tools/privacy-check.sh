@@ -47,7 +47,8 @@ generic = [
     ("home directory", re.compile(r"/home/(?!steamos\b|runner\b|user\b|someone\b|<)[a-z_][a-z0-9_-]+/")),
 ]
 email_ok = re.compile(r"@(example\.(com|org|net|invalid)|users\.noreply\.github\.com|anthropic\.com)$|^noreply@|"
-                      r"@(kurims\.kyoto-u\.ac\.jp)$", re.I)   # licence texts of bundled code
+                      r"@(kurims\.kyoto-u\.ac\.jp|libsdl\.org|nongnu\.org|uiuc\.edu|netsplit\.com)$|^dbn\.lists@gmail\.com$",
+                      re.I)   # licence texts of bundled code (FFT, SDL2_ttf, FreeType, ICU)
 def mac_ok(s):
     b = [int(x, 16) for x in s.split(":")]
     return b[0] & 2 or all(x == 0 for x in b) or s.lower() in ("aa:bb:cc:dd:ee:ff", "10:20:30:40:50:60") \
