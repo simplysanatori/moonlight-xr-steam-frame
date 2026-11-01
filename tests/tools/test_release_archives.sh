@@ -18,15 +18,17 @@ LIBC="$(ldd "$TRUE" | awk '$1 ~ /^libc\.so/ { print $3 }')"
 mkdir -p "$t/bundle"; cp "$LIBC" "$t/bundle/libmlxrtest.so.1.2.3"
 ln -s libmlxrtest.so.1.2.3 "$t/bundle/libmlxrtest.so.1"; ln -s libmlxrtest.so.1 "$t/bundle/libmlxrtest.so"
 ln -s "$t/bundle" "$t/build/lib"
-# a release without the flat launcher is refused (when this tree has none built); ALLOW_NO_LAUNCHER=1 lets a test tarball through
-if [ ! -x "$ROOT/build-launcher/moonlight-xr-launcher" ]; then
-    mkdir -p "$t/refused"
-    if BUILD="$t/build" OUT="$t/refused" NO_VERIFY=1 "$ROOT/tools/release.sh" > "$t/refused.out" 2>&1; then
-        fail "release.sh made a tarball without the flat launcher"
-    fi
-    grep -q "must carry the flat launcher" "$t/refused.out" || { cat "$t/refused.out"; fail "no reason given for refusing"; }
+# the launcher comes from LAUNCHER_BUILD, never from the tree's own build-launcher/ (a real one there needs the
+# real FFmpeg in app/lib). A release without it is refused; ALLOW_NO_LAUNCHER=1 lets a test tarball through.
+mkdir -p "$t/nolauncher" "$t/launcher" "$t/refused" "$t/out-nl"
+if BUILD="$t/build" LAUNCHER_BUILD="$t/nolauncher" OUT="$t/refused" NO_VERIFY=1 "$ROOT/tools/release.sh" > "$t/refused.out" 2>&1; then
+    fail "release.sh made a tarball without the flat launcher"
 fi
-BUILD="$t/build" OUT="$t/out" NO_VERIFY=1 ALLOW_NO_LAUNCHER=1 "$ROOT/tools/release.sh" > "$t/release.out" 2>&1 \
+grep -q "must carry the flat launcher" "$t/refused.out" || { cat "$t/refused.out"; fail "no reason given for refusing"; }
+BUILD="$t/build" LAUNCHER_BUILD="$t/nolauncher" OUT="$t/out-nl" NO_VERIFY=1 ALLOW_NO_LAUNCHER=1 "$ROOT/tools/release.sh" > "$t/nl.out" 2>&1 \
+    || { cat "$t/nl.out"; fail "ALLOW_NO_LAUNCHER=1 did not make a test tarball"; }
+cp "$TRUE" "$t/launcher/moonlight-xr-launcher"
+BUILD="$t/build" LAUNCHER_BUILD="$t/launcher" OUT="$t/out" NO_VERIFY=1 "$ROOT/tools/release.sh" > "$t/release.out" 2>&1 \
     || { cat "$t/release.out"; fail "release.sh failed"; }
 tgz=("$t"/out/moonlight-xr-steam-frame-*-linux-arm64.tar.gz); zp=("$t"/out/moonlight-xr-steam-frame-*-linux-arm64.zip)
 [ -f "${tgz[0]}" ] || fail "no .tar.gz in the output"
@@ -76,7 +78,8 @@ assert not bad, "%d entries differ" % bad
 tops = {n.split("/")[0] for n in a}
 assert tops == {"MoonlightXRNative"}, "top level is %s" % sorted(tops)
 for n in ("MoonlightXRNative/install.sh", "MoonlightXRNative/app/moonlight-xr", "MoonlightXRNative/app/mlxr-cli",
-          "MoonlightXRNative/app/moonlight-xr.sh", "MoonlightXRNative/app/bug-report.sh"):
+          "MoonlightXRNative/app/moonlight-xr.sh", "MoonlightXRNative/app/bug-report.sh",
+          "MoonlightXRNative/app/moonlight-xr-launcher", "MoonlightXRNative/app/moonlight-xr-launcher.sh"):
     assert a[n][1] & 0o111 == 0o111, "%s is not executable in the tar.gz (%o)" % (n, a[n][1])
     assert b[n][1] & 0o111 == 0o111, "%s is not executable in the zip (%o)" % (n, b[n][1])
 lib = sorted(n for n in a if n.startswith("MoonlightXRNative/app/lib/"))
@@ -106,7 +109,7 @@ U="$t/unzip/MoonlightXRNative"
 rc=$?
 [ "$rc" = 0 ] || { cat "$t/install.out"; fail "install.sh exited $rc without Steam"; }
 D="$t/home/Games/MoonlightXRNative"
-[ -x "$D/app/moonlight-xr" ] && [ -x "$D/app/mlxr-cli" ] && [ -d "$D/app/assets" ] || { cat "$t/install.out"; fail "files not installed"; }
+[ -x "$D/app/moonlight-xr" ] && [ -x "$D/app/mlxr-cli" ] && [ -d "$D/app/assets" ] && [ -x "$D/app/moonlight-xr-launcher" ] || { cat "$t/install.out"; fail "files not installed"; }
 [ -f "$D/install.log" ] || fail "no install.log under ~/Games/MoonlightXRNative"
 cmp -s "$t/install.out" "$D/install.log" || fail "the log differs from the output"
 grep -q "Steam shortcut: SKIPPED" "$t/install.out" || fail "the output does not say the shortcut was skipped"
