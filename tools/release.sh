@@ -88,7 +88,8 @@ done
 [ -f "$ROOT/app/lib/libavcodec.so.61" ] && [ -f "$ROOT/app/lib/libSDL2_ttf-2.0.so.0" ] || { echo "$BUILD/lib lacks the bundled FFmpeg or SDL2_ttf"; exit 1; }
 echo "app/lib: $(ls "$ROOT/app/lib" | wc -l) libraries ($(du -sh "$ROOT/app/lib" | cut -f1)); plugins/ $(du -sh "$ROOT/app/plugins" | cut -f1), qml/ $(du -sh "$ROOT/app/qml" | cut -f1)"
 # nothing comes from the system unless allowlisted and on both SteamOS builds; glibc 2.39 at most
-./tools/check-bundle.sh "$ROOT/app" || { echo "the app needs libraries it does not carry, or a newer glibc: not a release"; exit 1; }
+# (NO_BUNDLE_CHECK=1 skips it: only tests/tools/test_release_archives.sh sets it, with stand-in libraries)
+[ "${NO_BUNDLE_CHECK:-0}" = 1 ] || ./tools/check-bundle.sh "$ROOT/app" || { echo "the app needs libraries it does not carry, or a newer glibc: not a release"; exit 1; }
 install -m755 backend/seed-from-moonlight-qt.sh "$ROOT/app/seed-from-moonlight-qt.sh"
 install -m644 backend/seed_moonlight_qt.py "$ROOT/app/seed_moonlight_qt.py"
 install -m755 tools/bug-report.sh "$ROOT/app/bug-report.sh"
@@ -111,7 +112,7 @@ for f in USER_GUIDE.md CHANGELOG.md BUILDING.md PRIVACY_AUDIT.md; do [ -f "docs/
 [ -z "$(find "$ROOT" -name 'frame_controller_*' -print -quit)" ] || { echo "a Steam Frame controller model got into the release"; exit 1; }
 # nothing private or machine-specific: config, pairing, keys, logs, reports, the LiteRT build
 bad="$(find "$ROOT" \( -name 'config.ini' -o -name 'hosts.ini' -o -name 'uniqueid' -o -name '*.key' -o -name '*.pem' \
-    -o -name 'servercerts' -o -name '*.log' -o -name '*.log.[0-9]' -o -name 'mlxr-report-*' -o -name '*.conf' \
+    -o -name 'servercerts' -o -name '*.log' -o -name '*.log.[0-9]' -o -name 'mlxr-report-*' -o \( -name '*.conf' ! -path "$ROOT/app/qt.conf" \) \
     -o -name 'libmlxr_litert*' -o -name '*.a' -o -name '*.bak*' \) -print)"
 [ -z "$bad" ] || { echo "private or build files would be shipped:"; echo "$bad"; exit 1; }
 echo "$VER" > "$ROOT/VERSION"; cp "$ROOT/VERSION" "$ROOT/app/VERSION"

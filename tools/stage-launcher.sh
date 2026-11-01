@@ -94,6 +94,7 @@ PY
 rm -f "$OUT/.imports.json"
 
 echo "== libraries"
+LDC="$(ldconfig -p)"   # (a pipe into awk with exit would kill ldconfig with SIGPIPE, and pipefail would end this script)
 # every library the launcher, the plugins and the QML plugins need, until nothing new comes in
 while :; do
     added=0
@@ -104,8 +105,8 @@ while :; do
             if [ -e "$QT/lib/$s" ]; then
                 cp -L "$QT/lib/$s" "$OUT/lib/$s"
             else
-                p="$(ldconfig -p | awk -v s="$s" '$1 == s && /AArch64|aarch64/ { print $NF; exit }')"
-                [ -n "$p" ] || p="$(ldconfig -p | awk -v s="$s" '$1 == s { print $NF; exit }')"
+                p="$(awk -v s="$s" '$1 == s && /AArch64|aarch64/ { print $NF; exit }' <<<"$LDC")"
+                [ -n "$p" ] || p="$(awk -v s="$s" '$1 == s { print $NF; exit }' <<<"$LDC")"
                 [ -n "$p" ] || { echo "${f#"$OUT"/} needs $s: not in Qt, not on this machine, not allowlisted"; exit 1; }
                 cp -L "$p" "$OUT/lib/$s"; chmod 755 "$OUT/lib/$s"
                 patchelf --set-rpath '$ORIGIN' "$OUT/lib/$s"
