@@ -91,7 +91,7 @@ if [ -x "$HERE/app/moonlight-xr" ]; then          # unpacked release
     SEEDDIR="$PAY"; CEFPY="$HERE/steam_cef.py"; DOCS="$HERE"
     BUGREPORT="$PAY/bug-report.sh"; PROBE="$PAY/docs/probe/SUMMARY.md"; VRTIMING="$PAY/vrtiming.py"
     LAUNCHER_BIN="$PAY/moonlight-xr-launcher"; LAUNCHER_SH="$PAY/moonlight-xr-launcher.sh"
-    LIBSRC="$PAY/lib"
+    LIBSRC="$PAY/lib"; QTSRC="$PAY"
     [ -z "$ART" ] && [ -d "$HERE/art" ] && ART="$HERE/art"
 else                                              # source checkout
     MODE=source
@@ -103,6 +103,11 @@ else                                              # source checkout
     BUGREPORT="$SRC/tools/bug-report.sh"; PROBE="$SRC/docs/probe/SUMMARY.md"; VRTIMING="$SRC/tools/vrtiming.py"
     LAUNCHER_BIN="$SRC/build-launcher/moonlight-xr-launcher"; LAUNCHER_SH="$SRC/launcher/moonlight-xr-launcher.sh"
     LIBSRC="$BUILD/lib"   # CMake links it to the bundled libraries (tools/build-bundled-libs.sh)
+    # the launcher with its own Qt, when staged after its last build (tools/stage-launcher.sh)
+    QTSRC=""
+    if [ -x "$SRC/build-launcher/stage/moonlight-xr-launcher" ] && ! [ "$SRC/build-launcher/stage/moonlight-xr-launcher" -ot "$LAUNCHER_BIN" ]; then
+        QTSRC="$SRC/build-launcher/stage"; LAUNCHER_BIN="$QTSRC/moonlight-xr-launcher"
+    fi
     [ -z "$ART" ] && [ -d "$HERE/art" ] && ART="$HERE/art"
 fi
 [ -z "$ART" ] && [ -d "$ASSETS/branding" ] && ART="$ASSETS/branding"
@@ -146,24 +151,43 @@ else
     if [ "$MODE" = release ]; then [ -f "$PAY/VERSION" ] && install -m644 "$PAY/VERSION" "$DEST/VERSION"
     else echo "$(head -n 1 "$SRC/VERSION" 2>/dev/null || echo dev) (source $(git -C "$SRC" describe --tags --always --dirty 2>/dev/null))" > "$DEST/VERSION"; fi
     [ -f "$DEST/VERSION" ] && echo "  VERSION ($(cat "$DEST/VERSION"))"
-    # lib/: the bundled libraries (FFmpeg, libxml2) the binaries load first (RUNPATH $ORIGIN/lib), as
-    # regular files named by soname. Mirrored: made beside DEST/lib and swapped in, so a library a newer
+    # lib/: the bundled libraries (FFmpeg, libxml2, SDL2_ttf, and the flat launcher's Qt and ICU) the
+    # binaries load first (RUNPATH $ORIGIN/lib), as regular files named by soname. Mirrored: made beside DEST/lib and swapped in, so a library a newer
     # release dropped does not linger and a running client keeps the files it mapped; a payload with
     # none (a build against the system's libraries) leaves no lib/.
     rm -rf "$DEST/lib.new" "$DEST/lib.old"; mkdir -p "$DEST/lib.new"
     if [ -d "$LIBSRC" ]; then
         for f in "$LIBSRC"/lib*.so.*; do
             n="${f##*/}"
-            if [[ "$n" =~ ^lib[^.]+\.so\.[0-9]+$ ]] && [ -f "$f" ]; then install -m755 "$f" "$DEST/lib.new/$n"; fi
+            if [[ "$n" =~ ^lib.+\.so\.[0-9]+$ ]] && [ -f "$f" ]; then install -m755 "$f" "$DEST/lib.new/$n"; fi
         done
+    fi
+    # a staged launcher (source checkout): its Qt libraries go in beside the bundle
+    if [ "$MODE" = source ] && [ -n "$QTSRC" ]; then
+        for f in "$QTSRC"/lib/lib*.so*; do install -m755 "$f" "$DEST/lib.new/${f##*/}"; done
     fi
     if [ -n "$(ls -A "$DEST/lib.new")" ]; then
         [ -e "$DEST/lib" ] && mv "$DEST/lib" "$DEST/lib.old"
         mv "$DEST/lib.new" "$DEST/lib" && rm -rf "$DEST/lib.old"
-        echo "  lib/ ($(ls "$DEST/lib" | tr '\n' ' ')$(du -sh "$DEST/lib" | cut -f1)): bundled FFmpeg and libxml2"
+        echo "  lib/ ($(ls "$DEST/lib" | wc -l) libraries, $(du -sh "$DEST/lib" | cut -f1)): bundled FFmpeg, libxml2, SDL2_ttf and the launcher's Qt"
     else
         rm -rf "$DEST/lib.new" "$DEST/lib"
         echo "  lib/: none (this build uses the system's FFmpeg and libxml2)"
+    fi
+    # the flat launcher's own Qt: qt.conf points it at plugins/ and qml/ beside it, never at the system's
+    # Qt (SteamOS updates replace it). Mirrored like lib/; a payload without them removes them.
+    for d in plugins qml; do
+        rm -rf "$DEST/$d.new"
+        if [ -n "$QTSRC" ] && [ -d "$QTSRC/$d" ] && [ -f "$QTSRC/qt.conf" ]; then
+            cp -r "$QTSRC/$d" "$DEST/$d.new" && rm -rf "$DEST/$d" && mv "$DEST/$d.new" "$DEST/$d"
+        else
+            rm -rf "$DEST/$d"
+        fi
+    done
+    if [ -n "$QTSRC" ] && [ -f "$QTSRC/qt.conf" ]; then
+        install -m644 "$QTSRC/qt.conf" "$DEST/qt.conf"; echo "  qt.conf, plugins/, qml/ (the flat launcher's own Qt)"
+    else
+        rm -f "$DEST/qt.conf"
     fi
     # mirror assets/, so files removed from a newer release do not linger
     if command -v rsync >/dev/null; then

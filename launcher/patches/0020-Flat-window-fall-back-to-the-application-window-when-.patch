@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Moonlight XR Native <noreply@example.invalid>
+Date: Sun, 1 Nov 2026 12:00:00 -0500
+Subject: [PATCH] Flat window: fall back to the application window when the segue
+ has none
+
+---
+ app/streaming/session.cpp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/app/streaming/session.cpp b/app/streaming/session.cpp
+--- a/app/streaming/session.cpp
++++ b/app/streaming/session.cpp
+@@ -1752,6 +1752,12 @@
+ 
+ void Session::exec(QWindow* qtWindow)
+ {
++    // Moonlight XR Native: the segue's Window.window is null in Qt 6.8.3, and the
++    // flat window's return watch and the Game Mode fade need the window
++    if (qtWindow == nullptr) {
++        qtWindow = MlxrHandoff::mainWindow();
++    }
++
+     if (MlxrHandoff::enabled()) {
+         execVr(qtWindow);
+         return;

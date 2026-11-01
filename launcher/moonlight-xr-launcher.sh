@@ -12,8 +12,12 @@ export MLXR_LOG_DIR="$LOGDIR"
 
 # Steam injects GL overrides meant for games; they break Mesa for native apps.
 unset MESA_GL_VERSION_OVERRIDE MESA_GLSL_VERSION_OVERRIDE
-# Steam points LD_LIBRARY_PATH at its runtime; use the host's libraries (Qt6, SDL2, FFmpeg are SteamOS packages).
+# Steam points LD_LIBRARY_PATH at its runtime; the launcher finds its own libraries (Qt, ICU, FFmpeg,
+# SDL2_ttf in lib/) through its RUNPATH and the rest (glibc, Mesa, SDL2, X11, Wayland) on the system.
 unset LD_LIBRARY_PATH
+# Its Qt plugins and QML modules are the ones beside it (qt.conf), never a system Qt's: a path from the
+# environment would put the system's Qt 6.10 plugins in front of its own Qt 6.8.
+unset QT_PLUGIN_PATH QML_IMPORT_PATH QML2_IMPORT_PATH QT_QPA_PLATFORMTHEME
 # Same runtime rule as moonlight-xr.sh: only set it when the default lookup would fail.
 if [ ! -e "$HOME/.config/openxr/1/active_runtime.json" ] && [ -e /opt/steamvr/steamxr_linuxarm64.json ]; then
     export XR_RUNTIME_JSON=/opt/steamvr/steamxr_linuxarm64.json
