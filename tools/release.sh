@@ -217,8 +217,10 @@ if [ -d "$TMP/inst/app/lib" ]; then
         done
     done
     # it starts: every library loads and main() runs (a usage error, before any XR)
-    env -u LD_LIBRARY_PATH "$TMP/inst/app/moonlight-xr" --network bogus 2>&1 | grep -q 'MLXR_ERROR: --network takes' \
-        || { echo "the installed moonlight-xr does not start"; env -u LD_LIBRARY_PATH "$TMP/inst/app/moonlight-xr" --network bogus 2>&1 | head -n 5; exit 1; }
+    # a usage error exits non-zero by design: what counts is that it ran far enough to say so
+    START="$(env -u LD_LIBRARY_PATH "$TMP/inst/app/moonlight-xr" --network bogus 2>&1 || true)"
+    grep -q 'MLXR_ERROR: --network takes' <<<"$START" \
+        || { echo "the installed moonlight-xr does not start"; head -n 5 <<<"$START"; exit 1; }
     echo "installed binaries load app/lib: $(ls "$TMP/inst/app/lib" | tr '\n' ' ')"
 fi
 if command -v pacman >/dev/null; then
