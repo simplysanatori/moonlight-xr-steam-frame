@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.2 (November 2026)
+
+### Fixed
+
+- The flat launcher (the Moonlight window with your PCs, apps and Settings) closed as soon as it started on SteamOS build 20261020 (`libSDL2_ttf-2.0.so.0: cannot open shared object file`). That update removed SDL2_ttf and moved the system's Qt from 6.8 to 6.10, and the launcher used both. It now carries its own Qt 6.8 and SDL2_ttf in `app/`, so the same download works on SteamOS from before and after that update, and a later one cannot break it this way.
+
 ## 1.1.1 (October 2026)
 
 ### Fixed

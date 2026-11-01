@@ -7,11 +7,16 @@
 # then does not start at all ("error while loading shared libraries: libavcodec.so.61"). The Steam
 # Frame OS Preview moved FFmpeg 7 to FFmpeg 8 (libavcodec.so.62); libxml2 2.14 moved libxml2.so.2 to
 # libxml2.so.16 (the 2.14.0 release notes) before that, so any SteamOS new enough for FFmpeg 8 is new
-# enough for it too. So the app ships its own copies of both and finds them through its RUNPATH
+# enough for it too. So the app ships its own copies and finds them through its RUNPATH
 # ($ORIGIN/lib):
 #   FFmpeg 7.0.2  libavcodec.so.61 libavformat.so.61 libavutil.so.59 libswscale.so.8 (LGPL 2.1+)
 #   libxml2 2.13.9 libxml2.so.2 (MIT; the last series with that soname)
-# Both are built with no optional dependencies, so they need nothing but glibc (libc, libm).
+#   SDL2_ttf 2.24.0 libSDL2_ttf-2.0.so.0 (zlib), for the flat launcher (moonlight-qt): SteamOS 20261020
+#                 dropped it (only SDL3_ttf is left). Its vendored FreeType 2.13.2 (FTL) is built in
+#                 statically, and nothing of it is exported (--exclude-libs), so it never meets the
+#                 system's libfreetype that Qt's fontconfig loads. No HarfBuzz (SDL2_ttf's default).
+# FFmpeg and libxml2 are built with no optional dependencies, so they need nothing but glibc (libc,
+# libm); SDL2_ttf needs the system's SDL2 (libSDL2-2.0.so.0, on every SteamOS; sdl2-compat on newer ones).
 #
 # FFmpeg carries only what the app calls: the live stream is decoded by the client's own V4L2 decoder
 # (video/v4l2_decoder.c, docs/dev/reports/video.md), never through FFmpeg. FFmpeg serves the software
@@ -50,15 +55,23 @@ LIBXML2_CONFIGURE=(
     --without-python --without-zlib --without-lzma --without-icu
     --without-readline --without-history --without-http --without-ftp --without-debug
 )
+SDL2_TTF_VERSION=2.24.0
+# sha256 of SDL2_ttf-2.24.0.tar.gz (github.com/libsdl-org/SDL_ttf release-2.24.0; holds external/freetype)
+SDL2_TTF_SHA256=0b2bf1e7b6568adbdbc9bb924643f79d9dedafe061fa1ed687d1d9ac4e453bfd
+SDL2_TTF_CMAKE=(
+    -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DSDL2TTF_SAMPLES=OFF -DSDL2TTF_INSTALL=ON
+    -DSDL2TTF_VENDORED=ON -DSDL2TTF_HARFBUZZ=OFF
+    "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--exclude-libs,ALL"
+)
 # the sonames dist/lib must end up with (and nothing else that is a shared library)
-SONAMES="libavcodec.so.61 libavformat.so.61 libavutil.so.59 libswscale.so.8 libxml2.so.2"
+SONAMES="libavcodec.so.61 libavformat.so.61 libavutil.so.59 libswscale.so.8 libxml2.so.2 libSDL2_ttf-2.0.so.0"
 
 STAMP="$(cat "$0" | sha256sum | cut -c1-16)"
 if [ "$(cat "$D/.stamp" 2>/dev/null)" = "$STAMP" ]; then
     echo "bundled libraries are up to date in $D"
     exit 0
 fi
-for t in curl sha256sum tar make cc pkg-config; do
+for t in curl sha256sum tar make cc pkg-config cmake; do
     command -v "$t" >/dev/null || { echo "missing host tool: $t"; exit 1; }
 done
 fetch() {   # fetch <url> <sha256> <file>
@@ -82,18 +95,29 @@ fetch "https://download.gnome.org/sources/libxml2/${LIBXML2_VERSION%.*}/libxml2-
 tar -xf "$ROOT/src/libxml2-$LIBXML2_VERSION.tar.xz" -C "$ROOT/build"
 ( cd "$ROOT/build/libxml2-$LIBXML2_VERSION" && ./configure --prefix="$D" "${LIBXML2_CONFIGURE[@]}" \
     && nice -n 10 make -j"$JOBS" && make install ) > "$ROOT/build/libxml2.log" 2>&1 || { tail -n 40 "$ROOT/build/libxml2.log"; exit 1; }
+
+echo "== SDL2_ttf $SDL2_TTF_VERSION"
+fetch "https://github.com/libsdl-org/SDL_ttf/releases/download/release-$SDL2_TTF_VERSION/SDL2_ttf-$SDL2_TTF_VERSION.tar.gz" \
+    "$SDL2_TTF_SHA256" "$ROOT/src/SDL2_ttf-$SDL2_TTF_VERSION.tar.gz"
+tar -xzf "$ROOT/src/SDL2_ttf-$SDL2_TTF_VERSION.tar.gz" -C "$ROOT/build"
+( cmake -S "$ROOT/build/SDL2_ttf-$SDL2_TTF_VERSION" -B "$ROOT/build/sdl2_ttf" -DCMAKE_INSTALL_PREFIX="$D" \
+    -DCMAKE_INSTALL_LIBDIR=lib "${SDL2_TTF_CMAKE[@]}" && nice -n 10 cmake --build "$ROOT/build/sdl2_ttf" -j"$JOBS" \
+    && cmake --install "$ROOT/build/sdl2_ttf" ) > "$ROOT/build/sdl2_ttf.log" 2>&1 || { tail -n 40 "$ROOT/build/sdl2_ttf.log"; exit 1; }
 rm -rf "$D/share" "$D/bin" "$D/lib/cmake" "$D/lib"/*.la "$D/lib"/xml2Conf.sh
 
 # exactly the expected sonames, each needing only glibc
-have="$(cd "$D/lib" && ls lib*.so.* | grep -E '^lib[^.]+\.so\.[0-9]+$' | sort | tr '\n' ' ')"
+have="$(cd "$D/lib" && ls lib*.so.* | grep -E '^lib.+\.so\.[0-9]+$' | sort | tr '\n' ' ')"
 want="$(printf '%s\n' $SONAMES | sort | tr '\n' ' ')"
 [ "$have" = "$want" ] || { echo "dist/lib holds the sonames: $have; expected: $want"; exit 1; }
 if command -v objdump >/dev/null; then
     for s in $SONAMES; do
         bad="$(objdump -p "$D/lib/$s" | awk '$1 == "NEEDED" { print $2 }' \
-            | grep -v -E '^(libc\.so\.6|libm\.so\.6|ld-linux.*|libav[a-z]+\.so\.[0-9]+|libsw[a-z]+\.so\.[0-9]+)$' || true)"
-        [ -z "$bad" ] || { echo "$s needs more than glibc and FFmpeg: $bad"; exit 1; }
+            | grep -v -E '^(libc\.so\.6|libm\.so\.6|ld-linux.*|libav[a-z]+\.so\.[0-9]+|libsw[a-z]+\.so\.[0-9]+|libSDL2-2\.0\.so\.0)$' || true)"
+        [ -z "$bad" ] || { echo "$s needs more than glibc, FFmpeg and SDL2: $bad"; exit 1; }
     done
+    # SDL2_ttf exports its own API only: the FreeType inside it must not stand in for the system's
+    leak="$(objdump -T "$D/lib/libSDL2_ttf-2.0.so.0" | awk '$2 == "g" && $4 != "*UND*" { print $NF }' | grep -v -E '^(TTF_|_init$|_fini$)' | head -n 5 || true)"
+    [ -z "$leak" ] || { echo "libSDL2_ttf-2.0.so.0 exports more than TTF_*: $leak"; exit 1; }
 fi
 echo "$STAMP" > "$D/.stamp"
 echo "bundled libraries in $D/lib:"
