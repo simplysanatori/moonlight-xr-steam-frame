@@ -67,3 +67,5 @@ libharfbuzz.so.0
 libexpat.so.1
 libpng16.so.16
 libgssapi_krb5.so.2
+libbrotlidec.so.1
+libbrotlicommon.so.1   # Qt Network and the system's FreeType both load them
