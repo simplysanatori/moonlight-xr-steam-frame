@@ -8,11 +8,14 @@
 # build-launcher/src, launcher/src/* (new files) and launcher/qml/*.qml (new pages, into app/gui)
 # are copied in and launcher/patches/*.patch applied
 # there. The copy is refreshed only when the submodule commit, the patches or launcher/src change.
-# SteamOS ships what this needs: qt6-base/declarative/svg/tools, SDL2, SDL2_ttf, opus, OpenSSL,
-# libva, libdrm. FFmpeg (libavcodec, libavutil, libswscale) is the app's bundled 7.0.2 when it is built
-# (tools/build-bundled-libs.sh; build.sh builds it and passes MLXR_BUNDLED_LIBS_DIR): the launcher
-# then finds it in app/lib through its RUNPATH $ORIGIN/lib, as the VR client does, and is built
-# without libplacebo (its soname changes with every release; in hand-off mode the launcher draws no
+# Releases build it in CI against Qt 6.8 LTS from aqtinstall and ship that Qt with it
+# (tools/stage-launcher.sh): SteamOS updates replace the system's Qt (6.8 to 6.10 in 20261020) and dropped
+# SDL2_ttf. A build here against the system's Qt is for development on the Frame only. It needs Qt 6.5 or
+# newer (qmake6 on PATH), SDL2, opus, OpenSSL, libva, libdrm; FFmpeg (libavcodec, libavutil, libswscale)
+# and SDL2_ttf are the app's bundled ones when they are built (tools/build-bundled-libs.sh; build.sh
+# builds them and passes MLXR_BUNDLED_LIBS_DIR): the launcher then finds them in app/lib through its
+# RUNPATH $ORIGIN/lib, as the VR client does, and is built without libplacebo (its soname changes with
+# every release; in hand-off mode the launcher draws no
 # video). NO_BUNDLE=1 links the system's FFmpeg (not for a release).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

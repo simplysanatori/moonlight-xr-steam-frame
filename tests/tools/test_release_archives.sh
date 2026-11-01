@@ -11,24 +11,29 @@ fail() { echo "FAIL: $*"; exit 1; }
 TRUE=/usr/bin/true; [ -x "$TRUE" ] || TRUE=/bin/true
 mkdir -p "$t/build/backend" "$t/build/input" "$t/out" "$t/home"
 for f in moonlight-xr backend/mlxr-cli input/mlxr-gamepad-probe; do cp "$TRUE" "$t/build/$f"; done
-# a bundled library (as tools/build-bundled-libs.sh leaves them, a soname symlink to the real file; a copy of
-# the C library stands in): release.sh must ship it as app/lib/<soname>, a regular file, and nothing else there
+# the bundled libraries (as tools/build-bundled-libs.sh leaves them, a soname symlink to the real file; copies of
+# the C library stand in): release.sh must ship each as app/lib/<soname>, a regular file. It insists on the
+# FFmpeg and SDL2_ttf sonames being among them.
 LIBC="$(ldd "$TRUE" | awk '$1 ~ /^libc\.so/ { print $3 }')"
 [ -f "$LIBC" ] || fail "no C library found to stand in for a bundled one"
-mkdir -p "$t/bundle"; cp "$LIBC" "$t/bundle/libmlxrtest.so.1.2.3"
-ln -s libmlxrtest.so.1.2.3 "$t/bundle/libmlxrtest.so.1"; ln -s libmlxrtest.so.1 "$t/bundle/libmlxrtest.so"
+mkdir -p "$t/bundle"
+for n in libmlxrtest.so.1 libavcodec.so.61 libSDL2_ttf-2.0.so.0; do
+    cp "$LIBC" "$t/bundle/$n.3"; ln -s "$n.3" "$t/bundle/$n"
+done
 ln -s "$t/bundle" "$t/build/lib"
-# the launcher comes from LAUNCHER_BUILD, never from the tree's own build-launcher/ (a real one there needs the
-# real FFmpeg in app/lib). A release without it is refused; ALLOW_NO_LAUNCHER=1 lets a test tarball through.
-mkdir -p "$t/nolauncher" "$t/launcher" "$t/refused" "$t/out-nl"
-if BUILD="$t/build" LAUNCHER_BUILD="$t/nolauncher" OUT="$t/refused" NO_VERIFY=1 "$ROOT/tools/release.sh" > "$t/refused.out" 2>&1; then
+# the flat launcher comes staged with its Qt (tools/stage-launcher.sh) from LAUNCHER_STAGE, never from the tree's
+# own build-launcher/. A release without it is refused; there is no way around that. NO_BUNDLE_CHECK=1 skips
+# tools/check-bundle.sh, because these stand-ins are not real libraries (CI's release step runs the check).
+export NO_BUNDLE_CHECK=1
+mkdir -p "$t/nolauncher" "$t/stage/lib" "$t/stage/plugins/platforms" "$t/stage/qml/QtQuick" "$t/refused"
+if BUILD="$t/build" LAUNCHER_STAGE="$t/nolauncher" OUT="$t/refused" NO_VERIFY=1 "$ROOT/tools/release.sh" > "$t/refused.out" 2>&1; then
     fail "release.sh made a tarball without the flat launcher"
 fi
-grep -q "must carry the flat launcher" "$t/refused.out" || { cat "$t/refused.out"; fail "no reason given for refusing"; }
-BUILD="$t/build" LAUNCHER_BUILD="$t/nolauncher" OUT="$t/out-nl" NO_VERIFY=1 ALLOW_NO_LAUNCHER=1 "$ROOT/tools/release.sh" > "$t/nl.out" 2>&1 \
-    || { cat "$t/nl.out"; fail "ALLOW_NO_LAUNCHER=1 did not make a test tarball"; }
-cp "$TRUE" "$t/launcher/moonlight-xr-launcher"
-BUILD="$t/build" LAUNCHER_BUILD="$t/launcher" OUT="$t/out" NO_VERIFY=1 "$ROOT/tools/release.sh" > "$t/release.out" 2>&1 \
+grep -q "a release carries the flat launcher" "$t/refused.out" || { cat "$t/refused.out"; fail "no reason given for refusing"; }
+cp "$TRUE" "$t/stage/moonlight-xr-launcher"; cp "$LIBC" "$t/stage/lib/libQt6Core.so.6"
+cp "$LIBC" "$t/stage/plugins/platforms/libqoffscreen.so"; echo x > "$t/stage/qml/QtQuick/qmldir"
+printf '[Paths]\nPrefix = .\n' > "$t/stage/qt.conf"
+BUILD="$t/build" LAUNCHER_STAGE="$t/stage" OUT="$t/out" NO_VERIFY=1 "$ROOT/tools/release.sh" > "$t/release.out" 2>&1 \
     || { cat "$t/release.out"; fail "release.sh failed"; }
 tgz=("$t"/out/moonlight-xr-steam-frame-*-linux-arm64.tar.gz); zp=("$t"/out/moonlight-xr-steam-frame-*-linux-arm64.zip)
 [ -f "${tgz[0]}" ] || fail "no .tar.gz in the output"
@@ -83,8 +88,10 @@ for n in ("MoonlightXRNative/install.sh", "MoonlightXRNative/app/moonlight-xr", 
     assert a[n][1] & 0o111 == 0o111, "%s is not executable in the tar.gz (%o)" % (n, a[n][1])
     assert b[n][1] & 0o111 == 0o111, "%s is not executable in the zip (%o)" % (n, b[n][1])
 lib = sorted(n for n in a if n.startswith("MoonlightXRNative/app/lib/"))
-assert lib == ["MoonlightXRNative/app/lib/libmlxrtest.so.1"], "app/lib holds %s" % lib
-assert a[lib[0]][0] == "file" and b[lib[0]][0] == "file", "app/lib/libmlxrtest.so.1 is not a regular file"
+assert lib == ["MoonlightXRNative/app/lib/" + n for n in ("libQt6Core.so.6", "libSDL2_ttf-2.0.so.0", "libavcodec.so.61", "libmlxrtest.so.1")], "app/lib holds %s" % lib
+assert all(a[n][0] == "file" and b[n][0] == "file" for n in lib), "an app/lib entry is not a regular file"
+for n in ("qt.conf", "plugins/platforms/libqoffscreen.so", "qml/QtQuick/qmldir"):
+    assert "MoonlightXRNative/app/" + n in a, "app/%s is missing" % n
 print("same %d entries and modes in both archives" % len(a))
 PY
 
@@ -110,6 +117,7 @@ rc=$?
 [ "$rc" = 0 ] || { cat "$t/install.out"; fail "install.sh exited $rc without Steam"; }
 D="$t/home/Games/MoonlightXRNative"
 [ -x "$D/app/moonlight-xr" ] && [ -x "$D/app/mlxr-cli" ] && [ -d "$D/app/assets" ] && [ -x "$D/app/moonlight-xr-launcher" ] || { cat "$t/install.out"; fail "files not installed"; }
+[ -f "$D/app/qt.conf" ] && [ -f "$D/app/plugins/platforms/libqoffscreen.so" ] && [ -f "$D/app/qml/QtQuick/qmldir" ] || fail "the launcher's Qt files (qt.conf, plugins, qml) are not installed"
 [ -f "$D/install.log" ] || fail "no install.log under ~/Games/MoonlightXRNative"
 cmp -s "$t/install.out" "$D/install.log" || fail "the log differs from the output"
 grep -q "Steam shortcut: SKIPPED" "$t/install.out" || fail "the output does not say the shortcut was skipped"
@@ -121,7 +129,7 @@ cp "$D/app/lib/libmlxrtest.so.1" "$D/app/lib/libstale.so.7"
 ( cd "$U" && env -i PATH="$PATH" HOME="$t/home" STEAM_CEF_PORT=1 MLXR_CONFIG_DIR="$t/cfg" ./install.sh < /dev/null > "$t/install2.out" 2>&1 ) \
     || { cat "$t/install2.out"; fail "second run failed"; }
 [ "$(grep -c '^== .* install.sh' "$D/install.log")" = 2 ] || fail "the log should hold two runs"
-[ "$(ls "$D/app/lib")" = libmlxrtest.so.1 ] || fail "lib/ after the second install holds: $(ls "$D/app/lib" | tr '\n' ' ')"
+[ "$(LC_ALL=C ls "$D/app/lib" | tr '\n' ' ')" = "libQt6Core.so.6 libSDL2_ttf-2.0.so.0 libavcodec.so.61 libmlxrtest.so.1 " ] || fail "lib/ after the second install holds: $(ls "$D/app/lib" | tr '\n' ' ')"
 [ ! -e "$D/app/lib.new" ] && [ ! -e "$D/app/lib.old" ] || fail "install left lib.new or lib.old behind"
 cmp -s "$U/app/lib/libmlxrtest.so.1" "$D/app/lib/libmlxrtest.so.1" || fail "the installed library differs from the release's"
 echo "release archives ok"

@@ -2,9 +2,11 @@
 
 This directory holds the licence texts that have no better home. The complete list of what the project contains or uses is the table below (also in `CREDITS.md` at the top of the repository and in the install directory). Licence texts for the assets sit next to them: `assets/depth/`, `assets/fonts/OFL.txt`, `assets/hrtf/kemar/LICENSE.txt`.
 
-Files in this directory: `CC-BY-4.0.txt` (rooms, gun model), `moonlight-common-c_LICENSE.txt`, `enet_LICENSE.txt`, `nanors_LICENSE.txt`, `openxr-sdk_LICENSE.txt`, `jsoncpp_LICENSE.txt`, `zipdepth_LICENSE.txt`, `ffmpeg_COPYING.LGPLv2.1.txt`, `ffmpeg_LICENSE.md`, `libxml2_Copyright.txt`.
+Files in this directory: `CC-BY-4.0.txt` (rooms, gun model), `moonlight-common-c_LICENSE.txt`, `enet_LICENSE.txt`, `nanors_LICENSE.txt`, `openxr-sdk_LICENSE.txt`, `jsoncpp_LICENSE.txt`, `zipdepth_LICENSE.txt`, `ffmpeg_COPYING.LGPLv2.1.txt`, `ffmpeg_LICENSE.md`, `libxml2_Copyright.txt`, `qt_LGPLv3.txt`, `harfbuzz_COPYING.txt`, `icu_LICENSE.txt`, `sdl2_ttf_LICENSE.txt`, `freetype_FTL.txt`.
 
 FFmpeg and libxml2 in `app/lib`: built without changes from the official release tarballs (ffmpeg-7.0.2.tar.xz from https://ffmpeg.org/releases/, libxml2-2.13.9.tar.xz from https://download.gnome.org/sources/libxml2/2.13/) by `tools/build-bundled-libs.sh`, which holds the checksums and the configure options. FFmpeg is built LGPL-only (no GPL or non-free parts). They are ordinary shared libraries: you can replace them with your own builds of the same versions.
+
+SDL2_ttf in `app/lib` is built without changes from SDL2_ttf-2.24.0.tar.gz (https://github.com/libsdl-org/SDL_ttf/releases), with the FreeType it vendors linked in statically, by the same script. Qt 6.8.3 and its ICU in `app/lib`, `app/plugins` and `app/qml` are the Qt Company's open-source linux arm64 binaries, unmodified, installed by aqtinstall in CI and copied by `tools/stage-launcher.sh`; the flat launcher links them dynamically, so you can replace them with your own build of Qt 6.8 (LGPL-3.0, section 4). The source is at https://download.qt.io/official_releases/qt/6.8/6.8.3/.
 
 The room and controller notices as upstream words them: Copyright (c) 2026 Sean Gilleece / Woodford XR, Creative Commons Attribution 4.0, attribution to Sean Gilleece / Woodford XR (first made for Depthray, Woodford XR's VR video player). KEMAR: Copyright 1994 MIT Media Laboratory, "provided free with no restrictions on use, provided the authors are cited when the data is used in any research or commercial application"; citation: Bill Gardner and Keith Martin, "HRTF Measurements of a KEMAR Dummy-Head Microphone", MIT Media Lab Perceptual Computing Technical Report #280, May 1994.
 
@@ -43,6 +45,11 @@ The gun model: This work is based on "G17 Gen 5 Handgun + Olight - NSW Police Fo
 | **Libraries shipped as shared libraries in `app/lib`** | | | | |
 | FFmpeg 7.0.2 (libavcodec, libavformat, libavutil, libswscale) | Software decode fallback and test-file reading | LGPL-2.1+ (LGPL-only build, unmodified source) | https://ffmpeg.org | `assets/licenses/ffmpeg_COPYING.LGPLv2.1.txt`, `assets/licenses/ffmpeg_LICENSE.md` |
 | libxml2 2.13.9 | Host answers | MIT | https://gitlab.gnome.org/GNOME/libxml2 | `assets/licenses/libxml2_Copyright.txt` |
+| Qt 6.8.3 (Core, Gui, Network, DBus, OpenGL, Qml, Quick, Quick Controls, Svg, Wayland client, xcb), with its plugins in `app/plugins` and QML modules in `app/qml` | The flat launcher's window and pages | LGPL-3.0 (the Qt Company's open-source binaries, unmodified, from download.qt.io) | https://www.qt.io; source: https://download.qt.io/official_releases/qt/6.8/6.8.3/ | `assets/licenses/qt_LGPLv3.txt` and `LICENSE.txt` (the GPLv3 it builds on) |
+| Third-party code inside Qt (HarfBuzz, PCRE2, libpng, libjpeg, double-conversion, md4c and others) | Text shaping, regular expressions, images | Permissive licences, listed in Qt's "Licenses Used in Qt" | https://doc.qt.io/qt-6.8/licenses-used-in-qt.html | `assets/licenses/harfbuzz_COPYING.txt`; the others in Qt's documentation |
+| ICU 73 (libicuuc, libicui18n, libicudata), as Qt ships it | Unicode text handling for Qt | Unicode License v3 | https://icu.unicode.org | `assets/licenses/icu_LICENSE.txt` |
+| SDL2_ttf 2.24.0 | Text in moonlight-qt's stream overlay (the launcher links it) | zlib | https://github.com/libsdl-org/SDL_ttf | `assets/licenses/sdl2_ttf_LICENSE.txt` |
+| FreeType 2.13.2, inside SDL2_ttf (static, as SDL2_ttf vendors it) | Font rendering for SDL2_ttf | FreeType License (FTL) | https://freetype.org | `assets/licenses/freetype_FTL.txt` |
 | **Libraries linked dynamically from SteamOS (not shipped)** | | | | |
 | OpenSSL 3.2 | Pairing, TLS, stream encryption | Apache-2.0 | https://www.openssl.org | |
 | libcurl | HTTP and HTTPS to the host | curl licence (MIT style) | https://curl.se | |
