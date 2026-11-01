@@ -56,7 +56,9 @@ while IFS= read -r -d '' f; do
         for l in "${LISTS[@]}"; do grep -qxF "$s" "$l" || fail "$rel needs $s, which SteamOS ${l##*/} does not have"; done
     done
     # resolved here, only the libraries it needs itself (the system's libraries' own needs are the system's)
-    out="$(env -u LD_LIBRARY_PATH ldd "$f" 2>&1)"
+    # (the bundled FFmpeg libraries have no RUNPATH of their own: in the app their siblings are already
+    # loaded by the binary, so a bundled library on its own is resolved with app/lib on the path)
+    if [[ "$rel" == lib/* ]]; then out="$(LD_LIBRARY_PATH="$L" ldd "$f" 2>&1)"; else out="$(env -u LD_LIBRARY_PATH ldd "$f" 2>&1)"; fi
     for s in "${need[@]}"; do
         line="$(grep -E "^[[:space:]]*$(sed 's/[.+]/\\&/g' <<<"$s") => " <<<"$out" | head -n 1)"
         [ -n "$line" ] || continue                     # ld-linux and the like: no "=>" line
