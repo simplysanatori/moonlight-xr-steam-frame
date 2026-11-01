@@ -898,6 +898,16 @@ static FlatWindowWatch* flatWindowWatchOf(QWindow* window)
     return dynamic_cast<FlatWindowWatch*>(o);
 }
 
+QWindow* mainWindow()
+{
+    for (QWindow* w : QGuiApplication::topLevelWindows()) {
+        if (qobject_cast<QQuickWindow*>(w)) {
+            return w;
+        }
+    }
+    return nullptr;
+}
+
 void watchFlatWindow(QWindow* window)
 {
     if (!window) {

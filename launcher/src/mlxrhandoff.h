@@ -87,6 +87,9 @@ Result run(const Plan& plan, const std::function<void()>& onStarted,
 // On a desktop it only logs. MLXR_LAUNCHER_TEST_RETURN_MISS=N (tests): the first N checks count
 // as missed and the Game Mode steps run anywhere.
 void watchFlatWindow(QWindow* window);
+// The flat window when the QML segue could not name it (its Window.window is null in Qt 6.8.3): the
+// application's first Qt Quick window (patch 0020)
+QWindow* mainWindow();
 void flatWindowReturn(QWindow* window);
 
 // Game Mode: the flat window during a stream (owner's crash 2026-10-27). Hiding (unmapping) it

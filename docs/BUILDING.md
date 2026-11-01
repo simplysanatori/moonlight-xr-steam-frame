@@ -59,15 +59,19 @@ This installs from the build directory into `~/Games/MoonlightXRNative/app` and 
 
 ## Release tarball
 
+Releases are built by CI, not on the Frame. Every push runs `.github/workflows/build.yml` on GitHub's `ubuntu-24.04-arm` runners. Its `frame-artifact` job uploads `moonlight-xr-steam-frame-<version>-release-candidate` (the tarball, the zip and `SHA256SUMS`), and that artifact is what gets published. Ubuntu 24.04 has glibc 2.39, the same as SteamOS before build 20261020. Newer SteamOS (glibc 2.43) runs what is built against it, but not the other way round, so a build made on an updated Frame cannot be a release.
+
+The `launcher` job builds the flat launcher (the patched moonlight-qt) against Qt 6.8.3 from aqtinstall, runs its tests, and stages it with its own Qt (`tools/stage-launcher.sh`): the Qt libraries and ICU in `lib/`, the platform (xcb, wayland, offscreen), TLS, image and input plugins in `plugins/`, the QML modules its pages import in `qml/`, and a `qt.conf` that points Qt there. The tests then run again against that staged copy with the build's Qt moved away. The `frame-artifact` job builds the VR client and the bundled FFmpeg, libxml2 and SDL2_ttf (`tools/build-bundled-libs.sh`), and then runs
+
 ```sh
-BUILD=build tools/release.sh
+OUT=dist ALLOW_MISSING_HOST=1 tools/release.sh
 ```
 
-It packs `moonlight-xr-steam-frame-<version>-linux-arm64.tar.gz` and updates `SHA256SUMS` in `~/Games/MoonlightXRNative/releases` (`OUT` changes it). The version is the `VERSION` file. If the commit carries a `v*` tag, it must match.
+The script strips the binaries, copies only tracked assets, and stops if config, pairing keys, logs, the LiteRT build or a converted Steam Frame controller model would be packed. It refuses to pack without the bundled libraries or the staged launcher (`LAUNCHER_STAGE`, default `build-launcher/stage`). `tools/check-bundle.sh` then checks every binary, library and plugin in `app/`. Each library one needs must be in `app/lib`, or on `tools/host-libs.allow` (glibc, the C++ runtime, Mesa and the other graphics libraries, Wayland, X11, PulseAudio, D-Bus, SDL2 and a few long-stable libraries) and present under that soname in every SteamOS build listed in `docs/probe/host-sonames/`. Nothing may need a glibc symbol newer than 2.39. The script runs `tools/privacy-check.sh` on the tarball. Then it unpacks the tarball, installs it twice into a temporary folder and compares the installed files. It starts the client (to its usage error) and the launcher (offscreen, until it draws its PC list), and runs the library audit where there is pacman. The version is the `VERSION` file. If the commit carries a `v*` tag, it must match.
 
-The script strips the binaries, copies only tracked assets, and stops if config, pairing keys, logs, the LiteRT build or a converted Steam Frame controller model would be packed. It copies the bundled FFmpeg and libxml2 into `app/lib` and refuses to pack without them, or without the flat launcher (`ALLOW_NO_LAUNCHER=1` makes a test tarball without it). It runs `tools/privacy-check.sh` on the tarball. Then it unpacks the tarball, installs it twice into a temporary folder, compares the installed files and runs the library audit on them.
+The `linux-arm64` job runs the tests. The tests that need a Vulkan device, the Iris decoder, PulseAudio or SteamVR either skip themselves (exit code 77) or are filtered out of the ctest run.
 
-Build releases on the Frame. GitHub Actions builds every push on `ubuntu-24.04-arm` (`.github/workflows/build.yml`), but that is a build check only. CI builds the bundled FFmpeg and libxml2 too and checks that the unpacked client starts on them alone, on a system without FFmpeg 7, but its tarball has no flat launcher and is not a release. CI builds with `NO_LAUNCHER=1`, because the flat launcher (the patched moonlight-qt) needs Qt 6.5 or newer and Ubuntu 24.04 ships 6.4. The tests that need a Vulkan device, the Iris decoder, PulseAudio or SteamVR either skip themselves (exit code 77) or are filtered out of the ctest run.
+When a SteamOS update comes out, add its library list to `docs/probe/host-sonames/` (the sonames in its `/usr/lib`) so that the check covers it too.
 
 ## Other machines
 
