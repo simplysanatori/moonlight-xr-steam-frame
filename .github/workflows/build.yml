@@ -204,6 +204,24 @@ jobs:
             || { cat "$RUNNER_TEMP/start.txt"; echo "::error::the unpacked moonlight-xr does not start"; exit 1; }
           echo "the unpacked client starts on app/lib: $(ls "$A/lib" | tr '\n' ' ')"
 
+      # The launcher from the same unpack: offscreen, it must load only its own Qt (no Qt on this runner is
+      # on its path either), reach the PC list and draw it. It ignores SIGTERM, so it is killed.
+      - name: The unpacked launcher starts on its own Qt
+        run: |
+          A="$RUNNER_TEMP/unpacked/MoonlightXRNative/app"; H="$RUNNER_TEMP/lhome"; rm -rf "$H"; mkdir -p "$H/run"; chmod 700 "$H/run"
+          env -u LD_LIBRARY_PATH ldd "$A/moonlight-xr-launcher" > "$RUNNER_TEMP/ldd-launcher.txt"
+          ! grep -q 'not found' "$RUNNER_TEMP/ldd-launcher.txt" || { cat "$RUNNER_TEMP/ldd-launcher.txt"; echo "::error::launcher: unresolved"; exit 1; }
+          env -C "$A" -u LD_LIBRARY_PATH HOME="$H" XDG_RUNTIME_DIR="$H/run" QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+            SDL_VIDEODRIVER=dummy MLXR_LOG_DIR="$H" MLXR_CONFIG_DIR="$H/native" MLXR_LAUNCHER_UPDATE=0 MLXR_LAUNCHER_PREFLIGHT=0 \
+            MLXR_LAUNCHER_SCREENSHOT="$H/pcview.png@4000" ./moonlight-xr-launcher > "$H/launcher.log" 2>&1 &
+          pid=$!
+          for i in $(seq 1 30); do [ -s "$H/pcview.png" ] && break; sleep 1; done
+          grep -oE '/[^ ]+\.so[.0-9]*' "/proc/$pid/maps" | sort -u | grep -E '/libQt6|/libicu|/plugins/|/qml/' | grep -vF "$A/" > "$RUNNER_TEMP/foreign.txt" || true
+          kill -KILL "$pid" 2>/dev/null || true
+          [ -s "$H/pcview.png" ] || { tail -n 30 "$H/launcher.log"; echo "::error::the unpacked launcher drew nothing"; exit 1; }
+          [ ! -s "$RUNNER_TEMP/foreign.txt" ] || { cat "$RUNNER_TEMP/foreign.txt"; echo "::error::the launcher mapped Qt files from outside app/"; exit 1; }
+          echo "the unpacked launcher starts on its own Qt and draws the PC list"
+
       - uses: actions/upload-artifact@v4
         with:
           name: moonlight-xr-steam-frame-${{ env.VERSION }}-release-candidate
