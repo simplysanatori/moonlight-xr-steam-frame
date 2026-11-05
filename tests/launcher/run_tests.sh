@@ -1110,8 +1110,8 @@ sys.exit(0 if full>900 and 0.15*full<part<0.5*full and e==f and h<g else 1)" "$a
         expect "VR client reads assist_dwell_style" "$dump" "vr.assist_dwell_style = radial"
     fi
     tips="$(grep 'MLXR_SETTINGS_TIP:' "$t/acc2.out")"
-    expect "tip: Pointer" "$tips" 'pointerSourceRow visible=true text="What moves the pointer: a controller, your head, or where you look. Eyes is experimental: the dot jitters and lands near where you look. Hold right Menu and right grip to point with the controllers again."'
-    expect "tip: Dwell click" "$tips" 'headDwellRow visible=true text="Rest the dot this long on something to click it."'
+    expect "tip: Pointer" "$tips" 'pointerSourceRow visible=true text="What moves the pointer: a controller, your head or your eyes. Eyes is experimental and jitters. Hold right Menu and right grip to point with the controllers again."'
+    expect "tip: Dwell click" "$tips" 'headDwellRow visible=true text="Hold the dot still this long to click."'
     expect "tip: Dwell click style" "$tips" 'assistDwellStyleRow visible=true text="Radial menu: near the end of the dwell, look left for double click, down to drag, right for right click."'
     expect "tip: Dot size" "$tips" 'assistDotSizeRow visible=true text="How big the dot is when you point with your head or eyes."'
     grep -q 'MLXR_LAUNCHER_CLICK\|showTip: no row' "$t/acc2.out" && fail "a tip row is missing: $(grep 'showTip: no row' "$t/acc2.out")"
