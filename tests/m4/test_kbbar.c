@@ -551,42 +551,36 @@ static int beamIndex(const Scene* s) {
     return -1;
 }
 
-// Native (lane beam-streak): the ray sweeping over the keys and the gaps between them leaves every
-// layer where it was. The ring round the key under the ray came and went with each gap, the beam and
-// the dot moved a place up or down the list each time, and the frame the ring went was the one frame
-// SteamVR drew the beam as a white streak across the view. Off the keys the ring's layer stays, and
-// shows nothing.
-static void keyGapsKeepLayers(Scene* s) {
-    XrCtx* c = s->ctx;
-    defaults(s);
-    Vec3 key = onPlane(c->kbPose, c->kbW, c->kbH, 0.5f, 0.5f);
-    scene_ray_to(s, HAND, key);
-    c->hoverKind = HOVER_KBPANEL;
-    c->kbHoverKey = 3;
+// Native (lane beam-streak): one hover state's frame, checked against the first: the same number of
+// layers and the beam in the same place in the list
+static void sameBeamPlace(Scene* s, int* index, uint32_t* count, const char* what) {
     scene_frame(s, NULL);
-    uint32_t onKey = s->out.count;
-    int beamOnKey = beamIndex(s);
-    CHECK(beamOnKey > 0);
-    c->kbHoverKey = -1;
-    scene_frame(s, NULL);
-    printf("keyboard up, ray on a key: %u layers, the beam %d; in a gap: %u layers, the beam %d\n",
-           onKey, beamOnKey, s->out.count, beamIndex(s));
-    CHECK(s->out.count == onKey);
-    CHECK(beamIndex(s) == beamOnKey);
-    // and the ring's layer in the gap is clear: every texel it shows has no alpha, and it is no more
-    // than a millimetre across
-    int found = 0;
-    const uint8_t* px = xrAtlasPixels(c);
+    int at = beamIndex(s);
+    CHECK(at > 0);
+    if (*index < 0) {
+        *index = at;
+        *count = s->out.count;
+        printf("  %s: %u layers, the beam %d\n", what, s->out.count, at);
+        return;
+    }
+    if (at != *index || s->out.count != *count) {
+        printf("  %s: %u layers, the beam %d (was %u, %d)\n", what, s->out.count, at, *count, *index);
+    }
+    CHECK(at == *index);
+    CHECK(s->out.count == *count);
+    CHECK(s->out.count <= (uint32_t)s->ctx->maxLayerCount);
+}
+
+// Native (lane beam-streak): every held place is clear and a millimetre across
+static void heldPlacesClear(Scene* s) {
+    const uint8_t* px = xrAtlasPixels(s->ctx);
     UiRectPx o = xrAtlasRect(ATLAS_OUTLINE);
     for (uint32_t i = 0; i < s->out.count; i++) {
         const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)s->out.order[i];
-        if (q->type != XR_TYPE_COMPOSITION_LAYER_QUAD || q->subImage.imageRect.offset.x < o.x
-                || q->subImage.imageRect.offset.x >= o.x + o.w || q->subImage.imageRect.offset.y < o.y
-                || q->subImage.imageRect.offset.y >= o.y + o.h) {
+        if (q->type != XR_TYPE_COMPOSITION_LAYER_QUAD || q->size.width > 0.0011f
+                || q->subImage.imageRect.offset.x != o.x + o.w / 2 - 2) {
             continue;
         }
-        found++;
-        CHECK(q->size.width <= 0.001f && q->size.height <= 0.001f);
         const XrRect2Di* r = &q->subImage.imageRect;
         unsigned alpha = 0;
         for (int y = r->offset.y; y < r->offset.y + r->extent.height; y++) {
@@ -596,14 +590,75 @@ static void keyGapsKeepLayers(Scene* s) {
         }
         CHECK(alpha == 0);
     }
-    CHECK(found == 1);
-    // A key again: the ring is back in the same place, the beam where it was
-    c->kbHoverKey = 5;
-    scene_frame(s, NULL);
-    CHECK(s->out.count == onKey && beamIndex(s) == beamOnKey);
+}
+
+// Native (lane beam-streak): the ray sweeping over the keys and the gaps between them, the bar and
+// its buttons, the corners, the halo, the sheets' buttons and off the picture leaves the beam where it
+// was in the list of layers. Anything ahead of it that came and went with the hover moved it a place
+// up or down, and the frame the key ring went (2026-10-31) was the one frame SteamVR drew the beam as
+// a white streak across the view.
+static void hoverKeepsBeamPlace(Scene* s) {
+    XrCtx* c = s->ctx;
+    static const int furniture[] = { HOVER_NONE, HOVER_SCREEN, HOVER_BAR, HOVER_CORNER, HOVER_HALO,
+                                     HOVER_ENVBUTTON, HOVER_COGBUTTON, HOVER_KBBUTTON, HOVER_EXITBUTTON,
+                                     HOVER_STEREOBUTTON, HOVER_RAYBUTTON, HOVER_AIMBUTTON,
+                                     HOVER_PADBUTTON, HOVER_HOSTBUTTON, HOVER_HEREBUTTON, HOVER_STATS,
+                                     HOVER_SCREEN, HOVER_NONE };
+    for (int locked = 0; locked < 2; locked++) {
+        for (int stats = 0; stats < 2; stats++) {
+            scene_reset(s);
+            s->settings.head_locked = locked;
+            c->headLockedPref = locked;
+            c->overlayVisible = stats;
+            Vec3 at = { 0.3f, -0.4f, -2.0f };
+            scene_ray_to(s, HAND, at);
+            int index = -1;
+            uint32_t count = 0;
+            printf("the picture, %s, stats %s\n", locked ? "head locked" : "world locked", stats ? "on" : "off");
+            for (size_t k = 0; k < sizeof(furniture) / sizeof(furniture[0]); k++) {
+                c->hoverKind = furniture[k];
+                c->hoverCorner = (int)k % 4;
+                sameBeamPlace(s, &index, &count, "the ray over the picture's furniture");
+                heldPlacesClear(s);
+            }
+        }
+    }
+    s->settings.head_locked = 0;
+    c->headLockedPref = 0;
+    c->overlayVisible = 0;
+
+    // The keyboard: keys, the gaps between them, its bar, the picture's corners, off everything
+    defaults(s);
+    Vec3 key = onPlane(c->kbPose, c->kbW, c->kbH, 0.5f, 0.5f);
+    scene_ray_to(s, HAND, key);
+    int index = -1;
+    uint32_t count = 0;
+    printf("the keyboard\n");
+    static const int kbHovers[] = { HOVER_KBPANEL, HOVER_KBPANEL, HOVER_KBPANEL, HOVER_KBBAR, HOVER_CORNER,
+                                    HOVER_SCREEN, HOVER_NONE, HOVER_KBPANEL };
+    static const int kbKeys[] = { 3, -1, 5, -1, -1, -1, -1, KB_KEY_LAYOUT };
+    for (size_t k = 0; k < sizeof(kbHovers) / sizeof(kbHovers[0]); k++) {
+        c->hoverKind = kbHovers[k];
+        c->kbHoverKey = kbKeys[k];
+        sameBeamPlace(s, &index, &count, "the ray over the keyboard");
+        heldPlacesClear(s);
+    }
     c->kbOpen = 0;
     c->kbHoverKey = -1;
-    c->hoverKind = HOVER_NONE;
+
+    // The room grid: its cells and off them
+    scene_reset(s);
+    scene_ray_to(s, HAND, key);
+    c->pickerOpen = 1;
+    c->panelFades[FADE_PICKER].level = 1.0f;
+    index = -1;
+    printf("the room grid\n");
+    for (int cell = -1; cell < 3; cell++) {
+        c->pickerHover = cell;
+        c->hoverKind = cell < 0 ? HOVER_NONE : HOVER_PICKER;
+        sameBeamPlace(s, &index, &count, "the ray over the room grid");
+    }
+    scene_reset(s);
 }
 
 int main(void) {
@@ -614,7 +669,7 @@ int main(void) {
     layers(s);
     liveSliders(s);
     pictureBarPushPull(s);
-    keyGapsKeepLayers(s);
+    hoverKeepsBeamPlace(s);
     scene_free(s);
     return checksDone("m4 kbbar");
 }
