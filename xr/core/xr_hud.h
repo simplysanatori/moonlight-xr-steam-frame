@@ -54,6 +54,11 @@ typedef struct MlxrHudFigures {
     uint64_t udpDrops;                  // in the window
     int poor;
     int setKbps;               // the bitrate the stream was started with (0 unknown); the HUD shows it beside the rate
+    // Native (lane beam-streak): figures nothing in the window told, shown as "n/a" rather than as a
+    // 0 that reads as a real one: the host's capture and encode (a host that sends no timing with its
+    // frames) and our decode (no frame the decoder timed: the software decoder, or none taken)
+    int hostUnknown;
+    int decodeUnknown;
 } MlxrHudFigures;
 
 // The window from prev (NULL or invalid: from the start) to cur, secs long;
@@ -65,6 +70,23 @@ int mlxr_hud_window(const MlxrHudCum* prev, const MlxrHudCum* cur, double secs, 
 // "54 Mb/s | 12 ms | dec 3.1 | loss 0.2% | 90 fps": the Lite stats mode. A
 // leading "! " when the connection is slow. "" when there are no figures.
 void mlxr_hud_lite(const MlxrHudFigures* f, int slow, char* buf, size_t cap);
+
+// Native (lane beam-streak): the Full stats' decoder line, from whichever decoder is decoding (the
+// hardware one's counters, or the software one's frame slot). "decoded 1234, dropped 5, decode 3.1
+// ms"; the decode time "n/a" before the first frame. It read the software decoder's slot alone, which
+// the hardware decoder (every stream on the Frame) never fills, so it said 0 all through a stream.
+typedef struct MlxrDecodeTally {
+    uint64_t decoded;          // pictures out of the decoder
+    uint64_t dropped;          // of them, never shown (the loop fell behind, or a newer one came)
+    double decodeMs;           // the decoder's time for a frame, recent average
+} MlxrDecodeTally;
+void mlxr_stats_decode_text(const MlxrDecodeTally* t, char* buf, size_t cap);
+
+// Native (lane beam-streak): the Full stats' audio line, "audio 2ch 40 ms buffered, 2 underruns, 0
+// lost (stream totals)", or "audio: nothing from the PC yet" while no packet has come (the PC playing
+// its sound itself, or a silent stream), where it said "audio 0ch 0 ms buffered"
+void mlxr_stats_audio_text(uint64_t packets, int channels, double bufferedMs, uint32_t underruns, uint32_t lost,
+                           char* buf, size_t cap);
 
 // Compositor figures from the runtime (XR_META_performance_metrics)
 typedef struct MlxrCompositorMetrics {

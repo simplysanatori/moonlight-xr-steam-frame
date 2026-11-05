@@ -232,15 +232,31 @@ void stream_latency_line(char* buf, int len) {
     char cad[360];
     mlxr_cadence_line(&g_cadence, cad, sizeof(cad));
     double n = g_lat.frames ? (double)g_lat.frames : 1.0;
+    // Native (lane beam-streak): the parts no frame told this window are said so, not written as 0.0: the
+    // host's encode when it sent no timing with its frames, and the network's parts with no frame at all
+    // (a still desktop sends none)
+    char host[64], recv[96];
+    if (g_lat.hostN) {
+        snprintf(host, sizeof(host), "%.1f ms (max %.1f)", g_lat.hostMsSum / g_lat.hostN, g_lat.hostMsMax);
+    }
+    else {
+        snprintf(host, sizeof(host), "n/a (no timing from the host)");
+    }
+    if (g_lat.frames) {
+        snprintf(recv, sizeof(recv), "%.1f ms (max %.1f), queued %.1f ms (max %.1f)", g_lat.recvMsSum / n,
+                 g_lat.recvMsMax, g_lat.queueMsSum / n, g_lat.queueMsMax);
+    }
+    else {
+        snprintf(recv, sizeof(recv), "n/a, queued n/a (no frames)");
+    }
     snprintf(buf, (size_t)len,
-             "host encode %.1f ms (max %.1f), frame received over %.1f ms (max %.1f), queued %.1f ms (max %.1f), "
+             "host encode %s, frame received over %s, "
              "rtt %u ms (variance %u), frames lost on the network %llu, dropped waiting for IDR %llu / RFI %llu, "
              "IDR requests %llu; RFI waits %llu (%llu ended by the host's recovery frame), %.0f ms avg (max %llu), "
              "IDR asked by the RFI watchdog %llu (wait %d ms now, %llu put off by a burst), "
              "held back by rfi_idr_ms %d: %llu; bursts %llu (longest %llu ms); %s; "
              "unrecoverable-frame lines %llu; %s",
-             g_lat.hostN ? g_lat.hostMsSum / g_lat.hostN : 0.0, g_lat.hostMsMax, g_lat.recvMsSum / n, g_lat.recvMsMax,
-             g_lat.queueMsSum / n, g_lat.queueMsMax, rtt, var, (unsigned long long)g_lat.netLost,
+             host, recv, rtt, var, (unsigned long long)g_lat.netLost,
              (unsigned long long)g_lat.idrWaitDrops, (unsigned long long)g_lat.rfiWaitDrops,
              (unsigned long long)g_lat.idrRequests, (unsigned long long)(g_rfiWatch.waits - g_rfiPrev.waits),
              (unsigned long long)(g_rfiWatch.recovered - g_rfiPrev.recovered),

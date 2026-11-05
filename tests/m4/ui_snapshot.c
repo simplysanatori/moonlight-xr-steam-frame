@@ -255,6 +255,14 @@ int main(int argc, char** argv) {
         shot(s, "13c-stats-hud", text);
         mlxr_hud_lite(&f, 0, text, sizeof(text));
         shot(s, "13d-stats-lite", text);
+        // Native (lane beam-streak): a host that sends no timing and no frame the decoder timed: n/a
+        f.hostUnknown = 1;
+        f.decodeUnknown = 1;
+        f.hostMs = 0.0;
+        f.decodeMs = 0.0;
+        f.latencyMs = f.rttMs * 0.5 + f.recvMs + f.queueMs;
+        mlxr_hud_panel(&f, 0, &m, 90.0, text, sizeof(text));
+        shot(s, "13e-stats-hud-untimed", text);
     }
     c->overlayVisible = 0;
 
