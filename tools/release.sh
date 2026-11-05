@@ -233,7 +233,8 @@ sleep 3
 foreign="$(grep -oE '/[^ ]+\.so[.0-9]*' "/proc/$LPID/maps" 2>/dev/null | sort -u \
     | grep -E '/libQt6|/libicu|/qt6?/|/plugins/|/qml/' | grep -vF "$TMP/inst/app/" || true)"
 for i in $(seq 1 20); do [ -s "$LH/pcview.png" ] && break; sleep 1; done
-kill -KILL "$LPID" 2>/dev/null; wait "$LPID" 2>/dev/null || true
+kill -KILL "$LPID" 2>/dev/null || true   # it may have quit after its screenshot already
+wait "$LPID" 2>/dev/null || true
 if [ -n "$foreign" ] || [ ! -s "$LH/pcview.png" ] || grep -qE 'is not installed|Cannot load library|Could not load the Qt platform plugin|module .* plugin .* not found' "$LH/launcher.log"; then
     tail -n 30 "$LH/launcher.log"; [ -z "$foreign" ] || echo "mapped from outside the app: $foreign"
     echo "the installed moonlight-xr-launcher does not start on its own Qt"; exit 1
