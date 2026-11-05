@@ -1944,7 +1944,7 @@ Flickable {
             title: qsTr("Pointer")
             tip: qsTr("What moves the pointer: a controller, your head or your eyes. Eyes is experimental and jitters. Hold right Menu and right grip to point with the controllers again.")
             valueText: names[Math.max(0, values.indexOf(MlxrPrefs.pointerSource))]
-            summary: qsTr("Head: The dot follows the middle of your view, and either trigger clicks. Dwell click: Hold the dot still to click. To point with the controllers again, pick Controller or hold right Menu and right grip. Eyes: Turn on SteamVR Settings > General > Eye Tracking, then restart the app.")
+            summary: qsTr("Head: The dot follows the middle of your view, and either trigger clicks. To point with the controllers again, pick Controller or hold right Menu and right grip. Eyes: Turn on SteamVR Settings > General > Eye Tracking, then restart the app.")
             onClicked: MlxrPrefs.pointerSource = values[(Math.max(0, values.indexOf(MlxrPrefs.pointerSource)) + 1) % values.length]
         }
 
