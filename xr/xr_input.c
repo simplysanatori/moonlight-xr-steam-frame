@@ -1353,15 +1353,24 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
             return;
         }
 
-        // Apps disagree about which button grabs, so both do. The trigger only
-        // counts where the handle hangs outside the picture, since inside it is
-        // a left click and the bottom corners of a desktop are worth clicking.
+        // Apps disagree about which button grabs, so both do. The trigger
+        // counts where the handle hangs outside the picture, where there is no
+        // click for it to have meant.
         int byGrip = ctx->gripEdge[hand];
         // (The keyboard's bar hangs clear of its keys, so there is no click
         // for the trigger to have meant.)
         // Native (lane wave2-lightgun-gyro): not with the lightgun policy, where a shot at the bar
         // is a shot and the grip alone takes hold of the screen
-        int byTrigger = ctx->triggerEdge[hand] && (offPicture || kbBar)
+        // Native (lane beam-streak, owner's request): and on the bar and the corners wherever they
+        // are hovered, the part of a corner's zone over the picture too, as the Steam Frame's own
+        // dashboard windows take either button: in pointer mode a controller's or a hand's trigger
+        // pressed on a handle takes hold of it and sends the PC nothing (cornerTakesTrigger). The
+        // corner's zone reaches under 2 cm into the picture now (CORNER_INSIDE, xr_layout.h), so
+        // the desktop's corners are still clicked. A press that started on the picture has no
+        // edge here and stays the PC's drag. Gamepad mode, the eyes and the stats window as before.
+        int onHandle = !statsGrab && hand < HAND_COUNT && !ctx->padMode
+                && (hover == HOVER_BAR || hover == HOVER_CORNER);
+        int byTrigger = ctx->triggerEdge[hand] && (offPicture || kbBar || onHandle)
                 && lightgunTriggerMayGrab(&ctx->lightgun);
         if (!byGrip && !byTrigger) {
             return;
@@ -1901,6 +1910,7 @@ static void gazeTrigger(XrCtx* ctx, const InputFrame* f) {
 static void releaseInput(XrCtx* ctx, float* out) {
     ctx->buttonsDown = 0;
     ctx->beamVisible = 0;
+    xrEyeCalCancel(ctx, "the pointer is not read");   // native (lane eye-calibration)
     // Native (lane wave4-headinput, PLAN 6.5): no dwell survives the pointer going unwatched
     dwellReset(&ctx->dwell);
     ctx->dwellFraction = -1.0f;
@@ -2245,6 +2255,9 @@ static void readGazeValid(XrCtx* ctx) {
                                       ctx->predictedDisplayTime, &loc));
     ctx->gazeFlags = ok ? (unsigned)loc.locationFlags : 0u;
     ctx->gazeValid = ok && gazeUsable(ctx->gazeFlags);
+    if (ctx->gazeValid) {
+        ctx->gazeRaw = loc.pose;   // native (lane eye-calibration): uncorrected, for the calibration's run
+    }
 }
 
 int xrGazeValid(const XrCtx* ctx) {
@@ -2376,6 +2389,12 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
         int found = space != XR_NULL_HANDLE
                 && XR_SUCCEEDED(locateSpace(ctx, space, ctx->localSpace,
                                             ctx->predictedDisplayTime, &loc));
+        // Native (lane eye-calibration): the eyes as the calibration in force corrects them, in the head's
+        // frame, before anything smooths or holds them; nothing with none in force
+        if (h == SRC_GAZE && found && space == ctx->aimSpaces[SRC_GAZE]
+                && ctx->eyeCal.model != EYECAL_MODEL_NONE && f->xform.ok) {
+            loc.pose.orientation = xrEyeCalCorrect(ctx, f->xform.head.orientation, loc.pose.orientation);
+        }
         int active = 0;
         if (h < HAND_COUNT) {
             active = found && actionPoseActive(ctx, handActions ? ctx->handAimAction
@@ -3917,6 +3936,88 @@ static void logInputSnapshot(XrCtx* ctx, InputFrame* f) {
     }
 }
 
+// Native (lane beam-streak): what set the beam, for the log line when it reaches the head
+enum {
+    BEAM_BY_NONE,
+    BEAM_BY_HANDLE,      // a held bar or corner (beamToHandle)
+    BEAM_BY_KBMOVE,      // the keyboard held by its bar
+    BEAM_BY_STATSMOVE,   // the stats window held
+    BEAM_BY_FURNITURE,   // the furniture, a panel or the keyboard under the ray (beamToFurniture)
+    BEAM_BY_SCREEN,      // the picture (sendPointer)
+    BEAM_BY_ROOM,        // the free beam into the room (beamIntoRoom)
+};
+
+static const char* beamByName(int by) {
+    switch (by) {
+        case BEAM_BY_HANDLE: return "the held handle";
+        case BEAM_BY_KBMOVE: return "the held keyboard";
+        case BEAM_BY_STATSMOVE: return "the held stats window";
+        case BEAM_BY_FURNITURE: return "the panel or furniture under the ray";
+        case BEAM_BY_SCREEN: return "the picture";
+        case BEAM_BY_ROOM: return "the free beam";
+        default: return "nothing this frame";
+    }
+}
+
+// The beam out of source h's aim this frame, and what set it
+static void beamFrom(XrCtx* ctx, const InputFrame* f, int h, int by) {
+    ctx->beamStart = f->aimPoses[h].position;
+    ctx->beamBy = by;
+    ctx->beamHand = h;
+    ctx->beamAim = f->aimPoses[h].position;
+    for (int k = 0; k < SRC_COUNT; k++) {
+        ctx->beamAimValid[k] = f->aimValid[k];
+    }
+}
+
+static const char* hoverKindName(int hover) {
+    static const char* const names[] = {
+        [HOVER_NONE] = "nothing", [HOVER_SCREEN] = "the picture", [HOVER_BAR] = "the bar",
+        [HOVER_CORNER] = "a corner", [HOVER_ENVBUTTON] = "the room button", [HOVER_PICKER] = "the room grid",
+        [HOVER_HALO] = "the halo", [HOVER_HINT] = "the hand hint", [HOVER_COGBUTTON] = "the cog",
+        [HOVER_COGPANEL] = "the settings", [HOVER_KBBUTTON] = "the keyboard button",
+        [HOVER_KBPANEL] = "the keyboard", [HOVER_EXITBUTTON] = "the exit button",
+        [HOVER_EXITPROMPT] = "the exit prompt", [HOVER_STEREOBUTTON] = "the 3D button",
+        [HOVER_REPORT] = "the report sheet", [HOVER_RAYBUTTON] = "the ray button",
+        [HOVER_AIMBUTTON] = "the head aim button", [HOVER_PADBUTTON] = "the pad button",
+        [HOVER_KOFI] = "the Ko-fi sheet", [HOVER_KBBAR] = "the keyboard's bar",
+        [HOVER_STATS] = "the stats window", [HOVER_HOSTBUTTON] = "the Host button",
+        [HOVER_HOST] = "the Host sheet", [HOVER_HEREBUTTON] = "Bring here",
+    };
+    if (hover < 0 || hover >= (int)(sizeof(names) / sizeof(names[0])) || names[hover] == NULL) {
+        return "something unnamed";
+    }
+    return names[hover];
+}
+
+// Native (lane beam-streak): the beam reached the head (it ran into or behind the eyes) and was cut
+// off in front of them by the layers (beamClipAhead), or not drawn. Says what set it and where every
+// source was, so the next time names its cause. At most a line a second, with the count between.
+void xrBeamClipSay(XrCtx* ctx, int clip, XrVector3f start, XrVector3f end) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->beamClipTrips++;
+    int64_t now = nowNs();
+    if (ctx->beamClipSaidNs != 0 && now - ctx->beamClipSaidNs < 1000000000LL) {
+        return;
+    }
+    ctx->beamClipSaidNs = now;
+    int h = ctx->beamHand;
+    LOGI("ray debug: the beam reached the head and was %s (%d times since the last line): hand %d on %s, "
+         "set by %s; start %.3f %.3f %.3f, end %.3f %.3f %.3f, the hand's aim %.3f %.3f %.3f, "
+         "head %.3f %.3f %.3f facing %.2f %.2f %.2f; left %s placed %d, right %s placed %d, eyes placed %d",
+         (clip & BEAM_CLIP_GONE) ? "hidden" : (clip & BEAM_CLIP_END) ? "cut short at the end"
+                                                                    : "cut short at the start",
+         ctx->beamClipTrips, h, hoverKindName(ctx->hoverKind), beamByName(ctx->beamBy),
+         start.x, start.y, start.z, end.x, end.y, end.z, ctx->beamAim.x, ctx->beamAim.y, ctx->beamAim.z,
+         ctx->headPos.x, ctx->headPos.y, ctx->headPos.z,
+         ctx->headForward.x, ctx->headForward.y, ctx->headForward.z,
+         aimSrcName(ctx->aimSrc[HAND_LEFT]), ctx->beamAimValid[HAND_LEFT],
+         aimSrcName(ctx->aimSrc[HAND_RIGHT]), ctx->beamAimValid[HAND_RIGHT], ctx->beamAimValid[SRC_GAZE]);
+    ctx->beamClipTrips = 0;
+}
+
 // Nothing goes to the host mid drag, and the ray ends on the handle
 // being held rather than wherever it is now pointing
 static void beamToHandle(XrCtx* ctx, InputFrame* f) {
@@ -3930,7 +4031,7 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
         local.z = 0.0f;
         if (ctx->grabMode == GRAB_STATSMOVE) {
             // The ray ends in the middle of the window it holds
-            ctx->beamStart = f->aimPoses[ctx->grabHand].position;
+            beamFrom(ctx, f, ctx->grabHand, BEAM_BY_STATSMOVE);
             ctx->beamEnd = ctx->statsPose.position;
             ctx->beamVisible = 1;
             return;
@@ -3941,7 +4042,7 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
             kbBarGeometry(ctx, &pillW, &pillH, &drop);
             Vec3 pill = { 0.0f, -drop, 0.0f };
             Vec3 at = quatRotate(ctx->kbPose.orientation, pill);
-            ctx->beamStart = f->aimPoses[ctx->grabHand].position;
+            beamFrom(ctx, f, ctx->grabHand, BEAM_BY_KBMOVE);
             ctx->beamEnd.x = ctx->kbPose.position.x + at.x;
             ctx->beamEnd.y = ctx->kbPose.position.y + at.y;
             ctx->beamEnd.z = ctx->kbPose.position.z + at.z;
@@ -3962,7 +4063,7 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
         }
         curveLocal(&local, f->radius, f->curved, NULL);
         Vec3 handle = quatRotate(f->screenPose.orientation, local);
-        ctx->beamStart = f->aimPoses[ctx->grabHand].position;
+        beamFrom(ctx, f, ctx->grabHand, BEAM_BY_HANDLE);
         ctx->beamEnd.x = f->screenPose.position.x + handle.x;
         ctx->beamEnd.y = f->screenPose.position.y + handle.y;
         ctx->beamEnd.z = f->screenPose.position.z + handle.z;
@@ -3974,7 +4075,7 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
 static void beamToFurniture(XrCtx* ctx, InputFrame* f) {
     Vec3 end = furniturePoint(ctx, f->hover, f->hitU[f->hand], f->hitV[f->hand],
                               f->screenPose, f->height, f->radius, f->curved, &f->bar);
-    ctx->beamStart = f->aimPoses[f->hand].position;
+    beamFrom(ctx, f, f->hand, BEAM_BY_FURNITURE);
     ctx->beamEnd.x = end.x;
     ctx->beamEnd.y = end.y;
     ctx->beamEnd.z = end.z;
@@ -4662,7 +4763,7 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
     // makes a laser readable rather than a light show
     Vec3 endPoint = screenPoint(u, v, f->screenPose, ctx->screenWidth, f->height, f->radius,
                                 f->curved);
-    ctx->beamStart = f->aimPoses[f->hand].position;
+    beamFrom(ctx, f, f->hand, BEAM_BY_SCREEN);
     ctx->beamEnd.x = endPoint.x;
     ctx->beamEnd.y = endPoint.y;
     ctx->beamEnd.z = endPoint.z;
@@ -4709,6 +4810,14 @@ static void recoilPulse(XrCtx* ctx, const InputFrame* f) {
 }
 
 // Works out which host buttons are down, and logs each trigger transition
+// Native (lane beam-streak, owner's request): whether the ray on this hover is on one of the
+// picture's handles the trigger takes hold of rather than clicks through: the bar or a corner, in
+// pointer mode, for a controller or a hand, without the lightgun policy (its trigger shoots)
+static int cornerTakesTrigger(XrCtx* ctx, int hover, int hand) {
+    return hover == HOVER_CORNER && hand >= 0 && hand < HAND_COUNT && !ctx->padMode
+            && lightgunTriggerMayGrab(&ctx->lightgun);
+}
+
 static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
     int mask = pointerButtonsWanted(ctx);
     // Native (lane wave4-headinput, PLAN 6.5): a dwell click on the picture is the left button
@@ -4721,6 +4830,12 @@ static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
                 | (ctx->assistButtons & ASSIST_BTN_RIGHT ? VR_BUTTON_RIGHT : 0);
     }
     int prevButtons = ctx->buttonsDown;
+    // Native (lane beam-streak, owner's request): a corner is a handle, so no button goes down on
+    // it (the trigger takes hold of it in applyGrab). One held from the picture stays held, and the
+    // cursor still follows the ray there.
+    if (hit && cornerTakesTrigger(ctx, f->hover, f->hand)) {
+        hit = 0;
+    }
     // A press only counts while aimed at the screen, but a release always
     // does, so walking the pointer off the edge mid drag still lets go
     ctx->buttonsDown = (ctx->buttonsDown & mask) | (hit ? mask : 0);
@@ -4830,7 +4945,7 @@ static void beamIntoRoom(XrCtx* ctx, InputFrame* f) {
         if (free >= 0) {
             Vec3 forward = { 0.0f, 0.0f, -1.0f };
             Vec3 d = quatRotate(f->aimPoses[free].orientation, forward);
-            ctx->beamStart = f->aimPoses[free].position;
+            beamFrom(ctx, f, free, BEAM_BY_ROOM);
             ctx->beamEnd.x = ctx->beamStart.x + d.x * FREE_BEAM_M;
             ctx->beamEnd.y = ctx->beamStart.y + d.y * FREE_BEAM_M;
             ctx->beamEnd.z = ctx->beamStart.z + d.z * FREE_BEAM_M;
@@ -5553,8 +5668,63 @@ static void beginPointerFrame(XrCtx* ctx, InputFrame* f, float* out, int headLoc
         ctx->headRight.x = r.x;
         ctx->headRight.y = r.y;
         ctx->headRight.z = r.z;
+        // Native (lane beam-streak): the way the eyes face, which the beam is cut off in front of
+        Vec3 ahead = { 0.0f, 0.0f, -1.0f };
+        Vec3 fw = quatRotate(f->headPose.orientation, ahead);
+        ctx->headForward.x = fw.x;
+        ctx->headForward.y = fw.y;
+        ctx->headForward.z = fw.z;
     }
     updateHeadTurn(ctx, f);
+}
+
+// Native (lane eye-calibration): a frame of the eye calibration's run, in the cog's place while it is
+// up. The pointer is on nothing and presses nothing; B or Menu cancels (the bindings are let go of as
+// the run starts and ends, so neither does its own job too); the gaze as the runtime gave it and the
+// dot as drawn, both in the head's frame of this frame, go to the run.
+static void updateEyeCal(XrCtx* ctx, InputFrame* f) {
+    f->hover = HOVER_COGPANEL;
+    f->hand = -1;
+    ctx->cogPointV = -1.0f;
+    uint64_t raw = bindControlsDown(ctx);
+    const uint64_t cancelBits = XR_BIND_BIT(XR_BIND_SRC_RIGHT_B) | XR_BIND_BIT(XR_BIND_SRC_RIGHT_MENU);
+    uint64_t down = raw & cancelBits;
+    if (!ctx->eyeCalBegun) {
+        ctx->eyeCalBegun = 1;
+        ctx->eyeCalButtons = down;
+        if (ctx->bindModeRan != 0) {
+            bindLetGo(ctx, raw, f->out);
+        }
+    }
+    uint64_t pressed = down & ~ctx->eyeCalButtons;
+    ctx->eyeCalButtons = down;
+    if (pressed != 0) {
+        xrEyeCalCancel(ctx, (pressed & XR_BIND_BIT(XR_BIND_SRC_RIGHT_B)) ? "B" : "Menu");
+    }
+    else {
+        int gazeOk = ctx->gazeValid == 1 && f->xform.ok;
+        float gy = 0.0f, gp = 0.0f, ty = 0.0f, tp = 0.0f;
+        Vec3 point;
+        float size;
+        if (gazeOk && xrEyeCalDotPoint(ctx, (Vec3){ f->headPose.position.x, f->headPose.position.y,
+                                                   f->headPose.position.z }, f->now, &point, &size)) {
+            XrQuaternionf head = f->xform.head.orientation;
+            Vec3 fwd = { 0.0f, 0.0f, -1.0f };
+            xrEyeCalHeadAngles(head, quatRotate(ctx->gazeRaw.orientation, fwd), &gy, &gp);
+            // the dot is in the frame the picture is in: the head's while it is head locked
+            if (f->xform.toHead) {
+                Vec3 off = quatRotate(head, point);
+                point = (Vec3){ f->xform.head.position.x + off.x, f->xform.head.position.y + off.y,
+                                f->xform.head.position.z + off.z };
+            }
+            Vec3 from = { ctx->gazeRaw.position.x, ctx->gazeRaw.position.y, ctx->gazeRaw.position.z };
+            xrEyeCalHeadAngles(head, vecSub(point, from), &ty, &tp);
+        }
+        xrEyeCalFrame(ctx, f->now, gazeOk, gy, gp, ty, tp, f->out);
+    }
+    if (!xrEyeCalUp(ctx) && ctx->bindModeRan != 0) {
+        bindLetGo(ctx, raw, f->out);
+    }
 }
 
 // The sources read, the pointer woken or retired and the pointing source
@@ -5627,7 +5797,8 @@ static int dwellPanelHover(XrCtx* ctx, const InputFrame* f) {
 
 static void updateDwell(XrCtx* ctx, InputFrame* f) {
     ctx->dwellUiEdge = 0;
-    if (!headPointing(ctx) || ctx->headDwellMs <= 0) {
+    // native (lane eye-calibration): no dwell while the eyes rest on the calibration's dots
+    if (!headPointing(ctx) || ctx->headDwellMs <= 0 || xrEyeCalUp(ctx)) {
         dwellReset(&ctx->dwell);
         ctx->dwellFraction = -1.0f;
         xrDwellMenuReset(ctx);   // native (lane radial-dwell)
@@ -5716,9 +5887,18 @@ void xrPointerPanelStep(XrCtx* ctx, int64_t now, int headLocked, float* out) {
     beginPointerFrame(ctx, &f, out, headLocked, now);
     pointerPass(ctx, &f);
     clearHotState(ctx);
-    if (ctx->cogOpen) {
-        updateCogPanel(ctx, &f);
+    if (xrEyeCalUp(ctx) && !ctx->cogOpen) {
+        xrEyeCalCancel(ctx, "the panel closed");   // native (lane eye-calibration)
     }
+    if (ctx->cogOpen) {
+        if (xrEyeCalUp(ctx)) {
+            updateEyeCal(ctx, &f);
+        }
+        else {
+            updateCogPanel(ctx, &f);
+        }
+    }
+    xrEyeCalSave(ctx, out);
     ctx->hoverKind = f.hover;
 }
 
@@ -5848,8 +6028,15 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     ctx->statsOver = f.hand >= 0 && f.hand < SRC_COUNT && f.onStats[f.hand];
     clearHotState(ctx);
     updateHintOpening(ctx, &f);
+    // Native (lane eye-calibration): a run lasts while the cog's panel it took the place of is open
+    if (xrEyeCalUp(ctx) && !ctx->cogOpen) {
+        xrEyeCalCancel(ctx, "the panel closed");
+    }
     if (ctx->pickerOpen) {
         updatePicker(ctx, &f);
+    }
+    else if (ctx->cogOpen && xrEyeCalUp(ctx)) {
+        updateEyeCal(ctx, &f);
     }
     else if (ctx->cogOpen) {
         updateCogPanel(ctx, &f);
@@ -5879,10 +6066,11 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     padPutPanelsAway(ctx, out);
     logInputSnapshot(ctx, &f);
     // Native (lane wave2-bind-wire): pointer mode's bindings, once the panels
-    // have taken their presses
-    if (!ctx->padMode) {
+    // have taken their presses. Native (lane eye-calibration): none while a calibration runs.
+    if (!ctx->padMode && !xrEyeCalUp(ctx)) {
         bindPointerStep(ctx, &f, out);
     }
+    xrEyeCalSave(ctx, out);
 
     // Where the handle is clear of the picture, so a trigger press there cannot
     // have been meant as a click
@@ -5917,6 +6105,8 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     ctx->screenOrientation = f.screenPose.orientation;
     ctx->beamVisible = 0;
     ctx->beamFree = 0;
+    ctx->beamBy = BEAM_BY_NONE;
+    ctx->beamHand = -1;
     // Eyes aim by looking, so a ray out of the face would be nonsense, and a
     // cursor riding on them shakes too much to be anything but a distraction.
     // Gaze draws nothing: the handle lighting up is the feedback.

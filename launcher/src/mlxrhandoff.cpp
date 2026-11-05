@@ -514,11 +514,11 @@ bool exportPairing(const NvComputer& c, QString* error)
         }
     }
     if (uuid.isEmpty()) {
-        *error = QObject::tr("This PC has no id yet (it has not answered once)");
+        *error = QObject::tr("This PC has no ID: It has not answered");
         return false;
     }
     if (srvPem.isEmpty()) {
-        *error = QObject::tr("%1 is not paired: pair it in Moonlight first").arg(name);
+        *error = QObject::tr("%1 is not paired: Pair it first").arg(name);
         return false;
     }
     if (!srvPem.endsWith('\n')) srvPem += '\n';

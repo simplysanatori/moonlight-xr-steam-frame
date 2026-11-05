@@ -558,10 +558,10 @@ static void testNoSink(void) {
 }
 
 static void testNoticeText(void) {
-    CHECK(strstr(padMouseNoticeText(1, PAD_MOUSE_CHORD_START_HOLD), "hold Start to give") != NULL);
+    CHECK(strstr(padMouseNoticeText(1, PAD_MOUSE_CHORD_START_HOLD), "Hold Start to stop") != NULL);
     CHECK(strstr(padMouseNoticeText(1, PAD_MOUSE_CHORD_START_BACK), "Start and Back") != NULL);
     CHECK(strstr(padMouseNoticeText(1, PAD_MOUSE_CHORD_OFF), "mouse") != NULL);
-    CHECK(strstr(padMouseNoticeText(0, PAD_MOUSE_CHORD_START_HOLD), "gamepad again") != NULL);
+    CHECK(strstr(padMouseNoticeText(0, PAD_MOUSE_CHORD_START_HOLD), "mouse off") != NULL);
     // Plain ASCII, one short line (the toast's font)
     const int chords[] = { PAD_MOUSE_CHORD_START_HOLD, PAD_MOUSE_CHORD_START_BACK, PAD_MOUSE_CHORD_OFF };
     for (int c = 0; c < 3; c++)

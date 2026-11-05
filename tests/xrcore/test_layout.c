@@ -28,7 +28,21 @@ static void testCornersFollowTheirArt(void) {
     // The corner itself, where the bracket's inner tip touches, is inside the
     // zone and so is the picture a little in from it
     CHECK(hoverTest(0.0f, 0.0f, W, H, side, &corner) == HOVER_CORNER && corner == 0);
-    CHECK(hoverTest(0.01f, 0.01f, W, H, side, &corner) == HOVER_CORNER);
+    CHECK(hoverTest(0.004f, 0.004f, W, H, side, &corner) == HOVER_CORNER);
+    // Native (lane beam-streak): but only a little, now the trigger takes hold of a corner: under
+    // 2 cm and 16 px of a 2560 x 1440 desktop, where it was a quarter bracket (5.6 cm, 48 px, the
+    // Start button)
+    float inM = side * CORNER_INSIDE;
+    printf("a corner's zone over the picture: %.1f cm, %.0f x %.0f px of 2560 x 1440\n", inM * 100.0f,
+           inM / W * 2560.0f, inM / H * 1440.0f);
+    CHECK(inM < 0.02f && inM / W * 2560.0f < 16.0f && inM / H * 1440.0f < 16.0f);
+    CHECK(hoverTest(inM / W * 0.9f, inM / H * 0.9f, W, H, side, &corner) == HOVER_CORNER && corner == 0);
+    CHECK(hoverTest(inM / W * 1.1f, 0.0f, W, H, side, &corner) == HOVER_SCREEN);
+    CHECK(hoverTest(0.0f, inM / H * 1.1f, W, H, side, &corner) == HOVER_SCREEN);
+    CHECK(hoverTest(1.0f - inM / W * 0.9f, 1.0f - inM / H * 0.9f, W, H, side, &corner) == HOVER_CORNER
+          && corner == 3);
+    CHECK(hoverTest(1.0f - inM / W * 1.1f, 1.0f, W, H, side, &corner) == HOVER_SCREEN);
+    CHECK(hoverTest(0.01f, 0.01f, W, H, side, &corner) == HOVER_SCREEN);
 
     // The zone reaches CORNER_HOVER halves of a bracket each way from its
     // centre and no further

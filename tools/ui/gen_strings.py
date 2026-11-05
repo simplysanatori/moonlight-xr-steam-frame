@@ -293,6 +293,18 @@ MAP = [
     # native (lane a11y-final): Eyes marked experimental, the right hand's way back to the controllers
     ("native_cell_eyes_experimental", NATIVE),
     ("native_toast_pointer_back", NATIVE),
+    # native (lane eye-calibration): the Eye calibration row and its run
+    ("native_row_eye_cal", NATIVE),
+    ("native_cell_eye_cal_start", NATIVE),
+    ("native_eye_cal_none", NATIVE),
+    ("native_eye_cal_done", NATIVE),
+    ("native_eye_cal_fail_few", NATIVE),
+    ("native_eye_cal_fail_gain", NATIVE),
+    ("native_eye_cal_fail_extreme", NATIVE),
+    ("native_access_desc_eye_cal", NATIVE),
+    ("native_eye_cal_look", NATIVE),
+    ("native_eye_cal_progress", NATIVE),
+    ("native_eye_cal_cancel", NATIVE),
 ]
 
 # Keys of lanes not merged into main yet, all written for this port: listed so that their merges

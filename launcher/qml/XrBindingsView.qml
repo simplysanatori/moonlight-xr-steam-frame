@@ -651,7 +651,7 @@ Flickable {
             delegate: BindRow {
                 expr: modelData
                 title: bindPage.controlLabel(modelData)
-                reason: qsTr("the headset does not read the touch sensors yet")
+                reason: qsTr("the headset does not read the touch sensors")
             }
         }
     }
@@ -693,7 +693,7 @@ Flickable {
                     width: parent.width
                     text: MlxrBindings.fileError !== ""
                           ? qsTr("bindings.ini cannot be used: %1").arg(MlxrBindings.fileError)
-                          : qsTr("%n problem(s) in bindings.ini. These lines are left out until you fix them in the file; the rest of the file works.",
+                          : qsTr("%n problem(s) in bindings.ini. Those lines are skipped until fixed; the rest of the file works.",
                                  "", MlxrBindings.errorCount)
                     font.pointSize: 11
                     font.bold: true
@@ -1020,7 +1020,7 @@ Flickable {
             Layout.topMargin: 24
             Layout.bottomMargin: 20
             font.pointSize: 9
-            text: qsTr("The file is read by the same code the headset uses, so a line it refuses here is refused there. Edit it by hand any time; this page reads it again each time it opens.")
+            text: qsTr("The headset reads the file the same way. You can edit it by hand; this page reloads it each time it opens.")
         }
     }
 }

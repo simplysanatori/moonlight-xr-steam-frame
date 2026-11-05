@@ -71,6 +71,11 @@ int accessButtonGreyed(int state);
 // The row of the tab a point at v (0 top, 1 bottom of the panel) is on, live or greyed, label or
 // cells, or -1 between and past them: the row the footer describes
 int accessRowAt(float v);
+// Native (lane eye-calibration): the Eye calibration row acts only while eye gaze reaches the app
+// (ACCESS_EYES_READY; otherwise it shows the eye tracking line's text), its Start whenever the row
+// does, its Reset only with a calibration stored
+int accessEyeCalLive(int eyesState);
+int accessEyeCalCellLive(int eyesState, int cell, int stored);
 
 // ---- the eyes pointer's fallback --------------------------------------------------------------------
 // With the pointer on Eyes, the dot follows the gaze while it is tracked. Lost for longer than

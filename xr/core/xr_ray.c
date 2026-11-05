@@ -2,6 +2,7 @@
 #include "xr_ray.h"
 #include "xr_gate.h"
 
+#include <math.h>
 #include <string.h>
 
 int aimFallbackFor(int kind, int located, int jointsValid) {
@@ -166,4 +167,40 @@ Vec3 beamBasis(Vec3 start, Vec3 end, Vec3 head, Vec3 headRight) {
         z = vecCross(axis, y);
     }
     return vecNorm(vecCross(y, z));
+}
+
+static int vecFinite(Vec3 v) {
+    return isfinite(v.x) && isfinite(v.y) && isfinite(v.z);
+}
+
+int beamClipAhead(Vec3 start, Vec3 end, Vec3 head, Vec3 forward, float ahead, Vec3* outStart,
+                  Vec3* outEnd) {
+    *outStart = start;
+    *outEnd = end;
+    if (!vecFinite(start) || !vecFinite(end)) {
+        return BEAM_CLIP_GONE;
+    }
+    float reach = vecLen(forward);
+    if (!vecFinite(head) || !vecFinite(forward) || reach < 0.5f) {
+        return BEAM_CLIP_NONE;
+    }
+    Vec3 fwd = vecScaled(forward, 1.0f / reach);
+    // How far each end is past the plane ahead metres in front of the head
+    float s = vecDot(vecSub(start, head), fwd) - ahead;
+    float e = vecDot(vecSub(end, head), fwd) - ahead;
+    if (s >= 0.0f && e >= 0.0f) {
+        return BEAM_CLIP_NONE;
+    }
+    if (s < 0.0f && e < 0.0f) {
+        return BEAM_CLIP_GONE;
+    }
+    // One end on each side: that end goes up to the plane
+    float t = s / (s - e);
+    Vec3 cut = vecAdd(start, vecScaled(vecSub(end, start), t));
+    if (s < 0.0f) {
+        *outStart = cut;
+        return BEAM_CLIP_START;
+    }
+    *outEnd = cut;
+    return BEAM_CLIP_END;
 }

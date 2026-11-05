@@ -89,8 +89,13 @@ typedef struct {
     XrCompositionLayerQuad dwellMark;
     XrCompositionLayerQuad dot;
     XrCompositionLayerQuad toast;
+    // Native (lane beam-streak): the controller models' place while they are not drawn
+    XrCompositionLayerQuad modelsHeld;
     const XrCompositionLayerBaseHeader* order[FRAME_MAX_LAYERS];
     uint32_t count;
+    // Native (lane beam-streak): the layers in order[] that only hold a place (holdPlace)
+    const void* held[FRAME_MAX_LAYERS];
+    uint32_t heldCount;
 } FrameLayers;
 
 // Upstream kept these on nativeEndFrame's stack for as long as xrEndFrame
@@ -122,6 +127,9 @@ typedef struct {
     int headLocked;
     int eyeSwap;
     int barArea;
+    // Native (lane beam-streak): the bar's row could come up under the ray this frame (barArea
+    // without the hover), so its layers hold their places while it is not up
+    int barSlots;
     BarFrame bar;
 } FrameView;
 
@@ -147,6 +155,7 @@ static void pushLayer(XrCtx* ctx, FrameLayers* layers, const void* layer) {
     }
     layers->order[layers->count++] = (const XrCompositionLayerBaseHeader*)layer;
 }
+
 
 // A quad in the given space showing a texW x texH rect of one swapchain
 // image, from texX, texY
@@ -187,6 +196,32 @@ static XrPosef poseOffset(XrPosef base, Vec3 local) {
     pose.position.y = base.position.y + offset.y;
     pose.position.z = base.position.z + offset.z;
     return pose;
+}
+
+// Native (lane beam-streak): a layer that comes and goes with the hover keeps its place in the list
+// while it is not shown, as a clear patch from the middle of the ring's art, a millimetre across and
+// a centimetre behind near. Every layer that came and went ahead of the beam moved the beam and the
+// dot a place up or down the list, and on such a frame SteamVR now and then drew the beam as a white
+// streak across the view (docs/dev/ray-debug.md). Nothing is held before the ring's art is drawn.
+static void holdPlace(XrCtx* ctx, FrameLayers* layers, XrCompositionLayerQuad* quad, XrSpace space,
+                      XrPosef near) {
+    if (!ctx->outlineReady) {
+        return;
+    }
+    UiRectPx o = xrAtlasRect(ATLAS_OUTLINE);
+    Vec3 behind = { 0.0f, 0.0f, -0.01f };
+    Vec3 offset = quatRotate(near.orientation, behind);
+    XrPosef pose = near;
+    pose.position.x += offset.x;
+    pose.position.y += offset.y;
+    pose.position.z += offset.z;
+    quadLayerRect(quad, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, xrAtlasSwapchain(ctx),
+                  o.x + o.w / 2 - 2, o.y + o.h / 2 - 2, 4, 4, space, pose, 0.001f, 0.001f);
+    uint32_t before = layers->count;
+    pushLayer(ctx, layers, quad);
+    if (layers->count > before && layers->heldCount < FRAME_MAX_LAYERS) {
+        layers->held[layers->heldCount++] = quad;
+    }
 }
 
 // Compositor sharpening and supersampling. SteamVR offers neither layer
@@ -365,10 +400,15 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
 // before it: a controller is nearer than the picture and the panels, so it is
 // drawn over them wherever the two cross. World locked, with the poses its
 // image was drawn from.
-static void addModelLayer(XrCtx* ctx, FrameLayers* layers) {
+static void addModelLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // Native: not while they are drawn into the picture's or the room's layer
-    if (!ctx->modelsShowing || !ctx->modelRendered || ctx->passthrough || ctx->modelSwapchain[0] == XR_NULL_HANDLE
+    if (ctx->passthrough || ctx->modelSwapchain[0] == XR_NULL_HANDLE
             || ctx->modelSwapchain[1] == XR_NULL_HANDLE || ctx->modelsInPicture || ctx->modelsInRoom) {
+        return;
+    }
+    if (!ctx->modelsShowing || !ctx->modelRendered) {
+        // Native (lane beam-streak): a controller put down or picked up moves no layer behind it
+        holdPlace(ctx, layers, &layers->modelsHeld, view->space, view->screenPose);
         return;
     }
     XrCompositionLayerProjection* models = &layers->models;
@@ -516,6 +556,10 @@ static void addHandleLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layer
         layers->handle.pose.orientation = quatNorm(quatMul(view->screenPose.orientation, turnQ));
         pushLayer(ctx, layers, &layers->handle);
     }
+    else if (ctx->handleArtReady) {
+        // Native (lane beam-streak): off the bar and the corners its place is held
+        holdPlace(ctx, layers, &layers->handle, view->space, view->screenPose);
+    }
 }
 
 // Where the bar's row hangs, said when it moves by a centimetre or more
@@ -571,6 +615,19 @@ static void addBarButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
     pushLayer(ctx, layers, quad);
 }
 
+// Native (lane beam-streak): a bar button when it is shown, else its place held while the bar's row
+// could come up under the ray (barSlots)
+static void barButtonOrPlace(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
+                             XrCompositionLayerQuad* quad, int shown, int cell, int slot, int hot,
+                             const void* next) {
+    if (shown) {
+        addBarButton(ctx, view, layers, quad, cell, slot, hot, next);
+    }
+    else if (view->barSlots) {
+        holdPlace(ctx, layers, quad, view->space, view->bar.pose);
+    }
+}
+
 static int panelButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers, int panel,
                        int open, const void** next) {
     float level = ctx->panelFades[panel].level;
@@ -588,61 +645,61 @@ static int panelButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers, i
 // The environment, settings, keyboard and exit buttons beside the move bar,
 // and the switches further out
 static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    // Native (lane beam-streak): each button that is ready keeps its place in the list while the
+    // bar's row is down (barButtonOrPlace), so the ray going onto the bar and off it moves no layer
     const void* next = NULL;
-    if (ctx->envButtonReady
-            && panelButton(ctx, view, layers, FADE_PICKER, ctx->pickerOpen, &next)) {
-        addBarButton(ctx, view, layers, &layers->envButton, BTN_CELL_ENV,
-                     BAR_SLOT_ENV, ctx->envButtonHot, next);
+    if (ctx->envButtonReady) {
+        int shown = panelButton(ctx, view, layers, FADE_PICKER, ctx->pickerOpen, &next);
+        barButtonOrPlace(ctx, view, layers, &layers->envButton, shown, BTN_CELL_ENV, BAR_SLOT_ENV,
+                         ctx->envButtonHot, next);
     }
     int kofi = ctx->kofiOpen || ctx->panelFades[FADE_KOFI].level > 0.0f;
-    if (ctx->cogButtonReady
-            && panelButton(ctx, view, layers, kofi ? FADE_KOFI : FADE_COG,
-                           ctx->cogOpen || ctx->kofiOpen, &next)) {
-        addBarButton(ctx, view, layers, &layers->cogButton, BTN_CELL_COG,
-                     BAR_SLOT_COG, ctx->cogButtonHot || ctx->cogOpen || ctx->kofiOpen, next);
+    if (ctx->cogButtonReady) {
+        int shown = panelButton(ctx, view, layers, kofi ? FADE_KOFI : FADE_COG,
+                                ctx->cogOpen || ctx->kofiOpen, &next);
+        barButtonOrPlace(ctx, view, layers, &layers->cogButton, shown, BTN_CELL_COG, BAR_SLOT_COG,
+                         ctx->cogButtonHot || ctx->cogOpen || ctx->kofiOpen, next);
     }
-    if (ctx->kbButtonReady && view->barArea) {
-        addBarButton(ctx, view, layers, &layers->kbButton, BTN_CELL_KB,
-                     BAR_SLOT_KB, ctx->kbButtonHot, NULL);
+    if (ctx->kbButtonReady) {
+        barButtonOrPlace(ctx, view, layers, &layers->kbButton, view->barArea, BTN_CELL_KB, BAR_SLOT_KB,
+                         ctx->kbButtonHot, NULL);
     }
-    if (ctx->exitButtonReady
-            && panelButton(ctx, view, layers, FADE_EXIT, ctx->exitConfirmOpen, &next)) {
-        addBarButton(ctx, view, layers, &layers->exitButton, BTN_CELL_EXIT,
-                     BAR_SLOT_EXIT, ctx->exitButtonHot || ctx->exitConfirmOpen, next);
+    if (ctx->exitButtonReady) {
+        int shown = panelButton(ctx, view, layers, FADE_EXIT, ctx->exitConfirmOpen, &next);
+        barButtonOrPlace(ctx, view, layers, &layers->exitButton, shown, BTN_CELL_EXIT, BAR_SLOT_EXIT,
+                         ctx->exitButtonHot || ctx->exitConfirmOpen, next);
     }
-    if (ctx->padButtonReady && view->barArea) {
-        addBarButton(ctx, view, layers, &layers->padButton,
-                     BTN_CELL_PAD + (ctx->padMode ? 1 : 0),
-                     BAR_SLOT_PAD, ctx->padButtonHot, NULL);
+    if (ctx->padButtonReady) {
+        barButtonOrPlace(ctx, view, layers, &layers->padButton, view->barArea,
+                         BTN_CELL_PAD + (ctx->padMode ? 1 : 0), BAR_SLOT_PAD, ctx->padButtonHot, NULL);
     }
-    if (ctx->aimButtonReady && view->barArea && headAimCanAct(ctx)) {
-        addBarButton(ctx, view, layers, &layers->aimButton,
-                     BTN_CELL_AIM + (headAimSwitchOn(ctx->headAimSetting,
-                                                     ctx->headAimFlipped) ? 1 : 0),
-                     BAR_SLOT_AIM, ctx->aimButtonHot, NULL);
+    if (ctx->aimButtonReady && headAimCanAct(ctx)) {
+        barButtonOrPlace(ctx, view, layers, &layers->aimButton, view->barArea,
+                         BTN_CELL_AIM + (headAimSwitchOn(ctx->headAimSetting, ctx->headAimFlipped) ? 1 : 0),
+                         BAR_SLOT_AIM, ctx->aimButtonHot, NULL);
     }
-    if (ctx->rayButtonReady && view->barArea) {
-        addBarButton(ctx, view, layers, &layers->rayButton,
-                     BTN_CELL_RAY + (raySwitchOn(ctx->raySetting, ctx->rayFlipped) ? 1 : 0),
-                     BAR_SLOT_RAY, ctx->rayButtonHot, NULL);
+    if (ctx->rayButtonReady) {
+        barButtonOrPlace(ctx, view, layers, &layers->rayButton, view->barArea,
+                         BTN_CELL_RAY + (raySwitchOn(ctx->raySetting, ctx->rayFlipped) ? 1 : 0),
+                         BAR_SLOT_RAY, ctx->rayButtonHot, NULL);
     }
-    if (ctx->stereoButtonReady && view->barArea) {
-        addBarButton(ctx, view, layers, &layers->stereoButton,
-                     barStereoCell(ctx->stereoSource, ctx->stereoLive),
-                     BAR_SLOT_STEREO, ctx->stereoButtonHot, NULL);
+    if (ctx->stereoButtonReady) {
+        barButtonOrPlace(ctx, view, layers, &layers->stereoButton, view->barArea,
+                         barStereoCell(ctx->stereoSource, ctx->stereoLive), BAR_SLOT_STEREO,
+                         ctx->stereoButtonHot, NULL);
     }
     // Native (lane wave2-bind-wire): the Host sheet's, from the same strip
     // the keyboard's face comes from
-    if (ctx->kbButtonReady
-            && panelButton(ctx, view, layers, FADE_HOST, ctx->hostOpen, &next)) {
-        addBarButton(ctx, view, layers, &layers->hostButton, BTN_CELL_HOST,
-                     BAR_SLOT_HOST, ctx->hostButtonHot || ctx->hostOpen, next);
+    if (ctx->kbButtonReady) {
+        int shown = panelButton(ctx, view, layers, FADE_HOST, ctx->hostOpen, &next);
+        barButtonOrPlace(ctx, view, layers, &layers->hostButton, shown, BTN_CELL_HOST, BAR_SLOT_HOST,
+                         ctx->hostButtonHot || ctx->hostOpen, next);
     }
     // Native (lane bar-glare): Bring here, in head aim's place, only while it
     // can act. Lit by the ray being on it; it has no state to show.
-    if (ctx->kbButtonReady && view->barArea && xrBringHereCanAct(ctx)) {
-        addBarButton(ctx, view, layers, &layers->hereButton, BTN_CELL_HERE, BAR_SLOT_HERE,
-                     ctx->hoverKind == HOVER_HEREBUTTON, NULL);
+    if (ctx->kbButtonReady && xrBringHereCanAct(ctx)) {
+        barButtonOrPlace(ctx, view, layers, &layers->hereButton, view->barArea, BTN_CELL_HERE,
+                         BAR_SLOT_HERE, ctx->hoverKind == HOVER_HEREBUTTON, NULL);
     }
 }
 
@@ -689,7 +746,12 @@ static void addHandHintLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
     pushLayer(ctx, layers, &layers->hint);
 
     int zone = ctx->hintHoverZone;
-    if (!ctx->hintOpen || zone == HINT_ZONE_NONE || !ctx->outlineReady) {
+    if (!ctx->hintOpen || !ctx->outlineReady) {
+        return;
+    }
+    if (zone == HINT_ZONE_NONE) {
+        // Native (lane beam-streak): the ring's place held off its buttons
+        holdPlace(ctx, layers, &layers->cogMark[COG_OPTION_COUNT], view->space, ctx->hintPose);
         return;
     }
     float l = zone == HINT_ZONE_OK ? HINT_OK_L : HINT_NEVER_L;
@@ -707,7 +769,12 @@ static void addKofiLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers
               view->space, ctx->kofiPose, ctx->kofiW, ctx->kofiH);
     pushLayer(ctx, layers, &layers->kofi);
     int zone = ctx->kofiHoverZone;
-    if (!ctx->kofiOpen || (zone != KOFI_ZONE_CLOSE && zone != KOFI_ZONE_OPEN) || !ctx->outlineReady) {
+    if (!ctx->kofiOpen || !ctx->outlineReady) {
+        return;
+    }
+    if (zone != KOFI_ZONE_CLOSE && zone != KOFI_ZONE_OPEN) {
+        // Native (lane beam-streak): the ring's place held off its buttons
+        holdPlace(ctx, layers, &layers->cogMark[COG_OPTION_COUNT], view->space, ctx->kofiPose);
         return;
     }
     int open = zone == KOFI_ZONE_OPEN;
@@ -780,6 +847,8 @@ static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* laye
             for (int m = 0; m < 2; m++) {
                 int cell = marks[m];
                 if (cell < 0 || cell >= ctx->pickerCells) {
+                    // Native (lane beam-streak): the ring's place held off the cells
+                    holdPlace(ctx, layers, &layers->outline[m], view->space, pickPose);
                     continue;
                 }
                 int col = cell % PICKER_COLS;
@@ -799,10 +868,48 @@ static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* laye
     }
 }
 
+// Native (lane eye-calibration): while a calibration runs, the panel's two layers are its label (the
+// panel's art, drawn as the run's face, over the middle of the picture at the panel's size or less) and
+// the dot, in that order, so the frame keeps its count and the beam its place in the list as the run
+// comes and goes (lane beam-streak's rule, tests/m4/test_kbbar.c). Until the panel's art has turned
+// into the label, and back into the tab after the run, that layer only holds its place.
+static void addEyeCalLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers, int up) {
+    XrPosef pic = view->screenPose;
+    if (up && ctx->cogDrawnCal > 0) {
+        float w = ctx->cogW < 0.36f * ctx->screenWidth ? ctx->cogW : 0.36f * ctx->screenWidth;
+        Vec3 ahead = { 0.0f, 0.0f, 0.01f };
+        atlasQuad(ctx, &layers->cogPanel, NULL, UI_PANEL_COG, view->space, poseOffset(pic, ahead), w,
+                  w * (float)COG_TEX_H / (float)COG_TEX_W);
+        pushLayer(ctx, layers, &layers->cogPanel);
+    }
+    else {
+        holdPlace(ctx, layers, &layers->cogPanel, view->space, up ? pic : ctx->cogPose);
+    }
+    if (!ctx->cogClockReady) {
+        return;
+    }
+    Vec3 head = { ctx->headPos.x, ctx->headPos.y, ctx->headPos.z };
+    Vec3 at;
+    float side;
+    if (up && ctx->pointerArtReady && xrEyeCalDotPoint(ctx, head, nowNs(), &at, &side)) {
+        XrPosef pose = { pic.orientation, { at.x, at.y, at.z } };
+        atlasQuad(ctx, &layers->cogClock, NULL, ATLAS_DOT, view->space, pose, side, side);
+        pushLayer(ctx, layers, &layers->cogClock);
+    }
+    else {
+        holdPlace(ctx, layers, &layers->cogClock, view->space, up ? pic : ctx->cogPose);
+    }
+}
+
 // The settings panel at the pose it was opened with, and the clock strip
 // over its top edge. Its rings, thumbs and readouts are in the panel's art.
 static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     float level = ctx->panelFades[FADE_COG].level;
+    int calUp = xrEyeCalUp(ctx);
+    if (level > 0.0f && (calUp || ctx->cogDrawnCal > 0)) {
+        addEyeCalLayers(ctx, view, layers, calUp);
+        return;
+    }
     if (level > 0.0f) {
         atlasQuad(ctx, &layers->cogPanel, fadeNext(ctx, layers, FADE_COG, 1, level),
                   UI_PANEL_COG, view->space, ctx->cogPose, ctx->cogW, ctx->cogH);
@@ -851,6 +958,12 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
             addRing(ctx, layers, &layers->kbMark, view->space, ctx->kbPose, ctx->kbW, ctx->kbH,
                     r[0], r[1], r[2], r[3], grow, grow);
         }
+        else {
+            // Native (lane beam-streak): off the keys the ring's place is held (holdPlace). The ring
+            // came and went as the ray crossed the gaps between keys, and the one frame of a white
+            // streak across the view in the owner's recording of 2026-10-31 is the frame it went.
+            holdPlace(ctx, layers, &layers->kbMark, view->space, ctx->kbPose);
+        }
     }
 }
 
@@ -870,6 +983,23 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
     int beamKind = rayBeamKind(ctx->raySetting, ctx->rayFlipped, panelUp(ctx), ctx->dotOn, view->barArea);
     int beamSlot = beamKind == RAY_BEAM_RESTING ? ATLAS_BEAM_FAINT : ATLAS_BEAM;
     Vec3 head = { ctx->headPos.x, ctx->headPos.y, ctx->headPos.z };
+
+    // Native (lane eye-calibration): nothing of the pointer is drawn while a calibration runs, but its
+    // places are held as they stand with the pointer on the panel: the dwell's mark with the head or
+    // the eyes pointing, the beam with a controller, and the dot
+    if (xrEyeCalUp(ctx)) {
+        int hands = ctx->pointerSource == POINTER_SOURCE_CONTROLLER || ctx->padMode;
+        if (!hands) {
+            holdPlace(ctx, layers, &layers->dwellMark, view->space, view->screenPose);
+        }
+        if (ctx->pointerArtReady) {
+            if (hands) {
+                holdPlace(ctx, layers, &layers->beam, view->space, view->screenPose);
+            }
+            holdPlace(ctx, layers, &layers->dot, view->space, view->screenPose);
+        }
+        return;
+    }
 
     // Native (lane radial-dwell): the dwell's circle round the dot, and at the dwell's start its
     // radial menu (or a held drag's mark), under the dot. The menu is drawn whether or not the dot is
@@ -893,11 +1023,27 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
                           side, side);
             pushLayer(ctx, layers, &layers->dwellMark);
         }
+        else {
+            holdPlace(ctx, layers, &layers->dwellMark, view->space, view->screenPose);
+        }
+    }
+    else if (ctx->pointerSource != POINTER_SOURCE_CONTROLLER && !ctx->padMode) {
+        // Native (lane beam-streak): with the head or the eyes pointing, the dwell's mark comes and
+        // goes with each dwell, so its place is held for the dot behind it
+        holdPlace(ctx, layers, &layers->dwellMark, view->space, view->screenPose);
     }
 
     if (ctx->beamVisible && !ctx->beamGaze && ctx->pointerArtReady) {
         Vec3 start = { ctx->beamStart.x, ctx->beamStart.y, ctx->beamStart.z };
         Vec3 end = { ctx->beamEnd.x, ctx->beamEnd.y, ctx->beamEnd.z };
+        // Native (lane beam-streak): never a beam into or behind the eyes, which the compositor draws
+        // as a white streak across the whole view: only the part more than BEAM_CLIP_AHEAD_M in front
+        // of the head, and no dot where the end itself was cut
+        Vec3 forward = { ctx->headForward.x, ctx->headForward.y, ctx->headForward.z };
+        int clip = beamClipAhead(start, end, head, forward, BEAM_CLIP_AHEAD_M, &start, &end);
+        if (clip != BEAM_CLIP_NONE) {
+            xrBeamClipSay(ctx, clip, ctx->beamStart, ctx->beamEnd);
+        }
         Vec3 along = vecSub(end, start);
         float length = sqrtf(along.x * along.x + along.y * along.y + along.z * along.z);
 
@@ -910,7 +1056,7 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
         Vec3 headRight = { ctx->headRight.x, ctx->headRight.y, ctx->headRight.z };
         Vec3 beamX = beamBasis(start, end, head, headRight);
 
-        if (length > 0.10f && beamKind != RAY_BEAM_NONE) {
+        if (length > 0.10f && beamKind != RAY_BEAM_NONE && !(clip & BEAM_CLIP_GONE)) {
             Vec3 beamZ = vecCross(beamX, beamY);
             XrPosef beamPose = { quatFromBasis(beamX, beamY, beamZ),
                                  { mid.x, mid.y, mid.z } };
@@ -918,14 +1064,21 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
                       length);
             pushLayer(ctx, layers, &layers->beam);
         }
+        else if (ctx->pointerSource == POINTER_SOURCE_CONTROLLER || ctx->padMode) {
+            // Native (lane beam-streak): a beam too short to draw, or cut away, keeps its place for the
+            // dot. Not with the head or the eyes pointing, which never draw one (the dwell's mark has
+            // that place).
+            holdPlace(ctx, layers, &layers->beam, view->space, view->screenPose);
+        }
 
         // Native: the dot is the owner's to hide (the host draws its own
         // cursor into the picture); a panel up keeps it, being ours
         // Native (lane wave4-headinput, PLAN 6.5): a charging dwell click shows whatever the
         // Ray row says. Native (lane radial-dwell): as a circle in the dot's colour that sweeps round
         // and closes in on the dot (xr_dwellmenu.c), the dot drawn into each of its pictures
-        if (!ctx->beamFree && (ctx->dotOn || panelUp(ctx) || ctx->launcher != LAUNCHER_NONE
-                               || (dwellArt && art.dot.w > 0))) {
+        if (!ctx->beamFree && !(clip & (BEAM_CLIP_END | BEAM_CLIP_GONE))
+                && (ctx->dotOn || panelUp(ctx) || ctx->launcher != LAUNCHER_NONE
+                    || (dwellArt && art.dot.w > 0))) {
             Vec3 toHead2 = vecSub(head, end);
             float away = sqrtf(vecDot(toHead2, toHead2));
             // native (lane a11y-2): the head and eye pointer's dot, and its ring, at the Dot size
@@ -1049,6 +1202,12 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
     logBarPlacement(ctx, &view.bar);
     int64_t frameNs = nowNs();
     stepPanelFades(ctx, frameNs);
+    // Native (lane beam-streak): barArea without the hover, so the row's layers hold their places
+    // while it is down. Not with a card up: a card only takes the room the rest leave (cardLayerRoom)
+    // and the held places would leave it none.
+    view.barSlots = !ctx->pickerOpen && !ctx->cogOpen && !ctx->kbOpen
+            && !ctx->exitConfirmOpen && !ctx->reportOpen && !ctx->hintOpen && !ctx->kofiOpen
+            && !ctx->hostOpen && !ctx->panelFadingOut && !ctx->firstRunUp && !ctx->padCardUp;
     view.barArea = !ctx->pickerOpen && !ctx->cogOpen && !ctx->kbOpen
             && !ctx->exitConfirmOpen && !ctx->reportOpen && !ctx->hintOpen && !ctx->kofiOpen
             && !ctx->hostOpen && !ctx->panelFadingOut
@@ -1078,6 +1237,7 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
 
     FrameLayers* layers = &frameLayers;
     layers->count = 0;
+    layers->heldCount = 0;
     setLayerSettings(ctx, layers);
     float backdrop[4];
     if (xrBackdropColor(ctx, blendNow, backdrop)) {
@@ -1107,7 +1267,7 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
         addKeyboardLayers(ctx, &view, layers);
         addFirstRunLayer(ctx, &view, layers);
         addPadCardLayer(ctx, layers);
-        addModelLayer(ctx, layers);
+        addModelLayer(ctx, &view, layers);
         addPointerLayers(ctx, &view, layers);
     }
     addToastLayer(ctx, layers, frameNs);
@@ -1116,6 +1276,12 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
     // controller models, the hover ring, the cog button, the clock strip)
     if (layers->count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(layers, &layers->toast);
+    }
+    // Native (lane beam-streak): then the held places, the last first. As many go as a frame with
+    // the hovered layers shown would drop of its own, so the beam's place still does not move with
+    // the hover while the drop order below has as many to give.
+    while (layers->count > (uint32_t)ctx->maxLayerCount && layers->heldCount > 0) {
+        dropLayer(layers, layers->held[--layers->heldCount]);
     }
     if (layers->count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(layers, &layers->models);

@@ -21,6 +21,7 @@
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "check.h"
 #include "m5_gpu.h"
@@ -1077,6 +1078,22 @@ static void frameModelsGroup(void) {
 // the new one on the next frame and frees the old one once the GPU is past it; the same kind, or the
 // switch going off and on again, loads nothing
 
+// Native (lane beam-streak): whether the Steam Frame's own controller models are in the assets.
+// They are made from the local SteamVR (tools/frame-models) and are never in git, so a fresh
+// checkout and CI have none; the groups that draw them skip without them, the way the rooms do
+// without ASTC.
+static int frameModelsHere(void) {
+    const char* side[2] = { "left", "right" };
+    for (int k = 0; k < 2; k++) {
+        char path[700];
+        snprintf(path, sizeof(path), "%s/models/frame_controller_%s.model", MLXR_ASSETS_DIR, side[k]);
+        if (access(path, R_OK) != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void modelKindGroup(void) {
     const char* cfg = "/tmp/mlxr-model-kind-cfg";
     char path[700];
@@ -1109,20 +1126,35 @@ static void modelKindGroup(void) {
     c->modelOn = 1;
     m5_frame(&g, c, NULL, NULL);
     CHECK(c->model == gun);
-    // On with no kind stored reads as the Frame's, which here (no Frame models converted) loads
-    // nothing: lane fix-polish took the generic controller out, so no model is drawn, not even the
-    // gun that was, and it is said so once
+    // On with no kind stored reads as the Frame's. With no Frame models converted (a fresh checkout,
+    // CI) that loads nothing: lane fix-polish took the generic controller out, so no model is drawn,
+    // not even the gun that was, and it is said so once. Native (lane beam-streak): with them (made
+    // from the local SteamVR) it is the Frame's.
+    int frame = frameModelsHere();
+    printf("  the Frame's own controller models are %s\n", frame ? "here" : "not here");
     c->modelKind = 0;
     m5_frame(&g, c, NULL, NULL);
-    CHECK(c->modelKindAsked == CONTROLLER_MODEL_FRAME && c->model == NULL && !c->modelReady && c->modelLoadFailed);
+    if (frame) {
+        CHECK(c->modelKindAsked == CONTROLLER_MODEL_FRAME && c->model != NULL && c->modelReady
+              && c->model->kind == CONTROLLER_MODEL_FRAME);
+    }
+    else {
+        CHECK(c->modelKindAsked == CONTROLLER_MODEL_FRAME && c->model == NULL && !c->modelReady && c->modelLoadFailed);
+    }
     m5_frame(&g, c, NULL, NULL);
-    CHECK(c->modelKindAsked == CONTROLLER_MODEL_FRAME && c->model == NULL);
-    // Custom with nothing in the config folder: the same fall back, to nothing here
+    CHECK(c->modelKindAsked == CONTROLLER_MODEL_FRAME && (c->model != NULL) == frame);
+    // Custom with nothing in the config folder: the same fall back, to the Frame's or to nothing
     c->modelKind = CONTROLLER_MODEL_CUSTOM;
     m5_frame(&g, c, NULL, NULL);
-    CHECK(c->modelKindAsked == CONTROLLER_MODEL_CUSTOM && c->model == NULL && !c->modelReady);
+    CHECK(c->modelKindAsked == CONTROLLER_MODEL_CUSTOM);
+    if (frame) {
+        CHECK(c->model != NULL && c->modelReady && c->model->kind == CONTROLLER_MODEL_FRAME);
+    }
+    else {
+        CHECK(c->model == NULL && !c->modelReady);
+    }
     m5_frame(&g, c, NULL, NULL);
-    CHECK(c->model == NULL);
+    CHECK((c->model != NULL) == frame);
     // A custom file dropped in, and the kind asked for again from another kind: the file loads, mirrored
     snprintf(path, sizeof(path), "%s/models/custom.model", cfg);
     writeQuadModel(path, 0.15f, texRed);
@@ -1340,13 +1372,21 @@ int main(int argc, char** argv) {
     }
     // The rooms' atlases are ASTC: on a device without textureCompressionASTC_LDR
     // (lavapipe) no room loads, so the groups that draw one skip there
+    // Native (lane beam-streak): leaks, timing and eye_images draw the Frame's own controller models
+    // too, which are never in git (frameModelsHere), so they skip the same way without them
     int skipped = 0;
+    int frame = frameModelsHere();
+    int roomsAndModels = g.astc && frame;
+    if (g.astc && !frame) {
+        printf("no Frame controller models in %s/models (made by packaging/install.sh from SteamVR): "
+               "the groups that draw them skip\n", MLXR_ASSETS_DIR);
+    }
     if (all || !strcmp(grp, "leaks")) {
-        if (g.astc) leaksGroup();
+        if (roomsAndModels) leaksGroup();
         else skipped++;
     }
     if (all || !strcmp(grp, "timing")) {
-        if (g.astc) timingGroup();
+        if (roomsAndModels) timingGroup();
         else skipped++;
     }
     if (all || !strcmp(grp, "glow")) glowGroup();
@@ -1355,11 +1395,12 @@ int main(int argc, char** argv) {
     if (all || !strcmp(grp, "frame_models")) frameModelsGroup();
     if (all || !strcmp(grp, "model_kind")) modelKindGroup();
     if (all || !strcmp(grp, "eye_images")) {
-        if (g.astc) eyeImagesGroup();
+        if (roomsAndModels) eyeImagesGroup();
         else skipped++;
     }
     m5_gpu_free(&g);
-    if (skipped) printf("%d group(s) skipped: no textureCompressionASTC_LDR for the rooms' atlases\n", skipped);
+    if (skipped) printf("%d group(s) skipped: %s\n", skipped,
+                        g.astc ? "no Frame controller models" : "no textureCompressionASTC_LDR for the rooms' atlases");
     if (skipped && !all) return 77;
     char name[32];
     snprintf(name, sizeof(name), "m5 world %s", grp);
