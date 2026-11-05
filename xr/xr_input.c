@@ -1353,15 +1353,24 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
             return;
         }
 
-        // Apps disagree about which button grabs, so both do. The trigger only
-        // counts where the handle hangs outside the picture, since inside it is
-        // a left click and the bottom corners of a desktop are worth clicking.
+        // Apps disagree about which button grabs, so both do. The trigger
+        // counts where the handle hangs outside the picture, where there is no
+        // click for it to have meant.
         int byGrip = ctx->gripEdge[hand];
         // (The keyboard's bar hangs clear of its keys, so there is no click
         // for the trigger to have meant.)
         // Native (lane wave2-lightgun-gyro): not with the lightgun policy, where a shot at the bar
         // is a shot and the grip alone takes hold of the screen
-        int byTrigger = ctx->triggerEdge[hand] && (offPicture || kbBar)
+        // Native (lane beam-streak, owner's request): and on the bar and the corners wherever they
+        // are hovered, the part of a corner's zone over the picture too, as the Steam Frame's own
+        // dashboard windows take either button: in pointer mode a controller's or a hand's trigger
+        // pressed on a handle takes hold of it and sends the PC nothing (cornerTakesTrigger). The
+        // corner's zone reaches under 2 cm into the picture now (CORNER_INSIDE, xr_layout.h), so
+        // the desktop's corners are still clicked. A press that started on the picture has no
+        // edge here and stays the PC's drag. Gamepad mode, the eyes and the stats window as before.
+        int onHandle = !statsGrab && hand < HAND_COUNT && !ctx->padMode
+                && (hover == HOVER_BAR || hover == HOVER_CORNER);
+        int byTrigger = ctx->triggerEdge[hand] && (offPicture || kbBar || onHandle)
                 && lightgunTriggerMayGrab(&ctx->lightgun);
         if (!byGrip && !byTrigger) {
             return;
@@ -4791,6 +4800,14 @@ static void recoilPulse(XrCtx* ctx, const InputFrame* f) {
 }
 
 // Works out which host buttons are down, and logs each trigger transition
+// Native (lane beam-streak, owner's request): whether the ray on this hover is on one of the
+// picture's handles the trigger takes hold of rather than clicks through: the bar or a corner, in
+// pointer mode, for a controller or a hand, without the lightgun policy (its trigger shoots)
+static int cornerTakesTrigger(XrCtx* ctx, int hover, int hand) {
+    return hover == HOVER_CORNER && hand >= 0 && hand < HAND_COUNT && !ctx->padMode
+            && lightgunTriggerMayGrab(&ctx->lightgun);
+}
+
 static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
     int mask = pointerButtonsWanted(ctx);
     // Native (lane wave4-headinput, PLAN 6.5): a dwell click on the picture is the left button
@@ -4803,6 +4820,12 @@ static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
                 | (ctx->assistButtons & ASSIST_BTN_RIGHT ? VR_BUTTON_RIGHT : 0);
     }
     int prevButtons = ctx->buttonsDown;
+    // Native (lane beam-streak, owner's request): a corner is a handle, so no button goes down on
+    // it (the trigger takes hold of it in applyGrab). One held from the picture stays held, and the
+    // cursor still follows the ray there.
+    if (hit && cornerTakesTrigger(ctx, f->hover, f->hand)) {
+        hit = 0;
+    }
     // A press only counts while aimed at the screen, but a release always
     // does, so walking the pointer off the edge mid drag still lets go
     ctx->buttonsDown = (ctx->buttonsDown & mask) | (hit ? mask : 0);

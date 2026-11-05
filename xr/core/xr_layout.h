@@ -65,6 +65,10 @@
 // Hover zones are bigger than the art, since aiming at a thin bar is fussy
 #define HOVER_MARGIN 1.7f
 #define CORNER_HOVER 1.5f
+// Native (lane beam-streak): and no further into the picture than this much of a bracket (1.8 cm on
+// the 3 m picture, 15 px of a 2560 x 1440 desktop): the zone used to reach a quarter bracket in (48
+// px), the size of the Start button, and the trigger now takes hold of a corner instead of clicking
+#define CORNER_INSIDE 0.08f
 // The bar is small on purpose, so its hover zone is proportionally wider
 #define BAR_HOVER 2.0f
 

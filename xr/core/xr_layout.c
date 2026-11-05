@@ -39,10 +39,13 @@ int hoverTest(float u, float v, float width, float height, float cornerSide, int
         float outU = cornerSide * 0.5f / width;
         float outV = cornerSide * 0.5f / height;
 
-        int left = fabsf(u + outU) < cu;
-        int right = fabsf(u - (1.0f + outU)) < cu;
-        int top = fabsf(v + outV) < cv;
-        int bottom = fabsf(v - (1.0f + outV)) < cv;
+        // Native (lane beam-streak): over the picture only CORNER_INSIDE of a bracket
+        float inU = cornerSide * CORNER_INSIDE / width;
+        float inV = cornerSide * CORNER_INSIDE / height;
+        int left = fabsf(u + outU) < cu && u < inU;
+        int right = fabsf(u - (1.0f + outU)) < cu && u > 1.0f - inU;
+        int top = fabsf(v + outV) < cv && v < inV;
+        int bottom = fabsf(v - (1.0f + outV)) < cv && v > 1.0f - inV;
         if ((left || right) && (top || bottom)) {
             *corner = (top ? 0 : 2) + (right ? 1 : 0);
             return HOVER_CORNER;
