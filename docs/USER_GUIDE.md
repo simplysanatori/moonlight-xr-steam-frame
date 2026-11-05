@@ -1,10 +1,11 @@
 # Moonlight XR for Frame: user guide
 
-This guide covers version 1.1.0. For install, update and uninstall, see the [README](../README.md).
+This guide covers version 1.2.0. For install, update and uninstall, see the [README](../README.md).
 
 ## Contents
 
 - [How it fits together](#how-it-fits-together)
+- [Installing](#installing)
 - [The flat window](#the-flat-window)
 - [Settings page](#settings-page)
 - [In the headset: the bar](#in-the-headset-the-bar)
@@ -20,9 +21,11 @@ This guide covers version 1.1.0. For install, update and uninstall, see the [REA
 - [Host: keys for the PC](#host-keys-for-the-pc)
 - [Language](#language)
 - [Ending a stream](#ending-a-stream)
+- [Setting up Apollo](#setting-up-apollo)
 - [Apollo on the PC: recipes](#apollo-on-the-pc-recipes)
 - [Recommended PC settings](#recommended-pc-settings)
 - [Troubleshooting](#troubleshooting)
+- [Reporting a problem](#reporting-a-problem)
 - [Advanced: config.ini](#advanced-configini)
 - [Advanced: environment variables](#advanced-environment-variables)
 
@@ -34,6 +37,47 @@ There are two programs.
 - **The VR client** (`moonlight-xr`) starts when you select an app. It decodes the stream and draws it in the headset. It has its own bar and cog menu for the screen, rooms, 3D and the pointer.
 
 When the stream ends, the VR client closes and the flat window comes back.
+
+## Installing
+
+The basic install is in the [README](../README.md#install). This section has the rest.
+
+### Install options
+
+`./install.sh --help` lists its options. You can run it again at any time.
+
+From 1.1.0 on, releases also carry the same files as a `.zip` (`moonlight-xr-steam-frame-<version>-linux-arm64.zip`). [Frametanium](https://github.com/Cogential/frametanium) installs the release from the `.tar.gz` and runs `install.sh` without a terminal. FrameDrop uses its own zip (see [Installing with FrameDrop](#installing-with-framedrop)). If Steam is not running then, the files are installed and the Steam shortcut is skipped; the installer says so (the last lines of its output, and `~/Games/MoonlightXRNative/install.log`), and running `install.sh` again with Steam up adds it.
+
+The icon in the SteamVR dock stays grey until Steam has been restarted once after the first install.
+
+To update, download the new tarball, unpack it and run `./install.sh` again. Your settings, your pairing and the Steam shortcut are kept.
+
+### Installing with FrameDrop
+
+[FrameDrop](https://framedropvr.com) can install this too: [Install with FrameDrop](https://framedropvr.com/install?manifest=https%3A%2F%2Fgithub.com%2Fsimplysanatori%2Fmoonlight-xr-steam-frame%2Freleases%2Flatest%2Fdownload%2Fmoonlight-xr-steam-frame.framedrop.json). FrameDrop adds its own library entry, and you get no second one from the installer. Nothing else is needed; pair with your PC as usual.
+
+### Desktop in VR shortcut
+
+To get a second shortcut, **Desktop in VR**, that opens your PC's Desktop in the headset straight away, run `./install.sh --desktop-shortcut` after you have streamed once from the flat window. It uses the PC you streamed from last (or the only one); `--desktop-pc "PC name"` picks another. When the stream ends, that shortcut closes. More under [Opening a stream by itself](#opening-a-stream-by-itself).
+
+### For the sharpest picture
+
+Keep SteamVR's render resolution for Moonlight XR at **3408 x 3408 per eye**, the highest SteamVR allows on the Frame. It makes a visible difference to text. Set it in SteamVR Settings, Video, **Per-application video settings**, Moonlight XR for Frame, **Render resolution**: Custom, set so the slider is at its maximum and the figure under it reads 3408 x 3408. The installer sets this for you; a lower figure (SteamVR's default for the Frame is lower) makes small text blurry. The Frame still holds 90 Hz at this size, because the app only draws the screen and its surroundings. To check what is in effect, `moonlight.log` says `curved picture: projection layer 3408x3408 per eye` near the start of a stream.
+
+### Files
+
+| What | Where |
+| --- | --- |
+| Program | `~/Games/MoonlightXRNative/app` |
+| Headset settings, pairing keys, saved PCs | `~/.config/moonlight-xr` (`config.ini`, `hosts.ini`, `client.pem`, `client.key`, `servercerts/`) |
+| Controller bindings, Host sheet macros, your own controller models | `~/.config/moonlight-xr` (`bindings.ini`, `macros.ini`, `models/`) |
+| Flat window settings and PC list | `~/.config/Moonlight XR Native/Moonlight XR Native.conf` |
+| Logs | `~/Games/MoonlightXRNative/moonlight.log`, `moonlight-launcher.log`, `moonlight-console.log`, `vrtiming.log`, `install.log`; with Stats on, `perf-<date>-<time>.csv` next to `vrtiming.log` |
+| Bug reports | `~/Games/MoonlightXRNative/reports` |
+
+The installer changes nothing outside these folders, the Steam shortcut and SteamVR's settings for that shortcut.
+
+The logs keep your PC's name and addresses, so you can check your own network. Do not post them as they are. Use the zip from `bug-report.sh` instead (see [Reporting a problem](#reporting-a-problem)).
 
 ## The flat window
 
@@ -75,7 +119,7 @@ Once a day at most, the flat window asks GitHub for this project's latest releas
 
 **On start** (General settings) makes the flat window start a stream as soon as it opens and the PC answers, as if you had selected the app: **Last PC's Desktop** (the Desktop app of the PC you streamed from last) or **An app** (choose it in **App to open on start** from the apps of your PCs). The default is **Nothing**. It waits up to 2 minutes for the PC (and wakes it, as Moonlight's own command line does), then gives up quietly. If another app is already running on that PC, it does not start, so nothing of yours is quit. When the stream ends you are back in the PC list. `moonlight-launcher.log` has `MLXR_LAUNCHER_ONSTART:` lines for each step.
 
-The installer can add a second Steam shortcut, **Desktop in VR**, that goes straight to the Desktop: `./install.sh --desktop-shortcut` (see the readme). It runs `moonlight-xr-launcher.sh stream "PC" "Desktop"`, Moonlight's own command line. The flat window shows "Establishing connection to PC..." and closes when the stream ends. The PC is the one you streamed from last, or the only one, or `--desktop-pc "PC name"`. Run the installer again with another `--desktop-pc` to change it, or edit the shortcut's launch options in Steam.
+The installer can add a second Steam shortcut, **Desktop in VR**, that goes straight to the Desktop: `./install.sh --desktop-shortcut` (see [Desktop in VR shortcut](#desktop-in-vr-shortcut)). It runs `moonlight-xr-launcher.sh stream "PC" "Desktop"`, Moonlight's own command line. The flat window shows "Establishing connection to PC..." and closes when the stream ends. The PC is the one you streamed from last, or the only one, or `--desktop-pc "PC name"`. Run the installer again with another `--desktop-pc` to change it, or edit the shortcut's launch options in Steam.
 
 ## Settings page
 
@@ -427,7 +471,7 @@ The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the d
 
 ### About
 
-The version, the log file, **Support simplysanatori on Ko-fi**, and **Report a problem**. The Ko-fi button opens a small sheet with two buttons. **Open page** shows this port's Ko-fi page in Steam's browser in the dashboard (the Frame runs `steam steam://openurl/https://ko-fi.com/sana748653`, or `xdg-open` when `steam` is not found). **Not now**, or a press anywhere off the buttons, closes the sheet and opens nothing. Upstream Moonlight XR's own Ko-fi is linked from the [README](../README.md#support). The report sheet has three buttons. **Save** keeps your note on the Frame in `~/Games/MoonlightXRNative/reports`. **Save and zip** does that and also runs `bug-report.sh` in the background, so the masked zip is made without leaving the headset. A notice shows where the zip is (`~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip`) and the log says so too. A note is not needed for the zip. Nothing leaves the headset: copy the zip off the Frame and open an issue on GitHub with it. The [README](../README.md#reporting-a-problem) lists what the zip holds and what is left out.
+The version, the log file, **Support simplysanatori on Ko-fi**, and **Report a problem**. The Ko-fi button opens a small sheet with two buttons. **Open page** shows this port's Ko-fi page in Steam's browser in the dashboard (the Frame runs `steam steam://openurl/https://ko-fi.com/sana748653`, or `xdg-open` when `steam` is not found). **Not now**, or a press anywhere off the buttons, closes the sheet and opens nothing. Upstream Moonlight XR's own Ko-fi is linked from the [README](../README.md#support). The report sheet has three buttons. **Save** keeps your note on the Frame in `~/Games/MoonlightXRNative/reports`. **Save and zip** does that and also runs `bug-report.sh` in the background, so the masked zip is made without leaving the headset. A notice shows where the zip is (`~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip`) and the log says so too. A note is not needed for the zip. Nothing leaves the headset: copy the zip off the Frame and open an issue on GitHub with it. [Reporting a problem](#reporting-a-problem) lists what the zip holds and what is left out.
 
 ### Stats styles, battery and the slow connection badge
 
@@ -473,6 +517,19 @@ Head-look (the head turning a first-person game's camera), Mouse mode and Back b
 ## Controllers
 
 The right Frame controller has A, B, X, Y and a menu button. The left one has a d-pad and a View button. Both have a trigger, a grip, a bumper and a thumbstick.
+
+### Shortcuts
+
+| Shortcut | What it does |
+| --- | --- |
+| Hold left View and left grip for half a second | Switches between pointer and gamepad mode, both ways. **Gamepad mode shortcut** in Settings can make it a click of both thumbsticks, or both triggers and both grips squeezed, instead; only the chosen one works. In pointer mode the bar's Gamepad / Pointer button and the cog's Display tab **Mode** row switch too. |
+| Hold left View and right Menu for a quarter of a second | Guide, the Xbox button (gamepad mode). |
+| Hold right Menu and right grip for half a second | With **Pointer** on Head or Eyes (Accessibility tab): the controllers point again (pointer mode). |
+| Hold right Menu, left View and both bumpers (Start+Select+L1+R1) | Disconnects; the game keeps running on the PC (gamepad mode, or the same buttons on a Bluetooth or USB gamepad). With the default **Grips in gamepad mode** the grips count as the bumpers. |
+| Ctrl+Alt+Shift+Q on a keyboard connected to the Frame | Disconnects; the game keeps running on the PC. |
+| Pinch thumb and index finger | With **Hand tracking** on (off by default): the trigger. Three quick pinches on one hand lock the hands out, so a stray pinch does not click; three more unlock them. |
+
+Details: [Switching between the modes](#switching-between-the-modes), [Gamepad mode](#gamepad-mode), [Turning it off](#accessibility-off), [Ending a stream](#ending-a-stream), [Hand tracking](#hand-tracking).
 
 ### Pointer mode
 
@@ -877,6 +934,21 @@ Opening the SteamVR dashboard (or any system menu) takes the focus away from the
 
 If you want the game to stop while you look away, the dashboard does not do it: use Disconnect, or the pause recipe in [Apollo on the PC: recipes](#apollo-on-the-pc-recipes).
 
+## Setting up Apollo
+
+Everything works with Sunshine. A few extras need [Apollo](https://github.com/ClassicOldSong/Apollo) on the PC: **Use virtual display** and **Resolution scale factor**; a refresh rate with decimals such as 59.94 (**Custom...**); **Smart clipboard sync**; the Host sheet's **Paste from PC**, **Send text to PC** and server commands; starting an app by its UUID; the permission part of **Check the PC before streaming**.
+
+On the PC, in Apollo's web UI:
+
+- **Clients**: Apollo gives each paired client its own permissions. The first client paired gets all of them; one paired later gets only List Apps and View Streams. For the Frame, turn on **Launch Apps**, the input permissions (**Controller**, **Mouse**, **Keyboard**), **Clipboard Read** and **Clipboard Set** for the clipboard, and **Server Command** for server commands.
+- **Virtual display**: Apollo on Windows with its virtual display driver installed. A **Display Mode Override** on the client's entry or **Always create virtual display** (Apollo 0.3.7 and later) change how it is made; see [Apollo on the PC: recipes](#apollo-on-the-pc-recipes).
+- **Clipboard**: Apollo 0.2.4 or later, text only, while the Frame is streaming.
+- **Server commands**: Configuration, General, Server Commands (a name, a command, and whether it runs elevated). Up to eight show on the Host sheet; see [Clipboard and PC commands](#clipboard-and-pc-commands-apollo).
+
+**Check the PC before streaming** (on by default) reads this client's permissions and the virtual display's state just before each stream and says what is missing.
+
+With Sunshine everything else works the same: streaming, pairing, apps, every headset feature. The Apollo fields are sent and ignored, so there is no virtual display and no scale factor; the Host sheet's PC page dims its cells and says "Not supported by this host"; and Check the PC before streaming says when a setting needs Apollo.
+
 ## Apollo on the PC: recipes
 
 Apollo is the Sunshine fork this app is built against. Several of its options help a headset stream, and they live on the PC, in Apollo's web interface (`https://localhost:47990`), not in this app. The names below are Apollo 0.4's; if yours are different, look for the same words. These come from Apollo's documentation and from reading what this app sends. They have not all been measured on the Frame, and each recipe says what to look at in `moonlight.log` so you can tell for yourself.
@@ -941,6 +1013,24 @@ Do the A and B on the same link, at the same bitrate, in the same scene. A diffe
 | The stream used other settings than the Settings page | The app or its PC has a stream profile. `moonlight-launcher.log` says `MLXR_LAUNCHER_PROFILE: using <name>`. See [Stream profiles](#stream-profiles). |
 
 Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report freezes or stutter, say roughly when they happened: `moonlight.log`'s `video: burst at` lines carry the time, and the line written every 5 seconds has the round trip, the frames lost and dropped, `bursts N (longest N ms)`, `udp rcvbuf errors` and `rx drop misc` for those 5 seconds. To share them, use the zip from `bug-report.sh`. It holds the logs, your headset note, the settings you changed and a short version summary, all masked, and nothing else. It leaves out `hosts.ini`, keys and certificates. Look inside before you share it.
+
+## Reporting a problem
+
+Run `~/Games/MoonlightXRNative/app/bug-report.sh` after the problem happened. It writes a zip to `~/Games/MoonlightXRNative/reports` and lists every file in it. The zip holds only what is needed to debug:
+
+- The app logs: `moonlight.log`, `moonlight.log.1`, `moonlight-console.log`, `moonlight-launcher.log` and `vrtiming.log`, the last 20000 lines of each.
+- Your note from the headset, if you wrote one.
+- `ray.csv`, the ray recorder's file (header and its last 20000 rows, numbers only), if `MLXR_RAY_DEBUG=1` made one.
+- `config.ini`, with only the settings you changed. Numbers, on and off, and fixed choices stay. Any key that looks like an address, host, id, name, path, key, token or certificate is dropped.
+- `VERSION` and `system.txt`: the SteamOS, SteamVR and Mesa (Turnip) versions, the kernel release and the display refresh rate.
+
+Everything in the zip is masked. IPv4 and IPv6 addresses, MAC addresses, host names, `.local` names, host names in URLs, your user name, UUIDs, long hex ids, Steam ids, e-mail addresses, Wi-Fi names (including the Frame's own access point), serial numbers, certificates and keys are replaced. Home folders show as `~`. Timestamps and timings stay.
+
+Left out completely: `hosts.ini`, pairing keys and certificates, the flat window's settings, the host name, environment variables and any network listing.
+
+Have a look inside before you share it. Then attach the zip to an [issue](https://github.com/simplysanatori/moonlight-xr-steam-frame/issues). Say what you did, what you expected and what happened.
+
+You can also write a note in the headset (cog, About, Report a problem). **Save** keeps it on the Frame, and the next `bug-report.sh` run includes it. **Save and zip** runs `bug-report.sh` for you and shows where the zip is. Nothing is sent from the headset. See [About](#about).
 
 ## Advanced: config.ini
 
