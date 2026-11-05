@@ -212,12 +212,24 @@ static void statsHook(void* user, char* buf, int len) {
         stream_stats(s, sizeof(s));
         MlxrOpusOutStats st;
         mlxr_opus_out_stats(&st);
-        snprintf(a, sizeof(a), "audio %dch %.0f ms buffered, %u underruns, %u lost (stream totals)", st.channels, st.bufferedMs,
-                 st.underruns, st.lostPackets);
+        // Native (lane beam-streak): "nothing from the PC yet" until a packet comes, not "0ch 0 ms"
+        mlxr_stats_audio_text(st.packets, st.channels, st.bufferedMs, st.underruns, st.lostPackets, a, sizeof(a));
     }
-    snprintf(buf, (size_t)len, "decoded %llu, dropped %llu, decode %.1f ms; %s%s%s",
-             (unsigned long long)g_slot.produced, (unsigned long long)g_slot.dropped, g_slot.lastDecodeMs, s,
-             a[0] ? "; " : "", a);
+    // Native (lane beam-streak): the decoder that is decoding. The software decoder's frame slot was
+    // read alone, and the hardware decoder (every stream on the Frame) never fills it, so the line said
+    // "decoded 0, dropped 0, decode 0.0 ms" all through a stream.
+    MlxrDecodeTally dec = { g_slot.produced, g_slot.dropped, g_slot.lastDecodeMs };
+    HwVideo* hv = hw_video_current();
+    if (hv != NULL) {
+        HwVideoStats h;
+        hw_video_stats(hv, &h);
+        dec.decoded = h.frames;
+        dec.dropped = h.skipped;
+        dec.decodeMs = h.avgDecodeMs;
+    }
+    char d[96];
+    mlxr_stats_decode_text(&dec, d, sizeof(d));
+    snprintf(buf, (size_t)len, "%s; %s%s%s", d, s, a[0] ? "; " : "", a);
 }
 
 // Native (lane wave3-hud): the HUD's and the slow connection badge's figures, about once a second
@@ -276,18 +288,25 @@ static void latencyHook(void* user, char* buf, int len) {
     mlxr_udp_delta_text(&g_udpPrev, &udpNow, udp, sizeof(udp));
     g_udpPrev = udpNow;
     pthread_mutex_unlock(&g_netLock);
+    // Native (lane beam-streak): with no packet in the window there was nothing to decode: n/a, where it
+    // said "decode 0.00 ms avg (max 0.00)" (131 of the reports in one log, the PC sending no sound)
+    char adec[64];
+    if (st.packets > prev.packets) {
+        snprintf(adec, sizeof(adec), "%.2f ms avg (max %.2f)", st.processUs / 1000.0, st.processMaxUs / 1000.0);
+    }
+    else {
+        snprintf(adec, sizeof(adec), "n/a (no audio packets)");
+    }
     snprintf(buf, (size_t)len,
              "net %s; %s; %s; audio cushion %.0f ms, %.0f ms buffered, underruns +%u (%u late of which %u outages, %u after "
              "silence), lost +%u, dropped %.0f ms, trimmed %.0f ms, longest packet gap %d ms, sink took %.0f Hz, "
-             "host clock %+.0f ppm, receive thread waited %.1f ms for a CPU (%.1f%% busy), decode %.2f ms avg "
-             "(max %.2f)",
+             "host clock %+.0f ppm, receive thread waited %.1f ms for a CPU (%.1f%% busy), decode %s",
              net, udp, v, st.jitterTargetMs, st.bufferedMs, st.underruns - prev.underruns,
              st.lateUnderruns - prev.lateUnderruns, st.outages - prev.outages,
              st.silenceUnderruns - prev.silenceUnderruns,
              st.lostPackets - prev.lostPackets, (st.droppedFrames - prev.droppedFrames) / 48.0,
              (st.trimmedFrames - prev.trimmedFrames) / 48.0, mlxr_opus_out_take_gap_max(), sinkHz, hostPpm, waitMs,
-             cpuPct, st.processUs / 1000.0,
-             st.processMaxUs / 1000.0);
+             cpuPct, adec);
     prev = st;
     prevNs = now;
 }

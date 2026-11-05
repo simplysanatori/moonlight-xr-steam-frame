@@ -289,10 +289,60 @@ static void testPerf(void) {
     CHECK(!mlxr_perf_path("/logs", 2026, 10, 29, 9, 5, 7, path, 12));
 }
 
+// Native (lane beam-streak): the stats rows that said 0 through a stream where nothing told the
+// figure, now "n/a", and the Full line's decoder from whichever decoder decodes
+static void testUnknowns(void) {
+    MlxrHudCum a = totals(0, 0), b = totals(90, 1);
+    MlxrHudFigures f;
+    CHECK(mlxr_hud_window(&a, &b, 1.0, 89.0, &f) == 1);
+    CHECK(!f.hostUnknown && !f.decodeUnknown);
+    char buf[512];
+    mlxr_hud_panel(&f, 0, NULL, 90.0, buf, sizeof(buf));
+    CHECK(strstr(buf, "n/a") == NULL && strstr(buf, "without") == NULL);
+    // A host that sends no timing with its frames, and no frame the decoder timed (the software decoder)
+    MlxrHudCum c = b;
+    c.frames += 90;
+    c.bytes += 90 * 20000;
+    c.recvMsSum += 180.0;
+    c.queueMsSum += 90.0;
+    CHECK(mlxr_hud_window(&b, &c, 1.0, 89.0, &f) == 1);
+    CHECK(f.valid && f.hostUnknown && f.decodeUnknown);
+    CHECK_NEAR(f.latencyMs, 3.0 + 2.0 + 1.0, 1e-9);
+    mlxr_hud_panel(&f, 0, NULL, 90.0, buf, sizeof(buf));
+    printf("  HUD with nothing timed by the host or the decoder:\n%s\n", buf);
+    CHECK(strstr(buf, "Host n/a") != NULL && strstr(buf, "decode n/a") != NULL);
+    CHECK(strstr(buf, "without host and decode") != NULL);
+    CHECK(strstr(buf, "Host 0.0") == NULL && strstr(buf, "decode 0.0") == NULL);
+    mlxr_hud_lite(&f, 0, buf, sizeof(buf));
+    CHECK(strstr(buf, "dec n/a") != NULL && strstr(buf, "+ ms") != NULL);
+    // the host's timing alone missing
+    c.decodeN = b.decodeN + 90;
+    c.decodeMsSum = b.decodeMsSum + 270.0;
+    CHECK(mlxr_hud_window(&b, &c, 1.0, 89.0, &f) == 1);
+    CHECK(f.hostUnknown && !f.decodeUnknown);
+    mlxr_hud_panel(&f, 0, NULL, 90.0, buf, sizeof(buf));
+    CHECK(strstr(buf, "(without the host)") != NULL && strstr(buf, "decode 3.0 ms") != NULL);
+
+    // The Full stats' decoder line: the hardware decoder's counters (the stream's) where the software
+    // one's slot stays at 0, and n/a before the first frame
+    MlxrDecodeTally t = { 123456, 12, 3.14 };
+    mlxr_stats_decode_text(&t, buf, sizeof(buf));
+    CHECK(strcmp(buf, "decoded 123456, dropped 12, decode 3.1 ms") == 0);
+    MlxrDecodeTally none = { 0, 0, 0.0 };
+    mlxr_stats_decode_text(&none, buf, sizeof(buf));
+    CHECK(strcmp(buf, "decoded 0, dropped 0, decode n/a") == 0);
+    // its audio line: nothing from the PC is said, not "0ch 0 ms buffered"
+    mlxr_stats_audio_text(0, 0, 0.0, 0, 0, buf, sizeof(buf));
+    CHECK(strcmp(buf, "audio: nothing from the PC yet") == 0);
+    mlxr_stats_audio_text(1200, 2, 40.0, 2, 0, buf, sizeof(buf));
+    CHECK(strcmp(buf, "audio 2ch 40 ms buffered, 2 underruns, 0 lost (stream totals)") == 0);
+}
+
 int main(void) {
     testWindow();
     testWords();
     testSlow();
     testPerf();
+    testUnknowns();
     return checksDone("hud");
 }
