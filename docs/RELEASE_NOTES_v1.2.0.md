@@ -1,6 +1,10 @@
 # Moonlight XR for Frame 1.2.0
 
-In 1.2.0 I fixed the white streak that flashed across the view while pointing at the keyboard, made the trigger grab the screen's move pill and corners, fixed stats that read 0 during a stream, and tidied the text in the headset and the flat window.
+In 1.2.0 I added an eye calibration for the Eyes pointer, fixed the white streak that flashed across the view while pointing at the keyboard, made the trigger grab the screen's move pill and corners, fixed stats that read 0 during a stream, and tidied the text in the headset and the flat window.
+
+### Added
+
+- Eye calibration, on the cog's Accessibility tab. Press **Start** and look at each of 12 dots on the picture in turn, and the Eyes pointer lands closer to where you look from then on. The row shows the average error left, such as "Calibrated: 0.9° average". **Reset** removes it.
 
 ### Fixed
 
