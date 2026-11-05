@@ -268,7 +268,7 @@ GNU General Public License v3. See [LICENSE.txt](LICENSE.txt).
 
 I had been using Moonlight to stream my PC to the Frame and wanted something like Virtual Desktop's VR environment for it, so I built a native version of Moonlight XR for the Frame. It started as a personal project for my own headset. It ended up good enough to share.
 
-It was written with the assistance of LLMs, specifically Anthropic's Claude: Claude Code with the Fable 5.1 and Opus 5.5 models, running on the Frame itself, with manual review throughout. I chose what to build, reviewed the code and the scripts as they were written, tested each build in the headset and reported what I saw. If that is not for you, no worries. It is more than functional, and it is a starting point for anyone who wants Moonlight in a VR environment on the Frame.
+It was written with the assistance of LLMs, specifically Anthropic's Claude: Claude Code with the Fable 5.1 and Opus 5.5 models, running on the Frame itself, with manual review throughout. I chose what to build, reviewed the code and the scripts as they were written, tested each build in the headset and reported what I saw. It is more than functional, and it is a starting point for anyone who wants Moonlight in a VR environment on the Frame.
 
 It is heavily based on Moonlight XR by Gilleece. The rooms, the 2D to 3D depth mode, the menus and the virtual surround are ports of that work. The difference is that it runs natively on SteamOS instead of through Lepton. It is GPL, so take pieces for Moonlight XR or anything else.
 
