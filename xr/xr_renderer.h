@@ -57,6 +57,7 @@
 #include "xr_access.h"
 #include "xr_assistclick.h"
 #include "xr_radial.h"
+#include "xr_eyecal.h"
 #include "auxbutton.h"
 #include "xr_clickhold.h"
 #include "xr_pressfix.h"
@@ -1023,6 +1024,21 @@ typedef struct XrCtx {
     // Accessibility tab's footer (which row it describes)
     int assistDotSize;
     float cogPointV;
+    // Native (lane eye-calibration): the eye gaze correction in force ([vr] eye_calibration; model NONE
+    // for none, which costs the gaze nothing), the run while it is up (xr_eyecal.h), how this session's
+    // last run ended for the tab's row (EYECAL_OK or EYECAL_FAIL_*, -1 none), a result or a reset still
+    // to be handed back to be stored (1 store, 2 reset: the setting slot was taken that frame), the B
+    // and Menu buttons as the run last saw them (a press cancels it), whether the run has let go of the
+    // bindings yet, and the dot's number the cog's panel was last drawn with (0 the tabs). gazeRaw is
+    // the gaze this frame as the runtime gave it (local space), whatever points, for the run.
+    EyeCal eyeCal;
+    EyeCalRun eyeCalRun;
+    int eyeCalResult;
+    int eyeCalUnsaved;
+    uint64_t eyeCalButtons;
+    int eyeCalBegun;
+    int cogDrawnCal;
+    XrPosef gazeRaw;
     // Native (lane a11y-2): clicks that are not a controller's trigger, for the head and eye pointer.
     // The headset's side button: whether it is on (assist_headset_button, which lane a11y-final
     // stopped reading: a future feature, docs/dev/accessibility.md; only the tests turn it on), its device (auxDev, found as auxInfo, ACCESS_BUTTON_* in auxState),

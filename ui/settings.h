@@ -114,6 +114,7 @@ typedef struct Settings {
     int head_dwell_ms;     // native: head Point mode's dwell click, 0 off, else DWELL_MS_MIN..MAX
     int assist_dot_size;   // native (lane a11y-2): the head and eye pointer's dot, percent (ACCESS_DOT_*)
     int assist_dwell_style;   // native (lane radial-dwell): DWELL_STYLE_SIMPLE or RADIAL (xr_radial.h)
+    char eye_calibration[UI_STR_MAX];   // native (lane eye-calibration): xr_eyecal.h eyeCalFormat, "" none
     int assist_headset_button;   // native (lane a11y-2): the headset's side button clicks (evdev, grabbed)
     char assist_click_path[UI_STR_MAX];   // native (lane a11y-2): "<profile> <path>" of an OpenXR button that clicks, "" off
     int mouse_mode;        // native: PLAN 4b.10, MOUSE_MODE_ABSOLUTE, RELATIVE (the ray's point, or its movement)

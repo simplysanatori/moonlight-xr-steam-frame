@@ -1910,6 +1910,7 @@ static void gazeTrigger(XrCtx* ctx, const InputFrame* f) {
 static void releaseInput(XrCtx* ctx, float* out) {
     ctx->buttonsDown = 0;
     ctx->beamVisible = 0;
+    xrEyeCalCancel(ctx, "the pointer is not read");   // native (lane eye-calibration)
     // Native (lane wave4-headinput, PLAN 6.5): no dwell survives the pointer going unwatched
     dwellReset(&ctx->dwell);
     ctx->dwellFraction = -1.0f;
@@ -2254,6 +2255,9 @@ static void readGazeValid(XrCtx* ctx) {
                                       ctx->predictedDisplayTime, &loc));
     ctx->gazeFlags = ok ? (unsigned)loc.locationFlags : 0u;
     ctx->gazeValid = ok && gazeUsable(ctx->gazeFlags);
+    if (ctx->gazeValid) {
+        ctx->gazeRaw = loc.pose;   // native (lane eye-calibration): uncorrected, for the calibration's run
+    }
 }
 
 int xrGazeValid(const XrCtx* ctx) {
@@ -2385,6 +2389,12 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
         int found = space != XR_NULL_HANDLE
                 && XR_SUCCEEDED(locateSpace(ctx, space, ctx->localSpace,
                                             ctx->predictedDisplayTime, &loc));
+        // Native (lane eye-calibration): the eyes as the calibration in force corrects them, in the head's
+        // frame, before anything smooths or holds them; nothing with none in force
+        if (h == SRC_GAZE && found && space == ctx->aimSpaces[SRC_GAZE]
+                && ctx->eyeCal.model != EYECAL_MODEL_NONE && f->xform.ok) {
+            loc.pose.orientation = xrEyeCalCorrect(ctx, f->xform.head.orientation, loc.pose.orientation);
+        }
         int active = 0;
         if (h < HAND_COUNT) {
             active = found && actionPoseActive(ctx, handActions ? ctx->handAimAction
@@ -5668,6 +5678,55 @@ static void beginPointerFrame(XrCtx* ctx, InputFrame* f, float* out, int headLoc
     updateHeadTurn(ctx, f);
 }
 
+// Native (lane eye-calibration): a frame of the eye calibration's run, in the cog's place while it is
+// up. The pointer is on nothing and presses nothing; B or Menu cancels (the bindings are let go of as
+// the run starts and ends, so neither does its own job too); the gaze as the runtime gave it and the
+// dot as drawn, both in the head's frame of this frame, go to the run.
+static void updateEyeCal(XrCtx* ctx, InputFrame* f) {
+    f->hover = HOVER_COGPANEL;
+    f->hand = -1;
+    ctx->cogPointV = -1.0f;
+    uint64_t raw = bindControlsDown(ctx);
+    const uint64_t cancelBits = XR_BIND_BIT(XR_BIND_SRC_RIGHT_B) | XR_BIND_BIT(XR_BIND_SRC_RIGHT_MENU);
+    uint64_t down = raw & cancelBits;
+    if (!ctx->eyeCalBegun) {
+        ctx->eyeCalBegun = 1;
+        ctx->eyeCalButtons = down;
+        if (ctx->bindModeRan != 0) {
+            bindLetGo(ctx, raw, f->out);
+        }
+    }
+    uint64_t pressed = down & ~ctx->eyeCalButtons;
+    ctx->eyeCalButtons = down;
+    if (pressed != 0) {
+        xrEyeCalCancel(ctx, (pressed & XR_BIND_BIT(XR_BIND_SRC_RIGHT_B)) ? "B" : "Menu");
+    }
+    else {
+        int gazeOk = ctx->gazeValid == 1 && f->xform.ok;
+        float gy = 0.0f, gp = 0.0f, ty = 0.0f, tp = 0.0f;
+        Vec3 point;
+        float size;
+        if (gazeOk && xrEyeCalDotPoint(ctx, (Vec3){ f->headPose.position.x, f->headPose.position.y,
+                                                   f->headPose.position.z }, f->now, &point, &size)) {
+            XrQuaternionf head = f->xform.head.orientation;
+            Vec3 fwd = { 0.0f, 0.0f, -1.0f };
+            xrEyeCalHeadAngles(head, quatRotate(ctx->gazeRaw.orientation, fwd), &gy, &gp);
+            // the dot is in the frame the picture is in: the head's while it is head locked
+            if (f->xform.toHead) {
+                Vec3 off = quatRotate(head, point);
+                point = (Vec3){ f->xform.head.position.x + off.x, f->xform.head.position.y + off.y,
+                                f->xform.head.position.z + off.z };
+            }
+            Vec3 from = { ctx->gazeRaw.position.x, ctx->gazeRaw.position.y, ctx->gazeRaw.position.z };
+            xrEyeCalHeadAngles(head, vecSub(point, from), &ty, &tp);
+        }
+        xrEyeCalFrame(ctx, f->now, gazeOk, gy, gp, ty, tp, f->out);
+    }
+    if (!xrEyeCalUp(ctx) && ctx->bindModeRan != 0) {
+        bindLetGo(ctx, raw, f->out);
+    }
+}
+
 // The sources read, the pointer woken or retired and the pointing source
 // picked, and the recorder's row for the frame finished
 // Native (lane wave4-headinput, PLAN 6.5): head Point mode's dwell click, at the
@@ -5738,7 +5797,8 @@ static int dwellPanelHover(XrCtx* ctx, const InputFrame* f) {
 
 static void updateDwell(XrCtx* ctx, InputFrame* f) {
     ctx->dwellUiEdge = 0;
-    if (!headPointing(ctx) || ctx->headDwellMs <= 0) {
+    // native (lane eye-calibration): no dwell while the eyes rest on the calibration's dots
+    if (!headPointing(ctx) || ctx->headDwellMs <= 0 || xrEyeCalUp(ctx)) {
         dwellReset(&ctx->dwell);
         ctx->dwellFraction = -1.0f;
         xrDwellMenuReset(ctx);   // native (lane radial-dwell)
@@ -5827,9 +5887,18 @@ void xrPointerPanelStep(XrCtx* ctx, int64_t now, int headLocked, float* out) {
     beginPointerFrame(ctx, &f, out, headLocked, now);
     pointerPass(ctx, &f);
     clearHotState(ctx);
-    if (ctx->cogOpen) {
-        updateCogPanel(ctx, &f);
+    if (xrEyeCalUp(ctx) && !ctx->cogOpen) {
+        xrEyeCalCancel(ctx, "the panel closed");   // native (lane eye-calibration)
     }
+    if (ctx->cogOpen) {
+        if (xrEyeCalUp(ctx)) {
+            updateEyeCal(ctx, &f);
+        }
+        else {
+            updateCogPanel(ctx, &f);
+        }
+    }
+    xrEyeCalSave(ctx, out);
     ctx->hoverKind = f.hover;
 }
 
@@ -5959,8 +6028,15 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     ctx->statsOver = f.hand >= 0 && f.hand < SRC_COUNT && f.onStats[f.hand];
     clearHotState(ctx);
     updateHintOpening(ctx, &f);
+    // Native (lane eye-calibration): a run lasts while the cog's panel it took the place of is open
+    if (xrEyeCalUp(ctx) && !ctx->cogOpen) {
+        xrEyeCalCancel(ctx, "the panel closed");
+    }
     if (ctx->pickerOpen) {
         updatePicker(ctx, &f);
+    }
+    else if (ctx->cogOpen && xrEyeCalUp(ctx)) {
+        updateEyeCal(ctx, &f);
     }
     else if (ctx->cogOpen) {
         updateCogPanel(ctx, &f);
@@ -5990,10 +6066,11 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     padPutPanelsAway(ctx, out);
     logInputSnapshot(ctx, &f);
     // Native (lane wave2-bind-wire): pointer mode's bindings, once the panels
-    // have taken their presses
-    if (!ctx->padMode) {
+    // have taken their presses. Native (lane eye-calibration): none while a calibration runs.
+    if (!ctx->padMode && !xrEyeCalUp(ctx)) {
         bindPointerStep(ctx, &f, out);
     }
+    xrEyeCalSave(ctx, out);
 
     // Where the handle is clear of the picture, so a trigger press there cannot
     // have been meant as a click

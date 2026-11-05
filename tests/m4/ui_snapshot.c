@@ -114,6 +114,28 @@ int main(int argc, char** argv) {
         s->settings.head_dwell_ms = 0;
     }
 
+    // Native (lane eye-calibration): the Accessibility tab with eye gaze reaching the app and a
+    // calibration stored (the Eye calibration row's Start, Reset and result), then a run up: its label in
+    // the middle of the picture and its fourth dot
+    scene_reset(s);
+    c->cogOpen = 1;
+    c->cogTab = COG_TAB_ACCESS;
+    c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
+    c->gazeOffered = c->eyeGaze = c->gazeBound = c->gazeSeen = 1;
+    xrEyeCalFromSettings(c, "1 a 1.200 0.300 -0.100 -0.800 0.000 0.200 0.94 2.61 1.70 4.90");
+    c->cogHoverSlider = COG_ACCESS_ROW_EYECAL;
+    c->cogHoverCell = COG_ACCESS_EYECAL_START;
+    scene_ray_to(s, hand(), panelPoint(c->cogPose, c->cogW, c->cogH, 0.55f, cogRowV(COG_TAB_ACCESS, COG_ACCESS_ROW_EYECAL)));
+    shot(s, "07c-cog-accessibility-eyes", NULL);
+    xrEyeCalStart(c);
+    c->eyeCalRun.step = 3;
+    c->eyeCalRun.phase = EYECAL_PHASE_COLLECT;
+    c->eyeCalRun.phaseNs = nowNs();
+    shot(s, "07d-eye-calibration", NULL);
+    xrEyeCalCancel(c, "the snapshot");
+    xrEyeCalFromSettings(c, "");
+    c->gazeOffered = c->eyeGaze = c->gazeBound = c->gazeSeen = 0;
+
     // Native (lane wave3-hud): the clock strip over the cog with the headset's battery (charging) and the
     // slow connection badge
     scene_reset(s);

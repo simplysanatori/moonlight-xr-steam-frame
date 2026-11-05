@@ -868,10 +868,48 @@ static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* laye
     }
 }
 
+// Native (lane eye-calibration): while a calibration runs, the panel's two layers are its label (the
+// panel's art, drawn as the run's face, over the middle of the picture at the panel's size or less) and
+// the dot, in that order, so the frame keeps its count and the beam its place in the list as the run
+// comes and goes (lane beam-streak's rule, tests/m4/test_kbbar.c). Until the panel's art has turned
+// into the label, and back into the tab after the run, that layer only holds its place.
+static void addEyeCalLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers, int up) {
+    XrPosef pic = view->screenPose;
+    if (up && ctx->cogDrawnCal > 0) {
+        float w = ctx->cogW < 0.36f * ctx->screenWidth ? ctx->cogW : 0.36f * ctx->screenWidth;
+        Vec3 ahead = { 0.0f, 0.0f, 0.01f };
+        atlasQuad(ctx, &layers->cogPanel, NULL, UI_PANEL_COG, view->space, poseOffset(pic, ahead), w,
+                  w * (float)COG_TEX_H / (float)COG_TEX_W);
+        pushLayer(ctx, layers, &layers->cogPanel);
+    }
+    else {
+        holdPlace(ctx, layers, &layers->cogPanel, view->space, up ? pic : ctx->cogPose);
+    }
+    if (!ctx->cogClockReady) {
+        return;
+    }
+    Vec3 head = { ctx->headPos.x, ctx->headPos.y, ctx->headPos.z };
+    Vec3 at;
+    float side;
+    if (up && ctx->pointerArtReady && xrEyeCalDotPoint(ctx, head, nowNs(), &at, &side)) {
+        XrPosef pose = { pic.orientation, { at.x, at.y, at.z } };
+        atlasQuad(ctx, &layers->cogClock, NULL, ATLAS_DOT, view->space, pose, side, side);
+        pushLayer(ctx, layers, &layers->cogClock);
+    }
+    else {
+        holdPlace(ctx, layers, &layers->cogClock, view->space, up ? pic : ctx->cogPose);
+    }
+}
+
 // The settings panel at the pose it was opened with, and the clock strip
 // over its top edge. Its rings, thumbs and readouts are in the panel's art.
 static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     float level = ctx->panelFades[FADE_COG].level;
+    int calUp = xrEyeCalUp(ctx);
+    if (level > 0.0f && (calUp || ctx->cogDrawnCal > 0)) {
+        addEyeCalLayers(ctx, view, layers, calUp);
+        return;
+    }
     if (level > 0.0f) {
         atlasQuad(ctx, &layers->cogPanel, fadeNext(ctx, layers, FADE_COG, 1, level),
                   UI_PANEL_COG, view->space, ctx->cogPose, ctx->cogW, ctx->cogH);
@@ -945,6 +983,23 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
     int beamKind = rayBeamKind(ctx->raySetting, ctx->rayFlipped, panelUp(ctx), ctx->dotOn, view->barArea);
     int beamSlot = beamKind == RAY_BEAM_RESTING ? ATLAS_BEAM_FAINT : ATLAS_BEAM;
     Vec3 head = { ctx->headPos.x, ctx->headPos.y, ctx->headPos.z };
+
+    // Native (lane eye-calibration): nothing of the pointer is drawn while a calibration runs, but its
+    // places are held as they stand with the pointer on the panel: the dwell's mark with the head or
+    // the eyes pointing, the beam with a controller, and the dot
+    if (xrEyeCalUp(ctx)) {
+        int hands = ctx->pointerSource == POINTER_SOURCE_CONTROLLER || ctx->padMode;
+        if (!hands) {
+            holdPlace(ctx, layers, &layers->dwellMark, view->space, view->screenPose);
+        }
+        if (ctx->pointerArtReady) {
+            if (hands) {
+                holdPlace(ctx, layers, &layers->beam, view->space, view->screenPose);
+            }
+            holdPlace(ctx, layers, &layers->dot, view->space, view->screenPose);
+        }
+        return;
+    }
 
     // Native (lane radial-dwell): the dwell's circle round the dot, and at the dwell's start its
     // radial menu (or a held drag's mark), under the dot. The menu is drawn whether or not the dot is

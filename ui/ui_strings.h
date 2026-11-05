@@ -289,7 +289,19 @@
     X(ACCESS_DESC_DWELL_STYLE, "native_access_desc_dwell_style", "Radial menu: near the end of the dwell, look left for double click, down to drag, right for right click.") \
     /* native (lane a11y-final): Eyes marked experimental, and the right hand's way back to the controllers */ \
     X(CELL_EYES_EXPERIMENTAL, "native_cell_eyes_experimental", "experimental") \
-    X(TOAST_POINTER_BACK, "native_toast_pointer_back", "Pointer: Controller")
+    X(TOAST_POINTER_BACK, "native_toast_pointer_back", "Pointer: Controller") \
+    /* native (lane eye-calibration): the Accessibility tab's Eye calibration row, and its run's label */ \
+    X(ROW_EYE_CAL, "native_row_eye_cal", "Eye calibration") \
+    X(CELL_EYE_CAL_START, "native_cell_eye_cal_start", "Start") \
+    X(EYE_CAL_NONE, "native_eye_cal_none", "Not calibrated") \
+    X(EYE_CAL_DONE, "native_eye_cal_done", "Calibrated: %.1f° average") \
+    X(EYE_CAL_FAIL_FEW, "native_eye_cal_fail_few", "Failed: Too few steady dots") \
+    X(EYE_CAL_FAIL_GAIN, "native_eye_cal_fail_gain", "Failed: No improvement") \
+    X(EYE_CAL_FAIL_EXTREME, "native_eye_cal_fail_extreme", "Failed: Correction too large") \
+    X(ACCESS_DESC_EYE_CAL, "native_access_desc_eye_cal", "Corrects where the eyes point. Look at each of the 12 dots in turn.") \
+    X(EYE_CAL_LOOK, "native_eye_cal_look", "Look at the dot") \
+    X(EYE_CAL_PROGRESS, "native_eye_cal_progress", "%d / %d") \
+    X(EYE_CAL_CANCEL, "native_eye_cal_cancel", "B: Cancel")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

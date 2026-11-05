@@ -448,6 +448,7 @@ static void jobLand(XrCtx* ctx, XrPanels* p, const PanelJob* j, const UiHits* hi
             ctx->padCardReady = 1;
         }
         if (j->slot == UI_PANEL_COG) {
+            ctx->cogDrawnCal = j->view.eyecal_step;   // native (lane eye-calibration): which face is up
             p->lastSettings = j->settings;
             snprintf(p->lastStereoReason, sizeof(p->lastStereoReason), "%s", j->stereoReason);
             p->lastView = j->view;
@@ -700,6 +701,8 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->pad = ctx->padLive;   // Native (lane wave3-cards): the pad card, and the first-run card's wording
     v->access_eyes = xrAccessEyes(ctx);   // Native (lane a11y-tab): the Accessibility tab's eye line
     v->access_row = xrAccessHoverRow(ctx);   // Native (lane a11y-2): and the row its footer describes
+    v->access_cal = ctx->eyeCalResult;        // Native (lane eye-calibration): the last run, and a run's face
+    v->eyecal_step = xrEyeCalStep(ctx);
 }
 
 // What the ray is on in the settings panel, as lane U's hover
@@ -738,6 +741,7 @@ typedef struct {
     unsigned later;
     int accessEyes;
     int accessRow;
+    int accessCal, eyecalStep;
 } CogKey;
 _Static_assert(sizeof(CogKey) <= KEY_MAX, "the cog's key is compared whole");
 
@@ -760,6 +764,8 @@ static void updateCog(XrCtx* ctx, XrPanels* p, const UiView* base) {
     k.later = v.display_later;
     k.accessEyes = v.access_eyes;
     k.accessRow = v.access_row;
+    k.accessCal = v.access_cal;
+    k.eyecalStep = v.eyecal_step;
     if (!keyChanged(p, UI_PANEL_COG, &k, sizeof(k))) {
         return;
     }
