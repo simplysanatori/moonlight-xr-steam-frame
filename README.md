@@ -103,7 +103,7 @@ The [changelog](docs/CHANGELOG.md) lists everything new in each version; the [1.
 
 The installer changes nothing outside the folders listed under [Files](#files), the Steam shortcut and SteamVR's settings for that shortcut. `./install.sh --help` lists its options.
 
-From 1.1.0 on, releases also carry the same files as a `.zip` (`moonlight-xr-steam-frame-<version>-linux-arm64.zip`). The community installers [Frametanium](https://github.com/Cogential/frametanium) and FrameDrop can install the release from there; they run `install.sh` without a terminal. If Steam is not running then, the files are installed and the Steam shortcut is skipped; the installer says so (the last lines of its output, and `~/Games/MoonlightXRNative/install.log`), and running `install.sh` again with Steam up adds it.
+From 1.1.0 on, releases also carry the same files as a `.zip` (`moonlight-xr-steam-frame-<version>-linux-arm64.zip`). [Frametanium](https://github.com/Cogential/frametanium) installs the release from the `.tar.gz` and runs `install.sh` without a terminal. FrameDrop uses its own zip (see [Install with FrameDrop](#install-with-framedrop)). If Steam is not running then, the files are installed and the Steam shortcut is skipped; the installer says so (the last lines of its output, and `~/Games/MoonlightXRNative/install.log`), and running `install.sh` again with Steam up adds it.
 
 The icon in the SteamVR dock stays grey until Steam has been restarted once after the first install.
 
