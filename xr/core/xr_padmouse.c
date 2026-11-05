@@ -81,8 +81,8 @@ float padMouseScrollSpeed(float deflection) {
 const char* padMouseNoticeText(int on, int chord) {
     if (!on) return "Gamepad mouse off";
     switch (chord) {
-    case PAD_MOUSE_CHORD_START_HOLD: return "Gamepad mouse on: hold Start to exit";
-    case PAD_MOUSE_CHORD_START_BACK: return "Gamepad mouse on: hold Start + Back to exit";
+    case PAD_MOUSE_CHORD_START_HOLD: return "Gamepad mouse on: Hold Start to stop";
+    case PAD_MOUSE_CHORD_START_BACK: return "Gamepad mouse on: Hold Start and Back to stop";
     default: return "Gamepad mouse on";
     }
 }

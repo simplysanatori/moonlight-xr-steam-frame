@@ -932,7 +932,7 @@ static void testSbs(void) {
     printf("stats line: %s\n", line);
     CHECK(strstr(line, "host-rendered") != NULL && strstr(line, "side by side, full size") != NULL);
     xrDepthOverlay(ctx, line, sizeof(line));
-    CHECK(strstr(line, "from host") != NULL);
+    CHECK(strstr(line, "from the PC") != NULL);
 
     // Top-bottom from the row: at once, and stored
     sourceCell(ctx, STEREO_SOURCE_TB, out);

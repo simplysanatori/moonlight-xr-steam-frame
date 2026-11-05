@@ -1349,7 +1349,7 @@ void xrDepthOverlay(XrCtx* ctx, char* buf, int len) {
         return;
     }
     if (ctx->stereoMode == DEPTH_MODE_SBS) {
-        snprintf(buf, (size_t)len, "3D: %s, from host (%s)", ctx->stereoLive ? "on" : "off", sbsName(ctx));
+        snprintf(buf, (size_t)len, "3D: %s, from the PC (%s)", ctx->stereoLive ? "on" : "off", sbsName(ctx));
         return;
     }
     if (ctx->stereoMode != DEPTH_MODE_MODEL) {

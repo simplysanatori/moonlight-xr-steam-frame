@@ -331,11 +331,11 @@ static void testUnknowns(void) {
     MlxrDecodeTally none = { 0, 0, 0.0 };
     mlxr_stats_decode_text(&none, buf, sizeof(buf));
     CHECK(strcmp(buf, "Decoded 0, dropped 0, decode n/a") == 0);
-    // its audio line: no audio from the host is said, not "0ch 0 ms buffered"
+    // its audio line: no audio stream from the PC is said, not "0ch 0 ms buffered"
     mlxr_stats_audio_text(0, 0, 0.0, 0, 0, buf, sizeof(buf));
-    CHECK(strcmp(buf, "No audio from host") == 0);
+    CHECK(strcmp(buf, "Audio: No stream from PC") == 0);
     mlxr_stats_audio_text(1200, 2, 40.0, 2, 0, buf, sizeof(buf));
-    CHECK(strcmp(buf, "Audio 2ch, 40 ms buffered, 2 underruns, 0 lost") == 0);
+    CHECK(strcmp(buf, "Audio: 2ch, 40 ms buffered, 2 underruns, 0 lost") == 0);
 }
 
 int main(void) {

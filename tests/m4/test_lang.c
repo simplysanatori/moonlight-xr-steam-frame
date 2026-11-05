@@ -18,7 +18,7 @@ int main(void) {
     CHECK(s->settings.language == 0);
     CHECK(ui_str_lang_current() == ui_lang_find("de"));
     CHECK(strcmp(ui_str(UIS_ROW_DISTANCE), "Abstand") == 0);
-    CHECK(strcmp(ui_str(UIS_NATIVE_PC_LIST_TITLE), "Hosts") == 0);   // no translation: English
+    CHECK(strcmp(ui_str(UIS_NATIVE_PC_LIST_TITLE), "Computers") == 0);   // no translation: English
     // the panels draw it: the cog's Screen tab differs from the English one
     // a second apply with another language: the run keeps the first
     Settings other = s->settings;

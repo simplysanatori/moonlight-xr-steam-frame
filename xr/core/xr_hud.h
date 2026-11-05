@@ -82,9 +82,9 @@ typedef struct MlxrDecodeTally {
 } MlxrDecodeTally;
 void mlxr_stats_decode_text(const MlxrDecodeTally* t, char* buf, size_t cap);
 
-// Native (lane beam-streak): the Full stats' audio line, "Audio 2ch, 40 ms buffered, 2 underruns, 0
-// lost", or "No audio from host" while no packet has come (the host playing its sound itself, or a
-// silent stream), where it said "audio 0ch 0 ms buffered"
+// Native (lane beam-streak): the Full stats' audio line, "Audio: 2ch, 40 ms buffered, 2 underruns, 0
+// lost", or "Audio: No stream from PC" while no packet has come (the PC playing its sound itself, or
+// a silent stream), where it said "audio 0ch 0 ms buffered"
 void mlxr_stats_audio_text(uint64_t packets, int channels, double bufferedMs, uint32_t underruns, uint32_t lost,
                            char* buf, size_t cap);
 

@@ -212,7 +212,7 @@ static void statsHook(void* user, char* buf, int len) {
         stream_stats(s, sizeof(s));
         MlxrOpusOutStats st;
         mlxr_opus_out_stats(&st);
-        // Native (lane beam-streak): "No audio from host" until a packet comes, not "0ch 0 ms"
+        // Native (lane beam-streak): "Audio: No stream from PC" until a packet comes, not "0ch 0 ms"
         mlxr_stats_audio_text(st.packets, st.channels, st.bufferedMs, st.underruns, st.lostPackets, a, sizeof(a));
     }
     // Native (lane beam-streak): the decoder that is decoding. The software decoder's frame slot was
@@ -690,8 +690,8 @@ static const char* clipboardWhy(const mlxr_error* e) {
         const char* t = mlxr_hostfeat_http_text(e->status);
         if (t) return t;
     }
-    if (e->code == MLXR_E_TIMEOUT || e->code == MLXR_E_NET) return "Host not answering";
-    return "Host clipboard unavailable";
+    if (e->code == MLXR_E_TIMEOUT || e->code == MLXR_E_NET) return "The PC did not answer";
+    return "The PC clipboard could not be reached";
 }
 
 typedef struct HostAct {
@@ -738,10 +738,10 @@ static void* hostActThread(void* arg) {
             size_t used = vrkb_type_text(&kb, text, HOST_PASTE_MAX_BYTES);
             MLOG_I("host sheet: %zu of %zu bytes of the PC clipboard typed", used, total);
             if (used < total) {
-                snprintf(note, sizeof(note), "Typed first %d characters of host clipboard", utf8Chars(text) - utf8Chars(text + used));
+                snprintf(note, sizeof(note), "Typed the first %d characters of the PC clipboard", utf8Chars(text) - utf8Chars(text + used));
             }
             else {
-                snprintf(note, sizeof(note), "Typed %d characters from host clipboard", utf8Chars(text));
+                snprintf(note, sizeof(note), "Typed %d characters from the PC clipboard", utf8Chars(text));
             }
         }
         free(text);
@@ -757,7 +757,7 @@ static void* hostActThread(void* arg) {
         }
         else {
             MLOG_I("host sheet: %zu bytes sent to the PC clipboard", strlen(a->text));
-            snprintf(note, sizeof(note), "Sent %d characters to host clipboard", utf8Chars(a->text));
+            snprintf(note, sizeof(note), "Sent %d characters to the PC clipboard", utf8Chars(a->text));
         }
     }
     if (note[0]) xr_app_notice(note);
@@ -784,10 +784,10 @@ static void hostActionHook(void* user, int action, int arg, const char* text) {
         }
         else if (stream_exec_server_cmd(arg)) {
             MLOG_I("host sheet: server command %d (%s) sent", arg, comp.server_cmds[arg]);
-            snprintf(note, sizeof(note), "Sent \"%.60s\" to the host", comp.server_cmds[arg]);
+            snprintf(note, sizeof(note), "Sent \"%.60s\" to the PC", comp.server_cmds[arg]);
         }
         else {
-            snprintf(note, sizeof(note), "Command not sent");
+            snprintf(note, sizeof(note), "The command could not be sent");
         }
         xr_app_notice(note);
         return;
@@ -799,7 +799,7 @@ static void hostActionHook(void* user, int action, int arg, const char* text) {
     }
     int idle = 0;
     if (!atomic_compare_exchange_strong(&g_hostActBusy, &idle, 1)) {
-        xr_app_notice("Busy, try again");
+        xr_app_notice("Still busy with the last request");
         return;
     }
     HostAct* a = calloc(1, sizeof(*a));
