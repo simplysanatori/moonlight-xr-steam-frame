@@ -538,6 +538,74 @@ static void pictureBarPushPull(Scene* s) {
     c->panelCurve = keepCurve;
 }
 
+// Native (lane beam-streak): where the beam is in the frame's list of layers, -1 for nowhere
+static int beamIndex(const Scene* s) {
+    UiRectPx b = xrAtlasRect(ATLAS_BEAM);
+    for (uint32_t i = 0; i < s->out.count; i++) {
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)s->out.order[i];
+        if (q->type == XR_TYPE_COMPOSITION_LAYER_QUAD && q->subImage.imageRect.offset.x == b.x
+                && q->subImage.imageRect.offset.y == b.y && q->subImage.imageRect.extent.width == b.w) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+// Native (lane beam-streak): the ray sweeping over the keys and the gaps between them leaves every
+// layer where it was. The ring round the key under the ray came and went with each gap, the beam and
+// the dot moved a place up or down the list each time, and the frame the ring went was the one frame
+// SteamVR drew the beam as a white streak across the view. Off the keys the ring's layer stays, and
+// shows nothing.
+static void keyGapsKeepLayers(Scene* s) {
+    XrCtx* c = s->ctx;
+    defaults(s);
+    Vec3 key = onPlane(c->kbPose, c->kbW, c->kbH, 0.5f, 0.5f);
+    scene_ray_to(s, HAND, key);
+    c->hoverKind = HOVER_KBPANEL;
+    c->kbHoverKey = 3;
+    scene_frame(s, NULL);
+    uint32_t onKey = s->out.count;
+    int beamOnKey = beamIndex(s);
+    CHECK(beamOnKey > 0);
+    c->kbHoverKey = -1;
+    scene_frame(s, NULL);
+    printf("keyboard up, ray on a key: %u layers, the beam %d; in a gap: %u layers, the beam %d\n",
+           onKey, beamOnKey, s->out.count, beamIndex(s));
+    CHECK(s->out.count == onKey);
+    CHECK(beamIndex(s) == beamOnKey);
+    // and the ring's layer in the gap is clear: every texel it shows has no alpha, and it is no more
+    // than a millimetre across
+    int found = 0;
+    const uint8_t* px = xrAtlasPixels(c);
+    UiRectPx o = xrAtlasRect(ATLAS_OUTLINE);
+    for (uint32_t i = 0; i < s->out.count; i++) {
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)s->out.order[i];
+        if (q->type != XR_TYPE_COMPOSITION_LAYER_QUAD || q->subImage.imageRect.offset.x < o.x
+                || q->subImage.imageRect.offset.x >= o.x + o.w || q->subImage.imageRect.offset.y < o.y
+                || q->subImage.imageRect.offset.y >= o.y + o.h) {
+            continue;
+        }
+        found++;
+        CHECK(q->size.width <= 0.001f && q->size.height <= 0.001f);
+        const XrRect2Di* r = &q->subImage.imageRect;
+        unsigned alpha = 0;
+        for (int y = r->offset.y; y < r->offset.y + r->extent.height; y++) {
+            for (int x = r->offset.x; x < r->offset.x + r->extent.width; x++) {
+                alpha += px[((size_t)y * UI_ATLAS_W + (size_t)x) * 4 + 3];
+            }
+        }
+        CHECK(alpha == 0);
+    }
+    CHECK(found == 1);
+    // A key again: the ring is back in the same place, the beam where it was
+    c->kbHoverKey = 5;
+    scene_frame(s, NULL);
+    CHECK(s->out.count == onKey && beamIndex(s) == beamOnKey);
+    c->kbOpen = 0;
+    c->kbHoverKey = -1;
+    c->hoverKind = HOVER_NONE;
+}
+
 int main(void) {
     Scene* s = scene_new();
     defaults(s);
@@ -546,6 +614,7 @@ int main(void) {
     layers(s);
     liveSliders(s);
     pictureBarPushPull(s);
+    keyGapsKeepLayers(s);
     scene_free(s);
     return checksDone("m4 kbbar");
 }
