@@ -201,10 +201,10 @@ int main(int argc, char** argv) {
     // Native (owner's request): the lines as the session writes them, the
     // app's clauses wider than the window was; every one wraps inside it
     static const char LONG_STATS[] =
-        "Display 90 Hz, 89 fps\nVideo 2560x1440, 60 fps\ndecoded 123456, dropped 12, decode 3.1 ms\n"
-        "units 654321, idr requests 2, rtt 4 ms, pending video 1\n"
-        "hw decode 3.1 ms (last 3.2), frames 123456, skipped 12, errors 0\n"
-        "audio 2ch 40 ms buffered, 2 underruns, 0 lost (stream totals)\n"
+        "Display 90 Hz, 89 fps\nVideo 2560x1440, 60 fps\nDecoded 123456, dropped 12, decode 3.1 ms\n"
+        "Bitrate 98000 kbps, units 654321, IDR requests 2, RTT 4 ms, pending 1\n"
+        "HW decode 3.1 ms (last 3.2), frames 123456, skipped 12, errors 0\n"
+        "Audio 2ch, 40 ms buffered, 2 underruns, 0 lost\n"
         "network 54 Mb/s, host encode 4.2 ms, network 1.1 ms, decode 3.1 ms, present 2.0 ms, total 10.4 ms (worst 15.8)\n"
         "Depth 14.9/s (target 15), depth-anything-v2-small-int8\nDepth inference 41.3 ms, age 88 ms, skipped 1234";
     shot(s, "13-stats", LONG_STATS);
@@ -405,7 +405,7 @@ int main(int argc, char** argv) {
     xrHostChordStop(&c->hostChord);
     xrKeyboardSetLayout(c, NULL, KB_LAYOUT_COMPACT);
 
-    // Native (lane wave4-apollo): "Send text to PC" has the keyboard, and has been typed a line
+    // Native (lane wave4-apollo): "Send text to host" has the keyboard, and has been typed a line
     scene_reset(s);
     c->kbOpen = 1;
     c->kbState = KB_STATE_LOWER;

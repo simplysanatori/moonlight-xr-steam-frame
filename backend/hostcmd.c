@@ -48,9 +48,9 @@ const char *mlxr_hostfeat_text(mlxr_hostfeat f)
     switch (f) {
     case MLXR_HOSTFEAT_OK: return "";
     case MLXR_HOSTFEAT_NOT_APOLLO: return "Not supported by this host";
-    case MLXR_HOSTFEAT_NO_PERMISSION: return "This host has not allowed it for the Frame";
-    case MLXR_HOSTFEAT_NONE_CONFIGURED: return "This host has no commands set up";
-    case MLXR_HOSTFEAT_BAD_INDEX: return "The host has no such command";
+    case MLXR_HOSTFEAT_NO_PERMISSION: return "Not allowed by the host";
+    case MLXR_HOSTFEAT_NONE_CONFIGURED: return "No commands set up on the host";
+    case MLXR_HOSTFEAT_BAD_INDEX: return "Unknown host command";
     }
     return "";
 }
@@ -58,8 +58,8 @@ const char *mlxr_hostfeat_text(mlxr_hostfeat f)
 const char *mlxr_hostfeat_http_text(int status)
 {
     switch (status) {
-    case 401: return "This host has not allowed it for the Frame";
-    case 403: return "The host sees no stream from this client";
+    case 401: return "Not allowed by the host";
+    case 403: return "Host sees no stream from this client";
     case 404: return "Not supported by this host";
     default: return NULL;
     }

@@ -72,7 +72,7 @@ int mlxr_hud_window(const MlxrHudCum* prev, const MlxrHudCum* cur, double secs, 
 void mlxr_hud_lite(const MlxrHudFigures* f, int slow, char* buf, size_t cap);
 
 // Native (lane beam-streak): the Full stats' decoder line, from whichever decoder is decoding (the
-// hardware one's counters, or the software one's frame slot). "decoded 1234, dropped 5, decode 3.1
+// hardware one's counters, or the software one's frame slot). "Decoded 1234, dropped 5, decode 3.1
 // ms"; the decode time "n/a" before the first frame. It read the software decoder's slot alone, which
 // the hardware decoder (every stream on the Frame) never fills, so it said 0 all through a stream.
 typedef struct MlxrDecodeTally {
@@ -82,9 +82,9 @@ typedef struct MlxrDecodeTally {
 } MlxrDecodeTally;
 void mlxr_stats_decode_text(const MlxrDecodeTally* t, char* buf, size_t cap);
 
-// Native (lane beam-streak): the Full stats' audio line, "audio 2ch 40 ms buffered, 2 underruns, 0
-// lost (stream totals)", or "audio: nothing from the PC yet" while no packet has come (the PC playing
-// its sound itself, or a silent stream), where it said "audio 0ch 0 ms buffered"
+// Native (lane beam-streak): the Full stats' audio line, "Audio 2ch, 40 ms buffered, 2 underruns, 0
+// lost", or "No audio from host" while no packet has come (the host playing its sound itself, or a
+// silent stream), where it said "audio 0ch 0 ms buffered"
 void mlxr_stats_audio_text(uint64_t packets, int channels, double bufferedMs, uint32_t underruns, uint32_t lost,
                            char* buf, size_t cap);
 
@@ -102,7 +102,7 @@ typedef struct MlxrCompositorMetrics {
 void mlxr_hud_panel(const MlxrHudFigures* f, int slow, const MlxrCompositorMetrics* m, double displayHz,
                     char* buf, size_t cap);
 
-// The compositor part alone, for the log line and the full overlay: "compositor cpu 1.2 ms gpu 3.4 ms,
+// The compositor part alone, for the log line and the full overlay: "Compositor CPU 1.2 ms, GPU 3.4 ms,
 // 0 dropped"; "" when m has nothing.
 void mlxr_compositor_line(const MlxrCompositorMetrics* m, char* buf, size_t cap);
 

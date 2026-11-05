@@ -398,7 +398,7 @@ static void test_choose(void)
     p = plan2(MLXR_NET_AUTO, mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 2.0, 0), mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 4.0, 0));
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);
     CHECK(strstr(p.reason, "Wi-Fi preferred on a tie"));
-    CHECK_EQ_STR(p.connected, "Connected over Wi-Fi.");
+    CHECK_EQ_STR(p.connected, "Connected over Wi-Fi");
     /* latency wins over the link rate: the adapter's round trip is 10 ms lower though its link is poor */
     mlxr_net_cand gad = mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 2.0, 38);
     mlxr_net_cand ghome = mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 12.0, 100);
@@ -407,7 +407,7 @@ static void test_choose(void)
     p = plan2(MLXR_NET_AUTO, gad, ghome);
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
     CHECK(strstr(p.reason, "chose adapter: score 2.0 ms against Wi-Fi 12.0 ms (lower is better); decided by latency (rtt 2.0 ms against 12.0 ms"));
-    CHECK_EQ_STR(p.connected, "Connected over Steam Frame Wireless Adapter.");
+    CHECK_EQ_STR(p.connected, "Connected over Steam Frame Wireless Adapter");
     /* ... and Wi-Fi with the lower round trip beats an adapter with a good link */
     ghome = mkflat(MLXR_PATH_HOME, "192.168.1.10", 15, 0, 2.0, 100);
     gad = mkflat(MLXR_PATH_ADAPTER, "10.35.50.27", 15, 0, 9.0, 100);
@@ -505,19 +505,19 @@ static void test_choose(void)
     p = plan2(MLXR_NET_ADAPTER, home, mk(MLXR_PATH_ADAPTER, "10.35.50.27", 0, 4, 0, 0, 51));
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
     CHECK(p.fell_back && p.chosen_path == MLXR_PATH_HOME);
-    CHECK_EQ_STR(p.toast, "Steam Frame Wireless Adapter not reachable (10.35.50.27: no answer). Using Wi-Fi.");
+    CHECK_EQ_STR(p.toast, "Steam Frame Wireless Adapter unreachable (10.35.50.27: no answer), using Wi-Fi");
     CHECK(strstr(p.summary, "fell back"));
     /* home asked, only the adapter answers */
     p = plan2(MLXR_NET_HOME, dead, ad);
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);
-    CHECK_EQ_STR(p.toast, "Wi-Fi not reachable (192.168.1.99: connect timed out). Using Steam Frame Wireless Adapter.");
+    CHECK_EQ_STR(p.toast, "Wi-Fi unreachable (192.168.1.99: connect timed out), using Steam Frame Wireless Adapter");
     CHECK_EQ_STR(p.failure, "192.168.1.99: connect timed out");
     /* asked for a path with no address at all */
     p = plan2(MLXR_NET_ADAPTER, home, home2);
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
     CHECK(p.fell_back);
     CHECK_EQ_STR(p.failure, "no address of the PC known on this network");
-    CHECK(strstr(p.toast, "Steam Frame Wireless Adapter not reachable (no address of the PC known on this network). Using Wi-Fi."));
+    CHECK(strstr(p.toast, "Steam Frame Wireless Adapter unreachable (no address of the PC known on this network), using Wi-Fi"));
     /* none anywhere */
     p = plan2(MLXR_NET_HOME, dead, dead);
     CHECK_EQ_INT(mlxr_net_choose(&p), -1);
@@ -787,7 +787,7 @@ static void test_adapter_plan(fake_host *h)
     CHECK(ms < 2000);   /* the 4 s retry window was not waited */
     CHECK(p.fell_back && p.adapter_absent_fallback && p.chosen_path == MLXR_PATH_HOME);
     CHECK(!p.c[0].probed);
-    CHECK_EQ_STR(p.toast, "Steam Frame Wireless Adapter not reachable (no adapter found: wlanap up, no station). Using Wi-Fi.");
+    CHECK_EQ_STR(p.toast, "Steam Frame Wireless Adapter unreachable (no adapter found: wlanap up, no station), using Wi-Fi");
     CHECK_EQ_STR(p.failure, "no adapter found: wlanap up, no station");
 
     /* the adapter forced and wlanap down */
@@ -796,7 +796,7 @@ static void test_adapter_plan(fake_host *h)
     mlxr_net_plan_add(&p, "198.51.100.7", 0);
     mlxr_net_plan_add(&p, "127.0.0.1", live);
     CHECK_EQ_INT(mlxr_net_select(&p, &t), 1);
-    CHECK_EQ_STR(p.toast, "Steam Frame Wireless Adapter not reachable (no adapter found: wlanap down). Using Wi-Fi.");
+    CHECK_EQ_STR(p.toast, "Steam Frame Wireless Adapter unreachable (no adapter found: wlanap down), using Wi-Fi");
 
     /* Wi-Fi forced: unchanged, the adapter is not needed */
     mlxr_net_plan_init(&p, MLXR_NET_HOME, "test", 1, "", "");
@@ -807,7 +807,7 @@ static void test_adapter_plan(fake_host *h)
     CHECK(!p.fell_back && !p.toast[0]);
 
     /* the adapter forced and a station: the adapter is tried first, as before (it does not answer
-     * here, the fall back is the old "not reachable" text) */
+     * here, the fall back is the old "unreachable" text) */
     mlxr_net_plan_init(&p, MLXR_NET_ADAPTER, "test", 1, "", "");
     p.adapter_inputs = &st;
     p.retry_ms = 300;
@@ -815,7 +815,7 @@ static void test_adapter_plan(fake_host *h)
     mlxr_net_plan_add(&p, "127.0.0.1", live);
     CHECK_EQ_INT(mlxr_net_select(&p, &t), 1);
     CHECK(p.fell_back && !p.adapter_absent_fallback && p.c[0].probed);
-    CHECK(strstr(p.toast, "not reachable (198.51.100.7: "));
+    CHECK(strstr(p.toast, "unreachable (198.51.100.7: "));
 
     /* the pure choice: the adapter marked absent by hand */
     mlxr_net_cand home = mk(MLXR_PATH_HOME, "192.0.2.10", 7, 0, 3.0, 0.1, 98);
@@ -832,7 +832,7 @@ static void test_adapter_plan(fake_host *h)
     /* an unchecked adapter keeps the old text */
     p = plan2(MLXR_NET_ADAPTER, mk(MLXR_PATH_ADAPTER, "198.51.100.7", 0, 4, 0, 0, 51), home);
     CHECK_EQ_INT(mlxr_net_choose(&p), 1);
-    CHECK(!p.adapter_absent_fallback && strstr(p.toast, "not reachable (198.51.100.7: no answer)"));
+    CHECK(!p.adapter_absent_fallback && strstr(p.toast, "unreachable (198.51.100.7: no answer)"));
 }
 
 /* ---- Native (lane netpath-quality): the history file ---- */
@@ -1243,7 +1243,7 @@ static void test_usb_choose(void)
     CHECK(p.chosen_path == MLXR_PATH_USB && !p.fell_back && !p.toast[0]);
     CHECK(strstr(p.reason, "chose USB cable: score 1.0 ms against Wi-Fi 12.0 ms (lower is better); decided by latency"));
     CHECK_EQ_STR(p.chosen_desc, "USB cable");
-    CHECK_EQ_STR(p.connected, "Connected over USB cable.");
+    CHECK_EQ_STR(p.connected, "Connected over USB cable");
     CHECK(strstr(p.summary, "usb 198.51.100.234 (auto)"));
     p = plan2(MLXR_NET_AUTO, usb, wifi);   /* the order does not matter */
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
@@ -1293,7 +1293,7 @@ static void test_usb_choose(void)
     mlxr_net_usb_assess(&t, &p.usb);
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
     CHECK(p.fell_back && !p.usb_absent_fallback && p.chosen_path == MLXR_PATH_HOME);
-    CHECK_EQ_STR(p.toast, "USB cable not reachable (198.51.100.234: connect timed out). Using Wi-Fi.");
+    CHECK_EQ_STR(p.toast, "USB cable unreachable (198.51.100.234: connect timed out), using Wi-Fi");
     /* USB asked for and usb0 is DOWN: the notice says there is no cable */
     usb_table(&t, false);
     p = plan2(MLXR_NET_USB, wifi, mk(MLXR_PATH_ADAPTER, "10.35.50.27", 0, 0, 0, 0, 0));
@@ -1302,18 +1302,18 @@ static void test_usb_choose(void)
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
     CHECK(p.fell_back && p.usb_absent_fallback && !p.adapter_absent_fallback);
     CHECK_EQ_STR(p.failure, "no USB cable found: usb0 down (no cable, or the PC end is not up)");
-    CHECK_EQ_STR(p.toast, "USB cable not reachable (no USB cable found: usb0 down (no cable, or the PC end is not up)). Using Wi-Fi.");
+    CHECK_EQ_STR(p.toast, "USB cable unreachable (no USB cable found: usb0 down (no cable, or the PC end is not up)), using Wi-Fi");
     /* ... and with no USB interface at all */
     frame_table(&t, true);
     p = plan2(MLXR_NET_USB, wifi, mk(MLXR_PATH_ADAPTER, "10.35.50.27", 0, 0, 0, 0, 0));
     mlxr_net_usb_assess(&t, &p.usb);
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
-    CHECK_EQ_STR(p.toast, "USB cable not reachable (no USB cable found: no USB network interface found). Using Wi-Fi.");
+    CHECK_EQ_STR(p.toast, "USB cable unreachable (no USB cable found: no USB network interface found), using Wi-Fi");
     /* a plan nobody assessed keeps the generic words */
     p = plan2(MLXR_NET_USB, wifi, mk(MLXR_PATH_ADAPTER, "10.35.50.27", 0, 0, 0, 0, 0));
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
     CHECK(!p.usb_absent_fallback);
-    CHECK_EQ_STR(p.toast, "USB cable not reachable (no address of the PC known on this network). Using Wi-Fi.");
+    CHECK_EQ_STR(p.toast, "USB cable unreachable (no address of the PC known on this network), using Wi-Fi");
 
     /* the history file knows the cable */
     const char *dir = make_tmpdir();
@@ -1352,7 +1352,7 @@ static void test_usb_select(fake_host *h)
     CHECK(ms < 2000);   /* the 4 s retry window was not waited */
     CHECK_EQ_INT(p.n, 1);
     CHECK(p.fell_back && p.usb_absent_fallback && p.chosen_path == MLXR_PATH_HOME);
-    CHECK_EQ_STR(p.toast, "USB cable not reachable (no USB cable found: usb0 down (no cable, or the PC end is not up)). Using Wi-Fi.");
+    CHECK_EQ_STR(p.toast, "USB cable unreachable (no USB cable found: usb0 down (no cable, or the PC end is not up)), using Wi-Fi");
     CHECK(strstr(g_log, "network path: USB cable: usb0 down (no cable, or the PC end is not up)"));
 
     /* automatic, usb0 UP: the three guesses join the candidates (nothing answers on them here), with the log line */
@@ -1380,7 +1380,7 @@ static void test_usb_select(fake_host *h)
     mlxr_net_plan_add(&p, "127.0.0.1", live);
     CHECK_EQ_INT(mlxr_net_select(&p, &t), 0);
     CHECK(p.fell_back && !p.usb_absent_fallback && p.c[1].probed);
-    CHECK(strstr(p.toast, "USB cable not reachable (198.51.100.234: "));
+    CHECK(strstr(p.toast, "USB cable unreachable (198.51.100.234: "));
 }
 
 /* Native (lane wave4b-abr): the path kind a start bitrate is chosen for */
@@ -1487,7 +1487,7 @@ static void test_probe(void)
     which[1] = false;
     mlxr_net_probe(&p, which, 2, true);
     CHECK_EQ_INT(mlxr_net_choose(&p), 0);
-    CHECK(p.fell_back && strstr(p.toast, "Wi-Fi not reachable"));
+    CHECK(p.fell_back && strstr(p.toast, "Wi-Fi unreachable"));
 
     /* a different uuid: the address answers as another PC and is out */
     mlxr_net_plan_init(&p, MLXR_NET_AUTO, "test", live, "SOME-OTHER-PC", "");
@@ -1506,7 +1506,7 @@ static void test_probe(void)
     mlxr_net_plan_add(&p, "127.0.0.1", 1);
     mlxr_net_plan_add(&p, "127.0.0.1", 0);
     CHECK_EQ_INT(mlxr_net_select(&p, &t), 1);
-    CHECK(p.fell_back && strstr(p.toast, "Steam Frame Wireless Adapter not reachable"));
+    CHECK(p.fell_back && strstr(p.toast, "Steam Frame Wireless Adapter unreachable"));
 
     /* choosing a path means that path: a refused address on it is retried for retry_ms before the
      * other path is tried, and the toast names the address and how it failed */
@@ -1525,7 +1525,7 @@ static void test_probe(void)
     double ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
     CHECK(ms >= 650 && ms < 8000);   /* the retry window passed before the fall back */
     CHECK(p.fell_back && strstr(p.failure, "198.51.100.7:"));
-    CHECK(strstr(p.toast, "Steam Frame Wireless Adapter not reachable (198.51.100.7: "));
+    CHECK(strstr(p.toast, "Steam Frame Wireless Adapter unreachable (198.51.100.7: "));
     fake_host_stop(h);
 }
 
@@ -1671,7 +1671,7 @@ static void test_failover_select(fake_host *h)
     clock_gettime(CLOCK_MONOTONIC, &t1);
     CHECK((t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6 < 2000);
     CHECK(p.fell_back && p.chosen_path == MLXR_PATH_HOME);
-    CHECK(strstr(p.toast, "Steam Frame Wireless Adapter not reachable"));
+    CHECK(strstr(p.toast, "Steam Frame Wireless Adapter unreachable"));
     mlxr_net_quality_get(&q);
     CHECK(q.chosen == MLXR_PATH_HOME && q.generation == 3);
 

@@ -160,10 +160,10 @@ static void test_access_tab(void) {
     // says how to get the controllers back; the instructions say it too
     CHECK(access_drawn(&v, ui_str(UIS_CELL_EYES_EXPERIMENTAL)));
     CHECK(strstr(ui_str(UIS_ACCESS_DESC_POINTER), "experimental") != NULL);
-    CHECK(strstr(ui_str(UIS_ACCESS_DESC_POINTER), "jitters") != NULL);
-    CHECK(strstr(ui_str(UIS_ACCESS_DESC_POINTER), "Hold right Menu and right grip") != NULL);
-    CHECK(strstr(ui_str(UIS_ACCESS_HELP), "Hold right Menu and right grip to point with the controllers again") != NULL);
-    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_HELP)) || access_drawn(&v, "Head: the dot follows the middle of your view, and either trigger clicks."));
+    CHECK(strstr(ui_str(UIS_ACCESS_DESC_POINTER), "jittery") != NULL);
+    CHECK(strstr(ui_str(UIS_ACCESS_DESC_POINTER), "Hold right Menu + right grip") != NULL);
+    CHECK(strstr(ui_str(UIS_ACCESS_HELP), "hold right Menu + right grip") != NULL);
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_HELP)) || access_drawn(&v, "Head: the dot follows your view; either trigger clicks."));
     // lane a11y-final: no headset button row (a future feature): four rows, nothing under the dot's
     CHECK(COG_ACCESS_ROW_COUNT == 4 && access_hit(UI_HIT_CELL, COG_ACCESS_ROW_COUNT, 0) == NULL);
     // the Dot size track: step buttons and run, live with the head pointing

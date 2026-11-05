@@ -732,13 +732,13 @@ void stream_stats(char* buf, int len) {
         hw_video_stats(g_hw, &h);
         // Native (lane au-scatter): the largest AU and the AUs refused
         snprintf(hw, sizeof(hw),
-                 "; hw decode %.1f ms (last %.1f), frames %llu, skipped %llu, errors %llu, largest AU %llu bytes in %llu "
-                 "parts, %llu refused (length mismatch)",
+                 "; HW decode %.1f ms (last %.1f), frames %llu, skipped %llu, errors %llu, largest AU %llu B in %llu "
+                 "parts, %llu refused",
                  h.avgDecodeMs, h.lastDecodeMs, (unsigned long long)h.frames, (unsigned long long)h.skipped,
                  (unsigned long long)h.errors, (unsigned long long)h.largestAuBytes,
                  (unsigned long long)h.largestAuParts, (unsigned long long)h.refusedAus);
     }
-    snprintf(buf, (size_t)len, "bitrate set %d kbps, units %llu, idr requests %llu, rtt %u ms, pending video %d%s",
+    snprintf(buf, (size_t)len, "Bitrate %d kbps, units %llu, IDR requests %llu, RTT %u ms, pending %d%s",
              g_setKbps, (unsigned long long)atomic_load(&g_units), (unsigned long long)atomic_load(&g_idr), rtt,
              LiGetPendingVideoFrames(), hw);
 }

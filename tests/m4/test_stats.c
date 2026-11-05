@@ -52,10 +52,10 @@ static const Vec3 HAND = { 0.25f, -0.35f, -0.3f };
 static const char LONG[] =
     "Display 90 Hz, 89 fps\n"
     "Video 2560x1440, 60 fps\n"
-    "decoded 123456, dropped 12, decode 3.1 ms\n"
-    "units 654321, idr requests 2, rtt 4 ms, pending video 1\n"
-    "hw decode 3.1 ms (last 3.2), frames 123456, skipped 12, errors 0\n"
-    "audio 2ch 40 ms buffered, 2 underruns, 0 lost (stream totals)\n"
+    "Decoded 123456, dropped 12, decode 3.1 ms\n"
+    "Bitrate 98000 kbps, units 654321, IDR requests 2, RTT 4 ms, pending 1\n"
+    "HW decode 3.1 ms (last 3.2), frames 123456, skipped 12, errors 0\n"
+    "Audio 2ch, 40 ms buffered, 2 underruns, 0 lost\n"
     "network 54 Mb/s, host encode 4.2 ms, network 1.1 ms, decode 3.1 ms, present 2.0 ms, total 10.4 ms (worst 15.8)\n"
     "Depth 14.9/s (target 15), depth-anything-v2-small-int8\n"
     "Depth inference 41.3 ms, age 88 ms, skipped 1234\n"
@@ -91,7 +91,7 @@ static void fits(Scene* s) {
     CHECK(font != NULL);
     const char* longest = "network 54 Mb/s, host encode 4.2 ms, network 1.1 ms, decode 3.1 ms, present 2.0 ms, total 10.4 ms (worst 15.8)";
     CHECK(ui_text_width(font, UI_WEIGHT_REGULAR, 17.0f, longest, -1) > (float)r.w * 2.0f);
-    CHECK(ui_text_width(font, UI_WEIGHT_REGULAR, 17.0f, "hw decode 3.1 ms (last 3.2), frames 123456, skipped 12, errors 0", -1)
+    CHECK(ui_text_width(font, UI_WEIGHT_REGULAR, 17.0f, "HW decode 3.1 ms (last 3.2), frames 123456, skipped 12, errors 0", -1)
           > 384.0f - 24.0f);
 
     // Nothing runs into the right margin (12 px) or past the window's foot,
