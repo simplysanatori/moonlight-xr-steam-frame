@@ -212,10 +212,10 @@ void mlxr_stats_audio_text(uint64_t packets, int channels, double bufferedMs, ui
         return;
     }
     if (packets == 0) {
-        snprintf(buf, cap, "No audio from host");
+        snprintf(buf, cap, "Audio: No stream from PC");
         return;
     }
-    snprintf(buf, cap, "Audio %dch, %.0f ms buffered, %u underruns, %u lost", channels, bufferedMs,
+    snprintf(buf, cap, "Audio: %dch, %.0f ms buffered, %u underruns, %u lost", channels, bufferedMs,
              underruns, lost);
 }
 

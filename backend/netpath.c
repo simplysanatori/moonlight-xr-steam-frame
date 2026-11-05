@@ -837,7 +837,7 @@ int mlxr_net_choose(mlxr_net_plan *p)
                 p->fell_back = true;
                 p->adapter_absent_fallback = no_adapter;
                 p->usb_absent_fallback = no_usb;
-                snprintf(p->toast, sizeof p->toast, "%s unreachable (%s), using %s", mlxr_net_path_label(want), p->failure,
+                snprintf(p->toast, sizeof p->toast, "%s not reachable (%s). Using %s.", mlxr_net_path_label(want), p->failure,
                          mlxr_net_path_label(p->c[p->chosen].path));
                 snprintf(p->reason, sizeof p->reason, "chose %s: %s not reachable (%s)",
                          mlxr_net_path_label(p->c[p->chosen].path), mlxr_net_path_label(want), p->failure);
@@ -850,7 +850,7 @@ int mlxr_net_choose(mlxr_net_plan *p)
             snprintf(p->reason, sizeof p->reason, "chose %s: the setting is %s", mlxr_net_path_label(p->chosen_path),
                      mlxr_net_pref_name(p->pref));
         mlxr_net_path_describe(p->chosen_path, &p->c[p->chosen].link, p->chosen_desc, sizeof p->chosen_desc);
-        snprintf(p->connected, sizeof p->connected, "Connected over %s", p->chosen_desc);
+        snprintf(p->connected, sizeof p->connected, "Connected over %s.", p->chosen_desc);
         snprintf(p->summary, sizeof p->summary, "%s %s (%s%s%s)", path_short(p->chosen_path), p->c[p->chosen].address,
                  mlxr_net_pref_name(p->pref), p->fell_back ? ", fell back" : "", p->c[p->chosen].vpn ? ", VPN" : "");
     }

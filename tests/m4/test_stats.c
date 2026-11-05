@@ -55,7 +55,7 @@ static const char LONG[] =
     "Decoded 123456, dropped 12, decode 3.1 ms\n"
     "Bitrate 98000 kbps, units 654321, IDR requests 2, RTT 4 ms, pending 1\n"
     "HW decode 3.1 ms (last 3.2), frames 123456, skipped 12, errors 0\n"
-    "Audio 2ch, 40 ms buffered, 2 underruns, 0 lost\n"
+    "Audio: 2ch, 40 ms buffered, 2 underruns, 0 lost\n"
     "network 54 Mb/s, host encode 4.2 ms, network 1.1 ms, decode 3.1 ms, present 2.0 ms, total 10.4 ms (worst 15.8)\n"
     "Depth 14.9/s (target 15), depth-anything-v2-small-int8\n"
     "Depth inference 41.3 ms, age 88 ms, skipped 1234\n"

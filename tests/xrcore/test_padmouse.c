@@ -558,8 +558,8 @@ static void testNoSink(void) {
 }
 
 static void testNoticeText(void) {
-    CHECK(strstr(padMouseNoticeText(1, PAD_MOUSE_CHORD_START_HOLD), "hold Start to exit") != NULL);
-    CHECK(strstr(padMouseNoticeText(1, PAD_MOUSE_CHORD_START_BACK), "Start + Back") != NULL);
+    CHECK(strstr(padMouseNoticeText(1, PAD_MOUSE_CHORD_START_HOLD), "Hold Start to stop") != NULL);
+    CHECK(strstr(padMouseNoticeText(1, PAD_MOUSE_CHORD_START_BACK), "Start and Back") != NULL);
     CHECK(strstr(padMouseNoticeText(1, PAD_MOUSE_CHORD_OFF), "mouse") != NULL);
     CHECK(strstr(padMouseNoticeText(0, PAD_MOUSE_CHORD_START_HOLD), "mouse off") != NULL);
     // Plain ASCII, one short line (the toast's font)
