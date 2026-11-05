@@ -477,7 +477,7 @@ This is the default. The ray from either controller is the mouse.
 
 | Control | Action |
 | --- | --- |
-| Trigger | Left click. Hold to drag. |
+| Trigger | Left click. Hold to drag. On the move pill or a corner of the screen it grabs instead, as the grip does, and clicks nothing on the PC. |
 | A, or d-pad down | Right click |
 | B, or d-pad right | Middle click |
 | Thumbstick click | Right click |
@@ -605,9 +605,9 @@ The headset shows "Gamepad mode" or "Pointer mode". In gamepad mode the menus cl
 
 | What | How |
 | --- | --- |
-| Move the screen | Grip the move pill under the screen and move your hand. |
+| Move the screen | Grip the move pill under the screen, or pull the trigger on it, and move your hand. Letting go of the button you took hold with lets go. |
 | Push it away or pull it closer | While holding the pill, push either thumbstick up (farther) or down (closer). A push on a slant counts, and most of the way to the rim is full speed: 1.5 m a second either way. 0.3 to 8 m. |
-| Resize | Grip a corner of the screen. In a room this sets the room's screen size. |
+| Resize | Grip a corner of the screen, or pull the trigger on it. The corner's handle reaches just under 2 cm into the picture, so the desktop's own corners (the Start button) still click. In a room this sets the room's screen size. |
 | Curve | Screen tab, Curve. |
 | Recentre | Press d-pad up in pointer mode (`app:recentre`), or use SteamVR's recentre. The screen turns to where you face and keeps its distance, size and curve. |
 | Move the headset keyboard | Grip or trigger on the keyboard's bar. The thumbstick pushes and pulls it the same way. |
