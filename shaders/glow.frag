@@ -57,15 +57,18 @@ vec3 blurredSpline(vec2 fuv) {
     vec2 b1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
     vec2 b2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
     vec2 b3 = f3 / 6.0;
-    vec2 wb = (b0 + b1) / 3.0;
-    vec2 wd = (b1 + b2 + b3) / 3.0;
-    vec2 wf = b3 / 3.0;
-    vec2 g0 = (2.0 * b0 + b1) / 3.0;
-    vec2 g1 = (b0 + 2.0 * b1 + 2.0 * b2 + b3) / 3.0;
-    vec2 g2 = (b2 + 2.0 * b3) / 3.0;
-    vec2 h0 = (base - 1.5 + wb / g0) / size;
-    vec2 h1 = (base + 0.5 + wd / g1) / size;
-    vec2 h2 = (base + 2.5 + wf / g2) / size;
+    // Native (lane beam-streak): each fetch's offset is its pair's weights over their sum, written
+    // without the thirds both sides of the ratio carried. They cancel, and the thirds divided by
+    // thirds sent the optimiser of glslc 2026.1 (spirv-opt's folder) into a segfault at -O.
+    vec2 s0 = 2.0 * b0 + b1;
+    vec2 s1 = b0 + 2.0 * b1 + 2.0 * b2 + b3;
+    vec2 s2 = b2 + 2.0 * b3;
+    vec2 g0 = s0 / 3.0;
+    vec2 g1 = s1 / 3.0;
+    vec2 g2 = s2 / 3.0;
+    vec2 h0 = (base - 1.5 + (b0 + b1) / s0) / size;
+    vec2 h1 = (base + 0.5 + (b1 + b2 + b3) / s1) / size;
+    vec2 h2 = (base + 2.5 + b3 / s2) / size;
     vec3 r0 = texture(u_texture, vec2(h0.x, h0.y)).rgb * g0.x
             + texture(u_texture, vec2(h1.x, h0.y)).rgb * g1.x
             + texture(u_texture, vec2(h2.x, h0.y)).rgb * g2.x;
