@@ -661,6 +661,84 @@ static void hoverKeepsBeamPlace(Scene* s) {
     scene_reset(s);
 }
 
+// Native (lane eye-calibration): the calibration's run coming up from the Accessibility tab and going
+// down again, at each dot and in both its phases, head locked and world locked, with a controller's
+// ray on the panel and with the head pointing: the frame's count and the beam's place in the list
+// (held while the run is up) never change, the run's dot and label are drawn, and every held place
+// is clear
+static int findArt(const Scene* s, int slot, float minSize) {
+    UiRectPx r = xrAtlasRect(slot);
+    for (uint32_t i = 0; i < s->out.count; i++) {
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)s->out.order[i];
+        if (q->type == XR_TYPE_COMPOSITION_LAYER_QUAD && q->subImage.imageRect.offset.x == r.x
+                && q->subImage.imageRect.offset.y == r.y && q->subImage.imageRect.extent.width == r.w
+                && q->size.width > minSize) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static void eyeCalKeepsBeamPlace(Scene* s) {
+    XrCtx* c = s->ctx;
+    for (int locked = 0; locked < 2; locked++) {
+        for (int headPoints = 0; headPoints < 2; headPoints++) {
+            scene_reset(s);
+            s->settings.head_locked = locked;
+            c->headLockedPref = locked;
+            xrSetPointerSource(c, headPoints ? POINTER_SOURCE_HEAD : POINTER_SOURCE_CONTROLLER, 0);
+            c->cogOpen = 1;
+            c->cogTab = COG_TAB_ACCESS;
+            c->panelFades[FADE_COG].level = 1.0f;
+            c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
+            Vec3 start = onPlane(c->cogPose, c->cogW, c->cogH, 0.6f, cogRowV(COG_TAB_ACCESS, COG_ACCESS_ROW_EYECAL));
+            Vec3 eye = { 0, 0, 0 };
+            scene_ray_to(s, headPoints ? eye : HAND, start);
+            if (headPoints) {
+                c->beamStart = c->beamEnd;   // the head's pointer is the dot alone
+            }
+            c->hoverKind = HOVER_COGPANEL;
+            printf("the eye calibration, %s, %s pointing\n", locked ? "head locked" : "world locked",
+                   headPoints ? "the head" : "a controller");
+            scene_frame(s, NULL);
+            uint32_t count = s->out.count;
+            int at = beamIndex(s);
+            const void* beam = at >= 0 ? (const void*)s->out.order[at] : NULL;
+            CHECK(headPoints ? at < 0 : at > 0);
+            CHECK(findArt(s, UI_PANEL_COG, 0.0f) >= 0);
+            printf("  the panel: %u layers, the beam %d\n", count, at);
+            xrEyeCalStart(c);
+            for (int step = 0; step < EYECAL_DOTS; step++) {
+                for (int phase = EYECAL_PHASE_SETTLE; phase <= EYECAL_PHASE_COLLECT; phase++) {
+                    c->eyeCalRun.step = step;
+                    c->eyeCalRun.phase = phase;
+                    c->eyeCalRun.phaseNs = nowNs();
+                    scene_frame(s, NULL);
+                    if (s->out.count != count) {
+                        printf("  dot %d, phase %d: %u layers (was %u)\n", step, phase, s->out.count, count);
+                    }
+                    CHECK(s->out.count == count);
+                    CHECK(s->out.count <= (uint32_t)c->maxLayerCount && s->out.count <= 16);
+                    if (beam != NULL) {
+                        CHECK(s->out.order[at] == beam && beamIndex(s) < 0);
+                    }
+                    // the run's dot (the pointer's own is held) and its label, the panel's art moved
+                    int dot = findArt(s, ATLAS_DOT, 0.005f), label = findArt(s, UI_PANEL_COG, 0.0f);
+                    CHECK(dot >= 0 && label >= 0 && label < dot && (at < 0 || dot < at));
+                    heldPlacesClear(s);
+                }
+            }
+            xrEyeCalCancel(c, "the test");
+            scene_frame(s, NULL);
+            CHECK(s->out.count == count && beamIndex(s) == at);
+        }
+    }
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+    s->settings.head_locked = 0;
+    c->headLockedPref = 0;
+    scene_reset(s);
+}
+
 int main(void) {
     Scene* s = scene_new();
     defaults(s);
@@ -670,6 +748,7 @@ int main(void) {
     liveSliders(s);
     pictureBarPushPull(s);
     hoverKeepsBeamPlace(s);
+    eyeCalKeepsBeamPlace(s);
     scene_free(s);
     return checksDone("m4 kbbar");
 }

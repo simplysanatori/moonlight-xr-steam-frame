@@ -131,7 +131,8 @@ static void test_access_tab(void) {
     v.cog_tab = COG_TAB_ACCESS;
     v.access_eyes = ACCESS_EYES_WAITING;
     static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL,
-                                                      UIS_ACCESS_DESC_DWELL_STYLE, UIS_ACCESS_DESC_DOT };
+                                                      UIS_ACCESS_DESC_DWELL_STYLE, UIS_ACCESS_DESC_DOT,
+                                                      UIS_ACCESS_DESC_EYE_CAL };
     // nothing pointed at: the hint, and no row's sentence
     CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_NONE)));
     for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) CHECK(!access_drawn(&v, ui_str(DESC[row])));
@@ -164,8 +165,9 @@ static void test_access_tab(void) {
     CHECK(strstr(ui_str(UIS_ACCESS_DESC_POINTER), "Hold right Menu and right grip") != NULL);
     CHECK(strstr(ui_str(UIS_ACCESS_HELP), "hold right Menu and right grip") != NULL);
     CHECK(access_drawn(&v, ui_str(UIS_ACCESS_HELP)) || access_drawn(&v, "Head: The dot follows the middle of your view, and either trigger clicks."));
-    // lane a11y-final: no headset button row (a future feature): four rows, nothing under the dot's
-    CHECK(COG_ACCESS_ROW_COUNT == 4 && access_hit(UI_HIT_CELL, COG_ACCESS_ROW_COUNT, 0) == NULL);
+    // lane a11y-final: no headset button row (a future feature); lane eye-calibration: five rows, the
+    // calibration's last, nothing under it
+    CHECK(COG_ACCESS_ROW_COUNT == 5 && access_hit(UI_HIT_CELL, COG_ACCESS_ROW_COUNT, 0) == NULL);
     // the Dot size track: step buttons and run, live with the head pointing
     const UiHit* run = access_hit(UI_HIT_TRACK_RUN, COG_ACCESS_ROW_DOT, 0);
     CHECK(run != NULL && run->enabled && access_hit(UI_HIT_TRACK_UP, COG_ACCESS_ROW_DOT, 0) != NULL);
@@ -197,6 +199,59 @@ static void test_access_tab(void) {
     s.pointer_source = POINTER_SOURCE_CONTROLLER;
     CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_DWELL_STYLE)) && access_drawn(&v, ui_str(UIS_NEEDS_HEAD_POINTER)));
     CHECK(!access_hit(UI_HIT_CELL, COG_ACCESS_ROW_STYLE, 1)->enabled);
+}
+
+// Native (lane eye-calibration): the Eye calibration row. Without eye gaze it says why in place of its
+// cells, which take no press, and the eye line under the rows is not said twice; with it, Start, and
+// Reset only with a calibration stored; under the row's name what config.ini holds or how the last
+// run failed; and while a run is up, the panel is the run's label alone
+static void test_eyecal_row(void) {
+    Settings s;
+    settings_defaults(&s);
+    UiView v;
+    ui_view_init(&v, &s);
+    v.cog_tab = COG_TAB_ACCESS;
+    v.access_eyes = ACCESS_EYES_WAITING;
+    CHECK(access_drawn(&v, ui_str(UIS_ROW_EYE_CAL)));
+    CHECK(access_drawn(&v, ui_str(UIS_EYES_WAITING)));
+    int said = 0;
+    for (int i = 0; i < access_ntexts; i++) said += strcmp(access_texts[i], ui_str(UIS_EYES_WAITING)) == 0;
+    CHECK(said == 1);
+    CHECK(!access_drawn(&v, ui_str(UIS_CELL_EYE_CAL_START)));
+    const UiHit* start = access_hit(UI_HIT_CELL, COG_ACCESS_ROW_EYECAL, COG_ACCESS_EYECAL_START);
+    CHECK(start != NULL && !start->enabled);
+    // the eyes reach the app
+    v.access_eyes = ACCESS_EYES_READY;
+    CHECK(access_drawn(&v, ui_str(UIS_EYES_READY)) && access_drawn(&v, ui_str(UIS_EYE_CAL_NONE)));
+    CHECK(access_drawn(&v, ui_str(UIS_CELL_EYE_CAL_START)) && access_drawn(&v, ui_str(UIS_RESET)));
+    start = access_hit(UI_HIT_CELL, COG_ACCESS_ROW_EYECAL, COG_ACCESS_EYECAL_START);
+    const UiHit* reset = access_hit(UI_HIT_CELL, COG_ACCESS_ROW_EYECAL, COG_ACCESS_EYECAL_RESET);
+    CHECK(start != NULL && start->enabled && reset != NULL && !reset->enabled);
+    // with the pointer on the controllers too
+    CHECK(s.pointer_source == POINTER_SOURCE_CONTROLLER);
+    // stored
+    snprintf(s.eye_calibration, sizeof s.eye_calibration, "1 a 1.200 0.300 -0.100 -0.800 0.000 0.200 0.94 2.61 1.70 4.90");
+    CHECK(access_drawn(&v, "Calibrated: 0.9\u00b0 average"));
+    reset = access_hit(UI_HIT_CELL, COG_ACCESS_ROW_EYECAL, COG_ACCESS_EYECAL_RESET);
+    CHECK(reset != NULL && reset->enabled);
+    // a run that failed says why, the old one still stored
+    v.access_cal = EYECAL_FAIL_GAIN;
+    CHECK(access_drawn(&v, ui_str(UIS_EYE_CAL_FAIL_GAIN)) && !access_drawn(&v, "Calibrated: 0.9\u00b0 average"));
+    v.access_cal = EYECAL_FAIL_FEW;
+    CHECK(access_drawn(&v, ui_str(UIS_EYE_CAL_FAIL_FEW)));
+    v.access_cal = EYECAL_FAIL_EXTREME;
+    CHECK(access_drawn(&v, ui_str(UIS_EYE_CAL_FAIL_EXTREME)));
+    v.access_cal = EYECAL_OK;
+    CHECK(access_drawn(&v, "Calibrated: 0.9\u00b0 average"));
+    // the footer
+    v.access_row = COG_ACCESS_ROW_EYECAL;
+    CHECK(access_drawn(&v, ui_str(UIS_ACCESS_DESC_EYE_CAL)));
+    v.access_row = -1;
+    // a run up: its label, nothing of the tab and nothing to press
+    v.eyecal_step = 3;
+    CHECK(access_drawn(&v, ui_str(UIS_EYE_CAL_LOOK)) && access_drawn(&v, "3 / 12") && access_drawn(&v, ui_str(UIS_EYE_CAL_CANCEL)));
+    CHECK(!access_drawn(&v, ui_str(UIS_TAB_ACCESS)) && !access_drawn(&v, ui_str(UIS_ROW_EYE_CAL)));
+    CHECK(hits.count == 0);
 }
 
 // Every pixel of a panel is within its buffer at every scale, and the output is sane
@@ -1404,6 +1459,7 @@ int main(void) {
     test_rows_read_settings();
     test_atlas();
     test_access_tab();
+    test_eyecal_row();
     ui_panels_shutdown();
     return checksDone(
 #ifdef UI_ASAN
