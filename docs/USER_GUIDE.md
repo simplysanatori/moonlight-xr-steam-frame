@@ -102,7 +102,7 @@ The top of the page has a **Search settings** field and a row of buttons, one fo
 | Bitrate over the USB cable | the same | The same for the [USB cable](#usb-cable). |
 | Full-frame requests after lost video | **No limit**, **250 ms**, **500 ms**, **1 s**, **2 s** | 500 ms (the default). When video is lost and the PC's quick repair does not come, the headset asks the PC for a full picture (an IDR frame). A full picture is large: asked for again while the Wi-Fi is still losing packets, it lands in the same bad moment and makes the freeze longer. This is the least time between two such requests of the headset's own. Pressing the row steps through the choices. It is `rfi_idr_ms` in `config.ini`'s `[stream]` section. |
 | Switch network when video keeps breaking up | **Off**, **On** | Off (the default). With **On** and Network connection on **Automatic**, a stream that keeps losing video on its link moves to another link. See [Switching links when video keeps breaking up](#switching-links-when-video-keeps-breaking-up). It is `failover` in `config.ini`'s `[stream]` section. |
-| Video loss before switching | **1.5 s**, **3 s**, **5 s**, **8 s** | 3 s (the default). How much lost video within ten seconds makes the stream leave its link. Tapping the row steps through the choices. Greyed while the switch above is off. It is `failover_burst_ms` in `config.ini` (500 to 9000 ms). |
+| Video loss before switching | **1.5 s**, **3 s**, **5 s**, **8 s** | 3 s (the default). How much lost video within ten seconds makes the stream switch links. Tapping the row steps through the choices. Greyed while the switch above is off. It is `failover_burst_ms` in `config.ini` (500 to 9000 ms). |
 
 ### Switching links when video keeps breaking up
 
@@ -216,7 +216,7 @@ The Frame's video is 8-bit SDR and the stream never goes above the headset's rat
 | Enable rumble | on, off | on. Gamepads and the headset controllers. |
 | Enable forward/back mouse buttons | on, off | on |
 | Check the PC before streaming (Host) | on, off | on. See [Check before a stream](#check-before-a-stream). |
-| Optimize game settings (Host) | on, off | on. Lets the PC switch its display to the stream's resolution, where the host is set to. |
+| Optimize game settings (Host) | on, off | on. Lets the PC switch its display to the stream's resolution, if the host allows it. |
 | Play audio on PC (Host) | on, off | off |
 | Smart clipboard sync (experimental) (General) | on, off | off. Needs Apollo. |
 | On start (General) | Nothing, Last PC's Desktop, An app | Nothing. See [Opening a stream by itself](#opening-a-stream-by-itself). |
@@ -443,10 +443,11 @@ For people who cannot use their hands, or can use them only a little. The cog's 
 
 | Row | Choices | What it does |
 | --- | --- | --- |
-| Pointer | Controller, Head, Eyes | What moves the pointer: a controller, your head, or where you look. **Eyes** is experimental (its cell says so): the eyes jitter and the dot lands near, not exactly on, where you look (see [Eyes](#accessibility-eyes)). It is always there, and dimmed only when SteamVR does not offer eye tracking to apps at all. `[vr] pointer_source` |
-| Dwell click | Off, 0.6 s, 0.9 s, 1.2 s, 1.5 s | Rest the dot this long on something to click it. Greyed while a controller points. `[vr] head_dwell_ms` |
+| Pointer | Controller, Head, Eyes | What moves the pointer: a controller, your head or your eyes. **Eyes** is experimental (its cell says so): the eyes jitter and the dot lands near, not exactly on, where you look (see [Eyes](#accessibility-eyes)). It is always there, and dimmed only when SteamVR does not offer eye tracking to apps at all. `[vr] pointer_source` |
+| Dwell click | Off, 0.6 s, 0.9 s, 1.2 s, 1.5 s | Hold the dot still this long to click. Greyed while a controller points. `[vr] head_dwell_ms` |
 | Dwell click style | Simple, Radial menu | What a dwell on the picture does: **Simple** is a left click; **Radial menu** also offers a double click, a drag and a right click (see below). Simple by default. Greyed while a controller points. `[vr] assist_dwell_style` |
 | Dot size | 50 % to 300 %, in steps of 25 % | How big the dot is when you point with your head or eyes; the dwell's circle grows with it. 100 % is the usual size. A slider with a tick at every step: drag it, or press its arrows for one step. Greyed while a controller points. `[vr] assist_dot_size` |
+| Eye calibration | Start, Reset | Measures where your eyes point and corrects it, for **Eyes**, **Look to point** and the eyes' dwell (see [Eye calibration](#accessibility-eyecal)). Under its name: **Not calibrated**, **Calibrated: 0.9° average** (the error left after the correction) or why the last run failed. Without eye tracking the row shows the eye tracking line instead. `[vr] eye_calibration` |
 
 Under the rows a line says whether eye tracking reaches the app and a few lines say how to use the tab and how to get the controllers back. At the bottom, the tab says in one sentence what the row under the pointer (or the dot) does. On the flat window the same sentence shows as a tip when the mouse rests on a row, or when a row has the keyboard's or a gamepad's focus (Game Mode).
 
@@ -454,14 +455,16 @@ Under the rows a line says whether eye tracking reaches the app and a few lines 
 
 **The radial menu.** With **Dwell click style** on **Radial menu**, a small menu of three parts opens round the dot in the last quarter of a dwell on the picture. Keep still and it is a normal click; look left (double click), down (drag) or right (right click) and hold there for a quarter of a second; look well past the menu to cancel. Every click lands where the dwell started; after a drag the dot is hollow and a small mark shows where it began, and the next dwell anywhere drops it there. On the app's own menus a dwell is always a plain click.
 
-<a id="accessibility-off"></a>**Turning it off.** Hold the **right Menu button and the right grip** together for half a second: the controllers point again, the headset says "Controllers point again", and the choice is saved (Pointer: Controller). It works whatever is on the screen, with the head or the eyes pointing (in pointer mode; in gamepad mode Menu is Start and the grip a bumper). Menu on its own still opens or closes the cog: it does so as you let go of it (or once you have held it on its own for half a second), since until then it may be the start of this shortcut; a press with the grip held does not open the cog. The shortcut cannot be changed in `bindings.ini`. Or open the cog's Accessibility tab and rest the dot on **Controller** (or press it with a trigger). Or set `pointer_source = controller` in `config.ini` (`~/.config/moonlight-xr/`), or **Pointer: Controller** on the flat window's Settings page.
+<a id="accessibility-off"></a>**Turning it off.** Hold the **right Menu button and the right grip** together for half a second: the controllers point again, the headset says "Pointer: Controller", and the choice is saved (Pointer: Controller). It works whatever is on the screen, with the head or the eyes pointing (in pointer mode; in gamepad mode Menu is Start and the grip a bumper). Menu on its own still opens or closes the cog: it does so as you let go of it (or once you have held it on its own for half a second), since until then it may be the start of this shortcut; a press with the grip held does not open the cog. The shortcut cannot be changed in `bindings.ini`. Or open the cog's Accessibility tab and rest the dot on **Controller** (or press it with a trigger). Or set `pointer_source = controller` in `config.ini` (`~/.config/moonlight-xr/`), or **Pointer: Controller** on the flat window's Settings page.
 
 <a id="accessibility-eyes"></a>**Eyes (experimental).** Eye tracking on the Frame jitters, by about a degree even while you look at one spot, and is not exact: the dot lands near where you look, not always on it. To make it usable the app steadies it: the dot holds still while your eyes rest within about a degree of it, and follows (a moment later than the head pointer would) once you look elsewhere; a dwell with the eyes allows the dot to wander 2 degrees instead of the head's 1. Big targets work best: a larger **Dot size** and the cog's cells rather than small text on the picture. If it is too unsteady for you, **Head** is the steadier pointer. With **Eyes** the dot follows your eyes while SteamVR gives eye gaze to the app, and your head while it does not: when the eyes are lost for more than 0.2 s (a long blink, the headset lifted) the head takes over, and the eyes take it back after 0.3 s. Whenever SteamVR offers eye tracking the app asks for it, so **Eyes** works without editing `config.ini`; the eyes only point when you choose **Eyes** (or turn on **Look to point**, `gaze = true`). The status line on the tab says what the app found:
 
-- **Eye tracking: available**: eye gaze reached the app this session.
-- **Eye tracking: offered, but no gaze has arrived yet**: SteamVR offers it and the app asked; nothing has come yet (put the headset on).
-- **Eye tracking: offered, but the app could not set it up**: SteamVR refused the eye gaze input; `moonlight.log` says why.
-- **Eye tracking: SteamVR does not offer it to apps**: the **Eyes** cell is dimmed.
+- **Eye tracking: Available**: eye gaze reached the app this session.
+- **Eye tracking: No gaze data**: SteamVR offers it and the app asked; nothing has come yet (put the headset on).
+- **Eye tracking: Setup failed**: SteamVR refused the eye gaze input; `moonlight.log` says why.
+- **Eye tracking: Not enabled in SteamVR**: SteamVR does not offer eye tracking to apps (SteamVR Settings > General > Eye Tracking is off), and the **Eyes** cell is dimmed.
+
+<a id="accessibility-eyecal"></a>**Eye calibration.** Press **Start** on the **Eye calibration** row. The menu gives way to 12 dots on the picture, one at a time, in a 4 by 3 grid that reaches close to its edges and corners. Look at each dot until the next one appears: it shrinks while your eyes settle, then holds still for a moment while the app reads where they point. A dot your eyes could not hold still is shown once more, then skipped. The label in the middle shows how far you are ("3 / 12"); **B** or **Menu** cancels. Your head can move during it. At the end the menu comes back and the row says **Calibrated:** and the average error left. The correction needs 8 dots; it is not kept if it does not clearly improve on no correction, or if it would move your gaze too far, and the row says why (**Failed: Too few steady dots**, **Failed: No improvement**, **Failed: Correction too large**). A failed or cancelled run keeps the calibration you had. **Reset** removes it. It is saved in `config.ini` and applies to every use of the eyes. Calibrate again if you put the headset on differently.
 
 On a Steam Frame, eye gaze reaches the app: the gaze probe (`mlxr-hello --gaze-probe`, see [docs/dev/accessibility.md](dev/accessibility.md)) received a gaze pose on every frame of its 20 seconds, following where the wearer looked. If it does not arrive for you (reported by others, not confirmed by Valve): wear the headset; in SteamVR Settings > General turn **Eye Tracking** on and **Track Dominant Eye Only** off (show advanced settings if they are hidden); then restart the app. `moonlight.log` says once a session whether eye gaze arrived and, if not, what SteamVR answered (`eye gaze: ...`).
 
@@ -477,7 +480,7 @@ This is the default. The ray from either controller is the mouse.
 
 | Control | Action |
 | --- | --- |
-| Trigger | Left click. Hold to drag. |
+| Trigger | Left click. Hold to drag. On the move pill or a corner of the screen it grabs instead, as the grip does, and clicks nothing on the PC. |
 | A, or d-pad down | Right click |
 | B, or d-pad right | Middle click |
 | Thumbstick click | Right click |
@@ -605,9 +608,9 @@ The headset shows "Gamepad mode" or "Pointer mode". In gamepad mode the menus cl
 
 | What | How |
 | --- | --- |
-| Move the screen | Grip the move pill under the screen and move your hand. |
+| Move the screen | Grip the move pill under the screen, or pull the trigger on it, and move your hand. Letting go of the button you took hold with lets go. |
 | Push it away or pull it closer | While holding the pill, push either thumbstick up (farther) or down (closer). A push on a slant counts, and most of the way to the rim is full speed: 1.5 m a second either way. 0.3 to 8 m. |
-| Resize | Grip a corner of the screen. In a room this sets the room's screen size. |
+| Resize | Grip a corner of the screen, or pull the trigger on it. The corner's handle reaches just under 2 cm into the picture, so the desktop's own corners (the Start button) still click. In a room this sets the room's screen size. |
 | Curve | Screen tab, Curve. |
 | Recentre | Press d-pad up in pointer mode (`app:recentre`), or use SteamVR's recentre. The screen turns to where you face and keeps its distance, size and curve. |
 | Move the headset keyboard | Grip or trigger on the keyboard's bar. The thumbstick pushes and pulls it the same way. |
@@ -825,7 +828,7 @@ Open the Host sheet, then **Clipboard, commands**. The page has:
 | Send text to PC | Closes the sheet and puts the Compact keyboard up as a text field of its own: what you type is kept on the keyboard (its space bar shows the end of it) and nothing goes to the PC. **Enter** sends the text to the PC's clipboard; **Hide** throws it away. On the PC, Ctrl+V pastes it. The text is one line. |
 | One cell per command | The commands set up on the PC (up to eight). A press asks **Run** or **Cancel**, because a command can do anything the PC can: sleep, lock, change the audio device, start a script. The toast says it was sent. The PC does not answer, so a command that fails on the PC fails there. |
 
-The toast says why when something cannot be done: "Not supported by this host" (the PC runs Sunshine or another host, not Apollo; the cells are dimmed and the page says so), "This host has not allowed it for the Frame" (the permission is off), "This host has no commands set up", or "The host sees no stream from this client". The clipboard works only while a stream is up.
+The toast says why when something cannot be done: "Not supported by this host" (the PC runs Sunshine or another host, not Apollo; the cells are dimmed and the page says so), "Not allowed for this client in Apollo" (the permission is off), "No server commands are set up in Apollo", or "The host sees no stream from this client". The clipboard works only while a stream is up.
 
 On the PC, in Apollo:
 
@@ -934,7 +937,7 @@ Do the A and B on the same link, at the same bitrate, in the same scene. A diffe
 | The flat window does not come back after a stream | Open the app again from the Steam library. `moonlight-launcher.log` shows `Asked Steam to show the flat screen again` and the `flat window` lines (what the window did after the stream). |
 | Grey icon in the SteamVR dock | Restart Steam once after the first install. |
 | 3D tab greyed | The tab says why. If the depth model did not load, the log has the error. |
-| The stream did not start | The flat window shows the client's error, and under "Found before the stream started:" what the PC said just before (see [Check before a stream](#check-before-a-stream)). `moonlight-console.log` has the details. |
+| Stream failed to start | The flat window shows the client's error, and under "Found before the stream started:" what the PC said just before (see [Check before a stream](#check-before-a-stream)). `moonlight-console.log` has the details. |
 | The stream used other settings than the Settings page | The app or its PC has a stream profile. `moonlight-launcher.log` says `MLXR_LAUNCHER_PROFILE: using <name>`. See [Stream profiles](#stream-profiles). |
 
 Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report freezes or stutter, say roughly when they happened: `moonlight.log`'s `video: burst at` lines carry the time, and the line written every 5 seconds has the round trip, the frames lost and dropped, `bursts N (longest N ms)`, `udp rcvbuf errors` and `rx drop misc` for those 5 seconds. To share them, use the zip from `bug-report.sh`. It holds the logs, your headset note, the settings you changed and a short version summary, all masked, and nothing else. It leaves out `hosts.ini`, keys and certificates. Look inside before you share it.
@@ -975,6 +978,7 @@ Logs are in `~/Games/MoonlightXRNative`. They are not masked. When you report fr
 | `[vr] head_dwell_ms` | 0, or 400 to 2000 | 0 (off). With `pointer_source = head` or `gaze`, resting the dot this long clicks. The Accessibility tab offers 600, 900, 1200 and 1500. |
 | `[vr] assist_dot_size` | 50 to 300 (%) | 100. With `pointer_source = head` or `gaze`, the dot's size (and its dwell circle's) against the usual. The Accessibility tab's **Dot size** slider steps by 25. |
 | `[vr] assist_dwell_style` | `simple`, `radial` | `simple`. With `pointer_source = head` or `gaze` and a dwell click, `radial` opens the radial menu near the end of a dwell on the picture (double click, drag, right click; see [Accessibility](#accessibility)). The Accessibility tab's **Dwell click style**. |
+| `[vr] eye_calibration` | text | empty. The Accessibility tab's **Eye calibration** writes it: a version number, `a` (affine) or `q` (with a second-order term), the correction's numbers for the yaw and the pitch, then the average and largest error after and before, in degrees. **Reset** empties it. A value this version cannot read, or one that would move the gaze too far, is ignored. |
 | `[vr] mouse_mode` | `absolute`, `relative`. Where the ray lands, or how far it moves. See [Relative mouse](#relative-mouse); the launcher has it too. | `absolute` |
 | `[vr] back_as_guide` | `true`, `false`. Gamepad mode's View (Back) button is Guide, except with Start held. The launcher has it too. | `false` |
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |

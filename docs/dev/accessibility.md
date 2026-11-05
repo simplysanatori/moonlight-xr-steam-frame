@@ -109,6 +109,31 @@ radial menu's dead zone (2.5) is still wider. What it cannot fix is the offset: 
 near where the user looks. Numbers to tune in the headset: the hold radius (larger is steadier and less precise) and
 the smoothing.
 
+## Eye calibration (lane eye-calibration)
+
+A fifth row, **Eye calibration** (`COG_ACCESS_ROW_EYECAL`), with Start and Reset. It is live only while eye gaze
+reaches the app (`accessEyeCalLive`: `ACCESS_EYES_READY`), whatever points; otherwise its cells' room shows the
+eye tracking line's text, and the line under the rows (now at `COG_ACCESS_STATUS_V` 0.555, the help at 0.615) is
+drawn only while it says Available. Under the row's name: what `[vr] eye_calibration` holds ("Calibrated: 0.9°
+average") or how this session's last run failed (`UiView.access_cal`).
+
+| Where | What |
+| --- | --- |
+| `xr/core/xr_eyecal.c` | Pure. The 4 x 3 grid inset 8 % (`eyeCalTarget`) and its order; the run (`EyeCalRun`: 0.4 s to settle, 0.8 s read; a fixation is the samples within 3° of their median, at least 60 % of the frames, a spread under 1.5° RMS and within 15° of the dot; a dot that fails is tried once more, then skipped); the fit; the `config.ini` form. `tests/xrcore/test_eyecal.c` |
+| `xr/xr_assist.c` | The row's presses, the run's frame (`xrEyeCalFrame`: the fit put in force exactly as stored, `SETTING_EYE_CAL` 47 handed back on a free slot), the dot's point and size, and the correction (`xrEyeCalCorrect`) |
+| `xr/xr_input.c` | `readGazeValid` keeps the raw gaze (`gazeRaw`); `readSources` corrects the gaze right after it is located, before the hold, the steadying and the smoothing, so the Eyes pointer, Look to point, the dwell and a gaze grab all get it; one test of `eyeCal.model` when none is stored. `updateEyeCal` takes the cog's place while a run is up: the pointer on nothing, no dwell, no bindings (let go of as the run starts and ends), B or Menu cancels, and the panel closing or focus lost cancel |
+| `xr/xr_layers.c` | `addEyeCalLayers`: the cog's two layers are the label (the cog's art drawn as `eyecal_face`, at the picture's middle, no wider than 0.36 of it) and the dot (`ATLAS_DOT`, 1.2° shrinking from 3°), and the pointer's beam, dot and dwell mark hold their places, so the count and the beam's index are those of the cog with the pointer on it (`tests/m4/test_kbbar.c` `eyeCalKeepsBeamPlace`) |
+| `tests/m4/test_eyecal.c` | Through the seams: a gaze off by an offset and a scale, the head turning, follows the dots; stored, read back, applied; cancels; a failed run keeps the old; Reset |
+
+The fit is in the head's frame (yaw and pitch of the gaze, and of the dot from the gaze's origin, both at the
+frame's head orientation): true = measured + c0 + c1 u + c2 v, per axis, u and v the measured angles over 10°. The
+worst dot is dropped (up to 3, never below 8) while its error is over 2.5 times the median and over 1°. With 10 or
+more dots a second-order term (u², uv, v²) is tried and kept only when its leave-one-out error is under 0.8 of the
+affine's and 0.15° less. Refused: under 8 dots; a mean error after above 0.8 of the one before or less than 0.2° better;
+a scale (singular values of the Jacobian, at the middle and, for the second order, over ±30° by ±20°) outside 0.7 to 1.4
+or a mirror; an offset at the middle over 10°. The errors are those of the dots used, so the "after" is the fit's own
+and reads a little better than a fresh look would; the headset is the judge.
+
 ## Future: the headset button
 
 The owner, for 1.1.0: "forget it for now; list it as a future thing". Lane a11y-2 built it (below, unchanged); lane

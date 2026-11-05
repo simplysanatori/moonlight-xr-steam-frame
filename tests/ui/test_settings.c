@@ -1160,7 +1160,7 @@ static void test_shortcut_wording(void) {
     const char* hint = ui_str(UIS_SHORTCUT_MENU_GRIP);
     const char* back = ui_str(UIS_TOAST_BACK_MENU_GRIP);
     CHECK(strcmp(hint, "Shortcut: left View + grip") == 0);
-    CHECK(strstr(back, "left View button") != NULL);
+    CHECK(strstr(back, "left View") != NULL && strstr(back, "left grip") != NULL);
     CHECK(strstr(hint, "menu") == NULL && strstr(back, "menu") == NULL);
 }
 

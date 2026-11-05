@@ -621,21 +621,30 @@
 #define COG_ACCESS_ROW_DWELL 1
 #define COG_ACCESS_ROW_STYLE 2
 #define COG_ACCESS_ROW_DOT 3
-#define COG_ACCESS_ROW_COUNT 4
+// Native (lane eye-calibration): Start and Reset of the eye calibration, live only while eye gaze
+// reaches the app (the row shows the eye tracking line's text otherwise), with the calibration's
+// state under the row's name
+#define COG_ACCESS_ROW_EYECAL 4
+#define COG_ACCESS_ROW_COUNT 5
 // Controller, Head, Eyes (POINTER_SOURCE_ order)
 #define COG_ACCESS_POINTER_CELLS 3
 // Off, 0.6 s, 0.9 s, 1.2 s, 1.5 s (xr/core/xr_access.h accessDwellMs)
 #define COG_ACCESS_DWELL_CELLS 5
 // Simple, Radial menu (xr_radial.h DWELL_STYLE_)
 #define COG_ACCESS_STYLE_CELLS 2
+// Start, Reset
+#define COG_ACCESS_EYECAL_CELLS 2
+#define COG_ACCESS_EYECAL_START 0
+#define COG_ACCESS_EYECAL_RESET 1
 #define COG_ACCESS_ROW_V0 0.215f
 #define COG_ACCESS_ROW_STEP 0.065f
 #define COG_ACCESS_ROW_HALF 0.0325f
 #define COG_ACCESS_CELL_HALF 0.028f
 // The eye tracking line, the instructions under the rows, and the footer
-// (its rule, then the description's first baseline; up to three lines)
-#define COG_ACCESS_STATUS_V 0.475f
-#define COG_ACCESS_HELP_T 0.535f
+// (its rule, then the description's first baseline; up to three lines).
+// Native (lane eye-calibration): a row further down, under the calibration's
+#define COG_ACCESS_STATUS_V 0.555f
+#define COG_ACCESS_HELP_T 0.615f
 #define COG_ACCESS_FOOTER_RULE 0.8f
 #define COG_ACCESS_FOOTER_T 0.845f
 

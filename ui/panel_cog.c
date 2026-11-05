@@ -616,22 +616,89 @@ static float access_wrap(Dc* dc, const char* text, float left, float baseline, f
     return baseline;
 }
 
+// Native (lane eye-calibration): the Eye calibration row's name with the calibration's state under
+// it (what config.ini holds, or how this session's last run failed), both shrunk to the label's room
+static void eyecal_label(Dc* dc, float y, int live) {
+    const UiView* v = dc->v;
+    char line[96];
+    uint32_t ink = 0xB0FFFFFFu;
+    EyeCal stored;
+    int have = eyeCalParse(v->settings->eye_calibration, &stored);
+    if (v->access_cal > EYECAL_OK && v->access_cal < EYECAL_RESULTS) {
+        static const UiStr WHY[EYECAL_RESULTS] = { UIS_EYE_CAL_DONE, UIS_EYE_CAL_FAIL_FEW, UIS_EYE_CAL_FAIL_GAIN,
+                                                   UIS_EYE_CAL_FAIL_EXTREME };
+        snprintf(line, sizeof line, "%s", ui_str(WHY[v->access_cal]));
+        ink = 0xEEFFC870u;
+    } else if (have) {
+        snprintf(line, sizeof line, ui_str(UIS_EYE_CAL_DONE), (double)stored.meanAfter);
+        ink = 0xEE9BE7A0u;
+    } else {
+        snprintf(line, sizeof line, "%s", ui_str(UIS_EYE_CAL_NONE));
+    }
+    float left = LABEL_X * dc->nw, room = label_right(dc) - left;
+    float name = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, 20.0f * dc->k, LABEL_MIN_SIZE * dc->k,
+                                  ui_str(UIS_ROW_EYE_CAL), room * dc->k) / dc->k;
+    float state = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, 15.0f * dc->k, 11.0f * dc->k, line,
+                                   room * dc->k) / dc->k;
+    // greyed, the name alone, level with the reason beside it
+    dc_text_left_mid(dc, UI_WEIGHT_REGULAR, name, left, live ? y - 9.0f : y, live ? WHITE : DIM, ui_str(UIS_ROW_EYE_CAL));
+    if (live) {
+        dc_text_left_mid(dc, UI_WEIGHT_REGULAR, state, left, y + 12.0f, ink, line);
+    }
+}
+
+// Native (lane eye-calibration): the run's label, which the cog's panel shows over the middle of the
+// picture while a calibration is up: what to do, the dot's number and how to stop. Clear round it,
+// so the dots either side of the middle stay in view (xr_layers.c).
+static void eyecal_face(Dc* dc) {
+    const UiView* v = dc->v;
+    float x0 = 0.26f * dc->nw, x1 = 0.74f * dc->nw, y0 = 0.39f * dc->nh, y1 = 0.61f * dc->nh;
+    float mid = dc->nw * 0.5f, room = (x1 - x0) - 24.0f;
+    dc_fill_rrect(dc, x0, y0, x1, y1, 18.0f, 0xE0141416u);
+    dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 26.0f, mid, 0.445f * dc->nh, room, WHITE, ui_str(UIS_EYE_CAL_LOOK));
+    char progress[32];
+    snprintf(progress, sizeof progress, ui_str(UIS_EYE_CAL_PROGRESS), v->eyecal_step, EYECAL_DOTS);
+    dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 22.0f, mid, 0.505f * dc->nh, room, 0xD0FFFFFFu, progress);
+    dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 16.0f, mid, 0.565f * dc->nh, room, 0x90FFFFFFu, ui_str(UIS_EYE_CAL_CANCEL));
+}
+
 static void tab_access(Dc* dc) {
     const UiView* v = dc->v;
     const Settings* s = v->settings;
     static const UiStr ROWS[COG_ACCESS_ROW_COUNT] = { UIS_ROW_POINTER_SOURCE, UIS_ROW_DWELL, UIS_ROW_DWELL_STYLE,
-                                                      UIS_ROW_DOT_SIZE };
+                                                      UIS_ROW_DOT_SIZE, UIS_ROW_EYE_CAL };
     static const UiStr POINTER[COG_ACCESS_POINTER_CELLS] = { UIS_CELL_CONTROLLER, UIS_CELL_HEAD, UIS_CELL_EYES };
     static const UiStr DWELL[COG_ACCESS_DWELL_CELLS] = { UIS_OFF, UIS_DWELL_06, UIS_DWELL_09, UIS_DWELL_12, UIS_DWELL_15 };
     static const UiStr STYLE[COG_ACCESS_STYLE_CELLS] = { UIS_CELL_DWELL_SIMPLE, UIS_CELL_DWELL_RADIAL };
     static const UiStr DESC[COG_ACCESS_ROW_COUNT] = { UIS_ACCESS_DESC_POINTER, UIS_ACCESS_DESC_DWELL,
-                                                      UIS_ACCESS_DESC_DWELL_STYLE, UIS_ACCESS_DESC_DOT };
+                                                      UIS_ACCESS_DESC_DWELL_STYLE, UIS_ACCESS_DESC_DOT,
+                                                      UIS_ACCESS_DESC_EYE_CAL };
+    static const UiStr EYECAL[COG_ACCESS_EYECAL_CELLS] = { UIS_CELL_EYE_CAL_START, UIS_RESET };
     static const UiStr EYES[ACCESS_EYES_COUNT] = { UIS_EYES_READY, UIS_EYES_WAITING, UIS_EYES_NO_ACTION,
                                                    UIS_EYES_UNAVAILABLE };
     float cell_half = COG_ACCESS_CELL_HALF * dc->nh;
+    int eyes = v->access_eyes >= 0 && v->access_eyes < ACCESS_EYES_COUNT ? v->access_eyes : ACCESS_EYES_UNAVAILABLE;
     for (int row = 0; row < COG_ACCESS_ROW_COUNT; row++) {
         int live = ui_cog_row_live(v, COG_TAB_ACCESS, row);
         float y = row_y(dc, COG_TAB_ACCESS, row);
+        if (row == COG_ACCESS_ROW_EYECAL) {
+            // native (lane eye-calibration): Start and Reset while the eyes reach the app, else why not
+            label_flush(dc, label_right(dc));
+            eyecal_label(dc, y, live);
+            int n = ui_cog_access_cells(v, row);
+            if (live) {
+                access_cells(dc, row, EYECAL, n, y, 1, cell_half, -1);
+            } else {
+                dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 19.0f, (COG_TRACK_L + COG_TRACK_R) * 0.5f * dc->nw, y,
+                                   (COG_TRACK_R - COG_TRACK_L) * dc->nw, 0xEEFFC870u, ui_str(EYES[eyes]));
+                float rv = cogRowV(COG_TAB_ACCESS, row), half = cogRowHalf(COG_TAB_ACCESS);
+                for (int c = 0; c < n; c++) {
+                    dc_hit_uv(dc, UI_HIT_CELL, row, c, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)c / (float)n,
+                              rv - half, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)(c + 1) / (float)n, rv + half, 0);
+                }
+            }
+            continue;
+        }
         label(dc, ui_str(ROWS[row]), y, live);
         if (row == COG_ACCESS_ROW_DOT) {
             if (!live) {
@@ -663,11 +730,13 @@ static void tab_access(Dc* dc) {
         }
     }
     label_flush(dc, label_right(dc));
-    // whether eye tracking reaches the app, so the user sees why Eyes does nothing (and why it is dimmed)
-    int eyes = v->access_eyes >= 0 && v->access_eyes < ACCESS_EYES_COUNT ? v->access_eyes : ACCESS_EYES_UNAVAILABLE;
+    // whether eye tracking reaches the app, so the user sees why Eyes does nothing (and why it is dimmed);
+    // native (lane eye-calibration): while it does not, the calibration's row says it in its place
     float left = LABEL_X * dc->nw, room = COG_TRACK_R * dc->nw - left;
-    dc_text_fit_left(dc, UI_WEIGHT_REGULAR, 19.0f, left, COG_ACCESS_STATUS_V * dc->nh, room,
-                     eyes == ACCESS_EYES_READY ? 0xEE9BE7A0u : 0xEEFFC870u, ui_str(EYES[eyes]));
+    if (eyes == ACCESS_EYES_READY) {
+        dc_text_fit_left(dc, UI_WEIGHT_REGULAR, 19.0f, left, COG_ACCESS_STATUS_V * dc->nh, room, 0xEE9BE7A0u,
+                         ui_str(EYES[eyes]));
+    }
     // the instructions, and how to get the eyes working while they are not
     float baseline = COG_ACCESS_HELP_T * dc->nh, step = 26.0f;
     float footer = COG_ACCESS_FOOTER_RULE * dc->nh;
@@ -727,6 +796,11 @@ void panel_cog(Dc* dc) {
     // in a room the Screen tab's slot is the Room tab, and every other tab is as ever
     int room_up = dc->v->room_env >= 0 && settings_room_index(dc->v->room_env) >= 0;
     dc->label_text = NULL;
+    // native (lane eye-calibration): a run's label in place of the whole panel
+    if (dc->v->eyecal_step > 0) {
+        eyecal_face(dc);
+        return;
+    }
     chrome(dc, tab, room_up);
     switch (face) {
     case COG_TAB_SCREEN: tab_screen(dc); break;

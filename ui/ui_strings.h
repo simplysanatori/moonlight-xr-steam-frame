@@ -133,19 +133,19 @@
     X(HOST_COPY, "native_host_copy", "Send text to PC") \
     X(HOST_CONFIRM_RUN_Q, "native_host_confirm_run_q", "Run %s on the PC?") \
     X(HOST_CONFIRM_RUN, "native_host_confirm_run", "Run") \
-    X(HOST_PC_NOT_APOLLO, "native_host_pc_not_apollo", "Not supported by this host: commands and the PC clipboard need Apollo") \
-    X(HOST_PC_NO_PERMISSION, "native_host_pc_no_permission", "This host has not allowed server commands for the Frame") \
-    X(HOST_PC_NO_COMMANDS, "native_host_pc_no_commands", "No server commands are set up on this host") \
+    X(HOST_PC_NOT_APOLLO, "native_host_pc_not_apollo", "Commands and the PC clipboard need Apollo") \
+    X(HOST_PC_NO_PERMISSION, "native_host_pc_no_permission", "Allow server commands for this client in Apollo") \
+    X(HOST_PC_NO_COMMANDS, "native_host_pc_no_commands", "No server commands are set up in Apollo") \
     X(HOST_COMPOSE_PROMPT, "native_host_compose_prompt", "Type, Enter sends") \
     X(REPORT_TITLE, "title_bug_report", "Report a problem") \
     X(REPORT_NOTE_LABEL, "bug_report_message_hint", "What happened?") \
     X(REPORT_NOTE_HINT, "vr_report_note_hint", "What were you doing when it went wrong?") \
-    X(REPORT_GOES, "vr_report_sends", "Save keeps your note on the Frame in ~/Games/MoonlightXRNative/reports. Save and zip also makes the masked zip there, to attach to an issue on GitHub. Nothing is sent from the headset.") \
+    X(REPORT_GOES, "vr_report_sends", "Save keeps your note in ~/Games/MoonlightXRNative/reports. Save and zip also makes a masked zip there to attach to a GitHub issue. Nothing is sent from the headset.") \
     X(REPORT_SEND, "bug_report_send_direct", "Save") \
     X(NATIVE_REPORT_ZIP, "native_report_zip", "Save and zip") \
     X(NATIVE_REPORT_ZIP_DONE, "native_report_zip_done", "Report zip saved") \
-    X(NATIVE_REPORT_ZIP_FAIL, "native_report_zip_fail", "The report zip could not be made") \
-    X(NATIVE_REPORT_ZIP_BUSY, "native_report_zip_busy", "The report zip is still being made") \
+    X(NATIVE_REPORT_ZIP_FAIL, "native_report_zip_fail", "Report zip failed") \
+    X(NATIVE_REPORT_ZIP_BUSY, "native_report_zip_busy", "Report zip in progress") \
     X(NATIVE_SLOW_CONN, "native_slow_conn", "Slow connection") \
     /* toasts */ \
     X(TOAST_RATE, "vr_toast_rate", "Display %d Hz") \
@@ -157,7 +157,7 @@
     X(TOAST_HEAD_AIM_ON_MORE, "vr_toast_head_aim_on_more", "Turning your head moves the mouse") \
     X(TOAST_HEAD_AIM_OFF, "vr_toast_head_aim_off", "Head aim off") \
     X(TOAST_GAMEPAD_MODE, "vr_toast_gamepad_mode", "Gamepad mode") \
-    X(TOAST_BACK_MENU_GRIP, "vr_toast_gamepad_back_menu_grip", "Hold the left View button and left grip to go back to the pointer") \
+    X(TOAST_BACK_MENU_GRIP, "vr_toast_gamepad_back_menu_grip", "Hold left View + left grip for the pointer") \
     X(TOAST_BACK_STICKS, "vr_toast_gamepad_back_sticks", "Press both thumbsticks to go back to the pointer") \
     X(TOAST_BACK_TRIGGERS_GRIPS, "vr_toast_gamepad_back_triggers_grips", "Squeeze both triggers and both grips to go back to the pointer") \
     X(TOAST_POINTER_MODE, "vr_toast_pointer_mode", "Pointer mode") \
@@ -180,18 +180,18 @@
     X(NATIVE_PC_NOT_PAIRED, "native_pc_not_paired", "Not paired") \
     X(NATIVE_PC_PAIRED, "native_pc_paired", "Paired") \
     X(NATIVE_PC_RUNNING, "native_pc_running", "Running") \
-    X(NATIVE_PC_NONE, "native_pc_none", "No computers found yet. Make sure Sunshine is running on your PC.") \
+    X(NATIVE_PC_NONE, "native_pc_none", "No PCs found. Is Sunshine or Apollo running?") \
     X(NATIVE_APP_NONE, "native_app_none", "This PC has no apps.") \
     X(NATIVE_BACK, "native_back", "Back") \
     X(NATIVE_PAGE_UP, "native_page_up", "Previous page") \
     X(NATIVE_PAGE_DOWN, "native_page_down", "Next page") \
     X(NATIVE_PAGE_OF, "native_page_of", "%d / %d") \
     X(NATIVE_APP_RUNNING, "native_app_running", "Running") \
-    X(NATIVE_LATER, "native_later", "comes in a later update") \
+    X(NATIVE_LATER, "native_later", "not in this version") \
     X(NATIVE_3D_LATER, "native_3d_later", "3D comes with the depth model in a later update") \
-    X(NATIVE_3D_NO_MODEL, "native_3d_no_model", "3D needs the depth model, which is not installed") \
-    X(NATIVE_3D_FAILED, "native_3d_failed", "3D is off: the depth model did not load") \
-    X(NATIVE_3D_LOADING, "native_3d_loading", "3D: loading the depth model") \
+    X(NATIVE_3D_NO_MODEL, "native_3d_no_model", "3D: Depth model not installed") \
+    X(NATIVE_3D_FAILED, "native_3d_failed", "3D off: Depth model failed to load") \
+    X(NATIVE_3D_LOADING, "native_3d_loading", "3D: Loading depth model") \
     X(NATIVE_TILE_LATER, "native_tile_later", "Later") \
     X(NATIVE_DOT, "native_dot", "Dot") \
     X(NATIVE_RAY, "native_ray", "Ray") \
@@ -204,22 +204,22 @@
     X(SBS_NO_DEPTH, "native_3d_sbs_no_depth", "the PC draws the depth") \
     X(ROW_EDGE, "native_row_edge", "Edge")     X(ROW_DEPTH_DETAIL, "native_row_depth_detail", "Depth detail")     X(ROW_DEPTH_SHAPE, "native_row_depth_shape", "Depth shape")     X(ROW_MOTION_RESET, "native_row_motion_reset", "Motion reset")     X(ROW_EYE_BALANCE, "native_row_eye_balance", "Eye balance") \
     X(NATIVE_EXIT_APP, "native_exit_app", "Quit Moonlight XR for Frame?") \
-    X(NATIVE_PAIR_LATER, "native_pair_later", "Pairing from the headset comes later: pair with mlxr-cli") \
-    X(NATIVE_NOT_PAIRED, "native_not_paired", "%s is not paired: pair it with mlxr-cli") \
-    X(NATIVE_OFFLINE_WAKE, "native_offline_wake", "%s is offline: sending Wake-on-LAN") \
+    X(NATIVE_PAIR_LATER, "native_pair_later", "Pair with mlxr-cli") \
+    X(NATIVE_NOT_PAIRED, "native_not_paired", "%s is not paired: Pair with mlxr-cli") \
+    X(NATIVE_OFFLINE_WAKE, "native_offline_wake", "%s is offline: Sending Wake-on-LAN") \
     X(NATIVE_STARTING, "native_starting", "Starting %s") \
-    X(NATIVE_STREAM_FAILED, "native_stream_failed", "The stream did not start") \
-    X(NATIVE_STREAM_ENDED, "native_stream_ended", "The stream ended") \
+    X(NATIVE_STREAM_FAILED, "native_stream_failed", "Stream failed to start") \
+    X(NATIVE_STREAM_ENDED, "native_stream_ended", "Stream ended") \
     X(NATIVE_QUITTING, "native_quitting", "Ending the session on %s") \
     X(NATIVE_DISCONNECTED, "native_disconnected", "Disconnected: Start+Select+L1+R1") \
     X(NATIVE_DISCONNECTED_KEYS, "native_disconnected_keys", "Disconnected: Ctrl+Alt+Shift+Q") \
-    X(NATIVE_DISCONNECTED_BAR, "native_disconnected_bar", "Disconnected: the app is still running on the PC") \
+    X(NATIVE_DISCONNECTED_BAR, "native_disconnected_bar", "Disconnected: App still running on PC") \
     X(NATIVE_RECONNECTING, "native_reconnecting", "Connection lost, reconnecting (%d/%d)…") \
     X(NATIVE_SPLASH_CONNECTING, "native_splash_connecting", "Connecting to %s…") \
     X(NATIVE_SPLASH_CONNECTING_NOPC, "native_splash_connecting_nopc", "Connecting…") \
     X(NATIVE_SPLASH_RECONNECTING, "native_splash_reconnecting", "Reconnecting…") \
-    X(NATIVE_DISCONNECTED_DOFF, "native_disconnected_doff", "Disconnected while the headset was off: the app is still running on the PC") \
-    X(NATIVE_DISCONNECTED_IDLE, "native_disconnected_idle", "Disconnected after no input for a while: the app is still running on the PC") \
+    X(NATIVE_DISCONNECTED_DOFF, "native_disconnected_doff", "Disconnected (headset off): App still running on PC") \
+    X(NATIVE_DISCONNECTED_IDLE, "native_disconnected_idle", "Disconnected (idle): App still running on PC") \
     /* the first-run controls card (PLAN 3.9) */ \
     X(FIRSTRUN_TITLE, "native_firstrun_title", "Controls at a glance") \
     X(FIRSTRUN_BAR_L, "native_firstrun_bar_l", "Bar") \
@@ -248,7 +248,7 @@
     X(PADCARD_GENERIC, "native_padcard_generic", "Gamepad") \
     X(PADCARD_GYRO, "native_padcard_gyro", "Gyro") \
     X(PADCARD_TOUCHPAD, "native_padcard_touchpad", "Touchpad") \
-    X(PADCARD_HINT, "native_padcard_hint", "Press a button, a stick or a trigger") \
+    X(PADCARD_HINT, "native_padcard_hint", "Press any button, stick or trigger") \
     X(PADCARD_START_MENU, "native_padcard_start_menu", "Menu") \
     X(PADCARD_START_OPTIONS, "native_padcard_start_options", "Options") \
     X(PADCARD_START_PLUS, "native_padcard_start_plus", "+") \
@@ -269,18 +269,18 @@
     X(DWELL_12, "native_dwell_12", "1.2 s") \
     X(DWELL_15, "native_dwell_15", "1.5 s") \
     X(NEEDS_HEAD_POINTER, "native_needs_head_pointer", "needs the Head or Eyes pointer") \
-    X(EYES_READY, "native_eyes_ready", "Eye tracking: available") \
-    X(EYES_WAITING, "native_eyes_waiting", "Eye tracking: offered, but no gaze has arrived yet") \
-    X(EYES_UNAVAILABLE, "native_eyes_unavailable", "Eye tracking: SteamVR does not offer it to apps") \
-    X(ACCESS_HELP, "native_access_help", "Head: the dot follows the middle of your view, and either trigger clicks. Dwell click: hold the dot still on a button or on the picture and it clicks by itself. To turn it off, pick Controller here. Hold right Menu and right grip to point with the controllers again.") \
-    X(ACCESS_HELP_EYES, "native_access_help_eyes", "For Eyes: wear the headset, turn on SteamVR Settings > General > Eye Tracking, then restart the app.") \
+    X(EYES_READY, "native_eyes_ready", "Eye tracking: Available") \
+    X(EYES_WAITING, "native_eyes_waiting", "Eye tracking: No gaze data") \
+    X(EYES_UNAVAILABLE, "native_eyes_unavailable", "Eye tracking: Not enabled in SteamVR") \
+    X(ACCESS_HELP, "native_access_help", "Head: The dot follows the middle of your view, and either trigger clicks. Dwell click: Hold the dot still to click. To point with the controllers again, pick Controller or hold right Menu and right grip.") \
+    X(ACCESS_HELP_EYES, "native_access_help_eyes", "Eyes: Turn on SteamVR Settings > General > Eye Tracking, then restart the app.") \
     /* native (lane a11y-2): the Accessibility tab's Dot size, its footer's descriptions, the eye line */ \
     X(ROW_DOT_SIZE, "native_row_dot_size", "Dot size") \
-    X(ACCESS_DESC_POINTER, "native_access_desc_pointer", "What moves the pointer: a controller, your head, or where you look. Eyes is experimental: the dot jitters and lands near where you look. Hold right Menu and right grip to point with the controllers again.") \
-    X(ACCESS_DESC_DWELL, "native_access_desc_dwell", "Rest the dot this long on something to click it.") \
+    X(ACCESS_DESC_POINTER, "native_access_desc_pointer", "What moves the pointer: a controller, your head or your eyes. Eyes is experimental and jitters. Hold right Menu and right grip to point with the controllers again.") \
+    X(ACCESS_DESC_DWELL, "native_access_desc_dwell", "Hold the dot still this long to click.") \
     X(ACCESS_DESC_DOT, "native_access_desc_dot", "How big the dot is when you point with your head or eyes.") \
     X(ACCESS_DESC_NONE, "native_access_desc_none", "Point at a setting to see what it does.") \
-    X(EYES_NO_ACTION, "native_eyes_no_action", "Eye tracking: offered, but the app could not set it up") \
+    X(EYES_NO_ACTION, "native_eyes_no_action", "Eye tracking: Setup failed") \
     /* native (lane a11y-2): the headset button (a future feature since lane a11y-final; its toast is kept with its code) */ \
     X(AUX_RETURNED, "native_aux_returned", "Headset button returned to SteamVR for 15 s") \
     X(ROW_DWELL_STYLE, "native_row_dwell_style", "Dwell click style") \
@@ -289,7 +289,19 @@
     X(ACCESS_DESC_DWELL_STYLE, "native_access_desc_dwell_style", "Radial menu: near the end of the dwell, look left for double click, down to drag, right for right click.") \
     /* native (lane a11y-final): Eyes marked experimental, and the right hand's way back to the controllers */ \
     X(CELL_EYES_EXPERIMENTAL, "native_cell_eyes_experimental", "experimental") \
-    X(TOAST_POINTER_BACK, "native_toast_pointer_back", "Controllers point again")
+    X(TOAST_POINTER_BACK, "native_toast_pointer_back", "Pointer: Controller") \
+    /* native (lane eye-calibration): the Accessibility tab's Eye calibration row, and its run's label */ \
+    X(ROW_EYE_CAL, "native_row_eye_cal", "Eye calibration") \
+    X(CELL_EYE_CAL_START, "native_cell_eye_cal_start", "Start") \
+    X(EYE_CAL_NONE, "native_eye_cal_none", "Not calibrated") \
+    X(EYE_CAL_DONE, "native_eye_cal_done", "Calibrated: %.1f° average") \
+    X(EYE_CAL_FAIL_FEW, "native_eye_cal_fail_few", "Failed: Too few steady dots") \
+    X(EYE_CAL_FAIL_GAIN, "native_eye_cal_fail_gain", "Failed: No improvement") \
+    X(EYE_CAL_FAIL_EXTREME, "native_eye_cal_fail_extreme", "Failed: Correction too large") \
+    X(ACCESS_DESC_EYE_CAL, "native_access_desc_eye_cal", "Corrects where the eyes point. Look at each of the 12 dots in turn.") \
+    X(EYE_CAL_LOOK, "native_eye_cal_look", "Look at the dot") \
+    X(EYE_CAL_PROGRESS, "native_eye_cal_progress", "%d / %d") \
+    X(EYE_CAL_CANCEL, "native_eye_cal_cancel", "B: Cancel")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

@@ -447,13 +447,21 @@ static void budgetGroup(void) {
     printf("  worst case %d of 16\n", worst);
 
     // The drop order when a frame does go over (a runtime with fewer): the
-    // toast first, then the models, as upstream
+    // toast first, then the models, as upstream. Native (lane beam-streak): the
+    // places held for layers not shown (xr_layers.c holdPlace) go between them
     envStep(s, ENV_CELL_HOME_THEATER);
     c->hoverKind = HOVER_BAR;
     toastUp(c);
     scene_frame(s, "stats");
     int full = (int)s->out.count;
     CHECK(hasSwapchain(&s->out, FAKE_MODEL));
+    int held = 0;
+    for (uint32_t i = 0; i < s->out.count; i++) {
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)s->out.order[i];
+        if (q->type == XR_TYPE_COMPOSITION_LAYER_QUAD && q->size.width <= 0.0011f && q->size.height <= 0.0011f) {
+            held++;
+        }
+    }
     c->maxLayerCount = full - 1;
     toastUp(c);
     scene_frame(s, "stats");
@@ -461,8 +469,14 @@ static void budgetGroup(void) {
     c->maxLayerCount = full - 2;
     toastUp(c);
     scene_frame(s, "stats");
-    CHECK((int)s->out.count == full - 2 && !hasSwapchain(&s->out, FAKE_MODEL) && hasSwapchain(&s->out, FAKE_ROOM));
-    printf("  over a limit of %d: the toast goes, then the models (%d -> %u)\n", full - 2, full, s->out.count);
+    CHECK((int)s->out.count == full - 2 && hasSwapchain(&s->out, FAKE_MODEL) == (held > 0)
+          && hasSwapchain(&s->out, FAKE_ROOM));
+    printf("  over a limit of %d: the toast goes, then %s (%d -> %u)\n", full - 2,
+           held > 0 ? "a held place" : "the models", full, s->out.count);
+    c->maxLayerCount = full - 2 - held;
+    toastUp(c);
+    scene_frame(s, "stats");
+    CHECK((int)s->out.count == full - 2 - held && !hasSwapchain(&s->out, FAKE_MODEL) && hasSwapchain(&s->out, FAKE_ROOM));
     c->maxLayerCount = 16;
 
     // Swapchains: what the session makes at most, against SteamVR's 16 a

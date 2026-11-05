@@ -131,6 +131,20 @@ int render_all_panels(const char* dir) {
         va.cog_tab = COG_TAB_ACCESS;
         va.access_eyes = ACCESS_EYES_UNAVAILABLE;
         panel_to_png(dir, "cog_accessibility_no_eyes", UI_PANEL_COG, &va, 1.0f);
+        // native (lane eye-calibration): a calibration stored and the pointer on its row; a failed run;
+        // and a run's label
+        a.pointer_source = POINTER_SOURCE_GAZE;
+        snprintf(a.eye_calibration, sizeof a.eye_calibration, "1 a 1.200 0.300 -0.100 -0.800 0.000 0.200 0.94 2.61 1.70 4.90");
+        ui_view_init(&va, &a);
+        va.cog_tab = COG_TAB_ACCESS;
+        va.access_eyes = ACCESS_EYES_READY;
+        va.access_row = COG_ACCESS_ROW_EYECAL;
+        panel_to_png(dir, "cog_accessibility_eyecal", UI_PANEL_COG, &va, 1.0f);
+        va.access_cal = EYECAL_FAIL_EXTREME;
+        panel_to_png(dir, "cog_accessibility_eyecal_failed", UI_PANEL_COG, &va, 1.0f);
+        va.access_cal = -1;
+        va.eyecal_step = 3;
+        panel_to_png(dir, "cog_eyecal_run", UI_PANEL_COG, &va, 1.0f);
     }
     // rooms
     static const int ENVS[3] = { ENV_ID_HOME_THEATER, ENV_ID_GRAND_CINEMA, ENV_ID_SYNTHWAVE };

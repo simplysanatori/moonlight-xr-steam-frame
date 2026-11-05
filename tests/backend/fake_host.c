@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <poll.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -389,7 +390,7 @@ static void serve_one(fake_host *h, int fd, bool https)
         SSL_write(ssl, resp, (int)strlen(resp));
         SSL_shutdown(ssl);
     } else {
-        if (write(fd, head, (size_t)hl) < 0 || write(fd, resp, strlen(resp)) < 0) {}
+        if (send(fd, head, (size_t)hl, MSG_NOSIGNAL) < 0 || send(fd, resp, strlen(resp), MSG_NOSIGNAL) < 0) {}
     }
     free(resp);
     X509_free(peer);
@@ -415,6 +416,13 @@ static void *loop(void *arg)
 
 fake_host *fake_host_start(const fake_opts *o)
 {
+    /* Native (lane beam-streak): a client that hangs up mid answer is a broken pipe, not the end of
+     * the test, as for a real host. The pinning tests hang up on purpose: the client refuses the
+     * certificate in the middle of the TLS handshake, and the handshake's next write from
+     * SSL_accept killed the whole test with SIGPIPE (exit 141). OpenSSL writes through its own
+     * socket BIO, which has no MSG_NOSIGNAL, so the signal is ignored here, as fake_host_main and
+     * test_netpath already did. */
+    signal(SIGPIPE, SIG_IGN);
     fake_host *h = calloc(1, sizeof *h);
     if (o) h->o = *o;
     if (!h->o.pin) h->o.pin = "1234";
