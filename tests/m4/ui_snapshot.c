@@ -114,6 +114,28 @@ int main(int argc, char** argv) {
         s->settings.head_dwell_ms = 0;
     }
 
+    // Native (lane eye-calibration): the Accessibility tab with eye gaze reaching the app and a
+    // calibration stored (the Eye calibration row's Start, Reset and result), then a run up: its label in
+    // the middle of the picture and its fourth dot
+    scene_reset(s);
+    c->cogOpen = 1;
+    c->cogTab = COG_TAB_ACCESS;
+    c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
+    c->gazeOffered = c->eyeGaze = c->gazeBound = c->gazeSeen = 1;
+    xrEyeCalFromSettings(c, "1 a 1.200 0.300 -0.100 -0.800 0.000 0.200 0.94 2.61 1.70 4.90");
+    c->cogHoverSlider = COG_ACCESS_ROW_EYECAL;
+    c->cogHoverCell = COG_ACCESS_EYECAL_START;
+    scene_ray_to(s, hand(), panelPoint(c->cogPose, c->cogW, c->cogH, 0.55f, cogRowV(COG_TAB_ACCESS, COG_ACCESS_ROW_EYECAL)));
+    shot(s, "07c-cog-accessibility-eyes", NULL);
+    xrEyeCalStart(c);
+    c->eyeCalRun.step = 3;
+    c->eyeCalRun.phase = EYECAL_PHASE_COLLECT;
+    c->eyeCalRun.phaseNs = nowNs();
+    shot(s, "07d-eye-calibration", NULL);
+    xrEyeCalCancel(c, "the snapshot");
+    xrEyeCalFromSettings(c, "");
+    c->gazeOffered = c->eyeGaze = c->gazeBound = c->gazeSeen = 0;
+
     // Native (lane wave3-hud): the clock strip over the cog with the headset's battery (charging) and the
     // slow connection badge
     scene_reset(s);
@@ -201,10 +223,10 @@ int main(int argc, char** argv) {
     // Native (owner's request): the lines as the session writes them, the
     // app's clauses wider than the window was; every one wraps inside it
     static const char LONG_STATS[] =
-        "Display 90 Hz, 89 fps\nVideo 2560x1440, 60 fps\ndecoded 123456, dropped 12, decode 3.1 ms\n"
-        "units 654321, idr requests 2, rtt 4 ms, pending video 1\n"
-        "hw decode 3.1 ms (last 3.2), frames 123456, skipped 12, errors 0\n"
-        "audio 2ch 40 ms buffered, 2 underruns, 0 lost (stream totals)\n"
+        "Display 90 Hz, 89 fps\nVideo 2560x1440, 60 fps\nDecoded 123456, dropped 12, decode 3.1 ms\n"
+        "Bitrate 98000 kbps, units 654321, IDR requests 2, RTT 4 ms, pending 1\n"
+        "HW decode 3.1 ms (last 3.2), frames 123456, skipped 12, errors 0\n"
+        "Audio: 2ch, 40 ms buffered, 2 underruns, 0 lost\n"
         "network 54 Mb/s, host encode 4.2 ms, network 1.1 ms, decode 3.1 ms, present 2.0 ms, total 10.4 ms (worst 15.8)\n"
         "Depth 14.9/s (target 15), depth-anything-v2-small-int8\nDepth inference 41.3 ms, age 88 ms, skipped 1234";
     shot(s, "13-stats", LONG_STATS);
@@ -255,6 +277,14 @@ int main(int argc, char** argv) {
         shot(s, "13c-stats-hud", text);
         mlxr_hud_lite(&f, 0, text, sizeof(text));
         shot(s, "13d-stats-lite", text);
+        // Native (lane beam-streak): a host that sends no timing and no frame the decoder timed: n/a
+        f.hostUnknown = 1;
+        f.decodeUnknown = 1;
+        f.hostMs = 0.0;
+        f.decodeMs = 0.0;
+        f.latencyMs = f.rttMs * 0.5 + f.recvMs + f.queueMs;
+        mlxr_hud_panel(&f, 0, &m, 90.0, text, sizeof(text));
+        shot(s, "13e-stats-hud-untimed", text);
     }
     c->overlayVisible = 0;
 

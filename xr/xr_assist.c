@@ -22,13 +22,18 @@ int cogAccessCells(XrCtx* ctx, int row) {
     (void)ctx;
     return row == COG_ACCESS_ROW_POINTER ? COG_ACCESS_POINTER_CELLS
          : row == COG_ACCESS_ROW_DWELL ? COG_ACCESS_DWELL_CELLS
-         : row == COG_ACCESS_ROW_STYLE ? COG_ACCESS_STYLE_CELLS : 0;
+         : row == COG_ACCESS_ROW_STYLE ? COG_ACCESS_STYLE_CELLS
+         : row == COG_ACCESS_ROW_EYECAL ? COG_ACCESS_EYECAL_CELLS : 0;
 }
 
 int cogAccessCellLive(XrCtx* ctx, int row, int cell) {
     // native (lane a11y-2): Eyes is always there, dimmed only where the runtime has no eye gaze
     if (row == COG_ACCESS_ROW_POINTER && cell == POINTER_SOURCE_GAZE) {
         return accessEyesCellLive(xrAccessEyes(ctx), ctx->pointerSource);
+    }
+    // native (lane eye-calibration): Start while the eyes reach the app, Reset with a calibration in force
+    if (row == COG_ACCESS_ROW_EYECAL) {
+        return accessEyeCalCellLive(xrAccessEyes(ctx), cell, ctx->eyeCal.model != EYECAL_MODEL_NONE);
     }
     return cell >= 0 && cell < cogAccessCells(ctx, row);
 }
@@ -37,6 +42,10 @@ int cogAccessRowLive(XrCtx* ctx, int row) {
     // every row but the pointer's acts only with the head or the eyes pointing
     if (row == COG_ACCESS_ROW_POINTER) {
         return 1;
+    }
+    // native (lane eye-calibration): the calibration's, whatever points, while the eyes reach the app
+    if (row == COG_ACCESS_ROW_EYECAL) {
+        return accessEyeCalLive(xrAccessEyes(ctx));
     }
     return ctx->pointerSource != POINTER_SOURCE_CONTROLLER;
 }
@@ -72,6 +81,20 @@ void cogApplyAccessCell(XrCtx* ctx, int row, int cell, float* out) {
         ctx->assistDwellStyle = value;
         setting = SETTING_ASSIST_DWELL_STYLE;
         LOGEV("dwell click style %s from the Accessibility tab", value == DWELL_STYLE_RADIAL ? "radial menu" : "simple");
+        break;
+    case COG_ACCESS_ROW_EYECAL:
+        // native (lane eye-calibration): Start opens the run (nothing stored until it ends well); Reset
+        // takes the calibration out of force and empties the key
+        if (cell == COG_ACCESS_EYECAL_START) {
+            xrEyeCalStart(ctx);
+            return;
+        }
+        memset(&ctx->eyeCal, 0, sizeof(ctx->eyeCal));
+        ctx->eyeCalResult = -1;
+        ctx->eyeCalUnsaved = 0;
+        setting = SETTING_EYE_CAL;
+        value = 0;
+        LOGEV("eye calibration reset from the Accessibility tab");
         break;
     default:
         return;
@@ -197,4 +220,134 @@ XrQuaternionf xrEyesSteady(XrCtx* ctx, XrQuaternionf q, float dt) {
         return q;
     }
     return quatNorm(quatMul(axisAngleQuat(vecNorm(axis), atan2f(s, c)), q));
+}
+
+// ---- lane eye-calibration: the eye calibration's run, its result, and the gaze it corrects ----
+
+void xrEyeCalFromSettings(XrCtx* ctx, const char* text) {
+    EyeCal cal;
+    if (!eyeCalParse(text, &cal) && text != NULL && text[0] != 0) {
+        LOGW("eye calibration: [vr] eye_calibration \"%s\" is not one this version reads (or is out of "
+             "bounds), so the gaze goes uncorrected", text);
+    }
+    ctx->eyeCal = cal;
+}
+
+int xrEyeCalUp(const XrCtx* ctx) {
+    return ctx != NULL && eyeCalRunUp(&ctx->eyeCalRun);
+}
+
+int xrEyeCalStep(const XrCtx* ctx) {
+    return xrEyeCalUp(ctx) ? ctx->eyeCalRun.step + 1 : 0;
+}
+
+void xrEyeCalStart(XrCtx* ctx) {
+    eyeCalRunStart(&ctx->eyeCalRun);
+    ctx->eyeCalBegun = 0;
+    ctx->eyeCalResult = -1;
+    LOGEV("eye calibration started from the Accessibility tab (pointer %s, %s)",
+          ctx->pointerSource == POINTER_SOURCE_GAZE ? "eyes"
+          : ctx->pointerSource == POINTER_SOURCE_HEAD ? "head" : "controller",
+          ctx->eyeCal.model != EYECAL_MODEL_NONE ? "a calibration in force" : "none in force");
+}
+
+void xrEyeCalCancel(XrCtx* ctx, const char* why) {
+    if (!xrEyeCalUp(ctx)) {
+        return;
+    }
+    LOGEV("eye calibration cancelled (%s) at dot %d of %d; the calibration in force is kept", why,
+          ctx->eyeCalRun.step + 1, EYECAL_DOTS);
+    eyeCalRunStop(&ctx->eyeCalRun);
+    ctx->eyeCalBegun = 0;
+}
+
+void xrEyeCalSave(XrCtx* ctx, float* out) {
+    if (ctx->eyeCalUnsaved && out != NULL && out[IN_SETTING] < 0.0f) {
+        out[IN_SETTING] = (float)SETTING_EYE_CAL;
+        out[IN_SETTING_VALUE] = ctx->eyeCalUnsaved == 1 ? 1.0f : 0.0f;
+        ctx->eyeCalUnsaved = 0;
+    }
+}
+
+void xrEyeCalFrame(XrCtx* ctx, int64_t now, int gazeOk, float gazeYaw, float gazePitch, float dotYaw,
+                   float dotPitch, float* out) {
+    EyeCalRun* r = &ctx->eyeCalRun;
+    int was = r->step;
+    int what = eyeCalRunStep(r, now, gazeOk, gazeYaw, gazePitch, dotYaw, dotPitch);
+    if (what == EYECAL_STEP_NEXT) {
+        LOGI("eye calibration: dot %d of %d %s", was + 1, EYECAL_DOTS,
+             r->step == was ? "not steady, once more" : r->have[eyeCalOrder(was)] ? "steady" : "skipped");
+    }
+    if (what != EYECAL_STEP_FINISHED) {
+        return;
+    }
+    EyeCal fit;
+    int res = eyeCalFit(r->points, r->have, &fit);
+    static const char* const WHY[EYECAL_RESULTS] = { "kept", "too few steady dots", "no clear improvement",
+                                                     "the correction is too large" };
+    LOGEV("eye calibration: %d of %d dots steady (%d tried again, %d skipped), %d used (%d dropped), %s: "
+          "average %.2f deg -> %.2f, largest %.2f -> %.2f: %s", r->good, EYECAL_DOTS, r->retries, r->skipped,
+          fit.used, fit.dropped, fit.model == EYECAL_MODEL_QUAD ? "second order" : "affine", fit.meanBefore,
+          fit.meanAfter, fit.maxBefore, fit.maxAfter, WHY[res]);
+    ctx->eyeCalResult = res;
+    if (res == EYECAL_OK) {
+        // in force exactly as it is stored
+        char text[UI_STR_MAX];
+        EyeCal kept;
+        if (eyeCalFormat(&fit, text, sizeof text) && eyeCalParse(text, &kept)) {
+            kept.used = fit.used;
+            kept.dropped = fit.dropped;
+            ctx->eyeCal = kept;
+            ctx->eyeCalUnsaved = 1;
+        }
+    }
+    xrEyeCalSave(ctx, out);
+}
+
+int xrEyeCalDotPoint(const XrCtx* ctx, Vec3 headPos, int64_t now, Vec3* point, float* size) {
+    int dot = xrEyeCalUp(ctx) ? eyeCalRunDot(&ctx->eyeCalRun) : -1;
+    if (dot < 0 || ctx->videoWidth <= 0) {
+        return 0;
+    }
+    float u, v;
+    eyeCalTarget(dot, &u, &v);
+    float w = ctx->screenWidth, h = w * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    // on the picture's plane, a little in front of it
+    Vec3 local = { (u - 0.5f) * w, (0.5f - v) * h, 0.02f };
+    Vec3 off = quatRotate(ctx->screenPose.orientation, local);
+    point->x = ctx->screenPose.position.x + off.x;
+    point->y = ctx->screenPose.position.y + off.y;
+    point->z = ctx->screenPose.position.z + off.z;
+    Vec3 away = vecSub(*point, headPos);
+    float dist = sqrtf(vecDot(away, away));
+    *size = 2.0f * dist * tanf(0.5f * eyeCalRunDotDeg(&ctx->eyeCalRun, now) * 0.0174532925f);
+    return 1;
+}
+
+void xrEyeCalHeadAngles(XrQuaternionf headQ, Vec3 dir, float* yaw, float* pitch) {
+    Vec3 d = quatRotate(quatConj(headQ), dir);
+    float v[3] = { d.x, d.y, d.z };
+    eyeCalAngles(v, yaw, pitch);
+}
+
+XrQuaternionf xrEyeCalCorrect(const XrCtx* ctx, XrQuaternionf headQ, XrQuaternionf gazeQ) {
+    if (ctx->eyeCal.model == EYECAL_MODEL_NONE) {
+        return gazeQ;
+    }
+    Vec3 fwd = { 0.0f, 0.0f, -1.0f };
+    Vec3 local = quatRotate(gazeQ, fwd);
+    Vec3 d = quatRotate(quatConj(headQ), local);
+    float yaw, pitch, cy, cp, v[3] = { d.x, d.y, d.z }, to[3];
+    eyeCalAngles(v, &yaw, &pitch);
+    eyeCalApply(&ctx->eyeCal, yaw, pitch, &cy, &cp);
+    eyeCalDir(cy, cp, to);
+    // the turn from the measured direction to the corrected one, in the head's frame, put on the gaze
+    Vec3 want = { to[0], to[1], to[2] };
+    Vec3 axis = vecCross(d, want);
+    float sn = sqrtf(vecDot(axis, axis)), cs = vecDot(d, want);
+    if (sn < 1e-7f) {
+        return gazeQ;
+    }
+    XrQuaternionf turn = axisAngleQuat(vecNorm(axis), atan2f(sn, cs));
+    return quatNorm(quatMul(quatMul(quatMul(headQ, turn), quatConj(headQ)), gazeQ));
 }

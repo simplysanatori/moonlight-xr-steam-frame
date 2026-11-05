@@ -21,6 +21,7 @@
 #include "text.h"
 #include "ui_strings.h"
 #include "xr_access.h"
+#include "xr_eyecal.h"
 #include "xr_radial.h"
 #include "xr_cards.h"
 #include "xr_hostkeys.h"
@@ -198,6 +199,12 @@ typedef struct {
     // Native (lane a11y-2): the Accessibility tab's row under the pointer (COG_ACCESS_ROW_*), whose
     // one-line description the tab's footer shows, or -1
     int access_row;
+    // Native (lane eye-calibration): how this session's last eye calibration ended (EYECAL_OK or
+    // EYECAL_FAIL_*, xr_eyecal.h), -1 for none (the row then says what config.ini holds); and the
+    // calibration's own face, which the cog's panel shows while a run is up: the dot's number in
+    // the run (1 to EYECAL_DOTS), 0 for the tabs
+    int access_cal;
+    int eyecal_step;
 } UiView;
 
 // Fills the view's defaults from settings (session toggles included)

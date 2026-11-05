@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.2.0 (November 2026)
+
+In 1.2.0 I added an eye calibration for the Eyes pointer, fixed the white streak that flashed across the view while pointing at the keyboard, made the trigger grab the screen's move pill and corners, fixed stats that read 0 during a stream, and tidied the text in the headset and the flat window.
+
+### Added
+
+- Eye calibration, on the cog's Accessibility tab. Press **Start** and look at each of 12 dots on the picture in turn. The app compares where your eyes point with where each dot is, and corrects the gaze from then on, for the Eyes pointer, Look to point and the dwell click. Your head can move during it, and **B** or **Menu** cancels. The row then shows the average error left, such as "Calibrated: 0.9° average". A run that doesn't clearly help, or would move the gaze too far, isn't kept, and the row says why. **Reset** removes the calibration. It's saved in `config.ini` (`[vr] eye_calibration`).
+
+### Fixed
+
+- A large white streak, like a reflected ray, flashed through the middle of the view while the ray moved over the keyboard. The ring round the key under the ray came and went at every gap between keys, and that shifted the beam in SteamVR's list of layers. Everything that appears with the ray (the key ring, the bar and its buttons, the corner handles, the grid's rings) now keeps its place in that list, so the beam never moves. As a safeguard, a beam that would reach your eyes is cut short in front of them.
+- The stats window's "decoded, dropped, decode" row read 0 for the whole stream; it showed the software decoder's numbers, and streams on the Frame use the hardware decoder. It shows the hardware decoder's now.
+- The audio row read "0ch 0 ms buffered" when the PC sent no sound. It now says "Audio: No stream from PC".
+- The HUD and Lite stats wrote 0.0 for the host's encode time when the PC sends none with its frames, and for decode when nothing was timed. Those now read n/a, and the latency shows a "+" when a part is missing.
+
+### Changed
+
+- The trigger now grabs the move pill under the screen and the resize corners, the same as the grip, as windows do in the Steam Frame's dashboard. Pressing on a handle sends no click to the PC. A click or drag that starts on the picture is still a click or drag.
+- The corners' grab area reaches less than 2 cm into the picture (it was 5.6 cm), so the desktop's own corners, such as the Start button, still click.
+- The text in the headset and in the flat window is shorter and plainer, and uses Moonlight's terms, such as "Disconnected (idle): App still running on PC", "No PCs found. Is Sunshine or Apollo running?" and "Eye tracking: Not enabled in SteamVR".
+
 ## 1.1.2 (November 2026)
 
 ### Fixed

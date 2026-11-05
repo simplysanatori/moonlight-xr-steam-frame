@@ -159,6 +159,8 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     ctx->gazeSupportFlag = -1;
     ctx->assistDotSize = ACCESS_DOT_DEFAULT;   // native (lane a11y-2)
     ctx->cogPointV = -1.0f;
+    ctx->eyeCalResult = -1;   // native (lane eye-calibration): no run this session
+    ctx->gazeRaw.orientation.w = 1.0f;
     auxDevInit(&ctx->auxDev);
     auxClickReset(&ctx->auxGest);
     assistPlayReset(&ctx->assistPlay);
@@ -399,6 +401,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     xrSetPointerSource(ctx, s->pointer_source, s->head_dwell_ms);              // PLAN 6.5
     ctx->assistDotSize = accessDotClamp(s->assist_dot_size);                   // native (lane a11y-2)
     ctx->assistDwellStyle = s->assist_dwell_style == DWELL_STYLE_RADIAL ? DWELL_STYLE_RADIAL : DWELL_STYLE_SIMPLE;
+    xrEyeCalFromSettings(ctx, s->eye_calibration);   // native (lane eye-calibration)
     // native (lane a11y-final): assist_headset_button and assist_click_path are a future feature's
     // (docs/dev/accessibility.md): still keys of config.ini, so a file with them reads as before, but
     // not read here, so the app never takes the headset button or reads that path
@@ -519,6 +522,8 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->eye_balance = iround(ctx->eyeBalance * 100.0f);
     // Native (lane a11y-2): the Accessibility tab's Dot size, so its thumb moves with a drag
     s->assist_dot_size = ctx->assistDotSize;
+    // Native (lane eye-calibration): the calibration in force, so the tab's row says it once a run ends
+    eyeCalFormat(&ctx->eyeCal, s->eye_calibration, sizeof(s->eye_calibration));
     if (ctx->placementValid) {
         float pose[POSE_VALUES];
         pose[0] = ctx->screenPose.position.x;
@@ -595,6 +600,11 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_ASSIST_HEADSET_BUTTON: s->assist_headset_button = value != 0; break;
     case SETTING_ASSIST_DWELL_STYLE:   // native (lane radial-dwell)
         s->assist_dwell_style = value == DWELL_STYLE_RADIAL ? DWELL_STYLE_RADIAL : DWELL_STYLE_SIMPLE;
+        break;
+    case SETTING_EYE_CAL:   // native (lane eye-calibration): 1 the calibration in force, 0 none (Reset)
+        if (value == 0 || ctx == NULL || !eyeCalFormat(&ctx->eyeCal, s->eye_calibration, sizeof(s->eye_calibration))) {
+            s->eye_calibration[0] = 0;
+        }
         break;
     case SETTING_PICTURE_BRIGHTNESS: s->picture_brightness = value; break;
     case SETTING_PICTURE_CONTRAST: s->picture_contrast = value; break;

@@ -159,6 +159,107 @@ static Vec3 pictureBarPoint(XrCtx* c) {
     return p;
 }
 
+// Native (lane beam-streak, owner's request): a point on the flat picture at u, v
+static Vec3 picturePoint(XrCtx* c, float u, float v) {
+    float h = c->screenWidth * (float)c->videoHeight / (float)c->videoWidth;
+    Vec3 local = { (u - 0.5f) * c->screenWidth, (0.5f - v) * h, 0.0f };
+    Vec3 r = quatRotate(c->screenPose.orientation, local);
+    Vec3 p = { c->screenPose.position.x + r.x, c->screenPose.position.y + r.y, c->screenPose.position.z + r.z };
+    return p;
+}
+
+// Native (lane beam-streak, owner's request): in pointer mode the trigger takes hold of the bar and
+// the corners wherever they are hovered, as the grip does, the way the Steam Frame's dashboard
+// windows feel, and no button reaches the PC on a handle; the trigger on the picture is a click.
+static void triggerTakesHandles(Scene* s) {
+    XrCtx* c = s->ctx;
+    scene_reset(s);
+    pictureAt3m(c);
+    useGun(c, 0);
+    xrSetLightgun(c, LIGHTGUN_AUTO, 0, 1);
+    float side = cornerSide(c);
+    float h = c->screenWidth * (float)c->videoHeight / (float)c->videoWidth;
+    // the bottom left corner, a little over the picture (where it used to click) and outside it
+    float inU = side * CORNER_INSIDE * 0.5f / c->screenWidth, inV = side * CORNER_INSIDE * 0.5f / h;
+    Vec3 cornerIn = picturePoint(c, inU, 1.0f - inV);
+    Vec3 cornerOut = picturePoint(c, -side * 0.5f / c->screenWidth, 1.0f + side * 0.5f / h);
+    Vec3 spots[2] = { cornerIn, cornerOut };
+    for (int k = 0; k < 2; k++) {
+        XrPosef aim = aimAt(HAND, spots[k]);
+        CHECK(xrGrabStepAt(c, aim, 0, 0, 0.0f) == HOVER_CORNER);
+        float wasW = c->screenWidth;
+        // the trigger takes hold and resizes, and lets go when it is let go
+        xrGrabStepAt(c, aim, 1, 0, 0.0f);
+        CHECK(c->grabMode == GRAB_RESIZE && c->grabByTrigger);
+        Vec3 out = { spots[k].x - 0.3f, spots[k].y - 0.2f, spots[k].z };
+        xrGrabStepAt(c, aimAt(HAND, out), 1, 0, 0.0f);
+        CHECK(c->screenWidth > wasW + 0.05f);
+        xrGrabStepAt(c, aimAt(HAND, out), 0, 0, 0.0f);
+        CHECK(c->grabMode == GRAB_NONE);
+        pictureAt3m(c);
+        // the grip too, held by the grip
+        xrGrabStepAt(c, aim, 0, 1, 0.0f);
+        CHECK(c->grabMode == GRAB_RESIZE && !c->grabByTrigger);
+        xrGrabStepAt(c, aim, 1, 1, 0.0f);
+        CHECK(c->grabMode == GRAB_RESIZE);
+        xrGrabStepAt(c, aim, 1, 0, 0.0f);
+        CHECK(c->grabMode == GRAB_NONE);
+        xrGrabStepAt(c, aim, 0, 0, 0.0f);
+        pictureAt3m(c);
+    }
+    // no button goes down on a corner, but one held from the picture stays held there and lets go
+    CHECK(xrButtonsFrame(c, VR_BUTTON_LEFT, HOVER_CORNER, 1) == 0);
+    CHECK(xrButtonsFrame(c, 0, HOVER_CORNER, 1) == 0);
+    CHECK(xrButtonsFrame(c, VR_BUTTON_LEFT, HOVER_SCREEN, 1) == VR_BUTTON_LEFT);
+    CHECK(xrButtonsFrame(c, VR_BUTTON_LEFT, HOVER_CORNER, 1) == VR_BUTTON_LEFT);
+    CHECK(xrButtonsFrame(c, 0, HOVER_CORNER, 1) == 0);
+    // the bar: the trigger moves the picture, the grip too
+    XrPosef bar = aimAt(HAND, pictureBarPoint(c));
+    CHECK(xrGrabStepAt(c, bar, 0, 0, 0.0f) == HOVER_BAR);
+    xrGrabStepAt(c, bar, 1, 0, 0.0f);
+    CHECK(c->grabMode == GRAB_MOVE && c->grabByTrigger);
+    xrGrabStepAt(c, bar, 0, 0, 0.0f);
+    CHECK(c->grabMode == GRAB_NONE);
+    xrGrabStepAt(c, bar, 0, 1, 0.0f);
+    CHECK(c->grabMode == GRAB_MOVE && !c->grabByTrigger);
+    xrGrabStepAt(c, bar, 0, 0, 0.0f);
+    // the trigger on the picture is a click, and takes hold of nothing
+    XrPosef mid = aimAt(HAND, picturePoint(c, 0.5f, 0.5f));
+    CHECK(xrGrabStepAt(c, mid, 0, 0, 0.0f) == HOVER_SCREEN);
+    xrGrabStepAt(c, mid, 1, 0, 0.0f);
+    CHECK(c->grabMode == GRAB_NONE);
+    xrGrabStepAt(c, mid, 0, 0, 0.0f);
+    CHECK(xrButtonsFrame(c, 0, HOVER_SCREEN, 1) == 0);
+    CHECK(xrButtonsFrame(c, VR_BUTTON_LEFT, HOVER_SCREEN, 1) == VR_BUTTON_LEFT);
+    CHECK(xrButtonsFrame(c, 0, HOVER_SCREEN, 1) == 0);
+    // a press that started on the picture and is dragged onto a corner takes hold of nothing
+    xrGrabStepAt(c, mid, 1, 0, 0.0f);
+    XrPosef inAim = aimAt(HAND, cornerIn);
+    CHECK(xrGrabStepAt(c, inAim, 1, 0, 0.0f) == HOVER_CORNER);
+    CHECK(c->grabMode == GRAB_NONE);
+    xrGrabStepAt(c, inAim, 0, 0, 0.0f);
+    // gamepad mode as before: over the picture the corner is not the trigger's, outside it is
+    c->padMode = 1;
+    xrGrabStepAt(c, inAim, 1, 0, 0.0f);
+    CHECK(c->grabMode == GRAB_NONE);
+    xrGrabStepAt(c, inAim, 0, 0, 0.0f);
+    XrPosef outAim = aimAt(HAND, cornerOut);
+    xrGrabStepAt(c, outAim, 1, 0, 0.0f);
+    CHECK(c->grabMode == GRAB_RESIZE);
+    xrGrabStepAt(c, outAim, 0, 0, 0.0f);
+    CHECK(c->grabMode == GRAB_NONE);
+    c->padMode = 0;
+    // the lightgun policy as before: the trigger shoots at a corner over the picture
+    useGun(c, 1);
+    xrSetLightgun(c, LIGHTGUN_AUTO, 0, 1);
+    xrGrabStepAt(c, inAim, 1, 0, 0.0f);
+    CHECK(c->grabMode == GRAB_NONE);
+    xrGrabStepAt(c, inAim, 0, 0, 0.0f);
+    useGun(c, 0);
+    xrSetLightgun(c, LIGHTGUN_AUTO, 0, 1);
+    pictureAt3m(c);
+}
+
 static void gripOnlyGrab(Scene* s) {
     XrCtx* c = s->ctx;
     scene_reset(s);
@@ -660,6 +761,7 @@ int main(void) {
     followsModel(s);
     pointerSleep(s);
     gripOnlyGrab(s);
+    triggerTakesHandles(s);
     shots(s);
     gyroOff(s);
     gyroController(s);
