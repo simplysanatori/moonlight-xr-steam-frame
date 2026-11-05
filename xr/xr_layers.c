@@ -851,6 +851,20 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
             addRing(ctx, layers, &layers->kbMark, view->space, ctx->kbPose, ctx->kbW, ctx->kbH,
                     r[0], r[1], r[2], r[3], grow, grow);
         }
+        else if (ctx->outlineReady) {
+            // Native (lane beam-streak): off the keys the ring's layer stays, a clear patch from
+            // the middle of the ring's art, too small to see and behind the keyboard, so the layers
+            // after it keep their places. The ring came and went as the ray crossed the gaps
+            // between keys, which moved the beam and the dot up or down a place in the list, and
+            // the one frame of a white streak across the view in the owner's recording of
+            // 2026-10-31 is the frame the ring went, with the beam in its place.
+            UiRectPx o = xrAtlasRect(ATLAS_OUTLINE);
+            Vec3 local = { 0.0f, 0.0f, -0.004f };
+            quadLayerRect(&layers->kbMark, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                          xrAtlasSwapchain(ctx), o.x + o.w / 2 - 2, o.y + o.h / 2 - 2, 4, 4, view->space,
+                          poseOffset(ctx->kbPose, local), 0.001f, 0.001f);
+            pushLayer(ctx, layers, &layers->kbMark);
+        }
     }
 }
 
