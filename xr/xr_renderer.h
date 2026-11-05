@@ -927,6 +927,15 @@ typedef struct XrCtx {
     int beamVisible;
     int beamFree;
     int beamGaze;
+    // Native (lane beam-streak): what set the beam this input frame (BEAM_BY_, xr_input.c), the
+    // source it came out of and that source's aim, and which sources were placed, for the log line
+    // when the beam reaches the head (xrBeamClipSay)
+    int beamBy;
+    int beamHand;
+    XrVector3f beamAim;
+    int beamAimValid[SRC_COUNT];
+    int64_t beamClipSaidNs;
+    int beamClipTrips;
     int raySetting;
     int rayFlipped;
     int rayDrawnSaid;
@@ -1179,6 +1188,9 @@ typedef struct XrCtx {
     // Native (lane ray-glitch): the head's +x in the same frame, which the
     // beam's quad lies along when the head sights down it (beamBasis)
     XrVector3f headRight;
+    // Native (lane beam-streak): and its -z, the way the eyes face, which the
+    // beam is cut off in front of (beamClipAhead); zero until the head is placed
+    XrVector3f headForward;
     float headTurnRate;
     XrQuaternionf headTurnLast;
     int headTurnLastValid;
@@ -1528,6 +1540,9 @@ void recentreScreen(XrCtx* ctx);
 void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature, int headLocked,
                    int pointerEnabled, int gazeEnabled, int pointerSleep, float* out);
 void xrSetRumble(XrCtx* ctx, int lowMotor, int highMotor);
+// Native (lane beam-streak): the log line when the beam reached the head and was cut (BEAM_CLIP_
+// bits, xr_ray.h), at most one a second, with start and end as the input frame set them
+void xrBeamClipSay(XrCtx* ctx, int clip, XrVector3f start, XrVector3f end);
 void xrSetScreenPose(XrCtx* ctx, const float* pose);
 void xrSetHandHint(XrCtx* ctx, int wanted);
 

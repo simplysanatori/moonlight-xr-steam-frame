@@ -361,6 +361,95 @@ static void testBeamBasis(void) {
     CHECK_NEAR(sqrtf(vecDot(x1, x1)), 1.0, 1e-4);
 }
 
+// Native (lane beam-streak): how far p is in front of the head along forward
+static float aheadOf(Vec3 p, Vec3 head, Vec3 forward) {
+    return vecDot(vecSub(p, head), vecNorm(forward));
+}
+
+// Native (lane beam-streak): the beam is cut off in front of the eyes. A quad that reaches the
+// eye plane is projected through the eye and shows as a white streak across the whole view.
+static void testBeamClip(void) {
+    Vec3 head = { 0.0f, 0.0f, 0.0f };
+    Vec3 fwd = { 0.0f, 0.0f, -1.0f };
+    Vec3 s, e;
+
+    // A normal beam, from a controller at the chest down to the keyboard: untouched
+    Vec3 hand = { 0.25f, -0.35f, -0.3f }, key = { 0.1f, -0.6f, -1.6f };
+    CHECK(beamClipAhead(hand, key, head, fwd, BEAM_CLIP_AHEAD_M, &s, &e) == BEAM_CLIP_NONE);
+    CHECK(s.x == hand.x && s.y == hand.y && s.z == hand.z && e.x == key.x && e.y == key.y && e.z == key.z);
+    // A controller held at the face, its tip 8 cm in front of the eyes, pointing away: untouched
+    Vec3 face = { 0.04f, -0.05f, -0.08f }, far = { 0.0f, 0.1f, -2.5f };
+    CHECK(beamClipAhead(face, far, head, fwd, BEAM_CLIP_AHEAD_M, &s, &e) == BEAM_CLIP_NONE);
+    // and the same pointing across the view, square to the head's forward
+    Vec3 across = { 1.5f, -0.05f, -0.08f };
+    CHECK(beamClipAhead(face, across, head, fwd, BEAM_CLIP_AHEAD_M, &s, &e) == BEAM_CLIP_NONE);
+
+    // The glitch: the start at the local origin, 0.3 m under and 0.8 m behind a head looking down
+    // -z (and turned a little), the end on the keyboard in front
+    Vec3 head2 = { 0.05f, 0.3f, -0.8f };
+    Vec3 fwd2 = vecNorm((Vec3){ 0.2f, -0.3f, -1.0f });
+    Vec3 origin = { 0.0f, 0.0f, 0.0f }, kb = { 0.15f, -0.2f, -1.9f };
+    int clip = beamClipAhead(origin, kb, head2, fwd2, BEAM_CLIP_AHEAD_M, &s, &e);
+    CHECK(clip == BEAM_CLIP_START);
+    // the new start on the plane 5 cm in front, on the old line; the end where it was
+    CHECK_NEAR(aheadOf(s, head2, fwd2), BEAM_CLIP_AHEAD_M, 1e-4);
+    Vec3 a = vecNorm(vecSub(kb, origin)), b = vecNorm(vecSub(kb, s));
+    CHECK_NEAR(vecDot(a, b), 1.0, 1e-5);
+    CHECK(e.x == kb.x && e.y == kb.y && e.z == kb.z);
+    // Turned round: the end behind the head is cut, the start kept
+    clip = beamClipAhead(kb, origin, head2, fwd2, BEAM_CLIP_AHEAD_M, &s, &e);
+    CHECK(clip == BEAM_CLIP_END);
+    CHECK_NEAR(aheadOf(e, head2, fwd2), BEAM_CLIP_AHEAD_M, 1e-4);
+    CHECK(s.x == kb.x && s.y == kb.y && s.z == kb.z);
+    // Both ends behind the eyes, or just in front of them inside the 5 cm: nothing to draw
+    Vec3 behind1 = { 0.1f, -0.2f, 0.3f }, behind2 = { -0.3f, 0.1f, 0.6f };
+    CHECK(beamClipAhead(behind1, behind2, head, fwd, BEAM_CLIP_AHEAD_M, &s, &e) == BEAM_CLIP_GONE);
+    Vec3 near1 = { 0.02f, -0.01f, -0.03f }, near2 = { -0.02f, 0.01f, -0.04f };
+    CHECK(beamClipAhead(near1, near2, head, fwd, BEAM_CLIP_AHEAD_M, &s, &e) == BEAM_CLIP_GONE);
+    // Not finite: gone. A head that is not known yet (no forward): nothing is cut
+    Vec3 bad = { NAN, 0.0f, -1.0f };
+    CHECK(beamClipAhead(bad, key, head, fwd, BEAM_CLIP_AHEAD_M, &s, &e) == BEAM_CLIP_GONE);
+    Vec3 none = { 0.0f, 0.0f, 0.0f };
+    CHECK(beamClipAhead(origin, kb, head, none, BEAM_CLIP_AHEAD_M, &s, &e) == BEAM_CLIP_NONE);
+
+    // Swept: starts and ends all round the head, a forward that turns. What is drawn never comes
+    // nearer the eyes than the plane, lies on the beam as it was, and is the beam whole whenever
+    // both ends were in front
+    unsigned seed = 12345u;
+    int cut = 0, whole = 0, gone = 0;
+    for (int i = 0; i < 20000; i++) {
+        float r[9];
+        for (int k = 0; k < 9; k++) {
+            seed = seed * 1664525u + 1013904223u;
+            r[k] = (float)(seed >> 8) / (float)(1u << 24) * 2.0f - 1.0f;
+        }
+        Vec3 f = vecNorm((Vec3){ r[0] * 0.5f, r[1] * 0.5f, -1.0f });
+        Vec3 st = { r[2] * 1.2f, r[3] * 1.2f, r[4] * 1.5f };
+        Vec3 en = { r[5] * 2.0f, r[6] * 2.0f, r[7] * 3.0f };
+        clip = beamClipAhead(st, en, head, f, BEAM_CLIP_AHEAD_M, &s, &e);
+        float ds = aheadOf(st, head, f), de = aheadOf(en, head, f);
+        if (ds >= BEAM_CLIP_AHEAD_M && de >= BEAM_CLIP_AHEAD_M) {
+            CHECK(clip == BEAM_CLIP_NONE);
+            whole++;
+            continue;
+        }
+        if (clip & BEAM_CLIP_GONE) {
+            CHECK(ds < BEAM_CLIP_AHEAD_M && de < BEAM_CLIP_AHEAD_M);
+            gone++;
+            continue;
+        }
+        cut++;
+        CHECK(aheadOf(s, head, f) >= BEAM_CLIP_AHEAD_M - 1e-4f);
+        CHECK(aheadOf(e, head, f) >= BEAM_CLIP_AHEAD_M - 1e-4f);
+        // on the old line: the cross product of the two directions vanishes
+        Vec3 d0 = vecSub(en, st), d1 = vecSub(e, s);
+        Vec3 off = vecCross(d0, vecSub(s, st));
+        CHECK(sqrtf(vecDot(off, off)) < 1e-3f * (1.0f + sqrtf(vecDot(d0, d0))));
+        CHECK(vecDot(d0, d1) >= 0.0f);
+    }
+    CHECK(cut > 1000 && whole > 1000 && gone > 1000);
+}
+
 // The recorder's rows read back as they were written
 static void testRayLog(void) {
     char header[1024];
@@ -427,5 +516,6 @@ int main(void) {
     testPoseHold();
     testPick();
     testBeamBasis();
+    testBeamClip();
     return checksDone("xr_ray");
 }

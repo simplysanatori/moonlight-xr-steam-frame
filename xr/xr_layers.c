@@ -912,6 +912,14 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
     if (ctx->beamVisible && !ctx->beamGaze && ctx->pointerArtReady) {
         Vec3 start = { ctx->beamStart.x, ctx->beamStart.y, ctx->beamStart.z };
         Vec3 end = { ctx->beamEnd.x, ctx->beamEnd.y, ctx->beamEnd.z };
+        // Native (lane beam-streak): never a beam into or behind the eyes, which the compositor draws
+        // as a white streak across the whole view: only the part more than BEAM_CLIP_AHEAD_M in front
+        // of the head, and no dot where the end itself was cut
+        Vec3 forward = { ctx->headForward.x, ctx->headForward.y, ctx->headForward.z };
+        int clip = beamClipAhead(start, end, head, forward, BEAM_CLIP_AHEAD_M, &start, &end);
+        if (clip != BEAM_CLIP_NONE) {
+            xrBeamClipSay(ctx, clip, ctx->beamStart, ctx->beamEnd);
+        }
         Vec3 along = vecSub(end, start);
         float length = sqrtf(along.x * along.x + along.y * along.y + along.z * along.z);
 
@@ -924,7 +932,7 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
         Vec3 headRight = { ctx->headRight.x, ctx->headRight.y, ctx->headRight.z };
         Vec3 beamX = beamBasis(start, end, head, headRight);
 
-        if (length > 0.10f && beamKind != RAY_BEAM_NONE) {
+        if (length > 0.10f && beamKind != RAY_BEAM_NONE && !(clip & BEAM_CLIP_GONE)) {
             Vec3 beamZ = vecCross(beamX, beamY);
             XrPosef beamPose = { quatFromBasis(beamX, beamY, beamZ),
                                  { mid.x, mid.y, mid.z } };
@@ -938,8 +946,9 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
         // Native (lane wave4-headinput, PLAN 6.5): a charging dwell click shows whatever the
         // Ray row says. Native (lane radial-dwell): as a circle in the dot's colour that sweeps round
         // and closes in on the dot (xr_dwellmenu.c), the dot drawn into each of its pictures
-        if (!ctx->beamFree && (ctx->dotOn || panelUp(ctx) || ctx->launcher != LAUNCHER_NONE
-                               || (dwellArt && art.dot.w > 0))) {
+        if (!ctx->beamFree && !(clip & (BEAM_CLIP_END | BEAM_CLIP_GONE))
+                && (ctx->dotOn || panelUp(ctx) || ctx->launcher != LAUNCHER_NONE
+                    || (dwellArt && art.dot.w > 0))) {
             Vec3 toHead2 = vecSub(head, end);
             float away = sqrtf(vecDot(toHead2, toHead2));
             // native (lane a11y-2): the head and eye pointer's dot, and its ring, at the Dot size
