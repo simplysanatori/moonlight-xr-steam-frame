@@ -652,14 +652,14 @@ static void eyecal_label(Dc* dc, float y, int live) {
 // so the dots either side of the middle stay in view (xr_layers.c).
 static void eyecal_face(Dc* dc) {
     const UiView* v = dc->v;
-    float x0 = 0.26f * dc->nw, x1 = 0.74f * dc->nw, y0 = 0.39f * dc->nh, y1 = 0.61f * dc->nh;
+    float x0 = 0.25f * dc->nw, x1 = 0.75f * dc->nw, y0 = 0.38f * dc->nh, y1 = 0.62f * dc->nh;
     float mid = dc->nw * 0.5f, room = (x1 - x0) - 24.0f;
     dc_fill_rrect(dc, x0, y0, x1, y1, 18.0f, 0xE0141416u);
-    dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 26.0f, mid, 0.445f * dc->nh, room, WHITE, ui_str(UIS_EYE_CAL_LOOK));
+    dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 30.0f, mid, 0.44f * dc->nh, room, WHITE, ui_str(UIS_EYE_CAL_LOOK));
     char progress[32];
     snprintf(progress, sizeof progress, ui_str(UIS_EYE_CAL_PROGRESS), v->eyecal_step, EYECAL_DOTS);
-    dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 22.0f, mid, 0.505f * dc->nh, room, 0xD0FFFFFFu, progress);
-    dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 16.0f, mid, 0.565f * dc->nh, room, 0x90FFFFFFu, ui_str(UIS_EYE_CAL_CANCEL));
+    dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 25.0f, mid, 0.505f * dc->nh, room, 0xD0FFFFFFu, progress);
+    dc_text_fit_center(dc, UI_WEIGHT_REGULAR, 19.0f, mid, 0.57f * dc->nh, room, 0x90FFFFFFu, ui_str(UIS_EYE_CAL_CANCEL));
 }
 
 static void tab_access(Dc* dc) {
