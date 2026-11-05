@@ -113,6 +113,10 @@ To get a second shortcut, **Desktop in VR**, that opens your PC's Desktop in the
 
 Keep SteamVR's render resolution for Moonlight XR at **3408 x 3408 per eye**, the highest SteamVR allows on the Frame. It makes a visible difference to text. Set it in SteamVR Settings, Video, **Per-application video settings**, Moonlight XR for Frame, **Render resolution**: Custom, set so the slider is at its maximum and the figure under it reads 3408 x 3408. The installer sets this for you; a lower figure (SteamVR's default for the Frame is lower) makes small text blurry. The Frame still holds 90 Hz at this size, because the app only draws the screen and its surroundings. To check what is in effect, `moonlight.log` says `curved picture: projection layer 3408x3408 per eye` near the start of a stream.
 
+## Install with FrameDrop
+
+[FrameDrop](https://framedropvr.com) can install this too: [Install with FrameDrop](https://framedropvr.com/install?manifest=https%3A%2F%2Fgithub.com%2Fsimplysanatori%2Fmoonlight-xr-steam-frame%2Freleases%2Flatest%2Fdownload%2Fmoonlight-xr-steam-frame.framedrop.json). The release has a `moonlight-xr-steam-frame-<version>-framedrop-linux-arm64.zip` and a `moonlight-xr-steam-frame.framedrop.json` for it. FrameDrop unpacks the zip on the Frame and adds its own library entry, which runs the `run.sh` in the zip. The first time it runs, and again after an update, `run.sh` runs `install.sh` with the Steam shortcut step turned off, so you get FrameDrop's entry and no second one from the installer, and then starts Moonlight XR through its launcher. Nothing else is needed; pair with your PC as usual (see below).
+
 ## First run and pairing
 
 The first screen is Moonlight's PC list, shown flat in the headset.
