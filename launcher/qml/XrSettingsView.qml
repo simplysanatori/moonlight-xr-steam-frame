@@ -174,9 +174,9 @@ Flickable {
                                          qsTr("USB cable")]
     readonly property var networkSummaries: [qsTr("Uses whichever connection to your PC is faster when a stream starts."),
                                              qsTr("Streams over your Wi-Fi network."),
-                                             qsTr("Streams over the Steam Frame Wireless Adapter plugged into your PC. Its latency can be worse than a good 5 GHz Wi-Fi; Automatic measures both before it chooses."),
+                                             qsTr("Streams over the Steam Frame Wireless Adapter plugged into your PC. Its latency can be worse than a good 5 GHz Wi-Fi."),
                                              usbCable ? qsTr("Streams over the USB cable between the headset and your PC. Cable detected.")
-                                                      : qsTr("Streams over a USB data cable between the headset and your PC. No cable detected yet; plug it in and it is noticed within ten seconds.")]
+                                                      : qsTr("Streams over a USB data cable between the headset and your PC. No cable detected.")]
     function networkIndex() {
         return Math.max(0, networkValues.indexOf(MlxrPrefs.networkPath))
     }
@@ -413,7 +413,7 @@ Flickable {
     readonly property var onStartNames: [qsTr("Nothing"), qsTr("Last PC's Desktop"), qsTr("An app")]
     function onStartText() {
         if (MlxrPrefs.onStart === "desktop")
-            return MlxrPrefs.lastPc !== "" ? qsTr("Desktop on %1").arg(MlxrPrefs.lastPc) : qsTr("Last PC's Desktop (no stream yet)")
+            return MlxrPrefs.lastPc !== "" ? qsTr("Desktop on %1").arg(MlxrPrefs.lastPc) : qsTr("Last PC's Desktop (no last PC)")
         if (MlxrPrefs.onStart === "app")
             return MlxrPrefs.onStartApp !== "" ? qsTr("%1 on %2").arg(MlxrPrefs.onStartApp).arg(MlxrPrefs.onStartPc) : qsTr("An app (none chosen)")
         return qsTr("Nothing")
@@ -1163,7 +1163,7 @@ Flickable {
         PrefSlider {
             objectName: "bitrateRow"
             title: qsTr("Video bitrate")
-            summary: qsTr("0.5 to 500 Mbps; up to 500 Mbps for a good 5 GHz Wi-Fi or a wired link, if the PC allows it (see the user guide). Picking a resolution or a frame rate sets it back to their default. A stream's bitrate is chosen when it starts; the rows below can start one at a different bitrate over each connection, and Same as above is this one.") +
+            summary: qsTr("0.5 to 500 Mbps. High rates need a good 5 GHz Wi-Fi or a wired link, and a PC that allows them. Picking a resolution or a frame rate resets it to their default. The rows below set a different bitrate per connection.") +
                      (settingsPage.pathOverridesText() !== "" ? " " + settingsPage.pathOverridesText() : "")
             from: 0.5
             to: 500
@@ -1206,7 +1206,7 @@ Flickable {
             objectName: "idrCapRow"
             title: qsTr("Full-frame requests after lost video")
             valueText: settingsPage.idrCapText(MlxrPrefs.rfiIdrMs)
-            summary: qsTr("At most one request for a full picture in this time when video is lost. A full picture is large; asked for again while the Wi-Fi is still losing packets, it makes the freeze longer. 500 ms suits most links.")
+            summary: qsTr("At most one full-picture request in this time after video is lost. Asking again while packets are still lost makes the freeze longer. 500 ms suits most links.")
             onClicked: MlxrPrefs.rfiIdrMs = settingsPage.nextLimit(settingsPage.idrCapValues, MlxrPrefs.rfiIdrMs)
         }
 
@@ -1215,7 +1215,7 @@ Flickable {
         PrefSwitch {
             objectName: "pathFailoverRow"
             title: qsTr("Switch network when video keeps breaking up")
-            summary: qsTr("With Automatic network connection: if the link the stream started on keeps losing video, move the stream to another link that measured clearly better when it started (the Steam Frame Wireless Adapter, Wi-Fi or the USB cable). It never goes to a link that was not there, and at most once in five minutes. The picture freezes for a few seconds while it reconnects.")
+            summary: qsTr("With Automatic network connection: When the stream's link keeps losing video, the stream moves to a link that measured clearly better at the start. At most once in five minutes; the picture freezes for a few seconds while it reconnects.")
             isOn: MlxrPrefs.pathFailover
             onSwitched: function(on) { MlxrPrefs.pathFailover = on }
         }
@@ -1224,7 +1224,7 @@ Flickable {
             objectName: "failoverBurstRow"
             title: qsTr("Video loss before switching")
             valueText: settingsPage.failoverBurstText(MlxrPrefs.failoverBurstMs)
-            summary: qsTr("How much lost video within ten seconds makes the stream leave its link. 3 s suits most places; shorter switches sooner, longer waits out brief dropouts.")
+            summary: qsTr("How much lost video within ten seconds makes the stream switch links. 3 s suits most places.")
             reason: MlxrPrefs.pathFailover ? "" : qsTr("the switch above is off")
             onClicked: MlxrPrefs.failoverBurstMs = settingsPage.nextFailoverBurst(MlxrPrefs.failoverBurstMs)
         }
@@ -1235,8 +1235,8 @@ Flickable {
         PrefRow {
             objectName: "profilesRow"
             title: qsTr("Profiles")
-            valueText: MlxrProfiles.names.length === 0 ? qsTr("None yet") : MlxrProfiles.names.join(", ")
-            summary: qsTr("Saved sets of these stream settings, such as a desktop profile at 1080p 60 Hz and a game profile at 1440p 120 Hz with a virtual display. A profile can be used for a PC or for one app: when its stream starts, the profile's settings are in force and the ones on this page come back afterwards.")
+            valueText: MlxrProfiles.names.length === 0 ? qsTr("None") : MlxrProfiles.names.join(", ")
+            summary: qsTr("Saved sets of these stream settings, such as a desktop profile at 1080p 60 Hz and a game profile at 1440p 120 Hz. A PC or an app can use a profile; its streams start with the profile's settings.")
             onClicked: settingsPage.StackView.view.push("qrc:/gui/XrProfilesView.qml")
         }
 
@@ -1248,7 +1248,7 @@ Flickable {
             objectName: "resolutionRow"
             title: qsTr("Video resolution")
             valueText: settingsPage.resolutionText()
-            summary: qsTr("The size the PC renders and streams; the headset scales it to the screen. Changing it sets the Video bitrate to that size's default. Custom takes any size, such as 3840x1080 for full-size SBS.")
+            summary: qsTr("The size the PC renders and streams. Changing it resets the Video bitrate to that size's default. Custom takes any size, such as 3840x1080 for full-size SBS.")
             onClicked: {
                 var e = []
                 for (var i = 0; i < settingsPage.resolutions.length; i++) {
@@ -1274,7 +1274,7 @@ Flickable {
             objectName: "refreshRow"
             title: qsTr("Refresh rate")
             valueText: settingsPage.rateText()
-            summary: qsTr("How many frames per second the PC streams. Match headset uses the rate SteamVR runs the Steam Frame's display at for this app (90 Hz unless changed in SteamVR's settings). Picking 72, 90, 120 or 144 Hz also sets the headset to that rate in SteamVR's settings for this app. 120 and 144 Hz need the stream and the PC to keep up. The stream never goes above the headset's rate.") +
+            summary: qsTr("Frames per second the PC streams. Match headset uses the Steam Frame's display rate for this app in SteamVR (90 Hz by default). Picking 72, 90, 120 or 144 Hz also sets that rate in SteamVR for this app. The stream never goes above the headset's rate.") +
                      " " + qsTr("Custom takes a rate such as 59.94 and needs Apollo.")
             onClicked: {
                 var e = []
@@ -1373,7 +1373,7 @@ Flickable {
             objectName: "stereoSourceRow"
             title: qsTr("3D source")
             valueText: settingsPage.stereoSourceNames[settingsPage.stereoSourceIndex()]
-            summary: qsTr("Depth model: the headset makes the 3D from a 2D stream. SBS or Top-bottom: the PC renders the two eyes itself (a 3D film, a game's own SBS mode, ReShade SuperDepth3D) and each eye sees its half; no depth model runs and 3D convergence moves the halves apart or together.")
+            summary: qsTr("Depth model: The headset makes the 3D from a 2D stream. SBS or Top-bottom: The PC renders both eyes (a 3D film, a game's own SBS mode, ReShade SuperDepth3D); no depth model runs.")
             onClicked: MlxrPrefs.stereoSource = settingsPage.stereoSourceValues[(settingsPage.stereoSourceIndex() + 1) % settingsPage.stereoSourceValues.length]
         }
 
@@ -1425,7 +1425,7 @@ Flickable {
             objectName: "edgeRow"
             title: qsTr("3D edge")
             valueText: "" + MlxrPrefs.edgeSharpness
-            summary: qsTr("Higher keeps hair, outlines and thin text on their own depth instead of blending them into what is behind; 0 is the depth model's soft edges. Too high can make edges look cut out.")
+            summary: qsTr("Higher keeps hair, outlines and thin text at their own depth; 0 is the depth model's soft edges. Too high can make edges look cut out.")
             reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("3D is off")
             onClicked: if (enabled) MlxrPrefs.edgeSharpness = settingsPage.nextEdge()
         }
@@ -1436,7 +1436,7 @@ Flickable {
             objectName: "motionRow"
             title: qsTr("3D motion reset")
             valueText: MlxrPrefs.motionReset === 0 ? qsTr("Off") : (MlxrPrefs.motionReset + "%")
-            summary: qsTr("For fast scenes: where the picture changes by more than this between two depth maps, the 3D stops smoothing the old depth into the new there, so moving edges leave no trail. Lower reacts to smaller changes; too low brings back flicker.")
+            summary: qsTr("For fast scenes: Where the picture changes by more than this between depth maps, the old depth is not blended in, so moving edges leave no trail. Too low brings back flicker.")
             reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("3D is off")
             onClicked: if (enabled) MlxrPrefs.motionReset = settingsPage.nextMotion()
         }
@@ -1447,7 +1447,7 @@ Flickable {
             objectName: "depthScaleRow"
             title: qsTr("3D depth detail")
             valueText: MlxrPrefs.depthScale + "%"
-            summary: qsTr("The depth between things near each other, like a face in front of a wall. Higher makes them stand apart more, without pushing the whole picture further in or out; 100% is as the model makes it.")
+            summary: qsTr("The depth between things near each other, like a face in front of a wall. Higher sets them further apart without moving the whole picture; 100% is the model's own.")
             reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("3D is off")
             onClicked: if (enabled) MlxrPrefs.depthScale = settingsPage.nextDepthStep(MlxrPrefs.depthScale)
         }
@@ -1456,7 +1456,7 @@ Flickable {
             objectName: "depthGlobalRow"
             title: qsTr("3D depth shape")
             valueText: MlxrPrefs.depthGlobal + "%"
-            summary: qsTr("The depth of the picture as a whole, from the near ground to the far sky. Lower flattens it toward the screen, which is easier on the eyes, while 3D depth detail keeps things standing apart.")
+            summary: qsTr("The depth of the whole picture, from the near ground to the far sky. Lower flattens it toward the screen, which is easier on the eyes.")
             reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("3D is off")
             onClicked: if (enabled) MlxrPrefs.depthGlobal = settingsPage.nextDepthStep(MlxrPrefs.depthGlobal)
         }
@@ -1466,7 +1466,7 @@ Flickable {
             title: qsTr("3D eye balance")
             valueText: MlxrPrefs.eyeBalance > 0 ? qsTr("Left eye %1%").arg(MlxrPrefs.eyeBalance)
                      : MlxrPrefs.eyeBalance < 0 ? qsTr("Right eye %1%").arg(-MlxrPrefs.eyeBalance) : qsTr("Even")
-            summary: qsTr("How the 3D's shift is shared by the two eyes. Even moves each eye the same; at 100% only the left eye's picture moves and the right eye's is as streamed. The depth you see is the same at every setting. Useful with a dominant eye.")
+            summary: qsTr("How the 3D shift is split between the eyes. Even shifts both the same; at 100% only the left eye's picture moves. The depth is the same at every setting. Useful with a dominant eye.")
             reason: MlxrPrefs.renderMode === 1 ? "" : qsTr("3D is off")
             onClicked: if (enabled) MlxrPrefs.eyeBalance = settingsPage.nextLimit(settingsPage.eyeBalanceSteps, MlxrPrefs.eyeBalance)
         }
@@ -1558,7 +1558,7 @@ Flickable {
         PrefSlider {
             objectName: "deadzoneRow"
             title: qsTr("Adjust analog stick dead zone")
-            summary: qsTr("Above 0 a dead zone; below 0 compensates for the game's own, which can make centring hard. At 0 a gamepad's sticks are sent as read and the Frame controllers in gamepad mode use 7%.")
+            summary: qsTr("Above 0: A dead zone. Below 0: Compensates for the game's own. At 0 a gamepad's sticks are sent as read, and the Frame controllers in gamepad mode use 7%.")
             from: -20
             to: 20
             suffix: "%"
@@ -1587,7 +1587,7 @@ Flickable {
             objectName: "padMouseChordRow"
             title: qsTr("Gamepad as mouse")
             valueText: settingsPage.padMouseChordNames[Math.max(0, settingsPage.padMouseChordValues.indexOf(MlxrPrefs.padMouseChord))]
-            summary: qsTr("Hold the chord on a gamepad to make it the PC's mouse: the left stick points, A, B and X click, the shoulder buttons are back and forward, Y opens the headset keyboard and the d-pad is the arrow keys. Hold it again to give the gamepad back.")
+            summary: qsTr("Hold the chord on a gamepad to use it as the PC's mouse: The left stick points, A, B and X click, the shoulder buttons are Back and Forward, Y opens the headset keyboard and the d-pad sends arrow keys. Hold it again to stop.")
             onClicked: {
                 var e = []
                 for (var i = 0; i < settingsPage.padMouseChordNames.length; i++) e.push({ text: settingsPage.padMouseChordNames[i], reason: "" })
@@ -1615,7 +1615,7 @@ Flickable {
             objectName: "padArbitrationRow"
             title: qsTr("When a gamepad is connected")
             valueText: settingsPage.padArbitrationNames[Math.max(0, settingsPage.padArbitrationValues.indexOf(MlxrPrefs.padArbitration))]
-            summary: qsTr("What the headset controllers do once you use a gamepad. Pointer: their gamepad mode steps aside so the PC never sees two gamepads. Also gamepad: the PC sees both. Sleep: as Pointer, and their pointer rests too.")
+            summary: qsTr("What the headset controllers do once you use a gamepad. Pointer: Their gamepad mode steps aside, so the PC sees one gamepad. Also gamepad: The PC sees both. Sleep: As Pointer, and their pointer rests too.")
             onClicked: {
                 var e = []
                 for (var i = 0; i < settingsPage.padArbitrationNames.length; i++) e.push({ text: settingsPage.padArbitrationNames[i], reason: "" })
@@ -1630,7 +1630,7 @@ Flickable {
             objectName: "padCardRow"
             title: qsTr("Gamepad card in the headset")
             valueText: settingsPage.padCardNames[settingsPage.padCardIndex()]
-            summary: qsTr("A picture of the gamepad you are playing with, in your lap, that lights up as you press it. Automatic: up while you play, gone 4 s after you stop. On: up while a gamepad is in use. Off: never.")
+            summary: qsTr("A picture of your gamepad in your lap that lights up as you press it. Automatic: Shown while you play, gone 4 s after you stop. On: Shown while a gamepad is in use. Off: Never.")
             onClicked: MlxrPrefs.padCard = settingsPage.padCardValues[(settingsPage.padCardIndex() + 1) % settingsPage.padCardValues.length]
         }
 
@@ -1638,7 +1638,7 @@ Flickable {
             objectName: "lightgunRow"
             title: qsTr("Lightgun mode")
             valueText: settingsPage.lightgunNames[Math.max(0, settingsPage.lightgunValues.indexOf(MlxrPrefs.lightgun))]
-            summary: qsTr("Aim like a lightgun: the pointer never sleeps, clicks go out exactly where you aim, only the grip takes hold of the screen and a shot pulses the controller. Automatic turns it on while the headset draws the Gun.")
+            summary: qsTr("Aim like a lightgun: The pointer never sleeps, clicks land exactly where you aim, only the grip takes hold of the screen and a shot pulses the controller. Automatic turns it on while the headset shows the Gun.")
             onClicked: {
                 var e = []
                 for (var i = 0; i < settingsPage.lightgunNames.length; i++) e.push({ text: settingsPage.lightgunNames[i], reason: "" })
@@ -1666,7 +1666,7 @@ Flickable {
             objectName: "padGyroRow"
             title: qsTr("Gyro from the headset")
             valueText: settingsPage.padGyroNames[Math.max(0, settingsPage.padGyroValues.indexOf(MlxrPrefs.padGyro))]
-            summary: qsTr("Send the turn of the right controller, or of your head, to the PC as the gyro of a PlayStation gamepad while the controllers are the gamepad, for gyro aiming in Steam Input. The PC then sees a DualShock 4, with PlayStation button names.")
+            summary: qsTr("Sends the turn of the right controller, or of your head, to the PC as a PlayStation gamepad's gyro while the controllers are the gamepad, for gyro aiming in Steam Input. The PC then sees a DualShock 4.")
             onClicked: {
                 var e = []
                 for (var i = 0; i < settingsPage.padGyroNames.length; i++) e.push({ text: settingsPage.padGyroNames[i], reason: "" })
@@ -1731,7 +1731,7 @@ Flickable {
             objectName: "keymapRow"
             title: qsTr("Headset keyboard layout")
             valueText: settingsPage.keymapNames[Math.max(0, settingsPage.keymapValues.indexOf(MlxrPrefs.keyboardKeymap))]
-            summary: qsTr("The letters on the headset keyboard. The PC's Windows keyboard layout has to be the same one: the keys send their positions and Windows turns them into letters.")
+            summary: qsTr("The letters on the headset keyboard. Must match the PC's Windows keyboard layout: The keys send positions and Windows turns them into letters.")
             onClicked: {
                 var e = []
                 for (var i = 0; i < settingsPage.keymapNames.length; i++) e.push({ text: settingsPage.keymapNames[i], reason: "" })
@@ -1824,7 +1824,7 @@ Flickable {
             objectName: "controllerModelRow"
             title: qsTr("Show controllers")
             valueText: settingsPage.modelNames[settingsPage.modelIndex()]
-            summary: qsTr("The controllers drawn in the headset. Your own model reads custom_left.model and custom_right.model (or one custom.model, mirrored for the left hand) from the models folder next to the headset's config file, and falls back to the Steam Frame controllers when they are missing.")
+            summary: qsTr("The controllers drawn in the headset. Your own model: custom_left.model and custom_right.model (or one custom.model, mirrored for the left hand) in the models folder next to the headset's config file; the Steam Frame controllers are used when they are missing.")
             onClicked: MlxrPrefs.controllerModel = settingsPage.modelValues[(settingsPage.modelIndex() + 1) % settingsPage.modelValues.length]
         }
 
@@ -1870,7 +1870,7 @@ Flickable {
         PrefSwitch {
             objectName: "headLookRow"
             title: qsTr("Head turns the game's camera (first-person games)")
-            summary: qsTr("Turning your head moves the PC's mouse like a game's look control, for first-person games streamed in side by side 3D. Works in pointer mode with the screen locked to your head or in a room. Hold a grip (one bound to nothing) to pause it while you turn back. Head aim wins where both are on. Experimental.")
+            summary: qsTr("Turning your head moves the PC's mouse like a game's look control, for first-person games in side by side 3D. In pointer mode, with the screen head locked or in a room. Hold a grip bound to nothing to pause it. Head aim wins where both are on. Experimental.")
             isOn: MlxrPrefs.headLook
             onSwitched: function(on) { MlxrPrefs.headLook = on }
         }
@@ -1888,7 +1888,7 @@ Flickable {
         VrSwitch {
             key: "vr.gaze"
             title: qsTr("Look to point")
-            summary: qsTr("The pointer follows your eyes while SteamVR gives eye tracking to apps; a press on a controller takes it back.")
+            summary: qsTr("The pointer follows your eyes. Needs SteamVR Settings > General > Eye Tracking. A controller press takes the pointer back.")
         }
 
         VrSwitch {
@@ -1942,9 +1942,9 @@ Flickable {
             readonly property var values: ["controller", "head", "gaze"]
             readonly property var names: [qsTr("Controller"), qsTr("Head"), qsTr("Eyes (experimental)")]
             title: qsTr("Pointer")
-            tip: qsTr("What moves the pointer: a controller, your head, or where you look. Eyes is experimental: the dot jitters and lands near where you look. Hold right Menu and right grip to point with the controllers again.")
+            tip: qsTr("What moves the pointer: a controller, your head or your eyes. Eyes is experimental and jitters. Hold right Menu and right grip to point with the controllers again.")
             valueText: names[Math.max(0, values.indexOf(MlxrPrefs.pointerSource))]
-            summary: qsTr("For people who cannot use their hands or have limited mobility. Head: a dot follows the middle of your view and either controller's trigger clicks. Eyes (experimental: the dot jitters and lands near where you look): the dot follows your eyes while SteamVR gives eye tracking to apps (the headset's Accessibility tab says whether it does) and your head while it does not. Controller turns it off; in the headset, holding the right Menu button and the right grip for half a second does too.")
+            summary: qsTr("Head: The dot follows the middle of your view, and either trigger clicks. Dwell click: Hold the dot still to click. To point with the controllers again, pick Controller or hold right Menu and right grip. Eyes: Turn on SteamVR Settings > General > Eye Tracking, then restart the app.")
             onClicked: MlxrPrefs.pointerSource = values[(Math.max(0, values.indexOf(MlxrPrefs.pointerSource)) + 1) % values.length]
         }
 
@@ -1954,9 +1954,9 @@ Flickable {
             objectName: "headDwellRow"
             readonly property var steps: [0, 600, 900, 1200, 1500]
             title: qsTr("Dwell click")
-            tip: qsTr("Rest the dot this long on something to click it.")
+            tip: qsTr("Hold the dot still this long to click.")
             valueText: MlxrPrefs.headDwellMs <= 0 ? qsTr("Off") : qsTr("%1 s").arg((MlxrPrefs.headDwellMs / 1000).toFixed(1))
-            summary: qsTr("With the Head or Eyes pointer: hold the dot still on a button or on the picture for this long and it clicks by itself; move away and back to click again. 0.9 s is a good start, 0.6 s once practised.")
+            summary: qsTr("With the Head or Eyes pointer. Start at 0.9 s, and 0.6 s once practised. Move away and back to click again.")
             onClicked: {
                 var i = steps.indexOf(MlxrPrefs.headDwellMs)
                 MlxrPrefs.headDwellMs = steps[(i + 1) % steps.length]
@@ -1971,7 +1971,7 @@ Flickable {
             title: qsTr("Dwell click style")
             tip: qsTr("Radial menu: near the end of the dwell, look left for double click, down to drag, right for right click.")
             valueText: names[Math.max(0, values.indexOf(MlxrPrefs.assistDwellStyle))]
-            summary: qsTr("With the Head or Eyes pointer and a dwell click on the picture. Simple: the dwell clicks. Radial menu: in the last quarter of the dwell a small menu opens round the dot; keep still for a click, look left for a double click, down to drag (the next dwell drops it) or right for a right click, and look well away to cancel.")
+            summary: qsTr("With the Head or Eyes pointer, on the picture. Simple: The dwell clicks. Radial menu: A small menu opens round the dot near the end of the dwell; keep still to click, look left to double click, down to drag (the next dwell drops it), right to right click, or look away to cancel.")
             onClicked: MlxrPrefs.assistDwellStyle = values[(Math.max(0, values.indexOf(MlxrPrefs.assistDwellStyle)) + 1) % values.length]
         }
 
@@ -1981,7 +1981,7 @@ Flickable {
             objectName: "assistDotSizeRow"
             title: qsTr("Dot size")
             tip: qsTr("How big the dot is when you point with your head or eyes.")
-            summary: qsTr("The dot and the ring of the dwell click, with the Head or Eyes pointer. 100 % is the usual size.")
+            summary: qsTr("The dot and the dwell ring, with the Head or Eyes pointer. 100 % is the default size.")
             from: 50
             to: 300
             stepSize: 25
@@ -2000,7 +2000,7 @@ Flickable {
         PrefSwitch {
             objectName: "preflightRow"
             title: qsTr("Check the PC before streaming")
-            summary: qsTr("Asks the PC just before a stream starts and says if something will go wrong: this client's Apollo permissions, a virtual display that is not ready, another app already running, a resolution the PC does not list. Not part of a profile.")
+            summary: qsTr("Checks the PC just before a stream starts: This client's Apollo permissions, the virtual display, another app already running and the resolution. Not part of a profile.")
             isOn: MlxrPrefs.preflight
             onSwitched: function(on) { MlxrPrefs.preflight = on }
         }
@@ -2008,7 +2008,7 @@ Flickable {
         PrefSwitch {
             objectName: "gameOptsRow"
             title: qsTr("Optimize game settings")
-            summary: qsTr("Lets the PC switch its display to the stream's resolution, where the host is set to.")
+            summary: qsTr("Lets the PC switch its display to the stream's resolution, if the host allows it.")
             isOn: StreamingPreferences.gameOptimizations
             onSwitched: function(on) { StreamingPreferences.gameOptimizations = on }
         }
@@ -2077,7 +2077,7 @@ Flickable {
         PrefSwitch {
             objectName: "firstRunRow"
             title: qsTr("Controls card on the next stream")
-            summary: qsTr("The card that shows the headset's controls when a stream starts. It comes up once by itself; switch this on to see it again.")
+            summary: qsTr("Shows the headset's controls card when the next stream starts. It shows once by itself.")
             isOn: !MlxrPrefs.firstRunShown
             onSwitched: function(on) { MlxrPrefs.firstRunShown = !on }
         }
@@ -2088,7 +2088,7 @@ Flickable {
             objectName: "doffRow"
             title: qsTr("Disconnect when the headset is off")
             valueText: MlxrPrefs.doffDisconnect === 0 ? qsTr("Never") : settingsPage.timeText(MlxrPrefs.doffDisconnect * 1000)
-            summary: qsTr("How long the headset can stay off before the stream is disconnected. The app keeps running on the PC. Putting the headset back on sooner carries on.")
+            summary: qsTr("How long the headset can stay off before the stream disconnects. The app keeps running on the PC.")
             onClicked: MlxrPrefs.doffDisconnect = settingsPage.nextLimit(settingsPage.doffValues, MlxrPrefs.doffDisconnect)
         }
 
@@ -2096,7 +2096,7 @@ Flickable {
             objectName: "idleRow"
             title: qsTr("Disconnect when idle")
             valueText: MlxrPrefs.idleDisconnect === 0 ? qsTr("Never") : settingsPage.timeText(MlxrPrefs.idleDisconnect * 60000)
-            summary: qsTr("How long without input from the controllers, hands, keyboard, mouse or gamepads before the stream is disconnected. The app keeps running on the PC.")
+            summary: qsTr("How long without any input before the stream disconnects. The app keeps running on the PC.")
             onClicked: MlxrPrefs.idleDisconnect = settingsPage.nextLimit(settingsPage.idleValues, MlxrPrefs.idleDisconnect)
         }
 
@@ -2227,7 +2227,7 @@ Flickable {
             objectName: "zoomRow"
             title: qsTr("Zoom")
             valueText: MlxrPrefs.zoom + "%"
-            summary: qsTr("How much of the picture fills the screen in the headset: 100% is all of it, 400% a quarter across and down. In the headset, bind zoom in, zoom out and zoom reset to a button, and aim at the part to zoom into; it remembers the zoom and the place for each app.")
+            summary: qsTr("How much of the picture fills the screen: 100% is all of it, 400% a quarter across and down. In the headset, bind zoom in, zoom out and zoom reset to buttons and aim at the part to zoom into. The zoom is kept per app.")
             onClicked: MlxrPrefs.zoom = settingsPage.nextLimit(settingsPage.zoomSteps, MlxrPrefs.zoom)
         }
 
@@ -2357,7 +2357,7 @@ Flickable {
             objectName: "headsetLanguageRow"
             title: qsTr("Headset language")
             valueText: settingsPage.headsetLanguageText()
-            summary: qsTr("The language of the menus, keyboard and notices in the headset. It takes effect the next time the VR client starts. Text without a translation stays English; Chinese, Japanese and Korean need the headset's Noto Sans CJK fonts, else English.")
+            summary: qsTr("The language of the headset's menus, keyboard and notices, from the next VR client start. Untranslated text stays English; Chinese, Japanese and Korean need the Noto Sans CJK fonts.")
             onClicked: headsetLanguagePicker.visible = !headsetLanguagePicker.visible
         }
 

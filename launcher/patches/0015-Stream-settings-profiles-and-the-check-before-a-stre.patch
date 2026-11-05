@@ -54,7 +54,7 @@ diff --git a/app/gui/AppView.qml b/app/gui/AppView.qml
 +                    visible: SystemProperties.nativeVrHandoff
 +                    onTriggered: stackView.push("qrc:/gui/XrProfilesView.qml", {"initialPcIndex": appGrid.computerIndex, "initialApp": model.name})
 +
-+                    ToolTip.text: qsTr("Choose the saved stream settings (resolution, refresh rate, bitrate, virtual display ...) this app streams with.")
++                    ToolTip.text: qsTr("Choose which saved stream settings this app uses.")
 +                    ToolTip.delay: 1000
 +                    ToolTip.timeout: 4000
 +                    ToolTip.visible: hovered

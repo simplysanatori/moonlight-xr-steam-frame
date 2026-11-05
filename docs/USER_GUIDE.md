@@ -102,7 +102,7 @@ The top of the page has a **Search settings** field and a row of buttons, one fo
 | Bitrate over the USB cable | the same | The same for the [USB cable](#usb-cable). |
 | Full-frame requests after lost video | **No limit**, **250 ms**, **500 ms**, **1 s**, **2 s** | 500 ms (the default). When video is lost and the PC's quick repair does not come, the headset asks the PC for a full picture (an IDR frame). A full picture is large: asked for again while the Wi-Fi is still losing packets, it lands in the same bad moment and makes the freeze longer. This is the least time between two such requests of the headset's own. Pressing the row steps through the choices. It is `rfi_idr_ms` in `config.ini`'s `[stream]` section. |
 | Switch network when video keeps breaking up | **Off**, **On** | Off (the default). With **On** and Network connection on **Automatic**, a stream that keeps losing video on its link moves to another link. See [Switching links when video keeps breaking up](#switching-links-when-video-keeps-breaking-up). It is `failover` in `config.ini`'s `[stream]` section. |
-| Video loss before switching | **1.5 s**, **3 s**, **5 s**, **8 s** | 3 s (the default). How much lost video within ten seconds makes the stream leave its link. Tapping the row steps through the choices. Greyed while the switch above is off. It is `failover_burst_ms` in `config.ini` (500 to 9000 ms). |
+| Video loss before switching | **1.5 s**, **3 s**, **5 s**, **8 s** | 3 s (the default). How much lost video within ten seconds makes the stream switch links. Tapping the row steps through the choices. Greyed while the switch above is off. It is `failover_burst_ms` in `config.ini` (500 to 9000 ms). |
 
 ### Switching links when video keeps breaking up
 
@@ -216,7 +216,7 @@ The Frame's video is 8-bit SDR and the stream never goes above the headset's rat
 | Enable rumble | on, off | on. Gamepads and the headset controllers. |
 | Enable forward/back mouse buttons | on, off | on |
 | Check the PC before streaming (Host) | on, off | on. See [Check before a stream](#check-before-a-stream). |
-| Optimize game settings (Host) | on, off | on. Lets the PC switch its display to the stream's resolution, where the host is set to. |
+| Optimize game settings (Host) | on, off | on. Lets the PC switch its display to the stream's resolution, if the host allows it. |
 | Play audio on PC (Host) | on, off | off |
 | Smart clipboard sync (experimental) (General) | on, off | off. Needs Apollo. |
 | On start (General) | Nothing, Last PC's Desktop, An app | Nothing. See [Opening a stream by itself](#opening-a-stream-by-itself). |
@@ -443,8 +443,8 @@ For people who cannot use their hands, or can use them only a little. The cog's 
 
 | Row | Choices | What it does |
 | --- | --- | --- |
-| Pointer | Controller, Head, Eyes | What moves the pointer: a controller, your head, or where you look. **Eyes** is experimental (its cell says so): the eyes jitter and the dot lands near, not exactly on, where you look (see [Eyes](#accessibility-eyes)). It is always there, and dimmed only when SteamVR does not offer eye tracking to apps at all. `[vr] pointer_source` |
-| Dwell click | Off, 0.6 s, 0.9 s, 1.2 s, 1.5 s | Rest the dot this long on something to click it. Greyed while a controller points. `[vr] head_dwell_ms` |
+| Pointer | Controller, Head, Eyes | What moves the pointer: a controller, your head or your eyes. **Eyes** is experimental (its cell says so): the eyes jitter and the dot lands near, not exactly on, where you look (see [Eyes](#accessibility-eyes)). It is always there, and dimmed only when SteamVR does not offer eye tracking to apps at all. `[vr] pointer_source` |
+| Dwell click | Off, 0.6 s, 0.9 s, 1.2 s, 1.5 s | Hold the dot still this long to click. Greyed while a controller points. `[vr] head_dwell_ms` |
 | Dwell click style | Simple, Radial menu | What a dwell on the picture does: **Simple** is a left click; **Radial menu** also offers a double click, a drag and a right click (see below). Simple by default. Greyed while a controller points. `[vr] assist_dwell_style` |
 | Dot size | 50 % to 300 %, in steps of 25 % | How big the dot is when you point with your head or eyes; the dwell's circle grows with it. 100 % is the usual size. A slider with a tick at every step: drag it, or press its arrows for one step. Greyed while a controller points. `[vr] assist_dot_size` |
 
