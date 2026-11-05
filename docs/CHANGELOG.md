@@ -2,7 +2,11 @@
 
 ## 1.2.0 (November 2026)
 
-In 1.2.0 I fixed the white streak that flashed across the view while pointing at the keyboard, made the trigger grab the screen's move pill and corners, fixed stats that read 0 during a stream, and tidied the text in the headset and the flat window.
+In 1.2.0 I added an eye calibration for the Eyes pointer, fixed the white streak that flashed across the view while pointing at the keyboard, made the trigger grab the screen's move pill and corners, fixed stats that read 0 during a stream, and tidied the text in the headset and the flat window.
+
+### Added
+
+- Eye calibration, on the cog's Accessibility tab. Press **Start** and look at each of 12 dots on the picture in turn. The app compares where your eyes point with where each dot is, and corrects the gaze from then on, for the Eyes pointer, Look to point and the dwell click. Your head can move during it, and **B** or **Menu** cancels. The row then shows the average error left, such as "Calibrated: 0.9° average". A run that doesn't clearly help, or would move the gaze too far, isn't kept, and the row says why. **Reset** removes the calibration. It's saved in `config.ini` (`[vr] eye_calibration`).
 
 ### Fixed
 
