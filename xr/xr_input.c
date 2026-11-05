@@ -3917,6 +3917,88 @@ static void logInputSnapshot(XrCtx* ctx, InputFrame* f) {
     }
 }
 
+// Native (lane beam-streak): what set the beam, for the log line when it reaches the head
+enum {
+    BEAM_BY_NONE,
+    BEAM_BY_HANDLE,      // a held bar or corner (beamToHandle)
+    BEAM_BY_KBMOVE,      // the keyboard held by its bar
+    BEAM_BY_STATSMOVE,   // the stats window held
+    BEAM_BY_FURNITURE,   // the furniture, a panel or the keyboard under the ray (beamToFurniture)
+    BEAM_BY_SCREEN,      // the picture (sendPointer)
+    BEAM_BY_ROOM,        // the free beam into the room (beamIntoRoom)
+};
+
+static const char* beamByName(int by) {
+    switch (by) {
+        case BEAM_BY_HANDLE: return "the held handle";
+        case BEAM_BY_KBMOVE: return "the held keyboard";
+        case BEAM_BY_STATSMOVE: return "the held stats window";
+        case BEAM_BY_FURNITURE: return "the panel or furniture under the ray";
+        case BEAM_BY_SCREEN: return "the picture";
+        case BEAM_BY_ROOM: return "the free beam";
+        default: return "nothing this frame";
+    }
+}
+
+// The beam out of source h's aim this frame, and what set it
+static void beamFrom(XrCtx* ctx, const InputFrame* f, int h, int by) {
+    ctx->beamStart = f->aimPoses[h].position;
+    ctx->beamBy = by;
+    ctx->beamHand = h;
+    ctx->beamAim = f->aimPoses[h].position;
+    for (int k = 0; k < SRC_COUNT; k++) {
+        ctx->beamAimValid[k] = f->aimValid[k];
+    }
+}
+
+static const char* hoverKindName(int hover) {
+    static const char* const names[] = {
+        [HOVER_NONE] = "nothing", [HOVER_SCREEN] = "the picture", [HOVER_BAR] = "the bar",
+        [HOVER_CORNER] = "a corner", [HOVER_ENVBUTTON] = "the room button", [HOVER_PICKER] = "the room grid",
+        [HOVER_HALO] = "the halo", [HOVER_HINT] = "the hand hint", [HOVER_COGBUTTON] = "the cog",
+        [HOVER_COGPANEL] = "the settings", [HOVER_KBBUTTON] = "the keyboard button",
+        [HOVER_KBPANEL] = "the keyboard", [HOVER_EXITBUTTON] = "the exit button",
+        [HOVER_EXITPROMPT] = "the exit prompt", [HOVER_STEREOBUTTON] = "the 3D button",
+        [HOVER_REPORT] = "the report sheet", [HOVER_RAYBUTTON] = "the ray button",
+        [HOVER_AIMBUTTON] = "the head aim button", [HOVER_PADBUTTON] = "the pad button",
+        [HOVER_KOFI] = "the Ko-fi sheet", [HOVER_KBBAR] = "the keyboard's bar",
+        [HOVER_STATS] = "the stats window", [HOVER_HOSTBUTTON] = "the Host button",
+        [HOVER_HOST] = "the Host sheet", [HOVER_HEREBUTTON] = "Bring here",
+    };
+    if (hover < 0 || hover >= (int)(sizeof(names) / sizeof(names[0])) || names[hover] == NULL) {
+        return "something unnamed";
+    }
+    return names[hover];
+}
+
+// Native (lane beam-streak): the beam reached the head (it ran into or behind the eyes) and was cut
+// off in front of them by the layers (beamClipAhead), or not drawn. Says what set it and where every
+// source was, so the next time names its cause. At most a line a second, with the count between.
+void xrBeamClipSay(XrCtx* ctx, int clip, XrVector3f start, XrVector3f end) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->beamClipTrips++;
+    int64_t now = nowNs();
+    if (ctx->beamClipSaidNs != 0 && now - ctx->beamClipSaidNs < 1000000000LL) {
+        return;
+    }
+    ctx->beamClipSaidNs = now;
+    int h = ctx->beamHand;
+    LOGI("ray debug: the beam reached the head and was %s (%d times since the last line): hand %d on %s, "
+         "set by %s; start %.3f %.3f %.3f, end %.3f %.3f %.3f, the hand's aim %.3f %.3f %.3f, "
+         "head %.3f %.3f %.3f facing %.2f %.2f %.2f; left %s placed %d, right %s placed %d, eyes placed %d",
+         (clip & BEAM_CLIP_GONE) ? "hidden" : (clip & BEAM_CLIP_END) ? "cut short at the end"
+                                                                    : "cut short at the start",
+         ctx->beamClipTrips, h, hoverKindName(ctx->hoverKind), beamByName(ctx->beamBy),
+         start.x, start.y, start.z, end.x, end.y, end.z, ctx->beamAim.x, ctx->beamAim.y, ctx->beamAim.z,
+         ctx->headPos.x, ctx->headPos.y, ctx->headPos.z,
+         ctx->headForward.x, ctx->headForward.y, ctx->headForward.z,
+         aimSrcName(ctx->aimSrc[HAND_LEFT]), ctx->beamAimValid[HAND_LEFT],
+         aimSrcName(ctx->aimSrc[HAND_RIGHT]), ctx->beamAimValid[HAND_RIGHT], ctx->beamAimValid[SRC_GAZE]);
+    ctx->beamClipTrips = 0;
+}
+
 // Nothing goes to the host mid drag, and the ray ends on the handle
 // being held rather than wherever it is now pointing
 static void beamToHandle(XrCtx* ctx, InputFrame* f) {
@@ -3930,7 +4012,7 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
         local.z = 0.0f;
         if (ctx->grabMode == GRAB_STATSMOVE) {
             // The ray ends in the middle of the window it holds
-            ctx->beamStart = f->aimPoses[ctx->grabHand].position;
+            beamFrom(ctx, f, ctx->grabHand, BEAM_BY_STATSMOVE);
             ctx->beamEnd = ctx->statsPose.position;
             ctx->beamVisible = 1;
             return;
@@ -3941,7 +4023,7 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
             kbBarGeometry(ctx, &pillW, &pillH, &drop);
             Vec3 pill = { 0.0f, -drop, 0.0f };
             Vec3 at = quatRotate(ctx->kbPose.orientation, pill);
-            ctx->beamStart = f->aimPoses[ctx->grabHand].position;
+            beamFrom(ctx, f, ctx->grabHand, BEAM_BY_KBMOVE);
             ctx->beamEnd.x = ctx->kbPose.position.x + at.x;
             ctx->beamEnd.y = ctx->kbPose.position.y + at.y;
             ctx->beamEnd.z = ctx->kbPose.position.z + at.z;
@@ -3962,7 +4044,7 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
         }
         curveLocal(&local, f->radius, f->curved, NULL);
         Vec3 handle = quatRotate(f->screenPose.orientation, local);
-        ctx->beamStart = f->aimPoses[ctx->grabHand].position;
+        beamFrom(ctx, f, ctx->grabHand, BEAM_BY_HANDLE);
         ctx->beamEnd.x = f->screenPose.position.x + handle.x;
         ctx->beamEnd.y = f->screenPose.position.y + handle.y;
         ctx->beamEnd.z = f->screenPose.position.z + handle.z;
@@ -3974,7 +4056,7 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
 static void beamToFurniture(XrCtx* ctx, InputFrame* f) {
     Vec3 end = furniturePoint(ctx, f->hover, f->hitU[f->hand], f->hitV[f->hand],
                               f->screenPose, f->height, f->radius, f->curved, &f->bar);
-    ctx->beamStart = f->aimPoses[f->hand].position;
+    beamFrom(ctx, f, f->hand, BEAM_BY_FURNITURE);
     ctx->beamEnd.x = end.x;
     ctx->beamEnd.y = end.y;
     ctx->beamEnd.z = end.z;
@@ -4662,7 +4744,7 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
     // makes a laser readable rather than a light show
     Vec3 endPoint = screenPoint(u, v, f->screenPose, ctx->screenWidth, f->height, f->radius,
                                 f->curved);
-    ctx->beamStart = f->aimPoses[f->hand].position;
+    beamFrom(ctx, f, f->hand, BEAM_BY_SCREEN);
     ctx->beamEnd.x = endPoint.x;
     ctx->beamEnd.y = endPoint.y;
     ctx->beamEnd.z = endPoint.z;
@@ -4830,7 +4912,7 @@ static void beamIntoRoom(XrCtx* ctx, InputFrame* f) {
         if (free >= 0) {
             Vec3 forward = { 0.0f, 0.0f, -1.0f };
             Vec3 d = quatRotate(f->aimPoses[free].orientation, forward);
-            ctx->beamStart = f->aimPoses[free].position;
+            beamFrom(ctx, f, free, BEAM_BY_ROOM);
             ctx->beamEnd.x = ctx->beamStart.x + d.x * FREE_BEAM_M;
             ctx->beamEnd.y = ctx->beamStart.y + d.y * FREE_BEAM_M;
             ctx->beamEnd.z = ctx->beamStart.z + d.z * FREE_BEAM_M;
@@ -5553,6 +5635,12 @@ static void beginPointerFrame(XrCtx* ctx, InputFrame* f, float* out, int headLoc
         ctx->headRight.x = r.x;
         ctx->headRight.y = r.y;
         ctx->headRight.z = r.z;
+        // Native (lane beam-streak): the way the eyes face, which the beam is cut off in front of
+        Vec3 ahead = { 0.0f, 0.0f, -1.0f };
+        Vec3 fw = quatRotate(f->headPose.orientation, ahead);
+        ctx->headForward.x = fw.x;
+        ctx->headForward.y = fw.y;
+        ctx->headForward.z = fw.z;
     }
     updateHeadTurn(ctx, f);
 }
@@ -5917,6 +6005,8 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     ctx->screenOrientation = f.screenPose.orientation;
     ctx->beamVisible = 0;
     ctx->beamFree = 0;
+    ctx->beamBy = BEAM_BY_NONE;
+    ctx->beamHand = -1;
     // Eyes aim by looking, so a ray out of the face would be nonsense, and a
     // cursor riding on them shakes too much to be anything but a distraction.
     // Gaze draws nothing: the handle lighting up is the feedback.
