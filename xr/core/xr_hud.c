@@ -129,12 +129,12 @@ void mlxr_compositor_line(const MlxrCompositorMetrics* m, char* buf, size_t cap)
     if (m == NULL || !m->valid || !(m->haveCpu || m->haveGpu || m->haveDropped)) {
         return;
     }
-    size_t n = (size_t)snprintf(buf, cap, "compositor");
+    size_t n = (size_t)snprintf(buf, cap, "Compositor");
     if (m->haveCpu && n < cap) {
-        n += (size_t)snprintf(buf + n, cap - n, " cpu %.1f ms", (double)m->cpuMs);
+        n += (size_t)snprintf(buf + n, cap - n, " CPU %.1f ms", (double)m->cpuMs);
     }
     if (m->haveGpu && n < cap) {
-        n += (size_t)snprintf(buf + n, cap - n, " gpu %.1f ms", (double)m->gpuMs);
+        n += (size_t)snprintf(buf + n, cap - n, "%s GPU %.1f ms", m->haveCpu ? "," : "", (double)m->gpuMs);
     }
     if (m->haveDropped && n < cap) {
         snprintf(buf + n, cap - n, "%s%u dropped", m->haveCpu || m->haveGpu ? ", " : " ", m->dropped);
@@ -164,18 +164,17 @@ void mlxr_hud_panel(const MlxrHudFigures* f, int slow, const MlxrCompositorMetri
         num(v, sizeof(v), f->setKbps / 1000.0);
         snprintf(set, sizeof(set), " of %s", v);
     }
-    // Native (lane beam-streak): a part nobody timed is n/a, and the latency says it is left out
+    // Native (lane beam-streak): a part nobody timed is n/a, and the latency without it reads "12+ ms",
+    // as Lite's does
     if (f->hostUnknown) {
         snprintf(host, sizeof(host), "n/a");
     }
     if (f->decodeUnknown) {
         snprintf(dec, sizeof(dec), "n/a");
     }
-    const char* without = f->hostUnknown && f->decodeUnknown ? " (without host and decode)"
-            : f->hostUnknown ? " (without the host)" : f->decodeUnknown ? " (without decode)" : "";
-    size_t n = (size_t)snprintf(buf, cap, "Latency %s ms%s%s\nHost %s, net %s, decode %s%s\nRTT %.0f ms, loss %s%%",
-                                lat, without, slow ? "  - slow connection" : "", host, net, dec,
-                                f->decodeUnknown ? "" : " ms", f->rttMs, loss);
+    size_t n = (size_t)snprintf(buf, cap, "Latency %s%s ms%s\nHost %s, net %s, decode %s%s\nRTT %.0f ms, loss %s%%",
+                                lat, f->hostUnknown || f->decodeUnknown ? "+" : "", slow ? "  - slow connection" : "",
+                                host, net, dec, f->decodeUnknown ? "" : " ms", f->rttMs, loss);
     if ((f->fecRecovered > 0 || f->fecFailed > 0) && n < cap) {
         n += (size_t)snprintf(buf + n, cap - n, ", FEC %u/%u", f->fecRecovered, f->fecFailed);
     }
@@ -200,10 +199,10 @@ void mlxr_stats_decode_text(const MlxrDecodeTally* t, char* buf, size_t cap) {
         return;
     }
     if (t == NULL || t->decoded == 0) {
-        snprintf(buf, cap, "decoded 0, dropped 0, decode n/a");
+        snprintf(buf, cap, "Decoded 0, dropped 0, decode n/a");
         return;
     }
-    snprintf(buf, cap, "decoded %llu, dropped %llu, decode %.1f ms", (unsigned long long)t->decoded,
+    snprintf(buf, cap, "Decoded %llu, dropped %llu, decode %.1f ms", (unsigned long long)t->decoded,
              (unsigned long long)t->dropped, t->decodeMs);
 }
 
@@ -213,10 +212,10 @@ void mlxr_stats_audio_text(uint64_t packets, int channels, double bufferedMs, ui
         return;
     }
     if (packets == 0) {
-        snprintf(buf, cap, "audio: nothing from the PC yet");
+        snprintf(buf, cap, "No audio from host");
         return;
     }
-    snprintf(buf, cap, "audio %dch %.0f ms buffered, %u underruns, %u lost (stream totals)", channels, bufferedMs,
+    snprintf(buf, cap, "Audio %dch, %.0f ms buffered, %u underruns, %u lost", channels, bufferedMs,
              underruns, lost);
 }
 

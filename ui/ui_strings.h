@@ -74,7 +74,7 @@
     X(LOG_FILE_OFF, "vr_panel_log_file_off", "Log file: off") \
     X(ABOUT_BUILT_BY, "vr_panel_built_by", "Built by simplysanatori") \
     X(ABOUT_BASED_ON, "vr_panel_based_on", "Based on Moonlight XR by Sean Gilleece and Moonlight") \
-    X(REPORT_SENDS, "vr_panel_report_sends", "Saves a note on the headset for a bug report") \
+    X(REPORT_SENDS, "vr_panel_report_sends", "Saves a bug report note on the headset") \
     X(ROOMS, "vr_panel_rooms", "Rooms") \
     /* environments */ \
     X(ENV_PASSTHROUGH, "vr_environment_passthrough", "Passthrough") \
@@ -97,7 +97,7 @@
     X(EXIT, "vr_exit", "Exit") \
     X(EXIT_QUIT_APP, "vr_exit_quit_app", "Quit app") \
     X(EXIT_DISCONNECT, "vr_exit_disconnect", "Disconnect") \
-    X(EXIT_DISCONNECT_HINT, "vr_exit_disconnect_hint", "Disconnect leaves the app running on the PC") \
+    X(EXIT_DISCONNECT_HINT, "vr_exit_disconnect_hint", "Disconnect keeps the app running on the host") \
     X(CANCEL, "cancel", "Cancel") \
     X(OK, "ok", "OK") \
     X(HAND_HINT_TITLE, "vr_hand_hint_title", "Hand tracking is on.") \
@@ -112,7 +112,7 @@
     X(HOST_SEND_KEYS_HINT, "native_host_send_keys_hint", "type a combo") \
     X(HOST_SEND_KEYS_SHORT, "native_host_send_keys_short", "Send keys") \
     X(HOST_CLOSE, "native_host_close", "Close") \
-    X(HOST_CONFIRM_Q, "native_host_confirm_q", "Send %s to the PC?") \
+    X(HOST_CONFIRM_Q, "native_host_confirm_q", "Send %s to the host?") \
     X(HOST_CONFIRM_SEND, "native_host_confirm_send", "Send") \
     X(HOST_HINT_ESC, "native_host_hint_esc", "Escape") \
     X(HOST_HINT_WIN, "native_host_hint_win", "Start menu") \
@@ -128,24 +128,24 @@
     /* the Host sheet's PC page (lane wave4-apollo, PLAN 4.6, 4b.4, 4b.5) */ \
     X(HOST_PAGE_PC, "native_host_page_pc", "Clipboard, commands") \
     X(HOST_PAGE_BACK, "native_host_page_back", "Back") \
-    X(HOST_PC_TITLE, "native_host_pc_title", "PC clipboard, commands") \
-    X(HOST_PASTE, "native_host_paste", "Paste from PC") \
-    X(HOST_COPY, "native_host_copy", "Send text to PC") \
-    X(HOST_CONFIRM_RUN_Q, "native_host_confirm_run_q", "Run %s on the PC?") \
+    X(HOST_PC_TITLE, "native_host_pc_title", "Host clipboard, commands") \
+    X(HOST_PASTE, "native_host_paste", "Paste from host") \
+    X(HOST_COPY, "native_host_copy", "Send text to host") \
+    X(HOST_CONFIRM_RUN_Q, "native_host_confirm_run_q", "Run %s on the host?") \
     X(HOST_CONFIRM_RUN, "native_host_confirm_run", "Run") \
-    X(HOST_PC_NOT_APOLLO, "native_host_pc_not_apollo", "Not supported by this host: commands and the PC clipboard need Apollo") \
-    X(HOST_PC_NO_PERMISSION, "native_host_pc_no_permission", "This host has not allowed server commands for the Frame") \
-    X(HOST_PC_NO_COMMANDS, "native_host_pc_no_commands", "No server commands are set up on this host") \
+    X(HOST_PC_NOT_APOLLO, "native_host_pc_not_apollo", "Needs Apollo on the host") \
+    X(HOST_PC_NO_PERMISSION, "native_host_pc_no_permission", "Commands not allowed by the host") \
+    X(HOST_PC_NO_COMMANDS, "native_host_pc_no_commands", "No commands set up on the host") \
     X(HOST_COMPOSE_PROMPT, "native_host_compose_prompt", "Type, Enter sends") \
     X(REPORT_TITLE, "title_bug_report", "Report a problem") \
     X(REPORT_NOTE_LABEL, "bug_report_message_hint", "What happened?") \
     X(REPORT_NOTE_HINT, "vr_report_note_hint", "What were you doing when it went wrong?") \
-    X(REPORT_GOES, "vr_report_sends", "Save keeps your note on the Frame in ~/Games/MoonlightXRNative/reports. Save and zip also makes the masked zip there, to attach to an issue on GitHub. Nothing is sent from the headset.") \
+    X(REPORT_GOES, "vr_report_sends", "Saved on the Frame in ~/Games/MoonlightXRNative/reports. Save and zip adds a masked zip for a GitHub issue. Nothing is sent.") \
     X(REPORT_SEND, "bug_report_send_direct", "Save") \
     X(NATIVE_REPORT_ZIP, "native_report_zip", "Save and zip") \
     X(NATIVE_REPORT_ZIP_DONE, "native_report_zip_done", "Report zip saved") \
-    X(NATIVE_REPORT_ZIP_FAIL, "native_report_zip_fail", "The report zip could not be made") \
-    X(NATIVE_REPORT_ZIP_BUSY, "native_report_zip_busy", "The report zip is still being made") \
+    X(NATIVE_REPORT_ZIP_FAIL, "native_report_zip_fail", "Report zip failed") \
+    X(NATIVE_REPORT_ZIP_BUSY, "native_report_zip_busy", "Report zip in progress") \
     X(NATIVE_SLOW_CONN, "native_slow_conn", "Slow connection") \
     /* toasts */ \
     X(TOAST_RATE, "vr_toast_rate", "Display %d Hz") \
@@ -157,7 +157,7 @@
     X(TOAST_HEAD_AIM_ON_MORE, "vr_toast_head_aim_on_more", "Turning your head moves the mouse") \
     X(TOAST_HEAD_AIM_OFF, "vr_toast_head_aim_off", "Head aim off") \
     X(TOAST_GAMEPAD_MODE, "vr_toast_gamepad_mode", "Gamepad mode") \
-    X(TOAST_BACK_MENU_GRIP, "vr_toast_gamepad_back_menu_grip", "Hold the left View button and left grip to go back to the pointer") \
+    X(TOAST_BACK_MENU_GRIP, "vr_toast_gamepad_back_menu_grip", "Hold left View + left grip for the pointer") \
     X(TOAST_BACK_STICKS, "vr_toast_gamepad_back_sticks", "Press both thumbsticks to go back to the pointer") \
     X(TOAST_BACK_TRIGGERS_GRIPS, "vr_toast_gamepad_back_triggers_grips", "Squeeze both triggers and both grips to go back to the pointer") \
     X(TOAST_POINTER_MODE, "vr_toast_pointer_mode", "Pointer mode") \
@@ -176,22 +176,22 @@
     X(APP_ERROR, "applist_refresh_error_msg", "Failed to get app list") \
     X(APP_CONNECTING, "applist_connect_msg", "Connecting to PC…") \
     /* native only: no upstream key, written for this port */ \
-    X(NATIVE_PC_LIST_TITLE, "native_pc_list_title", "Computers") \
+    X(NATIVE_PC_LIST_TITLE, "native_pc_list_title", "Hosts") \
     X(NATIVE_PC_NOT_PAIRED, "native_pc_not_paired", "Not paired") \
     X(NATIVE_PC_PAIRED, "native_pc_paired", "Paired") \
     X(NATIVE_PC_RUNNING, "native_pc_running", "Running") \
-    X(NATIVE_PC_NONE, "native_pc_none", "No computers found yet. Make sure Sunshine is running on your PC.") \
-    X(NATIVE_APP_NONE, "native_app_none", "This PC has no apps.") \
+    X(NATIVE_PC_NONE, "native_pc_none", "No hosts found. Is Sunshine running?") \
+    X(NATIVE_APP_NONE, "native_app_none", "No apps on this host") \
     X(NATIVE_BACK, "native_back", "Back") \
     X(NATIVE_PAGE_UP, "native_page_up", "Previous page") \
     X(NATIVE_PAGE_DOWN, "native_page_down", "Next page") \
     X(NATIVE_PAGE_OF, "native_page_of", "%d / %d") \
     X(NATIVE_APP_RUNNING, "native_app_running", "Running") \
-    X(NATIVE_LATER, "native_later", "comes in a later update") \
-    X(NATIVE_3D_LATER, "native_3d_later", "3D comes with the depth model in a later update") \
-    X(NATIVE_3D_NO_MODEL, "native_3d_no_model", "3D needs the depth model, which is not installed") \
-    X(NATIVE_3D_FAILED, "native_3d_failed", "3D is off: the depth model did not load") \
-    X(NATIVE_3D_LOADING, "native_3d_loading", "3D: loading the depth model") \
+    X(NATIVE_LATER, "native_later", "coming later") \
+    X(NATIVE_3D_LATER, "native_3d_later", "3D: depth model coming later") \
+    X(NATIVE_3D_NO_MODEL, "native_3d_no_model", "3D: depth model not installed") \
+    X(NATIVE_3D_FAILED, "native_3d_failed", "3D off: depth model failed to load") \
+    X(NATIVE_3D_LOADING, "native_3d_loading", "3D: loading depth model") \
     X(NATIVE_TILE_LATER, "native_tile_later", "Later") \
     X(NATIVE_DOT, "native_dot", "Dot") \
     X(NATIVE_RAY, "native_ray", "Ray") \
@@ -201,25 +201,25 @@
     X(SOURCE_DEPTH, "native_3d_source_depth", "Depth") \
     X(SOURCE_SBS, "native_3d_source_sbs", "SBS") \
     X(SOURCE_TB, "native_3d_source_tb", "Top-bottom") \
-    X(SBS_NO_DEPTH, "native_3d_sbs_no_depth", "the PC draws the depth") \
+    X(SBS_NO_DEPTH, "native_3d_sbs_no_depth", "depth from the host") \
     X(ROW_EDGE, "native_row_edge", "Edge")     X(ROW_DEPTH_DETAIL, "native_row_depth_detail", "Depth detail")     X(ROW_DEPTH_SHAPE, "native_row_depth_shape", "Depth shape")     X(ROW_MOTION_RESET, "native_row_motion_reset", "Motion reset")     X(ROW_EYE_BALANCE, "native_row_eye_balance", "Eye balance") \
     X(NATIVE_EXIT_APP, "native_exit_app", "Quit Moonlight XR for Frame?") \
-    X(NATIVE_PAIR_LATER, "native_pair_later", "Pairing from the headset comes later: pair with mlxr-cli") \
-    X(NATIVE_NOT_PAIRED, "native_not_paired", "%s is not paired: pair it with mlxr-cli") \
-    X(NATIVE_OFFLINE_WAKE, "native_offline_wake", "%s is offline: sending Wake-on-LAN") \
+    X(NATIVE_PAIR_LATER, "native_pair_later", "Pair with mlxr-cli") \
+    X(NATIVE_NOT_PAIRED, "native_not_paired", "%s not paired: use mlxr-cli") \
+    X(NATIVE_OFFLINE_WAKE, "native_offline_wake", "%s offline: sending Wake-on-LAN") \
     X(NATIVE_STARTING, "native_starting", "Starting %s") \
-    X(NATIVE_STREAM_FAILED, "native_stream_failed", "The stream did not start") \
-    X(NATIVE_STREAM_ENDED, "native_stream_ended", "The stream ended") \
-    X(NATIVE_QUITTING, "native_quitting", "Ending the session on %s") \
+    X(NATIVE_STREAM_FAILED, "native_stream_failed", "Stream failed to start") \
+    X(NATIVE_STREAM_ENDED, "native_stream_ended", "Stream ended") \
+    X(NATIVE_QUITTING, "native_quitting", "Ending session on %s") \
     X(NATIVE_DISCONNECTED, "native_disconnected", "Disconnected: Start+Select+L1+R1") \
     X(NATIVE_DISCONNECTED_KEYS, "native_disconnected_keys", "Disconnected: Ctrl+Alt+Shift+Q") \
-    X(NATIVE_DISCONNECTED_BAR, "native_disconnected_bar", "Disconnected: the app is still running on the PC") \
+    X(NATIVE_DISCONNECTED_BAR, "native_disconnected_bar", "Disconnected: app still running on the host") \
     X(NATIVE_RECONNECTING, "native_reconnecting", "Connection lost, reconnecting (%d/%d)…") \
     X(NATIVE_SPLASH_CONNECTING, "native_splash_connecting", "Connecting to %s…") \
     X(NATIVE_SPLASH_CONNECTING_NOPC, "native_splash_connecting_nopc", "Connecting…") \
     X(NATIVE_SPLASH_RECONNECTING, "native_splash_reconnecting", "Reconnecting…") \
-    X(NATIVE_DISCONNECTED_DOFF, "native_disconnected_doff", "Disconnected while the headset was off: the app is still running on the PC") \
-    X(NATIVE_DISCONNECTED_IDLE, "native_disconnected_idle", "Disconnected after no input for a while: the app is still running on the PC") \
+    X(NATIVE_DISCONNECTED_DOFF, "native_disconnected_doff", "Disconnected (headset off): app still running on the host") \
+    X(NATIVE_DISCONNECTED_IDLE, "native_disconnected_idle", "Disconnected (idle): app still running on the host") \
     /* the first-run controls card (PLAN 3.9) */ \
     X(FIRSTRUN_TITLE, "native_firstrun_title", "Controls at a glance") \
     X(FIRSTRUN_BAR_L, "native_firstrun_bar_l", "Bar") \
@@ -227,19 +227,19 @@
     X(FIRSTRUN_COG_L, "native_firstrun_cog_l", "Cog") \
     X(FIRSTRUN_COG, "native_firstrun_cog", "Right Menu button: settings") \
     X(FIRSTRUN_KB_L, "native_firstrun_kb_l", "Keyboard") \
-    X(FIRSTRUN_KB, "native_firstrun_kb", "Y button, or the bar's keyboard button") \
+    X(FIRSTRUN_KB, "native_firstrun_kb", "Y, or the bar's keyboard button") \
     X(FIRSTRUN_PAD_L, "native_firstrun_pad_l", "Gamepad") \
     X(FIRSTRUN_PAD_MENU_GRIP, "native_firstrun_pad_menu_grip", "Hold left View + left grip: gamepad mode") \
     X(FIRSTRUN_PAD_STICKS, "native_firstrun_pad_sticks", "Press both thumbsticks: gamepad mode") \
     X(FIRSTRUN_PAD_TRIGGERS_GRIPS, "native_firstrun_pad_triggers_grips", "Squeeze triggers + grips: gamepad mode") \
     X(FIRSTRUN_HOST_L, "native_firstrun_host_l", "Host") \
-    X(FIRSTRUN_HOST, "native_firstrun_host", "The bar's Host button: Esc, Win, macros") \
+    X(FIRSTRUN_HOST, "native_firstrun_host", "Bar's Host button: Esc, Win, macros") \
     X(FIRSTRUN_KEYS_L, "native_firstrun_keys_l", "Keys") \
     X(FIRSTRUN_KEYS, "native_firstrun_keys", "Ctrl+Alt+Shift+Q on a keyboard: disconnect") \
     X(FIRSTRUN_MOUSE_L, "native_firstrun_mouse_l", "Pad") \
-    X(FIRSTRUN_MOUSE, "native_firstrun_mouse", "Hold %s on a gamepad: the PC's mouse") \
-    X(FIRSTRUN_MOUSE_BOTH, "native_firstrun_mouse_both", "Hold %s and %s on a gamepad: the PC's mouse") \
-    X(FIRSTRUN_MOUSE_OFF, "native_firstrun_mouse_off", "Gamepad as the PC's mouse is off (pad_mouse_chord)") \
+    X(FIRSTRUN_MOUSE, "native_firstrun_mouse", "Hold %s on a gamepad: host mouse") \
+    X(FIRSTRUN_MOUSE_BOTH, "native_firstrun_mouse_both", "Hold %s and %s on a gamepad: host mouse") \
+    X(FIRSTRUN_MOUSE_OFF, "native_firstrun_mouse_off", "Gamepad mouse off (pad_mouse_chord)") \
     /* the pad card (PLAN 2b.6) */ \
     X(PADCARD_XBOX, "native_padcard_xbox", "Xbox gamepad") \
     X(PADCARD_PLAYSTATION, "native_padcard_playstation", "PlayStation gamepad") \
@@ -248,7 +248,7 @@
     X(PADCARD_GENERIC, "native_padcard_generic", "Gamepad") \
     X(PADCARD_GYRO, "native_padcard_gyro", "Gyro") \
     X(PADCARD_TOUCHPAD, "native_padcard_touchpad", "Touchpad") \
-    X(PADCARD_HINT, "native_padcard_hint", "Press a button, a stick or a trigger") \
+    X(PADCARD_HINT, "native_padcard_hint", "Press any button, stick or trigger") \
     X(PADCARD_START_MENU, "native_padcard_start_menu", "Menu") \
     X(PADCARD_START_OPTIONS, "native_padcard_start_options", "Options") \
     X(PADCARD_START_PLUS, "native_padcard_start_plus", "+") \
@@ -270,26 +270,26 @@
     X(DWELL_15, "native_dwell_15", "1.5 s") \
     X(NEEDS_HEAD_POINTER, "native_needs_head_pointer", "needs the Head or Eyes pointer") \
     X(EYES_READY, "native_eyes_ready", "Eye tracking: available") \
-    X(EYES_WAITING, "native_eyes_waiting", "Eye tracking: offered, but no gaze has arrived yet") \
-    X(EYES_UNAVAILABLE, "native_eyes_unavailable", "Eye tracking: SteamVR does not offer it to apps") \
-    X(ACCESS_HELP, "native_access_help", "Head: the dot follows the middle of your view, and either trigger clicks. Dwell click: hold the dot still on a button or on the picture and it clicks by itself. To turn it off, pick Controller here. Hold right Menu and right grip to point with the controllers again.") \
-    X(ACCESS_HELP_EYES, "native_access_help_eyes", "For Eyes: wear the headset, turn on SteamVR Settings > General > Eye Tracking, then restart the app.") \
+    X(EYES_WAITING, "native_eyes_waiting", "Eye tracking: waiting for gaze") \
+    X(EYES_UNAVAILABLE, "native_eyes_unavailable", "Eye tracking: not offered by SteamVR") \
+    X(ACCESS_HELP, "native_access_help", "Head: the dot follows your view; either trigger clicks. Dwell click: hold the dot still to click. Back to controllers: Pointer: Controller, or hold right Menu + right grip.") \
+    X(ACCESS_HELP_EYES, "native_access_help_eyes", "Eyes: turn on SteamVR Settings > General > Eye Tracking, then restart the app.") \
     /* native (lane a11y-2): the Accessibility tab's Dot size, its footer's descriptions, the eye line */ \
     X(ROW_DOT_SIZE, "native_row_dot_size", "Dot size") \
-    X(ACCESS_DESC_POINTER, "native_access_desc_pointer", "What moves the pointer: a controller, your head, or where you look. Eyes is experimental: the dot jitters and lands near where you look. Hold right Menu and right grip to point with the controllers again.") \
-    X(ACCESS_DESC_DWELL, "native_access_desc_dwell", "Rest the dot this long on something to click it.") \
-    X(ACCESS_DESC_DOT, "native_access_desc_dot", "How big the dot is when you point with your head or eyes.") \
+    X(ACCESS_DESC_POINTER, "native_access_desc_pointer", "What moves the pointer: controller, head or eyes. Eyes is experimental and jittery. Hold right Menu + right grip for the controllers.") \
+    X(ACCESS_DESC_DWELL, "native_access_desc_dwell", "How long to rest the dot to click.") \
+    X(ACCESS_DESC_DOT, "native_access_desc_dot", "Dot size for head and eye pointing.") \
     X(ACCESS_DESC_NONE, "native_access_desc_none", "Point at a setting to see what it does.") \
-    X(EYES_NO_ACTION, "native_eyes_no_action", "Eye tracking: offered, but the app could not set it up") \
+    X(EYES_NO_ACTION, "native_eyes_no_action", "Eye tracking: setup failed") \
     /* native (lane a11y-2): the headset button (a future feature since lane a11y-final; its toast is kept with its code) */ \
-    X(AUX_RETURNED, "native_aux_returned", "Headset button returned to SteamVR for 15 s") \
+    X(AUX_RETURNED, "native_aux_returned", "Headset button back to SteamVR for 15 s") \
     X(ROW_DWELL_STYLE, "native_row_dwell_style", "Dwell click style") \
     X(CELL_DWELL_SIMPLE, "native_cell_dwell_simple", "Simple") \
     X(CELL_DWELL_RADIAL, "native_cell_dwell_radial", "Radial menu") \
-    X(ACCESS_DESC_DWELL_STYLE, "native_access_desc_dwell_style", "Radial menu: near the end of the dwell, look left for double click, down to drag, right for right click.") \
+    X(ACCESS_DESC_DWELL_STYLE, "native_access_desc_dwell_style", "Radial menu: at the end of a dwell, look left to double click, down to drag, right to right click.") \
     /* native (lane a11y-final): Eyes marked experimental, and the right hand's way back to the controllers */ \
     X(CELL_EYES_EXPERIMENTAL, "native_cell_eyes_experimental", "experimental") \
-    X(TOAST_POINTER_BACK, "native_toast_pointer_back", "Controllers point again")
+    X(TOAST_POINTER_BACK, "native_toast_pointer_back", "Controller pointer on")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

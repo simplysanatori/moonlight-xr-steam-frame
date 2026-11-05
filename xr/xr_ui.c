@@ -408,7 +408,7 @@ void setPadMode(XrCtx* ctx, int on, const char* from) {
     // would only take the pointer away, so it stays the pointer and says why.
     if (on && !ctx->padButtonReady) {
         LOGEV("controllers: gamepad mode asked for from %s, which comes in a later update", from);
-        xrPanelsNotice(ctx, "Gamepad mode comes in a later update");
+        xrPanelsNotice(ctx, "Gamepad mode coming later");
         return;
     }
     ctx->padMode = on;
