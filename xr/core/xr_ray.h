@@ -119,4 +119,21 @@ int pickFreeHand(const PickState* s, const PickIn* in, const int* canPoint);
 // headRight is the head's +x in the same space, zero for unknown.
 Vec3 beamBasis(Vec3 start, Vec3 end, Vec3 head, Vec3 headRight);
 
+// Native (lane beam-streak): the beam as far as it lies in front of the eyes.
+// A beam quad that reaches the eye plane is projected through the eye by the
+// compositor and drawn as a white streak across the whole view, so whatever
+// lies less than ahead metres in front of the head (along forward, the head's
+// -z) is cut off, and a beam with nothing left is not drawn. A normal beam,
+// even from a controller held at the face pointing away, is never touched.
+// Returns BEAM_CLIP_ bits; out gets the part to draw (start and end as given
+// when nothing was cut). A forward of no length, or a head that is not known,
+// cuts nothing; anything not finite is gone.
+#define BEAM_CLIP_AHEAD_M 0.05f
+#define BEAM_CLIP_NONE  0
+#define BEAM_CLIP_START 1   // the start was in or behind the plane: it was moved up to it
+#define BEAM_CLIP_END   2   // the same for the end, where the dot is drawn
+#define BEAM_CLIP_GONE  4   // nothing left in front, or not finite: draw no beam
+int beamClipAhead(Vec3 start, Vec3 end, Vec3 head, Vec3 forward, float ahead, Vec3* outStart,
+                  Vec3* outEnd);
+
 #endif

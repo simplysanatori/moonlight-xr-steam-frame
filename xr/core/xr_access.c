@@ -65,6 +65,17 @@ int accessRowAt(float v) {
     return -1;
 }
 
+int accessEyeCalLive(int eyesState) {
+    return eyesState == ACCESS_EYES_READY;
+}
+
+int accessEyeCalCellLive(int eyesState, int cell, int stored) {
+    if (!accessEyeCalLive(eyesState)) {
+        return 0;
+    }
+    return cell == COG_ACCESS_EYECAL_START || (cell == COG_ACCESS_EYECAL_RESET && stored);
+}
+
 void gazeFallReset(GazeFall* g) {
     g->head = 1;
     g->sinceNs = 0;

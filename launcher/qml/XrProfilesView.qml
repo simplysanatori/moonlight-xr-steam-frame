@@ -424,7 +424,7 @@ Flickable {
             Layout.topMargin: 14
             Layout.leftMargin: 16
             Layout.rightMargin: 16
-            text: qsTr("A profile is a saved copy of the stream settings: resolution, refresh rate, bitrate, codec, sound, the virtual display, the headset's 3D and gamepad choices and the rest of the Settings page's stream settings. Set the Settings page the way you want a profile to be, then save it here. A PC or an app that uses a profile streams with it; afterwards the Settings page's own settings are back. An app's profile wins over its PC's.")
+            text: qsTr("A profile is a saved copy of the Settings page's stream settings. Set the Settings page the way you want, then save it here. A PC or an app that uses a profile streams with it; an app's profile wins over its PC's.")
             font.pointSize: 10
             color: profPage.summaryColor
             wrapMode: Text.Wrap
@@ -475,7 +475,7 @@ Flickable {
             Layout.rightMargin: 16
             Layout.topMargin: 8
             visible: MlxrProfiles.names.length === 0
-            text: qsTr("No profiles yet. Every stream uses the Settings page's settings.")
+            text: qsTr("No profiles. Every stream uses the Settings page's settings.")
             font.pointSize: 10
             color: profPage.summaryColor
             wrapMode: Text.Wrap
@@ -487,7 +487,7 @@ Flickable {
         PrefRow {
             objectName: "pcRow"
             title: qsTr("PC")
-            valueText: profPage.pcName === "" ? qsTr("No PC saved yet") : profPage.pcName
+            valueText: profPage.pcName === "" ? qsTr("No PC saved") : profPage.pcName
             summary: qsTr("The PC the two rows below are about.")
             onClicked: {
                 if (profPage.pcNames.length === 0) return

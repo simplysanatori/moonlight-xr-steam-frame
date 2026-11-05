@@ -538,6 +538,207 @@ static void pictureBarPushPull(Scene* s) {
     c->panelCurve = keepCurve;
 }
 
+// Native (lane beam-streak): where the beam is in the frame's list of layers, -1 for nowhere
+static int beamIndex(const Scene* s) {
+    UiRectPx b = xrAtlasRect(ATLAS_BEAM);
+    for (uint32_t i = 0; i < s->out.count; i++) {
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)s->out.order[i];
+        if (q->type == XR_TYPE_COMPOSITION_LAYER_QUAD && q->subImage.imageRect.offset.x == b.x
+                && q->subImage.imageRect.offset.y == b.y && q->subImage.imageRect.extent.width == b.w) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+// Native (lane beam-streak): one hover state's frame, checked against the first: the same number of
+// layers and the beam in the same place in the list
+static void sameBeamPlace(Scene* s, int* index, uint32_t* count, const char* what) {
+    scene_frame(s, NULL);
+    int at = beamIndex(s);
+    CHECK(at > 0);
+    if (*index < 0) {
+        *index = at;
+        *count = s->out.count;
+        printf("  %s: %u layers, the beam %d\n", what, s->out.count, at);
+        return;
+    }
+    if (at != *index || s->out.count != *count) {
+        printf("  %s: %u layers, the beam %d (was %u, %d)\n", what, s->out.count, at, *count, *index);
+    }
+    CHECK(at == *index);
+    CHECK(s->out.count == *count);
+    CHECK(s->out.count <= (uint32_t)s->ctx->maxLayerCount);
+}
+
+// Native (lane beam-streak): every held place is clear and a millimetre across
+static void heldPlacesClear(Scene* s) {
+    const uint8_t* px = xrAtlasPixels(s->ctx);
+    UiRectPx o = xrAtlasRect(ATLAS_OUTLINE);
+    for (uint32_t i = 0; i < s->out.count; i++) {
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)s->out.order[i];
+        if (q->type != XR_TYPE_COMPOSITION_LAYER_QUAD || q->size.width > 0.0011f
+                || q->subImage.imageRect.offset.x != o.x + o.w / 2 - 2) {
+            continue;
+        }
+        const XrRect2Di* r = &q->subImage.imageRect;
+        unsigned alpha = 0;
+        for (int y = r->offset.y; y < r->offset.y + r->extent.height; y++) {
+            for (int x = r->offset.x; x < r->offset.x + r->extent.width; x++) {
+                alpha += px[((size_t)y * UI_ATLAS_W + (size_t)x) * 4 + 3];
+            }
+        }
+        CHECK(alpha == 0);
+    }
+}
+
+// Native (lane beam-streak): the ray sweeping over the keys and the gaps between them, the bar and
+// its buttons, the corners, the halo, the sheets' buttons and off the picture leaves the beam where it
+// was in the list of layers. Anything ahead of it that came and went with the hover moved it a place
+// up or down, and the frame the key ring went (2026-10-31) was the one frame SteamVR drew the beam as
+// a white streak across the view.
+static void hoverKeepsBeamPlace(Scene* s) {
+    XrCtx* c = s->ctx;
+    static const int furniture[] = { HOVER_NONE, HOVER_SCREEN, HOVER_BAR, HOVER_CORNER, HOVER_HALO,
+                                     HOVER_ENVBUTTON, HOVER_COGBUTTON, HOVER_KBBUTTON, HOVER_EXITBUTTON,
+                                     HOVER_STEREOBUTTON, HOVER_RAYBUTTON, HOVER_AIMBUTTON,
+                                     HOVER_PADBUTTON, HOVER_HOSTBUTTON, HOVER_HEREBUTTON, HOVER_STATS,
+                                     HOVER_SCREEN, HOVER_NONE };
+    for (int locked = 0; locked < 2; locked++) {
+        for (int stats = 0; stats < 2; stats++) {
+            scene_reset(s);
+            s->settings.head_locked = locked;
+            c->headLockedPref = locked;
+            c->overlayVisible = stats;
+            Vec3 at = { 0.3f, -0.4f, -2.0f };
+            scene_ray_to(s, HAND, at);
+            int index = -1;
+            uint32_t count = 0;
+            printf("the picture, %s, stats %s\n", locked ? "head locked" : "world locked", stats ? "on" : "off");
+            for (size_t k = 0; k < sizeof(furniture) / sizeof(furniture[0]); k++) {
+                c->hoverKind = furniture[k];
+                c->hoverCorner = (int)k % 4;
+                sameBeamPlace(s, &index, &count, "the ray over the picture's furniture");
+                heldPlacesClear(s);
+            }
+        }
+    }
+    s->settings.head_locked = 0;
+    c->headLockedPref = 0;
+    c->overlayVisible = 0;
+
+    // The keyboard: keys, the gaps between them, its bar, the picture's corners, off everything
+    defaults(s);
+    Vec3 key = onPlane(c->kbPose, c->kbW, c->kbH, 0.5f, 0.5f);
+    scene_ray_to(s, HAND, key);
+    int index = -1;
+    uint32_t count = 0;
+    printf("the keyboard\n");
+    static const int kbHovers[] = { HOVER_KBPANEL, HOVER_KBPANEL, HOVER_KBPANEL, HOVER_KBBAR, HOVER_CORNER,
+                                    HOVER_SCREEN, HOVER_NONE, HOVER_KBPANEL };
+    static const int kbKeys[] = { 3, -1, 5, -1, -1, -1, -1, KB_KEY_LAYOUT };
+    for (size_t k = 0; k < sizeof(kbHovers) / sizeof(kbHovers[0]); k++) {
+        c->hoverKind = kbHovers[k];
+        c->kbHoverKey = kbKeys[k];
+        sameBeamPlace(s, &index, &count, "the ray over the keyboard");
+        heldPlacesClear(s);
+    }
+    c->kbOpen = 0;
+    c->kbHoverKey = -1;
+
+    // The room grid: its cells and off them
+    scene_reset(s);
+    scene_ray_to(s, HAND, key);
+    c->pickerOpen = 1;
+    c->panelFades[FADE_PICKER].level = 1.0f;
+    index = -1;
+    printf("the room grid\n");
+    for (int cell = -1; cell < 3; cell++) {
+        c->pickerHover = cell;
+        c->hoverKind = cell < 0 ? HOVER_NONE : HOVER_PICKER;
+        sameBeamPlace(s, &index, &count, "the ray over the room grid");
+    }
+    scene_reset(s);
+}
+
+// Native (lane eye-calibration): the calibration's run coming up from the Accessibility tab and going
+// down again, at each dot and in both its phases, head locked and world locked, with a controller's
+// ray on the panel and with the head pointing: the frame's count and the beam's place in the list
+// (held while the run is up) never change, the run's dot and label are drawn, and every held place
+// is clear
+static int findArt(const Scene* s, int slot, float minSize) {
+    UiRectPx r = xrAtlasRect(slot);
+    for (uint32_t i = 0; i < s->out.count; i++) {
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)s->out.order[i];
+        if (q->type == XR_TYPE_COMPOSITION_LAYER_QUAD && q->subImage.imageRect.offset.x == r.x
+                && q->subImage.imageRect.offset.y == r.y && q->subImage.imageRect.extent.width == r.w
+                && q->size.width > minSize) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static void eyeCalKeepsBeamPlace(Scene* s) {
+    XrCtx* c = s->ctx;
+    for (int locked = 0; locked < 2; locked++) {
+        for (int headPoints = 0; headPoints < 2; headPoints++) {
+            scene_reset(s);
+            s->settings.head_locked = locked;
+            c->headLockedPref = locked;
+            xrSetPointerSource(c, headPoints ? POINTER_SOURCE_HEAD : POINTER_SOURCE_CONTROLLER, 0);
+            c->cogOpen = 1;
+            c->cogTab = COG_TAB_ACCESS;
+            c->panelFades[FADE_COG].level = 1.0f;
+            c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
+            Vec3 start = onPlane(c->cogPose, c->cogW, c->cogH, 0.6f, cogRowV(COG_TAB_ACCESS, COG_ACCESS_ROW_EYECAL));
+            Vec3 eye = { 0, 0, 0 };
+            scene_ray_to(s, headPoints ? eye : HAND, start);
+            if (headPoints) {
+                c->beamStart = c->beamEnd;   // the head's pointer is the dot alone
+            }
+            c->hoverKind = HOVER_COGPANEL;
+            printf("the eye calibration, %s, %s pointing\n", locked ? "head locked" : "world locked",
+                   headPoints ? "the head" : "a controller");
+            scene_frame(s, NULL);
+            uint32_t count = s->out.count;
+            int at = beamIndex(s);
+            const void* beam = at >= 0 ? (const void*)s->out.order[at] : NULL;
+            CHECK(headPoints ? at < 0 : at > 0);
+            CHECK(findArt(s, UI_PANEL_COG, 0.0f) >= 0);
+            printf("  the panel: %u layers, the beam %d\n", count, at);
+            xrEyeCalStart(c);
+            for (int step = 0; step < EYECAL_DOTS; step++) {
+                for (int phase = EYECAL_PHASE_SETTLE; phase <= EYECAL_PHASE_COLLECT; phase++) {
+                    c->eyeCalRun.step = step;
+                    c->eyeCalRun.phase = phase;
+                    c->eyeCalRun.phaseNs = nowNs();
+                    scene_frame(s, NULL);
+                    if (s->out.count != count) {
+                        printf("  dot %d, phase %d: %u layers (was %u)\n", step, phase, s->out.count, count);
+                    }
+                    CHECK(s->out.count == count);
+                    CHECK(s->out.count <= (uint32_t)c->maxLayerCount && s->out.count <= 16);
+                    if (beam != NULL) {
+                        CHECK(s->out.order[at] == beam && beamIndex(s) < 0);
+                    }
+                    // the run's dot (the pointer's own is held) and its label, the panel's art moved
+                    int dot = findArt(s, ATLAS_DOT, 0.005f), label = findArt(s, UI_PANEL_COG, 0.0f);
+                    CHECK(dot >= 0 && label >= 0 && label < dot && (at < 0 || dot < at));
+                    heldPlacesClear(s);
+                }
+            }
+            xrEyeCalCancel(c, "the test");
+            scene_frame(s, NULL);
+            CHECK(s->out.count == count && beamIndex(s) == at);
+        }
+    }
+    xrSetPointerSource(c, POINTER_SOURCE_CONTROLLER, 0);
+    s->settings.head_locked = 0;
+    c->headLockedPref = 0;
+    scene_reset(s);
+}
+
 int main(void) {
     Scene* s = scene_new();
     defaults(s);
@@ -546,6 +747,8 @@ int main(void) {
     layers(s);
     liveSliders(s);
     pictureBarPushPull(s);
+    hoverKeepsBeamPlace(s);
+    eyeCalKeepsBeamPlace(s);
     scene_free(s);
     return checksDone("m4 kbbar");
 }

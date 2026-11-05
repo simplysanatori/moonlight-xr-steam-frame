@@ -45,6 +45,9 @@
 #define SETTING_ASSIST_DOT_SIZE 44
 #define SETTING_ASSIST_HEADSET_BUTTON 45
 #define SETTING_ASSIST_DWELL_STYLE 46
+// Native (lane eye-calibration): [vr] eye_calibration, from the context's calibration (value 1, a run's
+// result) or emptied (value 0, the row's Reset)
+#define SETTING_EYE_CAL 47
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 
@@ -130,6 +133,33 @@ void xrPointerBackReset(XrCtx* ctx);
 // frame's seconds) turned to its steadied direction (xr_access.h gazeSteadyStep). The head pointer's
 // filters' reset forgets it too.
 XrQuaternionf xrEyesSteady(XrCtx* ctx, XrQuaternionf q, float dt);
+
+// ---- the eye calibration (xr_assist.c, lane eye-calibration) ------------------------------------
+// The calibration in force from config.ini's [vr] eye_calibration (a text that is not one, or out of
+// bounds, is none, and logged)
+void xrEyeCalFromSettings(XrCtx* ctx, const char* text);
+// Whether a run is up (the cog's panel shows its label, the dot is drawn on the picture, the pointer
+// presses nothing), and the dot's number in it (1 to EYECAL_DOTS, 0 with none up)
+int xrEyeCalUp(const XrCtx* ctx);
+int xrEyeCalStep(const XrCtx* ctx);
+// A run started (the row's Start), or stopped with nothing kept (B, Menu, the panel closed, focus lost)
+void xrEyeCalStart(XrCtx* ctx);
+void xrEyeCalCancel(XrCtx* ctx, const char* why);
+// One frame of a run: gazeOk with the gaze's and the dot's yaw and pitch in the head's frame (degrees).
+// At the run's end the fit is put in force and handed back to be stored (out's IN_SETTING, on the
+// first frame it is free), or the old one kept and the row says why.
+void xrEyeCalFrame(XrCtx* ctx, int64_t now, int gazeOk, float gazeYaw, float gazePitch, float dotYaw,
+                   float dotPitch, float* out);
+// The result or the reset still to be handed back, on a frame the setting slot is free
+void xrEyeCalSave(XrCtx* ctx, float* out);
+// The dot shown now: its point on the picture's plane (in the picture's space, a little in front of
+// it) and its size across in metres from the head at headPos; 0 with no run up
+int xrEyeCalDotPoint(const XrCtx* ctx, Vec3 headPos, int64_t now, Vec3* point, float* size);
+// The gaze's orientation (local space, at this frame's head orientation headQ) corrected by the
+// calibration in force, in the head's frame; as it is with none
+XrQuaternionf xrEyeCalCorrect(const XrCtx* ctx, XrQuaternionf headQ, XrQuaternionf gazeQ);
+// A direction in the head's frame (head orientation headQ) as yaw and pitch, degrees
+void xrEyeCalHeadAngles(XrQuaternionf headQ, Vec3 dir, float* yaw, float* pitch);
 
 // ---- clicks for the head and eye pointer (xr_auxbutton.c, lane a11y-2) -------------------------
 // Once a frame before the input pass: the headset's side button (found, grabbed from SteamVR while
