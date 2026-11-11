@@ -366,33 +366,27 @@ static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     }
 }
 
-// The ambilight glow behind the picture. Native (lane wave3-visual): or over
-// it, when the Picture tab's Glow edge is on, since the glow image is then
-// the fade of the picture's border into it; `over` says which of the two
-// calls this is, and each does nothing in the other's case. The mode the
-// image was drawn with decides, so a switch lands together with the redraw.
-static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers, int over) {
+// The ambilight glow behind the picture. Native (lane borderless): always
+// behind it; with the Glow edge on the picture's own border fades out over it
+// (warp.frag), and the glow is as large as its image was drawn for.
+static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // The glow, over the environment and under the picture. Deliberately not
     // sharpened: being soft is the whole of the effect. Native: a curved
     // picture's glow is drawn into the curved picture's own projection layer
     // (there are no cylinder layers), so only the flat glow is a layer here.
     // Native: inside the picture's projection layer when it has one (curved, or flat in 3D)
     (void)view;
-    if ((ctx->glowDrawnFeather > 0) != (over != 0)) {
-        return;
-    }
     if (!xrWorldGlowShown(ctx) || xrPictureProjected(ctx) || ctx->glowSwapchain == XR_NULL_HANDLE
             || !ctx->glowSwapchainFilled) {
         return;
     }
     // Local +z is toward the viewer, so this sits just proud of the picture.
     // The layer order is what keeps it under the picture, not the depth.
-    // Over the picture it sits in the picture's plane, so its border fade
-    // lands on the picture's edge from every angle.
-    Vec3 proudLocal = { 0.0f, 0.0f, over ? 0.0f : GLOW_PROUD_M };
+    Vec3 proudLocal = { 0.0f, 0.0f, GLOW_PROUD_M };
+    float scale = ctx->glowDrawnScale > 0.0f ? ctx->glowDrawnScale : GLOW_SCALE;
     quadLayerRect(&layers->glow, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->glowSwapchain, 0,
                   0, GLOW_TEX, GLOW_TEX, view->space, poseOffset(view->screenPose, proudLocal),
-                  view->screenWidth * GLOW_SCALE, view->screenHeight * GLOW_SCALE);
+                  view->screenWidth * scale, view->screenHeight * scale);
     pushLayer(ctx, layers, &layers->glow);
 }
 
@@ -445,9 +439,12 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
     }
     // M5: the supersampled picture (flat, mono), the same quad from a smaller
     // image the app filtered
+    // Native (lane borderless): a picture drawn with its border fading out blends over the glow
+    XrCompositionLayerFlags pictureFlags =
+            ctx->pictureBorderDrawn ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
     if (in->picture != XR_NULL_HANDLE && ctx->drawnEyes != 2) {
         XrCompositionLayerQuad* quad = &layers->video[0];
-        quadLayerRect(quad, NULL, 0, in->picture, 0, 0, in->pictureW, in->pictureH, view->space, view->screenPose,
+        quadLayerRect(quad, NULL, pictureFlags, in->picture, 0, 0, in->pictureW, in->pictureH, view->space, view->screenPose,
                       view->screenWidth, view->screenHeight);
         pushLayer(ctx, layers, quad);
         return;
@@ -472,7 +469,7 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
         XrEyeVisibility visibility = viewCount == 1 ? XR_EYE_VISIBILITY_BOTH :
                 (eye == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT);
         XrCompositionLayerQuad* quad = &layers->video[eye];
-        quadLayerRect(quad, NULL, 0, ctx->swapchain, 0, 0, ctx->videoWidth, ctx->videoHeight,
+        quadLayerRect(quad, NULL, pictureFlags, ctx->swapchain, 0, 0, ctx->videoWidth, ctx->videoHeight,
                       view->space, view->screenPose, view->screenWidth, view->screenHeight);
         quad->eyeVisibility = visibility;
         quad->subImage = subImage;
@@ -1244,15 +1241,13 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
         addPassthroughLayer(ctx, layers, backdrop);
     }
     addRoomLayer(ctx, &view, layers);
-    addGlowLayer(ctx, &view, layers, 0);
+    addGlowLayer(ctx, &view, layers);
     if (ctx->everRendered && ctx->shouldRender) {
         if (ctx->launcher != LAUNCHER_NONE) {
             addLauncherLayer(ctx, &view, layers);
         }
         else if (ctx->videoShown) {
             addVideoLayers(ctx, &view, layers, in);
-            // Feathered, the glow is the layer over the picture's border
-            addGlowLayer(ctx, &view, layers, 1);
         }
         addOverlayLayer(ctx, &view, layers);
         addHandleLayer(ctx, &view, layers);

@@ -465,7 +465,7 @@ The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the d
 | Gamma | 0.50 to 2.00 | |
 | Saturation | 0 to 200 % | |
 | Background | 0 to 100 %, in steps of 5 | How far the surroundings are dimmed. In a room it turns the whole room down, its lighting and the light the picture throws on it too, to black at 100 %. In passthrough it lays a black layer of that strength over the cameras (100 % hides them). In the void it darkens the void's colour (`void_color`, below). 0 leaves all three as they were. The picture itself is not dimmed. |
-| Glow edge | Off, Soft, Wide | Fades the picture's outer edge into the glow around it, so the screen has no hard border. Soft fades the outer 6 % of the picture's width and height, Wide the outer 15 %. Off by default. It needs the glow on (Display tab), and it takes the glow's level: at a low glow level the edge fades toward a dim colour. |
+| Glow edge | Off, Soft, Wide | Makes the screen borderless. The picture's own outer edge fades out, and the glow behind it continues the picture's edge colours at the picture's own brightness, so you can't see where the picture stops. **Soft** fades the outer 4 % of the picture and keeps the glow close round it. **Wide** fades the outer 8 % and spreads the glow across most of your view, like an ambient light. In a room, Wide keeps the glow close, as Soft does, so it doesn't cover the walls. Off by default. It needs the glow on (Display tab). The glow level sets how far the colours reach, not how dark they are. |
 
 **Reset** puts all six rows back, and not the void's colour, which only the file has (or the launcher's Settings page: **Void colour**, under UI settings, next to **Background dim** and **Glow edge**; press a row to step it).
 
