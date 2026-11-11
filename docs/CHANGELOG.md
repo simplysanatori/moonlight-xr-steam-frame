@@ -6,6 +6,10 @@
 
 - **Glow edge** (Picture tab) now makes the screen borderless, after Lobs1994's fork of Moonlight XR. Before, it painted a blurred, dimmed band of the glow over the picture's border, which smeared the edge and turned it dark at a low glow level. Now the picture's own edge fades out, and the glow behind it carries the picture's edge colours outward at the picture's brightness, so the picture runs into the glow with no seam. **Soft** fades the outer 4 % and keeps the glow close; **Wide** fades the outer 8 % and spreads the glow across most of the view (close round the screen in a room).
 
+### Security
+
+- Smart clipboard sync no longer stores clipboard text in readable form. The flat window and the headset app passed it in two plain text files (`clipboard-to-host.txt`, and the PC's clipboard in `clipboard-from-host.txt`, which stayed on the Frame after the stream). Both files are now encrypted with AES-256-GCM under a key made fresh for each stream. The key is passed straight from the flat window to the headset app (on its standard input), never written to disk, and wiped when the stream ends. A file left behind by a crash can't be read, and a changed or stale file is refused. Each file is deleted as soon as it's read, and the clipboard text is wiped from memory after use, also for the Host sheet's Paste from PC and Send text to PC. The plain text files of earlier versions are deleted the next time either app starts. Encrypting and decrypting takes under a millisecond, even for a 1 MB clipboard.
+
 ### Fixed
 
 - A bug report could keep the name of a saved PC in lines such as "app list of …", "wake: magic packet sent to …" and "launched app … on …", and a Bluetooth keyboard or controller's owner name ("Sam's Keyboard"). It now masks the names in `hosts.ini` and the flat window's Moonlight settings everywhere, masks a name found on one line on every line, and drops the owner's name from device names.
