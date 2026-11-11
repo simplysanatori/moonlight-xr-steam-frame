@@ -168,6 +168,9 @@ typedef struct MlxrWarpParams {
     // New (lane text-clarity): chroma from luma (warp.frag guidedChroma), 0
     // the plain bilinear chroma of before
     int chromaGuided;
+    // New (lane borderless): the Glow edge, GLOW_FEATHER_ (0 off, 1 soft, 2 wide): the drawn picture's
+    // border fades to transparent, premultiplied (warp.frag). 0 leaves the picture opaque as before.
+    int borderFade;
 } MlxrWarpParams;
 #define MLXR_SPLIT_NONE 0
 #define MLXR_SPLIT_SBS 1
@@ -245,9 +248,12 @@ typedef struct MlxrGlowParams {
     VkImageView sample;    // the glow edge copy (blur 1) or the raw colour sample (blur 0)
     float intensity;       // u_intensity
     int blur;              // u_blur
-    // u_feather (native, lane wave3-visual): 0, or how deep into the picture
-    // the glow is faded in over it, as a fraction of its size (glowFeatherFraction)
-    float feather;
+    // Native (lane borderless): 1 for the Glow edge's borderless glow (sample is then the raw colour
+    // sample, and the glow carries the picture's edge colours outward under a picture that fades out), 0
+    // for upstream's glow
+    int borderless;
+    // How much larger than the screen the glow image spans: GLOW_SCALE, or GLOW_SCALE_WIDE (0: GLOW_SCALE)
+    float scale;
 } MlxrGlowParams;
 void mlxr_pass_glow(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrGlowParams* g);
 

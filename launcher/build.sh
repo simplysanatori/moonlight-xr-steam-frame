@@ -51,6 +51,8 @@ SUBREV="$(git -C "$SUB" rev-parse HEAD)"
 
 # the binding core the VR client reads bindings.ini with, compiled into the launcher (launcher/src/mlxrbindings.h)
 BINDCORE="xr/core/xr_bind.c xr/core/xr_bind.h xr/core/xr_gamepad.c xr/core/xr_gamepad.h xr/core/xr_shared.h"
+# lane clipseal: the sealed clipboard hand-off, the same header the VR client seals and opens with
+BINDCORE="$BINDCORE backend/clipseal.h"
 
 mkdir -p "$BUILD"
 STAMP="$(cat launcher/build.sh launcher/patches/*.patch launcher/src/* launcher/qml/* $BINDCORE assets/branding/icon-256.png VERSION | sha256sum | cut -c1-16)-$SUBREV"

@@ -20,7 +20,8 @@
 // Added for the native port, off (0) reproduces upstream exactly:
 //   modes    the switches share one number (bits 1 occlusion, 2 depthCubic,
 //            4 showDepth, 8 barTest; 16, 32 and 64 chroma from luma and its
-//            chroma siting, see guidedChroma), and its other three floats are the zoom
+//            chroma siting, see guidedChroma; 128 and 256 the Glow edge's
+//            Soft and Wide border fade, see the end of main), and its other three floats are the zoom
 //            (PLAN 4b.6): the x0, y0 and side, in picture uv, of the part of the
 //            picture that fills the target; 0 0 1 is the whole of it.
 //   extra.x  sharpen strength 0..1 (contrast adaptive, on the video taps
@@ -273,4 +274,17 @@ void main() {
     }
     fragColor.rgb *= pc.tintOn.rgb;
     fragColor = encodeOut(fragColor);
+    // Native (lane borderless): the Glow edge's Soft (128) or Wide (256). The
+    // drawn picture's outer GLOW_FEATHER_SOFT_FRAC or GLOW_FEATHER_WIDE_FRAC
+    // (xr_shared.h, kept in step by hand) fades to transparent, on the target's
+    // own uv so the fade stays put whatever the zoom or the 3D shift do, and
+    // premultiplied as the layers and the panel pass take it. The glow under it
+    // is the same colours (glow.frag), so the picture runs into it with no edge.
+    int edgeMode = (u_switches >> 7) & 3;
+    if (edgeMode != 0) {
+        float frac = edgeMode == 1 ? 0.04 : 0.08;
+        vec2 e = min(v_screen, 1.0 - v_screen);
+        float ft = clamp(min(e.x, e.y) / frac, 0.0, 1.0);
+        fragColor *= ft * ft * (3.0 - 2.0 * ft);
+    }
 }

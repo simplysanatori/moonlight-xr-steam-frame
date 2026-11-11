@@ -1375,11 +1375,13 @@ static void testTheSurroundings(void) {
     CHECK_NEAR(bgDimKeep(-5), 1.0, 1e-6);
     CHECK_NEAR(bgDimKeep(500), 0.0, 1e-6);
 
-    // Glow edge: nothing when off, the pull request's 0.15 at its widest
+    // Glow edge: nothing when off; the picture's border fade, 4 % soft and 8 % wide (warp.frag keeps the
+    // same figures; native, lane borderless)
     CHECK(glowFeatherFraction(GLOW_FEATHER_OFF) == 0.0f);
     CHECK(glowFeatherFraction(GLOW_FEATHER_SOFT) > 0.0f);
     CHECK(glowFeatherFraction(GLOW_FEATHER_WIDE) > glowFeatherFraction(GLOW_FEATHER_SOFT));
-    CHECK_NEAR(glowFeatherFraction(GLOW_FEATHER_WIDE), 0.15, 1e-6);
+    CHECK_NEAR(glowFeatherFraction(GLOW_FEATHER_SOFT), 0.04, 1e-6);
+    CHECK_NEAR(glowFeatherFraction(GLOW_FEATHER_WIDE), 0.08, 1e-6);
     CHECK(glowFeatherFraction(-1) == 0.0f && glowFeatherFraction(GLOW_FEATHER_COUNT) == 0.0f);
     CHECK(glowFeatherFraction(GLOW_FEATHER_WIDE) < 0.5f);
 

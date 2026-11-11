@@ -198,10 +198,14 @@ void xr_app_release_video(void) {
     struct timespec deadline;
     clock_gettime(CLOCK_REALTIME, &deadline);
     deadline.tv_sec += 5;
+    int waited = 0;
     while (g_running && g_releaseDone < mine) {
         if (pthread_cond_timedwait(&g_reqDone, &g_reqLock, &deadline) != 0) {
-            MLOG_W("video release: the frame loop did not answer in 5 s");
-            break;
+            // Native (lane decoder-recovery): keep waiting. Returning here let the caller close the decoder while
+            // the frame loop still held imports of its buffers (a use after free in the driver or the importer).
+            waited += 5;
+            MLOG_W("video release: the frame loop has not answered in %d s; still waiting", waited);
+            deadline.tv_sec += 5;
         }
     }
     pthread_mutex_unlock(&g_reqLock);
@@ -245,6 +249,7 @@ typedef struct Video {
     uint64_t value;
     // what the last draw used, so a change redraws a still picture
     int drawnGradeOn, drawnSharpen, drawnCurved, drawnChroma;
+    int drawnBorder; // native (lane borderless): the Glow edge's border fade it was drawn with
     PictureGrade drawnGrade;
     // M6: the 3D as last drawn (eyes, separation, convergence, depth view)
     int drawnEyes, drawnShowDepth;
@@ -785,11 +790,9 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     ctx->screenPose = picturePose;
     // M5: the glow round a curved picture, upstream's glow cylinder drawn
     // into this layer under the picture (no cylinder layers on SteamVR)
-    // Native (lane wave3-visual): feathered (the Picture tab's Glow edge) the glow
-    // image is the picture's border fading into it, so it is drawn over the
-    // picture, below, instead
-    int glowOver = ctx->glowDrawnFeather > 0;
-    if (xrWorldGlowShown(ctx) && !glowOver) {
+    // Native (lane borderless): with the Glow edge on, the picture's border fades
+    // out over this glow (warp.frag), so it is under the picture either way
+    if (xrWorldGlowShown(ctx)) {
         // Native: flat in 3D, the glow quad's image drawn here as well
         if (xrPictureCurved(ctx)) xrWorldCurvedGlow(ctx, &tg, views);
         else xrWorldFlatGlowInto(ctx, &tg, views);
@@ -833,12 +836,6 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         xrProjectionEye(&cv->eyes[e], &views[e], cv->swapchain[e], cv->eyeW, cv->eyeH);
     }
     xrEyesPanel(ctx, cmd, &tg, &pp, src);
-    if (xrWorldGlowShown(ctx) && glowOver) {
-        xrEyesBarrier(cmd, &tg);
-        tg.clear = 0;
-        if (xrPictureCurved(ctx)) xrWorldCurvedGlow(ctx, &tg, views);
-        else xrWorldFlatGlowInto(ctx, &tg, views);
-    }
     xrGpuTimeEnd(ctx, GPU_CURVE);
     ctx->screenPose = heldPose;
     // Native: the models last, over the picture, as their own layer was
@@ -923,6 +920,8 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     // The curved or 3D picture is sharpened by the panel pass (curveRecord)
     w.sharpen = curve != NULL && curve->mode == 1 ? 0.0f : sharpenFor(ctx->sharpenMode);
     w.chromaGuided = chromaFromLumaOn(ctx);
+    // Native (lane borderless): the Glow edge's border fade, while the glow is on
+    w.borderFade = xrPictureBorderFade(ctx);
     xrDepthRecordWarpEyes(ctx, cmd, tg, &w, &dd);
     if (curve != NULL) {
         for (int e = 0; e < dd.eyes; e++) {
@@ -939,6 +938,8 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     vd->drawnGrade = ctx->grade;
     vd->drawnSharpen = ctx->sharpenMode;
     vd->drawnChroma = w.chromaGuided;
+    vd->drawnBorder = w.borderFade;
+    ctx->pictureBorderDrawn = w.borderFade;
     vd->drawnEyes = dd.eyes;
     vd->drawnSep = ctx->separationCurrent;
     vd->drawnConv = ctx->convergence;
@@ -960,7 +961,7 @@ static int videoStale(XrCtx* ctx, const Video* vd, int curved) {
     // Native (PLAN 4b.6): or the part of the picture shown moved
     int zoomed = vd->drawnZoom[0] != ctx->zoomPct || vd->drawnZoom[1] != ctx->zoomX || vd->drawnZoom[2] != ctx->zoomY;
     return vd->draws > 0 && (vd->drawnGradeOn != ctx->gradeOn || vd->drawnSharpen != ctx->sharpenMode
-                             || vd->drawnChroma != chromaFromLumaOn(ctx)
+                             || vd->drawnChroma != chromaFromLumaOn(ctx) || vd->drawnBorder != xrPictureBorderFade(ctx)
                              || vd->drawnCurved != curved || ctx->warpRedraw || stereo3d || zoomed
                              || memcmp(&vd->drawnGrade, &ctx->grade, sizeof(PictureGrade)) != 0);
 }
@@ -2790,11 +2791,6 @@ int xr_app_run(const XrAppConfig* cfg) {
     LOGEV("session ended after %llu frames", (unsigned long long)frames);
 
 fail:
-    pthread_mutex_lock(&g_reqLock);
-    g_running = 0;
-    g_releaseDone = g_releaseSerial;
-    pthread_cond_broadcast(&g_reqDone);
-    pthread_mutex_unlock(&g_reqLock);
     if (vk.device) {
         vkDeviceWaitIdle(vk.device);
         // M6: the stage thread joined and the model stopped before anything
@@ -2802,6 +2798,15 @@ fail:
         xrDepthDestroy(ctx);
         xrWorldDestroy(ctx);
         hwDestroy(&vk, &vd);
+    }
+    // Native (lane decoder-recovery): a stop waiting in xr_app_release_video is answered only once the imports
+    // are gone (hwDestroy above), so the decoder cannot be closed under them
+    pthread_mutex_lock(&g_reqLock);
+    g_running = 0;
+    g_releaseDone = g_releaseSerial;
+    pthread_cond_broadcast(&g_reqDone);
+    pthread_mutex_unlock(&g_reqLock);
+    if (vk.device) {
         freeSwPlanes(&vk, &vd);
         freeVideoSwapchain(ctx, &vd);
         curveDestroy(ctx, &curve);

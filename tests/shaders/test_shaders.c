@@ -2163,17 +2163,11 @@ static void testRoom(void) {
     targetFree(&t);
 }
 
-static float smooth01(float a, float b, float x) {
-    float t = clampf((x - a) / (b - a), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
-
-// The Picture tab's Glow edge (native, lane wave3-visual): the glow image with
-// u_feather set. Off it is what it always was (testGlow); on, the middle of the
-// image, which is behind or over the picture, goes clear, and a band along the
-// picture's edge is the glow's colour taken from the border texels, opaque on
-// the edge and easing out a feather's depth in. Outside the picture nothing
-// moves.
+// Native (lane borderless): the Glow edge's glow, u_feather 1. It sits under a
+// picture whose border fades out (warp_border), so it is the raw sample's own
+// colour at full strength right up to the screen's edge (no lift, no dimming by
+// the level), carries the edge colours outward, falls to nothing at the rim,
+// and at a wider scale reaches as far in proportion. Level 0 turns it off.
 static void testGlowFeather(void) {
     uint8_t px[32 * 32 * 4];
     glowSample(px);
@@ -2181,106 +2175,122 @@ static void testGlowFeather(void) {
     textureMake(&tex, 32, 32, px);
     Target t;
     targetMake(&t, MLXR_GLOW_TEX, MLXR_GLOW_TEX, UNORM);
-    const float intensity = 0.7f;
-    const float fracs[3] = {0.0f, GLOW_FEATHER_SOFT_FRAC, GLOW_FEATHER_WIDE_FRAC};
     const int N = MLXR_GLOW_TEX;
-    for (int blur = 0; blur < 2; blur++) {
-        uint8_t* img[3];
-        for (int k = 0; k < 3; k++) {
-            MlxrGlowParams gp = {tex.view, intensity, blur, fracs[k]};
-            VkCommandBuffer cmd = vkh_begin(&vk);
-            vkh_layout(&vk, &t.img, COLOR_ATT);
-            mlxr_pass_glow(P, cmd, &t.t, &gp);
-            vkh_submit(&vk);
-            img[k] = readTarget(&t);
+    const float scales[2] = {GLOW_SCALE, GLOW_SCALE_WIDE};
+    for (int k = 0; k < 2; k++) {
+        const float sc = scales[k];
+        MlxrGlowParams gp = {tex.view, 0.5f, 0, 1, sc};
+        VkCommandBuffer cmd = vkh_begin(&vk);
+        vkh_layout(&vk, &t.img, COLOR_ATT);
+        mlxr_pass_glow(P, cmd, &t.t, &gp);
+        vkh_submit(&vk);
+        uint8_t* img = readTarget(&t);
+        // Under the screen: the raw sample through the spline, opaque, at full brightness
+        int worst = 0, minA = 255;
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++) {
+                float fu = ((x + 0.5f) / N - 0.5f) * sc + 0.5f, fv = ((y + 0.5f) / N - 0.5f) * sc + 0.5f;
+                if (fu < 0.02f || fu > 0.98f || fv < 0.02f || fv > 0.98f) continue;
+                const uint8_t* g = img + ((size_t)y * N + x) * 4;
+                float col[3];
+                splineCpu(px, fu, fv, col);
+                for (int c = 0; c < 3; c++)
+                    if (abs(to8(col[c]) - g[c]) > worst) worst = abs(to8(col[c]) - g[c]);
+                if (g[3] < minA) minA = g[3];
+            }
+        note("borderless glow at %.1fx: under the screen %d/255 from the raw sample, alpha at least %d", sc, worst, minA);
+        check(worst <= 3 && minA >= 254, "borderless %.1fx: the raw colour, opaque, under the screen (%d, %d)", sc, worst,
+              minA);
+        // Out from the middle of the left edge to the rim: opaque at the edge, never rising, clear at the rim,
+        // and in the border texels' colour just outside the edge
+        int row = N / 2, prevA = 256, rising = 0;
+        int xe = (int)floorf((0.5f - 0.5f / sc) * N) - 1;   // the first column outside the screen
+        for (int x = xe; x >= 0; x--) {
+            int a = img[((size_t)row * N + x) * 4 + 3];
+            if (a > prevA + 1) rising++;
+            prevA = a;
         }
-        // The middle: at the glow's level behind the picture when off, clear when on
-        const uint8_t* mid[3];
-        for (int k = 0; k < 3; k++) mid[k] = img[k] + ((size_t)(N / 2) * N + N / 2) * 4;
-        check(abs(mid[0][3] - to8(intensity)) <= 1, "blur %d: feather off leaves the middle at the glow level (%d)", blur,
-              mid[0][3]);
-        for (int k = 1; k < 3; k++)
-            check(mid[k][3] == 0 && mid[k][0] == 0 && mid[k][1] == 0 && mid[k][2] == 0,
-                  "blur %d: feather %.2f clears the middle (%d %d %d %d)", blur, fracs[k], mid[k][0], mid[k][1], mid[k][2],
-                  mid[k][3]);
-        // Against a CPU copy of the shader inside the picture, and the image
-        // outside the picture untouched
-        for (int k = 1; k < 3; k++) {
-            const float f = fracs[k];
-            int m = 0, ma = 0, outsideDiff = 0, bandLit = 0, bandPixels = 0;
-            for (int y = 0; y < N; y++)
-                for (int x = 0; x < N; x++) {
-                    float u = (x + 0.5f) / N, v = (y + 0.5f) / N;
-                    float fu = (u - 0.5f) * 1.7f + 0.5f, fv = (v - 0.5f) * 1.7f + 0.5f;
-                    float dx = fminf(fu, 1.0f - fu), dy = fminf(fv, 1.0f - fv);
-                    const uint8_t* g = img[k] + ((size_t)y * N + x) * 4;
-                    const uint8_t* o = img[0] + ((size_t)y * N + x) * 4;
-                    if (fminf(dx, dy) < -1e-4f) {
-                        for (int c = 0; c < 4; c++)
-                            if (abs(g[c] - o[c]) > outsideDiff) outsideDiff = abs(g[c] - o[c]);
-                        continue;
-                    }
-                    if (fminf(dx, dy) < 1e-4f) continue;   // on the edge itself: either side of it
-                    float hx = 1.0f - smooth01(0.0f, f, dx), hy = 1.0f - smooth01(0.0f, f, dy);
-                    float sx = fu + ((fu < 0.5f ? 0.0f : 1.0f) - fu) * hx;
-                    float sy = fv + ((fv < 0.5f ? 0.0f : 1.0f) - fv) * hy;
-                    float col[3];
-                    if (blur)
-                        blurredCpu(px, sx, sy, col);
-                    else
-                        splineCpu(px, sx, sy, col);
-                    float ft = clampf(fminf(dx, dy) / f, 0.0f, 1.0f);
-                    float ramp = 1.0f - ft * ft * (3.0f - 2.0f * ft);
-                    for (int c = 0; c < 3; c++) {
-                        int dd = abs(to8(col[c] * intensity * ramp) - g[c]);
-                        if (dd > m) m = dd;
-                    }
-                    int da = abs(to8(ramp) - g[3]);
-                    if (da > ma) ma = da;
-                    if (fminf(dx, dy) < f * 0.9f) {
-                        bandPixels++;
-                        if (g[3] > 0) bandLit++;
-                    }
-                }
-            note("glow feather %.2f blur %d: colour max diff %d/255, alpha %d/255; %d of %d band pixels lit", f, blur, m, ma,
-                 bandLit, bandPixels);
-            check(m <= 3 && ma <= 2, "glow feather %.2f blur %d within 3/255 of the CPU copy (colour %d, alpha %d)", f, blur,
-                  m, ma);
-            check(outsideDiff == 0, "glow feather %.2f blur %d leaves outside the picture alone (%d)", f, blur, outsideDiff);
-            check(bandPixels > 0 && bandLit == bandPixels, "the feather band is lit (%d of %d)", bandLit, bandPixels);
-        }
-        // Next to the left edge, half way down: nearly opaque, in the border
-        // texels' colour at the glow level. A little further in the soft feather
-        // has cleared while the wide one is still fading.
-        int row = N / 2;
-        float fvRow = ((row + 0.5f) / N - 0.5f) * 1.7f + 0.5f;
-        int xe = (int)ceilf((0.5f - 0.5f / 1.7f) * N) + 1;   // the first column inside the picture
-        const uint8_t* edgePx = img[2] + ((size_t)row * N + xe) * 4;
-        float border[3];
-        if (blur)
-            blurredCpu(px, 0.0f, fvRow, border);
-        else
-            splineCpu(px, 0.0f, fvRow, border);
-        check(edgePx[3] > 235, "blur %d: the wide feather is nearly opaque on the picture's edge (%d)", blur, edgePx[3]);
-        int worst = 0;
+        const uint8_t* rim = img + ((size_t)row * N + 0) * 4;
+        const uint8_t* out1 = img + ((size_t)row * N + xe) * 4;
+        float fvRow = ((row + 0.5f) / N - 0.5f) * sc + 0.5f, border[3];
+        splineCpu(px, 0.0f, fvRow, border);
+        float a1 = out1[3] / 255.0f;
+        int off = 0;
         for (int c = 0; c < 3; c++) {
-            int want = to8(border[c] * intensity * (edgePx[3] / 255.0f));
-            if (abs(edgePx[c] - want) > worst) worst = abs(edgePx[c] - want);
+            int want = to8(border[c] * a1);
+            if (abs(out1[c] - want) > off) off = abs(out1[c] - want);
         }
-        check(worst <= 12, "blur %d: and in the colour of the border texels there at the glow level (%d off)", blur, worst);
-        int xin = xe + (int)(GLOW_FEATHER_SOFT_FRAC * 1.5f * N / 1.7f);
-        const uint8_t* soft = img[1] + ((size_t)row * N + xin) * 4;
-        const uint8_t* wide = img[2] + ((size_t)row * N + xin) * 4;
-        check(soft[3] == 0 && wide[3] > 0 && wide[3] < edgePx[3], "blur %d: soft clears (%d) where wide is still fading (%d of %d)",
-              blur, soft[3], wide[3], edgePx[3]);
-        if (blur == 0) {
-            ppm("glow_feather_soft", img[1], N, N);
-            ppm("glow_feather_wide", img[2], N, N);
-        }
-        for (int k = 0; k < 3; k++) free(img[k]);
+        note("borderless %.1fx: alpha %d just outside the edge, %d at the rim; colour %d/255 off the border's", sc, out1[3],
+             rim[3], off);
+        check(rising == 0, "borderless %.1fx: the glow never brightens going out (%d rises)", sc, rising);
+        check(out1[3] > 200 && rim[3] <= 2, "borderless %.1fx: strong at the edge (%d), gone at the rim (%d)", sc, out1[3],
+              rim[3]);
+        check(off <= 24, "borderless %.1fx: the edge's own colour just outside it (%d off)", sc, off);
+        ppm(k == 0 ? "glow_borderless_soft" : "glow_borderless_wide", img, N, N);
+        free(img);
     }
+    // Level 0: nothing at all
+    MlxrGlowParams gp = {tex.view, 0.0f, 0, 1, GLOW_SCALE};
+    VkCommandBuffer cmd = vkh_begin(&vk);
+    vkh_layout(&vk, &t.img, COLOR_ATT);
+    mlxr_pass_glow(P, cmd, &t.t, &gp);
+    vkh_submit(&vk);
+    uint8_t* img = readTarget(&t);
+    int lit = 0;
+    for (int i = 0; i < N * N; i++) lit += img[i * 4 + 3] > 0;
+    check(lit == 0, "borderless at level 0 draws nothing (%d pixels)", lit);
+    free(img);
     targetFree(&t);
     vkh_image_free(&vk, &tex);
+}
+
+// Native (lane borderless): the Glow edge's border fade in the warp. Off the
+// picture is opaque to its last pixel as ever; Soft and Wide fade the outer
+// 4 and 8 % of the drawn picture to transparent, premultiplied, and leave the
+// middle exactly as it was.
+static void testWarpBorder(void) {
+    const uint32_t W = 256, H = 144;
+    Video vd;
+    Target t;
+    if (videoMake(&vd, W, H, fillPattern) || targetMake(&t, W, H, UNORM)) return;
+    MlxrWarpParams w = warpDefaults(&vd.yuv);
+    uint8_t* plain = runWarp(&t, &w);
+    const float fracs[3] = {0.0f, GLOW_FEATHER_SOFT_FRAC, GLOW_FEATHER_WIDE_FRAC};
+    for (int k = 0; k < 3; k++) {
+        w.borderFade = k;
+        uint8_t* got = runWarp(&t, &w);
+        int worstA = 0, worstC = 0, midDiff = 0;
+        for (uint32_t y = 0; y < H; y++)
+            for (uint32_t x = 0; x < W; x++) {
+                float u = (x + 0.5f) / W, v = (y + 0.5f) / H;
+                float e = fminf(fminf(u, 1.0f - u), fminf(v, 1.0f - v));
+                float a = 1.0f;
+                if (k > 0) {
+                    float ft = clampf(e / fracs[k], 0.0f, 1.0f);
+                    a = ft * ft * (3.0f - 2.0f * ft);
+                }
+                const uint8_t* g = got + ((size_t)y * W + x) * 4;
+                const uint8_t* o = plain + ((size_t)y * W + x) * 4;
+                int da = abs(g[3] - to8(a));
+                if (da > worstA) worstA = da;
+                for (int c = 0; c < 3; c++) {
+                    int dc = abs(g[c] - to8(o[c] / 255.0f * a));
+                    if (dc > worstC) worstC = dc;
+                    if (e > 0.1f && g[c] != o[c] && abs(g[c] - o[c]) > midDiff) midDiff = abs(g[c] - o[c]);
+                }
+            }
+        note("warp border fade %d: alpha %d/255 and colour %d/255 from the CPU copy, middle %d/255 from plain", k, worstA,
+             worstC, midDiff);
+        check(worstA <= 1 && worstC <= 1, "warp border fade %d: premultiplied fade within 1/255 (%d, %d)", k, worstA, worstC);
+        check(midDiff == 0, "warp border fade %d: the middle is untouched (%d)", k, midDiff);
+        const uint8_t* corner = got;
+        if (k > 0) check(corner[3] <= 8, "warp border fade %d: the corner is nearly clear (%d)", k, corner[3]);
+        if (k == 2) ppm("warp_border_wide", got, W, H);
+        free(got);
+    }
+    free(plain);
+    targetFree(&t);
+    videoFree(&vd);
 }
 
 // The Picture tab's Background dim on the room (native, lane wave3-visual):
@@ -3860,6 +3870,7 @@ int main(int argc, char** argv) {
                  {"warp_step", testWarpStep},
                  {"warp_sbs", testWarpSbs},
                  {"warp_zoom", testWarpZoom},
+                 {"warp_border", testWarpBorder},
                  {"warp_fur", testWarpFur},
                  {"sharpen", testSharpen},
                  {"upsample", testUpsample},

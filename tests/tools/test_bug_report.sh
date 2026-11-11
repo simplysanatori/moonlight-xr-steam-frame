@@ -20,6 +20,13 @@ cat > "$t/logs/moonlight.log.tmpl" <<'LOG'
 12:34:56.798 I connecting rtsp://test-pc-name:48010/ and https://other-pc-name:47984/serverinfo?uniqueid=0123456789abcdef; also http://[2001:db8::1]:80/x and test-box-name.local
 12:34:56.799 I loaded /home/steamos/.config/moonlight-xr/config.ini, /home/someone/x, /run/user/1000/bus; account id 76561198012345678 user $USERNAME_PLACEHOLDER
 12:34:56.800 I hex id deadbeefdeadbeefdeadbeef and machine-id 0123456789abcdef0123456789abcdef
+12:34:56.801 I app list of saved-pc-only: 12 apps, current game 0
+12:34:56.802 I wake: magic packet sent to Saved-PC-Only
+12:34:56.803 I launched app 3 on test-pc-name
+12:34:56.804 I keyboard found: Robin's Keychron K2 (/dev/input/event7)
+12:34:56.805 I keyboard Robin's Keychron K2 grabbed for the host
+12:34:56.806 I gamepad #2 arrived: Robin's DualSense (VID/PID 054c/0ce6)
+12:34:56.807 I network path: learned address of launcher-only-pc
 HOME=/home/someone
 XDG_RUNTIME_DIR=/run/user/1000
 MLXR_VERBOSE=1
@@ -29,8 +36,10 @@ MIIBszCCAVmg
 -----END CERTIFICATE-----
 LOG
 sed "s/\$USERNAME_PLACEHOLDER/$USERNAME/" "$t/logs/moonlight.log.tmpl" > "$t/logs/moonlight.log"; rm "$t/logs/moonlight.log.tmpl"
-printf '[6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B]\nname = test-pc-name\naddress = 192.168.1.10\nextra_addresses = 100.64.0.5,10.35.50.27\nmac = 02:f0:2c:5d:a5:10\ncert = servercerts/x.pem\n' > "$t/cfg/hosts.ini"
+printf '[6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B]\nname = test-pc-name\n[0E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B]\nname = saved-pc-only\naddress = 192.168.1.10\nextra_addresses = 100.64.0.5,10.35.50.27\nmac = 02:f0:2c:5d:a5:10\ncert = servercerts/x.pem\n' > "$t/cfg/hosts.ini"
 printf '# a comment about the host\n[stream]\nhost = 192.168.1.10\napp = My Game\nbitrate_kbps = 50000\nresolution = 2560x1440\ncodec = hevc\nlast_server_name = test-pc-name\nunique_id = 0123456789abcdef\nprivate_key = 0123\nsave_path = /home/someone/x\nssid = Example Home Net\n[vr]\nstats = true\nkeyboard_layout = compact\nmac_addr = 02:f0:2c:5d:a5:10\ncert = x.pem\n[debug]\nfile_log = verbose\n' > "$t/cfg/config.ini"
+mkdir -p "$t/home-tester/.config/Moonlight Game Streaming Project"
+printf '[hosts]\n1\\hostname=launcher-only-pc\nsize=1\n' > "$t/home-tester/.config/Moonlight Game Streaming Project/Moonlight.conf"
 # the ray recorder's file (MLXR_RAY_DEBUG): an old one and a newer one, the newer is bundled, header once
 ray_row='1000000000,0,0xf,0.0000,0.0000,0.0000,0.00000,0.00000,0.00000,1.00000,3,1,0xf,1,-0.2500,-0.3000,-0.3000'
 printf 't_ns,to_head,head_flags,hx,hy,hz\nold-row-not-wanted\n' > "$t/out/ray-20260101-000000.csv"
@@ -47,7 +56,7 @@ printf 'VERSION\nconfig.ini\nmoonlight.log\nray.csv\nsystem.txt\n' | sort > "$t/
 diff "$t/want.txt" "$t/files.txt" > /dev/null || { echo "unexpected file list:"; cat "$t/files.txt"; fail=1; }
 grep -qiE 'hosts\.ini|\.pem|\.key|uniqueid|servercerts|\.conf|kernel\.txt|SUMMARY' "$t/files.txt" && { echo "forbidden file in the zip"; fail=1; }
 # nothing identifying in any file
-for s in 192.168.1.10 10.35.50 100.64.0.5 203.0.113.50 10.0.0.5 fe80::1c2d 2001:db8 02:f0:2c 06:5a:5c test-pc-name other-pc-name test-box-name \
+for s in 192.168.1.10 10.35.50 100.64.0.5 203.0.113.50 10.0.0.5 fe80::1c2d 2001:db8 02:f0:2c 06:5a:5c test-pc-name other-pc-name test-box-name saved-pc-only Saved-PC-Only launcher-only-pc "Robin's" \
          'Example Home Net' 1A2B3C4D 0123456789abcdef deadbeefdeadbeef 6E1F0C2A someone@example.com userdata/1234/ AB:CD:EF MIIBsz 'BEGIN CERT' \
          'private_key' 'My Game' /home/someone /home/steamos /run/user/1000 76561198012345678 'HOME=' 'XDG_RUNTIME_DIR' 'last_server_name' 'save_path' 'unique_id' 'mac_addr' 'cert =' 'comment about'; do
     grep -qF -- "$s" "$t/all.txt" && { echo "not masked: $s"; fail=1; }
@@ -71,7 +80,7 @@ for k in 'SteamVR: 2.18.2' 'SteamOS:' 'Mesa:' "kernel: $(uname -r)" 'display: 72
     grep -qF -- "$k" "$t/all.txt" || { echo "system.txt lost: $k"; fail=1; }
 done
 # timings and the shape of the lines stay
-for s in '3.7 ms p50' 'frames 162001 lost 68' '90.00 Hz' '1234567890123456 ns' '7.1.431' 'GfeVersion 3.23.0.74' '5 GHz' 'VID/PID 054c/0ce6' \
+for s in '3.7 ms p50' 'frames 162001 lost 68' '90.00 Hz' '1234567890123456 ns' '7.1.431' 'GfeVersion 3.23.0.74' '5 GHz' 'VID/PID 054c/0ce6' "<name>'s Keychron K2 (" "<name>'s DualSense" 'launched app 3 on <host' \
          '<ip1:lan>' ':cgnat>' '<ipv6-1:link-local>' '<host1>' 'session ended on <host' 'MLXR_VERBOSE=1' '~/.config/moonlight-xr/config.ini' 'serial' '12:34:56.789'; do
     grep -qF -- "$s" "$t/all.txt" || { echo "lost: $s"; fail=1; }
 done
