@@ -29,6 +29,7 @@
 #include "hw_video.h"
 #include "rfi_watch.h"
 #include "log_throttle.h"
+#include "reconnect.h"
 #include "sw_decoder.h"
 
 static FrameSlot* g_video;
@@ -42,6 +43,7 @@ static size_t g_auCap;
 static MlxrAuGather g_gather;
 static uint64_t g_gatherWarnUs;
 static atomic_int g_connected, g_failed;
+static void hwDecoderFailed(void); // Native (lane decoder-recovery), below
 static atomic_int g_termCode; // Native (lane wave3-session): the code common-c's connectionTerminated gave
 static atomic_uint_fast64_t g_units, g_idr;
 static int g_lastErr;
@@ -295,6 +297,7 @@ static int drSetup(int videoFormat, int width, int height, int redrawRate, void*
         if (g_hw) {
             hw_video_set_idr_on_corrupt(g_hw, g_rfi);
             hw_video_set_thread_priority(g_hw, g_videoPrio);
+            hw_video_set_on_fatal(g_hw, hwDecoderFailed);
             hw_video_set_current(g_hw);
             return 0;
         }
@@ -305,6 +308,10 @@ static int drSetup(int videoFormat, int width, int height, int redrawRate, void*
 }
 
 static void drCleanup(void) {
+    // Native (lane decoder-recovery): unpublished before the frame loop is asked to let go of its imports
+    // (xr_app_release_video), so the loop cannot pick the stopping decoder up again in the same pass and
+    // build imports on it while stream_close_video frees it
+    hw_video_set_current(NULL);
     hw_video_stop(g_hw); // the decoder itself closes after the renderer (stream_close_video)
     sw_decoder_close(g_dec);
     g_dec = NULL;
@@ -348,8 +355,15 @@ static int drSubmit(PDECODE_UNIT du) {
         return DR_OK;
     }
     if ((size_t)du->fullLength + 64 > g_auCap) {
-        g_auCap = (size_t)du->fullLength + 64 + 65536;
-        g_au = realloc(g_au, g_auCap);
+        size_t cap = (size_t)du->fullLength + 64 + 65536;
+        uint8_t* grown = realloc(g_au, cap);
+        if (!grown) { // Native: the old buffer stays; this AU is dropped and an IDR asked for
+            MLOG_W("video: no memory for a %d-byte decode unit: not decoded", du->fullLength);
+            atomic_fetch_add(&g_idr, 1);
+            return DR_NEED_IDR;
+        }
+        g_au = grown;
+        g_auCap = cap;
     }
     size_t off = 0;
     for (PLENTRY e = du->bufferList; e; e = e->next) {
@@ -406,6 +420,16 @@ static void clStarted(void) {
     atomic_store(&g_connectedMs, mlxr_now_ms()); // Native (lane wave1-failover)
     atomic_store(&g_connected, 1);
     raiseVideoThreads();
+}
+// Native (lane decoder-recovery): the decode thread gave up on the decoder. The stream ends as a drop, so the
+// app's reconnect (stream/reconnect.h) starts it again with a fresh decoder; the connection's own end, if it
+// comes first, keeps its code.
+static void hwDecoderFailed(void) {
+    int expected = 0;
+    if (atomic_compare_exchange_strong(&g_failed, &expected, 1)) {
+        atomic_store(&g_termCode, MLXR_TERM_DECODER_FAILED);
+        MLOG_W("stream: the hardware decoder failed; ending the stream so it can be retried");
+    }
 }
 static void clTerminated(int err) {
     MLOG_W("stream terminated: %d", err);

@@ -685,8 +685,10 @@ void mlxr_pass_warp(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, con
     int centreX = nv12 ? p->nv12X != VK_CHROMA_LOCATION_COSITED_EVEN : w->video.chroma != MLXR_CHROMA_LEFT;
     int cositedY = nv12 && p->nv12Y == VK_CHROMA_LOCATION_COSITED_EVEN;
     int chroma = w->chromaGuided ? 16 | (centreX ? 32 : 0) | (cositedY ? 64 : 0) : 0;
+    // Native (lane borderless): 128 or 256, the Glow edge's border fade
+    int border = w->borderFade == 1 ? 128 : (w->borderFade == 2 ? 256 : 0);
     pc[24] = (float)((w->occlusion ? 1 : 0) | (w->depthCubic ? 2 : 0) | (w->showDepth ? 4 : 0) | (w->barTest ? 8 : 0) |
-                     chroma);
+                     chroma | border);
     int zoomed = w->zoomSize > 0.0f && w->zoomSize < 1.0f;
     pc[25] = zoomed ? w->zoomX : 0.0f;
     pc[26] = zoomed ? w->zoomY : 0.0f;
@@ -797,7 +799,7 @@ void mlxr_pass_glow(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, con
     VkPipeline pipe = pipeline(p, MLXR_PASS_GLOW, 0, t->format, VK_FORMAT_UNDEFINED);
     if (!pipe) return;
     VkPipelineLayout layout = p->layout[PL_TEX];
-    float pc[4] = {g->intensity, g->blur ? 1.0f : 0.0f, g->feather > 0.0f ? g->feather : 0.0f, 0.0f};
+    float pc[4] = {g->intensity, g->blur ? 1.0f : 0.0f, g->borderless ? 1.0f : 0.0f, g->scale > 1.0f ? g->scale : 0.0f};
     beginRender(p, cmd, t, 1, VK_NULL_HANDLE, t->clear);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
     pushTex(p, cmd, layout, g->sample);

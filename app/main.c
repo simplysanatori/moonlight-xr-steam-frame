@@ -28,8 +28,11 @@
 //   --deadzone N       analog stick dead zone in percent, -20..20 (negative: compensation)
 //   --no-mouse-nav-buttons   a physical mouse's back/forward buttons are not sent
 //   --clipboard-sync   Artemis's Smart Clipboard Sync with Apollo: once the stream is up the text
-//                      in <config dir>/clipboard-to-host.txt (the launcher wrote it) goes to the PC;
-//                      before the stream stops the PC's clipboard goes to clipboard-from-host.txt
+//                      in <config dir>/clipboard-to-host.sealed (the launcher wrote it) goes to the PC;
+//                      before the stream stops the PC's clipboard goes to clipboard-from-host.sealed.
+//                      Both are encrypted (backend/clipseal.h) with the key from --clipboard-key-stdin;
+//                      without a key the sync is off, and no clipboard text is ever written in the clear
+//   --clipboard-key-stdin   the launcher writes this stream's clipboard key on stdin (one line)
 //   --network auto|home|adapter|usb   which link reaches the PC (Wi-Fi, the Steam Frame Wireless
 //                      Adapter or a USB cable); overrides config.ini's network_path, MLXR_NETWORK overrides both
 //
@@ -53,12 +56,15 @@
 #include <strings.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <time.h>
 #include <unistd.h>
 
 #include "../audio/opus_out.h"
 #include "../backend/backend.h"
 #include "../backend/backend_limelight.h"
+#include "../backend/clipseal.h"
 #include "../backend/netdiag.h"
 #include "../backend/netpath.h"
 #include "../backend/opentrack.h"
@@ -139,6 +145,7 @@ static struct {
     double seconds;
     // Native (lane artemis-settings): the flat launcher's Artemis-style settings
     int virtualDisplay, scaleFactor, refreshX1000, noSops, localAudio, fullRange, clipboardSync, fpsMatch;
+    int clipboardKeyStdin; // native (lane clipseal)
 } g_args;
 
 // Native (lane artemis-settings): headset display rate cap for Artemis's custom refresh rate.
@@ -582,45 +589,119 @@ typedef struct Net {
 // ---- Native (lane artemis-settings): Artemis's Smart Clipboard Sync (Apollo actions/clipboard) ----
 // Apollo answers only while this client streams, so the upload follows stream_start and the download
 // comes before stream_stop. The flat launcher owns the desktop clipboard; the files are the hand-off.
+// Native (lane clipseal): the files are sealed with AES-256-GCM under a key the launcher made for this
+// stream and gave us on stdin (backend/clipseal.h). The key lives only in this process's memory and the
+// launcher's; each file is deleted as soon as it is read; plaintext buffers are wiped after use.
+static uint8_t g_clipKey[MLXR_CLIPSEAL_KEY_BYTES];
+static int g_clipKeyOk;
+
 static void clipboardPath(const Net* n, const char* name, char* out, size_t cap) {
     snprintf(out, cap, "%s/%s", n->dir ? n->dir : ".", name);
 }
 
-static void clipboardToHost(Net* n, mlxr_server* s) {
+// The launcher's key line, read once at start (it is written the moment this process starts). stdin is then
+// pointed at /dev/null, and the line's buffer wiped. Without a key the sync stays off.
+static void clipboardReadKey(void) {
+    if (!g_args.clipboardSync) return;
+    if (!g_args.clipboardKeyStdin) {
+        MLOG_W("clipboard: sync is off: no key from the launcher (clipboard text is never handed over unencrypted)");
+        return;
+    }
+    char line[MLXR_CLIPSEAL_KEY_LINE_BYTES + 8];
+    size_t got = 0;
+    struct pollfd pf = { STDIN_FILENO, POLLIN, 0 };
+    while (got < MLXR_CLIPSEAL_KEY_LINE_BYTES && poll(&pf, 1, 3000) > 0) {
+        ssize_t r = read(STDIN_FILENO, line + got, MLXR_CLIPSEAL_KEY_LINE_BYTES - got);
+        if (r <= 0) break;
+        got += (size_t)r;
+    }
+    g_clipKeyOk = mlxr_clipseal_parse_key_line(line, got, g_clipKey) == 0;
+    OPENSSL_cleanse(line, sizeof(line));
+    int devnull = open("/dev/null", O_RDONLY | O_CLOEXEC);
+    if (devnull >= 0) {
+        dup2(devnull, STDIN_FILENO);
+        close(devnull);
+    }
+    if (g_clipKeyOk) MLOG_I("clipboard: sync on, sealed with this stream's key");
+    else MLOG_W("clipboard: sync is off: the launcher's key did not arrive");
+}
+
+// Plaintext files of 1.2.0 and before, wherever they are left
+static void clipboardRemoveLegacy(const Net* n) {
     char path[600];
-    clipboardPath(n, "clipboard-to-host.txt", path, sizeof(path));
-    FILE* f = fopen(path, "rb");
-    if (!f) return;
-    char buf[65536];
-    size_t len = fread(buf, 1, sizeof(buf) - 1, f);
-    fclose(f);
-    buf[len] = 0;
-    if (!len) return;
-    mlxr_error err = { 0 };
-    if (mlxr_server_set_clipboard(s, buf, &err) == MLXR_OK) MLOG_I("clipboard: %zu bytes sent to the host", len);
-    else MLOG_W("clipboard: not sent: %s", err.msg);
+    clipboardPath(n, MLXR_CLIPSEAL_LEGACY_TO_HOST_FILE, path, sizeof(path));
+    if (unlink(path) == 0) MLOG_I("clipboard: removed an unencrypted %s left by an older version", MLXR_CLIPSEAL_LEGACY_TO_HOST_FILE);
+    clipboardPath(n, MLXR_CLIPSEAL_LEGACY_FROM_HOST_FILE, path, sizeof(path));
+    if (unlink(path) == 0) MLOG_I("clipboard: removed an unencrypted %s left by an older version", MLXR_CLIPSEAL_LEGACY_FROM_HOST_FILE);
+}
+
+static void clipboardToHost(Net* n, mlxr_server* s) {
+    if (!g_clipKeyOk) return;
+    char path[600];
+    clipboardPath(n, MLXR_CLIPSEAL_TO_HOST_FILE, path, sizeof(path));
+    int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) return;
+    size_t cap = MLXR_CLIPSEAL_MAX_TEXT + MLXR_CLIPSEAL_OVERHEAD + 1, len = 0;
+    uint8_t* sealed = malloc(cap);
+    char* text = malloc(MLXR_CLIPSEAL_MAX_TEXT + 1);
+    if (sealed && text) {
+        ssize_t r;
+        while (len < cap && (r = read(fd, sealed + len, cap - len)) > 0) len += (size_t)r;
+    }
+    close(fd);
+    unlink(path); // read once; the launcher removes it too
+    size_t tlen = 0;
+    if (!sealed || !text || len >= cap) {
+        MLOG_W("clipboard: not sent: %s", !sealed || !text ? "no memory" : "the clipboard is too large");
+    }
+    else if (mlxr_clipseal_open(g_clipKey, MLXR_CLIPSEAL_TO_HOST, sealed, len, text, MLXR_CLIPSEAL_MAX_TEXT + 1, &tlen) != 0) {
+        MLOG_W("clipboard: not sent: the hand-off file did not open with this stream's key");
+    }
+    else if (tlen > 0) {
+        mlxr_error err = { 0 };
+        if (mlxr_server_set_clipboard(s, text, &err) == MLXR_OK) MLOG_I("clipboard: %zu bytes sent to the host", tlen);
+        else MLOG_W("clipboard: not sent: %s", err.msg);
+    }
+    if (text) OPENSSL_cleanse(text, tlen + 1);
+    free(text);
+    free(sealed);
 }
 
 static void clipboardFromHost(Net* n, mlxr_server* s) {
+    if (!g_clipKeyOk) return;
     char path[600], tmp[620];
-    clipboardPath(n, "clipboard-from-host.txt", path, sizeof(path));
+    clipboardPath(n, MLXR_CLIPSEAL_FROM_HOST_FILE, path, sizeof(path));
     char* text = NULL;
     mlxr_error err = { 0 };
     if (mlxr_server_get_clipboard(s, &text, &err) != MLXR_OK) {
         MLOG_W("clipboard: not read from the host: %s", err.msg);
         return;
     }
-    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE* f = fopen(tmp, "wb");
-    if (f) {
-        fchmod(fileno(f), 0600);
-        size_t len = strlen(text);
-        int ok = fwrite(text, 1, len, f) == len;
-        ok = fclose(f) == 0 && ok;
-        if (ok && rename(tmp, path) == 0) MLOG_I("clipboard: %zu bytes read from the host", len);
-        else unlink(tmp);
+    size_t len = strlen(text), slen = 0;
+    if (len > MLXR_CLIPSEAL_MAX_TEXT) {
+        MLOG_W("clipboard: the host's clipboard (%zu bytes) is larger than %u; not kept", len, MLXR_CLIPSEAL_MAX_TEXT);
+        OPENSSL_cleanse(text, len);
+        free(text);
+        return;
     }
+    uint8_t* sealed = malloc(len + MLXR_CLIPSEAL_OVERHEAD);
+    int ok = sealed && mlxr_clipseal_seal(g_clipKey, MLXR_CLIPSEAL_FROM_HOST, text, len, sealed, len + MLXR_CLIPSEAL_OVERHEAD,
+                                          &slen) == 0;
+    OPENSSL_cleanse(text, len);
     free(text);
+    if (ok) {
+        // created 0600 from the start (no window at the umask's mode), then renamed into place
+        snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+        unlink(tmp);
+        int fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+        ok = fd >= 0 && write(fd, sealed, slen) == (ssize_t)slen;
+        if (fd >= 0) ok = close(fd) == 0 && ok;
+        ok = ok && rename(tmp, path) == 0;
+        if (!ok) unlink(tmp);
+    }
+    free(sealed);
+    if (ok) MLOG_I("clipboard: %zu bytes read from the host (sealed for the launcher)", len);
+    else MLOG_W("clipboard: the host's clipboard could not be handed to the launcher");
 }
 
 // ---- Native (lane wave4-apollo): the Host sheet's PC page (PLAN 4.6, 4b.4, 4b.5) ----
@@ -744,6 +825,7 @@ static void* hostActThread(void* arg) {
                 snprintf(note, sizeof(note), "Typed %d characters from the PC clipboard", utf8Chars(text));
             }
         }
+        if (text) OPENSSL_cleanse(text, strlen(text)); // native (lane clipseal): no clipboard text left in freed memory
         free(text);
     }
     else if (a->action == XR_HOSTACT_COPY) {
@@ -762,6 +844,7 @@ static void* hostActThread(void* arg) {
     }
     if (note[0]) xr_app_notice(note);
     mlxr_server_free(srv);
+    if (a->text) OPENSSL_cleanse(a->text, strlen(a->text)); // native (lane clipseal)
     free(a->text);
     free(a);
     atomic_store(&g_hostActBusy, 0);
@@ -1535,6 +1618,7 @@ static void* worker(void* arg) {
         mlxr_set_log(backendLog, NULL);
         mlxr_error err = { 0 };
         n->dir = mlxr_config_dir(&err);
+        if (n->dir) clipboardRemoveLegacy(n); // native (lane clipseal)
         if (!n->dir || mlxr_identity_load_or_create(n->dir, &n->id, NULL, &err) != MLXR_OK) {
             MLOG_E("identity: %s", err.msg);
         }
@@ -1724,6 +1808,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--local-audio")) g_args.localAudio = 1;
         else if (!strcmp(argv[i], "--full-range")) g_args.fullRange = 1;
         else if (!strcmp(argv[i], "--clipboard-sync")) g_args.clipboardSync = 1;
+        else if (!strcmp(argv[i], "--clipboard-key-stdin")) g_args.clipboardKeyStdin = 1;
         else if (!strcmp(argv[i], "--fps") && i + 1 < argc) {
             const char* v = argv[++i];
             if (strcmp(v, "match")) {
@@ -1812,6 +1897,7 @@ int main(int argc, char** argv) {
         }
         MLOG_I("args:%s (SteamAppId %s)", args[0] ? args : " none", getenv("SteamAppId") ? getenv("SteamAppId") : "none");
     }
+    clipboardReadKey(); // native (lane clipseal)
     // The panels' pictures (room thumbnails, the Ko-fi code, the gear) from the
     // installed tree when there is one, else the source tree's
     if (access("assets/images", R_OK) == 0) ui_panels_set_assets_dir("assets");
@@ -1915,6 +2001,7 @@ int main(int argc, char** argv) {
     free(g_net.rtsp);
     mlxr_hosts_free(&g_net.hosts);
     if (g_net.haveId) mlxr_identity_free(&g_net.id);
+    OPENSSL_cleanse(g_clipKey, sizeof(g_clipKey)); // native (lane clipseal)
     free(g_net.dir);
     frame_slot_destroy(&g_slot);
     if (g_args.exitToCaller) {

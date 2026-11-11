@@ -12,11 +12,13 @@
 #define _GNU_SOURCE
 #include "backend.h"
 #include "netpath.h"
+#include "clipseal.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #ifdef MLXR_HAVE_LIMELIGHT
 #include "backend_limelight.h"
@@ -363,6 +365,57 @@ static int cmd_clipboard(int argc, char **argv)
     return rc;
 }
 
+/* Native (lane clipseal): the sealed clipboard hand-off by hand, for tests and for checking a file. The key
+ * line comes first on stdin, as the launcher gives it to the VR client (never as an argument):
+ *   clipseal seal <to-host|from-host> <out file>   the rest of stdin, sealed into <out file> (0600)
+ *   clipseal open <to-host|from-host> <in file>    the file's text to stdout */
+static int cmd_clipseal(int argc, char **argv)
+{
+    if (argc < 3 || (strcmp(argv[0], "seal") && strcmp(argv[0], "open")) ||
+        (strcmp(argv[1], MLXR_CLIPSEAL_TO_HOST) && strcmp(argv[1], MLXR_CLIPSEAL_FROM_HOST)))
+        return fprintf(stderr, "usage: clipseal seal|open to-host|from-host <file>   (the key line first on stdin)\n"), 1;
+    char line[MLXR_CLIPSEAL_KEY_LINE_BYTES + 8];
+    uint8_t key[MLXR_CLIPSEAL_KEY_BYTES];
+    if (!fgets(line, sizeof line, stdin) || mlxr_clipseal_parse_key_line(line, strlen(line), key) != 0) {
+        OPENSSL_cleanse(line, sizeof line);
+        return fprintf(stderr, "clipseal: no key line on stdin\n"), 1;
+    }
+    OPENSSL_cleanse(line, sizeof line);
+    size_t cap = MLXR_CLIPSEAL_MAX_TEXT + MLXR_CLIPSEAL_OVERHEAD + 1, n = 0, out_n = 0;
+    uint8_t *in = malloc(cap), *out = malloc(cap);
+    int rc = 1;
+    if (!in || !out) goto done;
+    if (!strcmp(argv[0], "seal")) {
+        n = fread(in, 1, MLXR_CLIPSEAL_MAX_TEXT + 1, stdin);
+        if (n > MLXR_CLIPSEAL_MAX_TEXT || mlxr_clipseal_seal(key, argv[1], in, n, out, cap, &out_n) != 0) {
+            fprintf(stderr, "clipseal: could not seal\n");
+            goto done;
+        }
+        int fd = open(argv[2], O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        if (fd < 0 || write(fd, out, out_n) != (ssize_t)out_n) { fprintf(stderr, "clipseal: cannot write %s\n", argv[2]); if (fd >= 0) close(fd); goto done; }
+        close(fd);
+        rc = 0;
+    } else {
+        FILE *f = fopen(argv[2], "rb");
+        if (!f) { fprintf(stderr, "clipseal: cannot read %s\n", argv[2]); goto done; }
+        n = fread(in, 1, cap, f);
+        fclose(f);
+        if (n >= cap || mlxr_clipseal_open(key, argv[1], in, n, (char *)out, cap, &out_n) != 0) {
+            fprintf(stderr, "clipseal: %s did not open with this key for %s\n", argv[2], argv[1]);
+            goto done;
+        }
+        fwrite(out, 1, out_n, stdout);
+        rc = 0;
+    }
+done:
+    if (in) OPENSSL_cleanse(in, cap);
+    if (out) OPENSSL_cleanse(out, cap);
+    OPENSSL_cleanse(key, sizeof key);
+    free(in);
+    free(out);
+    return rc;
+}
+
 /* Native (lane adapter-detect). Read-only, probes nothing: is the Steam Frame Wireless Adapter there?
  * Prints the category and the reason; the PC addresses of hosts.ini only decide "PC address in the table". */
 static int cmd_adapter(int argc, char **argv)
@@ -514,6 +567,7 @@ int main(int argc, char **argv)
                 "       mlxr-cli clipboard <host> [--show]   (Apollo, while streaming)\n"
                 "       mlxr-cli probe-paths [<host>] [--addr a,b] [--network auto|home|adapter|usb]\n"
                 "       mlxr-cli adapter [<interface>]   (is the Steam Frame Wireless Adapter there? read-only)\n"
+                "       mlxr-cli clipseal seal|open to-host|from-host <file>   (key line first on stdin)\n"
                 "config dir: $MLXR_CONFIG_DIR or ~/.config/moonlight-xr\n");
         return 1;
     }
@@ -529,6 +583,7 @@ int main(int argc, char **argv)
     if (!strcmp(cmd, "probe-paths")) return cmd_probe_paths(argc, argv);
     if (!strcmp(cmd, "adapter")) return cmd_adapter(argc, argv);
     if (!strcmp(cmd, "clipboard")) return cmd_clipboard(argc, argv);
+    if (!strcmp(cmd, "clipseal")) return cmd_clipseal(argc, argv);
     fprintf(stderr, "unknown command: %s\n", cmd);
     return 1;
 }

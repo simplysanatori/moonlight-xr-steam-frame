@@ -282,22 +282,45 @@ expect "vrcmd missing: the stream still starts" "$out" "--mode 2560x1440x120"
 SECTION=mlxr setconf match_headset_fps=true
 setconf fps=90
 
-# Smart Clipboard Sync: the clipboard goes to the VR client in a file, what it brings back is put on the clipboard
+# Smart Clipboard Sync: the clipboard goes to the VR client in a file, what it brings back is put on the clipboard.
+# Lane clipseal: both files are sealed with a key made for the stream and given on the client's stdin; nothing
+# is written in the clear, the key is not on the command line, and a stale or foreign answer is refused.
 SECTION=mlxr setconf clipboard_sync=true
-printf 'from the PC' > "$MLXR_CONFIG_DIR/clipboard-from-host.txt"
+printf 'from the PC' > "$MLXR_CONFIG_DIR/clipboard-from-host.txt"     # the unencrypted file of 1.2.0
 out="$(MLXR_LAUNCHER_TEST_CLIPBOARD="from the Frame" MLXR_LAUNCHER_DRYRUN=1 MLXR_NATIVE_CLIENT= selftest "gaming-pc:Desktop" 2>&1)"
 expect "clipboard: the dry run removed the stale answer first" "$out" "nothing came back from the host"
+[ ! -e "$MLXR_CONFIG_DIR/clipboard-from-host.txt" ] && ok "clipboard: an old unencrypted file is removed" || fail "clipboard: old plaintext file left"
+case "$out" in *clipboard-key-stdin*|*MLXR_CLIPKEY*) fail "clipboard: the key or its flag shows in the dry run";; *) ok "clipboard: no key in the logged command";; esac
 cat >"$t/clip-client.sh" <<'CLIP'
 #!/bin/bash
-echo "to-host: [$(cat "$MLXR_CONFIG_DIR/clipboard-to-host.txt")] mode $(stat -c %a "$MLXR_CONFIG_DIR/clipboard-to-host.txt")" >> "$FAKE_LOG"
-printf 'copied on the PC' > "$MLXR_CONFIG_DIR/clipboard-from-host.txt"
+# the fake VR client: the key line from stdin, as app/main.c reads it
+case " $* " in *" --clipboard-key-stdin "*) ;; *) echo "no --clipboard-key-stdin" >> "$FAKE_LOG";; esac
+IFS= read -r key
+f="$MLXR_CONFIG_DIR/clipboard-to-host.sealed"
+echo "to-host: [$(printf '%s\n' "$key" | "$CLI" clipseal open to-host "$f")] mode $(stat -c %a "$f")" >> "$FAKE_LOG"
+grep -q "from the Frame" "$f" && echo "to-host: PLAINTEXT" >> "$FAKE_LOG"
+echo "args: $*" >> "$FAKE_LOG"
+{ printf '%s\n' "$key"; printf 'copied on the PC'; } | "$CLI" clipseal seal from-host "$MLXR_CONFIG_DIR/clipboard-from-host.sealed"
 exit 0
 CLIP
 chmod +x "$t/clip-client.sh"
-FAKE_LOG="$t/clip.log" MLXR_LAUNCHER_TEST_CLIPBOARD="from the Frame" MLXR_NATIVE_CLIENT="$t/clip-client.sh" selftest "gaming-pc:Desktop" >"$t/stdout"
-expect "clipboard: the VR client finds the Frame's clipboard (0600)" "$(cat "$t/clip.log")" "to-host: [from the Frame] mode 600"
+CLI="$CLI" FAKE_LOG="$t/clip.log" MLXR_LAUNCHER_TEST_CLIPBOARD="from the Frame" MLXR_NATIVE_CLIENT="$t/clip-client.sh" selftest "gaming-pc:Desktop" >"$t/stdout"
+expect "clipboard: the VR client opens the Frame's clipboard with the stdin key (0600)" "$(cat "$t/clip.log")" "to-host: [from the Frame] mode 600"
+grep -q "PLAINTEXT\|no --clipboard-key-stdin" "$t/clip.log" && fail "clipboard: $(cat "$t/clip.log")" || ok "clipboard: sealed on disk, key flag given"
+grep -q "MLXR_CLIPKEY\|[0-9a-f]\{64\}" "$t/clip.log" && fail "clipboard: the key is on the command line" || ok "clipboard: the key is not an argument"
 expect "clipboard: the PC's clipboard comes back" "$(cat "$t/stdout")" "took 16 bytes from the host"
-[ ! -e "$MLXR_CONFIG_DIR/clipboard-to-host.txt" ] && [ ! -e "$MLXR_CONFIG_DIR/clipboard-from-host.txt" ] && ok "clipboard files removed after the stream" || fail "clipboard files left behind"
+ls "$MLXR_CONFIG_DIR"/clipboard-* >/dev/null 2>&1 && fail "clipboard files left behind" || ok "clipboard files removed after the stream"
+# an answer sealed under another key (a stale one from an earlier stream) is refused, not put on the clipboard
+cat >"$t/clip-client2.sh" <<'CLIP'
+#!/bin/bash
+IFS= read -r key
+other="MLXR_CLIPKEY $(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')"
+{ printf '%s\n' "$other"; printf 'not this'; } | "$CLI" clipseal seal from-host "$MLXR_CONFIG_DIR/clipboard-from-host.sealed"
+exit 0
+CLIP
+chmod +x "$t/clip-client2.sh"
+CLI="$CLI" MLXR_LAUNCHER_TEST_CLIPBOARD="from the Frame" MLXR_NATIVE_CLIENT="$t/clip-client2.sh" selftest "gaming-pc:Desktop" >"$t/stdout"
+expect "clipboard: an answer under another key is refused" "$(cat "$t/stdout")" "did not open with this stream's key"
 SECTION=mlxr setconf clipboard_sync=false
 
 # --- 3c. lane launcher2: the default bitrate (hand-off mode) and the Game Mode UI scale

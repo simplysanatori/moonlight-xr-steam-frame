@@ -76,9 +76,10 @@ if [ -n "$ray" ] && [ -f "$ray" ]; then
 fi
 # the newest notes saved from the headset's "Report a problem" sheet
 n=0
-for note in $(ls -t "$OUTDIR"/report-*.txt 2>/dev/null | head -n 3); do
+while IFS= read -r note; do
+    [ -f "$note" ] || continue
     n=$((n+1)); head -c 20000 "$note" > "$WORK/raw/headset-note-$n.txt"
-done
+done < <(ls -t "$OUTDIR"/report-*.txt 2>/dev/null | head -n 3)
 for v in "$HERE/VERSION" "$HERE/../VERSION"; do [ -f "$v" ] && { head -n 1 "$v" > "$WORK/raw/VERSION"; break; }; done
 
 # system summary: version strings only
@@ -102,7 +103,14 @@ for v in "$HERE/VERSION" "$HERE/../VERSION"; do [ -f "$v" ] && { head -n 1 "$v" 
 {
     hostname 2>/dev/null; uname -n
     echo "${MLXR_EXTRA_NAMES:-}" | tr ':' '\n'
-} | sort -u | grep -vixE '.{0,2}|true|false|localhost|frame|steamdeck|steamfr(a|)me' > "$WORK/names.txt"
+    # the saved PCs' names: hosts.ini and the flat launcher's Moonlight settings (native and flatpak).
+    # Only the names are read, to be masked; the files themselves are never bundled.
+    [ -f "$CFG/hosts.ini" ] && sed -nE 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p' "$CFG/hosts.ini"
+    for qc in "$HOME/.config/Moonlight Game Streaming Project/Moonlight.conf" \
+              "$HOME/.var/app/com.moonlight_stream.Moonlight/config/Moonlight Game Streaming Project/Moonlight.conf"; do
+        [ -f "$qc" ] && sed -nE 's/^(hosts\\)?[0-9]+\\hostname=(.*[^[:space:]])[[:space:]]*$/\2/p' "$qc"
+    done
+} | sed -E 's/^"(.*)"$/\1/' | sort -u | grep -vixE '.{0,2}|true|false|localhost|frame|steamdeck|steamfr(a|)me' > "$WORK/names.txt"
 { id -un 2>/dev/null; echo "${USER:-}"; } | sort -u | grep -vxE '.{0,2}' > "$WORK/users.txt"   # masked as whole words, same case only   # the SteamOS default host names are common words
 {
     command -v iw >/dev/null && iw dev 2>/dev/null | sed -nE 's/^[[:space:]]*ssid (.*)$/\1/p'
@@ -186,6 +194,12 @@ rules = [
     (re.compile(r"(session ended on )([^<\s]\S*)"), lambda m: m.group(1) + tok("host", m.group(2))),
     (re.compile(r"^(\s*name\s*=\s*)([^<\s].*)$", re.M), lambda m: m.group(1) + tok("host", m.group(2).strip())),
     (re.compile(r"/(?:var/)?home/[^/\s]+"), lambda m: "~"),
+    # Device names often carry their owner's name ("Sam's Keyboard"). On the lines that name a keyboard or
+    # a gamepad, the possessive goes and the product name stays.
+    (re.compile(r"(\b(?:keyboard found:|keyboard gone:|gamepad #\d+ arrived:|gamepad:)[ \t]+)(.*)$", re.M),
+     lambda m: m.group(1) + re.sub(r"[^\s(<>]+['’]s\b", "<name>'s", m.group(2))),
+    (re.compile(r"(\bkeyboard )(.+?)( grabbed for the host| released|: grab failed)"),
+     lambda m: m.group(1) + re.sub(r"[^\s(<>]+['’]s\b", "<name>'s", m.group(2)) + m.group(3)),
 ]
 def mask(text):
     if home and home != "/": text = text.replace(home, "~")
@@ -197,9 +211,17 @@ def mask(text):
         if len(s) >= 3: text = text.replace(s, "<ssid>")
     for rx, fn in rules: text = rx.sub(fn, text)
     return text
+masked = {}
 for f in sorted(os.listdir(raw)):
-    data = open(os.path.join(raw, f), encoding="utf-8", errors="replace").read()
-    open(os.path.join(out, f), "w", encoding="utf-8").write(mask(data))
+    masked[f] = mask(open(os.path.join(raw, f), encoding="utf-8", errors="replace").read())
+# A host name the rules found in one line ("host <name> answers") is masked on every other line and in
+# every file too ("app list of <name>", "launched app 3 on <name>"), with the same token.
+learned = sorted(((k[1], t) for k, t in tokens.items() if k[0] == "host" and len(k[1]) > 2 and not k[1].startswith("<")),
+                 key=lambda kv: len(kv[0]), reverse=True)
+for f, text in masked.items():
+    for value, t in learned:
+        text = re.sub(r"(?<![\w<-])" + re.escape(value) + r"(?![\w>-])", t.replace("\\", r"\\"), text, flags=re.I)
+    open(os.path.join(out, f), "w", encoding="utf-8").write(text)
 PY
 [ $? = 0 ] || { echo "masking failed; nothing written"; exit 1; }
 

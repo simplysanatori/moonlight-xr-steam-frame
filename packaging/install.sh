@@ -237,7 +237,7 @@ fi
 if [ "$NOSC" = 1 ]; then echo "Steam shortcut: skipped (NO_SHORTCUT)"; finish "Steam shortcut skipped (asked for)."; fi
 if [ ! -f "$CEFPY" ]; then echo "Steam shortcut: $CEFPY missing"; exit 1; fi
 
-CEF="python3 -I $CEFPY"
+cef() { python3 -I "$CEFPY" "$@"; } # Native: a function, so a DEST or source path with a space still works
 # The icon in SteamVR's dock is Steam's own icon for the shortcut (the icon field in shortcuts.vdf, which
 # Steam turns into icon data when it starts; the dock asks Steam for it by appid). What this adds for the dock
 # (the VR client's SteamVR app manifest, the launcher window's icon-theme PNGs and
@@ -276,7 +276,7 @@ for m in re.finditer(rb"\x02appid\x00(....)\x01AppName\x00([^\x00]*)\x00\x01Exe\
         print(struct.unpack("<I", m.group(1))[0]); break
 ' "$v" "$DEST" "$DESKNAME") && [ -n "$HAVE_ID" ] && break
 done
-if ! APPID=$($CEF "(async()=>{
+if ! APPID=$(cef "(async()=>{
   const name=$JS_NAME, oldname=$JS_OLDNAME, exe=$JS_EXE, dir=$JS_DIR, known='$HAVE_ID';
   const shortcuts=[...appStore.allApps].filter(a=>a.app_type===1073741824);
   const have=(known && shortcuts.find(a=>String(a.appid)===known)) || shortcuts.find(a=>a.display_name===name) || shortcuts.find(a=>a.display_name===oldname);
@@ -295,7 +295,7 @@ echo "Steam shortcut \"$NAME\" appid $APPID"
 # Steam's game resolution for the flat window, 1080p (the owner found 1440p too small to read; gamescope's own default is 1280x720
 # on a 1920x1080 screen)
 app_resolution() {   # app_resolution <appid>
-    $CEF "SteamClient.Apps.SetAppResolutionOverride($1,'1920x1080')" >/dev/null 2>&1 \
+    cef "SteamClient.Apps.SetAppResolutionOverride($1,'1920x1080')" >/dev/null 2>&1 \
         && echo "Steam game resolution: 1920x1080" || echo "Steam game resolution: not set"
 }
 app_resolution "$APPID"
@@ -351,7 +351,7 @@ shortcut_art() {   # shortcut_art <appid>
         echo "Steam art: $n file(s) updated in the grid folder"
         if [ -n "$ICON" ]; then
             JS_ICON=$(printf '%s' "$ICON" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
-            $CEF "(()=>{SteamClient.Apps.SetShortcutIcon($APPID,$JS_ICON); return 1})()" >/dev/null 2>&1 \
+            cef "(()=>{SteamClient.Apps.SetShortcutIcon($APPID,$JS_ICON); return 1})()" >/dev/null 2>&1 \
                 && echo "Steam shortcut icon: $ICON (Steam loads a shortcut's icon data only at start: SteamVR's dock shows it after the next Steam restart)" || echo "Steam shortcut icon: not set"
         fi
         for spec in "portrait poster:0" "hero:1" "logo:2" "wide:3"; do
@@ -362,7 +362,7 @@ shortcut_art() {   # shortcut_art <appid>
 import base64, sys
 b = base64.b64encode(open(sys.argv[1], "rb").read()).decode()
 print("(async()=>{ await SteamClient.Apps.SetCustomArtworkForApp(%s, %r, %r, %s); return 1 })()" % (sys.argv[2], b, sys.argv[3], sys.argv[4]))
-' "$src" "$APPID" "$mime" "${spec##*:}" | $CEF - >/dev/null 2>&1 || echo "Steam art: Steam did not take ${src##*/} (it is in the grid folder; it shows after a Steam restart)"
+' "$src" "$APPID" "$mime" "${spec##*:}" | cef - >/dev/null 2>&1 || echo "Steam art: Steam did not take ${src##*/} (it is in the grid folder; it shows after a Steam restart)"
         done
     fi
 }
@@ -407,7 +407,7 @@ print(last or (names[0] if len(names) == 1 else ""))
     js_name=$(printf '%s' "$DESKNAME" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
     js_exe=$(printf '%s' "\"$DEST/moonlight-xr-launcher.sh\"" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
     js_opts=$(printf 'stream "%s" "Desktop"' "$pc" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
-    if ! id=$($CEF "(async()=>{
+    if ! id=$(cef "(async()=>{
   const name=$js_name, exe=$js_exe, dir=$JS_DIR, opts=$js_opts;
   const have=[...appStore.allApps].filter(a=>a.app_type===1073741824).find(a=>a.display_name===name);
   let id = have ? have.appid : await SteamClient.Apps.AddShortcut(name, exe, dir, opts);
