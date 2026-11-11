@@ -437,7 +437,8 @@ int glowStale(XrCtx* ctx) {
     // Native (PLAN 4b.6): or the zoom moved, which changes what the colours are of
     int zoomed = ctx->glowZoom[0] != ctx->zoomPct || ctx->glowZoom[1] != ctx->zoomX || ctx->glowZoom[2] != ctx->zoomY;
     return on && (!ctx->glowDrawnOn || level != ctx->glowDrawnLevel || ctx->glowFeather != ctx->glowDrawnFeather
-                  || xrGlowScaleFor(ctx, ctx->glowFeather) != ctx->glowDrawnScale || zoomed);
+                  || xrGlowScaleFor(ctx, ctx->glowFeather) != (ctx->glowDrawnScale > 0.0f ? ctx->glowDrawnScale : GLOW_SCALE)
+                  || zoomed);
 }
 
 // A desktop standing still sends no frames, which left the level slider and
