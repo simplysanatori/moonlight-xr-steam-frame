@@ -2,19 +2,23 @@
 
 ## Unreleased
 
+I made the Glow edge borderless, encrypted the clipboard sync, and fixed a picture that froze after a decoder error.
+
 ### Changed
 
-- **Glow edge** (Picture tab) now makes the screen borderless, after Lobs1994's fork of Moonlight XR. Before, it painted a blurred, dimmed band of the glow over the picture's border, which smeared the edge and turned it dark at a low glow level. Now the picture's own edge fades out, and the glow behind it carries the picture's edge colours outward at the picture's brightness, so the picture runs into the glow with no seam. **Soft** fades the outer 4 % and keeps the glow close; **Wide** fades the outer 8 % and spreads the glow across most of the view (close round the screen in a room).
+- **Glow edge** (Picture tab) now makes the screen borderless, after Lobs1994's fork of Moonlight XR. The picture's edge fades out, and the glow behind it carries the edge colours outward at the picture's brightness. There's no seam between the picture and the glow. It used to paint a blurred band over the border, which smeared the edge and went dark at a low glow level.
+  - **Soft** fades the outer 4 % and keeps the glow close.
+  - **Wide** fades the outer 8 % and spreads the glow across most of the view.
 
 ### Security
 
-- Smart clipboard sync no longer stores clipboard text in readable form. The flat window and the headset app passed it in two plain text files (`clipboard-to-host.txt`, and the PC's clipboard in `clipboard-from-host.txt`, which stayed on the Frame after the stream). Both files are now encrypted with AES-256-GCM under a key made fresh for each stream. The key is passed straight from the flat window to the headset app (on its standard input), never written to disk, and wiped when the stream ends. A file left behind by a crash can't be read, and a changed or stale file is refused. Each file is deleted as soon as it's read, and the clipboard text is wiped from memory after use, also for the Host sheet's Paste from PC and Send text to PC. The plain text files of earlier versions are deleted the next time either app starts. Encrypting and decrypting takes under a millisecond, even for a 1 MB clipboard.
+- Smart clipboard sync no longer leaves clipboard text readable on the Frame. It used to pass it in two plain text files, and the PC's clipboard stayed in one after the stream. Both files are now encrypted with a key made fresh for each stream. The key is never written to disk and is wiped when the stream ends. Each file is deleted as soon as it's read. The old plain text files are deleted the next time either app starts.
 
 ### Fixed
 
-- A bug report could keep the name of a saved PC in lines such as "app list of …", "wake: magic packet sent to …" and "launched app … on …", and a Bluetooth keyboard or controller's owner name ("Sam's Keyboard"). It now masks the names in `hosts.ini` and the flat window's Moonlight settings everywhere, masks a name found on one line on every line, and drops the owner's name from device names.
-- If the hardware video decoder failed, the picture froze for the rest of the stream while sound and input carried on. The stream now reconnects with a fresh decoder, as after a dropped connection. A decoder that keeps reporting errors no longer keeps a CPU core busy and fills the log.
-- Leaving or reconnecting a stream could, rarely, free the video decoder while the headset was still using its pictures.
+- If the video decoder failed, the picture froze for the rest of the stream while sound and input carried on. The stream now reconnects with a fresh decoder. A decoder that keeps failing no longer keeps a CPU core busy.
+- Leaving or reconnecting a stream could, rarely, crash the app.
+- A bug report could keep a saved PC's name in some lines, and an owner's name in a Bluetooth device's name ("Sam's Keyboard"). Both are masked now.
 - `install.sh` failed when its folder's path had a space in it.
 
 ## 1.2.0 (November 2026)
