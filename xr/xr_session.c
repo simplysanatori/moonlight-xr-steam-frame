@@ -198,10 +198,14 @@ void xr_app_release_video(void) {
     struct timespec deadline;
     clock_gettime(CLOCK_REALTIME, &deadline);
     deadline.tv_sec += 5;
+    int waited = 0;
     while (g_running && g_releaseDone < mine) {
         if (pthread_cond_timedwait(&g_reqDone, &g_reqLock, &deadline) != 0) {
-            MLOG_W("video release: the frame loop did not answer in 5 s");
-            break;
+            // Native (lane decoder-recovery): keep waiting. Returning here let the caller close the decoder while
+            // the frame loop still held imports of its buffers (a use after free in the driver or the importer).
+            waited += 5;
+            MLOG_W("video release: the frame loop has not answered in %d s; still waiting", waited);
+            deadline.tv_sec += 5;
         }
     }
     pthread_mutex_unlock(&g_reqLock);
@@ -2790,11 +2794,6 @@ int xr_app_run(const XrAppConfig* cfg) {
     LOGEV("session ended after %llu frames", (unsigned long long)frames);
 
 fail:
-    pthread_mutex_lock(&g_reqLock);
-    g_running = 0;
-    g_releaseDone = g_releaseSerial;
-    pthread_cond_broadcast(&g_reqDone);
-    pthread_mutex_unlock(&g_reqLock);
     if (vk.device) {
         vkDeviceWaitIdle(vk.device);
         // M6: the stage thread joined and the model stopped before anything
@@ -2802,6 +2801,15 @@ fail:
         xrDepthDestroy(ctx);
         xrWorldDestroy(ctx);
         hwDestroy(&vk, &vd);
+    }
+    // Native (lane decoder-recovery): a stop waiting in xr_app_release_video is answered only once the imports
+    // are gone (hwDestroy above), so the decoder cannot be closed under them
+    pthread_mutex_lock(&g_reqLock);
+    g_running = 0;
+    g_releaseDone = g_releaseSerial;
+    pthread_cond_broadcast(&g_reqDone);
+    pthread_mutex_unlock(&g_reqLock);
+    if (vk.device) {
         freeSwPlanes(&vk, &vd);
         freeVideoSwapchain(ctx, &vd);
         curveDestroy(ctx, &curve);

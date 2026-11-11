@@ -88,7 +88,7 @@ mlxr_status mlxr_pair(mlxr_server *s, const char *app_version, const char *pin, 
     const size_t hash_len = major >= 7 ? 32 : 20;
 
     char *cert_hex = mlxr_hex_encode_alloc((const uint8_t *)s->client_cert, strlen(s->client_cert));
-    argbuf = malloc(strlen(cert_hex) + 128);
+    argbuf = cert_hex ? malloc(strlen(cert_hex) + 128) : NULL;
     if (!cert_hex || !argbuf) { free(cert_hex); free(argbuf); return mlxr_fail(err, MLXR_E_NOMEM, 0, "oom"); }
     char salt_hex[33];
     mlxr_hex_encode(salt, 16, salt_hex);
