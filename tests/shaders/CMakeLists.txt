@@ -10,7 +10,7 @@ target_compile_definitions(mlxr-shader-test PRIVATE
 set_source_files_properties(text_scene.c PROPERTIES COMPILE_OPTIONS "-w")
 set(MLXR_SHADER_TEST_OUT ${CMAKE_CURRENT_BINARY_DIR}/out)
 file(MAKE_DIRECTORY ${MLXR_SHADER_TEST_OUT})
-foreach(t device grade nv12 srgb warp_identity warp_step warp_fur warp_sbs warp_zoom sharpen upsample offset offset_balance downscale ambi
+foreach(t device grade nv12 srgb warp_identity warp_step warp_fur warp_sbs warp_zoom warp_border sharpen upsample offset offset_balance downscale ambi
           glow_edge glow glow_feather room room_dim model supersample panel text)
   add_test(NAME shaders_${t} COMMAND mlxr-shader-test ${t} ${MLXR_SHADER_TEST_OUT})
   set_tests_properties(shaders_${t} PROPERTIES SKIP_RETURN_CODE 77)   # 77: no Vulkan driver or device

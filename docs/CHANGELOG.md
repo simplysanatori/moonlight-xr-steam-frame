@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Glow edge** (Picture tab) now makes the screen borderless, after Lobs1994's fork of Moonlight XR. Before, it painted a blurred, dimmed band of the glow over the picture's border, which smeared the edge and turned it dark at a low glow level. Now the picture's own edge fades out, and the glow behind it carries the picture's edge colours outward at the picture's brightness, so the picture runs into the glow with no seam. **Soft** fades the outer 4 % and keeps the glow close; **Wide** fades the outer 8 % and spreads the glow across most of the view (close round the screen in a room).
+
+### Fixed
+
+- A bug report could keep the name of a saved PC in lines such as "app list of …", "wake: magic packet sent to …" and "launched app … on …", and a Bluetooth keyboard or controller's owner name ("Sam's Keyboard"). It now masks the names in `hosts.ini` and the flat window's Moonlight settings everywhere, masks a name found on one line on every line, and drops the owner's name from device names.
+- If the hardware video decoder failed, the picture froze for the rest of the stream while sound and input carried on. The stream now reconnects with a fresh decoder, as after a dropped connection. A decoder that keeps reporting errors no longer keeps a CPU core busy and fills the log.
+- Leaving or reconnecting a stream could, rarely, free the video decoder while the headset was still using its pictures.
+- `install.sh` failed when its folder's path had a space in it.
+
 ## 1.2.0 (November 2026)
 
 In 1.2.0 I added an eye calibration for the Eyes pointer, fixed the white streak that flashed across the view while pointing at the keyboard, made the trigger grab the screen's move pill and corners, fixed stats that read 0 during a stream, and tidied the text in the headset and the flat window.

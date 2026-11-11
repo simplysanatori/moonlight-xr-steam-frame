@@ -10,7 +10,7 @@
 // Output: the glow swapchain (GLOW_TEX 256 square), premultiplied alpha.
 // Spec constant 0: OUT_LINEAR.
 layout(push_constant) uniform PC {
-    vec4 params;   // u_intensity, u_blur, u_feather, spare
+    vec4 params;   // u_intensity, u_blur, u_feather (1 borderless, 0 the glow as upstream), u_scale
 } pc;
 
 #include "common.glsl"
@@ -19,8 +19,9 @@ layout(set = 0, binding = 0) uniform sampler2D u_texture;
 layout(location = 0) in vec2 v_plain;
 layout(location = 0) out vec4 fragColor;
 
-// 1.7 is GLOW_SCALE and 32.0 is AMBI_SAMPLE_TEX, both kept in step by hand
-const float scale = 1.7;
+// 32.0 is AMBI_SAMPLE_TEX, kept in step by hand. The scale, how much larger
+// than the screen the glow is (GLOW_SCALE, or GLOW_SCALE_WIDE for the Wide
+// Glow edge outside a room), comes from the draw.
 const float size = 32.0;
 
 // A cubic B spline over the colour texture, done as four bilinear fetches
@@ -82,46 +83,51 @@ vec3 blurredSpline(vec2 fuv) {
 }
 
 void main() {
+    float scale = pc.params.w > 1.0 ? pc.params.w : 1.7;
     vec2 uv = v_plain;
     vec2 fuv = (uv - 0.5) * scale + 0.5;
-    // Native (lane wave3-visual), the Picture tab's Glow edge. u_feather is the
-    // depth of the fade into the picture as a fraction of its width and height,
-    // 0 for off, which leaves everything below as it always was. On, the quad
-    // is drawn over the picture instead of under it, and where it covers the
-    // picture it is the glow's colour taken from the border texels, held
-    // inward, at an alpha that is 1 on the picture's edge and eases to 0 a
-    // feather's depth in (the picture's own edge fade in upstream pull request
-    // 35, the same smoothstep, turned round: that fades the picture out over the
-    // glow, this fades the glow in over the picture). fuv is 0..1 across the
-    // picture, so the picture's edge is where it leaves that range.
-    float feather = pc.params.z;
-    vec2 depth = min(fuv, 1.0 - fuv);
-    bool inside = feather > 0.0 && min(depth.x, depth.y) >= 0.0;
-    vec2 sfuv = fuv;
-    float ramp = 0.0;
-    if (inside) {
-        vec2 hold = 1.0 - smoothstep(vec2(0.0), vec2(feather), depth);
-        vec2 edge = vec2(fuv.x < 0.5 ? 0.0 : 1.0, fuv.y < 0.5 ? 0.0 : 1.0);
-        sfuv = mix(fuv, edge, hold);
-        float ft = clamp(min(depth.x, depth.y) / feather, 0.0, 1.0);
-        ramp = 1.0 - ft * ft * (3.0 - 2.0 * ft);
-    }
-    vec3 color;
-    if (pc.params.y > 0.5) {
-        color = blurredSpline(sfuv);
-    } else {
-        color = spline(sfuv);
-    }
-    if (inside) {
-        // Premultiplied: at the edge the glow as it is just outside (colour at
-        // the glow level), then less of it to nothing
-        fragColor = encodeOut(vec4(color * (pc.params.x * ramp), ramp));
-        return;
-    }
     // Distance out into the border, 0 at the screen edge and 1 at the rim
     vec2 d = max(abs(uv - 0.5) - 0.5 / scale, 0.0) / (0.5 - 0.5 / scale);
     float t = min(length(d), 1.0);
     float s = t * t * (3.0 - 2.0 * t);
+    if (pc.params.z > 0.5) {
+        // Native (lane borderless), the Glow edge's Soft and Wide, after Lobs1994's fork of
+        // Moonlight XR. The picture's own border fades out (warp.frag), so this glow sits
+        // under it and is drawn from the raw colour sample (bound here instead of the
+        // lifted copy), at the picture's own brightness: where the picture thins out, the
+        // same colour is underneath and there is no seam. Past the screen each point takes
+        // the colour of the nearest point on the screen's edge, averaged along that edge
+        // over a stretch that widens with the distance, so the glow softens as it goes and
+        // its brightness falls to nothing at the rim. The glow level sets how far it
+        // carries rather than how dark it is, and turns it off at the bottom.
+        vec2 edge = clamp(fuv, 0.0, 1.0);
+        vec2 past = fuv - edge;
+        float dist = length(past);
+        // Along the edge: straight up or down beside the screen, on the slant round a corner
+        vec2 along = vec2(-past.y, past.x) / max(dist, 1e-5);
+        float reachUv = min(0.03 + 0.4 * dist, 0.45);
+        vec3 sum = vec3(0.0);
+        float wsum = 0.0;
+        for (int i = -4; i <= 4; i++) {
+            float f = float(i) * 0.25;
+            float w = exp(-2.2 * f * f);
+            sum += w * texture(u_texture, clamp(edge + along * (f * reachUv), 0.0, 1.0)).rgb;
+            wsum += w;
+        }
+        vec3 spread = mix(spline(fuv), sum / wsum, smoothstep(0.0, 0.1, dist));
+        float level = clamp(pc.params.x, 0.0, 1.0);
+        float carry = mix(2.2, 0.8, level);
+        float af = pow(1.0 - s, carry) * min(1.0, level * 4.0);
+        // Premultiplied, which is what the runtime composites the art as
+        fragColor = encodeOut(vec4(spread * af, af));
+        return;
+    }
+    vec3 color;
+    if (pc.params.y > 0.5) {
+        color = blurredSpline(fuv);
+    } else {
+        color = spline(fuv);
+    }
     float fall = (1.0 - s) * (1.0 - s);
     float a = fall * pc.params.x;
     // Premultiplied, which is what the runtime composites the art as
