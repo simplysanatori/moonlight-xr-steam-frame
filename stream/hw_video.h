@@ -58,6 +58,10 @@ int hw_video_refuse_au(HwVideo* v);
 // Native (lane av-latency): ask for an IDR frame when the decoder flags a
 // damaged picture (used while reference frame invalidation is advertised).
 void hw_video_set_idr_on_corrupt(HwVideo* v, bool on);
+// Native (lane decoder-recovery): called once, from the decode thread, when the decoder becomes unusable
+// (E_FATAL, or I/O errors that do not clear). Set before frames flow.
+void hw_video_set_on_fatal(HwVideo* v, void (*onFatal)(void));
+bool hw_video_failed(HwVideo* v);
 // Frame loop: newest decoded frame, if one arrived since the last take
 // (older queued ones go back to the decoder, counted as skipped).
 bool hw_video_take(HwVideo* v, mlxr_vframe* out);

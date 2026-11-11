@@ -72,6 +72,7 @@ static void testCodes(void) {
     CHECK(mlxr_reconnect_retryable(-102));   // early termination
     CHECK(mlxr_reconnect_retryable(-101));   // no video frame
     CHECK(mlxr_reconnect_retryable(-1));     // control stream timeout, unannounced close
+    CHECK(mlxr_reconnect_retryable(MLXR_TERM_DECODER_FAILED)); // the hardware decoder failed: a fresh one
     CHECK(mlxr_reconnect_retryable(ETIMEDOUT));
     CHECK(mlxr_reconnect_retryable(ECONNRESET));
     CHECK(mlxr_reconnect_retryable(ENETUNREACH));
