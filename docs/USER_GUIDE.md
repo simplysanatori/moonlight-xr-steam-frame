@@ -893,7 +893,7 @@ On the PC, in Apollo:
 - **Permissions.** Apollo gives each paired client its own permissions (the Clients page of its web UI). The Frame needs **Server Command** for the commands, **Clipboard Read** for Paste from PC and **Clipboard Set** for Send text to PC. The first client paired gets everything; a client paired later gets only View and List until you allow more. Apollo lists commands only to a client that has the Server Command permission, so with it off the page says the host has not allowed them.
 - **Apollo 0.2.4 or newer** has the clipboard. Older ones answer "Not supported by this host".
 
-The clipboard sync at the start and end of a stream (Smart clipboard sync on the Settings page) is separate and works as before.
+The clipboard sync at the start and end of a stream (Smart clipboard sync on the Settings page) is separate. The flat window and the headset app pass the text between them in two files in `~/.config/moonlight-xr`, and those files are always encrypted (AES-256-GCM) with a key made fresh for each stream. The key is passed directly from the flat window to the headset app, never written to disk, and forgotten when the stream ends. Each file is deleted as soon as it's read, so nothing you copy or paste is stored in readable form. Between the Frame and the PC the text travels over Apollo's HTTPS connection. The Host sheet's **Paste from PC** and **Send text to PC** keep the text in memory only, and wipe it after use.
 
 ## Ending a stream
 

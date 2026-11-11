@@ -12,6 +12,8 @@ endfunction()
 
 mlxr_backend_test(backend_test_parse test_parse.c)
 mlxr_backend_test(backend_test_crypto test_crypto.c)
+# Lane clipseal: the sealed clipboard hand-off (backend/clipseal.h)
+mlxr_backend_test(backend_test_clipseal test_clipseal.c)
 mlxr_backend_test(backend_test_identity test_identity.c)
 mlxr_backend_test(backend_test_flow test_flow.c fake_host.c)
 mlxr_backend_test(backend_test_netpath test_netpath.c fake_host.c)
