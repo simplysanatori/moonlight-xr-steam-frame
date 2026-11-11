@@ -535,10 +535,15 @@ typedef struct XrCtx {
     int glowDrawnOn;
     float glowDrawnLevel;
     // Native (lane wave3-visual): the Picture tab's Glow edge (GLOW_FEATHER_),
-    // and the one the glow image was last drawn with. Feathered, the glow is
-    // drawn over the picture rather than under it.
+    // and the one the glow image was last drawn with. Native (lane borderless):
+    // on, the picture's border fades out over a glow drawn under it; the glow
+    // image's size against the screen it was drawn for (GLOW_SCALE or
+    // GLOW_SCALE_WIDE), which every place that shows it uses; and the border
+    // fade the newest picture was drawn with (its layer then blends).
     int glowFeather;
     int glowDrawnFeather;
+    float glowDrawnScale;
+    int pictureBorderDrawn;
     int ambilightOn;
     float ambiIntensity;
     int ambiOverride;
@@ -1525,6 +1530,9 @@ void xrSetRoomLevels(XrCtx* ctx, int cell, int brightness, int glow, int light, 
 struct MlxrVideo;
 int initAmbilight(XrCtx* ctx);
 void ambiEffective(XrCtx* ctx, int* on, float* level);
+// Native (lane borderless): the glow's size for a Glow edge mode, and the picture's border fade now
+float xrGlowScaleFor(XrCtx* ctx, int feather);
+int xrPictureBorderFade(XrCtx* ctx);
 void runAmbiBarDetect(XrCtx* ctx, const struct MlxrVideo* video);
 void finishAmbiBarDetect(XrCtx* ctx);
 // Whether the letterbox detector runs and its crop applies: not on a

@@ -465,16 +465,20 @@
 #define BG_DIM_STEP 5
 
 // Glow edge, how the picture's border is softened into the glow round it. Off
-// leaves the hard edge, Soft and Wide fade the outer GLOW_FEATHER_SOFT_FRAC or
-// GLOW_FEATHER_WIDE_FRAC of the picture's width and height into the glow's
-// colour (the fade a picture's own alpha edge would give, upstream pull request
-// 35, 0.15 being its figure). Off by default.
+// leaves the hard edge. Soft and Wide make the screen borderless (after
+// Lobs1994's fork of Moonlight XR): the picture's own outer
+// GLOW_FEATHER_SOFT_FRAC or GLOW_FEATHER_WIDE_FRAC of its width and height
+// fades to transparent (warp.frag, which keeps the two figures in step by
+// hand), and the glow behind it carries the picture's edge colours outward at
+// the picture's own brightness, so the picture runs into the glow with no seam.
+// Wide also spreads the glow GLOW_SCALE_WIDE times the screen outside a room.
+// Off by default.
 #define GLOW_FEATHER_OFF 0
 #define GLOW_FEATHER_SOFT 1
 #define GLOW_FEATHER_WIDE 2
 #define GLOW_FEATHER_COUNT 3
-#define GLOW_FEATHER_SOFT_FRAC 0.06f
-#define GLOW_FEATHER_WIDE_FRAC 0.15f
+#define GLOW_FEATHER_SOFT_FRAC 0.04f
+#define GLOW_FEATHER_WIDE_FRAC 0.08f
 
 // 3D Eye Balance, in whole percent: how the depth's disparity is shared by the
 // two eyes. 0 splits it evenly (the left eye shifts one separation one way,

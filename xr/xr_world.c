@@ -863,12 +863,16 @@ void xrWorldFlatGlow(XrCtx* ctx, int curved) {
 }
 
 // Upstream's curved glow (addGlowLayer's cylinder): the same axis as the
-// picture, a little inside its radius, GLOW_SCALE times its angle and height
+// picture, a little inside its radius, GLOW_SCALE (or the Wide Glow edge's
+// GLOW_SCALE_WIDE) times its angle and height
 void xrWorldCurvedGlow(XrCtx* ctx, const XrEyeTargets* target, const XrView* views) {
     float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
     float fit = cylinderFit(ctx->screenWidth, ctx->screenRadius);
     GlowCylinder shape;
-    if (!glowCylinderFor(ctx->screenWidth * fit, ctx->screenWidth * aspect * fit, ctx->screenRadius, &shape)) {
+    // Native (lane borderless): at the size the glow image was drawn for
+    float scale = ctx->glowDrawnScale > 0.0f ? ctx->glowDrawnScale : GLOW_SCALE;
+    if (!glowCylinderForScale(ctx->screenWidth * fit, ctx->screenWidth * aspect * fit, ctx->screenRadius, scale,
+                              &shape)) {
         return;
     }
     MlxrPanelParams pp;
@@ -903,8 +907,9 @@ void xrWorldFlatGlowInto(XrCtx* ctx, const XrEyeTargets* target, const XrView* v
     memset(&pp, 0, sizeof(pp));
     pp.src = ctx->glowTexture.view;
     // The glow quad's size and place (addGlowLayer), flat
-    pp.width = ctx->screenWidth * GLOW_SCALE;
-    pp.height = ctx->screenWidth * aspect * GLOW_SCALE;
+    float scale = ctx->glowDrawnScale > 0.0f ? ctx->glowDrawnScale : GLOW_SCALE; // native (lane borderless)
+    pp.width = ctx->screenWidth * scale;
+    pp.height = ctx->screenWidth * aspect * scale;
     pp.radius = 0.0f;
     pp.segments = 1;
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;

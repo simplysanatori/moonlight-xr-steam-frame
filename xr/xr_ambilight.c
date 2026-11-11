@@ -377,7 +377,13 @@ void runGlowRender(XrCtx* ctx) {
     }
     // Read once, so the copy and the draw agree on which way this glow goes
     int norm = ctx->glowNorm;
-    if (norm) {
+    // Native (lane wave3-visual, lane borderless): the Picture tab's Glow edge,
+    // read once so the drawn mode and the one glowStale compares are the same.
+    // Borderless, the glow is drawn from the raw sample (the picture's own
+    // brightness), so the lifted copy is not needed.
+    int feather = ctx->glowFeather;
+    float scale = xrGlowScaleFor(ctx, feather);
+    if (norm && feather == GLOW_FEATHER_OFF) {
         runGlowEdge(ctx);
     }
     xrVkImageTo(ctx, &ctx->glowTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -391,20 +397,37 @@ void runGlowRender(XrCtx* ctx) {
     t.rect.extent = (VkExtent2D){ GLOW_TEX, GLOW_TEX };
     MlxrGlowParams g;
     memset(&g, 0, sizeof(g));
-    g.sample = norm ? ctx->glowEdgeTexture.view : ctx->ambiTexture.view;
+    int borderless = feather != GLOW_FEATHER_OFF;
+    g.sample = norm && !borderless ? ctx->glowEdgeTexture.view : ctx->ambiTexture.view;
     g.intensity = level;
-    g.blur = norm ? 1 : 0;
-    // Native (lane wave3-visual): the Picture tab's Glow edge, read once so the
-    // drawn mode and the one glowStale compares are the same
-    int feather = ctx->glowFeather;
-    g.feather = glowFeatherFraction(feather);
+    g.blur = norm && !borderless ? 1 : 0;
+    g.borderless = borderless;
+    g.scale = scale;
     mlxr_pass_glow(ctx->passes, ctx->frameCmd, &t, &g);
     xrVkImageTo(ctx, &ctx->glowTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     ctx->glowRendered = 1;
     ctx->glowDrawnOn = 1;
     ctx->glowDrawnLevel = level;
     ctx->glowDrawnFeather = feather;
+    ctx->glowDrawnScale = scale;
     ctx->glowCopied = 0;
+}
+
+// Native (lane borderless): how much larger than the screen the glow is drawn
+// for a Glow edge mode: GLOW_SCALE_WIDE for Wide with no room up (in a room it
+// would cover the walls), GLOW_SCALE otherwise
+float xrGlowScaleFor(XrCtx* ctx, int feather) {
+    return feather == GLOW_FEATHER_WIDE && roomEffective(ctx) < ROOM_STYLE_FIRST ? GLOW_SCALE_WIDE : GLOW_SCALE;
+}
+
+// Native (lane borderless): the border fade the picture is drawn with: the
+// Glow edge's mode while the glow is on, else none, so a picture never fades
+// into nothing
+int xrPictureBorderFade(XrCtx* ctx) {
+    int on;
+    float level;
+    ambiEffective(ctx, &on, &level);
+    return on && level > 0.0f ? ctx->glowFeather : GLOW_FEATHER_OFF;
 }
 
 int glowStale(XrCtx* ctx) {
@@ -414,7 +437,7 @@ int glowStale(XrCtx* ctx) {
     // Native (PLAN 4b.6): or the zoom moved, which changes what the colours are of
     int zoomed = ctx->glowZoom[0] != ctx->zoomPct || ctx->glowZoom[1] != ctx->zoomX || ctx->glowZoom[2] != ctx->zoomY;
     return on && (!ctx->glowDrawnOn || level != ctx->glowDrawnLevel || ctx->glowFeather != ctx->glowDrawnFeather
-                  || zoomed);
+                  || xrGlowScaleFor(ctx, ctx->glowFeather) != ctx->glowDrawnScale || zoomed);
 }
 
 // A desktop standing still sends no frames, which left the level slider and

@@ -555,6 +555,31 @@ static void testCylinderEdgeCases(void) {
     CHECK(g.rectX == 0 && g.rectWidth == GLOW_TEX);
 }
 
+// Native (lane borderless): the Wide Glow edge's cylinder, the same rules at a
+// scale of the caller's choosing
+static void testCylinderAtAScale(void) {
+    GlowCylinder a, b;
+    // At GLOW_SCALE it is exactly glowCylinderFor
+    CHECK(glowCylinderFor(3.0f, 3.0f * 9.0f / 16.0f, 3.0f, &a));
+    CHECK(glowCylinderForScale(3.0f, 3.0f * 9.0f / 16.0f, 3.0f, GLOW_SCALE, &b));
+    CHECK(a.rectX == b.rectX && a.rectWidth == b.rectWidth);
+    CHECK_NEAR(a.centralAngle, b.centralAngle, 1e-6);
+    CHECK_NEAR(a.aspectRatio, b.aspectRatio, 1e-6);
+    // Wide on the default screen at full curve wants 6 rad: all the columns, just inside the limit
+    CHECK(glowCylinderForScale(3.0f, 3.0f * 9.0f / 16.0f, 3.0f, GLOW_SCALE_WIDE, &b));
+    CHECK(b.centralAngle <= GLOW_MAX_ANGLE && b.rectWidth >= 2);
+    // The height grows by the same scale as the angle
+    CHECK_NEAR(b.radius * b.centralAngle / b.aspectRatio, GLOW_SCALE_WIDE * 3.0f * 9.0f / 16.0f, 1e-3);
+    // A tighter curve that would close the circle is cut to its middle columns
+    CHECK(glowCylinderForScale(3.0f, 3.0f * 9.0f / 16.0f, 1.0f, GLOW_SCALE_WIDE, &b));
+    CHECK(b.centralAngle <= GLOW_MAX_ANGLE && b.rectWidth < GLOW_TEX && b.rectWidth >= 2);
+    CHECK(b.rectX == (GLOW_TEX - b.rectWidth) / 2);
+    // No scale, no cylinder
+    b.rectWidth = -7;
+    CHECK(!glowCylinderForScale(3.0f, 1.7f, 3.0f, 0.0f, &b));
+    CHECK(b.rectWidth == -7);
+}
+
 int main(void) {
     testSteadyLuma();
     testBlackStaysDark();
@@ -570,5 +595,6 @@ int main(void) {
     testFlatGlowHidesBehindACloseCurve();
     testCylinderFollowsTheScreen();
     testCylinderEdgeCases();
+    testCylinderAtAScale();
     return checksDone("xr_glow");
 }

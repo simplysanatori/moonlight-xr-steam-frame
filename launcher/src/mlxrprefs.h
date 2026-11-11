@@ -63,7 +63,7 @@ class MlxrPrefs : public QObject
     Q_PROPERTY(int eyeBalance MEMBER eyeBalance NOTIFY changed)
     // Native (lane wave3-visual): the surroundings. [vr] background_dim, 0..100 percent the room, the
     // passthrough or the void is dimmed; [vr] void_color, "#rrggbb", the void's colour; [display]
-    // glow_feather, "off", "soft" or "wide", the picture's edge faded into the glow
+    // glow_feather, "off", "soft" or "wide", the borderless screen: the picture's edge faded into the glow
     Q_PROPERTY(int backgroundDim MEMBER backgroundDim NOTIFY changed)
     Q_PROPERTY(QString voidColor MEMBER voidColor NOTIFY changed)
     Q_PROPERTY(QString glowFeather MEMBER glowFeather NOTIFY changed)
