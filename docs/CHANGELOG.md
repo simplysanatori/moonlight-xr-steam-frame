@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 (November 2026)
 
 I made the Glow edge borderless, encrypted the clipboard sync, and fixed a picture that froze after a decoder error.
 
