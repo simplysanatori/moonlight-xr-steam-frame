@@ -31,6 +31,9 @@
 // the user quit it there), -103 protected content and -104 frame conversion
 // (the host cannot encode, retrying meets the same wall) or anything else.
 int mlxr_reconnect_retryable(int termCode);
+// Native (lane decoder-recovery): not a common-c code. The session ends the stream with it when the hardware
+// decoder failed for good; a retry opens a fresh decoder, so it is retryable.
+#define MLXR_TERM_DECODER_FAILED (-1001)
 
 // What a try came to
 typedef enum {

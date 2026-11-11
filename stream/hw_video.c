@@ -48,8 +48,17 @@ struct HwVideo {
     uint64_t idrMinNs;
     atomic_uint_fast64_t lastErrIdrNs;
     bool formatChange; // decode thread waits until the renderer is done
+    // Native (lane decoder-recovery): the decoder is unusable (E_FATAL, or E_IO that would not clear). The
+    // decode thread has stopped; onFatal (set by the session) is called once so the stream can be retried.
+    atomic_int failed;
+    void (*onFatal)(void);
     HwVideoStats st;
 };
+
+// Native (lane decoder-recovery): an ioctl error that keeps coming back is treated as fatal after this many in a
+// row, and each one waits a little first, so a dead decoder neither spins a core nor floods the log
+#define HW_IO_ERRORS_FATAL 50
+#define HW_IO_ERROR_WAIT_NS 10000000L
 
 static uint64_t monoNs(void) {
     struct timespec ts;
@@ -102,6 +111,7 @@ static void popOldest(HwVideo* v, mlxr_vframe* out, uint64_t nowNs) {
 static void* decodeThread(void* arg) {
     HwVideo* v = arg;
     int prioDone = 0;
+    int ioErrors = 0; // Native (lane decoder-recovery): E_IO in a row
     while (!atomic_load(&v->stop)) {
         // Native (lane perf): once, above the frame loop's helpers and the
         // depth engine (MLXR_VIDEO_PRIORITY, see session.c)
@@ -114,6 +124,18 @@ static void* decodeThread(void* arg) {
         mlxr_vframe f;
         int r = mlxr_vdec_receive(v->dec, &f, 50);
         if (r == MLXR_VDEC_AGAIN) continue;
+        if (r == MLXR_VDEC_E_IO) {
+            // Native (lane decoder-recovery): the decoder logged the ioctl; wait before asking again
+            if (++ioErrors >= HW_IO_ERRORS_FATAL) {
+                MLOG_E("video: %d decoder I/O errors in a row; treating the decoder as failed", ioErrors);
+                r = MLXR_VDEC_E_FATAL;
+            }
+            else {
+                struct timespec ts = { 0, HW_IO_ERROR_WAIT_NS };
+                nanosleep(&ts, NULL);
+            }
+        }
+        else ioErrors = 0;
         if (r == MLXR_VDEC_FORMAT_CHANGE) {
             MLOG_I("video: resolution change, waiting for the renderer to drop its imports");
             pthread_mutex_lock(&v->lock);
@@ -140,7 +162,11 @@ static void* decodeThread(void* arg) {
                 v->requestIdr();
             }
             if (r == MLXR_VDEC_E_FATAL) {
-                MLOG_E("video: decoder fatal error; stopping hardware decode");
+                // Native (lane decoder-recovery): was a frozen picture for the rest of the stream; the session now
+                // retries the stream (a fresh decoder) through the reconnect path
+                MLOG_E("video: decoder fatal error; stopping hardware decode and asking for a reconnect");
+                atomic_store(&v->failed, 1);
+                if (v->onFatal) v->onFatal();
                 break;
             }
             continue;
@@ -177,6 +203,7 @@ static void* decodeThread(void* arg) {
 
 HwVideo* hw_video_open(mlxr_codec codec, uint32_t width, uint32_t height, void (*requestIdr)(void)) {
     HwVideo* v = calloc(1, sizeof(*v));
+    if (!v) return NULL;
     mlxr_vdec_config cfg;
     mlxr_vdec_config_defaults(&cfg);
     cfg.codec = codec;
@@ -218,7 +245,14 @@ HwVideo* hw_video_open(mlxr_codec codec, uint32_t width, uint32_t height, void (
     v->idrMinNs = (uint64_t)idrMinMs * 1000000ull;
     MLOG_I("video: decoder errors ask for an IDR frame at most every %d ms (MLXR_VIDEO_IDR_MIN_MS=%s)", idrMinMs,
            idrMin ? idrMin : "unset");
-    pthread_create(&v->thread, NULL, decodeThread, v);
+    if (pthread_create(&v->thread, NULL, decodeThread, v) != 0) {
+        MLOG_E("video: cannot start the decode thread");
+        mlxr_vdec_close(v->dec);
+        pthread_mutex_destroy(&v->lock);
+        pthread_cond_destroy(&v->cond);
+        free(v);
+        return NULL;
+    }
     MLOG_I("video: hardware %s decoder open (%ux%u)", codec == MLXR_CODEC_HEVC ? "HEVC" : "H.264", width, height);
     return v;
 }
@@ -269,6 +303,8 @@ int hw_video_refuse_au(HwVideo* v) {
 }
 
 void hw_video_set_idr_on_corrupt(HwVideo* v, bool on) { v->idrOnCorrupt = on; }
+void hw_video_set_on_fatal(HwVideo* v, void (*onFatal)(void)) { v->onFatal = onFatal; }
+bool hw_video_failed(HwVideo* v) { return v && atomic_load(&v->failed); }
 void hw_video_set_thread_priority(HwVideo* v, int mode) { atomic_store(&v->prioMode, mode); }
 
 bool hw_video_take(HwVideo* v, mlxr_vframe* out) {

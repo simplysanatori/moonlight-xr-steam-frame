@@ -10,6 +10,7 @@ int mlxr_reconnect_retryable(int termCode) {
     case -101: // ML_ERROR_NO_VIDEO_FRAME
     case -102: // ML_ERROR_UNEXPECTED_EARLY_TERMINATION
     case -1:   // the control stream timed out, was closed unannounced, or a thread failed
+    case MLXR_TERM_DECODER_FAILED:
         return 1;
     case ENETDOWN:
     case ENETUNREACH:
