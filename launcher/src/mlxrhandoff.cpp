@@ -12,6 +12,7 @@
 #include "streaming/mlxrpreflight.h"
 #include "streaming/mlxronstart.h"
 #include "streaming/mlxrupdate.h"
+#include "streaming/clipseal.h"   // lane clipseal: copied from backend/ by launcher/build.sh
 #include "backend/computermanager.h"
 #include "backend/nvhttp.h"
 
@@ -338,6 +339,8 @@ static bool writeAtomic(const QString& path, const QByteArray& data, QFile::Perm
         *error = QObject::tr("Cannot write %1: %2").arg(path, f.errorString());
         return false;
     }
+    // Native (lane clipseal): the mode before the data, on the temporary file, so it never sits at the umask's
+    f.setPermissions(perms);
     f.write(data);
     if (!f.commit()) {
         *error = QObject::tr("Cannot write %1: %2").arg(path, f.errorString());
@@ -953,43 +956,91 @@ void fadeFlatWindow(QWindow* window, bool out)
 // Apollo serves actions/clipboard only to a client that streams right now, so the VR client does the
 // requests (app/main.c: after the stream is up, before it stops); the launcher owns the desktop
 // clipboard and hands the text over in two files in the VR client's config dir (0600).
+// Lane clipseal: the files are AES-256-GCM sealed (backend/clipseal.h) under a key made fresh for each
+// stream. The key goes to the VR client on its stdin pipe, never to disk, the command line or the
+// environment, and is wiped when the stream ends; nothing copied or pasted is written in the clear.
 static QString clipboardFile(const char* name)
 {
     return nativeConfigDir() + "/" + name;
 }
 
-static void clipboardBeforeStream()
+static void wipe(QByteArray& b)
+{
+    if (!b.isEmpty()) OPENSSL_cleanse(b.data(), (size_t)b.size());
+    b.clear();
+}
+
+static void clipboardRemoveFiles()
+{
+    QFile::remove(clipboardFile(MLXR_CLIPSEAL_TO_HOST_FILE));
+    QFile::remove(clipboardFile(MLXR_CLIPSEAL_FROM_HOST_FILE));
+    // the unencrypted hand-off of 1.2.0 and before
+    QFile::remove(clipboardFile(MLXR_CLIPSEAL_LEGACY_TO_HOST_FILE));
+    QFile::remove(clipboardFile(MLXR_CLIPSEAL_LEGACY_FROM_HOST_FILE));
+}
+
+static void clipboardBeforeStream(const uint8_t* key)
 {
     QDir().mkpath(nativeConfigDir());
-    QFile::remove(clipboardFile("clipboard-from-host.txt"));
+    clipboardRemoveFiles();
     QClipboard* cb = QGuiApplication::clipboard();
     // tests: MLXR_LAUNCHER_TEST_CLIPBOARD puts text on the clipboard first
     if (cb && qEnvironmentVariableIsSet("MLXR_LAUNCHER_TEST_CLIPBOARD")) {
         cb->setText(qEnvironmentVariable("MLXR_LAUNCHER_TEST_CLIPBOARD"));
     }
-    const QByteArray text = cb ? cb->text().toUtf8() : QByteArray();
+    QByteArray text = cb ? cb->text().toUtf8() : QByteArray();
+    if (text.size() > (int)MLXR_CLIPSEAL_MAX_TEXT) {
+        qWarning().noquote() << "MLXR_LAUNCHER_CLIPBOARD: the clipboard is larger than" << MLXR_CLIPSEAL_MAX_TEXT
+                             << "bytes; not handed over";
+        wipe(text);
+        return;
+    }
+    QByteArray sealed(text.size() + MLXR_CLIPSEAL_OVERHEAD, '\0');
+    size_t sealedLen = 0;
+    const int n = text.size();
+    const bool ok = mlxr_clipseal_seal(key, MLXR_CLIPSEAL_TO_HOST, text.constData(), (size_t)n,
+                                       reinterpret_cast<uint8_t*>(sealed.data()), (size_t)sealed.size(), &sealedLen) == 0;
+    wipe(text);
     QString error;
-    writeAtomic(clipboardFile("clipboard-to-host.txt"), text, QFile::ReadOwner | QFile::WriteOwner, &error);
-    qInfo().noquote() << "MLXR_LAUNCHER_CLIPBOARD: handing" << text.size() << "bytes to the VR client for the host";
+    if (!ok || !writeAtomic(clipboardFile(MLXR_CLIPSEAL_TO_HOST_FILE), sealed.left((int)sealedLen),
+                            QFile::ReadOwner | QFile::WriteOwner, &error)) {
+        qWarning().noquote() << "MLXR_LAUNCHER_CLIPBOARD: not handed over:" << (ok ? error : QString("sealing failed"));
+        return;
+    }
+    qInfo().noquote() << "MLXR_LAUNCHER_CLIPBOARD: handing" << n << "bytes, sealed, to the VR client for the host";
 }
 
-static void clipboardAfterStream()
+static void clipboardAfterStream(const uint8_t* key)
 {
-    QFile::remove(clipboardFile("clipboard-to-host.txt"));
-    QFile f(clipboardFile("clipboard-from-host.txt"));
-    if (!f.open(QIODevice::ReadOnly)) {
+    QFile::remove(clipboardFile(MLXR_CLIPSEAL_TO_HOST_FILE));
+    QFile f(clipboardFile(MLXR_CLIPSEAL_FROM_HOST_FILE));
+    QByteArray sealed;
+    if (f.open(QIODevice::ReadOnly)) {
+        sealed = f.read(MLXR_CLIPSEAL_MAX_TEXT + MLXR_CLIPSEAL_OVERHEAD + 1);
+        f.close();
+    }
+    f.remove();
+    if (sealed.isEmpty()) {
         const QString none = "MLXR_LAUNCHER_CLIPBOARD: nothing came back from the host";
         QTextStream(stdout) << none << Qt::endl;
         qInfo().noquote() << none;
         return;
     }
-    const QString text = QString::fromUtf8(f.readAll());
-    f.close();
-    f.remove();
-    if (QClipboard* cb = QGuiApplication::clipboard()) {
-        cb->setText(text);
+    QByteArray text(sealed.size() + 1, '\0');
+    size_t len = 0;
+    if (mlxr_clipseal_open(key, MLXR_CLIPSEAL_FROM_HOST, reinterpret_cast<const uint8_t*>(sealed.constData()),
+                           (size_t)sealed.size(), text.data(), (size_t)text.size(), &len) != 0) {
+        const QString bad = "MLXR_LAUNCHER_CLIPBOARD: what came back did not open with this stream's key; ignored";
+        QTextStream(stdout) << bad << Qt::endl;
+        qWarning().noquote() << bad;
+        wipe(text);
+        return;
     }
-    const QString line = QString("MLXR_LAUNCHER_CLIPBOARD: took %1 bytes from the host").arg(text.toUtf8().size());
+    if (QClipboard* cb = QGuiApplication::clipboard()) {
+        cb->setText(QString::fromUtf8(text.constData(), (int)len));
+    }
+    wipe(text);
+    const QString line = QString("MLXR_LAUNCHER_CLIPBOARD: took %1 bytes from the host").arg(len);
     QTextStream(stdout) << line << Qt::endl;
     qInfo().noquote() << line;
 }
@@ -1001,13 +1052,25 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
     if (plan.steamVrRefreshRate > 0) {
         setSteamVrRefreshRate(plan.steamVrRefreshRate);
     }
+    // Lane clipseal: this stream's clipboard key, in this process's memory only, wiped when run() returns
+    struct ClipKey {
+        uint8_t key[MLXR_CLIPSEAL_KEY_BYTES];
+        bool on = false;
+        ~ClipKey()
+        {
+            if (on) clipboardAfterStream(key);
+            OPENSSL_cleanse(key, sizeof(key));
+        }
+    } clip;
     if (plan.clipboardSync) {
-        clipboardBeforeStream();
+        if (mlxr_clipseal_new_key(clip.key) == 0) {
+            clip.on = true;
+            clipboardBeforeStream(clip.key);
+        }
+        else {
+            qWarning().noquote() << "MLXR_LAUNCHER_CLIPBOARD: no random key to be had; clipboard sync is off for this stream";
+        }
     }
-    struct After {
-        bool on;
-        ~After() { if (on) clipboardAfterStream(); }
-    } after { plan.clipboardSync };
     const QString cmd = commandLine(plan);
     const QString dry = qEnvironmentVariable("MLXR_LAUNCHER_DRYRUN");
     if (!dry.isEmpty()) {
@@ -1038,7 +1101,9 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
 
     QProcess proc;
     proc.setProgram(plan.program);
-    proc.setArguments(plan.arguments);
+    // Lane clipseal: the key comes on stdin (written below once the client runs); the flag is added here only,
+    // so the command line logged and shown by the dry run is the same as before
+    proc.setArguments(clip.on ? plan.arguments + QStringList { "--clipboard-key-stdin" } : plan.arguments);
     proc.setWorkingDirectory(plan.workingDir);
     proc.setProcessChannelMode(QProcess::MergedChannels);
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
@@ -1094,6 +1159,15 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
         r.exitCode = 127;
         r.message = QObject::tr("The VR client could not be started (%1): %2").arg(plan.program, proc.errorString());
         return r;
+    }
+    // Lane clipseal: the key's one line on the client's stdin, then stdin closed
+    if (clip.on) {
+        char line[MLXR_CLIPSEAL_KEY_LINE_BYTES + 1];
+        mlxr_clipseal_key_line(clip.key, line);
+        proc.write(line, (qint64)MLXR_CLIPSEAL_KEY_LINE_BYTES);
+        OPENSSL_cleanse(line, sizeof(line));
+        proc.waitForBytesWritten(3000);
+        proc.closeWriteChannel();
     }
     if (onStarted) onStarted();
     // The Qt window stays up and answers paints and network replies, but takes no clicks or keys
