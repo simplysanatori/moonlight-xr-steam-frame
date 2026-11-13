@@ -36,6 +36,18 @@ foreach(t prefs hits launcher budget vrkb panels_async kbbar stats replay hud pl
   endif()
 endforeach()
 
+# Native (lane beam-order): the hover sweep's beam place with the held places off (the default since
+# issue #5) and the pointer ahead of the hover layers, with the dot last, and 1.3.1's order with the held
+# places (xr_layers.c pointerOrder)
+if(TARGET test_m4_kbbar)
+  add_test(NAME m4_kbbar_pointer_order COMMAND test_m4_kbbar hover)
+  set_tests_properties(m4_kbbar_pointer_order PROPERTIES ENVIRONMENT "MLXR_HOLD_PLACES=0;MLXR_POINTER_ORDER=1")
+  add_test(NAME m4_kbbar_dot_last COMMAND test_m4_kbbar hover)
+  set_tests_properties(m4_kbbar_dot_last PROPERTIES ENVIRONMENT "MLXR_HOLD_PLACES=0;MLXR_POINTER_ORDER=2")
+  add_test(NAME m4_kbbar_order0_held COMMAND test_m4_kbbar hover)
+  set_tests_properties(m4_kbbar_order0_held PROPERTIES ENVIRONMENT "MLXR_HOLD_PLACES=1;MLXR_POINTER_ORDER=0")
+endif()
+
 # Native (lane ray-glitch): the ray recorder's CSV replayed through the input
 # code, a synthetic one made by data/make_ray_replay.py
 if(TARGET test_m4_replay)

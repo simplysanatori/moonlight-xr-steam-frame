@@ -3970,7 +3970,7 @@ static void beamFrom(XrCtx* ctx, const InputFrame* f, int h, int by) {
     }
 }
 
-static const char* hoverKindName(int hover) {
+const char* xrHoverKindName(int hover) {
     static const char* const names[] = {
         [HOVER_NONE] = "nothing", [HOVER_SCREEN] = "the picture", [HOVER_BAR] = "the bar",
         [HOVER_CORNER] = "a corner", [HOVER_ENVBUTTON] = "the room button", [HOVER_PICKER] = "the room grid",
@@ -4009,7 +4009,7 @@ void xrBeamClipSay(XrCtx* ctx, int clip, XrVector3f start, XrVector3f end) {
          "head %.3f %.3f %.3f facing %.2f %.2f %.2f; left %s placed %d, right %s placed %d, eyes placed %d",
          (clip & BEAM_CLIP_GONE) ? "hidden" : (clip & BEAM_CLIP_END) ? "cut short at the end"
                                                                     : "cut short at the start",
-         ctx->beamClipTrips, h, hoverKindName(ctx->hoverKind), beamByName(ctx->beamBy),
+         ctx->beamClipTrips, h, xrHoverKindName(ctx->hoverKind), beamByName(ctx->beamBy),
          start.x, start.y, start.z, end.x, end.y, end.z, ctx->beamAim.x, ctx->beamAim.y, ctx->beamAim.z,
          ctx->headPos.x, ctx->headPos.y, ctx->headPos.z,
          ctx->headForward.x, ctx->headForward.y, ctx->headForward.z,

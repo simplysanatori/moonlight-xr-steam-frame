@@ -97,6 +97,11 @@ typedef struct {
     // Native (lane beam-streak): the layers in order[] that only hold a place (holdPlace)
     const void* held[FRAME_MAX_LAYERS];
     uint32_t heldCount;
+    // Native (lane beam-order): with MLXR_POINTER_ORDER=2 the dwell's mark and the dot wait here while the
+    // hover layers go in, and go in last (pointerLate)
+    const void* late[2];
+    uint32_t lateCount;
+    int lateOpen;
 } FrameLayers;
 
 // Upstream kept these on nativeEndFrame's stack for as long as xrEndFrame
@@ -146,6 +151,11 @@ static void dropLayer(FrameLayers* layers, const void* layer) {
 }
 
 static void pushLayer(XrCtx* ctx, FrameLayers* layers, const void* layer) {
+    // Native (lane beam-order): the dwell's mark and the dot held back to go in last (pointerLate)
+    if (layers->lateOpen && layers->lateCount < 2) {
+        layers->late[layers->lateCount++] = layer;
+        return;
+    }
     if (layers->count >= FRAME_MAX_LAYERS) {
         if (!ctx->layerDropWarned) {
             ctx->layerDropWarned = 1;
@@ -239,6 +249,49 @@ static int pictureBlendAllowed(void) {
     return allowed;
 }
 
+// Native (lane beam-order): where the pointer goes in the frame's list of layers. SteamVR seems to keep
+// some of a layer's state by its place in the list: when a layer that comes and goes with the hover (the
+// ring round a key, the bar's buttons) sat ahead of the beam, the beam took its place for a frame and was
+// drawn with the old occupant's pose, a white streak up through the view (docs/dev/ray-debug.md). With
+// MLXR_POINTER_ORDER unset or 1 the pointer (the dwell's mark, the beam and the dot) goes in after the
+// layers that only change when a panel opens or shuts, and every hover-only layer after it (the move bar
+// or a corner, the bar's buttons, the rings, the controller models), so the hover never moves it. The
+// cost: a bar button or the move bar is drawn over the dot while the ray is on it. 2 puts the beam there
+// but the dwell's mark and the dot last, over everything but the toast; 0 is 1.3.1's order. Said once
+// at the start (xrLayerSwitchesSay).
+#define POINTER_ORDER_AS_131 0
+#define POINTER_ORDER_AHEAD 1
+#define POINTER_ORDER_DOT_LAST 2
+static int pointerOrder(void) {
+    static int order = -1;
+    if (order < 0) {
+        const char* v = getenv("MLXR_POINTER_ORDER");
+        order = v != NULL && v[0] >= '0' && v[0] <= '2' && v[1] == '\0' ? v[0] - '0' : POINTER_ORDER_AHEAD;
+    }
+    return order;
+}
+
+// Native (lane beam-order): MLXR_BEAM_BLANK=1 draws the beam and the dot clear for one frame when the
+// number of layers ahead of the pointer changed from the frame before. They keep their places in the
+// list (the clear patch holdPlace shows), so the frame after does not move them again. Off by default.
+static int beamBlankOn(void) {
+    static int on = -1;
+    if (on < 0) {
+        const char* v = getenv("MLXR_BEAM_BLANK");
+        on = v != NULL && v[0] == '1';
+    }
+    return on;
+}
+
+// The clear patch from the middle of the ring's art (tests/m4/test_kbbar.c heldPlacesClear)
+static void clearArt(XrCompositionLayerQuad* quad) {
+    UiRectPx o = xrAtlasRect(ATLAS_OUTLINE);
+    quad->subImage.imageRect.offset.x = o.x + o.w / 2 - 2;
+    quad->subImage.imageRect.offset.y = o.y + o.h / 2 - 2;
+    quad->subImage.imageRect.extent.width = 4;
+    quad->subImage.imageRect.extent.height = 4;
+}
+
 static void holdPlace(XrCtx* ctx, FrameLayers* layers, XrCompositionLayerQuad* quad, XrSpace space,
                       XrPosef near) {
     int mode = holdPlacesMode();
@@ -265,6 +318,13 @@ static void holdPlace(XrCtx* ctx, FrameLayers* layers, XrCompositionLayerQuad* q
 }
 
 void xrLayerSwitchesSay(void) {
+    static const char* const orderNames[] = { "as 1.3.1", "ahead of the hover layers",
+                                              "the beam ahead of the hover layers, the dot last" };
+    const char* order = getenv("MLXR_POINTER_ORDER");
+    const char* blank = getenv("MLXR_BEAM_BLANK");
+    LOGEV("beam streak switches: pointer %s (MLXR_POINTER_ORDER=%s: 1 ahead, 2 the dot last, 0 as 1.3.1), "
+          "beam blank %s (MLXR_BEAM_BLANK=%s)", orderNames[pointerOrder()], order ? order : "unset",
+          beamBlankOn() ? "on, a frame when the layers ahead change" : "off", blank ? blank : "unset");
     static const char* const holdNames[] = { "off", "as 1.2.0", "5 cm across", "spread 2 cm apart" };
     const char* hold = getenv("MLXR_HOLD_PLACES");
     const char* blend = getenv("MLXR_PICTURE_BLEND");
@@ -279,7 +339,7 @@ void xrLayerSwitchesSay(void) {
 // fewest and most layers, the held places' average and most, how many frames changed the count from
 // the frame before, and how many had to drop a layer for the runtime's limit
 static struct {
-    uint32_t frames, least, most, heldSum, heldMost, changed, dropped, last;
+    uint32_t frames, least, most, heldSum, heldMost, changed, dropped, last, beamMoved;
 } layerStats;
 
 static void countLayers(uint32_t wanted, uint32_t count, uint32_t held) {
@@ -296,11 +356,129 @@ static void countLayers(uint32_t wanted, uint32_t count, uint32_t held) {
 void xrLayerStatsLine(char* buf, int len) {
     uint32_t n = layerStats.frames;
     snprintf(buf, (size_t)len, "layers %u to %u over %u frames, held places %.1f avg (max %u), count changed on %u, "
-             "over the limit on %u", n ? layerStats.least : 0, layerStats.most, n,
-             n ? (double)layerStats.heldSum / n : 0.0, layerStats.heldMost, layerStats.changed, layerStats.dropped);
+             "over the limit on %u, beam moved in the list on %u", n ? layerStats.least : 0, layerStats.most, n,
+             n ? (double)layerStats.heldSum / n : 0.0, layerStats.heldMost, layerStats.changed, layerStats.dropped,
+             layerStats.beamMoved);
     uint32_t last = layerStats.last;
     memset(&layerStats, 0, sizeof(layerStats));
     layerStats.last = last;
+}
+
+// Native (lane beam-order): the beam's place in the list, frame to frame. A line on each frame the beam's
+// place or the count changed (the beam's place old -> new, -1 for none, the count, the hover, whether the
+// UI atlas was taken from its swapchain that frame, and whether the beam was blanked), at most
+// BEAM_PLACE_LINES a second, of which only BEAM_PLACE_COUNT_LINES for a count alone. The rest of the
+// second goes into one line at its end, with the worst move of the beam among them written in full, so
+// no frame that could have drawn the streak goes unsaid.
+#define BEAM_PLACE_LINES 8
+#define BEAM_PLACE_COUNT_LINES 2
+typedef struct {
+    int beam;
+    uint32_t count;
+    int hover, key;
+} BeamPlace;
+
+typedef struct {
+    BeamPlace was, now;
+    int atlas, blanked;
+} BeamPlaceChange;
+
+static struct {
+    BeamPlace last;
+    int lastValid;
+    uint32_t ahead;
+    int aheadValid;
+    int64_t windowNs;
+    int lines;
+    uint32_t moreChanges, moreMoves, moreAtlas;
+    int worstValid;
+    BeamPlaceChange worst;
+} beamPlace;
+
+static void beamHoverName(char* buf, size_t len, const BeamPlace* p) {
+    if (p->hover == HOVER_KBPANEL) {
+        if (p->key >= 0) snprintf(buf, len, "%s (key %d)", xrHoverKindName(p->hover), p->key);
+        else snprintf(buf, len, "%s (off the keys)", xrHoverKindName(p->hover));
+    }
+    else {
+        snprintf(buf, len, "%s", xrHoverKindName(p->hover));
+    }
+}
+
+static void beamPlaceLine(const char* lead, const BeamPlaceChange* c) {
+    char was[64], now[64];
+    beamHoverName(was, sizeof(was), &c->was);
+    beamHoverName(now, sizeof(now), &c->now);
+    LOGEV("beam place: %sbeam %d -> %d%s, layers %u -> %u, hover %s -> %s, atlas %s, pointer order %d%s", lead,
+          c->was.beam, c->now.beam, c->was.beam >= 0 && c->now.beam >= 0 && c->was.beam != c->now.beam ? " (moved)" : "",
+          c->was.count, c->now.count, was, now, c->atlas ? "re-acquired" : "not acquired", pointerOrder(),
+          c->blanked ? ", beam and dot blanked" : "");
+}
+
+static int beamIndexIn(const FrameLayers* layers) {
+    for (uint32_t i = 0; i < layers->count; i++) {
+        if (layers->order[i] == (const XrCompositionLayerBaseHeader*)&layers->beam) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static void beamPlaceSay(XrCtx* ctx, const FrameLayers* layers, int blanked, int64_t now) {
+    if (beamPlace.moreChanges > 0 && now - beamPlace.windowNs >= 1000000000LL) {
+        char lead[160];
+        snprintf(lead, sizeof(lead), "%u more changes in the last second not written, %u of them moved the beam, %u "
+                 "with the atlas re-acquired; the worst: ", beamPlace.moreChanges, beamPlace.moreMoves,
+                 beamPlace.moreAtlas);
+        if (beamPlace.worstValid) {
+            beamPlaceLine(lead, &beamPlace.worst);
+        }
+        else {
+            LOGEV("beam place: %u more changes in the last second not written, none moved the beam (%u with the "
+                  "atlas re-acquired)", beamPlace.moreChanges, beamPlace.moreAtlas);
+        }
+        beamPlace.moreChanges = beamPlace.moreMoves = beamPlace.moreAtlas = 0;
+        beamPlace.worstValid = 0;
+    }
+    BeamPlaceChange c;
+    c.now.beam = beamIndexIn(layers);
+    c.now.count = layers->count;
+    c.now.hover = ctx->hoverKind;
+    c.now.key = ctx->kbHoverKey;
+    c.atlas = ctx->atlasAcquiredNow;
+    c.blanked = blanked;
+    c.was = beamPlace.last;
+    int valid = beamPlace.lastValid;
+    beamPlace.last = c.now;
+    beamPlace.lastValid = 1;
+    if (!valid || (c.now.beam == c.was.beam && c.now.count == c.was.count)) {
+        return;
+    }
+    int moved = c.was.beam >= 0 && c.now.beam >= 0 && c.was.beam != c.now.beam;
+    if (moved) {
+        layerStats.beamMoved++;
+    }
+    if (now - beamPlace.windowNs >= 1000000000LL) {
+        beamPlace.windowNs = now;
+        beamPlace.lines = 0;
+    }
+    int budget = c.now.beam != c.was.beam ? BEAM_PLACE_LINES : BEAM_PLACE_COUNT_LINES;
+    if (beamPlace.lines < budget) {
+        beamPlace.lines++;
+        beamPlaceLine("", &c);
+        return;
+    }
+    beamPlace.moreChanges++;
+    beamPlace.moreAtlas += c.atlas ? 1u : 0u;
+    if (moved) {
+        beamPlace.moreMoves++;
+        int step = abs(c.now.beam - c.was.beam);
+        int worstStep = beamPlace.worstValid ? abs(beamPlace.worst.now.beam - beamPlace.worst.was.beam) : -1;
+        if (step > worstStep || (step == worstStep && c.atlas && !beamPlace.worst.atlas)) {
+            beamPlace.worst = c;
+            beamPlace.worstValid = 1;
+        }
+    }
 }
 
 // Compositor sharpening and supersampling. SteamVR offers neither layer
@@ -718,9 +896,21 @@ static int panelButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers, i
     return 0;
 }
 
+// Native (lane beam-order): which of the bar's buttons a call adds. With a panel open or fading (no bar
+// area, no held places) only that panel's button shows, and it stays ahead of the pointer and under the
+// panels as in 1.3.1 (BAR_PASS_PANEL); the rest come with the hover and go in after the pointer
+// (BAR_PASS_HOVER, from addHoverLayers). BAR_PASS_ALL is 1.3.1's one call.
+#define BAR_PASS_ALL 0
+#define BAR_PASS_PANEL 1
+#define BAR_PASS_HOVER 2
+
 // The environment, settings, keyboard and exit buttons beside the move bar,
 // and the switches further out
-static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers, int pass) {
+    int panelPass = !view->barArea && !view->barSlots;
+    if ((pass == BAR_PASS_PANEL && !panelPass) || (pass == BAR_PASS_HOVER && panelPass)) {
+        return;
+    }
     // Native (lane beam-streak): each button that is ready keeps its place in the list while the
     // bar's row is down (barButtonOrPlace), so the ray going onto the bar and off it moves no layer
     const void* next = NULL;
@@ -820,7 +1010,14 @@ static void addHandHintLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
     atlasQuad(ctx, &layers->hint, fadeNext(ctx, layers, FADE_HINT, 1, level), UI_PANEL_HINT,
               view->space, ctx->hintPose, ctx->hintW, ctx->hintH);
     pushLayer(ctx, layers, &layers->hint);
+}
 
+// The ring on the hand hint's button under the ray. Native (lane beam-order): split from
+// addHandHintLayers, so it can go in after the pointer (addHoverLayers)
+static void addHintRing(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    if (ctx->panelFades[FADE_HINT].level <= 0.0f || !ctx->hintReady) {
+        return;
+    }
     int zone = ctx->hintHoverZone;
     if (!ctx->hintOpen || !ctx->outlineReady) {
         return;
@@ -844,6 +1041,14 @@ static void addKofiLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers
     atlasQuad(ctx, &layers->kofi, fadeNext(ctx, layers, FADE_KOFI, 1, level), UI_PANEL_KOFI,
               view->space, ctx->kofiPose, ctx->kofiW, ctx->kofiH);
     pushLayer(ctx, layers, &layers->kofi);
+}
+
+// The ring on the Ko-fi sheet's button under the ray. Native (lane beam-order): split from
+// addKofiLayers, so it can go in after the pointer (addHoverLayers)
+static void addKofiRing(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    if (ctx->panelFades[FADE_KOFI].level <= 0.0f || !ctx->kofiReady) {
+        return;
+    }
     int zone = ctx->kofiHoverZone;
     if (!ctx->kofiOpen || !ctx->outlineReady) {
         return;
@@ -873,7 +1078,8 @@ static void addHostLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers
 
 // Native (lane wave3-cards): layers that may only take the room the rest leave. The models, the
 // beam, the dot and the toast come after them and keep their place, so the frame that was full
-// before is as full now
+// before is as full now. Native (lane beam-order): with the pointer ahead of the hover layers, the bar's
+// buttons and the rings come after them too, and the last of those go if the frame would go over.
 #define CARD_LAYER_RESERVE 4
 
 static int cardLayerRoom(XrCtx* ctx, const FrameLayers* layers) {
@@ -905,7 +1111,7 @@ static void addPadCardLayer(XrCtx* ctx, FrameLayers* layers) {
     pushLayer(ctx, layers, &layers->padCard);
 }
 
-// The environment grid and the rings on its hovered and chosen cells
+// The environment grid (its rings: addPickerRings)
 static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     float level = ctx->panelFades[FADE_PICKER].level;
     if (level > 0.0f && ctx->pickerReady) {
@@ -914,7 +1120,16 @@ static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* laye
         atlasQuad(ctx, &layers->picker, fadeNext(ctx, layers, FADE_PICKER, 1, level),
                   UI_PANEL_PICKER, view->space, pickPose, pickW, pickH);
         pushLayer(ctx, layers, &layers->picker);
+    }
+}
 
+// The rings on the room grid's hovered and chosen cells. Native (lane beam-order): split from
+// addPickerLayers, so they can go in after the pointer (addHoverLayers)
+static void addPickerRings(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    float level = ctx->panelFades[FADE_PICKER].level;
+    if (level > 0.0f && ctx->pickerReady) {
+        float pickW, pickH;
+        XrPosef pickPose = pickerPose(ctx, &pickW, &pickH);
         if (ctx->outlineReady) {
             float cellW = pickW / (float)PICKER_COLS;
             float cellH = pickH * (float)PICKER_CELL_PX / (float)PICKER_TEX_H;
@@ -1001,7 +1216,7 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     }
 }
 
-// The keyboard and the ring on the key under the ray
+// The keyboard and its move bar (the ring on the key under the ray: addKeyRing)
 static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     float level = ctx->panelFades[FADE_KB].level;
     if (level > 0.0f) {
@@ -1023,7 +1238,13 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
                       poseOffset(ctx->kbPose, local), pillW * grow, pillH * grow);
             pushLayer(ctx, layers, &layers->kbBar);
         }
+    }
+}
 
+// The ring on the key under the ray. Native (lane beam-order): split from addKeyboardLayers, so it can go
+// in after the pointer (addHoverLayers)
+static void addKeyRing(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    if (ctx->panelFades[FADE_KB].level > 0.0f) {
         // The Compact keyboard's "Full" chip has its rect in the last slot
         if (ctx->outlineReady && ctx->kbHoverKey >= 0
                 && (ctx->kbHoverKey < ctx->kbKeyCount || ctx->kbHoverKey == KB_KEY_LAYOUT)) {
@@ -1043,8 +1264,14 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
     }
 }
 
-// The laser and the cursor at the end of it
-static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+// The laser and the cursor at the end of it. Native (lane beam-order): says whether the beam and the dot
+// were blanked this frame (MLXR_BEAM_BLANK)
+static int addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    // Native (lane beam-order): the layers ahead of the pointer against the frame before's
+    uint32_t ahead = layers->count;
+    int blank = beamBlankOn() && beamPlace.aheadValid && ahead != beamPlace.ahead && ctx->outlineReady;
+    beamPlace.ahead = ahead;
+    beamPlace.aheadValid = 1;
     int beamShown = rayDrawn(ctx->raySetting, ctx->rayFlipped, panelUp(ctx));
     if (beamShown != ctx->rayDrawnSaid) {
         if (ctx->rayDrawnSaid >= 0 || !beamShown) {
@@ -1074,8 +1301,10 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
             }
             holdPlace(ctx, layers, &layers->dot, view->space, view->screenPose);
         }
-        return;
+        return 0;
     }
+    // Native (lane beam-order): with MLXR_POINTER_ORDER=2 the dwell's mark and the dot go in last
+    layers->lateOpen = pointerOrder() == POINTER_ORDER_DOT_LAST;
 
     // Native (lane radial-dwell): the dwell's circle round the dot, and at the dwell's start its
     // radial menu (or a held drag's mark), under the dot. The menu is drawn whether or not the dot is
@@ -1138,13 +1367,22 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
                                  { mid.x, mid.y, mid.z } };
             atlasQuad(ctx, &layers->beam, NULL, beamSlot, view->space, beamPose, ctx->beamWidth,
                       length);
+            if (blank) {
+                clearArt(&layers->beam);
+            }
+            int late = layers->lateOpen;
+            layers->lateOpen = 0;
             pushLayer(ctx, layers, &layers->beam);
+            layers->lateOpen = late;
         }
         else if (ctx->pointerSource == POINTER_SOURCE_CONTROLLER || ctx->padMode) {
             // Native (lane beam-streak): a beam too short to draw, or cut away, keeps its place for the
             // dot. Not with the head or the eyes pointing, which never draw one (the dwell's mark has
             // that place).
+            int late = layers->lateOpen;
+            layers->lateOpen = 0;
             holdPlace(ctx, layers, &layers->beam, view->space, view->screenPose);
+            layers->lateOpen = late;
         }
 
         // Native: the dot is the owner's to hide (the host draws its own
@@ -1178,9 +1416,45 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
             else {
                 atlasQuad(ctx, &layers->dot, NULL, ATLAS_DOT, view->space, dotPose, dotSize, dotSize);
             }
+            if (blank) {
+                clearArt(&layers->dot);
+            }
             pushLayer(ctx, layers, &layers->dot);
         }
     }
+    layers->lateOpen = 0;
+    return blank;
+}
+
+// Native (lane beam-order): the dwell's mark and the dot held back by MLXR_POINTER_ORDER=2, in last
+static void addLatePointerLayers(XrCtx* ctx, FrameLayers* layers) {
+    layers->lateOpen = 0;
+    for (uint32_t i = 0; i < layers->lateCount; i++) {
+        pushLayer(ctx, layers, layers->late[i]);
+    }
+    layers->lateCount = 0;
+}
+
+// Native (lane beam-order): the layers that come and go with the hover alone, and the controller models,
+// after the pointer (MLXR_POINTER_ORDER 1 and 2), so none of them moves the beam's place in the list
+static void addHoverLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    addHandleLayer(ctx, view, layers);
+    addBarButtonLayers(ctx, view, layers, BAR_PASS_HOVER);
+    addPickerRings(ctx, view, layers);
+    addHintRing(ctx, view, layers);
+    addKofiRing(ctx, view, layers);
+    addKeyRing(ctx, view, layers);
+    addModelLayer(ctx, view, layers);
+}
+
+// Native (lane beam-order): whether a layer is one addHoverLayers adds
+static int hoverLayer(const FrameLayers* layers, const void* layer) {
+    const char* p = (const char*)layer;
+    const char* buttons = (const char*)&layers->envButton;
+    const char* buttonsEnd = (const char*)(&layers->hereButton + 1);
+    return (p >= buttons && p < buttonsEnd) || layer == &layers->handle || layer == &layers->kbMark
+            || layer == &layers->cogMark[COG_OPTION_COUNT] || layer == &layers->outline[0]
+            || layer == &layers->outline[1] || layer == &layers->models || layer == &layers->modelsHeld;
 }
 
 // The toast, hung off the eyes ahead and a little below where they look
@@ -1314,6 +1588,9 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
     FrameLayers* layers = &frameLayers;
     layers->count = 0;
     layers->heldCount = 0;
+    layers->lateCount = 0;
+    layers->lateOpen = 0;
+    int blanked = 0;
     setLayerSettings(ctx, layers);
     float backdrop[4];
     if (xrBackdropColor(ctx, blendNow, backdrop)) {
@@ -1329,20 +1606,44 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
             addVideoLayers(ctx, &view, layers, in);
         }
         addOverlayLayer(ctx, &view, layers);
-        addHandleLayer(ctx, &view, layers);
-        addBarButtonLayers(ctx, &view, layers);
-        addExitPromptLayer(ctx, &view, layers);
-        addPickerLayers(ctx, &view, layers);
-        addCogLayers(ctx, &view, layers);
-        addReportLayer(ctx, &view, layers);
-        addHandHintLayers(ctx, &view, layers);
-        addKofiLayers(ctx, &view, layers);
-        addHostLayers(ctx, &view, layers);
-        addKeyboardLayers(ctx, &view, layers);
-        addFirstRunLayer(ctx, &view, layers);
-        addPadCardLayer(ctx, layers);
-        addModelLayer(ctx, &view, layers);
-        addPointerLayers(ctx, &view, layers);
+        if (pointerOrder() == POINTER_ORDER_AS_131) {
+            addHandleLayer(ctx, &view, layers);
+            addBarButtonLayers(ctx, &view, layers, BAR_PASS_ALL);
+            addExitPromptLayer(ctx, &view, layers);
+            addPickerLayers(ctx, &view, layers);
+            addPickerRings(ctx, &view, layers);
+            addCogLayers(ctx, &view, layers);
+            addReportLayer(ctx, &view, layers);
+            addHandHintLayers(ctx, &view, layers);
+            addHintRing(ctx, &view, layers);
+            addKofiLayers(ctx, &view, layers);
+            addKofiRing(ctx, &view, layers);
+            addHostLayers(ctx, &view, layers);
+            addKeyboardLayers(ctx, &view, layers);
+            addKeyRing(ctx, &view, layers);
+            addFirstRunLayer(ctx, &view, layers);
+            addPadCardLayer(ctx, layers);
+            addModelLayer(ctx, &view, layers);
+            blanked = addPointerLayers(ctx, &view, layers);
+        }
+        else {
+            // Native (lane beam-order): what only changes as a panel or a card opens or shuts, then the
+            // pointer, then what comes and goes with the hover (pointerOrder)
+            addBarButtonLayers(ctx, &view, layers, BAR_PASS_PANEL);
+            addExitPromptLayer(ctx, &view, layers);
+            addPickerLayers(ctx, &view, layers);
+            addCogLayers(ctx, &view, layers);
+            addReportLayer(ctx, &view, layers);
+            addHandHintLayers(ctx, &view, layers);
+            addKofiLayers(ctx, &view, layers);
+            addHostLayers(ctx, &view, layers);
+            addKeyboardLayers(ctx, &view, layers);
+            addFirstRunLayer(ctx, &view, layers);
+            addPadCardLayer(ctx, layers);
+            blanked = addPointerLayers(ctx, &view, layers);
+            addHoverLayers(ctx, &view, layers);
+            addLatePointerLayers(ctx, layers);
+        }
     }
     addToastLayer(ctx, layers, frameNs);
 
@@ -1370,12 +1671,26 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
     if (layers->count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(layers, &layers->cogClock);
     }
+    // Native (lane beam-order): with the pointer ahead of the hover layers, the last of those after the
+    // beam go next (a card up, which counts on the room the rest leave, with the ray on the bar), never
+    // anything ahead of the beam
+    if (pointerOrder() != POINTER_ORDER_AS_131) {
+        for (int i = (int)layers->count - 1; i >= 0 && layers->count > (uint32_t)ctx->maxLayerCount; i--) {
+            if (layers->order[i] == (const XrCompositionLayerBaseHeader*)&layers->beam) {
+                break;
+            }
+            if (hoverLayer(layers, layers->order[i])) {
+                dropLayer(layers, layers->order[i]);
+            }
+        }
+    }
     if (layers->count >= (uint32_t)ctx->maxLayerCount && !ctx->layerLimitWarned) {
         ctx->layerLimitWarned = 1;
         LOGW("submitted %u composition layers against a limit of %d",
              layers->count, ctx->maxLayerCount);
     }
     countLayers(wanted, layers->count, layers->heldCount);
+    beamPlaceSay(ctx, layers, blanked, frameNs); // native (lane beam-order)
     out->count = layers->count;
     memcpy(out->order, layers->order, sizeof(out->order[0]) * layers->count);
 }
