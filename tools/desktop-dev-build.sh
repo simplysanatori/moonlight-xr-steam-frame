@@ -3,14 +3,22 @@
 #   tools/desktop-dev-build.sh            sync source, build, run ctest under qemu, refresh app-dev
 #   NO_TEST=1 ...                         skip ctest
 #   SYNC_SYSROOT=1 ...                    re-copy the Frame's /usr, LiteRT and bundled libs first
+#   DEV_DIR=mlxr-x ...                    build in ~/frame-build/mlxr-x on the desktop instead (a second
+#                                         tree or worktree side by side), sharing mlxr's sysroot read-only
+#   NO_INSTALL=1 ...                      leave app-dev alone (the binaries stay on the desktop)
+# The source is the checkout or worktree this script is in.
 # Desktop side: ~/frame-build/mlxr/{sysroot,src,build,ccache}; takes ~/frame-build/build.lock.
 # The Qt launcher is not rebuilt: app-dev keeps the released launcher. GPLv3.
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT_DIR="$(dirname "$SRC")"
 APPDEV="${APPDEV:-$ROOT_DIR/app-dev}"
-D=desktop; R='$HOME/frame-build/mlxr'
+DEV_DIR="${DEV_DIR:-mlxr}"
+D=desktop; R='$HOME/frame-build/mlxr'; B='$HOME/frame-build/'"$DEV_DIR"
 
+if [ "$DEV_DIR" != mlxr ] && [ "${SYNC_SYSROOT:-0}" = 1 ]; then
+    echo "SYNC_SYSROOT only with the default DEV_DIR (the sysroot is mlxr's)"; exit 1
+fi
 if [ "${SYNC_SYSROOT:-0}" = 1 ] || ! ssh $D "test -d $R/sysroot/usr/include"; then
     echo "== syncing the Frame's /usr into the desktop sysroot"
     ssh $D "mkdir -p $R/sysroot/usr/share $R/sysroot/mlxr-tp/litert $R/sysroot/mlxr-tp/bundled"
@@ -28,15 +36,17 @@ if [ "${SYNC_SYSROOT:-0}" = 1 ] || ! ssh $D "test -d $R/sysroot/usr/include"; th
 fi
 
 echo "== syncing source (HEAD $(git -C "$SRC" rev-parse --short HEAD), $(git -C "$SRC" status --porcelain -uno | wc -l) dirty paths)"
-ssh $D "mkdir -p $R/src $R/out"
+ssh $D "mkdir -p $B/src $B/out"
 nice rsync -a --delete -e ssh --exclude=/.git --exclude='/build*' --exclude=/third_party/moonlight-qt \
-    --exclude='/assets/models/frame_controller_*' "$SRC/" $D:'frame-build/mlxr/src/'
+    --exclude='/assets/models/frame_controller_*' "$SRC/" $D:"frame-build/$DEV_DIR/src/"
 
 echo "== building on the desktop"
-ssh $D "bash -s" "${NO_TEST:-0}" <<'REMOTE'
+ssh $D "bash -s" "${NO_TEST:-0}" "$DEV_DIR" <<'REMOTE'
 set -euo pipefail
-export MLXR_DEV_ROOT=$HOME/frame-build/mlxr
-R=$MLXR_DEV_ROOT; S=$R/sysroot/mlxr-tp
+export MLXR_DEV_ROOT=$HOME/frame-build/$2
+# the one sysroot, mlxr's, read by every DEV_DIR (desktop-dev.cmake)
+export MLXR_DEV_SYSROOT=$HOME/frame-build/mlxr/sysroot
+R=$MLXR_DEV_ROOT; S=$MLXR_DEV_SYSROOT/mlxr-tp
 export CCACHE_DIR=$R/ccache CCACHE_BASEDIR=$R
 exec 9>$HOME/frame-build/build.lock
 flock 9
@@ -50,15 +60,18 @@ nice -n 5 ninja -C build -j16 2>&1 | tail -25
 if [ "$1" != 1 ]; then
   echo "== ctest (under qemu-aarch64; Vulkan tests skip)"
   rm -f ctest.log
-  ( cd build && QEMU_LD_PREFIX=$R/sysroot MLXR_SOFT_GPU=1 ctest --output-on-failure -j8 -E '^(audio_pulse|video_)' ) >ctest.log 2>&1 || true
+  ( cd build && QEMU_LD_PREFIX=$MLXR_DEV_SYSROOT MLXR_SOFT_GPU=1 ctest --output-on-failure -j8 -E '^(audio_pulse|video_)' ) >ctest.log 2>&1 || true
   tail -40 ctest.log
 fi
 REMOTE
 
+if [ "${NO_INSTALL:-0}" = 1 ]; then
+    echo "done: frame-build/$DEV_DIR/build on the desktop (NO_INSTALL=1, $APPDEV left alone)"; exit 0
+fi
 echo "== refreshing $APPDEV"
 [ -d "$APPDEV" ] || { echo "no $APPDEV (create it first, see DEV-BUILD.txt notes)"; exit 1; }
 for b in moonlight-xr backend/mlxr-cli; do
-    rsync -e ssh $D:"frame-build/mlxr/build/$b" "$APPDEV/$(basename "$b").new"
+    rsync -e ssh $D:"frame-build/$DEV_DIR/build/$b" "$APPDEV/$(basename "$b").new"
     mv -f "$APPDEV/$(basename "$b").new" "$APPDEV/$(basename "$b")"; chmod 755 "$APPDEV/$(basename "$b")"
 done
 printf 'Moonlight XR DEV BUILD\nbranch: %s\ncommit: %s%s\nbuilt:  %s (desktop cross build, tools/desktop-dev-build.sh)\nBase: released %s app/ with moonlight-xr and mlxr-cli swapped.\n' \
