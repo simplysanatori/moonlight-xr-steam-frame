@@ -705,7 +705,7 @@ static int chromaFromLumaOn(XrCtx* ctx) {
 
 // ---- native (lane gpu-144): switches and counts ------------------------------------------------
 // Each switch an environment variable read once (app-dev/dev.env), logged at the start
-// (logGpuSwitches); def when unset
+// (gpuSwitchesAtStart); def when unset
 static int gpuKnob(const char* name, int def) {
     const char* v = getenv(name);
     return v != NULL && *v ? atoi(v) : def;

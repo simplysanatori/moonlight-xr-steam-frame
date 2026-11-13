@@ -908,8 +908,11 @@ static void glowHole(XrCtx* ctx, const XrView* views, float picW, float picH, fl
         eyes[e][1] = l.y;
         eyes[e][2] = l.z;
     }
-    glowHoleFor(picW, picH, radius, fade, spanU, glowH, proud, (const float(*)[3])eyes, ROOM_EYES, &pp->holeU,
-                &pp->holeV);
+    if (glowHoleFor(picW, picH, radius, fade, spanU, glowH, proud, (const float(*)[3])eyes, ROOM_EYES, &pp->holeU,
+                    &pp->holeV) && pp->segments < 64) {
+        // The hole is cut on whole segments: a flat glow is one, so it gets enough to have one
+        pp->segments = 64;
+    }
 }
 
 // Upstream's curved glow (addGlowLayer's cylinder): the same axis as the

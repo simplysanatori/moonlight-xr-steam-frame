@@ -49,13 +49,24 @@ These are estimates. I have no Adreno timings yet; the headset run below gives t
 
 SteamVR on the Frame offers `XR_FB_foveation` and `_vulkan`, and Valve's implicit layer `XR_APILAYER_VALVE_fdm_injection` already loads into the app (`moonlight-console.log`: "added swapchain size 4048 / 1440 / 3408"). It hooks `vkCmdBeginRendering` and puts a gaze-driven density map on each of our renderings whose height matches a registered swapchain height. So our curved layer passes are already foveated, and adding `XR_FB_foveation` ourselves would not help.
 
-One thing to check: a 3440x1440 stream makes the video swapchain 1440 tall, so the warp into the picture's own 3440x1440 image (also 1440 tall) is likely foveated too, in the picture's texture space, which makes no sense for a texture. That could soften parts of the picture. A/B with `MLXR_FDM_LAYER=0` (or `FDM_DEBUG=1` to see which renderings it touches). If confirmed, the fix is to keep the picture's own image off a registered height, or not to create the video swapchain while the picture is curved. That is not done in this lane.
+One thing to check: the video swapchain is created at the stream's size in every mode (`videoSwapchain` runs before `videoTarget`, curved or not), so the stream's height is registered whenever it is over the threshold (about 1000 px; the exact value comes from SPD13's commit, not the binary). Our renderings of that height are then foveated in the picture's own texture space, which makes no sense for a texture and could soften parts of the picture:
+
+| Stream height | Registered | Renderings that match it |
+| --- | --- | --- |
+| 720, 800, 900, 960 | no | none |
+| 1080, 1200 | yes | the warp into the picture's own image (curved or 3D) or into the video swapchain (flat quad) |
+| 1440 (2560x1440, 3440x1440, 5120x1440) | yes (seen in `moonlight-console.log`) | same |
+| 1600 (2560x1600, 3840x1600), 2160 (3840x2160, 5120x2160, 7680x2160) | yes, once the Aspect Ratio presets exist | same |
+
+The eye passes (3408) and the UI atlas (4048, copied into, never rendered) are the other registered heights. The aspect-ratio work does not add a new kind of risk, only more heights that hit it: every preset of 1080 lines or more.
+
+To check in the headset: `FDM_DEBUG=1` in `app-dev/dev.env`, then in `moonlight-console.log` look for `fdm_injection: added swapchain size N` and `CmdBeginRendering: ... FDM ... WxH` lines whose WxH is the stream's size (for example 3440x1440). Any such line means the picture is drawn foveated. Then A/B small text at the picture's edges with `MLXR_FDM_LAYER=0`. If confirmed, the fix is to keep the picture's own images off a registered height (one row taller, cropped in the panel's uvRect), or not to create the video swapchain while the picture goes through its own image. That is not done in this lane.
 
 ## Frame pacing audit (moonlight-qt fe5a0ae, e4db5c2)
 
 - fe5a0ae (lost wakeups in Pacer): moonlight-qt set `m_Stopping` and woke its vsync/render threads without the lock, and its vsync wait had no predicate. Our pacing has no vsync or render thread: `hw_video_take_refresh` runs on the XR frame loop. The one condvar wait (the latch) is a predicate loop under the lock, and every producer (a new picture, a decode error, a format change, stop) changes its state and then broadcasts while holding the lock. `stop` is stored before the lock is taken, and the waiter checks it again under the lock, so no wakeup is lost. Not affected.
 - e4db5c2 (check the queue before dequeuing): `hw_video_take_refresh` only pops when `show && queued > 0` (paced) or `queued > 0` (newest), and `dropOldest` stops at an empty queue. Not affected.
-- `vkWaitForFences` after `xrWaitFrame`: now timed (`xr: gpu144: waited ...`). The loop has one frame in flight. If the GPU frame runs past about the refresh minus the CPU's recording time, the loop blocks here and a refresh is lost. A non-zero average here at 144 Hz means double-buffering the frame's command buffer and fence (two in flight) would win back frames. That is a bigger change, not done here.
+- `vkWaitForFences` after `xrWaitFrame`: now timed (`xr: gpu144: waited ...`). The loop has one frame in flight. If the GPU frame runs past about the refresh minus the CPU's recording time, the loop blocks here and a refresh is lost. A non-zero average here at 144 Hz means double-buffering the frame's command buffer and fence (two in flight) would win back frames. Measure first (runs A to E give the figure); that is a bigger change, not done here.
 
 ## Headset test (144 Hz, 3440x1440)
 
@@ -68,7 +79,7 @@ Dev build, `app-dev/dev.env`. For each row, play 60 s with some head turns, then
 | C | A's switches | Curved, Glow Soft, Home Theater room |
 | D | defaults | same |
 | E | defaults | Curved, Glow Wide, passthrough on |
-| F | defaults + `MLXR_CURVE_REUSE=1` | still desktop, head still, then slow head turns: look for smear or wobble |
+| F | defaults + `MLXR_CURVE_REUSE=1` | still desktop, head still, then slow head turns: look for smear or wobble. This switch stays off by default and should not ship on: sending a stale projection layer again is the same mechanism as the passthrough smear (plan section 3). It is here only to measure. |
 | G | defaults + `MLXR_FDM_LAYER=0` | small text at the picture's edges: sharper or the same? Compare `curve` ms with B |
 
 Look for: any seam or dark ring where the glow meets the picture (B, D), room showing through the picture (D), controllers drawn wrong (B, D).
