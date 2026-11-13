@@ -31,9 +31,34 @@
 #define COG_TILT_SNAP_RAD 0.0388f
 #define COG_ROLL_SNAP_RAD 0.0873f
 
-const char* const SETTINGS_RESOLUTIONS[] = { "640x360", "854x480", "1280x720", "1920x1080",
-                                             "2560x1440", "3840x2160" };
-const int SETTINGS_RESOLUTION_COUNT = 6;
+// Native (lane aspect-ratio): the six 16:9 sizes first, in the order a number in an older file means, then
+// the other shapes' real monitor sizes, then custom. SETTINGS_RESOLUTION_PRESETS has the same order.
+#define RES_LEGACY_COUNT 6
+#define RES_PRESETS(X) \
+    X(SETTINGS_ASPECT_16_9, 640, 360, "360p") X(SETTINGS_ASPECT_16_9, 854, 480, "480p") \
+    X(SETTINGS_ASPECT_16_9, 1280, 720, "720p") X(SETTINGS_ASPECT_16_9, 1920, 1080, "1080p") \
+    X(SETTINGS_ASPECT_16_9, 2560, 1440, "1440p") X(SETTINGS_ASPECT_16_9, 3840, 2160, "4K") \
+    X(SETTINGS_ASPECT_4_3, 640, 480, "480p") X(SETTINGS_ASPECT_4_3, 800, 600, "600p") \
+    X(SETTINGS_ASPECT_4_3, 1024, 768, "768p") X(SETTINGS_ASPECT_4_3, 1280, 960, "960p") \
+    X(SETTINGS_ASPECT_4_3, 1600, 1200, "1200p") X(SETTINGS_ASPECT_4_3, 2048, 1536, "1536p") \
+    X(SETTINGS_ASPECT_16_10, 1280, 800, "800p") X(SETTINGS_ASPECT_16_10, 1440, 900, "900p") \
+    X(SETTINGS_ASPECT_16_10, 1680, 1050, "1050p") X(SETTINGS_ASPECT_16_10, 1920, 1200, "1200p") \
+    X(SETTINGS_ASPECT_16_10, 2560, 1600, "1600p") X(SETTINGS_ASPECT_16_10, 3840, 2400, "2400p") \
+    X(SETTINGS_ASPECT_21_9, 2560, 1080, "1080p") X(SETTINGS_ASPECT_21_9, 3440, 1440, "1440p") \
+    X(SETTINGS_ASPECT_21_9, 3840, 1600, "1600p") X(SETTINGS_ASPECT_21_9, 5120, 2160, "2160p") \
+    X(SETTINGS_ASPECT_32_9, 3840, 1080, "1080p") X(SETTINGS_ASPECT_32_9, 5120, 1440, "1440p") \
+    X(SETTINGS_ASPECT_32_9, 7680, 2160, "2160p")
+#define RES_NAME(a, w, h, l) #w "x" #h,
+#define RES_ENTRY(a, w, h, l) { a, w, h, l },
+const char* const SETTINGS_RESOLUTIONS[] = { RES_PRESETS(RES_NAME) "custom" };
+const int SETTINGS_RESOLUTION_COUNT = (int)(sizeof(SETTINGS_RESOLUTIONS) / sizeof(SETTINGS_RESOLUTIONS[0]));
+const int SETTINGS_RESOLUTION_CUSTOM = (int)(sizeof(SETTINGS_RESOLUTIONS) / sizeof(SETTINGS_RESOLUTIONS[0])) - 1;
+const SettingsResolution SETTINGS_RESOLUTION_PRESETS[] = { RES_PRESETS(RES_ENTRY) };
+#define RES_PRESET_COUNT ((int)(sizeof(SETTINGS_RESOLUTION_PRESETS) / sizeof(SETTINGS_RESOLUTION_PRESETS[0])))
+_Static_assert(sizeof(SETTINGS_RESOLUTIONS) / sizeof(SETTINGS_RESOLUTIONS[0]) == RES_PRESET_COUNT + 1, "one name per preset, then custom");
+// [stream] aspect: SETTINGS_ASPECT_*
+static const char* const ASPECT_NAMES[] = { "4:3", "16:9", "16:10", "21:9", "32:9" };
+_Static_assert(sizeof(ASPECT_NAMES) / sizeof(ASPECT_NAMES[0]) == SETTINGS_ASPECT_COUNT, "aspect names follow SETTINGS_ASPECT_");
 // Native (lane refresh): 144, the Frame's fastest display rate, added at the end
 const int SETTINGS_FPS[] = { 30, 60, 72, 90, 120, 144 };
 const int SETTINGS_FPS_COUNT = 6;
@@ -121,7 +146,10 @@ static const SettingDesc TABLE[] = {
     // stream
     DS("stream", "host", host, "", "address of the host PC last used"),
     DS("stream", "app", app, "", "name of the host app last launched (empty: ask)"),
-    DE("stream", "resolution", resolution, SETTINGS_RESOLUTIONS, 4, "list_resolution; 1440p on a headset, 4K is one entry away"),
+    DE("stream", "aspect", aspect, ASPECT_NAMES, SETTINGS_ASPECT_16_9, "native: Aspect ratio, the shape of the resolution list (4:3 Standard, 16:9 Widescreen, 16:10, 21:9 Ultrawide, 32:9 Super Ultrawide); a preset resolution sets it to its own"),
+    DE("stream", "resolution", resolution, SETTINGS_RESOLUTIONS, 4, "list_resolution; 1440p on a headset, 4K is one entry away. Any width x height reads: a preset when it is one, else custom; a number is one of the first six (older files)"),
+    DI("stream", "custom_width", custom_width, 256, 8192, 2560, "native: the Custom resolution's width, with resolution = custom"),
+    DI("stream", "custom_height", custom_height, 256, 8192, 1440, "native: the Custom resolution's height, with resolution = custom"),
     DE("stream", "fps", fps, FPS_NAMES, 3, "list_fps; the stream never goes above the display's rate (SteamVR's per-app setting: 72, 90, 120 or 144)"),
     DI("stream", "bitrate_kbps", bitrate_kbps, 0, MLXR_BITRATE_MAX_KBPS, 0, "seekbar_bitrate_kbps; 0 follows resolution and frame rate, else 500..500000 (the flat launcher's custom bitrate goes to 500 Mbps)"),
     DE("stream", "codec", codec, CODEC_NAMES, 0, "list_video_format: auto, av1, hevc, h264"),
@@ -250,7 +278,7 @@ static const SettingDesc TABLE[] = {
     DI("screen", "tilt_deg", screen_tilt_deg, -40, 40, 0, "Screen tab: tilt, degrees"),
     DI("screen", "rotate_deg", screen_rotate_deg, -90, 90, 0, "Screen tab: rotate, degrees clockwise"),
     DI("screen", "curve", screen_curve, 0, 100, 0, "Screen tab: curve, percent (seekbar_vr_curvature)"),
-    DI("screen", "width_cm", screen_width_cm, 80, 800, 300, "Screen tab: size, picture width in centimetres (seekbar_vr_screen_size)"),
+    DI("screen", "width_cm", screen_width_cm, 80, 800, 300, "Screen tab: size, picture width in centimetres (seekbar_vr_screen_size); native (lane aspect-ratio): the width of a 16:9 picture of the same height, so a wider picture keeps the height and is wider"),
     // The bar's Bring here switch: the placement the screen had before a press took it to the Desk preset, which
     // the next press puts back (the screen's own keys above, prefixed back_). Old files with far_distance_cm and
     // far_width_cm (the switch before 1.1.0) load: the two are unknown keys now, dropped on the next save.
@@ -260,6 +288,7 @@ static const SettingDesc TABLE[] = {
     DI("screen", "back_tilt_deg", screen_back_tilt_deg, -40, 40, 0, "native: the same placement's tilt, degrees"),
     DI("screen", "back_rotate_deg", screen_back_rotate_deg, -90, 90, 0, "native: the same placement's rotate, degrees clockwise"),
     DI("screen", "back_curve", screen_back_curve, 0, 100, 0, "native: the same placement's curve, percent"),
+    DB("screen", "size_by_height", screen_size_by_height, 0, "native (lane aspect-ratio): the widths in this file are sizes, a 16:9 picture's width at the same height (set once, when an older file's widths were converted)"),
     DI("screen", "back_width_cm", screen_back_width_cm, 0, 800, 0, "native: the same placement's width, centimetres (0 none remembered: the switch goes to the Cinema preset from Desk)"),
     DB("screen", "per_app", per_app, 1, "native: Screen tab, Remember per app: each PC and app keeps its own placement, head lock and 3D state in a [screen.<hash>] section; an app with none starts from the settings in force"),
     DB("screen", "angular_lock", angular_lock, 1, "native: Screen tab, Angular-size lock: pushing or pulling the held screen with the thumbsticks resizes it to look the same size"),
@@ -405,6 +434,12 @@ void settings_clamp(Settings* s) {
     }
     // locked to the head wins over following it
     if (s->head_locked) s->head_follow = 0;
+    // Native (lane aspect-ratio): a preset's aspect is its own; a custom size that is a preset is that preset
+    if (s->resolution == SETTINGS_RESOLUTION_CUSTOM) {
+        int p = settings_resolution_find(s->custom_width, s->custom_height);
+        if (p >= 0) s->resolution = p;
+    }
+    if (s->resolution != SETTINGS_RESOLUTION_CUSTOM) s->aspect = SETTINGS_RESOLUTION_PRESETS[s->resolution].aspect;
     s->layout_count = clamp_int(s->layout_count, 0, APP_LAYOUT_MAX);
     for (int i = 0; i < s->layout_count; i++) layout_clamp(&s->layouts[i]);
 }
@@ -694,6 +729,22 @@ static int apply_value(Settings* s, const SettingDesc* d, const char* v, Setting
         for (int i = 0; i < d->nnames; i++) {
             if (streq_ci(v, d->names[i])) { found = i; break; }
         }
+        if (found < 0 && d->names == SETTINGS_RESOLUTIONS) {
+            // Native (lane aspect-ratio): any width x height (a size a hand or an older version wrote that is no
+            // preset) is a custom size, in the aspect nearest its shape; a number is one of the six sizes the
+            // list had before, nothing past them
+            int rw = 0, rh = 0, used = 0;
+            char* end;
+            long n = strtol(v, &end, 10);
+            if (sscanf(v, "%d%*[xX]%d%n", &rw, &rh, &used) == 2 && v[used] == 0) {
+                if (rw < 256 || rh < 256 || rw > 8192 || rh > 8192) return 0;
+                settings_set_resolution_size(s, rw, rh);
+                if (s->resolution == SETTINGS_RESOLUTION_CUSTOM) s->aspect = settings_aspect_nearest(rw, rh);
+                return 1;
+            }
+            if (end == v || *end || n < 0 || n >= RES_LEGACY_COUNT) return 0;
+            found = (int)n;
+        }
         if (found < 0 && d->names == LANGUAGE_NAMES && ui_lang_find(v) >= 0) {
             // pt_BR as the locale spells it, for pt-BR
             found = 1 + ui_lang_find(v);
@@ -908,10 +959,96 @@ int settings_save(const Settings* s, const char* path) {
 // ---- derived ---------------------------------------------------------------------------------
 
 void settings_resolution(const Settings* s, int* w, int* h) {
-    int ww = 2560, hh = 1440;
-    sscanf(SETTINGS_RESOLUTIONS[clamp_int(s->resolution, 0, SETTINGS_RESOLUTION_COUNT - 1)], "%dx%d", &ww, &hh);
+    int r = clamp_int(s->resolution, 0, SETTINGS_RESOLUTION_CUSTOM);
+    int ww = r == SETTINGS_RESOLUTION_CUSTOM ? clamp_int(s->custom_width, 256, 8192) : SETTINGS_RESOLUTION_PRESETS[r].width;
+    int hh = r == SETTINGS_RESOLUTION_CUSTOM ? clamp_int(s->custom_height, 256, 8192) : SETTINGS_RESOLUTION_PRESETS[r].height;
     if (w) *w = ww;
     if (h) *h = hh;
+}
+
+// ---- Native (lane aspect-ratio): the Aspect ratio and its lists ------------------------------------------
+
+int settings_resolution_find(int width, int height) {
+    for (int i = 0; i < RES_PRESET_COUNT; i++) {
+        if (SETTINGS_RESOLUTION_PRESETS[i].width == width && SETTINGS_RESOLUTION_PRESETS[i].height == height) return i;
+    }
+    return -1;
+}
+
+int settings_aspect_nearest(int width, int height) {
+    static const double RATIO[SETTINGS_ASPECT_COUNT] = { 4.0 / 3.0, 16.0 / 9.0, 16.0 / 10.0, 21.0 / 9.0, 32.0 / 9.0 };
+    if (width <= 0 || height <= 0) return SETTINGS_ASPECT_16_9;
+    // compared as log ratios, so 2:1 is as far from 16:9 as 16:9 is from 2:1 the other way
+    double r = log((double)width / height);
+    int best = SETTINGS_ASPECT_16_9;
+    for (int a = 0; a < SETTINGS_ASPECT_COUNT; a++) {
+        if (fabs(r - log(RATIO[a])) < fabs(r - log(RATIO[best]))) best = a;
+    }
+    return best;
+}
+
+int settings_aspect_presets(int aspect, int* out, int cap) {
+    int n = 0;
+    for (int i = 0; i < RES_PRESET_COUNT; i++) {
+        if (SETTINGS_RESOLUTION_PRESETS[i].aspect != aspect) continue;
+        // smallest first: the table is in that order within each aspect
+        if (out && n < cap) out[n] = i;
+        n++;
+    }
+    return n;
+}
+
+void settings_set_resolution_size(Settings* s, int width, int height) {
+    int p = settings_resolution_find(width, height);
+    if (p >= 0) {
+        s->resolution = p;
+        s->aspect = SETTINGS_RESOLUTION_PRESETS[p].aspect;
+        return;
+    }
+    s->resolution = SETTINGS_RESOLUTION_CUSTOM;
+    s->custom_width = clamp_int(width, 256, 8192);
+    s->custom_height = clamp_int(height, 256, 8192);
+}
+
+void settings_set_aspect(Settings* s, int aspect, int h264) {
+    if (aspect < 0 || aspect >= SETTINGS_ASPECT_COUNT || aspect == s->aspect) return;
+    int h = 0;
+    settings_resolution(s, NULL, &h);
+    int list[RES_PRESET_COUNT];
+    int n = settings_aspect_presets(aspect, list, RES_PRESET_COUNT);
+    int best = -1;
+    for (int pass = 0; pass < 2 && best < 0; pass++) {
+        for (int i = 0; i < n; i++) {
+            const SettingsResolution* r = &SETTINGS_RESOLUTION_PRESETS[list[i]];
+            if (pass == 0 && settings_resolution_limit(r->width, r->height, h264) != SETTINGS_SIZE_OK) continue;
+            // strictly nearer only: of two as near, the lower one (listed first) stays
+            if (best < 0 || abs(r->height - h) < abs(SETTINGS_RESOLUTION_PRESETS[best].height - h)) best = list[i];
+        }
+    }
+    s->aspect = aspect;
+    s->resolution = best;
+}
+
+int settings_migrate_screen_size(Settings* s, int pictureWidth, int pictureHeight) {
+    if (s->screen_size_by_height) return 0;
+    s->screen_size_by_height = 1;
+    if (pictureWidth <= 0 || pictureHeight <= 0) return 1;
+    // the same sum as layoutAspectWidthScale, in whole numbers first, so 16:9 is exactly 1 and nothing moves
+    double k = ((double)pictureWidth * 9.0) / ((double)pictureHeight * 16.0);
+    if (k <= 0.0) return 1;
+    const SettingDesc* w = settings_find("screen.width_cm");
+    s->screen_width_cm = clamp_int((int)lround(s->screen_width_cm / k), w->min, w->max);
+    if (s->screen_back_width_cm > 0) s->screen_back_width_cm = clamp_int((int)lround(s->screen_back_width_cm / k), w->min, w->max);
+    for (int i = 0; i < s->layout_count && i < APP_LAYOUT_MAX; i++) {
+        s->layouts[i].width_cm = clamp_int((int)lround(s->layouts[i].width_cm / k), w->min, w->max);
+    }
+    return 1;
+}
+
+int settings_resolution_limit(int width, int height, int h264) {
+    if (width > MLXR_DECODE_MAX_WIDTH || height > MLXR_DECODE_MAX_HEIGHT) return SETTINGS_SIZE_DECODER;
+    if (h264 && width > MLXR_H264_MAX_WIDTH) return SETTINGS_SIZE_H264_WIDTH;
+    return SETTINGS_SIZE_OK;
 }
 
 int settings_fps_value(const Settings* s) {
@@ -919,10 +1056,23 @@ int settings_fps_value(const Settings* s) {
 }
 
 // PreferenceConfiguration.getDefaultBitrate
+static int moonlight_default_kbps(int width, int height, int fps, int launcher_rule);
 int settings_default_bitrate_kbps(int width, int height, int fps) {
     // Owner's measurement on the Frame (main de55376): 1440p needs about 80 Mbps;
-    // Moonlight's curve gives 40-49 Mbps there, which smeared fast motion.
-    if (width == 2560 && height == 1440 && fps >= 60 && fps <= 90) return 80000;
+    // Moonlight's curve gives 40-49 Mbps there, which smeared fast motion. Native (lane aspect-ratio): every
+    // other size at 60 fps and above gets that measured figure scaled by its pixel count (3440x1440 about
+    // 107 Mbps, 1080p 45), to 500 kbps, never under Moonlight's curve and at most the curve's own top, 150 Mbps.
+    // Above 90 fps the 1440p figure is the flat launcher's rule (lane refresh), scaled the same way.
+    int curve = moonlight_default_kbps(width, height, fps, 0);
+    if (fps < 60 || width <= 0 || height <= 0) return curve;
+    double at1440 = fps <= 90 ? 80000.0 : (double)moonlight_default_kbps(2560, 1440, fps, 1);
+    double scaled = at1440 * ((double)width * height) / (2560.0 * 1440.0);
+    int kbps = (int)llround(scaled / 500.0) * 500;
+    if (kbps > 150000) kbps = 150000;
+    return kbps > curve ? kbps : curve;
+}
+
+static int moonlight_default_kbps(int width, int height, int fps, int launcher_rule) {
     double frame_rate_factor = (fps <= 60 ? fps : (sqrt(fps / 60.0) * 60.0)) / 30.0;
     static const int pixel_vals[] = { 640 * 360, 854 * 480, 1280 * 720, 1920 * 1080, 2560 * 1440,
                                       3840 * 2160 };
@@ -947,7 +1097,7 @@ int settings_default_bitrate_kbps(int width, int height, int fps) {
     // Native (lane refresh): above 90 fps at 1440p, the flat launcher's rule (twice Moonlight's
     // curve, to 500 kbps: 113000 at 120, 124000 at 144), so a faster stream never gets less than
     // the 90 fps figure
-    if (width == 2560 && height == 1440 && fps > 90) {
+    if (launcher_rule) {
         int kbps = (int)llround(4.0 * res_factor * frame_rate_factor) * 500;
         return kbps > 150000 ? 150000 : kbps;
     }

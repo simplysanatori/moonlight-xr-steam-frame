@@ -305,6 +305,9 @@ MAP = [
     ("native_eye_cal_look", NATIVE),
     ("native_eye_cal_progress", NATIVE),
     ("native_eye_cal_cancel", NATIVE),
+    # native (lane aspect-ratio): a 32:9 picture split as an SBS pair
+    ("native_toast_sbs_wide", NATIVE),
+    ("native_toast_sbs_wide_more", NATIVE),
 ]
 
 # Keys of lanes not merged into main yet, all written for this port: listed so that their merges

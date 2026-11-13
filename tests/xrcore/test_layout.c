@@ -1726,7 +1726,33 @@ static void testTheZoom(void) {
     rectNear(r, 0.125, 0.25, 0.25, 0.5);
 }
 
+// Native (lane aspect-ratio): how wide a picture of each shape is at the size of a 16:9 one of the same height
+static void testTheAspectWidth(void) {
+    CHECK(layoutAspectWidthScale(2560, 1440) == 1.0f);   // exactly: a 16:9 stream changes nothing
+    CHECK(layoutAspectWidthScale(1920, 1080) == 1.0f);
+    CHECK(layoutAspectWidthScale(3840, 2160) == 1.0f);
+    CHECK_NEAR(layoutAspectWidthScale(3440, 1440), 3440.0 / 2560.0, 1e-6);
+    CHECK_NEAR(layoutAspectWidthScale(2560, 1080), 2560.0 / 1920.0, 1e-6);
+    CHECK_NEAR(layoutAspectWidthScale(5120, 1440), 2.0, 1e-6);
+    CHECK_NEAR(layoutAspectWidthScale(1600, 1200), 0.75, 1e-6);
+    CHECK_NEAR(layoutAspectWidthScale(1920, 1200), 0.9, 1e-6);
+    CHECK(layoutAspectWidthScale(0, 1080) == 1.0f && layoutAspectWidthScale(1920, 0) == 1.0f);
+    // what the 32:9 notice is for: a full-size SBS source takes a 32:9 frame as two 16:9 eyes; nothing else does
+    CHECK(sbsSplitsWidePicture(STEREO_SOURCE_SBS, 1, 3840, 1080));
+    CHECK(sbsSplitsWidePicture(STEREO_SOURCE_SBS, 1, 5120, 1440));
+    CHECK(sbsSplitsWidePicture(STEREO_SOURCE_SBS, 1, 7680, 2160));
+    CHECK(!sbsSplitsWidePicture(STEREO_SOURCE_SBS, 1, 3440, 1440));   // 21:9
+    CHECK(!sbsSplitsWidePicture(STEREO_SOURCE_SBS, 0, 3840, 1080));   // half size: the frame is the picture's shape
+    CHECK(!sbsSplitsWidePicture(STEREO_SOURCE_TB, 1, 3840, 1080));
+    CHECK(!sbsSplitsWidePicture(STEREO_SOURCE_DEPTH, 1, 3840, 1080));
+    CHECK(!sbsSplitsWidePicture(STEREO_SOURCE_SBS, 1, 3840, 0));
+    // the curve's limit: a 32:9 picture twice as wide on the same radius only shrinks past a full circle
+    CHECK(cylinderFit(2.0f * 3.0f, 1.0f) == 1.0f);
+    CHECK(cylinderFit(2.0f * 4.0f, 1.0f) < 1.0f);
+}
+
 int main(void) {
+    testTheAspectWidth();
     testTheSurroundings();
     testThePresets();
     testTheGaze();

@@ -358,12 +358,18 @@ static int videoSwapchain(XrCtx* ctx, Video* vd, int fw, int fh) {
     vd->picW = pw;
     vd->height = h;
     ctx->swapchain = vd->swapchain;
-    // The picture's shape follows the stream's
+    // The picture's shape follows the stream's (native, lane aspect-ratio: the screen keeping its height)
+    xrPictureShapeChanged(ctx, pw, h);
     ctx->videoWidth = pw;
     ctx->videoHeight = h;
     ctx->pointerBeta = nativePointerTunable("MLXR_POINTER_BETA", NATIVE_POINTER_BETA_PER_PX) * (float)pw;
     LOGEV("video swapchain %dx%d (%s), %u images; swapchains alive %d of 16", w, h,
           w != pw ? "double wide, stereo" : "flat", vd->count, ctx->swapchainsAlive);
+    // Native (lane aspect-ratio): a 32:9 stream with the 3D source on full-size SBS shows as one eye of a pair;
+    // said once for each new picture, in case it is a Super Ultrawide 2D picture
+    if (ctx->stereoMode == DEPTH_MODE_SBS && sbsSplitsWidePicture(ctx->stereoSource, ctx->sbsFull, fw, fh)) {
+        xrPanelsNoticeMore(ctx, ui_str(UIS_SBS_WIDE), ui_str(UIS_SBS_WIDE_MORE));
+    }
     return 0;
 }
 

@@ -72,6 +72,10 @@ class MlxrPrefs : public QObject
     // size picture per eye (3840x1080) rather than two squeezed halves (1920x1080)
     Q_PROPERTY(QString stereoSource MEMBER stereoSource NOTIFY changed)
     Q_PROPERTY(bool sbsFull MEMBER sbsFull NOTIFY changed)
+    // Native (lane aspect-ratio): [stream] aspect, the Aspect ratio row: "4:3", "16:9" (default), "16:10", "21:9" or
+    // "32:9". The page keeps it in agreement with the size (a preset's own aspect; a Custom size keeps the one it
+    // was typed under) and saveStreamSize writes the size beside it.
+    Q_PROPERTY(QString aspect MEMBER aspect NOTIFY changed)
     // Native (lane wave5-depth, PLAN 5.1): [3d] edge_sharpness, the Edge setting, 0..100 (0, the
     // default, is the soft edges the 3D always had)
     Q_PROPERTY(int edgeSharpness MEMBER edgeSharpness NOTIFY changed)
@@ -191,6 +195,10 @@ public:
 
     // Writes the launcher settings, and the config.ini keys changed since load()
     Q_INVOKABLE void save();
+    // Native (lane aspect-ratio): the Video resolution into config.ini, so the VR client's [stream] keys agree
+    // with the page: resolution is a preset's "WxH" or "custom", with custom_width and custom_height for custom.
+    // Only the keys that differ from what config.ini says now are written.
+    Q_INVOKABLE void saveStreamSize(const QString& resolution, int customWidth, int customHeight);
     void load();
     // load() again and tell the page (a settings profile ended: mlxrprofiles.h)
     void reloadAll();
@@ -279,6 +287,7 @@ public:
     QString glowFeather = QStringLiteral("off");
     QString stereoSource;
     bool sbsFull = false;
+    QString aspect = QStringLiteral("16:9");
     int edgeSharpness = 0;
     int motionReset = 0;
     int depthScale = 100;
@@ -368,6 +377,7 @@ private:
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
     QString m_iniStereoSource = QStringLiteral("depth");
     bool m_iniSbsFull = false;
+    QString m_iniAspect = QStringLiteral("16:9");
     int m_iniEdgeSharpness = 0, m_iniMotionReset = 0, m_iniDepthScale = 100, m_iniDepthGlobal = 100;
     bool m_usbCable = false, m_usbScanned = false;
     // PLAN 6.7: kVrKeys' values now and as config.ini held them at load(), as the VR client's text

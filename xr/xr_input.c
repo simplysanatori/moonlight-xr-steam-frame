@@ -1050,7 +1050,8 @@ int updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature
         memset(&ctx->screenPose, 0, sizeof(ctx->screenPose));
         ctx->screenPose.orientation.w = 1.0f;
         ctx->screenPose.position.z = -distance;
-        ctx->screenWidth = quadWidth;
+        // Native (lane aspect-ratio): quadWidth is a size, a 16:9 picture's width; another shape keeps its height
+        ctx->screenWidth = quadWidth * xrScreenWidthScale(ctx);
         // Radius runs from 4x distance (slightly curved) down to the distance
         // itself (wrapped around the viewer) as curvature rises
         ctx->screenRadius = distance * (1.0f + 3.0f * (1.0f - curvature));
@@ -1587,8 +1588,10 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
     }
 
     float width = ctx->grabWidth * scale;
-    if (width < SCREEN_MIN_WIDTH) width = SCREEN_MIN_WIDTH;
-    if (width > SCREEN_MAX_WIDTH) width = SCREEN_MAX_WIDTH;
+    // Native (lane aspect-ratio): the size's limits, for this picture's shape
+    float k = xrScreenWidthScale(ctx);
+    if (width < SCREEN_MIN_WIDTH * k) width = SCREEN_MIN_WIDTH * k;
+    if (width > SCREEN_MAX_WIDTH * k) width = SCREEN_MAX_WIDTH * k;
 
     // Keeping the arc the same shape rather than flattening as it grows
     ctx->screenRadius = ctx->grabRadius * (width / ctx->grabWidth);
@@ -6214,12 +6217,13 @@ void xrSetScreenPose(XrCtx* ctx, const float* p) {
     ctx->screenPose.orientation.z = p[5];
     ctx->screenPose.orientation.w = p[6];
     ctx->screenPose.orientation = quatNorm(ctx->screenPose.orientation);
-    ctx->screenWidth = p[7];
+    // Native (lane aspect-ratio): p[7] is the size (a 16:9 picture's width); this picture keeps its height
+    ctx->screenWidth = p[7] * xrScreenWidthScale(ctx);
     ctx->screenRadius = p[8];
     ctx->placementValid = 1;
     ctx->sliderSeen = 0;
     LOGI("restored screen placement %.2f %.2f %.2f, %.2f m wide",
-         p[0], p[1], p[2], p[7]);
+         p[0], p[1], p[2], ctx->screenWidth);
 }
 
 // Whether this session may show the hand lock hint: hands on, and the hint not
