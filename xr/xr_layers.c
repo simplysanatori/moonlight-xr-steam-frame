@@ -24,6 +24,7 @@
 //   - native (lane eye-swapchains): every projection layer's two views name a
 //     swapchain each, one per eye, rather than the two halves of one double
 //     wide image: SteamVR downsamples any texture past 3458 px each frame.
+#include <stdlib.h>
 #include "xr_native.h"
 #include "xr_world.h"
 
@@ -203,9 +204,23 @@ static XrPosef poseOffset(XrPosef base, Vec3 local) {
 // a centimetre behind near. Every layer that came and went ahead of the beam moved the beam and the
 // dot a place up or down the list, and on such a frame SteamVR now and then drew the beam as a white
 // streak across the view (docs/dev/ray-debug.md). Nothing is held before the ring's art is drawn.
+//
+// Off unless MLXR_HOLD_PLACES=1 (issue #5): with the ray off the furniture, a stack of these clear
+// millimetre quads at one pose made SteamVR tear and judder the whole view on every head turn, worst
+// at 144 Hz, and gone the moment the ray was on the bar (which shows the real layers). The layer list
+// is then 1.1.2's again; the beam's own guard (beamClipAhead) is kept.
+static int holdPlacesWanted(void) {
+    static int wanted = -1;
+    if (wanted < 0) {
+        const char* v = getenv("MLXR_HOLD_PLACES");
+        wanted = v != NULL && v[0] == '1';
+    }
+    return wanted;
+}
+
 static void holdPlace(XrCtx* ctx, FrameLayers* layers, XrCompositionLayerQuad* quad, XrSpace space,
                       XrPosef near) {
-    if (!ctx->outlineReady) {
+    if (!ctx->outlineReady || !holdPlacesWanted()) {
         return;
     }
     UiRectPx o = xrAtlasRect(ATLAS_OUTLINE);

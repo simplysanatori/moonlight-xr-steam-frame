@@ -715,6 +715,8 @@ static void eyeSwapchainsGroup(void) {
 }
 
 int main(int argc, char** argv) {
+    // The held places are opt-in since issue #5 (xr_layers.c holdPlace); these checks cover them
+    setenv("MLXR_HOLD_PLACES", "1", 1);
     const char* g = argc > 1 ? argv[1] : "all";
     int all = !strcmp(g, "all");
     if (all || !strcmp(g, "room")) roomGroup();
