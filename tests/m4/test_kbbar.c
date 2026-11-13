@@ -314,6 +314,10 @@ static void layers(Scene* s) {
     scene_frame(s, "stats");
     printf("keyboard moved and held, stats, toast, ray, head locked: %u layers (+1 passthrough)\n", s->out.count);
     CHECK(s->out.count + 1 <= 16);
+    // The toast's time is the wall clock's: the later checks that count layers must not see it lapse
+    // mid-run (a slow or loaded machine did), so it goes now, and faded out
+    noticeInit(&c->notices);
+    c->toastFade.level = 0.0f;
     xrGrabStepAt(c, aim, 0, 0, 0.0f);
     s->settings.head_locked = 0;
     c->headLockedPref = 0;
