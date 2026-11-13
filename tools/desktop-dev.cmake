@@ -3,6 +3,10 @@
 # <root> is ~/frame-build/mlxr (set by the script as MLXR_DEV_ROOT).
 set(FRAME_ROOT "$ENV{MLXR_DEV_ROOT}")
 set(FRAME_SYSROOT "${FRAME_ROOT}/sysroot")
+# a second build tree (DEV_DIR) shares mlxr's sysroot (MLXR_DEV_SYSROOT)
+if(DEFINED ENV{MLXR_DEV_SYSROOT})
+    set(FRAME_SYSROOT "$ENV{MLXR_DEV_SYSROOT}")
+endif()
 set(FRAME_TRIPLE aarch64-unknown-linux-gnu)
 
 set(CMAKE_SYSTEM_NAME Linux)
