@@ -12,6 +12,7 @@
 // one pushed north, a slanted pull counts in full, and a pull held at the
 // least distance is not stored up against the next push. GPLv3.
 #include <stdlib.h>
+#include <string.h>
 #include "check.h"
 #include "scene.h"
 #include "xr_depth.h"
@@ -556,12 +557,49 @@ static int beamIndex(const Scene* s) {
     return -1;
 }
 
+// Native (lane beam-order): the switches this run was started with (xr_layers.c reads them once)
+static int heldPlacesOn(void) {
+    const char* v = getenv("MLXR_HOLD_PLACES");
+    return v != NULL && v[0] >= '1' && v[0] <= '3' && v[1] == '\0';
+}
+
+static int pointerAhead(void) {
+    const char* v = getenv("MLXR_POINTER_ORDER");
+    return !(v != NULL && v[0] == '0' && v[1] == '\0');
+}
+
+// Native (lane beam-order): with the pointer ahead of the hover layers, nothing ahead of the beam is a
+// ring, the move bar's corner, or (with no panel open) one of the bar's buttons
+static void hoverLayersAfterBeam(const Scene* s, int at, int noPanel) {
+    UiRectPx o = xrAtlasRect(ATLAS_OUTLINE), b = xrAtlasRect(UI_PANEL_BUTTON_ATLAS), k = xrAtlasRect(ATLAS_CORNER);
+    for (int i = 0; i < at; i++) {
+        const XrCompositionLayerQuad* q = (const XrCompositionLayerQuad*)s->out.order[i];
+        if (q->type != XR_TYPE_COMPOSITION_LAYER_QUAD) {
+            continue;
+        }
+        const XrRect2Di* r = &q->subImage.imageRect;
+        int ring = r->offset.x == o.x && r->offset.y == o.y && r->extent.width == o.w;
+        int corner = r->offset.x == k.x && r->offset.y == k.y && r->extent.width == k.w;
+        int button = r->offset.x >= b.x && r->offset.x < b.x + b.w && r->offset.y >= b.y && r->offset.y < b.y + b.h;
+        if (ring || corner || (noPanel && button)) {
+            printf("  layer %d, ahead of the beam at %d, is a %s\n", i, at, ring ? "ring" : corner ? "corner" : "bar button");
+        }
+        CHECK(!ring && !corner && !(noPanel && button));
+    }
+}
+
 // Native (lane beam-streak): one hover state's frame, checked against the first: the same number of
-// layers and the beam in the same place in the list
-static void sameBeamPlace(Scene* s, int* index, uint32_t* count, const char* what) {
+// layers and the beam in the same place in the list. Native (lane beam-order): without the held places
+// (MLXR_HOLD_PLACES off, the default since issue #5) the count may change with the hover, but with the
+// pointer ahead of the hover layers (MLXR_POINTER_ORDER 1, the default) the beam's place may not, and the
+// count stays within the limit.
+static void sameBeamPlace(Scene* s, int* index, uint32_t* count, const char* what, int noPanel) {
     scene_frame(s, NULL);
     int at = beamIndex(s);
     CHECK(at > 0);
+    if (pointerAhead()) {
+        hoverLayersAfterBeam(s, at, noPanel);
+    }
     if (*index < 0) {
         *index = at;
         *count = s->out.count;
@@ -572,8 +610,8 @@ static void sameBeamPlace(Scene* s, int* index, uint32_t* count, const char* wha
         printf("  %s: %u layers, the beam %d (was %u, %d)\n", what, s->out.count, at, *count, *index);
     }
     CHECK(at == *index);
-    CHECK(s->out.count == *count);
-    CHECK(s->out.count <= (uint32_t)s->ctx->maxLayerCount);
+    CHECK(!heldPlacesOn() || s->out.count == *count);
+    CHECK(s->out.count <= (uint32_t)s->ctx->maxLayerCount && s->out.count <= 16);
 }
 
 // Native (lane beam-streak): every held place is clear and a millimetre across
@@ -623,7 +661,7 @@ static void hoverKeepsBeamPlace(Scene* s) {
             for (size_t k = 0; k < sizeof(furniture) / sizeof(furniture[0]); k++) {
                 c->hoverKind = furniture[k];
                 c->hoverCorner = (int)k % 4;
-                sameBeamPlace(s, &index, &count, "the ray over the picture's furniture");
+                sameBeamPlace(s, &index, &count, "the ray over the picture's furniture", 1);
                 heldPlacesClear(s);
             }
         }
@@ -645,7 +683,7 @@ static void hoverKeepsBeamPlace(Scene* s) {
     for (size_t k = 0; k < sizeof(kbHovers) / sizeof(kbHovers[0]); k++) {
         c->hoverKind = kbHovers[k];
         c->kbHoverKey = kbKeys[k];
-        sameBeamPlace(s, &index, &count, "the ray over the keyboard");
+        sameBeamPlace(s, &index, &count, "the ray over the keyboard", 1);
         heldPlacesClear(s);
     }
     c->kbOpen = 0;
@@ -661,7 +699,7 @@ static void hoverKeepsBeamPlace(Scene* s) {
     for (int cell = -1; cell < 3; cell++) {
         c->pickerHover = cell;
         c->hoverKind = cell < 0 ? HOVER_NONE : HOVER_PICKER;
-        sameBeamPlace(s, &index, &count, "the ray over the room grid");
+        sameBeamPlace(s, &index, &count, "the ray over the room grid", 0);
     }
     scene_reset(s);
 }
@@ -744,10 +782,19 @@ static void eyeCalKeepsBeamPlace(Scene* s) {
     scene_reset(s);
 }
 
-int main(void) {
-    // The held places are opt-in since issue #5 (xr_layers.c holdPlace); these checks cover them
-    setenv("MLXR_HOLD_PLACES", "1", 1);
+int main(int argc, char** argv) {
+    // The held places are opt-in since issue #5 (xr_layers.c holdPlace); these checks cover them unless
+    // the run was started with MLXR_HOLD_PLACES set. Native (lane beam-order): "hover" runs the hover
+    // sweep alone, which ctest also runs with the held places off and with MLXR_POINTER_ORDER=0
+    setenv("MLXR_HOLD_PLACES", "1", 0);
     Scene* s = scene_new();
+    if (argc > 1 && !strcmp(argv[1], "hover")) {
+        printf("held places %s, the pointer %s\n", heldPlacesOn() ? "on" : "off",
+               pointerAhead() ? "ahead of the hover layers" : "in 1.3.1's place");
+        hoverKeepsBeamPlace(s);
+        scene_free(s);
+        return checksDone("m4 kbbar hover");
+    }
     defaults(s);
     grabAndMove(s);
     resets(s);
