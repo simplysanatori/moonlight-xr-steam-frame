@@ -2660,6 +2660,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         XrFrameOut fout;
         memset(&fout, 0, sizeof(fout));
         if (fs.shouldRender) {
+            ctx->atlasAcquiredNow = atlasAcquired; // native (lane beam-order)
             xrBuildLayers(ctx, &fin, &fout);
         }
         xrSplashLayers(ctx, &fout, nowNs()); // Native (lane wave6-splash): the logo until the first frame, while it reconnects
@@ -2717,7 +2718,7 @@ int xr_app_run(const XrAppConfig* cfg) {
                   (unsigned long long)framesWindow, roomDrawn, roomStale, byDevice);
             // Native (issue #5): the layers handed over in the window, and the display frames let go by
             {
-                char layerLine[200];
+                char layerLine[256];
                 xrLayerStatsLine(layerLine, sizeof(layerLine));
                 LOGEV("xr: frames: %s; display period %.2f ms, %llu display frames skipped by the loop", layerLine,
                       periodNs / 1e6, (unsigned long long)skippedWindow);

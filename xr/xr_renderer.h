@@ -725,6 +725,9 @@ typedef struct XrCtx {
     int maxLayerCount;
     int layerLimitWarned;
     int layerDropWarned;
+    // Native (lane beam-order): the UI atlas was taken from its swapchain this frame (xrAtlasRecord), for
+    // the beam's place lines (xr_layers.c beamPlaceSay)
+    int atlasAcquiredNow;
 
     // Passthrough is just an environment blend mode: with alpha blend the
     // runtime shows the room wherever our layers do not cover
@@ -1569,6 +1572,8 @@ void xrSetRumble(XrCtx* ctx, int lowMotor, int highMotor);
 // Native (lane beam-streak): the log line when the beam reached the head and was cut (BEAM_CLIP_
 // bits, xr_ray.h), at most one a second, with start and end as the input frame set them
 void xrBeamClipSay(XrCtx* ctx, int clip, XrVector3f start, XrVector3f end);
+// What a hover kind is called in the log (xr_input.c)
+const char* xrHoverKindName(int hover);
 void xrSetScreenPose(XrCtx* ctx, const float* pose);
 void xrSetHandHint(XrCtx* ctx, int wanted);
 
