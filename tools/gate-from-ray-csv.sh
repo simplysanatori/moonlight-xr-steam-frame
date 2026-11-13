@@ -6,7 +6,7 @@
 set -euo pipefail
 CSV="$(readlink -f "${1:?ray csv}")"
 BUILD="${BUILD:-$HOME/frame-build/mlxr/build}"
-BIN="$BUILD/tests/m4/test_m4_layergate"
+BIN="$BUILD/app/tests/test_m4_layergate"
 export MLXR_GATE_CSV="$CSV" MLXR_SOFT_GPU=1
 [ -n "${KB:-}" ] && export MLXR_GATE_KB=1
 if [ "$(uname -m)" = aarch64 ]; then exec "$BIN"; fi
