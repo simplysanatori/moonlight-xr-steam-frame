@@ -1,11 +1,9 @@
 # Moonlight XR for Frame 1.3.1
 
-I fixed the tearing and stutter when you turn your head, which made 1.2.0 and 1.3.0 hard to play at 144 Hz.
+A quick fix for tearing and stutter when you turn your head in 1.2.0 and 1.3.0, worst at 144 Hz and high stream resolutions (#5, thanks Liberato116).
 
-### Fixed
+1.2.0 tried to stop the pointer's beam flashing up through the screen as it moved onto or off something. It was worst on the keyboard and never happened in gamepad mode. To stop it, the app sent SteamVR a stack of invisible stand-ins for the bar's buttons whenever they were hidden, and that stack made SteamVR miss frames. I've removed them, and the picture holds steady at 144 Hz again with a 1440p ultrawide stream (SteamVR at 144 Hz and its highest resolution).
 
-- Turning your head made the whole view tear and stutter, worst at 144 Hz, unless the pointer was on the menu bar or you were holding the move handle (#5, thanks Liberato116). Since 1.2.0 the app sent SteamVR a stack of invisible stand-ins for the bar's buttons whenever they were hidden, and that stack made SteamVR miss frames. They're gone, and the picture holds steady at 144 Hz again.
+### Known issue - regression
 
-### Known issue
-
-- The pointer's beam can flash up through the screen for one frame as it moves onto or off something, like a keyboard key or a bar button. The stand-ins removed above were there to stop this. I plan to fix it properly in a future release.
+- The pointer's beam can flash up through the screen for one frame as it moves onto or off something, worst on the keyboard. It's back because the stand-ins are gone. I plan to fix it properly in a future release.
