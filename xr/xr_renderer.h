@@ -1532,6 +1532,8 @@ int initAmbilight(XrCtx* ctx);
 void ambiEffective(XrCtx* ctx, int* on, float* level);
 // Native (lane borderless): the glow's size for a Glow edge mode, and the picture's border fade now
 float xrGlowScaleFor(XrCtx* ctx, int feather);
+// Native (issue #5): 0 with MLXR_GLOW_WIDE=0, which holds the Wide Glow edge's glow to GLOW_SCALE
+int xrGlowWideAllowed(void);
 int xrPictureBorderFade(XrCtx* ctx);
 void runAmbiBarDetect(XrCtx* ctx, const struct MlxrVideo* video);
 void finishAmbiBarDetect(XrCtx* ctx);

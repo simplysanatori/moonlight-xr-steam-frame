@@ -413,6 +413,9 @@ typedef struct XrFrameOut {
 // Fills out with the frame's layers; the storage lives in ctx until the next
 // call. Steps the fades, the placement and the toast as upstream did.
 void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out);
+// Native (issue #5): the A/B switches xrBuildLayers reads (MLXR_HOLD_PLACES, MLXR_PICTURE_BLEND, and the
+// glow's MLXR_GLOW_WIDE), said once at the start
+void xrLayerSwitchesSay(void);
 // The pose and size the picture goes up at this frame (after updatePlacement)
 void xrPictureView(XrCtx* ctx, XrPosef* pose, float* width, float* height, XrSpace* space);
 
