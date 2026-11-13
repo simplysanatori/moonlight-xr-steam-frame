@@ -362,7 +362,9 @@ void xrModelRecordOver(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* targ
     mlxr_passes_warm(ctx->passes, ctx->model->textured ? MLXR_PASS_MODEL_TEX : MLXR_PASS_MODEL, MLXR_VIDEO_YUV420P,
                      target->format, VK_FORMAT_D32_SFLOAT);
     XrEyeTargets t = *target;
-    if (!xrEyesWorldDepth(ctx, &t)) {
+    // Native (lane gpu-144): chained, the caller attached the depth before the rendering opened;
+    // xrWorldDepth's barrier would land inside it (not allowed in a vkCmdBeginRendering instance)
+    if (!(t.chain && t.depthView != VK_NULL_HANDLE) && !xrEyesWorldDepth(ctx, &t)) {
         return;
     }
     // After the draws already in the images. Native (lane gpu-144): chained, in the same rendering
