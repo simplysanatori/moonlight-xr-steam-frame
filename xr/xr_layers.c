@@ -275,6 +275,34 @@ void xrLayerSwitchesSay(void) {
           blend ? blend : "unset", xrGlowWideAllowed() ? "6x" : "held to 1.7x", wide ? wide : "unset");
 }
 
+// Native (issue #5): what the frames handed to xrEndFrame held since the last xrLayerStatsLine: the
+// fewest and most layers, the held places' average and most, how many frames changed the count from
+// the frame before, and how many had to drop a layer for the runtime's limit
+static struct {
+    uint32_t frames, least, most, heldSum, heldMost, changed, dropped, last;
+} layerStats;
+
+static void countLayers(uint32_t wanted, uint32_t count, uint32_t held) {
+    if (layerStats.frames == 0 || count < layerStats.least) layerStats.least = count;
+    if (count > layerStats.most) layerStats.most = count;
+    layerStats.heldSum += held;
+    if (held > layerStats.heldMost) layerStats.heldMost = held;
+    if (layerStats.frames > 0 && count != layerStats.last) layerStats.changed++;
+    if (wanted > count) layerStats.dropped++;
+    layerStats.last = count;
+    layerStats.frames++;
+}
+
+void xrLayerStatsLine(char* buf, int len) {
+    uint32_t n = layerStats.frames;
+    snprintf(buf, (size_t)len, "layers %u to %u over %u frames, held places %.1f avg (max %u), count changed on %u, "
+             "over the limit on %u", n ? layerStats.least : 0, layerStats.most, n,
+             n ? (double)layerStats.heldSum / n : 0.0, layerStats.heldMost, layerStats.changed, layerStats.dropped);
+    uint32_t last = layerStats.last;
+    memset(&layerStats, 0, sizeof(layerStats));
+    layerStats.last = last;
+}
+
 // Compositor sharpening and supersampling. SteamVR offers neither layer
 // setting, so this only says what is asked for; the sharpening is done in
 // the warp pass instead (xr_session.c).
@@ -1318,6 +1346,7 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
     }
     addToastLayer(ctx, layers, frameNs);
 
+    uint32_t wanted = layers->count; // native (issue #5): before any drop, for xrLayerStatsLine
     // Over the limit: upstream's order of what goes first (the toast, the
     // controller models, the hover ring, the cog button, the clock strip)
     if (layers->count > (uint32_t)ctx->maxLayerCount) {
@@ -1346,6 +1375,7 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
         LOGW("submitted %u composition layers against a limit of %d",
              layers->count, ctx->maxLayerCount);
     }
+    countLayers(wanted, layers->count, layers->heldCount);
     out->count = layers->count;
     memcpy(out->order, layers->order, sizeof(out->order[0]) * layers->count);
 }
