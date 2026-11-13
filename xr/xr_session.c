@@ -1762,6 +1762,8 @@ typedef struct Host {
 
 static void saveSettings(Host* h, const char* why) {
     Settings* s = h->cfg->settings;
+    // native (lane aspect-ratio): the real widths written are at the picture shown now
+    if (h->ctx->videoWidth > 0 && h->ctx->videoHeight > 0) settings_screen_picture_now(s, h->ctx->videoWidth, h->ctx->videoHeight);
     int r = settings_save(s, h->cfg->settingsPath);
     if (r != 0) {
         LOGW("config.ini not saved (%s): error %d", why, r);

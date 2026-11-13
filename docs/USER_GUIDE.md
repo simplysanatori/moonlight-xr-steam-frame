@@ -306,7 +306,7 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Room detail (UI) | Low, Standard, High, Ultra | Standard | `[vr] env_res` |
 | Screen light, Glow, Glow level, Glow edge (UI) | on, off; 0 to 100 %; Off, Soft, Wide | on, off, 50 %, Off. Glow level and Glow edge are greyed with the glow off. | `[display] screen_light`, `glow`, `glow_level`, `glow_feather` |
 | Screen distance, Screen size, Screen curve (UI) | 20 to 800 cm; 80 to 800 cm wide; 0 to 100 % | 300 cm, 300 cm, 0 % | `[screen] distance_cm`, `width_cm`, `curve` |
-| (none) | on or off | Off. Set once, when the first start after 1.3.3 converts the saved widths to sizes (a 16:9 picture's width at the same height). Leave it as it is. | `[screen] size_by_height` |
+| (none) | 0 to 800 cm; WIDTHxHEIGHT | Written by the headset. `width_cm` is the picture's real width, which older versions read too. `size_cm` (and `back_size_cm`, and `size_cm` in each app's layout) keeps the Size beside it, for the picture `size_shape` names. If `width_cm` no longer agrees with it, because an older version saved the file or you changed the width, the width wins. | `[screen] size_cm`, `back_size_cm`, `size_shape` |
 | Zoom (UI) | 100 to 400 % (press to step) | 100 %. The zoom a stream starts at. | `[display] zoom` |
 | Remember per app (UI) | on, off | on. An app without its own place starts from the rows above. | `[screen] per_app` |
 | Angular-size lock (UI) | on, off | on. The screen looks the same size when you push it away or pull it closer. | `[screen] angular_lock` |
@@ -404,7 +404,7 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Tilt | -40 to 40° | 0 |
 | Rotate | -90 to 90° | 0 |
 | Curve | 0 to 100 % | 0 |
-| Size | 0.8 to 8 m wide | 3 m. The width of a 16:9 picture: a wider picture (21:9, 32:9) keeps that height and is wider, a 4:3 one narrower. Before 1.3.3, Size was the picture's own width. The first start after the update converts the saved sizes once, for the shape you were streaming, so the screen comes up exactly as wide as before. |
+| Size | 0.8 to 8 m wide | 3 m. The width of a 16:9 picture: a wider picture (21:9, 32:9) keeps that height and is wider, a 4:3 one narrower. config.ini keeps the real width in `width_cm` as before, with the Size beside it, so you can go back to an older version and forward again and the screen stays as it was. |
 | Aim sensitivity | 1 to 30 | 8. Greyed unless Head locked is on. |
 | Aim dead zone | 0 to 20 | 2. Greyed unless Head locked is on. |
 | Preset | Desk, Couch, Cinema, Bring here | Desk is 1.2 m away and 1.6 m wide, Couch 2.5 m and 2.6 m, Cinema 4 m and 5 m. A preset sets only the distance and the width: the way the screen sits, its tilt, roll and curve stay as they were. **Bring here** puts the screen where you are looking, as far from you as it was and the same size. It does nothing in a room or with Head locked on. |

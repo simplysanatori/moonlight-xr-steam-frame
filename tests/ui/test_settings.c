@@ -1588,64 +1588,148 @@ static void test_layouts(void) {
     CHECK(settings_layout_find(&w, 7)->head_follow == 0);
 }
 
-// Native (lane aspect-ratio): an older config.ini's widths were the picture's own; once, they become sizes (a 16:9
-// picture's width at the same height), so the screen comes up as wide as it was
-static void test_screen_size_migration(void) {
+// Native (lane aspect-ratio): config.ini's width_cm stays the picture's real width, which versions before 1.3.3
+// read and write; size_cm (the Size, a 16:9 picture's width at the same height) sits beside it. A start reads the
+// file at the picture it streams (start), a save writes it (save); an older version reads width_cm and writes it
+// back without the new keys (older).
+static void start(Settings* s, const char* text, int w, int h) {
+    settings_defaults(s);
+    settings_from_text(s, text, NULL);
+    settings_screen_picture(s, w, h);
+}
+static char* older(const char* text, int* width) {
+    Settings o;
+    settings_defaults(&o);
+    settings_from_text(&o, text, NULL);   // never settings_screen_picture: the widths are as they are
+    o.screen_size_cm = o.screen_back_size_cm = 0;
+    o.screen_size_shape[0] = 0;
+    for (int i = 0; i < o.layout_count; i++) o.layouts[i].size_cm = 0;
+    if (width) *width = o.screen_width_cm;
+    return settings_to_text(&o);
+}
+static int file_int(const char* text, const char* key) {
+    Settings f;
+    settings_defaults(&f);
+    settings_from_text(&f, text, NULL);
+    return geti(&f, key);
+}
+
+static void test_screen_size_versions(void) {
     const double k219 = (3440.0 * 9.0) / (1440.0 * 16.0);   // layoutAspectWidthScale(3440, 1440)
+    // a 1.3.2 file: a 21:9 screen 200 cm wide, a Bring here spot 240 cm wide, a kept app layout 300 cm wide
+    const char* v132 = "[stream]\nresolution = 3440x1440\n[screen]\nwidth_cm = 200\nback_distance_cm = 150\n"
+                       "back_width_cm = 240\n[screen.0000abcd]\ndistance_cm = 150\nwidth_cm = 300\n";
     Settings s;
-    settings_defaults(&s);
-    CHECK(s.screen_size_by_height == 0);
-    // a 1.3.2 file: a 21:9 screen 200 cm wide, a Swap-back spot 240 cm wide, a kept app layout 300 cm wide
-    settings_from_text(&s, "[stream]\nresolution = 3440x1440\n[screen]\nwidth_cm = 200\n", NULL);
-    s.screen_back_distance_cm = 150;
-    s.screen_back_width_cm = 240;
-    AppLayout l = layout_of(150, 300, 0);
-    CHECK(settings_layout_store(&s, settings_app_hash("Desk PC", "Desktop"), &l) == 1);
-    int w, h;
-    settings_resolution(&s, &w, &h);
-    CHECK(w == 3440 && h == 1440);
-    CHECK(settings_migrate_screen_size(&s, w, h) == 1);
-    CHECK(s.screen_size_by_height == 1);
-    CHECK(s.screen_width_cm == 149);   // 200 / 1.344
+    start(&s, v132, 3440, 1440);
+    CHECK(s.screen_width_cm == 149);   // the Size: 200 / 1.344
     CHECK(fabs(s.screen_width_cm * k219 - 200.0) < 1.0);   // the screen the headset shows: still 200 cm
     CHECK(fabs(s.screen_back_width_cm * k219 - 240.0) < 1.0);
     CHECK(s.layout_count == 1 && fabs(s.layouts[0].width_cm * k219 - 300.0) < 1.0);
-    // only once: saved and read back, a second start leaves the sizes alone
-    char* text = settings_to_text(&s);
-    CHECK(strstr(text, "size_by_height = ") != NULL);
-    Settings back;
-    settings_defaults(&back);
-    settings_from_text(&back, text, NULL);
-    free(text);
-    CHECK(back.screen_size_by_height == 1);
-    CHECK(settings_migrate_screen_size(&back, w, h) == 0);
-    CHECK(back.screen_width_cm == 149 && back.layouts[0].width_cm == s.layouts[0].width_cm);
-    CHECK(settings_migrate_screen_size(&s, 5120, 1440) == 0 && s.screen_width_cm == 149);
-    // 16:9: nothing moves, the marker is still set
-    Settings n;
-    settings_defaults(&n);
-    settings_from_text(&n, "[screen]\nwidth_cm = 200\n", NULL);
-    n.screen_back_width_cm = 0;
-    AppLayout l2 = layout_of(150, 321, 0);
-    settings_layout_store(&n, settings_app_hash("Desk PC", "Steam"), &l2);
-    settings_resolution(&n, &w, &h);
-    CHECK(w == 2560 && h == 1440);
-    CHECK(settings_migrate_screen_size(&n, w, h) == 1 && n.screen_size_by_height == 1);
-    CHECK(n.screen_width_cm == 200 && n.screen_back_width_cm == 0 && n.layouts[0].width_cm == 321);
-    CHECK(settings_migrate_screen_size(&n, 1920, 1080) == 0 && n.screen_width_cm == 200);
-    // the shape it was set for is the stream's (--mode) when that differs from the saved resolution
-    settings_defaults(&n);
-    n.screen_width_cm = 400;
-    CHECK(settings_migrate_screen_size(&n, 3840, 1080) == 1 && n.screen_width_cm == 200);   // 32:9: half
-    // a 32:9 screen narrower than the range's 160 cm holds at 80 cm; 4:3 grows
-    settings_defaults(&n);
-    n.screen_width_cm = 120;
-    settings_migrate_screen_size(&n, 3840, 1080);
-    CHECK(n.screen_width_cm == settings_find("screen.width_cm")->min);
-    settings_defaults(&n);
-    n.screen_width_cm = 150;
-    settings_migrate_screen_size(&n, 1600, 1200);
-    CHECK(n.screen_width_cm == 200);
+    // 1.3.3 saves: the real widths exactly as they were, the sizes beside them
+    char* t133 = settings_to_text(&s);
+    CHECK(file_int(t133, "width_cm") == 200 && file_int(t133, "back_width_cm") == 240);
+    CHECK(file_int(t133, "size_cm") == 149 && strstr(t133, "size_shape = 3440x1440") != NULL);
+    CHECK(strstr(t133, "\nwidth_cm = 300\n") != NULL && strstr(t133, "\nsize_cm = 223\n") != NULL);   // the layout
+    // back to 1.3.2 (a regression), which drops the new keys, then forward again: the same screen
+    int seen = 0;
+    char* t132 = older(t133, &seen);
+    CHECK(seen == 200 && strstr(t132, "\nsize_cm = ") == NULL && strstr(t132, "\nsize_shape = ") == NULL);
+    Settings again;
+    start(&again, t132, 3440, 1440);
+    CHECK(again.screen_width_cm == s.screen_width_cm && again.screen_back_width_cm == s.screen_back_width_cm);
+    CHECK(again.layout_count == 1 && again.layouts[0].width_cm == s.layouts[0].width_cm);
+    char* t133b = settings_to_text(&again);
+    CHECK(file_int(t133b, "width_cm") == 200 && file_int(t133b, "back_width_cm") == 240);
+    // and round that loop a few more times: nothing creeps
+    for (int round = 0; round < 4; round++) {
+        char* o = older(t133b, NULL);
+        start(&again, o, 3440, 1440);
+        free(o);
+        free(t133b);
+        t133b = settings_to_text(&again);
+    }
+    CHECK(again.screen_width_cm == 149 && file_int(t133b, "width_cm") == 200 && file_int(t133b, "back_width_cm") == 240);
+    free(t133b);
+    // 1.3.3 read again with its own keys: the Size as saved
+    start(&again, t133, 3440, 1440);
+    CHECK(again.screen_width_cm == 149 && again.layouts[0].width_cm == s.layouts[0].width_cm);
+    // the older version changed the width (to 260 cm): honoured, whatever size_cm said
+    {
+        Settings o;
+        settings_defaults(&o);
+        settings_from_text(&o, t133, NULL);
+        o.screen_width_cm = 260;
+        char* edited = settings_to_text(&o);   // as the launcher's Screen size row or a hand edit leaves it
+        start(&again, edited, 3440, 1440);
+        CHECK(fabs(again.screen_width_cm * k219 - 260.0) < 1.0);
+        free(edited);
+        char* o2 = older(t133, NULL);
+        Settings p;
+        settings_defaults(&p);
+        settings_from_text(&p, o2, NULL);
+        p.screen_width_cm = 260;
+        free(o2);
+        o2 = settings_to_text(&p);
+        start(&again, o2, 3440, 1440);
+        CHECK(fabs(again.screen_width_cm * k219 - 260.0) < 1.0);
+        free(o2);
+    }
+    // a new aspect (16:9 to 21:9 in the launcher) keeps the screen's height: the Size stays, the width grows
+    start(&again, "[screen]\nwidth_cm = 300\n", 2560, 1440);
+    char* t169 = settings_to_text(&again);
+    start(&again, t169, 3440, 1440);
+    CHECK(again.screen_width_cm == 300);
+    char* t219 = settings_to_text(&again);
+    CHECK(file_int(t219, "width_cm") == 403 && file_int(t219, "size_cm") == 300);
+    free(t169);
+    free(t219);
+    // a Size changed in the headset: the real width follows it
+    start(&again, t133, 3440, 1440);
+    again.screen_width_cm = 200;
+    char* moved = settings_to_text(&again);
+    CHECK(file_int(moved, "width_cm") == 269 && file_int(moved, "size_cm") == 200);
+    free(moved);
+    // the picture changing shape on the way (a full-size pair's eye): the real width follows the picture shown
+    start(&again, t133, 3440, 1440);
+    settings_screen_picture_now(&again, 1720, 1440);
+    moved = settings_to_text(&again);
+    CHECK(file_int(moved, "width_cm") == (int)lround(149 * (1720.0 * 9.0) / (1440.0 * 16.0)));
+    free(moved);
+    free(t132);
+    free(t133);
+    // 16:9: the width is the Size, unchanged both ways
+    start(&s, "[screen]\nwidth_cm = 200\n[screen.00001234]\nwidth_cm = 321\n", 2560, 1440);
+    CHECK(s.screen_width_cm == 200 && s.screen_back_width_cm == 0 && s.layouts[0].width_cm == 321);
+    char* t = settings_to_text(&s);
+    CHECK(file_int(t, "width_cm") == 200 && file_int(t, "size_cm") == 200 && file_int(t, "back_width_cm") == 0);
+    char* o = older(t, NULL);
+    start(&s, o, 1920, 1080);
+    CHECK(s.screen_width_cm == 200 && s.layouts[0].width_cm == 321);
+    free(t);
+    free(o);
+    // 32:9: the real width written stays in width_cm's 80..800 cm, what older versions read
+    start(&s, "[screen]\nwidth_cm = 120\n", 3840, 1080);
+    CHECK(s.screen_width_cm == settings_find("screen.width_cm")->min);   // 60 cm is under the Size's 80
+    t = settings_to_text(&s);
+    CHECK(file_int(t, "width_cm") == 160);
+    free(t);
+    s.screen_width_cm = 500;   // 10 m wide in the headset
+    t = settings_to_text(&s);
+    CHECK(file_int(t, "width_cm") == 800 && file_int(t, "size_cm") == 500);
+    start(&s, t, 3840, 1080);   // and back: the Size as it was, size_cm still agrees with the held width
+    CHECK(s.screen_width_cm == 500);
+    free(t);
+    // 4:3 is narrower: 150 cm shows a 200 cm Size
+    start(&s, "[screen]\nwidth_cm = 150\n", 1600, 1200);
+    CHECK(s.screen_width_cm == 200);
+    // before settings_screen_picture (the launcher, mlxr-settings-dump): the widths go in and out as they are
+    Settings raw;
+    settings_defaults(&raw);
+    settings_from_text(&raw, "[screen]\nwidth_cm = 200\nsize_cm = 149\nsize_shape = 3440x1440\n", NULL);
+    CHECK(raw.screen_width_cm == 200 && raw.screen_size_cm == 149);
+    t = settings_to_text(&raw);
+    CHECK(file_int(t, "width_cm") == 200 && file_int(t, "size_cm") == 149 && strstr(t, "size_shape = 3440x1440") != NULL);
+    free(t);
 }
 
 // Native (lane wave3-visual): Background dim, the void's colour, Glow edge and
@@ -1746,7 +1830,7 @@ int main(void) {
     test_surroundings();
     test_follow_and_lock_settings();
     test_layouts();
-    test_screen_size_migration();
+    test_screen_size_versions();
     test_defaults();
     test_stats_style();
     test_shortcut_wording();

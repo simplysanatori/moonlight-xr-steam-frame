@@ -51,6 +51,9 @@ typedef struct {
     int head_locked, head_follow;
     int stereo, separation, convergence;
     int zoom, zoom_x, zoom_y;   // PLAN 4b.6: the part of the picture shown (zoom percent, pan centre percent)
+    // Native (lane aspect-ratio): the section's size_cm as read (0 none), and once settings_screen_picture has run,
+    // the size and real width it came in with (written back as they were while the size does not change)
+    int size_cm, file_width_cm;
 } AppLayout;
 
 typedef struct Settings {
@@ -181,7 +184,15 @@ typedef struct Settings {
     // placement's own units; back_width_cm 0 for none
     int screen_back_distance_cm, screen_back_height_cm, screen_back_azimuth_deg;
     int screen_back_tilt_deg, screen_back_rotate_deg, screen_back_curve, screen_back_width_cm;
-    int screen_size_by_height;   // native (lane aspect-ratio): the saved widths are sizes (settings_migrate_screen_size ran)
+    // Native (lane aspect-ratio): config.ini's width_cm keys are the picture's real width, as every version reads
+    // them; size_cm and back_size_cm keep the Size (a 16:9 picture's width at the same height) beside them, and
+    // size_shape the picture they were written for. In memory, once settings_screen_picture has run, width_cm and
+    // back_width_cm (and each layout's) hold the Size, and size_cm what it came in as.
+    int screen_size_cm, screen_back_size_cm;
+    char screen_size_shape[24];
+    int screen_file_width_cm, screen_back_file_width_cm;   // the real widths read, for writing back unchanged
+    int screen_picture_w, screen_picture_h;   // the picture the sizes show at; 0 before settings_screen_picture
+    int screen_loaded_w, screen_loaded_h;     // the picture they were read at
     int per_app;              // native: remember the layout per PC and app
     int angular_lock;         // native: pushing or pulling the held screen keeps its size in the view
 
@@ -276,14 +287,19 @@ enum {
 // let the PC use HEVC past 4096).
 int settings_resolution_limit(int width, int height, int h264);
 
-// Native (lane aspect-ratio), once per config.ini: before 1.3.3 [screen] width_cm (and back_width_cm and each kept
-// layout's) was the picture's own width whatever its shape; now it is the size, a 16:9 picture's width at the same
-// height. The saved widths are divided by the shape's scale (layoutAspectWidthScale: 1 for 16:9, 1.34 for
-// 3440x1440, 2 for 32:9), so a screen comes up exactly as wide as before, and [screen] size_by_height marks the
-// file done. pictureWidth x pictureHeight is the shape the widths were set for: the stream's (--mode), else the
-// saved resolution. 1 when it changed anything (save the file then), 0 when it had already run. A size under the
-// range's 80 cm (a 32:9 screen narrower than 1.6 m) is held to 80 cm.
-int settings_migrate_screen_size(Settings* s, int pictureWidth, int pictureHeight);
+// Native (lane aspect-ratio): the Size, kept so a version before 1.3.3 (which knows only width_cm, the picture's
+// real width) and this one can take turns with config.ini, either way round, and the screen stays as it was.
+// settings_screen_picture, once after the load, with the picture the stream shows (one eye's of a full-size pair):
+// each width_cm becomes the Size. size_cm is taken when it still agrees with width_cm (within 1 cm) at the picture
+// size_shape names, which is how a new aspect keeps the screen's height; else (an older version saved the file,
+// dropping size_cm, or something changed width_cm) the Size is width_cm at this picture, so the screen is as wide
+// as the older version showed it. The number of widths worked out that way back (0 when every size_cm held).
+// After that, settings_to_text writes width_cm as the real width at the picture of the time (held to 80..800 cm,
+// what older versions read; a width read is written back as it was while its Size has not changed), size_cm and
+// size_shape. Until it runs, the widths go in and out of the text as they are.
+int settings_screen_picture(Settings* s, int pictureWidth, int pictureHeight);
+// The picture changed shape after settings_screen_picture: the Size stays, the real width written follows it
+void settings_screen_picture_now(Settings* s, int pictureWidth, int pictureHeight);
 extern const int SETTINGS_FPS[];                   // 30 60 72 90 120 144
 extern const int SETTINGS_FPS_COUNT;
 

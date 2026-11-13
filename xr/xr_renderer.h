@@ -1325,7 +1325,7 @@ typedef struct XrCtx {
     float lockBaseRadius;
     unsigned layoutHash;
     unsigned identityGen;
-    int layoutSeen[16];
+    int layoutSeen[18];   // native (lane aspect-ratio): 18 with the size_cm pair
     int layoutSeenValid;
     int layoutPending;
     int64_t layoutDirtyNs;

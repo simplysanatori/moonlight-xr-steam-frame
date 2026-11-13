@@ -278,7 +278,9 @@ static const SettingDesc TABLE[] = {
     DI("screen", "tilt_deg", screen_tilt_deg, -40, 40, 0, "Screen tab: tilt, degrees"),
     DI("screen", "rotate_deg", screen_rotate_deg, -90, 90, 0, "Screen tab: rotate, degrees clockwise"),
     DI("screen", "curve", screen_curve, 0, 100, 0, "Screen tab: curve, percent (seekbar_vr_curvature)"),
-    DI("screen", "width_cm", screen_width_cm, 80, 800, 300, "Screen tab: size, picture width in centimetres (seekbar_vr_screen_size); native (lane aspect-ratio): the width of a 16:9 picture of the same height, so a wider picture keeps the height and is wider"),
+    DI("screen", "width_cm", screen_width_cm, 80, 800, 300, "Screen tab: size, picture width in centimetres (seekbar_vr_screen_size); native (lane aspect-ratio): the picture's real width, as older versions read it; size_cm keeps the Size"),
+    DI("screen", "size_cm", screen_size_cm, 0, 800, 0, "native (lane aspect-ratio): the Screen tab's Size, the width of a 16:9 picture of the same height (a wider picture keeps the height and is wider); used while width_cm still agrees with it at size_shape's picture, else worked out from width_cm (0 none)"),
+    DS("screen", "size_shape", screen_size_shape, "", "native (lane aspect-ratio): the picture width_cm and size_cm were written for, WIDTHxHEIGHT (empty none)"),
     // The bar's Bring here switch: the placement the screen had before a press took it to the Desk preset, which
     // the next press puts back (the screen's own keys above, prefixed back_). Old files with far_distance_cm and
     // far_width_cm (the switch before 1.1.0) load: the two are unknown keys now, dropped on the next save.
@@ -288,8 +290,8 @@ static const SettingDesc TABLE[] = {
     DI("screen", "back_tilt_deg", screen_back_tilt_deg, -40, 40, 0, "native: the same placement's tilt, degrees"),
     DI("screen", "back_rotate_deg", screen_back_rotate_deg, -90, 90, 0, "native: the same placement's rotate, degrees clockwise"),
     DI("screen", "back_curve", screen_back_curve, 0, 100, 0, "native: the same placement's curve, percent"),
-    DB("screen", "size_by_height", screen_size_by_height, 0, "native (lane aspect-ratio): the widths in this file are sizes, a 16:9 picture's width at the same height (set once, when an older file's widths were converted)"),
     DI("screen", "back_width_cm", screen_back_width_cm, 0, 800, 0, "native: the same placement's width, centimetres (0 none remembered: the switch goes to the Cinema preset from Desk)"),
+    DI("screen", "back_size_cm", screen_back_size_cm, 0, 800, 0, "native (lane aspect-ratio): the same placement's Size, as size_cm is to width_cm (0 none)"),
     DB("screen", "per_app", per_app, 1, "native: Screen tab, Remember per app: each PC and app keeps its own placement, head lock and 3D state in a [screen.<hash>] section; an app with none starts from the settings in force"),
     DB("screen", "angular_lock", angular_lock, 1, "native: Screen tab, Angular-size lock: pushing or pulling the held screen with the thumbsticks resizes it to look the same size"),
     // ui (lane wave6-i18n)
@@ -650,7 +652,12 @@ static void range_note(const SettingDesc* d, char* out, size_t cap) {
     }
 }
 
+static Settings* screen_widths_out(const Settings* s);
+
 char* settings_to_text(const Settings* s) {
+    // native (lane aspect-ratio): with the sizes in force, the copy that has the real widths (settings_screen_picture)
+    Settings* real = screen_widths_out(s);
+    if (real) s = real;
     Buf b = { 0 };
     buf_add(&b, "# Moonlight XR Native settings.\n"
                 "#\n"
@@ -688,7 +695,9 @@ char* settings_to_text(const Settings* s) {
             if (d->type == SET_BOOL) buf_add(&b, "%s = %s\n", LAYOUT_KEYS[i].key, v ? "true" : "false");
             else buf_add(&b, "%s = %d\n", LAYOUT_KEYS[i].key, v);
         }
+        if (l->size_cm > 0) buf_add(&b, "size_cm = %d\n", l->size_cm);   // native (lane aspect-ratio)
     }
+    free(real);
     return b.p ? b.p : strdup("");
 }
 
@@ -841,6 +850,15 @@ void settings_from_text(Settings* s, const char* text, SettingsLoadInfo* info) {
             int found = -1;
             for (int i = 0; i < LAYOUT_KEY_COUNT && found < 0; i++) {
                 if (layout && streq_ci(LAYOUT_KEYS[i].key, key)) found = i;
+            }
+            if (found < 0 && layout && streq_ci(key, "size_cm")) {
+                // native (lane aspect-ratio): the layout's Size beside its real width_cm (settings_screen_picture)
+                char* end;
+                long n = strtol(val, &end, 10);
+                if (end == val || *end) { info->bad++; continue; }
+                layout->size_cm = clamp_int(n < 0 ? 0 : n > 800 ? 800 : (int)n, 0, 800);
+                info->applied++;
+                continue;
             }
             if (found < 0) { info->unknown++; continue; }
             const SettingDesc* ld = layout_desc(found);
@@ -1029,20 +1047,96 @@ void settings_set_aspect(Settings* s, int aspect, int h264) {
     s->resolution = best;
 }
 
-int settings_migrate_screen_size(Settings* s, int pictureWidth, int pictureHeight) {
-    if (s->screen_size_by_height) return 0;
-    s->screen_size_by_height = 1;
-    if (pictureWidth <= 0 || pictureHeight <= 0) return 1;
-    // the same sum as layoutAspectWidthScale, in whole numbers first, so 16:9 is exactly 1 and nothing moves
-    double k = ((double)pictureWidth * 9.0) / ((double)pictureHeight * 16.0);
-    if (k <= 0.0) return 1;
-    const SettingDesc* w = settings_find("screen.width_cm");
-    s->screen_width_cm = clamp_int((int)lround(s->screen_width_cm / k), w->min, w->max);
-    if (s->screen_back_width_cm > 0) s->screen_back_width_cm = clamp_int((int)lround(s->screen_back_width_cm / k), w->min, w->max);
-    for (int i = 0; i < s->layout_count && i < APP_LAYOUT_MAX; i++) {
-        s->layouts[i].width_cm = clamp_int((int)lround(s->layouts[i].width_cm / k), w->min, w->max);
+// ---- Native (lane aspect-ratio): the Size beside the real width ---------------------------------------------
+
+// layoutAspectWidthScale's sum, in whole numbers first, so an exact 16:9 picture is exactly 1
+static double picture_scale(int w, int h) {
+    return w > 0 && h > 0 ? ((double)w * 9.0) / ((double)h * 16.0) : 0.0;
+}
+
+// A Size's real width at a picture, held to what width_cm takes (older versions read 80..800 cm)
+static int real_width(int size, double k) {
+    const SettingDesc* d = settings_find("screen.width_cm");
+    return clamp_int((int)lround(size * k), d->min, d->max);
+}
+
+// One width_cm and its size_cm, read, as the Size: size_cm while it agrees with width_cm at the picture they were
+// written for (kFile, 0 when none was), else width_cm at the picture now. *seen is the real width when it is the
+// right one at the picture now (written back as it was while the Size does not change), else 0.
+static int size_of(int width, int size, double kFile, double kNow, int* derived, int* seen) {
+    const SettingDesc* d = settings_find("screen.width_cm");
+    int out;
+    if (size > 0 && kFile > 0.0 && abs(real_width(size, kFile) - width) <= 1) {
+        out = clamp_int(size, d->min, d->max);
+    } else {
+        out = clamp_int((int)lround(width / kNow), d->min, d->max);
+        (*derived)++;
     }
-    return 1;
+    *seen = abs(real_width(out, kNow) - width) <= 1 ? width : 0;
+    return out;
+}
+
+int settings_screen_picture(Settings* s, int pictureWidth, int pictureHeight) {
+    double kNow = picture_scale(pictureWidth, pictureHeight);
+    if (kNow <= 0.0 || s->screen_picture_w > 0) return 0;
+    int fw = 0, fh = 0;
+    char tail;
+    double kFile = sscanf(s->screen_size_shape, "%dx%d%c", &fw, &fh, &tail) == 2 ? picture_scale(fw, fh) : 0.0;
+    int derived = 0;
+    s->screen_width_cm = size_of(s->screen_width_cm, s->screen_size_cm, kFile, kNow, &derived, &s->screen_file_width_cm);
+    s->screen_size_cm = s->screen_width_cm;
+    if (s->screen_back_width_cm > 0) {
+        s->screen_back_width_cm = size_of(s->screen_back_width_cm, s->screen_back_size_cm, kFile, kNow, &derived,
+                                          &s->screen_back_file_width_cm);
+        s->screen_back_size_cm = s->screen_back_width_cm;
+    } else {
+        s->screen_back_size_cm = s->screen_back_file_width_cm = 0;
+    }
+    for (int i = 0; i < s->layout_count && i < APP_LAYOUT_MAX; i++) {
+        AppLayout* l = &s->layouts[i];
+        l->width_cm = size_of(l->width_cm, l->size_cm, kFile, kNow, &derived, &l->file_width_cm);
+        l->size_cm = l->width_cm;
+    }
+    s->screen_picture_w = s->screen_loaded_w = pictureWidth;
+    s->screen_picture_h = s->screen_loaded_h = pictureHeight;
+    snprintf(s->screen_size_shape, sizeof s->screen_size_shape, "%dx%d", pictureWidth, pictureHeight);
+    return derived;
+}
+
+void settings_screen_picture_now(Settings* s, int pictureWidth, int pictureHeight) {
+    if (s->screen_picture_w <= 0 || pictureWidth <= 0 || pictureHeight <= 0) return;
+    s->screen_picture_w = pictureWidth;
+    s->screen_picture_h = pictureHeight;
+}
+
+// The real width to write for a Size: the one read while the Size and the picture's shape are as they came in
+static int width_out(const Settings* s, int size, int sizeIn, int widthIn, double k) {
+    int same = (long)s->screen_picture_w * s->screen_loaded_h == (long)s->screen_loaded_w * s->screen_picture_h;
+    return widthIn > 0 && size == sizeIn && same ? widthIn : real_width(size, k);
+}
+
+// settings_to_text's copy with the real widths and the sizes beside them, or NULL before settings_screen_picture
+static Settings* screen_widths_out(const Settings* s) {
+    double k = picture_scale(s->screen_picture_w, s->screen_picture_h);
+    if (k <= 0.0) return NULL;
+    Settings* o = malloc(sizeof *o);
+    if (!o) return NULL;
+    *o = *s;
+    o->screen_width_cm = width_out(s, s->screen_width_cm, s->screen_size_cm, s->screen_file_width_cm, k);
+    o->screen_size_cm = s->screen_width_cm;
+    if (s->screen_back_width_cm > 0) {
+        o->screen_back_width_cm = width_out(s, s->screen_back_width_cm, s->screen_back_size_cm, s->screen_back_file_width_cm, k);
+        o->screen_back_size_cm = s->screen_back_width_cm;
+    } else {
+        o->screen_back_size_cm = 0;
+    }
+    for (int i = 0; i < s->layout_count && i < APP_LAYOUT_MAX; i++) {
+        const AppLayout* l = &s->layouts[i];
+        o->layouts[i].width_cm = width_out(s, l->width_cm, l->size_cm, l->file_width_cm, k);
+        o->layouts[i].size_cm = l->width_cm;
+    }
+    snprintf(o->screen_size_shape, sizeof o->screen_size_shape, "%dx%d", s->screen_picture_w, s->screen_picture_h);
+    return o;
 }
 
 int settings_resolution_limit(int width, int height, int h264) {
