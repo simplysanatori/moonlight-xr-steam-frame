@@ -199,6 +199,9 @@ static void test_round_trip(void) {
             if (strncmp(d->key, "room_", 5) == 0 && strstr(d->key, "_screen") && !settings_room_resizable(atoi(d->key + 5))) {
                 continue;   // a room that keeps its picture whole has no other size
             }
+            if (strcmp(d->key, "aspect") == 0) {
+                continue;   // native (lane aspect-ratio): a preset resolution's own; moved with a custom size (test_aspect_ratio)
+            }
             // the first value after the default that survives the clamp (glow level moves by 5, bitrate starts at 500)
             int def = settings_get(&s, d);
             for (int v = def + 1; v <= d->max + 1; v++) {
