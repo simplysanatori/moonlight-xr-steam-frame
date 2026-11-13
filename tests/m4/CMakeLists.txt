@@ -37,13 +37,11 @@ foreach(t prefs hits launcher budget vrkb panels_async kbbar stats replay hud pl
 endforeach()
 
 # Native (lane beam-order): the hover sweep's beam place with the held places off (the default since
-# issue #5) and the pointer ahead of the hover layers, with the dot last, and 1.3.1's order with the held
-# places (xr_layers.c pointerOrder)
+# issue #5) and the pointer ahead of the hover layers, and 1.3.1's order with the held places
+# (xr_layers.c pointerOrder)
 if(TARGET test_m4_kbbar)
   add_test(NAME m4_kbbar_pointer_order COMMAND test_m4_kbbar hover)
   set_tests_properties(m4_kbbar_pointer_order PROPERTIES ENVIRONMENT "MLXR_HOLD_PLACES=0;MLXR_POINTER_ORDER=1")
-  add_test(NAME m4_kbbar_dot_last COMMAND test_m4_kbbar hover)
-  set_tests_properties(m4_kbbar_dot_last PROPERTIES ENVIRONMENT "MLXR_HOLD_PLACES=0;MLXR_POINTER_ORDER=2")
   add_test(NAME m4_kbbar_order0_held COMMAND test_m4_kbbar hover)
   set_tests_properties(m4_kbbar_order0_held PROPERTIES ENVIRONMENT "MLXR_HOLD_PLACES=1;MLXR_POINTER_ORDER=0")
 endif()
@@ -71,8 +69,7 @@ mlxr_link_openxr(test_m4_layergate)
 add_test(NAME m4_layer_gate COMMAND test_m4_layergate)
 set_tests_properties(m4_layer_gate PROPERTIES TIMEOUT 600)
 # 1.3.1's pointer order (MLXR_POINTER_ORDER=0) shifts the beam behind the hover layers: the gate must
-# catch it, so this test is expected to fail (a proof the gate sees the beam streak). MLXR_POINTER_ORDER=2
-# (the dot last) moves the dot by design and is not gated.
+# catch it, so this test is expected to fail (a proof the gate sees the beam streak).
 add_test(NAME m4_layer_gate_order0_expected_fail COMMAND test_m4_layergate)
 set_tests_properties(m4_layer_gate_order0_expected_fail PROPERTIES TIMEOUT 600 WILL_FAIL TRUE
                      ENVIRONMENT MLXR_POINTER_ORDER=0)
