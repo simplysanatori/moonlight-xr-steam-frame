@@ -16,17 +16,43 @@ layout(push_constant) uniform PC {
     vec4 shape;     // width m, height m, radius m (0 flat), segments
     vec4 uvRect;    // region of the texture: x0, y0, w, h (v = 0 is the top)
     vec4 color;     // multiplier, premultiplied (rgb * a, a)
+    vec4 picture;   // panel.frag's; w (native, lane gpu-144): the hole, see below
 } pc;
 
 layout(location = 0) out vec2 v_uv;
 
+// Native (lane gpu-144): picture.w > 0 leaves a hole in the middle, |u - 0.5| < hu and
+// |v - 0.5| < hv (passes.c packHole: hu and hv in 4096ths, as hu * 4096 + hv). Each segment is then
+// three rows of quads, cut at the hole's top and bottom, shape.w * 18 vertices; the middle row of a
+// segment wholly inside the hole across collapses to a point and draws nothing. Every segment is
+// cut at the same heights, so the rows meet edge to edge with no cracks.
 void main() {
     const vec2 corner[6] = vec2[6](vec2(0, 0), vec2(1, 0), vec2(0, 1), vec2(0, 1), vec2(1, 0), vec2(1, 1));
     int segments = int(pc.shape.w);
-    int quad = gl_VertexIndex / 6;
+    float hole = pc.picture.w;
+    int quad, row = -1;
+    if (hole > 0.0) {
+        quad = gl_VertexIndex / 18;
+        row = (gl_VertexIndex / 6) % 3;
+    } else {
+        quad = gl_VertexIndex / 6;
+    }
     vec2 c = corner[gl_VertexIndex % 6];
     float u = (float(quad) + c.x) / float(segments);
     float v = c.y;
+    if (row >= 0) {
+        float iu = floor(hole / 4096.0);
+        float hu = iu / 4096.0;
+        float hv = (hole - iu * 4096.0) / 4096.0;
+        float v0 = 0.5 - hv, v1 = 0.5 + hv;
+        v = row == 0 ? c.y * v0 : (row == 1 ? mix(v0, v1, c.y) : mix(v1, 1.0, c.y));
+        float u0 = float(quad) / float(segments), u1 = float(quad + 1) / float(segments);
+        if (row == 1 && u0 >= 0.5 - hu && u1 <= 0.5 + hu) {
+            // Inside the hole: every vertex of the two triangles on one point
+            u = u0;
+            v = v0;
+        }
+    }
     vec3 pos;
     pos.y = (0.5 - v) * pc.shape.y;
     if (pc.shape.z > 0.0) {
