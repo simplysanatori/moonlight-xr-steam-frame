@@ -262,8 +262,8 @@ void settings_set_aspect(Settings* s, int aspect, int h264);
 // The Frame's decoder: VIDIOC_ENUM_FRAMESIZES on its qcom-iris-decoder said 128x128 to 8192x8192 for
 // H.264, HEVC and VP9 (on the Frame, 2026-11-13; it has no AV1). The Vulkan import (video/vk_import.c) still
 // checks each frame against the GPU's own maxExtent.
-// TODO(headset): probe a real 7680x2160 HEVC stream on the Frame; the decoder's macroblock rate may be lower
-// than its frame size limit at 90 Hz and above.
+// TODO(headset): probe real HEVC streams 5120 and 7680 wide (5120x1440, 5120x2160, 7680x2160) on the Frame and
+// grey out what fails; the decoder's macroblock rate may be lower than its frame size limit at 90 Hz and above.
 #define MLXR_DECODE_MAX_WIDTH 8192
 #define MLXR_DECODE_MAX_HEIGHT 8192
 enum {

@@ -411,6 +411,11 @@ expect "profiles: the PC's every app uses Desktop" "$out" 'use "gaming-pc" / "" 
 expect "profiles: one app uses Game" "$out" 'use "gaming-pc" / "Desktop" -> "Game"'
 grep -q '^width=2560$' "$CONF" && grep -q '^fps=90$' "$CONF" && grep -q '^bitrate=80000$' "$CONF" \
     && ok "profiles: making them did not save over the Settings page's values" || fail "profiles: the page's values changed"
+# lane aspect-ratio: a profile holds the size as width and height (never a list index), so one saved before the
+# Aspect Ratio row streams the same size; an ultrawide one goes to the command line as it is
+out="$(pops 'set|width|3440~set|height|1440~set|fps|90~create|Wide~dump~remove|Wide')"
+expect "profiles: an ultrawide size is kept as it is" "$out" 'profile "Wide": 3440x1440, 90 Hz'
+expect "profiles: and removed again" "$out" "remove|Wide -> ok"
 grep -q '^1\\name=Desktop$' "$CONF" && ok "profiles: kept in the launcher's settings" || fail "profiles: not in $CONF"
 # a stream: the app's profile wins over the PC's; the config.ini keys it holds are written for the stream and put back
 ini="$MLXR_CONFIG_DIR/config.ini"
@@ -873,6 +878,62 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads failover" "$dump" "stream.failover = on"
         expect "VR client reads failover_burst_ms" "$dump" "stream.failover_burst_ms = 5000"
     fi
+    # lane aspect-ratio: the Aspect Ratio row above Video resolution, each shape's sizes, the H.264 width limit, and
+    # config.ini kept in agreement ([stream] aspect, resolution, custom_width x custom_height)
+    cp "$ini" "$t/ini.pre-aspect"
+    was="$(grep -E '^(width|height|videocfg|bitrate)=' "$CONF" | tr '\n' ' ')"
+    aspectpage() { # out-file invoke-list
+        MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_INVOKE="$2" \
+            MLXR_LAUNCHER_SCREENSHOT="$t/$1.png@2500" "$L" >"$t/$1.out" 2>&1
+        grep -Eq "$QMLERR" "$t/$1.out" && { fail "$1: QML errors"; grep -E "$QMLERR" "$t/$1.out" | head -3; }
+    }
+    # the owner's 3440x1440 (a Custom size before the row) is Ultrawide 1440p now, written beside the size
+    printf '[stream]\n#aspect = 16:9\n#resolution = 2560x1440\n' > "$ini"
+    setconf width=3440 height=1440 fps=90 bitrate=80000 videocfg=0
+    aspectpage aspect1 saveAll
+    grep -q '^aspect = 21:9$' "$ini" && grep -q '^resolution = 3440x1440$' "$ini" && ok "aspect: an older 3440x1440 is Ultrawide 1440p in config.ini" \
+        || { fail "aspect: 3440x1440 not written as Ultrawide 1440p"; cat "$ini"; }
+    grep -q '^custom_width' "$ini" && fail "aspect: custom size written for a preset" || ok "aspect: no custom size for a preset"
+    # the default size and shape write nothing
+    printf '[stream]\n#aspect = 16:9\n#resolution = 2560x1440\n' > "$ini"; cp "$ini" "$t/ini.aspect-default"
+    setconf width=2560 height=1440
+    aspectpage aspect2 saveAll
+    cmp -s "$ini" "$t/ini.aspect-default" && ok "aspect: 1440p 16:9 leaves config.ini as it was" || { fail "aspect: default size rewrote config.ini"; diff "$t/ini.aspect-default" "$ini"; }
+    # Super Ultrawide from 1440p: 5120x1440 with Automatic; with H.264 that is greyed (wider than 4096), so 3840x1080
+    aspectpage aspect3 "setAspect:32:9;saveAll"
+    grep -q '^width=5120$' "$CONF" && grep -q '^height=1440$' "$CONF" && ok "aspect: Super Ultrawide keeps 1440p (5120x1440)" || fail "aspect: 32:9 from 1440p: $(grep -E '^(width|height)=' "$CONF" | tr '\n' ' ')"
+    grep -q '^aspect = 32:9$' "$ini" && grep -q '^resolution = 5120x1440$' "$ini" && ok "aspect: 32:9 5120x1440 in config.ini" || { fail "aspect: 32:9 not in config.ini"; cat "$ini"; }
+    grep -q '^bitrate=80000$' "$CONF" && fail "aspect: the bitrate was not reset for the new size" || ok "aspect: the bitrate follows the new size"
+    setconf width=2560 height=1440 videocfg=1
+    aspectpage aspect4 "setAspect:32:9;saveAll"
+    grep -q '^width=3840$' "$CONF" && grep -q '^height=1080$' "$CONF" && ok "aspect: with H.264, Super Ultrawide passes over 5120 wide (3840x1080)" || fail "aspect: H.264 32:9: $(grep -E '^(width|height)=' "$CONF" | tr '\n' ' ')"
+    # 4:3 from 1080p: 960p and 1200p are as near, the lower one
+    setconf width=1920 height=1080 videocfg=0
+    aspectpage aspect5 "setAspect:4:3;saveAll"
+    grep -q '^width=1280$' "$CONF" && grep -q '^height=960$' "$CONF" && ok "aspect: Standard from 1080p is 960p" || fail "aspect: 4:3 from 1080p: $(grep -E '^(width|height)=' "$CONF" | tr '\n' ' ')"
+    # a Custom size keeps the shape it was typed under, and goes to config.ini as custom
+    setconf width=3000 height=1300
+    printf '[stream]\naspect = 21:9\n' > "$ini"
+    aspectpage aspect6 "setAspect:21:9;saveAll"
+    grep -q '^width=3000$' "$CONF" && ok "aspect: picking the aspect in force keeps a Custom size" || fail "aspect: custom size lost"
+    grep -q '^resolution = custom$' "$ini" && grep -q '^custom_width = 3000$' "$ini" && grep -q '^custom_height = 1300$' "$ini" && grep -q '^aspect = 21:9$' "$ini" \
+        && ok "aspect: a Custom size goes to config.ini as custom 3000x1300, Ultrawide" || { fail "aspect: custom not in config.ini"; cat "$ini"; }
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
+        expect "VR client reads the custom size" "$dump" "stream.resolution = custom"
+        expect "VR client reads custom_width" "$dump" "stream.custom_width = 3000"
+        expect "VR client reads the aspect" "$dump" "stream.aspect = 21:9"
+        printf '[stream]\nresolution = 3440x1440\n' > "$t/old.ini"
+        dump="$("$MLXR_SETTINGS_DUMP" "$t/old.ini")"
+        expect "VR client: an older config.ini's 3440x1440 is Ultrawide" "$dump" "stream.aspect = 21:9"
+        printf '[stream]\nresolution = 3\n' > "$t/old.ini"
+        dump="$("$MLXR_SETTINGS_DUMP" "$t/old.ini")"
+        expect "VR client: an older config.ini's index 3 is 1080p" "$dump" "stream.resolution = 1920x1080"
+        expect "VR client: ... Widescreen" "$dump" "stream.aspect = 16:9"
+    fi
+    cp "$t/ini.pre-aspect" "$ini"
+    # shellcheck disable=SC2086
+    setconf $was
     # lane flat-input: 300 Mbps through every bitrate route of the page reaches the hand-off's --bitrate, the launcher's
     # config and config.ini as the VR client reads them. The owner's config had stock's unlockbitrate=false, which limits
     # nothing in hand-off mode. Every row shows the figure the same way.

@@ -753,7 +753,6 @@ QVector<MlxrPrefs::IniEntry> MlxrPrefs::profileIniEntries() const
         { "3d", "depth_global", QString::number(qBound(0, depthGlobal, 200)) },
         { "3d", "stereo_source", stereoSource },
         { "3d", "sbs_full", sbsFull ? "true" : "false" },
-        { "stream", "aspect", normalizeAspect(aspect) },   // native (lane aspect-ratio)
         { "stream", "rfi_idr_ms", QString::number(qBound(0, rfiIdrMs, 5000)) },
         { "3d", "eye_balance", QString::number(qBound(-100, eyeBalance, 100)) },
         { "stream", "bitrate_wifi", QString::number(bitrateWifi <= 0 ? 0 : qBound(500, bitrateWifi, 500000)) },

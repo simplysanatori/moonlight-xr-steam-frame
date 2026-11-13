@@ -220,7 +220,8 @@ When a stream starts, the profile of the app, or else of its PC, is in force for
 
 | Setting | Options | Default |
 | --- | --- | --- |
-| Video resolution | 360p, 480p, 720p, 1080p, 1440p, 4K, Custom... | 1440p (2560x1440). **Custom...** asks for any width x height, such as 3840x1080 for full-size SBS. |
+| Aspect Ratio | Standard (4:3), Widescreen (16:9), 16:10, Ultrawide (21:9), Super Ultrawide (32:9) | Widescreen (16:9). The shape of the picture, and the sizes Video resolution lists. A wider shape makes the screen in the headset wider at the same height; 4:3 makes it narrower. Changing it picks that shape's size nearest the height you had. |
+| Video resolution | The Aspect Ratio's sizes, then Custom... | 1440p (2560x1440). Each shape lists real monitor sizes, named by their height. 4:3: 480p (640x480), 600p, 768p, 960p, 1200p, 1536p (2048x1536). 16:9: 360p, 480p, 720p, 1080p, 1440p, 4K. 16:10: 800p (1280x800), 900p, 1050p, 1200p, 1600p, 2400p (3840x2400). 21:9: 1080p (2560x1080), 1440p (3440x1440), 1600p (3840x1600), 2160p (5120x2160). 32:9: 1080p (3840x1080), 1440p (5120x1440), 2160p (7680x2160). Sizes wider than 4096 are greyed with Prefer H.264, since H.264 stops there. **Custom...** asks for any width x height and keeps the Aspect Ratio it was typed under. |
 | Refresh rate | **Match headset**, 144 Hz, 120 Hz, 90 Hz, 72 Hz, 60 Hz, 30 Hz, Custom... | Match headset. It uses the rate SteamVR runs the headset's display at for this app: 90 Hz unless you changed it in SteamVR's settings. Pick 72, 90, 120 or 144 Hz here to choose the headset's rate: when the stream starts, the launcher sets that rate in SteamVR's per-app video settings for this app, and the stream runs at it. 120 and 144 Hz need the stream and your PC to keep up: the PC has to render and encode that many frames a second, and the network has to carry the higher bitrate. The stream never goes above the rate the headset runs at, 144 Hz at most. If SteamVR still runs the app at its old rate, the log says so and the stream uses that rate; start the app again. Custom takes values such as 59.94 and needs Apollo. |
 | Video frame pacing | Prefer lowest latency, Balanced, Prefer smoothest video | Balanced. Lowest latency shows the newest frame at once; smoothest shows every frame in turn, a frame or two later. |
 | Ultra low latency (experimental) | on, off | off. Runs the network and decoder threads at realtime priority. |
@@ -350,7 +351,7 @@ The same question gives the app's UUID on Apollo. The flat window passes it to t
 | --- | --- | --- |
 | Stats | on, off | off. Same as Stats in the headset's Display tab. In `config.ini`, `stats = hud` or `stats = lite` turns them on in that style (see Stats styles below). |
 | Stats style | Full, HUD, Lite | Full. In `config.ini`: `[display] stats_style`. |
-| Change codec settings | Automatic (Recommended), Prefer HEVC, Prefer H.264 | Automatic: HEVC when the PC has it, else H.264. The Frame decodes H.264 and HEVC only, so there is no AV1 choice. |
+| Change codec settings | Automatic (Recommended), Prefer HEVC, Prefer H.264 | Automatic: HEVC when the PC has it, else H.264. The Frame decodes H.264 and HEVC only, so there is no AV1 choice. Prefer H.264 is greyed while the Video resolution is wider than 4096. |
 | Force full range video (experimental) | on, off | off. Hardware decoding only. |
 | Force software decoding | on, off | off. Slow; for troubleshooting. |
 
@@ -402,7 +403,7 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Tilt | -40 to 40° | 0 |
 | Rotate | -90 to 90° | 0 |
 | Curve | 0 to 100 % | 0 |
-| Size | 0.8 to 8 m wide | 3 m |
+| Size | 0.8 to 8 m wide | 3 m. The width of a 16:9 picture: a wider picture (21:9, 32:9) keeps that height and is wider, a 4:3 one narrower. |
 | Aim sensitivity | 1 to 30 | 8. Greyed unless Head locked is on. |
 | Aim dead zone | 0 to 20 | 2. Greyed unless Head locked is on. |
 | Preset | Desk, Couch, Cinema, Bring here | Desk is 1.2 m away and 1.6 m wide, Couch 2.5 m and 2.6 m, Cinema 4 m and 5 m. A preset sets only the distance and the width: the way the screen sits, its tilt, roll and curve stay as they were. **Bring here** puts the screen where you are looking, as far from you as it was and the same size. It does nothing in a room or with Head locked on. |
@@ -752,12 +753,12 @@ Turn it on:
 
 With the 3D switched off, you see the left eye's half on its own, as a flat picture.
 
-**Half-size or full-size.** A half-size pair squeezes both eyes into one normal frame, so each eye has half the width (SBS) or half the height (Top-bottom). The headset stretches each half back to 16:9. This is what most 3D films and ReShade use, and it needs no change on the PC. A full-size pair puts two whole pictures side by side, for example 3840x1080 for two 1920x1080 eyes. It is sharper, but the stream is twice as large. Turn on `[3d] sbs_full` (Full-size SBS on the Settings page) for it. The screen still shows a 16:9 picture.
+**Half-size or full-size.** A half-size pair squeezes both eyes into one normal frame, so each eye has half the width (SBS) or half the height (Top-bottom). The headset stretches each half back to 16:9. This is what most 3D films and ReShade use, and it needs no change on the PC. A full-size pair puts two whole pictures side by side, for example 3840x1080 for two 1920x1080 eyes. It is sharper, but the stream is twice as large. Turn on `[3d] sbs_full` (Full-size SBS on the Settings page) for it. The screen still shows a 16:9 picture. A full-size pair has the same shape as a Super Ultrawide (32:9) picture, and only the 3D source says which it is: with SBS and Full-size SBS on, a 32:9 stream is always shown as a pair, and a notice says so when it starts. For a 2D Super Ultrawide picture, set 3D source to Depth.
 
 **The Apollo virtual display.** With Apollo, the PC can make a display of exactly the stream's size:
 
 - Half-size (recommended): keep the stream at 1920x1080 (or 2560x1440). Turn on Use virtual display. Set the game or player to its SBS (or Top-bottom) mode, full screen.
-- Full-size: set Video resolution to Custom... 3840x1080 in the flat window's Settings page and turn on Use virtual display. Apollo makes a 3840x1080 display. Set the game to render side by side across it, and turn on Full-size SBS.
+- Full-size: set Aspect Ratio to Super Ultrawide (32:9) and Video resolution to 1080p (3840x1080) in the flat window's Settings page and turn on Use virtual display. Apollo makes a 3840x1080 display. Set the game to render side by side across it, and turn on Full-size SBS.
 
 Do not use 4K (3840x2160) full-size SBS for now. The headset decodes 4K, but a test on a home network could not carry a 4K stream at 150 Mbps: the picture stalled and lost frames. 3840x1080 is half of that and is the largest pair to try.
 
@@ -1094,6 +1095,9 @@ You can also write a note in the headset (cog, About, Report a problem). **Save*
 | `[3d] edge_sharpness`, `motion_reset`, `depth_scale`, `depth_global` | see [3D](#edges) | 0, 0, 100, 100 |
 | `[debug] depth_debug` | `true`, `false` | `false`. Shows the depth map in place of the picture. |
 | `[debug] eye_swap` | `true`, `false` | `false`. Swaps the left and right eye in 3D. For checking a wrong-way picture, and for an SBS or Top-bottom pair with the right eye first. |
+| `[stream] aspect` | `4:3`, `16:9`, `16:10`, `21:9`, `32:9` | `16:9`. The flat window's Aspect Ratio. A preset resolution sets it to its own shape. |
+| `[stream] resolution` | a preset's width x height (`2560x1440`, `3440x1440` ...), or `custom` | `2560x1440`. The flat window writes it with each change; the stream itself uses the size the flat window passes. Any other width x height reads as `custom` with that size. |
+| `[stream] custom_width`, `custom_height` | 256 to 8192 | 2560 and 1440. The size used with `resolution = custom`. |
 | `[stream] bitrate_kbps` | 0, or 500 to 500000 | 0, which follows the resolution and refresh rate. A bitrate the flat window passes for a stream overrides it. The flat window's Custom bitrate goes up to 500 Mbps, and so does this. |
 | `[stream] bitrate_wifi` | 0, or 500 to 500000 | 0, which uses `bitrate_kbps` or the bitrate the flat window passes. The bitrate in kbps a stream starts with when it goes over Wi-Fi. See [Bitrate for each connection](#bitrate-for-each-connection). |
 | `[stream] bitrate_adapter` | 0, or 500 to 500000 | 0. The same for the Steam Frame Wireless Adapter. |

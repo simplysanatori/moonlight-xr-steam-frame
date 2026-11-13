@@ -407,6 +407,10 @@ int layoutPresetAt(int distanceCm, int widthCm);
 // placements kept per app) is the width a 16:9 picture of the same height has. A picture of another shape
 // keeps that height: it is the size times this wide (21:9 about 1.31, 32:9 2, 4:3 0.75). 1 for no picture.
 float layoutAspectWidthScale(int pictureWidth, int pictureHeight);
+// Native (lane aspect-ratio): a full-size side by side pair of 16:9 eyes is a 32:9 frame, the Super Ultrawide
+// shape, and the 3D source alone decides which it is (nothing guesses from the shape). 1 when the source would
+// split a frame of that shape or wider into two eyes, so the app can say how to see it as one 2D picture.
+int sbsSplitsWidePicture(int source, int full, int frameWidth, int frameHeight);
 
 // The way the head looks, as a unit vector, held to LAYOUT_GAZE_PITCH_MAX_DEG
 // up or down so a glance at the ceiling does not take the screen there

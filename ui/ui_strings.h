@@ -301,7 +301,10 @@
     X(ACCESS_DESC_EYE_CAL, "native_access_desc_eye_cal", "Corrects where the eyes point. Look at each of the 12 dots in turn.") \
     X(EYE_CAL_LOOK, "native_eye_cal_look", "Look at the dot") \
     X(EYE_CAL_PROGRESS, "native_eye_cal_progress", "%d / %d") \
-    X(EYE_CAL_CANCEL, "native_eye_cal_cancel", "B: Cancel")
+    X(EYE_CAL_CANCEL, "native_eye_cal_cancel", "B: Cancel") \
+    /* native (lane aspect-ratio): a 32:9 picture split as an SBS pair */ \
+    X(SBS_WIDE, "native_toast_sbs_wide", "32:9 picture shown as SBS 3D") \
+    X(SBS_WIDE_MORE, "native_toast_sbs_wide_more", "3D source is SBS. For a 2D picture, set 3D source to Depth.")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

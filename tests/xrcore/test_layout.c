@@ -1737,6 +1737,15 @@ static void testTheAspectWidth(void) {
     CHECK_NEAR(layoutAspectWidthScale(1600, 1200), 0.75, 1e-6);
     CHECK_NEAR(layoutAspectWidthScale(1920, 1200), 0.9, 1e-6);
     CHECK(layoutAspectWidthScale(0, 1080) == 1.0f && layoutAspectWidthScale(1920, 0) == 1.0f);
+    // what the 32:9 notice is for: a full-size SBS source takes a 32:9 frame as two 16:9 eyes; nothing else does
+    CHECK(sbsSplitsWidePicture(STEREO_SOURCE_SBS, 1, 3840, 1080));
+    CHECK(sbsSplitsWidePicture(STEREO_SOURCE_SBS, 1, 5120, 1440));
+    CHECK(sbsSplitsWidePicture(STEREO_SOURCE_SBS, 1, 7680, 2160));
+    CHECK(!sbsSplitsWidePicture(STEREO_SOURCE_SBS, 1, 3440, 1440));   // 21:9
+    CHECK(!sbsSplitsWidePicture(STEREO_SOURCE_SBS, 0, 3840, 1080));   // half size: the frame is the picture's shape
+    CHECK(!sbsSplitsWidePicture(STEREO_SOURCE_TB, 1, 3840, 1080));
+    CHECK(!sbsSplitsWidePicture(STEREO_SOURCE_DEPTH, 1, 3840, 1080));
+    CHECK(!sbsSplitsWidePicture(STEREO_SOURCE_SBS, 1, 3840, 0));
     // the curve's limit: a 32:9 picture twice as wide on the same radius only shrinks past a full circle
     CHECK(cylinderFit(2.0f * 3.0f, 1.0f) == 1.0f);
     CHECK(cylinderFit(2.0f * 4.0f, 1.0f) < 1.0f);

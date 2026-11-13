@@ -933,3 +933,8 @@ float layoutAspectWidthScale(int pictureWidth, int pictureHeight) {
     // in whole numbers first, so an exact 16:9 picture is exactly 1 and leaves every width as it was
     return (float)(((double)pictureWidth * 9.0) / ((double)pictureHeight * 16.0));
 }
+
+int sbsSplitsWidePicture(int source, int full, int frameWidth, int frameHeight) {
+    // 31:9 and wider: 32:9 with room for a size rounded to a multiple of 8 or 16
+    return source == STEREO_SOURCE_SBS && full && frameHeight > 0 && (long)frameWidth * 9 >= (long)frameHeight * 31;
+}
