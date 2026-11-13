@@ -1520,6 +1520,9 @@ typedef struct XrCtx {
     int framesInFlight;
     int frameSlot;
     uint64_t gpuWaits;          // xrGpuWaitFor calls that blocked (the 5 s line)
+    // Native (lane fif-sync): the highest timeline value a submission that went through signals.
+    // xrGpuWaitFor never waits past it (a value not submitted yet would never come)
+    uint64_t gpuSubmitted;
     // Native M6: the timeline semaphore each frame's submission signals
     // gpuSerial on, which the depth stage thread waits on for a readback
     VkSemaphore gpuTimeline;

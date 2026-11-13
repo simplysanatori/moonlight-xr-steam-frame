@@ -171,6 +171,7 @@ void m6_frame(M5Gpu* g, XrCtx* ctx, int inFlight, void (*body)(XrCtx* ctx, VkCom
     si.signalSemaphoreCount = 1;
     si.pSignalSemaphores = &g->timeline;
     vkQueueSubmit(g->vk.queue, 1, &si, VK_NULL_HANDLE);
+    ctx->gpuSubmitted = value; // as the frame loop (xrGpuWaitFor never waits past it)
     ctx->frameCmd = VK_NULL_HANDLE;
     xrWorldSubmitted(ctx, value);
     xrDepthSubmitted(ctx, value);

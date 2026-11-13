@@ -473,6 +473,8 @@ static VkImageView hwView(const XrVk* vk, Video* vd, MlxrPasses* passes, const m
         if (!vd->hwViews[i].view && slot < 0) slot = i;
     }
     if (slot < 0) {
+        // Native (lane fif-sync): the frame before (two in flight) may still sample one of them
+        vkDeviceWaitIdle(vk->device);
         hwDropViews(vk, vd);
         slot = 0;
     }
@@ -1238,6 +1240,11 @@ static int superSwapchain(XrCtx* ctx, XrSuper* ss, int64_t format) {
     if (ss->swapchain && ss->w == ss->wantW && ss->h == ss->wantH) {
         return 0;
     }
+    if (ss->swapchain) {
+        // Native (lane fif-sync): a frame still on the GPU (two in flight) may be drawing into the old
+        // images; with one in flight the frame's fence had already idled it
+        vkDeviceWaitIdle(ctx->vk->device);
+    }
     superDestroySwapchain(ctx, ss);
     XrSwapchainCreateInfo ci = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
     ci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
@@ -1307,6 +1314,7 @@ typedef struct Frame {
     VkCommandBuffer cmd;
     VkFence fence;
     int recording;
+    uint64_t fenced;            // native (lane fif-sync): the timeline value of the submission the fence covers
 } Frame;
 
 static VkCommandBuffer frameBegin(XrCtx* ctx, Frame* fr) {
@@ -1323,7 +1331,15 @@ static VkCommandBuffer frameBegin(XrCtx* ctx, Frame* fr) {
     return fr->cmd;
 }
 
-static Frame* g_frame; // for xrEnsurePassthroughSwapchain (native, lane frames-in-flight: this frame's slot)
+// Native (lane fif-sync): the passthrough backdrop's clears (ensurePassthroughSwapchain) go up in
+// submissions of their own, a command buffer per swapchain image, after the frame's. They used to be
+// recorded into the frame's command buffer once it had gone to the GPU, which meant waiting for the
+// frame just submitted first, and the image was released before its clear was submitted.
+#define BACKDROP_IMAGES 8
+static VkCommandPool g_backdropPool;              // the first frame slot's
+static VkCommandBuffer g_backdropCmd[BACKDROP_IMAGES];
+static uint64_t g_backdropSerial[BACKDROP_IMAGES]; // the submission that last used each
+static uint64_t* g_timelineValue;                 // the frame timeline's last value handed out (Video.value)
 
 // Native (lane frames-in-flight): every frame slot's last submission finished (before a stream's
 // video resources go, which a frame still in flight may read)
@@ -1354,6 +1370,58 @@ static void clearBackdropImage(VkCommandBuffer cmd, VkImage image, const float l
                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 }
 
+// Native (lane fif-sync): the backdrop image idx (acquired and waited) cleared in a submission of
+// its own that signals the frame timeline, then released. Nothing waits for the frame just
+// submitted: the image's command buffer was last used when the image was last cleared, frames ago.
+// Returns 0 when the clear did not go up (the image is released all the same).
+static int backdropClear(XrCtx* ctx, XrSwapchain sc, uint32_t idx, VkImage image, const float linear[4]) {
+    VkDevice dev = ctx->vk->device;
+    int ok = 0;
+    if (idx < BACKDROP_IMAGES && g_backdropPool != VK_NULL_HANDLE && g_timelineValue != NULL) {
+        VkCommandBuffer* cmd = &g_backdropCmd[idx];
+        if (*cmd == VK_NULL_HANDLE) {
+            VkCommandBufferAllocateInfo cai = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+            cai.commandPool = g_backdropPool;
+            cai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            cai.commandBufferCount = 1;
+            if (vkAllocateCommandBuffers(dev, &cai, cmd) != VK_SUCCESS) *cmd = VK_NULL_HANDLE;
+        }
+        else {
+            xrGpuWaitFor(ctx, g_backdropSerial[idx]);
+        }
+        if (*cmd != VK_NULL_HANDLE && g_backdropSerial[idx] <= ctx->gpuDone) {
+            vkResetCommandBuffer(*cmd, 0);
+            VkCommandBufferBeginInfo cbi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+            cbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vkBeginCommandBuffer(*cmd, &cbi);
+            clearBackdropImage(*cmd, image, linear);
+            vkEndCommandBuffer(*cmd);
+            uint64_t signal = *g_timelineValue + 1;
+            VkTimelineSemaphoreSubmitInfo tsi = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+            tsi.signalSemaphoreValueCount = 1;
+            tsi.pSignalSemaphoreValues = &signal;
+            VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            si.pNext = &tsi;
+            si.commandBufferCount = 1;
+            si.pCommandBuffers = cmd;
+            si.signalSemaphoreCount = 1;
+            si.pSignalSemaphores = &ctx->gpuTimeline;
+            if (vkQueueSubmit(ctx->vk->queue, 1, &si, VK_NULL_HANDLE) == VK_SUCCESS) {
+                *g_timelineValue = signal;
+                ctx->gpuSubmitted = signal;
+                g_backdropSerial[idx] = signal;
+                ok = 1;
+            }
+            else {
+                LOGE("passthrough backdrop: vkQueueSubmit failed");
+            }
+        }
+    }
+    XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+    xrReleaseSwapchainImage(sc, &rl);
+    return ok;
+}
+
 // The fork's projection layer behind everything: transparent when passthrough
 // is on, and since lane wave3-visual also dimmed (black at the Background
 // dim's alpha) or, in the void, the void's colour. Made once; a change of
@@ -1376,11 +1444,14 @@ static int ensurePassthroughSwapchain(XrCtx* ctx, int size) {
         XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
         wi.timeout = XR_INFINITE_DURATION;
         xrWaitSwapchainImage(ctx->passthroughSwapchain, &wi);
-        if (idx < ctx->passthroughImageCount) {
-            clearBackdropImage(frameBegin(ctx, g_frame), ctx->passthroughImages[idx], want);
+        // Native (lane fif-sync): a clear that did not go up is tried again next frame
+        if (idx >= ctx->passthroughImageCount) {
+            XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+            xrReleaseSwapchainImage(ctx->passthroughSwapchain, &rl);
         }
-        XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
-        xrReleaseSwapchainImage(ctx->passthroughSwapchain, &rl);
+        else if (!backdropClear(ctx, ctx->passthroughSwapchain, idx, ctx->passthroughImages[idx], want)) {
+            return 1;
+        }
         memcpy(ctx->backdropDrawn, ctx->backdropWant, sizeof(ctx->backdropDrawn));
         ctx->backdropDrawnValid = 1;
         return 1;
@@ -1402,24 +1473,25 @@ static int ensurePassthroughSwapchain(XrCtx* ctx, int size) {
     if (count > 8) count = 8;
     for (uint32_t i = 0; i < count; i++) imgs[i] = (XrSwapchainImageVulkan2KHR){ XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR };
     xrEnumerateSwapchainImages(sc, count, &count, (XrSwapchainImageBaseHeader*)imgs);
-    // Every image cleared to the colour, one acquire each, recorded into the
-    // frame's command buffer (submitted before the end of this frame)
-    VkCommandBuffer cmd = frameBegin(ctx, g_frame);
+    // Every image cleared to the colour, one acquire each. Native (lane fif-sync): each in a
+    // submission of its own, submitted before the image is released
     ctx->passthroughImageCount = count;
+    int cleared = 1;
     for (uint32_t i = 0; i < count; i++) {
         uint32_t idx = 0;
         XrSwapchainImageAcquireInfo aq = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
-        if (!checkXr(xrAcquireSwapchainImage(sc, &aq, &idx), "acquire passthrough image")) break;
+        if (!checkXr(xrAcquireSwapchainImage(sc, &aq, &idx), "acquire passthrough image")) {
+            cleared = 0;
+            break;
+        }
         XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
         wi.timeout = XR_INFINITE_DURATION;
         xrWaitSwapchainImage(sc, &wi);
         if (idx < 8) ctx->passthroughImages[idx] = imgs[idx].image;
-        clearBackdropImage(cmd, imgs[idx].image, want);
-        XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
-        xrReleaseSwapchainImage(sc, &rl);
+        if (!backdropClear(ctx, sc, idx, imgs[idx].image, want)) cleared = 0;
     }
     memcpy(ctx->backdropDrawn, ctx->backdropWant, sizeof(ctx->backdropDrawn));
-    ctx->backdropDrawnValid = 1;
+    ctx->backdropDrawnValid = cleared;
     ctx->passthroughSwapchain = sc;
     LOGEV("passthrough projection layer ready (%dx%d transparent, %u images); swapchains alive %d of 16", size,
           size, count, ctx->swapchainsAlive);
@@ -2357,7 +2429,11 @@ int xr_app_run(const XrAppConfig* cfg) {
     curve.mode = 1;
     XrSuper ss;
     memset(&ss, 0, sizeof(ss));
-    g_frame = fr;
+    // Native (lane fif-sync): the backdrop's own command buffers come from the first slot's pool
+    memset(g_backdropCmd, 0, sizeof(g_backdropCmd));
+    memset(g_backdropSerial, 0, sizeof(g_backdropSerial));
+    g_backdropPool = VK_NULL_HANDLE;
+    g_timelineValue = &vd.value;
     MlxrPasses* passes = NULL;
 
     if (!initInstance(ctx, cfg->settings)) {
@@ -2436,6 +2512,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         if (!VK_OK(vkCreateFence(vk.device, &fci, NULL, &slots[i].fence), "fence")) goto fail;
     }
+    g_backdropPool = slots[0].pool;
     LOGEV("gpu144: frames in flight %d (MLXR_FRAMES_IN_FLIGHT=%s)", fif,
           getenv("MLXR_FRAMES_IN_FLIGHT") ? getenv("MLXR_FRAMES_IN_FLIGHT") : "unset");
     {
@@ -2527,6 +2604,8 @@ int xr_app_run(const XrAppConfig* cfg) {
     // (after xrWaitFrame returned)
     int64_t latShowNsSum = 0, latShowNsMax = 0, latTakeNsSum = 0, latTakeNsMax = 0;
     int exitAsked = 0;
+    uint64_t counterFailed = 0; // native (lane fif-sync): frame timeline reads failed in a row
+    int decodeToJudge = 0;      // native (lane fif-sync): a new decoder whose first window is not judged yet
     while (!ctx->exitRequested) {
         if ((atomic_load(&g_quit) || (cfg->seconds > 0 && nowNs() / 1e9 - start > cfg->seconds)) && !exitAsked) {
             exitAsked = 1;
@@ -2608,10 +2687,28 @@ int xr_app_run(const XrAppConfig* cfg) {
         }
         if (fif > 1) {
             uint64_t done = 0;
-            ctx->gpuDone = vkGetSemaphoreCounterValue(vk.device, vd.timeline, &done) == VK_SUCCESS ? done : 0;
+            VkResult cr = vkGetSemaphoreCounterValue(vk.device, vd.timeline, &done);
+            if (cr == VK_SUCCESS) {
+                ctx->gpuDone = done;
+                if (counterFailed) {
+                    LOGW("gpu: frame timeline readable again after %llu failed reads", (unsigned long long)counterFailed);
+                    counterFailed = 0;
+                }
+            }
+            else {
+                // Native (lane fif-sync): the fence above says at least this slot's frame is done
+                // (was: 0, so nothing retired and every xrGpuWaitFor waited)
+                if (fr->fenced > ctx->gpuDone) ctx->gpuDone = fr->fenced;
+                if (counterFailed++ == 0) {
+                    LOGE("gpu: reading the frame timeline failed (%d); going by the frame's fence until it reads "
+                         "again", (int)cr);
+                }
+            }
         }
         else {
-            ctx->gpuDone = vd.value;
+            // Native (lane fif-sync): what the fence covers. The same as the timeline's last value
+            // except after a passthrough backdrop clear, which goes up after the frame
+            ctx->gpuDone = fr->fenced;
         }
 
         // ---- input (nativeUpdateInput) and what it decided (dispatchInput)
@@ -2707,6 +2804,7 @@ int xr_app_run(const XrAppConfig* cfg) {
                 ic.release = hwReleaseCb;
                 ic.release_user = hv;
                 ic.linear_filter = true;
+                decodeToJudge = 1;
                 if (mlxr_vkimp_create(&ic, &vd.imp) == 0) {
                     vd.src = hv;
                     LOGEV("hardware video: importer ready");
@@ -2921,6 +3019,8 @@ int xr_app_run(const XrAppConfig* cfg) {
                 LOGE("vkQueueSubmit failed");
                 break;
             }
+            fr->fenced = signal;
+            ctx->gpuSubmitted = signal;
             xrWorldSubmitted(ctx, signal);
             xrDepthSubmitted(ctx, signal);
         }
@@ -2998,21 +3098,12 @@ int xr_app_run(const XrAppConfig* cfg) {
             xrBuildLayers(ctx, &fin, &fout);
         }
         xrSplashLayers(ctx, &fout, nowNs()); // Native (lane wave6-splash): the logo until the first frame, while it reconnects
-        if (fr->recording) {
-            // xrBuildLayers made the passthrough swapchain this frame
-            vkEndCommandBuffer(fr->cmd);
-            fr->recording = 0;
-            VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-            si.commandBufferCount = 1;
-            si.pCommandBuffers = &fr->cmd;
-            vkResetFences(vk.device, 1, &fr->fence);
-            vkQueueSubmit(vk.queue, 1, &si, fr->fence);
-        }
+        // Native (lane fif-sync): the passthrough backdrop's clears, when xrBuildLayers made or
+        // recoloured it, went up in submissions of their own (backdropClear)
         // Native (lane frames-in-flight): the next frame records into the next slot, whose last
         // submission (two frames back with two in flight) it waits for
         slot = (slot + 1) % fif;
         fr = &slots[slot];
-        g_frame = fr;
         ctx->frameSlot = slot;
         XrFrameEndInfo fei = { XR_TYPE_FRAME_END_INFO };
         fei.displayTime = fs.predictedDisplayTime;
@@ -3131,6 +3222,17 @@ int xr_app_run(const XrAppConfig* cfg) {
                              ? (hs.latchNsSum - pacePrev.latchNsSum) / 1e6 / (double)(hs.latchWaits - pacePrev.latchWaits)
                              : 0.0);
                 hw_video_reset_max(hvNow);
+                // Native (lane fif-sync): some sessions decode at three times the usual time from the
+                // first window on, with the same settings (7.6 ms against 2.3 ms). Said once a stream,
+                // on its first window with 30 or more frames; nothing else changes
+                if (decodeToJudge && timed >= 30) {
+                    decodeToJudge = 0;
+                    double decodeAvg = (hs.decodeNsSum - pacePrev.decodeNsSum) / 1e6 / (double)timed;
+                    if (decodeAvg >= 5.0) {
+                        LOGEV("decode: hardware decoder is slow this session (%.1f ms avg over the stream's first "
+                              "%llu frames; usually about 2.3 ms)", decodeAvg, (unsigned long long)timed);
+                    }
+                }
                 snprintf(pacing, sizeof(pacing),
                          "frames %s: %llu decoded, %llu new of %llu refreshes, %llu one-refresh repeats, %llu catch-up "
                          "drops, %llu replaced/overflow, %llu flagged damaged, %.2f waiting avg; %s",
@@ -3201,7 +3303,11 @@ fail:
             if (slots[i].fence) vkDestroyFence(vk.device, slots[i].fence, NULL);
             if (slots[i].pool) vkDestroyCommandPool(vk.device, slots[i].pool, NULL);
         }
+        // Native (lane fif-sync): the backdrop's command buffers went with the first slot's pool
+        memset(g_backdropCmd, 0, sizeof(g_backdropCmd));
+        g_backdropPool = VK_NULL_HANDLE;
     }
+    g_timelineValue = NULL;
     clickStop();
     destroyXrInput(ctx);
     if (ctx->viewSpace) xrDestroySpace(ctx->viewSpace);

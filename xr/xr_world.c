@@ -521,17 +521,42 @@ static void timesCollect(XrCtx* ctx) {
     memset(w->begun, 0, sizeof(w->begun));
 }
 
+// Native (lane fif-sync): the longest xrGpuWaitFor holds the loop; past it, it logs and goes on
+#define GPU_WAIT_TIMEOUT_NS 250000000ull
+
 void xrGpuWaitFor(XrCtx* ctx, uint64_t serial) {
     if (serial == 0 || serial <= ctx->gpuDone || ctx->vk == NULL) return;
     VkDevice dev = ctx->vk->device;
     if (ctx->gpuTimeline != VK_NULL_HANDLE) {
+        // Native (lane fif-sync): a serial not submitted yet (recorded into this frame, or its
+        // submission failed) would never be signalled. What can still read the memory then is the
+        // submissions before it, so wait for the last one that went through.
+        if (serial > ctx->gpuSubmitted) {
+            static int said;
+            if (!said) {
+                said = 1;
+                LOGW("gpu: asked to wait for submission %llu, past the last one submitted (%llu); waiting for that "
+                     "one instead (said once)", (unsigned long long)serial, (unsigned long long)ctx->gpuSubmitted);
+            }
+            serial = ctx->gpuSubmitted;
+            if (serial <= ctx->gpuDone) return;
+        }
         VkSemaphoreWaitInfo wi = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
         wi.semaphoreCount = 1;
         wi.pSemaphores = &ctx->gpuTimeline;
         wi.pValues = &serial;
-        vkWaitSemaphores(dev, &wi, UINT64_MAX);
+        int64_t at = nowNs();
+        VkResult r = vkWaitSemaphores(dev, &wi, GPU_WAIT_TIMEOUT_NS);
         uint64_t v = 0;
         if (vkGetSemaphoreCounterValue(dev, ctx->gpuTimeline, &v) == VK_SUCCESS && v > ctx->gpuDone) ctx->gpuDone = v;
+        if (r != VK_SUCCESS) {
+            // Native (lane fif-sync): the GPU is stuck or lost; going on risks a torn panel or
+            // picture for a frame, hanging the loop risks everything
+            LOGE("gpu: waited %.0f ms for submission %llu and gave up (%s, the GPU is at %llu)", (nowNs() - at) / 1e6,
+                 (unsigned long long)serial, r == VK_TIMEOUT ? "timeout" : "error", (unsigned long long)v);
+            ctx->gpuWaits++;
+            return;
+        }
         if (ctx->gpuDone < serial) ctx->gpuDone = serial;
     }
     else {

@@ -183,7 +183,8 @@ void xrGpuCurveCarriesRoom(XrCtx* ctx);
 // Native (lane frames-in-flight): returns once the GPU has finished the submission that signals
 // serial (at once when ctx->gpuDone is already past it), and moves ctx->gpuDone up to where the
 // GPU is. For CPU writes into memory a frame still in flight may read (the atlas staging, the
-// software picture's staging)
+// software picture's staging). Native (lane fif-sync): a serial past ctx->gpuSubmitted waits for
+// that one instead, and the wait gives up (logged) after 250 ms rather than hang the loop
 void xrGpuWaitFor(XrCtx* ctx, uint64_t serial);
 // The averages of one section since the last xrGpuTimesLine (0 when none)
 double xrGpuTimeAvg(XrCtx* ctx, int section, int* samples);
