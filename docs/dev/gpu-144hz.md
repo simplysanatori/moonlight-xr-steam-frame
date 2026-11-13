@@ -66,7 +66,24 @@ To check in the headset: `FDM_DEBUG=1` in `app-dev/dev.env`, then in `moonlight-
 
 - fe5a0ae (lost wakeups in Pacer): moonlight-qt set `m_Stopping` and woke its vsync/render threads without the lock, and its vsync wait had no predicate. Our pacing has no vsync or render thread: `hw_video_take_refresh` runs on the XR frame loop. The one condvar wait (the latch) is a predicate loop under the lock, and every producer (a new picture, a decode error, a format change, stop) changes its state and then broadcasts while holding the lock. `stop` is stored before the lock is taken, and the waiter checks it again under the lock, so no wakeup is lost. Not affected.
 - e4db5c2 (check the queue before dequeuing): `hw_video_take_refresh` only pops when `show && queued > 0` (paced) or `queued > 0` (newest), and `dropOldest` stops at an empty queue. Not affected.
-- `vkWaitForFences` after `xrWaitFrame`: now timed (`xr: gpu144: waited ...`). The loop has one frame in flight. If the GPU frame runs past about the refresh minus the CPU's recording time, the loop blocks here and a refresh is lost. A non-zero average here at 144 Hz means double-buffering the frame's command buffer and fence (two in flight) would win back frames. Measure first (runs A to E give the figure); that is a bigger change, not done here.
+- `vkWaitForFences` after `xrWaitFrame`: now timed (`xr: gpu144: waited ...`). The loop has one frame in flight. If the GPU frame runs past about the refresh minus the CPU's recording time, the loop blocks here and a refresh is lost. A non-zero average here at 144 Hz means double-buffering the frame's command buffer and fence (two in flight) would win back frames. The headset run with passthrough on gave 2 to 8 ms averages, blocked on 30 to 75 % of frames; that is now done (Frames in flight below).
+
+## Frames in flight (branch perf/frames-in-flight)
+
+`MLXR_FRAMES_IN_FLIGHT` (default 2): with 2 the loop has two command buffers and fences and takes turns between them, so the wait after `xrWaitFrame` is for the frame before last, not the last one. The last frame may still be on the GPU while this one records. 1 = one command buffer and fence, as before.
+
+What else changed, for the frame that may still be running:
+
+- `ctx->gpuDone` is read from the frame timeline semaphore instead of assumed. Everything that already retires by serial (room and model uploads, the room loader, the depth textures' `lastUse`) works unchanged; a depth map that would land on a texture still in use waits for a later frame (`uploadBlocked`), as it always could.
+- The CPU writes that relied on the last frame having finished now wait for the submission that last read them (`xrGpuWaitFor`): the UI atlas staging (only when the atlas changes), the software picture staging (`--sw-decode`). The letterbox readback is read only once its frame has finished, and a new one is not queued while one is pending. The GPU timestamps have one query range per slot, so each slot reads its own.
+- Stream start, end and resolution changes wait for both slots.
+- The passthrough backdrop's extra submission (only when the swapchain is made or its colour changes) still waits for this frame's first submission, as before.
+
+Log: `gpu144: frames in flight N (MLXR_FRAMES_IN_FLIGHT=...)` at start; the 5 s line reads `waited for the frame before last's GPU ...` with 2 (`the last frame's` with 1) and ends `frames in flight N, other waits W`. W counts the extra waits above in those 5 s; it should stay at or near 0.
+
+Desktop check (NVIDIA, mock OpenXR runtime, the real frame loop with a software-decoded still): curved + Glow, Home Theater + Glow, Home Theater + 3D (test pattern) + curve, void + 3D + Wide glow, at 144 Hz and unthrottled (1000 Hz, so frames overlap on the GPU). Khronos validation with synchronization validation (submit time): 0 errors and 0 hazards with 1 and 2. The swapchain images are byte-identical between 1 and 2 at the same frames. Not covered on the desktop: the depth model (no LiteRT in that build), hardware decode, passthrough.
+
+Headset check: repeat the passthrough run (passthrough on, turning the 3D and Glow on and off) and the Home Theater + 3D run with `MLXR_FRAMES_IN_FLIGHT=1` and then the default. The `waited for` average should fall to near 0 with 2. Look for anything drawn a frame late or torn (the UI panels while typing, the 3D picture, the glow, the passthrough colour change).
 
 ## Headset test (144 Hz, 3440x1440)
 

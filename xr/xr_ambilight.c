@@ -279,12 +279,18 @@ void runAmbiBarDetect(XrCtx* ctx, const MlxrVideo* video) {
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, NULL, 1, &hb, 0,
                          NULL);
     ctx->ambiDetectPending = 1;
+    ctx->ambiDetectSerial = ctx->gpuSerial; // native (lane frames-in-flight)
 }
 
 // Counts the bars in the readback asked for last time. By now the draw behind
 // it has long finished, so the map costs a copy and nothing more.
 void finishAmbiBarDetect(XrCtx* ctx) {
     if (!ctx->ambiDetectPending) {
+        return;
+    }
+    // Native (lane frames-in-flight): with two frames in flight that frame may still be running;
+    // read it on a later one (the next request waits for this one)
+    if (ctx->ambiDetectSerial > ctx->gpuDone) {
         return;
     }
     ctx->ambiDetectPending = 0;

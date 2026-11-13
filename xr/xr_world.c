@@ -43,14 +43,21 @@ typedef struct XrWorld {
     VkQueryPool queries;
     int queriesFailed;
     double tickNs;
-    unsigned written;      // sections begun and ended in the frame recorded last
+    // Native (lane frames-in-flight): a range of the pool for each frame slot (ctx->frameSlot), read
+    // when that slot comes round again, its frame then finished
+    unsigned written[XR_FRAMES_MAX]; // sections begun and ended in the slot's last frame
     unsigned writing;      // this frame's
-    int roomInCurveWritten, roomInCurveWriting; // native (lane gpu-144): xrGpuCurveCarriesRoom
+    int roomInCurveWritten[XR_FRAMES_MAX], roomInCurveWriting; // native (lane gpu-144): xrGpuCurveCarriesRoom
     int begun[GPU_SECTIONS];
     double sumMs[GPU_SECTIONS];
     double maxMs[GPU_SECTIONS];
     int samples[GPU_SECTIONS];
 } XrWorld;
+
+// Native (lane frames-in-flight): the frame slot, held inside the pool's ranges
+static int frameSlotOf(const XrCtx* ctx) {
+    return ctx->frameSlot > 0 && ctx->frameSlot < XR_FRAMES_MAX ? ctx->frameSlot : 0;
+}
 
 static XrWorld* world(XrCtx* ctx) {
     if (ctx->world == NULL) {
@@ -399,9 +406,10 @@ void xrWorldSubmitted(XrCtx* ctx, uint64_t serial) {
             w->uploads[i].serial = serial;
         }
     }
-    w->written = w->writing;
+    int slot = frameSlotOf(ctx);
+    w->written[slot] = w->writing;
     w->writing = 0;
-    w->roomInCurveWritten = w->roomInCurveWriting;
+    w->roomInCurveWritten[slot] = w->roomInCurveWriting;
     w->roomInCurveWriting = 0;
 }
 
@@ -459,7 +467,7 @@ static void timesCollect(XrCtx* ctx) {
         vkGetPhysicalDeviceProperties(ctx->vk->phys, &props);
         VkQueryPoolCreateInfo qi = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
         qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
-        qi.queryCount = 2 * GPU_SECTIONS;
+        qi.queryCount = 2 * GPU_SECTIONS * XR_FRAMES_MAX;
         if (props.limits.timestampPeriod <= 0.0f
                 || vkCreateQueryPool(ctx->vk->device, &qi, NULL, &w->queries) != VK_SUCCESS) {
             w->queriesFailed = 1;
@@ -467,9 +475,11 @@ static void timesCollect(XrCtx* ctx) {
             return;
         }
         w->tickNs = props.limits.timestampPeriod;
-        w->written = 0;
+        memset(w->written, 0, sizeof(w->written));
     }
-    if (w->written) {
+    int slot = frameSlotOf(ctx);
+    uint32_t base = (uint32_t)(2 * GPU_SECTIONS * slot);
+    if (w->written[slot]) {
         uint64_t ticks[2 * GPU_SECTIONS];
         memset(ticks, 0, sizeof(ticks));
         // M6 fix: a section not drawn last frame leaves its reset queries
@@ -477,7 +487,7 @@ static void timesCollect(XrCtx* ctx) {
         // that were written (w->written, the GPU being past that frame) are
         // still filled in, so they count (before, only frames that ran every
         // section had GPU times)
-        VkResult qr = vkGetQueryPoolResults(ctx->vk->device, w->queries, 0, 2 * GPU_SECTIONS, sizeof(ticks), ticks,
+        VkResult qr = vkGetQueryPoolResults(ctx->vk->device, w->queries, base, 2 * GPU_SECTIONS, sizeof(ticks), ticks,
                                             sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
         if (qr == VK_SUCCESS || qr == VK_NOT_READY) {
             // M6: what upstream's warp query window held (the depth passes,
@@ -486,7 +496,7 @@ static void timesCollect(XrCtx* ctx) {
             double pictureMs = 0.0;
             int picture = 0;
             for (int s = 0; s < GPU_SECTIONS; s++) {
-                if (!(w->written & (1u << s)) || ticks[2 * s + 1] < ticks[2 * s]) continue;
+                if (!(w->written[slot] & (1u << s)) || ticks[2 * s + 1] < ticks[2 * s]) continue;
                 double ms = (double)(ticks[2 * s + 1] - ticks[2 * s]) * w->tickNs / 1e6;
                 if (ms > 50.0) continue; // upstream's plausibility filter
                 w->sumMs[s] += ms;
@@ -496,7 +506,7 @@ static void timesCollect(XrCtx* ctx) {
                 if (s == GPU_WARP || s == GPU_GLOW || s == GPU_DOWNSCALE || s == GPU_UPSAMPLE || s == GPU_OFFSET) {
                     pictureMs += ms;
                 }
-                if (s == GPU_ROOM || (s == GPU_CURVE && w->roomInCurveWritten)) {
+                if (s == GPU_ROOM || (s == GPU_CURVE && w->roomInCurveWritten[slot])) {
                     rateBudgetRoom(&ctx->rateBudget, (int64_t)(ms * 1e6));
                 }
             }
@@ -504,11 +514,32 @@ static void timesCollect(XrCtx* ctx) {
                 rateBudgetGpu(&ctx->rateBudget, (int64_t)(pictureMs * 1e6));
             }
         }
-        w->written = 0;
+        w->written[slot] = 0;
     }
-    vkCmdResetQueryPool(ctx->frameCmd, w->queries, 0, 2 * GPU_SECTIONS);
+    vkCmdResetQueryPool(ctx->frameCmd, w->queries, base, 2 * GPU_SECTIONS);
     w->writing = 0;
     memset(w->begun, 0, sizeof(w->begun));
+}
+
+void xrGpuWaitFor(XrCtx* ctx, uint64_t serial) {
+    if (serial == 0 || serial <= ctx->gpuDone || ctx->vk == NULL) return;
+    VkDevice dev = ctx->vk->device;
+    if (ctx->gpuTimeline != VK_NULL_HANDLE) {
+        VkSemaphoreWaitInfo wi = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
+        wi.semaphoreCount = 1;
+        wi.pSemaphores = &ctx->gpuTimeline;
+        wi.pValues = &serial;
+        vkWaitSemaphores(dev, &wi, UINT64_MAX);
+        uint64_t v = 0;
+        if (vkGetSemaphoreCounterValue(dev, ctx->gpuTimeline, &v) == VK_SUCCESS && v > ctx->gpuDone) ctx->gpuDone = v;
+        if (ctx->gpuDone < serial) ctx->gpuDone = serial;
+    }
+    else {
+        // Headless (tests): no frame timeline, so everything
+        vkDeviceWaitIdle(dev);
+        ctx->gpuDone = serial;
+    }
+    ctx->gpuWaits++;
 }
 
 void xrGpuCurveCarriesRoom(XrCtx* ctx) {
@@ -519,14 +550,16 @@ void xrGpuTimeBegin(XrCtx* ctx, int section) {
     XrWorld* w = world(ctx);
     if (w->queries == VK_NULL_HANDLE || ctx->frameCmd == VK_NULL_HANDLE || w->begun[section]) return;
     w->begun[section] = 1;
-    vkCmdWriteTimestamp(ctx->frameCmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, w->queries, 2 * section);
+    vkCmdWriteTimestamp(ctx->frameCmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, w->queries,
+                        (uint32_t)(2 * GPU_SECTIONS * frameSlotOf(ctx) + 2 * section));
 }
 
 void xrGpuTimeEnd(XrCtx* ctx, int section) {
     XrWorld* w = world(ctx);
     if (w->queries == VK_NULL_HANDLE || ctx->frameCmd == VK_NULL_HANDLE || w->begun[section] != 1) return;
     w->begun[section] = 2;
-    vkCmdWriteTimestamp(ctx->frameCmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, w->queries, 2 * section + 1);
+    vkCmdWriteTimestamp(ctx->frameCmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, w->queries,
+                        (uint32_t)(2 * GPU_SECTIONS * frameSlotOf(ctx) + 2 * section + 1));
     w->writing |= 1u << section;
 }
 
@@ -797,7 +830,7 @@ void xrWorldVideoFrame(XrCtx* ctx, const MlxrVideo* video) {
     if (sampled && ambiBarDetectOn(ctx)) {
         finishAmbiBarDetect(ctx);
         ctx->ambiBarCounter++;
-        if (ctx->ambiBarCounter >= AMBI_BAR_PERIOD) {
+        if (ctx->ambiBarCounter >= AMBI_BAR_PERIOD && !ctx->ambiDetectPending) {
             ctx->ambiBarCounter = 0;
             runAmbiBarDetect(ctx, video);
         }

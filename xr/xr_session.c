@@ -239,6 +239,7 @@ typedef struct Video {
     void* stagingPtr;
     VkDeviceSize stagingSize;
     int swValid;                // the planes hold a frame (a redraw can use them)
+    uint64_t swSerial;          // native (lane frames-in-flight): the submission that copied staging last
     // hardware frames
     HwVideo* src;
     mlxr_vkimp* imp;
@@ -407,7 +408,10 @@ static int swPlanes(const XrVk* vk, Video* vd, const AVFrame* f) {
 }
 
 // Copies a software frame into the planes (recorded into cmd)
-static void swUpload(Video* vd, VkCommandBuffer cmd, const AVFrame* f) {
+static void swUpload(XrCtx* ctx, Video* vd, VkCommandBuffer cmd, const AVFrame* f) {
+    // Native (lane frames-in-flight): the frame before may still be copying out of the staging
+    xrGpuWaitFor(ctx, vd->swSerial);
+    vd->swSerial = ctx->gpuSerial;
     int ch = (f->height + 1) / 2, cw = (f->width + 1) / 2;
     int hs[3] = { f->height, ch, ch }, ws[3] = { f->width, cw, cw };
     VkDeviceSize off = 0;
@@ -1319,7 +1323,24 @@ static VkCommandBuffer frameBegin(XrCtx* ctx, Frame* fr) {
     return fr->cmd;
 }
 
-static Frame* g_frame; // for xrEnsurePassthroughSwapchain
+static Frame* g_frame; // for xrEnsurePassthroughSwapchain (native, lane frames-in-flight: this frame's slot)
+
+// Native (lane frames-in-flight): every frame slot's last submission finished (before a stream's
+// video resources go, which a frame still in flight may read)
+static void framesWaitAll(const XrVk* vk, Frame* frames, int count) {
+    for (int i = 0; i < count; i++) {
+        if (frames[i].fence) vkWaitForFences(vk->device, 1, &frames[i].fence, VK_TRUE, UINT64_MAX);
+    }
+}
+
+// Native (lane frames-in-flight): MLXR_FRAMES_IN_FLIGHT, 1 (each frame waits for the one before
+// to finish on the GPU, as before) or 2 (it waits for the one before that)
+#define MLXR_FRAMES_IN_FLIGHT_DEFAULT 2
+static int framesInFlightWanted(void) {
+    const char* v = getenv("MLXR_FRAMES_IN_FLIGHT");
+    int n = v != NULL && *v ? atoi(v) : MLXR_FRAMES_IN_FLIGHT_DEFAULT;
+    return n >= 2 ? XR_FRAMES_MAX : 1;
+}
 
 // One image of the backdrop swapchain cleared to a colour (linear red, green,
 // blue, alpha) and left ready to be released
@@ -2322,14 +2343,21 @@ int xr_app_run(const XrAppConfig* cfg) {
     memset(&vk, 0, sizeof(vk));
     Video vd;
     memset(&vd, 0, sizeof(vd));
-    Frame fr;
-    memset(&fr, 0, sizeof(fr));
+    // Native (lane frames-in-flight): a command buffer and fence for each frame that may be on the
+    // GPU at once; fr is this frame's
+    Frame slots[XR_FRAMES_MAX];
+    memset(slots, 0, sizeof(slots));
+    int fif = framesInFlightWanted();
+    int slot = 0;
+    Frame* fr = &slots[0];
+    ctx->framesInFlight = fif;
+    ctx->frameSlot = 0;
     XrCurve curve;
     memset(&curve, 0, sizeof(curve));
     curve.mode = 1;
     XrSuper ss;
     memset(&ss, 0, sizeof(ss));
-    g_frame = &fr;
+    g_frame = fr;
     MlxrPasses* passes = NULL;
 
     if (!initInstance(ctx, cfg->settings)) {
@@ -2397,15 +2425,19 @@ int xr_app_run(const XrAppConfig* cfg) {
     VkCommandPoolCreateInfo pci = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
     pci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     pci.queueFamilyIndex = vk.queueFamily;
-    if (!VK_OK(vkCreateCommandPool(vk.device, &pci, NULL, &fr.pool), "command pool")) goto fail;
-    VkCommandBufferAllocateInfo cai = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    cai.commandPool = fr.pool;
-    cai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cai.commandBufferCount = 1;
-    if (!VK_OK(vkAllocateCommandBuffers(vk.device, &cai, &fr.cmd), "command buffer")) goto fail;
-    VkFenceCreateInfo fci = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-    fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    if (!VK_OK(vkCreateFence(vk.device, &fci, NULL, &fr.fence), "fence")) goto fail;
+    for (int i = 0; i < fif; i++) {
+        if (!VK_OK(vkCreateCommandPool(vk.device, &pci, NULL, &slots[i].pool), "command pool")) goto fail;
+        VkCommandBufferAllocateInfo cai = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+        cai.commandPool = slots[i].pool;
+        cai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cai.commandBufferCount = 1;
+        if (!VK_OK(vkAllocateCommandBuffers(vk.device, &cai, &slots[i].cmd), "command buffer")) goto fail;
+        VkFenceCreateInfo fci = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        if (!VK_OK(vkCreateFence(vk.device, &fci, NULL, &slots[i].fence), "fence")) goto fail;
+    }
+    LOGEV("gpu144: frames in flight %d (MLXR_FRAMES_IN_FLIGHT=%s)", fif,
+          getenv("MLXR_FRAMES_IN_FLIGHT") ? getenv("MLXR_FRAMES_IN_FLIGHT") : "unset");
     {
         VkSemaphoreTypeCreateInfo st = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
         st.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
@@ -2434,15 +2466,15 @@ int xr_app_run(const XrAppConfig* cfg) {
     ctx->passes = passes;
     xrWorldFindAssets(ctx);
     {
-        VkCommandBuffer cmd = frameBegin(ctx, &fr);
+        VkCommandBuffer cmd = frameBegin(ctx, fr);
         mlxr_passes_prepare(passes, cmd);
         vkEndCommandBuffer(cmd);
-        fr.recording = 0;
+        fr->recording = 0;
         VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
         si.commandBufferCount = 1;
         si.pCommandBuffers = &cmd;
-        vkResetFences(vk.device, 1, &fr.fence);
-        vkQueueSubmit(vk.queue, 1, &si, fr.fence);
+        vkResetFences(vk.device, 1, &fr->fence);
+        vkQueueSubmit(vk.queue, 1, &si, fr->fence);
     }
 
     // The UI: one atlas swapchain and the panels drawn into it
@@ -2521,7 +2553,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         pthread_mutex_unlock(&g_reqLock);
         for (int i = 0; i < nNotices; i++) xrPanelsNotice(ctx, notices[i]);
         if (release) {
-            vkWaitForFences(vk.device, 1, &fr.fence, VK_TRUE, UINT64_MAX);
+            framesWaitAll(&vk, slots, fif);
             hwDestroy(&vk, &vd);
             vd.swValid = 0;
             vd.draws = 0;
@@ -2562,9 +2594,11 @@ int xr_app_run(const XrAppConfig* cfg) {
 
         // The last frame's GPU work is done: the atlas copy and the staging
         // buffers are free to write. Native (lane gpu-144): how long that holds the loop, which is
-        // the GPU running over the frame (a wait here eats the time the CPU has to record)
+        // the GPU running over the frame (a wait here eats the time the CPU has to record).
+        // Native (lane frames-in-flight): this slot's last frame, which with two in flight is the
+        // one before the last; the last may still be running (gpuDone says how far the GPU is)
         int64_t fenceAt = nowNs();
-        vkWaitForFences(vk.device, 1, &fr.fence, VK_TRUE, UINT64_MAX);
+        vkWaitForFences(vk.device, 1, &fr->fence, VK_TRUE, UINT64_MAX);
         {
             int64_t took = nowNs() - fenceAt;
             g_gpu144.fenceNsSum += took;
@@ -2572,7 +2606,13 @@ int xr_app_run(const XrAppConfig* cfg) {
             g_gpu144.fenceWaits++;
             if (took > 100000) g_gpu144.fenceWaited++;
         }
-        ctx->gpuDone = vd.value;
+        if (fif > 1) {
+            uint64_t done = 0;
+            ctx->gpuDone = vkGetSemaphoreCounterValue(vk.device, vd.timeline, &done) == VK_SUCCESS ? done : 0;
+        }
+        else {
+            ctx->gpuDone = vd.value;
+        }
 
         // ---- input (nativeUpdateInput) and what it decided (dispatchInput)
         host.live = *cfg->settings;
@@ -2637,14 +2677,15 @@ int xr_app_run(const XrAppConfig* cfg) {
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         int atlasAcquired = 0;
         if (fs.shouldRender) {
-            cmd = frameBegin(ctx, &fr);
+            cmd = frameBegin(ctx, fr);
+            // Native (lane frames-in-flight): the serial set first, for the atlas copy's
+            ctx->gpuSerial = vd.value + 1;
             if (xrAtlasRecord(ctx, cmd, &atlasAcquired) < 0) {
                 LOGW("UI atlas upload skipped this frame");
             }
             // M5: the room, the glow and the models record into the same
-            // buffer; everything up to vd.value has finished (the fence above)
+            // buffer; everything up to ctx->gpuDone has finished (the fence above)
             ctx->frameCmd = cmd;
-            ctx->gpuSerial = vd.value + 1;
             xrWorldFrameBegin(ctx);
         }
         // M6: the separation the preference holds, then the depth model's
@@ -2655,7 +2696,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         // The hardware decoder of the stream, if one is up
         HwVideo* hv = hw_video_current();
         if (hv != vd.src) {
-            vkWaitForFences(vk.device, 1, &fr.fence, VK_TRUE, UINT64_MAX);
+            framesWaitAll(&vk, slots, fif);
             hwDestroy(&vk, &vd);
             if (hv) {
                 mlxr_vkimp_config ic;
@@ -2701,7 +2742,7 @@ int xr_app_run(const XrAppConfig* cfg) {
             mlxr_vkimp_poll(vd.imp);
             if (hw_video_format_change_pending(hv)) {
                 LOGEV("hardware video: resolution change, dropping imports");
-                vkWaitForFences(vk.device, 1, &fr.fence, VK_TRUE, UINT64_MAX);
+                framesWaitAll(&vk, slots, fif);
                 hwDropImports(&vk, &vd);
                 hw_video_format_change_done(hv);
             }
@@ -2750,7 +2791,7 @@ int xr_app_run(const XrAppConfig* cfg) {
             if (swPlanes(&vk, &vd, f) == 0 && videoSwapchain(ctx, &vd, f->width, f->height) == 0) {
                 if (videoTarget(ctx, &vd, own, own != NULL, &videoIdx, &swapAcquired)) {
                     videoAcquired = 1;
-                    swUpload(&vd, cmd, f);
+                    swUpload(ctx, &vd, cmd, f);
                     MlxrVideo mv;
                     memset(&mv, 0, sizeof(mv));
                     mv.kind = MLXR_VIDEO_YUV420P;
@@ -2858,14 +2899,14 @@ int xr_app_run(const XrAppConfig* cfg) {
         if (fs.shouldRender && cmd) {
             xrWorldFlatGlow(ctx, curvedNow && ctx->launcher == LAUNCHER_NONE);
         }
-        if (fr.recording) {
-            vkEndCommandBuffer(fr.cmd);
-            fr.recording = 0;
+        if (fr->recording) {
+            vkEndCommandBuffer(fr->cmd);
+            fr->recording = 0;
             signal = ++vd.value;
             // Uploads the room's loader recorded go first, in the same submission
             VkCommandBuffer cmds[4];
             int ncmd = xrWorldTakeUploads(ctx, cmds, 3);
-            cmds[ncmd++] = fr.cmd;
+            cmds[ncmd++] = fr->cmd;
             VkTimelineSemaphoreSubmitInfo tsi = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
             tsi.signalSemaphoreValueCount = 1;
             tsi.pSignalSemaphoreValues = &signal;
@@ -2875,8 +2916,8 @@ int xr_app_run(const XrAppConfig* cfg) {
             si.pCommandBuffers = cmds;
             si.signalSemaphoreCount = 1;
             si.pSignalSemaphores = &vd.timeline;
-            vkResetFences(vk.device, 1, &fr.fence);
-            if (vkQueueSubmit(vk.queue, 1, &si, fr.fence) != VK_SUCCESS) {
+            vkResetFences(vk.device, 1, &fr->fence);
+            if (vkQueueSubmit(vk.queue, 1, &si, fr->fence) != VK_SUCCESS) {
                 LOGE("vkQueueSubmit failed");
                 break;
             }
@@ -2957,16 +2998,22 @@ int xr_app_run(const XrAppConfig* cfg) {
             xrBuildLayers(ctx, &fin, &fout);
         }
         xrSplashLayers(ctx, &fout, nowNs()); // Native (lane wave6-splash): the logo until the first frame, while it reconnects
-        if (fr.recording) {
+        if (fr->recording) {
             // xrBuildLayers made the passthrough swapchain this frame
-            vkEndCommandBuffer(fr.cmd);
-            fr.recording = 0;
+            vkEndCommandBuffer(fr->cmd);
+            fr->recording = 0;
             VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
             si.commandBufferCount = 1;
-            si.pCommandBuffers = &fr.cmd;
-            vkResetFences(vk.device, 1, &fr.fence);
-            vkQueueSubmit(vk.queue, 1, &si, fr.fence);
+            si.pCommandBuffers = &fr->cmd;
+            vkResetFences(vk.device, 1, &fr->fence);
+            vkQueueSubmit(vk.queue, 1, &si, fr->fence);
         }
+        // Native (lane frames-in-flight): the next frame records into the next slot, whose last
+        // submission (two frames back with two in flight) it waits for
+        slot = (slot + 1) % fif;
+        fr = &slots[slot];
+        g_frame = fr;
+        ctx->frameSlot = slot;
         XrFrameEndInfo fei = { XR_TYPE_FRAME_END_INFO };
         fei.displayTime = fs.predictedDisplayTime;
         fei.environmentBlendMode = fs.shouldRender ? fout.blend : XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -3021,12 +3068,20 @@ int xr_app_run(const XrAppConfig* cfg) {
                 skippedWindow = 0;
             }
             // Native (lane gpu-144): the GPU's hold on the loop and what the curved layer did
-            LOGEV("xr: gpu144: waited for the last frame's GPU %.2f ms avg (max %.2f), blocked on %llu of %llu "
-                  "frames; curved layer drawn %llu (chained %llu), sent again unchanged %llu",
+            // Native (lane frames-in-flight): with two in flight the wait is for the frame before the
+            // last; "other waits" are the CPU writes that had to wait for a frame still in flight
+            // (a panel's pixels into the atlas staging, a software decoded picture)
+            static uint64_t gpuWaitsSeen;
+            LOGEV("xr: gpu144: waited for the %s GPU %.2f ms avg (max %.2f), blocked on %llu of %llu "
+                  "frames; curved layer drawn %llu (chained %llu), sent again unchanged %llu; frames in flight %d, "
+                  "other waits %llu",
+                  fif > 1 ? "frame before last's" : "last frame's",
                   g_gpu144.fenceWaits ? g_gpu144.fenceNsSum / 1e6 / (double)g_gpu144.fenceWaits : 0.0,
                   g_gpu144.fenceNsMax / 1e6, (unsigned long long)g_gpu144.fenceWaited,
                   (unsigned long long)g_gpu144.fenceWaits, (unsigned long long)g_gpu144.drawn,
-                  (unsigned long long)g_gpu144.chained, (unsigned long long)g_gpu144.kept);
+                  (unsigned long long)g_gpu144.chained, (unsigned long long)g_gpu144.kept, fif,
+                  (unsigned long long)(ctx->gpuWaits - gpuWaitsSeen));
+            gpuWaitsSeen = ctx->gpuWaits;
             memset(&g_gpu144, 0, sizeof(g_gpu144));
             // Native (lane wave3-hud): the compositor's own frame times and drops, beside ours
             {
@@ -3142,8 +3197,10 @@ fail:
         if (ctx->passthroughSwapchain) xrDestroySwapchain(ctx->passthroughSwapchain);
         if (passes) mlxr_passes_destroy(passes);
         if (vd.timeline) vkDestroySemaphore(vk.device, vd.timeline, NULL);
-        if (fr.fence) vkDestroyFence(vk.device, fr.fence, NULL);
-        if (fr.pool) vkDestroyCommandPool(vk.device, fr.pool, NULL);
+        for (int i = 0; i < XR_FRAMES_MAX; i++) {
+            if (slots[i].fence) vkDestroyFence(vk.device, slots[i].fence, NULL);
+            if (slots[i].pool) vkDestroyCommandPool(vk.device, slots[i].pool, NULL);
+        }
     }
     clickStop();
     destroyXrInput(ctx);

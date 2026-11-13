@@ -12,6 +12,7 @@
 // nativeSetEnvironment (xrSetEnvironment). The upload paths are new.
 #include "xr_native.h"
 #include "xr_vk.h"
+#include "xr_world.h"
 
 // ---- slots --------------------------------------------------------------------
 
@@ -70,6 +71,7 @@ typedef struct XrUiAtlas {
     VkBuffer staging;
     VkDeviceMemory stagingMem;
     uint64_t copies;
+    uint64_t copySerial;      // native (lane frames-in-flight): the last submission that read staging
 } XrUiAtlas;
 
 uint8_t* xrAtlasPixels(XrCtx* ctx) {
@@ -82,9 +84,11 @@ void xrAtlasTouch(XrCtx* ctx, int slot) {
         return;
     }
     // The slot's rows into the staging buffer (the frame loop calls this
-    // after the last frame's fence, so no copy is reading it)
+    // after the last frame's fence, so no copy is reading it). Native (lane frames-in-flight): with
+    // two frames in flight the one before may still be copying out of it, so that one first
     UiRectPx r = xrAtlasRect(slot);
     if (a->stage != NULL && r.w > 0 && r.h > 0) {
+        xrGpuWaitFor(ctx, a->copySerial);
         for (int y = r.y; y < r.y + r.h; y++) {
             size_t at = ((size_t)y * UI_ATLAS_W + (size_t)r.x) * 4;
             memcpy(a->stage + at, a->px + at, (size_t)r.w * 4);
@@ -290,6 +294,7 @@ int xrAtlasRecord(XrCtx* ctx, VkCommandBuffer cmd, int* acquired) {
                         VK_PIPELINE_STAGE_TRANSFER_BIT);
     if (n > 0) {
         vkCmdCopyBufferToImage(cmd, a->staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, n, regions);
+        a->copySerial = ctx->gpuSerial; // native (lane frames-in-flight): set before this is called
     }
     xr_vk_image_barrier(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,

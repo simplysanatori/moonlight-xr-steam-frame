@@ -180,6 +180,11 @@ void xrGpuTimesLine(XrCtx* ctx, char* buf, int len);
 // (room, glow, picture and models in one rendering, not timed apart) stands in for the room's in
 // the 3D rate budget
 void xrGpuCurveCarriesRoom(XrCtx* ctx);
+// Native (lane frames-in-flight): returns once the GPU has finished the submission that signals
+// serial (at once when ctx->gpuDone is already past it), and moves ctx->gpuDone up to where the
+// GPU is. For CPU writes into memory a frame still in flight may read (the atlas staging, the
+// software picture's staging)
+void xrGpuWaitFor(XrCtx* ctx, uint64_t serial);
 // The averages of one section since the last xrGpuTimesLine (0 when none)
 double xrGpuTimeAvg(XrCtx* ctx, int section, int* samples);
 

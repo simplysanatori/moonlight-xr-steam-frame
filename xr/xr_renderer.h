@@ -355,6 +355,9 @@ struct XrUiAtlas;   // xr_assets.c
 struct XrPanels;    // xr_panels.c
 struct XrCurve;     // xr_session.c: the curved picture's projection layer
 
+// Native (lane frames-in-flight): the most frames the loop keeps on the GPU at once
+#define XR_FRAMES_MAX 2
+
 typedef struct XrCtx {
     XrInstance instance;
     // The runtime's name and version as the log line gives them
@@ -512,6 +515,7 @@ typedef struct XrCtx {
     VkDeviceMemory ambiDetectMemory;
     void* ambiDetectMap;
     int ambiDetectPending;
+    uint64_t ambiDetectSerial; // native (lane frames-in-flight): the frame that copied it
     int ambiBarDetect;
     int ambiBarCounter;
     int ambiBarApplied[AMBI_EDGES];
@@ -1509,6 +1513,13 @@ typedef struct XrCtx {
     VkCommandBuffer frameCmd;
     uint64_t gpuSerial;
     uint64_t gpuDone;
+    // Native (lane frames-in-flight): MLXR_FRAMES_IN_FLIGHT, 1 or 2 frames the GPU may still be
+    // running while the next is recorded, and which of the frame's resources (its command buffer,
+    // fence and GPU timestamps) this one uses, 0 .. framesInFlight - 1. gpuDone is the timeline's
+    // value when the frame began, so with 2 the frame before this one may still be running.
+    int framesInFlight;
+    int frameSlot;
+    uint64_t gpuWaits;          // xrGpuWaitFor calls that blocked (the 5 s line)
     // Native M6: the timeline semaphore each frame's submission signals
     // gpuSerial on, which the depth stage thread waits on for a readback
     VkSemaphore gpuTimeline;
