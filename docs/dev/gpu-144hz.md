@@ -76,10 +76,10 @@ Dev build, `app-dev/dev.env`. For each row, play 60 s with some head turns, then
 | --- | --- | --- |
 | A | `MLXR_CURVE_ONEPASS=0 MLXR_GLOW_HOLE=0 MLXR_ROOM_OCCLUDE=0` (1.3.1 behaviour) | Curved, Glow Wide, no room, passthrough off |
 | B | defaults | same |
-| C | A's switches | Curved, Glow Soft, Home Theater room |
+| C | A's switches | Home Theater room, 3D on (2D to 3D), Glow Soft. With a room the picture is flat, and the room only goes into the picture's layer in 3D (`xrPictureCurved`, `xrWorldPlanLayers`), so without 3D this run times nothing new |
 | D | defaults | same |
 | E | defaults | Curved, Glow Wide, passthrough on |
 | F | defaults + `MLXR_CURVE_REUSE=1` | still desktop, head still, then slow head turns: look for smear or wobble. This switch stays off by default and should not ship on: sending a stale projection layer again is the same mechanism as the passthrough smear (plan section 3). It is here only to measure. |
 | G | defaults + `MLXR_FDM_LAYER=0` | small text at the picture's edges: sharper or the same? Compare `curve` ms with B |
 
-Look for: any seam or dark ring where the glow meets the picture (B, D), room showing through the picture (D), controllers drawn wrong (B, D).
+Show controllers on (Frame) and the controllers in view in every run: with them in the picture's layer, B, D, E, F and G also cover the depth barrier fix (models in a chained rendering). Look for: any seam or dark ring where the glow meets the picture (B, D), room showing through the picture (D), controllers drawn wrong (B, D).
