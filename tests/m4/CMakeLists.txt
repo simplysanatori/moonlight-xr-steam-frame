@@ -57,3 +57,16 @@ if(TARGET test_m4_replay)
   # at the picture, data/make_bar_replay.py
   add_test(NAME m4_replay_bar COMMAND test_m4_replay ${CMAKE_CURRENT_SOURCE_DIR}/data/bar-replay.csv)
 endif()
+
+# Native (lane layer-gate): a 144 Hz session through the input code and xrBuildLayers, checked for
+# degenerate layers, the 16 layer cap, and the beam's index and the count holding still.
+# MLXR_GATE_STRICT=1 makes the beam index and count churn checks fatal; MLXR_GATE_CSV=<ray csv>
+# replays a recorded session (tools/gate-from-ray-csv.sh).
+add_executable(test_m4_layergate test_layergate.c)
+target_link_libraries(test_m4_layergate PRIVATE m4_scene mlxr_launcher mlxr_stream)
+target_compile_options(test_m4_layergate PRIVATE -Werror)
+# the test's own xrSyncActions (no session to sync) wins over the static loader's
+target_link_options(test_m4_layergate PRIVATE -Wl,--allow-multiple-definition)
+mlxr_link_openxr(test_m4_layergate)
+add_test(NAME m4_layer_gate COMMAND test_m4_layergate)
+set_tests_properties(m4_layer_gate PROPERTIES TIMEOUT 600)
