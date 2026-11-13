@@ -4,10 +4,9 @@ For the combined dev build of `release/1.3.3` in `app-dev` (check `app-dev/DEV-B
 
 ## Before the first run
 
-- The dev build shares `config.ini` with `app/` (1.3.2). Its first start converts the saved screen widths to sizes once (a 16:9 picture's width at the same height) and saves the file. 1.3.2 does not know that and would show a 21:9 screen narrower, then the next dev start would convert again. So first back the file up:
+- The dev build shares `config.ini` with `app/` (1.3.2). `width_cm` stays the real width that 1.3.2 reads, and the Size goes in a new `size_cm` beside it, so `app/` and the dev build can take turns and the screen stays the same size. A backup is still a good idea:
   `cp ~/.config/moonlight-xr/config.ini ~/.config/moonlight-xr/config.ini.pre133`
-  Use only the dev build until the test is done, then put the backup back before you start `app/` again.
-- Leave the launcher on Ultrawide (21:9), 3440x1440, for runs 1 to 7: the conversion uses the shape of the first stream, so run 1 must be the 21:9 one you normally use.
+- Leave the launcher on Ultrawide (21:9), 3440x1440, for runs 1 to 7.
 - `app-dev/dev.env`: every line commented out (defaults) unless the run says otherwise. Only the run's lines uncommented.
 
 Every run, unless it says otherwise:
@@ -49,9 +48,9 @@ Then quit and put the backup back:
 One line per run on what you saw, and these lines from `~/Games/MoonlightXRNative/moonlight.log` (each run starts at its `== moonlight-xr starting` line):
 
 ```
-grep -E "== moonlight-xr starting|config: screen widths are sizes now|gpu144:|one projection layer|xr: frames:|xr: compositor:|beam streak switches|beam place:" ~/Games/MoonlightXRNative/moonlight.log ~/Games/MoonlightXRNative/moonlight-console.log
+grep -E "== moonlight-xr starting|config: screen |gpu144:|one projection layer|xr: frames:|xr: compositor:|beam streak switches|beam place:" ~/Games/MoonlightXRNative/moonlight.log ~/Games/MoonlightXRNative/moonlight-console.log
 ```
 
-- `config: screen widths are sizes now (3440x1440 picture): width_cm A -> B, ...` must appear once, in run 1 only. B should be about A / 1.31.
+- `config: screen A cm wide at 3440x1440, Size B cm` in every run, with A the same width `app/` showed and B about A / 1.34. `(from the width: ...)` after it is fine: it shows until the dev build first saves `config.ini` (moving the screen, for example), since 1.3.2 left no `size_cm`, and again after any `app/` run.
 - `xr: frames: ... beam moved in the list on 0` in run 1 (the beam sweep). Any `beam place:` line that says `(moved)` is worth sending in full.
 - `gpu144:`, `xr: gpu144:` and `xr: compositor: ... gpu` lines in every run, for the A/B of run 1 against 2 and of run 4 against 3.
