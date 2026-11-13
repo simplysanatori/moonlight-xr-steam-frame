@@ -102,6 +102,12 @@ typedef struct {
     const void* late[2];
     uint32_t lateCount;
     int lateOpen;
+    // Native (lane beam-order): the hover layers, built before the cards so a card counts them
+    // (cardLayerRoom), and put in after the pointer (MLXR_POINTER_ORDER 1 and 2)
+    const void* tail[FRAME_MAX_LAYERS];
+    uint32_t tailCount;
+    uint32_t tailModels;
+    int tailOpen;
 } FrameLayers;
 
 // Upstream kept these on nativeEndFrame's stack for as long as xrEndFrame
@@ -154,6 +160,10 @@ static void pushLayer(XrCtx* ctx, FrameLayers* layers, const void* layer) {
     // Native (lane beam-order): the dwell's mark and the dot held back to go in last (pointerLate)
     if (layers->lateOpen && layers->lateCount < 2) {
         layers->late[layers->lateCount++] = layer;
+        return;
+    }
+    if (layers->tailOpen && layers->tailCount < FRAME_MAX_LAYERS) {
+        layers->tail[layers->tailCount++] = layer;
         return;
     }
     if (layers->count >= FRAME_MAX_LAYERS) {
@@ -310,9 +320,10 @@ static void holdPlace(XrCtx* ctx, FrameLayers* layers, XrCompositionLayerQuad* q
     pose.position.z += offset.z;
     quadLayerRect(quad, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, xrAtlasSwapchain(ctx),
                   o.x + o.w / 2 - 2, o.y + o.h / 2 - 2, 4, 4, space, pose, side, side);
-    uint32_t before = layers->count;
+    // Native (lane beam-order): a place held aside to go in later (pushLayer) is a held place too
+    uint32_t before = layers->count + layers->tailCount + layers->lateCount;
     pushLayer(ctx, layers, quad);
-    if (layers->count > before && layers->heldCount < FRAME_MAX_LAYERS) {
+    if (layers->count + layers->tailCount + layers->lateCount > before && layers->heldCount < FRAME_MAX_LAYERS) {
         layers->held[layers->heldCount++] = quad;
     }
 }
@@ -1084,7 +1095,10 @@ static void addHostLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers
 
 static int cardLayerRoom(XrCtx* ctx, const FrameLayers* layers) {
     int cap = ctx->maxLayerCount < FRAME_MAX_LAYERS ? ctx->maxLayerCount : FRAME_MAX_LAYERS;
-    return (int)layers->count + 1 + CARD_LAYER_RESERVE <= cap;
+    // Native (lane beam-order): the hover layers held aside to go in after the pointer count as they did
+    // ahead of the cards in 1.3.1 (the models, among them, are in the reserve)
+    int aside = (int)layers->tailCount - (int)layers->tailModels;
+    return (int)layers->count + aside + 1 + CARD_LAYER_RESERVE <= cap;
 }
 
 // The first-run controls card (PLAN 3.9), over the middle of the picture
@@ -1436,15 +1450,30 @@ static void addLatePointerLayers(XrCtx* ctx, FrameLayers* layers) {
 }
 
 // Native (lane beam-order): the layers that come and go with the hover alone, and the controller models,
-// after the pointer (MLXR_POINTER_ORDER 1 and 2), so none of them moves the beam's place in the list
+// held aside (tail) to go in after the pointer (MLXR_POINTER_ORDER 1 and 2), so none of them moves the
+// beam's place in the list. Built before the cards, which count them (cardLayerRoom).
 static void addHoverLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    layers->tailOpen = 1;
     addHandleLayer(ctx, view, layers);
     addBarButtonLayers(ctx, view, layers, BAR_PASS_HOVER);
     addPickerRings(ctx, view, layers);
     addHintRing(ctx, view, layers);
     addKofiRing(ctx, view, layers);
     addKeyRing(ctx, view, layers);
+    uint32_t before = layers->tailCount;
     addModelLayer(ctx, view, layers);
+    layers->tailModels = layers->tailCount - before;
+    layers->tailOpen = 0;
+}
+
+// Native (lane beam-order): the hover layers held aside, in after the pointer
+static void addTailLayers(XrCtx* ctx, FrameLayers* layers) {
+    layers->tailOpen = 0;
+    for (uint32_t i = 0; i < layers->tailCount; i++) {
+        pushLayer(ctx, layers, layers->tail[i]);
+    }
+    layers->tailCount = 0;
+    layers->tailModels = 0;
 }
 
 // Native (lane beam-order): whether a layer is one addHoverLayers adds
@@ -1590,6 +1619,9 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
     layers->heldCount = 0;
     layers->lateCount = 0;
     layers->lateOpen = 0;
+    layers->tailCount = 0;
+    layers->tailModels = 0;
+    layers->tailOpen = 0;
     int blanked = 0;
     setLayerSettings(ctx, layers);
     float backdrop[4];
@@ -1628,7 +1660,8 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
         }
         else {
             // Native (lane beam-order): what only changes as a panel or a card opens or shuts, then the
-            // pointer, then what comes and goes with the hover (pointerOrder)
+            // pointer, then what comes and goes with the hover (pointerOrder), built ahead of the cards
+            // and held aside so the cards count it
             addBarButtonLayers(ctx, &view, layers, BAR_PASS_PANEL);
             addExitPromptLayer(ctx, &view, layers);
             addPickerLayers(ctx, &view, layers);
@@ -1638,10 +1671,11 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
             addKofiLayers(ctx, &view, layers);
             addHostLayers(ctx, &view, layers);
             addKeyboardLayers(ctx, &view, layers);
+            addHoverLayers(ctx, &view, layers);
             addFirstRunLayer(ctx, &view, layers);
             addPadCardLayer(ctx, layers);
             blanked = addPointerLayers(ctx, &view, layers);
-            addHoverLayers(ctx, &view, layers);
+            addTailLayers(ctx, layers);
             addLatePointerLayers(ctx, layers);
         }
     }
