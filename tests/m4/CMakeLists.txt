@@ -70,3 +70,9 @@ target_link_options(test_m4_layergate PRIVATE -Wl,--allow-multiple-definition)
 mlxr_link_openxr(test_m4_layergate)
 add_test(NAME m4_layer_gate COMMAND test_m4_layergate)
 set_tests_properties(m4_layer_gate PROPERTIES TIMEOUT 600)
+# 1.3.1's pointer order (MLXR_POINTER_ORDER=0) shifts the beam behind the hover layers: the gate must
+# catch it, so this test is expected to fail (a proof the gate sees the beam streak). MLXR_POINTER_ORDER=2
+# (the dot last) moves the dot by design and is not gated.
+add_test(NAME m4_layer_gate_order0_expected_fail COMMAND test_m4_layergate)
+set_tests_properties(m4_layer_gate_order0_expected_fail PROPERTIES TIMEOUT 600 WILL_FAIL TRUE
+                     ENVIRONMENT MLXR_POINTER_ORDER=0)
