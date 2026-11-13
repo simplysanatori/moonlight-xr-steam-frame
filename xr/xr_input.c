@@ -1120,15 +1120,22 @@ static void writeInputPose(XrCtx* ctx, float* out) {
 }
 
 void xrScreenPoseOut(const XrCtx* ctx, float* pose) {
-    pose[0] = ctx->screenPose.position.x;
-    pose[1] = ctx->screenPose.position.y;
-    pose[2] = ctx->screenPose.position.z;
-    pose[3] = ctx->screenPose.orientation.x;
-    pose[4] = ctx->screenPose.orientation.y;
-    pose[5] = ctx->screenPose.orientation.z;
-    pose[6] = ctx->screenPose.orientation.w;
-    pose[7] = ctx->screenWidth / xrScreenWidthScale(ctx); // native (lane aspect-ratio): the Size, as config.ini keeps it
-    pose[8] = ctx->screenRadius;
+    // Native (lane aspect-ratio): while a room hangs the picture on its wall, the placement is the one waiting
+    // behind the room (applyRoomPlacement), never the wall's fit. A corner let go in a room sets the room's share
+    // of its screen, which goes to its own preference; before this the wall's place and width went into
+    // config.ini as the user's own and came back after the room (1.3.2 did the same).
+    int room = ctx->roomHoldingScreen;
+    const XrPosef* at = room ? &ctx->savedScreenPose : &ctx->screenPose;
+    pose[0] = at->position.x;
+    pose[1] = at->position.y;
+    pose[2] = at->position.z;
+    pose[3] = at->orientation.x;
+    pose[4] = at->orientation.y;
+    pose[5] = at->orientation.z;
+    pose[6] = at->orientation.w;
+    // native (lane aspect-ratio): the Size, as config.ini keeps it
+    pose[7] = (room ? ctx->savedScreenWidth : ctx->screenWidth) / xrScreenWidthScale(ctx);
+    pose[8] = room ? ctx->savedScreenRadius : ctx->screenRadius;
     pose[9] = ctx->panelCurve;
 }
 

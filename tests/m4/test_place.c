@@ -803,9 +803,54 @@ static void aspectKeepsHeight(void) {
     scene_free(s);
 }
 
+// A room's wall fit is the room's: nothing a grab lets go of in a room hands it to config.ini as the user's
+// placement, and leaving the room puts the user's screen back (the 1.3.3 test: Home Theater's 3.6 m wall at
+// 21:9 was kept as the app's layout, 268 cm, and the screen came back from the room that size)
+static void roomFitNotSaved(void) {
+    Scene* s = scene_new();
+    XrCtx* c = s->ctx;
+    xrPictureShapeChanged(c, 3440, 1440);
+    c->videoWidth = 3440;
+    c->videoHeight = 1440;
+    Settings in = s->settings;
+    in.screen_distance_cm = 477;
+    in.screen_width_cm = 595;   // the Size of an 8 m 21:9 screen
+    settings_clamp(&in);
+    xrApplySettings(c, &in);
+    XrPosef userPose = c->screenPose;
+    float userWidth = c->screenWidth, userRadius = c->screenRadius;
+    CHECK_NEAR(userWidth, 5.95f * xrScreenWidthScale(c), 1e-3);
+    // the room on: it hangs the picture on its wall
+    applyRoomPlacement(c, 1, 1440.0f / 3440.0f, 0);
+    CHECK(c->roomHoldingScreen);
+    c->screenWidth = 3.60f;   // the wall's fit, as the room's frames set it
+    c->screenPose.position.z = -4.15f;
+    // a grab let go in the room (a corner, focus lost, the hands locked): the user's placement, not the wall's
+    float pose[10];
+    xrScreenPoseOut(c, pose);
+    CHECK_NEAR(pose[7] * xrScreenWidthScale(c), userWidth, 1e-4);
+    CHECK_NEAR(pose[2], userPose.position.z, 1e-5);
+    CHECK_NEAR(pose[8], userRadius, 1e-5);
+    Settings saved = s->settings;
+    xrPoseToSettings(pose, 0.0f, &saved);
+    CHECK(saved.screen_width_cm == 595 && saved.screen_distance_cm == 477);
+    // the room off: the user's screen back, the same size and distance
+    applyRoomPlacement(c, 0, 1440.0f / 3440.0f, 0);
+    CHECK(!c->roomHoldingScreen);
+    CHECK_NEAR(c->screenWidth, userWidth, 1e-5);
+    CHECK_NEAR(c->screenPose.position.z, userPose.position.z, 1e-5);
+    CHECK_NEAR(c->screenRadius, userRadius, 1e-5);
+    // and what a grab then hands back is that screen
+    xrScreenPoseOut(c, pose);
+    xrPoseToSettings(pose, 0.0f, &saved);
+    CHECK(saved.screen_width_cm == 595 && saved.screen_distance_cm == 477);
+    scene_free(s);
+}
+
 int main(void) {
     rowsAreCells();
     aspectKeepsHeight();
+    roomFitNotSaved();
     presets();
     bringHere();
     bringHereSwitch();
