@@ -101,8 +101,9 @@ static void test_defaults(void) {
     // Native (lane refresh): above 90 at 1440p, the flat launcher's rule (twice the curve)
     CHECK(settings_default_bitrate_kbps(2560, 1440, 120) == 113000);
     CHECK(settings_default_bitrate_kbps(2560, 1440, 144) == 124000);
-    CHECK(settings_default_bitrate_kbps(1920, 1080, 60) == 20000);
-    CHECK(settings_default_bitrate_kbps(3840, 2160, 60) == 80000);
+    // Native (lane aspect-ratio): other sizes at 60 fps and up: the 1440p figure by pixel count, 150 Mbps at most
+    CHECK(settings_default_bitrate_kbps(1920, 1080, 60) == 45000);
+    CHECK(settings_default_bitrate_kbps(3840, 2160, 60) == 150000);
     CHECK(settings_default_bitrate_kbps(1280, 720, 30) == 5000);
     CHECK(settings_default_bitrate_kbps(640, 360, 30) == 1000);
     int w, h;
@@ -333,6 +334,211 @@ static void test_clamping(void) {
     settings_from_text(&e, "[stream]\ncodec = HEVC\naudio_config = 2\nresolution = 1920x1080\nvirtual_surround = Yes\n", NULL);
     CHECK(e.codec == 2 && e.audio_config == 2 && strcmp(SETTINGS_RESOLUTIONS[e.resolution], "1920x1080") == 0);
     CHECK(e.virtual_surround == 1);
+}
+
+// Native (lane aspect-ratio): [stream] aspect, resolution and custom_width x custom_height
+static void test_aspect_ratio(void) {
+    Settings s;
+    settings_defaults(&s);
+    CHECK(s.aspect == SETTINGS_ASPECT_16_9 && strcmp(gets(&s, "stream.aspect"), "") != 0);
+    CHECK(strcmp(SETTINGS_RESOLUTIONS[s.resolution], "2560x1440") == 0);
+    CHECK(SETTINGS_RESOLUTION_COUNT == 26 && strcmp(SETTINGS_RESOLUTIONS[SETTINGS_RESOLUTION_CUSTOM], "custom") == 0);
+    // the six 16:9 sizes keep their old places (a number in an older file is one of them)
+    static const char* const OLD[] = { "640x360", "854x480", "1280x720", "1920x1080", "2560x1440", "3840x2160" };
+    for (int i = 0; i < 6; i++) CHECK(strcmp(SETTINGS_RESOLUTIONS[i], OLD[i]) == 0);
+    // every preset: its name is its size, its size finds it, and setting that size picks it and its aspect
+    for (int i = 0; i < SETTINGS_RESOLUTION_CUSTOM; i++) {
+        const SettingsResolution* r = &SETTINGS_RESOLUTION_PRESETS[i];
+        char name[32];
+        snprintf(name, sizeof name, "%dx%d", r->width, r->height);
+        CHECK(strcmp(SETTINGS_RESOLUTIONS[i], name) == 0);
+        CHECK(settings_resolution_find(r->width, r->height) == i);
+        CHECK(settings_aspect_nearest(r->width, r->height) == r->aspect);
+        Settings t;
+        settings_defaults(&t);
+        settings_set_resolution_size(&t, r->width, r->height);
+        CHECK(t.resolution == i && t.aspect == r->aspect);
+        int w = 0, h = 0;
+        settings_resolution(&t, &w, &h);
+        CHECK(w == r->width && h == r->height);
+        // named by the height ("4K" for 3840x2160)
+        char label[16];
+        snprintf(label, sizeof label, "%dp", r->height);
+        CHECK(strcmp(r->label, label) == 0 || (r->width == 3840 && r->height == 2160 && strcmp(r->label, "4K") == 0));
+    }
+    // each aspect's list, smallest first, with the owner's sizes
+    int list[32];
+    CHECK(settings_aspect_presets(SETTINGS_ASPECT_4_3, list, 32) == 6);
+    CHECK(settings_aspect_presets(SETTINGS_ASPECT_16_9, list, 32) == 6);
+    CHECK(settings_aspect_presets(SETTINGS_ASPECT_16_10, list, 32) == 6);
+    CHECK(settings_aspect_presets(SETTINGS_ASPECT_21_9, list, 32) == 4);
+    CHECK(SETTINGS_RESOLUTION_PRESETS[list[1]].width == 3440 && SETTINGS_RESOLUTION_PRESETS[list[1]].height == 1440);
+    CHECK(settings_aspect_presets(SETTINGS_ASPECT_32_9, list, 32) == 3);
+    CHECK(SETTINGS_RESOLUTION_PRESETS[list[2]].width == 7680 && SETTINGS_RESOLUTION_PRESETS[list[2]].height == 2160);
+    for (int a = 0; a < SETTINGS_ASPECT_COUNT; a++) {
+        int n = settings_aspect_presets(a, list, 32);
+        for (int i = 1; i < n; i++) CHECK(SETTINGS_RESOLUTION_PRESETS[list[i]].height > SETTINGS_RESOLUTION_PRESETS[list[i - 1]].height);
+    }
+
+    // a size that is no preset is custom, in the aspect it was typed under, and goes through the file
+    settings_defaults(&s);
+    settings_set_aspect(&s, SETTINGS_ASPECT_21_9, 0);
+    settings_set_resolution_size(&s, 3000, 1300);
+    CHECK(s.resolution == SETTINGS_RESOLUTION_CUSTOM && s.aspect == SETTINGS_ASPECT_21_9);
+    int w, h;
+    settings_resolution(&s, &w, &h);
+    CHECK(w == 3000 && h == 1300);
+    char* text = settings_to_text(&s);
+    CHECK(strstr(text, "\nresolution = custom\n") != NULL);
+    CHECK(strstr(text, "\ncustom_width = 3000\n") != NULL && strstr(text, "\ncustom_height = 1300\n") != NULL);
+    CHECK(strstr(text, "\naspect = 21:9\n") != NULL);
+    Settings back;
+    settings_defaults(&back);
+    SettingsLoadInfo info;
+    settings_from_text(&back, text, &info);
+    settings_clamp(&back);
+    CHECK(info.bad == 0 && info.unknown == 0);
+    CHECK(settings_equal(&s, &back));
+    free(text);
+    // a preset goes through the file by its name, the aspect with it
+    settings_defaults(&s);
+    settings_set_resolution_size(&s, 3440, 1440);
+    CHECK(s.aspect == SETTINGS_ASPECT_21_9 && strcmp(SETTINGS_RESOLUTIONS[s.resolution], "3440x1440") == 0);
+    text = settings_to_text(&s);
+    CHECK(strstr(text, "\nresolution = 3440x1440\n") != NULL && strstr(text, "\naspect = 21:9\n") != NULL);
+    settings_defaults(&back);
+    settings_from_text(&back, text, &info);
+    settings_clamp(&back);
+    CHECK(settings_equal(&s, &back));
+    free(text);
+
+    // older files: the owner's 3440x1440 is Ultrawide 1440p; any other size is custom in the nearest aspect;
+    // a number is one of the six old sizes and nothing past them
+    settings_defaults(&s);
+    settings_from_text(&s, "[stream]\nresolution = 3440x1440\n", &info);
+    settings_clamp(&s);
+    CHECK(info.bad == 0 && s.aspect == SETTINGS_ASPECT_21_9 && strcmp(SETTINGS_RESOLUTIONS[s.resolution], "3440x1440") == 0);
+    settings_defaults(&s);
+    settings_from_text(&s, "[stream]\nresolution = 3000X1300\n", &info);
+    settings_clamp(&s);
+    CHECK(info.bad == 0 && s.resolution == SETTINGS_RESOLUTION_CUSTOM && s.aspect == SETTINGS_ASPECT_21_9);
+    CHECK(s.custom_width == 3000 && s.custom_height == 1300);
+    settings_defaults(&s);
+    settings_from_text(&s, "[stream]\nresolution = 3\n", &info);
+    CHECK(info.bad == 0 && strcmp(SETTINGS_RESOLUTIONS[s.resolution], "1920x1080") == 0);
+    settings_defaults(&s);
+    settings_from_text(&s, "[stream]\nresolution = 7\nresolution = 100x100\nresolution = 9000x1000\n", &info);
+    CHECK(info.bad == 3 && s.resolution == 4);
+    // a custom size that is a preset reads as the preset; a preset's aspect is its own, whatever the file says
+    settings_defaults(&s);
+    settings_from_text(&s, "[stream]\naspect = 4:3\nresolution = custom\ncustom_width = 1920\ncustom_height = 1200\n", &info);
+    settings_clamp(&s);
+    CHECK(strcmp(SETTINGS_RESOLUTIONS[s.resolution], "1920x1200") == 0 && s.aspect == SETTINGS_ASPECT_16_10);
+    settings_defaults(&s);
+    settings_from_text(&s, "[stream]\naspect = 32:9\nresolution = 1920x1080\n", &info);
+    settings_clamp(&s);
+    CHECK(s.aspect == SETTINGS_ASPECT_16_9);
+    // the default custom size is 2560x1440 (when a file says custom and nothing more)
+    settings_defaults(&s);
+    settings_from_text(&s, "[stream]\nresolution = custom\n", &info);
+    settings_resolution(&s, &w, &h);
+    CHECK(w == 2560 && h == 1440);
+
+    // a new aspect takes its size nearest the height now; the lower of two as near
+    settings_defaults(&s);   // 2560x1440
+    settings_set_aspect(&s, SETTINGS_ASPECT_21_9, 0);
+    settings_resolution(&s, &w, &h);
+    CHECK(w == 3440 && h == 1440);
+    settings_set_aspect(&s, SETTINGS_ASPECT_32_9, 0);
+    settings_resolution(&s, &w, &h);
+    CHECK(w == 5120 && h == 1440);
+    settings_set_resolution_size(&s, 1920, 1080);
+    settings_set_aspect(&s, SETTINGS_ASPECT_4_3, 0);   // 960 and 1200 are as near 1080
+    settings_resolution(&s, &w, &h);
+    CHECK(w == 1280 && h == 960);
+    // with H.264 the 32:9 1440p (5120 wide) is passed over for the nearest it can stream
+    settings_defaults(&s);
+    settings_set_aspect(&s, SETTINGS_ASPECT_32_9, 1);
+    settings_resolution(&s, &w, &h);
+    CHECK(w == 3840 && h == 1080);
+    // the aspect in force already: a custom size stays
+    settings_set_aspect(&s, SETTINGS_ASPECT_21_9, 0);
+    settings_set_resolution_size(&s, 3000, 1300);
+    settings_set_aspect(&s, SETTINGS_ASPECT_21_9, 0);
+    CHECK(s.resolution == SETTINGS_RESOLUTION_CUSTOM && s.custom_width == 3000);
+    settings_set_aspect(&s, 99, 0);
+    CHECK(s.aspect == SETTINGS_ASPECT_21_9);
+
+    // what is greyed out: wider than 4096 with H.264, past the decoder's 8192 with anything
+    CHECK(settings_resolution_limit(4096, 2160, 1) == SETTINGS_SIZE_OK);
+    CHECK(settings_resolution_limit(3840, 2400, 1) == SETTINGS_SIZE_OK);
+    CHECK(settings_resolution_limit(5120, 1440, 1) == SETTINGS_SIZE_H264_WIDTH);
+    CHECK(settings_resolution_limit(5120, 2160, 0) == SETTINGS_SIZE_OK);
+    CHECK(settings_resolution_limit(7680, 2160, 0) == SETTINGS_SIZE_OK);
+    CHECK(settings_resolution_limit(7680, 2160, 1) == SETTINGS_SIZE_H264_WIDTH);
+    CHECK(settings_resolution_limit(8200, 1000, 0) == SETTINGS_SIZE_DECODER);
+    CHECK(settings_resolution_limit(2000, 8200, 1) == SETTINGS_SIZE_DECODER);
+    int greyH264 = 0, greyAny = 0;
+    for (int i = 0; i < SETTINGS_RESOLUTION_CUSTOM; i++) {
+        greyH264 += settings_resolution_limit(SETTINGS_RESOLUTION_PRESETS[i].width, SETTINGS_RESOLUTION_PRESETS[i].height, 1) != 0;
+        greyAny += settings_resolution_limit(SETTINGS_RESOLUTION_PRESETS[i].width, SETTINGS_RESOLUTION_PRESETS[i].height, 0) != 0;
+    }
+    CHECK(greyH264 == 3 && greyAny == 0);   // 5120x2160, 5120x1440, 7680x2160
+
+    // the default bitrate: the owner's 80 Mbps at 1440p, by pixel count for the rest, never under Moonlight's
+    // curve, 150 Mbps at most; below 60 fps the curve as it was
+    CHECK(settings_default_bitrate_kbps(2560, 1440, 90) == 80000);
+    CHECK(settings_default_bitrate_kbps(3440, 1440, 90) == 107500);
+    CHECK(settings_default_bitrate_kbps(2560, 1080, 60) == 60000);
+    CHECK(settings_default_bitrate_kbps(1920, 1200, 90) == 50000);
+    CHECK(settings_default_bitrate_kbps(1600, 1200, 72) == 41500);
+    CHECK(settings_default_bitrate_kbps(5120, 1440, 90) == 150000);
+    CHECK(settings_default_bitrate_kbps(7680, 2160, 144) == 150000);
+    CHECK(settings_default_bitrate_kbps(3440, 1440, 120) == 150000);   // 113 Mbps x 1.34, held to 150
+    CHECK(settings_default_bitrate_kbps(2560, 1080, 120) == 85000);    // 113 Mbps x 0.75, to 500 kbps
+    CHECK(settings_default_bitrate_kbps(640, 360, 60) == 5000);
+    CHECK(settings_default_bitrate_kbps(640, 480, 30) == 1000);        // 30 fps: the curve
+    for (int i = 0; i < SETTINGS_RESOLUTION_CUSTOM; i++) {
+        const SettingsResolution* r = &SETTINGS_RESOLUTION_PRESETS[i];
+        int k = settings_default_bitrate_kbps(r->width, r->height, 90);
+        CHECK(k % 500 == 0 && k >= 500 && k <= 150000);
+    }
+    settings_defaults(&s);
+    settings_set_resolution_size(&s, 3440, 1440);
+    CHECK(settings_bitrate_kbps(&s) == 107500);
+
+#ifdef MLXR_LAUNCHER_QML
+    // the flat launcher's own table (launcher/qml/XrSettingsView.qml): the same sizes, names and aspects in the
+    // same order, and the same aspects
+    FILE* f = fopen(MLXR_LAUNCHER_QML, "r");
+    CHECK(f != NULL);
+    if (f) {
+        static const char* const ASPECTS[] = { "4:3", "16:9", "16:10", "21:9", "32:9" };
+        char line[512];
+        int n = 0, na = 0;
+        while (fgets(line, sizeof line, f)) {
+            char a[16], l[16], key[16];
+            int qw = 0, qh = 0;
+            if (sscanf(line, " { aspect: \"%15[^\"]\", text: qsTr(\"%15[^\"]\"), w: %d, h: %d }", a, l, &qw, &qh) == 4) {
+                CHECK(n < SETTINGS_RESOLUTION_CUSTOM);
+                if (n < SETTINGS_RESOLUTION_CUSTOM) {
+                    const SettingsResolution* r = &SETTINGS_RESOLUTION_PRESETS[n];
+                    CHECK(qw == r->width && qh == r->height && strcmp(l, r->label) == 0);
+                    CHECK(strcmp(a, ASPECTS[r->aspect]) == 0);
+                }
+                n++;
+            } else if (sscanf(line, " { key: \"%15[^\"]\", text:", key) == 1) {
+                CHECK(na < SETTINGS_ASPECT_COUNT && strcmp(key, ASPECTS[na < SETTINGS_ASPECT_COUNT ? na : 0]) == 0);
+                const SettingDesc* d = settings_find("stream.aspect");
+                CHECK(d && na < d->nnames && strcmp(d->names[na], key) == 0);
+                na++;
+            }
+        }
+        fclose(f);
+        CHECK(n == SETTINGS_RESOLUTION_CUSTOM);
+        CHECK(na == SETTINGS_ASPECT_COUNT);
+    }
+#endif
 }
 
 // Keys removed because nothing read them: an old config.ini that still has
@@ -1472,6 +1678,7 @@ static void test_surroundings(void) {
 }
 
 int main(void) {
+    test_aspect_ratio();
     test_surroundings();
     test_follow_and_lock_settings();
     test_layouts();

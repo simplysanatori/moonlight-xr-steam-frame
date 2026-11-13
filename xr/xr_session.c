@@ -358,7 +358,8 @@ static int videoSwapchain(XrCtx* ctx, Video* vd, int fw, int fh) {
     vd->picW = pw;
     vd->height = h;
     ctx->swapchain = vd->swapchain;
-    // The picture's shape follows the stream's
+    // The picture's shape follows the stream's (native, lane aspect-ratio: the screen keeping its height)
+    xrPictureShapeChanged(ctx, pw, h);
     ctx->videoWidth = pw;
     ctx->videoHeight = h;
     ctx->pointerBeta = nativePointerTunable("MLXR_POINTER_BETA", NATIVE_POINTER_BETA_PER_PX) * (float)pw;

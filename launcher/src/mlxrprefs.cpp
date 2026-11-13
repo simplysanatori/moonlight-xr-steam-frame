@@ -246,6 +246,22 @@ void MlxrPrefs::rescanUsb()
     emit usbCableChanged();
 }
 
+void MlxrPrefs::saveStreamSize(const QString& resolution, int customWidth, int customHeight)
+{
+    const QString ini = configIniPath();
+    // the VR client's defaults (ui/settings.c) when config.ini or the key is absent
+    const auto put = [&ini](const char* key, const QString& value, const char* def) {
+        if (iniValue(ini, "stream", key, def).trimmed().compare(value, Qt::CaseInsensitive) != 0) {
+            setIniValue(ini, "stream", key, value);
+        }
+    };
+    put("resolution", resolution.trimmed().toLower(), "2560x1440");
+    if (resolution.trimmed().compare("custom", Qt::CaseInsensitive) == 0) {
+        put("custom_width", QString::number(qBound(256, customWidth, 8192)), "2560");
+        put("custom_height", QString::number(qBound(256, customHeight, 8192)), "1440");
+    }
+}
+
 QString MlxrPrefs::configIniPath() const
 {
     return MlxrHandoff::nativeConfigDir() + "/config.ini";
@@ -259,6 +275,22 @@ int MlxrPrefs::strengthFromSeparation(int sep)
 int MlxrPrefs::separationFromStrength(int strength)
 {
     return qBound(0, qRound(strength * 15.0 / 100.0), 15);
+}
+
+// Native (lane aspect-ratio): [stream] aspect as the VR client reads it (ui/settings.c ASPECT_NAMES, by name or
+// index); anything else is its default, 16:9
+static QString normalizeAspect(const QString& raw)
+{
+    static const char* const kNames[] = { "4:3", "16:9", "16:10", "21:9", "32:9" };
+    const QString v = raw.trimmed().toLower();
+    bool isNum = false;
+    const int n = v.toInt(&isNum);
+    for (int i = 0; i < 5; i++) {
+        if (v == kNames[i] || (isNum && n == i)) {
+            return kNames[i];
+        }
+    }
+    return QStringLiteral("16:9");
 }
 
 static bool iniBool(const QString& v)
@@ -341,6 +373,8 @@ void MlxrPrefs::load()
     const QString src = iniValue(ini, "3d", "stereo_source", "depth").trimmed().toLower();
     stereoSource = (src == "sbs" || src == "1") ? "sbs" : (src == "top-bottom" || src == "2") ? "top-bottom" : "depth";
     sbsFull = iniBool(iniValue(ini, "3d", "sbs_full", "false"));
+    // Native (lane aspect-ratio): the VR client's names; anything else is its default, 16:9
+    aspect = normalizeAspect(iniValue(ini, "stream", "aspect", "16:9"));
     // the VR client holds it to 0..100 and takes anything else as its default, 0
     bool edgeOk = false;
     const int edge = iniValue(ini, "3d", "edge_sharpness", "0").trimmed().toInt(&edgeOk);
@@ -448,6 +482,7 @@ void MlxrPrefs::load()
     m_iniGlowFeather = glowFeather;
     m_iniStereoSource = stereoSource;
     m_iniSbsFull = sbsFull;
+    m_iniAspect = aspect;
     m_iniEdgeSharpness = edgeSharpness;
     m_iniMotionReset = motionReset;
     m_iniDepthScale = depthScale;
@@ -532,6 +567,9 @@ void MlxrPrefs::save()
     }
     if (sbsFull != m_iniSbsFull) {
         setIniValue(ini, "3d", "sbs_full", sbsFull ? "true" : "false");
+    }
+    if (aspect != m_iniAspect) {
+        setIniValue(ini, "stream", "aspect", normalizeAspect(aspect));
     }
     if (edgeSharpness != m_iniEdgeSharpness) {
         setIniValue(ini, "3d", "edge_sharpness", QString::number(qBound(0, edgeSharpness, 100)));
@@ -631,6 +669,7 @@ void MlxrPrefs::save()
     m_iniGlowFeather = glowFeather;
     m_iniStereoSource = stereoSource;
     m_iniSbsFull = sbsFull;
+    m_iniAspect = aspect;
     m_iniEdgeSharpness = edgeSharpness;
     m_iniMotionReset = motionReset;
     m_iniDepthScale = depthScale;
@@ -714,6 +753,7 @@ QVector<MlxrPrefs::IniEntry> MlxrPrefs::profileIniEntries() const
         { "3d", "depth_global", QString::number(qBound(0, depthGlobal, 200)) },
         { "3d", "stereo_source", stereoSource },
         { "3d", "sbs_full", sbsFull ? "true" : "false" },
+        { "stream", "aspect", normalizeAspect(aspect) },   // native (lane aspect-ratio)
         { "stream", "rfi_idr_ms", QString::number(qBound(0, rfiIdrMs, 5000)) },
         { "3d", "eye_balance", QString::number(qBound(-100, eyeBalance, 100)) },
         { "stream", "bitrate_wifi", QString::number(bitrateWifi <= 0 ? 0 : qBound(500, bitrateWifi, 500000)) },

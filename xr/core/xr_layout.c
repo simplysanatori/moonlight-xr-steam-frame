@@ -925,3 +925,11 @@ float layoutAngularWidth(float width, float distFrom, float distNow, float minWi
     float w = width * distNow / distFrom;
     return w < minWidth ? minWidth : (w > maxWidth ? maxWidth : w);
 }
+
+float layoutAspectWidthScale(int pictureWidth, int pictureHeight) {
+    if (pictureWidth <= 0 || pictureHeight <= 0) {
+        return 1.0f;
+    }
+    // in whole numbers first, so an exact 16:9 picture is exactly 1 and leaves every width as it was
+    return (float)(((double)pictureWidth * 9.0) / ((double)pictureHeight * 16.0));
+}

@@ -403,6 +403,11 @@ LayoutPreset layoutPresetOf(int preset);
 // way still counts, since both went through a float on the way to the file
 int layoutPresetAt(int distanceCm, int widthCm);
 
+// Native (lane aspect-ratio): the screen's size (the Size row, the presets, [screen] width_cm, the
+// placements kept per app) is the width a 16:9 picture of the same height has. A picture of another shape
+// keeps that height: it is the size times this wide (21:9 about 1.31, 32:9 2, 4:3 0.75). 1 for no picture.
+float layoutAspectWidthScale(int pictureWidth, int pictureHeight);
+
 // The way the head looks, as a unit vector, held to LAYOUT_GAZE_PITCH_MAX_DEG
 // up or down so a glance at the ceiling does not take the screen there
 #define LAYOUT_GAZE_PITCH_MAX_DEG 40.0f

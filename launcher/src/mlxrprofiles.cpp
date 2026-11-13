@@ -83,6 +83,8 @@ const PrefField kPrefFields[] = {
     // lane wave4-sbs: where the 3D comes from (the PC's side by side or top-bottom pair)
     { "stereoSource", KStr, 0, 0, "|depth|sbs|top-bottom|" },
     { "sbsFull", KBool, 0, 0, nullptr },
+    // lane aspect-ratio: the Aspect Ratio row (the size itself is width and height above)
+    { "aspect", KStr, 0, 0, "|4:3|16:9|16:10|21:9|32:9|" },
     // lane wave1-burst: the cap on full-frame requests after lost video
     { "rfiIdrMs", KInt, 0, 5000, nullptr },
     // lane wave3-visual: the 3D eye balance (the room's look, dim, void colour and glow, is not a stream setting)

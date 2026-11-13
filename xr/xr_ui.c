@@ -787,7 +787,8 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
         t = effectiveCurvature(ctx);
     }
     else if (slider == COG_SLIDER_SIZE) {
-        t = (ctx->screenWidth - SCREEN_MIN_WIDTH) / (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH);
+        // Native (lane aspect-ratio): the size, a 16:9 picture's width at this height
+        t = (ctx->screenWidth / xrScreenWidthScale(ctx) - SCREEN_MIN_WIDTH) / (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH);
     }
     else if (slider == COG_SLIDER_AIM_SENSITIVITY) {
         t = lanePlace(ctx->headAimSensitivity, HEAD_AIM_SENSITIVITY_MIN,
@@ -986,7 +987,8 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
         ctx->screenRadius = d * (1.0f + 3.0f * (1.0f - t));
     }
     else if (slider == COG_SLIDER_SIZE) {
-        float wanted = SCREEN_MIN_WIDTH + t * (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH);
+        // Native (lane aspect-ratio): the track is the size; the picture keeps that height in its own shape
+        float wanted = (SCREEN_MIN_WIDTH + t * (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH)) * xrScreenWidthScale(ctx);
         if (ctx->screenWidth > 0.01f) {
             // Keeping the arc the same shape rather than flattening as it
             // grows, same rule the corner resize follows
@@ -1290,7 +1292,7 @@ static void cogApply3dCell(XrCtx* ctx, int row, int cell, float* out) {
 int xrScreenPresetNow(XrCtx* ctx) {
     XrVector3f p = ctx->screenPose.position;
     float d = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
-    return layoutPresetAt((int)lroundf(d * 100.0f), (int)lroundf(ctx->screenWidth * 100.0f));
+    return layoutPresetAt((int)lroundf(d * 100.0f), (int)lroundf(ctx->screenWidth / xrScreenWidthScale(ctx) * 100.0f));
 }
 
 // A preset puts the distance and the width where it says, by the same sums the

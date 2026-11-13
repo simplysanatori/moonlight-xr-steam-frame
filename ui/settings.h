@@ -57,7 +57,10 @@ typedef struct Settings {
     // [stream]
     char host[UI_STR_MAX];
     char app[UI_STR_MAX];
-    int resolution;        // index into SETTINGS_RESOLUTIONS (default 4: 2560x1440)
+    int aspect;            // native (lane aspect-ratio): SETTINGS_ASPECT_*, the list the resolution is picked from
+    int resolution;        // index into SETTINGS_RESOLUTIONS (default 4: 2560x1440); SETTINGS_RESOLUTION_CUSTOM: custom_*
+    int custom_width;      // native (lane aspect-ratio): the Custom size, 256..8192 each way
+    int custom_height;
     int fps;               // index into SETTINGS_FPS (default 3: 90)
     int bitrate_kbps;      // 0 = follow resolution and frame rate (upstream's default curve)
     int codec;             // 0 auto, 1 AV1, 2 HEVC, 3 H.264
@@ -214,8 +217,63 @@ typedef struct {
     const char* doc;        // one line for the file's comment, with upstream's name
 } SettingDesc;
 
-extern const char* const SETTINGS_RESOLUTIONS[];   // "640x360" .. "3840x2160"
-extern const int SETTINGS_RESOLUTION_COUNT;
+// [stream] resolution's names: the six 16:9 sizes of earlier versions first, in their old order (a file that
+// says a number means one of these six), then the other shapes' sizes, then "custom" (custom_width x
+// custom_height). Every preset is a real monitor size, named by its height.
+extern const char* const SETTINGS_RESOLUTIONS[];   // "640x360" .. "7680x2160", "custom"
+extern const int SETTINGS_RESOLUTION_COUNT;        // presets and custom
+extern const int SETTINGS_RESOLUTION_CUSTOM;       // the index of "custom"
+
+// Native (lane aspect-ratio): [stream] aspect, the Aspect Ratio row of the flat launcher's video settings
+enum {
+    SETTINGS_ASPECT_4_3,     // Standard
+    SETTINGS_ASPECT_16_9,    // Widescreen (the default)
+    SETTINGS_ASPECT_16_10,
+    SETTINGS_ASPECT_21_9,    // Ultrawide
+    SETTINGS_ASPECT_32_9,    // Super Ultrawide
+    SETTINGS_ASPECT_COUNT
+};
+typedef struct {
+    int aspect;              // SETTINGS_ASPECT_*
+    int width, height;
+    const char* label;       // the name by its height, "1440p" ("4K" for 3840x2160)
+} SettingsResolution;
+// SETTINGS_RESOLUTIONS' presets (custom has none), same order and index
+extern const SettingsResolution SETTINGS_RESOLUTION_PRESETS[];
+
+// The preset of exactly this size, or -1
+int settings_resolution_find(int width, int height);
+// The aspect a size is closest to (by width / height)
+int settings_aspect_nearest(int width, int height);
+// The presets of one aspect in their order (smallest first): their indexes into out, the count back
+int settings_aspect_presets(int aspect, int* out, int cap);
+// A size as the setting holds it: a preset (and its aspect) when one matches, else custom with this size
+// (the aspect stays as it is: Custom is the last entry of the aspect's list)
+void settings_set_resolution_size(Settings* s, int width, int height);
+// A new aspect: the preset of that aspect nearest the current height (the lower one of two as near), passing
+// over sizes that cannot stream (settings_resolution_limit, h264 as there) while one can. The aspect in force
+// already changes nothing (a Custom size stays). The flat launcher's Aspect Ratio row does the same.
+void settings_set_aspect(Settings* s, int aspect, int h264);
+
+// What the Frame and the PC can stream. Sizes past these are greyed out in the lists (a Custom size may still
+// ask for them).
+// H.264 streams at most 4096 wide (hosts' encoders and the level limits); wider needs HEVC (or AV1).
+#define MLXR_H264_MAX_WIDTH 4096
+// The Frame's decoder: VIDIOC_ENUM_FRAMESIZES on its qcom-iris-decoder said 128x128 to 8192x8192 for
+// H.264, HEVC and VP9 (on the Frame, 2026-11-13; it has no AV1). The Vulkan import (video/vk_import.c) still
+// checks each frame against the GPU's own maxExtent.
+// TODO(headset): probe a real 7680x2160 HEVC stream on the Frame; the decoder's macroblock rate may be lower
+// than its frame size limit at 90 Hz and above.
+#define MLXR_DECODE_MAX_WIDTH 8192
+#define MLXR_DECODE_MAX_HEIGHT 8192
+enum {
+    SETTINGS_SIZE_OK,
+    SETTINGS_SIZE_H264_WIDTH,   // over MLXR_H264_MAX_WIDTH with H.264 chosen
+    SETTINGS_SIZE_DECODER,      // over the Frame's decoder
+};
+// Whether a size can stream: SETTINGS_SIZE_*. h264 is 1 when the codec setting is H.264 (Automatic and HEVC
+// let the PC use HEVC past 4096).
+int settings_resolution_limit(int width, int height, int h264);
 extern const int SETTINGS_FPS[];                   // 30 60 72 90 120 144
 extern const int SETTINGS_FPS_COUNT;
 

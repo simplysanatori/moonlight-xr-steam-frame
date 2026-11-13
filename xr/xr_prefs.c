@@ -533,7 +533,7 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
         pose[4] = ctx->screenPose.orientation.y;
         pose[5] = ctx->screenPose.orientation.z;
         pose[6] = ctx->screenPose.orientation.w;
-        pose[7] = ctx->screenWidth;
+        pose[7] = ctx->screenWidth / xrScreenWidthScale(ctx); // native (lane aspect-ratio): the size
         pose[8] = ctx->screenRadius;
         pose[9] = ctx->panelCurve;
         xrPoseToSettings(pose, xrCurveSetting(ctx), s);

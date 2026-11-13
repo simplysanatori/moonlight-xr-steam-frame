@@ -716,8 +716,69 @@ static void bringHereSwitch(void) {
     scene_free(s);
 }
 
+// Native (lane aspect-ratio): a picture of another shape keeps the screen's height and changes its width; the
+// size (the Size row, the presets, width_cm) stays that of a 16:9 picture of the same height, so the file and
+// the presets are the same for every shape and switching back gives the screen it had
+static void aspectKeepsHeight(void) {
+    Scene* s = scene_new();
+    XrCtx* c = s->ctx;
+    float out[IN_SLOTS];
+    freshOut(out);
+    cogApplyCell(c, COG_TAB_SCREEN, COG_SCREEN_ROW_PRESET, LAYOUT_PRESET_COUCH, out);
+    float w169 = c->screenWidth, h169 = w169 * (float)c->videoHeight / (float)c->videoWidth;
+    float r169 = c->screenRadius;
+    CHECK(c->videoWidth == 2560 && c->videoHeight == 1440);
+    CHECK_NEAR(xrScreenWidthScale(c), 1.0, 1e-6);
+    // a 3440x1440 stream: the same height, 43/32 as wide, the same curve
+    xrPictureShapeChanged(c, 3440, 1440);
+    c->videoWidth = 3440;
+    c->videoHeight = 1440;
+    CHECK_NEAR(c->screenWidth * (float)c->videoHeight / (float)c->videoWidth, h169, 1e-4);
+    CHECK_NEAR(c->screenWidth, w169 * 3440.0 / 2560.0, 1e-4);
+    CHECK_NEAR(c->screenRadius, r169, 1e-6);
+    // it is still the Couch preset, the Size track has not moved and the file keeps the 16:9 size
+    CHECK(cogCellInForce(c, COG_TAB_SCREEN, COG_SCREEN_ROW_PRESET) == LAYOUT_PRESET_COUCH);
+    Settings saved = s->settings;
+    xrSettingsFromCtx(c, &saved);
+    CHECK(saved.screen_width_cm == layoutPresetOf(LAYOUT_PRESET_COUCH).widthCm);
+    CHECK_NEAR(cogSliderValue(c, COG_TAB_SCREEN, COG_SLIDER_SIZE),
+               (w169 - SCREEN_MIN_WIDTH) / (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH), 1e-4);
+    // a preset picked now is the same height as at 16:9
+    freshOut(out);
+    cogApplyCell(c, COG_TAB_SCREEN, COG_SCREEN_ROW_PRESET, LAYOUT_PRESET_CINEMA, out);
+    CHECK_NEAR(c->screenWidth * 1440.0f / 3440.0f, layoutPresetOf(LAYOUT_PRESET_CINEMA).widthCm / 100.0 * 9.0 / 16.0, 1e-3);
+    CHECK(cogCellInForce(c, COG_TAB_SCREEN, COG_SCREEN_ROW_PRESET) == LAYOUT_PRESET_CINEMA);
+    // the size row's drag sets the size, the picture keeps its shape
+    cogApplySlider(c, COG_TAB_SCREEN, COG_SLIDER_SIZE, cogRunU(0.5f));
+    CHECK_NEAR(c->screenWidth, (SCREEN_MIN_WIDTH + 0.5f * (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH)) * 3440.0f / 2560.0f, 1e-4);
+    CHECK_NEAR(cogSliderValue(c, COG_TAB_SCREEN, COG_SLIDER_SIZE), 0.5, 1e-4);
+    // a session that starts in 21:9 puts the saved size back at the same height
+    xrSettingsFromCtx(c, &saved);
+    Scene* s2 = scene_new();
+    XrCtx* c2 = s2->ctx;
+    c2->videoWidth = 3440;
+    c2->videoHeight = 1440;
+    xrApplySettings(c2, &saved);
+    CHECK_NEAR(c2->screenWidth, c->screenWidth, 2e-3);
+    // and back to 16:9: the width it had at that size before
+    float size = c->screenWidth / xrScreenWidthScale(c);
+    xrPictureShapeChanged(c, 2560, 1440);
+    c->videoWidth = 2560;
+    c->videoHeight = 1440;
+    CHECK_NEAR(c->screenWidth, size, 1e-4);
+    // a super ultrawide 32:9 picture is twice as wide at the same height; 4:3 three quarters
+    xrPictureShapeChanged(c, 5120, 1440);
+    CHECK_NEAR(c->screenWidth, 2.0f * size, 1e-4);
+    c->videoWidth = 5120;
+    xrPictureShapeChanged(c, 1600, 1200);
+    CHECK_NEAR(c->screenWidth, 0.75f * size, 1e-4);
+    scene_free(s2);
+    scene_free(s);
+}
+
 int main(void) {
     rowsAreCells();
+    aspectKeepsHeight();
     presets();
     bringHere();
     bringHereSwitch();

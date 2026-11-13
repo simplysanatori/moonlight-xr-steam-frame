@@ -83,6 +83,11 @@ Flickable {
 
     function saveAll() {
         StreamingPreferences.save()
+        // Native (lane aspect-ratio): the size into the VR client's config.ini too, beside the Aspect Ratio
+        var r = resolutionIndex()
+        MlxrPrefs.saveStreamSize(r >= 0 ? resolutions[r].w + "x" + resolutions[r].h : "custom",
+                                 StreamingPreferences.width, StreamingPreferences.height)
+        MlxrPrefs.aspect = aspectKey()
         MlxrPrefs.save()
     }
 
@@ -100,13 +105,41 @@ Flickable {
                                                                                   StreamingPreferences.fps, false)
     }
 
+    // Native (lane aspect-ratio): the Aspect Ratio row and each aspect's sizes, real monitor sizes named by their
+    // height. The VR client's own table is ui/settings.c RES_PRESETS (tests/ui test_settings checks the two agree).
+    readonly property var aspects: [
+        { key: "4:3", text: qsTr("Standard (4:3)"), ratio: 4 / 3 },
+        { key: "16:9", text: qsTr("Widescreen (16:9)"), ratio: 16 / 9 },
+        { key: "16:10", text: qsTr("16:10"), ratio: 16 / 10 },
+        { key: "21:9", text: qsTr("Ultrawide (21:9)"), ratio: 21 / 9 },
+        { key: "32:9", text: qsTr("Super Ultrawide (32:9)"), ratio: 32 / 9 }
+    ]
     readonly property var resolutions: [
-        { text: qsTr("360p"), w: 640, h: 360 },
-        { text: qsTr("480p"), w: 854, h: 480 },
-        { text: qsTr("720p"), w: 1280, h: 720 },
-        { text: qsTr("1080p"), w: 1920, h: 1080 },
-        { text: qsTr("1440p"), w: 2560, h: 1440 },
-        { text: qsTr("4K"), w: 3840, h: 2160 }
+        { aspect: "16:9", text: qsTr("360p"), w: 640, h: 360 },
+        { aspect: "16:9", text: qsTr("480p"), w: 854, h: 480 },
+        { aspect: "16:9", text: qsTr("720p"), w: 1280, h: 720 },
+        { aspect: "16:9", text: qsTr("1080p"), w: 1920, h: 1080 },
+        { aspect: "16:9", text: qsTr("1440p"), w: 2560, h: 1440 },
+        { aspect: "16:9", text: qsTr("4K"), w: 3840, h: 2160 },
+        { aspect: "4:3", text: qsTr("480p"), w: 640, h: 480 },
+        { aspect: "4:3", text: qsTr("600p"), w: 800, h: 600 },
+        { aspect: "4:3", text: qsTr("768p"), w: 1024, h: 768 },
+        { aspect: "4:3", text: qsTr("960p"), w: 1280, h: 960 },
+        { aspect: "4:3", text: qsTr("1200p"), w: 1600, h: 1200 },
+        { aspect: "4:3", text: qsTr("1536p"), w: 2048, h: 1536 },
+        { aspect: "16:10", text: qsTr("800p"), w: 1280, h: 800 },
+        { aspect: "16:10", text: qsTr("900p"), w: 1440, h: 900 },
+        { aspect: "16:10", text: qsTr("1050p"), w: 1680, h: 1050 },
+        { aspect: "16:10", text: qsTr("1200p"), w: 1920, h: 1200 },
+        { aspect: "16:10", text: qsTr("1600p"), w: 2560, h: 1600 },
+        { aspect: "16:10", text: qsTr("2400p"), w: 3840, h: 2400 },
+        { aspect: "21:9", text: qsTr("1080p"), w: 2560, h: 1080 },
+        { aspect: "21:9", text: qsTr("1440p"), w: 3440, h: 1440 },
+        { aspect: "21:9", text: qsTr("1600p"), w: 3840, h: 1600 },
+        { aspect: "21:9", text: qsTr("2160p"), w: 5120, h: 2160 },
+        { aspect: "32:9", text: qsTr("1080p"), w: 3840, h: 1080 },
+        { aspect: "32:9", text: qsTr("1440p"), w: 5120, h: 1440 },
+        { aspect: "32:9", text: qsTr("2160p"), w: 7680, h: 2160 }
     ]
     function resolutionIndex() {
         for (var i = 0; i < resolutions.length; i++) {
@@ -116,12 +149,76 @@ Flickable {
         }
         return -1
     }
+    // The aspect the page shows: a preset's own; a Custom size keeps the one it was typed under (config.ini's
+    // [stream] aspect), else the one nearest its shape
+    function aspectKey() {
+        var r = resolutionIndex()
+        if (r >= 0) return resolutions[r].aspect
+        for (var i = 0; i < aspects.length; i++) {
+            if (aspects[i].key === MlxrPrefs.aspect) return MlxrPrefs.aspect
+        }
+        return nearestAspect(StreamingPreferences.width, StreamingPreferences.height)
+    }
+    function nearestAspect(w, h) {
+        var best = 1
+        if (w > 0 && h > 0) {
+            var r = Math.log(w / h)
+            for (var i = 0; i < aspects.length; i++) {
+                if (Math.abs(r - Math.log(aspects[i].ratio)) < Math.abs(r - Math.log(aspects[best].ratio))) best = i
+            }
+        }
+        return aspects[best].key
+    }
+    function aspectIndex() {
+        var k = aspectKey()
+        for (var i = 0; i < aspects.length; i++) {
+            if (aspects[i].key === k) return i
+        }
+        return 1
+    }
+    // The indexes into resolutions of one aspect's sizes, smallest first
+    function resolutionsOf(key) {
+        var out = []
+        for (var i = 0; i < resolutions.length; i++) {
+            if (resolutions[i].aspect === key) out.push(i)
+        }
+        return out
+    }
+    // Why a size cannot stream, "" when it can (the VR client's settings_resolution_limit): H.264 stops at
+    // 4096 wide (MLXR_H264_MAX_WIDTH), the Frame's decoder at 8192 each way (MLXR_DECODE_MAX_*)
+    function sizeReason(w, h) {
+        if (w > 8192 || h > 8192) return qsTr("larger than the Steam Frame can decode")
+        if (StreamingPreferences.videoCodecConfig === StreamingPreferences.VCC_FORCE_H264 && w > 4096)
+            return qsTr("H.264 goes up to 4096 wide; set the codec to Automatic or HEVC")
+        return ""
+    }
+    // A new aspect: its size nearest the height now (the lower of two as near), skipping any it cannot stream
+    function setAspect(key) {
+        if (key === aspectKey()) return   // the same list: the size (a Custom one too) stays
+        var list = resolutionsOf(key)
+        var h = StreamingPreferences.height
+        var best = -1
+        for (var pass = 0; pass < 2 && best < 0; pass++) {
+            for (var i = 0; i < list.length; i++) {
+                var r = resolutions[list[i]]
+                if (pass === 0 && sizeReason(r.w, r.h) !== "") continue
+                if (best < 0 || Math.abs(r.h - h) < Math.abs(resolutions[best].h - h)) best = list[i]
+            }
+        }
+        MlxrPrefs.aspect = key
+        if (resolutions[best].w !== StreamingPreferences.width || resolutions[best].h !== StreamingPreferences.height) {
+            StreamingPreferences.width = resolutions[best].w
+            StreamingPreferences.height = resolutions[best].h
+            resetBitrate()
+        }
+    }
     function resolutionText() {
         var i = resolutionIndex()
         return i >= 0 ? resolutions[i].text + " (" + resolutions[i].w + "x" + resolutions[i].h + ")"
                       : qsTr("Custom") + " (" + StreamingPreferences.width + "x" + StreamingPreferences.height + ")"
     }
-    // The size typed in the list's Custom... entry (Artemis's Custom Resolution row, folded into the list)
+    // The size typed in the list's Custom... entry (Artemis's Custom Resolution row, folded into the list). It
+    // stays under the aspect it was typed in.
     function editCustomResolution() {
         editDialog.show(qsTr("Custom resolution"), qsTr("Width x height, for example 2560x1440. A size the PC cannot make may fail to start."),
                         StreamingPreferences.width + "x" + StreamingPreferences.height,
@@ -129,6 +226,7 @@ Flickable {
             var p = t.toLowerCase().split("x")
             var w = parseInt(p[0]), h = parseInt(p[1])
             if (w >= 256 && h >= 256 && w <= 8192 && h <= 8192) {
+                MlxrPrefs.aspect = aspectKey()
                 StreamingPreferences.width = w
                 StreamingPreferences.height = h
                 resetBitrate()
@@ -359,7 +457,9 @@ Flickable {
     readonly property var codecEntries: [
         { text: qsTr("Automatic (Recommended)"), val: StreamingPreferences.VCC_AUTO, reason: "" },
         { text: qsTr("Prefer HEVC"), val: StreamingPreferences.VCC_FORCE_HEVC, reason: "" },
-        { text: qsTr("Prefer H.264"), val: StreamingPreferences.VCC_FORCE_H264, reason: "" }
+        // Native (lane aspect-ratio): H.264 streams at most 4096 wide
+        { text: qsTr("Prefer H.264"), val: StreamingPreferences.VCC_FORCE_H264,
+          reason: StreamingPreferences.width > 4096 ? qsTr("the Video resolution is wider than H.264 allows (4096)") : "" }
     ]
     function codecIndex() {
         var v = StreamingPreferences.videoCodecConfig
@@ -1243,24 +1343,43 @@ Flickable {
         // ======== Video settings ========
         PrefCategory { text: qsTr("Video settings"); icon: "video" }
 
+        // Native (lane aspect-ratio): the shape first, then its sizes
+        PrefRow {
+            id: aspectRow
+            objectName: "aspectRow"
+            title: qsTr("Aspect Ratio")
+            valueText: settingsPage.aspects[settingsPage.aspectIndex()].text
+            summary: qsTr("The shape of the picture, and the sizes Video resolution offers. A wider shape makes the screen in the headset wider at the same height.")
+            onClicked: {
+                var e = []
+                for (var i = 0; i < settingsPage.aspects.length; i++) e.push({ text: settingsPage.aspects[i].text, reason: "" })
+                listDialog.show(title, e, settingsPage.aspectIndex(), function(i) {
+                    settingsPage.setAspect(settingsPage.aspects[i].key)
+                })
+            }
+        }
+
         PrefRow {
             id: resolutionRow
             objectName: "resolutionRow"
             title: qsTr("Video resolution")
             valueText: settingsPage.resolutionText()
-            summary: qsTr("The size the PC renders and streams. Changing it resets the Video bitrate to that size's default. Custom takes any size, such as 3840x1080 for full-size SBS.")
+            summary: qsTr("The size the PC renders and streams. Changing it resets the Video bitrate to that size's default. Sizes the codec or the Steam Frame cannot stream are greyed out. Custom takes any size.")
             onClicked: {
+                var list = settingsPage.resolutionsOf(settingsPage.aspectKey())
                 var e = []
-                for (var i = 0; i < settingsPage.resolutions.length; i++) {
-                    var r = settingsPage.resolutions[i]
-                    e.push({ text: r.text + " (" + r.w + "x" + r.h + ")", reason: "" })
+                for (var i = 0; i < list.length; i++) {
+                    var r = settingsPage.resolutions[list[i]]
+                    e.push({ text: r.text + " (" + r.w + "x" + r.h + ")", reason: settingsPage.sizeReason(r.w, r.h) })
                 }
                 e.push({ text: qsTr("Custom..."), reason: "" })
-                var cur = settingsPage.resolutionIndex()
-                listDialog.show(title, e, cur >= 0 ? cur : settingsPage.resolutions.length, function(i) {
-                    if (i < settingsPage.resolutions.length) {
-                        StreamingPreferences.width = settingsPage.resolutions[i].w
-                        StreamingPreferences.height = settingsPage.resolutions[i].h
+                var cur = list.indexOf(settingsPage.resolutionIndex())
+                listDialog.show(title, e, cur >= 0 ? cur : list.length, function(i) {
+                    if (i < list.length) {
+                        var p = settingsPage.resolutions[list[i]]
+                        MlxrPrefs.aspect = p.aspect
+                        StreamingPreferences.width = p.w
+                        StreamingPreferences.height = p.h
                         settingsPage.resetBitrate()
                     }
                     else {

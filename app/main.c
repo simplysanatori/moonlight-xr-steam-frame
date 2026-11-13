@@ -1337,6 +1337,12 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     n->streamPc = pc;
     n->streamApp = appId;
     MLOG_I("stream: %dx%d %d fps, %d kbps, %s", w, h, fps, g_job.cfg.bitrate, h264Only ? "H.264" : "H.264/HEVC");
+    // Native (lane aspect-ratio): what the lists grey out, said in the log when a Custom size or --mode asks for it
+    int sizeLimit = settings_resolution_limit(w, h, h264Only);
+    if (sizeLimit == SETTINGS_SIZE_H264_WIDTH)
+        MLOG_W("stream: %dx%d is wider than H.264's %d; the PC may refuse it or stream it smaller", w, h, MLXR_H264_MAX_WIDTH);
+    else if (sizeLimit == SETTINGS_SIZE_DECODER)
+        MLOG_W("stream: %dx%d is past the Frame decoder's %dx%d", w, h, MLXR_DECODE_MAX_WIDTH, MLXR_DECODE_MAX_HEIGHT);
     // Native (lane artemis-settings)
     MLOG_I("stream options: sops %d, audio on PC %d, %s range, virtual display %d, scale factor %d, rate x1000 %d%s",
            lp.sops, lp.local_audio, g_job.cfg.colorRange == COLOR_RANGE_FULL ? "full" : "limited", lp.virtual_display,
@@ -1921,8 +1927,13 @@ int main(int argc, char** argv) {
     // the rate SteamVR's per-app setting gave it and the stream follows that
     {
         int mw = 0, mh = 0, mfps = 0;
-        if (!g_args.file && g_args.mode && mlxr_parse_mode(g_args.mode, &mw, &mh, &mfps) == MLXR_OK)
+        if (!g_args.file && g_args.mode && mlxr_parse_mode(g_args.mode, &mw, &mh, &mfps) == MLXR_OK) {
             cfg.fps = mlxr_fps_clamp(mfps, 0);
+            // Native (lane aspect-ratio): the picture's shape before the first frame is the size asked for,
+            // so the screen restored from config.ini comes up in the stream's own shape
+            cfg.videoWidth = mw;
+            cfg.videoHeight = mh;
+        }
         if (!g_args.file && g_args.refreshX1000 > 0) cfg.fps = mlxr_fps_clamp((g_args.refreshX1000 + 500) / 1000, 0);
         if (!g_args.file && g_args.fpsMatch) cfg.fps = 0;
     }

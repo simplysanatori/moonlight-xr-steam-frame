@@ -1641,6 +1641,11 @@ void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out);
 // one whose cell shows its ring), and a preset put in force as its cell does
 int xrScreenPresetNow(XrCtx* ctx);
 void xrScreenApplyPreset(XrCtx* ctx, int preset);
+// Native (lane aspect-ratio): what the screen's size is multiplied by for this picture's shape
+// (layoutAspectWidthScale: a wider picture keeps the height and is wider), and the widths in force rescaled,
+// heights kept, when a stream's picture changes shape (xr_place.c)
+float xrScreenWidthScale(const XrCtx* ctx);
+void xrPictureShapeChanged(XrCtx* ctx, int pictureWidth, int pictureHeight);
 void cogDragEnded(XrCtx* ctx, float* out);
 void cogStepTrack(XrCtx* ctx, int face, int row, int dir, float* out);
 int cogCellAt(float pu, int cells);

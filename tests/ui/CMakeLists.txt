@@ -20,6 +20,8 @@ foreach(t text settings panels i18n)
   target_compile_definitions(test_ui_${t} PRIVATE MLXR_ASSETS_DIR="${PROJECT_SOURCE_DIR}/assets")
   add_test(NAME ui_${t} COMMAND test_ui_${t})
 endforeach()
+# Native (lane aspect-ratio): the settings test reads the flat launcher's resolution table to check it agrees
+target_compile_definitions(test_ui_settings PRIVATE MLXR_LAUNCHER_QML="${PROJECT_SOURCE_DIR}/launcher/qml/XrSettingsView.qml")
 
 # The same suites against an AddressSanitizer + UBSan build of the ui sources: out-of-bounds
 # writes by any rasteriser fail here even where the guard bytes would not see them.
