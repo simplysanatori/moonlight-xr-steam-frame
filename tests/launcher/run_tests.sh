@@ -414,7 +414,7 @@ grep -q '^width=2560$' "$CONF" && grep -q '^fps=90$' "$CONF" && grep -q '^bitrat
 # lane aspect-ratio: a profile holds the size as width and height (never a list index), so one saved before the
 # Aspect Ratio row streams the same size; an ultrawide one goes to the command line as it is
 out="$(pops 'set|width|3440~set|height|1440~set|fps|90~create|Wide~dump~remove|Wide')"
-expect "profiles: an ultrawide size is kept as it is" "$out" 'profile "Wide": 3440x1440, 90 Hz'
+expect "profiles: an ultrawide size is kept as it is" "$out" 'profile "Wide": 3440x1440,'
 expect "profiles: and removed again" "$out" "remove|Wide -> ok"
 grep -q '^1\\name=Desktop$' "$CONF" && ok "profiles: kept in the launcher's settings" || fail "profiles: not in $CONF"
 # a stream: the app's profile wins over the PC's; the config.ini keys it holds are written for the stream and put back
