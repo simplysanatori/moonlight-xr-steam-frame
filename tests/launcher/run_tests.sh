@@ -412,7 +412,7 @@ expect "profiles: one app uses Game" "$out" 'use "gaming-pc" / "Desktop" -> "Gam
 grep -q '^width=2560$' "$CONF" && grep -q '^fps=90$' "$CONF" && grep -q '^bitrate=80000$' "$CONF" \
     && ok "profiles: making them did not save over the Settings page's values" || fail "profiles: the page's values changed"
 # lane aspect-ratio: a profile holds the size as width and height (never a list index), so one saved before the
-# Aspect Ratio row streams the same size; an ultrawide one goes to the command line as it is
+# Aspect ratio row streams the same size; an ultrawide one goes to the command line as it is
 out="$(pops 'set|width|3440~set|height|1440~set|fps|90~create|Wide~dump~remove|Wide')"
 expect "profiles: an ultrawide size is kept as it is" "$out" 'profile "Wide": 3440x1440,'
 expect "profiles: and removed again" "$out" "remove|Wide -> ok"
@@ -878,7 +878,7 @@ if [ -n "$SHOTS" ]; then
         expect "VR client reads failover" "$dump" "stream.failover = on"
         expect "VR client reads failover_burst_ms" "$dump" "stream.failover_burst_ms = 5000"
     fi
-    # lane aspect-ratio: the Aspect Ratio row above Video resolution, each shape's sizes, the H.264 width limit, and
+    # lane aspect-ratio: the Aspect ratio row above Video resolution, each shape's sizes, the H.264 width limit, and
     # config.ini kept in agreement ([stream] aspect, resolution, custom_width x custom_height)
     cp "$ini" "$t/ini.pre-aspect"
     was="$(grep -E '^(width|height|videocfg|bitrate)=' "$CONF" | tr '\n' ' ')"

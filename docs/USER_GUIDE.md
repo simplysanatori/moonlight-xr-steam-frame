@@ -220,8 +220,8 @@ When a stream starts, the profile of the app, or else of its PC, is in force for
 
 | Setting | Options | Default |
 | --- | --- | --- |
-| Aspect Ratio | Standard (4:3), Widescreen (16:9), 16:10, Ultrawide (21:9), Super Ultrawide (32:9) | Widescreen (16:9). The shape of the picture, and the sizes Video resolution lists. A wider shape makes the screen in the headset wider at the same height; 4:3 makes it narrower. Changing it picks that shape's size nearest the height you had. |
-| Video resolution | The Aspect Ratio's sizes, then Custom... | 1440p (2560x1440). Each shape lists real monitor sizes, named by their height. 4:3: 480p (640x480), 600p, 768p, 960p, 1200p, 1536p (2048x1536). 16:9: 360p, 480p, 720p, 1080p, 1440p, 4K. 16:10: 800p (1280x800), 900p, 1050p, 1200p, 1600p, 2400p (3840x2400). 21:9: 1080p (2560x1080), 1440p (3440x1440), 1600p (3840x1600), 2160p (5120x2160). 32:9: 1080p (3840x1080), 1440p (5120x1440), 2160p (7680x2160). Sizes wider than 4096 are greyed with Prefer H.264, since H.264 stops there. **Custom...** asks for any width x height and keeps the Aspect Ratio it was typed under. |
+| Aspect ratio | Standard (4:3), Widescreen (16:9), 16:10, Ultrawide (21:9), Super Ultrawide (32:9) | Widescreen (16:9). The shape of the picture, and the sizes Video resolution lists. A wider shape makes the screen in the headset wider at the same height; 4:3 makes it narrower. Changing it picks that shape's size nearest the height you had. |
+| Video resolution | The Aspect ratio's sizes, then Custom... | 1440p (2560x1440). Each shape lists real monitor sizes, named by their height. 4:3: 480p (640x480), 600p, 768p, 960p, 1200p, 1536p (2048x1536). 16:9: 360p, 480p, 720p, 1080p, 1440p, 4K. 16:10: 800p (1280x800), 900p, 1050p, 1200p, 1600p, 2400p (3840x2400). 21:9: 1080p (2560x1080), 1440p (3440x1440), 1600p (3840x1600), 2160p (5120x2160). 32:9: 1080p (3840x1080), 1440p (5120x1440), 2160p (7680x2160). Sizes wider than 4096 are greyed with Prefer H.264, since H.264 stops there. **Custom...** asks for any width x height and keeps the Aspect ratio it was typed under. |
 | Refresh rate | **Match headset**, 144 Hz, 120 Hz, 90 Hz, 72 Hz, 60 Hz, 30 Hz, Custom... | Match headset. It uses the rate SteamVR runs the headset's display at for this app: 90 Hz unless you changed it in SteamVR's settings. Pick 72, 90, 120 or 144 Hz here to choose the headset's rate: when the stream starts, the launcher sets that rate in SteamVR's per-app video settings for this app, and the stream runs at it. 120 and 144 Hz need the stream and your PC to keep up: the PC has to render and encode that many frames a second, and the network has to carry the higher bitrate. The stream never goes above the rate the headset runs at, 144 Hz at most. If SteamVR still runs the app at its old rate, the log says so and the stream uses that rate; start the app again. Custom takes values such as 59.94 and needs Apollo. |
 | Video frame pacing | Prefer lowest latency, Balanced, Prefer smoothest video | Balanced. Lowest latency shows the newest frame at once; smoothest shows every frame in turn, a frame or two later. |
 | Ultra low latency (experimental) | on, off | off. Runs the network and decoder threads at realtime priority. |
@@ -306,6 +306,7 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Room detail (UI) | Low, Standard, High, Ultra | Standard | `[vr] env_res` |
 | Screen light, Glow, Glow level, Glow edge (UI) | on, off; 0 to 100 %; Off, Soft, Wide | on, off, 50 %, Off. Glow level and Glow edge are greyed with the glow off. | `[display] screen_light`, `glow`, `glow_level`, `glow_feather` |
 | Screen distance, Screen size, Screen curve (UI) | 20 to 800 cm; 80 to 800 cm wide; 0 to 100 % | 300 cm, 300 cm, 0 % | `[screen] distance_cm`, `width_cm`, `curve` |
+| (none) | on or off | Off. Set once, when the first start after 1.3.3 converts the saved widths to sizes (a 16:9 picture's width at the same height). Leave it as it is. | `[screen] size_by_height` |
 | Zoom (UI) | 100 to 400 % (press to step) | 100 %. The zoom a stream starts at. | `[display] zoom` |
 | Remember per app (UI) | on, off | on. An app without its own place starts from the rows above. | `[screen] per_app` |
 | Angular-size lock (UI) | on, off | on. The screen looks the same size when you push it away or pull it closer. | `[screen] angular_lock` |
@@ -403,7 +404,7 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Tilt | -40 to 40° | 0 |
 | Rotate | -90 to 90° | 0 |
 | Curve | 0 to 100 % | 0 |
-| Size | 0.8 to 8 m wide | 3 m. The width of a 16:9 picture: a wider picture (21:9, 32:9) keeps that height and is wider, a 4:3 one narrower. |
+| Size | 0.8 to 8 m wide | 3 m. The width of a 16:9 picture: a wider picture (21:9, 32:9) keeps that height and is wider, a 4:3 one narrower. Before 1.3.3, Size was the picture's own width. The first start after the update converts the saved sizes once, for the shape you were streaming, so the screen comes up exactly as wide as before. |
 | Aim sensitivity | 1 to 30 | 8. Greyed unless Head locked is on. |
 | Aim dead zone | 0 to 20 | 2. Greyed unless Head locked is on. |
 | Preset | Desk, Couch, Cinema, Bring here | Desk is 1.2 m away and 1.6 m wide, Couch 2.5 m and 2.6 m, Cinema 4 m and 5 m. A preset sets only the distance and the width: the way the screen sits, its tilt, roll and curve stay as they were. **Bring here** puts the screen where you are looking, as far from you as it was and the same size. It does nothing in a room or with Head locked on. |
@@ -758,7 +759,7 @@ With the 3D switched off, you see the left eye's half on its own, as a flat pict
 **The Apollo virtual display.** With Apollo, the PC can make a display of exactly the stream's size:
 
 - Half-size (recommended): keep the stream at 1920x1080 (or 2560x1440). Turn on Use virtual display. Set the game or player to its SBS (or Top-bottom) mode, full screen.
-- Full-size: set Aspect Ratio to Super Ultrawide (32:9) and Video resolution to 1080p (3840x1080) in the flat window's Settings page and turn on Use virtual display. Apollo makes a 3840x1080 display. Set the game to render side by side across it, and turn on Full-size SBS.
+- Full-size: set Aspect ratio to Super Ultrawide (32:9) and Video resolution to 1080p (3840x1080) in the flat window's Settings page and turn on Use virtual display. Apollo makes a 3840x1080 display. Set the game to render side by side across it, and turn on Full-size SBS.
 
 Do not use 4K (3840x2160) full-size SBS for now. The headset decodes 4K, but a test on a home network could not carry a 4K stream at 150 Mbps: the picture stalled and lost frames. 3840x1080 is half of that and is the largest pair to try.
 
@@ -1095,7 +1096,7 @@ You can also write a note in the headset (cog, About, Report a problem). **Save*
 | `[3d] edge_sharpness`, `motion_reset`, `depth_scale`, `depth_global` | see [3D](#edges) | 0, 0, 100, 100 |
 | `[debug] depth_debug` | `true`, `false` | `false`. Shows the depth map in place of the picture. |
 | `[debug] eye_swap` | `true`, `false` | `false`. Swaps the left and right eye in 3D. For checking a wrong-way picture, and for an SBS or Top-bottom pair with the right eye first. |
-| `[stream] aspect` | `4:3`, `16:9`, `16:10`, `21:9`, `32:9` | `16:9`. The flat window's Aspect Ratio. A preset resolution sets it to its own shape. |
+| `[stream] aspect` | `4:3`, `16:9`, `16:10`, `21:9`, `32:9` | `16:9`. The flat window's Aspect ratio. A preset resolution sets it to its own shape. |
 | `[stream] resolution` | a preset's width x height (`2560x1440`, `3440x1440` ...), or `custom` | `2560x1440`. The flat window writes it with each change; the stream itself uses the size the flat window passes. Any other width x height reads as `custom` with that size. |
 | `[stream] custom_width`, `custom_height` | 256 to 8192 | 2560 and 1440. The size used with `resolution = custom`. |
 | `[stream] bitrate_kbps` | 0, or 500 to 500000 | 0, which follows the resolution and refresh rate. A bitrate the flat window passes for a stream overrides it. The flat window's Custom bitrate goes up to 500 Mbps, and so does this. |

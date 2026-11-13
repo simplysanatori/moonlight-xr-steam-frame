@@ -83,7 +83,7 @@ Flickable {
 
     function saveAll() {
         StreamingPreferences.save()
-        // Native (lane aspect-ratio): the size into the VR client's config.ini too, beside the Aspect Ratio
+        // Native (lane aspect-ratio): the size into the VR client's config.ini too, beside the Aspect ratio
         var r = resolutionIndex()
         MlxrPrefs.saveStreamSize(r >= 0 ? resolutions[r].w + "x" + resolutions[r].h : "custom",
                                  StreamingPreferences.width, StreamingPreferences.height)
@@ -105,7 +105,7 @@ Flickable {
                                                                                   StreamingPreferences.fps, false)
     }
 
-    // Native (lane aspect-ratio): the Aspect Ratio row and each aspect's sizes, real monitor sizes named by their
+    // Native (lane aspect-ratio): the Aspect ratio row and each aspect's sizes, real monitor sizes named by their
     // height. The VR client's own table is ui/settings.c RES_PRESETS (tests/ui test_settings checks the two agree).
     readonly property var aspects: [
         { key: "4:3", text: qsTr("Standard (4:3)"), ratio: 4 / 3 },
@@ -1347,7 +1347,7 @@ Flickable {
         PrefRow {
             id: aspectRow
             objectName: "aspectRow"
-            title: qsTr("Aspect Ratio")
+            title: qsTr("Aspect ratio")
             valueText: settingsPage.aspects[settingsPage.aspectIndex()].text
             summary: qsTr("The shape of the picture, and the sizes Video resolution offers. A wider shape makes the screen in the headset wider at the same height.")
             onClicked: {

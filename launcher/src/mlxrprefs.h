@@ -72,7 +72,7 @@ class MlxrPrefs : public QObject
     // size picture per eye (3840x1080) rather than two squeezed halves (1920x1080)
     Q_PROPERTY(QString stereoSource MEMBER stereoSource NOTIFY changed)
     Q_PROPERTY(bool sbsFull MEMBER sbsFull NOTIFY changed)
-    // Native (lane aspect-ratio): [stream] aspect, the Aspect Ratio row: "4:3", "16:9" (default), "16:10", "21:9" or
+    // Native (lane aspect-ratio): [stream] aspect, the Aspect ratio row: "4:3", "16:9" (default), "16:10", "21:9" or
     // "32:9". The page keeps it in agreement with the size (a preset's own aspect; a Custom size keeps the one it
     // was typed under) and saveStreamSize writes the size beside it.
     Q_PROPERTY(QString aspect MEMBER aspect NOTIFY changed)

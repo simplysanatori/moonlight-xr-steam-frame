@@ -146,7 +146,7 @@ static const SettingDesc TABLE[] = {
     // stream
     DS("stream", "host", host, "", "address of the host PC last used"),
     DS("stream", "app", app, "", "name of the host app last launched (empty: ask)"),
-    DE("stream", "aspect", aspect, ASPECT_NAMES, SETTINGS_ASPECT_16_9, "native: Aspect Ratio, the shape of the resolution list (4:3 Standard, 16:9 Widescreen, 16:10, 21:9 Ultrawide, 32:9 Super Ultrawide); a preset resolution sets it to its own"),
+    DE("stream", "aspect", aspect, ASPECT_NAMES, SETTINGS_ASPECT_16_9, "native: Aspect ratio, the shape of the resolution list (4:3 Standard, 16:9 Widescreen, 16:10, 21:9 Ultrawide, 32:9 Super Ultrawide); a preset resolution sets it to its own"),
     DE("stream", "resolution", resolution, SETTINGS_RESOLUTIONS, 4, "list_resolution; 1440p on a headset, 4K is one entry away. Any width x height reads: a preset when it is one, else custom; a number is one of the first six (older files)"),
     DI("stream", "custom_width", custom_width, 256, 8192, 2560, "native: the Custom resolution's width, with resolution = custom"),
     DI("stream", "custom_height", custom_height, 256, 8192, 1440, "native: the Custom resolution's height, with resolution = custom"),
@@ -288,6 +288,7 @@ static const SettingDesc TABLE[] = {
     DI("screen", "back_tilt_deg", screen_back_tilt_deg, -40, 40, 0, "native: the same placement's tilt, degrees"),
     DI("screen", "back_rotate_deg", screen_back_rotate_deg, -90, 90, 0, "native: the same placement's rotate, degrees clockwise"),
     DI("screen", "back_curve", screen_back_curve, 0, 100, 0, "native: the same placement's curve, percent"),
+    DB("screen", "size_by_height", screen_size_by_height, 0, "native (lane aspect-ratio): the widths in this file are sizes, a 16:9 picture's width at the same height (set once, when an older file's widths were converted)"),
     DI("screen", "back_width_cm", screen_back_width_cm, 0, 800, 0, "native: the same placement's width, centimetres (0 none remembered: the switch goes to the Cinema preset from Desk)"),
     DB("screen", "per_app", per_app, 1, "native: Screen tab, Remember per app: each PC and app keeps its own placement, head lock and 3D state in a [screen.<hash>] section; an app with none starts from the settings in force"),
     DB("screen", "angular_lock", angular_lock, 1, "native: Screen tab, Angular-size lock: pushing or pulling the held screen with the thumbsticks resizes it to look the same size"),
@@ -965,7 +966,7 @@ void settings_resolution(const Settings* s, int* w, int* h) {
     if (h) *h = hh;
 }
 
-// ---- Native (lane aspect-ratio): the Aspect Ratio and its lists ------------------------------------------
+// ---- Native (lane aspect-ratio): the Aspect ratio and its lists ------------------------------------------
 
 int settings_resolution_find(int width, int height) {
     for (int i = 0; i < RES_PRESET_COUNT; i++) {
@@ -1026,6 +1027,22 @@ void settings_set_aspect(Settings* s, int aspect, int h264) {
     }
     s->aspect = aspect;
     s->resolution = best;
+}
+
+int settings_migrate_screen_size(Settings* s, int pictureWidth, int pictureHeight) {
+    if (s->screen_size_by_height) return 0;
+    s->screen_size_by_height = 1;
+    if (pictureWidth <= 0 || pictureHeight <= 0) return 1;
+    // the same sum as layoutAspectWidthScale, in whole numbers first, so 16:9 is exactly 1 and nothing moves
+    double k = ((double)pictureWidth * 9.0) / ((double)pictureHeight * 16.0);
+    if (k <= 0.0) return 1;
+    const SettingDesc* w = settings_find("screen.width_cm");
+    s->screen_width_cm = clamp_int((int)lround(s->screen_width_cm / k), w->min, w->max);
+    if (s->screen_back_width_cm > 0) s->screen_back_width_cm = clamp_int((int)lround(s->screen_back_width_cm / k), w->min, w->max);
+    for (int i = 0; i < s->layout_count && i < APP_LAYOUT_MAX; i++) {
+        s->layouts[i].width_cm = clamp_int((int)lround(s->layouts[i].width_cm / k), w->min, w->max);
+    }
+    return 1;
 }
 
 int settings_resolution_limit(int width, int height, int h264) {

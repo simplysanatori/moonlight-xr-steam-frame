@@ -2,6 +2,7 @@
 // clamping on load, tolerant parsing, config directory handling.
 #define _GNU_SOURCE
 #include <errno.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -1587,6 +1588,66 @@ static void test_layouts(void) {
     CHECK(settings_layout_find(&w, 7)->head_follow == 0);
 }
 
+// Native (lane aspect-ratio): an older config.ini's widths were the picture's own; once, they become sizes (a 16:9
+// picture's width at the same height), so the screen comes up as wide as it was
+static void test_screen_size_migration(void) {
+    const double k219 = (3440.0 * 9.0) / (1440.0 * 16.0);   // layoutAspectWidthScale(3440, 1440)
+    Settings s;
+    settings_defaults(&s);
+    CHECK(s.screen_size_by_height == 0);
+    // a 1.3.2 file: a 21:9 screen 200 cm wide, a Swap-back spot 240 cm wide, a kept app layout 300 cm wide
+    settings_from_text(&s, "[stream]\nresolution = 3440x1440\n[screen]\nwidth_cm = 200\n", NULL);
+    s.screen_back_distance_cm = 150;
+    s.screen_back_width_cm = 240;
+    AppLayout l = layout_of(150, 300, 0);
+    CHECK(settings_layout_store(&s, settings_app_hash("Desk PC", "Desktop"), &l) == 1);
+    int w, h;
+    settings_resolution(&s, &w, &h);
+    CHECK(w == 3440 && h == 1440);
+    CHECK(settings_migrate_screen_size(&s, w, h) == 1);
+    CHECK(s.screen_size_by_height == 1);
+    CHECK(s.screen_width_cm == 149);   // 200 / 1.344
+    CHECK(fabs(s.screen_width_cm * k219 - 200.0) < 1.0);   // the screen the headset shows: still 200 cm
+    CHECK(fabs(s.screen_back_width_cm * k219 - 240.0) < 1.0);
+    CHECK(s.layout_count == 1 && fabs(s.layouts[0].width_cm * k219 - 300.0) < 1.0);
+    // only once: saved and read back, a second start leaves the sizes alone
+    char* text = settings_to_text(&s);
+    CHECK(strstr(text, "size_by_height = ") != NULL);
+    Settings back;
+    settings_defaults(&back);
+    settings_from_text(&back, text, NULL);
+    free(text);
+    CHECK(back.screen_size_by_height == 1);
+    CHECK(settings_migrate_screen_size(&back, w, h) == 0);
+    CHECK(back.screen_width_cm == 149 && back.layouts[0].width_cm == s.layouts[0].width_cm);
+    CHECK(settings_migrate_screen_size(&s, 5120, 1440) == 0 && s.screen_width_cm == 149);
+    // 16:9: nothing moves, the marker is still set
+    Settings n;
+    settings_defaults(&n);
+    settings_from_text(&n, "[screen]\nwidth_cm = 200\n", NULL);
+    n.screen_back_width_cm = 0;
+    AppLayout l2 = layout_of(150, 321, 0);
+    settings_layout_store(&n, settings_app_hash("Desk PC", "Steam"), &l2);
+    settings_resolution(&n, &w, &h);
+    CHECK(w == 2560 && h == 1440);
+    CHECK(settings_migrate_screen_size(&n, w, h) == 1 && n.screen_size_by_height == 1);
+    CHECK(n.screen_width_cm == 200 && n.screen_back_width_cm == 0 && n.layouts[0].width_cm == 321);
+    CHECK(settings_migrate_screen_size(&n, 1920, 1080) == 0 && n.screen_width_cm == 200);
+    // the shape it was set for is the stream's (--mode) when that differs from the saved resolution
+    settings_defaults(&n);
+    n.screen_width_cm = 400;
+    CHECK(settings_migrate_screen_size(&n, 3840, 1080) == 1 && n.screen_width_cm == 200);   // 32:9: half
+    // a 32:9 screen narrower than the range's 160 cm holds at 80 cm; 4:3 grows
+    settings_defaults(&n);
+    n.screen_width_cm = 120;
+    settings_migrate_screen_size(&n, 3840, 1080);
+    CHECK(n.screen_width_cm == settings_find("screen.width_cm")->min);
+    settings_defaults(&n);
+    n.screen_width_cm = 150;
+    settings_migrate_screen_size(&n, 1600, 1200);
+    CHECK(n.screen_width_cm == 200);
+}
+
 // Native (lane wave3-visual): Background dim, the void's colour, Glow edge and
 // 3D Eye Balance
 static void test_surroundings(void) {
@@ -1685,6 +1746,7 @@ int main(void) {
     test_surroundings();
     test_follow_and_lock_settings();
     test_layouts();
+    test_screen_size_migration();
     test_defaults();
     test_stats_style();
     test_shortcut_wording();

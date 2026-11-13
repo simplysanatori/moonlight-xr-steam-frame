@@ -181,6 +181,7 @@ typedef struct Settings {
     // placement's own units; back_width_cm 0 for none
     int screen_back_distance_cm, screen_back_height_cm, screen_back_azimuth_deg;
     int screen_back_tilt_deg, screen_back_rotate_deg, screen_back_curve, screen_back_width_cm;
+    int screen_size_by_height;   // native (lane aspect-ratio): the saved widths are sizes (settings_migrate_screen_size ran)
     int per_app;              // native: remember the layout per PC and app
     int angular_lock;         // native: pushing or pulling the held screen keeps its size in the view
 
@@ -224,7 +225,7 @@ extern const char* const SETTINGS_RESOLUTIONS[];   // "640x360" .. "7680x2160", 
 extern const int SETTINGS_RESOLUTION_COUNT;        // presets and custom
 extern const int SETTINGS_RESOLUTION_CUSTOM;       // the index of "custom"
 
-// Native (lane aspect-ratio): [stream] aspect, the Aspect Ratio row of the flat launcher's video settings
+// Native (lane aspect-ratio): [stream] aspect, the Aspect ratio row of the flat launcher's video settings
 enum {
     SETTINGS_ASPECT_4_3,     // Standard
     SETTINGS_ASPECT_16_9,    // Widescreen (the default)
@@ -252,7 +253,7 @@ int settings_aspect_presets(int aspect, int* out, int cap);
 void settings_set_resolution_size(Settings* s, int width, int height);
 // A new aspect: the preset of that aspect nearest the current height (the lower one of two as near), passing
 // over sizes that cannot stream (settings_resolution_limit, h264 as there) while one can. The aspect in force
-// already changes nothing (a Custom size stays). The flat launcher's Aspect Ratio row does the same.
+// already changes nothing (a Custom size stays). The flat launcher's Aspect ratio row does the same.
 void settings_set_aspect(Settings* s, int aspect, int h264);
 
 // What the Frame and the PC can stream. Sizes past these are greyed out in the lists (a Custom size may still
@@ -274,6 +275,15 @@ enum {
 // Whether a size can stream: SETTINGS_SIZE_*. h264 is 1 when the codec setting is H.264 (Automatic and HEVC
 // let the PC use HEVC past 4096).
 int settings_resolution_limit(int width, int height, int h264);
+
+// Native (lane aspect-ratio), once per config.ini: before 1.3.3 [screen] width_cm (and back_width_cm and each kept
+// layout's) was the picture's own width whatever its shape; now it is the size, a 16:9 picture's width at the same
+// height. The saved widths are divided by the shape's scale (layoutAspectWidthScale: 1 for 16:9, 1.34 for
+// 3440x1440, 2 for 32:9), so a screen comes up exactly as wide as before, and [screen] size_by_height marks the
+// file done. pictureWidth x pictureHeight is the shape the widths were set for: the stream's (--mode), else the
+// saved resolution. 1 when it changed anything (save the file then), 0 when it had already run. A size under the
+// range's 80 cm (a 32:9 screen narrower than 1.6 m) is held to 80 cm.
+int settings_migrate_screen_size(Settings* s, int pictureWidth, int pictureHeight);
 extern const int SETTINGS_FPS[];                   // 30 60 72 90 120 144
 extern const int SETTINGS_FPS_COUNT;
 

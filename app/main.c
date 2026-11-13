@@ -1894,6 +1894,8 @@ int main(int argc, char** argv) {
     settings_default_path(cfgPath, sizeof(cfgPath));
     MLOG_I("== moonlight-xr starting; config %s: %s (%d set, %d unknown, %d unreadable)", cfgPath,
            lr == 0 ? "read" : lr == 1 ? "not there yet, defaults" : "read error", info.applied, info.unknown, info.bad);
+    // Native (lane aspect-ratio): with no file read there are no saved widths to convert (settings_migrate_screen_size)
+    if (lr != 0) g_settings.screen_size_by_height = 1;
     if (lr == 1) settings_save(&g_settings, NULL); // a file to edit, every setting commented with its default
     {
         char args[512] = "";
@@ -1936,6 +1938,17 @@ int main(int argc, char** argv) {
         }
         if (!g_args.file && g_args.refreshX1000 > 0) cfg.fps = mlxr_fps_clamp((g_args.refreshX1000 + 500) / 1000, 0);
         if (!g_args.file && g_args.fpsMatch) cfg.fps = 0;
+    }
+    // Native (lane aspect-ratio): an older config.ini's widths were the picture's own; once, they become sizes for
+    // the shape they were set for (this stream's, else the saved resolution), so the screen looks as it did
+    {
+        int was = g_settings.screen_width_cm;
+        if (settings_migrate_screen_size(&g_settings, cfg.videoWidth, cfg.videoHeight)) {
+            MLOG_I("config: screen widths are sizes now (%dx%d picture): width_cm %d -> %d, back %d, %d app layouts",
+                   cfg.videoWidth, cfg.videoHeight, was, g_settings.screen_width_cm, g_settings.screen_back_width_cm,
+                   g_settings.layout_count);
+            settings_save(&g_settings, NULL);
+        }
     }
     char reportDir[512];
     snprintf(reportDir, sizeof(reportDir), "%s/Games/MoonlightXRNative/reports", getenv("HOME") ? getenv("HOME") : ".");
