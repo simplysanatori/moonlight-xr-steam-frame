@@ -2205,6 +2205,7 @@ int xr_app_run(const XrAppConfig* cfg) {
     memset(&pacePrev, 0, sizeof(pacePrev));
     LOGEV("video frame pacing %s (MLXR_VIDEO_PACING=%s: 0 newest, 1 smooth, 2 low latency)",
           mlxr_pace_mode_name(paceMode), pacingEnv ? pacingEnv : "unset");
+    xrLayerSwitchesSay(); // native (issue #5)
     int64_t latSendNsSum = 0, latSendNsMax = 0, latLeadNsSum = 0, latVidNsSum = 0, latVidNsMax = 0;
     // Native (lane perf): the last stage of a picture: taken from the queue
     // to its predicted display time, and how far into the frame the take is
