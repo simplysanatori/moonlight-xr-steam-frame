@@ -11,6 +11,7 @@
 // by its own, come nearer on a stick pulled south as fast as they go away on
 // one pushed north, a slanted pull counts in full, and a pull held at the
 // least distance is not stored up against the next push. GPLv3.
+#include <stdlib.h>
 #include "check.h"
 #include "scene.h"
 #include "xr_depth.h"
@@ -740,6 +741,8 @@ static void eyeCalKeepsBeamPlace(Scene* s) {
 }
 
 int main(void) {
+    // The held places are opt-in since issue #5 (xr_layers.c holdPlace); these checks cover them
+    setenv("MLXR_HOLD_PLACES", "1", 1);
     Scene* s = scene_new();
     defaults(s);
     grabAndMove(s);
