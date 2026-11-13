@@ -11,6 +11,7 @@
 // by its own, come nearer on a stick pulled south as fast as they go away on
 // one pushed north, a slanted pull counts in full, and a pull held at the
 // least distance is not stored up against the next push. GPLv3.
+#include <stdlib.h>
 #include "check.h"
 #include "scene.h"
 #include "xr_depth.h"
@@ -313,6 +314,10 @@ static void layers(Scene* s) {
     scene_frame(s, "stats");
     printf("keyboard moved and held, stats, toast, ray, head locked: %u layers (+1 passthrough)\n", s->out.count);
     CHECK(s->out.count + 1 <= 16);
+    // The toast's time is the wall clock's: the later checks that count layers must not see it lapse
+    // mid-run (a slow or loaded machine did), so it goes now, and faded out
+    noticeInit(&c->notices);
+    c->toastFade.level = 0.0f;
     xrGrabStepAt(c, aim, 0, 0, 0.0f);
     s->settings.head_locked = 0;
     c->headLockedPref = 0;
@@ -740,6 +745,8 @@ static void eyeCalKeepsBeamPlace(Scene* s) {
 }
 
 int main(void) {
+    // The held places are opt-in since issue #5 (xr_layers.c holdPlace); these checks cover them
+    setenv("MLXR_HOLD_PLACES", "1", 1);
     Scene* s = scene_new();
     defaults(s);
     grabAndMove(s);
