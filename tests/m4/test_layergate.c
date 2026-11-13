@@ -25,6 +25,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+// The runtime's action sync has no session to run on here; the executable's own copy takes the call
+// (the loader is static: the link allows the duplicate, see CMakeLists.txt), and the controllers are read through the seams as in test_replay
+XrResult XRAPI_CALL xrSyncActions(XrSession session, const XrActionsSyncInfo* info) {
+    (void)session; (void)info;
+    return XR_SUCCESS;
+}
+
 #define FRAME_NS 6944444LL           // 144 Hz
 #define SESSION_S 42
 #define FPS 144
@@ -103,6 +110,10 @@ static void setUp(Scene* s) {
     c->profileKind[0] = PROFILE_CONTROLLER;
     c->profileKind[1] = PROFILE_CONTROLLER;
     c->headPos = (XrVector3f){ 0, 0, 0 };
+    c->inputReady = 1;
+    c->placementValid = 1;
+    c->pointerOn = 1;
+    c->splash.phase = SPLASH_GONE;
 }
 
 // ---- the synthetic session ----
@@ -159,6 +170,7 @@ static void applyPanels(Scene* s, int seg, Panels* p) {
     if (c->kbOpen != p->kb) { c->kbOpen = p->kb; c->kbMoved = 0; if (p->kb) kbPlace(c); }
     if (c->cogOpen != p->cog) { c->cogOpen = p->cog; c->cogTab = COG_TAB_ACCESS; if (p->cog) c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH); }
     c->pickerOpen = p->picker;
+    if (c->exitConfirmOpen != p->exit && p->exit) c->exitPose = exitPromptPose(c, &c->exitW, &c->exitH);
     c->exitConfirmOpen = p->exit;
     c->overlayVisible = p->stats;
     c->padMode = p->pad;
@@ -253,6 +265,7 @@ int main(void) {
     const char* csvPath = getenv("MLXR_GATE_CSV");
     const char* writePath = getenv("MLXR_GATE_WRITE");
     int strict = getenv("MLXR_GATE_STRICT") != NULL && getenv("MLXR_GATE_STRICT")[0] == '1';
+    setenv("XR_LOADER_DEBUG", "none", 1);   // the loader grumbles about the handles that are only seams here
     Scene* s = scene_new();
     XrCtx* c = s->ctx;
     setUp(s);
@@ -274,7 +287,7 @@ int main(void) {
     sec.minLayers = 99;
     sec.smallest = 9.0f;
     int tot_degenerate = 0, tot_over = 0, tot_beam = 0, tot_dot = 0, tot_count = 0, tot_exempt = 0, tot_beamFrames = 0;
-    int worstChanges = 0, secIdx = 0, frameInSec = 0, countsThisSec = 0;
+    int worstChanges = 0, secIdx = 0, frameInSec = 0;
     int prevBeam = -2, prevDot = -2, prevCount = -1, sinceEvent = 1000, segIdx = 0, lastSeg = -1;
     Panels prev;
     memset(&prev, 0, sizeof(prev));
@@ -323,7 +336,9 @@ int main(void) {
             if (rayLogFormat(&cur, buf, sizeof(buf))) fprintf(wr, "%s\n", buf);
         }
         float out[IN_SLOTS];
-        xrPointerPanelStep(c, cur.t, cur.toHead, out);
+        float distance, quadWidth, curvature;
+        xrDefaultPlacement(&distance, &quadWidth, &curvature);
+        xrUpdateInput(c, distance, quadWidth, curvature, cur.toHead, 1, 0, 0, out);
         scene_frame(s, NULL);
 
         int panelEvent = memcmp(&p, &prev, sizeof(p)) != 0;
@@ -358,7 +373,7 @@ int main(void) {
         if (prevCount >= 0 && !exempt) {
             if (beam >= 0 && prevBeam >= 0 && beam != prevBeam) { sec.beamShifts++; tot_beam++; }
             if (dot >= 0 && prevDot >= 0 && dot != prevDot) { sec.dotShifts++; tot_dot++; }
-            if ((int)n != prevCount) { sec.countChanges++; countsThisSec++; tot_count++; }
+            if ((int)n != prevCount) { sec.countChanges++; tot_count++; }
         }
         if (exempt) { sec.exempt++; tot_exempt++; }
         if (beam >= 0) { sec.beamFrames++; tot_beamFrames++; }

@@ -53,6 +53,8 @@ endif()
 add_executable(test_m4_layergate test_layergate.c)
 target_link_libraries(test_m4_layergate PRIVATE m4_scene mlxr_launcher mlxr_stream)
 target_compile_options(test_m4_layergate PRIVATE -Werror)
+# the test's own xrSyncActions (no session to sync) wins over the static loader's
+target_link_options(test_m4_layergate PRIVATE -Wl,--allow-multiple-definition)
 mlxr_link_openxr(test_m4_layergate)
 add_test(NAME m4_layer_gate COMMAND test_m4_layergate)
 set_tests_properties(m4_layer_gate PROPERTIES TIMEOUT 600)
