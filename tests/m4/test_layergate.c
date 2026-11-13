@@ -8,12 +8,13 @@
 //       issue #5, which made SteamVR judder at 144 Hz)               always fatal
 //   (b) no more layers than SteamVR takes (16)                        always fatal
 //   (c) the beam's and the dot's index in the list does not change between consecutive frames
-//       when no panel opened or closed (the beam streak, 2026-10-31)  warning; MLXR_GATE_STRICT=1
-//   (d) the layer count does not change more than GATE_MAX_CHANGES_PER_S times a second
-//       outside the panel events                                      warning; MLXR_GATE_STRICT=1
-// 1.3.1 shifts the beam (hover-only layers come and go ahead of it, and the held places that
-// kept it still are off by default), so (c) and (d) only warn there; the beam-streak fix turns
-// the switch on. A per-second summary is printed.
+//       when no panel opened or closed (the beam streak, 2026-10-31)  fatal
+//   (d) the number of layers AHEAD of the pointer (the lower of the beam's and the dot's index:
+//       the layers that can move them) does not change more than GATE_MAX_CHANGES_PER_S times a
+//       second outside the panel events                               fatal
+// The whole frame's layer count churn (hover-only layers toggling behind the pointer, harmless)
+// is printed for information only. (c) and (d) are fatal by default; MLXR_GATE_STRICT=0 turns
+// them into warnings (1.3.1 and MLXR_POINTER_ORDER=0 fail them). A per-second summary is printed.
 // MLXR_GATE_CSV=file replays a real session instead: a ray recorder CSV (MLXR_RAY_DEBUG=1,
 // reports/ray-*.csv), its poses and buttons through the same input code; the CSV does not
 // say which panels were open, MLXR_GATE_KB=1 puts the keyboard up for the whole run.
@@ -36,7 +37,7 @@ XrResult XRAPI_CALL xrSyncActions(XrSession session, const XrActionsSyncInfo* in
 #define SESSION_S 42
 #define FPS 144
 #define LAYER_CAP 16
-#define GATE_MAX_CHANGES_PER_S 4     // a settled UI changes its count a few times a second at most
+#define GATE_MAX_CHANGES_PER_S 0     // the layers ahead of the pointer never change outside a panel event
 #define EVENT_WINDOW 12              // frames after a panel opened or closed (its fade) left out of (c), (d)
 #define MIN_ACROSS 0.01f             // m
 
@@ -229,7 +230,7 @@ static void synthRow(Scene* s, int seg, int frame, float local, RayLogRow* r) {
 typedef struct {
     int total, seconds;
     int degenerate, overCap;
-    int beamShifts, dotShifts, countChanges;
+    int beamShifts, dotShifts, countChanges, aheadChanges;
     int beamFrames, exempt;
     int minLayers, maxLayers;
     float smallest;
@@ -264,7 +265,7 @@ static int transparent(Scene* s, const XrCompositionLayerQuad* q) {
 int main(void) {
     const char* csvPath = getenv("MLXR_GATE_CSV");
     const char* writePath = getenv("MLXR_GATE_WRITE");
-    int strict = getenv("MLXR_GATE_STRICT") != NULL && getenv("MLXR_GATE_STRICT")[0] == '1';
+    int strict = !(getenv("MLXR_GATE_STRICT") != NULL && getenv("MLXR_GATE_STRICT")[0] == '0');
     setenv("XR_LOADER_DEBUG", "none", 1);   // the loader grumbles about the handles that are only seams here
     Scene* s = scene_new();
     XrCtx* c = s->ctx;
@@ -286,9 +287,9 @@ int main(void) {
     Sec sec = { 0 };
     sec.minLayers = 99;
     sec.smallest = 9.0f;
-    int tot_degenerate = 0, tot_over = 0, tot_beam = 0, tot_dot = 0, tot_count = 0, tot_exempt = 0, tot_beamFrames = 0;
-    int worstChanges = 0, secIdx = 0, frameInSec = 0;
-    int prevBeam = -2, prevDot = -2, prevCount = -1, sinceEvent = 1000, segIdx = 0, lastSeg = -1;
+    int tot_degenerate = 0, tot_over = 0, tot_beam = 0, tot_dot = 0, tot_count = 0, tot_ahead = 0, tot_exempt = 0, tot_beamFrames = 0;
+    int worstChanges = 0, worstAhead = 0, secIdx = 0, frameInSec = 0;
+    int prevBeam = -2, prevDot = -2, prevAhead = -1, prevCount = -1, sinceEvent = 1000, segIdx = 0, lastSeg = -1;
     Panels prev;
     memset(&prev, 0, sizeof(prev));
     float segStart = 0.0f;
@@ -296,7 +297,7 @@ int main(void) {
     float smallestAll = 9.0f;
     printf("layer gate: %s, strict %d, held places %s\n", csv ? csvPath : "synthetic 144 Hz session", strict,
            getenv("MLXR_HOLD_PLACES") ? getenv("MLXR_HOLD_PLACES") : "off");
-    printf(" sec  frames  layers  beam#  beamShift dotShift countChg degenerate  smallest(cm)  what\n");
+    printf(" sec  frames  layers  beam#  beamShift dotShift aheadChg countChg degenerate  smallest(cm)  what\n");
 
     for (int f = 0; f < frames; f++) {
         float t = (float)f / FPS;
@@ -370,21 +371,24 @@ int main(void) {
         }
         // (c) and (d)
         int beam = findSlot(s, ATLAS_BEAM), dot = findSlot(s, ATLAS_DOT);
+        int ahead = beam >= 0 && dot >= 0 ? (beam < dot ? beam : dot) : (beam >= 0 ? beam : dot);
         if (prevCount >= 0 && !exempt) {
             if (beam >= 0 && prevBeam >= 0 && beam != prevBeam) { sec.beamShifts++; tot_beam++; }
             if (dot >= 0 && prevDot >= 0 && dot != prevDot) { sec.dotShifts++; tot_dot++; }
             if ((int)n != prevCount) { sec.countChanges++; tot_count++; }
+            if (ahead >= 0 && prevAhead >= 0 && ahead != prevAhead) { sec.aheadChanges++; tot_ahead++; }
         }
         if (exempt) { sec.exempt++; tot_exempt++; }
         if (beam >= 0) { sec.beamFrames++; tot_beamFrames++; }
-        prevBeam = beam; prevDot = dot; prevCount = (int)n;
+        prevBeam = beam; prevDot = dot; prevAhead = ahead; prevCount = (int)n;
         if ((int)n < sec.minLayers) sec.minLayers = (int)n;
         if ((int)n > sec.maxLayers) sec.maxLayers = (int)n;
         sec.total++;
         if (++frameInSec == FPS) {
-            printf("%4d  %5d  %2d-%2d  %5s  %9d %8d %8d %11d  %11.1f  %s\n", secIdx, sec.total, sec.minLayers, sec.maxLayers,
-                   sec.beamFrames ? "yes" : "no", sec.beamShifts, sec.dotShifts, sec.countChanges, sec.degenerate,
+            printf("%4d  %5d  %2d-%2d  %5s  %9d %8d %8d %8d %11d  %11.1f  %s\n", secIdx, sec.total, sec.minLayers, sec.maxLayers,
+                   sec.beamFrames ? "yes" : "no", sec.beamShifts, sec.dotShifts, sec.aheadChanges, sec.countChanges, sec.degenerate,
                    sec.smallest * 100, csv ? "" : SEGS[segIdx].name);
+            if (sec.aheadChanges > worstAhead) worstAhead = sec.aheadChanges;
             if (sec.countChanges > worstChanges) worstChanges = sec.countChanges;
             secIdx++;
             frameInSec = 0;
@@ -394,7 +398,8 @@ int main(void) {
         }
     }
     if (frameInSec > 0) {
-        if (sec.countChanges > worstChanges) worstChanges = sec.countChanges;
+        if (sec.aheadChanges > worstAhead) worstAhead = sec.aheadChanges;
+            if (sec.countChanges > worstChanges) worstChanges = sec.countChanges;
     }
     if (csv) fclose(csv);
     if (wr) fclose(wr);
@@ -403,17 +408,17 @@ int main(void) {
     printf("(a) degenerate layers submitted:       %d  (smallest layer %.1f mm)\n", tot_degenerate, smallestAll * 1000);
     printf("(b) frames over %d layers:              %d\n", LAYER_CAP, tot_over);
     printf("(c) frames the beam's index shifted:   %d (the dot's: %d)\n", tot_beam, tot_dot);
-    printf("(d) layer count changes, worst second: %d (limit %d, %d in all)\n", worstChanges, GATE_MAX_CHANGES_PER_S, tot_count);
+    printf("(d) layers ahead of the pointer changed, worst second: %d (limit %d, %d in all)\n", worstAhead, GATE_MAX_CHANGES_PER_S, tot_ahead);
+    printf("    info: whole frame's layer count changes, worst second %d, %d in all\n", worstChanges, tot_count);
     CHECK(tot_degenerate == 0);
     CHECK(tot_over == 0);
-    int soft = (tot_beam > 0 || tot_dot > 0) + (worstChanges > GATE_MAX_CHANGES_PER_S);
+    int soft = (tot_beam > 0 || tot_dot > 0) + (worstAhead > GATE_MAX_CHANGES_PER_S);
     if (soft) {
-        printf("%s: the beam/dot index moves between frames with no panel opening or closing, or the layer count churns.\n"
-               "  Hover-only layers come and go ahead of the beam. Expected on 1.3.1 until the beam-streak fix lands;\n"
-               "  MLXR_GATE_STRICT=1 makes it fatal.\n", strict ? "FAIL" : "WARNING (expected on 1.3.1)");
+        printf("%s: the beam/dot index moves between frames with no panel opening or closing.\n"
+               "  Layers that come and go ahead of the pointer move it (the beam streak).\n", strict ? "FAIL" : "WARNING (MLXR_GATE_STRICT=0)");
         if (strict) {
             CHECK(tot_beam == 0 && tot_dot == 0);
-            CHECK(worstChanges <= GATE_MAX_CHANGES_PER_S);
+            CHECK(worstAhead <= GATE_MAX_CHANGES_PER_S);
         }
     }
     scene_free(s);

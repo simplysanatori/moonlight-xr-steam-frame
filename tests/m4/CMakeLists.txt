@@ -60,7 +60,7 @@ endif()
 
 # Native (lane layer-gate): a 144 Hz session through the input code and xrBuildLayers, checked for
 # degenerate layers, the 16 layer cap, and the beam's index and the count holding still.
-# MLXR_GATE_STRICT=1 makes the beam index and count churn checks fatal; MLXR_GATE_CSV=<ray csv>
+# MLXR_GATE_STRICT=0 makes the beam index and ahead-count checks warnings; MLXR_GATE_CSV=<ray csv>
 # replays a recorded session (tools/gate-from-ray-csv.sh).
 add_executable(test_m4_layergate test_layergate.c)
 target_link_libraries(test_m4_layergate PRIVATE m4_scene mlxr_launcher mlxr_stream)
