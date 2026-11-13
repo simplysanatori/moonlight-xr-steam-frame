@@ -601,6 +601,21 @@ void prepareRoom(XrCtx* ctx) {
 // renderRoom; native: mlxr_pass_room). Native (lane eye-swapchains): into an
 // image per eye, a pass each with the depth cleared again between them, or
 // into the halves of one image in one pass.
+// Native (lane gpu-144): a pose as a column major model matrix (xrCurveMvp's model part)
+static void poseMatrix(XrPosef pose, float* m) {
+    Vec3 ex = { 1, 0, 0 }, ey = { 0, 1, 0 }, ez = { 0, 0, 1 };
+    Vec3 x = quatRotate(pose.orientation, ex);
+    Vec3 y = quatRotate(pose.orientation, ey);
+    Vec3 z = quatRotate(pose.orientation, ez);
+    m[0] = x.x;  m[1] = x.y;  m[2] = x.z;  m[3] = 0.0f;
+    m[4] = y.x;  m[5] = y.y;  m[6] = y.z;  m[7] = 0.0f;
+    m[8] = z.x;  m[9] = z.y;  m[10] = z.z; m[11] = 0.0f;
+    m[12] = pose.position.x;
+    m[13] = pose.position.y;
+    m[14] = pose.position.z;
+    m[15] = 1.0f;
+}
+
 void xrRoomRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, const XrView* views) {
     float clear[4];
     // Native: upstream's clear colour is gamma encoded and went into the image
@@ -636,8 +651,28 @@ void xrRoomRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, c
         // hold whatever this room reaches to
         roomEyeViewProj(viewProj[eye], views[eye].fov, views[eye].pose, ctx->roomFarZ);
     }
+    // Native (lane gpu-144): the picture's opaque middle into the depth first, from the room's own
+    // projection so the two depths compare
+    MlxrPanelParams occ;
+    if (target->occluder != NULL) {
+        const XrOccluder* o = target->occluder;
+        memset(&occ, 0, sizeof(occ));
+        occ.width = o->width;
+        occ.height = o->height;
+        occ.radius = o->radius;
+        occ.segments = o->segments;
+        occ.color[0] = occ.color[1] = occ.color[2] = occ.color[3] = 1.0f;
+        float model[16];
+        poseMatrix(o->pose, model);
+        for (int eye = 0; eye < ROOM_EYES; eye++) {
+            matMul(occ.mvp[eye], viewProj[eye], model);
+            occ.uvRect[eye][2] = occ.uvRect[eye][3] = 1.0f;
+        }
+        rp.occluder = &occ;
+    }
     int shared = xrEyesShared(target);
     for (int eye = 0; eye < ROOM_EYES; eye++) {
+        if (target->eyeMask && !shared && !(target->eyeMask & (1 << eye))) continue; // native (lane gpu-144)
         MlxrTarget t = xrEyeTarget(target, eye);
         memcpy(t.clearColor, clear, sizeof(clear));
         t.clear = 1;
@@ -653,7 +688,8 @@ void xrRoomRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, c
             }
         }
         else {
-            if (eye > 0 && target->depthImage != VK_NULL_HANDLE) {
+            // (chained, the caller orders it between its chains)
+            if (eye > 0 && target->depthImage != VK_NULL_HANDLE && !target->chain) {
                 // The depth again, after the first eye's pass
                 mlxr_barrier(cmd, target->depthImage, VK_IMAGE_ASPECT_DEPTH_BIT,
                              VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
@@ -662,6 +698,9 @@ void xrRoomRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, c
             rp.eyes = 1;
             memcpy(rp.viewProj[0], viewProj[eye], sizeof(viewProj[eye]));
             rp.eyeRect[0] = t.rect;
+            if (rp.occluder != NULL) {
+                memcpy(occ.mvp[0], occ.mvp[eye], sizeof(occ.mvp[0])); // eye 1 after eye 0: 0 is spent
+            }
         }
         // Nothing until the room's model and atlas have both landed: the clear
         // is the whole pass until they do (a pass with no parts)
@@ -752,10 +791,14 @@ int xrRoomRecordInto(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target
         g_roomStale++;
         return 0;
     }
-    xrGpuTimeBegin(ctx, GPU_ROOM);
+    // Native (lane gpu-144): chained, inside the curve's own time (a timestamp inside a rendering
+    // on the tiler measures its last tile only)
+    if (!t.chain) xrGpuTimeBegin(ctx, GPU_ROOM);
     xrRoomRecord(ctx, cmd, &t, views);
-    xrGpuTimeEnd(ctx, GPU_ROOM);
-    g_roomDrawn++;
+    if (!t.chain) xrGpuTimeEnd(ctx, GPU_ROOM);
+    else xrGpuCurveCarriesRoom(ctx);
+    // per display frame, not per eye's chain
+    if (!t.eyeMask || (t.eyeMask & 1)) g_roomDrawn++;
     if (!ctx->roomRendered) {
         LOGEV("room drawn for the first time (style %d built), in the picture's layer", ctx->roomBuiltStyle);
     }

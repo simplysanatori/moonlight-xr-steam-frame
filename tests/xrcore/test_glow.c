@@ -580,6 +580,69 @@ static void testCylinderAtAScale(void) {
     CHECK(b.rectWidth == -7);
 }
 
+// Native (lane gpu-144): every glow point the hole leaves out is covered by the picture's opaque
+// middle from each eye. The glow sits proud metres nearer about the same axis; a ray from the eye
+// through a glow point inside the hole is carried on to the picture's cylinder and must land
+// inside the border fade there.
+static int rayToPicture(const float eye[3], const float g[3], float radius, float* angle, float* y) {
+    float d[3] = { g[0] - eye[0], g[1] - eye[1], g[2] - eye[2] };
+    // |(x, z - radius)| = radius, the root past the glow point
+    float ox = eye[0], oz = eye[2] - radius;
+    float a = d[0] * d[0] + d[2] * d[2];
+    float b = 2.0f * (ox * d[0] + oz * d[2]);
+    float c = ox * ox + oz * oz - radius * radius;
+    float disc = b * b - 4.0f * a * c;
+    if (a <= 0.0f || disc < 0.0f) return 0;
+    float t = (-b - sqrtf(disc)) / (2.0f * a);
+    if (t < 1.0f) t = (-b + sqrtf(disc)) / (2.0f * a);
+    float p[3] = { eye[0] + t * d[0], eye[1] + t * d[1], eye[2] + t * d[2] };
+    *angle = atan2f(p[0], radius - p[2]);
+    *y = p[1];
+    return 1;
+}
+
+static void testGlowHoleStaysUnderThePicture(void) {
+    const float W = 2.6f, H = 2.6f * 1440.0f / 3440.0f, R = 3.0f, fade = 0.08f;
+    GlowCylinder g;
+    CHECK(glowCylinderForScale(W, H, R, GLOW_SCALE_WIDE, &g));
+    float glowH = g.radius * g.centralAngle / g.aspectRatio;
+    // Seated a metre and a half in front, off to one side and low, and at the axis
+    const float seats[3][3] = { { 0.0f, 0.0f, 1.5f }, { 0.4f, -0.3f, 1.2f }, { 0.0f, 0.0f, R } };
+    for (int s = 0; s < 3; s++) {
+        float eyes[2][3] = { { seats[s][0] - 0.032f, seats[s][1], seats[s][2] },
+                             { seats[s][0] + 0.032f, seats[s][1], seats[s][2] } };
+        float hu = 0.0f, hv = 0.0f;
+        CHECK(glowHoleFor(W, H, R, fade, g.centralAngle, glowH, GLOW_PROUD_M, (const float(*)[3])eyes, 2, &hu, &hv));
+        CHECK(hu > 0.0f && hu < 0.5f / GLOW_SCALE_WIDE && hv > 0.0f && hv < 0.5f / GLOW_SCALE_WIDE);
+        float limA = W / R * (0.5f - fade), limY = H * (0.5f - fade);
+        int bad = 0;
+        for (int e = 0; e < 2; e++) {
+            for (int i = -10; i <= 10; i++) {
+                for (int j = -10; j <= 10; j++) {
+                    // A glow point inside the hole, on the glow's own cylinder
+                    float a = (i / 10.0f) * hu * g.centralAngle;
+                    float gy = (j / 10.0f) * hv * glowH;
+                    float gp[3] = { g.radius * sinf(a), gy, R - g.radius * cosf(a) };
+                    float pa, py;
+                    CHECK(rayToPicture(eyes[e], gp, R, &pa, &py));
+                    if (fabsf(pa) > limA || fabsf(py) > limY) bad++;
+                }
+            }
+        }
+        CHECK(bad == 0);
+    }
+    // Flat and level with the glow (flat in 3D): the middle exactly, in the glow's own uv
+    float eyes1[1][3] = { { 0.0f, 0.0f, 2.0f } };
+    float hu = 0.0f, hv = 0.0f;
+    CHECK(glowHoleFor(2.0f, 1.0f, 0.0f, 0.0f, 2.0f * GLOW_SCALE, 1.0f * GLOW_SCALE, 0.0f, (const float(*)[3])eyes1, 1,
+                      &hu, &hv));
+    CHECK_NEAR(hu, (0.5f - GLOW_HOLE_FILTER_FRAC) / GLOW_SCALE, 1e-5);
+    CHECK_NEAR(hv, (0.5f - GLOW_HOLE_FILTER_FRAC) / GLOW_SCALE, 1e-5);
+    // Grazing: an eye nearly level with the picture's plane gets no hole
+    float graze[1][3] = { { 5.0f, 0.0f, 0.3f } };
+    CHECK(!glowHoleFor(2.0f, 1.0f, 0.0f, 0.04f, 3.4f, 1.7f, GLOW_PROUD_M, (const float(*)[3])graze, 1, &hu, &hv));
+}
+
 int main(void) {
     testSteadyLuma();
     testBlackStaysDark();
@@ -596,5 +659,6 @@ int main(void) {
     testCylinderFollowsTheScreen();
     testCylinderEdgeCases();
     testCylinderAtAScale();
+    testGlowHoleStaysUnderThePicture();
     return checksDone("xr_glow");
 }

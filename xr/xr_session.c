@@ -521,6 +521,11 @@ typedef struct XrCurve {
     int mode;
     XrCompositionLayerProjection layer;
     XrCompositionLayerProjectionView eyes[2];
+    // Native (lane gpu-144): what the layer's image was last drawn from, for MLXR_CURVE_REUSE
+    int drawnSaid;
+    XrView drawnViews[2];
+    uint64_t drawnKey;
+    int kept;                  // display frames in a row it went up again unchanged
 } XrCurve;
 
 static void curveFreePicture(const XrVk* vk, XrCurve* cv) {
@@ -698,11 +703,86 @@ static int chromaFromLumaOn(XrCtx* ctx) {
     return knobOr("MLXR_CHROMA_FROM_LUMA", ctx->chromaFromLuma);
 }
 
+// ---- native (lane gpu-144): switches and counts ------------------------------------------------
+// Each switch an environment variable read once (app-dev/dev.env), logged at the start
+// (logGpuSwitches); def when unset
+static int gpuKnob(const char* name, int def) {
+    const char* v = getenv(name);
+    return v != NULL && *v ? atoi(v) : def;
+}
+
+static float gpuKnobF(const char* name, float def) {
+    const char* v = getenv(name);
+    return v != NULL && *v ? (float)atof(v) : def;
+}
+
+// The 5 s window's counts for the "xr: gpu144:" line
+static struct {
+    uint64_t drawn, kept, chained;     // curved picture layer drawn, sent again unchanged, drawn chained
+    int64_t fenceNsSum, fenceNsMax;    // waiting on the last frame's GPU work after xrWaitFrame
+    uint64_t fenceWaits, fenceWaited;  // waits, and those that blocked over 0.1 ms
+} g_gpu144;
+
+// What the curved picture's layer image shows, besides the picture's frames and the eyes: a
+// change in any of it draws it again
+static uint64_t curveStateKey(XrCtx* ctx, const XrCurve* cv, XrPosef picturePose, XrSpace space, int eyeSwap) {
+    uint64_t h = 1469598103934665603ULL;
+#define MIX(v) do { uint64_t _x = 0; memcpy(&_x, &(v), sizeof(v) < 8 ? sizeof(v) : 8); \
+        h = (h ^ _x) * 1099511628211ULL; } while (0)
+    MIX(picturePose.position.x); MIX(picturePose.position.y); MIX(picturePose.position.z);
+    MIX(picturePose.orientation.x); MIX(picturePose.orientation.y); MIX(picturePose.orientation.z);
+    MIX(picturePose.orientation.w);
+    uint64_t sp = (uint64_t)(uintptr_t)space;
+    MIX(sp);
+    MIX(ctx->screenWidth); MIX(ctx->screenRadius); MIX(ctx->videoWidth); MIX(ctx->videoHeight);
+    MIX(ctx->drawnEyes); MIX(eyeSwap); MIX(ctx->sharpenMode); MIX(cv->w); MIX(cv->pics);
+    MIX(ctx->roomInPicture); MIX(ctx->modelsInPicture); MIX(ctx->passthroughInPicture); MIX(ctx->passthrough);
+    MIX(ctx->roomReady); MIX(ctx->roomBuiltStyle); MIX(ctx->bgDim); MIX(ctx->roomLightOn);
+    MIX(ctx->glowDrawnLevel); MIX(ctx->glowDrawnScale); MIX(ctx->glowFeather); MIX(ctx->pictureBorderDrawn);
+    MIX(ctx->zoomPct); MIX(ctx->zoomX); MIX(ctx->zoomY); MIX(ctx->launcher);
+    int glow = xrWorldGlowShown(ctx), roomOn = roomEffective(ctx);
+    MIX(glow); MIX(roomOn);
+#undef MIX
+    return h;
+}
+
+// Whether the layer's last image can go up again: MLXR_CURVE_REUSE on, the same state, no models
+// moving in it, at most MLXR_CURVE_REUSE_MAX times in a row, and each eye within
+// MLXR_CURVE_REUSE_DEG degrees and MLXR_CURVE_REUSE_MM millimetres of where it was drawn from
+static int curveReusable(XrCtx* ctx, const XrCurve* cv, uint64_t key, const XrView* views) {
+    static int on = -1, maxRun;
+    static float maxDeg, maxMm;
+    if (on < 0) {
+        on = gpuKnob("MLXR_CURVE_REUSE", 0);
+        maxRun = gpuKnob("MLXR_CURVE_REUSE_MAX", 3);
+        maxDeg = gpuKnobF("MLXR_CURVE_REUSE_DEG", 0.3f);
+        maxMm = gpuKnobF("MLXR_CURVE_REUSE_MM", 2.0f);
+    }
+    if (!on || !cv->drawnSaid || cv->kept >= maxRun || key != cv->drawnKey
+            || (ctx->modelsInPicture && ctx->modelsShowing)) {
+        return 0;
+    }
+    float cosMax = cosf(maxDeg * (float)M_PI / 180.0f * 0.5f);
+    for (int e = 0; e < 2; e++) {
+        const XrPosef* a = &views[e].pose;
+        const XrPosef* b = &cv->drawnViews[e].pose;
+        float dx = a->position.x - b->position.x, dy = a->position.y - b->position.y, dz = a->position.z - b->position.z;
+        if (sqrtf(dx * dx + dy * dy + dz * dz) * 1000.0f > maxMm) return 0;
+        // |dot| of the two unit quaternions is cos of half the turn between them
+        float d = a->orientation.x * b->orientation.x + a->orientation.y * b->orientation.y
+                + a->orientation.z * b->orientation.z + a->orientation.w * b->orientation.w;
+        if (fabsf(d) < cosMax) return 0;
+        if (memcmp(&views[e].fov, &cv->drawnViews[e].fov, sizeof(XrFovf)) != 0) return 0;
+    }
+    return 1;
+}
+
 // One display frame of the curved picture: both eyes drawn from where they
 // are now. Fills the layer and returns the acquired images' release duty.
+// Native (lane gpu-144): 2 when the last image goes up again (nothing acquired); fresh, a new
+// picture or glow was drawn this frame
 static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuffer cmd, int64_t format,
-                       XrSpace space, int eyeSwap) {
-    (void)passes;
+                       XrSpace space, int eyeSwap, int fresh) {
     if (!cv->valid || curveSwapchain(ctx, cv, format) != 0) return 0;
     // Native: the room or the models drawn in here too (one projection layer a
     // frame, xrWorldPlanLayers) are world locked, so the layer is drawn in the
@@ -736,6 +816,15 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
             || !(vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT)
             || (world && !(vs.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT))) {
         return 0;
+    }
+    // Native (lane gpu-144): nothing new to draw and the eyes all but where the layer's image was
+    // drawn from: the layer goes up again with that image and its poses, and the compositor
+    // turns it the little way to the eyes (MLXR_CURVE_REUSE)
+    uint64_t key = curveStateKey(ctx, cv, picturePose, space, eyeSwap);
+    if (!fresh && curveReusable(ctx, cv, key, views)) {
+        cv->kept++;
+        g_gpu144.kept++;
+        return 2;
     }
     // Native (lane eye-swapchains): an image of each eye's swapchain
     uint32_t idx[ROOM_EYES] = { 0, 0 };
@@ -778,27 +867,9 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         }
         tg.clearColor[3] = backdrop[3];
     }
-    // Native: the room first, as this layer's opaque background, and then the
-    // glow and the picture over it in the order their layers had
-    if (ctx->roomInPicture && xrRoomRecordInto(ctx, cmd, &tg, views)) {
-        xrEyesBarrier(cmd, &tg);
-        tg.clear = 0;
-    }
     // The glow and the picture read the picture's pose off the context; a head
     // locked one put in the local space above stands in for it while they draw
     XrPosef heldPose = ctx->screenPose;
-    ctx->screenPose = picturePose;
-    // M5: the glow round a curved picture, upstream's glow cylinder drawn
-    // into this layer under the picture (no cylinder layers on SteamVR)
-    // Native (lane borderless): with the Glow edge on, the picture's border fades
-    // out over this glow (warp.frag), so it is under the picture either way
-    if (xrWorldGlowShown(ctx)) {
-        // Native: flat in 3D, the glow quad's image drawn here as well
-        if (xrPictureCurved(ctx)) xrWorldCurvedGlow(ctx, &tg, views);
-        else xrWorldFlatGlowInto(ctx, &tg, views);
-        xrEyesBarrier(cmd, &tg);
-        tg.clear = 0;
-    }
     MlxrPanelParams pp;
     memset(&pp, 0, sizeof(pp));
     pp.src = cv->pic[0].view;
@@ -821,7 +892,7 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
     memset(&cv->layer, 0, sizeof(cv->layer));
     VkImageView src[ROOM_EYES];
     for (int e = 0; e < 2; e++) {
-        xrCurveMvp(views[e].fov, views[e].pose, ctx->screenPose, pp.mvp[e]);
+        xrCurveMvp(views[e].fov, views[e].pose, picturePose, pp.mvp[e]);
         // M6: in 3D each eye samples its own picture (upstream's cylinder
         // layers' subImage per eye); flat, both eyes the one. Native (lane
         // eye-swapchains): an image per eye in 3D, so no seam to keep clear of
@@ -835,13 +906,78 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         // Native (lane eye-swapchains): each view its own swapchain's image
         xrProjectionEye(&cv->eyes[e], &views[e], cv->swapchain[e], cv->eyeW, cv->eyeH);
     }
-    xrEyesPanel(ctx, cmd, &tg, &pp, src);
-    xrGpuTimeEnd(ctx, GPU_CURVE);
-    ctx->screenPose = heldPose;
-    // Native: the models last, over the picture, as their own layer was
-    if (ctx->modelsInPicture) {
-        xrModelRecordOver(ctx, cmd, &tg, views);
+    // Native (lane gpu-144): the picture's opaque middle (inside its border fade and the filter's
+    // reach), which the room is not shaded behind (MLXR_ROOM_OCCLUDE)
+    XrOccluder occ;
+    memset(&occ, 0, sizeof(occ));
+    if (gpuKnob("MLXR_ROOM_OCCLUDE", 1)) {
+        float fade = glowFeatherFraction(ctx->pictureBorderDrawn);
+        float keep = 1.0f - 2.0f * (fade + GLOW_HOLE_FILTER_FRAC);
+        occ.pose = picturePose;
+        occ.width = pp.width * keep;
+        occ.height = pp.height * keep;
+        occ.radius = pp.radius;
+        occ.segments = pp.segments;
+        tg.occluder = &occ;
     }
+    // Native (lane gpu-144): one rendering per eye's image for the room, the glow, the picture and
+    // the models (MLXR_CURVE_ONEPASS): no store of the image and load of it back between them,
+    // the depth the room and the models use attached by whichever opens it. Else a pass each, as
+    // before. Each eye's chain is ended here, and the shared depth ordered between them.
+    int onepass = gpuKnob("MLXR_CURVE_ONEPASS", 1);
+    int modelsOver = ctx->modelsInPicture && ctx->modelsShowing && ctx->model != NULL;
+    if (onepass) {
+        tg.chain = 1;
+        if (ctx->roomInPicture || modelsOver) xrEyesWorldDepth(ctx, &tg);
+        g_gpu144.chained++;
+    }
+    int chains = onepass && !xrEyesShared(&tg) ? ROOM_EYES : 1;
+    for (int c = 0; c < chains; c++) {
+        XrEyeTargets et = tg;
+        et.clear = 1;
+        if (chains > 1) {
+            et.eyeMask = 1 << c;
+            if (c > 0 && et.depthImage != VK_NULL_HANDLE) {
+                // The shared depth again, after the first eye's chain
+                mlxr_barrier(cmd, et.depthImage, VK_IMAGE_ASPECT_DEPTH_BIT,
+                             VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                             VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            }
+        }
+        // Native: the room first, as this layer's opaque background, and then the
+        // glow and the picture over it in the order their layers had
+        if (ctx->roomInPicture && xrRoomRecordInto(ctx, cmd, &et, views)) {
+            if (!onepass) xrEyesBarrier(cmd, &et);
+            et.clear = 0;
+        }
+        ctx->screenPose = picturePose;
+        // M5: the glow round a curved picture, upstream's glow cylinder drawn
+        // into this layer under the picture (no cylinder layers on SteamVR)
+        // Native (lane borderless): with the Glow edge on, the picture's border fades
+        // out over this glow (warp.frag), so it is under the picture either way
+        if (xrWorldGlowShown(ctx)) {
+            // Native: flat in 3D, the glow quad's image drawn here as well
+            if (xrPictureCurved(ctx)) xrWorldCurvedGlow(ctx, &et, views);
+            else xrWorldFlatGlowInto(ctx, &et, views);
+            if (!onepass) xrEyesBarrier(cmd, &et);
+            et.clear = 0;
+        }
+        xrEyesPanel(ctx, cmd, &et, &pp, src);
+        ctx->screenPose = heldPose;
+        if (!onepass) xrGpuTimeEnd(ctx, GPU_CURVE);
+        // Native: the models last, over the picture, as their own layer was
+        if (ctx->modelsInPicture) {
+            xrModelRecordOver(ctx, cmd, &et, views);
+        }
+        if (onepass) mlxr_pass_chain_end(passes ? passes : ctx->passes, cmd);
+    }
+    // Native (lane gpu-144): chained, the room's and the models' time is in the curve's
+    if (onepass) xrGpuTimeEnd(ctx, GPU_CURVE);
+    cv->drawnSaid = 1;
+    for (int e = 0; e < ROOM_EYES; e++) cv->drawnViews[e] = views[e];
+    cv->drawnKey = key;
+    cv->kept = 0;
+    g_gpu144.drawn++;
     cv->layer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
     // Opaque with the room behind the picture, as the room's own layer was
     cv->layer.layerFlags = ctx->roomInPicture ? 0 : XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
@@ -1385,6 +1521,45 @@ static int offered(const XrExtensionProperties* exts, uint32_t n, const char* na
     return 0;
 }
 
+// Native (lane gpu-144): the GPU switches, and what the runtime offers for foveation. Valve's
+// implicit API layer XR_APILAYER_VALVE_fdm_injection registers the height of every swapchain over
+// about 1000 px and puts a gaze-driven fragment density map on each of our own renderings of the
+// same height: the curved layer's per-eye passes (good: fewer fragments away from the gaze), but
+// also any of ours that only shares a height with one (the picture's own image is the stream's
+// height, which the video swapchain registers). MLXR_FDM_LAYER=0 turns the layer off for an A/B
+// (its own DISABLE_VULKAN_FDM_INJECTION_LAYER, set before the instance); FDM_DEBUG=1 makes the
+// layer log what it foveates.
+static void gpuSwitchesAtStart(const XrExtensionProperties* exts, uint32_t n) {
+    const char* fdm = getenv("MLXR_FDM_LAYER");
+    if (fdm != NULL && fdm[0] == '0') {
+        setenv("DISABLE_VULKAN_FDM_INJECTION_LAYER", "1", 1);
+    }
+    int layerThere = 0;
+    uint32_t nl = 0;
+    if (XR_SUCCEEDED(xrEnumerateApiLayerProperties(0, &nl, NULL)) && nl > 0 && nl < 64) {
+        XrApiLayerProperties lp[64];
+        for (uint32_t i = 0; i < nl; i++) lp[i] = (XrApiLayerProperties){ XR_TYPE_API_LAYER_PROPERTIES };
+        if (XR_SUCCEEDED(xrEnumerateApiLayerProperties(nl, &nl, lp))) {
+            for (uint32_t i = 0; i < nl; i++) {
+                if (strstr(lp[i].layerName, "fdm_injection")) layerThere = 1;
+            }
+        }
+    }
+    const char* off = getenv("DISABLE_VULKAN_FDM_INJECTION_LAYER");
+    LOGEV("gpu144: Valve fdm_injection layer %s%s (MLXR_FDM_LAYER=%s); XR_FB_foveation %s, "
+          "XR_FB_foveation_vulkan %s (not used: the layer already foveates our eye-height passes)",
+          layerThere ? "installed" : "not found", layerThere ? (off && *off ? ", turned off" : ", on") : "",
+          fdm ? fdm : "unset", offered(exts, n, "XR_FB_foveation") ? "offered" : "absent",
+          offered(exts, n, "XR_FB_foveation_vulkan") ? "offered" : "absent");
+    LOGEV("gpu144: switches MLXR_CURVE_ONEPASS=%d (room, glow, picture and models in one rendering per eye), "
+          "MLXR_GLOW_HOLE=%d (no glow under the picture's opaque middle), MLXR_ROOM_OCCLUDE=%d (no room "
+          "shaded behind it), MLXR_CURVE_REUSE=%d (send the curved layer again when nothing changed and the "
+          "head is within %.2f deg / %.1f mm, at most %d frames in a row)",
+          gpuKnob("MLXR_CURVE_ONEPASS", 1), xrGlowHoleOn(), gpuKnob("MLXR_ROOM_OCCLUDE", 1),
+          gpuKnob("MLXR_CURVE_REUSE", 0), (double)gpuKnobF("MLXR_CURVE_REUSE_DEG", 0.3f),
+          (double)gpuKnobF("MLXR_CURVE_REUSE_MM", 2.0f), gpuKnob("MLXR_CURVE_REUSE_MAX", 3));
+}
+
 static int initInstance(XrCtx* ctx, const Settings* s) {
     uint32_t n = 0;
     if (XR_FAILED(xrEnumerateInstanceExtensionProperties(NULL, 0, &n, NULL))) {
@@ -1428,6 +1603,7 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
     // the log, whether the settings wanted it for themselves.
     ctx->gazeOffered = ctx->eyeGaze;
     ctx->gazeAsked = s->gaze || s->pointer_source == POINTER_SOURCE_GAZE;
+    gpuSwitchesAtStart(exts, n); // native (lane gpu-144)
     free(exts);
 
     const char* enabled[16];
@@ -2283,8 +2459,17 @@ int xr_app_run(const XrAppConfig* cfg) {
         int64_t now = nowNs();
 
         // The last frame's GPU work is done: the atlas copy and the staging
-        // buffers are free to write
+        // buffers are free to write. Native (lane gpu-144): how long that holds the loop, which is
+        // the GPU running over the frame (a wait here eats the time the CPU has to record)
+        int64_t fenceAt = nowNs();
         vkWaitForFences(vk.device, 1, &fr.fence, VK_TRUE, UINT64_MAX);
+        {
+            int64_t took = nowNs() - fenceAt;
+            g_gpu144.fenceNsSum += took;
+            if (took > g_gpu144.fenceNsMax) g_gpu144.fenceNsMax = took;
+            g_gpu144.fenceWaits++;
+            if (took > 100000) g_gpu144.fenceWaited++;
+        }
         ctx->gpuDone = vd.value;
 
         // ---- input (nativeUpdateInput) and what it decided (dispatchInput)
@@ -2392,6 +2577,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         }
         uint32_t videoIdx = 0;
         int videoAcquired = 0, swapAcquired = 0, heldSampled = 0;
+        int glowRedrawn = 0; // native (lane gpu-144): for the curved layer's reuse
         // Native: a curved picture goes through the app's own image and the
         // panel pass (no cylinder layers on SteamVR)
         // and, natively, the flat picture in 3D: SteamVR shows no quad layer
@@ -2526,6 +2712,7 @@ int xr_app_run(const XrAppConfig* cfg) {
             }
             if (have && redrawGlowNow) {
                 xrWorldStillFrame(ctx, &mv);
+                glowRedrawn = 1;
             }
             if (img != NULL && have) {
                 mlxr_vkimp_cmd_release(vd.imp, cmd, img, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
@@ -2553,13 +2740,17 @@ int xr_app_run(const XrAppConfig* cfg) {
         }
 
         // The curved picture, every display frame (the eyes move)
-        int curveAcquired = 0;
+        int curveAcquired = 0, curveKept = 0;
         if (curvedNow && fs.shouldRender && cmd && ctx->launcher == LAUNCHER_NONE) {
             XrPosef pp;
             float pw, ph;
             XrSpace space;
             xrPictureView(ctx, &pp, &pw, &ph, &space);
-            curveAcquired = curveRecord(ctx, &curve, passes, cmd, vd.format, space, cfg->settings->eye_swap);
+            // Native (lane gpu-144): 2, the last image goes up again (MLXR_CURVE_REUSE)
+            int drew = curveRecord(ctx, &curve, passes, cmd, vd.format, space, cfg->settings->eye_swap,
+                                   videoAcquired || glowRedrawn);
+            curveAcquired = drew == 1;
+            curveKept = drew == 2;
         }
         // The flat glow's quad: its swapchain gets the newest glow
         if (fs.shouldRender && cmd) {
@@ -2651,7 +2842,7 @@ int xr_app_run(const XrAppConfig* cfg) {
         fin.headLocked = cfg->settings->head_locked;
         fin.eyeSwap = cfg->settings->eye_swap;
         fin.passthrough = ctx->passthrough;
-        fin.curved = curveAcquired ? &curve.layer : NULL;
+        fin.curved = curveAcquired || curveKept ? &curve.layer : NULL;
         if (ssNow && ss.filled && ss.w > 0) {
             fin.picture = ss.swapchain;
             fin.pictureW = ss.w;
@@ -2724,6 +2915,14 @@ int xr_app_run(const XrAppConfig* cfg) {
                       periodNs / 1e6, (unsigned long long)skippedWindow);
                 skippedWindow = 0;
             }
+            // Native (lane gpu-144): the GPU's hold on the loop and what the curved layer did
+            LOGEV("xr: gpu144: waited for the last frame's GPU %.2f ms avg (max %.2f), blocked on %llu of %llu "
+                  "frames; curved layer drawn %llu (chained %llu), sent again unchanged %llu",
+                  g_gpu144.fenceWaits ? g_gpu144.fenceNsSum / 1e6 / (double)g_gpu144.fenceWaits : 0.0,
+                  g_gpu144.fenceNsMax / 1e6, (unsigned long long)g_gpu144.fenceWaited,
+                  (unsigned long long)g_gpu144.fenceWaits, (unsigned long long)g_gpu144.drawn,
+                  (unsigned long long)g_gpu144.chained, (unsigned long long)g_gpu144.kept);
+            memset(&g_gpu144, 0, sizeof(g_gpu144));
             // Native (lane wave3-hud): the compositor's own frame times and drops, beside ours
             {
                 MlxrCompositorMetrics cm;

@@ -48,6 +48,14 @@ VkImageView xrWorldDepth(XrCtx* ctx, int w, int h);
 // one side by side image (the tests' and the snapshot tool's readbacks:
 // view[0] == view[1], x[1] == eyeW), drawn in one pass as before. Each eye is
 // drawn once either way.
+// Native (lane gpu-144): a surface the room is not shaded behind (XrEyeTargets.occluder): the
+// picture's opaque middle, in the views' space, drawn into the room's depth first
+typedef struct XrOccluder {
+    XrPosef pose;                 // the surface's middle, as the panel pass places it
+    float width, height, radius;  // radius 0: flat
+    int segments;
+} XrOccluder;
+
 typedef struct XrEyeTargets {
     VkImage image[ROOM_EYES];     // for the barriers between two passes
     VkImageView view[ROOM_EYES];
@@ -60,6 +68,13 @@ typedef struct XrEyeTargets {
     // at least for an image per eye, 2 eyeW x eyeH side by side
     VkImage depthImage;
     VkImageView depthView;
+    // Native (lane gpu-144): the passes drawn into these targets chain (MlxrTarget.chain, depthView
+    // attached by the pass that opens the chain); the caller ends it (mlxr_pass_chain_end) and
+    // orders the shared depth between eyes. eyeMask, when not 0, the eyes drawn (bit per eye) of
+    // an image per eye, for one chain per image. occluder: see XrOccluder (the room only).
+    int chain;
+    int eyeMask;
+    const XrOccluder* occluder;
 } XrEyeTargets;
 XrEyeTargets xrEyesPerImage(const VkImage image[ROOM_EYES], const VkImageView view[ROOM_EYES], VkFormat format,
                             int eyeW, int eyeH);
@@ -116,6 +131,9 @@ int xrWorldGlowShown(XrCtx* ctx);
 // a projection layer target (the curved picture's own; native, there being no
 // cylinder layers): one draw per eye
 void xrWorldCurvedGlow(XrCtx* ctx, const XrEyeTargets* target, const XrView* views);
+// Native (lane gpu-144): whether the curved or flat glow drawn into the picture's layer leaves out
+// what the picture's opaque middle covers (MLXR_GLOW_HOLE, default on)
+int xrGlowHoleOn(void);
 // Native: the flat glow drawn the same way, into the picture's own projection
 // layer under the picture (flat in 3D): SteamVR puts quad layers over a
 // projection layer whatever their order, so the glow quad would cover it
@@ -158,6 +176,10 @@ void xrGpuTimeBegin(XrCtx* ctx, int section);
 void xrGpuTimeEnd(XrCtx* ctx, int section);
 // The averages since the last call, for the stats line ("" when none)
 void xrGpuTimesLine(XrCtx* ctx, char* buf, int len);
+// Native (lane gpu-144): the curved picture's chain this frame carries the room, so its time
+// (room, glow, picture and models in one rendering, not timed apart) stands in for the room's in
+// the 3D rate budget
+void xrGpuCurveCarriesRoom(XrCtx* ctx);
 // The averages of one section since the last xrGpuTimesLine (0 when none)
 double xrGpuTimeAvg(XrCtx* ctx, int section, int* samples);
 
