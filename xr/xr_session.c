@@ -2205,6 +2205,12 @@ int xr_app_run(const XrAppConfig* cfg) {
     memset(&pacePrev, 0, sizeof(pacePrev));
     LOGEV("video frame pacing %s (MLXR_VIDEO_PACING=%s: 0 newest, 1 smooth, 2 low latency)",
           mlxr_pace_mode_name(paceMode), pacingEnv ? pacingEnv : "unset");
+    xrLayerSwitchesSay(); // native (issue #5)
+    // Native (issue #5): display frames the loop let go by (a predicted display time more than one
+    // period after the last one), and the period the runtime paces it at, per 5 s window
+    XrTime lastDisplayTime = 0;
+    uint64_t skippedWindow = 0;
+    int64_t periodNs = 0;
     int64_t latSendNsSum = 0, latSendNsMax = 0, latLeadNsSum = 0, latVidNsSum = 0, latVidNsMax = 0;
     // Native (lane perf): the last stage of a picture: taken from the queue
     // to its predicted display time, and how far into the frame the take is
@@ -2264,6 +2270,13 @@ int xr_app_run(const XrAppConfig* cfg) {
         if (!checkXr(xrBeginFrame(ctx->session, NULL), "xrBeginFrame")) break;
         ctx->predictedDisplayTime = fs.predictedDisplayTime;
         ctx->shouldRender = fs.shouldRender;
+        if (lastDisplayTime != 0 && fs.predictedDisplayPeriod > 0
+                && fs.predictedDisplayTime - lastDisplayTime > fs.predictedDisplayPeriod * 3 / 2) {
+            int64_t gap = fs.predictedDisplayTime - lastDisplayTime;
+            skippedWindow += (uint64_t)((gap + fs.predictedDisplayPeriod / 2) / fs.predictedDisplayPeriod) - 1;
+        }
+        lastDisplayTime = fs.predictedDisplayTime;
+        periodNs = fs.predictedDisplayPeriod;
         displayFrameBegun(ctx, &fs);
         frames++;
         framesWindow++;
@@ -2702,6 +2715,14 @@ int xr_app_run(const XrAppConfig* cfg) {
                   "image on %d; GPU by device in this process: %s",
                   framesWindow ? endNsSum / 1e6 / (double)framesWindow : 0.0, endNsMax / 1e6,
                   (unsigned long long)framesWindow, roomDrawn, roomStale, byDevice);
+            // Native (issue #5): the layers handed over in the window, and the display frames let go by
+            {
+                char layerLine[200];
+                xrLayerStatsLine(layerLine, sizeof(layerLine));
+                LOGEV("xr: frames: %s; display period %.2f ms, %llu display frames skipped by the loop", layerLine,
+                      periodNs / 1e6, (unsigned long long)skippedWindow);
+                skippedWindow = 0;
+            }
             // Native (lane wave3-hud): the compositor's own frame times and drops, beside ours
             {
                 MlxrCompositorMetrics cm;

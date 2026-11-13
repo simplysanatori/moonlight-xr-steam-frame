@@ -24,6 +24,7 @@
 //   - native (lane eye-swapchains): every projection layer's two views name a
 //     swapchain each, one per eye, rather than the two halves of one double
 //     wide image: SteamVR downsamples any texture past 3458 px each frame.
+#include <stdlib.h>
 #include "xr_native.h"
 #include "xr_world.h"
 
@@ -203,25 +204,103 @@ static XrPosef poseOffset(XrPosef base, Vec3 local) {
 // a centimetre behind near. Every layer that came and went ahead of the beam moved the beam and the
 // dot a place up or down the list, and on such a frame SteamVR now and then drew the beam as a white
 // streak across the view (docs/dev/ray-debug.md). Nothing is held before the ring's art is drawn.
+//
+// Off unless MLXR_HOLD_PLACES=1 (issue #5): with the ray off the furniture, a stack of these clear
+// millimetre quads at one pose made SteamVR tear and judder the whole view on every head turn, worst
+// at 144 Hz, and gone the moment the ray was on the bar (which shows the real layers). The layer list
+// is then 1.1.2's again; the beam's own guard (beamClipAhead) is kept.
+//
+// MLXR_HOLD_PLACES is also the A/B switch for what about them does it, without a rebuild: 1 as 1.2.0
+// held them, 2 the same clear patch 5 cm across rather than a millimetre (is it the degenerate size?),
+// 3 a millimetre across but each 2 cm to the side of the last, so no two lie at one pose (is it the
+// stack?). Said once at the start (xrLayerSwitchesSay).
+#define HOLD_PLACES_OFF 0
+#define HOLD_PLACES_AS_120 1
+#define HOLD_PLACES_LARGE 2
+#define HOLD_PLACES_SPREAD 3
+static int holdPlacesMode(void) {
+    static int mode = -1;
+    if (mode < 0) {
+        const char* v = getenv("MLXR_HOLD_PLACES");
+        mode = v != NULL && v[0] >= '1' && v[0] <= '3' && v[1] == '\0' ? v[0] - '0' : HOLD_PLACES_OFF;
+    }
+    return mode;
+}
+
+// Native (issue #5): MLXR_PICTURE_BLEND=0 submits the flat picture's quad opaque even when it was drawn
+// with the Glow edge's border fade (1.3.0 blends it over the glow), to rule the blend in or out; the
+// faded border then shows black. Said once at the start.
+static int pictureBlendAllowed(void) {
+    static int allowed = -1;
+    if (allowed < 0) {
+        const char* v = getenv("MLXR_PICTURE_BLEND");
+        allowed = !(v != NULL && v[0] == '0');
+    }
+    return allowed;
+}
+
 static void holdPlace(XrCtx* ctx, FrameLayers* layers, XrCompositionLayerQuad* quad, XrSpace space,
                       XrPosef near) {
-    if (!ctx->outlineReady) {
+    int mode = holdPlacesMode();
+    if (!ctx->outlineReady || mode == HOLD_PLACES_OFF) {
         return;
     }
     UiRectPx o = xrAtlasRect(ATLAS_OUTLINE);
-    Vec3 behind = { 0.0f, 0.0f, -0.01f };
+    // Native (issue #5): the A/B modes' size and sideways step (holdPlacesMode)
+    float side = mode == HOLD_PLACES_LARGE ? 0.05f : 0.001f;
+    float step = mode == HOLD_PLACES_SPREAD ? 0.02f * (float)layers->heldCount : 0.0f;
+    Vec3 behind = { step, 0.0f, -0.01f };
     Vec3 offset = quatRotate(near.orientation, behind);
     XrPosef pose = near;
     pose.position.x += offset.x;
     pose.position.y += offset.y;
     pose.position.z += offset.z;
     quadLayerRect(quad, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, xrAtlasSwapchain(ctx),
-                  o.x + o.w / 2 - 2, o.y + o.h / 2 - 2, 4, 4, space, pose, 0.001f, 0.001f);
+                  o.x + o.w / 2 - 2, o.y + o.h / 2 - 2, 4, 4, space, pose, side, side);
     uint32_t before = layers->count;
     pushLayer(ctx, layers, quad);
     if (layers->count > before && layers->heldCount < FRAME_MAX_LAYERS) {
         layers->held[layers->heldCount++] = quad;
     }
+}
+
+void xrLayerSwitchesSay(void) {
+    static const char* const holdNames[] = { "off", "as 1.2.0", "5 cm across", "spread 2 cm apart" };
+    const char* hold = getenv("MLXR_HOLD_PLACES");
+    const char* blend = getenv("MLXR_PICTURE_BLEND");
+    const char* wide = getenv("MLXR_GLOW_WIDE");
+    LOGEV("issue #5 switches: held places %s (MLXR_HOLD_PLACES=%s: 0 off, 1 as 1.2.0, 2 large, 3 spread), "
+          "picture blend %s (MLXR_PICTURE_BLEND=%s), Wide glow %s (MLXR_GLOW_WIDE=%s)",
+          holdNames[holdPlacesMode()], hold ? hold : "unset", pictureBlendAllowed() ? "as drawn" : "off",
+          blend ? blend : "unset", xrGlowWideAllowed() ? "6x" : "held to 1.7x", wide ? wide : "unset");
+}
+
+// Native (issue #5): what the frames handed to xrEndFrame held since the last xrLayerStatsLine: the
+// fewest and most layers, the held places' average and most, how many frames changed the count from
+// the frame before, and how many had to drop a layer for the runtime's limit
+static struct {
+    uint32_t frames, least, most, heldSum, heldMost, changed, dropped, last;
+} layerStats;
+
+static void countLayers(uint32_t wanted, uint32_t count, uint32_t held) {
+    if (layerStats.frames == 0 || count < layerStats.least) layerStats.least = count;
+    if (count > layerStats.most) layerStats.most = count;
+    layerStats.heldSum += held;
+    if (held > layerStats.heldMost) layerStats.heldMost = held;
+    if (layerStats.frames > 0 && count != layerStats.last) layerStats.changed++;
+    if (wanted > count) layerStats.dropped++;
+    layerStats.last = count;
+    layerStats.frames++;
+}
+
+void xrLayerStatsLine(char* buf, int len) {
+    uint32_t n = layerStats.frames;
+    snprintf(buf, (size_t)len, "layers %u to %u over %u frames, held places %.1f avg (max %u), count changed on %u, "
+             "over the limit on %u", n ? layerStats.least : 0, layerStats.most, n,
+             n ? (double)layerStats.heldSum / n : 0.0, layerStats.heldMost, layerStats.changed, layerStats.dropped);
+    uint32_t last = layerStats.last;
+    memset(&layerStats, 0, sizeof(layerStats));
+    layerStats.last = last;
 }
 
 // Compositor sharpening and supersampling. SteamVR offers neither layer
@@ -440,8 +519,8 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
     // M5: the supersampled picture (flat, mono), the same quad from a smaller
     // image the app filtered
     // Native (lane borderless): a picture drawn with its border fading out blends over the glow
-    XrCompositionLayerFlags pictureFlags =
-            ctx->pictureBorderDrawn ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
+    XrCompositionLayerFlags pictureFlags = ctx->pictureBorderDrawn && pictureBlendAllowed()
+            ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
     if (in->picture != XR_NULL_HANDLE && ctx->drawnEyes != 2) {
         XrCompositionLayerQuad* quad = &layers->video[0];
         quadLayerRect(quad, NULL, pictureFlags, in->picture, 0, 0, in->pictureW, in->pictureH, view->space, view->screenPose,
@@ -1267,6 +1346,7 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
     }
     addToastLayer(ctx, layers, frameNs);
 
+    uint32_t wanted = layers->count; // native (issue #5): before any drop, for xrLayerStatsLine
     // Over the limit: upstream's order of what goes first (the toast, the
     // controller models, the hover ring, the cog button, the clock strip)
     if (layers->count > (uint32_t)ctx->maxLayerCount) {
@@ -1295,6 +1375,7 @@ void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out) {
         LOGW("submitted %u composition layers against a limit of %d",
              layers->count, ctx->maxLayerCount);
     }
+    countLayers(wanted, layers->count, layers->heldCount);
     out->count = layers->count;
     memcpy(out->order, layers->order, sizeof(out->order[0]) * layers->count);
 }
