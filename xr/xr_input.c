@@ -1116,16 +1116,20 @@ static void writeInputPose(XrCtx* ctx, float* out) {
     }
     ctx->poseDirty = 0;
     out[IN_POSE_DIRTY] = 1.0f;
-    out[IN_POSE + 0] = ctx->screenPose.position.x;
-    out[IN_POSE + 1] = ctx->screenPose.position.y;
-    out[IN_POSE + 2] = ctx->screenPose.position.z;
-    out[IN_POSE + 3] = ctx->screenPose.orientation.x;
-    out[IN_POSE + 4] = ctx->screenPose.orientation.y;
-    out[IN_POSE + 5] = ctx->screenPose.orientation.z;
-    out[IN_POSE + 6] = ctx->screenPose.orientation.w;
-    out[IN_POSE + 7] = ctx->screenWidth;
-    out[IN_POSE + 8] = ctx->screenRadius;
-    out[IN_POSE + 9] = ctx->panelCurve;
+    xrScreenPoseOut(ctx, &out[IN_POSE]);
+}
+
+void xrScreenPoseOut(const XrCtx* ctx, float* pose) {
+    pose[0] = ctx->screenPose.position.x;
+    pose[1] = ctx->screenPose.position.y;
+    pose[2] = ctx->screenPose.position.z;
+    pose[3] = ctx->screenPose.orientation.x;
+    pose[4] = ctx->screenPose.orientation.y;
+    pose[5] = ctx->screenPose.orientation.z;
+    pose[6] = ctx->screenPose.orientation.w;
+    pose[7] = ctx->screenWidth / xrScreenWidthScale(ctx); // native (lane aspect-ratio): the Size, as config.ini keeps it
+    pose[8] = ctx->screenRadius;
+    pose[9] = ctx->panelCurve;
 }
 
 // How far along the half diagonal to the held corner a point on the picture

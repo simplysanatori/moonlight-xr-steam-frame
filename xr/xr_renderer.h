@@ -1645,6 +1645,9 @@ void xrScreenApplyPreset(XrCtx* ctx, int preset);
 // (layoutAspectWidthScale: a wider picture keeps the height and is wider), and the widths in force rescaled,
 // heights kept, when a stream's picture changes shape (xr_place.c)
 float xrScreenWidthScale(const XrCtx* ctx);
+// The screen's placement as a grab hands it back to config.ini (IN_POSE): pose, the Size (not the real width:
+// native, lane aspect-ratio), radius, curve
+void xrScreenPoseOut(const XrCtx* ctx, float* pose);
 void xrPictureShapeChanged(XrCtx* ctx, int pictureWidth, int pictureHeight);
 void cogDragEnded(XrCtx* ctx, float* out);
 void cogStepTrack(XrCtx* ctx, int face, int row, int dir, float* out);

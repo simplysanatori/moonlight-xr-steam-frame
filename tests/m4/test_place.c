@@ -3,6 +3,8 @@
 // (xr_place.c, the Screen tab's cells in xr_ui.c, xr_prefs.c's store). The
 // context is the headset-free scene's, with the head pose handed to it the
 // way the session's locate would. GPLv3.
+#include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "check.h"
@@ -752,6 +754,31 @@ static void aspectKeepsHeight(void) {
     cogApplySlider(c, COG_TAB_SCREEN, COG_SLIDER_SIZE, cogRunU(0.5f));
     CHECK_NEAR(c->screenWidth, (SCREEN_MIN_WIDTH + 0.5f * (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH)) * 3440.0f / 2560.0f, 1e-4);
     CHECK_NEAR(cogSliderValue(c, COG_TAB_SCREEN, COG_SLIDER_SIZE), 0.5, 1e-4);
+    // a grab let go at 21:9 hands config.ini the Size, not the real width (1.3.3 dev build: 8 m saved as Size 800
+    // beside width_cm 800, so the next start showed 10.75 m)
+    {
+        float pose[10];
+        xrScreenPoseOut(c, pose);
+        CHECK_NEAR(pose[7] * xrScreenWidthScale(c), c->screenWidth, 1e-4);
+        Settings fromGrab = s->settings;
+        xrPoseToSettings(pose, 0.0f, &fromGrab);
+        CHECK(abs(fromGrab.screen_width_cm - (int)lroundf(c->screenWidth / xrScreenWidthScale(c) * 100.0f)) <= 1);
+        // near the 8 m cap: a real 8 m is Size 595, written back as width_cm 800 and size_cm 595
+        float was = c->screenWidth;
+        c->screenWidth = 8.0f;
+        xrScreenPoseOut(c, pose);
+        settings_defaults(&fromGrab);
+        settings_screen_picture(&fromGrab, 3440, 1440);
+        xrPoseToSettings(pose, 0.0f, &fromGrab);
+        CHECK(fromGrab.screen_width_cm == 595);
+        char* text = settings_to_text(&fromGrab);
+        Settings file;
+        settings_defaults(&file);
+        settings_from_text(&file, text, NULL);
+        free(text);
+        CHECK(file.screen_width_cm == 800 && file.screen_size_cm == 595);
+        c->screenWidth = was;
+    }
     // a session that starts in 21:9 puts the saved size back at the same height
     xrSettingsFromCtx(c, &saved);
     Scene* s2 = scene_new();

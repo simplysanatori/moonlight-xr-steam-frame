@@ -1061,12 +1061,15 @@ static int real_width(int size, double k) {
 }
 
 // One width_cm and its size_cm, read, as the Size: size_cm while it agrees with width_cm at the picture they were
-// written for (kFile, 0 when none was), else width_cm at the picture now. *seen is the real width when it is the
-// right one at the picture now (written back as it was while the Size does not change), else 0.
+// written for (kFile, 0 when none was), else width_cm at the picture now. A size_cm whose real width is past
+// width_cm's 80..800 cm agrees with nothing, since width_cm cannot say it (so a file where size_cm was saved as
+// the real width, 800 beside 800 at 21:9, heals itself). *seen is the real width when it is the right one at the
+// picture now (written back as it was while the Size does not change), else 0.
 static int size_of(int width, int size, double kFile, double kNow, int* derived, int* seen) {
     const SettingDesc* d = settings_find("screen.width_cm");
     int out;
-    if (size > 0 && kFile > 0.0 && abs(real_width(size, kFile) - width) <= 1) {
+    long implied = lround(size * kFile);
+    if (size > 0 && kFile > 0.0 && implied >= d->min && implied <= d->max && labs(implied - width) <= 1) {
         out = clamp_int(size, d->min, d->max);
     } else {
         out = clamp_int((int)lround(width / kNow), d->min, d->max);

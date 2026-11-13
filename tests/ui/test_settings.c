@@ -1716,8 +1716,8 @@ static void test_screen_size_versions(void) {
     s.screen_width_cm = 500;   // 10 m wide in the headset
     t = settings_to_text(&s);
     CHECK(file_int(t, "width_cm") == 800 && file_int(t, "size_cm") == 500);
-    start(&s, t, 3840, 1080);   // and back: the Size as it was, size_cm still agrees with the held width
-    CHECK(s.screen_width_cm == 500);
+    start(&s, t, 3840, 1080);   // and back: width_cm cannot say 10 m, so the Size is the 8 m it does say
+    CHECK(s.screen_width_cm == 400);
     free(t);
     // 4:3 is narrower: 150 cm shows a 200 cm Size
     start(&s, "[screen]\nwidth_cm = 150\n", 1600, 1200);
@@ -1729,6 +1729,63 @@ static void test_screen_size_versions(void) {
     CHECK(raw.screen_width_cm == 200 && raw.screen_size_cm == 149);
     t = settings_to_text(&raw);
     CHECK(file_int(t, "width_cm") == 200 && file_int(t, "size_cm") == 149 && strstr(t, "size_shape = 3440x1440") != NULL);
+    free(t);
+}
+
+// Native (lane aspect-ratio): the 1.3.3 dev build's first headset runs at 21:9 3440x1440, near the 8 m cap. A
+// grab handed the real width back as the Size, so the app's layout and the screen were saved as size_cm 800 beside
+// width_cm 800 and the next start showed 10.75 m. The settings side of it, and the file it left healing itself.
+static void test_screen_size_at_the_cap(void) {
+    const double k219 = (3440.0 * 9.0) / (1440.0 * 16.0);
+    unsigned app = 0xc2ea1e91u;
+    // 1.3.2's file: 8 m wide, kept for the app at 8 m too
+    const char* v132 = "[stream]\nresolution = 3440x1440\n[screen]\ndistance_cm = 477\nwidth_cm = 800\n"
+                       "[screen.c2ea1e91]\ndistance_cm = 477\nwidth_cm = 800\n";
+    Settings s;
+    start(&s, v132, 3440, 1440);   // config: screen 800 cm wide at 3440x1440, Size 595 cm
+    CHECK(s.screen_width_cm == 595 && settings_layout_find(&s, app)->width_cm == 595);
+    // the layout put back for the app: the Size, 595
+    settings_layout_apply(&s, settings_layout_find(&s, app));
+    CHECK(s.screen_width_cm == 595);
+    // a move saved (the Size, as the grab now hands it back) and kept for the app
+    s.screen_distance_cm = 480;
+    AppLayout now;
+    settings_layout_snapshot(&s, &now);
+    CHECK(settings_layout_store(&s, app, &now) == 1);
+    char* t = settings_to_text(&s);
+    CHECK(file_int(t, "width_cm") == 800 && file_int(t, "size_cm") == 595);
+    CHECK(strstr(t, "[screen.c2ea1e91]") && strstr(strstr(t, "[screen.c2ea1e91]"), "\nwidth_cm = 800\n"));
+    CHECK(strstr(strstr(t, "[screen.c2ea1e91]"), "\nsize_cm = 595\n"));
+    // the next start: still 8 m, not 10.75
+    start(&s, t, 3440, 1440);
+    CHECK(s.screen_width_cm == 595 && settings_layout_find(&s, app)->width_cm == 595);
+    CHECK(fabs(s.screen_width_cm * k219 - 800.0) < 1.0);
+    free(t);
+    // the file those runs left (size_cm 800 beside width_cm 800 at 3440x1440, in the screen and the app's
+    // layout): 800 x 1.34 is past what width_cm says, so the Size is worked out from width_cm again, 8 m
+    const char* broken = "[stream]\nresolution = 3440x1440\n[screen]\nwidth_cm = 800\nsize_cm = 800\n"
+                         "size_shape = 3440x1440\nback_distance_cm = 300\nback_width_cm = 138\nback_size_cm = 103\n"
+                         "[screen.c2ea1e91]\ndistance_cm = 557\nwidth_cm = 800\nsize_cm = 800\n"
+                         "[screen.00000001]\nwidth_cm = 160\nsize_cm = 119\n";
+    start(&s, broken, 3440, 1440);
+    CHECK(s.screen_width_cm == 595 && settings_layout_find(&s, app)->width_cm == 595);
+    CHECK(s.screen_back_width_cm == 103 && settings_layout_find(&s, 1)->width_cm == 119);   // these agreed
+    t = settings_to_text(&s);
+    CHECK(file_int(t, "width_cm") == 800 && file_int(t, "size_cm") == 595 && file_int(t, "back_width_cm") == 138);
+    free(t);
+    // 1.3.2 and 1.3.3 taking turns with the app's layout at the cap: 8 m every time
+    start(&s, v132, 3440, 1440);
+    t = settings_to_text(&s);
+    for (int round = 0; round < 3; round++) {
+        char* o = older(t, NULL);
+        free(t);
+        start(&s, o, 3440, 1440);
+        free(o);
+        CHECK(s.screen_width_cm == 595 && settings_layout_find(&s, app)->width_cm == 595);
+        t = settings_to_text(&s);
+        CHECK(file_int(t, "width_cm") == 800);
+        CHECK(strstr(strstr(t, "[screen.c2ea1e91]"), "\nwidth_cm = 800\n") != NULL);
+    }
     free(t);
 }
 
@@ -1831,6 +1888,7 @@ int main(void) {
     test_follow_and_lock_settings();
     test_layouts();
     test_screen_size_versions();
+    test_screen_size_at_the_cap();
     test_defaults();
     test_stats_style();
     test_shortcut_wording();
