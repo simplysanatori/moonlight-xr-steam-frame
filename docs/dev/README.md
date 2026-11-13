@@ -27,6 +27,7 @@ What the developer asked the owner to check in the headset after a session.
 | [HEADSET_TEST_4.md](HEADSET_TEST_4.md) | After the black screen fix (2026-10-11) |
 | [HEADSET_TEST_5.md](HEADSET_TEST_5.md) | 2026-10-11: double click, text sharpness, pulling the picture, the flat window, network choice, the Exit button, bitrate |
 | [HEADSET_TEST_GPU144.md](HEADSET_TEST_GPU144.md) | 2026-11-13: the 144 Hz GPU work (one rendering per eye, glow hole, room occluder), runs A to G |
+| [HEADSET_TEST_133.md](HEADSET_TEST_133.md) | 2026-11-13: the 1.3.3 candidate: the GPU runs, the Aspect ratio check and a beam sweep, about 15 minutes |
 | [GAMEPAD_CERT.md](GAMEPAD_CERT.md) | 2026-10-29: the 20-minute gamepad certification pass on the Frame with `mlxr-gamepad-probe` (Bluetooth and USB-C pads, Steam Input on and off, Steam Controller gyro routes) |
 
 ## Milestone reports
