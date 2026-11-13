@@ -110,6 +110,10 @@ struct MlxrPasses {
     VkImageView whiteView;
     PipeEntry pipes[MAX_PIPES];
     int pipeCount;
+    // Native (lane gpu-144): a chained pass's rendering left open (MlxrTarget.chain), and the format
+    // of the depth it has (VK_FORMAT_UNDEFINED for none)
+    int open;
+    VkFormat openDepth;
 };
 
 typedef struct {
@@ -118,6 +122,7 @@ typedef struct {
     int blend;
     int depth;           // 1: depth test and write, LESS
     int verts;
+    int noColor;         // native (lane gpu-144): writes the depth only
 } PassDesc;
 
 static const PassDesc kPasses[MLXR_PASS_COUNT] = {
@@ -133,6 +138,7 @@ static const PassDesc kPasses[MLXR_PASS_COUNT] = {
     [MLXR_PASS_SUPERSAMPLE] = {MOD_VERTEX, MOD_SUPERSAMPLE, -1, PL_TEX, BLEND_NONE, 0, VERTS_NONE},
     [MLXR_PASS_PANEL] = {MOD_PANEL_V, MOD_PANEL_F, -1, PL_TEX, BLEND_PREMUL, 0, VERTS_NONE},
     [MLXR_PASS_MODEL_TEX] = {MOD_MODEL_TEX_V, MOD_MODEL_TEX_F, -1, PL_MODEL_TEX, BLEND_NONE, 1, VERTS_MODEL_TEX},
+    [MLXR_PASS_PANEL_DEPTH] = {MOD_PANEL_V, MOD_PANEL_F, -1, PL_TEX, BLEND_NONE, 1, VERTS_NONE, 1},
 };
 
 static int isSrgb(VkFormat f) {
@@ -484,8 +490,9 @@ static VkPipeline buildPipeline(MlxrPasses* p, int pass, int kind, VkFormat colo
         ds.depthCompareOp = VK_COMPARE_OP_LESS;
     }
     VkPipelineColorBlendAttachmentState cba = {0};
-    cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
-                         VK_COLOR_COMPONENT_A_BIT;
+    cba.colorWriteMask = d->noColor ? 0
+                                    : VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
+                                          VK_COLOR_COMPONENT_A_BIT;
     if (d->blend == BLEND_CONSTANT) {
         // glBlendFunc(GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA)
         cba.blendEnable = VK_TRUE;
@@ -508,7 +515,9 @@ static VkPipeline buildPipeline(MlxrPasses* p, int pass, int kind, VkFormat colo
     VkPipelineRenderingCreateInfoKHR rci = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
     rci.colorAttachmentCount = 1;
     rci.pColorAttachmentFormats = &color;
-    rci.depthAttachmentFormat = d->depth ? depth : VK_FORMAT_UNDEFINED;
+    // Native (lane gpu-144): or, for a pass that does not use it, the depth of the chained rendering
+    // it joins (pipeline() passes none otherwise)
+    rci.depthAttachmentFormat = depth;
 
     VkGraphicsPipelineCreateInfo gp = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     gp.pNext = &rci;
@@ -528,9 +537,11 @@ static VkPipeline buildPipeline(MlxrPasses* p, int pass, int kind, VkFormat colo
     return pipe;
 }
 
-static VkPipeline pipeline(MlxrPasses* p, int pass, int kind, VkFormat color, VkFormat depth) {
+// Native (lane gpu-144): attached, for a pass with no depth of its own, keeps the depth format in
+// the pipeline (a chained rendering with a depth attachment it joins)
+static VkPipeline pipelineAt(MlxrPasses* p, int pass, int kind, VkFormat color, VkFormat depth, int attached) {
     if (kPasses[pass].fsNv12 < 0) kind = MLXR_VIDEO_YUV420P;
-    if (!kPasses[pass].depth) depth = VK_FORMAT_UNDEFINED;
+    if (!kPasses[pass].depth && !attached) depth = VK_FORMAT_UNDEFINED;
     for (int i = 0; i < p->pipeCount; i++) {
         PipeEntry* e = &p->pipes[i];
         if (e->pass == pass && e->kind == kind && e->color == color && e->depth == depth) return e->pipe;
@@ -540,6 +551,10 @@ static VkPipeline pipeline(MlxrPasses* p, int pass, int kind, VkFormat color, Vk
     if (!pipe) return VK_NULL_HANDLE;
     p->pipes[p->pipeCount++] = (PipeEntry){pass, kind, color, depth, pipe};
     return pipe;
+}
+
+static VkPipeline pipeline(MlxrPasses* p, int pass, int kind, VkFormat color, VkFormat depth) {
+    return pipelineAt(p, pass, kind, color, depth, 0);
 }
 
 int mlxr_passes_warm(MlxrPasses* p, MlxrPassId pass, MlxrVideoKind kind, VkFormat colorFormat, VkFormat depthFormat) {
@@ -573,6 +588,8 @@ static void beginRender(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t,
     da.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     da.clearValue.depthStencil.depth = 1.0f;
     VkRenderingInfoKHR ri = {VK_STRUCTURE_TYPE_RENDERING_INFO_KHR};
+    // Native (lane gpu-144): never inside a chain left open
+    mlxr_pass_chain_end(p, cmd);
     ri.renderArea = t->rect;
     ri.layerCount = 1;
     ri.colorAttachmentCount = 1;
@@ -580,6 +597,41 @@ static void beginRender(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t,
     if (depth) ri.pDepthAttachment = &da;
     p->beginRendering(cmd, &ri);
     setRect(cmd, t->rect);
+}
+
+void mlxr_pass_chain_end(MlxrPasses* p, VkCommandBuffer cmd) {
+    if (p->open) {
+        p->endRendering(cmd);
+        p->open = 0;
+    }
+}
+
+// Native (lane gpu-144): a chainable pass's start. t->chain with a rendering open (and its depth, if
+// the pass needs one) joins it; else begins its own, attaching depth (or, chained, t->chainDepth).
+// Returns the depth format of the rendering the pass draws into.
+static VkFormat beginOrJoin(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, int overwrites,
+                            VkImageView depth, VkFormat depthFormat, int clearColour, int needsDepth) {
+    if (t->chain && p->open && (!needsDepth || p->openDepth != VK_FORMAT_UNDEFINED)) {
+        setRect(cmd, t->rect);
+        return p->openDepth;
+    }
+    VkImageView d = depth;
+    VkFormat f = depthFormat;
+    if (d == VK_NULL_HANDLE && t->chain && t->chainDepth != VK_NULL_HANDLE) {
+        d = t->chainDepth;
+        f = t->chainDepthFormat;
+    }
+    beginRender(p, cmd, t, overwrites, d, clearColour);
+    p->open = 1;
+    p->openDepth = d != VK_NULL_HANDLE ? f : VK_FORMAT_UNDEFINED;
+    return p->openDepth;
+}
+
+// Native (lane gpu-144): a chainable pass's end, which a chained one leaves open
+static void endUnlessChained(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t) {
+    if (!t->chain) {
+        mlxr_pass_chain_end(p, cmd);
+    }
 }
 
 static VkWriteDescriptorSet imageWrite(uint32_t binding, const VkDescriptorImageInfo* ii) {
@@ -808,11 +860,36 @@ void mlxr_pass_glow(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, con
     p->endRendering(cmd);
 }
 
+static void panelDraws(MlxrPasses* p, VkCommandBuffer cmd, VkPipelineLayout layout, const MlxrPanelParams* pp,
+                       int eyes);
+
+// Native (lane gpu-144): the occluder's surface into the depth only, per eye as the room
+static void drawOccluder(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrRoomParams* r) {
+    VkPipeline pipe = pipeline(p, MLXR_PASS_PANEL_DEPTH, 0, t->format, r->depthFormat);
+    if (!pipe) return;
+    VkPipelineLayout layout = p->layout[PL_TEX];
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+    VkDescriptorImageInfo ii = imageInfo(p->atlas, p->whiteView);
+    VkWriteDescriptorSet wr = imageWrite(0, &ii);
+    p->pushDescriptors(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &wr);
+    MlxrPanelParams o = *r->occluder;
+    o.pictureFilter = 0;
+    o.holeU = o.holeV = 0.0f;
+    int eyes = r->eyes < 1 ? 1 : (r->eyes > 2 ? 2 : r->eyes);
+    for (int e = 0; e < eyes; e++) o.eyeRect[e] = r->eyeRect[e];
+    panelDraws(p, cmd, layout, &o, eyes);
+}
+
 void mlxr_pass_room(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrRoomParams* r) {
     VkPipeline pipe = pipeline(p, MLXR_PASS_ROOM, 0, t->format, r->depthFormat);
     if (!pipe) return;
     VkPipelineLayout layout = p->layout[PL_ROOM];
-    beginRender(p, cmd, t, 0, r->depth, 1);
+    // Native (lane gpu-144): the room clears, so it only ever opens a chain
+    mlxr_pass_chain_end(p, cmd);
+    beginOrJoin(p, cmd, t, 0, r->depth, r->depthFormat, 1, 1);
+    if (r->occluder != NULL && r->partCount > 0) {
+        drawOccluder(p, cmd, t, r);
+    }
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
     if (r->partCount > 0) {
         VkDeviceSize off = 0;
@@ -838,7 +915,7 @@ void mlxr_pass_room(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, con
             vkCmdDrawIndexed(cmd, part->indexCount, 1, part->firstIndex, 0, 0);
         }
     }
-    p->endRendering(cmd);
+    endUnlessChained(p, cmd, t);
 }
 
 // Native helpers for the textured model: a x b (column major 4x4), the
@@ -944,7 +1021,18 @@ void mlxr_pass_model(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, co
     // Nothing but the models: the layer shows through everywhere else
     MlxrTarget clear = *t;
     memset(clear.clearColor, 0, sizeof(clear.clearColor));
-    beginRender(p, cmd, &clear, 0, m->depth, !m->over);
+    // Native (lane gpu-144): over a chained rendering that has a depth, the depth cleared in it
+    // (what beginning its own would have done); one with its own clear never joins
+    if (clear.chain && p->open && m->over && p->openDepth == m->depthFormat) {
+        setRect(cmd, clear.rect);
+        VkClearAttachment ca = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, {.depthStencil = {1.0f, 0}}};
+        VkClearRect cr = {clear.rect, 0, 1};
+        vkCmdClearAttachments(cmd, 1, &ca, 1, &cr);
+    }
+    else {
+        mlxr_pass_chain_end(p, cmd);
+        beginOrJoin(p, cmd, &clear, 0, m->depth, m->depthFormat, !m->over, 1);
+    }
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
     VkDeviceSize off = 0;
     vkCmdBindVertexBuffers(cmd, 0, 1, &m->vertices, &off);
@@ -952,7 +1040,7 @@ void mlxr_pass_model(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, co
     int eyes = m->eyes < 1 ? 1 : (m->eyes > 2 ? 2 : m->eyes);
     if (textured) {
         drawTexturedModel(p, cmd, m, eyes);
-        p->endRendering(cmd);
+        endUnlessChained(p, cmd, &clear);
         return;
     }
     float pc[32];
@@ -971,7 +1059,7 @@ void mlxr_pass_model(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, co
             }
         }
     }
-    p->endRendering(cmd);
+    endUnlessChained(p, cmd, &clear);
 }
 
 void mlxr_pass_supersample(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrSupersampleParams* s) {
@@ -992,19 +1080,20 @@ void mlxr_pass_supersample(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget*
     p->endRendering(cmd);
 }
 
-void mlxr_pass_panel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrPanelParams* pp) {
-    VkPipeline pipe = pipeline(p, MLXR_PASS_PANEL, 0, t->format, VK_FORMAT_UNDEFINED);
-    if (!pipe) return;
-    VkPipelineLayout layout = p->layout[PL_TEX];
+// Native (lane gpu-144): the hole, packed into the push block's last float (picture.w, which only
+// panel.vert reads): both half extents in 4096ths, rounded down so the hole only ever shrinks;
+// whole numbers under 2^24, so a float carries them exactly. 0: no hole.
+static float packHole(float holeU, float holeV) {
+    if (holeU <= 0.0f || holeV <= 0.0f) return 0.0f;
+    int u = (int)(fminf(holeU, 0.5f) * 4096.0f);
+    int v = (int)(fminf(holeV, 0.5f) * 4096.0f);
+    return u > 0 && v > 0 ? (float)(u * 4096 + v) : 0.0f;
+}
+
+// The surface's draws, a draw per eye; the pipeline and its texture bound already
+static void panelDraws(MlxrPasses* p, VkCommandBuffer cmd, VkPipelineLayout layout, const MlxrPanelParams* pp,
+                       int eyes) {
     int segments = pp->segments < 1 ? 1 : pp->segments;
-    beginRender(p, cmd, t, 0, VK_NULL_HANDLE, t->clear);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
-    // Native: trilinear with anisotropy (the atlas's sampler), for a source
-    // with mips (the curved or 3D picture's own image) shrunk into an eye
-    VkDescriptorImageInfo ii = imageInfo(p->atlas, pp->src ? pp->src : p->whiteView);
-    VkWriteDescriptorSet wr = imageWrite(0, &ii);
-    p->pushDescriptors(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &wr);
-    int eyes = pp->eyes < 1 ? 1 : (pp->eyes > 2 ? 2 : pp->eyes);
     float pc[32];
     pc[16] = pp->width;
     pc[17] = pp->height;
@@ -1014,15 +1103,36 @@ void mlxr_pass_panel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, co
     pc[28] = pp->pictureFilter ? 1.0f : 0.0f;
     pc[29] = pp->pictureFilter ? pp->sharpen : 0.0f;
     pc[30] = pp->pictureFilter ? pp->sharpenReach : 0.0f;
-    pc[31] = 0.0f;
+    pc[31] = packHole(pp->holeU, pp->holeV);
+    // With a hole, three rows of quads a segment (panel.vert)
+    uint32_t verts = (uint32_t)segments * (pc[31] > 0.0f ? 18u : 6u);
     for (int e = 0; e < eyes; e++) {
         setRect(cmd, pp->eyeRect[e]);
         memcpy(pc, pp->mvp[e], 16 * sizeof(float));
         memcpy(&pc[20], pp->uvRect[e], 4 * sizeof(float));
         vkCmdPushConstants(cmd, layout, PUSH_STAGES, 0, sizeof(pc), pc);
-        vkCmdDraw(cmd, (uint32_t)segments * 6u, 1, 0, 0);
+        vkCmdDraw(cmd, verts, 1, 0, 0);
     }
-    p->endRendering(cmd);
+}
+
+void mlxr_pass_panel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrPanelParams* pp) {
+    // Native (lane gpu-144): chained, into the rendering left open (whose depth the pipeline names)
+    VkFormat depth = beginOrJoin(p, cmd, t, 0, VK_NULL_HANDLE, VK_FORMAT_UNDEFINED, t->clear, 0);
+    VkPipeline pipe = pipelineAt(p, MLXR_PASS_PANEL, 0, t->format, depth, 1);
+    if (!pipe) {
+        endUnlessChained(p, cmd, t);
+        return;
+    }
+    VkPipelineLayout layout = p->layout[PL_TEX];
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+    // Native: trilinear with anisotropy (the atlas's sampler), for a source
+    // with mips (the curved or 3D picture's own image) shrunk into an eye
+    VkDescriptorImageInfo ii = imageInfo(p->atlas, pp->src ? pp->src : p->whiteView);
+    VkWriteDescriptorSet wr = imageWrite(0, &ii);
+    p->pushDescriptors(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &wr);
+    int eyes = pp->eyes < 1 ? 1 : (pp->eyes > 2 ? 2 : pp->eyes);
+    panelDraws(p, cmd, layout, pp, eyes);
+    endUnlessChained(p, cmd, t);
 }
 
 // One level's layout change, with the stages a blit chain needs

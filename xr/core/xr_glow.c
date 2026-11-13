@@ -118,3 +118,61 @@ int glowCylinderForScale(float screenWidth, float screenHeight, float screenRadi
     out->aspectRatio = out->radius * out->centralAngle / (scale * screenHeight);
     return 1;
 }
+
+int glowHoleFor(float picW, float picH, float radius, float fadeFrac, float glowSpanU, float glowH, float proud,
+                const float eyes[][3], int eyeCount, float* holeU, float* holeV) {
+    int curved = radius > 1e-3f;
+    float f = fadeFrac + GLOW_HOLE_FILTER_FRAC;
+    if (picW <= 0.0f || picH <= 0.0f || glowSpanU <= 0.0f || glowH <= 0.0f || f >= 0.45f || eyeCount < 1) {
+        return 0;
+    }
+    // The middle's half extents: an angle (curved) or metres (flat) across, metres up
+    float halfU = (curved ? picW / radius : picW) * (0.5f - f);
+    float halfY = picH * (0.5f - f);
+    float mh = 0.0f, mv = 0.0f;
+    if (proud > 0.0f) {
+        // Round the middle's edge, eight points a side's length apart in quarters
+        static const float K[5] = { -1.0f, -0.5f, 0.0f, 0.5f, 1.0f };
+        for (int i = 0; i < 5; i++) {
+            for (int j = 0; j < 5; j++) {
+                if (fabsf(K[i]) < 1.0f && fabsf(K[j]) < 1.0f) continue;
+                float u = K[i] * halfU, y = K[j] * halfY;
+                float p[3], n[3], t[3];
+                if (curved) {
+                    p[0] = radius * sinf(u); p[1] = y; p[2] = radius * (1.0f - cosf(u));
+                    n[0] = -sinf(u); n[1] = 0.0f; n[2] = cosf(u);
+                    t[0] = cosf(u); t[1] = 0.0f; t[2] = sinf(u);
+                } else {
+                    p[0] = u; p[1] = y; p[2] = 0.0f;
+                    n[0] = 0.0f; n[1] = 0.0f; n[2] = 1.0f;
+                    t[0] = 1.0f; t[1] = 0.0f; t[2] = 0.0f;
+                }
+                for (int e = 0; e < eyeCount; e++) {
+                    float d[3] = { eyes[e][0] - p[0], eyes[e][1] - p[1], eyes[e][2] - p[2] };
+                    float len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                    float dn = d[0] * n[0] + d[1] * n[1] + d[2] * n[2];
+                    // Behind the surface or within about 78 degrees of grazing it: no hole
+                    if (len <= 1e-4f || dn <= 0.2f * len) {
+                        return 0;
+                    }
+                    float oh = proud * fabsf(d[0] * t[0] + d[1] * t[1] + d[2] * t[2]) / dn;
+                    float ov = proud * fabsf(d[1]) / dn;
+                    if (oh > mh) mh = oh;
+                    if (ov > mv) mv = ov;
+                }
+            }
+        }
+        mh = mh * 1.25f + 0.01f;
+        mv = mv * 1.25f + 0.01f;
+    }
+    float hu = halfU - (curved ? mh / (radius > proud + 1e-3f ? radius - proud : radius) : mh);
+    float hv = halfY - mv;
+    if (hu <= 0.0f || hv <= 0.0f) {
+        return 0;
+    }
+    hu /= glowSpanU;
+    hv /= glowH;
+    *holeU = hu < 0.5f ? hu : 0.5f;
+    *holeV = hv < 0.5f ? hv : 0.5f;
+    return 1;
+}

@@ -45,6 +45,7 @@ typedef struct XrWorld {
     double tickNs;
     unsigned written;      // sections begun and ended in the frame recorded last
     unsigned writing;      // this frame's
+    int roomInCurveWritten, roomInCurveWriting; // native (lane gpu-144): xrGpuCurveCarriesRoom
     int begun[GPU_SECTIONS];
     double sumMs[GPU_SECTIONS];
     double maxMs[GPU_SECTIONS];
@@ -260,6 +261,12 @@ MlxrTarget xrEyeTarget(const XrEyeTargets* t, int eye) {
     m.rect.extent = (VkExtent2D){ (uint32_t)t->eyeW, (uint32_t)t->eyeH };
     m.clear = t->clear;
     memcpy(m.clearColor, t->clearColor, sizeof(m.clearColor));
+    // Native (lane gpu-144)
+    m.chain = t->chain;
+    if (t->chain && t->depthView != VK_NULL_HANDLE) {
+        m.chainDepth = t->depthView;
+        m.chainDepthFormat = VK_FORMAT_D32_SFLOAT;
+    }
     return m;
 }
 
@@ -298,6 +305,7 @@ void xrEyesPanel(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* t, const M
     }
     // An eye at a time, each into its own image (or its own half)
     for (int e = 0; e < ROOM_EYES; e++) {
+        if (t->eyeMask && !(t->eyeMask & (1 << e))) continue; // native (lane gpu-144)
         MlxrTarget one = xrEyeTarget(t, e);
         p.eyes = 1;
         p.src = src != NULL ? src[e] : pp->src;
@@ -393,6 +401,8 @@ void xrWorldSubmitted(XrCtx* ctx, uint64_t serial) {
     }
     w->written = w->writing;
     w->writing = 0;
+    w->roomInCurveWritten = w->roomInCurveWriting;
+    w->roomInCurveWriting = 0;
 }
 
 // What the GPU is done with: staging, loader pools, rooms retired
@@ -486,7 +496,7 @@ static void timesCollect(XrCtx* ctx) {
                 if (s == GPU_WARP || s == GPU_GLOW || s == GPU_DOWNSCALE || s == GPU_UPSAMPLE || s == GPU_OFFSET) {
                     pictureMs += ms;
                 }
-                if (s == GPU_ROOM) {
+                if (s == GPU_ROOM || (s == GPU_CURVE && w->roomInCurveWritten)) {
                     rateBudgetRoom(&ctx->rateBudget, (int64_t)(ms * 1e6));
                 }
             }
@@ -499,6 +509,10 @@ static void timesCollect(XrCtx* ctx) {
     vkCmdResetQueryPool(ctx->frameCmd, w->queries, 0, 2 * GPU_SECTIONS);
     w->writing = 0;
     memset(w->begun, 0, sizeof(w->begun));
+}
+
+void xrGpuCurveCarriesRoom(XrCtx* ctx) {
+    world(ctx)->roomInCurveWriting = 1;
 }
 
 void xrGpuTimeBegin(XrCtx* ctx, int section) {
@@ -862,6 +876,45 @@ void xrWorldFlatGlow(XrCtx* ctx, int curved) {
     ctx->glowCopied = 1;
 }
 
+// Native (lane gpu-144): MLXR_GLOW_HOLE=0 draws the glow under the picture's middle as before
+int xrGlowHoleOn(void) {
+    static int on = -1;
+    if (on < 0) {
+        const char* v = getenv("MLXR_GLOW_HOLE");
+        on = !(v != NULL && v[0] == '0');
+    }
+    return on;
+}
+
+// Native (lane gpu-144): the glow's hole (glowHoleFor) for a picture picW x picH (radius 0 flat)
+// at ctx->screenPose seen from views, the glow drawn spanU (an angle curved, metres flat) by glowH,
+// proud metres in front. Fills pp's hole, or leaves none.
+static void glowHole(XrCtx* ctx, const XrView* views, float picW, float picH, float radius, float spanU,
+                     float glowH, float proud, MlxrPanelParams* pp) {
+    pp->holeU = pp->holeV = 0.0f;
+    if (!xrGlowHoleOn()) return;
+    // The fade the picture's image has, and the one the next one will, whichever is wider
+    float fade = glowFeatherFraction(ctx->pictureBorderDrawn);
+    float now = glowFeatherFraction(xrPictureBorderFade(ctx));
+    if (now > fade) fade = now;
+    float eyes[ROOM_EYES][3];
+    XrQuaternionf inv = quatConj(ctx->screenPose.orientation);
+    for (int e = 0; e < ROOM_EYES; e++) {
+        Vec3 d = { views[e].pose.position.x - ctx->screenPose.position.x,
+                   views[e].pose.position.y - ctx->screenPose.position.y,
+                   views[e].pose.position.z - ctx->screenPose.position.z };
+        Vec3 l = quatRotate(inv, d);
+        eyes[e][0] = l.x;
+        eyes[e][1] = l.y;
+        eyes[e][2] = l.z;
+    }
+    if (glowHoleFor(picW, picH, radius, fade, spanU, glowH, proud, (const float(*)[3])eyes, ROOM_EYES, &pp->holeU,
+                    &pp->holeV) && pp->segments < 64) {
+        // The hole is cut on whole segments: a flat glow is one, so it gets enough to have one
+        pp->segments = 64;
+    }
+}
+
 // Upstream's curved glow (addGlowLayer's cylinder): the same axis as the
 // picture, a little inside its radius, GLOW_SCALE (or the Wide Glow edge's
 // GLOW_SCALE_WIDE) times its angle and height
@@ -897,6 +950,9 @@ void xrWorldCurvedGlow(XrCtx* ctx, const XrEyeTargets* target, const XrView* vie
         pp.uvRect[e][2] = (float)shape.rectWidth / GLOW_TEX;
         pp.uvRect[e][3] = 1.0f;
     }
+    // Native (lane gpu-144): not under the picture's opaque middle
+    glowHole(ctx, views, ctx->screenWidth * fit, ctx->screenWidth * aspect * fit, ctx->screenRadius,
+             shape.centralAngle, pp.height, ctx->screenRadius - shape.radius, &pp);
     // Native (lane eye-swapchains): each eye into its own image
     xrEyesPanel(ctx, ctx->frameCmd, target, &pp, NULL);
 }
@@ -920,6 +976,8 @@ void xrWorldFlatGlowInto(XrCtx* ctx, const XrEyeTargets* target, const XrView* v
         pp.uvRect[e][2] = 1.0f;
         pp.uvRect[e][3] = 1.0f;
     }
+    // Native (lane gpu-144): level with the picture, so the middle itself
+    glowHole(ctx, views, ctx->screenWidth, ctx->screenWidth * aspect, 0.0f, pp.width, pp.height, 0.0f, &pp);
     xrEyesPanel(ctx, ctx->frameCmd, target, &pp, NULL);
 }
 

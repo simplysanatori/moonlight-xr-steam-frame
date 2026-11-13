@@ -104,6 +104,7 @@ typedef enum MlxrPassId {
     MLXR_PASS_SUPERSAMPLE,  // new: app side supersampling (no FB layer settings on the Frame)
     MLXR_PASS_PANEL,        // new: texture on a flat or curved surface (no cylinder layers on the Frame)
     MLXR_PASS_MODEL_TEX,    // new: the textured controller model (the Frame's own, mlxr_pass_model with textured)
+    MLXR_PASS_PANEL_DEPTH,  // new (lane gpu-144): a panel's surface into the depth only (the room's occluder)
     MLXR_PASS_COUNT
 } MlxrPassId;
 
@@ -118,7 +119,18 @@ typedef struct MlxrTarget {
     VkRect2D rect;        // render area, viewport and scissor
     int clear;            // clear the rect to clearColor before drawing (else load)
     float clearColor[4];
+    // Native (lane gpu-144): 1 leaves the rendering open after the draw, and draws into one a chained
+    // pass left open rather than beginning its own (no store and load of the image between them, which
+    // on the Adreno's tiles is a full image's write and read). mlxr_pass_chain_end closes it. The
+    // pass that opens a chain attaches chainDepth (cleared), if set, so the passes after it that need
+    // a depth (the room's, the models') can join; chainDepthFormat is its format.
+    int chain;
+    VkImageView chainDepth;
+    VkFormat chainDepthFormat;
 } MlxrTarget;
+
+// Native (lane gpu-144): ends the rendering a chained pass left open, if one is
+void mlxr_pass_chain_end(MlxrPasses* p, VkCommandBuffer cmd);
 
 typedef struct MlxrVideo {
     MlxrVideoKind kind;
@@ -282,6 +294,10 @@ typedef struct MlxrRoomParams {
     float bgDim;
     VkImageView depth;     // depth attachment covering target.rect
     VkFormat depthFormat;
+    // Native (lane gpu-144): drawn into the depth first, per eye (its eyes, mvp and eyeRect as the
+    // room's), so the room is not shaded behind it: the opaque middle of the picture drawn over the
+    // room later in the same image. NULL draws none.
+    const struct MlxrPanelParams* occluder;
 } MlxrRoomParams;
 void mlxr_pass_room(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrRoomParams* r);
 
@@ -363,6 +379,10 @@ typedef struct MlxrPanelParams {
     int pictureFilter;
     float sharpen;
     float sharpenReach;
+    // Native (lane gpu-144): a hole left out of the surface, |u - 0.5| < holeU and |v - 0.5| < holeV
+    // in the surface's own uv (0..1 across the drawn width and height), rounded inward to whole
+    // segments; 0 for none. The glow under the picture's opaque middle, which would never be seen.
+    float holeU, holeV;
 } MlxrPanelParams;
 void mlxr_pass_panel(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrPanelParams* pp);
 

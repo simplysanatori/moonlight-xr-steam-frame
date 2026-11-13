@@ -81,6 +81,21 @@ int glowCylinderFor(float screenWidth, float screenHeight, float screenRadius,
 int glowCylinderForScale(float screenWidth, float screenHeight, float screenRadius, float scale,
                          GlowCylinder* out);
 
+// Native (lane gpu-144): the hole the glow drawn into the picture's layer can leave out, since
+// the picture's opaque middle covers it: half extents about the glow surface's middle in its own
+// uv (0..1 across the drawn surface), *holeU and *holeV. The middle is inside the picture's border
+// fade (fadeFrac of its width and height a side) and GLOW_HOLE_FILTER_FRAC more for its filter's
+// reach, shrunk by how far beside the picture point behind it each eye sees the glow sitting
+// proud metres in front (1.25 times the worst over the edge of the middle, plus 1 cm).
+// The picture: picW x picH metres, radius 0 flat, else curved about an axis at (0, 0, radius) in
+// its own space (middle at the origin, +z toward the viewer), the glow about the same axis.
+// glowSpanU: the drawn glow's central angle (curved) or width in metres (flat); glowH its height.
+// eyes: the eyes in the picture's space. 0, and nothing written, when there is no hole to have
+// (an eye at a grazing angle, or the margins eat it).
+#define GLOW_HOLE_FILTER_FRAC 0.005f
+int glowHoleFor(float picW, float picH, float radius, float fadeFrac, float glowSpanU, float glowH, float proud,
+                const float eyes[][3], int eyeCount, float* holeU, float* holeV);
+
 // Rec. 709 luma
 float glowLuma(const float rgb[3]);
 

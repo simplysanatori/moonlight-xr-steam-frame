@@ -317,6 +317,7 @@ static void modelRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* tar
     }
     int shared = xrEyesShared(target);
     for (int eye = 0; eye < ROOM_EYES; eye++) {
+        if (target->eyeMask && !shared && !(target->eyeMask & (1 << eye))) continue; // native (lane gpu-144)
         MlxrTarget t = xrEyeTarget(target, eye);
         t.clear = clear;
         if (shared) {
@@ -330,7 +331,7 @@ static void modelRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* tar
             }
         }
         else {
-            if (eye > 0 && target->depthImage != VK_NULL_HANDLE) {
+            if (eye > 0 && target->depthImage != VK_NULL_HANDLE && !target->chain) {
                 mlxr_barrier(cmd, target->depthImage, VK_IMAGE_ASPECT_DEPTH_BIT,
                              VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                              VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
@@ -361,14 +362,19 @@ void xrModelRecordOver(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* targ
     mlxr_passes_warm(ctx->passes, ctx->model->textured ? MLXR_PASS_MODEL_TEX : MLXR_PASS_MODEL, MLXR_VIDEO_YUV420P,
                      target->format, VK_FORMAT_D32_SFLOAT);
     XrEyeTargets t = *target;
-    if (!xrEyesWorldDepth(ctx, &t)) {
+    // Native (lane gpu-144): chained, the caller attached the depth before the rendering opened;
+    // xrWorldDepth's barrier would land inside it (not allowed in a vkCmdBeginRendering instance)
+    if (!(t.chain && t.depthView != VK_NULL_HANDLE) && !xrEyesWorldDepth(ctx, &t)) {
         return;
     }
-    // After the draws already in the images
-    xrEyesBarrier(cmd, &t);
-    xrGpuTimeBegin(ctx, GPU_MODELS);
+    // After the draws already in the images. Native (lane gpu-144): chained, in the same rendering
+    // (no barrier inside it) and inside the curve's own time
+    if (!t.chain) {
+        xrEyesBarrier(cmd, &t);
+        xrGpuTimeBegin(ctx, GPU_MODELS);
+    }
     modelRecord(ctx, cmd, &t, views, 0);
-    xrGpuTimeEnd(ctx, GPU_MODELS);
+    if (!t.chain) xrGpuTimeEnd(ctx, GPU_MODELS);
     ctx->modelRendered = 1;
 }
 
