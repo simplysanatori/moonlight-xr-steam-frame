@@ -228,6 +228,9 @@ void ui_draw_report(UiCanvas* cv, const UiReport* r, UiHits* hits);
 // A line, and a quieter one under it when more is not empty; a path is cut
 // from the middle when it does not fit, anything else from the end.
 void ui_draw_toast(UiCanvas* cv, const char* text, const char* more, int more_is_path);
+// Native (1.3.3): draws the toast as ui_draw_toast does and returns 1 when any of its text had to
+// be cut with an ellipsis (tests/ui/test_toasts.c checks every notice against it)
+int ui_toast_cut(UiCanvas* cv, const char* text, const char* more);
 void ui_draw_clock(UiCanvas* cv, const char* line);
 // Native (lane wave3-hud): the clock strip with the headset battery (percent 0..100, -1 for none; charging draws
 // a bolt on it) and the slow connection pill

@@ -3,6 +3,7 @@
 // ClockStrip; the PC and app lists have no upstream counterpart (Moonlight's
 // Android UI is a Leanback activity) and are written to match the sheet style. GPLv3.
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "panels_int.h"
@@ -112,28 +113,83 @@ void ui_draw_report(UiCanvas* cv, const UiReport* r, UiHits* hits) {
 
 // ---- toast and clock -----------------------------------------------------------------------------
 
-void ui_draw_toast(UiCanvas* cv, const char* text, const char* more, int more_is_path) {
+// Draws the toast and returns 1 when any of its text had to be cut (an ellipsis)
+static int toast_draw(UiCanvas* cv, const char* text, const char* more, int more_is_path) {
     UiView view;
     memset(&view, 0, sizeof view);
     Dc dc;
     dc_init(&dc, cv, NULL, &view, TOAST_TEX_W, TOAST_TEX_H);
-    if (!dc.font || !text) return;
+    if (!dc.font || !text) return 0;
     dc_sheet(&dc, 40.0f, 0xF0141416u);
     const float room = TOAST_TEX_W - 80.0f, mid = TOAST_TEX_W * 0.5f;
     char cut[512];
-    ui_text_ellipsize(dc.font, UI_WEIGHT_REGULAR, 44.0f * dc.k, text, room * dc.k, UI_ELLIPSIZE_END, cut, sizeof cut, NULL);
+    int was_cut = 0, t = 0;
+    // Native (1.3.3): a long notice (the refresh rate and heat ones) gets a little smaller, then
+    // takes two lines, before anything is cut
+    float size = 44.0f;
+    while (size > 38.0f && dc_text_width(&dc, UI_WEIGHT_REGULAR, size, text) > room) size -= 1.0f;
     if (!more || !*more) {
-        dc_text_center(&dc, UI_WEIGHT_REGULAR, 44.0f, mid, TOAST_TEX_H * 0.5f, 0xFFFFFFFFu, cut);
-        return;
+        UiTextLine lines[8];
+        int n = dc_text_width(&dc, UI_WEIGHT_REGULAR, size, text) > room
+                    ? ui_text_wrap(dc.font, UI_WEIGHT_REGULAR, size * dc.k, text, room * dc.k, lines, 8)
+                    : 1;
+        if (n <= 1) {
+            ui_text_ellipsize(dc.font, UI_WEIGHT_REGULAR, size * dc.k, text, room * dc.k, UI_ELLIPSIZE_END, cut, sizeof cut, &t);
+            was_cut |= t;
+            dc_text_center(&dc, UI_WEIGHT_REGULAR, size, mid, TOAST_TEX_H * 0.5f, 0xFFFFFFFFu, cut);
+            return was_cut;
+        }
+        // a break after a full stop, colon or comma reads better than one wherever the width
+        // runs out: the one nearest the middle with both halves fitting
+        {
+            int len = (int)strlen(text), best = -1;
+            for (int i = 1; i + 1 < len; i++) {
+                if (text[i + 1] != ' ' || (text[i] != '.' && text[i] != ':' && text[i] != ',')) continue;
+                if (ui_text_width(dc.font, UI_WEIGHT_REGULAR, size * dc.k, text, i + 1) > room * dc.k) continue;
+                if (ui_text_width(dc.font, UI_WEIGHT_REGULAR, size * dc.k, text + i + 2, -1) > room * dc.k) continue;
+                if (best < 0 || abs(2 * i - len) < abs(2 * best - len)) best = i;
+            }
+            if (best > 0) {
+                lines[0].start = 0;
+                lines[0].len = best + 1;
+                lines[1].start = best + 2;
+            }
+        }
+        for (int i = 0; i < 2; i++) {
+            // the second line carries the rest, cut only if a third would be needed
+            const char* from = text + lines[i].start;
+            size_t len = i == 1 ? strlen(from) : (size_t)lines[i].len;
+            char line[512];
+            if (len > sizeof line - 1) len = sizeof line - 1;
+            memcpy(line, from, len);
+            line[len] = 0;
+            while (len > 0 && line[len - 1] == ' ') line[--len] = 0;
+            ui_text_ellipsize(dc.font, UI_WEIGHT_REGULAR, size * dc.k, line, room * dc.k, UI_ELLIPSIZE_END, cut, sizeof cut, &t);
+            was_cut |= t;
+            dc_text_center(&dc, UI_WEIGHT_REGULAR, size, mid, TOAST_TEX_H * (i == 0 ? 0.33f : 0.67f), 0xFFFFFFFFu, cut);
+        }
+        return was_cut;
     }
-    dc_text(&dc, UI_WEIGHT_REGULAR, 44.0f, mid, TOAST_TEX_H * 0.44f, UI_ALIGN_CENTER, 0xFFFFFFFFu, cut);
+    ui_text_ellipsize(dc.font, UI_WEIGHT_REGULAR, size * dc.k, text, room * dc.k, UI_ELLIPSIZE_END, cut, sizeof cut, &t);
+    was_cut |= t;
+    dc_text(&dc, UI_WEIGHT_REGULAR, size, mid, TOAST_TEX_H * 0.44f, UI_ALIGN_CENTER, 0xFFFFFFFFu, cut);
     // a path is what the second line most often carries, and its end is the
     // part that matters, so it gets smaller before it gets cut
-    float size = 32.0f;
-    while (size > 22.0f && dc_text_width(&dc, UI_WEIGHT_REGULAR, size, more) > room) size -= 1.0f;
-    ui_text_ellipsize(dc.font, UI_WEIGHT_REGULAR, size * dc.k, more, room * dc.k,
-                      more_is_path ? UI_ELLIPSIZE_MIDDLE : UI_ELLIPSIZE_END, cut, sizeof cut, NULL);
-    dc_text(&dc, UI_WEIGHT_REGULAR, size, mid, TOAST_TEX_H * 0.78f, UI_ALIGN_CENTER, 0xB0FFFFFFu, cut);
+    float more_size = 32.0f;
+    while (more_size > 22.0f && dc_text_width(&dc, UI_WEIGHT_REGULAR, more_size, more) > room) more_size -= 1.0f;
+    ui_text_ellipsize(dc.font, UI_WEIGHT_REGULAR, more_size * dc.k, more, room * dc.k,
+                      more_is_path ? UI_ELLIPSIZE_MIDDLE : UI_ELLIPSIZE_END, cut, sizeof cut, &t);
+    was_cut |= t;
+    dc_text(&dc, UI_WEIGHT_REGULAR, more_size, mid, TOAST_TEX_H * 0.78f, UI_ALIGN_CENTER, 0xB0FFFFFFu, cut);
+    return was_cut;
+}
+
+void ui_draw_toast(UiCanvas* cv, const char* text, const char* more, int more_is_path) {
+    toast_draw(cv, text, more, more_is_path);
+}
+
+int ui_toast_cut(UiCanvas* cv, const char* text, const char* more) {
+    return toast_draw(cv, text, more, 0);
 }
 
 // native (lane wave3-hud): the headset's battery at the left of the time (a cell filled to the

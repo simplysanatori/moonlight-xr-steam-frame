@@ -12,7 +12,7 @@ target_include_directories(mlxr-panel-test PRIVATE ${UI_TEST_COMMON_INCLUDES})
 target_compile_definitions(mlxr-panel-test PRIVATE PANEL_RENDER_MAIN=1)
 add_custom_target(panels COMMAND mlxr-panel-test ${PANEL_OUT} DEPENDS mlxr-panel-test)
 
-foreach(t text settings panels i18n)
+foreach(t text settings panels i18n toasts)
   add_executable(test_ui_${t} test_${t}.c)
   target_link_libraries(test_ui_${t} PRIVATE mlxr_ui m)
   target_include_directories(test_ui_${t} PRIVATE ${UI_TEST_COMMON_INCLUDES})

@@ -285,6 +285,11 @@ int rateVerdict(float reportedHz, float measuredHz, int forced) {
     if (!(measuredHz > 0.0f) || !(reportedHz > 0.0f) || measureAgrees(reportedHz, measuredHz)) {
         return RATE_VERDICT_AGREES;
     }
+    // Native (1.3.3 final): slower than reported is SteamVR pacing the app at half rate while its
+    // frames are late (3D, a room), with the display still on the reported rate
+    if (measuredHz < reportedHz) {
+        return RATE_VERDICT_SLOWER;
+    }
     return forced ? RATE_VERDICT_LOG_ONLY : RATE_VERDICT_ADOPT;
 }
 
@@ -295,7 +300,7 @@ float rateTrue(float reportedHz, float measuredHz) {
     if (!(reportedHz > 0.0f)) {
         return measuredHz;
     }
-    return measureAgrees(reportedHz, measuredHz) ? reportedHz : measuredHz;
+    return measureAgrees(reportedHz, measuredHz) || measuredHz < reportedHz ? reportedHz : measuredHz;
 }
 
 int depthRateClamp(int perSecond) {

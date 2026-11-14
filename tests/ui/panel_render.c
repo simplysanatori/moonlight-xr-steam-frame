@@ -297,6 +297,13 @@ int render_all_panels(const char* dir) {
         ui_cv_clear(&cv);
         ui_draw_toast(&cv, "Report saved", "/home/steamos/Games/MoonlightXRNative/reports/moonlight-report-2026-10-10-123456.txt", 1);
         save(dir, "toast_path", &cv, 0);
+        // native (1.3.3 final): long notices take two lines rather than being cut
+        ui_cv_clear(&cv);
+        ui_draw_toast(&cv, "Headset at 144 Hz, stream at 90 fps: start the stream again to match", NULL, 0);
+        save(dir, "toast_long_rate", &cv, 0);
+        ui_cv_clear(&cv);
+        ui_draw_toast(&cv, "Your headset is getting hot. Turn off 3D before it shuts down.", NULL, 0);
+        save(dir, "toast_long_heat", &cv, 0);
         free(buf);
         cv = make(&buf, UI_PANEL_CLOCK, 1.0f);
         ui_draw_clock(&cv, "10:42");

@@ -198,7 +198,7 @@ How to use it:
 
 - Choose **USB cable** in Settings, Connection, Network connection, or leave **Automatic**. Automatic probes the cable like the other links and uses it when its score is the lowest, which it normally is. The row says whether a cable is detected; it looks again every 10 seconds, so you can plug the cable in after starting the app.
 - The same choice in `config.ini` is `network_path = usb` in the `[stream]` section. On the command line it is `--network usb`, and `MLXR_NETWORK=usb` overrides both.
-- If you choose USB cable and no cable is there, the stream uses the other link and the headset shows a notice, for example "USB cable not reachable (no USB cable found: usb0 down (no cable, or the PC end is not up)). Using Wi-Fi." If the cable is in and the PC does not answer on it, the notice names the address that failed.
+- If you choose USB cable and no cable is there, the stream uses the other link and the headset shows a notice, for example "USB cable not reachable: Using Wi-Fi". Why it was not reachable (no cable, or the PC not answering on it) is in `moonlight.log`.
 - Pulling the cable out during a stream is a lost connection: the headset tries to reconnect twice (see Ending a stream, When the connection drops) before the flat window comes back. `moonlight.log` has `USB cable link lost`.
 - Power: over the cable the headset draws from the PC's USB port, which gives far less than the headset uses while streaming, so the battery may still drain slowly. Whether a hub with USB Power Delivery pass-through fixes that has not been tested.
 

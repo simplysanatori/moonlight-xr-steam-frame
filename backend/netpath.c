@@ -837,7 +837,8 @@ int mlxr_net_choose(mlxr_net_plan *p)
                 p->fell_back = true;
                 p->adapter_absent_fallback = no_adapter;
                 p->usb_absent_fallback = no_usb;
-                snprintf(p->toast, sizeof p->toast, "%s not reachable (%s). Using %s.", mlxr_net_path_label(want), p->failure,
+                // Native (1.3.3): the reason goes to the log (p->reason), the toast stays short enough to show whole
+                snprintf(p->toast, sizeof p->toast, "%s not reachable: Using %s", mlxr_net_path_label(want),
                          mlxr_net_path_label(p->c[p->chosen].path));
                 snprintf(p->reason, sizeof p->reason, "chose %s: %s not reachable (%s)",
                          mlxr_net_path_label(p->c[p->chosen].path), mlxr_net_path_label(want), p->failure);

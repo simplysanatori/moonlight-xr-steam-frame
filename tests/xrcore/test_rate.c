@@ -1026,19 +1026,23 @@ static void testMeasureNeedsEnoughFrames(void) {
 }
 
 static void testVerdictMatchOrSetRate(void) {
-    // Disagreeing past the tolerance: the measured rate is taken (Match
+    // Higher than reported past the tolerance: the measured rate is taken (Match
     // headset or a set rate alike), a rate forced by the debug knob is only said
     CHECK(rateVerdict(90.0f, 144.0f, 0) == RATE_VERDICT_ADOPT);
     CHECK(rateVerdict(90.0f, 144.0f, 1) == RATE_VERDICT_LOG_ONLY);
-    CHECK(rateVerdict(144.0f, 90.0f, 0) == RATE_VERDICT_ADOPT);
-    CHECK(rateVerdict(144.0f, 120.0f, 1) == RATE_VERDICT_LOG_ONLY);
+    // Lower: SteamVR's half rate for late frames, never taken, forced or not
+    // (headset check 2026-11-14 14:16:56: 72 measured at 144 in Home Theater)
+    CHECK(rateVerdict(144.0f, 90.0f, 0) == RATE_VERDICT_SLOWER);
+    CHECK(rateVerdict(144.0f, 72.0f, 0) == RATE_VERDICT_SLOWER);
+    CHECK(rateVerdict(144.0f, 120.0f, 1) == RATE_VERDICT_SLOWER);
+    CHECK_NEAR(rateTrue(144.0f, 72.0f), 144, 0);
     // Within it: the reported rate stands, forced or not
     CHECK(rateVerdict(144.0f, 144.09f, 0) == RATE_VERDICT_AGREES);
     CHECK(rateVerdict(144.0f, 143.6f, 0) == RATE_VERDICT_AGREES);
     CHECK(rateVerdict(119.88f, 120.0f, 0) == RATE_VERDICT_AGREES);
     CHECK(rateVerdict(90.0f, 90.0f + RATE_MEASURE_TOLERANCE_HZ - 0.1f, 0) == RATE_VERDICT_AGREES);
     CHECK(rateVerdict(90.0f, 90.0f + RATE_MEASURE_TOLERANCE_HZ + 0.1f, 0) == RATE_VERDICT_ADOPT);
-    CHECK(rateVerdict(90.0f, 90.0f - RATE_MEASURE_TOLERANCE_HZ - 0.1f, 1) == RATE_VERDICT_LOG_ONLY);
+    CHECK(rateVerdict(90.0f, 90.0f - RATE_MEASURE_TOLERANCE_HZ - 0.1f, 1) == RATE_VERDICT_SLOWER);
     // Nothing reported (no extension) or nothing measured: nothing to overrule
     CHECK(rateVerdict(0.0f, 144.0f, 0) == RATE_VERDICT_AGREES);
     CHECK(rateVerdict(90.0f, 0.0f, 0) == RATE_VERDICT_AGREES);
@@ -1047,9 +1051,11 @@ static void testVerdictMatchOrSetRate(void) {
     static const float FRAME[] = { 72.0f, 90.0f, 120.0f, 144.0f };
     for (int i = 0; i < 4; i++) {
         for (int j = 0; j < 4; j++) {
-            CHECK(rateVerdict(FRAME[i], FRAME[j], 0) == (i == j ? RATE_VERDICT_AGREES : RATE_VERDICT_ADOPT));
-            CHECK(rateVerdict(FRAME[i], FRAME[j], 1) == (i == j ? RATE_VERDICT_AGREES : RATE_VERDICT_LOG_ONLY));
-            CHECK_NEAR(rateTrue(FRAME[i], FRAME[j]), FRAME[j], 0);
+            CHECK(rateVerdict(FRAME[i], FRAME[j], 0) == (i == j ? RATE_VERDICT_AGREES
+                                                         : j > i  ? RATE_VERDICT_ADOPT : RATE_VERDICT_SLOWER));
+            CHECK(rateVerdict(FRAME[i], FRAME[j], 1) == (i == j ? RATE_VERDICT_AGREES
+                                                         : j > i  ? RATE_VERDICT_LOG_ONLY : RATE_VERDICT_SLOWER));
+            CHECK_NEAR(rateTrue(FRAME[i], FRAME[j]), j > i ? FRAME[j] : FRAME[i], 0);
         }
     }
     // The reported rate's own value where they agree, the measured one only
@@ -1077,12 +1083,13 @@ static void testMeasureAMidSessionChange(void) {
     CHECK_NEAR(hz, 144, 0.1);
     CHECK(rateVerdict(144.0f, hz, 0) == RATE_VERDICT_AGREES);
     CHECK_NEAR(rateTrue(144.0f, hz), 144, 0);
-    // A change event the display never followed: reported 144, still paced at
-    // 90, so the measured 90 overrules it for Match headset
+    // Reported 144 but paced slower: SteamVR pacing late frames at a fraction
+    // of the display, which stays on 144 (1.3.3 final: a slower pace is never
+    // taken as the display's rate)
     rateMeasureStart(&m);
     hz = feedFrames(&m, &now, &display, 90.0, PERIOD_NS(90), 0, 1000, &frames);
-    CHECK(rateVerdict(144.0f, hz, 0) == RATE_VERDICT_ADOPT);
-    CHECK_NEAR(rateTrue(144.0f, hz), 90, 0.1);
+    CHECK(rateVerdict(144.0f, hz, 0) == RATE_VERDICT_SLOWER);
+    CHECK_NEAR(rateTrue(144.0f, hz), 144, 0);
     // A window broken off by a loss of focus starts over: the frames before
     // it are not counted
     rateMeasureStart(&m);

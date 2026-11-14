@@ -112,7 +112,6 @@ static int g_rcFatal;           // the last try was refused for a reason a retry
 // set rate the headset is under was last said for (worker thread only)
 static int g_streamFps;
 static int g_wantFps;
-static int g_rematches;
 static int g_rematchSaid;
 static int g_underSaid;
 
@@ -1252,7 +1251,7 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     // Native (lane rate-match): SteamVR's XR_FB_display_refresh_rate can stay on a stale rate for a whole
     // session (90 with the display on 144). A rate measured from the frame timing is the truth; before one
     // is, xrWaitFrame's own period (the session's first frames come a moment after this point, waited for
-    // up to 1.5 s) stands in where it disagrees, and the restart for the rate (rateRematch) corrects either.
+    // up to 1.5 s) stands in where it is higher, and rateRematch says when the stream is off the measured rate.
     int steadyHz = xrSteadyDisplayHz(), fromPace = 0;
     if (steadyHz > 0) {
         if (steadyHz != displayHz)
@@ -1266,7 +1265,10 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
             nanosleep(&ts, NULL);
             pacedHz = xrPacedDisplayHz();
         }
-        if (pacedHz >= MLXR_FPS_CAP_FLOOR && abs(pacedHz - displayHz) > 3) {
+        // Native (1.3.3 final): only above SteamVR's word. A slower pace is SteamVR running the app at half rate
+        // while its first frames are late (a room loading), not the display: 72 there streamed 72 fps on a 144 Hz
+        // headset (headset check 2026-11-14 14:15:54, 14:17:19).
+        if (pacedHz >= MLXR_FPS_CAP_FLOOR && pacedHz > displayHz + 3) {
             MLOG_I("display rate: xrWaitFrame paces at %d Hz, SteamVR reports %d; the stream starts at the paced "
                    "rate until the frame timing has been measured", pacedHz, displayHz);
             displayHz = pacedHz;
@@ -1558,9 +1560,8 @@ static const MlxrReconnectOps g_rcOps = { &g_net, rcScheduled, rcAttempt, rcResu
 // stale rate when the session starts (90 Hz with the display already on the app's 144: Match headset then
 // asked for 90, and a fixed 144 was capped at 90) and can move the rate mid session; once the XR side has
 // measured the display after either, a stream off the launch's own rule for that rate (Match headset: the
-// display's; a set rate: that rate under the display's) is restarted at it, the way a network path switch
-// is (the host's session resumed, the scene kept). A set rate the headset really runs under is said once.
-// Returns 1 when the restart was scheduled: the caller tears the stream down for it.
+// display's; a set rate: that rate under the display's) is said on a notice once, with how to match it (start
+// the stream again). A set rate the headset really runs under is said once too. Returns 0: it never restarts.
 static int rateRematch(void) {
     if (g_args.refreshX1000 > 0) return 0; // a custom (Apollo) rate keeps its own cap
     int hz = xrSteadyDisplayHz();
@@ -1577,29 +1578,19 @@ static int rateRematch(void) {
         xr_app_notice(msg);
     }
     int want = mlxr_fps_rematch(g_args.fpsMatch, g_wantFps, g_streamFps, hz);
-    if (!want) return 0;
-    if (g_rematches >= MLXR_FPS_REMATCH_MAX) {
-        if (g_rematchSaid != hz) {
-            g_rematchSaid = hz;
-            MLOG_W("frame rate: the headset runs at %d Hz, the stream at %d fps; not restarting it again (%d "
-                   "restarts for the rate already)", hz, g_streamFps, g_rematches);
-            char msg[160];
-            snprintf(msg, sizeof(msg), "Headset at %d Hz, stream at %d fps: start the stream again to match", hz,
-                     g_streamFps);
-            xr_app_notice(msg);
-        }
-        return 0;
-    }
-    if (!mlxr_reconnect_switch(&g_rc, monoMs())) return 0;
-    g_rematches++;
-    MLOG_I("frame rate: the headset runs at %d Hz%s, the stream at %d fps: restarting the stream at %d fps "
-           "(%s, restart %d of %d)", hz, xrDisplayHzMeasured() ? " (measured; SteamVR reports another)" : "",
-           g_streamFps, want, g_args.fpsMatch ? "Match headset" : "the rate picked, under the headset's",
-           g_rematches, MLXR_FPS_REMATCH_MAX);
+    if (!want || g_rematchSaid == hz) return 0;
+    // Native (1.3.3 final): said, never restarted. A restart disconnects, and a host set to end the app when its
+    // last client leaves (Apollo and Vibepollo can be) ends the game with it: the resume then finds no app and the
+    // stream is over (headset check 2026-11-14 14:15-14:17, every restart ended that way).
+    g_rematchSaid = hz;
+    MLOG_W("frame rate: the headset runs at %d Hz%s, the stream at %d fps (%s %d fps); not restarting it (a restart "
+           "can end the app on the host): starting the stream again matches it", hz,
+           xrDisplayHzMeasured() ? " (measured; SteamVR reports another)" : "", g_streamFps,
+           g_args.fpsMatch ? "Match headset would stream" : "the rate picked streams at", want);
     char msg[160];
-    snprintf(msg, sizeof(msg), "Headset at %d Hz: restarting the stream at %d fps", hz, want);
+    snprintf(msg, sizeof(msg), "Headset at %d Hz, stream at %d fps: start the stream again to match", hz, g_streamFps);
     xr_app_notice(msg);
-    return 1;
+    return 0;
 }
 
 // The stream ended by itself (the host closed it, or the network dropped and the retries are over, or
@@ -1763,8 +1754,7 @@ static void* worker(void* arg) {
             break;
         }
         case LCMD_LAUNCH: {
-            g_rematches = 0; // Native (lane rate-match): a stream the user starts gets its restarts afresh
-            g_rematchSaid = 0;
+            g_rematchSaid = 0; // Native (lane rate-match): a stream the user starts gets its notices afresh
             g_underSaid = 0;
             int ok = n->haveId && launchStream(n, c.pc, c.appId, c.quitFirst, 0) == 0;
             if (ok) {

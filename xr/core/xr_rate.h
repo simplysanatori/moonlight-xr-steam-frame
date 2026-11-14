@@ -150,9 +150,12 @@ float rateFromTiming(int64_t periodNs, int64_t stepNs);
 // They disagree but a rate is forced on the display (the debug refresh knob):
 // said in the log only
 #define RATE_VERDICT_LOG_ONLY 2
+// Measured slower than reported: SteamVR runs the app at half rate (or less) while its frames are
+// late; the display stays on the reported rate, which stands. Said in the log only.
+#define RATE_VERDICT_SLOWER   3
 int rateVerdict(float reportedHz, float measuredHz, int forced);
 
-// The rate the display is really on: the measured one where it disagrees with
+// The rate the display is really on: the measured one where it is higher than
 // the reported one, else the reported one (the measured one without it)
 float rateTrue(float reportedHz, float measuredHz);
 

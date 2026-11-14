@@ -344,7 +344,7 @@ void displayRateChanged(XrCtx* ctx, float from, float to) {
 }
 
 // Native (lane rate-match): a window of focused frames measured the display at
-// measured Hz. Where the runtime reports another rate, the measured one is the
+// measured Hz. Where it is higher than the runtime reports, the measured one is the
 // display's: the frame pacing, the stats and the rate the worker streams at
 // (or caps a fixed rate at) all take it. The rate asked of the runtime is left
 // alone, and with the debug knob forcing one it is only said. Said once a
@@ -382,6 +382,11 @@ static void rateMeasured(XrCtx* ctx, float measured) {
               "(%s): the display is taken as %s Hz for the frame pacing, the stats and the stream "
               "(%s)", rep, hz, timing, hz,
               ctx->streamFps > 0 ? "its rate capped there" : "Match headset");
+    }
+    else if (verdict == RATE_VERDICT_SLOWER) {
+        LOGEV("display rate: xrWaitFrame paces the frame loop at %s Hz (%s), under SteamVR's %s Hz: the "
+              "app's frames are late and SteamVR runs it at a fraction of the display; the display rate, "
+              "the stats' display rate and the stream stay on %s Hz", hz, timing, rep, rep);
     }
     else if (verdict == RATE_VERDICT_LOG_ONLY) {
         LOGEV("display rate: SteamVR reports %s Hz but xrWaitFrame paces the frame loop at %s Hz "
