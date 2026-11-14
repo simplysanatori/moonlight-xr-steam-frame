@@ -1564,6 +1564,8 @@ int initXrInput(XrCtx* ctx);
 void destroyXrInput(XrCtx* ctx);
 void refreshInputSource(XrCtx* ctx);
 int updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature);
+// A moved stats window and keyboard back to their places by the screen
+void resetKeyboardPlacement(XrCtx* ctx);
 void recentreScreen(XrCtx* ctx);
 // Native names for upstream's JNI entry points (nativeUpdateInput, ...)
 void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature, int headLocked,

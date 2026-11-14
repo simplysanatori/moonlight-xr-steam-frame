@@ -12,6 +12,8 @@
 //           models, the UI and the picture (flat and curved), the drop order,
 //           and the swapchains the session makes at most
 //   click   the click hook (IN_CLICK, the setting, the Display tab's row)
+//   room_panels  a stats window or keyboard the user moved goes back by the
+//           screen when a room takes the screen or hands it back
 // GPLv3.
 #include <stdlib.h>
 
@@ -318,6 +320,117 @@ static void envGroup(void) {
     c->headLockedPref = 0;
     envStep(s, ENV_CELL_VOID);
     CHECK(memcmp(&c->screenPose, &mine, sizeof(mine)) == 0);
+    scene_free(s);
+}
+
+// ---- room_panels ---------------------------------------------------------------------
+
+static float gap(XrPosef a, XrPosef b) {
+    float dx = a.position.x - b.position.x, dy = a.position.y - b.position.y, dz = a.position.z - b.position.z;
+    return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+
+// The picker's step with the stats window up, so it is placed every frame
+static void panelsStep(Scene* s, int cell) {
+    XrCtx* c = s->ctx;
+    xrSetEnvironment(c, cell);
+    c->passthrough = cell == ENV_CELL_PASSTHROUGH;
+    s->settings.environment = xrEnvironmentSetting(cell);
+    s->settings.passthrough = c->passthrough;
+    scene_frame(s, "stats");
+    statsPlace(c);
+}
+
+// What the grips leave: the stats window and the keyboard each a metre off
+// to one side of where they were, hung in the world
+static void movePanels(XrCtx* c) {
+    c->statsMoved = 1;
+    c->statsMovedPose = c->statsPose;
+    c->statsMovedPose.position.x += 1.0f;
+    c->statsMovedH = c->statsH;
+    c->kbMoved = 1;
+    c->kbMovedPose = c->kbPose;
+    c->kbMovedPose.position.x -= 1.0f;
+    kbPlace(c);
+    statsPlace(c);
+}
+
+// Home Theater with the stats window moved, then back to the void: the window
+// was left at the room's spot, in the face, with the screen 8 m off (the
+// owner's report, 1.3.2 and 1.3.3). The screen moving onto a wall or back
+// takes a moved stats window and keyboard back to their places by it.
+static void roomPanelsGroup(void) {
+    Scene* s = scene_new();
+    XrCtx* c = s->ctx;
+    c->focusedFrames = 5;
+    c->overlayVisible = 1;
+    c->alphaBlendSupported = 1;
+    fakeWorld(c);
+    c->kbOpen = 1;
+    c->kbMoved = 0;
+    c->statsMoved = 0;
+    panelsStep(s, ENV_CELL_VOID);
+    CHECK(statsShown(c));
+    XrPosef mine = c->screenPose;
+    XrPosef statsHome = c->statsPose;
+    kbPlace(c);
+    XrPosef kbHome = c->kbPose;
+
+    // Void and passthrough: the screen stays where it is, and so does what was moved
+    movePanels(c);
+    XrPosef statsLeft = c->statsPose, kbLeft = c->kbPose;
+    CHECK(gap(statsLeft, statsHome) > 0.9f && gap(kbLeft, kbHome) > 0.9f);
+    panelsStep(s, ENV_CELL_PASSTHROUGH);
+    panelsStep(s, ENV_CELL_VOID);
+    CHECK(c->statsMoved && c->kbMoved);
+    CHECK(gap(c->statsPose, statsLeft) < 1e-5f && gap(c->kbPose, kbLeft) < 1e-5f);
+
+    // Into a room: both back by the room's picture (the stats window in its
+    // corner, the keyboard under the stand in), the keyboard at once
+    panelsStep(s, ENV_CELL_HOME_THEATER);
+    CHECK(c->roomHoldingScreen && !c->statsMoved && !c->kbMoved);
+    XrPosef kbRoom = kbPanelPose(c, &c->kbW, &c->kbH);
+    CHECK(gap(c->kbPose, kbRoom) < 1e-5f);
+    CHECK(gap(c->statsPose, c->screenPose) < c->screenWidth * 0.6f);
+    XrPosef statsRoom = c->statsPose;
+
+    // Moved in the room and left alone while the room stays up
+    movePanels(c);
+    statsLeft = c->statsPose;
+    panelsStep(s, ENV_CELL_HOME_THEATER);
+    panelsStep(s, ENV_CELL_HOME_THEATER);
+    CHECK(c->statsMoved && c->kbMoved && gap(c->statsPose, statsLeft) < 1e-5f);
+
+    // Out of the room (the report): both back by the user's own screen
+    panelsStep(s, ENV_CELL_VOID);
+    CHECK(!c->roomHoldingScreen && memcmp(&c->screenPose, &mine, sizeof(mine)) == 0);
+    CHECK(!c->statsMoved && !c->kbMoved);
+    CHECK(gap(c->statsPose, statsHome) < 1e-4f && gap(c->kbPose, kbHome) < 1e-4f);
+    CHECK(gap(c->statsPose, statsRoom) > 0.5f);
+
+    // Straight into passthrough from a room does the same
+    panelsStep(s, ENV_CELL_SYNTHWAVE);
+    movePanels(c);
+    panelsStep(s, ENV_CELL_PASSTHROUGH);
+    CHECK(!c->statsMoved && !c->kbMoved && gap(c->statsPose, statsHome) < 1e-4f);
+
+    // From one room to another the picture goes to the other room's wall
+    panelsStep(s, ENV_CELL_HOME_THEATER);
+    movePanels(c);
+    panelsStep(s, ENV_CELL_GRAND_CINEMA);
+    CHECK(c->roomHoldingScreen && !c->statsMoved && !c->kbMoved);
+    CHECK(gap(c->statsPose, c->screenPose) < c->screenWidth * 0.6f);
+
+    // A keyboard put away keeps nothing of the room either: up again in the
+    // void, it hangs under the screen
+    movePanels(c);
+    c->kbOpen = 0;
+    panelsStep(s, ENV_CELL_VOID);
+    CHECK(!c->kbMoved);
+    c->kbOpen = 1;
+    kbPlace(c);
+    CHECK(gap(c->kbPose, kbHome) < 1e-4f);
+    c->kbOpen = 0;
     scene_free(s);
 }
 
@@ -723,6 +836,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(g, "env")) envGroup();
     if (all || !strcmp(g, "budget")) budgetGroup();
     if (all || !strcmp(g, "click")) clickGroup();
+    if (all || !strcmp(g, "room_panels")) roomPanelsGroup();
     if (all || !strcmp(g, "one_layer")) oneLayerGroup();
     if (all || !strcmp(g, "eye_swapchains")) eyeSwapchainsGroup();
     char name[32];

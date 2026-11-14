@@ -312,6 +312,13 @@ static float roomDim(XrCtx* ctx) {
 // normal environment is still there when they come back to one.
 void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
     int roomOn = style > 0;
+    // Native (owner's request, 1.3.3): the screen going onto a room's wall,
+    // over to another room's or back to the user's placement takes a stats
+    // window or keyboard the user moved back by it, rather than leaving it
+    // hanging where the old screen was (out of Home Theater, the stats window
+    // stayed at the room's spot, in the face, with the screen 8 m off)
+    int screenMoves = roomOn ? (!ctx->roomHoldingScreen || style != ctx->roomPlacedStyle)
+                             : ctx->roomHoldingScreen;
     if (roomOn && !ctx->roomHoldingScreen) {
         ctx->savedScreenPose = ctx->screenPose;
         ctx->savedScreenWidth = ctx->screenWidth;
@@ -342,6 +349,9 @@ void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
     }
     if (!roomOn) {
         ctx->roomPlacedStyle = 0;
+        if (screenMoves) {
+            resetKeyboardPlacement(ctx);
+        }
         return;
     }
 
@@ -402,6 +412,10 @@ void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
         ctx->roomPlacedWidth = width;
         LOGEV("room %d hangs the picture %.2f by %.2f m, centre y %.2f z %.2f",
               style, width, height, mount, ctx->screenPose.position.z);
+    }
+    // After the picture is hung, so a keyboard that is up is put by it
+    if (screenMoves) {
+        resetKeyboardPlacement(ctx);
     }
 }
 

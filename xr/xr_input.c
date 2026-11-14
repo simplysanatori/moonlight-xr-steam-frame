@@ -1023,8 +1023,9 @@ static void readJoints(XrCtx* ctx, int hand, const FrameXform* xform, const XrPo
 // behind it has changed.
 // Native (owner's request): a keyboard the move bar has moved goes back to
 // hanging under the screen when the screen's placement is reset, and a
-// keyboard that is up is put there at once
-static void resetKeyboardPlacement(XrCtx* ctx) {
+// keyboard that is up is put there at once. The room's hold calls it too, as
+// the screen goes to a room's wall or comes back from one (applyRoomPlacement).
+void resetKeyboardPlacement(XrCtx* ctx) {
     if (ctx->statsMoved) {
         // Native (owner's request): and the stats window to the picture's corner
         ctx->statsMoved = 0;
