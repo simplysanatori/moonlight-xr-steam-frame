@@ -61,7 +61,7 @@ static void test_defaults(void) {
     s.passthrough = 1;
     CHECK(settings_environment_id(&s) == ENV_ID_PASSTHROUGH);
     s.passthrough = 0;
-    CHECK(geti(&s, "depth_source") == 0);               // ZipDepth
+    CHECK(geti(&s, "depth_source") == DEPTH_SOURCE_LIGHT && DEPTH_SOURCE_LIGHT == 8);   // 1.3.3: ZipDepth Light
     CHECK(geti(&s, "env_res") == ENV_RES_STANDARD);
     CHECK(geti(&s, "picture_brightness") == 0 && geti(&s, "picture_contrast") == 100);
     CHECK(geti(&s, "picture_gamma") == 100 && geti(&s, "picture_saturation") == 100);
@@ -81,7 +81,7 @@ static void test_defaults(void) {
     CHECK(geti(&s, "convergence") == -1 && settings_convergence_percent(&s) == 50);
     s.depth_source = 1;
     CHECK(settings_separation_units(&s) == 5);   // MiDaS
-    s.depth_source = 0;
+    s.depth_source = DEPTH_SOURCE_DEFAULT;
     // where the picture hangs: 3 m away, 3 m wide, level
     CHECK(geti(&s, "distance_cm") == 300 && geti(&s, "width_cm") == 300);
     CHECK(geti(&s, "height_cm") == 0 && geti(&s, "tilt_deg") == 0 && geti(&s, "rotate_deg") == 0);
@@ -753,6 +753,40 @@ static void test_stereo_source(void) {
     s.stereo_source = STEREO_SOURCE_SBS;
     ui_view_init(&v, &s);
     CHECK(v.stereo_ok && v.bar_show_stereo && v.stereo_source == STEREO_SOURCE_SBS);
+}
+
+// Native (1.3.3, issue #6): ZipDepth Light (zipdepth-int8) is the default depth model. A file that never chose one
+// (1.3.2 wrote "#depth_source = zipdepth", commented out) takes it; a saved zipdepth (ZipDepth Full) stays, and is
+// written as an active line that 1.3.2 reads
+static void test_depth_source_default(void) {
+    Settings s;
+    settings_defaults(&s);
+    CHECK(s.depth_source == DEPTH_SOURCE_LIGHT);
+    CHECK(settings_separation_units(&s) == 6);   // ZipDepth's own, Light or Full
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#depth_source = zipdepth-int8\n") != NULL);
+    free(text);
+    Settings old;
+    settings_defaults(&old);
+    settings_from_text(&old, "[vr]\n#depth_source = zipdepth\n", NULL);
+    CHECK(old.depth_source == DEPTH_SOURCE_LIGHT);
+    // both names parse
+    Settings full;
+    settings_defaults(&full);
+    SettingsLoadInfo info;
+    settings_from_text(&full, "[vr]\ndepth_source = zipdepth\n", &info);
+    CHECK(full.depth_source == DEPTH_SOURCE_FULL && info.bad == 0);
+    Settings light;
+    settings_defaults(&light);
+    settings_from_text(&light, "[vr]\ndepth_source = zipdepth-int8\n", &info);
+    CHECK(light.depth_source == DEPTH_SOURCE_LIGHT && info.bad == 0);
+    text = settings_to_text(&full);
+    CHECK(text != NULL && strstr(text, "\ndepth_source = zipdepth\n") != NULL);
+    Settings back;
+    settings_defaults(&back);
+    settings_from_text(&back, text, NULL);
+    CHECK(back.depth_source == DEPTH_SOURCE_FULL);
+    free(text);
 }
 
 // Native (lane wave2-bind-wire): Click steadiness and the stick's wheel speed
@@ -2027,6 +2061,7 @@ int main(void) {
     test_controller_model();
     test_cog_tab();
     test_stereo_source();
+    test_depth_source_default();
     test_files();
     test_sliders();
     return checksDone("ui_settings");

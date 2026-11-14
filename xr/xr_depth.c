@@ -634,6 +634,28 @@ static uint64_t parseCpus(const char* s) {
     return mask;
 }
 
+// Native (1.3.3): the Frame's Cortex-A720s, CPUs 3-6, where the model runs unless told otherwise
+#define DEPTH_CPUS_DEFAULT 0x78ull
+#define DEPTH_CPUS_DEFAULT_MIN 7
+
+// The CPU mask for the model from MLXR_DEPTH_CPUS (NULL or empty: the
+// default), and what it is in words for the log. 0 is the scheduler's choice.
+static uint64_t depthCpus(const char* env, char* text, size_t cap) {
+    if (env != NULL && env[0] != '\0') {
+        uint64_t mask = strcmp(env, "any") == 0 ? 0 : parseCpus(env);
+        if (mask) snprintf(text, cap, "0x%llx (MLXR_DEPTH_CPUS=%s)", (unsigned long long)mask, env);
+        else snprintf(text, cap, "any (MLXR_DEPTH_CPUS=%s)", env);
+        return mask;
+    }
+    long cpus = sysconf(_SC_NPROCESSORS_CONF);
+    if (cpus < DEPTH_CPUS_DEFAULT_MIN) {
+        snprintf(text, cap, "any (%ld CPUs, too few for the default 3-6)", cpus);
+        return 0;
+    }
+    snprintf(text, cap, "0x%llx (3-6, the Cortex-A720s, default)", DEPTH_CPUS_DEFAULT);
+    return DEPTH_CPUS_DEFAULT;
+}
+
 // ---- lifecycle -----------------------------------------------------------------------
 
 static void stopStage(XrDepth* d) {
@@ -699,8 +721,12 @@ static void engineStart(XrCtx* ctx, XrDepth* d) {
     if (fp32 != NULL && atoi(fp32) != 0) cfg.flags = 0;
     cfg.perSecond = heatDepthRate(ctx->depthGov.target, ctx->heatDepthCap);
     // Native: which CPUs the model's threads run on (MLXR_DEPTH_CPUS, e.g.
-    // "3-6" or "0x78"); unset leaves the scheduler to it (docs/dev/M6_REPORT.md)
-    d->cpuMask = parseCpus(getenv("MLXR_DEPTH_CPUS"));
+    // "3-6" or "0x78", "any" for the scheduler's choice; docs/dev/M6_REPORT.md).
+    // Native (1.3.3, issue #6): unset, the Frame's four Cortex-A720s, CPUs 3-6
+    // (docs/dev/reports/depth.md), which keeps the model off the X4 and the
+    // little cores; a machine with fewer CPUs is left to the scheduler.
+    char cpusText[64];
+    d->cpuMask = depthCpus(getenv("MLXR_DEPTH_CPUS"), cpusText, sizeof(cpusText));
     cfg.cpuMask = d->cpuMask;
     cfg.warmupRuns = 0;
     depthParamsOf(ctx, &cfg.params);
@@ -716,8 +742,7 @@ static void engineStart(XrCtx* ctx, XrDepth* d) {
     d->paramsSet = cfg.params;
     d->paramsValid = 1;
     LOGEV("depth model %s starting: %s, %d threads, %s, %d maps/s, cpus %s", spec->name, path, cfg.threads,
-          cfg.flags & MLXR_DEPTH_FP16 ? "fp16" : "fp32", cfg.perSecond,
-          d->cpuMask ? getenv("MLXR_DEPTH_CPUS") : "any");
+          cfg.flags & MLXR_DEPTH_FP16 ? "fp16" : "fp32", cfg.perSecond, cpusText);
 }
 
 // LOADING to READY or FAILED, polled each frame

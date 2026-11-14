@@ -481,9 +481,10 @@ static void testSettings(void) {
     snprintf(path, sizeof(path), "%s/config.ini", assets);
     Settings s;
     settings_defaults(&s);
-    // upstream's defaults: ZipDepth, its own 0.6 %, convergence 50, the
-    // 3D on (native: remembered as it was last left)
-    CHECK(s.depth_source == 0 && s.separation == -1 && s.convergence == -1 && s.stereo == 1);
+    // upstream's defaults: ZipDepth (native, 1.3.3: ZipDepth Light, the
+    // int8 one), its own 0.6 %, convergence 50, the 3D on (native:
+    // remembered as it was last left)
+    CHECK(s.depth_source == DEPTH_SOURCE_LIGHT && s.separation == -1 && s.convergence == -1 && s.stereo == 1);
     CHECK(settings_separation_units(&s) == 6);
     s.depth_source = 1;
     CHECK(settings_separation_units(&s) == 5);

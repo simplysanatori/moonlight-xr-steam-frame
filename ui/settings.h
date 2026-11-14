@@ -38,6 +38,10 @@ typedef struct {
 #define ENV_ID_HOME_THEATER 4
 #define ENV_ID_GRAND_CINEMA 5
 #define ENV_ID_SYNTHWAVE 6
+// Native (1.3.3, issue #6): depth_source's default, ZipDepth Light (zipdepth-int8, index 8). 0 is ZipDepth Full.
+#define DEPTH_SOURCE_FULL 0
+#define DEPTH_SOURCE_LIGHT 8
+#define DEPTH_SOURCE_DEFAULT DEPTH_SOURCE_LIGHT
 #define ROOM_COUNT 3   // the baked rooms, indexed 0 theater, 1 grand cinema, 2 synthwave
 
 // What the Screen tab remembers per PC and app: where the screen hangs, how the
@@ -130,7 +134,7 @@ typedef struct Settings {
     int hand_tracking;
     int passthrough;
     int environment;       // 0 auto (void, or passthrough when passthrough is on), 1 passthrough, 2 void, 3 theater, 4 grand cinema, 5 synthwave
-    int depth_source;      // 0 ZipDepth, 1 MiDaS, 2 off (flat), 3..7 test patterns, 8 ZipDepth int8 (native)
+    int depth_source;      // 0 ZipDepth (Full), 1 MiDaS, 2 off (flat), 3..7 test patterns, 8 ZipDepth int8 (Light, native; the default, DEPTH_SOURCE_DEFAULT)
     int env_res;           // ENV_RES_LOW..ULTRA
     int hand_hint_seen;
     int first_run_shown;   // native: the first-run controls card has been shown (once per install)

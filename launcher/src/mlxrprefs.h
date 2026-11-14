@@ -255,7 +255,11 @@ public:
 
     // config.ini access (exposed for tests): the active value of section.key, else the commented
     // default line's, else def
-    static QString iniValue(const QString& path, const QString& section, const QString& key, const QString& def);
+    // A key's value in config.ini: its active line, else (with commentedCounts) the first commented-out one, else def.
+    // The VR client reads only active lines and writes its defaults commented out, so a commented value is the
+    // default of the version that wrote the file, which a later version may have changed.
+    static QString iniValue(const QString& path, const QString& section, const QString& key, const QString& def,
+                            bool commentedCounts = true);
     // Sets section.key (replacing the active or the commented line; adding it to the section, or the
     // section, when absent); returns false when the file cannot be written
     static bool setIniValue(const QString& path, const QString& section, const QString& key, const QString& value);

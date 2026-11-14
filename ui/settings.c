@@ -225,7 +225,10 @@ static const SettingDesc TABLE[] = {
     DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),
     DB("vr", "passthrough", passthrough, 0, "checkbox_vr_passthrough"),
     DE("vr", "environment", environment, ENV_NAMES, 0, "list_vr_environment: auto = black void, or passthrough with passthrough on"),
-    DE("vr", "depth_source", depth_source, DEPTH_NAMES, 0, "list_vr_depth_source: Realtime 3D mode (zipdepth recommended, midas older, zipdepth-int8 lighter on the CPU, off streams flat; flat, ramp, blob, eyetest, shifttest are test patterns)"),
+    // Native (1.3.3, issue #6): ZipDepth Light (zipdepth-int8) by default, over 80% less CPU than ZipDepth Full
+    // (zipdepth), which heated the Frame until it shut down. A default is written commented out, so a file that never
+    // chose a model takes the new default, and a saved zipdepth stays; 1.3.2 reads both names.
+    DE("vr", "depth_source", depth_source, DEPTH_NAMES, DEPTH_SOURCE_DEFAULT, "list_vr_depth_source: Realtime 3D mode (zipdepth-int8 ZipDepth Light, the default, lighter on the CPU; zipdepth ZipDepth Full, finer depth edges but much harder on the CPU, can overheat the headset at high refresh rates; midas older; off streams flat; flat, ramp, blob, eyetest, shifttest are test patterns)"),
     DI("vr", "background_dim", bg_dim, BG_DIM_MIN, BG_DIM_MAX, BG_DIM_DEFAULT, "native: Picture tab Background, percent the room, the passthrough cameras or the void are dimmed (a black layer over passthrough, the room's lighting turned down, the void colour darkened); 0 leaves them as they are"),
     DS("vr", "void_color", void_color, "#000000", "native: the colour of the void environment, #rrggbb; black by default. Dimmed by background_dim"),
     DE("vr", "env_res", env_res, ENVRES_NAMES, 1, "list_vr_env_res: Environment Res, how sharp the rooms are drawn: low (half the headset's recommended eye size), standard, high or ultra (the runtime's largest); read when the rooms are built at the start of a stream"),

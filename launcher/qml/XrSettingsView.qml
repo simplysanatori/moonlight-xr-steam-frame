@@ -894,11 +894,19 @@ Flickable {
         property string key
         property var values: []
         property var names: []
+        // Native (1.3.3): a value that asks first, by value: { title, text, yes }. Cancel keeps the choice before.
+        property var confirms: ({})
         readonly property int current: values.indexOf(MlxrPrefs.vr[key])
         objectName: key
         valueText: current >= 0 ? names[current] : String(MlxrPrefs.vr[key])
         function pick(i) {
-            MlxrPrefs.setVr(key, values[i])
+            var v = values[i]
+            var c = confirms[v]
+            if (c && MlxrPrefs.vr[key] !== v) {
+                confirmDialog.show(c.title, c.text, c.yes, function() { MlxrPrefs.setVr(choiceRow.key, v) })
+                return
+            }
+            MlxrPrefs.setVr(key, v)
         }
         onClicked: {
             var e = []
@@ -1005,6 +1013,12 @@ Flickable {
     function vrSet(key, value) {
         MlxrPrefs.setVr(key, value)
     }
+    // Native (1.3.3), tests: the open confirm sheet answered, as its buttons do (1 the yes button, 0 Cancel)
+    function confirmAnswer(yes) {
+        console.info("MLXR_SETTINGS_CONFIRM: open=" + confirmDialog.opened + " title=\"" + confirmDialog.title + "\"")
+        if (Number(yes)) confirmDialog.accept()
+        else confirmDialog.reject()
+    }
     // Native (lane a11y-2), tests: a row takes the focus as a gamepad gives it, and its tip is logged; and a
     // MlxrPrefs property set as a row would
     function showTip(name) {
@@ -1069,6 +1083,55 @@ Flickable {
                 }
                 Keys.onReturnPressed: clicked()
                 Keys.onEnterPressed: clicked()
+            }
+        }
+    }
+
+    // Native (1.3.3): a choice that asks first (VrChoice confirms): a title, the words, the yes button and Cancel
+    NavigableDialog {
+        id: confirmDialog
+        property var yesFn: null
+        property string text
+        property string yesText
+        modal: true
+        // a plain panel: the Material elevation effect is not drawn by every scene graph backend
+        background: Rectangle {
+            color: "#424242"
+            radius: 4
+            border.color: "#55FFFFFF"
+        }
+        width: Math.min(settingsPage.width - 40, 560)
+
+        function show(title, text, yes, fn) {
+            confirmDialog.title = title
+            confirmDialog.text = text
+            confirmDialog.yesText = yes
+            confirmDialog.yesFn = fn
+            open()
+        }
+        onOpened: confirmCancel.forceActiveFocus()
+        onAccepted: {
+            var f = confirmDialog.yesFn
+            confirmDialog.yesFn = null
+            if (f) f()
+        }
+        onRejected: confirmDialog.yesFn = null
+
+        Label {
+            width: parent ? parent.width : 400
+            text: confirmDialog.text
+            wrapMode: Text.Wrap
+        }
+
+        footer: DialogButtonBox {
+            Button {
+                text: confirmDialog.yesText
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+            }
+            Button {
+                id: confirmCancel
+                text: qsTr("Cancel")
+                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
             }
         }
     }
@@ -1511,8 +1574,16 @@ Flickable {
             key: "vr.depth_source"
             title: qsTr("Depth model")
             reason: MlxrPrefs.stereoSource === "depth" ? "" : qsTr("3D source is the PC's own pair")
-            values: ["zipdepth", "zipdepth-int8", "midas", "off"]
-            names: [qsTr("ZipDepth"), qsTr("ZipDepth, lighter on the CPU"), qsTr("MiDaS (older)"), qsTr("Off (2D only)")]
+            // Native (1.3.3, issue #6): Light is the default; Full asks first (PROPOSED wording, owner to approve)
+            values: ["zipdepth-int8", "zipdepth", "midas", "off"]
+            names: [qsTr("ZipDepth Light"), qsTr("ZipDepth Full"), qsTr("MiDaS (older)"), qsTr("Off (2D only)")]
+            confirms: ({
+                "zipdepth": {
+                    title: qsTr("Use ZipDepth Full?"),
+                    text: qsTr("ZipDepth Light uses over 80% less CPU. ZipDepth Full shows finer depth edges but works the CPU much harder; at high refresh rates it can overheat the headset and make it shut down."),
+                    yes: qsTr("I Understand")
+                }
+            })
         }
 
         PrefSlider {

@@ -1487,7 +1487,7 @@ PY
     ini="$MLXR_CONFIG_DIR/config.ini"
     printf '[vr]\n# checkbox_vr_show_ray: show the controller ray [true | false] (default true)\n#show_ray = true\nnotices = off\n\n[screen]\ndistance_cm = 280\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.pointer_sleep,vr.passthrough,display.glow \
-        MLXR_LAUNCHER_INVOKE='vrPick:rayRow|1;vrPick:headLockRow|2;vrSet:vr.picture_contrast|120;vrSet:vr.picture_gamma|135;vrSet:vr.head_aim_sensitivity|99;vrSet:screen.width_cm|450;vrPick:vr.environment|3;vrPick:display.stats_style|1;vrPick:vr.depth_source|1;vrPick:vr.gamepad_toggle|2;pickOnStart:1;saveAll;setSearch:picture' \
+        MLXR_LAUNCHER_INVOKE='vrPick:rayRow|1;vrPick:headLockRow|2;vrSet:vr.picture_contrast|120;vrSet:vr.picture_gamma|135;vrSet:vr.head_aim_sensitivity|99;vrSet:screen.width_cm|450;vrPick:vr.environment|3;vrPick:display.stats_style|1;vrPick:vr.depth_source|1;confirmAnswer:0;vrPick:vr.depth_source|1;confirmAnswer:1;vrPick:vr.gamepad_toggle|2;pickOnStart:1;saveAll;setSearch:picture' \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-vrkeys.png@3000" "$L" >"$t/vrk.out" 2>&1
     grep -q "no clickable\|no function\|could not call\|vrPick: no row" "$t/vrk.out" && fail "config key rows: $(grep -E 'no clickable|no function|could not call|vrPick' "$t/vrk.out" | head -3)"
     uiout "$t/vrk.out" "config key rows"
@@ -1507,7 +1507,9 @@ PY
     expect "screen width" "$(sec screen)" "width_cm = 450"
     expect "a list row writes the VR client's name: environment" "$(sec vr)" "environment = home_theater"
     expect "stats style" "$(sec display)" "stats_style = hud"
-    expect "depth model" "$(sec vr)" "depth_source = zipdepth-int8"
+    # 1.3.3: ZipDepth Full asks first; Cancel keeps Light, I Understand takes Full
+    expect "depth model: ZipDepth Full asks first" "$(grep -c 'MLXR_SETTINGS_CONFIRM: open=true title="Use ZipDepth Full?"' "$t/vrk.out")" "2"
+    expect "depth model: ZipDepth Full once confirmed" "$(sec vr | grep -x 'depth_source = zipdepth')" "depth_source = zipdepth"
     expect "gamepad mode shortcut" "$(sec vr)" "gamepad_toggle = triggers_grips"
     expect "other keys untouched (notices)" "$(sec vr)" "notices = off"
     expect "other keys untouched (screen distance)" "$(sec screen)" "distance_cm = 280"
@@ -1519,14 +1521,15 @@ PY
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
         for kv in "vr.show_ray = false" "vr.pointer_dot = true" "vr.pointer_sleep = false" "display.head_follow = true" "display.head_locked = false" "vr.passthrough = true" "display.glow = true" "vr.picture_contrast = 120" "vr.picture_gamma = 135" \
                   "vr.head_aim_sensitivity = 30" "screen.width_cm = 450" "vr.environment = home_theater" "display.stats_style = hud" \
-                  "vr.depth_source = zipdepth-int8" "vr.gamepad_toggle = triggers_grips" "screen.distance_cm = 280"; do
+                  "vr.depth_source = zipdepth" "vr.gamepad_toggle = triggers_grips" "screen.distance_cm = 280"; do
             expect "VR client reads $kv" "$dump" "$kv"
         done
         expect "VR client: nothing it could not read" "$dump" "unknown 0, unreadable 0"
     fi
     # read back: the switch starts off now, a click turns it on again
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.pointer_sleep \
-        MLXR_LAUNCHER_INVOKE='vrPick:headLockRow|1;saveAll;setSearch:steadiness' MLXR_LAUNCHER_SCREENSHOT="$t/vrk2.png@3000" "$L" >"$t/vrk2.out" 2>&1
+        MLXR_LAUNCHER_INVOKE='vrPick:headLockRow|1;vrPick:vr.depth_source|0;vrPick:vr.depth_source|1;confirmAnswer:0;saveAll;setSearch:steadiness' MLXR_LAUNCHER_SCREENSHOT="$t/vrk2.png@3000" "$L" >"$t/vrk2.out" 2>&1
+    expect "depth model: ZipDepth Light needs no confirming, and Cancel on Full keeps it" "$(sec vr | grep -x 'depth_source = zipdepth-int8')" "depth_source = zipdepth-int8"
     expect "the rows read config.ini back (Pointer sleep off -> on)" "$(sec vr)" "pointer_sleep = true"
     expect "Head locked On after Follow: head_locked = true" "$(sec display)" "head_locked = true"
     expect "and head_follow = false (the cog's one row)" "$(sec display)" "head_follow = false"

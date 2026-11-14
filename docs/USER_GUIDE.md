@@ -231,7 +231,7 @@ When a stream starts, the profile of the app, or else of its PC, is in force for
 | 3D | on, off | on. This is the 3D switch; the bar's 3D button and the headset's 3D tab change it too. See [3D](#3d). |
 | 3D source | Depth model, SBS from the PC, Top-bottom from the PC | Depth model. Press to step through them. See [SBS 3D](#sbs-3d). The headset's 3D tab has the same row. |
 | Full-size SBS | on, off | off. On: the PC's pair has a full picture per eye (3840x1080 for two 1920x1080 eyes). Off: half-size, both eyes squeezed into one 1920x1080 frame. Greyed with the depth model. |
-| Depth model | ZipDepth, ZipDepth lighter on the CPU, MiDaS (older), Off (2D only) | ZipDepth. Greyed with SBS or Top-bottom. In `config.ini`: `[vr] depth_source`. |
+| Depth model | ZipDepth Light, ZipDepth Full, MiDaS (older), Off (2D only) | ZipDepth Light. ZipDepth Light uses over 80% less CPU than ZipDepth Full; Full shows finer depth edges but works the CPU much harder, and at high refresh rates it can overheat the headset and make it shut down, so picking it asks you to confirm first. Greyed with SBS or Top-bottom. In `config.ini`: `[vr] depth_source`. |
 | 3D depth | 1 to 100 | The depth model's own value. The headset's 3D tab calls it Depth. Greyed with the 3D off, and with SBS or Top-bottom as the 3D source. |
 | 3D convergence | 0 to 100 | 50. Greyed with the 3D off. With SBS or Top-bottom it moves the two halves apart or together. |
 | 3D edge | 0, 25, 50, 75, 100 (press to step) | 0. See [3D](#3d). Greyed with the 3D off. |
@@ -722,7 +722,8 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 - Turn it on or off with the bar's 3D button, the 3D tab, or the 3D switch on the flat Settings page.
 - Comfort, Balanced and Strong set the depth. Depth and Convergence fine-tune it.
 - 3D is on by default and remembered.
-- The default model is ZipDepth. `depth_source` in `config.ini` chooses `zipdepth`, `zipdepth-int8` (lighter on the CPU) or `midas`.
+- The default model is ZipDepth Light. The Settings page's Depth model row, or `depth_source` in `config.ini`, chooses `zipdepth-int8` (ZipDepth Light), `zipdepth` (ZipDepth Full: finer depth edges, much harder on the CPU and the headset's heat) or `midas`. If you chose ZipDepth before 1.3.3, you keep it; if you never chose, you now get ZipDepth Light.
+- The depth model runs on the Frame's four middle CPU cores (3 to 6) unless `MLXR_DEPTH_CPUS` says otherwise.
 
 ### Edges
 
@@ -1088,7 +1089,7 @@ You can also write a note in the headset (cog, About, Report a problem). **Save*
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |
 | `[ui] language` | `auto`, `en`, `cs`, `da`, `de`, `es`, `fi`, `fr`, `it`, `nb`, `nl`, `pl`, `pt-BR`, `sv`, `tr`, `ru`, `uk`, `ja`, `ko`, `zh-CN`, `zh-TW` | `auto`. The headset's language, read at start; see [Language](#language). |
 | `[vr] keyboard_keymap` | `qwerty`, `azerty` (French), `qwertz` (German). What the headset keyboard's keys say. The PC must be on the matching Windows layout. | `qwerty` |
-| `[vr] depth_source` | `zipdepth`, `zipdepth-int8`, `midas` | `zipdepth` |
+| `[vr] depth_source` | `zipdepth-int8` (ZipDepth Light), `zipdepth` (ZipDepth Full), `midas` | `zipdepth-int8` (before 1.3.3: `zipdepth`; a `zipdepth` you saved stays) |
 | `[3d] stereo_source` | `depth`, `sbs`, `top-bottom` | `depth`. The 3D tab's 3D source row. See [SBS 3D](#sbs-3d). |
 | `[3d] sbs_full` | `true`, `false` | `false`. The PC's pair has a full-size picture per eye (3840x1080 side by side, 1920x2160 top-bottom). |
 | `[vr] hand_tracking` | `true`, `false` | `false`. See [Hand tracking](#hand-tracking). |
@@ -1146,6 +1147,7 @@ These are for testing and debugging. Most users never need them. Put them in fro
 | `MLXR_CLICK_HOLD_PX` | 0 | Hold the cursor still from the trigger touch until the aim moves this many pixels. |
 
 The four click variables above override the Click steadiness row for their own part when they are set.
+| `MLXR_DEPTH_CPUS` | `3-6` | The CPUs the depth model runs on: a range (`3-6`), a list (`3,5,7`), a mask (`0x78`) or `any` for no pinning. Unset, the Frame's four Cortex-A720 cores. |
 | `MLXR_DEPTH_THREADS` | 2 | Threads for the depth model. Overrides `[debug] depth_threads`. |
 | `MLXR_HEAT_LIMITS` | `90,95,100` | The [heat](#heat) levels in °C: warn, ease the depth model, turn 3D off. For a test, e.g. `60,65,70`. |
 | `MLXR_HEAT_GUARD` | 1 | 0 reads and logs the temperatures but never acts on them. |

@@ -60,7 +60,8 @@ const VrKey kVrKeys[] = {
     { "vr.hand_tracking", 'b', 0, 0, 1, nullptr },
     { "vr.passthrough", 'b', 0, 0, 1, nullptr },
     { "vr.environment", 'e', 0, 0, 5, "auto|passthrough|void|home_theater|grand_cinema|synthwave" },
-    { "vr.depth_source", 'e', 0, 0, 8, "zipdepth|midas|off|flat|ramp|blob|eyetest|shifttest|zipdepth-int8" },
+    // Native (1.3.3, issue #6): ZipDepth Light (zipdepth-int8) by default, as ui/settings.c DEPTH_SOURCE_DEFAULT
+    { "vr.depth_source", 'e', 8, 0, 8, "zipdepth|midas|off|flat|ramp|blob|eyetest|shifttest|zipdepth-int8" },
     { "vr.env_res", 'e', 1, 0, 3, "low|standard|high|ultra" },
     { "vr.picture_brightness", 'i', 0, -50, 50, nullptr },
     { "vr.picture_contrast", 'i', 100, 50, 150, nullptr },
@@ -477,12 +478,14 @@ void MlxrPrefs::load()
     // the VR client's spelling; anything else is its default, auto
     headsetLanguage = normalizeLanguage(iniValue(ini, "ui", "language", "auto"));
 
-    // Native (lane launcher-bundle, PLAN 6.7): the rest, as the VR client reads them
+    // Native (lane launcher-bundle, PLAN 6.7): the rest, as the VR client reads them. Native (1.3.3): active
+    // lines only, as the client does: a commented-out line is an older version's default (1.3.2 wrote
+    // "#depth_source = zipdepth" where 1.3.3's default is zipdepth-int8)
     m_vr.clear();
     for (const VrKey& k : kVrKeys) {
         const QString id = QLatin1String(k.id);
         const int dot = id.indexOf('.');
-        m_vr[id] = vrNormalize(id, iniValue(ini, id.left(dot), id.mid(dot + 1), vrDefault(k)));
+        m_vr[id] = vrNormalize(id, iniValue(ini, id.left(dot), id.mid(dot + 1), vrDefault(k), false));
     }
     m_iniVr = m_vr;
 
@@ -1015,7 +1018,8 @@ static QRegularExpression keyLine(const QString& key)
     return QRegularExpression("^\\s*(#\\s*)?" + QRegularExpression::escape(key) + "\\s*=\\s*(.*?)\\s*$");
 }
 
-QString MlxrPrefs::iniValue(const QString& path, const QString& section, const QString& key, const QString& def)
+QString MlxrPrefs::iniValue(const QString& path, const QString& section, const QString& key, const QString& def,
+                            bool commentedCounts)
 {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -1047,7 +1051,7 @@ QString MlxrPrefs::iniValue(const QString& path, const QString& section, const Q
             haveCommented = true;
         }
     }
-    return haveActive ? activeVal : haveCommented ? commented : def;
+    return haveActive ? activeVal : haveCommented && commentedCounts ? commented : def;
 }
 
 bool MlxrPrefs::setIniValue(const QString& path, const QString& section, const QString& key, const QString& value)
