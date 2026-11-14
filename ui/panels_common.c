@@ -364,6 +364,14 @@ int ui_cog_row_cells(int face, int row) {
     return option_cells(row);
 }
 
+int ui_cog_display_cell(const UiView* v, int row) {
+    // native (owner's request, 1.3.3): in a room the glow is the room's own switch, and a press on
+    // this row sets that one (xr_ui.c cogApplyOption), so the two rows are one switch
+    int r = settings_room_index(v->room_env);
+    if (row == COG_OPTION_AMBILIGHT && r >= 0) return v->settings->room[r].glow;
+    return settings_option_cell(v->settings, &v->session, row);
+}
+
 int ui_cog_row_live(const UiView* v, int face, int row) {
     int in_room = v->room_env >= 0 && settings_room_index(v->room_env) >= 0;
     int head_locked = v->settings->head_locked;

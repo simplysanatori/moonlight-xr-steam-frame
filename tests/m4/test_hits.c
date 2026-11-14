@@ -4,6 +4,8 @@
 // and cell of every settings tab, the exit prompt, every key, and the
 // launcher's list are reached by a ray at them, and land where the panel art
 // says they are. GPLv3.
+#include <string.h>
+
 #include "check.h"
 #include "scene.h"
 
@@ -88,8 +90,16 @@ static void barButtons(Scene* s) {
 // on the row xr_ui.c's search finds and on the hit lane U drew there
 static void cogRows(Scene* s) {
     XrCtx* c = s->ctx;
-    for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
+    // Native (owner's request, 1.3.3): in a room too, where the Screen tab is the
+    // Room tab and the Display tab's Glow row is the room's own glow (on here
+    // while the app wide one is off, so the two cannot be mistaken)
+    int wasAmbi = c->ambilightOn, wasRoomGlow = c->roomGlow[ROOM_STYLE_THEATER];
+    for (int k = 0; k < 2 * COG_TAB_COUNT; k++) {
+        int tab = k % COG_TAB_COUNT, inRoom = k >= COG_TAB_COUNT;
         scene_reset(s);
+        xrSetEnvironment(c, inRoom ? ENV_CELL_HOME_THEATER : ENV_CELL_VOID);
+        c->ambilightOn = 0;
+        c->roomGlow[ROOM_STYLE_THEATER] = 1;
         c->cogOpen = 1;
         c->cogTab = tab;
         c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
@@ -104,6 +114,13 @@ static void cogRows(Scene* s) {
         ui_hits_clear(&hits);
         ui_draw_panel(UI_PANEL_COG, &cv, view, &hits);
         int face = cogFace(c);
+        CHECK(view->room_env == (inRoom ? ENV_ID_HOME_THEATER : -1));
+        CHECK(face == (inRoom && tab == COG_TAB_SCREEN ? COG_FACE_ROOM : tab));
+        if (face == COG_TAB_DISPLAY) {
+            CHECK(cogRowLive(c, face, COG_OPTION_AMBILIGHT) && ui_cog_row_live(view, face, COG_OPTION_AMBILIGHT));
+            CHECK(cogOptionValue(c, COG_OPTION_AMBILIGHT, 0) == inRoom);
+            CHECK(ui_cog_display_cell(view, COG_OPTION_AMBILIGHT) == inRoom);
+        }
         // The tabs
         for (int t = 0; t < COG_TAB_COUNT; t++) {
             // native (lane a11y-tab): the slots have their own widths; both ends of each too
@@ -165,6 +182,22 @@ static void cogRows(Scene* s) {
                 if (hit->a != row || hit->enabled != cellLive)
                     fprintf(stderr, "  tab %d row %d cell %d: hit kind %d a %d b %d enabled %d, live %d\n", tab, row,
                             cell, hit->kind, hit->a, hit->b, hit->enabled, live);
+                // Either tab's Glow row, pressed where the ray lands: the room's
+                // own glow in a room (the same switch from both), the app wide
+                // one anywhere else; the other is left alone
+                int glowRow = (face == COG_TAB_DISPLAY && row == COG_OPTION_AMBILIGHT)
+                           || (face == COG_FACE_ROOM && row == COG_ROOM_ROW_GLOW);
+                if (glowRow && cellLive && found == row) {
+                    float out[IN_SLOTS];
+                    memset(out, 0, sizeof(out));
+                    out[IN_SETTING] = -1.0f;
+                    cogApplyCell(c, face, found, cogCellAt(u, cells), out);
+                    CHECK((int)out[IN_SETTING] == (inRoom ? SETTING_ROOM_GLOW : SETTING_AMBILIGHT));
+                    CHECK((inRoom ? c->roomGlow[ROOM_STYLE_THEATER] : c->ambilightOn) == cell);
+                    CHECK((inRoom ? c->ambilightOn : c->roomGlow[ROOM_STYLE_THEATER]) == (inRoom ? 0 : 1));
+                    CHECK(cogOptionValue(c, COG_OPTION_AMBILIGHT, 0) == cell);
+                    CHECK(!inRoom || cogCellInForce(c, COG_FACE_ROOM, COG_ROOM_ROW_GLOW) == cell);
+                }
             }
             // The step buttons at a track's ends
             if (track && live) {
@@ -190,6 +223,9 @@ static void cogRows(Scene* s) {
             CHECK(i >= 0 && hits.hit[i].a == UI_BTN_KOFI && cogKofiButtonAt(pu, pv));
         }
     }
+    xrSetEnvironment(c, ENV_CELL_VOID);
+    c->ambilightOn = wasAmbi;
+    c->roomGlow[ROOM_STYLE_THEATER] = wasRoomGlow;
 }
 
 static void exitAndKeys(Scene* s) {

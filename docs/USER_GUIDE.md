@@ -440,7 +440,7 @@ The Screen tab's Bring here also works from a controller button: bind `app:bring
 | Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
 | Click steadiness | Off, Normal, Steady | Normal. How still the PC's cursor is held around a click. Normal sends a click where you aimed before the trigger pull moved the controller, and holds the cursor for a double click. Steady also keeps the cursor still from the moment you touch the trigger until you aim a few pixels away. Off sends the aim as it is, for light gun games and fast clicking. |
 | Click sound | Off, On | On |
-| Glow | Off, On | Off |
+| Glow | Off, On | Off. In a room it is that room's own glow, the same switch as the Room tab's Glow. |
 | Screen light | Off, On | On |
 | Notices | All, Important, Off | All. The small pop-ups that appear below the picture for about 2.5 seconds. Important leaves out "Display N Hz" and "3D on/off" and keeps mode changes (gamepad, head aim, hands) and messages such as errors. Off shows none. The flat window's Settings page has the same choice. |
 | Glow level | 0 to 100 % | 50 % |

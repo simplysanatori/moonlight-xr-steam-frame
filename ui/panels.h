@@ -298,6 +298,9 @@ int ui_cog_row_count(int face);
 int ui_cog_row_is_track(int face, int row);
 int ui_cog_row_cells(int face, int row);
 int ui_cog_row_live(const UiView* v, int face, int row);
+// The cell a Display tab row rings (settings_option_cell), but the Glow row's in a room is the room's
+// own glow, the same switch the Room tab's Glow row is (xr_ui.c cogOptionValue, roomGlowOn)
+int ui_cog_display_cell(const UiView* v, int row);
 // Native (lane a11y-tab, a11y-2): the cells an Accessibility row has, and whether one takes a press
 // (the pointer row's Eyes is dimmed where the runtime has no eye gaze, xr_access.h accessEyesCellLive)
 int ui_cog_access_cells(const UiView* v, int row);

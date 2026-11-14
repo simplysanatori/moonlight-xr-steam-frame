@@ -474,6 +474,97 @@ static void test_cog_rows_present(void) {
     free(g.base);
 }
 
+// Which cell of a row of cells carries the ring the one in force has (its white edge, at the left end
+// of the cell's hit, halfway down), -1 for none, -2 for more than one
+static int ringed_cell(const Guarded* g, int row) {
+    int found = -1;
+    for (int i = 0; i < hits.count; i++) {
+        const UiHit* h = &hits.hit[i];
+        if (h->kind != UI_HIT_CELL || h->a != row) continue;
+        int y = (int)((h->v0 + h->v1) * 0.5f * (float)g->h);
+        int x0 = (int)(h->u0 * (float)g->w), x1 = x0 + (int)((h->u1 - h->u0) * (float)g->w * 0.1f);
+        int peak = 0;
+        for (int x = x0; x <= x1 && x < g->w; x++) {
+            int r = g->px[((size_t)y * (size_t)g->w + (size_t)x) * 4];
+            if (r > peak) peak = r;
+        }
+        if (peak >= 0xE0) found = found == -1 ? h->b : -2;
+    }
+    return found;
+}
+
+// Native (owner's request, 1.3.3): in a room the glow is the room's own switch, and the Display tab's
+// Glow row is that switch too: it rings the room's glow (the Room tab's row rings the same), whatever the
+// app wide glow says, and stays live with both cells taking a press. Outside a room it is the app wide one.
+static void test_display_glow_in_room(void) {
+    Settings s;
+    settings_defaults(&s);
+    s.head_locked = 1;
+    UiView v;
+    ui_view_init(&v, &s);
+    const int glow = COG_OPTION_AMBILIGHT;
+    Guarded g;
+    // The void: the app wide switch
+    v.room_env = -1;
+    v.cog_tab = COG_TAB_DISPLAY;
+    for (int app = 0; app < 2; app++) {
+        s.glow = app;
+        draw(UI_PANEL_COG, &v, 1.0f, &g);
+        CHECK(ui_cog_display_cell(&v, glow) == app);
+        CHECK(ringed_cell(&g, glow) == app);
+        free(g.base);
+    }
+    static const int ROOMS[] = { ENV_ID_HOME_THEATER, ENV_ID_GRAND_CINEMA, ENV_ID_SYNTHWAVE };
+    for (size_t k = 0; k < sizeof ROOMS / sizeof ROOMS[0]; k++) {
+        int r = settings_room_index(ROOMS[k]);
+        CHECK(r >= 0);
+        v.room_env = ROOMS[k];
+        for (int on = 0; on < 2; on++) {
+            for (int app = 0; app < 2; app++) {
+                s.room[r].glow = on;
+                s.glow = app;
+                // the other rooms' own glow says the opposite, so the right room's is the one read
+                for (int o = 0; o < 3; o++) {
+                    if (o != r) s.room[o].glow = !on;
+                }
+                v.cog_tab = COG_TAB_DISPLAY;
+                CHECK(ui_cog_face(&v) == COG_TAB_DISPLAY);
+                CHECK(ui_cog_row_live(&v, COG_TAB_DISPLAY, glow));
+                CHECK(ui_cog_display_cell(&v, glow) == on);
+                draw(UI_PANEL_COG, &v, 1.0f, &g);
+                CHECK(guard_ok(&g));
+                int display = ringed_cell(&g, glow);
+                CHECK(display == on);
+                if (display != on) fprintf(stderr, "  room %d glow %d app %d: the Display tab rings %d\n", ROOMS[k], on, app, display);
+                for (int c = 0; c < ui_cog_row_cells(COG_TAB_DISPLAY, glow); c++) {
+                    int i = ui_hits_find(&hits, UI_HIT_CELL, glow, c);
+                    CHECK(i >= 0 && hits.hit[i].enabled);
+                    int at = ui_hits_at(&hits, (hits.hit[i].u0 + hits.hit[i].u1) * 0.5f, (hits.hit[i].v0 + hits.hit[i].v1) * 0.5f);
+                    CHECK(at == i);
+                }
+                // the glow level stays live: it reaches the room's glow too
+                int level = ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_DISPLAY_SLIDER_ROW, -1);
+                CHECK(level >= 0 && hits.hit[level].enabled);
+                free(g.base);
+                // the Room tab's own Glow row rings the same cell
+                v.cog_tab = COG_TAB_SCREEN;
+                CHECK(ui_cog_face(&v) == COG_FACE_ROOM && ui_cog_row_live(&v, COG_FACE_ROOM, COG_ROOM_ROW_GLOW));
+                draw(UI_PANEL_COG, &v, 1.0f, &g);
+                CHECK(ringed_cell(&g, COG_ROOM_ROW_GLOW) == display);
+                free(g.base);
+            }
+        }
+    }
+    // Out of the room again, the app wide switch once more
+    v.room_env = -1;
+    v.cog_tab = COG_TAB_DISPLAY;
+    s.glow = 1;
+    s.room[0].glow = s.room[1].glow = s.room[2].glow = 0;
+    draw(UI_PANEL_COG, &v, 1.0f, &g);
+    CHECK(ringed_cell(&g, glow) == 1);
+    free(g.base);
+}
+
 static void test_cog_hits_agree_with_xr_layout(void) {
     Settings s;
     settings_defaults(&s);
@@ -1453,6 +1544,7 @@ int main(void) {
     test_all_panels_scales();
     test_cog_rows_present();
     test_cog_hits_agree_with_xr_layout();
+    test_display_glow_in_room();
     test_other_panels_hits();
     test_report_toast_lists();
     test_state_sweep();

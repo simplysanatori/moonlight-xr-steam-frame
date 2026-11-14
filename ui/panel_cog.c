@@ -244,7 +244,7 @@ static void tab_room(Dc* dc) {
         float y = row_y(dc, COG_FACE_ROOM, row);
         label(dc, ui_str(ROWS[row]), y, live);
         if (row == COG_ROOM_ROW_GLOW) {
-            cells(dc, COG_FACE_ROOM, row, SW, 2, y, 1, cell_half, r >= 0 ? s->room[r].glow : -1);
+            cells(dc, COG_FACE_ROOM, row, SW, 2, y, 1, cell_half, r >= 0 ? ui_cog_display_cell(v, COG_OPTION_AMBILIGHT) : -1);
             continue;
         }
         if (row == COG_ROOM_ROW_LIGHT) {
@@ -337,7 +337,7 @@ static void tab_display(Dc* dc) {
                            : row == COG_OPTION_CONTROLLERS ? MODEL3
                            : row == COG_OPTION_CLICK_STEADY ? STEADY3 : OFFON;
         int n = ui_cog_row_cells(COG_TAB_DISPLAY, row);
-        cells(dc, COG_TAB_DISPLAY, row, names, n, y, 1, cell_half, settings_option_cell(s, &v->session, row));
+        cells(dc, COG_TAB_DISPLAY, row, names, n, y, 1, cell_half, ui_cog_display_cell(v, row));
     }
     // the glow level: the one track on this tab
     float y = row_y(dc, COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW);

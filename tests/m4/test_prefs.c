@@ -787,6 +787,33 @@ static void clickSteadyRow(void) {
     }
 }
 
+// Which cell of a row of cells the art rings (the white edge of the one in
+// force, at the left end of the cell's hit, halfway down) on the cog panel
+// drawn from a view: -1 for none, -2 for more than one
+static int drawnRing(const UiView* v, int row) {
+    static uint8_t px[COG_TEX_W * COG_TEX_H * 4];
+    static UiHits hits;
+    UiCanvas cv;
+    ui_cv_init(&cv, px, COG_TEX_W, COG_TEX_H);
+    ui_cv_clear(&cv);
+    ui_hits_clear(&hits);
+    ui_draw_panel(UI_PANEL_COG, &cv, v, &hits);
+    int found = -1;
+    for (int i = 0; i < hits.count; i++) {
+        const UiHit* h = &hits.hit[i];
+        if (h->kind != UI_HIT_CELL || h->a != row) continue;
+        int y = (int)((h->v0 + h->v1) * 0.5f * COG_TEX_H);
+        int x0 = (int)(h->u0 * COG_TEX_W), x1 = x0 + (int)((h->u1 - h->u0) * COG_TEX_W * 0.1f);
+        int peak = 0;
+        for (int x = x0; x <= x1 && x < COG_TEX_W; x++) {
+            int r = px[((size_t)y * COG_TEX_W + (size_t)x) * 4];
+            if (r > peak) peak = r;
+        }
+        if (peak >= 0xE0) found = found == -1 ? h->b : -2;
+    }
+    return found;
+}
+
 // The Display tab: the cell lane U rings is the one xr_ui.c says is in force,
 // and the rows that come later are dead in both
 static void displayCells(void) {
@@ -795,7 +822,15 @@ static void displayCells(void) {
     c->cogOpen = 1;
     c->cogTab = COG_TAB_DISPLAY;
     c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
-    for (int round = 0; round < 3; round++) {
+    for (int round = 0; round < 4; round++) {
+        if (round == 3) {
+            // Native (owner's request, 1.3.3): in a room, whose glow is its
+            // own and off while the app wide one is on, the Glow row rings
+            // the room's
+            c->ambilightOn = 1;
+            xrSetEnvironment(c, ENV_CELL_HOME_THEATER);
+            c->roomGlow[ROOM_STYLE_THEATER] = 0;
+        }
         if (round == 1) {
             c->sharpenMode = 0;
             c->overlayVisible = 1;
@@ -815,12 +850,94 @@ static void displayCells(void) {
             CHECK(ui_cog_row_live(v, COG_TAB_DISPLAY, row) == live);
             CHECK(live || xrRowLater(c, COG_TAB_DISPLAY, row) != 0 || row == COG_OPTION_HEAD_AIM);
             if (!live) continue;
-            int drawn = settings_option_cell(v->settings, &v->session, row);
+            int drawn = ui_cog_display_cell(v, row);
             int logic = cogOptionValue(c, row, s->settings.head_locked);
             CHECK(drawn == logic);
             if (drawn != logic) fprintf(stderr, "  round %d row %d: drawn %d, logic %d\n", round, row, drawn, logic);
         }
+        CHECK(drawnRing(v, COG_OPTION_AMBILIGHT) == cogOptionValue(c, COG_OPTION_AMBILIGHT, 0));
+        if (round == 3) CHECK(drawnRing(v, COG_OPTION_AMBILIGHT) == 0 && c->ambilightOn == 1);
     }
+    xrSetEnvironment(c, ENV_CELL_VOID);
+    scene_free(s);
+}
+
+// Native (owner's request, 1.3.3): in each room the Display tab's Glow row and
+// the Room tab's are one switch, the room's own: a press on either sets the
+// room's glow, stored under the room as the Room tab's is, and both rows ring
+// it after; the app wide glow is left alone. Out of the room the Display tab's
+// row is the app wide switch again.
+static void displayGlowInRoom(void) {
+    Scene* s = scene_new();
+    XrCtx* c = s->ctx;
+    c->cogOpen = 1;
+    c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
+    c->ambilightOn = 1;
+    s->settings.glow = 1;
+    static const int CELLS[] = { ENV_CELL_HOME_THEATER, ENV_CELL_GRAND_CINEMA, ENV_CELL_SYNTHWAVE };
+    for (int k = 0; k < 3; k++) {
+        xrSetEnvironment(c, CELLS[k]);
+        int style = roomEffective(c);
+        CHECK(style >= ROOM_STYLE_FIRST && style <= ROOM_STYLE_LAST);
+        if (style < ROOM_STYLE_FIRST || style > ROOM_STYLE_LAST) continue;
+        int r = style - ROOM_STYLE_FIRST;
+        c->roomGlow[style] = 0;
+        s->settings.room[r].glow = 0;
+        // Off, on from the Display tab, off from the Room tab, on from the
+        // Room tab, off from the Display tab
+        static const struct { int face, cell; } PRESSES[] = {
+            { COG_TAB_DISPLAY, 1 }, { COG_FACE_ROOM, 0 }, { COG_FACE_ROOM, 1 }, { COG_TAB_DISPLAY, 0 },
+        };
+        for (int p = -1; p < 4; p++) {
+            int want = p < 0 ? 0 : PRESSES[p].cell;
+            if (p >= 0) {
+                float out[IN_SLOTS];
+                memset(out, 0, sizeof(out));
+                out[IN_SETTING] = -1.0f;
+                int face = PRESSES[p].face;
+                cogApplyCell(c, face, face == COG_FACE_ROOM ? COG_ROOM_ROW_GLOW : COG_OPTION_AMBILIGHT, want, out);
+                CHECK((int)out[IN_SETTING] == SETTING_ROOM_GLOW && (int)out[IN_SETTING_VALUE] == want);
+                xrStoreSetting(c, &s->settings, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
+                CHECK(s->settings.room[r].glow == want);
+            }
+            CHECK(c->roomGlow[style] == want && roomGlowOn(c, style) == want);
+            CHECK(c->ambilightOn == 1 && s->settings.glow == 1);
+            // the Display tab
+            c->cogTab = COG_TAB_DISPLAY;
+            scene_frame(s, NULL);
+            const UiView* v = xrPanelsLastView(c);
+            CHECK(cogFace(c) == COG_TAB_DISPLAY);
+            CHECK(cogRowLive(c, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT));
+            CHECK(ui_cog_row_live(v, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT));
+            CHECK(cogOptionValue(c, COG_OPTION_AMBILIGHT, 0) == want);
+            int display = drawnRing(v, COG_OPTION_AMBILIGHT);
+            CHECK(display == want);
+            if (display != want) fprintf(stderr, "  room %d press %d: the Display tab rings %d, the room's glow %d\n", style, p, display, want);
+            // the Room tab
+            c->cogTab = COG_TAB_SCREEN;
+            scene_frame(s, NULL);
+            v = xrPanelsLastView(c);
+            CHECK(cogFace(c) == COG_FACE_ROOM);
+            CHECK(cogCellInForce(c, COG_FACE_ROOM, COG_ROOM_ROW_GLOW) == want);
+            CHECK(drawnRing(v, COG_ROOM_ROW_GLOW) == display);
+        }
+        // a room left on, for the way out
+        c->roomGlow[style] = 1;
+        s->settings.room[r].glow = 1;
+    }
+    // Out of the rooms: the app wide switch, drawn and pressed
+    xrSetEnvironment(c, ENV_CELL_VOID);
+    c->cogTab = COG_TAB_DISPLAY;
+    c->ambilightOn = 0;
+    scene_frame(s, NULL);
+    CHECK(drawnRing(xrPanelsLastView(c), COG_OPTION_AMBILIGHT) == 0);
+    float out[IN_SLOTS];
+    memset(out, 0, sizeof(out));
+    out[IN_SETTING] = -1.0f;
+    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT, 1, out);
+    CHECK((int)out[IN_SETTING] == SETTING_AMBILIGHT && c->ambilightOn == 1);
+    scene_frame(s, NULL);
+    CHECK(drawnRing(xrPanelsLastView(c), COG_OPTION_AMBILIGHT) == 1);
     scene_free(s);
 }
 
@@ -924,6 +1041,7 @@ int main(void) {
     cogTabKept();
     restingBeam();
     displayCells();
+    displayGlowInRoom();
     depthRows();
     return checksDone("m4 prefs");
 }
