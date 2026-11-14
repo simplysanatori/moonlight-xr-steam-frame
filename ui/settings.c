@@ -225,7 +225,7 @@ static const SettingDesc TABLE[] = {
     DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),
     DB("vr", "passthrough", passthrough, 0, "checkbox_vr_passthrough"),
     DE("vr", "environment", environment, ENV_NAMES, 0, "list_vr_environment: auto = black void, or passthrough with passthrough on"),
-    // Native (1.3.3, issue #6): ZipDepth Light (zipdepth-int8) by default, over 80% less CPU than ZipDepth Full
+    // Native (1.3.3, issue #6): ZipDepth Light (zipdepth-int8) by default, about 60% less CPU than ZipDepth Full
     // (zipdepth), which heated the Frame until it shut down. A default is written commented out, so a file that never
     // chose a model takes the new default, and a saved zipdepth stays; 1.3.2 reads both names.
     DE("vr", "depth_source", depth_source, DEPTH_NAMES, DEPTH_SOURCE_DEFAULT, "list_vr_depth_source: Realtime 3D mode (zipdepth-int8 ZipDepth Light, the default, lighter on the CPU; zipdepth ZipDepth Full, finer depth edges but much harder on the CPU, can overheat the headset at high refresh rates; midas older; off streams flat; flat, ramp, blob, eyetest, shifttest are test patterns)"),

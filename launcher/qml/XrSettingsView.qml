@@ -1580,7 +1580,7 @@ Flickable {
             confirms: ({
                 "zipdepth": {
                     title: qsTr("Use ZipDepth Full?"),
-                    text: qsTr("ZipDepth Light uses over 80% less CPU. ZipDepth Full shows finer depth edges but works the CPU much harder; at high refresh rates it can overheat the headset and make it shut down."),
+                    text: qsTr("ZipDepth Light uses about 60% less CPU. ZipDepth Full shows finer depth edges but works the CPU much harder; at high refresh rates it can overheat the headset and make it shut down."),
                     yes: qsTr("I Understand")
                 }
             })
