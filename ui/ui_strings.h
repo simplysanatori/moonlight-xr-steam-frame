@@ -202,6 +202,14 @@
     X(SOURCE_SBS, "native_3d_source_sbs", "SBS") \
     X(SOURCE_TB, "native_3d_source_tb", "Top-bottom") \
     X(SBS_NO_DEPTH, "native_3d_sbs_no_depth", "the PC draws the depth") \
+    /* native (1.3.3, issue #6): the 3D tab's Depth model row and ZipDepth Full's question. PROPOSED */ \
+    /* wording, English in every language for now (docs/dev/i18n.md) */ \
+    X(ROW_DEPTH_MODEL, "native_row_depth_model", "Depth model") \
+    X(DEPTH_LIGHT, "native_depth_light", "ZipDepth Light") \
+    X(DEPTH_FULL, "native_depth_full", "ZipDepth Full") \
+    X(DEPTH_FULL_TITLE, "native_depth_full_title", "Use ZipDepth Full?") \
+    X(DEPTH_FULL_BODY, "native_depth_full_body", "ZipDepth Light uses over 80% less CPU. ZipDepth Full shows finer depth edges but works the CPU much harder; at high refresh rates it can overheat the headset and make it shut down.") \
+    X(I_UNDERSTAND, "native_i_understand", "I Understand") \
     X(ROW_EDGE, "native_row_edge", "Edge")     X(ROW_DEPTH_DETAIL, "native_row_depth_detail", "Depth detail")     X(ROW_DEPTH_SHAPE, "native_row_depth_shape", "Depth shape")     X(ROW_MOTION_RESET, "native_row_motion_reset", "Motion reset")     X(ROW_EYE_BALANCE, "native_row_eye_balance", "Eye balance") \
     X(NATIVE_EXIT_APP, "native_exit_app", "Quit Moonlight XR for Frame?") \
     X(NATIVE_PAIR_LATER, "native_pair_later", "Pair with mlxr-cli") \

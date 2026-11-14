@@ -323,6 +323,52 @@ int xrDepthSetSource(XrCtx* ctx, int source) {
     return 1;
 }
 
+// The model's file, "" when there is none
+static const char* modelPathFor(XrCtx* ctx, int model, char* path, size_t cap) {
+    path[0] = '\0';
+    const XrDepthEngineOps* ops = g_ops;
+    const MlxrDepthModelSpec* spec = ops != NULL && model >= 0 ? ops->spec((MlxrDepthModelId)model) : NULL;
+    if (spec != NULL && ctx->assetsDir[0] != '\0') {
+        snprintf(path, cap, "%s/depth/%s", ctx->assetsDir, spec->file);
+    }
+    return path;
+}
+
+int xrDepthChangeModel(XrCtx* ctx, int source) {
+    int model;
+    if (modeForSource(source, &model) != DEPTH_MODE_MODEL || ctx->depthModeSet != DEPTH_MODE_MODEL
+            || ctx->depthFailed) {
+        LOGI("3d: depth model %d from the 3D tab left alone: no depth model in force", source);
+        return 0;
+    }
+    int pending = ctx->depthModelNext > 0 ? ctx->depthModelNext - 1 : ctx->depthModel;
+    if (model == pending) {
+        return 0;
+    }
+    char path[640];
+    const MlxrDepthModelSpec* spec = g_ops != NULL ? g_ops->spec((MlxrDepthModelId)model) : NULL;
+    if (spec == NULL || modelPathFor(ctx, model, path, sizeof(path))[0] == '\0' || access(path, R_OK) != 0) {
+        LOGW("3d: depth model %s from the 3D tab unavailable (%s), staying on the one running",
+             spec != NULL ? spec->name : "?", path[0] ? path : "no file");
+        return 0;
+    }
+    // Back to the one running before the restart came round: nothing to do
+    ctx->depthModelNext = model == ctx->depthModel ? 0 : model + 1;
+    LOGEV("3d: depth model %s chosen from the 3D tab%s", spec->name,
+          ctx->depthModelNext ? ", restarting the model with it" : ", the one running");
+    return 1;
+}
+
+int xrDepthModelSource(XrCtx* ctx) {
+    if (ctx->depthModeSet != DEPTH_MODE_MODEL || ctx->depthFailed) {
+        return -1;
+    }
+    int model = ctx->depthModelNext > 0 ? ctx->depthModelNext - 1 : ctx->depthModel;
+    return model == MLXR_DEPTH_ZIPDEPTH_256_INT8DR ? DEPTH_SOURCE_LIGHT
+         : model == MLXR_DEPTH_ZIPDEPTH_512x288_FP16 ? DEPTH_SOURCE_FULL
+         : model == MLXR_DEPTH_MIDAS_256_FP16 ? 1 : -1;
+}
+
 float xrDepthSbsShift(float convergence) {
     float c = convergence < 0.0f ? 0.0f : (convergence > 1.0f ? 1.0f : convergence);
     return (c - 0.5f) * 2.0f * SBS_SHIFT_MAX;
@@ -857,6 +903,36 @@ static void uploadMap(XrCtx* ctx, XrDepth* d) {
     }
 }
 
+// Native (1.3.3): the model chosen on the 3D tab (xrDepthChangeModel), first
+// thing in the frame, before anything of this frame's has touched the depth
+// images: the engine stopped, the GPU idle, everything the old model's size
+// made freed, and the state made again from nothing for the new one, which
+// starts the way the first one did, the 3D flat until its first map lands.
+static void changeModel(XrCtx* ctx) {
+    int model = ctx->depthModelNext - 1;
+    ctx->depthModelNext = 0;
+    const MlxrDepthModelSpec* spec = g_ops != NULL ? g_ops->spec((MlxrDepthModelId)model) : NULL;
+    if (spec == NULL) {
+        return;
+    }
+    if (ctx->depth != NULL) {
+        if (ctx->vk != NULL && ctx->vk->device != VK_NULL_HANDLE) {
+            vkDeviceWaitIdle(ctx->vk->device);
+        }
+        xrDepthDestroy(ctx);
+    }
+    ctx->depthModel = model;
+    ctx->depthTexW = spec->width;
+    ctx->depthTexH = spec->height;
+    if (ctx->stereoLive && ctx->stereoMode == DEPTH_MODE_MODEL) {
+        ctx->stereoWaiting = 1;
+        ctx->stereoWaitIndex = atomic_load_explicit(&ctx->depthStagedIndex, memory_order_acquire);
+        ctx->stereoWaitNs = nowNs();
+    }
+    ctx->warpRedraw = 1;
+    LOGEV("3d: depth model now %s (%dx%d), starting", spec->name, spec->width, spec->height);
+}
+
 void xrDepthFrame(XrCtx* ctx) {
     // What is in force this frame (upstream nativeEndFrame): the panel's
     // separation over the preference, and the debug knob over both
@@ -865,6 +941,9 @@ void xrDepthFrame(XrCtx* ctx) {
         separation = ctx->separationOverride;
     }
     ctx->separationCurrent = separation;
+    if (ctx->depthModelNext > 0) {
+        changeModel(ctx);
+    }
     if (ctx->stereoMode == DEPTH_MODE_OFF || ctx->vk == NULL) {
         return;
     }

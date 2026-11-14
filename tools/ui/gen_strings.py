@@ -236,6 +236,13 @@ MAP = [
     ("native_3d_source_sbs", NATIVE),
     ("native_3d_source_tb", NATIVE),
     ("native_3d_sbs_no_depth", NATIVE),
+    # native (1.3.3, issue #6): the 3D tab's Depth model row and ZipDepth Full's question
+    ("native_row_depth_model", NATIVE),
+    ("native_depth_light", NATIVE),
+    ("native_depth_full", NATIVE),
+    ("native_depth_full_title", NATIVE),
+    ("native_depth_full_body", NATIVE),
+    ("native_i_understand", NATIVE),
     ("native_row_edge", NATIVE),
     ("native_row_depth_detail", NATIVE),
     ("native_row_depth_shape", NATIVE),

@@ -586,6 +586,9 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_CONVERGENCE: s->convergence = value; break;
     case SETTING_RESET_3D: settings_reset_3d(s); break;
     case SETTING_STEREO_SOURCE: s->stereo_source = value; break;
+    case SETTING_DEPTH_SOURCE:   // native (1.3.3): the 3D tab's Depth model row, Light or Full only
+        if (value == DEPTH_SOURCE_LIGHT || value == DEPTH_SOURCE_FULL) s->depth_source = value;
+        break;
     case SETTING_EDGE: s->edge_sharpness = value; break;
     case SETTING_DEPTH_DETAIL: s->depth_scale = value; break;
     case SETTING_DEPTH_SHAPE: s->depth_global = value; break;

@@ -485,6 +485,9 @@ typedef struct XrCtx {
     // Native: the depth model this session runs (depth/litert_backend.h
     // MlxrDepthModelId), and why the 3D is off when it cannot be had
     int depthModel;
+    // Native (1.3.3): a model chosen on the 3D tab, MlxrDepthModelId + 1 (0 for none), which the next
+    // xrDepthFrame restarts the depth model with (xrDepthChangeModel)
+    int depthModelNext;
     int depthFailed;
     char depthReason[96];
     // Native: the depth model's thread, its staging and the 3D passes
@@ -826,6 +829,8 @@ typedef struct XrCtx {
     int hintHoverZone;
     XrPosef hintPose;
     float hintW, hintH;
+    // Native (1.3.3): what the hint sheet is up for, HINT_KIND_HANDS or HINT_KIND_DEPTH_FULL
+    int hintKind;
 
     // Controller input. The aim ray is intersected with the screen and the hit
     // point drives the host mouse, so the PC sees an ordinary absolute mouse
@@ -1651,6 +1656,12 @@ int cogRoomCellValue(XrCtx* ctx, int row);
 void cogApplyRoomCell(XrCtx* ctx, int row, int cell, float* out);
 int cogCellInForce(XrCtx* ctx, int face, int row);
 void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out);
+// Native (1.3.3): ZipDepth Full asks first. The settings panel goes away for
+// the hint sheet with the question (HINT_KIND_DEPTH_FULL); its answer, yes for
+// I Understand, changes the model and hands depth_source to Java to store
+// (out's IN_SETTING), and either way the panel comes back on the 3D tab.
+void depthFullSheetOpen(XrCtx* ctx);
+void depthFullSheetAnswer(XrCtx* ctx, int yes, float* out);
 // The Screen tab's preset rows: which preset the screen is at now (-1 none, the
 // one whose cell shows its ring), and a preset put in force as its cell does
 int xrScreenPresetNow(XrCtx* ctx);

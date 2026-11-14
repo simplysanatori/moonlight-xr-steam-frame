@@ -156,8 +156,13 @@ static void cogRows(Scene* s) {
                     }
                 }
                 CHECK(found == (live ? row : -1));
-                // lane U's hit at the same point
+                // lane U's hit at the same point. Native (1.3.3): but where the 3D cannot run the depth
+                // model row's place says why, and has no hit for the ray to find (it is dead either way)
                 int i = ui_hits_at(&hits, u, v);
+                if (face == COG_TAB_3D && row == COG_ROW3D_MODEL && !live && !view->stereo_ok) {
+                    CHECK(i < 0);
+                    continue;
+                }
                 CHECK(i >= 0);
                 if (i < 0) {
                     fprintf(stderr, "  tab %d row %d cell %d: no hit\n", tab, row, cell);

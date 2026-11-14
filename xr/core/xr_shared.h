@@ -713,9 +713,9 @@
 
 // 3D tab rows, in the order they are drawn: a row of preset cells over two
 // sliders like the screen tab's, then the switch the bar's 3D button also
-// works. Only values that take effect the moment they move belong here: the
-// depth model itself is settled when the session starts, so it stays in the
-// 2d settings, and the switch only pauses a session that started with 3D.
+// works. Only values that take effect the moment they move belong here (native,
+// 1.3.3: the depth model too, last, which restarts the model with the one
+// chosen), and the switch only pauses a session that started with 3D.
 // Native (PLAN 4.3): last, the 3D source (Depth, SBS, Top-bottom), live in
 // every session, which switches between the model and a host-rendered pair
 // at once; with a host-rendered pair the preset and depth rows are dead and
@@ -734,7 +734,15 @@
 #define COG_ROW3D_SHAPE 7
 #define COG_ROW3D_MOTION 8
 #define COG_ROW3D_BALANCE 9
-#define COG_ROW3D_COUNT 10
+// Native (1.3.3, issue #6): last, the depth model, ZipDepth Light or ZipDepth
+// Full (config.ini depth_source zipdepth-int8 or zipdepth), live with the
+// depth model as the source. Full asks first on the hint sheet
+// (HINT_KIND_DEPTH_FULL); the model restarts with the one chosen.
+#define COG_ROW3D_MODEL 10
+#define COG_ROW3D_COUNT 11
+#define COG_MODEL_LIGHT 0
+#define COG_MODEL_FULL 1
+#define COG_MODEL_CELLS 2
 // Steps along those tracks, in the units their preferences are stored in:
 // Edge in 25s over 0..100, Depth detail and Depth shape in 10s over 0..200,
 // Motion reset in 5s over 0..50, Eye balance in 10s over -100..100
@@ -746,9 +754,9 @@
 #define COG_MOTION_STEPS ((MOTION_RESET_MAX - MOTION_RESET_MIN) / COG_MOTION_STEP)
 #define COG_BALANCE_STEP 10
 #define COG_BALANCE_STEPS ((EYE_BALANCE_MAX - EYE_BALANCE_MIN) / COG_BALANCE_STEP)
-// Ten rows over the reset button, so the tab spaces them as the Screen tab
-// does its eleven: starting higher, closer together, with shallower cells.
-// The last row's band ends at 0.79375, clear of the reset button.
+// Eleven rows over the reset button, spaced as the Screen tab spaces its
+// eleven: starting higher, closer together, with shallower cells. The last
+// row's band ends at 0.85625, clear of the reset button.
 #define COG_3D_ROW_V0 0.2f
 #define COG_3D_ROW_STEP 0.0625f
 #define COG_3D_ROW_HALF 0.03125f
@@ -977,6 +985,11 @@
 #define HINT_ZONE_NONE  0
 #define HINT_ZONE_OK    1
 #define HINT_ZONE_NEVER 2
+// Native (1.3.3): what the hint sheet says. The hand lock hint, or the 3D
+// tab's question before ZipDepth Full: its title, its words, and I Understand
+// in the OK button's place and Cancel in the other's.
+#define HINT_KIND_HANDS 0
+#define HINT_KIND_DEPTH_FULL 1
 
 // The Ko-fi sheet the About tab's button opens, in the exit prompt's style: the title over two
 // buttons, Open page and Not now. Drawn once at the start of a session, with the ring over the

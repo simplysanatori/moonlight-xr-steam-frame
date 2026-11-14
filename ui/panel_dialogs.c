@@ -61,11 +61,13 @@ static void draw_line(Dc* dc, float size, float x, float baseline, uint32_t c, c
 
 void panel_hint(Dc* dc) {
     dc_sheet(dc, 32.0f, 0xF0141416u);
+    // Native (1.3.3): the same sheet asks before ZipDepth Full, I Understand in OK's place
+    int depth = dc->v->hint_kind == HINT_KIND_DEPTH_FULL;
     float left = HINT_OK_L * dc->nw;
     float width = (HINT_NEVER_R - HINT_OK_L) * dc->nw;
     dc_text_fit_left(dc, UI_WEIGHT_REGULAR, 40.0f, left, 0.17f * dc->nh, width, 0xFFFFFFFFu,
-                     ui_str(UIS_HAND_HINT_TITLE));
-    const char* said = ui_str(UIS_HAND_HINT_BODY);
+                     ui_str(depth ? UIS_DEPTH_FULL_TITLE : UIS_HAND_HINT_TITLE));
+    const char* said = ui_str(depth ? UIS_DEPTH_FULL_BODY : UIS_HAND_HINT_BODY);
     float top = 0.27f * dc->nh;
     float room = (HINT_BTN_T - 0.06f) * dc->nh - top;
     UiTextLine lines[12];
@@ -75,8 +77,8 @@ void panel_hint(Dc* dc) {
         draw_line(dc, size, left, top + size + (float)i * size * 1.3f, 0xCCFFFFFFu, said, &lines[i]);
     }
     struct { float l, r; UiStr label; int btn; } B[2] = {
-        { HINT_OK_L, HINT_OK_R, UIS_OK, UI_BTN_HINT_OK },
-        { HINT_NEVER_L, HINT_NEVER_R, UIS_HAND_HINT_NEVER, UI_BTN_HINT_NEVER },
+        { HINT_OK_L, HINT_OK_R, depth ? UIS_I_UNDERSTAND : UIS_OK, UI_BTN_HINT_OK },
+        { HINT_NEVER_L, HINT_NEVER_R, depth ? UIS_CANCEL : UIS_HAND_HINT_NEVER, UI_BTN_HINT_NEVER },
     };
     for (int i = 0; i < 2; i++) {
         int hot = dc_hover(dc, UI_HIT_BUTTON, B[i].btn, -1);

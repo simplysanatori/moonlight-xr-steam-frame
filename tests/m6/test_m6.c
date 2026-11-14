@@ -1125,6 +1125,102 @@ static void testBudget(void) {
     scene_free(s);
 }
 
+// ---- the 3D tab's Depth model row (native, 1.3.3, issue #6) -----------------------------------
+// ZipDepth Light (zipdepth-int8) or ZipDepth Full (zipdepth). Light at once; Full asks first on the
+// hint sheet, where Cancel keeps Light and I Understand switches and hands depth_source to the file.
+// The engine stops and starts again with the model chosen, the 3D flat until its first map.
+static void clearOut(float* out) {
+    for (int i = 0; i < IN_SLOTS; i++) out[i] = -1.0f;
+}
+
+static void testModelRow(void) {
+    XrCtx* ctx = newCtx(DEPTH_SOURCE_DEFAULT, 1);
+    uint64_t fid = 0;
+    CHECK(ctx->stereoMode == DEPTH_MODE_MODEL && ctx->depthModel == MLXR_DEPTH_ZIPDEPTH_256_INT8DR);
+    waitReady(ctx, &fid);
+    int starts = fakeStarts, stops = fakeStops;
+    // the row: two cells, live with the depth model, Light in force
+    CHECK(cogTabRowCount(COG_TAB_3D) == COG_ROW3D_COUNT && COG_ROW3D_MODEL == COG_ROW3D_COUNT - 1);
+    CHECK(!cogRowIsTrack(COG_TAB_3D, COG_ROW3D_MODEL) && cogRowCells(COG_TAB_3D, COG_ROW3D_MODEL) == COG_MODEL_CELLS);
+    CHECK(cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_MODEL));
+    CHECK(cogCellInForce(ctx, COG_TAB_3D, COG_ROW3D_MODEL) == COG_MODEL_LIGHT);
+    CHECK(xrDepthModelSource(ctx) == DEPTH_SOURCE_LIGHT);
+    // the pointer: the row's band below the balance track's, Light on the left half of the cells
+    CHECK(cogRowV(COG_TAB_3D, COG_ROW3D_MODEL) - cogRowHalf(COG_TAB_3D)
+          >= cogRowV(COG_TAB_3D, COG_ROW3D_BALANCE) + cogRowHalf(COG_TAB_3D) - 1e-5f);
+    CHECK(cogCellAt(COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * 0.25f, COG_MODEL_CELLS) == COG_MODEL_LIGHT);
+    CHECK(cogCellAt(COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * 0.75f, COG_MODEL_CELLS) == COG_MODEL_FULL);
+    float out[IN_SLOTS];
+    // Light again: nothing to do, nothing stored
+    clearOut(out);
+    cogApplyCell(ctx, COG_TAB_3D, COG_ROW3D_MODEL, COG_MODEL_LIGHT, out);
+    CHECK((int)out[IN_SETTING] == -1 && ctx->depthModelNext == 0 && !ctx->hintOpen);
+    // Full asks first: the panel makes way for the sheet, nothing changes yet
+    ctx->cogOpen = 1;
+    cogApplyCell(ctx, COG_TAB_3D, COG_ROW3D_MODEL, COG_MODEL_FULL, out);
+    CHECK(!ctx->cogOpen && ctx->hintOpen && ctx->hintKind == HINT_KIND_DEPTH_FULL);
+    CHECK((int)out[IN_SETTING] == -1 && ctx->depthModelNext == 0);
+    CHECK(ctx->hintW > 0.0f && ctx->hintH > 0.0f);
+    // its buttons where the hand hint has them: I Understand in OK's place, Cancel in the other's
+    CHECK(handHintZone((HINT_OK_L + HINT_OK_R) * 0.5f, (HINT_BTN_T + HINT_BTN_B) * 0.5f) == HINT_ZONE_OK);
+    CHECK(handHintZone((HINT_NEVER_L + HINT_NEVER_R) * 0.5f, (HINT_BTN_T + HINT_BTN_B) * 0.5f) == HINT_ZONE_NEVER);
+    // Cancel: Light stays, nothing stored or restarted, back on the panel
+    depthFullSheetAnswer(ctx, 0, out);
+    CHECK(!ctx->hintOpen && ctx->cogOpen);
+    CHECK((int)out[IN_SETTING] == -1 && ctx->depthModelNext == 0);
+    frames(ctx, 3, &fid, 0);
+    CHECK(fakeStops == stops && fakeStarts == starts && ctx->depthModel == MLXR_DEPTH_ZIPDEPTH_256_INT8DR);
+    CHECK(cogCellInForce(ctx, COG_TAB_3D, COG_ROW3D_MODEL) == COG_MODEL_LIGHT);
+    // I Understand: Full, handed to the file, and the model starts again with it
+    cogApplyCell(ctx, COG_TAB_3D, COG_ROW3D_MODEL, COG_MODEL_FULL, out);
+    CHECK(ctx->hintOpen && ctx->hintKind == HINT_KIND_DEPTH_FULL);
+    depthFullSheetAnswer(ctx, 1, out);
+    CHECK(!ctx->hintOpen && ctx->cogOpen);
+    CHECK((int)out[IN_SETTING] == SETTING_DEPTH_SOURCE && (int)out[IN_SETTING_VALUE] == DEPTH_SOURCE_FULL);
+    Settings file;
+    settings_defaults(&file);
+    CHECK(xrStoreSetting(ctx, &file, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) == 1);
+    CHECK(file.depth_source == DEPTH_SOURCE_FULL);
+    char* text = settings_to_text(&file);
+    CHECK(text != NULL && strstr(text, "\ndepth_source = zipdepth\n") != NULL);
+    free(text);
+    // the row says Full at once, before the restart has come round
+    CHECK(cogCellInForce(ctx, COG_TAB_3D, COG_ROW3D_MODEL) == COG_MODEL_FULL);
+    frames(ctx, 1, &fid, 0);
+    CHECK(ctx->depthModelNext == 0 && ctx->depthModel == MLXR_DEPTH_ZIPDEPTH_512x288_FP16);
+    CHECK(fakeStops == stops + 1 && fakeStarts == starts + 1);
+    waitReady(ctx, &fid);
+    XrDepthInfo info;
+    xrDepthGetInfo(ctx, &info);
+    CHECK(info.engineState == MLXR_DEPTH_READY);
+    for (int i = 0; i < 30 && ctx->stereoWaiting; i++) {
+        frames(ctx, 1, &fid, 0);
+        usleep(5000);
+    }
+    CHECK(ctx->stereoWaiting == 0 && ctx->stereoLive == 1);
+    // Light back: at once, no question
+    clearOut(out);
+    cogApplyCell(ctx, COG_TAB_3D, COG_ROW3D_MODEL, COG_MODEL_LIGHT, out);
+    CHECK(!ctx->hintOpen);
+    CHECK((int)out[IN_SETTING] == SETTING_DEPTH_SOURCE && (int)out[IN_SETTING_VALUE] == DEPTH_SOURCE_LIGHT);
+    frames(ctx, 1, &fid, 0);
+    CHECK(ctx->depthModel == MLXR_DEPTH_ZIPDEPTH_256_INT8DR && fakeStops == stops + 2 && fakeStarts == starts + 2);
+    // only Light and Full are stored from the row
+    CHECK(xrStoreSetting(ctx, &file, SETTING_DEPTH_SOURCE, 2) == 0 && file.depth_source == DEPTH_SOURCE_FULL);
+    // the PC's pair: the row is dead
+    ctx->stereoSource = STEREO_SOURCE_SBS;
+    CHECK(!cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_MODEL));
+    ctx->stereoSource = STEREO_SOURCE_DEPTH;
+    m6_ctx_free(ctx);
+    // the 3D off in the file: no model to change, the row dead
+    ctx = newCtx(2, 1);
+    CHECK(ctx->stereoMode == DEPTH_MODE_OFF);
+    CHECK(!cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_MODEL));
+    CHECK(xrDepthChangeModel(ctx, DEPTH_SOURCE_FULL) == 0 && ctx->depthModelNext == 0);
+    CHECK(cogCellInForce(ctx, COG_TAB_3D, COG_ROW3D_MODEL) == -1);
+    m6_ctx_free(ctx);
+}
+
 int main(int argc, char** argv) {
     const char* group = argc > 1 ? argv[1] : "all";
     if (m6_gpu_init(&g, 0) != 0) {
@@ -1151,6 +1247,7 @@ int main(int argc, char** argv) {
     if (all || !strcmp(group, "budget")) testBudget();
     if (all || !strcmp(group, "sbs")) testSbs();
     if (all || !strcmp(group, "params")) testParams();
+    if (all || !strcmp(group, "model")) testModelRow();
     vkDeviceWaitIdle(g.vk.device);
     for (int i = 0; i < VIDEOS; i++) m5_video_free(&tmp, &videos[i]);
     m5_image_free(&tmp, &target);

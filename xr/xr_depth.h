@@ -80,6 +80,15 @@ int xrDepthChainWidth(XrCtx* ctx, int pictureWidth);
 // goes back to what depth_source gave (off if the model gave up). Any change
 // switches the 3D on, as a preset does. 1 when something changed.
 int xrDepthSetSource(XrCtx* ctx, int source);
+// Native (1.3.3): the 3D tab's Depth model row, a depth_source naming a model
+// (DEPTH_SOURCE_LIGHT, DEPTH_SOURCE_FULL). With the depth model in force and
+// that model's file there, the next xrDepthFrame stops the engine, frees its
+// GPU work (after the device is idle) and starts again with it, the 3D
+// waiting flat for its first map. 1 when the change is under way.
+int xrDepthChangeModel(XrCtx* ctx, int source);
+// The depth_source in force for the 3D tab's row: the model chosen last, or
+// the session's, as its config.ini value; -1 for none (the 3D off, SBS)
+int xrDepthModelSource(XrCtx* ctx);
 // The picture one eye sees from a decoded frame this size: half the frame
 // for a full size pair (ctx->sbsFull: 3840x1080 side by side is 1920x1080),
 // else the frame (a half size pair is stretched back to the frame's shape)

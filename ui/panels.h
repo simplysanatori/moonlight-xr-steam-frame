@@ -190,6 +190,8 @@ typedef struct {
     // Native: 1 draws the prompt as Quit app / Disconnect / Cancel (a stream is
     // up), 0 as Exit / Cancel
     int exit_disconnect;
+    // Native (1.3.3): what the hint sheet says, HINT_KIND_HANDS or HINT_KIND_DEPTH_FULL
+    int hint_kind;
     // Native (lane wave3-cards): the pad in use as the pad card draws it, and what the first-run
     // card words its gamepad lines for (pad.style; Xbox until a pad has been used)
     PadLive pad;

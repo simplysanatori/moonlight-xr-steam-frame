@@ -333,7 +333,10 @@ int ui_cog_row_is_track(int face, int row) {
     if (face == COG_TAB_ACCESS) return row == COG_ACCESS_ROW_DOT;
     if (face == COG_TAB_DISPLAY) return row == COG_DISPLAY_SLIDER_ROW;
     if (face == COG_FACE_ROOM) return row != COG_ROOM_ROW_GLOW && row != COG_ROOM_ROW_LIGHT;
-    if (face == COG_TAB_3D) return row == COG_ROW3D_SEPARATION || row == COG_ROW3D_CONVERGENCE || row >= COG_ROW3D_EDGE;
+    if (face == COG_TAB_3D) {
+        return row == COG_ROW3D_SEPARATION || row == COG_ROW3D_CONVERGENCE
+            || (row >= COG_ROW3D_EDGE && row <= COG_ROW3D_BALANCE);
+    }
     return 1;
 }
 
@@ -359,7 +362,8 @@ int ui_cog_row_cells(int face, int row) {
              : row == COG_ACCESS_ROW_EYECAL ? COG_ACCESS_EYECAL_CELLS : 0;
     }
     if (face == COG_TAB_3D) {
-        return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS : row == COG_ROW3D_SOURCE ? COG_SOURCE_CELLS : COG_STEREO_CELLS;
+        return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS : row == COG_ROW3D_SOURCE ? COG_SOURCE_CELLS
+             : row == COG_ROW3D_MODEL ? COG_MODEL_CELLS : COG_STEREO_CELLS;
     }
     return option_cells(row);
 }

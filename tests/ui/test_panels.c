@@ -372,8 +372,8 @@ static void test_cog_rows_present(void) {
     // native (lane wave3-tidy): the depth model's five tracks (Edge, Depth
     // detail, Depth shape, Motion reset, Eye balance), live with the depth
     // model as the source
-    CHECK(COG_ROW3D_COUNT == 10);
-    for (int row = COG_ROW3D_EDGE; row < COG_ROW3D_COUNT; row++) {
+    CHECK(COG_ROW3D_COUNT == 11 && COG_ROW3D_BALANCE == 9);
+    for (int row = COG_ROW3D_EDGE; row <= COG_ROW3D_BALANCE; row++) {
         CHECK(ui_cog_row_is_track(COG_TAB_3D, row));
         CHECK(ui_cog_row_live(&v, COG_TAB_3D, row));
         int i = ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1);
@@ -381,6 +381,37 @@ static void test_cog_rows_present(void) {
         CHECK(ui_hits_find(&hits, UI_HIT_TRACK_DOWN, row, 0) >= 0);
         CHECK(ui_hits_find(&hits, UI_HIT_TRACK_UP, row, 0) >= 0);
         if (i >= 0) CHECK_NEAR((hits.hit[i].v0 + hits.hit[i].v1) * 0.5f, cogRowV(COG_TAB_3D, row), 1e-5);
+    }
+    // native (1.3.3, issue #6): last, the depth model, two cells (ZipDepth
+    // Light, ZipDepth Full), live with the depth model, Light ringed by default
+    CHECK(ui_cog_row_cells(COG_TAB_3D, COG_ROW3D_MODEL) == COG_MODEL_CELLS && COG_MODEL_CELLS == 2);
+    CHECK(!ui_cog_row_is_track(COG_TAB_3D, COG_ROW3D_MODEL));
+    CHECK(ui_cog_row_live(&v, COG_TAB_3D, COG_ROW3D_MODEL));
+    for (int c = 0; c < COG_MODEL_CELLS; c++) {
+        int i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_MODEL, c);
+        CHECK(i >= 0 && hits.hit[i].enabled);
+        if (i >= 0) {
+            CHECK_NEAR((hits.hit[i].v0 + hits.hit[i].v1) * 0.5f, cogRowV(COG_TAB_3D, COG_ROW3D_MODEL), 1e-5);
+            // each cell half of the track, Light on the left (the pointer's cogCellAt splits it the same way)
+            CHECK_NEAR(hits.hit[i].u0, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * c / 2.0f, 1e-5);
+            CHECK_NEAR(hits.hit[i].u1, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (c + 1) / 2.0f, 1e-5);
+        }
+    }
+    CHECK(ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_MODEL, COG_MODEL_CELLS) < 0);
+    CHECK(cogRowV(COG_TAB_3D, COG_ROW3D_MODEL) + cogRowHalf(COG_TAB_3D) < COG_RESET_T);
+    {
+        // Full in the file rings the other cell: the art differs
+        Settings sf = *v.settings;
+        sf.depth_source = DEPTH_SOURCE_FULL;
+        UiView vf = v;
+        vf.settings = &sf;
+        Guarded gf;
+        draw(UI_PANEL_COG, &vf, 1.0f, &gf);
+        check_hits_inside("3d full");
+        CHECK(memcmp(g.px, gf.px, g.size) != 0);
+        free(gf.base);
+        draw(UI_PANEL_COG, &v, 1.0f, &gf);   // the hits back as they were
+        free(gf.base);
     }
     {
         // the PC's pair: the preset and depth rows greyed, convergence, the
@@ -411,8 +442,13 @@ static void test_cog_rows_present(void) {
             // the preset, the depth track and the five depth-model tracks have nothing to set
             CHECK(ui_cog_row_live(&vs, COG_TAB_3D, row) == (row == COG_ROW3D_CONVERGENCE || row == COG_ROW3D_SWITCH || row == COG_ROW3D_SOURCE));
         }
-        for (int row = COG_ROW3D_EDGE; row < COG_ROW3D_COUNT; row++) {
+        for (int row = COG_ROW3D_EDGE; row <= COG_ROW3D_BALANCE; row++) {
             i = ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1);
+            CHECK(i >= 0 && !hits.hit[i].enabled);
+        }
+        // and the depth model, which the PC's pair does not use
+        for (int c = 0; c < COG_MODEL_CELLS; c++) {
+            i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_MODEL, c);
             CHECK(i >= 0 && !hits.hit[i].enabled);
         }
         free(gs.base);
@@ -427,6 +463,8 @@ static void test_cog_rows_present(void) {
         for (int row = 0; row < COG_ROW3D_COUNT; row++) {
             CHECK(ui_cog_row_live(&vs, COG_TAB_3D, row) == (row == COG_ROW3D_SOURCE));
         }
+        // the depth model's place says why the 3D is off, and takes no press
+        CHECK(ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_MODEL, COG_MODEL_LIGHT) < 0);
         free(gs.base);
     }
     free(g.base);
@@ -811,6 +849,23 @@ static void test_other_panels_hits(void) {
     CHECK(ok >= 0 && handHintZone((hits.hit[ok].u0 + hits.hit[ok].u1) / 2, (hits.hit[ok].v0 + hits.hit[ok].v1) / 2) == HINT_ZONE_OK);
     int nv = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HINT_NEVER, -1);
     CHECK(nv >= 0 && handHintZone((hits.hit[nv].u0 + hits.hit[nv].u1) / 2, (hits.hit[nv].v0 + hits.hit[nv].v1) / 2) == HINT_ZONE_NEVER);
+    {
+        // native (1.3.3): the same sheet asking before ZipDepth Full: other words, the same two
+        // buttons where the pointer's zones are (I Understand in OK's, Cancel in the other's)
+        UiView vd = v;
+        vd.hint_kind = HINT_KIND_DEPTH_FULL;
+        Guarded gd;
+        draw(UI_PANEL_HINT, &vd, 1.0f, &gd);
+        check_hits_inside("depth full sheet");
+        CHECK(memcmp(g.px, gd.px, g.size) != 0);
+        ok = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HINT_OK, -1);
+        CHECK(ok >= 0 && handHintZone((hits.hit[ok].u0 + hits.hit[ok].u1) / 2, (hits.hit[ok].v0 + hits.hit[ok].v1) / 2) == HINT_ZONE_OK);
+        nv = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HINT_NEVER, -1);
+        CHECK(nv >= 0 && handHintZone((hits.hit[nv].u0 + hits.hit[nv].u1) / 2, (hits.hit[nv].v0 + hits.hit[nv].v1) / 2) == HINT_ZONE_NEVER);
+        CHECK(strcmp(ui_str(UIS_DEPTH_FULL_TITLE), "Use ZipDepth Full?") == 0);
+        CHECK(strcmp(ui_str(UIS_I_UNDERSTAND), "I Understand") == 0);
+        free(gd.base);
+    }
     free(g.base);
     draw(UI_PANEL_KOFI, &v, 1.0f, &g);
     check_hits_inside("kofi");

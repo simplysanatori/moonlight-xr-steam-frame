@@ -657,6 +657,9 @@ static void testTheRowsFit(void) {
     CHECK_NEAR(cogRowV(COG_TAB_3D, 0), COG_3D_ROW_V0, 1e-6);
     CHECK_NEAR(cogRowV(COG_TAB_3D, 3), COG_3D_ROW_V0 + 3 * COG_3D_ROW_STEP, 1e-6);
     CHECK_NEAR(cogRowV(COG_TAB_3D, COG_ROW3D_BALANCE), 0.7625, 1e-5);
+    // native (1.3.3): the Depth model row last, the Screen tab's eleventh row's place
+    CHECK_NEAR(cogRowV(COG_TAB_3D, COG_ROW3D_MODEL), 0.825, 1e-5);
+    CHECK(COG_ROW3D_MODEL == COG_ROW3D_COUNT - 1 && COG_ROW3D_COUNT == COG_SCREEN_ROW_COUNT);
     CHECK(cogRowV(COG_TAB_3D, COG_ROW3D_COUNT - 1) + cogRowHalf(COG_TAB_3D) < COG_RESET_T);
     CHECK_NEAR(cogRowHalf(COG_TAB_3D), COG_3D_ROW_HALF, 1e-6);
     CHECK_NEAR(cogCellHalf(COG_TAB_3D), COG_3D_CELL_HALF, 1e-6);

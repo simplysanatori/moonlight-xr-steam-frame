@@ -149,7 +149,9 @@ int xrPanelsCreate(XrCtx* ctx) {
     ctx->padButtonReady = 1; // M3: the pad reaches the host
     ctx->stereoButtonReady = ctx->stereoMode != DEPTH_MODE_OFF;
     ctx->kofiReady = 1;
-    ctx->hintReady = ctx->handsEnabled;
+    // Native (1.3.3): the sheet also asks before ZipDepth Full, with or without hands (the hand
+    // lock hint itself still waits on hintWanted, which needs them)
+    ctx->hintReady = 1;
     ctx->cogClockReady = 1;
     // The keyboard's layout, which upstream's Java handed down with the art
     xrKeyboardFillTables(ctx);
@@ -698,6 +700,7 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->env_selected = -1;
     v->exit_question = ctx->launcher != LAUNCHER_NONE ? ui_str(UIS_NATIVE_EXIT_APP) : NULL;
     v->exit_disconnect = exitPromptHasDisconnect(ctx);
+    v->hint_kind = ctx->hintKind;   // native (1.3.3): the hand lock hint or ZipDepth Full's question
     v->pad = ctx->padLive;   // Native (lane wave3-cards): the pad card, and the first-run card's wording
     v->access_eyes = xrAccessEyes(ctx);   // Native (lane a11y-tab): the Accessibility tab's eye line
     v->access_row = xrAccessHoverRow(ctx);   // Native (lane a11y-2): and the row its footer describes
@@ -912,7 +915,8 @@ static void updateOnce(XrCtx* ctx, XrPanels* p, const UiView* base, int slot, in
     if (!wanted) {
         return;
     }
-    int k[4] = { base->env_live_cells, base->bar_show_aim, base->bar_show_stereo, base->bar_show_here };
+    int k[5] = { base->env_live_cells, base->bar_show_aim, base->bar_show_stereo, base->bar_show_here,
+                 base->hint_kind };
     if (!keyChanged(p, slot, k, sizeof(k))) {
         return;
     }

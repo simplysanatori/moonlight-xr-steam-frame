@@ -231,7 +231,7 @@ When a stream starts, the profile of the app, or else of its PC, is in force for
 | 3D | on, off | on. This is the 3D switch; the bar's 3D button and the headset's 3D tab change it too. See [3D](#3d). |
 | 3D source | Depth model, SBS from the PC, Top-bottom from the PC | Depth model. Press to step through them. See [SBS 3D](#sbs-3d). The headset's 3D tab has the same row. |
 | Full-size SBS | on, off | off. On: the PC's pair has a full picture per eye (3840x1080 for two 1920x1080 eyes). Off: half-size, both eyes squeezed into one 1920x1080 frame. Greyed with the depth model. |
-| Depth model | ZipDepth Light, ZipDepth Full, MiDaS (older), Off (2D only) | ZipDepth Light. ZipDepth Light uses over 80% less CPU than ZipDepth Full; Full shows finer depth edges but works the CPU much harder, and at high refresh rates it can overheat the headset and make it shut down, so picking it asks you to confirm first. Greyed with SBS or Top-bottom. In `config.ini`: `[vr] depth_source`. |
+| Depth model | ZipDepth Light, ZipDepth Full, MiDaS (older), Off (2D only) | ZipDepth Light. ZipDepth Light uses over 80% less CPU than ZipDepth Full; Full shows finer depth edges but works the CPU much harder, and at high refresh rates it can overheat the headset and make it shut down, so picking it asks you to confirm first. Greyed with SBS or Top-bottom. The headset's 3D tab has ZipDepth Light and ZipDepth Full too. In `config.ini`: `[vr] depth_source`. |
 | 3D depth | 1 to 100 | The depth model's own value. The headset's 3D tab calls it Depth. Greyed with the 3D off, and with SBS or Top-bottom as the 3D source. |
 | 3D convergence | 0 to 100 | 50. Greyed with the 3D off. With SBS or Top-bottom it moves the two halves apart or together. |
 | 3D edge | 0, 25, 50, 75, 100 (press to step) | 0. See [3D](#3d). Greyed with the 3D off. |
@@ -454,9 +454,10 @@ The Screen tab's Bring here also works from a controller button: bind `app:bring
 | Convergence | Where the screen plane sits in depth. Default 50. With SBS or Top-bottom it moves the two halves apart (above 50, the picture goes behind the screen) or together (below 50, it comes out). |
 | 3D | On or Off. Remembered between sessions. |
 | 3D source | Depth, SBS, Top-bottom. Where the 3D comes from: the depth model, or a pair the PC renders itself. Takes effect at once and is remembered. See [SBS 3D](#sbs-3d). |
+| Depth model | ZipDepth Light (the default) or ZipDepth Full, the same choice as the Settings page's Depth model row. ZipDepth Full shows finer depth edges but works the CPU much harder, and at high refresh rates it can overheat the headset, so picking it asks first: **I Understand** switches, **Cancel** keeps ZipDepth Light. The model restarts with the new choice (the picture is flat for a moment) and it is remembered. With MiDaS chosen on the Settings page neither cell is marked. |
 | Reset | Back to the model's values. |
 
-The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the depth model is not installed, or it did not load. The 3D source row stays live, so SBS and Top-bottom work without the depth model. With SBS or Top-bottom, Preset and Depth are greyed ("the PC draws the depth").
+The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the depth model is not installed, or it did not load. The 3D source row stays live, so SBS and Top-bottom work without the depth model. With SBS or Top-bottom, Preset, Depth and Depth model are greyed ("the PC draws the depth").
 
 ### Picture
 

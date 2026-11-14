@@ -2626,7 +2626,7 @@ static void updateLockGesture(XrCtx* ctx, InputFrame* f) {
         }
         if (triplePinchStep(&ctx->triplePinch[h], ctx->triggerDown[h], f->now)) {
             // Trying what the hint says puts the hint away too
-            if (ctx->hintOpen) {
+            if (ctx->hintOpen && ctx->hintKind == HINT_KIND_HANDS) {
                 closeHandHint(ctx, f, 0, "the triple pinch");
             }
             setHandsLocked(ctx, !ctx->handsLocked, "the triple pinch");
@@ -3595,6 +3595,7 @@ static void updateHintOpening(XrCtx* ctx, InputFrame* f) {
     }
     ctx->hintOpen = 1;
     ctx->hintShown = 1;
+    ctx->hintKind = HINT_KIND_HANDS;   // native (1.3.3): the sheet may last have asked about ZipDepth Full
     ctx->hintHoverZone = HINT_ZONE_NONE;
     ctx->hintPose = handHintPose(ctx, &ctx->hintW, &ctx->hintH);
     // The press that puts it away wants a ray to aim with
@@ -3645,9 +3646,16 @@ static void updateHandHint(XrCtx* ctx, InputFrame* f) {
     if (on != HINT_ZONE_NONE) {
         ctx->clickPending = 1;
     }
-    closeHandHint(ctx, f, on == HINT_ZONE_NEVER,
-                  on == HINT_ZONE_NEVER ? "\"Don't show this again\""
-                  : on == HINT_ZONE_OK ? "OK" : "a press off its buttons");
+    if (ctx->hintKind == HINT_KIND_DEPTH_FULL) {
+        // Native (1.3.3): ZipDepth Full's question. Only I Understand (the
+        // OK button's place) says yes; Cancel or a press anywhere else no.
+        depthFullSheetAnswer(ctx, on == HINT_ZONE_OK, f->out);
+    }
+    else {
+        closeHandHint(ctx, f, on == HINT_ZONE_NEVER,
+                      on == HINT_ZONE_NEVER ? "\"Don't show this again\""
+                      : on == HINT_ZONE_OK ? "OK" : "a press off its buttons");
+    }
     // The press was the sheet's, not the host's behind it
     for (int h = 0; h < SRC_COUNT; h++) {
         if (ctx->triggerEdge[h]) {
@@ -5522,7 +5530,7 @@ static void padPutPanelsAway(XrCtx* ctx, float* out) {
     ctx->kbOpen = 0;
     ctx->exitConfirmOpen = 0;
     ctx->reportOpen = 0;
-    ctx->hintOpen = 0;
+    ctx->hintOpen = 0;   // native (1.3.3): a ZipDepth Full question put away unanswered is a Cancel
     ctx->kofiOpen = 0;
     ctx->hostOpen = 0;
     ctx->buttonsDown = 0;

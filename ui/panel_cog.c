@@ -356,6 +356,15 @@ static void tab_display(Dc* dc) {
     track_hits(dc, COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW, 1);
 }
 
+// A 3D tab row of n cells that takes no press: its hits, disabled
+static void host_drawn_hits(Dc* dc, int row, int n) {
+    float rv = cogRowV(COG_TAB_3D, row), half = cogRowHalf(COG_TAB_3D);
+    for (int c = 0; c < n; c++) {
+        dc_hit_uv(dc, UI_HIT_CELL, row, c, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)c / (float)n, rv - half,
+                  COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)(c + 1) / (float)n, rv + half, 0);
+    }
+}
+
 // Native (PLAN 4.3): a row with nothing to set while the PC draws the pair,
 // greyed with the reason across it and its hits disabled
 static void host_drawn_row(Dc* dc, int row, int n, int track) {
@@ -365,11 +374,7 @@ static void host_drawn_row(Dc* dc, int row, int n, int track) {
         track_hits(dc, COG_TAB_3D, row, 0);
         return;
     }
-    float rv = cogRowV(COG_TAB_3D, row), half = cogRowHalf(COG_TAB_3D);
-    for (int c = 0; c < n; c++) {
-        dc_hit_uv(dc, UI_HIT_CELL, row, c, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)c / (float)n, rv - half,
-                  COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)(c + 1) / (float)n, rv + half, 0);
-    }
+    host_drawn_hits(dc, row, n);
 }
 
 // Native (lane wave3-tidy): the depth model's five tracks under the source
@@ -471,11 +476,24 @@ static void tab_3d(Dc* dc) {
     label(dc, ui_str(UIS_ROW_3D_SOURCE), y, 1);
     cells(dc, COG_TAB_3D, COG_ROW3D_SOURCE, SOURCES, COG_SOURCE_CELLS, y, 1, tick_half, src);
     depth_tracks(dc, ok && !host_drawn, tick_half);
-    reset_button(dc);
+    // native (1.3.3, issue #6): the depth model, Light or Full (depth_source zipdepth-int8 or zipdepth); with
+    // the 3D off in settings its place says why instead
+    static const UiStr MODELS[COG_MODEL_CELLS] = { UIS_DEPTH_LIGHT, UIS_DEPTH_FULL };
+    y = row_y(dc, COG_TAB_3D, COG_ROW3D_MODEL);
+    int model = s->depth_source == DEPTH_SOURCE_LIGHT ? COG_MODEL_LIGHT
+              : s->depth_source == DEPTH_SOURCE_FULL ? COG_MODEL_FULL : -1;
     if (!ok) {
-        dc_text(dc, UI_WEIGHT_REGULAR, 17.0f, dc->nw * 0.5f, cogRowV(COG_TAB_3D, COG_ROW3D_COUNT) * dc->nh,
-                UI_ALIGN_CENTER, 0x50FFFFFFu, v->stereo_reason ? v->stereo_reason : ui_str(UIS_THREE_D_OFF_IN_SETTINGS));
+        // (no hits there: the words take the row, and the ray passes over a dead row anyway)
+        dc_text(dc, UI_WEIGHT_REGULAR, 17.0f, dc->nw * 0.5f, y, UI_ALIGN_CENTER, 0x50FFFFFFu,
+                v->stereo_reason ? v->stereo_reason : ui_str(UIS_THREE_D_OFF_IN_SETTINGS));
+    } else if (host_drawn) {
+        label(dc, ui_str(UIS_ROW_DEPTH_MODEL), y, 0);
+        host_drawn_row(dc, COG_ROW3D_MODEL, COG_MODEL_CELLS, 0);
+    } else {
+        label(dc, ui_str(UIS_ROW_DEPTH_MODEL), y, 1);
+        cells(dc, COG_TAB_3D, COG_ROW3D_MODEL, MODELS, COG_MODEL_CELLS, y, 1, tick_half, model);
     }
+    reset_button(dc);
 }
 
 static void picture_text(int row, int units, char* out, size_t cap) {

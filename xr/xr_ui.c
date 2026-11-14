@@ -635,7 +635,7 @@ int cogRowIsTrack(int face, int row) {
     }
     if (face == COG_TAB_3D) {
         return row == COG_ROW3D_SEPARATION || row == COG_ROW3D_CONVERGENCE
-                || row >= COG_ROW3D_EDGE;
+                || (row >= COG_ROW3D_EDGE && row <= COG_ROW3D_BALANCE);
     }
     return 1;
 }
@@ -656,7 +656,8 @@ int cogRowCells(int face, int row) {
     }
     if (face == COG_TAB_3D) {
         return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS
-                : row == COG_ROW3D_SOURCE ? COG_SOURCE_CELLS : COG_STEREO_CELLS;
+                : row == COG_ROW3D_SOURCE ? COG_SOURCE_CELLS
+                : row == COG_ROW3D_MODEL ? COG_MODEL_CELLS : COG_STEREO_CELLS;
     }
     return cogOptionCells(row);
 }
@@ -1255,7 +1256,37 @@ int cogCellInForce(XrCtx* ctx, int face, int row) {
     if (face == COG_TAB_3D && row == COG_ROW3D_SOURCE) {
         return ctx->stereoSource;
     }
+    if (face == COG_TAB_3D && row == COG_ROW3D_MODEL) {
+        int source = xrDepthModelSource(ctx);
+        return source == DEPTH_SOURCE_LIGHT ? COG_MODEL_LIGHT : source == DEPTH_SOURCE_FULL ? COG_MODEL_FULL : -1;
+    }
     return -1;
+}
+
+void depthFullSheetOpen(XrCtx* ctx) {
+    ctx->cogOpen = 0;
+    ctx->hintOpen = 1;
+    ctx->hintKind = HINT_KIND_DEPTH_FULL;
+    ctx->hintHoverZone = HINT_ZONE_NONE;
+    ctx->hintPose = handHintPose(ctx, &ctx->hintW, &ctx->hintH);
+    // The answer wants a ray to aim with
+    ctx->pointerAwake = 1;
+    ctx->stillFor = 0.0f;
+    LOGEV("3d: ZipDepth Full asks first, the sheet is up");
+}
+
+void depthFullSheetAnswer(XrCtx* ctx, int yes, float* out) {
+    // (hintKind stays, so the sheet fades out with its own words)
+    ctx->hintOpen = 0;
+    ctx->hintHoverZone = HINT_ZONE_NONE;
+    if (yes && xrDepthChangeModel(ctx, DEPTH_SOURCE_FULL)) {
+        out[IN_SETTING] = (float)SETTING_DEPTH_SOURCE;
+        out[IN_SETTING_VALUE] = (float)DEPTH_SOURCE_FULL;
+    }
+    LOGEV("3d: ZipDepth Full %s", yes ? "confirmed" : "cancelled, the model stays");
+    // Back to the tab the question came from
+    ctx->cogOpen = 1;
+    ctx->cogPose = cogPanelPose(ctx, &ctx->cogW, &ctx->cogH);
 }
 
 // The switch is the bar button's, for this session only, so nothing goes to
@@ -1268,6 +1299,22 @@ static void cogApply3dCell(XrCtx* ctx, int row, int cell, float* out) {
     };
     if (row == COG_ROW3D_SWITCH) {
         setStereoLive(ctx, cell != 0, "the 3D tab");
+        return;
+    }
+    // Native (1.3.3, issue #6): the depth model. Light at once; Full, which
+    // works the CPU much harder, after the sheet's question
+    if (row == COG_ROW3D_MODEL) {
+        if (cell == cogCellInForce(ctx, COG_TAB_3D, row) || cell < 0 || cell >= COG_MODEL_CELLS) {
+            return;
+        }
+        if (cell == COG_MODEL_FULL) {
+            depthFullSheetOpen(ctx);
+            return;
+        }
+        if (xrDepthChangeModel(ctx, DEPTH_SOURCE_LIGHT)) {
+            out[IN_SETTING] = (float)SETTING_DEPTH_SOURCE;
+            out[IN_SETTING_VALUE] = (float)DEPTH_SOURCE_LIGHT;
+        }
         return;
     }
     // Native (PLAN 4.3): where the 3D comes from, at once, and stored

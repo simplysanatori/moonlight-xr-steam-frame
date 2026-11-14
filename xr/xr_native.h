@@ -35,10 +35,13 @@
 #define SETTING_DEPTH_SHAPE 34
 #define SETTING_MOTION_RESET 35
 #define SETTING_EYE_BALANCE 36
+// Native (1.3.3): the 3D tab's Depth model row, [vr] depth_source as stored
+// (DEPTH_SOURCE_LIGHT 8 or DEPTH_SOURCE_FULL 0)
+#define SETTING_DEPTH_SOURCE 37
 // Native (lane a11y-tab): the Accessibility tab's rows, each the value its [vr] key is stored in:
 // pointer_source (POINTER_SOURCE_*), head_dwell_ms (0 off) and (lane a11y-2) assist_dot_size
 // (percent) and assist_headset_button, and (lane radial-dwell) assist_dwell_style
-// (DWELL_STYLE_*). Only a press or a drag on the tab hands these back. (37 to 39 are free;
+// (DWELL_STYLE_*). Only a press or a drag on the tab hands these back. (38 and 39 are free;
 // 40 and 41 are xr_shared.h's Background and Glow edge.)
 #define SETTING_POINTER_SOURCE 42
 #define SETTING_HEAD_DWELL 43
