@@ -934,6 +934,11 @@ float layoutAspectWidthScale(int pictureWidth, int pictureHeight) {
     return (float)(((double)pictureWidth * 9.0) / ((double)pictureHeight * 16.0));
 }
 
+float layoutAspectWidthHeld(float width, float k, float minSize, float maxSize) {
+    float lo = minSize * (k > 1.0f ? k : 1.0f), hi = maxSize * (k < 1.0f ? k : 1.0f);
+    return width < lo ? lo : (width > hi ? hi : width);
+}
+
 int sbsSplitsWidePicture(int source, int full, int frameWidth, int frameHeight) {
     // 31:9 and wider: 32:9 with room for a size rounded to a multiple of 8 or 16
     return source == STEREO_SOURCE_SBS && full && frameHeight > 0 && (long)frameWidth * 9 >= (long)frameHeight * 31;

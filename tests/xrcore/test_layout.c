@@ -1737,6 +1737,13 @@ static void testTheAspectWidth(void) {
     CHECK_NEAR(layoutAspectWidthScale(1600, 1200), 0.75, 1e-6);
     CHECK_NEAR(layoutAspectWidthScale(1920, 1200), 0.9, 1e-6);
     CHECK(layoutAspectWidthScale(0, 1080) == 1.0f && layoutAspectWidthScale(1920, 0) == 1.0f);
+    // the widths a screen may have at each shape: its size 0.8 to 8 m, and never wider than 8 m or narrower than
+    // 0.8 m itself, what config.ini's width_cm can say
+    CHECK(layoutAspectWidthHeld(10.75f, 3440.0f / 2560.0f, 0.8f, 8.0f) == 8.0f);   // Size 8 at 21:9
+    CHECK(layoutAspectWidthHeld(16.0f, 2.0f, 0.8f, 8.0f) == 8.0f && layoutAspectWidthHeld(1.0f, 2.0f, 0.8f, 8.0f) == 1.6f);
+    CHECK(layoutAspectWidthHeld(9.0f, 0.75f, 0.8f, 8.0f) == 6.0f && layoutAspectWidthHeld(0.6f, 0.75f, 0.8f, 8.0f) == 0.8f);
+    CHECK(layoutAspectWidthHeld(4.0f, 2.0f, 0.8f, 8.0f) == 4.0f && layoutAspectWidthHeld(2.25f, 0.75f, 0.8f, 8.0f) == 2.25f);
+    CHECK(layoutAspectWidthHeld(8.0f, 1.0f, 0.8f, 8.0f) == 8.0f && layoutAspectWidthHeld(0.8f, 1.0f, 0.8f, 8.0f) == 0.8f);
     // what the 32:9 notice is for: a full-size SBS source takes a 32:9 frame as two 16:9 eyes; nothing else does
     CHECK(sbsSplitsWidePicture(STEREO_SOURCE_SBS, 1, 3840, 1080));
     CHECK(sbsSplitsWidePicture(STEREO_SOURCE_SBS, 1, 5120, 1440));

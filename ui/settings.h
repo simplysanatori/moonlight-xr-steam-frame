@@ -293,12 +293,16 @@ int settings_resolution_limit(int width, int height, int h264);
 // each width_cm becomes the Size. size_cm is taken when it still agrees with width_cm (within 1 cm) at the picture
 // size_shape names, which is how a new aspect keeps the screen's height; else (an older version saved the file,
 // dropping size_cm, or something changed width_cm) the Size is width_cm at this picture, so the screen is as wide
-// as the older version showed it. The number of widths worked out that way back (0 when every size_cm held).
+// as the older version showed it. Each Size is then held so its real width is one width_cm can say, 80..800 cm
+// (at most floor(800 / k) for a picture k times a 16:9 one's width), here, in settings_clamp and when the picture
+// changes, so a launch shows the screen the file says. The number of widths worked out that way back (0 when
+// every size_cm held).
 // After that, settings_to_text writes width_cm as the real width at the picture of the time (held to 80..800 cm,
 // what older versions read; a width read is written back as it was while its Size has not changed), size_cm and
 // size_shape. Until it runs, the widths go in and out of the text as they are.
 int settings_screen_picture(Settings* s, int pictureWidth, int pictureHeight);
-// The picture changed shape after settings_screen_picture: the Size stays, the real width written follows it
+// The picture changed shape after settings_screen_picture: the Size stays (held at the new shape), the real
+// width written follows it
 void settings_screen_picture_now(Settings* s, int pictureWidth, int pictureHeight);
 extern const int SETTINGS_FPS[];                   // 30 60 72 90 120 144
 extern const int SETTINGS_FPS_COUNT;

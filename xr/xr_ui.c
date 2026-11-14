@@ -987,8 +987,10 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
         ctx->screenRadius = d * (1.0f + 3.0f * (1.0f - t));
     }
     else if (slider == COG_SLIDER_SIZE) {
-        // Native (lane aspect-ratio): the track is the size; the picture keeps that height in its own shape
-        float wanted = (SCREEN_MIN_WIDTH + t * (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH)) * xrScreenWidthScale(ctx);
+        // Native (lane aspect-ratio): the track is the size; the picture keeps that height in its own shape, at
+        // most 8 m wide (the presets come here too)
+        float wanted = xrScreenWidthHeld(ctx, (SCREEN_MIN_WIDTH + t * (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH))
+                                                      * xrScreenWidthScale(ctx));
         if (ctx->screenWidth > 0.01f) {
             // Keeping the arc the same shape rather than flattening as it
             // grows, same rule the corner resize follows

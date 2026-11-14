@@ -374,6 +374,7 @@ static int default_of(const SettingDesc* d) {
 
 static int clamp_int(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 static void layout_clamp(AppLayout* l);
+static void sizes_held(Settings* s);
 
 int settings_get(const Settings* s, const SettingDesc* d) {
     return *(const int*)((const char*)s + d->offset);
@@ -444,6 +445,8 @@ void settings_clamp(Settings* s) {
     if (s->resolution != SETTINGS_RESOLUTION_CUSTOM) s->aspect = SETTINGS_RESOLUTION_PRESETS[s->resolution].aspect;
     s->layout_count = clamp_int(s->layout_count, 0, APP_LAYOUT_MAX);
     for (int i = 0; i < s->layout_count; i++) layout_clamp(&s->layouts[i]);
+    // Native (lane aspect-ratio): once the picture is known, each Size is one width_cm can say at it
+    sizes_held(s);
 }
 
 int settings_equal(const Settings* a, const Settings* b) {
@@ -1060,19 +1063,40 @@ static int real_width(int size, double k) {
     return clamp_int((int)lround(size * k), d->min, d->max);
 }
 
+// A Size held so the real width it makes at a picture k times a 16:9 one's width is one width_cm can say, 80..800
+// cm: at most floor(800 / k), at least ceil(80 / k), and in the Size's own 80..800 cm. So a wide picture is at most
+// 8 m wide at any Size, the file says the screen a launch shows, and the next launch shows it again.
+static int size_held(int size, double k) {
+    const SettingDesc* d = settings_find("screen.width_cm");
+    if (k > 0.0) size = clamp_int(size, (int)ceil(d->min / k - 1e-9), (int)floor(d->max / k + 1e-9));
+    return clamp_int(size, d->min, d->max);
+}
+
+// Every Size in force (the screen's, Bring here's, each app's layout) held at the picture they show at
+static void sizes_held(Settings* s) {
+    double k = picture_scale(s->screen_picture_w, s->screen_picture_h);
+    if (k <= 0.0) return;
+    s->screen_width_cm = size_held(s->screen_width_cm, k);
+    if (s->screen_back_width_cm > 0) s->screen_back_width_cm = size_held(s->screen_back_width_cm, k);
+    for (int i = 0; i < s->layout_count && i < APP_LAYOUT_MAX; i++) {
+        s->layouts[i].width_cm = size_held(s->layouts[i].width_cm, k);
+    }
+}
+
 // One width_cm and its size_cm, read, as the Size: size_cm while it agrees with width_cm at the picture they were
 // written for (kFile, 0 when none was), else width_cm at the picture now. A size_cm whose real width is past
 // width_cm's 80..800 cm agrees with nothing, since width_cm cannot say it (so a file where size_cm was saved as
-// the real width, 800 beside 800 at 21:9, heals itself). *seen is the real width when it is the right one at the
-// picture now (written back as it was while the Size does not change), else 0.
+// the real width, 800 beside 800 at 21:9, heals itself). Either way it is held at the picture now (size_held).
+// *seen is the real width when it is the right one at the picture now (written back as it was while the Size
+// does not change), else 0.
 static int size_of(int width, int size, double kFile, double kNow, int* derived, int* seen) {
     const SettingDesc* d = settings_find("screen.width_cm");
     int out;
     long implied = lround(size * kFile);
     if (size > 0 && kFile > 0.0 && implied >= d->min && implied <= d->max && labs(implied - width) <= 1) {
-        out = clamp_int(size, d->min, d->max);
+        out = size_held(size, kNow);
     } else {
-        out = clamp_int((int)lround(width / kNow), d->min, d->max);
+        out = size_held((int)lround(width / kNow), kNow);
         (*derived)++;
     }
     *seen = abs(real_width(out, kNow) - width) <= 1 ? width : 0;
@@ -1110,6 +1134,7 @@ void settings_screen_picture_now(Settings* s, int pictureWidth, int pictureHeigh
     if (s->screen_picture_w <= 0 || pictureWidth <= 0 || pictureHeight <= 0) return;
     s->screen_picture_w = pictureWidth;
     s->screen_picture_h = pictureHeight;
+    sizes_held(s);
 }
 
 // The real width to write for a Size: the one read while the Size and the picture's shape are as they came in
@@ -1125,18 +1150,22 @@ static Settings* screen_widths_out(const Settings* s) {
     Settings* o = malloc(sizeof *o);
     if (!o) return NULL;
     *o = *s;
-    o->screen_width_cm = width_out(s, s->screen_width_cm, s->screen_size_cm, s->screen_file_width_cm, k);
-    o->screen_size_cm = s->screen_width_cm;
+    sizes_held(o);   // a Size set without settings_clamp is still written as one width_cm can say
+    int size = o->screen_width_cm;
+    o->screen_width_cm = width_out(s, size, s->screen_size_cm, s->screen_file_width_cm, k);
+    o->screen_size_cm = size;
     if (s->screen_back_width_cm > 0) {
-        o->screen_back_width_cm = width_out(s, s->screen_back_width_cm, s->screen_back_size_cm, s->screen_back_file_width_cm, k);
-        o->screen_back_size_cm = s->screen_back_width_cm;
+        size = o->screen_back_width_cm;
+        o->screen_back_width_cm = width_out(s, size, s->screen_back_size_cm, s->screen_back_file_width_cm, k);
+        o->screen_back_size_cm = size;
     } else {
         o->screen_back_size_cm = 0;
     }
     for (int i = 0; i < s->layout_count && i < APP_LAYOUT_MAX; i++) {
         const AppLayout* l = &s->layouts[i];
-        o->layouts[i].width_cm = width_out(s, l->width_cm, l->size_cm, l->file_width_cm, k);
-        o->layouts[i].size_cm = l->width_cm;
+        size = o->layouts[i].width_cm;
+        o->layouts[i].width_cm = width_out(s, size, l->size_cm, l->file_width_cm, k);
+        o->layouts[i].size_cm = size;
     }
     snprintf(o->screen_size_shape, sizeof o->screen_size_shape, "%dx%d", s->screen_picture_w, s->screen_picture_h);
     return o;

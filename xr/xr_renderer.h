@@ -1645,6 +1645,9 @@ void xrScreenApplyPreset(XrCtx* ctx, int preset);
 // (layoutAspectWidthScale: a wider picture keeps the height and is wider), and the widths in force rescaled,
 // heights kept, when a stream's picture changes shape (xr_place.c)
 float xrScreenWidthScale(const XrCtx* ctx);
+// A real width held to what the screen may be at this picture (layoutAspectWidthHeld): its Size 0.8 to 8 m, and
+// never wider than 8 m, what config.ini's width_cm can say, so every launch shows the screen the file says
+float xrScreenWidthHeld(const XrCtx* ctx, float width);
 // The screen's placement as a grab hands it back to config.ini (IN_POSE): pose, the Size (not the real width:
 // native, lane aspect-ratio), radius, curve
 void xrScreenPoseOut(const XrCtx* ctx, float* pose);

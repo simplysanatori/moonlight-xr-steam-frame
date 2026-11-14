@@ -407,6 +407,11 @@ int layoutPresetAt(int distanceCm, int widthCm);
 // placements kept per app) is the width a 16:9 picture of the same height has. A picture of another shape
 // keeps that height: it is the size times this wide (21:9 about 1.31, 32:9 2, 4:3 0.75). 1 for no picture.
 float layoutAspectWidthScale(int pictureWidth, int pictureHeight);
+// Native (lane aspect-ratio): a real width held to what a screen may be at a picture k times a 16:9 one's width:
+// its size in minSize..maxSize, and the real width itself too, since config.ini's width_cm (the real width, as
+// older versions read it) has the same range. So a wide picture is at most maxSize wide at any size, and every
+// launch shows the screen the file says.
+float layoutAspectWidthHeld(float width, float k, float minSize, float maxSize);
 // Native (lane aspect-ratio): a full-size side by side pair of 16:9 eyes is a 32:9 frame, the Super Ultrawide
 // shape, and the 3D source alone decides which it is (nothing guesses from the shape). 1 when the source would
 // split a frame of that shape or wider into two eyes, so the app can say how to see it as one 2D picture.

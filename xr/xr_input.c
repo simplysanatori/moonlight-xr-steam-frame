@@ -1051,7 +1051,7 @@ int updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature
         ctx->screenPose.orientation.w = 1.0f;
         ctx->screenPose.position.z = -distance;
         // Native (lane aspect-ratio): quadWidth is a size, a 16:9 picture's width; another shape keeps its height
-        ctx->screenWidth = quadWidth * xrScreenWidthScale(ctx);
+        ctx->screenWidth = xrScreenWidthHeld(ctx, quadWidth * xrScreenWidthScale(ctx));
         // Radius runs from 4x distance (slightly curved) down to the distance
         // itself (wrapped around the viewer) as curvature rises
         ctx->screenRadius = distance * (1.0f + 3.0f * (1.0f - curvature));
@@ -1598,11 +1598,8 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         return;
     }
 
-    float width = ctx->grabWidth * scale;
-    // Native (lane aspect-ratio): the size's limits, for this picture's shape
-    float k = xrScreenWidthScale(ctx);
-    if (width < SCREEN_MIN_WIDTH * k) width = SCREEN_MIN_WIDTH * k;
-    if (width > SCREEN_MAX_WIDTH * k) width = SCREEN_MAX_WIDTH * k;
+    // Native (lane aspect-ratio): the size's limits for this picture's shape, and never past 8 m wide
+    float width = xrScreenWidthHeld(ctx, ctx->grabWidth * scale);
 
     // Keeping the arc the same shape rather than flattening as it grows
     ctx->screenRadius = ctx->grabRadius * (width / ctx->grabWidth);
@@ -6228,8 +6225,9 @@ void xrSetScreenPose(XrCtx* ctx, const float* p) {
     ctx->screenPose.orientation.z = p[5];
     ctx->screenPose.orientation.w = p[6];
     ctx->screenPose.orientation = quatNorm(ctx->screenPose.orientation);
-    // Native (lane aspect-ratio): p[7] is the size (a 16:9 picture's width); this picture keeps its height
-    ctx->screenWidth = p[7] * xrScreenWidthScale(ctx);
+    // Native (lane aspect-ratio): p[7] is the size (a 16:9 picture's width); this picture keeps its height, at
+    // most 8 m wide
+    ctx->screenWidth = xrScreenWidthHeld(ctx, p[7] * xrScreenWidthScale(ctx));
     ctx->screenRadius = p[8];
     ctx->placementValid = 1;
     ctx->sliderSeen = 0;

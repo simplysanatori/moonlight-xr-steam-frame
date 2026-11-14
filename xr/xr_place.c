@@ -176,7 +176,7 @@ void xrBringBackFromSettings(XrCtx* ctx, const Settings* s) {
     }
     ctx->bringBackPose.position = (XrVector3f){ p[0], p[1], p[2] };
     ctx->bringBackPose.orientation = quatNorm((XrQuaternionf){ p[3], p[4], p[5], p[6] });
-    ctx->bringBackWidth = p[7] * xrScreenWidthScale(ctx);
+    ctx->bringBackWidth = xrScreenWidthHeld(ctx, p[7] * xrScreenWidthScale(ctx));
     ctx->bringBackRadius = p[8];
     ctx->bringBackCurve = p[9];
     ctx->bringBackValid = 1;
@@ -188,9 +188,19 @@ float xrScreenWidthScale(const XrCtx* ctx) {
     return layoutAspectWidthScale(ctx->videoWidth, ctx->videoHeight);
 }
 
+float xrScreenWidthHeld(const XrCtx* ctx, float width) {
+    return layoutAspectWidthHeld(width, xrScreenWidthScale(ctx), SCREEN_MIN_WIDTH, SCREEN_MAX_WIDTH);
+}
+
+// A width kept (0 for none) held at a picture k times a 16:9 one's width
+static float widthHeldAt(float width, float k) {
+    return width > 0.0f ? layoutAspectWidthHeld(width, k, SCREEN_MIN_WIDTH, SCREEN_MAX_WIDTH) : width;
+}
+
 // Before ctx->videoWidth and videoHeight take a new picture's shape: every width in force (the screen's, the
 // one a room keeps behind it, Bring here's and the angular lock's) is rescaled so the screen keeps its height,
-// so an ultrawide picture grows wider rather than shorter. The curve's radius stays, so a curved screen wraps
+// so an ultrawide picture grows wider rather than shorter, held at 8 m (xrScreenWidthHeld: width_cm can say no
+// more, and the next launch would show 8 m). The curve's radius stays, so a curved screen wraps
 // further round, as a curved ultrawide monitor does (cylinderFit only shrinks one past a full circle). A room
 // fits the picture to its own wall every frame and is not changed here.
 void xrPictureShapeChanged(XrCtx* ctx, int pictureWidth, int pictureHeight) {
@@ -200,10 +210,10 @@ void xrPictureShapeChanged(XrCtx* ctx, int pictureWidth, int pictureHeight) {
         return;
     }
     float f = after / before;
-    ctx->screenWidth *= f;
-    ctx->savedScreenWidth *= f;
-    ctx->bringBackWidth *= f;
-    ctx->lockBaseWidth *= f;
+    ctx->screenWidth = widthHeldAt(ctx->screenWidth * f, after);
+    ctx->savedScreenWidth = widthHeldAt(ctx->savedScreenWidth * f, after);
+    ctx->bringBackWidth = widthHeldAt(ctx->bringBackWidth * f, after);
+    ctx->lockBaseWidth = widthHeldAt(ctx->lockBaseWidth * f, after);
     LOGEV("picture %dx%d to %dx%d: the screen keeps its height, %.2f m wide", ctx->videoWidth, ctx->videoHeight,
           pictureWidth, pictureHeight, ctx->screenWidth);
 }
@@ -277,7 +287,8 @@ static void angularLockFrame(XrCtx* ctx) {
         ctx->lockBaseRadius = ctx->screenRadius;
     }
     float k = xrScreenWidthScale(ctx);
-    float w = layoutAngularWidth(ctx->lockBaseWidth, before, len, SCREEN_MIN_WIDTH * k, SCREEN_MAX_WIDTH * k);
+    float w = xrScreenWidthHeld(ctx, layoutAngularWidth(ctx->lockBaseWidth, before, len, SCREEN_MIN_WIDTH * k,
+                                                        SCREEN_MAX_WIDTH * k));
     if (ctx->lockBaseWidth > 0.01f) {
         // The arc keeps its shape as the width changes, the rule every resize follows
         ctx->screenRadius = ctx->lockBaseRadius * w / ctx->lockBaseWidth;
@@ -312,7 +323,7 @@ static void layoutIntoContext(XrCtx* ctx, Settings* s) {
             ctx->savedScreenPose.orientation.z = pose[5];
             ctx->savedScreenPose.orientation.w = pose[6];
             ctx->savedScreenPose.orientation = quatNorm(ctx->savedScreenPose.orientation);
-            ctx->savedScreenWidth = pose[7] * xrScreenWidthScale(ctx);
+            ctx->savedScreenWidth = xrScreenWidthHeld(ctx, pose[7] * xrScreenWidthScale(ctx));
             ctx->savedScreenRadius = pose[8];
             ctx->panelCurve = (pose[9] >= 0.0f && pose[9] <= 1.0f) ? pose[9] : -1.0f;
         }

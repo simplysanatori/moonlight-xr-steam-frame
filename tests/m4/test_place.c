@@ -793,13 +793,147 @@ static void aspectKeepsHeight(void) {
     c->videoWidth = 2560;
     c->videoHeight = 1440;
     CHECK_NEAR(c->screenWidth, size, 1e-4);
-    // a super ultrawide 32:9 picture is twice as wide at the same height; 4:3 three quarters
+    // a super ultrawide 32:9 picture is twice as wide at the same height, held at 8 m (Size 4.4 is 8.8 m); 4:3
+    // three quarters of the Size it then has
+    CHECK(size > 4.0f);
     xrPictureShapeChanged(c, 5120, 1440);
-    CHECK_NEAR(c->screenWidth, 2.0f * size, 1e-4);
+    CHECK_NEAR(c->screenWidth, SCREEN_MAX_WIDTH, 1e-4);
     c->videoWidth = 5120;
     xrPictureShapeChanged(c, 1600, 1200);
-    CHECK_NEAR(c->screenWidth, 0.75f * size, 1e-4);
+    CHECK_NEAR(c->screenWidth, 0.75f * SCREEN_MAX_WIDTH / 2.0f, 1e-4);
     scene_free(s2);
+    scene_free(s);
+}
+
+// Native (lane aspect-ratio): the screen is never wider than 8 m, what config.ini's width_cm can say, at any shape.
+// The 1.3.3 candidate showed Size 800 saved at 16:9 10.75 m wide at 21:9, then 8 m the start after. Every way the
+// width is set holds it: a start, the picture changing shape, the Size row, the presets, the angular lock and a
+// corner pulled out; a normal Size is the same at every shape.
+static XrPosef aimFrom(Vec3 from, Vec3 target) {
+    Vec3 d = vecNorm(vecSub(target, from));
+    Vec3 z = { -d.x, -d.y, -d.z };
+    Vec3 up = { 0, 1, 0 };
+    Vec3 x = vecNorm(vecCross(up, z));
+    Vec3 y = vecCross(z, x);
+    XrPosef p = { quatFromBasis(x, y, z), { from.x, from.y, from.z } };
+    return p;
+}
+
+static void shape(XrCtx* c, int w, int h) {
+    xrPictureShapeChanged(c, w, h);
+    c->videoWidth = w;
+    c->videoHeight = h;
+}
+
+static void wideHeldAt8m(void) {
+    static const int SHAPES[][2] = { { 1600, 1200 }, { 2560, 1440 }, { 1920, 1200 }, { 3440, 1440 }, { 5120, 1440 } };
+    float out[IN_SLOTS];
+    for (int i = 0; i < (int)(sizeof SHAPES / sizeof SHAPES[0]); i++) {
+        int w = SHAPES[i][0], h = SHAPES[i][1];
+        // the start (main.c's order): Size 800 saved at 16:9, the Size from the file at this picture, the session
+        Scene* s = scene_new();
+        XrCtx* c = s->ctx;
+        Settings in;
+        settings_defaults(&in);
+        settings_from_text(&in, "[screen]\ndistance_cm = 477\nwidth_cm = 800\nsize_cm = 800\nsize_shape = 2560x1440\n", NULL);
+        settings_screen_picture(&in, w, h);
+        shape(c, w, h);
+        xrApplySettings(c, &in);
+        float k = xrScreenWidthScale(c);
+        CHECK_NEAR(c->screenWidth, fminf(SCREEN_MAX_WIDTH, SCREEN_MAX_WIDTH * k), 0.01);   // 4:3 6 m, 21:9 8 m
+        // saved, and the next start: the same screen
+        Settings saved = in;
+        xrSettingsFromCtx(c, &saved);
+        char* text = settings_to_text(&saved);
+        Settings next;
+        settings_defaults(&next);
+        settings_from_text(&next, text, NULL);
+        free(text);
+        CHECK(settings_screen_picture(&next, w, h) == 0);
+        Scene* s2 = scene_new();
+        shape(s2->ctx, w, h);
+        xrApplySettings(s2->ctx, &next);
+        CHECK_NEAR(s2->ctx->screenWidth, c->screenWidth, 0.01);
+        scene_free(s2);
+        // the Size row at its end, and at 3 m
+        cogApplySlider(c, COG_TAB_SCREEN, COG_SLIDER_SIZE, cogRunU(1.0f));
+        CHECK_NEAR(c->screenWidth, fminf(SCREEN_MAX_WIDTH, SCREEN_MAX_WIDTH * k), 1e-4);
+        cogApplySlider(c, COG_TAB_SCREEN, COG_SLIDER_SIZE,
+                       cogRunU((3.0f - SCREEN_MIN_WIDTH) / (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH)));
+        CHECK_NEAR(c->screenWidth, 3.0f * k, 1e-3);
+        // the presets: Cinema's 5 m Size is 10 m at 32:9, held at 8; the others as they are
+        for (int p = 0; p < LAYOUT_PRESETS; p++) {
+            freshOut(out);
+            cogApplyCell(c, COG_TAB_SCREEN, COG_SCREEN_ROW_PRESET, p, out);
+            CHECK_NEAR(c->screenWidth, fminf(SCREEN_MAX_WIDTH, layoutPresetOf(p).widthCm / 100.0f * k), 1e-3);
+        }
+        scene_free(s);
+    }
+
+    Scene* s = scene_new();
+    XrCtx* c = s->ctx;
+    Settings* st = &s->settings;
+    // the picture changing shape: Size 8 at 16:9, then 21:9 and 32:9 at 8 m; back to 16:9 the Size it was held at
+    c->screenWidth = 8.0f;
+    shape(c, 3440, 1440);
+    CHECK_NEAR(c->screenWidth, SCREEN_MAX_WIDTH, 1e-4);
+    shape(c, 5120, 1440);
+    CHECK_NEAR(c->screenWidth, SCREEN_MAX_WIDTH, 1e-4);
+    shape(c, 2560, 1440);
+    CHECK_NEAR(c->screenWidth, 4.0f, 1e-4);
+    // a real 8 m handed back where 800 / k is not whole (3840x1600, k 1.35: 592.6) is Size 592, under 8 m
+    shape(c, 3840, 1600);
+    {
+        float pose[10];
+        c->screenWidth = SCREEN_MAX_WIDTH;
+        xrScreenPoseOut(c, pose);
+        Settings fromGrab;
+        settings_defaults(&fromGrab);
+        settings_screen_picture(&fromGrab, 3840, 1600);
+        xrPoseToSettings(pose, 0.0f, &fromGrab);
+        CHECK(fromGrab.screen_width_cm == 592);
+    }
+    // the angular lock at 21:9: pushed far, 8 m, not 10.75
+    shape(c, 3440, 1440);
+    c->headPos = (XrVector3f){ 0, 0, 0 };
+    scene_frame(s, NULL);
+    c->screenPose.position = (XrVector3f){ 0, 0, -2.0f };
+    c->screenWidth = 5.0f;
+    c->screenRadius = 6.0f;
+    c->grabMode = GRAB_MOVE;
+    c->grabPush = 0.0f;
+    xrLayoutFrame(c, st, 1000000000LL);
+    c->screenPose.position.z = -6.0f;
+    c->grabPush = 4.0f;   // 3x: 15 m
+    xrLayoutFrame(c, st, 1011111111LL);
+    CHECK_NEAR(c->screenWidth, SCREEN_MAX_WIDTH, 1e-5);
+    c->grabMode = GRAB_NONE;
+    xrLayoutFrame(c, st, 1022222222LL);
+    // a corner pulled far out at 21:9: 8 m, not 10.75
+    c->kbOpen = 0;
+    c->panelCurve = 0.0f;
+    memset(&c->screenPose, 0, sizeof(c->screenPose));
+    c->screenPose.orientation.w = 1.0f;
+    c->screenPose.position.z = -5.0f;
+    c->screenWidth = 7.0f;
+    c->screenRadius = 20.0f;
+    const Vec3 hand = { 0.25f, -0.35f, -0.3f };
+    float side = cornerSide(c);
+    float ph = c->screenWidth * (float)c->videoHeight / (float)c->videoWidth;
+    Vec3 corner = { -c->screenWidth * 0.5f - side * 0.25f, -ph * 0.5f - side * 0.25f, -5.0f };
+    XrPosef aim = aimFrom(hand, corner);
+    CHECK(xrGrabStepAt(c, aim, 0, 0, 0.0f) == HOVER_CORNER);
+    xrGrabStepAt(c, aim, 0, 1, 0.0f);
+    CHECK(c->grabMode == GRAB_RESIZE);
+    Vec3 far = { corner.x - 6.0f, corner.y - 2.5f, -5.0f };
+    xrGrabStepAt(c, aimFrom(hand, far), 0, 1, 0.0f);
+    CHECK_NEAR(c->screenWidth, SCREEN_MAX_WIDTH, 1e-4);
+    // and pulled in to a normal size: the width it is pulled to
+    Vec3 in = { -2.0f, -0.8f, -5.0f };
+    xrGrabStepAt(c, aimFrom(hand, in), 0, 1, 0.0f);
+    CHECK(c->screenWidth > 3.0f && c->screenWidth < 6.0f);
+    xrGrabStepAt(c, aimFrom(hand, in), 0, 0, 0.0f);
+    CHECK(c->grabMode == GRAB_NONE);
     scene_free(s);
 }
 
@@ -850,6 +984,7 @@ static void roomFitNotSaved(void) {
 int main(void) {
     rowsAreCells();
     aspectKeepsHeight();
+    wideHeldAt8m();
     roomFitNotSaved();
     presets();
     bringHere();

@@ -1713,10 +1713,10 @@ static void test_screen_size_versions(void) {
     t = settings_to_text(&s);
     CHECK(file_int(t, "width_cm") == 160);
     free(t);
-    s.screen_width_cm = 500;   // 10 m wide in the headset
-    t = settings_to_text(&s);
-    CHECK(file_int(t, "width_cm") == 800 && file_int(t, "size_cm") == 500);
-    start(&s, t, 3840, 1080);   // and back: width_cm cannot say 10 m, so the Size is the 8 m it does say
+    s.screen_width_cm = 500;   // 10 m wide at 32:9, set without settings_clamp
+    t = settings_to_text(&s);   // written as the 8 m width_cm can say: Size 400
+    CHECK(file_int(t, "width_cm") == 800 && file_int(t, "size_cm") == 400);
+    start(&s, t, 3840, 1080);   // and back: the same 8 m
     CHECK(s.screen_width_cm == 400);
     free(t);
     // 4:3 is narrower: 150 cm shows a 200 cm Size
@@ -1786,6 +1786,113 @@ static void test_screen_size_at_the_cap(void) {
         CHECK(file_int(t, "width_cm") == 800);
         CHECK(strstr(strstr(t, "[screen.c2ea1e91]"), "\nwidth_cm = 800\n") != NULL);
     }
+    free(t);
+}
+
+// Native (lane aspect-ratio): the screen is never wider than 8 m, what width_cm can say, at any shape, so a start
+// shows the screen the file says and the next start shows the same one. The 1.3.3 candidate trusted a Size 800 saved
+// at 16:9 at 21:9 (10.75 m), saved size_cm 800 beside width_cm 800, and the start after that showed 8 m.
+static void test_screen_size_held(void) {
+    static const int SHAPES[][2] = { { 1600, 1200 }, { 2560, 1440 }, { 1920, 1200 }, { 3440, 1440 }, { 5120, 1440 } };
+    const int nShapes = (int)(sizeof SHAPES / sizeof SHAPES[0]);
+    const double k219 = (3440.0 * 9.0) / (1440.0 * 16.0);
+    unsigned app = 0xc2ea1e91u;
+    // the owner's logs: Size 800 saved at 2560x1440 (screen, Bring here's spot, the app's layout), two starts at
+    // 3440x1440: 8.00 m both times, and the second finds size_cm agreeing with width_cm (no Size worked out)
+    const char* at169 = "[screen]\nwidth_cm = 800\nsize_cm = 800\nsize_shape = 2560x1440\nback_distance_cm = 300\n"
+                        "back_width_cm = 800\nback_size_cm = 800\n[screen.c2ea1e91]\nwidth_cm = 800\nsize_cm = 800\n";
+    Settings s;
+    settings_defaults(&s);
+    settings_from_text(&s, at169, NULL);
+    CHECK(settings_screen_picture(&s, 3440, 1440) == 0);
+    CHECK(s.screen_width_cm == 595 && s.screen_back_width_cm == 595 && settings_layout_find(&s, app)->width_cm == 595);
+    CHECK(lround(s.screen_width_cm * k219) == 800);   // 8.00 m, not 10.75
+    char* t1 = settings_to_text(&s);
+    CHECK(file_int(t1, "width_cm") == 800 && file_int(t1, "size_cm") == 595 && file_int(t1, "back_width_cm") == 800);
+    CHECK(strstr(strstr(t1, "[screen.c2ea1e91]"), "\nwidth_cm = 800\n") != NULL);
+    CHECK(strstr(strstr(t1, "[screen.c2ea1e91]"), "\nsize_cm = 595\n") != NULL);
+    settings_defaults(&s);
+    settings_from_text(&s, t1, NULL);
+    CHECK(settings_screen_picture(&s, 3440, 1440) == 0);
+    CHECK(s.screen_width_cm == 595 && s.screen_back_width_cm == 595 && settings_layout_find(&s, app)->width_cm == 595);
+    char* t2 = settings_to_text(&s);
+    CHECK(strcmp(t1, t2) == 0);   // and the file the same
+    free(t2);
+    // 1.3.2 reads width_cm: 8 m, the screen this version showed
+    int seen = 0;
+    char* t132 = older(t1, &seen);
+    CHECK(seen == 800);
+    free(t132);
+    free(t1);
+
+    // Every Size saved at every shape (the file this version writes, and the candidate's, which wrote any Size
+    // beside width_cm held to 80..800 cm), started at every shape: the screen is at most 8 m and at least 80 cm
+    // wide, the Size at most floor(800 / k), and every start after it, and 1.3.2 taking turns, shows the same
+    static const int SIZES[] = { 80, 100, 107, 120, 300, 400, 450, 451, 500, 595, 596, 700, 800 };
+    for (int a = 0; a < nShapes; a++) {
+        for (int b = 0; b < nShapes; b++) {
+            for (int z = 0; z < (int)(sizeof SIZES / sizeof SIZES[0]); z++) {
+                int sw = SHAPES[a][0], sh = SHAPES[a][1], nw = SHAPES[b][0], nh = SHAPES[b][1];
+                double kSaved = ((double)sw * 9.0) / ((double)sh * 16.0), k = ((double)nw * 9.0) / ((double)nh * 16.0);
+                long w = lround(SIZES[z] * kSaved);
+                char file[160];
+                snprintf(file, sizeof file, "[screen]\nwidth_cm = %ld\nsize_cm = %d\nsize_shape = %dx%d\n",
+                         w < 80 ? 80 : (w > 800 ? 800 : w), SIZES[z], sw, sh);
+                start(&s, file, nw, nh);
+                int size = s.screen_width_cm;
+                long real = lround(size * k);
+                CHECK(real >= 80 && real <= 800);
+                CHECK(size >= 80 && size <= 800 && size <= (int)floor(800.0 / k + 1e-9));
+                char* t = settings_to_text(&s);
+                int width = file_int(t, "width_cm");
+                CHECK(labs(width - real) <= 1 && file_int(t, "size_cm") == size);
+                Settings again;
+                int expect = size;
+                for (int round = 0; round < 3; round++) {
+                    start(&again, t, nw, nh);   // this version again: the Size as saved
+                    CHECK(again.screen_width_cm == expect);
+                    char* t2b = settings_to_text(&again);
+                    CHECK(file_int(t2b, "width_cm") == width && file_int(t2b, "size_cm") == expect);
+                    char* o = older(t2b, &seen);   // and 1.3.2 in between, which reads the same width_cm
+                    CHECK(seen == width);
+                    // the Size from width_cm alone (a centimetre either way at 4:3), the same screen, and no creep
+                    start(&again, o, nw, nh);
+                    CHECK(labs(lround(again.screen_width_cm * k) - real) <= 1);
+                    if (round > 0) CHECK(again.screen_width_cm == expect);
+                    expect = again.screen_width_cm;
+                    free(o);
+                    free(t);
+                    t = settings_to_text(&again);
+                    free(t2b);
+                    CHECK(file_int(t, "width_cm") == width);
+                }
+                free(t);
+                // a normal Size is the same at every shape; 4:3 leaves even 800 alone (6 m); 32:9 holds past 400
+                if (sw == 2560 && SIZES[z] == 300) CHECK(size == 300);
+                if (sw == 2560 && nw == 1600 && SIZES[z] == 800) CHECK(size == 800 && real == 600);
+                if (sw == 2560 && nw == 5120 && SIZES[z] > 450) CHECK(size == 400 && real == 800);
+                if (sw == 2560 && nw == 3440 && SIZES[z] >= 595) CHECK(size == 595 && real == 800);
+            }
+        }
+    }
+
+    // In the session: the Size row, a Size handed back by a grab, and the picture changing shape on the way
+    settings_defaults(&s);
+    settings_screen_picture(&s, 3440, 1440);
+    settings_set_screen_slider(&s, COG_SLIDER_SIZE, 1.0f);
+    CHECK(s.screen_width_cm == 595);
+    s.screen_width_cm = 800;   // as a grab hands it back before settings_clamp
+    settings_clamp(&s);
+    CHECK(s.screen_width_cm == 595);
+    settings_defaults(&s);
+    settings_from_text(&s, "[screen]\nwidth_cm = 800\n[screen.c2ea1e91]\nwidth_cm = 300\n", NULL);
+    settings_screen_picture(&s, 2560, 1440);
+    CHECK(s.screen_width_cm == 800);
+    settings_screen_picture_now(&s, 5120, 1440);   // the stream turned 32:9
+    CHECK(s.screen_width_cm == 400 && settings_layout_find(&s, app)->width_cm == 300);
+    char* t = settings_to_text(&s);
+    CHECK(file_int(t, "width_cm") == 800 && file_int(t, "size_cm") == 400);
+    CHECK(strstr(strstr(t, "[screen.c2ea1e91]"), "\nwidth_cm = 600\n") != NULL);
     free(t);
 }
 
@@ -1889,6 +1996,7 @@ int main(void) {
     test_layouts();
     test_screen_size_versions();
     test_screen_size_at_the_cap();
+    test_screen_size_held();
     test_defaults();
     test_stats_style();
     test_shortcut_wording();
