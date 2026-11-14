@@ -1410,6 +1410,8 @@ Flickable {
                         MlxrPrefs.customRefreshRate = ""
                         StreamingPreferences.fps = settingsPage.fixedRates[i - 1]
                         settingsPage.resetBitrate()
+                        // Native (lane rate-match): into SteamVR now, so its next session already runs at it
+                        MlxrPrefs.applySteamVrRate("Settings page")
                     }
                     else {
                         editDialog.show(qsTr("Custom refresh rate"), qsTr("A rate such as 59.94, at most the headset's %1 Hz.").arg(MlxrPrefs.headsetMaxFps) + " " + settingsPage.apolloNote,

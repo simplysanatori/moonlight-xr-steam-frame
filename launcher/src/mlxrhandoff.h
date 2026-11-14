@@ -130,6 +130,12 @@ int steamVrRateFor(int fps, bool match, bool customRate);
 // on at the rate SteamVR reports. MLXR_VRCMD: another vrcmd (tests; no SteamVR check then). In a
 // dry run without MLXR_VRCMD nothing runs. Returns true when vrcmd set it.
 bool setSteamVrRefreshRate(int hz);
+// Native (lane rate-match): the same, written ahead of the stream (the Refresh rate picked on the Settings
+// page, the saved one when the launcher starts) so SteamVR has it before the VR client's session begins,
+// without holding the flat UI: vrcmd runs in the background and its result is logged, why saying what
+// asked for it. A rate already written by this launcher run is not written again; the hand-off still writes
+// it before the client starts (a profile may pick another one). Not before the event loop runs.
+void setSteamVrRefreshRateEarly(int hz, const QString& why);
 
 // Moonlight XR Native (lane launcher2): the default video bitrate in hand-off mode is
 // twice stock's getDefaultBitrate for the same resolution and frame rate (stock's resolution

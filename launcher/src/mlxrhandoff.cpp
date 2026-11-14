@@ -128,7 +128,9 @@ int steamVrRateFor(int fps, bool match, bool customRate)
 // Native (lane refresh): SteamVR runs each app at the one rate its per-app setting names, and the
 // OpenXR runtime offers only that rate, so the VR client cannot ask for another. The rate picked
 // on the Settings page is therefore written there first, as packaging/install.sh does.
-bool setSteamVrRefreshRate(int hz)
+// Native (lane rate-match): what a vrcmd call for hz needs, or false (logged with why, as from) when it
+// cannot be made: no appid, a dry run, no vrcmd or no SteamVR running
+static bool steamVrRateCall(int hz, const QString& from, QString* vrcmd, QStringList* args, QProcessEnvironment* env)
 {
     if (hz <= 0) {
         return false;
@@ -136,42 +138,54 @@ bool setSteamVrRefreshRate(int hz)
     bool idOk = false;
     const qulonglong appId = qEnvironmentVariable("SteamAppId").trimmed().toULongLong(&idOk);
     if (!idOk || appId == 0) {
-        qInfo().noquote() << QString("SteamVR refresh rate: %1 Hz not set, the launcher was not started from its Steam "
-                                     "shortcut (no SteamAppId); the stream follows the rate SteamVR reports").arg(hz);
+        qInfo().noquote() << QString("SteamVR refresh rate%1: %2 Hz not set, the launcher was not started from its Steam "
+                                     "shortcut (no SteamAppId); the stream follows the rate SteamVR reports").arg(from).arg(hz);
         return false;
     }
     const QString key = QString("steam.app.%1.preferredRefreshRate").arg(appId);
-    QString vrcmd = qEnvironmentVariable("MLXR_VRCMD");
-    const bool own = vrcmd.isEmpty();
+    *vrcmd = qEnvironmentVariable("MLXR_VRCMD");
+    const bool own = vrcmd->isEmpty();
     if (own) {
         if (envSet("MLXR_LAUNCHER_DRYRUN")) {
-            qInfo().noquote() << QString("SteamVR refresh rate: dry run, %1 would be set to %2 Hz").arg(key).arg(hz);
+            qInfo().noquote() << QString("SteamVR refresh rate%1: dry run, %2 would be set to %3 Hz").arg(from).arg(key).arg(hz);
             return false;
         }
-        vrcmd = "/opt/steamvr/bin/linuxarm64/vrcmd";
+        *vrcmd = "/opt/steamvr/bin/linuxarm64/vrcmd";
     }
-    if (!QFileInfo(vrcmd).isExecutable()) {
-        qWarning().noquote() << QString("SteamVR refresh rate: %1 Hz not set, no vrcmd at %2; the stream follows the "
-                                        "rate SteamVR reports").arg(hz).arg(vrcmd);
+    if (!QFileInfo(*vrcmd).isExecutable()) {
+        qWarning().noquote() << QString("SteamVR refresh rate%1: %2 Hz not set, no vrcmd at %3; the stream follows the "
+                                        "rate SteamVR reports").arg(from).arg(hz).arg(*vrcmd);
         return false;
     }
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.remove("LD_LIBRARY_PATH");
+    *env = QProcessEnvironment::systemEnvironment();
+    env->remove("LD_LIBRARY_PATH");
     if (own) {
         // vrcmd talks to the running SteamVR, which keeps steamvr.vrsettings (install.sh's check)
         QProcess pg;
-        pg.setProcessEnvironment(env);
+        pg.setProcessEnvironment(*env);
         pg.start("pgrep", { "-x", "vrserver" });
         if (!pg.waitForFinished(3000) || pg.exitStatus() != QProcess::NormalExit || pg.exitCode() != 0) {
-            qWarning().noquote() << QString("SteamVR refresh rate: %1 Hz not set, SteamVR is not running; the stream "
-                                            "follows the rate SteamVR reports").arg(hz);
+            qWarning().noquote() << QString("SteamVR refresh rate%1: %2 Hz not set, SteamVR is not running; the stream "
+                                            "follows the rate SteamVR reports").arg(from).arg(hz);
             return false;
         }
+    }
+    *args = QStringList { "--set-settings-int", key, QString::number(hz) };
+    return true;
+}
+
+bool setSteamVrRefreshRate(int hz)
+{
+    QString vrcmd;
+    QStringList args;
+    QProcessEnvironment env;
+    if (!steamVrRateCall(hz, QString(), &vrcmd, &args, &env)) {
+        return false;
     }
     QProcess p;
     p.setProcessEnvironment(env);
     p.setProcessChannelMode(QProcess::MergedChannels);
-    p.start(vrcmd, { "--set-settings-int", key, QString::number(hz) });
+    p.start(vrcmd, args);
     if (!p.waitForStarted(3000)) {
         qWarning().noquote() << QString("SteamVR refresh rate: %1 Hz not set, vrcmd did not start (%2); the stream "
                                         "follows the rate SteamVR reports").arg(hz).arg(p.errorString());
@@ -191,8 +205,51 @@ bool setSteamVrRefreshRate(int hz)
         return false;
     }
     qInfo().noquote() << QString("SteamVR refresh rate: %1 set to %2 Hz (vrcmd), the headset's rate for this app "
-                                 "from its next VR session").arg(key).arg(hz);
+                                 "from its next VR session").arg(args.value(1)).arg(hz);
     return true;
+}
+
+void setSteamVrRefreshRateEarly(int hz, const QString& why)
+{
+    // Once a rate per launcher run: the hand-off writes it again anyway
+    static int s_written = 0;
+    if (hz <= 0 || hz == s_written) {
+        return;
+    }
+    QString vrcmd;
+    QStringList args;
+    QProcessEnvironment env;
+    const QString from = QString(" (%1)").arg(why);
+    if (!steamVrRateCall(hz, from, &vrcmd, &args, &env)) {
+        return;
+    }
+    s_written = hz;
+    QProcess* p = new QProcess(QCoreApplication::instance());
+    p->setProcessEnvironment(env);
+    p->setProcessChannelMode(QProcess::MergedChannels);
+    QObject::connect(p, &QProcess::finished, p, [p, hz, from, args](int code, QProcess::ExitStatus status) {
+        if (status == QProcess::NormalExit && code == 0) {
+            qInfo().noquote() << QString("SteamVR refresh rate%1: %2 set to %3 Hz (vrcmd), ahead of the next stream")
+                                     .arg(from).arg(args.value(1)).arg(hz);
+        }
+        else {
+            s_written = 0;
+            qWarning().noquote() << QString("SteamVR refresh rate%1: %2 Hz not set, vrcmd failed (exit %3): %4; the "
+                                            "stream start sets it again")
+                                        .arg(from).arg(hz).arg(code)
+                                        .arg(QString::fromUtf8(p->readAll()).simplified().left(200));
+        }
+        p->deleteLater();
+    });
+    QObject::connect(p, &QProcess::errorOccurred, p, [p, hz, from](QProcess::ProcessError e) {
+        if (e == QProcess::FailedToStart) {
+            s_written = 0;
+            qWarning().noquote() << QString("SteamVR refresh rate%1: %2 Hz not set, vrcmd did not start (%3); the "
+                                            "stream start sets it again").arg(from).arg(hz).arg(p->errorString());
+            p->deleteLater();
+        }
+    });
+    p->start(vrcmd, args);
 }
 
 Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences& p)

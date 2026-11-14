@@ -1,6 +1,7 @@
 // Moonlight XR Native launcher: see mlxrprefs.h. GPLv3.
 #include "mlxrprefs.h"
 #include "mlxrhandoff.h"
+#include "settings/streamingpreferences.h"
 #include "backend/nvcomputer.h"
 
 #include <QFile>
@@ -209,6 +210,21 @@ MlxrPrefs::MlxrPrefs(QObject* parent) : QObject(parent)
     usbTimer->setInterval(10000);
     connect(usbTimer, &QTimer::timeout, this, &MlxrPrefs::rescanUsb);
     usbTimer->start();
+    // Native (lane rate-match): the saved rate into SteamVR as the launcher starts, not only when a stream
+    // starts: SteamVR has been seen to start the client's session on the old rate after a write just before it.
+    // Dry runs (the tests) leave it to the hand-off.
+    if (!qEnvironmentVariableIsSet("MLXR_LAUNCHER_DRYRUN")) {
+        QTimer::singleShot(0, this, [this]() { applySteamVrRate("launcher start"); });
+    }
+}
+
+void MlxrPrefs::applySteamVrRate(const QString& why)
+{
+    const StreamingPreferences* p = StreamingPreferences::get();
+    if (p == nullptr) {
+        return;
+    }
+    MlxrHandoff::setSteamVrRefreshRateEarly(MlxrHandoff::steamVrRateFor(p->fps, matchHeadsetFps, refreshRate() > 0), why);
 }
 
 QString MlxrPrefs::usbCableInterface(const QString& netRoot)

@@ -195,6 +195,9 @@ public:
 
     // Writes the launcher settings, and the config.ini keys changed since load()
     Q_INVOKABLE void save();
+    // Native (lane rate-match): the Refresh rate setting as SteamVR's per-app rate now, ahead of the next
+    // stream (MlxrHandoff::setSteamVrRefreshRateEarly); Match headset, 30 or 60 fps and a custom rate leave it
+    Q_INVOKABLE void applySteamVrRate(const QString& why);
     // Native (lane aspect-ratio): the Video resolution into config.ini, so the VR client's [stream] keys agree
     // with the page: resolution is a preset's "WxH" or "custom", with custom_width and custom_height for custom.
     // Only the keys that differ from what config.ini says now are written.
