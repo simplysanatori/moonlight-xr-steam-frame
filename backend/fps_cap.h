@@ -43,4 +43,23 @@ static inline int mlxr_fps_for_request(int requested, int display_hz, int match)
     return requested > cap ? cap : requested;
 }
 
+/* Native (lane rate-match): the fps to ask the host for again once the rate the headset really runs at
+ * (display_hz, whole Hz, 0 or less while it is being measured) is known, when the launch's own rule
+ * (mlxr_fps_for_request on requested, the rate asked for before the cap) gives another fps than the
+ * stream's (stream_fps); 0 to leave the stream as it is. With match ("Match headset") that is the
+ * display's rate; with a set rate it is that rate under the display's, so a cap taken from a stale rate is
+ * lifted (or lowered) and a rate under the display's is never changed. SteamVR can report a stale rate when
+ * the session starts (90 Hz with the display on its per-app 144) and moves the rate mid session, so this
+ * is asked again after each. */
+static inline int mlxr_fps_rematch(int match, int requested, int stream_fps, int display_hz)
+{
+    if (stream_fps <= 0 || display_hz < MLXR_FPS_CAP_FLOOR) return 0;
+    int want = mlxr_fps_for_request(requested > 0 ? requested : stream_fps, display_hz, match);
+    return want != stream_fps ? want : 0;
+}
+
+/* Restarts for the rate a stream started by the user may take, so a display that keeps moving (or a
+ * measurement that keeps changing its mind) cannot keep the stream reconnecting */
+#define MLXR_FPS_REMATCH_MAX 3
+
 #endif

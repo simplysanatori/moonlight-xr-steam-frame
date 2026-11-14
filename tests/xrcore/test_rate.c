@@ -904,6 +904,227 @@ static void testGovernorOnAThrottle(void) {
     CHECK(g.target == 20 && g.throttled);
 }
 
+// Native (lane rate-match): the display rate measured from xrWaitFrame's timing
+// against the rate SteamVR reports
+
+#define PERIOD_NS(hz) ((int64_t)(1e9 / (hz)))
+
+// Frames at hz, each display time a period on (every skipEvery-th frame a
+// refresh missed, 0 for none), fed until the window says something or
+// maxFrames pass. Returns the measured rate and the frames it took.
+static float feedFrames(RateMeasure* m, int64_t* now, int64_t* displayTime, double hz, int64_t periodNs,
+                        int skipEvery, int maxFrames, int* frames) {
+    int64_t step = PERIOD_NS(hz);
+    for (int i = 1; i <= maxFrames; i++) {
+        int refreshes = skipEvery > 0 && i % skipEvery == 0 ? 2 : 1;
+        *now += step * refreshes;
+        *displayTime += step * refreshes;
+        float hzOut = rateMeasureFrame(m, *now, *displayTime, periodNs);
+        if (hzOut > 0.0f) {
+            *frames = i;
+            return hzOut;
+        }
+    }
+    *frames = maxFrames;
+    return 0.0f;
+}
+
+static void testTimingAgreesWithItself(void) {
+    // Period and step agree: that rate, for each of the Frame's
+    static const double FRAME[] = { 72.0, 90.0, 120.0, 144.0 };
+    for (int i = 0; i < 4; i++) {
+        CHECK_NEAR(rateFromTiming(PERIOD_NS(FRAME[i]), PERIOD_NS(FRAME[i])), FRAME[i], 0.05);
+        // A loop that misses every other refresh is still on the display's
+        // rate: the period's
+        CHECK_NEAR(rateFromTiming(PERIOD_NS(FRAME[i]), 2 * PERIOD_NS(FRAME[i])), FRAME[i], 0.05);
+        CHECK_NEAR(rateFromTiming(PERIOD_NS(FRAME[i]), 3 * PERIOD_NS(FRAME[i])), FRAME[i], 0.05);
+        // Only one of the two known
+        CHECK_NEAR(rateFromTiming(PERIOD_NS(FRAME[i]), 0), FRAME[i], 0.05);
+        CHECK_NEAR(rateFromTiming(0, PERIOD_NS(FRAME[i])), FRAME[i], 0.05);
+    }
+    CHECK_NEAR(rateFromTiming(0, 0), 0, 0);
+    // The period and the cadence disagree by something that is no whole
+    // number of periods: the frames come at the cadence
+    CHECK_NEAR(rateFromTiming(PERIOD_NS(90), PERIOD_NS(144)), 144, 0.05);
+    CHECK_NEAR(rateFromTiming(PERIOD_NS(144), PERIOD_NS(90)), 90, 0.05);
+    CHECK_NEAR(rateFromTiming(PERIOD_NS(120), PERIOD_NS(144)), 144, 0.05);
+    CHECK_NEAR(rateFromTiming(PERIOD_NS(144), PERIOD_NS(120)), 120, 0.05);
+    CHECK_NEAR(rateFromTiming(PERIOD_NS(72), PERIOD_NS(144)), 144, 0.05);
+    CHECK_NEAR(rateFromTiming(PERIOD_NS(90), PERIOD_NS(72)), 72, 0.05);
+    // 72 against 144 is a whole multiple: a 144 Hz display the loop keeps
+    // missing every other refresh of
+    CHECK_NEAR(rateFromTiming(PERIOD_NS(144), PERIOD_NS(72)), 144, 0.05);
+}
+
+static void testMeasureTheStaleStart(void) {
+    // 2026-11-14 02:33: SteamVR reported and offered 90 Hz, xrWaitFrame gave a
+    // 6.94 ms period and the loop ran at 144
+    RateMeasure m;
+    rateMeasureStart(&m);
+    int64_t now = 5000000000LL, display = 7000000000LL;
+    int frames = 0;
+    float hz = feedFrames(&m, &now, &display, 144.0, PERIOD_NS(144), 0, 1000, &frames);
+    CHECK_NEAR(hz, 144, 0.1);
+    // 1.5 s of frames, the first one only starting the window
+    CHECK(frames >= 216 && frames <= 218);
+    CHECK(m.count == frames - 1);
+    CHECK(m.medianPeriodNs == PERIOD_NS(144) && m.medianStepNs == PERIOD_NS(144));
+    CHECK(rateVerdict(90.0f, hz, 0) == RATE_VERDICT_ADOPT);
+    CHECK_NEAR(rateTrue(90.0f, hz), 144, 0.1);
+    // Judged once: the window takes nothing more until it is started again
+    CHECK_NEAR(feedFrames(&m, &now, &display, 144.0, PERIOD_NS(144), 0, 1000, &frames), 0, 0);
+    // The same with the runtime's period stale too: the cadence
+    rateMeasureStart(&m);
+    CHECK_NEAR(feedFrames(&m, &now, &display, 144.0, PERIOD_NS(90), 0, 1000, &frames), 144, 0.1);
+}
+
+static void testMeasureThroughMissedRefreshes(void) {
+    RateMeasure m;
+    // A loop missing one refresh in four is still on a 144 Hz display
+    rateMeasureStart(&m);
+    int64_t now = 1, display = 1000;
+    int frames = 0;
+    CHECK_NEAR(feedFrames(&m, &now, &display, 144.0, PERIOD_NS(144), 4, 1000, &frames), 144, 0.1);
+    // And one missing every other refresh: the period says the display's rate
+    rateMeasureStart(&m);
+    CHECK_NEAR(feedFrames(&m, &now, &display, 144.0, PERIOD_NS(144), 1, 1000, &frames), 144, 0.1);
+    // A display time that does not move tells nothing and is not counted
+    rateMeasureStart(&m);
+    CHECK_NEAR(rateMeasureFrame(&m, now, display, PERIOD_NS(90)), 0, 0);
+    for (int i = 0; i < 100; i++) {
+        now += PERIOD_NS(90);
+        CHECK_NEAR(rateMeasureFrame(&m, now, display, PERIOD_NS(90)), 0, 0);
+    }
+    CHECK(m.count == 0);
+    // Nothing to go on: no period or no display time
+    CHECK_NEAR(rateMeasureFrame(&m, now, display, 0), 0, 0);
+    CHECK_NEAR(rateMeasureFrame(&m, now, 0, PERIOD_NS(90)), 0, 0);
+}
+
+static void testMeasureNeedsEnoughFrames(void) {
+    // A slow loop, 30 frames a second, waits for RATE_MEASURE_MIN_FRAMES past
+    // the 1.5 s, and the period still says 90
+    RateMeasure m;
+    rateMeasureStart(&m);
+    int64_t now = 1, display = 1;
+    int frames = 0;
+    float hz = feedFrames(&m, &now, &display, 30.0, PERIOD_NS(90), 0, 1000, &frames);
+    CHECK(frames == RATE_MEASURE_MIN_FRAMES + 1);
+    CHECK_NEAR(hz, 90, 0.1);
+    // A window that fills up is judged at once
+    rateMeasureStart(&m);
+    int64_t t = 1;
+    float out = 0.0f;
+    int n = 0;
+    while (out <= 0.0f && n < 2000) {
+        display += PERIOD_NS(144);
+        out = rateMeasureFrame(&m, t, display, PERIOD_NS(144)); // the clock stands still
+        n++;
+    }
+    CHECK(n == RATE_MEASURE_MAX + 1);
+    CHECK_NEAR(out, 144, 0.1);
+}
+
+static void testVerdictMatchOrSetRate(void) {
+    // Disagreeing past the tolerance: the measured rate is taken (Match
+    // headset or a set rate alike), a rate forced by the debug knob is only said
+    CHECK(rateVerdict(90.0f, 144.0f, 0) == RATE_VERDICT_ADOPT);
+    CHECK(rateVerdict(90.0f, 144.0f, 1) == RATE_VERDICT_LOG_ONLY);
+    CHECK(rateVerdict(144.0f, 90.0f, 0) == RATE_VERDICT_ADOPT);
+    CHECK(rateVerdict(144.0f, 120.0f, 1) == RATE_VERDICT_LOG_ONLY);
+    // Within it: the reported rate stands, forced or not
+    CHECK(rateVerdict(144.0f, 144.09f, 0) == RATE_VERDICT_AGREES);
+    CHECK(rateVerdict(144.0f, 143.6f, 0) == RATE_VERDICT_AGREES);
+    CHECK(rateVerdict(119.88f, 120.0f, 0) == RATE_VERDICT_AGREES);
+    CHECK(rateVerdict(90.0f, 90.0f + RATE_MEASURE_TOLERANCE_HZ - 0.1f, 0) == RATE_VERDICT_AGREES);
+    CHECK(rateVerdict(90.0f, 90.0f + RATE_MEASURE_TOLERANCE_HZ + 0.1f, 0) == RATE_VERDICT_ADOPT);
+    CHECK(rateVerdict(90.0f, 90.0f - RATE_MEASURE_TOLERANCE_HZ - 0.1f, 1) == RATE_VERDICT_LOG_ONLY);
+    // Nothing reported (no extension) or nothing measured: nothing to overrule
+    CHECK(rateVerdict(0.0f, 144.0f, 0) == RATE_VERDICT_AGREES);
+    CHECK(rateVerdict(90.0f, 0.0f, 0) == RATE_VERDICT_AGREES);
+    CHECK(rateVerdict(NAN, 144.0f, 0) == RATE_VERDICT_AGREES);
+    // Every pair of the Frame's rates is far apart enough to tell
+    static const float FRAME[] = { 72.0f, 90.0f, 120.0f, 144.0f };
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            CHECK(rateVerdict(FRAME[i], FRAME[j], 0) == (i == j ? RATE_VERDICT_AGREES : RATE_VERDICT_ADOPT));
+            CHECK(rateVerdict(FRAME[i], FRAME[j], 1) == (i == j ? RATE_VERDICT_AGREES : RATE_VERDICT_LOG_ONLY));
+            CHECK_NEAR(rateTrue(FRAME[i], FRAME[j]), FRAME[j], 0);
+        }
+    }
+    // The reported rate's own value where they agree, the measured one only
+    // without it
+    CHECK_NEAR(rateTrue(119.88f, 120.1f), 119.88f, 1e-4);
+    CHECK_NEAR(rateTrue(0.0f, 144.1f), 144.1f, 1e-4);
+    CHECK_NEAR(rateTrue(90.0f, 0.0f), 90, 0);
+    CHECK_NEAR(rateTrue(0.0f, 0.0f), 0, 0);
+}
+
+static void testMeasureAMidSessionChange(void) {
+    // The display measured at 90 as reported; SteamVR then moves it to 144
+    // and says so, and the next window finds 144: they agree again, and the
+    // true rate is 144 for the stream to follow
+    RateMeasure m;
+    rateMeasureStart(&m);
+    int64_t now = 1, display = 1;
+    int frames = 0;
+    float hz = feedFrames(&m, &now, &display, 90.0, PERIOD_NS(90), 0, 1000, &frames);
+    CHECK_NEAR(hz, 90, 0.1);
+    CHECK(rateVerdict(90.0f, hz, 0) == RATE_VERDICT_AGREES);
+    // The change event starts a new window
+    rateMeasureStart(&m);
+    hz = feedFrames(&m, &now, &display, 144.0, PERIOD_NS(144), 0, 1000, &frames);
+    CHECK_NEAR(hz, 144, 0.1);
+    CHECK(rateVerdict(144.0f, hz, 0) == RATE_VERDICT_AGREES);
+    CHECK_NEAR(rateTrue(144.0f, hz), 144, 0);
+    // A change event the display never followed: reported 144, still paced at
+    // 90, so the measured 90 overrules it for Match headset
+    rateMeasureStart(&m);
+    hz = feedFrames(&m, &now, &display, 90.0, PERIOD_NS(90), 0, 1000, &frames);
+    CHECK(rateVerdict(144.0f, hz, 0) == RATE_VERDICT_ADOPT);
+    CHECK_NEAR(rateTrue(144.0f, hz), 90, 0.1);
+    // A window broken off by a loss of focus starts over: the frames before
+    // it are not counted
+    rateMeasureStart(&m);
+    feedFrames(&m, &now, &display, 144.0, PERIOD_NS(144), 0, 100, &frames);
+    CHECK(m.count == 99 && !m.done);
+    rateMeasureStart(&m);
+    CHECK(m.count == 0 && m.startNs == 0 && !m.done);
+}
+
+static void testMeasureNoticesASilentMove(void) {
+    // Measured at 90; the display then moves to 144 with no event: the
+    // period is off the measured one for RATE_MEASURE_DRIFT_FRAMES frames and
+    // the window is started again
+    RateMeasure m;
+    rateMeasureStart(&m);
+    CHECK(!rateMeasureDrifted(&m, PERIOD_NS(144))); // nothing measured yet
+    int64_t now = 1, display = 1;
+    int frames = 0;
+    CHECK_NEAR(feedFrames(&m, &now, &display, 90.0, PERIOD_NS(90), 0, 1000, &frames), 90, 0.1);
+    for (int i = 0; i < 1000; i++) {
+        CHECK(!rateMeasureDrifted(&m, PERIOD_NS(90)));
+    }
+    // A blip of a few frames is not a move
+    for (int i = 0; i < RATE_MEASURE_DRIFT_FRAMES - 1; i++) {
+        CHECK(!rateMeasureDrifted(&m, PERIOD_NS(144)));
+    }
+    CHECK(!rateMeasureDrifted(&m, PERIOD_NS(90)));
+    int moved = 0, at = 0;
+    for (int i = 1; i <= 100 && !moved; i++) {
+        moved = rateMeasureDrifted(&m, PERIOD_NS(144));
+        at = i;
+    }
+    CHECK(moved && at == RATE_MEASURE_DRIFT_FRAMES);
+    rateMeasureStart(&m);
+    CHECK_NEAR(feedFrames(&m, &now, &display, 144.0, PERIOD_NS(144), 0, 1000, &frames), 144, 0.1);
+    CHECK(rateVerdict(90.0f, 144.0f, 0) == RATE_VERDICT_ADOPT);
+    // Jitter well inside the slack is the same rate
+    for (int i = 0; i < 100; i++) {
+        CHECK(!rateMeasureDrifted(&m, PERIOD_NS(144) + (i % 2 ? 50000 : -50000)));
+    }
+}
+
 int main(void) {
     testSteamFrameRates();
     testStreamGetsItsOwnRate();
@@ -946,5 +1167,12 @@ int main(void) {
     testGovernorWithNoModelRunning();
     testGovernorFloorAndCap();
     testGovernorOnAThrottle();
+    testTimingAgreesWithItself();
+    testMeasureTheStaleStart();
+    testMeasureThroughMissedRefreshes();
+    testMeasureNeedsEnoughFrames();
+    testVerdictMatchOrSetRate();
+    testMeasureAMidSessionChange();
+    testMeasureNoticesASilentMove();
     return checksDone("xr_rate");
 }

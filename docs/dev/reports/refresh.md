@@ -78,6 +78,7 @@ At 120 and 144 the PC has to render and encode that many frames, and the link ha
 ## Open risks
 
 * Whether SteamVR applies a per-app rate written just before the VR client's session starts, or only from the app's next launch, is not tested here (step 4 above). The flat launcher is the shortcut's process, and the VR client inherits its `SteamAppId`.
+  Seen on the Frame (2026-11-14, SteamVR 2.19.3, lane rate-match): with 144 written by vrcmd a second before the client started (02:59) and with 144 already set (02:33), the compositor ran the session at 144 (xrWaitFrame's period 6.94 ms) while `XR_FB_display_refresh_rate` offered and reported 90 for the whole session, with no change event; requesting 90 failed with `XR_ERROR_DISPLAY_REFRESH_RATE_UNSUPPORTED_FB`. The client now measures the rate from the frame timing (xr/core/xr_rate.c `rateMeasureFrame`) and restarts the stream at the measured rate (app/main.c `rateRematch`).
 * vrcmd runs on the flat UI's thread for up to 5 s (3 s more for `pgrep`). It usually returns at once.
 * Picking 90 or 72 Hz overwrites a rate the owner set by hand in SteamVR for this app. Match headset is the way to keep SteamVR's own choice.
 * The Frame's GPU and decoder at 144 Hz: the frame loop has 6.9 ms per refresh. The headless run decoded the 1080p test clip in about 1.5 ms a frame; 1440p at 144 fps, the 3D depth warp and the rooms at 144 Hz are untested. The depth governor cuts the depth model's rate first; SteamVR offers no lower display rate to step to.

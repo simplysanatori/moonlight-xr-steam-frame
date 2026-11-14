@@ -240,6 +240,35 @@ static void test_fps_cap(void)
     CHECK_EQ_INT(mlxr_fps_for_request(144, 90, 0), 90);  /* refused above the display: its rate */
     CHECK_EQ_INT(mlxr_fps_for_request(144, 120, 0), 120);
     CHECK_EQ_INT(mlxr_fps_for_request(120, 0, 0), 90);
+    /* Native (lane rate-match): a stream off the rate the headset really runs at is asked for again by the
+     * launch's own rule: Match headset at the display's rate, a set rate under the display's */
+    CHECK_EQ_INT(mlxr_fps_rematch(1, 90, 90, 144), 144);   /* 2026-11-14 02:33: SteamVR said 90, the display ran 144 */
+    CHECK_EQ_INT(mlxr_fps_rematch(1, 90, 144, 90), 90);    /* and the other way */
+    CHECK_EQ_INT(mlxr_fps_rematch(1, 90, 90, 120), 120);
+    CHECK_EQ_INT(mlxr_fps_rematch(1, 144, 120, 72), 72);
+    {
+        static const int hz[] = { 72, 90, 120, 144 };
+        for (int i = 0; i < 4; i++)
+            for (int j = 0; j < 4; j++) {
+                CHECK_EQ_INT(mlxr_fps_rematch(1, 90, hz[i], hz[j]), i == j ? 0 : hz[j]);
+                /* a set 144 follows the display's cap whichever way it moved */
+                CHECK_EQ_INT(mlxr_fps_rematch(0, 144, hz[i], hz[j]), i == j ? 0 : hz[j]);
+            }
+    }
+    CHECK_EQ_INT(mlxr_fps_rematch(0, 144, 90, 144), 144);  /* 02:59: a set 144 capped at a stale 90, lifted */
+    CHECK_EQ_INT(mlxr_fps_rematch(0, 120, 90, 144), 120);  /* a set 120 on a 144 display: 120, not more */
+    CHECK_EQ_INT(mlxr_fps_rematch(0, 120, 120, 144), 0);   /* already at its own rate */
+    CHECK_EQ_INT(mlxr_fps_rematch(0, 60, 60, 144), 0);     /* under the display: never changed */
+    CHECK_EQ_INT(mlxr_fps_rematch(0, 60, 60, 72), 0);
+    CHECK_EQ_INT(mlxr_fps_rematch(0, 144, 144, 90), 90);   /* the display really at 90: the cap holds */
+    CHECK_EQ_INT(mlxr_fps_rematch(1, 90, 144, 144), 0);    /* already there */
+    CHECK_EQ_INT(mlxr_fps_rematch(1, 90, 144, 165), 0);    /* above the ceiling: 144 is as high as it goes */
+    CHECK_EQ_INT(mlxr_fps_rematch(1, 90, 90, 165), 144);
+    CHECK_EQ_INT(mlxr_fps_rematch(1, 90, 90, 0), 0);       /* still being measured */
+    CHECK_EQ_INT(mlxr_fps_rematch(0, 144, 90, 0), 0);
+    CHECK_EQ_INT(mlxr_fps_rematch(1, 90, 90, 5), 0);       /* nonsense is not believed */
+    CHECK_EQ_INT(mlxr_fps_rematch(1, 90, 0, 144), 0);      /* no stream */
+    CHECK_EQ_INT(mlxr_fps_rematch(0, 0, 90, 144), 0);      /* nothing asked for: the stream's own rate stands */
 
     mlxr_launch_params p;
     CHECK_OK(mlxr_launch_params_init(&p));

@@ -107,6 +107,14 @@ static MlxrReconnect g_rc;      // worker thread only
 static MlxrFailover g_fo;       // Native (lane wave1-failover): worker thread only
 static atomic_int g_linkDown;
 static int g_rcFatal;           // the last try was refused for a reason a retry does not change (worker only)
+// Native (lane rate-match): the fps the running stream asked the host for and the one wanted before the
+// headset's cap, the restarts for the rate since the user started it, and the headset rate a mismatch or a
+// set rate the headset is under was last said for (worker thread only)
+static int g_streamFps;
+static int g_wantFps;
+static int g_rematches;
+static int g_rematchSaid;
+static int g_underSaid;
 
 // ---- --exit-to-caller: how the process ends for the flat launcher ----
 // The exit codes are the hand-off contract (docs/dev/reports/launcher.md).
@@ -1241,18 +1249,50 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
         nanosleep(&ts, NULL);
         displayHz = xrReportedDisplayHz();
     }
+    // Native (lane rate-match): SteamVR's XR_FB_display_refresh_rate can stay on a stale rate for a whole
+    // session (90 with the display on 144). A rate measured from the frame timing is the truth; before one
+    // is, xrWaitFrame's own period (the session's first frames come a moment after this point, waited for
+    // up to 1.5 s) stands in where it disagrees, and the restart for the rate (rateRematch) corrects either.
+    int steadyHz = xrSteadyDisplayHz(), fromPace = 0;
+    if (steadyHz > 0) {
+        if (steadyHz != displayHz)
+            MLOG_I("display rate: %d Hz measured from the frame timing, SteamVR reports %d", steadyHz, displayHz);
+        displayHz = steadyHz;
+    }
+    else {
+        int pacedHz = xrPacedDisplayHz();
+        for (int i = 0; pacedHz <= 0 && i < 15 && !atomic_load(&g_workerQuit); i++) {
+            struct timespec ts = { 0, 100000000L };
+            nanosleep(&ts, NULL);
+            pacedHz = xrPacedDisplayHz();
+        }
+        if (pacedHz >= MLXR_FPS_CAP_FLOOR && abs(pacedHz - displayHz) > 3) {
+            MLOG_I("display rate: xrWaitFrame paces at %d Hz, SteamVR reports %d; the stream starts at the paced "
+                   "rate until the frame timing has been measured", pacedHz, displayHz);
+            displayHz = pacedHz;
+            fromPace = 1;
+        }
+    }
     int fpsCap = mlxr_fps_cap_for_display(displayHz);
+    int wantFps = fps; // Native (lane rate-match): before the cap, for a restart once the real rate is known
     if (fps > fpsCap) {
         MLOG_W("requested %d fps is above the headset's %d (display %s): asking the host for %d fps",
                fps, fpsCap,
-               displayHz > 0 ? "rate reported by SteamVR; SteamVR's per-app setting picks it" : "rate unknown", fpsCap);
+               displayHz <= 0                              ? "rate unknown"
+               : xrDisplayHzMeasured() || steadyHz > 0    ? "rate measured from the frame timing"
+               : fromPace                                 ? "rate xrWaitFrame paces at"
+                                                          : "rate reported by SteamVR; SteamVR's per-app setting picks it",
+               fpsCap);
         fps = fpsCap;
     }
     // Native (lane artemis-settings): "Match headset" asks the host for the display's own rate
     if (g_args.fpsMatch) {
         fps = mlxr_fps_for_request(fps, displayHz, 1);
         MLOG_I("frame rate matches the headset: %d fps (display %s)", fps,
-               displayHz > 0 ? "rate reported by SteamVR" : "rate unknown, 90 until SteamVR reports it");
+               displayHz <= 0                           ? "rate unknown, 90 until SteamVR reports it"
+               : xrDisplayHzMeasured() || steadyHz > 0 ? "rate measured from the frame timing"
+               : fromPace                              ? "rate xrWaitFrame paces at"
+                                                       : "rate reported by SteamVR");
     }
     lp.width = w;
     lp.height = h;
@@ -1369,6 +1409,8 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     }
     atomic_store(&g_streaming, 1);
     xr_app_set_streaming(1);
+    g_streamFps = lp.fps; // Native (lane rate-match)
+    g_wantFps = wantFps;
     // Native (lane headinput-finish, PLAN 4.5): opentrack_host's default target is the streaming PC
     mlxr_opentrack_set_stream_host(n->address[pc]);
     // Native (lane wave2-bind-wire): the app's name, for its own lines in bindings.ini
@@ -1511,6 +1553,54 @@ static int64_t rcNow(void* user) {
 }
 
 static const MlxrReconnectOps g_rcOps = { &g_net, rcScheduled, rcAttempt, rcResumed, rcGaveUp, rcNow };
+
+// Native (lane rate-match): the stream keeps to the rate the headset really runs at. SteamVR can report a
+// stale rate when the session starts (90 Hz with the display already on the app's 144: Match headset then
+// asked for 90, and a fixed 144 was capped at 90) and can move the rate mid session; once the XR side has
+// measured the display after either, a stream off the launch's own rule for that rate (Match headset: the
+// display's; a set rate: that rate under the display's) is restarted at it, the way a network path switch
+// is (the host's session resumed, the scene kept). A set rate the headset really runs under is said once.
+// Returns 1 when the restart was scheduled: the caller tears the stream down for it.
+static int rateRematch(void) {
+    if (g_args.refreshX1000 > 0) return 0; // a custom (Apollo) rate keeps its own cap
+    int hz = xrSteadyDisplayHz();
+    int picked = mlxr_fps_clamp(g_wantFps, 0);
+    if (hz >= MLXR_FPS_CAP_FLOOR && !g_args.fpsMatch && picked > hz && g_streamFps == mlxr_fps_cap_for_display(hz)
+        && g_underSaid != hz) {
+        // The launcher wrote the rate as SteamVR's per-app one, which SteamVR may only apply from the next start
+        g_underSaid = hz;
+        MLOG_W("frame rate: %d fps was picked but the headset runs at %d Hz (measured), so the stream is at %d fps; "
+               "SteamVR applies a per-app rate the launcher just set from the app's next start, or at once when "
+               "set in SteamVR's own settings", picked, hz, g_streamFps);
+        char msg[160];
+        snprintf(msg, sizeof(msg), "Headset at %d Hz, not %d: set %d Hz for this app in SteamVR", hz, picked, picked);
+        xr_app_notice(msg);
+    }
+    int want = mlxr_fps_rematch(g_args.fpsMatch, g_wantFps, g_streamFps, hz);
+    if (!want) return 0;
+    if (g_rematches >= MLXR_FPS_REMATCH_MAX) {
+        if (g_rematchSaid != hz) {
+            g_rematchSaid = hz;
+            MLOG_W("frame rate: the headset runs at %d Hz, the stream at %d fps; not restarting it again (%d "
+                   "restarts for the rate already)", hz, g_streamFps, g_rematches);
+            char msg[160];
+            snprintf(msg, sizeof(msg), "Headset at %d Hz, stream at %d fps: start the stream again to match", hz,
+                     g_streamFps);
+            xr_app_notice(msg);
+        }
+        return 0;
+    }
+    if (!mlxr_reconnect_switch(&g_rc, monoMs())) return 0;
+    g_rematches++;
+    MLOG_I("frame rate: the headset runs at %d Hz%s, the stream at %d fps: restarting the stream at %d fps "
+           "(%s, restart %d of %d)", hz, xrDisplayHzMeasured() ? " (measured; SteamVR reports another)" : "",
+           g_streamFps, want, g_args.fpsMatch ? "Match headset" : "the rate picked, under the headset's",
+           g_rematches, MLXR_FPS_REMATCH_MAX);
+    char msg[160];
+    snprintf(msg, sizeof(msg), "Headset at %d Hz: restarting the stream at %d fps", hz, want);
+    xr_app_notice(msg);
+    return 1;
+}
 
 // The stream ended by itself (the host closed it, or the network dropped and the retries are over, or
 // were never going to help): the way out it always had
@@ -1673,6 +1763,9 @@ static void* worker(void* arg) {
             break;
         }
         case LCMD_LAUNCH: {
+            g_rematches = 0; // Native (lane rate-match): a stream the user starts gets its restarts afresh
+            g_rematchSaid = 0;
+            g_underSaid = 0;
             int ok = n->haveId && launchStream(n, c.pc, c.appId, c.quitFirst, 0) == 0;
             if (ok) {
                 // A stream begun by the user: the idle clock starts now
@@ -1738,6 +1831,10 @@ static void* worker(void* arg) {
         // Native (lane wave1-failover): a stream that keeps losing video on its link moves to a better one
         else if (state == LAUNCH_STREAMING && atomic_load(&g_streaming) && !atomic_load(&g_linkDown) && !g_args.file &&
                  n->streamPc >= 0 && n->streamApp > 0 && mlxr_failover_poll(&g_fo, &g_rc, monoMs(), xr_app_notice))
+            teardownForRetry(n);
+        // Native (lane rate-match): a Match headset stream off the rate the headset really runs at
+        else if (state == LAUNCH_STREAMING && atomic_load(&g_streaming) && !atomic_load(&g_linkDown) && !g_args.file &&
+                 n->streamPc >= 0 && n->streamApp > 0 && rateRematch())
             teardownForRetry(n);
         // Native (lane wave3-session): headset off and idle timers
         if (!g_args.file) presenceTickWorker(state == LAUNCH_STREAMING && atomic_load(&g_streaming));
@@ -1935,7 +2032,8 @@ int main(int argc, char** argv) {
             cfg.videoHeight = mh;
         }
         if (!g_args.file && g_args.refreshX1000 > 0) cfg.fps = mlxr_fps_clamp((g_args.refreshX1000 + 500) / 1000, 0);
-        if (!g_args.file && g_args.fpsMatch) cfg.fps = 0;
+        // Native (lane rate-match): --file too, so the desktop mock runs show the display measured
+        if (g_args.fpsMatch) cfg.fps = 0;
     }
     // Native (lane aspect-ratio): config.ini's widths are the picture's real width, as older versions keep them; the
     // Size from them, at the picture this stream shows (one eye's of a full-size pair). Nothing is written here, so

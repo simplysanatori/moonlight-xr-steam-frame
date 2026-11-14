@@ -39,6 +39,32 @@ static void reportDisplayHz(float hz) {
     atomic_store(&g_reportedHz, hz > 0.0f ? (int)(hz + 0.5f) : 0);
 }
 
+// Native (lane rate-match): the rate the display is really on once a window of
+// focused frames has measured it, whole Hz (0 while it is being measured), and
+// whether g_reportedHz is that measured rate rather than the runtime's word
+static _Atomic int g_steadyHz;
+static _Atomic int g_reportedMeasured;
+// The rate of xrWaitFrame's last predictedDisplayPeriod, whole Hz, 0 before the first frame
+static _Atomic int g_pacedHz;
+
+int xrPacedDisplayHz(void) {
+    return atomic_load(&g_pacedHz);
+}
+
+int xrSteadyDisplayHz(void) {
+    return atomic_load(&g_steadyHz);
+}
+
+int xrDisplayHzMeasured(void) {
+    return atomic_load(&g_reportedMeasured);
+}
+
+// A new measuring window: the rate is not known to be steady until it is done
+static void measureAgain(XrCtx* ctx) {
+    rateMeasureStart(&ctx->rateMeasure);
+    atomic_store(&g_steadyHz, 0);
+}
+
 static int sameRate(float a, float b) {
     return fabsf(a - b) <= RATE_TOLERANCE;
 }
@@ -216,6 +242,11 @@ static void applyRate(XrCtx* ctx, const char* why) {
 
 void displaySessionBegun(XrCtx* ctx) {
     rateBudgetStart(&ctx->rateBudget, nowNs(), RATE_SETTLE_WINDOWS);
+    measureAgain(ctx);
+    ctx->displayRateMeasured = 0.0f;
+    atomic_store(&g_reportedMeasured, 0);
+    ctx->rateMeasureSaid = 0.0f;
+    ctx->rateVerdictSaid = -1;
     applyRate(ctx, "session start");
     // Native (lane refresh): a stream rate the runtime does not offer. The launch caps the stream
     // at the display's rate (app/main.c), so a 120 or 144 fps choice only streams at that rate
@@ -240,6 +271,9 @@ void displaySessionBegun(XrCtx* ctx) {
 
 void displayFocused(XrCtx* ctx) {
     rateBudgetStart(&ctx->rateBudget, nowNs(), RATE_SETTLE_WINDOWS);
+    // Native (lane rate-match): measured again from focus, which is when the
+    // display is the app's. What the last window found stands meanwhile.
+    rateMeasureStart(&ctx->rateMeasure);
     if (!ctx->refreshRateSupported || ctx->rateAsked <= 0.0f) {
         return;
     }
@@ -266,6 +300,16 @@ void displayRateChanged(XrCtx* ctx, float from, float to) {
     ctx->displayRate = to;
     reportDisplayHz(to);
     rateBudgetStart(&ctx->rateBudget, nowNs(), RATE_SETTLE_WINDOWS);
+    // Native (lane rate-match): the runtime's new word is taken until the frame
+    // timing has been measured against it again
+    if (ctx->displayRateMeasured > 0.0f) {
+        LOGEV("display rate: the %s Hz measured from the frame timing is dropped for the runtime's "
+              "%s Hz until it is measured again", hzText(ctx->displayRateMeasured, asked, sizeof(asked)),
+              toHz);
+    }
+    ctx->displayRateMeasured = 0.0f;
+    atomic_store(&g_reportedMeasured, 0);
+    measureAgain(ctx);
     // Said on the toast as well, whoever moved it, once the session's own
     // first rate has landed: the session start is no news
     if (ctx->rateSettled) {
@@ -299,16 +343,93 @@ void displayRateChanged(XrCtx* ctx, float from, float to) {
     }
 }
 
+// Native (lane rate-match): a window of focused frames measured the display at
+// measured Hz. Where the runtime reports another rate, the measured one is the
+// display's: the frame pacing, the stats and the rate the worker streams at
+// (or caps a fixed rate at) all take it. The rate asked of the runtime is left
+// alone, and with the debug knob forcing one it is only said. Said once a
+// change.
+static void rateMeasured(XrCtx* ctx, float measured) {
+    const RateMeasure* m = &ctx->rateMeasure;
+    float reported = ctx->refreshRateSupported ? ctx->displayRate : 0.0f;
+    int verdict = rateVerdict(reported, measured, ctx->refreshKnob > 0);
+    float was = ctx->displayRateMeasured;
+    ctx->displayRateMeasured = verdict == RATE_VERDICT_ADOPT ? measured : 0.0f;
+    if (verdict == RATE_VERDICT_ADOPT) {
+        reportDisplayHz(measured);
+        atomic_store(&g_reportedMeasured, 1);
+    }
+    else if (was > 0.0f) {
+        reportDisplayHz(reported);
+        atomic_store(&g_reportedMeasured, 0);
+    }
+    float real = rateTrue(reported, measured);
+    atomic_store(&g_steadyHz, real > 0.0f ? (int)(real + 0.5f) : 0);
+
+    if (verdict == ctx->rateVerdictSaid && sameRate(measured, ctx->rateMeasureSaid)) {
+        return;
+    }
+    int first = ctx->rateVerdictSaid < 0;
+    ctx->rateVerdictSaid = verdict;
+    ctx->rateMeasureSaid = measured;
+    char hz[16], rep[16], timing[96];
+    hzText(measured, hz, sizeof(hz));
+    hzText(reported, rep, sizeof(rep));
+    snprintf(timing, sizeof(timing), "period %.2f ms, frames %.2f ms apart, median of %d",
+             m->medianPeriodNs / 1e6, m->medianStepNs / 1e6, m->count);
+    if (verdict == RATE_VERDICT_ADOPT) {
+        LOGEV("display rate: SteamVR reports %s Hz but xrWaitFrame paces the frame loop at %s Hz "
+              "(%s): the display is taken as %s Hz for the frame pacing, the stats and the stream "
+              "(%s)", rep, hz, timing, hz,
+              ctx->streamFps > 0 ? "its rate capped there" : "Match headset");
+    }
+    else if (verdict == RATE_VERDICT_LOG_ONLY) {
+        LOGEV("display rate: SteamVR reports %s Hz but xrWaitFrame paces the frame loop at %s Hz "
+              "(%s); the display rate is forced to %d Hz, so nothing changes", rep, hz, timing,
+              ctx->refreshKnob);
+    }
+    else if (was > 0.0f) {
+        LOGEV("display rate: the frame timing agrees with SteamVR's %s Hz again (%s)", rep, timing);
+    }
+    else if (first) {
+        LOGEV("display rate measured at %s Hz (%s), %s", hz, timing,
+              reported > 0.0f ? "as SteamVR reports" : "the runtime reports none");
+    }
+    else {
+        LOGEV("display rate measured at %s Hz (%s)", hz, timing);
+    }
+}
+
 void displayFrameBegun(XrCtx* ctx, const XrFrameState* state) {
     ctx->frameBeganNs = nowNs();
     if (state->predictedDisplayPeriod <= 0) {
         return;
     }
     ctx->displayPeriodNs = (int64_t)state->predictedDisplayPeriod;
+    atomic_store(&g_pacedHz, (int)(1e9 / (double)ctx->displayPeriodNs + 0.5));
     // Native (lane refresh): without the refresh rate extension the frame loop's period is the
     // only word on the rate, and the launch waits for one to cap the stream with
     if (!ctx->refreshRateSupported) {
         reportDisplayHz(1e9f / (float)ctx->displayPeriodNs);
+    }
+    // Native (lane rate-match): the rate the loop is really paced at, over a window of focused
+    // frames; a window broken by a loss of focus starts again on the way back in
+    if (ctx->sessionState == XR_SESSION_STATE_FOCUSED
+            && rateMeasureDrifted(&ctx->rateMeasure, state->predictedDisplayPeriod)) {
+        LOGEV("display rate: xrWaitFrame's period moved from %.2f to %.2f ms without a rate change "
+              "event, measuring the display again", ctx->rateMeasure.medianPeriodNs / 1e6,
+              state->predictedDisplayPeriod / 1e6);
+        measureAgain(ctx);
+    }
+    if (ctx->sessionState == XR_SESSION_STATE_FOCUSED) {
+        float measured = rateMeasureFrame(&ctx->rateMeasure, ctx->frameBeganNs,
+                                          state->predictedDisplayTime, state->predictedDisplayPeriod);
+        if (measured > 0.0f) {
+            rateMeasured(ctx, measured);
+        }
+    }
+    else if (ctx->rateMeasure.startNs != 0 && !ctx->rateMeasure.done) {
+        rateMeasureStart(&ctx->rateMeasure);
     }
     // A frame the loop was late for shows as the predicted time jumping by
     // more than one refresh
@@ -681,6 +802,10 @@ void xrSetDepthRate(XrCtx* ctx, int perSecond) {
 float xrGetDisplayRate(XrCtx* ctx) {
     if (ctx == NULL) {
         return 0.0f;
+    }
+    // Native (lane rate-match): the measured rate where it overrides the runtime's
+    if (ctx->displayRateMeasured > 0.0f) {
+        return ctx->displayRateMeasured;
     }
     if (ctx->refreshRateSupported && ctx->displayRate > 0.0f) {
         return ctx->displayRate;

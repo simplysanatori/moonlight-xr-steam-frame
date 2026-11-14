@@ -707,6 +707,14 @@ typedef struct XrCtx {
     int64_t frameBeganNs;
     XrTime lastDisplayTime;
     int64_t displayPeriodNs;
+    // Native (lane rate-match): the rate the frame loop is really paced at,
+    // measured after focus and after each change the runtime reports; the
+    // measured rate where it overrides the reported one (Match headset), 0
+    // where it does not; and the last verdict said in the log
+    RateMeasure rateMeasure;
+    float displayRateMeasured;
+    float rateMeasureSaid;
+    int rateVerdictSaid;
 
     DepthGovernor depthGov;
     DepthGate depthGate;
@@ -1698,7 +1706,18 @@ void setRefreshKnob(XrCtx* ctx, int hz);
 void setDepthRate(XrCtx* ctx, int perSecond, const char* why);
 void xrSetDepthRate(XrCtx* ctx, int perSecond);
 float xrGetDisplayRate(XrCtx* ctx);
-// The display rate the runtime last reported, whole Hz, readable from any thread; 0 when not known yet
+// The display rate the runtime last reported, whole Hz, readable from any thread; 0 when not known yet.
+// Native (lane rate-match): the rate the frame loop is measured at where that disagrees with the
+// runtime's.
 int xrReportedDisplayHz(void);
+// Native (lane rate-match): the rate the display is really on, whole Hz, once a window of focused frames
+// has measured it since the session began or the runtime last said the rate changed; 0 until then. Any
+// thread: the worker restarts a Match headset stream whose rate it differs from.
+int xrSteadyDisplayHz(void);
+// 1 while xrReportedDisplayHz() is the measured rate rather than the runtime's word
+int xrDisplayHzMeasured(void);
+// The rate of xrWaitFrame's latest predictedDisplayPeriod, whole Hz, from the session's first frame on (0
+// before): a first word on the display's rate before a window has measured it. Any thread.
+int xrPacedDisplayHz(void);
 
 #endif

@@ -3,6 +3,7 @@
 // reach all of it.
 #include <math.h>
 #include <stddef.h>
+#include <stdlib.h>
 
 #include "xr_rate.h"
 
@@ -192,6 +193,109 @@ int rateSettled(int settled, int focusedFrame, float asked, int confirmed) {
         return 1;
     }
     return focusedFrame && (!(asked > 0.0f) || confirmed);
+}
+
+// Native (lane rate-match)
+void rateMeasureStart(RateMeasure* m) {
+    m->startNs = 0;
+    m->done = 0;
+    m->lastDisplayTime = 0;
+    m->count = 0;
+    m->drift = 0;
+}
+
+static int byNs(const void* a, const void* b) {
+    int64_t x = *(const int64_t*)a, y = *(const int64_t*)b;
+    return x < y ? -1 : x > y;
+}
+
+static int64_t medianNs(int64_t* v, int count) {
+    if (count <= 0) {
+        return 0;
+    }
+    qsort(v, (size_t)count, sizeof(v[0]), byNs);
+    return v[count / 2];
+}
+
+float rateMeasureFrame(RateMeasure* m, int64_t nowNs, int64_t displayTime, int64_t periodNs) {
+    if (m->done || periodNs <= 0 || displayTime <= 0) {
+        return 0.0f;
+    }
+    if (m->startNs == 0) {
+        m->startNs = nowNs;
+        m->lastDisplayTime = displayTime;
+        m->count = 0;
+        return 0.0f;
+    }
+    int64_t step = displayTime - m->lastDisplayTime;
+    m->lastDisplayTime = displayTime;
+    // A display time that did not move tells nothing about the cadence
+    if (step > 0 && m->count < RATE_MEASURE_MAX) {
+        m->periodNs[m->count] = periodNs;
+        m->stepNs[m->count] = step;
+        m->count++;
+    }
+    if (m->count < RATE_MEASURE_MAX
+            && (nowNs - m->startNs < RATE_MEASURE_NS || m->count < RATE_MEASURE_MIN_FRAMES)) {
+        return 0.0f;
+    }
+    m->done = 1;
+    m->medianPeriodNs = medianNs(m->periodNs, m->count);
+    m->medianStepNs = medianNs(m->stepNs, m->count);
+    return rateFromTiming(m->medianPeriodNs, m->medianStepNs);
+}
+
+int rateMeasureDrifted(RateMeasure* m, int64_t periodNs) {
+    if (!m->done || periodNs <= 0 || m->medianPeriodNs <= 0) {
+        return 0;
+    }
+    int64_t off = periodNs - m->medianPeriodNs;
+    if (off < 0) {
+        off = -off;
+    }
+    if ((double)off <= RATE_MEASURE_MULTIPLE_SLACK * (double)m->medianPeriodNs) {
+        m->drift = 0;
+        return 0;
+    }
+    return ++m->drift >= RATE_MEASURE_DRIFT_FRAMES;
+}
+
+float rateFromTiming(int64_t periodNs, int64_t stepNs) {
+    if (periodNs <= 0 && stepNs <= 0) {
+        return 0.0f;
+    }
+    if (periodNs <= 0) {
+        return (float)(1e9 / (double)stepNs);
+    }
+    if (stepNs > 0) {
+        double k = round((double)stepNs / (double)periodNs);
+        if (k < 1.0 || fabs((double)stepNs - k * (double)periodNs)
+                > RATE_MEASURE_MULTIPLE_SLACK * (double)periodNs) {
+            return (float)(1e9 / (double)stepNs);
+        }
+    }
+    return (float)(1e9 / (double)periodNs);
+}
+
+static int measureAgrees(float reportedHz, float measuredHz) {
+    return fabsf(reportedHz - measuredHz) <= RATE_MEASURE_TOLERANCE_HZ;
+}
+
+int rateVerdict(float reportedHz, float measuredHz, int forced) {
+    if (!(measuredHz > 0.0f) || !(reportedHz > 0.0f) || measureAgrees(reportedHz, measuredHz)) {
+        return RATE_VERDICT_AGREES;
+    }
+    return forced ? RATE_VERDICT_LOG_ONLY : RATE_VERDICT_ADOPT;
+}
+
+float rateTrue(float reportedHz, float measuredHz) {
+    if (!(measuredHz > 0.0f)) {
+        return reportedHz > 0.0f ? reportedHz : 0.0f;
+    }
+    if (!(reportedHz > 0.0f)) {
+        return measuredHz;
+    }
+    return measureAgrees(reportedHz, measuredHz) ? reportedHz : measuredHz;
 }
 
 int depthRateClamp(int perSecond) {

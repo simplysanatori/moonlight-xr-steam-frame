@@ -76,6 +76,86 @@ float rateChoose(float fps, const float* rates, int count, int warpOn, float hel
 // is enough. Once settled it stays so, whatever is asked for later.
 int rateSettled(int settled, int focusedFrame, float asked, int confirmed);
 
+// Native (lane rate-match): the rate the frame loop is really paced at, measured
+// over a short window of focused frames, against the rate the runtime reports.
+// SteamVR on the Frame has been seen to report and offer 90 Hz, the rate the
+// headset was on before the app's per-app 144 Hz took over, for a whole session
+// while xrWaitFrame paced the loop at 144 (a 6.94 ms period, frames 6.94 ms
+// apart): a 90 fps stream on a 144 Hz display, which judders, with Match
+// headset (2026-11-14 02:33) and with a fixed 144 the launcher had just set as
+// the per-app rate (02:59, the stream capped at the stale 90). The frame
+// timing is the truth when the two disagree.
+//
+// The window: this long of focused frames, and at least this many of them
+#define RATE_MEASURE_NS 1500000000LL
+#define RATE_MEASURE_MIN_FRAMES 60
+// The most frames a window keeps; a full one is judged at once
+#define RATE_MEASURE_MAX 512
+// A measured rate this close to the reported one agrees with it (90 against 144
+// or 120 against 144 is far outside it, 143.9 against 144 well inside)
+#define RATE_MEASURE_TOLERANCE_HZ 3.0f
+// A step between frames within this share of a whole number of periods is the
+// loop missing refreshes, not a different rate
+#define RATE_MEASURE_MULTIPLE_SLACK 0.1
+// After a window, a predictedDisplayPeriod this many frames in a row off the
+// one measured (by more than the slack) is a rate that moved without a word
+// from the runtime: measured again
+#define RATE_MEASURE_DRIFT_FRAMES 30
+
+typedef struct {
+    // The window's first frame, 0 before it; done once it has been judged
+    int64_t startNs;
+    int done;
+    // The frame before's predicted display time, 0 for none
+    int64_t lastDisplayTime;
+    int count;
+    // Each frame's predictedDisplayPeriod, and how far its predicted display
+    // time moved from the frame before's
+    int64_t periodNs[RATE_MEASURE_MAX];
+    int64_t stepNs[RATE_MEASURE_MAX];
+    // The last window's medians, for the log
+    int64_t medianPeriodNs;
+    int64_t medianStepNs;
+    // Frames in a row since the window whose period is off its median
+    int drift;
+} RateMeasure;
+
+// A new window from the next focused frame on: the session's start, focus back,
+// or the runtime saying the rate changed
+void rateMeasureStart(RateMeasure* m);
+
+// One focused frame at nowNs with xrWaitFrame's predicted display time and
+// period. Returns the measured rate once, when the window is complete, else 0;
+// after that the window takes no more frames until it is started again.
+float rateMeasureFrame(RateMeasure* m, int64_t nowNs, int64_t displayTime, int64_t periodNs);
+
+// After a window has been judged: 1 once the period has been off the measured
+// one for RATE_MEASURE_DRIFT_FRAMES frames in a row (the caller starts a new
+// window), else 0. Before that, always 0.
+int rateMeasureDrifted(RateMeasure* m, int64_t periodNs);
+
+// The display rate the frame timing says: the period, when the frames are a
+// whole number of periods apart (one, or more for a loop that misses
+// refreshes); else the step itself, the cadence the frames really come at. 0
+// with nothing to go on.
+float rateFromTiming(int64_t periodNs, int64_t stepNs);
+
+// What the session does with a measured rate against the reported one (0 for
+// none reported)
+// They agree, or nothing was reported: the reported rate stands
+#define RATE_VERDICT_AGREES   0
+// They disagree: the measured rate is the display's, for the pacing, the
+// stats and the stream's rate (its cap, or with Match headset the rate itself)
+#define RATE_VERDICT_ADOPT    1
+// They disagree but a rate is forced on the display (the debug refresh knob):
+// said in the log only
+#define RATE_VERDICT_LOG_ONLY 2
+int rateVerdict(float reportedHz, float measuredHz, int forced);
+
+// The rate the display is really on: the measured one where it disagrees with
+// the reported one, else the reported one (the measured one without it)
+float rateTrue(float reportedHz, float measuredHz);
+
 typedef struct {
     int64_t startNs;
     int settle;
