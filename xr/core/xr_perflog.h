@@ -2,6 +2,7 @@
 // are on, each with the configuration it was measured in (stream size and
 // rate, bitrate asked for, codec, display rate, 3D, room, sharpening) beside
 // the figures, so runs in different configurations can be compared offline.
+// The hottest CPU and GPU thermal zones (cpu_c, gpu_c) are the last two columns.
 // Only numbers and fixed words go in: nothing in it names a host or a network.
 //
 // Native (lane wave3-hud). PLAN 4b.15. GPLv3.
@@ -25,6 +26,10 @@ typedef struct MlxrPerfRow {
     int slow;                  // the slow connection badge was up
     MlxrHudFigures fig;
     MlxrCompositorMetrics comp;
+    // Native (lane heat-guard): the hottest CPU and GPU thermal zones, degrees
+    // C, last on the line so older readers keep their columns; empty when not read
+    int haveCpuC, haveGpuC;
+    float cpuC, gpuC;
 } MlxrPerfRow;
 
 // The first line of the file

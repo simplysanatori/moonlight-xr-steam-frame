@@ -35,6 +35,7 @@
 #include "xr_depth.h"
 #include "xr_battery.h"
 #include "xr_perflog.h"
+#include "xr_heat.h"
 #include <dirent.h>
 
 // Native: the GPU time each Vulkan device in this process used since the last
@@ -1758,6 +1759,13 @@ typedef struct Host {
     int64_t perfNs, perfStartNs;
     MlxrHudCum perfPrev;
     uint64_t perfVideo;
+    // Native (lane heat-guard, issue #6): the thermal zones read on the 5 s stats line, the
+    // guard that acts on them, the last reading (for the perf CSV), and the 3D turned off
+    // by the guard rather than by the user, which config.ini does not keep
+    HeatSensor heat;
+    HeatGuard heatGuard;
+    HeatReading heatNow;
+    int heatStopped;
 } Host;
 
 static void saveSettings(Host* h, const char* why) {
@@ -1929,8 +1937,13 @@ static void dispatchInput(Host* h, XrUiEvents* ev) {
         saveSettings(h, "first-run card");
     }
     // M6 (native): the 3D switch is remembered, unless the model failing
-    // turned it off
-    if (ctx->stereoMode != DEPTH_MODE_OFF && !ctx->depthFailed && s->stereo != ctx->stereoLive) {
+    // turned it off. Native (lane heat-guard): or the heat guard did; it is the
+    // user's switch again once the 3D is back on.
+    if (h->heatStopped && ctx->stereoLive) {
+        h->heatStopped = 0;
+    }
+    if (ctx->stereoMode != DEPTH_MODE_OFF && !ctx->depthFailed && !h->heatStopped
+            && s->stereo != ctx->stereoLive) {
         s->stereo = ctx->stereoLive;
         saveSettings(h, "3d switch");
     }
@@ -2053,6 +2066,10 @@ static void perfRow(Host* h, int64_t now, uint64_t videoFrames) {
     r.supersample = ctx->supersampleMode;
     r.slow = ctx->slowConn;
     r.fig = fig;
+    r.haveCpuC = h->heatNow.valid && h->heatNow.haveCpu;
+    r.haveGpuC = h->heatNow.valid && h->heatNow.haveGpu;
+    r.cpuC = h->heatNow.cpuC;
+    r.gpuC = h->heatNow.gpuC;
     metricsEnsure(h);
     xrMetricsSample(ctx, &r.comp);
     char row[512];
@@ -2060,6 +2077,72 @@ static void perfRow(Host* h, int64_t now, uint64_t videoFrames) {
     if (n > 0) {
         fwrite(row, 1, n, h->perfFile);
         fflush(h->perfFile);
+    }
+}
+
+// Native (lane heat-guard, issue #6): the CPU and GPU zones found once, at the start. A machine
+// without them (the desktop) reads nothing and the guard never acts.
+static void heatStart(Host* h) {
+    HeatLimits lim;
+    heatLimitsFromEnv(&lim);
+    heatGuardStart(&h->heatGuard, &lim);
+    memset(&h->heatNow, 0, sizeof(h->heatNow));
+    if (heatSensorOpen(&h->heat, NULL) == 0) {
+        LOGEV("heat: no CPU or GPU thermal zones under %s, the heat guard is idle", h->heat.root);
+        return;
+    }
+    LOGEV("heat: %d CPU and %d GPU thermal zones under %s; warn at %d C, ease the depth model at %d C (back "
+          "under %d C), 3D off at %d C%s",
+          h->heat.cpuZones, h->heat.gpuZones, h->heat.root, lim.warnC, lim.easeC, lim.easeC - lim.restoreGapC,
+          lim.stopC, lim.act ? "" : " (MLXR_HEAT_GUARD=0: read and logged only)");
+}
+
+// Native (lane heat-guard): one reading on the 5 s stats line, and what the guard makes of it.
+// The text goes on the stats line. Frame loop, after xrEndFrame: a small read a zone.
+static void heatTick(Host* h, int64_t now, char* text, size_t cap) {
+    XrCtx* ctx = h->ctx;
+    HeatReading r;
+    heatSensorRead(&h->heat, &r);
+    h->heatNow = r;
+    heatText(&r, text, cap);
+    int stereoOn = ctx->stereoMode != DEPTH_MODE_OFF && ctx->stereoLive;
+    int modelLive = ctx->stereoMode == DEPTH_MODE_MODEL && ctx->stereoLive
+            && !atomic_load_explicit(&ctx->depthGaveUp, memory_order_relaxed);
+    HeatGuard* g = &h->heatGuard;
+    int capWas = g->depthCap;
+    int rateWas = heatDepthRate(ctx->depthGov.target, capWas);
+    int acts = heatGuardStep(g, now, &r, stereoOn, modelLive, rateWas);
+    ctx->heatDepthCap = g->depthCap;
+    if (acts == 0) {
+        return;
+    }
+    float hot = heatHottest(&r);
+    if (acts & HEAT_ACT_WARN) {
+        LOGEV("heat: %s, at the warn level (%d C) with the 3D %s, toast said", text, g->lim.warnC,
+              stereoOn ? "on" : "off");
+        xrPanelsNoticeMore(ctx, HEAT_TEXT_WARN, stereoOn ? HEAT_TEXT_WARN_3D_MORE : HEAT_TEXT_WARN_FLAT_MORE);
+    }
+    if (acts & HEAT_ACT_EASE) {
+        LOGEV("heat: %s, at the ease level (%d C), depth model %d to %d maps/s (setting %d kept), %lld s before "
+              "another step", text, g->lim.easeC, rateWas, heatDepthRate(ctx->depthGov.target, g->depthCap),
+              ctx->depthGov.cap, (long long)(g->lim.holdNs / 1000000000LL));
+    }
+    if (acts & HEAT_ACT_RESTORE) {
+        if (g->depthCap > 0) {
+            LOGEV("heat: %s, under %d C, depth model cap %d to %d maps/s", text, g->lim.easeC - g->lim.restoreGapC,
+                  capWas, g->depthCap);
+        }
+        else {
+            LOGEV("heat: %s, under %d C, depth model cap %d lifted, back to %d maps/s", text,
+                  g->lim.easeC - g->lim.restoreGapC, capWas, ctx->depthGov.target);
+        }
+    }
+    if (acts & HEAT_ACT_STOP) {
+        LOGEV("heat: %s (%.1f C), at the stop level (%d C), turning the 3D off (not saved as the switch's "
+              "setting), %d time%s this session", text, (double)hot, g->lim.stopC, g->stops, g->stops == 1 ? "" : "s");
+        h->heatStopped = 1;
+        setStereoLive(ctx, 0, "the heat guard");
+        xrPanelsNotice(ctx, HEAT_TEXT_STOP);
     }
 }
 
@@ -2223,6 +2306,7 @@ int xr_app_run(const XrAppConfig* cfg) {
     mlxr_slow_init(&host.slow);
     xrDefaultPlacement(&host.distance, &host.quadWidth, &host.curvature);
     xrCtxDefaults(ctx, cfg->videoWidth, cfg->videoHeight, cfg->fps);
+    heatStart(&host);
 
     XrVk vk;
     memset(&vk, 0, sizeof(vk));
@@ -2898,14 +2982,17 @@ int xr_app_run(const XrAppConfig* cfg) {
             double panelWait = xrPanelsWorstWaitMs(ctx);
             char gpu[320];
             xrGpuTimesLine(ctx, gpu, sizeof(gpu));
+            // Native (lane heat-guard): read before the depth line, so a cut shows in it
+            char heat[64];
+            heatTick(&host, nowNs(), heat, sizeof(heat));
             char depth[400];
             xrDepthStatsLine(ctx, depth, sizeof(depth));
             LOGEV("xr: %.1f fps (display %.0f Hz), video %.1f fps drawn, %u layers, swapchains %d of 16, %d panel "
-                  "drawings %.1f ms avg (worst wait %.0f ms); room %d%s, glow %s, models %s%s%s%s%s; %s",
+                  "drawings %.1f ms avg (worst wait %.0f ms); room %d%s, glow %s, models %s, %s%s%s%s%s; %s",
                   framesWindow / (t - lastStats), xrGetDisplayRate(ctx), videoWindow / (t - lastStats), fout.count,
                   ctx->swapchainsAlive, panelDraws, panelMs, panelWait, roomEffective(ctx),
                   roomEffective(ctx) > 0 && xrRoomResident(ctx) != roomEffective(ctx) ? " (loading)" : "",
-                  xrWorldGlowShown(ctx) ? "up" : "off", ctx->modelsShowing ? "up" : "off", depth[0] ? "; " : "",
+                  xrWorldGlowShown(ctx) ? "up" : "off", ctx->modelsShowing ? "up" : "off", heat, depth[0] ? "; " : "",
                   depth, gpu[0] ? "; " : "", gpu, extra);
             int roomDrawn = 0, roomStale = 0;
             xrRoomTakeCounts(&roomDrawn, &roomStale);
@@ -3053,6 +3140,7 @@ fail:
     if (ctx->viewSpace) xrDestroySpace(ctx->viewSpace);
     if (ctx->localSpace) xrDestroySpace(ctx->localSpace);
     perfClose(&host);
+    heatSensorClose(&host.heat);
     xrMetricsStop(ctx);
     xrAuxButtonRelease(ctx, "the session ended");   // native (lane a11y-2)
     if (ctx->session) xrDestroySession(ctx->session);

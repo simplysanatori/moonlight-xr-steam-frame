@@ -8,7 +8,9 @@ static const char* const CODEC_WORDS[] = { "auto", "av1", "hevc", "h264" };
 static const char HEADER[] =
     "t_s,width,height,stream_fps,bitrate_kbps,codec,display_hz,stereo,environment,sharpen,supersample,"
     "slow,mbps,latency_ms,host_ms,recv_ms,queue_ms,decode_ms,rtt_ms,loss_pct,video_fps,fec_recovered,"
-    "fec_failed,udp_drops,comp_cpu_ms,comp_gpu_ms,comp_dropped,app_cpu_ms,app_gpu_ms";
+    "fec_failed,udp_drops,comp_cpu_ms,comp_gpu_ms,comp_dropped,app_cpu_ms,app_gpu_ms"
+    // Native (lane heat-guard): new columns go on the end, after every older one
+    ",cpu_c,gpu_c";
 
 size_t mlxr_perf_header(char* buf, size_t cap) {
     int n = snprintf(buf, cap, "%s\n", HEADER);
@@ -34,13 +36,20 @@ size_t mlxr_perf_row(const MlxrPerfRow* r, char* buf, size_t cap) {
         snprintf(appCpu, sizeof(appCpu), "%.2f", (double)m->appCpuMs);
         snprintf(appGpu, sizeof(appGpu), "%.2f", (double)m->appGpuMs);
     }
+    char cpuC[24] = "", gpuC[24] = "";
+    if (r->haveCpuC) {
+        snprintf(cpuC, sizeof(cpuC), "%.1f", (double)r->cpuC);
+    }
+    if (r->haveGpuC) {
+        snprintf(gpuC, sizeof(gpuC), "%.1f", (double)r->gpuC);
+    }
     int n = snprintf(buf, cap, "%.0f,%d,%d,%d,%d,%s,%.0f,%d,%d,%d,%d,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.2f,"
-                     "%.1f,%u,%u,%llu,%s,%s,%s,%s,%s\n",
+                     "%.1f,%u,%u,%llu,%s,%s,%s,%s,%s,%s,%s\n",
                      r->tSec, r->width, r->height, r->streamFps, r->bitrateKbps, CODEC_WORDS[codec], r->displayHz,
                      r->stereo != 0, r->environment, r->sharpen, r->supersample, r->slow != 0, f->mbps,
                      f->latencyMs, f->hostMs, f->recvMs, f->queueMs, f->decodeMs, f->rttMs, f->lossPct, f->fps,
                      f->fecRecovered, f->fecFailed, (unsigned long long)f->udpDrops, cpu, gpu, dropped, appCpu,
-                     appGpu);
+                     appGpu, cpuC, gpuC);
     return n > 0 && (size_t)n < cap ? (size_t)n : 0;
 }
 

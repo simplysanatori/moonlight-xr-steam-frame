@@ -20,6 +20,7 @@
 #include "xr_native.h"
 #include "xr_vk.h"
 #include "xr_world.h"
+#include "xr_heat.h"
 
 // ---- the engine -----------------------------------------------------------------
 
@@ -696,7 +697,7 @@ static void engineStart(XrCtx* ctx, XrDepth* d) {
     cfg.flags = MLXR_DEPTH_FP16;
     const char* fp32 = getenv("MLXR_DEPTH_FP32");
     if (fp32 != NULL && atoi(fp32) != 0) cfg.flags = 0;
-    cfg.perSecond = ctx->depthGov.target;
+    cfg.perSecond = heatDepthRate(ctx->depthGov.target, ctx->heatDepthCap);
     // Native: which CPUs the model's threads run on (MLXR_DEPTH_CPUS, e.g.
     // "3-6" or "0x78"); unset leaves the scheduler to it (docs/dev/M6_REPORT.md)
     d->cpuMask = parseCpus(getenv("MLXR_DEPTH_CPUS"));
@@ -900,11 +901,13 @@ void xrDepthFrame(XrCtx* ctx) {
     d->wasLive = ctx->stereoLive;
 
     // The governor's target (xr_display.c depthGovernorWindow) is the rate the
-    // model holds to
-    if (ctx->depthGov.target != d->rateSet) {
-        LOGI("depth rate: %d maps/s to the model (was %d)", ctx->depthGov.target, d->rateSet);
-        d->ops->setRate(d->engine, ctx->depthGov.target);
-        d->rateSet = ctx->depthGov.target;
+    // model holds to. Native (lane heat-guard): under the heat guard's cap.
+    int rateNow = heatDepthRate(ctx->depthGov.target, ctx->heatDepthCap);
+    if (rateNow != d->rateSet) {
+        LOGI("depth rate: %d maps/s to the model (was %d)%s", rateNow, d->rateSet,
+             rateNow < ctx->depthGov.target ? ", capped for heat" : "");
+        d->ops->setRate(d->engine, rateNow);
+        d->rateSet = rateNow;
     }
     MlxrDepthParams want;
     depthParamsOf(ctx, &want);
@@ -1332,9 +1335,11 @@ void xrDepthStatsLine(XrCtx* ctx, char* buf, int len) {
     float stage = d->stageRuns ? (float)((d->stageWaitMs + d->submitMs) / d->stageRuns) : 0.0f;
     pthread_mutex_unlock(&d->lock);
     snprintf(buf, (size_t)len,
-             "3d on%s, %s %.1f maps/s (target %d), model %.1f ms (p95 %.1f), stage %.1f ms, capture to display "
+             "3d on%s, %s %.1f maps/s (target %d%s), model %.1f ms (p95 %.1f), stage %.1f ms, capture to display "
              "%.0f ms avg (%.1f frames, worst %.0f), skipped %llu (no buffer %llu, replaced %llu), %d eyes drawn",
-             ctx->stereoWaiting ? " (waiting)" : "", d->modelName, s.mapsPerSecond, ctx->depthGov.target,
+             ctx->stereoWaiting ? " (waiting)" : "", d->modelName, s.mapsPerSecond,
+             heatDepthRate(ctx->depthGov.target, ctx->heatDepthCap),
+             heatDepthRate(ctx->depthGov.target, ctx->heatDepthCap) < ctx->depthGov.target ? ", heat cap" : "",
              s.modelMsAvg, s.modelMsP95, stage, age, ageFrames, d->ageWorstMs,
              (unsigned long long)(skips + replaced), (unsigned long long)skips, (unsigned long long)replaced,
              ctx->drawnEyes);
@@ -1371,7 +1376,8 @@ void xrDepthOverlay(XrCtx* ctx, char* buf, int len) {
     MlxrDepthStats s;
     d->ops->stats(d->engine, &s);
     snprintf(buf, (size_t)len, "Depth %.1f/s (target %d), %s\nDepth inference %.1f ms, age %.0f ms, skipped %llu",
-             s.mapsPerSecond, ctx->depthGov.target, d->modelName, s.modelMsAvg, d->lastAgeMs,
+             s.mapsPerSecond, heatDepthRate(ctx->depthGov.target, ctx->heatDepthCap), d->modelName, s.modelMsAvg,
+             d->lastAgeMs,
              (unsigned long long)(d->skipsNoPair + s.replaced));
 }
 

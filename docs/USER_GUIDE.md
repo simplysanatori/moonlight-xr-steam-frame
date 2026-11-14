@@ -477,7 +477,7 @@ The version, the log file, **Support simplysanatori on Ko-fi**, and **Report a p
 
 ### Stats styles, battery and the slow connection badge
 
-The Stats row turns the overlay on and off. What it shows is `stats_style` in `config.ini` (`[display]`): `full` is every line the session writes, `hud` is a few lines (latency with its parts, round trip, loss, bit rate, frame rate, and the compositor's frame times and dropped frames when SteamVR reports them), and `lite` is one line: `54 Mb/s | 11 ms | dec 3.1 | loss 0.2% | 90 fps` (speed, latency from the host's capture to the end of decoding, decode time, frames lost on the network, pictures drawn a second). `stats = hud` in the file means stats on in the HUD style. While stats are on and a stream is up, `perf-<date>-<time>.csv` next to `vrtiming.log` gets a row every 5 seconds with the figures and the settings they were measured in (size, rate, bit rate, codec, display rate, 3D, room, sharpening), for comparing runs.
+The Stats row turns the overlay on and off. What it shows is `stats_style` in `config.ini` (`[display]`): `full` is every line the session writes, `hud` is a few lines (latency with its parts, round trip, loss, bit rate, frame rate, and the compositor's frame times and dropped frames when SteamVR reports them), and `lite` is one line: `54 Mb/s | 11 ms | dec 3.1 | loss 0.2% | 90 fps` (speed, latency from the host's capture to the end of decoding, decode time, frames lost on the network, pictures drawn a second). `stats = hud` in the file means stats on in the HUD style. While stats are on and a stream is up, `perf-<date>-<time>.csv` next to `vrtiming.log` gets a row every 5 seconds with the figures and the settings they were measured in (size, rate, bit rate, codec, display rate, 3D, room, sharpening), for comparing runs. Its last two columns, `cpu_c` and `gpu_c`, are the hottest CPU and GPU temperatures in °C (empty when they cannot be read). `moonlight.log` has the same every 5 seconds on its `xr:` line, as `heat cpu 52 C, gpu 48 C` (see [Heat](#heat)).
 
 Over the cog the clock strip also shows the headset's battery (a cell, the percentage, a bolt while it charges; read every 30 seconds, nothing on a PC with no battery) and a **Slow connection** badge once the connection has been poor, or more than 1.5 % of frames lost, for 5 seconds on end. The badge goes when it has been fine for 5 seconds. The HUD line starts with `!` or says slow connection while it is up.
 
@@ -738,6 +738,10 @@ These four are on the flat window's Settings page, in `config.ini` (`[3d]`) and 
 | Depth Shape | `depth_global` | 0 to 200 (%) | 100. The depth of the picture as a whole, from the near ground to the far sky, scaled toward the screen plane. Lower is easier on the eyes; Depth Detail keeps things standing apart. |
 
 At their defaults all four leave the picture as before.
+
+### Heat
+
+3D keeps the Frame's processor busy, and over a long session the headset can get hot enough to shut itself down. The app checks the headset's CPU and GPU temperatures every 5 seconds. At 90 °C a notice says the headset is getting hot (once; it comes back only after the headset has cooled a little and heated up again). At 95 °C with 3D on, the depth model makes fewer depth maps a second (half, then half again if it stays that hot) and goes back up once the headset is under 85 °C; your `depth_rate` setting is not changed. At 100 °C, 3D turns off and a notice says why. That is not saved as your choice: the next session starts with 3D as you left it, and the bar's 3D button turns it back on. If the temperatures cannot be read, nothing changes. These levels may be adjusted in a later version.
 
 ## SBS 3D
 
@@ -1143,6 +1147,9 @@ These are for testing and debugging. Most users never need them. Put them in fro
 
 The four click variables above override the Click steadiness row for their own part when they are set.
 | `MLXR_DEPTH_THREADS` | 2 | Threads for the depth model. Overrides `[debug] depth_threads`. |
+| `MLXR_HEAT_LIMITS` | `90,95,100` | The [heat](#heat) levels in °C: warn, ease the depth model, turn 3D off. For a test, e.g. `60,65,70`. |
+| `MLXR_HEAT_GUARD` | 1 | 0 reads and logs the temperatures but never acts on them. |
+| `MLXR_THERMAL_ROOT` | `/sys/class/thermal` | Where the temperatures are read from (for tests). |
 | `MLXR_HOLE_FILL` | 1 | 0 fills the gaps beside edges in 3D by stretching the edge, as earlier versions did (the fuzzy outline in one eye). |
 | `MLXR_FRAME_MODEL_GAIN` | 1 | Brightens the Steam Frame controller models (set at install). |
 | `MLXR_CONFIG_DIR` | `~/.config/moonlight-xr` | Where settings and pairing live. |

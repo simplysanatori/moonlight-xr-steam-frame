@@ -720,6 +720,10 @@ typedef struct XrCtx {
     DepthGate depthGate;
     int depthRateSetting;
     int depthRateKnob;
+    // Native (lane heat-guard, issue #6): the heat guard's cap on the depth model's
+    // rate, maps a second, 0 for none; the model runs at the lower of it and the
+    // governor's target (xr_heat.h heatDepthRate). Set on the 5 s stats line.
+    int heatDepthCap;
     atomic_int depthGaveUp;
     int perfNoticeLevels[2][3];
 
