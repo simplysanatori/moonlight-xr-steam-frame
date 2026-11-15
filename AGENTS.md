@@ -70,6 +70,33 @@ What the user sets up on the PC is in [Setting up Apollo](docs/USER_GUIDE.md#set
 
 These points are also in the lists above; the developer notes in [docs/dev/README.md](docs/dev/README.md) have the reports for each.
 
+## Depth model and heat guard
+
+2D to 3D runs a depth model on the Frame's CPU (LiteRT with XNNPACK). With 3D on for minutes, the Frame heated into the 90s °C and could shut down ([#6](https://github.com/simplysanatori/moonlight-xr-steam-frame/issues/6)). 1.3.3 answers this in two parts.
+
+### ZipDepth Light and ZipDepth Full
+
+| | ZipDepth Light (default) | ZipDepth Full |
+| --- | --- | --- |
+| Export | 256 x 256 input, int8 dynamic-range weights (`zipdepth_256_int8dr.tflite`) | 512 x 288 input, fp16 weights (`zipdepth_512x288_fp16.tflite`) |
+| Upstream route | ZipDepth's CPU route (12 maps/s on an XR2 Gen 1) | ZipDepth's GPU route, run here on the CPU |
+| CPU on the Frame | about 0.56 cores | about 1.5 cores |
+| Cores | pinned to the Cortex-A720s, CPUs 3-6 (`0x78`) | |
+
+Light uses about 60% less CPU. Full has finer depth edges and asks first ("Use ZipDepth Full?") in both the headset's 3D tab and the flat Settings page. The setting is `[vr] depth_source` in `config.ini`: `zipdepth-int8` or `zipdepth`. A `zipdepth` saved before 1.3.3 is kept; only a setting never chosen moves to Light. Both run at 20 depth maps a second by default (`DEPTH_RATE_DEFAULT`, 5 to 45).
+
+### How the heat guard eases off
+
+The guard (`xr/core/xr_heat.c`) reads the kernel's CPU and GPU thermal zones every 5 seconds and acts on the hotter of the two. The stats show both.
+
+1. **90 °C, warn.** A notice says the headset is getting hot. With 3D on it says to turn 3D off; with 3D off, to lower the refresh rate or turn off the glow. It shows for 6 seconds, waits while SteamVR's menu has the focus, and repeats every 2 minutes while it stays at 90 °C or more. Once the heat falls under 85 °C, the next rise warns at once.
+2. **95 °C, ease (3D on).** The depth model runs half as often: 20 to 10 maps a second. If it is still at 95 °C or more 30 seconds later, it halves again, to 5, the lowest it goes. The model keeps running, so the 3D picture stays; its depth updates less often, which takes load off the CPU. The setting itself is not changed.
+3. **100 °C, stop (3D on).** 3D is turned off for the rest of the session, with a notice saying why. The saved 3D setting is left as it was, so the next stream starts in 3D again.
+
+**Coming back.** Once the heat is under 85 °C (10 below the ease level), the rate doubles back one step every 30 seconds, 5 to 10 to 20, until it is where it was. The guard never switches between Light and Full by itself.
+
+The log has a `heat:` line for each step, and the 5-second stats line carries the temperatures. For tests, `MLXR_HEAT_LIMITS="warn,ease,stop"` moves the three levels and `MLXR_HEAT_GUARD=0` logs without acting.
+
 ## Installer internals
 
 `./install.sh` copies the program to `~/Games/MoonlightXRNative/app`. It adds **Moonlight XR for Frame** to your Steam library as a non-Steam shortcut, with its artwork. It sets SteamVR's per-app settings for that shortcut: 90 Hz, no motion smoothing, and a render resolution of 3408 x 3408 per eye, the highest SteamVR allows (the Refresh rate in Settings can change the rate later). It also converts SteamVR's own Steam Frame controller models for the app. You can run it again at any time. The folders it writes are listed under [Files](docs/USER_GUIDE.md#files).
