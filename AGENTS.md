@@ -15,7 +15,7 @@ It is a native Linux Arm64 program written in C, using OpenXR and Vulkan. You do
 
 ## Status
 
-Version 1.2.0 is the current stable build. 1.0.0 was the first. It has been used on one Steam Frame (SteamOS 0.4.5, SteamVR 2.18) against one Windows PC with Sunshine and Apollo.
+Version 1.3.3 is the current stable build. 1.0.0 was the first. It has been used on one Steam Frame (SteamOS 0.4.5 and SteamVR 2.18 at first, SteamOS 0.5.9 at 1.3.3) against one Windows PC with Sunshine and Apollo.
 
 ## What this adds to Moonlight XR
 
@@ -25,6 +25,9 @@ Sean Gilleece's Moonlight XR is an Android app for headsets like the Quest. This
 - Video is decoded on the Frame's Qualcomm decoder (H.264 and HEVC) and handed to the GPU without a copy.
 - Before the stream you get Moonlight's own PC list, pairing and app list (a patched moonlight-qt), shown flat in the headset, with an Artemis-style settings page.
 - Apollo options are in that settings page: virtual display, resolution scale factor, custom refresh rate and clipboard sync.
+- An Aspect ratio setting (4:3, 16:9, 16:10, 21:9, 32:9) with real monitor sizes, such as 3440x1440 for 21:9. The default bitrate follows the picture's pixel count, as Moonlight's does, at twice Moonlight's figure up to 150 Mbps.
+- A heat guard: the headset's CPU and GPU temperatures on the stats, a notice at 90 °C (repeated every 2 minutes while it stays hot), and with 3D on the depth model run less often from 95 °C and 3D turned off at 100 °C.
+- ZipDepth Light (int8) as the default depth model, pinned to the Frame's Cortex-A720 cores (CPUs 3-6), using about 60% less CPU than ZipDepth Full, which stays behind a confirm sheet.
 - A Network connection setting for Wi-Fi, the Steam Frame Wireless Adapter or a USB cable, with a start bitrate for each (up to 500 Mbps). Automatic chooses by latency and drops.
 - A full tenkeyless keyboard with Ctrl, Alt, Shift and Win and key repeat, next to the compact one, with a move bar, AZERTY and QWERTZ layouts and a row of media keys.
 - A Host sheet on the bar for keys that are awkward to reach (Esc, Win, Alt+Enter and more) and your own macros.
