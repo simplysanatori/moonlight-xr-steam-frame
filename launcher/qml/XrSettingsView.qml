@@ -1013,9 +1013,11 @@ Flickable {
     function vrSet(key, value) {
         MlxrPrefs.setVr(key, value)
     }
-    // Native (1.3.3), tests: the open confirm sheet answered, as its buttons do (1 the yes button, 0 Cancel)
+    // Native (1.3.3), tests: the open confirm sheet answered, as its buttons do (1 the yes button, 0 Cancel).
+    // "open" is visible, not opened: opened turns true only once the sheet's enter transition ends, and a test
+    // answers it at once
     function confirmAnswer(yes) {
-        console.info("MLXR_SETTINGS_CONFIRM: open=" + confirmDialog.opened + " title=\"" + confirmDialog.title + "\"")
+        console.info("MLXR_SETTINGS_CONFIRM: open=" + confirmDialog.visible + " title=\"" + confirmDialog.title + "\"")
         if (Number(yes)) confirmDialog.accept()
         else confirmDialog.reject()
     }
