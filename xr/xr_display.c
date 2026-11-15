@@ -352,18 +352,15 @@ void displayRateChanged(XrCtx* ctx, float from, float to) {
 static void rateMeasured(XrCtx* ctx, float measured) {
     const RateMeasure* m = &ctx->rateMeasure;
     float reported = ctx->refreshRateSupported ? ctx->displayRate : 0.0f;
-    int verdict = rateVerdict(reported, measured, ctx->refreshKnob > 0);
     float was = ctx->displayRateMeasured;
-    ctx->displayRateMeasured = verdict == RATE_VERDICT_ADOPT ? measured : 0.0f;
-    if (verdict == RATE_VERDICT_ADOPT) {
-        reportDisplayHz(measured);
+    int verdict = RATE_VERDICT_AGREES;
+    float taken = rateTaken(reported, was, measured, ctx->refreshKnob > 0, &verdict);
+    ctx->displayRateMeasured = taken;
+    if (taken > 0.0f && !sameRate(taken, was)) {
+        reportDisplayHz(taken);
         atomic_store(&g_reportedMeasured, 1);
     }
-    else if (was > 0.0f) {
-        reportDisplayHz(reported);
-        atomic_store(&g_reportedMeasured, 0);
-    }
-    float real = rateTrue(reported, measured);
+    float real = taken > 0.0f ? taken : rateTrue(reported, measured);
     atomic_store(&g_steadyHz, real > 0.0f ? (int)(real + 0.5f) : 0);
 
     if (verdict == ctx->rateVerdictSaid && sameRate(measured, ctx->rateMeasureSaid)) {
@@ -372,9 +369,10 @@ static void rateMeasured(XrCtx* ctx, float measured) {
     int first = ctx->rateVerdictSaid < 0;
     ctx->rateVerdictSaid = verdict;
     ctx->rateMeasureSaid = measured;
-    char hz[16], rep[16], timing[96];
+    char hz[16], rep[16], held[16], timing[96];
     hzText(measured, hz, sizeof(hz));
     hzText(reported, rep, sizeof(rep));
+    hzText(was > 0.0f ? was : reported, held, sizeof(held));
     snprintf(timing, sizeof(timing), "period %.2f ms, frames %.2f ms apart, median of %d",
              m->medianPeriodNs / 1e6, m->medianStepNs / 1e6, m->count);
     if (verdict == RATE_VERDICT_ADOPT) {
@@ -384,9 +382,10 @@ static void rateMeasured(XrCtx* ctx, float measured) {
               ctx->streamFps > 0 ? "its rate capped there" : "Match headset");
     }
     else if (verdict == RATE_VERDICT_SLOWER) {
-        LOGEV("display rate: xrWaitFrame paces the frame loop at %s Hz (%s), under SteamVR's %s Hz: the "
-              "app's frames are late and SteamVR runs it at a fraction of the display; the display rate, "
-              "the stats' display rate and the stream stay on %s Hz", hz, timing, rep, rep);
+        LOGEV("display rate: xrWaitFrame paces the frame loop at %s Hz (%s), under the display's %s Hz "
+              "(SteamVR reports %s): the app's frames are late and SteamVR runs it at a fraction of the "
+              "display; the display rate, the stats' display rate and the stream stay on %s Hz", hz,
+              timing, held, rep, held);
     }
     else if (verdict == RATE_VERDICT_LOG_ONLY) {
         LOGEV("display rate: SteamVR reports %s Hz but xrWaitFrame paces the frame loop at %s Hz "
@@ -394,7 +393,8 @@ static void rateMeasured(XrCtx* ctx, float measured) {
               ctx->refreshKnob);
     }
     else if (was > 0.0f) {
-        LOGEV("display rate: the frame timing agrees with SteamVR's %s Hz again (%s)", rep, timing);
+        LOGEV("display rate: the frame timing shows %s Hz again (%s), SteamVR still reports %s Hz", hz,
+              timing, rep);
     }
     else if (first) {
         LOGEV("display rate measured at %s Hz (%s), %s", hz, timing,

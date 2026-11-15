@@ -5616,9 +5616,12 @@ static void handBack(XrCtx* ctx, float* out) {
             }
         }
         // The next notice goes up once its turn comes and the splash has
-        // gone, and Java draws it the same frame
+        // gone, and Java draws it the same frame. Native (1.3.3 final): and
+        // while SteamVR's own menu has the headset (not focused) it waits for
+        // the way back (retest 2026-11-15 03:17: a heat warning said behind it)
         Notice up;
-        if (noticeAdvance(&ctx->notices, nowNs(), ctx->splash.phase != SPLASH_GONE, &up)) {
+        int noticeHeld = ctx->splash.phase != SPLASH_GONE || ctx->sessionState != XR_SESSION_STATE_FOCUSED;
+        if (noticeAdvance(&ctx->notices, nowNs(), noticeHeld, &up)) {
             out[IN_TOAST] = (float)up.kind;
             out[IN_TOAST_ARG] = (float)up.arg;
         }

@@ -2120,7 +2120,7 @@ static void heatTick(Host* h, int64_t now, char* text, size_t cap) {
     if (acts & HEAT_ACT_WARN) {
         LOGEV("heat: %s, at the warn level (%d C) with the 3D %s, toast said", text, g->lim.warnC,
               stereoOn ? "on" : "off");
-        xrPanelsNoticeMore(ctx, HEAT_TEXT_WARN, stereoOn ? HEAT_TEXT_WARN_3D_MORE : HEAT_TEXT_WARN_FLAT_MORE);
+        xrPanelsNoticeLong(ctx, HEAT_TEXT_WARN, stereoOn ? HEAT_TEXT_WARN_3D_MORE : HEAT_TEXT_WARN_FLAT_MORE, HEAT_NOTICE_NS);
     }
     if (acts & HEAT_ACT_EASE) {
         LOGEV("heat: %s, at the ease level (%d C), depth model %d to %d maps/s (setting %d kept), %lld s before "
@@ -2142,7 +2142,7 @@ static void heatTick(Host* h, int64_t now, char* text, size_t cap) {
               "setting), %d time%s this session", text, (double)hot, g->lim.stopC, g->stops, g->stops == 1 ? "" : "s");
         h->heatStopped = 1;
         setStereoLive(ctx, 0, "the heat guard");
-        xrPanelsNotice(ctx, HEAT_TEXT_STOP);
+        xrPanelsNoticeLong(ctx, HEAT_TEXT_STOP, NULL, HEAT_NOTICE_NS);
     }
 }
 
@@ -2194,6 +2194,13 @@ static void updateTexts(Host* h, int64_t now, uint64_t frames, uint64_t videoFra
         else {
             mlxr_hud_panel(&h->fig, ctx->slowConn, &h->comp, xrGetDisplayRate(ctx), h->statsText,
                            sizeof(h->statsText));
+            // Native (1.3.3 final): the headset's temperatures last
+            char heat[64];
+            heatStatsLine(&h->heatNow, heat, sizeof(heat));
+            size_t used = strlen(h->statsText);
+            if (heat[0] && used + 2 < sizeof(h->statsText)) {
+                snprintf(h->statsText + used, sizeof(h->statsText) - used, "\n%s", heat);
+            }
         }
         lastFrames = frames;
         lastVideo = videoFrames;
@@ -2201,9 +2208,12 @@ static void updateTexts(Host* h, int64_t now, uint64_t frames, uint64_t videoFra
     }
     char app[768] = "";
     if (h->cfg->hooks.stats) h->cfg->hooks.stats(h->cfg->hooks.user, app, sizeof(app));
-    int n = snprintf(h->statsText, sizeof(h->statsText), "Display %.0f Hz, %.0f fps\nVideo %dx%d, %.0f fps\n",
-                     xrGetDisplayRate(ctx), (frames - lastFrames) / secs, ctx->videoWidth, ctx->videoHeight,
-                     (videoFrames - lastVideo) / secs);
+    // Native (1.3.3 final): the headset's temperatures under the display's line
+    char heat[64];
+    heatStatsLine(&h->heatNow, heat, sizeof(heat));
+    int n = snprintf(h->statsText, sizeof(h->statsText), "Display %.0f Hz, %.0f fps\n%s%sVideo %dx%d, %.0f fps\n",
+                     xrGetDisplayRate(ctx), (frames - lastFrames) / secs, heat, heat[0] ? "\n" : "",
+                     ctx->videoWidth, ctx->videoHeight, (videoFrames - lastVideo) / secs);
     lastFrames = frames;
     lastVideo = videoFrames;
     // The app's line, one clause a line

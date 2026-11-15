@@ -1066,6 +1066,35 @@ static void testVerdictMatchOrSetRate(void) {
     CHECK_NEAR(rateTrue(0.0f, 0.0f), 0, 0);
 }
 
+static void testTakenRateHolds(void) {
+    // Retest 2026-11-15 03:18-03:19: SteamVR reported a stale 90 with the display on 144; 144
+    // was measured and taken, then 3D's late frames paced the loop at 72. The 144 holds.
+    int v = -1;
+    float taken = rateTaken(90.0f, 0.0f, 144.0f, 0, &v);
+    CHECK(v == RATE_VERDICT_ADOPT);
+    CHECK_NEAR(taken, 144, 0);
+    taken = rateTaken(90.0f, taken, 72.0f, 0, &v);
+    CHECK(v == RATE_VERDICT_SLOWER);
+    CHECK_NEAR(taken, 144, 0);
+    // back to full rate: agrees with what was taken, which stays
+    taken = rateTaken(90.0f, taken, 144.0f, 0, &v);
+    CHECK(v == RATE_VERDICT_AGREES);
+    CHECK_NEAR(taken, 144, 0);
+    // the stale 90 measured again (frames late at 90 of 144's pace): still slower, still 144
+    CHECK_NEAR(rateTaken(90.0f, 144.0f, 90.0f, 0, &v), 144, 0);
+    CHECK(v == RATE_VERDICT_SLOWER);
+    // nothing taken: SteamVR's word stands against a slower window, a higher one is taken
+    CHECK_NEAR(rateTaken(144.0f, 0.0f, 72.0f, 0, &v), 0, 0);
+    CHECK(v == RATE_VERDICT_SLOWER);
+    CHECK_NEAR(rateTaken(144.0f, 0.0f, 144.0f, 0, &v), 0, 0);
+    CHECK(v == RATE_VERDICT_AGREES);
+    // forced by the debug knob: only said, nothing taken
+    CHECK_NEAR(rateTaken(90.0f, 0.0f, 144.0f, 1, &v), 0, 0);
+    CHECK(v == RATE_VERDICT_LOG_ONLY);
+    // a NULL verdict is fine
+    CHECK_NEAR(rateTaken(90.0f, 0.0f, 120.0f, 0, NULL), 120, 0);
+}
+
 static void testMeasureAMidSessionChange(void) {
     // The display measured at 90 as reported; SteamVR then moves it to 144
     // and says so, and the next window finds 144: they agree again, and the
@@ -1179,6 +1208,7 @@ int main(void) {
     testMeasureThroughMissedRefreshes();
     testMeasureNeedsEnoughFrames();
     testVerdictMatchOrSetRate();
+    testTakenRateHolds();
     testMeasureAMidSessionChange();
     testMeasureNoticesASilentMove();
     return checksDone("xr_rate");

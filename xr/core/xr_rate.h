@@ -155,6 +155,11 @@ float rateFromTiming(int64_t periodNs, int64_t stepNs);
 #define RATE_VERDICT_SLOWER   3
 int rateVerdict(float reportedHz, float measuredHz, int forced);
 
+// The rate taken from the frame timing (0 for none) after a window measured measuredHz, with
+// takenHz the one taken before: a higher one than stands (taken, else reported) is taken, else
+// the taken one stays. *verdict (may be NULL) gets rateVerdict against what stood.
+float rateTaken(float reportedHz, float takenHz, float measuredHz, int forced, int* verdict);
+
 // The rate the display is really on: the measured one where it is higher than
 // the reported one, else the reported one (the measured one without it)
 float rateTrue(float reportedHz, float measuredHz);

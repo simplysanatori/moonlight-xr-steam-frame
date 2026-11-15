@@ -44,6 +44,12 @@
 // The eased rate doubles back, a step a HEAT_HOLD_NS, once the heat is under
 // HEAT_EASE_C - HEAT_RESTORE_GAP_C, until it is back to what it was
 #define HEAT_RESTORE_GAP_C 10
+// Native (1.3.3 final): while the heat stays at or over the warn level the
+// warning is said again this often (retest 2026-11-15: said once at 92 C and
+// missed, then 89-98 C for minutes with nothing more said)
+#define HEAT_REWARN_NS 120000000000LL
+// How long the heat notices stay up (other notices: NOTICE_SHOW_NS)
+#define HEAT_NOTICE_NS 6000000000LL
 // The least time between two moves of the eased rate
 #define HEAT_HOLD_NS 30000000000LL
 // How often the zones are read: the 5 s stats line's cadence
@@ -108,6 +114,10 @@ void heatSensorClose(HeatSensor* s);
 // "heat cpu 52 C, gpu 48 C" for the stats line, "heat n/a" with nothing read
 void heatText(const HeatReading* r, char* buf, size_t cap);
 
+// Native (1.3.3 final): the stats window's line, "Headset CPU 72 \u00B0C, GPU 68 \u00B0C" (either
+// part alone when only it was read); "" with nothing read
+void heatStatsLine(const HeatReading* r, char* buf, size_t cap);
+
 typedef struct {
     int warnC, easeC, stopC;
     int hystC, restoreGapC;
@@ -136,6 +146,8 @@ typedef struct {
     HeatLimits lim;
     // The warning has been said and the heat not yet gone back under its gap
     int warned;
+    // When it was last said (or the stop's toast said it), for HEAT_REWARN_NS
+    int64_t warnedNs;
     // The depth rate's cap, maps a second; 0 for none
     int depthCap;
     // When the cap last moved, 0 for never

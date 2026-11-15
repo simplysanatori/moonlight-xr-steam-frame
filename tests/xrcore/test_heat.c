@@ -221,6 +221,53 @@ static void testWarn(void) {
     CHECK(g.depthCap == 0 && g.stops == 0);
 }
 
+static void testStatsLine(void) {
+    char buf[64];
+    HeatReading r = at(72.4f, 68.6f);
+    heatStatsLine(&r, buf, sizeof(buf));
+    CHECK(strcmp(buf, "Headset CPU 72 \xC2\xB0" "C, GPU 69 \xC2\xB0" "C") == 0);
+    r.haveGpu = 0;
+    heatStatsLine(&r, buf, sizeof(buf));
+    CHECK(strcmp(buf, "Headset CPU 72 \xC2\xB0" "C") == 0);
+    r.haveCpu = 0;
+    r.haveGpu = 1;
+    heatStatsLine(&r, buf, sizeof(buf));
+    CHECK(strcmp(buf, "Headset GPU 69 \xC2\xB0" "C") == 0);
+    HeatReading none;
+    memset(&none, 0, sizeof(none));
+    heatStatsLine(&none, buf, sizeof(buf));
+    CHECK(buf[0] == '\0');
+    heatStatsLine(NULL, buf, sizeof(buf));
+    CHECK(buf[0] == '\0');
+}
+
+static void testWarnRepeats(void) {
+    // Retest 2026-11-15 03:19: warned at 92 C, then 89-98 C for minutes; the warning comes
+    // back every HEAT_REWARN_NS while it stays at or over the level
+    HeatGuard g;
+    heatGuardStart(&g, NULL);
+    HeatReading r = at(92, 88);
+    int64_t t = 10 * SEC;
+    CHECK(heatGuardStep(&g, t, &r, 1, 0, 20) == HEAT_ACT_WARN);
+    int64_t said = t;
+    int warns = 0;
+    while (t < said + HEAT_REWARN_NS - 5 * SEC) {
+        if (heatGuardStep(&g, t += 5 * SEC, &r, 1, 0, 20) & HEAT_ACT_WARN) warns++;
+    }
+    CHECK(warns == 0);
+    CHECK(heatGuardStep(&g, said + HEAT_REWARN_NS, &r, 1, 0, 20) == HEAT_ACT_WARN);
+    // dipping just under the level (not under the gap) and back: not again before its time
+    r = at(89, 80);
+    CHECK(heatGuardStep(&g, said + HEAT_REWARN_NS + 5 * SEC, &r, 1, 0, 20) == 0);
+    r = at(91, 80);
+    CHECK(heatGuardStep(&g, said + HEAT_REWARN_NS + 10 * SEC, &r, 1, 0, 20) == 0);
+    // under the level when its time comes: nothing; back over it: said
+    r = at(89, 80);
+    CHECK(heatGuardStep(&g, said + 2 * HEAT_REWARN_NS, &r, 1, 0, 20) == 0);
+    r = at(90, 80);
+    CHECK(heatGuardStep(&g, said + 2 * HEAT_REWARN_NS + 5 * SEC, &r, 1, 0, 20) == HEAT_ACT_WARN);
+}
+
 static void testEase(void) {
     HeatGuard g;
     heatGuardStart(&g, NULL);
@@ -334,6 +381,8 @@ int main(void) {
     testSensor();
     testLimits();
     testWarn();
+    testWarnRepeats();
+    testStatsLine();
     testEase();
     testStop();
     char cmd[400];

@@ -383,6 +383,8 @@ void xrPanelsSplash(XrCtx* ctx, const char* line, unsigned key, int step, int al
 void xrPanelsNotice(XrCtx* ctx, const char* text);
 // Native (lane wave3-hud): the same with a quieter second line (a path is cut from the middle)
 void xrPanelsNoticeMore(XrCtx* ctx, const char* text, const char* more);
+// Native (1.3.3 final): the same, staying up showNs (the heat warnings)
+void xrPanelsNoticeLong(XrCtx* ctx, const char* text, const char* more, int64_t showNs);
 // Native (lane wave3-hud): the finished Save and zip run, if one ended, said on the toast and in the log (frame loop)
 void xrPanelsReportPoll(XrCtx* ctx);
 

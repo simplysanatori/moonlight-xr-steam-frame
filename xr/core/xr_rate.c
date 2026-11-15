@@ -293,6 +293,19 @@ int rateVerdict(float reportedHz, float measuredHz, int forced) {
     return forced ? RATE_VERDICT_LOG_ONLY : RATE_VERDICT_ADOPT;
 }
 
+// Native (1.3.3 final): the rate taken from the frame timing after a new window. Higher than
+// what stands (the rate taken before, else the reported one) is taken; slower is SteamVR's half
+// rate for late frames and leaves what was taken (retest 2026-11-15 03:19: 144 taken over a
+// stale 90, then 3D's 72 dropped it back to 90 and said the stream was off the headset's rate)
+float rateTaken(float reportedHz, float takenHz, float measuredHz, int forced, int* verdict) {
+    float base = takenHz > 0.0f ? takenHz : reportedHz;
+    int v = rateVerdict(base, measuredHz, forced);
+    if (verdict) {
+        *verdict = v;
+    }
+    return v == RATE_VERDICT_ADOPT ? measuredHz : takenHz;
+}
+
 float rateTrue(float reportedHz, float measuredHz) {
     if (!(measuredHz > 0.0f)) {
         return reportedHz > 0.0f ? reportedHz : 0.0f;

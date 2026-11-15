@@ -88,6 +88,9 @@ int splashWedges(const Splash* splash, int64_t now);
 typedef struct {
     int kind;
     int arg;
+    // Native (1.3.3 final): how long it stays up, 0 for NOTICE_SHOW_NS (the heat
+    // warnings stay longer); one about the same thing waits for it to be read
+    int64_t showNs;
 } Notice;
 
 typedef struct {
@@ -126,6 +129,8 @@ int noticeGroup(int kind);
 // Queued to be said, unless the board's level leaves it out. One about the
 // same thing already waiting is replaced where it stands.
 void noticePush(NoticeBoard* board, int kind, int arg);
+// The same, staying up showNs (0 for NOTICE_SHOW_NS)
+void noticePushFor(NoticeBoard* board, int kind, int arg, int64_t showNs);
 
 // Retires the notice up once its time is over and puts the next one up when
 // its turn has come, unless held, which is how the splash keeps them back.

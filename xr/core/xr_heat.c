@@ -172,6 +172,26 @@ void heatText(const HeatReading* r, char* buf, size_t cap) {
     snprintf(buf, cap, "heat cpu %s, gpu %s", cpu, gpu);
 }
 
+void heatStatsLine(const HeatReading* r, char* buf, size_t cap) {
+    if (cap == 0) {
+        return;
+    }
+    buf[0] = '\0';
+    if (r == NULL || !r->valid || (!r->haveCpu && !r->haveGpu)) {
+        return;
+    }
+    // U+00B0 DEGREE SIGN, which the bundled Noto Sans has
+    if (r->haveCpu && r->haveGpu) {
+        snprintf(buf, cap, "Headset CPU %.0f \xC2\xB0" "C, GPU %.0f \xC2\xB0" "C", (double)r->cpuC, (double)r->gpuC);
+    }
+    else if (r->haveCpu) {
+        snprintf(buf, cap, "Headset CPU %.0f \xC2\xB0" "C", (double)r->cpuC);
+    }
+    else {
+        snprintf(buf, cap, "Headset GPU %.0f \xC2\xB0" "C", (double)r->gpuC);
+    }
+}
+
 void heatLimitsDefault(HeatLimits* l) {
     l->warnC = HEAT_WARN_C;
     l->easeC = HEAT_EASE_C;
@@ -239,10 +259,13 @@ int heatGuardStep(HeatGuard* g, int64_t nowNs, const HeatReading* r, int stereoO
         g->stops++;
         // The stop's own toast says it is hot
         g->warned = 1;
+        g->warnedNs = nowNs;
     }
-    else if (!g->warned && hot >= (float)l->warnC) {
+    else if (hot >= (float)l->warnC && (!g->warned || nowNs - g->warnedNs >= HEAT_REWARN_NS)) {
+        // said once, and again every HEAT_REWARN_NS while it stays this hot
         acts |= HEAT_ACT_WARN;
         g->warned = 1;
+        g->warnedNs = nowNs;
     }
     int held = g->depthCap == 0 || nowNs - g->movedNs >= l->holdNs;
     if (!(acts & HEAT_ACT_STOP) && modelLive && hot >= (float)l->easeC && held) {

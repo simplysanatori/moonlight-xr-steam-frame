@@ -1145,12 +1145,16 @@ static char noticeTexts[TOAST_TEXT_SLOTS][160];
 static char noticeMores[TOAST_TEXT_SLOTS][256];   // native (lane wave3-hud): the quieter line under it
 static int noticeNext;
 
-void xrPanelsNoticeMore(XrCtx* ctx, const char* text, const char* more) {
+void xrPanelsNoticeLong(XrCtx* ctx, const char* text, const char* more, int64_t showNs) {
     int slot = noticeNext++ % TOAST_TEXT_SLOTS;
     snprintf(noticeTexts[slot], sizeof(noticeTexts[slot]), "%s", text);
     snprintf(noticeMores[slot], sizeof(noticeMores[slot]), "%s", more != NULL ? more : "");
-    noticePush(&ctx->notices, TOAST_TEXT, slot);
+    noticePushFor(&ctx->notices, TOAST_TEXT, slot, showNs);
     LOGI("toast: %s%s%s", text, more != NULL && more[0] ? " / " : "", more != NULL ? more : "");
+}
+
+void xrPanelsNoticeMore(XrCtx* ctx, const char* text, const char* more) {
+    xrPanelsNoticeLong(ctx, text, more, 0);
 }
 
 void xrPanelsNotice(XrCtx* ctx, const char* text) {

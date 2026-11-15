@@ -228,6 +228,32 @@ static void testNoticeShowsForItsTime(void) {
     CHECK(board.current.kind == -1);
 }
 
+static void testALongNoticeIsReadToItsEnd(void) {
+    // Native (1.3.3 final): the heat warnings stay up 6 s, and a text notice that comes while
+    // one is up waits for it rather than replacing it
+    NoticeBoard board;
+    noticeInit(&board);
+    Notice up = { -1, 0, 0 };
+    long long now = 1000 * MS, longNs = 6000 * MS;
+    noticePushFor(&board, TOAST_TEXT, 0, longNs);
+    CHECK(noticeAdvance(&board, now, 0, &up) == 1);
+    CHECK(up.kind == TOAST_TEXT && up.arg == 0 && up.showNs == longNs);
+    CHECK(noticeShowing(&board, now + NOTICE_SHOW_NS + MS));
+    noticePush(&board, TOAST_TEXT, 1);
+    CHECK(noticeAdvance(&board, now + 200 * MS, 0, &up) == 0);
+    CHECK(noticeAdvance(&board, now + NOTICE_SHOW_NS + MS, 0, &up) == 0);
+    CHECK(noticeShowing(&board, now + longNs - MS));
+    CHECK(noticeAdvance(&board, now + longNs, 0, &up) == 1);
+    CHECK(up.kind == TOAST_TEXT && up.arg == 1 && up.showNs == 0);
+    // held (the splash, or SteamVR's menu up): it waits, then shows its whole time
+    noticeInit(&board);
+    noticePushFor(&board, TOAST_TEXT, 2, longNs);
+    CHECK(noticeAdvance(&board, now, 1, &up) == 0);
+    CHECK(noticeAdvance(&board, now + 8000 * MS, 1, &up) == 0);
+    CHECK(noticeAdvance(&board, now + 9000 * MS, 0, &up) == 1);
+    CHECK(up.arg == 2 && noticeShowing(&board, now + 9000 * MS + longNs - MS));
+}
+
 static void testNoticeOfTheSameKindReplacesAtOnce(void) {
     NoticeBoard board;
     noticeInit(&board);
@@ -412,6 +438,7 @@ int main(void) {
     testSplashCutsWithoutAFade();
     testSplashWedgesTick();
     testNoticeShowsForItsTime();
+    testALongNoticeIsReadToItsEnd();
     testNoticeOfTheSameKindReplacesAtOnce();
     testAnotherKindWaitsItsTurn();
     testTheSplashHoldsThemBack();

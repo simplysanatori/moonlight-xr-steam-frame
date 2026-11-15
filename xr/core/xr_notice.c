@@ -139,11 +139,19 @@ int noticeGroup(int kind) {
     }
 }
 
+static int64_t showFor(const Notice* n) {
+    return n->showNs > 0 ? n->showNs : NOTICE_SHOW_NS;
+}
+
 void noticePush(NoticeBoard* board, int kind, int arg) {
+    noticePushFor(board, kind, arg, 0);
+}
+
+void noticePushFor(NoticeBoard* board, int kind, int arg, int64_t showNs) {
     if (kind < 0 || !noticeAllowed(board->level, kind)) {
         return;
     }
-    Notice notice = { kind, arg };
+    Notice notice = { kind, arg, showNs };
     for (int i = 0; i < board->count; i++) {
         if (noticeGroup(board->waiting[i].kind) == noticeGroup(kind)) {
             board->waiting[i] = notice;
@@ -160,16 +168,18 @@ void noticePush(NoticeBoard* board, int kind, int arg) {
 }
 
 int noticeAdvance(NoticeBoard* board, int64_t now, int held, Notice* out) {
-    if (board->current.kind >= 0 && now - board->sinceNs >= NOTICE_SHOW_NS) {
+    if (board->current.kind >= 0 && now - board->sinceNs >= showFor(&board->current)) {
         board->current.kind = -1;
     }
     if (held || board->count == 0) {
         return 0;
     }
     Notice next = board->waiting[0];
+    // a long notice (showNs) is read to its end before anything takes its place
+    int longUp = board->current.kind >= 0 && board->current.showNs > 0;
     int turn = board->current.kind < 0
-            || noticeGroup(next.kind) == noticeGroup(board->current.kind)
-            || now - board->sinceNs >= NOTICE_MIN_NS;
+            || (!longUp && noticeGroup(next.kind) == noticeGroup(board->current.kind))
+            || now - board->sinceNs >= (longUp ? showFor(&board->current) : NOTICE_MIN_NS);
     if (!turn) {
         return 0;
     }
@@ -184,5 +194,5 @@ int noticeAdvance(NoticeBoard* board, int64_t now, int held, Notice* out) {
 }
 
 int noticeShowing(const NoticeBoard* board, int64_t now) {
-    return board->current.kind >= 0 && now - board->sinceNs < NOTICE_SHOW_NS;
+    return board->current.kind >= 0 && now - board->sinceNs < showFor(&board->current);
 }
