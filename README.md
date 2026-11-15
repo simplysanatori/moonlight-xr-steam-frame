@@ -71,10 +71,13 @@ The controller ray is the PC's mouse.
 
 | Control | Pointer mode |
 | --- | --- |
-| Trigger | Left click |
-| Grip | Move or resize the screen |
-| A | Right click |
+| Trigger | Left click, hold to drag |
+| A, B | Right click, middle click |
+| X | 3D on or off |
 | Y | Keyboard |
+| Thumbstick | Scroll |
+| Bumpers | Back, Forward |
+| Grip | Move or resize the screen |
 | Menu (right) | Cog menu |
 | D-pad up | Recentre |
 | Hold left View + left grip | Gamepad mode and back |
