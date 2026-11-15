@@ -11,6 +11,17 @@ Play games and the desktop from your PC on a virtual screen on the Valve Steam F
 - Bluetooth keyboards, mice and gamepads
 - Point and click with your head or eyes
 - Wi-Fi, Steam Frame Wireless Adapter or USB cable
+- Custom aspect ratios up to 32:9, with bitrate scaled to the picture's size
+
+## Planned features
+
+- Switch between flat and VR mid-stream, or stream only in the flat window
+- 3D at full frame rate (144 Hz)
+- Optimized foveated rendering
+- Automatic crash reports and Suggest a Feature
+- Mouse and keyboard as a laser pointer, also in passthrough
+- Automatic side-by-side 3D detection
+- Hand tracking
 
 ## How it works
 
@@ -100,13 +111,13 @@ Unpack the new release and run its installer:
 - **Blurry text**: rerun `./install.sh` ([details](docs/USER_GUIDE.md#for-the-sharpest-picture)).
 - **Stutter**: lower the bitrate in **Settings**.
 - **No Steam entry**: start Steam, rerun `./install.sh`.
-- **Grey dock icon**: restart Steam once.
+- **Headset hot in 3D**: set **Depth model** to ZipDepth Light (3D tab).
 
 More fixes: [user guide](docs/USER_GUIDE.md#troubleshooting).
 
 ## Reporting a problem
 
-After a problem, run:
+In the headset, open the cog, then About, Report a problem, and press **Save and zip**. Or run:
 
 ```sh
 ~/Games/MoonlightXRNative/app/bug-report.sh
