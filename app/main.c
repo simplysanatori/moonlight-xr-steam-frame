@@ -70,6 +70,7 @@
 #include "../backend/opentrack.h"
 #include "../stream/evdev_keyboard.h"
 #include "../stream/failover.h"
+#include "../stream/host_app.h"
 #include "../input/evmouse.h"
 #include "../input/gamepads.h"
 #include "../stream/file_source.h"
@@ -105,6 +106,11 @@ static pthread_mutex_t g_presLock = PTHREAD_MUTEX_INITIALIZER;
 // torn down for a retry: the scene, the screen placement and g_streaming stay, the connection is gone.
 static MlxrReconnect g_rc;      // worker thread only
 static MlxrFailover g_fo;       // Native (lane wave1-failover): worker thread only
+// Native (1.3.4): what the stream's PC did with its app the last time the client left it (stream/host_app.h),
+// why the client left the session a reconnect is resuming, and the failover's last hold said. Worker thread only.
+static mlxr_hostapp_keep g_hostKeep;
+static mlxr_hostapp_why g_leaveWhy;
+static uint64_t g_heldSaidKey;
 static atomic_int g_linkDown;
 static int g_rcFatal;           // the last try was refused for a reason a retry does not change (worker only)
 // Native (lane rate-match): the fps the running stream asked the host for and the one wanted before the
@@ -1200,6 +1206,43 @@ static int refusalIsFinal(const mlxr_error* err) {
     }
 }
 
+// Native (1.3.4): a notice of stream/host_app.h's for the headset. Its words are the owner's to approve, so
+// for now it is the log's alone.
+static void hostAppNotice(mlxr_hostapp_notice kind, mlxr_hostapp_why why) {
+    if (kind == MLXR_HOSTAPP_NOTICE_NONE) return;
+    MLOG_W("host app: notice %s (%s): %s", mlxr_hostapp_notice_name(kind), mlxr_hostapp_why_name(why),
+           kind == MLXR_HOSTAPP_NOTICE_HELD           ? "the stream stays on its link; this PC ends the app when the client leaves"
+           : kind == MLXR_HOSTAPP_NOTICE_SWITCH_MAY_END ? "switching links disconnects; a PC set to end the app when the last "
+                                                          "client leaves will end it"
+           : kind == MLXR_HOSTAPP_NOTICE_ENDED        ? "the PC ended the app when the client left it"
+                                                      : "this PC ended the app the last time the client left it: it may again");
+}
+
+// Native (1.3.4): the stream's PC and app as known, for the failover's hold
+static void hostAppStart(Net* n, int pc, int appId) {
+    g_hostKeep = pc >= 0 && pc < (int)n->hosts.n ? mlxr_hostapp_load(n->dir, n->hosts.v[pc].uuid, appId) : MLXR_HOSTAPP_UNKNOWN;
+    mlxr_failover_set_may_leave(mlxr_hostapp_may_leave(g_hostKeep, MLXR_HOSTAPP_WHY_FAILOVER));
+    if (g_hostKeep != MLXR_HOSTAPP_UNKNOWN)
+        MLOG_I("host app: %s %s app %d when the client left it before (host-apps.ini)%s", n->hosts.v[pc].name,
+               g_hostKeep == MLXR_HOSTAPP_ENDS ? "ended" : "kept", appId,
+               g_hostKeep == MLXR_HOSTAPP_ENDS ? ": the network failover will not switch links" : "");
+}
+
+// Native (1.3.4): what a resume after the client left found, learnt and kept
+static void hostAppOutcome(Net* n, int pc, int appId, mlxr_hostapp_outcome o) {
+    mlxr_hostapp_keep k = mlxr_hostapp_learn(g_hostKeep, o);
+    static const char* const SAID[] = { "the app was there to resume", "no app runs any more",
+                                        "another app runs now", "could not tell" };
+    MLOG_I("host app: after %s, %s on %s (app %d): %s", mlxr_hostapp_why_name(g_leaveWhy), SAID[o],
+           pc >= 0 && pc < (int)n->hosts.n ? n->hosts.v[pc].name : "?", appId, mlxr_hostapp_keep_name(k));
+    if (k != g_hostKeep && pc >= 0 && pc < (int)n->hosts.n) {
+        if (mlxr_hostapp_save(n->dir, n->hosts.v[pc].uuid, appId, k) != 0) MLOG_W("host app: could not write host-apps.ini");
+        g_hostKeep = k;
+        mlxr_failover_set_may_leave(mlxr_hostapp_may_leave(k, MLXR_HOSTAPP_WHY_FAILOVER));
+    }
+    hostAppNotice(mlxr_hostapp_notice_after(g_leaveWhy, o), g_leaveWhy);
+}
+
 // reconnect: the same app again after a drop (stream/reconnect.h): the host's running session is resumed
 // and never launched anew, the net toast stays quiet, and a refusal sets g_rcFatal
 static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect) {
@@ -1212,11 +1255,13 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
         s = connectChosen(n, pc, NULL);
         if (!s) {
             setLastError("The host stopped answering before the stream could start");
+            if (reconnect) hostAppOutcome(n, pc, appId, MLXR_HOSTAPP_UNSURE);
             return -1;
         }
     }
     mlxr_computer* comp = &n->comp[pc];
     if (reconnect && comp->current_game != appId) {
+        hostAppOutcome(n, pc, appId, mlxr_hostapp_outcome_of(appId, comp->current_game, 0)); // native (1.3.4)
         // The app ended on the PC while the link was down (or another one runs): resuming would start it anew
         MLOG_W("reconnect: the host's current app is %d, not %d: not starting it again", comp->current_game, appId);
         setLastError("The app is no longer running on the host");
@@ -1323,6 +1368,12 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     if (mlxr_server_launch_or_resume(s, comp, appId, &lp, &n->rtsp, &err) != MLXR_OK) {
         MLOG_E("launch: %s", err.msg);
         if (reconnect && refusalIsFinal(&err)) g_rcFatal = 1;
+        if (reconnect) {
+            // Native (1.3.4): Apollo's and Vibepollo's /resume with the app ended says 503 "No running app to resume"
+            mlxr_hostapp_outcome o = mlxr_hostapp_outcome_of(appId, comp->current_game, err.code == MLXR_E_HTTP ? err.status : 0);
+            hostAppOutcome(n, pc, appId, o);
+            if (o == MLXR_HOSTAPP_ENDED) g_rcFatal = 1;   // nothing to resume: the next try would launch it anew
+        }
         char why[200];
         snprintf(why, sizeof(why), "The host refused to start the stream: %s", err.msg);
         setLastError(why);
@@ -1330,6 +1381,7 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     }
     MLOG_I("%s app %d on %s, rtsp %s", comp->current_game ? "resumed" : "launched", appId, n->hosts.v[pc].name,
            n->rtsp ? n->rtsp : "(none)");
+    if (reconnect) hostAppOutcome(n, pc, appId, MLXR_HOSTAPP_RESUMED); // native (1.3.4)
     {
         // The PC and app this stream is of, which the Screen tab keys the layout it remembers by
         char appName[96] = "";
@@ -1615,14 +1667,21 @@ static void presenceTickWorker(int streaming) {
     int doffS = g_pres.doffSeconds, idleM = g_pres.idleMinutes;
     pthread_mutex_unlock(&g_presLock);
     if (act == PRESENCE_DISCONNECT_DOFF) {
-        MLOG_I("presence: headset off for %d s (doff_disconnect): disconnecting, the host's app keeps running", doffS);
+        // Native (1.3.4): on a PC known to end the app when its client leaves, it does not keep running
+        hostAppNotice(mlxr_hostapp_notice_before(g_hostKeep, MLXR_HOSTAPP_WHY_DOFF), MLXR_HOSTAPP_WHY_DOFF);
+        MLOG_I("presence: headset off for %d s (doff_disconnect): disconnecting, %s", doffS,
+               g_hostKeep == MLXR_HOSTAPP_ENDS ? "this PC ended its app the last time the client left"
+                                               : "the host's app keeps running unless the PC ends it when the client leaves");
         pthread_mutex_lock(&g_lock);
         launcher_disconnect_doff(&g_launch);
         pthread_cond_signal(&g_wake);
         pthread_mutex_unlock(&g_lock);
     }
     else if (act == PRESENCE_DISCONNECT_IDLE) {
-        MLOG_I("presence: no input for %d min (idle_disconnect): disconnecting, the host's app keeps running", idleM);
+        hostAppNotice(mlxr_hostapp_notice_before(g_hostKeep, MLXR_HOSTAPP_WHY_IDLE), MLXR_HOSTAPP_WHY_IDLE);
+        MLOG_I("presence: no input for %d min (idle_disconnect): disconnecting, %s", idleM,
+               g_hostKeep == MLXR_HOSTAPP_ENDS ? "this PC ended its app the last time the client left"
+                                               : "the host's app keeps running unless the PC ends it when the client leaves");
         pthread_mutex_lock(&g_lock);
         launcher_disconnect_idle(&g_launch);
         pthread_cond_signal(&g_wake);
@@ -1757,6 +1816,7 @@ static void* worker(void* arg) {
             g_rematchSaid = 0; // Native (lane rate-match): a stream the user starts gets its notices afresh
             g_underSaid = 0;
             int ok = n->haveId && launchStream(n, c.pc, c.appId, c.quitFirst, 0) == 0;
+            if (ok) hostAppStart(n, c.pc, c.appId); // native (1.3.4)
             if (ok) {
                 // A stream begun by the user: the idle clock starts now
                 pthread_mutex_lock(&g_presLock);
@@ -1811,7 +1871,10 @@ static void* worker(void* arg) {
             MlxrReconnectEvent ev = MLXR_RC_EV_GAVE_UP;
             if (!g_args.file && n->streamPc >= 0 && n->streamApp > 0)
                 ev = mlxr_reconnect_on_drop(&g_rc, &g_rcOps, code, monoMs());
-            if (ev == MLXR_RC_EV_SCHEDULED) teardownForRetry(n);
+            if (ev == MLXR_RC_EV_SCHEDULED) {
+                g_leaveWhy = MLXR_HOSTAPP_WHY_DROP; // native (1.3.4)
+                teardownForRetry(n);
+            }
             else streamEnded(n);
         }
         else if (mlxr_reconnect_active(&g_rc) && state == LAUNCH_STREAMING) {
@@ -1820,12 +1883,21 @@ static void* worker(void* arg) {
         }
         // Native (lane wave1-failover): a stream that keeps losing video on its link moves to a better one
         else if (state == LAUNCH_STREAMING && atomic_load(&g_streaming) && !atomic_load(&g_linkDown) && !g_args.file &&
-                 n->streamPc >= 0 && n->streamApp > 0 && mlxr_failover_poll(&g_fo, &g_rc, monoMs(), xr_app_notice))
+                 n->streamPc >= 0 && n->streamApp > 0 && mlxr_failover_poll(&g_fo, &g_rc, monoMs(), xr_app_notice)) {
+            // Native (1.3.4): the switch disconnects; on a PC not known either way the app may end with it
+            g_leaveWhy = MLXR_HOSTAPP_WHY_FAILOVER;
+            hostAppNotice(mlxr_hostapp_notice_before(g_hostKeep, MLXR_HOSTAPP_WHY_FAILOVER), MLXR_HOSTAPP_WHY_FAILOVER);
             teardownForRetry(n);
+        }
         // Native (lane rate-match): a Match headset stream off the rate the headset really runs at
         else if (state == LAUNCH_STREAMING && atomic_load(&g_streaming) && !atomic_load(&g_linkDown) && !g_args.file &&
                  n->streamPc >= 0 && n->streamApp > 0 && rateRematch())
             teardownForRetry(n);
+        // Native (1.3.4): the failover held a switch on a PC that ends the app (said once a stream)
+        if (g_fo.heldKey != 0 && g_fo.heldKey != g_heldSaidKey) {
+            g_heldSaidKey = g_fo.heldKey;
+            hostAppNotice(MLXR_HOSTAPP_NOTICE_HELD, MLXR_HOSTAPP_WHY_FAILOVER);
+        }
         // Native (lane wave3-session): headset off and idle timers
         if (!g_args.file) presenceTickWorker(state == LAUNCH_STREAMING && atomic_load(&g_streaming));
         // The PC list keeps its online states fresh
