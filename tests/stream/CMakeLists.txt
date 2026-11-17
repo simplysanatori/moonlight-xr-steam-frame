@@ -45,3 +45,7 @@ add_test(NAME stream_servercmd COMMAND test_servercmd)
 add_executable(test_failover test_failover.c)
 target_link_libraries(test_failover PRIVATE mlxr_stream)
 add_test(NAME stream_failover COMMAND test_failover)
+# 1.3.4: hosts that end the app when their last client leaves: what a resume found, the failover's hold, the file
+add_executable(test_host_app test_host_app.c)
+target_link_libraries(test_host_app PRIVATE mlxr_stream)
+add_test(NAME stream_host_app COMMAND test_host_app)
