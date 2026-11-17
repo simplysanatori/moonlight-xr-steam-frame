@@ -51,8 +51,10 @@ typedef enum {
 
 // A resume's findings: appId the app streamed before; currentGame /serverinfo's currentgame read for the
 // resume (-1 when it could not be read); resumeStatus the resume's status_code (0 not tried or no answer,
-// 200 accepted).
-mlxr_hostapp_outcome mlxr_hostapp_outcome_of(int appId, int currentGame, int resumeStatus);
+// 200 accepted) and resumeMessage its status_message (NULL or "" when none). A 503 is an ended app only
+// when it says no app runs: Sunshine-family hosts also answer 503 at their concurrent stream limit, which
+// a quick reconnect can meet while the host still counts the session it lost.
+mlxr_hostapp_outcome mlxr_hostapp_outcome_of(int appId, int currentGame, int resumeStatus, const char* resumeMessage);
 // What is known after an outcome (OTHER and UNSURE keep what was known)
 mlxr_hostapp_keep mlxr_hostapp_learn(mlxr_hostapp_keep before, mlxr_hostapp_outcome o);
 // Whether the client may leave the session for this reason: the failover not on a PC and app known to end

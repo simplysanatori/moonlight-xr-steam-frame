@@ -13,18 +13,26 @@ static int g_fail, g_checks;
 
 static void outcomes(void) {
     // the same app resumed
-    CHECK(mlxr_hostapp_outcome_of(881, 881, 200) == MLXR_HOSTAPP_RESUMED);
+    CHECK(mlxr_hostapp_outcome_of(881, 881, 200, NULL) == MLXR_HOSTAPP_RESUMED);
     // Vibepollo/Apollo after "Terminating app ... when all clients are disconnected": currentgame 0
-    CHECK(mlxr_hostapp_outcome_of(881, 0, 0) == MLXR_HOSTAPP_ENDED);
-    // or /serverinfo still said the app (it was being ended) and /resume answered 503
-    CHECK(mlxr_hostapp_outcome_of(881, 881, 503) == MLXR_HOSTAPP_ENDED);
-    CHECK(mlxr_hostapp_outcome_of(881, -1, 503) == MLXR_HOSTAPP_ENDED);
+    CHECK(mlxr_hostapp_outcome_of(881, 0, 0, NULL) == MLXR_HOSTAPP_ENDED);
+    // or /serverinfo still said the app (it was being ended) and /resume answered 503, no app running
+    const char* NOAPP = "host returned status 503: No running app to resume";
+    CHECK(mlxr_hostapp_outcome_of(881, 881, 503, NOAPP) == MLXR_HOSTAPP_ENDED);
+    CHECK(mlxr_hostapp_outcome_of(881, -1, 503, NOAPP) == MLXR_HOSTAPP_ENDED);
+    // a 503 that says something else (the concurrent stream limit, met by a quick reconnect while the host
+    // still counts the lost session) or nothing is not an ended app: the reconnect goes on trying
+    CHECK(mlxr_hostapp_outcome_of(881, 881, 503, "host returned status 503: The host's concurrent stream limit has been "
+                                                 "reached. Stop an existing stream or increase the 'Channels' value in the "
+                                                 "Sunshine Web UI.") == MLXR_HOSTAPP_UNSURE);
+    CHECK(mlxr_hostapp_outcome_of(881, 881, 503, NULL) == MLXR_HOSTAPP_UNSURE);
+    CHECK(mlxr_hostapp_outcome_of(881, 881, 503, "") == MLXR_HOSTAPP_UNSURE);
     // another app: says nothing of the setting
-    CHECK(mlxr_hostapp_outcome_of(881, 42, 0) == MLXR_HOSTAPP_OTHER);
+    CHECK(mlxr_hostapp_outcome_of(881, 42, 0, NULL) == MLXR_HOSTAPP_OTHER);
     // no answer, or another refusal
-    CHECK(mlxr_hostapp_outcome_of(881, -1, 0) == MLXR_HOSTAPP_UNSURE);
-    CHECK(mlxr_hostapp_outcome_of(881, 881, 0) == MLXR_HOSTAPP_UNSURE);
-    CHECK(mlxr_hostapp_outcome_of(881, 881, 401) == MLXR_HOSTAPP_UNSURE);
+    CHECK(mlxr_hostapp_outcome_of(881, -1, 0, NULL) == MLXR_HOSTAPP_UNSURE);
+    CHECK(mlxr_hostapp_outcome_of(881, 881, 0, NULL) == MLXR_HOSTAPP_UNSURE);
+    CHECK(mlxr_hostapp_outcome_of(881, 881, 401, NULL) == MLXR_HOSTAPP_UNSURE);
 
     CHECK(mlxr_hostapp_learn(MLXR_HOSTAPP_UNKNOWN, MLXR_HOSTAPP_ENDED) == MLXR_HOSTAPP_ENDS);
     CHECK(mlxr_hostapp_learn(MLXR_HOSTAPP_ENDS, MLXR_HOSTAPP_RESUMED) == MLXR_HOSTAPP_KEEPS);   // the setting changed

@@ -7,11 +7,16 @@
 #include <string.h>
 #include <unistd.h>
 
-// Apollo's and Vibepollo's /resume with no app running: status_code 503, "No running app to resume"
+// Apollo's and Vibepollo's /resume with no app running: status_code 503, "No running app to resume". The
+// same code at the concurrent stream limit says something else, and is not an ended app.
 #define RESUME_NO_APP 503
+#define RESUME_NO_APP_SAYS "No running app"
 
-mlxr_hostapp_outcome mlxr_hostapp_outcome_of(int appId, int currentGame, int resumeStatus) {
-    if (resumeStatus == RESUME_NO_APP) return MLXR_HOSTAPP_ENDED;
+mlxr_hostapp_outcome mlxr_hostapp_outcome_of(int appId, int currentGame, int resumeStatus, const char* resumeMessage) {
+    if (resumeStatus == RESUME_NO_APP) {
+        return resumeMessage != NULL && strstr(resumeMessage, RESUME_NO_APP_SAYS) != NULL ? MLXR_HOSTAPP_ENDED
+                                                                                          : MLXR_HOSTAPP_UNSURE;
+    }
     if (currentGame < 0) return MLXR_HOSTAPP_UNSURE;
     if (currentGame == 0) return MLXR_HOSTAPP_ENDED;
     if (currentGame != appId) return MLXR_HOSTAPP_OTHER;

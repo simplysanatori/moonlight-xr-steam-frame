@@ -1261,7 +1261,7 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
     }
     mlxr_computer* comp = &n->comp[pc];
     if (reconnect && comp->current_game != appId) {
-        hostAppOutcome(n, pc, appId, mlxr_hostapp_outcome_of(appId, comp->current_game, 0)); // native (1.3.4)
+        hostAppOutcome(n, pc, appId, mlxr_hostapp_outcome_of(appId, comp->current_game, 0, NULL)); // native (1.3.4)
         // The app ended on the PC while the link was down (or another one runs): resuming would start it anew
         MLOG_W("reconnect: the host's current app is %d, not %d: not starting it again", comp->current_game, appId);
         setLastError("The app is no longer running on the host");
@@ -1370,7 +1370,9 @@ static int launchStream(Net* n, int pc, int appId, int quitFirst, int reconnect)
         if (reconnect && refusalIsFinal(&err)) g_rcFatal = 1;
         if (reconnect) {
             // Native (1.3.4): Apollo's and Vibepollo's /resume with the app ended says 503 "No running app to resume"
-            mlxr_hostapp_outcome o = mlxr_hostapp_outcome_of(appId, comp->current_game, err.code == MLXR_E_HTTP ? err.status : 0);
+            // (err.msg carries the host's status_message; another 503 is the stream limit, tried again)
+            mlxr_hostapp_outcome o = mlxr_hostapp_outcome_of(appId, comp->current_game, err.code == MLXR_E_HTTP ? err.status : 0,
+                                                             err.code == MLXR_E_HTTP ? err.msg : NULL);
             hostAppOutcome(n, pc, appId, o);
             if (o == MLXR_HOSTAPP_ENDED) g_rcFatal = 1;   // nothing to resume: the next try would launch it anew
         }
