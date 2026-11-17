@@ -1350,8 +1350,9 @@ static void framesWaitAll(const XrVk* vk, Frame* frames, int count) {
 }
 
 // Native (lane frames-in-flight): MLXR_FRAMES_IN_FLIGHT, 1 (each frame waits for the one before
-// to finish on the GPU, as before) or 2 (it waits for the one before that)
-#define MLXR_FRAMES_IN_FLIGHT_DEFAULT 2
+// to finish on the GPU, as before) or 2 (it waits for the one before that). 1 by default: a run
+// with 2 once hard-reset the headset, so 2 is opt-in until that is understood
+#define MLXR_FRAMES_IN_FLIGHT_DEFAULT 1
 static int framesInFlightWanted(void) {
     const char* v = getenv("MLXR_FRAMES_IN_FLIGHT");
     int n = v != NULL && *v ? atoi(v) : MLXR_FRAMES_IN_FLIGHT_DEFAULT;

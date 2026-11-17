@@ -70,7 +70,7 @@ To check in the headset: `FDM_DEBUG=1` in `app-dev/dev.env`, then in `moonlight-
 
 ## Frames in flight (branch perf/frames-in-flight)
 
-`MLXR_FRAMES_IN_FLIGHT` (default 2): with 2 the loop has two command buffers and fences and takes turns between them, so the wait after `xrWaitFrame` is for the frame before last, not the last one. The last frame may still be on the GPU while this one records. 1 = one command buffer and fence, as before.
+`MLXR_FRAMES_IN_FLIGHT` (default 1; 2 is opt-in, since a run with 2 once hard-reset the headset): with 2 the loop has two command buffers and fences and takes turns between them, so the wait after `xrWaitFrame` is for the frame before last, not the last one. The last frame may still be on the GPU while this one records. 1 = one command buffer and fence, as before.
 
 What else changed, for the frame that may still be running:
 
@@ -86,7 +86,7 @@ Log: `gpu144: frames in flight N (MLXR_FRAMES_IN_FLIGHT=...)` at start; once a s
 
 Desktop check (NVIDIA, mock OpenXR runtime, the real frame loop with a software-decoded still): curved + Glow, Home Theater + Glow, Home Theater + 3D (test pattern) + curve, void + 3D + Wide glow, at 144 Hz and unthrottled (1000 Hz, so frames overlap on the GPU). Khronos validation with synchronization validation (submit time): 0 errors and 0 hazards with 1 and 2. The swapchain images are byte-identical between 1 and 2 at the same frames. Not covered on the desktop: the depth model (no LiteRT in that build), hardware decode, passthrough.
 
-Headset check: repeat the passthrough run (passthrough on, turning the 3D and Glow on and off) and the Home Theater + 3D run with `MLXR_FRAMES_IN_FLIGHT=1` and then the default. The `waited for` average should fall to near 0 with 2. Look for anything drawn a frame late or torn (the UI panels while typing, the 3D picture, the glow, the passthrough colour change).
+Headset check: repeat the passthrough run (passthrough on, turning the 3D and Glow on and off) and the Home Theater + 3D run with the default (1) and then `MLXR_FRAMES_IN_FLIGHT=2`. The `waited for` average should fall to near 0 with 2. Look for anything drawn a frame late or torn (the UI panels while typing, the 3D picture, the glow, the passthrough colour change).
 
 ## Headset test (144 Hz, 3440x1440)
 
