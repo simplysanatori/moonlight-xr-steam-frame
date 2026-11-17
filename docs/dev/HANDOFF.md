@@ -154,7 +154,7 @@ Merged 2026-10-10 (lane/m6 499b972). The whole chain runs headless on the Frame'
 - **Safety.** No sudo/pacman/steamos-readonly; never restart Steam or SteamVR without asking; no launches against the owner's PC without the owner (read-only serverinfo/applist is fine); `--wake` sends Wake-on-LAN and is only used when asked.
 - **No headless run while the owner is streaming.** Check `pgrep -af "app/moonlight-xr"` first. A headless run takes the scene from a live session.
 - **New worktrees need their submodules:** `git -c protocol.file.allow=always submodule update --init --recursive`.
-- **Commits** end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (or the model that did the work). Keep the README plain; the owner does not want it to read as LLM-written.
+- **Commits** are the owner's only, with no trailers. Keep the README plain; the owner does not want it to read as LLM-written.
 
 ## 8. Prompt for the next session
 
