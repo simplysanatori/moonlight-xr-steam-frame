@@ -42,6 +42,13 @@ typedef struct {
 #define DEPTH_SOURCE_FULL 0
 #define DEPTH_SOURCE_LIGHT 8
 #define DEPTH_SOURCE_DEFAULT DEPTH_SOURCE_LIGHT
+// Native (1.3.4): [display] foveated, the Foveated rendering row. Only a choice somebody made is stored:
+// auto (the default, written commented out) is what this release does when nobody chose, so a later
+// release can change it for those who never touched the row. Auto is On in 1.3.4.
+#define FOVEATED_AUTO 0
+#define FOVEATED_ON 1
+#define FOVEATED_OFF 2
+#define FOVEATED_AUTO_IS_ON 1
 #define ROOM_COUNT 3   // the baked rooms, indexed 0 theater, 1 grand cinema, 2 synthwave
 
 // What the Screen tab remembers per PC and app: where the screen hangs, how the
@@ -161,6 +168,7 @@ typedef struct Settings {
     int glow;              // ambilight
     int glow_level;        // percent, five percent steps
     int glow_feather;      // native: Picture tab Glow edge, 0 off, 1 soft, 2 wide (GLOW_FEATHER_)
+    int foveated;          // native (1.3.4): Foveated rendering, FOVEATED_AUTO (never chosen), ON or OFF
     int screen_light;      // room light
     int cog_tab;           // native: the cog's tab as it was last left (COG_TAB_*), where it opens next time
 
@@ -387,6 +395,12 @@ int settings_layout_forget(Settings* s, unsigned hash);
 // Native (lane wave6-i18n): the ui_strings.h language the [ui] language setting picks (auto: the
 // process's locale); 0 is English
 int settings_ui_language(const Settings* s);
+// Native (1.3.4): whether foveated rendering is on: [display] foveated, auto as FOVEATED_AUTO_IS_ON
+int settings_foveated_on(const Settings* s);
+// Native (1.3.4): whether Valve's fdm_injection layer is to be turned off for this session (it is read
+// when the OpenXR instance is made). fdmEnv is $MLXR_FDM_LAYER, which wins when set: "0" off, else on.
+// why (may be NULL) gets where the answer came from, for the log.
+int settings_fdm_layer_off(const Settings* s, const char* fdmEnv, const char** why);
 // The cell the Head locked row shows: 0 off, 1 on, 2 follow
 int settings_head_lock_cell(const Settings* s);
 void settings_reset_3d(Settings* s);

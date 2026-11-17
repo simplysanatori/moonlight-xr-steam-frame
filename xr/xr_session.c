@@ -1629,10 +1629,16 @@ static int offered(const XrExtensionProperties* exts, uint32_t n, const char* na
 // also any of ours that only shares a height with one (the picture's own image is the stream's
 // height, which the video swapchain registers). MLXR_FDM_LAYER=0 turns the layer off for an A/B
 // (its own DISABLE_VULKAN_FDM_INJECTION_LAYER, set before the instance); FDM_DEBUG=1 makes the
-// layer log what it foveates.
-static void gpuSwitchesAtStart(const XrExtensionProperties* exts, uint32_t n) {
+// layer log what it foveates. Native (1.3.4): the Foveated rendering setting ([display] foveated)
+// turns it off the same way; MLXR_FDM_LAYER, when set, wins (settings_fdm_layer_off).
+static void gpuSwitchesAtStart(const XrExtensionProperties* exts, uint32_t n, const Settings* s) {
     const char* fdm = getenv("MLXR_FDM_LAYER");
-    if (fdm != NULL && fdm[0] == '0') {
+    const char* fdmWhy = "unset";
+    if (s != NULL && settings_fdm_layer_off(s, fdm, &fdmWhy)) {
+        setenv("DISABLE_VULKAN_FDM_INJECTION_LAYER", "1", 1);
+    }
+    else if (s == NULL && fdm != NULL && fdm[0] == '0') {
+        fdmWhy = "MLXR_FDM_LAYER";
         setenv("DISABLE_VULKAN_FDM_INJECTION_LAYER", "1", 1);
     }
     int layerThere = 0;
@@ -1647,10 +1653,10 @@ static void gpuSwitchesAtStart(const XrExtensionProperties* exts, uint32_t n) {
         }
     }
     const char* off = getenv("DISABLE_VULKAN_FDM_INJECTION_LAYER");
-    LOGEV("gpu144: Valve fdm_injection layer %s%s (MLXR_FDM_LAYER=%s); XR_FB_foveation %s, "
+    LOGEV("gpu144: Valve fdm_injection layer %s%s (by %s; MLXR_FDM_LAYER=%s); XR_FB_foveation %s, "
           "XR_FB_foveation_vulkan %s (not used: the layer already foveates our eye-height passes)",
           layerThere ? "installed" : "not found", layerThere ? (off && *off ? ", turned off" : ", on") : "",
-          fdm ? fdm : "unset", offered(exts, n, "XR_FB_foveation") ? "offered" : "absent",
+          fdmWhy, fdm ? fdm : "unset", offered(exts, n, "XR_FB_foveation") ? "offered" : "absent",
           offered(exts, n, "XR_FB_foveation_vulkan") ? "offered" : "absent");
     LOGEV("gpu144: switches MLXR_CURVE_ONEPASS=%d (room, glow, picture and models in one rendering per eye), "
           "MLXR_GLOW_HOLE=%d (no glow under the picture's opaque middle), MLXR_ROOM_OCCLUDE=%d (no room "
@@ -1704,7 +1710,7 @@ static int initInstance(XrCtx* ctx, const Settings* s) {
     // the log, whether the settings wanted it for themselves.
     ctx->gazeOffered = ctx->eyeGaze;
     ctx->gazeAsked = s->gaze || s->pointer_source == POINTER_SOURCE_GAZE;
-    gpuSwitchesAtStart(exts, n); // native (lane gpu-144)
+    gpuSwitchesAtStart(exts, n, s); // native (lane gpu-144; 1.3.4: the Foveated rendering setting)
     free(exts);
 
     const char* enabled[16];

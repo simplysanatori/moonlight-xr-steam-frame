@@ -1526,6 +1526,21 @@ PY
         done
         expect "VR client: nothing it could not read" "$dump" "unknown 0, unreadable 0"
     fi
+    # 1.3.4: Foveated rendering shows On while never chosen, and a pick is stored as a choice
+    fvini="$t/foveated"; mkdir -p "$fvini"
+    printf '[vr]\nnotices = off\n' > "$fvini/config.ini"
+    MLXR_CONFIG_DIR="$fvini" MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='setSearch:foveated;vrPick:display.foveated|1;saveAll' \
+        MLXR_LAUNCHER_SCREENSHOT="$t/fv1.png@3000" "$L" >"$t/fv1.out" 2>&1
+    uiout "$t/fv1.out" "Foveated rendering row"
+    expect "Foveated rendering: search finds it" "$(grep 'text="foveated"' "$t/fv1.out")" "titles=Foveated rendering"
+    expect "Foveated rendering: Off written" "$(cat "$fvini/config.ini")" "foveated = off"
+    MLXR_CONFIG_DIR="$fvini" MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_INVOKE='vrPick:display.foveated|0;saveAll' MLXR_LAUNCHER_SCREENSHOT="$t/fv2.png@3000" "$L" >"$t/fv2.out" 2>&1
+    expect "Foveated rendering: On written as a choice" "$(cat "$fvini/config.ini")" "foveated = on"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        expect "VR client reads display.foveated = on" "$("$MLXR_SETTINGS_DUMP" "$fvini/config.ini")" "display.foveated = on"
+    fi
     # read back: the switch starts off now, a click turns it on again
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.pointer_sleep \
         MLXR_LAUNCHER_INVOKE='vrPick:headLockRow|1;vrPick:vr.depth_source|0;vrPick:vr.depth_source|1;confirmAnswer:0;saveAll;setSearch:steadiness' MLXR_LAUNCHER_SCREENSHOT="$t/vrk2.png@3000" "$L" >"$t/vrk2.out" 2>&1

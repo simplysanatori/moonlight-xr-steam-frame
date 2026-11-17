@@ -117,6 +117,8 @@ static const char* const STATS_STYLE_NAMES[] = { "full", "hud", "lite" };
 static const char* const LANGUAGE_NAMES[] = { "auto", "en", UI_I18N_LANGS(LANG_NAME) };
 #undef LANG_NAME
 static const char* const SHARP_NAMES[] = { "off", "normal", "quality" };
+// Native (1.3.4): FOVEATED_*
+static const char* const FOVEATED_NAMES[] = { "auto", "on", "off" };
 static const char* const FEATHER_NAMES[] = { "off", "soft", "wide" };
 _Static_assert(sizeof(FEATHER_NAMES) / sizeof(FEATHER_NAMES[0]) == GLOW_FEATHER_COUNT, "glow_feather names follow GLOW_FEATHER_");
 // CONTROLLER_MODEL_*: 1 is what the old on/off switch's true meant
@@ -261,6 +263,7 @@ static const SettingDesc TABLE[] = {
     DB("display", "glow", glow, 0, "Display tab: glow (checkbox_vr_ambilight; native default off, the owner's choice, upstream on)"),
     DI("display", "glow_level", glow_level, 0, 100, 50, "Display tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
     DE("display", "glow_feather", glow_feather, FEATHER_NAMES, GLOW_FEATHER_OFF, "native: Picture tab Glow edge: off, soft or wide. A borderless screen: the picture's edge fades into a glow of its own colours (needs the glow on)"),
+    DE("display", "foveated", foveated, FOVEATED_NAMES, FOVEATED_AUTO, "native: Foveated rendering: on (Valve's fdm_injection layer: full detail where you look, less at the edges) or off (slightly sharper, a little less GPU on the plain screen); auto is on in this version. From the next stream; MLXR_FDM_LAYER=0 turns it off whatever this says"),
     DB("display", "screen_light", screen_light, 1, "Display tab: screen light in rooms (checkbox_vr_room_light)"),
     DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (room in a room), display, 3d, picture, accessibility or about"),
     // 3d
@@ -1426,6 +1429,7 @@ int settings_option_cell(const Settings* s, const SessionToggles* t, int option)
     case COG_OPTION_ROOM_LIGHT: return s->screen_light;
     case COG_OPTION_NOTICES: return clamp_int(s->notices, 0, 2);
     case COG_OPTION_CLICK_STEADY: return clamp_int(s->click_steadiness, 0, 2);
+    case COG_OPTION_FOVEATED: return settings_foveated_on(s);   // native (1.3.4): Off, On; auto shows On
     default: return -1;
     }
 }
@@ -1437,6 +1441,24 @@ int settings_pointer_cell(int ray, int dot) {
 void settings_pointer_from_cell(int cell, int* ray, int* dot) {
     *ray = cell >= 2;
     *dot = cell >= 1;
+}
+
+int settings_foveated_on(const Settings* s) {
+    return s->foveated == FOVEATED_AUTO ? FOVEATED_AUTO_IS_ON : s->foveated == FOVEATED_ON;
+}
+
+int settings_fdm_layer_off(const Settings* s, const char* fdmEnv, const char** why) {
+    const char* w;
+    int off;
+    if (fdmEnv != NULL && fdmEnv[0] != 0) {
+        off = fdmEnv[0] == '0';
+        w = "MLXR_FDM_LAYER";
+    } else {
+        off = !settings_foveated_on(s);
+        w = s->foveated == FOVEATED_AUTO ? "[display] foveated auto" : "[display] foveated";
+    }
+    if (why != NULL) *why = w;
+    return off;
 }
 
 int settings_ui_language(const Settings* s) {

@@ -38,6 +38,9 @@
 // Native (1.3.3): the 3D tab's Depth model row, [vr] depth_source as stored
 // (DEPTH_SOURCE_LIGHT 8 or DEPTH_SOURCE_FULL 0)
 #define SETTING_DEPTH_SOURCE 37
+// Native (1.3.4): the Display tab's Foveated rendering row, its cell (1 On, 0 Off), stored as [display]
+// foveated on or off
+#define SETTING_FOVEATED 38
 // Native (lane a11y-tab): the Accessibility tab's rows, each the value its [vr] key is stored in:
 // pointer_source (POINTER_SOURCE_*), head_dwell_ms (0 off) and (lane a11y-2) assist_dot_size
 // (percent) and assist_headset_button, and (lane radial-dwell) assist_dwell_style

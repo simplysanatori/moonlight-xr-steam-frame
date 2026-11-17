@@ -356,6 +356,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->ambilightOn = s->glow;
     ctx->ambiIntensity = (float)s->glow_level / 100.0f;
     ctx->glowFeather = s->glow_feather;
+    ctx->foveated = s->foveated;   // native (1.3.4): the row's value; the layer was set at the start
     xrZoomFromSettings(ctx, s);
     xrBringBackFromSettings(ctx, s); // the bar's Bring here: the placement it goes back to
     ctx->bgDim = s->bg_dim;
@@ -472,6 +473,7 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->glow = ctx->ambilightOn;
     s->glow_level = iround(ctx->ambiIntensity * 100.0f);
     s->glow_feather = ctx->glowFeather;
+    s->foveated = ctx->foveated;
     xrZoomToSettings(ctx, s);
     s->bg_dim = ctx->bgDim;
     s->screen_light = ctx->roomLightOn;
@@ -616,6 +618,9 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_RESET_PICTURE: settings_reset_picture(s); break;
     case SETTING_BG_DIM: s->bg_dim = value; break;
     case SETTING_GLOW_FEATHER: s->glow_feather = value; break;
+    case SETTING_FOVEATED:   // native (1.3.4): the row's cell, a choice made: 1 on, 0 off (auto is never chosen)
+        s->foveated = value != 0 ? FOVEATED_ON : FOVEATED_OFF;
+        break;
     case SETTING_POINTER_DOT:
         // The Display tab's Ray row: both halves are saved. The bar's ray
         // button only flips the session (ctx->rayFlipped), which is not stored.

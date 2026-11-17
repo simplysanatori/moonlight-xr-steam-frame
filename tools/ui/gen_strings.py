@@ -84,6 +84,7 @@ MAP = [
     ("vr_panel_gamepad", SAME),
     ("vr_panel_glow_level", SAME),
     ("vr_panel_notices", NATIVE),
+    ("native_row_foveated", NATIVE),  # native (1.3.4): the Display tab's Foveated rendering row
     ("vr_panel_click_steadiness", NATIVE),
     ("vr_panel_steady", NATIVE),
     ("vr_panel_notices_all", NATIVE),

@@ -896,7 +896,10 @@ Flickable {
         property var names: []
         // Native (1.3.3): a value that asks first, by value: { title, text, yes }. Cancel keeps the choice before.
         property var confirms: ({})
-        readonly property int current: values.indexOf(MlxrPrefs.vr[key])
+        // Native (1.3.4): a stored value shown as one of the list's (Foveated rendering's auto shows as On)
+        property var shownAs: ({})
+        readonly property int current: values.indexOf(shownAs[MlxrPrefs.vr[key]] !== undefined
+                                                      ? shownAs[MlxrPrefs.vr[key]] : MlxrPrefs.vr[key])
         objectName: key
         valueText: current >= 0 ? names[current] : String(MlxrPrefs.vr[key])
         function pick(i) {
@@ -1684,6 +1687,17 @@ Flickable {
             key: "display.picture_filter"
             title: qsTr("Sharper small text")
             summary: qsTr("On a curved or 3D screen: averages the stream under each of the headset's pixels.")
+        }
+
+        // Native (1.3.4): Valve's foveation layer on or off, from the next stream. Only a choice is stored: auto
+        // (never chosen) shows as On, this version's default, so a later default can reach it
+        VrChoice {
+            key: "display.foveated"
+            title: qsTr("Foveated rendering")
+            summary: qsTr("Full detail in the middle of your view, less at the edges. Off can look slightly sharper and uses a little less GPU on the plain screen. Applies from the next stream.")
+            values: ["on", "off"]
+            names: [qsTr("On"), qsTr("Off")]
+            shownAs: ({ "auto": "on" })
         }
 
         VrSwitch {

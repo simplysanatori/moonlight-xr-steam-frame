@@ -835,6 +835,8 @@ typedef struct XrCtx {
     float hintW, hintH;
     // Native (1.3.3): what the hint sheet is up for, HINT_KIND_HANDS or HINT_KIND_DEPTH_FULL
     int hintKind;
+    // Native (1.3.4): [display] foveated as the Display tab's row has it (FOVEATED_*), for the next stream
+    int foveated;
 
     // Controller input. The aim ray is intersected with the screen and the hit
     // point drives the host mouse, so the PC sees an ordinary absolute mouse

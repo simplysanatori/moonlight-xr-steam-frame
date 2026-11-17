@@ -282,7 +282,7 @@ static void tab_display(Dc* dc) {
     static const UiStr ROWS[COG_OPTION_COUNT] = { UIS_ROW_SHARPEN, UIS_ROW_SUPERSAMPLE, UIS_ROW_STATS,
         UIS_ROW_HEAD_LOCKED, UIS_ROW_HEAD_AIM, UIS_ROW_MODE, UIS_ROW_SHOW_CONTROLLERS, UIS_ROW_RAY,
         UIS_ROW_POINTER_SLEEP, UIS_ROW_CLICK_STEADY, UIS_ROW_CLICK_SOUND, UIS_ROW_GLOW, UIS_ROW_SCREEN_LIGHT,
-        UIS_ROW_NOTICES };
+        UIS_ROW_NOTICES, UIS_ROW_FOVEATED };
     static const UiStr OFFNQ[3] = { UIS_OFF, UIS_NORMAL, UIS_QUALITY };
     static const UiStr OFFON[2] = { UIS_OFF, UIS_ON };
     static const UiStr PADPTR[2] = { UIS_POINTER, UIS_GAMEPAD };
@@ -314,8 +314,10 @@ static void tab_display(Dc* dc) {
             float drop = below / dc->k > 2.5f ? below / dc->k - 2.5f : 0.0f;
             float fit = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, LABEL_SIZE * dc->k, LABEL_MIN_SIZE * dc->k, ui_str(ROWS[row]),
                                          (label_right(dc) - LABEL_X * dc->nw) * dc->k) / dc->k;
-            dc_text(dc, UI_WEIGHT_REGULAR, fit, LABEL_X * dc->nw, y - 2.0f, UI_ALIGN_LEFT, ink, ui_str(ROWS[row]));
-            dc_text(dc, UI_WEIGHT_REGULAR, 15.0f, LABEL_X * dc->nw, y - 2.0f + 15.0f + drop, UI_ALIGN_LEFT, 0x99FFFFFFu, ui_str(HINT[sc]));
+            // native (1.3.4): on the row's line, no longer 2 px over it: with sixteen rows the label above
+            // (Head aim's, translated with a g or y) reaches down to it otherwise
+            dc_text(dc, UI_WEIGHT_REGULAR, fit, LABEL_X * dc->nw, y, UI_ALIGN_LEFT, ink, ui_str(ROWS[row]));
+            dc_text(dc, UI_WEIGHT_REGULAR, 15.0f, LABEL_X * dc->nw, y + 15.0f + drop, UI_ALIGN_LEFT, 0x99FFFFFFu, ui_str(HINT[sc]));
         } else {
             label(dc, ui_str(ROWS[row]), y, live);
         }

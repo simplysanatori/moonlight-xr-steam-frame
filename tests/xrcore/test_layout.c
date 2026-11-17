@@ -607,11 +607,12 @@ static void testTheRowsFit(void) {
         CHECK(last + 0.0425f < 1.0f - 0.03f);
         CHECK(last + half <= 1.0f);
     }
-    // The display tab's fifteen rows, head aim's after head locked and the
+    // The display tab's sixteen rows, head aim's after head locked and the
     // input rows (Mode first) after that, the notices row after the screen
-    // light, the glow level track last
-    CHECK(COG_DISPLAY_SLIDER_ROW == 14);
-    CHECK(COG_OPTION_NOTICES == COG_OPTION_ROOM_LIGHT + 1 && COG_OPTION_COUNT == COG_OPTION_NOTICES + 1);
+    // light, then (1.3.4) Foveated rendering, the glow level track last
+    CHECK(COG_DISPLAY_SLIDER_ROW == 15);
+    CHECK(COG_OPTION_NOTICES == COG_OPTION_ROOM_LIGHT + 1 && COG_OPTION_FOVEATED == COG_OPTION_NOTICES + 1);
+    CHECK(COG_OPTION_COUNT == COG_OPTION_FOVEATED + 1);
     CHECK(COG_DISPLAY_SLIDER_ROW == COG_OPTION_COUNT);
     CHECK(MARK_VALUES == COG_OPTION_COUNT);
     CHECK(COG_OPTION_HEAD_AIM == COG_OPTION_HEAD_LOCK + 1);
@@ -623,8 +624,8 @@ static void testTheRowsFit(void) {
     CHECK(COG_OPTION_POINTER_SLEEP == COG_OPTION_RAY + 1);
     CHECK(COG_OPTION_CLICK_STEADY == COG_OPTION_POINTER_SLEEP + 1);
     CHECK(COG_OPTION_CLICK_SOUND == COG_OPTION_CLICK_STEADY + 1);
-    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, 0), 0.197, 1e-6);
-    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW), 0.9166, 1e-5);
+    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, 0), 0.185, 1e-6);
+    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW), 0.926, 1e-5);
     // Its first band starts under the tab bar, and its cells are shallower
     // than the rows are apart
     CHECK(cogRowV(COG_TAB_DISPLAY, 0) - cogRowHalf(COG_TAB_DISPLAY) >= COG_TAB_BAR_B);

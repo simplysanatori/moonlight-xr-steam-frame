@@ -246,7 +246,7 @@
 // up, and -1 for a row greyed where it can do nothing. Every frame. As many as
 // COG_OPTION_COUNT below, which the native side checks when it builds.
 #define IN_MARKS    (IN_CLICK + 1)
-#define MARK_VALUES 14
+#define MARK_VALUES 15
 // 1 while the settings panel is up, fading out included, so Java keeps the
 // clock line over it up to the minute
 #define IN_COG_OPEN (IN_MARKS + MARK_VALUES)
@@ -821,7 +821,10 @@
 #define COG_OPTION_ROOM_LIGHT 12
 // Native: which notices the toast says (All, Important, Off)
 #define COG_OPTION_NOTICES 13
-#define COG_OPTION_COUNT   14
+// Native (1.3.4): Foveated rendering (Off, On), [display] foveated, from the next stream. Last of the
+// option rows, so the rows before it keep their numbers.
+#define COG_OPTION_FOVEATED 14
+#define COG_OPTION_COUNT   15
 #define COG_SHARPEN_CELLS 3
 #define COG_SUPERSAMPLE_CELLS 3
 #define COG_STATS_CELLS   2
@@ -841,21 +844,24 @@
 #define COG_AMBI_CELLS    2
 #define COG_ROOM_LIGHT_CELLS 2
 #define COG_NOTICES_CELLS 3
+#define COG_FOVEATED_CELLS 2
 // The one row on this tab that is a track rather than cells, under the option
 // rows, so the glow can be turned down without leaving the tab it lives on.
 // This tab has no reset button for it to land on.
-#define COG_DISPLAY_SLIDER_ROW 14
-// Fifteen rows on this tab (fourteen of cells, native added Notices and Click
-// steadiness, and the glow level track), so its
+#define COG_DISPLAY_SLIDER_ROW 15
+// Sixteen rows on this tab (fifteen of cells, native added Notices, Click
+// steadiness and (1.3.4) Foveated rendering, and the glow level track), so its
 // rows start a little higher and sit closer together than the other tabs',
 // with shallower cells to keep a gap between them. The last is centred at
-// 0.9166 and its thumb still clears the bottom
+// 0.926 and its thumb still clears the bottom
 // edge, grown or not. The hit band is half the pitch, so neighbouring bands
 // meet without overlapping, and the first starts just under the tab bar.
-#define COG_DISPLAY_ROW_V0 0.197f
-#define COG_DISPLAY_ROW_STEP 0.0514f
-#define COG_DISPLAY_ROW_HALF 0.0257f
-#define COG_DISPLAY_CELL_HALF 0.0218f
+// (1.3.4: the widest pitch sixteen rows have between the tab bar and that
+// bottom, so a label reaching below its baseline still clears the next row)
+#define COG_DISPLAY_ROW_V0 0.185f
+#define COG_DISPLAY_ROW_STEP 0.0494f
+#define COG_DISPLAY_ROW_HALF 0.0247f
+#define COG_DISPLAY_CELL_HALF 0.021f
 // The marks on the display tab's cells, which of each row's cells is in
 // force, drawn in Java as one strip over the column of cells rather than a
 // ring each, so the tab costs one layer for them however many rows it has.

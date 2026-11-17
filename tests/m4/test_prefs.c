@@ -575,6 +575,38 @@ static void controllerModelRow(void) {
     scene_free(oldScene);
 }
 
+// Native (1.3.4): the Display tab's Foveated rendering row: a press stores the choice (on or off,
+// never auto), the ring follows it, auto shows On, and the next session's start reads it
+static void foveatedRow(void) {
+    Scene* sc = scene_new();
+    XrCtx* c = sc->ctx;
+    Settings s;
+    settings_defaults(&s);
+    xrApplySettings(c, &s);
+    CHECK(cogOptionCells(COG_OPTION_FOVEATED) == 2);
+    CHECK(cogOptionValue(c, COG_OPTION_FOVEATED, 0) == 1);   // auto: On
+    float out[IN_SLOTS];
+    for (int cell = 0; cell < 2; cell++) {
+        memset(out, 0, sizeof(out));
+        out[IN_SETTING] = -1;
+        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_FOVEATED, cell, out);
+        CHECK((int)out[IN_SETTING] == SETTING_FOVEATED);
+        int want = cell ? FOVEATED_ON : FOVEATED_OFF;
+        CHECK((int)out[IN_SETTING_VALUE] == cell);
+        CHECK(xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) == 1);
+        CHECK(s.foveated == want && cogOptionValue(c, COG_OPTION_FOVEATED, 0) == cell);
+        Settings back;
+        settings_defaults(&back);
+        xrSettingsFromCtx(c, &back);
+        CHECK(back.foveated == want);
+    }
+    // On pressed while it shows On (auto) is a choice: stored as on
+    Settings fresh;
+    settings_defaults(&fresh);
+    CHECK(xrStoreSetting(c, &fresh, SETTING_FOVEATED, 1) == 1 && fresh.foveated == FOVEATED_ON);
+    scene_free(sc);
+}
+
 // The Display tab's Notices row (All / Important / Off): applied to the
 // board, stored, round-tripped, and what it silences (the Hz toast, #42)
 static void noticesRow(void) {
@@ -1036,6 +1068,7 @@ int main(void) {
     storeSettings();
     rayRowSaved();
     noticesRow();
+    foveatedRow();
     clickSteadyRow();
     controllerModelRow();
     cogTabKept();

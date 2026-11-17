@@ -72,6 +72,8 @@ const VrKey kVrKeys[] = {
     { "display.follow_leash_deg", 'i', 25, 10, 60, nullptr },
     { "display.sharpening", 'e', 1, 0, 2, "off|normal|quality" },
     { "display.supersampling", 'e', 1, 0, 2, "off|normal|quality" },
+    // Native (1.3.4): Foveated rendering; auto is the never-chosen default (on in 1.3.4), as ui/settings.c
+    { "display.foveated", 'e', 0, 0, 2, "auto|on|off" },
     { "display.picture_filter", 'b', 1, 0, 1, nullptr },
     { "display.chroma_from_luma", 'b', 1, 0, 1, nullptr },
     { "display.stats_style", 'e', 0, 0, 2, "full|hud|lite" },

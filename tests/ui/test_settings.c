@@ -2023,6 +2023,55 @@ static void test_surroundings(void) {
     CHECK(s.eye_balance == 40);   // the 3D tab's reset is the depth pair's
 }
 
+// Native (1.3.4): Foveated rendering. Only a choice somebody made is written: auto (never chosen) stays
+// commented out so a later version's default reaches it, an explicit on stays on whatever that default
+// becomes. MLXR_FDM_LAYER, when set, wins over the setting.
+static void test_foveated(void) {
+    Settings s;
+    settings_defaults(&s);
+    SettingsLoadInfo info;
+    CHECK(s.foveated == FOVEATED_AUTO && settings_foveated_on(&s) == FOVEATED_AUTO_IS_ON);
+    char* text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\n#foveated = auto\n") != NULL);
+    free(text);
+    s.foveated = FOVEATED_ON;
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nfoveated = on\n") != NULL);
+    free(text);
+    s.foveated = FOVEATED_OFF;
+    text = settings_to_text(&s);
+    CHECK(text != NULL && strstr(text, "\nfoveated = off\n") != NULL);
+    Settings back;
+    settings_defaults(&back);
+    settings_from_text(&back, text, &info);
+    CHECK(back.foveated == FOVEATED_OFF && !settings_foveated_on(&back) && info.bad == 0 && info.unknown == 0);
+    free(text);
+    // a file of an older version has no such key: auto
+    settings_defaults(&back);
+    settings_from_text(&back, "[display]\nglow = true\n", &info);
+    CHECK(back.foveated == FOVEATED_AUTO && info.unknown == 0);
+    settings_from_text(&back, "[display]\nfoveated = sometimes\n", &info);
+    CHECK(back.foveated == FOVEATED_AUTO && info.bad == 1);
+    // the layer: the setting, unless MLXR_FDM_LAYER is set
+    const char* why = NULL;
+    settings_defaults(&s);
+    CHECK(settings_fdm_layer_off(&s, NULL, &why) == 0 && strcmp(why, "[display] foveated auto") == 0);
+    s.foveated = FOVEATED_ON;
+    CHECK(settings_fdm_layer_off(&s, NULL, &why) == 0 && strcmp(why, "[display] foveated") == 0);
+    CHECK(settings_fdm_layer_off(&s, "0", &why) == 1 && strcmp(why, "MLXR_FDM_LAYER") == 0);
+    s.foveated = FOVEATED_OFF;
+    CHECK(settings_fdm_layer_off(&s, NULL, &why) == 1 && strcmp(why, "[display] foveated") == 0);
+    CHECK(settings_fdm_layer_off(&s, "", NULL) == 1);
+    CHECK(settings_fdm_layer_off(&s, "1", &why) == 0 && strcmp(why, "MLXR_FDM_LAYER") == 0);
+    // the Display tab's row: Off 0, On 1; auto shows On
+    SessionToggles t;
+    session_from_settings(&s, &t);
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 0);
+    s.foveated = FOVEATED_AUTO;
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 1);
+    CHECK(settings_find("display.foveated") != NULL && settings_find("foveated") != NULL);
+}
+
 int main(void) {
     test_aspect_ratio();
     test_surroundings();
@@ -2062,6 +2111,7 @@ int main(void) {
     test_cog_tab();
     test_stereo_source();
     test_depth_source_default();
+    test_foveated();
     test_files();
     test_sliders();
     return checksDone("ui_settings");
