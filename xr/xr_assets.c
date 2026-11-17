@@ -97,6 +97,13 @@ void xrAtlasTouch(XrCtx* ctx, int slot) {
     a->version[slot]++;
 }
 
+void xrAtlasWaitCopies(XrCtx* ctx) {
+    XrUiAtlas* a = ctx->atlas;
+    if (a != NULL && a->stage != NULL) {
+        xrGpuWaitFor(ctx, a->copySerial);
+    }
+}
+
 XrSwapchain xrAtlasSwapchain(XrCtx* ctx) {
     return ctx->atlas != NULL ? ctx->atlas->swapchain : XR_NULL_HANDLE;
 }

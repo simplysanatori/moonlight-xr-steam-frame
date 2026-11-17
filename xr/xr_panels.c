@@ -561,7 +561,21 @@ static void collect(XrCtx* ctx, XrPanels* p) {
         return;
     }
     uint8_t* atlas = xrAtlasPixels(ctx);
-    int64_t now = nowNs();
+    // Native (1.3.4): with two frames in flight xrAtlasTouch may wait for the frame before's copy out of the
+    // staging buffer (up to xrGpuWaitFor's limit). That wait is made here, before the lock, so the panel
+    // worker is not held behind it (the keyboard's drawings came late); the touches below then find it done.
+    // Nothing else submits between the two (frame loop only). With one frame in flight it returns at once.
+    int any = 0;
+    pthread_mutex_lock(&p->lock);
+    for (int s = 0; s < ATLAS_SLOTS; s++) {
+        any |= p->slots[s].hasDone;
+    }
+    pthread_mutex_unlock(&p->lock);
+    if (!any) {
+        return;
+    }
+    int64_t now = nowNs();   // before the wait, as before: the log's panel wait does not count the GPU's copy
+    xrAtlasWaitCopies(ctx);
     pthread_mutex_lock(&p->lock);
     for (int s = 0; s < ATLAS_SLOTS; s++) {
         SlotWork* sw = &p->slots[s];

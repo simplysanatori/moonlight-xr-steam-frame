@@ -329,6 +329,9 @@ uint8_t* xrAtlasPixels(XrCtx* ctx);
 // into each swapchain image as that is next used. Frame loop only, after the
 // last frame's fence (the staging buffer is the copies' source)
 void xrAtlasTouch(XrCtx* ctx, int slot);
+// Native (1.3.4): the wait xrAtlasTouch makes (the GPU's last copy out of the staging buffer, which with
+// two frames in flight may still be running; with one it is over), on its own. Frame loop only.
+void xrAtlasWaitCopies(XrCtx* ctx);
 XrSwapchain xrAtlasSwapchain(XrCtx* ctx);
 // Created with the session (format R8G8B8A8_SRGB, upstream's SRGB8_ALPHA8:
 // the panels' bytes go in as they are and the compositor decodes them)
