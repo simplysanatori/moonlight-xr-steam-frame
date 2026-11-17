@@ -94,7 +94,8 @@ int initAmbilight(XrCtx* ctx) {
 // property over the top of it the way the separation override works. In a
 // room the switch is the room's own, and the app wide one everywhere else.
 void ambiEffective(XrCtx* ctx, int* on, float* level) {
-    int enabled = roomGlowOn(ctx, roomEffective(ctx));
+    // Native (1.3.4): none in passthrough until its sheet's I Understand
+    int enabled = roomGlowOn(ctx, roomEffective(ctx)) && !xrPassthroughHidesGlow(ctx);
     float value = ctx->ambiIntensity;
     if (ctx->ambiOverride >= 0) {
         enabled = ctx->ambiOverride > 0;

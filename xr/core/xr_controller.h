@@ -60,8 +60,10 @@ float pointerDotSize(float distance);
 // grip placed with a tracked orientation. Position only needs to be valid, so
 // a controller out of the cameras' view for a moment keeps its model where
 // the runtime puts it. kind is a PROFILE_ value and flags the GATE_ bits, both
-// from xr_gate.h.
-int controllerModelShown(int settingOn, int passthrough, int kind, int poseActive,
+// from xr_gate.h. Native (1.3.4): passthroughHides is passthrough without its
+// sheet's I Understand (xrPassthroughHidesModels); after it the model is drawn
+// there too.
+int controllerModelShown(int settingOn, int passthroughHides, int kind, int poseActive,
                          unsigned flags);
 
 // The model's placement: the grip pose as a column major matrix, the model

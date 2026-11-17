@@ -996,6 +996,10 @@
 // in the OK button's place and Cancel in the other's.
 #define HINT_KIND_HANDS 0
 #define HINT_KIND_DEPTH_FULL 1
+// Native (1.3.4): and the passthrough questions, the Display tab's Show controllers row and Glow's On
+// while passthrough is on: "Controllers in Passthrough?" and "Glow in Passthrough?"
+#define HINT_KIND_PT_CONTROLLERS 2
+#define HINT_KIND_PT_GLOW 3
 
 // The Ko-fi sheet the About tab's button opens, in the exit prompt's style: the title over two
 // buttons, Open page and Not now. Drawn once at the start of a session, with the ring over the

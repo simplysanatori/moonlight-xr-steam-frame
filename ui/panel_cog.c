@@ -319,7 +319,18 @@ static void tab_display(Dc* dc) {
             dc_text(dc, UI_WEIGHT_REGULAR, fit, LABEL_X * dc->nw, y, UI_ALIGN_LEFT, ink, ui_str(ROWS[row]));
             dc_text(dc, UI_WEIGHT_REGULAR, 15.0f, LABEL_X * dc->nw, y + 15.0f + drop, UI_ALIGN_LEFT, 0x99FFFFFFu, ui_str(HINT[sc]));
         } else {
-            label(dc, ui_str(ROWS[row]), y, live);
+            label(dc, ui_str(ROWS[row]), y, live && !(row == COG_OPTION_CONTROLLERS && (v->pt_hides & UI_PT_HIDES_CONTROLLERS)));
+        }
+        if (live && row == COG_OPTION_CONTROLLERS && (v->pt_hides & UI_PT_HIDES_CONTROLLERS)) {
+            // native (1.3.4): greyed with why, and a press on it asks (the sheet "Controllers in Passthrough?")
+            greyed_reason(dc, y, ui_str(UIS_OFF_IN_PASSTHROUGH));
+            int n = ui_cog_row_cells(COG_TAB_DISPLAY, row);
+            float rv = cogRowV(COG_TAB_DISPLAY, row), half = cogRowHalf(COG_TAB_DISPLAY);
+            for (int c = 0; c < n; c++) {
+                dc_hit_uv(dc, UI_HIT_CELL, row, c, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)c / (float)n, rv - half,
+                          COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)(c + 1) / (float)n, rv + half, 1);
+            }
+            continue;
         }
         if (!live) {
             int later = (v->display_later & (1u << row)) != 0;

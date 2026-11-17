@@ -41,10 +41,14 @@
 // Native (1.3.4): the Display tab's Foveated rendering row, its cell (1 On, 0 Off), stored as [display]
 // foveated on or off
 #define SETTING_FOVEATED 38
+// Native (1.3.4): I Understand on a passthrough sheet: [vr] passthrough_controllers_ok, and
+// passthrough_glow_ok with the glow itself turned on (value 1; 0 takes the key back)
+#define SETTING_PT_CONTROLLERS_OK 39
+#define SETTING_PT_GLOW_OK 48
 // Native (lane a11y-tab): the Accessibility tab's rows, each the value its [vr] key is stored in:
 // pointer_source (POINTER_SOURCE_*), head_dwell_ms (0 off) and (lane a11y-2) assist_dot_size
 // (percent) and assist_headset_button, and (lane radial-dwell) assist_dwell_style
-// (DWELL_STYLE_*). Only a press or a drag on the tab hands these back. (38 and 39 are free;
+// (DWELL_STYLE_*). Only a press or a drag on the tab hands these back. (38 and 39 are 1.3.4's above;
 // 40 and 41 are xr_shared.h's Background and Glow edge.)
 #define SETTING_POINTER_SOURCE 42
 #define SETTING_HEAD_DWELL 43

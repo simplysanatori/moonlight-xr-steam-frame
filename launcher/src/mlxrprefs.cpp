@@ -59,6 +59,9 @@ const VrKey kVrKeys[] = {
     { "vr.gaze", 'b', 0, 0, 1, nullptr },
     { "vr.hand_tracking", 'b', 0, 0, 1, nullptr },
     { "vr.passthrough", 'b', 0, 0, 1, nullptr },
+    // Native (1.3.4): I Understand on the passthrough sheets
+    { "vr.passthrough_controllers_ok", 'b', 0, 0, 1, nullptr },
+    { "vr.passthrough_glow_ok", 'b', 0, 0, 1, nullptr },
     { "vr.environment", 'e', 0, 0, 5, "auto|passthrough|void|home_theater|grand_cinema|synthwave" },
     // Native (1.3.3, issue #6): ZipDepth Light (zipdepth-int8) by default, as ui/settings.c DEPTH_SOURCE_DEFAULT
     { "vr.depth_source", 'e', 8, 0, 8, "zipdepth|midas|off|flat|ramp|blob|eyetest|shifttest|zipdepth-int8" },

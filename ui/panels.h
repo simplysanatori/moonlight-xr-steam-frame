@@ -190,8 +190,15 @@ typedef struct {
     // Native: 1 draws the prompt as Quit app / Disconnect / Cancel (a stream is
     // up), 0 as Exit / Cancel
     int exit_disconnect;
-    // Native (1.3.3): what the hint sheet says, HINT_KIND_HANDS or HINT_KIND_DEPTH_FULL
+    // Native (1.3.3): what the hint sheet says, HINT_KIND_HANDS or HINT_KIND_DEPTH_FULL (1.3.4: or a
+    // passthrough question, HINT_KIND_PT_CONTROLLERS or HINT_KIND_PT_GLOW)
     int hint_kind;
+    // Native (1.3.4): what passthrough holds back now, before its sheet's I Understand: UI_PT_HIDES_*.
+    // Show controllers is drawn greyed ("off in passthrough") and still takes a press (it opens the
+    // sheet); the glow's row shows Off.
+    unsigned pt_hides;
+#define UI_PT_HIDES_CONTROLLERS 1u
+#define UI_PT_HIDES_GLOW 2u
     // Native (lane wave3-cards): the pad in use as the pad card draws it, and what the first-run
     // card words its gamepad lines for (pad.style; Xbox until a pad has been used)
     PadLive pad;

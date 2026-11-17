@@ -455,6 +455,8 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->envResTier = s->env_res;
     xrSetEnvironment(ctx, cell);
     ctx->passthrough = cell == ENV_CELL_PASSTHROUGH;
+    ctx->ptControllersOk = s->passthrough_controllers_ok;   // native (1.3.4): the passthrough sheets' answers
+    ctx->ptGlowOk = s->passthrough_glow_ok;
     ctx->handsEnabled = s->hand_tracking;
     xrSetHandHint(ctx, s->hand_tracking && !s->hand_hint_seen);
     // Native (lane wave3-cards): the first-run card and the pad card
@@ -486,6 +488,8 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     }
     s->pointer_sleep = ctx->pointerSleepOn;
     s->controller_model = controllerModelKind(ctx->modelOn, ctx->modelKind);
+    s->passthrough_controllers_ok = ctx->ptControllersOk;   // native (1.3.4)
+    s->passthrough_glow_ok = ctx->ptGlowOk;
     s->click_sound = ctx->clickSoundOn;
     s->notices = ctx->notices.level;
     s->click_steadiness = ctx->clickSteady;
@@ -618,6 +622,12 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_RESET_PICTURE: settings_reset_picture(s); break;
     case SETTING_BG_DIM: s->bg_dim = value; break;
     case SETTING_GLOW_FEATHER: s->glow_feather = value; break;
+    case SETTING_PT_CONTROLLERS_OK: s->passthrough_controllers_ok = value != 0; break;   // native (1.3.4)
+    case SETTING_PT_GLOW_OK:
+        // I Understand on "Glow in Passthrough?" is also the glow's On that opened it
+        s->passthrough_glow_ok = value != 0;
+        if (value != 0) s->glow = 1;
+        break;
     case SETTING_FOVEATED:   // native (1.3.4): the row's cell, a choice made: 1 on, 0 off (auto is never chosen)
         s->foveated = value != 0 ? FOVEATED_ON : FOVEATED_OFF;
         break;

@@ -624,7 +624,8 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
 // image was drawn from.
 static void addModelLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // Native: not while they are drawn into the picture's or the room's layer
-    if (ctx->passthrough || ctx->modelSwapchain[0] == XR_NULL_HANDLE
+    // Native (1.3.4): passthrough has them only after its sheet's I Understand
+    if (xrPassthroughHidesModels(ctx) || ctx->modelSwapchain[0] == XR_NULL_HANDLE
             || ctx->modelSwapchain[1] == XR_NULL_HANDLE || ctx->modelsInPicture || ctx->modelsInRoom) {
         return;
     }

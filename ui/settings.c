@@ -226,6 +226,8 @@ static const SettingDesc TABLE[] = {
     DB("vr", "gaze", gaze, 0, "checkbox_vr_gaze: look to point (native default off: with it on a controller takes the pointer back only on a press)"),
     DB("vr", "hand_tracking", hand_tracking, 0, "checkbox_vr_hand_tracking (native default off until checked on the Frame)"),
     DB("vr", "passthrough", passthrough, 0, "checkbox_vr_passthrough"),
+    DB("vr", "passthrough_controllers_ok", passthrough_controllers_ok, 0, "native: I Understand on \"Controllers in Passthrough?\": Show controllers draws its model in passthrough too (off until then: you can already see your controllers)"),
+    DB("vr", "passthrough_glow_ok", passthrough_glow_ok, 0, "native: I Understand on \"Glow in Passthrough?\": the glow is drawn in passthrough too (off there until then; the void and the rooms always have it)"),
     DE("vr", "environment", environment, ENV_NAMES, 0, "list_vr_environment: auto = black void, or passthrough with passthrough on"),
     // Native (1.3.3, issue #6): ZipDepth Light (zipdepth-int8) by default, about 60% less CPU than ZipDepth Full
     // (zipdepth), which heated the Frame until it shut down. A default is written commented out, so a file that never

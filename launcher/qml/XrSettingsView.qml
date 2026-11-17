@@ -389,6 +389,11 @@ Flickable {
     }
 
     // [vr] controller_model: which controller the headset draws in each hand
+    // Native (1.3.4): whether the headset starts in passthrough (the Environment, or Automatic with the Passthrough switch)
+    function passthroughOn() {
+        var env = MlxrPrefs.vr["vr.environment"]
+        return env === "passthrough" || (env === "auto" && MlxrPrefs.vr["vr.passthrough"] === true)
+    }
     readonly property var modelValues: ["off", "frame", "gun", "custom"]
     readonly property var modelNames: [qsTr("Off"), qsTr("Frame"), qsTr("Gun"), qsTr("Your own model")]
     function modelIndex() {
@@ -704,6 +709,8 @@ Flickable {
         property string title
         property string summary
         property string reason   // non-empty: not available here, greyed, with this reason
+        // Native (1.3.4): drawn greyed but still pressable (Show controllers in passthrough asks first)
+        property bool greyed: false
         property string valueText
         // Native (lane a11y-2): a one-sentence tip, shown while the pointer is over the row or the row has the
         // keyboard's or a gamepad's focus (Game Mode); tipFocus is a control inside the row having that focus
@@ -743,7 +750,7 @@ Flickable {
                     text: prefRow.title
                     font.pointSize: 13
                     wrapMode: Text.Wrap
-                    opacity: prefRow.enabled ? 1.0 : 0.45
+                    opacity: prefRow.enabled && !prefRow.greyed ? 1.0 : 0.45
                 }
                 Label {
                     Layout.fillWidth: true
@@ -753,7 +760,7 @@ Flickable {
                     font.bold: true
                     color: settingsPage.accentColor
                     wrapMode: Text.Wrap
-                    opacity: prefRow.enabled ? 1.0 : 0.45
+                    opacity: prefRow.enabled && !prefRow.greyed ? 1.0 : 0.45
                 }
                 Label {
                     Layout.fillWidth: true
@@ -1683,12 +1690,6 @@ Flickable {
             names: [qsTr("Off"), qsTr("Normal"), qsTr("Quality")]
         }
 
-        VrSwitch {
-            key: "display.picture_filter"
-            title: qsTr("Sharper small text")
-            summary: qsTr("On a curved or 3D screen: averages the stream under each of the headset's pixels.")
-        }
-
         // Native (1.3.4): Valve's foveation layer on or off, from the next stream. Only a choice is stored: auto
         // (never chosen) shows as On, this version's default, so a later default can reach it
         VrChoice {
@@ -1698,6 +1699,12 @@ Flickable {
             values: ["on", "off"]
             names: [qsTr("On"), qsTr("Off")]
             shownAs: ({ "auto": "on" })
+        }
+
+        VrSwitch {
+            key: "display.picture_filter"
+            title: qsTr("Sharper small text")
+            summary: qsTr("On a curved or 3D screen: averages the stream under each of the headset's pixels.")
         }
 
         VrSwitch {
@@ -2027,13 +2034,23 @@ Flickable {
             onClicked: MlxrPrefs.scrollSpeed = settingsPage.nextScrollSpeed()
         }
 
-        // Pressing the row steps Off -> Frame -> Gun -> Your own model
+        // Pressing the row steps Off -> Frame -> Gun -> Your own model. Native (1.3.4): in passthrough it is
+        // greyed ("off in passthrough") until "Controllers in Passthrough?" is answered I Understand
         PrefRow {
             objectName: "controllerModelRow"
             title: qsTr("Show controllers")
-            valueText: settingsPage.modelNames[settingsPage.modelIndex()]
+            greyed: settingsPage.passthroughOn() && MlxrPrefs.vr["vr.passthrough_controllers_ok"] !== true
+            valueText: greyed ? qsTr("off in passthrough") : settingsPage.modelNames[settingsPage.modelIndex()]
             summary: qsTr("The controllers drawn in the headset. Your own model: custom_left.model and custom_right.model (or one custom.model, mirrored for the left hand) in the models folder next to the headset's config file; the Steam Frame controllers are used when they are missing.")
-            onClicked: MlxrPrefs.controllerModel = settingsPage.modelValues[(settingsPage.modelIndex() + 1) % settingsPage.modelValues.length]
+            onClicked: {
+                if (greyed) {
+                    confirmDialog.show(qsTr("Controllers in Passthrough?"),
+                                       qsTr("You can already see your controllers. Drawing them too adds GPU load and can cause stutter or glitches."),
+                                       qsTr("I Understand"), function() { MlxrPrefs.setVr("vr.passthrough_controllers_ok", true) })
+                    return
+                }
+                MlxrPrefs.controllerModel = settingsPage.modelValues[(settingsPage.modelIndex() + 1) % settingsPage.modelValues.length]
+            }
         }
 
         PrefRow {
@@ -2379,9 +2396,25 @@ Flickable {
             summary: qsTr("In a room, the picture lights it.")
         }
 
-        VrSwitch {
-            key: "display.glow"
+        // Native (1.3.4): off in passthrough until "Glow in Passthrough?" is answered I Understand (the void and the
+        // rooms keep it)
+        PrefSwitch {
+            objectName: "display.glow"
             title: qsTr("Glow")
+            isOn: MlxrPrefs.vr["display.glow"] === true
+                  && (!settingsPage.passthroughOn() || MlxrPrefs.vr["vr.passthrough_glow_ok"] === true)
+            onSwitched: function(on) {
+                if (on && settingsPage.passthroughOn() && MlxrPrefs.vr["vr.passthrough_glow_ok"] !== true) {
+                    confirmDialog.show(qsTr("Glow in Passthrough?"),
+                                       qsTr("Glow with passthrough adds GPU load and can cause ghosting, stutter or glitches."),
+                                       qsTr("I Understand"), function() {
+                                           MlxrPrefs.setVr("vr.passthrough_glow_ok", true)
+                                           MlxrPrefs.setVr("display.glow", true)
+                                       })
+                    return
+                }
+                MlxrPrefs.setVr("display.glow", on)
+            }
         }
 
         VrSlider {

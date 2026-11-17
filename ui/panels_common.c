@@ -373,6 +373,8 @@ int ui_cog_display_cell(const UiView* v, int row) {
     // this row sets that one (xr_ui.c cogApplyOption), so the two rows are one switch
     int r = settings_room_index(v->room_env);
     if (row == COG_OPTION_AMBILIGHT && r >= 0) return v->settings->room[r].glow;
+    // native (1.3.4): passthrough has no glow before its sheet's I Understand
+    if (row == COG_OPTION_AMBILIGHT && (v->pt_hides & UI_PT_HIDES_GLOW)) return 0;
     return settings_option_cell(v->settings, &v->session, row);
 }
 

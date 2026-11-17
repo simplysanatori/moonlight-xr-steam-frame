@@ -3651,6 +3651,10 @@ static void updateHandHint(XrCtx* ctx, InputFrame* f) {
         // OK button's place) says yes; Cancel or a press anywhere else no.
         depthFullSheetAnswer(ctx, on == HINT_ZONE_OK, f->out);
     }
+    else if (ctx->hintKind == HINT_KIND_PT_CONTROLLERS || ctx->hintKind == HINT_KIND_PT_GLOW) {
+        // Native (1.3.4): the passthrough questions, the same way
+        ptSheetAnswer(ctx, on == HINT_ZONE_OK, f->out);
+    }
     else {
         closeHandHint(ctx, f, on == HINT_ZONE_NEVER,
                       on == HINT_ZONE_NEVER ? "\"Don't show this again\""
@@ -5530,7 +5534,7 @@ static void padPutPanelsAway(XrCtx* ctx, float* out) {
     ctx->kbOpen = 0;
     ctx->exitConfirmOpen = 0;
     ctx->reportOpen = 0;
-    ctx->hintOpen = 0;   // native (1.3.3): a ZipDepth Full question put away unanswered is a Cancel
+    ctx->hintOpen = 0;   // native (1.3.3): a ZipDepth Full (1.3.4: or passthrough) question put away unanswered is a Cancel
     ctx->kofiOpen = 0;
     ctx->hostOpen = 0;
     ctx->buttonsDown = 0;
@@ -5611,8 +5615,10 @@ static void handBack(XrCtx* ctx, float* out) {
         if (showing && cogFace(ctx) == COG_TAB_DISPLAY) {
             for (int m = 0; m < COG_OPTION_COUNT; m++) {
                 // A greyed row has nothing in force to ring
-                out[IN_MARKS + m] = cogRowLive(ctx, COG_TAB_DISPLAY, m)
-                        ? (float)cogOptionValue(ctx, m, ctx->headLockedPref) : -1.0f;
+                // Native (1.3.4): and Show controllers in passthrough before its sheet's I Understand
+                int greyed = !cogRowLive(ctx, COG_TAB_DISPLAY, m)
+                        || (m == COG_OPTION_CONTROLLERS && xrPassthroughHidesModels(ctx));
+                out[IN_MARKS + m] = greyed ? -1.0f : (float)cogOptionValue(ctx, m, ctx->headLockedPref);
             }
         }
         // The next notice goes up once its turn comes and the splash has

@@ -1487,7 +1487,7 @@ PY
     ini="$MLXR_CONFIG_DIR/config.ini"
     printf '[vr]\n# checkbox_vr_show_ray: show the controller ray [true | false] (default true)\n#show_ray = true\nnotices = off\n\n[screen]\ndistance_cm = 280\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=vr.pointer_sleep,vr.passthrough,display.glow \
-        MLXR_LAUNCHER_INVOKE='vrPick:rayRow|1;vrPick:headLockRow|2;vrSet:vr.picture_contrast|120;vrSet:vr.picture_gamma|135;vrSet:vr.head_aim_sensitivity|99;vrSet:screen.width_cm|450;vrPick:vr.environment|3;vrPick:display.stats_style|1;vrPick:vr.depth_source|1;confirmAnswer:0;vrPick:vr.depth_source|1;confirmAnswer:1;vrPick:vr.gamepad_toggle|2;pickOnStart:1;saveAll;setSearch:picture' \
+        MLXR_LAUNCHER_INVOKE='confirmAnswer:1;vrPick:rayRow|1;vrPick:headLockRow|2;vrSet:vr.picture_contrast|120;vrSet:vr.picture_gamma|135;vrSet:vr.head_aim_sensitivity|99;vrSet:screen.width_cm|450;vrPick:vr.environment|3;vrPick:display.stats_style|1;vrPick:vr.depth_source|1;confirmAnswer:0;vrPick:vr.depth_source|1;confirmAnswer:1;vrPick:vr.gamepad_toggle|2;pickOnStart:1;saveAll;setSearch:picture' \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-vrkeys.png@3000" "$L" >"$t/vrk.out" 2>&1
     grep -q "no clickable\|no function\|could not call\|vrPick: no row" "$t/vrk.out" && fail "config key rows: $(grep -E 'no clickable|no function|could not call|vrPick' "$t/vrk.out" | head -3)"
     uiout "$t/vrk.out" "config key rows"
@@ -1500,7 +1500,10 @@ PY
     expect "the Head locked row's Follow writes head_follow = true" "$(sec display)" "head_follow = true"
     refute "Follow leaves head_locked at its default (not written)" "$(sec display)" "head_locked"
     expect "Passthrough on" "$(sec vr)" "passthrough = true"
+    # 1.3.4: Glow turned on with passthrough on asks first ("Glow in Passthrough?"); I Understand turns it on and is kept
+    expect "Glow in passthrough asks first" "$(grep -c 'MLXR_SETTINGS_CONFIRM: open=true title="Glow in Passthrough?"' "$t/vrk.out")" "1"
     expect "Glow on" "$(sec display)" "glow = true"
+    expect "Glow in passthrough: I Understand is kept" "$(sec vr)" "passthrough_glow_ok = true"
     expect "a slider row writes its key: contrast" "$(sec vr)" "picture_contrast = 120"
     expect "gamma in hundredths" "$(sec vr)" "picture_gamma = 135"
     expect "a value past the range is held to it (head aim speed 99 -> 30)" "$(sec vr)" "head_aim_sensitivity = 30"
@@ -1519,12 +1522,37 @@ PY
     expect "search finds the new rows" "$s" "Picture brightness|Picture contrast|Picture gamma|Picture saturation"
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
-        for kv in "vr.show_ray = false" "vr.pointer_dot = true" "vr.pointer_sleep = false" "display.head_follow = true" "display.head_locked = false" "vr.passthrough = true" "display.glow = true" "vr.picture_contrast = 120" "vr.picture_gamma = 135" \
+        for kv in "vr.show_ray = false" "vr.pointer_dot = true" "vr.pointer_sleep = false" "display.head_follow = true" "display.head_locked = false" "vr.passthrough = true" "display.glow = true" "vr.passthrough_glow_ok = true" "vr.picture_contrast = 120" "vr.picture_gamma = 135" \
                   "vr.head_aim_sensitivity = 30" "screen.width_cm = 450" "vr.environment = home_theater" "display.stats_style = hud" \
                   "vr.depth_source = zipdepth" "vr.gamepad_toggle = triggers_grips" "screen.distance_cm = 280"; do
             expect "VR client reads $kv" "$dump" "$kv"
         done
         expect "VR client: nothing it could not read" "$dump" "unknown 0, unreadable 0"
+    fi
+    # 1.3.4: the passthrough sheets. With passthrough on, Show controllers is greyed ("off in passthrough") and a press asks;
+    # Cancel keeps it so (the model setting untouched), I Understand is kept. Glow's Cancel leaves it off.
+    ptini="$t/ptsheets"; mkdir -p "$ptini"
+    printf '[vr]\npassthrough = true\ncontroller_model = gun\nnotices = off\n' > "$ptini/config.ini"
+    MLXR_CONFIG_DIR="$ptini" MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=controllerModelRow MLXR_LAUNCHER_INVOKE='confirmAnswer:0;saveAll' \
+        MLXR_LAUNCHER_SCREENSHOT="$t/pt1.png@3000" "$L" >"$t/pt1.out" 2>&1
+    uiout "$t/pt1.out" "passthrough sheets"
+    expect "Show controllers in passthrough asks first" "$(grep -c 'MLXR_SETTINGS_CONFIRM: open=true title="Controllers in Passthrough?"' "$t/pt1.out")" "1"
+    refute "Show controllers: Cancel stores nothing" "$(cat "$ptini/config.ini")" "passthrough_controllers_ok"
+    expect "Show controllers: Cancel leaves the model as it was" "$(cat "$ptini/config.ini")" "controller_model = gun"
+    MLXR_CONFIG_DIR="$ptini" MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=controllerModelRow MLXR_LAUNCHER_INVOKE='confirmAnswer:1;saveAll' \
+        MLXR_LAUNCHER_SCREENSHOT="$t/pt2.png@3000" "$L" >"$t/pt2.out" 2>&1
+    expect "Show controllers: I Understand is kept" "$(cat "$ptini/config.ini")" "passthrough_controllers_ok = true"
+    expect "Show controllers: and the model as it was" "$(cat "$ptini/config.ini")" "controller_model = gun"
+    MLXR_CONFIG_DIR="$ptini" MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings \
+        MLXR_LAUNCHER_CLICK=display.glow MLXR_LAUNCHER_INVOKE='confirmAnswer:0;saveAll' \
+        MLXR_LAUNCHER_SCREENSHOT="$t/pt3.png@3000" "$L" >"$t/pt3.out" 2>&1
+    expect "Glow in passthrough asks first, then Cancel" "$(grep -c 'MLXR_SETTINGS_CONFIRM: open=true title="Glow in Passthrough?"' "$t/pt3.out")" "1"
+    refute "Glow: Cancel leaves it off" "$(cat "$ptini/config.ini")" "glow = true"
+    refute "Glow: Cancel stores no answer" "$(cat "$ptini/config.ini")" "passthrough_glow_ok"
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        expect "VR client reads vr.passthrough_controllers_ok = true" "$("$MLXR_SETTINGS_DUMP" "$ptini/config.ini")" "vr.passthrough_controllers_ok = true"
     fi
     # 1.3.4: Foveated rendering shows On while never chosen, and a pick is stored as a choice
     fvini="$t/foveated"; mkdir -p "$fvini"

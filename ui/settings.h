@@ -140,6 +140,10 @@ typedef struct Settings {
     int gaze;
     int hand_tracking;
     int passthrough;
+    // Native (1.3.4): I Understand on the passthrough sheets. Without it, passthrough draws no controller models
+    // (Show controllers is greyed, "off in passthrough") and no glow; the void and the rooms are not affected.
+    int passthrough_controllers_ok;
+    int passthrough_glow_ok;
     int environment;       // 0 auto (void, or passthrough when passthrough is on), 1 passthrough, 2 void, 3 theater, 4 grand cinema, 5 synthwave
     int depth_source;      // 0 ZipDepth (Full), 1 MiDaS, 2 off (flat), 3..7 test patterns, 8 ZipDepth int8 (Light, native; the default, DEPTH_SOURCE_DEFAULT)
     int env_res;           // ENV_RES_LOW..ULTRA

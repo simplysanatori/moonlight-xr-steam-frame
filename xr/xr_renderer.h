@@ -752,6 +752,9 @@ typedef struct XrCtx {
     // runtime shows the room wherever our layers do not cover
     int alphaBlendSupported;
     int passthrough;
+    // Native (1.3.4): I Understand on the passthrough sheets ([vr] passthrough_controllers_ok and
+    // passthrough_glow_ok): the controller models and the glow are drawn in passthrough too
+    int ptControllersOk, ptGlowOk;
     // Hand tracking and gaze, as upstream (native: off unless the settings
     // turn them on, see ui/settings.c)
     int handsEnabled;
@@ -1678,6 +1681,15 @@ void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out);
 // (out's IN_SETTING), and either way the panel comes back on the 3D tab.
 void depthFullSheetOpen(XrCtx* ctx);
 void depthFullSheetAnswer(XrCtx* ctx, int yes, float* out);
+// Native (1.3.4): passthrough draws no controller models and no glow until I Understand on its sheet
+// (HINT_KIND_PT_CONTROLLERS, HINT_KIND_PT_GLOW). Whether it is holding them back now:
+int xrPassthroughHidesModels(XrCtx* ctx);
+int xrPassthroughHidesGlow(XrCtx* ctx);
+// The Display tab's Show controllers row (greyed, "off in passthrough") or Glow's On opens its sheet; the
+// answer, yes for I Understand, stores the key (and for the glow turns it on) through out's IN_SETTING, and
+// either way the panel comes back on the Display tab
+void ptSheetOpen(XrCtx* ctx, int kind);
+void ptSheetAnswer(XrCtx* ctx, int yes, float* out);
 // The Screen tab's preset rows: which preset the screen is at now (-1 none, the
 // one whose cell shows its ring), and a preset put in force as its cell does
 int xrScreenPresetNow(XrCtx* ctx);

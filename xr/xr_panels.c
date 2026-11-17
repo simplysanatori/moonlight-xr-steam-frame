@@ -700,7 +700,9 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->env_selected = -1;
     v->exit_question = ctx->launcher != LAUNCHER_NONE ? ui_str(UIS_NATIVE_EXIT_APP) : NULL;
     v->exit_disconnect = exitPromptHasDisconnect(ctx);
-    v->hint_kind = ctx->hintKind;   // native (1.3.3): the hand lock hint or ZipDepth Full's question
+    v->hint_kind = ctx->hintKind;   // native (1.3.3): the hand lock hint or ZipDepth Full's question; (1.3.4) the passthrough sheets
+    v->pt_hides = (xrPassthroughHidesModels(ctx) ? UI_PT_HIDES_CONTROLLERS : 0u)
+                | (xrPassthroughHidesGlow(ctx) ? UI_PT_HIDES_GLOW : 0u);   // native (1.3.4)
     v->pad = ctx->padLive;   // Native (lane wave3-cards): the pad card, and the first-run card's wording
     v->access_eyes = xrAccessEyes(ctx);   // Native (lane a11y-tab): the Accessibility tab's eye line
     v->access_row = xrAccessHoverRow(ctx);   // Native (lane a11y-2): and the row its footer describes
@@ -742,6 +744,7 @@ typedef struct {
     int tab, curveOk, stereoOk, showAim, roomEnv;
     UiHover hover;
     unsigned later;
+    unsigned ptHides;   // native (1.3.4)
     int accessEyes;
     int accessRow;
     int accessCal, eyecalStep;
@@ -765,6 +768,7 @@ static void updateCog(XrCtx* ctx, XrPanels* p, const UiView* base) {
     k.roomEnv = v.room_env;
     k.hover = v.hover;
     k.later = v.display_later;
+    k.ptHides = v.pt_hides;
     k.accessEyes = v.access_eyes;
     k.accessRow = v.access_row;
     k.accessCal = v.access_cal;

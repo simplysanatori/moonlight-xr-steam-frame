@@ -33,11 +33,11 @@ float pointerDotSize(float distance) {
     return size < PTR_DOT_MIN_M ? PTR_DOT_MIN_M : (size > PTR_DOT_MAX_M ? PTR_DOT_MAX_M : size);
 }
 
-int controllerModelShown(int settingOn, int passthrough, int kind, int poseActive,
+int controllerModelShown(int settingOn, int passthroughHides, int kind, int poseActive,
                          unsigned flags) {
     // Native (lane ray-glitch): the rule the ray goes by too, so the two
     // hold and hide together
-    return settingOn && !passthrough && kind == PROFILE_CONTROLLER
+    return settingOn && !passthroughHides && kind == PROFILE_CONTROLLER
             && controllerPoseLive(poseActive, flags);
 }
 

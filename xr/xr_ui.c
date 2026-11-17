@@ -1089,8 +1089,9 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
         return ctx->clickSoundOn ? 1 : 0;
     }
     if (option == COG_OPTION_AMBILIGHT) {
-        // The switch in force, which in a room is the room's own
-        return roomGlowOn(ctx, roomEffective(ctx)) ? 1 : 0;
+        // The switch in force, which in a room is the room's own. Native (1.3.4): off in passthrough
+        // until its sheet's I Understand
+        return roomGlowOn(ctx, roomEffective(ctx)) && !xrPassthroughHidesGlow(ctx) ? 1 : 0;
     }
     if (option == COG_OPTION_ROOM_LIGHT) {
         return ctx->roomLightOn ? 1 : 0;
@@ -1278,6 +1279,48 @@ int cogCellInForce(XrCtx* ctx, int face, int row) {
     return -1;
 }
 
+int xrPassthroughHidesModels(XrCtx* ctx) {
+    return ctx->passthrough && !ctx->ptControllersOk;
+}
+
+int xrPassthroughHidesGlow(XrCtx* ctx) {
+    return ctx->passthrough && !ctx->ptGlowOk;
+}
+
+void ptSheetOpen(XrCtx* ctx, int kind) {
+    ctx->cogOpen = 0;
+    ctx->hintOpen = 1;
+    ctx->hintKind = kind;
+    ctx->hintHoverZone = HINT_ZONE_NONE;
+    ctx->hintPose = handHintPose(ctx, &ctx->hintW, &ctx->hintH);
+    ctx->pointerAwake = 1;
+    ctx->stillFor = 0.0f;
+    LOGEV("passthrough: %s asks first, the sheet is up", kind == HINT_KIND_PT_GLOW ? "the glow" : "Show controllers");
+}
+
+void ptSheetAnswer(XrCtx* ctx, int yes, float* out) {
+    int glow = ctx->hintKind == HINT_KIND_PT_GLOW;
+    ctx->hintOpen = 0;
+    ctx->hintHoverZone = HINT_ZONE_NONE;
+    if (yes && glow) {
+        // I Understand turns the glow on as the press asked, and it stays allowed in passthrough
+        ctx->ptGlowOk = 1;
+        ctx->ambilightOn = 1;
+        out[IN_SETTING] = (float)SETTING_PT_GLOW_OK;
+        out[IN_SETTING_VALUE] = 1.0f;
+    }
+    else if (yes) {
+        // The model Show controllers names is drawn in passthrough from the next frame (Off draws none)
+        ctx->ptControllersOk = 1;
+        out[IN_SETTING] = (float)SETTING_PT_CONTROLLERS_OK;
+        out[IN_SETTING_VALUE] = 1.0f;
+    }
+    LOGEV("passthrough: %s %s", glow ? "the glow" : "Show controllers",
+          yes ? "understood, drawn in passthrough too" : "cancelled, it stays off in passthrough");
+    ctx->cogOpen = 1;
+    ctx->cogPose = cogPanelPose(ctx, &ctx->cogW, &ctx->cogH);
+}
+
 void depthFullSheetOpen(XrCtx* ctx) {
     ctx->cogOpen = 0;
     ctx->hintOpen = 1;
@@ -1429,6 +1472,16 @@ void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out) {
     }
     if (face == COG_TAB_ACCESS) {
         cogApplyAccessCell(ctx, row, cell, out);   // native (lane a11y-tab), xr_assist.c
+        return;
+    }
+    // Native (1.3.4): in passthrough, Show controllers (greyed, "off in passthrough") and the glow's On ask
+    // first, on the hint sheet; nothing changes until I Understand
+    if (row == COG_OPTION_CONTROLLERS && xrPassthroughHidesModels(ctx)) {
+        ptSheetOpen(ctx, HINT_KIND_PT_CONTROLLERS);
+        return;
+    }
+    if (row == COG_OPTION_AMBILIGHT && cell != 0 && roomFaceStyle(ctx) == 0 && xrPassthroughHidesGlow(ctx)) {
+        ptSheetOpen(ctx, HINT_KIND_PT_GLOW);
         return;
     }
     int id = cogApplyOption(ctx, row, cell);

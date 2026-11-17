@@ -62,12 +62,17 @@ static void draw_line(Dc* dc, float size, float x, float baseline, uint32_t c, c
 void panel_hint(Dc* dc) {
     dc_sheet(dc, 32.0f, 0xF0141416u);
     // Native (1.3.3): the same sheet asks before ZipDepth Full, I Understand in OK's place
-    int depth = dc->v->hint_kind == HINT_KIND_DEPTH_FULL;
+    // Native (1.3.4): and the two passthrough questions, the same way
+    int kind = dc->v->hint_kind;
+    int depth = kind == HINT_KIND_DEPTH_FULL || kind == HINT_KIND_PT_CONTROLLERS || kind == HINT_KIND_PT_GLOW;
+    UiStr title = kind == HINT_KIND_DEPTH_FULL ? UIS_DEPTH_FULL_TITLE : kind == HINT_KIND_PT_CONTROLLERS
+                ? UIS_PT_CONTROLLERS_TITLE : kind == HINT_KIND_PT_GLOW ? UIS_PT_GLOW_TITLE : UIS_HAND_HINT_TITLE;
+    UiStr body = kind == HINT_KIND_DEPTH_FULL ? UIS_DEPTH_FULL_BODY : kind == HINT_KIND_PT_CONTROLLERS
+               ? UIS_PT_CONTROLLERS_BODY : kind == HINT_KIND_PT_GLOW ? UIS_PT_GLOW_BODY : UIS_HAND_HINT_BODY;
     float left = HINT_OK_L * dc->nw;
     float width = (HINT_NEVER_R - HINT_OK_L) * dc->nw;
-    dc_text_fit_left(dc, UI_WEIGHT_REGULAR, 40.0f, left, 0.17f * dc->nh, width, 0xFFFFFFFFu,
-                     ui_str(depth ? UIS_DEPTH_FULL_TITLE : UIS_HAND_HINT_TITLE));
-    const char* said = ui_str(depth ? UIS_DEPTH_FULL_BODY : UIS_HAND_HINT_BODY);
+    dc_text_fit_left(dc, UI_WEIGHT_REGULAR, 40.0f, left, 0.17f * dc->nh, width, 0xFFFFFFFFu, ui_str(title));
+    const char* said = ui_str(body);
     float top = 0.27f * dc->nh;
     float room = (HINT_BTN_T - 0.06f) * dc->nh - top;
     UiTextLine lines[12];

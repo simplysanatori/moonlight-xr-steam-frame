@@ -575,6 +575,101 @@ static void controllerModelRow(void) {
     scene_free(oldScene);
 }
 
+// Native (1.3.4): the passthrough sheets. In passthrough the controller models and the glow are held
+// back until I Understand: Show controllers (greyed) and the glow's On ask on the hint sheet, Cancel
+// changes nothing, I Understand stores its key (the glow's turns the glow on too) and lets them be drawn.
+// The void is not affected.
+static void passthroughSheets(void) {
+    Scene* sc = scene_new();
+    XrCtx* c = sc->ctx;
+    Settings s;
+    settings_defaults(&s);
+    s.passthrough = 1;
+    s.controller_model = CONTROLLER_MODEL_GUN;
+    xrApplySettings(c, &s);
+    CHECK(c->passthrough && c->modelOn && !c->ptControllersOk && !c->ptGlowOk);
+    CHECK(xrPassthroughHidesModels(c) && xrPassthroughHidesGlow(c));
+    CHECK(!controllerModelShown(c->modelOn, xrPassthroughHidesModels(c), PROFILE_CONTROLLER, 1, 0xFu));
+    float out[IN_SLOTS];
+    // Show controllers: any cell asks; Cancel keeps the model and stores nothing
+    memset(out, 0, sizeof(out));
+    out[IN_SETTING] = -1;
+    c->cogOpen = 1;
+    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS, 0, out);
+    CHECK((int)out[IN_SETTING] == -1 && c->hintOpen && c->hintKind == HINT_KIND_PT_CONTROLLERS && !c->cogOpen);
+    CHECK(c->modelOn && c->modelKind == CONTROLLER_MODEL_GUN);
+    ptSheetAnswer(c, 0, out);
+    CHECK((int)out[IN_SETTING] == -1 && !c->hintOpen && c->cogOpen && xrPassthroughHidesModels(c));
+    // I Understand: stored, and the Gun is drawn in passthrough
+    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS, 2, out);
+    CHECK(c->hintOpen && c->hintKind == HINT_KIND_PT_CONTROLLERS);
+    ptSheetAnswer(c, 1, out);
+    CHECK((int)out[IN_SETTING] == SETTING_PT_CONTROLLERS_OK && (int)out[IN_SETTING_VALUE] == 1);
+    CHECK(xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) == 1);
+    CHECK(s.passthrough_controllers_ok == 1 && s.controller_model == CONTROLLER_MODEL_GUN);
+    CHECK(!xrPassthroughHidesModels(c) && c->modelKind == CONTROLLER_MODEL_GUN);
+    CHECK(controllerModelShown(c->modelOn, xrPassthroughHidesModels(c), PROFILE_CONTROLLER, 1, 0xFu));
+    // after it the row is an ordinary one: Off at once, no question
+    memset(out, 0, sizeof(out));
+    out[IN_SETTING] = -1;
+    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS, 0, out);
+    CHECK(!c->hintOpen && (int)out[IN_SETTING] == SETTING_CONTROLLER_MODEL && !c->modelOn);
+
+    // The glow: on in settings, but none in passthrough, and the row shows Off
+    c->ambilightOn = 1;
+    int on;
+    float level;
+    ambiEffective(c, &on, &level);
+    CHECK(!on && cogOptionValue(c, COG_OPTION_AMBILIGHT, 0) == 0);
+    // Off is no question
+    memset(out, 0, sizeof(out));
+    out[IN_SETTING] = -1;
+    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT, 0, out);
+    CHECK(!c->hintOpen && (int)out[IN_SETTING] == SETTING_AMBILIGHT && !c->ambilightOn);
+    // On asks; Cancel leaves it off
+    memset(out, 0, sizeof(out));
+    out[IN_SETTING] = -1;
+    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT, 1, out);
+    CHECK(c->hintOpen && c->hintKind == HINT_KIND_PT_GLOW && (int)out[IN_SETTING] == -1 && !c->ambilightOn);
+    ptSheetAnswer(c, 0, out);
+    CHECK(!c->ambilightOn && !c->ptGlowOk && (int)out[IN_SETTING] == -1);
+    // I Understand: on, kept, stored as both
+    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT, 1, out);
+    ptSheetAnswer(c, 1, out);
+    CHECK(c->ambilightOn && c->ptGlowOk && (int)out[IN_SETTING] == SETTING_PT_GLOW_OK);
+    s.glow = 0;
+    CHECK(xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) == 1);
+    CHECK(s.glow == 1 && s.passthrough_glow_ok == 1);
+    ambiEffective(c, &on, &level);
+    CHECK(on && cogOptionValue(c, COG_OPTION_AMBILIGHT, 0) == 1);
+    Settings back;
+    settings_defaults(&back);
+    xrSettingsFromCtx(c, &back);
+    CHECK(back.passthrough_glow_ok == 1 && back.passthrough_controllers_ok == 1 && back.glow == 1);
+    scene_free(sc);
+
+    // The void: no question, the glow and the models as before
+    sc = scene_new();
+    c = sc->ctx;
+    settings_defaults(&s);
+    s.controller_model = CONTROLLER_MODEL_FRAME;
+    xrApplySettings(c, &s);
+    CHECK(!c->passthrough && !xrPassthroughHidesModels(c) && !xrPassthroughHidesGlow(c));
+    memset(out, 0, sizeof(out));
+    out[IN_SETTING] = -1;
+    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT, 1, out);
+    CHECK(!c->hintOpen && c->ambilightOn && (int)out[IN_SETTING] == SETTING_AMBILIGHT);
+    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS, 2, out);
+    CHECK(!c->hintOpen && c->modelKind == CONTROLLER_MODEL_GUN);
+    // and a file with the answers in it reads them
+    s.passthrough = 1;
+    s.passthrough_controllers_ok = 1;
+    s.passthrough_glow_ok = 1;
+    xrApplySettings(c, &s);
+    CHECK(c->passthrough && !xrPassthroughHidesModels(c) && !xrPassthroughHidesGlow(c));
+    scene_free(sc);
+}
+
 // Native (1.3.4): the Display tab's Foveated rendering row: a press stores the choice (on or off,
 // never auto), the ring follows it, auto shows On, and the next session's start reads it
 static void foveatedRow(void) {
@@ -1069,6 +1164,7 @@ int main(void) {
     rayRowSaved();
     noticesRow();
     foveatedRow();
+    passthroughSheets();
     clickSteadyRow();
     controllerModelRow();
     cogTabKept();

@@ -352,6 +352,30 @@ static void test_cog_rows_present(void) {
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_CLICK_SOUND) == 2);
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_FOVEATED) == 2);   // native (1.3.4): Off, On
     CHECK(strcmp(ui_str(UIS_ROW_FOVEATED), "Foveated rendering") == 0);
+    {
+        // native (1.3.4): in passthrough before its sheet's I Understand, Show controllers is greyed with
+        // "off in passthrough" and still takes a press (it asks); the glow's row shows Off
+        UiView vp = v;
+        Settings sp = *v.settings;
+        sp.glow = 1;
+        vp.settings = &sp;
+        Guarded gp0, gp;
+        draw(UI_PANEL_COG, &vp, 1.0f, &gp0);
+        vp.pt_hides = UI_PT_HIDES_CONTROLLERS | UI_PT_HIDES_GLOW;
+        draw(UI_PANEL_COG, &vp, 1.0f, &gp);
+        check_hits_inside("display, passthrough");
+        CHECK(memcmp(gp0.px, gp.px, gp.size) != 0);
+        for (int c = 0; c < COG_CONTROLLERS_CELLS; c++) {
+            int i = ui_hits_find(&hits, UI_HIT_CELL, COG_OPTION_CONTROLLERS, c);
+            CHECK(i >= 0 && hits.hit[i].enabled);
+        }
+        CHECK(ui_cog_display_cell(&vp, COG_OPTION_AMBILIGHT) == 0);
+        vp.pt_hides = 0;
+        CHECK(ui_cog_display_cell(&vp, COG_OPTION_AMBILIGHT) == 1);
+        CHECK(strcmp(ui_str(UIS_OFF_IN_PASSTHROUGH), "off in passthrough") == 0);
+        free(gp0.base);
+        free(gp.base);
+    }
     free(g.base);
 
     // 3D tab
@@ -866,6 +890,26 @@ static void test_other_panels_hits(void) {
         CHECK(nv >= 0 && handHintZone((hits.hit[nv].u0 + hits.hit[nv].u1) / 2, (hits.hit[nv].v0 + hits.hit[nv].v1) / 2) == HINT_ZONE_NEVER);
         CHECK(strcmp(ui_str(UIS_DEPTH_FULL_TITLE), "Use ZipDepth Full?") == 0);
         CHECK(strcmp(ui_str(UIS_I_UNDERSTAND), "I Understand") == 0);
+        // native (1.3.4): and the two passthrough questions, each its own words, the same buttons
+        static const int KINDS[2] = { HINT_KIND_PT_CONTROLLERS, HINT_KIND_PT_GLOW };
+        Guarded gk[2];
+        for (int k = 0; k < 2; k++) {
+            vd.hint_kind = KINDS[k];
+            draw(UI_PANEL_HINT, &vd, 1.0f, &gk[k]);
+            check_hits_inside("passthrough sheet");
+            CHECK(memcmp(gd.px, gk[k].px, gd.size) != 0);
+            ok = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HINT_OK, -1);
+            CHECK(ok >= 0 && handHintZone((hits.hit[ok].u0 + hits.hit[ok].u1) / 2, (hits.hit[ok].v0 + hits.hit[ok].v1) / 2) == HINT_ZONE_OK);
+            nv = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_HINT_NEVER, -1);
+            CHECK(nv >= 0 && handHintZone((hits.hit[nv].u0 + hits.hit[nv].u1) / 2, (hits.hit[nv].v0 + hits.hit[nv].v1) / 2) == HINT_ZONE_NEVER);
+        }
+        CHECK(memcmp(gk[0].px, gk[1].px, gd.size) != 0);
+        CHECK(strcmp(ui_str(UIS_PT_CONTROLLERS_TITLE), "Controllers in Passthrough?") == 0);
+        CHECK(strcmp(ui_str(UIS_PT_CONTROLLERS_BODY), "You can already see your controllers. Drawing them too adds GPU load and can cause stutter or glitches.") == 0);
+        CHECK(strcmp(ui_str(UIS_PT_GLOW_TITLE), "Glow in Passthrough?") == 0);
+        CHECK(strcmp(ui_str(UIS_PT_GLOW_BODY), "Glow with passthrough adds GPU load and can cause ghosting, stutter or glitches.") == 0);
+        free(gk[0].base);
+        free(gk[1].base);
         free(gd.base);
     }
     free(g.base);

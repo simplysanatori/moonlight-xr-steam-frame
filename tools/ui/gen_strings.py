@@ -244,6 +244,12 @@ MAP = [
     ("native_depth_full_title", NATIVE),
     ("native_depth_full_body", NATIVE),
     ("native_i_understand", NATIVE),
+    # native (1.3.4): the passthrough questions and Show controllers' note
+    ("native_pt_controllers_title", NATIVE),
+    ("native_pt_controllers_body", NATIVE),
+    ("native_pt_glow_title", NATIVE),
+    ("native_pt_glow_body", NATIVE),
+    ("native_off_in_passthrough", NATIVE),
     ("native_row_edge", NATIVE),
     ("native_row_depth_detail", NATIVE),
     ("native_row_depth_shape", NATIVE),

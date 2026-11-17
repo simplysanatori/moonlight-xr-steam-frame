@@ -174,7 +174,7 @@ void updateControllerModels(XrCtx* ctx) {
         }
     }
     int live = ctx->modelOn && ctx->modelReady && !ctx->modelPassFailed && ctx->inputReady
-            && poseAction != XR_NULL_HANDLE && !ctx->passthrough && ctx->shouldRender
+            && poseAction != XR_NULL_HANDLE && !xrPassthroughHidesModels(ctx) && ctx->shouldRender
             && ctx->sessionState == XR_SESSION_STATE_FOCUSED
             && ctx->splash.phase == SPLASH_GONE;
     if (live && !ctx->actionsSynced) {
@@ -208,14 +208,14 @@ void updateControllerModels(XrCtx* ctx) {
         // controllerModelShown goes by) and the ray's hold, so a short loss of
         // tracking keeps the model where it last was for as long as it keeps
         // the ray, and the two go together after that
-        int tracked = placed && controllerModelShown(ctx->modelOn, ctx->passthrough,
+        int tracked = placed && controllerModelShown(ctx->modelOn, xrPassthroughHidesModels(ctx),
                                                      ctx->profileKind[h], active,
                                                      (unsigned)loc.locationFlags);
         int hold = poseHoldStep(&ctx->gripHold[h], tracked, nowNs(), POSE_HOLD_NS);
         if (tracked) {
             poseHoldKeep(&ctx->gripHold[h], loc.pose);
         }
-        shown[h] = ctx->modelOn && !ctx->passthrough
+        shown[h] = ctx->modelOn && !xrPassthroughHidesModels(ctx)
                 && ctx->profileKind[h] == PROFILE_CONTROLLER && hold != POSE_GONE;
         if (shown[h]) {
             ctx->modelGrip[h] = ctx->gripHold[h].pose;

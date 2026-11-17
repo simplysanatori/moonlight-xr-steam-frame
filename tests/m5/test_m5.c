@@ -298,6 +298,10 @@ static void envGroup(void) {
     CHECK(!hasSwapchain(&s->out, FAKE_GLOW));
     c->ambilightOn = 1;
     envStep(s, ENV_CELL_PASSTHROUGH);
+    // Native (1.3.4): passthrough draws no glow until "Glow in Passthrough?" is answered I Understand
+    CHECK(c->passthrough && !hasSwapchain(&s->out, FAKE_GLOW));
+    c->ptGlowOk = 1;
+    scene_frame(s, NULL);
     CHECK(hasSwapchain(&s->out, FAKE_GLOW));
     // The glow never stands in for a missing picture (the launcher's list)
     s->launcher.mode = LAUNCHER_PCS;
