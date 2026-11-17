@@ -29,6 +29,8 @@ typedef struct MlxrFailover {
     int switches;                    // moves made since the app started
     mlxr_failover_samples samples;
     char lastWhy[96];                // the last answer that was not "switch" (for a test)
+    int held;                        // native (1.3.4): switches not made because the PC ends the app on leaving
+    uint64_t heldKey;                // ... the stream the last one was in (logged once a stream)
 } MlxrFailover;                      // all zero is the start state
 
 // What the loop reads and does outside itself, so a test runs it with a fake session
@@ -44,6 +46,9 @@ typedef struct MlxrFailoverOps {
     void (*abandon)(void* user, mlxr_net_path from);                            // ... and not back until the next start
     void (*notice)(void* user, const char* text);                               // the headset's text (may be NULL)
     void (*log)(void* user, const char* line);                                  // moonlight.log (may be NULL)
+    // Native (1.3.4): 0 when the stream may not be left for another link: this PC and app ended the app the
+    // last time the client left it (stream/host_app.h). NULL: always may.
+    int (*mayLeave)(void* user);
 } MlxrFailoverOps;
 
 // One step at nowMs (the caller's CLOCK_MONOTONIC milliseconds; calls less than a second after the last one do
@@ -51,6 +56,8 @@ typedef struct MlxrFailoverOps {
 // tears the stream down for a retry exactly as for a dropped link.
 int mlxr_failover_step(MlxrFailover* f, MlxrReconnect* rc, const MlxrFailoverOps* ops, int64_t nowMs);
 
+// Native (1.3.4): the real session's mayLeave, set by the app at each stream start (and when it learns)
+void mlxr_failover_set_may_leave(int may);
 // The app's call, with the real session, netpath and settings behind the ops. notice (may be NULL) is
 // xr_app_notice.
 int mlxr_failover_poll(MlxrFailover* f, MlxrReconnect* rc, int64_t nowMs, void (*notice)(const char* text));

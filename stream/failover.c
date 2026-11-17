@@ -69,6 +69,21 @@ int mlxr_failover_step(MlxrFailover* f, MlxrReconnect* rc, const MlxrFailoverOps
         snprintf(f->lastWhy, sizeof(f->lastWhy), "%s", mlxr_failover_reason_text(out.reason));
         return 0;
     }
+    // Native (1.3.4): a switch disconnects, and a PC that ends the app when its last client leaves would end
+    // the game with it: the stream stays on its link, said once a stream
+    if (ops->mayLeave && !ops->mayLeave(ops->user)) {
+        snprintf(f->lastWhy, sizeof(f->lastWhy), "held: this PC ends the app when the client leaves");
+        f->held++;
+        if (f->heldKey != key) {
+            f->heldKey = key;
+            char line[300];
+            snprintf(line, sizeof(line), "network path: staying on %s rather than switching to %s after %llu ms of loss: "
+                     "this PC ended the app the last time the client left it (host-apps.ini), and a switch disconnects",
+                     mlxr_net_path_label(q.chosen), mlxr_net_path_label(out.to), (unsigned long long)loss.lossMs);
+            if (ops->log) ops->log(ops->user, line);
+        }
+        return 0;
+    }
     if (!mlxr_reconnect_switch(rc, nowMs)) return 0; // a reconnect is already on its way
 
     char logText[200], text[200];

@@ -148,6 +148,34 @@ static void testSwitch(void) {
     CHECK(f.forced == 2 && f.forcedTo == MLXR_PATH_USB && f.abandonedFrom == MLXR_PATH_ADAPTER && fo.switches == 2);
 }
 
+// Native (1.3.4): a PC and app known to end the app when the client leaves: the loop does not switch (a switch
+// disconnects), says so once a stream, and switches as before once it may
+static int g_may;
+static int fkMayLeave(void* u) { (void)u; return g_may; }
+static void testHeld(void) {
+    Fake f;
+    startFake(&f, 0);
+    MlxrFailover fo;
+    memset(&fo, 0, sizeof fo);
+    MlxrReconnect rc;
+    mlxr_reconnect_init(&rc);
+    MlxrFailoverOps ops = opsFor(&f);
+    ops.mayLeave = fkMayLeave;
+    g_may = 0;
+    int64_t lossStart = 0;
+    for (int64_t t = 1000; t <= 100000; t += 1000) {
+        second(&f, t, t >= 60000 ? 30 : 0, &lossStart);
+        CHECK(mlxr_failover_step(&fo, &rc, &ops, t) == 0);
+    }
+    CHECK(f.forced == 0 && f.abandoned == 0 && f.noted == 0 && f.noticed == 0 && rc.state != MLXR_RC_WAITING);
+    CHECK(fo.held > 1 && fo.switches == 0 && strstr(fo.lastWhy, "held") != NULL);
+    CHECK(f.logged == 1 && strstr(f.logLine, "network path: staying on Wi-Fi rather than switching to Steam Frame Wireless Adapter") != NULL);
+    // once it may (the PC kept the app since), the next poll switches
+    g_may = 1;
+    second(&f, 101000, 30, &lossStart);
+    CHECK(mlxr_failover_step(&fo, &rc, &ops, 101000) == 1 && f.forced == 1 && fo.switches == 1);
+}
+
 static void testQuiet(void) {
     Fake f;
     MlxrFailover fo;
@@ -256,6 +284,7 @@ static void testText(void) {
 }
 
 int main(void) {
+    testHeld();
     testSwitch();
     testQuiet();
     testPollRate();
