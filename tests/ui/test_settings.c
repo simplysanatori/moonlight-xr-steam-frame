@@ -2063,12 +2063,14 @@ static void test_foveated(void) {
     CHECK(settings_fdm_layer_off(&s, NULL, &why) == 1 && strcmp(why, "[display] foveated") == 0);
     CHECK(settings_fdm_layer_off(&s, "", NULL) == 1);
     CHECK(settings_fdm_layer_off(&s, "1", &why) == 0 && strcmp(why, "MLXR_FDM_LAYER") == 0);
-    // the Display tab's row: Off 0, On 1; auto shows On
+    // the Display tab's row: On 0, Off 1 (the approved order); auto shows On
     SessionToggles t;
     session_from_settings(&s, &t);
-    CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 0);
-    s.foveated = FOVEATED_AUTO;
     CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 1);
+    s.foveated = FOVEATED_AUTO;
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 0);
+    s.foveated = FOVEATED_ON;
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 0);
     CHECK(settings_find("display.foveated") != NULL && settings_find("foveated") != NULL);
 }
 

@@ -285,6 +285,8 @@ static void tab_display(Dc* dc) {
         UIS_ROW_NOTICES, UIS_ROW_FOVEATED };
     static const UiStr OFFNQ[3] = { UIS_OFF, UIS_NORMAL, UIS_QUALITY };
     static const UiStr OFFON[2] = { UIS_OFF, UIS_ON };
+    // native (1.3.4): Foveated rendering reads On, Off (the approved order)
+    static const UiStr ONOFF[2] = { UIS_ON, UIS_OFF };
     static const UiStr PADPTR[2] = { UIS_POINTER, UIS_GAMEPAD };
     // native: the Head locked row's third cell, the screen that follows the head late
     static const UiStr HEADLOCK3[3] = { UIS_OFF, UIS_ON, UIS_FOLLOW };
@@ -348,7 +350,7 @@ static void tab_display(Dc* dc) {
                            : row == COG_OPTION_RAY ? POINTER3 : row == COG_OPTION_NOTICES ? NOTICES3
                            : row == COG_OPTION_HEAD_LOCK ? HEADLOCK3
                            : row == COG_OPTION_CONTROLLERS ? MODEL3
-                           : row == COG_OPTION_CLICK_STEADY ? STEADY3 : OFFON;
+                           : row == COG_OPTION_CLICK_STEADY ? STEADY3 : row == COG_OPTION_FOVEATED ? ONOFF : OFFON;
         int n = ui_cog_row_cells(COG_TAB_DISPLAY, row);
         cells(dc, COG_TAB_DISPLAY, row, names, n, y, 1, cell_half, ui_cog_display_cell(v, row));
     }

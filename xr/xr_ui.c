@@ -1105,7 +1105,9 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
     if (option == COG_OPTION_FOVEATED) {
         // Native (1.3.4): the setting, for the next stream (auto is On); this session's own is
         // whatever its start said
-        return ctx->foveated == FOVEATED_AUTO ? FOVEATED_AUTO_IS_ON : ctx->foveated == FOVEATED_ON;
+        // (the cells read On, Off)
+        int on = ctx->foveated == FOVEATED_AUTO ? FOVEATED_AUTO_IS_ON : ctx->foveated == FOVEATED_ON;
+        return on ? 0 : 1;
     }
     return ctx->overlayVisible ? 1 : 0;
 }
@@ -1222,8 +1224,8 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
     if (option == COG_OPTION_FOVEATED) {
         // Native (1.3.4): stored as a choice (on or off, never auto again), taken from the next stream:
         // Valve's layer is set up with the OpenXR instance
-        ctx->foveated = cell != 0 ? FOVEATED_ON : FOVEATED_OFF;
-        LOGEV("foveated rendering %s from the panel, from the next stream", cell != 0 ? "on" : "off");
+        ctx->foveated = cell == 0 ? FOVEATED_ON : FOVEATED_OFF;   // the cells read On, Off
+        LOGEV("foveated rendering %s from the panel, from the next stream", cell == 0 ? "on" : "off");
         return SETTING_FOVEATED;
     }
     return -1;

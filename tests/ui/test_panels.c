@@ -350,7 +350,7 @@ static void test_cog_rows_present(void) {
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS) == 3);   // Off, Frame, Gun
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_POINTER_SLEEP) == 2);
     CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_CLICK_SOUND) == 2);
-    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_FOVEATED) == 2);   // native (1.3.4): Off, On
+    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_FOVEATED) == 2);   // native (1.3.4): On, Off
     CHECK(strcmp(ui_str(UIS_ROW_FOVEATED), "Foveated rendering") == 0);
     {
         // native (1.3.4): in passthrough before its sheet's I Understand, Show controllers is greyed with

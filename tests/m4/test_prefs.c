@@ -679,14 +679,14 @@ static void foveatedRow(void) {
     settings_defaults(&s);
     xrApplySettings(c, &s);
     CHECK(cogOptionCells(COG_OPTION_FOVEATED) == 2);
-    CHECK(cogOptionValue(c, COG_OPTION_FOVEATED, 0) == 1);   // auto: On
+    CHECK(cogOptionValue(c, COG_OPTION_FOVEATED, 0) == 0);   // auto: On, the first cell (On, Off)
     float out[IN_SLOTS];
     for (int cell = 0; cell < 2; cell++) {
         memset(out, 0, sizeof(out));
         out[IN_SETTING] = -1;
         cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_FOVEATED, cell, out);
         CHECK((int)out[IN_SETTING] == SETTING_FOVEATED);
-        int want = cell ? FOVEATED_ON : FOVEATED_OFF;
+        int want = cell == 0 ? FOVEATED_ON : FOVEATED_OFF;
         CHECK((int)out[IN_SETTING_VALUE] == cell);
         CHECK(xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) == 1);
         CHECK(s.foveated == want && cogOptionValue(c, COG_OPTION_FOVEATED, 0) == cell);
@@ -698,7 +698,8 @@ static void foveatedRow(void) {
     // On pressed while it shows On (auto) is a choice: stored as on
     Settings fresh;
     settings_defaults(&fresh);
-    CHECK(xrStoreSetting(c, &fresh, SETTING_FOVEATED, 1) == 1 && fresh.foveated == FOVEATED_ON);
+    CHECK(xrStoreSetting(c, &fresh, SETTING_FOVEATED, 0) == 1 && fresh.foveated == FOVEATED_ON);
+    CHECK(xrStoreSetting(c, &fresh, SETTING_FOVEATED, 1) == 1 && fresh.foveated == FOVEATED_OFF);
     scene_free(sc);
 }
 

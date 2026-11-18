@@ -821,7 +821,7 @@
 #define COG_OPTION_ROOM_LIGHT 12
 // Native: which notices the toast says (All, Important, Off)
 #define COG_OPTION_NOTICES 13
-// Native (1.3.4): Foveated rendering (Off, On), [display] foveated, from the next stream. Last of the
+// Native (1.3.4): Foveated rendering (On, Off), [display] foveated, from the next stream. Last of the
 // option rows, so the rows before it keep their numbers.
 #define COG_OPTION_FOVEATED 14
 #define COG_OPTION_COUNT   15
