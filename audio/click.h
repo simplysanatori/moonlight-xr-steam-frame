@@ -3,10 +3,12 @@
 // stream session running and the server mixes it with the game audio.
 //
 // Threading: init/shutdown from a control thread. play() and set_volume() are
-// callable from any thread, including the frame loop: play() only sets an
-// atomic bit and posts a semaphore, never touching PulseAudio or blocking. A
-// helper thread does the writing, and corks the stream again about half a
-// second after the last click so an idle UI does not hold the sound device awake.
+// callable from any thread, including the frame loop: play() only counts the
+// press in an atomic and posts a semaphore, never touching PulseAudio or
+// blocking. A helper thread does the writing, every press it finds waiting (up
+// to MLXR_CLICK_BURST_MAX of a kind, a few ms apart), and corks the stream again
+// about half a second after the last click so an idle UI does not hold the
+// sound device awake.
 #ifndef MLXR_CLICK_H
 #define MLXR_CLICK_H
 
@@ -35,6 +37,28 @@ void mlxr_click_shutdown(void);
 void mlxr_click_set_volume(float volume);
 /** Non-blocking. Silently does nothing if init failed or was not called. */
 void mlxr_click_play(MlxrClickKind kind);
+
+/**
+ * Native (owner's request): the most presses of one kind that wait to be
+ * played. More while those wait are dropped, so a held key's repeat cannot
+ * build a long tail.
+ */
+#define MLXR_CLICK_BURST_MAX 4
+
+/**
+ * The press counter play() and the helper share, for tests: count() adds one
+ * press (none past MLXR_CLICK_BURST_MAX) and returns how many wait now; take()
+ * returns them all and leaves none.
+ */
+int mlxr_click_count(MlxrClickKind kind);
+int mlxr_click_take(MlxrClickKind kind);
+
+/**
+ * count copies of a stereo click of frames frames, each 18 ms after the one
+ * before and added in, into out. Returns the frame count (<= maxFrames). Pure;
+ * for tests.
+ */
+int mlxr_click_burst(const float* click, int frames, int count, float* out, int maxFrames);
 
 /**
  * The click's samples: mono float at the given rate, peak ~1.0 before volume.

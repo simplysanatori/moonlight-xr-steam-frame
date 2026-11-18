@@ -14,13 +14,20 @@
 #define RATE 48000
 #define MAX_FRAMES 4800
 #define IDLE_CORK_MS 500
+// Native (owner's request): presses that land before the helper wakes are each
+// played, the later ones this far after the one before, so a fast burst reads
+// as that many clicks. A press decays in 7 ms, so they stay apart.
+#define BURST_GAP_FRAMES (RATE * 18 / 1000)
+#define BURST_MAX_FRAMES ((MLXR_CLICK_BURST_MAX - 1) * BURST_GAP_FRAMES + MAX_FRAMES)
 
 static struct {
     MlxrPulseOut* out;
     pthread_t thread;
     sem_t sem;
     int running;
-    _Atomic int pending;
+    // Native (owner's request): presses waiting per kind, at most
+    // MLXR_CLICK_BURST_MAX each. A bit per kind merged a burst into one click.
+    _Atomic int pending[MLXR_CLICK_KINDS];
     _Atomic float volume;
     float* stereo[MLXR_CLICK_KINDS];
     int frames[MLXR_CLICK_KINDS];
@@ -73,22 +80,24 @@ static void* worker(void* arg) {
             corked = 1;
             continue;
         }
-        int bits = atomic_exchange(&C.pending, 0);
         float vol = atomic_load(&C.volume);
-        for (int k = 0; k < MLXR_CLICK_KINDS && vol > 0.0f; k++) {
-            if (bits & (1 << k)) {
-                if (corked) {
-                    mlxr_pulse_out_set_corked(C.out, false);
-                    corked = 0;
-                }
-                // Scale a copy so the stored click stays at unit peak
-                float buf[MAX_FRAMES * 2];
-                int n = C.frames[k];
-                for (int i = 0; i < 2 * n; i++) {
-                    buf[i] = C.stereo[k][i] * vol;
-                }
-                mlxr_pulse_out_write(C.out, buf, n);
+        for (int k = 0; k < MLXR_CLICK_KINDS; k++) {
+            // Taken at volume 0 too, so nothing waits to play once it is turned up
+            int count = mlxr_click_take((MlxrClickKind) k);
+            if (count <= 0 || vol <= 0.0f) {
+                continue;
             }
+            if (corked) {
+                mlxr_pulse_out_set_corked(C.out, false);
+                corked = 0;
+            }
+            // Scaled into a copy so the stored click stays at unit peak
+            static float buf[BURST_MAX_FRAMES * 2];
+            int n = mlxr_click_burst(C.stereo[k], C.frames[k], count, buf, BURST_MAX_FRAMES);
+            for (int i = 0; i < 2 * n; i++) {
+                buf[i] *= vol;
+            }
+            mlxr_pulse_out_write(C.out, buf, n);
         }
     }
     return NULL;
@@ -107,7 +116,9 @@ int mlxr_click_init(const char* sink, char* err, int errLen) {
         return 0;
     }
     atomic_init(&C.volume, 0.5f);
-    atomic_init(&C.pending, 0);
+    for (int k = 0; k < MLXR_CLICK_KINDS; k++) {
+        atomic_init(&C.pending[k], 0);
+    }
     float mono[MAX_FRAMES];
     for (int k = 0; k < MLXR_CLICK_KINDS; k++) {
         int n = mlxr_click_synthesize((MlxrClickKind) k, RATE, mono, MAX_FRAMES);
@@ -131,7 +142,9 @@ int mlxr_click_init(const char* sink, char* err, int errLen) {
     p.tlengthMs = 30;
     p.minreqMs = 5;
     p.prebufMs = 0;
-    p.queueCapMs = 80;
+    // Native (owner's request): room for a whole burst (4 presses, 90 ms) on
+    // top of the server's 30 ms; one click alone waits no longer than before
+    p.queueCapMs = 160;
     p.noFadeAfterUnderrun = true;
     C.out = mlxr_pulse_out_open(&p, err, errLen);
     if (C.out == NULL) {
@@ -176,6 +189,49 @@ void mlxr_click_play(MlxrClickKind kind) {
     if (!C.running || kind < 0 || kind >= MLXR_CLICK_KINDS) {
         return;
     }
-    atomic_fetch_or(&C.pending, 1 << kind);
+    mlxr_click_count(kind);
     sem_post(&C.sem);
+}
+
+int mlxr_click_count(MlxrClickKind kind) {
+    if (kind < 0 || kind >= MLXR_CLICK_KINDS) {
+        return 0;
+    }
+    // Native (owner's request): one more, unless MLXR_CLICK_BURST_MAX are
+    // already waiting: a held key's repeat builds no long tail
+    int n = atomic_load(&C.pending[kind]);
+    while (n < MLXR_CLICK_BURST_MAX
+           && !atomic_compare_exchange_weak(&C.pending[kind], &n, n + 1)) {
+    }
+    return n < MLXR_CLICK_BURST_MAX ? n + 1 : n;
+}
+
+int mlxr_click_take(MlxrClickKind kind) {
+    if (kind < 0 || kind >= MLXR_CLICK_KINDS) {
+        return 0;
+    }
+    return atomic_exchange(&C.pending[kind], 0);
+}
+
+int mlxr_click_burst(const float* click, int frames, int count, float* out, int maxFrames) {
+    if (click == NULL || frames <= 0 || count <= 0) {
+        return 0;
+    }
+    if (count > MLXR_CLICK_BURST_MAX) {
+        count = MLXR_CLICK_BURST_MAX;
+    }
+    int n = (count - 1) * BURST_GAP_FRAMES + frames;
+    if (n > maxFrames) {
+        n = maxFrames;
+    }
+    memset(out, 0, sizeof(float) * 2 * (size_t) n);
+    // Each one added in after the one before, the tails overlapping
+    for (int c = 0; c < count; c++) {
+        int at = c * BURST_GAP_FRAMES;
+        for (int i = 0; i < frames && at + i < n; i++) {
+            out[2 * (at + i)] += click[2 * i];
+            out[2 * (at + i) + 1] += click[2 * i + 1];
+        }
+    }
+    return n;
 }
