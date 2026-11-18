@@ -123,3 +123,16 @@ typedef struct {
 } LaunchView;
 void launcher_view(Launcher* l, LaunchView* v);
 const char* launcher_state_name(LaunchState s);
+
+// ---- Native (1.3.4): a stream in a fresh client process ----
+// Foveated rendering is Valve's fdm_injection layer, which is read once, when the OpenXR instance is made. A
+// stream started from the headset's own lists while the setting asks for the layer otherwise than this process
+// set it up (appliedOff 1 off, 0 on, -1 not known; wantOff as the setting has it now) starts in a fresh client
+// process with that PC and app, so "Applies from the next stream" holds. Never with --exit-to-caller (the flat
+// window's hand-off starts a process for each stream anyway, and waits on this one) nor in file mode.
+int launcher_wants_fresh_process(int appliedOff, int wantOff, int exitToCaller, int fileMode);
+// The fresh process's arguments: this one's (argv[0] .. argv[argc-1]) without --host, --app and their values
+// and without --clipboard-sync and --clipboard-key-stdin (the key on stdin was read once), then --host host
+// --app app. out takes at most cap - 1 of them and a NULL; the count back, -1 when they do
+// not fit.
+int launcher_fresh_argv(int argc, char* const* argv, const char* host, const char* app, char** out, int cap);

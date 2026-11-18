@@ -207,5 +207,35 @@ int main(void) {
     launcher_init(&l);
     for (int i = 0; i < 20; i++) launcher_press(&l, UI_HIT_BUTTON, UI_BTN_LIST_ADD, 0);
     CHECK(l.ncmd <= 8);
+
+    // Native (1.3.4): Foveated rendering changed since this process made its OpenXR instance: the next stream
+    // from the headset's lists starts in a fresh process; not when it is as applied, not before the instance,
+    // never for the flat window (--exit-to-caller) or a file
+    CHECK(launcher_wants_fresh_process(0, 1, 0, 0) && launcher_wants_fresh_process(1, 0, 0, 0));
+    CHECK(!launcher_wants_fresh_process(0, 0, 0, 0) && !launcher_wants_fresh_process(1, 1, 0, 0));
+    CHECK(!launcher_wants_fresh_process(-1, 1, 0, 0));
+    CHECK(!launcher_wants_fresh_process(0, 1, 1, 0) && !launcher_wants_fresh_process(1, 0, 0, 1));
+    {
+        // its arguments: this process's, its --host and --app replaced
+        char* const argv[] = { "/opt/mlxr/moonlight-xr", "--host", "gaming-pc", "--bitrate", "98000", "--app", "Desktop",
+                               "--network", "auto", NULL };
+        char* out[16];
+        int n = launcher_fresh_argv(9, argv, "6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B", "881448767", out, 16);
+        CHECK(n == 9 && out[n] == NULL);
+        static const char* const WANT[] = { "/opt/mlxr/moonlight-xr", "--bitrate", "98000", "--network", "auto", "--host",
+                                            "6E1F0C2A-3B4D-4E5F-8A9B-0C1D2E3F4A5B", "--app", "881448767" };
+        for (int i = 0; i < 9 && n == 9; i++) CHECK(strcmp(out[i], WANT[i]) == 0);
+        // started from the lists with no arguments at all
+        char* const bare[] = { "moonlight-xr", NULL };
+        n = launcher_fresh_argv(1, bare, "PC", "7", out, 16);
+        CHECK(n == 5 && !strcmp(out[1], "--host") && !strcmp(out[2], "PC") && !strcmp(out[3], "--app") && !strcmp(out[4], "7"));
+        // too many for the room given
+        CHECK(launcher_fresh_argv(9, argv, "PC", "7", out, 8) == -1);
+        // the clipboard sync and its key on stdin stay with this process
+        char* const clip[] = { "moonlight-xr", "--clipboard-sync", "--clipboard-key-stdin", "--bitrate", "50000", NULL };
+        n = launcher_fresh_argv(5, clip, "PC", "7", out, 16);
+        CHECK(n == 7 && !strcmp(out[1], "--bitrate") && !strcmp(out[2], "50000") && !strcmp(out[3], "--host"));
+        for (int i = 0; i < n; i++) CHECK(strncmp(out[i], "--clipboard", 11) != 0);
+    }
     return checksDone("m4 launcher");
 }

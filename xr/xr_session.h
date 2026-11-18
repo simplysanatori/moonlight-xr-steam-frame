@@ -101,6 +101,10 @@ typedef struct XrAppConfig {
 // Returns 0 on a clean exit, 1 when there is no runtime or headset.
 int xr_app_run(const XrAppConfig* cfg);
 void xr_app_request_quit(void);
+// Native (1.3.4): whether this process turned Valve's fdm_injection layer off when it made its OpenXR instance
+// (1 off, 0 on, -1 not made yet); *byEnvironment (may be NULL) 1 when the environment it started with had
+// DISABLE_VULKAN_FDM_INJECTION_LAYER set, which no setting overrides. The layer is read once, with the instance.
+int xr_app_fdm_layer_off(int* byEnvironment);
 // Any thread: a line on the toast
 void xr_app_notice(const char* text);
 // Any thread but the frame loop: the picture is gone (the stream stopped);

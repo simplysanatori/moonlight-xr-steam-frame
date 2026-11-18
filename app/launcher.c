@@ -292,3 +292,29 @@ void launcher_view(Launcher* l, LaunchView* v) {
         v->failed = l->appsFailed;
     }
 }
+
+int launcher_wants_fresh_process(int appliedOff, int wantOff, int exitToCaller, int fileMode) {
+    if (exitToCaller || fileMode || appliedOff < 0) return 0;
+    return (appliedOff != 0) != (wantOff != 0);
+}
+
+int launcher_fresh_argv(int argc, char* const* argv, const char* host, const char* app, char** out, int cap) {
+    int n = 0;
+    if (argc < 1 || host == NULL || app == NULL || cap < 6) return -1;
+    for (int i = 0; i < argc; i++) {
+        if (i > 0 && (!strcmp(argv[i], "--host") || !strcmp(argv[i], "--app"))) {
+            i++;   // and its value
+            continue;
+        }
+        // the clipboard key came on stdin once, for that stream: the fresh process has none to read
+        if (i > 0 && (!strcmp(argv[i], "--clipboard-sync") || !strcmp(argv[i], "--clipboard-key-stdin"))) continue;
+        if (n >= cap - 5) return -1;
+        out[n++] = argv[i];
+    }
+    out[n++] = (char*)"--host";
+    out[n++] = (char*)host;
+    out[n++] = (char*)"--app";
+    out[n++] = (char*)app;
+    out[n] = NULL;
+    return n;
+}

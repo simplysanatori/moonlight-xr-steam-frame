@@ -60,6 +60,7 @@
 #include <poll.h>
 #include <time.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include "../audio/opus_out.h"
 #include "../backend/backend.h"
@@ -128,6 +129,13 @@ static struct {
 } g_hostKept = { -1, 0, MLXR_HOSTAPP_WHY_NONE, 0 };
 static mlxr_hostapp_why g_stopWhy;
 static int64_t monoMs(void);
+// Native (1.3.4): a stream to start in a fresh client process (launcher_wants_fresh_process): its PC and app,
+// set by the worker before it asks the XR loop to end; main() then starts the process over with them
+static struct {
+    int want;
+    char host[128];
+    char app[16];
+} g_fresh;
 static atomic_int g_linkDown;
 static int g_rcFatal;           // the last try was refused for a reason a retry does not change (worker only)
 // Native (lane rate-match): the fps the running stream asked the host for and the one wanted before the
@@ -1871,8 +1879,24 @@ static void* worker(void* arg) {
             break;
         }
         case LCMD_LAUNCH: {
+            // Native (1.3.4): Foveated rendering applies from the next stream, and its layer is read when the
+            // OpenXR instance is made: a stream asking for it otherwise starts in a fresh process
+            int fdmByEnv = 0, fdmApplied = xr_app_fdm_layer_off(&fdmByEnv);
+            int fdmWant = fdmByEnv || settings_fdm_layer_off(&g_settings, getenv("MLXR_FDM_LAYER"), NULL);
+            if (n->haveId && c.pc >= 0 && c.pc < (int)n->hosts.n && c.appId > 0
+                && launcher_wants_fresh_process(fdmApplied, fdmWant, g_args.exitToCaller, g_args.file != NULL)) {
+                mlxr_host_record* r = &n->hosts.v[c.pc];
+                snprintf(g_fresh.host, sizeof(g_fresh.host), "%s", r->uuid[0] ? r->uuid : r->name);
+                snprintf(g_fresh.app, sizeof(g_fresh.app), "%d", c.appId);
+                g_fresh.want = 1;
+                MLOG_I("foveated rendering: Valve's layer is %s in this process and the setting has it %s: app %d on %s "
+                       "starts in a fresh process", fdmApplied ? "off" : "on", fdmWant ? "off" : "on", c.appId, r->name);
+                xr_app_request_quit();
+                break;
+            }
             g_rematchSaid = 0; // Native (lane rate-match): a stream the user starts gets its notices afresh
             g_underSaid = 0;
+            g_endedSay = 0;
             int ok = n->haveId && launchStream(n, c.pc, c.appId, c.quitFirst, 0) == 0;
             if (ok) hostAppStart(n, c.pc, c.appId); // native (1.3.4)
             if (ok) {
@@ -2011,6 +2035,31 @@ static void keyDisconnectHook(void* user) {
 }
 
 // ---- main ---------------------------------------------------------------------------
+
+// Native (1.3.4): the client started over, with g_fresh's PC and app (the XR session and the streams are down,
+// the input devices let go): the descriptors past stderr are closed so the new process opens its own
+static void freshProcess(int argc, char** argv) {
+    char* args[96];
+    int n = launcher_fresh_argv(argc, argv, g_fresh.host, g_fresh.app, args, (int)(sizeof(args) / sizeof(args[0])));
+    char exe[512];
+    ssize_t len = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (n < 0 || len <= 0) {
+        MLOG_E("foveated rendering: could not start a fresh process (%s)", n < 0 ? "too many arguments" : "no /proc/self/exe");
+        xrLogFlush();
+        return;
+    }
+    exe[len] = 0;
+    MLOG_I("== moonlight-xr starts again for app %s on %s (Foveated rendering)", g_fresh.app, g_fresh.host);
+    xrLogFlush();
+    fflush(stdout);
+    fflush(stderr);
+    long maxFd = sysconf(_SC_OPEN_MAX);
+    if (maxFd < 0 || maxFd > 65536) maxFd = 65536;
+    for (int fd = 3; fd < (int)maxFd; fd++) close(fd);
+    execv(exe, args);
+    MLOG_E("foveated rendering: could not start a fresh process: %s", strerror(errno));
+    xrLogFlush();
+}
 
 static void openLog(void) {
     const char* dir = getenv("MLXR_LOG_DIR");
@@ -2267,6 +2316,7 @@ int main(int argc, char** argv) {
     OPENSSL_cleanse(g_clipKey, sizeof(g_clipKey)); // native (lane clipseal)
     free(g_net.dir);
     frame_slot_destroy(&g_slot);
+    if (g_fresh.want) freshProcess(argc, argv); // native (1.3.4): returns only when it could not
     if (g_args.exitToCaller) {
         // What the flat launcher is told: 0 for a normal end (the bar's exit, SteamVR quitting),
         // else a code and, on stderr, one "MLXR_ERROR: message" line

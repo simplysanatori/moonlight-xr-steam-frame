@@ -1631,15 +1631,39 @@ static int offered(const XrExtensionProperties* exts, uint32_t n, const char* na
 // (its own DISABLE_VULKAN_FDM_INJECTION_LAYER, set before the instance); FDM_DEBUG=1 makes the
 // layer log what it foveates. Native (1.3.4): the Foveated rendering setting ([display] foveated)
 // turns it off the same way; MLXR_FDM_LAYER, when set, wins (settings_fdm_layer_off).
+// Native (1.3.4): what this process set the layer up as (-1 before the instance), and whether the environment
+// it was started with turned it off already (then no setting turns it on). MLXR_FDM_OFF_BY_SETTING marks the
+// DISABLE_ variable as ours, so a fresh process started for a changed setting (xr_app_fdm_layer_off) does
+// not take it for the environment's.
+static atomic_int g_fdmOffApplied = -1;
+static atomic_int g_fdmOffByEnv;
+
+int xr_app_fdm_layer_off(int* byEnvironment) {
+    if (byEnvironment) *byEnvironment = atomic_load(&g_fdmOffByEnv);
+    return atomic_load(&g_fdmOffApplied);
+}
+
 static void gpuSwitchesAtStart(const XrExtensionProperties* exts, uint32_t n, const Settings* s) {
     const char* fdm = getenv("MLXR_FDM_LAYER");
     const char* fdmWhy = "unset";
-    if (s != NULL && settings_fdm_layer_off(s, fdm, &fdmWhy)) {
-        setenv("DISABLE_VULKAN_FDM_INJECTION_LAYER", "1", 1);
+    const char* ours = getenv("MLXR_FDM_OFF_BY_SETTING");
+    if (ours != NULL && ours[0] != 0) {
+        unsetenv("DISABLE_VULKAN_FDM_INJECTION_LAYER");
+        unsetenv("MLXR_FDM_OFF_BY_SETTING");
     }
-    else if (s == NULL && fdm != NULL && fdm[0] == '0') {
+    const char* given = getenv("DISABLE_VULKAN_FDM_INJECTION_LAYER");
+    int byEnv = given != NULL && given[0] != 0;
+    if (s != NULL && !byEnv && settings_fdm_layer_off(s, fdm, &fdmWhy)) {
+        setenv("DISABLE_VULKAN_FDM_INJECTION_LAYER", "1", 1);
+        setenv("MLXR_FDM_OFF_BY_SETTING", "1", 1);
+    }
+    else if (s == NULL && !byEnv && fdm != NULL && fdm[0] == '0') {
         fdmWhy = "MLXR_FDM_LAYER";
         setenv("DISABLE_VULKAN_FDM_INJECTION_LAYER", "1", 1);
+        setenv("MLXR_FDM_OFF_BY_SETTING", "1", 1);
+    }
+    else if (byEnv) {
+        fdmWhy = "DISABLE_VULKAN_FDM_INJECTION_LAYER in the environment";
     }
     int layerThere = 0;
     uint32_t nl = 0;
@@ -1653,6 +1677,8 @@ static void gpuSwitchesAtStart(const XrExtensionProperties* exts, uint32_t n, co
         }
     }
     const char* off = getenv("DISABLE_VULKAN_FDM_INJECTION_LAYER");
+    atomic_store(&g_fdmOffByEnv, byEnv);
+    atomic_store(&g_fdmOffApplied, off != NULL && off[0] != 0);
     LOGEV("gpu144: Valve fdm_injection layer %s%s (by %s; MLXR_FDM_LAYER=%s); XR_FB_foveation %s, "
           "XR_FB_foveation_vulkan %s (not used: the layer already foveates our eye-height passes)",
           layerThere ? "installed" : "not found", layerThere ? (off && *off ? ", turned off" : ", on") : "",
