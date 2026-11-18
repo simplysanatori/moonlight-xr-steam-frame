@@ -413,7 +413,7 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Aim dead zone | 0 to 20 | 2. Greyed unless Head locked is on. |
 | Preset | Desk, Couch, Cinema, Bring here | Desk is 1.2 m away and 1.6 m wide, Couch 2.5 m and 2.6 m, Cinema 4 m and 5 m. A preset sets only the distance and the width: the way the screen sits, its tilt, roll and curve stay as they were. **Bring here** puts the screen where you are looking, as far from you as it was and the same size. It does nothing in a room or with Head locked on. |
 | Remember per app | Off, On, Forget | On. Each PC and app keeps its own placement, head lock and 3D state, and gets them back the next time it streams. An app that has none starts from what is in force. **Forget** drops what is kept for the app now streaming. |
-| Angular-size lock | Off, On | On. Pushing or pulling the held screen with the thumbsticks resizes it with its distance, so it keeps the same size in your view. Off, a pushed screen gets smaller as it goes away. |
+| Angular-size lock | Off, On | On. Pushing or pulling the held screen with the thumbstick resizes it with its distance, so it keeps the same size in your view. Off, a pushed screen gets smaller as it goes away. |
 
 **Reset** puts the screen back to the defaults.
 
@@ -674,12 +674,13 @@ The headset shows "Gamepad mode" or "Pointer mode". In gamepad mode the menus cl
 | What | How |
 | --- | --- |
 | Move the screen | Grip the move pill under the screen, or pull the trigger on it, and move your hand. Letting go of the button you took hold with lets go. |
-| Push it away or pull it closer | While holding the pill, push either thumbstick up (farther) or down (closer). A push on a slant counts, and most of the way to the rim is full speed: 1.5 m a second either way. 0.3 to 8 m. |
+| Push it away or pull it closer | While holding the pill, push the thumbstick of the hand holding it up (farther) or down (closer). A push on a slant counts, and most of the way to the rim is full speed: 1.5 m a second either way. 0.3 to 8 m. |
+| Turn or tilt it | While holding it, push the other hand's thumbstick left or right to turn it, up or down to tilt it. |
 | Resize | Grip a corner of the screen, or pull the trigger on it. The corner's handle reaches just under 2 cm into the picture, so the desktop's own corners (the Start button) still click. In a room this sets the room's screen size. |
 | Curve | Screen tab, Curve. |
 | Recentre | Press d-pad up in pointer mode (`app:recentre`), or use SteamVR's recentre. The screen turns to where you face and keeps its distance, size and curve. |
-| Move the headset keyboard | Grip or trigger on the keyboard's bar. The thumbstick pushes and pulls it the same way. |
-| Move the stats window | Grip anywhere on it and drag. Reset, a recentre, or a room coming up or going away puts it and a moved keyboard back by the screen. |
+| Move the headset keyboard | Grip or trigger on the keyboard's bar. The thumbstick pushes and pulls it the same way. The other hand's thumbstick turns and tilts it. |
+| Move the stats window | Grip anywhere on it and drag. The other hand's thumbstick turns and tilts it. Reset, a recentre, or a room coming up or going away puts it and a moved keyboard back by the screen. |
 | Reset | Screen tab, Reset. |
 
 ### Follow and comfort
