@@ -1,7 +1,8 @@
 // Moonlight XR Native, tests/m4: the keyboard's move bar and the 3D tab's live
 // sliders (owner's requests). The bar: a ray at the pill under the keyboard
 // is HOVER_KBBAR, grabbing it carries the keyboard with the hand in place and
-// turn, the thumbsticks push it away and closer, letting go leaves it, the
+// turn, the holding hand's thumbstick pushes it away and closer and the other
+// hand's turns and tips it, letting go leaves it, the
 // keys are still hit at the new pose, a keyboard never moved is where it
 // always was, and resetting the screen's placement brings a moved one back.
 // The sliders: dragging the depth or convergence track moves what the picture
@@ -544,6 +545,211 @@ static void pictureBarPushPull(Scene* s) {
     c->panelCurve = keepCurve;
 }
 
+// ---- the other hand's stick turns and tips what is held (owner's request) ------
+
+// One second at the test hook's 90 Hz, the right hand holding still and the
+// left hand's stick (the other hand's) held as given
+static void holdOther(XrCtx* c, XrPosef aim, float x, float y, int frames) {
+    XrVector2f left = { x, y }, rest = { 0.0f, 0.0f };
+    for (int i = 0; i < frames; i++) xrGrabStepSticks(c, aim, 0, 1, left, rest);
+}
+
+// Which way a pose faces about the upright, radians, positive to the right
+static float facingYaw(XrPosef p) {
+    Vec3 n = quatRotate(p.orientation, (Vec3){ 0, 0, 1 });
+    return atan2f(n.x, n.z);
+}
+
+// How far its face is tipped up, radians
+static float facingPitch(XrPosef p) {
+    Vec3 n = quatRotate(p.orientation, (Vec3){ 0, 0, 1 });
+    return atan2f(n.y, sqrtf(n.x * n.x + n.z * n.z));
+}
+
+static void pictureBarTurnTilt(Scene* s) {
+    XrCtx* c = s->ctx;
+    XrPosef keepPose = c->screenPose;
+    float keepW = c->screenWidth, keepR = c->screenRadius, keepCurve = c->panelCurve;
+    const float second = GRAB_TURN_SPEED;   // radians one second at full tilt turns it
+    const float deg = (float)M_PI / 180.0f;
+
+    for (int curved = 0; curved < 2; curved++) {
+        pictureAt3m(s, curved ? 1.0f : 0.0f);
+        c->screenTurnSet = 0;
+        XrPosef aim = aimAt(HAND, pictureBarPoint(c));
+        CHECK(xrGrabStepAt(c, aim, 0, 1, 0.0f) == HOVER_BAR);
+        CHECK(c->grabMode == GRAB_MOVE);
+        xrGrabStepAt(c, aim, 0, 1, 0.0f);
+        XrPosef start = c->screenPose;
+
+        // The holding hand's stick east or west turns nothing, and the other
+        // hand's north or south pushes nothing
+        holdStick(c, aim, 1.0f, 0.0f);
+        holdStick(c, aim, -1.0f, 0.0f);
+        CHECK_NEAR(facingYaw(c->screenPose), 0.0, 1e-4);
+        holdOther(c, aim, 0.0f, 0.15f, 90);
+        holdOther(c, aim, 0.12f, -0.12f, 90);
+        CHECK_NEAR(fromHead(c->screenPose), 3.0, 1e-4);
+        CHECK(turnedDeg(c->screenPose, start) < 0.01f);
+
+        // The other stick east for a second turns its face to the right by the
+        // top speed, about its own upright: it stays where it is
+        holdOther(c, aim, 1.0f, 0.0f, 90);
+        CHECK_NEAR(facingYaw(c->screenPose), second, 0.01);
+        CHECK_NEAR(facingPitch(c->screenPose), 0.0, 1e-4);
+        CHECK(dist(pos(c->screenPose), pos(start)) < 1e-4f);
+        CHECK_NEAR(fromHead(c->screenPose), 3.0, 1e-4);
+        // West brings it back, and a slant mostly east turns without tipping
+        holdOther(c, aim, -1.0f, 0.0f, 90);
+        CHECK_NEAR(facingYaw(c->screenPose), 0.0, 1e-3);
+        holdOther(c, aim, 0.7f, 0.5f, 45);
+        CHECK(facingYaw(c->screenPose) > 0.2f);
+        CHECK_NEAR(facingPitch(c->screenPose), 0.0, 1e-4);
+        holdOther(c, aim, -0.7f, -0.5f, 45);
+        CHECK_NEAR(facingYaw(c->screenPose), 0.0, 1e-3);
+        // Half a tilt turns slower than a full one
+        holdOther(c, aim, 0.5f, 0.0f, 90);
+        CHECK(facingYaw(c->screenPose) > 0.05f && facingYaw(c->screenPose) < second * 0.5f);
+        holdOther(c, aim, -0.5f, 0.0f, 90);
+        CHECK_NEAR(facingYaw(c->screenPose), 0.0, 1e-3);
+
+        // North tips its top edge back (its face up), a third of a second's worth
+        holdOther(c, aim, 0.0f, 1.0f, 30);
+        CHECK_NEAR(facingPitch(c->screenPose), second / 3.0f, 0.01);
+        CHECK_NEAR(facingYaw(c->screenPose), 0.0, 1e-3);
+        Vec3 top = quatRotate(c->screenPose.orientation, (Vec3){ 0, 1, 0 });
+        CHECK(top.z < -0.3f);
+        // and no further than the Tilt row goes, either way
+        holdOther(c, aim, 0.0f, 1.0f, 90);
+        CHECK_NEAR(screenPitch(c), COG_TILT_MAX, 1e-3);
+        holdOther(c, aim, 0.0f, -1.0f, 180);
+        CHECK_NEAR(screenPitch(c), -COG_TILT_MAX, 1e-3);
+        // A turn and a tip together, and the push from the holding hand with them
+        holdOther(c, aim, 0.0f, 1.0f, 15);
+        holdOther(c, aim, 1.0f, 0.0f, 30);
+        XrVector2f left = { 0.0f, 0.0f }, north = { 0.0f, 1.0f };
+        for (int i = 0; i < 45; i++) xrGrabStepSticks(c, aim, 0, 1, left, north);
+        CHECK_NEAR(fromHead(c->screenPose), 3.0f + GRAB_PUSH_SPEED * 0.5f, 0.01);
+        float pitch = screenPitch(c), yaw = facingYaw(c->screenPose);
+        CHECK_NEAR(yaw, second / 3.0f, 0.01);
+        CHECK_NEAR(pitch, -COG_TILT_MAX + second / 6.0f, 0.01);
+        CHECK_NEAR(c->grabTurn, second / 3.0f, 0.01);
+
+        // Let go: it stays as turned and tipped, and the tip goes to config.ini
+        // and comes back from it (the turn has no key: it is the session's)
+        xrGrabStepAt(c, aim, 0, 0, 0.0f);
+        CHECK(c->grabMode == GRAB_NONE && c->poseDirty);
+        c->poseDirty = 0;
+        CHECK_NEAR(facingYaw(c->screenPose), yaw, 1e-5);
+        CHECK_NEAR(screenPitch(c), pitch, 1e-5);
+        float out[POSE_VALUES];
+        xrScreenPoseOut(c, out);
+        Settings saved;
+        settings_defaults(&saved);
+        xrPoseToSettings(out, 0.0f, &saved);
+        CHECK(abs(saved.screen_tilt_deg - (int)lroundf(pitch / deg)) == 0);
+        float back[POSE_VALUES];
+        xrPoseFromSettings(&saved, back);
+        XrPosef restored = c->screenPose;
+        restored.orientation = quatNorm((XrQuaternionf){ back[3], back[4], back[5], back[6] });
+        CHECK_NEAR(facingPitch(restored), pitch, 0.5f * deg);
+
+        // Taken again it keeps the turn while the hand holds still
+        aim = aimAt(HAND, pictureBarPoint(c));
+        CHECK(xrGrabStepAt(c, aim, 0, 1, 0.0f) == HOVER_BAR);
+        xrGrabStepAt(c, aim, 0, 1, 0.0f);
+        CHECK_NEAR(facingYaw(c->screenPose), yaw, 1e-3);
+        CHECK_NEAR(screenPitch(c), pitch, 1e-3);
+        holdOther(c, aim, -1.0f, 0.0f, 30);
+        CHECK_NEAR(facingYaw(c->screenPose), 0.0, 0.01);
+        holdOther(c, aim, 1.0f, 0.0f, 15);
+        xrGrabStepAt(c, aim, 0, 0, 0.0f);
+        c->poseDirty = 0;
+        // but once something else has turned it (here straight back to face the
+        // viewer, as a recentre does), a hold faces the viewer as ever
+        c->screenPose.orientation = screenOrient(0.0f, pitch, 0.0f);
+        aim = aimAt(HAND, pictureBarPoint(c));
+        CHECK(xrGrabStepAt(c, aim, 0, 1, 0.0f) == HOVER_BAR);
+        xrGrabStepAt(c, aim, 0, 1, 0.0f);
+        CHECK_NEAR(facingYaw(c->screenPose), 0.0, 1e-3);
+        xrGrabStepAt(c, aim, 0, 0, 0.0f);
+        c->poseDirty = 0;
+    }
+
+    // The keyboard held by its bar: the turn and the tip on top of the wrist's,
+    // about its own middle
+    pictureAt3m(s, 0.0f);
+    c->kbOpen = 1;
+    c->kbMoved = 0;
+    kbPlace(c);
+    XrPosef aim = aimAt(HAND, pillPoint(c));
+    CHECK(xrGrabStepAt(c, aim, 0, 1, 0.0f) == HOVER_KBBAR);
+    CHECK(c->grabMode == GRAB_KBMOVE);
+    xrGrabStepAt(c, aim, 0, 1, 0.0f);
+    XrPosef kb = c->kbPose;
+    holdOther(c, aim, 1.0f, 0.0f, 45);
+    CHECK_NEAR(turnedDeg(c->kbPose, kb), second * 0.5f / deg, 0.5);
+    CHECK_NEAR(facingYaw(c->kbPose) - facingYaw(kb), second * 0.5f, 0.01);
+    CHECK(dist(pos(c->kbPose), pos(kb)) < 1e-4f);
+    // its right edge stays level as it tips
+    holdOther(c, aim, 0.0f, 1.0f, 30);
+    Vec3 right = quatRotate(c->kbPose.orientation, (Vec3){ 1, 0, 0 });
+    Vec3 rightWas = quatRotate(kb.orientation, (Vec3){ 1, 0, 0 });
+    CHECK_NEAR(right.y, rightWas.y, 1e-3);
+    CHECK_NEAR(facingPitch(c->kbPose) - facingPitch(kb), second / 3.0f, 0.01);
+    CHECK(dist(pos(c->kbPose), pos(kb)) < 1e-4f);
+    // and it keeps them when let go
+    XrPosef laid = c->kbPose;
+    xrGrabStepAt(c, aim, 0, 0, 0.0f);
+    CHECK(c->grabMode == GRAB_NONE);
+    kbPlace(c);
+    CHECK(turnedDeg(c->kbPose, laid) < 0.01f);
+    c->kbOpen = 0;
+    c->kbMoved = 0;
+
+    // Neither stick reaches the PC while something is held, in either mode:
+    // what the bindings, the scroll and the pad read is at rest, and stays so
+    // after the hold until each stick is let back to the middle
+    PadHand raw[HAND_COUNT], seen[HAND_COUNT];
+    memset(raw, 0, sizeof(raw));
+    raw[HAND_LEFT].stickX = 0.9f;
+    raw[HAND_RIGHT].stickY = -0.7f;
+    c->grabMode = GRAB_NONE;
+    c->grabStickKept[HAND_LEFT] = c->grabStickKept[HAND_RIGHT] = 0;
+    memcpy(seen, raw, sizeof(raw));
+    xrGrabKeepSticks(c, raw, seen);
+    CHECK(seen[HAND_LEFT].stickX == 0.9f && seen[HAND_RIGHT].stickY == -0.7f);
+    c->grabMode = GRAB_MOVE;
+    memcpy(seen, raw, sizeof(raw));
+    xrGrabKeepSticks(c, raw, seen);
+    CHECK(seen[HAND_LEFT].stickX == 0.0f && seen[HAND_RIGHT].stickY == 0.0f);
+    c->grabMode = GRAB_NONE;
+    memcpy(seen, raw, sizeof(raw));
+    xrGrabKeepSticks(c, raw, seen);
+    CHECK(seen[HAND_LEFT].stickX == 0.0f && seen[HAND_RIGHT].stickY == 0.0f);
+    // The left let back first goes through again, the right still tilted not
+    raw[HAND_LEFT].stickX = 0.1f;
+    memcpy(seen, raw, sizeof(raw));
+    xrGrabKeepSticks(c, raw, seen);
+    CHECK(seen[HAND_LEFT].stickX == 0.1f && seen[HAND_RIGHT].stickY == 0.0f);
+    raw[HAND_LEFT].stickX = 0.9f;
+    raw[HAND_RIGHT].stickY = 0.0f;
+    memcpy(seen, raw, sizeof(raw));
+    xrGrabKeepSticks(c, raw, seen);
+    CHECK(seen[HAND_LEFT].stickX == 0.9f);
+    raw[HAND_RIGHT].stickY = -0.7f;
+    memcpy(seen, raw, sizeof(raw));
+    xrGrabKeepSticks(c, raw, seen);
+    CHECK(seen[HAND_RIGHT].stickY == -0.7f);
+    c->grabStickKept[HAND_LEFT] = c->grabStickKept[HAND_RIGHT] = 0;
+
+    c->screenPose = keepPose;
+    c->screenWidth = keepW;
+    c->screenRadius = keepR;
+    c->panelCurve = keepCurve;
+    c->screenTurnSet = 0;
+}
+
 // Native (lane beam-streak): where the beam is in the frame's list of layers, -1 for nowhere
 static int beamIndex(const Scene* s) {
     UiRectPx b = xrAtlasRect(ATLAS_BEAM);
@@ -801,6 +1007,7 @@ int main(int argc, char** argv) {
     layers(s);
     liveSliders(s);
     pictureBarPushPull(s);
+    pictureBarTurnTilt(s);
     hoverKeepsBeamPlace(s);
     eyeCalKeepsBeamPlace(s);
     scene_free(s);

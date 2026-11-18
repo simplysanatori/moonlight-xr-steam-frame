@@ -1231,8 +1231,9 @@ static Vec3 gazeDragCarry(XrCtx* ctx, DragRamp* ramp, Vec3 travel, int64_t nowNs
 // closed. Gripping the picture itself does nothing, which keeps the panel from
 // being dragged by accident while pointing at something.
 // Native (owner's request): the held screen pushed away or brought closer by
-// either thumbstick, north away, south nearer, along the line from the head
-// (and the keyboard held by its own bar, which takes the same push)
+// the holding hand's thumbstick, north away, south nearer, along the line from
+// the head (and the keyboard held by its own bar, which takes the same push).
+// The other hand's stick turns it (grabTurnStep).
 
 // Native (lane grab-pull): how hard one stick asks to push (up to 1) or pull
 // (down to -1). The whole tilt counts, as long as it leans north or south: a
@@ -1248,22 +1249,41 @@ static float stickPushAmount(XrVector2f stick) {
     return copysignf(t * t, stick.y);
 }
 
-// A hold starts with nothing pushed and no stick seen
+// Native (owner's request): how hard one stick asks to turn (alongY 0: east
+// positive) or to tip (alongY 1: north positive), up to 1 either way, past the
+// push's dead zone and squared as it is. Only the way the stick leans most
+// counts, so a turn does not tip the held thing as well.
+static float stickAxisAmount(XrVector2f stick, int alongY) {
+    float r = sqrtf(stick.x * stick.x + stick.y * stick.y);
+    float a = alongY ? stick.y : stick.x;
+    float b = alongY ? stick.x : stick.y;
+    // A tilt exactly on the diagonal tips rather than turns
+    int leans = alongY ? fabsf(a) >= fabsf(b) : fabsf(a) > fabsf(b);
+    if (r <= GRAB_PUSH_DEADZONE || !leans) {
+        return 0.0f;
+    }
+    float t = (r - GRAB_PUSH_DEADZONE) / (GRAB_PUSH_FULL - GRAB_PUSH_DEADZONE);
+    if (t > 1.0f) t = 1.0f;
+    return copysignf(t * t, a);
+}
+
+// A hold starts with nothing pushed or turned and no stick seen
 static void grabPushStart(XrCtx* ctx) {
     ctx->grabPush = 0.0f;
     ctx->grabPushNs = 0;
+    ctx->grabTurn = 0.0f;
+    ctx->grabTilt = 0.0f;
     for (int h = 0; h < HAND_COUNT; h++) {
         ctx->grabStickLo[h] = 0.0f;
         ctx->grabStickHi[h] = 0.0f;
     }
 }
 
-static void pushHeldScreen(XrCtx* ctx, const XrVector2f* sticks, XrPosef* held) {
-    // The stronger of the two sticks, either way
-    float push = 0.0f;
+// Native (owner's request): the seconds since the hold's last frame, the one
+// clock the push and the turn both run on, at most a tenth; and each stick's
+// most south and north, for the line said at letting go
+static float grabStepDt(XrCtx* ctx, const XrVector2f* sticks) {
     for (int k = 0; k < HAND_COUNT; k++) {
-        float a = stickPushAmount(sticks[k]);
-        if (fabsf(a) > fabsf(push)) push = a;
         if (sticks[k].y < ctx->grabStickLo[k]) ctx->grabStickLo[k] = sticks[k].y;
         if (sticks[k].y > ctx->grabStickHi[k]) ctx->grabStickHi[k] = sticks[k].y;
     }
@@ -1271,6 +1291,64 @@ static void pushHeldScreen(XrCtx* ctx, const XrVector2f* sticks, XrPosef* held) 
     float dt = ctx->grabPushNs > 0 ? (float)(now - ctx->grabPushNs) * 1e-9f : 0.0f;
     ctx->grabPushNs = now;
     if (dt > 0.1f) dt = 0.1f;
+    return dt;
+}
+
+// Native (owner's request): the hand that is not carrying the hold, -1 where
+// the carrier is not a hand. A hand with no stick (tracked, or a controller
+// that is off) reads at rest, which turns nothing.
+static int grabOtherHand(const XrCtx* ctx) {
+    if (ctx->grabHand == HAND_LEFT) return HAND_RIGHT;
+    if (ctx->grabHand == HAND_RIGHT) return HAND_LEFT;
+    return -1;
+}
+
+// Native (owner's request): this frame's turn and tip from the other hand's
+// stick, radians, east turning the face to the right and north tipping the
+// top edge back
+static void grabTurnStep(XrCtx* ctx, const XrVector2f* sticks, float dt, float* turn, float* tilt) {
+    int other = grabOtherHand(ctx);
+    *turn = 0.0f;
+    *tilt = 0.0f;
+    if (other < 0) {
+        return;
+    }
+    *turn = stickAxisAmount(sticks[other], 0) * GRAB_TURN_SPEED * dt;
+    *tilt = stickAxisAmount(sticks[other], 1) * GRAB_TURN_SPEED * dt;
+}
+
+// Native (owner's request): an orientation turned about the upright by turn,
+// and then tipped by tilt about its own right axis laid level (or, stood on
+// its side, the level axis across its face), both about its own middle. The
+// sense is screenOrient's: a turn of +a faces it a to the right, a tip of +a
+// sends its top edge back, as the Tilt row's top end does.
+static XrQuaternionf turnHeld(XrQuaternionf q, float turn, float tilt) {
+    Vec3 up = { 0.0f, 1.0f, 0.0f };
+    XrQuaternionf out = quatMul(axisAngleQuat(up, turn), q);
+    if (tilt != 0.0f) {
+        Vec3 xAxis = { 1.0f, 0.0f, 0.0f };
+        Vec3 zAxis = { 0.0f, 0.0f, 1.0f };
+        Vec3 right = quatRotate(out, xAxis);
+        right.y = 0.0f;
+        if (vecDot(right, right) < 1e-4f) {
+            right = vecCross(up, quatRotate(out, zAxis));
+        }
+        if (vecDot(right, right) >= 1e-6f) {
+            out = quatMul(axisAngleQuat(vecNorm(right), -tilt), out);
+        }
+    }
+    return quatNorm(out);
+}
+
+// Native (owner's request): the stick of the hand carrying the hold, at rest
+// where that is not a hand
+static XrVector2f grabHoldingStick(const XrCtx* ctx, const XrVector2f* sticks) {
+    XrVector2f rest = { 0.0f, 0.0f };
+    return ctx->grabHand >= 0 && ctx->grabHand < HAND_COUNT ? sticks[ctx->grabHand] : rest;
+}
+
+static void pushHeldScreen(XrCtx* ctx, XrVector2f stick, float dt, XrPosef* held) {
+    float push = stickPushAmount(stick);
     ctx->grabPush += push * GRAB_PUSH_SPEED * dt;
     if (ctx->grabPush == 0.0f) {
         return;
@@ -1294,14 +1372,29 @@ static void pushHeldScreen(XrCtx* ctx, const XrVector2f* sticks, XrPosef* held) 
 
 // Native (lane grab-pull): what the sticks did over a hold, said once when it
 // is let go, so a headset test shows whether a pull reached us at all
+// Native (owner's request): with the other stick's turn and tip over the hold
 static void sayGrabPush(XrCtx* ctx, const XrPosef* held) {
     Vec3 d = { held->position.x - ctx->headPos.x, held->position.y - ctx->headPos.y,
                held->position.z - ctx->headPos.z };
-    LOGEV("move bar let go: %.2f m from the head, sticks pushed it %+.2f m; stick y seen "
-          "left %.2f to %.2f, right %.2f to %.2f",
-          sqrtf(vecDot(d, d)), ctx->grabPush, ctx->grabStickLo[HAND_LEFT],
-          ctx->grabStickHi[HAND_LEFT], ctx->grabStickLo[HAND_RIGHT],
-          ctx->grabStickHi[HAND_RIGHT]);
+    const float deg = 180.0f / (float)M_PI;
+    LOGEV("move bar let go: %.2f m from the head, sticks pushed it %+.2f m, turned it %+.1f deg "
+          "and tipped it %+.1f deg; stick y seen left %.2f to %.2f, right %.2f to %.2f",
+          sqrtf(vecDot(d, d)), ctx->grabPush, ctx->grabTurn * deg, ctx->grabTilt * deg,
+          ctx->grabStickLo[HAND_LEFT], ctx->grabStickHi[HAND_LEFT],
+          ctx->grabStickLo[HAND_RIGHT], ctx->grabStickHi[HAND_RIGHT]);
+}
+
+// Native (owner's request): which way a pose faces about the upright
+static float poseYaw(XrQuaternionf q) {
+    Vec3 back = { 0.0f, 0.0f, 1.0f };
+    Vec3 fwd = quatRotate(q, back);
+    return atan2f(fwd.x, fwd.z);
+}
+
+static float wrapAngle(float a) {
+    while (a > (float)M_PI) a -= 2.0f * (float)M_PI;
+    while (a <= -(float)M_PI) a += 2.0f * (float)M_PI;
+    return a;
 }
 
 static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* grab, int hand,
@@ -1328,6 +1421,12 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
             }
             if (ctx->grabMode == GRAB_MOVE) {
                 sayGrabPush(ctx, &ctx->screenPose);
+                // Native (owner's request): the turn is kept for the next hold
+                // while nothing else turns the screen; the tilt is in the pose
+                // and goes to config.ini with it
+                ctx->screenTurn = wrapAngle(ctx->screenTurn + ctx->grabTurn);
+                ctx->screenTurnYaw = poseYaw(ctx->screenPose.orientation);
+                ctx->screenTurnSet = 1;
             }
             else if (ctx->grabMode == GRAB_KBMOVE) {
                 sayGrabPush(ctx, &ctx->kbPose);
@@ -1451,6 +1550,13 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
             // away over a long move.
             ctx->grabPitch = screenPitch(ctx);
             ctx->grabRoll = screenRoll(ctx);
+            // Native (owner's request): a turn the sticks left it with stays,
+            // unless something has turned it since (a recentre, a reset, a
+            // room, the head lock): then it faces the viewer as ever
+            if (!ctx->screenTurnSet
+                    || fabsf(wrapAngle(poseYaw(ctx->screenPose.orientation) - ctx->screenTurnYaw)) > 0.01f) {
+                ctx->screenTurn = 0.0f;
+            }
             return;
         }
 
@@ -1504,7 +1610,15 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
             kb->position.z = aims[h].position.z + moved.z;
             kb->orientation = quatNorm(quatMul(turn, ctx->grabScreen.orientation));
         }
-        pushHeldScreen(ctx, sticks, kb);
+        float dt = grabStepDt(ctx, sticks);
+        pushHeldScreen(ctx, grabHoldingStick(ctx, sticks), dt, kb);
+        // Native (owner's request): the other stick's turn and tip over the
+        // hold, on top of the wrist's
+        float turnBy, tiltBy;
+        grabTurnStep(ctx, sticks, dt, &turnBy, &tiltBy);
+        ctx->grabTurn = wrapAngle(ctx->grabTurn + turnBy);
+        ctx->grabTilt = wrapAngle(ctx->grabTilt + tiltBy);
+        kb->orientation = turnHeld(kb->orientation, ctx->grabTurn, ctx->grabTilt);
         if (ctx->grabMode == GRAB_STATSMOVE) {
             ctx->statsMovedPose = *kb;
             ctx->statsMovedH = ctx->statsH;
@@ -1539,7 +1653,21 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
             ctx->screenPose.position.y = aims[h].position.y + moved.y;
             ctx->screenPose.position.z = aims[h].position.z + moved.z;
         }
-        pushHeldScreen(ctx, sticks, &ctx->screenPose);
+        float dt = grabStepDt(ctx, sticks);
+        pushHeldScreen(ctx, grabHoldingStick(ctx, sticks), dt, &ctx->screenPose);
+        // Native (owner's request): the other stick turns it off facing the
+        // viewer and tips it, the tip held to the Tilt row's range (one past
+        // it already is not pulled back, only kept from going further)
+        float turnBy, tiltBy;
+        grabTurnStep(ctx, sticks, dt, &turnBy, &tiltBy);
+        ctx->grabTurn = wrapAngle(ctx->grabTurn + turnBy);
+        float pitch = ctx->grabPitch + tiltBy;
+        float top = ctx->grabPitch > COG_TILT_MAX ? ctx->grabPitch : COG_TILT_MAX;
+        float bottom = ctx->grabPitch < -COG_TILT_MAX ? ctx->grabPitch : -COG_TILT_MAX;
+        if (pitch > top) pitch = top;
+        if (pitch < bottom) pitch = bottom;
+        ctx->grabTilt += pitch - ctx->grabPitch;
+        ctx->grabPitch = pitch;
 
         // Which way it faces does not. Inheriting the wrist tumbled the
         // picture on all three axes, so instead it keeps the tilt and roll it
@@ -1550,8 +1678,8 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         // Dragged directly over or under the head there is no sensible way to
         // face, and the yaw would spin on noise. Keep last frame's.
         if (hx * hx + hz * hz > 0.0025f) {
-            ctx->screenPose.orientation = screenOrient(atan2f(hx, hz), ctx->grabPitch,
-                                                       ctx->grabRoll);
+            float yaw = atan2f(hx, hz) + ctx->screenTurn + ctx->grabTurn;
+            ctx->screenPose.orientation = screenOrient(yaw, ctx->grabPitch, ctx->grabRoll);
         }
         return;
     }
@@ -2147,6 +2275,14 @@ int xrGrabStepAt(XrCtx* ctx, XrPosef aim, int trigger, int grip, float stickY) {
 }
 
 int xrGrabStepStick(XrCtx* ctx, XrPosef aim, int trigger, int grip, XrVector2f stick) {
+    XrVector2f rest = { 0.0f, 0.0f };
+    return xrGrabStepSticks(ctx, aim, trigger, grip, rest, stick);
+}
+
+// Native (owner's request), for the tests: the same with the left hand's stick
+// as well, the left hand pointing at nothing
+int xrGrabStepSticks(XrCtx* ctx, XrPosef aim, int trigger, int grip, XrVector2f left,
+                     XrVector2f stick) {
     InputFrame f;
     memset(&f, 0, sizeof(f));
     f.roomOn = roomEffective(ctx) > 0;
@@ -2168,6 +2304,7 @@ int xrGrabStepStick(XrCtx* ctx, XrPosef aim, int trigger, int grip, XrVector2f s
     ctx->lastInputNs = (ctx->lastInputNs != 0 ? ctx->lastInputNs : 1000000000L) + 11111111L;
     f.grab[HAND_RIGHT] = (float)grip;
     f.stick[HAND_RIGHT] = stick;
+    f.stick[HAND_LEFT] = left;
     int offPicture = f.hitU[HAND_RIGHT] < 0.0f || f.hitU[HAND_RIGHT] > 1.0f
             || f.hitV[HAND_RIGHT] < 0.0f || f.hitV[HAND_RIGHT] > 1.0f;
     applyGrab(ctx, f.aimPoses, f.aimValid, f.grab, hover == HOVER_NONE ? -1 : HAND_RIGHT,
@@ -5440,6 +5577,27 @@ static void logChord(XrCtx* ctx, int event, const PadState* rawPad) {
     }
 }
 
+// Native (owner's request): both sticks while something is held, and each after
+// until it is let back to the middle, are the hold's, so neither reaches the PC
+// in either mode: the bindings (their directions, stick:mouse, stick:scroll),
+// the pointer's scroll and gamepad mode's pad all read seen, where they rest.
+// The hold reads the sticks itself (grabSticks).
+void xrGrabKeepSticks(XrCtx* ctx, const PadHand* raw, PadHand* seen) {
+    for (int h = 0; h < HAND_COUNT; h++) {
+        if (ctx->grabMode != GRAB_NONE) {
+            ctx->grabStickKept[h] = 1;
+        }
+        else if (fabsf(raw[h].stickX) <= GRAB_PUSH_DEADZONE
+                 && fabsf(raw[h].stickY) <= GRAB_PUSH_DEADZONE) {
+            ctx->grabStickKept[h] = 0;
+        }
+        if (ctx->grabStickKept[h]) {
+            seen[h].stickX = 0.0f;
+            seen[h].stickY = 0.0f;
+        }
+    }
+}
+
 // Gamepad mode's pass, after the actions are synced and before anything
 // points. The shortcut chosen switches modes in either one, and only that one:
 // the left menu button held with the left grip, or a chord, whose parts are
@@ -5465,6 +5623,7 @@ static void updatePad(XrCtx* ctx, float* out) {
     PadHand* seen = ctx->padSeen;
     padChordApply(&ctx->padChord, &raw[HAND_LEFT], &raw[HAND_RIGHT], &seen[HAND_LEFT],
                   &seen[HAND_RIGHT]);
+    xrGrabKeepSticks(ctx, raw, seen);
     for (int h = 0; h < HAND_COUNT; h++) {
         ctx->padGrip[h] = padGripDown(seen[h].grip, ctx->padGrip[h]);
     }
@@ -5949,6 +6108,16 @@ int xrButtonsFrame(XrCtx* ctx, int wanted, int hover, int hit) {
 // Reads the controllers and works out where they are pointing on the screen.
 // Java turns the result into host mouse events, so nothing here knows about
 // the connection.
+// Native (owner's request): the sticks a hold reads. A controller that is
+// gamepad mode's pad is read for the frame's pointer as nothing, but its stick
+// still turns what the other hand holds (the pad has it at rest meanwhile,
+// xrGrabKeepSticks).
+static void grabSticks(XrCtx* ctx, const InputFrame* f, XrVector2f* sticks) {
+    for (int h = 0; h < HAND_COUNT; h++) {
+        sticks[h] = padHand(ctx, h) ? seenStick(ctx, h) : f->stick[h];
+    }
+}
+
 void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature, int headLocked,
                    int pointerEnabled, int gazeEnabled, int pointerSleep, float* out) {
     memset(out, 0, sizeof(float) * IN_SLOTS);
@@ -6105,8 +6274,10 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     // have been meant as a click
     int offPicture = f.hand >= 0 && (f.hitU[f.hand] < 0.0f || f.hitU[f.hand] > 1.0f
                                      || f.hitV[f.hand] < 0.0f || f.hitV[f.hand] > 1.0f);
+    XrVector2f sticks[HAND_COUNT];
+    grabSticks(ctx, &f, sticks);
     applyGrab(ctx, f.aimPoses, f.aimValid, f.grab, f.hand, f.hover, ctx->hoverCorner,
-              offPicture, f.height, f.curved, f.stick);
+              offPicture, f.height, f.curved, sticks);
     f.screenPose = ctx->screenPose;
     f.height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
     f.radius = ctx->screenRadius;

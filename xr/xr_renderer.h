@@ -121,7 +121,8 @@ static inline int64_t nowNs(void) {
 #define SCROLL_DEADZONE 0.30f
 // Native: while the move bar is held, a thumbstick pushed north sends the
 // screen away and south brings it closer, at up to this many metres a second
-// at full tilt, and never nearer than or further than the Screen tab allows
+// at full tilt, and never nearer than or further than the Screen tab allows.
+// Native (owner's request): the holding hand's stick only.
 #define GRAB_PUSH_DEADZONE 0.20f
 // Native (lane grab-pull): the tilt that already counts as full tilt. A stick
 // pulled back toward the palm seldom reaches the rim, so pulling ran slower
@@ -133,6 +134,11 @@ static inline int64_t nowNs(void) {
 #define GRAB_PUSH_SPEED 1.5f
 #define GRAB_PUSH_NEAR_M 0.3f
 #define GRAB_PUSH_FAR_M 8.0f
+// Native (owner's request): the other hand's stick turns what is held, east
+// and west about the upright through its middle, north and south tipping it
+// about its own level axis, at up to this many radians a second (75 degrees)
+// at full tilt, with the push's dead zone and squared response
+#define GRAB_TURN_SPEED 1.309f
 #define SCROLL_CLICKS_PER_SEC 7.5f
 
 // One euro filter on the hit point. A hand at rest still shakes, and at 3 m
@@ -1272,10 +1278,28 @@ typedef struct XrCtx {
     float grabPitch;
     float grabRoll;
     float grabOppX, grabOppY;
-    // Native (owner's request): metres either thumbstick has pushed the held
-    // screen away from the head (negative: brought closer), and when last
+    // Native (owner's request): metres the holding hand's thumbstick has
+    // pushed the held screen away from the head (negative: brought closer),
+    // and when last
     float grabPush;
     int64_t grabPushNs;
+    // Native (owner's request): radians the other hand's stick has turned
+    // what is held this hold, about the upright (positive: its face to the
+    // right) and tipped (positive: its top edge back, as the Tilt row's top
+    // end does)
+    float grabTurn;
+    float grabTilt;
+    // Native (owner's request): how far the screen is turned off facing the
+    // viewer, for the session, and its yaw when the hold that left it so was
+    // let go: a later hold keeps the turn while nothing else has turned it
+    float screenTurn;
+    float screenTurnYaw;
+    int screenTurnSet;
+    // Native (owner's request): a stick the hold had, kept from the PC (its
+    // bound directions, stick:mouse, the scroll and the pad) until it is let
+    // back to the middle, so a stick still tilted as the grip opens sends
+    // nothing (xrGrabKeepSticks)
+    int grabStickKept[HAND_COUNT];
     // Native (lane grab-pull): the most south and most north each stick was
     // tilted during this hold, said when it is let go
     float grabStickLo[HAND_COUNT];

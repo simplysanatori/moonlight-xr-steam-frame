@@ -465,6 +465,14 @@ int xrHoverAt(XrCtx* ctx, XrPosef aim, float* outU, float* outV, int* outCorner)
 int xrGrabStepAt(XrCtx* ctx, XrPosef aim, int trigger, int grip, float stickY);
 // Native (lane grab-pull): the same with the whole thumbstick, x east positive
 int xrGrabStepStick(XrCtx* ctx, XrPosef aim, int trigger, int grip, XrVector2f stick);
+// Native (owner's request): and the left hand's stick too (the other hand's,
+// which turns and tips what the right one holds)
+int xrGrabStepSticks(XrCtx* ctx, XrPosef aim, int trigger, int grip, XrVector2f left,
+                     XrVector2f stick);
+// Native (owner's request): the sticks as the bindings, the scroll and the pad
+// see them (seen), at rest while something is held and after until each is let
+// back to the middle (raw); updatePad's, here for the tests
+void xrGrabKeepSticks(XrCtx* ctx, const PadHand* raw, PadHand* seen);
 // Native (lane ray-glitch): the pointer's part of one input frame at now
 // (nanoseconds): the head and the sources read through the seams on the
 // context (locateSpace, poseActive, readFloat, readBool, readVec2 and

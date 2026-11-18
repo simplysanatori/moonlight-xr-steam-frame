@@ -2,10 +2,10 @@
 // line of the stats text is visible (the lines are wider than the slot was, so
 // they wrap rather than run off its right side, and a long text is not cut
 // off at the end), the window is where it always was until a grip takes it,
-// a grip on it carries it with the hand in place and turn while the
-// thumbsticks push it away and closer, the trigger is not a grab, letting go
-// leaves it, and resetting or recentring the screen's placement brings it
-// back. GPLv3.
+// a grip on it carries it with the hand in place and turn while the holding
+// hand's thumbstick pushes it away and closer and the other hand's turns it,
+// the trigger is not a grab, letting go leaves it, and resetting or recentring
+// the screen's placement brings it back. GPLv3.
 #include "check.h"
 #include "scene.h"
 #include "text.h"
@@ -218,6 +218,21 @@ static void grabAndMove(Scene* s) {
     for (int i = 0; i < 90; i++) xrGrabStepAt(c, tilted, 0, 1, -1.0f);
     CHECK(dist(pos(c->statsPose), (Vec3){ 0, 0, 0 }) < away - 0.4f);
     CHECK(turnedDeg(c->statsPose, laid) < 0.01f);
+    // Native (owner's request): the other hand's stick east turns it about the
+    // upright through its middle, on top of the wrist's turn
+    XrPosef unturned = c->statsPose;
+    XrVector2f east = { 1.0f, 0.0f }, rest = { 0.0f, 0.0f };
+    for (int i = 0; i < 45; i++) xrGrabStepSticks(c, tilted, 0, 1, east, rest);
+    Vec3 n0 = quatRotate(unturned.orientation, (Vec3){ 0, 0, 1 });
+    Vec3 n1 = quatRotate(c->statsPose.orientation, (Vec3){ 0, 0, 1 });
+    CHECK_NEAR(atan2f(n1.x, n1.z) - atan2f(n0.x, n0.z), GRAB_TURN_SPEED * 0.5f, 0.01);
+    CHECK(dist(pos(c->statsPose), pos(unturned)) < 1e-4f);
+    Vec3 upright = { 0, 1, 0 };
+    CHECK_NEAR(vecDot(quatRotate(c->statsPose.orientation, upright), upright),
+               vecDot(quatRotate(unturned.orientation, upright), upright), 1e-4);
+    XrVector2f west = { -1.0f, 0.0f };
+    for (int i = 0; i < 45; i++) xrGrabStepSticks(c, tilted, 0, 1, west, rest);
+    CHECK(turnedDeg(c->statsPose, unturned) < 0.05f);
 
     // Letting go leaves it, and it keeps still after
     XrPosef left = c->statsPose;
