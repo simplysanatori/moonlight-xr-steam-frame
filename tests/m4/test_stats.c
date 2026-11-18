@@ -308,6 +308,125 @@ static void resets(Scene* s) {
     CHECK(dist(pos(c->statsPose), pos(home)) < 1e-3f);
 }
 
+// Native (owner's request): how far a point is from the curved picture's axis,
+// in the picture's own frame (the axis a radius in front of its middle, upright
+// in it). Under the radius is in front of the surface.
+static float fromAxis(XrPosef screen, float radius, Vec3 p) {
+    Vec3 l = quatRotate(quatConj(screen.orientation), vecSub(p, pos(screen)));
+    float dz = radius - l.z;
+    return sqrtf(l.x * l.x + dz * dz);
+}
+
+// Native (owner's request): on a curved picture the pinned window is still flat
+// and turned as the picture is, its top left at the curved picture's own top
+// left corner (a margin in), and in front of the surface everywhere; the ray
+// and the grip find it where it is drawn. A picture wrapped far round keeps it
+// to 60 degrees round from the middle, still in front.
+static void curvedPlacement(Scene* s) {
+    XrCtx* c = s->ctx;
+    scene_reset(s);
+    c->overlayVisible = 1;
+    c->statsMoved = 0;
+    c->headPos = (XrVector3f){ 0, 0, 0 };
+    scene_frame(s, LONG);
+    XrPosef keepPose = c->screenPose;
+    float keepW = c->screenWidth, keepR = c->screenRadius, keepCurve = c->panelCurve;
+    Vec3 up = { 0, 1, 0 }, side = { 1, 0, 0 }, ahead = { 0, 0, 1 };
+    const float rad = (float)M_PI / 180.0f;
+    // Off to one side, tipped back and rolled a little
+    XrQuaternionf q = quatMul(axisAngleQuat(up, 20.0f * rad), axisAngleQuat(side, -12.0f * rad));
+    q = quatNorm(quatMul(q, axisAngleQuat(ahead, 8.0f * rad)));
+    // The owner's 3 m picture, one wrapped 230 degrees round, and one wrapped
+    // all the way round with the window wider than the radius (8 m at 1.2 m):
+    // nothing flat fits inside that, so only its place is checked
+    const float widths[3] = { 3.6f, 6.0f, 8.0f }, radii[3] = { 3.0f, 1.5f, 1.2f };
+    for (int wide = 0; wide < 3; wide++) {
+        c->panelCurve = 1.0f;
+        c->screenWidth = widths[wide];
+        c->screenRadius = radii[wide];
+        Vec3 fwd = quatRotate(q, ahead);
+        float d = radii[wide];
+        c->screenPose.orientation = q;
+        c->screenPose.position = (XrVector3f){ -fwd.x * d, -fwd.y * d + 0.1f, -fwd.z * d };
+        CHECK(xrPictureCurved(c));
+        statsPlace(c);
+        float sh = c->screenWidth * (float)c->videoHeight / (float)c->videoWidth;
+        float margin = c->screenWidth * 0.02f;
+        float r = c->screenRadius;
+        CHECK(memcmp(&c->statsPose.orientation, &c->screenPose.orientation, sizeof(q)) == 0);
+        // Every corner of it in front of the surface (the centimetre in front,
+        // measured toward the axis, is half that at 60 degrees round), and not
+        // past the axis
+        for (int k = 0; k < 4; k++) {
+            Vec3 p = onPlane(c->statsPose, c->statsW, c->statsH, (float)(k & 1), (float)(k >> 1));
+            float a = fromAxis(c->screenPose, r, p);
+            if (wide < 2) {
+                CHECK(a < r - 0.004f);
+            }
+            Vec3 l = quatRotate(quatConj(q), vecSub(p, pos(c->screenPose)));
+            CHECK(l.z < r);
+        }
+        Vec3 tl = onPlane(c->statsPose, c->statsW, c->statsH, 0.0f, 0.0f);
+        Vec3 lt = quatRotate(quatConj(q), vecSub(tl, pos(c->screenPose)));
+        if (!wide) {
+            // Under the curved picture's top left corner, a margin in
+            Vec3 corner = screenPoint(0.0f, 0.0f, c->screenPose, c->screenWidth, sh, r, 1);
+            Vec3 lc = quatRotate(quatConj(q), vecSub(corner, pos(c->screenPose)));
+            CHECK(lt.x > lc.x && lt.x - lc.x < margin * 1.01f);
+            CHECK_NEAR(lc.y - lt.y, margin, 1e-4);
+            // and only as far forward as the surface at its outer edge needs
+            float edge = c->screenWidth / r * 0.5f - margin / r;
+            CHECK_NEAR(lt.z, r * (1.0f - cosf(edge)) + 0.01f, 1e-4);
+            // The flat placement would have been well behind the surface there
+            CHECK(fromAxis(c->screenPose, r, onPlane(c->screenPose, c->screenWidth, sh, 0.0f, 0.0f)) > r);
+        }
+        else {
+            // Kept to 60 degrees round, the height the fitted picture's
+            CHECK_NEAR(lt.x, -r * sinf(STATS_CURVE_MAX_ANGLE), 1e-4);
+            CHECK_NEAR(lt.z, r * (1.0f - cosf(STATS_CURVE_MAX_ANGLE)) + 0.01f, 1e-4);
+            float fit = cylinderFit(c->screenWidth, r);
+            CHECK(wide == 2 ? fit < 1.0f : fit == 1.0f);
+            CHECK_NEAR(lt.y, sh * fit * 0.5f - margin, 1e-4);
+        }
+        // The ray and the grip find it where it is
+        Vec3 eye = { 0, 0, 0 };
+        XrPosef at = aimAt(eye, onPlane(c->statsPose, c->statsW, c->statsH, 0.5f, 0.5f));
+        xrGrabStepAt(c, at, 0, 0, 0.0f);
+        CHECK(c->statsOver);
+        xrGrabStepAt(c, at, 0, 1, 0.0f);
+        CHECK(c->grabMode == GRAB_STATSMOVE);
+        xrGrabStepAt(c, at, 0, 0, 0.0f);
+        CHECK(c->grabMode == GRAB_NONE && c->statsMoved);
+        c->statsMoved = 0;
+        if (wide == 2) {
+            continue;
+        }
+        // and just past its outer edge it is not there
+        Vec3 past = onPlane(c->statsPose, c->statsW, c->statsH, -0.05f, 0.5f);
+        xrGrabStepAt(c, aimAt(eye, past), 0, 0, 0.0f);
+        CHECK(!c->statsOver);
+    }
+    // Flat again: where it always was, in the picture's flat frame
+    c->panelCurve = 0.0f;
+    c->screenWidth = 3.6f;
+    c->screenPose.orientation = q;
+    statsPlace(c);
+    {
+        float sh = c->screenWidth * (float)c->videoHeight / (float)c->videoWidth;
+        float margin = c->screenWidth * 0.02f;
+        Vec3 tl = onPlane(c->statsPose, c->statsW, c->statsH, 0.0f, 0.0f);
+        Vec3 lt = quatRotate(quatConj(q), vecSub(tl, pos(c->screenPose)));
+        CHECK_NEAR(lt.x, -c->screenWidth * 0.5f + margin, 1e-4);
+        CHECK_NEAR(lt.y, sh * 0.5f - margin, 1e-4);
+        CHECK_NEAR(lt.z, 0.01, 1e-4);
+    }
+    c->screenPose = keepPose;
+    c->screenWidth = keepW;
+    c->screenRadius = keepR;
+    c->panelCurve = keepCurve;
+    statsPlace(c);
+}
+
 // The window is one layer, moved or not, so a frame is no fuller for it
 static void layers(Scene* s) {
     XrCtx* c = s->ctx;
@@ -342,6 +461,7 @@ int main(void) {
     fits(s);
     placement(s);
     grabAndMove(s);
+    curvedPlacement(s);
     resets(s);
     layers(s);
     scene_free(s);

@@ -1643,6 +1643,10 @@ void kbBarGeometry(XrCtx* ctx, float* outWidth, float* outHeight, float* outDrop
 // Native: whether the stats window is up, and its pose and size now (statsPose,
 // statsW, statsH): the corner of the picture until a grip has moved it
 int statsShown(XrCtx* ctx);
+// Native (owner's request): on a curved picture the pinned stats window stands
+// at most this far round the cylinder from the picture's middle, radians (60
+// degrees): a corner further round folds back beside the viewer.
+#define STATS_CURVE_MAX_ANGLE 1.0472f
 void statsPlace(XrCtx* ctx);
 int kbKeyAt(XrCtx* ctx, float u, float v);
 int headAimCanAct(XrCtx* ctx);

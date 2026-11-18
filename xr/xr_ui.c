@@ -327,6 +327,31 @@ void statsPlace(XrCtx* ctx) {
     float margin = ctx->screenWidth * 0.02f;
     Vec3 local = { -ctx->screenWidth * 0.5f + ctx->statsW * 0.5f + margin,
                    screenH * 0.5f - ctx->statsH * 0.5f - margin, 0.01f };
+    // Native (owner's request): on a curved picture still flat and turned as
+    // the picture is, but under the corner the cylinder really has, and pulled
+    // forward to where the surface bulges at its outer edge, so none of the
+    // picture stands in front of it. The edge is the corner's angle less the
+    // margin as arc; past 60 degrees the corner folds round beside the viewer,
+    // so the window keeps to 60. A window wide enough to reach further from
+    // the middle on the other side (a picture wrapped well past a half turn)
+    // is pulled forward by that edge instead, as far as 60 degrees needs.
+    if (xrPictureCurved(ctx) && ctx->screenRadius > 1e-3f) {
+        float r = ctx->screenRadius;
+        float edge = cylinderAngle(ctx->screenWidth, r) * 0.5f - margin / r;
+        if (edge > STATS_CURVE_MAX_ANGLE) edge = STATS_CURVE_MAX_ANGLE;
+        if (edge < 0.0f) edge = 0.0f;
+        float outer = r * sinf(edge);
+        float inner = ctx->statsW - outer;
+        float deep = edge;
+        if (inner > outer) {
+            float s = inner / r;
+            deep = s < sinf(STATS_CURVE_MAX_ANGLE) ? asinf(s) : STATS_CURVE_MAX_ANGLE;
+        }
+        float fit = cylinderFit(ctx->screenWidth, r);
+        local.x = -outer + ctx->statsW * 0.5f;
+        local.y = screenH * fit * 0.5f - ctx->statsH * 0.5f - margin;
+        local.z = r * (1.0f - cosf(deep)) + 0.01f;
+    }
     Vec3 at = quatRotate(ctx->screenPose.orientation, local);
     ctx->statsPose = ctx->screenPose;
     ctx->statsPose.position.x += at.x;
