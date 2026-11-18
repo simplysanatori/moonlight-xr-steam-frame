@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+For 1.3.4. I added a Foveated rendering setting, made passthrough lighter on the GPU, and taught the headset about PCs that end the app when you disconnect.
+
+### Added
+
+- **Foveated rendering** (the headset's Display tab and the Settings page): On or Off. On gives full detail in the middle of your view and less at the edges. Off can look slightly sharper and uses a little less GPU on the plain screen. It applies from the next stream. If you change it in the headset and then start a stream from the headset's own PC and app lists, the app restarts itself first.
+- **PCs that end the app when you disconnect.** Apollo and Vibepollo can end an app when its last client leaves ("Terminate on Pause"), and they don't tell the headset beforehand. The headset now checks whether the app is still running after a disconnect it caused: when it reconnects after a network switch or a dropped link, and 15 seconds after the headset-off or idle timer or a Disconnect, while you stay in the headset's own lists. Once it has seen a PC end the app twice in a row, the network switch no longer moves that stream, because a switch disconnects and would end the game. Seeing the app still running 15 seconds after a network switch, a timer or a Disconnect clears this. Quitting the app, or the app quitting or crashing on the PC, never counts. Streams started from the flat window close when they disconnect, so there only network switches and dropped links teach the headset.
+- New notices for these PCs:
+  - "Video keeps breaking up. Not switching networks: this PC would end the app"
+  - "Switching to Steam Frame Wireless Adapter. A PC set to end the app on disconnect will close it", on a PC not yet seen keeping the app
+  - "The PC ended the app when the connection dropped. Start it again from the app list"
+  - "No input for 30 min: disconnecting. This PC may end the app" and "Headset off for 60 s: disconnecting. This PC may end the app", with your own times
+
+### Changed
+
+- In passthrough, the controller models and the glow are off. You can already see your controllers, and drawing them or the glow over the cameras adds GPU load and can cause stutter, ghosting or glitches. **Show controllers** is greyed with "off in passthrough". Pressing it, or turning **Glow** on, asks first ("Controllers in Passthrough?", "Glow in Passthrough?"). **I Understand** turns it on in passthrough and the headset remembers your answer; **Cancel** changes nothing. The void and the rooms are not affected. The Settings page asks the same.
+- The Display tab has one more row, so its rows sit a little closer together.
+
 ## 1.3.3 (November 2026)
 
 I added an Aspect ratio setting and a heat guard, made 3D much lighter on the CPU and rooms lighter on the GPU, and fixed the refresh rate and the screen and panels around rooms.

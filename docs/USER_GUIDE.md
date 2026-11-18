@@ -159,6 +159,8 @@ The client picks one link when a stream starts, and the PC sends the video to th
 
 Then the client writes `network path: switching from Wi-Fi to Steam Frame Wireless Adapter after 3450 ms of loss` to `moonlight.log`, shows a notice with the new link's name (the Notices setting decides whether you see it), and reconnects like after a dropped connection: the room, the screen's place and the 3D state stay, the PC resumes the same app, and the picture is back in a few seconds. The loss burst it left is written to the log with `network path switched from X to Y` at its end. The link it left is tried again only at the next stream start, when Automatic measures every link again. If the new link does not answer, the client falls back to whatever answers, and no new switch is tried for 5 minutes. It is off by default because it has not been measured on the Frame yet.
 
+A switch disconnects for a moment, and a PC set to end the app when its last client leaves ends the game with it (see [PCs that end the app when you disconnect](#pcs-that-end-the-app-when-you-disconnect)). On a PC not yet seen keeping the app, the switch's notice says "Switching to Steam Frame Wireless Adapter. A PC set to end the app on disconnect will close it". Once the headset has seen that PC end that app twice, it does not switch: it says "Video keeps breaking up. Not switching networks: this PC would end the app" once in the stream, and `moonlight.log` says `network path: staying on ...`.
+
 ### Streaming through a VPN
 
 A VPN (Tailscale, WireGuard, ZeroTier or similar) lets the headset reach your PC from another network. On the PC's own network the VPN address answers too, but a stream through it is worse than one over the local network: it can drop audio and frames. So the headset treats two kinds of address differently. A VPN address is one in `100.64.0.0/10`, one in `fd7a:115c:a1e0::/48`, a loopback address such as `127.0.0.1` (a local port forward), or one reached through a VPN network interface (a name starting with `tailscale`, `wg`, `tun`, `tap`, `zt` or `utun`). Every other address is local: Wi-Fi or ethernet, the Steam Frame Wireless Adapter, the USB cable.
@@ -312,6 +314,8 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Angular-size lock (UI) | on, off | on. The screen looks the same size when you push it away or pull it closer. | `[screen] angular_lock` |
 | Head locked, Follow after turning (UI) | Off, On, Follow; 10 to 60° | Off, 25°. The cog's Head locked row; Follow after turning is greyed unless it is Follow. | `[display] head_locked`, `head_follow`, `follow_leash_deg` |
 | Notices (UI) | All, Important, Off (press to step) | All | `[vr] notices` |
+| Foveated rendering (UI) | On, Off | On. The cog's Foveated rendering row; applies from the next stream. Until you pick one, the file keeps it commented out as `auto`, which is On. | `[display] foveated` |
+| (none) | true, false | Written when you answer **I Understand** to "Controllers in Passthrough?" or "Glow in Passthrough?", here or in the headset. | `[vr] passthrough_controllers_ok`, `passthrough_glow_ok` |
 
 Left out on purpose: the `[debug]` keys, what the headset keeps by itself (the last PC and app, the cog's last tab, the zoom's centre, the hand hint), the screen's height, direction, tilt and rotation (set by grabbing the screen) and the place the bar's Bring here switch goes back to and each room's own brightness, glow, light and picture size (the cog's Room tab, while you look at the room).
 
@@ -435,14 +439,15 @@ The Screen tab's Bring here also works from a controller button: bind `app:bring
 | Head locked | Off, On, Follow | Off. On: the screen is fixed to your head. Follow: the screen stays where it is until your head has turned more than the leash (25° by default, `follow_leash_deg`) away from it, in yaw or in pitch, then it eases after where you look over about half a second and stays there. See [Follow and comfort](#follow-and-comfort). |
 | Head aim | Off, On | Off. Needs Head locked; not in a room. |
 | Mode | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
-| Show controllers | Off, Frame, Gun | Off. Which controller is drawn in each hand; see [Controllers](#controllers). |
+| Show controllers | Off, Frame, Gun | Off. Which controller is drawn in each hand; see [Controllers](#controllers). In passthrough it is greyed with "off in passthrough" until you answer **I Understand** to "Controllers in Passthrough?"; see [Rooms and passthrough](#rooms-and-passthrough). |
 | Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. Bar = this session, cog = saved: the choice here is kept for the next session, the bar's Ray button is not. A press shows at once, with the cog still open: while a menu is up, Ray is the beam and the dot, Dot the dot alone, and Off a faint beam with the dot, so the menu can still be aimed at. |
 | Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
 | Click steadiness | Off, Normal, Steady | Normal. How still the PC's cursor is held around a click. Normal sends a click where you aimed before the trigger pull moved the controller, and holds the cursor for a double click. Steady also keeps the cursor still from the moment you touch the trigger until you aim a few pixels away. Off sends the aim as it is, for light gun games and fast clicking. |
 | Click sound | Off, On | On |
-| Glow | Off, On | Off. In a room it is that room's own glow, the same switch as the Room tab's Glow. |
+| Glow | Off, On | Off. In a room it is that room's own glow, the same switch as the Room tab's Glow. In passthrough it is off until you answer **I Understand** to "Glow in Passthrough?". |
 | Screen light | Off, On | On |
 | Notices | All, Important, Off | All. The small pop-ups that appear below the picture for about 2.5 seconds. Important leaves out "Display N Hz" and "3D on/off" and keeps mode changes (gamepad, head aim, hands) and messages such as errors. Off shows none. The flat window's Settings page has the same choice. |
+| Foveated rendering | On, Off | On. Full detail in the middle of your view, less at the edges. Off can look slightly sharper and uses a little less GPU on the plain screen. Applies from the next stream. Valve's foveation is set up when the app starts, so if you change it here and then start a stream from the headset's own PC and app lists, the app restarts itself with that PC and app first. A stream from the flat window starts the app anyway. `MLXR_FDM_LAYER=0` in the environment still turns it off whatever the row says. |
 | Glow level | 0 to 100 % | 50 % |
 
 ### 3D
@@ -714,7 +719,9 @@ The Environment button opens the Rooms picker:
 | Grand Cinema | A large cinema. The screen size is fixed. |
 | Synthwave | A neon landscape |
 
-The choice is remembered. Inside a room the bar's move pill does nothing, and the Screen tab becomes the Room tab. Controllers are hidden in passthrough.
+The choice is remembered. Inside a room the bar's move pill does nothing, and the Screen tab becomes the Room tab.
+
+In passthrough you can already see your controllers, so the controller models and the glow are off: drawing them over the cameras adds GPU load and can cause stutter, ghosting or glitches. On the Display tab, **Show controllers** is greyed with "off in passthrough". Pressing it asks "Controllers in Passthrough?", and turning **Glow** on asks "Glow in Passthrough?". **I Understand** draws them in passthrough too and the headset remembers your answer (`passthrough_controllers_ok`, `passthrough_glow_ok` in `config.ini`); **Cancel** changes nothing. The void and the rooms are not affected. The Settings page in the flat window asks the same questions.
 
 ## 3D
 
@@ -916,6 +923,8 @@ The clipboard sync at the start and end of a stream (Smart clipboard sync on the
 | The headset stays off | After `doff_disconnect` seconds (60 by default) the stream ends. The game keeps running on the PC. |
 | Nothing is touched for `idle_disconnect` minutes (off by default) | The stream ends. The game keeps running on the PC. |
 
+"The game keeps running on the PC" holds unless the PC is set to end the app when you disconnect; see [PCs that end the app when you disconnect](#pcs-that-end-the-app-when-you-disconnect).
+
 On the Frame controllers, Start is the right menu button, Select is the left View button, and L1 and R1 are the bumpers. Hold all four. With **Grips in gamepad mode** on Bumpers (the default) the grips count as L1 and R1 too; with Nothing or Stick clicks only the bumpers do.
 
 ### When the connection drops
@@ -923,6 +932,26 @@ On the Frame controllers, Start is the right menu button, Select is the left Vie
 If the stream ends because the link was lost (a Wi-Fi dropout, the USB cable pulled out, the PC not answering), the headset says "Connection lost, reconnecting (1/2)..." (the Notices setting decides whether you see it), keeps the room, the screen's place and the 3D state, and asks the PC to resume the app that was running. The first try comes 2 seconds after the drop and the second 5 seconds after the first one fails. When one works the picture comes back and nothing more is said. The tries choose the network link again, so a stream that was on Wi-Fi can come back on the USB cable.
 
 It does not start the app a second time: if the app is no longer running on the PC (it was closed there, or the PC restarted), or the PC refuses the headset, it gives up at once. It also does not try when the PC ended the stream on purpose (you quit the app on the PC, or it exited). Pressing Exit or Disconnect while it is trying stops the tries. When the tries are over the flat window comes back, as before. `moonlight.log` has a line for each step, starting with `reconnect:`.
+
+### PCs that end the app when you disconnect
+
+Apollo and Vibepollo have a setting on each app, **Terminate on Pause**, that ends the app when the last client leaves. The PC does not tell the headset about it, so the headset finds out afterwards. It checks only after a disconnect it caused itself: a network switch, a dropped link, the headset-off and idle timers, and Disconnect (the bar, the chord, the keys). After a switch or a drop, the reconnect's resume tells it. After the timers and Disconnect, it asks the PC 15 seconds later while you stay in the headset's own PC and app lists, or looks when you start that app again before then. Quit app, an app that quit or crashed on the PC, and a check more than 2 minutes after the disconnect never count.
+
+A PC takes a few seconds to end the app, so the app counts as still running only when it still runs 15 seconds after the disconnect: the PC says so, or the stream that resumed it is still up then. After a dropped link the PC can still hold the lost connection, which keeps the app whatever the setting, so a resume after a drop only ever counts the app as ended.
+
+What it finds is kept for each PC and app in `host-apps.ini` next to `config.ini`. Each time the app was ended adds one; one time it was still running clears them. Deleting the file forgets everything.
+
+A stream started from the flat window ends the headset app when it disconnects, so there only network switches and dropped links teach the headset, and the timers' notices show only for the moment before the flat window comes back. When the PC ended the app after a switch or a drop, the flat window's message says "The PC ended the app when the connection dropped. Start it again from the app list". Once the network switch holds for a PC, nothing in the flat window's streams clears it. To clear it, delete that PC's lines in `host-apps.ini`, or start the app once from the headset's own PC and app lists, press Disconnect and stay in the lists for 15 seconds.
+
+| When | What you see |
+| --- | --- |
+| A network switch on a PC not yet seen keeping the app | "Switching to Steam Frame Wireless Adapter. A PC set to end the app on disconnect will close it" (the link it switches to) |
+| A network switch on a PC seen ending the app twice | No switch. "Video keeps breaking up. Not switching networks: this PC would end the app", once in the stream |
+| After a switch or a drop, the PC had ended the app | "The PC ended the app when the connection dropped. Start it again from the app list", and no further tries |
+| The idle timer on a PC seen ending the app | "No input for 30 min: disconnecting. This PC may end the app", with your `idle_disconnect` minutes |
+| The headset-off timer on a PC seen ending the app | "Headset off for 60 s: disconnecting. This PC may end the app", with your `doff_disconnect` seconds |
+
+These notices are in English in every language.
 
 ### Taking the headset off
 
@@ -1082,6 +1111,8 @@ You can also write a note in the headset (cog, About, Report a problem). **Save*
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
 | `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
 | `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |
+| `[display] foveated` | `auto`, `on`, `off` | `auto`, which is `on`. The Display tab's Foveated rendering row, from the next stream. `MLXR_FDM_LAYER=0` in the environment turns it off whatever this says. |
+| `[vr] passthrough_controllers_ok`, `passthrough_glow_ok` | `true`, `false` | `false`. Written `true` by **I Understand** on "Controllers in Passthrough?" and "Glow in Passthrough?": Show controllers and the glow are then drawn in passthrough too. |
 | `[display] picture_filter` | `true`, `false` | `true`. A curved or 3D screen is drawn smaller than the stream's pixels, and each of the headset's pixels then averages the stream under it, so small text keeps its strokes. `false` is the softer single read of before. The `MLXR_PICTURE_FILTER=0` or `1` launch option overrides it for a comparison. |
 | `[display] chroma_from_luma` | `true`, `false` | `true`. The stream carries colour at half resolution. With this on, colour edges follow the sharp brightness edges, so red, blue and syntax-coloured text keeps its colour to the edge. `false` reads the colour plainly (softer coloured text). `MLXR_CHROMA_FROM_LUMA=0` or `1` overrides it. |
 | `[3d] eye_balance` | -100 to 100 | 0. 3D Eye Balance: how the 3D's shift is shared by the two eyes. 0 shifts each eye by the same amount in opposite directions. +100 puts all of it in the left eye and leaves the right eye's picture as streamed, -100 the other way round, and in between the left eye takes (100 + n) / 2 percent of the total and the right eye (100 - n) / 2. The total difference between the eyes, so the depth you see, is the same at every setting. Useful with a dominant eye. The 3D tab's **Eye balance** row moves it in steps of 10 (greyed with SBS or Top-bottom); the launcher's Settings page has **3D eye balance**, which steps -100, -50, 0, 50, 100. |
