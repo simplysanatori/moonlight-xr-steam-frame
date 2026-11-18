@@ -1154,6 +1154,12 @@ static void toastText(XrCtx* ctx, int kind, int arg, char* text, size_t cap, con
                                                                          : UIS_TOAST_BACK_MENU_GRIP);
         break;
     case TOAST_POINTER_MODE: snprintf(text, cap, "%s", ui_str(UIS_TOAST_POINTER_MODE)); break;
+    // Native (1.3.4, owner's text): the change waits for the next stream
+    case TOAST_FOVEATED_OFF:
+    case TOAST_FOVEATED_ON:
+        snprintf(text, cap, "%s", ui_str(kind == TOAST_FOVEATED_ON ? UIS_TOAST_FOVEATED_ON : UIS_TOAST_FOVEATED_OFF));
+        if (arg) *more = ui_str(UIS_TOAST_FOVEATED_MORE);
+        break;
     default: text[0] = '\0'; break;
     }
 }

@@ -163,6 +163,9 @@
     X(TOAST_BACK_STICKS, "vr_toast_gamepad_back_sticks", "Press both thumbsticks to go back to the pointer") \
     X(TOAST_BACK_TRIGGERS_GRIPS, "vr_toast_gamepad_back_triggers_grips", "Squeeze both triggers and both grips to go back to the pointer") \
     X(TOAST_POINTER_MODE, "vr_toast_pointer_mode", "Pointer mode") \
+    X(TOAST_FOVEATED_OFF, "native_toast_foveated_off", "Foveated rendering off") \
+    X(TOAST_FOVEATED_ON, "native_toast_foveated_on", "Foveated rendering on") \
+    X(TOAST_FOVEATED_MORE, "native_toast_foveated_more", "Applies from your next stream: Exit and start it again") \
     X(BATTERY, "vr_battery", "Battery %d%%") \
     /* PC list and app list (upstream: pcview_*, applist_*) */ \
     X(PC_ONLINE, "pcview_menu_header_online", "Online") \

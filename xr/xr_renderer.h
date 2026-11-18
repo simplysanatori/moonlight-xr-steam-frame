@@ -846,6 +846,10 @@ typedef struct XrCtx {
     int hintKind;
     // Native (1.3.4): [display] foveated as the Display tab's row has it (FOVEATED_*), for the next stream
     int foveated;
+    // Native (1.3.4): whether Foveated rendering was on as this stream's settings were first read, once
+    // known (foveatedStartKnown), so a change back to it says nothing about the next stream
+    int foveatedStartOn;
+    int foveatedStartKnown;
 
     // Controller input. The aim ray is intersected with the screen and the hit
     // point drives the host mouse, so the PC sees an ordinary absolute mouse

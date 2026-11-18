@@ -1251,6 +1251,13 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         // Valve's layer is set up with the OpenXR instance
         ctx->foveated = cell == 0 ? FOVEATED_ON : FOVEATED_OFF;   // the cells read On, Off
         LOGEV("foveated rendering %s from the panel, from the next stream", cell == 0 ? "on" : "off");
+        // Native (1.3.4, owner's request): said on the toast mid-stream, with how to get it when it differs
+        // from what this stream runs. Not over the headset's own list: the stream it starts takes it.
+        if (ctx->launcher == LAUNCHER_NONE) {
+            int on = cell == 0;
+            noticePush(&ctx->notices, on ? TOAST_FOVEATED_ON : TOAST_FOVEATED_OFF,
+                       ctx->foveatedStartKnown && on != ctx->foveatedStartOn);
+        }
         return SETTING_FOVEATED;
     }
     return -1;

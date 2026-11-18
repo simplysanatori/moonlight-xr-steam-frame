@@ -282,6 +282,8 @@ static void testNoticeOfTheSameKindReplacesAtOnce(void) {
     CHECK(noticeGroup(TOAST_GAMEPAD_MODE) == noticeGroup(TOAST_POINTER_MODE));
     CHECK(noticeGroup(TOAST_GAMEPAD_MODE) != noticeGroup(TOAST_HEAD_AIM_ON));
     CHECK(noticeGroup(TOAST_POINTER_MODE) != noticeGroup(TOAST_TEXT));
+    CHECK(noticeGroup(TOAST_FOVEATED_ON) == noticeGroup(TOAST_FOVEATED_OFF));
+    CHECK(noticeGroup(TOAST_FOVEATED_ON) != noticeGroup(TOAST_POINTER_MODE));
     CHECK(TOAST_GAMEPAD_MODE == TOAST_HEAD_AIM_ON + 1);
     CHECK(TOAST_POINTER_MODE == TOAST_GAMEPAD_MODE + 1);
 }
@@ -336,6 +338,7 @@ static void testNoticeLevels(void) {
     CHECK(noticeImportant(TOAST_HANDS_LOCKED) && noticeImportant(TOAST_HANDS_UNLOCKED));
     CHECK(noticeImportant(TOAST_HEAD_AIM_ON) && noticeImportant(TOAST_HEAD_AIM_OFF));
     CHECK(noticeImportant(TOAST_GAMEPAD_MODE) && noticeImportant(TOAST_POINTER_MODE));
+    CHECK(noticeImportant(TOAST_FOVEATED_ON) && noticeImportant(TOAST_FOVEATED_OFF));
     CHECK(noticeImportant(99));
 
     // All: every kind goes up

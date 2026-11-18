@@ -357,6 +357,10 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->ambiIntensity = (float)s->glow_level / 100.0f;
     ctx->glowFeather = s->glow_feather;
     ctx->foveated = s->foveated;   // native (1.3.4): the row's value; the layer was set at the start
+    if (!ctx->foveatedStartKnown) {
+        ctx->foveatedStartOn = s->foveated == FOVEATED_AUTO ? FOVEATED_AUTO_IS_ON : s->foveated == FOVEATED_ON;
+        ctx->foveatedStartKnown = 1;
+    }
     xrZoomFromSettings(ctx, s);
     xrBringBackFromSettings(ctx, s); // the bar's Bring here: the placement it goes back to
     ctx->bgDim = s->bg_dim;

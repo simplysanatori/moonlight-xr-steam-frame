@@ -134,6 +134,9 @@ int noticeGroup(int kind) {
         case TOAST_GAMEPAD_MODE:
         case TOAST_POINTER_MODE:
             return TOAST_GAMEPAD_MODE;
+        case TOAST_FOVEATED_OFF:
+        case TOAST_FOVEATED_ON:
+            return TOAST_FOVEATED_OFF;
         default:
             return kind;
     }

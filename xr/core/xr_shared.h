@@ -158,6 +158,10 @@
 #define TOAST_HEAD_AIM_ON 7
 #define TOAST_GAMEPAD_MODE 8
 #define TOAST_POINTER_MODE 9
+// Native (1.3.4): Foveated rendering changed on the Display tab mid-stream; arg 1 adds the line that
+// it applies from the next stream (the choice differs from what this stream started with)
+#define TOAST_FOVEATED_OFF 10
+#define TOAST_FOVEATED_ON 11
 // Native: which notices the toast says (config.ini notices). All is every one;
 // Important leaves out the ones that only report something that already
 // happened (the display rate, the 3D going on or off) and keeps mode changes

@@ -247,6 +247,8 @@ static void build_states(void) {
     toast("toast-pad-sticks", ui_str(UIS_TOAST_GAMEPAD_MODE), ui_str(UIS_TOAST_BACK_STICKS), 0);
     toast("toast-pad-triggers", ui_str(UIS_TOAST_GAMEPAD_MODE), ui_str(UIS_TOAST_BACK_TRIGGERS_GRIPS), 0);
     toast("toast-pointer", ui_str(UIS_TOAST_POINTER_MODE), NULL, 0);
+    toast("toast-foveated-off", ui_str(UIS_TOAST_FOVEATED_OFF), ui_str(UIS_TOAST_FOVEATED_MORE), 0);
+    toast("toast-foveated-on", ui_str(UIS_TOAST_FOVEATED_ON), ui_str(UIS_TOAST_FOVEATED_MORE), 0);
     toast("toast-3d-failed", ui_str(UIS_NATIVE_3D_FAILED), NULL, 0);
     toast("toast-zip", ui_str(UIS_NATIVE_REPORT_ZIP_DONE),
           "/home/steamos/Games/MoonlightXRNative/reports/mlxr-report-20261030-034937.zip", 1);
