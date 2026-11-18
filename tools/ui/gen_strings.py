@@ -307,6 +307,9 @@ MAP = [
     # native (lane a11y-final): Eyes marked experimental, the right hand's way back to the controllers
     ("native_cell_eyes_experimental", NATIVE),
     ("native_toast_pointer_back", NATIVE),
+    ("native_toast_foveated_off", NATIVE),
+    ("native_toast_foveated_on", NATIVE),
+    ("native_toast_foveated_more", NATIVE),
     # native (lane eye-calibration): the Eye calibration row and its run
     ("native_row_eye_cal", NATIVE),
     ("native_cell_eye_cal_start", NATIVE),
