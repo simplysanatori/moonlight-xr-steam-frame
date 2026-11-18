@@ -46,8 +46,10 @@ typedef struct MlxrFailoverOps {
     void (*abandon)(void* user, mlxr_net_path from);                            // ... and not back until the next start
     void (*notice)(void* user, const char* text);                               // the headset's text (may be NULL)
     void (*log)(void* user, const char* line);                                  // moonlight.log (may be NULL)
-    // Native (1.3.4): 0 when the stream may not be left for another link: this PC and app ended the app the
-    // last time the client left it (stream/host_app.h). NULL: always may.
+    // Native (1.3.4): 0 when the stream may not be left for another link (this PC and app were seen ending the
+    // app when the client left, stream/host_app.h; the hold is said once a stream, MLXR_HOSTAPP_TEXT_HELD), 1
+    // when it may, 2 when it may and the switch's notice says the app may end (MLXR_HOSTAPP_TEXT_SWITCH).
+    // NULL: always 1.
     int (*mayLeave)(void* user);
 } MlxrFailoverOps;
 
@@ -56,8 +58,9 @@ typedef struct MlxrFailoverOps {
 // tears the stream down for a retry exactly as for a dropped link.
 int mlxr_failover_step(MlxrFailover* f, MlxrReconnect* rc, const MlxrFailoverOps* ops, int64_t nowMs);
 
-// Native (1.3.4): the real session's mayLeave, set by the app at each stream start (and when it learns)
-void mlxr_failover_set_may_leave(int may);
+// Native (1.3.4): the real session's mayLeave answer (0, 1 or 2 as above), set by the app at each stream start
+// (and when it learns)
+void mlxr_failover_set_may_leave(int answer);
 // The app's call, with the real session, netpath and settings behind the ops. notice (may be NULL) is
 // xr_app_notice.
 int mlxr_failover_poll(MlxrFailover* f, MlxrReconnect* rc, int64_t nowMs, void (*notice)(const char* text));
@@ -65,3 +68,6 @@ int mlxr_failover_poll(MlxrFailover* f, MlxrReconnect* rc, int64_t nowMs, void (
 // The text of the log line and the notice
 void mlxr_failover_switch_text(mlxr_net_path from, mlxr_net_path to, uint64_t lossMs, char* log, size_t logCap,
                                char* notice, size_t noticeCap);
+// Native (1.3.4): the same, the notice MLXR_HOSTAPP_TEXT_SWITCH when mayEnd (a PC not known to keep the app)
+void mlxr_failover_switch_text_may_end(mlxr_net_path from, mlxr_net_path to, uint64_t lossMs, int mayEnd, char* log,
+                                       size_t logCap, char* notice, size_t noticeCap);

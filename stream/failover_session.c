@@ -35,7 +35,7 @@ static void realLog(void* u, const char* line) { (void)u; MLOG_W("%s", line); }
 // Native (1.3.4): stream/host_app.h's verdict for the stream's PC and app, set by the app's worker
 static volatile int g_mayLeave = 1;
 static int realMayLeave(void* u) { (void)u; return g_mayLeave; }
-void mlxr_failover_set_may_leave(int may) { g_mayLeave = may != 0; }
+void mlxr_failover_set_may_leave(int answer) { g_mayLeave = answer < 0 ? 0 : answer > 2 ? 2 : answer; }
 
 int mlxr_failover_poll(MlxrFailover* f, MlxrReconnect* rc, int64_t nowMs, void (*notice)(const char* text)) {
     MlxrFailoverOps ops = { (void*)notice, realConnectedMs, realFigures, realLossWindow, realQuality,

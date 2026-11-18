@@ -1,5 +1,6 @@
 // See failover.h. GPLv3.
 #include "failover.h"
+#include "host_app.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -9,10 +10,16 @@
 
 void mlxr_failover_switch_text(mlxr_net_path from, mlxr_net_path to, uint64_t lossMs, char* log, size_t logCap,
                                char* notice, size_t noticeCap) {
+    mlxr_failover_switch_text_may_end(from, to, lossMs, 0, log, logCap, notice, noticeCap);
+}
+
+void mlxr_failover_switch_text_may_end(mlxr_net_path from, mlxr_net_path to, uint64_t lossMs, int mayEnd, char* log,
+                                       size_t logCap, char* notice, size_t noticeCap) {
     if (log)
         snprintf(log, logCap, "network path: switching from %s to %s after %llu ms of loss", mlxr_net_path_label(from),
                  mlxr_net_path_label(to), (unsigned long long)lossMs);
-    if (notice)
+    if (notice && mayEnd) snprintf(notice, noticeCap, MLXR_HOSTAPP_TEXT_SWITCH, mlxr_net_path_label(to));   // 1.3.4
+    else if (notice)
         snprintf(notice, noticeCap, "Video keeps breaking up on %s: switching to %s", mlxr_net_path_label(from),
                  mlxr_net_path_label(to));
 }
@@ -70,8 +77,10 @@ int mlxr_failover_step(MlxrFailover* f, MlxrReconnect* rc, const MlxrFailoverOps
         return 0;
     }
     // Native (1.3.4): a switch disconnects, and a PC that ends the app when its last client leaves would end
-    // the game with it: the stream stays on its link, said once a stream
-    if (ops->mayLeave && !ops->mayLeave(ops->user)) {
+    // the game with it: the stream stays on its link, said once a stream; on a PC not known to keep it the
+    // switch says the app may end
+    int leave = ops->mayLeave ? ops->mayLeave(ops->user) : 1;
+    if (leave == 0) {
         snprintf(f->lastWhy, sizeof(f->lastWhy), "held: this PC ends the app when the client leaves");
         f->held++;
         if (f->heldKey != key) {
@@ -81,13 +90,14 @@ int mlxr_failover_step(MlxrFailover* f, MlxrReconnect* rc, const MlxrFailoverOps
                      "this PC ended the app the last time the client left it (host-apps.ini), and a switch disconnects",
                      mlxr_net_path_label(q.chosen), mlxr_net_path_label(out.to), (unsigned long long)loss.lossMs);
             if (ops->log) ops->log(ops->user, line);
+            if (ops->notice) ops->notice(ops->user, MLXR_HOSTAPP_TEXT_HELD);
         }
         return 0;
     }
     if (!mlxr_reconnect_switch(rc, nowMs)) return 0; // a reconnect is already on its way
 
     char logText[200], text[200];
-    mlxr_failover_switch_text(q.chosen, out.to, loss.lossMs, logText, sizeof(logText), text, sizeof(text));
+    mlxr_failover_switch_text_may_end(q.chosen, out.to, loss.lossMs, leave == 2, logText, sizeof(logText), text, sizeof(text));
     char line[400];
     snprintf(line, sizeof(line),
              "%s (%d bursts, %llu frames lost in the last %d s, %.1f%% of the frames; the current path scores %.1f ms with "

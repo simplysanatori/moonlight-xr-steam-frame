@@ -167,13 +167,40 @@ static void testHeld(void) {
         second(&f, t, t >= 60000 ? 30 : 0, &lossStart);
         CHECK(mlxr_failover_step(&fo, &rc, &ops, t) == 0);
     }
-    CHECK(f.forced == 0 && f.abandoned == 0 && f.noted == 0 && f.noticed == 0 && rc.state != MLXR_RC_WAITING);
+    CHECK(f.forced == 0 && f.abandoned == 0 && f.noted == 0 && rc.state != MLXR_RC_WAITING);
     CHECK(fo.held > 1 && fo.switches == 0 && strstr(fo.lastWhy, "held") != NULL);
     CHECK(f.logged == 1 && strstr(f.logLine, "network path: staying on Wi-Fi rather than switching to Steam Frame Wireless Adapter") != NULL);
-    // once it may (the PC kept the app since), the next poll switches
+    // said once a stream, in the approved words
+    CHECK(f.noticed == 1 && strcmp(f.notice, "Video keeps breaking up. Not switching networks: this PC would end the app") == 0);
+    // once it may (the PC kept the app since), the next poll switches with the usual notice
     g_may = 1;
     second(&f, 101000, 30, &lossStart);
     CHECK(mlxr_failover_step(&fo, &rc, &ops, 101000) == 1 && f.forced == 1 && fo.switches == 1);
+    CHECK(f.noticed == 2 && strcmp(f.notice, "Video keeps breaking up on Wi-Fi: switching to Steam Frame Wireless Adapter") == 0);
+}
+
+// Native (1.3.4): on a PC not known to keep the app (mayLeave 2) the switch says the app may end
+static void testSwitchMayEnd(void) {
+    Fake f;
+    startFake(&f, 0);
+    MlxrFailover fo;
+    memset(&fo, 0, sizeof fo);
+    MlxrReconnect rc;
+    mlxr_reconnect_init(&rc);
+    MlxrFailoverOps ops = opsFor(&f);
+    ops.mayLeave = fkMayLeave;
+    g_may = 2;
+    int64_t lossStart = 0;
+    int switched = 0;
+    for (int64_t t = 1000; t <= 100000 && !switched; t += 1000) {
+        second(&f, t, t >= 60000 ? 30 : 0, &lossStart);
+        switched = mlxr_failover_step(&fo, &rc, &ops, t);
+    }
+    CHECK(switched && f.forced == 1 && f.noticed == 1);
+    CHECK(strcmp(f.notice, "Switching to Steam Frame Wireless Adapter. A PC set to end the app on disconnect will close it") == 0);
+    char note[200];
+    mlxr_failover_switch_text_may_end(MLXR_PATH_ADAPTER, MLXR_PATH_HOME, 1000, 1, NULL, 0, note, sizeof note);
+    CHECK(strcmp(note, "Switching to Wi-Fi. A PC set to end the app on disconnect will close it") == 0);
 }
 
 static void testQuiet(void) {
@@ -285,6 +312,7 @@ static void testText(void) {
 
 int main(void) {
     testHeld();
+    testSwitchMayEnd();
     testSwitch();
     testQuiet();
     testPollRate();

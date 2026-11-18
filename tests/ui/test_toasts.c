@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../../stream/host_app.h"
 #include "check.h"
 #include "panels.h"
 #include "text.h"
@@ -109,6 +110,9 @@ static const char* const ENGLISH[] = {
     "Steam Frame Wireless Adapter not reachable: Using Wi-Fi",
     "Wi-Fi not reachable: Using Steam Frame Wireless Adapter",
     "USB cable not reachable: Using Steam Frame Wireless Adapter",
+    // stream/host_app.h (1.3.4): the PC that ends the app when the client leaves
+    MLXR_HOSTAPP_TEXT_HELD,
+    MLXR_HOSTAPP_TEXT_ENDED,
 };
 
 int main(void) {
@@ -122,6 +126,20 @@ int main(void) {
 
     // the English notices, and the heat warning with its second line
     for (size_t i = 0; i < sizeof ENGLISH / sizeof ENGLISH[0]; i++) check_one("en (app)", ENGLISH[i], NULL);
+    // stream/host_app.h (1.3.4), filled with the longest: the longest link name, and the settings' largest
+    // numbers (idle_disconnect 1440 min, doff_disconnect 3600 s)
+    {
+        static const char* const LINKS[] = { "Wi-Fi", "Steam Frame Wireless Adapter", "USB cable" };
+        char t[200];
+        for (size_t i = 0; i < sizeof LINKS / sizeof LINKS[0]; i++) {
+            snprintf(t, sizeof t, MLXR_HOSTAPP_TEXT_SWITCH, LINKS[i]);
+            check_one("en (host app)", t, NULL);
+        }
+        snprintf(t, sizeof t, MLXR_HOSTAPP_TEXT_IDLE, 1440);
+        check_one("en (host app)", t, NULL);
+        snprintf(t, sizeof t, MLXR_HOSTAPP_TEXT_DOFF, 3600);
+        check_one("en (host app)", t, NULL);
+    }
     check_one("en (heat)", HEAT_TEXT_WARN, HEAT_TEXT_WARN_3D_MORE);
     check_one("en (heat)", HEAT_TEXT_WARN, HEAT_TEXT_WARN_FLAT_MORE);
 
