@@ -314,6 +314,14 @@ int xrEyeCalDotPoint(const XrCtx* ctx, Vec3 headPos, int64_t now, Vec3* point, f
     float w = ctx->screenWidth, h = w * (float)ctx->videoHeight / (float)ctx->videoWidth;
     // on the picture's plane, a little in front of it
     Vec3 local = { (u - 0.5f) * w, (0.5f - v) * h, 0.02f };
+    // Native (owner's request): on a curved picture, on the curve at that
+    // point of the picture as drawn (screenPoint's), the same 2 cm in front
+    if (furnitureCurved((XrCtx*)ctx)) {
+        float r = ctx->screenRadius;
+        local.x = (u - 0.5f) * cylinderAngle(w, r) * r;
+        local.y *= cylinderFit(w, r);
+        curveLocal(&local, r, 1, NULL);
+    }
     Vec3 off = quatRotate(ctx->screenPose.orientation, local);
     point->x = ctx->screenPose.position.x + off.x;
     point->y = ctx->screenPose.position.y + off.y;

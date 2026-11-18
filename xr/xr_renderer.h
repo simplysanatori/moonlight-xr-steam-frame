@@ -1675,6 +1675,15 @@ int statsShown(XrCtx* ctx);
 // at most this far round the cylinder from the picture's middle, radians (60
 // degrees): a corner further round folds back beside the viewer.
 #define STATS_CURVE_MAX_ANGLE 1.0472f
+// Native (owner's request): every flat panel over a curved picture (xr_ui.c):
+// whether the picture is that curve, the flat frame's x of the point an arc
+// length from its middle, how far the curve comes toward the viewer over a
+// span of x, and a panel's local place in the picture's frame moved onto the
+// arc and in front of the curve under its width
+int furnitureCurved(XrCtx* ctx);
+float curveArcX(float radius, float s);
+float curveSpanDepth(float radius, float lo, float hi);
+Vec3 curvePanelLocal(XrCtx* ctx, Vec3 local, float width);
 void statsPlace(XrCtx* ctx);
 int kbKeyAt(XrCtx* ctx, float u, float v);
 int headAimCanAct(XrCtx* ctx);

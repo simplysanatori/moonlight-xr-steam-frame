@@ -49,6 +49,7 @@ XrPosef firstRunPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     *outWidth = width;
     *outHeight = width * (float)FIRSTRUN_TEX_H / (float)FIRSTRUN_TEX_W;
     Vec3 local = { 0.0f, 0.0f, FIRSTRUN_LIFT_M };
+    local = curvePanelLocal(ctx, local, width);   // native (owner's request): in front of a curve
     XrPosef pose = furniturePose(ctx);
     Vec3 offset = quatRotate(pose.orientation, local);
     pose.position.x += offset.x;

@@ -9,6 +9,7 @@
 #include "check.h"
 #include "scene.h"
 #include "text.h"
+#include "xr_host.h"
 
 static XrPosef aimAt(Vec3 from, Vec3 target) {
     Vec3 d = vecNorm(vecSub(target, from));
@@ -442,6 +443,99 @@ static void curvedPlacement(Scene* s) {
     statsPlace(c);
 }
 
+// Native (owner's request): every flat panel over a curved picture stands in
+// front of the curve under its whole width, flat and turned as the picture is;
+// the ones over the bar's buttons stand over the buttons where the arc has
+// them; on a flat picture each is where it always was
+typedef XrPosef (*PanelPoseFn)(XrCtx*, float*, float*);
+
+static void panelsOnCurve(Scene* s) {
+    XrCtx* c = s->ctx;
+    scene_reset(s);
+    c->headPos = (XrVector3f){ 0, 0, 0 };
+    scene_frame(s, LONG);
+    XrPosef keepPose = c->screenPose;
+    float keepW = c->screenWidth, keepR = c->screenRadius, keepCurve = c->panelCurve;
+    static const struct { const char* name; PanelPoseFn fn; float flatZ; } panels[] = {
+        { "picker", pickerPose, 0.06f },       { "settings panel", cogPanelPose, 0.05f },
+        { "exit sheet", exitPromptPose, 0.05f }, { "keyboard", kbPanelPose, 0.05f },
+        { "report sheet", reportSheetPose, 0.06f }, { "hand hint", handHintPose, 0.06f },
+        { "Ko-fi sheet", kofiSheetPose, 0.06f }, { "Host sheet", hostSheetPose, 0.06f },
+        { "first-run card", firstRunPose, -1.0f },
+    };
+    const int count = (int)(sizeof(panels) / sizeof(panels[0]));
+    Vec3 up = { 0, 1, 0 }, side = { 1, 0, 0 };
+    const float rad = (float)M_PI / 180.0f;
+    XrQuaternionf q = quatNorm(quatMul(axisAngleQuat(up, -15.0f * rad), axisAngleQuat(side, 10.0f * rad)));
+    const float widths[2] = { 3.6f, 6.0f }, radii[2] = { 3.0f, 1.5f };
+    for (int k = 0; k < 2; k++) {
+        c->panelCurve = 1.0f;
+        c->screenWidth = widths[k];
+        c->screenRadius = radii[k];
+        Vec3 fwd = quatRotate(q, (Vec3){ 0, 0, 1 });
+        c->screenPose.orientation = q;
+        c->screenPose.position = (XrVector3f){ -fwd.x * radii[k], -fwd.y * radii[k], -fwd.z * radii[k] };
+        CHECK(furnitureCurved(c));
+        float r = c->screenRadius;
+        for (int i = 0; i < count; i++) {
+            float w, h;
+            XrPosef p = panels[i].fn(c, &w, &h);
+            CHECK(memcmp(&p.orientation, &q, sizeof(q)) == 0);
+            // A panel wider than the chord 60 degrees either way spans (the
+            // picker, 91% of the picture, on a picture wrapped past about 130
+            // degrees) cannot stand in front of all of it, flat
+            Vec3 l = quatRotate(quatConj(q), vecSub(pos(p), pos(c->screenPose)));
+            if (fabsf(l.x) + w * 0.5f > r * sinf(STATS_CURVE_MAX_ANGLE)) {
+                CHECK(k == 1);
+                printf("  %s, picture %.1f m round %.1f m: wider than the curve's 120 degrees\n",
+                       panels[i].name, widths[k], r);
+                continue;
+            }
+            for (int corner = 0; corner < 4; corner++) {
+                Vec3 at = onPlane(p, w, h, (float)(corner & 1), (float)(corner >> 1));
+                float a = fromAxis(c->screenPose, r, at);
+                if (!(a < r - 0.004f)) {
+                    printf("  %s, picture %.1f m round %.1f m: corner %d %.3f m from the axis\n",
+                           panels[i].name, widths[k], r, corner, a);
+                }
+                CHECK(a < r - 0.004f);
+            }
+        }
+        // The settings panel and the exit sheet over their buttons, which the
+        // bar's row puts on the arc
+        BarFrame bf = barFrame(c);
+        int slots[2] = { BAR_SLOT_COG, BAR_SLOT_EXIT };
+        PanelPoseFn fns[2] = { cogPanelPose, exitPromptPose };
+        for (int i = 0; i < 2; i++) {
+            Vec3 button;
+            float sideLen, w, h;
+            barSlotPlacement(slots[i], bf.width, bf.height, &button, &sideLen);
+            float yaw;
+            curveLocal(&button, bf.radius, bf.curved, &yaw);
+            XrPosef p = fns[i](c, &w, &h);
+            Vec3 l = quatRotate(quatConj(q), vecSub(pos(p), pos(c->screenPose)));
+            CHECK_NEAR(l.x, button.x, 0.01);
+        }
+    }
+    // Flat, every one where it always was: in the picture's own frame, the
+    // centred ones in its middle, at the depth each always had
+    c->panelCurve = 0.0f;
+    c->screenWidth = 3.6f;
+    CHECK(!furnitureCurved(c));
+    for (int i = 0; i < count; i++) {
+        float w, h;
+        XrPosef p = panels[i].fn(c, &w, &h);
+        Vec3 l = quatRotate(quatConj(q), vecSub(pos(p), pos(c->screenPose)));
+        if (panels[i].flatZ > 0.0f) {
+            CHECK_NEAR(l.z, panels[i].flatZ, 1e-4);
+        }
+    }
+    c->screenPose = keepPose;
+    c->screenWidth = keepW;
+    c->screenRadius = keepR;
+    c->panelCurve = keepCurve;
+}
+
 // The window is one layer, moved or not, so a frame is no fuller for it
 static void layers(Scene* s) {
     XrCtx* c = s->ctx;
@@ -477,6 +571,7 @@ int main(void) {
     placement(s);
     grabAndMove(s);
     curvedPlacement(s);
+    panelsOnCurve(s);
     resets(s);
     layers(s);
     scene_free(s);

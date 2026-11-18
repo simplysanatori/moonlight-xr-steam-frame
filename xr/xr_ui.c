@@ -211,6 +211,63 @@ float screenRoll(XrCtx* ctx) {
     return 2.0f * atan2f(twist.z, twist.w);
 }
 
+// Native (owner's request): flat panels over a curved picture. The picture as
+// drawn is a cylinder whose axis stands a radius in front of its middle, so it
+// bulges toward the viewer away from the middle, and a panel laid out in its
+// flat frame stands behind the surface there. A panel stays flat and turned as
+// the picture is, but its middle goes where the arc really is (R sin of the
+// angle, not the arc length) and it is pulled forward to the front of the
+// curve under its whole width, and a centimetre more. Nothing is kept further
+// round than 60 degrees, where the cylinder folds back beside the viewer.
+// Flat pictures, rooms and the launcher's list (effectiveCurvature 0) are not
+// curved, and nothing changes for them.
+int furnitureCurved(XrCtx* ctx) {
+    return xrPictureCurved(ctx) && ctx->screenRadius > 1e-3f;
+}
+
+// The flat frame's x of the point arc length s from the picture's middle
+float curveArcX(float radius, float s) {
+    float a = s / radius;
+    if (a > STATS_CURVE_MAX_ANGLE) a = STATS_CURVE_MAX_ANGLE;
+    if (a < -STATS_CURVE_MAX_ANGLE) a = -STATS_CURVE_MAX_ANGLE;
+    return radius * sinf(a);
+}
+
+// How far the cylinder comes toward the viewer anywhere between x lo and hi of
+// the flat frame: the most at whichever end is further from the middle
+float curveSpanDepth(float radius, float lo, float hi) {
+    float m = fabsf(lo) > fabsf(hi) ? fabsf(lo) : fabsf(hi);
+    float s = m / radius;
+    float a = s < sinf(STATS_CURVE_MAX_ANGLE) ? asinf(s) : STATS_CURVE_MAX_ANGLE;
+    return radius * (1.0f - cosf(a));
+}
+
+// A panel width wide laid out at local in the picture's flat frame (x as arc
+// length from the middle, z how far in front it was meant to stand), as it
+// stands over the curved picture: its middle on the arc, and in front of the
+// curve under it by a centimetre, or as far in front as it was if that is more
+Vec3 curvePanelLocal(XrCtx* ctx, Vec3 local, float width) {
+    if (!furnitureCurved(ctx)) {
+        return local;
+    }
+    float r = ctx->screenRadius;
+    local.x = curveArcX(r, local.x);
+    float front = curveSpanDepth(r, local.x - width * 0.5f, local.x + width * 0.5f) + 0.01f;
+    if (front > local.z) {
+        local.z = front;
+    }
+    return local;
+}
+
+// The frame a panel anchored to the picture's edges or the bar's buttons is
+// laid out in: the picture as drawn, which on a cylinder wrapped past a full
+// turn is cylinderFit smaller, as the bar's row is (barFrame)
+static void furnitureFrame(XrCtx* ctx, float* width, float* height) {
+    float fit = furnitureCurved(ctx) ? cylinderFit(ctx->screenWidth, ctx->screenRadius) : 1.0f;
+    *width = furnitureWidth(ctx) * fit;
+    *height = furnitureHeight(ctx) * fit;
+}
+
 // The picker floats just in front of the screen, centred on it
 XrPosef pickerPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     float width = furnitureWidth(ctx) * PICKER_WIDTH_FRAC;
@@ -219,6 +276,7 @@ XrPosef pickerPose(XrCtx* ctx, float* outWidth, float* outHeight) {
 
     XrPosef pose = furniturePose(ctx);
     Vec3 local = { 0.0f, 0.0f, 0.06f };
+    local = curvePanelLocal(ctx, local, width);   // native (owner's request)
     Vec3 offset = quatRotate(pose.orientation, local);
     pose.position.x += offset.x;
     pose.position.y += offset.y;
@@ -241,14 +299,18 @@ XrPosef cogPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     // The button hangs below the screen, so the panel is placed off it rather
     // than off the screen. In a room that is where the button would hang on
     // the stand in, which the panel stays on while the bar follows the picture.
+    // Native (owner's request): over the button where the bar's row has it,
+    // which on a curved picture is the picture as drawn and the arc
     Vec3 button;
-    float side;
-    barSlotPlacement(BAR_SLOT_COG, frameWidth, furnitureHeight(ctx), &button, &side);
+    float side, rowW, rowH;
+    furnitureFrame(ctx, &rowW, &rowH);
+    barSlotPlacement(BAR_SLOT_COG, rowW, rowH, &button, &side);
 
     Vec3 local;
     local.x = button.x;
     local.y = button.y + side * 0.5f + frameWidth * ENV_GAP_FRAC + height * 0.5f;
     local.z = 0.05f;
+    local = curvePanelLocal(ctx, local, width);
 
     XrPosef pose = furniturePose(ctx);
     Vec3 offset = quatRotate(pose.orientation, local);
@@ -275,9 +337,14 @@ XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
 
     Vec3 local;
     local.x = 0.0f;
-    // Top edge the same distance under the picture that the bar sits at
-    local.y = -(furnitureHeight(ctx) * 0.5f + frameWidth * BAR_GAP_FRAC + height * 0.5f);
+    // Top edge the same distance under the picture that the bar sits at.
+    // Native (owner's request): under the picture as drawn, and in front of
+    // its curve.
+    float rowW, rowH;
+    furnitureFrame(ctx, &rowW, &rowH);
+    local.y = -(rowH * 0.5f + frameWidth * BAR_GAP_FRAC + height * 0.5f);
     local.z = 0.05f;
+    local = curvePanelLocal(ctx, local, width);
 
     XrPosef pose = furniturePose(ctx);
     Vec3 offset = quatRotate(pose.orientation, local);
@@ -335,22 +402,16 @@ void statsPlace(XrCtx* ctx) {
     // so the window keeps to 60. A window wide enough to reach further from
     // the middle on the other side (a picture wrapped well past a half turn)
     // is pulled forward by that edge instead, as far as 60 degrees needs.
-    if (xrPictureCurved(ctx) && ctx->screenRadius > 1e-3f) {
+    // (curveArcX, curveSpanDepth: the same sums as every panel over the curve)
+    if (furnitureCurved(ctx)) {
         float r = ctx->screenRadius;
         float edge = cylinderAngle(ctx->screenWidth, r) * 0.5f - margin / r;
-        if (edge > STATS_CURVE_MAX_ANGLE) edge = STATS_CURVE_MAX_ANGLE;
         if (edge < 0.0f) edge = 0.0f;
-        float outer = r * sinf(edge);
-        float inner = ctx->statsW - outer;
-        float deep = edge;
-        if (inner > outer) {
-            float s = inner / r;
-            deep = s < sinf(STATS_CURVE_MAX_ANGLE) ? asinf(s) : STATS_CURVE_MAX_ANGLE;
-        }
+        float outer = curveArcX(r, -edge * r);
         float fit = cylinderFit(ctx->screenWidth, r);
-        local.x = -outer + ctx->statsW * 0.5f;
+        local.x = outer + ctx->statsW * 0.5f;
         local.y = screenH * fit * 0.5f - ctx->statsH * 0.5f - margin;
-        local.z = r * (1.0f - cosf(deep)) + 0.01f;
+        local.z = curveSpanDepth(r, outer, outer + ctx->statsW) + 0.01f;
     }
     Vec3 at = quatRotate(ctx->screenPose.orientation, local);
     ctx->statsPose = ctx->screenPose;
@@ -503,14 +564,18 @@ XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     *outWidth = width;
     *outHeight = height;
 
+    // Native (owner's request): over its button on a curved picture too, as
+    // the settings panel is
     Vec3 button;
-    float side;
-    barSlotPlacement(BAR_SLOT_EXIT, frameWidth, furnitureHeight(ctx), &button, &side);
+    float side, rowW, rowH;
+    furnitureFrame(ctx, &rowW, &rowH);
+    barSlotPlacement(BAR_SLOT_EXIT, rowW, rowH, &button, &side);
 
     Vec3 local;
     local.x = button.x;
     local.y = button.y + side * 0.5f + frameWidth * ENV_GAP_FRAC + height * 0.5f;
     local.z = 0.05f;
+    local = curvePanelLocal(ctx, local, width);
 
     XrPosef pose = furniturePose(ctx);
     Vec3 offset = quatRotate(pose.orientation, local);
@@ -530,10 +595,15 @@ XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     *outWidth = width;
     *outHeight = height;
 
+    // Native (owner's request): over the bottom edge of the picture as drawn,
+    // and in front of its curve
+    float rowW, rowH;
+    furnitureFrame(ctx, &rowW, &rowH);
     Vec3 local;
     local.x = 0.0f;
-    local.y = -furnitureHeight(ctx) * 0.5f + height * 0.5f + frameWidth * 0.01f;
+    local.y = -rowH * 0.5f + height * 0.5f + frameWidth * 0.01f;
     local.z = 0.06f;
+    local = curvePanelLocal(ctx, local, width);
 
     XrPosef pose = furniturePose(ctx);
     Vec3 offset = quatRotate(pose.orientation, local);
@@ -553,6 +623,7 @@ XrPosef handHintPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     *outHeight = height;
 
     Vec3 local = { 0.0f, 0.0f, 0.06f };
+    local = curvePanelLocal(ctx, local, width);   // native (owner's request)
     XrPosef pose = furniturePose(ctx);
     Vec3 offset = quatRotate(pose.orientation, local);
     pose.position.x += offset.x;
@@ -570,6 +641,7 @@ XrPosef kofiSheetPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     *outHeight = height;
 
     Vec3 local = { 0.0f, 0.0f, 0.06f };
+    local = curvePanelLocal(ctx, local, width);   // native (owner's request)
     XrPosef pose = furniturePose(ctx);
     Vec3 offset = quatRotate(pose.orientation, local);
     pose.position.x += offset.x;

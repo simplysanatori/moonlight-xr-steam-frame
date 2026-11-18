@@ -1144,6 +1144,7 @@ static void addEyeCalLayers(XrCtx* ctx, const FrameView* view, FrameLayers* laye
     if (up && ctx->cogDrawnCal > 0) {
         float w = ctx->cogW < 0.36f * ctx->screenWidth ? ctx->cogW : 0.36f * ctx->screenWidth;
         Vec3 ahead = { 0.0f, 0.0f, 0.01f };
+        ahead = curvePanelLocal(ctx, ahead, w);   // native (owner's request): in front of a curve
         atlasQuad(ctx, &layers->cogPanel, NULL, UI_PANEL_COG, view->space, poseOffset(pic, ahead), w,
                   w * (float)COG_TEX_H / (float)COG_TEX_W);
         pushLayer(ctx, layers, &layers->cogPanel);

@@ -24,6 +24,7 @@ XrPosef hostSheetPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     *outHeight = height;
 
     Vec3 local = { 0.0f, 0.0f, 0.06f };
+    local = curvePanelLocal(ctx, local, width);   // native (owner's request): in front of a curve
     XrPosef pose = furniturePose(ctx);
     Vec3 offset = quatRotate(pose.orientation, local);
     pose.position.x += offset.x;
