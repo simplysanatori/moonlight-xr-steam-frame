@@ -2055,7 +2055,7 @@ static void test_foveated(void) {
     // the layer: the setting, unless MLXR_FDM_LAYER is set
     const char* why = NULL;
     settings_defaults(&s);
-    CHECK(settings_fdm_layer_off(&s, NULL, &why) == 0 && strcmp(why, "[display] foveated auto") == 0);
+    CHECK(settings_fdm_layer_off(&s, NULL, &why) == 1 && strcmp(why, "[display] foveated auto") == 0);   // auto is Off
     s.foveated = FOVEATED_ON;
     CHECK(settings_fdm_layer_off(&s, NULL, &why) == 0 && strcmp(why, "[display] foveated") == 0);
     CHECK(settings_fdm_layer_off(&s, "0", &why) == 1 && strcmp(why, "MLXR_FDM_LAYER") == 0);
@@ -2063,12 +2063,12 @@ static void test_foveated(void) {
     CHECK(settings_fdm_layer_off(&s, NULL, &why) == 1 && strcmp(why, "[display] foveated") == 0);
     CHECK(settings_fdm_layer_off(&s, "", NULL) == 1);
     CHECK(settings_fdm_layer_off(&s, "1", &why) == 0 && strcmp(why, "MLXR_FDM_LAYER") == 0);
-    // the Display tab's row: On 0, Off 1 (the approved order); auto shows On
+    // the Display tab's row: On 0, Off 1 (the approved order); auto shows Off
     SessionToggles t;
     session_from_settings(&s, &t);
     CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 1);
     s.foveated = FOVEATED_AUTO;
-    CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 0);
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 1);
     s.foveated = FOVEATED_ON;
     CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 0);
     CHECK(settings_find("display.foveated") != NULL && settings_find("foveated") != NULL);

@@ -265,7 +265,7 @@ static const SettingDesc TABLE[] = {
     DB("display", "glow", glow, 0, "Display tab: glow (checkbox_vr_ambilight; native default off, the owner's choice, upstream on)"),
     DI("display", "glow_level", glow_level, 0, 100, 50, "Display tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
     DE("display", "glow_feather", glow_feather, FEATHER_NAMES, GLOW_FEATHER_OFF, "native: Picture tab Glow edge: off, soft or wide. A borderless screen: the picture's edge fades into a glow of its own colours (needs the glow on)"),
-    DE("display", "foveated", foveated, FOVEATED_NAMES, FOVEATED_AUTO, "native: Foveated rendering: on (Valve's fdm_injection layer: full detail where you look, less at the edges) or off (slightly sharper, a little less GPU on the plain screen); auto is on in this version. From the next stream; MLXR_FDM_LAYER=0 turns it off whatever this says"),
+    DE("display", "foveated", foveated, FOVEATED_NAMES, FOVEATED_AUTO, "native: Foveated rendering: on (Valve's fdm_injection layer: full detail where you look, less at the edges) or off (slightly sharper, a little less GPU on the plain screen); auto is off in this version. From the next stream; MLXR_FDM_LAYER=0 turns it off whatever this says"),
     DB("display", "screen_light", screen_light, 1, "Display tab: screen light in rooms (checkbox_vr_room_light)"),
     DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (room in a room), display, 3d, picture, accessibility or about"),
     // 3d
@@ -1431,7 +1431,7 @@ int settings_option_cell(const Settings* s, const SessionToggles* t, int option)
     case COG_OPTION_ROOM_LIGHT: return s->screen_light;
     case COG_OPTION_NOTICES: return clamp_int(s->notices, 0, 2);
     case COG_OPTION_CLICK_STEADY: return clamp_int(s->click_steadiness, 0, 2);
-    case COG_OPTION_FOVEATED: return settings_foveated_on(s) ? 0 : 1;   // native (1.3.4): On, Off; auto shows On
+    case COG_OPTION_FOVEATED: return settings_foveated_on(s) ? 0 : 1;   // native (1.3.4): On, Off; auto shows Off
     default: return -1;
     }
 }

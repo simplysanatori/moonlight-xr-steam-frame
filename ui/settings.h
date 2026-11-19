@@ -44,11 +44,12 @@ typedef struct {
 #define DEPTH_SOURCE_DEFAULT DEPTH_SOURCE_LIGHT
 // Native (1.3.4): [display] foveated, the Foveated rendering row. Only a choice somebody made is stored:
 // auto (the default, written commented out) is what this release does when nobody chose, so a later
-// release can change it for those who never touched the row. Auto is On in 1.3.4.
+// release can change it for those who never touched the row. Auto is Off in 1.3.4 (owner's choice: it looked
+// sharper and cost no measurable GPU at 3440x1440@144); FOVEATED_AUTO_IS_ON says what auto is.
 #define FOVEATED_AUTO 0
 #define FOVEATED_ON 1
 #define FOVEATED_OFF 2
-#define FOVEATED_AUTO_IS_ON 1
+#define FOVEATED_AUTO_IS_ON 0
 #define ROOM_COUNT 3   // the baked rooms, indexed 0 theater, 1 grand cinema, 2 synthwave
 
 // What the Screen tab remembers per PC and app: where the screen hangs, how the

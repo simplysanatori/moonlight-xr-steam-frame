@@ -671,7 +671,7 @@ static void passthroughSheets(void) {
 }
 
 // Native (1.3.4): the Display tab's Foveated rendering row: a press stores the choice (on or off,
-// never auto), the ring follows it, auto shows On, and the next session's start reads it
+// never auto), the ring follows it, auto shows Off, and the next session's start reads it
 static void foveatedRow(void) {
     Scene* sc = scene_new();
     XrCtx* c = sc->ctx;
@@ -679,7 +679,7 @@ static void foveatedRow(void) {
     settings_defaults(&s);
     xrApplySettings(c, &s);
     CHECK(cogOptionCells(COG_OPTION_FOVEATED) == 2);
-    CHECK(cogOptionValue(c, COG_OPTION_FOVEATED, 0) == 0);   // auto: On, the first cell (On, Off)
+    CHECK(cogOptionValue(c, COG_OPTION_FOVEATED, 0) == 1);   // auto: Off, the second cell (On, Off)
     float out[IN_SLOTS];
     for (int cell = 0; cell < 2; cell++) {
         memset(out, 0, sizeof(out));
@@ -695,7 +695,7 @@ static void foveatedRow(void) {
         xrSettingsFromCtx(c, &back);
         CHECK(back.foveated == want);
     }
-    // On pressed while it shows On (auto) is a choice: stored as on
+    // Either cell pressed while it shows auto is a choice: stored as on or off
     Settings fresh;
     settings_defaults(&fresh);
     CHECK(xrStoreSetting(c, &fresh, SETTING_FOVEATED, 0) == 1 && fresh.foveated == FOVEATED_ON);
