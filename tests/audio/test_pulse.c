@@ -109,7 +109,7 @@ static int loadSink(void) {
 
 // ---- recorder ---------------------------------------------------------------
 
-#define REC_FRAMES (RATE * 20)
+#define REC_FRAMES (RATE * 60)
 #define CHUNK 240
 static float* gRec;
 static double* gChunkTime;
@@ -411,7 +411,85 @@ static void testClick(void) {
     mlxr_click_play(MLXR_CLICK_PRESS);  // after shutdown: a no-op
 }
 
-int main(void) {
+// Native (owner's request): the clicks of fast typing, every one heard. Runs of
+// presses 40 to 150 ms apart, regular and irregular, some straight after an
+// idle long enough for the click stream to cork, played through the click's
+// own helper and stream into the null sink, and counted back off the monitor:
+// an onset is the level rising past half a click's peak after it fell under a
+// quarter of it.
+static int countOnsets(long from, long to) {
+    const int block = RATE / 500;   // 2 ms
+    int armed = 1, onsets = 0;
+    for (long b = from; b + block <= to; b += block) {
+        float peak = 0.0f;
+        for (long i = b; i < b + block; i++) {
+            peak = fmaxf(peak, fmaxf(fabsf(gRec[2 * i]), fabsf(gRec[2 * i + 1])));
+        }
+        if (armed && peak > 0.06f) {
+            onsets++;
+            armed = 0;
+        }
+        else if (!armed && peak < 0.03f) {
+            armed = 1;
+        }
+    }
+    return onsets;
+}
+
+static unsigned nextRand(unsigned* seed) {
+    *seed = *seed * 1103515245u + 12345u;
+    return (*seed >> 16) & 0x7fff;
+}
+
+static void testClickRuns(void) {
+    char err[200] = "";
+    mlxr_click_set_stream_name("mlxr-test click virtual sink");
+    CHECK(mlxr_click_init(gSink, err, sizeof err) == 0);
+    mlxr_click_set_volume(0.5f);
+    MlxrClickStats before;
+    mlxr_click_stats(&before);
+    sleepMs(800);   // corked
+    long start = atomic_load(&gRecFrames);
+    unsigned seed = 12345;
+    int fired = 0;
+    const int regular[4] = { 40, 60, 80, 120 };
+    // Each spacing alone, 20 presses, after an idle that corks the stream
+    for (int r = 0; r < 4; r++) {
+        for (int i = 0; i < 20; i++) {
+            mlxr_click_play(MLXR_CLICK_PRESS);
+            fired++;
+            sleepMs(regular[r]);
+        }
+        sleepMs(700);
+    }
+    // Irregular runs of 3 to 12 presses 40 to 150 ms apart, an idle of 150 ms
+    // to 900 ms between runs (corked or not)
+    for (int run = 0; run < 12; run++) {
+        int n = 3 + (int) (nextRand(&seed) % 10);
+        for (int i = 0; i < n; i++) {
+            mlxr_click_play(MLXR_CLICK_PRESS);
+            fired++;
+            sleepMs(40 + nextRand(&seed) % 111);
+        }
+        sleepMs(150 + nextRand(&seed) % 751);
+    }
+    sleepMs(500);
+    long end = atomic_load(&gRecFrames);
+    int heard = countOnsets(start, end);
+    MlxrClickStats after;
+    mlxr_click_stats(&after);
+    printf("  click runs: %d pressed, %d heard; asked %ld, capped %ld, played %ld, silenced %ld, "
+           "%ld frames cut by the queue\n", fired, heard, after.asked - before.asked,
+           after.capped - before.capped, after.played - before.played,
+           after.silenced - before.silenced, after.cutFrames - before.cutFrames);
+    CHECK(end - start < REC_FRAMES);
+    CHECK(after.asked - before.asked == fired);
+    CHECK(after.played - before.played == fired);
+    CHECK(heard == fired);
+    mlxr_click_shutdown();
+}
+
+int main(int argc, char** argv) {
     char err[200];
     if (mlxr_pulse_acquire(&gLoop, &gCtx, err, sizeof err) != 0) {
         printf("audio_pulse: no sound server (%s), skipped\n", err);
@@ -431,12 +509,16 @@ int main(void) {
     CHECK(atomic_load(&gRecFrames) >= 0);
 
     printf("default sink before: %s\n", before);
-    testTone(2, 0);
-    testTone(8, 0);
-    testTone(8, 1);
-    testMute();
-    testBurstCap();
+    // Native (owner's request): "click" runs the click's tests alone
+    if (argc < 2 || strcmp(argv[1], "click") != 0) {
+        testTone(2, 0);
+        testTone(8, 0);
+        testTone(8, 1);
+        testMute();
+        testBurstCap();
+    }
     testClick();
+    testClickRuns();
 
     gRecStop = 1;
     pthread_join(gRecThread, NULL);

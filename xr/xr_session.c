@@ -2395,12 +2395,28 @@ static void clickPlay(void) {
     }
 }
 
+// Native (owner's request): the helper's counters for the keyboard's click line
+static int clickCounters(long* out) {
+    if (atomic_load(&g_clickState) != 2) {
+        return 0;
+    }
+    MlxrClickStats s;
+    mlxr_click_stats(&s);
+    out[0] = s.asked;
+    out[1] = s.capped;
+    out[2] = s.played;
+    out[3] = s.silenced;
+    out[4] = s.cutFrames;
+    return 1;
+}
+
 static void clickStart(void) {
     int expected = 0;
     if (!atomic_compare_exchange_strong(&g_clickState, &expected, 1)) {
         return;
     }
     xrClickPlayer = clickPlay;
+    xrClickCounters = clickCounters;
     if (pthread_create(&g_clickThread, NULL, clickOpen, NULL) != 0) {
         atomic_store(&g_clickState, 3);
     }
@@ -2417,6 +2433,7 @@ static void clickStop(void) {
     }
     atomic_store(&g_clickState, 0);
     xrClickPlayer = NULL;
+    xrClickCounters = NULL;
 }
 
 // ---- run -------------------------------------------------------------------------

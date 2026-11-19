@@ -54,6 +54,18 @@ int mlxr_click_count(MlxrClickKind kind);
 int mlxr_click_take(MlxrClickKind kind);
 
 /**
+ * Native (owner's request): what became of the presses since init, any thread.
+ * asked: play() calls while running; capped: of those, the ones dropped because
+ * MLXR_CLICK_BURST_MAX were already waiting; played: clicks written to the
+ * stream; silenced: taken at volume 0; cutFrames: frames the stream's queue cut
+ * (a full queue drops its oldest).
+ */
+typedef struct {
+    long asked, capped, played, silenced, cutFrames;
+} MlxrClickStats;
+void mlxr_click_stats(MlxrClickStats* out);
+
+/**
  * count copies of a stereo click of frames frames, each 18 ms after the one
  * before and added in, into out. Returns the frame count (<= maxFrames). Pure;
  * for tests.

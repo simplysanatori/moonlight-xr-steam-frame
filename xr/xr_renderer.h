@@ -1352,6 +1352,16 @@ typedef struct XrCtx {
     int cogClockReady;
     int clickSoundOn;
     int clickPending;
+    // Native (owner's request): the keyboard's click diagnostic (xr_world.c
+    // xrClickFrame): keys pressed, clicks handed to the player, trigger
+    // near-misses on a key (a pull that sagged under PRESS_ON but not under
+    // PRESS_OFF and came back, which is no new press), the click counters
+    // when the window began, and when it began
+    long kbDiagKeys, kbDiagAsked, kbDiagNearMiss;
+    long kbDiagBase[5];
+    int64_t kbDiagSinceNs;
+    int kbDiagOpen;
+    int kbTriggerSag[HAND_COUNT];
     int headLockedPref;
     // Native (lane layout): Follow, the angular-size lock and the layout kept
     // per PC and app (xr_place.c). The head's pose in the local space as last

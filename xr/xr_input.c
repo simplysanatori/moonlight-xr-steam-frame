@@ -2473,6 +2473,20 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             if (ctx->profileKind[h] == PROFILE_CONTROLLER) {
                 ctx->pinchDown[h] = 0;
                 ctx->triggerDown[h] = pressHysteresis(value, wasDown, PRESS_ON, PRESS_OFF);
+                // Native (owner's request): a pull on a key that sagged under
+                // PRESS_ON and came back without letting go, for the click line
+                if (!ctx->triggerDown[h]) {
+                    ctx->kbTriggerSag[h] = 0;
+                }
+                else if (value < PRESS_ON) {
+                    ctx->kbTriggerSag[h] = 1;
+                }
+                else if (ctx->kbTriggerSag[h]) {
+                    ctx->kbTriggerSag[h] = 0;
+                    if (ctx->kbOpen && ctx->kbHoverKey >= 0) {
+                        ctx->kbDiagNearMiss++;
+                    }
+                }
             }
             else {
                 // A hand's pinch comes from one source, the runtime's own
@@ -3271,6 +3285,7 @@ static void openReport(XrCtx* ctx, InputFrame* f) {
 // nothing is held, since nothing there would act on Ctrl, Alt or Win and the
 // host must not be left holding one.
 static void pressKey(XrCtx* ctx, InputFrame* f, int key, int intoReport) {
+    ctx->kbDiagKeys++;   // native (owner's request): for the click line
     // Native: a Full keyboard key, or the key that flips the layout
     if (xrKeyboardPress(ctx, f->out, key, f->hand, f->now)) {
         return;

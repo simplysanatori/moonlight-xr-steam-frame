@@ -194,5 +194,9 @@ double xrGpuTimeAvg(XrCtx* ctx, int section, int* samples);
 // (upstream XrRenderer.updateClickSound): calls the player, 1 if it did
 extern void (*xrClickPlayer)(void);
 int xrClickFrame(XrCtx* ctx, const float* in);
+// Native (owner's request): the click helper's counters (audio/click.h
+// MlxrClickStats: asked, capped, played, silenced, frames cut), 0 if it is not
+// running; the session sets it with the player
+extern int (*xrClickCounters)(long* out5);
 
 #endif

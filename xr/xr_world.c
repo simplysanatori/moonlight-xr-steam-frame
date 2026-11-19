@@ -1042,11 +1042,50 @@ void xrWorldFlatGlowInto(XrCtx* ctx, const XrEyeTargets* target, const XrView* v
 // ---- the click --------------------------------------------------------------------------------
 
 void (*xrClickPlayer)(void) = NULL;
+int (*xrClickCounters)(long* out5) = NULL;
+
+// Native (owner's request): one line for the keyboard's clicks, when it closes
+// or every 30 s while it is open, if a key was pressed: keys pressed, clicks
+// asked of the player, what the helper did with every click asked of it in
+// that time (keys or not), and trigger near-misses on a key
+static void kbClickDiag(XrCtx* ctx, int64_t now) {
+    long c[5] = { 0, 0, 0, 0, 0 };
+    int have = xrClickCounters != NULL && xrClickCounters(c);
+    int open = ctx->kbOpen;
+    if (open && !ctx->kbDiagOpen) {
+        ctx->kbDiagKeys = ctx->kbDiagAsked = ctx->kbDiagNearMiss = 0;
+        memcpy(ctx->kbDiagBase, c, sizeof(c));
+        ctx->kbDiagSinceNs = now;
+    }
+    int due = open ? now - ctx->kbDiagSinceNs >= 30000000000LL : ctx->kbDiagOpen;
+    ctx->kbDiagOpen = open;
+    if (!due) {
+        return;
+    }
+    if (ctx->kbDiagKeys > 0 || ctx->kbDiagNearMiss > 0) {
+        LOGI("keyboard clicks over %.0f s%s: %ld keys pressed, %ld clicks asked (click sound %s); "
+             "helper %s: %ld asked, %ld played, %ld capped, %ld at volume 0, %ld frames cut; "
+             "%ld trigger near-misses on a key",
+             (double)(now - ctx->kbDiagSinceNs) / 1e9, open ? "" : ", keyboard closed",
+             ctx->kbDiagKeys, ctx->kbDiagAsked, ctx->clickSoundOn ? "on" : "off",
+             have ? "running" : "not running", c[0] - ctx->kbDiagBase[0], c[2] - ctx->kbDiagBase[2],
+             c[1] - ctx->kbDiagBase[1], c[3] - ctx->kbDiagBase[3], c[4] - ctx->kbDiagBase[4],
+             ctx->kbDiagNearMiss);
+    }
+    ctx->kbDiagKeys = ctx->kbDiagAsked = ctx->kbDiagNearMiss = 0;
+    memcpy(ctx->kbDiagBase, c, sizeof(c));
+    ctx->kbDiagSinceNs = now;
+}
 
 int xrClickFrame(XrCtx* ctx, const float* in) {
+    int played = 0;
     if (in[IN_CLICK] != 0.0f && ctx->clickSoundOn && xrClickPlayer != NULL) {
         xrClickPlayer();
-        return 1;
+        played = 1;
     }
-    return 0;
+    if (in[IN_CLICK] != 0.0f && ctx->kbOpen) {
+        ctx->kbDiagAsked += played;
+    }
+    kbClickDiag(ctx, nowNs());
+    return played;
 }

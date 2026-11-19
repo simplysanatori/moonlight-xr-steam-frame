@@ -28,6 +28,9 @@ static struct {
     // Native (owner's request): presses waiting per kind, at most
     // MLXR_CLICK_BURST_MAX each. A bit per kind merged a burst into one click.
     _Atomic int pending[MLXR_CLICK_KINDS];
+    // Native (owner's request): what became of the presses, for the client's
+    // diagnostic line (mlxr_click_stats)
+    _Atomic long asked, capped, played, silenced, cutFrames;
     _Atomic float volume;
     float* stereo[MLXR_CLICK_KINDS];
     int frames[MLXR_CLICK_KINDS];
@@ -84,7 +87,11 @@ static void* worker(void* arg) {
         for (int k = 0; k < MLXR_CLICK_KINDS; k++) {
             // Taken at volume 0 too, so nothing waits to play once it is turned up
             int count = mlxr_click_take((MlxrClickKind) k);
-            if (count <= 0 || vol <= 0.0f) {
+            if (count <= 0) {
+                continue;
+            }
+            if (vol <= 0.0f) {
+                atomic_fetch_add(&C.silenced, count);
                 continue;
             }
             if (corked) {
@@ -97,7 +104,11 @@ static void* worker(void* arg) {
             for (int i = 0; i < 2 * n; i++) {
                 buf[i] *= vol;
             }
-            mlxr_pulse_out_write(C.out, buf, n);
+            int cut = mlxr_pulse_out_write(C.out, buf, n);
+            atomic_fetch_add(&C.played, count);
+            if (cut > 0) {
+                atomic_fetch_add(&C.cutFrames, cut);
+            }
         }
     }
     return NULL;
@@ -141,7 +152,14 @@ int mlxr_click_init(const char* sink, char* err, int errLen) {
     p.sink = sink;
     p.tlengthMs = 30;
     p.minreqMs = 5;
-    p.prebufMs = 0;
+    // Native (owner's request): the stream waits for 2 ms of a click before it
+    // plays, and stops again when it runs dry. With 0 it kept running dry
+    // between clicks, and the server's read point ran on past where the next
+    // click was written, so that click was dropped, all or its start: on the
+    // desktop's PipeWire only 15 of 191 presses 40 to 150 ms apart were heard,
+    // mostly the first after an idle (the cork starts it afresh). A whole click
+    // is written at once, so it starts no later than before.
+    p.prebufMs = 2;
     // Native (owner's request): room for a whole burst (4 presses, 90 ms) on
     // top of the server's 30 ms; one click alone waits no longer than before
     p.queueCapMs = 160;
@@ -189,8 +207,21 @@ void mlxr_click_play(MlxrClickKind kind) {
     if (!C.running || kind < 0 || kind >= MLXR_CLICK_KINDS) {
         return;
     }
-    mlxr_click_count(kind);
+    int before = atomic_load(&C.pending[kind]);
+    int now = mlxr_click_count(kind);
+    atomic_fetch_add(&C.asked, 1);
+    if (now == before && now >= MLXR_CLICK_BURST_MAX) {
+        atomic_fetch_add(&C.capped, 1);
+    }
     sem_post(&C.sem);
+}
+
+void mlxr_click_stats(MlxrClickStats* out) {
+    out->asked = atomic_load(&C.asked);
+    out->capped = atomic_load(&C.capped);
+    out->played = atomic_load(&C.played);
+    out->silenced = atomic_load(&C.silenced);
+    out->cutFrames = atomic_load(&C.cutFrames);
 }
 
 int mlxr_click_count(MlxrClickKind kind) {
