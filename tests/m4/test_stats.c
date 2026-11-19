@@ -234,6 +234,20 @@ static void grabAndMove(Scene* s) {
     XrVector2f west = { -1.0f, 0.0f };
     for (int i = 0; i < 45; i++) xrGrabStepSticks(c, tilted, 0, 1, west, rest);
     CHECK(turnedDeg(c->statsPose, unturned) < 0.05f);
+    // Native (owner's request): the holding hand's stick east grows it about
+    // its middle, for as long as it is moved
+    float sw = c->statsW, shh = c->statsH;
+    XrPosef unsized = c->statsPose;
+    Vec3 mid0 = onPlane(unsized, sw, shh, 0.5f, 0.5f);
+    for (int i = 0; i < 90; i++) xrGrabStepSticks(c, tilted, 0, 1, rest, east);
+    CHECK_NEAR(c->statsW / sw, expf(GRAB_GROW_RATE), 0.01);
+    CHECK_NEAR(c->statsH / shh, expf(GRAB_GROW_RATE), 0.01);
+    statsPlace(c);
+    CHECK(dist(onPlane(c->statsPose, c->statsW, c->statsH, 0.5f, 0.5f), mid0) < 1e-4f);
+    for (int i = 0; i < 90; i++) xrGrabStepSticks(c, tilted, 0, 1, rest, west);
+    statsPlace(c);
+    CHECK_NEAR(c->statsW, sw, 1e-4);
+    CHECK(dist(onPlane(c->statsPose, c->statsW, c->statsH, 0.5f, 0.5f), mid0) < 1e-4f);
 
     // Letting go leaves it, and it keeps still after
     XrPosef left = c->statsPose;

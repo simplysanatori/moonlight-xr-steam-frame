@@ -360,6 +360,12 @@ XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
 void kbPlace(XrCtx* ctx) {
     XrPosef pose = kbPanelPose(ctx, &ctx->kbW, &ctx->kbH);
     ctx->kbPose = ctx->kbMoved ? ctx->kbMovedPose : pose;
+    // Native (owner's request): a moved keyboard at the size its stick resize
+    // left it
+    if (ctx->kbMoved && ctx->kbScale > 0.0f) {
+        ctx->kbW *= ctx->kbScale;
+        ctx->kbH *= ctx->kbScale;
+    }
 }
 
 // Native (owner's request): the stats window. Shown when the setting is on and
@@ -374,14 +380,23 @@ int statsShown(XrCtx* ctx) {
 // corner it stays pinned to, in the picture's own frame, until a grip has
 // taken it; then it stays where it was left, with its top edge fixed as the
 // number of lines changes.
+// Native (owner's request): its size, and a moved one's at the multiple its
+// stick resize left it
+void statsSize(XrCtx* ctx) {
+    float metresPerPx = ctx->screenWidth * 0.30f / 384.0f;
+    if (ctx->statsMoved && ctx->statsScale > 0.0f) {
+        metresPerPx *= ctx->statsScale;
+    }
+    ctx->statsW = (float)ctx->overlayW * metresPerPx;
+    ctx->statsH = (float)ctx->overlayH * metresPerPx;
+}
+
 void statsPlace(XrCtx* ctx) {
     if (!statsShown(ctx)) {
         return;
     }
     float screenH = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
-    float metresPerPx = ctx->screenWidth * 0.30f / 384.0f;
-    ctx->statsW = (float)ctx->overlayW * metresPerPx;
-    ctx->statsH = (float)ctx->overlayH * metresPerPx;
+    statsSize(ctx);
     if (ctx->statsMoved) {
         Vec3 shift = { 0.0f, -(ctx->statsH - ctx->statsMovedH) * 0.5f, 0.0f };
         Vec3 at = quatRotate(ctx->statsMovedPose.orientation, shift);

@@ -139,6 +139,15 @@ static inline int64_t nowNs(void) {
 // about its own level axis, at up to this many radians a second (75 degrees)
 // at full tilt, with the push's dead zone and squared response
 #define GRAB_TURN_SPEED 1.309f
+// Native (owner's request): the holding hand's stick east grows what is held
+// and west shrinks it, about its middle, by up to this rate a second at full
+// tilt as a natural log (0.3365: 1.4 times a second growing, 1/1.4 shrinking),
+// with the turn's dead zone and squared response, where the stick is not
+// pushing or pulling. The keyboard and the stats window keep to this range of
+// their own size.
+#define GRAB_GROW_RATE 0.3365f
+#define GRAB_PANEL_SCALE_MIN 0.5f
+#define GRAB_PANEL_SCALE_MAX 2.5f
 #define SCROLL_CLICKS_PER_SEC 7.5f
 
 // One euro filter on the hit point. A hand at rest still shakes, and at 3 m
@@ -1293,6 +1302,14 @@ typedef struct XrCtx {
     // end does)
     float grabTurn;
     float grabTilt;
+    // Native (owner's request): how many times larger the holding hand's
+    // stick has made what is held this hold, for the line said at letting go
+    float grabGrow;
+    // Native (owner's request): the keyboard's and the stats window's size
+    // as their stick resize left them, a multiple of their own (0 or 1: their
+    // own), for the session and only while they are moved
+    float kbScale;
+    float statsScale;
     // Native (owner's request): how far the screen is turned off facing the
     // viewer, for the session, and its yaw when the hold that left it so was
     // let go: a later hold keeps the turn while nothing else has turned it
@@ -1695,6 +1712,7 @@ float curveArcX(float radius, float s);
 float curveSpanDepth(float radius, float lo, float hi);
 Vec3 curvePanelLocal(XrCtx* ctx, Vec3 local, float width);
 void statsPlace(XrCtx* ctx);
+void statsSize(XrCtx* ctx);
 int kbKeyAt(XrCtx* ctx, float u, float v);
 int headAimCanAct(XrCtx* ctx);
 void setHeadAimOn(XrCtx* ctx, int on, const char* from);

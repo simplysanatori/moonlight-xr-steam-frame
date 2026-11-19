@@ -1273,6 +1273,7 @@ static void grabPushStart(XrCtx* ctx) {
     ctx->grabPushNs = 0;
     ctx->grabTurn = 0.0f;
     ctx->grabTilt = 0.0f;
+    ctx->grabGrow = 1.0f;
     for (int h = 0; h < HAND_COUNT; h++) {
         ctx->grabStickLo[h] = 0.0f;
         ctx->grabStickHi[h] = 0.0f;
@@ -1347,6 +1348,28 @@ static XrVector2f grabHoldingStick(const XrCtx* ctx, const XrVector2f* sticks) {
     return ctx->grabHand >= 0 && ctx->grabHand < HAND_COUNT ? sticks[ctx->grabHand] : rest;
 }
 
+// Native (owner's request): how many times larger the holding hand's stick
+// makes what is held this frame: east grows it and west shrinks it, where the
+// stick is not pushing or pulling it (the push keeps its 60 degree sector, so
+// a thumb drawn back on a slant still pulls)
+static float grabGrowStep(XrVector2f stick, float dt) {
+    if (stickPushAmount(stick) != 0.0f) {
+        return 1.0f;
+    }
+    return expf(stickAxisAmount(stick, 0) * GRAB_GROW_RATE * dt);
+}
+
+// Native (owner's request): a panel's own size multiple times grow, kept to
+// GRAB_PANEL_SCALE_MIN..MAX; hands back what it grew by
+static float growPanel(float* scale, float grow) {
+    float was = *scale > 0.0f ? *scale : 1.0f;
+    float want = was * grow;
+    if (want < GRAB_PANEL_SCALE_MIN) want = was < GRAB_PANEL_SCALE_MIN ? was : GRAB_PANEL_SCALE_MIN;
+    if (want > GRAB_PANEL_SCALE_MAX) want = was > GRAB_PANEL_SCALE_MAX ? was : GRAB_PANEL_SCALE_MAX;
+    *scale = want;
+    return want / was;
+}
+
 static void pushHeldScreen(XrCtx* ctx, XrVector2f stick, float dt, XrPosef* held) {
     float push = stickPushAmount(stick);
     ctx->grabPush += push * GRAB_PUSH_SPEED * dt;
@@ -1377,9 +1400,10 @@ static void sayGrabPush(XrCtx* ctx, const XrPosef* held) {
     Vec3 d = { held->position.x - ctx->headPos.x, held->position.y - ctx->headPos.y,
                held->position.z - ctx->headPos.z };
     const float deg = 180.0f / (float)M_PI;
-    LOGEV("move bar let go: %.2f m from the head, sticks pushed it %+.2f m, turned it %+.1f deg "
-          "and tipped it %+.1f deg; stick y seen left %.2f to %.2f, right %.2f to %.2f",
-          sqrtf(vecDot(d, d)), ctx->grabPush, ctx->grabTurn * deg, ctx->grabTilt * deg,
+    LOGEV("move bar let go: %.2f m from the head, sticks pushed it %+.2f m, grew it %.2fx, turned it "
+          "%+.1f deg and tipped it %+.1f deg; stick y seen left %.2f to %.2f, right %.2f to %.2f",
+          sqrtf(vecDot(d, d)), ctx->grabPush, ctx->grabGrow > 0.0f ? ctx->grabGrow : 1.0f,
+          ctx->grabTurn * deg, ctx->grabTilt * deg,
           ctx->grabStickLo[HAND_LEFT], ctx->grabStickHi[HAND_LEFT],
           ctx->grabStickLo[HAND_RIGHT], ctx->grabStickHi[HAND_RIGHT]);
 }
@@ -1528,6 +1552,11 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         if (statsGrab) {
             ctx->grabMode = GRAB_STATSMOVE;
             grabPushStart(ctx);
+            // Native (owner's request): a window taken from its corner is its
+            // own size until the stick resizes it
+            if (!ctx->statsMoved) {
+                ctx->statsScale = 1.0f;
+            }
             ctx->statsMoved = 1;
             ctx->statsMovedPose = ctx->statsPose;
             ctx->statsMovedH = ctx->statsH;
@@ -1537,6 +1566,9 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
             ctx->grabMode = GRAB_KBMOVE;
             grabPushStart(ctx);
             // Once taken it stays where it is put, however the screen moves
+            if (!ctx->kbMoved) {
+                ctx->kbScale = 1.0f;   // native (owner's request), as the stats window's
+            }
             ctx->kbMoved = 1;
             ctx->kbMovedPose = ctx->kbPose;
             return;
@@ -1619,12 +1651,24 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         ctx->grabTurn = wrapAngle(ctx->grabTurn + turnBy);
         ctx->grabTilt = wrapAngle(ctx->grabTilt + tiltBy);
         kb->orientation = turnHeld(kb->orientation, ctx->grabTurn, ctx->grabTilt);
+        // Native (owner's request): the holding stick east and west resizes
+        // it about its middle, for the session
+        float grow = grabGrowStep(grabHoldingStick(ctx, sticks), dt);
+        if (grow != 1.0f) {
+            float* scale = ctx->grabMode == GRAB_STATSMOVE ? &ctx->statsScale : &ctx->kbScale;
+            ctx->grabGrow *= growPanel(scale, grow);
+        }
         if (ctx->grabMode == GRAB_STATSMOVE) {
             ctx->statsMovedPose = *kb;
+            statsSize(ctx);
             ctx->statsMovedH = ctx->statsH;
         }
         else {
             ctx->kbMovedPose = *kb;
+            // Its size is read once when placed, so placed again at the new one
+            if (grow != 1.0f) {
+                kbPlace(ctx);
+            }
         }
         return;
     }
@@ -1668,6 +1712,22 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         if (pitch < bottom) pitch = bottom;
         ctx->grabTilt += pitch - ctx->grabPitch;
         ctx->grabPitch = pitch;
+        // Native (owner's request): the holding stick east and west resizes it
+        // about its centre, within the corner resize's limits and with the arc
+        // keeping its shape; saved with the rest when it is let go. The angular
+        // lock's base grows with it, or it would put back the old width.
+        float grow = grabGrowStep(grabHoldingStick(ctx, sticks), dt);
+        if (grow != 1.0f && ctx->screenWidth > 0.0f) {
+            float w = xrScreenWidthHeld(ctx, ctx->screenWidth * grow);
+            float by = w / ctx->screenWidth;
+            ctx->screenRadius *= by;
+            ctx->screenWidth = w;
+            if (ctx->lockActive) {
+                ctx->lockBaseWidth *= by;
+                ctx->lockBaseRadius *= by;
+            }
+            ctx->grabGrow *= by;
+        }
 
         // Which way it faces does not. Inheriting the wrist tumbled the
         // picture on all three axes, so instead it keeps the tilt and roll it

@@ -750,6 +750,106 @@ static void pictureBarTurnTilt(Scene* s) {
     c->screenTurnSet = 0;
 }
 
+// ---- the holding hand's stick east and west resizes what is held (owner's request) ----
+
+static void pictureBarResize(Scene* s) {
+    XrCtx* c = s->ctx;
+    XrPosef keepPose = c->screenPose;
+    float keepW = c->screenWidth, keepR = c->screenRadius, keepCurve = c->panelCurve;
+    const float grow = expf(GRAB_GROW_RATE);   // one second at full tilt
+
+    for (int curved = 0; curved < 2; curved++) {
+        pictureAt3m(s, curved ? 1.0f : 0.0f);
+        XrPosef aim = aimAt(HAND, pictureBarPoint(c));
+        CHECK(xrGrabStepAt(c, aim, 0, 1, 0.0f) == HOVER_BAR);
+        xrGrabStepAt(c, aim, 0, 1, 0.0f);
+        XrPosef start = c->screenPose;
+        float w0 = c->screenWidth, r0 = c->screenRadius;
+        CHECK_NEAR(grow, 1.4, 0.001);
+
+        // East for a second: 1.4 times as wide, about its centre, the arc the
+        // same shape, as far away as it was
+        holdStick(c, aim, 1.0f, 0.0f);
+        CHECK_NEAR(c->screenWidth / w0, grow, 0.01);
+        CHECK_NEAR(c->screenRadius / r0, c->screenWidth / w0, 1e-4);
+        CHECK(dist(pos(c->screenPose), pos(start)) < 1e-4f);
+        CHECK_NEAR(fromHead(c->screenPose), 3.0, 1e-4);
+        // West for a second, back to where it was
+        holdStick(c, aim, -1.0f, 0.0f);
+        CHECK_NEAR(c->screenWidth, w0, 1e-3);
+        // Half a tilt is slower; a tilt mostly north is a push, never a resize,
+        // and the other hand's stick east turns it and resizes nothing
+        holdStick(c, aim, 0.5f, 0.0f);
+        CHECK(c->screenWidth > w0 * 1.02f && c->screenWidth < w0 * 1.2f);
+        holdStick(c, aim, -0.5f, 0.0f);
+        CHECK_NEAR(c->screenWidth, w0, 1e-3);
+        holdStick(c, aim, 0.6f, 0.75f);
+        CHECK_NEAR(c->screenWidth, w0, 1e-4);
+        CHECK(fromHead(c->screenPose) > 3.2f);
+        holdStick(c, aim, -0.6f, -0.75f);
+        holdOther(c, aim, 1.0f, 0.0f, 45);
+        CHECK_NEAR(c->screenWidth, w0, 1e-4);
+        holdOther(c, aim, -1.0f, 0.0f, 45);
+        // Held to the corner resize's limits
+        for (int i = 0; i < 10; i++) holdStick(c, aim, 1.0f, 0.0f);
+        float most = c->screenWidth;
+        CHECK_NEAR(most, xrScreenWidthHeld(c, 100.0f), 1e-4);
+        for (int i = 0; i < 12; i++) holdStick(c, aim, -1.0f, 0.0f);
+        CHECK_NEAR(c->screenWidth, xrScreenWidthHeld(c, 0.01f), 1e-4);
+        // and none of it stored up past them: a second east from the least
+        holdStick(c, aim, 1.0f, 0.0f);
+        CHECK_NEAR(c->screenWidth / xrScreenWidthHeld(c, 0.01f), grow, 0.01);
+        holdStick(c, aim, -1.0f, 0.0f);
+        holdStick(c, aim, 1.0f, 0.0f);
+        holdStick(c, aim, 1.0f, 0.0f);
+        float left = c->screenWidth;
+        CHECK_NEAR(c->grabGrow, left / w0, 0.01);
+        // Let go: saved like a corner resize, the Size config.ini keeps
+        xrGrabStepAt(c, aim, 0, 0, 0.0f);
+        CHECK(c->grabMode == GRAB_NONE && c->poseDirty);
+        c->poseDirty = 0;
+        float out[POSE_VALUES];
+        xrScreenPoseOut(c, out);
+        CHECK_NEAR(out[7] * xrScreenWidthScale(c), left, 1e-4);
+        CHECK_NEAR(out[8], c->screenRadius, 1e-5);
+        CHECK_NEAR(c->screenWidth, left, 1e-6);
+    }
+
+    // The keyboard: its own size times the resize, about its middle, while
+    // moved; put back by the screen it is its own size again
+    pictureAt3m(s, 0.0f);
+    c->kbOpen = 1;
+    c->kbMoved = 0;
+    kbPlace(c);
+    float kw = c->kbW, kh = c->kbH;
+    XrPosef aim = aimAt(HAND, pillPoint(c));
+    CHECK(xrGrabStepAt(c, aim, 0, 1, 0.0f) == HOVER_KBBAR);
+    xrGrabStepAt(c, aim, 0, 1, 0.0f);
+    XrPosef kb = c->kbPose;
+    holdStick(c, aim, 1.0f, 0.0f);
+    CHECK_NEAR(c->kbW / kw, grow, 0.01);
+    CHECK_NEAR(c->kbH / kh, grow, 0.01);
+    CHECK(dist(pos(c->kbPose), pos(kb)) < 1e-4f);
+    for (int i = 0; i < 6; i++) holdStick(c, aim, 1.0f, 0.0f);
+    CHECK_NEAR(c->kbW / kw, GRAB_PANEL_SCALE_MAX, 1e-3);
+    for (int i = 0; i < 6; i++) holdStick(c, aim, -1.0f, 0.0f);
+    float small = c->kbW / kw;
+    CHECK(small >= GRAB_PANEL_SCALE_MIN - 1e-4f && small < 0.6f);
+    xrGrabStepAt(c, aim, 0, 0, 0.0f);
+    kbPlace(c);
+    CHECK_NEAR(c->kbW / kw, small, 1e-4);
+    c->kbMoved = 0;
+    kbPlace(c);
+    CHECK_NEAR(c->kbW, kw, 1e-6);
+    c->kbOpen = 0;
+
+    c->screenPose = keepPose;
+    c->screenWidth = keepW;
+    c->screenRadius = keepR;
+    c->panelCurve = keepCurve;
+    c->screenTurnSet = 0;
+}
+
 // Native (lane beam-streak): where the beam is in the frame's list of layers, -1 for nowhere
 static int beamIndex(const Scene* s) {
     UiRectPx b = xrAtlasRect(ATLAS_BEAM);
@@ -1008,6 +1108,7 @@ int main(int argc, char** argv) {
     liveSliders(s);
     pictureBarPushPull(s);
     pictureBarTurnTilt(s);
+    pictureBarResize(s);
     hoverKeepsBeamPlace(s);
     eyeCalKeepsBeamPlace(s);
     scene_free(s);
