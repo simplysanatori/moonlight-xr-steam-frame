@@ -651,6 +651,103 @@ static void glowGroup(void) {
     c->glowFeather = GLOW_FEATHER_OFF;
     m5_frame(&g, c, glowBody, NULL);
     CHECK(c->ambiSeeded && !c->glowZonesSeeded && c->glowDrawnScaleY == 0.0f);
+    // Native (issue #7): the Glow edge, the room, the curve, the zoom, the bezel and the spread switched while it
+    // runs, on a new frame and on a picture that stands still. Each time the glow image is what was asked for,
+    // lit at its edge and dark at its rim, and nothing is left stale
+    backClock = nowNs() + 10000000000LL;
+    xrBacklightClock = fixedClock;
+    static const int ROOMS[4] = { 0, ROOM_STYLE_FIRST, ROOM_STYLE_FIRST + 1, ROOM_STYLE_LAST };
+    for (int n = 0; n < 96; n++) {
+        int still = n % 3 == 2;
+        c->glowFeather = (n * 7) % GLOW_EDGE_COUNT;
+        c->roomOverride = ROOMS[(n / 2) % 4];
+        c->roomGlow[c->roomOverride > 0 ? c->roomOverride : ROOM_STYLE_FIRST] = 1;
+        c->panelCurve = (n / 5) % 2 ? 0.6f : 0.0f;
+        c->zoomPct = (n / 7) % 2 ? 200 : 100;
+        c->glowBezel = (n / 4) % 4;
+        c->glowSpread = 10 + (n * 35) % 95;
+        backClock += 20000000LL;
+        if (still) {
+            cmd = m5_begin(&g);
+            c->frameCmd = cmd;
+            if (glowStale(c)) xrWorldStillFrame(c, &video.video);
+            c->frameCmd = VK_NULL_HANDLE;
+            m5_submit(&g, cmd, NULL, 0);
+        }
+        else {
+            m5_frame(&g, c, glowBody, NULL);
+        }
+        int back = c->glowFeather == GLOW_EDGE_BACKLIGHT;
+        CHECK(!glowStale(c) && c->glowDrawnOn && c->glowDrawnFeather == c->glowFeather);
+        xrGlowDrawnSize(c, &sx, &sy, &proud);
+        CHECK((proud == 0.0f) == back && (c->glowDrawnScaleY > 0.0f) == back);
+        CHECK(back || (sx == sy && sx == xrGlowScaleFor(c, c->glowFeather)));
+        m5_readback(&g, c->glowTexture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, GLOW_TEX, GLOW_TEX, glow);
+        int rim = 0, lit = 0;
+        for (int i = 0; i < GLOW_TEX; i++) {
+            for (int k = 0; k < 4; k++) {
+                const uint8_t* px = glow + ((size_t)(k == 0 ? 0 : k == 1 ? GLOW_TEX - 1 : i) * GLOW_TEX
+                                            + (k == 2 ? 0 : k == 3 ? GLOW_TEX - 1 : i)) * 4;
+                int m = px[0] > px[1] ? px[0] : px[1];
+                m = px[2] > m ? px[2] : m;
+                rim = m > rim ? m : rim;
+            }
+            for (int x = 0; x < GLOW_TEX; x++) {
+                const uint8_t* px = glow + ((size_t)i * GLOW_TEX + x) * 4;
+                lit += px[0] > 60 || px[2] > 60;
+            }
+        }
+        CHECK(!back || rim <= 3);
+        CHECK(lit > 500);
+    }
+    // The stream's size changes under it: 32:9, so the glow takes its shape and its zones whole
+    c->glowFeather = GLOW_EDGE_BACKLIGHT;
+    c->roomOverride = 0;
+    c->panelCurve = 0.0f;
+    c->zoomPct = 100;
+    c->glowBezel = 0;
+    c->glowSpread = GLOW_SPREAD_DEFAULT;
+    m5_frame(&g, c, glowBody, NULL);
+    xrGlowDrawnSize(c, &sx, &sy, &proud);
+    CHECK(c->glowDrawnShape.zonesAcross == 20);
+    M5Video wide;
+    memset(&wide, 0, sizeof(wide));
+    m5_video(&g, c, &wide, 3840, 1080, twoColour);
+    M5Video held = video;
+    video = wide;
+    int w0 = c->videoWidth, h0 = c->videoHeight;
+    c->videoWidth = 3840;
+    c->videoHeight = 1080;
+    CHECK(glowStale(c));
+    backClock += 1000000LL;   // sooner than the ease's turn: a new shape doesn't wait for it
+    m5_frame(&g, c, glowBody, NULL);
+    float wx, wy;
+    xrGlowDrawnSize(c, &wx, &wy, &proud);
+    CHECK(c->glowDrawnShape.zonesAcross == 25 && c->glowUnsettled == 0.0f && !glowStale(c));
+    CHECK(wx == sx && wy > sy * 1.4f);
+    const float pad = 1.0f - BACKLIGHT_PAD;
+    CHECK(fabsf((wy * pad - 1.0f) * 1080.0f / 3840.0f - (wx * pad - 1.0f)) < 1e-4f);   // the same reach up as along
+    c->videoWidth = w0;
+    c->videoHeight = h0;
+    video = held;
+    m5_video_free(c, &wide);
+    // The host is gone, and comes back: the first frame lands whole, from its own picture
+    m5_frame(&g, c, glowBody, NULL);
+    xrWorldVideoGone(c);
+    CHECK(!c->glowZonesSeeded && !c->glowRendered && !c->glowDrawnOn && !xrBacklightSettling(c));
+    backClock += 3000000000LL;
+    m5_frame(&g, c, glowBody, NULL);
+    CHECK(c->glowZonesSeeded && c->glowUnsettled == 0.0f && c->glowRendered && !glowStale(c));
+    // The glow's own switch, off and on again
+    c->ambilightOn = 0;
+    m5_frame(&g, c, glowBody, NULL);
+    CHECK(!c->glowZonesSeeded && !c->glowDrawnOn && !glowStale(c) && !xrBacklightOn(c));
+    c->ambilightOn = 1;
+    CHECK(glowStale(c));
+    m5_frame(&g, c, glowBody, NULL);
+    CHECK(c->glowZonesSeeded && c->glowDrawnOn && c->glowUnsettled == 0.0f);
+    xrBacklightClock = keptClock;
+    c->roomOverride = -1;
     // The stream goes: nothing sampled from it is kept
     xrWorldVideoGone(c);
     CHECK(!c->ambiSeeded && !c->glowRendered && !xrWorldGlowShown(c));

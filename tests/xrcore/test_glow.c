@@ -646,19 +646,20 @@ static void testGlowHoleStaysUnderThePicture(void) {
 
 // Native (issue #7): Backlight's shape, its zones and its ease
 static void testBacklightShape(void) {
+    const float pad = 1.0f - BACKLIGHT_PAD;
     BacklightShape s, t;
     // 16:9 at the default: FramePlayerX's 20 zones across, half of its most spread, no bezel
     backlightShapeFor(1920.0f, 1080.0f, GLOW_SPREAD_DEFAULT, 0, 0, &s);
     CHECK(s.zonesAcross == 20);
     CHECK_NEAR(s.reach, 0.275, 1e-6);
-    CHECK_NEAR(s.scaleX, 1.55, 1e-5);
-    CHECK_NEAR(s.scaleY, 1.0 + 2.0 * 0.275 * 16.0 / 9.0, 1e-5);
+    CHECK_NEAR(s.scaleX, 1.55 / pad, 1e-5);
+    CHECK_NEAR(s.scaleY, (1.0 + 2.0 * 0.275 * 16.0 / 9.0) / pad, 1e-5);
     CHECK(s.bezel == 0.0f);
     // The rows' ends are held, and the light is the screen's, not the stream's, size
     backlightShapeFor(3840.0f, 2160.0f, 400, 9, 0, &t);
     CHECK_NEAR(t.reach, BACKLIGHT_MAX_REACH, 1e-6);
     CHECK_NEAR(t.bezel, 0.03, 1e-6);
-    CHECK_NEAR(t.scaleX, 1.0 + 2.0 * (0.55 + 0.03), 1e-5);
+    CHECK_NEAR(t.scaleX, (1.0 + 2.0 * (0.55 + 0.03)) / pad, 1e-5);
     backlightShapeFor(16.0f, 9.0f, -5, -5, 0, &t);
     CHECK_NEAR(t.reach, 0.055, 1e-6);
     CHECK(t.bezel == 0.0f);
@@ -666,11 +667,21 @@ static void testBacklightShape(void) {
     backlightShapeFor(1080.0f, 1920.0f, 100, 0, 0, &t);
     CHECK_NEAR(t.reach, 0.55 * 16.0 / 9.0, 1e-5);
     CHECK(t.zonesAcross == 11);
-    // In a room no further than the glow there always went, past the shorter side
+    // In a room not far past the picture, the bezel in it
     backlightShapeFor(1920.0f, 1080.0f, 100, 0, 1, &t);
-    CHECK_NEAR(t.reach, 0.35 * 9.0 / 16.0, 1e-5);
-    CHECK_NEAR(t.scaleY, GLOW_SCALE, 1e-5);
-    CHECK(t.scaleX <= GLOW_SCALE);
+    CHECK_NEAR(t.reach, 0.2 * 9.0 / 16.0, 1e-5);
+    CHECK_NEAR(t.scaleY, 1.4 / pad, 1e-5);
+    backlightShapeFor(1920.0f, 1080.0f, 100, 2, 1, &t);
+    CHECK_NEAR(t.reach + t.bezel, 0.2 * 9.0 / 16.0, 1e-5);
+    backlightShapeFor(1920.0f, 1080.0f, 100, 3, 1, &t);
+    CHECK_NEAR(t.reach + t.bezel, 0.2 * 9.0 / 16.0, 1e-5);
+    backlightShapeFor(3840.0f, 1080.0f, 100, 3, 1, &t);   // (a wide picture's bezel is of its width)
+    CHECK(t.reach > 0.09f * 1080.0f / 3840.0f);
+    CHECK(t.scaleX <= t.scaleY);
+    // Its outermost texels' middles are past the reach, with something to spare
+    backlightShapeFor(1920.0f, 1080.0f, GLOW_SPREAD_MIN, 0, 0, &t);
+    CHECK(0.5f * t.scaleX * (1.0f - 1.0f / GLOW_TEX) > 0.5f + t.reach);
+    CHECK(0.5f * t.scaleY * t.aspect * (1.0f - 1.0f / GLOW_TEX) > 0.5f * t.aspect + t.reach);
     // Same and not
     backlightShapeFor(1920.0f, 1080.0f, GLOW_SPREAD_DEFAULT, 0, 0, &t);
     CHECK(backlightShapeSame(&s, &t));
@@ -690,7 +701,7 @@ static void testBacklightShape(void) {
     GlowCylinder g;
     CHECK(glowCylinderForScales(3.0f, 3.0f * 9.0f / 16.0f, 3.0f, s.scaleX, s.scaleY, 0.0f, &g));
     CHECK_NEAR(g.radius, 3.0, 1e-6);
-    CHECK_NEAR(g.centralAngle, 1.55, 1e-5);
+    CHECK_NEAR(g.centralAngle, 1.55 / pad, 1e-5);
     CHECK_NEAR(g.radius * g.centralAngle / g.aspectRatio, s.scaleY * 3.0f * 9.0f / 16.0f, 1e-4);
 }
 

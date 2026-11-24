@@ -126,8 +126,14 @@ int glowInwardSteps(void);
 #define BACKLIGHT_EVERY_NS 13000000LL
 // At full Glow spread the light fades out over this share of the screen's longer side
 #define BACKLIGHT_MAX_REACH 0.55f
-// In a room it reaches no further than the glow always has there (GLOW_SCALE), past the shorter side
-#define BACKLIGHT_ROOM_REACH (0.5f * (GLOW_SCALE - 1.0f))
+// In a room, where it goes up over the room's own walls, ceiling and furniture: it and the bezel reach at most this
+// share of the shorter side, about as far as the room leaves round the picture (its wall ends above and the
+// Home Theater's cabinet begins below a sixth of the picture's height away), so it is a halo and no light in the air
+#define BACKLIGHT_ROOM_REACH 0.2f
+
+// The glow image's share of its own width and height past the light's reach: its outermost texels are dark, so a
+// short reach has no hard rim where the image ends
+#define BACKLIGHT_PAD (3.0f / GLOW_TEX)
 
 typedef struct {
     float scaleX, scaleY;  // the glow's size in screen widths and heights

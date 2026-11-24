@@ -2365,12 +2365,18 @@ static void testBacklight(void) {
         vkh_layout(&vk, &zones.img, COLOR_ATT);
         mlxr_pass_glow_zones(P, cmd, &zones.t, &ap, s.zonesAcross);
         vkh_layout(&vk, &zones.img, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        // A submit each: a software GPU compiles each pass as it draws, and the submit's wait is 5 s
+        int sent = vkh_submit(&vk) == 0;
+        cmd = vkh_begin(&vk);
         vkh_layout(&vk, &spread.img, COLOR_ATT);
         mlxr_pass_glow_spread(P, cmd, &spread.t, zones.img.view);
         vkh_layout(&vk, &spread.img, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        sent &= vkh_submit(&vk) == 0;
+        cmd = vkh_begin(&vk);
         vkh_layout(&vk, &glow.img, COLOR_ATT);
         mlxr_pass_backlight(P, cmd, &glow.t, &bp);
-        check(vkh_submit(&vk) == 0, "backlight submit");
+        sent &= vkh_submit(&vk) == 0;
+        check(sent, "backlight submit");
         uint8_t* got = readTarget(&glow);
         static float zc[MLXR_GLOW_ZONES][3];
         static BackCpu cpu;

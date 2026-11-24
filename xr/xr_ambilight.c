@@ -448,9 +448,6 @@ static void runBacklightZones(XrCtx* ctx, const MlxrVideo* video) {
     a.grade[2] = ctx->grade.exponent;
     a.grade[3] = ctx->grade.saturation;
     a.blend = whole ? 1.0f : backlightEase((float)(now - ctx->glowEasedNs) * 1e-9f);
-    if (whole) {
-        ctx->glowZonesTexture.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    }
     xrVkImageTo(ctx, &ctx->glowZonesTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     mlxr_pass_glow_zones(ctx->passes, ctx->frameCmd, &t, &a, s.zonesAcross);
     xrVkImageTo(ctx, &ctx->glowZonesTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);

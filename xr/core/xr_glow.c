@@ -147,12 +147,13 @@ void backlightShapeFor(float picW, float picH, int spread, int bezel, int inRoom
     int b = bezel < GLOW_BEZEL_MIN ? GLOW_BEZEL_MIN : (bezel > GLOW_BEZEL_MAX ? GLOW_BEZEL_MAX : bezel);
     out->aspect = aspect;
     out->reach = BACKLIGHT_MAX_REACH * (float)s / 100.0f * longSide;
-    if (inRoom && out->reach > BACKLIGHT_ROOM_REACH * shortSide) {
-        out->reach = BACKLIGHT_ROOM_REACH * shortSide;
-    }
     out->bezel = (float)b / 100.0f * longSide;
-    out->scaleX = 1.0f + 2.0f * (out->reach + out->bezel);
-    out->scaleY = 1.0f + 2.0f * (out->reach + out->bezel) / aspect;
+    float most = BACKLIGHT_ROOM_REACH * shortSide - out->bezel;
+    if (inRoom && out->reach > most) {
+        out->reach = most > 0.5f * BACKLIGHT_ROOM_REACH * shortSide ? most : 0.5f * BACKLIGHT_ROOM_REACH * shortSide;
+    }
+    out->scaleX = (1.0f + 2.0f * (out->reach + out->bezel)) / (1.0f - BACKLIGHT_PAD);
+    out->scaleY = (1.0f + 2.0f * (out->reach + out->bezel) / aspect) / (1.0f - BACKLIGHT_PAD);
     out->zonesAcross = glowZonesAcross(1.0f, aspect);
 }
 
