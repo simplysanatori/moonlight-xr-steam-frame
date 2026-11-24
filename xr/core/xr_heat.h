@@ -63,7 +63,7 @@
 #define HEAT_TEXT_WARN_FLAT_MORE "Lower the refresh rate or turn off the glow."
 #define HEAT_TEXT_STOP "3D turned off: your headset is too hot."
 
-// The stats window's second line while the kernel slows a chip down for heat (1.3.4), PROPOSED too
+// The stats window's second line while the kernel slows a chip down for heat (1.3.4)
 #define HEAT_TEXT_SLOWED_CPU "CPU slowed for heat"
 #define HEAT_TEXT_SLOWED_GPU "GPU slowed for heat"
 #define HEAT_TEXT_SLOWED_BOTH "CPU and GPU slowed for heat"

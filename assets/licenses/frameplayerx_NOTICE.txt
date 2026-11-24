@@ -1,0 +1,12 @@
+FramePlayerX
+Copyright 2026 remotesojourner
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+FramePlayerX is a modified version of FramePlayer
+(https://github.com/yellkell/frameplayer), Copyright (c) 2026 yellkell,
+which was released under the MIT License or the Apache License 2.0 at the
+recipient's option. FramePlayerX uses it under the Apache License 2.0.
+
+Bundled third-party libraries, fonts and pictures keep their own licences;
+see packaging/licenses/THIRD-PARTY.txt (licenses/ in the release).

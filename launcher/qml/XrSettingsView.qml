@@ -358,7 +358,7 @@ Flickable {
     // Native (lane wave3-visual): the surroundings. [vr] background_dim (percent), [display] glow_feather and
     // [3d] eye_balance (percent) step through these; [vr] void_color is typed
     readonly property var backgroundDimSteps: [0, 25, 50, 75, 100]
-    // (issue #7) "backlight": a light round a picture with sharp edges. PROPOSED text: "Backlight"
+    // (issue #7) "backlight": a light round a picture with sharp edges.
     readonly property var glowFeatherValues: ["off", "soft", "wide", "backlight"]
     readonly property var glowFeatherNames: [qsTr("Off"), qsTr("Soft"), qsTr("Wide"), qsTr("Backlight")]
     readonly property var eyeBalanceSteps: [-100, -50, 0, 50, 100]
@@ -2432,13 +2432,12 @@ Flickable {
             objectName: "glowFeatherRow"
             title: qsTr("Glow edge")
             valueText: settingsPage.glowFeatherNames[Math.max(0, settingsPage.glowFeatherValues.indexOf(MlxrPrefs.glowFeather))]
-            // PROPOSED text (issue #7)
             summary: qsTr("Soft and Wide fade the picture's outer edge into the glow around it so the screen has no hard border. Backlight keeps the edge sharp, with light around it.")
             reason: MlxrPrefs.vr["display.glow"] === true ? "" : qsTr("Glow is off")
             onClicked: MlxrPrefs.glowFeather = settingsPage.nextLimit(settingsPage.glowFeatherValues, MlxrPrefs.glowFeather)
         }
 
-        // Native (issue #7): Backlight's own rows. PROPOSED text: titles, summaries and reasons
+        // Native (issue #7): Backlight's own rows
         VrSlider {
             key: "display.glow_spread"
             title: qsTr("Glow spread")

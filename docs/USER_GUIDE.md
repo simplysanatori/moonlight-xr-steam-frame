@@ -306,7 +306,8 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Passthrough (UI) | on, off | off. Only Environment's Automatic reads it, so it is greyed with any other environment. | `[vr] passthrough` |
 | Void colour, Background dim (UI) | #rrggbb; 0 to 100 % (press to step) | #000000, 0 %. The cog's Picture tab has Background. | `[vr] void_color`, `background_dim` |
 | Room detail (UI) | Low, Standard, High, Ultra | Standard | `[vr] env_res` |
-| Screen light, Glow, Glow level, Glow edge (UI) | on, off; 0 to 100 %; Off, Soft, Wide | on, off, 50 %, Off. Glow level and Glow edge are greyed with the glow off. | `[display] screen_light`, `glow`, `glow_level`, `glow_feather` |
+| Screen light, Glow, Glow level, Glow edge (UI) | on, off; 0 to 100 %; Off, Soft, Wide, Backlight | on, off, 50 %, Off. Glow level and Glow edge are greyed with the glow off. | `[display] screen_light`, `glow`, `glow_level`, `glow_feather`, `glow_behind` |
+| Glow spread, Bezel (UI) | 10 to 100 %; Off, 1 to 3 % | 50 %, Off. Greyed unless Glow edge is Backlight. | `[display] glow_spread`, `glow_bezel` |
 | Screen distance, Screen size, Screen curve (UI) | 20 to 800 cm; 80 to 800 cm wide; 0 to 100 % | 300 cm, 300 cm, 0 % | `[screen] distance_cm`, `width_cm`, `curve` |
 | (none) | 0 to 800 cm; WIDTHxHEIGHT | Written by the headset. `width_cm` is the picture's real width, which older versions read too. `size_cm` (and `back_size_cm`, and `size_cm` in each app's layout) keeps the Size beside it, for the picture `size_shape` names. If `width_cm` no longer agrees with it, because an older version saved the file or you changed the width, the width wins. The Size is held so the picture is never wider than 8 m or narrower than 80 cm, what `width_cm` holds, so every start shows the same screen. | `[screen] size_cm`, `back_size_cm`, `size_shape` |
 | Zoom (UI) | 100 to 400 % (press to step) | 100 %. The zoom a stream starts at. | `[display] zoom` |
@@ -314,7 +315,7 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Angular-size lock (UI) | on, off | on. The screen looks the same size when you push it away or pull it closer. | `[screen] angular_lock` |
 | Head locked, Follow after turning (UI) | Off, On, Follow; 10 to 60° | Off, 25°. The cog's Head locked row; Follow after turning is greyed unless it is Follow. | `[display] head_locked`, `head_follow`, `follow_leash_deg` |
 | Notices (UI) | All, Important, Off (press to step) | All | `[vr] notices` |
-| Foveated rendering (UI) | On, Off | On. The cog's Foveated rendering row; applies from the next stream. Until you pick one, the file keeps it commented out as `auto`, which is On. | `[display] foveated` |
+| Foveated rendering (UI) | On, Off | Off. The cog's Foveated rendering row; applies from the next stream. Until you pick one, the file keeps it commented out as `auto`, which is Off. | `[display] foveated` |
 | (none) | true, false | Written when you answer **I Understand** to "Controllers in Passthrough?" or "Glow in Passthrough?", here or in the headset. | `[vr] passthrough_controllers_ok`, `passthrough_glow_ok` |
 
 Left out on purpose: the `[debug]` keys, what the headset keeps by itself (the last PC and app, the cog's last tab, the zoom's centre, the hand hint), the screen's height, direction, tilt and rotation (set by grabbing the screen) and the place the bar's Bring here switch goes back to and each room's own brightness, glow, light and picture size (the cog's Room tab, while you look at the room).
@@ -447,7 +448,7 @@ The Screen tab's Bring here also works from a controller button: bind `app:bring
 | Glow | Off, On | Off. In a room it is that room's own glow, the same switch as the Room tab's Glow. In passthrough it is off until you answer **I Understand** to "Glow in Passthrough?". |
 | Screen light | Off, On | On |
 | Notices | All, Important, Off | All. The small pop-ups that appear below the picture for about 2.5 seconds. Important leaves out "Display N Hz" and "3D on/off" and keeps mode changes (gamepad, head aim, hands) and messages such as errors. Off shows none. The flat window's Settings page has the same choice. |
-| Foveated rendering | On, Off | On. Full detail in the middle of your view, less at the edges. Off can look slightly sharper and uses a little less GPU on the plain screen. Applies from the next stream. Valve's foveation is set up when the app starts, so if you change it here and then start a stream from the headset's own PC and app lists, the app restarts itself with that PC and app first. A stream from the flat window starts the app anyway. `MLXR_FDM_LAYER=0` in the environment still turns it off whatever the row says. |
+| Foveated rendering | On, Off | Off. On gives full detail in the middle of your view and less at the edges. Applies from the next stream. Valve's foveation is set up when the app starts, so if you change it here and then start a stream from the headset's own PC and app lists, the app restarts itself with that PC and app first. A stream from the flat window starts the app anyway. `MLXR_FDM_LAYER=0` in the environment still turns it off whatever the row says. |
 | Glow level | 0 to 100 % | 50 % |
 
 ### 3D
@@ -473,9 +474,9 @@ The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the d
 | Gamma | 0.50 to 2.00 | |
 | Saturation | 0 to 200 % | |
 | Background | 0 to 100 %, in steps of 5 | How far the surroundings are dimmed. In a room it turns the whole room down, its lighting and the light the picture throws on it too, to black at 100 %. In passthrough it lays a black layer of that strength over the cameras (100 % hides them). In the void it darkens the void's colour (`void_color`, below). 0 leaves all three as they were. The picture itself is not dimmed. |
-| Glow edge | Off, Soft, Wide | Makes the screen borderless. The picture's own outer edge fades out, and the glow behind it continues the picture's edge colours at the picture's own brightness, so you can't see where the picture stops. **Soft** fades the outer 4 % of the picture and keeps the glow close round it. **Wide** fades the outer 8 % and spreads the glow across most of your view, like an ambient light. In a room, Wide keeps the glow close, as Soft does, so it doesn't cover the walls. Off by default. It needs the glow on (Display tab). The glow level sets how far the colours reach, not how dark they are. |
+| Glow edge | Off, Soft, Wide, Backlight | Soft and Wide make the screen borderless. The picture's own outer edge fades out, and the glow behind it continues the picture's edge colours at the picture's own brightness, so you can't see where the picture stops. **Soft** fades the outer 4 % of the picture and keeps the glow close round it. **Wide** fades the outer 8 % and spreads the glow across most of your view, like an ambient light. In a room, Wide keeps the glow close, as Soft does, so it doesn't cover the walls. **Backlight** keeps the picture's edge sharp and lights the space around it with the colours along its edge, like an LED strip behind a TV. **Glow spread** sets how far it reaches and the glow level how bright it is. **Bezel** puts a black border between them. In a room it stays close to the picture. Off by default. It needs the glow on (Display tab). With Soft and Wide, the glow level sets how far the colours reach, not how dark they are. |
 
-**Reset** puts all six rows back, and not the void's colour, which only the file has (or the launcher's Settings page: **Void colour**, under UI settings, next to **Background dim** and **Glow edge**; press a row to step it).
+**Reset** puts all eight rows back, and not the void's colour, which only the file has (or the launcher's Settings page: **Void colour**, under UI settings, next to **Background dim** and **Glow edge**; press a row to step it).
 
 ### About
 
@@ -483,7 +484,7 @@ The version, the log file, **Support simplysanatori on Ko-fi**, and **Report a p
 
 ### Stats styles, battery and the slow connection badge
 
-The Stats row turns the overlay on and off. What it shows is `stats_style` in `config.ini` (`[display]`): `full` is every line the session writes, `hud` is a few lines (latency with its parts, round trip, loss, bit rate, frame rate, and the compositor's frame times and dropped frames when SteamVR reports them), and `lite` is one line: `54 Mb/s | 11 ms | dec 3.1 | loss 0.2% | 90 fps` (speed, latency from the host's capture to the end of decoding, decode time, frames lost on the network, pictures drawn a second). `stats = hud` in the file means stats on in the HUD style. While stats are on and a stream is up, `perf-<date>-<time>.csv` next to `vrtiming.log` gets a row every 5 seconds with the figures and the settings they were measured in (size, rate, bit rate, codec, display rate, 3D, room, sharpening), for comparing runs. Its last two columns, `cpu_c` and `gpu_c`, are the hottest CPU and GPU temperatures in °C (empty when they cannot be read). `moonlight.log` has the same every 5 seconds on its `xr:` line, as `heat cpu 52 C, gpu 48 C` (see [Heat](#heat)).
+The Stats row turns the overlay on and off. What it shows is `stats_style` in `config.ini` (`[display]`): `full` is every line the session writes, `hud` is a few lines (latency with its parts, round trip, loss, bit rate, frame rate, and the compositor's frame times and dropped frames when SteamVR reports them), and `lite` is one line: `54 Mb/s | 11 ms | dec 3.1 | loss 0.2% | 90 fps` (speed, latency from the host's capture to the end of decoding, decode time, frames lost on the network, pictures drawn a second). `stats = hud` in the file means stats on in the HUD style. While stats are on and a stream is up, `perf-<date>-<time>.csv` next to `vrtiming.log` gets a row every 5 seconds with the figures and the settings they were measured in (size, rate, bit rate, codec, display rate, 3D, room, sharpening), for comparing runs. `cpu_c` and `gpu_c` are the hottest CPU and GPU temperatures in °C (empty when they cannot be read). The last three columns, `cpu_slowed`, `gpu_slowed` (0 is not slowed) and `gpu_mhz`, say whether the headset is slowing a chip down for heat and the GPU's clock. `moonlight.log` has the same every 5 seconds on its `xr:` line, as `heat cpu 52 C, gpu 48 C` (see [Heat](#heat)).
 
 Over the cog the clock strip also shows the headset's battery (a cell, the percentage, a bolt while it charges; read every 30 seconds, nothing on a PC with no battery) and a **Slow connection** badge once the connection has been poor, or more than 1.5 % of frames lost, for 5 seconds on end. The badge goes when it has been fine for 5 seconds. The HUD line starts with `!` or says slow connection while it is up.
 
@@ -1044,7 +1045,7 @@ Do the A and B on the same link, at the same bitrate, in the same scene. A diffe
 | The adapter is never used | `moonlight.log` has a line `network path: Steam Frame Wireless Adapter: ...`. `present (...)` means the PC is connected to the headset's adapter network. `no adapter found (wlanap up, no station)` means the headset's adapter network is on but no PC has joined it: plug the Steam Frame Wireless Adapter into the PC and wait for it to connect. `no adapter found (wlanap down)` or `(wlanap missing)` means the headset's adapter network is off. In a terminal, `mlxr-cli adapter` prints the same check and does not start a stream. |
 | Cannot reach the PC | `moonlight.log` has `host ... not reachable at ...` for each address tried. Check the PC is on and Sunshine or Apollo is running. |
 | Something stopped working after a SteamOS or SteamVR update (for developers) | `python3 tools/probe/doctor.py` in the source tree (in a terminal on the headset, with the client closed, `mlxr-hello` built) compares what the headset's OpenXR runtime offers with the last known good probe and prints what changed, and checks Steam's debugging port (the flat window's return after a stream uses it). `--save` keeps the current probe as the new baseline. |
-| The flat window does not come back after a stream | Open the app again from the Steam library. `moonlight-launcher.log` shows `Asked Steam to show the flat screen again` and the `flat window` lines (what the window did after the stream). |
+| The flat window does not come back after a stream | Open the app again from the Steam library. `moonlight-launcher.log` shows `Asked Steam to show the flat screen again`, the `flat window` lines (what the window did after the stream) and the `flat window in the headset` lines (what SteamVR shows, ending in SHOWN, NOT SHOWN or not known). |
 | Grey icon in the SteamVR dock | Restart Steam once after the first install. |
 | 3D tab greyed | The tab says why. If the depth model did not load, the log has the error. |
 | Stream failed to start | The flat window shows the client's error, and under "Found before the stream started:" what the PC said just before (see [Check before a stream](#check-before-a-stream)). `moonlight-console.log` has the details. |
@@ -1112,7 +1113,10 @@ You can also write a note in the headset (cog, About, Report a problem). **Save*
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
 | `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
 | `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |
-| `[display] foveated` | `auto`, `on`, `off` | `auto`, which is `on`. The Display tab's Foveated rendering row, from the next stream. `MLXR_FDM_LAYER=0` in the environment turns it off whatever this says. |
+| `[display] glow_behind` | `off`, `backlight` | `off`. The Glow edge row's Backlight. |
+| `[display] glow_spread` | 10 to 100 | 50. The Picture tab's Glow spread row, in percent. |
+| `[display] glow_bezel` | 0 to 3 | 0. The Picture tab's Bezel row, in percent; 0 is Off. |
+| `[display] foveated` | `auto`, `on`, `off` | `auto`, which is `off`. The Display tab's Foveated rendering row, from the next stream. `MLXR_FDM_LAYER=0` in the environment turns it off whatever this says. |
 | `[vr] passthrough_controllers_ok`, `passthrough_glow_ok` | `true`, `false` | `false`. Written `true` by **I Understand** on "Controllers in Passthrough?" and "Glow in Passthrough?": Show controllers and the glow are then drawn in passthrough too. |
 | `[display] picture_filter` | `true`, `false` | `true`. A curved or 3D screen is drawn smaller than the stream's pixels, and each of the headset's pixels then averages the stream under it, so small text keeps its strokes. `false` is the softer single read of before. The `MLXR_PICTURE_FILTER=0` or `1` launch option overrides it for a comparison. |
 | `[display] chroma_from_luma` | `true`, `false` | `true`. The stream carries colour at half resolution. With this on, colour edges follow the sharp brightness edges, so red, blue and syntax-coloured text keeps its colour to the edge. `false` reads the colour plainly (softer coloured text). `MLXR_CHROMA_FROM_LUMA=0` or `1` overrides it. |
@@ -1185,12 +1189,14 @@ The four click variables above override the Click steadiness row for their own p
 | `MLXR_HEAT_LIMITS` | `90,95,100` | The [heat](#heat) levels in °C: warn, ease the depth model, turn 3D off. For a test, e.g. `60,65,70`. |
 | `MLXR_HEAT_GUARD` | 1 | 0 reads and logs the temperatures but never acts on them. |
 | `MLXR_THERMAL_ROOT` | `/sys/class/thermal` | Where the temperatures are read from (for tests). |
+| `MLXR_DEVFREQ_ROOT` | `/sys/class/devfreq` | Where the GPU's clock is read from (for tests). |
 | `MLXR_HOLE_FILL` | 1 | 0 fills the gaps beside edges in 3D by stretching the edge, as earlier versions did (the fuzzy outline in one eye). |
 | `MLXR_FRAME_MODEL_GAIN` | 1 | Brightens the Steam Frame controller models (set at install). |
 | `MLXR_CONFIG_DIR` | `~/.config/moonlight-xr` | Where settings and pairing live. |
 | `MLXR_LOG_DIR` | `~/Games/MoonlightXRNative` | Where the logs go. |
 | `MLXR_VRTIMING` | 1 | 0 stops the flat window from logging SteamVR's frame timing to `vrtiming.log`. |
 | `MLXR_HANDOFF` | 1 | 0 makes the flat window stream flat, as stock Moonlight. |
+| `MLXR_LAUNCHER_FLAT_CHECK` | 1 | 0 stops the flat window from checking, after a stream, that SteamVR shows it. |
 | `MLXR_LAUNCHER_PREFLIGHT` | 1 | 0 stops the flat window from asking the PC before a stream (the check and the app's UUID). |
 | `MLXR_LAUNCHER_UPDATE` | 1 | 0 stops the flat window's daily update check, whatever **Check for updates** says. |
 | `MLXR_APP_UUID` | | Set by the flat window for the VR client: the app's UUID on Apollo, sent in the launch request as `appuuid`. Anything that is not a UUID is ignored. |
