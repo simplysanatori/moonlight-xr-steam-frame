@@ -10,7 +10,9 @@ static const char HEADER[] =
     "slow,mbps,latency_ms,host_ms,recv_ms,queue_ms,decode_ms,rtt_ms,loss_pct,video_fps,fec_recovered,"
     "fec_failed,udp_drops,comp_cpu_ms,comp_gpu_ms,comp_dropped,app_cpu_ms,app_gpu_ms"
     // Native (lane heat-guard): new columns go on the end, after every older one
-    ",cpu_c,gpu_c";
+    ",cpu_c,gpu_c"
+    // 1.3.4
+    ",cpu_slowed,gpu_slowed,gpu_mhz";
 
 size_t mlxr_perf_header(char* buf, size_t cap) {
     int n = snprintf(buf, cap, "%s\n", HEADER);
@@ -43,13 +45,23 @@ size_t mlxr_perf_row(const MlxrPerfRow* r, char* buf, size_t cap) {
     if (r->haveGpuC) {
         snprintf(gpuC, sizeof(gpuC), "%.1f", (double)r->gpuC);
     }
+    char cpuSlow[24] = "", gpuSlow[24] = "", gpuMhz[24] = "";
+    if (r->haveCpuSlow) {
+        snprintf(cpuSlow, sizeof(cpuSlow), "%d", r->cpuSlow);
+    }
+    if (r->haveGpuSlow) {
+        snprintf(gpuSlow, sizeof(gpuSlow), "%d", r->gpuSlow);
+    }
+    if (r->haveGpuMhz) {
+        snprintf(gpuMhz, sizeof(gpuMhz), "%d", r->gpuMhz);
+    }
     int n = snprintf(buf, cap, "%.0f,%d,%d,%d,%d,%s,%.0f,%d,%d,%d,%d,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.2f,"
-                     "%.1f,%u,%u,%llu,%s,%s,%s,%s,%s,%s,%s\n",
+                     "%.1f,%u,%u,%llu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
                      r->tSec, r->width, r->height, r->streamFps, r->bitrateKbps, CODEC_WORDS[codec], r->displayHz,
                      r->stereo != 0, r->environment, r->sharpen, r->supersample, r->slow != 0, f->mbps,
                      f->latencyMs, f->hostMs, f->recvMs, f->queueMs, f->decodeMs, f->rttMs, f->lossPct, f->fps,
                      f->fecRecovered, f->fecFailed, (unsigned long long)f->udpDrops, cpu, gpu, dropped, appCpu,
-                     appGpu, cpuC, gpuC);
+                     appGpu, cpuC, gpuC, cpuSlow, gpuSlow, gpuMhz);
     return n > 0 && (size_t)n < cap ? (size_t)n : 0;
 }
 

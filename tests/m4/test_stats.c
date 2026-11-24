@@ -9,6 +9,7 @@
 #include "check.h"
 #include "scene.h"
 #include "text.h"
+#include "xr_heat.h"
 #include "xr_host.h"
 
 static XrPosef aimAt(Vec3 from, Vec3 target) {
@@ -94,6 +95,24 @@ static void fits(Scene* s) {
     CHECK(ui_text_width(font, UI_WEIGHT_REGULAR, 17.0f, longest, -1) > (float)r.w * 2.0f);
     CHECK(ui_text_width(font, UI_WEIGHT_REGULAR, 17.0f, "HW decode 3.1 ms (last 3.2), frames 123456, skipped 12, errors 0", -1)
           > 384.0f - 24.0f);
+
+    // Native (1.3.4): the heat's lines at their longest each fit the window without wrapping
+    HeatReading hot;
+    memset(&hot, 0, sizeof(hot));
+    hot.valid = hot.haveCpu = hot.haveGpu = hot.haveCpuSlow = hot.haveGpuSlow = hot.haveGpuMhz = 1;
+    hot.cpuC = hot.gpuC = 108.0f;
+    hot.cpuSlow = hot.gpuSlow = 11;
+    hot.gpuMhz = 1000;
+    char heat[HEAT_TEXT_CAP];
+    heatStatsLine(&hot, heat, sizeof(heat));
+    int heatLines = 0;
+    for (char* l = strtok(heat, "\n"); l != NULL; l = strtok(NULL, "\n")) {
+        float w = ui_text_width(font, UI_WEIGHT_REGULAR, 17.0f, l, -1);
+        printf("stats: %.0f of %d px: %s\n", (double)w, r.w - 24, l);
+        CHECK(w <= (float)r.w - 24.0f);
+        heatLines++;
+    }
+    CHECK(heatLines == 2);
 
     // Nothing runs into the right margin (12 px) or past the window's foot,
     // and text does reach out toward the right

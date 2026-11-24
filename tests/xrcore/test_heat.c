@@ -140,6 +140,130 @@ static void testSensor(void) {
     heatSensorClose(&s);
 }
 
+// Native (1.3.4): whether a chip is slowed for heat, and the GPU's clock
+static void testSlowed(void) {
+    CHECK(heatCoolKind("cpufreq-cpu0") == HEAT_ZONE_CPU);
+    CHECK(heatCoolKind("cpufreq-cpu7") == HEAT_ZONE_CPU);
+    CHECK(heatCoolKind("devfreq-3d00000.gpu") == HEAT_ZONE_GPU);
+    CHECK(heatCoolKind("devfreq-1d84000.ufshc") == HEAT_ZONE_OTHER);
+    CHECK(heatCoolKind("ath12k_thermal") == HEAT_ZONE_OTHER);
+    CHECK(heatCoolKind("cpu-cluster0") == HEAT_ZONE_OTHER);
+    CHECK(heatCoolKind(NULL) == HEAT_ZONE_OTHER);
+    CHECK(heatDevfreqIsGpu("3d00000.gpu") && !heatDevfreqIsGpu("1d84000.ufshc") && !heatDevfreqIsGpu(".gpu")
+          && !heatDevfreqIsGpu("") && !heatDevfreqIsGpu(NULL));
+    int v = -1;
+    CHECK(heatParseState("0\n", &v) && v == 0);
+    CHECK(heatParseState("31\n", &v) && v == 31);
+    CHECK(!heatParseState("", &v) && !heatParseState("x\n", &v) && !heatParseState("-1\n", &v)
+          && !heatParseState("3x\n", &v) && !heatParseState("99999\n", &v) && !heatParseState(NULL, &v));
+    CHECK(heatParseFreqMhz("903000000\n", &v) && v == 903);
+    CHECK(heatParseFreqMhz("231000000\n", &v) && v == 231);
+    CHECK(!heatParseFreqMhz("0\n", &v) && !heatParseFreqMhz("903 MHz\n", &v) && !heatParseFreqMhz(NULL, &v));
+
+    // the Frame's devices, by type and not by number
+    char root[300], freq[300];
+    snprintf(root, sizeof(root), "%s/slow", g_root);
+    snprintf(freq, sizeof(freq), "%s/devfreq", g_root);
+    mkdir(root, 0755);
+    mkdir(freq, 0755);
+    static const char* const TYPES[] = { "ath12k_thermal\n", "cpufreq-cpu0\n", "cpufreq-cpu2\n", "devfreq-3d00000.gpu\n",
+                                         "cpufreq-cpu5\n", "cpufreq-cpu7\n" };
+    for (int i = 0; i < 6; i++) {
+        char name[64];
+        snprintf(name, sizeof(name), "slow/cooling_device%d", i);
+        zone(name, TYPES[i], NULL);
+        put(name, "cur_state", i == 0 ? "7\n" : "0\n");
+    }
+    zone("slow/thermal_zone0", "cpu0-thermal\n", "72000\n");
+    zone("slow/thermal_zone1", "gpuss-0-thermal\n", "68000\n");
+    zone("devfreq/1d84000.ufshc", "x\n", NULL);
+    put("devfreq/1d84000.ufshc", "cur_freq", "300000000\n");
+    zone("devfreq/3d00000.gpu", "x\n", NULL);
+    put("devfreq/3d00000.gpu", "cur_freq", "903000000\n");
+    setenv("MLXR_DEVFREQ_ROOT", freq, 1);
+    HeatSensor s;
+    HeatReading r;
+    CHECK(heatSensorOpen(&s, root) == 2);
+    CHECK(s.cpuCools == 4 && s.gpuCools == 1 && s.freqCount == 1);
+    CHECK(heatSensorRead(&s, &r));
+    CHECK(r.haveCpuSlow && r.haveGpuSlow && r.cpuSlow == 0 && r.gpuSlow == 0);
+    CHECK(r.haveGpuMhz && r.gpuMhz == 903);
+    char buf[HEAT_TEXT_CAP];
+    heatText(&r, buf, sizeof(buf));
+    CHECK(strcmp(buf, "heat cpu 72 C, gpu 68 C, gpu 903 MHz, not slowed") == 0);
+    heatStatsLine(&r, buf, sizeof(buf));
+    CHECK(strcmp(buf, "Headset CPU 72 \xC2\xB0" "C, GPU 68 \xC2\xB0" "C at 903 MHz") == 0);
+    // read again from the open files: the most slowed of the CPU's
+    put("slow/cooling_device2", "cur_state", "3\n");
+    put("slow/cooling_device5", "cur_state", "12\n");
+    put("devfreq/3d00000.gpu", "cur_freq", "578000000\n");
+    CHECK(heatSensorRead(&s, &r) && r.cpuSlow == 12 && r.gpuSlow == 0 && r.gpuMhz == 578);
+    heatText(&r, buf, sizeof(buf));
+    CHECK(strcmp(buf, "heat cpu 72 C, gpu 68 C, gpu 578 MHz, slowed cpu 12") == 0);
+    heatStatsLine(&r, buf, sizeof(buf));
+    CHECK(strcmp(buf, "Headset CPU 72 \xC2\xB0" "C, GPU 68 \xC2\xB0" "C at 578 MHz\nCPU slowed for heat") == 0);
+    put("slow/cooling_device3", "cur_state", "2\n");
+    CHECK(heatSensorRead(&s, &r) && r.gpuSlow == 2);
+    heatText(&r, buf, sizeof(buf));
+    CHECK(strcmp(buf, "heat cpu 72 C, gpu 68 C, gpu 578 MHz, slowed cpu 12, gpu 2") == 0);
+    heatStatsLine(&r, buf, sizeof(buf));
+    CHECK(strstr(buf, "\nCPU and GPU slowed for heat") != NULL);
+    put("slow/cooling_device2", "cur_state", "0\n");
+    put("slow/cooling_device5", "cur_state", "0\n");
+    CHECK(heatSensorRead(&s, &r) && r.cpuSlow == 0 && r.gpuSlow == 2);
+    heatText(&r, buf, sizeof(buf));
+    CHECK(strcmp(buf, "heat cpu 72 C, gpu 68 C, gpu 578 MHz, slowed gpu 2") == 0);
+    heatStatsLine(&r, buf, sizeof(buf));
+    CHECK(strstr(buf, "\nGPU slowed for heat") != NULL);
+    // the guard reads the heat alone: slowed or not, cool is cool
+    HeatGuard g;
+    heatGuardStart(&g, NULL);
+    CHECK(heatGuardStep(&g, 0, &r, 1, 1, 20) == 0 && g.depthCap == 0);
+    // files gone bad: left out, the rest still read
+    put("slow/cooling_device3", "cur_state", "garbage\n");
+    put("devfreq/3d00000.gpu", "cur_freq", "0\n");
+    CHECK(heatSensorRead(&s, &r) && r.haveCpuSlow && !r.haveGpuSlow && r.gpuSlow == 0 && !r.haveGpuMhz);
+    heatStatsLine(&r, buf, sizeof(buf));
+    CHECK(strcmp(buf, "Headset CPU 72 \xC2\xB0" "C, GPU 68 \xC2\xB0" "C") == 0);
+    heatSensorClose(&s);
+    CHECK(s.coolCount == 0 && s.freqCount == 0);
+
+    // the clock without a temperature, and neither with a chip slowed
+    memset(&r, 0, sizeof(r));
+    r.haveGpuMhz = 1;
+    r.gpuMhz = 231;
+    heatStatsLine(&r, buf, sizeof(buf));
+    CHECK(strcmp(buf, "Headset GPU 231 MHz") == 0);
+    heatText(&r, buf, sizeof(buf));
+    CHECK(strcmp(buf, "heat n/a, gpu 231 MHz") == 0);
+    r.haveGpuMhz = 0;
+    r.haveGpuSlow = 1;
+    r.gpuSlow = 1;
+    heatStatsLine(&r, buf, sizeof(buf));
+    CHECK(strcmp(buf, "GPU slowed for heat") == 0);
+    // a short buffer is not run past
+    char tiny[12];
+    r.valid = r.haveCpu = r.haveGpu = r.haveGpuMhz = 1;
+    heatStatsLine(&r, tiny, sizeof(tiny));
+    CHECK(strlen(tiny) < sizeof(tiny));
+    heatText(&r, tiny, sizeof(tiny));
+    CHECK(strlen(tiny) < sizeof(tiny));
+
+    // a machine with neither class shows neither
+    setenv("MLXR_DEVFREQ_ROOT", "/nonexistent/devfreq", 1);
+    CHECK(heatSensorOpen(&s, "/nonexistent/thermal") == 0);
+    CHECK(!heatSensorRead(&s, &r) && !r.haveCpuSlow && !r.haveGpuSlow && !r.haveGpuMhz);
+    heatSensorClose(&s);
+    // the clock alone is still read where there are no thermal zones, and the guard has nothing to act on
+    setenv("MLXR_DEVFREQ_ROOT", freq, 1);
+    put("devfreq/3d00000.gpu", "cur_freq", "500000000\n");
+    CHECK(heatSensorOpen(&s, "/nonexistent/thermal") == 0);
+    CHECK(!heatSensorRead(&s, &r) && !r.valid && r.haveGpuMhz && r.gpuMhz == 500);
+    CHECK(heatGuardStep(&g, 0, &r, 1, 1, 20) == 0);
+    heatSensorClose(&s);
+    unsetenv("MLXR_DEVFREQ_ROOT");
+}
+
 static void testLimits(void) {
     HeatLimits l;
     heatLimitsDefault(&l);
@@ -379,6 +503,7 @@ int main(void) {
     }
     testParse();
     testSensor();
+    testSlowed();
     testLimits();
     testWarn();
     testWarnRepeats();

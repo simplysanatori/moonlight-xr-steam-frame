@@ -2197,6 +2197,12 @@ static void perfRow(Host* h, int64_t now, uint64_t videoFrames) {
     r.haveGpuC = h->heatNow.valid && h->heatNow.haveGpu;
     r.cpuC = h->heatNow.cpuC;
     r.gpuC = h->heatNow.gpuC;
+    r.haveCpuSlow = h->heatNow.haveCpuSlow;
+    r.haveGpuSlow = h->heatNow.haveGpuSlow;
+    r.haveGpuMhz = h->heatNow.haveGpuMhz;
+    r.cpuSlow = h->heatNow.cpuSlow;
+    r.gpuSlow = h->heatNow.gpuSlow;
+    r.gpuMhz = h->heatNow.gpuMhz;
     metricsEnsure(h);
     xrMetricsSample(ctx, &r.comp);
     char row[512];
@@ -2214,7 +2220,11 @@ static void heatStart(Host* h) {
     heatLimitsFromEnv(&lim);
     heatGuardStart(&h->heatGuard, &lim);
     memset(&h->heatNow, 0, sizeof(h->heatNow));
-    if (heatSensorOpen(&h->heat, NULL) == 0) {
+    int zones = heatSensorOpen(&h->heat, NULL);
+    // Native (1.3.4): read with the zones, shown and logged only
+    LOGEV("heat: %d CPU and %d GPU cooling devices, GPU clock %s", h->heat.cpuCools, h->heat.gpuCools,
+          h->heat.freqCount > 0 ? "found" : "not found");
+    if (zones == 0) {
         LOGEV("heat: no CPU or GPU thermal zones under %s, the heat guard is idle", h->heat.root);
         return;
     }
@@ -2322,7 +2332,7 @@ static void updateTexts(Host* h, int64_t now, uint64_t frames, uint64_t videoFra
             mlxr_hud_panel(&h->fig, ctx->slowConn, &h->comp, xrGetDisplayRate(ctx), h->statsText,
                            sizeof(h->statsText));
             // Native (1.3.3 final): the headset's temperatures last
-            char heat[64];
+            char heat[HEAT_TEXT_CAP];
             heatStatsLine(&h->heatNow, heat, sizeof(heat));
             size_t used = strlen(h->statsText);
             if (heat[0] && used + 2 < sizeof(h->statsText)) {
@@ -2336,7 +2346,7 @@ static void updateTexts(Host* h, int64_t now, uint64_t frames, uint64_t videoFra
     char app[768] = "";
     if (h->cfg->hooks.stats) h->cfg->hooks.stats(h->cfg->hooks.user, app, sizeof(app));
     // Native (1.3.3 final): the headset's temperatures under the display's line
-    char heat[64];
+    char heat[HEAT_TEXT_CAP];
     heatStatsLine(&h->heatNow, heat, sizeof(heat));
     int n = snprintf(h->statsText, sizeof(h->statsText), "Display %.0f Hz, %.0f fps\n%s%sVideo %dx%d, %.0f fps\n",
                      xrGetDisplayRate(ctx), (frames - lastFrames) / secs, heat, heat[0] ? "\n" : "",
@@ -3182,7 +3192,7 @@ int xr_app_run(const XrAppConfig* cfg) {
             char gpu[320];
             xrGpuTimesLine(ctx, gpu, sizeof(gpu));
             // Native (lane heat-guard): read before the depth line, so a cut shows in it
-            char heat[64];
+            char heat[HEAT_TEXT_CAP];
             heatTick(&host, nowNs(), heat, sizeof(heat));
             char depth[400];
             xrDepthStatsLine(ctx, depth, sizeof(depth));

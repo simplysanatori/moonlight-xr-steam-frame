@@ -2,7 +2,10 @@
 // are on, each with the configuration it was measured in (stream size and
 // rate, bitrate asked for, codec, display rate, 3D, room, sharpening) beside
 // the figures, so runs in different configurations can be compared offline.
-// The hottest CPU and GPU thermal zones (cpu_c, gpu_c) are the last two columns.
+// The hottest CPU and GPU thermal zones (cpu_c, gpu_c) come after every older
+// column, and after them (1.3.4) the last three: whether the kernel slows the
+// CPU or the GPU down for heat (cpu_slowed, gpu_slowed: the cooling state, 0
+// not slowed) and the GPU's clock in MHz (gpu_mhz).
 // Only numbers and fixed words go in: nothing in it names a host or a network.
 //
 // Native (lane wave3-hud). PLAN 4b.15. GPLv3.
@@ -30,6 +33,9 @@ typedef struct MlxrPerfRow {
     // C, last on the line so older readers keep their columns; empty when not read
     int haveCpuC, haveGpuC;
     float cpuC, gpuC;
+    // Native (1.3.4): the cooling states and the GPU's clock, after those; empty when not read
+    int haveCpuSlow, haveGpuSlow, haveGpuMhz;
+    int cpuSlow, gpuSlow, gpuMhz;
 } MlxrPerfRow;
 
 // The first line of the file

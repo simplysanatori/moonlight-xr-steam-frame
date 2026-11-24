@@ -269,13 +269,13 @@ static void testPerf(void) {
     CHECK(hc == rc);
     CHECK(strstr(row, "15,2560,1440,90,150000,hevc,90,1,3,1,2,0,54.20,") == row);
     // the runtime gave nothing, and no heat was read: empty cells at the end
-    CHECK(strstr(row, ",,,,,,,\n") != NULL);
+    CHECK(strstr(row, ",,,,,,,,,,\n") != NULL);
     // and when it did
     mlxr_metric_set(&r.comp, "compositor/cpu_frametime", 1.5f);
     mlxr_metric_set(&r.comp, "compositor/gpu_frametime", 3.25f);
     mlxr_metric_set(&r.comp, "compositor/dropped_frame_count", 2.0f);
     rn = mlxr_perf_row(&r, row, sizeof(row));
-    CHECK(strstr(row, ",1.50,3.25,2,,,,\n") != NULL);
+    CHECK(strstr(row, ",1.50,3.25,2,,,,,,,\n") != NULL);
     // Native (lane heat-guard): the old columns stay first, in their order, so
     // a reader of the 1.3.3 file reads this one; the heat goes on the end
     static const char OLD_HEADER[] =
@@ -283,15 +283,28 @@ static void testPerf(void) {
         "slow,mbps,latency_ms,host_ms,recv_ms,queue_ms,decode_ms,rtt_ms,loss_pct,video_fps,fec_recovered,"
         "fec_failed,udp_drops,comp_cpu_ms,comp_gpu_ms,comp_dropped,app_cpu_ms,app_gpu_ms";
     CHECK(strncmp(head, OLD_HEADER, strlen(OLD_HEADER)) == 0);
-    CHECK(strcmp(head + strlen(OLD_HEADER), ",cpu_c,gpu_c\n") == 0);
+    CHECK(strncmp(head + strlen(OLD_HEADER), ",cpu_c,gpu_c", 12) == 0);
+    // 1.3.4's go after those, so a reader of the 1.3.3 file reads this one too
+    CHECK(strcmp(head + strlen(OLD_HEADER) + 12, ",cpu_slowed,gpu_slowed,gpu_mhz\n") == 0);
     r.haveCpuC = 1;
     r.cpuC = 91.25f;
     rn = mlxr_perf_row(&r, row, sizeof(row));
-    CHECK(strstr(row, ",1.50,3.25,2,,,91.2,\n") != NULL || strstr(row, ",1.50,3.25,2,,,91.3,\n") != NULL);
+    CHECK(strstr(row, ",1.50,3.25,2,,,91.2,,,,\n") != NULL || strstr(row, ",1.50,3.25,2,,,91.3,,,,\n") != NULL);
     r.haveGpuC = 1;
     r.gpuC = 80.0f;
     rn = mlxr_perf_row(&r, row, sizeof(row));
-    CHECK(rn > 0 && strstr(row, ",80.0\n") != NULL);
+    CHECK(rn > 0 && strstr(row, ",80.0,,,\n") != NULL);
+    // not slowed is a 0, not read an empty cell
+    r.haveCpuSlow = 1;
+    r.haveGpuMhz = 1;
+    r.gpuMhz = 903;
+    rn = mlxr_perf_row(&r, row, sizeof(row));
+    CHECK(rn > 0 && strstr(row, ",80.0,0,,903\n") != NULL);
+    r.cpuSlow = 5;
+    r.haveGpuSlow = 1;
+    r.gpuSlow = 11;
+    rn = mlxr_perf_row(&r, row, sizeof(row));
+    CHECK(rn > 0 && strstr(row, ",80.0,5,11,903\n") != NULL);
     rc = 1;
     for (const char* p = row; *p; p++) rc += *p == ',';
     CHECK(hc == rc);

@@ -63,6 +63,11 @@
 #define HEAT_TEXT_WARN_FLAT_MORE "Lower the refresh rate or turn off the glow."
 #define HEAT_TEXT_STOP "3D turned off: your headset is too hot."
 
+// The stats window's second line while the kernel slows a chip down for heat (1.3.4), PROPOSED too
+#define HEAT_TEXT_SLOWED_CPU "CPU slowed for heat"
+#define HEAT_TEXT_SLOWED_GPU "GPU slowed for heat"
+#define HEAT_TEXT_SLOWED_BOTH "CPU and GPU slowed for heat"
+
 // Readings outside this range are a zone that is off or broken, not a heat
 #define HEAT_SANE_MIN_MILLI (-40000)
 #define HEAT_SANE_MAX_MILLI 200000
@@ -74,6 +79,14 @@
 
 #define HEAT_ZONES_MAX 64
 
+// Native (1.3.4): the cooling devices beside the zones say whether the kernel is slowing a chip down
+// for heat (cur_state above 0), and the devfreq class the GPU's clock. A core cluster's device is
+// "cpufreq-cpu0", the GPU's "devfreq-3d00000.gpu"; its devfreq folder is "3d00000.gpu".
+#define HEAT_COOL_MAX 16
+#define HEAT_STATE_MAX 1000
+#define HEAT_GPU_HZ_MIN 1000000LL
+#define HEAT_GPU_HZ_MAX 10000000000LL
+
 // The type's word ("cpu4-top-thermal", "cpuss0-thermal", "gpuss-2-thermal")
 // to HEAT_ZONE_*: cpu* is the CPU, gpu* the GPU, anything else neither
 int heatZoneKind(const char* type);
@@ -82,10 +95,23 @@ int heatZoneKind(const char* type);
 // or is outside the sane range.
 int heatParseMilli(const char* text, int* milli);
 
+// Native (1.3.4): a cooling device's type to HEAT_ZONE_*, and whether a devfreq folder's name is the GPU's
+int heatCoolKind(const char* type);
+int heatDevfreqIsGpu(const char* name);
+// A cooling device's cur_state ("3\n") and a devfreq's cur_freq ("903000000\n", Hz, to MHz). 0 when it
+// is not a number or is outside the sane range.
+int heatParseState(const char* text, int* state);
+int heatParseFreqMhz(const char* text, int* mhz);
+
 typedef struct {
     int valid;          // at least one of the two was read
     int haveCpu, haveGpu;
     float cpuC, gpuC;   // the hottest zone of each, degrees C
+    // Native (1.3.4): shown and logged only, the guard reads none of it. The highest cooling state of
+    // the chip's devices (0 not slowed, up to that device's max), and the GPU's clock
+    int haveCpuSlow, haveGpuSlow, haveGpuMhz;
+    int cpuSlow, gpuSlow;
+    int gpuMhz;
 } HeatReading;
 
 // The hotter of the two that were read; 0 when neither was
@@ -97,11 +123,18 @@ typedef struct {
     int kind[HEAT_ZONES_MAX];
     int fd[HEAT_ZONES_MAX];
     char root[400];
+    // Native (1.3.4): the cooling devices' cur_state files and the GPU's cur_freq (freqCount 0 or 1)
+    int coolCount, cpuCools, gpuCools;
+    int coolKind[HEAT_COOL_MAX];
+    int coolFd[HEAT_COOL_MAX];
+    int freqCount;
+    int freqFd;
 } HeatSensor;
 
 // Finds the CPU and GPU zones under root (NULL: MLXR_THERMAL_ROOT, else
 // /sys/class/thermal) and opens their temp files. Returns how many were found;
-// 0 is a machine without them, which reads nothing.
+// 0 is a machine without them, which reads nothing. Native (1.3.4): the cooling devices under the same
+// root and the GPU's clock under MLXR_DEVFREQ_ROOT (else /sys/class/devfreq) are opened too, and not counted.
 int heatSensorOpen(HeatSensor* s, const char* root);
 
 // Reads every zone kept: the hottest of each kind into r. A zone that fails
@@ -111,11 +144,16 @@ int heatSensorRead(HeatSensor* s, HeatReading* r);
 
 void heatSensorClose(HeatSensor* s);
 
-// "heat cpu 52 C, gpu 48 C" for the stats line, "heat n/a" with nothing read
+// Room enough for heatText and heatStatsLine
+#define HEAT_TEXT_CAP 160
+
+// "heat cpu 52 C, gpu 48 C" for the stats line, "heat n/a" with nothing read. Native (1.3.4): then
+// ", gpu 903 MHz" and ", not slowed" or ", slowed cpu 5, gpu 2" (the cooling states), each when read.
 void heatText(const HeatReading* r, char* buf, size_t cap);
 
 // Native (1.3.3 final): the stats window's line, "Headset CPU 72 \u00B0C, GPU 68 \u00B0C" (either
-// part alone when only it was read); "" with nothing read
+// part alone when only it was read); "" with nothing read. Native (1.3.4): the GPU's clock after its
+// heat (" at 903 MHz"), and a second line while a chip is slowed (HEAT_TEXT_SLOWED_*).
 void heatStatsLine(const HeatReading* r, char* buf, size_t cap);
 
 typedef struct {
