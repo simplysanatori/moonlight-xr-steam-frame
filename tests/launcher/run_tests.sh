@@ -1057,14 +1057,11 @@ sys.exit(0 if full>900 and 0.15*full<part<0.5*full and e==f and h<g else 1)" "$a
         expect "VR client reads glow_feather" "$dump" "display.glow_feather = soft"
         expect "VR client reads eye_balance" "$dump" "3d.eye_balance = 100"
     fi
-    # issue #7: Glow edge's Sharp is [display] glow_behind with glow_feather off; stepping past it clears both
+    # issue #7: Glow edge's Backlight is [display] glow_behind with glow_feather off; stepping past it clears both
     printf '[display]\nglow = true\nglow_feather = wide\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=glowFeatherRow \
-        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-glow-sharp.png@3000" "$L" >"$t/ui6g.out" 2>&1
-    grep -q '^glow_feather = off$' "$ini" && grep -q '^glow_behind = sharp$' "$ini" && ok "glow edge row steps Wide to Sharp and writes glow_behind with glow_feather off" || { fail "glow_behind not written"; cat "$ini"; }
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=glowFeatherRow \
-        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-glow-backlight.png@3000" "$L" >"$t/ui6h.out" 2>&1
-    grep -q '^glow_feather = off$' "$ini" && grep -q '^glow_behind = backlight$' "$ini" && ok "glow edge row steps Sharp to Backlight" || { fail "glow_behind not backlight"; cat "$ini"; }
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-glow-backlight.png@3000" "$L" >"$t/ui6g.out" 2>&1
+    grep -q '^glow_feather = off$' "$ini" && grep -q '^glow_behind = backlight$' "$ini" && ok "glow edge row steps Wide to Backlight and writes glow_behind with glow_feather off" || { fail "glow_behind not backlight"; cat "$ini"; }
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=glowFeatherRow \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-glow-off.png@3000" "$L" >"$t/ui6i.out" 2>&1
     grep -q '^glow_feather = off$' "$ini" && grep -q '^glow_behind = off$' "$ini" && ok "glow edge row steps Backlight back to Off" || { fail "glow_behind not cleared"; cat "$ini"; }

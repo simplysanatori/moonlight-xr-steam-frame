@@ -170,21 +170,20 @@ static void surroundingsRows(void) {
     cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND, -1, out);
     CHECK(c->bgDim == 30);
 
-    // Glow edge: a place each, off, soft, wide and (issue #7) sharp and backlight, which the file has in glow_behind
+    // Glow edge: a place each, off, soft, wide and (issue #7) backlight, which the file has in glow_behind
     for (int mode = 0; mode < GLOW_EDGE_COUNT; mode++) {
         cogApplySlider(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE, cogRunU((float)mode / (GLOW_EDGE_COUNT - 1)));
         CHECK(c->glowFeather == mode);
         CHECK_NEAR(cogSliderValue(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE), (double)mode / (GLOW_EDGE_COUNT - 1), 1e-5);
         CHECK(xrStoreSetting(c, &s, SETTING_GLOW_FEATHER, mode) == (mode != 0) && settings_glow_edge(&s) == mode);
         CHECK(s.glow_feather == (mode < GLOW_FEATHER_COUNT ? mode : GLOW_FEATHER_OFF));
-        CHECK(s.glow_behind == (mode == GLOW_EDGE_SHARP ? GLOW_BEHIND_SHARP : mode == GLOW_EDGE_BACKLIGHT ? GLOW_BEHIND_BACKLIGHT
-                                : GLOW_BEHIND_OFF));
+        CHECK(s.glow_behind == (mode == GLOW_EDGE_BACKLIGHT ? GLOW_BEHIND_BACKLIGHT : GLOW_BEHIND_OFF));
         // Only Soft and Wide fade the picture's border
         c->ambilightOn = 1;
         c->ambiIntensity = 0.5f;
         CHECK(xrPictureBorderFade(c) == (mode == GLOW_FEATHER_SOFT || mode == GLOW_FEATHER_WIDE ? mode : GLOW_FEATHER_OFF));
-        // Wide and Sharp spread the glow
-        CHECK((xrGlowScaleFor(c, c->glowFeather) == GLOW_SCALE_WIDE) == (mode == GLOW_FEATHER_WIDE || mode == GLOW_EDGE_SHARP));
+        // Wide spreads the glow
+        CHECK((xrGlowScaleFor(c, c->glowFeather) == GLOW_SCALE_WIDE) == (mode == GLOW_FEATHER_WIDE));
     }
     cogApplySlider(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE, cogRunU((float)GLOW_FEATHER_WIDE / (GLOW_EDGE_COUNT - 1)));
     memset(out, 0, sizeof(out));
@@ -223,7 +222,7 @@ static void surroundingsRows(void) {
     pictureReset(c);
     CHECK(c->bgDim == BG_DIM_DEFAULT && c->glowFeather == GLOW_FEATHER_OFF);
     s.bg_dim = 60;
-    settings_set_glow_edge(&s, GLOW_EDGE_SHARP);
+    settings_set_glow_edge(&s, GLOW_EDGE_BACKLIGHT);
     CHECK(xrStoreSetting(c, &s, SETTING_RESET_PICTURE, 0) == 1);
     CHECK(s.bg_dim == 0 && s.glow_feather == GLOW_FEATHER_OFF && s.glow_behind == GLOW_BEHIND_OFF);
 

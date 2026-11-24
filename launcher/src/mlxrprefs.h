@@ -64,7 +64,7 @@ class MlxrPrefs : public QObject
     // Native (lane wave3-visual): the surroundings. [vr] background_dim, 0..100 percent the room, the
     // passthrough or the void is dimmed; [vr] void_color, "#rrggbb", the void's colour; [display]
     // glow_feather, "off", "soft" or "wide", the borderless screen: the picture's edge faded into the glow;
-    // and (issue #7) "sharp", the wide glow behind a picture with sharp edges, or "backlight", kept in [display]
+    // and (issue #7) "backlight", a light round a picture with sharp edges, kept in [display]
     // glow_behind with glow_feather off, as the client keeps it (settings_set_glow_edge)
     Q_PROPERTY(int backgroundDim MEMBER backgroundDim NOTIFY changed)
     Q_PROPERTY(QString voidColor MEMBER voidColor NOTIFY changed)

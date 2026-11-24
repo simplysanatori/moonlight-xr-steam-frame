@@ -562,7 +562,7 @@ typedef struct XrCtx {
     // image's size against the screen it was drawn for (GLOW_SCALE or
     // GLOW_SCALE_WIDE), which every place that shows it uses; and the border
     // fade the newest picture was drawn with (its layer then blends).
-    int glowFeather;   // native (issue #7): a GLOW_EDGE_, glow_feather's three, Sharp and Backlight
+    int glowFeather;   // native (issue #7): a GLOW_EDGE_, glow_feather's three and Backlight
     // Native (issue #7): Backlight. Its rows; its zone colours (64 x 1) and those spread (linear, half
     // floats); when they last took the picture's, when the picture last changed, and how far they still
     // are from it (1 a whole new picture, under BACKLIGHT_SETTLED done); what the glow image was drawn as

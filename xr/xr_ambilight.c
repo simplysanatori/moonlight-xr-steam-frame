@@ -564,12 +564,12 @@ void runGlowRender(XrCtx* ctx) {
 }
 
 // Native (lane borderless): how much larger than the screen the glow is drawn
-// for a Glow edge mode: GLOW_SCALE_WIDE for Wide (and Sharp, issue #7) with no
+// for a Glow edge mode: GLOW_SCALE_WIDE for Wide with no
 // room up (in a room it would cover the walls), GLOW_SCALE otherwise
 // Native (issue #5): MLXR_GLOW_WIDE=0 holds it to GLOW_SCALE, to rule the six times larger glow (a
 // quad, or a cylinder drawn into the curved picture's layer every display frame) in or out
 float xrGlowScaleFor(XrCtx* ctx, int feather) {
-    return (feather == GLOW_FEATHER_WIDE || feather == GLOW_EDGE_SHARP) && roomEffective(ctx) < ROOM_STYLE_FIRST && xrGlowWideAllowed()
+    return feather == GLOW_FEATHER_WIDE && roomEffective(ctx) < ROOM_STYLE_FIRST && xrGlowWideAllowed()
             ? GLOW_SCALE_WIDE : GLOW_SCALE;
 }
 
@@ -584,7 +584,7 @@ int xrGlowWideAllowed(void) {
 
 // Native (lane borderless): the border fade the picture is drawn with: the
 // Glow edge's mode while the glow is on, else none, so a picture never fades
-// into nothing. Native (issue #7): none for Sharp, which keeps the glow alone
+// into nothing. Native (issue #7): none for Backlight, which keeps the glow alone
 int xrPictureBorderFade(XrCtx* ctx) {
     int on;
     float level;

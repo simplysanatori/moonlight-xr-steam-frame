@@ -69,7 +69,7 @@
     X(ROW_CONTRAST, "vr_panel_contrast", "Contrast") \
     X(ROW_GAMMA, "vr_panel_gamma", "Gamma") \
     X(ROW_SATURATION, "vr_panel_saturation", "Saturation") \
-    X(ROW_BACKGROUND, "native_background", "Background")     X(ROW_GLOW_EDGE, "native_glow_edge", "Glow edge")     X(FEATHER_SOFT, "native_feather_soft", "Soft")     X(FEATHER_WIDE, "native_feather_wide", "Wide")     X(FEATHER_SHARP, "native_feather_sharp", "Sharp") /* PROPOSED text, issue #7 */     X(FEATHER_BACKLIGHT, "native_feather_backlight", "Backlight") /* PROPOSED text, issue #7 */     X(ROW_GLOW_SPREAD, "native_glow_spread", "Glow spread") /* PROPOSED text, issue #7 */     X(ROW_GLOW_BEZEL, "native_glow_bezel", "Bezel") /* PROPOSED text, issue #7 */ \
+    X(ROW_BACKGROUND, "native_background", "Background")     X(ROW_GLOW_EDGE, "native_glow_edge", "Glow edge")     X(FEATHER_SOFT, "native_feather_soft", "Soft")     X(FEATHER_WIDE, "native_feather_wide", "Wide")     X(FEATHER_BACKLIGHT, "native_feather_backlight", "Backlight") /* PROPOSED text, issue #7 */     X(ROW_GLOW_SPREAD, "native_glow_spread", "Glow spread") /* PROPOSED text, issue #7 */     X(ROW_GLOW_BEZEL, "native_glow_bezel", "Bezel") /* PROPOSED text, issue #7 */ \
     X(VERSION, "vr_panel_version", "Version %s, commit %s") \
     X(VERSION_NO_COMMIT, "vr_panel_version_no_commit", "Version %s") \
     X(LOG_FILE, "vr_panel_log_file", "Log file: %s") \

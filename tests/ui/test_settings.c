@@ -1990,8 +1990,10 @@ static void test_surroundings(void) {
     CHECK(settings_glow_edge(&s) == GLOW_EDGE_BACKLIGHT && s.glow_spread == GLOW_SPREAD_MAX && s.glow_bezel == 2);
     settings_reset_picture(&s);
     CHECK(s.glow_spread == GLOW_SPREAD_DEFAULT && s.glow_bezel == GLOW_BEZEL_DEFAULT);
-    settings_from_text(&s, "[display]\nglow_behind = sharp\n", NULL);
-    CHECK(settings_glow_edge(&s) == GLOW_EDGE_SHARP);
+    // a choice this version hasn't got is Off, and takes nothing else in the file with it
+    settings_defaults(&s);
+    settings_from_text(&s, "[display]\nglow = true\nglow_behind = sharp\nglow_level = 70\n", &info);
+    CHECK(settings_glow_edge(&s) == GLOW_FEATHER_OFF && info.bad == 1 && s.glow == 1 && s.glow_level == 70);
     settings_from_text(&s, "[display]\nglow_feather = soft\n", NULL);
     CHECK(settings_glow_edge(&s) == GLOW_FEATHER_SOFT);
 
@@ -2040,7 +2042,7 @@ static void test_surroundings(void) {
 
     // the Picture tab's Reset takes the two rows with it, and leaves the colour
     s.bg_dim = 80;
-    settings_set_glow_edge(&s, GLOW_EDGE_SHARP);
+    settings_set_glow_edge(&s, GLOW_EDGE_BACKLIGHT);
     s.picture_gamma = 150;
     settings_set_str(&s, settings_find("void_color"), "#102030");
     settings_reset_picture(&s);

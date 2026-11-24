@@ -116,7 +116,6 @@ MAP = [
     ("native_glow_edge", NATIVE),
     ("native_feather_soft", NATIVE),
     ("native_feather_wide", NATIVE),
-    ("native_feather_sharp", NATIVE),
     ("native_feather_backlight", NATIVE),
     ("native_glow_spread", NATIVE),
     ("native_glow_bezel", NATIVE),

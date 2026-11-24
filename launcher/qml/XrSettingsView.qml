@@ -358,10 +358,9 @@ Flickable {
     // Native (lane wave3-visual): the surroundings. [vr] background_dim (percent), [display] glow_feather and
     // [3d] eye_balance (percent) step through these; [vr] void_color is typed
     readonly property var backgroundDimSteps: [0, 25, 50, 75, 100]
-    // (issue #7) "sharp": the wide glow behind a picture with sharp edges, "backlight": a light round it.
-    // PROPOSED text: "Sharp", "Backlight"
-    readonly property var glowFeatherValues: ["off", "soft", "wide", "sharp", "backlight"]
-    readonly property var glowFeatherNames: [qsTr("Off"), qsTr("Soft"), qsTr("Wide"), qsTr("Sharp"), qsTr("Backlight")]
+    // (issue #7) "backlight": a light round a picture with sharp edges. PROPOSED text: "Backlight"
+    readonly property var glowFeatherValues: ["off", "soft", "wide", "backlight"]
+    readonly property var glowFeatherNames: [qsTr("Off"), qsTr("Soft"), qsTr("Wide"), qsTr("Backlight")]
     readonly property var eyeBalanceSteps: [-100, -50, 0, 50, 100]
     // [3d] edge_sharpness: the steps the Edge row goes through (0 is the 3D's own soft edges)
     readonly property var edgeSteps: [0, 25, 50, 75, 100]
@@ -2434,7 +2433,7 @@ Flickable {
             title: qsTr("Glow edge")
             valueText: settingsPage.glowFeatherNames[Math.max(0, settingsPage.glowFeatherValues.indexOf(MlxrPrefs.glowFeather))]
             // PROPOSED text (issue #7)
-            summary: qsTr("Soft and Wide fade the picture's outer edge into the glow around it so the screen has no hard border. Sharp and Backlight keep its edges sharp: Sharp in front of the wide glow, Backlight in front of a light that spreads from the edges.")
+            summary: qsTr("Soft and Wide fade the picture's outer edge into the glow around it so the screen has no hard border. Backlight keeps the edge sharp, with light around it.")
             reason: MlxrPrefs.vr["display.glow"] === true ? "" : qsTr("Glow is off")
             onClicked: MlxrPrefs.glowFeather = settingsPage.nextLimit(settingsPage.glowFeatherValues, MlxrPrefs.glowFeather)
         }

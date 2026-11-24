@@ -523,7 +523,7 @@ static void picture_text(int row, int units, char* out, size_t cap) {
 static void tab_picture(Dc* dc) {
     const Settings* s = dc->v->settings;
     // The four grade values, then Background (percent dimmed) and Glow edge
-    // (off, soft, wide, sharp, backlight on a five place track)
+    // (off, soft, wide, backlight on a four place track)
     // Native (issue #7): and Backlight's two, live whatever Glow edge is, as it is whatever the glow is
     static const UiStr ROWS[PICTURE_TAB_ROWS] = { UIS_ROW_BRIGHTNESS, UIS_ROW_CONTRAST, UIS_ROW_GAMMA, UIS_ROW_SATURATION,
                                                   UIS_ROW_BACKGROUND, UIS_ROW_GLOW_EDGE, UIS_ROW_GLOW_SPREAD,
@@ -535,8 +535,7 @@ static void tab_picture(Dc* dc) {
     static const int DEF[PICTURE_TAB_ROWS] = { PICTURE_BRIGHTNESS_DEFAULT, PICTURE_CONTRAST_DEFAULT, PICTURE_GAMMA_DEFAULT, PICTURE_SATURATION_DEFAULT,
                                                BG_DIM_DEFAULT, GLOW_FEATHER_OFF, GLOW_SPREAD_DEFAULT,
                                                GLOW_BEZEL_DEFAULT };
-    static const UiStr FEATHER[GLOW_EDGE_COUNT] = { UIS_OFF, UIS_FEATHER_SOFT, UIS_FEATHER_WIDE, UIS_FEATHER_SHARP,
-                                                      UIS_FEATHER_BACKLIGHT };
+    static const UiStr FEATHER[GLOW_EDGE_COUNT] = { UIS_OFF, UIS_FEATHER_SOFT, UIS_FEATHER_WIDE, UIS_FEATHER_BACKLIGHT };
     float tick_half = cogCellHalf(COG_TAB_PICTURE) * dc->nh;
     for (int row = 0; row < PICTURE_TAB_ROWS; row++) {
         float y = row_y(dc, COG_TAB_PICTURE, row);

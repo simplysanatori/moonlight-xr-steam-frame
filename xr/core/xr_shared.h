@@ -489,25 +489,22 @@
 // the picture's own brightness, so the picture runs into the glow with no seam.
 // Wide also spreads the glow GLOW_SCALE_WIDE times the screen outside a room.
 // Off by default.
-// Native (issue #7): the row goes on past the three stored in glow_feather. Sharp
-// draws Wide's glow behind a picture that keeps its edges (no border fade), and
-// Backlight a light of the edge's own colours round it, as a backlit television
-// has (xr_glow.h). They are a key of their own ([display] glow_behind,
-// GLOW_BEHIND_), so a version before it reads Off and keeps everything else. The
-// row's value, and SETTING_GLOW_FEATHER's, is a GLOW_EDGE_: glow_feather's three,
-// then Sharp and Backlight.
+// Native (issue #7): the row goes on past the three stored in glow_feather.
+// Backlight draws a light of the picture's edge colours round a picture that
+// keeps its edges (no border fade), as a backlit television has (xr_glow.h). It
+// is a key of its own ([display] glow_behind, GLOW_BEHIND_), so a version before
+// it reads Off and keeps everything else. The row's value, and
+// SETTING_GLOW_FEATHER's, is a GLOW_EDGE_: glow_feather's three, then Backlight.
 #define GLOW_FEATHER_OFF 0
 #define GLOW_FEATHER_SOFT 1
 #define GLOW_FEATHER_WIDE 2
 #define GLOW_FEATHER_COUNT 3
-#define GLOW_EDGE_SHARP 3
-#define GLOW_EDGE_BACKLIGHT 4
-#define GLOW_EDGE_COUNT 5
+#define GLOW_EDGE_BACKLIGHT 3
+#define GLOW_EDGE_COUNT 4
 // [display] glow_behind: what is behind a picture with sharp edges, off for glow_feather's own
 #define GLOW_BEHIND_OFF 0
-#define GLOW_BEHIND_SHARP 1
-#define GLOW_BEHIND_BACKLIGHT 2
-#define GLOW_BEHIND_COUNT 3
+#define GLOW_BEHIND_BACKLIGHT 1
+#define GLOW_BEHIND_COUNT 2
 // Backlight's: how far the light spreads, percent of its most, and the black
 // border between it and the picture, percent of the picture's longer side
 #define GLOW_SPREAD_MIN 10
