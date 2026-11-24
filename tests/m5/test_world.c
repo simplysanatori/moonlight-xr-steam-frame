@@ -528,7 +528,14 @@ static void dark(float u, float v, float out[3]) {
     out[0] = out[1] = out[2] = 0.01f;
 }
 
+static int64_t backClock;
+
+static int64_t fixedClock(void) {
+    return backClock;
+}
+
 static void glowGroup(void) {
+    int64_t (*keptClock)(void) = xrBacklightClock;
     XrCtx* c = newCtx();
     m5_frame(&g, c, NULL, NULL);
     m5_video(&g, c, &video, 1920, 1080, twoColour);
@@ -596,22 +603,33 @@ static void glowGroup(void) {
            br[2], bt[0], bt[1], bt[2], bo[0], bo[1], bo[2]);
     CHECK(bl[0] > 100 && bl[0] > 2 * bl[2] && br[2] > 100 && br[2] > 2 * br[0]);
     CHECK(bt[0] > 100 && bt[0] > 2 * bt[2] && bo[2] > 100 && bo[2] > 2 * bo[0]);
-    // Another picture eases in: the next frame takes part of it, and a picture that then stands still
-    // is taken the rest of the way with no frame from the decoder
+    // Another picture eases in: a frame 20 ms on takes 1 - exp(-20/150) of it. Frames closer than 13 ms take
+    // none, and a picture that then stands still for 50 ms is taken the rest of the way from the held frame, at
+    // most every 13 ms, and left alone once under a step of eight bits. The clock is the test's, so a slow
+    // machine changes nothing
     M5Video other;
     memset(&other, 0, sizeof(other));
     m5_video(&g, c, &other, 1920, 1080, dark);
     M5Video kept = video;
     video = other;
-    int64_t wait0 = nowNs();
-    while (nowNs() - wait0 < 2 * BACKLIGHT_EVERY_NS) {}
+    backClock = nowNs() + 1000000000LL;
+    xrBacklightClock = fixedClock;
+    c->glowEasedNs = backClock - 20000000LL;
     m5_frame(&g, c, glowBody, NULL);
+    CHECK_NEAR(c->glowUnsettled, exp(-20.0 / 150.0), 1e-4);
     m5_readback(&g, c->glowTexture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, GLOW_TEX, GLOW_TEX, glow);
     int part = bl[0], redraws = 0;
-    CHECK(c->glowUnsettled > 0.5f && c->glowUnsettled < 1.0f);
-    CHECK(!xrBacklightSettling(c));   // frames still come, as far as it knows
-    for (int64_t t0 = nowNs(); nowNs() - t0 < 2000000000LL;) {
-        if (!glowStale(c)) continue;
+    int64_t eased = c->glowEasedNs;
+    backClock += 6944444LL;
+    m5_frame(&g, c, glowBody, NULL);
+    // The next frame of a 144 Hz stream, which is also a whole new picture as far as the Backlight knows
+    CHECK(c->glowEasedNs == eased && c->glowUnsettled == 1.0f && !glowStale(c));
+    int64_t still = backClock;
+    for (int f = 0; f < 288; f++) {
+        backClock += 6944444LL;
+        int stale = glowStale(c);
+        CHECK(!stale || (backClock - still > 50000000LL && backClock - c->glowEasedNs >= BACKLIGHT_EVERY_NS));
+        if (!stale) continue;
         redraws++;
         cmd = m5_begin(&g);
         c->frameCmd = cmd;
@@ -622,7 +640,11 @@ static void glowGroup(void) {
     m5_readback(&g, c->glowTexture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, GLOW_TEX, GLOW_TEX, glow);
     printf("  backlight into a dark picture: %d after one frame, %d settled, in %d redraws of the still picture\n", part,
            bl[0], redraws);
-    CHECK(part > 60 && bl[0] <= 6 && redraws > 3 && redraws < 100 && !glowStale(c));
+    // The first takes the 62.5 ms since the last ease, the others two display frames (13.9 ms) each, until a
+    // twentieth of a percent is left: one, and 150 ms / 13.9 ms times log(exp(-62.5 / 150) / 0.0005)
+    CHECK(redraws == 79);
+    CHECK(part > 120 && bl[0] <= 6 && !glowStale(c));
+    xrBacklightClock = keptClock;
     video = kept;
     m5_video_free(c, &other);
     // Back to Off: the colour sample starts over

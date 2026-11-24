@@ -389,6 +389,12 @@ static void runGlowEdge(XrCtx* ctx) {
 // No new picture for this long is a picture standing still, whose colours are finished from the held frame
 #define BACKLIGHT_STILL_NS 50000000LL
 
+static int64_t realClock(void) {
+    return nowNs();
+}
+
+int64_t (*xrBacklightClock)(void) = realClock;
+
 int xrBacklightOn(XrCtx* ctx) {
     int on;
     float level;
@@ -415,7 +421,7 @@ int xrBacklightSettling(XrCtx* ctx) {
     if (!xrBacklightOn(ctx) || !ctx->glowZonesSeeded || ctx->glowUnsettled < BACKLIGHT_SETTLED) {
         return 0;
     }
-    int64_t now = nowNs();
+    int64_t now = xrBacklightClock();
     return now - ctx->glowPictureNs > BACKLIGHT_STILL_NS && now - ctx->glowEasedNs >= BACKLIGHT_EVERY_NS;
 }
 
@@ -423,7 +429,7 @@ int xrBacklightSettling(XrCtx* ctx) {
 static void runBacklightZones(XrCtx* ctx, const MlxrVideo* video) {
     BacklightShape s;
     backlightShapeNow(ctx, &s);
-    int64_t now = nowNs();
+    int64_t now = xrBacklightClock();
     int moved = ctx->glowZonesZoom[0] != ctx->zoomPct || ctx->glowZonesZoom[1] != ctx->zoomX
             || ctx->glowZonesZoom[2] != ctx->zoomY || ctx->glowDrawnShape.zonesAcross != s.zonesAcross;
     int whole = !ctx->glowZonesSeeded || moved;
@@ -500,7 +506,7 @@ static void runBacklightRender(XrCtx* ctx) {
 }
 
 void xrBacklightVideoFrame(XrCtx* ctx, const MlxrVideo* video) {
-    int64_t now = nowNs();
+    int64_t now = xrBacklightClock();
     ctx->glowPictureNs = now;
     ctx->glowUnsettled = 1.0f;
     // Not at every picture of a fast stream: the colours ease by time, so fewer steps look the same

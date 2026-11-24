@@ -1646,6 +1646,8 @@ int xrBacklightOn(XrCtx* ctx);
 void xrBacklightVideoFrame(XrCtx* ctx, const struct MlxrVideo* video);
 // 1 while its colours still move on a picture that stands still, with a redraw due
 int xrBacklightSettling(XrCtx* ctx);
+// The clock the Backlight eases by: nowNs, or a test's own
+extern int64_t (*xrBacklightClock)(void);
 // Native (issue #5): 0 with MLXR_GLOW_WIDE=0, which holds the Wide Glow edge's glow to GLOW_SCALE
 int xrGlowWideAllowed(void);
 int xrPictureBorderFade(XrCtx* ctx);
