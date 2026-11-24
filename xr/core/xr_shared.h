@@ -392,6 +392,9 @@
 // the neighbouring lanes add.
 #define SETTING_BG_DIM 40
 #define SETTING_GLOW_FEATHER 41
+// Native (issue #7): Backlight's two, in percent
+#define SETTING_GLOW_SPREAD 49
+#define SETTING_GLOW_BEZEL 50
 // The Head locked row's three cells: Off 0, On 1 and Follow 2 (the screen
 // stays where it is until the head turns past the leash, then eases after the
 // gaze). SETTING_HEAD_LOCK takes the cell.
@@ -456,9 +459,18 @@
 // colours: Background, how far the room, the passthrough or the void is dimmed,
 // and Glow edge, whether the picture's edge is feathered into the glow. They
 // follow the four grade values in the tab, so the tab has PICTURE_TAB_ROWS.
+// Native (issue #7): then Backlight's two, its spread and its bezel.
 #define PICTURE_ROW_BACKGROUND 4
 #define PICTURE_ROW_GLOW_EDGE 5
-#define PICTURE_TAB_ROWS 6
+#define PICTURE_ROW_GLOW_SPREAD 6
+#define PICTURE_ROW_GLOW_BEZEL 7
+#define PICTURE_TAB_ROWS 8
+// The eight rows start a little higher and sit a little closer than the Room
+// tab's, over the same reset button (the last one's band ends at 0.843)
+#define COG_PICTURE_ROW_V0 0.23f
+#define COG_PICTURE_ROW_STEP 0.082f
+#define COG_PICTURE_ROW_HALF 0.039f
+#define COG_PICTURE_CELL_HALF 0.036f
 
 // Background dim, whole percent of the environment taken away: 0 leaves the
 // room, the cameras or the void as they are, 100 is black. The track moves in

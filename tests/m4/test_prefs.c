@@ -193,6 +193,23 @@ static void surroundingsRows(void) {
     CHECK(c->glowFeather == GLOW_FEATHER_SOFT && (int)out[IN_SETTING] == SETTING_GLOW_FEATHER
           && (int)out[IN_SETTING_VALUE] == GLOW_FEATHER_SOFT);
     CHECK(xrStoreSetting(c, &s, SETTING_GLOW_FEATHER, GLOW_FEATHER_SOFT) == 1 && s.glow_feather == GLOW_FEATHER_SOFT);
+    // Native (issue #7): Backlight's two, five percent and one percent steps
+    for (int v = GLOW_SPREAD_MIN; v <= GLOW_SPREAD_MAX; v += GLOW_SPREAD_STEP) {
+        float t = (float)(v - GLOW_SPREAD_MIN) / (GLOW_SPREAD_MAX - GLOW_SPREAD_MIN);
+        cogApplySlider(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_SPREAD, cogRunU(t));
+        CHECK(c->glowSpread == v);
+        CHECK_NEAR(cogSliderValue(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_SPREAD), t, 1e-5);
+    }
+    memset(out, 0, sizeof(out));
+    out[IN_SETTING] = -1;
+    cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_SPREAD, -1, out);
+    CHECK(c->glowSpread == 95 && (int)out[IN_SETTING] == SETTING_GLOW_SPREAD && (int)out[IN_SETTING_VALUE] == 95);
+    CHECK(xrStoreSetting(c, &s, SETTING_GLOW_SPREAD, 95) == 1 && s.glow_spread == 95);
+    memset(out, 0, sizeof(out));
+    out[IN_SETTING] = -1;
+    cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_BEZEL, 1, out);
+    CHECK(c->glowBezel == 1 && (int)out[IN_SETTING] == SETTING_GLOW_BEZEL && (int)out[IN_SETTING_VALUE] == 1);
+    CHECK(xrStoreSetting(c, &s, SETTING_GLOW_BEZEL, 1) == 1 && s.glow_bezel == 1);
     // the glow's image is redrawn when the mode moves (it was drawn as off)
     c->ambilightOn = 1;
     c->glowDrawnOn = 1;

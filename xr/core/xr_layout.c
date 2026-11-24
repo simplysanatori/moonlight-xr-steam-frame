@@ -528,6 +528,9 @@ float cogRowV(int tab, int row) {
     if (tab == COG_TAB_ACCESS) {
         return COG_ACCESS_ROW_V0 + row * COG_ACCESS_ROW_STEP;
     }
+    if (tab == COG_TAB_PICTURE) {
+        return COG_PICTURE_ROW_V0 + row * COG_PICTURE_ROW_STEP;   // native (issue #7)
+    }
     return COG_ROW_V0 + row * COG_ROW_STEP;
 }
 
@@ -535,14 +538,16 @@ float cogRowHalf(int tab) {
     return tab == COG_TAB_DISPLAY ? COG_DISPLAY_ROW_HALF
             : tab == COG_TAB_SCREEN ? COG_SCREEN_ROW_HALF
             : tab == COG_TAB_3D ? COG_3D_ROW_HALF
-            : tab == COG_TAB_ACCESS ? COG_ACCESS_ROW_HALF : COG_ROW_HALF;
+            : tab == COG_TAB_ACCESS ? COG_ACCESS_ROW_HALF
+            : tab == COG_TAB_PICTURE ? COG_PICTURE_ROW_HALF : COG_ROW_HALF;
 }
 
 float cogCellHalf(int tab) {
     return tab == COG_TAB_DISPLAY ? COG_DISPLAY_CELL_HALF
             : tab == COG_TAB_SCREEN ? COG_SCREEN_CELL_HALF
             : tab == COG_TAB_3D ? COG_3D_CELL_HALF
-            : tab == COG_TAB_ACCESS ? COG_ACCESS_CELL_HALF : COG_CELL_HALF;
+            : tab == COG_TAB_ACCESS ? COG_ACCESS_CELL_HALF
+            : tab == COG_TAB_PICTURE ? COG_PICTURE_CELL_HALF : COG_CELL_HALF;
 }
 
 // Native (lane a11y-tab): the tab bar's slots
@@ -571,7 +576,8 @@ float cogTabRight(int tab) {
 // thumbs are a little smaller and two at the same place on neighbouring rows
 // stay apart. The display tab has only the one.
 float cogThumbSize(int tab) {
-    return tab == COG_TAB_SCREEN || tab == COG_TAB_3D || tab == COG_TAB_ACCESS ? 0.06f : 0.085f;
+    return tab == COG_TAB_SCREEN || tab == COG_TAB_3D || tab == COG_TAB_ACCESS ? 0.06f
+            : tab == COG_TAB_PICTURE ? 0.07f : 0.085f;   // native (issue #7)
 }
 
 int cogTrackPart(float pu) {
@@ -651,13 +657,16 @@ int cogTrackSteps(int tab, int row) {
     if (tab == COG_TAB_PICTURE) {
         // Whole units, the ones each value is kept in and its readout shows
         // then Background's five percent steps and Glow edge's cells
+        // (native, issue #7: and Backlight's spread and bezel)
         static const int PICTURE_STEPS[PICTURE_TAB_ROWS] = {
             PICTURE_BRIGHTNESS_MAX - PICTURE_BRIGHTNESS_MIN,
             PICTURE_CONTRAST_MAX - PICTURE_CONTRAST_MIN,
             PICTURE_GAMMA_MAX - PICTURE_GAMMA_MIN,
             PICTURE_SATURATION_MAX - PICTURE_SATURATION_MIN,
             (BG_DIM_MAX - BG_DIM_MIN) / BG_DIM_STEP,
-            GLOW_EDGE_COUNT - 1
+            GLOW_EDGE_COUNT - 1,
+            (GLOW_SPREAD_MAX - GLOW_SPREAD_MIN) / GLOW_SPREAD_STEP,
+            GLOW_BEZEL_MAX - GLOW_BEZEL_MIN
         };
         return row >= 0 && row < PICTURE_TAB_ROWS ? PICTURE_STEPS[row] : 0;
     }

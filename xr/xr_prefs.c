@@ -630,6 +630,8 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_RESET_PICTURE: settings_reset_picture(s); break;
     case SETTING_BG_DIM: s->bg_dim = value; break;
     case SETTING_GLOW_FEATHER: settings_set_glow_edge(s, value); break;
+    case SETTING_GLOW_SPREAD: s->glow_spread = value; break;   // native (issue #7)
+    case SETTING_GLOW_BEZEL: s->glow_bezel = value; break;
     case SETTING_PT_CONTROLLERS_OK: s->passthrough_controllers_ok = value != 0; break;   // native (1.3.4)
     case SETTING_PT_GLOW_OK:
         // I Understand on "Glow in Passthrough?" is also the glow's On that opened it

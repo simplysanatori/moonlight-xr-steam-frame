@@ -670,16 +670,20 @@ static void testTheRowsFit(void) {
     // The other faces keep the rows they always had
     CHECK_NEAR(cogRowV(COG_TAB_COUNT, 2), COG_ROW_V0 + 2 * COG_ROW_STEP, 1e-6);
     CHECK_NEAR(cogCellHalf(COG_TAB_COUNT), COG_CELL_HALF, 1e-6);
-    // The Picture tab is the fourth, with the screen tab's spacing, and its
-    // last row's band ends well clear of the reset button
+    // The Picture tab is the fourth, with a spacing of its own (issue #7), and
+    // its last row's band ends well clear of the reset button
     CHECK(COG_TAB_PICTURE == 3 && COG_TAB_ACCESS == 4 && COG_TAB_ABOUT == 5 && COG_TAB_COUNT == 6);
     CHECK_NEAR(cogRowV(COG_TAB_PICTURE, PICTURE_SATURATION),
-               COG_ROW_V0 + PICTURE_SATURATION * COG_ROW_STEP, 1e-6);
+               COG_PICTURE_ROW_V0 + PICTURE_SATURATION * COG_PICTURE_ROW_STEP, 1e-6);
+    CHECK(cogRowV(COG_TAB_PICTURE, 0) - cogRowHalf(COG_TAB_PICTURE) > COG_TAB_BAR_B);
+    CHECK(2.0f * cogRowHalf(COG_TAB_PICTURE) < COG_PICTURE_ROW_STEP && cogThumbSize(COG_TAB_PICTURE) < COG_PICTURE_ROW_STEP);
     CHECK(cogRowV(COG_TAB_PICTURE, PICTURE_TAB_ROWS - 1) + cogRowHalf(COG_TAB_PICTURE)
           < COG_RESET_T);
     // Background and Glow edge follow the four grade rows
     CHECK(PICTURE_VALUES == 4 && PICTURE_ROW_BACKGROUND == PICTURE_VALUES);
-    CHECK(PICTURE_ROW_GLOW_EDGE == PICTURE_ROW_BACKGROUND + 1 && PICTURE_TAB_ROWS == PICTURE_ROW_GLOW_EDGE + 1);
+    // (issue #7) and Backlight's spread and bezel those
+    CHECK(PICTURE_ROW_GLOW_EDGE == PICTURE_ROW_BACKGROUND + 1 && PICTURE_ROW_GLOW_SPREAD == PICTURE_ROW_GLOW_EDGE + 1);
+    CHECK(PICTURE_ROW_GLOW_BEZEL == PICTURE_ROW_GLOW_SPREAD + 1 && PICTURE_TAB_ROWS == PICTURE_ROW_GLOW_BEZEL + 1);
     // Every room sheet follows the tabs, one per tab and the fixed Room tab,
     // then the screen and display tabs for a screen not locked to the head
     CHECK(COG_ART_ROOM == COG_TAB_COUNT);
@@ -690,8 +694,8 @@ static void testTheRowsFit(void) {
     // head aim's two on the Screen tab
     float stripB = COG_READOUT_T + (float)COG_READOUT_TEX_H / (float)COG_TEX_H;
     for (int row = 0; row < PICTURE_TAB_ROWS; row++) {
-        CHECK(cogRowV(COG_TAB_PICTURE, row) - COG_CELL_HALF > COG_READOUT_T);
-        CHECK(cogRowV(COG_TAB_PICTURE, row) + COG_CELL_HALF < stripB);
+        CHECK(cogRowV(COG_TAB_PICTURE, row) - cogCellHalf(COG_TAB_PICTURE) > COG_READOUT_T);
+        CHECK(cogRowV(COG_TAB_PICTURE, row) + cogCellHalf(COG_TAB_PICTURE) < stripB);
     }
     for (int row = 0; row < COG_ROOM_ROW_COUNT; row++) {
         CHECK(cogRowV(COG_TAB_COUNT, row) + COG_CELL_HALF < stripB);

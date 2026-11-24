@@ -118,6 +118,8 @@ MAP = [
     ("native_feather_wide", NATIVE),
     ("native_feather_sharp", NATIVE),
     ("native_feather_backlight", NATIVE),
+    ("native_glow_spread", NATIVE),
+    ("native_glow_bezel", NATIVE),
     ("vr_panel_version", SAME),
     ("vr_panel_version_no_commit", SAME),
     ("vr_panel_log_file", SAME),
