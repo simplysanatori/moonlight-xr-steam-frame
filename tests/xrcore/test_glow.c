@@ -671,6 +671,14 @@ static void testBacklightShape(void) {
     backlightShapeFor(1920.0f, 1080.0f, 100, 0, 1, &t);
     CHECK_NEAR(t.reach, 0.2 * 9.0 / 16.0, 1e-5);
     CHECK_NEAR(t.scaleY, 1.4 / pad, 1e-5);
+    // and Glow spread changes it there too, step by step
+    float last = 0.0f;
+    for (int s = GLOW_SPREAD_MIN; s <= GLOW_SPREAD_MAX; s += 5) {
+        BacklightShape r;
+        backlightShapeFor(1920.0f, 1080.0f, s, 0, 1, &r);
+        CHECK(r.reach > last + 1e-3f && r.reach <= 0.2f * 9.0f / 16.0f + 1e-5f);
+        last = r.reach;
+    }
     backlightShapeFor(1920.0f, 1080.0f, 100, 2, 1, &t);
     CHECK_NEAR(t.reach + t.bezel, 0.2 * 9.0 / 16.0, 1e-5);
     backlightShapeFor(1920.0f, 1080.0f, 100, 3, 1, &t);

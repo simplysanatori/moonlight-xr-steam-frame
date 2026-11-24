@@ -117,9 +117,15 @@ int vkh_submit(Vkh* v) {
     si.commandBufferCount = 1;
     si.pCommandBuffers = &v->cmd;
     if (vkQueueSubmit(v->queue, 1, &si, v->fence) != VK_SUCCESS) return -1;
-    VkResult r = vkWaitForFences(v->device, 1, &v->fence, VK_TRUE, 5000000000ull);
+    // Long: a software GPU under emulation takes minutes on a busy machine. Past it nothing of this submit may be
+    // touched (the next vkh_begin would reset a command buffer still being run), so the test ends here
+    VkResult r = vkWaitForFences(v->device, 1, &v->fence, VK_TRUE, 600000000000ull);
+    if (r != VK_SUCCESS) {
+        fprintf(stderr, "vkh: the GPU did not finish in 600 s (%d)\n", r);
+        exit(1);
+    }
     vkResetFences(v->device, 1, &v->fence);
-    return r == VK_SUCCESS ? 0 : -1;
+    return 0;
 }
 
 int vkh_buffer(Vkh* v, VkDeviceSize size, VkBufferUsageFlags usage, VkhBuffer* b) {

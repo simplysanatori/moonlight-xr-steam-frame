@@ -149,8 +149,10 @@ void backlightShapeFor(float picW, float picH, int spread, int bezel, int inRoom
     out->reach = BACKLIGHT_MAX_REACH * (float)s / 100.0f * longSide;
     out->bezel = (float)b / 100.0f * longSide;
     float most = BACKLIGHT_ROOM_REACH * shortSide - out->bezel;
-    if (inRoom && out->reach > most) {
-        out->reach = most > 0.5f * BACKLIGHT_ROOM_REACH * shortSide ? most : 0.5f * BACKLIGHT_ROOM_REACH * shortSide;
+    if (inRoom) {
+        // Its own scale, so Glow spread changes it all the way: no point of it goes further than that
+        most = most > 0.5f * BACKLIGHT_ROOM_REACH * shortSide ? most : 0.5f * BACKLIGHT_ROOM_REACH * shortSide;
+        out->reach = most * (0.4f + 0.6f * (float)s / 100.0f);
     }
     out->scaleX = (1.0f + 2.0f * (out->reach + out->bezel)) / (1.0f - BACKLIGHT_PAD);
     out->scaleY = (1.0f + 2.0f * (out->reach + out->bezel) / aspect) / (1.0f - BACKLIGHT_PAD);

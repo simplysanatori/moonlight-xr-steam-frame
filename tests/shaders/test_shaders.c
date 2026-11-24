@@ -2414,19 +2414,20 @@ static void testBacklight(void) {
                 if (s.bezel > 0.0f && off < s.bezel - 0.02f
                     && (p[0] > 0.0f || p[1] > 0.0f || p[2] > 0.0f || p[3] != 1.0f)) bezelLit++;
                 if (off < s.bezel + 0.04f || off > s.bezel + 0.9f * s.reach) continue;
-                // Alpha is the light itself; the panel pass's colour is the encoded straight colour times it
+                // The light the eye gets, encoded: a quad layer's bytes as they are, the panel pass's straight colour
+                // times its alpha. Alpha is the light itself, as the linear share it takes of what is behind (a few
+                // more steps there: a software GPU samples the video in 8 bits, a step of which is two of bright light)
                 float m = fmaxf(l[0], fmaxf(l[1], l[2]));
                 worstA = fmaxf(worstA, fabsf(p[3] - m) * 255.0f);
                 for (int c = 0; c < 3; c++) {
-                    float want = cases[k].projected ? toSrgb(l[c] / m) : toSrgb(l[c]);
-                    float is = cases[k].projected ? p[c] / fmaxf(p[3], 1e-6f) : p[c];
-                    worst = fmaxf(worst, fabsf(want - is) * 255.0f);
+                    float is = cases[k].projected ? toSrgb(toLinear(p[c] / fmaxf(p[3], 1e-6f)) * p[3]) : p[c];
+                    worst = fmaxf(worst, fabsf(toSrgb(l[c]) - is) * 255.0f);
                 }
             }
         note("backlight %zu (%ux%u, spread %d, bezel %d, projected %d%s): colour %.2f/255 and alpha %.2f/255 from the CPU copy",
              k, vd.w, vd.h, cases[k].spread, cases[k].bezel, cases[k].projected, cases[k].nv12 ? ", NV12" : "", worst, worstA);
         float tol = cases[k].nv12 ? 8.0f : 3.0f;
-        check(worst <= tol && worstA <= tol, "backlight %zu within %.0f/255 (%.2f, %.2f)", k, tol, worst, worstA);
+        check(worst <= tol && worstA <= 2.0f * tol, "backlight %zu within %.0f/255 (%.2f, alpha %.2f)", k, tol, worst, worstA);
         check(rim == 0, "backlight %zu: nothing past its reach (%d)", k, rim);
         check(bezelLit == 0, "backlight %zu: the bezel is black and opaque (%d)", k, bezelLit);
         uint8_t* shot = malloc((size_t)N * N * 4);
