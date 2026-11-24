@@ -975,7 +975,7 @@ private:
 
     // ---- Is it really shown in the headset? What Qt knows (visible, exposed, drawn) ends at gamescope, and Steam
     // answers ShowDashboard whether or not there was a window to show: on 2026-11-18 all of that was fine and the
-    // dashboard had an empty frame. So SteamVR is asked what it has of the window (steam_cef.py --show, which also
+    // dashboard had an empty frame, with nothing in the log to say why. So SteamVR is asked what it has of the window (steam_cef.py --show, which also
     // docks its frame again when it has a picture and does not show it). When it has no picture at all, the window
     // is faded out and back in once (what a stream does: gamescope makes a new overlay) and that is checked again.
     // Two checks at the most, each with an end of its own; nothing runs on after them.

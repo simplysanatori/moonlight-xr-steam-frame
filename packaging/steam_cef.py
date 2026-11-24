@@ -172,15 +172,17 @@ def probe_hint(result):
 
 
 # ---- the flat window in the headset ------------------------------------------------------------------
-# gamescope gives SteamVR the app's window as the overlay valve.steam.desktopgame.APPID. A stream takes it away (the
-# window is faded out) and the return makes it again, so ShowDashboard, which answers null whatever came of it, can
-# come before SteamVR has a picture of the window: the dashboard then opens on a frame with nothing in it
-# (2026-11-18). vrcmd --overlays says what SteamVR has. The way to read it and to dock a frame again is from Azahar
-# for Frame, by the same owner.
+# gamescope gives SteamVR the app's window as the overlay valve.steam.desktopgame.APPID. ShowDashboard answers null
+# whatever came of it: on 2026-11-18 the dashboard opened on the app's frame with nothing in it. Likely (nothing read
+# SteamVR's side then): the stream, which fades the window out, took the overlay away, and the frame came up without
+# the new one's picture. vrcmd --overlays says what SteamVR has. The way to read it and to dock a frame again is from
+# Azahar for Frame, by the same owner.
 
 VRCMD = "/opt/steamvr/bin/linuxarm64/vrcmd"
 OVERLAY_IN_DASHBOARD = 0x8000        # OpenVR's VROverlayFlags_VisibleInDashboard
-SHOW_TRIES = ((), ("dashboard",), ("world", "dashboard"))     # the docks before each ShowDashboard
+# The docks before each ShowDashboard. Only into the dashboard, which is where the frame is meant to be: a try cut
+# short (a stream starts) leaves it nowhere else.
+SHOW_TRIES = ((), ("dashboard",), ("dashboard",))
 SHOW_DEADLINE_S = 35                 # no new step after this, whatever is left of the tries
 
 

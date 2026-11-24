@@ -123,11 +123,11 @@ check(c == 0 and len(js) == 1 and "ShowDashboard" in js[0] and KEY in js[0] and 
 # then docked again
 c, out, calls, js = run_show({"state": line(vis="not_visible"), "dock.dashboard": line()})
 check(c == 0 and len(js) == 2 and docks(calls) == [f"--dock-overlay dashboard {KEY}"], "--show: docked into the dashboard again")
-c, out, calls, js = run_show({"state": line(vis="not_visible"), "dock.world": line(vis="not_visible"), "state.4": line()})
-check(c == 0 and docks(calls) == [f"--dock-overlay {w} {KEY}" for w in ("dashboard", "world", "dashboard")], "--show: through the world the last time")
+c, out, calls, js = run_show({"state": line(vis="not_visible"), "state.4": line()})
+check(c == 0 and docks(calls) == [f"--dock-overlay dashboard {KEY}"] * 2, "--show: and once more, never anywhere but the dashboard")
 # bounded
 c, out, calls, js = run_show({"state": line(vis="not_visible")})
-check(c == sc.EXIT_NOT_SHOWN and len(js) == 3 and len(docks(calls)) == 3 and calls.count("--overlays") == 4, "--show: three tries, then it says so")
+check(c == sc.EXIT_NOT_SHOWN and len(js) == 3 and len(docks(calls)) == 2 and calls.count("--overlays") == 4, "--show: three tries, then it says so")
 # no picture: a dock would move whichever frame is active, so nothing is moved
 for what, st in (("no picture", line("0x0")), ("no flag", line(flags="0x10", vis="not_visible")), ("no overlay", OTHER)):
     c, out, calls, js = run_show({"state": st})

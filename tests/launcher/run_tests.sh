@@ -1317,7 +1317,7 @@ PY
     ovl_new; ovline 1920x1080 not_visible > "$ovl/state"
     flatcheck never 14000
     expect "flat check: not shown is said" "$r" "flat window in the headset: NOT SHOWN, nothing more to try (docked again without effect"
-    [ "$(grep -c dock-overlay "$ovl/log")" = 3 ] && [ "$(grep -c . "$ovl/cef")" = 7 ] && ok "flat check: three tries at the most" || fail "flat check never: $(cat "$ovl/cef" "$ovl/log")"
+    [ "$(grep -c dock-overlay "$ovl/log")" = 2 ] && [ "$(grep -c . "$ovl/cef")" = 7 ] && ok "flat check: three tries at the most" || fail "flat check never: $(cat "$ovl/cef" "$ovl/log")"
     ovl_new; ovline 0x0 visible > "$ovl/state"
     flatcheck nopicture 18000
     expect "flat check: no picture: faded out and in" "$r" "SteamVR has no picture of it, fading the window out and in again"
@@ -1326,7 +1326,8 @@ PY
     # a stream that starts ends the check and every request left, so nothing opens the dashboard over it
     ovl_new; ovline 1920x1080 not_visible > "$ovl/state"; echo 4 > "$ovl/sleep"
     flatcheck cancelled 12500 MLXR_LAUNCHER_DEMO_AGAIN=6500 FAKE_SLEEP=2
-    expect "flat check: the next stream ends it" "$r" "a stream starts: stopped 1 request(s) for the flat screen"
+    echo "$r" | grep -Eq "a stream starts: stopped [1-9][0-9]* request" && ok "flat check: the next stream ends it" || fail "flat check: not ended by the next stream"
+    [ "$(grep -c -- --overlays "$ovl/log")" = 2 ] && ok "flat check: one look a return" || fail "flat check cancelled: $(cat "$ovl/log")"
     grep -q "^end" "$ovl/log" && fail "flat check: the vrcmd of the first return ran on" || ok "flat check: its vrcmd ended with it"
     echo "$r" | awk '/a stream starts: stopped/ {on=1} /VR client exited/ {on=0} on && /Asked Steam|headset/ {bad=1} END {exit bad}' && ok "flat check: nothing asked while the stream runs" || fail "flat check: asked during the stream"
     # off, and nothing without the Steam shortcut's id
