@@ -604,7 +604,7 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     // (there are no cylinder layers), so only the flat glow is a layer here.
     // Native: inside the picture's projection layer when it has one (curved, or flat in 3D)
     (void)view;
-    if (!xrWorldGlowShown(ctx) || xrPictureProjected(ctx) || ctx->glowSwapchain == XR_NULL_HANDLE
+    if (!xrWorldGlowShown(ctx) || xrPictureProjected(ctx) || !xrGlowForQuad(ctx) || ctx->glowSwapchain == XR_NULL_HANDLE
             || !ctx->glowSwapchainFilled) {
         return;
     }

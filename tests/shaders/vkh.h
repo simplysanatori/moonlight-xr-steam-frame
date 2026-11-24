@@ -61,7 +61,7 @@ void vkh_layout(Vkh* v, VkhImage* img, VkImageLayout to);
 // whole command buffer round trip; leaves the image SHADER_READ_ONLY
 int vkh_upload(Vkh* v, VkhImage* img, VkImageAspectFlagBits aspect, uint32_t w, uint32_t h, uint32_t bpp,
                const void* px);
-// Read back an RGBA8 (4 bytes a pixel) image; leaves it SHADER_READ_ONLY
+// Read back an RGBA8 (4 bytes a pixel) or RGBA16F (8) image; leaves it SHADER_READ_ONLY
 int vkh_read(Vkh* v, VkhImage* img, uint8_t* out);
 
 int vkh_write_ppm(const char* path, const uint8_t* rgba, uint32_t w, uint32_t h);

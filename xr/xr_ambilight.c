@@ -53,7 +53,10 @@ int initAmbilight(XrCtx* ctx) {
             || !xrVkImageMake(ctx, &ctx->glowZonesTexture, MLXR_GLOW_ZONES, 1, MLXR_GLOW_LIGHT_FORMAT, rw,
                               VK_IMAGE_ASPECT_COLOR_BIT)
             || !xrVkImageMake(ctx, &ctx->glowSpreadTexture, MLXR_GLOW_SPREAD_W, MLXR_GLOW_SPREAD_H,
-                              MLXR_GLOW_LIGHT_FORMAT, rw, VK_IMAGE_ASPECT_COLOR_BIT)) {
+                              MLXR_GLOW_LIGHT_FORMAT, rw, VK_IMAGE_ASPECT_COLOR_BIT)
+            // and its glow for the panel pass (read back by the tests)
+            || !xrVkImageMake(ctx, &ctx->glowLightTexture, GLOW_TEX, GLOW_TEX, MLXR_GLOW_LIGHT_FORMAT,
+                              rw | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT)) {
         LOGE("ambilight images could not be made");
         return 0;
     }
@@ -407,14 +410,20 @@ static void backlightShapeNow(XrCtx* ctx, BacklightShape* s) {
                       roomEffective(ctx) >= ROOM_STYLE_FIRST, s);
 }
 
-// How the glow image goes up: 0 a quad layer, 1 through the panel pass, 2 that over a black void
+// How the glow image goes up: 0 a quad layer, 1 through the panel pass
 static int backlightProjected(XrCtx* ctx) {
-    if (!xrPictureProjected(ctx)) {
-        return 0;
+    return xrPictureProjected(ctx) != 0;
+}
+
+VkImageView xrGlowPanelSource(const XrCtx* ctx) {
+    if (ctx->glowDrawnFeather != GLOW_EDGE_BACKLIGHT) {
+        return ctx->glowTexture.view;
     }
-    int black = !ctx->passthrough && roomEffective(ctx) <= 0 && ctx->voidColor[0] <= 0.0f && ctx->voidColor[1] <= 0.0f
-            && ctx->voidColor[2] <= 0.0f;
-    return black ? 2 : 1;
+    return ctx->glowDrawnProjected ? ctx->glowLightTexture.view : VK_NULL_HANDLE;
+}
+
+int xrGlowForQuad(const XrCtx* ctx) {
+    return ctx->glowDrawnFeather != GLOW_EDGE_BACKLIGHT || !ctx->glowDrawnProjected;
 }
 
 int xrBacklightSettling(XrCtx* ctx) {
@@ -472,10 +481,12 @@ static void runBacklightRender(XrCtx* ctx) {
     int on;
     float level;
     ambiEffective(ctx, &on, &level);
+    int projected = backlightProjected(ctx);
+    XrVkImage* image = projected ? &ctx->glowLightTexture : &ctx->glowTexture;
     MlxrTarget t;
     memset(&t, 0, sizeof(t));
-    t.view = ctx->glowTexture.view;
-    t.format = MLXR_PASS_FORMAT;
+    t.view = image->view;
+    t.format = projected ? MLXR_GLOW_LIGHT_FORMAT : MLXR_PASS_FORMAT;
     t.rect.extent = (VkExtent2D){ GLOW_TEX, GLOW_TEX };
     MlxrBacklightParams b;
     memset(&b, 0, sizeof(b));
@@ -487,10 +498,10 @@ static void runBacklightRender(XrCtx* ctx) {
     b.reach = s.reach;
     b.bezel = s.bezel;
     b.level = level;
-    b.projected = backlightProjected(ctx);
-    xrVkImageTo(ctx, &ctx->glowTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    b.projected = projected;
+    xrVkImageTo(ctx, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     mlxr_pass_backlight(ctx->passes, ctx->frameCmd, &t, &b);
-    xrVkImageTo(ctx, &ctx->glowTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    xrVkImageTo(ctx, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     ctx->glowRendered = 1;
     ctx->glowDrawnOn = 1;
     ctx->glowDrawnLevel = level;

@@ -247,7 +247,7 @@ int vkh_upload(Vkh* v, VkhImage* img, VkImageAspectFlagBits aspect, uint32_t w, 
 
 int vkh_read(Vkh* v, VkhImage* img, uint8_t* out) {
     VkhBuffer b;
-    VkDeviceSize bytes = (VkDeviceSize)img->width * img->height * 4;
+    VkDeviceSize bytes = (VkDeviceSize)img->width * img->height * (img->format == VK_FORMAT_R16G16B16A16_SFLOAT ? 8 : 4);
     if (vkh_buffer(v, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &b)) return -1;
     VkCommandBuffer cmd = vkh_begin(v);
     mlxr_barrier(cmd, img->image, VK_IMAGE_ASPECT_COLOR_BIT, img->layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);

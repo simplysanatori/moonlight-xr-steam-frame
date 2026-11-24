@@ -534,6 +534,12 @@ static int64_t fixedClock(void) {
     return backClock;
 }
 
+static float halfFloat(uint16_t h) {
+    int e = (h >> 10) & 31;
+    float m = (float)(h & 1023) / 1024.0f;
+    return e ? ldexpf(1.0f + m, e - 15) : ldexpf(m, -14);
+}
+
 static void glowGroup(void) {
     int64_t (*keptClock)(void) = xrBacklightClock;
     XrCtx* c = newCtx();
@@ -554,7 +560,7 @@ static void glowGroup(void) {
     CHECK(c->ambiCrop[3] < 0.8f && c->ambiCrop[3] > 0.6f);
     CHECK(c->glowRendered && c->glowDrawnOn && c->ambiSeeded);
 
-    uint8_t* glow = malloc(GLOW_TEX * GLOW_TEX * 4);
+    uint8_t* glow = malloc(GLOW_TEX * GLOW_TEX * 8);
     m5_readback(&g, c->glowTexture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, GLOW_TEX, GLOW_TEX, glow);
     // Halfway down, a little in from each side: red on the left, blue on the
     // right, from the picture rather than its bars
@@ -657,6 +663,8 @@ static void glowGroup(void) {
     backClock = nowNs() + 10000000000LL;
     xrBacklightClock = fixedClock;
     static const int ROOMS[4] = { 0, ROOM_STYLE_FIRST, ROOM_STYLE_FIRST + 1, ROOM_STYLE_LAST };
+    c->cylinderSupported = 1;
+    int panels = 0;
     for (int n = 0; n < 96; n++) {
         int still = n % 3 == 2;
         c->glowFeather = (n * 7) % GLOW_EDGE_COUNT;
@@ -682,24 +690,29 @@ static void glowGroup(void) {
         xrGlowDrawnSize(c, &sx, &sy, &proud);
         CHECK((proud == 0.0f) == back && (c->glowDrawnScaleY > 0.0f) == back);
         CHECK(back || (sx == sy && sx == xrGlowScaleFor(c, c->glowFeather)));
-        m5_readback(&g, c->glowTexture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, GLOW_TEX, GLOW_TEX, glow);
+        // The image it goes up from: its own half floats on a curved picture, on a quad the bytes every glow has
+        int panel = back && xrPictureProjected(c);
+        panels += panel;
+        CHECK((xrGlowPanelSource(c) != VK_NULL_HANDLE) == (!back || panel) && xrGlowForQuad(c) == !panel);
+        m5_readback_bpp(&g, panel ? c->glowLightTexture.image : c->glowTexture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        GLOW_TEX, GLOW_TEX, panel ? 8 : 4, glow);
         int rim = 0, lit = 0;
-        for (int i = 0; i < GLOW_TEX; i++) {
-            for (int k = 0; k < 4; k++) {
-                const uint8_t* px = glow + ((size_t)(k == 0 ? 0 : k == 1 ? GLOW_TEX - 1 : i) * GLOW_TEX
-                                            + (k == 2 ? 0 : k == 3 ? GLOW_TEX - 1 : i)) * 4;
-                int m = px[0] > px[1] ? px[0] : px[1];
-                m = px[2] > m ? px[2] : m;
-                rim = m > rim ? m : rim;
-            }
+        for (int y = 0; y < GLOW_TEX; y++) {
             for (int x = 0; x < GLOW_TEX; x++) {
-                const uint8_t* px = glow + ((size_t)i * GLOW_TEX + x) * 4;
-                lit += px[0] > 60 || px[2] > 60;
+                const uint8_t* px = glow + ((size_t)y * GLOW_TEX + x) * 4;
+                const uint16_t* hf = (const uint16_t*)(const void*)glow + ((size_t)y * GLOW_TEX + x) * 4;
+                int r = panel ? (int)(255.0f * halfFloat(hf[0])) : px[0], b = panel ? (int)(255.0f * halfFloat(hf[2])) : px[2];
+                int gr = panel ? (int)(255.0f * halfFloat(hf[1])) : px[1];
+                int m = r > b ? r : b;
+                lit += m > (panel ? 10 : 60);   // (the half floats are the light's share of it, not its encoding)
+                m = gr > m ? gr : m;
+                if ((x == 0 || y == 0 || x == GLOW_TEX - 1 || y == GLOW_TEX - 1) && m > rim) rim = m;
             }
         }
         CHECK(!back || rim <= 3);
         CHECK(lit > 500);
     }
+    CHECK(panels > 1);
     // The stream's size changes under it: 32:9, so the glow takes its shape and its zones whole
     c->glowFeather = GLOW_EDGE_BACKLIGHT;
     c->roomOverride = 0;

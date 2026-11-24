@@ -291,7 +291,7 @@ typedef struct MlxrBacklightParams {
     int zonesAcross;
     float reach, bezel;    // in screen widths: how far the light goes, and the black border inside it (0 none)
     float level;           // its brightness beside the screen, a share of the picture's edge
-    int projected;         // 1 where the panel pass shows it (curved, flat 3D), 2 there over a black void, 0 a quad layer
+    int projected;         // 1 for the panel pass (curved, flat 3D), in a MLXR_GLOW_LIGHT_FORMAT image; 0 for a quad layer
 } MlxrBacklightParams;
 void mlxr_pass_backlight(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrBacklightParams* b);
 

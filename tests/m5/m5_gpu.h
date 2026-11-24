@@ -45,6 +45,7 @@ int m5_image(M5Gpu* g, XrCtx* ctx, M5Image* out, int w, int h, VkFormat format, 
 void m5_image_free(XrCtx* ctx, M5Image* im);
 // Reads an RGBA8 colour image (in `layout`) into rgba (w*h*4)
 int m5_readback(M5Gpu* g, VkImage image, VkImageLayout layout, int w, int h, uint8_t* rgba);
+int m5_readback_bpp(M5Gpu* g, VkImage image, VkImageLayout layout, int w, int h, int bpp, void* out);
 // Uploads tight bytes (bpp bytes a texel) into an image, leaving it SHADER_READ
 int m5_upload(M5Gpu* g, VkImage image, int w, int h, int bpp, const void* bytes);
 

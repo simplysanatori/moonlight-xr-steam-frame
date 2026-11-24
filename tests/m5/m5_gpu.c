@@ -214,8 +214,12 @@ static void hostFree(M5Gpu* g, HostBuf* b) {
 }
 
 int m5_readback(M5Gpu* g, VkImage image, VkImageLayout layout, int w, int h, uint8_t* rgba) {
+    return m5_readback_bpp(g, image, layout, w, h, 4, rgba);
+}
+
+int m5_readback_bpp(M5Gpu* g, VkImage image, VkImageLayout layout, int w, int h, int bpp, void* out) {
     HostBuf b;
-    if (hostBuf(g, (VkDeviceSize)w * h * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &b) != 0) return -1;
+    if (hostBuf(g, (VkDeviceSize)w * h * bpp, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &b) != 0) return -1;
     VkCommandBuffer cmd = m5_begin(g);
     mlxr_barrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     VkBufferImageCopy rg;
@@ -225,7 +229,7 @@ int m5_readback(M5Gpu* g, VkImage image, VkImageLayout layout, int w, int h, uin
     vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, b.buf, 1, &rg);
     mlxr_barrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, layout);
     int rc = m5_submit(g, cmd, NULL, 0);
-    memcpy(rgba, b.map, (size_t)w * h * 4);
+    memcpy(out, b.map, (size_t)w * h * bpp);
     hostFree(g, &b);
     return rc;
 }

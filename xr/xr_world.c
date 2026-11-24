@@ -807,6 +807,7 @@ void xrWorldDestroy(XrCtx* ctx) {
     xrVkImageFree(ctx, &ctx->glowEdgeTexture);
     xrVkImageFree(ctx, &ctx->glowZonesTexture);
     xrVkImageFree(ctx, &ctx->glowSpreadTexture);
+    xrVkImageFree(ctx, &ctx->glowLightTexture);
     xrVkImageFree(ctx, &ctx->glowTexture);
     if (ctx->ambiDetectBuffer) vkDestroyBuffer(ctx->vk->device, ctx->ambiDetectBuffer, NULL);
     if (ctx->ambiDetectMemory) vkFreeMemory(ctx->vk->device, ctx->ambiDetectMemory, NULL);
@@ -906,7 +907,8 @@ int xrWorldGlowShown(XrCtx* ctx) {
 }
 
 void xrWorldFlatGlow(XrCtx* ctx, int curved) {
-    if (curved || !xrWorldGlowShown(ctx) || ctx->glowCopied || ctx->frameCmd == VK_NULL_HANDLE || ctx->offscreen) {
+    if (curved || !xrWorldGlowShown(ctx) || !xrGlowForQuad(ctx) || ctx->glowCopied || ctx->frameCmd == VK_NULL_HANDLE
+            || ctx->offscreen) {
         return;
     }
     if (ctx->glowSwapchain == XR_NULL_HANDLE) {
@@ -1003,7 +1005,10 @@ void xrWorldCurvedGlow(XrCtx* ctx, const XrEyeTargets* target, const XrView* vie
     }
     MlxrPanelParams pp;
     memset(&pp, 0, sizeof(pp));
-    pp.src = ctx->glowTexture.view;
+    pp.src = xrGlowPanelSource(ctx);
+    if (pp.src == VK_NULL_HANDLE) {
+        return;   // native (issue #7): drawn for a quad, until the next draw
+    }
     pp.width = shape.radius * shape.centralAngle;
     pp.height = pp.width / shape.aspectRatio;
     pp.radius = shape.radius;
@@ -1034,7 +1039,10 @@ void xrWorldFlatGlowInto(XrCtx* ctx, const XrEyeTargets* target, const XrView* v
     float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
     MlxrPanelParams pp;
     memset(&pp, 0, sizeof(pp));
-    pp.src = ctx->glowTexture.view;
+    pp.src = xrGlowPanelSource(ctx);
+    if (pp.src == VK_NULL_HANDLE) {
+        return;   // native (issue #7): drawn for a quad, until the next draw
+    }
     // The glow quad's size and place (addGlowLayer), flat
     float scaleX, scaleY, proud;
     xrGlowDrawnSize(ctx, &scaleX, &scaleY, &proud); // native (lane borderless)

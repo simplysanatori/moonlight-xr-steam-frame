@@ -568,6 +568,7 @@ typedef struct XrCtx {
     // are from it (1 a whole new picture, under BACKLIGHT_SETTLED done); what the glow image was drawn as
     int glowSpread, glowBezel;
     XrVkImage glowZonesTexture, glowSpreadTexture;
+    XrVkImage glowLightTexture;   // the glow image where the panel pass takes it, half floats (glowTexture else)
     int glowZonesSeeded;
     int64_t glowEasedNs, glowPictureNs;
     float glowUnsettled;
@@ -1643,6 +1644,9 @@ float xrGlowScaleFor(XrCtx* ctx, int feather);
 void xrGlowDrawnSize(const XrCtx* ctx, float* scaleX, float* scaleY, float* proud);
 // The Backlight: whether it is what the glow shows, the zone colours' turn on a new picture, and drawing it
 int xrBacklightOn(XrCtx* ctx);
+// The glow image the panel pass reads (NULL: not drawn for it) and, for a quad, 1 where glowTexture is drawn for it
+VkImageView xrGlowPanelSource(const XrCtx* ctx);
+int xrGlowForQuad(const XrCtx* ctx);
 void xrBacklightVideoFrame(XrCtx* ctx, const struct MlxrVideo* video);
 // 1 while its colours still move on a picture that stands still, with a redraw due
 int xrBacklightSettling(XrCtx* ctx);
