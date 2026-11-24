@@ -4,6 +4,7 @@
 #include <math.h>
 
 #include "xr_glow.h"
+#include "xr_shared.h"
 
 static float smooth(float edge0, float edge1, float x) {
     float t = (x - edge0) / (edge1 - edge0);
@@ -98,10 +99,15 @@ int glowCylinderFor(float screenWidth, float screenHeight, float screenRadius,
 
 int glowCylinderForScale(float screenWidth, float screenHeight, float screenRadius, float scale,
                          GlowCylinder* out) {
-    if (screenRadius <= 1e-3f || screenWidth <= 0.0f || screenHeight <= 0.0f || scale <= 0.0f) {
+    return glowCylinderForScales(screenWidth, screenHeight, screenRadius, scale, scale, GLOW_PROUD_M, out);
+}
+
+int glowCylinderForScales(float screenWidth, float screenHeight, float screenRadius, float scaleX, float scaleY,
+                          float proud, GlowCylinder* out) {
+    if (screenRadius <= 1e-3f || screenWidth <= 0.0f || screenHeight <= 0.0f || scaleX <= 0.0f || scaleY <= 0.0f) {
         return 0;
     }
-    float wanted = scale * screenWidth / screenRadius;
+    float wanted = scaleX * screenWidth / screenRadius;
     int columns = GLOW_TEX;
     if (wanted > GLOW_MAX_ANGLE) {
         // Even, so the columns left out are the same either side
@@ -114,9 +120,45 @@ int glowCylinderForScale(float screenWidth, float screenHeight, float screenRadi
     out->rectX = (GLOW_TEX - columns) / 2;
     // From the whole columns, so a cut glow is exactly as wide as what it shows
     out->centralAngle = wanted * columns / GLOW_TEX;
-    out->radius = screenRadius > 2.0f * GLOW_PROUD_M ? screenRadius - GLOW_PROUD_M : screenRadius;
-    out->aspectRatio = out->radius * out->centralAngle / (scale * screenHeight);
+    out->radius = screenRadius > 2.0f * proud ? screenRadius - proud : screenRadius;
+    out->aspectRatio = out->radius * out->centralAngle / (scaleY * screenHeight);
     return 1;
+}
+
+// ---- native (issue #7): the Backlight (xr_glow.h) ------------------------------------------
+
+int glowZonesAcross(float picW, float picH) {
+    if (picW <= 0.0f || picH <= 0.0f) {
+        return 20;
+    }
+    int across = (int)(0.5f * GLOW_ZONES * picW / (picW + picH) + 0.25f);
+    return across < 4 ? 4 : (across > 28 ? 28 : across);
+}
+
+float backlightEase(float dt) {
+    return dt <= 0.0f ? 0.0f : 1.0f - expf(-dt / BACKLIGHT_EASE_SECS);
+}
+
+void backlightShapeFor(float picW, float picH, int spread, int bezel, int inRoom, BacklightShape* out) {
+    float aspect = picW > 0.0f && picH > 0.0f ? picH / picW : 9.0f / 16.0f;
+    float longSide = aspect > 1.0f ? aspect : 1.0f;
+    float shortSide = aspect > 1.0f ? 1.0f : aspect;
+    int s = spread < GLOW_SPREAD_MIN ? GLOW_SPREAD_MIN : (spread > GLOW_SPREAD_MAX ? GLOW_SPREAD_MAX : spread);
+    int b = bezel < GLOW_BEZEL_MIN ? GLOW_BEZEL_MIN : (bezel > GLOW_BEZEL_MAX ? GLOW_BEZEL_MAX : bezel);
+    out->aspect = aspect;
+    out->reach = BACKLIGHT_MAX_REACH * (float)s / 100.0f * longSide;
+    if (inRoom && out->reach > BACKLIGHT_ROOM_REACH * shortSide) {
+        out->reach = BACKLIGHT_ROOM_REACH * shortSide;
+    }
+    out->bezel = (float)b / 100.0f * longSide;
+    out->scaleX = 1.0f + 2.0f * (out->reach + out->bezel);
+    out->scaleY = 1.0f + 2.0f * (out->reach + out->bezel) / aspect;
+    out->zonesAcross = glowZonesAcross(1.0f, aspect);
+}
+
+int backlightShapeSame(const BacklightShape* a, const BacklightShape* b) {
+    return a->scaleX == b->scaleX && a->scaleY == b->scaleY && a->aspect == b->aspect && a->reach == b->reach
+            && a->bezel == b->bezel && a->zonesAcross == b->zonesAcross;
 }
 
 int glowHoleFor(float picW, float picH, float radius, float fadeFrac, float glowSpanU, float glowH, float proud,

@@ -610,11 +610,12 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     }
     // Local +z is toward the viewer, so this sits just proud of the picture.
     // The layer order is what keeps it under the picture, not the depth.
-    Vec3 proudLocal = { 0.0f, 0.0f, GLOW_PROUD_M };
-    float scale = ctx->glowDrawnScale > 0.0f ? ctx->glowDrawnScale : GLOW_SCALE;
+    float scaleX, scaleY, proud;
+    xrGlowDrawnSize(ctx, &scaleX, &scaleY, &proud);
+    Vec3 proudLocal = { 0.0f, 0.0f, proud };
     quadLayerRect(&layers->glow, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->glowSwapchain, 0,
                   0, GLOW_TEX, GLOW_TEX, view->space, poseOffset(view->screenPose, proudLocal),
-                  view->screenWidth * scale, view->screenHeight * scale);
+                  view->screenWidth * scaleX, view->screenHeight * scaleY);
     pushLayer(ctx, layers, &layers->glow);
 }
 

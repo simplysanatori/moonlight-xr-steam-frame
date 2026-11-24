@@ -99,6 +99,9 @@ typedef enum MlxrPassId {
     MLXR_PASS_AMBI,         // AMBI_FRAGMENT_SRC ("frame colour sample")
     MLXR_PASS_GLOW_EDGE,    // GLOW_EDGE_FRAGMENT_SRC
     MLXR_PASS_GLOW,         // GLOW_FRAGMENT_SRC
+    MLXR_PASS_GLOW_ZONES,   // new (issue #7): the Backlight's zone colours
+    MLXR_PASS_GLOW_SPREAD,  // new (issue #7): those spread round the edge
+    MLXR_PASS_BACKLIGHT,    // new (issue #7): the Backlight's glow image
     MLXR_PASS_ROOM,         // ROOM_VERTEX_SRC + ROOM_FRAGMENT_SRC
     MLXR_PASS_MODEL,        // MODEL_VERTEX_SRC + MODEL_FRAGMENT_SRC
     MLXR_PASS_SUPERSAMPLE,  // new: app side supersampling (no FB layer settings on the Frame)
@@ -268,6 +271,29 @@ typedef struct MlxrGlowParams {
     float scale;
 } MlxrGlowParams;
 void mlxr_pass_glow(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrGlowParams* g);
+
+// Native (issue #7): the Glow edge's Backlight, in three passes after FramePlayerX's glow (the shaders
+// carry its notice). The zones: one colour for each of 64 strips round the picture's edge, linear, into
+// a 64 x 1 MLXR_GLOW_LIGHT_FORMAT image, mixed into what it holds by `a.blend` as the colour sample is.
+// zonesAcross of them along the top and as many along the bottom, the rest down the sides (glowZonesAcross).
+#define MLXR_GLOW_LIGHT_FORMAT VK_FORMAT_R16G16B16A16_SFLOAT
+#define MLXR_GLOW_ZONES 64
+#define MLXR_GLOW_SPREAD_W (MLXR_GLOW_ZONES + 2)
+#define MLXR_GLOW_SPREAD_H 3
+void mlxr_pass_glow_zones(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrAmbiParams* a,
+                          int zonesAcross);
+// The zones spread over their neighbours, three ways, into a MLXR_GLOW_SPREAD_W x _H MLXR_GLOW_LIGHT_FORMAT image
+void mlxr_pass_glow_spread(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, VkImageView zones);
+typedef struct MlxrBacklightParams {
+    VkImageView spread;
+    float scaleX, scaleY;  // the glow image's size in screen widths and heights
+    float aspect;          // the screen's height over its width
+    int zonesAcross;
+    float reach, bezel;    // in screen widths: how far the light goes, and the black border inside it (0 none)
+    float level;           // its brightness beside the screen, a share of the picture's edge
+    int projected;         // 1 where the panel pass shows it (curved, flat 3D), 2 there over a black void, 0 a quad layer
+} MlxrBacklightParams;
+void mlxr_pass_backlight(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrBacklightParams* b);
 
 // ROOM_*_SRC: both eyes into one image (target.rect the whole of it), each
 // part from its own atlas or its vertex colours, cleared to clearColor and

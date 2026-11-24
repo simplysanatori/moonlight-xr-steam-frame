@@ -174,6 +174,8 @@ typedef struct Settings {
     int glow_level;        // percent, five percent steps
     int glow_feather;      // native: Picture tab Glow edge, 0 off, 1 soft, 2 wide (GLOW_FEATHER_)
     int glow_behind;       // native (issue #7): the Glow edge row past those (GLOW_BEHIND_), with glow_feather off
+    int glow_spread;       // native (issue #7): Backlight's reach, percent of its most (GLOW_SPREAD_)
+    int glow_bezel;        // native (issue #7): and its black border, percent of the picture's longer side (GLOW_BEZEL_)
     int foveated;          // native (1.3.4): Foveated rendering, FOVEATED_AUTO (never chosen), ON or OFF
     int screen_light;      // room light
     int cog_tab;           // native: the cog's tab as it was last left (COG_TAB_*), where it opens next time

@@ -1985,6 +1985,11 @@ static void test_surroundings(void) {
         free(t);
     }
     settings_defaults(&s);
+    CHECK(s.glow_spread == GLOW_SPREAD_DEFAULT && s.glow_bezel == GLOW_BEZEL_DEFAULT && s.glow_bezel == 0);
+    settings_from_text(&s, "[display]\nglow_behind = backlight\nglow_spread = 400\nglow_bezel = 2\n", NULL);
+    CHECK(settings_glow_edge(&s) == GLOW_EDGE_BACKLIGHT && s.glow_spread == GLOW_SPREAD_MAX && s.glow_bezel == 2);
+    settings_reset_picture(&s);
+    CHECK(s.glow_spread == GLOW_SPREAD_DEFAULT && s.glow_bezel == GLOW_BEZEL_DEFAULT);
     settings_from_text(&s, "[display]\nglow_behind = sharp\n", NULL);
     CHECK(settings_glow_edge(&s) == GLOW_EDGE_SHARP);
     settings_from_text(&s, "[display]\nglow_feather = soft\n", NULL);

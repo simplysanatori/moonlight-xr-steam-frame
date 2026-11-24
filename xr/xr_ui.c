@@ -1952,6 +1952,8 @@ void pictureReset(XrCtx* ctx) {
     // Native (lane wave3-visual): and the tab's two rows under the grade
     ctx->bgDim = BG_DIM_DEFAULT;
     ctx->glowFeather = GLOW_FEATHER_OFF;
+    ctx->glowSpread = GLOW_SPREAD_DEFAULT;   // native (issue #7): and Backlight's two
+    ctx->glowBezel = GLOW_BEZEL_DEFAULT;
     LOGEV("picture reset from the panel, grade %s", ctx->gradeOn ? "on" : "off");
 }
 

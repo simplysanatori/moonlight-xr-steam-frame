@@ -356,6 +356,8 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->ambilightOn = s->glow;
     ctx->ambiIntensity = (float)s->glow_level / 100.0f;
     ctx->glowFeather = settings_glow_edge(s);
+    ctx->glowSpread = s->glow_spread;   // native (issue #7)
+    ctx->glowBezel = s->glow_bezel;
     ctx->foveated = s->foveated;   // native (1.3.4): the row's value; the layer was set at the start
     if (!ctx->foveatedStartKnown) {
         ctx->foveatedStartOn = s->foveated == FOVEATED_AUTO ? FOVEATED_AUTO_IS_ON : s->foveated == FOVEATED_ON;
@@ -479,6 +481,8 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->glow = ctx->ambilightOn;
     s->glow_level = iround(ctx->ambiIntensity * 100.0f);
     settings_set_glow_edge(s, ctx->glowFeather);
+    s->glow_spread = ctx->glowSpread;   // native (issue #7)
+    s->glow_bezel = ctx->glowBezel;
     s->foveated = ctx->foveated;
     xrZoomToSettings(ctx, s);
     s->bg_dim = ctx->bgDim;

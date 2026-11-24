@@ -1063,8 +1063,11 @@ sys.exit(0 if full>900 and 0.15*full<part<0.5*full and e==f and h<g else 1)" "$a
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-glow-sharp.png@3000" "$L" >"$t/ui6g.out" 2>&1
     grep -q '^glow_feather = off$' "$ini" && grep -q '^glow_behind = sharp$' "$ini" && ok "glow edge row steps Wide to Sharp and writes glow_behind with glow_feather off" || { fail "glow_behind not written"; cat "$ini"; }
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=glowFeatherRow \
-        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-glow-off.png@3000" "$L" >"$t/ui6h.out" 2>&1
-    grep -q '^glow_feather = off$' "$ini" && grep -q '^glow_behind = off$' "$ini" && ok "glow edge row steps Sharp back to Off" || { fail "glow_behind not cleared"; cat "$ini"; }
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-glow-backlight.png@3000" "$L" >"$t/ui6h.out" 2>&1
+    grep -q '^glow_feather = off$' "$ini" && grep -q '^glow_behind = backlight$' "$ini" && ok "glow edge row steps Sharp to Backlight" || { fail "glow_behind not backlight"; cat "$ini"; }
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=glowFeatherRow \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-glow-off.png@3000" "$L" >"$t/ui6i.out" 2>&1
+    grep -q '^glow_feather = off$' "$ini" && grep -q '^glow_behind = off$' "$ini" && ok "glow edge row steps Backlight back to Off" || { fail "glow_behind not cleared"; cat "$ini"; }
     # lane wave6-i18n: the Headset language row shows the languages; picking one writes [ui] language,
     # which the VR client reads (at its next start); the rest of the file is kept
     cp "$ini" "$t/ini.lang-before"

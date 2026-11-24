@@ -562,7 +562,19 @@ typedef struct XrCtx {
     // image's size against the screen it was drawn for (GLOW_SCALE or
     // GLOW_SCALE_WIDE), which every place that shows it uses; and the border
     // fade the newest picture was drawn with (its layer then blends).
-    int glowFeather;   // native (issue #7): a GLOW_EDGE_, glow_feather's three and Sharp
+    int glowFeather;   // native (issue #7): a GLOW_EDGE_, glow_feather's three, Sharp and Backlight
+    // Native (issue #7): Backlight. Its rows; its zone colours (64 x 1) and those spread (linear, half
+    // floats); when they last took the picture's, when the picture last changed, and how far they still
+    // are from it (1 a whole new picture, under BACKLIGHT_SETTLED done); what the glow image was drawn as
+    int glowSpread, glowBezel;
+    XrVkImage glowZonesTexture, glowSpreadTexture;
+    int glowZonesSeeded;
+    int64_t glowEasedNs, glowPictureNs;
+    float glowUnsettled;
+    int glowZonesZoom[3];
+    BacklightShape glowDrawnShape;
+    int glowDrawnProjected;
+    float glowDrawnScaleY;   // 0: glowDrawnScale (a glow as many times the screen's height as its width)
     int glowDrawnFeather;
     float glowDrawnScale;
     int pictureBorderDrawn;
@@ -1626,6 +1638,14 @@ int initAmbilight(XrCtx* ctx);
 void ambiEffective(XrCtx* ctx, int* on, float* level);
 // Native (lane borderless): the glow's size for a Glow edge mode, and the picture's border fade now
 float xrGlowScaleFor(XrCtx* ctx, int feather);
+// Native (issue #7): the size the glow image was drawn for in screen widths and heights, and how far it sits
+// proud of the picture (level with it for Backlight, so the bezel lines up)
+void xrGlowDrawnSize(const XrCtx* ctx, float* scaleX, float* scaleY, float* proud);
+// The Backlight: whether it is what the glow shows, the zone colours' turn on a new picture, and drawing it
+int xrBacklightOn(XrCtx* ctx);
+void xrBacklightVideoFrame(XrCtx* ctx, const struct MlxrVideo* video);
+// 1 while its colours still move on a picture that stands still, with a redraw due
+int xrBacklightSettling(XrCtx* ctx);
 // Native (issue #5): 0 with MLXR_GLOW_WIDE=0, which holds the Wide Glow edge's glow to GLOW_SCALE
 int xrGlowWideAllowed(void);
 int xrPictureBorderFade(XrCtx* ctx);

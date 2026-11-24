@@ -81,6 +81,10 @@ int glowCylinderFor(float screenWidth, float screenHeight, float screenRadius,
 int glowCylinderForScale(float screenWidth, float screenHeight, float screenRadius, float scale,
                          GlowCylinder* out);
 
+// Native (issue #7): its width and height apart, and how far inside the picture's radius it goes
+int glowCylinderForScales(float screenWidth, float screenHeight, float screenRadius, float scaleX, float scaleY,
+                          float proud, GlowCylinder* out);
+
 // Native (lane gpu-144): the hole the glow drawn into the picture's layer can leave out, since
 // the picture's opaque middle covers it: half extents about the glow surface's middle in its own
 // uv (0..1 across the drawn surface), *holeU and *holeV. The middle is inside the picture's border
@@ -110,6 +114,35 @@ float glowLit(const float rgb[3]);
 // looks past itself
 float glowReachTexels(void);
 int glowInwardSteps(void);
+
+// Native (issue #7): the Glow edge's Backlight, after FramePlayerX's glow
+// (https://github.com/remotesojourner/frameplayerx, crates/fp-render/src/glow.rs, Copyright 2026 remotesojourner,
+// Apache-2.0, a modified version of FramePlayer by yellkell): its 64 zones, its ease and its most spread. Changed: how
+// many zones go across follows the picture's shape (20 for 16:9 as there), and the rest of the shape is this client's.
+#define GLOW_ZONES 64
+// The colours move about two thirds of the way to the new ones in this long
+#define BACKLIGHT_EASE_SECS 0.15f
+// The colours are taken no more often than this
+#define BACKLIGHT_EVERY_NS 13000000LL
+// At full Glow spread the light fades out over this share of the screen's longer side
+#define BACKLIGHT_MAX_REACH 0.55f
+// In a room it reaches no further than the glow always has there (GLOW_SCALE), past the shorter side
+#define BACKLIGHT_ROOM_REACH (0.5f * (GLOW_SCALE - 1.0f))
+
+typedef struct {
+    float scaleX, scaleY;  // the glow's size in screen widths and heights
+    float aspect;          // the screen's height over its width
+    float reach, bezel;    // in screen widths
+    int zonesAcross;
+} BacklightShape;
+// The shape for a picture picW x picH (any units), Glow spread and Bezel in their percent (GLOW_SPREAD_,
+// GLOW_BEZEL_), and whether a room is up
+void backlightShapeFor(float picW, float picH, int spread, int bezel, int inRoom, BacklightShape* out);
+int backlightShapeSame(const BacklightShape* a, const BacklightShape* b);
+// Zones along the top (and as many along the bottom) of a picture picW x picH, 4 to 28
+int glowZonesAcross(float picW, float picH);
+// The share of the new colours a draw dt seconds after the last one takes
+float backlightEase(float dt);
 
 // The weight a colour k texels along the ring carries, 1 at the texel itself
 // and 0 at reach texels away or further

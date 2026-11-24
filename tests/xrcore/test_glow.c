@@ -6,6 +6,7 @@
 #include "check.h"
 #include "xr_glow.h"
 #include "xr_math.h"
+#include "xr_shared.h"
 
 #define N AMBI_SAMPLE_TEX
 
@@ -643,7 +644,58 @@ static void testGlowHoleStaysUnderThePicture(void) {
     CHECK(!glowHoleFor(2.0f, 1.0f, 0.0f, 0.04f, 3.4f, 1.7f, GLOW_PROUD_M, (const float(*)[3])graze, 1, &hu, &hv));
 }
 
+// Native (issue #7): Backlight's shape, its zones and its ease
+static void testBacklightShape(void) {
+    BacklightShape s, t;
+    // 16:9 at the default: FramePlayerX's 20 zones across, half of its most spread, no bezel
+    backlightShapeFor(1920.0f, 1080.0f, GLOW_SPREAD_DEFAULT, 0, 0, &s);
+    CHECK(s.zonesAcross == 20);
+    CHECK_NEAR(s.reach, 0.275, 1e-6);
+    CHECK_NEAR(s.scaleX, 1.55, 1e-5);
+    CHECK_NEAR(s.scaleY, 1.0 + 2.0 * 0.275 * 16.0 / 9.0, 1e-5);
+    CHECK(s.bezel == 0.0f);
+    // The rows' ends are held, and the light is the screen's, not the stream's, size
+    backlightShapeFor(3840.0f, 2160.0f, 400, 9, 0, &t);
+    CHECK_NEAR(t.reach, BACKLIGHT_MAX_REACH, 1e-6);
+    CHECK_NEAR(t.bezel, 0.03, 1e-6);
+    CHECK_NEAR(t.scaleX, 1.0 + 2.0 * (0.55 + 0.03), 1e-5);
+    backlightShapeFor(16.0f, 9.0f, -5, -5, 0, &t);
+    CHECK_NEAR(t.reach, 0.055, 1e-6);
+    CHECK(t.bezel == 0.0f);
+    // A tall picture: of its longer side
+    backlightShapeFor(1080.0f, 1920.0f, 100, 0, 0, &t);
+    CHECK_NEAR(t.reach, 0.55 * 16.0 / 9.0, 1e-5);
+    CHECK(t.zonesAcross == 11);
+    // In a room no further than the glow there always went, past the shorter side
+    backlightShapeFor(1920.0f, 1080.0f, 100, 0, 1, &t);
+    CHECK_NEAR(t.reach, 0.35 * 9.0 / 16.0, 1e-5);
+    CHECK_NEAR(t.scaleY, GLOW_SCALE, 1e-5);
+    CHECK(t.scaleX <= GLOW_SCALE);
+    // Same and not
+    backlightShapeFor(1920.0f, 1080.0f, GLOW_SPREAD_DEFAULT, 0, 0, &t);
+    CHECK(backlightShapeSame(&s, &t));
+    backlightShapeFor(1920.0f, 1080.0f, GLOW_SPREAD_DEFAULT, 1, 0, &t);
+    CHECK(!backlightShapeSame(&s, &t));
+    // The zones: more across a wide picture, never none along a side
+    CHECK(glowZonesAcross(3440.0f, 1440.0f) == 22 || glowZonesAcross(3440.0f, 1440.0f) == 23);
+    CHECK(glowZonesAcross(5120.0f, 1440.0f) == 25);
+    CHECK(glowZonesAcross(100.0f, 1.0f) == 28 && glowZonesAcross(1.0f, 100.0f) == 4 && glowZonesAcross(0.0f, 9.0f) == 20);
+    // The ease is the same over a time however it is cut
+    CHECK(backlightEase(0.0f) == 0.0f && backlightEase(-1.0f) == 0.0f);
+    float left = 1.0f;
+    for (int i = 0; i < 15; i++) left *= 1.0f - backlightEase(0.01f);
+    CHECK_NEAR(1.0f - left, backlightEase(0.15f), 1e-5);
+    CHECK_NEAR(backlightEase(0.15f), 0.6321, 1e-4);
+    // Its cylinder: level with the picture, the width and the height each by its own scale
+    GlowCylinder g;
+    CHECK(glowCylinderForScales(3.0f, 3.0f * 9.0f / 16.0f, 3.0f, s.scaleX, s.scaleY, 0.0f, &g));
+    CHECK_NEAR(g.radius, 3.0, 1e-6);
+    CHECK_NEAR(g.centralAngle, 1.55, 1e-5);
+    CHECK_NEAR(g.radius * g.centralAngle / g.aspectRatio, s.scaleY * 3.0f * 9.0f / 16.0f, 1e-4);
+}
+
 int main(void) {
+    testBacklightShape();
     testSteadyLuma();
     testBlackStaysDark();
     testKneeIsSmooth();

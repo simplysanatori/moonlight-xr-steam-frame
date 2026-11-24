@@ -805,6 +805,8 @@ void xrWorldDestroy(XrCtx* ctx) {
     xrVkImageFree(ctx, &ctx->ambiTexture);
     xrVkImageFree(ctx, &ctx->ambiDetectTexture);
     xrVkImageFree(ctx, &ctx->glowEdgeTexture);
+    xrVkImageFree(ctx, &ctx->glowZonesTexture);
+    xrVkImageFree(ctx, &ctx->glowSpreadTexture);
     xrVkImageFree(ctx, &ctx->glowTexture);
     if (ctx->ambiDetectBuffer) vkDestroyBuffer(ctx->vk->device, ctx->ambiDetectBuffer, NULL);
     if (ctx->ambiDetectMemory) vkFreeMemory(ctx->vk->device, ctx->ambiDetectMemory, NULL);
@@ -833,16 +835,25 @@ void xrWorldVideoFrame(XrCtx* ctx, const MlxrVideo* video) {
     // The room is lit from the same colours the glow is made of, so the
     // sample is taken for either of them
     int sampled = glowOn || roomOn;
+    // Native (issue #7): Backlight has colours of its own, and needs no sample
+    int backlight = xrBacklightOn(ctx);
+    int sample = roomOn || (glowOn && !backlight);
     xrGpuTimeBegin(ctx, GPU_GLOW);
-    if (!sampled) {
+    if (!sample) {
         // Kept from whatever picture was up when it last ran, so the next
         // sample lands whole rather than easing in from that one
         ctx->ambiSeeded = 0;
     }
-    if (sampled) {
+    if (!backlight) {
+        ctx->glowZonesSeeded = 0;
+    }
+    if (sample) {
         runFrameColorSample(ctx, video);
     }
-    if (glowOn) {
+    if (backlight) {
+        xrBacklightVideoFrame(ctx, video);
+    }
+    else if (glowOn) {
         runGlowRender(ctx);
     }
     else {
@@ -868,14 +879,17 @@ void xrWorldStillFrame(XrCtx* ctx, const MlxrVideo* video) {
         return;
     }
     // The glow's level or switch moved with nothing new from the decoder
+    // (native, issue #7: or the Backlight's colours are still easing, which the log need not hear of)
+    int easing = xrBacklightSettling(ctx);
     xrGpuTimeBegin(ctx, GPU_GLOW);
     redrawGlow(ctx, video);
     xrGpuTimeEnd(ctx, GPU_GLOW);
-    LOGI("glow redrawn on a still picture at %.2f", ctx->glowDrawnLevel);
+    if (!easing) LOGI("glow redrawn on a still picture at %.2f", ctx->glowDrawnLevel);
 }
 
 void xrWorldVideoGone(XrCtx* ctx) {
     ctx->ambiSeeded = 0;
+    ctx->glowZonesSeeded = 0;   // native (issue #7)
     ctx->glowRendered = 0;
     ctx->glowDrawnOn = 0;
     ctx->ambiDetectPending = 0;
@@ -981,9 +995,10 @@ void xrWorldCurvedGlow(XrCtx* ctx, const XrEyeTargets* target, const XrView* vie
     float fit = cylinderFit(ctx->screenWidth, ctx->screenRadius);
     GlowCylinder shape;
     // Native (lane borderless): at the size the glow image was drawn for
-    float scale = ctx->glowDrawnScale > 0.0f ? ctx->glowDrawnScale : GLOW_SCALE;
-    if (!glowCylinderForScale(ctx->screenWidth * fit, ctx->screenWidth * aspect * fit, ctx->screenRadius, scale,
-                              &shape)) {
+    float scaleX, scaleY, proud;
+    xrGlowDrawnSize(ctx, &scaleX, &scaleY, &proud);
+    if (!glowCylinderForScales(ctx->screenWidth * fit, ctx->screenWidth * aspect * fit, ctx->screenRadius, scaleX,
+                               scaleY, proud, &shape)) {
         return;
     }
     MlxrPanelParams pp;
@@ -1021,9 +1036,10 @@ void xrWorldFlatGlowInto(XrCtx* ctx, const XrEyeTargets* target, const XrView* v
     memset(&pp, 0, sizeof(pp));
     pp.src = ctx->glowTexture.view;
     // The glow quad's size and place (addGlowLayer), flat
-    float scale = ctx->glowDrawnScale > 0.0f ? ctx->glowDrawnScale : GLOW_SCALE; // native (lane borderless)
-    pp.width = ctx->screenWidth * scale;
-    pp.height = ctx->screenWidth * aspect * scale;
+    float scaleX, scaleY, proud;
+    xrGlowDrawnSize(ctx, &scaleX, &scaleY, &proud); // native (lane borderless)
+    pp.width = ctx->screenWidth * scaleX;
+    pp.height = ctx->screenWidth * aspect * scaleY;
     pp.radius = 0.0f;
     pp.segments = 1;
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;

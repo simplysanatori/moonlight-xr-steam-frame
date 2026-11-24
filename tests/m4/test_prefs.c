@@ -170,14 +170,15 @@ static void surroundingsRows(void) {
     cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND, -1, out);
     CHECK(c->bgDim == 30);
 
-    // Glow edge: a place each, off, soft, wide and (issue #7) sharp, which the file has in glow_behind
+    // Glow edge: a place each, off, soft, wide and (issue #7) sharp and backlight, which the file has in glow_behind
     for (int mode = 0; mode < GLOW_EDGE_COUNT; mode++) {
         cogApplySlider(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE, cogRunU((float)mode / (GLOW_EDGE_COUNT - 1)));
         CHECK(c->glowFeather == mode);
         CHECK_NEAR(cogSliderValue(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE), (double)mode / (GLOW_EDGE_COUNT - 1), 1e-5);
         CHECK(xrStoreSetting(c, &s, SETTING_GLOW_FEATHER, mode) == (mode != 0) && settings_glow_edge(&s) == mode);
         CHECK(s.glow_feather == (mode < GLOW_FEATHER_COUNT ? mode : GLOW_FEATHER_OFF));
-        CHECK(s.glow_behind == (mode == GLOW_EDGE_SHARP ? GLOW_BEHIND_SHARP : GLOW_BEHIND_OFF));
+        CHECK(s.glow_behind == (mode == GLOW_EDGE_SHARP ? GLOW_BEHIND_SHARP : mode == GLOW_EDGE_BACKLIGHT ? GLOW_BEHIND_BACKLIGHT
+                                : GLOW_BEHIND_OFF));
         // Only Soft and Wide fade the picture's border
         c->ambilightOn = 1;
         c->ambiIntensity = 0.5f;

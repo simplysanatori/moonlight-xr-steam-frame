@@ -42,6 +42,19 @@ static const uint32_t kGlowEdge[] =
 static const uint32_t kGlow[] =
 #include "glow.frag.inc"
     ;
+// Native (issue #7): the Backlight
+static const uint32_t kGlowZones[] =
+#include "glow_zones.frag.inc"
+    ;
+static const uint32_t kGlowZonesNv12[] =
+#include "glow_zones.nv12.frag.inc"
+    ;
+static const uint32_t kGlowSpread[] =
+#include "glow_spread.frag.inc"
+    ;
+static const uint32_t kBacklight[] =
+#include "backlight.frag.inc"
+    ;
 static const uint32_t kRoomVert[] =
 #include "room.vert.inc"
     ;
@@ -79,7 +92,8 @@ static const uint32_t kModelTexFrag[] =
 
 enum { MOD_VERTEX, MOD_WARP, MOD_WARP_NV12, MOD_UPSAMPLE, MOD_UPSAMPLE_NV12, MOD_DOWNSCALE, MOD_DOWNSCALE_NV12,
        MOD_AMBI, MOD_AMBI_NV12, MOD_OFFSET, MOD_GLOW_EDGE, MOD_GLOW, MOD_ROOM_V, MOD_ROOM_F, MOD_MODEL_V,
-       MOD_MODEL_F, MOD_SUPERSAMPLE, MOD_PANEL_V, MOD_PANEL_F, MOD_MODEL_TEX_V, MOD_MODEL_TEX_F, MOD_COUNT };
+       MOD_MODEL_F, MOD_SUPERSAMPLE, MOD_PANEL_V, MOD_PANEL_F, MOD_MODEL_TEX_V, MOD_MODEL_TEX_F,
+       MOD_GLOW_ZONES, MOD_GLOW_ZONES_NV12, MOD_GLOW_SPREAD, MOD_BACKLIGHT, MOD_COUNT };
 
 enum { PL_VIDEO, PL_VIDEO_NV12, PL_TEX, PL_ROOM, PL_NONE, PL_MODEL_TEX, PL_COUNT };
 enum { BLEND_NONE, BLEND_CONSTANT, BLEND_PREMUL };
@@ -133,6 +147,9 @@ static const PassDesc kPasses[MLXR_PASS_COUNT] = {
     [MLXR_PASS_AMBI] = {MOD_VERTEX, MOD_AMBI, MOD_AMBI_NV12, PL_VIDEO, BLEND_CONSTANT, 0, VERTS_NONE},
     [MLXR_PASS_GLOW_EDGE] = {MOD_VERTEX, MOD_GLOW_EDGE, -1, PL_TEX, BLEND_NONE, 0, VERTS_NONE},
     [MLXR_PASS_GLOW] = {MOD_VERTEX, MOD_GLOW, -1, PL_TEX, BLEND_NONE, 0, VERTS_NONE},
+    [MLXR_PASS_GLOW_ZONES] = {MOD_VERTEX, MOD_GLOW_ZONES, MOD_GLOW_ZONES_NV12, PL_VIDEO, BLEND_CONSTANT, 0, VERTS_NONE},
+    [MLXR_PASS_GLOW_SPREAD] = {MOD_VERTEX, MOD_GLOW_SPREAD, -1, PL_TEX, BLEND_NONE, 0, VERTS_NONE},
+    [MLXR_PASS_BACKLIGHT] = {MOD_VERTEX, MOD_BACKLIGHT, -1, PL_TEX, BLEND_NONE, 0, VERTS_NONE},
     [MLXR_PASS_ROOM] = {MOD_ROOM_V, MOD_ROOM_F, -1, PL_ROOM, BLEND_NONE, 1, VERTS_ROOM},
     [MLXR_PASS_MODEL] = {MOD_MODEL_V, MOD_MODEL_F, -1, PL_NONE, BLEND_NONE, 1, VERTS_MODEL},
     [MLXR_PASS_SUPERSAMPLE] = {MOD_VERTEX, MOD_SUPERSAMPLE, -1, PL_TEX, BLEND_NONE, 0, VERTS_NONE},
@@ -272,6 +289,10 @@ int mlxr_passes_create(const MlxrPassesInfo* info, MlxrPasses** out) {
         [MOD_OFFSET] = M(kOffset),
         [MOD_GLOW_EDGE] = M(kGlowEdge),
         [MOD_GLOW] = M(kGlow),
+        [MOD_GLOW_ZONES] = M(kGlowZones),
+        [MOD_GLOW_ZONES_NV12] = M(kGlowZonesNv12),
+        [MOD_GLOW_SPREAD] = M(kGlowSpread),
+        [MOD_BACKLIGHT] = M(kBacklight),
         [MOD_ROOM_V] = M(kRoomVert),
         [MOD_ROOM_F] = M(kRoomFrag),
         [MOD_MODEL_V] = M(kModelVert),
@@ -285,7 +306,7 @@ int mlxr_passes_create(const MlxrPassesInfo* info, MlxrPasses** out) {
     };
     for (int i = 0; i < MOD_COUNT; i++) {
         if (!info->nv12 && (i == MOD_WARP_NV12 || i == MOD_UPSAMPLE_NV12 || i == MOD_DOWNSCALE_NV12 ||
-                            i == MOD_AMBI_NV12))
+                            i == MOD_AMBI_NV12 || i == MOD_GLOW_ZONES_NV12))
             continue;
         p->mod[i] = makeModule(dev, mods[i].code, mods[i].bytes);
         if (!p->mod[i]) goto fail;
@@ -825,6 +846,52 @@ void mlxr_pass_ambi(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, con
     float bc[4] = {a->blend, a->blend, a->blend, a->blend};
     vkCmdSetBlendConstants(cmd, bc);
     pushVideoSet(p, cmd, layout, &a->video, VK_NULL_HANDLE, VK_NULL_HANDLE, 0);
+    vkCmdPushConstants(cmd, layout, PUSH_STAGES, 0, sizeof(pc), pc);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    p->endRendering(cmd);
+}
+
+void mlxr_pass_glow_zones(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrAmbiParams* a,
+                          int zonesAcross) {
+    VkPipeline pipe = pipeline(p, MLXR_PASS_GLOW_ZONES, a->video.kind, t->format, VK_FORMAT_UNDEFINED);
+    if (!pipe) return;
+    VkPipelineLayout layout = videoLayout(p, &a->video);
+    float pc[20];
+    videoHeader(&a->video, pc);
+    memcpy(&pc[8], a->crop, sizeof(a->crop));
+    memcpy(&pc[12], a->grade, sizeof(a->grade));
+    pc[16] = a->gradeOn ? 1.0f : 0.0f;
+    pc[17] = (float)zonesAcross;
+    pc[18] = pc[19] = 0.0f;
+    beginRender(p, cmd, t, a->blend >= 1.0f, VK_NULL_HANDLE, t->clear);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+    float bc[4] = {a->blend, a->blend, a->blend, a->blend};
+    vkCmdSetBlendConstants(cmd, bc);
+    pushVideoSet(p, cmd, layout, &a->video, VK_NULL_HANDLE, VK_NULL_HANDLE, 0);
+    vkCmdPushConstants(cmd, layout, PUSH_STAGES, 0, sizeof(pc), pc);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    p->endRendering(cmd);
+}
+
+void mlxr_pass_glow_spread(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, VkImageView zones) {
+    VkPipeline pipe = pipeline(p, MLXR_PASS_GLOW_SPREAD, 0, t->format, VK_FORMAT_UNDEFINED);
+    if (!pipe) return;
+    beginRender(p, cmd, t, 1, VK_NULL_HANDLE, t->clear);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+    pushTex(p, cmd, p->layout[PL_TEX], zones);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    p->endRendering(cmd);
+}
+
+void mlxr_pass_backlight(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrBacklightParams* b) {
+    VkPipeline pipe = pipeline(p, MLXR_PASS_BACKLIGHT, 0, t->format, VK_FORMAT_UNDEFINED);
+    if (!pipe) return;
+    VkPipelineLayout layout = p->layout[PL_TEX];
+    float pc[8] = {b->scaleX, b->scaleY, b->aspect, (float)b->zonesAcross,
+                   b->reach, b->bezel, b->level, (float)b->projected};
+    beginRender(p, cmd, t, 1, VK_NULL_HANDLE, t->clear);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+    pushTex(p, cmd, layout, b->spread);
     vkCmdPushConstants(cmd, layout, PUSH_STAGES, 0, sizeof(pc), pc);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     p->endRendering(cmd);

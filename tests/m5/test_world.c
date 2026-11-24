@@ -522,6 +522,12 @@ static void twoColour(float u, float v, float out[3]) {
     out[2] = bar ? 0.0f : (u < 0.5f ? 0.10f : 0.85f);
 }
 
+static void dark(float u, float v, float out[3]) {
+    (void)u;
+    (void)v;
+    out[0] = out[1] = out[2] = 0.01f;
+}
+
 static void glowGroup(void) {
     XrCtx* c = newCtx();
     m5_frame(&g, c, NULL, NULL);
@@ -568,6 +574,61 @@ static void glowGroup(void) {
     m5_readback(&g, c->glowTexture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, GLOW_TEX, GLOW_TEX, brighter);
     const uint8_t* l2 = brighter + ((size_t)(GLOW_TEX / 2) * GLOW_TEX + GLOW_TEX / 10) * 4;
     CHECK(l2[3] > l[3]);
+
+    // Native (issue #7): the Backlight on the same letterboxed picture, from its own colours and shape
+    c->ambiIntensity = 0.5f;
+    c->glowFeather = GLOW_EDGE_BACKLIGHT;
+    c->glowSpread = GLOW_SPREAD_DEFAULT;
+    CHECK(glowStale(c));
+    m5_frame(&g, c, glowBody, NULL);
+    CHECK(c->glowZonesSeeded && !c->ambiSeeded && c->glowDrawnFeather == GLOW_EDGE_BACKLIGHT && !glowStale(c));
+    float sx, sy, proud;
+    xrGlowDrawnSize(c, &sx, &sy, &proud);
+    CHECK(sx > 1.5f && sx < 1.6f && sy > sx && proud == 0.0f);
+    m5_readback(&g, c->glowTexture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, GLOW_TEX, GLOW_TEX, glow);
+    // Just outside the screen: 3 % of its width left and right, 3 % of its height above the red and the blue half
+    int bx = (int)((0.5f - 0.53f / sx) * GLOW_TEX), by = (int)((0.5f - 0.53f / sy) * GLOW_TEX);
+    const uint8_t* bl = glow + ((size_t)(GLOW_TEX / 2) * GLOW_TEX + bx) * 4;
+    const uint8_t* br = glow + ((size_t)(GLOW_TEX / 2) * GLOW_TEX + GLOW_TEX - 1 - bx) * 4;
+    const uint8_t* bt = glow + ((size_t)by * GLOW_TEX + GLOW_TEX * 2 / 5) * 4;
+    const uint8_t* bo = glow + ((size_t)by * GLOW_TEX + GLOW_TEX * 3 / 5) * 4;
+    printf("  backlight left %d %d %d, right %d %d %d, above %d %d %d and %d %d %d\n", bl[0], bl[1], bl[2], br[0], br[1],
+           br[2], bt[0], bt[1], bt[2], bo[0], bo[1], bo[2]);
+    CHECK(bl[0] > 100 && bl[0] > 2 * bl[2] && br[2] > 100 && br[2] > 2 * br[0]);
+    CHECK(bt[0] > 100 && bt[0] > 2 * bt[2] && bo[2] > 100 && bo[2] > 2 * bo[0]);
+    // Another picture eases in: the next frame takes part of it, and a picture that then stands still
+    // is taken the rest of the way with no frame from the decoder
+    M5Video other;
+    memset(&other, 0, sizeof(other));
+    m5_video(&g, c, &other, 1920, 1080, dark);
+    M5Video kept = video;
+    video = other;
+    int64_t wait0 = nowNs();
+    while (nowNs() - wait0 < 2 * BACKLIGHT_EVERY_NS) {}
+    m5_frame(&g, c, glowBody, NULL);
+    m5_readback(&g, c->glowTexture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, GLOW_TEX, GLOW_TEX, glow);
+    int part = bl[0], redraws = 0;
+    CHECK(c->glowUnsettled > 0.5f && c->glowUnsettled < 1.0f);
+    CHECK(!xrBacklightSettling(c));   // frames still come, as far as it knows
+    for (int64_t t0 = nowNs(); nowNs() - t0 < 2000000000LL;) {
+        if (!glowStale(c)) continue;
+        redraws++;
+        cmd = m5_begin(&g);
+        c->frameCmd = cmd;
+        xrWorldStillFrame(c, &video.video);
+        c->frameCmd = VK_NULL_HANDLE;
+        m5_submit(&g, cmd, NULL, 0);
+    }
+    m5_readback(&g, c->glowTexture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, GLOW_TEX, GLOW_TEX, glow);
+    printf("  backlight into a dark picture: %d after one frame, %d settled, in %d redraws of the still picture\n", part,
+           bl[0], redraws);
+    CHECK(part > 60 && bl[0] <= 6 && redraws > 3 && redraws < 100 && !glowStale(c));
+    video = kept;
+    m5_video_free(c, &other);
+    // Back to Off: the colour sample starts over
+    c->glowFeather = GLOW_FEATHER_OFF;
+    m5_frame(&g, c, glowBody, NULL);
+    CHECK(c->ambiSeeded && !c->glowZonesSeeded && c->glowDrawnScaleY == 0.0f);
     // The stream goes: nothing sampled from it is kept
     xrWorldVideoGone(c);
     CHECK(!c->ambiSeeded && !c->glowRendered && !xrWorldGlowShown(c));

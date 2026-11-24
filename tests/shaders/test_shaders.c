@@ -344,12 +344,15 @@ static void testDevice(void) {
         {MLXR_PASS_AMBI, UNORM, 0},         {MLXR_PASS_GLOW_EDGE, UNORM, 0}, {MLXR_PASS_GLOW, SRGB, 0},
         {MLXR_PASS_ROOM, SRGB, VK_FORMAT_D32_SFLOAT}, {MLXR_PASS_MODEL, SRGB, VK_FORMAT_D32_SFLOAT},
         {MLXR_PASS_SUPERSAMPLE, SRGB, 0},   {MLXR_PASS_PANEL, SRGB, 0},
+        {MLXR_PASS_GLOW_ZONES, MLXR_GLOW_LIGHT_FORMAT, 0}, {MLXR_PASS_GLOW_SPREAD, MLXR_GLOW_LIGHT_FORMAT, 0},
+        {MLXR_PASS_BACKLIGHT, UNORM, 0},
     };
     for (size_t i = 0; i < sizeof(combos) / sizeof(combos[0]); i++) {
         check(mlxr_passes_warm(P, combos[i].pass, MLXR_VIDEO_YUV420P, combos[i].color, combos[i].depth) == 0,
               "pipeline %d format %d", combos[i].pass, combos[i].color);
         if (nv12Ok && (combos[i].pass == MLXR_PASS_WARP || combos[i].pass == MLXR_PASS_UPSAMPLE ||
-                       combos[i].pass == MLXR_PASS_DOWNSCALE || combos[i].pass == MLXR_PASS_AMBI))
+                       combos[i].pass == MLXR_PASS_DOWNSCALE || combos[i].pass == MLXR_PASS_AMBI ||
+                       combos[i].pass == MLXR_PASS_GLOW_ZONES))
             check(mlxr_passes_warm(P, combos[i].pass, MLXR_VIDEO_NV12, combos[i].color, combos[i].depth) == 0,
                   "nv12 pipeline %d", combos[i].pass);
     }
@@ -2244,6 +2247,218 @@ static void testGlowFeather(void) {
     vkh_image_free(&vk, &tex);
 }
 
+// ---- native (issue #7): the Glow edge's Backlight ----------------------------------------------
+// The whole chain (zone colours, their spread, the glow image) against a CPU copy of its sums, at two
+// shapes, cropped and graded, the image as a quad layer takes it and as the panel pass does, and its ease.
+
+static void fillEdges(float x, float y, float rgb[3]) {
+    rgb[0] = 0.15f + 0.7f * x * (1.0f - y);
+    rgb[1] = 0.75f - 0.6f * x;
+    rgb[2] = 0.1f + 0.8f * y * y;
+}
+
+static float toLinear(float c) {
+    return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
+}
+
+static float toSrgb(float l) {
+    return l <= 0.0031308f ? l * 12.92f : 1.055f * powf(l, 1.0f / 2.4f) - 0.055f;
+}
+
+typedef struct {
+    float row[3][MLXR_GLOW_ZONES][3];
+} BackCpu;
+
+static void backZonesCpu(const Video* vd, const float crop[4], const PictureGrade* g, int across,
+                         float zones[MLXR_GLOW_ZONES][3]) {
+    float a = (float)across, d = 0.5f * MLXR_GLOW_ZONES - a;
+    for (int i = 0; i < MLXR_GLOW_ZONES; i++) {
+        float z = (float)i;
+        for (int c = 0; c < 3; c++) zones[i][c] = 0.0f;
+        for (int j = 0; j < 6; j++)
+            for (int k = 0; k < 4; k++) {
+                float along = (j + 0.5f) / 6.0f, in = 0.01f + 0.03f * k, u, v;
+                if (z < a) u = (z + along) / a, v = in;
+                else if (z < a + d) u = 1.0f - in, v = (z - a + along) / d;
+                else if (z < 2.0f * a + d) u = 1.0f - (z - a - d + along) / a, v = 1.0f - in;
+                else u = in, v = 1.0f - (z - 2.0f * a - d + along) / d;
+                float rgb[3], gr[3];
+                videoCpu(vd, MLXR_CHROMA_LEFT, crop[0] + u * crop[2], crop[1] + v * crop[3], rgb);
+                for (int c = 0; c < 3; c++) rgb[c] = clampf(rgb[c], 0.0f, 1.0f);
+                if (g) pictureGradeApply(g, rgb, gr);
+                else memcpy(gr, rgb, sizeof(gr));
+                for (int c = 0; c < 3; c++) zones[i][c] += toLinear(gr[c]) / 24.0f;
+            }
+    }
+}
+
+static void backSpreadCpu(float zones[MLXR_GLOW_ZONES][3], BackCpu* b) {
+    const float sigma[3] = {1.0f, 2.0f, 6.0f};
+    for (int r = 0; r < 3; r++)
+        for (int i = 0; i < MLXR_GLOW_ZONES; i++) {
+            int reach = (int)ceilf(3.0f * sigma[r]);
+            float total = 0.0f, sum[3] = {0, 0, 0};
+            for (int k = -reach; k <= reach; k++) {
+                float w = expf(-(float)(k * k) / (2.0f * sigma[r] * sigma[r]));
+                total += w;
+                for (int c = 0; c < 3; c++) sum[c] += w * zones[((i + k) % 64 + 64) % 64][c];
+            }
+            for (int c = 0; c < 3; c++) b->row[r][i][c] = sum[c] / total;
+        }
+}
+
+// The linear light beside the screen at p (screen widths from its middle)
+static void backLightCpu(const BackCpu* b, const BacklightShape* s, float level, float px, float py, float out[3],
+                         float* offOut) {
+    float hx = 0.5f, hy = 0.5f * s->aspect, dx = fabsf(px) - hx, dy = fabsf(py) - hy;
+    float ox = fmaxf(dx, 0.0f), oy = fmaxf(dy, 0.0f);
+    float off = sqrtf(ox * ox + oy * oy) + fminf(fmaxf(dx, dy), 0.0f);
+    float a = (float)s->zonesAcross, d = 32.0f - a;
+    float ex = clampf(px / (2 * hx) + 0.5f, 0, 1), ey = clampf(py / (2 * hy) + 0.5f, 0, 1), pos;
+    if (dx > dy) pos = px > 0 ? a + ey * d : 2 * a + d + (1 - ey) * d;
+    else pos = py < 0 ? ex * a : a + d + (1 - ex) * a;
+    float t = clampf((off - s->bezel) / s->reach, 0, 1), lv = 2.0f * t;
+    int l0 = lv >= 1.0f ? 1 : 0;
+    float f = lv - l0, at = pos - 0.5f, fl = floorf(at), fa = at - fl;
+    int i0 = ((int)fl + 64) % 64, i1 = (i0 + 1) % 64;
+    for (int c = 0; c < 3; c++) {
+        float x0 = b->row[l0][i0][c] * (1 - fa) + b->row[l0][i1][c] * fa;
+        float x1 = b->row[l0 + 1][i0][c] * (1 - fa) + b->row[l0 + 1][i1][c] * fa;
+        out[c] = clampf((x0 * (1 - f) + x1 * f) * level * (1 - t * t * (3 - 2 * t)), 0, 1);
+    }
+    *offOut = off;
+}
+
+static void testBacklight(void) {
+    const int N = MLXR_GLOW_TEX;
+    Target zones, spread, glow;
+    targetMake(&zones, MLXR_GLOW_ZONES, 1, MLXR_GLOW_LIGHT_FORMAT);
+    targetMake(&spread, MLXR_GLOW_SPREAD_W, MLXR_GLOW_SPREAD_H, MLXR_GLOW_LIGHT_FORMAT);
+    targetMake(&glow, N, N, UNORM);
+    PictureGrade g;
+    gradeOf(10, 120, 90, 120, &g);
+    const struct {
+        uint32_t w, h;
+        float crop[4];
+        int graded, spread, bezel, projected, nv12;
+        float level;
+    } cases[] = {
+        {320, 180, {0, 0, 1, 1}, 0, 50, 0, 0, 0, 0.5f},          {320, 180, {0, 0, 1, 1}, 0, 50, 0, 2, 0, 0.5f},
+        {320, 180, {0, 0, 1, 1}, 0, 50, 0, 1, 0, 1.0f},          {320, 180, {0.0f, 0.125f, 0.5f, 0.75f}, 1, 100, 2, 2, 0, 1.0f},
+        {512, 144, {0, 0, 1, 1}, 0, 100, 1, 0, 0, 0.8f},         {320, 180, {0, 0, 1, 1}, 0, 50, 0, 0, 1, 0.5f},
+    };
+    for (size_t k = 0; k < sizeof(cases) / sizeof(cases[0]); k++) {
+        Video vd;
+        videoMake(&vd, cases[k].w, cases[k].h, fillEdges);
+        if (cases[k].nv12 && !nv12Ok) {
+            videoFree(&vd);
+            continue;
+        }
+        BacklightShape s;
+        backlightShapeFor((float)vd.w, (float)vd.h, cases[k].spread, cases[k].bezel, 0, &s);
+        MlxrAmbiParams ap = {cases[k].nv12 ? vd.nv : vd.yuv, {0}, cases[k].graded,
+                             {g.offset, g.contrast, g.exponent, g.saturation}, 1.0f};
+        memcpy(ap.crop, cases[k].crop, sizeof(ap.crop));
+        MlxrBacklightParams bp = {spread.img.view, s.scaleX, s.scaleY, s.aspect, s.zonesAcross,
+                                  s.reach, s.bezel, cases[k].level, cases[k].projected};
+        VkCommandBuffer cmd = vkh_begin(&vk);
+        vkh_layout(&vk, &zones.img, COLOR_ATT);
+        mlxr_pass_glow_zones(P, cmd, &zones.t, &ap, s.zonesAcross);
+        vkh_layout(&vk, &zones.img, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        vkh_layout(&vk, &spread.img, COLOR_ATT);
+        mlxr_pass_glow_spread(P, cmd, &spread.t, zones.img.view);
+        vkh_layout(&vk, &spread.img, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        vkh_layout(&vk, &glow.img, COLOR_ATT);
+        mlxr_pass_backlight(P, cmd, &glow.t, &bp);
+        check(vkh_submit(&vk) == 0, "backlight submit");
+        uint8_t* got = readTarget(&glow);
+        static float zc[MLXR_GLOW_ZONES][3];
+        static BackCpu cpu;
+        backZonesCpu(&vd, cases[k].crop, cases[k].graded ? &g : NULL, s.zonesAcross, zc);
+        backSpreadCpu(zc, &cpu);
+        int worst = 0, rim = 0, bezelLit = 0, worstA = 0;
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++) {
+                float px = ((x + 0.5f) / N - 0.5f) * s.scaleX, py = ((y + 0.5f) / N - 0.5f) * s.scaleY * s.aspect;
+                float l[3], off;
+                backLightCpu(&cpu, &s, cases[k].level, px, py, l, &off);
+                const uint8_t* p = got + ((size_t)y * N + x) * 4;
+                if (off > s.bezel + s.reach + 1e-3f && (p[0] | p[1] | p[2] | p[3])) rim++;
+                if (s.bezel > 0.0f && off < s.bezel - 0.02f && (p[0] | p[1] | p[2] || p[3] != 255)) bezelLit++;
+                if (off < s.bezel + 0.04f || off > s.bezel + 0.9f * s.reach) continue;
+                float m = fmaxf(l[0], fmaxf(l[1], l[2]));
+                float al = cases[k].projected == 2 ? 1.0f : toSrgb(m);
+                int da = abs(p[3] - to8(al));
+                if (da > worstA) worstA = da;
+                for (int c = 0; c < 3; c++) {
+                    int want = to8(cases[k].projected ? toSrgb(l[c] / al) * al : toSrgb(l[c]));
+                    if (abs(want - p[c]) > worst) worst = abs(want - p[c]);
+                }
+            }
+        note("backlight %zu (%ux%u, spread %d, bezel %d, projected %d%s): colour %d/255 and alpha %d/255 from the CPU copy",
+             k, vd.w, vd.h, cases[k].spread, cases[k].bezel, cases[k].projected, cases[k].nv12 ? ", NV12" : "", worst, worstA);
+        int tol = cases[k].nv12 ? 8 : 3;
+        check(worst <= tol && worstA <= tol, "backlight %zu within %d/255 (%d, %d)", k, tol, worst, worstA);
+        check(rim == 0, "backlight %zu: nothing past its reach (%d)", k, rim);
+        check(bezelLit == 0, "backlight %zu: the bezel is black and opaque (%d)", k, bezelLit);
+        char name[48];
+        snprintf(name, sizeof(name), "backlight_%zu", k);
+        ppm(name, got, N, N);
+        free(got);
+        videoFree(&vd);
+    }
+    // The ease: a draw at 0.25 leaves the light a quarter of the way from the old picture's to the new one's
+    Video a, b;
+    videoMake(&a, 320, 180, fillEdges);
+    videoMake(&b, 320, 180, fillStep);
+    static float za[MLXR_GLOW_ZONES][3], zb[MLXR_GLOW_ZONES][3];
+    const float whole[4] = {0, 0, 1, 1};
+    BacklightShape s;
+    backlightShapeFor(320.0f, 180.0f, 50, 0, 0, &s);
+    backZonesCpu(&a, whole, NULL, s.zonesAcross, za);
+    backZonesCpu(&b, whole, NULL, s.zonesAcross, zb);
+    for (int i = 0; i < MLXR_GLOW_ZONES; i++)
+        for (int c = 0; c < 3; c++) za[i][c] += 0.25f * (zb[i][c] - za[i][c]);
+    static BackCpu cpu;
+    backSpreadCpu(za, &cpu);
+    MlxrAmbiParams ap = {a.yuv, {0, 0, 1, 1}, 0, {0, 1, 1, 1}, 1.0f};
+    MlxrAmbiParams next = {b.yuv, {0, 0, 1, 1}, 0, {0, 1, 1, 1}, 0.25f};
+    MlxrBacklightParams bp = {spread.img.view, s.scaleX, s.scaleY, s.aspect, s.zonesAcross, s.reach, 0.0f, 1.0f, 2};
+    VkCommandBuffer cmd = vkh_begin(&vk);
+    vkh_layout(&vk, &zones.img, COLOR_ATT);
+    mlxr_pass_glow_zones(P, cmd, &zones.t, &ap, s.zonesAcross);
+    vkh_layout(&vk, &zones.img, COLOR_ATT);
+    mlxr_pass_glow_zones(P, cmd, &zones.t, &next, s.zonesAcross);
+    vkh_layout(&vk, &zones.img, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vkh_layout(&vk, &spread.img, COLOR_ATT);
+    mlxr_pass_glow_spread(P, cmd, &spread.t, zones.img.view);
+    vkh_layout(&vk, &spread.img, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vkh_layout(&vk, &glow.img, COLOR_ATT);
+    mlxr_pass_backlight(P, cmd, &glow.t, &bp);
+    vkh_submit(&vk);
+    uint8_t* got = readTarget(&glow);
+    int worst = 0;
+    for (int y = 0; y < N; y++)
+        for (int x = 0; x < N; x++) {
+            float l[3], off;
+            backLightCpu(&cpu, &s, 1.0f, ((x + 0.5f) / N - 0.5f) * s.scaleX,
+                         ((y + 0.5f) / N - 0.5f) * s.scaleY * s.aspect, l, &off);
+            if (off < 0.04f || off > 0.8f * s.reach) continue;
+            for (int c = 0; c < 3; c++) {
+                int d = abs(to8(toSrgb(l[c])) - got[((size_t)y * N + x) * 4 + c]);
+                if (d > worst) worst = d;
+            }
+        }
+    note("backlight ease: %d/255 from a quarter of the way", worst);
+    check(worst <= 3, "backlight ease within 3/255 (%d)", worst);
+    free(got);
+    videoFree(&a);
+    videoFree(&b);
+    targetFree(&zones);
+    targetFree(&spread);
+    targetFree(&glow);
+}
+
 // Native (lane borderless): the Glow edge's border fade in the warp. Off the
 // picture is opaque to its last pixel as ever; Soft and Wide fade the outer
 // 4 and 8 % of the drawn picture to transparent, premultiplied, and leave the
@@ -3881,6 +4096,7 @@ int main(int argc, char** argv) {
                  {"glow_edge", testGlowEdge},
                  {"glow", testGlow},
                  {"glow_feather", testGlowFeather},
+                 {"backlight", testBacklight},
                  {"room", testRoom},
                  {"room_dim", testRoomDim},
                  {"model", testModel},

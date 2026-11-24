@@ -751,7 +751,8 @@ static uint64_t curveStateKey(XrCtx* ctx, const XrCurve* cv, XrPosef picturePose
     MIX(ctx->drawnEyes); MIX(eyeSwap); MIX(ctx->sharpenMode); MIX(cv->w); MIX(cv->pics);
     MIX(ctx->roomInPicture); MIX(ctx->modelsInPicture); MIX(ctx->passthroughInPicture); MIX(ctx->passthrough);
     MIX(ctx->roomReady); MIX(ctx->roomBuiltStyle); MIX(ctx->bgDim); MIX(ctx->roomLightOn);
-    MIX(ctx->glowDrawnLevel); MIX(ctx->glowDrawnScale); MIX(ctx->glowFeather); MIX(ctx->pictureBorderDrawn);
+    MIX(ctx->glowDrawnLevel); MIX(ctx->glowDrawnScale); MIX(ctx->glowDrawnScaleY); MIX(ctx->glowFeather); MIX(ctx->pictureBorderDrawn);
+    MIX(ctx->glowEasedNs); // native (issue #7): the Backlight, drawn again
     MIX(ctx->zoomPct); MIX(ctx->zoomX); MIX(ctx->zoomY); MIX(ctx->launcher);
     int glow = xrWorldGlowShown(ctx), roomOn = roomEffective(ctx);
     MIX(glow); MIX(roomOn);

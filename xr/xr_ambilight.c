@@ -19,6 +19,7 @@
 //     at the start of the next);
 //   - rows are top first (the decoder's order), so the edge upstream calls
 //     bottom, the readback's row 0, is the picture's top: the log line says so.
+#include "xr_native.h"
 #include "xr_world.h"
 
 // The images the ambilight draws into, and the detector's readback. Set up
@@ -47,7 +48,12 @@ int initAmbilight(XrCtx* ctx) {
                               VK_IMAGE_ASPECT_COLOR_BIT)
             // Native: the glow itself, gamma encoded bytes in a _UNORM image
             || !xrVkImageMake(ctx, &ctx->glowTexture, GLOW_TEX, GLOW_TEX, MLXR_PASS_FORMAT,
-                              rw | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT)) {
+                              rw | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT)
+            // Native (issue #7): the Backlight's colours, tiny and linear
+            || !xrVkImageMake(ctx, &ctx->glowZonesTexture, MLXR_GLOW_ZONES, 1, MLXR_GLOW_LIGHT_FORMAT, rw,
+                              VK_IMAGE_ASPECT_COLOR_BIT)
+            || !xrVkImageMake(ctx, &ctx->glowSpreadTexture, MLXR_GLOW_SPREAD_W, MLXR_GLOW_SPREAD_H,
+                              MLXR_GLOW_LIGHT_FORMAT, rw, VK_IMAGE_ASPECT_COLOR_BIT)) {
         LOGE("ambilight images could not be made");
         return 0;
     }
@@ -375,6 +381,142 @@ static void runGlowEdge(XrCtx* ctx) {
     xrVkImageTo(ctx, &ctx->glowEdgeTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
+// ---- native (issue #7): the Glow edge's Backlight ------------------------------------------
+
+// Under this much of a new picture left to take (linear light, so a dark picture after a bright one needs it
+// small: under a step of eight bits), the colours stand
+#define BACKLIGHT_SETTLED 0.0005f
+// No new picture for this long is a picture standing still, whose colours are finished from the held frame
+#define BACKLIGHT_STILL_NS 50000000LL
+
+int xrBacklightOn(XrCtx* ctx) {
+    int on;
+    float level;
+    ambiEffective(ctx, &on, &level);
+    return on && ctx->glowFeather == GLOW_EDGE_BACKLIGHT;
+}
+
+static void backlightShapeNow(XrCtx* ctx, BacklightShape* s) {
+    backlightShapeFor((float)ctx->videoWidth, (float)ctx->videoHeight, ctx->glowSpread, ctx->glowBezel,
+                      roomEffective(ctx) >= ROOM_STYLE_FIRST, s);
+}
+
+// How the glow image goes up: 0 a quad layer, 1 through the panel pass, 2 that over a black void
+static int backlightProjected(XrCtx* ctx) {
+    if (!xrPictureProjected(ctx)) {
+        return 0;
+    }
+    int black = !ctx->passthrough && roomEffective(ctx) <= 0 && ctx->voidColor[0] <= 0.0f && ctx->voidColor[1] <= 0.0f
+            && ctx->voidColor[2] <= 0.0f;
+    return black ? 2 : 1;
+}
+
+int xrBacklightSettling(XrCtx* ctx) {
+    if (!xrBacklightOn(ctx) || !ctx->glowZonesSeeded || ctx->glowUnsettled < BACKLIGHT_SETTLED) {
+        return 0;
+    }
+    int64_t now = nowNs();
+    return now - ctx->glowPictureNs > BACKLIGHT_STILL_NS && now - ctx->glowEasedNs >= BACKLIGHT_EVERY_NS;
+}
+
+// The zone colours, moved toward the picture's by the time since they last were
+static void runBacklightZones(XrCtx* ctx, const MlxrVideo* video) {
+    BacklightShape s;
+    backlightShapeNow(ctx, &s);
+    int64_t now = nowNs();
+    int moved = ctx->glowZonesZoom[0] != ctx->zoomPct || ctx->glowZonesZoom[1] != ctx->zoomX
+            || ctx->glowZonesZoom[2] != ctx->zoomY || ctx->glowDrawnShape.zonesAcross != s.zonesAcross;
+    int whole = !ctx->glowZonesSeeded || moved;
+    MlxrTarget t;
+    memset(&t, 0, sizeof(t));
+    t.view = ctx->glowZonesTexture.view;
+    t.format = MLXR_GLOW_LIGHT_FORMAT;
+    t.rect.extent = (VkExtent2D){ MLXR_GLOW_ZONES, 1 };
+    MlxrAmbiParams a;
+    memset(&a, 0, sizeof(a));
+    a.video = *video;
+    glowSampleRect(ctx, a.crop);
+    a.gradeOn = ctx->gradeOn;
+    a.grade[0] = ctx->grade.offset;
+    a.grade[1] = ctx->grade.contrast;
+    a.grade[2] = ctx->grade.exponent;
+    a.grade[3] = ctx->grade.saturation;
+    a.blend = whole ? 1.0f : backlightEase((float)(now - ctx->glowEasedNs) * 1e-9f);
+    if (whole) {
+        ctx->glowZonesTexture.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+    xrVkImageTo(ctx, &ctx->glowZonesTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    mlxr_pass_glow_zones(ctx->passes, ctx->frameCmd, &t, &a, s.zonesAcross);
+    xrVkImageTo(ctx, &ctx->glowZonesTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    ctx->glowUnsettled = whole ? 0.0f : ctx->glowUnsettled * (1.0f - a.blend);
+    ctx->glowEasedNs = now;
+    ctx->glowZonesSeeded = 1;
+    ctx->glowZonesZoom[0] = ctx->glowZoom[0] = ctx->zoomPct;
+    ctx->glowZonesZoom[1] = ctx->glowZoom[1] = ctx->zoomX;
+    ctx->glowZonesZoom[2] = ctx->glowZoom[2] = ctx->zoomY;
+
+    xrVkImageTo(ctx, &ctx->glowSpreadTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    t.view = ctx->glowSpreadTexture.view;
+    t.rect.extent = (VkExtent2D){ MLXR_GLOW_SPREAD_W, MLXR_GLOW_SPREAD_H };
+    mlxr_pass_glow_spread(ctx->passes, ctx->frameCmd, &t, ctx->glowZonesTexture.view);
+    xrVkImageTo(ctx, &ctx->glowSpreadTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+// The glow image, from the spread colours
+static void runBacklightRender(XrCtx* ctx) {
+    BacklightShape s;
+    backlightShapeNow(ctx, &s);
+    int on;
+    float level;
+    ambiEffective(ctx, &on, &level);
+    MlxrTarget t;
+    memset(&t, 0, sizeof(t));
+    t.view = ctx->glowTexture.view;
+    t.format = MLXR_PASS_FORMAT;
+    t.rect.extent = (VkExtent2D){ GLOW_TEX, GLOW_TEX };
+    MlxrBacklightParams b;
+    memset(&b, 0, sizeof(b));
+    b.spread = ctx->glowSpreadTexture.view;
+    b.scaleX = s.scaleX;
+    b.scaleY = s.scaleY;
+    b.aspect = s.aspect;
+    b.zonesAcross = s.zonesAcross;
+    b.reach = s.reach;
+    b.bezel = s.bezel;
+    b.level = level;
+    b.projected = backlightProjected(ctx);
+    xrVkImageTo(ctx, &ctx->glowTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    mlxr_pass_backlight(ctx->passes, ctx->frameCmd, &t, &b);
+    xrVkImageTo(ctx, &ctx->glowTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    ctx->glowRendered = 1;
+    ctx->glowDrawnOn = 1;
+    ctx->glowDrawnLevel = level;
+    ctx->glowDrawnFeather = GLOW_EDGE_BACKLIGHT;
+    ctx->glowDrawnScale = s.scaleX;
+    ctx->glowDrawnScaleY = s.scaleY;
+    ctx->glowDrawnShape = s;
+    ctx->glowDrawnProjected = b.projected;
+    ctx->glowCopied = 0;
+}
+
+void xrBacklightVideoFrame(XrCtx* ctx, const MlxrVideo* video) {
+    int64_t now = nowNs();
+    ctx->glowPictureNs = now;
+    ctx->glowUnsettled = 1.0f;
+    // Not at every picture of a fast stream: the colours ease by time, so fewer steps look the same
+    if (ctx->glowZonesSeeded && now - ctx->glowEasedNs < BACKLIGHT_EVERY_NS && !glowStale(ctx)) {
+        return;
+    }
+    runBacklightZones(ctx, video);
+    runBacklightRender(ctx);
+}
+
+void xrGlowDrawnSize(const XrCtx* ctx, float* scaleX, float* scaleY, float* proud) {
+    *scaleX = ctx->glowDrawnScale > 0.0f ? ctx->glowDrawnScale : GLOW_SCALE;
+    *scaleY = ctx->glowDrawnScaleY > 0.0f ? ctx->glowDrawnScaleY : *scaleX;
+    *proud = ctx->glowDrawnFeather == GLOW_EDGE_BACKLIGHT ? 0.0f : GLOW_PROUD_M;
+}
+
 // Spreads those colours over the glow image, which the compositor then places
 // behind the screen (native: the app's own image; xrWorldFlatGlow copies it
 // into the swapchain, the curved picture's pass draws it on the cylinder)
@@ -417,6 +559,7 @@ void runGlowRender(XrCtx* ctx) {
     ctx->glowDrawnLevel = level;
     ctx->glowDrawnFeather = feather;
     ctx->glowDrawnScale = scale;
+    ctx->glowDrawnScaleY = 0.0f;
     ctx->glowCopied = 0;
 }
 
@@ -455,6 +598,14 @@ int glowStale(XrCtx* ctx) {
     ambiEffective(ctx, &on, &level);
     // Native (PLAN 4b.6): or the zoom moved, which changes what the colours are of
     int zoomed = ctx->glowZoom[0] != ctx->zoomPct || ctx->glowZoom[1] != ctx->zoomX || ctx->glowZoom[2] != ctx->zoomY;
+    if (on && ctx->glowFeather == GLOW_EDGE_BACKLIGHT) {
+        // Native (issue #7): its shape (rows, the picture's shape, a room), where it goes up, or its ease
+        BacklightShape s;
+        backlightShapeNow(ctx, &s);
+        return !ctx->glowDrawnOn || level != ctx->glowDrawnLevel || ctx->glowDrawnFeather != GLOW_EDGE_BACKLIGHT
+                || !backlightShapeSame(&s, &ctx->glowDrawnShape) || ctx->glowDrawnProjected != backlightProjected(ctx)
+                || zoomed || xrBacklightSettling(ctx);
+    }
     return on && (!ctx->glowDrawnOn || level != ctx->glowDrawnLevel || ctx->glowFeather != ctx->glowDrawnFeather
                   || xrGlowScaleFor(ctx, ctx->glowFeather) != (ctx->glowDrawnScale > 0.0f ? ctx->glowDrawnScale : GLOW_SCALE)
                   || zoomed);
@@ -465,7 +616,14 @@ int glowStale(XrCtx* ctx) {
 // latched; the sample is taken again only where the glow was off, since
 // then it may be from another picture.
 void redrawGlow(XrCtx* ctx, const MlxrVideo* video) {
-    if (!ctx->glowDrawnOn || ctx->glowZoom[0] != ctx->zoomPct || ctx->glowZoom[1] != ctx->zoomX
+    if (xrBacklightOn(ctx)) {
+        // Native (issue #7): the zones move on with the time, or land whole where they are from another picture
+        runBacklightZones(ctx, video);
+        runBacklightRender(ctx);
+        return;
+    }
+    // (or Backlight was up, which leaves the sample alone)
+    if (!ctx->glowDrawnOn || !ctx->ambiSeeded || ctx->glowZoom[0] != ctx->zoomPct || ctx->glowZoom[1] != ctx->zoomX
             || ctx->glowZoom[2] != ctx->zoomY) {
         runFrameColorSample(ctx, video);
     }
