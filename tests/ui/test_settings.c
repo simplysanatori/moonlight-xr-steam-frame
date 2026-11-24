@@ -1967,6 +1967,29 @@ static void test_surroundings(void) {
     settings_from_text(&s, "[display]\nglow_feather = huge\n", &info);
     CHECK(info.bad == 1 && s.glow_feather == GLOW_FEATHER_OFF);
 
+    // Native (issue #7): the row past glow_feather's three, kept in glow_behind with glow_feather off (a version
+    // without the key reads Off); glow_feather soft or wide wins, so one set there by such a version holds
+    settings_defaults(&s);
+    CHECK(s.glow_behind == GLOW_BEHIND_OFF && settings_glow_edge(&s) == GLOW_FEATHER_OFF);
+    CHECK(strcmp(settings_find("glow_behind")->section, "display") == 0);
+    for (int e = 0; e < GLOW_EDGE_COUNT; e++) {
+        Settings a, b;
+        settings_defaults(&a);
+        settings_set_glow_edge(&a, GLOW_EDGE_COUNT - 1 - e);   // from another
+        settings_set_glow_edge(&a, e);
+        CHECK(settings_glow_edge(&a) == e && (a.glow_feather == GLOW_FEATHER_OFF) == (e == 0 || e >= GLOW_FEATHER_COUNT));
+        char* t = settings_to_text(&a);
+        settings_defaults(&b);
+        settings_from_text(&b, t, &info);
+        CHECK(settings_equal(&a, &b) && info.bad == 0 && info.unknown == 0 && settings_glow_edge(&b) == e);
+        free(t);
+    }
+    settings_defaults(&s);
+    settings_from_text(&s, "[display]\nglow_behind = sharp\n", NULL);
+    CHECK(settings_glow_edge(&s) == GLOW_EDGE_SHARP);
+    settings_from_text(&s, "[display]\nglow_feather = soft\n", NULL);
+    CHECK(settings_glow_edge(&s) == GLOW_FEATHER_SOFT);
+
     // through the file and back, as typed
     settings_defaults(&s);
     s.bg_dim = 35;
@@ -2012,11 +2035,11 @@ static void test_surroundings(void) {
 
     // the Picture tab's Reset takes the two rows with it, and leaves the colour
     s.bg_dim = 80;
-    s.glow_feather = GLOW_FEATHER_WIDE;
+    settings_set_glow_edge(&s, GLOW_EDGE_SHARP);
     s.picture_gamma = 150;
     settings_set_str(&s, settings_find("void_color"), "#102030");
     settings_reset_picture(&s);
-    CHECK(s.bg_dim == BG_DIM_DEFAULT && s.glow_feather == GLOW_FEATHER_OFF && s.picture_gamma == 100);
+    CHECK(s.bg_dim == BG_DIM_DEFAULT && settings_glow_edge(&s) == GLOW_FEATHER_OFF && s.picture_gamma == 100);
     CHECK(strcmp(gets(&s, "void_color"), "#102030") == 0);
     s.eye_balance = 40;
     settings_reset_3d(&s);

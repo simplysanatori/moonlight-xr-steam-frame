@@ -173,6 +173,7 @@ typedef struct Settings {
     int glow;              // ambilight
     int glow_level;        // percent, five percent steps
     int glow_feather;      // native: Picture tab Glow edge, 0 off, 1 soft, 2 wide (GLOW_FEATHER_)
+    int glow_behind;       // native (issue #7): the Glow edge row past those (GLOW_BEHIND_), with glow_feather off
     int foveated;          // native (1.3.4): Foveated rendering, FOVEATED_AUTO (never chosen), ON or OFF
     int screen_light;      // room light
     int cog_tab;           // native: the cog's tab as it was last left (COG_TAB_*), where it opens next time
@@ -401,6 +402,10 @@ int settings_layout_forget(Settings* s, unsigned hash);
 // process's locale); 0 is English
 int settings_ui_language(const Settings* s);
 // Native (1.3.4): whether foveated rendering is on: [display] foveated, auto as FOVEATED_AUTO_IS_ON
+// Native (issue #7): the Glow edge row's value (GLOW_EDGE_), kept in two keys: glow_feather while it is soft or wide,
+// else glow_behind. Setting it writes both, so a version without glow_behind reads Off for the new ones.
+int settings_glow_edge(const Settings* s);
+void settings_set_glow_edge(Settings* s, int edge);
 int settings_foveated_on(const Settings* s);
 // Native (1.3.4): whether Valve's fdm_injection layer is to be turned off for this session (it is read
 // when the OpenXR instance is made). fdmEnv is $MLXR_FDM_LAYER, which wins when set: "0" off, else on.

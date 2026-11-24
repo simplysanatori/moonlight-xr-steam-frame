@@ -855,14 +855,14 @@ static void testEveryTrackHasItsSteps(void) {
     };
     CHECK(cogTrackSteps(COG_TAB_PICTURE, PICTURE_TAB_ROWS) == 0);
     CHECK(cogTrackSteps(COG_TAB_PICTURE, -1) == 0);
-    // Background in five percent steps, Glow edge off, soft, wide
+    // Background in five percent steps, Glow edge off, soft, wide, sharp
     CHECK(cogTrackSteps(COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND) == 20);
-    CHECK(cogTrackSteps(COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE) == GLOW_FEATHER_COUNT - 1);
+    CHECK(cogTrackSteps(COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE) == GLOW_EDGE_COUNT - 1);
     for (int step = 0; step <= 20; step++) {
         CHECK(bgDimClamp(laneUnits((float)step / 20.0f, BG_DIM_MIN, BG_DIM_MAX)) == step * 5);
     }
-    for (int mode = 0; mode < GLOW_FEATHER_COUNT; mode++) {
-        CHECK(laneUnits((float)mode / (float)(GLOW_FEATHER_COUNT - 1), GLOW_FEATHER_OFF, GLOW_FEATHER_COUNT - 1) == mode);
+    for (int mode = 0; mode < GLOW_EDGE_COUNT; mode++) {
+        CHECK(laneUnits((float)mode / (float)(GLOW_EDGE_COUNT - 1), GLOW_FEATHER_OFF, GLOW_EDGE_COUNT - 1) == mode);
     }
     for (int row = 0; row < PICTURE_VALUES; row++) {
         int min = pictureLanes[row][0];
@@ -1388,6 +1388,10 @@ static void testTheSurroundings(void) {
     CHECK_NEAR(glowFeatherFraction(GLOW_FEATHER_WIDE), 0.08, 1e-6);
     CHECK(glowFeatherFraction(-1) == 0.0f && glowFeatherFraction(GLOW_FEATHER_COUNT) == 0.0f);
     CHECK(glowFeatherFraction(GLOW_FEATHER_WIDE) < 0.5f);
+    // Native (issue #7): Sharp keeps the picture's edges
+    CHECK(glowEdgeFade(GLOW_FEATHER_OFF) == GLOW_FEATHER_OFF && glowEdgeFade(GLOW_FEATHER_SOFT) == GLOW_FEATHER_SOFT);
+    CHECK(glowEdgeFade(GLOW_FEATHER_WIDE) == GLOW_FEATHER_WIDE && glowEdgeFade(GLOW_EDGE_SHARP) == GLOW_FEATHER_OFF);
+    CHECK(glowFeatherFraction(GLOW_EDGE_SHARP) == 0.0f);
 
     // The backdrop: black at the dim's alpha over the cameras, the void's
     // colour taken down by it, nothing in a room or for a black void

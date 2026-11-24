@@ -355,7 +355,7 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->chromaFromLuma = s->chroma_from_luma;
     ctx->ambilightOn = s->glow;
     ctx->ambiIntensity = (float)s->glow_level / 100.0f;
-    ctx->glowFeather = s->glow_feather;
+    ctx->glowFeather = settings_glow_edge(s);
     ctx->foveated = s->foveated;   // native (1.3.4): the row's value; the layer was set at the start
     if (!ctx->foveatedStartKnown) {
         ctx->foveatedStartOn = s->foveated == FOVEATED_AUTO ? FOVEATED_AUTO_IS_ON : s->foveated == FOVEATED_ON;
@@ -478,7 +478,7 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->chroma_from_luma = ctx->chromaFromLuma;
     s->glow = ctx->ambilightOn;
     s->glow_level = iround(ctx->ambiIntensity * 100.0f);
-    s->glow_feather = ctx->glowFeather;
+    settings_set_glow_edge(s, ctx->glowFeather);
     s->foveated = ctx->foveated;
     xrZoomToSettings(ctx, s);
     s->bg_dim = ctx->bgDim;
@@ -625,7 +625,7 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_PICTURE_SATURATION: s->picture_saturation = value; break;
     case SETTING_RESET_PICTURE: settings_reset_picture(s); break;
     case SETTING_BG_DIM: s->bg_dim = value; break;
-    case SETTING_GLOW_FEATHER: s->glow_feather = value; break;
+    case SETTING_GLOW_FEATHER: settings_set_glow_edge(s, value); break;
     case SETTING_PT_CONTROLLERS_OK: s->passthrough_controllers_ok = value != 0; break;   // native (1.3.4)
     case SETTING_PT_GLOW_OK:
         // I Understand on "Glow in Passthrough?" is also the glow's On that opened it

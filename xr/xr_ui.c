@@ -876,7 +876,7 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
             t = lanePlace(ctx->bgDim, BG_DIM_MIN, BG_DIM_MAX);
         }
         else if (slider == PICTURE_ROW_GLOW_EDGE) {
-            t = lanePlace(ctx->glowFeather, GLOW_FEATHER_OFF, GLOW_FEATHER_COUNT - 1);
+            t = lanePlace(ctx->glowFeather, GLOW_FEATHER_OFF, GLOW_EDGE_COUNT - 1);
         }
     }
     else if (slider == COG_SLIDER_DISTANCE) {
@@ -972,7 +972,7 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
             ctx->bgDim = bgDimClamp(laneUnits(t, BG_DIM_MIN, BG_DIM_MAX));
         }
         else if (slider == PICTURE_ROW_GLOW_EDGE) {
-            ctx->glowFeather = laneUnits(t, GLOW_FEATHER_OFF, GLOW_FEATHER_COUNT - 1);
+            ctx->glowFeather = laneUnits(t, GLOW_FEATHER_OFF, GLOW_EDGE_COUNT - 1);
         }
         return;
     }

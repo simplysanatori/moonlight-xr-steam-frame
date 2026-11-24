@@ -422,6 +422,10 @@ float bgDimKeep(int percent) {
     return 1.0f - (float)p / 100.0f;
 }
 
+int glowEdgeFade(int edge) {
+    return edge == GLOW_FEATHER_SOFT || edge == GLOW_FEATHER_WIDE ? edge : GLOW_FEATHER_OFF;
+}
+
 float glowFeatherFraction(int mode) {
     return mode == GLOW_FEATHER_SOFT ? GLOW_FEATHER_SOFT_FRAC
             : mode == GLOW_FEATHER_WIDE ? GLOW_FEATHER_WIDE_FRAC : 0.0f;
@@ -646,14 +650,14 @@ int cogTrackSteps(int tab, int row) {
     }
     if (tab == COG_TAB_PICTURE) {
         // Whole units, the ones each value is kept in and its readout shows
-        // then Background's five percent steps and Glow edge's three cells
+        // then Background's five percent steps and Glow edge's cells
         static const int PICTURE_STEPS[PICTURE_TAB_ROWS] = {
             PICTURE_BRIGHTNESS_MAX - PICTURE_BRIGHTNESS_MIN,
             PICTURE_CONTRAST_MAX - PICTURE_CONTRAST_MIN,
             PICTURE_GAMMA_MAX - PICTURE_GAMMA_MIN,
             PICTURE_SATURATION_MAX - PICTURE_SATURATION_MIN,
             (BG_DIM_MAX - BG_DIM_MIN) / BG_DIM_STEP,
-            GLOW_FEATHER_COUNT - 1
+            GLOW_EDGE_COUNT - 1
         };
         return row >= 0 && row < PICTURE_TAB_ROWS ? PICTURE_STEPS[row] : 0;
     }

@@ -116,6 +116,7 @@ MAP = [
     ("native_glow_edge", NATIVE),
     ("native_feather_soft", NATIVE),
     ("native_feather_wide", NATIVE),
+    ("native_feather_sharp", NATIVE),
     ("vr_panel_version", SAME),
     ("vr_panel_version_no_commit", SAME),
     ("vr_panel_log_file", SAME),

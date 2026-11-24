@@ -562,7 +562,7 @@ typedef struct XrCtx {
     // image's size against the screen it was drawn for (GLOW_SCALE or
     // GLOW_SCALE_WIDE), which every place that shows it uses; and the border
     // fade the newest picture was drawn with (its layer then blends).
-    int glowFeather;
+    int glowFeather;   // native (issue #7): a GLOW_EDGE_, glow_feather's three and Sharp
     int glowDrawnFeather;
     float glowDrawnScale;
     int pictureBorderDrawn;

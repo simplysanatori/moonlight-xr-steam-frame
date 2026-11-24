@@ -624,7 +624,7 @@ if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
          stream.doff_disconnect stream.idle_disconnect stream.bitrate_wifi stream.bitrate_adapter stream.bitrate_wired stream.bitrate_usb
          stream.rfi_idr_ms stream.failover stream.failover_burst_ms vr.keyboard_keymap vr.controller_model vr.flip_face_buttons
          vr.pad_mouse_chord vr.pad_mouse_scroll vr.pad_arbitration vr.pad_gyro vr.notices vr.lightgun vr.scroll_speed
-         vr.background_dim vr.void_color vr.first_run_shown vr.pad_card display.zoom display.stats display.glow_feather
+         vr.background_dim vr.void_color vr.first_run_shown vr.pad_card display.zoom display.stats display.glow_feather display.glow_behind
          3d.separation 3d.convergence 3d.stereo 3d.eye_balance 3d.stereo_source 3d.sbs_full 3d.edge_sharpness 3d.depth_scale
          3d.depth_global 3d.motion_reset ui.language vr.head_dwell_ms"
     left="stream.host stream.app vr.hand_hint_seen display.cog_tab display.zoom_x display.zoom_y screen.height_cm
@@ -1057,6 +1057,14 @@ sys.exit(0 if full>900 and 0.15*full<part<0.5*full and e==f and h<g else 1)" "$a
         expect "VR client reads glow_feather" "$dump" "display.glow_feather = soft"
         expect "VR client reads eye_balance" "$dump" "3d.eye_balance = 100"
     fi
+    # issue #7: Glow edge's Sharp is [display] glow_behind with glow_feather off; stepping past it clears both
+    printf '[display]\nglow = true\nglow_feather = wide\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=glowFeatherRow \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-glow-sharp.png@3000" "$L" >"$t/ui6g.out" 2>&1
+    grep -q '^glow_feather = off$' "$ini" && grep -q '^glow_behind = sharp$' "$ini" && ok "glow edge row steps Wide to Sharp and writes glow_behind with glow_feather off" || { fail "glow_behind not written"; cat "$ini"; }
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=glowFeatherRow \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-glow-off.png@3000" "$L" >"$t/ui6h.out" 2>&1
+    grep -q '^glow_feather = off$' "$ini" && grep -q '^glow_behind = off$' "$ini" && ok "glow edge row steps Sharp back to Off" || { fail "glow_behind not cleared"; cat "$ini"; }
     # lane wave6-i18n: the Headset language row shows the languages; picking one writes [ui] language,
     # which the VR client reads (at its next start); the rest of the file is kept
     cp "$ini" "$t/ini.lang-before"
