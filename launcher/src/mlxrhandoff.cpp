@@ -697,28 +697,116 @@ static bool inGameMode()
     return qEnvironmentVariable("XDG_CURRENT_DESKTOP") == "gamescope";
 }
 
-// Moonlight XR Native (lane launcher-return): one request, logged with `when`; also used by the
-// flat window watch below once the window has drawn again
-static void askSteamForFlatScreen(const QString& when)
+// The helper (packaging/steam_cef.py, next to this binary), or empty when Steam cannot be asked:
+// not Game Mode, not started from the Steam shortcut, no helper. MLXR_STEAM_CEF: another one (tests).
+static QString steamCefHelper()
 {
-    const QString appId = qEnvironmentVariable("SteamAppId");
-    const QString cef = QCoreApplication::applicationDirPath() + "/steam_cef.py";
-    if (!inGameMode() || appId.isEmpty() || !QFileInfo::exists(cef)) {
-        return;
+    bool idOk = false;
+    const qulonglong id = qEnvironmentVariable("SteamAppId").trimmed().toULongLong(&idOk);
+    QString cef = qEnvironmentVariable("MLXR_STEAM_CEF");
+    if (cef.isEmpty()) {
+        cef = QCoreApplication::applicationDirPath() + "/steam_cef.py";
     }
-    const QString js = QString("SteamClient.OpenVR.VROverlay.ShowDashboard('valve.steam.desktopgame.%1')").arg(appId);
+    return inGameMode() && idOk && id != 0 && QFileInfo::exists(cef) ? cef : QString();
+}
+
+// Requests for the flat screen belong to one return from a stream: a stream that starts ends them,
+// so nothing opens the dashboard over it. s_flatReturn counts those ends; s_flatHelpers still run.
+static int s_flatReturn = 0;
+static QList<QPointer<QProcess>> s_flatHelpers;
+
+static void cancelFlatRequests(const QString& why)
+{
+    s_flatReturn++;
+    int stopped = 0;
+    for (const QPointer<QProcess>& p : std::as_const(s_flatHelpers)) {
+        if (!p) {
+            continue;
+        }
+        p->disconnect();
+        // Its whole process group: the helper's vrcmd ends with it. Nothing waits for them here.
+        const qint64 pid = p->processId();
+        if (pid > 1) {
+            ::kill(-(pid_t)pid, SIGKILL);
+            stopped++;
+        }
+        p->kill();
+        if (p->state() == QProcess::NotRunning) {
+            p->deleteLater();
+        }
+        else {
+            QObject::connect(p, &QProcess::finished, p, &QObject::deleteLater);
+        }
+    }
+    s_flatHelpers.clear();
+    if (stopped) {
+        qInfo().noquote() << QString("%1: stopped %2 request(s) for the flat screen").arg(why).arg(stopped);
+    }
+}
+
+// Runs the helper in the background. line gets each line it prints, done its exit code (-1: crashed
+// or not started) and the last line; neither is called once the request was cancelled.
+static void runSteamCef(const QString& cef, const QStringList& args, const std::function<void(const QString&)>& line,
+                        const std::function<void(int, const QString&)>& done)
+{
+    static bool s_quitWatched = false;
+    if (!s_quitWatched) {
+        s_quitWatched = true;
+        QObject::connect(qApp, &QCoreApplication::aboutToQuit, qApp, []() { cancelFlatRequests("the launcher quits"); });
+    }
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.remove("LD_LIBRARY_PATH");
+    env.remove("LD_PRELOAD"); // Steam's overlay library, which only complains in a helper
     QProcess* p = new QProcess(qApp);
     p->setProcessEnvironment(env);
-    QObject::connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), p,
-                     [p, when](int code, QProcess::ExitStatus) {
-        qInfo().noquote() << "Asked Steam to show the flat screen again" << when + ":"
-                          << (code == 0 ? "done" : "failed") << p->readAll().trimmed();
-        p->deleteLater();
-    });
     p->setProcessChannelMode(QProcess::MergedChannels);
-    p->start("python3", { "-I", cef, js });
+    p->setChildProcessModifier([]() {
+        ::setpgid(0, 0);
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+    });
+    auto last = std::make_shared<QString>();
+    auto takeLines = [p, line, last](bool rest) {
+        while (p->canReadLine() || (rest && p->bytesAvailable() > 0)) {
+            const QString l = QString::fromUtf8(p->readLine()).trimmed();
+            if (!l.isEmpty()) {
+                *last = l;
+                if (line) line(l);
+            }
+        }
+    };
+    QObject::connect(p, &QProcess::readyRead, p, [takeLines]() { takeLines(false); });
+    QObject::connect(p, &QProcess::finished, p, [p, takeLines, last, done](int code, QProcess::ExitStatus status) {
+        takeLines(true);
+        s_flatHelpers.removeAll(QPointer<QProcess>(p));
+        p->deleteLater();
+        done(status == QProcess::NormalExit ? code : -1, *last);
+    });
+    QObject::connect(p, &QProcess::errorOccurred, p, [p, done](QProcess::ProcessError e) {
+        if (e == QProcess::FailedToStart) {
+            s_flatHelpers.removeAll(QPointer<QProcess>(p));
+            p->deleteLater();
+            done(-1, p->errorString());
+        }
+    });
+    s_flatHelpers.append(QPointer<QProcess>(p));
+    p->start("python3", QStringList { "-I", cef } + args);
+}
+
+// Moonlight XR Native (lane launcher-return): one request, logged with `when`; also used by the
+// flat window watch below once the window has drawn again. "done" says Steam took the call, not that
+// the window shows (ShowDashboard answers null either way): the check in the headset below says that.
+static void askSteamForFlatScreen(const QString& when)
+{
+    const QString cef = steamCefHelper();
+    if (cef.isEmpty()) {
+        return;
+    }
+    const QString js = QString("SteamClient.OpenVR.VROverlay.ShowDashboard('valve.steam.desktopgame.%1')")
+                           .arg(qEnvironmentVariable("SteamAppId").trimmed());
+    runSteamCef(cef, { js }, nullptr, [when](int code, const QString& out) {
+        qInfo().noquote() << "Asked Steam to show the flat screen again" << when + ":"
+                          << (code == 0 ? "done" : "failed") << out;
+    });
 }
 
 static void reopenFlatScreen()
@@ -726,9 +814,12 @@ static void reopenFlatScreen()
     // Asked right away the dashboard opens before this window is back up and SteamVR shows
     // nothing in it; so again once the window has been shown and drawn (StreamSegue shows it as
     // soon as this returns; the flat window watch asks once more after its first frame)
+    const int token = s_flatReturn;
     for (int ms : { 0, 1000, 2500 }) {
-        QTimer::singleShot(ms, qApp, [ms]() {
-            askSteamForFlatScreen(QString("after %1 ms").arg(ms));
+        QTimer::singleShot(ms, qApp, [ms, token]() {
+            if (token == s_flatReturn) { // no stream has started meanwhile
+                askSteamForFlatScreen(QString("after %1 ms").arg(ms));
+            }
         });
     }
 }
@@ -766,6 +857,11 @@ public:
         m_return++;
         m_returning = false;
         m_tick.stop();
+        cancelFlatRequests("a stream starts");
+        if (m_seeThrough) {
+            m_seeThrough = false;
+            m_window->setOpacity(1.0);
+        }
     }
 
     void startReturn()
@@ -774,6 +870,7 @@ public:
         m_returnClock.start();
         m_framesSinceReturn = 0;
         m_attempt = 0;
+        m_headsetRuns = 0;
         m_testMiss = qEnvironmentVariableIntValue("MLXR_LAUNCHER_TEST_RETURN_MISS");
         if (!m_window->isVisible()) {
             // quitAfter (the CLI's stream command): stock quits, or shows the error dialog, without showing it
@@ -873,6 +970,86 @@ private:
                              .arg(m_attempt ? QString(" (shown again %1 time(s))").arg(m_attempt) : QString());
         // The three timed requests may all come before the window is back up; one more now that it is
         askSteamForFlatScreen("once the window had drawn");
+        headsetCheckIn(qMax(0, 1500 - int(sinceReturn())));
+    }
+
+    // ---- Is it really shown in the headset? What Qt knows (visible, exposed, drawn) ends at gamescope, and Steam
+    // answers ShowDashboard whether or not there was a window to show: on 2026-11-18 all of that was fine and the
+    // dashboard had an empty frame. So SteamVR is asked what it has of the window (steam_cef.py --show, which also
+    // docks its frame again when it has a picture and does not show it). When it has no picture at all, the window
+    // is faded out and back in once (what a stream does: gamescope makes a new overlay) and that is checked again.
+    // Two checks at the most, each with an end of its own; nothing runs on after them.
+    void headsetCheckIn(int ms)
+    {
+        const int token = m_return;
+        QTimer::singleShot(ms, this, [this, token]() {
+            if (token == m_return) {
+                headsetCheck();
+            }
+        });
+    }
+
+    void headsetCheck()
+    {
+        const QString cef = steamCefHelper();
+        if (cef.isEmpty() || qEnvironmentVariable("MLXR_LAUNCHER_FLAT_CHECK") == "0") {
+            return;
+        }
+        m_headsetRuns++;
+        const int token = m_return, stream = s_flatReturn, run = m_headsetRuns;
+        m_headsetBusy = true;
+        // The helper ends by itself well before this (its own limits); a vrcmd or a Steam that never answers may not
+        QTimer::singleShot(60000, this, [this, token, run]() {
+            if (token == m_return && run == m_headsetRuns && m_headsetBusy) {
+                m_headsetBusy = false;
+                cancelFlatRequests("flat window in the headset: no answer in 60 s, not known whether it shows");
+            }
+        });
+        QPointer<QObject> self(this);
+        qInfo().noquote() << QString("flat window in the headset: check %1, %2 ms after the stream").arg(m_headsetRuns).arg(sinceReturn());
+        runSteamCef(cef, { "--show", qEnvironmentVariable("SteamAppId").trimmed(), "4" }, [](const QString& l) {
+            qInfo().noquote() << "flat window in the headset:" << l;
+        }, [this, self, token, stream](int code, const QString& last) {
+            if (self && token == m_return && stream == s_flatReturn) {
+                m_headsetBusy = false;
+                headsetChecked(code, last);
+            }
+        });
+    }
+
+    void headsetChecked(int code, const QString& last)
+    {
+        const QString after = QString("%1 ms after the stream, check %2").arg(sinceReturn()).arg(m_headsetRuns);
+        if (code == 0) {
+            qInfo().noquote() << QString("flat window in the headset: SHOWN (%1)").arg(after);
+        }
+        else if (code == 10 && m_headsetRuns == 1 && fadesFlatWindow()) {
+            qInfo().noquote() << QString("flat window in the headset: SteamVR has no picture of it, fading the window out and "
+                                         "in again (%1)").arg(after);
+            m_seeThrough = true;
+            m_window->setOpacity(0.0);
+            const int token = m_return;
+            QTimer::singleShot(500, this, [this, token]() {
+                if (token != m_return) {
+                    return; // a stream started: handOff() has made it opaque
+                }
+                m_seeThrough = false;
+                m_window->setOpacity(1.0);
+                if (QQuickWindow* q = qobject_cast<QQuickWindow*>(m_window)) {
+                    q->update(); // a new frame for the new overlay (a still page draws none by itself)
+                }
+                askSteamForFlatScreen("once the window was faded in again");
+                headsetCheckIn(500);
+            });
+        }
+        else if (code == 10 || code == 11) {
+            qWarning().noquote() << QString("flat window in the headset: NOT SHOWN, nothing more to try (%1, %2)")
+                                        .arg(code == 10 ? "SteamVR has no picture of it" : "docked again without effect").arg(after);
+        }
+        else {
+            qWarning().noquote() << QString("flat window in the headset: not known whether it shows (exit %1: %2; %3)")
+                                        .arg(code).arg(last, after);
+        }
     }
 
     void deadline(int token, int step)
@@ -888,6 +1065,7 @@ private:
             m_returning = false;
             log(QString("flat window still not exposed and drawn %1 ms after the stream (%2 frames); nothing more to try")
                     .arg(sinceReturn()).arg(m_framesSinceReturn));
+            headsetCheck();
             return;
         }
         if (!inGameMode() && !qEnvironmentVariableIsSet("MLXR_LAUNCHER_TEST_RETURN_MISS")) {
@@ -943,6 +1121,9 @@ private:
     int m_return = 0;
     int m_attempt = 0;
     int m_testMiss = 0;
+    int m_headsetRuns = 0;      // checks in the headset since the return
+    bool m_headsetBusy = false; // one of them is running
+    bool m_seeThrough = false;  // faded out by headsetChecked(), for half a second
     int m_framesSinceShow = 0;
     int m_framesSinceReturn = 0;
     QElapsedTimer m_shownClock;
@@ -1105,6 +1286,7 @@ static void clipboardAfterStream(const uint8_t* key)
 Result run(const Plan& plan, const std::function<void()>& onStarted, const std::function<void()>& onStreaming)
 {
     Result r;
+    cancelFlatRequests("a stream starts");
     // Native (lane refresh): before the VR client's session starts, so SteamVR runs it at that rate
     if (plan.steamVrRefreshRate > 0) {
         setSteamVrRefreshRate(plan.steamVrRefreshRate);
@@ -1598,7 +1780,7 @@ void installTestHooks(QQmlApplicationEngine& engine)
     }
     const QString demo = qEnvironmentVariable("MLXR_LAUNCHER_DEMO");
     if (!demo.isEmpty()) {
-        QTimer::singleShot(800, root, [&engine, root, demo]() {
+        const auto start = [&engine, root, demo]() {
             NvApp app;
             QString why;
             NvComputer* c = loadComputer(demo, &app, &why);
@@ -1619,7 +1801,12 @@ void installTestHooks(QQmlApplicationEngine& engine)
             QQmlEngine::setObjectOwnership(segue, QQmlEngine::JavaScriptOwnership);
             QJSValue js = engine.newQObject(stack);
             js.property("push").callWithInstance(js, { engine.newQObject(segue) });
-        });
+        };
+        QTimer::singleShot(800, root, start);
+        const int again = qEnvironmentVariableIntValue("MLXR_LAUNCHER_DEMO_AGAIN");
+        if (again > 0) {
+            QTimer::singleShot(again, root, start);
+        }
     }
     MlxrUiHooks::install(engine);
 }

@@ -1266,6 +1266,76 @@ sys.exit(0 if full>900 and 0.15*full<part<0.5*full and e==f and h<g else 1)" "$a
     refute "Game Mode: never hidden (unmapped)" "$r" "flat window hidden"
     order="$(echo "$r" | grep -n "faded out for the stream\|VR client exited with 0\|faded back in\|exposed after" | cut -d: -f2- | sed 's/ - Qt Info//' | tr '\n' '|')"
     case "$order" in *"faded out for the stream"*"VR client exited with 0"*"faded back in"*"exposed after"*) ok "Game Mode: fade out, exit, fade in, exposed: in that order";; *) fail "Game Mode order: $order";; esac
+    # 1.3.4: after the stream SteamVR is asked whether the window shows in the headset (steam_cef.py --show, the real
+    # helper, against a fake Steam and a fake vrcmd). $1: name; the fake's files are in $ovl; more environment after it
+    ovl="$t/ovl"
+    cat >"$t/fake-vrcmd-ovl" <<'VRCMD'
+#!/bin/bash
+# as tests/tools/test_steam_cef.py's; $OVL/sleep: how long --overlays takes, "end" is logged after it
+echo "$*" >> "$OVL/log"
+case "$1" in
+  --overlays) n=$(grep -c -- --overlays "$OVL/log"); [ -e "$OVL/state.$n" ] && cp "$OVL/state.$n" "$OVL/state"
+              [ -e "$OVL/sleep" ] && sleep "$(cat "$OVL/sleep")"; echo "end" >> "$OVL/log"
+              cat "$OVL/state" 2>/dev/null;;
+  --dock-overlay) [ -e "$OVL/dock.$2" ] && cp "$OVL/dock.$2" "$OVL/state";;
+esac
+exit 0
+VRCMD
+    chmod +x "$t/fake-vrcmd-ovl"
+    ovline() { echo "'valve.steam.desktopgame.$APPID' -- 'Moonlight', size=$1 $2 VROverlayType_Dashboard flags=0x8000"; }
+    flatcheck() { # name, screenshot time (when the launcher quits), environment
+        local n="$1" end="$2"; shift 2
+        : > "$ovl/log"; : > "$ovl/cef"
+        python3 -I - "$here/../tools" "$ovl/cef" "$ovl/port" <<'PY' &
+import sys, time
+sys.path.insert(0, sys.argv[1])
+from fake_cef import FakeCef
+with FakeCef([("ShowDashboard", None)], log=sys.argv[2]) as c:
+    open(sys.argv[3], "w").write(str(c.port))
+    time.sleep(60)
+PY
+        local cef=$!
+        for _ in $(seq 50); do [ -s "$ovl/port" ] && break; sleep 0.1; done
+        env FAKE_SLEEP=1 FAKE_MODE=stream XDG_CURRENT_DESKTOP=gamescope SteamAppId=$APPID MLXR_LAUNCHER_HIDE_WINDOW=1 MLXR_NATIVE_CLIENT="$fake" \
+          MLXR_STEAM_CEF="$here/../../packaging/steam_cef.py" STEAM_CEF_PORT="$(cat "$ovl/port")" MLXR_VRCMD="$t/fake-vrcmd-ovl" OVL="$ovl" \
+          MLXR_LAUNCHER_DEMO="gaming-pc:Desktop" "$@" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/flatcheck-$n.png@$end" "$L" >"$t/flatcheck-$n.out" 2>&1; rc=$?
+        kill $cef 2>/dev/null; wait $cef 2>/dev/null; rm -f "$ovl/port"
+        [ $rc = 0 ] && ok "flat check, $n: demo ran" || fail "flat check, $n: exit $rc"
+        r="$(grep -E "flat window in the headset|Asked Steam|VR client exited|a stream starts|launcher quits" "$t/flatcheck-$n.out")"
+        echo "$r" | sed 's/^/    /'
+    }
+    ovl_new() { rm -rf "$ovl"; mkdir -p "$ovl"; }
+    ovl_new; ovline 1920x1080 visible > "$ovl/state"
+    flatcheck shown 8000
+    expect "flat check: shown is said" "$r" "flat window in the headset: SHOWN ("
+    [ "$(grep -c . "$ovl/cef")" = 4 ] && [ "$(grep -c -- --overlays "$ovl/log")" = 1 ] && ! grep -q dock "$ovl/log" && ok "flat check: shown: the four requests as before, one look, nothing moved" || fail "flat check shown: $(cat "$ovl/cef" "$ovl/log")"
+    refute "flat check: no loader noise in the log" "$r" "ERROR: ld.so"
+    ovl_new; ovline 1920x1080 not_visible > "$ovl/state"; ovline 1920x1080 visible > "$ovl/dock.dashboard"
+    flatcheck docked 12000
+    expect "flat check: docked again, then shown" "$r" "try 2 of 3: docking it again (dashboard) and asking Steam for it"
+    expect "flat check: shown after the dock" "$r" "flat window in the headset: SHOWN ("
+    ovl_new; ovline 1920x1080 not_visible > "$ovl/state"
+    flatcheck never 14000
+    expect "flat check: not shown is said" "$r" "flat window in the headset: NOT SHOWN, nothing more to try (docked again without effect"
+    [ "$(grep -c dock-overlay "$ovl/log")" = 3 ] && [ "$(grep -c . "$ovl/cef")" = 7 ] && ok "flat check: three tries at the most" || fail "flat check never: $(cat "$ovl/cef" "$ovl/log")"
+    ovl_new; ovline 0x0 visible > "$ovl/state"
+    flatcheck nopicture 18000
+    expect "flat check: no picture: faded out and in" "$r" "SteamVR has no picture of it, fading the window out and in again"
+    expect "flat check: and once only" "$r" "flat window in the headset: NOT SHOWN, nothing more to try (SteamVR has no picture of it"
+    [ "$(echo "$r" | grep -c "headset: check ")" = 2 ] && ! grep -q dock "$ovl/log" && ok "flat check: no picture: two checks, nothing docked" || fail "flat check nopicture: $(cat "$ovl/log")"
+    # a stream that starts ends the check and every request left, so nothing opens the dashboard over it
+    ovl_new; ovline 1920x1080 not_visible > "$ovl/state"; echo 4 > "$ovl/sleep"
+    flatcheck cancelled 12500 MLXR_LAUNCHER_DEMO_AGAIN=6500 FAKE_SLEEP=2
+    expect "flat check: the next stream ends it" "$r" "a stream starts: stopped 1 request(s) for the flat screen"
+    grep -q "^end" "$ovl/log" && fail "flat check: the vrcmd of the first return ran on" || ok "flat check: its vrcmd ended with it"
+    echo "$r" | awk '/a stream starts: stopped/ {on=1} /VR client exited/ {on=0} on && /Asked Steam|headset/ {bad=1} END {exit bad}' && ok "flat check: nothing asked while the stream runs" || fail "flat check: asked during the stream"
+    # off, and nothing without the Steam shortcut's id
+    ovl_new; ovline 1920x1080 visible > "$ovl/state"
+    flatcheck off 6000 MLXR_LAUNCHER_FLAT_CHECK=0
+    refute "flat check: MLXR_LAUNCHER_FLAT_CHECK=0" "$r" "flat window in the headset"
+    flatcheck noid 6000 SteamAppId=
+    refute "flat check: no SteamAppId, nothing asked" "$r" "flat window in the headset"
+    [ ! -s "$ovl/cef" ] && ok "flat check: no SteamAppId, Steam not asked" || fail "flat check noid: $(cat "$ovl/cef")"
     # lane wave2-bind-editor: the Controller bindings page. The launcher has xr/core/xr_bind.c compiled in, so
     # the file is read, checked and its lines found by the headset's own parser; MLXR_LAUNCHER_BIND_DUMP prints
     # the core's serializer output for the file after every load and save, which is what is compared here.

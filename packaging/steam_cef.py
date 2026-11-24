@@ -9,12 +9,19 @@ remote-debugging port (127.0.0.1:8080), using only the standard library.
                                        flat launcher brings its window back with (ShowDashboard) present?
                                        JSON; exit 0 ok, 3 unreachable, 4 the call missing
 
-STEAM_CEF_PORT changes the port. The installer (packaging/install.sh), the flat launcher's return from
+    steam_cef.py --show APPID [SECONDS]
+                                       is the app's flat window really shown in the headset? If not, its frame
+                                       is asked for and docked again, three times at the most. SECONDS (6): how
+                                       long SteamVR may take to have a picture of it. One line a step, the time
+                                       first. Exit 0 shown, 10 SteamVR has no picture of it (nothing was moved),
+                                       11 not shown after the last try, 12 cannot tell (no vrcmd, no SteamVR)
+
+STEAM_CEF_PORT changes the port, MLXR_VRCMD the vrcmd of --show. The installer (packaging/install.sh), the flat launcher's return from
 a stream and tools/frame-deploy.sh drive Steam through this; tools/probe/doctor.py runs --probe.
 
 Moonlight XR Native. GPLv3.
 """
-import base64, json, os, socket, struct, sys, urllib.request
+import base64, json, os, re, socket, struct, subprocess, sys, time, urllib.request
 
 DEFAULT_PORT = 8080
 # The call the flat launcher brings its window back with after a stream; --probe reports it as the JS typeof
@@ -24,6 +31,7 @@ API_CALLS = {
 API_REQUIRED = ("ShowDashboard",)
 
 EXIT_FAILED, EXIT_USAGE, EXIT_UNREACHABLE, EXIT_NO_API = 1, 2, 3, 4
+EXIT_NO_PICTURE, EXIT_NOT_SHOWN, EXIT_CANNOT_TELL = 10, 11, 12
 
 
 class CefError(Exception):
@@ -163,6 +171,132 @@ def probe_hint(result):
     return "Steam's debugging port is fine."
 
 
+# ---- the flat window in the headset ------------------------------------------------------------------
+# gamescope gives SteamVR the app's window as the overlay valve.steam.desktopgame.APPID. A stream takes it away (the
+# window is faded out) and the return makes it again, so ShowDashboard, which answers null whatever came of it, can
+# come before SteamVR has a picture of the window: the dashboard then opens on a frame with nothing in it
+# (2026-11-18). vrcmd --overlays says what SteamVR has. The way to read it and to dock a frame again is from Azahar
+# for Frame, by the same owner.
+
+VRCMD = "/opt/steamvr/bin/linuxarm64/vrcmd"
+OVERLAY_IN_DASHBOARD = 0x8000        # OpenVR's VROverlayFlags_VisibleInDashboard
+SHOW_TRIES = ((), ("dashboard",), ("world", "dashboard"))     # the docks before each ShowDashboard
+SHOW_DEADLINE_S = 35                 # no new step after this, whatever is left of the tries
+
+
+def vrcmd_path():
+    return os.environ.get("MLXR_VRCMD") or VRCMD
+
+
+def vrcmd(*args):
+    """vrcmd's output, or None when it failed. A call takes about 2 s (it connects to SteamVR first)."""
+    env = {k: v for k, v in os.environ.items() if k not in ("LD_PRELOAD", "LD_LIBRARY_PATH")}
+    try:
+        p = subprocess.run([vrcmd_path(), *args], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                           stderr=subprocess.DEVNULL, timeout=8)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return p.stdout.decode(errors="replace") if p.returncode == 0 else None
+
+
+def overlay_lines(listing, key):
+    """The overlay's own line of a vrcmd --overlays listing (None: not listed), and how many of its layers
+    (KEY.layer1 ...) are visible."""
+    own, layers = None, 0
+    for line in listing.splitlines():
+        if line.startswith(f"'{key}' "):
+            own = line.strip()
+        elif line.startswith(f"'{key}.") and re.search(r" visible VROverlayType", line):
+            layers += 1
+    return own, layers
+
+
+def overlay_state(line):
+    """(picture, in the dashboard, visible) of an overlay's line; visible is None when the line does not say."""
+    size = re.search(r"\bsize=(\d+)x(\d+)", line)
+    flags = re.search(r"\bflags=0x([0-9a-fA-F]+)", line)
+    vis = re.search(r" (visible|not_visible) VROverlayType", line)
+    return (bool(size) and int(size.group(1)) > 0 and int(size.group(2)) > 0,
+            bool(flags) and int(flags.group(1), 16) & OVERLAY_IN_DASHBOARD != 0,
+            None if vis is None else vis.group(1) == "visible")
+
+
+def show(appid, seconds):
+    key = f"valve.steam.desktopgame.{int(appid)}"
+    start = time.monotonic()
+    said = None
+
+    def say(text):
+        print(f"{time.monotonic() - start:.1f} s: {text}", flush=True)
+
+    def read():
+        """(known, showable, shown). Says the state, and SteamVR's own line for it, when it changed."""
+        nonlocal said
+        listing = vrcmd("--overlays")
+        if listing is None or not re.search(r"^'", listing, re.M):
+            return False, False, False
+        line, layers = overlay_lines(listing, key)
+        if line is None:
+            text, res = f"SteamVR has no overlay {key}", (True, False, False)
+        else:
+            picture, dash, visible = overlay_state(line)
+            text = (f"{'a picture' if picture else 'no picture'}, {'in' if dash else 'not in'} the dashboard, "
+                    f"{'visible' if visible else 'not visible'}, {layers} layers visible [{line[:300]}]")
+            # (a SteamVR that writes the line another way is not guessed at)
+            res = (visible is not None, picture and dash, picture and bool(visible))
+        if text != said:
+            say(text)
+            said = text
+        return res
+
+    if not os.access(vrcmd_path(), os.X_OK):
+        say(f"cannot tell, no vrcmd at {vrcmd_path()}")
+        return EXIT_CANNOT_TELL
+    if not os.environ.get("MLXR_VRCMD"):
+        # vrcmd is for a SteamVR that runs
+        try:
+            up = subprocess.run(["pgrep", "-x", "vrserver"], stdout=subprocess.DEVNULL, timeout=5).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            up = False
+        if not up:
+            say("cannot tell, SteamVR is not running")
+            return EXIT_CANNOT_TELL
+
+    known, showable, shown = read()
+    unknown = 0 if known else 1
+    while not shown and not showable and unknown < 2 and time.monotonic() - start < seconds:
+        time.sleep(0.25)
+        known, showable, shown = read()
+        unknown = 0 if known else unknown + 1
+    if not known:
+        say("cannot tell, vrcmd --overlays gave nothing to read")
+        return EXIT_CANNOT_TELL
+    if shown:
+        return 0
+    # Without a picture and the flag the dashboard has no frame for the window, and a dock request moves whichever
+    # frame is active (Steam's library): nothing is moved then
+    if not showable:
+        return EXIT_NO_PICTURE
+    time.sleep(0.75)     # the dashboard makes the frame a moment after the overlay can show
+    for n, docks in enumerate(SHOW_TRIES, 1):
+        if time.monotonic() - start > SHOW_DEADLINE_S:
+            say("out of time")
+            break
+        say(f"not shown, try {n} of {len(SHOW_TRIES)}: "
+            + (f"docking it again ({', then '.join(docks)}) and " if docks else "") + "asking Steam for it")
+        for where in docks:
+            if vrcmd("--dock-overlay", where, key) is None:
+                say(f"vrcmd --dock-overlay {where} failed")
+        try:
+            evaluate(f"SteamClient.OpenVR.VROverlay.ShowDashboard({json.dumps(key)})")
+        except (CefError, OSError) as e:
+            say(f"ShowDashboard failed: {e}")
+        time.sleep(0.5)
+        if read()[2]:
+            return 0
+    return EXIT_NOT_SHOWN
+
+
 # ---- the commands ------------------------------------------------------------------------------------
 
 def flag_file_present():
@@ -207,6 +341,11 @@ def main(argv):
             if not res["reachable"]:
                 return EXIT_UNREACHABLE
             return 0 if res["ok"] else EXIT_NO_API
+        if cmd == "--show":
+            if len(argv) not in (3, 4) or not re.fullmatch(r"[0-9]{1,10}", argv[2]):
+                sys.stderr.write(__doc__)
+                return EXIT_USAGE
+            return show(argv[2], float(argv[3]) if len(argv) == 4 else 6.0)
         if cmd.startswith("--"):
             sys.stderr.write(__doc__)
             return EXIT_USAGE

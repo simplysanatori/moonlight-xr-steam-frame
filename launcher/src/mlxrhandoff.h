@@ -84,6 +84,8 @@ Result run(const Plan& plan, const std::function<void()>& onStarted,
 // window again. It waits until the window is exposed and has drawn a frame and logs how long that
 // took. In Game Mode (gamescope) it hides and shows the window again if that has not happened
 // after 1 s, once more 2 s later, and asks Steam for the flat screen again once the window drew.
+// In Game Mode SteamVR is then asked whether the window really shows in the headset and its frame is
+// docked again when it does not (steam_cef.py --show); MLXR_LAUNCHER_FLAT_CHECK=0 leaves that out.
 // On a desktop it only logs. MLXR_LAUNCHER_TEST_RETURN_MISS=N (tests): the first N checks count
 // as missed and the Game Mode steps run anywhere.
 void watchFlatWindow(QWindow* window);
@@ -171,6 +173,7 @@ void openExternalUrl(const QString& url);
 //   MLXR_LAUNCHER_SCREENSHOT, MLXR_LAUNCHER_PAGE: see uihooks.h (QT_QPA_PLATFORM=offscreen
 //                           QT_QUICK_BACKEND=software to run headless)
 //   MLXR_LAUNCHER_DEMO="host:app"  opens the stream segue for that saved PC and app, as clicking it would
+//   MLXR_LAUNCHER_DEMO_AGAIN=MS     once more, that many ms after the start
 void installTestHooks(QQmlApplicationEngine& engine);
 
 }
