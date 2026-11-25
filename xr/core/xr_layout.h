@@ -253,7 +253,8 @@ int cogResetLive(const CogState* state, int tab);
 
 // Native (1.3.4): the tab config.ini keeps and the panel's own. The file keeps
 // the six names it always had, so an older release opens on a real tab: Room
-// is written as the Screen tab and Controls as the Display tab.
+// is written as screen and Controls as display, the tab its rows were on.
+// display opens Picture, which has that tab's other rows.
 #define COG_FILE_TABS 6
 int cogTabFromFile(int fileTab);
 int cogTabToFile(int tab);

@@ -677,7 +677,7 @@ static int curveSwapchain(XrCtx* ctx, XrCurve* cv, int64_t format) {
     return 0;
 }
 
-// The sharpen the Display tab's row asks for: off, normal, quality. The quad
+// The sharpen the Picture tab's row asks for: off, normal, quality. The quad
 // picture's is the warp's (CAS on the video's own texels, before the
 // supersample pass); the curved or 3D picture's is the panel pass's, at the
 // eye's pixels (native, lane text-clarity: CAS never touches black text on

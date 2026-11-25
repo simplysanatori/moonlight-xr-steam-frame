@@ -42,7 +42,6 @@ DRIFT = "drift"
 MAP = [
     # settings panel tabs and rows
     ("vr_panel_tab_screen", SAME),
-    ("vr_panel_tab_display", SAME),
     ("vr_panel_3d", SAME),
     ("vr_panel_tab_picture", SAME),
     ("vr_panel_tab_about", SAME),
@@ -89,7 +88,7 @@ MAP = [
     ("vr_panel_gamepad", SAME),
     ("vr_panel_glow_level", SAME),
     ("vr_panel_notices", NATIVE),
-    ("native_row_foveated", NATIVE),  # native (1.3.4): the Display tab's Foveated rendering row
+    ("native_row_foveated", NATIVE),  # native (1.3.4): the Picture tab's Foveated rendering row
     ("vr_panel_click_steadiness", NATIVE),
     ("native_mouse_mode", NATIVE),
     ("native_mouse_absolute", NATIVE),

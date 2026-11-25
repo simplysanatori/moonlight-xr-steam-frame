@@ -770,7 +770,7 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
     else if (face == COG_TAB_ACCESS) {
         t = cogAccessSliderValue(ctx, slider);   // native (lane a11y-2): Dot size
     }
-    else if (face == COG_TAB_DISPLAY) {
+    else if (face == COG_TAB_PICTURE) {
         if (slider >= 0 && slider < PICTURE_VALUES) {
             t = lanePlace(ctx->pictureUnits[slider], pictureMin(slider), pictureMax(slider));
         }
@@ -879,7 +879,7 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
         return;
     }
 
-    if (face == COG_TAB_DISPLAY) {
+    if (face == COG_TAB_PICTURE) {
         // Whole units, so the thumb and the readout show exactly what gets
         // written when the drag ends. The grade is read every frame, so the
         // picture changes under the thumb.
@@ -1588,7 +1588,7 @@ void cogDragEnded(XrCtx* ctx, float* out) {
     else if (face == COG_TAB_ACCESS) {
         cogAccessDragEnded(ctx, slider, out);   // native (lane a11y-2): Dot size
     }
-    else if (face == COG_TAB_DISPLAY && slider < PICTURE_VALUES) {
+    else if (face == COG_TAB_PICTURE && slider < PICTURE_VALUES) {
         out[IN_SETTING] = (float)PICTURE_SETTINGS[slider];
         out[IN_SETTING_VALUE] = (float)ctx->pictureUnits[slider];
         LOGEV("picture %s %d from the panel, grade %s", PICTURE_NAMES[slider],
@@ -1640,7 +1640,7 @@ int cogCellAt(float pu, int cells) {
 // which tab it is for, or -1 first while none is up, then its values and -1
 // past them or for a row that is greyed. The Room tab's are Background dim,
 // Glow level, Glow spread, then the room's brightness and light level as the
-// place along their lanes; the Display tab's the picture's four in their own
+// place along their lanes; the Picture tab's the picture's four in their own
 // units; the Screen tab's the room's size in percent of its screen; the
 // Controls tab's the scroll speed, then head aim's pixels a degree and dead
 // zone.
@@ -1655,8 +1655,8 @@ void cogReadouts(XrCtx* ctx, int* values) {
     }
     int tab = ctx->cogTab;
     int style = roomFaceStyle(ctx);
-    if (tab == COG_TAB_DISPLAY) {
-        values[0] = READOUT_DISPLAY;
+    if (tab == COG_TAB_PICTURE) {
+        values[0] = READOUT_PICTURE;
         for (int row = 0; row < PICTURE_VALUES; row++) {
             values[1 + row] = ctx->pictureUnits[row];
         }
@@ -1818,7 +1818,7 @@ void pictureSet(XrCtx* ctx, int row, int units) {
     ctx->gradeOn = !pictureNeutral(ctx->pictureUnits);
 }
 
-// The Display tab's reset: all four back to the picture as streamed, which
+// The Picture tab's reset: all four back to the picture as streamed, which
 // turns the grade off
 void pictureReset(XrCtx* ctx) {
     for (int row = 0; row < PICTURE_VALUES; row++) {

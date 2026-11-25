@@ -856,7 +856,7 @@ typedef struct XrCtx {
     float hintW, hintH;
     // Native (1.3.3): what the hint sheet is up for, HINT_KIND_HANDS or HINT_KIND_DEPTH_FULL
     int hintKind;
-    // Native (1.3.4): [display] foveated as the Display tab's row has it (FOVEATED_*), for the next stream
+    // Native (1.3.4): [display] foveated as the Picture tab's row has it (FOVEATED_*), for the next stream
     int foveated;
     // Native (1.3.4): whether Foveated rendering was on as this stream's settings were first read, once
     // known (foveatedStartKnown), so a change back to it says nothing about the next stream

@@ -248,25 +248,25 @@ static const SettingDesc TABLE[] = {
     DB("debug", "depth_debug", depth_debug, 0, "checkbox_vr_depth_debug: show the depth map in place of the picture"),
     DB("debug", "eye_swap", eye_swap, 0, "checkbox_vr_eye_swap: swap the left and right eye of the 3D picture (for a wrong-way test pattern)"),
     DE("debug", "file_log", file_log, LOG_NAMES, 1, "list_vr_file_log: off, basic (warnings and errors), verbose"),
-    // display tab
+    // the Picture, Room and Screen tabs
     DB("display", "head_locked", head_locked, 0, "Screen tab: head locked screen (checkbox_vr_head_locked)"),
     DB("display", "head_follow", head_follow, 0, "native: Screen tab, Head locked row's Follow cell: the screen stays in the world until the head turns past the leash, then eases after the gaze (head_locked wins when both are on)"),
     DI("display", "follow_leash_deg", follow_leash_deg, FOLLOW_LEASH_MIN_DEG, FOLLOW_LEASH_MAX_DEG, FOLLOW_LEASH_DEFAULT_DEG, "native: Follow mode's leash, degrees of head yaw or pitch away from the screen before it eases after the gaze"),
     DI("display", "zoom", zoom, 100, 400, 100, "native (PLAN 4b.6): zoom percent, 100 shows the whole picture and 400 a quarter of it across and down, filling the screen. The binding actions app:zoomin, app:zoomout and app:zoomreset step it, aimed at the controller's pointer. Remembered per PC and app with the layout (Remember per app)"),
     DI("display", "zoom_x", zoom_x, 0, 100, 50, "native (PLAN 4b.6): where the zoomed part is centred across the picture, percent (0 the left edge, 100 the right); held where the part still fits"),
     DI("display", "zoom_y", zoom_y, 0, 100, 50, "native (PLAN 4b.6): where the zoomed part is centred down the picture, percent (0 the top edge, 100 the bottom)"),
-    DE("display", "sharpening", sharpening, SHARP_NAMES, 1, "Display tab: sharpen (list_vr_sharpening; native default normal, the owner's choice after the 1.1.0 headset run, upstream quality)"),
-    DE("display", "supersampling", supersampling, SHARP_NAMES, 1, "Display tab: supersample (list_vr_supersampling; native default normal, the owner's choice, upstream off; never used with the 3D on)"),
+    DE("display", "sharpening", sharpening, SHARP_NAMES, 1, "Picture tab: sharpen (list_vr_sharpening; native default normal, the owner's choice after the 1.1.0 headset run, upstream quality)"),
+    DE("display", "supersampling", supersampling, SHARP_NAMES, 1, "Picture tab: supersample (list_vr_supersampling; native default normal, the owner's choice, upstream off; never used with the 3D on)"),
     DB("display", "picture_filter", picture_filter, 1, "native: sharper small text on the curved or 3D picture (MLXR_PICTURE_FILTER)"),
     DB("display", "chroma_from_luma", chroma_from_luma, 1, "native: sharper coloured text, colour fitted to the luma (MLXR_CHROMA_FROM_LUMA)"),
-    DB("display", "stats", stats, 0, "Display tab: show performance stats (true, false, or hud / lite to switch them on in the Compact / Minimal style)"),
+    DB("display", "stats", stats, 0, "Picture tab: show performance stats (true, false, or hud / lite to switch them on in the Compact / Minimal style)"),
     DE("display", "stats_style", stats_style, STATS_STYLE_NAMES, 0, "native: what the stats show: full (every line the session writes), hud (latency, network, decode and rate in a few lines) or lite (speed, latency, decode, loss and fps on one line); with stats on, a perf-<stamp>.csv next to vrtiming.log gets a row every 5 s"),
     DB("display", "glow", glow, 0, "Room tab: glow (checkbox_vr_ambilight; native default off, the owner's choice, upstream on)"),
     DI("display", "glow_level", glow_level, 0, 100, GLOW_LEVEL_DEFAULT, "Room tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
     DI("display", "glow_spread", glow_spread, GLOW_SPREAD_MIN, GLOW_SPREAD_MAX, GLOW_SPREAD_DEFAULT, "native: Room tab Glow spread, how far the glow reaches, percent of its most (about half the screen's longer side)"),
     DE("display", "foveated", foveated, FOVEATED_NAMES, FOVEATED_AUTO, "native: Foveated rendering: on (Valve's fdm_injection layer: full detail where you look, less at the edges) or off (slightly sharper, a little less GPU on the plain screen); auto is off in this version. From the next stream; MLXR_FDM_LAYER=0 turns it off whatever this says"),
     DB("display", "screen_light", screen_light, 1, "Room tab: screen light in rooms (checkbox_vr_room_light)"),
-    DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (Room is kept as this), display (Controls is kept as this), 3d, picture (opens Display), accessibility or about"),
+    DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (Room is kept as this), display (Controls is kept as this; opens Picture), 3d, picture, accessibility or about"),
     // 3d
     DI("3d", "separation", separation, -1, COG_SEP_STEPS, -1, "seekbar_vr_separation: tenths of a percent of frame width; -1 is the depth model's own (ZipDepth 6, MiDaS 5)"),
     DI("3d", "convergence", convergence, -1, 100, -1, "seekbar_vr_convergence: percent; -1 is the depth model's own (50)"),
@@ -1395,7 +1395,7 @@ int settings_picture_value(const Settings* s, int row) {
     return p ? *p : 0;
 }
 
-// ---- display tab ------------------------------------------------------------------------------
+// ---- picture tab ------------------------------------------------------------------------------
 
 void session_from_settings(const Settings* s, SessionToggles* t) {
     t->head_aim = s->head_aim;

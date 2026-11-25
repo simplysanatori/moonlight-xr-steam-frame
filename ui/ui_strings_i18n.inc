@@ -2,10 +2,9 @@
 // XR's (github.com/Gilleece/moonlight-android-xr) app/src/main/res/values-*/strings.xml at 75d92f2559a9.
 // Do not edit; run the script (docs/dev/i18n.md). Translations by upstream's translators
 // (CREDITS.md). GPLv3.
-// map: d8e2e9553a9be642
+// map: bf3e659eb58cb4d1
 // The English each translated key had when this was made (--verify fails when one changes):
 // en vr_panel_tab_screen 6e56137e
-// en vr_panel_tab_display 34e108c0
 // en vr_panel_3d fcffba98
 // en vr_panel_tab_picture 9a1c54f5
 // en vr_panel_tab_about 4efca0d1
@@ -141,7 +140,6 @@
 // cs (values-cs)
 static const char* const I18N_CS[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Obrazovka",
-    [UIS_TAB_DISPLAY] = "Zobrazení",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Obraz",
     [UIS_TAB_ABOUT] = "Info",
@@ -251,7 +249,6 @@ static const char* const I18N_CS[UIS_COUNT] = {
 // da (values-da)
 static const char* const I18N_DA[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Skærm",
-    [UIS_TAB_DISPLAY] = "Visning",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Billede",
     [UIS_TAB_ABOUT] = "Om",
@@ -361,7 +358,6 @@ static const char* const I18N_DA[UIS_COUNT] = {
 // de (values-de)
 static const char* const I18N_DE[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Bildschirm",
-    [UIS_TAB_DISPLAY] = "Anzeige",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Bild",
     [UIS_TAB_ABOUT] = "Info",
@@ -471,7 +467,6 @@ static const char* const I18N_DE[UIS_COUNT] = {
 // es (values-es)
 static const char* const I18N_ES[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Pantalla",
-    [UIS_TAB_DISPLAY] = "Vista",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Imagen",
     [UIS_TAB_ABOUT] = "Info",
@@ -581,7 +576,6 @@ static const char* const I18N_ES[UIS_COUNT] = {
 // fi (values-fi)
 static const char* const I18N_FI[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Ruutu",
-    [UIS_TAB_DISPLAY] = "Näkymä",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Kuva",
     [UIS_TAB_ABOUT] = "Tietoja",
@@ -691,7 +685,6 @@ static const char* const I18N_FI[UIS_COUNT] = {
 // fr (values-fr)
 static const char* const I18N_FR[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Écran",
-    [UIS_TAB_DISPLAY] = "Affichage",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Image",
     [UIS_TAB_ABOUT] = "À propos",
@@ -801,7 +794,6 @@ static const char* const I18N_FR[UIS_COUNT] = {
 // it (values-it)
 static const char* const I18N_IT[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Schermo",
-    [UIS_TAB_DISPLAY] = "Vista",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Immagine",
     [UIS_TAB_ABOUT] = "Info",
@@ -911,7 +903,6 @@ static const char* const I18N_IT[UIS_COUNT] = {
 // nb (values-nb-rNO)
 static const char* const I18N_NB[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Skjerm",
-    [UIS_TAB_DISPLAY] = "Visning",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Bilde",
     [UIS_TAB_ABOUT] = "Om",
@@ -1021,7 +1012,6 @@ static const char* const I18N_NB[UIS_COUNT] = {
 // nl (values-nl)
 static const char* const I18N_NL[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Scherm",
-    [UIS_TAB_DISPLAY] = "Weergave",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Beeld",
     [UIS_TAB_ABOUT] = "Info",
@@ -1131,7 +1121,6 @@ static const char* const I18N_NL[UIS_COUNT] = {
 // pl (values-pl)
 static const char* const I18N_PL[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Ekran",
-    [UIS_TAB_DISPLAY] = "Widok",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Obraz",
     [UIS_TAB_ABOUT] = "Info",
@@ -1241,7 +1230,6 @@ static const char* const I18N_PL[UIS_COUNT] = {
 // pt-BR (values-pt-rBR)
 static const char* const I18N_PT_BR[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Tela",
-    [UIS_TAB_DISPLAY] = "Exibição",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Imagem",
     [UIS_TAB_ABOUT] = "Sobre",
@@ -1351,7 +1339,6 @@ static const char* const I18N_PT_BR[UIS_COUNT] = {
 // sv (values-sv)
 static const char* const I18N_SV[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Skärm",
-    [UIS_TAB_DISPLAY] = "Visning",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Bild",
     [UIS_TAB_ABOUT] = "Om",
@@ -1461,7 +1448,6 @@ static const char* const I18N_SV[UIS_COUNT] = {
 // tr (values-tr)
 static const char* const I18N_TR[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Ekran",
-    [UIS_TAB_DISPLAY] = "Görünüm",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Görüntü",
     [UIS_TAB_ABOUT] = "Hakkında",
@@ -1571,7 +1557,6 @@ static const char* const I18N_TR[UIS_COUNT] = {
 // ru (values-ru)
 static const char* const I18N_RU[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Экран",
-    [UIS_TAB_DISPLAY] = "Вид",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Картинка",
     [UIS_TAB_ABOUT] = "Инфо",
@@ -1681,7 +1666,6 @@ static const char* const I18N_RU[UIS_COUNT] = {
 // uk (values-uk)
 static const char* const I18N_UK[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "Екран",
-    [UIS_TAB_DISPLAY] = "Вигляд",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "Картинка",
     [UIS_TAB_ABOUT] = "Інфо",
@@ -1791,7 +1775,6 @@ static const char* const I18N_UK[UIS_COUNT] = {
 // ja (values-ja)
 static const char* const I18N_JA[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "画面",
-    [UIS_TAB_DISPLAY] = "表示",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "画質",
     [UIS_TAB_ABOUT] = "情報",
@@ -1901,7 +1884,6 @@ static const char* const I18N_JA[UIS_COUNT] = {
 // ko (values-ko)
 static const char* const I18N_KO[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "화면",
-    [UIS_TAB_DISPLAY] = "표시",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "화질",
     [UIS_TAB_ABOUT] = "정보",
@@ -2011,7 +1993,6 @@ static const char* const I18N_KO[UIS_COUNT] = {
 // zh-CN (values-zh-rCN)
 static const char* const I18N_ZH_CN[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "屏幕",
-    [UIS_TAB_DISPLAY] = "显示",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "画面",
     [UIS_TAB_ABOUT] = "关于",
@@ -2121,7 +2102,6 @@ static const char* const I18N_ZH_CN[UIS_COUNT] = {
 // zh-TW (values-zh-rTW)
 static const char* const I18N_ZH_TW[UIS_COUNT] = {
     [UIS_TAB_SCREEN] = "螢幕",
-    [UIS_TAB_DISPLAY] = "顯示",
     [UIS_TAB_3D] = "3D",
     [UIS_TAB_PICTURE] = "畫面",
     [UIS_TAB_ABOUT] = "關於",

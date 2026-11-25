@@ -1,4 +1,4 @@
-// The settings panel: seven tabs (Screen, Room, Display, 3D, Controls, Accessibility, About).
+// The settings panel: seven tabs (Screen, Room, Picture, 3D, Controls, Accessibility, About).
 // XrPanels.buildCogSheet and its drawCog* helpers, with the things upstream
 // puts on separate quads (thumbs, the marks on the cells in force, the values
 // beside the tracks) drawn into the same buffer from the settings, so one
@@ -181,7 +181,7 @@ static void line_fit_center(Dc* dc, float size, float x, float baseline, float r
 
 static void chrome(Dc* dc, int tab) {
     dc_sheet(dc, 32.0f, 0xF0141416u);
-    static const UiStr TABS[COG_TAB_COUNT] = { UIS_TAB_SCREEN, UIS_TAB_ROOM, UIS_TAB_DISPLAY, UIS_TAB_3D,
+    static const UiStr TABS[COG_TAB_COUNT] = { UIS_TAB_SCREEN, UIS_TAB_ROOM, UIS_TAB_PICTURE, UIS_TAB_3D,
                                                UIS_TAB_CONTROLS, UIS_TAB_ACCESS, UIS_TAB_ABOUT };
     float bar_b = COG_TAB_BAR_B * dc->nh;
     for (int i = 0; i < COG_TAB_COUNT; i++) {
@@ -253,7 +253,7 @@ static const char* row_name(int tab, int row) {
     };
     int option = cogRowOption(tab, row);
     return ui_str(option >= 0 ? OPTIONS[option].name : tab == COG_TAB_SCREEN ? SCREEN[row] : tab == COG_TAB_ROOM ? ROOM[row]
-                  : tab == COG_TAB_DISPLAY ? PICTURE[row] : CONTROLS[row]);
+                  : tab == COG_TAB_PICTURE ? PICTURE[row] : CONTROLS[row]);
 }
 
 // A live option row of any tab: its name, its cells, the one in force ringed
@@ -380,24 +380,24 @@ static void picture_text(int row, int units, char* out, size_t cap) {
     }
 }
 
-static void tab_display(Dc* dc) {
+static void tab_picture(Dc* dc) {
     const Settings* s = dc->v->settings;
     static const int MIN[PICTURE_VALUES] = { PICTURE_BRIGHTNESS_MIN, PICTURE_CONTRAST_MIN, PICTURE_GAMMA_MIN, PICTURE_SATURATION_MIN };
     static const int MAX[PICTURE_VALUES] = { PICTURE_BRIGHTNESS_MAX, PICTURE_CONTRAST_MAX, PICTURE_GAMMA_MAX, PICTURE_SATURATION_MAX };
     static const int DEF[PICTURE_VALUES] = { PICTURE_BRIGHTNESS_DEFAULT, PICTURE_CONTRAST_DEFAULT, PICTURE_GAMMA_DEFAULT,
                                              PICTURE_SATURATION_DEFAULT };
-    for (int row = 0; row < COG_DISPLAY_ROW_COUNT; row++) {
-        if (cogRowOption(COG_TAB_DISPLAY, row) >= 0) {
-            option_row(dc, COG_TAB_DISPLAY, row);
+    for (int row = 0; row < COG_PICTURE_ROW_COUNT; row++) {
+        if (cogRowOption(COG_TAB_PICTURE, row) >= 0) {
+            option_row(dc, COG_TAB_PICTURE, row);
             continue;
         }
         int units = settings_picture_value(s, row);
         char buf[24];
         picture_text(row, units, buf, sizeof buf);
-        track_row(dc, COG_TAB_DISPLAY, row, row_name(COG_TAB_DISPLAY, row), lanePlace(DEF[row], MIN[row], MAX[row]),
+        track_row(dc, COG_TAB_PICTURE, row, row_name(COG_TAB_PICTURE, row), lanePlace(DEF[row], MIN[row], MAX[row]),
                   lanePlace(units, MIN[row], MAX[row]), buf);
     }
-    reset_button(dc, reset_live(dc->v, COG_TAB_DISPLAY));
+    reset_button(dc, reset_live(dc->v, COG_TAB_PICTURE));
 }
 
 // The Mode row, with the controllers' own shortcut under its label
@@ -877,7 +877,7 @@ void panel_cog(Dc* dc) {
     switch (tab) {
     case COG_TAB_SCREEN: tab_screen(dc); break;
     case COG_TAB_ROOM: tab_room(dc); break;
-    case COG_TAB_DISPLAY: tab_display(dc); break;
+    case COG_TAB_PICTURE: tab_picture(dc); break;
     case COG_TAB_3D: tab_3d(dc); break;
     case COG_TAB_CONTROLS: tab_controls(dc); break;
     case COG_TAB_ACCESS: tab_access(dc); break;

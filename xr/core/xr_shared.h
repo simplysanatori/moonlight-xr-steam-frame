@@ -158,7 +158,7 @@
 #define TOAST_HEAD_AIM_ON 7
 #define TOAST_GAMEPAD_MODE 8
 #define TOAST_POINTER_MODE 9
-// Native (1.3.4): Foveated rendering changed on the Display tab mid-stream; arg 1 adds the line that
+// Native (1.3.4): Foveated rendering changed on the Picture tab mid-stream; arg 1 adds the line that
 // it applies from the next stream (the choice differs from what this stream started with)
 #define TOAST_FOVEATED_OFF 10
 #define TOAST_FOVEATED_ON 11
@@ -222,13 +222,13 @@
 // Which room a room's own setting belongs to, as the picker cell showing it,
 // or -1 with no room up. Every frame, since each room keeps its own values.
 #define IN_SETTING_ROOM 23
-// What is said beside the tracks of the Room, Display, Screen or Controls tab.
+// What is said beside the tracks of the Room, Picture, Screen or Controls tab.
 // First which of them it is for, one of the READOUT_ values, or -1 while none
 // is up, then a value for each (cogReadouts).
 #define IN_READOUT  24
 #define READOUT_VALUES 6
 #define READOUT_ROOM 0
-#define READOUT_DISPLAY 1
+#define READOUT_PICTURE 1
 #define READOUT_SCREEN 2
 #define READOUT_CONTROLS 3
 // 1 while the 3D is on, and 0 once the bar or the 3D tab has switched it off
@@ -353,7 +353,7 @@
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
-// The Display tab's Stats row, its cell: 0 off (the style stays), 1 Full, 2
+// The Picture tab's Stats row, its cell: 0 off (the style stays), 1 Full, 2
 // Compact, 3 Minimal, stored as stats and stats_style
 #define SETTING_STATS   1
 #define SETTING_SEPARATION 2
@@ -443,7 +443,7 @@
 #define PICTURE_SATURATION_MIN 0
 #define PICTURE_SATURATION_MAX 200
 #define PICTURE_SATURATION_DEFAULT 100
-// The four in the order the Display tab draws them, its first rows, which is
+// The four in the order the Picture tab draws them, its first rows, which is
 // also the order they travel in wherever they go together
 #define PICTURE_BRIGHTNESS 0
 #define PICTURE_CONTRAST 1
@@ -558,7 +558,7 @@
 // rows it sets itself and the Room tab greys its own outside one.
 #define COG_TAB_SCREEN   0
 #define COG_TAB_ROOM     1
-#define COG_TAB_DISPLAY  2
+#define COG_TAB_PICTURE  2
 #define COG_TAB_3D       3
 #define COG_TAB_CONTROLS 4
 #define COG_TAB_ACCESS   5
@@ -750,21 +750,21 @@
 #define COG_REPORT_T 0.69f
 #define COG_REPORT_B 0.81f
 
-// Display tab rows, in the order they are drawn: the four PICTURE_ values,
+// Picture tab rows, in the order they are drawn: the four PICTURE_ values,
 // each a track with a tick at the picture as streamed, which the reset button
 // puts back (live in every session and every room, since the grade only
 // changes colours), then rows of cells
-#define COG_DISPLAY_ROW_SHARPEN 4
-#define COG_DISPLAY_ROW_SUPERSAMPLE 5
-#define COG_DISPLAY_ROW_FOVEATED 6
-#define COG_DISPLAY_ROW_STATS 7
-#define COG_DISPLAY_ROW_NOTICES 8
-#define COG_DISPLAY_ROW_COUNT 9
+#define COG_PICTURE_ROW_SHARPEN 4
+#define COG_PICTURE_ROW_SUPERSAMPLE 5
+#define COG_PICTURE_ROW_FOVEATED 6
+#define COG_PICTURE_ROW_STATS 7
+#define COG_PICTURE_ROW_NOTICES 8
+#define COG_PICTURE_ROW_COUNT 9
 // Nine rows over the reset button. The last row's band ends at 0.838.
-#define COG_DISPLAY_ROW_V0 0.205f
-#define COG_DISPLAY_ROW_STEP 0.0745f
-#define COG_DISPLAY_ROW_HALF 0.037f
-#define COG_DISPLAY_CELL_HALF 0.031f
+#define COG_PICTURE_ROW_V0 0.205f
+#define COG_PICTURE_ROW_STEP 0.0745f
+#define COG_PICTURE_ROW_HALF 0.037f
+#define COG_PICTURE_CELL_HALF 0.031f
 
 // Controls tab rows, in the order they are drawn: Mode (Pointer or Gamepad,
 // what the controllers are, the bar's button for the session), what the ray
@@ -968,7 +968,7 @@
 // in the OK button's place and Cancel in the other's.
 #define HINT_KIND_HANDS 0
 #define HINT_KIND_DEPTH_FULL 1
-// Native (1.3.4): and the passthrough questions, the Display tab's Show controllers row and Glow's On
+// Native (1.3.4): and the passthrough questions, the Controls tab's Show controllers row and Glow's On
 // while passthrough is on: "Controllers in Passthrough?" and "Glow in Passthrough?"
 #define HINT_KIND_PT_CONTROLLERS 2
 #define HINT_KIND_PT_GLOW 3

@@ -11,7 +11,6 @@
 #define UI_STRINGS(X) \
     /* settings panel tabs and rows (vr_panel_*) */ \
     X(TAB_SCREEN, "vr_panel_tab_screen", "Screen") \
-    X(TAB_DISPLAY, "vr_panel_tab_display", "Display") \
     X(TAB_3D, "vr_panel_3d", "3D") \
     X(TAB_PICTURE, "vr_panel_tab_picture", "Picture") \
     X(TAB_ABOUT, "vr_panel_tab_about", "About") \
@@ -55,7 +54,7 @@
     X(GAMEPAD, "vr_panel_gamepad", "Gamepad") \
     X(ROW_GLOW_LEVEL, "vr_panel_glow_level", "Glow level") \
     X(ROW_NOTICES, "vr_panel_notices", "Notices") \
-    /* native (1.3.4): the Display tab's Foveated rendering row (approved text) */ \
+    /* native (1.3.4): the Picture tab's Foveated rendering row (approved text) */ \
     X(ROW_FOVEATED, "native_row_foveated", "Foveated rendering") \
     X(ROW_CLICK_STEADY, "vr_panel_click_steadiness", "Click steadiness") \
     X(ROW_MOUSE_MODE, "native_mouse_mode", "Mouse mode") \

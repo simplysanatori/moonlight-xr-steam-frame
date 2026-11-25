@@ -3692,7 +3692,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             // The room's own size, the one row of the tab's placement a room has
             roomSizeReset(ctx, f->out);
         }
-        else if (onReset && ctx->triggerEdge[h] && face == COG_TAB_DISPLAY) {
+        else if (onReset && ctx->triggerEdge[h] && face == COG_TAB_PICTURE) {
             // All four colours at once, written by the same road
             pictureReset(ctx);
             f->out[IN_SETTING] = (float)SETTING_RESET_PICTURE;
