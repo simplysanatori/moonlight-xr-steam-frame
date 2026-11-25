@@ -81,17 +81,20 @@ int main(int argc, char** argv) {
     shot(s, "03b-bar-here-hover", NULL);
     scene_reset(s);
 
-    // Native (lane a11y-tab): the golden names the tabs had before Accessibility came in before
-    // About stay, and Accessibility's sits between Picture's and About's
-    static const char* const TABS[COG_TAB_COUNT] = { "04-cog-screen", "05-cog-display", "06-cog-3d", "07-cog-picture",
-                                                     "07b-cog-accessibility", "08-cog-about" };
+    // Native (1.3.4): Room after Screen and Controls after 3D; the other tabs keep their goldens' names
+    static const char* const TABS[COG_TAB_COUNT] = { "04-cog-screen", "04b-cog-room", "05-cog-picture", "06-cog-3d",
+                                                     "07-cog-controls", "07b-cog-accessibility", "08-cog-about" };
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
         scene_reset(s);
         c->cogOpen = 1;
         c->cogTab = tab;
         c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
-        if (tab == COG_TAB_DISPLAY) {
-            c->cogHoverSlider = COG_OPTION_RAY;
+        if (tab == COG_TAB_CONTROLS) {
+            c->cogHoverSlider = COG_CONTROLS_ROW_RAY;
+            c->cogHoverCell = 1;
+        }
+        else if (tab == COG_TAB_ROOM) {
+            c->cogHoverSlider = COG_ROOM_ROW_GLOW;
             c->cogHoverCell = 1;
         }
         else if (tab == COG_TAB_SCREEN) {
@@ -140,7 +143,7 @@ int main(int argc, char** argv) {
     // slow connection badge
     scene_reset(s);
     c->cogOpen = 1;
-    c->cogTab = COG_TAB_DISPLAY;
+    c->cogTab = COG_TAB_PICTURE;
     c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
     c->batteryPresent = 1;
     c->batteryPercent = 87;

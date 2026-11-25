@@ -15,6 +15,7 @@
 #include "xr_cards.h"
 #include "xr_dwell.h"
 #include "xr_headaim.h"
+#include "xr_layout.h"
 #include "xr_lightgun.h"
 #include "xr_padgyro.h"
 #include "xr_shared.h"
@@ -609,7 +610,7 @@ static void test_notices(void) {
     text = settings_to_text(&s);
     CHECK(text != NULL && strstr(text, "\n#notices = all\n") != NULL);
     free(text);
-    // the Display tab's row reads it
+    // the Picture tab's row reads it
     SessionToggles t;
     session_from_settings(&s, &t);
     s.notices = NOTICES_OFF;
@@ -665,7 +666,7 @@ static void test_controller_model(void) {
     text = settings_to_text(&s);
     CHECK(text != NULL && strstr(text, "\n#controller_model = off\n") != NULL);
     free(text);
-    // The Display tab's row: a cell for each kind but custom, which marks none of them
+    // The Controls tab's row: a cell for each kind but custom, which marks none of them
     SessionToggles t;
     session_from_settings(&s, &t);
     for (int k = CONTROLLER_MODEL_OFF; k < CONTROLLER_MODEL_COUNT; k++) {
@@ -676,35 +677,35 @@ static void test_controller_model(void) {
 }
 
 // The cog opens on the tab it was last left on: [display] cog_tab, the tab
-// names in COG_TAB_ order, screen to start with
+// names the file always had (the seven tabs of 1.3.4 are cogTabFromFile's), screen to start with
 static void test_cog_tab(void) {
     Settings s;
     SettingsLoadInfo info;
     settings_defaults(&s);
-    CHECK(s.cog_tab == COG_TAB_SCREEN);
+    CHECK(cogTabFromFile(s.cog_tab) == COG_TAB_SCREEN);
     settings_from_text(&s, "[display]\ncog_tab = display\n", &info);
-    CHECK(s.cog_tab == COG_TAB_DISPLAY && info.applied == 1 && info.bad == 0);
+    CHECK(cogTabFromFile(s.cog_tab) == COG_TAB_PICTURE && info.applied == 1 && info.bad == 0);
     settings_from_text(&s, "[display]\ncog_tab = 3d\n", &info);
-    CHECK(s.cog_tab == COG_TAB_3D);
+    CHECK(cogTabFromFile(s.cog_tab) == COG_TAB_3D);
     settings_from_text(&s, "[display]\ncog_tab = picture\n", &info);
-    CHECK(s.cog_tab == COG_TAB_PICTURE);
+    CHECK(cogTabFromFile(s.cog_tab) == COG_TAB_PICTURE && s.cog_tab == 3 && info.bad == 0);
     settings_from_text(&s, "[display]\ncog_tab = about\n", &info);
-    CHECK(s.cog_tab == COG_TAB_ABOUT);
+    CHECK(cogTabFromFile(s.cog_tab) == COG_TAB_ABOUT);
     // native (lane a11y-tab): the Accessibility tab, kept by name like the others
     settings_from_text(&s, "[display]\ncog_tab = accessibility\n", &info);
-    CHECK(s.cog_tab == COG_TAB_ACCESS && info.bad == 0);
+    CHECK(cogTabFromFile(s.cog_tab) == COG_TAB_ACCESS && info.bad == 0);
     {
         char* t = settings_to_text(&s);
         CHECK(t != NULL && strstr(t, "\ncog_tab = accessibility\n") != NULL);
         free(t);
     }
     settings_from_text(&s, "[display]\ncog_tab = 1\n", &info);   // an index works too
-    CHECK(s.cog_tab == COG_TAB_DISPLAY);
+    CHECK(cogTabFromFile(s.cog_tab) == COG_TAB_PICTURE);
     settings_from_text(&s, "[display]\ncog_tab = sound\n", &info);   // not a tab: the last good one stays
-    CHECK(s.cog_tab == COG_TAB_DISPLAY && info.bad == 1);
+    CHECK(cogTabFromFile(s.cog_tab) == COG_TAB_PICTURE && info.bad == 1);
     settings_from_text(&s, "[display]\ncog_tab = 9\n", &info);
-    CHECK(s.cog_tab == COG_TAB_DISPLAY && info.bad == 1);
-    s.cog_tab = COG_TAB_3D;
+    CHECK(cogTabFromFile(s.cog_tab) == COG_TAB_PICTURE && info.bad == 1);
+    s.cog_tab = cogTabToFile(COG_TAB_3D);
     char* text = settings_to_text(&s);
     CHECK(text != NULL && strstr(text, "\ncog_tab = 3d\n") != NULL);
     free(text);
@@ -1358,7 +1359,7 @@ static void test_sliders(void) {
     CHECK(s.picture_gamma == 100 && settings_picture_value(&s, PICTURE_GAMMA) == 100);
     CHECK(settings_picture_ptr(&s, 7) == NULL);
 
-    // the Display tab's cells from the settings and the session
+    // the options' cells from the settings and the session
     settings_defaults(&s);
     SessionToggles t;
     session_from_settings(&s, &t);
@@ -1454,10 +1455,10 @@ static void test_stats_style(void) {
     CHECK(back.stats == 1 && back.stats_style == 1);
     CHECK(strstr(text, "\nstats_style = hud\n") != NULL);
     free(text);
-    // the cog row shows on or off for every style
+    // the cog's Stats row (1.3.4) shows Off, or the style
     SessionToggles t;
     session_from_settings(&s, &t);
-    CHECK(settings_option_cell(&s, &t, COG_OPTION_STATS) == 1);
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_STATS) == 1 + s.stats_style && s.stats_style == 1);
 }
 
 // The Head locked row's third cell, the leash, the per app switch and the
@@ -1967,7 +1968,7 @@ static void test_surroundings(void) {
     Settings same = s;
     settings_from_text(&same, "[display]\nglow_feather = huge\nglow_behind = sharp\nglow_bezel = -3\n", &info);
     CHECK(info.bad == 0 && same.glow == 1 && same.glow_level == 70);
-    settings_reset_picture(&s);
+    settings_reset_room(&s);
     CHECK(s.glow_spread == GLOW_SPREAD_DEFAULT && s.glow == 1);
 
     // through the file and back, as typed
@@ -2011,13 +2012,20 @@ static void test_surroundings(void) {
     rgb[0] = 1.0f;
     CHECK(settings_void_rgb(&s, rgb) == 1 && rgb[0] == 0.0f && rgb[1] == 0.0f && rgb[2] == 0.0f);
 
-    // the Picture tab's Reset takes the two rows with it, and leaves the colour
+    // the Picture tab's Reset takes the colour rows, the Room tab's the surroundings (1.3.4), and
+    // neither the void's colour
     s.bg_dim = 80;
     s.glow_spread = 75;
     s.picture_gamma = 150;
     settings_set_str(&s, settings_find("void_color"), "#102030");
+    s.glow_level = 80;
+    Settings room = s;
     settings_reset_picture(&s);
-    CHECK(s.bg_dim == BG_DIM_DEFAULT && s.glow_spread == GLOW_SPREAD_DEFAULT && s.picture_gamma == 100);
+    CHECK(s.bg_dim == 80 && s.glow_spread == 75 && s.glow_level == 80 && s.picture_gamma == 100);
+    settings_reset_room(&room);
+    CHECK(room.bg_dim == BG_DIM_DEFAULT && room.glow_spread == GLOW_SPREAD_DEFAULT
+          && room.glow_level == GLOW_LEVEL_DEFAULT && room.picture_gamma == 150);
+    settings_reset_room(&s);
     CHECK(strcmp(gets(&s, "void_color"), "#102030") == 0);
     s.eye_balance = 40;
     settings_reset_3d(&s);
@@ -2064,14 +2072,14 @@ static void test_foveated(void) {
     CHECK(settings_fdm_layer_off(&s, NULL, &why) == 1 && strcmp(why, "[display] foveated") == 0);
     CHECK(settings_fdm_layer_off(&s, "", NULL) == 1);
     CHECK(settings_fdm_layer_off(&s, "1", &why) == 0 && strcmp(why, "MLXR_FDM_LAYER") == 0);
-    // the Display tab's row: On 0, Off 1 (the approved order); auto shows Off
+    // the Picture tab's row: Off 0, On 1, as every other row; auto shows Off
     SessionToggles t;
     session_from_settings(&s, &t);
-    CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 1);
-    s.foveated = FOVEATED_AUTO;
-    CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 1);
-    s.foveated = FOVEATED_ON;
     CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 0);
+    s.foveated = FOVEATED_AUTO;
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 0);
+    s.foveated = FOVEATED_ON;
+    CHECK(settings_option_cell(&s, &t, COG_OPTION_FOVEATED) == 1);
     CHECK(settings_find("display.foveated") != NULL && settings_find("foveated") != NULL);
 }
 

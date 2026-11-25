@@ -126,34 +126,34 @@ static void roundTripChanged(void) {
     free(ctx);
 }
 
-// Native (lane wave3-visual): the Picture tab's Background and (issue #7) Glow spread rows
+// Native (lane wave3-visual): the Room tab's Background dim and (issue #7) Glow spread rows
 // through the panel's own code (drag, step, reset) and config.ini, and what the
 // backdrop behind the picture comes to
 static void surroundingsRows(void) {
     Scene* sc = scene_new();
     XrCtx* c = sc->ctx;
     float out[IN_SLOTS];
-    CHECK(cogTabRowCount(COG_TAB_PICTURE) == PICTURE_TAB_ROWS);
-    CHECK(cogRowIsTrack(COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND) && cogRowIsTrack(COG_TAB_PICTURE, PICTURE_ROW_GLOW_SPREAD));
+    CHECK(cogTabRowCount(COG_TAB_ROOM) == COG_ROOM_ROW_COUNT);
+    CHECK(cogRowIsTrack(COG_TAB_ROOM, COG_ROOM_ROW_BG_DIM) && cogRowIsTrack(COG_TAB_ROOM, COG_ROOM_ROW_GLOW_SPREAD));
     CHECK(c->bgDim == 0 && c->glowSpread == GLOW_SPREAD_DEFAULT && c->eyeBalance == 0.0f);
 
     // Background: whole five percent steps, the thumb and the file agree
     for (int step = 0; step <= 20; step++) {
-        cogApplySlider(c, COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND, cogRunU(step / 20.0f));
+        cogApplySlider(c, COG_TAB_ROOM, COG_ROOM_ROW_BG_DIM, cogRunU(step / 20.0f));
         CHECK(c->bgDim == step * 5);
-        CHECK_NEAR(cogSliderValue(c, COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND), step / 20.0, 1e-5);
+        CHECK_NEAR(cogSliderValue(c, COG_TAB_ROOM, COG_ROOM_ROW_BG_DIM), step / 20.0, 1e-5);
         Settings live = sc->settings;
         xrSettingsFromCtx(c, &live);
         CHECK(live.bg_dim == step * 5);
     }
     // between two steps it lands on the nearer
-    cogApplySlider(c, COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND, cogRunU(0.31f));
+    cogApplySlider(c, COG_TAB_ROOM, COG_ROOM_ROW_BG_DIM, cogRunU(0.31f));
     CHECK(c->bgDim == 30);
     // letting go hands the value to the file
     memset(out, 0, sizeof(out));
     out[IN_SETTING] = -1;
-    c->cogDragSlider = PICTURE_ROW_BACKGROUND;
-    c->cogDragFace = COG_TAB_PICTURE;
+    c->cogDragSlider = COG_ROOM_ROW_BG_DIM;
+    c->cogDragFace = COG_TAB_ROOM;
     cogDragEnded(c, out);
     CHECK((int)out[IN_SETTING] == SETTING_BG_DIM && (int)out[IN_SETTING_VALUE] == 30);
     Settings s;
@@ -165,21 +165,21 @@ static void surroundingsRows(void) {
     // a press on a step button moves it five percent and writes it
     memset(out, 0, sizeof(out));
     out[IN_SETTING] = -1;
-    cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND, 1, out);
+    cogStepTrack(c, COG_TAB_ROOM, COG_ROOM_ROW_BG_DIM, 1, out);
     CHECK(c->bgDim == 35 && (int)out[IN_SETTING] == SETTING_BG_DIM && (int)out[IN_SETTING_VALUE] == 35);
-    cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND, -1, out);
+    cogStepTrack(c, COG_TAB_ROOM, COG_ROOM_ROW_BG_DIM, -1, out);
     CHECK(c->bgDim == 30);
 
     // Native (issue #7): Glow spread, five percent steps
     for (int v = GLOW_SPREAD_MIN; v <= GLOW_SPREAD_MAX; v += GLOW_SPREAD_STEP) {
         float t = (float)(v - GLOW_SPREAD_MIN) / (GLOW_SPREAD_MAX - GLOW_SPREAD_MIN);
-        cogApplySlider(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_SPREAD, cogRunU(t));
+        cogApplySlider(c, COG_TAB_ROOM, COG_ROOM_ROW_GLOW_SPREAD, cogRunU(t));
         CHECK(c->glowSpread == v);
-        CHECK_NEAR(cogSliderValue(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_SPREAD), t, 1e-5);
+        CHECK_NEAR(cogSliderValue(c, COG_TAB_ROOM, COG_ROOM_ROW_GLOW_SPREAD), t, 1e-5);
     }
     memset(out, 0, sizeof(out));
     out[IN_SETTING] = -1;
-    cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_SPREAD, -1, out);
+    cogStepTrack(c, COG_TAB_ROOM, COG_ROOM_ROW_GLOW_SPREAD, -1, out);
     CHECK(c->glowSpread == 95 && (int)out[IN_SETTING] == SETTING_GLOW_SPREAD && (int)out[IN_SETTING_VALUE] == 95);
     CHECK(xrStoreSetting(c, &s, SETTING_GLOW_SPREAD, 95) == 1 && s.glow_spread == 95);
     // the glow's image is redrawn when the spread moves
@@ -192,16 +192,32 @@ static void surroundingsRows(void) {
     c->glowSpread = 60;
     CHECK(glowStale(c) == 1);
 
-    // Reset takes both back, with the grade
-    pictureReset(c);
+    // The Room tab's Reset takes both back, with the glow's level, and leaves the grade; the Display
+    // tab's takes the grade back and leaves them
+    c->ambiIntensity = 0.8f;
+    c->bgDim = 60;
+    c->pictureUnits[0] = 20;
+    surroundingsReset(c);
     CHECK(c->bgDim == BG_DIM_DEFAULT && c->glowSpread == GLOW_SPREAD_DEFAULT);
+    CHECK_NEAR(c->ambiIntensity, GLOW_LEVEL_DEFAULT / 100.0, 1e-6);
+    CHECK(c->pictureUnits[0] == 20);
+    c->bgDim = 60;
+    pictureReset(c);
+    CHECK(c->bgDim == 60 && c->pictureUnits[0] == 0);
+    c->bgDim = 0;
     s.bg_dim = 60;
     s.glow_spread = 85;
+    s.glow_level = 80;
+    s.picture_contrast = 130;
     CHECK(xrStoreSetting(c, &s, SETTING_RESET_PICTURE, 0) == 1);
-    CHECK(s.bg_dim == 0 && s.glow_spread == GLOW_SPREAD_DEFAULT);
+    CHECK(s.picture_contrast == 100 && s.bg_dim == 60 && s.glow_spread == 85 && s.glow_level == 80);
+    s.picture_contrast = 130;
+    CHECK(xrStoreSetting(c, &s, SETTING_RESET_ROOM, 0) == 1);
+    CHECK(s.bg_dim == 0 && s.glow_spread == GLOW_SPREAD_DEFAULT && s.glow_level == GLOW_LEVEL_DEFAULT && s.picture_contrast == 130);
+    CHECK(xrStoreSetting(c, &s, SETTING_RESET_ROOM, 0) == 0);
 
     // Not rows past the end
-    cogApplySlider(c, COG_TAB_PICTURE, PICTURE_TAB_ROWS, cogRunU(1.0f));
+    cogApplySlider(c, COG_TAB_ROOM, COG_ROOM_ROW_COUNT, cogRunU(1.0f));
     CHECK(c->bgDim == 0 && c->glowSpread == GLOW_SPREAD_DEFAULT);
 
     // The backdrop: a dimmed passthrough's black, a coloured void's colour
@@ -283,7 +299,7 @@ static void thumbsAgree(void) {
             CHECK_NEAR(drawn, logic, 0.01);
         }
     }
-    // The picture rows and head aim's: through pictureSet and config.ini
+    // The colour rows: through pictureSet and config.ini
     for (int row = 0; row < PICTURE_VALUES; row++) {
         cogApplySlider(c, COG_TAB_PICTURE, row, cogRunU(0.75f));
         Settings live = s->settings;
@@ -319,6 +335,8 @@ static void storeSettings(void) {
         { SETTING_PICTURE_CONTRAST, 130, &s.picture_contrast, 130 },
         { SETTING_PICTURE_GAMMA, 80, &s.picture_gamma, 80 },
         { SETTING_PICTURE_SATURATION, 0, &s.picture_saturation, 0 },
+        { SETTING_MOUSE_MODE, 1, &s.mouse_mode, 1 },
+        { SETTING_SCROLL_SPEED, 150, &s.scroll_speed, 150 },
     };
     for (size_t i = 0; i < sizeof(T) / sizeof(T[0]); i++) {
         int changed = xrStoreSetting(c, &s, T[i].id, T[i].value);
@@ -336,7 +354,7 @@ static void storeSettings(void) {
     for (int cell = 0; cell < 3; cell++) {
         memset(out, 0, sizeof(out));
         out[IN_SETTING] = -1;
-        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_RAY, cell, out);
+        scene_press_option(c, COG_OPTION_RAY, cell, out);
         CHECK((int)out[IN_SETTING] == SETTING_POINTER_DOT);
         CHECK(cogOptionValue(c, COG_OPTION_RAY, 0) == cell);
         xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
@@ -455,7 +473,7 @@ static void rayRowSaved(void) {
         float out[IN_SLOTS];
         memset(out, 0, sizeof(out));
         out[IN_SETTING] = -1;
-        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_RAY, cell, out);
+        scene_press_option(c, COG_OPTION_RAY, cell, out);
         CHECK((int)out[IN_SETTING] == SETTING_POINTER_DOT);
         // a cell that matches the defaults reports no change, the others do
         int changed = xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
@@ -489,14 +507,14 @@ static void rayRowSaved(void) {
         // and the cog's own choice afterwards replaces the flip
         memset(out, 0, sizeof(out));
         out[IN_SETTING] = -1;
-        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_RAY, 2, out);
+        scene_press_option(c, COG_OPTION_RAY, 2, out);
         xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
         CHECK(s.show_ray == 1 && raySwitchOn(c->raySetting, c->rayFlipped) == 1);
         scene_free(sc);
     }
 }
 
-// The Display tab's Show controllers row (Off / Frame / Gun): applied to the context,
+// The Controls tab's Show controllers row (Off / Frame / Gun): applied to the context,
 // stored as the kind, round-tripped through config.ini into the next session, which loads that
 // kind. Custom has no cell: it comes from the file, shows no cell marked, and survives the row's
 // other cells being read
@@ -510,7 +528,7 @@ static void controllerModelRow(void) {
         float out[IN_SLOTS];
         memset(out, 0, sizeof(out));
         out[IN_SETTING] = -1;
-        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS, cell, out);
+        scene_press_option(c, COG_OPTION_CONTROLLERS, cell, out);
         CHECK((int)out[IN_SETTING] == SETTING_CONTROLLER_MODEL && (int)out[IN_SETTING_VALUE] == cell);
         CHECK(c->modelOn == (cell != 0) && c->modelKind == cell);
         CHECK(cogOptionValue(c, COG_OPTION_CONTROLLERS, 0) == cell);
@@ -596,13 +614,13 @@ static void passthroughSheets(void) {
     memset(out, 0, sizeof(out));
     out[IN_SETTING] = -1;
     c->cogOpen = 1;
-    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS, 0, out);
+    scene_press_option(c, COG_OPTION_CONTROLLERS, 0, out);
     CHECK((int)out[IN_SETTING] == -1 && c->hintOpen && c->hintKind == HINT_KIND_PT_CONTROLLERS && !c->cogOpen);
     CHECK(c->modelOn && c->modelKind == CONTROLLER_MODEL_GUN);
     ptSheetAnswer(c, 0, out);
     CHECK((int)out[IN_SETTING] == -1 && !c->hintOpen && c->cogOpen && xrPassthroughHidesModels(c));
     // I Understand: stored, and the Gun is drawn in passthrough
-    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS, 2, out);
+    scene_press_option(c, COG_OPTION_CONTROLLERS, 2, out);
     CHECK(c->hintOpen && c->hintKind == HINT_KIND_PT_CONTROLLERS);
     ptSheetAnswer(c, 1, out);
     CHECK((int)out[IN_SETTING] == SETTING_PT_CONTROLLERS_OK && (int)out[IN_SETTING_VALUE] == 1);
@@ -613,7 +631,7 @@ static void passthroughSheets(void) {
     // after it the row is an ordinary one: Off at once, no question
     memset(out, 0, sizeof(out));
     out[IN_SETTING] = -1;
-    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS, 0, out);
+    scene_press_option(c, COG_OPTION_CONTROLLERS, 0, out);
     CHECK(!c->hintOpen && (int)out[IN_SETTING] == SETTING_CONTROLLER_MODEL && !c->modelOn);
 
     // The glow: on in settings, but none in passthrough, and the row shows Off
@@ -625,17 +643,17 @@ static void passthroughSheets(void) {
     // Off is no question
     memset(out, 0, sizeof(out));
     out[IN_SETTING] = -1;
-    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT, 0, out);
+    scene_press_option(c, COG_OPTION_AMBILIGHT, 0, out);
     CHECK(!c->hintOpen && (int)out[IN_SETTING] == SETTING_AMBILIGHT && !c->ambilightOn);
     // On asks; Cancel leaves it off
     memset(out, 0, sizeof(out));
     out[IN_SETTING] = -1;
-    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT, 1, out);
+    scene_press_option(c, COG_OPTION_AMBILIGHT, 1, out);
     CHECK(c->hintOpen && c->hintKind == HINT_KIND_PT_GLOW && (int)out[IN_SETTING] == -1 && !c->ambilightOn);
     ptSheetAnswer(c, 0, out);
     CHECK(!c->ambilightOn && !c->ptGlowOk && (int)out[IN_SETTING] == -1);
     // I Understand: on, kept, stored as both
-    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT, 1, out);
+    scene_press_option(c, COG_OPTION_AMBILIGHT, 1, out);
     ptSheetAnswer(c, 1, out);
     CHECK(c->ambilightOn && c->ptGlowOk && (int)out[IN_SETTING] == SETTING_PT_GLOW_OK);
     s.glow = 0;
@@ -658,9 +676,9 @@ static void passthroughSheets(void) {
     CHECK(!c->passthrough && !xrPassthroughHidesModels(c) && !xrPassthroughHidesGlow(c));
     memset(out, 0, sizeof(out));
     out[IN_SETTING] = -1;
-    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT, 1, out);
+    scene_press_option(c, COG_OPTION_AMBILIGHT, 1, out);
     CHECK(!c->hintOpen && c->ambilightOn && (int)out[IN_SETTING] == SETTING_AMBILIGHT);
-    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS, 2, out);
+    scene_press_option(c, COG_OPTION_CONTROLLERS, 2, out);
     CHECK(!c->hintOpen && c->modelKind == CONTROLLER_MODEL_GUN);
     // and a file with the answers in it reads them
     s.passthrough = 1;
@@ -671,7 +689,7 @@ static void passthroughSheets(void) {
     scene_free(sc);
 }
 
-// Native (1.3.4): the Display tab's Foveated rendering row: a press stores the choice (on or off,
+// Native (1.3.4): the Picture tab's Foveated rendering row: a press stores the choice (on or off,
 // never auto), the ring follows it, auto shows Off, and the next session's start reads it
 static void foveatedRow(void) {
     Scene* sc = scene_new();
@@ -680,14 +698,14 @@ static void foveatedRow(void) {
     settings_defaults(&s);
     xrApplySettings(c, &s);
     CHECK(cogOptionCells(COG_OPTION_FOVEATED) == 2);
-    CHECK(cogOptionValue(c, COG_OPTION_FOVEATED, 0) == 1);   // auto: Off, the second cell (On, Off)
+    CHECK(cogOptionValue(c, COG_OPTION_FOVEATED, 0) == 0);   // auto: Off
     float out[IN_SLOTS];
     for (int cell = 0; cell < 2; cell++) {
         memset(out, 0, sizeof(out));
         out[IN_SETTING] = -1;
-        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_FOVEATED, cell, out);
+        scene_press_option(c, COG_OPTION_FOVEATED, cell, out);
         CHECK((int)out[IN_SETTING] == SETTING_FOVEATED);
-        int want = cell == 0 ? FOVEATED_ON : FOVEATED_OFF;
+        int want = cell ? FOVEATED_ON : FOVEATED_OFF;
         CHECK((int)out[IN_SETTING_VALUE] == cell);
         CHECK(xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) == 1);
         CHECK(s.foveated == want && cogOptionValue(c, COG_OPTION_FOVEATED, 0) == cell);
@@ -699,12 +717,12 @@ static void foveatedRow(void) {
     // Either cell pressed while it shows auto is a choice: stored as on or off
     Settings fresh;
     settings_defaults(&fresh);
-    CHECK(xrStoreSetting(c, &fresh, SETTING_FOVEATED, 0) == 1 && fresh.foveated == FOVEATED_ON);
-    CHECK(xrStoreSetting(c, &fresh, SETTING_FOVEATED, 1) == 1 && fresh.foveated == FOVEATED_OFF);
+    CHECK(xrStoreSetting(c, &fresh, SETTING_FOVEATED, 1) == 1 && fresh.foveated == FOVEATED_ON);
+    CHECK(xrStoreSetting(c, &fresh, SETTING_FOVEATED, 0) == 1 && fresh.foveated == FOVEATED_OFF);
     scene_free(sc);
 }
 
-// The Display tab's Notices row (All / Important / Off): applied to the
+// The Picture tab's Notices row (All / Important / Off): applied to the
 // board, stored, round-tripped, and what it silences (the Hz toast, #42)
 static void noticesRow(void) {
     for (int cell = 0; cell < 3; cell++) {
@@ -715,7 +733,7 @@ static void noticesRow(void) {
         float out[IN_SLOTS];
         memset(out, 0, sizeof(out));
         out[IN_SETTING] = -1;
-        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_NOTICES, cell, out);
+        scene_press_option(c, COG_OPTION_NOTICES, cell, out);
         CHECK((int)out[IN_SETTING] == SETTING_NOTICES && (int)out[IN_SETTING_VALUE] == cell);
         CHECK(xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) == (cell != 0));
         CHECK(s.notices == cell && c->notices.level == cell);
@@ -757,8 +775,12 @@ static void cogTabKept(void) {
         Settings s;
         settings_defaults(&s);
         CHECK(c->cogTab == COG_TAB_SCREEN);
-        CHECK(xrStoreSetting(c, &s, SETTING_COG_TAB, tab) == (tab != COG_TAB_SCREEN));
-        CHECK(s.cog_tab == tab);
+        // Native (1.3.4): the file keeps the six names it always had: Room's nearest is Screen,
+        // Controls' is Display
+        int file = cogTabToFile(tab);
+        CHECK(file >= 0 && file < COG_FILE_TABS);
+        CHECK(xrStoreSetting(c, &s, SETTING_COG_TAB, tab) == (file != 0));
+        CHECK(s.cog_tab == file);
         char* text = settings_to_text(&s);
         CHECK(text != NULL);
         Settings back;
@@ -766,15 +788,22 @@ static void cogTabKept(void) {
         SettingsLoadInfo info;
         settings_from_text(&back, text, &info);
         free(text);
-        CHECK(back.cog_tab == tab);
+        CHECK(back.cog_tab == file);
         Scene* next = scene_new();
         xrApplySettings(next->ctx, &back);
-        CHECK(next->ctx->cogTab == tab);
+        CHECK(next->ctx->cogTab == cogTabFromFile(file));
         // and what the context holds is what a rebuild of the file says
         Settings live;
         settings_defaults(&live);
         xrSettingsFromCtx(next->ctx, &live);
-        CHECK(live.cog_tab == tab);
+        CHECK(live.cog_tab == cogTabToFile(cogTabFromFile(file)));
+        // the running session keeps the tab itself, and a new choice in the file moves it
+        c->cogTab = tab;
+        xrApplySettings(c, &back);
+        CHECK(c->cogTab == tab);
+        back.cog_tab = tab == COG_TAB_3D ? 5 : 2;
+        xrApplySettings(c, &back);
+        CHECK(c->cogTab == (tab == COG_TAB_3D ? COG_TAB_ABOUT : COG_TAB_3D));
         scene_free(next);
         scene_free(sc);
     }
@@ -816,7 +845,7 @@ static void restingBeam(void) {
         float out[IN_SLOTS];
         memset(out, 0, sizeof(out));
         out[IN_SETTING] = -1;
-        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_RAY, cell, out);
+        scene_press_option(c, COG_OPTION_RAY, cell, out);
         // Off 0, Dot 1, Ray 2: only Off has neither the beam nor the dot
         int full = cell == 2 ? 1 : 0, faintInBand = cell == 0 ? 1 : 0;
 
@@ -853,7 +882,7 @@ static void restingBeam(void) {
         CHECK(quadsOfSlot(sc, ATLAS_BEAM_FAINT) == faintInBand);
         // and a pick of another cell with the cog still open shows at once
         int next = (cell + 1) % 3;
-        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_RAY, next, out);
+        scene_press_option(c, COG_OPTION_RAY, next, out);
         scene_frame(sc, NULL);
         CHECK(quadsOfSlot(sc, ATLAS_BEAM) == (next == 2 ? 1 : 0));
         CHECK(quadsOfSlot(sc, ATLAS_BEAM_FAINT) == (next == 0 ? 1 : 0));
@@ -872,7 +901,7 @@ static void restingBeam(void) {
     scene_free(sc);
 }
 
-// Native (lane wave2-bind-wire): the Display tab's Click steadiness row (Off /
+// Native (lane wave2-bind-wire): the Controls tab's Click steadiness row (Off /
 // Normal / Steady): applied to the press fix and the click hold, stored,
 // round-tripped, and Normal is what the session had before the row
 static void clickSteadyRow(void) {
@@ -888,7 +917,7 @@ static void clickSteadyRow(void) {
         float out[IN_SLOTS];
         memset(out, 0, sizeof(out));
         out[IN_SETTING] = -1;
-        cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_CLICK_STEADY, cell, out);
+        scene_press_option(c, COG_OPTION_CLICK_STEADY, cell, out);
         CHECK((int)out[IN_SETTING] == SETTING_CLICK_STEADY && (int)out[IN_SETTING_VALUE] == cell);
         CHECK(xrStoreSetting(c, &s, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]) == (cell != CLICK_STEADY_NORMAL));
         CHECK(s.click_steadiness == cell && c->clickSteady == cell);
@@ -943,13 +972,13 @@ static int drawnRing(const UiView* v, int row) {
     return found;
 }
 
-// The Display tab: the cell lane U rings is the one xr_ui.c says is in force,
-// and the rows that come later are dead in both
-static void displayCells(void) {
+// Every row of an option: the cell lane U rings is the one xr_ui.c says is in force,
+// and the same rows are dead in both
+static void optionCells(void) {
     Scene* s = scene_new();
     XrCtx* c = s->ctx;
     c->cogOpen = 1;
-    c->cogTab = COG_TAB_DISPLAY;
+    c->cogTab = COG_TAB_ROOM;
     c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
     for (int round = 0; round < 4; round++) {
         if (round == 3) {
@@ -974,35 +1003,38 @@ static void displayCells(void) {
         }
         scene_frame(s, NULL);
         const UiView* v = xrPanelsLastView(c);
-        for (int row = 0; row < COG_OPTION_COUNT; row++) {
-            int live = cogRowLive(c, COG_TAB_DISPLAY, row);
-            CHECK(ui_cog_row_live(v, COG_TAB_DISPLAY, row) == live);
-            CHECK(live || xrRowLater(c, COG_TAB_DISPLAY, row) != 0 || row == COG_OPTION_HEAD_AIM);
+        for (int option = 0; option < COG_OPTION_COUNT; option++) {
+            int tab = -1, row = -1;
+            CHECK(cogOptionRow(option, &tab, &row) && cogRowOption(tab, row) == option);
+            int live = cogRowLive(c, tab, row);
+            CHECK(ui_cog_row_live(v, tab, row) == live);
+            CHECK(live || option == COG_OPTION_HEAD_AIM || (round == 3 ? option == COG_OPTION_HEAD_LOCK : option == COG_OPTION_ROOM_LIGHT));
             if (!live) continue;
-            int drawn = ui_cog_display_cell(v, row);
-            int logic = cogOptionValue(c, row, s->settings.head_locked);
+            int drawn = ui_cog_option_cell(v, option);
+            int logic = cogOptionValue(c, option, s->settings.head_locked);
             CHECK(drawn == logic);
-            if (drawn != logic) fprintf(stderr, "  round %d row %d: drawn %d, logic %d\n", round, row, drawn, logic);
+            if (drawn != logic) fprintf(stderr, "  round %d option %d: drawn %d, logic %d\n", round, option, drawn, logic);
         }
-        CHECK(drawnRing(v, COG_OPTION_AMBILIGHT) == cogOptionValue(c, COG_OPTION_AMBILIGHT, 0));
-        if (round == 3) CHECK(drawnRing(v, COG_OPTION_AMBILIGHT) == 0 && c->ambilightOn == 1);
+        CHECK(drawnRing(v, COG_ROOM_ROW_GLOW) == cogOptionValue(c, COG_OPTION_AMBILIGHT, 0));
+        if (round == 3) CHECK(drawnRing(v, COG_ROOM_ROW_GLOW) == 0 && c->ambilightOn == 1);
     }
     xrSetEnvironment(c, ENV_CELL_VOID);
     scene_free(s);
 }
 
-// Native (owner's request, 1.3.3): in each room the Display tab's Glow row and
-// the Room tab's are one switch, the room's own: a press on either sets the
-// room's glow, stored under the room as the Room tab's is, and both rows ring
-// it after; the app wide glow is left alone. Out of the room the Display tab's
-// row is the app wide switch again.
-static void displayGlowInRoom(void) {
+// Native (owner's request, 1.3.3): in each room the Room tab's Glow row is the
+// room's own glow: a press sets it, stored under the room, and the row rings it
+// after; the app wide glow is left alone. Out of the room the row is the app
+// wide switch again.
+static void glowInRoom(void) {
     Scene* s = scene_new();
     XrCtx* c = s->ctx;
     c->cogOpen = 1;
+    c->cogTab = COG_TAB_ROOM;
     c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
     c->ambilightOn = 1;
     s->settings.glow = 1;
+    float out[IN_SLOTS];
     static const int CELLS[] = { ENV_CELL_HOME_THEATER, ENV_CELL_GRAND_CINEMA, ENV_CELL_SYNTHWAVE };
     for (int k = 0; k < 3; k++) {
         xrSetEnvironment(c, CELLS[k]);
@@ -1012,43 +1044,25 @@ static void displayGlowInRoom(void) {
         int r = style - ROOM_STYLE_FIRST;
         c->roomGlow[style] = 0;
         s->settings.room[r].glow = 0;
-        // Off, on from the Display tab, off from the Room tab, on from the
-        // Room tab, off from the Display tab
-        static const struct { int face, cell; } PRESSES[] = {
-            { COG_TAB_DISPLAY, 1 }, { COG_FACE_ROOM, 0 }, { COG_FACE_ROOM, 1 }, { COG_TAB_DISPLAY, 0 },
-        };
         for (int p = -1; p < 4; p++) {
-            int want = p < 0 ? 0 : PRESSES[p].cell;
+            int want = p < 0 ? 0 : !(p & 1);   // as it was, on, off, on, off
             if (p >= 0) {
-                float out[IN_SLOTS];
                 memset(out, 0, sizeof(out));
                 out[IN_SETTING] = -1.0f;
-                int face = PRESSES[p].face;
-                cogApplyCell(c, face, face == COG_FACE_ROOM ? COG_ROOM_ROW_GLOW : COG_OPTION_AMBILIGHT, want, out);
+                cogApplyCell(c, COG_TAB_ROOM, COG_ROOM_ROW_GLOW, want, out);
                 CHECK((int)out[IN_SETTING] == SETTING_ROOM_GLOW && (int)out[IN_SETTING_VALUE] == want);
                 xrStoreSetting(c, &s->settings, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
                 CHECK(s->settings.room[r].glow == want);
             }
             CHECK(c->roomGlow[style] == want && roomGlowOn(c, style) == want);
             CHECK(c->ambilightOn == 1 && s->settings.glow == 1);
-            // the Display tab
-            c->cogTab = COG_TAB_DISPLAY;
             scene_frame(s, NULL);
             const UiView* v = xrPanelsLastView(c);
-            CHECK(cogFace(c) == COG_TAB_DISPLAY);
-            CHECK(cogRowLive(c, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT));
-            CHECK(ui_cog_row_live(v, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT));
+            CHECK(cogRowLive(c, COG_TAB_ROOM, COG_ROOM_ROW_GLOW));
+            CHECK(ui_cog_row_live(v, COG_TAB_ROOM, COG_ROOM_ROW_GLOW));
             CHECK(cogOptionValue(c, COG_OPTION_AMBILIGHT, 0) == want);
-            int display = drawnRing(v, COG_OPTION_AMBILIGHT);
-            CHECK(display == want);
-            if (display != want) fprintf(stderr, "  room %d press %d: the Display tab rings %d, the room's glow %d\n", style, p, display, want);
-            // the Room tab
-            c->cogTab = COG_TAB_SCREEN;
-            scene_frame(s, NULL);
-            v = xrPanelsLastView(c);
-            CHECK(cogFace(c) == COG_FACE_ROOM);
-            CHECK(cogCellInForce(c, COG_FACE_ROOM, COG_ROOM_ROW_GLOW) == want);
-            CHECK(drawnRing(v, COG_ROOM_ROW_GLOW) == display);
+            CHECK(cogCellInForce(c, COG_TAB_ROOM, COG_ROOM_ROW_GLOW) == want);
+            CHECK(drawnRing(v, COG_ROOM_ROW_GLOW) == want);
         }
         // a room left on, for the way out
         c->roomGlow[style] = 1;
@@ -1056,17 +1070,15 @@ static void displayGlowInRoom(void) {
     }
     // Out of the rooms: the app wide switch, drawn and pressed
     xrSetEnvironment(c, ENV_CELL_VOID);
-    c->cogTab = COG_TAB_DISPLAY;
     c->ambilightOn = 0;
     scene_frame(s, NULL);
-    CHECK(drawnRing(xrPanelsLastView(c), COG_OPTION_AMBILIGHT) == 0);
-    float out[IN_SLOTS];
+    CHECK(drawnRing(xrPanelsLastView(c), COG_ROOM_ROW_GLOW) == 0);
     memset(out, 0, sizeof(out));
     out[IN_SETTING] = -1.0f;
-    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_AMBILIGHT, 1, out);
+    cogApplyCell(c, COG_TAB_ROOM, COG_ROOM_ROW_GLOW, 1, out);
     CHECK((int)out[IN_SETTING] == SETTING_AMBILIGHT && c->ambilightOn == 1);
     scene_frame(s, NULL);
-    CHECK(drawnRing(xrPanelsLastView(c), COG_OPTION_AMBILIGHT) == 1);
+    CHECK(drawnRing(xrPanelsLastView(c), COG_ROOM_ROW_GLOW) == 1);
     scene_free(s);
 }
 
@@ -1171,8 +1183,8 @@ int main(void) {
     controllerModelRow();
     cogTabKept();
     restingBeam();
-    displayCells();
-    displayGlowInRoom();
+    optionCells();
+    glowInRoom();
     depthRows();
     return checksDone("m4 prefs");
 }

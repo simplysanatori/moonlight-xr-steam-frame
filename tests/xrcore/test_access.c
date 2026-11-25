@@ -123,7 +123,7 @@ static void testGazeFall(void) {
 }
 
 static void testTabSlots(void) {
-    CHECK(COG_TAB_ACCESS == 4 && COG_TAB_ABOUT == 5 && COG_TAB_COUNT == 6);
+    CHECK(COG_TAB_ACCESS == 5 && COG_TAB_ABOUT == 6 && COG_TAB_COUNT == 7);
     float last = 0.0f;
     for (int t = 0; t < COG_TAB_COUNT; t++) {
         float l = cogTabLeft(t), r = cogTabRight(t);

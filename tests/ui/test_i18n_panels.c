@@ -106,19 +106,21 @@ static void build_states(void) {
     nstates = 0;
     Settings s;
     settings_defaults(&s);
-    static const char* const TABS[COG_TAB_COUNT] = { "screen", "display", "3d", "picture", "accessibility", "about" };
+    static const char* const TABS[COG_TAB_COUNT] = { "screen", "room", "picture", "3d", "controls", "accessibility", "about" };
     char name[64];
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
         snprintf(name, sizeof name, "cog-%s", TABS[tab]);
         State* st = add(name, UI_PANEL_COG, &s);
         st->v.cog_tab = tab;
     }
-    // head locked (the aim rows live), the 3D tab greyed, Display rows later, a room
+    // head locked (the aim rows live), the 3D tab greyed, the Gun, passthrough, a room
     Settings locked = s;
     locked.head_locked = 1;
     locked.head_aim = 1;
     State* st = add("cog-screen-locked", UI_PANEL_COG, &locked);
     st->v.cog_tab = COG_TAB_SCREEN;
+    st = add("cog-controls-locked", UI_PANEL_COG, &locked);
+    st->v.cog_tab = COG_TAB_CONTROLS;
     st = add("cog-screen-nocurve", UI_PANEL_COG, &s);
     st->v.cog_tab = COG_TAB_SCREEN;
     st->v.curve_ok = 0;
@@ -129,9 +131,14 @@ static void build_states(void) {
     st->v.cog_tab = COG_TAB_3D;
     st->v.stereo_ok = 0;
     st->v.stereo_reason = ui_str(UIS_NATIVE_3D_NO_MODEL);
-    st = add("cog-display-later", UI_PANEL_COG, &s);
-    st->v.cog_tab = COG_TAB_DISPLAY;
-    st->v.display_later = 0xFFFFFFFFu;
+    st = add("cog-controls-gun", UI_PANEL_COG, &s);
+    st->v.cog_tab = COG_TAB_CONTROLS;
+    st->v.gun = 1;
+    for (int tab = COG_TAB_ROOM; tab <= COG_TAB_CONTROLS; tab += COG_TAB_CONTROLS - COG_TAB_ROOM) {
+        st = add(tab == COG_TAB_ROOM ? "cog-passthrough-room" : "cog-passthrough-controls", UI_PANEL_COG, &s);
+        st->v.cog_tab = tab;
+        st->v.pt_hides = UI_PT_HIDES_CONTROLLERS | UI_PT_HIDES_GLOW;
+    }
     // Native (lane a11y-tab, a11y-2): the Accessibility tab with the head pointing, a dwell, the
     // largest dot and the footer describing Dot size; with the eyes ready and the footer on Pointer;
     // waiting with the footer on Dwell click; and with no eye gaze offered (Eyes dimmed)
@@ -180,14 +187,14 @@ static void build_states(void) {
     st->v.commit = NULL;
     static const int ROOMS[3] = { ENV_ID_HOME_THEATER, ENV_ID_GRAND_CINEMA, ENV_ID_SYNTHWAVE };
     for (int r = 0; r < 3; r++) {
-        snprintf(name, sizeof name, "cog-room-%d", ROOMS[r]);
-        st = add(name, UI_PANEL_COG, &s);
-        st->v.room_env = ROOMS[r];
-        st->v.cog_tab = COG_TAB_SCREEN;
+        for (int tab = COG_TAB_SCREEN; tab <= COG_TAB_CONTROLS; tab++) {
+            if (tab == COG_TAB_3D) continue;
+            snprintf(name, sizeof name, "cog-room-%d-%s", ROOMS[r], TABS[tab]);
+            st = add(name, UI_PANEL_COG, &s);
+            st->v.room_env = ROOMS[r];
+            st->v.cog_tab = tab;
+        }
     }
-    st = add("cog-room-display", UI_PANEL_COG, &s);
-    st->v.room_env = ENV_ID_HOME_THEATER;
-    st->v.cog_tab = COG_TAB_DISPLAY;
     st = add("picker", UI_PANEL_PICKER, &s);
     st->v.env_selected = ENV_CELL_HOME_THEATER;
     st = add("picker-later", UI_PANEL_PICKER, &s);
@@ -408,6 +415,12 @@ static void check_state(const State* st, const UiCanvas* cv) {
             }
         } else if (best >= 0) {
             Box b = hit_box(&hits.hit[best], cv);
+            // native (1.3.4): words that stand in for a whole row of cells still pressed under them
+            // (Show controllers in passthrough) have the row's width
+            if (hits.hit[best].kind == UI_HIT_CELL && strcmp(e->text, ui_str(UIS_OFF_IN_PASSTHROUGH)) == 0) {
+                b.x0 = COG_TRACK_L * (float)cv->w;
+                b.x1 = COG_TRACK_R * (float)cv->w;
+            }
             if (ink.x0 < b.x0 - TOL || ink.x1 > b.x1 + TOL) problem(st, "wider than its cell", e->text);
         } else {
             for (int h = 0; h < hits.count; h++) {

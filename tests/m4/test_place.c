@@ -37,21 +37,21 @@ static void freshOut(float* out) {
     out[IN_SETTING] = -1.0f;
 }
 
-// The Screen tab's three rows of cells are cells, with the counts the panel draws
+// The Screen tab's four rows of cells are cells, with the counts the panel draws
 static void rowsAreCells(void) {
     for (int row = 0; row < COG_SCREEN_TRACK_ROWS; row++) {
         CHECK(cogRowIsTrack(COG_TAB_SCREEN, row));
     }
     for (int row = COG_SCREEN_TRACK_ROWS; row < COG_SCREEN_ROW_COUNT; row++) {
         CHECK(!cogRowIsTrack(COG_TAB_SCREEN, row));
-        CHECK(cogRowCells(COG_TAB_SCREEN, row) == ui_cog_row_cells(COG_TAB_SCREEN, row));
+        CHECK(cogTrackSteps(COG_TAB_SCREEN, row) == 0);
         CHECK(cogRowCells(COG_TAB_SCREEN, row) > 0);
     }
     CHECK(cogTabRowCount(COG_TAB_SCREEN) == COG_SCREEN_ROW_COUNT);
     CHECK(cogRowCells(COG_TAB_SCREEN, COG_SCREEN_ROW_PRESET) == 4);
     CHECK(cogRowCells(COG_TAB_SCREEN, COG_SCREEN_ROW_PER_APP) == 3);
     CHECK(cogRowCells(COG_TAB_SCREEN, COG_SCREEN_ROW_LOCK) == 2);
-    CHECK(cogOptionCells(COG_OPTION_HEAD_LOCK) == 3);
+    CHECK(cogRowCells(COG_TAB_SCREEN, COG_SCREEN_ROW_HEAD_LOCK) == 3 && cogOptionCells(COG_OPTION_HEAD_LOCK) == 3);
 }
 
 static void presets(void) {
@@ -166,13 +166,13 @@ static void switchesAndStore(void) {
 
     // The Head locked row's third cell
     freshOut(out);
-    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_HEAD_LOCK, 2, out);
+    scene_press_option(c, COG_OPTION_HEAD_LOCK, 2, out);
     CHECK((int)out[IN_SETTING] == SETTING_HEAD_LOCK && (int)out[IN_SETTING_VALUE] == 2);
     CHECK(c->followOn);
     CHECK(cogOptionValue(c, COG_OPTION_HEAD_LOCK, 0) == 2);
     CHECK(cogOptionValue(c, COG_OPTION_HEAD_LOCK, 1) == 1);
     freshOut(out);
-    cogApplyCell(c, COG_TAB_DISPLAY, COG_OPTION_HEAD_LOCK, 0, out);
+    scene_press_option(c, COG_OPTION_HEAD_LOCK, 0, out);
     CHECK(!c->followOn && cogOptionValue(c, COG_OPTION_HEAD_LOCK, 0) == 0);
 
     // What gets stored

@@ -6,6 +6,7 @@
 
 #include "check.h"
 #include "panels.h"
+#include "xr_layout.h"
 #include "xr_padmouse.h"
 #include "text.h"
 
@@ -305,12 +306,12 @@ static void test_cog_rows_present(void) {
     Guarded g;
     draw(UI_PANEL_COG, &v, 1.0f, &g);
     check_hits_inside("screen");
-    // The three rows of cells under the tracks: Desk, Couch, Cinema and Bring
-    // here; Off, On and Forget; Off and On
+    // The four rows of cells under the tracks: Desk, Couch, Cinema and Bring
+    // here; Off, On and Follow; Off, On and Forget; Off and On
     for (int row = COG_SCREEN_TRACK_ROWS; row < COG_SCREEN_ROW_COUNT; row++) {
-        int cells = ui_cog_row_cells(COG_TAB_SCREEN, row);
-        CHECK(!ui_cog_row_is_track(COG_TAB_SCREEN, row));
-        CHECK(cells == (row == COG_SCREEN_ROW_PRESET ? 4 : row == COG_SCREEN_ROW_PER_APP ? 3 : 2));
+        int cells = cogRowCells(COG_TAB_SCREEN, row);
+        CHECK(!cogRowIsTrack(COG_TAB_SCREEN, row));
+        CHECK(cells == (row == COG_SCREEN_ROW_PRESET ? 4 : row == COG_SCREEN_ROW_LOCK ? 2 : 3));
         for (int cell = 0; cell < cells; cell++) {
             int i = ui_hits_find(&hits, UI_HIT_CELL, row, cell);
             CHECK(i >= 0 && hits.hit[i].enabled);
@@ -331,27 +332,46 @@ static void test_cog_rows_present(void) {
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) CHECK(ui_hits_find(&hits, UI_HIT_TAB, tab, -1) >= 0);
     free(g.base);
 
-    // Display tab: every option row has its cells, then the glow level track
-    v.cog_tab = COG_TAB_DISPLAY;
-    draw(UI_PANEL_COG, &v, 1.0f, &g);
-    check_hits_inside("display");
-    for (int row = 0; row < COG_OPTION_COUNT; row++) {
-        int cells = ui_cog_row_cells(COG_TAB_DISPLAY, row);
-        CHECK(cells >= 2);
-        for (int c = 0; c < cells; c++) CHECK(ui_hits_find(&hits, UI_HIT_CELL, row, c) >= 0);
-        CHECK(ui_hits_find(&hits, UI_HIT_CELL, row, cells) < 0);
+    // The Room, Display and Controls tabs: every track its three parts, every
+    // row of cells its cells, all live but the Room tab's last three (only in a
+    // room); Stats has four cells (Off and the three styles)
+    static const int TABS[3] = { COG_TAB_ROOM, COG_TAB_PICTURE, COG_TAB_CONTROLS };
+    for (int t = 0; t < 3; t++) {
+        int tab = TABS[t];
+        v.cog_tab = tab;
+        draw(UI_PANEL_COG, &v, 1.0f, &g);
+        check_hits_inside("room, display, controls");
+        for (int row = 0; row < cogTabRowCount(tab); row++) {
+            int live = tab != COG_TAB_ROOM || row < COG_ROOM_ROW_BRIGHTNESS;
+            CHECK(ui_cog_row_live(&v, tab, row) == live);
+            if (cogRowIsTrack(tab, row)) {
+                int i = ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1);
+                CHECK(i >= 0 && hits.hit[i].enabled == live);
+                if (i >= 0) CHECK_NEAR((hits.hit[i].v0 + hits.hit[i].v1) * 0.5f, cogRowV(tab, row), 1e-5);
+                CHECK(ui_hits_find(&hits, UI_HIT_TRACK_DOWN, row, -1) >= 0 && ui_hits_find(&hits, UI_HIT_TRACK_UP, row, -1) >= 0);
+                CHECK(ui_hits_find(&hits, UI_HIT_CELL, row, -1) < 0);
+                continue;
+            }
+            int cells = cogRowCells(tab, row);
+            CHECK(cells >= 2);
+            for (int c = 0; c < cells; c++) {
+                int i = ui_hits_find(&hits, UI_HIT_CELL, row, c);
+                CHECK(i >= 0 && hits.hit[i].enabled == live);
+            }
+            CHECK(ui_hits_find(&hits, UI_HIT_CELL, row, cells) < 0);
+        }
+        int reset = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_RESET, -1);
+        CHECK(tab == COG_TAB_CONTROLS ? reset < 0 : reset >= 0 && hits.hit[reset].enabled);
+        for (int x = 0; x < COG_TAB_COUNT; x++) CHECK(ui_hits_find(&hits, UI_HIT_TAB, x, -1) >= 0);
+        free(g.base);
     }
-    CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_DISPLAY_SLIDER_ROW, -1) >= 0);
-    // The cell counts follow the rows when they are reordered: Ray has the
-    // third cell (Dot), Notices has three, every other row has two or three
-    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_RAY) == 3);
-    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_NOTICES) == 3);
-    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_GAMEPAD) == 2);
-    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_CONTROLLERS) == 3);   // Off, Frame, Gun
-    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_POINTER_SLEEP) == 2);
-    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_CLICK_SOUND) == 2);
-    CHECK(ui_cog_row_cells(COG_TAB_DISPLAY, COG_OPTION_FOVEATED) == 2);   // native (1.3.4): On, Off
+    CHECK(cogRowCells(COG_TAB_PICTURE, COG_PICTURE_ROW_STATS) == 4);
+    CHECK(cogRowCells(COG_TAB_PICTURE, COG_PICTURE_ROW_FOVEATED) == 2);
     CHECK(strcmp(ui_str(UIS_ROW_FOVEATED), "Foveated rendering") == 0);
+    CHECK(strcmp(ui_str(UIS_STATS_FULL), "Full") == 0 && strcmp(ui_str(UIS_STATS_COMPACT), "Compact") == 0
+          && strcmp(ui_str(UIS_STATS_MINIMAL), "Minimal") == 0);
+    CHECK(strcmp(ui_str(UIS_ROW_BACKGROUND), "Background dim") == 0 && strcmp(ui_str(UIS_ROW_ROOM_BRIGHTNESS), "Room brightness") == 0);
+    CHECK(strcmp(ui_str(UIS_REPORT_TITLE), "Report a Problem") == 0 && strcmp(ui_str(UIS_HOST_TITLE), "PC Keys") == 0);
     {
         // native (1.3.4): in passthrough before its sheet's I Understand, Show controllers is greyed with
         // "off in passthrough" and still takes a press (it asks); the glow's row shows Off
@@ -359,24 +379,59 @@ static void test_cog_rows_present(void) {
         Settings sp = *v.settings;
         sp.glow = 1;
         vp.settings = &sp;
-        Guarded gp0, gp;
-        draw(UI_PANEL_COG, &vp, 1.0f, &gp0);
-        vp.pt_hides = UI_PT_HIDES_CONTROLLERS | UI_PT_HIDES_GLOW;
-        draw(UI_PANEL_COG, &vp, 1.0f, &gp);
-        check_hits_inside("display, passthrough");
-        CHECK(memcmp(gp0.px, gp.px, gp.size) != 0);
-        for (int c = 0; c < COG_CONTROLLERS_CELLS; c++) {
-            int i = ui_hits_find(&hits, UI_HIT_CELL, COG_OPTION_CONTROLLERS, c);
-            CHECK(i >= 0 && hits.hit[i].enabled);
+        for (int t = 0; t < 2; t++) {
+            vp.cog_tab = t ? COG_TAB_CONTROLS : COG_TAB_ROOM;
+            vp.pt_hides = 0;
+            Guarded gp0, gp;
+            draw(UI_PANEL_COG, &vp, 1.0f, &gp0);
+            vp.pt_hides = UI_PT_HIDES_CONTROLLERS | UI_PT_HIDES_GLOW;
+            draw(UI_PANEL_COG, &vp, 1.0f, &gp);
+            check_hits_inside("passthrough");
+            CHECK(memcmp(gp0.px, gp.px, gp.size) != 0);
+            for (int c = 0; t && c < COG_CONTROLLERS_CELLS; c++) {
+                int i = ui_hits_find(&hits, UI_HIT_CELL, COG_CONTROLS_ROW_MODELS, c);
+                CHECK(i >= 0 && hits.hit[i].enabled);
+            }
+            free(gp0.base);
+            free(gp.base);
         }
-        CHECK(ui_cog_display_cell(&vp, COG_OPTION_AMBILIGHT) == 0);
+        CHECK(ui_cog_option_cell(&vp, COG_OPTION_AMBILIGHT) == 0);
         vp.pt_hides = 0;
-        CHECK(ui_cog_display_cell(&vp, COG_OPTION_AMBILIGHT) == 1);
+        CHECK(ui_cog_option_cell(&vp, COG_OPTION_AMBILIGHT) == 1);
         CHECK(strcmp(ui_str(UIS_OFF_IN_PASSTHROUGH), "off in passthrough") == 0);
-        free(gp0.base);
-        free(gp.base);
     }
-    free(g.base);
+    {
+        // native (1.3.4): the light gun sets the pointer's two rows: greyed with why, no press
+        UiView vg = v;
+        vg.cog_tab = COG_TAB_CONTROLS;
+        vg.gun = 1;
+        draw(UI_PANEL_COG, &vg, 1.0f, &g);
+        for (int row = 0; row < COG_CONTROLS_ROW_COUNT; row++) {
+            if (cogRowIsTrack(COG_TAB_CONTROLS, row)) continue;
+            int i = ui_hits_find(&hits, UI_HIT_CELL, row, 0);
+            CHECK(i >= 0 && hits.hit[i].enabled == (row != COG_CONTROLS_ROW_SLEEP && row != COG_CONTROLS_ROW_STEADY));
+        }
+        free(g.base);
+        // and head aim's three without the head lock, or in a room
+        Settings sw = *v.settings;
+        sw.head_locked = 0;
+        vg.settings = &sw;
+        vg.gun = 0;
+        for (int room = 0; room < 2; room++) {
+            sw.head_locked = room;
+            vg.room_env = room ? ENV_ID_HOME_THEATER : -1;
+            draw(UI_PANEL_COG, &vg, 1.0f, &g);
+            for (int c = 0; c < 2; c++) {
+                int i = ui_hits_find(&hits, UI_HIT_CELL, COG_CONTROLS_ROW_HEAD_AIM, c);
+                CHECK(i >= 0 && !hits.hit[i].enabled);
+            }
+            for (int row = COG_CONTROLS_ROW_AIM_SENSITIVITY; row <= COG_CONTROLS_ROW_AIM_DEADZONE; row++) {
+                int i = ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1);
+                CHECK(i >= 0 && !hits.hit[i].enabled);
+            }
+            free(g.base);
+        }
+    }
 
     // 3D tab
     v.cog_tab = COG_TAB_3D;
@@ -387,9 +442,9 @@ static void test_cog_rows_present(void) {
     CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_ROW3D_CONVERGENCE, -1) >= 0);
     for (int c = 0; c < COG_STEREO_CELLS; c++) CHECK(ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SWITCH, c) >= 0);
     CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_RESET, -1) >= 0);
-    // native (PLAN 4.3): the 3D source row, Depth, SBS and Top-bottom, live
-    CHECK(ui_cog_row_cells(COG_TAB_3D, COG_ROW3D_SOURCE) == COG_SOURCE_CELLS);
-    CHECK(!ui_cog_row_is_track(COG_TAB_3D, COG_ROW3D_SOURCE));
+    // native (PLAN 4.3): the 3D source row, Depth model, SBS and Top-bottom, live
+    CHECK(cogRowCells(COG_TAB_3D, COG_ROW3D_SOURCE) == COG_SOURCE_CELLS);
+    CHECK(!cogRowIsTrack(COG_TAB_3D, COG_ROW3D_SOURCE));
     for (int c = 0; c < COG_SOURCE_CELLS; c++) {
         int i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_SOURCE, c);
         CHECK(i >= 0 && hits.hit[i].enabled);
@@ -398,9 +453,9 @@ static void test_cog_rows_present(void) {
     // native (lane wave3-tidy): the depth model's five tracks (Edge, Depth
     // detail, Depth shape, Motion reset, Eye balance), live with the depth
     // model as the source
-    CHECK(COG_ROW3D_COUNT == 11 && COG_ROW3D_BALANCE == 9);
+    CHECK(COG_ROW3D_COUNT == 11 && COG_ROW3D_BALANCE == 10);
     for (int row = COG_ROW3D_EDGE; row <= COG_ROW3D_BALANCE; row++) {
-        CHECK(ui_cog_row_is_track(COG_TAB_3D, row));
+        CHECK(cogRowIsTrack(COG_TAB_3D, row));
         CHECK(ui_cog_row_live(&v, COG_TAB_3D, row));
         int i = ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1);
         CHECK(i >= 0 && hits.hit[i].enabled);
@@ -408,10 +463,10 @@ static void test_cog_rows_present(void) {
         CHECK(ui_hits_find(&hits, UI_HIT_TRACK_UP, row, 0) >= 0);
         if (i >= 0) CHECK_NEAR((hits.hit[i].v0 + hits.hit[i].v1) * 0.5f, cogRowV(COG_TAB_3D, row), 1e-5);
     }
-    // native (1.3.3, issue #6): last, the depth model, two cells (ZipDepth
+    // native (1.3.3, issue #6): the depth model, two cells (ZipDepth
     // Light, ZipDepth Full), live with the depth model, Light ringed by default
-    CHECK(ui_cog_row_cells(COG_TAB_3D, COG_ROW3D_MODEL) == COG_MODEL_CELLS && COG_MODEL_CELLS == 2);
-    CHECK(!ui_cog_row_is_track(COG_TAB_3D, COG_ROW3D_MODEL));
+    CHECK(cogRowCells(COG_TAB_3D, COG_ROW3D_MODEL) == COG_MODEL_CELLS && COG_MODEL_CELLS == 2);
+    CHECK(!cogRowIsTrack(COG_TAB_3D, COG_ROW3D_MODEL));
     CHECK(ui_cog_row_live(&v, COG_TAB_3D, COG_ROW3D_MODEL));
     for (int c = 0; c < COG_MODEL_CELLS; c++) {
         int i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_MODEL, c);
@@ -424,7 +479,7 @@ static void test_cog_rows_present(void) {
         }
     }
     CHECK(ui_hits_find(&hits, UI_HIT_CELL, COG_ROW3D_MODEL, COG_MODEL_CELLS) < 0);
-    CHECK(cogRowV(COG_TAB_3D, COG_ROW3D_MODEL) + cogRowHalf(COG_TAB_3D) < COG_RESET_T);
+    CHECK(cogRowV(COG_TAB_3D, COG_ROW3D_COUNT - 1) + cogRowHalf(COG_TAB_3D) < COG_RESET_T);
     {
         // Full in the file rings the other cell: the art differs
         Settings sf = *v.settings;
@@ -495,16 +550,6 @@ static void test_cog_rows_present(void) {
     }
     free(g.base);
 
-    // Picture
-    v.cog_tab = COG_TAB_PICTURE;
-    draw(UI_PANEL_COG, &v, 1.0f, &g);
-    check_hits_inside("picture");
-    for (int row = 0; row < PICTURE_TAB_ROWS; row++) CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, row, -1) >= 0);
-    CHECK(ui_cog_row_count(COG_TAB_PICTURE) == PICTURE_TAB_ROWS);
-    CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, PICTURE_TAB_ROWS, -1) < 0);
-    CHECK(ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_RESET, -1) >= 0);
-    free(g.base);
-
     // About
     v.cog_tab = COG_TAB_ABOUT;
     draw(UI_PANEL_COG, &v, 1.0f, &g);
@@ -516,26 +561,29 @@ static void test_cog_rows_present(void) {
     CHECK(cogReportButtonAt((hits.hit[r].u0 + hits.hit[r].u1) / 2, (hits.hit[r].v0 + hits.hit[r].v1) / 2));
     free(g.base);
 
-    // Room tab (theater) and the fixed-size room
-    v.cog_tab = COG_TAB_SCREEN;
-    v.room_env = ENV_ID_HOME_THEATER;
-    draw(UI_PANEL_COG, &v, 1.0f, &g);
-    check_hits_inside("room");
-    CHECK(ui_hits_find(&hits, UI_HIT_TAB, COG_TAB_SCREEN, -1) >= 0);
-    CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_ROOM_ROW_BRIGHTNESS, -1) >= 0);
-    for (int c = 0; c < 2; c++) {
-        CHECK(ui_hits_find(&hits, UI_HIT_CELL, COG_ROOM_ROW_GLOW, c) >= 0);
-        CHECK(ui_hits_find(&hits, UI_HIT_CELL, COG_ROOM_ROW_LIGHT, c) >= 0);
+    // In a room: the Room tab whole, and on the Screen tab Size (where the room can be sized) and
+    // Remember per app, the rest greyed, the reset with Size
+    static const struct { int env, resizable; } ROOMS[] = { { ENV_ID_HOME_THEATER, 1 }, { ENV_ID_GRAND_CINEMA, 0 } };
+    for (int n = 0; n < 2; n++) {
+        v.room_env = ROOMS[n].env;
+        CHECK(settings_room_resizable(ROOMS[n].env) == ROOMS[n].resizable);
+        v.cog_tab = COG_TAB_ROOM;
+        draw(UI_PANEL_COG, &v, 1.0f, &g);
+        check_hits_inside("room");
+        for (int i = 0; i < hits.count; i++) CHECK(hits.hit[i].enabled);
+        free(g.base);
+        v.cog_tab = COG_TAB_SCREEN;
+        draw(UI_PANEL_COG, &v, 1.0f, &g);
+        check_hits_inside("screen in a room");
+        for (int row = 0; row < COG_SCREEN_ROW_COUNT; row++) {
+            int live = row == COG_SCREEN_ROW_PER_APP || (row == COG_SLIDER_SIZE && ROOMS[n].resizable);
+            int i = ui_hits_find(&hits, cogRowIsTrack(COG_TAB_SCREEN, row) ? UI_HIT_TRACK_RUN : UI_HIT_CELL, row, -1);
+            CHECK(i >= 0 && hits.hit[i].enabled == live);
+        }
+        int i = ui_hits_find(&hits, UI_HIT_BUTTON, UI_BTN_RESET, -1);
+        CHECK(i >= 0 && hits.hit[i].enabled == ROOMS[n].resizable);
+        free(g.base);
     }
-    CHECK(ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_ROOM_ROW_LIGHT_LEVEL, -1) >= 0);
-    int size = ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_ROOM_ROW_SIZE, -1);
-    CHECK(size >= 0 && hits.hit[size].enabled);
-    free(g.base);
-    v.room_env = ENV_ID_GRAND_CINEMA;
-    draw(UI_PANEL_COG, &v, 1.0f, &g);
-    size = ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_ROOM_ROW_SIZE, -1);
-    CHECK(size >= 0 && !hits.hit[size].enabled);   // greyed: kept, but not live
-    free(g.base);
 }
 
 // Which cell of a row of cells carries the ring the one in force has (its white edge, at the left end
@@ -557,76 +605,65 @@ static int ringed_cell(const Guarded* g, int row) {
     return found;
 }
 
-// Native (owner's request, 1.3.3): in a room the glow is the room's own switch, and the Display tab's
-// Glow row is that switch too: it rings the room's glow (the Room tab's row rings the same), whatever the
-// app wide glow says, and stays live with both cells taking a press. Outside a room it is the app wide one.
-static void test_display_glow_in_room(void) {
+// Native (owner's request, 1.3.3): the Room tab's Glow row: in a room the room's own switch, whatever the
+// app wide glow says, and outside one the app wide one; live with both cells taking a press everywhere
+static void test_glow_row(void) {
     Settings s;
     settings_defaults(&s);
-    s.head_locked = 1;
     UiView v;
     ui_view_init(&v, &s);
-    const int glow = COG_OPTION_AMBILIGHT;
+    v.cog_tab = COG_TAB_ROOM;
     Guarded g;
-    // The void: the app wide switch
-    v.room_env = -1;
-    v.cog_tab = COG_TAB_DISPLAY;
-    for (int app = 0; app < 2; app++) {
-        s.glow = app;
-        draw(UI_PANEL_COG, &v, 1.0f, &g);
-        CHECK(ui_cog_display_cell(&v, glow) == app);
-        CHECK(ringed_cell(&g, glow) == app);
-        free(g.base);
-    }
-    static const int ROOMS[] = { ENV_ID_HOME_THEATER, ENV_ID_GRAND_CINEMA, ENV_ID_SYNTHWAVE };
-    for (size_t k = 0; k < sizeof ROOMS / sizeof ROOMS[0]; k++) {
-        int r = settings_room_index(ROOMS[k]);
-        CHECK(r >= 0);
-        v.room_env = ROOMS[k];
+    static const int ENVS[] = { -1, ENV_ID_HOME_THEATER, ENV_ID_GRAND_CINEMA, ENV_ID_SYNTHWAVE };
+    for (size_t k = 0; k < sizeof ENVS / sizeof ENVS[0]; k++) {
+        int r = settings_room_index(ENVS[k]);
+        v.room_env = ENVS[k];
         for (int on = 0; on < 2; on++) {
             for (int app = 0; app < 2; app++) {
-                s.room[r].glow = on;
                 s.glow = app;
                 // the other rooms' own glow says the opposite, so the right room's is the one read
-                for (int o = 0; o < 3; o++) {
-                    if (o != r) s.room[o].glow = !on;
-                }
-                v.cog_tab = COG_TAB_DISPLAY;
-                CHECK(ui_cog_face(&v) == COG_TAB_DISPLAY);
-                CHECK(ui_cog_row_live(&v, COG_TAB_DISPLAY, glow));
-                CHECK(ui_cog_display_cell(&v, glow) == on);
+                for (int o = 0; o < 3; o++) s.room[o].glow = o == r ? on : !on;
+                int want = r < 0 ? app : on;
+                CHECK(ui_cog_row_live(&v, COG_TAB_ROOM, COG_ROOM_ROW_GLOW));
+                CHECK(ui_cog_option_cell(&v, COG_OPTION_AMBILIGHT) == want);
                 draw(UI_PANEL_COG, &v, 1.0f, &g);
                 CHECK(guard_ok(&g));
-                int display = ringed_cell(&g, glow);
-                CHECK(display == on);
-                if (display != on) fprintf(stderr, "  room %d glow %d app %d: the Display tab rings %d\n", ROOMS[k], on, app, display);
-                for (int c = 0; c < ui_cog_row_cells(COG_TAB_DISPLAY, glow); c++) {
-                    int i = ui_hits_find(&hits, UI_HIT_CELL, glow, c);
+                int ring = ringed_cell(&g, COG_ROOM_ROW_GLOW);
+                CHECK(ring == want);
+                if (ring != want) fprintf(stderr, "  room %d glow %d app %d: the row rings %d\n", ENVS[k], on, app, ring);
+                for (int c = 0; c < cogRowCells(COG_TAB_ROOM, COG_ROOM_ROW_GLOW); c++) {
+                    int i = ui_hits_find(&hits, UI_HIT_CELL, COG_ROOM_ROW_GLOW, c);
                     CHECK(i >= 0 && hits.hit[i].enabled);
                     int at = ui_hits_at(&hits, (hits.hit[i].u0 + hits.hit[i].u1) * 0.5f, (hits.hit[i].v0 + hits.hit[i].v1) * 0.5f);
                     CHECK(at == i);
                 }
                 // the glow level stays live: it reaches the room's glow too
-                int level = ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_DISPLAY_SLIDER_ROW, -1);
+                int level = ui_hits_find(&hits, UI_HIT_TRACK_RUN, COG_ROOM_ROW_GLOW_LEVEL, -1);
                 CHECK(level >= 0 && hits.hit[level].enabled);
-                free(g.base);
-                // the Room tab's own Glow row rings the same cell
-                v.cog_tab = COG_TAB_SCREEN;
-                CHECK(ui_cog_face(&v) == COG_FACE_ROOM && ui_cog_row_live(&v, COG_FACE_ROOM, COG_ROOM_ROW_GLOW));
-                draw(UI_PANEL_COG, &v, 1.0f, &g);
-                CHECK(ringed_cell(&g, COG_ROOM_ROW_GLOW) == display);
                 free(g.base);
             }
         }
     }
-    // Out of the room again, the app wide switch once more
-    v.room_env = -1;
-    v.cog_tab = COG_TAB_DISPLAY;
-    s.glow = 1;
-    s.room[0].glow = s.room[1].glow = s.room[2].glow = 0;
-    draw(UI_PANEL_COG, &v, 1.0f, &g);
-    CHECK(ringed_cell(&g, glow) == 1);
-    free(g.base);
+}
+
+// Native (1.3.4): the Stats row rings the style while stats are on and Off while they are off, whatever
+// the style kept for the next time
+static void test_stats_row(void) {
+    Settings s;
+    settings_defaults(&s);
+    UiView v;
+    ui_view_init(&v, &s);
+    v.cog_tab = COG_TAB_PICTURE;
+    Guarded g;
+    for (int on = 0; on < 2; on++) {
+        for (int style = 0; style < 3; style++) {
+            s.stats = on;
+            s.stats_style = style;
+            draw(UI_PANEL_COG, &v, 1.0f, &g);
+            CHECK(ringed_cell(&g, COG_PICTURE_ROW_STATS) == (on ? 1 + style : 0));
+            free(g.base);
+        }
+    }
 }
 
 static void test_cog_hits_agree_with_xr_layout(void) {
@@ -635,13 +672,13 @@ static void test_cog_hits_agree_with_xr_layout(void) {
     s.head_locked = 1;
     UiView v;
     ui_view_init(&v, &s);
-    static const int TABS[] = { COG_TAB_SCREEN, COG_TAB_DISPLAY, COG_TAB_3D, COG_TAB_PICTURE };
+    static const int TABS[] = { COG_TAB_SCREEN, COG_TAB_ROOM, COG_TAB_PICTURE, COG_TAB_3D, COG_TAB_CONTROLS };
     for (size_t ti = 0; ti < sizeof TABS / sizeof TABS[0]; ti++) {
         v.cog_tab = TABS[ti];
         Guarded g;
         draw(UI_PANEL_COG, &v, 1.0f, &g);
         free(g.base);
-        int face = ui_cog_face(&v);
+        int face = v.cog_tab;
         for (int i = 0; i < hits.count; i++) {
             const UiHit* h = &hits.hit[i];
             float mu = (h->u0 + h->u1) * 0.5f;
@@ -669,9 +706,9 @@ static void test_cog_hits_agree_with_xr_layout(void) {
             }
         }
         // cells of a row are disjoint and tile the track's width
-        for (int row = 0; row < ui_cog_row_count(face); row++) {
-            if (ui_cog_row_is_track(face, row)) continue;
-            int cells = ui_cog_row_cells(face, row);
+        for (int row = 0; row < cogTabRowCount(face); row++) {
+            if (cogRowIsTrack(face, row)) continue;
+            int cells = cogRowCells(face, row);
             float prev = COG_TRACK_L;
             for (int c = 0; c < cells; c++) {
                 int i = ui_hits_find(&hits, UI_HIT_CELL, row, c);
@@ -1166,14 +1203,16 @@ static void test_rows_read_settings(void) {
     ui_view_init(&va, &a);
     ui_view_init(&vb, &b);
     struct { int tab; const char* key; int value; } CASES[] = {
-        { COG_TAB_DISPLAY, "sharpening", 2 }, { COG_TAB_DISPLAY, "supersampling", 0 }, { COG_TAB_DISPLAY, "stats", 1 },
-        { COG_TAB_DISPLAY, "head_locked", 0 }, { COG_TAB_DISPLAY, "pointer_sleep", 0 }, { COG_TAB_DISPLAY, "controller_model", 1 },
-        { COG_TAB_DISPLAY, "controller_model", 2 }, { COG_TAB_DISPLAY, "controller_model", 3 },
-        { COG_TAB_DISPLAY, "click_sound", 0 }, { COG_TAB_DISPLAY, "glow", 1 }, { COG_TAB_DISPLAY, "screen_light", 0 },
-        { COG_TAB_DISPLAY, "glow_level", 10 }, { COG_TAB_DISPLAY, "gamepad_toggle", 1 },
+        { COG_TAB_PICTURE, "sharpening", 2 }, { COG_TAB_PICTURE, "supersampling", 0 }, { COG_TAB_PICTURE, "stats", 1 },
+        { COG_TAB_PICTURE, "foveated", 1 }, { COG_TAB_PICTURE, "notices", 1 },
+        { COG_TAB_SCREEN, "head_locked", 0 }, { COG_TAB_CONTROLS, "pointer_sleep", 0 }, { COG_TAB_CONTROLS, "controller_model", 1 },
+        { COG_TAB_CONTROLS, "controller_model", 2 }, { COG_TAB_CONTROLS, "controller_model", 3 },
+        { COG_TAB_CONTROLS, "click_sound", 0 }, { COG_TAB_ROOM, "glow", 1 },
+        { COG_TAB_ROOM, "glow_level", 10 }, { COG_TAB_ROOM, "glow_spread", 70 }, { COG_TAB_ROOM, "background_dim", 30 },
+        { COG_TAB_CONTROLS, "gamepad_toggle", 1 }, { COG_TAB_CONTROLS, "mouse_mode", 1 }, { COG_TAB_CONTROLS, "scroll_speed", 150 },
         { COG_TAB_SCREEN, "distance_cm", 100 }, { COG_TAB_SCREEN, "height_cm", 100 }, { COG_TAB_SCREEN, "tilt_deg", 20 },
         { COG_TAB_SCREEN, "rotate_deg", 30 }, { COG_TAB_SCREEN, "curve", 40 }, { COG_TAB_SCREEN, "width_cm", 600 },
-        { COG_TAB_SCREEN, "head_aim_sensitivity", 20 }, { COG_TAB_SCREEN, "head_aim_deadzone", 12 },
+        { COG_TAB_CONTROLS, "head_aim_sensitivity", 20 }, { COG_TAB_CONTROLS, "head_aim_deadzone", 12 },
         { COG_TAB_SCREEN, "per_app", 0 }, { COG_TAB_SCREEN, "angular_lock", 0 },
         { COG_TAB_3D, "separation", 12 }, { COG_TAB_3D, "convergence", 20 },
         { COG_TAB_3D, "edge_sharpness", 50 }, { COG_TAB_3D, "depth_scale", 150 }, { COG_TAB_3D, "depth_global", 60 },
@@ -1206,7 +1245,7 @@ static void test_rows_read_settings(void) {
         UiView v0, v1;
         ui_view_init(&v0, &f0);
         ui_view_init(&v1, &f1);
-        v0.cog_tab = v1.cog_tab = COG_TAB_DISPLAY;
+        v0.cog_tab = v1.cog_tab = COG_TAB_SCREEN;
         Guarded g0, g1;
         draw(UI_PANEL_COG, &v0, 1.0f, &g0);
         draw(UI_PANEL_COG, &v1, 1.0f, &g1);
@@ -1214,13 +1253,13 @@ static void test_rows_read_settings(void) {
         free(g0.base);
         free(g1.base);
     }
-    // room values on the Room tab
+    // room values on the Room tab, and the room's size on the Screen tab
     static const char* const ROOMKEYS[] = { "room_4_brightness", "room_4_glow", "room_4_light", "room_4_screen" };
     static const int ROOMVALS[] = { 100, 1, 20, 40 };
     for (int i = 0; i < 4; i++) {
         b = a;
         settings_set(&b, settings_find(ROOMKEYS[i]), ROOMVALS[i]);
-        va.cog_tab = vb.cog_tab = COG_TAB_SCREEN;
+        va.cog_tab = vb.cog_tab = i == 3 ? COG_TAB_SCREEN : COG_TAB_ROOM;
         va.room_env = vb.room_env = ENV_ID_HOME_THEATER;
         Guarded ga, gb;
         draw(UI_PANEL_COG, &va, 1.0f, &ga);
@@ -1645,7 +1684,8 @@ int main(void) {
     test_all_panels_scales();
     test_cog_rows_present();
     test_cog_hits_agree_with_xr_layout();
-    test_display_glow_in_room();
+    test_glow_row();
+    test_stats_row();
     test_other_panels_hits();
     test_report_toast_lists();
     test_state_sweep();

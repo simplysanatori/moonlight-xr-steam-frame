@@ -11,7 +11,7 @@
 //   budget  the layers of the busiest frames with the room, the glow, the
 //           models, the UI and the picture (flat and curved), the drop order,
 //           and the swapchains the session makes at most
-//   click   the click hook (IN_CLICK, the setting, the Display tab's row)
+//   click   the click hook (IN_CLICK, the setting, the Controls tab's row)
 //   room_panels  a stats window or keyboard the user moved goes back by the
 //           screen when a room takes the screen or hands it back
 // GPLv3.
@@ -175,24 +175,25 @@ static void roomGroup(void) {
     CHECK(memcmp(&c->screenPose, &mine, sizeof(mine)) == 0 && c->screenWidth == 2.2f && c->screenRadius == 9.0f);
     CHECK(c->roomPlacedStyle == 0);
 
-    // The Room tab: the screen tab's place in a room, its rows live (size
-    // only where the room lets the picture be resized), its values stored
-    // under the room showing
+    // The Room tab, its rows all live in a room, and the Screen tab's Size the
+    // room's (only where the room lets the picture be resized), the values
+    // stored under the room showing
     xrSetEnvironment(c, ENV_CELL_HOME_THEATER);
-    c->cogTab = COG_TAB_SCREEN;
-    CHECK(cogFace(c) == COG_FACE_ROOM);
-    for (int row = 0; row < COG_ROOM_ROW_COUNT; row++) CHECK(cogRowLive(c, COG_FACE_ROOM, row));
+    c->cogTab = COG_TAB_ROOM;
+    for (int row = 0; row < COG_ROOM_ROW_COUNT; row++) CHECK(cogRowLive(c, COG_TAB_ROOM, row));
+    CHECK(cogRowLive(c, COG_TAB_SCREEN, COG_SLIDER_SIZE) && !cogRowLive(c, COG_TAB_SCREEN, COG_SLIDER_DISTANCE));
+    CHECK(cogRowLive(c, COG_TAB_SCREEN, COG_SCREEN_ROW_PER_APP) && !cogRowLive(c, COG_TAB_SCREEN, COG_SCREEN_ROW_LOCK));
     xrSetEnvironment(c, ENV_CELL_GRAND_CINEMA);
-    CHECK(!cogRowLive(c, COG_FACE_ROOM, COG_ROOM_ROW_SIZE) && cogRowLive(c, COG_FACE_ROOM, COG_ROOM_ROW_BRIGHTNESS));
+    CHECK(!cogRowLive(c, COG_TAB_SCREEN, COG_SLIDER_SIZE) && cogRowLive(c, COG_TAB_ROOM, COG_ROOM_ROW_BRIGHTNESS));
     xrSetEnvironment(c, ENV_CELL_HOME_THEATER);
-    cogApplySlider(c, COG_FACE_ROOM, COG_ROOM_ROW_BRIGHTNESS, 0.95f);
+    cogApplySlider(c, COG_TAB_ROOM, COG_ROOM_ROW_BRIGHTNESS, 0.95f);
     int b = c->roomBrightness[ROOM_STYLE_THEATER];
     CHECK(b > ROOM_THEATER_BRIGHTNESS);
     CHECK(xrStoreSetting(c, &s->settings, SETTING_ROOM_BRIGHTNESS, b) == 1);
     CHECK(s->settings.room[0].brightness == b && s->settings.room[1].brightness == ROOM_GRAND_CINEMA_BRIGHTNESS);
     float out[IN_SLOTS];
     memset(out, 0, sizeof(out));
-    cogApplyRoomCell(c, COG_ROOM_ROW_GLOW, 1, out);
+    cogApplyCell(c, COG_TAB_ROOM, COG_ROOM_ROW_GLOW, 1, out);
     CHECK((int)out[IN_SETTING] == SETTING_ROOM_GLOW && c->roomGlow[ROOM_STYLE_THEATER] == 1);
     CHECK(xrStoreSetting(c, &s->settings, SETTING_ROOM_GLOW, 1) == 1 && s->settings.room[0].glow == 1);
     CHECK(xrStoreSetting(c, &s->settings, SETTING_ROOM_SCREEN, 60) == 1 && s->settings.room[0].screen == 60);
@@ -212,11 +213,10 @@ static void roomGroup(void) {
     CHECK(again.room[0].brightness == b && again.room[0].screen == 60);
     free(d);
 
-    // Rows the M4 build greyed are live, supersampling included
-    for (int row = 0; row <= COG_DISPLAY_SLIDER_ROW; row++) {
-        CHECK(xrRowLater(c, COG_TAB_DISPLAY, row) == 0);
+    // Every row of the Picture tab is live
+    for (int row = 0; row < cogTabRowCount(COG_TAB_PICTURE); row++) {
+        CHECK(cogRowLive(c, COG_TAB_PICTURE, row));
     }
-    CHECK(xrDisplayLaterMask(c) == 0);
     // Every picker cell is live
     CHECK(c->pickerCells == ENV_CELL_COUNT);
     // The panel names the room up (UiView.room_env)
@@ -546,13 +546,13 @@ static void budgetGroup(void) {
         worst = n > worst ? n : worst;
         CHECK(hasSwapchain(&s->out, FAKE_ROOM));
         c->hoverKind = HOVER_NONE;
-        for (int tab = COG_TAB_SCREEN; tab <= COG_TAB_DISPLAY; tab++) {
+        for (int tab = COG_TAB_ROOM; tab <= COG_TAB_PICTURE; tab++) {
             c->cogTab = tab;
             c->cogOpen = 1;
             c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
             toastUp(c);
             snprintf(what, sizeof(what), "room %d, %s tab, glow, models, stats, ray, dot, toast", roomEffective(c),
-                     tab == COG_TAB_SCREEN ? "Room" : "Display");
+                     tab == COG_TAB_ROOM ? "Room" : "Display");
             n = frameLayers(s, what, 0);
             worst = n > worst ? n : worst;
         }
@@ -635,12 +635,12 @@ static void clickGroup(void) {
     CHECK(xrClickFrame(c, in) == 0 && played == 0); // nothing pressed
     in[IN_CLICK] = 1.0f;
     CHECK(xrClickFrame(c, in) == 1 && played == 1);
-    // The Display tab's row switches it, and is stored
+    // The Controls tab's row switches it, and is stored
     CHECK(cogApplyOption(c, COG_OPTION_CLICK_SOUND, 0) == SETTING_CLICK_SOUND && c->clickSoundOn == 0);
     CHECK(xrClickFrame(c, in) == 0 && played == 1);
     CHECK(xrStoreSetting(c, &st, SETTING_CLICK_SOUND, 0) == 1 && st.click_sound == 0);
     CHECK(cogApplyOption(c, COG_OPTION_CLICK_SOUND, 1) == SETTING_CLICK_SOUND && c->clickSoundOn == 1);
-    CHECK(cogRowLive(c, COG_TAB_DISPLAY, COG_OPTION_CLICK_SOUND));
+    CHECK(cogRowLive(c, COG_TAB_CONTROLS, COG_CONTROLS_ROW_CLICK_SOUND));
     // No player (PulseAudio unavailable): nothing happens, nothing blocks
     xrClickPlayer = NULL;
     CHECK(xrClickFrame(c, in) == 0 && played == 1);
@@ -649,7 +649,7 @@ static void clickGroup(void) {
     CHECK(cogApplyOption(c, COG_OPTION_AMBILIGHT, 0) == SETTING_AMBILIGHT && c->ambilightOn == 0);
     CHECK(cogApplyOption(c, COG_OPTION_ROOM_LIGHT, 0) == SETTING_ROOM_LIGHT && c->roomLightOn == 0);
     float before = c->ambiIntensity;
-    cogApplySlider(c, COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW, cogRunU(0.25f));
+    cogApplySlider(c, COG_TAB_ROOM, COG_ROOM_ROW_GLOW_LEVEL, cogRunU(0.25f));
     CHECK(c->ambiIntensity == 0.25f && before != 0.25f);
     free(c);
 }

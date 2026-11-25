@@ -325,7 +325,7 @@ static float srgbToLinear(float c) {
 }
 
 static float dimOverride; // 0: the room's own row
-static float bgDimTest;   // native (lane wave3-visual): the Picture tab's Background dim, 0 none to 1 black
+static float bgDimTest;   // native (lane wave3-visual): the Room tab's Background dim, 0 none to 1 black
 static Img ambiImg, shotImg;
 static int sharedMade;
 

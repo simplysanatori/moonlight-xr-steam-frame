@@ -76,11 +76,11 @@ int render_all_panels(const char* dir) {
     ui_view_init(&v, &s);
     char name[96];
 
-    static const char* const TABS[COG_TAB_COUNT] = { "screen", "display", "3d", "picture", "accessibility", "about" };
+    static const char* const TABS[COG_TAB_COUNT] = { "screen", "room", "picture", "3d", "controls", "accessibility", "about" };
     v.version = "0.1.0";
     v.commit = "b7a431a";
     v.log_path = "/home/steamos/Games/MoonlightXRNative/moonlight.log";
-    v.curve_ok = 0;   // the Frame has no cylinder layer
+    v.curve_ok = 1;
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
         v.cog_tab = tab;
         snprintf(name, sizeof name, "cog_%s", TABS[tab]);
@@ -153,11 +153,30 @@ int render_all_panels(const char* dir) {
         UiView vr = v;
         vr.room_env = ENVS[r];
         for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
-            if (r != 0 && tab > COG_TAB_DISPLAY) continue;
+            if (r != 0 && tab > COG_TAB_ROOM) continue;
             vr.cog_tab = tab;
-            snprintf(name, sizeof name, "cog_room_%s_%s", ENVN[r], tab == 0 ? "room" : TABS[tab]);
+            snprintf(name, sizeof name, "cog_room_%s_%s", ENVN[r], TABS[tab]);
             panel_to_png(dir, name, UI_PANEL_COG, &vr, 1.0f);
         }
+    }
+    // the rows that are greyed for a reason: no curve, passthrough before its sheets, the light gun
+    {
+        UiView vg = v;
+        vg.cog_tab = COG_TAB_SCREEN;
+        vg.curve_ok = 0;
+        panel_to_png(dir, "cog_screen_no_curve", UI_PANEL_COG, &vg, 1.0f);
+        vg = v;
+        vg.pt_hides = UI_PT_HIDES_CONTROLLERS | UI_PT_HIDES_GLOW;
+        vg.cog_tab = COG_TAB_ROOM;
+        panel_to_png(dir, "cog_passthrough_room", UI_PANEL_COG, &vg, 1.0f);
+        vg.cog_tab = COG_TAB_CONTROLS;
+        panel_to_png(dir, "cog_passthrough_controls", UI_PANEL_COG, &vg, 1.0f);
+        Settings gun = s;
+        gun.controller_model = CONTROLLER_MODEL_GUN;
+        ui_view_init(&vg, &gun);
+        vg.gun = 1;
+        vg.cog_tab = COG_TAB_CONTROLS;
+        panel_to_png(dir, "cog_controls_gun", UI_PANEL_COG, &vg, 1.0f);
     }
     // 3D off
     {
@@ -180,9 +199,9 @@ int render_all_panels(const char* dir) {
     // hover on a cell and a thumb
     {
         UiView vh = v;
-        vh.cog_tab = COG_TAB_DISPLAY;
-        vh.hover = (UiHover){ UI_HIT_CELL, COG_OPTION_STATS, 1 };
-        panel_to_png(dir, "cog_display_hover", UI_PANEL_COG, &vh, 1.0f);
+        vh.cog_tab = COG_TAB_PICTURE;
+        vh.hover = (UiHover){ UI_HIT_CELL, COG_PICTURE_ROW_STATS, 1 };
+        panel_to_png(dir, "cog_picture_hover", UI_PANEL_COG, &vh, 1.0f);
     }
 
     // picker

@@ -33,6 +33,8 @@ void scene_free(Scene* s);
 void scene_reset(Scene* s);
 // The ray from the eye to a point in the space (draws the beam and the dot)
 void scene_ray_to(Scene* s, Vec3 hand, Vec3 target);
+// A press on a cell of an option's row (COG_OPTION_*), on whichever tab has it
+void scene_press_option(XrCtx* c, int option, int cell, float* out);
 // Draws the panels that changed and builds the layers
 void scene_frame(Scene* s, const char* stats);
 // Composes the layers into a w x h RGBA8 picture from an eye at the origin

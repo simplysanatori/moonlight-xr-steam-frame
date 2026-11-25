@@ -73,6 +73,13 @@ void scene_ray_to(Scene* s, Vec3 hand, Vec3 target) {
     c->headPos = (XrVector3f){ 0, 0, 0 };
 }
 
+void scene_press_option(XrCtx* c, int option, int cell, float* out) {
+    int tab = -1, row = -1;
+    if (cogOptionRow(option, &tab, &row)) {
+        cogApplyCell(c, tab, row, cell, out);
+    }
+}
+
 void scene_frame(Scene* s, const char* stats) {
     XrCtx* ctx = s->ctx;
     s->live = s->settings;

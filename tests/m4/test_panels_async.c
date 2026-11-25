@@ -42,7 +42,7 @@ static void setState(Scene* s, int step) {
     case 6:
         c->cogOpen = 1;
         c->panelFades[FADE_COG].level = 1.0f;
-        c->cogTab = COG_TAB_DISPLAY;
+        c->cogTab = COG_TAB_PICTURE;
         c->cogHoverSlider = 0;
         break;
     case 7: c->kbOpen = 1; break;

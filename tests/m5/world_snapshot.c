@@ -412,7 +412,7 @@ int main(int argc, char** argv) {
             xrWorldPlanLayers(ctx, 0);
         }
         // The Room tab
-        ctx->cogTab = COG_TAB_SCREEN;
+        ctx->cogTab = COG_TAB_ROOM;
         ctx->cogOpen = 1;
         ctx->cogPose = cogPanelPose(ctx, &ctx->cogW, &ctx->cogH);
         snprintf(name, sizeof(name), "m5_room_%s_roomtab", names[st]);
@@ -427,9 +427,9 @@ int main(int argc, char** argv) {
     shot(s, dir, "m5_picker_rooms", NULL);
     ctx->pickerOpen = 0;
     ctx->panelFades[FADE_PICKER].level = 0.0f;
-    // Display tab with its M5 rows live
+    // Picture tab with its M5 rows live
     xrSetEnvironment(ctx, ENV_CELL_VOID);
-    ctx->cogTab = COG_TAB_DISPLAY;
+    ctx->cogTab = COG_TAB_PICTURE;
     ctx->cogOpen = 1;
     ctx->cogPose = cogPanelPose(ctx, &ctx->cogW, &ctx->cogH);
     shot(s, dir, "m5_display_tab", NULL);

@@ -1140,14 +1140,14 @@ static void testModelRow(void) {
     waitReady(ctx, &fid);
     int starts = fakeStarts, stops = fakeStops;
     // the row: two cells, live with the depth model, Light in force
-    CHECK(cogTabRowCount(COG_TAB_3D) == COG_ROW3D_COUNT && COG_ROW3D_MODEL == COG_ROW3D_COUNT - 1);
+    CHECK(cogTabRowCount(COG_TAB_3D) == COG_ROW3D_COUNT && COG_ROW3D_MODEL == COG_ROW3D_SOURCE + 1);
     CHECK(!cogRowIsTrack(COG_TAB_3D, COG_ROW3D_MODEL) && cogRowCells(COG_TAB_3D, COG_ROW3D_MODEL) == COG_MODEL_CELLS);
     CHECK(cogRowLive(ctx, COG_TAB_3D, COG_ROW3D_MODEL));
     CHECK(cogCellInForce(ctx, COG_TAB_3D, COG_ROW3D_MODEL) == COG_MODEL_LIGHT);
     CHECK(xrDepthModelSource(ctx) == DEPTH_SOURCE_LIGHT);
-    // the pointer: the row's band below the balance track's, Light on the left half of the cells
+    // the pointer: the row's band below the source row's, Light on the left half of the cells
     CHECK(cogRowV(COG_TAB_3D, COG_ROW3D_MODEL) - cogRowHalf(COG_TAB_3D)
-          >= cogRowV(COG_TAB_3D, COG_ROW3D_BALANCE) + cogRowHalf(COG_TAB_3D) - 1e-5f);
+          >= cogRowV(COG_TAB_3D, COG_ROW3D_SOURCE) + cogRowHalf(COG_TAB_3D) - 1e-5f);
     CHECK(cogCellAt(COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * 0.25f, COG_MODEL_CELLS) == COG_MODEL_LIGHT);
     CHECK(cogCellAt(COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * 0.75f, COG_MODEL_CELLS) == COG_MODEL_FULL);
     float out[IN_SLOTS];

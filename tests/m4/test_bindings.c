@@ -158,7 +158,7 @@ static void sampleFile(void) {
     rest(c);
     frame(c);
 
-    // Y steps the ray: Ray, then Off, saved as the Display tab's row is
+    // Y steps the ray: Ray, then Off, saved as the Controls tab's row is
     CHECK(cogOptionValue(c, COG_OPTION_RAY, 0) == 2);
     c->padSeen[HAND_RIGHT].faceY = 1;
     frame(c);

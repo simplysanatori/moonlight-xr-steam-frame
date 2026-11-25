@@ -361,7 +361,7 @@ static void warpBody(XrCtx* ctx, VkCommandBuffer cmd, void* user) {
     w.srcInset = 0.5f / 1920.0f;
     w.edgeFade = 16.0f / 1920.0f;
     w.tint[0] = w.tint[1] = w.tint[2] = 1.0f;
-    w.sharpen = 0.8f; // the Display tab's default, Quality
+    w.sharpen = 0.8f; // the Picture tab's default, Quality
     mlxr_pass_warp(ctx->passes, cmd, &t, &w);
 }
 

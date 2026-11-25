@@ -56,10 +56,10 @@ static void test_tables(void) {
                 CHECK(t == en);
             }
         }
-        // every language upstream completed has the 106 keys it shares with this port (111 less the Ko-fi
-        // sheet's Not now and title, which drifted, and its scan line, its "free" line and the 3D tab's
-        // "harder on the eyes", which are gone)
-        if (l > 0) CHECK(own == 106);
+        // every language upstream completed has the 105 keys it shares with this port (111 less the Ko-fi
+        // sheet's Not now and title, which drifted, and its scan line, its "free" line, the 3D tab's
+        // "harder on the eyes" and the Display tab, which are gone)
+        if (l > 0) CHECK(own == 105);
     }
     // the strings written for this port are English everywhere (docs/dev/i18n.md lists them)
     CHECK(!translated_somewhere[UIS_NATIVE_PC_LIST_TITLE]);

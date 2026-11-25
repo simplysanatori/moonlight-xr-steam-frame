@@ -2153,7 +2153,7 @@ static void testBacklight(void) {
     targetFree(&panel);
 }
 
-// The Picture tab's Background dim on the room (native, lane wave3-visual):
+// The Room tab's Background dim on the room (native, lane wave3-visual):
 // u_keep scales the whole of what the room shows, the wash of the picture's
 // light included, to black at the far end
 static void testRoomDim(void) {
@@ -2693,7 +2693,7 @@ static const TxGeom TX_GEOMS[] = {
 
 typedef struct {
     const char* name;
-    float warpSharpen;  // the warp's CAS (the Display tab's Sharpen before: 0.4 normal, 0.8 quality)
+    float warpSharpen;  // the warp's CAS (the Picture tab's Sharpen before: 0.4 normal, 0.8 quality)
     int pictureFilter;  // the panel pass's footprint filter (0: one trilinear read, as before)
     float sharpen;      // the panel pass's eye scale sharpen (0.5 normal, 1 quality)
     int chroma;         // chroma from luma in the warp

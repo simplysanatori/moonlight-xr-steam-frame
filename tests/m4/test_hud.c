@@ -283,7 +283,7 @@ static void testStrip(Scene* s) {
     UiRectPx r = xrAtlasRect(UI_PANEL_CLOCK);
     scene_reset(s);
     c->cogOpen = 1;
-    c->cogTab = COG_TAB_DISPLAY;
+    c->cogTab = COG_TAB_PICTURE;
     c->cogPose = cogPanelPose(c, &c->cogW, &c->cogH);
     c->batteryPresent = 0;
     c->slowConn = 0;
@@ -349,11 +349,24 @@ static void testStyle(void) {
     settings_defaults(&back);
     xrSettingsFromCtx(c, &back);
     CHECK(back.stats == 1 && back.stats_style == STATS_STYLE_HUD);
-    // the cog's Stats row turns it off and on and leaves the style alone
+    // the cog's Stats row (1.3.4) is both: Off leaves the style alone, and each style turns it on
     CHECK(xrStoreSetting(c, &st, SETTING_STATS, 0));
     CHECK(st.stats == 0 && st.stats_style == STATS_STYLE_HUD);
-    CHECK(xrStoreSetting(c, &st, SETTING_STATS, 1));
+    CHECK(xrStoreSetting(c, &st, SETTING_STATS, 1 + STATS_STYLE_HUD));
     CHECK(st.stats == 1 && st.stats_style == STATS_STYLE_HUD);
+    CHECK(!xrStoreSetting(c, &st, SETTING_STATS, 1 + STATS_STYLE_HUD));
+    xrApplySettings(c, &st);
+    float out[IN_SLOTS];
+    for (int cell = COG_STATS_CELLS - 1; cell >= 0; cell--) {
+        memset(out, 0, sizeof(out));
+        out[IN_SETTING] = -1.0f;
+        scene_press_option(c, COG_OPTION_STATS, cell, out);
+        CHECK((int)out[IN_SETTING] == SETTING_STATS && (int)out[IN_SETTING_VALUE] == cell);
+        CHECK(c->overlayVisible == (cell > 0) && c->statsStyle == (cell > 0 ? cell - 1 : STATS_STYLE_FULL));
+        CHECK(cogOptionValue(c, COG_OPTION_STATS, 0) == cell);
+        xrStoreSetting(c, &st, (int)out[IN_SETTING], (int)out[IN_SETTING_VALUE]);
+        CHECK(st.stats == (cell > 0) && st.stats_style == (cell > 0 ? cell - 1 : STATS_STYLE_FULL));
+    }
     // a style out of range is the full lines
     st.stats_style = 7;
     xrApplySettings(c, &st);
