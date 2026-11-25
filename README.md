@@ -120,7 +120,7 @@ More fixes: [user guide](docs/USER_GUIDE.md#troubleshooting).
 
 ## Reporting a problem
 
-In the headset, open the cog, then About, Report a problem, and press **Save and zip**. Or run:
+In the headset, open the cog, then About, Report a Problem, and press **Save and zip**. Or run:
 
 ```sh
 ~/Games/MoonlightXRNative/app/bug-report.sh

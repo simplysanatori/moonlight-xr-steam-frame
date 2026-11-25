@@ -121,8 +121,8 @@
     X(KOFI_TITLE, "vr_kofi_title", "Support simplysanatori on Ko-fi") \
     X(KOFI_CLOSE, "vr_kofi_close", "Not now") \
     X(KOFI_OPEN, "vr_kofi_open", "Open page") \
-    /* the Host sheet (PLAN 4b.1) */ \
-    X(HOST_TITLE, "native_host_title", "Host") \
+    /* the PC Keys sheet (the Host sheet, PLAN 4b.1) */ \
+    X(HOST_TITLE, "native_host_title", "PC Keys") \
     X(HOST_SEND_KEYS, "native_host_send_keys", "Send keys…") \
     X(HOST_SEND_KEYS_HINT, "native_host_send_keys_hint", "type a combo") \
     X(HOST_SEND_KEYS_SHORT, "native_host_send_keys_short", "Send keys") \
@@ -263,8 +263,8 @@
     X(FIRSTRUN_PAD_MENU_GRIP, "native_firstrun_pad_menu_grip", "Hold left View + left grip: gamepad mode") \
     X(FIRSTRUN_PAD_STICKS, "native_firstrun_pad_sticks", "Press both thumbsticks: gamepad mode") \
     X(FIRSTRUN_PAD_TRIGGERS_GRIPS, "native_firstrun_pad_triggers_grips", "Squeeze triggers + grips: gamepad mode") \
-    X(FIRSTRUN_HOST_L, "native_firstrun_host_l", "Host") \
-    X(FIRSTRUN_HOST, "native_firstrun_host", "The bar's Host button: Esc, Win, macros") \
+    X(FIRSTRUN_HOST_L, "native_firstrun_host_l", "PC Keys") \
+    X(FIRSTRUN_HOST, "native_firstrun_host", "The bar's PC Keys button: Esc, Win, macros") \
     X(FIRSTRUN_KEYS_L, "native_firstrun_keys_l", "Keys") \
     X(FIRSTRUN_KEYS, "native_firstrun_keys", "Ctrl+Alt+Shift+Q on a keyboard: disconnect") \
     X(FIRSTRUN_MOUSE_L, "native_firstrun_mouse_l", "Pad") \

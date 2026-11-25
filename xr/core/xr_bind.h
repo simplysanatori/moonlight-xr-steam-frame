@@ -159,7 +159,7 @@ int xrBindSourceIsStick(int src);
 #define XR_BIND_APP_GAMEPAD 5
 // Bring the screen to in front of the controller (PLAN 3.6)
 #define XR_BIND_APP_BRINGHERE 6
-// Open or close the Host sheet (keys for the PC, PLAN 4b.1)
+// Open or close the PC Keys sheet (xr_host.c, PLAN 4b.1)
 #define XR_BIND_APP_HOST 7
 // Zoom the picture one rung in or out, aimed at the pointer, and back to the
 // whole picture (PLAN 4b.6)
