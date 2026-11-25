@@ -127,8 +127,7 @@ void xrWorldVideoGone(XrCtx* ctx);
 void xrWorldFlatGlow(XrCtx* ctx, int curved);
 // Whether the glow shows at all now (switch, level, a picture up)
 int xrWorldGlowShown(XrCtx* ctx);
-// The glow drawn on the curved picture's surface, a little proud of it, into
-// a projection layer target (the curved picture's own; native, there being no
+// The glow drawn level with the curved picture's surface, into a projection layer target (the curved picture's own; native, there being no
 // cylinder layers): one draw per eye
 void xrWorldCurvedGlow(XrCtx* ctx, const XrEyeTargets* target, const XrView* views);
 // Native (lane gpu-144): whether the curved or flat glow drawn into the picture's layer leaves out

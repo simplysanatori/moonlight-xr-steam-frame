@@ -547,7 +547,12 @@ static void glowGroup(void) {
     m5_video(&g, c, &video, 1920, 1080, twoColour);
     c->ambilightOn = 1;
     c->ambiIntensity = 0.5f;
-    for (int f = 0; f < AMBI_BAR_PERIOD * (AMBI_BAR_APPLY + 2); f++) {
+    c->glowSpread = GLOW_SPREAD_DEFAULT;
+    // (a frame is 20 ms by the test's clock, so the zones are eased all the way to the cropped picture's)
+    backClock = nowNs();
+    xrBacklightClock = fixedClock;
+    for (int f = 0; f < AMBI_BAR_PERIOD * (AMBI_BAR_APPLY + 6); f++) {
+        backClock += 20000000LL;
         m5_frame(&g, c, glowBody, NULL);
     }
     printf("  bars applied: rows from the top %d, from the bottom %d, left %d, right %d; crop %.3f %.3f %.3f %.3f\n",
@@ -558,7 +563,8 @@ static void glowGroup(void) {
     CHECK(c->ambiBarApplied[AMBI_EDGE_TOP] >= 4 && c->ambiBarApplied[AMBI_EDGE_TOP] <= 5);
     CHECK(c->ambiBarApplied[AMBI_EDGE_LEFT] == 0 && c->ambiBarApplied[AMBI_EDGE_RIGHT] == 0);
     CHECK(c->ambiCrop[3] < 0.8f && c->ambiCrop[3] > 0.6f);
-    CHECK(c->glowRendered && c->glowDrawnOn && c->ambiSeeded);
+    // (no room: no sample for its light)
+    CHECK(c->glowRendered && c->glowDrawnOn && c->glowZonesSeeded && !c->ambiSeeded);
 
     uint8_t* glow = malloc(GLOW_TEX * GLOW_TEX * 8);
     m5_readback(&g, c->glowTexture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, GLOW_TEX, GLOW_TEX, glow);
@@ -590,14 +596,13 @@ static void glowGroup(void) {
 
     // Native (issue #7): the Backlight on the same letterboxed picture, from its own colours and shape
     c->ambiIntensity = 0.5f;
-    c->glowFeather = GLOW_EDGE_BACKLIGHT;
     c->glowSpread = GLOW_SPREAD_DEFAULT;
     CHECK(glowStale(c));
+    backClock += 20000000LL;
     m5_frame(&g, c, glowBody, NULL);
-    CHECK(c->glowZonesSeeded && !c->ambiSeeded && c->glowDrawnFeather == GLOW_EDGE_BACKLIGHT && !glowStale(c));
-    float sx, sy, proud;
-    xrGlowDrawnSize(c, &sx, &sy, &proud);
-    CHECK(sx > 1.5f && sx < 1.6f && sy > sx && proud == 0.0f);
+    CHECK(c->glowZonesSeeded && !c->ambiSeeded && !glowStale(c));
+    float sx = c->glowDrawnShape.scaleX, sy = c->glowDrawnShape.scaleY;
+    CHECK(sx > 1.5f && sx < 1.6f && sy > sx);
     m5_readback(&g, c->glowTexture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, GLOW_TEX, GLOW_TEX, glow);
     // Just outside the screen: 3 % of its width left and right, 3 % of its height above the red and the blue half
     int bx = (int)((0.5f - 0.53f / sx) * GLOW_TEX), by = (int)((0.5f - 0.53f / sy) * GLOW_TEX);
@@ -618,8 +623,7 @@ static void glowGroup(void) {
     m5_video(&g, c, &other, 1920, 1080, dark);
     M5Video kept = video;
     video = other;
-    backClock = nowNs() + 1000000000LL;
-    xrBacklightClock = fixedClock;
+    backClock += 1000000000LL;
     c->glowEasedNs = backClock - 20000000LL;
     m5_frame(&g, c, glowBody, NULL);
     CHECK_NEAR(c->glowUnsettled, exp(-20.0 / 150.0), 1e-4);
@@ -650,29 +654,21 @@ static void glowGroup(void) {
     // twentieth of a percent is left: one, and 150 ms / 13.9 ms times log(exp(-62.5 / 150) / 0.0005)
     CHECK(redraws == 79);
     CHECK(part > 120 && bl[0] <= 6 && !glowStale(c));
-    xrBacklightClock = keptClock;
     video = kept;
     m5_video_free(c, &other);
-    // Back to Off: the colour sample starts over
-    c->glowFeather = GLOW_FEATHER_OFF;
-    m5_frame(&g, c, glowBody, NULL);
-    CHECK(c->ambiSeeded && !c->glowZonesSeeded && c->glowDrawnScaleY == 0.0f);
-    // Native (issue #7): the Glow edge, the room, the curve, the zoom, the bezel and the spread switched while it
-    // runs, on a new frame and on a picture that stands still. Each time the glow image is what was asked for,
+    // Native (issue #7): the room, the curve, the zoom and the spread switched while it runs, on a new frame and on
+    // a picture that stands still. Each time the glow image is what was asked for,
     // lit at its edge and dark at its rim, and nothing is left stale
-    backClock = nowNs() + 10000000000LL;
-    xrBacklightClock = fixedClock;
+    backClock += 10000000000LL;
     static const int ROOMS[4] = { 0, ROOM_STYLE_FIRST, ROOM_STYLE_FIRST + 1, ROOM_STYLE_LAST };
     c->cylinderSupported = 1;
     int panels = 0;
     for (int n = 0; n < 96; n++) {
         int still = n % 3 == 2;
-        c->glowFeather = (n * 7) % GLOW_EDGE_COUNT;
         c->roomOverride = ROOMS[(n / 2) % 4];
         c->roomGlow[c->roomOverride > 0 ? c->roomOverride : ROOM_STYLE_FIRST] = 1;
         c->panelCurve = (n / 5) % 2 ? 0.6f : 0.0f;
         c->zoomPct = (n / 7) % 2 ? 200 : 100;
-        c->glowBezel = (n / 4) % 4;
         c->glowSpread = 10 + (n * 35) % 95;
         backClock += 20000000LL;
         if (still) {
@@ -685,15 +681,13 @@ static void glowGroup(void) {
         else {
             m5_frame(&g, c, glowBody, NULL);
         }
-        int back = c->glowFeather == GLOW_EDGE_BACKLIGHT;
-        CHECK(!glowStale(c) && c->glowDrawnOn && c->glowDrawnFeather == c->glowFeather);
-        xrGlowDrawnSize(c, &sx, &sy, &proud);
-        CHECK((proud == 0.0f) == back && (c->glowDrawnScaleY > 0.0f) == back);
-        CHECK(back || (sx == sy && sx == xrGlowScaleFor(c, c->glowFeather)));
-        // The image it goes up from: its own half floats on a curved picture, on a quad the bytes every glow has
-        int panel = back && xrPictureProjected(c);
+        CHECK(!glowStale(c) && c->glowDrawnOn && c->glowDrawnShape.scaleX > 1.0f && c->glowDrawnShape.scaleY > 1.0f);
+        // The room's light has its own sample, taken with the glow on or off, and only in a room
+        CHECK(still || c->ambiSeeded == (roomEffective(c) > 0));
+        // The image it goes up from: its own half floats on a curved picture, on a quad the swapchain's bytes
+        int panel = xrPictureProjected(c) != 0;
         panels += panel;
-        CHECK((xrGlowPanelSource(c) != VK_NULL_HANDLE) == (!back || panel) && xrGlowForQuad(c) == !panel);
+        CHECK((xrGlowPanelSource(c) != VK_NULL_HANDLE) == panel && xrGlowForQuad(c) == !panel);
         m5_readback_bpp(&g, panel ? c->glowLightTexture.image : c->glowTexture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                         GLOW_TEX, GLOW_TEX, panel ? 8 : 4, glow);
         int rim = 0, lit = 0;
@@ -709,19 +703,18 @@ static void glowGroup(void) {
                 if ((x == 0 || y == 0 || x == GLOW_TEX - 1 || y == GLOW_TEX - 1) && m > rim) rim = m;
             }
         }
-        CHECK(!back || rim <= 3);
+        CHECK(rim <= 3);
         CHECK(lit > 500);
     }
     CHECK(panels > 1);
     // The stream's size changes under it: 32:9, so the glow takes its shape and its zones whole
-    c->glowFeather = GLOW_EDGE_BACKLIGHT;
     c->roomOverride = 0;
     c->panelCurve = 0.0f;
     c->zoomPct = 100;
-    c->glowBezel = 0;
     c->glowSpread = GLOW_SPREAD_DEFAULT;
     m5_frame(&g, c, glowBody, NULL);
-    xrGlowDrawnSize(c, &sx, &sy, &proud);
+    sx = c->glowDrawnShape.scaleX;
+    sy = c->glowDrawnShape.scaleY;
     CHECK(c->glowDrawnShape.zonesAcross == 20);
     M5Video wide;
     memset(&wide, 0, sizeof(wide));
@@ -734,8 +727,7 @@ static void glowGroup(void) {
     CHECK(glowStale(c));
     backClock += 1000000LL;   // sooner than the ease's turn: a new shape doesn't wait for it
     m5_frame(&g, c, glowBody, NULL);
-    float wx, wy;
-    xrGlowDrawnSize(c, &wx, &wy, &proud);
+    float wx = c->glowDrawnShape.scaleX, wy = c->glowDrawnShape.scaleY;
     CHECK(c->glowDrawnShape.zonesAcross == 25 && c->glowUnsettled == 0.0f && !glowStale(c));
     CHECK(wx == sx && wy > sy * 1.4f);
     const float pad = 1.0f - BACKLIGHT_PAD;
@@ -754,7 +746,7 @@ static void glowGroup(void) {
     // The glow's own switch, off and on again
     c->ambilightOn = 0;
     m5_frame(&g, c, glowBody, NULL);
-    CHECK(!c->glowZonesSeeded && !c->glowDrawnOn && !glowStale(c) && !xrBacklightOn(c));
+    CHECK(!c->glowZonesSeeded && !c->glowDrawnOn && !glowStale(c));
     c->ambilightOn = 1;
     CHECK(glowStale(c));
     m5_frame(&g, c, glowBody, NULL);

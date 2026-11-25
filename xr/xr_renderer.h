@@ -513,9 +513,9 @@ typedef struct XrCtx {
     struct XrDepth* depth;
 
     // Ambilight (xr_ambilight.c). The frame is sampled down to a tiny colour
-    // texture, which the glow behind the screen is then drawn from (native:
-    // Vulkan images and mlxr_pass_ambi / _glow_edge / _glow in place of the GL
-    // programs, see XrVkImage)
+    // texture, which lights a room (native: Vulkan images and mlxr_pass_ambi in
+    // place of the GL program, see XrVkImage); the glow behind the screen has
+    // zone colours of its own
     int ambiReady;
     int ambiFailed;
     XrVkImage ambiTexture;
@@ -540,8 +540,6 @@ typedef struct XrCtx {
     int ambiBarShrinkMax[AMBI_EDGES];
     // x0, y0, w, h in the sample's uv space, 0 0 1 1 for the whole frame
     float ambiCrop[4];
-    XrVkImage glowEdgeTexture;
-    int glowNorm;
     // Native: the glow is drawn into an image of the app's own (it is sampled
     // again by the curved picture's pass, and a swapchain image cannot be once
     // released); the flat glow's swapchain gets a copy of it
@@ -556,17 +554,10 @@ typedef struct XrCtx {
     int glowRendered;
     int glowDrawnOn;
     float glowDrawnLevel;
-    // Native (lane wave3-visual): the Picture tab's Glow edge (GLOW_FEATHER_),
-    // and the one the glow image was last drawn with. Native (lane borderless):
-    // on, the picture's border fades out over a glow drawn under it; the glow
-    // image's size against the screen it was drawn for (GLOW_SCALE or
-    // GLOW_SCALE_WIDE), which every place that shows it uses; and the border
-    // fade the newest picture was drawn with (its layer then blends).
-    int glowFeather;   // native (issue #7): a GLOW_EDGE_, glow_feather's three and Backlight
-    // Native (issue #7): Backlight. Its rows; its zone colours (64 x 1) and those spread (linear, half
-    // floats); when they last took the picture's, when the picture last changed, and how far they still
+    // Native (issue #7): the glow, a Backlight. Glow spread; its zone colours (64 x 1) and those spread (linear,
+    // half floats); when they last took the picture's, when the picture last changed, and how far they still
     // are from it (1 a whole new picture, under BACKLIGHT_SETTLED done); what the glow image was drawn as
-    int glowSpread, glowBezel;
+    int glowSpread;
     XrVkImage glowZonesTexture, glowSpreadTexture;
     XrVkImage glowLightTexture;   // the glow image where the panel pass takes it, half floats (glowTexture else)
     int glowZonesSeeded;
@@ -575,10 +566,6 @@ typedef struct XrCtx {
     int glowZonesZoom[3];
     BacklightShape glowDrawnShape;
     int glowDrawnProjected;
-    float glowDrawnScaleY;   // 0: glowDrawnScale (a glow as many times the screen's height as its width)
-    int glowDrawnFeather;
-    float glowDrawnScale;
-    int pictureBorderDrawn;
     int ambilightOn;
     float ambiIntensity;
     int ambiOverride;
@@ -1637,24 +1624,16 @@ void xrSetRoomLevels(XrCtx* ctx, int cell, int brightness, int glow, int light, 
 struct MlxrVideo;
 int initAmbilight(XrCtx* ctx);
 void ambiEffective(XrCtx* ctx, int* on, float* level);
-// Native (lane borderless): the glow's size for a Glow edge mode, and the picture's border fade now
-float xrGlowScaleFor(XrCtx* ctx, int feather);
-// Native (issue #7): the size the glow image was drawn for in screen widths and heights, and how far it sits
-// proud of the picture (level with it for Backlight, so the bezel lines up)
-void xrGlowDrawnSize(const XrCtx* ctx, float* scaleX, float* scaleY, float* proud);
-// The Backlight: whether it is what the glow shows, the zone colours' turn on a new picture, and drawing it
-int xrBacklightOn(XrCtx* ctx);
+// Native (issue #7): the glow is a Backlight, drawn for a quad layer or for the panel pass.
 // The glow image the panel pass reads (NULL: not drawn for it) and, for a quad, 1 where glowTexture is drawn for it
 VkImageView xrGlowPanelSource(const XrCtx* ctx);
 int xrGlowForQuad(const XrCtx* ctx);
+// A new picture: the zone colours take their turn, and the glow is drawn from them
 void xrBacklightVideoFrame(XrCtx* ctx, const struct MlxrVideo* video);
 // 1 while its colours still move on a picture that stands still, with a redraw due
 int xrBacklightSettling(XrCtx* ctx);
-// The clock the Backlight eases by: nowNs, or a test's own
+// The clock it eases by: nowNs, or a test's own
 extern int64_t (*xrBacklightClock)(void);
-// Native (issue #5): 0 with MLXR_GLOW_WIDE=0, which holds the Wide Glow edge's glow to GLOW_SCALE
-int xrGlowWideAllowed(void);
-int xrPictureBorderFade(XrCtx* ctx);
 void runAmbiBarDetect(XrCtx* ctx, const struct MlxrVideo* video);
 void finishAmbiBarDetect(XrCtx* ctx);
 // Whether the letterbox detector runs and its crop applies: not on a
@@ -1662,7 +1641,6 @@ void finishAmbiBarDetect(XrCtx* ctx);
 // letterbox
 int ambiBarDetectOn(const XrCtx* ctx);
 void runFrameColorSample(XrCtx* ctx, const struct MlxrVideo* video);
-void runGlowRender(XrCtx* ctx);
 int glowStale(XrCtx* ctx);
 void redrawGlow(XrCtx* ctx, const struct MlxrVideo* video);
 

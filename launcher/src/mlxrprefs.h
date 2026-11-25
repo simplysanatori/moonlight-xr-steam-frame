@@ -62,13 +62,9 @@ class MlxrPrefs : public QObject
     // headset's 3D tab has no row for it)
     Q_PROPERTY(int eyeBalance MEMBER eyeBalance NOTIFY changed)
     // Native (lane wave3-visual): the surroundings. [vr] background_dim, 0..100 percent the room, the
-    // passthrough or the void is dimmed; [vr] void_color, "#rrggbb", the void's colour; [display]
-    // glow_feather, "off", "soft" or "wide", the borderless screen: the picture's edge faded into the glow;
-    // and (issue #7) "backlight", a light round a picture with sharp edges, kept in [display]
-    // glow_behind with glow_feather off, as the client keeps it (settings_set_glow_edge)
+    // passthrough or the void is dimmed; [vr] void_color, "#rrggbb", the void's colour
     Q_PROPERTY(int backgroundDim MEMBER backgroundDim NOTIFY changed)
     Q_PROPERTY(QString voidColor MEMBER voidColor NOTIFY changed)
-    Q_PROPERTY(QString glowFeather MEMBER glowFeather NOTIFY changed)
     // Native (PLAN 4.3): [3d] stereo_source, where the 3D comes from: "depth" (default, the depth model),
     // "sbs" (the PC renders a side by side pair) or "top-bottom"; [3d] sbs_full: that pair holds a full
     // size picture per eye (3840x1080) rather than two squeezed halves (1920x1080)
@@ -293,7 +289,6 @@ public:
     int eyeBalance = 0;
     int backgroundDim = 0;
     QString voidColor = QStringLiteral("#000000");
-    QString glowFeather = QStringLiteral("off");
     QString stereoSource;
     bool sbsFull = false;
     QString aspect = QStringLiteral("16:9");
@@ -382,7 +377,7 @@ private:
     void saveHeadInput(const QString& ini);
     int m_iniRenderMode = 1, m_iniStrength = 0, m_iniConvergence = 0;
     int m_iniEyeBalance = 0, m_iniBackgroundDim = 0;
-    QString m_iniVoidColor = QStringLiteral("#000000"), m_iniGlowFeather = QStringLiteral("off");
+    QString m_iniVoidColor = QStringLiteral("#000000");
     bool m_iniStrengthDefault = true, m_iniConvergenceDefault = true;
     QString m_iniStereoSource = QStringLiteral("depth");
     bool m_iniSbsFull = false;

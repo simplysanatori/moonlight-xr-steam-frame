@@ -208,7 +208,7 @@ If the cable is never used, see Troubleshooting. The developer notes (`docs/dev/
 
 ### Stream profiles
 
-A profile is a saved copy of the stream settings on this page, with a name. It holds the Connection rows (with the bitrate for each connection), every Video setting (with the 3D rows, the eye balance and where the 3D comes from), the sound, the gamepad and mouse rows (with the lightgun and the gamepad gyro), Optimize game settings, Play audio on PC, Smart clipboard sync, stats, the codec, full range, software decoding, and the headset's own rows on this page (notices, scroll speed, the disconnect times, gamepad as mouse). For example a desktop profile at 1080p and 60 Hz, and a game profile at 1440p and 120 Hz with Apollo's virtual display. Not in a profile: the room's look (background dim, void colour, glow edge), the headset keyboard layout, Show controllers, Quick resume, Enable full screen, Language and Check the PC before streaming.
+A profile is a saved copy of the stream settings on this page, with a name. It holds the Connection rows (with the bitrate for each connection), every Video setting (with the 3D rows, the eye balance and where the 3D comes from), the sound, the gamepad and mouse rows (with the lightgun and the gamepad gyro), Optimize game settings, Play audio on PC, Smart clipboard sync, stats, the codec, full range, software decoding, and the headset's own rows on this page (notices, scroll speed, the disconnect times, gamepad as mouse). For example a desktop profile at 1080p and 60 Hz, and a game profile at 1440p and 120 Hz with Apollo's virtual display. Not in a profile: the room's look (background dim, void colour, glow spread), the headset keyboard layout, Show controllers, Quick resume, Enable full screen, Language and Check the PC before streaming.
 
 The **Profiles** row (or **Stream settings profile...** in an app's menu) opens the Stream profiles page:
 
@@ -306,8 +306,7 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Passthrough (UI) | on, off | off. Only Environment's Automatic reads it, so it is greyed with any other environment. | `[vr] passthrough` |
 | Void colour, Background dim (UI) | #rrggbb; 0 to 100 % (press to step) | #000000, 0 %. The cog's Picture tab has Background. | `[vr] void_color`, `background_dim` |
 | Room detail (UI) | Low, Standard, High, Ultra | Standard | `[vr] env_res` |
-| Screen light, Glow, Glow level, Glow edge (UI) | on, off; 0 to 100 %; Off, Soft, Wide, Backlight | on, off, 50 %, Off. Glow level and Glow edge are greyed with the glow off. | `[display] screen_light`, `glow`, `glow_level`, `glow_feather`, `glow_behind` |
-| Glow spread, Bezel (UI) | 10 to 100 %; Off, 1 to 3 % | 50 %, Off. Greyed unless Glow edge is Backlight. | `[display] glow_spread`, `glow_bezel` |
+| Screen light, Glow, Glow level, Glow spread (UI) | on, off; 0 to 100 %; 10 to 100 % | on, off, 50 %, 50 %. Glow level and Glow spread are greyed with the glow off. | `[display] screen_light`, `glow`, `glow_level`, `glow_spread` |
 | Screen distance, Screen size, Screen curve (UI) | 20 to 800 cm; 80 to 800 cm wide; 0 to 100 % | 300 cm, 300 cm, 0 % | `[screen] distance_cm`, `width_cm`, `curve` |
 | (none) | 0 to 800 cm; WIDTHxHEIGHT | Written by the headset. `width_cm` is the picture's real width, which older versions read too. `size_cm` (and `back_size_cm`, and `size_cm` in each app's layout) keeps the Size beside it, for the picture `size_shape` names. If `width_cm` no longer agrees with it, because an older version saved the file or you changed the width, the width wins. The Size is held so the picture is never wider than 8 m or narrower than 80 cm, what `width_cm` holds, so every start shows the same screen. | `[screen] size_cm`, `back_size_cm`, `size_shape` |
 | Zoom (UI) | 100 to 400 % (press to step) | 100 %. The zoom a stream starts at. | `[display] zoom` |
@@ -445,11 +444,11 @@ The Screen tab's Bring here also works from a controller button: bind `app:bring
 | Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
 | Click steadiness | Off, Normal, Steady | Normal. How still the PC's cursor is held around a click. Normal sends a click where you aimed before the trigger pull moved the controller, and holds the cursor for a double click. Steady also keeps the cursor still from the moment you touch the trigger until you aim a few pixels away. Off sends the aim as it is, for light gun games and fast clicking. |
 | Click sound | Off, On | On |
-| Glow | Off, On | Off. In a room it is that room's own glow, the same switch as the Room tab's Glow. In passthrough it is off until you answer **I Understand** to "Glow in Passthrough?". |
+| Glow | Off, On | Off. Lights the space around the screen with the colours along the picture's edge, like an LED strip behind a TV. In a room it is that room's own glow, the same switch as the Room tab's Glow. In passthrough it is off until you answer **I Understand** to "Glow in Passthrough?". |
 | Screen light | Off, On | On |
 | Notices | All, Important, Off | All. The small pop-ups that appear below the picture for about 2.5 seconds. Important leaves out "Display N Hz" and "3D on/off" and keeps mode changes (gamepad, head aim, hands) and messages such as errors. Off shows none. The flat window's Settings page has the same choice. |
 | Foveated rendering | On, Off | Off. On gives full detail in the middle of your view and less at the edges. Applies from the next stream. Valve's foveation is set up when the app starts, so if you change it here and then start a stream from the headset's own PC and app lists, the app restarts itself with that PC and app first. A stream from the flat window starts the app anyway. `MLXR_FDM_LAYER=0` in the environment still turns it off whatever the row says. |
-| Glow level | 0 to 100 % | 50 % |
+| Glow level | 0 to 100 % | 50 %. How bright the glow is. |
 
 ### 3D
 
@@ -474,9 +473,9 @@ The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the d
 | Gamma | 0.50 to 2.00 | |
 | Saturation | 0 to 200 % | |
 | Background | 0 to 100 %, in steps of 5 | How far the surroundings are dimmed. In a room it turns the whole room down, its lighting and the light the picture throws on it too, to black at 100 %. In passthrough it lays a black layer of that strength over the cameras (100 % hides them). In the void it darkens the void's colour (`void_color`, below). 0 leaves all three as they were. The picture itself is not dimmed. |
-| Glow edge | Off, Soft, Wide, Backlight | Soft and Wide make the screen borderless. The picture's own outer edge fades out, and the glow behind it continues the picture's edge colours at the picture's own brightness, so you can't see where the picture stops. **Soft** fades the outer 4 % of the picture and keeps the glow close round it. **Wide** fades the outer 8 % and spreads the glow across most of your view, like an ambient light. In a room, Wide keeps the glow close, as Soft does, so it doesn't cover the walls. **Backlight** keeps the picture's edge sharp and lights the space around it with the colours along its edge, like an LED strip behind a TV. **Glow spread** sets how far it reaches and the glow level how bright it is. **Bezel** puts a black border between them. In a room it stays close to the picture. Off by default. It needs the glow on (Display tab). With Soft and Wide, the glow level sets how far the colours reach, not how dark they are. |
+| Glow spread | 10 to 100 %, in steps of 5 | How far the glow reaches. In a room it stays close to the picture. It needs the glow on (Display tab). |
 
-**Reset** puts all eight rows back, and not the void's colour, which only the file has (or the launcher's Settings page: **Void colour**, under UI settings, next to **Background dim** and **Glow edge**; press a row to step it).
+**Reset** puts all six rows back, and not the void's colour, which only the file has (or the launcher's Settings page: **Void colour**, under UI settings, next to **Background dim**; press a row to step it).
 
 ### About
 
@@ -1112,10 +1111,7 @@ You can also write a note in the headset (cog, About, Report a problem). **Save*
 | `[vr] back_as_guide` | `true`, `false`. Gamepad mode's View (Back) button is Guide, except with Start held. The launcher has it too. | `false` |
 | `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
 | `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
-| `[display] glow_feather` | `off`, `soft`, `wide` | `off`. The Picture tab's Glow edge row. |
-| `[display] glow_behind` | `off`, `backlight` | `off`. The Glow edge row's Backlight. |
 | `[display] glow_spread` | 10 to 100 | 50. The Picture tab's Glow spread row, in percent. |
-| `[display] glow_bezel` | 0 to 3 | 0. The Picture tab's Bezel row, in percent; 0 is Off. |
 | `[display] foveated` | `auto`, `on`, `off` | `auto`, which is `off`. The Display tab's Foveated rendering row, from the next stream. `MLXR_FDM_LAYER=0` in the environment turns it off whatever this says. |
 | `[vr] passthrough_controllers_ok`, `passthrough_glow_ok` | `true`, `false` | `false`. Written `true` by **I Understand** on "Controllers in Passthrough?" and "Glow in Passthrough?": Show controllers and the glow are then drawn in passthrough too. |
 | `[display] picture_filter` | `true`, `false` | `true`. A curved or 3D screen is drawn smaller than the stream's pixels, and each of the headset's pixels then averages the stream under it, so small text keeps its strokes. `false` is the softer single read of before. The `MLXR_PICTURE_FILTER=0` or `1` launch option overrides it for a comparison. |

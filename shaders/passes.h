@@ -45,7 +45,7 @@ extern "C" {
 // position 3, normal 3, tangent 4 (w the bitangent's sign), uv 2
 #define MLXR_MODEL_TEX_VERTEX_FLOATS 12
 // The format of every intermediate a pass writes and a later pass samples:
-// downscale, upsample, offset, ambi and glow edge, as upstream's GL_RGBA8
+// downscale, upsample, offset and ambi, as upstream's GL_RGBA8
 #define MLXR_PASS_FORMAT VK_FORMAT_R8G8B8A8_UNORM
 
 typedef struct MlxrPasses MlxrPasses;
@@ -97,11 +97,9 @@ typedef enum MlxrPassId {
     MLXR_PASS_OFFSET,       // OFFSET_FRAGMENT_SRC
     MLXR_PASS_DOWNSCALE,    // DOWNSCALE_FRAGMENT_SRC
     MLXR_PASS_AMBI,         // AMBI_FRAGMENT_SRC ("frame colour sample")
-    MLXR_PASS_GLOW_EDGE,    // GLOW_EDGE_FRAGMENT_SRC
-    MLXR_PASS_GLOW,         // GLOW_FRAGMENT_SRC
-    MLXR_PASS_GLOW_ZONES,   // new (issue #7): the Backlight's zone colours
+    MLXR_PASS_GLOW_ZONES,   // new (issue #7): the glow's zone colours
     MLXR_PASS_GLOW_SPREAD,  // new (issue #7): those spread round the edge
-    MLXR_PASS_BACKLIGHT,    // new (issue #7): the Backlight's glow image
+    MLXR_PASS_BACKLIGHT,    // new (issue #7): the glow image
     MLXR_PASS_ROOM,         // ROOM_VERTEX_SRC + ROOM_FRAGMENT_SRC
     MLXR_PASS_MODEL,        // MODEL_VERTEX_SRC + MODEL_FRAGMENT_SRC
     MLXR_PASS_SUPERSAMPLE,  // new: app side supersampling (no FB layer settings on the Frame)
@@ -183,9 +181,6 @@ typedef struct MlxrWarpParams {
     // New (lane text-clarity): chroma from luma (warp.frag guidedChroma), 0
     // the plain bilinear chroma of before
     int chromaGuided;
-    // New (lane borderless): the Glow edge, GLOW_FEATHER_ (0 off, 1 soft, 2 wide): the drawn picture's
-    // border fades to transparent, premultiplied (warp.frag). 0 leaves the picture opaque as before.
-    int borderFade;
 } MlxrWarpParams;
 #define MLXR_SPLIT_NONE 0
 #define MLXR_SPLIT_SBS 1
@@ -245,34 +240,7 @@ typedef struct MlxrAmbiParams {
 } MlxrAmbiParams;
 void mlxr_pass_ambi(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrAmbiParams* a);
 
-// GLOW_EDGE_FRAGMENT_SRC, the colour sample into a 32x32 MLXR_PASS_FORMAT
-// copy. Upstream's constants: luma {GLOW_LUMA_TARGET, GLOW_LUMA_FLOOR,
-// GLOW_LUMA_FULL}, lit {GLOW_LIT_LO, GLOW_LIT_HI}, reach glowReachTexels(),
-// steps glowInwardSteps() (xr/core/xr_glow.h).
-typedef struct MlxrGlowEdgeParams {
-    VkImageView sample;
-    float luma[3];
-    float lit[2];
-    float reach;
-    int steps;
-} MlxrGlowEdgeParams;
-void mlxr_pass_glow_edge(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrGlowEdgeParams* g);
-
-// GLOW_FRAGMENT_SRC, into the glow swapchain image (premultiplied)
-typedef struct MlxrGlowParams {
-    VkImageView sample;    // the glow edge copy (blur 1) or the raw colour sample (blur 0)
-    float intensity;       // u_intensity
-    int blur;              // u_blur
-    // Native (lane borderless): 1 for the Glow edge's borderless glow (sample is then the raw colour
-    // sample, and the glow carries the picture's edge colours outward under a picture that fades out), 0
-    // for upstream's glow
-    int borderless;
-    // How much larger than the screen the glow image spans: GLOW_SCALE, or GLOW_SCALE_WIDE (0: GLOW_SCALE)
-    float scale;
-} MlxrGlowParams;
-void mlxr_pass_glow(MlxrPasses* p, VkCommandBuffer cmd, const MlxrTarget* t, const MlxrGlowParams* g);
-
-// Native (issue #7): the Glow edge's Backlight, in three passes after FramePlayerX's glow (the shaders
+// Native (issue #7): the glow, in three passes after FramePlayerX's glow (the shaders
 // carry its notice). The zones: one colour for each of 64 strips round the picture's edge, linear, into
 // a 64 x 1 MLXR_GLOW_LIGHT_FORMAT image, mixed into what it holds by `a.blend` as the colour sample is.
 // zonesAcross of them along the top and as many along the bottom, the rest down the sides (glowZonesAcross).
@@ -289,7 +257,7 @@ typedef struct MlxrBacklightParams {
     float scaleX, scaleY;  // the glow image's size in screen widths and heights
     float aspect;          // the screen's height over its width
     int zonesAcross;
-    float reach, bezel;    // in screen widths: how far the light goes, and the black border inside it (0 none)
+    float reach;           // in screen widths: how far the light goes
     float level;           // its brightness beside the screen, a share of the picture's edge
     int projected;         // 1 for the panel pass (curved, flat 3D), in a MLXR_GLOW_LIGHT_FORMAT image; 0 for a quad layer
 } MlxrBacklightParams;

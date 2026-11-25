@@ -237,18 +237,6 @@ static int holdPlacesMode(void) {
     return mode;
 }
 
-// Native (issue #5): MLXR_PICTURE_BLEND=0 submits the flat picture's quad opaque even when it was drawn
-// with the Glow edge's border fade (1.3.0 blends it over the glow), to rule the blend in or out; the
-// faded border then shows black. Said once at the start.
-static int pictureBlendAllowed(void) {
-    static int allowed = -1;
-    if (allowed < 0) {
-        const char* v = getenv("MLXR_PICTURE_BLEND");
-        allowed = !(v != NULL && v[0] == '0');
-    }
-    return allowed;
-}
-
 // Native (lane beam-order): where the pointer goes in the frame's list of layers. SteamVR seems to keep
 // some of a layer's state by its place in the list: when a layer that comes and goes with the hover (the
 // ring round a key, the bar's buttons) sat ahead of the beam, the beam took its place for a frame and was
@@ -302,12 +290,8 @@ void xrLayerSwitchesSay(void) {
           orderNames[pointerOrder()], order ? order : "unset");
     static const char* const holdNames[] = { "off", "as 1.2.0", "5 cm across", "spread 2 cm apart" };
     const char* hold = getenv("MLXR_HOLD_PLACES");
-    const char* blend = getenv("MLXR_PICTURE_BLEND");
-    const char* wide = getenv("MLXR_GLOW_WIDE");
-    LOGEV("issue #5 switches: held places %s (MLXR_HOLD_PLACES=%s: 0 off, 1 as 1.2.0, 2 large, 3 spread), "
-          "picture blend %s (MLXR_PICTURE_BLEND=%s), Wide glow %s (MLXR_GLOW_WIDE=%s)",
-          holdNames[holdPlacesMode()], hold ? hold : "unset", pictureBlendAllowed() ? "as drawn" : "off",
-          blend ? blend : "unset", xrGlowWideAllowed() ? "6x" : "held to 1.7x", wide ? wide : "unset");
+    LOGEV("issue #5 switch: held places %s (MLXR_HOLD_PLACES=%s: 0 off, 1 as 1.2.0, 2 large, 3 spread)",
+          holdNames[holdPlacesMode()], hold ? hold : "unset");
 }
 
 // Native (issue #5): what the frames handed to xrEndFrame held since the last xrLayerStatsLine: the
@@ -594,9 +578,7 @@ static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     }
 }
 
-// The ambilight glow behind the picture. Native (lane borderless): always
-// behind it; with the Glow edge on the picture's own border fades out over it
-// (warp.frag), and the glow is as large as its image was drawn for.
+// The ambilight glow behind the picture, as large as its image was drawn for.
 static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // The glow, over the environment and under the picture. Deliberately not
     // sharpened: being soft is the whole of the effect. Native: a curved
@@ -608,14 +590,10 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
             || !ctx->glowSwapchainFilled) {
         return;
     }
-    // Local +z is toward the viewer, so this sits just proud of the picture.
-    // The layer order is what keeps it under the picture, not the depth.
-    float scaleX, scaleY, proud;
-    xrGlowDrawnSize(ctx, &scaleX, &scaleY, &proud);
-    Vec3 proudLocal = { 0.0f, 0.0f, proud };
+    // Level with the picture: the layer order is what keeps it under it
     quadLayerRect(&layers->glow, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->glowSwapchain, 0,
-                  0, GLOW_TEX, GLOW_TEX, view->space, poseOffset(view->screenPose, proudLocal),
-                  view->screenWidth * scaleX, view->screenHeight * scaleY);
+                  0, GLOW_TEX, GLOW_TEX, view->space, view->screenPose,
+                  view->screenWidth * ctx->glowDrawnShape.scaleX, view->screenHeight * ctx->glowDrawnShape.scaleY);
     pushLayer(ctx, layers, &layers->glow);
 }
 
@@ -669,12 +647,9 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
     }
     // M5: the supersampled picture (flat, mono), the same quad from a smaller
     // image the app filtered
-    // Native (lane borderless): a picture drawn with its border fading out blends over the glow
-    XrCompositionLayerFlags pictureFlags = ctx->pictureBorderDrawn && pictureBlendAllowed()
-            ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
     if (in->picture != XR_NULL_HANDLE && ctx->drawnEyes != 2) {
         XrCompositionLayerQuad* quad = &layers->video[0];
-        quadLayerRect(quad, NULL, pictureFlags, in->picture, 0, 0, in->pictureW, in->pictureH, view->space, view->screenPose,
+        quadLayerRect(quad, NULL, 0, in->picture, 0, 0, in->pictureW, in->pictureH, view->space, view->screenPose,
                       view->screenWidth, view->screenHeight);
         pushLayer(ctx, layers, quad);
         return;
@@ -699,7 +674,7 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
         XrEyeVisibility visibility = viewCount == 1 ? XR_EYE_VISIBILITY_BOTH :
                 (eye == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT);
         XrCompositionLayerQuad* quad = &layers->video[eye];
-        quadLayerRect(quad, NULL, pictureFlags, ctx->swapchain, 0, 0, ctx->videoWidth, ctx->videoHeight,
+        quadLayerRect(quad, NULL, 0, ctx->swapchain, 0, 0, ctx->videoWidth, ctx->videoHeight,
                       view->space, view->screenPose, view->screenWidth, view->screenHeight);
         quad->eyeVisibility = visibility;
         quad->subImage = subImage;

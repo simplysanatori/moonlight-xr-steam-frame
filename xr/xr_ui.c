@@ -875,14 +875,8 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
         else if (slider == PICTURE_ROW_BACKGROUND) {
             t = lanePlace(ctx->bgDim, BG_DIM_MIN, BG_DIM_MAX);
         }
-        else if (slider == PICTURE_ROW_GLOW_EDGE) {
-            t = lanePlace(ctx->glowFeather, GLOW_FEATHER_OFF, GLOW_EDGE_COUNT - 1);
-        }
         else if (slider == PICTURE_ROW_GLOW_SPREAD) {   // native (issue #7)
             t = lanePlace(ctx->glowSpread, GLOW_SPREAD_MIN, GLOW_SPREAD_MAX);
-        }
-        else if (slider == PICTURE_ROW_GLOW_BEZEL) {
-            t = lanePlace(ctx->glowBezel, GLOW_BEZEL_MIN, GLOW_BEZEL_MAX);
         }
     }
     else if (slider == COG_SLIDER_DISTANCE) {
@@ -977,15 +971,9 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
             // Five percent steps, the ones the step buttons move by
             ctx->bgDim = bgDimClamp(laneUnits(t, BG_DIM_MIN, BG_DIM_MAX));
         }
-        else if (slider == PICTURE_ROW_GLOW_EDGE) {
-            ctx->glowFeather = laneUnits(t, GLOW_FEATHER_OFF, GLOW_EDGE_COUNT - 1);
-        }
         else if (slider == PICTURE_ROW_GLOW_SPREAD) {   // native (issue #7): five percent steps
             ctx->glowSpread = GLOW_SPREAD_MIN
                     + GLOW_SPREAD_STEP * laneUnits(t, 0, (GLOW_SPREAD_MAX - GLOW_SPREAD_MIN) / GLOW_SPREAD_STEP);
-        }
-        else if (slider == PICTURE_ROW_GLOW_BEZEL) {
-            ctx->glowBezel = laneUnits(t, GLOW_BEZEL_MIN, GLOW_BEZEL_MAX);
         }
         return;
     }
@@ -1743,20 +1731,10 @@ void cogDragEnded(XrCtx* ctx, float* out) {
         out[IN_SETTING_VALUE] = (float)ctx->bgDim;
         LOGEV("background dim %d%% from the panel", ctx->bgDim);
     }
-    else if (face == COG_TAB_PICTURE && slider == PICTURE_ROW_GLOW_EDGE) {
-        out[IN_SETTING] = (float)SETTING_GLOW_FEATHER;
-        out[IN_SETTING_VALUE] = (float)ctx->glowFeather;
-        LOGEV("glow edge %d from the panel", ctx->glowFeather);
-    }
     else if (face == COG_TAB_PICTURE && slider == PICTURE_ROW_GLOW_SPREAD) {   // native (issue #7)
         out[IN_SETTING] = (float)SETTING_GLOW_SPREAD;
         out[IN_SETTING_VALUE] = (float)ctx->glowSpread;
         LOGEV("glow spread %d%% from the panel", ctx->glowSpread);
-    }
-    else if (face == COG_TAB_PICTURE && slider == PICTURE_ROW_GLOW_BEZEL) {
-        out[IN_SETTING] = (float)SETTING_GLOW_BEZEL;
-        out[IN_SETTING_VALUE] = (float)ctx->glowBezel;
-        LOGEV("glow bezel %d%% from the panel", ctx->glowBezel);
     }
 }
 
@@ -1974,9 +1952,7 @@ void pictureReset(XrCtx* ctx) {
     }
     // Native (lane wave3-visual): and the tab's two rows under the grade
     ctx->bgDim = BG_DIM_DEFAULT;
-    ctx->glowFeather = GLOW_FEATHER_OFF;
-    ctx->glowSpread = GLOW_SPREAD_DEFAULT;   // native (issue #7): and Backlight's two
-    ctx->glowBezel = GLOW_BEZEL_DEFAULT;
+    ctx->glowSpread = GLOW_SPREAD_DEFAULT;   // native (issue #7)
     LOGEV("picture reset from the panel, grade %s", ctx->gradeOn ? "on" : "off");
 }
 

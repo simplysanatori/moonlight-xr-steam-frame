@@ -5,10 +5,11 @@
 // Moonlight XR Native: ported from the Steam Frame fork of Moonlight XR's
 // xr-renderer/xr_ambilight.c (Gilleece, GPLv3). ambiEffective, ambiBarEdge,
 // detectAmbiBars, the order and the rules of runFrameColorSample,
-// runAmbiBarDetect, finishAmbiBarDetect, runGlowEdge, runGlowRender,
-// glowStale and redrawGlow are upstream's. Native, each marked:
-//   - the GL programs are mlxr_pass_ambi, _glow_edge and _glow recording into
-//     the frame's command buffer, the textures images of the app's own;
+// runAmbiBarDetect, finishAmbiBarDetect, glowStale and redrawGlow are
+// upstream's; the glow itself is the Backlight (issue #7), after FramePlayerX's.
+// Native, each marked:
+//   - the GL program is mlxr_pass_ambi recording into the frame's command
+//     buffer, the textures images of the app's own;
 //   - the frame comes in as an MlxrVideo (the decoder's NV12 import or the
 //     software planes) rather than the external OES texture and its matrix;
 //   - the glow is drawn into an image of the app's own and copied into its
@@ -33,18 +34,12 @@ int initAmbilight(XrCtx* ctx) {
     }
     ctx->ambiFailed = 1;
     const VkImageUsageFlags rw = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    // The glow reads past both ends of the sample on purpose, and the clamp is
-    // what carries the frame's edge colours out to the rim of the quad (the
-    // passes' sampler clamps)
     if (!xrVkImageMake(ctx, &ctx->ambiTexture, AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX, MLXR_PASS_FORMAT,
                        rw | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT)
             // The letterbox detector's own target: drawn once in a while and
             // read back, never sampled
             || !xrVkImageMake(ctx, &ctx->ambiDetectTexture, AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX, MLXR_PASS_FORMAT,
                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                              VK_IMAGE_ASPECT_COLOR_BIT)
-            // The lifted and rolled off copy the glow is drawn from
-            || !xrVkImageMake(ctx, &ctx->glowEdgeTexture, AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX, MLXR_PASS_FORMAT, rw,
                               VK_IMAGE_ASPECT_COLOR_BIT)
             // Native: the glow itself, gamma encoded bytes in a _UNORM image
             || !xrVkImageMake(ctx, &ctx->glowTexture, GLOW_TEX, GLOW_TEX, MLXR_PASS_FORMAT,
@@ -92,10 +87,8 @@ int initAmbilight(XrCtx* ctx) {
 
     ctx->ambiReady = 1;
     ctx->ambiFailed = 0;
-    LOGI("ambilight ready, sampling %dx%d into a %dx%d glow, luma %.2f from %.2f to %.2f, "
-         "edge reach %.1f texels, inward %d",
-         AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX, GLOW_TEX, GLOW_TEX, GLOW_LUMA_TARGET,
-         GLOW_LUMA_FLOOR, GLOW_LUMA_FULL, glowReachTexels(), glowInwardSteps());
+    LOGI("ambilight ready, a %dx%d colour sample, %d glow zones, a %dx%d glow", AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX,
+         MLXR_GLOW_ZONES, GLOW_TEX, GLOW_TEX);
     return 1;
 }
 
@@ -361,30 +354,7 @@ void runFrameColorSample(XrCtx* ctx, const MlxrVideo* video) {
     ctx->ambiSeeded = 1;
 }
 
-// Lifts the sample to a steady luma and rolls its dark edges off, into the
-// glow's copy of it
-static void runGlowEdge(XrCtx* ctx) {
-    xrVkImageTo(ctx, &ctx->glowEdgeTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    MlxrTarget t;
-    memset(&t, 0, sizeof(t));
-    t.view = ctx->glowEdgeTexture.view;
-    t.format = MLXR_PASS_FORMAT;
-    t.rect.extent = (VkExtent2D){ AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX };
-    MlxrGlowEdgeParams g;
-    memset(&g, 0, sizeof(g));
-    g.sample = ctx->ambiTexture.view;
-    g.luma[0] = GLOW_LUMA_TARGET;
-    g.luma[1] = GLOW_LUMA_FLOOR;
-    g.luma[2] = GLOW_LUMA_FULL;
-    g.lit[0] = GLOW_LIT_LO;
-    g.lit[1] = GLOW_LIT_HI;
-    g.reach = glowReachTexels();
-    g.steps = glowInwardSteps();
-    mlxr_pass_glow_edge(ctx->passes, ctx->frameCmd, &t, &g);
-    xrVkImageTo(ctx, &ctx->glowEdgeTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-}
-
-// ---- native (issue #7): the Glow edge's Backlight ------------------------------------------
+// ---- native (issue #7): the glow, a Backlight ----------------------------------------------
 
 // Under this much of a new picture left to take (linear light, so a dark picture after a bright one needs it
 // small: under a step of eight bits), the colours stand
@@ -398,15 +368,15 @@ static int64_t realClock(void) {
 
 int64_t (*xrBacklightClock)(void) = realClock;
 
-int xrBacklightOn(XrCtx* ctx) {
+static int glowOn(XrCtx* ctx) {
     int on;
     float level;
     ambiEffective(ctx, &on, &level);
-    return on && ctx->glowFeather == GLOW_EDGE_BACKLIGHT;
+    return on;
 }
 
 static void backlightShapeNow(XrCtx* ctx, BacklightShape* s) {
-    backlightShapeFor((float)ctx->videoWidth, (float)ctx->videoHeight, ctx->glowSpread, ctx->glowBezel,
+    backlightShapeFor((float)ctx->videoWidth, (float)ctx->videoHeight, ctx->glowSpread,
                       roomEffective(ctx) >= ROOM_STYLE_FIRST, s);
 }
 
@@ -416,18 +386,15 @@ static int backlightProjected(XrCtx* ctx) {
 }
 
 VkImageView xrGlowPanelSource(const XrCtx* ctx) {
-    if (ctx->glowDrawnFeather != GLOW_EDGE_BACKLIGHT) {
-        return ctx->glowTexture.view;
-    }
     return ctx->glowDrawnProjected ? ctx->glowLightTexture.view : VK_NULL_HANDLE;
 }
 
 int xrGlowForQuad(const XrCtx* ctx) {
-    return ctx->glowDrawnFeather != GLOW_EDGE_BACKLIGHT || !ctx->glowDrawnProjected;
+    return !ctx->glowDrawnProjected;
 }
 
 int xrBacklightSettling(XrCtx* ctx) {
-    if (!xrBacklightOn(ctx) || !ctx->glowZonesSeeded || ctx->glowUnsettled < BACKLIGHT_SETTLED) {
+    if (!glowOn(ctx) || !ctx->glowZonesSeeded || ctx->glowUnsettled < BACKLIGHT_SETTLED) {
         return 0;
     }
     int64_t now = xrBacklightClock();
@@ -496,7 +463,6 @@ static void runBacklightRender(XrCtx* ctx) {
     b.aspect = s.aspect;
     b.zonesAcross = s.zonesAcross;
     b.reach = s.reach;
-    b.bezel = s.bezel;
     b.level = level;
     b.projected = projected;
     xrVkImageTo(ctx, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -505,9 +471,6 @@ static void runBacklightRender(XrCtx* ctx) {
     ctx->glowRendered = 1;
     ctx->glowDrawnOn = 1;
     ctx->glowDrawnLevel = level;
-    ctx->glowDrawnFeather = GLOW_EDGE_BACKLIGHT;
-    ctx->glowDrawnScale = s.scaleX;
-    ctx->glowDrawnScaleY = s.scaleY;
     ctx->glowDrawnShape = s;
     ctx->glowDrawnProjected = b.projected;
     ctx->glowCopied = 0;
@@ -525,121 +488,27 @@ void xrBacklightVideoFrame(XrCtx* ctx, const MlxrVideo* video) {
     runBacklightRender(ctx);
 }
 
-void xrGlowDrawnSize(const XrCtx* ctx, float* scaleX, float* scaleY, float* proud) {
-    *scaleX = ctx->glowDrawnScale > 0.0f ? ctx->glowDrawnScale : GLOW_SCALE;
-    *scaleY = ctx->glowDrawnScaleY > 0.0f ? ctx->glowDrawnScaleY : *scaleX;
-    *proud = ctx->glowDrawnFeather == GLOW_EDGE_BACKLIGHT ? 0.0f : GLOW_PROUD_M;
-}
-
-// Spreads those colours over the glow image, which the compositor then places
-// behind the screen (native: the app's own image; xrWorldFlatGlow copies it
-// into the swapchain, the curved picture's pass draws it on the cylinder)
-void runGlowRender(XrCtx* ctx) {
-    if (ctx->glowTexture.image == VK_NULL_HANDLE) {
-        return;
-    }
-    // Read once, so the copy and the draw agree on which way this glow goes
-    int norm = ctx->glowNorm;
-    // Native (lane wave3-visual, lane borderless): the Picture tab's Glow edge,
-    // read once so the drawn mode and the one glowStale compares are the same.
-    // Borderless, the glow is drawn from the raw sample (the picture's own
-    // brightness), so the lifted copy is not needed.
-    int feather = ctx->glowFeather;
-    float scale = xrGlowScaleFor(ctx, feather);
-    if (norm && feather == GLOW_FEATHER_OFF) {
-        runGlowEdge(ctx);
-    }
-    xrVkImageTo(ctx, &ctx->glowTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    int on;
-    float level;
-    ambiEffective(ctx, &on, &level);
-    MlxrTarget t;
-    memset(&t, 0, sizeof(t));
-    t.view = ctx->glowTexture.view;
-    t.format = MLXR_PASS_FORMAT;
-    t.rect.extent = (VkExtent2D){ GLOW_TEX, GLOW_TEX };
-    MlxrGlowParams g;
-    memset(&g, 0, sizeof(g));
-    int borderless = feather != GLOW_FEATHER_OFF;
-    g.sample = norm && !borderless ? ctx->glowEdgeTexture.view : ctx->ambiTexture.view;
-    g.intensity = level;
-    g.blur = norm && !borderless ? 1 : 0;
-    g.borderless = borderless;
-    g.scale = scale;
-    mlxr_pass_glow(ctx->passes, ctx->frameCmd, &t, &g);
-    xrVkImageTo(ctx, &ctx->glowTexture, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    ctx->glowRendered = 1;
-    ctx->glowDrawnOn = 1;
-    ctx->glowDrawnLevel = level;
-    ctx->glowDrawnFeather = feather;
-    ctx->glowDrawnScale = scale;
-    ctx->glowDrawnScaleY = 0.0f;
-    ctx->glowCopied = 0;
-}
-
-// Native (lane borderless): how much larger than the screen the glow is drawn
-// for a Glow edge mode: GLOW_SCALE_WIDE for Wide with no
-// room up (in a room it would cover the walls), GLOW_SCALE otherwise
-// Native (issue #5): MLXR_GLOW_WIDE=0 holds it to GLOW_SCALE, to rule the six times larger glow (a
-// quad, or a cylinder drawn into the curved picture's layer every display frame) in or out
-float xrGlowScaleFor(XrCtx* ctx, int feather) {
-    return feather == GLOW_FEATHER_WIDE && roomEffective(ctx) < ROOM_STYLE_FIRST && xrGlowWideAllowed()
-            ? GLOW_SCALE_WIDE : GLOW_SCALE;
-}
-
-int xrGlowWideAllowed(void) {
-    static int allowed = -1;
-    if (allowed < 0) {
-        const char* v = getenv("MLXR_GLOW_WIDE");
-        allowed = !(v != NULL && v[0] == '0');
-    }
-    return allowed;
-}
-
-// Native (lane borderless): the border fade the picture is drawn with: the
-// Glow edge's mode while the glow is on, else none, so a picture never fades
-// into nothing. Native (issue #7): none for Backlight, which keeps the glow alone
-int xrPictureBorderFade(XrCtx* ctx) {
-    int on;
-    float level;
-    ambiEffective(ctx, &on, &level);
-    return on && level > 0.0f ? glowEdgeFade(ctx->glowFeather) : GLOW_FEATHER_OFF;
-}
-
 int glowStale(XrCtx* ctx) {
     int on;
     float level;
     ambiEffective(ctx, &on, &level);
     // Native (PLAN 4b.6): or the zoom moved, which changes what the colours are of
     int zoomed = ctx->glowZoom[0] != ctx->zoomPct || ctx->glowZoom[1] != ctx->zoomX || ctx->glowZoom[2] != ctx->zoomY;
-    if (on && ctx->glowFeather == GLOW_EDGE_BACKLIGHT) {
-        // Native (issue #7): its shape (rows, the picture's shape, a room), where it goes up, or its ease
-        BacklightShape s;
-        backlightShapeNow(ctx, &s);
-        return !ctx->glowDrawnOn || level != ctx->glowDrawnLevel || ctx->glowDrawnFeather != GLOW_EDGE_BACKLIGHT
-                || !backlightShapeSame(&s, &ctx->glowDrawnShape) || ctx->glowDrawnProjected != backlightProjected(ctx)
-                || zoomed || xrBacklightSettling(ctx);
+    if (!on) {
+        return 0;
     }
-    return on && (!ctx->glowDrawnOn || level != ctx->glowDrawnLevel || ctx->glowFeather != ctx->glowDrawnFeather
-                  || xrGlowScaleFor(ctx, ctx->glowFeather) != (ctx->glowDrawnScale > 0.0f ? ctx->glowDrawnScale : GLOW_SCALE)
-                  || zoomed);
+    // Native (issue #7): its shape (Glow spread, the picture's shape, a room), where it goes up, or its ease
+    BacklightShape s;
+    backlightShapeNow(ctx, &s);
+    return !ctx->glowDrawnOn || level != ctx->glowDrawnLevel || !backlightShapeSame(&s, &ctx->glowDrawnShape)
+            || ctx->glowDrawnProjected != backlightProjected(ctx) || zoomed || xrBacklightSettling(ctx);
 }
 
 // A desktop standing still sends no frames, which left the level slider and
 // the switch looking dead. Only the glow is drawn, from the frame still
-// latched; the sample is taken again only where the glow was off, since
-// then it may be from another picture.
+// latched: its zones move on with the time, or land whole where they are from
+// another picture.
 void redrawGlow(XrCtx* ctx, const MlxrVideo* video) {
-    if (xrBacklightOn(ctx)) {
-        // Native (issue #7): the zones move on with the time, or land whole where they are from another picture
-        runBacklightZones(ctx, video);
-        runBacklightRender(ctx);
-        return;
-    }
-    // (or Backlight was up, which leaves the sample alone)
-    if (!ctx->glowDrawnOn || !ctx->ambiSeeded || ctx->glowZoom[0] != ctx->zoomPct || ctx->glowZoom[1] != ctx->zoomX
-            || ctx->glowZoom[2] != ctx->zoomY) {
-        runFrameColorSample(ctx, video);
-    }
-    runGlowRender(ctx);
+    runBacklightZones(ctx, video);
+    runBacklightRender(ctx);
 }

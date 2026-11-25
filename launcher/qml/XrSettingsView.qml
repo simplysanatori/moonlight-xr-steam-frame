@@ -355,12 +355,9 @@ Flickable {
         return scrollSpeedSteps[0]
     }
 
-    // Native (lane wave3-visual): the surroundings. [vr] background_dim (percent), [display] glow_feather and
-    // [3d] eye_balance (percent) step through these; [vr] void_color is typed
+    // Native (lane wave3-visual): the surroundings. [vr] background_dim (percent) and [3d] eye_balance
+    // (percent) step through these; [vr] void_color is typed
     readonly property var backgroundDimSteps: [0, 25, 50, 75, 100]
-    // (issue #7) "backlight": a light round a picture with sharp edges.
-    readonly property var glowFeatherValues: ["off", "soft", "wide", "backlight"]
-    readonly property var glowFeatherNames: [qsTr("Off"), qsTr("Soft"), qsTr("Wide"), qsTr("Backlight")]
     readonly property var eyeBalanceSteps: [-100, -50, 0, 50, 100]
     // [3d] edge_sharpness: the steps the Edge row goes through (0 is the 3D's own soft edges)
     readonly property var edgeSteps: [0, 25, 50, 75, 100]
@@ -2373,8 +2370,8 @@ Flickable {
             })
         }
 
-        // Native (lane wave3-visual): the Picture tab's Background row, the void's colour, the Glow edge row (below)
-        // and the 3D eye balance (Video). Pressing a row steps through its choices.
+        // Native (lane wave3-visual): the Picture tab's Background row, the void's colour and the 3D eye balance
+        // (Video). Pressing a row steps through its choices.
         PrefRow {
             objectName: "backgroundDimRow"
             title: qsTr("Background dim")
@@ -2428,37 +2425,15 @@ Flickable {
             suffix: "%"
         }
 
-        PrefRow {
-            objectName: "glowFeatherRow"
-            title: qsTr("Glow edge")
-            valueText: settingsPage.glowFeatherNames[Math.max(0, settingsPage.glowFeatherValues.indexOf(MlxrPrefs.glowFeather))]
-            summary: qsTr("Soft and Wide fade the picture's outer edge into the glow around it so the screen has no hard border. Backlight keeps the edge sharp, with light around it.")
-            reason: MlxrPrefs.vr["display.glow"] === true ? "" : qsTr("Glow is off")
-            onClicked: MlxrPrefs.glowFeather = settingsPage.nextLimit(settingsPage.glowFeatherValues, MlxrPrefs.glowFeather)
-        }
-
-        // Native (issue #7): Backlight's own rows
+        // Native (issue #7)
         VrSlider {
             key: "display.glow_spread"
             title: qsTr("Glow spread")
-            summary: qsTr("How far the Backlight reaches.")
-            reason: MlxrPrefs.vr["display.glow"] !== true ? qsTr("Glow is off")
-                  : MlxrPrefs.glowFeather !== "backlight" ? qsTr("Glow edge is not Backlight") : ""
+            summary: qsTr("How far the glow reaches.")
+            reason: MlxrPrefs.vr["display.glow"] === true ? "" : qsTr("Glow is off")
             from: 10
             to: 100
             stepSize: 5
-            suffix: "%"
-        }
-
-        VrSlider {
-            key: "display.glow_bezel"
-            title: qsTr("Bezel")
-            summary: qsTr("A black border between the picture and the Backlight.")
-            reason: MlxrPrefs.vr["display.glow"] !== true ? qsTr("Glow is off")
-                  : MlxrPrefs.glowFeather !== "backlight" ? qsTr("Glow edge is not Backlight") : ""
-            from: 0
-            to: 3
-            stepSize: 1
             suffix: "%"
         }
 

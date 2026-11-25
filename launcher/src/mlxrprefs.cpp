@@ -83,7 +83,6 @@ const VrKey kVrKeys[] = {
     { "display.glow", 'b', 0, 0, 1, nullptr },
     { "display.glow_level", 'i', 50, 0, 100, nullptr },
     { "display.glow_spread", 'i', 50, 10, 100, nullptr },   // native (issue #7)
-    { "display.glow_bezel", 'i', 0, 0, 3, nullptr },
     { "display.screen_light", 'b', 1, 0, 1, nullptr },
     { "screen.distance_cm", 'i', 300, 20, 800, nullptr },
     { "screen.width_cm", 'i', 300, 80, 800, nullptr },
@@ -391,11 +390,6 @@ void MlxrPrefs::load()
     if (!QRegularExpression("^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$").match(voidColor).hasMatch()) {
         voidColor = "#000000";
     }
-    const QString gf = iniValue(ini, "display", "glow_feather", "off").trimmed().toLower();
-    glowFeather = (gf == "soft" || gf == "1") ? "soft" : (gf == "wide" || gf == "2") ? "wide" : "off";
-    // Native (issue #7): the choice past glow_feather's, in a key of its own (glow_feather soft or wide wins)
-    const QString gb = iniValue(ini, "display", "glow_behind", "off").trimmed().toLower();
-    if (glowFeather == "off" && (gb == "backlight" || gb == "1")) glowFeather = "backlight";
     // the VR client takes the name or its index; anything else is its default, depth
     const QString src = iniValue(ini, "3d", "stereo_source", "depth").trimmed().toLower();
     stereoSource = (src == "sbs" || src == "1") ? "sbs" : (src == "top-bottom" || src == "2") ? "top-bottom" : "depth";
@@ -508,7 +502,6 @@ void MlxrPrefs::load()
     m_iniEyeBalance = eyeBalance;
     m_iniBackgroundDim = backgroundDim;
     m_iniVoidColor = voidColor;
-    m_iniGlowFeather = glowFeather;
     m_iniStereoSource = stereoSource;
     m_iniSbsFull = sbsFull;
     m_iniAspect = aspect;
@@ -587,14 +580,6 @@ void MlxrPrefs::save()
     }
     if (voidColor != m_iniVoidColor) {
         setIniValue(ini, "vr", "void_color", voidColor);
-    }
-    if (glowFeather != m_iniGlowFeather) {
-        const bool behind = glowFeather == "backlight";
-        setIniValue(ini, "display", "glow_feather", behind ? QStringLiteral("off") : glowFeather);
-        const QString b = behind ? glowFeather : QStringLiteral("off");
-        if (iniValue(ini, "display", "glow_behind", "off").trimmed().toLower() != b) {
-            setIniValue(ini, "display", "glow_behind", b);
-        }
     }
     if (stereoSource != m_iniStereoSource) {
         setIniValue(ini, "3d", "stereo_source", stereoSource);
@@ -700,7 +685,6 @@ void MlxrPrefs::save()
     m_iniEyeBalance = eyeBalance;
     m_iniBackgroundDim = backgroundDim;
     m_iniVoidColor = voidColor;
-    m_iniGlowFeather = glowFeather;
     m_iniStereoSource = stereoSource;
     m_iniSbsFull = sbsFull;
     m_iniAspect = aspect;

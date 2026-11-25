@@ -21,7 +21,7 @@ function(mlxr_shader outvar src outname)
 endfunction()
 
 set(MLXR_PASSES_SPV)
-foreach(s vertex.vert offset.frag glow_edge.frag glow.frag glow_spread.frag backlight.frag room.vert room.frag model.vert
+foreach(s vertex.vert offset.frag glow_spread.frag backlight.frag room.vert room.frag model.vert
           model.frag supersample.frag panel.vert panel.frag model_tex.vert model_tex.frag)
   mlxr_shader(MLXR_PASSES_SPV ${s} ${s})
 endforeach()

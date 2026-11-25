@@ -19,7 +19,7 @@ Every change below keeps the picture the same pixel for pixel, or only leaves ou
 | `MLXR_CURVE_REUSE` | 0 | When there is no new picture or glow, nothing in the layer changed, and each eye is within `MLXR_CURVE_REUSE_DEG` (0.3) degrees and `MLXR_CURVE_REUSE_MM` (2) mm of where the image was drawn from, the curved layer goes up again with its last image and poses, and SteamVR turns it the small way to the eyes. At most `MLXR_CURVE_REUSE_MAX` (3) frames in a row. Off by default: it needs a headset check. |
 | `MLXR_FDM_LAYER` | unset | 0 turns off Valve's `fdm_injection` layer (sets `DISABLE_VULKAN_FDM_INJECTION_LAYER=1` before the OpenXR instance). See Foveation below. |
 
-Earlier switches still apply: `MLXR_GLOW_WIDE=0` (Wide glow held to the Soft size), `MLXR_PICTURE_BLEND=0`, `MLXR_HOLD_PLACES`.
+Earlier switches still apply: `MLXR_HOLD_PLACES`. (`MLXR_GLOW_WIDE` and `MLXR_PICTURE_BLEND` went with the Glow edge in 1.3.4.)
 
 ## Log lines
 

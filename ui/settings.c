@@ -119,11 +119,6 @@ static const char* const LANGUAGE_NAMES[] = { "auto", "en", UI_I18N_LANGS(LANG_N
 static const char* const SHARP_NAMES[] = { "off", "normal", "quality" };
 // Native (1.3.4): FOVEATED_*
 static const char* const FOVEATED_NAMES[] = { "auto", "on", "off" };
-static const char* const FEATHER_NAMES[] = { "off", "soft", "wide" };
-_Static_assert(sizeof(FEATHER_NAMES) / sizeof(FEATHER_NAMES[0]) == GLOW_FEATHER_COUNT, "glow_feather names follow GLOW_FEATHER_");
-// Native (issue #7): GLOW_BEHIND_*
-static const char* const BEHIND_NAMES[] = { "off", "backlight" };
-_Static_assert(sizeof(BEHIND_NAMES) / sizeof(BEHIND_NAMES[0]) == GLOW_BEHIND_COUNT, "glow_behind names follow GLOW_BEHIND_");
 // CONTROLLER_MODEL_*: 1 is what the old on/off switch's true meant
 static const char* const MODEL_NAMES[] = { "off", "frame", "gun", "custom" };
 // Native (lane fix-polish): the numbers controller_model had before the generic controller went:
@@ -267,10 +262,7 @@ static const SettingDesc TABLE[] = {
     DE("display", "stats_style", stats_style, STATS_STYLE_NAMES, 0, "native: what the stats show: full (every line the session writes), hud (latency, network, decode and rate in a few lines) or lite (speed, latency, decode, loss and fps on one line); with stats on, a perf-<stamp>.csv next to vrtiming.log gets a row every 5 s"),
     DB("display", "glow", glow, 0, "Display tab: glow (checkbox_vr_ambilight; native default off, the owner's choice, upstream on)"),
     DI("display", "glow_level", glow_level, 0, 100, 50, "Display tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
-    DE("display", "glow_feather", glow_feather, FEATHER_NAMES, GLOW_FEATHER_OFF, "native: Picture tab Glow edge: off, soft or wide. A borderless screen: the picture's edge fades into a glow of its own colours (needs the glow on)"),
-    DE("display", "glow_behind", glow_behind, BEHIND_NAMES, GLOW_BEHIND_OFF, "native: Picture tab Glow edge, its choice past glow_feather's: backlight, the light a strip behind the screen would cast, behind a picture that keeps its edges (needs the glow on; glow_feather soft or wide wins)"),
-    DI("display", "glow_spread", glow_spread, GLOW_SPREAD_MIN, GLOW_SPREAD_MAX, GLOW_SPREAD_DEFAULT, "native: Picture tab Glow spread, how far the backlight reaches, percent of its most (about half the screen's longer side)"),
-    DI("display", "glow_bezel", glow_bezel, GLOW_BEZEL_MIN, GLOW_BEZEL_MAX, GLOW_BEZEL_DEFAULT, "native: Picture tab Bezel, the black border between the picture and the backlight, percent of the picture's longer side; 0 none"),
+    DI("display", "glow_spread", glow_spread, GLOW_SPREAD_MIN, GLOW_SPREAD_MAX, GLOW_SPREAD_DEFAULT, "native: Picture tab Glow spread, how far the glow reaches, percent of its most (about half the screen's longer side)"),
     DE("display", "foveated", foveated, FOVEATED_NAMES, FOVEATED_AUTO, "native: Foveated rendering: on (Valve's fdm_injection layer: full detail where you look, less at the edges) or off (slightly sharper, a little less GPU on the plain screen); auto is off in this version. From the next stream; MLXR_FDM_LAYER=0 turns it off whatever this says"),
     DB("display", "screen_light", screen_light, 1, "Display tab: screen light in rooms (checkbox_vr_room_light)"),
     DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (room in a room), display, 3d, picture, accessibility or about"),
@@ -1354,9 +1346,7 @@ void settings_reset_picture(Settings* s) {
     s->picture_saturation = PICTURE_SATURATION_DEFAULT;
     // The two rows under the grade on the same tab. The void colour has no row.
     s->bg_dim = BG_DIM_DEFAULT;
-    settings_set_glow_edge(s, GLOW_FEATHER_OFF);
     s->glow_spread = GLOW_SPREAD_DEFAULT;
-    s->glow_bezel = GLOW_BEZEL_DEFAULT;
 }
 
 int settings_parse_hex_rgb(const char* text, float rgb[3]) {
@@ -1451,16 +1441,6 @@ int settings_pointer_cell(int ray, int dot) {
 void settings_pointer_from_cell(int cell, int* ray, int* dot) {
     *ray = cell >= 2;
     *dot = cell >= 1;
-}
-
-int settings_glow_edge(const Settings* s) {
-    if (s->glow_feather == GLOW_FEATHER_SOFT || s->glow_feather == GLOW_FEATHER_WIDE) return s->glow_feather;
-    return s->glow_behind == GLOW_BEHIND_BACKLIGHT ? GLOW_EDGE_BACKLIGHT : GLOW_FEATHER_OFF;
-}
-
-void settings_set_glow_edge(Settings* s, int edge) {
-    s->glow_feather = edge == GLOW_FEATHER_SOFT || edge == GLOW_FEATHER_WIDE ? edge : GLOW_FEATHER_OFF;
-    s->glow_behind = edge == GLOW_EDGE_BACKLIGHT ? GLOW_BEHIND_BACKLIGHT : GLOW_BEHIND_OFF;
 }
 
 int settings_foveated_on(const Settings* s) {

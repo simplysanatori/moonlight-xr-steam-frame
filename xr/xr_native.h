@@ -49,7 +49,7 @@
 // pointer_source (POINTER_SOURCE_*), head_dwell_ms (0 off) and (lane a11y-2) assist_dot_size
 // (percent) and assist_headset_button, and (lane radial-dwell) assist_dwell_style
 // (DWELL_STYLE_*). Only a press or a drag on the tab hands these back. (38 and 39 are 1.3.4's above;
-// 40 and 41 are xr_shared.h's Background and Glow edge.)
+// 40 is xr_shared.h's Background.)
 #define SETTING_POINTER_SOURCE 42
 #define SETTING_HEAD_DWELL 43
 #define SETTING_ASSIST_DOT_SIZE 44
@@ -428,8 +428,8 @@ typedef struct XrFrameOut {
 // Fills out with the frame's layers; the storage lives in ctx until the next
 // call. Steps the fades, the placement and the toast as upstream did.
 void xrBuildLayers(XrCtx* ctx, const XrFrameIn* in, XrFrameOut* out);
-// Native (issue #5): the A/B switches xrBuildLayers reads (MLXR_HOLD_PLACES, MLXR_PICTURE_BLEND, and the
-// glow's MLXR_GLOW_WIDE), said once at the start; and the layers handed over since the last call
+// Native (issue #5): the A/B switch xrBuildLayers reads (MLXR_HOLD_PLACES), said once at the start; and the layers
+// handed over since the last call
 void xrLayerSwitchesSay(void);
 void xrLayerStatsLine(char* buf, int len);
 // The pose and size the picture goes up at this frame (after updatePlacement)

@@ -388,13 +388,10 @@
 #define SETTING_HEAD_AIM_SENSITIVITY 22
 #define SETTING_HEAD_AIM_DEADZONE 23
 // Native (lane wave3-visual): the Picture tab's Background dim in whole
-// percent, and its Glow edge cell (GLOW_FEATHER_). Numbered clear of the ids
-// the neighbouring lanes add.
+// percent. Numbered clear of the ids the neighbouring lanes add.
 #define SETTING_BG_DIM 40
-#define SETTING_GLOW_FEATHER 41
-// Native (issue #7): Backlight's two, in percent
+// Native (issue #7): the glow's reach, in percent
 #define SETTING_GLOW_SPREAD 49
-#define SETTING_GLOW_BEZEL 50
 // The Head locked row's three cells: Off 0, On 1 and Follow 2 (the screen
 // stays where it is until the head turns past the leash, then eases after the
 // gaze). SETTING_HEAD_LOCK takes the cell.
@@ -457,16 +454,13 @@
 // Native (lane wave3-visual): the Picture tab's two rows under the grade. They
 // are tracks like the grade's but belong to the surroundings rather than the
 // colours: Background, how far the room, the passthrough or the void is dimmed,
-// and Glow edge, whether the picture's edge is feathered into the glow. They
-// follow the four grade values in the tab, so the tab has PICTURE_TAB_ROWS.
-// Native (issue #7): then Backlight's two, its spread and its bezel.
+// and (native, issue #7) Glow spread, how far the glow reaches. They follow the
+// four grade values in the tab, so the tab has PICTURE_TAB_ROWS.
 #define PICTURE_ROW_BACKGROUND 4
-#define PICTURE_ROW_GLOW_EDGE 5
-#define PICTURE_ROW_GLOW_SPREAD 6
-#define PICTURE_ROW_GLOW_BEZEL 7
-#define PICTURE_TAB_ROWS 8
-// The eight rows start a little higher and sit a little closer than the Room
-// tab's, over the same reset button (the last one's band ends at 0.843)
+#define PICTURE_ROW_GLOW_SPREAD 5
+#define PICTURE_TAB_ROWS 6
+// The rows start a little higher and sit a little closer than the Room tab's,
+// over the same reset button
 #define COG_PICTURE_ROW_V0 0.23f
 #define COG_PICTURE_ROW_STEP 0.082f
 #define COG_PICTURE_ROW_HALF 0.039f
@@ -480,42 +474,12 @@
 #define BG_DIM_DEFAULT 0
 #define BG_DIM_STEP 5
 
-// Glow edge, how the picture's border is softened into the glow round it. Off
-// leaves the hard edge. Soft and Wide make the screen borderless (after
-// Lobs1994's fork of Moonlight XR): the picture's own outer
-// GLOW_FEATHER_SOFT_FRAC or GLOW_FEATHER_WIDE_FRAC of its width and height
-// fades to transparent (warp.frag, which keeps the two figures in step by
-// hand), and the glow behind it carries the picture's edge colours outward at
-// the picture's own brightness, so the picture runs into the glow with no seam.
-// Wide also spreads the glow GLOW_SCALE_WIDE times the screen outside a room.
-// Off by default.
-// Native (issue #7): the row goes on past the three stored in glow_feather.
-// Backlight draws a light of the picture's edge colours round a picture that
-// keeps its edges (no border fade), as a backlit television has (xr_glow.h). It
-// is a key of its own ([display] glow_behind, GLOW_BEHIND_), so a version before
-// it reads Off and keeps everything else. The row's value, and
-// SETTING_GLOW_FEATHER's, is a GLOW_EDGE_: glow_feather's three, then Backlight.
-#define GLOW_FEATHER_OFF 0
-#define GLOW_FEATHER_SOFT 1
-#define GLOW_FEATHER_WIDE 2
-#define GLOW_FEATHER_COUNT 3
-#define GLOW_EDGE_BACKLIGHT 3
-#define GLOW_EDGE_COUNT 4
-// [display] glow_behind: what is behind a picture with sharp edges, off for glow_feather's own
-#define GLOW_BEHIND_OFF 0
-#define GLOW_BEHIND_BACKLIGHT 1
-#define GLOW_BEHIND_COUNT 2
-// Backlight's: how far the light spreads, percent of its most, and the black
-// border between it and the picture, percent of the picture's longer side
+// Native (issue #7): the glow, light of the picture's edge colours round a picture that keeps its edges,
+// as a backlit television has (xr_glow.h). Glow spread, how far it reaches, percent of its most.
 #define GLOW_SPREAD_MIN 10
 #define GLOW_SPREAD_MAX 100
 #define GLOW_SPREAD_DEFAULT 50
 #define GLOW_SPREAD_STEP 5
-#define GLOW_BEZEL_MIN 0
-#define GLOW_BEZEL_MAX 3
-#define GLOW_BEZEL_DEFAULT 0
-#define GLOW_FEATHER_SOFT_FRAC 0.04f
-#define GLOW_FEATHER_WIDE_FRAC 0.08f
 
 // 3D Eye Balance, in whole percent: how the depth's disparity is shared by the
 // two eyes. 0 splits it evenly (the left eye shifts one separation one way,

@@ -1930,24 +1930,20 @@ static void test_screen_size_held(void) {
     free(t);
 }
 
-// Native (lane wave3-visual): Background dim, the void's colour, Glow edge and
-// 3D Eye Balance
+// Native (lane wave3-visual): Background dim, the void's colour, 3D Eye Balance and (issue #7) Glow spread
 static void test_surroundings(void) {
     Settings s;
     settings_defaults(&s);
     CHECK(geti(&s, "background_dim") == 0 && s.bg_dim == BG_DIM_DEFAULT);
     CHECK(strcmp(gets(&s, "void_color"), "#000000") == 0);
-    CHECK(geti(&s, "glow_feather") == GLOW_FEATHER_OFF && s.glow_feather == 0);
     CHECK(geti(&s, "eye_balance") == 0 && s.eye_balance == EYE_BALANCE_DEFAULT);
     // where each lives in the file
     CHECK(strcmp(settings_find("background_dim")->section, "vr") == 0);
     CHECK(strcmp(settings_find("void_color")->section, "vr") == 0);
-    CHECK(strcmp(settings_find("glow_feather")->section, "display") == 0);
     CHECK(strcmp(settings_find("eye_balance")->section, "3d") == 0);
     // their ranges
     CHECK(settings_find("background_dim")->min == 0 && settings_find("background_dim")->max == 100);
     CHECK(settings_find("eye_balance")->min == -100 && settings_find("eye_balance")->max == 100);
-    CHECK(settings_find("glow_feather")->nnames == GLOW_FEATHER_COUNT);
 
     // out of range values are pulled in, on load as through the setter
     settings_from_text(&s, "[vr]\nbackground_dim = 250\n[3d]\neye_balance = -400\n", NULL);
@@ -1955,58 +1951,33 @@ static void test_surroundings(void) {
     settings_from_text(&s, "[vr]\nbackground_dim = -3\n[3d]\neye_balance = 33\n", NULL);
     CHECK(s.bg_dim == 0 && s.eye_balance == 33);
 
-    // the names, their indexes and the wrong ones
-    settings_defaults(&s);
-    settings_from_text(&s, "[display]\nglow_feather = wide\n", NULL);
-    CHECK(s.glow_feather == GLOW_FEATHER_WIDE);
-    settings_from_text(&s, "[display]\nglow_feather = soft\n", NULL);
-    CHECK(s.glow_feather == GLOW_FEATHER_SOFT);
-    settings_from_text(&s, "[display]\nglow_feather = 0\n", NULL);
-    CHECK(s.glow_feather == GLOW_FEATHER_OFF);
+    // Native (issue #7): Glow spread. The glow has one look now: an older version's glow_feather, and the pre-releases'
+    // glow_behind and glow_bezel, are skipped whatever they say, take nothing else in the file with them, and are
+    // not written again (a version that has glow_feather then reads its default, off)
     SettingsLoadInfo info;
-    settings_from_text(&s, "[display]\nglow_feather = huge\n", &info);
-    CHECK(info.bad == 1 && s.glow_feather == GLOW_FEATHER_OFF);
-
-    // Native (issue #7): the row past glow_feather's three, kept in glow_behind with glow_feather off (a version
-    // without the key reads Off); glow_feather soft or wide wins, so one set there by such a version holds
     settings_defaults(&s);
-    CHECK(s.glow_behind == GLOW_BEHIND_OFF && settings_glow_edge(&s) == GLOW_FEATHER_OFF);
-    CHECK(strcmp(settings_find("glow_behind")->section, "display") == 0);
-    for (int e = 0; e < GLOW_EDGE_COUNT; e++) {
-        Settings a, b;
-        settings_defaults(&a);
-        settings_set_glow_edge(&a, GLOW_EDGE_COUNT - 1 - e);   // from another
-        settings_set_glow_edge(&a, e);
-        CHECK(settings_glow_edge(&a) == e && (a.glow_feather == GLOW_FEATHER_OFF) == (e == 0 || e >= GLOW_FEATHER_COUNT));
-        char* t = settings_to_text(&a);
-        settings_defaults(&b);
-        settings_from_text(&b, t, &info);
-        CHECK(settings_equal(&a, &b) && info.bad == 0 && info.unknown == 0 && settings_glow_edge(&b) == e);
-        free(t);
-    }
-    settings_defaults(&s);
-    CHECK(s.glow_spread == GLOW_SPREAD_DEFAULT && s.glow_bezel == GLOW_BEZEL_DEFAULT && s.glow_bezel == 0);
-    settings_from_text(&s, "[display]\nglow_behind = backlight\nglow_spread = 400\nglow_bezel = 2\n", NULL);
-    CHECK(settings_glow_edge(&s) == GLOW_EDGE_BACKLIGHT && s.glow_spread == GLOW_SPREAD_MAX && s.glow_bezel == 2);
+    CHECK(s.glow_spread == GLOW_SPREAD_DEFAULT && s.glow == 0);
+    settings_from_text(&s, "[display]\nglow = true\nglow_feather = wide\nglow_behind = backlight\nglow_spread = 400\n"
+                           "glow_bezel = 2\nglow_level = 70\n", &info);
+    CHECK(info.bad == 0 && s.glow == 1 && s.glow_level == 70 && s.glow_spread == GLOW_SPREAD_MAX);
+    char* kept = settings_to_text(&s);
+    CHECK(strstr(kept, "glow_feather") == NULL && strstr(kept, "glow_behind") == NULL && strstr(kept, "glow_bezel") == NULL);
+    CHECK(strstr(kept, "\nglow = true\n") != NULL && strstr(kept, "\nglow_spread = 100\n") != NULL);
+    free(kept);
+    Settings same = s;
+    settings_from_text(&same, "[display]\nglow_feather = huge\nglow_behind = sharp\nglow_bezel = -3\n", &info);
+    CHECK(info.bad == 0 && same.glow == 1 && same.glow_level == 70);
     settings_reset_picture(&s);
-    CHECK(s.glow_spread == GLOW_SPREAD_DEFAULT && s.glow_bezel == GLOW_BEZEL_DEFAULT);
-    // a choice this version hasn't got is Off, and takes nothing else in the file with it
-    settings_defaults(&s);
-    settings_from_text(&s, "[display]\nglow = true\nglow_behind = sharp\nglow_level = 70\n", &info);
-    CHECK(settings_glow_edge(&s) == GLOW_FEATHER_OFF && info.bad == 1 && s.glow == 1 && s.glow_level == 70);
-    settings_from_text(&s, "[display]\nglow_feather = soft\n", NULL);
-    CHECK(settings_glow_edge(&s) == GLOW_FEATHER_SOFT);
+    CHECK(s.glow_spread == GLOW_SPREAD_DEFAULT && s.glow == 1);
 
     // through the file and back, as typed
     settings_defaults(&s);
     s.bg_dim = 35;
     s.eye_balance = -60;
-    s.glow_feather = GLOW_FEATHER_SOFT;
     settings_set_str(&s, settings_find("void_color"), "#1a2b3c");
     char* text = settings_to_text(&s);
     CHECK(strstr(text, "\nbackground_dim = 35\n") != NULL);
     CHECK(strstr(text, "\neye_balance = -60\n") != NULL);
-    CHECK(strstr(text, "\nglow_feather = soft\n") != NULL);
     CHECK(strstr(text, "\nvoid_color = #1a2b3c\n") != NULL);
     Settings back;
     settings_defaults(&back);
@@ -2042,11 +2013,11 @@ static void test_surroundings(void) {
 
     // the Picture tab's Reset takes the two rows with it, and leaves the colour
     s.bg_dim = 80;
-    settings_set_glow_edge(&s, GLOW_EDGE_BACKLIGHT);
+    s.glow_spread = 75;
     s.picture_gamma = 150;
     settings_set_str(&s, settings_find("void_color"), "#102030");
     settings_reset_picture(&s);
-    CHECK(s.bg_dim == BG_DIM_DEFAULT && settings_glow_edge(&s) == GLOW_FEATHER_OFF && s.picture_gamma == 100);
+    CHECK(s.bg_dim == BG_DIM_DEFAULT && s.glow_spread == GLOW_SPREAD_DEFAULT && s.picture_gamma == 100);
     CHECK(strcmp(gets(&s, "void_color"), "#102030") == 0);
     s.eye_balance = 40;
     settings_reset_3d(&s);

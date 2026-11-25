@@ -679,11 +679,9 @@ static void testTheRowsFit(void) {
     CHECK(2.0f * cogRowHalf(COG_TAB_PICTURE) < COG_PICTURE_ROW_STEP && cogThumbSize(COG_TAB_PICTURE) < COG_PICTURE_ROW_STEP);
     CHECK(cogRowV(COG_TAB_PICTURE, PICTURE_TAB_ROWS - 1) + cogRowHalf(COG_TAB_PICTURE)
           < COG_RESET_T);
-    // Background and Glow edge follow the four grade rows
+    // Background and (issue #7) Glow spread follow the four grade rows
     CHECK(PICTURE_VALUES == 4 && PICTURE_ROW_BACKGROUND == PICTURE_VALUES);
-    // (issue #7) and Backlight's spread and bezel those
-    CHECK(PICTURE_ROW_GLOW_EDGE == PICTURE_ROW_BACKGROUND + 1 && PICTURE_ROW_GLOW_SPREAD == PICTURE_ROW_GLOW_EDGE + 1);
-    CHECK(PICTURE_ROW_GLOW_BEZEL == PICTURE_ROW_GLOW_SPREAD + 1 && PICTURE_TAB_ROWS == PICTURE_ROW_GLOW_BEZEL + 1);
+    CHECK(PICTURE_ROW_GLOW_SPREAD == PICTURE_ROW_BACKGROUND + 1 && PICTURE_TAB_ROWS == PICTURE_ROW_GLOW_SPREAD + 1);
     // Every room sheet follows the tabs, one per tab and the fixed Room tab,
     // then the screen and display tabs for a screen not locked to the head
     CHECK(COG_ART_ROOM == COG_TAB_COUNT);
@@ -859,14 +857,11 @@ static void testEveryTrackHasItsSteps(void) {
     };
     CHECK(cogTrackSteps(COG_TAB_PICTURE, PICTURE_TAB_ROWS) == 0);
     CHECK(cogTrackSteps(COG_TAB_PICTURE, -1) == 0);
-    // Background in five percent steps, Glow edge off, soft, wide, backlight
+    // Background and Glow spread in five percent steps
     CHECK(cogTrackSteps(COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND) == 20);
-    CHECK(cogTrackSteps(COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE) == GLOW_EDGE_COUNT - 1);
+    CHECK(cogTrackSteps(COG_TAB_PICTURE, PICTURE_ROW_GLOW_SPREAD) == 18);
     for (int step = 0; step <= 20; step++) {
         CHECK(bgDimClamp(laneUnits((float)step / 20.0f, BG_DIM_MIN, BG_DIM_MAX)) == step * 5);
-    }
-    for (int mode = 0; mode < GLOW_EDGE_COUNT; mode++) {
-        CHECK(laneUnits((float)mode / (float)(GLOW_EDGE_COUNT - 1), GLOW_FEATHER_OFF, GLOW_EDGE_COUNT - 1) == mode);
     }
     for (int row = 0; row < PICTURE_VALUES; row++) {
         int min = pictureLanes[row][0];
@@ -1382,21 +1377,6 @@ static void testTheSurroundings(void) {
     CHECK_NEAR(bgDimKeep(100), 0.0, 1e-6);
     CHECK_NEAR(bgDimKeep(-5), 1.0, 1e-6);
     CHECK_NEAR(bgDimKeep(500), 0.0, 1e-6);
-
-    // Glow edge: nothing when off; the picture's border fade, 4 % soft and 8 % wide (warp.frag keeps the
-    // same figures; native, lane borderless)
-    CHECK(glowFeatherFraction(GLOW_FEATHER_OFF) == 0.0f);
-    CHECK(glowFeatherFraction(GLOW_FEATHER_SOFT) > 0.0f);
-    CHECK(glowFeatherFraction(GLOW_FEATHER_WIDE) > glowFeatherFraction(GLOW_FEATHER_SOFT));
-    CHECK_NEAR(glowFeatherFraction(GLOW_FEATHER_SOFT), 0.04, 1e-6);
-    CHECK_NEAR(glowFeatherFraction(GLOW_FEATHER_WIDE), 0.08, 1e-6);
-    CHECK(glowFeatherFraction(-1) == 0.0f && glowFeatherFraction(GLOW_FEATHER_COUNT) == 0.0f);
-    CHECK(glowFeatherFraction(GLOW_FEATHER_WIDE) < 0.5f);
-    // Native (issue #7): Backlight keeps the picture's edges
-    CHECK(glowEdgeFade(GLOW_EDGE_BACKLIGHT) == GLOW_FEATHER_OFF);
-    CHECK(glowEdgeFade(GLOW_FEATHER_OFF) == GLOW_FEATHER_OFF && glowEdgeFade(GLOW_FEATHER_SOFT) == GLOW_FEATHER_SOFT);
-    CHECK(glowEdgeFade(GLOW_FEATHER_WIDE) == GLOW_FEATHER_WIDE);
-    CHECK(glowFeatherFraction(GLOW_EDGE_BACKLIGHT) == 0.0f);
 
     // The backdrop: black at the dim's alpha over the cameras, the void's
     // colour taken down by it, nothing in a room or for a black void

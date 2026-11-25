@@ -624,7 +624,7 @@ if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
          stream.doff_disconnect stream.idle_disconnect stream.bitrate_wifi stream.bitrate_adapter stream.bitrate_wired stream.bitrate_usb
          stream.rfi_idr_ms stream.failover stream.failover_burst_ms vr.keyboard_keymap vr.controller_model vr.flip_face_buttons
          vr.pad_mouse_chord vr.pad_mouse_scroll vr.pad_arbitration vr.pad_gyro vr.notices vr.lightgun vr.scroll_speed
-         vr.background_dim vr.void_color vr.first_run_shown vr.pad_card display.zoom display.stats display.glow_feather display.glow_behind
+         vr.background_dim vr.void_color vr.first_run_shown vr.pad_card display.zoom display.stats
          3d.separation 3d.convergence 3d.stereo 3d.eye_balance 3d.stereo_source 3d.sbs_full 3d.edge_sharpness 3d.depth_scale
          3d.depth_global 3d.motion_reset ui.language vr.head_dwell_ms"
     left="stream.host stream.app vr.hand_hint_seen display.cog_tab display.zoom_x display.zoom_y screen.height_cm
@@ -1039,32 +1039,35 @@ sys.exit(0 if full>900 and 0.15*full<part<0.5*full and e==f and h<g else 1)" "$a
         printf '[vr]\ncontroller_model = 3\n' > "$t/model-old.ini"
         expect "VR client reads the old number of gun" "$("$MLXR_SETTINGS_DUMP" "$t/model-old.ini")" "vr.controller_model = gun"
     fi
-    # lane wave3-visual: the surroundings rows (Picture tab's Background and Glow edge, 3D eye balance) step
+    # lane wave3-visual: the surroundings rows (Picture tab's Background, 3D eye balance) step
     # from the file's values and write only their keys; the void colour is read as typed and kept
     printf '[vr]\nvoid_color = #204060\n\n[3d]\nseparation = 9\n' > "$ini"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=backgroundDimRow,backgroundDimRow,glowFeatherRow,eyeBalanceRow,eyeBalanceRow \
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=backgroundDimRow,backgroundDimRow,eyeBalanceRow,eyeBalanceRow \
         MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-surroundings.png@3000" "$L" >"$t/ui6b.out" 2>&1
     grep -q "no clickable" "$t/ui6b.out" && fail "surroundings click hook: $(grep 'no clickable' "$t/ui6b.out")"
     grep -Eq "$QMLERR" "$t/ui6b.out" && { fail "surroundings QML errors"; grep -E "$QMLERR" "$t/ui6b.out" | head; } || ok "surroundings rows load (no QML errors)"
     grep -A4 '^\[vr\]' "$ini" | grep -q '^background_dim = 50$' && ok "background row steps 0 to 25 to 50 and writes [vr] background_dim" || { fail "background_dim not written"; cat "$ini"; }
-    grep -A2 '^\[display\]' "$ini" | grep -q '^glow_feather = soft$' && ok "glow edge row steps Off to Soft and writes [display] glow_feather" || { fail "glow_feather not written"; cat "$ini"; }
     grep -A4 '^\[3d\]' "$ini" | grep -q '^eye_balance = 100$' && ok "eye balance row steps 0 to 50 to 100 and writes [3d] eye_balance" || { fail "eye_balance not written"; cat "$ini"; }
     grep -q '^void_color = #204060$' "$ini" && grep -q '^separation = 9$' "$ini" && ok "void colour and the other keys untouched" || { fail "void_color or separation changed"; cat "$ini"; }
     if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
         dump="$("$MLXR_SETTINGS_DUMP" "$ini")"
         expect "VR client reads background_dim" "$dump" "vr.background_dim = 50"
         expect "VR client reads void_color" "$dump" "vr.void_color = #204060"
-        expect "VR client reads glow_feather" "$dump" "display.glow_feather = soft"
         expect "VR client reads eye_balance" "$dump" "3d.eye_balance = 100"
     fi
-    # issue #7: Glow edge's Backlight is [display] glow_behind with glow_feather off; stepping past it clears both
-    printf '[display]\nglow = true\nglow_feather = wide\n' > "$ini"
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=glowFeatherRow \
-        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-glow-backlight.png@3000" "$L" >"$t/ui6g.out" 2>&1
-    grep -q '^glow_feather = off$' "$ini" && grep -q '^glow_behind = backlight$' "$ini" && ok "glow edge row steps Wide to Backlight and writes glow_behind with glow_feather off" || { fail "glow_behind not backlight"; cat "$ini"; }
-    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=glowFeatherRow \
-        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-glow-off.png@3000" "$L" >"$t/ui6i.out" 2>&1
-    grep -q '^glow_feather = off$' "$ini" && grep -q '^glow_behind = off$' "$ini" && ok "glow edge row steps Backlight back to Off" || { fail "glow_behind not cleared"; cat "$ini"; }
+    # the glow has one look: an older version's glow_feather, and the pre-releases' glow_behind and glow_bezel, are
+    # read over by the page and by the VR client, whatever they say
+    printf '[display]\nglow = true\nglow_feather = wide\nglow_behind = backlight\nglow_spread = 70\nglow_bezel = 2\n' > "$ini"
+    MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=backgroundDimRow \
+        MLXR_LAUNCHER_SCREENSHOT="$SHOTS/settings-glow.png@3000" "$L" >"$t/ui6g.out" 2>&1
+    grep -Eq "$QMLERR" "$t/ui6g.out" && { fail "glow rows QML errors"; grep -E "$QMLERR" "$t/ui6g.out" | head; } || ok "the page opens on a file with the old glow keys"
+    grep -q '^glow = true$' "$ini" && grep -q '^glow_spread = 70$' "$ini" && grep -q '^background_dim = 25$' "$ini" && ok "and keeps the glow's own keys when it saves" || { fail "glow or glow_spread changed"; cat "$ini"; }
+    if [ -n "${MLXR_SETTINGS_DUMP:-}" ] && [ -x "$MLXR_SETTINGS_DUMP" ]; then
+        dump="$("$MLXR_SETTINGS_DUMP" "$ini" 2>&1)"
+        expect "VR client reads the glow beside the old keys" "$dump" "display.glow_spread = 70"
+        refute "VR client drops the old glow keys" "$dump" "glow_feather"
+        refute "VR client drops the old bezel key" "$dump" "glow_bezel"
+    fi
     # lane wave6-i18n: the Headset language row shows the languages; picking one writes [ui] language,
     # which the VR client reads (at its next start); the rest of the file is kept
     cp "$ini" "$t/ini.lang-before"

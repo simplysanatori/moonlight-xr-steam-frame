@@ -251,7 +251,6 @@ typedef struct Video {
     uint64_t value;
     // what the last draw used, so a change redraws a still picture
     int drawnGradeOn, drawnSharpen, drawnCurved, drawnChroma;
-    int drawnBorder; // native (lane borderless): the Glow edge's border fade it was drawn with
     PictureGrade drawnGrade;
     // M6: the 3D as last drawn (eyes, separation, convergence, depth view)
     int drawnEyes, drawnShowDepth;
@@ -751,8 +750,8 @@ static uint64_t curveStateKey(XrCtx* ctx, const XrCurve* cv, XrPosef picturePose
     MIX(ctx->drawnEyes); MIX(eyeSwap); MIX(ctx->sharpenMode); MIX(cv->w); MIX(cv->pics);
     MIX(ctx->roomInPicture); MIX(ctx->modelsInPicture); MIX(ctx->passthroughInPicture); MIX(ctx->passthrough);
     MIX(ctx->roomReady); MIX(ctx->roomBuiltStyle); MIX(ctx->bgDim); MIX(ctx->roomLightOn);
-    MIX(ctx->glowDrawnLevel); MIX(ctx->glowDrawnScale); MIX(ctx->glowDrawnScaleY); MIX(ctx->glowFeather); MIX(ctx->pictureBorderDrawn);
-    MIX(ctx->glowEasedNs); // native (issue #7): the Backlight, drawn again
+    MIX(ctx->glowDrawnLevel); MIX(ctx->glowDrawnShape.scaleX); MIX(ctx->glowDrawnShape.scaleY);
+    MIX(ctx->glowEasedNs); // native (issue #7): the glow, drawn again
     MIX(ctx->zoomPct); MIX(ctx->zoomX); MIX(ctx->zoomY); MIX(ctx->launcher);
     int glow = xrWorldGlowShown(ctx), roomOn = roomEffective(ctx);
     MIX(glow); MIX(roomOn);
@@ -920,13 +919,11 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         // Native (lane eye-swapchains): each view its own swapchain's image
         xrProjectionEye(&cv->eyes[e], &views[e], cv->swapchain[e], cv->eyeW, cv->eyeH);
     }
-    // Native (lane gpu-144): the picture's opaque middle (inside its border fade and the filter's
-    // reach), which the room is not shaded behind (MLXR_ROOM_OCCLUDE)
+    // Native (lane gpu-144): the picture's opaque middle (inside its filter's reach), which the room is not shaded behind (MLXR_ROOM_OCCLUDE)
     XrOccluder occ;
     memset(&occ, 0, sizeof(occ));
     if (gpuKnob("MLXR_ROOM_OCCLUDE", 1)) {
-        float fade = glowFeatherFraction(ctx->pictureBorderDrawn);
-        float keep = 1.0f - 2.0f * (fade + GLOW_HOLE_FILTER_FRAC);
+        float keep = 1.0f - 2.0f * GLOW_HOLE_FILTER_FRAC;
         occ.pose = picturePose;
         occ.width = pp.width * keep;
         occ.height = pp.height * keep;
@@ -967,8 +964,6 @@ static int curveRecord(XrCtx* ctx, XrCurve* cv, MlxrPasses* passes, VkCommandBuf
         ctx->screenPose = picturePose;
         // M5: the glow round a curved picture, upstream's glow cylinder drawn
         // into this layer under the picture (no cylinder layers on SteamVR)
-        // Native (lane borderless): with the Glow edge on, the picture's border fades
-        // out over this glow (warp.frag), so it is under the picture either way
         if (xrWorldGlowShown(ctx)) {
             // Native: flat in 3D, the glow quad's image drawn here as well
             if (xrPictureCurved(ctx)) xrWorldCurvedGlow(ctx, &et, views);
@@ -1070,8 +1065,6 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     // The curved or 3D picture is sharpened by the panel pass (curveRecord)
     w.sharpen = curve != NULL && curve->mode == 1 ? 0.0f : sharpenFor(ctx->sharpenMode);
     w.chromaGuided = chromaFromLumaOn(ctx);
-    // Native (lane borderless): the Glow edge's border fade, while the glow is on
-    w.borderFade = xrPictureBorderFade(ctx);
     xrDepthRecordWarpEyes(ctx, cmd, tg, &w, &dd);
     if (curve != NULL) {
         for (int e = 0; e < dd.eyes; e++) {
@@ -1088,8 +1081,6 @@ static void recordWarp(XrCtx* ctx, Video* vd, MlxrPasses* passes, VkCommandBuffe
     vd->drawnGrade = ctx->grade;
     vd->drawnSharpen = ctx->sharpenMode;
     vd->drawnChroma = w.chromaGuided;
-    vd->drawnBorder = w.borderFade;
-    ctx->pictureBorderDrawn = w.borderFade;
     vd->drawnEyes = dd.eyes;
     vd->drawnSep = ctx->separationCurrent;
     vd->drawnConv = ctx->convergence;
@@ -1111,7 +1102,7 @@ static int videoStale(XrCtx* ctx, const Video* vd, int curved) {
     // Native (PLAN 4b.6): or the part of the picture shown moved
     int zoomed = vd->drawnZoom[0] != ctx->zoomPct || vd->drawnZoom[1] != ctx->zoomX || vd->drawnZoom[2] != ctx->zoomY;
     return vd->draws > 0 && (vd->drawnGradeOn != ctx->gradeOn || vd->drawnSharpen != ctx->sharpenMode
-                             || vd->drawnChroma != chromaFromLumaOn(ctx) || vd->drawnBorder != xrPictureBorderFade(ctx)
+                             || vd->drawnChroma != chromaFromLumaOn(ctx)
                              || vd->drawnCurved != curved || ctx->warpRedraw || stereo3d || zoomed
                              || memcmp(&vd->drawnGrade, &ctx->grade, sizeof(PictureGrade)) != 0);
 }

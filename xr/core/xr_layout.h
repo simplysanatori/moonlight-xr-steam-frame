@@ -274,12 +274,6 @@ float separationOf(int units);
 // light that is left of it (1 at 0 percent, 0 at 100).
 int bgDimClamp(int percent);
 float bgDimKeep(int percent);
-// The Picture tab's Glow edge: how deep into the picture the fade reaches, as
-// a fraction of its width and height (0 for off, and for a value out of range)
-float glowFeatherFraction(int mode);
-// Native (issue #7): the border fade the picture is drawn with for a Glow edge (GLOW_EDGE_), a
-// GLOW_FEATHER_ the warp and glowFeatherFraction take: none for Backlight
-int glowEdgeFade(int edge);
 // 3D Eye Balance. The percent the preference stores as -1..1, and the share of
 // one separation each eye is shifted by: left 1 + b, right 1 - b, so an even
 // 0 is a whole separation each way, +1 is two in the left eye and none in the

@@ -341,7 +341,7 @@ static void testDevice(void) {
     } combos[] = {
         {MLXR_PASS_WARP, SRGB, 0},          {MLXR_PASS_WARP, UNORM, 0},      {MLXR_PASS_WARP, VK_FORMAT_B8G8R8A8_SRGB, 0},
         {MLXR_PASS_UPSAMPLE, UNORM, 0},     {MLXR_PASS_OFFSET, UNORM, 0},    {MLXR_PASS_DOWNSCALE, UNORM, 0},
-        {MLXR_PASS_AMBI, UNORM, 0},         {MLXR_PASS_GLOW_EDGE, UNORM, 0}, {MLXR_PASS_GLOW, SRGB, 0},
+        {MLXR_PASS_AMBI, UNORM, 0},
         {MLXR_PASS_ROOM, SRGB, VK_FORMAT_D32_SFLOAT}, {MLXR_PASS_MODEL, SRGB, VK_FORMAT_D32_SFLOAT},
         {MLXR_PASS_SUPERSAMPLE, SRGB, 0},   {MLXR_PASS_PANEL, SRGB, 0},
         {MLXR_PASS_GLOW_ZONES, MLXR_GLOW_LIGHT_FORMAT, 0}, {MLXR_PASS_GLOW_SPREAD, MLXR_GLOW_LIGHT_FORMAT, 0},
@@ -541,45 +541,6 @@ static void testSrgb(void) {
     free(a);
     free(b);
 
-    // The glow is premultiplied: its encoded bytes must survive too
-    uint8_t px[MLXR_AMBI_TEX * MLXR_AMBI_TEX * 4];
-    for (int i = 0; i < MLXR_AMBI_TEX * MLXR_AMBI_TEX; i++) {
-        px[i * 4 + 0] = (uint8_t)(i * 7);
-        px[i * 4 + 1] = (uint8_t)(i * 3);
-        px[i * 4 + 2] = (uint8_t)(255 - i);
-        px[i * 4 + 3] = 255;
-    }
-    VkhImage tex;
-    textureMake(&tex, MLXR_AMBI_TEX, MLXR_AMBI_TEX, px);
-    Target gu, gs;
-    targetMake(&gu, MLXR_GLOW_TEX, MLXR_GLOW_TEX, UNORM);
-    memset(&gs, 0, sizeof(gs));
-    vkh_image_mutable(&vk, MLXR_GLOW_TEX, MLXR_GLOW_TEX, UNORM, SRGB, &gs.img);
-    gs.t.view = gs.img.view;
-    gs.t.format = SRGB;
-    gs.t.rect = gu.t.rect;
-    MlxrGlowParams gp = {tex.view, 0.8f, 0};
-    uint8_t* res[2];
-    Target* ts[2] = {&gu, &gs};
-    for (int k = 0; k < 2; k++) {
-        VkCommandBuffer cmd = vkh_begin(&vk);
-        vkh_layout(&vk, &ts[k]->img, COLOR_ATT);
-        mlxr_pass_glow(P, cmd, &ts[k]->t, &gp);
-        vkh_submit(&vk);
-        res[k] = readTarget(ts[k]);
-    }
-    int dg = 0;
-    for (size_t i = 0; i < (size_t)MLXR_GLOW_TEX * MLXR_GLOW_TEX * 4; i++) {
-        int e = abs((int)res[0][i] - (int)res[1][i]);
-        if (e > dg) dg = e;
-    }
-    note("glow (premultiplied) through SRGB vs UNORM view: max byte diff %d", dg);
-    check(dg <= 1, "glow SRGB bytes within 1 (%d)", dg);
-    free(res[0]);
-    free(res[1]);
-    vkh_image_free(&vk, &tex);
-    targetFree(&gu);
-    targetFree(&gs);
     targetFree(&u);
     targetFree(&s);
     videoFree(&vd);
@@ -1831,222 +1792,6 @@ static void testAmbi(void) {
     videoFree(&b);
 }
 
-// CPU copy of GLOW_EDGE_FRAGMENT_SRC built from xr_glow.c's pieces
-static void glowEdgeCpu(const uint8_t* in, int px, int py, float out[3]) {
-    const int N = AMBI_SAMPLE_TEX, RING = GLOW_RING;
-#define LIFT(X, Y, O)                                                                       \
-    do {                                                                                    \
-        float c_[3];                                                                        \
-        for (int k_ = 0; k_ < 3; k_++) c_[k_] = in[((size_t)(Y) * N + (X)) * 4 + k_] / 255.0f; \
-        glowNormalise(c_, O);                                                               \
-    } while (0)
-    if (px > 0 && py > 0 && px < N - 1 && py < N - 1) {
-        LIFT(px, py, out);
-        return;
-    }
-    float reach = glowReachTexels();
-    int steps = glowInwardSteps();
-    int j = glowRingIndex(px, py);
-    int r = (int)reach < RING / 2 - 1 ? (int)reach : RING / 2 - 1;
-    float own[3] = {0, 0, 0}, sum[3] = {0, 0, 0}, weight = 0, carried = 0;
-    for (int k = -r; k <= r; k++) {
-        int x, y;
-        glowRingTexel(((j + k) % RING + RING) % RING, &x, &y);
-        int ix = x == 0 ? 1 : (x == N - 1 ? -1 : 0), iy = y == 0 ? 1 : (y == N - 1 ? -1 : 0);
-        float c[3];
-        LIFT(x, y, c);
-        for (int s = 1; s <= steps; s++) {
-            float deeper[3];
-            LIFT(x + ix * s, y + iy * s, deeper);
-            float l = glowLit(c);
-            for (int q = 0; q < 3; q++) c[q] = deeper[q] + (c[q] - deeper[q]) * l;
-        }
-        float t = k / reach;
-        float wgt = (1.0f - t * t) * glowLit(c);
-        for (int q = 0; q < 3; q++) sum[q] += c[q] * wgt;
-        weight += wgt;
-        if (wgt > carried) carried = wgt;
-        if (k == 0) memcpy(own, c, sizeof(own));
-    }
-    float lo = glowLit(own);
-    for (int q = 0; q < 3; q++) out[q] = clampf(own[q] + sum[q] / fmaxf(weight, 1e-4f) * (carried * (1.0f - lo)), 0, 1);
-#undef LIFT
-}
-
-static void glowSample(uint8_t* px) {
-    // Colour patches with a dark band along part of the ring and a dark
-    // border on one side, which is what the roll off exists for
-    for (int y = 0; y < 32; y++)
-        for (int x = 0; x < 32; x++) {
-            uint8_t* p = px + ((size_t)y * 32 + x) * 4;
-            float r = 0.5f + 0.5f * sinf(x * 0.4f), g = 0.5f + 0.5f * cosf(y * 0.3f), b = (x + y) / 62.0f;
-            float dark = (y == 0 && x > 8 && x < 20) || x == 31 || (y > 20 && x < 2) ? 0.02f : 1.0f;
-            p[0] = (uint8_t)to8(r * dark);
-            p[1] = (uint8_t)to8(g * dark);
-            p[2] = (uint8_t)to8(b * dark);
-            p[3] = 255;
-        }
-}
-
-static void testGlowEdge(void) {
-    uint8_t px[32 * 32 * 4];
-    glowSample(px);
-    VkhImage tex;
-    textureMake(&tex, 32, 32, px);
-    Target t;
-    targetMake(&t, 32, 32, UNORM);
-    MlxrGlowEdgeParams gp = {tex.view, {GLOW_LUMA_TARGET, GLOW_LUMA_FLOOR, GLOW_LUMA_FULL},
-                             {GLOW_LIT_LO, GLOW_LIT_HI}, glowReachTexels(), glowInwardSteps()};
-    VkCommandBuffer cmd = vkh_begin(&vk);
-    vkh_layout(&vk, &t.img, COLOR_ATT);
-    mlxr_pass_glow_edge(P, cmd, &t.t, &gp);
-    vkh_submit(&vk);
-    uint8_t* got = readTarget(&t);
-    int m = 0, mRing = 0;
-    for (int y = 0; y < 32; y++)
-        for (int x = 0; x < 32; x++) {
-            float e[3];
-            glowEdgeCpu(px, x, y, e);
-            for (int c = 0; c < 3; c++) {
-                int dd = abs(to8(e[c]) - got[((size_t)y * 32 + x) * 4 + c]);
-                if (dd > m) m = dd;
-                if (glowRingIndex(x, y) >= 0 && dd > mRing) mRing = dd;
-            }
-        }
-    note("glow edge vs xr_glow.c CPU sums: max diff %d/255 (ring %d/255), reach %.2f, steps %d", m, mRing,
-         glowReachTexels(), glowInwardSteps());
-    check(m <= 1, "glow edge within 1/255 (%d)", m);
-    free(got);
-    targetFree(&t);
-    vkh_image_free(&vk, &tex);
-}
-
-// CPU copies of GLOW_FRAGMENT_SRC's spline and blurred spline
-static void tex32(const uint8_t* px, float u, float v, float out[3]) {
-    for (int c = 0; c < 3; c++) out[c] = bilin8(px, 32, 32, 4, c, u, v);
-}
-
-static void splineCpu(const uint8_t* px, float fu, float fv, float out[3]) {
-    float tc[2] = {fu * 32 - 0.5f, fv * 32 - 0.5f}, h0[2], h1[2], g0[2];
-    for (int a = 0; a < 2; a++) {
-        float base = floorf(tc[a]), f = tc[a] - base, f2 = f * f, f3 = f2 * f;
-        float w0 = (1 - 3 * f + 3 * f2 - f3) / 6, w1 = (4 - 6 * f2 + 3 * f3) / 6;
-        float w2 = (1 + 3 * f + 3 * f2 - 3 * f3) / 6, w3 = f3 / 6;
-        g0[a] = w0 + w1;
-        float g1 = w2 + w3;
-        h0[a] = (base - 0.5f + w1 / g0[a]) / 32;
-        h1[a] = (base + 1.5f + w3 / g1) / 32;
-    }
-    float c00[3], c10[3], c01[3], c11[3];
-    tex32(px, h0[0], h0[1], c00);
-    tex32(px, h1[0], h0[1], c10);
-    tex32(px, h0[0], h1[1], c01);
-    tex32(px, h1[0], h1[1], c11);
-    for (int c = 0; c < 3; c++) {
-        float top = c11[c] + (c01[c] - c11[c]) * g0[0];
-        float bot = c10[c] + (c00[c] - c10[c]) * g0[0];
-        out[c] = top + (bot - top) * g0[1];
-    }
-}
-
-// The true cubic B spline over clamped texels, 16 taps, to check the
-// four fetch fold itself
-static void splineDirect(const uint8_t* px, float fu, float fv, float out[3]) {
-    float tx = fu * 32 - 0.5f, ty = fv * 32 - 0.5f;
-    float bx = floorf(tx), by = floorf(ty), fx = tx - bx, fy = ty - by;
-    float wx[4], wy[4];
-    float* ws[2] = {wx, wy};
-    float fs[2] = {fx, fy};
-    for (int a = 0; a < 2; a++) {
-        float f = fs[a], f2 = f * f, f3 = f2 * f;
-        ws[a][0] = (1 - 3 * f + 3 * f2 - f3) / 6;
-        ws[a][1] = (4 - 6 * f2 + 3 * f3) / 6;
-        ws[a][2] = (1 + 3 * f + 3 * f2 - 3 * f3) / 6;
-        ws[a][3] = f3 / 6;
-    }
-    for (int c = 0; c < 3; c++) {
-        out[c] = 0;
-        for (int j = 0; j < 4; j++)
-            for (int i = 0; i < 4; i++)
-                out[c] += wx[i] * wy[j] * texel8(px, 32, 32, 4, c, (int)bx - 1 + i, (int)by - 1 + j);
-    }
-}
-
-static void blurredCpu(const uint8_t* px, float fu, float fv, float out[3]) {
-    float tc[2] = {fu * 32 - 0.5f, fv * 32 - 0.5f}, h[3][2], g[3][2];
-    for (int a = 0; a < 2; a++) {
-        float base = floorf(tc[a]), f = tc[a] - base, f2 = f * f, f3 = f2 * f;
-        float b0 = (1 - 3 * f + 3 * f2 - f3) / 6, b1 = (4 - 6 * f2 + 3 * f3) / 6;
-        float b2 = (1 + 3 * f + 3 * f2 - 3 * f3) / 6, b3 = f3 / 6;
-        float wb = (b0 + b1) / 3, wd = (b1 + b2 + b3) / 3, wf = b3 / 3;
-        g[0][a] = (2 * b0 + b1) / 3;
-        g[1][a] = (b0 + 2 * b1 + 2 * b2 + b3) / 3;
-        g[2][a] = (b2 + 2 * b3) / 3;
-        h[0][a] = (base - 1.5f + wb / g[0][a]) / 32;
-        h[1][a] = (base + 0.5f + wd / g[1][a]) / 32;
-        h[2][a] = (base + 2.5f + wf / g[2][a]) / 32;
-    }
-    out[0] = out[1] = out[2] = 0;
-    for (int j = 0; j < 3; j++)
-        for (int i = 0; i < 3; i++) {
-            float s[3];
-            tex32(px, h[i][0], h[j][1], s);
-            for (int c = 0; c < 3; c++) out[c] += s[c] * g[i][0] * g[j][1];
-        }
-}
-
-static void testGlow(void) {
-    uint8_t px[32 * 32 * 4];
-    glowSample(px);
-    VkhImage tex;
-    textureMake(&tex, 32, 32, px);
-    Target t;
-    targetMake(&t, MLXR_GLOW_TEX, MLXR_GLOW_TEX, UNORM);
-    // The fold against the plain 16 tap spline, CPU only
-    float worstFold = 0;
-    for (int i = 0; i < 400; i++) {
-        float u = (i % 20) / 19.0f * 1.4f - 0.2f, v = (i / 20) / 19.0f * 1.4f - 0.2f, a[3], b[3];
-        splineCpu(px, u, v, a);
-        splineDirect(px, u, v, b);
-        for (int c = 0; c < 3; c++) worstFold = fmaxf(worstFold, fabsf(a[c] - b[c]));
-    }
-    check(worstFold < 1e-4f, "four fetch spline equals the 16 tap B spline (%g)", worstFold);
-    for (int blur = 0; blur < 2; blur++) {
-        const float intensity = 0.7f;
-        MlxrGlowParams gp = {tex.view, intensity, blur};
-        VkCommandBuffer cmd = vkh_begin(&vk);
-        vkh_layout(&vk, &t.img, COLOR_ATT);
-        mlxr_pass_glow(P, cmd, &t.t, &gp);
-        vkh_submit(&vk);
-        uint8_t* got = readTarget(&t);
-        int m = 0, ma = 0;
-        for (int y = 0; y < MLXR_GLOW_TEX; y++)
-            for (int x = 0; x < MLXR_GLOW_TEX; x++) {
-                float u = (x + 0.5f) / MLXR_GLOW_TEX, v = (y + 0.5f) / MLXR_GLOW_TEX;
-                float fu = (u - 0.5f) * 1.7f + 0.5f, fv = (v - 0.5f) * 1.7f + 0.5f, col[3];
-                if (blur)
-                    blurredCpu(px, fu, fv, col);
-                else
-                    splineCpu(px, fu, fv, col);
-                float dx = fmaxf(fabsf(u - 0.5f) - 0.5f / 1.7f, 0) / (0.5f - 0.5f / 1.7f);
-                float dy = fmaxf(fabsf(v - 0.5f) - 0.5f / 1.7f, 0) / (0.5f - 0.5f / 1.7f);
-                float tt = fminf(sqrtf(dx * dx + dy * dy), 1.0f), s = tt * tt * (3 - 2 * tt);
-                float a = (1 - s) * (1 - s) * intensity;
-                const uint8_t* g = got + ((size_t)y * MLXR_GLOW_TEX + x) * 4;
-                for (int c = 0; c < 3; c++) m = abs(to8(col[c] * a) - g[c]) > m ? abs(to8(col[c] * a) - g[c]) : m;
-                ma = abs(to8(a) - g[3]) > ma ? abs(to8(a) - g[3]) : ma;
-            }
-        note("glow %s: colour max diff %d/255, alpha %d/255 from the CPU copy", blur ? "blurred" : "spline", m, ma);
-        check(m <= 2 && ma <= 1, "glow blur %d within 2/255 (colour %d, alpha %d)", blur, m, ma);
-        const uint8_t* corner = got;
-        check(corner[3] == 0, "glow rim is clear (alpha %d)", corner[3]);
-        ppm(blur ? "glow_blurred" : "glow_spline", got, MLXR_GLOW_TEX, MLXR_GLOW_TEX);
-        free(got);
-    }
-    targetFree(&t);
-    vkh_image_free(&vk, &tex);
-}
-
 static void quadVerts(float* v, int first, float x0, float y0, float x1, float y1, float z, const float rgb[3],
                       float spill) {
     float corners[4][2] = {{x0, y0}, {x1, y0}, {x0, y1}, {x1, y1}};
@@ -2166,88 +1911,7 @@ static void testRoom(void) {
     targetFree(&t);
 }
 
-// Native (lane borderless): the Glow edge's glow, u_feather 1. It sits under a
-// picture whose border fades out (warp_border), so it is the raw sample's own
-// colour at full strength right up to the screen's edge (no lift, no dimming by
-// the level), carries the edge colours outward, falls to nothing at the rim,
-// and at a wider scale reaches as far in proportion. Level 0 turns it off.
-static void testGlowFeather(void) {
-    uint8_t px[32 * 32 * 4];
-    glowSample(px);
-    VkhImage tex;
-    textureMake(&tex, 32, 32, px);
-    Target t;
-    targetMake(&t, MLXR_GLOW_TEX, MLXR_GLOW_TEX, UNORM);
-    const int N = MLXR_GLOW_TEX;
-    const float scales[2] = {GLOW_SCALE, GLOW_SCALE_WIDE};
-    for (int k = 0; k < 2; k++) {
-        const float sc = scales[k];
-        MlxrGlowParams gp = {tex.view, 0.5f, 0, 1, sc};
-        VkCommandBuffer cmd = vkh_begin(&vk);
-        vkh_layout(&vk, &t.img, COLOR_ATT);
-        mlxr_pass_glow(P, cmd, &t.t, &gp);
-        vkh_submit(&vk);
-        uint8_t* img = readTarget(&t);
-        // Under the screen: the raw sample through the spline, opaque, at full brightness
-        int worst = 0, minA = 255;
-        for (int y = 0; y < N; y++)
-            for (int x = 0; x < N; x++) {
-                float fu = ((x + 0.5f) / N - 0.5f) * sc + 0.5f, fv = ((y + 0.5f) / N - 0.5f) * sc + 0.5f;
-                if (fu < 0.02f || fu > 0.98f || fv < 0.02f || fv > 0.98f) continue;
-                const uint8_t* g = img + ((size_t)y * N + x) * 4;
-                float col[3];
-                splineCpu(px, fu, fv, col);
-                for (int c = 0; c < 3; c++)
-                    if (abs(to8(col[c]) - g[c]) > worst) worst = abs(to8(col[c]) - g[c]);
-                if (g[3] < minA) minA = g[3];
-            }
-        note("borderless glow at %.1fx: under the screen %d/255 from the raw sample, alpha at least %d", sc, worst, minA);
-        check(worst <= 3 && minA >= 254, "borderless %.1fx: the raw colour, opaque, under the screen (%d, %d)", sc, worst,
-              minA);
-        // Out from the middle of the left edge to the rim: opaque at the edge, never rising, clear at the rim,
-        // and in the border texels' colour just outside the edge
-        int row = N / 2, prevA = 256, rising = 0;
-        int xe = (int)floorf((0.5f - 0.5f / sc) * N) - 1;   // the first column outside the screen
-        for (int x = xe; x >= 0; x--) {
-            int a = img[((size_t)row * N + x) * 4 + 3];
-            if (a > prevA + 1) rising++;
-            prevA = a;
-        }
-        const uint8_t* rim = img + ((size_t)row * N + 0) * 4;
-        const uint8_t* out1 = img + ((size_t)row * N + xe) * 4;
-        float fvRow = ((row + 0.5f) / N - 0.5f) * sc + 0.5f, border[3];
-        splineCpu(px, 0.0f, fvRow, border);
-        float a1 = out1[3] / 255.0f;
-        int off = 0;
-        for (int c = 0; c < 3; c++) {
-            int want = to8(border[c] * a1);
-            if (abs(out1[c] - want) > off) off = abs(out1[c] - want);
-        }
-        note("borderless %.1fx: alpha %d just outside the edge, %d at the rim; colour %d/255 off the border's", sc, out1[3],
-             rim[3], off);
-        check(rising == 0, "borderless %.1fx: the glow never brightens going out (%d rises)", sc, rising);
-        check(out1[3] > 200 && rim[3] <= 2, "borderless %.1fx: strong at the edge (%d), gone at the rim (%d)", sc, out1[3],
-              rim[3]);
-        check(off <= 24, "borderless %.1fx: the edge's own colour just outside it (%d off)", sc, off);
-        ppm(k == 0 ? "glow_borderless_soft" : "glow_borderless_wide", img, N, N);
-        free(img);
-    }
-    // Level 0: nothing at all
-    MlxrGlowParams gp = {tex.view, 0.0f, 0, 1, GLOW_SCALE};
-    VkCommandBuffer cmd = vkh_begin(&vk);
-    vkh_layout(&vk, &t.img, COLOR_ATT);
-    mlxr_pass_glow(P, cmd, &t.t, &gp);
-    vkh_submit(&vk);
-    uint8_t* img = readTarget(&t);
-    int lit = 0;
-    for (int i = 0; i < N * N; i++) lit += img[i * 4 + 3] > 0;
-    check(lit == 0, "borderless at level 0 draws nothing (%d pixels)", lit);
-    free(img);
-    targetFree(&t);
-    vkh_image_free(&vk, &tex);
-}
-
-// ---- native (issue #7): the Glow edge's Backlight ----------------------------------------------
+// ---- native (issue #7): the glow, a Backlight ----------------------------------------------
 // The whole chain (zone colours, their spread, the glow image) against a CPU copy of its sums, at two
 // shapes, cropped and graded, the image as a quad layer takes it and as the panel pass does, and its ease.
 
@@ -2335,7 +1999,7 @@ static void backLightCpu(const BackCpu* b, const BacklightShape* s, float level,
     float ex = clampf(px / (2 * hx) + 0.5f, 0, 1), ey = clampf(py / (2 * hy) + 0.5f, 0, 1), pos;
     if (dx > dy) pos = px > 0 ? a + ey * d : 2 * a + d + (1 - ey) * d;
     else pos = py < 0 ? ex * a : a + d + (1 - ex) * a;
-    float t = clampf((off - s->bezel) / s->reach, 0, 1), lv = 2.0f * t;
+    float t = clampf(off / s->reach, 0, 1), lv = 2.0f * t;
     int l0 = lv >= 1.0f ? 1 : 0;
     float f = lv - l0, at = pos - 0.5f, fl = floorf(at), fa = at - fl;
     int i0 = ((int)fl + 64) % 64, i1 = (i0 + 1) % 64;
@@ -2359,12 +2023,12 @@ static void testBacklight(void) {
     const struct {
         uint32_t w, h;
         float crop[4];
-        int graded, spread, bezel, projected, nv12;
+        int graded, spread, projected, nv12;
         float level;
     } cases[] = {
-        {320, 180, {0, 0, 1, 1}, 0, 50, 0, 0, 0, 0.5f},          {320, 180, {0, 0, 1, 1}, 0, 50, 0, 1, 0, 0.5f},
-        {320, 180, {0, 0, 1, 1}, 0, 50, 3, 1, 0, 0.1f},          {320, 180, {0.0f, 0.125f, 0.5f, 0.75f}, 1, 100, 2, 1, 0, 1.0f},
-        {512, 144, {0, 0, 1, 1}, 0, 100, 1, 0, 0, 0.8f},         {320, 180, {0, 0, 1, 1}, 0, 50, 0, 0, 1, 0.5f},
+        {320, 180, {0, 0, 1, 1}, 0, 50, 0, 0, 0.5f},          {320, 180, {0, 0, 1, 1}, 0, 50, 1, 0, 0.5f},
+        {320, 180, {0, 0, 1, 1}, 0, 50, 1, 0, 0.1f},          {320, 180, {0.0f, 0.125f, 0.5f, 0.75f}, 1, 100, 1, 0, 1.0f},
+        {512, 144, {0, 0, 1, 1}, 0, 100, 0, 0, 0.8f},         {320, 180, {0, 0, 1, 1}, 0, 50, 0, 1, 0.5f},
     };
     for (size_t k = 0; k < sizeof(cases) / sizeof(cases[0]); k++) {
         Video vd;
@@ -2374,12 +2038,12 @@ static void testBacklight(void) {
             continue;
         }
         BacklightShape s;
-        backlightShapeFor((float)vd.w, (float)vd.h, cases[k].spread, cases[k].bezel, 0, &s);
+        backlightShapeFor((float)vd.w, (float)vd.h, cases[k].spread, 0, &s);
         MlxrAmbiParams ap = {cases[k].nv12 ? vd.nv : vd.yuv, {0}, cases[k].graded,
                              {g.offset, g.contrast, g.exponent, g.saturation}, 1.0f};
         memcpy(ap.crop, cases[k].crop, sizeof(ap.crop));
         MlxrBacklightParams bp = {spread.img.view, s.scaleX, s.scaleY, s.aspect, s.zonesAcross,
-                                  s.reach, s.bezel, cases[k].level, cases[k].projected};
+                                  s.reach, cases[k].level, cases[k].projected};
         VkCommandBuffer cmd = vkh_begin(&vk);
         vkh_layout(&vk, &zones.img, COLOR_ATT);
         mlxr_pass_glow_zones(P, cmd, &zones.t, &ap, s.zonesAcross);
@@ -2402,7 +2066,7 @@ static void testBacklight(void) {
         static BackCpu cpu;
         backZonesCpu(&vd, cases[k].crop, cases[k].graded ? &g : NULL, s.zonesAcross, zc);
         backSpreadCpu(zc, &cpu);
-        int rim = 0, bezelLit = 0;
+        int rim = 0;
         float worst = 0.0f, worstA = 0.0f;
         for (int y = 0; y < N; y++)
             for (int x = 0; x < N; x++) {
@@ -2410,10 +2074,8 @@ static void testBacklight(void) {
                 float l[3], off;
                 backLightCpu(&cpu, &s, cases[k].level, px, py, l, &off);
                 const float* p = got + ((size_t)y * N + x) * 4;
-                if (off > s.bezel + s.reach + 1e-3f && (p[0] > 0.0f || p[1] > 0.0f || p[2] > 0.0f || p[3] > 0.0f)) rim++;
-                if (s.bezel > 0.0f && off < s.bezel - 0.02f
-                    && (p[0] > 0.0f || p[1] > 0.0f || p[2] > 0.0f || p[3] != 1.0f)) bezelLit++;
-                if (off < s.bezel + 0.04f || off > s.bezel + 0.9f * s.reach) continue;
+                if (off > s.reach + 1e-3f && (p[0] > 0.0f || p[1] > 0.0f || p[2] > 0.0f || p[3] > 0.0f)) rim++;
+                if (off < 0.04f || off > 0.9f * s.reach) continue;
                 // The light the eye gets, encoded: a quad layer's bytes as they are, the panel pass's straight colour
                 // times its alpha. Alpha is the light itself, as the linear share it takes of what is behind (a few
                 // more steps there: a software GPU samples the video in 8 bits, a step of which is two of bright light)
@@ -2424,12 +2086,11 @@ static void testBacklight(void) {
                     worst = fmaxf(worst, fabsf(toSrgb(l[c]) - is) * 255.0f);
                 }
             }
-        note("backlight %zu (%ux%u, spread %d, bezel %d, projected %d%s): colour %.2f/255 and alpha %.2f/255 from the CPU copy",
-             k, vd.w, vd.h, cases[k].spread, cases[k].bezel, cases[k].projected, cases[k].nv12 ? ", NV12" : "", worst, worstA);
+        note("backlight %zu (%ux%u, spread %d, projected %d%s): colour %.2f/255 and alpha %.2f/255 from the CPU copy",
+             k, vd.w, vd.h, cases[k].spread, cases[k].projected, cases[k].nv12 ? ", NV12" : "", worst, worstA);
         float tol = cases[k].nv12 ? 8.0f : 3.0f;
         check(worst <= tol && worstA <= 2.0f * tol, "backlight %zu within %.0f/255 (%.2f, alpha %.2f)", k, tol, worst, worstA);
         check(rim == 0, "backlight %zu: nothing past its reach (%d)", k, rim);
-        check(bezelLit == 0, "backlight %zu: the bezel is black and opaque (%d)", k, bezelLit);
         uint8_t* shot = malloc((size_t)N * N * 4);
         for (int i = 0; i < N * N * 4; i++) shot[i] = (uint8_t)to8(clampf(got[i], 0.0f, 1.0f));
         char name[48];
@@ -2446,7 +2107,7 @@ static void testBacklight(void) {
     static float za[MLXR_GLOW_ZONES][3], zb[MLXR_GLOW_ZONES][3];
     const float whole[4] = {0, 0, 1, 1};
     BacklightShape s;
-    backlightShapeFor(320.0f, 180.0f, 50, 0, 0, &s);
+    backlightShapeFor(320.0f, 180.0f, 50, 0, &s);
     backZonesCpu(&a, whole, NULL, s.zonesAcross, za);
     backZonesCpu(&b, whole, NULL, s.zonesAcross, zb);
     for (int i = 0; i < MLXR_GLOW_ZONES; i++)
@@ -2455,7 +2116,7 @@ static void testBacklight(void) {
     backSpreadCpu(za, &cpu);
     MlxrAmbiParams ap = {a.yuv, {0, 0, 1, 1}, 0, {0, 1, 1, 1}, 1.0f};
     MlxrAmbiParams next = {b.yuv, {0, 0, 1, 1}, 0, {0, 1, 1, 1}, 0.25f};
-    MlxrBacklightParams bp = {spread.img.view, s.scaleX, s.scaleY, s.aspect, s.zonesAcross, s.reach, 0.0f, 1.0f, 0};
+    MlxrBacklightParams bp = {spread.img.view, s.scaleX, s.scaleY, s.aspect, s.zonesAcross, s.reach, 1.0f, 0};
     VkCommandBuffer cmd = vkh_begin(&vk);
     vkh_layout(&vk, &zones.img, COLOR_ATT);
     mlxr_pass_glow_zones(P, cmd, &zones.t, &ap, s.zonesAcross);
@@ -2490,55 +2151,6 @@ static void testBacklight(void) {
     targetFree(&spread);
     targetFree(&quad);
     targetFree(&panel);
-}
-
-// Native (lane borderless): the Glow edge's border fade in the warp. Off the
-// picture is opaque to its last pixel as ever; Soft and Wide fade the outer
-// 4 and 8 % of the drawn picture to transparent, premultiplied, and leave the
-// middle exactly as it was.
-static void testWarpBorder(void) {
-    const uint32_t W = 256, H = 144;
-    Video vd;
-    Target t;
-    if (videoMake(&vd, W, H, fillPattern) || targetMake(&t, W, H, UNORM)) return;
-    MlxrWarpParams w = warpDefaults(&vd.yuv);
-    uint8_t* plain = runWarp(&t, &w);
-    const float fracs[3] = {0.0f, GLOW_FEATHER_SOFT_FRAC, GLOW_FEATHER_WIDE_FRAC};
-    for (int k = 0; k < 3; k++) {
-        w.borderFade = k;
-        uint8_t* got = runWarp(&t, &w);
-        int worstA = 0, worstC = 0, midDiff = 0;
-        for (uint32_t y = 0; y < H; y++)
-            for (uint32_t x = 0; x < W; x++) {
-                float u = (x + 0.5f) / W, v = (y + 0.5f) / H;
-                float e = fminf(fminf(u, 1.0f - u), fminf(v, 1.0f - v));
-                float a = 1.0f;
-                if (k > 0) {
-                    float ft = clampf(e / fracs[k], 0.0f, 1.0f);
-                    a = ft * ft * (3.0f - 2.0f * ft);
-                }
-                const uint8_t* g = got + ((size_t)y * W + x) * 4;
-                const uint8_t* o = plain + ((size_t)y * W + x) * 4;
-                int da = abs(g[3] - to8(a));
-                if (da > worstA) worstA = da;
-                for (int c = 0; c < 3; c++) {
-                    int dc = abs(g[c] - to8(o[c] / 255.0f * a));
-                    if (dc > worstC) worstC = dc;
-                    if (e > 0.1f && g[c] != o[c] && abs(g[c] - o[c]) > midDiff) midDiff = abs(g[c] - o[c]);
-                }
-            }
-        note("warp border fade %d: alpha %d/255 and colour %d/255 from the CPU copy, middle %d/255 from plain", k, worstA,
-             worstC, midDiff);
-        check(worstA <= 1 && worstC <= 1, "warp border fade %d: premultiplied fade within 1/255 (%d, %d)", k, worstA, worstC);
-        check(midDiff == 0, "warp border fade %d: the middle is untouched (%d)", k, midDiff);
-        const uint8_t* corner = got;
-        if (k > 0) check(corner[3] <= 8, "warp border fade %d: the corner is nearly clear (%d)", k, corner[3]);
-        if (k == 2) ppm("warp_border_wide", got, W, H);
-        free(got);
-    }
-    free(plain);
-    targetFree(&t);
-    videoFree(&vd);
 }
 
 // The Picture tab's Background dim on the room (native, lane wave3-visual):
@@ -2888,7 +2500,7 @@ static float timeIt(RecordFn rec, void* user, int n) {
 typedef struct {
     Video* vd;
     int nv12;
-    Target *eye, *up, *off, *ambi, *glowEdge, *glow, *small, *down;
+    Target *eye, *up, *off, *ambi, *zones, *spread, *glow, *small, *down;
     VkhImage* map;
     int occlusion, sharpen, cubic, eyes;
 } Bench;
@@ -2942,15 +2554,16 @@ static void recAmbiGlow(VkCommandBuffer cmd, void* u) {
     Bench* b = u;
     MlxrAmbiParams ap = {benchVideo(b), {0, 0, 1, 1}, 1, {0, 1, 1, 1}, 1.0f};
     mlxr_pass_ambi(P, cmd, &b->ambi->t, &ap);
-    mlxr_barrier(cmd, b->ambi->img.image, VK_IMAGE_ASPECT_COLOR_BIT, COLOR_ATT, SHADER_READ);
-    MlxrGlowEdgeParams ge = {b->ambi->img.view, {GLOW_LUMA_TARGET, GLOW_LUMA_FLOOR, GLOW_LUMA_FULL},
-                             {GLOW_LIT_LO, GLOW_LIT_HI}, glowReachTexels(), glowInwardSteps()};
-    mlxr_pass_glow_edge(P, cmd, &b->glowEdge->t, &ge);
-    mlxr_barrier(cmd, b->glowEdge->img.image, VK_IMAGE_ASPECT_COLOR_BIT, COLOR_ATT, SHADER_READ);
-    MlxrGlowParams gp = {b->glowEdge->img.view, 0.7f, 1};
-    mlxr_pass_glow(P, cmd, &b->glow->t, &gp);
-    mlxr_barrier(cmd, b->ambi->img.image, VK_IMAGE_ASPECT_COLOR_BIT, SHADER_READ, COLOR_ATT);
-    mlxr_barrier(cmd, b->glowEdge->img.image, VK_IMAGE_ASPECT_COLOR_BIT, SHADER_READ, COLOR_ATT);
+    BacklightShape s;
+    backlightShapeFor((float)b->vd->w, (float)b->vd->h, GLOW_SPREAD_DEFAULT, 0, &s);
+    mlxr_pass_glow_zones(P, cmd, &b->zones->t, &ap, s.zonesAcross);
+    mlxr_barrier(cmd, b->zones->img.image, VK_IMAGE_ASPECT_COLOR_BIT, COLOR_ATT, SHADER_READ);
+    mlxr_pass_glow_spread(P, cmd, &b->spread->t, b->zones->img.view);
+    mlxr_barrier(cmd, b->spread->img.image, VK_IMAGE_ASPECT_COLOR_BIT, COLOR_ATT, SHADER_READ);
+    MlxrBacklightParams bp = {b->spread->img.view, s.scaleX, s.scaleY, s.aspect, s.zonesAcross, s.reach, 0.7f, 0};
+    mlxr_pass_backlight(P, cmd, &b->glow->t, &bp);
+    mlxr_barrier(cmd, b->zones->img.image, VK_IMAGE_ASPECT_COLOR_BIT, SHADER_READ, COLOR_ATT);
+    mlxr_barrier(cmd, b->spread->img.image, VK_IMAGE_ASPECT_COLOR_BIT, SHADER_READ, COLOR_ATT);
 }
 
 static void recSupersample(VkCommandBuffer cmd, void* u) {
@@ -2965,7 +2578,7 @@ static void testBench(void) {
         uint32_t W = sizes[s][0], H = sizes[s][1];
         Video vd;
         if (videoMake(&vd, W, H, fillSmooth)) return;
-        Target eye, up, off, ambi, glowEdge, glow, small, down;
+        Target eye, up, off, ambi, zones, spread, glow, small, down;
         VkhImage map;
         uint8_t* mpx = depthMap(&vd, 512, 288, depthWobble);
         textureMake(&map, 512, 288, mpx);
@@ -2974,15 +2587,16 @@ static void testBench(void) {
         targetMake(&up, W / 4, H / 4, UNORM);
         targetMake(&off, W / 4, H / 4, UNORM);
         targetMake(&ambi, 32, 32, UNORM);
-        targetMake(&glowEdge, 32, 32, UNORM);
-        targetMake(&glow, MLXR_GLOW_TEX, MLXR_GLOW_TEX, SRGB);
+        targetMake(&zones, MLXR_GLOW_ZONES, 1, MLXR_GLOW_LIGHT_FORMAT);
+        targetMake(&spread, MLXR_GLOW_SPREAD_W, MLXR_GLOW_SPREAD_H, MLXR_GLOW_LIGHT_FORMAT);
+        targetMake(&glow, MLXR_GLOW_TEX, MLXR_GLOW_TEX, UNORM);
         targetMake(&small, W * 2 / 3, H * 2 / 3, SRGB);
         targetMake(&down, 512, 288, UNORM);
-        Target* all[] = {&eye, &up, &off, &ambi, &glowEdge, &glow, &small, &down};
+        Target* all[] = {&eye, &up, &off, &ambi, &zones, &spread, &glow, &small, &down};
         VkCommandBuffer cmd = vkh_begin(&vk);
         for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) vkh_layout(&vk, &all[i]->img, COLOR_ATT);
         vkh_submit(&vk);
-        Bench b = {&vd, 0, &eye, &up, &off, &ambi, &glowEdge, &glow, &small, &down, &map, 0, 0, 0, 1};
+        Bench b = {&vd, 0, &eye, &up, &off, &ambi, &zones, &spread, &glow, &small, &down, &map, 0, 0, 0, 1};
         // The depth chain's outputs are sampled by the warp: run it once and
         // leave them readable
         cmd = vkh_begin(&vk);
@@ -3016,7 +2630,7 @@ static void testBench(void) {
             vkh_layout(&vk, &up.img, SHADER_READ);
             vkh_submit(&vk);
             note("%ux%u %s downscale to 512x288: %.3f ms", W, H, k, timeIt(recDownscale, &b, 21));
-            note("%ux%u %s ambi + glow edge + glow: %.3f ms", W, H, k, timeIt(recAmbiGlow, &b, 21));
+            note("%ux%u %s colour sample + glow: %.3f ms", W, H, k, timeIt(recAmbiGlow, &b, 21));
         }
         cmd = vkh_begin(&vk);
         vkh_layout(&vk, &off.img, COLOR_ATT);
@@ -4118,7 +3732,6 @@ int main(int argc, char** argv) {
                  {"warp_step", testWarpStep},
                  {"warp_sbs", testWarpSbs},
                  {"warp_zoom", testWarpZoom},
-                 {"warp_border", testWarpBorder},
                  {"warp_fur", testWarpFur},
                  {"sharpen", testSharpen},
                  {"upsample", testUpsample},
@@ -4126,9 +3739,6 @@ int main(int argc, char** argv) {
                  {"offset_balance", testOffsetBalance},
                  {"downscale", testDownscale},
                  {"ambi", testAmbi},
-                 {"glow_edge", testGlowEdge},
-                 {"glow", testGlow},
-                 {"glow_feather", testGlowFeather},
                  {"backlight", testBacklight},
                  {"room", testRoom},
                  {"room_dim", testRoomDim},

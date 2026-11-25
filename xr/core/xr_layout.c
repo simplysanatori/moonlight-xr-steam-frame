@@ -422,15 +422,6 @@ float bgDimKeep(int percent) {
     return 1.0f - (float)p / 100.0f;
 }
 
-int glowEdgeFade(int edge) {
-    return edge == GLOW_FEATHER_SOFT || edge == GLOW_FEATHER_WIDE ? edge : GLOW_FEATHER_OFF;
-}
-
-float glowFeatherFraction(int mode) {
-    return mode == GLOW_FEATHER_SOFT ? GLOW_FEATHER_SOFT_FRAC
-            : mode == GLOW_FEATHER_WIDE ? GLOW_FEATHER_WIDE_FRAC : 0.0f;
-}
-
 float srgbToLinear(float c) {
     c = c < 0.0f ? 0.0f : (c > 1.0f ? 1.0f : c);
     return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
@@ -656,17 +647,14 @@ int cogTrackSteps(int tab, int row) {
     }
     if (tab == COG_TAB_PICTURE) {
         // Whole units, the ones each value is kept in and its readout shows
-        // then Background's five percent steps and Glow edge's cells
-        // (native, issue #7: and Backlight's spread and bezel)
+        // then Background's five percent steps and Glow spread's (native, issue #7)
         static const int PICTURE_STEPS[PICTURE_TAB_ROWS] = {
             PICTURE_BRIGHTNESS_MAX - PICTURE_BRIGHTNESS_MIN,
             PICTURE_CONTRAST_MAX - PICTURE_CONTRAST_MIN,
             PICTURE_GAMMA_MAX - PICTURE_GAMMA_MIN,
             PICTURE_SATURATION_MAX - PICTURE_SATURATION_MIN,
             (BG_DIM_MAX - BG_DIM_MIN) / BG_DIM_STEP,
-            GLOW_EDGE_COUNT - 1,
-            (GLOW_SPREAD_MAX - GLOW_SPREAD_MIN) / GLOW_SPREAD_STEP,
-            GLOW_BEZEL_MAX - GLOW_BEZEL_MIN
+            (GLOW_SPREAD_MAX - GLOW_SPREAD_MIN) / GLOW_SPREAD_STEP
         };
         return row >= 0 && row < PICTURE_TAB_ROWS ? PICTURE_STEPS[row] : 0;
     }

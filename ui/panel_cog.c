@@ -522,20 +522,16 @@ static void picture_text(int row, int units, char* out, size_t cap) {
 
 static void tab_picture(Dc* dc) {
     const Settings* s = dc->v->settings;
-    // The four grade values, then Background (percent dimmed) and Glow edge
-    // (off, soft, wide, backlight on a four place track)
-    // Native (issue #7): and Backlight's two, live whatever Glow edge is, as it is whatever the glow is
+    // The four grade values, then Background (percent dimmed) and Glow spread (native, issue #7), live
+    // whatever the glow is
     static const UiStr ROWS[PICTURE_TAB_ROWS] = { UIS_ROW_BRIGHTNESS, UIS_ROW_CONTRAST, UIS_ROW_GAMMA, UIS_ROW_SATURATION,
-                                                  UIS_ROW_BACKGROUND, UIS_ROW_GLOW_EDGE, UIS_ROW_GLOW_SPREAD,
-                                                  UIS_ROW_GLOW_BEZEL };
+                                                  UIS_ROW_BACKGROUND, UIS_ROW_GLOW_SPREAD };
     static const int MIN[PICTURE_TAB_ROWS] = { PICTURE_BRIGHTNESS_MIN, PICTURE_CONTRAST_MIN, PICTURE_GAMMA_MIN, PICTURE_SATURATION_MIN,
-                                               BG_DIM_MIN, GLOW_FEATHER_OFF, GLOW_SPREAD_MIN, GLOW_BEZEL_MIN };
+                                               BG_DIM_MIN, GLOW_SPREAD_MIN };
     static const int MAX[PICTURE_TAB_ROWS] = { PICTURE_BRIGHTNESS_MAX, PICTURE_CONTRAST_MAX, PICTURE_GAMMA_MAX, PICTURE_SATURATION_MAX,
-                                               BG_DIM_MAX, GLOW_EDGE_COUNT - 1, GLOW_SPREAD_MAX, GLOW_BEZEL_MAX };
+                                               BG_DIM_MAX, GLOW_SPREAD_MAX };
     static const int DEF[PICTURE_TAB_ROWS] = { PICTURE_BRIGHTNESS_DEFAULT, PICTURE_CONTRAST_DEFAULT, PICTURE_GAMMA_DEFAULT, PICTURE_SATURATION_DEFAULT,
-                                               BG_DIM_DEFAULT, GLOW_FEATHER_OFF, GLOW_SPREAD_DEFAULT,
-                                               GLOW_BEZEL_DEFAULT };
-    static const UiStr FEATHER[GLOW_EDGE_COUNT] = { UIS_OFF, UIS_FEATHER_SOFT, UIS_FEATHER_WIDE, UIS_FEATHER_BACKLIGHT };
+                                               BG_DIM_DEFAULT, GLOW_SPREAD_DEFAULT };
     float tick_half = cogCellHalf(COG_TAB_PICTURE) * dc->nh;
     for (int row = 0; row < PICTURE_TAB_ROWS; row++) {
         float y = row_y(dc, COG_TAB_PICTURE, row);
@@ -544,18 +540,12 @@ static void tab_picture(Dc* dc) {
         chevrons(dc, y, 1, tick_half);
         tick(dc, cogRunU(lanePlace(DEF[row], MIN[row], MAX[row])) * dc->nw, y, tick_half, 1);
         int units = row == PICTURE_ROW_BACKGROUND ? s->bg_dim
-                  : row == PICTURE_ROW_GLOW_EDGE ? settings_glow_edge(s)
                   : row == PICTURE_ROW_GLOW_SPREAD ? s->glow_spread
-                  : row == PICTURE_ROW_GLOW_BEZEL ? s->glow_bezel
                   : settings_picture_value(s, row);
         thumb(dc, COG_TAB_PICTURE, row, y, lanePlace(units, MIN[row], MAX[row]));
         char buf[24];
-        if (row == PICTURE_ROW_GLOW_BEZEL && units == 0) {
-            snprintf(buf, sizeof buf, "%s", ui_str(UIS_OFF));
-        } else if (row == PICTURE_ROW_BACKGROUND || row == PICTURE_ROW_GLOW_SPREAD || row == PICTURE_ROW_GLOW_BEZEL) {
+        if (row == PICTURE_ROW_BACKGROUND || row == PICTURE_ROW_GLOW_SPREAD) {
             snprintf(buf, sizeof buf, "%d%%", units);
-        } else if (row == PICTURE_ROW_GLOW_EDGE) {
-            snprintf(buf, sizeof buf, "%s", ui_str(FEATHER[units < 0 ? 0 : (units >= GLOW_EDGE_COUNT ? GLOW_EDGE_COUNT - 1 : units)]));
         } else {
             picture_text(row, units, buf, sizeof buf);
         }

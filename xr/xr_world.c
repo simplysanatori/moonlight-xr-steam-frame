@@ -804,7 +804,6 @@ void xrWorldDestroy(XrCtx* ctx) {
     xrVkImageFree(ctx, &ctx->worldDepth);
     xrVkImageFree(ctx, &ctx->ambiTexture);
     xrVkImageFree(ctx, &ctx->ambiDetectTexture);
-    xrVkImageFree(ctx, &ctx->glowEdgeTexture);
     xrVkImageFree(ctx, &ctx->glowZonesTexture);
     xrVkImageFree(ctx, &ctx->glowSpreadTexture);
     xrVkImageFree(ctx, &ctx->glowLightTexture);
@@ -833,38 +832,30 @@ void xrWorldVideoFrame(XrCtx* ctx, const MlxrVideo* video) {
     int glowOn;
     float glowLevel;
     ambiEffective(ctx, &glowOn, &glowLevel);
-    // The room is lit from the same colours the glow is made of, so the
-    // sample is taken for either of them
-    int sampled = glowOn || roomOn;
-    // Native (issue #7): Backlight has colours of its own, and needs no sample
-    int backlight = xrBacklightOn(ctx);
-    int sample = roomOn || (glowOn && !backlight);
+    // Native (issue #7): the sample lights the room; the glow has colours of its own
     xrGpuTimeBegin(ctx, GPU_GLOW);
-    if (!sample) {
+    if (!roomOn) {
         // Kept from whatever picture was up when it last ran, so the next
         // sample lands whole rather than easing in from that one
         ctx->ambiSeeded = 0;
     }
-    if (!backlight) {
+    if (!glowOn) {
         ctx->glowZonesSeeded = 0;
     }
-    if (sample) {
+    if (roomOn) {
         runFrameColorSample(ctx, video);
     }
-    if (backlight) {
+    if (glowOn) {
         xrBacklightVideoFrame(ctx, video);
-    }
-    else if (glowOn) {
-        runGlowRender(ctx);
     }
     else {
         ctx->glowDrawnOn = 0;
     }
-    // Letterbox detection, once every so many frames the colour sample ran:
+    // Letterbox detection, once every so many frames the colours were taken:
     // last time's readback first (its frame has finished), then this frame's
     // request if it is due
     // (native, PLAN 4.3: not on a host-rendered pair)
-    if (sampled && ambiBarDetectOn(ctx)) {
+    if ((glowOn || roomOn) && ambiBarDetectOn(ctx)) {
         finishAmbiBarDetect(ctx);
         ctx->ambiBarCounter++;
         if (ctx->ambiBarCounter >= AMBI_BAR_PERIOD && !ctx->ambiDetectPending) {
@@ -880,7 +871,7 @@ void xrWorldStillFrame(XrCtx* ctx, const MlxrVideo* video) {
         return;
     }
     // The glow's level or switch moved with nothing new from the decoder
-    // (native, issue #7: or the Backlight's colours are still easing, which the log need not hear of)
+    // (native, issue #7: or its colours are still easing, which the log need not hear of)
     int easing = xrBacklightSettling(ctx);
     xrGpuTimeBegin(ctx, GPU_GLOW);
     redrawGlow(ctx, video);
@@ -960,47 +951,26 @@ int xrGlowHoleOn(void) {
     return on;
 }
 
-// Native (lane gpu-144): the glow's hole (glowHoleFor) for a picture picW x picH (radius 0 flat)
-// at ctx->screenPose seen from views, the glow drawn spanU (an angle curved, metres flat) by glowH,
-// proud metres in front. Fills pp's hole, or leaves none.
-static void glowHole(XrCtx* ctx, const XrView* views, float picW, float picH, float radius, float spanU,
-                     float glowH, float proud, MlxrPanelParams* pp) {
+// Native (lane gpu-144): the glow's hole (glowHoleFor) for a picture picW x picH (radius 0 flat), the
+// glow drawn spanU (an angle curved, metres flat) by glowH. Fills pp's hole, or leaves none.
+static void glowHole(float picW, float picH, float radius, float spanU, float glowH, MlxrPanelParams* pp) {
     pp->holeU = pp->holeV = 0.0f;
-    if (!xrGlowHoleOn()) return;
-    // The fade the picture's image has, and the one the next one will, whichever is wider
-    float fade = glowFeatherFraction(ctx->pictureBorderDrawn);
-    float now = glowFeatherFraction(xrPictureBorderFade(ctx));
-    if (now > fade) fade = now;
-    float eyes[ROOM_EYES][3];
-    XrQuaternionf inv = quatConj(ctx->screenPose.orientation);
-    for (int e = 0; e < ROOM_EYES; e++) {
-        Vec3 d = { views[e].pose.position.x - ctx->screenPose.position.x,
-                   views[e].pose.position.y - ctx->screenPose.position.y,
-                   views[e].pose.position.z - ctx->screenPose.position.z };
-        Vec3 l = quatRotate(inv, d);
-        eyes[e][0] = l.x;
-        eyes[e][1] = l.y;
-        eyes[e][2] = l.z;
-    }
-    if (glowHoleFor(picW, picH, radius, fade, spanU, glowH, proud, (const float(*)[3])eyes, ROOM_EYES, &pp->holeU,
-                    &pp->holeV) && pp->segments < 64) {
+    if (xrGlowHoleOn() && glowHoleFor(picW, picH, radius, spanU, glowH, &pp->holeU, &pp->holeV)
+            && pp->segments < 64) {
         // The hole is cut on whole segments: a flat glow is one, so it gets enough to have one
         pp->segments = 64;
     }
 }
 
 // Upstream's curved glow (addGlowLayer's cylinder): the same axis as the
-// picture, a little inside its radius, GLOW_SCALE (or the Wide Glow edge's
-// GLOW_SCALE_WIDE) times its angle and height
+// picture and level with it, the glow's size times its angle and height
 void xrWorldCurvedGlow(XrCtx* ctx, const XrEyeTargets* target, const XrView* views) {
     float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
     float fit = cylinderFit(ctx->screenWidth, ctx->screenRadius);
     GlowCylinder shape;
     // Native (lane borderless): at the size the glow image was drawn for
-    float scaleX, scaleY, proud;
-    xrGlowDrawnSize(ctx, &scaleX, &scaleY, &proud);
-    if (!glowCylinderForScales(ctx->screenWidth * fit, ctx->screenWidth * aspect * fit, ctx->screenRadius, scaleX,
-                               scaleY, proud, &shape)) {
+    if (!glowCylinderFor(ctx->screenWidth * fit, ctx->screenWidth * aspect * fit, ctx->screenRadius,
+                         ctx->glowDrawnShape.scaleX, ctx->glowDrawnShape.scaleY, &shape)) {
         return;
     }
     MlxrPanelParams pp;
@@ -1014,23 +984,16 @@ void xrWorldCurvedGlow(XrCtx* ctx, const XrEyeTargets* target, const XrView* vie
     pp.radius = shape.radius;
     pp.segments = 96;
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
-    // The surface's middle, a radius in front of the shared axis
-    Vec3 local = { 0.0f, 0.0f, ctx->screenRadius - shape.radius };
-    Vec3 off = quatRotate(ctx->screenPose.orientation, local);
-    XrPosef surface = ctx->screenPose;
-    surface.position.x += off.x;
-    surface.position.y += off.y;
-    surface.position.z += off.z;
     for (int e = 0; e < 2; e++) {
-        xrCurveMvp(views[e].fov, views[e].pose, surface, pp.mvp[e]);
+        xrCurveMvp(views[e].fov, views[e].pose, ctx->screenPose, pp.mvp[e]);
         pp.uvRect[e][0] = (float)shape.rectX / GLOW_TEX;
         pp.uvRect[e][1] = 0.0f;
         pp.uvRect[e][2] = (float)shape.rectWidth / GLOW_TEX;
         pp.uvRect[e][3] = 1.0f;
     }
     // Native (lane gpu-144): not under the picture's opaque middle
-    glowHole(ctx, views, ctx->screenWidth * fit, ctx->screenWidth * aspect * fit, ctx->screenRadius,
-             shape.centralAngle, pp.height, ctx->screenRadius - shape.radius, &pp);
+    glowHole(ctx->screenWidth * fit, ctx->screenWidth * aspect * fit, ctx->screenRadius, shape.centralAngle, pp.height,
+             &pp);
     // Native (lane eye-swapchains): each eye into its own image
     xrEyesPanel(ctx, ctx->frameCmd, target, &pp, NULL);
 }
@@ -1044,10 +1007,8 @@ void xrWorldFlatGlowInto(XrCtx* ctx, const XrEyeTargets* target, const XrView* v
         return;   // native (issue #7): drawn for a quad, until the next draw
     }
     // The glow quad's size and place (addGlowLayer), flat
-    float scaleX, scaleY, proud;
-    xrGlowDrawnSize(ctx, &scaleX, &scaleY, &proud); // native (lane borderless)
-    pp.width = ctx->screenWidth * scaleX;
-    pp.height = ctx->screenWidth * aspect * scaleY;
+    pp.width = ctx->screenWidth * ctx->glowDrawnShape.scaleX; // native (lane borderless)
+    pp.height = ctx->screenWidth * aspect * ctx->glowDrawnShape.scaleY;
     pp.radius = 0.0f;
     pp.segments = 1;
     pp.color[0] = pp.color[1] = pp.color[2] = pp.color[3] = 1.0f;
@@ -1058,8 +1019,8 @@ void xrWorldFlatGlowInto(XrCtx* ctx, const XrEyeTargets* target, const XrView* v
         pp.uvRect[e][2] = 1.0f;
         pp.uvRect[e][3] = 1.0f;
     }
-    // Native (lane gpu-144): level with the picture, so the middle itself
-    glowHole(ctx, views, ctx->screenWidth, ctx->screenWidth * aspect, 0.0f, pp.width, pp.height, 0.0f, &pp);
+    // Native (lane gpu-144): not under the picture's opaque middle
+    glowHole(ctx->screenWidth, ctx->screenWidth * aspect, 0.0f, pp.width, pp.height, &pp);
     xrEyesPanel(ctx, ctx->frameCmd, target, &pp, NULL);
 }
 

@@ -49,7 +49,7 @@ static void roundTripChanged(void) {
     in.picture_gamma = 90;
     in.picture_saturation = 140;
     in.bg_dim = 45;
-    in.glow_feather = GLOW_FEATHER_WIDE;
+    in.glow_spread = 70;
     in.eye_balance = -30;
     settings_set_str(&in, settings_find("void_color"), "#336699");
     in.screen_distance_cm = 250;
@@ -92,7 +92,7 @@ static void roundTripChanged(void) {
     CHECK(ctx->sharpenMode == 1 && ctx->supersampleMode == 2 && ctx->overlayVisible == 1);
     CHECK(ctx->dotOn == 0 && ctx->pointerSleepOn == 0 && ctx->modelOn == 1 && ctx->clickSoundOn == 0);
     CHECK(ctx->gradeOn == 1);
-    CHECK(ctx->bgDim == 45 && ctx->glowFeather == GLOW_FEATHER_WIDE);
+    CHECK(ctx->bgDim == 45 && ctx->glowSpread == 70);
     CHECK_NEAR(ctx->eyeBalance, -0.30, 1e-6);
     CHECK_NEAR(ctx->voidColor[0], 0.2, 1e-6);
     CHECK_NEAR(ctx->voidColor[1], 0.4, 1e-6);
@@ -122,11 +122,11 @@ static void roundTripChanged(void) {
     CHECK(back.screen_tilt_deg == -10 && back.screen_rotate_deg == 15 && back.screen_curve == 40
           && back.screen_width_cm == 400);
     CHECK(back.room[1].brightness == 80);
-    CHECK(back.bg_dim == 45 && back.glow_feather == GLOW_FEATHER_WIDE);
+    CHECK(back.bg_dim == 45 && back.glow_spread == 70);
     free(ctx);
 }
 
-// Native (lane wave3-visual): the Picture tab's Background and Glow edge rows
+// Native (lane wave3-visual): the Picture tab's Background and (issue #7) Glow spread rows
 // through the panel's own code (drag, step, reset) and config.ini, and what the
 // backdrop behind the picture comes to
 static void surroundingsRows(void) {
@@ -134,8 +134,8 @@ static void surroundingsRows(void) {
     XrCtx* c = sc->ctx;
     float out[IN_SLOTS];
     CHECK(cogTabRowCount(COG_TAB_PICTURE) == PICTURE_TAB_ROWS);
-    CHECK(cogRowIsTrack(COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND) && cogRowIsTrack(COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE));
-    CHECK(c->bgDim == 0 && c->glowFeather == GLOW_FEATHER_OFF && c->eyeBalance == 0.0f);
+    CHECK(cogRowIsTrack(COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND) && cogRowIsTrack(COG_TAB_PICTURE, PICTURE_ROW_GLOW_SPREAD));
+    CHECK(c->bgDim == 0 && c->glowSpread == GLOW_SPREAD_DEFAULT && c->eyeBalance == 0.0f);
 
     // Background: whole five percent steps, the thumb and the file agree
     for (int step = 0; step <= 20; step++) {
@@ -170,29 +170,7 @@ static void surroundingsRows(void) {
     cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_BACKGROUND, -1, out);
     CHECK(c->bgDim == 30);
 
-    // Glow edge: a place each, off, soft, wide and (issue #7) backlight, which the file has in glow_behind
-    for (int mode = 0; mode < GLOW_EDGE_COUNT; mode++) {
-        cogApplySlider(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE, cogRunU((float)mode / (GLOW_EDGE_COUNT - 1)));
-        CHECK(c->glowFeather == mode);
-        CHECK_NEAR(cogSliderValue(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE), (double)mode / (GLOW_EDGE_COUNT - 1), 1e-5);
-        CHECK(xrStoreSetting(c, &s, SETTING_GLOW_FEATHER, mode) == (mode != 0) && settings_glow_edge(&s) == mode);
-        CHECK(s.glow_feather == (mode < GLOW_FEATHER_COUNT ? mode : GLOW_FEATHER_OFF));
-        CHECK(s.glow_behind == (mode == GLOW_EDGE_BACKLIGHT ? GLOW_BEHIND_BACKLIGHT : GLOW_BEHIND_OFF));
-        // Only Soft and Wide fade the picture's border
-        c->ambilightOn = 1;
-        c->ambiIntensity = 0.5f;
-        CHECK(xrPictureBorderFade(c) == (mode == GLOW_FEATHER_SOFT || mode == GLOW_FEATHER_WIDE ? mode : GLOW_FEATHER_OFF));
-        // Wide spreads the glow
-        CHECK((xrGlowScaleFor(c, c->glowFeather) == GLOW_SCALE_WIDE) == (mode == GLOW_FEATHER_WIDE));
-    }
-    cogApplySlider(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE, cogRunU((float)GLOW_FEATHER_WIDE / (GLOW_EDGE_COUNT - 1)));
-    memset(out, 0, sizeof(out));
-    out[IN_SETTING] = -1;
-    cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_EDGE, -1, out);
-    CHECK(c->glowFeather == GLOW_FEATHER_SOFT && (int)out[IN_SETTING] == SETTING_GLOW_FEATHER
-          && (int)out[IN_SETTING_VALUE] == GLOW_FEATHER_SOFT);
-    CHECK(xrStoreSetting(c, &s, SETTING_GLOW_FEATHER, GLOW_FEATHER_SOFT) == 1 && s.glow_feather == GLOW_FEATHER_SOFT);
-    // Native (issue #7): Backlight's two, five percent and one percent steps
+    // Native (issue #7): Glow spread, five percent steps
     for (int v = GLOW_SPREAD_MIN; v <= GLOW_SPREAD_MAX; v += GLOW_SPREAD_STEP) {
         float t = (float)(v - GLOW_SPREAD_MIN) / (GLOW_SPREAD_MAX - GLOW_SPREAD_MIN);
         cogApplySlider(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_SPREAD, cogRunU(t));
@@ -204,31 +182,27 @@ static void surroundingsRows(void) {
     cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_SPREAD, -1, out);
     CHECK(c->glowSpread == 95 && (int)out[IN_SETTING] == SETTING_GLOW_SPREAD && (int)out[IN_SETTING_VALUE] == 95);
     CHECK(xrStoreSetting(c, &s, SETTING_GLOW_SPREAD, 95) == 1 && s.glow_spread == 95);
-    memset(out, 0, sizeof(out));
-    out[IN_SETTING] = -1;
-    cogStepTrack(c, COG_TAB_PICTURE, PICTURE_ROW_GLOW_BEZEL, 1, out);
-    CHECK(c->glowBezel == 1 && (int)out[IN_SETTING] == SETTING_GLOW_BEZEL && (int)out[IN_SETTING_VALUE] == 1);
-    CHECK(xrStoreSetting(c, &s, SETTING_GLOW_BEZEL, 1) == 1 && s.glow_bezel == 1);
-    // the glow's image is redrawn when the mode moves (it was drawn as off)
+    // the glow's image is redrawn when the spread moves
     c->ambilightOn = 1;
     c->glowDrawnOn = 1;
-    c->glowDrawnFeather = GLOW_FEATHER_OFF;
     c->glowDrawnLevel = c->ambiIntensity;
-    CHECK(glowStale(c) == 1);
-    c->glowDrawnFeather = c->glowFeather;
+    c->glowDrawnProjected = xrPictureProjected(c) != 0;
+    backlightShapeFor((float)c->videoWidth, (float)c->videoHeight, c->glowSpread, 0, &c->glowDrawnShape);
     CHECK(glowStale(c) == 0);
+    c->glowSpread = 60;
+    CHECK(glowStale(c) == 1);
 
     // Reset takes both back, with the grade
     pictureReset(c);
-    CHECK(c->bgDim == BG_DIM_DEFAULT && c->glowFeather == GLOW_FEATHER_OFF);
+    CHECK(c->bgDim == BG_DIM_DEFAULT && c->glowSpread == GLOW_SPREAD_DEFAULT);
     s.bg_dim = 60;
-    settings_set_glow_edge(&s, GLOW_EDGE_BACKLIGHT);
+    s.glow_spread = 85;
     CHECK(xrStoreSetting(c, &s, SETTING_RESET_PICTURE, 0) == 1);
-    CHECK(s.bg_dim == 0 && s.glow_feather == GLOW_FEATHER_OFF && s.glow_behind == GLOW_BEHIND_OFF);
+    CHECK(s.bg_dim == 0 && s.glow_spread == GLOW_SPREAD_DEFAULT);
 
     // Not rows past the end
     cogApplySlider(c, COG_TAB_PICTURE, PICTURE_TAB_ROWS, cogRunU(1.0f));
-    CHECK(c->bgDim == 0 && c->glowFeather == GLOW_FEATHER_OFF);
+    CHECK(c->bgDim == 0 && c->glowSpread == GLOW_SPREAD_DEFAULT);
 
     // The backdrop: a dimmed passthrough's black, a coloured void's colour
     Settings in;
