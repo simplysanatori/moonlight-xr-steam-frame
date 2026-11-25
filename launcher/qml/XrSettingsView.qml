@@ -1851,7 +1851,7 @@ Flickable {
             objectName: "lightgunRow"
             title: qsTr("Lightgun mode")
             valueText: settingsPage.lightgunNames[Math.max(0, settingsPage.lightgunValues.indexOf(MlxrPrefs.lightgun))]
-            summary: qsTr("Aim like a lightgun: The pointer never sleeps, clicks land exactly where you aim, the trigger takes hold of the screen by its bar only and a shot pulses the controller. Automatic turns it on while the headset shows the Gun.")
+            summary: qsTr("Aim like a lightgun: The pointer never sleeps, clicks land exactly where you aim, the trigger takes hold of the screen and the keyboard by their bars only and a shot pulses the controller. Automatic turns it on while the headset shows the Gun.")
             onClicked: {
                 var e = []
                 for (var i = 0; i < settingsPage.lightgunNames.length; i++) e.push({ text: settingsPage.lightgunNames[i], reason: "" })

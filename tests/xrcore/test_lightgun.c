@@ -42,7 +42,7 @@ static void testPolicy(void) {
     CHECK(!gun.reload && !gun.recoil);
     // pointer sleep is off whatever the setting says
     CHECK(lightgunSleepOn(&gun, 1) == 0 && lightgunSleepOn(&gun, 0) == 0);
-    // the bar alone is the trigger's as well as the grip's
+    // the two bars alone are the trigger's as well as the grip's
     CHECK(lightgunTriggerMayGrab(&gun, 0) == 0 && lightgunTriggerMayGrab(&gun, 1) == 1);
     LightgunPolicy both = policyFor(LIGHTGUN_ON, CONTROLLER_MODEL_FRAME, 1, 1);
     CHECK(both.active && both.reload && both.recoil);

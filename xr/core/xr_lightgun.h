@@ -5,9 +5,9 @@
 //  - pointer sleep off, so the ray never goes to sleep between shots;
 //  - press stabilise, the double-click wait and the click hold off, so the
 //    cursor is the aim of this frame and not the aim of a moment ago;
-//  - the trigger takes hold of the bar below the picture and of nothing else
-//    of the screen's: a shot at the picture, a corner's zone or the keyboard's
-//    bar never grabs, which is the grip's alone there;
+//  - the trigger takes hold of the bars below the picture and the keyboard and
+//    of nothing else: a shot at the picture or a corner's zone never grabs,
+//    which is the grip's alone there;
 //  - optionally, a trigger pulled off the picture is a right click (reload);
 //  - a short, strong recoil pulse through the controller's haptics on every
 //    shot.
@@ -69,8 +69,8 @@ int lightgunSleepOn(const LightgunPolicy* p, int sleepSetting);
 // all three off, otherwise they are left as handed in
 void lightgunClickConfig(const LightgunPolicy* p, PressFixCfg* cfg, float* holdPx);
 
-// Whether a trigger edge may start a grab: of the picture's bar always, of
-// anything else only outside the policy (the grip always may)
+// Whether a trigger edge may start a grab: of the picture's bar and the
+// keyboard's always, of anything else only outside the policy (the grip always may)
 int lightgunTriggerMayGrab(const LightgunPolicy* p, int onBar);
 
 // ---- off-picture trigger = right click ----------------------------------------------------------

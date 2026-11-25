@@ -25,7 +25,7 @@ For 1.3.4. I added a new glow and a Foveated rendering setting, made passthrough
 - Glow is off by default in every room. Home Theater and Synthwave had it on.
 - The cog menu is rearranged, with the same tabs everywhere: Screen, Room, Picture, 3D, Controls, Accessibility and About. The glow and the room's light are on Room, how the picture looks is on Picture, and the pointer and controller rows are on Controls, with **Mouse mode** and **Scroll speed** from the Settings page. **Size** on Screen sets the room's screen too. Rows that do nothing in a room are greyed.
 - **Stats** is one row: Off, Full, Compact or Minimal. The Host sheet is now called PC Keys.
-- With the **Gun**, the trigger takes hold of the bar below the picture too, as with the other controller models. On the picture it still only shoots.
+- With the **Gun**, the trigger takes hold of the bar below the picture and the keyboard's bar too, as with the other controller models. On the picture it still only shoots.
 
 ### Fixed
 

@@ -812,7 +812,7 @@ static void refreshLightgun(XrCtx* ctx) {
         lightgunReloadReset(&ctx->lightgunReload);
         LOGEV("lightgun pointer %s (lightgun %s, controller model %s)%s",
               now.active ? "on: pointer sleep, the double-click wait and press stabilising are off, "
-                           "the trigger grabs the bar alone, the grip the handles"
+                           "the trigger grabs the bars alone, the grip the handles"
                          : "off",
               ctx->lightgunSetting == LIGHTGUN_ON ? "on" : ctx->lightgunSetting == LIGHTGUN_OFF ? "off" : "auto",
               controllerModelKindName(controllerModelKind(ctx->modelOn, ctx->modelKind)),
@@ -1556,8 +1556,8 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         int byGrip = ctx->gripEdge[hand];
         // (The keyboard's bar hangs clear of its keys, so there is no click
         // for the trigger to have meant.)
-        // Native (lane wave2-lightgun-gyro): with the lightgun policy the bar alone (owner's
-        // request, as SteamVR's own windows): a shot at a corner or the keyboard's bar is a shot
+        // Native (lane wave2-lightgun-gyro): with the lightgun policy the two bars alone
+        // (owner's request, as SteamVR's own windows): a shot at a corner is a shot
         // Native (lane beam-streak, owner's request): and on the bar and the corners wherever they
         // are hovered, the part of a corner's zone over the picture too, as the Steam Frame's own
         // dashboard windows take either button: in pointer mode a controller's or a hand's trigger
@@ -1568,7 +1568,7 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         int onHandle = !statsGrab && hand < HAND_COUNT && !ctx->padMode
                 && (hover == HOVER_BAR || hover == HOVER_CORNER);
         int byTrigger = ctx->triggerEdge[hand] && (offPicture || kbBar || onHandle)
-                && lightgunTriggerMayGrab(&ctx->lightgun, hover == HOVER_BAR);
+                && lightgunTriggerMayGrab(&ctx->lightgun, hover == HOVER_BAR || kbBar);
         if (!byGrip && !byTrigger) {
             return;
         }
@@ -4767,11 +4767,12 @@ static int bindPointerClickLive(XrCtx* ctx, int h) {
     return t->single[src].kind != XR_BIND_ACT_NONE;
 }
 
-// Native (owner's request): whether this hand's trigger went down on the picture's bar this frame,
-// which applyGrab is about to take (and hold back for the rest of the press): the PC hears none of it
+// Native (owner's request): whether this hand's trigger went down on the picture's bar or the
+// keyboard's this frame, which applyGrab is about to take (and hold back for the rest of the press):
+// the PC hears none of it. A room holds the picture still, but not the keyboard
 static int barTakesPress(XrCtx* ctx, const InputFrame* f, int h) {
-    return f->hover == HOVER_BAR && f->hand == h && ctx->triggerEdge[h]
-            && ctx->grabMode == GRAB_NONE && roomEffective(ctx) == 0;
+    int bar = (f->hover == HOVER_BAR && roomEffective(ctx) == 0) || (f->hover == HOVER_KBBAR && ctx->kbOpen);
+    return bar && f->hand == h && ctx->triggerEdge[h] && ctx->grabMode == GRAB_NONE;
 }
 
 // Pointer mode's frame, after the pointer has read the controllers and the

@@ -573,7 +573,7 @@ With **Show controllers** set to **Gun**, the pointer becomes a light gun. The h
 
 - **Pointer sleep** is off, so the ray is always there between shots. The Pointer sleep row keeps showing what you chose and is used again when you leave lightgun mode.
 - Clicks go to the PC exactly where the gun points this frame: the click smoothing of **Click steadiness** (the aim from before the trigger pull, the double-click wait and the hold) is off.
-- The trigger takes hold of the move pill below the picture, and of nothing else: on the picture it always shoots, wherever the aim then goes. The grip grabs the pill, a corner, the keyboard's bar and the stats window.
+- The trigger takes hold of the move pill below the picture and of the keyboard's bar, and of nothing else: on the picture it always shoots, wherever the aim then goes. The grip grabs the pill, a corner, the keyboard's bar and the stats window.
 - A short, strong pulse runs through the controller on every shot (the recoil). `lightgun_recoil = false` turns it off.
 - The dot where the gun points stays as the **Ray** row has it. Set Ray to Dot to keep the dot and hide the beam.
 - Optional reload: with `lightgun_reload = true`, a trigger pull that starts off the picture (in the room or in the margin round the picture; also on the pill's row while a room holds the screen still) is a right click for as long as you hold the trigger. Many light gun games and emulators use a shot off the screen to reload, and a right click is the button they ask for. A pull that starts on the picture is a left click even if you swing off it.

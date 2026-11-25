@@ -144,6 +144,15 @@ static Vec3 barPoint(XrCtx* c) {
     return p;
 }
 
+static Vec3 kbBarPoint(XrCtx* c) {
+    float w, h, drop;
+    kbBarGeometry(c, &w, &h, &drop);
+    Vec3 local = { 0.0f, -drop, 0.0f };
+    Vec3 r = quatRotate(c->kbPose.orientation, local);
+    Vec3 p = { c->kbPose.position.x + r.x, c->kbPose.position.y + r.y, c->kbPose.position.z + r.z };
+    return p;
+}
+
 static Vec3 slotPoint(XrCtx* c, int slot) {
     BarFrame f = barFrame(c);
     Vec3 local;
@@ -159,6 +168,11 @@ static Vec3 picturePoint(XrCtx* c, float u, float v) {
     Vec3 p = { c->screenPose.position.x + (u - 0.5f) * c->screenWidth, c->screenPose.position.y + (0.5f - v) * h,
                c->screenPose.position.z };
     return p;
+}
+
+static Vec3 cornerPoint(XrCtx* c) {
+    float side = cornerSide(c), high = c->screenWidth * (float)c->videoHeight / (float)c->videoWidth;
+    return picturePoint(c, 1.0f + side * 0.5f / c->screenWidth, -side * 0.5f / high);
 }
 
 // ---- the beam as it is drawn ----
@@ -352,6 +366,100 @@ static void triggerHolds(Scene* s) {
     useGun(c, 0, 0);
 }
 
+// ---- the trigger on the keyboard's bar ----
+// The void, then a room (which holds the picture still, but not the keyboard), whatever is drawn in the hand
+static void keyboardBar(Scene* s) {
+    XrCtx* c = s->ctx;
+    for (int kind = 0; kind < 6; kind++) {   // the Frame's model, the Gun, the Gun with the reload; room: again
+        int gun = kind % 3 > 0, room = kind >= 3;
+        setUp(s, 3.6f, 3.0f, 0.0f);
+        useGun(c, gun, kind % 3 == 2);
+        c->roomStyle = room ? ROOM_STYLE_FIRST : 0;
+        c->kbOpen = 1;
+        c->kbMoved = 0;
+        steps(s, 5);
+        kbPlace(c);
+        hand[1].pose = aimAt(RIGHT, kbBarPoint(c));
+        steps(s, 20);
+        CHECK(c->hoverKind == HOVER_KBBAR && c->lightgun.active == gun);
+        XrPosef was = c->kbPose, picture = c->screenPose;
+        long pulses = c->recoilPulses;
+        trigger(1);
+        for (int i = 0; i < 40; i++) {
+            step(s);
+            CHECK(c->grabMode == GRAB_KBMOVE && c->grabByTrigger && c->bindMouse == 0);
+            CHECK(out[IN_BUTTONS] == 0.0f && c->buttonsDown == 0);
+        }
+        // it carries the keyboard and leaves the picture, and over the picture nothing shoots
+        Vec3 to = kbBarPoint(c);
+        to.y += 0.5f;
+        hand[1].pose = aimAt(RIGHT, to);
+        steps(s, 40);
+        CHECK(c->kbPose.position.y > was.position.y + 0.2f);
+        CHECK(memcmp(&c->screenPose, &picture, sizeof(picture)) == 0);
+        hand[1].pose = aimAt(RIGHT, picturePoint(c, 0.5f, 0.5f));
+        steps(s, 20);
+        CHECK(c->grabMode == GRAB_KBMOVE && out[IN_BUTTONS] == 0.0f);
+        trigger(0);
+        steps(s, 5);
+        CHECK(c->grabMode == GRAB_NONE && c->buttonsDown == 0 && c->recoilPulses == pulses);
+        // the grip still takes it
+        hand[1].pose = aimAt(RIGHT, kbBarPoint(c));
+        steps(s, 40);
+        CHECK(c->hoverKind == HOVER_KBBAR);
+        grip(1);
+        steps(s, 5);
+        CHECK(c->grabMode == GRAB_KBMOVE && !c->grabByTrigger);
+        grip(0);
+        steps(s, 5);
+        CHECK(c->grabMode == GRAB_NONE);
+        if (room) {
+            c->kbOpen = 0;
+            c->roomStyle = 0;
+            steps(s, 5);
+            continue;
+        }
+
+        // a press started on the picture and slid onto the bar stays the PC's
+        resetKeyboardPlacement(c);
+        kbPlace(c);
+        hand[1].pose = aimAt(RIGHT, picturePoint(c, 0.5f, 0.5f));
+        steps(s, 60);
+        CHECK(c->hoverKind == HOVER_SCREEN);
+        trigger(1);
+        steps(s, 10);
+        CHECK(out[IN_BUTTONS] == (float)VR_BUTTON_LEFT);
+        hand[1].pose = aimAt(RIGHT, kbBarPoint(c));
+        for (int i = 0; i < 40; i++) {
+            step(s);
+            CHECK(c->grabMode == GRAB_NONE && out[IN_BUTTONS] == (float)VR_BUTTON_LEFT);
+        }
+        trigger(0);
+        steps(s, 10);
+        CHECK(out[IN_BUTTONS] == 0.0f);
+
+        // the picture's corners: the trigger's without the Gun, the grip's alone with it
+        c->kbOpen = 0;
+        hand[1].pose = aimAt(RIGHT, cornerPoint(c));
+        steps(s, 60);
+        CHECK(c->hoverKind == HOVER_CORNER);
+        trigger(1);
+        steps(s, 5);
+        CHECK(c->grabMode == (gun ? GRAB_NONE : GRAB_RESIZE));
+        trigger(0);
+        steps(s, 10);
+        hand[1].pose = aimAt(RIGHT, cornerPoint(c));   // (the hold may have resized it)
+        steps(s, 60);
+        CHECK(c->hoverKind == HOVER_CORNER);
+        grip(1);
+        steps(s, 5);
+        CHECK(c->grabMode == GRAB_RESIZE);
+        grip(0);
+        steps(s, 5);
+    }
+    useGun(c, 0, 0);
+}
+
 // ---- the beam round a hold ----
 // (Reported once, 2026-11-25: a ray that went up and down, vertically, while the bar was held. The holds in that
 // session's log, played here, draw none; what does is a picture pulled into the face, whose bar is far below it.)
@@ -418,6 +526,7 @@ int main(void) {
     setenv("XR_LOADER_DEBUG", "none", 1);
     Scene* s = scene_new();
     triggerHolds(s);
+    keyboardBar(s);
     beams(s);
     scene_free(s);
     return checksDone("m4 grabpath");
