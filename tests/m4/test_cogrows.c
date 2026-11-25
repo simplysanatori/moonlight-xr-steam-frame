@@ -236,7 +236,7 @@ static void draw(void) {
     static uint8_t px[COG_TEX_W * COG_TEX_H * 4];
     UiCanvas cv;
     ui_cv_init(&cv, px, COG_TEX_W, COG_TEX_H);
-    ui_cv_clear(&cv);
+    ui_cv_set_clip(&cv, 0.0f, 0.0f, 0.0f, 0.0f);   // only where it can be pressed is read, not the pixels
     ui_hits_clear(&g_hits);
     ui_draw_panel(UI_PANEL_COG, &cv, v, &g_hits);
 }
