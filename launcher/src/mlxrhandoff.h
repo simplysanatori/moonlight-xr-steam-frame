@@ -45,6 +45,8 @@ struct Plan {
     QStringList hints;
     // More environment for the VR client: MLXR_APP_UUID, the app's UUID from an Apollo host (launch by appuuid)
     QMap<QString, QString> extraEnv;
+    // For the client's exit code 5: gives the Plan the id the PC has the app under now, or says no
+    std::function<bool(Plan*)> findApp;
 };
 
 struct Result {

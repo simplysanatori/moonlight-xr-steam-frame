@@ -147,6 +147,26 @@ QString appUuidFor(const QVector<App>& apps, int appId, const QString& appName)
     return QString();
 }
 
+App findApp(NvAddress address, uint16_t httpsPort, const QSslCertificate& cert, const QString& name)
+{
+    const QUrl test(qEnvironmentVariable("MLXR_LAUNCHER_PREFLIGHT_URL"));
+    if (!test.isEmpty()) {
+        address = NvAddress(test.host(), uint16_t(test.port(DEFAULT_HTTP_PORT)));
+        httpsPort = 0;
+    }
+    QVector<App> apps;
+    try {
+        NvHTTP http(address, httpsPort, cert);
+        const bool tls = !cert.isNull() && httpsPort != 0;
+        apps = parseAppList(http.openConnectionToString(tls ? http.m_BaseUrlHttps : http.m_BaseUrlHttp, "applist", QString(),
+                                                        3000, NvHTTP::NVLL_NONE));
+    } catch (...) {
+        return App();
+    }
+    apps.removeIf([&](const App& a) { return a.name.trimmed() != name.trimmed(); });
+    return apps.size() == 1 ? apps[0] : App();
+}
+
 QStringList hintsFor(const Facts& f, const Request& r, const QVector<App>& apps)
 {
     QStringList h;

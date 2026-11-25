@@ -264,11 +264,28 @@ Plan makePlan(const NvComputer& c, const NvApp& app, const StreamingPreferences&
     plan.workingDir = QFileInfo(plan.program).absolutePath();
 
     QString uuid, pcName;
+    NvAddress address;
+    uint16_t httpsPort;
+    QSslCertificate cert;
     {
         QReadLocker lock(&c.lock);
         uuid = c.uuid;
         pcName = c.name;
+        address = c.activeAddress;
+        httpsPort = c.activeHttpsPort;
+        cert = c.serverCert;
     }
+    plan.findApp = [address, httpsPort, cert, id = app.id, name = app.name](Plan* again) {
+        const MlxrPreflight::App now = MlxrPreflight::findApp(address, httpsPort, cert, name);
+        const int at = again->arguments.indexOf("--app") + 1;
+        const bool moved = now.id != 0 && now.id != id && at > 0;
+        qInfo().noquote() << "The PC has no app" << id << (moved ? QString("any more, its new id is %1").arg(now.id) : "and no other one of that name");
+        if (moved) {
+            again->arguments[at] = QString::number(now.id);
+            again->extraEnv.insert("MLXR_APP_UUID", now.uuid);
+        }
+        return moved;
+    };
     // Native (lane launcher-bundle, PLAN 6.4): the PC of the last stream, for the On start setting's "Last PC's Desktop"
     if (!pcName.isEmpty()) {
         QSettings().setValue("mlxr/last_pc", pcName);
@@ -1464,6 +1481,15 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
                 r.message = QObject::tr("The VR client stopped with code %1. See %2").arg(r.exitCode).arg(consoleLogPath());
             }
         }
+    }
+    // The PC has no such app: its id may have changed there. Asked once, and started once with the new one, before
+    // anything brings the flat window back
+    Plan again = plan;
+    again.findApp = nullptr;
+    if (r.exitCode == 5 && plan.findApp && plan.findApp(&again)) {
+        log.close();
+        clip.on = false; // the new start makes its own
+        return run(again, nullptr, onStreaming);
     }
     s_headsetOff = tail.contains("MLXR_HEADSET_OFF");
     log.write(QString("\n== VR client exited: code %1%2\n").arg(r.exitCode).arg(r.crashed ? " (crashed)" : "").toUtf8());

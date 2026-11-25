@@ -744,6 +744,7 @@ case "${FAKE_MODE:-ok}" in
   ok|stream) exit 0;;
   err) echo "some log line"; echo "MLXR_ERROR: The host is on fire" >&2; exit 6;;
   silent) exit 3;;
+  noapp) case "$*" in *"--app ${FAKE_APP:-0} "*) exit 0;; esac; echo "MLXR_ERROR: gaming-pc has no such app" >&2; exit 5;;
   disc) exit 11;;
   crash) kill -SEGV $$;;
 esac
@@ -767,6 +768,27 @@ FAKE_MODE=disc MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdo
 [ $rc = 0 ] && expect "disconnect chord (exit 11) is not an error" "$(cat "$t/stdout")" "error=none" || fail "exit 11 gave $rc"
 FAKE_MODE=crash MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" >"$t/stdout"; rc=$?
 expect "crash reported" "$(cat "$t/stdout")" "crashed"
+# the app's id changed on the PC (the list here is old): its one app of that name, spaces aside, is started once
+appsnow() { # name=id ...
+    { echo '<?xml version="1.0" encoding="utf-8"?><root status_code="200">'
+      for a in "$@"; do echo "<App><AppTitle>${a%=*}</AppTitle><ID>${a#*=}</ID></App>"; done; echo '</root>'; } > "$pf/applist.xml"
+}
+cp "$pf/applist.xml" "$t/applist.keep"
+noapp() { # -> $out, and how often the client ran
+    : > "$FAKE_LOG"
+    out="$(FAKE_MODE=noapp FAKE_APP=4242 MLXR_LAUNCHER_PREFLIGHT=0 MLXR_LAUNCHER_PREFLIGHT_URL="$PFURL" MLXR_NATIVE_CLIENT="$fake" selftest "gaming-pc:Desktop" 2>&1)"
+    runs="$(grep -c '^args: ' "$FAKE_LOG")"
+}
+appsnow "Steam=7" "   Desktop =4242"; noapp
+[ "$runs" = 2 ] && expect "stale app id: started once more with the new one" "$(cat "$FAKE_LOG")" "--app 4242 " || fail "stale app id: $runs runs: $out"
+expect "stale app id: then no error" "$out" "started=yes finished=yes error=none"
+appsnow "Desktop=4243"; noapp
+[ "$runs" = 2 ] && expect "stale app id: never a third time" "$out" "error=gaming-pc has no such app" || fail "stale app id, again: $runs runs"
+for now in "Desktop=4242 Desktop=4244" "Steam=7" "Desktop=881448767"; do
+    appsnow $now; noapp
+    [ "$runs" = 1 ] && expect "stale app id: not with the PC's list \"$now\"" "$out" "error=gaming-pc has no such app" || fail "stale app id, $now: $runs runs"
+done
+cp "$t/applist.keep" "$pf/applist.xml"
 MLXR_LAUNCHER_DRYRUN="fail:5:no such app" selftest "gaming-pc:Desktop" >"$t/stdout"; expect "dry-run failure injection" "$(cat "$t/stdout")" "error=no such app"
 selftest "nosuch:Desktop" >/dev/null 2>&1; [ $? = 20 ] && ok "unknown PC is reported" || fail "unknown PC"
 # a PC without that app

@@ -22,6 +22,9 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <QSslCertificate>
+
+#include "backend/nvaddress.h"
 
 class NvComputer;
 class NvApp;
@@ -89,6 +92,9 @@ Facts parseServerInfo(const QString& xml);
 QVector<App> parseAppList(const QString& xml);
 // The app's UUID in the list: by id, else by name; "" when the host sends none
 QString appUuidFor(const QVector<App>& apps, int appId, const QString& appName);
+// Asks the PC (3 s at most) for the one app it has by this name, spaces around it aside; id 0 when it has none or
+// several, or does not answer
+App findApp(NvAddress address, uint16_t httpsPort, const QSslCertificate& cert, const QString& name);
 // What is wrong, one sentence a hint, most important first; empty when nothing is
 QStringList hintsFor(const Facts& facts, const Request& request, const QVector<App>& apps);
 
