@@ -525,7 +525,7 @@ Under the rows a line says whether eye tracking reaches the app and a few lines 
 
 On a Steam Frame, eye gaze reaches the app: the gaze probe (`mlxr-hello --gaze-probe`, see [docs/dev/accessibility.md](dev/accessibility.md)) received a gaze pose on every frame of its 20 seconds, following where the wearer looked. If it does not arrive for you (reported by others, not confirmed by Valve): wear the headset; in SteamVR Settings > General turn **Eye Tracking** on and **Track Dominant Eye Only** off (show advanced settings if they are hidden); then restart the app. `moonlight.log` says once a session whether eye gaze arrived and, if not, what SteamVR answered (`eye gaze: ...`).
 
-Head-look (the head turning a first-person game's camera), Mouse mode and Back button as Guide are not accessibility settings and are not on this tab: they are on the flat window's Settings page under **Input settings** (Head turns the game's camera, Head camera speed, Mouse mode) and **Gamepad settings** (Back button as Guide), and in `config.ini`.
+Head-look (the head turning a first-person game's camera), Mouse mode and Back button as Guide are not accessibility settings and are not on this tab: they are on the flat window's Settings page under **Input settings** (Head turns the game's camera, Head camera speed, Mouse mode) and **Gamepad settings** (Back button as Guide), and in `config.ini`. Mouse mode is also on the cog's Controls tab.
 
 ## Controllers
 
@@ -535,7 +535,7 @@ The right Frame controller has A, B, X, Y and a menu button. The left one has a 
 
 | Shortcut | What it does |
 | --- | --- |
-| Hold left View and left grip for half a second | Switches between pointer and gamepad mode, both ways. **Gamepad mode shortcut** in Settings can make it a click of both thumbsticks, or both triggers and both grips squeezed, instead; only the chosen one works. In pointer mode the bar's Gamepad / Pointer button and the cog's Display tab **Mode** row switch too. |
+| Hold left View and left grip for half a second | Switches between pointer and gamepad mode, both ways. **Gamepad mode shortcut** in Settings can make it a click of both thumbsticks, or both triggers and both grips squeezed, instead; only the chosen one works. In pointer mode the bar's Gamepad / Pointer button and the cog's Controls tab **Mode** row switch too. |
 | Hold left View and right Menu for a quarter of a second | Guide, the Xbox button (gamepad mode). |
 | Hold right Menu and right grip for half a second | With **Pointer** on Head or Eyes (Accessibility tab): the controllers point again (pointer mode). |
 | Hold right Menu, left View and both bumpers (Start+Select+L1+R1) | Disconnects; the game keeps running on the PC (gamepad mode, or the same buttons on a Bluetooth or USB gamepad). With the default **Grips in gamepad mode** the grips count as the bumpers. |
@@ -628,7 +628,7 @@ To turn back without turning the game, hold a **grip** (either one, as long as i
 
 ### Relative mouse
 
-`mouse_mode = relative` in `config.ini` (or **Mouse mode** on the launcher's Settings page, under Input settings) sends how far the pointer moves on the picture instead of where it is, the way a real mouse does. Use it for games that capture the mouse and ignore its position: first-person games, and games whose cursor jumps or sticks to an edge with the default. Moving the ray across the picture moves the PC's mouse by the same number of stream pixels; the dot still shows where the ray lands, but the game's own cursor (if it draws one) goes its own way. Taking the ray off the picture and back somewhere else does not throw the mouse. `absolute` (the default) puts the PC's cursor where the ray lands, Moonlight's remote desktop mouse, which is what desktops and menus want. Head aim and head-look already move the mouse this way while they are on.
+`mouse_mode = relative` in `config.ini` (or **Mouse mode** on the cog's Controls tab, or on the launcher's Settings page under Input settings) sends how far the pointer moves on the picture instead of where it is, the way a real mouse does. Use it for games that capture the mouse and ignore its position: first-person games, and games whose cursor jumps or sticks to an edge with the default. Moving the ray across the picture moves the PC's mouse by the same number of stream pixels; the dot still shows where the ray lands, but the game's own cursor (if it draws one) goes its own way. Taking the ray off the picture and back somewhere else does not throw the mouse. `absolute` (the default) puts the PC's cursor where the ray lands, Moonlight's remote desktop mouse, which is what desktops and menus want. Head aim and head-look already move the mouse this way while they are on.
 
 ### Pointing with your head
 
@@ -685,7 +685,7 @@ The headset shows "Gamepad mode" or "Pointer mode". In gamepad mode the menus cl
 | Curve | Screen tab, Curve. |
 | Recentre | Press d-pad up in pointer mode (`app:recentre`), or use SteamVR's recentre. The screen turns to where you face and keeps its distance, size and curve. |
 | Move the headset keyboard | Grip or trigger on the keyboard's bar. The thumbstick pushes and pulls it the same way. The other hand's thumbstick turns and tilts it. |
-| Move the stats window | Grip anywhere on it and drag. The other hand's thumbstick turns and tilts it. Past 8 m (in a large room) it moves faster and keeps its size in your view, and it can go back as far as it hung. Reset, a recentre, or a room coming up or going away puts it and a moved keyboard back by the screen. |
+| Move the stats window | Grip anywhere on it and drag. The other hand's thumbstick turns and tilts it. Past 8 m (in a large room) it moves faster and keeps its size in your view, and it can go back as far as it hung. Reset outside a room, a recentre, or a room coming up or going away puts it and a moved keyboard back by the screen. |
 | Reset | Screen tab, Reset. |
 
 ### Follow and comfort

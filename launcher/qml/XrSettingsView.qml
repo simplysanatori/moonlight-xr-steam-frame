@@ -901,7 +901,7 @@ Flickable {
         property var names: []
         // Native (1.3.3): a value that asks first, by value: { title, text, yes }. Cancel keeps the choice before.
         property var confirms: ({})
-        // Native (1.3.4): a stored value shown as one of the list's (Foveated rendering's auto shows as On)
+        // Native (1.3.4): a stored value shown as one of the list's (Foveated rendering's auto shows as Off)
         property var shownAs: ({})
         readonly property int current: values.indexOf(shownAs[MlxrPrefs.vr[key]] !== undefined
                                                       ? shownAs[MlxrPrefs.vr[key]] : MlxrPrefs.vr[key])
@@ -1689,7 +1689,7 @@ Flickable {
         }
 
         // Native (1.3.4): Valve's foveation layer on or off, from the next stream. Only a choice is stored: auto
-        // (never chosen) shows as On, this version's default, so a later default can reach it
+        // (never chosen) shows as Off, this version's default, so a later default can reach it
         VrChoice {
             key: "display.foveated"
             title: qsTr("Foveated rendering")
