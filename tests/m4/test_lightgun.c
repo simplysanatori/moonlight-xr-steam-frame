@@ -260,7 +260,7 @@ static void triggerTakesHandles(Scene* s) {
     pictureAt3m(c);
 }
 
-static void gripOnlyGrab(Scene* s) {
+static void barGrab(Scene* s) {
     XrCtx* c = s->ctx;
     scene_reset(s);
     pictureAt3m(c);
@@ -276,28 +276,64 @@ static void gripOnlyGrab(Scene* s) {
     xrGrabStepAt(c, aim, 0, 0, 0.0f);
     CHECK(c->grabMode == GRAB_NONE);
 
-    // with it the trigger shoots and the screen stays where it is
-    useGun(c, 1);
-    xrSetLightgun(c, LIGHTGUN_AUTO, 0, 1);
-    XrPosef before = c->screenPose;
-    xrGrabStepAt(c, aim, 1, 0, 0.0f);
-    CHECK(c->grabMode == GRAB_NONE);
-    xrGrabStepAt(c, aim, 1, 0, 0.0f);
-    CHECK(c->grabMode == GRAB_NONE);
-    xrGrabStepAt(c, aim, 0, 0, 0.0f);
-    CHECK(c->screenPose.position.x == before.position.x && c->screenPose.position.y == before.position.y
-          && c->screenPose.position.z == before.position.z);
-    // the grip still does
-    xrGrabStepAt(c, aim, 0, 1, 0.0f);
-    CHECK(c->grabMode == GRAB_MOVE && !c->grabByTrigger);
-    xrGrabStepAt(c, aim, 0, 0, 0.0f);
-    CHECK(c->grabMode == GRAB_NONE);
-    // and the policy forced off gives the trigger its grab back
-    xrSetLightgun(c, LIGHTGUN_OFF, 0, 1);
-    xrGrabStepAt(c, aim, 0, 0, 0.0f);
-    xrGrabStepAt(c, aim, 1, 0, 0.0f);
-    CHECK(c->grabMode == GRAB_MOVE);
-    xrGrabStepAt(c, aim, 0, 0, 0.0f);
+    // and so it does with it, with a reload on or off: the bar is the trigger's as well as the grip's
+    for (int reload = 0; reload < 2; reload++) {
+        useGun(c, 1);
+        xrSetLightgun(c, LIGHTGUN_AUTO, reload, 1);
+        XrPosef before = c->screenPose;
+        c->triggerSwallowed[1] = 0;
+        xrGrabStepAt(c, aim, 1, 0, 0.0f);
+        CHECK(c->grabMode == GRAB_MOVE && c->grabByTrigger);
+        // the press is the grab's from its first frame, and the PC hears none of it
+        CHECK(c->triggerSwallowed[1]);
+        // it carries the screen, and the sticks push and turn it, as with the grip
+        Vec3 up = pictureBarPoint(c);
+        up.y += 0.5f;
+        XrVector2f pull = { 0.0f, -1.0f }, turn = { 1.0f, 0.0f };
+        for (int i = 0; i < 10; i++) {   // (the hold's first frame only starts the stick's clock)
+            xrGrabStepSticks(c, aimAt(HAND, up), 1, 0, turn, pull);
+        }
+        CHECK(c->grabMode == GRAB_MOVE && c->screenPose.position.y > before.position.y + 0.2f);
+        CHECK(c->grabPush < 0.0f && c->grabTurn != 0.0f);
+        // over the picture now, with the trigger still held: still the grab's
+        xrGrabStepAt(c, aimAt(HAND, picturePoint(c, 0.5f, 0.5f)), 1, 0, 0.0f);
+        CHECK(c->grabMode == GRAB_MOVE);
+        xrGrabStepAt(c, aim, 0, 0, 0.0f);
+        CHECK(c->grabMode == GRAB_NONE);
+        pictureAt3m(c);
+        // the grip still does
+        xrGrabStepAt(c, aim, 0, 1, 0.0f);
+        CHECK(c->grabMode == GRAB_MOVE && !c->grabByTrigger);
+        // and the trigger pulled while the grip holds changes nothing, nor lets go for it
+        xrGrabStepAt(c, aim, 1, 1, 0.0f);
+        CHECK(c->grabMode == GRAB_MOVE && !c->grabByTrigger);
+        xrGrabStepAt(c, aim, 0, 1, 0.0f);
+        CHECK(c->grabMode == GRAB_MOVE);
+        xrGrabStepAt(c, aim, 0, 0, 0.0f);
+        CHECK(c->grabMode == GRAB_NONE);
+        pictureAt3m(c);
+        // a shot at the picture grabs nothing, and does not become a grab by sliding onto the bar
+        XrPosef mid = aimAt(HAND, picturePoint(c, 0.5f, 0.5f));
+        c->triggerSwallowed[1] = 0;
+        xrGrabStepAt(c, mid, 0, 0, 0.0f);
+        xrGrabStepAt(c, mid, 1, 0, 0.0f);
+        CHECK(c->grabMode == GRAB_NONE && !c->triggerSwallowed[1]);
+        CHECK(xrGrabStepAt(c, aim, 1, 0, 0.0f) == HOVER_BAR);
+        CHECK(c->grabMode == GRAB_NONE && !c->triggerSwallowed[1]);
+        xrGrabStepAt(c, aim, 0, 0, 0.0f);
+        // nor do the corners, in or out of the picture: the grip alone takes those
+        float side = cornerSide(c);
+        float h = c->screenWidth * (float)c->videoHeight / (float)c->videoWidth;
+        XrPosef out = aimAt(HAND, picturePoint(c, -side * 0.5f / c->screenWidth, 1.0f + side * 0.5f / h));
+        CHECK(xrGrabStepAt(c, out, 0, 0, 0.0f) == HOVER_CORNER);
+        xrGrabStepAt(c, out, 1, 0, 0.0f);
+        CHECK(c->grabMode == GRAB_NONE);
+        xrGrabStepAt(c, out, 0, 0, 0.0f);
+        xrGrabStepAt(c, out, 0, 1, 0.0f);
+        CHECK(c->grabMode == GRAB_RESIZE);
+        xrGrabStepAt(c, out, 0, 0, 0.0f);
+        pictureAt3m(c);
+    }
     useGun(c, 0);
     xrSetLightgun(c, LIGHTGUN_AUTO, 0, 1);
 }
@@ -760,7 +796,7 @@ int main(void) {
     Scene* s = scene_new();
     followsModel(s);
     pointerSleep(s);
-    gripOnlyGrab(s);
+    barGrab(s);
     triggerTakesHandles(s);
     shots(s);
     gyroOff(s);

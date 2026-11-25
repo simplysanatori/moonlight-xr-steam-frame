@@ -5,8 +5,9 @@
 //  - pointer sleep off, so the ray never goes to sleep between shots;
 //  - press stabilise, the double-click wait and the click hold off, so the
 //    cursor is the aim of this frame and not the aim of a moment ago;
-//  - the screen is grabbed by the grip only, never the trigger, so a shot at
-//    the bar below the picture does not drag the picture around;
+//  - the trigger takes hold of the bar below the picture and of nothing else
+//    of the screen's: a shot at the picture, a corner's zone or the keyboard's
+//    bar never grabs, which is the grip's alone there;
 //  - optionally, a trigger pulled off the picture is a right click (reload);
 //  - a short, strong recoil pulse through the controller's haptics on every
 //    shot.
@@ -43,7 +44,7 @@ typedef struct {
     int active;        // the lightgun policy is on
     int sleepOff;      // pointer sleep is held off
     int clicksRaw;     // press stabilise, double-click wait and click hold are held off
-    int gripGrabOnly;  // the trigger never grabs the screen
+    int gripGrabOnly;  // the trigger grabs the picture's bar and nothing else
     int reload;        // a trigger pulled off the picture is a right click
     int recoil;        // a shot pulses the controller
 } LightgunPolicy;
@@ -68,9 +69,9 @@ int lightgunSleepOn(const LightgunPolicy* p, int sleepSetting);
 // all three off, otherwise they are left as handed in
 void lightgunClickConfig(const LightgunPolicy* p, PressFixCfg* cfg, float* holdPx);
 
-// A trigger edge that may start a grab of the screen's bar: the grip always,
-// the trigger only outside the policy
-int lightgunTriggerMayGrab(const LightgunPolicy* p);
+// Whether a trigger edge may start a grab: of the picture's bar always, of
+// anything else only outside the policy (the grip always may)
+int lightgunTriggerMayGrab(const LightgunPolicy* p, int onBar);
 
 // ---- off-picture trigger = right click ----------------------------------------------------------
 // Latches per trigger pull: a pull that starts off the picture is a right click

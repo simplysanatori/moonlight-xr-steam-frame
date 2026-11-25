@@ -23,6 +23,7 @@ For 1.3.4. I added a new glow and a Foveated rendering setting, made passthrough
 - In passthrough, the controller models and the glow are off. You can already see your controllers, and drawing them or the glow over the cameras adds GPU load and can cause stutter, ghosting or glitches. **Show controllers** is greyed with "off in passthrough". Pressing it, or turning **Glow** on, asks first ("Controllers in Passthrough?", "Glow in Passthrough?"). **I Understand** turns it on in passthrough and the headset remembers your answer; **Cancel** changes nothing. The void and the rooms are not affected. The Settings page asks the same.
 - **Glow** is now a backlight: the picture keeps its sharp edges, with light of its edge colours around it, as an LED strip behind a TV gives. The void and the rooms use it, and so does passthrough once you turn it on there. **Glow edge**, with Soft and Wide, is gone. (#7)
 - The Display tab has one more row, so its rows sit a little closer together.
+- With the **Gun**, the trigger takes hold of the bar below the picture too, as with the other controller models. On the picture it still only shoots.
 
 ### Fixed
 

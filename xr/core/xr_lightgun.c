@@ -45,8 +45,8 @@ void lightgunClickConfig(const LightgunPolicy* p, PressFixCfg* cfg, float* holdP
     *holdPx = 0.0f;
 }
 
-int lightgunTriggerMayGrab(const LightgunPolicy* p) {
-    return !p->gripGrabOnly;
+int lightgunTriggerMayGrab(const LightgunPolicy* p, int onBar) {
+    return onBar || !p->gripGrabOnly;
 }
 
 void lightgunReloadReset(LightgunReload* r) {

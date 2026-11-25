@@ -812,7 +812,7 @@ static void refreshLightgun(XrCtx* ctx) {
         lightgunReloadReset(&ctx->lightgunReload);
         LOGEV("lightgun pointer %s (lightgun %s, controller model %s)%s",
               now.active ? "on: pointer sleep, the double-click wait and press stabilising are off, "
-                           "the grip alone grabs the screen"
+                           "the trigger grabs the bar alone, the grip the handles"
                          : "off",
               ctx->lightgunSetting == LIGHTGUN_ON ? "on" : ctx->lightgunSetting == LIGHTGUN_OFF ? "off" : "auto",
               controllerModelKindName(controllerModelKind(ctx->modelOn, ctx->modelKind)),
@@ -1421,6 +1421,23 @@ static float wrapAngle(float a) {
     return a;
 }
 
+// The press was meant for the thing that is open, not for the host behind it.
+// Gaze has no button of its own, so swallowing a gaze press means swallowing
+// the pinch that stood in for it.
+static void swallowTrigger(XrCtx* ctx, int src) {
+    if (src < 0 || src >= SRC_COUNT) {
+        return;
+    }
+    ctx->triggerSwallowed[src] = 1;
+    if (src == SRC_GAZE) {
+        for (int h = 0; h < HAND_COUNT; h++) {
+            if (ctx->triggerDown[h]) {
+                ctx->triggerSwallowed[h] = 1;
+            }
+        }
+    }
+}
+
 static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* grab, int hand,
                       int hover, int corner, int offPicture, float height, int curved,
                       const XrVector2f* sticks) {
@@ -1495,8 +1512,8 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         int byGrip = ctx->gripEdge[hand];
         // (The keyboard's bar hangs clear of its keys, so there is no click
         // for the trigger to have meant.)
-        // Native (lane wave2-lightgun-gyro): not with the lightgun policy, where a shot at the bar
-        // is a shot and the grip alone takes hold of the screen
+        // Native (lane wave2-lightgun-gyro): with the lightgun policy the bar alone (owner's
+        // request, as SteamVR's own windows): a shot at a corner or the keyboard's bar is a shot
         // Native (lane beam-streak, owner's request): and on the bar and the corners wherever they
         // are hovered, the part of a corner's zone over the picture too, as the Steam Frame's own
         // dashboard windows take either button: in pointer mode a controller's or a hand's trigger
@@ -1507,11 +1524,16 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         int onHandle = !statsGrab && hand < HAND_COUNT && !ctx->padMode
                 && (hover == HOVER_BAR || hover == HOVER_CORNER);
         int byTrigger = ctx->triggerEdge[hand] && (offPicture || kbBar || onHandle)
-                && lightgunTriggerMayGrab(&ctx->lightgun);
+                && lightgunTriggerMayGrab(&ctx->lightgun, hover == HOVER_BAR);
         if (!byGrip && !byTrigger) {
             return;
         }
         ctx->grabByTrigger = !byGrip;
+        // Native (owner's request): the press is the grab's until it is let go. A grab that ends
+        // with the trigger still held (tracking lost, the dashboard) leaves no click or shot.
+        if (byTrigger) {
+            swallowTrigger(ctx, hand);
+        }
 
         // Eyes pick the handle up, a hand carries it. Run off the eye ray the
         // picture would follow wherever the user looked next.
@@ -1798,23 +1820,6 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
     // it was placed on rather than walking off towards one corner
     ctx->screenPose.position = ctx->grabScreen.position;
     ctx->screenPose.orientation = ctx->grabScreen.orientation;
-}
-
-// The press was meant for the thing that is open, not for the host behind it.
-// Gaze has no button of its own, so swallowing a gaze press means swallowing
-// the pinch that stood in for it.
-static void swallowTrigger(XrCtx* ctx, int src) {
-    if (src < 0 || src >= SRC_COUNT) {
-        return;
-    }
-    ctx->triggerSwallowed[src] = 1;
-    if (src == SRC_GAZE) {
-        for (int h = 0; h < HAND_COUNT; h++) {
-            if (ctx->triggerDown[h]) {
-                ctx->triggerSwallowed[h] = 1;
-            }
-        }
-    }
 }
 
 // Whether a hover is one of the pieces hung against the furniture's frame
@@ -4652,6 +4657,13 @@ static int bindPointerClickLive(XrCtx* ctx, int h) {
     return t->single[src].kind != XR_BIND_ACT_NONE;
 }
 
+// Native (owner's request): whether this hand's trigger went down on the picture's bar this frame,
+// which applyGrab is about to take (and hold back for the rest of the press): the PC hears none of it
+static int barTakesPress(XrCtx* ctx, const InputFrame* f, int h) {
+    return f->hover == HOVER_BAR && f->hand == h && ctx->triggerEdge[h]
+            && ctx->grabMode == GRAB_NONE && roomEffective(ctx) == 0;
+}
+
 // Pointer mode's frame, after the pointer has read the controllers and the
 // panels have taken their presses: the triggers as the pointer reads them
 // (press stabilisation's hysteresis, less a press spent on our UI), the grips
@@ -4667,7 +4679,7 @@ static void bindPointerStep(XrCtx* ctx, const InputFrame* f, float* out) {
         uint64_t trig = XR_BIND_BIT(BIND_SRC_TRIGGER(h));
         down &= ~trig;
         if (ctx->profileKind[h] == PROFILE_CONTROLLER && ctx->triggerDown[h]
-                && !ctx->triggerSwallowed[h]) {
+                && !ctx->triggerSwallowed[h] && !barTakesPress(ctx, f, h)) {
             down |= trig;
         }
         if (t->from[BIND_SRC_CLICK(h)] == XR_BIND_FROM_DEFAULT && !ctx->stickRightClick) {
@@ -4699,7 +4711,7 @@ static void bindPointerStep(XrCtx* ctx, const InputFrame* f, float* out) {
     // A hand without a controller pinches the left button, as ever
     for (int h = 0; h < HAND_COUNT; h++) {
         if (ctx->profileKind[h] != PROFILE_CONTROLLER && ctx->triggerDown[h]
-                && !ctx->triggerSwallowed[h]) {
+                && !ctx->triggerSwallowed[h] && !barTakesPress(ctx, f, h)) {
             mask |= VR_BUTTON_LEFT;
         }
     }
@@ -5051,7 +5063,7 @@ static void recoilPulse(XrCtx* ctx, const InputFrame* f) {
 // pointer mode, for a controller or a hand, without the lightgun policy (its trigger shoots)
 static int cornerTakesTrigger(XrCtx* ctx, int hover, int hand) {
     return hover == HOVER_CORNER && hand >= 0 && hand < HAND_COUNT && !ctx->padMode
-            && lightgunTriggerMayGrab(&ctx->lightgun);
+            && lightgunTriggerMayGrab(&ctx->lightgun, 0);
 }
 
 static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {

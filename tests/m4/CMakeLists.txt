@@ -56,6 +56,14 @@ if(TARGET test_m4_replay)
   add_test(NAME m4_replay_bar COMMAND test_m4_replay ${CMAKE_CURRENT_SOURCE_DIR}/data/bar-replay.csv)
 endif()
 
+# Native: holds of the bar through the whole input code, with the same seam
+add_executable(test_m4_grabpath test_grabpath.c)
+target_link_libraries(test_m4_grabpath PRIVATE m4_scene mlxr_launcher mlxr_stream)
+target_compile_options(test_m4_grabpath PRIVATE -Werror)
+target_link_options(test_m4_grabpath PRIVATE -Wl,--allow-multiple-definition)
+mlxr_link_openxr(test_m4_grabpath)
+add_test(NAME m4_grabpath COMMAND test_m4_grabpath)
+
 # Native (lane layer-gate): a 144 Hz session through the input code and xrBuildLayers, checked for
 # degenerate layers, the 16 layer cap, and the beam's index and the count holding still.
 # MLXR_GATE_STRICT=0 makes the beam index and ahead-count checks warnings; MLXR_GATE_CSV=<ray csv>

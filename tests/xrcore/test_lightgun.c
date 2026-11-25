@@ -35,14 +35,15 @@ static void testPolicy(void) {
     // nothing is changed outside the policy, whatever the extras say
     CHECK(!off.active && !off.sleepOff && !off.clicksRaw && !off.gripGrabOnly && !off.reload && !off.recoil);
     CHECK(lightgunSleepOn(&off, 1) == 1 && lightgunSleepOn(&off, 0) == 0);
-    CHECK(lightgunTriggerMayGrab(&off) == 1);
+    CHECK(lightgunTriggerMayGrab(&off, 0) == 1 && lightgunTriggerMayGrab(&off, 1) == 1);
 
     LightgunPolicy gun = policyFor(LIGHTGUN_AUTO, CONTROLLER_MODEL_GUN, 0, 0);
     CHECK(gun.active && gun.sleepOff && gun.clicksRaw && gun.gripGrabOnly);
     CHECK(!gun.reload && !gun.recoil);
     // pointer sleep is off whatever the setting says
     CHECK(lightgunSleepOn(&gun, 1) == 0 && lightgunSleepOn(&gun, 0) == 0);
-    CHECK(lightgunTriggerMayGrab(&gun) == 0);
+    // the bar alone is the trigger's as well as the grip's
+    CHECK(lightgunTriggerMayGrab(&gun, 0) == 0 && lightgunTriggerMayGrab(&gun, 1) == 1);
     LightgunPolicy both = policyFor(LIGHTGUN_ON, CONTROLLER_MODEL_FRAME, 1, 1);
     CHECK(both.active && both.reload && both.recoil);
     // forced off with the gun in the hand
