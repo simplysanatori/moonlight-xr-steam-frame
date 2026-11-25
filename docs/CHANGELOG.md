@@ -1,40 +1,43 @@
 # Changelog
 
-## Unreleased
+## 1.3.4 (November 2026)
 
-For 1.3.4. I added a new glow and a Foveated rendering setting, made passthrough lighter on the GPU, and taught the headset about PCs that end the app when you disconnect.
+I rearranged the headset menu, added a new glow and a Foveated rendering setting, and made passthrough lighter on the GPU.
 
 ### Added
 
-- **Foveated rendering** (the headset's Picture tab and the Settings page): Off or On, Off by default. On gives full detail in the middle of your view and less at the edges. It applies from the next stream. If you change it in the headset and then start a stream from the headset's own PC and app lists, the app restarts itself first.
-- **PCs that end the app when you disconnect.** Apollo and Vibepollo can end an app when its last client leaves ("Terminate on Pause"), and they don't tell the headset beforehand. The headset now checks whether the app is still running after a disconnect it caused: when it reconnects after a network switch or a dropped link, and 15 seconds after the headset-off or idle timer or a Disconnect, while you stay in the headset's own lists. Once it has seen a PC end the app twice in a row, the network switch no longer moves that stream, because a switch disconnects and would end the game. Seeing the app still running 15 seconds after a network switch, a timer or a Disconnect clears this. Quitting the app, or the app quitting or crashing on the PC, never counts. Streams started from the flat window close when they disconnect, so there only network switches and dropped links teach the headset.
-- **Turning, tilting and resizing what you hold.** While you hold the screen, the keyboard or the stats window, push the other hand's thumbstick left or right to turn it, or up or down to tilt it. Right turns it to the right, and up tips its top away from you. Only the thumbstick of the hand holding it pushes it away or pulls it closer now, and right or left on it makes what you hold bigger or smaller. The screen's tilt stops where the Tilt row ends and is saved with the screen. The turn lasts until you recentre or reset the screen or close the app. While you hold something, neither thumbstick reaches the PC.
-- **Glow spread** (Room tab and Settings page) sets how far the new glow reaches. (#7)
-- The Full and Compact stats show the GPU's clock, and say when the headset slows the CPU or GPU down for heat.
-- Changing **Foveated rendering** during a stream shows a notice, "Foveated rendering on" or "Foveated rendering off", with "Applies from your next stream: Exit and start it again".
-- New notices for these PCs:
-  - "Video keeps breaking up. Not switching networks: this PC would end the app"
-  - "Switching to Steam Frame Wireless Adapter. A PC set to end the app on disconnect will close it", on a PC not yet seen keeping the app
-  - "The PC ended the app when the connection dropped. Start it again from the app list"
-  - "No input for 30 min: disconnecting. This PC may end the app" and "Headset off for 60 s: disconnecting. This PC may end the app", with your own times
+- **Foveated rendering:** a switch on the Picture tab and the Settings page. It's off by default.
+- **Turning, tilting and resizing what you hold:** while you hold the screen, the keyboard or the stats, use the other hand's thumbstick to turn and tilt it. The holding hand's thumbstick pushes or pulls it, and left or right resizes it.
+- **Glow spread** (Room tab and Settings page): how far the glow reaches.
+- **Mouse mode** and **Scroll speed** are now in the headset, on the Controls tab.
+- The Full and Compact stats windows show the GPU's clock speed, and say when the headset slows itself down for heat.
 
 ### Changed
 
-- In passthrough, the controller models and the glow are off. You can already see your controllers, and drawing them or the glow over the cameras adds GPU load and can cause stutter, ghosting or glitches. **Show controllers** is greyed with "off in passthrough". Pressing it, or turning **Glow** on, asks first ("Controllers in Passthrough?", "Glow in Passthrough?"). **I Understand** turns it on in passthrough and the headset remembers your answer; **Cancel** changes nothing. The void and the rooms are not affected. The Settings page asks the same.
-- **Glow** is now a backlight: the picture keeps its sharp edges, with light of its edge colours around it, as an LED strip behind a TV gives. The void and the rooms use it, and so does passthrough once you turn it on there. **Glow edge**, with Soft and Wide, is gone. (#7)
-- Glow is off by default in every room. Home Theater and Synthwave had it on.
-- The cog menu is rearranged, with the same tabs everywhere: Screen, Room, Picture, 3D, Controls, Accessibility and About. The glow and the room's light are on Room, how the picture looks is on Picture, and the pointer and controller rows are on Controls, with **Mouse mode** and **Scroll speed** from the Settings page. **Size** on Screen sets the room's screen too. Rows that do nothing in a room are greyed.
-- **Stats** is one row: Off, Full, Compact or Minimal. The Host sheet is now called PC Keys.
-- With the **Gun**, the trigger takes hold of the bar below the picture and the keyboard's bar too, as with the other controller models. On the picture it still only shoots.
+- **The headset menu** has seven tabs, the same everywhere: Screen, Room, Picture, 3D, Controls, Accessibility and About. The glow and lighting are on Room, and the pointer and controller settings are on Controls. Settings that do nothing in a room are greyed.
+- **Size** (Screen tab) now resizes the screen in rooms too, except in Grand Cinema.
+- **Stats** is a single setting now: Off, Full, Compact or Minimal.
+- **Glow** is now a backlight, like an LED strip behind a TV (#7, thanks LiamShinkso). It replaces Glow edge, and it works in the void, rooms and passthrough. It's off by default in every room.
+- **Passthrough:** controllers and glow are off in passthrough. Turning either on asks first, because drawing them over the cameras can cause stutter or glitches.
+- With the **Gun**, the trigger now grabs the bar below the screen and the keyboard's bar.
 
 ### Fixed
 
-- On a curved screen, the stats window stood out from the picture at an odd angle, past its top left corner. It now sits in the corner, in front of the curve. The settings panel, the keyboard, the environment picker, the sheets and cards, and the eye calibration dots also stay in front of a curved screen.
-- In a room, the stats window jumped to 8 m when you pushed or pulled it, came out huge and could not be put back or shrunk. It now moves smoothly, can go back to where it hung, and can be shrunk wherever it is.
-- The keyboard's click sound skipped presses when you typed fast. Every press clicks now.
-- In Gamepad mode with Look to point on, looking at the bar made its icons show and light up, though nothing could press them. They stay hidden now while you hold the controllers.
-- Leaving a stream could leave the flat window invisible. The app now checks that SteamVR shows it and tries to bring it back if it doesn't.
-- An app whose ID had changed on the PC (a renamed app, say) could not be started until the flat window had read the app list again. It is looked up and started now.
+- In Gamepad mode with Look to point on, looking at the bar made its icons show, but you couldn't press them.
+- On a curved screen, the stats, settings, keyboard and other panels now stay in front of the curve.
+- In a room, the stats window jumped to a huge size when you pushed or pulled it, and couldn't be put back.
+- The keyboard's click sound skipped presses when you typed fast.
+
+### Known issues
+
+- With the glow on, bright text and icons can ghost when you turn your head quickly, especially at 144 Hz.
+- 2D to 3D lowers your frame rate in rooms if frame timings can't be kept for your refresh rate. For example, at 144 Hz, 144 fps drops to about 72 fps.
+- Media keys on the headset's keyboard may not work on some Linux distros.
+- At 144 Hz with passthrough and a 3440x1440 stream, passthrough can flash black occasionally (#5). A lower stream resolution, such as 2560x1080, helps.
+
+### Reporting a problem
+
+In the headset, open the cog, then About, Report a Problem, and press **Save and zip**. Attach the zip to a GitHub issue. It hides your PC's name and addresses, and makes debugging much faster.
 
 ## 1.3.3 (November 2026)
 

@@ -39,7 +39,7 @@ Play games and the desktop from your PC on a virtual screen on the Valve Steam F
 
 ## Install
 
-1. Download `moonlight-xr-steam-frame-1.3.3-linux-arm64.tar.gz` and `SHA256SUMS` from [Releases](https://github.com/simplysanatori/moonlight-xr-steam-frame/releases), then check them:
+1. Download `moonlight-xr-steam-frame-1.3.4-linux-arm64.tar.gz` and `SHA256SUMS` from [Releases](https://github.com/simplysanatori/moonlight-xr-steam-frame/releases), then check them:
 
    ```sh
    sha256sum -c --ignore-missing SHA256SUMS
@@ -48,7 +48,7 @@ Play games and the desktop from your PC on a virtual screen on the Valve Steam F
 2. Unpack it and run the installer:
 
    ```sh
-   tar xzf moonlight-xr-steam-frame-1.3.3-linux-arm64.tar.gz
+   tar xzf moonlight-xr-steam-frame-1.3.4-linux-arm64.tar.gz
    cd MoonlightXRNative
    ./install.sh
    ```
