@@ -1693,7 +1693,7 @@ Flickable {
         VrChoice {
             key: "display.foveated"
             title: qsTr("Foveated rendering")
-            summary: qsTr("Full detail in the middle of your view, less at the edges. Off can look slightly sharper and uses a little less GPU on the plain screen. Applies from the next stream.")
+            summary: qsTr("Full detail in the middle of your view, less at the edges. Applies from the next stream.")
             values: ["on", "off"]
             names: [qsTr("On"), qsTr("Off")]
             shownAs: ({ "auto": "off" })
