@@ -990,6 +990,13 @@ typedef struct XrCtx {
     int beamAimValid[SRC_COUNT];
     int64_t beamClipSaidNs;
     int beamClipTrips;
+    // Native: the line for a beam that points the wrong way round a hold (grabBeamWatch): the last
+    // frame something was held and how, whether this hold's line is written, and how many ever were
+    int64_t beamWatchNs;
+    int beamWatchMode;
+    int beamWatchHeld;
+    int beamWatchSaid;
+    int beamWatchLines;
     int raySetting;
     int rayFlipped;
     int rayDrawnSaid;

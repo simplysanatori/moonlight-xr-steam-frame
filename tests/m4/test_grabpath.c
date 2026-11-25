@@ -352,10 +352,73 @@ static void triggerHolds(Scene* s) {
     useGun(c, 0, 0);
 }
 
+// ---- the beam round a hold ----
+// (Reported once, 2026-11-25: a ray that went up and down, vertically, while the bar was held. The holds in that
+// session's log, played here, draw none; what does is a picture pulled into the face, whose bar is far below it.)
+static void hold(int on) { grip(on); }
+
+static Beam played(Scene* s, const char* what, float width, float from, float y, float stickY, int frames, int roll, float headYaw,
+                   int other) {
+    XrCtx* c = s->ctx;
+    setUp(s, width, from, y);
+    hand[1].pose = aimAt(RIGHT, barPoint(c));
+    steps(s, 30);
+    CHECK(c->hoverKind == HOVER_BAR);
+    memset(&beam, 0, sizeof(beam));
+    c->beamWatchLines = 0;
+    XrPosef aim = hand[1].pose;
+    hold(1);
+    steps(s, 2);
+    CHECK(c->grabMode == GRAB_MOVE && c->beamHand == 1);
+    hand[1].stick.y = stickY;
+    Vec3 fwd = { 0, 0, -1 }, up = { 0, 1, 0 };
+    for (int i = 0; i < frames; i++) {
+        float t = (float)i / (float)frames;
+        hand[1].pose.orientation = quatMul(aim.orientation, axisAngleQuat(fwd, (float)roll * DEG * t));
+        head.orientation = axisAngleQuat(up, headYaw * DEG * t);
+        if (other) {
+            hand[0].trigger = (i / 20) % 2 ? 1.0f : 0.0f;
+        }
+        step(s);
+        CHECK(c->grabMode == GRAB_MOVE && c->beamHand == 1);
+    }
+    hand[1].stick.y = 0.0f;
+    hold(0);
+    steps(s, 60);
+    CHECK(c->grabMode == GRAB_NONE);
+    hand[0].trigger = 0.0f;
+    printf("  %-34s beam in %d frames, up to %.0f deg off the hand's aim, %.0f deg steep (%.0f off there), %d lines; ends %.2f m off\n",
+           what, beam.frames, beam.worstOff, beam.steepest, beam.offAtSteepest, c->beamWatchLines,
+           sqrtf(c->screenPose.position.x * c->screenPose.position.x + c->screenPose.position.z * c->screenPose.position.z));
+    CHECK(beam.strays == 0);
+    head.orientation = (XrQuaternionf){ 0, 0, 0, 1 };
+    return beam;
+}
+
+static void beams(Scene* s) {
+    useGun(s->ctx, 1, 0);
+    Beam b = played(s, "logged: 5.0 m, pushed 2.0 m", 5.95f, 5.0f, -0.3f, 1.0f, 200, 0, 0, 0);
+    CHECK(b.worstOff < 15.0f && b.steepest < 45.0f);
+    b = played(s, "logged: 7.0 m, held", 5.95f, 7.0f, -0.3f, 0.0f, 200, 0, 0, 0);
+    CHECK(b.worstOff < 15.0f && b.steepest < 45.0f);
+    b = played(s, "logged: 7.1 m, pulled 2.7 m", 5.95f, 7.06f, -0.3f, -1.0f, 260, 0, 0, 0);
+    CHECK(b.worstOff < 15.0f && b.steepest < 45.0f);
+    b = played(s, "the other hand up and pressing", 5.95f, 5.0f, -0.3f, 0.0f, 300, 0, 0, 1);
+    CHECK(b.worstOff < 15.0f && b.steepest < 45.0f);
+    b = played(s, "the head turned 70 deg", 5.95f, 5.0f, -0.3f, 0.0f, 300, 0, 70.0f, 0);
+    CHECK(b.steepest < 45.0f);
+    played(s, "the wrist rolled 90 deg", 5.95f, 5.0f, -0.3f, 0.0f, 300, 90, 0, 0);
+    // into the face: the bar of a picture 6 m wide is nearly 2 m under it, and that is where the beam goes
+    b = played(s, "pulled into the face", 5.95f, 5.0f, -0.3f, -1.0f, 500, 0, 0, 0);
+    CHECK(b.steepest > 60.0f && s->ctx->beamWatchLines == 1);
+    useGun(s->ctx, 0, 0);
+}
+
 int main(void) {
     setenv("XR_LOADER_DEBUG", "none", 1);
     Scene* s = scene_new();
     triggerHolds(s);
+    beams(s);
     scene_free(s);
     return checksDone("m4 grabpath");
 }

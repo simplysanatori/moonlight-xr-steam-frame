@@ -4312,6 +4312,55 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
     }
 }
 
+// Native: while something is held and for half a second after, a drawn beam steeper than 60 degrees,
+// or more than 25 degrees off where its hand points, is written down with everything that set it, once
+// a hold. (A vertical ray was seen once during a hold of the bar, and no log said where it came from.)
+#define GRAB_BEAM_STEEP 0.866f
+#define GRAB_BEAM_OFF 0.906f
+#define GRAB_BEAM_AFTER_NS 500000000LL
+static void grabBeamWatch(XrCtx* ctx, const InputFrame* f) {
+    int held = ctx->grabMode != GRAB_NONE;
+    if (held) {
+        if (!ctx->beamWatchHeld) {
+            ctx->beamWatchSaid = 0;
+        }
+        ctx->beamWatchNs = f->now;
+        ctx->beamWatchMode = ctx->grabMode;
+    }
+    ctx->beamWatchHeld = held;
+    int h = ctx->beamHand;
+    if (ctx->beamWatchSaid || ctx->beamWatchNs == 0 || f->now - ctx->beamWatchNs > GRAB_BEAM_AFTER_NS
+            || !ctx->beamVisible || ctx->beamGaze || h < 0 || h >= HAND_COUNT) {
+        return;
+    }
+    Vec3 along = { ctx->beamEnd.x - ctx->beamStart.x, ctx->beamEnd.y - ctx->beamStart.y,
+                   ctx->beamEnd.z - ctx->beamStart.z };
+    if (vecDot(along, along) < 0.01f) {
+        return;
+    }
+    along = vecNorm(along);
+    Vec3 forward = { 0.0f, 0.0f, -1.0f };
+    Vec3 aim = quatRotate(f->aimPoses[h].orientation, forward);
+    float same = vecDot(along, aim);
+    if (fabsf(along.y) < GRAB_BEAM_STEEP && same > GRAB_BEAM_OFF) {
+        return;
+    }
+    ctx->beamWatchSaid = 1;
+    ctx->beamWatchLines++;
+    const float deg = 180.0f / (float)M_PI;
+    LOGI("ray debug: the beam %s is %.0f deg up and %.0f deg off its hand's aim: hold %d by hand %d, %.0f ms "
+         "since it was held, beam of hand %d set by %s; start %.3f %.3f %.3f, end %.3f %.3f %.3f, aim %.2f %.2f "
+         "%.2f, hover %s, picture at %.3f %.3f %.3f, %.2f m wide, head %.3f %.3f %.3f facing %.2f %.2f %.2f, "
+         "left placed %d, right placed %d", held ? "of a hold" : "after a hold", asinf(along.y) * deg,
+         acosf(same > 1.0f ? 1.0f : same < -1.0f ? -1.0f : same) * deg, ctx->beamWatchMode, ctx->grabHand,
+         (double)(f->now - ctx->beamWatchNs) * 1e-6, h, beamByName(ctx->beamBy), ctx->beamStart.x,
+         ctx->beamStart.y, ctx->beamStart.z, ctx->beamEnd.x, ctx->beamEnd.y, ctx->beamEnd.z, aim.x, aim.y, aim.z,
+         xrHoverKindName(ctx->hoverKind), ctx->screenPose.position.x, ctx->screenPose.position.y,
+         ctx->screenPose.position.z, ctx->screenWidth, ctx->headPos.x, ctx->headPos.y, ctx->headPos.z,
+         ctx->headForward.x, ctx->headForward.y, ctx->headForward.z, ctx->beamAimValid[HAND_LEFT],
+         ctx->beamAimValid[HAND_RIGHT]);
+}
+
 // Ends the ray on the furniture under it, whichever plane that sits on
 static void beamToFurniture(XrCtx* ctx, InputFrame* f) {
     Vec3 end = furniturePoint(ctx, f->hover, f->hitU[f->hand], f->hitV[f->hand],
@@ -6408,6 +6457,7 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
 
     if (ctx->grabMode != GRAB_NONE) {
         beamToHandle(ctx, &f);
+        grabBeamWatch(ctx, &f);
         headBeamDotOnly(ctx, f.hand);
         writeInputPose(ctx, out);
         handBack(ctx, out);
@@ -6448,6 +6498,7 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
     updateButtons(ctx, &f, hit || xrDwellMenuHostPoint(ctx, f.now, &(float){ 0 }, &(float){ 0 }));
     updateScroll(ctx, &f, hit);
     beamIntoRoom(ctx, &f);
+    grabBeamWatch(ctx, &f);
     headBeamDotOnly(ctx, f.hand);
 
     writeInputPose(ctx, out);
