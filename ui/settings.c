@@ -264,7 +264,7 @@ static const SettingDesc TABLE[] = {
     DB("display", "glow", glow, 0, "Room tab: glow (checkbox_vr_ambilight; native default off, the owner's choice, upstream on)"),
     DI("display", "glow_level", glow_level, 0, 100, GLOW_LEVEL_DEFAULT, "Room tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
     DI("display", "glow_spread", glow_spread, GLOW_SPREAD_MIN, GLOW_SPREAD_MAX, GLOW_SPREAD_DEFAULT, "native: Room tab Glow spread, how far the glow reaches, percent of its most (about half the screen's longer side)"),
-    DE("display", "foveated", foveated, FOVEATED_NAMES, FOVEATED_AUTO, "native: Foveated rendering: on (Valve's fdm_injection layer: full detail where you look, less at the edges) or off (slightly sharper, a little less GPU on the plain screen); auto is off in this version. From the next stream; MLXR_FDM_LAYER=0 turns it off whatever this says"),
+    DE("display", "foveated", foveated, FOVEATED_NAMES, FOVEATED_AUTO, "native: Foveated rendering: on (Valve's fdm_injection layer: full detail in the middle of your view, less at the edges) or off; auto is off in this version. From the next stream; MLXR_FDM_LAYER=0 turns it off whatever this says"),
     DB("display", "screen_light", screen_light, 1, "Room tab: screen light in rooms (checkbox_vr_room_light)"),
     DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (Room is kept as this), display (Controls is kept as this; opens Picture), 3d, picture, accessibility or about"),
     // 3d
