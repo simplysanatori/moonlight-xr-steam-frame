@@ -2034,28 +2034,37 @@ static int gazeActionActive(XrCtx* ctx) {
     return XR_SUCCEEDED(xrGetActionStatePose(ctx->session, &get, &state)) && state.isActive;
 }
 
-// Whether the eyes are what is doing the pointing. A controller in use takes
-// it, and so do the hands while the eyes are missing. Native (lane
-// wave4-headinput): or the head, which nothing takes it from.
-static int gazePointing(XrCtx* ctx) {
-    return headPointing(ctx) || (ctx->eyeGaze && ctx->gazeEnabled && !ctx->controllerAwake
-                                 && !ctx->gazeBridge.bridged);
-}
-
-// Whether the eyes would be pointing but for the bridge, which is when the
-// gaze is still asked for: the bridge has to see them come back
-static int gazeWanted(XrCtx* ctx) {
-    return headPointing(ctx) || (ctx->eyeGaze && ctx->gazeEnabled && !ctx->controllerAwake);
-}
-
-static int handInUse(XrCtx* ctx, int h) {
-    return controllerInUse(ctx->profileKind[h], ctx->aimTracked[h], ctx->aimClock[h].awake);
-}
-
 // Whether a hand is the pad's rather than the pointer's: gamepad mode, with a
 // controller in it. Hands that are tracked instead point as they always do.
 static int padHand(XrCtx* ctx, int h) {
     return ctx->padMode && ctx->profileKind[h] == PROFILE_CONTROLLER;
+}
+
+// Native (owner's report): the eyes with nothing to press with. In gamepad mode the
+// controllers press nothing on our side, so without a tracked hand to pinch the eyes
+// would only light up the bar.
+static int gazePadOnly(XrCtx* ctx) {
+    return (padHand(ctx, HAND_LEFT) || padHand(ctx, HAND_RIGHT))
+            && ctx->profileKind[HAND_LEFT] != PROFILE_HANDS
+            && ctx->profileKind[HAND_RIGHT] != PROFILE_HANDS;
+}
+
+// Whether the eyes would be pointing but for the bridge, which is when the
+// gaze is still asked for: the bridge has to see them come back. Native (lane
+// wave4-headinput): or the head, which nothing takes it from.
+static int gazeWanted(XrCtx* ctx) {
+    return headPointing(ctx) || (ctx->eyeGaze && ctx->gazeEnabled && !ctx->controllerAwake
+                                 && !gazePadOnly(ctx));
+}
+
+// Whether the eyes are what is doing the pointing. A controller in use takes
+// it, and so do the hands while the eyes are missing.
+static int gazePointing(XrCtx* ctx) {
+    return headPointing(ctx) || (gazeWanted(ctx) && !ctx->gazeBridge.bridged);
+}
+
+static int handInUse(XrCtx* ctx, int h) {
+    return controllerInUse(ctx->profileKind[h], ctx->aimTracked[h], ctx->aimClock[h].awake);
 }
 
 // The pad's controller is off the pointer whole: no ray, nothing pressed and

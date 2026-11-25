@@ -430,6 +430,22 @@ static void footer(Scene* s) {
     g_eyes = cellAt(c, COG_ACCESS_ROW_DWELL, 2);
     frames(c, 3);
     CHECK(xrAccessHoverRow(c) == COG_ACCESS_ROW_DWELL && c->cogHoverSlider == -1);
+    // gamepad mode: with the controllers as the pad there is nothing to press with, so the eyes light
+    // nothing up (owner's report); a tracked hand can pinch, so they point again; and out of it
+    c->padMode = 1;
+    c->profileKind[HAND_LEFT] = c->profileKind[HAND_RIGHT] = PROFILE_CONTROLLER;
+    frames(c, 3);
+    CHECK(xrAccessHoverRow(c) == -1);
+    c->profileKind[HAND_LEFT] = PROFILE_NONE;
+    frames(c, 3);
+    CHECK(xrAccessHoverRow(c) == -1);
+    c->profileKind[HAND_LEFT] = PROFILE_HANDS;
+    frames(c, 3);
+    CHECK(xrAccessHoverRow(c) == COG_ACCESS_ROW_DWELL);
+    c->profileKind[HAND_LEFT] = c->profileKind[HAND_RIGHT] = PROFILE_NONE;
+    c->padMode = 0;
+    frames(c, 3);
+    CHECK(xrAccessHoverRow(c) == COG_ACCESS_ROW_DWELL);
     c->gazeEnabled = 0;
     // another tab, or the cog shut: none
     c->cogTab = COG_TAB_ABOUT;
