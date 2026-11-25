@@ -208,30 +208,6 @@ void xrCtxDefaults(XrCtx* ctx, int videoWidth, int videoHeight, int fps) {
     ctx->lastHand = -1;
 }
 
-// ---- rows that come later ---------------------------------------------------
-
-int xrRowLater(XrCtx* ctx, int face, int row) {
-    (void)ctx;
-    if (face != COG_TAB_DISPLAY) {
-        return 0;
-    }
-    // Every Display row is live since M5 (supersampling is the app's own
-    // pass, SteamVR having no layer settings); the 3D tab is live with a
-    // stereo mode (cogRowLive), since M6
-    (void)row;
-    return 0;
-}
-
-unsigned xrDisplayLaterMask(XrCtx* ctx) {
-    unsigned mask = 0;
-    for (int row = 0; row <= COG_DISPLAY_SLIDER_ROW; row++) {
-        if (xrRowLater(ctx, COG_TAB_DISPLAY, row) != 0) {
-            mask |= 1u << row;
-        }
-    }
-    return mask;
-}
-
 // ---- the placement ----------------------------------------------------------
 
 static int iround(float v) {
@@ -383,7 +359,11 @@ void xrApplySettings(XrCtx* ctx, const Settings* s) {
     ctx->modelOn = s->controller_model != CONTROLLER_MODEL_OFF;
     xrSetClickSound(ctx, s->click_sound);
     noticeSetLevel(&ctx->notices, s->notices);
-    ctx->cogTab = s->cog_tab >= 0 && s->cog_tab < COG_TAB_COUNT ? s->cog_tab : COG_TAB_SCREEN;
+    // Native (1.3.4): the file keeps the nearest of its own tab names (cogTabToFile), so a panel already
+    // on a tab that is written as that name stays on it
+    if (cogTabToFile(ctx->cogTab) != s->cog_tab) {
+        ctx->cogTab = cogTabFromFile(s->cog_tab);
+    }
     xrSetShowRay(ctx, s->show_ray);
     ctx->dotOn = s->pointer_dot;
     ctx->kbLayout = s->keyboard_layout == KB_LAYOUT_FULL ? KB_LAYOUT_FULL : KB_LAYOUT_COMPACT;
@@ -496,7 +476,8 @@ void xrSettingsFromCtx(XrCtx* ctx, Settings* s) {
     s->notices = ctx->notices.level;
     s->click_steadiness = ctx->clickSteady;
     s->scroll_speed = ctx->scrollSpeed;
-    s->cog_tab = ctx->cogTab;
+    s->mouse_mode = ctx->mouseMode;
+    s->cog_tab = cogTabToFile(ctx->cogTab);
     s->pointer_dot = ctx->dotOn;
     s->keyboard_layout = ctx->kbLayout;
     s->keyboard_keymap = ctx->kbMap;
@@ -557,7 +538,11 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_KEYBOARD_LAYOUT: s->keyboard_layout = value == KB_LAYOUT_FULL; break;
     case SETTING_SHARPEN: s->sharpening = value; break;
     case SETTING_SUPERSAMPLE: s->supersampling = value; break;
-    case SETTING_STATS: s->stats = value != 0; break;
+    case SETTING_STATS:
+        // Native (1.3.4): the Stats row's cell. Off keeps the style for the next time.
+        s->stats = value != 0;
+        if (value > 0) s->stats_style = STATS_STYLE_FULL + value - 1;
+        break;
     case SETTING_AMBILIGHT: s->glow = value != 0; break;
     case SETTING_ROOM_LIGHT: s->screen_light = value != 0; break;
     case SETTING_HEAD_LOCK:
@@ -583,7 +568,9 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_CLICK_SOUND: s->click_sound = value != 0; break;
     case SETTING_NOTICES: s->notices = value; break;
     case SETTING_CLICK_STEADY: s->click_steadiness = value; break;
-    case SETTING_COG_TAB: s->cog_tab = value; break;
+    case SETTING_COG_TAB: s->cog_tab = cogTabToFile(value); break;
+    case SETTING_MOUSE_MODE: s->mouse_mode = value; break;
+    case SETTING_SCROLL_SPEED: s->scroll_speed = value; break;
     case SETTING_CONTROLLER_MODEL:
         s->controller_model = value > CONTROLLER_MODEL_OFF && value < CONTROLLER_MODEL_COUNT ? value : CONTROLLER_MODEL_OFF;
         break;
@@ -622,6 +609,7 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
     case SETTING_PICTURE_GAMMA: s->picture_gamma = value; break;
     case SETTING_PICTURE_SATURATION: s->picture_saturation = value; break;
     case SETTING_RESET_PICTURE: settings_reset_picture(s); break;
+    case SETTING_RESET_ROOM: settings_reset_room(s); break;
     case SETTING_BG_DIM: s->bg_dim = value; break;
     case SETTING_GLOW_SPREAD: s->glow_spread = value; break;   // native (issue #7)
     case SETTING_PT_CONTROLLERS_OK: s->passthrough_controllers_ok = value != 0; break;   // native (1.3.4)
@@ -634,7 +622,7 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
         s->foveated = value == 0 ? FOVEATED_ON : FOVEATED_OFF;
         break;
     case SETTING_POINTER_DOT:
-        // The Display tab's Ray row: both halves are saved. The bar's ray
+        // The Controls tab's Ray row: both halves are saved. The bar's ray
         // button only flips the session (ctx->rayFlipped), which is not stored.
         s->pointer_dot = ctx != NULL ? ctx->dotOn : value >= 1;
         if (ctx != NULL) s->show_ray = ctx->raySetting != 0;

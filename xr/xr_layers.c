@@ -467,7 +467,7 @@ int xrBackdropColor(XrCtx* ctx, int passthroughNow, float out[4]) {
     return backdropFor(mode, ctx->bgDim, ctx->voidColor, out);
 }
 
-// Native (lane wave3-visual): the same layer also holds the Picture tab's
+// Native (lane wave3-visual): the same layer also holds the Room tab's
 // Background dim over the cameras (black at the dim's share of alpha) and the
 // void's colour; `want` is that colour, and the swapchain's newest image is
 // cleared to it when it changes

@@ -16,6 +16,7 @@
     X(TAB_PICTURE, "vr_panel_tab_picture", "Picture") \
     X(TAB_ABOUT, "vr_panel_tab_about", "About") \
     X(TAB_ROOM, "vr_panel_tab_room", "Room") \
+    X(TAB_CONTROLS, "native_tab_controls", "Controls") \
     X(ROW_DISTANCE, "vr_panel_distance", "Distance") \
     X(ROW_HEIGHT, "vr_panel_height", "Height") \
     X(ROW_TILT, "vr_panel_tilt", "Tilt") \
@@ -26,8 +27,12 @@
     X(ROW_AIM_DEAD_ZONE, "vr_panel_aim_dead_zone", "Aim dead zone") \
     X(NEEDS_HEAD_LOCK, "vr_panel_needs_head_lock", "needs Head locked") \
     X(NOT_IN_ROOM, "vr_panel_not_in_room", "not in a room") \
+    X(ONLY_IN_ROOM, "native_only_in_room", "only in a room") \
+    X(SET_BY_ROOM, "native_set_by_room", "set by the room") \
+    X(SET_BY_GUN, "native_set_by_gun", "set by the Gun") \
     X(RESET, "vr_panel_reset", "Reset") \
     X(ROW_BRIGHTNESS, "vr_panel_brightness", "Brightness") \
+    X(ROW_ROOM_BRIGHTNESS, "native_room_brightness", "Room brightness") \
     X(ROW_GLOW, "vr_panel_glow", "Glow") \
     X(ROW_SCREEN_LIGHT, "vr_panel_screen_light", "Screen light") \
     X(ROW_LIGHT_LEVEL, "vr_panel_light_level", "Light level") \
@@ -53,6 +58,13 @@
     /* native (1.3.4): the Display tab's Foveated rendering row (approved text) */ \
     X(ROW_FOVEATED, "native_row_foveated", "Foveated rendering") \
     X(ROW_CLICK_STEADY, "vr_panel_click_steadiness", "Click steadiness") \
+    X(ROW_MOUSE_MODE, "native_mouse_mode", "Mouse mode") \
+    X(MOUSE_ABSOLUTE, "native_mouse_absolute", "Absolute") \
+    X(MOUSE_RELATIVE, "native_mouse_relative", "Relative") \
+    X(ROW_SCROLL_SPEED, "native_scroll_speed", "Scroll speed") \
+    X(STATS_FULL, "native_stats_full", "Full") \
+    X(STATS_COMPACT, "native_stats_compact", "Compact") \
+    X(STATS_MINIMAL, "native_stats_minimal", "Minimal") \
     X(STEADY, "vr_panel_steady", "Steady") \
     X(NOTICE_CELL_ALL, "vr_panel_notices_all", "All") \
     X(NOTICE_CELL_IMPORTANT, "vr_panel_notices_important", "Important") \
@@ -69,7 +81,8 @@
     X(ROW_CONTRAST, "vr_panel_contrast", "Contrast") \
     X(ROW_GAMMA, "vr_panel_gamma", "Gamma") \
     X(ROW_SATURATION, "vr_panel_saturation", "Saturation") \
-    X(ROW_BACKGROUND, "native_background", "Background")     X(ROW_GLOW_SPREAD, "native_glow_spread", "Glow spread") \
+    X(ROW_BACKGROUND, "native_background", "Background dim") \
+    X(ROW_GLOW_SPREAD, "native_glow_spread", "Glow spread") \
     X(VERSION, "vr_panel_version", "Version %s, commit %s") \
     X(VERSION_NO_COMMIT, "vr_panel_version_no_commit", "Version %s") \
     X(LOG_FILE, "vr_panel_log_file", "Log file: %s") \
@@ -139,7 +152,7 @@
     X(HOST_PC_NO_PERMISSION, "native_host_pc_no_permission", "Allow server commands for this client in Apollo") \
     X(HOST_PC_NO_COMMANDS, "native_host_pc_no_commands", "No server commands are set up in Apollo") \
     X(HOST_COMPOSE_PROMPT, "native_host_compose_prompt", "Type, Enter sends") \
-    X(REPORT_TITLE, "title_bug_report", "Report a problem") \
+    X(REPORT_TITLE, "title_bug_report", "Report a Problem") \
     X(REPORT_NOTE_LABEL, "bug_report_message_hint", "What happened?") \
     X(REPORT_NOTE_HINT, "vr_report_note_hint", "What were you doing when it went wrong?") \
     X(REPORT_GOES, "vr_report_sends", "Save keeps your note in ~/Games/MoonlightXRNative/reports. Save and zip also makes a masked zip there to attach to a GitHub issue. Nothing is sent from the headset.") \
@@ -192,7 +205,6 @@
     X(NATIVE_PAGE_DOWN, "native_page_down", "Next page") \
     X(NATIVE_PAGE_OF, "native_page_of", "%d / %d") \
     X(NATIVE_APP_RUNNING, "native_app_running", "Running") \
-    X(NATIVE_LATER, "native_later", "not in this version") \
     X(NATIVE_3D_LATER, "native_3d_later", "3D comes with the depth model in a later update") \
     X(NATIVE_3D_NO_MODEL, "native_3d_no_model", "3D: Depth model not installed") \
     X(NATIVE_3D_FAILED, "native_3d_failed", "3D off: Depth model failed to load") \
@@ -203,7 +215,6 @@
     X(MODEL_FRAME, "native_model_frame", "Frame") \
     X(MODEL_GUN, "native_model_gun", "Gun") \
     X(ROW_3D_SOURCE, "native_3d_source", "3D source") \
-    X(SOURCE_DEPTH, "native_3d_source_depth", "Depth") \
     X(SOURCE_SBS, "native_3d_source_sbs", "SBS") \
     X(SOURCE_TB, "native_3d_source_tb", "Top-bottom") \
     X(SBS_NO_DEPTH, "native_3d_sbs_no_depth", "the PC draws the depth") \
@@ -324,7 +335,7 @@
     X(EYE_CAL_CANCEL, "native_eye_cal_cancel", "B: Cancel") \
     /* native (lane aspect-ratio): a 32:9 picture split as an SBS pair */ \
     X(SBS_WIDE, "native_toast_sbs_wide", "32:9 picture shown as SBS 3D") \
-    X(SBS_WIDE_MORE, "native_toast_sbs_wide_more", "3D source is SBS. For a 2D picture, set 3D source to Depth.")
+    X(SBS_WIDE_MORE, "native_toast_sbs_wide_more", "3D source is SBS. For a 2D picture, set 3D source to Depth model.")
 
 typedef enum {
 #define X(id, key, en) UIS_##id,

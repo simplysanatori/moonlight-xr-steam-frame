@@ -12,7 +12,7 @@
 #include "xr_shared.h"
 
 // Whether the ray is switched on for the session: the setting the session
-// started from, turned over each time the bar button or the Display tab's row
+// started from, turned over each time the bar button or the Controls tab's row
 // flips it
 int raySwitchOn(int settingOn, int flipped);
 

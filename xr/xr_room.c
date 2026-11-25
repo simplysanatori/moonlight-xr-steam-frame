@@ -291,7 +291,7 @@ int roomGlowOn(XrCtx* ctx, int style) {
 // when its every step would otherwise be a line in the log
 static int roomSizeDragging(XrCtx* ctx) {
     return ctx->grabMode == GRAB_RESIZE
-            || (ctx->cogDragSlider == COG_ROOM_ROW_SIZE && ctx->cogDragFace == COG_FACE_ROOM);
+            || (ctx->cogDragSlider == COG_SLIDER_SIZE && ctx->cogDragFace == COG_TAB_SCREEN);
 }
 
 // How large a style is drawn, which is the size it was built at unless a
@@ -655,7 +655,7 @@ void xrRoomRecord(XrCtx* ctx, VkCommandBuffer cmd, const XrEyeTargets* target, c
     rp.ambi = ctx->ambiTexture.view;
     rp.spillGain = roomSpillGainFor(lit, built, ctx->roomSpillGain, ctx->roomLightLevel);
     rp.dim = roomDim(ctx);
-    // Native (lane wave3-visual): the Picture tab's Background dim
+    // Native (lane wave3-visual): the Room tab's Background dim
     rp.bgDim = 1.0f - bgDimKeep(ctx->bgDim);
     rp.depth = target->depthView;
     rp.depthFormat = VK_FORMAT_D32_SFLOAT;

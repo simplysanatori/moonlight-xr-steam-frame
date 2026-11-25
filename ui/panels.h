@@ -30,7 +30,7 @@
 #include "xr_shared.h"
 
 typedef enum {
-    UI_PANEL_COG = 0,      // settings panel (tab chosen in UiView.cog_tab, Room tab in a room)
+    UI_PANEL_COG = 0,      // settings panel (tab chosen in UiView.cog_tab)
     UI_PANEL_PICKER,       // environment picker
     UI_PANEL_KEYBOARD,     // keyboard, sheet and held modifiers in UiView
     UI_PANEL_BAR,          // the bar row under the picture, all buttons and the move pill
@@ -80,7 +80,7 @@ typedef enum {
 } UiHitKind;
 
 typedef enum {
-    UI_BTN_RESET = 1,        // Screen, 3D and Picture tabs
+    UI_BTN_RESET = 1,        // Screen, Room, Display and 3D tabs
     UI_BTN_KOFI,             // About tab
     UI_BTN_REPORT,           // About tab
     UI_BTN_EXIT_CONFIRM,     // exit prompt (EXIT_ZONE_EXIT)
@@ -175,13 +175,9 @@ typedef struct {
     const char* version;         // About tab ("0.1.0"), NULL for none
     const char* commit;          // may be NULL
     const char* log_path;        // shown shortened; NULL means the log is off
-    // Native (M4): what the native client cannot act on yet. Display tab rows
-    // (bit per COG_OPTION_*, bit COG_DISPLAY_SLIDER_ROW for the glow level)
-    // drawn greyed with later_reason (NULL: "comes in a later update"); the 3D
-    // tab's reason when stereo_ok is 0 (NULL: upstream's "3D is off in
+    int gun;                     // native (1.3.4): the light gun sets the pointer's rows (xr_lightgun.h)
+    // Native (M4): the 3D tab's reason when stereo_ok is 0 (NULL: upstream's "3D is off in
     // settings"); picker tiles at or past env_live_cells drawn dimmed, "Later".
-    unsigned display_later;
-    const char* later_reason;
     const char* stereo_reason;
     int env_live_cells;
     // The exit prompt's question (NULL: upstream's "Exit the stream?"); the
@@ -300,19 +296,14 @@ const char* ui_kb_map_key_label(int map, int sheet, int index);
 // The Compact keyboard's chip (in the half key of room beside the home row)
 void ui_kb_layout_chip_rect(float rect[4]);
 
-// The Display tab's rows, the 3D presets and so on are described by xr_shared.h's
-// COG_* tables; these answer the questions a panel needs of the settings.
-int ui_cog_face(const UiView* v);   // COG_TAB_* , or COG_FACE_ROOM when the Room tab is up
-#define COG_FACE_ROOM COG_TAB_COUNT
-// Rows of a face, whatever kind (xr_ui.c cogTabRowCount)
-int ui_cog_row_count(int face);
-// 1 for a track row, 0 for a row of cells
-int ui_cog_row_is_track(int face, int row);
-int ui_cog_row_cells(int face, int row);
-int ui_cog_row_live(const UiView* v, int face, int row);
-// The cell a Display tab row rings (settings_option_cell), but the Glow row's in a room is the room's
-// own glow, the same switch the Room tab's Glow row is (xr_ui.c cogOptionValue, roomGlowOn)
-int ui_cog_display_cell(const UiView* v, int row);
+// The settings panel's tabs and rows are xr_layout.h's table (cogRowOf); these
+// answer the questions the panel has of the settings.
+// What the view says of the rows (the session's side is xr_ui.c cogStateOf), and whether one is live
+CogState ui_cog_state(const UiView* v);
+int ui_cog_row_live(const UiView* v, int tab, int row);
+// The cell an option's row rings (settings_option_cell), but the Glow row's in a room is the room's own
+// glow (xr_ui.c cogOptionValue, roomGlowOn)
+int ui_cog_option_cell(const UiView* v, int option);
 // Native (lane a11y-tab, a11y-2): the cells an Accessibility row has, and whether one takes a press
 // (the pointer row's Eyes is dimmed where the runtime has no eye gaze, xr_access.h accessEyesCellLive)
 int ui_cog_access_cells(const UiView* v, int row);

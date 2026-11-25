@@ -313,96 +313,44 @@ void ui_view_init(UiView* v, const Settings* s) {
     v->eyecal_step = 0;
 }
 
-int ui_cog_face(const UiView* v) {
-    return v->cog_tab == COG_TAB_SCREEN && v->room_env >= 0 && settings_room_index(v->room_env) >= 0
-               ? COG_FACE_ROOM : v->cog_tab;
-}
-
-int ui_cog_row_count(int face) {
-    if (face == COG_TAB_SCREEN) return COG_SCREEN_ROW_COUNT;
-    if (face == COG_TAB_3D) return COG_ROW3D_COUNT;
-    if (face == COG_FACE_ROOM) return COG_ROOM_ROW_COUNT;
-    if (face == COG_TAB_PICTURE) return PICTURE_TAB_ROWS;
-    if (face == COG_TAB_ACCESS) return COG_ACCESS_ROW_COUNT;
-    if (face == COG_TAB_ABOUT) return 0;
-    return COG_DISPLAY_SLIDER_ROW + 1;
-}
-
-int ui_cog_row_is_track(int face, int row) {
-    if (face == COG_TAB_SCREEN) return row < COG_SCREEN_TRACK_ROWS;
-    if (face == COG_TAB_ACCESS) return row == COG_ACCESS_ROW_DOT;
-    if (face == COG_TAB_DISPLAY) return row == COG_DISPLAY_SLIDER_ROW;
-    if (face == COG_FACE_ROOM) return row != COG_ROOM_ROW_GLOW && row != COG_ROOM_ROW_LIGHT;
-    if (face == COG_TAB_3D) {
-        return row == COG_ROW3D_SEPARATION || row == COG_ROW3D_CONVERGENCE
-            || (row >= COG_ROW3D_EDGE && row <= COG_ROW3D_BALANCE);
-    }
-    return 1;
-}
-
-static int option_cells(int option) {
-    static const int N[COG_OPTION_COUNT] = { COG_SHARPEN_CELLS, COG_SUPERSAMPLE_CELLS,
-        COG_STATS_CELLS, COG_HEAD_LOCK_CELLS, COG_HEAD_AIM_CELLS, COG_GAMEPAD_CELLS,
-        COG_CONTROLLERS_CELLS, COG_RAY_CELLS, COG_POINTER_SLEEP_CELLS, COG_CLICK_STEADY_CELLS, COG_CLICK_SOUND_CELLS,
-        COG_AMBI_CELLS, COG_ROOM_LIGHT_CELLS, COG_NOTICES_CELLS, COG_FOVEATED_CELLS };
-    return option >= 0 && option < COG_OPTION_COUNT ? N[option] : 0;
-}
-
-int ui_cog_row_cells(int face, int row) {
-    if (face == COG_TAB_SCREEN) {
-        return row == COG_SCREEN_ROW_PRESET ? COG_SCREEN_PRESET_CELLS
-             : row == COG_SCREEN_ROW_PER_APP ? COG_SCREEN_PER_APP_CELLS
-             : row == COG_SCREEN_ROW_LOCK ? COG_SCREEN_LOCK_CELLS : 0;
-    }
-    if (face == COG_FACE_ROOM) return COG_ROOM_SWITCH_CELLS;
-    if (face == COG_TAB_ACCESS) {
-        return row == COG_ACCESS_ROW_POINTER ? COG_ACCESS_POINTER_CELLS
-             : row == COG_ACCESS_ROW_DWELL ? COG_ACCESS_DWELL_CELLS
-             : row == COG_ACCESS_ROW_STYLE ? COG_ACCESS_STYLE_CELLS
-             : row == COG_ACCESS_ROW_EYECAL ? COG_ACCESS_EYECAL_CELLS : 0;
-    }
-    if (face == COG_TAB_3D) {
-        return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS : row == COG_ROW3D_SOURCE ? COG_SOURCE_CELLS
-             : row == COG_ROW3D_MODEL ? COG_MODEL_CELLS : COG_STEREO_CELLS;
-    }
-    return option_cells(row);
-}
-
-int ui_cog_display_cell(const UiView* v, int row) {
+int ui_cog_option_cell(const UiView* v, int option) {
     // native (owner's request, 1.3.3): in a room the glow is the room's own switch, and a press on
-    // this row sets that one (xr_ui.c cogApplyOption), so the two rows are one switch
+    // the row sets that one (xr_ui.c cogApplyOption)
     int r = settings_room_index(v->room_env);
-    if (row == COG_OPTION_AMBILIGHT && r >= 0) return v->settings->room[r].glow;
+    if (option == COG_OPTION_AMBILIGHT && r >= 0) return v->settings->room[r].glow;
     // native (1.3.4): passthrough has no glow before its sheet's I Understand
-    if (row == COG_OPTION_AMBILIGHT && (v->pt_hides & UI_PT_HIDES_GLOW)) return 0;
-    return settings_option_cell(v->settings, &v->session, row);
+    if (option == COG_OPTION_AMBILIGHT && (v->pt_hides & UI_PT_HIDES_GLOW)) return 0;
+    return settings_option_cell(v->settings, &v->session, option);
 }
 
-int ui_cog_row_live(const UiView* v, int face, int row) {
-    int in_room = v->room_env >= 0 && settings_room_index(v->room_env) >= 0;
-    int head_locked = v->settings->head_locked;
-    if (face == COG_TAB_SCREEN && row == COG_SLIDER_CURVE) return v->curve_ok;
-    if (face == COG_TAB_SCREEN &&
-        (row == COG_SLIDER_AIM_SENSITIVITY || row == COG_SLIDER_AIM_DEADZONE)) return head_locked;
-    if (face == COG_TAB_DISPLAY && row >= 0 && row < 32 && (v->display_later & (1u << row))) return 0;
-    if (face == COG_TAB_DISPLAY && row == COG_OPTION_HEAD_AIM) return head_locked && !in_room;
-    if (face == COG_TAB_3D) return cog3dRowLive(v->stereo_ok, v->stereo_source, row);
-    if (face == COG_FACE_ROOM && row == COG_ROOM_ROW_SIZE) return settings_room_resizable(v->room_env);
+CogState ui_cog_state(const UiView* v) {
+    CogState state = {
+        .headLocked = v->settings->head_locked,
+        .inRoom = settings_room_index(v->room_env) >= 0,
+        .roomResizable = settings_room_resizable(v->room_env),
+        .curveOk = v->curve_ok,
+        .stereoOk = v->stereo_ok,
+        .stereoSource = v->stereo_source,
+        .gun = v->gun,
+    };
+    return state;
+}
+
+int ui_cog_row_live(const UiView* v, int tab, int row) {
     // every Accessibility row but the pointer's acts only with the head or the eyes pointing
     // (xr_assist.c cogAccessRowLive)
     // native (lane eye-calibration): but the Eye calibration's, live while eye gaze reaches the app
-    if (face == COG_TAB_ACCESS && row == COG_ACCESS_ROW_EYECAL) {
-        return accessEyeCalLive(v->access_eyes);
+    if (tab == COG_TAB_ACCESS) {
+        if (row == COG_ACCESS_ROW_EYECAL) return accessEyeCalLive(v->access_eyes);
+        return row == COG_ACCESS_ROW_POINTER || v->settings->pointer_source != POINTER_SOURCE_CONTROLLER;
     }
-    if (face == COG_TAB_ACCESS && row != COG_ACCESS_ROW_POINTER) {
-        return v->settings->pointer_source != POINTER_SOURCE_CONTROLLER;
-    }
-    return 1;
+    CogState state = ui_cog_state(v);
+    return cogRowWhy(&state, tab, row) == COG_LIVE;
 }
 
 int ui_cog_access_cells(const UiView* v, int row) {
     (void)v;
-    return ui_cog_row_cells(COG_TAB_ACCESS, row);
+    return cogRowCells(COG_TAB_ACCESS, row);
 }
 
 int ui_cog_access_cell_live(const UiView* v, int row, int cell) {

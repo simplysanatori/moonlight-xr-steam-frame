@@ -23,7 +23,7 @@ layout(location = 0) out vec4 fragColor;
 
 void main() {
     vec3 base = mix(v_color, texture(u_room, v_uv).rgb, pc.params.y) * pc.params.z;
-    // u_keep is what the Picture tab's Background dim leaves of the room, 1
+    // u_keep is what the Room tab's Background dim leaves of the room, 1
     // for none taken: the whole of what the room shows, the wash of the
     // picture's light as well, goes down together to black at 0
     fragColor = encodeOut(vec4((base + v_wash) * pc.params.w, 1.0));

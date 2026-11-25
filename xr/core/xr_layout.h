@@ -203,11 +203,73 @@ int laneUnits(float t, int min, int max);
 float lanePlace(int units, int min, int max);
 int lanePercent(int units, int min, int max);
 
+// The settings panel's rows, one table for what is drawn, what takes a press
+// and what a press sets. A row is a track to drag (steps, the places along it:
+// each the unit its value is kept in or a sensible share of a value kept as a
+// float) or a row of cells to press; option is the COG_OPTION_ its cells set,
+// or -1 for a row with a setting of its own.
+typedef struct CogRow {
+    int steps;
+    int cells;
+    int option;
+} CogRow;
+int cogTabRowCount(int tab);
+const CogRow* cogRowOf(int tab, int row);   // NULL for no such row
+int cogRowIsTrack(int tab, int row);
+int cogRowCells(int tab, int row);          // 0 for a track
+int cogTrackSteps(int tab, int row);        // 0 for a row of cells
+int cogRowOption(int tab, int row);         // COG_OPTION_*, or -1
+// Where an option's row is, 0 when no tab has it
+int cogOptionRow(int option, int* tab, int* row);
+int cogOptionCells(int option);
+
+// What decides whether a row can do anything, filled from the session for the
+// hit test and from the view for the drawing
+typedef struct CogState {
+    int headLocked;     // the screen locked to the head (Off or Follow are not)
+    int inRoom;         // a room is up
+    int roomResizable;  // and lets its picture be sized
+    int curveOk;        // the runtime has a layer that curves
+    int stereoOk;       // the stream has a stereo mode
+    int stereoSource;   // STEREO_SOURCE_*
+    int gun;            // the light gun's policy sets the pointer
+} CogState;
+// Why a row can do nothing. COG_LIVE for one that can, and for every row of
+// the Accessibility tab, which has rules of its own (xr_access.h).
+#define COG_LIVE 0
+#define COG_DEAD_NO_CURVE 1     // nothing to curve with
+#define COG_DEAD_HEAD_LOCK 2    // needs the screen locked to the head
+#define COG_DEAD_NOT_IN_ROOM 3  // not in a room
+#define COG_DEAD_ONLY_IN_ROOM 4
+#define COG_DEAD_BY_ROOM 5      // the room sets it
+#define COG_DEAD_BY_GUN 6       // the light gun sets it
+#define COG_DEAD_NO_3D 7        // the stream has no stereo mode
+#define COG_DEAD_NO_DEPTH 8     // the PC draws the pair
+#define COG_DEAD_NO_ROW 9
+int cogRowWhy(const CogState* state, int tab, int row);
+// The tabs with a reset button, and whether a press on it does anything here
+int cogTabHasReset(int tab);
+int cogResetLive(const CogState* state, int tab);
+
+// Native (1.3.4): the tab config.ini keeps and the panel's own. The file keeps
+// the six names it always had, so an older release opens on a real tab: Room
+// is written as the Screen tab and Controls as the Display tab.
+#define COG_FILE_TABS 6
+int cogTabFromFile(int fileTab);
+int cogTabToFile(int tab);
+
+// Native (1.3.4): the wheel speed's places along the Controls tab's track, the
+// flat Settings page's own (percent). Where a speed's thumb sits (0..1, held
+// to the ends), the nearest place to a point along it, and the place a step
+// button goes to, which past either end is the speed it was.
+extern const int SCROLL_STEP_PERCENT[COG_SCROLL_STEPS + 1];
+float scrollTrackPlace(int percent);
+int scrollTrackPercent(float t);
+int scrollTrackStep(int percent, int dir);
+
 // Where a row sits down the settings panel, as a fraction of its height, how
 // far either side of that the row's hit band reaches, and how tall a row of
-// cells is drawn, half of it. The display, screen and 3D tabs pack their rows
-// closer than the rest. tab is one of the COG_TAB_ values, or anything past
-// them for a face that is not a tab.
+// cells is drawn, half of it. tab is one of the COG_TAB_ values.
 float cogRowV(int tab, int row);
 float cogRowHalf(int tab);
 float cogCellHalf(int tab);
@@ -235,11 +297,6 @@ float cogRunU(float t);
 // left between two goes to the nearer one in that direction. Held to the
 // track's ends.
 int cogStepIndex(float t, int steps, int dir);
-
-// How many steps a track has, each the unit its value is kept in or a sensible
-// share of a value kept as a float, or 0 for a row that is not a track. tab
-// is one of the COG_TAB_ values, or anything past them for the Room tab.
-int cogTrackSteps(int tab, int row);
 
 // Whether a point on the settings panel is on the About tab's report button,
 // or its Ko-fi button
@@ -269,7 +326,7 @@ int kofiSheetZone(float u, float v);
 int separationUnits(float separation);
 float separationOf(int units);
 
-// Native (lane wave3-visual). The Picture tab's Background dim: a percent held
+// Native (lane wave3-visual). The Room tab's Background dim: a percent held
 // to its lane and its five percent steps, and the share of the environment's
 // light that is left of it (1 at 0 percent, 0 at 100).
 int bgDimClamp(int percent);

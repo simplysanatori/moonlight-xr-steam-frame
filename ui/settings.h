@@ -1,7 +1,7 @@
 // One settings struct for the whole client: the stream (host, app, resolution,
 // frame rate, bitrate, codec, audio), every VR setting of the upstream
 // "VR Settings" and "VR Debugging" tables, the in-headset panel's Display, 3D,
-// Picture and Screen values, and each room's own Room tab values. Defaults
+// picture and Screen values, and each room's own Room tab values. Defaults
 // are upstream's (PreferenceConfiguration.java, XrShared constants, the fork
 // README's tables).
 //
@@ -152,7 +152,7 @@ typedef struct Settings {
     int first_run_shown;   // native: the first-run controls card has been shown (once per install)
     int pad_card;          // native: PADCARD_*: the gamepad card in the lap: 0 auto (up while a pad is in use), 1 on, 2 off
     int picture_brightness, picture_contrast, picture_gamma, picture_saturation;
-    int bg_dim;            // native: Picture tab Background, percent of the room, cameras or void taken away (BG_DIM_)
+    int bg_dim;            // native: Room tab Background dim, percent of the room, cameras or void taken away (BG_DIM_)
     char void_color[32];   // native: the void's colour, "#rrggbb" (config only; black unless set)
 
     // [debug] VR Debugging table
@@ -162,7 +162,7 @@ typedef struct Settings {
     int eye_swap;
     int file_log;          // 0 off, 1 warnings and errors, 2 verbose
 
-    // [display] the Display tab's persisted rows
+    // [display] the Display, Room and Screen tabs' persisted rows
     int head_locked;
     int sharpening;        // 0 off, 1 normal, 2 quality
     int supersampling;
@@ -172,10 +172,10 @@ typedef struct Settings {
     int stats_style;       // native: what the Stats overlay shows: 0 full lines, 1 HUD, 2 Lite one-liner (xr_hud.h STATS_STYLE_)
     int glow;              // ambilight
     int glow_level;        // percent, five percent steps
-    int glow_spread;       // native (issue #7): Picture tab Glow spread, the glow's reach, percent of its most (GLOW_SPREAD_)
+    int glow_spread;       // native (issue #7): Room tab Glow spread, the glow's reach, percent of its most (GLOW_SPREAD_)
     int foveated;          // native (1.3.4): Foveated rendering, FOVEATED_AUTO (never chosen), ON or OFF
     int screen_light;      // room light
-    int cog_tab;           // native: the cog's tab as it was last left (COG_TAB_*), where it opens next time
+    int cog_tab;           // native: the cog's tab as it was last left (the file's numbers, cogTabFromFile), where it opens next time
 
     // [3d]
     int separation;        // tenths of a percent of frame width; -1 = the depth model's own
@@ -410,6 +410,8 @@ int settings_fdm_layer_off(const Settings* s, const char* fdmEnv, const char** w
 int settings_head_lock_cell(const Settings* s);
 void settings_reset_3d(Settings* s);
 void settings_reset_picture(Settings* s);
+// The Room tab's Reset: Background dim, Glow level and Glow spread
+void settings_reset_room(Settings* s);
 // The void's colour as 0..1 red, green and blue as typed (sRGB). Reads "#rrggbb",
 // "rrggbb", "#rgb" or "rgb"; anything else gives black and returns 0.
 int settings_void_rgb(const Settings* s, float rgb[3]);
@@ -418,7 +420,7 @@ int settings_parse_hex_rgb(const char* text, float rgb[3]);
 int* settings_picture_ptr(Settings* s, int row);              // PICTURE_* row
 int settings_picture_value(const Settings* s, int row);
 
-// Display tab: the cell in force on each option row (COG_OPTION_*), 0-based,
+// The cell in force on each option row (COG_OPTION_*), 0-based,
 // for the rows the Settings struct owns. session carries the bar-button rows
 // that last only for the session (head aim, controllers pad/pointer, ray).
 typedef struct {
@@ -429,7 +431,7 @@ typedef struct {
 } SessionToggles;
 void session_from_settings(const Settings* s, SessionToggles* t);
 int settings_option_cell(const Settings* s, const SessionToggles* t, int option);
-// Native: the Display tab's ray row, three cells: 0 neither ray nor dot, 1 the
+// Native: the Controls tab's Ray row, three cells: 0 neither ray nor dot, 1 the
 // dot alone, 2 the ray (with the dot). A ray without a dot shows as 2.
 int settings_pointer_cell(int ray, int dot);
 void settings_pointer_from_cell(int cell, int* ray, int* dot);

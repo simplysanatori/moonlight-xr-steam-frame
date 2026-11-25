@@ -707,7 +707,6 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->version = MLXR_VERSION;   // the top-level VERSION file, through CMake
     v->commit = NULL;
     v->log_path = "~/Games/MoonlightXRNative/moonlight.log";
-    v->display_later = xrDisplayLaterMask(ctx);
     // M6: why the 3D is off (off in settings, no model, the model failed)
     v->stereo_reason = ctx->depthReason[0] ? ctx->depthReason : ui_str(UIS_THREE_D_OFF_IN_SETTINGS);
     v->env_live_cells = ctx->pickerCells;
@@ -717,6 +716,7 @@ static void buildView(XrCtx* ctx, const Settings* live, UiView* v) {
     v->hint_kind = ctx->hintKind;   // native (1.3.3): the hand lock hint or ZipDepth Full's question; (1.3.4) the passthrough sheets
     v->pt_hides = (xrPassthroughHidesModels(ctx) ? UI_PT_HIDES_CONTROLLERS : 0u)
                 | (xrPassthroughHidesGlow(ctx) ? UI_PT_HIDES_GLOW : 0u);   // native (1.3.4)
+    v->gun = ctx->lightgun.active;   // native (1.3.4): the light gun sets the pointer's rows
     v->pad = ctx->padLive;   // Native (lane wave3-cards): the pad card, and the first-run card's wording
     v->access_eyes = xrAccessEyes(ctx);   // Native (lane a11y-tab): the Accessibility tab's eye line
     v->access_row = xrAccessHoverRow(ctx);   // Native (lane a11y-2): and the row its footer describes
@@ -757,7 +757,7 @@ typedef struct {
     SessionToggles t;
     int tab, curveOk, stereoOk, showAim, roomEnv;
     UiHover hover;
-    unsigned later;
+    int gun;            // native (1.3.4)
     unsigned ptHides;   // native (1.3.4)
     int accessEyes;
     int accessRow;
@@ -781,7 +781,7 @@ static void updateCog(XrCtx* ctx, XrPanels* p, const UiView* base) {
     k.showAim = v.bar_show_aim;
     k.roomEnv = v.room_env;
     k.hover = v.hover;
-    k.later = v.display_later;
+    k.gun = v.gun;
     k.ptHides = v.pt_hides;
     k.accessEyes = v.access_eyes;
     k.accessRow = v.access_row;

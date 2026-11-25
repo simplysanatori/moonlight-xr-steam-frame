@@ -58,6 +58,11 @@
 // Native (lane eye-calibration): [vr] eye_calibration, from the context's calibration (value 1, a run's
 // result) or emptied (value 0, the row's Reset)
 #define SETTING_EYE_CAL 47
+// Native (1.3.4): the Controls tab's Mouse mode (MOUSE_MODE_*) and Scroll speed (percent), [vr]
+// mouse_mode and scroll_speed, and the Room tab's Reset (bg_dim, glow_level and glow_spread)
+#define SETTING_MOUSE_MODE 50
+#define SETTING_SCROLL_SPEED 51
+#define SETTING_RESET_ROOM 52
 // Not upstream's: the knob's name for xr_display.c's log lines
 #define PROP_REFRESH "the refresh knob"
 
@@ -238,13 +243,7 @@ void xrAssistClickRead(XrCtx* ctx, int64_t now);
 // 10 s focused without one, the action's state and the pose's flags
 void xrGazeWatch(XrCtx* ctx, int64_t nowNs, int focused, int actionActive);
 
-// ---- rows the native client cannot act on yet (xr_prefs.c) ----------------
-// 0 when the row is live as far as the native client goes, else the reason's
-// UiStr. None on the Display tab since M5. The 3D tab is dead through
-// stereoMode (M6).
-int xrRowLater(XrCtx* ctx, int face, int row);
-// The Display tab's rows xrRowLater kills, as UiView.display_later bits
-unsigned xrDisplayLaterMask(XrCtx* ctx);
+// ---- the environments (xr_prefs.c) ----------------------------------------
 // The picker's cell for a stored environment id (ENV_ID_*), and the
 // environment key's value for a cell (1 passthrough, 2 void, 3..5 the rooms)
 int xrCellForEnvironment(int env);

@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "xr_layout.h"
 #include "xr_shared.h"
 #include "xr_cards.h"
 #include "xr_lightgun.h"
@@ -109,7 +110,7 @@ static const char* const STEADY_NAMES[] = { "off", "normal", "steady" };
 static const char* const LOG_NAMES[] = { "off", "basic", "verbose" };
 static const char* const KBLAYOUT_NAMES[] = { "compact", "full" };
 static const char* const COGTAB_NAMES[] = { "screen", "display", "3d", "picture", "accessibility", "about" };
-_Static_assert(sizeof(COGTAB_NAMES) / sizeof(COGTAB_NAMES[0]) == COG_TAB_COUNT, "cog_tab names follow COG_TAB_");
+_Static_assert(sizeof(COGTAB_NAMES) / sizeof(COGTAB_NAMES[0]) == COG_FILE_TABS, "the file's tab names (xr_layout.h cogTabToFile)");
 static const char* const KEYMAP_NAMES[] = { "qwerty", "azerty", "qwertz" };
 static const char* const STATS_STYLE_NAMES[] = { "full", "hud", "lite" };
 // [ui] language: auto, then ui_strings.h's languages in their order (English first)
@@ -140,7 +141,7 @@ _Static_assert(sizeof(MODEL_NAMES) / sizeof(MODEL_NAMES[0]) == CONTROLLER_MODEL_
     DI("rooms", "room_" #env "_brightness", room[n].brightness, ROOM_BRIGHTNESS_MIN, ROOM_BRIGHTNESS_MAX, 0, "Room tab: brightness in hundredths of the room as baked (room_brightness_" #env ")"), \
     DB("rooms", "room_" #env "_glow", room[n].glow, 0, "Room tab: glow on (room_glow_" #env ")"), \
     DI("rooms", "room_" #env "_light", room[n].light, ROOM_LIGHT_MIN, ROOM_LIGHT_MAX, ROOM_LIGHT_DEFAULT, "Room tab: light level in hundredths (room_light_" #env ")"), \
-    DI("rooms", "room_" #env "_screen", room[n].screen, ROOM_SCREEN_MIN, ROOM_SCREEN_MAX, 100, "Room tab: picture size, percent of the room's screen (room_screen_" #env ")")
+    DI("rooms", "room_" #env "_screen", room[n].screen, ROOM_SCREEN_MIN, ROOM_SCREEN_MAX, 100, "Screen tab's Size in a room: picture size, percent of the room's screen (room_screen_" #env ")")
 
 static const SettingDesc TABLE[] = {
     // stream
@@ -231,7 +232,7 @@ static const SettingDesc TABLE[] = {
     // (zipdepth), which heated the Frame until it shut down. A default is written commented out, so a file that never
     // chose a model takes the new default, and a saved zipdepth stays; 1.3.2 reads both names.
     DE("vr", "depth_source", depth_source, DEPTH_NAMES, DEPTH_SOURCE_DEFAULT, "list_vr_depth_source: Realtime 3D mode (zipdepth-int8 ZipDepth Light, the default, lighter on the CPU; zipdepth ZipDepth Full, finer depth edges but much harder on the CPU, can overheat the headset at high refresh rates; midas older; off streams flat; flat, ramp, blob, eyetest, shifttest are test patterns)"),
-    DI("vr", "background_dim", bg_dim, BG_DIM_MIN, BG_DIM_MAX, BG_DIM_DEFAULT, "native: Picture tab Background, percent the room, the passthrough cameras or the void are dimmed (a black layer over passthrough, the room's lighting turned down, the void colour darkened); 0 leaves them as they are"),
+    DI("vr", "background_dim", bg_dim, BG_DIM_MIN, BG_DIM_MAX, BG_DIM_DEFAULT, "native: Room tab Background dim, percent the room, the passthrough cameras or the void are dimmed (a black layer over passthrough, the room's lighting turned down, the void colour darkened); 0 leaves them as they are"),
     DS("vr", "void_color", void_color, "#000000", "native: the colour of the void environment, #rrggbb; black by default. Dimmed by background_dim"),
     DE("vr", "env_res", env_res, ENVRES_NAMES, 1, "list_vr_env_res: Environment Res, how sharp the rooms are drawn: low (half the headset's recommended eye size), standard, high or ultra (the runtime's largest); read when the rooms are built at the start of a stream"),
     DB("vr", "hand_hint_seen", hand_hint_seen, 0, "the hand lock hint was put away for good"),
@@ -248,8 +249,8 @@ static const SettingDesc TABLE[] = {
     DB("debug", "eye_swap", eye_swap, 0, "checkbox_vr_eye_swap: swap the left and right eye of the 3D picture (for a wrong-way test pattern)"),
     DE("debug", "file_log", file_log, LOG_NAMES, 1, "list_vr_file_log: off, basic (warnings and errors), verbose"),
     // display tab
-    DB("display", "head_locked", head_locked, 0, "Display tab: head locked screen (checkbox_vr_head_locked)"),
-    DB("display", "head_follow", head_follow, 0, "native: Display tab, Head locked row's Follow cell: the screen stays in the world until the head turns past the leash, then eases after the gaze (head_locked wins when both are on)"),
+    DB("display", "head_locked", head_locked, 0, "Screen tab: head locked screen (checkbox_vr_head_locked)"),
+    DB("display", "head_follow", head_follow, 0, "native: Screen tab, Head locked row's Follow cell: the screen stays in the world until the head turns past the leash, then eases after the gaze (head_locked wins when both are on)"),
     DI("display", "follow_leash_deg", follow_leash_deg, FOLLOW_LEASH_MIN_DEG, FOLLOW_LEASH_MAX_DEG, FOLLOW_LEASH_DEFAULT_DEG, "native: Follow mode's leash, degrees of head yaw or pitch away from the screen before it eases after the gaze"),
     DI("display", "zoom", zoom, 100, 400, 100, "native (PLAN 4b.6): zoom percent, 100 shows the whole picture and 400 a quarter of it across and down, filling the screen. The binding actions app:zoomin, app:zoomout and app:zoomreset step it, aimed at the controller's pointer. Remembered per PC and app with the layout (Remember per app)"),
     DI("display", "zoom_x", zoom_x, 0, 100, 50, "native (PLAN 4b.6): where the zoomed part is centred across the picture, percent (0 the left edge, 100 the right); held where the part still fits"),
@@ -258,14 +259,14 @@ static const SettingDesc TABLE[] = {
     DE("display", "supersampling", supersampling, SHARP_NAMES, 1, "Display tab: supersample (list_vr_supersampling; native default normal, the owner's choice, upstream off; never used with the 3D on)"),
     DB("display", "picture_filter", picture_filter, 1, "native: sharper small text on the curved or 3D picture (MLXR_PICTURE_FILTER)"),
     DB("display", "chroma_from_luma", chroma_from_luma, 1, "native: sharper coloured text, colour fitted to the luma (MLXR_CHROMA_FROM_LUMA)"),
-    DB("display", "stats", stats, 0, "Display tab: show performance stats (true, false, or hud / lite to switch them on in that style)"),
+    DB("display", "stats", stats, 0, "Display tab: show performance stats (true, false, or hud / lite to switch them on in the Compact / Minimal style)"),
     DE("display", "stats_style", stats_style, STATS_STYLE_NAMES, 0, "native: what the stats show: full (every line the session writes), hud (latency, network, decode and rate in a few lines) or lite (speed, latency, decode, loss and fps on one line); with stats on, a perf-<stamp>.csv next to vrtiming.log gets a row every 5 s"),
-    DB("display", "glow", glow, 0, "Display tab: glow (checkbox_vr_ambilight; native default off, the owner's choice, upstream on)"),
-    DI("display", "glow_level", glow_level, 0, 100, 50, "Display tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
-    DI("display", "glow_spread", glow_spread, GLOW_SPREAD_MIN, GLOW_SPREAD_MAX, GLOW_SPREAD_DEFAULT, "native: Picture tab Glow spread, how far the glow reaches, percent of its most (about half the screen's longer side)"),
+    DB("display", "glow", glow, 0, "Room tab: glow (checkbox_vr_ambilight; native default off, the owner's choice, upstream on)"),
+    DI("display", "glow_level", glow_level, 0, 100, GLOW_LEVEL_DEFAULT, "Room tab: glow level, percent in 5 percent steps (seekbar_vr_ambilight_level)"),
+    DI("display", "glow_spread", glow_spread, GLOW_SPREAD_MIN, GLOW_SPREAD_MAX, GLOW_SPREAD_DEFAULT, "native: Room tab Glow spread, how far the glow reaches, percent of its most (about half the screen's longer side)"),
     DE("display", "foveated", foveated, FOVEATED_NAMES, FOVEATED_AUTO, "native: Foveated rendering: on (Valve's fdm_injection layer: full detail where you look, less at the edges) or off (slightly sharper, a little less GPU on the plain screen); auto is off in this version. From the next stream; MLXR_FDM_LAYER=0 turns it off whatever this says"),
-    DB("display", "screen_light", screen_light, 1, "Display tab: screen light in rooms (checkbox_vr_room_light)"),
-    DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (room in a room), display, 3d, picture, accessibility or about"),
+    DB("display", "screen_light", screen_light, 1, "Room tab: screen light in rooms (checkbox_vr_room_light)"),
+    DE("display", "cog_tab", cog_tab, COGTAB_NAMES, 0, "native: the tab the cog opens on, the one it was last left on: screen (Room is kept as this), display (Controls is kept as this), 3d, picture (opens Display), accessibility or about"),
     // 3d
     DI("3d", "separation", separation, -1, COG_SEP_STEPS, -1, "seekbar_vr_separation: tenths of a percent of frame width; -1 is the depth model's own (ZipDepth 6, MiDaS 5)"),
     DI("3d", "convergence", convergence, -1, 100, -1, "seekbar_vr_convergence: percent; -1 is the depth model's own (50)"),
@@ -1280,12 +1281,6 @@ float settings_screen_slider(const Settings* s, int row) {
     case COG_SLIDER_ROTATE: return clamp01(((float)s->screen_rotate_deg + 90.0f) / 180.0f);
     case COG_SLIDER_CURVE: return clamp01((float)s->screen_curve / 100.0f);
     case COG_SLIDER_SIZE: return clamp01(((float)s->screen_width_cm / 100.0f - 0.8f) / (8.0f - 0.8f));
-    case COG_SLIDER_AIM_SENSITIVITY:
-        return clamp01((float)(s->head_aim_sensitivity - HEAD_AIM_SENSITIVITY_MIN) /
-                       (float)(HEAD_AIM_SENSITIVITY_MAX - HEAD_AIM_SENSITIVITY_MIN));
-    case COG_SLIDER_AIM_DEADZONE:
-        return clamp01((float)(s->head_aim_deadzone - HEAD_AIM_DEADZONE_MIN) /
-                       (float)(HEAD_AIM_DEADZONE_MAX - HEAD_AIM_DEADZONE_MIN));
     default: return 0.0f;
     }
 }
@@ -1309,14 +1304,6 @@ void settings_set_screen_slider(Settings* s, int row, float t) {
     }
     case COG_SLIDER_CURVE: s->screen_curve = (int)lroundf(t * 100.0f); break;
     case COG_SLIDER_SIZE: s->screen_width_cm = (int)lroundf((0.8f + t * 7.2f) * 100.0f); break;
-    case COG_SLIDER_AIM_SENSITIVITY:
-        s->head_aim_sensitivity = HEAD_AIM_SENSITIVITY_MIN +
-            (int)lroundf(t * (float)(HEAD_AIM_SENSITIVITY_MAX - HEAD_AIM_SENSITIVITY_MIN));
-        break;
-    case COG_SLIDER_AIM_DEADZONE:
-        s->head_aim_deadzone = HEAD_AIM_DEADZONE_MIN +
-            (int)lroundf(t * (float)(HEAD_AIM_DEADZONE_MAX - HEAD_AIM_DEADZONE_MIN));
-        break;
     default: return;
     }
     settings_clamp(s);
@@ -1344,8 +1331,12 @@ void settings_reset_picture(Settings* s) {
     s->picture_contrast = PICTURE_CONTRAST_DEFAULT;
     s->picture_gamma = PICTURE_GAMMA_DEFAULT;
     s->picture_saturation = PICTURE_SATURATION_DEFAULT;
-    // The two rows under the grade on the same tab. The void colour has no row.
+}
+
+void settings_reset_room(Settings* s) {
+    // The void colour has no row
     s->bg_dim = BG_DIM_DEFAULT;
+    s->glow_level = GLOW_LEVEL_DEFAULT;
     s->glow_spread = GLOW_SPREAD_DEFAULT;
 }
 
@@ -1417,7 +1408,8 @@ int settings_option_cell(const Settings* s, const SessionToggles* t, int option)
     switch (option) {
     case COG_OPTION_SHARPEN: return clamp_int(s->sharpening, 0, 2);
     case COG_OPTION_SUPERSAMPLE: return clamp_int(s->supersampling, 0, 2);
-    case COG_OPTION_STATS: return s->stats;
+    case COG_OPTION_STATS: return s->stats ? 1 + clamp_int(s->stats_style, 0, COG_STATS_CELLS - 2) : 0;
+    case COG_OPTION_MOUSE_MODE: return s->mouse_mode == MOUSE_MODE_RELATIVE;
     case COG_OPTION_HEAD_LOCK: return settings_head_lock_cell(s);
     case COG_OPTION_HEAD_AIM: return t->head_aim;
     case COG_OPTION_GAMEPAD: return t->pad_mode;

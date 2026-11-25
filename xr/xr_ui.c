@@ -5,8 +5,8 @@
 // Moonlight XR Native: ported from Moonlight XR's xr-renderer/xr_ui.c
 // (Gilleece, GPLv3), logic unchanged. Native changes, each marked "native":
 // the JNI setters at the end are plain C functions fed from config.ini; the
-// Display tab's ray row has a third cell for the pointer dot; rows the native
-// client cannot act on yet are dead (xrRowLater).
+// ray row has a third cell for the pointer dot; the tabs and their rows are one
+// table (xr_layout.h), which the hit test and the drawing share.
 #include "xr_renderer.h"
 #include "xr_native.h"
 #include "xr_keyboard.h"
@@ -117,53 +117,32 @@ float xrCurveSetting(XrCtx* ctx) {
     return ctx->panelCurve >= 0.0f ? ctx->panelCurve : ctx->prefCurvature;
 }
 
-// A room places and sizes its own picture, so every row on the screen tab is
-// dead while one is on, and the first tab is the Room tab instead. Which rows
-// the panel shows, which the input side has to agree with.
-int cogFace(XrCtx* ctx) {
-    return ctx->cogTab == COG_TAB_SCREEN && roomEffective(ctx) > 0 ? COG_FACE_ROOM
-                                                                    : ctx->cogTab;
-}
-
-// Which sheet shows them. In a room every tab is drawn with the Room tab's
-// name over the first slot, and the Room tab itself greys its size row where
-// the room will not have the picture resized. Outside one, a screen not
-// locked to the head has the screen and display tabs with head aim's rows
-// greyed, which the room's display tab always has.
-int cogArt(XrCtx* ctx) {
-    int style = roomEffective(ctx);
-    if (style <= 0) {
-        if (!ctx->headLockedPref && ctx->cogTab == COG_TAB_SCREEN) {
-            return COG_ART_SCREEN_WORLD;
-        }
-        if (!ctx->headLockedPref && ctx->cogTab == COG_TAB_DISPLAY) {
-            return COG_ART_DISPLAY_WORLD;
-        }
-        return ctx->cogTab;
-    }
-    if (ctx->cogTab == COG_TAB_DISPLAY) {
-        return COG_ART_ROOM_DISPLAY;
-    }
-    if (ctx->cogTab == COG_TAB_3D) {
-        return COG_ART_ROOM_3D;
-    }
-    if (ctx->cogTab == COG_TAB_PICTURE) {
-        return COG_ART_ROOM_PICTURE;
-    }
-    if (ctx->cogTab == COG_TAB_ACCESS) {
-        return COG_ART_ROOM_ACCESS;
-    }
-    if (ctx->cogTab == COG_TAB_ABOUT) {
-        return COG_ART_ROOM_ABOUT;
-    }
-    return roomResizable(style) ? COG_ART_ROOM : COG_ART_ROOM_FIXED;
-}
-
-// The room the Room tab's rows belong to, or 0 with none up. Only ever a
-// style the per room values can be read at.
+// The room a room's own rows belong to, or 0 with none up. Only ever a style
+// the per room values can be read at.
 static int roomFaceStyle(XrCtx* ctx) {
     int style = roomEffective(ctx);
     return style >= ROOM_STYLE_FIRST && style <= ROOM_STYLE_LAST ? style : 0;
+}
+
+// What the session says of the panel's rows, for xr_layout.h's table
+static CogState cogStateOf(XrCtx* ctx) {
+    int style = roomEffective(ctx);
+    CogState state = {
+        .headLocked = ctx->headLockedPref != 0,
+        .inRoom = style > 0,
+        .roomResizable = style > 0 && roomResizable(style),
+        .curveOk = ctx->cylinderSupported != 0,
+        .stereoOk = ctx->stereoMode != DEPTH_MODE_OFF,
+        .stereoSource = ctx->stereoSource,
+        .gun = ctx->lightgun.active,
+    };
+    return state;
+}
+
+// Whether the Screen tab's Size row is the room's own: the share of the room's
+// screen the picture takes
+static int cogSizeIsRooms(XrCtx* ctx, int tab, int row) {
+    return tab == COG_TAB_SCREEN && row == COG_SLIDER_SIZE && roomEffective(ctx) > 0;
 }
 
 // How far the screen's face is tipped up or down, in radians. Positive is
@@ -482,7 +461,7 @@ int headAimCanAct(XrCtx* ctx) {
     return ctx->headLockedPref && roomEffective(ctx) <= 0;
 }
 
-// Head aim on or off for the rest of the session, from the bar or the Display
+// Head aim on or off for the rest of the session, from the bar or the Controls
 // tab. Nothing is stored: the setting is what the next session starts from.
 void setHeadAimOn(XrCtx* ctx, int on, const char* from) {
     on = on ? 1 : 0;
@@ -494,7 +473,7 @@ void setHeadAimOn(XrCtx* ctx, int on, const char* from) {
 }
 
 // Gamepad mode on or off for the rest of the session, from the shortcut on the
-// controllers, the bar or the Display tab, and the toast says which. Nothing is
+// controllers, the bar or the Controls tab, and the toast says which. Nothing is
 // stored: the next session starts as the pointer again. Going on, the input
 // pass puts the panels away, since nothing on the controllers can reach one
 // now. Going off, a trigger still held is taken as already down and kept from
@@ -704,111 +683,21 @@ int exitPromptHasDisconnect(const XrCtx* ctx) {
     return ctx->launcher == LAUNCHER_NONE;
 }
 
-// How many rows a face has, whatever kind they are
-int cogTabRowCount(int face) {
-    if (face == COG_TAB_SCREEN) {
-        return COG_SCREEN_ROW_COUNT;
-    }
-    if (face == COG_TAB_3D) {
-        return COG_ROW3D_COUNT;
-    }
-    if (face == COG_FACE_ROOM) {
-        return COG_ROOM_ROW_COUNT;
-    }
-    if (face == COG_TAB_PICTURE) {
-        return PICTURE_TAB_ROWS;
-    }
-    // Native (lane a11y-tab): the Accessibility tab's rows
-    if (face == COG_TAB_ACCESS) {
-        return COG_ACCESS_ROW_COUNT;
-    }
-    if (face == COG_TAB_ABOUT) {
-        return 0;
-    }
-    // The option rows, then the glow level track under them
-    return COG_DISPLAY_SLIDER_ROW + 1;
-}
-
-// Whether a row is a track to drag rather than a row of cells to press
-int cogRowIsTrack(int face, int row) {
-    if (face == COG_TAB_SCREEN) {
-        // The rows past the placement and head aim tracks are cells
-        return row < COG_SCREEN_TRACK_ROWS;
-    }
-    if (face == COG_TAB_DISPLAY) {
-        return row == COG_DISPLAY_SLIDER_ROW;
-    }
-    // Native (lane a11y-2): the Accessibility tab's Dot size is a track, the rest cells
-    if (face == COG_TAB_ACCESS) {
-        return row == COG_ACCESS_ROW_DOT;
-    }
-    if (face == COG_FACE_ROOM) {
-        return row != COG_ROOM_ROW_GLOW && row != COG_ROOM_ROW_LIGHT;
-    }
-    if (face == COG_TAB_3D) {
-        return row == COG_ROW3D_SEPARATION || row == COG_ROW3D_CONVERGENCE
-                || (row >= COG_ROW3D_EDGE && row <= COG_ROW3D_BALANCE);
-    }
-    return 1;
-}
-
-// How many cells a row of cells has, on whichever face it is
-int cogRowCells(int face, int row) {
-    if (face == COG_TAB_SCREEN) {
-        return row == COG_SCREEN_ROW_PRESET ? COG_SCREEN_PRESET_CELLS
-                : row == COG_SCREEN_ROW_PER_APP ? COG_SCREEN_PER_APP_CELLS
-                : row == COG_SCREEN_ROW_LOCK ? COG_SCREEN_LOCK_CELLS : 0;
-    }
-    if (face == COG_FACE_ROOM) {
-        return COG_ROOM_SWITCH_CELLS;
-    }
-    // Native (lane a11y-tab): the Accessibility tab's cell rows (xr_assist.c)
-    if (face == COG_TAB_ACCESS) {
-        return cogAccessCells(NULL, row);
-    }
-    if (face == COG_TAB_3D) {
-        return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS
-                : row == COG_ROW3D_SOURCE ? COG_SOURCE_CELLS
-                : row == COG_ROW3D_MODEL ? COG_MODEL_CELLS : COG_STEREO_CELLS;
-    }
-    return cogOptionCells(row);
-}
-
 // Whether a row can do anything here. A dead row is drawn greyed, carries no
-// thumb and takes no press, so the art, the layers and the hit test all ask.
-int cogRowLive(XrCtx* ctx, int face, int row) {
-    // Native: rows whose feature comes in a later milestone
-    if (xrRowLater(ctx, face, row) != 0) {
-        return 0;
-    }
-    // Curving needs a layer type this runtime may not have
-    if (face == COG_TAB_SCREEN && row == COG_SLIDER_CURVE) {
-        return ctx->cylinderSupported;
-    }
-    // Head aim only acts with the screen locked to the head, which on the
-    // screen tab is never in a room, since that face is the Room tab there
-    if (face == COG_TAB_SCREEN
-            && (row == COG_SLIDER_AIM_SENSITIVITY || row == COG_SLIDER_AIM_DEADZONE)) {
-        return ctx->headLockedPref;
-    }
-    if (face == COG_TAB_DISPLAY && row == COG_OPTION_HEAD_AIM) {
-        return headAimCanAct(ctx);
-    }
-    // With stereo off there is nothing for any 3D row to move or switch.
-    // Native (PLAN 4.3): but the 3D source row, which can bring it; and a
-    // pair the PC drew has no depth for the preset and depth rows to set.
-    if (face == COG_TAB_3D) {
-        return cog3dRowLive(ctx->stereoMode != DEPTH_MODE_OFF, ctx->stereoSource, row);
-    }
-    // A room built around its picture keeps it at the whole of its anchor
-    if (face == COG_FACE_ROOM && row == COG_ROOM_ROW_SIZE) {
-        return roomResizable(roomFaceStyle(ctx));
-    }
+// thumb and takes no press, so the art, the layers and the hit test all ask
+// the same table (xr_layout.h cogRowWhy).
+int cogRowLive(XrCtx* ctx, int tab, int row) {
     // Native (lane a11y-tab): the dwell click needs the head or the eyes pointing
-    if (face == COG_TAB_ACCESS) {
+    if (tab == COG_TAB_ACCESS) {
         return cogAccessRowLive(ctx, row);
     }
-    return 1;
+    CogState state = cogStateOf(ctx);
+    return cogRowWhy(&state, tab, row) == COG_LIVE;
+}
+
+int cogResetActs(XrCtx* ctx, int tab) {
+    CogState state = cogStateOf(ctx);
+    return cogResetLive(&state, tab);
 }
 
 // Where a slider's thumb sits along its track, 0 at the left end and 1 at the
@@ -818,28 +707,41 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
     XrVector3f p = ctx->screenPose.position;
     float t = 0.0f;
 
-    if (face == COG_TAB_DISPLAY) {
-        // Only one row on this tab has a thumb, so which one it is does not
-        // need asking
-        t = ctx->ambiIntensity;
+    if (cogSizeIsRooms(ctx, face, slider)) {
+        // A quarter of the room's screen at the left end, all of it at the
+        // right
+        int style = roomFaceStyle(ctx);
+        t = style == 0 ? 0.0f : lanePlace(roomScreenPercent(ctx, style), ROOM_SCREEN_MIN, ROOM_SCREEN_MAX);
     }
-    else if (face == COG_FACE_ROOM) {
+    else if (face == COG_TAB_ROOM) {
         // The room showing's own values, so the thumbs move when the picker
         // moves to another room
         int style = roomFaceStyle(ctx);
-        if (style == 0) {
-            return 0.0f;
+        if (slider == COG_ROOM_ROW_BG_DIM) {
+            t = lanePlace(ctx->bgDim, BG_DIM_MIN, BG_DIM_MAX);
         }
-        if (slider == COG_ROOM_ROW_BRIGHTNESS) {
+        else if (slider == COG_ROOM_ROW_GLOW_LEVEL) {
+            t = ctx->ambiIntensity;
+        }
+        else if (slider == COG_ROOM_ROW_GLOW_SPREAD) {   // native (issue #7)
+            t = lanePlace(ctx->glowSpread, GLOW_SPREAD_MIN, GLOW_SPREAD_MAX);
+        }
+        else if (style != 0 && slider == COG_ROOM_ROW_BRIGHTNESS) {
             t = lanePlace(ctx->roomBrightness[style], ROOM_BRIGHTNESS_MIN, ROOM_BRIGHTNESS_MAX);
         }
-        else if (slider == COG_ROOM_ROW_LIGHT_LEVEL) {
+        else if (style != 0 && slider == COG_ROOM_ROW_LIGHT_LEVEL) {
             t = lanePlace(ctx->roomLightLevel[style], ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
         }
-        else if (slider == COG_ROOM_ROW_SIZE) {
-            // A quarter of the room's screen at the left end, all of it at the
-            // right
-            t = lanePlace(roomScreenPercent(ctx, style), ROOM_SCREEN_MIN, ROOM_SCREEN_MAX);
+    }
+    else if (face == COG_TAB_CONTROLS) {
+        if (slider == COG_CONTROLS_ROW_SCROLL) {
+            t = scrollTrackPlace(ctx->scrollSpeed);
+        }
+        else if (slider == COG_CONTROLS_ROW_AIM_SENSITIVITY) {
+            t = lanePlace(ctx->headAimSensitivity, HEAD_AIM_SENSITIVITY_MIN, HEAD_AIM_SENSITIVITY_MAX);
+        }
+        else if (slider == COG_CONTROLS_ROW_AIM_DEADZONE) {
+            t = lanePlace(ctx->headAimDeadZone, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX);
         }
     }
     else if (face == COG_TAB_3D) {
@@ -868,15 +770,9 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
     else if (face == COG_TAB_ACCESS) {
         t = cogAccessSliderValue(ctx, slider);   // native (lane a11y-2): Dot size
     }
-    else if (face == COG_TAB_PICTURE) {
+    else if (face == COG_TAB_DISPLAY) {
         if (slider >= 0 && slider < PICTURE_VALUES) {
             t = lanePlace(ctx->pictureUnits[slider], pictureMin(slider), pictureMax(slider));
-        }
-        else if (slider == PICTURE_ROW_BACKGROUND) {
-            t = lanePlace(ctx->bgDim, BG_DIM_MIN, BG_DIM_MAX);
-        }
-        else if (slider == PICTURE_ROW_GLOW_SPREAD) {   // native (issue #7)
-            t = lanePlace(ctx->glowSpread, GLOW_SPREAD_MIN, GLOW_SPREAD_MAX);
         }
     }
     else if (slider == COG_SLIDER_DISTANCE) {
@@ -903,13 +799,6 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
         // Native (lane aspect-ratio): the size, a 16:9 picture's width at this height
         t = (ctx->screenWidth / xrScreenWidthScale(ctx) - SCREEN_MIN_WIDTH) / (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH);
     }
-    else if (slider == COG_SLIDER_AIM_SENSITIVITY) {
-        t = lanePlace(ctx->headAimSensitivity, HEAD_AIM_SENSITIVITY_MIN,
-                      HEAD_AIM_SENSITIVITY_MAX);
-    }
-    else if (slider == COG_SLIDER_AIM_DEADZONE) {
-        t = lanePlace(ctx->headAimDeadZone, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX);
-    }
 
     return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
 }
@@ -920,37 +809,67 @@ static int stepUnits(float t, int min, int step, int steps) {
     return min + (int)lroundf(t * (float)steps) * step;
 }
 
+static void screenSlider(XrCtx* ctx, int slider, float pu);
+
 // Applies a point on the track to whatever the row controls. The run the
 // thumb travels stops short of the track's ends, where the step buttons are.
 void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
     float t = cogRunPlace(pu);
 
-    if (face == COG_FACE_ROOM) {
-        // Whole units, the ones each preference is stored in, so the thumb
-        // shows exactly what gets written when the drag ends. All three are
-        // read afresh every frame, so the room changes under the thumb.
-        int style = roomFaceStyle(ctx);
-        if (style == 0) {
+    if (face == COG_TAB_SCREEN) {
+        if (!cogSizeIsRooms(ctx, face, slider)) {
+            screenSlider(ctx, slider, pu);
             return;
         }
-        if (slider == COG_ROOM_ROW_BRIGHTNESS) {
-            ctx->roomBrightness[style] = laneUnits(t, ROOM_BRIGHTNESS_MIN, ROOM_BRIGHTNESS_MAX);
-        }
-        else if (slider == COG_ROOM_ROW_LIGHT_LEVEL) {
-            ctx->roomLightLevel[style] = laneUnits(t, ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
-        }
-        else if (slider == COG_ROOM_ROW_SIZE && roomResizable(style)) {
-            // About the picture's centre, which the room keeps where it was
+        // In whole percent, about the picture's centre, which the room keeps
+        // where it was
+        int style = roomFaceStyle(ctx);
+        if (style != 0 && roomResizable(style)) {
             ctx->roomScreen[style] = laneUnits(t, ROOM_SCREEN_MIN, ROOM_SCREEN_MAX);
         }
         return;
     }
 
-    if (face == COG_TAB_DISPLAY) {
-        // Five percent steps, so the thumb shows exactly what the preference
-        // will be written with when the drag ends
-        int units = (int)roundf(t * 20.0f) * 5;
-        ctx->ambiIntensity = units / 100.0f;
+    if (face == COG_TAB_ROOM) {
+        // Whole units, the ones each preference is stored in, so the thumb
+        // shows exactly what gets written when the drag ends. All are read
+        // afresh every frame, so the surroundings change under the thumb.
+        int style = roomFaceStyle(ctx);
+        if (slider == COG_ROOM_ROW_BG_DIM) {
+            // Five percent steps, the ones the step buttons move by
+            ctx->bgDim = bgDimClamp(laneUnits(t, BG_DIM_MIN, BG_DIM_MAX));
+        }
+        else if (slider == COG_ROOM_ROW_GLOW_LEVEL) {
+            // Five percent steps
+            int units = (int)roundf(t * 20.0f) * 5;
+            ctx->ambiIntensity = units / 100.0f;
+        }
+        else if (slider == COG_ROOM_ROW_GLOW_SPREAD) {   // native (issue #7): five percent steps
+            ctx->glowSpread = GLOW_SPREAD_MIN
+                    + GLOW_SPREAD_STEP * laneUnits(t, 0, (GLOW_SPREAD_MAX - GLOW_SPREAD_MIN) / GLOW_SPREAD_STEP);
+        }
+        else if (style != 0 && slider == COG_ROOM_ROW_BRIGHTNESS) {
+            ctx->roomBrightness[style] = laneUnits(t, ROOM_BRIGHTNESS_MIN, ROOM_BRIGHTNESS_MAX);
+        }
+        else if (style != 0 && slider == COG_ROOM_ROW_LIGHT_LEVEL) {
+            ctx->roomLightLevel[style] = laneUnits(t, ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
+        }
+        return;
+    }
+
+    if (face == COG_TAB_CONTROLS) {
+        // Head aim's two in the whole units they are stored in. All are read
+        // every frame, so the next turn already goes at what the thumb shows.
+        if (slider == COG_CONTROLS_ROW_SCROLL) {
+            xrSetScrollSpeed(ctx, scrollTrackPercent(t));
+        }
+        else if (slider == COG_CONTROLS_ROW_AIM_SENSITIVITY) {
+            ctx->headAimSensitivity = laneUnits(t, HEAD_AIM_SENSITIVITY_MIN,
+                                                HEAD_AIM_SENSITIVITY_MAX);
+        }
+        else if (slider == COG_CONTROLS_ROW_AIM_DEADZONE) {
+            ctx->headAimDeadZone = laneUnits(t, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX);
+        }
         return;
     }
 
@@ -960,20 +879,12 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
         return;
     }
 
-    if (face == COG_TAB_PICTURE) {
+    if (face == COG_TAB_DISPLAY) {
         // Whole units, so the thumb and the readout show exactly what gets
         // written when the drag ends. The grade is read every frame, so the
         // picture changes under the thumb.
         if (slider >= 0 && slider < PICTURE_VALUES) {
             pictureSet(ctx, slider, laneUnits(t, pictureMin(slider), pictureMax(slider)));
-        }
-        else if (slider == PICTURE_ROW_BACKGROUND) {
-            // Five percent steps, the ones the step buttons move by
-            ctx->bgDim = bgDimClamp(laneUnits(t, BG_DIM_MIN, BG_DIM_MAX));
-        }
-        else if (slider == PICTURE_ROW_GLOW_SPREAD) {   // native (issue #7): five percent steps
-            ctx->glowSpread = GLOW_SPREAD_MIN
-                    + GLOW_SPREAD_STEP * laneUnits(t, 0, (GLOW_SPREAD_MAX - GLOW_SPREAD_MIN) / GLOW_SPREAD_STEP);
         }
         return;
     }
@@ -1012,20 +923,13 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
         else if (slider == COG_ROW3D_BALANCE) {
             ctx->eyeBalance = (float)stepUnits(t, EYE_BALANCE_MIN, COG_BALANCE_STEP, COG_BALANCE_STEPS) / 100.0f;
         }
-        return;
     }
+}
 
-    // Head aim's two, in the whole units they are stored in, read every
-    // frame, so the next turn already goes at what the thumb shows
-    if (slider == COG_SLIDER_AIM_SENSITIVITY) {
-        ctx->headAimSensitivity = laneUnits(t, HEAD_AIM_SENSITIVITY_MIN,
-                                            HEAD_AIM_SENSITIVITY_MAX);
-        return;
-    }
-    if (slider == COG_SLIDER_AIM_DEADZONE) {
-        ctx->headAimDeadZone = laneUnits(t, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX);
-        return;
-    }
+// The placement's six, whatever is up: a point on the track to the screen's
+// own pose and width (the presets come here too)
+static void screenSlider(XrCtx* ctx, int slider, float pu) {
+    float t = cogRunPlace(pu);
 
     if (slider == COG_SLIDER_DISTANCE) {
         XrVector3f p = ctx->screenPose.position;
@@ -1116,53 +1020,6 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
     }
 }
 
-// The option rows on the display tab are a row of cells rather than a track
-int cogOptionCells(int option) {
-    if (option == COG_OPTION_SHARPEN) {
-        return COG_SHARPEN_CELLS;
-    }
-    if (option == COG_OPTION_SUPERSAMPLE) {
-        return COG_SUPERSAMPLE_CELLS;
-    }
-    if (option == COG_OPTION_HEAD_LOCK) {
-        return COG_HEAD_LOCK_CELLS;
-    }
-    if (option == COG_OPTION_HEAD_AIM) {
-        return COG_HEAD_AIM_CELLS;
-    }
-    if (option == COG_OPTION_GAMEPAD) {
-        return COG_GAMEPAD_CELLS;
-    }
-    if (option == COG_OPTION_POINTER_SLEEP) {
-        return COG_POINTER_SLEEP_CELLS;
-    }
-    if (option == COG_OPTION_CLICK_STEADY) {
-        return COG_CLICK_STEADY_CELLS;
-    }
-    if (option == COG_OPTION_RAY) {
-        return COG_RAY_CELLS;
-    }
-    if (option == COG_OPTION_CONTROLLERS) {
-        return COG_CONTROLLERS_CELLS;
-    }
-    if (option == COG_OPTION_CLICK_SOUND) {
-        return COG_CLICK_SOUND_CELLS;
-    }
-    if (option == COG_OPTION_NOTICES) {
-        return COG_NOTICES_CELLS;
-    }
-    if (option == COG_OPTION_AMBILIGHT) {
-        return COG_AMBI_CELLS;
-    }
-    if (option == COG_OPTION_ROOM_LIGHT) {
-        return COG_ROOM_LIGHT_CELLS;
-    }
-    if (option == COG_OPTION_FOVEATED) {
-        return COG_FOVEATED_CELLS;
-    }
-    return COG_STATS_CELLS;
-}
-
 // Which cell of a row is the one in force. Head lock is the one value this side
 // does not keep: it arrives with the frame, and reading it back means the ring
 // still tells the truth if something outside the panel changes it.
@@ -1222,7 +1079,14 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
         int on = ctx->foveated == FOVEATED_AUTO ? FOVEATED_AUTO_IS_ON : ctx->foveated == FOVEATED_ON;
         return on ? 0 : 1;
     }
-    return ctx->overlayVisible ? 1 : 0;
+    if (option == COG_OPTION_STATS) {
+        // Off, then the window's styles
+        return ctx->overlayVisible ? 1 + ctx->statsStyle : 0;
+    }
+    if (option == COG_OPTION_MOUSE_MODE) {
+        return ctx->mouseMode == MOUSE_MODE_RELATIVE ? 1 : 0;
+    }
+    return -1;
 }
 
 // Takes effect here and now, and hands back the setting id so the frame can
@@ -1238,15 +1102,24 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         return SETTING_SUPERSAMPLE;
     }
     if (option == COG_OPTION_STATS) {
+        // Native (1.3.4): Off keeps the style for the next time; a style turns
+        // the window on
         ctx->overlayVisible = cell != 0;
+        if (cell > 0) {
+            ctx->statsStyle = STATS_STYLE_FULL + cell - 1;
+        }
+        LOGEV("stats %s from the panel", cell == 0 ? "off" : cell == 1 ? "full" : cell == 2 ? "compact" : "minimal");
         return SETTING_STATS;
+    }
+    if (option == COG_OPTION_MOUSE_MODE) {
+        // Native (1.3.4): from the next frame's motion
+        xrSetMouseMode(ctx, cell != 0 ? MOUSE_MODE_RELATIVE : MOUSE_MODE_ABSOLUTE);
+        LOGEV("mouse mode %s from the panel", cell != 0 ? "relative" : "absolute");
+        return SETTING_MOUSE_MODE;
     }
     if (option == COG_OPTION_HEAD_LOCK) {
         // Nothing to set here: Java writes the preference it already hands down
         // every frame, and the space is picked from that value on the next one.
-        // Left live inside a room like the screen light row, since the picker
-        // can drop the room at any moment. In one the wall wins and the screen
-        // stays put whatever this says.
         ctx->followOn = cell == 2;
         if (!ctx->followOn) {
             followReset(&ctx->follow);
@@ -1257,13 +1130,13 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
     if (option == COG_OPTION_HEAD_AIM) {
         // The bar button's switch, for this session only, so nothing goes to
         // Java to store
-        setHeadAimOn(ctx, cell != 0, "the Display tab");
+        setHeadAimOn(ctx, cell != 0, "the Controls tab");
         return -1;
     }
     if (option == COG_OPTION_GAMEPAD) {
         // The bar button's switch too. Gamepad puts the panel away with the
         // others, since the controllers cannot reach it any more.
-        setPadMode(ctx, cell != 0, "the Display tab");
+        setPadMode(ctx, cell != 0, "the Controls tab");
         return -1;
     }
     if (option == COG_OPTION_POINTER_SLEEP) {
@@ -1280,7 +1153,7 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         // agree. The third cell is the dot, which is stored as well.
         int ray = 0, dot = 1;
         settings_pointer_from_cell(cell, &ray, &dot);
-        setRayOn(ctx, ray, "the Display tab");
+        setRayOn(ctx, ray, "the Controls tab");
         ctx->raySetting = ray ? 1 : 0;
         ctx->rayFlipped = 0;
         if (dot != ctx->dotOn) {
@@ -1304,8 +1177,8 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         return SETTING_CLICK_SOUND;
     }
     if (option == COG_OPTION_AMBILIGHT) {
-        // In a room this is the same switch the Room tab's glow row is, so the
-        // two can never disagree about what is on
+        // In a room the row is the room's own switch, anywhere else the one for
+        // the void and passthrough
         int style = roomFaceStyle(ctx);
         if (style != 0) {
             ctx->roomGlow[style] = cell != 0;
@@ -1351,30 +1224,13 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
     return -1;
 }
 
-// The Room tab's two rows of cells: the room's own glow, and the screen light,
-// which is one switch for every room and the same one the display tab has
-int cogRoomCellValue(XrCtx* ctx, int row) {
-    if (row == COG_ROOM_ROW_GLOW) {
-        return roomGlowOn(ctx, roomEffective(ctx)) ? 1 : 0;
-    }
-    return ctx->roomLightOn ? 1 : 0;
-}
-
-// Applied here and now, and handed to Java to store in the same frame. The
-// glow is written under the room showing, which IN_SETTING_ROOM names.
-void cogApplyRoomCell(XrCtx* ctx, int row, int cell, float* out) {
-    int id = row == COG_ROOM_ROW_GLOW ? cogApplyOption(ctx, COG_OPTION_AMBILIGHT, cell)
-                                      : cogApplyOption(ctx, COG_OPTION_ROOM_LIGHT, cell);
-    out[IN_SETTING] = (float)id;
-    out[IN_SETTING_VALUE] = (float)cell;
-}
-
-// Which cell of a row of cells on the Room or 3D tab is in force, or -1 where
-// none is. A separation dragged to somewhere between the presets is none of
-// them, so their row carries no ring.
+// Which cell of a row of cells is in force, or -1 where none is. A separation
+// dragged to somewhere between the presets is none of them, so their row
+// carries no ring.
 int cogCellInForce(XrCtx* ctx, int face, int row) {
-    if (face == COG_FACE_ROOM) {
-        return cogRoomCellValue(ctx, row);
+    int option = cogRowOption(face, row);
+    if (option >= 0) {
+        return cogOptionValue(ctx, option, ctx->headLockedPref);
     }
     if (face == COG_TAB_SCREEN && row == COG_SCREEN_ROW_PRESET) {
         return xrScreenPresetNow(ctx);
@@ -1536,16 +1392,16 @@ void xrScreenApplyPreset(XrCtx* ctx, int preset) {
     LayoutPreset p = layoutPresetOf(preset);
     float d = (float)p.distanceCm / 100.0f;
     float w = (float)p.widthCm / 100.0f;
-    cogApplySlider(ctx, COG_TAB_SCREEN, COG_SLIDER_DISTANCE,
-                   cogRunU((d - COG_DIST_MIN) / (COG_DIST_MAX - COG_DIST_MIN)));
-    cogApplySlider(ctx, COG_TAB_SCREEN, COG_SLIDER_SIZE,
-                   cogRunU((w - SCREEN_MIN_WIDTH) / (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH)));
+    screenSlider(ctx, COG_SLIDER_DISTANCE,
+                 cogRunU((d - COG_DIST_MIN) / (COG_DIST_MAX - COG_DIST_MIN)));
+    screenSlider(ctx, COG_SLIDER_SIZE,
+                 cogRunU((w - SCREEN_MIN_WIDTH) / (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH)));
     ctx->poseDirty = 1;
     LOGEV("screen preset %s: %.2f m away, %.2f m wide", PRESET_NAMES[preset], d, w);
 }
 
 // The Screen tab's cells. A preset is xrScreenApplyPreset. Bring here goes to
-// xrBringScreenHere. The switches go to Java to store like the Display tab's.
+// xrBringScreenHere. The switches go to Java to store like the option rows.
 static void cogApplyScreenCell(XrCtx* ctx, int row, int cell, float* out) {
     if (row == COG_SCREEN_ROW_PRESET) {
         if (cell == COG_SCREEN_CELL_BRING) {
@@ -1580,33 +1436,30 @@ static void cogApplyScreenCell(XrCtx* ctx, int row, int cell, float* out) {
 // A press on a cell, whichever tab it is on, applied here and now and handed
 // to Java to store in the same frame
 void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out) {
-    if (face == COG_TAB_SCREEN) {
-        cogApplyScreenCell(ctx, row, cell, out);
-        return;
-    }
-    if (face == COG_FACE_ROOM) {
-        cogApplyRoomCell(ctx, row, cell, out);
-        return;
-    }
-    if (face == COG_TAB_3D) {
-        cogApply3dCell(ctx, row, cell, out);
-        return;
-    }
-    if (face == COG_TAB_ACCESS) {
-        cogApplyAccessCell(ctx, row, cell, out);   // native (lane a11y-tab), xr_assist.c
+    int option = cogRowOption(face, row);
+    if (option < 0) {
+        if (face == COG_TAB_SCREEN) {
+            cogApplyScreenCell(ctx, row, cell, out);
+        }
+        else if (face == COG_TAB_3D) {
+            cogApply3dCell(ctx, row, cell, out);
+        }
+        else if (face == COG_TAB_ACCESS) {
+            cogApplyAccessCell(ctx, row, cell, out);   // native (lane a11y-tab), xr_assist.c
+        }
         return;
     }
     // Native (1.3.4): in passthrough, Show controllers (greyed, "off in passthrough") and the glow's On ask
     // first, on the hint sheet; nothing changes until I Understand
-    if (row == COG_OPTION_CONTROLLERS && xrPassthroughHidesModels(ctx)) {
+    if (option == COG_OPTION_CONTROLLERS && xrPassthroughHidesModels(ctx)) {
         ptSheetOpen(ctx, HINT_KIND_PT_CONTROLLERS);
         return;
     }
-    if (row == COG_OPTION_AMBILIGHT && cell != 0 && roomFaceStyle(ctx) == 0 && xrPassthroughHidesGlow(ctx)) {
+    if (option == COG_OPTION_AMBILIGHT && cell != 0 && roomFaceStyle(ctx) == 0 && xrPassthroughHidesGlow(ctx)) {
         ptSheetOpen(ctx, HINT_KIND_PT_GLOW);
         return;
     }
-    int id = cogApplyOption(ctx, row, cell);
+    int id = cogApplyOption(ctx, option, cell);
     if (id >= 0) {
         out[IN_SETTING] = (float)id;
         out[IN_SETTING_VALUE] = (float)cell;
@@ -1636,49 +1489,71 @@ void cogDragEnded(XrCtx* ctx, float* out) {
     if (slider < 0) {
         return;
     }
-    if (face == COG_TAB_SCREEN && slider == COG_SLIDER_AIM_SENSITIVITY) {
-        out[IN_SETTING] = (float)SETTING_HEAD_AIM_SENSITIVITY;
-        out[IN_SETTING_VALUE] = (float)ctx->headAimSensitivity;
-        LOGEV("head aim %d px a degree from the panel", ctx->headAimSensitivity);
-    }
-    else if (face == COG_TAB_SCREEN && slider == COG_SLIDER_AIM_DEADZONE) {
-        out[IN_SETTING] = (float)SETTING_HEAD_AIM_DEADZONE;
-        out[IN_SETTING_VALUE] = (float)ctx->headAimDeadZone;
-        LOGEV("head aim dead zone %d deg/s from the panel", ctx->headAimDeadZone);
+    if (face == COG_TAB_SCREEN && ctx->cogDragRoom > 0) {
+        // Size in a room, written under it. A room gone from under the drag
+        // leaves nothing to write it to.
+        int style = roomFaceStyle(ctx);
+        if (style == ctx->cogDragRoom && slider == COG_SLIDER_SIZE && roomResizable(style)) {
+            out[IN_SETTING] = (float)SETTING_ROOM_SCREEN;
+            out[IN_SETTING_VALUE] = (float)roomScreenPercent(ctx, style);
+            LOGEV("room %d screen percent %d from the panel", style, roomScreenPercent(ctx, style));
+        }
     }
     else if (face == COG_TAB_SCREEN) {
         // The placement is saved from the pose the frame hands back
         ctx->poseDirty = 1;
     }
-    else if (face == COG_FACE_ROOM) {
-        // The room's own units, written under the room showing. A room gone
-        // from under the drag leaves nothing to write it to.
+    else if (face == COG_TAB_ROOM) {
+        // A room's own in its units, written under the room showing. A room
+        // gone from under the drag leaves nothing to write it to.
         int style = roomFaceStyle(ctx);
-        if (style == 0) {
-            return;
-        }
         int setting = -1;
         int value = 0;
-        const char* what = "";
-        if (slider == COG_ROOM_ROW_BRIGHTNESS) {
+        if (slider == COG_ROOM_ROW_BG_DIM) {
+            setting = SETTING_BG_DIM;
+            value = ctx->bgDim;
+            LOGEV("background dim %d%% from the panel", value);
+        }
+        else if (slider == COG_ROOM_ROW_GLOW_LEVEL) {
+            // Whole percent, the preference's units
+            setting = SETTING_AMBI_LEVEL;
+            value = (int)roundf(ctx->ambiIntensity * 100.0f);
+        }
+        else if (slider == COG_ROOM_ROW_GLOW_SPREAD) {   // native (issue #7)
+            setting = SETTING_GLOW_SPREAD;
+            value = ctx->glowSpread;
+            LOGEV("glow spread %d%% from the panel", value);
+        }
+        else if (style != 0 && slider == COG_ROOM_ROW_BRIGHTNESS) {
             setting = SETTING_ROOM_BRIGHTNESS;
             value = ctx->roomBrightness[style];
-            what = "brightness";
+            LOGEV("room %d brightness %d from the panel", style, value);
         }
-        else if (slider == COG_ROOM_ROW_LIGHT_LEVEL) {
+        else if (style != 0 && slider == COG_ROOM_ROW_LIGHT_LEVEL) {
             setting = SETTING_ROOM_LIGHT_LEVEL;
             value = ctx->roomLightLevel[style];
-            what = "light level";
-        }
-        else if (slider == COG_ROOM_ROW_SIZE) {
-            setting = SETTING_ROOM_SCREEN;
-            value = roomScreenPercent(ctx, style);
-            what = "screen percent";
+            LOGEV("room %d light level %d from the panel", style, value);
         }
         if (setting >= 0) {
             out[IN_SETTING] = (float)setting;
             out[IN_SETTING_VALUE] = (float)value;
-            LOGEV("room %d %s %d from the panel", style, what, value);
+        }
+    }
+    else if (face == COG_TAB_CONTROLS) {
+        if (slider == COG_CONTROLS_ROW_SCROLL) {
+            out[IN_SETTING] = (float)SETTING_SCROLL_SPEED;
+            out[IN_SETTING_VALUE] = (float)ctx->scrollSpeed;
+            LOGEV("scroll speed %d%% from the panel", ctx->scrollSpeed);
+        }
+        else if (slider == COG_CONTROLS_ROW_AIM_SENSITIVITY) {
+            out[IN_SETTING] = (float)SETTING_HEAD_AIM_SENSITIVITY;
+            out[IN_SETTING_VALUE] = (float)ctx->headAimSensitivity;
+            LOGEV("head aim %d px a degree from the panel", ctx->headAimSensitivity);
+        }
+        else if (slider == COG_CONTROLS_ROW_AIM_DEADZONE) {
+            out[IN_SETTING] = (float)SETTING_HEAD_AIM_DEADZONE;
+            out[IN_SETTING_VALUE] = (float)ctx->headAimDeadZone;
+            LOGEV("head aim dead zone %d deg/s from the panel", ctx->headAimDeadZone);
         }
     }
     else if (face == COG_TAB_3D) {
@@ -1715,26 +1590,11 @@ void cogDragEnded(XrCtx* ctx, float* out) {
     else if (face == COG_TAB_ACCESS) {
         cogAccessDragEnded(ctx, slider, out);   // native (lane a11y-2): Dot size
     }
-    else if (face == COG_TAB_DISPLAY) {
-        out[IN_SETTING] = (float)SETTING_AMBI_LEVEL;
-        // Whole percent, the preference's units
-        out[IN_SETTING_VALUE] = roundf(ctx->ambiIntensity * 100.0f);
-    }
-    else if (face == COG_TAB_PICTURE && slider < PICTURE_VALUES) {
+    else if (face == COG_TAB_DISPLAY && slider < PICTURE_VALUES) {
         out[IN_SETTING] = (float)PICTURE_SETTINGS[slider];
         out[IN_SETTING_VALUE] = (float)ctx->pictureUnits[slider];
         LOGEV("picture %s %d from the panel, grade %s", PICTURE_NAMES[slider],
               ctx->pictureUnits[slider], ctx->gradeOn ? "on" : "off");
-    }
-    else if (face == COG_TAB_PICTURE && slider == PICTURE_ROW_BACKGROUND) {
-        out[IN_SETTING] = (float)SETTING_BG_DIM;
-        out[IN_SETTING_VALUE] = (float)ctx->bgDim;
-        LOGEV("background dim %d%% from the panel", ctx->bgDim);
-    }
-    else if (face == COG_TAB_PICTURE && slider == PICTURE_ROW_GLOW_SPREAD) {   // native (issue #7)
-        out[IN_SETTING] = (float)SETTING_GLOW_SPREAD;
-        out[IN_SETTING_VALUE] = (float)ctx->glowSpread;
-        LOGEV("glow spread %d%% from the panel", ctx->glowSpread);
     }
 }
 
@@ -1742,18 +1602,27 @@ void cogDragEnded(XrCtx* ctx, float* out) {
 // the way a drag is and written at once the way letting go of one is. Held
 // down it does not repeat.
 void cogStepTrack(XrCtx* ctx, int face, int row, int dir, float* out) {
-    int steps = cogTrackSteps(face, row);
+    // Size in a room moves in whole percent of the room's screen
+    int steps = cogSizeIsRooms(ctx, face, row) ? ROOM_SCREEN_MAX - ROOM_SCREEN_MIN : cogTrackSteps(face, row);
     if (steps <= 0) {
         return;
     }
     float before = cogSliderValue(ctx, face, row);
-    int step = cogStepIndex(before, steps, dir);
-    cogApplySlider(ctx, face, row, cogRunU((float)step / (float)steps));
+    if (face == COG_TAB_CONTROLS && row == COG_CONTROLS_ROW_SCROLL) {
+        // Its places are uneven, and a speed the file set past an end stays
+        // there for a step further out
+        xrSetScrollSpeed(ctx, scrollTrackStep(ctx->scrollSpeed, dir));
+    }
+    else {
+        int step = cogStepIndex(before, steps, dir);
+        cogApplySlider(ctx, face, row, cogRunU((float)step / (float)steps));
+    }
     float after = cogSliderValue(ctx, face, row);
     LOGEV("track step %s: face %d row %d, step %.2f to %.2f of %d", dir > 0 ? "up" : "down",
           face, row, before * steps, after * steps, steps);
     ctx->cogDragSlider = row;
     ctx->cogDragFace = face;
+    ctx->cogDragRoom = roomEffective(ctx);
     ctx->cogDragHand = -1;
     cogDragEnded(ctx, out);
 }
@@ -1769,11 +1638,14 @@ int cogCellAt(float pu, int cells) {
     return cell;
 }
 
-// What the strip beside the Room, Picture or Screen tab's tracks should say,
-// in IN_READOUT order: which tab it is for, or -1 first while none is up, then
-// a value a row and -1 past the rows. The Room tab's size says nothing in a
-// room that keeps its picture whole, where its row is greyed, and the Screen
-// tab says nothing while head aim's rows are.
+// What is said beside the tracks of the tab showing, in IN_READOUT order:
+// which tab it is for, or -1 first while none is up, then its values and -1
+// past them or for a row that is greyed. The Room tab's are Background dim,
+// Glow level, Glow spread, then the room's brightness and light level as the
+// place along their lanes; the Display tab's the picture's four in their own
+// units; the Screen tab's the room's size in percent of its screen; the
+// Controls tab's the scroll speed, then head aim's pixels a degree and dead
+// zone.
 void cogReadouts(XrCtx* ctx, int* values) {
     for (int i = 0; i < READOUT_VALUES; i++) {
         values[i] = -1;
@@ -1783,32 +1655,36 @@ void cogReadouts(XrCtx* ctx, int* values) {
     if (!showing) {
         return;
     }
-    int face = cogFace(ctx);
-    if (face == COG_TAB_PICTURE) {
-        values[0] = READOUT_PICTURE;
+    int tab = ctx->cogTab;
+    int style = roomFaceStyle(ctx);
+    if (tab == COG_TAB_DISPLAY) {
+        values[0] = READOUT_DISPLAY;
         for (int row = 0; row < PICTURE_VALUES; row++) {
             values[1 + row] = ctx->pictureUnits[row];
         }
-        return;
     }
-    // Head aim's two, while their rows are live; the placement rows have none
-    if (face == COG_TAB_SCREEN) {
-        if (cogRowLive(ctx, face, COG_SLIDER_AIM_SENSITIVITY)) {
-            values[0] = READOUT_SCREEN;
-            values[1] = ctx->headAimSensitivity;
-            values[2] = ctx->headAimDeadZone;
+    else if (tab == COG_TAB_SCREEN && style != 0) {
+        values[0] = READOUT_SCREEN;
+        values[1] = roomResizable(style) ? roomScreenPercent(ctx, style) : -1;
+    }
+    else if (tab == COG_TAB_CONTROLS) {
+        values[0] = READOUT_CONTROLS;
+        values[1] = ctx->scrollSpeed;
+        if (cogRowLive(ctx, tab, COG_CONTROLS_ROW_AIM_SENSITIVITY)) {
+            values[2] = ctx->headAimSensitivity;
+            values[3] = ctx->headAimDeadZone;
         }
-        return;
     }
-    int style = roomFaceStyle(ctx);
-    if (face != COG_FACE_ROOM || style == 0) {
-        return;
+    else if (tab == COG_TAB_ROOM) {
+        values[0] = READOUT_ROOM;
+        values[1] = ctx->bgDim;
+        values[2] = (int)roundf(ctx->ambiIntensity * 100.0f);
+        values[3] = ctx->glowSpread;
+        if (style != 0) {
+            values[4] = lanePercent(ctx->roomBrightness[style], ROOM_BRIGHTNESS_MIN, ROOM_BRIGHTNESS_MAX);
+            values[5] = lanePercent(ctx->roomLightLevel[style], ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
+        }
     }
-    values[0] = READOUT_ROOM;
-    values[1] = lanePercent(ctx->roomBrightness[style], ROOM_BRIGHTNESS_MIN,
-                            ROOM_BRIGHTNESS_MAX);
-    values[2] = lanePercent(ctx->roomLightLevel[style], ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
-    values[3] = roomResizable(style) ? roomScreenPercent(ctx, style) : -1;
 }
 
 // Held on the depth track, which is all the panel can show or write
@@ -1837,7 +1713,7 @@ void xrSetDepthDefaults(XrCtx* ctx, int separation, int convergence, const int* 
           ctx->presetUnits[COG_PRESET_STRONG]);
 }
 
-// Whether a press ticks, which only the display tab's ring reads on this
+// Whether a press ticks, which only the Controls tab's ring reads on this
 // side. Handed down before the first frame.
 void xrSetClickSound(XrCtx* ctx, int on) {
     if (ctx != NULL) {
@@ -1846,7 +1722,7 @@ void xrSetClickSound(XrCtx* ctx, int on) {
 }
 
 // Whether the ray shows, the setting each session starts from, which the bar
-// button and the Display tab's row then turn over for the session. Handed
+// button and the Controls tab's row then turn over for the session. Handed
 // down before the first frame.
 void xrSetShowRay(XrCtx* ctx, int on) {
     if (ctx == NULL) {
@@ -1944,16 +1820,36 @@ void pictureSet(XrCtx* ctx, int row, int units) {
     ctx->gradeOn = !pictureNeutral(ctx->pictureUnits);
 }
 
-// The Picture tab's reset: all four back to the picture as streamed, which
+// The Display tab's reset: all four back to the picture as streamed, which
 // turns the grade off
 void pictureReset(XrCtx* ctx) {
     for (int row = 0; row < PICTURE_VALUES; row++) {
         pictureSet(ctx, row, pictureDefault(row));
     }
-    // Native (lane wave3-visual): and the tab's two rows under the grade
-    ctx->bgDim = BG_DIM_DEFAULT;
-    ctx->glowSpread = GLOW_SPREAD_DEFAULT;   // native (issue #7)
     LOGEV("picture reset from the panel, grade %s", ctx->gradeOn ? "on" : "off");
+}
+
+// The Room tab's Reset: what is around the picture, wherever it is
+void surroundingsReset(XrCtx* ctx) {
+    ctx->bgDim = BG_DIM_DEFAULT;
+    ctx->ambiIntensity = (float)GLOW_LEVEL_DEFAULT / 100.0f;
+    ctx->glowSpread = GLOW_SPREAD_DEFAULT;   // native (issue #7)
+    LOGEV("surroundings reset from the panel: background dim %d%%, glow level %d%%, glow spread %d%%",
+          ctx->bgDim, GLOW_LEVEL_DEFAULT, ctx->glowSpread);
+}
+
+// The Screen tab's Reset in a room: the room's own size, under the room
+// showing. The placement waiting behind the room is left alone.
+int roomSizeReset(XrCtx* ctx, float* out) {
+    int style = roomFaceStyle(ctx);
+    if (style == 0 || !roomResizable(style)) {
+        return 0;
+    }
+    ctx->roomScreen[style] = (int)roundf(roomModel(style)->screenFraction * 100.0f);
+    out[IN_SETTING] = (float)SETTING_ROOM_SCREEN;
+    out[IN_SETTING_VALUE] = (float)ctx->roomScreen[style];
+    LOGEV("room %d screen percent reset to %d from the panel", style, ctx->roomScreen[style]);
+    return 1;
 }
 
 // The four picture values from the preferences, in PICTURE_ order, handed down

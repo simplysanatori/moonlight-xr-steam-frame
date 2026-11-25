@@ -1,10 +1,9 @@
-// The settings panel: six tabs (Screen, Display, 3D, Picture, Accessibility, About) and the
-// Room tab that takes the Screen tab's place in a room. XrPanels.buildCogSheet
-// and its drawCog* helpers, with the things upstream puts on separate quads
-// (thumbs, the Display tab's marks, the Room/Picture/Screen readouts, the
-// preset and switch rings) drawn into the same buffer from the settings, so
-// one upload is the whole panel. Geometry is xr_shared.h's COG_ constants and
-// xr_layout's cogRowV/cogRowHalf/cogCellHalf/cogThumbSize. GPLv3.
+// The settings panel: seven tabs (Screen, Room, Display, 3D, Controls, Accessibility, About).
+// XrPanels.buildCogSheet and its drawCog* helpers, with the things upstream
+// puts on separate quads (thumbs, the marks on the cells in force, the values
+// beside the tracks) drawn into the same buffer from the settings, so one
+// upload is the whole panel. The rows, where they sit and whether they are
+// live are xr_layout's table (cogRowOf, cogRowV, cogRowWhy). GPLv3.
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,6 +16,7 @@
 #define DIM 0x30FFFFFFu
 
 static float row_y(Dc* dc, int face, int row) { return cogRowV(face, row) * dc->nh; }
+static float cell_half_of(Dc* dc, int tab) { return cogCellHalf(tab) * dc->nh; }
 
 // Native (lane wave6-i18n): a row's label is drawn once the row knows its room: up to the row's
 // readout when it has one (readout below), else up to the track or the cells. A longer label (a
@@ -96,9 +96,10 @@ static void cells(Dc* dc, int face, int row, const UiStr* names, int n, float y,
         int hot = live && dc_hover(dc, UI_HIT_CELL, row, i);
         dc_fill_rrect(dc, x0, y - cell_half, x1, y + cell_half, 10.0f, live ? (hot ? 0x40FFFFFFu : 0x28FFFFFFu) : 0x10FFFFFFu);
         dc_stroke_rrect(dc, x0, y - cell_half, x1, y + cell_half, 10.0f, 2.0f, live ? 0x50FFFFFFu : 0x20FFFFFFu);
-        // a long name (Bring here, in the Screen tab's four cells) shrinks to fit rather than being cut
+        // a long name (Bring here, in the Screen tab's four cells) shrinks to fit, clear of the ring, rather than
+        // being cut
         float fit = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, 19.0f * dc->k, 12.0f * dc->k, ui_str(names[i]),
-                                     ((x1 - x0) - 8.0f) * dc->k) / dc->k;
+                                     ((x1 - x0) - 11.0f) * dc->k) / dc->k;
         dc_text_center(dc, UI_WEIGHT_REGULAR, fit, (x0 + x1) * 0.5f, y, live ? WHITE : DIM, ui_str(names[i]));
         if (live && i == mark) {
             // on the edge of the cell the sheet draws, inset the same way
@@ -111,15 +112,6 @@ static void cells(Dc* dc, int face, int row, const UiStr* names, int n, float y,
     }
 }
 
-static void reset_button(Dc* dc) {
-    float x0 = COG_RESET_L * dc->nw, y0 = COG_RESET_T * dc->nh, x1 = COG_RESET_R * dc->nw, y1 = COG_RESET_B * dc->nh;
-    int hot = dc_hover(dc, UI_HIT_BUTTON, UI_BTN_RESET, -1);
-    if (hot) dc_fill_rrect(dc, x0, y0, x1, y1, 14.0f, 0x28FFFFFFu);
-    dc_stroke_rrect(dc, x0, y0, x1, y1, 14.0f, 4.0f, 0xEEFFFFFFu);
-    dc_text_center(dc, UI_WEIGHT_REGULAR, LABEL_SIZE, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, WHITE, ui_str(UIS_RESET));
-    dc_hit_uv(dc, UI_HIT_BUTTON, UI_BTN_RESET, 0, COG_RESET_L, COG_RESET_T, COG_RESET_R, COG_RESET_B, 1);
-}
-
 static void readout(Dc* dc, float row_v, const char* text) {
     float right = COG_READOUT_L * dc->nw + COG_READOUT_TEX_W - 8.0f;
     // the row's label stops short of the readout
@@ -128,6 +120,53 @@ static void readout(Dc* dc, float row_v, const char* text) {
     ui_font_metrics(dc->font, UI_WEIGHT_REGULAR, 20.0f * dc->k, &m);
     dc_text(dc, UI_WEIGHT_REGULAR, 20.0f, right, row_v * dc->nh + m.cap_height * 0.5f / dc->k, UI_ALIGN_RIGHT,
             0xB0FFFFFFu, text);
+}
+
+static void reset_button(Dc* dc, int live) {
+    float x0 = COG_RESET_L * dc->nw, y0 = COG_RESET_T * dc->nh, x1 = COG_RESET_R * dc->nw, y1 = COG_RESET_B * dc->nh;
+    int hot = live && dc_hover(dc, UI_HIT_BUTTON, UI_BTN_RESET, -1);
+    if (hot) dc_fill_rrect(dc, x0, y0, x1, y1, 14.0f, 0x28FFFFFFu);
+    dc_stroke_rrect(dc, x0, y0, x1, y1, 14.0f, 4.0f, live ? 0xEEFFFFFFu : DIM);
+    dc_text_center(dc, UI_WEIGHT_REGULAR, LABEL_SIZE, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, live ? WHITE : DIM, ui_str(UIS_RESET));
+    dc_hit_uv(dc, UI_HIT_BUTTON, UI_BTN_RESET, 0, COG_RESET_L, COG_RESET_T, COG_RESET_R, COG_RESET_B, live);
+}
+
+// A row's hits, all disabled: a greyed row's, which the ray passes over
+static void dead_hits(Dc* dc, int tab, int row) {
+    if (cogRowIsTrack(tab, row)) {
+        track_hits(dc, tab, row, 0);
+        return;
+    }
+    int n = cogRowCells(tab, row);
+    float rv = cogRowV(tab, row), half = cogRowHalf(tab);
+    for (int c = 0; c < n; c++) {
+        dc_hit_uv(dc, UI_HIT_CELL, row, c, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)c / (float)n, rv - half,
+                  COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)(c + 1) / (float)n, rv + half, 0);
+    }
+}
+
+// Why a row of these tabs is greyed, across where its track or cells would be
+static void dead_row(Dc* dc, int tab, int row, const char* name, int why) {
+    float y = row_y(dc, tab, row);
+    UiStr reason = why == COG_DEAD_HEAD_LOCK ? UIS_NEEDS_HEAD_LOCK : why == COG_DEAD_NOT_IN_ROOM ? UIS_NOT_IN_ROOM
+                 : why == COG_DEAD_ONLY_IN_ROOM ? UIS_ONLY_IN_ROOM : why == COG_DEAD_BY_GUN ? UIS_SET_BY_GUN
+                 : UIS_SET_BY_ROOM;
+    label(dc, name, y, 0);
+    greyed_reason(dc, y, ui_str(reason));
+    dead_hits(dc, tab, row);
+}
+
+// A live track row: its line, buttons, a tick at tick_t (under 0 none), the
+// thumb at t and what is written beside it (NULL nothing)
+static void track_row(Dc* dc, int tab, int row, const char* name, float tick_t, float t, const char* value) {
+    float y = row_y(dc, tab, row), half = cell_half_of(dc, tab);
+    label(dc, name, y, 1);
+    track_line(dc, y, 0x66FFFFFFu);
+    chevrons(dc, y, 1, half);
+    if (tick_t >= 0.0f) tick(dc, cogRunU(tick_t) * dc->nw, y, half, 1);
+    thumb(dc, tab, row, y, t);
+    if (value) readout(dc, cogRowV(tab, row), value);
+    track_hits(dc, tab, row, 1);
 }
 
 // A line centred on x at a baseline, cut with an ellipsis to fit room (native px)
@@ -140,26 +179,25 @@ static void line_fit_center(Dc* dc, float size, float x, float baseline, float r
 
 // ---- chrome --------------------------------------------------------------------------------
 
-static void chrome(Dc* dc, int tab, int in_room) {
+static void chrome(Dc* dc, int tab) {
     dc_sheet(dc, 32.0f, 0xF0141416u);
-    static const UiStr TABS[COG_TAB_COUNT] = { UIS_TAB_SCREEN, UIS_TAB_DISPLAY, UIS_TAB_3D, UIS_TAB_PICTURE,
-                                               UIS_TAB_ACCESS, UIS_TAB_ABOUT };
+    static const UiStr TABS[COG_TAB_COUNT] = { UIS_TAB_SCREEN, UIS_TAB_ROOM, UIS_TAB_DISPLAY, UIS_TAB_3D,
+                                               UIS_TAB_CONTROLS, UIS_TAB_ACCESS, UIS_TAB_ABOUT };
     float bar_b = COG_TAB_BAR_B * dc->nh;
     for (int i = 0; i < COG_TAB_COUNT; i++) {
         int current = i == tab;
-        // native (lane a11y-tab): six slots of their own widths (xr_layout.h cogTabLeft), the gaps
-        // between them a little narrower than the five even ones had
-        float x0 = cogTabLeft(i) * dc->nw + 8.0f, x1 = cogTabRight(i) * dc->nw - 8.0f, y0 = 12.0f, y1 = bar_b - 8.0f;
+        // native (lane a11y-tab): the slots are of their own widths (xr_layout.h cogTabLeft)
+        float x0 = cogTabLeft(i) * dc->nw + 4.0f, x1 = cogTabRight(i) * dc->nw - 4.0f, y0 = 12.0f, y1 = bar_b - 8.0f;
         if (current) dc_fill_rrect(dc, x0, y0, x1, y1, 14.0f, 0x28FFFFFFu);
         else if (dc_hover(dc, UI_HIT_TAB, i, -1)) dc_fill_rrect(dc, x0, y0, x1, y1, 14.0f, 0x14FFFFFFu);
-        const char* name = ui_str(in_room && i == COG_TAB_SCREEN ? UIS_TAB_ROOM : TABS[i]);
+        const char* name = ui_str(TABS[i]);
         // a name longer than its slot (a translation's) shrinks to fit
         float fit = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, 25.0f * dc->k, 15.0f * dc->k, name,
-                                     ((x1 - x0) - 10.0f) * dc->k) / dc->k;
+                                     ((x1 - x0) - 8.0f) * dc->k) / dc->k;
         dc_text_center(dc, UI_WEIGHT_REGULAR, fit, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, current ? WHITE : 0x60FFFFFFu, name);
         if (current) {
             // the underline is what carries at a glance, the fill alone is too subtle
-            dc_fill_rrect(dc, x0 + 20.0f, y1 - 4.0f, x1 - 20.0f, y1, 0.0f, 0xEEFFFFFFu);
+            dc_fill_rrect(dc, x0 + 12.0f, y1 - 4.0f, x1 - 12.0f, y1, 0.0f, 0xEEFFFFFFu);
         }
         dc_hit_uv(dc, UI_HIT_TAB, i, 0, cogTabLeft(i), 0.0f, cogTabRight(i), COG_TAB_BAR_B, 1);
     }
@@ -168,228 +206,278 @@ static void chrome(Dc* dc, int tab, int in_room) {
 
 // ---- tabs -------------------------------------------------------------------------------------
 
-// The three rows of cells under the tracks: the presets with Bring here, the
-// per app switch with Forget, and the angular-size lock. Bring here and Forget
-// are presses rather than states, so neither is ever ringed.
-static void screen_cells(Dc* dc, int row, float y, float cell_half) {
+// The options' names and their cells', in COG_OPTION_ order. Off, On first; a
+// native row with other cells says so in xr_shared.h beside its cells' count.
+static const UiStr OPT_OFF_ON[] = { UIS_OFF, UIS_ON };
+static const UiStr OPT_ON_OFF[] = { UIS_ON, UIS_OFF };
+static const UiStr OPT_OFF_NORMAL_QUALITY[] = { UIS_OFF, UIS_NORMAL, UIS_QUALITY };
+static const UiStr OPT_STATS[] = { UIS_OFF, UIS_STATS_FULL, UIS_STATS_COMPACT, UIS_STATS_MINIMAL };
+static const UiStr OPT_HEAD_LOCK[] = { UIS_OFF, UIS_ON, UIS_FOLLOW };
+static const UiStr OPT_MODE[] = { UIS_POINTER, UIS_GAMEPAD };
+static const UiStr OPT_MODEL[] = { UIS_OFF, UIS_MODEL_FRAME, UIS_MODEL_GUN };
+static const UiStr OPT_RAY[] = { UIS_OFF, UIS_NATIVE_DOT, UIS_NATIVE_RAY };
+static const UiStr OPT_STEADY[] = { UIS_OFF, UIS_NORMAL, UIS_STEADY };
+static const UiStr OPT_NOTICES[] = { UIS_NOTICE_CELL_ALL, UIS_NOTICE_CELL_IMPORTANT, UIS_OFF };
+static const UiStr OPT_MOUSE_MODE[] = { UIS_MOUSE_ABSOLUTE, UIS_MOUSE_RELATIVE };
+static const struct {
+    UiStr name;
+    const UiStr* cells;
+} OPTIONS[COG_OPTION_COUNT] = {
+    [COG_OPTION_SHARPEN] = { UIS_ROW_SHARPEN, OPT_OFF_NORMAL_QUALITY },
+    [COG_OPTION_SUPERSAMPLE] = { UIS_ROW_SUPERSAMPLE, OPT_OFF_NORMAL_QUALITY },
+    [COG_OPTION_STATS] = { UIS_ROW_STATS, OPT_STATS },
+    [COG_OPTION_HEAD_LOCK] = { UIS_ROW_HEAD_LOCKED, OPT_HEAD_LOCK },
+    [COG_OPTION_HEAD_AIM] = { UIS_ROW_HEAD_AIM, OPT_OFF_ON },
+    [COG_OPTION_GAMEPAD] = { UIS_ROW_MODE, OPT_MODE },
+    [COG_OPTION_CONTROLLERS] = { UIS_ROW_SHOW_CONTROLLERS, OPT_MODEL },
+    [COG_OPTION_RAY] = { UIS_ROW_RAY, OPT_RAY },
+    [COG_OPTION_POINTER_SLEEP] = { UIS_ROW_POINTER_SLEEP, OPT_OFF_ON },
+    [COG_OPTION_CLICK_STEADY] = { UIS_ROW_CLICK_STEADY, OPT_STEADY },
+    [COG_OPTION_CLICK_SOUND] = { UIS_ROW_CLICK_SOUND, OPT_OFF_ON },
+    [COG_OPTION_AMBILIGHT] = { UIS_ROW_GLOW, OPT_OFF_ON },
+    [COG_OPTION_ROOM_LIGHT] = { UIS_ROW_SCREEN_LIGHT, OPT_OFF_ON },
+    [COG_OPTION_NOTICES] = { UIS_ROW_NOTICES, OPT_NOTICES },
+    [COG_OPTION_FOVEATED] = { UIS_ROW_FOVEATED, OPT_ON_OFF },
+    [COG_OPTION_MOUSE_MODE] = { UIS_ROW_MOUSE_MODE, OPT_MOUSE_MODE },
+};
+
+static const char* row_name(int tab, int row) {
+    static const UiStr SCREEN[COG_SCREEN_ROW_COUNT] = { UIS_ROW_DISTANCE, UIS_ROW_HEIGHT, UIS_ROW_TILT, UIS_ROW_ROTATE,
+        UIS_ROW_CURVE, UIS_ROW_SIZE, UIS_ROW_PRESET, UIS_ROW_HEAD_LOCKED, UIS_ROW_PER_APP, UIS_ROW_ANGULAR_LOCK };
+    static const UiStr ROOM[COG_ROOM_ROW_COUNT] = { UIS_ROW_BACKGROUND, UIS_ROW_GLOW, UIS_ROW_GLOW_LEVEL,
+        UIS_ROW_GLOW_SPREAD, UIS_ROW_ROOM_BRIGHTNESS, UIS_ROW_SCREEN_LIGHT, UIS_ROW_LIGHT_LEVEL };
+    static const UiStr PICTURE[PICTURE_VALUES] = { UIS_ROW_BRIGHTNESS, UIS_ROW_CONTRAST, UIS_ROW_GAMMA, UIS_ROW_SATURATION };
+    static const UiStr CONTROLS[COG_CONTROLS_ROW_COUNT] = {
+        [COG_CONTROLS_ROW_SCROLL] = UIS_ROW_SCROLL_SPEED,
+        [COG_CONTROLS_ROW_AIM_SENSITIVITY] = UIS_ROW_AIM_SENSITIVITY,
+        [COG_CONTROLS_ROW_AIM_DEADZONE] = UIS_ROW_AIM_DEAD_ZONE,
+    };
+    int option = cogRowOption(tab, row);
+    return ui_str(option >= 0 ? OPTIONS[option].name : tab == COG_TAB_SCREEN ? SCREEN[row] : tab == COG_TAB_ROOM ? ROOM[row]
+                  : tab == COG_TAB_DISPLAY ? PICTURE[row] : CONTROLS[row]);
+}
+
+// A live option row of any tab: its name, its cells, the one in force ringed
+static void option_row(Dc* dc, int tab, int row) {
+    int option = cogRowOption(tab, row);
+    float y = row_y(dc, tab, row);
+    label(dc, ui_str(OPTIONS[option].name), y, 1);
+    cells(dc, tab, row, OPTIONS[option].cells, cogRowCells(tab, row), y, 1, cell_half_of(dc, tab),
+          ui_cog_option_cell(dc->v, option));
+}
+
+static int row_why(const UiView* v, int tab, int row) {
+    CogState state = ui_cog_state(v);
+    return cogRowWhy(&state, tab, row);
+}
+
+static int reset_live(const UiView* v, int tab) {
+    CogState state = ui_cog_state(v);
+    return cogResetLive(&state, tab);
+}
+
+// The rows of cells that are not options: the presets with Bring here, the per
+// app switch with Forget, and the angular-size lock. Bring here and Forget are
+// presses rather than states, so neither is ever ringed.
+static void screen_cells(Dc* dc, int row) {
     const Settings* s = dc->v->settings;
     static const UiStr PRESET[COG_SCREEN_PRESET_CELLS] = { UIS_PRESET_DESK, UIS_PRESET_COUCH, UIS_PRESET_CINEMA,
                                                            UIS_BRING_HERE };
     static const UiStr PER_APP[COG_SCREEN_PER_APP_CELLS] = { UIS_OFF, UIS_ON, UIS_FORGET };
     static const UiStr LOCK[COG_SCREEN_LOCK_CELLS] = { UIS_OFF, UIS_ON };
-    if (row == COG_SCREEN_ROW_PRESET) {
-        cells(dc, COG_TAB_SCREEN, row, PRESET, COG_SCREEN_PRESET_CELLS, y, 1, cell_half,
-              layoutPresetAt(s->screen_distance_cm, s->screen_width_cm));
-    } else if (row == COG_SCREEN_ROW_PER_APP) {
-        cells(dc, COG_TAB_SCREEN, row, PER_APP, COG_SCREEN_PER_APP_CELLS, y, 1, cell_half, s->per_app ? 1 : 0);
-    } else {
-        cells(dc, COG_TAB_SCREEN, row, LOCK, COG_SCREEN_LOCK_CELLS, y, 1, cell_half, s->angular_lock ? 1 : 0);
-    }
+    const UiStr* names = row == COG_SCREEN_ROW_PRESET ? PRESET : row == COG_SCREEN_ROW_PER_APP ? PER_APP : LOCK;
+    int mark = row == COG_SCREEN_ROW_PRESET ? layoutPresetAt(s->screen_distance_cm, s->screen_width_cm)
+             : row == COG_SCREEN_ROW_PER_APP ? (s->per_app ? 1 : 0) : (s->angular_lock ? 1 : 0);
+    float y = row_y(dc, COG_TAB_SCREEN, row);
+    label(dc, row_name(COG_TAB_SCREEN, row), y, 1);
+    cells(dc, COG_TAB_SCREEN, row, names, cogRowCells(COG_TAB_SCREEN, row), y, 1, cell_half_of(dc, COG_TAB_SCREEN), mark);
 }
 
 static void tab_screen(Dc* dc) {
     const UiView* v = dc->v;
     const Settings* s = v->settings;
-    static const UiStr ROWS[COG_SCREEN_ROW_COUNT] = { UIS_ROW_DISTANCE, UIS_ROW_HEIGHT, UIS_ROW_TILT,
-        UIS_ROW_ROTATE, UIS_ROW_CURVE, UIS_ROW_SIZE, UIS_ROW_AIM_SENSITIVITY, UIS_ROW_AIM_DEAD_ZONE,
-        UIS_ROW_PRESET, UIS_ROW_PER_APP, UIS_ROW_ANGULAR_LOCK };
-    float cell_half = COG_SCREEN_CELL_HALF * dc->nh;
+    int r = settings_room_index(v->room_env);
     for (int row = 0; row < COG_SCREEN_ROW_COUNT; row++) {
-        int aim = row == COG_SLIDER_AIM_SENSITIVITY || row == COG_SLIDER_AIM_DEADZONE;
-        int live = ui_cog_row_live(v, COG_TAB_SCREEN, row);
-        float y = row_y(dc, COG_TAB_SCREEN, row);
-        label(dc, ui_str(ROWS[row]), y, live);
-        if (row >= COG_SCREEN_TRACK_ROWS) {
-            screen_cells(dc, row, y, cell_half);
-            continue;
+        const char* name = row_name(COG_TAB_SCREEN, row);
+        int why = row_why(v, COG_TAB_SCREEN, row);
+        if (why == COG_DEAD_NO_CURVE) {
+            // nothing to say of it: the row alone, dimmed
+            float y = row_y(dc, COG_TAB_SCREEN, row);
+            label(dc, name, y, 0);
+            track_line(dc, y, 0x30FFFFFFu);
+            chevrons(dc, y, 0, cell_half_of(dc, COG_TAB_SCREEN));
+            dead_hits(dc, COG_TAB_SCREEN, row);
+        } else if (why != COG_LIVE) {
+            dead_row(dc, COG_TAB_SCREEN, row, name, why);
+        } else if (cogRowOption(COG_TAB_SCREEN, row) >= 0) {
+            option_row(dc, COG_TAB_SCREEN, row);
+        } else if (!cogRowIsTrack(COG_TAB_SCREEN, row)) {
+            screen_cells(dc, row);
+        } else if (row == COG_SLIDER_SIZE && r >= 0) {
+            // in a room, the share of the room's screen the picture takes
+            char buf[16];
+            snprintf(buf, sizeof buf, "%d%%", s->room[r].screen);
+            track_row(dc, COG_TAB_SCREEN, row, name, -1.0f, lanePlace(s->room[r].screen, ROOM_SCREEN_MIN, ROOM_SCREEN_MAX), buf);
+        } else {
+            int level = row == COG_SLIDER_TILT || row == COG_SLIDER_ROTATE;
+            track_row(dc, COG_TAB_SCREEN, row, name, level ? 0.5f : -1.0f, settings_screen_slider(s, row), NULL);
         }
-        if (aim && !live) {
-            greyed_reason(dc, y, ui_str(UIS_NEEDS_HEAD_LOCK));
-            track_hits(dc, COG_TAB_SCREEN, row, 0);
-            continue;
-        }
-        track_line(dc, y, live ? 0x66FFFFFFu : 0x30FFFFFFu);
-        chevrons(dc, y, live, cell_half);
-        if (row == COG_SLIDER_TILT || row == COG_SLIDER_ROTATE) {
-            tick(dc, (COG_RUN_L + COG_RUN_R) * 0.5f * dc->nw, y, cell_half, 1);   // level
-        } else if (aim) {
-            float t = row == COG_SLIDER_AIM_SENSITIVITY
-                ? (float)(HEAD_AIM_SENSITIVITY_DEFAULT - HEAD_AIM_SENSITIVITY_MIN) / (HEAD_AIM_SENSITIVITY_MAX - HEAD_AIM_SENSITIVITY_MIN)
-                : (float)(HEAD_AIM_DEADZONE_DEFAULT - HEAD_AIM_DEADZONE_MIN) / (HEAD_AIM_DEADZONE_MAX - HEAD_AIM_DEADZONE_MIN);
-            tick(dc, cogRunU(t) * dc->nw, y, cell_half, 1);
-        }
-        if (live) thumb(dc, COG_TAB_SCREEN, row, y, settings_screen_slider(s, row));
-        if (aim && live) {
-            char buf[32];
-            if (row == COG_SLIDER_AIM_SENSITIVITY) snprintf(buf, sizeof buf, "%d px/\xC2\xB0", s->head_aim_sensitivity);
-            else snprintf(buf, sizeof buf, "%d\xC2\xB0/s", s->head_aim_deadzone);
-            readout(dc, cogRowV(COG_TAB_SCREEN, row), buf);
-        }
-        track_hits(dc, COG_TAB_SCREEN, row, live);
     }
-    reset_button(dc);
+    reset_button(dc, reset_live(v, COG_TAB_SCREEN));
 }
 
 static void tab_room(Dc* dc) {
     const UiView* v = dc->v;
     const Settings* s = v->settings;
     int r = settings_room_index(v->room_env);
-    static const UiStr ROWS[COG_ROOM_ROW_COUNT] = { UIS_ROW_BRIGHTNESS, UIS_ROW_GLOW, UIS_ROW_SCREEN_LIGHT,
-                                                    UIS_ROW_LIGHT_LEVEL, UIS_ROW_SIZE };
-    static const UiStr SW[2] = { UIS_OFF, UIS_ON };
-    float cell_half = COG_CELL_HALF * dc->nh;
-    int size_live = ui_cog_row_live(v, COG_FACE_ROOM, COG_ROOM_ROW_SIZE);
     for (int row = 0; row < COG_ROOM_ROW_COUNT; row++) {
-        int live = row != COG_ROOM_ROW_SIZE || size_live;
-        float y = row_y(dc, COG_FACE_ROOM, row);
-        label(dc, ui_str(ROWS[row]), y, live);
-        if (row == COG_ROOM_ROW_GLOW) {
-            cells(dc, COG_FACE_ROOM, row, SW, 2, y, 1, cell_half, r >= 0 ? ui_cog_display_cell(v, COG_OPTION_AMBILIGHT) : -1);
+        const char* name = row_name(COG_TAB_ROOM, row);
+        int why = row_why(v, COG_TAB_ROOM, row);
+        if (why != COG_LIVE) {
+            dead_row(dc, COG_TAB_ROOM, row, name, why);
             continue;
         }
-        if (row == COG_ROOM_ROW_LIGHT) {
-            cells(dc, COG_FACE_ROOM, row, SW, 2, y, 1, cell_half, s->screen_light);
+        if (cogRowOption(COG_TAB_ROOM, row) >= 0) {
+            option_row(dc, COG_TAB_ROOM, row);
             continue;
         }
-        track_line(dc, y, live ? 0x66FFFFFFu : 0x30FFFFFFu);
-        chevrons(dc, y, live, cell_half);
-        if (row == COG_ROOM_ROW_LIGHT_LEVEL) {
-            tick(dc, cogRunU(lanePlace(ROOM_LIGHT_DEFAULT, ROOM_LIGHT_MIN, ROOM_LIGHT_MAX)) * dc->nw, y, cell_half, 1);
+        // the percent shown: of the lane for a room's own, the value for the rest
+        float t, mark;
+        int pct;
+        if (row == COG_ROOM_ROW_BRIGHTNESS) {
+            t = lanePlace(s->room[r].brightness, ROOM_BRIGHTNESS_MIN, ROOM_BRIGHTNESS_MAX);
+            pct = lanePercent(s->room[r].brightness, ROOM_BRIGHTNESS_MIN, ROOM_BRIGHTNESS_MAX);
+            mark = -1.0f;
+        } else if (row == COG_ROOM_ROW_LIGHT_LEVEL) {
+            t = lanePlace(s->room[r].light, ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
+            pct = lanePercent(s->room[r].light, ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
+            mark = lanePlace(ROOM_LIGHT_DEFAULT, ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
+        } else if (row == COG_ROOM_ROW_GLOW_LEVEL) {
+            t = (float)s->glow_level / 100.0f;
+            pct = s->glow_level;
+            mark = (float)GLOW_LEVEL_DEFAULT / 100.0f;
+        } else if (row == COG_ROOM_ROW_GLOW_SPREAD) {   // native (issue #7)
+            t = lanePlace(s->glow_spread, GLOW_SPREAD_MIN, GLOW_SPREAD_MAX);
+            pct = s->glow_spread;
+            mark = lanePlace(GLOW_SPREAD_DEFAULT, GLOW_SPREAD_MIN, GLOW_SPREAD_MAX);
+        } else {
+            t = lanePlace(s->bg_dim, BG_DIM_MIN, BG_DIM_MAX);
+            pct = s->bg_dim;
+            mark = lanePlace(BG_DIM_DEFAULT, BG_DIM_MIN, BG_DIM_MAX);
         }
-        if (live && r >= 0) {
-            float t = row == COG_ROOM_ROW_BRIGHTNESS ? lanePlace(s->room[r].brightness, ROOM_BRIGHTNESS_MIN, ROOM_BRIGHTNESS_MAX)
-                    : row == COG_ROOM_ROW_LIGHT_LEVEL ? lanePlace(s->room[r].light, ROOM_LIGHT_MIN, ROOM_LIGHT_MAX)
-                    : lanePlace(s->room[r].screen, ROOM_SCREEN_MIN, ROOM_SCREEN_MAX);
-            thumb(dc, COG_FACE_ROOM, row, y, t);
-            char buf[16];
-            int pct = row == COG_ROOM_ROW_BRIGHTNESS ? lanePercent(s->room[r].brightness, ROOM_BRIGHTNESS_MIN, ROOM_BRIGHTNESS_MAX)
-                    : row == COG_ROOM_ROW_LIGHT_LEVEL ? lanePercent(s->room[r].light, ROOM_LIGHT_MIN, ROOM_LIGHT_MAX)
-                    : s->room[r].screen;
-            snprintf(buf, sizeof buf, "%d%%", pct);
-            readout(dc, cogRowV(COG_FACE_ROOM, row), buf);
-        }
-        track_hits(dc, COG_FACE_ROOM, row, live);
+        char buf[16];
+        snprintf(buf, sizeof buf, "%d%%", pct);
+        track_row(dc, COG_TAB_ROOM, row, name, mark, t, buf);
     }
-    if (!size_live) {
-        float y = (COG_ROW_V0 + (COG_ROOM_ROW_SIZE + 1) * COG_ROW_STEP) * dc->nh;
-        dc_text(dc, UI_WEIGHT_REGULAR, 17.0f, dc->nw * 0.5f, y, UI_ALIGN_CENTER, 0x50FFFFFFu, ui_str(UIS_FIXED_SIZE));
+    reset_button(dc, reset_live(v, COG_TAB_ROOM));
+}
+
+static void picture_text(int row, int units, char* out, size_t cap) {
+    switch (row) {
+    case PICTURE_CONTRAST:
+    case PICTURE_SATURATION: snprintf(out, cap, "%d%%", units); break;
+    case PICTURE_GAMMA: snprintf(out, cap, "%.2f", units / 100.0); break;
+    default: snprintf(out, cap, units > 0 ? "+%d" : "%d", units); break;
     }
 }
 
 static void tab_display(Dc* dc) {
-    const UiView* v = dc->v;
-    const Settings* s = v->settings;
-    static const UiStr ROWS[COG_OPTION_COUNT] = { UIS_ROW_SHARPEN, UIS_ROW_SUPERSAMPLE, UIS_ROW_STATS,
-        UIS_ROW_HEAD_LOCKED, UIS_ROW_HEAD_AIM, UIS_ROW_MODE, UIS_ROW_SHOW_CONTROLLERS, UIS_ROW_RAY,
-        UIS_ROW_POINTER_SLEEP, UIS_ROW_CLICK_STEADY, UIS_ROW_CLICK_SOUND, UIS_ROW_GLOW, UIS_ROW_SCREEN_LIGHT,
-        UIS_ROW_NOTICES, UIS_ROW_FOVEATED };
-    static const UiStr OFFNQ[3] = { UIS_OFF, UIS_NORMAL, UIS_QUALITY };
-    static const UiStr OFFON[2] = { UIS_OFF, UIS_ON };
-    // native (1.3.4): Foveated rendering reads On, Off (the approved order)
-    static const UiStr ONOFF[2] = { UIS_ON, UIS_OFF };
-    static const UiStr PADPTR[2] = { UIS_POINTER, UIS_GAMEPAD };
-    // native: the Head locked row's third cell, the screen that follows the head late
-    static const UiStr HEADLOCK3[3] = { UIS_OFF, UIS_ON, UIS_FOLLOW };
-    // native: which notices the toast says
-    static const UiStr NOTICES3[3] = { UIS_NOTICE_CELL_ALL, UIS_NOTICE_CELL_IMPORTANT, UIS_OFF };
-    // native: how still the cursor is held around a click
-    static const UiStr STEADY3[3] = { UIS_OFF, UIS_NORMAL, UIS_STEADY };
-    // native: the ray row has a third cell, the dot without the ray
-    static const UiStr POINTER3[3] = { UIS_OFF, UIS_NATIVE_DOT, UIS_NATIVE_RAY };
-    // native: which controller to draw (a custom model has no cell: the file and the launcher pick it)
-    static const UiStr MODEL3[COG_CONTROLLERS_CELLS] = { UIS_OFF, UIS_MODEL_FRAME, UIS_MODEL_GUN };
-    float cell_half = COG_DISPLAY_CELL_HALF * dc->nh;
-    int in_room = v->room_env >= 0 && settings_room_index(v->room_env) >= 0;
-    for (int row = 0; row < COG_OPTION_COUNT; row++) {
-        int live = ui_cog_row_live(v, COG_TAB_DISPLAY, row);
-        float y = row_y(dc, COG_TAB_DISPLAY, row);
-        uint32_t ink = live ? WHITE : DIM;
-        if (row == COG_OPTION_GAMEPAD) {
-            // the controllers' own shortcut under the label
-            static const UiStr HINT[3] = { UIS_SHORTCUT_MENU_GRIP, UIS_SHORTCUT_STICKS, UIS_SHORTCUT_TRIGGERS_GRIPS };
-            int sc = s->gamepad_toggle < 0 || s->gamepad_toggle > 2 ? 0 : s->gamepad_toggle;
-            // native (lane wave6-i18n): under a label that reaches below its baseline (a translation's
-            // p, j, р) the shortcut line moves down clear of it, into the room above the next row;
-            // "Mode" does not, and both stay where they were. A long label shrinks to its room.
-            float below = 0.0f;
-            ui_text_ink_extent(dc->font, UI_WEIGHT_REGULAR, LABEL_SIZE * dc->k, ui_str(ROWS[row]), NULL, &below);
-            float drop = below / dc->k > 2.5f ? below / dc->k - 2.5f : 0.0f;
-            float fit = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, LABEL_SIZE * dc->k, LABEL_MIN_SIZE * dc->k, ui_str(ROWS[row]),
-                                         (label_right(dc) - LABEL_X * dc->nw) * dc->k) / dc->k;
-            // native (1.3.4): on the row's line, no longer 2 px over it: with sixteen rows the label above
-            // (Head aim's, translated with a g or y) reaches down to it otherwise
-            dc_text(dc, UI_WEIGHT_REGULAR, fit, LABEL_X * dc->nw, y, UI_ALIGN_LEFT, ink, ui_str(ROWS[row]));
-            dc_text(dc, UI_WEIGHT_REGULAR, 15.0f, LABEL_X * dc->nw, y + 15.0f + drop, UI_ALIGN_LEFT, 0x99FFFFFFu, ui_str(HINT[sc]));
-        } else {
-            label(dc, ui_str(ROWS[row]), y, live && !(row == COG_OPTION_CONTROLLERS && (v->pt_hides & UI_PT_HIDES_CONTROLLERS)));
-        }
-        if (live && row == COG_OPTION_CONTROLLERS && (v->pt_hides & UI_PT_HIDES_CONTROLLERS)) {
-            // native (1.3.4): greyed with why, and a press on it asks (the sheet "Controllers in Passthrough?")
-            greyed_reason(dc, y, ui_str(UIS_OFF_IN_PASSTHROUGH));
-            int n = ui_cog_row_cells(COG_TAB_DISPLAY, row);
-            float rv = cogRowV(COG_TAB_DISPLAY, row), half = cogRowHalf(COG_TAB_DISPLAY);
-            for (int c = 0; c < n; c++) {
-                dc_hit_uv(dc, UI_HIT_CELL, row, c, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)c / (float)n, rv - half,
-                          COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)(c + 1) / (float)n, rv + half, 1);
-            }
+    const Settings* s = dc->v->settings;
+    static const int MIN[PICTURE_VALUES] = { PICTURE_BRIGHTNESS_MIN, PICTURE_CONTRAST_MIN, PICTURE_GAMMA_MIN, PICTURE_SATURATION_MIN };
+    static const int MAX[PICTURE_VALUES] = { PICTURE_BRIGHTNESS_MAX, PICTURE_CONTRAST_MAX, PICTURE_GAMMA_MAX, PICTURE_SATURATION_MAX };
+    static const int DEF[PICTURE_VALUES] = { PICTURE_BRIGHTNESS_DEFAULT, PICTURE_CONTRAST_DEFAULT, PICTURE_GAMMA_DEFAULT,
+                                             PICTURE_SATURATION_DEFAULT };
+    for (int row = 0; row < COG_DISPLAY_ROW_COUNT; row++) {
+        if (cogRowOption(COG_TAB_DISPLAY, row) >= 0) {
+            option_row(dc, COG_TAB_DISPLAY, row);
             continue;
         }
-        if (!live) {
-            int later = (v->display_later & (1u << row)) != 0;
-            greyed_reason(dc, y, later ? (v->later_reason ? v->later_reason : ui_str(UIS_NATIVE_LATER))
-                                       : ui_str(in_room ? UIS_NOT_IN_ROOM : UIS_NEEDS_HEAD_LOCK));
-            // one disabled hit per cell so every row is still reported
-            for (int c = 0; c < 2; c++) {
-                float rv = cogRowV(COG_TAB_DISPLAY, row), half = cogRowHalf(COG_TAB_DISPLAY);
-                dc_hit_uv(dc, UI_HIT_CELL, row, c, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)c / 2, rv - half,
-                          COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)(c + 1) / 2, rv + half, 0);
-            }
-            continue;
-        }
-        const UiStr* names = row <= COG_OPTION_SUPERSAMPLE ? OFFNQ : row == COG_OPTION_GAMEPAD ? PADPTR
-                           : row == COG_OPTION_RAY ? POINTER3 : row == COG_OPTION_NOTICES ? NOTICES3
-                           : row == COG_OPTION_HEAD_LOCK ? HEADLOCK3
-                           : row == COG_OPTION_CONTROLLERS ? MODEL3
-                           : row == COG_OPTION_CLICK_STEADY ? STEADY3 : row == COG_OPTION_FOVEATED ? ONOFF : OFFON;
-        int n = ui_cog_row_cells(COG_TAB_DISPLAY, row);
-        cells(dc, COG_TAB_DISPLAY, row, names, n, y, 1, cell_half, ui_cog_display_cell(v, row));
+        int units = settings_picture_value(s, row);
+        char buf[24];
+        picture_text(row, units, buf, sizeof buf);
+        track_row(dc, COG_TAB_DISPLAY, row, row_name(COG_TAB_DISPLAY, row), lanePlace(DEF[row], MIN[row], MAX[row]),
+                  lanePlace(units, MIN[row], MAX[row]), buf);
     }
-    // the glow level: the one track on this tab
-    float y = row_y(dc, COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW);
-    if (v->display_later & (1u << COG_DISPLAY_SLIDER_ROW)) {
-        // native: the glow is not drawn yet, so its level is dead too
-        label(dc, ui_str(UIS_ROW_GLOW_LEVEL), y, 0);
-        greyed_reason(dc, y, v->later_reason ? v->later_reason : ui_str(UIS_NATIVE_LATER));
-        track_hits(dc, COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW, 0);
-        return;
-    }
-    label(dc, ui_str(UIS_ROW_GLOW_LEVEL), y, 1);
-    track_line(dc, y, 0x66FFFFFFu);
-    chevrons(dc, y, 1, cell_half);
-    tick(dc, (COG_RUN_L + COG_RUN_R) * 0.5f * dc->nw, y, cell_half, 1);
-    thumb(dc, COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW, y, (float)s->glow_level / 100.0f);
-    track_hits(dc, COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW, 1);
+    reset_button(dc, reset_live(dc->v, COG_TAB_DISPLAY));
 }
 
-// A 3D tab row of n cells that takes no press: its hits, disabled
-static void host_drawn_hits(Dc* dc, int row, int n) {
-    float rv = cogRowV(COG_TAB_3D, row), half = cogRowHalf(COG_TAB_3D);
-    for (int c = 0; c < n; c++) {
-        dc_hit_uv(dc, UI_HIT_CELL, row, c, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)c / (float)n, rv - half,
-                  COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)(c + 1) / (float)n, rv + half, 0);
+// The Mode row, with the controllers' own shortcut under its label
+static void mode_row(Dc* dc) {
+    const Settings* s = dc->v->settings;
+    const int row = COG_CONTROLS_ROW_MODE;
+    static const UiStr HINT[3] = { UIS_SHORTCUT_MENU_GRIP, UIS_SHORTCUT_STICKS, UIS_SHORTCUT_TRIGGERS_GRIPS };
+    int sc = s->gamepad_toggle < 0 || s->gamepad_toggle > 2 ? 0 : s->gamepad_toggle;
+    const char* name = row_name(COG_TAB_CONTROLS, row);
+    float y = row_y(dc, COG_TAB_CONTROLS, row);
+    // native (lane wave6-i18n): under a label that reaches below its baseline (a translation's
+    // p, j, Ñ) the shortcut line moves down clear of it, into the room above the next row;
+    // "Mode" does not, and both stay where they were. A long label shrinks to its room.
+    float below = 0.0f;
+    ui_text_ink_extent(dc->font, UI_WEIGHT_REGULAR, LABEL_SIZE * dc->k, name, NULL, &below);
+    float drop = below / dc->k > 2.5f ? below / dc->k - 2.5f : 0.0f;
+    float fit = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, LABEL_SIZE * dc->k, LABEL_MIN_SIZE * dc->k, name,
+                                 (label_right(dc) - LABEL_X * dc->nw) * dc->k) / dc->k;
+    dc_text(dc, UI_WEIGHT_REGULAR, fit, LABEL_X * dc->nw, y, UI_ALIGN_LEFT, WHITE, name);
+    dc_text(dc, UI_WEIGHT_REGULAR, 15.0f, LABEL_X * dc->nw, y + 15.0f + drop, UI_ALIGN_LEFT, 0x99FFFFFFu, ui_str(HINT[sc]));
+    cells(dc, COG_TAB_CONTROLS, row, OPT_MODE, COG_GAMEPAD_CELLS, y, 1, cell_half_of(dc, COG_TAB_CONTROLS),
+          ui_cog_option_cell(dc->v, COG_OPTION_GAMEPAD));
+}
+
+static void tab_controls(Dc* dc) {
+    const UiView* v = dc->v;
+    const Settings* s = v->settings;
+    float half = cell_half_of(dc, COG_TAB_CONTROLS);
+    for (int row = 0; row < COG_CONTROLS_ROW_COUNT; row++) {
+        const char* name = row_name(COG_TAB_CONTROLS, row);
+        float y = row_y(dc, COG_TAB_CONTROLS, row);
+        int why = row_why(v, COG_TAB_CONTROLS, row);
+        if (why != COG_LIVE) {
+            dead_row(dc, COG_TAB_CONTROLS, row, name, why);
+        } else if (row == COG_CONTROLS_ROW_MODE) {
+            mode_row(dc);
+        } else if (row == COG_CONTROLS_ROW_MODELS && (v->pt_hides & UI_PT_HIDES_CONTROLLERS)) {
+            // native (1.3.4): greyed with why, and a press on it asks (the sheet "Controllers in Passthrough?")
+            label(dc, name, y, 0);
+            greyed_reason(dc, y, ui_str(UIS_OFF_IN_PASSTHROUGH));
+            int n = cogRowCells(COG_TAB_CONTROLS, row);
+            float rv = cogRowV(COG_TAB_CONTROLS, row), rh = cogRowHalf(COG_TAB_CONTROLS);
+            for (int c = 0; c < n; c++) {
+                dc_hit_uv(dc, UI_HIT_CELL, row, c, COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)c / (float)n, rv - rh,
+                          COG_TRACK_L + (COG_TRACK_R - COG_TRACK_L) * (float)(c + 1) / (float)n, rv + rh, 1);
+            }
+        } else if (cogRowOption(COG_TAB_CONTROLS, row) >= 0) {
+            option_row(dc, COG_TAB_CONTROLS, row);
+        } else {
+            char buf[32];
+            float mark, t;
+            if (row == COG_CONTROLS_ROW_SCROLL) {
+                // native (1.3.4): its places are the only speeds it has, so each has a tick, the usual one's the tallest
+                for (int i = 0; i <= COG_SCROLL_STEPS; i++) {
+                    if (SCROLL_STEP_PERCENT[i] == SCROLL_SPEED_DEFAULT) continue;
+                    tick(dc, cogRunU((float)i / COG_SCROLL_STEPS) * dc->nw, y, half * 0.55f, 0);
+                }
+                mark = scrollTrackPlace(SCROLL_SPEED_DEFAULT);
+                t = scrollTrackPlace(s->scroll_speed);
+                snprintf(buf, sizeof buf, "%d%%", s->scroll_speed);
+            } else if (row == COG_CONTROLS_ROW_AIM_SENSITIVITY) {
+                mark = lanePlace(HEAD_AIM_SENSITIVITY_DEFAULT, HEAD_AIM_SENSITIVITY_MIN, HEAD_AIM_SENSITIVITY_MAX);
+                t = lanePlace(s->head_aim_sensitivity, HEAD_AIM_SENSITIVITY_MIN, HEAD_AIM_SENSITIVITY_MAX);
+                snprintf(buf, sizeof buf, "%d px/\xC2\xB0", s->head_aim_sensitivity);
+            } else {
+                mark = lanePlace(HEAD_AIM_DEADZONE_DEFAULT, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX);
+                t = lanePlace(s->head_aim_deadzone, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX);
+                snprintf(buf, sizeof buf, "%d\xC2\xB0/s", s->head_aim_deadzone);
+            }
+            track_row(dc, COG_TAB_CONTROLS, row, name, mark, t, buf);
+        }
     }
 }
 
 // Native (PLAN 4.3): a row with nothing to set while the PC draws the pair,
 // greyed with the reason across it and its hits disabled
-static void host_drawn_row(Dc* dc, int row, int n, int track) {
-    float y = row_y(dc, COG_TAB_3D, row);
-    greyed_reason(dc, y, ui_str(UIS_SBS_NO_DEPTH));
-    if (track) {
-        track_hits(dc, COG_TAB_3D, row, 0);
-        return;
-    }
-    host_drawn_hits(dc, row, n);
+static void host_drawn_row(Dc* dc, int row) {
+    greyed_reason(dc, row_y(dc, COG_TAB_3D, row), ui_str(UIS_SBS_NO_DEPTH));
+    dead_hits(dc, COG_TAB_3D, row);
 }
 
 // Native (lane wave3-tidy): the depth model's five tracks under the source
@@ -442,7 +530,7 @@ static void tab_3d(Dc* dc) {
     int host_drawn = ok && src != STEREO_SOURCE_DEPTH;
     static const UiStr PRESETS[COG_PRESET_CELLS] = { UIS_COMFORT, UIS_BALANCED, UIS_STRONG };
     static const UiStr SW[2] = { UIS_OFF, UIS_ON };
-    static const UiStr SOURCES[COG_SOURCE_CELLS] = { UIS_SOURCE_DEPTH, UIS_SOURCE_SBS, UIS_SOURCE_TB };
+    static const UiStr SOURCES[COG_SOURCE_CELLS] = { UIS_ROW_DEPTH_MODEL, UIS_SOURCE_SBS, UIS_SOURCE_TB };
     float tick_half = COG_3D_CELL_HALF * dc->nh;
     int presets[COG_PRESET_CELLS];
     ui_presets_for(s, presets);
@@ -451,7 +539,7 @@ static void tab_3d(Dc* dc) {
     float y = row_y(dc, COG_TAB_3D, COG_ROW3D_PRESET);
     label(dc, ui_str(UIS_ROW_PRESET), y, ok && !host_drawn);
     if (host_drawn) {
-        host_drawn_row(dc, COG_ROW3D_PRESET, COG_PRESET_CELLS, 0);
+        host_drawn_row(dc, COG_ROW3D_PRESET);
     } else {
         cells(dc, COG_TAB_3D, COG_ROW3D_PRESET, PRESETS, COG_PRESET_CELLS, y, ok, tick_half, ok ? cogPresetAt(sep, presets) : -1);
     }
@@ -462,7 +550,7 @@ static void tab_3d(Dc* dc) {
         y = row_y(dc, COG_TAB_3D, row);
         label(dc, ui_str(i == 0 ? UIS_ROW_DEPTH : UIS_ROW_CONVERGENCE), y, ok && (i == 1 || !host_drawn));
         if (i == 0 && host_drawn) {
-            host_drawn_row(dc, row, 0, 1);
+            host_drawn_row(dc, row);
             continue;
         }
         float mark_t = row == COG_ROW3D_SEPARATION ? (float)def_sep / COG_SEP_STEPS : 0.5f;
@@ -499,60 +587,19 @@ static void tab_3d(Dc* dc) {
               : s->depth_source == DEPTH_SOURCE_FULL ? COG_MODEL_FULL : -1;
     if (!ok) {
         // (no hits there: the words take the row, and the ray passes over a dead row anyway)
-        dc_text(dc, UI_WEIGHT_REGULAR, 17.0f, dc->nw * 0.5f, y, UI_ALIGN_CENTER, 0x50FFFFFFu,
-                v->stereo_reason ? v->stereo_reason : ui_str(UIS_THREE_D_OFF_IN_SETTINGS));
+        const char* why = v->stereo_reason ? v->stereo_reason : ui_str(UIS_THREE_D_OFF_IN_SETTINGS);
+        float room = (COG_TRACK_R - COG_TRACK_L) * dc->nw;
+        float fit = ui_text_fit_size(dc->font, UI_WEIGHT_REGULAR, 19.0f * dc->k, 12.0f * dc->k, why, room * dc->k) / dc->k;
+        label(dc, ui_str(UIS_ROW_DEPTH_MODEL), y, 0);
+        dc_text_fit_center(dc, UI_WEIGHT_REGULAR, fit, (COG_TRACK_L + COG_TRACK_R) * 0.5f * dc->nw, y, room, 0x50FFFFFFu, why);
     } else if (host_drawn) {
         label(dc, ui_str(UIS_ROW_DEPTH_MODEL), y, 0);
-        host_drawn_row(dc, COG_ROW3D_MODEL, COG_MODEL_CELLS, 0);
+        host_drawn_row(dc, COG_ROW3D_MODEL);
     } else {
         label(dc, ui_str(UIS_ROW_DEPTH_MODEL), y, 1);
         cells(dc, COG_TAB_3D, COG_ROW3D_MODEL, MODELS, COG_MODEL_CELLS, y, 1, tick_half, model);
     }
-    reset_button(dc);
-}
-
-static void picture_text(int row, int units, char* out, size_t cap) {
-    switch (row) {
-    case PICTURE_CONTRAST:
-    case PICTURE_SATURATION: snprintf(out, cap, "%d%%", units); break;
-    case PICTURE_GAMMA: snprintf(out, cap, "%.2f", units / 100.0); break;
-    default: snprintf(out, cap, units > 0 ? "+%d" : "%d", units); break;
-    }
-}
-
-static void tab_picture(Dc* dc) {
-    const Settings* s = dc->v->settings;
-    // The four grade values, then Background (percent dimmed) and Glow spread (native, issue #7), live
-    // whatever the glow is
-    static const UiStr ROWS[PICTURE_TAB_ROWS] = { UIS_ROW_BRIGHTNESS, UIS_ROW_CONTRAST, UIS_ROW_GAMMA, UIS_ROW_SATURATION,
-                                                  UIS_ROW_BACKGROUND, UIS_ROW_GLOW_SPREAD };
-    static const int MIN[PICTURE_TAB_ROWS] = { PICTURE_BRIGHTNESS_MIN, PICTURE_CONTRAST_MIN, PICTURE_GAMMA_MIN, PICTURE_SATURATION_MIN,
-                                               BG_DIM_MIN, GLOW_SPREAD_MIN };
-    static const int MAX[PICTURE_TAB_ROWS] = { PICTURE_BRIGHTNESS_MAX, PICTURE_CONTRAST_MAX, PICTURE_GAMMA_MAX, PICTURE_SATURATION_MAX,
-                                               BG_DIM_MAX, GLOW_SPREAD_MAX };
-    static const int DEF[PICTURE_TAB_ROWS] = { PICTURE_BRIGHTNESS_DEFAULT, PICTURE_CONTRAST_DEFAULT, PICTURE_GAMMA_DEFAULT, PICTURE_SATURATION_DEFAULT,
-                                               BG_DIM_DEFAULT, GLOW_SPREAD_DEFAULT };
-    float tick_half = cogCellHalf(COG_TAB_PICTURE) * dc->nh;
-    for (int row = 0; row < PICTURE_TAB_ROWS; row++) {
-        float y = row_y(dc, COG_TAB_PICTURE, row);
-        label(dc, ui_str(ROWS[row]), y, 1);
-        track_line(dc, y, 0x66FFFFFFu);
-        chevrons(dc, y, 1, tick_half);
-        tick(dc, cogRunU(lanePlace(DEF[row], MIN[row], MAX[row])) * dc->nw, y, tick_half, 1);
-        int units = row == PICTURE_ROW_BACKGROUND ? s->bg_dim
-                  : row == PICTURE_ROW_GLOW_SPREAD ? s->glow_spread
-                  : settings_picture_value(s, row);
-        thumb(dc, COG_TAB_PICTURE, row, y, lanePlace(units, MIN[row], MAX[row]));
-        char buf[24];
-        if (row == PICTURE_ROW_BACKGROUND || row == PICTURE_ROW_GLOW_SPREAD) {
-            snprintf(buf, sizeof buf, "%d%%", units);
-        } else {
-            picture_text(row, units, buf, sizeof buf);
-        }
-        readout(dc, cogRowV(COG_TAB_PICTURE, row), buf);
-        track_hits(dc, COG_TAB_PICTURE, row, 1);
-    }
-    reset_button(dc);
+    reset_button(dc, reset_live(v, COG_TAB_3D));
 }
 
 // Native (lane a11y-tab, a11y-2): the Accessibility tab. Pointer (Controller, Head, Eyes; Eyes
@@ -820,28 +867,23 @@ static void tab_about(Dc* dc) {
 }
 
 void panel_cog(Dc* dc) {
-    int face = ui_cog_face(dc->v);
-    int in_room = face == COG_FACE_ROOM;
     int tab = dc->v->cog_tab < 0 || dc->v->cog_tab >= COG_TAB_COUNT ? COG_TAB_SCREEN : dc->v->cog_tab;
-    // in a room the Screen tab's slot is the Room tab, and every other tab is as ever
-    int room_up = dc->v->room_env >= 0 && settings_room_index(dc->v->room_env) >= 0;
     dc->label_text = NULL;
     // native (lane eye-calibration): a run's label in place of the whole panel
     if (dc->v->eyecal_step > 0) {
         eyecal_face(dc);
         return;
     }
-    chrome(dc, tab, room_up);
-    switch (face) {
+    chrome(dc, tab);
+    switch (tab) {
     case COG_TAB_SCREEN: tab_screen(dc); break;
-    case COG_FACE_ROOM: tab_room(dc); break;
+    case COG_TAB_ROOM: tab_room(dc); break;
     case COG_TAB_DISPLAY: tab_display(dc); break;
     case COG_TAB_3D: tab_3d(dc); break;
-    case COG_TAB_PICTURE: tab_picture(dc); break;
+    case COG_TAB_CONTROLS: tab_controls(dc); break;
     case COG_TAB_ACCESS: tab_access(dc); break;
     case COG_TAB_ABOUT: tab_about(dc); break;
     default: break;
     }
     label_flush(dc, label_right(dc));
-    (void)in_room;
 }

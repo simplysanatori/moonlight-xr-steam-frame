@@ -43,7 +43,7 @@
 #define HEAD_AIM_JUMPED    7
 
 // The switch: the setting a session starts from, turned over each time the
-// bar button or the Display tab's row flips it
+// bar button or the Controls tab's row flips it
 int headAimSwitchOn(int settingOn, int flipped);
 
 // What the flip has to be for the switch to read wantOn

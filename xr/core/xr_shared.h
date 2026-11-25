@@ -175,7 +175,7 @@
 #define SCROLL_SPEED_MAX 400
 #define SCROLL_SPEED_DEFAULT 100
 // Native (lane wave2-bind-wire): how much the cursor is held still around a
-// click (config.ini click_steadiness, the Display tab's Click steadiness row).
+// click (config.ini click_steadiness, the Controls tab's Click steadiness row).
 // Off sends the aim as it is; Normal is what every session had: the press
 // sent where the aim was before the pull jolted it, and the double-click wait
 // (24 px, 500 ms); Steady adds the click hold (8 px), the cursor kept still
@@ -222,18 +222,15 @@
 // Which room a room's own setting belongs to, as the picker cell showing it,
 // or -1 with no room up. Every frame, since each room keeps its own values.
 #define IN_SETTING_ROOM 23
-// What the strip beside the Room, Picture or Screen tab's tracks says. First
-// which of them it is for, one of the READOUT_ values, or -1 while none is up,
-// then a value a row. The Room tab's three are the percent drawn beside each:
-// brightness and light level as the place along their lanes, the size as the
-// share of the room's screen, -1 in a room whose size is fixed. The Picture
-// tab's four are its values in their own whole units. The Screen tab's two
-// are head aim's pixels a degree and dead zone, only while its rows are live.
+// What is said beside the tracks of the Room, Display, Screen or Controls tab.
+// First which of them it is for, one of the READOUT_ values, or -1 while none
+// is up, then a value for each (cogReadouts).
 #define IN_READOUT  24
-#define READOUT_VALUES 5
+#define READOUT_VALUES 6
 #define READOUT_ROOM 0
-#define READOUT_PICTURE 1
+#define READOUT_DISPLAY 1
 #define READOUT_SCREEN 2
+#define READOUT_CONTROLS 3
 // 1 while the 3D is on, and 0 once the bar or the 3D tab has switched it off
 // for the rest of the session, or in a session started without it. Every
 // frame, since it says whether the model is to be fed.
@@ -245,12 +242,12 @@
 // 1 on the frame a press landed on a panel's cell, button, key or track, so
 // Java can tick
 #define IN_CLICK    (IN_TOAST_ARG + 1)
-// The display tab's cell in force on each of its option rows, in row order,
-// which Java draws the marks over them from, or -1 first while the tab is not
-// up, and -1 for a row greyed where it can do nothing. Every frame. As many as
-// COG_OPTION_COUNT below, which the native side checks when it builds.
+// The cell in force on each of the option rows, in COG_OPTION_ order, or -1
+// for a row the tab showing does not have, or one greyed where it can do
+// nothing. Every frame. As many as COG_OPTION_COUNT below, which the native
+// side checks when it builds.
 #define IN_MARKS    (IN_CLICK + 1)
-#define MARK_VALUES 15
+#define MARK_VALUES 16
 // 1 while the settings panel is up, fading out included, so Java keeps the
 // clock line over it up to the minute
 #define IN_COG_OPEN (IN_MARKS + MARK_VALUES)
@@ -356,6 +353,8 @@
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
+// The Display tab's Stats row, its cell: 0 off (the style stays), 1 Full, 2
+// Compact, 3 Minimal, stored as stats and stats_style
 #define SETTING_STATS   1
 #define SETTING_SEPARATION 2
 #define SETTING_CONVERGENCE 3
@@ -387,7 +386,7 @@
 // HEAD_AIM_ lanes below
 #define SETTING_HEAD_AIM_SENSITIVITY 22
 #define SETTING_HEAD_AIM_DEADZONE 23
-// Native (lane wave3-visual): the Picture tab's Background dim in whole
+// Native (lane wave3-visual): the Room tab's Background dim in whole
 // percent. Numbered clear of the ids the neighbouring lanes add.
 #define SETTING_BG_DIM 40
 // Native (issue #7): the glow's reach, in percent
@@ -396,7 +395,7 @@
 // stays where it is until the head turns past the leash, then eases after the
 // gaze). SETTING_HEAD_LOCK takes the cell.
 
-// The lanes the Room tab's rows move along, in the units the preferences
+// The lanes a room's own rows move along, in the units the preferences
 // hold. Brightness is the room's own in hundredths of the room as baked, from
 // near black to a little over half as bright again. The light off the picture
 // is in hundredths of the gain the room's row gives it, and starts three
@@ -444,28 +443,13 @@
 #define PICTURE_SATURATION_MIN 0
 #define PICTURE_SATURATION_MAX 200
 #define PICTURE_SATURATION_DEFAULT 100
-// The four in the order the Picture tab draws them, which is also the order
-// they travel in wherever they go together
+// The four in the order the Display tab draws them, its first rows, which is
+// also the order they travel in wherever they go together
 #define PICTURE_BRIGHTNESS 0
 #define PICTURE_CONTRAST 1
 #define PICTURE_GAMMA 2
 #define PICTURE_SATURATION 3
 #define PICTURE_VALUES 4
-// Native (lane wave3-visual): the Picture tab's two rows under the grade. They
-// are tracks like the grade's but belong to the surroundings rather than the
-// colours: Background, how far the room, the passthrough or the void is dimmed,
-// and (native, issue #7) Glow spread, how far the glow reaches. They follow the
-// four grade values in the tab, so the tab has PICTURE_TAB_ROWS.
-#define PICTURE_ROW_BACKGROUND 4
-#define PICTURE_ROW_GLOW_SPREAD 5
-#define PICTURE_TAB_ROWS 6
-// The rows start a little higher and sit a little closer than the Room tab's,
-// over the same reset button
-#define COG_PICTURE_ROW_V0 0.23f
-#define COG_PICTURE_ROW_STEP 0.082f
-#define COG_PICTURE_ROW_HALF 0.039f
-#define COG_PICTURE_CELL_HALF 0.036f
-
 // Background dim, whole percent of the environment taken away: 0 leaves the
 // room, the cameras or the void as they are, 100 is black. The track moves in
 // five percent steps.
@@ -476,6 +460,8 @@
 
 // Native (issue #7): the glow, light of the picture's edge colours round a picture that keeps its edges,
 // as a backlit television has (xr_glow.h). Glow spread, how far it reaches, percent of its most.
+// Glow level, percent in five percent steps
+#define GLOW_LEVEL_DEFAULT 50
 #define GLOW_SPREAD_MIN 10
 #define GLOW_SPREAD_MAX 100
 #define GLOW_SPREAD_DEFAULT 50
@@ -562,55 +548,32 @@
 #define COG_RUN_R (COG_TRACK_R - COG_RUN_INSET)
 // Anything above this is the tab bar, split evenly between the tabs
 #define COG_TAB_BAR_B 0.16f
-// Where the rows of the 3D, Picture and Room tabs sit. The screen tab and the
-// display tab carry more rows and have spacings of their own below.
-#define COG_ROW_V0 0.25f
-#define COG_ROW_STEP 0.11f
-// Half height of a row's hit band. Under half the pitch, so neighbouring
-// bands stay disjoint.
-#define COG_ROW_HALF 0.05f
 #define COG_RESET_L 0.35f
 #define COG_RESET_R 0.65f
-// Clear of the last row, which reaches 0.80 plus the half band
+// Clear of the last row of every tab that has the button
 #define COG_RESET_T 0.87f
 #define COG_RESET_B 0.97f
-// Half height of an option cell, so the ring drawn over one matches the art
-#define COG_CELL_HALF 0.045f
 
-// One sheet per tab, all kept in memory from the start, so switching is one
-// upload into the panel's swapchain
-#define COG_TAB_SCREEN  0
-#define COG_TAB_DISPLAY 1
-#define COG_TAB_3D      2
-#define COG_TAB_PICTURE 3
-// Native (lane a11y-tab): the Accessibility tab, before About
-#define COG_TAB_ACCESS  4
-#define COG_TAB_ABOUT   5
-#define COG_TAB_COUNT   6
-// And the sheets a room shows instead. While one is up the first tab is the
-// Room tab, whose size row is live or greyed as the room allows, and the other
-// tabs are drawn again with that name over the first slot.
-#define COG_ART_ROOM         6
-#define COG_ART_ROOM_FIXED   7
-#define COG_ART_ROOM_DISPLAY 8
-#define COG_ART_ROOM_3D      9
-#define COG_ART_ROOM_PICTURE 10
-#define COG_ART_ROOM_ACCESS  11
-#define COG_ART_ROOM_ABOUT   12
-// And the screen and display tabs for a screen that is not locked to the head,
-// where head aim's rows are greyed, since it only acts on one that is
-#define COG_ART_SCREEN_WORLD 13
-#define COG_ART_DISPLAY_WORLD 14
-#define COG_ART_COUNT        15
+// The tabs. Native (1.3.4): seven that never change name; a room greys the
+// rows it sets itself and the Room tab greys its own outside one.
+#define COG_TAB_SCREEN   0
+#define COG_TAB_ROOM     1
+#define COG_TAB_DISPLAY  2
+#define COG_TAB_3D       3
+#define COG_TAB_CONTROLS 4
+#define COG_TAB_ACCESS   5
+#define COG_TAB_ABOUT    6
+#define COG_TAB_COUNT    7
 // Native (lane a11y-tab): the tab bar's slots are not even any more. Each tab's
 // slot starts at COG_TAB_EDGE_<n> (fractions of the panel's width; the last
 // ends at 1), Accessibility getting the room its name needs. xr_layout.h's
 // cogTabAt and cogTabLeft read them.
-#define COG_TAB_EDGE_1 0.190f
-#define COG_TAB_EDGE_2 0.355f
-#define COG_TAB_EDGE_3 0.445f
-#define COG_TAB_EDGE_4 0.595f
-#define COG_TAB_EDGE_5 0.845f
+#define COG_TAB_EDGE_1 0.139f
+#define COG_TAB_EDGE_2 0.264f
+#define COG_TAB_EDGE_3 0.407f
+#define COG_TAB_EDGE_4 0.485f
+#define COG_TAB_EDGE_5 0.649f
+#define COG_TAB_EDGE_6 0.870f
 
 // Native (lane a11y-tab, a11y-2): Accessibility tab rows: what points
 // (Controller, Head and Eyes; Eyes dimmed only where the runtime does not
@@ -654,10 +617,11 @@
 #define COG_ACCESS_FOOTER_T 0.845f
 
 // Screen tab rows, in the order they are drawn: the six that place the
-// screen, which the reset button under them puts back, then head aim's two,
-// live only with the screen locked to the head, then three rows of cells: the
-// presets with "bring here", remembering the layout per app, and the
-// angular-size lock
+// screen, which the reset button under them puts back, then four rows of
+// cells: the presets with "bring here", the head lock, remembering the layout
+// per app, and the angular-size lock. A room places the picture itself, so in
+// one Size is the share of the room's screen it takes (where the room lets it
+// be sized) and the rows that act on nothing there are greyed.
 #define COG_SLIDER_DISTANCE 0
 #define COG_SLIDER_HEIGHT   1
 #define COG_SLIDER_TILT     2
@@ -665,17 +629,16 @@
 #define COG_SLIDER_CURVE    4
 #define COG_SLIDER_SIZE     5
 #define COG_SLIDER_COUNT    6
-#define COG_SLIDER_AIM_SENSITIVITY 6
-#define COG_SLIDER_AIM_DEADZONE 7
 // The rows past the tracks are cells. Preset: Desk, Couch, Cinema and a press
-// that brings the screen to where you are looking. Per app: Off, On and a
-// press that forgets what was remembered for the app now streaming. Lock:
-// Off, On.
-#define COG_SCREEN_ROW_PRESET 8
-#define COG_SCREEN_ROW_PER_APP 9
-#define COG_SCREEN_ROW_LOCK 10
-#define COG_SCREEN_TRACK_ROWS 8
-#define COG_SCREEN_ROW_COUNT 11
+// that brings the screen to where you are looking. Head locked: Off, On,
+// Follow. Per app: Off, On and a press that forgets what was remembered for
+// the app now streaming. Lock: Off, On.
+#define COG_SCREEN_ROW_PRESET 6
+#define COG_SCREEN_ROW_HEAD_LOCK 7
+#define COG_SCREEN_ROW_PER_APP 8
+#define COG_SCREEN_ROW_LOCK 9
+#define COG_SCREEN_TRACK_ROWS 6
+#define COG_SCREEN_ROW_COUNT 10
 #define COG_SCREEN_PRESET_CELLS 4
 #define COG_SCREEN_PER_APP_CELLS 3
 #define COG_SCREEN_LOCK_CELLS 2
@@ -683,63 +646,58 @@
 #define COG_SCREEN_CELL_BRING 3
 // The per app row's cells: the switch's two, then the forget press
 #define COG_SCREEN_CELL_FORGET 2
-// Eleven rows over the reset button, so they start higher and sit closer
-// together than the other tabs' with shallower cells. The last row's band
-// ends at 0.85625, clear of the reset button.
+// Ten rows over the reset button. The last row's band ends at 0.8315, well clear
+// of the button.
 #define COG_SCREEN_ROW_V0 0.2f
-#define COG_SCREEN_ROW_STEP 0.0625f
-#define COG_SCREEN_ROW_HALF 0.03125f
-#define COG_SCREEN_CELL_HALF 0.027f
+#define COG_SCREEN_ROW_STEP 0.0665f
+#define COG_SCREEN_ROW_HALF 0.033f
+#define COG_SCREEN_CELL_HALF 0.028f
 
-// Room tab rows, in the order they are drawn: a track, two rows of cells and
-// two more tracks, with the screen light's level under its switch. Only in a
-// room, in the first tab's place, since a room places and sizes the picture
-// itself and none of the screen tab's rows can do anything there.
-#define COG_ROOM_ROW_BRIGHTNESS 0
+// Room tab rows, in the order they are drawn: what is around the picture. The
+// first four everywhere (the reset button covers Background dim, Glow level
+// and Glow spread); the last three only in a room, greyed outside one. Glow is
+// the room's own switch in a room and one for the void and passthrough; the
+// brightness and the light's level are the room's own, the screen light's
+// switch every room's.
+#define COG_ROOM_ROW_BG_DIM 0
 #define COG_ROOM_ROW_GLOW 1
-#define COG_ROOM_ROW_LIGHT 2
-#define COG_ROOM_ROW_LIGHT_LEVEL 3
-#define COG_ROOM_ROW_SIZE 4
-#define COG_ROOM_ROW_COUNT 5
-#define COG_ROOM_SWITCH_CELLS 2
-// The percent beside each of its tracks, and the Picture tab's values beside
-// its. Drawn in Java whenever one changes and shown as a strip of its own over
-// the panel rather than as part of the sheet, so a drag costs an upload this
-// size rather than the whole sheet's. Where the strip sits on the panel, as
-// fractions of it.
+#define COG_ROOM_ROW_GLOW_LEVEL 2
+#define COG_ROOM_ROW_GLOW_SPREAD 3
+#define COG_ROOM_ROW_BRIGHTNESS 4
+#define COG_ROOM_ROW_LIGHT 5
+#define COG_ROOM_ROW_LIGHT_LEVEL 6
+#define COG_ROOM_ROW_COUNT 7
+#define COG_ROOM_ROW_V0 0.23f
+#define COG_ROOM_ROW_STEP 0.094f
+#define COG_ROOM_ROW_HALF 0.045f
+#define COG_ROOM_CELL_HALF 0.038f
+// The value beside a track: where it sits on the panel, as fractions of it,
+// and how wide it is, in the panel's texels
 #define COG_READOUT_TEX_W 96
-#define COG_READOUT_TEX_H 448
 #define COG_READOUT_L 0.26f
-#define COG_READOUT_T 0.19f
 
-// 3D tab rows, in the order they are drawn: a row of preset cells over two
-// sliders like the screen tab's, then the switch the bar's 3D button also
-// works. Only values that take effect the moment they move belong here (native,
-// 1.3.3: the depth model too, last, which restarts the model with the one
-// chosen), and the switch only pauses a session that started with 3D.
-// Native (PLAN 4.3): last, the 3D source (Depth, SBS, Top-bottom), live in
-// every session, which switches between the model and a host-rendered pair
-// at once; with a host-rendered pair the preset and depth rows are dead and
-// the convergence track moves the two halves apart or together.
-#define COG_ROW3D_PRESET 0
-#define COG_ROW3D_SEPARATION 1
-#define COG_ROW3D_CONVERGENCE 2
-#define COG_ROW3D_SWITCH 3
-#define COG_ROW3D_SOURCE 4
-// Native (lane wave3-tidy): then the depth model's own five tracks, which
-// used to be config.ini and the launcher only. All are depth-model rows, so
-// they are dead with the 3D off and with a host-rendered pair, and they act
-// on the next depth map, so they move at once.
-#define COG_ROW3D_EDGE 5
-#define COG_ROW3D_DETAIL 6
-#define COG_ROW3D_SHAPE 7
-#define COG_ROW3D_MOTION 8
-#define COG_ROW3D_BALANCE 9
-// Native (1.3.3, issue #6): last, the depth model, ZipDepth Light or ZipDepth
-// Full (config.ini depth_source zipdepth-int8 or zipdepth), live with the
-// depth model as the source. Full asks first on the hint sheet
-// (HINT_KIND_DEPTH_FULL); the model restarts with the one chosen.
-#define COG_ROW3D_MODEL 10
+// 3D tab rows, in the order they are drawn. Only values that take effect the
+// moment they move belong here. The switch the bar's 3D button also works,
+// which only pauses a session that started with 3D; where the 3D comes from
+// (the depth model, SBS, Top-bottom), live in every session, which switches
+// between the model and a host-rendered pair at once; which depth model,
+// ZipDepth Light or ZipDepth Full (config.ini depth_source zipdepth-int8 or
+// zipdepth; Full asks first on the hint sheet, HINT_KIND_DEPTH_FULL, and the
+// model restarts with the one chosen); a row of preset cells over the depth
+// and convergence tracks; then the depth model's own five tracks, which act on
+// the next depth map. With a host-rendered pair only the switch, the source
+// and the convergence track act (which moves the two halves apart or together).
+#define COG_ROW3D_SWITCH 0
+#define COG_ROW3D_SOURCE 1
+#define COG_ROW3D_MODEL 2
+#define COG_ROW3D_PRESET 3
+#define COG_ROW3D_SEPARATION 4
+#define COG_ROW3D_CONVERGENCE 5
+#define COG_ROW3D_EDGE 6
+#define COG_ROW3D_DETAIL 7
+#define COG_ROW3D_SHAPE 8
+#define COG_ROW3D_MOTION 9
+#define COG_ROW3D_BALANCE 10
 #define COG_ROW3D_COUNT 11
 #define COG_MODEL_LIGHT 0
 #define COG_MODEL_FULL 1
@@ -755,9 +713,8 @@
 #define COG_MOTION_STEPS ((MOTION_RESET_MAX - MOTION_RESET_MIN) / COG_MOTION_STEP)
 #define COG_BALANCE_STEP 10
 #define COG_BALANCE_STEPS ((EYE_BALANCE_MAX - EYE_BALANCE_MIN) / COG_BALANCE_STEP)
-// Eleven rows over the reset button, spaced as the Screen tab spaces its
-// eleven: starting higher, closer together, with shallower cells. The last
-// row's band ends at 0.85625, clear of the reset button.
+// Eleven rows over the reset button. The last row's band ends at 0.85625,
+// clear of the button.
 #define COG_3D_ROW_V0 0.2f
 #define COG_3D_ROW_STEP 0.0625f
 #define COG_3D_ROW_HALF 0.03125f
@@ -781,10 +738,6 @@
 // tenths of a percent the preference is stored in
 #define COG_SEP_STEPS 15
 
-// Picture tab rows are the four PICTURE_ values in their order, each a track
-// with a tick at the picture as streamed, over the reset button. Live in
-// every session and every room, since the grade only changes colours.
-
 // About tab: the app and its version, and no rows, only two buttons: the one
 // that opens the Ko-fi sheet over the one that puts the panel away for the
 // report sheet. Where the buttons sit on the panel.
@@ -797,14 +750,54 @@
 #define COG_REPORT_T 0.69f
 #define COG_REPORT_B 0.81f
 
-// Display tab rows. Cells rather than a track, so a press picks one instead of
-// dragging a value. The head aim and gamepad rows are the bar's buttons for
-// the session, so they are not stored, and the ray row is the saved half of
-// the bar's Ray button. Head aim's is greyed unless the screen is locked to
-// the head outside a room. The input rows sit together: the gamepad row is
-// Mode (Pointer or Gamepad, what the controllers are), the controllers row is
-// Show controllers (whether their model is drawn), then Ray (Off, Dot, Ray),
-// Pointer sleep and Click sound.
+// Display tab rows, in the order they are drawn: the four PICTURE_ values,
+// each a track with a tick at the picture as streamed, which the reset button
+// puts back (live in every session and every room, since the grade only
+// changes colours), then rows of cells
+#define COG_DISPLAY_ROW_SHARPEN 4
+#define COG_DISPLAY_ROW_SUPERSAMPLE 5
+#define COG_DISPLAY_ROW_FOVEATED 6
+#define COG_DISPLAY_ROW_STATS 7
+#define COG_DISPLAY_ROW_NOTICES 8
+#define COG_DISPLAY_ROW_COUNT 9
+// Nine rows over the reset button. The last row's band ends at 0.838.
+#define COG_DISPLAY_ROW_V0 0.205f
+#define COG_DISPLAY_ROW_STEP 0.0745f
+#define COG_DISPLAY_ROW_HALF 0.037f
+#define COG_DISPLAY_CELL_HALF 0.031f
+
+// Controls tab rows, in the order they are drawn: Mode (Pointer or Gamepad,
+// what the controllers are, the bar's button for the session), what the ray
+// sends (Mouse mode), which controller model is drawn, the ray (the saved half
+// of the bar's button), the pointer's own rows, the wheel's speed, then head
+// aim's three (the bar's button for the session, and its two tracks), which
+// only act with the screen locked to the head outside a room. Pointer sleep
+// and Click steadiness are greyed while the light gun sets them.
+#define COG_CONTROLS_ROW_MODE 0
+#define COG_CONTROLS_ROW_MOUSE_MODE 1
+#define COG_CONTROLS_ROW_MODELS 2
+#define COG_CONTROLS_ROW_RAY 3
+#define COG_CONTROLS_ROW_SLEEP 4
+#define COG_CONTROLS_ROW_STEADY 5
+#define COG_CONTROLS_ROW_CLICK_SOUND 6
+#define COG_CONTROLS_ROW_SCROLL 7
+#define COG_CONTROLS_ROW_HEAD_AIM 8
+#define COG_CONTROLS_ROW_AIM_SENSITIVITY 9
+#define COG_CONTROLS_ROW_AIM_DEADZONE 10
+#define COG_CONTROLS_ROW_COUNT 11
+// Eleven rows and no reset button
+#define COG_CONTROLS_ROW_V0 0.215f
+#define COG_CONTROLS_ROW_STEP 0.0715f
+#define COG_CONTROLS_ROW_HALF 0.0355f
+#define COG_CONTROLS_CELL_HALF 0.029f
+// The scroll speed's places along its track, the flat Settings page's own
+// (percent: 50, 75, 100, 150, 200, 300, xr_layout.h scrollStepPercent)
+#define COG_SCROLL_STEPS 5
+
+// The option rows: settings picked from a row of cells. The numbers say which
+// setting, not where its row is (xr_layout.h cogRowOption says which tab and
+// row). Head aim's and the gamepad's are the bar's buttons for the session, so
+// they are not stored.
 #define COG_OPTION_SHARPEN 0
 #define COG_OPTION_SUPERSAMPLE 1
 #define COG_OPTION_STATS   2
@@ -822,13 +815,16 @@
 #define COG_OPTION_ROOM_LIGHT 12
 // Native: which notices the toast says (All, Important, Off)
 #define COG_OPTION_NOTICES 13
-// Native (1.3.4): Foveated rendering (On, Off), [display] foveated, from the next stream. Last of the
-// option rows, so the rows before it keep their numbers.
+// Native (1.3.4): Foveated rendering (On, Off), [display] foveated, from the next stream
 #define COG_OPTION_FOVEATED 14
-#define COG_OPTION_COUNT   15
+// Native (1.3.4): Mouse mode (Absolute, Relative), [vr] mouse_mode, at once
+#define COG_OPTION_MOUSE_MODE 15
+#define COG_OPTION_COUNT   16
 #define COG_SHARPEN_CELLS 3
 #define COG_SUPERSAMPLE_CELLS 3
-#define COG_STATS_CELLS   2
+// Off, then the stats window's styles: Full, Compact, Minimal (stats_style full, hud, lite)
+#define COG_STATS_CELLS   4
+#define COG_MOUSE_MODE_CELLS 2
 // Off, On and Follow
 #define COG_HEAD_LOCK_CELLS 3
 #define COG_HEAD_AIM_CELLS 2
@@ -846,31 +842,6 @@
 #define COG_ROOM_LIGHT_CELLS 2
 #define COG_NOTICES_CELLS 3
 #define COG_FOVEATED_CELLS 2
-// The one row on this tab that is a track rather than cells, under the option
-// rows, so the glow can be turned down without leaving the tab it lives on.
-// This tab has no reset button for it to land on.
-#define COG_DISPLAY_SLIDER_ROW 15
-// Sixteen rows on this tab (fifteen of cells, native added Notices, Click
-// steadiness and (1.3.4) Foveated rendering, and the glow level track), so its
-// rows start a little higher and sit closer together than the other tabs',
-// with shallower cells to keep a gap between them. The last is centred at
-// 0.926 and its thumb still clears the bottom
-// edge, grown or not. The hit band is half the pitch, so neighbouring bands
-// meet without overlapping, and the first starts just under the tab bar.
-// (1.3.4: the widest pitch sixteen rows have between the tab bar and that
-// bottom, so a label reaching below its baseline still clears the next row)
-#define COG_DISPLAY_ROW_V0 0.185f
-#define COG_DISPLAY_ROW_STEP 0.0494f
-#define COG_DISPLAY_ROW_HALF 0.0247f
-#define COG_DISPLAY_CELL_HALF 0.021f
-// The marks on the display tab's cells, which of each row's cells is in
-// force, drawn in Java as one strip over the column of cells rather than a
-// ring each, so the tab costs one layer for them however many rows it has.
-// Redrawn when one changes. Where the strip sits, as fractions of the panel.
-#define COG_MARKS_TEX_W 408
-#define COG_MARKS_TEX_H 460
-#define COG_MARKS_L 0.41f
-#define COG_MARKS_T 0.17f
 // The time and the battery on a strip just over the panel's top edge, drawn
 // in Java when the minute or the battery moves. Half the panel's width.
 #define COG_CLOCK_TEX_W 384

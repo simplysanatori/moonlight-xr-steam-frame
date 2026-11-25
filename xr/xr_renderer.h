@@ -231,12 +231,6 @@ static inline float nativePointerTunable(const char* env, float def) {
 
 #define COG_WIDTH_FRAC 0.36f
 #define COG_THUMB_TEX 64
-// Which rows the panel is showing: one of the tabs, or the Room tab, which is
-// what the first tab is while a room is up. Numbered past the tabs, since it
-// is not a tab of its own and nothing else can reach it.
-#ifndef COG_FACE_ROOM
-#define COG_FACE_ROOM COG_TAB_COUNT
-#endif
 
 // Metres. Deliberately well under the settings slider's 1 m floor, so the
 // screen can be brought right up to the face.
@@ -1379,6 +1373,7 @@ typedef struct XrCtx {
     int cogDragSlider;
     int cogDragHand;
     int cogDragFace;
+    int cogDragRoom;        // native (1.3.4): the room (its style, 0 none) that was up when the drag began
     int cogDragByGaze;
     Vec3 cogDragHandStart;
     float cogDragScale;
@@ -1704,8 +1699,6 @@ BarFrame barFrame(XrCtx* ctx);
 int barButtonHit(XrCtx* ctx, int slot, float u, float v, const BarFrame* frame);
 float cornerSide(XrCtx* ctx);
 float effectiveCurvature(XrCtx* ctx);
-int cogFace(XrCtx* ctx);
-int cogArt(XrCtx* ctx);
 float screenPitch(XrCtx* ctx);
 XrQuaternionf screenOrient(float yaw, float pitch, float roll);
 float screenRoll(XrCtx* ctx);
@@ -1756,17 +1749,13 @@ XrPosef kofiSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);
 // xr_kofi.c: runs Steam's browser on the Frame for the Ko-fi page (NULL: the default address).
 // Once per press, never blocks. 1 when a program was started.
 int kofiOpenPage(const char* url);
-int cogTabRowCount(int face);
-int cogRowIsTrack(int face, int row);
-int cogRowLive(XrCtx* ctx, int face, int row);
+int cogRowLive(XrCtx* ctx, int tab, int row);
+// Whether a press on the tab's reset button does anything here
+int cogResetActs(XrCtx* ctx, int tab);
 float cogSliderValue(XrCtx* ctx, int face, int slider);
 void cogApplySlider(XrCtx* ctx, int face, int slider, float pu);
-int cogOptionCells(int option);
 int cogOptionValue(XrCtx* ctx, int option, int headLocked);
 int cogApplyOption(XrCtx* ctx, int option, int cell);
-int cogRowCells(int face, int row);
-int cogRoomCellValue(XrCtx* ctx, int row);
-void cogApplyRoomCell(XrCtx* ctx, int row, int cell, float* out);
 int cogCellInForce(XrCtx* ctx, int face, int row);
 void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out);
 // Native (1.3.3): ZipDepth Full asks first. The settings panel goes away for
@@ -1779,9 +1768,9 @@ void depthFullSheetAnswer(XrCtx* ctx, int yes, float* out);
 // (HINT_KIND_PT_CONTROLLERS, HINT_KIND_PT_GLOW). Whether it is holding them back now:
 int xrPassthroughHidesModels(XrCtx* ctx);
 int xrPassthroughHidesGlow(XrCtx* ctx);
-// The Display tab's Show controllers row (greyed, "off in passthrough") or Glow's On opens its sheet; the
+// The Controls tab's Show controllers row (greyed, "off in passthrough") or the Room tab's Glow On opens its sheet; the
 // answer, yes for I Understand, stores the key (and for the glow turns it on) through out's IN_SETTING, and
-// either way the panel comes back on the Display tab
+// either way the panel comes back on the tab it was on
 void ptSheetOpen(XrCtx* ctx, int kind);
 void ptSheetAnswer(XrCtx* ctx, int yes, float* out);
 // The Screen tab's preset rows: which preset the screen is at now (-1 none, the
@@ -1805,6 +1794,10 @@ int cogCellAt(float pu, int cells);
 void cogReadouts(XrCtx* ctx, int* values);
 void pictureSet(XrCtx* ctx, int row, int units);
 void pictureReset(XrCtx* ctx);
+// The Room tab's Reset (Background dim, Glow level, Glow spread), and the Screen tab's in a room that lets its
+// picture be sized (the room's Size, handed to Java through out's IN_SETTING; 0 in any other)
+void surroundingsReset(XrCtx* ctx);
+int roomSizeReset(XrCtx* ctx, float* out);
 // Native names for upstream's JNI setters, fed from config.ini
 void xrSetDepthDefaults(XrCtx* ctx, int separation, int convergence, const int* presets);
 void xrSetClickSound(XrCtx* ctx, int on);

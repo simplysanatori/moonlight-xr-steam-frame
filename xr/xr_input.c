@@ -3475,6 +3475,7 @@ static void cogStartDrag(XrCtx* ctx, InputFrame* f, int h, int face, int row, fl
                          float pv) {
     ctx->cogDragByGaze = 0;
     ctx->cogDragHand = h;
+    ctx->cogDragRoom = roomEffective(ctx);
     if (h == SRC_GAZE) {
         Vec3 target = screenPoint(pu, pv, ctx->cogPose, ctx->cogW, ctx->cogH, 0.0f, 0);
         int hand = gazeDragHand(ctx, f->aimPoses, f->aimValid, target,
@@ -3507,15 +3508,15 @@ static void cogStartDrag(XrCtx* ctx, InputFrame* f, int h, int face, int row, fl
 static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
     f->hover = HOVER_COGPANEL;
     f->hand = -1;
-    int face = cogFace(ctx);
+    int face = ctx->cogTab;
     ctx->cogPointV = -1.0f;   // native (lane a11y-2): where the pointer is, for the Accessibility footer
 
     // A drag keeps the hand that started it, and keeps it even once the
     // ray has wandered off the panel, so a slider can be run to either end
-    // in one go. The display and Room tabs are cells apart from their tracks.
-    if (ctx->cogDragSlider >= 0 && ctx->cogDragFace != face) {
+    // in one go.
+    if (ctx->cogDragSlider >= 0 && (ctx->cogDragFace != face || ctx->cogDragRoom != roomEffective(ctx))) {
         // A room came or went mid drag, which only a debug property can do,
-        // and the row under the thumb is another row now
+        // and the row under the thumb sets something else now
         cogDragEnded(ctx, f->out);
     }
     else if (ctx->cogDragSlider >= 0 && cogRowIsTrack(face, ctx->cogDragSlider)) {
@@ -3659,9 +3660,8 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             break;
         }
 
-        // The screen, 3D and Picture tabs have a reset button under their
-        // rows
-        int onReset = (face == COG_TAB_SCREEN || face == COG_TAB_3D || face == COG_TAB_PICTURE)
+        // Some tabs have a reset button under their rows
+        int onReset = cogResetActs(ctx, face)
                 && pu >= COG_RESET_L && pu <= COG_RESET_R
                 && pv >= COG_RESET_T && pv <= COG_RESET_B;
         if (onReset && ctx->triggerEdge[h]) {
@@ -3682,8 +3682,18 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
                   separationUnits(ctx->defaultSeparation),
                   (int)roundf(ctx->defaultConvergence * 100.0f));
         }
-        else if (onReset && ctx->triggerEdge[h] && face == COG_TAB_PICTURE) {
-            // All four at once, written by the same road
+        else if (onReset && ctx->triggerEdge[h] && face == COG_TAB_ROOM) {
+            // Background dim, Glow level and Glow spread
+            surroundingsReset(ctx);
+            f->out[IN_SETTING] = (float)SETTING_RESET_ROOM;
+            f->out[IN_SETTING_VALUE] = 0.0f;
+        }
+        else if (onReset && ctx->triggerEdge[h] && face == COG_TAB_SCREEN && roomEffective(ctx) > 0) {
+            // The room's own size, the one row of the tab's placement a room has
+            roomSizeReset(ctx, f->out);
+        }
+        else if (onReset && ctx->triggerEdge[h] && face == COG_TAB_DISPLAY) {
+            // All four colours at once, written by the same road
             pictureReset(ctx);
             f->out[IN_SETTING] = (float)SETTING_RESET_PICTURE;
             f->out[IN_SETTING_VALUE] = 0.0f;
@@ -4071,7 +4081,7 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
             ctx->cogOpen = !ctx->cogOpen;
             if (ctx->cogOpen) {
                 // Opens on the tab it was last left on (cogTab is kept, and
-                // stored for the next session), so the Display tab's rows are
+                // stored for the next session), so the Controls tab's rows are
                 // one press away for whoever uses them
                 ctx->cogPose = cogPanelPose(ctx, &ctx->cogW, &ctx->cogH);
             }
@@ -4571,10 +4581,10 @@ static void bindAppCommand(XrCtx* ctx, int code, float* out) {
             xrKeyboardToggle(ctx, "a binding");
             break;
         case XR_BIND_APP_RAY: {
-            // Off, Dot, Ray and round again, saved as the Display tab's row is
+            // Off, Dot, Ray and round again, saved as the Controls tab's row is
             int cell = (cogOptionValue(ctx, COG_OPTION_RAY, ctx->headLockedPref) + 1) % COG_RAY_CELLS;
             if (out != NULL && out[IN_SETTING] < 0.0f) {
-                cogApplyCell(ctx, COG_TAB_DISPLAY, COG_OPTION_RAY, cell, out);
+                cogApplyCell(ctx, COG_TAB_CONTROLS, COG_CONTROLS_ROW_RAY, cell, out);
             }
             else {
                 cogApplyOption(ctx, COG_OPTION_RAY, cell);
@@ -5915,7 +5925,9 @@ static void handBack(XrCtx* ctx, float* out) {
     out[IN_TOAST] = -1.0f;
     out[IN_TOAST_ARG] = 0.0f;
     out[IN_CLICK] = 0.0f;
-    out[IN_MARKS] = -1.0f;
+    for (int m = 0; m < MARK_VALUES; m++) {
+        out[IN_MARKS + m] = -1.0f;
+    }
     out[IN_COG_OPEN] = 0.0f;
     out[IN_KB_MODS] = 0.0f;
     out[IN_KB_SHEET] = -1.0f;
@@ -5955,14 +5967,15 @@ static void handBack(XrCtx* ctx, float* out) {
         out[IN_KB_SHEET] = ctx->kbOpen ? (float)ctx->kbState : -1.0f;
         out[IN_CLICK] = ctx->clickPending ? 1.0f : 0.0f;
         ctx->clickPending = 0;
-        // The display tab's choices while it is up, fading out included
+        // The option rows' choices while their tab is up, fading out included
         int showing = ctx->cogOpen || ctx->panelFades[FADE_COG].level > 0.0f;
         out[IN_COG_OPEN] = showing ? 1.0f : 0.0f;
-        if (showing && cogFace(ctx) == COG_TAB_DISPLAY) {
-            for (int m = 0; m < COG_OPTION_COUNT; m++) {
+        for (int m = 0; showing && m < COG_OPTION_COUNT; m++) {
+            int tab, row;
+            if (cogOptionRow(m, &tab, &row) && tab == ctx->cogTab) {
                 // A greyed row has nothing in force to ring
                 // Native (1.3.4): and Show controllers in passthrough before its sheet's I Understand
-                int greyed = !cogRowLive(ctx, COG_TAB_DISPLAY, m)
+                int greyed = !cogRowLive(ctx, tab, row)
                         || (m == COG_OPTION_CONTROLLERS && xrPassthroughHidesModels(ctx));
                 out[IN_MARKS + m] = greyed ? -1.0f : (float)cogOptionValue(ctx, m, ctx->headLockedPref);
             }
@@ -6447,7 +6460,7 @@ void xrUpdateInput(XrCtx* ctx, float distance, float quadWidth, float curvature,
         updateLauncher(ctx, &f);
     }
     dismissKeyboard(ctx, &f);
-    // Gamepad mode just came on, from the switch, the bar or the Display tab
+    // Gamepad mode just came on, from the switch, the bar or the Controls tab
     padPutPanelsAway(ctx, out);
     logInputSnapshot(ctx, &f);
     // Native (lane wave2-bind-wire): pointer mode's bindings, once the panels
