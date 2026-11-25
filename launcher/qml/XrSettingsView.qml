@@ -1553,7 +1553,7 @@ Flickable {
                                        settingsPage.mbpsPattern, function(t) { settingsPage.setCustomBitrate(t) })
         }
 
-        // Artemis's Render Mode ([3d] stereo), named as the bar's button and the cog's tab
+        // Artemis's Render Mode ([3d] stereo), named as the bar's button and the cog's 3D tab
         PrefSwitch {
             objectName: "renderModeRow"
             title: qsTr("3D")
@@ -2370,7 +2370,7 @@ Flickable {
             })
         }
 
-        // Native (lane wave3-visual): the Picture tab's Background row, the void's colour and the 3D eye balance
+        // Native (lane wave3-visual): the Room tab's Background dim row, the void's colour and the 3D eye balance
         // (Video). Pressing a row steps through its choices.
         PrefRow {
             objectName: "backgroundDimRow"
@@ -2536,7 +2536,7 @@ Flickable {
             key: "display.stats_style"
             title: qsTr("Stats style")
             values: ["full", "hud", "lite"]
-            names: [qsTr("Full"), qsTr("HUD"), qsTr("Lite")]
+            names: [qsTr("Full"), qsTr("Compact"), qsTr("Minimal")]
         }
 
         // ======== Advanced settings ========

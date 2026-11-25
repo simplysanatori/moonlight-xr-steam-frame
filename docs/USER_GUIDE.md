@@ -18,7 +18,7 @@ This guide covers version 1.2.0. For install, update and uninstall, see the [REA
 - [3D](#3d)
 - [SBS 3D](#sbs-3d)
 - [Keyboards, mice and gamepads](#keyboards-mice-and-gamepads)
-- [Host: keys for the PC](#host-keys-for-the-pc)
+- [PC Keys](#pc-keys)
 - [Language](#language)
 - [Ending a stream](#ending-a-stream)
 - [Setting up Apollo](#setting-up-apollo)
@@ -70,7 +70,7 @@ Keep SteamVR's render resolution for Moonlight XR at **3408 x 3408 per eye**, th
 | --- | --- |
 | Program | `~/Games/MoonlightXRNative/app` |
 | Headset settings, pairing keys, saved PCs | `~/.config/moonlight-xr` (`config.ini`, `hosts.ini`, `client.pem`, `client.key`, `servercerts/`) |
-| Controller bindings, Host sheet macros, your own controller models | `~/.config/moonlight-xr` (`bindings.ini`, `macros.ini`, `models/`) |
+| Controller bindings, PC Keys macros, your own controller models | `~/.config/moonlight-xr` (`bindings.ini`, `macros.ini`, `models/`) |
 | Flat window settings and PC list | `~/.config/Moonlight XR Native/Moonlight XR Native.conf` |
 | Logs | `~/Games/MoonlightXRNative/moonlight.log`, `moonlight-launcher.log`, `moonlight-console.log`, `vrtiming.log`, `install.log`; with Stats on, `perf-<date>-<time>.csv` next to `vrtiming.log` |
 | Bug reports | `~/Games/MoonlightXRNative/reports` |
@@ -183,7 +183,7 @@ A stream's bitrate cannot be changed once it is running (Apollo and Sunshine tak
 - Set it in Settings, Connection, under the Video bitrate slider: one row each for Wi-Fi, the Steam Frame Wireless Adapter, a wired network and the USB cable. **Same as above** (the default) means that link uses the Video bitrate just above, or the bitrate the flat window passes.
 - A link's own bitrate replaces that bitrate only when a stream goes over that link. When the client did not choose the link (a stream started by a direct address, or a probe that found nothing), no link is known and the Video bitrate is used.
 - The values are held to 0.5 to 500 Mbps, the same range as the Video bitrate and Custom bitrate, and every row shows its figure the same way, in Mbps. In `config.ini` they are `bitrate_wifi`, `bitrate_adapter`, `bitrate_wired` and `bitrate_usb` in the `[stream]` section, in kbps; 0 is Same as above.
-- The log has one line at the start of every stream that says the bitrate and where it came from, for example `stream bitrate: 300000 kbps (300 Mbps) over Wi-Fi, from the flat launcher's Video bitrate (--bitrate)` or `stream bitrate: 60000 kbps (60 Mbps) over the USB cable, from config.ini [stream] bitrate_usb (Bitrate over the USB cable)`; the `starting stream` line after it repeats the source. The flat window's log (`moonlight-launcher.log`) has `hand-off bitrate: --bitrate ... kbps from the Settings page's Video bitrate` (or the stream profile in force) and any connection row that replaces it. The Stats overlay in the HUD style shows the rate it started with beside the rate arriving ("54 of 98 Mb/s"), and the full style's stream line says `bitrate set` and the number in kbps.
+- The log has one line at the start of every stream that says the bitrate and where it came from, for example `stream bitrate: 300000 kbps (300 Mbps) over Wi-Fi, from the flat launcher's Video bitrate (--bitrate)` or `stream bitrate: 60000 kbps (60 Mbps) over the USB cable, from config.ini [stream] bitrate_usb (Bitrate over the USB cable)`; the `starting stream` line after it repeats the source. The flat window's log (`moonlight-launcher.log`) has `hand-off bitrate: --bitrate ... kbps from the Settings page's Video bitrate` (or the stream profile in force) and any connection row that replaces it. The Stats overlay in the Compact style shows the rate it started with beside the rate arriving ("54 of 98 Mb/s"), and the full style's stream line says `bitrate set` and the number in kbps.
 - A link that is rated higher than the connection can carry will drop frames; the slow connection badge and the loss figure in the Stats overlay show it. Lower that link's row and try again.
 
 ### USB cable
@@ -304,7 +304,7 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Head tracking to opentrack, opentrack address, opentrack port (Input) | on, off; address or name; 1 to 65535 | off, the streaming PC, 4242. See [opentrack](#head-tracking-for-pc-games-opentrack). | `[vr] opentrack`, `opentrack_host`, `opentrack_port` |
 | Environment (UI) | Automatic, Passthrough, Black void, Home Theater, Grand Cinema, Synthwave | Automatic: the black void, or the passthrough with the Passthrough switch on | `[vr] environment` |
 | Passthrough (UI) | on, off | off. Only Environment's Automatic reads it, so it is greyed with any other environment. | `[vr] passthrough` |
-| Void colour, Background dim (UI) | #rrggbb; 0 to 100 % (press to step) | #000000, 0 %. The cog's Picture tab has Background. | `[vr] void_color`, `background_dim` |
+| Void colour, Background dim (UI) | #rrggbb; 0 to 100 % (press to step) | #000000, 0 %. The cog's Room tab has Background dim. | `[vr] void_color`, `background_dim` |
 | Room detail (UI) | Low, Standard, High, Ultra | Standard | `[vr] env_res` |
 | Screen light, Glow, Glow level, Glow spread (UI) | on, off; 0 to 100 %; 10 to 100 % | on, off, 50 %, 50 %. Glow level and Glow spread are greyed with the glow off. | `[display] screen_light`, `glow`, `glow_level`, `glow_spread` |
 | Screen distance, Screen size, Screen curve (UI) | 20 to 800 cm; 80 to 800 cm wide; 0 to 100 % | 300 cm, 300 cm, 0 % | `[screen] distance_cm`, `width_cm`, `curve` |
@@ -317,7 +317,7 @@ These rows change the headset's own settings in `config.ini`, the same ones its 
 | Foveated rendering (UI) | On, Off | Off. The cog's Foveated rendering row; applies from the next stream. Until you pick one, the file keeps it commented out as `auto`, which is Off. | `[display] foveated` |
 | (none) | true, false | Written when you answer **I Understand** to "Controllers in Passthrough?" or "Glow in Passthrough?", here or in the headset. | `[vr] passthrough_controllers_ok`, `passthrough_glow_ok` |
 
-Left out on purpose: the `[debug]` keys, what the headset keeps by itself (the last PC and app, the cog's last tab, the zoom's centre, the hand hint), the screen's height, direction, tilt and rotation (set by grabbing the screen) and the place the bar's Bring here switch goes back to and each room's own brightness, glow, light and picture size (the cog's Room tab, while you look at the room).
+Left out on purpose: the `[debug]` keys, what the headset keeps by itself (the last PC and app, the cog's last tab, the zoom's centre, the hand hint), the screen's height, direction, tilt and rotation (set by grabbing the screen) and the place the bar's Bring here switch goes back to and each room's own brightness, glow, light and picture size (the cog's Room and Screen tabs, while you look at the room).
 
 ### Language
 
@@ -330,7 +330,7 @@ system's language (`LC_ALL`, `LC_MESSAGES` or `LANG`) and is English when it has
 The language is read when the app starts, so a change shows the next time you start a stream from
 the flat window or start the app.
 
-The translations are Moonlight XR's, so the words this client added (the Host sheet, the PC and app
+The translations are Moonlight XR's, so the words this client added (the PC Keys sheet, the PC and app
 lists' own lines, the newer Display rows and most notices) are still English in every language.
 Chinese, Japanese and Korean need the Noto Sans CJK fonts in the Frame's `/usr/share/fonts`; the app
 does not bring them. Without them those languages show English, and the log says
@@ -354,8 +354,8 @@ The same question gives the app's UUID on Apollo. The flat window passes it to t
 
 | Setting | Options | Default |
 | --- | --- | --- |
-| Stats | on, off | off. Same as Stats in the headset's Display tab. In `config.ini`, `stats = hud` or `stats = lite` turns them on in that style (see Stats styles below). |
-| Stats style | Full, HUD, Lite | Full. In `config.ini`: `[display] stats_style`. |
+| Stats | on, off | off. Same as Stats in the headset's Picture tab. In `config.ini`, `stats = hud` or `stats = lite` turns them on in that style (see Stats styles below). |
+| Stats style | Full, Compact, Minimal | Full. In `config.ini`: `[display] stats_style`. |
 | Change codec settings | Automatic (Recommended), Prefer HEVC, Prefer H.264 | Automatic: HEVC when the PC has it, else H.264. The Frame decodes H.264 and HEVC only, so there is no AV1 choice. Prefer H.264 is greyed while the Video resolution is wider than 4096. |
 | Force full range video (experimental) | on, off | off. Hardware decoding only. |
 | Force software decoding | on, off | off. Slow; for troubleshooting. |
@@ -378,7 +378,7 @@ The bar sits under the screen and shows its buttons only while the ray is over i
 | Keyboard | Opens or closes the headset keyboard. |
 | Ray | Shows or hides the controller ray for this session only. The cog's Ray row is the saved one. |
 | 3D | Only shown when the depth model is ready, or when the 3D source is SBS or Top-bottom. Turns 3D on or off. With the PC's own pair it reads **SBS** or **TB** while on. |
-| Host | Opens the Host sheet: Esc, Win, Alt+Enter and the other keys that are awkward to reach, plus your own macros. A button can open it too: `app:host` in `bindings.ini`. See [Host: keys for the PC](#host-keys-for-the-pc). |
+| Host | Opens the PC Keys sheet: Esc, Win, Alt+Enter and the other keys that are awkward to reach, plus your own macros. A button can open it too: `app:host` in `bindings.ini`. See [PC Keys](#pc-keys). |
 
 ### Finding the bar
 
@@ -397,7 +397,7 @@ It has no buttons. It goes by itself after 20 seconds, or the moment you open an
 
 ## The cog menu
 
-Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture**, **Accessibility** (see [Accessibility](#accessibility)), **About**. A press outside the menu closes it. The cog opens on the tab you used last, and remembers it for the next session (`cog_tab` in `config.ini`).
+Tabs, the same everywhere: **Screen**, **Room**, **Picture**, **3D**, **Controls**, **Accessibility** (see [Accessibility](#accessibility)) and **About**. A press outside the menu closes it. The cog opens on the tab you used last, and remembers it for the next session (`cog_tab` in `config.ini`; Room is kept there as `screen` and Controls as `display`).
 
 ### Screen
 
@@ -408,12 +408,13 @@ Tabs: **Screen** (called **Room** inside a room), **Display**, **3D**, **Picture
 | Tilt | -40 to 40° | 0 |
 | Rotate | -90 to 90° | 0 |
 | Curve | 0 to 100 % | 0 |
-| Size | 0.8 to 8 m wide | 3 m. The width of a 16:9 picture: a wider picture (21:9, 32:9) keeps that height and is wider, up to 8 m, a 4:3 one narrower. config.ini keeps the real width in `width_cm` as before, with the Size beside it, so you can go back to an older version and forward again and the screen stays as it was. |
-| Aim sensitivity | 1 to 30 | 8. Greyed unless Head locked is on. |
-| Aim dead zone | 0 to 20 | 2. Greyed unless Head locked is on. |
+| Size | 0.8 to 8 m wide | 3 m. The width of a 16:9 picture: a wider picture (21:9, 32:9) keeps that height and is wider, up to 8 m, a 4:3 one narrower. In a room that allows it, Size sets the room's screen size. `config.ini` keeps the real width in `width_cm`, with the Size beside it, so you can go back to an older version and forward again and the screen stays the same. |
 | Preset | Desk, Couch, Cinema, Bring here | Desk is 1.2 m away and 1.6 m wide, Couch 2.5 m and 2.6 m, Cinema 4 m and 5 m. A preset sets only the distance and the width: the way the screen sits, its tilt, roll and curve stay as they were. **Bring here** puts the screen where you are looking, as far from you as it was and the same size. It does nothing in a room or with Head locked on. |
+| Head locked | Off, On, Follow | Off. On: the screen is fixed to your head. Follow: the screen stays where it is until your head has turned more than the leash (25° by default, `follow_leash_deg`) away from it, in yaw or in pitch, then it eases after where you look over about half a second and stays there. See [Follow and comfort](#follow-and-comfort). |
 | Remember per app | Off, On, Forget | On. Each PC and app keeps its own placement, head lock and 3D state, and gets them back the next time it streams. An app that has none starts from what is in force. **Forget** drops what is kept for the app now streaming. |
 | Angular-size lock | Off, On | On. Pushing or pulling the held screen with the thumbstick resizes it with its distance, so it keeps the same size in your view. Off, a pushed screen gets smaller as it goes away. |
+
+In a room, only **Remember per app** and **Size** work (Size not in Grand Cinema, whose screen has a fixed size). The other rows are greyed and read "set by the room".
 
 **Reset** puts the screen back to the defaults.
 
@@ -421,71 +422,75 @@ The Screen tab's Bring here also works from a controller button: bind `app:bring
 
 ### Room
 
-| Row | Notes |
-| --- | --- |
-| Brightness | Per room. |
-| Glow | The backlight around the picture, per room. Off by default. |
-| Screen light | The screen lights the room. Shared by all rooms. |
-| Light level | |
-| Size | 25 to 100 %. Greyed in Grand Cinema, whose screen has a fixed size. |
+The Room tab is always there, in a room, in the void and in passthrough.
 
-### Display
-
-| Row | Options | Default |
+| Row | Range | Notes |
 | --- | --- | --- |
-| Sharpen | Off, Normal, Quality | Normal. With the screen curved or 3D on, it sharpens at the headset's own pixels, where it also crisps black text on white, and never rings past an edge. It sharpens brightness only and leaves colour as Off has it; text looks a little bolder, and light text on a dark background keeps more of its light than with Off. Quality is sharper still and holds back on black and white edges so white text on black does not shimmer. With a flat screen it sharpens the stream's pixels and leaves black on white alone. |
-| Supersample | Off, Normal, Quality | Normal. Not used while the screen is curved or 3D is on. |
-| Stats | Off, On | Off |
-| Head locked | Off, On, Follow | Off. On: the screen is fixed to your head. Follow: the screen stays where it is until your head has turned more than the leash (25° by default, `follow_leash_deg`) away from it, in yaw or in pitch, then it eases after where you look over about half a second and stays there. See [Follow and comfort](#follow-and-comfort). |
-| Head aim | Off, On | Off. Needs Head locked; not in a room. |
-| Mode | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
-| Show controllers | Off, Frame, Gun | Off. Which controller is drawn in each hand; see [Controllers](#controllers). In passthrough it is greyed with "off in passthrough" until you answer **I Understand** to "Controllers in Passthrough?"; see [Rooms and passthrough](#rooms-and-passthrough). |
-| Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. Bar = this session, cog = saved: the choice here is kept for the next session, the bar's Ray button is not. A press shows at once, with the cog still open: while a menu is up, Ray is the beam and the dot, Dot the dot alone, and Off a faint beam with the dot, so the menu can still be aimed at. |
-| Pointer sleep | Off, On | On. The pointer pauses while the controller is still. |
-| Click steadiness | Off, Normal, Steady | Normal. How still the PC's cursor is held around a click. Normal sends a click where you aimed before the trigger pull moved the controller, and holds the cursor for a double click. Steady also keeps the cursor still from the moment you touch the trigger until you aim a few pixels away. Off sends the aim as it is, for light gun games and fast clicking. |
-| Click sound | Off, On | On |
-| Glow | Off, On | Off. Lights the space around the screen with the colours along the picture's edge, like an LED strip behind a TV. In a room it is that room's own glow, the same switch as the Room tab's Glow. In passthrough it is off until you answer **I Understand** to "Glow in Passthrough?". |
-| Screen light | Off, On | On |
-| Notices | All, Important, Off | All. The small pop-ups that appear below the picture for about 2.5 seconds. Important leaves out "Display N Hz" and "3D on/off" and keeps mode changes (gamepad, head aim, hands) and messages such as errors. Off shows none. The flat window's Settings page has the same choice. |
-| Foveated rendering | On, Off | Off. On gives full detail in the middle of your view and less at the edges. Applies from the next stream. Valve's foveation is set up when the app starts, so if you change it here and then start a stream from the headset's own PC and app lists, the app restarts itself with that PC and app first. A stream from the flat window starts the app anyway. `MLXR_FDM_LAYER=0` in the environment still turns it off whatever the row says. |
+| Background dim | 0 to 100 %, in steps of 5 | How far the surroundings are dimmed. In a room it turns the whole room down, its lighting and the light the picture throws on it too, to black at 100 %. In passthrough it lays a black layer of that strength over the cameras (100 % hides them). In the void it darkens the void's colour (`void_color`, below). 0 leaves all three alone. The picture itself is not dimmed. |
+| Glow | Off, On | Off. Lights the space around the screen with the colours along the picture's edge, like an LED strip behind a TV. Each room has its own switch; the void and passthrough share one. In passthrough it is off until you answer **I Understand** to "Glow in Passthrough?". |
 | Glow level | 0 to 100 % | 50 %. How bright the glow is. |
+| Glow spread | 10 to 100 %, in steps of 5 | 50 %. How far the glow reaches. In a room it stays close to the picture. It needs the glow on. |
+| Room brightness | 0 to 100 % | 20 % in Home Theater, 10 % in Grand Cinema, 30 % in Synthwave. Per room. Greyed "only in a room" outside one. |
+| Screen light | Off, On | On. The screen lights the room. Shared by all rooms. Greyed "only in a room" outside one. |
+| Light level | 0 to 100 % | 75 %. How much the screen lights the room. Per room. Greyed "only in a room" outside one. |
 
-### 3D
-
-| Row | Notes |
-| --- | --- |
-| Preset | Comfort, Balanced, Strong. |
-| Depth | How far apart the eyes' pictures are. The part of the track past the model's default is amber: depth there is harder on the eyes. |
-| Convergence | Where the screen plane sits in depth. Default 50. With SBS or Top-bottom it moves the two halves apart (above 50, the picture goes behind the screen) or together (below 50, it comes out). |
-| 3D | On or Off. Remembered between sessions. |
-| 3D source | Depth, SBS, Top-bottom. Where the 3D comes from: the depth model, or a pair the PC renders itself. Takes effect at once and is remembered. See [SBS 3D](#sbs-3d). |
-| Depth model | ZipDepth Light (the default) or ZipDepth Full, the same choice as the Settings page's Depth model row. ZipDepth Full shows finer depth edges but works the CPU much harder, and at high refresh rates it can overheat the headset, so picking it asks first: **I Understand** switches, **Cancel** keeps ZipDepth Light. The model restarts with the new choice (the picture is flat for a moment) and it is remembered. With MiDaS chosen on the Settings page neither cell is marked. |
-| Reset | Back to the model's values. |
-
-The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the depth model is not installed, or it did not load. The 3D source row stays live, so SBS and Top-bottom work without the depth model. With SBS or Top-bottom, Preset, Depth and Depth model are greyed ("the PC draws the depth").
+**Reset** puts Background dim, Glow level and Glow spread back, and not the void's colour, which only the file has (or the launcher's Settings page: **Void colour**, under UI settings, next to **Background dim**; press a row to step it).
 
 ### Picture
 
-| Row | Values | Notes |
+| Row | Options | Default |
 | --- | --- | --- |
 | Brightness | -50 to 50 | |
 | Contrast | 50 to 150 % | |
 | Gamma | 0.50 to 2.00 | |
 | Saturation | 0 to 200 % | |
-| Background | 0 to 100 %, in steps of 5 | How far the surroundings are dimmed. In a room it turns the whole room down, its lighting and the light the picture throws on it too, to black at 100 %. In passthrough it lays a black layer of that strength over the cameras (100 % hides them). In the void it darkens the void's colour (`void_color`, below). 0 leaves all three as they were. The picture itself is not dimmed. |
-| Glow spread | 10 to 100 %, in steps of 5 | How far the glow reaches. In a room it stays close to the picture. It needs the glow on (Display tab). |
+| Sharpen | Off, Normal, Quality | Normal. With the screen curved or 3D on, it sharpens at the headset's own pixels, where it also crisps black text on white, and never rings past an edge. It sharpens brightness only and leaves colour as Off has it; text looks a little bolder, and light text on a dark background keeps more of its light than with Off. Quality is sharper still and holds back on black and white edges so white text on black does not shimmer. With a flat screen it sharpens the stream's pixels and leaves black on white alone. |
+| Supersample | Off, Normal, Quality | Normal. Not used while the screen is curved or 3D is on. |
+| Foveated rendering | Off, On | Off. On gives full detail in the middle of your view and less at the edges. Applies from the next stream. Valve's foveation is set up when the app starts, so if you change it here and then start a stream from the headset's own PC and app lists, the app restarts itself with that PC and app first. A stream from the flat window starts the app anyway. `MLXR_FDM_LAYER=0` in the environment still turns it off whatever the row says. |
+| Stats | Off, Full, Compact, Minimal | Off. See [Stats styles](#stats-styles-battery-and-the-slow-connection-badge). |
+| Notices | All, Important, Off | All. The small pop-ups that appear below the picture for about 2.5 seconds. Important leaves out "Display N Hz" and "3D on/off" and keeps mode changes (gamepad, head aim, hands) and messages such as errors. Off shows none. The flat window's Settings page has the same choice. |
 
-**Reset** puts all six rows back, and not the void's colour, which only the file has (or the launcher's Settings page: **Void colour**, under UI settings, next to **Background dim**; press a row to step it).
+**Reset** puts Brightness, Contrast, Gamma and Saturation back.
+
+### 3D
+
+| Row | Notes |
+| --- | --- |
+| 3D | On or Off. Remembered between sessions. |
+| 3D source | Depth model, SBS, Top-bottom. Where the 3D comes from: the depth model, or a pair the PC renders itself. Takes effect at once and is remembered. See [SBS 3D](#sbs-3d). |
+| Depth model | ZipDepth Light (the default) or ZipDepth Full, the same choice as the Settings page's Depth model row. ZipDepth Full shows finer depth edges but works the CPU much harder, and at high refresh rates it can overheat the headset, so picking it asks first: **I Understand** switches, **Cancel** keeps ZipDepth Light. The model restarts with the new choice (the picture is flat for a moment) and it is remembered. With MiDaS chosen on the Settings page neither cell is marked. |
+| Preset | Comfort, Balanced, Strong. |
+| Depth | How far apart the eyes' pictures are. The part of the track past the model's default is amber: depth there is harder on the eyes. |
+| Convergence | Where the screen plane sits in depth. Default 50. With SBS or Top-bottom it moves the two halves apart (above 50, the picture goes behind the screen) or together (below 50, it comes out). |
+| Reset | Back to the model's values. |
+
+The tab is greyed when 3D cannot run. It shows why: 3D is off in settings, the depth model is not installed, or it did not load. The 3D source row stays live, so SBS and Top-bottom work without the depth model. With SBS or Top-bottom, Preset, Depth and Depth model are greyed ("the PC draws the depth").
+
+### Controls
+
+| Row | Options | Default |
+| --- | --- | --- |
+| Mode | Pointer, Gamepad | Pointer. Every session starts in pointer mode. The row also shows the switch shortcut. |
+| Mouse mode | Absolute, Relative | Absolute. See [Relative mouse](#relative-mouse). |
+| Show controllers | Off, Frame, Gun | Off. Which controller is drawn in each hand; see [Controllers](#controllers). In passthrough it is greyed with "off in passthrough" until you answer **I Understand** to "Controllers in Passthrough?"; see [Rooms and passthrough](#rooms-and-passthrough). |
+| Ray | Off, Dot, Ray | Ray. Dot shows only the dot where the ray lands. Off shows neither; the PC's own cursor is always in the video. Bar = this session, cog = saved: the choice here is kept for the next session, the bar's Ray button is not. A press shows at once, with the cog still open: while a menu is up, Ray is the beam and the dot, Dot the dot alone, and Off a faint beam with the dot, so the menu can still be aimed at. |
+| Pointer sleep | Off, On | On. The pointer pauses while the controller is still. Greyed "set by the Gun" while the Gun's lightgun rules override it. |
+| Click steadiness | Off, Normal, Steady | Normal. How still the PC's cursor is held around a click. Normal sends a click where you aimed before the trigger pull moved the controller, and holds the cursor for a double click. Steady also keeps the cursor still from the moment you touch the trigger until you aim a few pixels away. Off sends the aim as it is, for light gun games and fast clicking. Greyed "set by the Gun" while the Gun's lightgun rules override it. |
+| Click sound | Off, On | On |
+| Scroll speed | 50 to 300 % | 100 %. The thumbstick's scroll in pointer mode. |
+| Head aim | Off, On | Off. Needs Head locked (Screen tab); not in a room. |
+| Aim sensitivity | 1 to 30 | 8. Greyed unless Head locked is on. |
+| Aim dead zone | 0 to 20 | 2. Greyed unless Head locked is on. |
 
 ### About
 
-The version, the log file, **Support simplysanatori on Ko-fi**, and **Report a problem**. The Ko-fi button opens a small sheet with two buttons. **Open page** shows this port's Ko-fi page in Steam's browser in the dashboard (the Frame runs `steam steam://openurl/https://ko-fi.com/sana748653`, or `xdg-open` when `steam` is not found). **Not now**, or a press anywhere off the buttons, closes the sheet and opens nothing. Upstream Moonlight XR's own Ko-fi is linked from the [README](../README.md#support). The report sheet has three buttons. **Save** keeps your note on the Frame in `~/Games/MoonlightXRNative/reports`. **Save and zip** does that and also runs `bug-report.sh` in the background, so the masked zip is made without leaving the headset. A notice shows where the zip is (`~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip`) and the log says so too. A note is not needed for the zip. Nothing leaves the headset: copy the zip off the Frame and open an issue on GitHub with it. [Reporting a problem](#reporting-a-problem) lists what the zip holds and what is left out.
+The version, the log file, **Support simplysanatori on Ko-fi**, and **Report a Problem**. The Ko-fi button opens a small sheet with two buttons. **Open page** shows this port's Ko-fi page in Steam's browser in the dashboard (the Frame runs `steam steam://openurl/https://ko-fi.com/sana748653`, or `xdg-open` when `steam` is not found). **Not now**, or a press anywhere off the buttons, closes the sheet and opens nothing. Upstream Moonlight XR's own Ko-fi is linked from the [README](../README.md#support). The report sheet has three buttons. **Save** keeps your note on the Frame in `~/Games/MoonlightXRNative/reports`. **Save and zip** does that and also runs `bug-report.sh` in the background, so the masked zip is made without leaving the headset. A notice shows where the zip is (`~/Games/MoonlightXRNative/reports/mlxr-report-<date>.zip`) and the log says so too. A note is not needed for the zip. Nothing leaves the headset: copy the zip off the Frame and open an issue on GitHub with it. [Reporting a problem](#reporting-a-problem) lists what the zip holds and what is left out.
 
 ### Stats styles, battery and the slow connection badge
 
-The Stats row turns the overlay on and off. What it shows is `stats_style` in `config.ini` (`[display]`): `full` is every line the session writes, `hud` is a few lines (latency with its parts, round trip, loss, bit rate, frame rate, and the compositor's frame times and dropped frames when SteamVR reports them), and `lite` is one line: `54 Mb/s | 11 ms | dec 3.1 | loss 0.2% | 90 fps` (speed, latency from the host's capture to the end of decoding, decode time, frames lost on the network, pictures drawn a second). `stats = hud` in the file means stats on in the HUD style. While stats are on and a stream is up, `perf-<date>-<time>.csv` next to `vrtiming.log` gets a row every 5 seconds with the figures and the settings they were measured in (size, rate, bit rate, codec, display rate, 3D, room, sharpening), for comparing runs. `cpu_c` and `gpu_c` are the hottest CPU and GPU temperatures in °C (empty when they cannot be read). The last three columns, `cpu_slowed`, `gpu_slowed` (0 is not slowed) and `gpu_mhz`, say whether the headset is slowing a chip down for heat and the GPU's clock. `moonlight.log` has the same every 5 seconds on its `xr:` line, as `heat cpu 52 C, gpu 48 C` (see [Heat](#heat)).
+The Stats row on the Picture tab (Off, Full, Compact, Minimal) turns the overlay on and picks its style. In `config.ini` that is `stats` (`true` or `false`) and `stats_style` (`[display]`): `full` is every line the session writes, `hud` (Compact) is a few lines (latency with its parts, round trip, loss, bit rate, frame rate, and the compositor's frame times and dropped frames when SteamVR reports them), and `lite` (Minimal) is one line: `54 Mb/s | 11 ms | dec 3.1 | loss 0.2% | 90 fps` (speed, latency from the host's capture to the end of decoding, decode time, frames lost on the network, pictures drawn a second). `stats = hud` in the file means stats on in the Compact style. While stats are on and a stream is up, `perf-<date>-<time>.csv` next to `vrtiming.log` gets a row every 5 seconds with the figures and the settings they were measured in (size, rate, bit rate, codec, display rate, 3D, room, sharpening), for comparing runs. `cpu_c` and `gpu_c` are the hottest CPU and GPU temperatures in °C (empty when they cannot be read). The last three columns, `cpu_slowed`, `gpu_slowed` (0 is not slowed) and `gpu_mhz`, say whether the headset is slowing a chip down for heat and the GPU's clock. `moonlight.log` has the same every 5 seconds on its `xr:` line, as `heat cpu 52 C, gpu 48 C` (see [Heat](#heat)).
 
-Over the cog the clock strip also shows the headset's battery (a cell, the percentage, a bolt while it charges; read every 30 seconds, nothing on a PC with no battery) and a **Slow connection** badge once the connection has been poor, or more than 1.5 % of frames lost, for 5 seconds on end. The badge goes when it has been fine for 5 seconds. The HUD line starts with `!` or says slow connection while it is up.
+Over the cog the clock strip also shows the headset's battery (a cell, the percentage, a bolt while it charges; read every 30 seconds, nothing on a PC with no battery) and a **Slow connection** badge once the connection has been poor, or more than 1.5 % of frames lost, for 5 seconds on end. The badge goes when it has been fine for 5 seconds. The Compact line starts with `!` or says slow connection while it is up.
 
 ## Accessibility
 
@@ -560,7 +565,7 @@ This is the default. The ray from either controller is the mouse.
 
 Every button can be changed in `bindings.ini`, for every app or for one app. See [Changing the buttons](#changing-the-buttons).
 
-A click is sent at the point you aimed at before the trigger pull moved the controller. After a click the cursor waits for half a second while you keep aiming near it, so the second click of a double click lands on the first one. Move the ray away and the cursor follows at once. The Display tab's **Click steadiness** row turns this off or makes it stronger.
+A click is sent at the point you aimed at before the trigger pull moved the controller. After a click the cursor waits for half a second while you keep aiming near it, so the second click of a double click lands on the first one. Move the ray away and the cursor follows at once. The Controls tab's **Click steadiness** row turns this off or makes it stronger.
 
 ### Lightgun mode
 
@@ -619,7 +624,7 @@ The gyro is in degrees per second about the controller's own axes, the way a Dua
 
 `head_look = true` in `config.ini` (or **Head turns the game's camera (first-person games)** on the launcher's Settings page, under Input settings) makes your head the mouse for first-person games, the way a game's look control works: turn your head right and the PC's mouse moves right, look up and it moves up. It is meant for games streamed in side by side 3D in a room, where the screen stays put and you look around inside the game. It only works in pointer mode, and only with the screen locked to your head (**Head locked**) or with a room up; a screen placed in the world without a room is left alone. The speed is `head_look_px_deg` (pixels a degree, 1 to 30, default 8; the launcher's **Head camera speed** row steps through it), and the dead zone is Head aim's (`head_aim_deadzone`, degrees a second: a slower drift sends nothing). It is 3DoF: only turning counts, not leaning. The ray keeps working on top: while head-look is on, moving the ray nudges the cursor by how far its point moves instead of placing it.
 
-To turn back without turning the game, hold a **grip** (either one, as long as it is bound to nothing, which it is by default in pointer mode) and turn your head; let go and it carries on from there, like lifting a mouse off the desk. Any other control can be the pause too: bind it to `app:lookhold` in `bindings.ini`. A panel opening (cog, keyboard, Host sheet) also pauses it. Head aim (the bar's button and the Display tab's row) wins where both could act, so with the screen head locked and Head aim on, Head aim's speed is used; in a room Head aim cannot act and head-look takes over. `moonlight.log` says `head-look on`, `head-look paused while its hold is down` and how far it moved the mouse every few seconds.
+To turn back without turning the game, hold a **grip** (either one, as long as it is bound to nothing, which it is by default in pointer mode) and turn your head; let go and it carries on from there, like lifting a mouse off the desk. Any other control can be the pause too: bind it to `app:lookhold` in `bindings.ini`. A panel opening (cog, keyboard, PC Keys sheet) also pauses it. Head aim (the bar's button and the Controls tab's row) wins where both could act, so with the screen head locked and Head aim on, Head aim's speed is used; in a room Head aim cannot act and head-look takes over. `moonlight.log` says `head-look on`, `head-look paused while its hold is down` and how far it moved the mouse every few seconds.
 
 ### Relative mouse
 
@@ -663,9 +668,9 @@ An action is `key:` (a key, with `ctrl+`, `shift+`, `alt+`, `win+` in front), `m
 
 - Hold the **left View button and the left grip** together for half a second (the default shortcut).
 - Or, with the other two shortcuts, **click both thumbsticks**, or **squeeze both triggers and both grips**: press the second within 0.15 seconds of the first and hold them all for 0.3 seconds.
-- Or, in pointer mode, select the Gamepad / Pointer button on the bar, or the **Mode** row in the Display tab.
+- Or, in pointer mode, select the Gamepad / Pointer button on the bar, or the **Mode** row in the Controls tab.
 
-Only the shortcut you chose works; the other two do nothing. Choose it with **Gamepad mode shortcut** on the flat window's Settings page (Gamepad settings) or `gamepad_toggle` in `config.ini` (see [below](#advanced-configini)); the Display tab's Mode row shows the one in use. A shortcut works both ways and cannot be rebound in `bindings.ini`.
+Only the shortcut you chose works; the other two do nothing. Choose it with **Gamepad mode shortcut** on the flat window's Settings page (Gamepad settings) or `gamepad_toggle` in `config.ini` (see [below](#advanced-configini)); the Controls tab's Mode row shows the one in use. A shortcut works both ways and cannot be rebound in `bindings.ini`.
 
 The headset shows "Gamepad mode" or "Pointer mode". In gamepad mode the menus close.
 
@@ -720,9 +725,9 @@ The Environment button opens the Rooms picker:
 | Grand Cinema | A large cinema. The screen size is fixed. |
 | Synthwave | A neon landscape |
 
-The choice is remembered. Inside a room the bar's move pill does nothing, and the Screen tab becomes the Room tab.
+The choice is remembered. Inside a room the bar's move pill does nothing, and rows of the Screen tab that do nothing there are greyed "set by the room".
 
-In passthrough you can already see your controllers, so the controller models and the glow are off: drawing them over the cameras adds GPU load and can cause stutter, ghosting or glitches. On the Display tab, **Show controllers** is greyed with "off in passthrough". Pressing it asks "Controllers in Passthrough?", and turning **Glow** on asks "Glow in Passthrough?". **I Understand** draws them in passthrough too and the headset remembers your answer (`passthrough_controllers_ok`, `passthrough_glow_ok` in `config.ini`); **Cancel** changes nothing. The void and the rooms are not affected. The Settings page in the flat window asks the same questions.
+In passthrough you can already see your controllers, so the controller models and the glow are off: drawing them over the cameras adds GPU load and can cause stutter, ghosting or glitches. On the Controls tab, **Show controllers** is greyed with "off in passthrough". Pressing it asks "Controllers in Passthrough?", and turning **Glow** on asks "Glow in Passthrough?". **I Understand** draws them in passthrough too and the headset remembers your answer (`passthrough_controllers_ok`, `passthrough_glow_ok` in `config.ini`); **Cancel** changes nothing. The void and the rooms are not affected. The Settings page in the flat window asks the same questions.
 
 ## 3D
 
@@ -738,7 +743,7 @@ The headset turns the 2D stream into 3D with a depth model running on the Frame.
 
 Each eye sees a little more of what is behind a person or an object on one side: the left eye on the left, the right eye on the right. Earlier versions filled that sliver by stretching the person's own edge across it, which showed as a fuzzy, furry outline in one eye only, most of all on hair or a dark outline against a bright sky or page. That gap is now filled from the background beside it, so the edge is as sharp in both eyes. This is on by default; `MLXR_HOLE_FILL=0` brings back the old look.
 
-These four are on the flat window's Settings page, in `config.ini` (`[3d]`) and on the headset's 3D tab (Edge, Depth detail, Depth shape, Motion reset, under the 3D source row; they move the picture as you drag them, and are greyed while the 3D source is SBS or Top-bottom, since the PC then draws the pair). On the tab Edge steps by 25, Depth detail and Depth shape by 10 and Motion reset by 5.
+These four are on the flat window's Settings page, in `config.ini` (`[3d]`) and on the headset's 3D tab (Edge, Depth detail, Depth shape, Motion reset; they move the picture as you drag them, and are greyed while the 3D source is SBS or Top-bottom, since the PC then draws the pair). On the tab Edge steps by 25, Depth detail and Depth shape by 10 and Motion reset by 5.
 
 | Setting | Key | Values | What it does |
 | --- | --- | --- | --- |
@@ -781,7 +786,7 @@ The mouse pointer lands on the left eye's half of the PC's desktop. The ambient 
 
 ## Controllers
 
-The cog's **Display** tab has the controller rows together: **Mode**, **Show controllers**, **Ray**, **Pointer sleep**, **Click steadiness** and **Click sound**.
+The cog's **Controls** tab has the controller rows together: **Mode**, **Mouse mode**, **Show controllers**, **Ray**, **Pointer sleep**, **Click steadiness**, **Click sound**, **Scroll speed** and the head aim rows.
 
 | Row | What it does |
 | --- | --- |
@@ -831,7 +836,7 @@ While a Bluetooth or USB gamepad is in use, a small card hangs in your lap: 45 c
 
 The card is a flat drawing of the gamepad, picked from the type the pad announces: Xbox, PlayStation, Nintendo, Steam Controller, or a plain generic pad. Whatever you do on the real pad lights up on the drawing: buttons and d-pad, bumpers, a trigger (a bar fills as you pull), a thumbstick (its cap follows the stick, and the ring lights when it is pulled or clicked) and the touchpad (a dot where your finger is). A **Gyro** mark lights while motion data from the pad is reaching the PC, which is the quick way to see that gyro works. Use it to learn which button is which, or to see that a pad is working at all.
 
-**Gamepad card in the headset** on the flat window's Settings page (pressing the row steps it), or `pad_card` in `config.ini`, decides when it shows (the cog has no row for it: its Display tab is full): `auto` (default) shows it when you use the gamepad and takes it away 4 seconds after the last input; `on` keeps it up for as long as the gamepad counts as in use (20 seconds after its last input); `off` never shows it. It is for physical gamepads only: the Frame controllers in gamepad mode do not get one.
+**Gamepad card in the headset** on the flat window's Settings page (pressing the row steps it), or `pad_card` in `config.ini`, decides when it shows (the cog has no row for it: its Controls tab has no room for it): `auto` (default) shows it when you use the gamepad and takes it away 4 seconds after the last input; `on` keeps it up for as long as the gamepad counts as in use (20 seconds after its last input); `off` never shows it. It is for physical gamepads only: the Frame controllers in gamepad mode do not get one.
 
 ### AZERTY and QWERTZ
 
@@ -844,9 +849,10 @@ The headset keyboard can show French (AZERTY) or German (QWERTZ) letters. Pick i
 - The Full keyboard grows the extra key that French and German keyboards have beside the left Shift (`<` and `>`), so the left Shift is shorter. For the characters on AltGr (`@`, `#`, `{`, `[`, `|`, `\`, `€`), tap the right Alt: Windows reads it as AltGr on these layouts. The Compact keyboard types those characters as text, which works on any layout.
 - The report sheet's note field always shows the QWERTY keys.
 
-## Host: keys for the PC
+<a id="host-keys-for-the-pc"></a>
+## PC Keys
 
-The **Host** sheet is a grid of keys to send to the PC, for the ones a headset keyboard makes awkward to reach. Press a cell and it is sent once, and the sheet closes. Every key goes the way the headset keyboard's keys go.
+The **PC Keys** sheet is a grid of keys to send to the PC, for the ones a headset keyboard makes awkward to reach. Press a cell and it is sent once, and the sheet closes. Every key goes the way the headset keyboard's keys go.
 
 | Cell | Sends | Handy for |
 | --- | --- | --- |
@@ -869,7 +875,7 @@ In the header, left of **Close**, **Clipboard, commands** opens a second page of
 
 ### Macros
 
-Macros live in `macros.ini` next to `config.ini` (`~/.config/moonlight-xr/macros.ini`, or `$MLXR_CONFIG_DIR/macros.ini`). The Host sheet reads it each time it opens, so you can edit it and open the sheet again without restarting. A line is `name = steps`. The steps are separated by spaces or commas:
+Macros live in `macros.ini` next to `config.ini` (`~/.config/moonlight-xr/macros.ini`, or `$MLXR_CONFIG_DIR/macros.ini`). The PC Keys sheet reads it each time it opens, so you can edit it and open the sheet again without restarting. A line is `name = steps`. The steps are separated by spaces or commas:
 
 | Step | Does |
 | --- | --- |
@@ -893,7 +899,7 @@ A line that is not right is left out, the rest still work, and `moonlight.log` n
 
 ### Clipboard and PC commands (Apollo)
 
-Open the Host sheet, then **Clipboard, commands**. The page has:
+Open the PC Keys sheet, then **Clipboard, commands**. The page has:
 
 | Cell | Does |
 | --- | --- |
@@ -909,7 +915,7 @@ On the PC, in Apollo:
 - **Permissions.** Apollo gives each paired client its own permissions (the Clients page of its web UI). The Frame needs **Server Command** for the commands, **Clipboard Read** for Paste from PC and **Clipboard Set** for Send text to PC. The first client paired gets everything; a client paired later gets only View and List until you allow more. Apollo lists commands only to a client that has the Server Command permission, so with it off the page says the host has not allowed them.
 - **Apollo 0.2.4 or newer** has the clipboard. Older ones answer "Not supported by this host".
 
-The clipboard sync at the start and end of a stream (Smart clipboard sync on the Settings page) is separate. The flat window and the headset app pass the text between them in two files in `~/.config/moonlight-xr`, and those files are always encrypted (AES-256-GCM) with a key made fresh for each stream. The key is passed directly from the flat window to the headset app, never written to disk, and forgotten when the stream ends. Each file is deleted as soon as it's read, so nothing you copy or paste is stored in readable form. Between the Frame and the PC the text travels over Apollo's HTTPS connection. The Host sheet's **Paste from PC** and **Send text to PC** keep the text in memory only, and wipe it after use.
+The clipboard sync at the start and end of a stream (Smart clipboard sync on the Settings page) is separate. The flat window and the headset app pass the text between them in two files in `~/.config/moonlight-xr`, and those files are always encrypted (AES-256-GCM) with a key made fresh for each stream. The key is passed directly from the flat window to the headset app, never written to disk, and forgotten when the stream ends. Each file is deleted as soon as it's read, so nothing you copy or paste is stored in readable form. Between the Frame and the PC the text travels over Apollo's HTTPS connection. The PC Keys sheet's **Paste from PC** and **Send text to PC** keep the text in memory only, and wipe it after use.
 
 ## Ending a stream
 
@@ -974,18 +980,18 @@ If you want the game to stop while you look away, the dashboard does not do it: 
 
 ## Setting up Apollo
 
-Everything works with Sunshine. A few extras need [Apollo](https://github.com/ClassicOldSong/Apollo) on the PC: **Use virtual display** and **Resolution scale factor**; a refresh rate with decimals such as 59.94 (**Custom...**); **Smart clipboard sync**; the Host sheet's **Paste from PC**, **Send text to PC** and server commands; starting an app by its UUID; the permission part of **Check the PC before streaming**.
+Everything works with Sunshine. A few extras need [Apollo](https://github.com/ClassicOldSong/Apollo) on the PC: **Use virtual display** and **Resolution scale factor**; a refresh rate with decimals such as 59.94 (**Custom...**); **Smart clipboard sync**; the PC Keys sheet's **Paste from PC**, **Send text to PC** and server commands; starting an app by its UUID; the permission part of **Check the PC before streaming**.
 
 On the PC, in Apollo's web UI:
 
 - **Clients**: Apollo gives each paired client its own permissions. The first client paired gets all of them; one paired later gets only List Apps and View Streams. For the Frame, turn on **Launch Apps**, the input permissions (**Controller**, **Mouse**, **Keyboard**), **Clipboard Read** and **Clipboard Set** for the clipboard, and **Server Command** for server commands.
 - **Virtual display**: Apollo on Windows with its virtual display driver installed. A **Display Mode Override** on the client's entry or **Always create virtual display** (Apollo 0.3.7 and later) change how it is made; see [Apollo on the PC: recipes](#apollo-on-the-pc-recipes).
 - **Clipboard**: Apollo 0.2.4 or later, text only, while the Frame is streaming.
-- **Server commands**: Configuration, General, Server Commands (a name, a command, and whether it runs elevated). Up to eight show on the Host sheet; see [Clipboard and PC commands](#clipboard-and-pc-commands-apollo).
+- **Server commands**: Configuration, General, Server Commands (a name, a command, and whether it runs elevated). Up to eight show on the PC Keys sheet; see [Clipboard and PC commands](#clipboard-and-pc-commands-apollo).
 
 **Check the PC before streaming** (on by default) reads this client's permissions and the virtual display's state just before each stream and says what is missing.
 
-With Sunshine everything else works the same: streaming, pairing, apps, every headset feature. The Apollo fields are sent and ignored, so there is no virtual display and no scale factor; the Host sheet's PC page dims its cells and says "Not supported by this host"; and Check the PC before streaming says when a setting needs Apollo.
+With Sunshine everything else works the same: streaming, pairing, apps, every headset feature. The Apollo fields are sent and ignored, so there is no virtual display and no scale factor; the PC Keys sheet's PC page dims its cells and says "Not supported by this host"; and Check the PC before streaming says when a setting needs Apollo.
 
 ## Apollo on the PC: recipes
 
@@ -1036,7 +1042,7 @@ Do the A and B on the same link, at the same bitrate, in the same scene. A diffe
 | --- | --- |
 | The picture freezes or drops to a few frames a second for a moment, the sound lags | Packets are lost in bursts. `moonlight.log` has one `video: burst at <time> for <N> ms: ...` line when such a burst ends: how many frames were lost on the network, how many whole frames were thrown away waiting for a repair (`dropped waiting for RFI / IDR`), how many full frames were asked for (`IDR requests sent`, `asked here`, `held back ... by rfi_idr_ms`) and whether the picture came back by the quick repair (`recovered by RFI`), by a full frame (`recovered by IDR`) or neither. During the burst the per-frame lines (`Waiting for RFI frame` and the like) are written once each and then only counted. Many bursts with `recovered by IDR` and several `IDR requests sent` each: try a larger `rfi_idr_ms`, a lower bitrate or another link. The 5 s line in the log adds `rx drop misc`: packets the headset's network interface or the system threw away before the app could read them (`drop`, `err`, `fifo` on the interface, `udp mem` and `csum`); they are not the network's losses. `own sockets` says how many of the receive-buffer drops were this app's. |
 | Small text is blurry | SteamVR's render resolution for Moonlight XR: SteamVR Settings, Video, Per-application video settings, Moonlight XR for Frame, Render resolution set to 3408 x 3408 per eye, the highest SteamVR allows (the installer sets it; running `install.sh` again sets it back). `moonlight.log` says `curved picture: projection layer 3408x3408 per eye` when it is right. The Frame holds 90 Hz at that size for this app. |
-| Judder or stutter | Turn on Stats (Display tab). `Display 90 Hz, 90 fps` means the headset draws every frame. If `Video ... fps` is low, the PC is sending fewer frames: check the PC's display rate. If `idr requests` keeps rising, packets are being lost: lower the bitrate or try the other link. `vrtiming.log` shows SteamVR's dropped and reprojected frames. |
+| Judder or stutter | Turn on Stats (Picture tab). `Display 90 Hz, 90 fps` means the headset draws every frame. If `Video ... fps` is low, the PC is sending fewer frames: check the PC's display rate. If `idr requests` keeps rising, packets are being lost: lower the bitrate or try the other link. `vrtiming.log` shows SteamVR's dropped and reprojected frames. |
 | Crackling sound | The stats line `audio ... underruns, ... lost` counts gaps. Lost packets are the network. On the adapter link, lower the bitrate. |
 | Which link is in use | `moonlight.log` has `network path: using Wi-Fi (...)` or the adapter, when the stream starts. The line before it, `network path: chose ...`, gives both scores and what decided it (latency, failed probes or the last stream's losses), and `network path: history: ...` shows what the last stream on each link lost. The headset shows a notice when it falls back to the other link. |
 | The stream switched links in the middle | `moonlight.log` has `network path: switching from X to Y after N ms of loss` and, just before it, the burst line ending in `network path switched from X to Y`. Then a `reconnect: try 1 of 2` and a new `network path: using ...` for the new link. It happens only with Switch network when video keeps breaking up on, Network connection on Automatic and another link measured at the start. If it never switches in a bad spot, the log's choice lines show whether the other link answered at the start (an adapter with no station is not tried). Raise Video loss before switching if it moves on brief dropouts. |
@@ -1068,7 +1074,7 @@ Left out completely: `hosts.ini`, pairing keys and certificates, the flat window
 
 Have a look inside before you share it. Then attach the zip to an [issue](https://github.com/simplysanatori/moonlight-xr-steam-frame/issues). Say what you did, what you expected and what happened.
 
-You can also write a note in the headset (cog, About, Report a problem). **Save** keeps it on the Frame, and the next `bug-report.sh` run includes it. **Save and zip** runs `bug-report.sh` for you and shows where the zip is. Nothing is sent from the headset. See [About](#about).
+You can also write a note in the headset (cog, About, Report a Problem). **Save** keeps it on the Frame, and the next `bug-report.sh` run includes it. **Save and zip** runs `bug-report.sh` for you and shows where the zip is. Nothing is sent from the headset. See [About](#about).
 
 ## Advanced: config.ini
 
@@ -1109,21 +1115,21 @@ You can also write a note in the headset (cog, About, Report a problem). **Save*
 | `[vr] eye_calibration` | text | empty. The Accessibility tab's **Eye calibration** writes it: a version number, `a` (affine) or `q` (with a second-order term), the correction's numbers for the yaw and the pitch, then the average and largest error after and before, in degrees. **Reset** empties it. A value this version cannot read, or one that would move the gaze too far, is ignored. |
 | `[vr] mouse_mode` | `absolute`, `relative`. Where the ray lands, or how far it moves. See [Relative mouse](#relative-mouse); the launcher has it too. | `absolute` |
 | `[vr] back_as_guide` | `true`, `false`. Gamepad mode's View (Back) button is Guide, except with Start held. The launcher has it too. | `false` |
-| `[vr] background_dim` | 0 to 100 (%) | 0. The Picture tab's Background row. |
+| `[vr] background_dim` | 0 to 100 (%) | 0. The Room tab's Background dim row. |
 | `[vr] void_color` | `#rrggbb` (also `rrggbb`, `#rgb`) | `#000000`. The colour of the void environment, as you would type it on a web page. Anything that is not a colour is read as black. Black draws nothing, so the default costs nothing; any other colour is drawn behind everything as a solid layer. Dimmed by `background_dim`. |
-| `[display] glow_spread` | 10 to 100 | 50. The Picture tab's Glow spread row, in percent. |
-| `[display] foveated` | `auto`, `on`, `off` | `auto`, which is `off`. The Display tab's Foveated rendering row, from the next stream. `MLXR_FDM_LAYER=0` in the environment turns it off whatever this says. |
+| `[display] glow_spread` | 10 to 100 | 50. The Room tab's Glow spread row, in percent. |
+| `[display] foveated` | `auto`, `on`, `off` | `auto`, which is `off`. The Picture tab's Foveated rendering row, from the next stream. `MLXR_FDM_LAYER=0` in the environment turns it off whatever this says. |
 | `[vr] passthrough_controllers_ok`, `passthrough_glow_ok` | `true`, `false` | `false`. Written `true` by **I Understand** on "Controllers in Passthrough?" and "Glow in Passthrough?": Show controllers and the glow are then drawn in passthrough too. |
 | `[display] picture_filter` | `true`, `false` | `true`. A curved or 3D screen is drawn smaller than the stream's pixels, and each of the headset's pixels then averages the stream under it, so small text keeps its strokes. `false` is the softer single read of before. The `MLXR_PICTURE_FILTER=0` or `1` launch option overrides it for a comparison. |
 | `[display] chroma_from_luma` | `true`, `false` | `true`. The stream carries colour at half resolution. With this on, colour edges follow the sharp brightness edges, so red, blue and syntax-coloured text keeps its colour to the edge. `false` reads the colour plainly (softer coloured text). `MLXR_CHROMA_FROM_LUMA=0` or `1` overrides it. |
 | `[3d] eye_balance` | -100 to 100 | 0. 3D Eye Balance: how the 3D's shift is shared by the two eyes. 0 shifts each eye by the same amount in opposite directions. +100 puts all of it in the left eye and leaves the right eye's picture as streamed, -100 the other way round, and in between the left eye takes (100 + n) / 2 percent of the total and the right eye (100 - n) / 2. The total difference between the eyes, so the depth you see, is the same at every setting. Useful with a dominant eye. The 3D tab's **Eye balance** row moves it in steps of 10 (greyed with SBS or Top-bottom); the launcher's Settings page has **3D eye balance**, which steps -100, -50, 0, 50, 100. |
 | `[vr] scroll_speed` | 25 to 400 (%) | 100, which is 7.5 notches a second with the thumbstick pushed all the way. The flat window's Settings page has it too. |
-| `[vr] click_steadiness` | `off`, `normal`, `steady` | `normal`. The Display tab's Click steadiness row. |
+| `[vr] click_steadiness` | `off`, `normal`, `steady` | `normal`. The Controls tab's Click steadiness row. |
 | `[vr] keyboard_hold_ms` | 200 to 1500 | 500 |
 | `[ui] language` | `auto`, `en`, `cs`, `da`, `de`, `es`, `fi`, `fr`, `it`, `nb`, `nl`, `pl`, `pt-BR`, `sv`, `tr`, `ru`, `uk`, `ja`, `ko`, `zh-CN`, `zh-TW` | `auto`. The headset's language, read at start; see [Language](#language). |
 | `[vr] keyboard_keymap` | `qwerty`, `azerty` (French), `qwertz` (German). What the headset keyboard's keys say. The PC must be on the matching Windows layout. | `qwerty` |
 | `[vr] depth_source` | `zipdepth-int8` (ZipDepth Light), `zipdepth` (ZipDepth Full), `midas` | `zipdepth-int8` (before 1.3.3: `zipdepth`; a `zipdepth` you saved stays) |
-| `[3d] stereo_source` | `depth`, `sbs`, `top-bottom` | `depth`. The 3D tab's 3D source row. See [SBS 3D](#sbs-3d). |
+| `[3d] stereo_source` | `depth`, `sbs`, `top-bottom` | `depth`. The 3D tab's 3D source row (Depth model, SBS, Top-bottom). See [SBS 3D](#sbs-3d). |
 | `[3d] sbs_full` | `true`, `false` | `false`. The PC's pair has a full-size picture per eye (3840x1080 side by side, 1920x2160 top-bottom). |
 | `[vr] hand_tracking` | `true`, `false` | `false`. See [Hand tracking](#hand-tracking). |
 | `[vr] gaze` | `true`, `false` | `false`. Needs eye tracking from SteamVR; see [Accessibility](#accessibility). |

@@ -76,7 +76,7 @@ The live logs (`moonlight.log`, `moonlight-launcher.log`, `moonlight-console.log
 
 Timestamps, timings, counters, rates, codec lines and version numbers stay. It never includes `hosts.ini`, `client.key`, `client.pem`, `uniqueid`, `servercerts/`, the flat window's settings file, kernel logs, `hostname`, or the output of `ip`, `iw` or `nmcli` (those are read only to find names to mask). It prints every file in the zip and asks the user to look inside before sharing.
 
-The in-headset "Report a problem" sheet said it would send the note and the log. It never sent anything. It now says that it saves the note on the Frame, and its button reads **Save**. `bug-report.sh` includes the newest notes, masked.
+The in-headset "Report a Problem" sheet said it would send the note and the log. It never sent anything. It now says that it saves the note on the Frame, and its button reads **Save**. `bug-report.sh` includes the newest notes, masked.
 
 ## Verification
 

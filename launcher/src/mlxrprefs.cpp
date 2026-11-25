@@ -26,7 +26,7 @@ static const char* const kPacing[] = { "latency", "balanced", "smoothness" };
 // basics, which the page's own rows pass as flags (resolution, fps, bitrate_kbps, codec, audio_config,
 // frame_pacing, network_path); the screen's placement (height, azimuth, tilt, rotate: set by grabbing it; back_*: the
 // placement the bar's Bring here switch goes back to from Desk) and the
-// rooms' own look (room_N_*: the Room tab, while looking at the room). The test compares this table with
+// rooms' own look (room_N_*: the Room tab). The test compares this table with
 // `mlxr-settings-dump --table`, so a range or default changed there shows up.
 namespace {
 struct VrKey {

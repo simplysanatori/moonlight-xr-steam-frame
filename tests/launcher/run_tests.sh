@@ -1062,7 +1062,7 @@ sys.exit(0 if full>900 and 0.15*full<part<0.5*full and e==f and h<g else 1)" "$a
         printf '[vr]\ncontroller_model = 3\n' > "$t/model-old.ini"
         expect "VR client reads the old number of gun" "$("$MLXR_SETTINGS_DUMP" "$t/model-old.ini")" "vr.controller_model = gun"
     fi
-    # lane wave3-visual: the surroundings rows (Picture tab's Background, 3D eye balance) step
+    # lane wave3-visual: the surroundings rows (Room tab's Background dim, 3D eye balance) step
     # from the file's values and write only their keys; the void colour is read as typed and kept
     printf '[vr]\nvoid_color = #204060\n\n[3d]\nseparation = 9\n' > "$ini"
     MLXR_LAUNCHER_IW_FILE=/dev/null MLXR_NATIVE_CLIENT="$fake" MLXR_LAUNCHER_PAGE=settings MLXR_LAUNCHER_CLICK=backgroundDimRow,backgroundDimRow,eyeBalanceRow,eyeBalanceRow \

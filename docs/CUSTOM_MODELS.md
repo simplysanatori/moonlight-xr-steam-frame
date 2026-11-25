@@ -6,7 +6,7 @@ The client reads these files from `~/.config/moonlight-xr/models/` (or `$MLXR_CO
 
 ## Turn it on
 
-Put the file or files in that folder, then choose the **Custom** kind of the Show controllers setting. The headset's Display tab has cells for Off, Frame and Gun only, so pick Custom in one of two other places:
+Put the file or files in that folder, then choose the **Custom** kind of the Show controllers setting. The headset's Controls tab has cells for Off, Frame and Gun only, so pick Custom in one of two other places:
 
 - the launcher's Settings page, Input Settings, **Show controllers** (press the row until it says *Your own model*), or
 - `config.ini`: `controller_model = custom` under `[vr]`.
