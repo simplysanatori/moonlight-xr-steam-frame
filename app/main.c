@@ -2333,6 +2333,7 @@ int main(int argc, char** argv) {
         MLOG_I("== moonlight-xr exits to its caller (%d%s%s)", rc, g_exitMsg[0] ? ": " : "", g_exitMsg);
         xrLogFlush();
         if (rc != 0 && g_exitMsg[0]) fprintf(stderr, "MLXR_ERROR: %s\n", g_exitMsg);
+        if (atomic_load(&g_doffed)) fprintf(stderr, "MLXR_HEADSET_OFF\n"); // the launcher doesn't judge its window by it
         fflush(stderr);
         return rc;
     }

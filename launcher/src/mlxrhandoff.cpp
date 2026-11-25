@@ -31,6 +31,8 @@
 #include <QThread>
 #include <QPlatformSurfaceEvent>
 #include <QPointer>
+#include <atomic>
+#include <functional>
 #include <memory>
 #include <QProcess>
 #include <QDesktopServices>
@@ -713,6 +715,8 @@ static QString steamCefHelper()
 // Requests for the flat screen belong to one return from a stream: a stream that starts ends them,
 // so nothing opens the dashboard over it. s_flatReturn counts those ends; s_flatHelpers still run.
 static int s_flatReturn = 0;
+// The headset was off when the last client ended (its MLXR_HEADSET_OFF line)
+static std::atomic<bool> s_headsetOff{false};
 static QList<QPointer<QProcess>> s_flatHelpers;
 
 static void cancelFlatRequests(const QString& why)
@@ -858,10 +862,6 @@ public:
         m_returning = false;
         m_tick.stop();
         cancelFlatRequests("a stream starts");
-        if (m_seeThrough) {
-            m_seeThrough = false;
-            m_window->setOpacity(1.0);
-        }
     }
 
     void startReturn()
@@ -970,33 +970,74 @@ private:
                              .arg(m_attempt ? QString(" (shown again %1 time(s))").arg(m_attempt) : QString());
         // The three timed requests may all come before the window is back up; one more now that it is
         askSteamForFlatScreen("once the window had drawn");
-        headsetCheckIn(qMax(0, 1500 - int(sinceReturn())));
+        headsetChecks();
     }
 
     // ---- Is it really shown in the headset? What Qt knows (visible, exposed, drawn) ends at gamescope, and Steam
     // answers ShowDashboard whether or not there was a window to show: on 2026-11-18 all of that was fine and the
-    // dashboard had an empty frame, with nothing in the log to say why. So SteamVR is asked what it has of the window (steam_cef.py --show, which also
-    // docks its frame again when it has a picture and does not show it). When it has no picture at all, the window
-    // is faded out and back in once (what a stream does: gamescope makes a new overlay) and that is checked again.
-    // Two checks at the most, each with an end of its own; nothing runs on after them.
-    void headsetCheckIn(int ms)
+    // dashboard had an empty frame, with nothing in the log to say why. So SteamVR is asked what it has of the window
+    // (steam_cef.py --show, which also asks Steam for it and docks its frame again when the dashboard is open without
+    // it). SteamVR puts the dashboard up itself 10 s after a stream's app has gone ("ShowDashboard on app exit" in its
+    // log), so what it has before that is only written down (--look); the check is at 12 s, and once more 4 s after the
+    // first when that did not find the window. Nothing runs on after them.
+    void headsetChecks()
+    {
+        if (steamCefHelper().isEmpty() || qEnvironmentVariable("MLXR_LAUNCHER_FLAT_CHECK") == "0") {
+            return;
+        }
+        for (int ms : { 1500, 6000 }) {
+            if (ms < headsetTimes().first && ms >= sinceReturn()) {
+                headsetAt(ms, [this]() { headsetLook(); });
+            }
+        }
+        if (s_headsetOff) {
+            qInfo().noquote() << "flat window in the headset: headset off when the stream ended, not checked";
+            return;
+        }
+        headsetAt(headsetTimes().first, [this]() { headsetCheck(); });
+    }
+
+    // When the check is, after the stream, and how long after it the second one (a test's own: MLXR_LAUNCHER_TEST_FLAT_MS=A,B)
+    static QPair<int, int> headsetTimes()
+    {
+        const QStringList t = qEnvironmentVariable("MLXR_LAUNCHER_TEST_FLAT_MS").split(',');
+        return t.size() == 2 ? qMakePair(t[0].toInt(), t[1].toInt()) : qMakePair(12000, 4000);
+    }
+
+    // ms after the stream (at once when that has passed), unless another stream has started
+    void headsetAt(int ms, std::function<void()> then)
     {
         const int token = m_return;
-        QTimer::singleShot(ms, this, [this, token]() {
+        QTimer::singleShot(qMax(0, ms - int(sinceReturn())), this, [this, token, then]() {
             if (token == m_return) {
-                headsetCheck();
+                then();
             }
         });
     }
 
+    void headsetAsk(const QStringList& args, std::function<void(int, const QString&)> done)
+    {
+        const int token = m_return, stream = s_flatReturn;
+        QPointer<QObject> self(this);
+        runSteamCef(steamCefHelper(), args, [](const QString& l) {
+            qInfo().noquote() << "flat window in the headset:" << l;
+        }, [this, self, token, stream, done](int code, const QString& last) {
+            if (self && token == m_return && stream == s_flatReturn) {
+                done(code, last);
+            }
+        });
+    }
+
+    void headsetLook()
+    {
+        qInfo().noquote() << QString("flat window in the headset: a reading, %1 ms after the stream, before SteamVR's own "
+                                     "dashboard timer").arg(sinceReturn());
+        headsetAsk({ "--look", qEnvironmentVariable("SteamAppId").trimmed() }, [](int, const QString&) {});
+    }
+
     void headsetCheck()
     {
-        const QString cef = steamCefHelper();
-        if (cef.isEmpty() || qEnvironmentVariable("MLXR_LAUNCHER_FLAT_CHECK") == "0") {
-            return;
-        }
-        m_headsetRuns++;
-        const int token = m_return, stream = s_flatReturn, run = m_headsetRuns;
+        const int token = m_return, run = ++m_headsetRuns;
         m_headsetBusy = true;
         // The helper ends by itself well before this (its own limits); a vrcmd or a Steam that never answers may not
         QTimer::singleShot(60000, this, [this, token, run]() {
@@ -1005,50 +1046,34 @@ private:
                 cancelFlatRequests("flat window in the headset: no answer in 60 s, not known whether it shows");
             }
         });
-        QPointer<QObject> self(this);
-        qInfo().noquote() << QString("flat window in the headset: check %1, %2 ms after the stream").arg(m_headsetRuns).arg(sinceReturn());
-        runSteamCef(cef, { "--show", qEnvironmentVariable("SteamAppId").trimmed(), "4" }, [](const QString& l) {
-            qInfo().noquote() << "flat window in the headset:" << l;
-        }, [this, self, token, stream](int code, const QString& last) {
-            if (self && token == m_return && stream == s_flatReturn) {
-                m_headsetBusy = false;
-                headsetChecked(code, last);
-            }
+        qInfo().noquote() << QString("flat window in the headset: check %1, %2 ms after the stream").arg(run).arg(sinceReturn());
+        headsetAsk({ "--show", qEnvironmentVariable("SteamAppId").trimmed(), "4" }, [this](int code, const QString& last) {
+            m_headsetBusy = false;
+            headsetChecked(code, last);
         });
     }
 
     void headsetChecked(int code, const QString& last)
     {
         const QString after = QString("%1 ms after the stream, check %2").arg(sinceReturn()).arg(m_headsetRuns);
+        const QString why = code == 10 ? QString("SteamVR has no frame for it") : code == 11 ? QString("asked for and docked again without effect")
+                          : code == 13 ? QString("the dashboard is closed, left alone") : QString("exit %1: %2").arg(code).arg(last);
         if (code == 0) {
             qInfo().noquote() << QString("flat window in the headset: SHOWN (%1)").arg(after);
         }
-        else if (code == 10 && m_headsetRuns == 1 && fadesFlatWindow()) {
-            qInfo().noquote() << QString("flat window in the headset: SteamVR has no picture of it, fading the window out and "
-                                         "in again (%1)").arg(after);
-            m_seeThrough = true;
-            m_window->setOpacity(0.0);
-            const int token = m_return;
-            QTimer::singleShot(500, this, [this, token]() {
-                if (token != m_return) {
-                    return; // a stream started: handOff() has made it opaque
-                }
-                m_seeThrough = false;
-                m_window->setOpacity(1.0);
-                if (QQuickWindow* q = qobject_cast<QQuickWindow*>(m_window)) {
-                    q->update(); // a new frame for the new overlay (a still page draws none by itself)
-                }
-                askSteamForFlatScreen("once the window was faded in again");
-                headsetCheckIn(500);
-            });
+        else if (m_headsetRuns == 1) {
+            qInfo().noquote() << QString("flat window in the headset: not shown yet, looking once more in %1 ms (%2, %3)")
+                                     .arg(headsetTimes().second).arg(why, after);
+            headsetAt(int(sinceReturn()) + headsetTimes().second, [this]() { headsetCheck(); });
         }
         else if (code == 10 || code == 11) {
-            qWarning().noquote() << QString("flat window in the headset: NOT SHOWN, nothing more to try (%1, %2)")
-                                        .arg(code == 10 ? "SteamVR has no picture of it" : "docked again without effect").arg(after);
+            qWarning().noquote() << QString("flat window in the headset: NOT SHOWN, nothing more to try (%1, %2)").arg(why, after);
+        }
+        else if (code == 13) {
+            qInfo().noquote() << QString("flat window in the headset: not shown, %1 (%2)").arg(why, after);
         }
         else {
-            qWarning().noquote() << QString("flat window in the headset: not known whether it shows (exit %1: %2; %3)")
-                                        .arg(code).arg(last, after);
+            qWarning().noquote() << QString("flat window in the headset: not known whether it shows (%1; %2)").arg(why, after);
         }
     }
 
@@ -1065,7 +1090,7 @@ private:
             m_returning = false;
             log(QString("flat window still not exposed and drawn %1 ms after the stream (%2 frames); nothing more to try")
                     .arg(sinceReturn()).arg(m_framesSinceReturn));
-            headsetCheck();
+            headsetChecks();
             return;
         }
         if (!inGameMode() && !qEnvironmentVariableIsSet("MLXR_LAUNCHER_TEST_RETURN_MISS")) {
@@ -1123,7 +1148,6 @@ private:
     int m_testMiss = 0;
     int m_headsetRuns = 0;      // checks in the headset since the return
     bool m_headsetBusy = false; // one of them is running
-    bool m_seeThrough = false;  // faded out by headsetChecked(), for half a second
     int m_framesSinceShow = 0;
     int m_framesSinceReturn = 0;
     QElapsedTimer m_shownClock;
@@ -1441,6 +1465,7 @@ Result run(const Plan& plan, const std::function<void()>& onStarted, const std::
             }
         }
     }
+    s_headsetOff = tail.contains("MLXR_HEADSET_OFF");
     log.write(QString("\n== VR client exited: code %1%2\n").arg(r.exitCode).arg(r.crashed ? " (crashed)" : "").toUtf8());
     reopenFlatScreen();
     qInfo().noquote() << "The VR client exited with" << r.exitCode << r.message;

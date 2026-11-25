@@ -64,22 +64,32 @@ def cli(port, *args, env_extra=None):
 import stat, tempfile
 
 KEY = "valve.steam.desktopgame.1234567890"
-OTHER = "'valve.steam.desktopgame.12345678900' -- 'another', size=64x64 visible VROverlayType_Dashboard flags=0x8000\n"
+# the other dashboard overlays of an open and of a closed dashboard (the app ids of one start as the other's do)
+OPEN = ("'valve.steam.desktopgame.12345678900' -- 'another', size=0x0 not_visible VROverlayType_Dashboard_Main flags=0x8000\n"
+        "'a.dashboard.main' -- 'Steam', size=64x64 visible VROverlayType_Dashboard_Main flags=0x29e28000 dashboard, smooth_scroll\n"
+        "'a.hud' -- 'x', size=64x64 visible VROverlayType_World flags=0x0\n")
+CLOSED = OPEN.replace("size=64x64 visible VROverlayType_Dashboard_Main", "size=64x64 not_visible VROverlayType_Dashboard_Main")
 
 
-def line(size="1920x1080", flags="0x8000", vis="visible"):
-    return f"'{KEY}' -- 'Moonlight', size={size} {vis} VROverlayType_Dashboard flags={flags}\n"
+def line(size="0x0", flags="0x29e28000", vis="visible", layers=1):
+    """The window's own line as the Frame's SteamVR writes it (2026-11-25), and its layers' (made up)"""
+    return (f"'{KEY}' -- 'Moonlight XR for Frame', size={size} {vis} VROverlayType_Dashboard_Main flags={flags} dashboard, "
+            f"smooth_scroll, is_premult overlayhandle=0x000000e600000027\n"
+            + "".join(f"'{KEY}.layer{n}' -- 'x', size=0x0 {vis} VROverlayType_Subview flags=0x0\n" for n in range(layers)))
 
 
-own, layers = sc.overlay_lines(OTHER + line() + f"'{KEY}.layer1' -- 'x', visible VROverlayType_Subview flags=0x0\n"
-                               + f"'{KEY}.layer2' -- 'x', not_visible VROverlayType_Subview flags=0x0\n", KEY)
-check(own == line().strip() and layers == 1, "--show: the window's own line and its visible layers")
-check(sc.overlay_lines(OTHER, KEY) == (None, 0), "--show: another app's overlay is not it")
-check(sc.overlay_state(line()) == (True, True, True), "overlay: picture, in the dashboard, visible")
-check(sc.overlay_state(line("0x0", "0x10", "not_visible")) == (False, False, False), "overlay: nothing of it")
-check(sc.overlay_state(f"'{KEY}' -- 'x', visible VROverlayType_Dashboard flags=0x8010") == (False, True, True), "overlay: no size is no picture")
-check(sc.overlay_state(f"'{KEY}' x size=64x64 flags=0x8000 visible VROverlayType") == (True, True, True), "overlay: the fields in another order")
-check(sc.overlay_state(f"'{KEY}' -- 'x', size=64x64 shown") == (True, False, None), "overlay: a line that does not say is not guessed at")
+HIDDEN = line(vis="not_visible")
+own, layers = sc.overlay_lines(OPEN + line() + f"'{KEY}.layer7' -- 'x', not_visible VROverlayType_Subview flags=0x0\n", KEY)
+check(own == line(layers=0).strip() and layers == 1, "--show: the window's own line and its visible layers")
+check(sc.overlay_lines(OPEN, KEY) == (None, 0), "--show: another app's overlay is not it")
+check(sc.overlay_state(line()) == (True, True), "overlay: in the dashboard, visible")
+check(sc.overlay_state(line(flags="0x10", vis="not_visible")) == (False, False), "overlay: nothing of it")
+check(sc.overlay_state(f"'{KEY}' x size=64x64 flags=0x8000 visible VROverlayType") == (True, True), "overlay: the fields in another order")
+check(sc.overlay_state(f"'{KEY}' -- 'x', size=64x64 shown") == (False, None), "overlay: a line that does not say is not guessed at")
+check(sc.dashboard_open(OPEN + HIDDEN, KEY)[0] is True, "dashboard: another of its overlays visible: open")
+check(sc.dashboard_open(CLOSED + HIDDEN, KEY)[0] is False, "dashboard: none of the others visible: closed")
+check(sc.dashboard_open(line() + f"'a.hud' -- 'x', visible VROverlayType_World flags=0x0\n", KEY) == (None, []), "dashboard: the window's own lines and others say nothing of it")
+check(sc.dashboard_open(OPEN, KEY)[1][0] == "a.dashboard.main visible", "dashboard: what it is told by is named")
 
 FAKE_VRCMD = """#!/bin/bash
 # --overlays prints $OVL/state (and from the Nth call on, $OVL/state.N); a dock to W makes $OVL/dock.W the state
@@ -92,7 +102,7 @@ esac
 """
 
 
-def run_show(files, seconds="1", rules=(("ShowDashboard", None),), env=None, path=None, app="1234567890"):
+def run_show(files, seconds="1", rules=(("ShowDashboard", None),), env=None, path=None, app="1234567890", cmd="--show"):
     """(exit code, output, vrcmd's calls, the JavaScript Steam got)"""
     with tempfile.TemporaryDirectory() as d, FakeCef(list(rules)) as cef:
         exe = os.path.join(d, "vrcmd")
@@ -100,7 +110,7 @@ def run_show(files, seconds="1", rules=(("ShowDashboard", None),), env=None, pat
         os.chmod(exe, os.stat(exe).st_mode | stat.S_IXUSR)
         for n, text in files.items():
             open(os.path.join(d, n), "w").write(text)
-        c, out, err = cli(cef.port, "--show", app, seconds, env_extra=dict({"MLXR_VRCMD": path or exe, "OVL": d}, **(env or {})))
+        c, out, err = cli(cef.port, cmd, app, *([seconds] if seconds else []), env_extra=dict({"MLXR_VRCMD": path or exe, "OVL": d}, **(env or {})))
         log = os.path.join(d, "log")
         calls = open(log).read().split("\n")[:-1] if os.path.exists(log) else []
         return c, out + err, calls, list(cef.expressions)
@@ -110,39 +120,56 @@ def docks(calls):
     return [x for x in calls if x.startswith("--dock-overlay")]
 
 
-c, out, calls, js = run_show({"state": OTHER + line()})
-check(c == 0 and calls == ["--overlays"] and js == [], "--show: shown: one look, nothing asked or moved")
-check("a picture, in the dashboard, visible" in out and f"['{KEY}' -- " in out, "--show: SteamVR's own line is said")
-# the picture comes late (gamescope makes the overlay again), and the dashboard shows it then
-c, out, calls, js = run_show({"state": OTHER, "state.2": line("0x0", "0x0", "not_visible"), "state.3": line()}, "5")
-check(c == 0 and docks(calls) == [] and js == [], "--show: waits for the picture, nothing moved")
-check("SteamVR has no overlay" in out and "no picture, not in the dashboard, not visible" in out, "--show: each state is said")
-# showable but not shown: asked for first
-c, out, calls, js = run_show({"state": line(vis="not_visible"), "state.2": line()})
+# a window on show has no size to SteamVR: visible with a layer is shown
+for size in ("0x0", "1920x1080"):
+    c, out, calls, js = run_show({"state": OPEN + line(size)})
+    check(c == 0 and calls == ["--overlays"] and js == [], f"--show: shown at {size}: one look, nothing asked or moved")
+check("in the dashboard, visible, 1 layers visible" in out and f"['{KEY}' -- " in out, "--show: SteamVR's own line is said")
+check("the dashboard is open [2 other dashboard overlays: a.dashboard.main visible" in out, "--show: and what says the dashboard is open")
+check(run_show({"state": CLOSED + line()})[0] == 0, "--show: shown, whatever the rest says")
+# the overlay comes late (gamescope makes it again), and the dashboard shows it then
+c, out, calls, js = run_show({"state": OPEN, "state.2": OPEN + line(flags="0x0", vis="not_visible"), "state.3": OPEN + line()}, "5")
+check(c == 0 and docks(calls) == [] and js == [], "--show: waits for the overlay, nothing moved")
+check("SteamVR has no overlay" in out and "not in the dashboard, not visible" in out, "--show: each state is said")
+# not shown with the dashboard open: asked for first
+c, out, calls, js = run_show({"state": OPEN + HIDDEN, "state.2": OPEN + line()})
 check(c == 0 and len(js) == 1 and "ShowDashboard" in js[0] and KEY in js[0] and docks(calls) == [], "--show: asked Steam for it first")
 # then docked again
-c, out, calls, js = run_show({"state": line(vis="not_visible"), "dock.dashboard": line()})
+c, out, calls, js = run_show({"state": OPEN + HIDDEN, "dock.dashboard": OPEN + line()})
 check(c == 0 and len(js) == 2 and docks(calls) == [f"--dock-overlay dashboard {KEY}"], "--show: docked into the dashboard again")
-c, out, calls, js = run_show({"state": line(vis="not_visible"), "state.4": line()})
+c, out, calls, js = run_show({"state": OPEN + HIDDEN, "state.4": OPEN + line()})
 check(c == 0 and docks(calls) == [f"--dock-overlay dashboard {KEY}"] * 2, "--show: and once more, never anywhere but the dashboard")
 # bounded
-c, out, calls, js = run_show({"state": line(vis="not_visible")})
+c, out, calls, js = run_show({"state": OPEN + HIDDEN})
 check(c == sc.EXIT_NOT_SHOWN and len(js) == 3 and len(docks(calls)) == 2 and calls.count("--overlays") == 4, "--show: three tries, then it says so")
-# no picture: a dock would move whichever frame is active, so nothing is moved
-for what, st in (("no picture", line("0x0")), ("no flag", line(flags="0x10", vis="not_visible")), ("no overlay", OTHER)):
+# no frame of it in the dashboard: a dock would move whichever frame is active, so Steam is asked and nothing moved
+for what, st in (("no flag", OPEN + line(flags="0x10", vis="not_visible")), ("no overlay", OPEN)):
     c, out, calls, js = run_show({"state": st})
-    check(c == sc.EXIT_NO_PICTURE and js == [] and docks(calls) == [], f"--show: {what}: nothing asked, nothing moved")
-# visible with no picture is the empty frame, not shown
-check("no picture, in the dashboard, visible" in run_show({"state": line("0x0")})[1], "--show: an empty frame is not taken for the window")
+    check(c == sc.EXIT_NO_FRAME and len(js) == 3 and docks(calls) == [], f"--show: {what}: asked for, nothing moved")
+# a closed dashboard is never opened, nor one that closes meanwhile, nor one that cannot be told
+c, out, calls, js = run_show({"state": CLOSED + HIDDEN})
+check(c == sc.EXIT_CLOSED and js == [] and docks(calls) == [] and "left alone, the dashboard is closed" in out, "--show: a closed dashboard is left closed")
+check(run_show({"state": CLOSED})[0] == sc.EXIT_CLOSED, "--show: closed, and no overlay: left alone")
+c, out, calls, js = run_show({"state": OPEN + HIDDEN, "state.2": CLOSED + HIDDEN})
+check(c == sc.EXIT_CLOSED and len(js) == 1 and docks(calls) == [], "--show: the dashboard closed meanwhile: no more tries")
+c, out, calls, js = run_show({"state": HIDDEN})
+check(c == sc.EXIT_CANNOT_TELL and js == [] and docks(calls) == [] and "cannot tell whether the dashboard is open" in out, "--show: nothing says whether the dashboard is open: left alone")
 # nothing to tell it by
-for what, kw in (("vrcmd fails", {"files": {"state": line()}, "env": {"VRCMD_EXIT": "1"}}), ("an empty listing", {"files": {}}),
-                 ("another format", {"files": {"state": f"'{KEY}' -- 'x', size=64x64 shown\n"}}),
+for what, kw in (("vrcmd fails", {"files": {"state": OPEN + HIDDEN}, "env": {"VRCMD_EXIT": "1"}}), ("an empty listing", {"files": {}}),
+                 ("another format", {"files": {"state": OPEN + f"'{KEY}' -- 'x', size=64x64 shown\n"}}),
+                 ("visible without a layer", {"files": {"state": OPEN + line(layers=0)}}),
                  ("no vrcmd", {"files": {}, "path": "/nonexistent/vrcmd"})):
     c, out, calls, js = run_show(**kw)
     check(c == sc.EXIT_CANNOT_TELL and js == [] and docks(calls) == [] and "cannot tell" in out, f"--show: {what}: cannot tell, nothing moved")
 # Steam does not answer: the docks still run
-c, out, calls, js = run_show({"state": line(vis="not_visible"), "dock.dashboard": line()}, rules=(("ShowDashboard", RuntimeError("x")),))
+c, out, calls, js = run_show({"state": OPEN + HIDDEN, "dock.dashboard": OPEN + line()}, rules=(("ShowDashboard", RuntimeError("x")),))
 check(c == 0 and "ShowDashboard failed" in out, "--show: goes on without Steam")
+# --look: one reading, nothing asked or moved whatever it says
+for what, st, want in (("shown", OPEN + line(), 0), ("not shown", OPEN + HIDDEN, sc.EXIT_NOT_SHOWN), ("no overlay", OPEN, sc.EXIT_NO_FRAME),
+                       ("closed", CLOSED + HIDDEN, sc.EXIT_NOT_SHOWN), ("an empty listing", "", sc.EXIT_CANNOT_TELL)):
+    c, out, calls, js = run_show({"state": st}, None, cmd="--look")
+    check(c == want and calls == ["--overlays"] and js == [], f"--look: {what}: one look")
+check(cli(free_port(), "--look")[0] == sc.EXIT_USAGE and cli(free_port(), "--look", "1", "2")[0] == sc.EXIT_USAGE, "usage: --look")
 for bad in (("--show",), ("--show", "12a"), ("--show", "12345678901"), ("--show", "1", "2", "3")):
     check(cli(free_port(), *bad)[0] == sc.EXIT_USAGE, f"usage: {' '.join(bad)}")
 

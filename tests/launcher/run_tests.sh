@@ -738,6 +738,7 @@ echo "args: $*" >> "$FAKE_LOG"
 echo "cwd: $(pwd)" >> "$FAKE_LOG"
 echo "ld_library_path: [${LD_LIBRARY_PATH-unset}]" >> "$FAKE_LOG"
 [ "${FAKE_MODE:-}" = stream ] && echo MLXR_STREAMING
+[ -n "${FAKE_HEADSET_OFF:-}" ] && echo MLXR_HEADSET_OFF >&2
 sleep "${FAKE_SLEEP:-0.5}"
 case "${FAKE_MODE:-ok}" in
   ok|stream) exit 0;;
@@ -1285,7 +1286,14 @@ esac
 exit 0
 VRCMD
     chmod +x "$t/fake-vrcmd-ovl"
-    ovline() { echo "'valve.steam.desktopgame.$APPID' -- 'Moonlight', size=$1 $2 VROverlayType_Dashboard flags=0x8000"; }
+    # the window's line (size 0x0, as on the Frame) with a layer of it, $1 visible or not_visible; $2 the same for another
+    # dashboard overlay, which is what says whether the dashboard is open
+    ovline() {
+        echo "'valve.steam.desktopgame.$APPID' -- 'Moonlight', size=0x0 $1 VROverlayType_Dashboard_Main flags=0x29e28000 dashboard"
+        echo "'valve.steam.desktopgame.$APPID.layer0' -- 'x', size=0x0 $1 VROverlayType_Subview flags=0x0"
+        ovother "$2"
+    }
+    ovother() { echo "'a.dashboard.main' -- 'Steam', size=64x64 $1 VROverlayType_Dashboard_Main flags=0x29e28000 dashboard"; }
     flatcheck() { # name, screenshot time (when the launcher quits), environment
         local n="$1" end="$2"; shift 2
         : > "$ovl/log"; : > "$ovl/cef"
@@ -1300,7 +1308,7 @@ PY
         local cef=$!
         for _ in $(seq 50); do [ -s "$ovl/port" ] && break; sleep 0.1; done
         env FAKE_SLEEP=1 FAKE_MODE=stream XDG_CURRENT_DESKTOP=gamescope SteamAppId=$APPID MLXR_LAUNCHER_HIDE_WINDOW=1 MLXR_NATIVE_CLIENT="$fake" \
-          MLXR_STEAM_CEF="$here/../../packaging/steam_cef.py" STEAM_CEF_PORT="$(cat "$ovl/port")" MLXR_VRCMD="$t/fake-vrcmd-ovl" OVL="$ovl" \
+          MLXR_STEAM_CEF="$here/../../packaging/steam_cef.py" STEAM_CEF_PORT="$(cat "$ovl/port")" MLXR_VRCMD="$t/fake-vrcmd-ovl" OVL="$ovl" MLXR_LAUNCHER_TEST_FLAT_MS=2500,1000 \
           MLXR_LAUNCHER_DEMO="gaming-pc:Desktop" "$@" MLXR_LAUNCHER_SCREENSHOT="$SHOTS/flatcheck-$n.png@$end" "$L" >"$t/flatcheck-$n.out" 2>&1; rc=$?
         kill $cef 2>/dev/null; wait $cef 2>/dev/null; rm -f "$ovl/port"
         [ $rc = 0 ] && ok "flat check, $n: demo ran" || fail "flat check, $n: exit $rc"
@@ -1308,33 +1316,50 @@ PY
         echo "$r" | sed 's/^/    /'
     }
     ovl_new() { rm -rf "$ovl"; mkdir -p "$ovl"; }
-    ovl_new; ovline 1920x1080 visible > "$ovl/state"
-    flatcheck shown 8000
-    expect "flat check: shown is said" "$r" "flat window in the headset: SHOWN ("
-    [ "$(grep -c . "$ovl/cef")" = 4 ] && [ "$(grep -c -- --overlays "$ovl/log")" = 1 ] && ! grep -q dock "$ovl/log" && ok "flat check: shown: the four requests as before, one look, nothing moved" || fail "flat check shown: $(cat "$ovl/cef" "$ovl/log")"
+    ovl_new; ovline visible visible > "$ovl/state"
+    flatcheck shown 9000
+    expect "flat check: shown is said, with a size of 0x0" "$r" "flat window in the headset: SHOWN ("
+    expect "flat check: the first look is a reading only" "$r" "flat window in the headset: a reading, 1"
+    [ "$(grep -c . "$ovl/cef")" = 4 ] && [ "$(grep -c -- --overlays "$ovl/log")" = 2 ] && ! grep -q dock "$ovl/log" && ok "flat check: shown: the four requests as before, one reading, one look, nothing moved" || fail "flat check shown: $(cat "$ovl/cef" "$ovl/log")"
     refute "flat check: no loader noise in the log" "$r" "ERROR: ld.so"
-    ovl_new; ovline 1920x1080 not_visible > "$ovl/state"; ovline 1920x1080 visible > "$ovl/dock.dashboard"
-    flatcheck docked 12000
+    # SteamVR's dashboard comes up after the stream: a reading before that is not acted on
+    ovl_new; ovline not_visible visible > "$ovl/state"; ovline visible visible > "$ovl/state.2"
+    flatcheck late 9000
+    expect "flat check: shown by the time of the check" "$r" "flat window in the headset: SHOWN ("
+    [ "$(grep -c . "$ovl/cef")" = 4 ] && ! grep -q dock "$ovl/log" && ok "flat check: an early miss asks and moves nothing" || fail "flat check late: $(cat "$ovl/cef" "$ovl/log")"
+    ovl_new; ovline not_visible visible > "$ovl/state"; ovline visible visible > "$ovl/dock.dashboard"
+    flatcheck docked 13000
     expect "flat check: docked again, then shown" "$r" "try 2 of 3: docking it again (dashboard) and asking Steam for it"
     expect "flat check: shown after the dock" "$r" "flat window in the headset: SHOWN ("
-    ovl_new; ovline 1920x1080 not_visible > "$ovl/state"
-    flatcheck never 14000
-    expect "flat check: not shown is said" "$r" "flat window in the headset: NOT SHOWN, nothing more to try (docked again without effect"
-    [ "$(grep -c dock-overlay "$ovl/log")" = 2 ] && [ "$(grep -c . "$ovl/cef")" = 7 ] && ok "flat check: three tries at the most" || fail "flat check never: $(cat "$ovl/cef" "$ovl/log")"
-    ovl_new; ovline 0x0 visible > "$ovl/state"
-    flatcheck nopicture 18000
-    expect "flat check: no picture: faded out and in" "$r" "SteamVR has no picture of it, fading the window out and in again"
-    expect "flat check: and once only" "$r" "flat window in the headset: NOT SHOWN, nothing more to try (SteamVR has no picture of it"
-    [ "$(echo "$r" | grep -c "headset: check ")" = 2 ] && ! grep -q dock "$ovl/log" && ok "flat check: no picture: two checks, nothing docked" || fail "flat check nopicture: $(cat "$ovl/log")"
+    ovl_new; ovline not_visible visible > "$ovl/state"
+    flatcheck never 20000
+    expect "flat check: not shown the first time: one more look" "$r" "not shown yet, looking once more in 1000 ms"
+    expect "flat check: not shown is said" "$r" "flat window in the headset: NOT SHOWN, nothing more to try (asked for and docked again without effect"
+    [ "$(echo "$r" | grep -c "headset: check ")" = 2 ] && [ "$(grep -c dock-overlay "$ovl/log")" = 4 ] && [ "$(grep -c . "$ovl/cef")" = 10 ] && ok "flat check: two checks of three tries at the most" || fail "flat check never: $(cat "$ovl/cef" "$ovl/log")"
+    [ "$(grep -c "flat window faded out" "$t/flatcheck-never.out")" = 1 ] && ok "flat check: never faded out by it" || fail "flat check: faded out again"
+    ovl_new; ovother visible > "$ovl/state"
+    flatcheck noframe 26000
+    expect "flat check: no frame for it is said" "$r" "flat window in the headset: NOT SHOWN, nothing more to try (SteamVR has no frame for it"
+    [ "$(grep -c . "$ovl/cef")" = 10 ] && ! grep -q dock "$ovl/log" && ok "flat check: no frame: asked for, nothing docked" || fail "flat check noframe: $(cat "$ovl/cef" "$ovl/log")"
+    ovl_new; ovline not_visible not_visible > "$ovl/state"
+    flatcheck closed 11000
+    expect "flat check: a closed dashboard is left alone" "$r" "flat window in the headset: not shown, the dashboard is closed, left alone"
+    refute "flat check: closed is not a miss" "$r" "NOT SHOWN"
+    [ "$(grep -c . "$ovl/cef")" = 4 ] && ! grep -q dock "$ovl/log" && ok "flat check: closed: nothing asked past the return's own" || fail "flat check closed: $(cat "$ovl/cef" "$ovl/log")"
+    ovl_new; ovline not_visible visible > "$ovl/state"
+    flatcheck headsetoff 9000 FAKE_HEADSET_OFF=1
+    expect "flat check: headset off" "$r" "flat window in the headset: headset off when the stream ended, not checked"
+    refute "flat check: headset off: no verdict" "$r" "headset: check \|SHOWN"
+    [ "$(grep -c . "$ovl/cef")" = 4 ] && ! grep -q dock "$ovl/log" && ok "flat check: headset off: nothing asked past the return's own" || fail "flat check headsetoff: $(cat "$ovl/cef" "$ovl/log")"
     # a stream that starts ends the check and every request left, so nothing opens the dashboard over it
-    ovl_new; ovline 1920x1080 not_visible > "$ovl/state"; echo 4 > "$ovl/sleep"
-    flatcheck cancelled 12500 MLXR_LAUNCHER_DEMO_AGAIN=6500 FAKE_SLEEP=2
+    ovl_new; ovline not_visible visible > "$ovl/state"; echo 4 > "$ovl/sleep"
+    flatcheck cancelled 12500 MLXR_LAUNCHER_DEMO_AGAIN=6500 FAKE_SLEEP=2 MLXR_LAUNCHER_TEST_FLAT_MS=1400,1000
     echo "$r" | grep -Eq "a stream starts: stopped [1-9][0-9]* request" && ok "flat check: the next stream ends it" || fail "flat check: not ended by the next stream"
     [ "$(grep -c -- --overlays "$ovl/log")" = 2 ] && ok "flat check: one look a return" || fail "flat check cancelled: $(cat "$ovl/log")"
     grep -q "^end" "$ovl/log" && fail "flat check: the vrcmd of the first return ran on" || ok "flat check: its vrcmd ended with it"
     echo "$r" | awk '/a stream starts: stopped/ {on=1} /VR client exited/ {on=0} on && /Asked Steam|headset/ {bad=1} END {exit bad}' && ok "flat check: nothing asked while the stream runs" || fail "flat check: asked during the stream"
     # off, and nothing without the Steam shortcut's id
-    ovl_new; ovline 1920x1080 visible > "$ovl/state"
+    ovl_new; ovline visible visible > "$ovl/state"
     flatcheck off 6000 MLXR_LAUNCHER_FLAT_CHECK=0
     refute "flat check: MLXR_LAUNCHER_FLAT_CHECK=0" "$r" "flat window in the headset"
     flatcheck noid 6000 SteamAppId=
