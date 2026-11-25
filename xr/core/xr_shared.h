@@ -815,7 +815,7 @@
 #define COG_OPTION_ROOM_LIGHT 12
 // Native: which notices the toast says (All, Important, Off)
 #define COG_OPTION_NOTICES 13
-// Native (1.3.4): Foveated rendering (On, Off), [display] foveated, from the next stream
+// Native (1.3.4): Foveated rendering (Off, On), [display] foveated, from the next stream
 #define COG_OPTION_FOVEATED 14
 // Native (1.3.4): Mouse mode (Absolute, Relative), [vr] mouse_mode, at once
 #define COG_OPTION_MOUSE_MODE 15

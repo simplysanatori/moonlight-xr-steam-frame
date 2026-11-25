@@ -38,7 +38,7 @@
 // Native (1.3.3): the 3D tab's Depth model row, [vr] depth_source as stored
 // (DEPTH_SOURCE_LIGHT 8 or DEPTH_SOURCE_FULL 0)
 #define SETTING_DEPTH_SOURCE 37
-// Native (1.3.4): the Display tab's Foveated rendering row, its cell (0 On, 1 Off), stored as [display]
+// Native (1.3.4): the Display tab's Foveated rendering row, its cell (0 Off, 1 On), stored as [display]
 // foveated on or off
 #define SETTING_FOVEATED 38
 // Native (1.3.4): I Understand on a passthrough sheet: [vr] passthrough_controllers_ok, and

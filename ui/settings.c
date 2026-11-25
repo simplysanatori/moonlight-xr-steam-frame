@@ -1421,7 +1421,7 @@ int settings_option_cell(const Settings* s, const SessionToggles* t, int option)
     case COG_OPTION_ROOM_LIGHT: return s->screen_light;
     case COG_OPTION_NOTICES: return clamp_int(s->notices, 0, 2);
     case COG_OPTION_CLICK_STEADY: return clamp_int(s->click_steadiness, 0, 2);
-    case COG_OPTION_FOVEATED: return settings_foveated_on(s) ? 0 : 1;   // native (1.3.4): On, Off; auto shows Off
+    case COG_OPTION_FOVEATED: return settings_foveated_on(s);   // native (1.3.4): auto shows Off
     default: return -1;
     }
 }

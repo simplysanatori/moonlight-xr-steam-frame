@@ -209,7 +209,6 @@ static void chrome(Dc* dc, int tab) {
 // The options' names and their cells', in COG_OPTION_ order. Off, On first; a
 // native row with other cells says so in xr_shared.h beside its cells' count.
 static const UiStr OPT_OFF_ON[] = { UIS_OFF, UIS_ON };
-static const UiStr OPT_ON_OFF[] = { UIS_ON, UIS_OFF };
 static const UiStr OPT_OFF_NORMAL_QUALITY[] = { UIS_OFF, UIS_NORMAL, UIS_QUALITY };
 static const UiStr OPT_STATS[] = { UIS_OFF, UIS_STATS_FULL, UIS_STATS_COMPACT, UIS_STATS_MINIMAL };
 static const UiStr OPT_HEAD_LOCK[] = { UIS_OFF, UIS_ON, UIS_FOLLOW };
@@ -237,7 +236,7 @@ static const struct {
     [COG_OPTION_AMBILIGHT] = { UIS_ROW_GLOW, OPT_OFF_ON },
     [COG_OPTION_ROOM_LIGHT] = { UIS_ROW_SCREEN_LIGHT, OPT_OFF_ON },
     [COG_OPTION_NOTICES] = { UIS_ROW_NOTICES, OPT_NOTICES },
-    [COG_OPTION_FOVEATED] = { UIS_ROW_FOVEATED, OPT_ON_OFF },
+    [COG_OPTION_FOVEATED] = { UIS_ROW_FOVEATED, OPT_OFF_ON },
     [COG_OPTION_MOUSE_MODE] = { UIS_ROW_MOUSE_MODE, OPT_MOUSE_MODE },
 };
 

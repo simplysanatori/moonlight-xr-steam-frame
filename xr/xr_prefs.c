@@ -618,8 +618,8 @@ int xrStoreSetting(XrCtx* ctx, Settings* s, int setting, int value) {
         s->passthrough_glow_ok = value != 0;
         if (value != 0) s->glow = 1;
         break;
-    case SETTING_FOVEATED:   // native (1.3.4): the row's cell, a choice made: 0 on, 1 off (auto is never chosen)
-        s->foveated = value == 0 ? FOVEATED_ON : FOVEATED_OFF;
+    case SETTING_FOVEATED:   // native (1.3.4): the row's cell, a choice made: 0 off, 1 on (auto is never chosen)
+        s->foveated = value != 0 ? FOVEATED_ON : FOVEATED_OFF;
         break;
     case SETTING_POINTER_DOT:
         // The Controls tab's Ray row: both halves are saved. The bar's ray
