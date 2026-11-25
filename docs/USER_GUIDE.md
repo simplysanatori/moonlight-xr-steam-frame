@@ -680,7 +680,7 @@ The headset shows "Gamepad mode" or "Pointer mode". In gamepad mode the menus cl
 | Curve | Screen tab, Curve. |
 | Recentre | Press d-pad up in pointer mode (`app:recentre`), or use SteamVR's recentre. The screen turns to where you face and keeps its distance, size and curve. |
 | Move the headset keyboard | Grip or trigger on the keyboard's bar. The thumbstick pushes and pulls it the same way. The other hand's thumbstick turns and tilts it. |
-| Move the stats window | Grip anywhere on it and drag. The other hand's thumbstick turns and tilts it. Reset, a recentre, or a room coming up or going away puts it and a moved keyboard back by the screen. |
+| Move the stats window | Grip anywhere on it and drag. The other hand's thumbstick turns and tilts it. Past 8 m (in a large room) it moves faster and keeps its size in your view, and it can go back as far as it hung. Reset, a recentre, or a room coming up or going away puts it and a moved keyboard back by the screen. |
 | Reset | Screen tab, Reset. |
 
 ### Follow and comfort

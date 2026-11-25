@@ -1267,9 +1267,38 @@ static float stickAxisAmount(XrVector2f stick, int alongY) {
     return copysignf(t * t, a);
 }
 
-// A hold starts with nothing pushed or turned and no stick seen
-static void grabPushStart(XrCtx* ctx) {
+// Native (owner's report): how far a pose is from the head
+static float awayFromHead(const XrCtx* ctx, const XrPosef* p) {
+    Vec3 d = { p->position.x - ctx->headPos.x, p->position.y - ctx->headPos.y,
+               p->position.z - ctx->headPos.z };
+    return sqrtf(vecDot(d, d));
+}
+
+// Native (owner's report): how far off the panel a hold moves hangs when nothing has moved it
+static float panelHomeAway(XrCtx* ctx, int stats) {
+    if (!stats) {
+        float w, h;
+        XrPosef home = kbPanelPose(ctx, &w, &h);
+        return awayFromHead(ctx, &home);
+    }
+    int moved = ctx->statsMoved;
+    XrPosef pose = ctx->statsPose;
+    ctx->statsMoved = 0;
+    statsPlace(ctx);
+    float away = awayFromHead(ctx, &ctx->statsPose);
+    ctx->statsMoved = moved;
+    ctx->statsPose = pose;
+    statsSize(ctx);
+    return away;
+}
+
+// A hold starts with nothing pushed or turned and no stick seen. home: how far
+// off a panel's own place is, 0 for the picture
+static void grabPushStart(XrCtx* ctx, const XrPosef* held, float home) {
     ctx->grabPush = 0.0f;
+    ctx->grabAway = awayFromHead(ctx, held);
+    ctx->grabHome = home;
+    ctx->grabFar = fmaxf(GRAB_PUSH_FAR_M, fmaxf(ctx->grabAway, home));
     ctx->grabPushNs = 0;
     ctx->grabTurn = 0.0f;
     ctx->grabTilt = 0.0f;
@@ -1359,32 +1388,47 @@ static float grabGrowStep(XrVector2f stick, float dt) {
     return expf(stickAxisAmount(stick, 0) * GRAB_GROW_RATE * dt);
 }
 
+// Native (owner's report): past GRAB_PUSH_FAR_M a panel keeps its size in the view
+static float panelReach(float away) {
+    return fmaxf(away, GRAB_PUSH_FAR_M);
+}
+
 // Native (owner's request): a panel's own size multiple times grow, kept to
-// GRAB_PANEL_SCALE_MIN..MAX; hands back what it grew by
-static float growPanel(float* scale, float grow) {
+// GRAB_PANEL_SCALE_MIN..MAX (of the size it has in the view, past
+// GRAB_PUSH_FAR_M) and in a room down to GRAB_PANEL_MIN_ANGLE. wide: how wide
+// it is at the multiple it has. Hands back what it grew by
+static float growPanel(const XrCtx* ctx, int room, float wide, float* scale, float grow) {
     float was = *scale > 0.0f ? *scale : 1.0f;
     float want = was * grow;
-    if (want < GRAB_PANEL_SCALE_MIN) want = was < GRAB_PANEL_SCALE_MIN ? was : GRAB_PANEL_SCALE_MIN;
-    if (want > GRAB_PANEL_SCALE_MAX) want = was > GRAB_PANEL_SCALE_MAX ? was : GRAB_PANEL_SCALE_MAX;
+    float k = panelReach(ctx->grabAway) / panelReach(ctx->grabHome);
+    float lo = GRAB_PANEL_SCALE_MIN * k, hi = GRAB_PANEL_SCALE_MAX * k;
+    if (room && wide > 0.0f) {
+        lo = fminf(lo, was * 2.0f * ctx->grabAway * tanf(GRAB_PANEL_MIN_ANGLE * 0.5f) / wide);
+    }
+    // (one past either end already can still go back)
+    if (grow < 1.0f && want < lo) want = fminf(was, lo);
+    if (grow > 1.0f && want > hi) want = fmaxf(was, hi);
     *scale = want;
     return want / was;
 }
 
 static void pushHeldScreen(XrCtx* ctx, XrVector2f stick, float dt, XrPosef* held) {
     float push = stickPushAmount(stick);
-    ctx->grabPush += push * GRAB_PUSH_SPEED * dt;
-    if (ctx->grabPush == 0.0f) {
-        return;
-    }
     Vec3 d = { held->position.x - ctx->headPos.x, held->position.y - ctx->headPos.y,
                held->position.z - ctx->headPos.z };
     float len = sqrtf(vecDot(d, d));
-    if (len < 0.01f) {
+    float speed = GRAB_PUSH_SPEED;
+    if (ctx->grabMode != GRAB_MOVE) {
+        speed *= 1.0f + GRAB_PUSH_FAR_GAIN * (panelReach(len + ctx->grabPush) - GRAB_PUSH_FAR_M);
+    }
+    ctx->grabPush += push * speed * dt;
+    if (ctx->grabPush == 0.0f || len < 0.01f) {
         return;
     }
     float want = len + ctx->grabPush;
     if (want < GRAB_PUSH_NEAR_M) want = GRAB_PUSH_NEAR_M;
-    if (want > GRAB_PUSH_FAR_M) want = GRAB_PUSH_FAR_M;
+    // (what the hand itself carried further is not pulled back)
+    if (ctx->grabPush > 0.0f && want > fmaxf(ctx->grabFar, len)) want = fmaxf(ctx->grabFar, len);
     // What the clamp kept back is not stored up for later
     ctx->grabPush = want - len;
     float k = want / len;
@@ -1573,7 +1617,7 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
 
         if (statsGrab) {
             ctx->grabMode = GRAB_STATSMOVE;
-            grabPushStart(ctx);
+            grabPushStart(ctx, &heldPose, panelHomeAway(ctx, 1));
             // Native (owner's request): a window taken from its corner is its
             // own size until the stick resizes it
             if (!ctx->statsMoved) {
@@ -1586,7 +1630,7 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         }
         if (kbBar) {
             ctx->grabMode = GRAB_KBMOVE;
-            grabPushStart(ctx);
+            grabPushStart(ctx, &heldPose, panelHomeAway(ctx, 0));
             // Once taken it stays where it is put, however the screen moves
             if (!ctx->kbMoved) {
                 ctx->kbScale = 1.0f;   // native (owner's request), as the stats window's
@@ -1597,7 +1641,7 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         }
         if (hover == HOVER_BAR) {
             ctx->grabMode = GRAB_MOVE;
-            grabPushStart(ctx);
+            grabPushStart(ctx, &heldPose, 0.0f);
             // Read once here rather than every frame of the drag. grabScreen
             // is the pose these come off, and it was just set from screenPose.
             // Re-extracting each frame would let the rounding walk the tilt
@@ -1675,10 +1719,17 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         kb->orientation = turnHeld(kb->orientation, ctx->grabTurn, ctx->grabTilt);
         // Native (owner's request): the holding stick east and west resizes
         // it about its middle, for the session
+        int stats = ctx->grabMode == GRAB_STATSMOVE;
+        float* scale = stats ? &ctx->statsScale : &ctx->kbScale;
+        float away = awayFromHead(ctx, kb);
+        float k = panelReach(away) / panelReach(ctx->grabAway);
+        ctx->grabAway = away;
+        if (k != 1.0f) {
+            *scale = (*scale > 0.0f ? *scale : 1.0f) * k;
+        }
         float grow = grabGrowStep(grabHoldingStick(ctx, sticks), dt);
         if (grow != 1.0f) {
-            float* scale = ctx->grabMode == GRAB_STATSMOVE ? &ctx->statsScale : &ctx->kbScale;
-            ctx->grabGrow *= growPanel(scale, grow);
+            ctx->grabGrow *= growPanel(ctx, roomEffective(ctx) > 0, (stats ? ctx->statsW : ctx->kbW) * k, scale, grow);
         }
         if (ctx->grabMode == GRAB_STATSMOVE) {
             ctx->statsMovedPose = *kb;
@@ -1688,7 +1739,7 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         else {
             ctx->kbMovedPose = *kb;
             // Its size is read once when placed, so placed again at the new one
-            if (grow != 1.0f) {
+            if (grow != 1.0f || k != 1.0f) {
                 kbPlace(ctx);
             }
         }

@@ -148,6 +148,15 @@ static inline int64_t nowNs(void) {
 #define GRAB_GROW_RATE 0.3365f
 #define GRAB_PANEL_SCALE_MIN 0.5f
 #define GRAB_PANEL_SCALE_MAX 2.5f
+// Native (owner's report): the stats window hangs on a room's picture, 23 m
+// off in the Grand Cinema, where the first push put it at GRAB_PUSH_FAR_M, 1.7 m
+// wide and no smaller than half of that however near. A hold now reaches as far as it
+// started, or as its panel's own place. Past GRAB_PUSH_FAR_M a panel moves faster
+// the further off it is (by this share of GRAB_PUSH_SPEED for every metre past it)
+// and keeps its size in the view, its size range with it; and in a room it can always be shrunk to
+// this angle (radians, 10 degrees) where it is.
+#define GRAB_PUSH_FAR_GAIN 0.5f
+#define GRAB_PANEL_MIN_ANGLE 0.1745f
 #define SCROLL_CLICKS_PER_SEC 7.5f
 
 // One euro filter on the hit point. A hand at rest still shakes, and at 3 m
@@ -1303,6 +1312,11 @@ typedef struct XrCtx {
     // and when last
     float grabPush;
     int64_t grabPushNs;
+    // Native (owner's report): how far off this hold may push, how far off what
+    // it holds was last frame, and how far off a panel's own place is
+    float grabFar;
+    float grabAway;
+    float grabHome;
     // Native (owner's request): radians the other hand's stick has turned
     // what is held this hold, about the upright (positive: its face to the
     // right) and tipped (positive: its top edge back, as the Tilt row's top

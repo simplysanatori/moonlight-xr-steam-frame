@@ -598,6 +598,166 @@ static void layers(Scene* s) {
     c->statsMoved = 0;
 }
 
+static float away(XrCtx* c) {
+    return sqrtf(vecDot(pos(c->statsPose), pos(c->statsPose)));
+}
+
+static float angle(XrCtx* c) {
+    return 2.0f * atanf(c->statsW * 0.5f / away(c));
+}
+
+// A grip on the window, held
+static XrPosef take(XrCtx* c) {
+    XrPosef aim = aimAt(HAND, onPlane(c->statsPose, c->statsW, c->statsH, 0.5f, 0.5f));
+    xrGrabStepAt(c, aim, 0, 0, 0.0f);
+    xrGrabStepAt(c, aim, 0, 1, 0.0f);
+    CHECK(c->grabMode == GRAB_STATSMOVE);
+    return aim;
+}
+
+// The stick held so for at most seconds, until the window is at (or past) to metres; how long that took
+static float pushTo(XrCtx* c, XrPosef aim, float y, float to, float seconds) {
+    float t = 0.0f;
+    for (; t < seconds && (y < 0.0f ? away(c) > to : away(c) < to); t += 1.0f / 90.0f) {
+        float was = away(c), seen = angle(c);
+        xrGrabStepAt(c, aim, 0, 1, y);
+        statsPlace(c);
+        // never a jump: a frame moves it 2 % of its distance at the most (a pull near the face aside), and
+        // past 8 m its size in the view stays
+        CHECK(fabsf(away(c) - was) < 0.02f * was + 0.02f);
+        if (was > GRAB_PUSH_FAR_M && away(c) > GRAB_PUSH_FAR_M) {
+            CHECK_NEAR(angle(c) / seen, 1.0, 0.01);
+        }
+    }
+    return t;
+}
+
+// Native (owner's report): in the Grand Cinema the window hangs 23 m off on a 16 m picture. A push no longer
+// snaps it to 8 m, it comes near and goes back where it was, keeps its size in the view past 8 m, and can be
+// shrunk where it is.
+static void farRoom(Scene* s) {
+    XrCtx* c = s->ctx;
+    scene_reset(s);
+    c->overlayVisible = 1;
+    c->statsMoved = 0;
+    c->headPos = (XrVector3f){ 0, 0, 0 };
+    c->roomStyle = ROOM_STYLE_GRAND_CINEMA;
+    XrPosef mine = c->screenPose;
+    float mineW = c->screenWidth;
+    memset(&c->screenPose, 0, sizeof(c->screenPose));
+    c->screenPose.orientation.w = 1.0f;
+    c->screenPose.position = (XrVector3f){ 0.0f, 2.0f, -21.42f };
+    c->screenWidth = 16.0f;
+    scene_frame(s, LONG);
+    statsPlace(c);
+    XrPosef home = c->statsPose;
+    float homeAway = away(c), homeW = c->statsW;
+    CHECK(homeAway > 22.0f && homeAway < 24.0f);
+
+    // one tick of the stick either way: no jump
+    XrPosef aim = take(c);
+    for (int i = 0; i < 2; i++) {
+        xrGrabStepAt(c, aim, 0, 1, i ? 1.0f : -1.0f);
+        statsPlace(c);
+        CHECK(fabsf(away(c) - homeAway) < 0.3f && fabsf(c->statsW - homeW) < 0.1f);
+    }
+    // in to 3 m, faster the further off it is (it was 13 s at the near speed), and no larger in the view than it was till 8 m
+    float seen = angle(c);
+    float t = pushTo(c, aim, -1.0f, 3.0f, 20.0f);
+    printf("  23 m to 3 m in %.1f s, from %.2f m wide to %.2f m\n", t, homeW, c->statsW);
+    CHECK(t > 3.0f && t < 8.0f);
+    CHECK_NEAR(away(c), 3.0, 0.05);
+    CHECK_NEAR(c->statsW, homeW * GRAB_PUSH_FAR_M / homeAway, 0.05);
+    // shrunk there to a comfortable size, and no further
+    XrVector2f west = { -1.0f, 0.0f }, none = { 0.0f, 0.0f };
+    for (int i = 0; i < 90 * 20; i++) xrGrabStepStick(c, aim, 0, 1, west);
+    statsPlace(c);
+    CHECK_NEAR(angle(c), GRAB_PANEL_MIN_ANGLE, 0.002);
+    // let go, it stays; taken again and pushed out, back to where it was, 10 degrees wide there too
+    xrGrabStepStick(c, aim, 0, 0, none);
+    statsPlace(c);
+    CHECK_NEAR(away(c), 3.0, 0.05);
+    aim = take(c);
+    t = pushTo(c, aim, 1.0f, homeAway + 5.0f, 20.0f);
+    CHECK_NEAR(away(c), homeAway, 0.02);
+    CHECK(angle(c) < seen);
+    // grown back to its size there, in to 3 m and out again: the size it was
+    XrVector2f east = { 1.0f, 0.0f };
+    for (int i = 0; i < 90 * 10 && c->statsW < homeW; i++) {
+        xrGrabStepStick(c, aim, 0, 1, east);
+        statsPlace(c);
+    }
+    CHECK_NEAR(c->statsW, homeW, 0.1);
+    float wide = c->statsW;
+    pushTo(c, aim, -1.0f, 3.0f, 20.0f);
+    pushTo(c, aim, 1.0f, homeAway - 0.05f, 20.0f);
+    CHECK_NEAR(c->statsW, wide, 0.1);
+    xrGrabStepStick(c, aim, 0, 0, none);
+
+    // near the face, where it was 'really big' and stuck: it shrinks to 10 degrees there too
+    aim = take(c);
+    pushTo(c, aim, -1.0f, 0.8f, 20.0f);
+    for (int i = 0; i < 90 * 20; i++) xrGrabStepStick(c, aim, 0, 1, west);
+    statsPlace(c);
+    CHECK_NEAR(angle(c), GRAB_PANEL_MIN_ANGLE, 0.01);
+    xrGrabStepStick(c, aim, 0, 0, none);
+    // a recentre puts it home at its own size
+    recentreScreen(c);
+    statsPlace(c);
+    CHECK(!c->statsMoved && dist(pos(c->statsPose), pos(home)) < 1e-3f);
+    CHECK_NEAR(c->statsW, homeW, 1e-4);
+
+    // moved in the room, and the picture back in the void: what the room's placement does (resetKeyboardPlacement)
+    aim = take(c);
+    pushTo(c, aim, -1.0f, 3.0f, 20.0f);
+    xrGrabStepStick(c, aim, 0, 0, none);
+    c->roomStyle = 0;
+    c->screenPose = mine;
+    c->screenWidth = mineW;
+    resetKeyboardPlacement(c);
+    statsPlace(c);
+    CHECK(!c->statsMoved && away(c) < 8.0f);
+    CHECK_NEAR(c->statsW, (float)c->overlayW * mineW * 0.30f / 384.0f, 1e-4);
+
+    // the void under 8 m as it was: 1.5 m/s, its metres kept, its size from half to two and a half
+    float w = c->statsW, from = away(c);
+    aim = take(c);
+    for (int i = 0; i < 91; i++) xrGrabStepAt(c, aim, 0, 1, 1.0f);
+    statsPlace(c);
+    CHECK_NEAR(away(c) - from, GRAB_PUSH_SPEED, 0.03);
+    CHECK_NEAR(c->statsW, w, 1e-4);
+    for (int i = 0; i < 90 * 10; i++) xrGrabStepAt(c, aim, 0, 1, 1.0f);
+    statsPlace(c);
+    CHECK_NEAR(away(c), GRAB_PUSH_FAR_M, 0.01);
+    CHECK_NEAR(c->statsW, w, 1e-3);
+    for (int i = 0; i < 90 * 10; i++) xrGrabStepStick(c, aim, 0, 1, west);
+    CHECK_NEAR(c->statsScale, GRAB_PANEL_SCALE_MIN, 1e-3);
+    for (int i = 0; i < 90 * 10; i++) xrGrabStepStick(c, aim, 0, 1, east);
+    CHECK_NEAR(c->statsScale, GRAB_PANEL_SCALE_MAX, 1e-3);
+    xrGrabStepStick(c, aim, 0, 0, none);
+    c->statsMoved = 0;
+    statsPlace(c);
+
+    // the picture itself past 8 m: no jump either, at its own speed
+    c->screenPose.position = (XrVector3f){ 0.0f, 0.0f, -9.5f };
+    BarFrame f = barFrame(c);
+    Vec3 bar = { f.pose.position.x, f.pose.position.y - (f.height * 0.5f + f.width * BAR_DROP_FRAC), f.pose.position.z };
+    aim = aimAt(HAND, bar);
+    xrGrabStepAt(c, aim, 0, 0, 0.0f);
+    xrGrabStepAt(c, aim, 0, 1, 0.0f);
+    CHECK(c->grabMode == GRAB_MOVE);
+    float was = c->screenPose.position.z;
+    xrGrabStepAt(c, aim, 0, 1, 1.0f);
+    xrGrabStepAt(c, aim, 0, 1, 1.0f);
+    CHECK_NEAR(c->screenPose.position.z, was, 0.05);
+    for (int i = 0; i < 90; i++) xrGrabStepAt(c, aim, 0, 1, -1.0f);
+    CHECK_NEAR(c->screenPose.position.z - was, GRAB_PUSH_SPEED, 0.06);
+    xrGrabStepAt(c, aim, 0, 0, 0.0f);
+    c->screenPose = mine;
+    c->screenWidth = mineW;
+    c->screenTurnSet = 0;
+}
+
 int main(void) {
     Scene* s = scene_new();
     fits(s);
@@ -606,6 +766,7 @@ int main(void) {
     curvedPlacement(s);
     panelsOnCurve(s);
     resets(s);
+    farRoom(s);
     layers(s);
     scene_free(s);
     return checksDone("m4 stats");

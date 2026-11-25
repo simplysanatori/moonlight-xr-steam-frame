@@ -28,6 +28,7 @@ For 1.3.4. I added a new glow and a Foveated rendering setting, made passthrough
 ### Fixed
 
 - On a curved screen, the stats window stood out from the picture at an odd angle, past its top left corner. It now sits in the corner, in front of the curve. The settings panel, the keyboard, the environment picker, the sheets and cards, and the eye calibration dots also stay in front of a curved screen.
+- In a room, the stats window jumped to 8 m when you pushed or pulled it, came out huge and could not be put back or shrunk. It now moves smoothly, can go back to where it hung, and can be shrunk wherever it is.
 - The keyboard's click sound skipped presses when you typed fast. Every press clicks now.
 - Leaving a stream could leave the flat window invisible. The app now checks that SteamVR shows it and tries to bring it back if it doesn't.
 - An app whose ID had changed on the PC (a renamed app, say) could not be started until the flat window had read the app list again. It is looked up and started now.
