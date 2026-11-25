@@ -101,7 +101,10 @@ static void roomGroup(void) {
 
     // The glow's switch: a room's own in a room, the app wide one elsewhere
     c->ambilightOn = 0;
-    CHECK(roomGlowOn(c, ROOM_STYLE_THEATER) == 1 && roomGlowOn(c, ROOM_STYLE_GRAND_CINEMA) == 0);
+    CHECK(roomGlowOn(c, ROOM_STYLE_THEATER) == 0 && roomGlowOn(c, ROOM_STYLE_GRAND_CINEMA) == 0);
+    c->roomGlow[ROOM_STYLE_THEATER] = 1;
+    CHECK(roomGlowOn(c, ROOM_STYLE_THEATER) == 1);
+    roomLevelsFromTable(c);
     CHECK(roomGlowOn(c, 0) == 0);
     c->ambilightOn = 1;
     CHECK(roomGlowOn(c, 0) == 1);
@@ -189,9 +192,9 @@ static void roomGroup(void) {
     CHECK(s->settings.room[0].brightness == b && s->settings.room[1].brightness == ROOM_GRAND_CINEMA_BRIGHTNESS);
     float out[IN_SLOTS];
     memset(out, 0, sizeof(out));
-    cogApplyRoomCell(c, COG_ROOM_ROW_GLOW, 0, out);
-    CHECK((int)out[IN_SETTING] == SETTING_ROOM_GLOW && c->roomGlow[ROOM_STYLE_THEATER] == 0);
-    CHECK(xrStoreSetting(c, &s->settings, SETTING_ROOM_GLOW, 0) == 1 && s->settings.room[0].glow == 0);
+    cogApplyRoomCell(c, COG_ROOM_ROW_GLOW, 1, out);
+    CHECK((int)out[IN_SETTING] == SETTING_ROOM_GLOW && c->roomGlow[ROOM_STYLE_THEATER] == 1);
+    CHECK(xrStoreSetting(c, &s->settings, SETTING_ROOM_GLOW, 1) == 1 && s->settings.room[0].glow == 1);
     CHECK(xrStoreSetting(c, &s->settings, SETTING_ROOM_SCREEN, 60) == 1 && s->settings.room[0].screen == 60);
     CHECK(xrStoreSetting(c, &s->settings, SETTING_ROOM_LIGHT_LEVEL, 90) == 1 && s->settings.room[0].light == 90);
     xrSetEnvironment(c, ENV_CELL_VOID);
@@ -202,7 +205,7 @@ static void roomGroup(void) {
     XrCtx* d = calloc(1, sizeof(XrCtx));
     xrCtxDefaults(d, 1920, 1080, 60);
     xrApplySettings(d, &back);
-    CHECK(roomEffective(d) == ROOM_STYLE_THEATER && d->roomBrightness[1] == b && d->roomGlow[1] == 0
+    CHECK(roomEffective(d) == ROOM_STYLE_THEATER && d->roomBrightness[1] == b && d->roomGlow[1] == 1
           && d->roomScreen[1] == 60 && d->roomLightLevel[1] == 90 && !d->passthrough);
     Settings again = back;
     xrSettingsFromCtx(d, &again);
@@ -292,6 +295,9 @@ static void envGroup(void) {
     c->ambilightOn = 0;
     envStep(s, ENV_CELL_VOID);
     CHECK(!hasSwapchain(&s->out, FAKE_GLOW));
+    envStep(s, ENV_CELL_HOME_THEATER);
+    CHECK(!hasSwapchain(&s->out, FAKE_GLOW));
+    c->roomGlow[ROOM_STYLE_THEATER] = 1;
     envStep(s, ENV_CELL_HOME_THEATER);
     CHECK(hasSwapchain(&s->out, FAKE_GLOW));
     envStep(s, ENV_CELL_GRAND_CINEMA);
@@ -713,6 +719,7 @@ static void oneLayerGroup(void) {
     // picture's layer, which goes up opaque from the host
     for (int cell = ENV_CELL_HOME_THEATER; cell <= ENV_CELL_SYNTHWAVE; cell++) {
         envStep(s, cell);
+        c->roomGlow[roomStyleForCell(cell)] = 1;
         char what[80];
         snprintf(what, sizeof(what), "room %d, 3D picture, models, glow", roomEffective(c));
         oneFrame(s, &curved, what);

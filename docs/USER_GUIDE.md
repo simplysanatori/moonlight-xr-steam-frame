@@ -424,7 +424,7 @@ The Screen tab's Bring here also works from a controller button: bind `app:bring
 | Row | Notes |
 | --- | --- |
 | Brightness | Per room. |
-| Glow | Light from the picture onto the room. |
+| Glow | The backlight around the picture, per room. Off by default. |
 | Screen light | The screen lights the room. Shared by all rooms. |
 | Light level | |
 | Size | 25 to 100 %. Greyed in Grand Cinema, whose screen has a fixed size. |

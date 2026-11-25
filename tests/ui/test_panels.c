@@ -1216,7 +1216,7 @@ static void test_rows_read_settings(void) {
     }
     // room values on the Room tab
     static const char* const ROOMKEYS[] = { "room_4_brightness", "room_4_glow", "room_4_light", "room_4_screen" };
-    static const int ROOMVALS[] = { 100, 0, 20, 40 };
+    static const int ROOMVALS[] = { 100, 1, 20, 40 };
     for (int i = 0; i < 4; i++) {
         b = a;
         settings_set(&b, settings_find(ROOMKEYS[i]), ROOMVALS[i]);

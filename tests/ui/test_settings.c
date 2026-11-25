@@ -90,7 +90,7 @@ static void test_defaults(void) {
     CHECK(geti(&s, "room_4_brightness") == ROOM_THEATER_BRIGHTNESS && geti(&s, "room_4_screen") == ROOM_THEATER_SCREEN);
     CHECK(geti(&s, "room_5_brightness") == ROOM_GRAND_CINEMA_BRIGHTNESS && geti(&s, "room_5_screen") == 100);
     CHECK(geti(&s, "room_6_brightness") == ROOM_SYNTHWAVE_BRIGHTNESS && geti(&s, "room_6_screen") == 100);
-    CHECK(geti(&s, "room_4_glow") == 1 && geti(&s, "room_5_glow") == 0 && geti(&s, "room_6_glow") == 1);
+    CHECK(geti(&s, "room_4_glow") == 0 && geti(&s, "room_5_glow") == 0 && geti(&s, "room_6_glow") == 0);
     CHECK(geti(&s, "room_4_light") == ROOM_LIGHT_DEFAULT && geti(&s, "room_5_light") == 150 && geti(&s, "room_6_light") == 150);
     CHECK(settings_room_index(ENV_ID_HOME_THEATER) == 0 && settings_room_index(ENV_ID_SYNTHWAVE) == 2);
     CHECK(settings_room_index(ENV_ID_VOID) == -1 && settings_room_index(ENV_ID_PASSTHROUGH) == -1);

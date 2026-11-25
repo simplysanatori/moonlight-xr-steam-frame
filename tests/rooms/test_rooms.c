@@ -554,7 +554,7 @@ static void testLogic(void) {
     RoomLevels lv;
     roomLevelsDefault(&lv);
     check(lv.brightness[1] == 37 && lv.brightness[2] == 21 && lv.brightness[3] == 53, "default brightness");
-    check(lv.glow[1] == 1 && lv.glow[2] == 0 && lv.glow[3] == 1, "default glow");
+    check(lv.glow[1] == 0 && lv.glow[2] == 0 && lv.glow[3] == 0, "default glow");
     check(lv.lightLevel[1] == 150 && lv.lightLevel[2] == 150 && lv.lightLevel[3] == 150, "default light level");
     check(lv.screen[1] == 80 && lv.screen[2] == 100 && lv.screen[3] == 100, "default screen");
     roomLevelsSet(&lv, 1, 500, 7, -4, 10);
